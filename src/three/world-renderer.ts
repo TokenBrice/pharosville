@@ -61,7 +61,6 @@ import { writeWeatherPlan, type WeatherPlan } from "../systems/weather";
 import type { PharosVilleWorld } from "../systems/world-types";
 import {
   worldRenderContentPartHashes,
-  worldRenderContentSignature,
 } from "../systems/world-render-content-signature";
 import {
   createGardenCemetery,
@@ -160,6 +159,7 @@ import {
   gardenShipMastheadOffset,
   gardenShipSailFurl,
   gardenShipUsesHeroModel,
+  resetFleetSailAttention,
   syncShipRippleRings,
   syncShipSailTextures,
   updateFleetLanterns,
@@ -172,6 +172,7 @@ import {
   createFleetBatches,
   disposeFleetBatches,
   endFleetFrame,
+  FLEET_SAIL_ATLAS_CELLS,
   fleetDrawCallCount,
   GARDEN_FLEET_BATCH_CAPACITY,
   setFleetAerialPerspective,
@@ -487,6 +488,8 @@ export function createThreeWorldRenderer(
   // C4: best scheduler tier reached this session (debug evidence surface).
   let sessionTierReached: PharosVilleRenderSchedulerTier = "constrained";
   let contentReplacementCount = 0;
+  // W4.1: parts actually rebuilt (a refresh only rebuilds what changed).
+  let contentPartRebuildCount = 0;
   let lastCensusReplacementCount = -1;
   let lastCensusTextureCount = -1;
   let lastTextureOwnerCensus: TextureOwnerCensus = {
@@ -574,18 +577,21 @@ export function createThreeWorldRenderer(
     });
 
   // Titan/unique ships get bespoke hero GLB hulls once loaded. Each attach is
-  // per-content: a clone that resolves after the world has moved on is dropped
-  // (it still shares the cached geometry, so it must not be disposed).
-  const loadHeroesForContent = (content: GardenContent | null): void => {
-    if (!content) return;
+  // per-ships-part-epoch: a clone that resolves after the fleet has been
+  // rebuilt is dropped (it still shares the cached geometry, so it must not be
+  // disposed).
+  const loadHeroesForShips = (content: GardenContent): void => {
+    const part = content.parts.ships;
+    const epoch = part.epoch;
+    const owner = part.owner;
     for (const visual of content.ships) {
       if (visual.heroModelId === null) continue;
       void modelLibrary.clone(visual.heroModelId)
         .then((model) => {
-          if (disposed || scene.content !== content) return;
+          if (disposed || scene.content !== content || part.epoch !== epoch) return;
           attachGardenHeroModel(visual, model);
           scheduleModelTextureUploads({
-            isOwnerValid: () => !disposed && scene.content === content,
+            isOwnerValid: () => !disposed && scene.content === content && part.epoch === epoch,
             model,
             onReady: () => {
               // Ships move independently of the static island shadow map and
@@ -593,7 +599,7 @@ export function createThreeWorldRenderer(
               // directional pass avoids a frozen shadow ghost and redraw.
               onAssetReady?.();
             },
-            owner: content,
+            owner,
             ownerName: `model.hero.${visual.heroModelId}`,
             scheduler: uploadScheduler,
           });
@@ -614,6 +620,9 @@ export function createThreeWorldRenderer(
       canvas.removeEventListener("webglcontextrestored", handleContextRestored);
       canvas.removeEventListener("webglcontextcreationerror", handleContextCreationError);
       const detachedModel = scene.lighthouseModel?.parent ? null : scene.lighthouseModel;
+      // The attention memo is module state in garden-ships; a new renderer in
+      // the same session must not inherit this one's hover/selection.
+      resetFleetSailAttention();
       post.dispose();
       // Owns a live PMREM render target; the generic tree walk cannot see it
       // because it hangs off `Scene.environment`, not off a child.
@@ -621,6 +630,16 @@ export function createThreeWorldRenderer(
       scene.wakes.dispose();
       scene.laneRegistry.dispose();
       scene.water.dispose();
+      // W4.1: the shared fleet batches, sail atlas and pennant cache are
+      // scene-owned (they survive every content rebuild). If a world was built
+      // they are also reachable from the tree walk below — dispose is
+      // idempotent — but a renderer disposed before its first world would
+      // otherwise leak them.
+      disposeFleetBatches(scene.fleetBatches);
+      scene.sailAtlas.dispose();
+      scene.fleetSharedCache.wakeFillMaterial.dispose();
+      scene.fleetSharedCache.wakeMaterial.dispose();
+      for (const geometry of scene.fleetSharedCache.geometries.values()) geometry.dispose();
       disposeThreeObjectTree(scene.root);
       if (detachedModel) disposeThreeObjectTree(detachedModel);
       modelLibrary.clear();
@@ -638,37 +657,105 @@ export function createThreeWorldRenderer(
       // a browser without rIC) cannot starve pending work until first draw.
       uploadScheduler.flushBetweenFrames();
 
-      const transientSelectedDetailId = selectGardenTransientShip(
-        frame.world,
-        frame.selectedDetailId,
-      )?.detailId ?? null;
-      const contentSignature = worldRenderContentSignature(frame.world);
-      if (
-        scene.contentSignature !== null
-        && scene.contentSignature !== contentSignature
-      ) {
-        // The pending stamps belong to the previous content epoch. Clear them
-        // before replacement and before the offscreen pass can composite them.
-        scene.wakes.reset();
-      }
-      if (
-        scene.contentSignature !== contentSignature
-        || scene.content?.transientSelectedDetailId !== transientSelectedDetailId
-      ) {
-        replaceWorldContent(
-          scene,
-          frame.world,
-          frame.selectedDetailId,
-          uploadScheduler,
-        );
-        contentReplacementCount += 1;
-        loadHeroesForContent(scene.content);
-      } else {
-        // The scene graph can stay, but frame-time semantic consumers must see
-        // the latest world object (motion, sea state, hit targets, and DOM all
-        // continue updating independently of baked GPU content).
+      // W4.1: per-part reconciliation. Unchanged parts keep their scene
+      // subtrees and pending uploads untouched; a ship-only refresh reduces to
+      // an in-place data swap plus the per-frame instance restamp the fleet
+      // already pays; genuinely-changed heavy parts rebuild at most one per
+      // frame so no single frame carries the whole cost.
+      if (!scene.content) {
+        const content = createWorldContentShell(scene);
+        scene.content = content;
+        scene.root.add(content.root);
+        const keys = worldContentPartKeys(frame.world);
+        for (const name of WORLD_CONTENT_PART_ORDER) {
+          rebuildWorldContentPart(scene, content, name, frame.world, keys, uploadScheduler);
+          contentPartRebuildCount += 1;
+        }
+        content.shipsPoseKey = keys.shipsPose;
+        refreshContentIndexes(content, null);
+        syncSceneToContent(scene, frame.world);
         scene.world = frame.world;
+        contentReplacementCount += 1;
+        loadHeroesForShips(content);
+      } else {
+        const content = scene.content;
+        if (scene.world !== frame.world) {
+          const keys = worldContentPartKeys(frame.world);
+          let newlyQueued = 0;
+          for (const name of WORLD_CONTENT_PART_ORDER) {
+            if (content.parts[name].appliedKey === keys[name]) continue;
+            if (content.rebuildQueue.has(name)) continue;
+            content.rebuildQueue.add(name);
+            newlyQueued += 1;
+          }
+          if (newlyQueued > 0) contentReplacementCount += 1;
+          if (!content.rebuildQueue.has("ships") && content.shipsPoseKey !== keys.shipsPose) {
+            // The common refresh: berths, offsets or the beam-dwell target
+            // moved, but nothing baked into GPU resources did. Swap the data
+            // the frame loop reads and let the per-frame restamp carry it.
+            applyShipsPoseUpdate(content, frame.world);
+            content.shipsPoseKey = keys.shipsPose;
+            // The pending stamps belong to the previous placements. Clear them
+            // before the offscreen pass can composite them.
+            scene.wakes.reset();
+          }
+          // Frame-time semantic consumers must see the latest world object
+          // (motion, sea state, hit targets, and DOM all continue updating
+          // independently of baked GPU content).
+          adoptFreshWorldData(content, frame.world);
+          registerLightLanes(
+            scene.laneRegistry,
+            frame.world,
+            gardenIslandDisplayTile(frame.world.lighthouse.tile),
+            content.docks,
+            content.zones,
+          );
+          scene.world = frame.world;
+        }
+        if (content.rebuildQueue.size > 0) {
+          const keys = worldContentPartKeys(frame.world);
+          // Amortize: at most one heavy part per animated frame. The single
+          // static frame a reduced-motion visitor gets must be complete, so a
+          // reduced-motion frame drains the whole queue deterministically.
+          let budget = frame.reducedMotion ? content.rebuildQueue.size : 1;
+          let rebuilt = 0;
+          for (const name of WORLD_CONTENT_PART_ORDER) {
+            if (budget <= 0) break;
+            if (!content.rebuildQueue.has(name)) continue;
+            content.rebuildQueue.delete(name);
+            // A later refresh reverted this part while it waited its turn.
+            if (content.parts[name].appliedKey === keys[name]) continue;
+            if (name === "ships") scene.wakes.reset();
+            rebuildWorldContentPart(scene, content, name, frame.world, keys, uploadScheduler);
+            contentPartRebuildCount += 1;
+            budget -= 1;
+            rebuilt += 1;
+            if (name === "ships") {
+              content.shipsPoseKey = keys.shipsPose;
+              loadHeroesForShips(content);
+            }
+          }
+          if (rebuilt > 0) {
+            mergeContentCues(content);
+            syncSceneToContent(scene, frame.world);
+            content.indexesStale = true;
+          }
+          // The heavy cross-part scans wait for the LAST part of the batch,
+          // so an amortized drain pays them once, not once per frame. The owed
+          // flag (rather than `rebuilt > 0`) covers the frame that empties the
+          // queue purely by skipping reverted parts.
+          if (content.indexesStale && content.rebuildQueue.size === 0) {
+            refreshContentIndexes(content, {
+              reducedMotion: frame.reducedMotion,
+              zoom: frame.camera.zoom,
+            });
+            content.indexesStale = false;
+          }
+        }
       }
+      // Selecting an outsider ship adds or removes ONLY the transient content
+      // it needs — it never triggers a content rebuild (W4.1 item 3).
+      reconcileTransientSelection(scene, frame.world, frame.selectedDetailId);
 
       const phase = dayCyclePhase(frame.wallClockHour);
       // Phase 2: the frame's weather plan — one pure function of the world
@@ -843,6 +930,8 @@ export function createThreeWorldRenderer(
           + Math.max(0, textureCount - texturesBefore),
         activeLaneCount: scene.laneRegistry.activeLaneCount,
         contentReplacementCount,
+        contentPartRebuildCount,
+        contentRebuildQueueDepth: content?.rebuildQueue.size ?? 0,
         contentSignaturePartHashes: worldRenderContentPartHashes(frame.world),
         composerEnabled: post.isComposerEnabled(),
         environmentBakeCalls,
@@ -932,8 +1021,16 @@ export interface GardenScene {
   /** World-clock reading the beam angle was last integrated to. */
   beamClockSeconds: number;
   content: GardenContent | null;
-  contentSignature: string | null;
   directionalLight: DirectionalLight;
+  /**
+   * W4.1: the shared instanced fleet, its sail atlas and the pennant-geometry
+   * cache are SCENE-scope. Their GPU buffers are allocated once per renderer
+   * (grow-only capacity, D1) and survive every content rebuild — a data
+   * refresh restamps instances, it never reallocates them.
+   */
+  fleetBatches: FleetBatches;
+  fleetSharedCache: GardenShipGeometryCache;
+  sailAtlas: GardenSailAtlas;
   /**
    * W6.5: the cached sky probe that lights the scene's standard materials.
    *
@@ -1055,7 +1152,20 @@ interface GardenContent {
   tideStain: GardenTideStain;
   summitBirds: GardenSummitBirds;
   summitBirdsRoot: Group;
-  transientSelectedDetailId: string | null;
+  /** W4.1 reconciliation bookkeeping — one record per rebuildable part. */
+  parts: Record<WorldContentPartName, GardenContentPartState>;
+  /** Changed parts waiting for their amortized one-per-frame rebuild. */
+  rebuildQueue: Set<WorldContentPartName>;
+  /** True while a drain owes the deferred cross-part index scans. */
+  indexesStale: boolean;
+  /** Applied ships POSE key (berths/offsets/beam-dwell); see worldContentPartKeys. */
+  shipsPoseKey: string | null;
+  /** Per-ships-build geometry/material cache (wakes, hero procedural parts). */
+  shipsGeometryCache: GardenShipGeometryCache;
+  /** The selected outsider ship drawn on top of the base slice, if any. */
+  transient: GardenTransientSelection | null;
+  /** Persistent wrapper the transient visual mounts into (stable child order). */
+  transientRoot: Group;
   visibleShipCount: number;
   weather: GardenWeatherVisual[];
   seaSigns: GardenSeaSigns;
@@ -1068,6 +1178,57 @@ interface EntityCue {
   root: Object3D;
   y: number;
 }
+
+/**
+ * W4.1: the rebuildable families world content splits into, in build order.
+ *
+ * The order is also the drain order of the amortized rebuild queue, and it
+ * encodes the one build-time dependency between parts: `cargoTide` reads the
+ * composed dock visuals, and `tenders` reads the composed ship visuals, so
+ * each must sit after the part it consumes.
+ */
+const WORLD_CONTENT_PART_ORDER = [
+  "island",
+  "landmarks",
+  "zones",
+  "docks",
+  "harborLife",
+  "cargoTide",
+  "ships",
+  "tenders",
+] as const;
+type WorldContentPartName = (typeof WORLD_CONTENT_PART_ORDER)[number];
+
+interface GardenContentPartState {
+  /** Content key this part was last built for; null before the first build. */
+  appliedKey: string | null;
+  /** This part's contribution to the merged entity-cue map. */
+  cues: Map<string, EntityCue>;
+  /** Bumped on every rebuild; guards async work belonging to an old build. */
+  epoch: number;
+  /** Texture-upload owner for the current epoch — cancels with the part. */
+  owner: object;
+  /** Persistent wrapper group, so rebuilds never disturb sibling order. */
+  root: Group;
+}
+
+interface GardenTransientSelection {
+  cue: EntityCue;
+  detailId: string;
+  shipId: string;
+  visual: ShipVisual;
+}
+
+/** Per-part content keys for one world (see worldContentPartKeys). */
+type WorldContentPartKeys = Record<WorldContentPartName, string> & {
+  /**
+   * The ships data that moves on a routine refresh WITHOUT invalidating any
+   * GPU resource: berth tiles, display offsets, and the beam-dwell target.
+   * A pose-only change is applied in place; only the structural `ships` key
+   * forces a rebuild.
+   */
+  shipsPose: string;
+};
 
 function createGardenScene(
   renderer: WebGLRenderer,
@@ -1165,13 +1326,48 @@ function createGardenScene(
   islets.registerRippleRings(water.rippleRings);
   root.add(horizon.root, islets.root);
 
+  // W4.1: the instanced fleet's GPU buffers, the sail atlas texture and the
+  // shared pennant geometry are allocated ONCE per renderer. World content
+  // borrows them; rebuilding the ships part restamps instances and repaints
+  // atlas cells but never reallocates any of this.
+  const fleetSharedCache: GardenShipGeometryCache = {
+    geometries: new Map(),
+    wakeFillMaterial: new MeshBasicMaterial({
+      color: HARBOR_PALETTE.foam_white,
+      depthWrite: false,
+      opacity: 0.08,
+      side: DoubleSide,
+      transparent: true,
+    }),
+    wakeMaterial: new LineBasicMaterial({
+      color: HARBOR_PALETTE.foam_white,
+      depthWrite: false,
+      opacity: 0.38,
+      transparent: true,
+    }),
+  };
+  const sailAtlas = createGardenSailAtlas();
+  const fleetBatches = createFleetBatches({
+    cache: fleetSharedCache,
+    // Grow-only capacity with headroom over the ~205-ship world plus the
+    // transient outsider, so a data refresh never reallocates instance
+    // buffers (D1).
+    capacity: GARDEN_FLEET_BATCH_CAPACITY,
+    geometryFor: (silhouette) => createFleetBatchGeometry(silhouette),
+    pennantGeometry: createPennantGeometry(),
+    sailTexture: sailAtlas.texture,
+    silhouettes: GARDEN_HULL_SILHOUETTES,
+  });
+
   return {
     ambientLight,
     beamAngle: 0,
     beamClockSeconds: 0,
     content: null,
-    contentSignature: null,
     directionalLight,
+    fleetBatches,
+    fleetSharedCache,
+    sailAtlas,
     // W6.5: the probe shares the dome's material instance, so the sky the
     // world is LIT BY and the sky it is SEEN AGAINST are the same uniforms.
     environment: createGardenEnvironment(renderer, root, sky.domeMaterial),
@@ -1205,28 +1401,278 @@ function createGardenScene(
   };
 }
 
-function replaceWorldContent(
+/** Cached per world object — key computation must stay refresh-cheap. */
+const worldContentPartKeysCache = new WeakMap<PharosVilleWorld, WorldContentPartKeys>();
+
+/**
+ * W4.1: per-part content keys, derived from the SAME fields the render-content
+ * signature already bakes (`worldRenderContentPartHashes`) but regrouped by the
+ * part that actually consumes each field, so a routine refresh dirties only the
+ * families whose GPU resources genuinely changed:
+ *
+ * - a supply tick that moves `change24hPct` dirties `harborLife` (quay tempo,
+ *   gull traffic — light instanced systems), never the dock masonry;
+ * - a berth or beam-dwell move lands in `shipsPose` and is applied in place;
+ * - the flight gauge dirties `tenders`, never the whole fleet.
+ */
+function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
+  const cached = worldContentPartKeysCache.get(world);
+  if (cached) return cached;
+  const hashes = worldRenderContentPartHashes(world);
+  const slice = selectGardenObservatorySlice(world, null);
+  const islandTileKey = `${world.lighthouse.tile.x},${world.lighthouse.tile.y}`;
+  // Everything createDock consumes. `change24hPct` and `cargoTide` are data
+  // that other parts read; sub-band supply noise is already banded out by the
+  // signature's `size`.
+  const dockStructure = JSON.stringify(world.docks.map((dock) => [
+    dock.chainId,
+    dock.detailId,
+    dock.healthBand,
+    dock.id,
+    dock.label,
+    dock.logoPath ?? null,
+    dock.size,
+    dock.tile,
+  ]));
+  const shipEntries = slice.ships
+    .toSorted((left, right) => left.ship.id.localeCompare(right.ship.id));
+  // Structural: every signature ship field EXCEPT tile/displayOffset. These
+  // are the inputs to built geometry, colors, atlas cells, buoys, lanterns.
+  const shipsStructural = JSON.stringify(shipEntries.map(({ ship }) => [
+    ship.dexCrossCheck?.agrees === false,
+    ship.dominantChainId,
+    ship.id,
+    ship.logoSrc,
+    ship.reportCard?.overallGrade ?? null,
+    ship.riskZone,
+    ship.symbol,
+    ship.visual,
+  ]));
+  const shipsPose = JSON.stringify(shipEntries.map(({ displayOffset, ship }) => [
+    ship.id,
+    ship.tile,
+    displayOffset,
+  ]));
+  // The island key is the lighthouse family MINUS the beam-dwell target: the
+  // dwell is a cheap bearing recompute (pose path), not a reason to rebuild
+  // the rock.
+  const islandKey = JSON.stringify({
+    detailId: world.lighthouse.detailId,
+    highWaterSeverity: world.lighthouse.highWaterMark?.severity ?? null,
+    signalPennants: world.lighthouse.signalMast?.pennantCount ?? 0,
+    stormCone: world.lighthouse.signalMast?.stormCone ?? false,
+    tile: world.lighthouse.tile,
+  });
+  const keys: WorldContentPartKeys = {
+    island: islandKey,
+    landmarks: `${hashes.graves}|${hashes.pigeonnier}`,
+    zones: hashes.areas ?? "",
+    docks: `${dockStructure}|${islandTileKey}`,
+    harborLife: `${hashes.docks}|${islandTileKey}`,
+    cargoTide: `${JSON.stringify(world.docks.map((dock) => [
+      dock.detailId,
+      dock.cargoTide ?? null,
+    ]))}|${hashes.supplyTide}|${dockStructure}`,
+    ships: `${shipsStructural}|${hashes.heroRank}|${islandTileKey}`,
+    tenders: `${hashes.fleetIssuance}|${shipsStructural}|${hashes.heroRank}`,
+    shipsPose: `${shipsPose}|${world.lighthouse.beamDwell?.shipId ?? ""}|${islandTileKey}`,
+  };
+  worldContentPartKeysCache.set(world, keys);
+  return keys;
+}
+
+/**
+ * The persistent skeleton every part builds into. Created once per renderer
+ * session; after that, data refreshes only ever touch the wrappers' children.
+ * Part products (typed non-null on GardenContent) are filled by the builders
+ * immediately after — see the initial-build path in `render`.
+ */
+function createWorldContentShell(scene: GardenScene): GardenContent {
+  const root = new Group();
+  const parts = {} as Record<WorldContentPartName, GardenContentPartState>;
+  for (const name of WORLD_CONTENT_PART_ORDER) {
+    const wrapper = new Group();
+    wrapper.name = `content-part-${name}`;
+    root.add(wrapper);
+    parts[name] = {
+      appliedKey: null,
+      cues: new Map(),
+      epoch: 0,
+      owner: {},
+      root: wrapper,
+    };
+  }
+  // The shared instanced fleet mounts OUTSIDE the part wrappers: its buffers
+  // are scene-owned and survive every rebuild.
+  root.add(scene.fleetBatches.root);
+  const routeLine = new Line(
+    new BufferGeometry(),
+    new LineBasicMaterial({
+      color: HARBOR_PALETTE.lantern_glow,
+      depthWrite: false,
+      opacity: 0.44,
+      transparent: true,
+    }),
+  );
+  routeLine.visible = false;
+  routeLine.renderOrder = 4;
+  root.add(routeLine);
+  const transientRoot = new Group();
+  transientRoot.name = "content-transient";
+  root.add(transientRoot);
+
+  const content = {
+    logoGenerationKey: null,
+    entityCues: new Map<string, EntityCue>(),
+    fleetBatches: scene.fleetBatches,
+    fleetSailMaterial: scene.fleetBatches.materials[1] ?? null,
+    sailAtlas: scene.sailAtlas,
+    objectCount: 0,
+    parts,
+    rebuildQueue: new Set<WorldContentPartName>(),
+    indexesStale: false,
+    root,
+    routeLine,
+    routeLineKey: null,
+    shipsPoseKey: null,
+    transient: null,
+    transientRoot,
+    visibleShipCount: 0,
+  } as unknown as GardenContent;
+  // The remaining fields are definite-assigned by the part builders before the
+  // shell is ever rendered; the initial build runs every builder in order.
+  return content;
+}
+
+/** Rebuilds one part from the current world and records its applied key. */
+function rebuildWorldContentPart(
   scene: GardenScene,
+  content: GardenContent,
+  name: WorldContentPartName,
   world: PharosVilleWorld,
-  selectedDetailId: string | null,
+  keys: WorldContentPartKeys,
   uploadScheduler: TextureUploadScheduler,
 ): void {
-  if (scene.content) {
-    uploadScheduler.cancelOwner(scene.content);
-    scene.lighthouseModel?.removeFromParent();
-    scene.root.remove(scene.content.root);
-    // W1: the batches own merged geometry and the atlas texture, neither of
-    // which the generic tree walk should double-dispose — release them
-    // explicitly first, then let the walk take the rest of the content.
-    disposeFleetBatches(scene.content.fleetBatches);
-    scene.content.sailAtlas.dispose();
-    scene.content.seaSigns.dispose();
-    disposeThreeObjectTree(scene.content.root);
+  disposeWorldContentPart(scene, content, name, uploadScheduler);
+  switch (name) {
+    case "island":
+      buildIslandPart(scene, content, world);
+      attachGardenLighthouseModel(scene.lighthouseModel, content);
+      // New static casters — re-render the shadow map on the next frame.
+      scene.shadowNeedsRender = true;
+      break;
+    case "landmarks":
+      buildLandmarksPart(content, world);
+      break;
+    case "zones":
+      buildZonesPart(content, world);
+      break;
+    case "docks":
+      buildDocksPart(content, world);
+      scene.shadowNeedsRender = true;
+      break;
+    case "harborLife":
+      buildHarborLifePart(content, world);
+      break;
+    case "cargoTide":
+      buildCargoTidePart(content, world);
+      break;
+    case "ships":
+      buildShipsPart(scene, content, world);
+      break;
+    case "tenders":
+      buildTendersPart(content, world);
+      break;
   }
-  scene.content = createWorldContent(world, selectedDetailId, scene.water.cloudShadows);
-  scene.contentSignature = worldRenderContentSignature(world);
-  scene.root.add(scene.content.root);
-  attachGardenLighthouseModel(scene.lighthouseModel, scene.content);
+  content.parts[name].appliedKey = keys[name];
+}
+
+/**
+ * Disposes one part's scene subtree and cancels its pending uploads — and
+ * nothing else's. Unchanged parts keep their resources and upload queue
+ * entries untouched; that is the entire point of W4.1.
+ */
+function disposeWorldContentPart(
+  scene: GardenScene,
+  content: GardenContent,
+  name: WorldContentPartName,
+  uploadScheduler: TextureUploadScheduler,
+): void {
+  const part = content.parts[name];
+  uploadScheduler.cancelOwner(part.owner);
+  if (name === "island") {
+    // The GLB shell survives the island rebuild — detach before the walk.
+    scene.lighthouseModel?.removeFromParent();
+  }
+  if (name === "zones" && content.seaSigns) {
+    content.seaSigns.dispose();
+  }
+  if (name === "ships") {
+    // The transient outsider rides the ships build's cache and materials, so
+    // it cannot outlive them; selection re-adds it against the new build.
+    removeTransientSelection(scene, content);
+    // The attention memo bridges hover/selection to atlas cells, which are
+    // reassigned by the rebuild.
+    resetFleetSailAttention();
+    // Hero identity sails are fresh materials — repaint on the next logo sync.
+    content.logoGenerationKey = null;
+  }
+  const children = [...part.root.children];
+  part.root.clear();
+  for (const child of children) disposeThreeObjectTree(child);
+  part.cues.clear();
+  part.epoch += 1;
+  part.owner = {};
+}
+
+/**
+ * Rebuilds the merged entity-cue map. Cheap (a few hundred map inserts), so it
+ * runs after EVERY part rebuild — hover, selection and hit anchors must track
+ * the new subtrees immediately, even while heavier parts still amortize.
+ */
+function mergeContentCues(content: GardenContent): void {
+  const cues = new Map<string, EntityCue>();
+  for (const name of WORLD_CONTENT_PART_ORDER) {
+    for (const [detailId, cue] of content.parts[name].cues) cues.set(detailId, cue);
+  }
+  if (content.transient) cues.set(content.transient.detailId, content.transient.cue);
+  content.entityCues = cues;
+}
+
+/**
+ * Re-derives the cross-part indexes that are too heavy for every drain frame:
+ * the drawable census and the overview-LOD scan (which walks the whole
+ * composed world and captures authored transforms as baselines). Runs once
+ * when the rebuild queue empties rather than once per amortized part.
+ */
+function refreshContentIndexes(
+  content: GardenContent,
+  view: { reducedMotion: boolean; zoom: number } | null,
+): void {
+  mergeContentCues(content);
+  content.objectCount = countDrawableObjects(content.root);
+  // The scan must see AUTHORED transforms. Surviving parts may be mid-shed at
+  // overview framing, so snap the outgoing policy back to full detail first,
+  // rescan, then snap the new policy straight to the current framing's target
+  // (an infinite delta takes the ease's endpoint — no visible pop).
+  content.overviewLod?.update({ deltaSeconds: 0, reducedMotion: true, zoom: 1 });
+  content.overviewLod = createGardenOverviewLod(content.root);
+  if (view) {
+    content.overviewLod.update({
+      deltaSeconds: Number.POSITIVE_INFINITY,
+      reducedMotion: view.reducedMotion,
+      zoom: view.zoom,
+    });
+  }
+}
+
+/**
+ * Re-anchors the scene-scope water/lane systems to the composed content after
+ * a rebuild batch. All of these are cheap sets over small registries.
+ */
+function syncSceneToContent(scene: GardenScene, world: PharosVilleWorld): void {
+  const content = scene.content;
+  if (!content) return;
   const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
   scene.water.setIslandCenter(
     islandTile.x * TILE_SCALE,
@@ -1241,18 +1687,139 @@ function replaceWorldContent(
     { x: CEMETERY_CENTER.x * TILE_SCALE, z: CEMETERY_CENTER.y * TILE_SCALE },
     { x: world.pigeonnier.tile.x * TILE_SCALE, z: world.pigeonnier.tile.y * TILE_SCALE },
   );
-  scene.water.setZoneState(scene.content.zones.map((zone) => zone.tint));
+  scene.water.setZoneState(content.zones.map((zone) => zone.tint));
   registerHarborWater(scene, world);
   registerLightLanes(
     scene.laneRegistry,
     world,
     islandTile,
-    scene.content.docks,
-    scene.content.zones,
+    content.docks,
+    content.zones,
   );
-  scene.world = world;
-  // New island geometry — re-render the static shadow map on the next frame.
-  scene.shadowNeedsRender = true;
+}
+
+/**
+ * The ship-only fast path: berths, display offsets or the beam-dwell target
+ * moved while every build-time input held still. Swap the data the frame loop
+ * reads — positions are restamped from it every frame anyway — and recompute
+ * the one derived bearing. No disposal, no allocation, no GPU work.
+ */
+function applyShipsPoseUpdate(content: GardenContent, world: PharosVilleWorld): void {
+  const slice = selectGardenObservatorySlice(world, null);
+  const entryByShipId = new Map(slice.ships.map((entry) => [entry.ship.id, entry]));
+  for (const visual of content.ships) {
+    if (content.transient && visual === content.transient.visual) continue;
+    const entry = entryByShipId.get(visual.ship.id);
+    // The structural key matching guarantees the same fleet membership; a
+    // missing entry would mean the keys lied, so keep the old data visible
+    // rather than corrupt the visual.
+    if (!entry) continue;
+    visual.ship = entry.ship;
+    visual.displayOffset = entry.displayOffset;
+    visual.representative = entry.representative;
+  }
+  content.beamDwellBearing = computeBeamDwellBearing(world, slice);
+}
+
+/**
+ * Refreshes the world-data pointers baked content carries for frame-time and
+ * registry reads (dock totals for route-pulse lanes, the transient's detail
+ * record). Purely reference swaps keyed on stable ids.
+ */
+function adoptFreshWorldData(content: GardenContent, world: PharosVilleWorld): void {
+  const dockById = new Map(world.docks.map((dock) => [dock.detailId, dock]));
+  for (const visual of content.docks) {
+    const node = dockById.get(visual.dock.detailId);
+    if (node) visual.dock = node;
+  }
+  if (content.transient) {
+    const entity = world.entityById[content.transient.detailId];
+    if (entity?.kind === "ship") content.transient.visual.ship = entity;
+  }
+}
+
+/** First atlas cell no base-slice ship occupies, or 0 when the atlas is full. */
+function nextFreeSailAtlasCell(atlas: GardenSailAtlas): number {
+  let highest = 0;
+  for (const cell of atlas.cellByShipId.values()) {
+    if (cell > highest) highest = cell;
+  }
+  const next = highest + 1;
+  return next < FLEET_SAIL_ATLAS_CELLS ? next : 0;
+}
+
+/**
+ * W4.1 item 3: transient-outsider selection adds or removes ONLY the content
+ * it needs — one batched ShipVisual, its cue, and an atlas cell — instead of
+ * forcing a full world rebuild the way it used to.
+ */
+function reconcileTransientSelection(
+  scene: GardenScene,
+  world: PharosVilleWorld,
+  selectedDetailId: string | null,
+): void {
+  const content = scene.content;
+  if (!content) return;
+  const ship = selectGardenTransientShip(world, selectedDetailId);
+  const current = content.transient;
+  if (ship && current && current.detailId === ship.detailId) {
+    current.visual.ship = ship;
+    return;
+  }
+  if (!ship && !current) return;
+  if (current) removeTransientSelection(scene, content);
+  if (!ship) {
+    content.objectCount = countDrawableObjects(content.root);
+    return;
+  }
+  const cell = nextFreeSailAtlasCell(content.sailAtlas);
+  const visual = createBatchedShip(
+    ship,
+    { x: 0, y: 0 },
+    false,
+    content.shipsGeometryCache,
+    cell,
+  );
+  if (cell !== 0) {
+    content.sailAtlas.cellByShipId.set(ship.detailId, cell);
+    // Invalidate the paint generation: the existing per-frame check schedules
+    // the repaint and re-upload through the texture-upload lane, so the mark
+    // arrives calmly instead of stalling this frame.
+    content.sailAtlas.logoGenerationKey = null;
+  }
+  const cue: EntityCue = {
+    radius: visual.selectionRadius,
+    root: visual.root,
+    y: -visual.root.position.y + 0.08,
+  };
+  content.transient = { cue, detailId: ship.detailId, shipId: ship.id, visual };
+  content.ships.push(visual);
+  content.transientRoot.add(visual.root);
+  content.entityCues.set(ship.detailId, cue);
+  content.objectCount = countDrawableObjects(content.root);
+}
+
+/**
+ * Removes the transient visual without touching any shared resource: its
+ * geometries and materials all come from the ships build's cache, so only the
+ * per-visual instance buffers (wake quads) are released.
+ */
+function removeTransientSelection(scene: GardenScene, content: GardenContent): void {
+  const current = content.transient;
+  if (!current) return;
+  const index = content.ships.indexOf(current.visual);
+  if (index >= 0) content.ships.splice(index, 1);
+  current.visual.root.removeFromParent();
+  current.visual.root.traverse((object) => {
+    if (object instanceof InstancedMesh) object.dispose();
+  });
+  content.sailAtlas.cellByShipId.delete(current.detailId);
+  content.entityCues.delete(current.detailId);
+  // The per-frame systems key these on the ship id and only clean up ids they
+  // still iterate — release the stragglers explicitly.
+  scene.laneRegistry.remove(`ship-lantern.${current.shipId}`);
+  scene.water.rippleRings.removeRing(`ship-mooring.${current.shipId}`);
+  content.transient = null;
 }
 
 /**
@@ -1467,25 +2034,28 @@ function flagStaticShadowUsers(root: Object3D, castsShadows = true): void {
   });
 }
 
-function createWorldContent(
+/**
+ * The island part: terraces, the lighthouse (procedural shell until the GLB
+ * lands), beacon fire, summit birds, signal mast and tide stain. Rebuilds only
+ * when the lighthouse family — minus the beam-dwell target, which is a cheap
+ * bearing recompute on the pose path — changes.
+ */
+function buildIslandPart(
+  scene: GardenScene,
+  content: GardenContent,
   world: PharosVilleWorld,
-  selectedDetailId: string | null,
+): void {
+  const part = content.parts.island;
   // C2(c): Lane W's shared cloud-shadow sampler, forwarded to the island
   // factory (I3) so light weather sweeps the land coherently with the sea.
-  cloudShadows: GardenCloudShadowSource,
-): GardenContent {
-  const root = new Group();
-  const entityCues = new Map<string, EntityCue>();
-  const slice = selectGardenObservatorySlice(world, selectedDetailId);
-  const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
-
+  const cloudShadows: GardenCloudShadowSource = scene.water.cloudShadows;
   const island = createTerracedIsland(world, cloudShadows);
-  root.add(island.root);
+  part.root.add(island.root);
   // The island stone/timber (and lighthouse, inside island.root) cast and
   // receive. The flat MeshBasicMaterial shoal is excluded so its transparent
-  // disc never stamps a hard shadow; the harbour is flagged further down.
+  // disc never stamps a hard shadow; the harbour is flagged in its own part.
   flagStaticShadowUsers(island.root);
-  entityCues.set(world.lighthouse.detailId, {
+  part.cues.set(world.lighthouse.detailId, {
     // Pharos Wonder D1: scaled for the 34-unit three-tier tower (was 4.5 for
     // the 30-unit v3 shell) so the selection ring spans the battered square
     // base and its terrace steps.
@@ -1507,7 +2077,7 @@ function createWorldContent(
   // W7 rim light, chained onto the I3 cloud-shadow hook (already applied
   // inside createTerracedIsland) — compose, never clobber.
   applyLighthouseRimLight(island.lighthouseRoot);
-  // The procedural shell's gilt is per-content (fresh materials each world),
+  // The procedural shell's gilt is per-build (fresh materials each rebuild),
   // so the statue gleam can drive it directly; the GLB path clones first.
   const statueGleamMaterials: MeshStandardMaterial[] = [];
   island.lighthouseShell.traverse((object) => {
@@ -1544,56 +2114,84 @@ function createWorldContent(
   tideStain.setMark(world.lighthouse.highWaterMark?.severity ?? null);
   island.lighthouseRoot.add(tideStain.root);
 
+  content.beacon = island.beacon;
+  content.beaconFire = beaconFire;
+  content.beaconFireRoot = beaconFire.root;
+  content.beaconHalo = island.beaconHalo;
+  content.beam = island.beam;
+  content.decoration = island.decoration;
+  content.lighthouseLight = island.lighthouseLight;
+  content.lighthouseRoot = island.lighthouseRoot;
+  content.lighthouseShell = island.lighthouseShell;
+  content.signalMast = signalMast;
+  content.statueGleamMaterials = statueGleamMaterials;
+  content.summitBirds = summitBirds;
+  content.summitBirdsRoot = summitBirds.root;
+  content.tideStain = tideStain;
+}
+
+/** The cemetery and pigeonnier islets, keyed on their own world families. */
+function buildLandmarksPart(content: GardenContent, world: PharosVilleWorld): void {
+  const part = content.parts.landmarks;
   const cemetery = createGardenCemetery(world.graves);
   const pigeonnier = createGardenPigeonnier(world.pigeonnier);
-  root.add(cemetery.root, pigeonnier.root);
+  part.root.add(cemetery.root, pigeonnier.root);
   for (const [detailId, anchor] of cemetery.anchors) {
-    entityCues.set(detailId, {
+    part.cues.set(detailId, {
       radius: anchor.userData.selectionRadius,
       root: anchor,
       y: 0.08,
     });
   }
-  entityCues.set(world.pigeonnier.detailId, {
+  part.cues.set(world.pigeonnier.detailId, {
     radius: pigeonnier.anchor.userData.selectionRadius,
     root: pigeonnier.anchor,
     y: 0.08,
   });
+}
 
+/** Risk-water bodies, their buoy field, the sea signs, and danger weather. */
+function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
+  const part = content.parts.zones;
   const zones = world.areas.map((area) => createZone(area));
   for (const zone of zones) {
-    root.add(zone.root);
+    part.root.add(zone.root);
     // Zones-v2 review: the selection ring tracks the zone's base radius
     // (tint.radiusX / ELLIPSE_X=1.25 → ×0.8), not the old hardcoded 5.2, so
     // the cue scales with the recomposed per-band zone bodies (~7–50 units).
-    entityCues.set(zone.area.detailId, {
+    part.cues.set(zone.area.detailId, {
       radius: zone.tint.radiusX * 0.8,
       root: zone.root,
       y: 0.08,
     });
   }
   const zoneField = createZoneField(zones);
-  root.add(zoneField.root);
+  part.root.add(zoneField.root);
   // N (Sea Master): the sea's place-names, as carved boards standing in the
   // water. Copy comes from the same area records the detail panels read, so
   // the two surfaces cannot drift.
   const seaSigns = createGardenSeaSigns(seaSignSpecs(world.areas));
-  root.add(seaSigns.root);
+  part.root.add(seaSigns.root);
   const weather = world.areas
     .filter((area) => area.band === "DANGER")
     .map((area) => createDangerWeather(area));
-  for (const effect of weather) root.add(effect.root);
+  for (const effect of weather) part.root.add(effect.root);
 
+  content.seaSigns = seaSigns;
+  content.weather = weather;
+  content.zoneField = zoneField;
+  content.zones = zones;
+}
+
+/** The harbour ring: quays, warehouses, cranes — and the lantern ring. */
+function buildDocksPart(content: GardenContent, world: PharosVilleWorld): void {
+  const part = content.parts.docks;
+  const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
   const docks = world.docks.map((dock) => (
     createDock(dock, gardenDockDisplayTile(dock.tile), islandTile)
   ));
-  const harborDistricts = createGardenHarborDistricts(
-    world.docks,
-    world.lighthouse.tile,
-  );
-  root.add(harborDistricts.root);
   for (const dock of docks) {
-    root.add(dock.root);
+    part.root.add(dock.root);
     // W2.2: the harbour joins the island in the static map. Quays, warehouses
     // and their roofs, breakwaters, pilings, cranes, lamp POSTS and the chain
     // flag are exactly as static as the rock they stand on, and at dawn and
@@ -1603,17 +2201,67 @@ function createWorldContent(
     // ...except the fine detail, which the frame loop shows and hides by zoom,
     // hover and selection. Receiver only — see flagStaticShadowUsers.
     flagStaticShadowUsers(dock.fineDetail, false);
-    entityCues.set(dock.dock.detailId, { radius: 2.5, root: dock.root, y: 0.08 });
+    part.cues.set(dock.dock.detailId, { radius: 2.5, root: dock.root, y: 0.08 });
   }
+  const harborLanterns = createHarborLanterns(islandTile);
+  part.root.add(harborLanterns.root);
+  // The lantern ring is static quay furniture too. Its glass heads share one
+  // material with no name to exclude, so they are skipped by identity: a lamp
+  // is a source, not an occluder.
+  harborLanterns.root.traverse((object) => {
+    if (!(object instanceof Mesh) && !(object instanceof InstancedMesh)) return;
+    object.castShadow = object.material !== harborLanterns.lightMaterial;
+    object.receiveShadow = true;
+  });
+
+  content.docks = docks;
+  content.harborLanternMaterial = harborLanterns.lightMaterial;
+}
+
+/**
+ * The light instanced life around the harbour — district pads, the gull
+ * flock, fireflies. Keyed on the FULL dock family (including `change24hPct`,
+ * which drives quay tempo), so the routine supply tick rebuilds this cheap
+ * part and never the masonry it decorates.
+ */
+function buildHarborLifePart(content: GardenContent, world: PharosVilleWorld): void {
+  const part = content.parts.harborLife;
+  const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
+  const harborDistricts = createGardenHarborDistricts(
+    world.docks,
+    world.lighthouse.tile,
+  );
+  // The flock works the quays as well as the island, so it needs the same dock
+  // list the harbour districts got — that is what carries harbour tempo.
+  const gullFlock = createGardenGullFlock(world.lighthouse.tile, {
+    docks: world.docks,
+  });
+  const fireflies = createGardenFireflies(
+    gardenIslandLanternWorldOffsets(),
+    islandTile,
+  );
+  part.root.add(harborDistricts.root, gullFlock.root, fireflies.root);
+
+  content.fireflies = fireflies;
+  content.gullFlock = gullFlock;
+}
+
+/**
+ * The mint/burn cargo run and the weekly supply-tide plates. Both read the
+ * composed dock visuals, so this part sits after `docks` in the build order
+ * and its key includes the dock structure.
+ */
+function buildCargoTidePart(content: GardenContent, world: PharosVilleWorld): void {
+  const part = content.parts.cargoTide;
   // Tier 3 #3: the world's first FLOW cue. Built after the harbours are placed
   // because each crate's berth is a harbour-local slot resolved through that
   // harbour's own yaw and position — one mesh for the ring, not one per quay.
-  const cargoTide = createGardenCargoTide(cargoTideSpecs(docks));
-  root.add(cargoTide.root);
+  const cargoTide = createGardenCargoTide(cargoTideSpecs(content.docks));
+  part.root.add(cargoTide.root);
   // The tide is one global reading, so every quay's plate is identical and the
   // whole ring shares one geometry — see garden-tide-line.ts.
   const tideLine = createGardenTideLine(
-    docks.map((visual) => ({
+    content.docks.map((visual) => ({
       detailId: visual.dock.detailId,
       width: visual.tideFace.width,
       x: visual.root.position.x + visual.tideFace.x * Math.cos(visual.root.rotation.y)
@@ -1625,27 +2273,27 @@ function createWorldContent(
     })),
     world.supplyTide,
   );
-  root.add(tideLine.root);
-  const harborLanterns = createHarborLanterns(islandTile);
-  // The flock works the quays as well as the island, so it needs the same dock
-  // list the harbour districts got — that is what carries harbour tempo.
-  const gullFlock = createGardenGullFlock(world.lighthouse.tile, {
-    docks: world.docks,
-  });
-  const fireflies = createGardenFireflies(
-    gardenIslandLanternWorldOffsets(),
-    islandTile,
-  );
-  root.add(harborLanterns.root, gullFlock.root, fireflies.root);
-  // The lantern ring is static quay furniture too. Its glass heads share one
-  // material with no name to exclude, so they are skipped by identity: a lamp
-  // is a source, not an occluder.
-  harborLanterns.root.traverse((object) => {
-    if (!(object instanceof Mesh) && !(object instanceof InstancedMesh)) return;
-    object.castShadow = object.material !== harborLanterns.lightMaterial;
-    object.receiveShadow = true;
-  });
+  part.root.add(tideLine.root);
 
+  content.cargoTide = cargoTide;
+  content.tideLine = tideLine;
+}
+
+/**
+ * The fleet: per-ship visuals, contact shadows, lanterns, cross-bearing
+ * buoys, hero reflections and hero gulls. The instanced batches and the sail
+ * atlas are scene-owned and NOT touched here beyond cell reassignment — a
+ * rebuild restamps instances and repaints atlas cells through the upload lane.
+ */
+function buildShipsPart(
+  scene: GardenScene,
+  content: GardenContent,
+  world: PharosVilleWorld,
+): void {
+  const part = content.parts.ships;
+  // The base slice only: the transient outsider is reconciled separately
+  // (reconcileTransientSelection) so selection never rebuilds the fleet.
+  const slice = selectGardenObservatorySlice(world, null);
   const shipGeometryCache: GardenShipGeometryCache = {
     geometries: new Map(),
     wakeFillMaterial: new MeshBasicMaterial({
@@ -1662,14 +2310,18 @@ function createWorldContent(
       transparent: true,
     }),
   };
+  content.shipsGeometryCache = shipGeometryCache;
+
   // W1 (decision D2): the fleet splits in two. Hero ships (titans and uniques,
   // ~18 of ~205) keep their own scene graph because a bespoke GLB hull, the
   // grade shield and the identity sail all need real meshes — they are also
   // the ships the eye actually lands on. Everything else is drawn from the
   // shared instanced batches at 9 draw calls total, however many there are.
-  const sailAtlas = createGardenSailAtlas();
-  // Cells are assigned now (the batch needs them at construction); the paint
-  // pass runs from the frame loop once logos resolve.
+  //
+  // Cells are assigned now (the batch reads them per instance); the paint pass
+  // runs from the frame loop once logos resolve. Assignment resets the paint
+  // generation, so the repaint schedules itself through the upload lane.
+  const sailAtlas = scene.sailAtlas;
   assignGardenSailAtlasCells(sailAtlas, slice.ships.map(({ ship }) => ship));
 
   const ships = slice.ships.map(({ displayOffset, representative, ship }) => (
@@ -1684,26 +2336,18 @@ function createWorldContent(
         )
   ));
 
-  const fleetBatches = createFleetBatches({
-    cache: shipGeometryCache,
-    // Grow-only capacity with headroom over the ~205-ship world, so a data
-    // refresh never reallocates instance buffers (D1).
-    capacity: GARDEN_FLEET_BATCH_CAPACITY,
-    geometryFor: (silhouette) => createFleetBatchGeometry(silhouette),
-    pennantGeometry: createPennantGeometry(),
-    sailTexture: sailAtlas.texture,
-    silhouettes: GARDEN_HULL_SILHOUETTES,
-  });
-  root.add(fleetBatches.root);
-
-  const shipShadows = createShipShadows(ships.length);
-  root.add(shipShadows);
+  // +1: a spare instance slot for the transient outsider, so selecting one
+  // never reallocates the contact-shadow buffer. The live count is clamped to
+  // the ship list every frame; unwritten slots hold zero-scale matrices.
+  const shipShadows = createShipShadows(ships.length + 1);
+  shipShadows.count = ships.length;
+  part.root.add(shipShadows);
   for (const ship of ships) {
     // Batched roots carry no drawable children — they exist so entity cues,
     // follow-selected, the wake and the lane registry keep the same anchor
     // they had when every ship owned its meshes.
-    root.add(ship.root);
-    entityCues.set(ship.ship.detailId, {
+    part.root.add(ship.root);
+    part.cues.set(ship.ship.detailId, {
       radius: ship.selectionRadius,
       root: ship.root,
       y: -ship.root.position.y + 0.08,
@@ -1712,22 +2356,7 @@ function createWorldContent(
   // Fleet-wide lantern instances (two shared draw calls); positions are driven
   // per frame from each ship's world transform in the ship loop.
   const fleetLanterns = createFleetLanterns(ships, shipGeometryCache);
-  root.add(fleetLanterns.root);
-
-  // 3d needs one ship's composed berth in world XZ to take a bearing on.
-  // Resolved with a null motion sample, which is the berth before any patrol
-  // displaces it — the same address `entityCues` and the lane registry use, and
-  // a fixed one, so the beam holds a steady bearing instead of hunting the
-  // hull around its circuit.
-  const berthWorldXZ = (entry: typeof slice.ships[number]): { x: number; z: number } => {
-    const tile = resolveGardenShipDisplayTile({
-      displayOffset: entry.displayOffset,
-      representative: entry.representative,
-      sample: null,
-      ship: entry.ship,
-    });
-    return { x: tile.x * TILE_SCALE, z: tile.y * TILE_SCALE };
-  };
+  part.root.add(fleetLanterns.root);
 
   // 3b: one buoy per ship whose two price bearings cross. `agrees === false` is
   // the ONLY state that moors one — an absent check leaves the water empty and
@@ -1743,7 +2372,7 @@ function createWorldContent(
     hullRadius: visual.selectionRadius,
   }));
   const crossBearingBuoys = createGardenCrossBearingBuoys(buoySpecs);
-  root.add(crossBearingBuoys.root);
+  part.root.add(crossBearingBuoys.root);
 
   // W6.4: the mirror column, extended from the Pharos to the fleet. Only the
   // hero hulls get one — they are the ships with a silhouette worth reflecting,
@@ -1751,7 +2380,7 @@ function createWorldContent(
   // buffer rather than on a visual.
   const heroReflectionShips = ships.filter((visual) => !visual.batched);
   const heroReflections = createGardenHeroReflections(heroReflectionShips.length);
-  root.add(heroReflections.mesh);
+  part.root.add(heroReflections.mesh);
 
   // Gulls over the biggest hulls in the fleet. Ranked by the same market cap
   // the hull scale already encodes, so the traffic agrees with the size.
@@ -1761,14 +2390,39 @@ function createWorldContent(
       .slice(0, GARDEN_GULL_SHIP_COUNT),
   );
 
-  // Flight to quality: tenders making for the biggest hulls, for as long as the
-  // mint/burn gauge reports capital concentrating into them. Ranked off the
-  // whole fleet by the same market cap the hull scale already encodes, so the
-  // boats gather where the eye already reads "largest". Built here, after the
-  // hulls exist, because each flotilla's stand-off is scaled to its titan's own
-  // footprint. `flightTenderTitans` returns nothing when the gauge is absent or
-  // false, and a spec-less flotilla builds no mesh and costs no draw call.
-  const flightTenderShips = flightTenderTitans(ships, world.fleetIssuance);
+  // 3d: the bearing the beam will settle on. Null when the index named no
+  // contributor, or when the coin it named is not in the rendered fleet — the
+  // sweep then keeps the even turn it has always had.
+  content.beamDwellBearing = computeBeamDwellBearing(world, slice);
+  content.crossBearingBuoyShips = buoyShips;
+  content.crossBearingBuoys = crossBearingBuoys;
+  content.fleetLanterns = fleetLanterns;
+  content.heroReflectionShips = heroReflectionShips;
+  content.heroReflections = heroReflections;
+  content.shipGulls = shipGulls;
+  content.shipLanternGlowMaterial = fleetLanterns.glowMaterial;
+  content.shipLanternMaterial = fleetLanterns.coreMaterial;
+  content.shipShadows = shipShadows;
+  content.ships = ships;
+  content.visibleShipCount = ships.length;
+}
+
+/**
+ * Flight to quality: tenders making for the biggest hulls, for as long as the
+ * mint/burn gauge reports capital concentrating into them. Its own part: the
+ * gauge's continuous intensity moves on routine refreshes, and rebuilding a
+ * handful of instanced boats must never drag the whole fleet with it. Sits
+ * after `ships` in the order because each flotilla's stand-off is scaled to
+ * its titan's own footprint. `flightTenderTitans` returns nothing when the
+ * gauge is absent or false, and a spec-less flotilla builds no mesh and costs
+ * no draw call.
+ */
+function buildTendersPart(content: GardenContent, world: PharosVilleWorld): void {
+  const part = content.parts.tenders;
+  const baseShips = content.transient
+    ? content.ships.filter((visual) => visual !== content.transient?.visual)
+    : content.ships;
+  const flightTenderShips = flightTenderTitans(baseShips, world.fleetIssuance);
   const flightTenders = createGardenFlightTenders(
     flightTenderShips.map((visual) => ({
       hullRadius: visual.selectionRadius,
@@ -1776,93 +2430,43 @@ function createWorldContent(
     })),
     world.fleetIssuance?.flightIntensity ?? 0,
   );
-  root.add(flightTenders.root);
+  part.root.add(flightTenders.root);
 
-  // 3d: the bearing the beam will settle on. Null when the index named no
-  // contributor, or when the coin it named is not in the rendered fleet — the
-  // sweep then keeps the even turn it has always had.
+  content.flightTenderShips = flightTenderShips;
+  content.flightTenders = flightTenders;
+}
+
+/**
+ * 3d needs one ship's composed berth in world XZ to take a bearing on.
+ * Resolved with a null motion sample, which is the berth before any patrol
+ * displaces it — the same address `entityCues` and the lane registry use, and
+ * a fixed one, so the beam holds a steady bearing instead of hunting the
+ * hull around its circuit. Taken at compose/pose-adoption time rather than per
+ * frame for the same reason.
+ */
+function computeBeamDwellBearing(
+  world: PharosVilleWorld,
+  slice: ReturnType<typeof selectGardenObservatorySlice>,
+): number | null {
   const dwellShipId = world.lighthouse.beamDwell?.shipId ?? null;
   const dwellEntry = dwellShipId === null
     ? undefined
     : slice.ships.find((entry) => entry.ship.id === dwellShipId);
-  const beamDwellBearing = dwellEntry
-    ? beamBearingTo(
-        {
-          x: islandTile.x * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x,
-          z: islandTile.y * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z,
-        },
-        berthWorldXZ(dwellEntry),
-      )
-    : null;
-
-  const routeLine = new Line(
-    new BufferGeometry(),
-    new LineBasicMaterial({
-      color: HARBOR_PALETTE.lantern_glow,
-      depthWrite: false,
-      opacity: 0.44,
-      transparent: true,
-    }),
+  if (!dwellEntry) return null;
+  const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
+  const tile = resolveGardenShipDisplayTile({
+    displayOffset: dwellEntry.displayOffset,
+    representative: dwellEntry.representative,
+    sample: null,
+    ship: dwellEntry.ship,
+  });
+  return beamBearingTo(
+    {
+      x: islandTile.x * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x,
+      z: islandTile.y * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z,
+    },
+    { x: tile.x * TILE_SCALE, z: tile.y * TILE_SCALE },
   );
-  routeLine.visible = false;
-  routeLine.renderOrder = 4;
-  root.add(routeLine);
-
-  const objectCount = countDrawableObjects(root);
-  // Scanned once, after the world is assembled and before anything animates:
-  // the policy captures each shed prop's authored transform as its baseline.
-  const overviewLod = createGardenOverviewLod(root);
-  return {
-    logoGenerationKey: null,
-    beacon: island.beacon,
-    beaconFire,
-    beaconFireRoot: beaconFire.root,
-    beaconHalo: island.beaconHalo,
-    beam: island.beam,
-    beamDwellBearing,
-    cargoTide,
-    flightTenders,
-    flightTenderShips,
-    tideLine,
-    crossBearingBuoys,
-    crossBearingBuoyShips: buoyShips,
-    decoration: island.decoration,
-    docks,
-    objectCount,
-    entityCues,
-    fireflies,
-    fleetBatches,
-    fleetLanterns,
-    fleetSailMaterial: fleetBatches.materials[1] ?? null,
-    gullFlock,
-    heroReflections,
-    heroReflectionShips,
-    shipGulls,
-    sailAtlas,
-    harborLanternMaterial: harborLanterns.lightMaterial,
-    lighthouseLight: island.lighthouseLight,
-    lighthouseRoot: island.lighthouseRoot,
-    lighthouseShell: island.lighthouseShell,
-    overviewLod,
-    root,
-    routeLine,
-    routeLineKey: null,
-    shipLanternGlowMaterial: fleetLanterns.glowMaterial,
-    shipLanternMaterial: fleetLanterns.coreMaterial,
-    shipShadows,
-    ships,
-    signalMast,
-    statueGleamMaterials,
-    tideStain,
-    summitBirds,
-    summitBirdsRoot: summitBirds.root,
-    transientSelectedDetailId: slice.transientSelectedDetailId,
-    visibleShipCount: ships.length,
-    weather,
-    seaSigns,
-    zoneField,
-    zones,
-  };
 }
 
 /**
@@ -2089,7 +2693,10 @@ function updateSceneForFrame(
   const laneGlowScale = phase.night * 0.45 + phase.dusk * 0.3 + phase.daylight * 0.05;
   if (!content) {
     // No fleet lanes to add — pack the base (beacon/harbor/dock) lanes only.
-    const laneCount = scene.laneRegistry.sync(frame.renderScheduler.tier, laneGlowScale);
+    const laneCount = scene.laneRegistry.sync(frame.renderScheduler.tier, laneGlowScale, {
+      reducedMotion: frame.reducedMotion,
+      timeSeconds: frame.timeSeconds,
+    });
     scene.water.setLaneState(
       scene.laneRegistry.texture,
       laneCount,
@@ -2320,16 +2927,21 @@ function updateSceneForFrame(
   if (sailTexture && content.sailAtlas.logoGenerationKey !== logoGeneration) {
     const ships = content.ships.map((visual) => visual.ship);
     const logos = frame.logos;
+    // W4.1: the atlas paint belongs to the current ships build. A ships
+    // rebuild replaces the part owner, which cancels this task and lets the
+    // rebuild's own repaint supersede it.
+    const shipsPart = content.parts.ships;
+    const owner = shipsPart.owner;
     // Defer BOTH repaint and upload. Painting here would increment the
     // CanvasTexture version and let Three auto-upload the 2048² atlas during
     // the hot scene draw before the queue had a chance to run.
     uploadScheduler.schedule({
-      isOwnerValid: () => scene.content === content,
+      isOwnerValid: () => scene.content === content && shipsPart.owner === owner,
       key: `sail-atlas.${sailTexture.uuid}`,
       onOwnerDrained: () => {
         if (scene.content === content) onAssetReady?.();
       },
-      owner: content,
+      owner,
       ownerName: "fleet.sail-atlas",
       prepare: () => syncGardenSailAtlas(
         content.sailAtlas,
@@ -2473,6 +3085,9 @@ function updateSceneForFrame(
     }
   }
   endFleetFrame(content.fleetBatches);
+  // W4.1: the shadow buffer holds a spare slot for the transient outsider;
+  // clamp the live count so slots beyond the fleet are never drawn.
+  content.shipShadows.count = content.ships.length;
   content.shipShadows.instanceMatrix.needsUpdate = true;
   content.visibleShipCount = visibleShipCount;
 
@@ -2568,7 +3183,10 @@ function updateSceneForFrame(
     frame.reducedMotion ? 0 : frame.timeSeconds,
     frame.reducedMotion,
   );
-  const activeLaneCount = scene.laneRegistry.sync(frame.renderScheduler.tier, laneGlowScale);
+  const activeLaneCount = scene.laneRegistry.sync(frame.renderScheduler.tier, laneGlowScale, {
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+  });
   scene.water.setLaneState(
     scene.laneRegistry.texture,
     activeLaneCount,

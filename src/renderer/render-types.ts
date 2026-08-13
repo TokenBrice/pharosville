@@ -57,6 +57,13 @@ export interface PharosVilleRenderMetrics {
   composerEnabled?: boolean;
   /** Number of baked Three.js content roots created in this renderer session. */
   contentReplacementCount?: number;
+  /**
+   * W4.1: content parts rebuilt so far. A refresh rebuilds only the parts
+   * whose content actually changed; a ship-only refresh rebuilds none.
+   */
+  contentPartRebuildCount?: number;
+  /** W4.1: changed parts still waiting for their amortized per-frame rebuild. */
+  contentRebuildQueueDepth?: number;
   /** Per-content-family hashes used to attribute refresh-driven replacements. */
   contentSignaturePartHashes?: Readonly<Record<string, string>>;
   /** W1 evidence: draw calls the instanced fleet contributes, whatever its size. */

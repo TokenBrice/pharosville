@@ -21,6 +21,7 @@ import {
   fixtureStability,
   makePharosVilleWorldInput,
 } from "../__fixtures__/pharosville-world";
+import { overCapacityWorldFixture } from "../__fixtures__/over-capacity-world";
 import type {
   ThreeLogoAssets,
   ThreeWorldRendererFrame,
@@ -568,10 +569,11 @@ describe("Three world renderer lifecycle", () => {
     expect(Object.keys(flying.detailIndex).some((id) => id.includes("tender"))).toBe(false);
 
     // The gauge reading false builds nothing at all — not a hidden mesh, not an
-    // empty instanced draw. The default fixture is exactly that case.
+    // empty instanced draw. The default fixture is exactly that case. (W4.1:
+    // a cross-world refresh amortizes part rebuilds, so settle the queue.)
     const calm = buildPharosVilleWorld(makePharosVilleWorldInput());
     expect(calm.fleetIssuance?.flightToQuality).toBe(false);
-    renderer.render(rendererFrame(calm, "full", { timeSeconds: 2 }));
+    renderSettled(renderer, calm, { timeSeconds: 2 });
     const calmRoot = rendererHarness.instances.at(-1)!.lastScene!.children.at(-1)!;
     expect(namedObjects(calmRoot, FLIGHT_TENDERS_MESH_NAME)
       .filter((object) => object instanceof InstancedMesh)).toHaveLength(0);
@@ -579,7 +581,7 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
 
-  it("retains semantically identical content, rebuilds visual changes, and tears down once", () => {
+  it("retains semantically identical content, rebuilds only changed parts, and tears down once", () => {
     const firstWorld = buildPharosVilleWorld(makePharosVilleWorldInput());
     const metadataOnlyWorld = buildPharosVilleWorld(makePharosVilleWorldInput({
       generatedAt: (firstWorld.generatedAt ?? 0) + 1,
@@ -608,24 +610,38 @@ describe("Three world renderer lifecycle", () => {
 
     const webGlRenderer = rendererHarness.instances.at(-1)!;
     const scene = webGlRenderer.lastScene!;
-    const firstContentRoot = scene.children.at(-1)!;
-    const firstGeometry = firstGeometryIn(firstContentRoot);
-    const firstGeometryDispose = vi.spyOn(firstGeometry, "dispose");
+    const contentRoot = scene.children.at(-1)!;
+    const islandGeometryDispose = vi.spyOn(
+      firstGeometryIn(contentRoot.getObjectByName("content-part-island")!),
+      "dispose",
+    );
+    const dockGeometryDispose = vi.spyOn(
+      firstGeometryIn(contentRoot.getObjectByName("content-part-docks")!),
+      "dispose",
+    );
+    const shipsGeometryDispose = vi.spyOn(
+      firstGeometryIn(contentRoot.getObjectByName("content-part-ships")!),
+      "dispose",
+    );
 
     renderer.render(rendererFrame(firstWorld, "full"));
-    expect(firstGeometryDispose).not.toHaveBeenCalled();
+    expect(islandGeometryDispose).not.toHaveBeenCalled();
 
     expect(renderer.render(rendererFrame(metadataOnlyWorld, "full")).contentReplacementCount).toBe(1);
-    expect(scene.children.at(-1)).toBe(firstContentRoot);
-    expect(firstGeometryDispose).not.toHaveBeenCalled();
+    expect(scene.children.at(-1)).toBe(contentRoot);
+    expect(islandGeometryDispose).not.toHaveBeenCalled();
+    expect(shipsGeometryDispose).not.toHaveBeenCalled();
 
-    expect(renderer.render(rendererFrame(visuallyChangedWorld, "full")).contentReplacementCount).toBe(2);
-    const secondContentRoot = scene.children.at(-1)!;
-    expect(secondContentRoot).not.toBe(firstContentRoot);
-    expect(firstContentRoot.parent).toBeNull();
-    expect(firstGeometryDispose).toHaveBeenCalledTimes(1);
+    // W4.1: a ship visual change rebuilds the SHIPS part (and its dependent
+    // tenders part) — the content root survives and the island and docks are
+    // never disposed or rebuilt.
+    const changed = renderSettled(renderer, visuallyChangedWorld);
+    expect(changed.contentReplacementCount).toBe(2);
+    expect(scene.children.at(-1)).toBe(contentRoot);
+    expect(islandGeometryDispose).not.toHaveBeenCalled();
+    expect(dockGeometryDispose).not.toHaveBeenCalled();
+    expect(shipsGeometryDispose).toHaveBeenCalledTimes(1);
 
-    const secondGeometryDispose = vi.spyOn(firstGeometryIn(secondContentRoot), "dispose");
     const waterGeometryDispose = vi.spyOn(
       (scene.children[3] as Mesh).geometry,
       "dispose",
@@ -633,7 +649,7 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
     renderer.dispose();
 
-    expect(secondGeometryDispose).toHaveBeenCalledTimes(1);
+    expect(islandGeometryDispose).toHaveBeenCalledTimes(1);
     expect(waterGeometryDispose).toHaveBeenCalledTimes(1);
     expect(webGlRenderer.renderLists.dispose).toHaveBeenCalledTimes(1);
     expect(webGlRenderer.dispose).toHaveBeenCalledTimes(1);
@@ -767,6 +783,189 @@ describe("W6.5 sky-probe environment", () => {
   });
 });
 
+describe("W4.1 per-part refresh reconciliation", () => {
+  it("applies ship-only berth and beam-dwell changes in place — nothing rebuilt, nothing disposed", () => {
+    const worldA = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const subject = selectGardenObservatorySlice(worldA, null).ships[1]!.ship;
+    // A moved data tile plus a new beam-dwell target: pose data only — every
+    // build-time input (visuals, membership, docks, zones) holds still.
+    const worldB: PharosVilleWorld = {
+      ...worldA,
+      lighthouse: {
+        ...worldA.lighthouse,
+        beamDwell: { shipId: subject.id },
+      },
+      ships: worldA.ships.map((ship) => (
+        ship.id === subject.id
+          ? { ...ship, tile: { x: ship.tile.x + 4, y: ship.tile.y + 2 } }
+          : ship
+      )),
+    } as PharosVilleWorld;
+
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    // Reduced motion parks the beam at its static dwell bearing, which makes
+    // the pose adoption observable without reaching into renderer internals.
+    const first = renderer.render(rendererFrame(worldA, "full", { reducedMotion: true }));
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    const contentRoot = scene.children.at(-1)!;
+    const disposals = ["island", "docks", "ships"].map((name) => vi.spyOn(
+      firstGeometryIn(contentRoot.getObjectByName(`content-part-${name}`)!),
+      "dispose",
+    ));
+    const beam = namedObjects(contentRoot, "lighthouse-beam-cone")[0]!.parent!;
+    const beamBefore = beam.rotation.y;
+
+    const second = renderer.render(rendererFrame(worldB, "full", { reducedMotion: true }));
+    expect(second.contentReplacementCount).toBe(first.contentReplacementCount);
+    expect(second.contentPartRebuildCount).toBe(first.contentPartRebuildCount);
+    expect(second.contentRebuildQueueDepth).toBe(0);
+    for (const dispose of disposals) expect(dispose).not.toHaveBeenCalled();
+    // The world adopted the new dwell target immediately.
+    expect(beam.rotation.y).not.toBe(beamBefore);
+
+    renderer.dispose();
+  });
+
+  it("amortizes a multi-part refresh one part per frame and drains the queue", () => {
+    const worldA = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const dockSubject = worldA.docks[0]!;
+    const shipSubject = worldA.ships[0]!;
+    // Dock structure + ship structure: dirties docks, harborLife, cargoTide,
+    // ships and tenders — five parts, never the island or the landmarks.
+    const worldB: PharosVilleWorld = {
+      ...worldA,
+      docks: worldA.docks.map((dock) => (
+        dock.id === dockSubject.id ? { ...dock, label: `${dock.label} II` } : dock
+      )),
+      ships: worldA.ships.map((ship) => (
+        ship.id === shipSubject.id
+          ? {
+              ...ship,
+              visual: {
+                ...ship.visual,
+                overlay: ship.visual.overlay === "nav" ? "yield" : "nav",
+              },
+            }
+          : ship
+      )),
+    } as PharosVilleWorld;
+
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    const first = renderer.render(rendererFrame(worldA, "full"));
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    const contentRoot = scene.children.at(-1)!;
+    const islandDispose = vi.spyOn(
+      firstGeometryIn(contentRoot.getObjectByName("content-part-island")!),
+      "dispose",
+    );
+    const dockDispose = vi.spyOn(
+      firstGeometryIn(contentRoot.getObjectByName("content-part-docks")!),
+      "dispose",
+    );
+
+    // One heavy part per frame: the first refresh frame rebuilds exactly one
+    // of the five changed parts and queues the other four.
+    const start = renderer.render(rendererFrame(worldB, "full"));
+    expect(start.contentReplacementCount).toBe((first.contentReplacementCount ?? 0) + 1);
+    expect(start.contentPartRebuildCount).toBe((first.contentPartRebuildCount ?? 0) + 1);
+    expect(start.contentRebuildQueueDepth).toBe(4);
+    expect(dockDispose).toHaveBeenCalledTimes(1);
+
+    const settled = renderSettled(renderer, worldB);
+    expect(settled.contentPartRebuildCount).toBe((first.contentPartRebuildCount ?? 0) + 5);
+    // The refresh was ONE adoption event however many frames it amortized over.
+    expect(settled.contentReplacementCount).toBe((first.contentReplacementCount ?? 0) + 1);
+    expect(islandDispose).not.toHaveBeenCalled();
+
+    renderer.dispose();
+  });
+
+  it("drains the whole refresh in the one static frame under reduced motion", () => {
+    const worldA = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const worldB: PharosVilleWorld = {
+      ...worldA,
+      docks: worldA.docks.map((dock, index) => (
+        index === 0 ? { ...dock, label: `${dock.label} II` } : dock
+      )),
+      ships: worldA.ships.map((ship, index) => (
+        index === 0
+          ? {
+              ...ship,
+              visual: {
+                ...ship.visual,
+                overlay: ship.visual.overlay === "nav" ? "yield" : "nav",
+              },
+            }
+          : ship
+      )),
+    } as PharosVilleWorld;
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(worldA, "full", { reducedMotion: true }));
+    const refreshed = renderer.render(rendererFrame(worldB, "full", { reducedMotion: true }));
+    // A reduced-motion visitor sees exactly one deterministic static frame —
+    // it must be complete, so the amortization budget does not apply.
+    expect(refreshed.contentRebuildQueueDepth).toBe(0);
+    renderer.dispose();
+  });
+
+  it("adds and removes ONLY transient content when an outsider ship is selected", () => {
+    const world = overCapacityWorldFixture();
+    const slice = selectGardenObservatorySlice(world, null);
+    const outsider = world.ships.find((ship) => (
+      !slice.representativeDetailIds.has(ship.detailId)
+    ))!;
+    expect(outsider).toBeDefined();
+
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    const base = renderer.render(rendererFrame(world, "full"));
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    const contentRoot = scene.children.at(-1)!;
+    const selectedMarker = scene.children[6]!;
+    const disposals = ["island", "docks", "ships"].map((name) => vi.spyOn(
+      firstGeometryIn(contentRoot.getObjectByName(`content-part-${name}`)!),
+      "dispose",
+    ));
+
+    const selected = renderer.render(rendererFrame(world, "full", {
+      selectedDetailId: outsider.detailId,
+    }));
+    // Selection must not trigger any content rebuild — only the one transient
+    // visual (and its selection cue) appears.
+    expect(selected.contentReplacementCount).toBe(base.contentReplacementCount);
+    expect(selected.contentPartRebuildCount).toBe(base.contentPartRebuildCount);
+    expect(selected.contentRebuildQueueDepth).toBe(0);
+    expect(selected.visibleShipCount).toBe(base.visibleShipCount + 1);
+    expect(selectedMarker.visible).toBe(true);
+
+    const deselected = renderer.render(rendererFrame(world, "full"));
+    expect(deselected.visibleShipCount).toBe(base.visibleShipCount);
+    expect(deselected.contentReplacementCount).toBe(base.contentReplacementCount);
+    expect(selectedMarker.visible).toBe(false);
+
+    // Reselect to prove the add/remove cycle is stable, then check nothing
+    // shared was ever disposed along the way.
+    const reselected = renderer.render(rendererFrame(world, "full", {
+      selectedDetailId: outsider.detailId,
+    }));
+    expect(reselected.visibleShipCount).toBe(base.visibleShipCount + 1);
+    for (const dispose of disposals) expect(dispose).not.toHaveBeenCalled();
+
+    renderer.dispose();
+  });
+});
+
 describe("Garden Observatory data selection", () => {
   it("chooses the largest dock and a spatially separate second dock", () => {
     const docks = [
@@ -857,6 +1056,23 @@ function rendererFrame(
     width: 1440,
     world,
   };
+}
+
+/**
+ * W4.1: heavy part rebuilds amortize one per animated frame, so a multi-part
+ * refresh needs a few frames to settle. Renders until the queue drains.
+ */
+function renderSettled(
+  renderer: ReturnType<typeof createThreeWorldRenderer>,
+  world: PharosVilleWorld,
+  options: Parameters<typeof rendererFrame>[2] = {},
+) {
+  let metrics = renderer.render(rendererFrame(world, "full", options));
+  for (let round = 0; (metrics.contentRebuildQueueDepth ?? 0) > 0 && round < 16; round += 1) {
+    metrics = renderer.render(rendererFrame(world, "full", options));
+  }
+  expect(metrics.contentRebuildQueueDepth ?? 0).toBe(0);
+  return metrics;
 }
 
 function wakeGroups(root: Object3D): Group[] {
