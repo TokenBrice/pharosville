@@ -19,6 +19,15 @@ export const PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS = [
   "/api/mint-burn-flows",
 ] as const;
 
+// The world can open without this enrichment feed: report cards shape hulls,
+// but stablecoins and chains are the only payloads required to render a useful
+// harbour. Keep probing it and annotate failures without turning an unrelated
+// upstream outage into a failed Pages deployment. `--strict-freshness` still
+// promotes the warning to a failure for operator sign-off.
+export const PHAROSVILLE_SMOKE_WARNING_ENDPOINTS = [
+  "/api/report-cards",
+] as const satisfies readonly (typeof PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS)[number][];
+
 const SHARED_BLOCKED_404_PATHS = [
   "/api/health",
   "/api/stability-index",

@@ -5,12 +5,13 @@
 // --url / SMOKE_UI_URL           origin to smoke (default https://pharosville.pharos.watch)
 // --timeout-ms / SMOKE_TIMEOUT_MS  per-request timeout (default 10000)
 // --strict-freshness / SMOKE_STRICT_FRESHNESS=1
-//     Exit non-zero on anything the run reports at the warning tier: data older
-//     than its producer cadence allows, and payload findings the response
-//     contract permits but an operator would want to act on. Off by default so a
-//     cadence blip or a schema-legal payload cannot break the canary before an
-//     operator has watched the signal; on once they have, which is the only
-//     thing that keeps a warning from being decoration.
+//     Exit non-zero on anything the run reports at the warning tier: an
+//     unavailable enrichment feed, data older than its producer cadence allows,
+//     or payload findings the response contract permits but an operator would
+//     want to act on. Off by default so an upstream enrichment outage, cadence
+//     blip, or schema-legal payload cannot break deployment before an operator
+//     has watched the signal; on once they have, which is the only thing that
+//     keeps a warning from being decoration.
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -20,6 +21,7 @@ const require = createRequire(import.meta.url);
 const {
   PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS,
   PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS,
+  PHAROSVILLE_SMOKE_WARNING_ENDPOINTS,
 } = require("../shared/lib/pharosville-smoke-matrix.ts");
 const { CRON_INTERVALS_CLIENT } = require("../shared/lib/cron-intervals-client.ts");
 
@@ -319,6 +321,16 @@ export function reportPayloadWarnings(warnings, strict, log = console.error) {
   return `${warnings.length} payload warning(s)`;
 }
 
+export function reportAvailabilityWarnings(warnings, strict, log = console.error) {
+  if (warnings.length === 0) return "all feeds available";
+  log(`[smoke-live] enrichment availability ${strict ? "FAILED" : "WARNING"} (${warnings.length}):`);
+  for (const warning of warnings) log(annotated(warning, strict));
+  if (strict) {
+    throw new Error(`[smoke-live] ${warnings.length} unavailable enrichment feed(s) under --strict-freshness`);
+  }
+  return `${warnings.length} availability warning(s)`;
+}
+
 export const endpointChecks = PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS.map((path) => {
   const validate = endpointValidatorsByPath[path];
   if (!validate) {
@@ -332,7 +344,12 @@ export const endpointChecks = PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS.map((path) =
   if (!Number.isFinite(producerIntervalSec)) {
     throw new Error(`Endpoint registry has no producer interval for key: ${source.key}`);
   }
-  return { path, validate, freshness: { ...source, producerIntervalSec } };
+  return {
+    path,
+    validate,
+    freshness: { ...source, producerIntervalSec },
+    warningOnly: PHAROSVILLE_SMOKE_WARNING_ENDPOINTS.includes(path),
+  };
 });
 
 async function main() {
@@ -341,21 +358,29 @@ async function main() {
   assert(rootContentType.includes("text/html"), `/ returned non-HTML content-type: ${rootContentType || "missing"}`);
 
   const nowSec = Date.now() / 1000;
+  const availabilityWarnings = [];
   const freshnessProblems = [];
   const payloadWarnings = [];
   for (const endpoint of endpointChecks) {
-    const json = await expectJson(endpoint.path);
-    payloadWarnings.push(...(endpoint.validate(json) ?? []));
-    freshnessProblems.push(...findFreshnessProblems(endpoint.path, json, endpoint.freshness, nowSec));
+    try {
+      const json = await expectJson(endpoint.path);
+      payloadWarnings.push(...(endpoint.validate(json) ?? []));
+      freshnessProblems.push(...findFreshnessProblems(endpoint.path, json, endpoint.freshness, nowSec));
+    } catch (error) {
+      if (!endpoint.warningOnly) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      availabilityWarnings.push(`${endpoint.path} enrichment is unavailable: ${message}`);
+    }
   }
 
   for (const blocked of PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS) {
     await expectBlocked(blocked.path, blocked.statuses, blocked.init);
   }
 
+  const availability = reportAvailabilityWarnings(availabilityWarnings, strictFreshness);
   const payloads = reportPayloadWarnings(payloadWarnings, strictFreshness);
   const freshness = reportFreshness(freshnessProblems, strictFreshness);
-  console.log(`[smoke-live] ${base.toString()} OK (${endpointChecks.length} endpoints, ${PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS.length} blocked variants, ${freshness}, ${payloads})`);
+  console.log(`[smoke-live] ${base.toString()} OK (${endpointChecks.length} endpoints, ${PHAROSVILLE_SMOKE_LIVE_BLOCKED_VARIANTS.length} blocked variants, ${availability}, ${freshness}, ${payloads})`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

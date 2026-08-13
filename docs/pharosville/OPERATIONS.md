@@ -88,11 +88,13 @@ Watch for:
 - three or more upstream timeout/502 responses in 10 minutes;
 - post-deploy smoke failure and failure of the scheduled canary;
 - warning annotations on an otherwise green canary run. `smoke:live` keeps two
-  tiers: contract violations fail the run, while stale data and payload findings
-  the schema permits are reported as GitHub Actions annotations so a green run
-  still shows them. Once one has been watched and judged worth enforcing, add
-  `--strict-freshness` (or `SMOKE_STRICT_FRESHNESS=1`) to the workflow and both
-  tiers become failures.
+  tiers: essential endpoint and contract violations fail the run, while an
+  unavailable report-card enrichment feed, stale data, and schema-legal payload
+  findings are reported as GitHub Actions annotations. Report cards shape ship
+  hulls but are not required to open a useful harbour, so an upstream outage
+  cannot falsely mark an otherwise successful Pages deployment as failed. Add
+  `--strict-freshness` (or `SMOKE_STRICT_FRESHNESS=1`) when operator sign-off
+  should promote every warning-tier finding to a failure.
 
 The deploy workflow probes the immutable deployment and
 `.github/workflows/canary-smoke.yml` probes the canonical host every 30

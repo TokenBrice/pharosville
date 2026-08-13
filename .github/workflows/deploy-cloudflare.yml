@@ -1,99 +1,43 @@
 name: Deploy to Cloudflare Pages
 
-# Visual policy: pull requests and main pushes must pass built-dist Playwright lanes
-# (single-browser and cross-browser accessibility) before release gating.
 on:
   pull_request:
   push:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  typecheck:
+  validate:
     runs-on: ubuntu-latest
-    concurrency:
-      group: ${{ github.workflow }}-typecheck-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: ./.github/actions/setup-workspace
-      - name: Typecheck
-        run: npm run typecheck
-
-  lint:
-    runs-on: ubuntu-latest
-    concurrency:
-      group: ${{ github.workflow }}-lint-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - uses: ./.github/actions/setup-workspace
-      - name: Lint
-        run: npm run lint
-
-  unit:
-    runs-on: ubuntu-latest
-    concurrency:
-      group: ${{ github.workflow }}-unit-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - uses: ./.github/actions/setup-workspace
-      - name: Unit and contract tests
-        run: npm test
-
-  guards:
-    runs-on: ubuntu-latest
-    concurrency:
-      group: ${{ github.workflow }}-guards-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - uses: ./.github/actions/setup-workspace
-      - name: Guard script self-tests
-        run: npm run test:guard-scripts
-      - name: Secret scan
-        run: npm run check:committed-secrets
-      - name: Documentation path and script guard
-        run: npm run check:doc-paths-and-scripts
-      - name: Runtime facts guard
-        run: npm run check:runtime-facts
-      - name: Release contract guard
-        run: npm run check:release-contract
-      - name: Viewport gate guard
-        run: npm run check:viewport-gate
-      - name: Static security headers guard
-        run: npm run check:security-headers:static
-      - name: Runtime media guard
-        run: npm run check:runtime-media
-      - name: Palette guard
-        run: npm run check:pharosville-colors
-
-  build:
-    runs-on: ubuntu-latest
-    concurrency:
-      group: ${{ github.workflow }}-build-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - uses: ./.github/actions/setup-workspace
-      - name: Build
-        run: npm run build
-      - name: Bundle size guard
-        run: npm run check:bundle-size
+      - name: Validate and build
+        run: npm run validate
       - uses: actions/upload-artifact@v6
         with:
           name: pharosville-dist
           path: dist
+          if-no-files-found: error
+          retention-days: 1
 
   visual:
-    needs: build
+    needs: validate
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
-    concurrency:
-      group: ${{ github.workflow }}-visual-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
+    # The Playwright container runs as root while Actions injects a HOME owned
+    # by uid 1000. Firefox refuses to launch until HOME points at a root-owned
+    # directory.
+    env:
+      HOME: /root
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: ./.github/actions/setup-workspace
@@ -101,14 +45,13 @@ jobs:
         with:
           name: pharosville-dist
           path: dist
-      # CI has no GPU, and this world needs one. Chromium falls back to
-      # SwiftShader and times out on the motion assertions; Firefox in this
-      # container gets no WebGL context at all. So CI gates on the contract it
-      # can actually prove — the one a visitor without WebGL is owed — and the
-      # full lane runs on real hardware in the pre-push deploy gate. Reproduction
-      # and the alternatives are in docs/pharosville/TESTING.md.
-      - name: Built-dist DOM and accessibility contract
-        run: npm run test:visual:dist:dom
+      # Hosted runners have no real GPU. These lanes prove the DOM and
+      # accessibility fallback in Chromium and Firefox; the pre-push deploy
+      # gate owns the full real-GPU visual and performance contracts.
+      - name: Built-dist cross-browser DOM and accessibility contract
+        run: |
+          npm run test:visual:dist:dom
+          npm run test:visual:dist:dom:firefox
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
@@ -117,54 +60,15 @@ jobs:
             test-results
             playwright-report
           if-no-files-found: ignore
-
-  visual-cross-browser:
-    needs: build
-    runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
-    # Firefox refuses to launch when $HOME isn't owned by the running user.
-    # The playwright container runs as root, but GH Actions injects
-    # HOME=/github/home (owned by uid 1000 on the host). Pin HOME to a
-    # root-owned path so Firefox's sandbox check passes.
-    env:
-      HOME: /root
-    concurrency:
-      group: ${{ github.workflow }}-visual-cross-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - uses: ./.github/actions/setup-workspace
-      - uses: actions/download-artifact@v7
-        with:
-          name: pharosville-dist
-          path: dist
-      - name: Built-dist cross-browser DOM and accessibility contract
-        run: npm run test:visual:dist:dom:firefox
-      - uses: actions/upload-artifact@v6
-        if: failure()
-        with:
-          name: pharosville-visual-cross-browser-artifacts
-          path: |
-            test-results
-            playwright-report
-          if-no-files-found: ignore
+          retention-days: 7
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
-      - typecheck
-      - lint
-      - unit
-      - guards
-      - build
+      - validate
       - visual
-      - visual-cross-browser
     runs-on: ubuntu-latest
     environment: production
-    concurrency:
-      group: production-deploy
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - uses: ./.github/actions/setup-workspace
@@ -174,85 +78,19 @@ jobs:
           path: dist
       - name: Deploy Pages
         id: pages
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          for attempt in 1 2 3; do
-            echo "Cloudflare Pages deploy attempt ${attempt}/3"
-            if npx --no-install wrangler pages deploy dist --project-name=pharosville --commit-message="$GITHUB_SHA"; then
-              short_sha="${GITHUB_SHA:0:7}"
-              deployment_url=""
-              for lookup_attempt in 1 2 3; do
-                deployment_url="$(
-                  npx --no-install wrangler pages deployment list --project-name=pharosville --json \
-                    | jq -r --arg source "$short_sha" \
-                      'map(select(.Environment == "Production" and .Source == $source)) | first | .Deployment // empty'
-                )"
-                if [ -n "$deployment_url" ]; then
-                  break
-                fi
-                sleep $((lookup_attempt * 5))
-              done
-              if [ -z "$deployment_url" ]; then
-                echo "Could not resolve the production Pages URL for $short_sha." >&2
-                exit 1
-              fi
-              echo "deployment_url=$deployment_url" >> "$GITHUB_OUTPUT"
-              echo "Deployed artifact URL: $deployment_url"
-              exit 0
-            fi
-
-            if [ "$attempt" -lt 3 ]; then
-              sleep_seconds=$((attempt * 30))
-              echo "Cloudflare Pages deploy failed; retrying in ${sleep_seconds}s."
-              sleep "$sleep_seconds"
-            fi
-          done
-
-          echo "Cloudflare Pages deploy failed after 3 attempts."
-          exit 1
-      - name: Upload Wrangler deploy logs
-        if: failure()
-        uses: actions/upload-artifact@v6
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
         with:
-          name: wrangler-deploy-logs
-          path: ~/.config/.wrangler/logs
-          if-no-files-found: ignore
-      - name: Check deployed artifact security headers
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          wranglerVersion: "4.83.0"
+          command: >-
+            pages deploy dist
+            --project-name=pharosville
+            --commit-hash=${{ github.sha }}
+            --commit-message=${{ github.sha }}
+      - name: Verify deployed artifact
         env:
-          SMOKE_UI_URL: ${{ steps.pages.outputs.deployment_url }}
+          SMOKE_UI_URL: ${{ steps.pages.outputs.deployment-url }}
         run: |
-          for attempt in 1 2 3 4; do
-            if node scripts/pharosville/check-security-headers.mjs --url "$SMOKE_UI_URL"; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 4 ]; then
-              sleep_seconds=$((attempt * 15))
-              echo "Live security-header check failed; retrying in ${sleep_seconds}s."
-              sleep "$sleep_seconds"
-            fi
-          done
-          echo "Live security-header check failed after 4 attempts."
-          exit 1
-      - name: Smoke deployed artifact
-        env:
-          SMOKE_UI_URL: ${{ steps.pages.outputs.deployment_url }}
-        run: |
-          for attempt in 1 2 3 4; do
-            if npm run smoke:live -- --url "$SMOKE_UI_URL"; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 4 ]; then
-              sleep_seconds=$((attempt * 15))
-              echo "Live smoke failed; retrying in ${sleep_seconds}s."
-              sleep "$sleep_seconds"
-            fi
-          done
-          echo "Live smoke failed after 4 attempts."
-          exit 1
-      - name: Probe canonical URL
-        continue-on-error: true
-        env:
-          SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}
-        run: node scripts/pharosville/check-security-headers.mjs --url "$SMOKE_UI_URL"
+          node scripts/pharosville/check-security-headers.mjs --url "$SMOKE_UI_URL"
+          npm run smoke:live -- --url "$SMOKE_UI_URL"
