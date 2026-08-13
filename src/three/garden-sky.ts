@@ -82,7 +82,28 @@ const FOG_FAR = 300;
 // perspective stays a depth cue instead of becoming a haze wall.
 //
 // Reference view height at the calibration framing, used as the scale pivot.
-const FOG_REFERENCE_VIEW_HEIGHT = 34;
+//
+// 2026-08-13: this was 34, and that number had switched the entire aerial
+// perspective system OFF at the framing it was calibrated for.
+//
+// `gardenCameraViewHeight(viewportHeight, zoom) = viewportHeight / (TILE_HEIGHT
+// * zoom)`, so the default framing measures 76.9 at the ladder's own stated
+// calibration (960 @ 0.78) and 80.4 at 1000 @ 0.7776 — not 34. Against a pivot
+// of 34 the ratio is 2.3, which clamps hard to FOG_MAX_SCALE and pushes
+// FOG_NEAR out to 267 while the visible ground plane only spans depth ~121-255.
+// Nothing in the frame ever reached the near plane. The depth table above,
+// every figure in it, and the whole "bokashi seam where far water meets sky"
+// it describes were accurate about the DESIGN and inert in the PICTURE, which
+// is why the far fleet read exactly as crisp as the near fleet and the day
+// graded flat.
+//
+// 78 is the real default. It restores the documented ladder exactly: scale 1.0
+// at the landing framing, so the island still sits at zero haze and the frame
+// top reaches ~0.63. The clamp keeps doing its two jobs from there — pulling
+// toward 1.5 as the camera pulls out so the world's edge dissolves instead of
+// ending as a diamond slab in a void, and holding at 1.0 on the way in so
+// close-ups stay crisp.
+const FOG_REFERENCE_VIEW_HEIGHT = 78;
 const FOG_MIN_SCALE = 1;
 // Capped at 1.5, not 2.6. W6.6 scaled fog with the view to stop noon becoming
 // a white-out, but at whole-map framing a 2.6x scale pushed FOG_NEAR out to

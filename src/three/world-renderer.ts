@@ -221,8 +221,15 @@ const CAMERA_DISTANCE = 110;
  * distant hull is still identifiable to someone who looks for it and merely
  * stops competing for attention. Full desaturation would make the far fleet a
  * monochrome band and turn a depth cue into a wall.
+ *
+ * Lowered from 0.62 once the scene fog was repaired (garden-sky.ts, 2026-08-13
+ * — the reference view height had switched aerial perspective off entirely at
+ * the default framing). While fog was inert this term was carrying the whole
+ * depth cue alone and needed to be strong; now that the haze itself grades the
+ * midground, the two compound, and the far fleet was losing its colour twice
+ * over.
  */
-const GARDEN_FLEET_AERIAL_STRENGTH = 0.62;
+const GARDEN_FLEET_AERIAL_STRENGTH = 0.4;
 
 /** The Pharos crown — the tallest thing that casts, and so what sizes the frustum. */
 const SHADOW_CASTER_HEIGHT = 34;
