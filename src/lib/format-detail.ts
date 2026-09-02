@@ -100,7 +100,8 @@ export type DetailFactKey =
   | "dependencyRisk"
   | "waterStyle"
   | "atmosphere"
-  | "sourceFields";
+  | "sourceFields"
+  | "wreckSilhouette";
 
 export interface DetailFactLike {
   label: string;
@@ -170,6 +171,7 @@ const DETAIL_FACT_LABELS = {
   "atmosphere": "atmosphere",
   "source": "sourceFields",
   "source fields": "sourceFields",
+  "wreck silhouette": "wreckSilhouette",
 } as const satisfies Record<string, DetailFactKey>;
 
 export function classifyDetailFactLabel(label: string): DetailFactKey | null {
@@ -400,6 +402,8 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   if (atmosphere) identity.push({ key: "atmosphere", label: "Atmosphere", value: atmosphere });
   const sourceFields = lookup.get("sourceFields");
   if (sourceFields) identity.push({ key: "sourceFields", label: "Source fields", value: sourceFields });
+  const wreckSilhouette = lookup.get("wreckSilhouette");
+  if (wreckSilhouette) identity.push({ key: "wreckSilhouette", label: "Wreck silhouette", value: wreckSilhouette });
 
   const position: DetailDisplayRow[] = [];
   const position_ = lookup.get("representativePosition");

@@ -37,6 +37,7 @@ import {
   stressBreakdownLabel,
   supplyTideLabel,
   supplyMomentumLabel,
+  wreckSilhouetteLabel,
 } from "../systems/detail-model";
 import { recentFleetTrendSummary, recentFleetTrendSummaryText, seaStateForWorld, seaStateSummary } from "../systems/sea-state";
 import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
@@ -501,7 +502,7 @@ function graveLedgerLine(grave: PharosVilleWorld["graves"][number]): string {
   const peak = grave.entry.peakMcap != null && Number.isFinite(grave.entry.peakMcap)
     ? `, peak market cap ${formatCompactUsd(grave.entry.peakMcap)}`
     : "";
-  return `${grave.entry.name} (${grave.entry.symbol}): ${cause}, ${grave.entry.deathDate}${peak}. ${grave.entry.obituary}`;
+  return `${grave.entry.name} (${grave.entry.symbol}): ${cause}, ${grave.entry.deathDate}${peak}; wreck silhouette ${wreckSilhouetteLabel(grave.visual.marker)}. ${grave.entry.obituary}`;
 }
 
 function firstSentence(value: string): string {

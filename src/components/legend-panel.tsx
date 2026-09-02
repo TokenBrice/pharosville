@@ -232,8 +232,10 @@ export function LegendPanel({ onClose, onObserve, onSelectDetail, recentFleetTre
             transfers). The Pharos lighthouse glows with the fleet-wide Peg
             Stability Index. Its beam warmth tracks fleet-wide PSI; the colour
             of the water and sky a ship sails in is that area&apos;s own DEWS
-            peg-risk reading — they are separate signals. The cemetery islet
-            remembers coins lost at sea.
+            peg-risk reading — they are separate signals. Wreck Shoal remembers
+            coins lost at sea: a substantial hull, broken keel, or bare remains
+            gives a silhouette-to-cause reading, while cause colour and the DOM
+            record state the cause directly.
           </p>
         </section>
 

@@ -314,6 +314,7 @@ describe("detail-model analytical links", () => {
     expect(detail.paragraphs).toEqual(["The largest stablecoin collapse in history."]);
     expect(detail.facts).toEqual(expect.arrayContaining([
       { label: "Cause", value: "Algorithmic Failure" },
+      { label: "Wreck silhouette", value: "Broken keel — the hull has split around exposed frames" },
       { label: "Peak market cap", value: "$18,770,471,902" },
     ]));
     expect(detail.facts.find((fact) => fact.label === "Obituary")).toBeUndefined();

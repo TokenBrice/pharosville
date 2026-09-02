@@ -722,7 +722,7 @@ describe("AccessibilityLedger", () => {
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("TerraUSD (UST): Algorithmic Failure, 2022-05-12, peak market cap $18.8B.");
+    expect(markup).toContain("TerraUSD (UST): Algorithmic Failure, 2022-05-12, peak market cap $18.8B; wreck silhouette Broken keel");
     expect(markup).toContain("The largest stablecoin collapse in history.");
   });
 
@@ -752,7 +752,7 @@ describe("AccessibilityLedger", () => {
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("NuBits (NBT): Abandoned, 2016-06-01.");
+    expect(markup).toContain("NuBits (NBT): Abandoned, 2016-06-01; wreck silhouette Bare remains");
     expect(markup).not.toContain("peak market cap");
   });
 

@@ -101,6 +101,17 @@ describe("buildVisualCueRegistry", () => {
     expect(`${cue?.visual} ${cue?.reducedMotionEquivalent}`).not.toContain("printed");
   });
 
+  it("registers wreck silhouette-to-cause lifecycle semantics", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.grave.lifecycle");
+
+    expect(cue?.visual).toContain("substantial hull");
+    expect(cue?.visual).toContain("broken keel");
+    expect(cue?.visual).toContain("bare remains");
+    expect(cue?.visual).toContain("cause colour");
+    expect(cue?.domEquivalent).toContain("Wreck silhouette");
+    expect(cue?.domEquivalent).toContain("cause-colour swatch legend");
+  });
+
   it("documents all six hull-family silhouettes and their complete classification source", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.hull");
 

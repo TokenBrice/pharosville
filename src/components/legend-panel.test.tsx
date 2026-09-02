@@ -51,6 +51,15 @@ describe("LegendPanel", () => {
     expect(markup).not.toMatch(/bigger coins cycle|extended dwell/i);
   });
 
+  it("explains the wreck silhouette-to-cause channel", () => {
+    const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
+
+    expect(markup).toContain("substantial hull, broken keel, or bare remains");
+    expect(markup).toContain("silhouette-to-cause reading");
+    expect(markup).toContain("cause colour");
+    expect(markup).not.toContain("cemetery islet");
+  });
+
   it("uses modal dialog semantics and focuses/restores the close control", () => {
     const opener = document.createElement("button");
     opener.type = "button";

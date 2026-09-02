@@ -496,15 +496,15 @@ export function buildVisualCueRegistry(): VisualCue[] {
       reducedMotionEquivalent: "frozen time-zero squall frame (streaks static, wash identical)",
     },
     {
-      id: "cue.cemetery",
+      id: "cue.grave.lifecycle",
       target: { kind: "grave" },
       primaryChannels: ["shape", "size", "color"],
-      visual: "cemetery graves",
-      sourceField: "CEMETERY_ENTRIES",
-      questionAnswered: "Which assets are dead or frozen?",
-      failureState: "cemetery unavailable row",
-      domEquivalent: "cemetery ledger rows",
-      reducedMotionEquivalent: "same static tomb marker and cause plaque",
+      visual: "wrecks in Wreck Shoal whose representative silhouette carries cause family: substantial hull, broken keel, or bare remains; canonical cause colour remains a second visual channel",
+      sourceField: "cemeteryEntries[].causeOfDeath, cemeteryEntries[].peakMcap",
+      questionAnswered: "Which assets are dead or frozen, and what cause record does each wreck represent?",
+      failureState: "no wreck without a cemetery entry; unavailable cemetery data leaves the shoal empty rather than inventing a cause",
+      domEquivalent: "grave detail Cause and Wreck silhouette rows plus cemetery ledger rows and the canonical wreck cause-colour swatch legend",
+      reducedMotionEquivalent: "the same static substantial-hull, broken-keel, or bare-remains silhouette with cause colour and DOM record",
     },
   ];
 }

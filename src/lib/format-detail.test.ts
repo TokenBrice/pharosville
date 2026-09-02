@@ -102,6 +102,17 @@ describe("buildDetailFactSections folds", () => {
       { key: "sourceFields", label: "Source fields", value: "cemeteryEntries[], world-layout wreck-water field" },
     ]);
   });
+
+  it("renders the wreck silhouette in grave details", () => {
+    const { identity } = buildDetailFactSections([
+      { label: "Wreck silhouette", value: "Broken keel — the hull has split around exposed frames" },
+    ]);
+    expect(identity).toEqual([{
+      key: "wreckSilhouette",
+      label: "Wreck silhouette",
+      value: "Broken keel — the hull has split around exposed frames",
+    }]);
+  });
   it("folds Bluechip audit into the Class row", () => {
     const { identity } = buildDetailFactSections([
       { label: "Ship class", value: "CeFi" },

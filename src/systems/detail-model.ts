@@ -33,6 +33,12 @@ function marketCapLabel(value: number): string {
   return Number.isFinite(value) && value > 0 ? usd.format(value) : "Unavailable";
 }
 
+export function wreckSilhouetteLabel(marker: GraveNode["visual"]["marker"]): string {
+  if (marker === "grounded" || marker === "sinking-stern") return "Substantial hull — much of the vessel remains";
+  if (marker === "broken-keel") return "Broken keel — the hull has split around exposed frames";
+  return "Bare remains — keel and ribs are exposed";
+}
+
 export interface ShipFleetRank {
   rank: number;
   total: number;
@@ -1222,6 +1228,7 @@ export function detailForGrave(node: GraveNode): DetailModel {
     facts: [
       { label: "Symbol", value: node.entry.symbol },
       { label: "Cause", value: causeLabel },
+      { label: "Wreck silhouette", value: wreckSilhouetteLabel(node.visual.marker) },
       { label: "Date", value: node.entry.deathDate },
       ...(node.entry.peakMcap != null && Number.isFinite(node.entry.peakMcap)
         ? [{ label: "Peak market cap", value: usd.format(node.entry.peakMcap) }]
