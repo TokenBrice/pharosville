@@ -1,19 +1,16 @@
 import {
   BoxGeometry,
-  CanvasTexture,
+  BufferGeometry,
   Color,
   Float32BufferAttribute,
   Group,
   InstancedMesh,
-  LinearFilter,
-  LinearMipmapLinearFilter,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
   Quaternion,
-  SRGBColorSpace,
   Vector3,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -33,8 +30,8 @@ import {
  * W2a — low boundary steles, not labels standing over the sea.
  *
  * Stone mass UP; timber boards, pilings and seven sign lanterns DOWN. The
- * stone is one InstancedMesh and every carved face is one merged atlas mesh:
- * seven bodies cost two draws total and one texture. Names remain quiet and
+ * stone is one InstancedMesh and every carved name is one merged cut-stroke mesh:
+ * seven bodies cost two draws total and no texture. Names remain quiet and
  * water-valued until the existing body hover/selection plumbing activates one.
  * The canvas content is aria-hidden; the accessibility ledger remains the
  * redundant naming channel.
@@ -141,17 +138,14 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
   stones.instanceMatrix.needsUpdate = true;
   root.add(stones);
 
-  const atlas = createSteleAtlas(entries.map(({ spec }) => spec));
-  const faceParts: PlaneGeometry[] = [];
+  const faceParts: BufferGeometry[] = [];
   const faceRanges: FaceRange[] = [];
   let vertexStart = 0;
   const normalX = Math.sin(SEA_SIGN_STELE.yaw);
   const normalZ = Math.cos(SEA_SIGN_STELE.yaw);
   for (let index = 0; index < entries.length; index += 1) {
     const { site, spec } = entries[index]!;
-    const face = new PlaneGeometry(STELE_WIDTH * 0.86, STELE_FACE_HEIGHT);
-    const cell = atlas?.cells[index];
-    if (cell) remapSteleUvs(face, cell);
+    const face = createSteleNameGeometry(spec.label);
     face.rotateY(SEA_SIGN_STELE.yaw);
     face.translate(
       site.x + normalX * FACE_OFFSET,
@@ -172,11 +166,8 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
   const faceGeometry = faceParts.length > 0 ? mergeGeometries(faceParts, false) : null;
   for (const part of faceParts) part.dispose();
   const faceMaterial = new MeshBasicMaterial({
-    alphaTest: 0.08,
     color: "#ffffff",
     depthWrite: false,
-    map: atlas?.texture ?? null,
-    transparent: true,
     vertexColors: true,
   });
   const faces = faceGeometry ? new Mesh(faceGeometry, faceMaterial) : null;
@@ -202,7 +193,6 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
     },
     lampPositions: [],
     dispose() {
-      atlas?.texture.dispose();
       faceGeometry?.dispose();
       faceMaterial.dispose();
       stoneGeometry.dispose();
@@ -285,89 +275,61 @@ function createSteleGeometry(): BoxGeometry {
   return geometry;
 }
 
-const ATLAS_WIDTH = 1024;
-const CELL_HEIGHT = 192;
-const ATLAS_MAX_HEIGHT = 2048;
+const GLYPH_ROWS = 7;
+const GLYPH_COLUMNS = 5;
+const GLYPHS: Readonly<Record<string, readonly string[]>> = {
+  A: ["01110", "10001", "10001", "11111", "10001", "10001", "10001"],
+  B: ["11110", "10001", "10001", "11110", "10001", "10001", "11110"],
+  C: ["01111", "10000", "10000", "10000", "10000", "10000", "01111"],
+  D: ["11110", "10001", "10001", "10001", "10001", "10001", "11110"],
+  E: ["11111", "10000", "10000", "11110", "10000", "10000", "11111"],
+  F: ["11111", "10000", "10000", "11110", "10000", "10000", "10000"],
+  G: ["01111", "10000", "10000", "10111", "10001", "10001", "01111"],
+  H: ["10001", "10001", "10001", "11111", "10001", "10001", "10001"],
+  I: ["11111", "00100", "00100", "00100", "00100", "00100", "11111"],
+  J: ["00111", "00010", "00010", "00010", "10010", "10010", "01100"],
+  K: ["10001", "10010", "10100", "11000", "10100", "10010", "10001"],
+  L: ["10000", "10000", "10000", "10000", "10000", "10000", "11111"],
+  M: ["10001", "11011", "10101", "10101", "10001", "10001", "10001"],
+  N: ["10001", "11001", "10101", "10011", "10001", "10001", "10001"],
+  O: ["01110", "10001", "10001", "10001", "10001", "10001", "01110"],
+  P: ["11110", "10001", "10001", "11110", "10000", "10000", "10000"],
+  Q: ["01110", "10001", "10001", "10001", "10101", "10010", "01101"],
+  R: ["11110", "10001", "10001", "11110", "10100", "10010", "10001"],
+  S: ["01111", "10000", "10000", "01110", "00001", "00001", "11110"],
+  T: ["11111", "00100", "00100", "00100", "00100", "00100", "00100"],
+  U: ["10001", "10001", "10001", "10001", "10001", "10001", "01110"],
+  V: ["10001", "10001", "10001", "10001", "10001", "01010", "00100"],
+  W: ["10001", "10001", "10001", "10101", "10101", "10101", "01010"],
+  X: ["10001", "10001", "01010", "00100", "01010", "10001", "10001"],
+  Y: ["10001", "10001", "01010", "00100", "00100", "00100", "00100"],
+  Z: ["11111", "00001", "00010", "00100", "01000", "10000", "11111"],
+};
 
-interface SteleAtlasCell {
-  uMax: number;
-  uMin: number;
-  vMax: number;
-  vMin: number;
-}
-
-interface SteleAtlas {
-  cells: SteleAtlasCell[];
-  texture: CanvasTexture;
-}
-
-function createSteleAtlas(specs: readonly SeaSignSpec[]): SteleAtlas | null {
-  if (specs.length === 0 || typeof document === "undefined") return null;
-  const requiredHeight = specs.length * CELL_HEIGHT;
-  if (requiredHeight > ATLAS_MAX_HEIGHT) {
-    throw new Error(`Sea-stele atlas exceeds ${ATLAS_MAX_HEIGHT}px for ${specs.length} steles.`);
+/** A tiny cut-stone alphabet: one merged mesh, no canvas or GPU texture. */
+function createSteleNameGeometry(label: string): BufferGeometry {
+  const text = label.toUpperCase();
+  const columns = Math.max(1, text.length * (GLYPH_COLUMNS + 1) - 1);
+  const unitX = STELE_WIDTH * 0.82 / columns;
+  const unitY = STELE_FACE_HEIGHT * 0.62 / GLYPH_ROWS;
+  const parts: PlaneGeometry[] = [];
+  for (let characterIndex = 0; characterIndex < text.length; characterIndex += 1) {
+    const glyph = GLYPHS[text[characterIndex]!] ?? [];
+    for (let row = 0; row < glyph.length; row += 1) {
+      for (let column = 0; column < GLYPH_COLUMNS; column += 1) {
+        if (glyph[row]![column] !== "1") continue;
+        const block = new PlaneGeometry(unitX * 0.82, unitY * 0.78);
+        block.translate(
+          (characterIndex * (GLYPH_COLUMNS + 1) + column - (columns - 1) / 2) * unitX,
+          ((GLYPH_ROWS - 1) / 2 - row) * unitY,
+          0,
+        );
+        parts.push(block);
+      }
+    }
   }
-  const atlasHeight = 2 ** Math.ceil(Math.log2(requiredHeight));
-  const canvas = document.createElement("canvas");
-  canvas.width = ATLAS_WIDTH;
-  canvas.height = atlasHeight;
-  const context = canvas.getContext("2d");
-  if (!context) return null;
-
-  const cells: SteleAtlasCell[] = [];
-  for (let index = 0; index < specs.length; index += 1) {
-    const top = index * CELL_HEIGHT;
-    paintSteleName(context, specs[index]!, top);
-    cells.push({
-      uMin: 0,
-      uMax: 1,
-      vMax: 1 - top / atlasHeight,
-      vMin: 1 - (top + CELL_HEIGHT) / atlasHeight,
-    });
-  }
-
-  const texture = new CanvasTexture(canvas);
-  texture.name = "garden-sea-stele-atlas";
-  texture.colorSpace = SRGBColorSpace;
-  texture.magFilter = LinearFilter;
-  texture.minFilter = LinearMipmapLinearFilter;
-  texture.generateMipmaps = true;
-  texture.anisotropy = 8;
-  texture.needsUpdate = true;
-  return { cells, texture };
-}
-
-function paintSteleName(
-  context: CanvasRenderingContext2D,
-  spec: SeaSignSpec,
-  top: number,
-): void {
-  const centreX = ATLAS_WIDTH / 2;
-  const centreY = top + CELL_HEIGHT / 2;
-  context.save();
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.font = `700 116px "PV Plaque", Georgia, "Times New Roman", serif`;
-  context.letterSpacing = "9px";
-  context.lineJoin = "round";
-  context.strokeStyle = "rgba(0, 0, 0, 0.72)";
-  context.lineWidth = 15;
-  context.strokeText(spec.label.toUpperCase(), centreX, centreY + 3, ATLAS_WIDTH * 0.9);
-  context.fillStyle = "rgba(255, 255, 255, 0.96)";
-  context.fillText(spec.label.toUpperCase(), centreX, centreY, ATLAS_WIDTH * 0.9);
-  context.restore();
-}
-
-function remapSteleUvs(geometry: PlaneGeometry, cell: SteleAtlasCell): void {
-  const uv = geometry.getAttribute("uv");
-  const scaleU = cell.uMax - cell.uMin;
-  const scaleV = cell.vMax - cell.vMin;
-  for (let index = 0; index < uv.count; index += 1) {
-    uv.setXY(
-      index,
-      cell.uMin + uv.getX(index) * scaleU,
-      cell.vMin + uv.getY(index) * scaleV,
-    );
-  }
-  uv.needsUpdate = true;
+  const merged = mergeGeometries(parts, false);
+  for (const part of parts) part.dispose();
+  if (!merged) return new PlaneGeometry(0.001, 0.001);
+  return merged;
 }
