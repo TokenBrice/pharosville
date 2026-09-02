@@ -130,19 +130,29 @@ describe("Garden Observatory slice", () => {
       displayOffset.x !== 0 || displayOffset.y !== 0
     ));
     expect(placement).toBeDefined();
+    const representativeBase = {
+      x: placement!.ship.tile.x + placement!.displayOffset.x,
+      y: placement!.ship.tile.y + placement!.displayOffset.y,
+    };
+    // Aim well into the map so this assertion isolates the nine-tile motion
+    // cap rather than exercising the independent hull-clearance resolver.
+    const inward = {
+      x: 70 - representativeBase.x,
+      y: 70 - representativeBase.y,
+    };
+    const inwardLength = Math.hypot(inward.x, inward.y);
     const sample = {
       mapVisibilityAlpha: 0,
-      tile: { x: 9, y: 11 },
+      tile: {
+        x: placement!.ship.tile.x + (inward.x / inwardLength) * 20,
+        y: placement!.ship.tile.y + (inward.y / inwardLength) * 20,
+      },
     };
 
     const representativeDisplay = resolveGardenShipDisplayTile({
       ...placement!,
       sample,
     });
-    const representativeBase = {
-      x: placement!.ship.tile.x + placement!.displayOffset.x,
-      y: placement!.ship.tile.y + placement!.displayOffset.y,
-    };
     expect(Math.hypot(
       representativeDisplay.x - representativeBase.x,
       representativeDisplay.y - representativeBase.y,
