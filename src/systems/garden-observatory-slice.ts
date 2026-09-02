@@ -31,14 +31,13 @@ import type {
 // GARDEN_FLEET_BATCH_CAPACITY so the batches never reallocate. Composition is
 // now enforced by region-scoped placement density, not by a small count.
 export const GARDEN_OVERVIEW_SHIP_LIMIT = 320;
-/** How far a ship may travel from its composed berth, in tiles (N3). */
-export const GARDEN_MAX_MOTION_TILES = 9;
 /**
- * Longest authored island-to-station reach, rounded up in world tiles.
- * Wave 3a records the geography without changing cadence; Wave 4/C3 can use
- * this named capacity when it replaces clipped local motion with voyage legs.
+ * Longest authored island-to-station reach, rounded up in world tiles. With
+ * harbors on the rim coves this is the single leg allowance: a voyage may run
+ * from any berth to any station.
  */
 export const GARDEN_STATION_LEG_TILES = 96;
+export const GARDEN_MAX_MOTION_TILES = GARDEN_STATION_LEG_TILES;
 export const GARDEN_WATER_Y = -1.45;
 export const GARDEN_DOCK_ROOT_Y = GARDEN_WATER_Y + 0.2;
 export const GARDEN_SHIP_ROOT_Y = GARDEN_WATER_Y + 0.38;

@@ -145,6 +145,13 @@ export function consortShadowSampleInto(
     tileX += Math.sin(t * 0.31 + phase) * 0.18;
     tileY += Math.cos(t * 0.27 + phase * 1.1) * 0.14;
   }
+  // The authored rim turns edge water into land. Formation breathing is
+  // applied after the gain check, so validate the final offset as well and
+  // collapse to the flagship's water-safe centerline when it crosses shore.
+  if (!isWaterTile(tileX, tileY) && isWaterTile(flagshipSample.tile.x, flagshipSample.tile.y)) {
+    tileX = flagshipSample.tile.x;
+    tileY = flagshipSample.tile.y;
+  }
   // W4.24: high formation gain can push consorts over island/shore terrain
   // while the flagship itself is still on water. In that case collapse the
   // consort back onto the flagship tile rather than showing a ship on land.

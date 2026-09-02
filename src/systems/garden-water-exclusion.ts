@@ -143,14 +143,22 @@ export function gardenShipWaterMarginTiles(
 }
 
 function ellipseValue(point: { x: number; y: number }, ellipse: GardenEllipse, margin: number): number {
+  return ellipseValueXY(point.x, point.y, ellipse, margin);
+}
+
+function ellipseValueXY(x: number, y: number, ellipse: GardenEllipse, margin: number): number {
   const rx = ellipse.rx + margin;
   const ry = ellipse.ry + margin;
-  return ((point.x - ellipse.x) / rx) ** 2 + ((point.y - ellipse.y) / ry) ** 2;
+  return ((x - ellipse.x) / rx) ** 2 + ((y - ellipse.y) / ry) ** 2;
 }
 
 function circleValue(point: { x: number; y: number }, circle: GardenCircle, margin: number): number {
+  return circleValueXY(point.x, point.y, circle, margin);
+}
+
+function circleValueXY(x: number, y: number, circle: GardenCircle, margin: number): number {
   const r = circle.r + margin;
-  return ((point.x - circle.x) / r) ** 2 + ((point.y - circle.y) / r) ** 2;
+  return ((x - circle.x) / r) ** 2 + ((y - circle.y) / r) ** 2;
 }
 
 /**
@@ -187,12 +195,12 @@ let obstacleTileMask: Uint8Array | null = null;
 
 function resolveGardenObstacleTile(x: number, y: number): boolean {
   if (rimLandAt(x, y)) return true;
-  const point = { x, y };
-  if (ellipseValue(point, GARDEN_ISLAND_OBSTACLE, 0) < 1) return true;
-  if (ellipseValue(point, GARDEN_CEMETERY_OBSTACLE, 0) < 1) return true;
-  if (circleValue(point, GARDEN_PIGEONNIER_OBSTACLE, 0) < 1) return true;
-  for (const islet of GARDEN_ISLET_OBSTACLES) {
-    if (circleValue(point, islet, 0) < 1) return true;
+  if (ellipseValueXY(x, y, GARDEN_ISLAND_OBSTACLE, 0) < 1) return true;
+  if (ellipseValueXY(x, y, GARDEN_CEMETERY_OBSTACLE, 0) < 1) return true;
+  if (circleValueXY(x, y, GARDEN_PIGEONNIER_OBSTACLE, 0) < 1) return true;
+  for (let index = 0; index < GARDEN_ISLET_OBSTACLES.length; index += 1) {
+    const islet = GARDEN_ISLET_OBSTACLES[index]!;
+    if (circleValueXY(x, y, islet, 0) < 1) return true;
   }
   for (const edge of GARDEN_EDGE_STONE_OBSTACLES) {
     if (circleValue(point, edge, 0) < 1) return true;
