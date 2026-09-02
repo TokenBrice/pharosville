@@ -50,6 +50,8 @@ export interface SeaSignSpec {
 
 export interface GardenSeaSigns {
   root: Group;
+  /** Exact eased/hysteretic scale used by the most recently drawn frame. */
+  readonly scale: number;
   /** Steles shed the board lanterns, so they contribute no light lanes. */
   lampPositions: readonly { x: number; y: number; z: number }[];
   dispose: () => void;
@@ -195,6 +197,9 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
   const activeColor = new Color();
   return {
     root,
+    get scale() {
+      return scaleTrack.scale;
+    },
     lampPositions: [],
     dispose() {
       atlas?.texture.dispose();

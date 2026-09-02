@@ -24,6 +24,7 @@ import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { TILE_WIDTH } from "../systems/projection";
 import {
   SEA_SIGN_STELE,
+  createSeaSignScaleTrack,
   seaSignSteles,
   seaSignScaleForZoom,
 } from "../three/garden-sea-signs";
@@ -228,6 +229,33 @@ describe("Carved sea-name stele targets (W2a)", () => {
     expect(widthAt(0.28)).toBeGreaterThan(widthAt(0.5));
     expect(widthAt(0.5)).toBeCloseTo(widthAt(0.8) * (0.5 / 0.8), 6);
     expect(widthAt(2)).toBeCloseTo(widthAt(1) * 2, 6);
+  });
+
+  it("uses the renderer track's exact scale throughout both hysteresis walks", () => {
+    const world = denseWorld();
+    const assertWalk = (zooms: readonly number[]) => {
+      const track = createSeaSignScaleTrack();
+      for (const [index, zoom] of zooms.entries()) {
+        const drawnScale = track.advance({
+          deltaSeconds: index === 0 ? Number.POSITIVE_INFINITY : 1 / 60,
+          zoom,
+        });
+        const snapshot = createGardenObservatoryHitTargetSnapshot({
+          camera: { offsetX: 720, offsetY: 430, zoom },
+          seaSignScale: track.scale,
+          world,
+        });
+        const target = snapshot.targets.find((entry) => entry.kind === "sea-sign")!;
+        const hitScale = target.rect.width
+          / (SEA_SIGN_STELE.width * (TILE_WIDTH / 2) * zoom);
+        expect(hitScale).toBeCloseTo(drawnScale, 6);
+      }
+    };
+
+    // Both resting zooms are inside the hysteresis band: the first walk keeps
+    // the 3.2x overview rung and the reverse walk keeps the 1x inhabited rung.
+    assertWalk([0.28, ...Array.from({ length: 30 }, () => 0.41)]);
+    assertWalk([0.5, ...Array.from({ length: 30 }, () => 0.39)]);
   });
 
   it("centres the target on the drawn stele at every framing", () => {

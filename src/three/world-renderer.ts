@@ -902,6 +902,10 @@ export function createThreeWorldRenderer(
   };
 
   return {
+    getSeaSignScale() {
+      const scale = scene.content?.seaSigns.scale ?? 0;
+      return Number.isFinite(scale) && scale > 0 ? scale : null;
+    },
     warmup: async () => {
       if (disposed) throw new Error("Cannot warm a disposed Three.js world renderer.");
       // A normal render may compile a material between `compile()` collecting

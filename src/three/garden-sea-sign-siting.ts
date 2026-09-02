@@ -23,8 +23,8 @@ export const STELE_FACE_HEIGHT = 1.25;
 export const STELE_FACE_BASE_Y = 0.9;
 
 /**
- * The lettered face's true-scale footprint, as the hit-target projection needs
- * it: everything here is multiplied by `seaSignScaleForZoom` at draw time.
+ * The lettered face's true-scale footprint. Draw and hit projection both
+ * multiply this by the renderer track's current scale.
  */
 export const SEA_SIGN_STELE = {
   /** Height of the face's centre above the stele's own origin. */
@@ -119,12 +119,9 @@ export function seaSignStepWithHysteresis(zoom: number, currentStep: number): nu
 /**
  * The SETTLED stele scale for a zoom, as a pure function.
  *
- * This is the shared contract the hit targets (N6) resolve against, so it
- * carries no history and no easing: a hit rect built from it matches the drawn
- * stele at every resting camera outside the hysteresis bands, and inside them
- * it is at most one rung out for as long as the camera sits there. Draw code
- * wants `createSeaSignScaleTrack`, which adds exactly the two things a pure
- * function cannot have: the hysteresis and the settle.
+ * This carries no history and is only a fallback for snapshots built before a
+ * live renderer exists. Live hit targets consume `createSeaSignScaleTrack`'s
+ * current value after the frame is drawn, including hysteresis and easing.
  */
 export function seaSignScaleForZoom(zoom: number): number {
   return SEA_SIGN_SCALE_STEPS[seaSignStepForZoom(Math.max(0.05, zoom))]!;

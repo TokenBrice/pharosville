@@ -47,6 +47,8 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
   camera: IsoCamera;
   hoveredDetailId?: string | null;
   selectedDetailId?: string | null;
+  /** Renderer-owned eased/hysteretic stele scale from the frame just drawn. */
+  seaSignScale?: number | null;
   shipMotionSamples?: ReadonlyMap<string, ShipMotionSample>;
   viewport?: GardenHitTargetViewport | null;
   world: PharosVilleWorld;
@@ -140,7 +142,14 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
   // the steles themselves remain visible and the zone target still carries the
   // body in that state.
   if (gardenSemanticView(input.camera.zoom, selectedDetailId) !== "analyze") {
-    const signScale = seaSignScaleForZoom(input.camera.zoom);
+    // Live callers pass the renderer track's exact last-drawn value. The pure
+    // scale is only a construction-time/test fallback before a stele frame
+    // exists; it must never overwrite a live hysteresis or eased settle.
+    const signScale = input.seaSignScale != null
+      && Number.isFinite(input.seaSignScale)
+      && input.seaSignScale > 0
+      ? input.seaSignScale
+      : seaSignScaleForZoom(input.camera.zoom);
     for (const stele of seaSignSteles(input.world.areas)) {
       if (!stele.detailId) continue;
       const rect = seaSignSteleRect(stele, signScale, input.camera);
