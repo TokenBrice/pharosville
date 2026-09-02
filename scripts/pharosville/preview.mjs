@@ -51,6 +51,7 @@
  *   node scripts/pharosville/preview.mjs --legend           # keep the onboarding overlay
  *   node scripts/pharosville/preview.mjs --quick-find       # open the search chrome for review
  *   node scripts/pharosville/preview.mjs --hover-first      # hover a visible ship target
+ *   node scripts/pharosville/preview.mjs --hover-sea-sign   # hover a visible sea stele target
  *   node scripts/pharosville/preview.mjs --url http://localhost:4173 --width 2560 --height 1440
  *   node scripts/pharosville/preview.mjs --assert            # perf tripwire, exits non-zero
  *   node scripts/pharosville/preview.mjs --assert --reduced  # settled static resource gate
@@ -542,6 +543,27 @@ async function applyRequestedUiState(page) {
       };
     });
     if (!point) throw new Error("--hover-first could not find a visible ship target.");
+    await page.mouse.move(point.x, point.y);
+    await page.waitForTimeout(250);
+  }
+  if (args["hover-sea-sign"]) {
+    const point = await page.evaluate(() => {
+      const canvas = document.querySelector('[data-testid="pharosville-canvas"]');
+      const bounds = canvas?.getBoundingClientRect();
+      const targets = window.__pharosVilleDebug?.targets ?? [];
+      if (!bounds) return null;
+      const target = targets.find(({ kind, rect }) => {
+        const x = rect.x + rect.width / 2;
+        const y = rect.y + rect.height / 2;
+        return kind === "sea-sign" && x >= 0 && y >= 0 && x <= bounds.width && y <= bounds.height;
+      });
+      if (!target) return null;
+      return {
+        x: bounds.left + target.rect.x + target.rect.width / 2,
+        y: bounds.top + target.rect.y + target.rect.height / 2,
+      };
+    });
+    if (!point) throw new Error("--hover-sea-sign could not find a visible stele target.");
     await page.mouse.move(point.x, point.y);
     await page.waitForTimeout(250);
   }
@@ -1245,11 +1267,19 @@ function printTextureOwnerCensus(census) {
     console.log("textures   owner census unavailable");
     return;
   }
-  console.log(`textures   ${census.referencedTextures} scene-referenced ·`
-    + ` at least ${census.minimumUnattributedRendererTextures}`
+  const attributed = census.attributedTextures ?? census.referencedTextures;
+  console.log(`textures   ${census.rendererTextures} renderer allocations ·`
+    + ` ${census.referencedTextures} scene-referenced · ${attributed} named/reachable`);
+  console.log(`           at least ${census.minimumUnattributedRendererTextures}`
     + " renderer-internal/unattributed");
   for (const entry of census.owners ?? []) {
-    console.log(`           ${String(entry.textureCount).padStart(2, " ")}  ${entry.owner}`);
+    const live = entry.liveTextureCount === undefined
+      ? ""
+      : ` · ${String(entry.liveTextureCount).padStart(2, " ")} resident`;
+    console.log(`           ${String(entry.textureCount).padStart(2, " ")}  ${entry.owner}${live}`);
+    if ((entry.liveTextureNames?.length ?? 0) > 0) {
+      console.log(`                 live: ${entry.liveTextureNames.join(", ")}`);
+    }
   }
 }
 

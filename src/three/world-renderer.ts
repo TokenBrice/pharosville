@@ -40,6 +40,7 @@ import type {
 import type {
   PharosVilleRenderSchedulerTier,
   TextureOwnerCensus,
+  TextureOwnerManifestEntry,
 } from "../renderer/render-types";
 import { isRenderSchedulerIdle, seaQualityTier } from "../renderer/render-scheduler";
 import {
@@ -104,7 +105,7 @@ import {
 } from "./garden-harbor-life";
 import { createGardenHorizon, type GardenHorizon } from "./garden-horizon";
 import { createGardenSeaSigns, type GardenSeaSigns, type SeaSignSpec } from "./garden-sea-signs";
-import { SEA_BODY_TERRAIN, seaBodyForArea } from "../systems/sea-bodies";
+import { SEA_BODY_TERRAIN, seaBodyForArea, type SeaBodyName } from "../systems/sea-bodies";
 import { createGardenIslets, type GardenIslets } from "./garden-islets";
 import {
   createGardenHeroReflections,
@@ -117,6 +118,7 @@ import {
 } from "./garden-ship-gulls";
 import {
   createGardenOverviewLod,
+  overviewLodTargetDetail,
   type GardenOverviewLod,
 } from "./garden-overview-lod";
 import { createGardenModelLibrary } from "./garden-models";
@@ -660,8 +662,22 @@ function textureOwnerName(object: Object3D, root: Object3D): string {
   return object.type;
 }
 
-function textureOwnerCensus(root: Scene, rendererTextures: number): TextureOwnerCensus {
+function textureOwnerCensus(
+  root: Scene,
+  rendererTextures: number,
+  manifest: readonly TextureOwnerManifestEntry[] = [],
+  renderer?: WebGLRenderer,
+): TextureOwnerCensus {
   const ownerByTexture = new Map<Texture, string>();
+  const sceneTextures = new Set<Texture>();
+  // Explicit owners take precedence over the nearest mesh name. Water's
+  // material samples the wake/lane/environment textures, but those resources
+  // belong to their scene-scope systems; the post chain is not in the scene at
+  // all. Seeding the map also makes the census useful for renderer allocations
+  // that have no object/material edge to follow.
+  for (const entry of manifest) {
+    if (!ownerByTexture.has(entry.texture)) ownerByTexture.set(entry.texture, entry.owner);
+  }
   root.traverse((object) => {
     if (!(object as Mesh).isMesh) return;
     const owner = textureOwnerName(object, root);
@@ -669,49 +685,82 @@ function textureOwnerCensus(root: Scene, rendererTextures: number): TextureOwner
     const materials = Array.isArray(material) ? material : [material];
     for (const entry of materials) {
       for (const value of Object.values(entry)) {
-        if (value instanceof Texture && !ownerByTexture.has(value)) {
-          ownerByTexture.set(value, owner);
+        if (value instanceof Texture) {
+          sceneTextures.add(value);
+          if (!ownerByTexture.has(value)) ownerByTexture.set(value, owner);
         }
       }
       const uniforms = (entry as ShaderMaterial).uniforms;
       if (!uniforms) continue;
       for (const uniform of Object.values(uniforms)) {
-        if (uniform.value instanceof Texture && !ownerByTexture.has(uniform.value)) {
-          ownerByTexture.set(uniform.value, owner);
+        if (uniform.value instanceof Texture) {
+          sceneTextures.add(uniform.value);
+          if (!ownerByTexture.has(uniform.value)) ownerByTexture.set(uniform.value, owner);
         }
       }
     }
   });
-  if (root.environment && !ownerByTexture.has(root.environment)) {
-    ownerByTexture.set(root.environment, "environment.pmrem");
+  if (root.environment) {
+    sceneTextures.add(root.environment);
+    if (!ownerByTexture.has(root.environment)) {
+      ownerByTexture.set(root.environment, "environment.pmrem");
+    }
   }
-  // KNOWN UNATTRIBUTED: the post chain's own textures. The census walks the
-  // SCENE, and `scene.environment` is the only non-mesh owner it can reach from
-  // here; the grade pass's authored LUT and blue-noise images (garden-post.ts)
-  // hang off effect uniforms the scene graph never sees, so they land in
-  // `minimumUnattributedRendererTextures` alongside the composer's own render
-  // targets. Attributing them would mean garden-post exposing a texture
-  // manifest and this function taking a second source — new machinery for a
-  // diagnostic, deliberately not built (W2.2 rider). Two of the unattributed
-  // textures reported on a healthy full-tier frame are these.
-  const ownerCounts = new Map<string, number>();
-  for (const owner of ownerByTexture.values()) {
-    ownerCounts.set(owner, (ownerCounts.get(owner) ?? 0) + 1);
+  const ownerCounts = new Map<string, {
+    liveTextureCount: number;
+    liveTextureNames: string[];
+    textureCount: number;
+  }>();
+  for (const [texture, owner] of ownerByTexture) {
+    const stats = ownerCounts.get(owner) ?? {
+      liveTextureCount: 0,
+      liveTextureNames: [],
+      textureCount: 0,
+    };
+    stats.textureCount += 1;
+    if (renderer) {
+      const properties = (renderer as unknown as {
+        properties?: { get: (resource: object) => { __webglTexture?: unknown } };
+      }).properties;
+      const webglTexture = properties?.get(texture).__webglTexture;
+      if (webglTexture !== undefined && webglTexture !== null) {
+        stats.liveTextureCount += 1;
+        stats.liveTextureNames.push(texture.name || texture.uuid);
+      }
+    }
+    ownerCounts.set(owner, stats);
   }
   return {
     owners: [...ownerCounts]
-      .map(([owner, textureCount]) => ({ owner, textureCount }))
+      .map(([owner, stats]) => ({ owner, ...stats }))
       .sort((left, right) => (
         right.textureCount - left.textureCount
         || left.owner.localeCompare(right.owner)
       )),
-    referencedTextures: ownerByTexture.size,
+    referencedTextures: sceneTextures.size,
+    attributedTextures: ownerByTexture.size,
     rendererTextures,
     minimumUnattributedRendererTextures: Math.max(
       0,
       rendererTextures - ownerByTexture.size,
     ),
   };
+}
+
+function sceneTextureManifest(scene: GardenScene): readonly TextureOwnerManifestEntry[] {
+  const entries: TextureOwnerManifestEntry[] = [
+    ...(scene.wakes.getTextureManifest?.() ?? []),
+    ...(scene.laneRegistry.getTextureManifest?.() ?? []),
+    ...(scene.environment.getTextureManifest?.() ?? []),
+  ];
+  const shadowMap = scene.directionalLight.shadow.map;
+  if (shadowMap) {
+    entries.push({ owner: "garden-shadows.color", texture: shadowMap.texture });
+    if (shadowMap.depthTexture) {
+      entries.push({ owner: "garden-shadows.depth", texture: shadowMap.depthTexture });
+    }
+  }
+  return entries;
 }
 
 export function createThreeWorldRenderer(
@@ -780,6 +829,7 @@ export function createThreeWorldRenderer(
   let lastTextureOwnerCensus: TextureOwnerCensus = {
     owners: [],
     referencedTextures: 0,
+    attributedTextures: 0,
     rendererTextures: 0,
     minimumUnattributedRendererTextures: 0,
   };
@@ -787,6 +837,11 @@ export function createThreeWorldRenderer(
   let frameCounter = 0;
   let aoTierWeight: number | null = null;
   let aoWeightClockSeconds = 0;
+  // A fresh whole-map session must not warm N8AO while the scene LOD eases
+  // from its construction value of 1. Once that initial settle is complete
+  // (or the user first zooms in), every later crossing follows the eased scene
+  // detail so contact shading fades with the props it grounds.
+  let initialOverviewAOSuppression: "pending" | "active" | "complete" = "pending";
   // W1.5: the environment's own clock. The probe's bake cadence and the ambient
   // crossfade it runs between bakes are both real-time eases, and this is the
   // only frame-time delta available before `updateSceneForFrame` advances the
@@ -902,6 +957,10 @@ export function createThreeWorldRenderer(
   };
 
   return {
+    getSeaSignScale() {
+      const scale = scene.content?.seaSigns.scale ?? 0;
+      return Number.isFinite(scale) && scale > 0 ? scale : null;
+    },
     warmup: async () => {
       if (disposed) throw new Error("Cannot warm a disposed Three.js world renderer.");
       // A normal render may compile a material between `compile()` collecting
@@ -1280,7 +1339,21 @@ export function createThreeWorldRenderer(
       );
       post.setAOQuality(activeAOQuality);
       post.setAOTierWeight(aoTierWeight);
-      post.setAOZoomDetail(scene.content?.overviewLod.detail ?? 1);
+      // Content is populated asynchronously and the overview LOD eases its
+      // detail value from 1. Suppress that construction ease only when this
+      // renderer's first framing is already whole-map; otherwise later zoom
+      // crossings must forward the eased detail so AO and props fade together.
+      const overviewTargetDetail = overviewLodTargetDetail(frame.camera.zoom);
+      const overviewDetail = scene.content?.overviewLod.detail ?? overviewTargetDetail;
+      if (initialOverviewAOSuppression === "pending") {
+        initialOverviewAOSuppression = overviewTargetDetail <= 0 ? "active" : "complete";
+      } else if (
+        initialOverviewAOSuppression === "active"
+        && (overviewTargetDetail > 0 || overviewDetail <= 0)
+      ) {
+        initialOverviewAOSuppression = "complete";
+      }
+      post.setAOZoomDetail(initialOverviewAOSuppression === "active" ? 0 : overviewDetail);
       post.setGrade(
         phase.daylight,
         phase.dusk,
@@ -1309,7 +1382,10 @@ export function createThreeWorldRenderer(
         textureCount !== lastCensusTextureCount
         || contentReplacementCount !== lastCensusReplacementCount
       ) {
-        lastTextureOwnerCensus = textureOwnerCensus(scene.root, textureCount);
+        lastTextureOwnerCensus = textureOwnerCensus(scene.root, textureCount, [
+          ...(post.getTextureManifest?.() ?? []),
+          ...sceneTextureManifest(scene),
+        ], renderer);
         drawCensusRequested = true;
         lastCensusTextureCount = textureCount;
         lastCensusReplacementCount = contentReplacementCount;
@@ -3096,7 +3172,7 @@ function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
   }
   const zoneField = createZoneField(zones);
   part.root.add(zoneField.root);
-  // N (Sea Master): the sea's place-names, as carved boards standing in the
+  // W2a: the sea's place-names, carved into low stone steles standing at the
   // water. Copy comes from the same area records the detail panels read, so
   // the two surfaces cannot drift.
   const seaSigns = createGardenSeaSigns(seaSignSpecs(world.areas));
@@ -3507,11 +3583,11 @@ function computeBeamDwellBearing(
 }
 
 /**
- * The boards to raise, and what they say.
+ * The boundary steles to raise, and what they say.
  *
  * Every named body gets one — including Calm Anchorage and Ledger Mooring,
  * and the wreck shoals, which have no area record at all but are a place with
- * a name like any other. These boards are the sea's only place-name display;
+ * a name like any other. These steles are the sea's in-world place-name display;
  * the old DOM chip layer was removed as a UI intrusion on the world.
  */
 function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
@@ -3534,6 +3610,32 @@ function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
     accent: zoneThemeForTerrain("wreck-water").label.accent,
   });
   return specs;
+}
+
+function seaSignBodyForDetail(
+  world: PharosVilleWorld,
+  detailId: string | null,
+): SeaBodyName | null {
+  if (!detailId) return null;
+  for (const area of world.areas) {
+    if (area.detailId === detailId) return seaBodyForArea(area);
+  }
+  // Wreck Shoal has no area detail record. Inspecting any of its lifecycle
+  // wrecks activates the body stele while the ledger keeps every grave's DOM
+  // record intact.
+  for (const grave of world.graves) {
+    if (grave.detailId === detailId) return "wreck";
+  }
+  return null;
+}
+
+/** Debug-only visual suppression; the ledger and hit semantics are unchanged. */
+function seaSignsDebugVisible(): boolean {
+  if (typeof window === "undefined") return true;
+  const hash = window.location.hash.startsWith("#")
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+  return !/(?:^|&)signs=0(?:&|$)/.test(hash);
 }
 
 /**
@@ -3961,19 +4063,19 @@ function updateSceneForFrame(
   scratchOverviewLodFrame.zoom = frame.camera.zoom;
   content.overviewLod.update(scratchOverviewLodFrame);
   const overviewDetail = content.overviewLod.detail;
-  // N (D6): the boards hold a roughly constant on-screen size as the camera
-  // pulls back, so the sea's place-names stay readable at whole-map framing —
-  // the framing that most wants them, and the one where a true-scale board is
-  // about four pixels tall. They stand down when a detail panel owns the frame.
+  // W2a: steles keep true world scale and whisper until the body is hovered or
+  // inspected. Stone place-name UP; camera-compensated board label DOWN.
   content.seaSigns.update({
     // W0.7 follow-up: the frame's own clock and motion policy, so the D6 rung
     // settle runs on the same delta as every other eased system instead of the
     // module keeping a second `performance.now()` and a second matchMedia
     // watcher of its own.
+    activeBody: seaSignBodyForDetail(frame.world, frame.selectedDetailId)
+      ?? seaSignBodyForDetail(frame.world, frame.hoveredDetailId),
     deltaSeconds: beamElapsedSeconds,
     night: phase.night,
     reducedMotion: frame.reducedMotion,
-    visible: semanticView !== "analyze",
+    visible: seaSignsDebugVisible(),
     zoom: frame.camera.zoom,
   });
   let showAnyDockDetail = showWorldDetail;

@@ -1,5 +1,8 @@
 import { Color, DataTexture, FloatType, RGBAFormat } from "three";
-import type { PharosVilleRenderSchedulerState } from "../renderer/render-types";
+import type {
+  PharosVilleRenderSchedulerState,
+  TextureOwnerManifestEntry,
+} from "../renderer/render-types";
 
 /**
  * Shared light-lane registry: every warm light that should lay a reflection
@@ -117,6 +120,8 @@ export interface GardenLaneRegistry {
    * row 2 = route lanes only: (endX, endZ, pulseSpeed, pulsePhase).
    */
   readonly texture: DataTexture;
+  /** The lane DataTexture is sampled by water, not owned by a mesh material. */
+  getTextureManifest: () => readonly TextureOwnerManifestEntry[];
   readonly activeLaneCount: number;
   /**
    * Bounding circle (world XZ) of the active lanes, inflated by the shader's
@@ -163,6 +168,9 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
     FloatType,
   );
   texture.needsUpdate = true;
+  const textureManifest: readonly TextureOwnerManifestEntry[] = [
+    { owner: "garden-lanterns.lane-data", texture },
+  ];
   const scratchColor = new Color();
   let activeLaneCount = 0;
   let dirty = true;
@@ -190,6 +198,9 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
       return activeLaneCount;
     },
     texture,
+    getTextureManifest() {
+      return textureManifest;
+    },
     fieldBounds() {
       return { centerX: fieldCenterX, centerZ: fieldCenterZ, radius: fieldRadius };
     },
