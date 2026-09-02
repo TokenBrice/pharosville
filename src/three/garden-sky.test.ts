@@ -1,6 +1,9 @@
 import { Color, InstancedMesh, Mesh, PlaneGeometry, ShaderMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { defaultCamera } from "../systems/camera";
+import { gardenCameraViewHeight } from "../systems/garden-observatory-slice";
+import { buildPharosVilleMap } from "../systems/world-layout";
 import {
   DAY_CYCLE_LIGHT_PRESETS,
   DAY_CYCLE_SKY_PRESETS,
@@ -20,13 +23,17 @@ import {
   MIST_BANK_COUNT,
 } from "./garden-sky-billboards";
 
+const DEFAULT_VIEWPORT = { height: 1000, width: 1600 };
+const DEFAULT_CAMERA = defaultCamera({ ...DEFAULT_VIEWPORT, map: buildPharosVilleMap() });
+const DEFAULT_VIEW_HEIGHT = gardenCameraViewHeight(DEFAULT_VIEWPORT.height, DEFAULT_CAMERA.zoom);
+
 const FRAME = {
   reducedMotion: false,
   wallClockHour: 12,
   targetX: 47.6,
   targetZ: 38.9,
   timeSeconds: 0,
-  viewHeight: 34,
+  viewHeight: DEFAULT_VIEW_HEIGHT,
 };
 
 function mistOf(sky: ReturnType<typeof createGardenSky>): InstancedMesh {
@@ -319,14 +326,14 @@ describe("garden sky aerial perspective", () => {
   }
 
   it("leaves the island at zero haze, so the graded monument cannot shift", () => {
-    const { near } = fogRangeAtViewHeight(34);
+    const { near } = fogRangeAtViewHeight(DEFAULT_VIEW_HEIGHT);
     // The island spans ground depth ~155-195 at the calibration framing and its
     // near half is what the AgX/ortho grade was pinned against.
     expect(near).toBeGreaterThanOrEqual(178);
   });
 
   it("never hazes the far frame edge as hard as the pre-W6.8 ladder did", () => {
-    const { far, near } = fogRangeAtViewHeight(34);
+    const { far, near } = fogRangeAtViewHeight(DEFAULT_VIEW_HEIGHT);
     // Frame-top far water at the calibration framing. The old 192/275 ladder
     // read 0.627 here; a longer ramp to a further endpoint must come in under
     // that at every depth, which is what makes this change unable to white-out
@@ -336,7 +343,7 @@ describe("garden sky aerial perspective", () => {
   });
 
   it("halves the former day midground fog contribution", () => {
-    const { far, near } = fogRangeAtViewHeight(34);
+    const { far, near } = fogRangeAtViewHeight(DEFAULT_VIEW_HEIGHT);
     // The pre-frame day ladder measured 0.139 at depth 195. Doubling only the
     // ramp span preserves its near plane and yields half that haze (~0.0697).
     expect(fogAt(195, near, far)).toBeGreaterThan(0.065);
@@ -344,7 +351,7 @@ describe("garden sky aerial perspective", () => {
   });
 
   it("still pulls haze in at whole-map framing, per the W6.6 hard-edge finding", () => {
-    const wide = fogRangeAtViewHeight(34 * 4);
+    const wide = fogRangeAtViewHeight(DEFAULT_VIEW_HEIGHT * 4);
     // Capped by FOG_MAX_SCALE. The old ladder put the near plane at 288 here and
     // the map edge resolved as a hard diamond slab in a void.
     expect(wide.near).toBeLessThan(288);

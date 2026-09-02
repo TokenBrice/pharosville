@@ -16,6 +16,8 @@ import {
   Vector3,
 } from "three";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { GARDEN_DEFAULT_CAMERA_ZOOM } from "../systems/camera";
+import { gardenCameraViewHeight } from "../systems/garden-observatory-slice";
 import type { GardenSeason } from "../systems/season";
 import { GARDEN_BREATH_PHASE, gardenBreathAt } from "../systems/weather";
 import { createGardenSkyBillboards } from "./garden-sky-billboards";
@@ -91,15 +93,13 @@ const FOG_FAR = 300;
 // 2026-08-13: this was 34, and that number had switched the entire aerial
 // perspective system OFF at the framing it was calibrated for.
 //
-// `gardenCameraViewHeight(viewportHeight, zoom) = viewportHeight / (TILE_HEIGHT
-// * zoom)`. Wave 1's 1600x1000 landing framing is zoom 0.648, hence a measured
-// 96.45-unit view height. 96.5 is the new scale-one pivot; the camera change
-// therefore does not silently add fog before the explicit daylight halving
-// below. The clamp keeps doing its two jobs from there — pulling
+// The scale-one pivot comes from the same 1600x1000 default camera zoom used by
+// `defaultCamera`; a camera recomposition therefore cannot silently alter the
+// signed-off daylight haze. The clamp keeps doing its two jobs from there — pulling
 // toward 1.5 as the camera pulls out so the world's edge dissolves instead of
 // ending as a diamond slab in a void, and holding at 1.0 on the way in so
 // close-ups stay crisp.
-const FOG_REFERENCE_VIEW_HEIGHT = 96.5;
+const FOG_REFERENCE_VIEW_HEIGHT = gardenCameraViewHeight(1000, GARDEN_DEFAULT_CAMERA_ZOOM);
 const FOG_MIN_SCALE = 1;
 // Capped at 1.5, not 2.6. W6.6 scaled fog with the view to stop noon becoming
 // a white-out, but at whole-map framing a 2.6x scale pushed FOG_NEAR out to

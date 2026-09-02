@@ -1,6 +1,7 @@
 import type { IsoCamera, MapLike, ScreenPoint } from "./projection";
 import {
   fitCameraToMap,
+  GARDEN_FIT_CAMERA_MIN_ZOOM,
   mapIsoBounds,
   minZoomForViewport,
   tileToIso,
@@ -18,6 +19,10 @@ export interface CameraBoundsInput {
     top?: number;
   };
 }
+
+export const GARDEN_DEFAULT_CAMERA_TIGHTEN = 1.02;
+export const GARDEN_DEFAULT_CAMERA_ZOOM = GARDEN_FIT_CAMERA_MIN_ZOOM
+  * GARDEN_DEFAULT_CAMERA_TIGHTEN;
 
 function cameraPadding(input?: CameraBoundsInput["padding"]) {
   return {
@@ -53,7 +58,7 @@ export function defaultCamera(input: {
   const compositionProgress = shortSide < MIN_SHORT_SIDE_PX
     ? 0
     : Math.max(shortSideProgress, longSideProgress);
-  const tightenFactor = 1 + compositionProgress * 0.02;
+  const tightenFactor = 1 + compositionProgress * (GARDEN_DEFAULT_CAMERA_TIGHTEN - 1);
   const tightened = zoomCameraAt(
     fitted,
     { x: input.width * 0.54, y: input.height * 0.5 },
