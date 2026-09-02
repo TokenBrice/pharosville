@@ -74,10 +74,9 @@ describe("buildPharosVilleMap", () => {
     // wreck shoals), removing its ~65 land tiles, and the measured share is now
     // 0.9699. The invariant that still holds exactly is the absolute main-island
     // footprint asserted just below.
-    // H4: MAP_SCALE 2 -> 2.5 grew the sea again around the same island, so
-    // the measured share rose from 0.9699 to 0.9807.
-    expect(map.waterRatio).toBeGreaterThanOrEqual(0.978);
-    expect(map.waterRatio).toBeLessThanOrEqual(0.982);
+    // RIM FIELD: 3,373 authored perimeter tiles are now land, moving measured water from 0.9807 to 0.8086.
+    expect(map.waterRatio).toBeGreaterThanOrEqual(0.806);
+    expect(map.waterRatio).toBeLessThanOrEqual(0.811);
     const mainIslandLandTiles = landTilesExcludingIslets(map.tiles);
     // Baseline was 592 main-island land tiles; 377 is a 36.3% reduction
     // resulting from the single-oval + lighthouse-promontory geometry. Neither
@@ -125,6 +124,7 @@ describe("buildPharosVilleMap", () => {
       "warning-water",
       "storm-water",
       "wreck-water",
+      "rim",
       "grass",
       "rock",
     ]));
@@ -440,6 +440,8 @@ function landBoundsExcludingIslets(tiles: PharosVilleTile[]) {
 function landTilesExcludingIslets(tiles: PharosVilleTile[]) {
   const pigeonRadius = 2;
   return tiles.filter((tile) => {
+    // RIM FIELD: perimeter land is real terrain but not part of the unchanged 377-tile lighthouse island.
+    if (tile.terrain === "rim") return false;
     if (isWaterTileKind(tile.kind)) return false;
     const dPigeon = Math.hypot(tile.x - PIGEON_ISLAND_CENTER.x, tile.y - PIGEON_ISLAND_CENTER.y);
     return dPigeon > pigeonRadius;

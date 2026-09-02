@@ -108,10 +108,9 @@ describe("buildPharosVilleWorld", () => {
     expect(world.routeMode).toBe("world");
     // THRESHOLD CHANGE. N1: land is OFFSET, not scaled, so the island keeps its
     // absolute footprint inside a 4x sea (~0.86 → ~0.9647). N2: the cemetery
-    // islet drowned into the wreck shoals, and the measured share is now 0.9699.
-    // See world-layout.test.ts, which pins the unchanged 377-tile island.
-    expect(world.map.waterRatio).toBeGreaterThanOrEqual(0.978);
-    expect(world.map.waterRatio).toBeLessThanOrEqual(0.982);
+    // RIM FIELD: 3,373 authored perimeter tiles are now land, moving measured water to 0.8086 while the island stays 377 tiles.
+    expect(world.map.waterRatio).toBeGreaterThanOrEqual(0.806);
+    expect(world.map.waterRatio).toBeLessThanOrEqual(0.811);
     expect(world.lighthouse.unavailable).toBe(false);
     expect(world.docks).toHaveLength(2);
     expect(world.ships.map((ship) => ship.id)).toEqual(["usdt-tether", "usdc-circle"]);
@@ -127,7 +126,8 @@ describe("buildPharosVilleWorld", () => {
       .toBe("ship.usdc-circle");
     expect(world.graves).toHaveLength(3);
     expect(world.detailIndex["lighthouse"]).toBeDefined();
-    expect(terrainKindAt(0, 55)).toBe("calm-water");
+    // RIM FIELD: the west perimeter sample is now authored land, not residual Calm water.
+    expect(terrainKindAt(0, 55)).toBe("rim");
     expect(Object.keys(world.detailIndex).some((detailId) => detailId.startsWith("building."))).toBe(false);
     expect(world.areas.every((area) => area.id.startsWith("area.dews.") || area.id.startsWith("area.risk-water."))).toBe(true);
     expect(world.visualCues.length).toBeGreaterThan(0);

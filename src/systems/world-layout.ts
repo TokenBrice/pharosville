@@ -5,6 +5,7 @@ import { seaTerrainAtTile } from "./sea-bodies";
 import { isSeawallBarrierTile } from "./seawall";
 import { stableHash, stableUnit } from "./stable-random";
 import { clamp } from "./motion-utils";
+import { rimLandAt } from "./garden-rim";
 import {
   PHAROSVILLE_DESIGN_SPAN,
   PHAROSVILLE_LAND_OFFSET,
@@ -285,6 +286,7 @@ function resolveTerrainKindAt(x: number, y: number): TerrainKind {
   const nearIslandEdge = island > 0.9;
 
   if (isOutOfBounds(x, y) || island >= 1) {
+    if (!isOutOfBounds(x, y) && rimLandAt(x, y)) return "rim";
     // Z1 (Sea Master, 2026-07-25): the sea is an SDF partition — see
     // sea-bodies.ts. This used to be a cascade of half-planes, rectangles and
     // three concentric rings around the (55, 0) corner, ending in

@@ -297,9 +297,9 @@ describe("risk water areas", () => {
     // H4: the floors are authored 56-tile windows x MAP_SCALE^2. That model is
     // exact only at an integer scale — the zone predicates test INCLUSIVE integer
     // design bounds (`y <= 9`), which at 2.5 clips half a design row off each edge.
-    // Ledger measures 1748 against a nominal 1750, so the floor is 278, not 280.
-    expect(counts["ledger-water"]).toBeGreaterThanOrEqual(278 * AREA_SCALE);
-    expect(counts["ledger-water"]).toBeLessThanOrEqual(330 * AREA_SCALE);
+    // RIM FIELD: the upper shore replaces edge water; recalibration keeps Ledger at 10% (1,584 tiles).
+    expect(counts["ledger-water"]).toBeGreaterThanOrEqual(250 * AREA_SCALE);
+    expect(counts["ledger-water"]).toBeLessThanOrEqual(260 * AREA_SCALE);
     expect(counts["calm-water"]).toBeGreaterThan(counts["ledger-water"]);
   });
 

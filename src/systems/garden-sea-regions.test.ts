@@ -23,14 +23,14 @@ describe("sea region field", () => {
         if (kind === "warning-water") expect(id).toBe(SEA_REGION_ID.warning);
         if (kind === "storm-water") expect(id).toBe(SEA_REGION_ID.danger);
         if (kind === "ledger-water") expect(id).toBe(SEA_REGION_ID.ledger);
+        if (kind === "rim") expect(id).toBe(SEA_REGION_ID.none);
         if (kind === "grass" || kind === "rock") expect(id).toBe(SEA_REGION_ID.none);
       }
     }
   });
 
   it("covers the vast majority of the sea with named regions", () => {
-    // W2.4, replacing the ellipse-union guard. Measured 88.5% at the time of
-    // writing; the floor guards against a terrain change silently gutting it.
+    // RIM FIELD: open approach plus deep water now measure 24.2%, leaving 75.8% named coverage.
     const coverage = gardenSeaRegionCoverage();
     expect(coverage.waterTiles).toBeGreaterThan(2_000);
     // D2 (operator, 2026-07-25): the neutral water stays deliberately UNNAMED.

@@ -62,6 +62,9 @@ export type SeaBodyName =
   | "wreck"
   | "open";
 
+/** Stable identifier for one of the seven named waters (the open approach is intentionally unnamed). */
+export type SeaBodyId = Exclude<SeaBodyName, "open">;
+
 export const SEA_BODY_TERRAIN: Record<SeaBodyName, TerrainKind> = {
   alert: "alert-water",
   calm: "calm-water",
@@ -134,14 +137,14 @@ interface SeaBody {
  * below. Re-run it after moving any seed.
  */
 export const SEA_BODY_REACH: Record<SeaBodyName, number> = {
-  calm: 0.0190,
-  open: 0.0734,
-  watch: -0.0524,
-  ledger: 0.0816,
-  alert: 0.0717,
-  wreck: -0.1153,
-  danger: -0.0823,
-  warning: 0.0043,
+  calm: 0.0002,
+  open: 0.0578,
+  watch: -0.0560,
+  ledger: 0.0464,
+  alert: 0.0618,
+  wreck: -0.0199,
+  danger: -0.0848,
+  warning: -0.0054,
 };
 
 /**
@@ -174,6 +177,9 @@ const SEA_BODIES: readonly SeaBody[] = [
       capsule(0.06, 0.09, 0.24, 0.14, 0.085),
       capsule(0.26, 0.07, 0.44, 0.12, 0.075),
       disc(0.17, 0.21, 0.065),
+      // The shelf's hooked western end meets the new land rim below the
+      // borrowed-horizon opening, giving Ledger Mooring a real shore cove.
+      capsule(0.12, 0.24, 0.06, 0.40, 0.05),
     ],
   },
   {
@@ -182,6 +188,9 @@ const SEA_BODIES: readonly SeaBody[] = [
     name: "watch",
     seeds: [
       capsule(0.72, 0.46, 0.80, 0.80, 0.12),
+      // The rim closes the old edge-route between Watch's upper reach and
+      // south basin; this inner-bank run keeps them one navigable body.
+      capsule(0.88, 0.48, 0.86, 0.66, 0.07),
       // Out to the south-east corner: the TON pigeonnier islet sits at (0.91,
       // 0.91) and is authored as standing off the Watch shelf, so Watch has to
       // reach it or the wharf ends up in unnamed open sea.
