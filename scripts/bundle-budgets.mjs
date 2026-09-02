@@ -60,11 +60,8 @@ export const bundleBudgets = {
     // wakes, and Observe 2.0 + route pulse lanes. Measured 1,257.3 KiB raw /
     // 420.4 KiB gzip — 0.4 KiB over the gzip cap. Gzip raised to measured+8%
     // (420.4 -> 454); raw stays at the O9 ceiling (1,257.3 of 1,600 used).
-    // 2026-09-02 Wave 1 Frame: measured 1,366.4 KiB raw / 454.8 KiB gzip
-    // after adding the finite-plate sky, authored rim body, shakkei, and
-    // engawa. Re-baselined by 1.6% to 462 KiB; the raw O9 ceiling is unchanged.
     maxRawBytes: 1_600 * 1024,
-    maxGzipBytes: 462 * 1024,
+    maxGzipBytes: 454 * 1024,
     required: true,
   },
   css: {
@@ -89,11 +86,8 @@ export const aggregateBudgets = {
   // 2026-07-25 Grand Scale Revamp (D7/O9): measured 1,856.5 KiB raw /
   // 526.6 KiB gzip. Raised alongside the renderer chunk so the earmarked
   // headroom for the remaining look work fits.
-  // 2026-09-02 Wave 1 Frame: measured 2,599.3 KiB raw / 822.7 KiB gzip.
-  // Re-baselined to 832 KiB for the finite plate, sky, rim, and shakkei;
-  // the aggregate raw ceiling remains unchanged.
   maxJsRawBytes: 3_200 * 1024,
-  maxJsGzipBytes: 832 * 1024,
+  maxJsGzipBytes: 820 * 1024,
 };
 
 export const forbiddenBundleChunks = [
