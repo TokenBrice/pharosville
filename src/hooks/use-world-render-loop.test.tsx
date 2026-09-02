@@ -34,6 +34,7 @@ const {
 } = vi.hoisted(() => {
   const renderThreeWorldMock = vi.fn(() => ({
     objectCount: 0,
+    drawOwnerCensus: null,
     gpu: { calls: 0, geometries: 0, lines: 0, points: 0, textures: 0, triangles: 0 },
     movingShipCount: 0,
     rendererBackend: "three" as const,
@@ -477,6 +478,7 @@ describe("useWorldRenderLoop", () => {
       fakeNow += 25;
       return {
         objectCount: 0,
+        drawOwnerCensus: null,
         gpu: { calls: 0, geometries: 0, lines: 0, points: 0, textures: 0, triangles: 0 },
         movingShipCount: 0,
         rendererBackend: "three",
@@ -522,6 +524,7 @@ describe("useWorldRenderLoop", () => {
       nowSpy.mockRestore();
       renderThreeWorldMock.mockImplementation(() => ({
         objectCount: 0,
+        drawOwnerCensus: null,
         gpu: { calls: 0, geometries: 0, lines: 0, points: 0, textures: 0, triangles: 0 },
         movingShipCount: 0,
         rendererBackend: "three",

@@ -82,6 +82,16 @@ textures, and 500,000 triangles. `npm run test:perf:reference` is the strict
 reference-hardware gate; headless or integrated results are diagnostics, not a
 substitute for the designated reference environment.
 
+For a measured renderer-local draw-owner census, use the real-GPU preview:
+
+```bash
+npm run preview -- --url http://localhost:5173 --draw-census --out w0-census-baseline.png
+```
+
+The census wraps the renderer instance for one scene frame. Its attributed-call
+sum must reconcile to that frame's `renderer.info.render.calls`; a scene graph
+traversal is not a draw census.
+
 ### Never judge the look or the frame time through a Playwright browser
 
 Playwright's bundled Chromium falls back to **SwiftShader**, a CPU rasteriser,

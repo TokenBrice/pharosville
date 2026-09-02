@@ -274,6 +274,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const reducedMotionSamplesSignatureRef = useRef<string | null>(null);
   const lastRenderMetricsRef = useRef<DebugRenderMetrics>({
     objectCount: 0,
+    drawOwnerCensus: null,
     drawDurationMs: 0,
     framePacing: emptyFramePacingMetrics(),
     movingShipCount: 0,

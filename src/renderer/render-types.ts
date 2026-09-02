@@ -1,3 +1,5 @@
+import type { DrawOwnerCensus } from "../three/garden-draw-census";
+
 export type PharosVilleRenderSchedulerTier =
   | "full"
   | "balanced"
@@ -66,6 +68,7 @@ export interface PharosVilleRenderMetrics {
   contentRebuildQueueDepth?: number;
   /** Per-content-family hashes used to attribute refresh-driven replacements. */
   contentSignaturePartHashes?: Readonly<Record<string, string>>;
+  drawOwnerCensus: DrawOwnerCensus | null;
   /** W1 evidence: draw calls the instanced fleet contributes, whatever its size. */
   fleetDrawCallCount?: number;
   objectCount: number;

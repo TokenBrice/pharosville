@@ -62,6 +62,7 @@ import { screenToTile } from "../systems/projection";
 import { deriveEpistemicHaze } from "../systems/epistemic-haze";
 import { seasonFromDate, type GardenSeason } from "../systems/season";
 import { createGardenAlmanacDressing, type GardenAlmanacDressing } from "./garden-almanac-dressing";
+import { createDrawOwnerRecorder, type DrawOwnerCensus, type DrawRecorderTarget } from "./garden-draw-census";
 import {
   GARDEN_BREATH_PHASE,
   gardenBreathAt,
@@ -736,6 +737,9 @@ export function createThreeWorldRenderer(
     uploadScheduler,
     seasonFromDate(input.calendarDate),
   );
+  // @types/three still narrows the r185 runtime's null scene/group arguments;
+  // the recorder's structural target matches the implementation's actual calls.
+  const drawRecorder = createDrawOwnerRecorder(renderer as unknown as DrawRecorderTarget, scene.root);
   const post = createGardenPost(renderer, scene.root, camera);
 
   let disposed = false;
@@ -755,6 +759,9 @@ export function createThreeWorldRenderer(
     rendererTextures: 0,
     minimumUnattributedRendererTextures: 0,
   };
+  let lastDrawOwnerCensus: DrawOwnerCensus | null = null;
+  let drawCensusRequested = false;
+  let frameCounter = 0;
   let aoTierWeight: number | null = null;
   let aoWeightClockSeconds = 0;
   // W1.5: the environment's own clock. The probe's bake cadence and the ambient
@@ -920,6 +927,7 @@ export function createThreeWorldRenderer(
       // frame's numbers so the scheduler and the debug surface see a hold
       // rather than a collapse, and wait for `webglcontextrestored`.
       if (contextLost) return lastMetrics;
+      frameCounter += 1;
       // requestIdleCallback is the normal upload lane. This bounded fallback
       // runs at the between-frame boundary so a continuously animated tab (or
       // a browser without rIC) cannot starve pending work until first draw.
@@ -1158,6 +1166,10 @@ export function createThreeWorldRenderer(
       // Manual reset here, with autoReset off at construction, accumulates
       // every pass of the frame into one honest total.
       renderer.info.reset();
+      if (drawCensusRequested) {
+        drawCensusRequested = false;
+        drawRecorder.arm();
+      }
       // Counts of GPU resources that already exist. Anything created between
       // here and the end of the frame is first-use warm-up work — see
       // `gpuWarmupCount`.
@@ -1244,6 +1256,13 @@ export function createThreeWorldRenderer(
       // fades stay 180 ms at the idle 30 fps duty cycle as well as when awake.
       post.render(aoDeltaSeconds);
 
+      const sampled = drawRecorder.finish(frameCounter);
+      if (sampled) {
+        lastDrawOwnerCensus = sampled;
+        if (sampled.attributedCalls !== sampled.rendererCalls) {
+          console.warn("[pharosville] draw census did not reconcile", sampled.attributedCalls, sampled.rendererCalls);
+        }
+      }
       const content = scene.content;
       const renderInfo = renderer.info.render;
       const sceneCalls = renderInfo.calls;
@@ -1255,6 +1274,7 @@ export function createThreeWorldRenderer(
         || contentReplacementCount !== lastCensusReplacementCount
       ) {
         lastTextureOwnerCensus = textureOwnerCensus(scene.root, textureCount);
+        drawCensusRequested = true;
         lastCensusTextureCount = textureCount;
         lastCensusReplacementCount = contentReplacementCount;
       }
@@ -1306,6 +1326,7 @@ export function createThreeWorldRenderer(
         logoAssetsLoaded: frame.logos.getLoadedLogoCount?.() ?? 0,
         rendererBackend: "three",
         schedulerTier: frame.renderScheduler.tier,
+        drawOwnerCensus: lastDrawOwnerCensus,
         textureOwnerCensus: lastTextureOwnerCensus,
         textureUploads: uploadScheduler.metrics(),
         visibleShipCount: content?.visibleShipCount ?? 0,
@@ -1330,6 +1351,7 @@ function emptyWorldRendererMetrics(): ThreeWorldRendererMetrics {
       triangles: 0,
     },
     gpuWarmupCount: 0,
+    drawOwnerCensus: null,
     logoAssetsExpected: 0,
     logoAssetsLoaded: 0,
     movingShipCount: 0,

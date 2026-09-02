@@ -58,6 +58,7 @@
  *   node scripts/pharosville/preview.mjs --assert --max-p90=20 --max-draw-calls=700
  *   node scripts/pharosville/preview.mjs --assert --max-p95=20 --tail-seconds 30
  *   node scripts/pharosville/preview.mjs --texture-census    # attribute live texture owners
+ *   node scripts/pharosville/preview.mjs --draw-census      # attribute live draw owners
  *   node scripts/pharosville/preview.mjs --refresh common   # main-thread cost of a data refresh
  *   node scripts/pharosville/preview.mjs --refresh churn    # ... with every placement moved
  */
@@ -389,6 +390,7 @@ try {
   ) {
     printTextureOwnerCensus(metrics.textureOwnerCensus);
   }
+  if (args["draw-census"]) printDrawOwnerCensus(metrics.drawOwnerCensus);
   console.log(`fleet      ${metrics.shipsVisible} ships visible`);
   console.log(`shot       ${outputPath}`);
 
@@ -976,6 +978,10 @@ function evaluateAssertions(metrics, shaderErrors = []) {
   if ((metrics.calls ?? Infinity) > limits.maxDrawCalls) {
     failures.push(`${metrics.calls} draw calls exceed ${limits.maxDrawCalls}`);
   }
+  if (metrics.drawOwnerCensus
+    && metrics.drawOwnerCensus.attributedCalls !== metrics.drawOwnerCensus.rendererCalls) {
+    failures.push(`draw owner census mismatch: ${metrics.drawOwnerCensus.attributedCalls} attributed calls vs ${metrics.drawOwnerCensus.rendererCalls} renderer.info calls`);
+  }
   if ((metrics.geometries ?? Infinity) > limits.maxGeometries) {
     failures.push(`${metrics.geometries} geometries exceed ${limits.maxGeometries}`);
   }
@@ -1195,6 +1201,7 @@ function readMetrics(page) {
       shipsVisible: m?.visibleShipCount ?? null,
       offscreenCalls: m?.gpu?.offscreenCalls ?? null,
       sceneCalls: m?.gpu?.sceneCalls ?? null,
+      drawOwnerCensus: m?.drawOwnerCensus ?? null,
       textureOwnerCensus: m?.textureOwnerCensus ?? null,
       textureUploads: m?.textureUploads ?? null,
       tier: m?.schedulerTier ?? null,
@@ -1215,6 +1222,17 @@ function printTextureOwnerCensus(census) {
     + " renderer-internal/unattributed");
   for (const entry of census.owners ?? []) {
     console.log(`           ${String(entry.textureCount).padStart(2, " ")}  ${entry.owner}`);
+  }
+}
+
+function printDrawOwnerCensus(census) {
+  if (!census) { console.log("draws      owner census unavailable"); return; }
+  const reconciled = census.attributedCalls === census.rendererCalls ? "reconciled" : "MISMATCH";
+  console.log(`draws      ${census.attributedCalls} attributed · ${census.rendererCalls} renderer.info · ${reconciled}`
+    + ` · frame ${census.sampledAtFrame}`);
+  for (const entry of census.owners) {
+    console.log(`           ${String(entry.calls).padStart(4, " ")}  ${String(entry.triangles).padStart(8, " ")}`
+      + `  ${entry.instanced ? "I" : " "}  ${entry.owner}`);
   }
 }
 
