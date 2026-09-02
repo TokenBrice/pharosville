@@ -65,6 +65,10 @@ const ENGAWA_TIMBER_LIT = ENGAWA_TIMBER.clone().lerp(
 /** The veranda replaces the lower-left stroll-ribbon segment as foreground. */
 export const GARDEN_ENGAWA_DISPLACEMENT = "lower-left rim path and pine thicket";
 export const GARDEN_ENGAWA_PINE_HEIGHT = 18;
+/** These camera-side bays displace the former straight shoreline run. */
+export const GARDEN_NEAR_RIM_BAY_DEPTHS = [3.2, 4.8, 3.6] as const;
+export const GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT = 1.55;
+export const GARDEN_NEAR_RIM_DISPLACEMENT = "straight shoreline and ordinary headland pines";
 
 const ENGAWA_LANTERN_TILE = { x: 82, y: 134 } as const;
 export const GARDEN_ENGAWA_LANTERN_WORLD = {
@@ -224,18 +228,55 @@ function shoreJitter(tileX: number, tileY: number): number {
     + Math.sin(tileX * 0.47 - tileY * 1.31) * 0.15;
 }
 
+function bell(value: number, centre: number, radius: number): number {
+  const distance = Math.abs(value - centre) / radius;
+  if (distance >= 1) return 0;
+  const t = 1 - distance * distance;
+  return t * t;
+}
+
+function coveMouthClearance(tileX: number, tileY: number): number {
+  return RIM_COVES.reduce((closest, cove) => Math.min(
+    closest,
+    Math.hypot(tileX - cove.tile.x, tileY - cove.tile.y) - cove.width * 0.5,
+  ), Number.POSITIVE_INFINITY);
+}
+
+/**
+ * Three camera-side bays cut only INTO the authoritative rim silhouette; no
+ * decorative land is projected into navigable water. Cove reservations get a
+ * six-tile shoulder, so their mouths remain visually and physically open.
+ */
+function cameraSideBayExcursion(tileX: number, tileY: number): number {
+  if (coveMouthClearance(tileX, tileY) < 6) return 0;
+  const south = Math.max(
+    bell(tileX, 29, 13) * GARDEN_NEAR_RIM_BAY_DEPTHS[0],
+    bell(tileX, 68, 11) * GARDEN_NEAR_RIM_BAY_DEPTHS[1],
+    bell(tileX, 108, 12) * GARDEN_NEAR_RIM_BAY_DEPTHS[2],
+  ) * bell(tileY, MAP_LAST + 1, 35);
+  const west = bell(tileY, 112, 13) * 3.4 * bell(tileX, -1, 25);
+  return Math.max(south, west);
+}
+
 function authoredDistance(tileX: number, tileY: number): number {
-  return rimShoreDistance(tileX, tileY) + shoreJitter(tileX, tileY);
+  return rimShoreDistance(tileX, tileY)
+    + shoreJitter(tileX, tileY)
+    + cameraSideBayExcursion(tileX, tileY);
 }
 
 function rimHeight(tileX: number, tileY: number): number {
   const inland = Math.max(0, -authoredDistance(tileX, tileY));
-  const rise = 0.62 + Math.min(1, inland / 7.5) * 1.5;
+  const cameraSide = Math.max(
+    bell(tileY, MAP_LAST + 1, 43),
+    bell(tileX, -1, 31) * bell(tileY, 106, 53),
+  );
+  const shoreBase = 0.62 + cameraSide * (GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT - 0.62);
+  const rise = shoreBase + Math.min(1, inland / 7.5) * 1.5;
   // Danger Strait's east bank is the one deliberate cliff face.
   const dangerCliff = tileX > MAP_LAST - 8 && tileY > 38 && tileY < 82 ? 0.38 : 0;
   const stepped = 0.6 + Math.floor(Math.max(0, rise + dangerCliff - 0.6) / 0.34) * 0.34;
   const grain = (stableUnit(`rim-height.${Math.round(tileX * 2)}.${Math.round(tileY * 2)}`) - 0.5) * 0.055;
-  return Math.max(0.6, Math.min(2.2, stepped + grain));
+  return Math.max(0.6, Math.min(3.1, stepped + grain));
 }
 
 function rimColor(tileX: number, tileY: number): Color {
@@ -297,12 +338,30 @@ function addShoreCourses(
   c: readonly [number, number, number],
   d: readonly [number, number, number],
   topColor: Color,
+  outwardX: number,
+  outwardZ: number,
 ): void {
   const stainY = Math.min(a[1], b[1], 0.34);
   const stainA = pointAtY(a, stainY);
   const stainB = pointAtY(b, stainY);
   addQuad(builder, a, b, stainB, stainA, [topColor, topColor, TIDE_STAIN, TIDE_STAIN]);
   addQuad(builder, stainA, stainB, c, d, [TIDE_STAIN, TIDE_STAIN, WET_ROCK, WET_ROCK]);
+  // A shallow shelf makes the wet course legible from the locked high camera.
+  // It replaces the old razor-thin vertical waterline edge.
+  const shelf = 0.34 + stableUnit(`wet-shelf.${a[0].toFixed(1)}.${a[2].toFixed(1)}`) * 0.3;
+  const waterA = pointAtY(a, WATERLINE_Y + 0.045);
+  const waterB = pointAtY(b, WATERLINE_Y + 0.045);
+  const outerA: [number, number, number] = [
+    waterA[0] + outwardX * shelf,
+    waterA[1] - 0.025,
+    waterA[2] + outwardZ * shelf,
+  ];
+  const outerB: [number, number, number] = [
+    waterB[0] + outwardX * shelf,
+    waterB[1] - 0.025,
+    waterB[2] + outwardZ * shelf,
+  ];
+  addQuad(builder, waterA, waterB, outerB, outerA, [TIDE_STAIN, TIDE_STAIN, WET_ROCK, WET_ROCK]);
 }
 
 function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
@@ -354,6 +413,8 @@ function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
           pointAtY(side.b, WATERLINE_Y),
           pointAtY(side.a, WATERLINE_Y),
           rimColor(cx, cy),
+          side.dx / SAMPLE_STEP,
+          side.dy / SAMPLE_STEP,
         );
       }
     }
@@ -411,7 +472,8 @@ function pineTiles(): PineSpec[] {
   const candidates: PineSpec[] = [];
   for (let y = 3; y < MAP_LAST - 2; y += 3) {
     for (let x = 3; x < MAP_LAST - 2; x += 3) {
-      if (!rimLandAt(x, y) || rimShoreDistance(x, y) > -2.2 || !clearOfCove(x, y, 3)) continue;
+      if (!rimLandAt(x, y) || authoredDistance(x, y) > -2.2 || !clearOfCove(x, y, 3)) continue;
+      if (HEADLANDS.some((headland) => Math.hypot(x - headland.x, y - headland.y) < 4.5)) continue;
       // The engawa is one silhouette, not another grove: its hero tree
       // explicitly displaces every ordinary pine in this near-corner pocket.
       if (Math.hypot(x - 86, y - 134) < 11) continue;
@@ -482,6 +544,8 @@ const HEADLANDS = [
   { x: 5, y: 110 },
   { x: 78, y: 4 },
   { x: 135, y: 100 },
+  { x: 43, y: 136 },
+  { x: 94, y: 136 },
 ] as const;
 
 function createStones(): InstancedMesh {

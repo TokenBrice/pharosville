@@ -6,6 +6,9 @@ import {
   GARDEN_ENGAWA_DISPLACEMENT,
   GARDEN_ENGAWA_LANTERN_WORLD,
   GARDEN_ENGAWA_PINE_HEIGHT,
+  GARDEN_NEAR_RIM_BAY_DEPTHS,
+  GARDEN_NEAR_RIM_DISPLACEMENT,
+  GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT,
 } from "./garden-rim-mesh";
 import { GARDEN_NIWAKI_SPECS } from "./garden-island";
 import { countDrawableObjects, TILE_SCALE } from "./garden-util";
@@ -25,7 +28,7 @@ describe("garden rim mesh", () => {
     expect(rim.pineCount).toBeGreaterThan(20);
     expect(rim.engawaPineCount).toBe(1);
     expect(rim.steppingStoneCount).toBe(3);
-    expect(rim.stoneCount).toBe(12);
+    expect(rim.stoneCount).toBe(18);
     expect(GARDEN_ENGAWA_LANTERN_WORLD.x).toBeGreaterThan(0);
     expect(GARDEN_ENGAWA_LANTERN_WORLD.z).toBeGreaterThan(GARDEN_ENGAWA_LANTERN_WORLD.x);
     expect(rim.pathSegmentCount).toBeGreaterThan(80);
@@ -45,6 +48,10 @@ describe("garden rim mesh", () => {
     expect(GARDEN_ENGAWA_PINE_HEIGHT).toBeGreaterThanOrEqual(
       Math.max(...GARDEN_NIWAKI_SPECS.map((pine) => pine.height)) * 2,
     );
+    expect(Math.max(...GARDEN_NEAR_RIM_BAY_DEPTHS)).toBeGreaterThanOrEqual(4.5);
+    expect(Math.min(...GARDEN_NEAR_RIM_BAY_DEPTHS)).toBeGreaterThanOrEqual(3);
+    expect(GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT).toBeGreaterThanOrEqual(1.5);
+    expect(GARDEN_NEAR_RIM_DISPLACEMENT).toContain("straight shoreline");
     rim.dispose();
   });
 
