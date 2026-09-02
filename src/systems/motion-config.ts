@@ -45,6 +45,12 @@ export const MOTION_PAIR_SLOT_SECONDS = 10;
 export const MOTION_UNDERWAY_MIN_TILES_PER_SECOND = 0.45;
 export const MOTION_UNDERWAY_MAX_TILES_PER_SECOND = 0.8;
 
+export const MOTION_ROUTE_MEANING_CAVEAT = "Routes show rendered-chain and risk-water presence only; they do not measure transfers, bridge volume, transactions, or issuer operations.";
+
+export function motionCadenceDetailLabel(): string {
+  return `90–180 s legs; 240–480 s rests; arrivals and departures are paired. Risk-water rests grow more restless in risk order from calm through watch, alert and warning to danger. ${MOTION_ROUTE_MEANING_CAVEAT}`;
+}
+
 export const ARRIVING_FULL_TRANSIT_END = 0.85;
 export const ARRIVING_DECEL_END = 0.96;
 export const CAST_OFF_LINE_RELEASE_END = 0.04;

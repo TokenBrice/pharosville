@@ -130,10 +130,6 @@ export interface ShipMotionRoute {
   // Baseline 1.0; formula: 1 + clamp(|pct| / 20, 0, 0.6) when |pct| ≥ 2
   // (change24hPct is in percent units — e.g. 10 means 10% — per recent-change.ts:16).
   wakeMultiplier: number;
-  // E3: dock-dwell share override for ships with broad chain presence.
-  // chainPresence.length ≥ 4 → base × 1.15; otherwise the DOCKED_SHIP_DWELL_SHARE
-  // constant applies. undefined means "use the base constant".
-  dockDwellShareOverride?: number;
   /**
    * W4.25 — when the ship's risk tile changed since the previous plan build,
    * the previous risk tile is preserved for one cycle. The sampler blends

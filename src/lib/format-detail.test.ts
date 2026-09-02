@@ -143,6 +143,17 @@ describe("buildDetailFactSections folds", () => {
     ]);
   });
 
+  it("renders Route cadence as an explicit ship detail row", () => {
+    const { identity } = buildDetailFactSections([
+      { label: "Route cadence", value: "90–180 s legs; 240–480 s rests; routes show presence only" },
+    ]);
+    expect(identity).toEqual([{
+      key: "routeCadence",
+      label: "Route cadence",
+      value: "90–180 s legs; 240–480 s rests; routes show presence only",
+    }]);
+  });
+
   it("folds the depeg record into the 24h row instead of spending its own row", () => {
     const { identity } = buildDetailFactSections([
       { label: "24h supply change", value: "+5.4%" },

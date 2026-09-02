@@ -73,6 +73,7 @@ export type DetailFactKey =
   | "highWaterMark"
   | "dexCrossCheck"
   | "cycleTempo"
+  | "routeCadence"
   | "homeDock"
   | "backingDiversity"
   | "netFlow24h"
@@ -139,6 +140,7 @@ const DETAIL_FACT_LABELS = {
   "worst band, 30d": "highWaterMark",
   "dex cross-check": "dexCrossCheck",
   "cycle tempo": "cycleTempo",
+  "route cadence": "routeCadence",
   "home dock": "homeDock",
   "backing diversity": "backingDiversity",
   "net flow 24h": "netFlow24h",
@@ -351,7 +353,16 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   const flightToQuality = lookup.get("flightToQuality");
   if (flightToQuality) identity.push({ key: "flightToQuality", label: "Flight to quality", value: flightToQuality });
   const cycleTempo = lookup.get("cycleTempo");
-  if (cycleTempo) identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
+  const routeCadence = lookup.get("routeCadence");
+  if (routeCadence) {
+    identity.push({
+      key: "routeCadence",
+      label: "Route cadence",
+      value: [routeCadence, cycleTempo ? `Cycle tempo: ${cycleTempo}` : null].filter(Boolean).join(" · "),
+    });
+  } else if (cycleTempo) {
+    identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
+  }
   const serviceAge = lookup.get("serviceAge");
   if (serviceAge) identity.push({ key: "serviceAge", label: "In service since / tracked", value: serviceAge });
   const issuanceWork = lookup.get("issuanceWork");

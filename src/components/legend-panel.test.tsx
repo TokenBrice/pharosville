@@ -41,6 +41,16 @@ describe("LegendPanel", () => {
     }
   });
 
+  it("explains the leg/rest route cadence and its meaning caveat", () => {
+    const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
+
+    expect(markup).toContain("90–180 s legs");
+    expect(markup).toContain("240–480 s rests");
+    expect(markup).toContain("arrivals and departures are paired");
+    expect(markup).toContain("Routes show rendered-chain and risk-water presence only");
+    expect(markup).not.toMatch(/bigger coins cycle|extended dwell/i);
+  });
+
   it("uses modal dialog semantics and focuses/restores the close control", () => {
     const opener = document.createElement("button");
     opener.type = "button";

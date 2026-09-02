@@ -23,6 +23,7 @@ import {
 } from "./ship-fittings";
 import type { PharosVilleFreshness } from "./world-types";
 import { deriveEpistemicHaze, quayHazeLabel, riskWaterHazeLabel } from "./epistemic-haze";
+import { motionCadenceDetailLabel } from "./motion-config";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
@@ -221,9 +222,7 @@ function chainFootprintLabel(node: ShipNode): string {
   } else if (chainCount >= 2 || renderedDockCount === 1) {
     footprint = "Narrow footprint";
   }
-  // E3: signal extended dock dwell when chain breadth qualifies (≥4 positive chains).
-  const dwellSuffix = chainCount >= 4 ? " (extended dwell)" : "";
-  return `${footprint}${dwellSuffix}; ${pluralize(chainCount, "positive chain deployment")}, ${pluralize(renderedDockCount, "rendered dock stop")}`;
+  return `${footprint}; ${pluralize(chainCount, "positive chain deployment")}, ${pluralize(renderedDockCount, "rendered dock stop")}`;
 }
 
 // E2: format change24hPct (percent units, e.g. 10 = +10%) for the detail panel.
@@ -1155,6 +1154,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     { label: "In service since / tracked", value: shipAgeDetailLabel(node) },
     { label: "Cycle tempo", value: cycleTempoDetailLabel(cycleTempo) },
     ...(safetyGrade ? [{ label: "Safety grade", value: safetyGrade }] : []),
+    { label: "Route cadence", value: motionCadenceDetailLabel() },
     { label: "Issuance work, 24h", value: shipIssuanceDetailLabel(node) },
     { label: "Redemption fitting", value: shipRedemptionFittingLabel(node) },
     { label: "Collateral cargo", value: shipCollateralFittingLabel(node) },

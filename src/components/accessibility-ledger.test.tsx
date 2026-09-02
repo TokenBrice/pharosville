@@ -379,7 +379,9 @@ describe("AccessibilityLedger", () => {
 
     // No mint/burn row → neutral pace with an explicit missing-data reading.
     expect(markup).toContain("cycle tempo Unmeasured");
-    expect(markup).toContain("cycle pace tracks 24h mint/redeem flow intensity by magnitude, not market-cap tier");
+    expect(markup).toContain("underway leg pace tracks 24h mint/redeem flow intensity by magnitude, not market-cap tier");
+    expect(markup).toContain("route cadence 90–180 s legs; 240–480 s rests; arrivals and departures are paired");
+    expect(markup).toContain("Routes show rendered-chain and risk-water presence only");
   });
 
   it("states per-ship issuance failure and garden-tempo parity", () => {

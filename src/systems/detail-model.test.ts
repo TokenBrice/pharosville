@@ -980,8 +980,8 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
     });
   });
 
-  describe("E3 — chain footprint extended dwell label", () => {
-    it("appends (extended dwell) suffix when chainPresence.length ≥ 4", () => {
+  describe("route cadence parity", () => {
+    it("keeps broad chain footprint as presence rather than a dwell modifier", () => {
       const ship = baseShipNode({
         chainPresence: [
           { chainId: "ethereum", currentUsd: 100, hasRenderedDock: true, share: 0.4 },
@@ -994,19 +994,11 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       const fact = detail.facts.find((f) => f.label === "Chain footprint");
       expect(fact).toBeDefined();
       expect(fact!.value).toContain("Broad footprint");
-      expect(fact!.value).toContain("(extended dwell)");
-    });
-
-    it("does not append (extended dwell) when chainPresence.length < 4", () => {
-      const ship = baseShipNode({
-        chainPresence: [
-          { chainId: "ethereum", currentUsd: 100, hasRenderedDock: true, share: 1 },
-        ],
-      });
-      const detail = detailForShip(ship);
-      const fact = detail.facts.find((f) => f.label === "Chain footprint");
-      expect(fact).toBeDefined();
       expect(fact!.value).not.toContain("(extended dwell)");
+      const cadence = detail.facts.find((f) => f.label === "Route cadence")?.value;
+      expect(cadence).toContain("90–180 s legs");
+      expect(cadence).toContain("240–480 s rests");
+      expect(cadence).toContain("rendered-chain and risk-water presence only");
     });
   });
 

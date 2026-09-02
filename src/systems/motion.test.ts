@@ -3001,36 +3001,6 @@ describe("motion", () => {
       });
     });
 
-    describe("E3 — chain-breadth dwell bonus", () => {
-      it("ship with chainPresence.length ≥ 4 gets dockDwellShareOverride > base", () => {
-        // Build a world where a ship has ≥4 positive chain deployments.
-        const sampleWorld = worldForShip({
-          chainCirculating: chainCirculating(["Ethereum", "Tron", "Solana", "BSC", "Arbitrum"]),
-          chains: ["ethereum", "tron", "solana", "bsc", "arbitrum"],
-        });
-        const plan = buildMotionPlan(sampleWorld, null);
-        const ship = sampleWorld.ships[0]!;
-
-        if (ship.chainPresence.length >= 4) {
-          const route = plan.shipRoutes.get(ship.id)!;
-          expect(route.dockDwellShareOverride).toBeDefined();
-          // Override should be 15% larger than DOCKED_SHIP_DWELL_SHARE (1/3 * 1.15).
-          const expectedOverride = (1 / 3) * 1.15;
-          expect(route.dockDwellShareOverride!).toBeCloseTo(expectedOverride, 6);
-        }
-      });
-
-      it("ship with chainPresence.length < 4 gets no dockDwellShareOverride", () => {
-        const sampleWorld = worldForShip({
-          chainCirculating: chainCirculating(["Ethereum"]),
-          chains: ["ethereum"],
-        });
-        const plan = buildMotionPlan(sampleWorld, null);
-        const ship = sampleWorld.ships[0]!;
-        const route = plan.shipRoutes.get(ship.id)!;
-        expect(route.dockDwellShareOverride).toBeUndefined();
-      });
-    });
   });
 
   // A4: seam-detection test pattern — D1 (wake smoothing) and D2 (ledger-roaming

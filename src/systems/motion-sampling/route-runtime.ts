@@ -1,6 +1,6 @@
 import { stableHash, stableUnit } from "../stable-random";
 import { pathKey, positiveModulo } from "../motion-utils";
-import { DOCKED_SHIP_DWELL_SHARE, ZONE_DWELL } from "../motion-config";
+import { ZONE_DWELL } from "../motion-config";
 import type { ShipMotionRoute, ShipWaterPath } from "../motion-types";
 import type { ShipWaterZone } from "../world-types";
 
@@ -89,7 +89,7 @@ export function routeSamplingRuntime(route: ShipMotionRoute): RouteSamplingRunti
     scheduledStopCount,
     stopSlotsExcludingHome,
     stopToRiskPathByDockId,
-    zoneDwell: dockedShipZoneDwell(route.zone, route.dockDwellShareOverride),
+    zoneDwell: dockedShipZoneDwell(route.zone),
   };
   routeSamplingRuntimeCache.set(route, runtime);
   return runtime;
@@ -124,10 +124,9 @@ function dockStopCount(renderedDockCount: number) {
   return 3;
 }
 
-function dockedShipZoneDwell(zone: ShipWaterZone, dockDwellShareOverride?: number): { dockDwell: number; riskDwell: number; transit: number } {
+function dockedShipZoneDwell(zone: ShipWaterZone): { dockDwell: number; riskDwell: number; transit: number } {
   const base = ZONE_DWELL[zone];
-  // E3: use per-route dockDwellShare if provided (broad chain-presence bonus).
-  const dwellShare = dockDwellShareOverride ?? DOCKED_SHIP_DWELL_SHARE;
+  const dwellShare = base.dockDwell;
   const transit = Math.min(base.transit, 1 - dwellShare - 0.08);
   return {
     dockDwell: dwellShare,

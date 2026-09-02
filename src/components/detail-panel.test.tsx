@@ -173,6 +173,7 @@ describe("DetailPanel structure (old-school revamp)", () => {
         { label: "Supply momentum", value: "7d +2.4%, 30d -5.1%" },
         { label: "Depeg history", value: "3 events on record; worst -8.2%; last 2026-05-30" },
         { label: "Cycle tempo", value: "Brisk" },
+        { label: "Route cadence", value: "90–180 s legs; 240–480 s rests; routes show presence only" },
         { label: "Home dock", value: "Ethereum" },
         { label: "Representative position", value: "Calm Anchorage idle" },
         { label: "Risk water area", value: "Calm Anchorage" },
@@ -200,6 +201,13 @@ describe("DetailPanel structure (old-school revamp)", () => {
     const validLabels = ["Languid", "Steady", "Brisk", "Active", "Unmeasured"];
     const found = validLabels.some((label) => markup.includes(label));
     expect(found).toBe(true);
+  });
+
+  it("renders the route cadence caveat in the identity section", () => {
+    const markup = renderShipPanel("susds-sky", "susds-sky");
+    expect(markup).toContain("Route cadence");
+    expect(markup).toContain("90–180 s legs");
+    expect(markup).toContain("rendered-chain and risk-water presence only");
   });
 
   it("renders 24h change row with formatted percentage when fact is present", () => {

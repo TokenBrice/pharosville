@@ -53,7 +53,7 @@ describe("buildVisualCueRegistry", () => {
       "cue.water.semantic-terrain",
     ]));
     expect(cues.find((cue) => cue.id === "cue.ship.motion")).toMatchObject({
-      failureState: expect.stringContaining("reduced-motion static risk-water idle position with evidence caveat"),
+      failureState: expect.stringContaining("reduced-motion static risk-water or Ledger Mooring idle position"),
       target: { kind: "ship" },
       primaryChannels: ["motion", "position", "opacity"],
     });
@@ -79,15 +79,15 @@ describe("buildVisualCueRegistry", () => {
     expect(`${cue?.visual} ${cue?.questionAnswered}`).not.toMatch(/\b(alert|alarm|urgent|critical|emergency)\b/i);
   });
 
-  it("registers ship cycle tempo against per-coin mint/redeem flow intensity", () => {
+  it("registers bounded leg/rest cadence with route-presence caveats", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.motion");
 
-    expect(cue).toMatchObject({
-      sourceField: expect.stringContaining("mintBurn.coins[].flowIntensity"),
-      questionAnswered: expect.stringContaining("24h mint/redeem flow"),
-      failureState: expect.stringContaining("neutral 1.0 cycle-speed scalar"),
-    });
-    expect(cue?.domEquivalent).toContain("not market-cap tier");
+    expect(cue?.visual).toContain("90–180 second logical legs");
+    expect(cue?.visual).toContain("240–480 second rests");
+    expect(cue?.visual).toContain("paired arrivals and departures");
+    expect(cue?.visual).toContain("risk order");
+    expect(cue?.domEquivalent).toContain("rendered-chain/risk presence only");
+    expect(`${cue?.visual} ${cue?.domEquivalent}`).not.toMatch(/mooring orbit|chain-breadth dwell|extended dwell/i);
   });
 
   it("registers seven hover-weighted boundary steles with ledger redundancy", () => {

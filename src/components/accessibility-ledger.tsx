@@ -43,6 +43,7 @@ import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
 import type { GardenAlmanacLogEntry } from "../systems/garden-almanac";
 import { pigeonnierRoostLabel } from "../systems/pigeonnier-watch";
 import { deriveEpistemicHaze, epistemicHazeLabel } from "../systems/epistemic-haze";
+import { motionCadenceDetailLabel } from "../systems/motion-config";
 
 // Dock health-band swatches mirror the Three dock signal colors. Robust and
 // healthy share the same green; both remain listed for parity with the
@@ -473,6 +474,7 @@ function shipLedgerLine(
     `evidence status ${ship.placementEvidence.stale ? "caveat" : "fresh"}`,
     `source fields ${ship.placementEvidence.sourceFields.join(", ") || "unavailable"}${ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}`,
     `cycle tempo ${tempoLabel}; ${cycleTempoReadingClause()}`,
+    `route cadence ${motionCadenceDetailLabel()}`,
     shipIssuanceLedgerClause(ship),
     shipFittingsLedgerClause(ship),
     shipAgeLedgerClause(ship),

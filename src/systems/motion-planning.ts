@@ -1,7 +1,6 @@
 import { clampMapTile, isWaterTileKind, nearestWaterTile } from "./world-layout";
 import { stableHash, stableUnit } from "./stable-random";
 import {
-  DOCKED_SHIP_DWELL_SHARE,
   MOTION_CYCLE_MAX_SECONDS,
   MOTION_LEG_MAX_SECONDS,
   MOTION_LEG_MIN_SECONDS,
@@ -383,11 +382,6 @@ function buildShipMotionRoute(
   // E2: change24hPct is in percent units (e.g. 10 means 10%) per recent-change.ts:16
   // formula: (usd / previous) * 100. Threshold 2 = 2%, scale 20 keeps the same shape.
   const wakeMultiplier = computeWakeMultiplier(ship.change24hPct);
-  // E3: broad chain presence (≥4 positive chains) earns +15% dock-dwell share.
-  const dockDwellShareOverride = ship.chainPresence.length >= 4
-    ? DOCKED_SHIP_DWELL_SHARE * 1.15
-    : undefined;
-
   // W4.25 — capture previousRiskTile when the ship's riskPlacement or
   // riskTile differs from the last build. Survives one cycle then clears.
   const previousRisk = capturePreviousRiskTile(map, ship, riskTile);
@@ -423,7 +417,6 @@ function buildShipMotionRoute(
     formationOffset: null,
     staleEvidence: ship.placementEvidence.stale,
     wakeMultiplier,
-    ...(dockDwellShareOverride !== undefined ? { dockDwellShareOverride } : {}),
     ...(previousRisk
       ? { previousRiskTile: previousRisk.tile, previousRiskLabel: previousRisk.label }
       : {}),
@@ -519,9 +512,6 @@ function buildConsortMotionRoute(
     ? offsetOpenWaterPatrol(flagshipRoute.openWaterPatrol, offsetTile)
     : null;
 
-  const consortDockDwellOverride = ship.chainPresence.length >= 4
-    ? DOCKED_SHIP_DWELL_SHARE * 1.15
-    : undefined;
   return {
     shipId: ship.id,
     ...(flagshipRoute.routeEpoch !== undefined ? { routeEpoch: flagshipRoute.routeEpoch } : {}),
@@ -550,11 +540,10 @@ function buildConsortMotionRoute(
     waterPaths: new Map<string, ShipWaterPath>(),
     routeSeed: flagshipRoute.routeSeed,
     formationOffset,
-    // E1/E2/E3: consorts use their own ship's signals (not the flagship's),
-    // so each consort's stale evidence and change24hPct are reflected independently.
+    // Consorts use their own ship's signals (not the flagship's), so each
+    // consort's stale evidence and change24hPct are reflected independently.
     staleEvidence: ship.placementEvidence.stale,
     wakeMultiplier: computeWakeMultiplier(ship.change24hPct),
-    ...(consortDockDwellOverride !== undefined ? { dockDwellShareOverride: consortDockDwellOverride } : {}),
   };
 }
 

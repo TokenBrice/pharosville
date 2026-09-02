@@ -12,6 +12,7 @@ import {
 } from "../systems/sea-state";
 import { LEGEND_MARK_ROWS } from "../systems/visual-cue-registry";
 import type { ShipRiskPlacement } from "../systems/world-types";
+import { motionCadenceDetailLabel } from "../systems/motion-config";
 
 export interface LegendPanelProps {
   onClose: () => void;
@@ -212,8 +213,9 @@ export function LegendPanel({ onClose, onObserve, onSelectDetail, recentFleetTre
           </ul>
           <p>
             Hull size tracks market-cap tier (compressed, not linear). The
-            ship&apos;s cruising pace also tracks its supply tier — bigger coins
-            cycle a little faster; pace never means transfers or activity. The
+            fleet follows the leg/rest contract: {motionCadenceDetailLabel()} Within those bounds,
+            measured 24h mint/redeem flow intensity modestly changes underway pace;
+            unavailable flow uses neutral pace. The
             largest titans and culturally significant heritage hulls stay
             visible even while moored; smaller ships disappear into their dock
             while berthed.
