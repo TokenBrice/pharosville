@@ -31,10 +31,11 @@ import {
  *
  * Stone mass UP; timber boards, pilings and seven sign lanterns DOWN. The
  * stone is one InstancedMesh and every carved name is one merged cut-stroke mesh:
- * seven bodies cost two draws total and no texture. Names remain quiet and
- * water-valued until the existing body hover/selection plumbing activates one.
- * The canvas content is aria-hidden; the accessibility ledger remains the
- * redundant naming channel.
+ * seven bodies cost two draws total and no texture. The default carving now
+ * reads as dark cut ink against lifted stone at the inhabited camera, while
+ * hover/selection still reverses it to the stronger pale emphasis. The canvas
+ * content is aria-hidden; the accessibility ledger remains the redundant
+ * naming channel.
  */
 
 export interface SeaSignSpec {
@@ -66,8 +67,16 @@ export interface GardenSeaSigns {
 const STELE_HEIGHT = 1.9;
 const STELE_CENTER_Y = 0.65;
 const FACE_OFFSET = STELE_DEPTH * 0.51;
-const QUIET_CARVING = new Color("#42595b");
-const ACTIVE_CARVING = new Color("#e7dfc8");
+export const GARDEN_SEA_STELE_STONE_COLOR = "#71827d";
+export const GARDEN_SEA_STELE_DEFAULT_CARVING_COLOR = "#132c33";
+export const GARDEN_SEA_STELE_NIGHT_CARVING_COLOR = "#b7c9c2";
+export const GARDEN_SEA_STELE_ACTIVE_CARVING_COLOR = "#fff0c9";
+export const GARDEN_SEA_STELE_NAME_WIDTH_FRACTION = 0.94;
+export const GARDEN_SEA_STELE_NAME_HEIGHT_FRACTION = 0.82;
+export const GARDEN_SEA_STELE_GLYPH_FILL = { x: 0.92, y: 0.86 } as const;
+const DEFAULT_CARVING = new Color(GARDEN_SEA_STELE_DEFAULT_CARVING_COLOR);
+const NIGHT_CARVING = new Color(GARDEN_SEA_STELE_NIGHT_CARVING_COLOR);
+const ACTIVE_CARVING = new Color(GARDEN_SEA_STELE_ACTIVE_CARVING_COLOR);
 export {
   SEA_SIGN_SCALE_STEPS,
   SEA_SIGN_STELE,
@@ -107,7 +116,7 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
 
   const stoneGeometry = createSteleGeometry();
   const stoneMaterial = new MeshStandardMaterial({
-    color: "#526969",
+    color: GARDEN_SEA_STELE_STONE_COLOR,
     flatShading: true,
     roughness: 0.98,
   });
@@ -155,7 +164,7 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
     const vertexCount = face.getAttribute("position").count;
     const colors = new Float32Array(vertexCount * 3);
     for (let vertex = 0; vertex < vertexCount; vertex += 1) {
-      QUIET_CARVING.toArray(colors, vertex * 3);
+      DEFAULT_CARVING.toArray(colors, vertex * 3);
     }
     face.setAttribute("color", new Float32BufferAttribute(colors, 3));
     faceRanges.push({ body: spec.body, count: vertexCount, start: vertexStart });
@@ -246,7 +255,10 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
       appliedBody = activeBody;
       appliedNight = night;
       const colors = faces.geometry.getAttribute("color");
-      const quiet = quietColor.copy(QUIET_CARVING).multiplyScalar(1 - night * 0.18);
+      // Basic-material ink is not lit with the stone. Darkening it at night
+      // therefore erased the name twice; cool pale ink restores the default
+      // reading while the active carving remains the warmer, brighter state.
+      const quiet = quietColor.copy(DEFAULT_CARVING).lerp(NIGHT_CARVING, night);
       const active = activeColor.copy(ACTIVE_CARVING).multiplyScalar(0.92 + night * 0.08);
       for (const range of faceRanges) {
         const color = range.body === activeBody ? active : quiet;
@@ -310,15 +322,18 @@ const GLYPHS: Readonly<Record<string, readonly string[]>> = {
 function createSteleNameGeometry(label: string): BufferGeometry {
   const text = label.toUpperCase();
   const columns = Math.max(1, text.length * (GLYPH_COLUMNS + 1) - 1);
-  const unitX = STELE_WIDTH * 0.82 / columns;
-  const unitY = STELE_FACE_HEIGHT * 0.62 / GLYPH_ROWS;
+  const unitX = STELE_WIDTH * GARDEN_SEA_STELE_NAME_WIDTH_FRACTION / columns;
+  const unitY = STELE_FACE_HEIGHT * GARDEN_SEA_STELE_NAME_HEIGHT_FRACTION / GLYPH_ROWS;
   const parts: PlaneGeometry[] = [];
   for (let characterIndex = 0; characterIndex < text.length; characterIndex += 1) {
     const glyph = GLYPHS[text[characterIndex]!] ?? [];
     for (let row = 0; row < glyph.length; row += 1) {
       for (let column = 0; column < GLYPH_COLUMNS; column += 1) {
         if (glyph[row]![column] !== "1") continue;
-        const block = new PlaneGeometry(unitX * 0.82, unitY * 0.78);
+        const block = new PlaneGeometry(
+          unitX * GARDEN_SEA_STELE_GLYPH_FILL.x,
+          unitY * GARDEN_SEA_STELE_GLYPH_FILL.y,
+        );
         block.translate(
           (characterIndex * (GLYPH_COLUMNS + 1) + column - (columns - 1) / 2) * unitX,
           ((GLYPH_ROWS - 1) / 2 - row) * unitY,

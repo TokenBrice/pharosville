@@ -21,7 +21,11 @@ import {
   GARDEN_DEFAULT_WIND_X,
   GARDEN_DEFAULT_WIND_Z,
 } from "../systems/weather";
-import { SEA_REGION_CHARACTER, SEA_REGION_ID } from "../systems/garden-sea-regions";
+import {
+  SEA_REGION_CHARACTER,
+  SEA_REGION_DISTANCE_FULL_SCALE_TILES,
+  SEA_REGION_ID,
+} from "../systems/garden-sea-regions";
 import type { GardenWaterFrame } from "./garden-water";
 import {
   createGardenWater,
@@ -29,6 +33,7 @@ import {
   GARDEN_ISLAND_ROCK_RADIUS,
   GARDEN_WATER_GERSTNER,
   GARDEN_WATER_MAX_DISPLACEMENT,
+  GARDEN_SEA_BOUNDARY_SEAM_WIDTH_TILES,
   sampleGardenGerstner,
   VERTEX_SHADER,
   type GardenGerstnerSampleInput,
@@ -322,7 +327,9 @@ describe("createGardenWater", () => {
     expect(water.material.fragmentShader).not.toContain("uZoneEllipse");
 
     const danger = water.material.uniforms.uRegionColor!.value[5]!;
-    expect(danger.getHexString()).toBe("ef4444");
+    expect(danger.getHexString()).toBe(
+      new Color(SEA_REGION_CHARACTER.danger.tint).lerp(new Color("#ef4444"), 0.18).getHexString(),
+    );
     expect(water.material.uniforms.uRegionParams!.value[5]!.w).toBeCloseTo(
       SEA_REGION_CHARACTER.danger.tintStrength,
     );
@@ -356,6 +363,23 @@ describe("createGardenWater", () => {
     expect(source).toContain(`regionId == ${SEA_REGION_ID.ledger}`);
     expect(source).toContain(`regionId == ${SEA_REGION_ID.wreck}`);
     expect(source).toContain("crestFoamMask *= 0.52");
+  });
+
+  it("wires each named body's few-tile boundary bank into the single water draw", () => {
+    const water = createGardenWater(0);
+    const boundaries = water.material.uniforms.uRegionBoundary!.value;
+    for (const [name, id] of Object.entries(SEA_REGION_ID)) {
+      const character = SEA_REGION_CHARACTER[name as keyof typeof SEA_REGION_CHARACTER];
+      expect(boundaries[id]!.x).toBeCloseTo(
+        character.boundaryWidthTiles / SEA_REGION_DISTANCE_FULL_SCALE_TILES,
+      );
+      expect(boundaries[id]!.y).toBe(character.boundaryFoam);
+      expect(boundaries[id]!.z).toBe(character.boundaryBank);
+    }
+    expect(GARDEN_SEA_BOUNDARY_SEAM_WIDTH_TILES).toEqual({ min: 2.6, max: 3.6 });
+    expect(water.material.fragmentShader).toContain("float boundaryBand");
+    expect(water.material.fragmentShader).toContain("vec3 boundaryCharacter = uRegionBoundary[regionId]");
+    expect(water.mesh.children).toHaveLength(0);
   });
 
   it("maps the region field with the water plane's z-flip", () => {

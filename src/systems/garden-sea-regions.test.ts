@@ -1,6 +1,8 @@
+import { Color } from "three";
 import { describe, expect, it } from "vitest";
 import {
   SEA_REGION_CHARACTER,
+  SEA_REGION_DISTANCE_FULL_SCALE_TILES,
   SEA_REGION_ID,
   SEA_REGION_ORDER,
   buildSeaRegionField,
@@ -94,8 +96,8 @@ describe("sea region field", () => {
     const bodies = ["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"] as const;
     for (const body of bodies) {
       const character = SEA_REGION_CHARACTER[body];
-      expect(character.tintStrength).toBeGreaterThanOrEqual(0.42);
-      expect(character.tintStrength).toBeLessThanOrEqual(0.48);
+      expect(character.tintStrength).toBeGreaterThanOrEqual(0.6);
+      expect(character.tintStrength).toBeLessThanOrEqual(0.72);
       expect(Number.isFinite(character.flowBearing)).toBe(true);
       expect(character.flowHold).toBeGreaterThanOrEqual(0);
       expect(character.flowHold).toBeLessThanOrEqual(1);
@@ -107,5 +109,45 @@ describe("sea region field", () => {
     expect(SEA_REGION_CHARACTER.warning.shallowShelf).toBeGreaterThan(0.8);
     expect(SEA_REGION_CHARACTER.wreck.swell).toBeLessThan(SEA_REGION_CHARACTER.calm.swell);
     expect(SEA_REGION_CHARACTER.ledger.swell).toBeLessThan(SEA_REGION_CHARACTER.watch.swell);
+  });
+
+  it("keeps every named body pair distinct in hue or physical character", () => {
+    // Hue is only one axis: Alert grey-green and Wreck silt may approach one
+    // another chromatically, but their current, foam and boundary behavior
+    // must stay unmistakably different. This combined distance catches a
+    // future pass that collapses either colour OR physical character.
+    const bodies = ["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"] as const;
+    const hsl = { h: 0, s: 0, l: 0 };
+    const vector = (body: typeof bodies[number]) => {
+      const character = SEA_REGION_CHARACTER[body];
+      new Color(character.tint).getHSL(hsl);
+      return [
+        hsl.h,
+        character.swell / 2.1,
+        character.chop / 2.5,
+        character.reflectivity / 1.65,
+        character.shallowShelf,
+        character.boundaryFoam / 0.24,
+        character.boundaryBank / 0.22,
+      ];
+    };
+    for (let left = 0; left < bodies.length; left += 1) {
+      for (let right = left + 1; right < bodies.length; right += 1) {
+        const a = vector(bodies[left]!);
+        const b = vector(bodies[right]!);
+        const hue = Math.min(Math.abs(a[0]! - b[0]!), 1 - Math.abs(a[0]! - b[0]!)) * 2;
+        const distance = Math.hypot(hue, ...a.slice(1).map((value, index) => value - b[index + 1]!));
+        expect(distance, `${bodies[left]} / ${bodies[right]}`).toBeGreaterThan(0.4);
+      }
+    }
+  });
+
+  it("expresses every named boundary bank as a few-tile treatment", () => {
+    expect(SEA_REGION_DISTANCE_FULL_SCALE_TILES).toBeGreaterThan(6);
+    for (const body of ["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"] as const) {
+      expect(SEA_REGION_CHARACTER[body].boundaryWidthTiles, body).toBeGreaterThanOrEqual(2.5);
+      expect(SEA_REGION_CHARACTER[body].boundaryWidthTiles, body).toBeLessThanOrEqual(4);
+    }
+    expect(SEA_REGION_CHARACTER.open.boundaryWidthTiles).toBe(0);
   });
 });

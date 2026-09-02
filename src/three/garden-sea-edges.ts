@@ -64,20 +64,20 @@ const STONE_SIGNATURES: readonly StoneSignature[] = ["natural", "pale", "dark", 
 
 const SIGNATURE_COLORS: Record<StoneSignature, { low: Color; high: Color }> = {
   natural: {
-    low: new Color(HARBOR_PALETTE.stone_dark).lerp(new Color(HARBOR_PALETTE.deep_sea_2), 0.35),
-    high: new Color(HARBOR_PALETTE.stone_pale),
+    low: new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.fog_pale), 0.28),
+    high: new Color(HARBOR_PALETTE.stone_pale).lerp(new Color(HARBOR_PALETTE.foam_white), 0.38),
   },
   pale: {
-    low: new Color(HARBOR_PALETTE.stone_mid),
-    high: new Color(HARBOR_PALETTE.stone_pale).lerp(new Color(HARBOR_PALETTE.sun_day_warm), 0.42),
+    low: new Color(HARBOR_PALETTE.stone_pale).lerp(new Color(HARBOR_PALETTE.foam_white), 0.3),
+    high: new Color(HARBOR_PALETTE.foam_white).lerp(new Color(HARBOR_PALETTE.sun_day_warm), 0.24),
   },
   dark: {
-    low: new Color(HARBOR_PALETTE.deep_sea_2),
-    high: new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.42),
+    low: new Color(HARBOR_PALETTE.deep_sea_1).lerp(new Color(HARBOR_PALETTE.stone_mid), 0.5),
+    high: new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.fog_blue), 0.46),
   },
   slate: {
-    low: new Color(HARBOR_PALETTE.deep_sea_1),
-    high: new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.fog_blue), 0.34),
+    low: new Color(HARBOR_PALETTE.deep_sea_1).lerp(new Color(HARBOR_PALETTE.fog_blue), 0.42),
+    high: new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.foam_white), 0.28),
   },
 };
 

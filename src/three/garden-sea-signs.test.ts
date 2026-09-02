@@ -7,6 +7,13 @@ import { describe, expect, it } from "vitest";
 import { DEWS_AREA_LABEL_COLORS } from "../systems/palette";
 import {
   createGardenSeaSigns,
+  GARDEN_SEA_STELE_ACTIVE_CARVING_COLOR,
+  GARDEN_SEA_STELE_DEFAULT_CARVING_COLOR,
+  GARDEN_SEA_STELE_GLYPH_FILL,
+  GARDEN_SEA_STELE_NAME_HEIGHT_FRACTION,
+  GARDEN_SEA_STELE_NAME_WIDTH_FRACTION,
+  GARDEN_SEA_STELE_NIGHT_CARVING_COLOR,
+  GARDEN_SEA_STELE_STONE_COLOR,
   seaSignScaleForZoom,
   type SeaSignSpec,
 } from "./garden-sea-signs";
@@ -16,6 +23,21 @@ const specs: SeaSignSpec[] = [
   { accent: DEWS_AREA_LABEL_COLORS.WARNING, body: "warning", label: "Warning Shoals", reading: "4 ships" },
   { accent: DEWS_AREA_LABEL_COLORS.DANGER, body: "danger", label: "Danger Strait", reading: "2 ships" },
 ];
+
+function relativeLuminance(hex: string): number {
+  const channels = [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16) / 255);
+  const channel = (value: number) => (
+    value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  );
+  return 0.2126 * channel(channels[0]!)
+    + 0.7152 * channel(channels[1]!)
+    + 0.0722 * channel(channels[2]!);
+}
+
+function contrastRatio(left: string, right: string): number {
+  const values = [relativeLuminance(left), relativeLuminance(right)].sort((a, b) => b - a);
+  return (values[0]! + 0.05) / (values[1]! + 0.05);
+}
 
 describe("garden sea steles", () => {
   it("batches all stone and all carvings into two draws", () => {
@@ -43,6 +65,23 @@ describe("garden sea steles", () => {
     expect((carvings.material as MeshBasicMaterial).map).toBeNull();
     expect(carvings.geometry.getAttribute("position").count).toBeGreaterThan(specs.length * 40);
     signs.dispose();
+  });
+
+  it("keeps the default carving large and contrasting before hover", () => {
+    expect(contrastRatio(
+      GARDEN_SEA_STELE_DEFAULT_CARVING_COLOR,
+      GARDEN_SEA_STELE_STONE_COLOR,
+    )).toBeGreaterThan(3);
+    expect(GARDEN_SEA_STELE_NAME_WIDTH_FRACTION).toBeGreaterThanOrEqual(0.9);
+    expect(GARDEN_SEA_STELE_NAME_HEIGHT_FRACTION).toBeGreaterThanOrEqual(0.8);
+    expect(GARDEN_SEA_STELE_GLYPH_FILL.x).toBeGreaterThanOrEqual(0.9);
+    expect(GARDEN_SEA_STELE_GLYPH_FILL.y).toBeGreaterThanOrEqual(0.85);
+    expect(contrastRatio(
+      GARDEN_SEA_STELE_ACTIVE_CARVING_COLOR,
+      GARDEN_SEA_STELE_STONE_COLOR,
+    )).toBeGreaterThan(3);
+    expect(relativeLuminance(GARDEN_SEA_STELE_NIGHT_CARVING_COLOR))
+      .toBeGreaterThan(relativeLuminance(GARDEN_SEA_STELE_DEFAULT_CARVING_COLOR) * 5);
   });
 
   it("keeps true world scale nearby and enlarges the face on the overview rung", () => {

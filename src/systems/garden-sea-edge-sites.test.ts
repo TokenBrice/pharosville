@@ -6,6 +6,7 @@ import {
   GARDEN_EDGE_STONE_OBSTACLES,
   GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES,
   GARDEN_SEA_EDGE_ISLAND_WATERLINE,
+  GARDEN_SEA_EDGE_SCALE_FACTOR,
   GARDEN_SEA_EDGE_SHED_LIST,
   GARDEN_SEA_EDGE_SITES,
   seaEdgeBoundaryAt,
@@ -33,6 +34,20 @@ describe("garden sea-edge sites", () => {
     for (const displacement of Object.values(GARDEN_SEA_EDGE_SHED_LIST)) {
       expect(displacement).toMatch(/demote/i);
     }
+  });
+
+  it("enlarges water-edge tongues, bars and piles by the authored scale factor", () => {
+    expect(GARDEN_SEA_EDGE_SCALE_FACTOR).toBe(1.5);
+    expect(GARDEN_SEA_EDGE_SITES.find((site) => site.id === "alert-tongue-west"))
+      .toMatchObject({ height: 1.25 * 1.5, length: 7.2 * 1.5, width: 2.2 * 1.5 });
+    expect(GARDEN_SEA_EDGE_SITES.find((site) => site.id === "warning-bar-inner"))
+      .toMatchObject({ height: 0.48 * 1.5, length: 5.4 * 1.5, width: 2 * 1.5 });
+    expect(GARDEN_SEA_EDGE_SITES.find((site) => site.id === "ledger-pile-1"))
+      .toMatchObject({ height: 2.7 * 1.5, length: 0.55 * 1.5, width: 0.55 * 1.5 });
+    // The rim-land Danger wall is the deliberate exception: enlarging it had
+    // no clearance-valid site and would narrow the navigable strait.
+    expect(GARDEN_SEA_EDGE_SITES.find((site) => site.id === "danger-rim-cliff"))
+      .toMatchObject({ height: 5.2, length: 5.4, width: 1.2 });
   });
 
   it("resolves water elements onto their live field boundary and the Danger cliff onto its rim flank", () => {

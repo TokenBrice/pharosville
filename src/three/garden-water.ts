@@ -35,6 +35,11 @@ import {
   MOON_COLOR,
 } from "./garden-day-cycle";
 import {
+  GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS,
+  GARDEN_LIGHTHOUSE_BEAM_LENGTH,
+  GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE,
+} from "./garden-lighthouse";
+import {
   gardenHeightFogGlsl,
   gardenHeightFogUniforms,
   updateGardenHeightFog,
@@ -45,6 +50,7 @@ import { MAX_GARDEN_LIGHT_LANES } from "./garden-lanterns";
 import {
   SEA_REGION_CHARACTER,
   SEA_REGION_COUNT,
+  SEA_REGION_DISTANCE_FULL_SCALE_TILES,
   SEA_REGION_FALLBACK_TINT,
   SEA_REGION_ID,
   SEA_REGION_ORDER,
@@ -119,6 +125,16 @@ function createSeaRegionTextures(): {
 }
 const WATER_SEGMENTS = 96;
 export const GARDEN_WATER_MAX_DISPLACEMENT = 0.036;
+
+/**
+ * Named-body boundary banks are intentionally broad enough to survive the
+ * whole-map camera. The exact per-body widths live with each water character;
+ * these bounds make the renderer contract inspectable without parsing GLSL.
+ */
+export const GARDEN_SEA_BOUNDARY_SEAM_WIDTH_TILES = {
+  min: 2.6,
+  max: 3.6,
+} as const;
 
 /**
  * Phase 3 (item 1): the Gerstner spectrum that replaces the 3-wave sine sum.
@@ -583,6 +599,7 @@ export const FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D uRegionField;
   uniform sampler2D uRegionDistance;
   uniform vec3 uRegionColor[${SEA_REGION_COUNT}];
+  uniform vec3 uRegionBoundary[${SEA_REGION_COUNT}];
   uniform vec4 uRegionFlow[${SEA_REGION_COUNT}];
   uniform vec4 uRegionParams[${SEA_REGION_COUNT}];
   uniform vec4 uRegionSwell[${SEA_REGION_COUNT}];
@@ -1014,16 +1031,45 @@ ${gardenHeightFogGlsl()}
         clamp((regionReflect - 1.0) * 0.22, 0.0, 0.3) * blend * uEnvStrength
       );
 
-      float seam = 1.0 - smoothstep(0.0, 0.11, boundaryDistance);
-      float seamShadow = 1.0 - smoothstep(0.05, 0.24, boundaryDistance);
-      float seamWave = 0.55 + 0.45 * sin(
-        dot(vWaterPosition, vec2(0.31, 0.24)) - uTime * 0.35 * (0.6 + uTempo)
+      // A body's edge is a low-frequency BANK, not a hairline. Width is
+      // authored in tiles and normalised on the CPU against the field's known
+      // distance scale, so the treatment survives both the default and chart
+      // cameras without reclassifying a single tile.
+      vec3 boundaryCharacter = uRegionBoundary[regionId];
+      float boundaryEnabled = smoothstep(0.001, 0.02, boundaryCharacter.x);
+      float boundaryBand = (
+        1.0 - smoothstep(0.0, max(0.001, boundaryCharacter.x), boundaryDistance)
+      ) * boundaryEnabled;
+      float boundaryNoise = gardenValueNoise(
+        vec2(bodyAlong * 0.035, bodyAcross * 0.025) + float(regionId) * 7.31
       );
-      waterColor *= 1.0 - seamShadow * 0.025 * uDetail;
+      float boundaryCadence = 0.68 + boundaryNoise * 0.32;
+      if (regionId == ${SEA_REGION_ID.watch}) {
+        boundaryCadence *= 0.68 + 0.32 * sin(bodyAcross * 0.34 - uTime * 0.12);
+      } else if (regionId == ${SEA_REGION_ID.alert}) {
+        boundaryCadence *= 0.62 + 0.38 * sin(bodyAcross * 0.58 - uTime * 0.3);
+      } else if (regionId == ${SEA_REGION_ID.warning}) {
+        boundaryCadence *= smoothstep(0.34, 0.69, gardenValueNoise(
+          vec2(floor(bodyAlong * 0.11), bodyAcross * 0.055) + 23.0
+        ));
+      } else if (regionId == ${SEA_REGION_ID.danger}) {
+        boundaryCadence *= 0.64 + 0.36 * sin(bodyAcross * 0.72 - uTime * 0.48);
+      } else if (regionId == ${SEA_REGION_ID.ledger}) {
+        boundaryCadence *= 0.7 + 0.3 * sin(bodyAcross * 0.23);
+      } else if (regionId == ${SEA_REGION_ID.wreck}) {
+        boundaryCadence *= 0.72 + 0.28 * gardenFbm(vWaterPosition * 0.028 + 41.0);
+      }
+      waterColor *= 1.0 - boundaryBand * boundaryCharacter.z
+        * (0.58 + boundaryNoise * 0.42) * (0.72 + uDetail * 0.28);
       waterColor = mix(
         waterColor,
-        mix(uHighlightColor, waterColor, 0.42),
-        seam * seamWave * 0.08 * uDetail
+        uHighlightColor,
+        clamp(
+          boundaryBand * boundaryCharacter.y * boundaryCadence
+            * (0.5 + uDetail * 0.5) * (0.78 + uDaylight * 0.22),
+          0.0,
+          0.18
+        )
       );
 
       if (regionFoam > 0.3) {
@@ -1149,17 +1195,42 @@ ${gardenHeightFogGlsl()}
       waterColor = mix(waterColor, uHighlightColor, ripple * (0.1 + uDaylight * 0.06));
     }
 
+    // Item 3 beam road: the one beacon lane now carries to the finite rim and
+    // resolves into one soft landing pool. This refines the existing light-road
+    // term; it adds no lane, texture, pass, or independent light vocabulary.
     vec2 beamDirection = vec2(cos(uBeaconAngle), sin(uBeaconAngle));
     vec2 fromBeacon = vWaterPosition - uBeaconPosition;
     float beamAlong = dot(fromBeacon, beamDirection);
     float beamAcross = abs(dot(fromBeacon, vec2(-beamDirection.y, beamDirection.x)));
-    float beamWidth = 0.34 + max(0.0, beamAlong) * 0.029;
-    float beamLane = smoothstep(0.0, 2.0, beamAlong)
-      * (1.0 - smoothstep(30.0, 52.0, beamAlong))
-      * exp(-(beamAcross * beamAcross) / max(0.04, beamWidth * beamWidth));
+    float beamWidth = 0.55 + max(0.0, beamAlong) * ${glslFloat(
+      (GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS - 0.55) / GARDEN_LIGHTHOUSE_BEAM_LENGTH,
+    )};
+    float beamRoad = smoothstep(0.0, 3.0, beamAlong)
+      * (1.0 - smoothstep(
+        ${glslFloat(GARDEN_LIGHTHOUSE_BEAM_LENGTH - 8)},
+        ${glslFloat(GARDEN_LIGHTHOUSE_BEAM_LENGTH + 2)},
+        beamAlong
+      ))
+      * exp(-(beamAcross * beamAcross) / max(0.08, beamWidth * beamWidth));
+    vec2 beamPoolDelta = vec2(
+      beamAlong - ${glslFloat(GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE)},
+      beamAcross
+    );
+    vec2 beamPoolRadius = vec2(10.0, ${glslFloat(GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS * 1.35)});
+    float beamPool = exp(-dot(
+      beamPoolDelta / beamPoolRadius,
+      beamPoolDelta / beamPoolRadius
+    )) * smoothstep(
+      ${glslFloat(GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE - 18)},
+      ${glslFloat(GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE - 6)},
+      beamAlong
+    );
     float beamRipple = 0.56 + 0.44 * sin(beamAlong * 0.78 - uTime * 0.8 + tonalCurrent * 0.8);
-    float beaconReflection = beamLane
-      * (0.05 + smoothstep(0.48, 0.9, beamRipple) * 0.12)
+    float beamRippleCrest = smoothstep(0.48, 0.9, beamRipple);
+    float beaconReflection = (
+      beamRoad * (0.035 + beamRippleCrest * 0.08)
+      + beamPool * (0.08 + beamRippleCrest * 0.13)
+    )
       * uBeaconStrength;
     if (uBeaconStrength > 0.2) {
       float flickerGlow = 0.62 + 0.76 * uBeaconFlicker;
@@ -1441,6 +1512,14 @@ export function createGardenWater(waterLevel: number): GardenWater {
   // Seeded from the fallback table so every slot has a real colour even
   // before (or without) a live theme write — an unset slot renders black.
   const regionColors = SEA_REGION_ORDER.map((name) => new Color(SEA_REGION_FALLBACK_TINT[name]));
+  const regionBoundary = SEA_REGION_ORDER.map((name) => {
+    const character = SEA_REGION_CHARACTER[name];
+    return new Vector3(
+      character.boundaryWidthTiles / SEA_REGION_DISTANCE_FULL_SCALE_TILES,
+      character.boundaryFoam,
+      character.boundaryBank,
+    );
+  });
   const regionParams = SEA_REGION_ORDER.map((name) => {
     const character = SEA_REGION_CHARACTER[name];
     return new Vector4(
@@ -1571,6 +1650,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
     uRegionField: { value: regionField.field },
     uRegionDistance: { value: regionField.distance },
     uRegionColor: { value: regionColors },
+    uRegionBoundary: { value: regionBoundary },
     uRegionFlow: { value: regionFlow },
     uRegionParams: { value: regionParams },
     uRegionSwell: { value: regionSwell },
@@ -1797,19 +1877,23 @@ export function createGardenWater(waterLevel: number): GardenWater {
     setZoneState(zones) {
       // W2 / D5: zone TINTS are no longer painted as ellipses — the region
       // field carries the geometry. What still arrives here is each band's
-      // live colour, which is routed to its region slot so day/dusk/night
-      // colour blending and the theme bridge keep working unchanged.
+      // live day-blended colour, retained as a quiet admixture so the authored
+      // body dye and the theme bridge continue to share one slot.
       for (const zone of zones) {
         const slot = zone.regionId;
         if (slot === undefined || slot <= 0 || slot >= SEA_REGION_COUNT) continue;
-        regionColors[slot]!.copy(zone.color);
-        // W2a: live themes still own hue, while SEA_REGION_CHARACTER owns the
-        // amplified body weight. A weaker legacy zone value may not silently
-        // pull the new ~0.45 contract back to the former ~0.2 register.
         const name = SEA_REGION_ORDER[slot]!;
+        const character = SEA_REGION_CHARACTER[name];
+        // The character's authored dye carries the requested body identity;
+        // a small live-theme admixture keeps day-cycle palette continuity.
+        // Exact shader luminance matching then hands VALUE back to the live
+        // water before depth is applied, so stronger hue never flattens depth.
+        regionColors[slot]!.set(character.tint).lerp(zone.color, 0.18);
+        // A weaker legacy zone value may not silently pull the amplified
+        // character back toward the old indistinguishable ~0.2 register.
         uniforms.uRegionParams.value[slot]!.w = Math.max(
-          SEA_REGION_CHARACTER[name].tintStrength,
-          Math.min(0.52, zone.strength),
+          character.tintStrength,
+          Math.min(0.72, zone.strength),
         );
       }
     },

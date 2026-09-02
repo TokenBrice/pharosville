@@ -67,6 +67,22 @@ export interface GardenSeaEdgeObstacle {
 export const GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES = 4;
 
 /**
+ * The operator-requested geography enlargement, applied once to authored guide
+ * dimensions before BOTH siting and exported obstacle footprints. Keeping the
+ * renderer and water-safety radius on the same scaled values is the difference
+ * between a larger-looking bar and a physically larger bar ships can respect.
+ */
+export const GARDEN_SEA_EDGE_SCALE_FACTOR = 1.5;
+
+function guideScale(guide: EdgeGuide): number {
+  // The Danger cliff is already a rim-land wall, and no 1.5x candidate keeps
+  // the existing cove/mooring apron. The requested tongues, bars and piles —
+  // plus the other water-edge forms — take the full enlargement; the gorge
+  // keeps its reviewed land footprint rather than narrowing the strait.
+  return guide.form === "cliff" ? 1 : GARDEN_SEA_EDGE_SCALE_FACTOR;
+}
+
+/**
  * Rendered island waterline used only to reject edge-geography candidates.
  * Kept structurally equal to `GARDEN_ISLAND_OBSTACLE`; the focused exclusion
  * test guards that shared contract without introducing a systems import cycle.
@@ -140,7 +156,7 @@ const GUIDES: readonly EdgeGuide[] = [
   { body: "danger", form: "cliff", guide: { x: 137, y: 57 }, height: 5.2, id: "danger-rim-cliff", length: 5.4, material: "dark", surface: "rim-land", target: "rim", width: 1.2 },
 
   // Ledger Mooring: a right-angled slate lip and an orderly run of piles.
-  { body: "ledger", form: "slate-edge", guide: { x: 66, y: 7 }, height: 0.85, id: "ledger-slate-west", length: 4.2, material: "slate", target: "open", width: 1.4 },
+  { body: "ledger", form: "slate-edge", guide: { x: 71, y: 13 }, height: 0.85, id: "ledger-slate-west", length: 4.2, material: "slate", target: "open", width: 1.4 },
   { body: "ledger", form: "slate-edge", guide: { x: 72, y: 14 }, height: 0.75, id: "ledger-slate-east", length: 4.0, material: "slate", target: "open", width: 1.4 },
   { body: "ledger", form: "timber-pile", guide: { x: 66, y: 3 }, height: 2.7, id: "ledger-pile-1", length: 0.55, material: "wood", target: "open", width: 0.55 },
   { body: "ledger", form: "timber-pile", guide: { x: 66, y: 6 }, height: 2.9, id: "ledger-pile-2", length: 0.55, material: "wood", target: "open", width: 0.55 },
@@ -167,7 +183,11 @@ function regionId(body: SeaBodyName): number {
 }
 
 function footprintRadius(guide: EdgeGuide): number {
-  return Math.hypot(guide.length, guide.width) * 0.5 + 0.25;
+  const scale = guideScale(guide);
+  return Math.hypot(
+    guide.length * scale,
+    guide.width * scale,
+  ) * 0.5 + 0.25;
 }
 
 function insideMap(x: number, y: number): boolean {
@@ -277,17 +297,18 @@ function resolveGuide(
     }
   }
   if (!best) throw new Error(`Could not site sea-edge geography: ${guide.id}`);
+  const scale = guideScale(guide);
   return Object.freeze({
     bearing: boundaryTangent(best.x, best.y, guide.body, guide.form),
     body: guide.body,
     form: guide.form,
     footprintRadius: radius,
-    height: guide.height,
+    height: guide.height * scale,
     id: guide.id,
-    length: guide.length,
+    length: guide.length * scale,
     material: guide.material,
     tile: Object.freeze(best),
-    width: guide.width,
+    width: guide.width * scale,
   });
 }
 
