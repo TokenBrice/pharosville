@@ -112,7 +112,7 @@ interface EdgeGuide {
 const GUIDES: readonly EdgeGuide[] = [
   // Calm Anchorage: a loose, odd-numbered mouth near the torii, leaving the
   // bay's centre untouched. Lily leaves are part of the reed instance shape.
-  { body: "calm", form: "reed-lily", guide: { x: 74, y: 91 }, height: 1.7, id: "calm-mouth-north", length: 2.4, material: "vegetation", target: "open", width: 1.8 },
+  { body: "calm", form: "reed-lily", guide: { x: 75, y: 97 }, height: 1.7, id: "calm-mouth-north", length: 2.4, material: "vegetation", target: "open", width: 1.8 },
   { body: "calm", form: "reed-lily", guide: { x: 75, y: 99 }, height: 2.0, id: "calm-mouth-middle", length: 2.9, material: "vegetation", target: "open", width: 2.0 },
   { body: "calm", form: "reed-lily", guide: { x: 75, y: 107 }, height: 1.5, id: "calm-mouth-south", length: 2.2, material: "vegetation", target: "open", width: 1.6 },
 
@@ -140,12 +140,12 @@ const GUIDES: readonly EdgeGuide[] = [
   { body: "danger", form: "cliff", guide: { x: 137, y: 57 }, height: 5.2, id: "danger-rim-cliff", length: 5.4, material: "dark", surface: "rim-land", target: "rim", width: 1.2 },
 
   // Ledger Mooring: a right-angled slate lip and an orderly run of piles.
-  { body: "ledger", form: "slate-edge", guide: { x: 68, y: 18 }, height: 0.85, id: "ledger-slate-west", length: 6.2, material: "slate", target: "open", width: 1.4 },
-  { body: "ledger", form: "slate-edge", guide: { x: 75, y: 18 }, height: 0.75, id: "ledger-slate-east", length: 5.4, material: "slate", target: "open", width: 1.4 },
-  { body: "ledger", form: "timber-pile", guide: { x: 66, y: 18 }, height: 2.7, id: "ledger-pile-1", length: 0.55, material: "wood", target: "open", width: 0.55 },
-  { body: "ledger", form: "timber-pile", guide: { x: 69, y: 18 }, height: 2.9, id: "ledger-pile-2", length: 0.55, material: "wood", target: "open", width: 0.55 },
-  { body: "ledger", form: "timber-pile", guide: { x: 72, y: 17 }, height: 2.6, id: "ledger-pile-3", length: 0.55, material: "wood", target: "open", width: 0.55 },
-  { body: "ledger", form: "timber-pile", guide: { x: 75, y: 16 }, height: 2.8, id: "ledger-pile-4", length: 0.55, material: "wood", target: "open", width: 0.55 },
+  { body: "ledger", form: "slate-edge", guide: { x: 66, y: 7 }, height: 0.85, id: "ledger-slate-west", length: 4.2, material: "slate", target: "open", width: 1.4 },
+  { body: "ledger", form: "slate-edge", guide: { x: 72, y: 14 }, height: 0.75, id: "ledger-slate-east", length: 4.0, material: "slate", target: "open", width: 1.4 },
+  { body: "ledger", form: "timber-pile", guide: { x: 66, y: 3 }, height: 2.7, id: "ledger-pile-1", length: 0.55, material: "wood", target: "open", width: 0.55 },
+  { body: "ledger", form: "timber-pile", guide: { x: 66, y: 6 }, height: 2.9, id: "ledger-pile-2", length: 0.55, material: "wood", target: "open", width: 0.55 },
+  { body: "ledger", form: "timber-pile", guide: { x: 67, y: 9 }, height: 2.6, id: "ledger-pile-3", length: 0.55, material: "wood", target: "open", width: 0.55 },
+  { body: "ledger", form: "timber-pile", guide: { x: 70, y: 12 }, height: 2.8, id: "ledger-pile-4", length: 0.55, material: "wood", target: "open", width: 0.55 },
 
   // Wreck Shoal: an uneven three-stone mouth where Wreck water meets Calm.
   { body: "wreck", form: "inlet-stone", guide: { x: 37, y: 108 }, height: 1.2, id: "wreck-mouth-west", length: 2.2, material: "natural", target: "calm", width: 1.8 },
@@ -306,7 +306,8 @@ export const GARDEN_SEA_EDGE_SITES: readonly GardenSeaEdgeSite[] = Object.freeze
  * Danger cliff is already rim land and must not narrow the strait a second time.
  */
 export const GARDEN_EDGE_STONE_OBSTACLES: readonly GardenSeaEdgeObstacle[] = Object.freeze(
-  GARDEN_SEA_EDGE_SITES.filter((site) => site.form !== "cliff").map((site) => Object.freeze({
+  GARDEN_SEA_EDGE_SITES.filter((site) => site.form !== "cliff")
+    .map((site) => Object.freeze({
     body: site.body,
     id: site.id,
     r: site.footprintRadius,

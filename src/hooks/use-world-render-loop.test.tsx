@@ -45,6 +45,7 @@ const {
   return {
     createThreeWorldRendererMock: vi.fn(() => ({
       dispose: disposeThreeWorldRendererMock,
+      getSeaSignScale: () => 1,
       render: renderThreeWorldMock,
       warmup: warmupThreeWorldMock,
     })),

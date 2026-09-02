@@ -15,6 +15,7 @@ import {
   type Texture,
   type WebGLRenderer,
 } from "three";
+import type { TextureOwnerManifestEntry } from "../renderer/render-types";
 
 /**
  * Phase 3 (Breathtaking Rendering, item 2): persistent ship wakes.
@@ -129,6 +130,8 @@ export interface GardenWakes {
   readonly stampCount: number;
   /** The field the water should sample this frame. */
   readonly texture: Texture;
+  /** Both ping-pong attachments, including the back buffer not sampled by water. */
+  getTextureManifest: () => readonly TextureOwnerManifestEntry[];
   /** Whether the field is live (stamped within the idle timeout). */
   readonly active: boolean;
   dispose: () => void;
@@ -236,6 +239,10 @@ function createTarget(): WebGLRenderTarget {
 export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
   const firstTarget = createTarget();
   const secondTarget = createTarget();
+  const textureManifest: readonly TextureOwnerManifestEntry[] = [
+    { owner: "garden-wakes.target-a", texture: firstTarget.texture },
+    { owner: "garden-wakes.target-b", texture: secondTarget.texture },
+  ];
   let front = firstTarget;
   let back = secondTarget;
 
@@ -341,6 +348,9 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
     },
     get texture() {
       return front.texture;
+    },
+    getTextureManifest() {
+      return textureManifest;
     },
     get active() {
       return active;
