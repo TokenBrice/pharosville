@@ -1,70 +1,106 @@
-import { Color, Matrix4 } from "three";
+import { Box3, Color, Matrix4, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import type { DockNode } from "../systems/world-types";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { EVM_BAY_STATION_SLOTS, OUTER_HARBOR_STATION_SLOTS } from "../systems/world-layout";
 import {
   authorDock,
+  authorPrecinctBridge,
   gardenHarborLanternWorldPositions,
   gardenHarborCalmMask,
   harborIdentity,
-  harborPlan,
   type DockRecipe,
-  type HarborPropKind,
+  type StationType,
 } from "./garden-docks";
 import { createGardenHarborBatch } from "./garden-harbor-batch";
 import { dockFixture as dock, ISLAND_TILE } from "./__fixtures__/harbor";
 
 const DISPLAY_TILE = { x: 40, y: 32 };
+const ARCHETYPES: readonly StationType[] = [
+  "boathouse-precinct", "annex-pavilion", "gate-landing", "tea-house-quay",
+  "fishing-pier", "stepped-inlet", "reed-boathouse", "storm-mole",
+  "salvage-slip", "signal-jetty", "pigeonnier-islet",
+];
+const EMITTED_ARCHETYPES: readonly StationType[] = [...new Set([
+  ...EVM_BAY_STATION_SLOTS,
+  ...OUTER_HARBOR_STATION_SLOTS,
+].map((slot) => slot.type))];
 
-describe("garden docks", () => {
-  it("gives Ethereum the grand banner arch and keeps luminous surfaces explicit", () => {
-    const recipe = authorDock(dock("ethereum", 10), DISPLAY_TILE, ISLAND_TILE);
-    expect(recipe.signature).toBe("arch");
-    expect(recipe.dock.chainId).toBe("ethereum");
-    expect(recipe.parts.some((part) => part.bucket === "window")).toBe(true);
-    expect(recipe.props.some((prop) => prop.kind === "lampHead")).toBe(true);
+describe("garden station recipes", () => {
+  it("authors one explicit roofline, flag shape, and signature per station type", () => {
+    const identities = ARCHETYPES.map((type) => recipeWithStation(type).identity);
+    expect(new Set(identities.map((identity) => identity.roofline)).size).toBe(ARCHETYPES.length);
+    expect(new Set(identities.map((identity) => identity.flagShape)).size).toBe(ARCHETYPES.length);
+    expect(new Set(identities.map((identity) => identity.signature)).size).toBe(ARCHETYPES.length);
+    for (const type of ARCHETYPES) expect(recipeWithStation(type).station.type).toBe(type);
   });
 
-  it("assigns a deterministic signature prop per chain", () => {
-    const first = authorDock(dock("solana", 6), DISPLAY_TILE, ISLAND_TILE);
-    const second = authorDock(dock("solana", 6), DISPLAY_TILE, ISLAND_TILE);
-    expect(first.signature).toBe(second.signature);
-    expect(["crane", "net-racks", "dinghy", "crate-tower", "derrick"])
-      .toContain(first.signature);
+  it("uses the incoming shore bearing and keeps local +X seaward", () => {
+    const bearing = 1.17;
+    const recipe = recipeWithStation("gate-landing", "gate", bearing);
+    expect(recipe.anchorRotationY).toBeCloseTo(-bearing, 6);
+    expect(recipe.station.shoreBearing).toBe(bearing);
   });
 
-  it("authors a harbour as bucket parts and prop instances, never meshes", () => {
-    const recipe = authorDock(dock("base", 7, 0.3), DISPLAY_TILE, ISLAND_TILE);
-    const buckets = new Set(recipe.parts.map((part) => part.bucket));
-    expect([...buckets].sort()).toEqual(["accent", "metal", "roof", "stone", "timber", "wall", "window"]);
-    const kinds = new Set(recipe.props.map((prop) => prop.kind));
-    for (const kind of ["post", "lampHead", "plank", "bollard", "crate", "barrel", "pylon", "piling"]) {
-      expect(kinds.has(kind as HarborPropKind), kind).toBe(true);
+  it("renders every emitted station type at its authored shore bearing", () => {
+    for (const [index, type] of EMITTED_ARCHETYPES.entries()) {
+      const bearing = -Math.PI + index * 0.51;
+      const recipe = recipeWithStation(type, `emitted-${type}`, bearing);
+      expect(recipe.station.type).toBe(type);
+      expect(recipe.anchorRotationY).toBeCloseTo(-bearing, 6);
+      expect(recipe.parts.some((part) => part.bucket === "roof")).toBe(true);
     }
-    const stone = recipe.parts.find((part) => part.bucket === "stone")!;
-    expect(stone.color.getHexString()).not.toBe("ffffff");
-    expect(recipe.flag.atlasCell).toBeGreaterThanOrEqual(-1);
-    expect(recipe.rootMatrix.determinant()).toBeCloseTo(1, 5);
   });
 
-  it("keeps the quay materials' height-fog contract on the recipe, not on a material", () => {
-    const recipe = authorDock(dock("base", 7), DISPLAY_TILE, ISLAND_TILE);
-    expect(recipe.identity).toBeDefined();
-    expect(recipe.parts.every((part) => part.geometry.getAttribute("position").count > 0)).toBe(true);
-  });
-
-  it("builds real harbour architecture, not a bare jetty", () => {
-    const recipe = authorDock(dock("base", 7, 0.3), DISPLAY_TILE, ISLAND_TILE);
-    for (const bucket of ["timber", "stone", "wall", "roof", "accent", "window"] as const) {
-      expect(recipe.parts.some((part) => part.bucket === bucket), bucket).toBe(true);
+  it("keeps every emitted primary roof legible at the default view height", () => {
+    for (const type of EMITTED_ARCHETYPES) {
+      const recipe = recipeWithStation(type);
+      const roof = recipe.parts.find((part) => part.bucket === "roof")!;
+      roof.geometry.computeBoundingBox();
+      const bounds = roof.geometry.boundingBox as Box3;
+      const size = bounds.getSize(new Vector3());
+      expect(size.x, `${type} roof length`).toBeGreaterThanOrEqual(3.99);
+      expect(size.z, `${type} roof depth`).toBeGreaterThanOrEqual(2.99);
+      expect(bounds.max.y, `${type} roof height`).toBeGreaterThanOrEqual(2.2);
     }
-    expect(recipe.parts.some((part) => part.fineDetail)).toBe(true);
-    expect(recipe.flag.chainId).toBe("base");
   });
 
-  it("turns weak chain health into cracked masonry and one leaning bollard", () => {
+  it("falls back to legacy identity and island bearing while B2 is absent", () => {
+    const { station: _ethereumStation, ...ethereumWithoutStation } = dock("ethereum", 10);
+    const { station: _baseStation, ...baseWithoutStation } = dock("base", 6);
+    const recipe = authorDock(ethereumWithoutStation as DockNode, DISPLAY_TILE, ISLAND_TILE);
+    expect(recipe.station.type).toBe("boathouse-precinct");
+    expect(recipe.station.coveId).toBe("legacy.ethereum");
+    expect(recipe.anchorRotationY).toBeCloseTo(-Math.atan2(4, 22), 6);
+    expect(harborIdentity(baseWithoutStation as DockNode).stationType).toBe("annex-pavilion");
+  });
+
+  it("makes Ethereum the largest station and gives only it the bell-tower silhouette", () => {
+    const capital = recipeWithStation("boathouse-precinct", "ethereum");
+    const others = ARCHETYPES.slice(1).map((type, index) => recipeWithStation(type, `chain-${index}`));
+    for (const other of others) {
+      expect(capital.footprint.length).toBeGreaterThan(other.footprint.length);
+      expect(capital.footprint.span).toBeGreaterThan(other.footprint.span);
+    }
+    expect(capital.identity.signature).toBe("moon-viewing-deck");
+    expect(maxGeometryY(capital)).toBeGreaterThan(5);
+    expect(Math.max(...others.map(maxGeometryY))).toBeLessThan(5);
+  });
+
+  it("keeps industrial identity props out and permits one works prop at most", () => {
+    for (const type of ARCHETYPES) {
+      const recipe = recipeWithStation(type);
+      expect(recipe.props.some((prop) => ["crate", "barrel", "crane", "gantry", "derrick"].includes(prop.kind))).toBe(false);
+      const works = recipe.props.filter((prop) => prop.kind === "netRack" || prop.kind === "reedClump");
+      expect(works.length, type).toBeLessThanOrEqual(1);
+    }
+    expect(recipeWithStation("fishing-pier").props.filter((prop) => prop.kind === "netRack")).toHaveLength(1);
+    expect(recipeWithStation("reed-boathouse").props.filter((prop) => prop.kind === "reedClump")).toHaveLength(1);
+  });
+
+  it("retains masonry health tint, cracks, and one leaning bollard", () => {
     const weak = {
-      ...dock("base", 7),
+      ...dock("bsc", 7),
       healthFactors: {
         backingDiversity: 0.12,
         chainEnvironment: 0.22,
@@ -83,44 +119,50 @@ describe("garden docks", () => {
     expect(Math.abs(bollard.matrix.elements[1]!)).toBeGreaterThan(0.05);
   });
 
-  it("scales the harbour to the chain's supply band", () => {
-    const small = authorDock(dock("arbitrum", 1), DISPLAY_TILE, ISLAND_TILE);
-    const large = authorDock(dock("arbitrum", 10), DISPLAY_TILE, ISLAND_TILE);
-    expect(propCount(large, "bollard")).toBeGreaterThan(propCount(small, "bollard"));
-    expect(propCount(large, "crate")).toBeGreaterThan(propCount(small, "crate"));
-    expect(nonFineCraneMetalParts(small)).toBe(0);
-    expect(nonFineCraneMetalParts(large)).toBeGreaterThan(0);
+  it("keeps station scale monotonic with supply", () => {
+    const scaleOf = (totalUsd: number): number => authorDock(
+      dock("solana", 6, null, totalUsd), DISPLAY_TILE, ISLAND_TILE,
+    ).footprint.length;
+    expect(scaleOf(500_000_000)).toBeLessThan(scaleOf(5_000_000_000));
+    expect(scaleOf(5_000_000_000)).toBeLessThan(scaleOf(80_000_000_000));
   });
 
-  it("gives each chain a deterministic harbour plan for silhouette variety", () => {
-    expect(harborPlan(dock("ethereum", 10))).toBe("t-head");
-    const plans = new Set(
-      ["solana", "base", "arbitrum", "tron", "bsc", "polygon", "avalanche", "aptos"]
-        .map((chainId) => harborPlan(dock(chainId, 6))),
-    );
-    expect(plans.size).toBeGreaterThan(1);
-    expect(harborPlan(dock("solana", 6))).toBe(harborPlan(dock("solana", 6)));
+  it("authors deterministic covered bridges only to annexes in the precinct arc", () => {
+    const precinct = recipeWithStation("boathouse-precinct", "ethereum", 0, { x: 14, y: 74 });
+    const annex = recipeWithStation("annex-pavilion", "base", 0, { x: 14, y: 80 });
+    const bridge = authorPrecinctBridge(precinct, annex);
+    expect(bridge.map((part) => part.bucket)).toEqual(["timber", "roof"]);
+    expect(bridge.every((part) => part.geometry.getAttribute("position").count > 0)).toBe(true);
+    const postPairs = bridge[0]!.geometry.userData.precinctBridgePostPairs as Array<{
+      left: { x: number; z: number };
+      right: { x: number; z: number };
+      yaw: number;
+    }>;
+    const diagonal = postPairs.find((pair) => Math.abs(Math.sin(pair.yaw)) > 0.1)!;
+    const across = {
+      x: diagonal.right.x - diagonal.left.x,
+      z: diagonal.right.z - diagonal.left.z,
+    };
+    expect(Math.hypot(across.x, across.z)).toBeCloseTo(0.62, 6);
+    expect(across.x * Math.cos(diagonal.yaw) - across.z * Math.sin(diagonal.yaw)).toBeCloseTo(0, 6);
+    expect(fingerprint(bridge)).toBe(fingerprint(authorPrecinctBridge(precinct, annex)));
+    expect(authorPrecinctBridge(annex, precinct)).toEqual([]);
+    const far = recipeWithStation("annex-pavilion", "polygon", 0, { x: 14, y: 100 });
+    expect(authorPrecinctBridge(precinct, far)).toEqual([]);
   });
 
-  it("flies a flag whose cloth faces the camera whatever way the pier points", () => {
-    const east = authorDock(dock("base", 7), { x: 40, y: 32 }, ISLAND_TILE);
-    const west = authorDock(dock("base", 7), { x: 4, y: 24 }, ISLAND_TILE);
-    const worldYaw = (recipe: DockRecipe): number => recipe.anchorRotationY + recipe.flag.placement.yaw;
-    expect(worldYaw(east)).toBeCloseTo(Math.PI / 4, 6);
-    expect(worldYaw(west)).toBeCloseTo(Math.PI / 4, 6);
-  });
-
-  it("faces the pier from the station's authored shore bearing", () => {
-    const north = authorDock({
-      ...dock("base", 7),
-      station: { coveId: "north-cove", type: "annex-pavilion", shoreBearing: -Math.PI / 2 },
-    }, DISPLAY_TILE, ISLAND_TILE);
-    const west = authorDock({
-      ...dock("base", 7),
-      station: { coveId: "west-cove", type: "annex-pavilion", shoreBearing: Math.PI },
-    }, DISPLAY_TILE, ISLAND_TILE);
-    expect(north.anchorRotationY).toBeCloseTo(Math.PI / 2, 6);
-    expect(Math.abs(west.anchorRotationY)).toBeCloseTo(Math.PI, 6);
+  it("flies camera-facing flags and restores reduced-motion pose", () => {
+    const recipe = recipeWithStation("annex-pavilion", "base", Math.PI / 2);
+    expect(recipe.anchorRotationY + recipe.flag.placement.yaw).toBeCloseTo(Math.PI / 4, 6);
+    const batch = createGardenHarborBatch([recipe]);
+    const before = new Matrix4();
+    const restored = new Matrix4();
+    batch.flags.getMatrixAt(0, before);
+    batch.setFlagPose("base", -1.2, 0.08);
+    batch.setFlagPose("base", recipe.flag.placement.yaw, 0);
+    batch.flags.getMatrixAt(0, restored);
+    expect(restored.equals(before)).toBe(true);
+    batch.dispose();
   });
 
   it("roots approach lanterns at each remote station and offsets them seaward", () => {
@@ -138,7 +180,7 @@ describe("garden docks", () => {
 
     expect(positions).toHaveLength(4);
     for (const [recipeIndex, recipe] of recipes.entries()) {
-      const bearing = recipe.dock.station.shoreBearing;
+      const bearing = recipe.station.shoreBearing;
       for (const lantern of positions.slice(recipeIndex * 2, recipeIndex * 2 + 2)) {
         const offsetX = lantern.x - recipe.anchorPosition.x;
         const offsetZ = lantern.z - recipe.anchorPosition.z;
@@ -147,148 +189,50 @@ describe("garden docks", () => {
     }
   });
 
-  it("keeps the authored flag pose available for reduced motion", () => {
-    const recipe = authorDock(dock("base", 7), DISPLAY_TILE, ISLAND_TILE);
-    const batch = createGardenHarborBatch([recipe]);
-    const before = new Matrix4();
-    const restored = new Matrix4();
-    batch.flags.getMatrixAt(0, before);
-    batch.setFlagPose("base", -1.2, 0.08);
-    batch.setFlagPose("base", recipe.flag.placement.yaw, 0);
-    batch.flags.getMatrixAt(0, restored);
-    expect(restored.equals(before)).toBe(true);
-    batch.dispose();
-  });
-
-  it("varies repeated planks and chain-flag sag deterministically by entity", () => {
-    const first = authorDock(dock("base", 7), DISPLAY_TILE, ISLAND_TILE);
-    const repeat = authorDock(dock("base", 7), DISPLAY_TILE, ISLAND_TILE);
-    const other = authorDock(dock("solana", 7), DISPLAY_TILE, ISLAND_TILE);
-    const matrices = (recipe: DockRecipe): number[] => recipe.props
-      .filter((prop) => prop.kind === "plank")
-      .flatMap((prop) => Array.from(prop.matrix.elements));
-    expect(matrices(first)).toEqual(matrices(repeat));
-    expect(matrices(first)).not.toEqual(matrices(other));
-    expect([first.flag.sag, first.flag.wavePhase]).toEqual([repeat.flag.sag, repeat.flag.wavePhase]);
-    expect([first.flag.sag, first.flag.wavePhase]).not.toEqual([other.flag.sag, other.flag.wavePhase]);
-  });
-
-  it("exposes lamp world positions for sea-lane registration", () => {
-    const recipe = authorDock(dock("arbitrum", 9), DISPLAY_TILE, ISLAND_TILE);
-    expect(recipe.lampWorldPositions.length).toBeGreaterThanOrEqual(2);
-    expect(recipe.lampWorldPositions.length).toBeLessThanOrEqual(3);
-    for (const position of recipe.lampWorldPositions) {
-      expect(Number.isFinite(position.x)).toBe(true);
-      expect(Number.isFinite(position.z)).toBe(true);
-    }
-  });
-
-  it("derives the mirror-basin calm mask from the composed dock roots", () => {
+  it("keeps lamp registration and the composed calm-mask contract", () => {
     const batch = createGardenHarborBatch([
-      authorDock(dock("ethereum", 10), { x: 42, y: 31 }, ISLAND_TILE),
-      authorDock(dock("solana", 6), { x: 25, y: 23 }, ISLAND_TILE),
+      recipeWithStation("boathouse-precinct", "ethereum", 0, { x: 42, y: 31 }),
+      recipeWithStation("fishing-pier", "solana", 0, { x: 25, y: 23 }),
     ]);
-    const mask = gardenHarborCalmMask(batch.docks);
-    expect(mask).not.toBeNull();
-    const scale = Math.SQRT2;
-    expect(mask!.center.x).toBeCloseTo(((42 + 25) / 2) * scale, 5);
-    expect(mask!.center.z).toBeCloseTo(((31 + 23) / 2) * scale, 5);
-    expect(mask!.radiusX).toBeGreaterThan((42 - 25) * scale / 2);
-    expect(mask!.radiusX).toBeLessThanOrEqual(18);
-    expect(mask!.radiusZ).toBeGreaterThan((31 - 23) * scale / 2);
-    expect(mask!.radiusZ).toBeLessThanOrEqual(13);
-    expect(mask!.calmStrength).toBeGreaterThan(0);
-    expect(mask!.calmStrength).toBeLessThanOrEqual(1);
-    batch.dispose();
-  });
-
-  it("makes Ethereum the capital: the largest harbour, and the only grand one", () => {
-    const capital = authorDock(dock("ethereum", 10), DISPLAY_TILE, ISLAND_TILE);
-    const rivals = NAMED_CHAINS
-      .filter((chainId) => chainId !== "ethereum")
-      .map((chainId) => authorDock(dock(chainId, 10), DISPLAY_TILE, ISLAND_TILE));
-    for (const rival of rivals) {
-      expect(capital.footprint.length, rival.dock.chainId).toBeGreaterThan(rival.footprint.length);
-      expect(capital.footprint.span, rival.dock.chainId).toBeGreaterThan(rival.footprint.span);
-      expect(rival.identity.enclosure).not.toBe("grand");
-    }
-    expect(capital.identity.enclosure).toBe("grand");
-    expect(capital.identity.landmark).toBe("campanile");
-    expect(nonFineCraneMetalParts(capital)).toBeGreaterThan(0);
-    expect(capital.parts.filter((part) => part.bucket === "stone").length).toBeGreaterThan(1);
-  });
-
-  it("still orders harbour scale by the chain's own supply", () => {
-    const scaleOf = (totalUsd: number): number =>
-      authorDock(dock("aptos", 6, null, totalUsd), DISPLAY_TILE, ISLAND_TILE).footprint.length;
-    expect(scaleOf(500_000_000)).toBeLessThan(scaleOf(5_000_000_000));
-    expect(scaleOf(5_000_000_000)).toBeLessThan(scaleOf(80_000_000_000));
-  });
-
-  it("builds structurally different harbours for different chains", () => {
-    const tron = authorDock(dock("tron", 9), DISPLAY_TILE, ISLAND_TILE);
-    const hyperliquid = authorDock(dock("hyperliquid", 9), DISPLAY_TILE, ISLAND_TILE);
-    expect(structureFingerprint(tron)).not.toBe(structureFingerprint(hyperliquid));
-    expect(tron.parts.filter((part) => part.bucket === "stone").length).toBeGreaterThan(
-      hyperliquid.parts.filter((part) => part.bucket === "stone").length,
-    );
-    const identities = new Set(NAMED_CHAINS.map((chainId) => {
-      const { enclosure, landmark, plan, roofline, works } = harborIdentity(dock(chainId, 6));
-      return `${plan}|${enclosure}|${landmark}|${roofline}|${works}`;
-    }));
-    expect(identities.size).toBe(NAMED_CHAINS.length);
-  });
-
-  it("gives an unlisted chain a coherent harbour, deterministically", () => {
-    const identity = harborIdentity(dock("some-unlisted-chain", 5));
-    expect(identity).toEqual(harborIdentity(dock("some-unlisted-chain", 5)));
-    expect(identity.enclosure).not.toBe("grand");
-  });
-
-  it("builds the same harbour geometry on every call", () => {
-    for (const chainId of ["ethereum", "solana", "avalanche"]) {
-      const first = authorDock(dock(chainId, 8), DISPLAY_TILE, ISLAND_TILE);
-      const second = authorDock(dock(chainId, 8), DISPLAY_TILE, ISLAND_TILE);
-      expect(structureFingerprint(second), chainId).toBe(structureFingerprint(first));
-      expect(second.footprint, chainId).toEqual(first.footprint);
-    }
-  });
-
-  it("keeps a single-dock basin readable and empty input on the default", () => {
+    expect(batch.docks.every((visual) => visual.recipe.lampWorldPositions.length >= 1)).toBe(true);
+    const mask = gardenHarborCalmMask(batch.docks)!;
+    expect(mask.radiusX).toBeGreaterThanOrEqual(9);
+    expect(mask.radiusX).toBeLessThanOrEqual(18);
+    expect(mask.radiusZ).toBeGreaterThanOrEqual(7);
+    expect(mask.radiusZ).toBeLessThanOrEqual(13);
     expect(gardenHarborCalmMask([])).toBeNull();
-    const batch = createGardenHarborBatch([
-      authorDock(dock("base", 7), { x: 39, y: 38 }, ISLAND_TILE),
-    ]);
-    const mask = gardenHarborCalmMask(batch.docks);
-    expect(mask).not.toBeNull();
-    expect(mask!.radiusX).toBeGreaterThanOrEqual(9);
-    expect(mask!.radiusZ).toBeGreaterThanOrEqual(7);
     batch.dispose();
   });
 });
 
-const NAMED_CHAINS = [
-  "aptos", "arbitrum", "avalanche", "base", "bsc", "ethereum",
-  "hyperliquid", "polygon", "solana", "ton", "tron",
-];
+function recipeWithStation(
+  type: StationType,
+  chainId: string = type,
+  shoreBearing = 0,
+  tile = DISPLAY_TILE,
+): DockRecipe {
+  const node = {
+    ...dock(chainId, 7),
+    station: { coveId: `cove.${chainId}`, shoreBearing, type },
+    tile,
+  } as DockNode & { station: { coveId: string; shoreBearing: number; type: StationType } };
+  return authorDock(node, tile, ISLAND_TILE);
+}
 
-function structureFingerprint(recipe: DockRecipe): string {
-  const entries = recipe.parts.map((part) => {
+function maxGeometryY(recipe: DockRecipe): number {
+  let max = -Infinity;
+  for (const part of recipe.parts) {
     const position = part.geometry.getAttribute("position");
-    let checksum = 0;
-    for (let index = 0; index < position.array.length; index += 1) {
-      checksum = (checksum + Math.round(position.array[index]! * 1e4) * (index + 1)) % 2_147_483_647;
-    }
-    return `${part.bucket}:${part.fineDetail}:${position.count}:${checksum}`;
-  });
-  entries.push(...recipe.props.map((prop) => `${prop.kind}:${prop.fineDetail}:${prop.matrix.elements.join(",")}`));
-  return entries.sort().join("|");
+    for (let index = 0; index < position.count; index += 1) max = Math.max(max, position.getY(index));
+  }
+  return max;
 }
 
-function propCount(recipe: DockRecipe, kind: HarborPropKind): number {
-  return recipe.props.filter((prop) => prop.kind === kind).length;
-}
-
-function nonFineCraneMetalParts(recipe: DockRecipe): number {
-  return recipe.parts.filter((part) => part.bucket === "craneMetal" && !part.fineDetail).length;
+function fingerprint(parts: DockRecipe["parts"]): string {
+  return parts.map((part) => {
+    const position = part.geometry.getAttribute("position");
+    let sum = 0;
+    for (let index = 0; index < position.array.length; index += 1) sum += Math.round(position.array[index]! * 1e4) * (index + 1);
+    return `${part.bucket}:${position.count}:${sum}`;
+  }).join("|");
 }

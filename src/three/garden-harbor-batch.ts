@@ -18,13 +18,14 @@ import {
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { CHAIN_FLAG_ATLAS_COLUMNS, gardenChainFlagAtlas } from "./garden-chain-flag";
-import type {
-  DockRecipe,
-  DockVisual,
-  HarborBucket,
-  HarborBucketPart,
-  HarborPropInstance,
-  HarborPropKind,
+import {
+  authorPrecinctBridge,
+  type DockRecipe,
+  type DockVisual,
+  type HarborBucket,
+  type HarborBucketPart,
+  type HarborPropInstance,
+  type HarborPropKind,
 } from "./garden-docks";
 import { applyGardenHeightFog } from "./garden-height-fog";
 
@@ -36,10 +37,8 @@ const BUCKETS: readonly HarborBucket[] = [
   "wall",
   "window",
   "roof",
-  "craneTimber",
-  "craneMetal",
 ];
-const PROP_KINDS: readonly HarborPropKind[] = ["post", "lampHead", "plank", "bollard", "crate", "barrel", "pylon", "piling"];
+const PROP_KINDS: readonly HarborPropKind[] = ["post", "lampHead", "plank", "bollard", "piling", "netRack", "reedClump"];
 
 type BucketMeshes = Record<HarborBucket, Mesh | null>;
 type PropMeshes = Record<HarborPropKind, InstancedMesh | null>;
@@ -62,6 +61,7 @@ export interface GardenHarborBatch {
 export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenHarborBatch {
   const root = new Group();
   root.name = "harbor-batch";
+  const renderRecipes = recipesWithPrecinctBridges(recipes);
   const docks = recipes.map((recipe): DockVisual => {
     const anchor = new Group();
     anchor.name = `dock-anchor-${recipe.dock.chainId}`;
@@ -74,8 +74,8 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
   });
 
   const accentRanges = new Map<string, Array<{ bucket: HarborBucket; range: ColorRange }>>();
-  const bucketMeshes = createBucketMeshes(root, recipes, false, accentRanges);
-  const fineDetailBucketMeshes = createBucketMeshes(root, recipes, true, accentRanges);
+  const bucketMeshes = createBucketMeshes(root, renderRecipes, false, accentRanges);
+  const fineDetailBucketMeshes = createBucketMeshes(root, renderRecipes, true, accentRanges);
   const propMeshes = createPropMeshes(root, recipes, false);
   const fineDetailPropMeshes = createPropMeshes(root, recipes, true);
   const fineDetailMeshes = [
@@ -103,7 +103,7 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
           object.dispose();
         }
       });
-      for (const recipe of recipes) {
+      for (const recipe of renderRecipes) {
         for (const part of recipe.parts) part.geometry.dispose();
       }
       root.clear();
@@ -139,11 +139,21 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
   };
 }
 
+function recipesWithPrecinctBridges(recipes: readonly DockRecipe[]): DockRecipe[] {
+  const precinct = recipes.find((recipe) => recipe.station.type === "boathouse-precinct");
+  if (!precinct) return [...recipes];
+  const bridgeParts = recipes
+    .filter((recipe) => recipe.station.type === "annex-pavilion")
+    .flatMap((annex) => authorPrecinctBridge(precinct, annex));
+  if (bridgeParts.length === 0) return [...recipes];
+  return recipes.map((recipe) => recipe === precinct
+    ? { ...recipe, parts: [...recipe.parts, ...bridgeParts] }
+    : recipe);
+}
+
 function emptyBuckets(): BucketMeshes {
   return {
     accent: null,
-    craneMetal: null,
-    craneTimber: null,
     metal: null,
     roof: null,
     stone: null,
@@ -154,7 +164,7 @@ function emptyBuckets(): BucketMeshes {
 }
 
 function emptyProps(): PropMeshes {
-  return { barrel: null, bollard: null, crate: null, lampHead: null, piling: null, plank: null, post: null, pylon: null };
+  return { bollard: null, lampHead: null, netRack: null, piling: null, plank: null, post: null, reedClump: null };
 }
 
 function createBucketMeshes(
@@ -203,12 +213,8 @@ function createBucketMeshes(
     for (const geometry of geometries) geometry.dispose();
     const mesh = new Mesh(merged, bucketMaterial(bucket));
     mesh.name = !fineDetail && bucket === "window"
-      ? "dock-warehouse-windows"
-      : !fineDetail && bucket === "craneTimber"
-        ? "dock-crane-timber"
-        : !fineDetail && bucket === "craneMetal"
-          ? "dock-crane-metal"
-          : `${fineDetail ? "harbor-fine" : "harbor"}-${bucket}`;
+      ? "station-lit-screens"
+      : `${fineDetail ? "harbor-fine" : "harbor"}-${bucket}`;
     mesh.castShadow = !fineDetail && castsShadow;
     mesh.receiveShadow = true;
     mesh.frustumCulled = false;
@@ -238,8 +244,6 @@ function bucketMaterial(bucket: HarborBucket): MeshStandardMaterial {
     case "timber": return new MeshStandardMaterial({ color: "#ffffff", roughness: 0.88, vertexColors: true });
     case "stone": return new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.97, vertexColors: true });
     case "metal": return new MeshStandardMaterial({ color: "#ffffff", metalness: 0.42, roughness: 0.62, vertexColors: true });
-    case "craneTimber": return new MeshStandardMaterial({ color: "#ffffff", roughness: 0.88, vertexColors: true });
-    case "craneMetal": return new MeshStandardMaterial({ color: "#ffffff", metalness: 0.42, roughness: 0.62, vertexColors: true });
     case "accent":
     case "roof": return new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.86, side: DoubleSide, vertexColors: true });
     case "wall": return new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.96, transparent: true, vertexColors: true });
@@ -283,10 +287,9 @@ function propGeometry(kind: HarborPropKind): BufferGeometry {
     case "lampHead": return new SphereGeometry(0.21, 6, 4);
     case "plank": return new BoxGeometry(0.1, 0.06, 1);
     case "bollard": return new CylinderGeometry(0.1, 0.14, 0.44, 6);
-    case "crate": return new BoxGeometry(0.44, 0.4, 0.44);
-    case "barrel": return new CylinderGeometry(0.16, 0.16, 0.36, 8);
-    case "pylon": return new CylinderGeometry(0.16, 0.2, 2.25, 6);
     case "piling": return new CylinderGeometry(0.075, 0.095, 2.6, 6);
+    case "netRack": return netRackGeometry();
+    case "reedClump": return reedClumpGeometry();
   }
 }
 
@@ -296,11 +299,41 @@ function propMaterial(kind: HarborPropKind): MeshStandardMaterial {
     case "lampHead": return new MeshStandardMaterial({ color: HARBOR_PALETTE.lantern_glow, emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: 1.5, roughness: 0.25, toneMapped: false });
     case "plank": return new MeshStandardMaterial({ color: HARBOR_PALETTE.timber_dark, roughness: 0.95 });
     case "bollard": return new MeshStandardMaterial({ color: "#6d5d49", metalness: 0.42, roughness: 0.62 });
-    case "crate": return new MeshStandardMaterial({ color: "#8d623a", flatShading: true, roughness: 1 });
-    case "barrel": return new MeshStandardMaterial({ color: "#6f5233", flatShading: true, roughness: 1 });
-    case "pylon": return new MeshStandardMaterial({ color: HARBOR_PALETTE.timber_dark, roughness: 1 });
     case "piling": return new MeshStandardMaterial({ color: new Color(HARBOR_PALETTE.timber_dark).lerp(new Color(HARBOR_PALETTE.iron_dark), 0.45), flatShading: true, roughness: 0.95 });
+    case "netRack": return new MeshStandardMaterial({ color: HARBOR_PALETTE.timber_dark, roughness: 0.96 });
+    case "reedClump": return new MeshStandardMaterial({ color: "#66704a", flatShading: true, roughness: 1 });
   }
+}
+
+function netRackGeometry(): BufferGeometry {
+  const parts: BufferGeometry[] = [];
+  for (const x of [-0.5, 0.5]) {
+    const post = new BoxGeometry(0.09, 1.45, 0.09);
+    post.translate(x, 0.72, 0);
+    parts.push(post);
+  }
+  const rail = new BoxGeometry(1.1, 0.09, 0.09);
+  rail.translate(0, 1.38, 0);
+  parts.push(rail);
+  for (let index = 0; index < 4; index += 1) {
+    const twine = new BoxGeometry(0.035, 1.0, 0.035);
+    twine.rotateZ(index % 2 === 0 ? 0.42 : -0.42);
+    twine.translate(-0.36 + index * 0.24, 0.76, 0);
+    parts.push(twine);
+  }
+  return mergeGeometries(parts, false)!;
+}
+
+function reedClumpGeometry(): BufferGeometry {
+  const parts: BufferGeometry[] = [];
+  for (let index = 0; index < 9; index += 1) {
+    const height = 0.9 + (index % 4) * 0.18;
+    const reed = new CylinderGeometry(0.018, 0.028, height, 4);
+    reed.rotateZ((index - 4) * 0.025);
+    reed.translate((index % 3 - 1) * 0.18, height / 2, (Math.floor(index / 3) - 1) * 0.16);
+    parts.push(reed);
+  }
+  return mergeGeometries(parts, false)!;
 }
 
 function createFlags(recipes: readonly DockRecipe[]) {
@@ -317,7 +350,9 @@ function createFlags(recipes: readonly DockRecipe[]) {
   position.needsUpdate = true;
   geometry.computeVertexNormals();
   const cells = new InstancedBufferAttribute(new Float32Array(recipes.length), 1);
+  const shapes = new InstancedBufferAttribute(new Float32Array(recipes.length), 1);
   geometry.setAttribute("aFlagCell", cells);
+  geometry.setAttribute("aFlagShape", shapes);
   const atlas = gardenChainFlagAtlas();
   const material = new MeshStandardMaterial({ color: "#ffffff", map: atlas.texture, roughness: 0.82, side: DoubleSide });
   patchFlagAtlasMaterial(material);
@@ -331,13 +366,31 @@ function createFlags(recipes: readonly DockRecipe[]) {
   recipes.forEach((recipe, index) => {
     flagIndex.set(recipe.dock.chainId, index);
     cells.setX(index, recipe.flag.atlasCell);
+    shapes.setX(index, flagShapeIndex(recipe.flag.shape));
     flags.setColorAt(index, recipe.flag.atlasCell >= 0 && atlas.texture ? new Color("#ffffff") : recipe.flag.accent);
     writeFlagMatrix(flags, recipe, index, recipe.flag.placement.yaw, 0);
   });
   cells.needsUpdate = true;
+  shapes.needsUpdate = true;
   flags.instanceMatrix.needsUpdate = true;
   if (flags.instanceColor) flags.instanceColor.needsUpdate = true;
   return { flagIndex, flags };
+}
+
+function flagShapeIndex(shape: DockRecipe["flag"]["shape"]): number {
+  switch (shape) {
+    case "square": return 0;
+    case "swallowtail": return 1;
+    case "notched": return 2;
+    case "pennant": return 3;
+    case "chamfered": return 4;
+    case "forked": return 5;
+    case "stepped": return 6;
+    case "tapered": return 7;
+    case "storm-split": return 8;
+    case "dovetail": return 9;
+    case "long-pennant": return 10;
+  }
 }
 
 const flagScratchA = new Matrix4();
@@ -363,11 +416,28 @@ function writeFlagMatrix(
 function patchFlagAtlasMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nattribute float aFlagCell;\nvarying float vFlagCell;")
-      .replace("#include <uv_vertex>", `#include <uv_vertex>\nvFlagCell = aFlagCell;\n#ifdef USE_MAP\nif (aFlagCell >= 0.0) {\n  float flagColumns = ${CHAIN_FLAG_ATLAS_COLUMNS}.0;\n  float flagRow = flagColumns - 1.0 - floor(aFlagCell / flagColumns);\n  vMapUv = vec2(mod(aFlagCell, flagColumns), flagRow) / flagColumns + uv / flagColumns;\n}\n#endif`);
+      .replace("#include <common>", "#include <common>\nattribute float aFlagCell;\nattribute float aFlagShape;\nvarying float vFlagCell;\nvarying float vFlagShape;\nvarying vec2 vFlagUv;")
+      .replace("#include <uv_vertex>", `#include <uv_vertex>\nvFlagCell = aFlagCell;\nvFlagShape = aFlagShape;\nvFlagUv = uv;\n#ifdef USE_MAP\nif (aFlagCell >= 0.0) {\n  float flagColumns = ${CHAIN_FLAG_ATLAS_COLUMNS}.0;\n  float flagRow = flagColumns - 1.0 - floor(aFlagCell / flagColumns);\n  vMapUv = vec2(mod(aFlagCell, flagColumns), flagRow) / flagColumns + uv / flagColumns;\n}\n#endif`);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying float vFlagCell;")
-      .replace("#include <map_fragment>", "if (vFlagCell >= 0.0) {\n  #include <map_fragment>\n}");
+      .replace("#include <common>", "#include <common>\nvarying float vFlagCell;\nvarying float vFlagShape;\nvarying vec2 vFlagUv;")
+      .replace("#include <map_fragment>", `
+float flagX = vFlagUv.x;
+float flagY = abs(vFlagUv.y - 0.5) * 2.0;
+bool cutFlag = false;
+if (vFlagShape > 0.5 && vFlagShape < 1.5) cutFlag = flagX > 0.72 && flagY < (flagX - 0.72) * 2.2;
+else if (vFlagShape > 1.5 && vFlagShape < 2.5) cutFlag = flagX > 0.82 && flagY < 0.34;
+else if (vFlagShape > 2.5 && vFlagShape < 3.5) cutFlag = flagY > 1.0 - flagX;
+else if (vFlagShape > 3.5 && vFlagShape < 4.5) cutFlag = flagX > 0.78 && flagY > 1.55 - flagX;
+else if (vFlagShape > 4.5 && vFlagShape < 5.5) cutFlag = flagX > 0.7 && flagY < (flagX - 0.7) * 1.65;
+else if (vFlagShape > 5.5 && vFlagShape < 6.5) cutFlag = (flagX > 0.82 && vFlagUv.y < 0.28) || (flagX > 0.66 && vFlagUv.y < 0.13);
+else if (vFlagShape > 6.5 && vFlagShape < 7.5) cutFlag = flagY > 1.0 - flagX * 0.48;
+else if (vFlagShape > 7.5 && vFlagShape < 8.5) cutFlag = flagX > 0.68 && flagY < (flagX - 0.68) * 1.15;
+else if (vFlagShape > 8.5 && vFlagShape < 9.5) cutFlag = flagX > 0.76 && flagY < (flagX - 0.76) * 2.8;
+else if (vFlagShape > 9.5) cutFlag = flagY > 0.82 - flagX * 0.72;
+if (cutFlag) discard;
+if (vFlagCell >= 0.0) {
+  #include <map_fragment>
+}`);
   };
-  material.customProgramCacheKey = () => "garden-harbor-flag-v2";
+  material.customProgramCacheKey = () => "garden-station-flag-v4";
 }
