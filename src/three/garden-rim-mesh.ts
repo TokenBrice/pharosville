@@ -56,6 +56,15 @@ const PATH_STONE = new Color(HARBOR_PALETTE.stone_pale).lerp(
 const PINE_TRUNK = new Color(HARBOR_PALETTE.timber_dark);
 const PINE_NEEDLE = new Color(HARBOR_PALETTE.sail_teal).multiplyScalar(0.68);
 const LANTERN_EMBER = new Color(HARBOR_PALETTE.lantern_warm);
+const ENGAWA_TIMBER = new Color(HARBOR_PALETTE.timber_dark).multiplyScalar(0.54);
+const ENGAWA_TIMBER_LIT = ENGAWA_TIMBER.clone().lerp(
+  new Color(HARBOR_PALETTE.stone_dark),
+  0.16,
+);
+
+/** The veranda replaces the lower-left stroll-ribbon segment as foreground. */
+export const GARDEN_ENGAWA_DISPLACEMENT = "lower-left rim path and pine thicket";
+export const GARDEN_ENGAWA_PINE_HEIGHT = 18;
 
 const ENGAWA_LANTERN_TILE = { x: 82, y: 134 } as const;
 export const GARDEN_ENGAWA_LANTERN_WORLD = {
@@ -403,6 +412,9 @@ function pineTiles(): PineSpec[] {
   for (let y = 3; y < MAP_LAST - 2; y += 3) {
     for (let x = 3; x < MAP_LAST - 2; x += 3) {
       if (!rimLandAt(x, y) || rimShoreDistance(x, y) > -2.2 || !clearOfCove(x, y, 3)) continue;
+      // The engawa is one silhouette, not another grove: its hero tree
+      // explicitly displaces every ordinary pine in this near-corner pocket.
+      if (Math.hypot(x - 86, y - 134) < 11) continue;
       const lowerLeft = x < 48 && y > 72;
       const thinEast = x > 122;
       const keep = lowerLeft ? 0.92 : thinEast ? 0.12 : 0.3;
@@ -430,7 +442,7 @@ function pineTiles(): PineSpec[] {
   }
   // Engawa foreground: a single larger niwaki leans seaward from the deep
   // lower-left lobe. It remains in this one ring-wide pine instance batch.
-  candidates.push({ leanX: -0.3, leanZ: 0.1, scale: 1.42, x: 86, y: 134, yaw: 0.4 });
+  candidates.push({ leanX: -0.52, leanZ: 0.2, scale: 4, x: 86, y: 134, yaw: 0.34 });
   return candidates;
 }
 
@@ -600,12 +612,39 @@ function buildPathGeometry(): { coveSpurs: number; geometry: BufferGeometry; seg
       }
     }
   }
+  // Engawa repoussoir: broad black-brown planks and one stone sill, merged
+  // into the existing path draw. This is the viewer's place, and replaces the
+  // otherwise continuous pale stroll ribbon at the lower-left corner.
+  const deckCentreX = 84.5 * TILE_SCALE;
+  const deckCentreZ = 137.1 * TILE_SCALE;
+  const deckTop = Math.max(1.9, rimHeight(84.5, 136.2) + 0.28);
+  addBox(
+    builder,
+    [deckCentreX, deckTop - 0.23, deckCentreZ],
+    [19 * TILE_SCALE, 0.46, 5.2 * TILE_SCALE],
+    ENGAWA_TIMBER,
+  );
+  for (let plank = 0; plank < 18; plank += 1) {
+    const x = (75.9 + plank * 0.99) * TILE_SCALE;
+    addBox(
+      builder,
+      [x, deckTop + 0.035, deckCentreZ],
+      [0.91 * TILE_SCALE, 0.07, 5.05 * TILE_SCALE],
+      plank % 3 === 0 ? ENGAWA_TIMBER_LIT : ENGAWA_TIMBER,
+    );
+  }
+  addBox(
+    builder,
+    [deckCentreX, deckTop - 0.05, 134.42 * TILE_SCALE],
+    [19.4 * TILE_SCALE, 0.26, 0.62 * TILE_SCALE],
+    WET_ROCK,
+  );
   // One tōrō at the camera-side engawa. Stone body and warm chamber are merged
   // into the path draw; its water reflection is registered separately as the
   // scene's `engawa-lantern` ember lane.
   const lanternX = GARDEN_ENGAWA_LANTERN_WORLD.x;
   const lanternZ = GARDEN_ENGAWA_LANTERN_WORLD.z;
-  const lanternGround = rimHeight(ENGAWA_LANTERN_TILE.x, ENGAWA_LANTERN_TILE.y);
+  const lanternGround = deckTop;
   addBox(builder, [lanternX, lanternGround + 0.14, lanternZ], [1.2, 0.28, 1.05], PATH_STONE);
   addBox(builder, [lanternX, lanternGround + 0.72, lanternZ], [0.34, 0.9, 0.34], PATH_STONE);
   addBox(builder, [lanternX, lanternGround + 1.32, lanternZ], [0.58, 0.42, 0.58], LANTERN_EMBER);

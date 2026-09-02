@@ -3,8 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { weatherForFrame } from "../systems/weather";
 import {
   createGardenRimMesh,
+  GARDEN_ENGAWA_DISPLACEMENT,
   GARDEN_ENGAWA_LANTERN_WORLD,
+  GARDEN_ENGAWA_PINE_HEIGHT,
 } from "./garden-rim-mesh";
+import { GARDEN_NIWAKI_SPECS } from "./garden-island";
 import { countDrawableObjects, TILE_SCALE } from "./garden-util";
 
 describe("garden rim mesh", () => {
@@ -38,6 +41,10 @@ describe("garden rim mesh", () => {
         || Math.abs(gridZ - Math.round(gridZ)) > 0.01) contourVertices += 1;
     }
     expect(contourVertices).toBeGreaterThan(100);
+    expect(GARDEN_ENGAWA_DISPLACEMENT).toContain("pine thicket");
+    expect(GARDEN_ENGAWA_PINE_HEIGHT).toBeGreaterThanOrEqual(
+      Math.max(...GARDEN_NIWAKI_SPECS.map((pine) => pine.height)) * 2,
+    );
     rim.dispose();
   });
 
