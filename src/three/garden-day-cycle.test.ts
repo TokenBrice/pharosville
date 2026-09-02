@@ -88,9 +88,19 @@ describe("day-cycle presets (C1 contract)", () => {
 
   it("keeps moon fill and sail backlight below the night hierarchy", () => {
     const night = DAY_CYCLE_LIGHT_PRESETS.night;
-    expect(night.dirIntensity).toBeLessThan(1);
-    expect(night.ambient.getHex()).toBe(new Color(HARBOR_PALETTE.sky_night).getHex());
-    expect(night.hemiSky.getHex()).toBe(new Color(HARBOR_PALETTE.sky_horizon).getHex());
+    expect(night.dirIntensity).toBeLessThan(1.5);
+    // Item 3 energy audit: the dark-tinted analytic fill must outweigh the
+    // environment correction while remaining subordinate to the moon key. The
+    // colour split, rather than one oversized hard key, preserves land/sea form.
+    expect(night.ambientIntensity).toBeGreaterThanOrEqual(0.25);
+    expect(night.hemiIntensity).toBeGreaterThanOrEqual(0.35);
+    expect(night.dirIntensity).toBeGreaterThanOrEqual(1);
+    expect(night.dirIntensity).toBeGreaterThan(
+      night.ambientIntensity + night.hemiIntensity,
+    );
+    expect(night.ambient.getHex()).not.toBe(new Color(HARBOR_PALETTE.sky_night).getHex());
+    expect(night.hemiSky.getHex()).not.toBe(new Color(HARBOR_PALETTE.sky_horizon).getHex());
+    expect(GARDEN_SAIL_EMISSIVE.night).toBeGreaterThanOrEqual(0.09);
     expect(GARDEN_SAIL_EMISSIVE.night).toBeLessThanOrEqual(0.1);
     expect(GARDEN_SAIL_EMISSIVE.night).toBeLessThan(GARDEN_SAIL_EMISSIVE.dusk);
     expect(GARDEN_SAIL_EMISSIVE.dusk).toBeGreaterThan(GARDEN_SAIL_EMISSIVE.day);

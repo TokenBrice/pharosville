@@ -78,10 +78,11 @@ const LUT_STRENGTH = 0.9;
 const PHASES = [
   {
     id: "night",
-    // Night is the phase that already works; the cube's whole job here is to
-    // put the shadows on the indigo (ai/kachi-iro) axis the palette calls for
-    // and keep the lantern gold from drifting with them.
-    contrast: 0.16,
+    // The parametric grade now exposes broad night form, so the cube preserves
+    // that printed-black floor instead of bending its darkest step back toward
+    // absence. Hue still runs on the indigo (ai/kachi-iro) axis and lantern
+    // gold remains exempt from the cool-water rotation.
+    contrast: 0.06,
     highlightAnchor: "#cfe0f5",
     highlightPush: 0.02,
     highlightRange: [0.55, 1.0],
@@ -91,13 +92,19 @@ const PHASES = [
       // Foliage at night is a silhouette, not a colour.
       { center: 110, rotate: 0, saturation: 0.88, width: 50 },
       // Cyan-leaning water pulled toward the indigo family.
-      { center: 195, rotate: 12, saturation: 0.95, width: 42 },
+      { center: 195, rotate: 6, saturation: 1.0, width: 42 },
     ],
-    lift: 0.014,
-    liftTint: "#6078bd",
+    lift: 0.02,
+    liftTint: "#6f817c",
+    // Expand around the measured night-water value instead of globally
+    // crushing blacks: lit island facets rise, shadowed rim/hulls fall, and
+    // the water pivot receives only the small neutral floor below.
+    midtoneContrast: 0.65,
+    midtoneLift: 0.025,
+    midtonePivot: 0.2,
     saturation: 1.0,
-    shadowAnchor: "#1a1f3a",
-    shadowPush: 0.05,
+    shadowAnchor: "#273246",
+    shadowPush: 0.025,
     shadowRange: [0.0, 0.55],
   },
   {
@@ -245,6 +252,19 @@ function gradeTexel(input, phase) {
     const shaped = channel * channel * (3 - 2 * channel);
     return channel + (shaped - channel) * phase.contrast;
   });
+
+  // 2b. Night-only local value separation. Unlike a blue shadow push this is
+  // channel-symmetric, so it preserves hue and expands existing material
+  // ratios around the moonlit water plane rather than repainting them.
+  if (phase.midtoneContrast) {
+    color = color.map((channel, index) => {
+      const expanded = phase.midtonePivot
+        + (channel - phase.midtonePivot) * (1 + phase.midtoneContrast)
+        + phase.midtoneLift;
+      const printedFloor = phase.lift * tint[index] * 0.65;
+      return clamp01(Math.max(printedFloor, expanded));
+    });
+  }
 
   // 3. Luma-keyed hue push: shadows one way, highlights the other.
   const l = luma(color);

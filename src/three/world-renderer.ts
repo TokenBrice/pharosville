@@ -4269,14 +4269,18 @@ function updateSceneForFrame(
   // BEARING. The beam parks pointing at the contributor and the lighthouse
   // panel's Beam bearing row names the ship it is holding on; with no
   // contributor it keeps the composed pose it has always used.
-  content.beam.rotation.y = frame.reducedMotion
+  const beamBearing = frame.reducedMotion
     ? beamStaticBearing(content.beamDwellBearing)
     : scene.beamAngle;
+  content.beam.rotation.y = beamBearing;
   content.beacon.getWorldPosition(scratchPosition);
+  // The water road and its terminal pool take this exact post-dwell bearing on
+  // every frame. One angle therefore owns cone, fallback and landing; reduced
+  // motion parks all three on the same analytical bearing.
   scene.water.setBeaconState(
     scratchPosition.x,
     scratchPosition.z,
-    content.beam.rotation.y,
+    beamBearing,
     MathUtils.clamp(0.09 + (content.lighthouseLight.intensity - 0.45) / 7.6, 0, 1),
     // W6: the water lane, caustic glow, and streaks breathe with the same
     // flame flicker driving the halo and PointLight above.

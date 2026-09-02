@@ -92,9 +92,12 @@ export const DUSK_EMBER_COLOR = paletteColor(P.lantern_warm).lerp(paletteColor(P
 export const MOON_COLOR = paletteColor(P.moonlight);
 export const STAR_COLOR = paletteColor(P.moonlight).lerp(paletteColor(P.foam_white), 0.4);
 
-// Night rig is deliberately dim so warm emissives (beacon, lanterns) carry the
-// scene; the day rig is the ukiyo-e morning: a warm cream key sun against a
-// cool indigo-teal sky fill (warm highlights / cool-teal shadows).
+// Night keeps the warm emissive hierarchy, but the non-emissive floor is high
+// enough that hull, island and rim silhouettes survive the Stillness blur
+// audit. The brighter fog-derived sky fill is diffuse form light, not another
+// source: the beacon remains the only HDR key and the moon road the secondary.
+// Day is the ukiyo-e morning: a warm cream key sun against a cool indigo-teal
+// sky fill (warm highlights / cool-teal shadows).
 export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPreset> = {
   day: {
     ambient: paletteColor(P.sky_day_horizon),
@@ -115,13 +118,17 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPre
     hemiSky: paletteColor(P.sky_horizon),
   },
   night: {
-    ambient: paletteColor(P.sky_night),
-    ambientIntensity: 0.2,
-    dirColor: paletteColor(P.moonlight),
-    dirIntensity: 0.35,
-    hemiGround: paletteColor(P.deep_sea_2),
-    hemiIntensity: 0.42,
-    hemiSky: paletteColor(P.sky_horizon),
+    // Scalar energy remains above the environment probe, but these deliberately
+    // dark, warm-biased colours keep the analytic fill from bleaching the rim
+    // into the moonlit water. The fill reveals silhouettes; it does not repaint
+    // them at the probe's cool average or compete with the beacon.
+    ambient: paletteColor(P.sky_night).lerp(paletteColor(P.stone_dark), 0.48),
+    ambientIntensity: 0.28,
+    dirColor: paletteColor(P.moonlight).lerp(paletteColor(P.lantern_cold), 0.18),
+    dirIntensity: 1.05,
+    hemiGround: paletteColor(P.deep_sea_2).lerp(paletteColor(P.timber_dark), 0.46),
+    hemiIntensity: 0.36,
+    hemiSky: paletteColor(P.sky_night).lerp(paletteColor(P.fog_blue), 0.1),
   },
 };
 
@@ -133,7 +140,7 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPre
 export const GARDEN_SAIL_EMISSIVE = Object.freeze({
   day: 0.06,
   dusk: 0.12,
-  night: 0.08,
+  night: 0.09,
 });
 
 export const DAY_CYCLE_HEIGHT_FOG_PRESETS: Record<DayCyclePhaseName, DayCycleHeightFogPreset> = {
@@ -341,8 +348,8 @@ export function updateDayCycle(
   const beamTime = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
   // Daylight suppresses the light-in-air pieces; the lit sea lane fades with
   // the lighthouse light instead.
-  const coneOpacity = (dusk * 0.04 + night * 0.14) * (1 - daylight * 0.9);
-  const dustOpacity = (dusk * 0.1 + night * 0.28) * (1 - daylight);
+  const coneOpacity = (dusk * 0.035 + night * 0.11) * (1 - daylight * 0.9);
+  const dustOpacity = (dusk * 0.09 + night * 0.24) * (1 - daylight);
   const planeOpacity = (0.008 + dusk * 0.025 + night * 0.06) * (1 - daylight * 0.9);
   for (const child of scene.content.beam.children) {
     if (!(child instanceof Mesh) && !(child instanceof Points)) continue;

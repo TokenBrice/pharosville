@@ -176,20 +176,23 @@ interface GradePreset {
   vignetteBias: number;
 }
 
-// Night is the hero: shadows lifted just off black and cooled, highlights
-// warmed, gentle resaturation, strong vignette. Day is the ukiyo-e morning
+// Night is the hero: shadows retain a cool printed floor, highlights stay
+// warm, and the softer vignette leaves the camera-side rim readable. The lift
+// is deliberately global: it raises unlit water as well as standard-material
+// hulls without inventing another light or spending the emissive-water budget.
+// Day is the ukiyo-e morning
 // (G5, decision D-R1 — supersedes the D1 pearl overcast): near-full
 // saturation, no grey lift, warm highlights over cool-teal shadows, light
 // vignette. Dusk splits warm/cool.
 const NIGHT_GRADE: GradePreset = {
-  gain: [1.03, 1.0, 0.98],
-  gamma: [1.0, 1.0, 1.02],
-  highlightTint: [1.12, 1.02, 0.84],
-  lift: [0.012, 0.016, 0.03],
-  saturation: 1.1,
-  shadowTint: [0.84, 0.93, 1.08],
-  split: 0.55,
-  vignette: 0.36,
+  gain: [1.12, 1.1, 1.08],
+  gamma: [0.95, 0.95, 0.96],
+  highlightTint: [1.07, 1.04, 0.94],
+  lift: [0.01, 0.012, 0.018],
+  saturation: 1.08,
+  shadowTint: [0.96, 1.0, 1.03],
+  split: 0.3,
+  vignette: 0.25,
   vignetteBias: 0.25,
 };
 const DUSK_GRADE: GradePreset = {
@@ -448,7 +451,7 @@ class GardenGradeEffect extends Effect {
  * `world-renderer.ts` cannot see them; `getTextureManifest` below exposes them
  * alongside N8AO's blue noise, SMAA's search/area pair, and the bloom pyramid.
  */
-const LUT_TEXTURE_URL = "/pharosville/textures/garden-grade-lut.png?v=bf1fcc5ed236";
+const LUT_TEXTURE_URL = "/pharosville/textures/garden-grade-lut.png?v=66a08b0a1c96";
 const DITHER_TEXTURE_URL = "/pharosville/textures/garden-blue-noise.png?v=fb2836c219c8";
 
 /**

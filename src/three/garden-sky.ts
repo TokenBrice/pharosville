@@ -218,6 +218,16 @@ const SKY_LOWER_DAY = new Color(HARBOR_PALETTE.moonlight)
 const SKY_MIDDLE_DAY = new Color(HARBOR_PALETTE.moonlight)
   .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.42);
 const SKY_VISIBLE_ZENITH_DAY = new Color(HARBOR_PALETTE.deep_sea_1);
+// Visible-sheet-only night endpoints. The hidden dome keeps the physical
+// environment probe unchanged; this small fog-blue admixture lifts the field
+// beyond the finite plate so the dark rim has a readable silhouette against
+// it, without making the sky a competing light source.
+const SKY_LOWER_NIGHT = new Color(HARBOR_PALETTE.sky_horizon)
+  .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.08);
+const SKY_MIDDLE_NIGHT = new Color(HARBOR_PALETTE.sky_horizon)
+  .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.04);
+const SKY_VISIBLE_ZENITH_NIGHT = new Color(HARBOR_PALETTE.sky_night)
+  .lerp(new Color(HARBOR_PALETTE.sky_horizon), 0.12);
 const SKY_LOWER_DUSK = new Color(HARBOR_PALETTE.sail_teal)
   .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.28);
 
@@ -731,7 +741,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     );
     blendDayCycleColor(
       backdropLower,
-      skyPresets.night.horizon,
+      SKY_LOWER_NIGHT,
       SKY_LOWER_DUSK,
       SKY_LOWER_DAY,
       dusk,
@@ -739,7 +749,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     );
     blendDayCycleColor(
       backdropZenith,
-      skyPresets.night.zenith,
+      SKY_VISIBLE_ZENITH_NIGHT,
       skyPresets.dusk.zenith,
       SKY_VISIBLE_ZENITH_DAY,
       dusk,
@@ -747,7 +757,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     );
     blendDayCycleColor(
       backdropMiddle,
-      skyPresets.night.horizon,
+      SKY_MIDDLE_NIGHT,
       skyPresets.dusk.horizon,
       SKY_MIDDLE_DAY,
       dusk,

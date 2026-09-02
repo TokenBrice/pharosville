@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { lampStatusModulationForMix } from "../systems/lamp-status";
-import { createLighthouse, updateLighthouseLampStatus } from "./garden-lighthouse";
+import {
+  GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS,
+  GARDEN_LIGHTHOUSE_BEAM_LENGTH,
+  GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE,
+  createLighthouse,
+  updateLighthouseLampStatus,
+} from "./garden-lighthouse";
 import { disposeThreeObjectTree } from "./garden-util";
 
 describe("garden lighthouse beam ownership", () => {
@@ -14,6 +20,15 @@ describe("garden lighthouse beam ownership", () => {
       "lighthouse-beam",
     ]);
     disposeThreeObjectTree(lighthouse.root);
+  });
+
+  it("reaches the rim with a broad, subordinate landing envelope", () => {
+    expect(GARDEN_LIGHTHOUSE_BEAM_LENGTH).toBeGreaterThanOrEqual(90);
+    expect(GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS).toBeGreaterThanOrEqual(4);
+    expect(GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE).toBeLessThan(
+      GARDEN_LIGHTHOUSE_BEAM_LENGTH,
+    );
+    expect(GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE).toBeGreaterThanOrEqual(80);
   });
 
   it("layers cool/dim status modulation over the lamp and beam materials", () => {
