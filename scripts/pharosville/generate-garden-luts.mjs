@@ -81,7 +81,7 @@ const PHASES = [
     // Night is the phase that already works; the cube's whole job here is to
     // put the shadows on the indigo (ai/kachi-iro) axis the palette calls for
     // and keep the lantern gold from drifting with them.
-    contrast: 0.09,
+    contrast: 0.16,
     highlightAnchor: "#cfe0f5",
     highlightPush: 0.02,
     highlightRange: [0.55, 1.0],
@@ -93,11 +93,11 @@ const PHASES = [
       // Cyan-leaning water pulled toward the indigo family.
       { center: 195, rotate: 12, saturation: 0.95, width: 42 },
     ],
-    lift: 0.022,
-    liftTint: "#7387ff",
+    lift: 0.014,
+    liftTint: "#6078bd",
     saturation: 1.0,
     shadowAnchor: "#1a1f3a",
-    shadowPush: 0.042,
+    shadowPush: 0.05,
     shadowRange: [0.0, 0.55],
   },
   {

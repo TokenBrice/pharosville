@@ -60,11 +60,11 @@ export const MAX_GARDEN_LIGHT_LANES = 48;
  * rotated, which is a viewing condition: every route still takes its turn.
  */
 const GARDEN_LANE_BUDGET_FOR_TIER: Record<PharosVilleRenderSchedulerState["tier"], number> = {
-  full: 24,
-  balanced: 12,
-  interaction: 12,
-  recovery: 6,
-  constrained: 4,
+  full: 16,
+  balanced: 10,
+  interaction: 10,
+  recovery: 5,
+  constrained: 3,
 };
 
 /**
@@ -76,8 +76,8 @@ const GARDEN_LANE_BUDGET_FOR_TIER: Record<PharosVilleRenderSchedulerState["tier"
 export const GARDEN_LANE_EMBER_GAIN: Record<GardenLightLaneKind, number> = {
   beacon: 1,
   route: 1,
-  lantern: 0.55,
-  buoy: 0.55,
+  lantern: 0.38,
+  buoy: 0.38,
 };
 
 /**
@@ -85,7 +85,7 @@ export const GARDEN_LANE_EMBER_GAIN: Record<GardenLightLaneKind, number> = {
  * ~4.9 units — so two ember lanes inside this radius are painting one disc
  * between them. The brighter one keeps it.
  */
-export const GARDEN_EMBER_LANE_MIN_SEPARATION = 6;
+export const GARDEN_EMBER_LANE_MIN_SEPARATION = 8.5;
 
 /** How many route pulses may run at once. Registered routes above this rotate. */
 const ROUTE_RESERVE_FOR_TIER: Record<PharosVilleRenderSchedulerState["tier"], number> = {

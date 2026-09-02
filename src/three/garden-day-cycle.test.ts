@@ -4,6 +4,7 @@ import {
   DAY_CYCLE_HEIGHT_FOG_PRESETS,
   DAY_CYCLE_LIGHT_PRESETS,
   DAY_CYCLE_SKY_PRESETS,
+  GARDEN_SAIL_EMISSIVE,
   dayCyclePhase,
 } from "./garden-day-cycle";
 import { HARBOR_PALETTE } from "../systems/palette";
@@ -83,6 +84,15 @@ describe("day-cycle presets (C1 contract)", () => {
     );
     expect(dusk.dirColor.r).toBeGreaterThan(dusk.dirColor.b);
     expect(dusk.hemiSky.b).toBeGreaterThan(dusk.hemiSky.r);
+  });
+
+  it("keeps moon fill and sail backlight below the night hierarchy", () => {
+    const night = DAY_CYCLE_LIGHT_PRESETS.night;
+    expect(night.dirIntensity).toBeLessThan(1);
+    expect(night.ambientIntensity + night.hemiIntensity).toBeLessThan(0.25);
+    expect(GARDEN_SAIL_EMISSIVE.night).toBeLessThanOrEqual(0.1);
+    expect(GARDEN_SAIL_EMISSIVE.night).toBeLessThan(GARDEN_SAIL_EMISSIVE.dusk);
+    expect(GARDEN_SAIL_EMISSIVE.dusk).toBeGreaterThan(GARDEN_SAIL_EMISSIVE.day);
   });
 
   it("keeps day fog structured instead of milky", () => {

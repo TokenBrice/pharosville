@@ -116,14 +116,25 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPre
   },
   night: {
     ambient: paletteColor(P.moonlight),
-    ambientIntensity: 0.2,
+    ambientIntensity: 0.06,
     dirColor: paletteColor(P.moonlight),
-    dirIntensity: 0.95,
+    dirIntensity: 0.35,
     hemiGround: paletteColor(P.deep_sea_2),
-    hemiIntensity: 0.44,
+    hemiIntensity: 0.15,
     hemiSky: paletteColor(P.fog_blue),
   },
 };
+
+/**
+ * Wave 6 sail value, separate from the cloth's issuer-owned colour policy.
+ * Moonlight may reveal the dye after dark, but the fleet cannot become a
+ * second field of white lamps competing with the beacon and moon road.
+ */
+export const GARDEN_SAIL_EMISSIVE = Object.freeze({
+  day: 0.06,
+  dusk: 0.12,
+  night: 0.08,
+});
 
 export const DAY_CYCLE_HEIGHT_FOG_PRESETS: Record<DayCyclePhaseName, DayCycleHeightFogPreset> = {
   day: {
@@ -307,7 +318,13 @@ export function updateDayCycle(
   // Dimmer per-lantern halo to match the smaller quad (W1.10): the fleet's
   // warmth should come from MANY small lights, not from each one flaring.
   scene.content.shipLanternGlowMaterial.opacity = dusk * 0.12 + night * 0.24;
-  const sailEmissive = 0.16 + dusk * 0.14 + night * 0.62;
+  const sailEmissive = blendDayCycleScalar(
+    GARDEN_SAIL_EMISSIVE.night,
+    GARDEN_SAIL_EMISSIVE.dusk,
+    GARDEN_SAIL_EMISSIVE.day,
+    dusk,
+    daylight,
+  );
   // The batched fleet shares ONE sail material, so the night backlight is a
   // single write instead of one per ship (W1 / D2).
   if (scene.content.fleetSailMaterial) {

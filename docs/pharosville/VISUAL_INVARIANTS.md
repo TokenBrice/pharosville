@@ -132,17 +132,17 @@ is the redundant channel.
   lanterns, and every reflection they lay on the sea — is an EMBER: warm,
   present, and subordinate. None of it may be raised to compete. This is
   enforced where the light is authored, not where it is composited: the shared
-  lane registry applies a per-kind ember gain (`GARDEN_LANE_EMBER_GAIN`, 0.55 on
+  lane registry applies a per-kind ember gain (`GARDEN_LANE_EMBER_GAIN`, 0.38 on
   lantern and buoy lanes) and exempts the beacon, and the island's own lamp
   emissives sit a step below the beacon in turn. A night frame containing a
   second thing as bright as the tower is a regression whatever else it gained.
 - **Light pools are budgeted, and a crowd of them is thinned before any one is
-  dimmed.** At most 24 reflection lanes burn at once at tier full
+  dimmed.** At most 16 reflection lanes burn at once at tier full
   (`GARDEN_LANE_BUDGET_FOR_TIER`); the 48-texel lane texture is a packing
   layout, never a target. Two ember lanes closer than
-  `GARDEN_EMBER_LANE_MIN_SEPARATION` (6 world units — the shader pool's own 1/e
-  radius plus margin) may not both burn, and the dimmer stands down. Overlapping
-  pools merge into one pale disc, which is how the sea turned milky; the remedy
+  `GARDEN_EMBER_LANE_MIN_SEPARATION` (8.5 world units — beyond the shader
+  pool's 1/e radius plus margin) may not both burn, and the dimmer stands down.
+  Overlapping pools merge into one pale disc, which is how the sea turned milky; the remedy
   is fewer lights, not weaker ones. The lamp keeps burning on land — only its
   reflection is thinned.
 - **Simultaneity is a viewing condition. A reading is not.** Analytical lanes —
