@@ -30,35 +30,37 @@ export interface GardenHorizon {
 }
 
 /** Three fog-close values: enough separation to layer, never enough to cut out. */
-export const GARDEN_HORIZON_VALUE_SCALES = [0.975, 0.968, 0.96] as const;
+export const GARDEN_HORIZON_VALUE_SCALES = [0.98, 0.97, 0.96] as const;
 
 const RIDGES = [
   {
-    depth: 151,
-    height: 7.2,
-    offset: -38,
-    profile: [0, 0.18, 0.12, 0.38, 0.29, 0.62, 0.43, 0.24, 0.34, 0.12, 0],
-    width: 520,
-  },
-  {
-    depth: 169,
-    height: 10.5,
-    offset: 34,
-    profile: [0, 0.11, 0.3, 0.2, 0.48, 0.82, 0.52, 0.38, 0.16, 0.22, 0],
-    width: 550,
-  },
-  {
-    depth: 190,
-    height: 14,
-    offset: -8,
+    depth: 146,
+    height: 12,
+    offset: -120,
     profile: [0, 0.22, 0.16, 0.42, 0.35, 0.58, 0.91, 0.64, 0.31, 0.14, 0],
-    width: 580,
+    width: 200,
+  },
+  {
+    depth: 132,
+    height: 10.5,
+    offset: 0,
+    profile: [0, 0.11, 0.3, 0.2, 0.48, 0.82, 0.52, 0.38, 0.16, 0.22, 0],
+    width: 200,
+  },
+  {
+    depth: 118,
+    height: 7.2,
+    offset: 120,
+    profile: [0, 0.18, 0.12, 0.38, 0.29, 0.62, 0.43, 0.24, 0.34, 0.12, 0],
+    width: 200,
   },
 ] as const;
 
 function createGeometry(): BufferGeometry {
   const positions: number[] = [];
   const layers: number[] = [];
+  const reliefs: number[] = [];
+  const verticals: number[] = [];
   const indices: number[] = [];
   const lateralX = Math.SQRT1_2;
   const lateralZ = -Math.SQRT1_2;
@@ -71,8 +73,10 @@ function createGeometry(): BufferGeometry {
       const lateral = (t - 0.5) * ridge.width + ridge.offset;
       const x = farX * ridge.depth + lateralX * lateral;
       const z = farZ * ridge.depth + lateralZ * lateral;
-      positions.push(x, -18, z, x, ridge.profile[point]! * ridge.height, z);
+      positions.push(x, -7, z, x, ridge.profile[point]! * ridge.height, z);
       layers.push(layer, layer);
+      reliefs.push(ridge.profile[point]!, ridge.profile[point]!);
+      verticals.push(0, 1);
       if (point === 0) continue;
       const a = base + (point - 1) * 2;
       const b = a + 1;
@@ -84,6 +88,8 @@ function createGeometry(): BufferGeometry {
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(new Float32Array(positions), 3));
   geometry.setAttribute("aLayer", new BufferAttribute(new Float32Array(layers), 1));
+  geometry.setAttribute("aRelief", new BufferAttribute(new Float32Array(reliefs), 1));
+  geometry.setAttribute("aVertical", new BufferAttribute(new Float32Array(verticals), 1));
   geometry.setIndex(indices);
   geometry.computeBoundingSphere();
   return geometry;
@@ -92,26 +98,42 @@ function createGeometry(): BufferGeometry {
 function createMaterial(): ShaderMaterial {
   return new ShaderMaterial({
     depthTest: true,
-    depthWrite: true,
+    depthWrite: false,
     fog: false,
     side: DoubleSide,
+    transparent: true,
     uniforms: {
       uFogColor: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
+      uSkyColor: { value: DAY_CYCLE_SKY_PRESETS.night.zenith.clone() },
     },
     vertexShader: /* glsl */ `
       attribute float aLayer;
+      attribute float aRelief;
+      attribute float aVertical;
       varying float vLayer;
+      varying float vRelief;
+      varying float vVertical;
       void main() {
         vLayer = aLayer;
+        vRelief = aRelief;
+        vVertical = aVertical;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 uFogColor;
+      uniform vec3 uSkyColor;
       varying float vLayer;
+      varying float vRelief;
+      varying float vVertical;
       void main() {
-        float valueScale = vLayer < 0.5 ? 0.975 : (vLayer < 1.5 ? 0.968 : 0.96);
-        gl_FragColor = vec4(uFogColor * valueScale, 1.0);
+        float valueScale = vLayer < 0.5 ? 0.98 : (vLayer < 1.5 ? 0.97 : 0.96);
+        float profile = smoothstep(0.035, 0.48, vRelief);
+        float baseFade = smoothstep(0.0, 0.5, vVertical);
+        float skyMix = smoothstep(0.12, 0.82, vRelief) * 0.62;
+        float alpha = profile * baseFade * (0.5 + vLayer * 0.035);
+        if (alpha < 0.004) discard;
+        gl_FragColor = vec4(mix(uFogColor, uSkyColor, skyMix) * valueScale, alpha);
       }
     `,
   });
@@ -119,8 +141,9 @@ function createMaterial(): ShaderMaterial {
 
 /**
  * Shakkei beyond the finite plate: three wide, overlapping ridge strips in one
- * draw. Every profile meets a broad base below the fog seam and both frame
- * sides; there are no closed silhouettes that can read as detached pills.
+ * draw. Every profile meets a transparent broad base below the fog seam and
+ * both frame sides; there are no closed silhouettes that can read as detached
+ * pills or opaque curtains.
  */
 export function createGardenHorizon(): GardenHorizon {
   const root = new Group();
@@ -133,6 +156,7 @@ export function createGardenHorizon(): GardenHorizon {
   mesh.renderOrder = -1;
   root.add(mesh);
   const fogColor = material.uniforms.uFogColor.value as Color;
+  const skyColor = material.uniforms.uSkyColor.value as Color;
   let disposed = false;
 
   return {
@@ -155,6 +179,14 @@ export function createGardenHorizon(): GardenHorizon {
         DAY_CYCLE_SKY_PRESETS.night.fog,
         DAY_CYCLE_SKY_PRESETS.dusk.fog,
         DAY_CYCLE_SKY_PRESETS.day.fog,
+        phase.dusk,
+        phase.daylight,
+      );
+      blendDayCycleColor(
+        skyColor,
+        DAY_CYCLE_SKY_PRESETS.night.zenith,
+        DAY_CYCLE_SKY_PRESETS.dusk.zenith,
+        DAY_CYCLE_SKY_PRESETS.day.zenith,
         phase.dusk,
         phase.daylight,
       );

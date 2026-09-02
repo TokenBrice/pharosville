@@ -503,9 +503,12 @@ function createBackdrop(domeMaterial: ShaderMaterial): {
         // for 80% of the frame and compressed every colour into the top band,
         // producing cream paper with a navy stripe instead of atmosphere.
         float skyHeight = clamp(vScreenPosition.y, 0.0, 1.0);
-        vec3 color = mix(uLower, uHorizon, smoothstep(0.02, 0.24, skyHeight));
-        color = mix(color, uMiddle, smoothstep(0.18, 0.58, skyHeight));
-        color = mix(color, uZenith, smoothstep(0.50, 1.0, skyHeight));
+        // The fog seam sits behind the far plate instead of filling every
+        // exposed pixel: mizu below -> shironeri seam -> mizu -> kon by day,
+        // and teal -> gold seam -> indigo at dusk.
+        vec3 color = mix(uLower, uHorizon, smoothstep(0.34, 0.66, skyHeight));
+        color = mix(color, uMiddle, smoothstep(0.68, 0.84, skyHeight));
+        color = mix(color, uZenith, smoothstep(0.80, 1.0, skyHeight));
         color *= gardenBokashiShade(skyHeight, uBokashiAmount);
 
         // Project garden-sun.ts onto the sheet: morning and evening glows move

@@ -24,13 +24,17 @@ describe("garden horizon", () => {
     const mesh = horizon.root.children[0] as Mesh;
     expect(mesh.material).toBeInstanceOf(ShaderMaterial);
     const positions = mesh.geometry.getAttribute("position");
+    expect((mesh.material as ShaderMaterial).transparent).toBe(true);
+    expect((mesh.material as ShaderMaterial).depthWrite).toBe(false);
+    expect(mesh.geometry.getAttribute("aRelief")).toBeDefined();
+    expect(mesh.geometry.getAttribute("aVertical")).toBeDefined();
     // Each eleven-point strip alternates base/ridge vertices. Both endpoints
-    // return to the base, so no layer can become a closed floating pill.
+    // return to transparent zero relief, so no layer can become a closed pill.
     for (let layer = 0; layer < 3; layer += 1) {
       const start = layer * 22;
-      expect(positions.getY(start)).toBe(-18);
+      expect(positions.getY(start)).toBe(-7);
       expect(positions.getY(start + 1)).toBe(0);
-      expect(positions.getY(start + 20)).toBe(-18);
+      expect(positions.getY(start + 20)).toBe(-7);
       expect(positions.getY(start + 21)).toBe(0);
     }
     horizon.dispose();
