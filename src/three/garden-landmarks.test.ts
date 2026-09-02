@@ -10,7 +10,12 @@ import {
 } from "three";
 import { CAUSE_HEX, type CauseOfDeath } from "@shared/lib/cause-of-death";
 import { describe, expect, it } from "vitest";
-import { CEMETERY_CENTER } from "../systems/world-layout";
+import { rimLandAt } from "../systems/garden-rim";
+import {
+  CEMETERY_CENTER,
+  isWaterTileKind,
+  terrainKindAt,
+} from "../systems/world-layout";
 import type { GraveNode, PigeonnierNode } from "../systems/world-types";
 import {
   createGardenCemetery,
@@ -103,6 +108,13 @@ describe("garden landmarks", () => {
         position.setFromMatrixPosition(matrix);
         // Local space: the root sits at y=0, so the sea surface is WATER_Y.
         expect(position.y).toBeLessThanOrEqual(-1.45);
+        const tile = {
+          x: Math.round(CEMETERY_CENTER.x + position.x / Math.SQRT2),
+          y: Math.round(CEMETERY_CENTER.y + position.z / Math.SQRT2),
+        };
+        const kind = terrainKindAt(tile.x, tile.y);
+        expect(isWaterTileKind(kind), `${object.name}.${index} (${kind})`).toBe(true);
+        expect(rimLandAt(tile.x, tile.y), `${object.name}.${index}`).toBe(false);
         checked += 1;
       }
     });

@@ -1,5 +1,11 @@
-import { seaBodyPlacement } from "../systems/sea-body-anchors";
+import { seaBodyPlacement, seaBodyTiles } from "../systems/sea-body-anchors";
 import { seaBodyForArea, type SeaBodyName } from "../systems/sea-bodies";
+import {
+  PHAROSVILLE_MAP_HEIGHT,
+  PHAROSVILLE_MAP_WIDTH,
+  isWaterTileKind,
+  terrainKindAt,
+} from "../systems/world-layout";
 
 /**
  * Where the sea steles stand, and how big their carved faces are — with no three.js in
@@ -21,6 +27,7 @@ export const TILE_SCALE = Math.SQRT2;
 export const STELE_WIDTH = 5.6;
 export const STELE_FACE_HEIGHT = 1.25;
 export const STELE_FACE_BASE_Y = 0.9;
+export const STELE_DEPTH = 0.6;
 
 /**
  * The lettered face's true-scale footprint. Draw and hit projection both
@@ -219,34 +226,83 @@ export interface SeaSignSite {
 const MIN_SEPARATION = 11;
 
 /**
+ * Every map tile touched by the stele at its maximum overview rung.
+ *
+ * Expanding the oriented rectangle by a tile cell's projected half-width is
+ * conservative: if every returned tile is water, the full stone volume cannot
+ * cross a land square at any supported zoom rung.
+ */
+export function seaSignFootprintTiles(site: Pick<SeaSignSite, "x" | "z">): { x: number; y: number }[] {
+  const scale = SEA_SIGN_SCALE_STEPS[SEA_SIGN_SCALE_STEPS.length - 1]!;
+  const centreX = site.x / TILE_SCALE;
+  const centreY = site.z / TILE_SCALE;
+  const alongX = Math.cos(SEA_SIGN_STELE.yaw);
+  const alongY = -Math.sin(SEA_SIGN_STELE.yaw);
+  const acrossX = -alongY;
+  const acrossY = alongX;
+  const halfLength = STELE_WIDTH / 2 * scale / TILE_SCALE;
+  const halfThickness = STELE_DEPTH / 2 * scale / TILE_SCALE;
+  const tileProjection = (Math.abs(alongX) + Math.abs(alongY)) * 0.5;
+  const bound = Math.ceil(halfLength + tileProjection);
+  const tiles: { x: number; y: number }[] = [];
+
+  for (let y = Math.floor(centreY) - bound; y <= Math.ceil(centreY) + bound; y += 1) {
+    for (let x = Math.floor(centreX) - bound; x <= Math.ceil(centreX) + bound; x += 1) {
+      const dx = x - centreX;
+      const dy = y - centreY;
+      const along = Math.abs(dx * alongX + dy * alongY);
+      const across = Math.abs(dx * acrossX + dy * acrossY);
+      if (along <= halfLength + tileProjection && across <= halfThickness + tileProjection) {
+        tiles.push({ x, y });
+      }
+    }
+  }
+  return tiles;
+}
+
+function footprintIsWater(site: Pick<SeaSignSite, "x" | "z">): boolean {
+  return seaSignFootprintTiles(site).every((tile) => (
+    tile.x >= 0 && tile.y >= 0
+    && tile.x < PHAROSVILLE_MAP_WIDTH && tile.y < PHAROSVILLE_MAP_HEIGHT
+    && isWaterTileKind(terrainKindAt(tile.x, tile.y))
+  ));
+}
+
+/**
  * N1 siting, as a pure function of the body list.
  *
- * Steles are sited at each body's camera-facing frontier, and neighbouring
- * bodies can present that frontier at nearly the same point — Warning Shoals
- * and Danger Strait share a coast, and their first pass put one stele on top of
- * the other. Any pair that lands too close is nudged apart along the axis the
- * camera reads as horizontal, nearest-to-camera moving last so it stays in
- * front of the water it names.
+ * Steles begin at each body's camera-facing frontier, and neighbouring bodies
+ * can present that frontier at nearly the same point. Candidates are searched
+ * outward through that body's own water until both the maximum-scale physical
+ * footprint and the inter-stele separation are clear.
  *
- * The nudge is order-dependent, which is why this is shared rather than
- * reimplemented: the hit targets (N6) have to resolve the collisions the same
- * way the scene does, or a stele's target lands on its neighbour.
+ * The search is order-dependent, which is why this is shared rather than
+ * reimplemented: the hit targets (N6) have to resolve the same final sites as
+ * the scene, or a stele's target lands on its neighbour.
  */
 export function seaSignSites(bodies: readonly SeaBodyName[]): SeaSignSite[] {
   const sited: SeaSignSite[] = [];
   for (const body of bodies) {
     const placement = seaBodyPlacement(body);
     if (!placement) continue;
-    let x = placement.tile.x * TILE_SCALE;
-    let z = placement.tile.y * TILE_SCALE;
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const clash = sited.find((other) => Math.hypot(other.x - x, other.z - z) < MIN_SEPARATION);
-      if (!clash) break;
-      // Slide along the screen-horizontal axis (world +x -z in this iso rig).
-      x += MIN_SEPARATION * 0.55;
-      z -= MIN_SEPARATION * 0.55;
+    // The authored rim closes around Wreck Shoal on the west and south. Keep
+    // its reviewed inlet footing rather than letting geometry-width changes
+    // drift the marker back toward either bank.
+    const preferredTile = body === "wreck" ? { x: 50, y: 122 } : placement.tile;
+    let best: SeaSignSite | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const tile of seaBodyTiles(body)) {
+      const candidate = { body, x: tile.x * TILE_SCALE, z: tile.y * TILE_SCALE };
+      if (!footprintIsWater(candidate)) continue;
+      if (sited.some((other) => Math.hypot(other.x - candidate.x, other.z - candidate.z) < MIN_SEPARATION)) continue;
+      const distance = (tile.x - preferredTile.x) ** 2 + (tile.y - preferredTile.y) ** 2;
+      if (distance < bestDistance) {
+        best = candidate;
+        bestDistance = distance;
+      }
     }
-    sited.push({ body, x, z });
+    // A missing sign is safer than a stele planted through land.
+    if (best) sited.push(best);
   }
   return sited;
 }

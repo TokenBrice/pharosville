@@ -146,6 +146,7 @@ export function createGardenSailTexture(
   if (!canvas) return null;
 
   const texture = new CanvasTexture(canvas);
+  texture.name = `garden-ship-identity-sail.${ship.id}`;
   texture.colorSpace = SRGBColorSpace;
   texture.wrapS = ClampToEdgeWrapping;
   texture.wrapT = ClampToEdgeWrapping;

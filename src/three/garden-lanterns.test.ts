@@ -33,6 +33,15 @@ function lane(overrides: Partial<GardenLightLane> & { id: string }): GardenLight
 }
 
 describe("createGardenLaneRegistry", () => {
+  it("exposes its water-sampled DataTexture to the owner census", () => {
+    const registry = createGardenLaneRegistry();
+
+    expect(registry.getTextureManifest()).toEqual([
+      { owner: "garden-lanterns.lane-data", texture: registry.texture },
+    ]);
+    registry.dispose();
+  });
+
   it("packs registered lanes into the texture and reports the active count", () => {
     const registry = createGardenLaneRegistry();
     registry.set(lane({ id: "a", worldX: 3, worldZ: -2, intensity: 0.8 }));

@@ -1,6 +1,6 @@
 # PharosVille Visual and Analytical Contracts
 
-Last updated: 2026-08-13
+Last updated: 2026-09-02
 
 These are product contracts, not a design diary. Change one only with explicit
 intent, code/tests, and a matching update to the relevant route documentation.
@@ -23,7 +23,9 @@ intent, code/tests, and a matching update to the relevant route documentation.
 
 ## Composition
 
-- The Garden Observatory is asymmetric, sea-first, and intentionally open.
+- The Garden Observatory is asymmetric, sea-first, and intentionally spacious.
+  An authored land rim may frame most of the finite plate, but it keeps two
+  open-sea passages and broad unnamed water between the named bodies.
   Do not replace its region-scoped fleet placement with a uniform grid — or
   with any other uniform field, including blue noise. See below.
 - **The fleet moors in anchorages.** Each risk band seeds an odd number of
@@ -77,7 +79,7 @@ the second-largest body on the map.
 **Not all water is named, deliberately.** Roughly a quarter of the sea is open
 approach, and it is composition rather than an attribution gap: named waters
 only read as bodies when there is unclaimed sea between them, and the world is
-required to be "asymmetric, sea-first, and intentionally open". The coverage
+required to be "asymmetric, sea-first, and intentionally spacious". The coverage
 guard is set at 0.72 for that reason; raising it back toward 1 would recreate
 the residue body it was meant to prevent.
 

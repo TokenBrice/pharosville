@@ -318,7 +318,7 @@ is how those numbers were found: it wraps the renderer instance's
 `renderBufferDirect` for one settled frame and must reconcile exactly to
 `renderer.info.render.calls` — a `MISMATCH` fails `--assert`.
 
-**Whole-map framing — historical call/fps measurement; its texture gate is currently OPEN (see below).** At the reachable zoom
+**Whole-map framing — valid performance case.** At the reachable zoom
 floor (`ABSOLUTE_MIN_ZOOM` 0.28 — the viewport fit computes below it, so this is
 as far out as a visitor can pull):
 
@@ -334,13 +334,36 @@ raise the ceilings if this regresses. Note also that `cam=` from the URL is not
 clamped to the zoom floor, so smaller values render a framing no visitor can
 reach; anything below 0.28 is not a valid measurement.
 
-**Open gate item (2026-09-02):** on this framing the ANIMATED arm reads **79
-textures** against the 72 ceiling — 42 scene-referenced (identical to the
-default framing) plus 37 renderer-internal — and `--assert` fails on it. This
-is not Wave 0's doing: `main` at `fb54c0c` (v0.8.0) reads the same 79 with the
-same 42+37 split, measured in this checkout on a detached HEAD. The settled
-reduced arm passes at 70. It is carried as an open gate item for the frame
-wave, which re-authors this framing; do not raise the ceiling to close it.
+**Texture gate diagnosis and closure (2026-09-02):** the inherited whole-map
+failure was a first-use ordering issue, not seven whole-map scene assets. The
+overview LOD starts at detail 1 and eases to its hidden target; before this
+change that brief interval enabled N8AO and uploaded its seven private textures
+(accumulation, blue noise, output, read, write, and the two half-resolution
+depth attachments). The LOD then disabled N8AO but retained those GPU
+allocations for the session. A renderer whose initial framing is whole-map now
+suppresses only that construction ease, so N8AO is never first-used there. On
+later zoom crossings it forwards the ordinary eased detail, preserving the
+contact-shadow fade while props shed. Once that ease settles at zero, the post
+owner disposes N8AO's seven GPU texture handles (but retains its pass,
+materials, and target objects); Three lazily recreates those handles on a
+subsequent zoom-in without rebuilding shaders. The settled picture is
+unchanged.
+
+The texture census now combines the scene walk with manifests from the post
+chain, wakes, lane DataTexture, PMREM/SH cube, and shadow map. It reports the
+original 42 scene references, 80 named/reachable resources, and a zero
+`minimumUnattributedRendererTextures` lower bound in every arm. On the real
+GPU (Apple M5 Pro, Metal, 1600x1000), the measured gate is:
+
+| framing | arm | renderer textures | scene references | named/reachable | minimum unattributed |
+| --- | --- | ---: | ---: | ---: | ---: |
+| default | animated | 67 | 42 | 80 | 0 |
+| whole-map | animated | 72 | 42 | 80 | 0 |
+| default | reduced | 65 | 42 | 80 | 0 |
+| whole-map | reduced | 70 | 42 | 80 | 0 |
+
+The whole-map animated arm is therefore at, not above, the existing 72-texture
+ceiling; do not raise that ceiling.
 
 ### The CI visual lane cannot render this world
 

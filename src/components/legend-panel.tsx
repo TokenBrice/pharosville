@@ -38,20 +38,28 @@ const LEGEND_ZONE_PLACEMENTS: ReadonlyArray<ShipRiskPlacement> = [
 
 const LEGEND_SHIP_CLASSES: ReadonlyArray<{ name: string; reading: string }> = [
   {
-    name: "Treasury galleon",
-    reading: "Centralized issuer (fiat reserves)",
+    name: "Bezaisen carrier",
+    reading: "Centralized issuer or dependent backing",
   },
   {
-    name: "Chartered brigantine",
-    reading: "Centralized-dependent backing",
+    name: "Kobaya runner",
+    reading: "Unclassified or missing-governance fallback",
   },
   {
-    name: "DAO schooner",
+    name: "Twin-hull council boat",
     reading: "Decentralized governance",
   },
   {
-    name: "Legacy junk",
-    reading: "Algorithmic backing",
+    name: "Takasebune barge",
+    reading: "Yield-bearing reserves",
+  },
+  {
+    name: "Battened junk",
+    reading: "Algorithmic or foreign-currency peg",
+  },
+  {
+    name: "Bullion scow",
+    reading: "Gold or silver peg",
   },
 ];
 

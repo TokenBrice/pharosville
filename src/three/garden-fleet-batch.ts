@@ -43,7 +43,7 @@ import {
  * its own materials, so nothing batched.
  *
  * Layout: two batches per silhouette (hull assembly + sails) plus one shared
- * pennant batch. Four silhouettes → 9 draw calls for the entire fleet,
+ * pennant batch. Six silhouettes → 13 draw calls for the entire fleet,
  * regardless of whether it holds 20 ships or 320.
  *
  * The hull assembly merges keel, hull, gunwale, deck, masts, bowsprit and
@@ -757,7 +757,7 @@ function withHullForm(vertexShader: string): string {
  * W2.3 / W4: per-instance furling.
  *
  * The rig is one merged geometry per silhouette, so every ship of a family flew
- * the same canvas — 64 galleons with the same three sails set. `aSailIndex`
+ * the same canvas — dozens of bezaisen with the same single great sail set. `aSailIndex`
  * says which sail a vertex belongs to and `aSailHead` where that sail's yard
  * is; a per-instance bitmask then collapses chosen sails onto their yards.
  *

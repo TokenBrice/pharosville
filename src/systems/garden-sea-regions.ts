@@ -11,7 +11,7 @@ import type { TerrainKind } from "./world-types";
  *
  * The six DEWS zones used to be drawn as overlapping ellipses with a 4–20%
  * tint — a chart annotation floating on uniform water. Meanwhile
- * `terrainKindAt` ALREADY partitions 88.5% of the sea into named, contiguous,
+ * `terrainKindAt` partitions 75.8% of the rim-bounded sea into named, contiguous,
  * organically-shaped regions, and ship placement and motion already obey it
  * (plan finding F6). The renderer simply never drew it.
  *
@@ -52,6 +52,7 @@ export function seaRegionIdForArea(area: SeaBodyAreaKey): number {
 }
 
 const REGION_FOR_TERRAIN: Partial<Record<TerrainKind, number>> = {
+  rim: SEA_REGION_ID.none,
   "alert-water": SEA_REGION_ID.alert,
   "calm-water": SEA_REGION_ID.calm,
   "harbor-water": SEA_REGION_ID.calm,
@@ -68,7 +69,7 @@ const REGION_FOR_TERRAIN: Partial<Record<TerrainKind, number>> = {
 };
 
 /**
- * Field resolution. 512² over a 56-tile map is ~9 samples per tile, enough
+ * Field resolution. 512² over a 140-tile map is ~3.7 samples per tile, enough
  * that the boundary distance channel stays smooth under the shader's blend
  * without the texture itself becoming a memory concern (256 KiB, one upload).
  */

@@ -21,6 +21,7 @@ import type { SeaBodyName } from "../systems/sea-bodies";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import {
   SEA_SIGN_STELE,
+  STELE_DEPTH,
   STELE_FACE_BASE_Y,
   STELE_FACE_HEIGHT,
   STELE_WIDTH,
@@ -66,18 +67,17 @@ export interface GardenSeaSigns {
 }
 
 const STELE_HEIGHT = 1.9;
-const STELE_DEPTH = 0.66;
 const STELE_CENTER_Y = 0.65;
 const FACE_OFFSET = STELE_DEPTH * 0.51;
 const QUIET_CARVING = new Color("#42595b");
 const ACTIVE_CARVING = new Color("#e7dfc8");
-
 export {
   SEA_SIGN_SCALE_STEPS,
   SEA_SIGN_STELE,
   SEA_SIGN_STEP_FADE_SECONDS,
   SEA_SIGN_STEP_HYSTERESIS,
   SEA_SIGN_STEP_ZOOMS,
+  STELE_DEPTH,
   STELE_FACE_BASE_Y,
   STELE_FACE_HEIGHT,
   STELE_WIDTH,

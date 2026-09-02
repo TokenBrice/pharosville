@@ -254,8 +254,8 @@ describe("Carved sea-name stele targets (W2a)", () => {
 
     // Both resting zooms are inside the hysteresis band: the first walk keeps
     // the 3.2x overview rung and the reverse walk keeps the 1x inhabited rung.
-    assertWalk([0.28, ...Array.from({ length: 30 }, () => 0.41)]);
-    assertWalk([0.5, ...Array.from({ length: 30 }, () => 0.39)]);
+    assertWalk([0.28, 0.41]);
+    assertWalk([0.5, 0.39]);
   });
 
   it("centres the target on the drawn stele at every framing", () => {

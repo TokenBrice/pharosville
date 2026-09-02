@@ -231,17 +231,22 @@ describe("within-zone DEWS anchoring", () => {
       computedAt: 1_700_000_000,
       methodologyVersion: "fixture",
     });
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput({
-      stress: {
-        ...denseFixtureStress,
-        signals: {
-          "usdc-circle": stressEntry(22),
-          "usdt-tether": stressEntry(38),
+    const placedAt = (score: number) => {
+      resetHeldShipPlacements();
+      const world = buildPharosVilleWorld(makePharosVilleWorldInput({
+        stress: {
+          ...denseFixtureStress,
+          signals: {
+            "usdc-circle": stressEntry(score),
+            "usdt-tether": stressEntry(score),
+          },
         },
-      },
-    }));
-    const calmward = world.ships.find((ship) => ship.id === "usdc-circle")!;
-    const roughward = world.ships.find((ship) => ship.id === "usdt-tether")!;
+      }));
+      return world.ships.find((ship) => ship.id === "usdt-tether")!;
+    };
+    // RIM FIELD: the Watch bridge changes farthest-point spreading, so compare one hull across scores instead of two competing berths.
+    const calmward = placedAt(22);
+    const roughward = placedAt(38);
     expect(calmward.riskWaterLabel).toBe(roughward.riskWaterLabel);
     expect(calmward.riskDepth).toBe(0.22);
     expect(roughward.riskDepth).toBe(0.38);

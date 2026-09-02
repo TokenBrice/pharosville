@@ -36,6 +36,7 @@ import {
   type WebGLRenderer,
 } from "three";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
+import type { TextureOwnerManifestEntry } from "../renderer/render-types";
 
 /**
  * Phase 1b (Breathtaking Rendering): one table owns every per-day-phase post
@@ -443,10 +444,9 @@ class GardenGradeEffect extends Effect {
  * disagree with the parameters that authored them.
  *
  * Budget: 49 KB + 4 KB, against the plan's 150 KB ceiling. Two textures against
- * the 72-texture census. They belong to the post chain, which means the scene
- * census in `world-renderer.ts` cannot see them — it walks the scene graph, and
- * post textures (N8AO's own blue noise, SMAA's search/area pair, the bloom
- * pyramid) all count as renderer-internal there. These two join that set.
+ * the 72-texture census. They belong to the post chain, so the scene walk in
+ * `world-renderer.ts` cannot see them; `getTextureManifest` below exposes them
+ * alongside N8AO's blue noise, SMAA's search/area pair, and the bloom pyramid.
  */
 const LUT_TEXTURE_URL = "/pharosville/textures/garden-grade-lut.png?v=0316dd17dc89";
 const DITHER_TEXTURE_URL = "/pharosville/textures/garden-blue-noise.png?v=fb2836c219c8";
@@ -1283,6 +1283,8 @@ class GardenGodRaysEffect extends Effect {
 
 export interface GardenPost {
   dispose: () => void;
+  /** Render targets and lookup textures owned by the post chain. */
+  getTextureManifest: () => readonly TextureOwnerManifestEntry[];
   // The returned array is a reused internal buffer: read it within the frame,
   // do not retain it across frames.
   getPassList: () => string[];
@@ -1390,6 +1392,34 @@ interface DisposableResource {
   dispose: () => void;
 }
 
+/**
+ * Walk the small set of postprocessing resource shapes we own. Three's
+ * `WebGLMultipleRenderTargets` exposes its attachments as `textures`, while
+ * ordinary render targets expose one `texture`; keeping this adapter here
+ * means the census does not need to know which library made an attachment.
+ */
+function manifestTextures(value: unknown): Texture[] {
+  if (value instanceof Texture) return [value];
+  if (Array.isArray(value)) return value.flatMap((entry) => manifestTextures(entry));
+  if ((typeof value !== "object" && typeof value !== "function") || value === null) return [];
+  const candidate = value as { texture?: unknown; textures?: unknown };
+  if (Array.isArray(candidate.textures)) return manifestTextures(candidate.textures);
+  return candidate.texture === value ? [] : manifestTextures(candidate.texture);
+}
+
+function addManifestTextures(
+  entries: TextureOwnerManifestEntry[],
+  seen: Set<Texture>,
+  owner: string,
+  value: unknown,
+): void {
+  for (const texture of manifestTextures(value)) {
+    if (seen.has(texture)) continue;
+    seen.add(texture);
+    entries.push({ owner, texture });
+  }
+}
+
 interface N8AOFullscreenQuadRuntime {
   material?: unknown;
   _mesh?: {
@@ -1413,6 +1443,21 @@ const N8AO_OWNED_RESOURCE_KEYS = [
   "standardDenoiseMaterial",
   "transparencyRenderTargetDWFalse",
   "transparencyRenderTargetDWTrue",
+  "writeTargetInternal",
+] as const;
+
+// These six objects account for N8AO's seven GPU textures: the half-resolution
+// depth target has both a colour and a depth attachment. Disposing a Three
+// render target releases its WebGL handles without invalidating the object, so
+// N8AO can reuse it and Three will initialise fresh handles on the next render.
+// Keep shader materials and fullscreen geometry warm; a zoom-in therefore
+// pays only one lazy target allocation frame, never a shader rebuild.
+const N8AO_TEXTURE_RESOURCE_KEYS = [
+  "accumulationRenderTarget",
+  "bluenoise",
+  "depthDownsampleTarget",
+  "outputTargetInternal",
+  "readTargetInternal",
   "writeTargetInternal",
 ] as const;
 
@@ -1478,6 +1523,16 @@ function installN8AODisposalAdapter(pass: N8AOPostPass): void {
       }
     }
   };
+}
+
+function releaseN8AOTextureResources(pass: N8AOPostPass): void {
+  const runtime = pass as unknown as Record<string, unknown>;
+  const resources = new Set<DisposableResource>();
+  for (const key of N8AO_TEXTURE_RESOURCE_KEYS) {
+    const resource = disposable(runtime[key]);
+    if (resource) resources.add(resource);
+  }
+  for (const resource of resources) resource.dispose();
 }
 
 /**
@@ -1685,6 +1740,9 @@ export function createGardenPost(
   let aoTierWeight = 1;
   let aoQuality: GardenAOQuality = "full";
   let aoZoomDetail = 1;
+  // Object existence is not residency: N8AO constructs its targets eagerly,
+  // but Three uploads them only when the enabled pass first renders.
+  let aoTextureResourcesResident = false;
   /** 1 is the awake/full profile; 0 is the idle/Performance profile. */
   let idleProfileWeight = 1;
   let idleProfileTarget = 1;
@@ -1967,6 +2025,87 @@ export function createGardenPost(
       * GODRAY_INTENSITY;
   }
 
+  function getTextureManifest(): readonly TextureOwnerManifestEntry[] {
+    const entries: TextureOwnerManifestEntry[] = [];
+    const seen = new Set<Texture>();
+    const composerRuntime = composer as unknown as {
+      depthRenderTarget?: WebGLRenderTarget | null;
+    };
+
+    // EffectComposer's input/output color attachments and its three depth
+    // attachments are not reachable from the scene graph. The depth render
+    // target contributes both its color attachment and its stable depth.
+    addManifestTextures(entries, seen, "post.composer.input-color", composer.inputBuffer.texture);
+    addManifestTextures(entries, seen, "post.composer.output-color", composer.outputBuffer.texture);
+    addManifestTextures(entries, seen, "post.composer.input-depth", composer.inputBuffer.depthTexture);
+    addManifestTextures(entries, seen, "post.composer.output-depth", composer.outputBuffer.depthTexture);
+    addManifestTextures(entries, seen, "post.composer.depth-target-color", composerRuntime.depthRenderTarget);
+    addManifestTextures(entries, seen, "post.composer.stable-depth", composerRuntime.depthRenderTarget?.depthTexture);
+    addManifestTextures(
+      entries,
+      seen,
+      "post.composer.copy-target",
+      (composer as unknown as { copyPass?: { renderTarget?: unknown } }).copyPass?.renderTarget,
+    );
+
+    // n8ao does not publish a resource API. These are its owned targets and
+    // lookup texture; the pass's depth texture is the composer's stable one
+    // above and is deliberately not claimed a second time.
+    const n8aoRuntime = n8aoPass as unknown as Record<string, unknown>;
+    const n8aoOwners: Record<string, string> = {
+      accumulationRenderTarget: "post.n8ao.accumulation",
+      bluenoise: "post.n8ao.blue-noise",
+      depthDownsampleTarget: "post.n8ao.depth-downsample",
+      outputTargetInternal: "post.n8ao.output",
+      readTargetInternal: "post.n8ao.read",
+      transparencyRenderTargetDWFalse: "post.n8ao.transparency-dw-false",
+      transparencyRenderTargetDWTrue: "post.n8ao.transparency-dw-true",
+      writeTargetInternal: "post.n8ao.write",
+    };
+    for (const [key, owner] of Object.entries(n8aoOwners)) {
+      addManifestTextures(entries, seen, owner, n8aoRuntime[key]);
+    }
+
+    // BloomEffect's ordinary target is unused while mipmap blur is enabled.
+    // The luminance target plus the distinct down/upsampling mipmaps are the
+    // live pyramid, with upsampling level 0 sharing its render target.
+    const bloomRuntime = bloomEffect as unknown as Record<string, unknown>;
+    addManifestTextures(entries, seen, "post.bloom.fallback-target", bloomRuntime.renderTarget);
+    const luminancePass = bloomRuntime.luminancePass as { renderTarget?: unknown } | undefined;
+    addManifestTextures(entries, seen, "post.bloom.luminance", luminancePass?.renderTarget);
+    const mipmapBlurPass = bloomRuntime.mipmapBlurPass as {
+      downsamplingMipmaps?: unknown;
+      upsamplingMipmaps?: unknown;
+    } | undefined;
+    if (Array.isArray(mipmapBlurPass?.downsamplingMipmaps)) {
+      mipmapBlurPass.downsamplingMipmaps.forEach((target, index) => {
+        addManifestTextures(entries, seen, `post.bloom.downsampling.${index}`, target);
+      });
+    }
+    if (Array.isArray(mipmapBlurPass?.upsamplingMipmaps)) {
+      mipmapBlurPass.upsamplingMipmaps.forEach((target, index) => {
+        addManifestTextures(entries, seen, `post.bloom.upsampling.${index}`, target);
+      });
+    }
+
+    const tiltRuntime = tiltShiftEffect as unknown as Record<string, unknown>;
+    addManifestTextures(entries, seen, "post.tilt-shift.blur-x", tiltRuntime.blurTargetA);
+    addManifestTextures(entries, seen, "post.tilt-shift.blur-y", tiltRuntime.blurTargetB);
+    const godRayRuntime = godRaysEffect as unknown as Record<string, unknown>;
+    addManifestTextures(entries, seen, "post.god-rays.half-res", godRayRuntime.rayTarget);
+    addManifestTextures(entries, seen, "post.lut.grade", lutTexture);
+    addManifestTextures(entries, seen, "post.lut.dither", ditherTexture);
+    addManifestTextures(entries, seen, "post.smaa.edges", smaaEffect.edgesTexture);
+    addManifestTextures(entries, seen, "post.smaa.weights", smaaEffect.weightsTexture);
+    const weightsMaterial = (smaaEffect as unknown as {
+      weightsMaterial?: { searchTexture?: unknown; areaTexture?: unknown };
+    }).weightsMaterial;
+    addManifestTextures(entries, seen, "post.smaa.search", weightsMaterial?.searchTexture);
+    addManifestTextures(entries, seen, "post.smaa.area", weightsMaterial?.areaTexture);
+
+    return entries;
+  }
+
   return {
     dispose() {
       // The N8AO pass carries a local adapter because n8ao@2.0.0's inherited
@@ -1978,6 +2117,7 @@ export function createGardenPost(
       lutTexture?.dispose();
       ditherTexture?.dispose();
     },
+    getTextureManifest,
     getPassList() {
       passList.length = 0;
       if (enabled) {
@@ -2014,7 +2154,9 @@ export function createGardenPost(
         renderer.render(scene, camera);
         return;
       }
+      const renderedAO = n8aoPass.enabled;
       composer.render(deltaTime);
+      if (renderedAO) aoTextureResourcesResident = true;
     },
     setAOTierWeight(weight) {
       aoTierWeight = clampUnit(weight);
@@ -2031,6 +2173,10 @@ export function createGardenPost(
     setAOZoomDetail(detail) {
       aoZoomDetail = detail;
       syncTierFidelity();
+      if (aoZoomDetail <= 0 && aoTextureResourcesResident) {
+        releaseN8AOTextureResources(n8aoPass);
+        aoTextureResourcesResident = false;
+      }
     },
     setBloomEnabled(bloomEnabled) {
       // Pass-level toggle: the composer skips disabled passes outright, which
