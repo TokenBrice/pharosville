@@ -333,7 +333,12 @@ describe("createGardenWater", () => {
       expect(waves[id]!.w).toBe(character.shallowShelf);
     }
     const source = water.material.fragmentShader;
-    expect(source).toContain("vec3 luminanceMatchedTint");
+    const vertexSource = water.material.vertexShader;
+    expect(source).toContain("vec3 regionColor = regionTint * (waterLuma / tintLuma)");
+    expect(source).not.toContain("mix(\n        regionTint,\n        luminanceMatchedTint");
+    expect(source).toContain(`if (regionId == ${SEA_REGION_ID.open})`);
+    expect(source).toContain("nA = sampleWaterNormal(vWaterPosition * 0.055 + openFlow * 0.045)");
+    expect(vertexSource).toContain("mix(-uWindDir, -regionFlow.xy, regionFlow.z)");
     expect(source).toContain("signatureNormal");
     expect(source).toContain(`regionId == ${SEA_REGION_ID.watch}`);
     expect(source).toContain(`regionId == ${SEA_REGION_ID.alert}`);

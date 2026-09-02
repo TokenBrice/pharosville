@@ -16,8 +16,8 @@ import { seaBodyForArea, type SeaBodyName } from "../systems/sea-bodies";
 /** One world unit per tile, on the diagonal the isometric rig is built around. */
 export const TILE_SCALE = Math.SQRT2;
 
-// Low stele proportions in world units. The single scale rung below is true
-// world scale: unlike the retired boards, a stele never grows against a zoom.
+// Low stele proportions in world units. The overview rung enlarges each whole
+// stele discretely; it is not continuous billboard compensation.
 export const STELE_WIDTH = 5.6;
 export const STELE_FACE_HEIGHT = 1.25;
 export const STELE_FACE_BASE_Y = 0.9;
@@ -36,7 +36,8 @@ export const SEA_SIGN_STELE = {
 } as const;
 
 /**
- * W2a: the stele keeps one true-world-scale rung.
+ * W2a fix: the stele is true-scale in the inhabited camera range and gets one
+ * chart-scale overview rung below zoom 0.4.
  *
  * Screen size is proportional to worldScale x zoom, so a scale of k/zoom holds
  * it constant, and `k / zoom` clamped to [0.85, 2.6] is what this used to be.
@@ -49,19 +50,19 @@ export const SEA_SIGN_STELE = {
  *
  * The old three-step ladder preserved near-constant screen size, but the map
  * read as labels resisting the camera. Stone stele UP; billboard-like scale
- * compensation DOWN. The track API remains so hit testing and renderer wiring
- * stay one contract, but its simplified ladder contains only the true scale.
+ * compensation DOWN. One discrete far rung makes an active carving readable
+ * on the chart without making it continuously fight the camera gesture.
  */
 /**
- * Stele world scale per step. One rung means no camera-dependent scaling.
+ * Stele world scale per step: inhabited world first, whole-map chart second.
  */
-export const SEA_SIGN_SCALE_STEPS = [1] as const;
+export const SEA_SIGN_SCALE_STEPS = [1, 3.2] as const;
 
 /**
  * Nominal band edges, in zoom, one per gap in the ladder: `[i]` is the zoom
  * below which step `i` gives way to step `i + 1`. Descending, like the steps.
  */
-export const SEA_SIGN_STEP_ZOOMS: readonly number[] = [];
+export const SEA_SIGN_STEP_ZOOMS: readonly number[] = [0.4];
 
 /**
  * How far past a nominal edge the zoom must travel before the step actually

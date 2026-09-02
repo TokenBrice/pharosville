@@ -6,6 +6,7 @@ import {
   ConeGeometry,
   CylinderGeometry,
   Euler,
+  Float32BufferAttribute,
   Group,
   InstancedMesh,
   Matrix4,
@@ -82,17 +83,16 @@ export const PIGEONNIER_MOVER_PIGEON_CAP = 5;
  * coin's status. The marker names already carry the imagery; this just builds
  * what they name.
  *
- * Grouped into three degrees of decay, which decide what furniture a wreck
- * still carries:
+ * Grouped into three silhouette families, which keep the field within three
+ * draws while retaining non-colour cause reads:
  *
- *  - `substantial` (grounded, sinking-stern) — most of the hull, a part-
- *    standing mast with a rag of rotted sail, and the lantern still burning.
- *  - `broken` (broken-keel, skeletal) — snapped or picked to the frames, a
- *    mast stub, no light.
- *  - `remnant` (shattered) — a keel line and a mast tip, nothing more.
+ *  - `substantial` (grounded, sinking-stern) — most of the hull and three ribs.
+ *  - `broken-keel` — two hull halves hinged apart around five exposed frames.
+ *  - `remains` (skeletal, shattered) — bare keel and seven ribs; Shattered's
+ *    deeper cause pose submerges the frames until only fragments remain.
  */
 type WreckForm = GraveNode["visual"]["marker"];
-type WreckDecay = "substantial" | "broken" | "remnant";
+type WreckFamily = "substantial" | "broken-keel" | "remains";
 
 const WRECK_FORMS: readonly WreckForm[] = [
   "grounded",
@@ -103,30 +103,26 @@ const WRECK_FORMS: readonly WreckForm[] = [
 ];
 
 interface WreckFormSpec {
-  decay: WreckDecay;
+  family: WreckFamily;
   /** Roll onto the beam, radians. A wreck never sits upright. */
   list: number;
   /** Bow-up (positive) or stern-down pitch, radians. */
   pitch: number;
   /** How far the hull's waterline sits below the sea surface. */
   sink: number;
-  /** Frames still standing proud of the planking. */
-  ribs: number;
-  /** Mast length relative to hull length; 0 for no mast at all. */
-  mast: number;
 }
 
 const WRECK_FORM_SPECS: Record<WreckForm, WreckFormSpec> = {
   // Counterparty failure: driven aground more or less whole, heeled over.
-  grounded: { decay: "substantial", list: 0.42, pitch: 0.05, sink: 0.16, ribs: 3, mast: 0.85 },
+  grounded: { family: "substantial", list: 0.42, pitch: 0.05, sink: 0.16 },
   // Liquidity drain: the stern went under first and the bow still points up.
-  "sinking-stern": { decay: "substantial", list: 0.3, pitch: 0.34, sink: 0.42, ribs: 3, mast: 0.7 },
+  "sinking-stern": { family: "substantial", list: 0.3, pitch: 0.34, sink: 0.42 },
   // Regulatory: the back broke. Two halves at an angle to each other.
-  "broken-keel": { decay: "broken", list: 0.55, pitch: 0.1, sink: 0.36, ribs: 5, mast: 0.34 },
+  "broken-keel": { family: "broken-keel", list: 0.55, pitch: 0.1, sink: 0.36 },
   // Abandoned: the planking is gone and the frames are all that is left.
-  skeletal: { decay: "broken", list: 0.48, pitch: 0.08, sink: 0.44, ribs: 7, mast: 0.28 },
+  skeletal: { family: "remains", list: 0.48, pitch: 0.08, sink: 0.44 },
   // Algorithmic failure: went to pieces. A keel line and a stump.
-  shattered: { decay: "remnant", list: 0.72, pitch: 0.16, sink: 0.62, ribs: 2, mast: 0.16 },
+  shattered: { family: "remains", list: 0.72, pitch: 0.16, sink: 0.62 },
 };
 
 /**
@@ -171,76 +167,72 @@ export function createGardenCemetery(
   // colours across one dark, still pool.
   const representatives = representativeWrecks(graves, 7);
   if (representatives.length > 0) {
-    const hullGeometry = wreckFanGeometry();
-    const hullMaterial = new MeshStandardMaterial({
+    const wreckMaterial = new MeshStandardMaterial({
       color: "#ffffff",
       flatShading: true,
       roughness: 1,
       vertexColors: true,
     });
-    const hulls = new InstancedMesh(
-      hullGeometry,
-      hullMaterial,
-      representatives.length,
-    );
-    hulls.name = "cemetery-wrecks-fan";
-    hulls.castShadow = true;
-    hulls.receiveShadow = true;
+    // Geometry colour is the bleached spar colour; instance colour is the
+    // cause colour. `causeMask` selects between them, so colour remains a
+    // redundant channel while the three family silhouettes do the first read.
+    wreckMaterial.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          "#include <color_pars_vertex>",
+          "#include <color_pars_vertex>\nattribute float causeMask;",
+        )
+        .replace(
+          "#include <color_vertex>",
+          `#include <color_vertex>
+#if defined( USE_COLOR ) && defined( USE_INSTANCING_COLOR )
+  vColor.rgb = mix(color.rgb, instanceColor.rgb, causeMask);
+#endif`,
+        );
+    };
+    wreckMaterial.customProgramCacheKey = () => "cemetery-wreck-cause-mask-v1";
 
-    const sparGeometry = wreckSparGeometry();
-    const sparMaterial = new MeshStandardMaterial({
-      color: "#b2ad98",
-      flatShading: true,
-      roughness: 1,
-    });
-    const spars = new InstancedMesh(
-      sparGeometry,
-      sparMaterial,
-      representatives.length,
-    );
-    spars.name = "cemetery-wreck-spars";
-    spars.castShadow = true;
-
-    const placements = new Map<string, Matrix4>();
     const placement = new Matrix4();
-    const local = new Matrix4();
-    const partMatrix = new Matrix4();
-    for (let index = 0; index < representatives.length; index += 1) {
-      const grave = representatives[index]!;
-      const spec = WRECK_FORM_SPECS[grave.visual.marker];
-      const scale = 2.2 + grave.visual.scale * 3.2;
-      const localX = (grave.tile.x - CEMETERY_CENTER.x) * TILE_SCALE;
-      const localZ = (grave.tile.y - CEMETERY_CENTER.y) * TILE_SCALE;
-      const side = stableUnit(`${grave.id}.side`) > 0.5 ? 1 : -1;
-      const fanYaw = Math.atan2(localZ, localX)
-        + (stableUnit(`${grave.id}.fan`) - 0.5) * 0.42;
-      const euler = new Euler(
-        side * (spec.list + (stableUnit(`${grave.id}.list`) - 0.5) * 0.22),
-        fanYaw,
-        spec.pitch + (stableUnit(`${grave.id}.pitch`) - 0.5) * 0.16,
-        "YXZ",
+    for (const family of ["substantial", "broken-keel", "remains"] as const) {
+      const familyWrecks = representatives.filter(
+        (grave) => WRECK_FORM_SPECS[grave.visual.marker].family === family,
       );
-      placement.compose(
-        new Vector3(localX, WATER_Y - spec.sink * scale * 0.58, localZ),
-        new Quaternion().setFromEuler(euler),
-        new Vector3(scale, scale, scale),
+      if (familyWrecks.length === 0) continue;
+      const wrecks = new InstancedMesh(
+        wreckFamilyGeometry(family),
+        wreckMaterial,
+        familyWrecks.length,
       );
-      placements.set(grave.id, placement.clone());
-      hulls.setMatrixAt(index, placement);
-      hulls.setColorAt(index, new Color(CAUSE_HEX[grave.entry.causeOfDeath]));
-
-      const fall = (0.2 + (1 - spec.mast) * 1.1)
-        * (stableUnit(`${grave.id}.fall`) > 0.5 ? 1 : -1);
-      local.makeRotationZ(fall);
-      local.scale(new Vector3(1, Math.max(0.32, spec.mast) * 2.8, 1));
-      local.setPosition(0.15, 0.18, 0);
-      partMatrix.multiplyMatrices(placements.get(grave.id)!, local);
-      spars.setMatrixAt(index, partMatrix);
+      wrecks.name = `cemetery-wrecks-${family}`;
+      wrecks.castShadow = true;
+      wrecks.receiveShadow = true;
+      for (let index = 0; index < familyWrecks.length; index += 1) {
+        const grave = familyWrecks[index]!;
+        const spec = WRECK_FORM_SPECS[grave.visual.marker];
+        const scale = 2.2 + grave.visual.scale * 3.2;
+        const localX = (grave.tile.x - CEMETERY_CENTER.x) * TILE_SCALE;
+        const localZ = (grave.tile.y - CEMETERY_CENTER.y) * TILE_SCALE;
+        const side = stableUnit(`${grave.id}.side`) > 0.5 ? 1 : -1;
+        const fanYaw = Math.atan2(localZ, localX)
+          + (stableUnit(`${grave.id}.fan`) - 0.5) * 0.42;
+        const euler = new Euler(
+          side * (spec.list + (stableUnit(`${grave.id}.list`) - 0.5) * 0.22),
+          fanYaw,
+          spec.pitch + (stableUnit(`${grave.id}.pitch`) - 0.5) * 0.16,
+          "YXZ",
+        );
+        placement.compose(
+          new Vector3(localX, WATER_Y - spec.sink * scale * 0.58, localZ),
+          new Quaternion().setFromEuler(euler),
+          new Vector3(scale, scale, scale),
+        );
+        wrecks.setMatrixAt(index, placement);
+        wrecks.setColorAt(index, new Color(CAUSE_HEX[grave.entry.causeOfDeath]));
+      }
+      wrecks.instanceMatrix.needsUpdate = true;
+      if (wrecks.instanceColor) wrecks.instanceColor.needsUpdate = true;
+      root.add(wrecks);
     }
-    hulls.instanceMatrix.needsUpdate = true;
-    if (hulls.instanceColor) hulls.instanceColor.needsUpdate = true;
-    spars.instanceMatrix.needsUpdate = true;
-    root.add(hulls, spars);
   }
 
   const mistAnchor = new Object3D();
@@ -304,26 +296,63 @@ function hullShell(length: number, beam: number, depth: number): BufferGeometry 
   return geometry;
 }
 
-/** One half-sunk hull with five exposed ribs; instanced seven times as a fan. */
-function wreckFanGeometry(): BufferGeometry {
-  const parts: BufferGeometry[] = [hullShell(2.7, 0.76, 0.48)];
-  for (let rib = 0; rib < 5; rib += 1) {
-    const frame = new TorusGeometry(0.36, 0.035, 3, 7, Math.PI);
-    frame.rotateY(Math.PI / 2);
-    frame.rotateZ((rib - 2) * 0.035);
-    frame.translate((rib / 4 - 0.5) * 1.65, 0.12, 0);
-    parts.push(frame);
+/** Three silhouettes, each including its ribs/hull and one bleached spar. */
+function wreckFamilyGeometry(family: WreckFamily): BufferGeometry {
+  const causeParts: BufferGeometry[] = [];
+  const paleParts: BufferGeometry[] = [];
+  if (family === "substantial") {
+    causeParts.push(hullShell(2.7, 0.76, 0.48));
+    addWreckRibs(causeParts, 3, 1.45);
+  } else if (family === "broken-keel") {
+    const fore = hullShell(1.35, 0.7, 0.46);
+    fore.rotateZ(0.24);
+    fore.translate(0.72, 0.06, 0);
+    const aft = hullShell(1.25, 0.68, 0.44);
+    aft.rotateZ(-0.3);
+    aft.translate(-0.68, 0.02, 0);
+    causeParts.push(fore, aft);
+    addWreckRibs(causeParts, 5, 1.65);
+  } else {
+    const keel = new BoxGeometry(2.3, 0.13, 0.16);
+    const stem = new BoxGeometry(0.12, 0.5, 0.12);
+    stem.rotateZ(-0.3);
+    stem.translate(1.12, 0.2, 0);
+    causeParts.push(keel, stem);
+    addWreckRibs(causeParts, 7, 1.8);
   }
-  const merged = mergeGeometries(parts, false);
-  if (!merged) throw new Error("Could not merge the wreck fan geometry.");
+  const spar = new CylinderGeometry(0.032, 0.065, family === "substantial" ? 1.8 : 1.1, 5);
+  spar.translate(0.12, family === "substantial" ? 1.0 : 0.62, 0);
+  spar.rotateZ(family === "broken-keel" ? 0.92 : 0.48);
+  paleParts.push(spar);
+
+  for (const part of causeParts) markWreckPart(part, "#ffffff", 1);
+  for (const part of paleParts) markWreckPart(part, "#b2ad98", 0);
+  const merged = mergeGeometries([...causeParts, ...paleParts], false);
+  if (!merged) throw new Error(`Could not merge cemetery wreck family ${family}.`);
   return merged;
 }
 
-/** A bleached broken spar, unit-height so each cause pose can shorten it. */
-function wreckSparGeometry(): BufferGeometry {
-  const spar = new CylinderGeometry(0.032, 0.065, 1, 5);
-  spar.translate(0, 0.5, 0);
-  return spar;
+function addWreckRibs(parts: BufferGeometry[], count: number, span: number): void {
+  for (let rib = 0; rib < count; rib += 1) {
+    const frame = new TorusGeometry(0.36, 0.035, 3, 7, Math.PI);
+    frame.rotateY(Math.PI / 2);
+    frame.rotateZ((rib - (count - 1) / 2) * 0.035);
+    frame.translate((rib / Math.max(1, count - 1) - 0.5) * span, 0.12, 0);
+    parts.push(frame);
+  }
+}
+
+function markWreckPart(geometry: BufferGeometry, colorValue: string, causeMask: number): void {
+  const count = geometry.getAttribute("position").count;
+  const color = new Color(colorValue);
+  const colors = new Float32Array(count * 3);
+  const masks = new Float32Array(count);
+  for (let index = 0; index < count; index += 1) {
+    color.toArray(colors, index * 3);
+    masks[index] = causeMask;
+  }
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  geometry.setAttribute("causeMask", new Float32BufferAttribute(masks, 1));
 }
 
 /**

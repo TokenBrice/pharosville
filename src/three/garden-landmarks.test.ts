@@ -4,6 +4,7 @@ import {
   Material,
   Matrix4,
   Mesh,
+  Object3D,
   Texture,
   Vector3,
 } from "three";
@@ -53,24 +54,28 @@ describe("garden landmarks", () => {
     }
   });
 
-  it("stages seven representative hull-rib reads and spars in two draws", () => {
+  it("stages seven representative wreck reads in three silhouette draws", () => {
     const graves = wreckField(24);
     const cemetery = createGardenCemetery(graves);
-    const hullBatches: InstancedMesh[] = [];
+    const wreckBatches: InstancedMesh[] = [];
     cemetery.root.traverse((object) => {
       if (
         object instanceof InstancedMesh
-        && object.name === "cemetery-wrecks-fan"
+        && object.name.startsWith("cemetery-wrecks-")
       ) {
-        hullBatches.push(object);
+        wreckBatches.push(object);
       }
     });
 
-    expect(hullBatches).toHaveLength(1);
-    expect(hullBatches[0]!.count).toBe(7);
-    expect(cemetery.root.getObjectByName("cemetery-wreck-spars")).toBeInstanceOf(InstancedMesh);
-    expect((cemetery.root.getObjectByName("cemetery-wreck-spars") as InstancedMesh).count).toBe(7);
-    expect(objectCount(cemetery.root)).toBe(2);
+    expect(wreckBatches.map((batch) => batch.name).sort()).toEqual([
+      "cemetery-wrecks-broken-keel",
+      "cemetery-wrecks-remains",
+      "cemetery-wrecks-substantial",
+    ]);
+    expect(wreckBatches.reduce((sum, batch) => sum + batch.count, 0)).toBe(7);
+    expect(new Set(wreckBatches.map((batch) => batch.geometry.getAttribute("position").count)).size)
+      .toBe(3);
+    expect(objectCount(cemetery.root)).toBe(3);
     expect(hasTexture(cemetery.root)).toBe(false);
   });
 
@@ -80,8 +85,9 @@ describe("garden landmarks", () => {
     const small = createGardenCemetery(wreckField(12));
     const large = createGardenCemetery(wreckField(120));
     expect(objectCount(large.root)).toBe(objectCount(small.root));
-    expect(objectCount(large.root)).toBe(2);
-    expect((large.root.getObjectByName("cemetery-wrecks-fan") as InstancedMesh).count).toBe(7);
+    expect(objectCount(large.root)).toBe(3);
+    const readCount = wreckBatches(large.root).reduce((sum, batch) => sum + batch.count, 0);
+    expect(readCount).toBe(7);
   });
 
   it("sits every wreck in the water rather than on a plinth", () => {
@@ -114,12 +120,25 @@ describe("garden landmarks", () => {
     const cemetery = createGardenCemetery(graves);
     expect(cemetery.root.getObjectByName("cemetery-wreck-lanterns")).toBeUndefined();
     expect(cemetery.root.getObjectByName("cemetery-wreck-cloth")).toBeUndefined();
-    const hulls = cemetery.root.getObjectByName("cemetery-wrecks-fan") as InstancedMesh;
     const actual = new Set<string>();
     const color = new Color();
-    for (let index = 0; index < hulls.count; index += 1) {
-      hulls.getColorAt(index, color);
-      actual.add(`#${color.getHexString()}`);
+    for (const batch of wreckBatches(cemetery.root)) {
+      const masks = batch.geometry.getAttribute("causeMask");
+      const colors = batch.geometry.getAttribute("color");
+      expect(Array.from({ length: masks.count }, (_, index) => masks.getX(index)))
+        .toContain(0);
+      expect(Array.from({ length: masks.count }, (_, index) => masks.getX(index)))
+        .toContain(1);
+      const paleIndex = Array.from({ length: masks.count }, (_, index) => index)
+        .find((index) => masks.getX(index) === 0)!;
+      const expectedPale = new Color("#b2ad98");
+      expect(colors.getX(paleIndex)).toBeCloseTo(expectedPale.r, 6);
+      expect(colors.getY(paleIndex)).toBeCloseTo(expectedPale.g, 6);
+      expect(colors.getZ(paleIndex)).toBeCloseTo(expectedPale.b, 6);
+      for (let index = 0; index < batch.count; index += 1) {
+        batch.getColorAt(index, color);
+        actual.add(`#${color.getHexString()}`);
+      }
     }
     expect(actual).toEqual(new Set(Object.values(CAUSE_HEX)));
   });
@@ -272,15 +291,25 @@ function causeForMarker(marker: GraveNode["visual"]["marker"]): CauseOfDeath {
   }
 }
 
-/** A spread of wrecks across three forms, scattered over the shoals. */
+/** A spread across all five cause forms, scattered over the shoals. */
 function wreckField(count: number): GraveNode[] {
-  const forms = ["broken-keel", "skeletal", "grounded"] as const;
+  const forms = ["grounded", "sinking-stern", "broken-keel", "skeletal", "shattered"] as const;
   return Array.from({ length: count }, (_, index) => grave(
     `grave.${index}`,
     forms[index % forms.length]!,
     CEMETERY_CENTER.x + ((index % 6) - 2.5) * 0.55,
     CEMETERY_CENTER.y + (Math.floor(index / 6) - 1.5) * 0.48,
   ));
+}
+
+function wreckBatches(root: Object3D): InstancedMesh[] {
+  const batches: InstancedMesh[] = [];
+  root.traverse((object) => {
+    if (object instanceof InstancedMesh && object.name.startsWith("cemetery-wrecks-")) {
+      batches.push(object);
+    }
+  });
+  return batches;
 }
 
 function objectCount(root: import("three").Object3D): number {

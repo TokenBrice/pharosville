@@ -20,7 +20,7 @@ import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import type { PharosVilleWorld } from "../systems/world-types";
 // The sea signs are the one piece of scenery whose hit target cannot be derived
 // from the world model alone: where a stele stands is decided by the sign
-// module's siting pass, and its true-scale footprint is owned there too.
+// module's siting pass, and its discrete face-LOD footprint is owned there too.
 // Both are imported rather than mirrored. This is a desktop-only module (the
 // world runtime is lazy-loaded behind the size gate), so it costs no bytes on
 // the blocked path.
@@ -239,10 +239,11 @@ function addVisibleTarget(
 }
 
 /**
- * The stele's true-scale screen footprint.
+ * The stele face's shared screen footprint.
  *
- * The scale helper remains shared with the renderer, but W2a simplified it to
- * one rung: the stone never behaves like a billboard against camera zoom.
+ * The scale helper is shared with the renderer: true-scale in the inhabited
+ * view and one larger chart rung at whole-map zoom. It is never a continuous
+ * billboard response.
  *
  * The face is a flat quad yawed to face the camera, so its four corners bound
  * it exactly under the affine iso projection.

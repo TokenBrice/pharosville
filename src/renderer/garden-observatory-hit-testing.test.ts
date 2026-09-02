@@ -213,7 +213,7 @@ describe("Carved sea-name stele targets (W2a)", () => {
     }
   });
 
-  it("tracks true world scale instead of compensating against zoom", () => {
+  it("tracks the same discrete overview rung as the drawn stele", () => {
     const world = denseWorld();
     const widthAt = (zoom: number) => {
       const snapshot = createGardenObservatoryHitTargetSnapshot({
@@ -223,8 +223,9 @@ describe("Carved sea-name stele targets (W2a)", () => {
       return snapshot.targets.find((target) => target.kind === "sea-sign")!.rect.width;
     };
 
-    expect(seaSignScaleForZoom(0.28)).toBe(1);
+    expect(seaSignScaleForZoom(0.28)).toBe(3.2);
     expect(seaSignScaleForZoom(2.4)).toBe(1);
+    expect(widthAt(0.28)).toBeGreaterThan(widthAt(0.5));
     expect(widthAt(0.5)).toBeCloseTo(widthAt(0.8) * (0.5 / 0.8), 6);
     expect(widthAt(2)).toBeCloseTo(widthAt(1) * 2, 6);
   });

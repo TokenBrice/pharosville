@@ -24,6 +24,7 @@ import {
   STELE_FACE_BASE_Y,
   STELE_FACE_HEIGHT,
   STELE_WIDTH,
+  createSeaSignScaleTrack,
   seaSignSites,
 } from "./garden-sea-sign-siting";
 
@@ -185,6 +186,11 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
 
   let appliedBody: SeaBodyName | null | undefined;
   let appliedNight = Number.NaN;
+  let appliedScale = 0;
+  const scaleTrack = createSeaSignScaleTrack();
+  const baseFacePositions = faceGeometry
+    ? new Float32Array(faceGeometry.getAttribute("position").array)
+    : null;
   const quietColor = new Color();
   const activeColor = new Color();
   return {
@@ -197,8 +203,50 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
       stoneGeometry.dispose();
       stoneMaterial.dispose();
     },
-    update({ activeBody = null, night, visible }) {
+    update({
+      activeBody = null,
+      deltaSeconds = Number.POSITIVE_INFINITY,
+      night,
+      reducedMotion = false,
+      visible,
+      zoom,
+    }) {
       root.visible = visible;
+      const scale = scaleTrack.advance({ deltaSeconds, reducedMotion, zoom });
+      if (scale !== appliedScale) {
+        appliedScale = scale;
+        for (let index = 0; index < entries.length; index += 1) {
+          const { site } = entries[index]!;
+          matrix.compose(
+            new Vector3(site.x, GARDEN_WATER_Y + STELE_CENTER_Y * scale, site.z),
+            rotation,
+            new Vector3(scale, scale, scale),
+          );
+          stones.setMatrixAt(index, matrix);
+        }
+        stones.instanceMatrix.needsUpdate = true;
+        stones.computeBoundingBox();
+        stones.computeBoundingSphere();
+        if (faces && baseFacePositions) {
+          const positions = faces.geometry.getAttribute("position");
+          for (let faceIndex = 0; faceIndex < faceRanges.length; faceIndex += 1) {
+            const range = faceRanges[faceIndex]!;
+            const { site } = entries[faceIndex]!;
+            for (let vertex = range.start; vertex < range.start + range.count; vertex += 1) {
+              const offset = vertex * 3;
+              positions.setXYZ(
+                vertex,
+                site.x + (baseFacePositions[offset]! - site.x) * scale,
+                GARDEN_WATER_Y + (baseFacePositions[offset + 1]! - GARDEN_WATER_Y) * scale,
+                site.z + (baseFacePositions[offset + 2]! - site.z) * scale,
+              );
+            }
+          }
+          positions.needsUpdate = true;
+          faces.geometry.computeBoundingBox();
+          faces.geometry.computeBoundingSphere();
+        }
+      }
       if (!faces || (activeBody === appliedBody && Math.abs(night - appliedNight) < 0.01)) return;
       appliedBody = activeBody;
       appliedNight = night;

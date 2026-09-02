@@ -70,19 +70,6 @@ const WATER_SIZE = 900;
 // keep garden-water free of a util import cycle.
 const TILE_SCALE_UNITS = Math.SQRT2;
 /**
- * W2a: a partial luminance match lets hue carry at distance while the depth
- * multiplier remains the body's value cue. A full match erased the hue; no
- * match made the live DEWS colours read as paint.
- *
- * The old per-band values were 0.04-0.20 because six ellipses STACKED — a
- * WATCH tint covering the whole map had to be almost invisible or it would
- * wash everything. A partition has no stacking, so each region can read
- * properly. Character (swell, chop, foam, reflectivity) still carries most of
- * the signal; this is the supporting colour.
- */
-const REGION_LUMINANCE_MATCH = 0.58;
-
-/**
  * Bakes the terrain-derived sea-region field into GPU textures.
  *
  * S5: the field carries two channels with OPPOSITE filtering needs, so it ships
@@ -487,7 +474,10 @@ export const VERTEX_SHADER = /* glsl */ `
     float regionChop = uRegionSwell[regionId].y * (1.0 + uWindSpeed * 0.3 + uStorm * 0.25);
 
     vec2 baseDir = normalize(vec2(0.9229, 0.3851));
-    vec2 phaseWindDir = normalize(mix(-uWindDir, regionFlow.xy, regionFlow.z));
+    // gardenGerstner advances opposite its phase vector. Weather already
+    // supplies -uWindDir, so the authored flow must use the same convention:
+    // visible crest travel follows flowBearing rather than running backwards.
+    vec2 phaseWindDir = normalize(mix(-uWindDir, -regionFlow.xy, regionFlow.z));
     float rc = clamp(dot(baseDir, phaseWindDir), -1.0, 1.0);
     float rs = baseDir.x * phaseWindDir.y - baseDir.y * phaseWindDir.x;
     mat2 windRot = mat2(rc, rs, -rs, rc);
@@ -751,21 +741,42 @@ ${gardenHeightFogGlsl()}
 
     float scroll = uTime * (0.6 + uTempo * 0.9) * (0.92 + uBreath * 0.16);
     vec2 directedPosition = vec2(bodyAlong, bodyAcross);
-    vec3 nA = sampleWaterNormal(directedPosition * vec2(0.032, 0.075) + vec2(scroll * 0.038, 0.0));
-    vec2 nADirected = bodyFlowDir * nA.x + bodyAcrossDir * nA.y;
+    vec3 nA;
+    vec2 nADirected;
     vec3 blendedNormal;
-    if (uDetail > 0.55) {
-      vec3 nB = sampleWaterNormal(
-        rotate2(vWaterPosition, 2.3) * 0.11 - uWindDir * scroll * 0.03 + vec2(0.37, 0.11)
-      );
-      // Per-body direction UP; the generic crossed normal is explicitly DOWN
-      // in the quiet/linear waters through the crossed-normal character field.
-      blendedNormal = normalize(vec3(
-        nADirected + nB.xy * regionWave.z,
-        nA.z * mix(1.0, nB.z, regionWave.z) + 0.55
-      ));
+    if (regionId == ${SEA_REGION_ID.open}) {
+      // W2.6's measured 0.002 moon-glitter occupancy was recorded against
+      // this exact isotropic open-water normal field. Keep it unchanged so the
+      // <=0.016 emissive proxy still guards the shader that actually renders.
+      vec2 openFlow = uWindDir * scroll;
+      nA = sampleWaterNormal(vWaterPosition * 0.055 + openFlow * 0.045);
+      nADirected = nA.xy;
+      if (uDetail > 0.55) {
+        vec3 nB = sampleWaterNormal(
+          rotate2(vWaterPosition, 2.3) * 0.11 - openFlow * 0.03 + vec2(0.37, 0.11)
+        );
+        blendedNormal = normalize(vec3(nA.xy + nB.xy, nA.z * nB.z + 0.55));
+      } else {
+        blendedNormal = normalize(vec3(nA.xy, nA.z + 0.55));
+      }
     } else {
-      blendedNormal = normalize(vec3(nADirected, nA.z + 0.55));
+      nA = sampleWaterNormal(
+        directedPosition * vec2(0.032, 0.075) + vec2(scroll * 0.038, 0.0)
+      );
+      nADirected = bodyFlowDir * nA.x + bodyAcrossDir * nA.y;
+      if (uDetail > 0.55) {
+        vec3 nB = sampleWaterNormal(
+          rotate2(vWaterPosition, 2.3) * 0.11 - uWindDir * scroll * 0.03 + vec2(0.37, 0.11)
+        );
+        // Per-body direction UP; the generic crossed normal is explicitly DOWN
+        // in the quiet/linear waters through the crossed-normal character field.
+        blendedNormal = normalize(vec3(
+          nADirected + nB.xy * regionWave.z,
+          nA.z * mix(1.0, nB.z, regionWave.z) + 0.55
+        ));
+      } else {
+        blendedNormal = normalize(vec3(nADirected, nA.z + 0.55));
+      }
     }
     blendedNormal = normalize(mix(
       vec3(0.0, 0.0, 1.0),
@@ -1036,13 +1047,12 @@ ${gardenHeightFogGlsl()}
       seaReflectivity = regionReflect;
 
       float waterLuma = dot(waterColor, vec3(0.2126, 0.7152, 0.0722));
-      float tintLuma = max(dot(regionTint, vec3(0.2126, 0.7152, 0.0722)), 0.03);
-      vec3 luminanceMatchedTint = regionTint * clamp(waterLuma / tintLuma, 0.35, 1.35);
-      vec3 regionColor = mix(
-        regionTint,
-        luminanceMatchedTint,
-        ${glslFloat(REGION_LUMINANCE_MATCH)}
-      );
+      float tintLuma = max(dot(regionTint, vec3(0.2126, 0.7152, 0.0722)), 0.0001);
+      // Hue/chroma carries the body's identity, but value belongs to the local
+      // water at every phase. Match the FINAL tint exactly before depth is
+      // applied; otherwise time-invariant theme luminance lifts named night
+      // water (Wreck was ~2.3x open water despite depth 0.70).
+      vec3 regionColor = regionTint * (waterLuma / tintLuma);
 
       float blend = smoothstep(0.0, 0.84, boundaryDistance);
       waterColor = mix(waterColor, regionColor, regionStrength * blend);

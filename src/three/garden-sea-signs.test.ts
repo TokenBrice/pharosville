@@ -81,13 +81,19 @@ describe("garden sea steles", () => {
     signs.dispose();
   });
 
-  it("keeps true world scale at every zoom", () => {
+  it("keeps true world scale nearby and enlarges the face on the overview rung", () => {
     const signs = createGardenSeaSigns(specs);
-    for (const zoom of [0.28, 0.7776, 1.4, 2.4]) {
-      signs.update({ night: 0, visible: true, zoom });
-      expect(seaSignScaleForZoom(zoom)).toBe(1);
-      expect(signs.root.scale.toArray()).toEqual([1, 1, 1]);
-    }
+    const carvings = signs.root.getObjectByName("garden-sea-steles-carving") as Mesh;
+    signs.update({ night: 0, reducedMotion: true, visible: true, zoom: 1 });
+    carvings.geometry.computeBoundingBox();
+    const nearWidth = carvings.geometry.boundingBox!.max.x - carvings.geometry.boundingBox!.min.x;
+    signs.update({ night: 0, reducedMotion: true, visible: true, zoom: 0.28 });
+    carvings.geometry.computeBoundingBox();
+    const farWidth = carvings.geometry.boundingBox!.max.x - carvings.geometry.boundingBox!.min.x;
+    expect(seaSignScaleForZoom(0.28)).toBe(3.2);
+    expect(farWidth).toBeGreaterThan(nearWidth);
+    // The root never scales the absolute sites away from their body boundaries.
+    expect(signs.root.scale.toArray()).toEqual([1, 1, 1]);
     signs.dispose();
   });
 
