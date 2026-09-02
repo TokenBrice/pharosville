@@ -5,7 +5,7 @@ import { Box3, MathUtils, Object3D, Vector3 } from "three";
  *
  * Whole-map framing is the shot that shows the whole product, and it was the
  * one frame that broke the budget: 917 draw calls against a 700 ceiling at
- * `#cam=0,0,0.28`, where default framing (zoom 0.7776) sits comfortably inside
+ * `#cam=0,0,0.28`, where the Wave 1 landing framing (zoom 0.648) sits inside
  * it. The difference is not the fleet — the batches are 15 calls whatever the
  * zoom — it is that pulling back stops the frustum culling anything, so every
  * station and per-hero prop in the world pays a draw call (and a second one in
@@ -15,7 +15,7 @@ import { Box3, MathUtils, Object3D, Vector3 } from "three";
  * silhouette law (`scripts/pharosville/hero-silhouettes.mjs`) — a feature needs
  * roughly 0.7 world units of clearance to resolve. One world unit projects to
  * `TILE_HEIGHT × zoom` screen pixels, so at zoom 0.28 that clearance is about
- * three pixels and at the default 0.7776 it is nine. This module is the single
+ * three pixels and at the default 0.648 it is about seven. This module is the single
  * place that decides what that means for the scene graph, rather than a second
  * zoom mechanism per module: every shed prop is named, the names live in
  * `OVERVIEW_LOD_DETAIL_NAMES`, and the world is scanned once at build.
@@ -62,6 +62,11 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   "island-niwaki",
   "lighthouse-shore-props",
   "pharos-precinct-obelisks",
+  // The rim body remains at whole-map framing; its distributed furniture is
+  // less than a few pixels there and fades only by visibility.
+  "garden-rim-path",
+  "garden-rim-pines",
+  "garden-rim-stones",
   // Per-hero badges, ×~29 hulls, and the three hero gull flocks.
   "ship-gull-flock",
   "ship-overview-detail",
@@ -94,6 +99,9 @@ export const OVERVIEW_LOD_WHOLE_RING_NAMES: readonly string[] = [
   "dock-tide-line",
   "harbor-netRack",
   "station-lit-screens",
+  "garden-rim-path",
+  "garden-rim-pines",
+  "garden-rim-stones",
 ];
 
 interface OverviewLodEntry {

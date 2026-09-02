@@ -127,10 +127,10 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPre
 
 export const DAY_CYCLE_HEIGHT_FOG_PRESETS: Record<DayCyclePhaseName, DayCycleHeightFogPreset> = {
   day: {
-    density: 0.00016,
+    density: 0.00008,
     heightFalloff: 0.28,
     horizon: DAY_CYCLE_SKY_PRESETS.day.fog.clone(),
-    phaseGain: 0.32,
+    phaseGain: 0.16,
     sunTint: DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone(),
     zenith: DAY_CYCLE_SKY_PRESETS.day.zenith.clone(),
   },

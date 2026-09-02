@@ -60,6 +60,7 @@ import {
   selectGardenTransientShip,
 } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
+import { RIM_OPENINGS, rimShoreDistance } from "../systems/garden-rim";
 import { screenToTile } from "../systems/projection";
 import { deriveEpistemicHaze } from "../systems/epistemic-haze";
 import { seasonFromDate, type GardenSeason } from "../systems/season";
@@ -119,9 +120,13 @@ import {
 } from "./garden-ship-gulls";
 import {
   createGardenOverviewLod,
-  overviewLodTargetDetail,
   type GardenOverviewLod,
 } from "./garden-overview-lod";
+import {
+  createGardenRimMesh,
+  GARDEN_ENGAWA_LANTERN_WORLD,
+  type GardenRimMesh,
+} from "./garden-rim-mesh";
 import { createGardenModelLibrary } from "./garden-models";
 import { createGardenWater, type GardenWater } from "./garden-water";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
@@ -417,27 +422,53 @@ const MIST_MAX_TILE_X = PHAROSVILLE_MAP_WIDTH - 1.5;
 const MIST_MAX_TILE_Y = PHAROSVILLE_MAP_HEIGHT - 1.5;
 const MIST_CENTER_TILE_X = (PHAROSVILLE_MAP_WIDTH - 1) / 2;
 const MIST_CENTER_TILE_Y = (PHAROSVILLE_MAP_HEIGHT - 1) / 2;
+export const GARDEN_TRANSITION_HULL_CLEARANCE_TILES = 2.5;
+
+function normaliseTransitionBearing(bearing: number): number {
+  return Math.atan2(Math.sin(bearing), Math.cos(bearing));
+}
 
 /**
- * The mist line is the playable-water edge used by garden-water's `uMapEdge`:
- * half the 140-tile region span, inset half a tile so a hull never samples
- * outside the detailed sea. `garden-sky`'s FOG_NEAR/FOG_FAR are camera-depth
- * planes, not a radial world boundary, so they cannot safely site a hull.
- * Arrivals begin on this edge and departures end on it, already inside the
- * sea/aerial blend where the detailed map gives way to open ocean.
+ * Ships enter through one of the two authored rim openings, never through a
+ * cliff. The bearing selects the closest opening; the inset leaves a full hull
+ * of water between the route and either stone shoulder.
  */
 export function gardenMistBoundaryTile(
   toward: GardenTransitionTile,
   salt = 0,
   out: GardenTransitionTile = { x: 0, y: 0 },
 ): GardenTransitionTile {
-  let dx = toward.x - MIST_CENTER_TILE_X;
-  let dy = toward.y - MIST_CENTER_TILE_Y;
-  if (Math.abs(dx) + Math.abs(dy) < 1e-6) {
-    const angle = salt * Math.PI * 2;
-    dx = Math.cos(angle);
-    dy = Math.sin(angle);
+  const desired = Math.abs(toward.x - MIST_CENTER_TILE_X)
+      + Math.abs(toward.y - MIST_CENTER_TILE_Y) < 1e-6
+    ? normaliseTransitionBearing(salt * Math.PI * 2)
+    : Math.atan2(toward.y - MIST_CENTER_TILE_Y, toward.x - MIST_CENTER_TILE_X);
+  const openingInset = Math.atan2(
+    GARDEN_TRANSITION_HULL_CLEARANCE_TILES + 0.5,
+    Math.min(MIST_CENTER_TILE_X, MIST_CENTER_TILE_Y),
+  );
+  let angle = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const opening of RIM_OPENINGS) {
+    const start = opening.bearingStart + openingInset;
+    const end = opening.bearingEnd - openingInset;
+    const candidate = MathUtils.clamp(desired, start, end);
+    const distance = Math.abs(normaliseTransitionBearing(desired - candidate));
+    if (distance >= bestDistance) continue;
+    bestDistance = distance;
+    angle = candidate;
   }
+  // A small stable spread keeps simultaneous traffic from forming one rail,
+  // while the final clamp preserves the shoulder clearance.
+  const opening = RIM_OPENINGS.find((entry) => (
+    angle >= entry.bearingStart + openingInset && angle <= entry.bearingEnd - openingInset
+  ))!;
+  angle = MathUtils.clamp(
+    angle + (salt - 0.5) * openingInset,
+    opening.bearingStart + openingInset,
+    opening.bearingEnd - openingInset,
+  );
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
   const scaleX = dx > 0
     ? (MIST_MAX_TILE_X - MIST_CENTER_TILE_X) / dx
     : (MIST_MIN_TILE - MIST_CENTER_TILE_X) / dx;
@@ -447,6 +478,23 @@ export function gardenMistBoundaryTile(
   const scale = Math.min(Math.abs(scaleX), Math.abs(scaleY));
   out.x = MathUtils.clamp(MIST_CENTER_TILE_X + dx * scale, MIST_MIN_TILE, MIST_MAX_TILE_X);
   out.y = MathUtils.clamp(MIST_CENTER_TILE_Y + dy * scale, MIST_MIN_TILE, MIST_MAX_TILE_Y);
+  // The angular shoulder inset is deliberately conservative. Keep this guard
+  // close to the authoring math so a future narrower opening cannot silently
+  // put the route back through land.
+  if (rimShoreDistance(out.x, out.y) < GARDEN_TRANSITION_HULL_CLEARANCE_TILES) {
+    const middle = (opening.bearingStart + opening.bearingEnd) * 0.5;
+    const safeDx = Math.cos(middle);
+    const safeDy = Math.sin(middle);
+    const safeScaleX = safeDx > 0
+      ? (MIST_MAX_TILE_X - MIST_CENTER_TILE_X) / safeDx
+      : (MIST_MIN_TILE - MIST_CENTER_TILE_X) / safeDx;
+    const safeScaleY = safeDy > 0
+      ? (MIST_MAX_TILE_Y - MIST_CENTER_TILE_Y) / safeDy
+      : (MIST_MIN_TILE - MIST_CENTER_TILE_Y) / safeDy;
+    const safeScale = Math.min(Math.abs(safeScaleX), Math.abs(safeScaleY));
+    out.x = MIST_CENTER_TILE_X + safeDx * safeScale;
+    out.y = MIST_CENTER_TILE_Y + safeDy * safeScale;
+  }
   return out;
 }
 
@@ -857,11 +905,10 @@ export function createThreeWorldRenderer(
   let frameCounter = 0;
   let aoTierWeight: number | null = null;
   let aoWeightClockSeconds = 0;
-  // A fresh whole-map session must not warm N8AO while the scene LOD eases
-  // from its construction value of 1. Once that initial settle is complete
-  // (or the user first zooms in), every later crossing follows the eased scene
-  // detail so contact shading fades with the props it grounds.
-  let initialOverviewAOSuppression: "pending" | "active" | "complete" = "pending";
+  // Wave 1's wider landing composition no longer needs close-range screen-space
+  // contact AO. Keep those seven render-target textures cold until the visitor
+  // sails in; this value eases so the AO never snaps during a camera move.
+  let aoFramingDetail: number | null = null;
   // W1.5: the environment's own clock. The probe's bake cadence and the ambient
   // crossfade it runs between bakes are both real-time eases, and this is the
   // only frame-time delta available before `updateSceneForFrame` advances the
@@ -1359,21 +1406,20 @@ export function createThreeWorldRenderer(
       );
       post.setAOQuality(activeAOQuality);
       post.setAOTierWeight(aoTierWeight);
-      // Content is populated asynchronously and the overview LOD eases its
-      // detail value from 1. Suppress that construction ease only when this
-      // renderer's first framing is already whole-map; otherwise later zoom
-      // crossings must forward the eased detail so AO and props fade together.
-      const overviewTargetDetail = overviewLodTargetDetail(frame.camera.zoom);
-      const overviewDetail = scene.content?.overviewLod.detail ?? overviewTargetDetail;
-      if (initialOverviewAOSuppression === "pending") {
-        initialOverviewAOSuppression = overviewTargetDetail <= 0 ? "active" : "complete";
-      } else if (
-        initialOverviewAOSuppression === "active"
-        && (overviewTargetDetail > 0 || overviewDetail <= 0)
-      ) {
-        initialOverviewAOSuppression = "complete";
+      // N8AO is close-view grounding. The landing frame (0.648) and whole-map
+      // frame both rely on the static sun shadows and release its seven private
+      // textures; inspection restores it smoothly between 0.66 and 0.90.
+      const aoFramingTarget = MathUtils.smoothstep(frame.camera.zoom, 0.66, 0.9);
+      if (aoFramingDetail === null || frame.reducedMotion) {
+        aoFramingDetail = aoFramingTarget;
+      } else {
+        const alpha = 1 - Math.exp(-aoDeltaSeconds * 12);
+        aoFramingDetail += (aoFramingTarget - aoFramingDetail) * alpha;
+        if (Math.abs(aoFramingDetail - aoFramingTarget) < 0.001) {
+          aoFramingDetail = aoFramingTarget;
+        }
       }
-      post.setAOZoomDetail(initialOverviewAOSuppression === "active" ? 0 : overviewDetail);
+      post.setAOZoomDetail(aoFramingDetail);
       post.setGrade(
         phase.daylight,
         phase.dusk,
@@ -1658,6 +1704,8 @@ interface GardenContent {
   pondReflection: GardenPondReflection;
   /** Tier 3 #15: sheds the props that cannot read at whole-map framing. */
   overviewLod: GardenOverviewLod;
+  /** Wave 1: the finite garden's authored enclosing land and stroll route. */
+  rim: GardenRimMesh;
   pigeonnier: GardenPigeonnierLandmark;
   pigeonnierMoverPositions: Array<{ x: number; y: number; z: number }>;
   pigeonnierMoverShips: Array<ShipVisual | null>;
@@ -1729,6 +1777,7 @@ const WORLD_CONTENT_PART_ORDER = [
   "island",
   "landmarks",
   "zones",
+  "rim",
   "seaEdges",
   "docks",
   "harborLife",
@@ -2053,6 +2102,9 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
     island: islandKey,
     landmarks: `${hashes.graves}|${hashes.pigeonnier}`,
     zones: hashes.areas ?? "",
+    // Pure authored terrain, but a map-size key makes an eventual design-span
+    // change invalidate this part explicitly rather than by accident.
+    rim: `${world.map.width}x${world.map.height}|garden-rim-v1`,
     // Placement is a compile-time systems field, independent of live data.
     seaEdges: "garden-sea-edges.v1",
     docks: `${dockStructure}|${islandTileKey}`,
@@ -2187,6 +2239,10 @@ function rebuildWorldContentPart(
       break;
     case "zones":
       buildZonesPart(content, world);
+      break;
+    case "rim":
+      buildRimPart(content);
+      scene.shadowNeedsRender = true;
       break;
     case "seaEdges":
       buildSeaEdgesPart(content);
@@ -2923,15 +2979,27 @@ function registerLightLanes(
   for (const [index, lantern] of gardenHarborLanternWorldPositions(
     docks.map((dock) => dock.recipe),
   ).entries()) {
+    // The engawa lantern occupies this light lane. Its original harbor lamp
+    // mesh remains on shore, but does not consume a second night-light slot.
+    const laneId = gardenHarborLanternLaneId(index);
+    if (!laneId) continue;
     registry.set({
       color: HARBOR_PALETTE.lantern_glow,
-      id: `harbor-lantern.${index}`,
+      id: laneId,
       intensity: 0.62,
       kind: "lantern",
       worldX: lantern.x,
       worldZ: lantern.z,
     });
   }
+  registry.set({
+    color: HARBOR_PALETTE.lantern_warm,
+    id: "engawa-lantern",
+    intensity: 0.48,
+    kind: "lantern",
+    worldX: GARDEN_ENGAWA_LANTERN_WORLD.x,
+    worldZ: GARDEN_ENGAWA_LANTERN_WORLD.z,
+  });
   for (const dock of docks) {
     for (const [lampIndex, lamp] of gardenDockLampWorldPositions(dock).entries()) {
       registry.set({
@@ -3016,6 +3084,10 @@ function registerLightLanes(
       },
     });
   }
+}
+
+export function gardenHarborLanternLaneId(index: number): string | null {
+  return index === 11 ? null : `harbor-lantern.${index}`;
 }
 
 /**
@@ -3221,6 +3293,13 @@ function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
   content.seaSigns = seaSigns;
   content.zoneField = zoneField;
   content.zones = zones;
+}
+
+/** The authored perimeter field made tangible as one five-draw static body. */
+function buildRimPart(content: GardenContent): void {
+  const rim = createGardenRimMesh();
+  content.parts.rim.root.add(rim.root);
+  content.rim = rim;
 }
 
 /** Static decorative geography, built and disposed beside the zone field. */
@@ -3710,6 +3789,16 @@ function updateShadows(
   const light = scene.directionalLight;
   const islandTile = gardenIslandDisplayTile(frame.world.lighthouse.tile);
   const staticBounds = gardenStaticShadowBounds([
+    // The rim mesh authors the complete finite plate from the origin through
+    // the outer map edge. Feed those real extents into main's world-derived
+    // fit so stations, island, and rim share one shadow contract.
+    { x: 0, z: 0 },
+    { x: PHAROSVILLE_MAP_WIDTH * TILE_SCALE, z: 0 },
+    { x: 0, z: PHAROSVILLE_MAP_HEIGHT * TILE_SCALE },
+    {
+      x: PHAROSVILLE_MAP_WIDTH * TILE_SCALE,
+      z: PHAROSVILLE_MAP_HEIGHT * TILE_SCALE,
+    },
     { x: islandTile.x * TILE_SCALE, z: islandTile.y * TILE_SCALE },
     ...frame.world.docks.map((dock) => {
       const tile = gardenDockDisplayTile(dock.tile);
@@ -4113,7 +4202,7 @@ function updateSceneForFrame(
   // Tier 3 #15: the far half of the same zoom policy. `showWorldDetail` reveals
   // inspection detail on the way IN (explore, zoom >= 1.05); this sheds the
   // props that stop resolving on the way OUT, easing them away between 0.62 and
-  // 0.44 so nothing pops. Default framing (0.7776) is above the band and pays
+  // 0.44 so nothing pops. Default framing (0.648) is above the band and pays
   // nothing for either.
   scratchOverviewLodFrame.deltaSeconds = beamElapsedSeconds;
   scratchOverviewLodFrame.reducedMotion = frame.reducedMotion;

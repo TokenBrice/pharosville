@@ -26,6 +26,8 @@ intent, code/tests, and a matching update to the relevant route documentation.
 - The Garden Observatory is asymmetric, sea-first, and intentionally spacious.
   An authored land rim may frame most of the finite plate, but it keeps two
   open-sea passages and broad unnamed water between the named bodies.
+  “Spacious” names the ma inside that bounded garden; it does not require an
+  infinite ocean beyond the plate.
   Do not replace its region-scoped fleet placement with a uniform grid — or
   with any other uniform field, including blue noise. See below.
 - **The fleet moors in anchorages.** Each risk band seeds an odd number of
@@ -100,16 +102,17 @@ is the redundant channel.
   colour changed with the hour — which reads as a filter over the picture
   rather than as light inside it. The arc passes exactly through the calibrated
   noon bearing, so the day grade and the AO ladder cannot drift.
-- **The haze band IS this world's sky.** Under a locked orthographic camera
-  every view ray is parallel and points down, so an effectively-infinite water
-  plane fills every pixel at any elevation above zero: the sky dome can never
-  enter frame, and lowering the isometric angle would not change that. The dome
-  exists to feed the PMREM probe. The upper-frame band where far water
-  dissolves into fog is the only sky there is, which makes the fog ladder a
-  composition contract and not merely a depth cue.
+- **The haze band is this world's sky seam.** The finite plate exposes a graded
+  sky past its far edge and through its two openings: shironeri fog at the seam,
+  through mizu, to kon at the day zenith, descending to kachi-iro at night. The
+  far plate dissolves into that seam instead of ending as a tabletop cut. The
+  scattering dome still feeds the PMREM probe; the visible gradient, shared sun
+  arc and bokashi bands make the background part of the composition rather than
+  more water.
 - Aerial perspective must actually reach the DEFAULT framing. The fog range's
   scale pivot (`FOG_REFERENCE_VIEW_HEIGHT`) must track the real default view
-  height (`viewportHeight / (TILE_HEIGHT * zoom)`, ~78). A pivot
+  height (`viewportHeight / (TILE_HEIGHT * zoom)`, ~96.5 at the Wave 1 landing
+  frame). A pivot
   far below it clamps the scale to its maximum, pushes the near plane past
   everything visible, and silently switches the whole system off while leaving
   its documentation looking correct.

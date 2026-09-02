@@ -251,7 +251,9 @@ describe("camera intent helpers", () => {
       }]);
       result.current.stepCamera(2_000, new Map());
     });
-    expect(result.current.cameraRef.current).toEqual(displayedBeforeTour);
+    expect(result.current.cameraRef.current?.offsetX).toBeCloseTo(displayedBeforeTour.offsetX, 10);
+    expect(result.current.cameraRef.current?.offsetY).toBeCloseTo(displayedBeforeTour.offsetY, 10);
+    expect(result.current.cameraRef.current?.zoom).toBeCloseTo(displayedBeforeTour.zoom, 10);
 
     act(() => {
       result.current.stepCamera(4_000, new Map());

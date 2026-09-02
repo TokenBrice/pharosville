@@ -102,6 +102,25 @@ describe.each(Object.keys(GARDEN_MODEL_MANIFEST) as (keyof typeof GARDEN_MODEL_M
 );
 
 describe("createGardenModelLibrary", () => {
+  it("decodes the checked-in static GLB subset without the general runtime loader", async () => {
+    const request = vi.fn(async (input: string | URL | Request) => {
+      const pathname = new URL(String(input), "https://pharosville.test").pathname;
+      return new Response(new Uint8Array(readFileSync(resolve(process.cwd(), `public${pathname}`))));
+    });
+    vi.stubGlobal("fetch", request);
+    const library = createGardenModelLibrary();
+
+    for (const id of ["garden-lighthouse-shell", "garden-hero-tether"] as const) {
+      const model = await library.load(id);
+      const size = new Box3().setFromObject(model).getSize(new Vector3());
+      expect(size.x).toBeCloseTo(GARDEN_MODEL_MANIFEST[id].dimensions.x, 2);
+      expect(size.y).toBeCloseTo(GARDEN_MODEL_MANIFEST[id].dimensions.y, 2);
+      expect(size.z).toBeCloseTo(GARDEN_MODEL_MANIFEST[id].dimensions.z, 2);
+    }
+    expect(request).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
+
   it("loads once and returns independent clones with shared mesh resources", async () => {
     const source = fixtureScene();
     const loadAsync = vi.fn(async () => ({ scene: source }));

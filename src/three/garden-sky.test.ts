@@ -1,6 +1,9 @@
-import { Color, InstancedMesh, ShaderMaterial, Vector3 } from "three";
+import { Color, InstancedMesh, Mesh, PlaneGeometry, ShaderMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { defaultCamera } from "../systems/camera";
+import { gardenCameraViewHeight } from "../systems/garden-observatory-slice";
+import { buildPharosVilleMap } from "../systems/world-layout";
 import {
   DAY_CYCLE_LIGHT_PRESETS,
   DAY_CYCLE_SKY_PRESETS,
@@ -10,7 +13,6 @@ import {
   createGardenSky,
   GARDEN_BOKASHI_BAND,
   GARDEN_CUMULUS_BILLBOARDS_ENABLED,
-  GARDEN_HEADLAND_VALUE_SCALE,
   gardenBokashiAmount,
   gardenBokashiBandGlsl,
   gardenBokashiInk,
@@ -18,9 +20,12 @@ import {
 import {
   CLOUD_COUNT,
   GARDEN_AUTUMN_GEESE_COUNT,
-  HEADLAND_COUNT,
   MIST_BANK_COUNT,
 } from "./garden-sky-billboards";
+
+const DEFAULT_VIEWPORT = { height: 1000, width: 1600 };
+const DEFAULT_CAMERA = defaultCamera({ ...DEFAULT_VIEWPORT, map: buildPharosVilleMap() });
+const DEFAULT_VIEW_HEIGHT = gardenCameraViewHeight(DEFAULT_VIEWPORT.height, DEFAULT_CAMERA.zoom);
 
 const FRAME = {
   reducedMotion: false,
@@ -28,7 +33,7 @@ const FRAME = {
   targetX: 47.6,
   targetZ: 38.9,
   timeSeconds: 0,
-  viewHeight: 34,
+  viewHeight: DEFAULT_VIEW_HEIGHT,
 };
 
 function mistOf(sky: ReturnType<typeof createGardenSky>): InstancedMesh {
@@ -41,12 +46,6 @@ function cloudsOf(sky: ReturnType<typeof createGardenSky>): InstancedMesh {
   const clouds = sky.root.getObjectByName("garden-sky-clouds");
   expect(clouds).toBeInstanceOf(InstancedMesh);
   return clouds as InstancedMesh;
-}
-
-function headlandsOf(sky: ReturnType<typeof createGardenSky>): InstancedMesh {
-  const headlands = sky.root.getObjectByName("garden-sky-borrowed-headlands");
-  expect(headlands).toBeInstanceOf(InstancedMesh);
-  return headlands as InstancedMesh;
 }
 
 function uniformsOf(mesh: InstancedMesh): ShaderMaterial["uniforms"] {
@@ -171,46 +170,18 @@ describe("garden sky billboard atmosphere", () => {
     expect(colorDistance(winter.fog.color, cool)).toBeLessThan(
       colorDistance(spring.fog.color, cool),
     );
+    const springBackdrop = spring.root.getObjectByName("garden-sky-backdrop") as Mesh<PlaneGeometry, ShaderMaterial>;
+    const winterBackdrop = winter.root.getObjectByName("garden-sky-backdrop") as Mesh<PlaneGeometry, ShaderMaterial>;
+    expect((winterBackdrop.material.uniforms.uHorizon.value as Color).getHex())
+      .toBe(winter.fog.color.getHex());
+    for (const uniform of ["uLower", "uMiddle", "uZenith"] as const) {
+      expect(colorDistance(winterBackdrop.material.uniforms[uniform].value as Color, cool))
+        .toBeLessThan(colorDistance(springBackdrop.material.uniforms[uniform].value as Color, cool));
+    }
     spring.dispose();
     winter.dispose();
   });
 
-  it("keeps borrowed scenery asymmetric, decorative, and value-close to fog", () => {
-    const sky = createGardenSky();
-    const headlands = headlandsOf(sky);
-    expect(headlands.count).toBe(HEADLAND_COUNT);
-    expect(HEADLAND_COUNT).toBe(1);
-    const anchors = headlands.geometry.getAttribute("aAnchor");
-    // Opposite the lighthouse-weighted diagonal; never centered or paired.
-    expect(anchors.getX(0)).not.toBe(anchors.getZ(0));
-
-    sky.update(dayCyclePhase(12), FRAME);
-    const noonOpacity = uniformsOf(headlands).uOpacity!.value as number;
-    const headlandColor = uniformsOf(headlands).uColor!.value as Color;
-    expect(headlandColor.r / sky.fog.color.r).toBeCloseTo(GARDEN_HEADLAND_VALUE_SCALE, 5);
-    expect(headlandColor.g / sky.fog.color.g).toBeCloseTo(GARDEN_HEADLAND_VALUE_SCALE, 5);
-    expect(headlandColor.b / sky.fog.color.b).toBeCloseTo(GARDEN_HEADLAND_VALUE_SCALE, 5);
-    const noonCompositedSeparation = (1 - GARDEN_HEADLAND_VALUE_SCALE) * noonOpacity;
-    expect(noonCompositedSeparation).toBeGreaterThanOrEqual(0.02);
-    expect(noonCompositedSeparation).toBeLessThanOrEqual(0.04);
-    expect(uniformsOf(headlands).uLanternOpacity!.value).toBe(0);
-
-    sky.update(dayCyclePhase(7), { ...FRAME, wallClockHour: 7 });
-    expect(uniformsOf(headlands).uOpacity!.value as number).toBeGreaterThan(noonOpacity);
-    // Dawn shares the warm haze phase but the unexplained light is evening-only.
-    expect(uniformsOf(headlands).uLanternOpacity!.value).toBe(0);
-
-    sky.update(dayCyclePhase(19), { ...FRAME, wallClockHour: 19 });
-    expect(uniformsOf(headlands).uOpacity!.value as number).toBeGreaterThan(noonOpacity);
-    expect(uniformsOf(headlands).uLanternOpacity!.value as number).toBeGreaterThan(0.5);
-
-    sky.update(dayCyclePhase(22), { ...FRAME, wallClockHour: 22 });
-    expect(uniformsOf(headlands).uLanternOpacity!.value as number).toBeGreaterThan(0);
-
-    sky.update(dayCyclePhase(22), { ...FRAME, billboards: false, wallClockHour: 22 });
-    expect(headlands.visible).toBe(false);
-    sky.dispose();
-  });
 });
 
 /**
@@ -220,6 +191,27 @@ describe("garden sky billboard atmosphere", () => {
  * reason.
  */
 describe("garden sky atmospheric scattering", () => {
+  it("puts a two-triangle graded sky behind the finite plate", () => {
+    const sky = createGardenSky();
+    const backdrop = sky.root.getObjectByName("garden-sky-backdrop");
+    expect(backdrop).toBeInstanceOf(Mesh);
+    expect((backdrop as Mesh).geometry).toBeInstanceOf(PlaneGeometry);
+    expect((backdrop as Mesh).geometry.index?.count).toBe(6);
+    const source = ((backdrop as Mesh).material as ShaderMaterial).fragmentShader;
+    expect(source).toContain("float skyHeight = clamp(vScreenPosition.y, 0.0, 1.0)");
+    expect(source).toContain("uLower");
+    expect(source).toContain("gardenBokashiShade(skyHeight, uBokashiAmount)");
+    expect(source).toContain("uSunDir.x - uSunDir.z");
+    expect(source).toContain("moonGlow");
+    expect(source).toContain("float farCrest");
+    expect(source).toContain("farRidge * 0.02");
+    expect(source).toContain("middleRidge * 0.03");
+    expect(source).toContain("nearRidge * 0.04");
+    expect(source).toContain("across - 0.39");
+    expect(source).not.toContain("across - 0.52");
+    sky.dispose();
+  });
+
   it("fades the whole scattering layer to zero at night", () => {
     const sky = createGardenSky();
     sky.applyPhase(dayCyclePhase(0), 0);
@@ -297,7 +289,15 @@ describe("garden sky applyPhase", () => {
 
     expect(zenith.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.day.zenith.getHex());
     expect((sky.domeMaterial.uniforms.uHorizon.value as Color).getHex())
+      .toBe(DAY_CYCLE_SKY_PRESETS.day.fog.getHex());
+    expect((sky.domeMaterial.uniforms.uMiddle.value as Color).getHex())
       .toBe(DAY_CYCLE_SKY_PRESETS.day.horizon.getHex());
+    const backdrop = sky.root.getObjectByName("garden-sky-backdrop") as Mesh<PlaneGeometry, ShaderMaterial>;
+    expect((backdrop.material.uniforms.uZenith.value as Color).getHex())
+      .toBe(new Color(HARBOR_PALETTE.deep_sea_1).getHex());
+    expect((backdrop.material.uniforms.uMiddle.value as Color).getHex())
+      .toBe(new Color(HARBOR_PALETTE.moonlight)
+        .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.32).getHex());
     expect(sky.fog.color.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.day.fog.getHex());
   });
 
@@ -336,14 +336,14 @@ describe("garden sky aerial perspective", () => {
   }
 
   it("leaves the island at zero haze, so the graded monument cannot shift", () => {
-    const { near } = fogRangeAtViewHeight(34);
+    const { near } = fogRangeAtViewHeight(DEFAULT_VIEW_HEIGHT);
     // The island spans ground depth ~155-195 at the calibration framing and its
     // near half is what the AgX/ortho grade was pinned against.
     expect(near).toBeGreaterThanOrEqual(178);
   });
 
   it("never hazes the far frame edge as hard as the pre-W6.8 ladder did", () => {
-    const { far, near } = fogRangeAtViewHeight(34);
+    const { far, near } = fogRangeAtViewHeight(DEFAULT_VIEW_HEIGHT);
     // Frame-top far water at the calibration framing. The old 192/275 ladder
     // read 0.627 here; a longer ramp to a further endpoint must come in under
     // that at every depth, which is what makes this change unable to white-out
@@ -352,15 +352,16 @@ describe("garden sky aerial perspective", () => {
     expect(fogAt(232, near, far)).toBeLessThan(0.482);
   });
 
-  it("grades the midground instead of stacking the whole cue at the horizon", () => {
-    const { far, near } = fogRangeAtViewHeight(34);
-    // Depth 195 — the near ships. The old ladder gave them 0.036, which is no
-    // depth cue at all; this is the half of the frame W6.8 was actually about.
-    expect(fogAt(195, near, far)).toBeGreaterThan(0.1);
+  it("halves the former day midground fog contribution", () => {
+    const { far, near } = fogRangeAtViewHeight(DEFAULT_VIEW_HEIGHT);
+    // The pre-frame day ladder measured 0.139 at depth 195. Doubling only the
+    // ramp span preserves its near plane and yields half that haze (~0.0697).
+    expect(fogAt(195, near, far)).toBeGreaterThan(0.065);
+    expect(fogAt(195, near, far)).toBeLessThan(0.075);
   });
 
   it("still pulls haze in at whole-map framing, per the W6.6 hard-edge finding", () => {
-    const wide = fogRangeAtViewHeight(34 * 4);
+    const wide = fogRangeAtViewHeight(DEFAULT_VIEW_HEIGHT * 4);
     // Capped by FOG_MAX_SCALE. The old ladder put the near plane at 288 here and
     // the map edge resolved as a hard diamond slab in a void.
     expect(wide.near).toBeLessThan(288);
@@ -368,50 +369,35 @@ describe("garden sky aerial perspective", () => {
 });
 
 /**
- * W1.4 bokashi bands. The ramp is defined here because garden-sky owns the fog
- * ladder, but it is drawn by the water shader — under the locked orthographic
- * camera the upper-frame haze band IS water fragments, so these tests are the
- * only place the ramp's shape can be asserted without reading pixels.
+ * Wave 1 bokashi bands. The finite plate exposes the dome, so the ramp is
+ * measured from its fog seam into the visible sky rather than from scene depth.
  */
 describe("bokashi bands", () => {
-  const NEAR = 178;
-
-  it("is exactly zero at and below the fog's near plane", () => {
-    // The strongest guarantee in the design: every stop starts at d >= 1, so
-    // the bands cannot reach the island, the harbour or the near fleet at any
-    // framing. Construction, not tuning.
-    for (const depth of [0, 60, 121, 155, 177.9, NEAR]) {
-      expect(gardenBokashiInk(depth, NEAR)).toBe(0);
+  it("is exactly zero at the sky seam", () => {
+    for (const height of [0, 0.005, 0.01, GARDEN_BOKASHI_BAND.ichimonji[0]]) {
+      expect(gardenBokashiInk(height)).toBe(0);
     }
   });
 
-  it("darkens the farthest readable water, then lightens the horizon seam", () => {
-    // ichimonji strip (depth ~189-196 at the calibrated framing) sits below the
-    // pale strip (~214-222) and pulls the other way — the woodblock mirror.
-    expect(gardenBokashiInk(192, NEAR)).toBeLessThan(0);
-    expect(gardenBokashiInk(218, NEAR)).toBeGreaterThan(0);
+  it("darkens above the seam, then lightens the middle sky", () => {
+    expect(gardenBokashiInk(0.07)).toBeLessThan(0);
+    expect(gardenBokashiInk(0.24)).toBeGreaterThan(0);
   });
 
   it("deepens hardest at the very top of the frame", () => {
-    // d = 1.42 - 0.90 * fracFromTop, so the top row is depth ~253.
-    const frameTop = gardenBokashiInk(253, NEAR);
-    expect(frameTop).toBeLessThan(gardenBokashiInk(244, NEAR));
-    expect(gardenBokashiInk(244, NEAR)).toBeLessThan(gardenBokashiInk(235, NEAR));
+    const frameTop = gardenBokashiInk(1);
+    expect(frameTop).toBeLessThan(gardenBokashiInk(0.72));
+    expect(gardenBokashiInk(0.72)).toBeLessThan(gardenBokashiInk(0.5));
     // Deep, but a quiet graphic accent rather than a poster stripe: an eighth of
     // a stop at most, and no phase can push it past the authored gain.
     expect(frameTop).toBeGreaterThan(-GARDEN_BOKASHI_BAND.deepGain - 1e-9);
     expect(frameTop).toBeLessThan(-0.15);
   });
 
-  it("rides the ladder when the fog range scales with the view", () => {
-    // The stops are multiples of fogNear, so a wider framing moves them out
-    // with the ladder instead of leaving them on a framing they were tuned at.
-    const wideNear = NEAR * 1.5;
-    expect(gardenBokashiInk(255 * 1.5, wideNear)).toBeCloseTo(
-      gardenBokashiInk(255, NEAR),
-      6,
-    );
-    expect(gardenBokashiInk(255, wideNear)).toBe(0);
+  it("is anchored to sky height rather than the scene fog range", () => {
+    const height = 0.24;
+    expect(gardenBokashiInk(height)).toBe(gardenBokashiInk(height));
+    expect(gardenBokashiInk(height)).toBeGreaterThan(0);
   });
 
   it("keeps day barely-there and hands the bands to dusk and night", () => {
@@ -430,7 +416,11 @@ describe("bokashi bands", () => {
     for (const stop of [...GARDEN_BOKASHI_BAND.pale, ...GARDEN_BOKASHI_BAND.deep]) {
       expect(glsl).toContain(Number.isInteger(stop) ? stop.toFixed(1) : String(stop));
     }
-    // No uniforms: the water shader calls it from two exit paths.
+    // No private palette or scene-depth uniforms: the sky supplies height and
+    // the shared phase amount explicitly.
     expect(glsl).not.toMatch(/\bu[A-Z]\w*/);
+    const sky = createGardenSky();
+    expect(sky.domeMaterial.fragmentShader).toContain("gardenBokashiShade(skyHeight, uBokashiAmount)");
+    sky.dispose();
   });
 });

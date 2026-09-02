@@ -92,7 +92,11 @@ export function fitCameraToMap(input: {
   const boundsHeight = Math.max(1, bounds.maxY - bounds.minY);
   const availableWidth = Math.max(320, input.width - padding.left - padding.right);
   const availableHeight = Math.max(320, input.height - padding.top - padding.bottom);
-  const zoom = Math.max(0.72, Math.min(1.25, Math.min(availableWidth / boundsWidth, availableHeight / boundsHeight)));
+  // Wave 1: the rim is now part of the composition, not terrain outside the
+  // camera. The old 0.72 minimum cropped it into anonymous strips; 0.60 keeps
+  // two camera-side rim entries in the landing frame while the true whole-map
+  // floor remains owned by minZoomForViewport.
+  const zoom = Math.max(GARDEN_FIT_CAMERA_MIN_ZOOM, Math.min(1.25, Math.min(availableWidth / boundsWidth, availableHeight / boundsHeight)));
   const contentWidth = boundsWidth * zoom;
   const contentHeight = boundsHeight * zoom;
   return {
@@ -101,6 +105,9 @@ export function fitCameraToMap(input: {
     zoom,
   };
 }
+
+/** Authored landing composition floor; whole-map uses minZoomForViewport. */
+export const GARDEN_FIT_CAMERA_MIN_ZOOM = 0.6;
 
 /**
  * Absolute zoom floor, used only when no viewport/map is available to compute

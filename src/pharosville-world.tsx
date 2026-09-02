@@ -70,10 +70,10 @@ const DATA_REFRESH_ANNOUNCEMENT_THROTTLE_MS = 30_000;
  * interactive zoom ladder (the tour sampler clamps to it regardless).
  */
 const OBSERVE_TOUR_KIND_ZOOM: Record<ObserveBeatKind, number> = {
-  lighthouse: 1.0,
-  risk: 1.35,
-  supply: 1.35,
-  concentration: 1.15,
+  lighthouse: 0.84,
+  risk: 1.08,
+  supply: 1.08,
+  concentration: 0.94,
 };
 /**
  * How long the charting veil takes to lift once the harbor has data. Long
