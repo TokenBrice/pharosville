@@ -48,3 +48,4 @@ File: `src/three/garden-landmarks.ts` (wreck cemetery; `1dd8646` silhouettes), `
 - Follow-ups found, not fixed:
   - Station berths cluster: moored hulls at one dock have overlapping hit targets (centre-clicking `susde-ethena` selects the hull beside it). The visual deep-link test pins `usdd-tron-dao-reserve` (no berth) for that reason.
   - A few ships render an iridescent sail/hull (near the Ethereum precinct and Wreck Shoal); pre-existing, ship-side, not harbor materials.
+- The `#cam=980.1,63.4,400.5` framing quoted in item 1 is not a PharosVille camera triple (`cam` is `offsetX,offsetY,zoom`; zoom 400.5 renders a blank plate), and `#cam=…#t=…` is one fragment, so the parser rejected it. The frames reviewed here are the default framing at the wall-clock hour, which matches the operator's screenshots; use `--hash "#t=20.5"` for dusk at default framing.
