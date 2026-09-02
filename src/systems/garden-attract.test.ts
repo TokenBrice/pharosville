@@ -8,6 +8,7 @@ describe("garden attract postcards", () => {
     expect(first).toEqual(gardenAttractKeyframes({ x: 18, y: 28 }, { width: 112, height: 112 }));
     expect(first).toHaveLength(4);
     expect(first.map((frame) => frame.beatIndex)).toEqual([0, 1, 2, 3]);
-    expect(first.every((frame) => frame.zoom >= 0.8 && frame.zoom <= 1.2)).toBe(true);
+    expect(first.every((frame) => frame.zoom >= 0.68 && frame.zoom <= 0.84)).toBe(true);
+    expect(Math.min(...first.map((frame) => frame.zoom))).toBeLessThan(0.7);
   });
 });

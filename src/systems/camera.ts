@@ -37,7 +37,7 @@ export function defaultCamera(input: {
     ...input,
     padding: cameraPadding(),
   });
-  // Standard desktops tighten the authored fit by 8%. Compact-height laptop
+  // Standard desktops tighten the authored 0.60 plate composition by 8%. Compact-height laptop
   // windows use the actual fit so the lighthouse crown stays visible; once
   // the short side reaches the standard 720px floor, extra room on either side
   // restores the standard composition monotonically.
@@ -61,6 +61,10 @@ export function defaultCamera(input: {
   );
   const framed = {
     ...tightened,
+    // Put the Pharos close to the left-hand thirds line and reserve the broad
+    // right anchorage as ma. Scaling by viewport width preserves the intent at
+    // both supported desktop profiles.
+    offsetX: tightened.offsetX - input.width * 0.075,
     // The lighthouse rises beyond the flat map bounds used by fitCameraToMap.
     // Give that vertical geometry explicit headroom at the short-side floor.
     offsetY: tightened.offsetY + (1 - shortSideProgress) * 32,

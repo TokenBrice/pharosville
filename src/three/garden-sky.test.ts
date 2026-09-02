@@ -328,11 +328,12 @@ describe("garden sky aerial perspective", () => {
     expect(fogAt(232, near, far)).toBeLessThan(0.482);
   });
 
-  it("grades the midground instead of stacking the whole cue at the horizon", () => {
+  it("halves the former day midground fog contribution", () => {
     const { far, near } = fogRangeAtViewHeight(34);
-    // Depth 195 — the near ships. The old ladder gave them 0.036, which is no
-    // depth cue at all; this is the half of the frame W6.8 was actually about.
-    expect(fogAt(195, near, far)).toBeGreaterThan(0.1);
+    // The pre-frame day ladder measured 0.139 at depth 195. Doubling only the
+    // ramp span preserves its near plane and yields half that haze (~0.0697).
+    expect(fogAt(195, near, far)).toBeGreaterThan(0.065);
+    expect(fogAt(195, near, far)).toBeLessThan(0.075);
   });
 
   it("still pulls haze in at whole-map framing, per the W6.6 hard-edge finding", () => {

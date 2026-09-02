@@ -283,7 +283,10 @@ export function gardenFleetFramingRestraint(zoom: number): number {
  *
  * Cloth-ness is a NEAR-framing property: at whole-map framing a sail is a few
  * pixels and a thread pattern there is only shimmer, so the weave is off below
- * ~0.62 and comes fully in at explore framing, exactly where the desaturation
+ * ~0.52 and comes fully in at explore framing. Wave 1 moved the landing view
+ * to 0.648, so this lower threshold preserves the same barely-there cloth cue
+ * there without letting it reach the whole-map frame. The weave and
+ * desaturation
  * step is handing back the dye. The two trade places: far away the fleet is
  * quiet colour; up close it is coloured cloth.
  */
@@ -297,7 +300,7 @@ export function gardenFleetClothWeave(zoom: number): number {
 }
 
 /** Below this zoom the weave is sub-pixel and would only alias. */
-const CLOTH_WEAVE_FADE_ZOOM = 0.62;
+const CLOTH_WEAVE_FADE_ZOOM = 0.52;
 /** At and above this zoom the cloth reads at full weave. */
 const CLOTH_WEAVE_FULL_ZOOM = 1.12;
 

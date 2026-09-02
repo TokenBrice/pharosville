@@ -628,7 +628,7 @@ describe("peg trim (Tier 3 #13)", () => {
  * clauses that make that true of the new default-framing step.
  */
 const OVERVIEW_ZOOM = 0.44;
-const DEFAULT_ZOOM = 0.7776;
+const DEFAULT_ZOOM = 0.648;
 const INSPECTION_ZOOM = 1.05;
 
 const FRAGMENT_STUB = [
@@ -968,7 +968,7 @@ describe("W3.7 attention", () => {
 describe("W3.7 woven cloth", () => {
   it("stays off at overview framing and comes fully in at inspection", () => {
     expect(gardenFleetClothWeave(OVERVIEW_ZOOM)).toBe(0);
-    expect(gardenFleetClothWeave(0.62)).toBe(0);
+    expect(gardenFleetClothWeave(0.52)).toBe(0);
     // A whisper at the default framing — the frame where colour restraint, not
     // surface detail, is doing the work.
     expect(gardenFleetClothWeave(DEFAULT_ZOOM)).toBeGreaterThan(0.1);

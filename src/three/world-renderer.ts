@@ -118,7 +118,6 @@ import {
 } from "./garden-ship-gulls";
 import {
   createGardenOverviewLod,
-  overviewLodTargetDetail,
   type GardenOverviewLod,
 } from "./garden-overview-lod";
 import {
@@ -837,11 +836,10 @@ export function createThreeWorldRenderer(
   let frameCounter = 0;
   let aoTierWeight: number | null = null;
   let aoWeightClockSeconds = 0;
-  // A fresh whole-map session must not warm N8AO while the scene LOD eases
-  // from its construction value of 1. Once that initial settle is complete
-  // (or the user first zooms in), every later crossing follows the eased scene
-  // detail so contact shading fades with the props it grounds.
-  let initialOverviewAOSuppression: "pending" | "active" | "complete" = "pending";
+  // Wave 1's wider landing composition no longer needs close-range screen-space
+  // contact AO. Keep those seven render-target textures cold until the visitor
+  // sails in; this value eases so the AO never snaps during a camera move.
+  let aoFramingDetail: number | null = null;
   // W1.5: the environment's own clock. The probe's bake cadence and the ambient
   // crossfade it runs between bakes are both real-time eases, and this is the
   // only frame-time delta available before `updateSceneForFrame` advances the
@@ -1335,21 +1333,20 @@ export function createThreeWorldRenderer(
       );
       post.setAOQuality(activeAOQuality);
       post.setAOTierWeight(aoTierWeight);
-      // Content is populated asynchronously and the overview LOD eases its
-      // detail value from 1. Suppress that construction ease only when this
-      // renderer's first framing is already whole-map; otherwise later zoom
-      // crossings must forward the eased detail so AO and props fade together.
-      const overviewTargetDetail = overviewLodTargetDetail(frame.camera.zoom);
-      const overviewDetail = scene.content?.overviewLod.detail ?? overviewTargetDetail;
-      if (initialOverviewAOSuppression === "pending") {
-        initialOverviewAOSuppression = overviewTargetDetail <= 0 ? "active" : "complete";
-      } else if (
-        initialOverviewAOSuppression === "active"
-        && (overviewTargetDetail > 0 || overviewDetail <= 0)
-      ) {
-        initialOverviewAOSuppression = "complete";
+      // N8AO is close-view grounding. The landing frame (0.648) and whole-map
+      // frame both rely on the static sun shadows and release its seven private
+      // textures; inspection restores it smoothly between 0.66 and 0.90.
+      const aoFramingTarget = MathUtils.smoothstep(frame.camera.zoom, 0.66, 0.9);
+      if (aoFramingDetail === null || frame.reducedMotion) {
+        aoFramingDetail = aoFramingTarget;
+      } else {
+        const alpha = 1 - Math.exp(-aoDeltaSeconds * 12);
+        aoFramingDetail += (aoFramingTarget - aoFramingDetail) * alpha;
+        if (Math.abs(aoFramingDetail - aoFramingTarget) < 0.001) {
+          aoFramingDetail = aoFramingTarget;
+        }
       }
-      post.setAOZoomDetail(initialOverviewAOSuppression === "active" ? 0 : overviewDetail);
+      post.setAOZoomDetail(aoFramingDetail);
       post.setGrade(
         phase.daylight,
         phase.dusk,
@@ -4049,7 +4046,7 @@ function updateSceneForFrame(
   // Tier 3 #15: the far half of the same zoom policy. `showWorldDetail` reveals
   // inspection detail on the way IN (explore, zoom >= 1.05); this sheds the
   // props that stop resolving on the way OUT, easing them away between 0.62 and
-  // 0.44 so nothing pops. Default framing (0.7776) is above the band and pays
+  // 0.44 so nothing pops. Default framing (0.648) is above the band and pays
   // nothing for either.
   scratchOverviewLodFrame.deltaSeconds = beamElapsedSeconds;
   scratchOverviewLodFrame.reducedMotion = frame.reducedMotion;

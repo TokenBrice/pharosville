@@ -97,7 +97,7 @@ describe("sea-sign scale quantization (D6 / W0.7)", () => {
     // Reference default framing, the overview-LOD fade band, and the explore
     // threshold. A rung edge inside any of them would either make the default
     // frame history-dependent or stack two transitions on one gesture.
-    const guarded = [0.7776, 1.05, 0.44, 0.62];
+    const guarded = [0.648, 1.05, 0.44, 0.62];
     for (const edge of SEA_SIGN_STEP_ZOOMS) {
       const low = edge * (1 - SEA_SIGN_STEP_HYSTERESIS);
       const high = edge * (1 + SEA_SIGN_STEP_HYSTERESIS);

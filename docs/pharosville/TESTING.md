@@ -334,6 +334,14 @@ raise the ceilings if this regresses. Note also that `cam=` from the URL is not
 clamped to the zoom floor, so smaller values render a framing no visitor can
 reach; anything below 0.28 is not a valid measurement.
 
+**Wave 1 frame remeasurement (2026-09-02, Apple M5 Pro, 1600×1000).** The
+finite 140×140 plate remains complete at the retained 0.28 absolute floor; its
+projected rim spans about 1,250×625 px, leaving visible sky on every side. The
+landing camera is now 0.648 (0.60 authored fit × 1.08 desktop tightening), with
+the Pharos near the left thirds line and the camera-side rim entering the lower
+corners. `gardenCameraViewHeight` therefore measures 96.45 world units at this
+viewport, now the scale-one fog reference.
+
 **Texture gate diagnosis and closure (2026-09-02):** the inherited whole-map
 failure was a first-use ordering issue, not seven whole-map scene assets. The
 overview LOD starts at detail 1 and eases to its hidden target; before this

@@ -107,7 +107,8 @@ aria-hidden, so the ledger — not the sign — is the redundant channel.
   more water.
 - Aerial perspective must actually reach the DEFAULT framing. The fog range's
   scale pivot (`FOG_REFERENCE_VIEW_HEIGHT`) must track the real default view
-  height (`viewportHeight / (TILE_HEIGHT * zoom)`, ~78). A pivot
+  height (`viewportHeight / (TILE_HEIGHT * zoom)`, ~96.5 at the Wave 1 landing
+  frame). A pivot
   far below it clamps the scale to its maximum, pushes the near plane past
   everything visible, and silently switches the whole system off while leaving
   its documentation looking correct.

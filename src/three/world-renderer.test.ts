@@ -635,7 +635,7 @@ describe("Three world renderer lifecycle", () => {
     expect(post.dispose).toHaveBeenCalledTimes(1);
   });
 
-  it("sheds overview AO before its render targets are first used", () => {
+  it("keeps N8AO textures cold at the landing and whole-map framings", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
@@ -644,7 +644,7 @@ describe("Three world renderer lifecycle", () => {
     const post = postHarness.instances.at(-1)!;
 
     renderer.render(rendererFrame(world, "full", {
-      cameraZoom: 0.28,
+      cameraZoom: 0.648,
       timeSeconds: 1 / 60,
     }));
 
@@ -652,10 +652,15 @@ describe("Three world renderer lifecycle", () => {
     // hidden-zoom target is already exact. The post owner must see that target
     // so N8AO cannot upload resources for a pass that is not drawn.
     expect(post.setAOZoomDetail).toHaveBeenLastCalledWith(0);
+    renderer.render(rendererFrame(world, "full", {
+      cameraZoom: 0.28,
+      timeSeconds: 2 / 60,
+    }));
+    expect(post.setAOZoomDetail).toHaveBeenLastCalledWith(0);
     renderer.dispose();
   });
 
-  it("releases overview AO textures after a default-to-whole-map transition settles", () => {
+  it("releases AO textures after an inspection-to-whole-map transition settles", () => {
     postHarness.simulateAOTextures = true;
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
 
@@ -674,7 +679,7 @@ describe("Three world renderer lifecycle", () => {
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
     });
-    renderer.render(rendererFrame(world, "full", { timeSeconds: 1 / 60 }));
+    renderer.render(rendererFrame(world, "full", { cameraZoom: 1.05, timeSeconds: 1 / 60 }));
     const webgl = rendererHarness.instances.at(-1)!;
     const post = postHarness.instances.at(-1)!;
     expect(webgl.info.memory.textures).toBe(freshWholeTextureCount + 7);
@@ -760,7 +765,7 @@ describe("Three world renderer lifecycle", () => {
       onContextFailure: vi.fn(),
     });
 
-    renderer.render(rendererFrame(world, "full", { cameraZoom: 0.7776, timeSeconds: 1 }));
+    renderer.render(rendererFrame(world, "full", { cameraZoom: 0.648, timeSeconds: 1 }));
     const contentRoot = rendererHarness.instances.at(-1)!.lastScene!.children.at(-1)!;
     const props = new Map(OVERVIEW_LOD_DETAIL_NAMES.map((name) => [
       name,
@@ -785,7 +790,7 @@ describe("Three world renderer lifecycle", () => {
       expect(objects.every((object) => !object.visible), `${name} still drawn`).toBe(true);
     }
 
-    renderer.render(rendererFrame(world, "full", { cameraZoom: 0.7776, timeSeconds: 21 }));
+    renderer.render(rendererFrame(world, "full", { cameraZoom: 0.648, timeSeconds: 21 }));
     for (const entry of authored) {
       expect(entry.object.visible).toBe(true);
       expect(entry.object.scale.equals(entry.scale)).toBe(true);

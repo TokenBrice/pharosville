@@ -50,13 +50,13 @@ const SNAP = { deltaSeconds: 10, reducedMotion: false };
 
 describe("overviewLodTargetDetail", () => {
   it("keeps default framing whole and whole-map framing bare", () => {
-    // The default camera fits the world at 0.7776 and the absolute zoom floor
+    // The Wave 1 default camera fits the world at 0.648 and the absolute zoom floor
     // is 0.28; the band has to sit strictly between them so neither framing
     // ever pays for a partially-shed prop.
     expect(OVERVIEW_LOD_HIDDEN_ZOOM).toBeGreaterThan(0.28);
-    expect(OVERVIEW_LOD_FULL_ZOOM).toBeLessThan(0.7776);
+    expect(OVERVIEW_LOD_FULL_ZOOM).toBeLessThan(0.648);
 
-    expect(overviewLodTargetDetail(0.7776)).toBe(1);
+    expect(overviewLodTargetDetail(0.648)).toBe(1);
     expect(overviewLodTargetDetail(2.4)).toBe(1);
     expect(overviewLodTargetDetail(0.28)).toBe(0);
     expect(overviewLodTargetDetail(OVERVIEW_LOD_HIDDEN_ZOOM)).toBe(0);
@@ -91,7 +91,7 @@ describe("createGardenOverviewLod", () => {
     const lod = createGardenOverviewLod(root);
     expect(lod.entryCount).toBe(1);
 
-    lod.update({ ...SNAP, zoom: 0.7776 });
+    lod.update({ ...SNAP, zoom: 0.648 });
 
     expect(lod.detail).toBe(1);
     expect(prop.visible).toBe(true);
@@ -133,7 +133,7 @@ describe("createGardenOverviewLod", () => {
   it("eases across the band instead of stepping", () => {
     const { root } = propTree();
     const lod = createGardenOverviewLod(root);
-    lod.update({ ...SNAP, zoom: 0.7776 });
+    lod.update({ ...SNAP, zoom: 0.648 });
 
     // A single 16 ms frame after a hard zoom-out must travel only part way.
     lod.update({ deltaSeconds: 0.016, reducedMotion: false, zoom: 0.28 });
@@ -218,7 +218,7 @@ describe("createGardenOverviewLod", () => {
     lod.update({ deltaSeconds: 0.016, reducedMotion: true, zoom: OVERVIEW_LOD_HIDDEN_ZOOM - 0.01 });
     expect(cranes.every((crane) => crane?.visible === false)).toBe(true);
 
-    lod.update({ deltaSeconds: 0.016, reducedMotion: true, zoom: 0.7776 });
+    lod.update({ deltaSeconds: 0.016, reducedMotion: true, zoom: 0.648 });
     expect(cranes.every((crane) => crane?.visible === true)).toBe(true);
     batch.dispose();
   });
@@ -234,7 +234,7 @@ describe("createGardenOverviewLod", () => {
   it("snaps under reduced motion, which draws one static frame", () => {
     const { prop, root } = propTree();
     const lod = createGardenOverviewLod(root);
-    lod.update({ ...SNAP, zoom: 0.7776 });
+    lod.update({ ...SNAP, zoom: 0.648 });
 
     lod.update({ deltaSeconds: 0.016, reducedMotion: true, zoom: 0.28 });
 

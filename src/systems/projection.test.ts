@@ -19,7 +19,7 @@ describe("projection", () => {
     );
     expect(Math.abs(center.x - 1440 / 2)).toBeLessThan(40);
     expect(Math.abs(center.y - 1000 / 2)).toBeLessThan(40);
-    expect(camera.zoom).toBeGreaterThanOrEqual(0.72);
+    expect(camera.zoom).toBeGreaterThanOrEqual(0.6);
   });
 
   it("zooms around the pointer without shifting the iso point under it", () => {

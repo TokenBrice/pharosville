@@ -80,7 +80,7 @@ const STAR_COUNT = 720;
 const FOG_NEAR = 178;
 const FOG_FAR = 300;
 // W6.6 (Grand Scale Revamp): the ladder above was calibrated for ONE framing
-// (1440x960 at zoom 0.78). The revamp made the world worth zooming out for —
+// (1440x960 at the then-current zoom). The revamp made the world worth zooming out for —
 // 187 ships across the whole sea — and at wide zoom the ground plane spans far
 // more depth, so most of the frame fell past FOG_FAR and the day read as a
 // white-out. The range now scales with the camera's view span so aerial
@@ -92,23 +92,14 @@ const FOG_FAR = 300;
 // perspective system OFF at the framing it was calibrated for.
 //
 // `gardenCameraViewHeight(viewportHeight, zoom) = viewportHeight / (TILE_HEIGHT
-// * zoom)`, so the default framing measures 76.9 at the ladder's own stated
-// calibration (960 @ 0.78) and 80.4 at 1000 @ 0.7776 — not 34. Against a pivot
-// of 34 the ratio is 2.3, which clamps hard to FOG_MAX_SCALE and pushes
-// FOG_NEAR out to 267 while the visible ground plane only spans depth ~121-255.
-// Nothing in the frame ever reached the near plane. The depth table above,
-// every figure in it, and the whole "bokashi seam where far water meets sky"
-// it describes were accurate about the DESIGN and inert in the PICTURE, which
-// is why the far fleet read exactly as crisp as the near fleet and the day
-// graded flat.
-//
-// 78 is the real default. It restores the documented ladder exactly: scale 1.0
-// at the landing framing, so the island still sits at zero haze and the frame
-// top reaches ~0.63. The clamp keeps doing its two jobs from there — pulling
+// * zoom)`. Wave 1's 1600x1000 landing framing is zoom 0.648, hence a measured
+// 96.45-unit view height. 96.5 is the new scale-one pivot; the camera change
+// therefore does not silently add fog before the explicit daylight halving
+// below. The clamp keeps doing its two jobs from there — pulling
 // toward 1.5 as the camera pulls out so the world's edge dissolves instead of
 // ending as a diamond slab in a void, and holding at 1.0 on the way in so
 // close-ups stay crisp.
-const FOG_REFERENCE_VIEW_HEIGHT = 78;
+const FOG_REFERENCE_VIEW_HEIGHT = 96.5;
 const FOG_MIN_SCALE = 1;
 // Capped at 1.5, not 2.6. W6.6 scaled fog with the view to stop noon becoming
 // a white-out, but at whole-map framing a 2.6x scale pushed FOG_NEAR out to
@@ -156,7 +147,7 @@ export const GARDEN_BOKASHI_BAND = {
   paleGain: 0.11,
   deepGain: 0.24,
   /** Dusk and night carry the bands; day keeps a quarter of them. */
-  dayAmount: 0.25,
+  dayAmount: 0.125,
 } as const;
 
 /**
@@ -813,7 +804,11 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
         Math.min(FOG_MAX_SCALE, frame.viewHeight / FOG_REFERENCE_VIEW_HEIGHT),
       );
       fog.near = FOG_NEAR * fogScale * (1 - storm * 0.32);
-      fog.far = FOG_FAR * fogScale * (1 - storm * 0.25);
+      // Day doubles the linear ramp's span, exactly halving its contribution
+      // at every depth inside the former range. Dusk/night retain their signed-
+      // off stack; the visible sky now carries the daylight atmosphere.
+      const phaseFar = FOG_FAR + phase.daylight * (FOG_FAR - FOG_NEAR);
+      fog.far = phaseFar * fogScale * (1 - storm * 0.25);
       applyPhase(phase, frame.wallClockHour, storm);
       const { daylight, dusk, night } = phase;
 

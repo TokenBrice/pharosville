@@ -74,7 +74,7 @@ export const SEA_SIGN_BOARD = {
  * - The band edges dodge the framings the world already spends its attention
  *   on: 0.40 sits below the overview-LOD fade (0.44..0.62) so the boards do not
  *   step in the same breath as the shore props shed, and 0.88 sits clear of
- *   both the reference default framing (0.7776) and the explore threshold
+ *   both the reference default framing (0.648) and the explore threshold
  *   (1.05), including once hysteresis widens it to 0.827..0.933.
  */
 /**

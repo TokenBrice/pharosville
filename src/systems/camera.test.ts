@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "./camera";
 import { ABSOLUTE_MIN_ZOOM, minZoomForViewport, tileToScreen } from "./projection";
 import { MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX } from "./viewport-gate";
-import { buildPharosVilleMap, CEMETERY_CENTER, isWaterTileKind, PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, PIGEON_ISLAND_CENTER } from "./world-layout";
+import { gardenIslandDisplayTile } from "./garden-observatory-slice";
+import { buildPharosVilleMap, CEMETERY_CENTER, isWaterTileKind, LIGHTHOUSE_TILE, PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, PIGEON_ISLAND_CENTER } from "./world-layout";
 import type { TerrainKind } from "./world-types";
 
 describe("camera", () => {
@@ -54,15 +55,26 @@ describe("camera", () => {
       const compositionProgress = shortSide < MIN_SHORT_SIDE_PX
         ? 0
         : Math.max(shortSideProgress, longSideProgress);
-      expect(camera.zoom).toBeCloseTo(0.72 * (1 + compositionProgress * 0.08));
+      expect(camera.zoom).toBeCloseTo(0.6 * (1 + compositionProgress * 0.08));
       // The constant 128px right-gutter is proportionally largest in the
       // 720px-wide tall case; the island remains intentionally left of center.
-      expect(center.x).toBeGreaterThanOrEqual(viewport.x * 0.37);
+      expect(center.x).toBeGreaterThanOrEqual(viewport.x * 0.33);
       expect(center.x).toBeLessThanOrEqual(viewport.x * 0.55);
       expect(center.y).toBeGreaterThanOrEqual(viewport.y * 0.45);
       expect(center.y).toBeLessThanOrEqual(viewport.y * 0.65);
       expect(clampCameraToMap(camera, { map, viewport })).toEqual(camera);
     }
+  });
+
+  it("places the Pharos on thirds with a broad right-hand water interval", () => {
+    const map = buildPharosVilleMap();
+    const viewport = { x: 1600, y: 1000 };
+    const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
+    const tower = tileToScreen(gardenIslandDisplayTile(LIGHTHOUSE_TILE), camera);
+    expect(tower.x).toBeGreaterThan(viewport.x * 0.3);
+    expect(tower.x).toBeLessThan(viewport.x * 0.4);
+    expect(tower.y).toBeGreaterThan(viewport.y * 0.45);
+    expect(tower.y).toBeLessThan(viewport.y * 0.58);
   });
 
   it("keeps bounded zooms inside the biased composition frame", () => {
