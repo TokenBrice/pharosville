@@ -138,7 +138,7 @@ renderable subtree. `createGardenHarborBatch` transforms those recipes into
 world-wide, vertex-coloured material buckets, one instanced mesh per prop kind,
 and one atlas-driven instanced flag cloth. The per-dock roots remain empty
 anchors for cues and interaction. Runtime changes go only through
-`setDockAccent`, `setFlagYaw`, and `setFineDetailVisible`; Wave 3 shore-station
+`setDockAccent`, `setFlagPose`, and `setFineDetailVisible`; Wave 3 shore-station
 archetypes should author into the same recipe surface rather than add per-dock
 meshes.
 

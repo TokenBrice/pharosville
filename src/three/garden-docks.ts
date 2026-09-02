@@ -606,7 +606,7 @@ export function authorDock(
       );
       crackParts.push(crack);
     }
-    parts.push(harborPart("metal", mergeBucket(crackParts), HARBOR_PALETTE.iron_dark, false, false));
+    parts.push(harborPart("stone", mergeBucket(crackParts), HARBOR_PALETTE.iron_dark, false, false));
   }
 
   const signalShape = new Shape();

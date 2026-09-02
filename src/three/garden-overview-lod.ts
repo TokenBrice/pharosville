@@ -85,7 +85,11 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
  */
 export const OVERVIEW_LOD_WHOLE_RING_NAMES: readonly string[] = [
   "dock-cargo-tide",
+  "dock-chain-flag",
+  "dock-lamp-heads",
+  "dock-posts",
   "dock-tide-line",
+  "dock-warehouse-windows",
 ];
 
 interface OverviewLodEntry {

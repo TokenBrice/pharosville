@@ -73,6 +73,7 @@ import {
 import {
   GARDEN_BREATH_PHASE,
   gardenBreathAt,
+  gardenGustAtWorldPosition,
   writeWeatherPlan,
   type WeatherPlan,
 } from "../systems/weather";
@@ -2908,9 +2909,6 @@ const SHADOW_CASTER_EXCLUDED_NAMES = new Set([
   "dock-chain-flag",
   "dock-lamp-heads",
   "dock-warehouse-windows",
-  "harbor-chain-flags",
-  "harbor-lampHead",
-  "harbor-window",
 ]);
 
 /**
@@ -3977,13 +3975,23 @@ function updateSceneForFrame(
     zoom: frame.camera.zoom,
   });
   let showAnyDockDetail = showWorldDetail;
+  const flagBreath = gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.sails);
   for (const visual of content.docks) {
     const chainId = visual.recipe.dock.chainId;
-    content.harborBatch?.setFlagYaw(
+    const flagRoll = frame.reducedMotion
+      ? 0
+      : (gardenGustAtWorldPosition(
+        breathTime,
+        visual.root.position.x,
+        visual.root.position.z,
+        weather,
+      ) - 0.35) * 0.055 + (flagBreath - 0.5) * 0.025;
+    content.harborBatch?.setFlagPose(
       chainId,
       frame.reducedMotion
         ? visual.recipe.flag.placement.yaw
         : -visual.root.rotation.y - weather.windAngle,
+      flagRoll,
     );
     visual.fineDetail.visible = showWorldDetail
       || visual.recipe.dock.detailId === frame.hoveredDetailId

@@ -1,5 +1,8 @@
-import { BoxGeometry, Group, Mesh, MeshBasicMaterial } from "three";
+import { BoxGeometry, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
+import { dockFixture, DISPLAY_TILES, ISLAND_TILE } from "./__fixtures__/harbor";
+import { authorDock } from "./garden-docks";
+import { createGardenHarborBatch } from "./garden-harbor-batch";
 import {
   createGardenOverviewLod,
   OVERVIEW_LOD_DETAIL_NAMES,
@@ -167,6 +170,32 @@ describe("createGardenOverviewLod", () => {
     expect(prop.visible).toBe(false);
   });
 
+  it("fades the batched posts, windows, and flags without pulling the ring inward", () => {
+    const chains = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
+    const batch = createGardenHarborBatch(chains.map((chainId, index) => (
+      authorDock(dockFixture(chainId, 3 + (index % 7)), DISPLAY_TILES[index]!, ISLAND_TILE)
+    )));
+    const root = new Group();
+    root.add(batch.root);
+    root.updateMatrixWorld(true);
+    const posts = batch.propMeshes.post as InstancedMesh;
+    const windows = batch.bucketMeshes.window as Mesh;
+    const before = {
+      flag: instanceWorldPosition(batch.flags, 0),
+      post: instanceWorldPosition(posts, 0),
+      window: vertexWorldPosition(windows, 0),
+    };
+    const lod = createGardenOverviewLod(root);
+
+    lod.update({ ...SNAP, zoom: 0.53 });
+    root.updateMatrixWorld(true);
+
+    expect(instanceWorldPosition(posts, 0).distanceTo(before.post)).toBeCloseTo(0, 6);
+    expect(vertexWorldPosition(windows, 0).distanceTo(before.window)).toBeCloseTo(0, 6);
+    expect(instanceWorldPosition(batch.flags, 0).distanceTo(before.flag)).toBeCloseTo(0, 6);
+    batch.dispose();
+  });
+
   it("names whole-ring groups the policy already sheds", () => {
     // A name here that the detail list does not carry would shed nothing, and
     // the exemption would be silently dead.
@@ -186,3 +215,17 @@ describe("createGardenOverviewLod", () => {
     expect(prop.visible).toBe(false);
   });
 });
+
+const instanceMatrix = new Matrix4();
+const instanceWorldMatrix = new Matrix4();
+function instanceWorldPosition(mesh: InstancedMesh, index: number): Vector3 {
+  mesh.getMatrixAt(index, instanceMatrix);
+  instanceWorldMatrix.multiplyMatrices(mesh.matrixWorld, instanceMatrix);
+  return new Vector3().setFromMatrixPosition(instanceWorldMatrix);
+}
+
+function vertexWorldPosition(mesh: Mesh, index: number): Vector3 {
+  return new Vector3()
+    .fromBufferAttribute(mesh.geometry.getAttribute("position"), index)
+    .applyMatrix4(mesh.matrixWorld);
+}

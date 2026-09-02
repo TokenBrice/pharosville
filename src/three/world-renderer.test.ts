@@ -13,6 +13,7 @@ import {
   Scene,
   ShaderMaterial,
   Texture,
+  Vector3,
 } from "three";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
@@ -300,6 +301,27 @@ describe("disposeThreeObjectTree", () => {
 });
 
 describe("Three world renderer lifecycle", () => {
+  it("luffs chain flags in gusts and restores zero roll for reduced motion", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(world, "full", { timeSeconds: 2 }));
+    const flags = rendererHarness.instances.at(-1)!.lastScene!
+      .getObjectByName("dock-chain-flag") as InstancedMesh;
+    const matrix = new Matrix4();
+    flags.getMatrixAt(0, matrix);
+    const luffingUp = new Vector3(0, 1, 0).transformDirection(matrix);
+    expect(Math.hypot(luffingUp.x, luffingUp.z)).toBeGreaterThan(0);
+
+    renderer.render(rendererFrame(world, "full", { reducedMotion: true }));
+    flags.getMatrixAt(0, matrix);
+    const stillUp = new Vector3(0, 1, 0).transformDirection(matrix);
+    expect(Math.hypot(stillUp.x, stillUp.z)).toBeCloseTo(0, 8);
+    renderer.dispose();
+  });
+
   it("mounts the data-derived pigeonnier roost and mover flock", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({

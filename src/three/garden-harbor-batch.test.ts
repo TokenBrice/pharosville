@@ -67,8 +67,25 @@ describe("createGardenHarborBatch", () => {
     const matrix = new Matrix4();
     batch.flags.getMatrixAt(1, matrix);
     const beforeBase = matrix.clone();
-    batch.setFlagYaw("ethereum", 1.2);
+    batch.setFlagPose("ethereum", 1.2, 0.08);
     batch.flags.getMatrixAt(1, matrix);
     expect(matrix.equals(beforeBase)).toBe(true);
+  });
+
+  it("keeps an unassigned atlas cell on a plain accent cloth", () => {
+    const recipe = authorDock(dockFixture("unassigned", 5), DISPLAY_TILES[0]!, ISLAND_TILE);
+    recipe.flag.atlasCell = -1;
+    const batch = createGardenHarborBatch([recipe]);
+    const cell = batch.flags.geometry.getAttribute("aFlagCell");
+    expect(cell.getX(0)).toBe(-1);
+    const shader = {
+      fragmentShader: "#include <common>\n#include <map_fragment>",
+      uniforms: {},
+      vertexShader: "#include <common>\n#include <uv_vertex>",
+    };
+    (batch.flags.material as { onBeforeCompile(shader: unknown, renderer: unknown): void })
+      .onBeforeCompile(shader, null);
+    expect(shader.fragmentShader).toContain("vFlagCell >= 0.0");
+    batch.dispose();
   });
 });

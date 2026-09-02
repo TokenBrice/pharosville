@@ -45,7 +45,7 @@ export interface GardenHarborBatch {
   flags: InstancedMesh;
   setFineDetailVisible(visible: boolean): void;
   setDockAccent(chainId: string, color: Color): void;
-  setFlagYaw(chainId: string, yaw: number): void;
+  setFlagPose(chainId: string, yaw: number, roll: number): void;
   dispose(): void;
 }
 
@@ -68,7 +68,7 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
   const fineDetailBucketMeshes = createBucketMeshes(root, recipes, true, accentRanges);
   const propMeshes = createPropMeshes(root, recipes, false);
   const fineDetailPropMeshes = createPropMeshes(root, recipes, true);
-  const { flags, flagIndex, flagYaw } = createFlags(recipes);
+  const { flags, flagIndex } = createFlags(recipes);
   root.add(flags);
   if (recipes.some((recipe) => (
     (recipe.identity.landmark === "gantry" || recipe.identity.enclosure === "grand")
@@ -120,11 +120,10 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
       for (const mesh of Object.values(fineDetailBucketMeshes)) if (mesh) mesh.visible = visible;
       for (const mesh of Object.values(fineDetailPropMeshes)) if (mesh) mesh.visible = visible;
     },
-    setFlagYaw(chainId, yaw) {
+    setFlagPose(chainId, yaw, roll) {
       const index = flagIndex.get(chainId);
       if (index === undefined) return;
-      flagYaw[index] = yaw;
-      writeFlagMatrix(flags, recipes[index]!, index, yaw);
+      writeFlagMatrix(flags, recipes[index]!, index, yaw, roll);
       flags.instanceMatrix.needsUpdate = true;
     },
   };
@@ -303,26 +302,32 @@ function createFlags(recipes: readonly DockRecipe[]) {
   flags.receiveShadow = true;
   flags.frustumCulled = false;
   const flagIndex = new Map<string, number>();
-  const flagYaw = recipes.map((recipe) => recipe.flag.placement.yaw);
   recipes.forEach((recipe, index) => {
     flagIndex.set(recipe.dock.chainId, index);
-    cells.setX(index, Math.max(0, recipe.flag.atlasCell));
+    cells.setX(index, recipe.flag.atlasCell);
     flags.setColorAt(index, recipe.flag.atlasCell >= 0 && atlas.texture ? new Color("#ffffff") : recipe.flag.accent);
-    writeFlagMatrix(flags, recipe, index, flagYaw[index]!);
+    writeFlagMatrix(flags, recipe, index, recipe.flag.placement.yaw, 0);
   });
   cells.needsUpdate = true;
   flags.instanceMatrix.needsUpdate = true;
   if (flags.instanceColor) flags.instanceColor.needsUpdate = true;
-  return { flagIndex, flags, flagYaw };
+  return { flagIndex, flags };
 }
 
 const flagScratchA = new Matrix4();
 const flagScratchB = new Matrix4();
 const flagScratchC = new Matrix4();
-function writeFlagMatrix(flags: InstancedMesh, recipe: DockRecipe, index: number, yaw: number): void {
+function writeFlagMatrix(
+  flags: InstancedMesh,
+  recipe: DockRecipe,
+  index: number,
+  yaw: number,
+  roll: number,
+): void {
   const { placement } = recipe.flag;
   flagScratchA.makeTranslation(placement.x, placement.y, placement.z);
   flagScratchA.multiply(flagScratchB.makeRotationY(yaw));
+  flagScratchA.multiply(flagScratchB.makeRotationZ(roll));
   flagScratchA.multiply(flagScratchB.makeTranslation(0.06, 0, 0));
   flagScratchA.multiply(flagScratchB.makeScale(placement.scale, placement.scale, placement.scale));
   flagScratchC.multiplyMatrices(recipe.rootMatrix, flagScratchA);
@@ -332,8 +337,11 @@ function writeFlagMatrix(flags: InstancedMesh, recipe: DockRecipe, index: number
 function patchFlagAtlasMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nattribute float aFlagCell;")
-      .replace("#include <uv_vertex>", `#include <uv_vertex>\n#ifdef USE_MAP\nfloat flagColumns = ${CHAIN_FLAG_ATLAS_COLUMNS}.0;\nfloat flagRow = flagColumns - 1.0 - floor(aFlagCell / flagColumns);\nvMapUv = vec2(mod(aFlagCell, flagColumns), flagRow) / flagColumns + uv / flagColumns;\n#endif`);
+      .replace("#include <common>", "#include <common>\nattribute float aFlagCell;\nvarying float vFlagCell;")
+      .replace("#include <uv_vertex>", `#include <uv_vertex>\nvFlagCell = aFlagCell;\n#ifdef USE_MAP\nif (aFlagCell >= 0.0) {\n  float flagColumns = ${CHAIN_FLAG_ATLAS_COLUMNS}.0;\n  float flagRow = flagColumns - 1.0 - floor(aFlagCell / flagColumns);\n  vMapUv = vec2(mod(aFlagCell, flagColumns), flagRow) / flagColumns + uv / flagColumns;\n}\n#endif`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying float vFlagCell;")
+      .replace("#include <map_fragment>", "if (vFlagCell >= 0.0) {\n  #include <map_fragment>\n}");
   };
-  material.customProgramCacheKey = () => "garden-harbor-flag-v1";
+  material.customProgramCacheKey = () => "garden-harbor-flag-v2";
 }

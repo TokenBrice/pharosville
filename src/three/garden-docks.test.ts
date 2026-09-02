@@ -1,6 +1,7 @@
-import { Matrix4 } from "three";
+import { Color, Matrix4 } from "three";
 import { describe, expect, it } from "vitest";
 import type { DockNode } from "../systems/world-types";
+import { HARBOR_PALETTE } from "../systems/palette";
 import {
   authorDock,
   gardenHarborCalmMask,
@@ -72,7 +73,11 @@ describe("garden docks", () => {
       },
     } satisfies DockNode;
     const recipe = authorDock(weak, DISPLAY_TILE, ISLAND_TILE);
-    expect(recipe.parts.some((part) => part.bucket === "metal" && !part.fineDetail)).toBe(true);
+    const cracks = recipe.parts.find((part) => (
+      part.color.getHexString() === new Color(HARBOR_PALETTE.iron_dark).getHexString()
+      && !part.fineDetail
+    ));
+    expect(cracks?.bucket).toBe("stone");
     const bollard = recipe.props.find((prop) => prop.kind === "bollard")!;
     expect(Math.abs(bollard.matrix.elements[1]!)).toBeGreaterThan(0.05);
   });
@@ -110,8 +115,8 @@ describe("garden docks", () => {
     const before = new Matrix4();
     const restored = new Matrix4();
     batch.flags.getMatrixAt(0, before);
-    batch.setFlagYaw("base", -1.2);
-    batch.setFlagYaw("base", recipe.flag.placement.yaw);
+    batch.setFlagPose("base", -1.2, 0.08);
+    batch.setFlagPose("base", recipe.flag.placement.yaw, 0);
     batch.flags.getMatrixAt(0, restored);
     expect(restored.equals(before)).toBe(true);
     batch.dispose();
