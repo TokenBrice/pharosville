@@ -57,6 +57,7 @@ import { createGardenSailTexture, gardenSailClothColor } from "./garden-sail-tex
 import {
   FLEET_BATCH_TINTS,
   FLEET_MAX_SAILS,
+  FLEET_SAIL_ATLAS_COLUMNS,
   markAtlasSail,
   mergeTintedParts,
   setFleetAttention,
@@ -1181,6 +1182,67 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
   }
 }
 
+/**
+ * Routes a hero's identity sail through the fleet's shared mark atlas.
+ *
+ * Shore-station voyages bring more hero hulls into the default frustum. Their
+ * former one-texture-per-hero sails made that camera-dependent residency exceed
+ * the texture ceiling even though stations themselves own no texture. Sharing
+ * the already-painted fleet atlas preserves every mark and makes residency
+ * independent of which cove a hero is visiting.
+ */
+export function assignGardenHeroSailAtlas(
+  visual: ShipVisual,
+  texture: CanvasTexture | null,
+  cell: number,
+): void {
+  const material = visual.identitySailMaterial;
+  if (!material || !texture || cell <= 0) return;
+  const previousCompile = material.onBeforeCompile;
+  const previousCacheKey = material.customProgramCacheKey.bind(material);
+  material.map = texture;
+  material.emissiveMap = null;
+  material.color.copy(visual.sailColor);
+  material.userData.gardenSailAtlas = true;
+  material.onBeforeCompile = (shader, renderer) => {
+    previousCompile(shader, renderer);
+    shader.uniforms.uHeroAtlasCell = { value: cell };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        uniform float uHeroAtlasCell;
+        varying vec2 vHeroAtlasUv;`,
+      )
+      .replace(
+        "#include <uv_vertex>",
+        `#include <uv_vertex>
+        {
+          float columns = ${FLEET_SAIL_ATLAS_COLUMNS}.0;
+          float canvasRow = floor(uHeroAtlasCell / columns);
+          float textureRow = columns - 1.0 - canvasRow;
+          vec2 cellOrigin = vec2(mod(uHeroAtlasCell, columns), textureRow) / columns;
+          vHeroAtlasUv = cellOrigin + uv / columns;
+        }`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        varying vec2 vHeroAtlasUv;`,
+      )
+      .replace(
+        "#include <map_fragment>",
+        `#ifdef USE_MAP
+          vec4 heroSailTexel = texture2D(map, vHeroAtlasUv);
+          diffuseColor.rgb = mix(diffuseColor.rgb, heroSailTexel.rgb, heroSailTexel.a);
+        #endif`,
+      );
+  };
+  material.customProgramCacheKey = () => `${previousCacheKey()}|garden-hero-sail-atlas-v1`;
+  material.needsUpdate = true;
+}
+
 function mergeGardenHeroStatics(visual: ShipVisual, model: Group): void {
   model.updateMatrixWorld(true);
   const inverseRoot = model.matrixWorld.clone().invert();
@@ -1361,6 +1423,7 @@ export function syncShipSailTextures(
     // ships still own a per-ship identity sail texture (W1 / D3).
     const material = visual.identitySailMaterial;
     if (!material) continue;
+    if (material.userData.gardenSailAtlas === true) continue;
     const previousTexture = material.map;
     material.map = createGardenSailTexture(
       visual.ship,

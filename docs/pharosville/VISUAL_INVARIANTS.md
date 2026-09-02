@@ -50,7 +50,9 @@ intent, code/tests, and a matching update to the relevant route documentation.
   eighty-five stickers. Sailing in restores full brand identity exactly as
   decision F1 specified. Restraint must never be baked into the cloth colour
   itself, which would remove identity at every distance with no way back.
-- Harbors ring the rendered island waterline and retain distinct built forms.
+- Harbors are shore stations sited in their named rim coves. Ethereum and its
+  L2 annexes read as one bridge-connected precinct; other stations retain
+  distinct built forms, while TON keeps its detached pigeonnier islet.
   Ethereum and available L2 docks remain a readable hub relationship.
 - The TON pigeonnier is spatially distinct. The dead/frozen fleet is a quiet
   sea wreckyard, not an island and never a live-ship destination.
@@ -85,9 +87,11 @@ required to be "asymmetric, sea-first, and intentionally spacious". The coverage
 guard is set at 0.72 for that reason; raising it back toward 1 would recreate
 the residue body it was meant to prevent.
 
-Sea-body place-names are carried by in-world signage AND by the accessibility
-ledger, which lists every named area. The signs are canvas content and therefore
-aria-hidden, so the ledger — not the sign — is the redundant channel.
+Sea-body place-names are carried by low stone steles at body boundaries AND by
+the accessibility ledger, which lists every named area. The steles stay quiet
+and close to the water's value until their body is hovered or inspected. They
+are canvas content and therefore aria-hidden, so the ledger — not the stele —
+is the redundant channel.
 
 ## Light and atmosphere
 

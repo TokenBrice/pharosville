@@ -21,7 +21,7 @@ import {
   GARDEN_DEFAULT_WIND_X,
   GARDEN_DEFAULT_WIND_Z,
 } from "../systems/weather";
-import { SEA_REGION_ID } from "../systems/garden-sea-regions";
+import { SEA_REGION_CHARACTER, SEA_REGION_ID } from "../systems/garden-sea-regions";
 import type { GardenWaterFrame } from "./garden-water";
 import {
   createGardenWater,
@@ -323,7 +323,39 @@ describe("createGardenWater", () => {
 
     const danger = water.material.uniforms.uRegionColor!.value[5]!;
     expect(danger.getHexString()).toBe("ef4444");
-    expect(water.material.uniforms.uRegionParams!.value[5]!.w).toBeCloseTo(0.44);
+    expect(water.material.uniforms.uRegionParams!.value[5]!.w).toBeCloseTo(
+      SEA_REGION_CHARACTER.danger.tintStrength,
+    );
+  });
+
+  it("wires the seven directional characters into the existing normal vocabulary", () => {
+    const water = createGardenWater(0);
+    const flows = water.material.uniforms.uRegionFlow!.value;
+    const waves = water.material.uniforms.uRegionSwell!.value;
+    for (const [name, id] of Object.entries(SEA_REGION_ID)) {
+      const character = SEA_REGION_CHARACTER[name as keyof typeof SEA_REGION_CHARACTER];
+      expect(flows[id]!.x).toBeCloseTo(Math.cos(character.flowBearing));
+      expect(flows[id]!.y).toBeCloseTo(-Math.sin(character.flowBearing));
+      expect(flows[id]!.z).toBe(character.flowHold);
+      expect(flows[id]!.w).toBe(character.normalDetail);
+      expect(waves[id]!.z).toBe(character.crossedNormal);
+      expect(waves[id]!.w).toBe(character.shallowShelf);
+    }
+    const source = water.material.fragmentShader;
+    const vertexSource = water.material.vertexShader;
+    expect(source).toContain("vec3 regionColor = regionTint * (waterLuma / tintLuma)");
+    expect(source).not.toContain("mix(\n        regionTint,\n        luminanceMatchedTint");
+    expect(source).toContain(`if (regionId == ${SEA_REGION_ID.open})`);
+    expect(source).toContain("nA = sampleWaterNormal(vWaterPosition * 0.055 + openFlow * 0.045)");
+    expect(vertexSource).toContain("mix(-uWindDir, -regionFlow.xy, regionFlow.z)");
+    expect(source).toContain("signatureNormal");
+    expect(source).toContain(`regionId == ${SEA_REGION_ID.watch}`);
+    expect(source).toContain(`regionId == ${SEA_REGION_ID.alert}`);
+    expect(source).toContain(`regionId == ${SEA_REGION_ID.warning}`);
+    expect(source).toContain(`regionId == ${SEA_REGION_ID.danger}`);
+    expect(source).toContain(`regionId == ${SEA_REGION_ID.ledger}`);
+    expect(source).toContain(`regionId == ${SEA_REGION_ID.wreck}`);
+    expect(source).toContain("crestFoamMask *= 0.52");
   });
 
   it("maps the region field with the water plane's z-flip", () => {

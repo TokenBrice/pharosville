@@ -290,6 +290,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // hook (for hover/select hit-testing) and by the recompute callback.
   const hitTargetSnapshotRef = useRef<HitTargetSnapshot | null>(null);
   const hitTargetsRef = useRef<readonly HitTarget[]>([]);
+  const seaSignScaleRef = useRef<number | null>(null);
   const shipMotionSamplesRef = useRef<ReadonlyMap<string, ShipMotionSample>>(new Map());
 
   // `recomputeHitTargets` is a stable wrapper that reads through this ref so
@@ -454,6 +455,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         camera: activeCamera,
         hoveredDetailId: hoveredDetailIdRef.current,
         selectedDetailId: selectedDetailIdRef.current,
+        seaSignScale: seaSignScaleRef.current,
         shipMotionSamples: shipMotionSamplesRef.current,
         viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
         world,
@@ -469,6 +471,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     hitTargetsRef,
     hoveredDetailIdRef,
     selectedDetailIdRef,
+    seaSignScaleRef,
     shipMotionSamplesRef,
     world,
   ]);
@@ -503,6 +506,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectedDetailAnchor,
     selectedDetailId,
     selectedDetailIdRef,
+    seaSignScaleRef,
     shipMotionSamplesRef,
     shipsById,
     stepCamera: canvas.stepCamera,

@@ -180,6 +180,7 @@ describe("AccessibilityLedger", () => {
       docks: [{
         id: "dock.ethereum",
         kind: "dock",
+        station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
         label: "Ethereum",
         chainId: "ethereum",
         tile: { x: 1, y: 1 },
@@ -198,6 +199,7 @@ describe("AccessibilityLedger", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
     expect(markup).toContain("#1 of 2 rendered harbors");
+    expect(markup).toContain("boathouse precinct station at ethereum-precinct cove");
     expect(markup).toContain("72.7% of stablecoin supply");
     expect(markup).toContain("concentration moderately concentrated (HHI 0.40)");
   });
@@ -212,6 +214,7 @@ describe("AccessibilityLedger", () => {
         {
           id: "dock.ethereum",
           kind: "dock",
+          station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
           chainId: "ethereum",
           label: "Ethereum",
           tile: { x: 1, y: 1 },
@@ -236,6 +239,7 @@ describe("AccessibilityLedger", () => {
         {
           id: "dock.solana",
           kind: "dock",
+          station: { coveId: "watch-east-bay", type: "tea-house-quay", shoreBearing: Math.PI },
           chainId: "solana",
           label: "Solana",
           tile: { x: 2, y: 2 },

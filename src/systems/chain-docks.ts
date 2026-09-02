@@ -1,15 +1,15 @@
 import type { ChainsResponse, ChainSummary } from "@shared/types/chains";
 import type { DockNode, DockStablecoin } from "./world-types";
 import {
-  DOCK_TILES,
+  type DockStationSlot,
   EVM_BAY_CHAIN_IDS,
-  EVM_BAY_DOCK_TILES,
+  EVM_BAY_STATION_SLOTS,
   ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS,
-  OUTER_HARBOR_DOCK_TILES,
+  OUTER_HARBOR_STATION_SLOTS,
+  PIGEONNIER_STATION_SLOT,
   PIGEONNIER_HARBOR_CHAIN_IDS,
-  PREFERRED_DOCK_TILES,
+  PREFERRED_DOCK_STATIONS,
 } from "./world-layout";
-import { zoneWorldTile } from "./map-scale";
 
 export const MAX_CHAIN_HARBORS = 8;
 export const MAX_DOCK_SIZE = 10;
@@ -64,16 +64,15 @@ function harboredStablecoins(chain: ChainSummary): DockStablecoin[] {
 
 export function buildChainDocks(chains: ChainsResponse | null | undefined): DockNode[] {
   if (!chains?.chains?.length) return [];
-  const occupiedTiles = new Set<string>();
+  const occupiedCoves = new Set<string>();
   const standardDocks = selectChainHarbors(chains.chains)
-    .map((chain, index) => buildDockNode(chain, dockTileForChain(chain.id, index, occupiedTiles), chains.globalTotalUsd));
+    .flatMap((chain) => {
+      const slot = stationSlotForChain(chain.id, occupiedCoves);
+      return slot ? [buildDockNode(chain, slot, chains.globalTotalUsd)] : [];
+    });
 
   const pigeonnierDocks = selectPigeonnierHarbors(chains.chains)
-    .map((chain) => {
-      const tile = PREFERRED_DOCK_TILES[chain.id] ?? PIGEON_FALLBACK_TILE;
-      occupiedTiles.add(`${tile.x}.${tile.y}`);
-      return buildDockNode(chain, tile, chains.globalTotalUsd);
-    });
+    .map((chain) => buildDockNode(chain, PIGEONNIER_STATION_SLOT, chains.globalTotalUsd));
 
   return attachRenderedHarborContext([...standardDocks, ...pigeonnierDocks], chains.globalTotalUsd);
 }
@@ -131,13 +130,18 @@ function vendoredChainMark(logoPath: string | undefined | null): string | null {
   return VENDORED_CHAIN_MARKS.has(slug) ? logoPath.replace(/\.[^.]+$/, ".svg") : logoPath;
 }
 
-function buildDockNode(chain: ChainSummary, tile: { x: number; y: number }, globalTotalUsd: number): DockNode {
+function buildDockNode(chain: ChainSummary, slot: DockStationSlot, globalTotalUsd: number): DockNode {
   return {
     id: `dock.${chain.id}`,
     kind: "dock" as const,
     label: chain.name,
     chainId: chain.id,
-    tile,
+    tile: slot.cove.tile,
+    station: {
+      coveId: slot.cove.id,
+      type: slot.type,
+      shoreBearing: slot.cove.seawardBearing,
+    },
     totalUsd: chain.totalUsd,
     size: dockSize(chain, globalTotalUsd),
     healthBand: chain.healthBand,
@@ -150,13 +154,6 @@ function buildDockNode(chain: ChainSummary, tile: { x: number; y: number }, glob
     detailId: `dock.${chain.id}`,
   };
 }
-
-// Defensive fallback only — every PIGEONNIER_HARBOR_CHAIN_IDS entry has a
-// PREFERRED_DOCK_TILES entry by construction.
-// N1: authored in design space beside the pigeonnier islet, and scaled onto the
-// enlarged grid with it (the islet rides the Watch shelf, so it takes the zone
-// transform — see PIGEON_ISLAND_CENTER).
-const PIGEON_FALLBACK_TILE = zoneWorldTile({ x: 49, y: 50 });
 
 function selectChainHarbors(chains: readonly ChainSummary[]): ChainSummary[] {
   const harborEligibleChains = chains.filter((chain) => (
@@ -188,32 +185,31 @@ function selectPigeonnierHarbors(chains: readonly ChainSummary[]): ChainSummary[
     .filter((chain): chain is ChainSummary => !!chain && chain.totalUsd > 0);
 }
 
-function dockTileForChain(chainId: string, rankIndex: number, occupiedTiles: Set<string>): { x: number; y: number } {
-  const preferred = PREFERRED_DOCK_TILES[chainId];
-  if (preferred && reserveTile(preferred, occupiedTiles)) return preferred;
+function stationSlotForChain(chainId: string, occupiedCoves: Set<string>): DockStationSlot | null {
+  const preferred = PREFERRED_DOCK_STATIONS[chainId];
+  if (preferred && reserveSlot(preferred, occupiedCoves)) return preferred;
 
-  const primaryPool = EVM_BAY_CHAIN_IDS.has(chainId) ? EVM_BAY_DOCK_TILES : OUTER_HARBOR_DOCK_TILES;
-  const pooled = firstOpenTile(primaryPool, occupiedTiles);
+  const primaryPool = EVM_BAY_CHAIN_IDS.has(chainId) ? EVM_BAY_STATION_SLOTS : OUTER_HARBOR_STATION_SLOTS;
+  const pooled = firstOpenSlot(primaryPool, occupiedCoves);
   if (pooled) return pooled;
 
-  const fallback = firstOpenTile(DOCK_TILES, occupiedTiles);
-  if (fallback) return fallback;
-
-  const repeated = DOCK_TILES[rankIndex % DOCK_TILES.length] ?? DOCK_TILES[0];
-  reserveTile(repeated, occupiedTiles);
-  return repeated;
+  // Precinct forms are semantic, not overflow capacity: only Ethereum and its
+  // named annex chains may occupy them. The outer pool has eight distinct
+  // cove/type pairs, so even an all-generic top eight never needs to borrow an
+  // Ethereum boathouse or L2 annex identity.
+  return null;
 }
 
-function firstOpenTile(tiles: readonly { x: number; y: number }[], occupiedTiles: Set<string>): { x: number; y: number } | null {
-  for (const tile of tiles) {
-    if (reserveTile(tile, occupiedTiles)) return tile;
+function firstOpenSlot(slots: readonly DockStationSlot[], occupiedCoves: Set<string>): DockStationSlot | null {
+  for (const slot of slots) {
+    if (reserveSlot(slot, occupiedCoves)) return slot;
   }
   return null;
 }
 
-function reserveTile(tile: { x: number; y: number }, occupiedTiles: Set<string>): boolean {
-  const key = `${tile.x}.${tile.y}`;
-  if (occupiedTiles.has(key)) return false;
-  occupiedTiles.add(key);
+function reserveSlot(slot: DockStationSlot, occupiedCoves: Set<string>): boolean {
+  const key = slot.cove.id;
+  if (occupiedCoves.has(key)) return false;
+  occupiedCoves.add(key);
   return true;
 }

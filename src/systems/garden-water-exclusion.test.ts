@@ -19,6 +19,7 @@ import {
 } from "./garden-observatory-slice";
 import {
   GARDEN_CEMETERY_OBSTACLE,
+  GARDEN_EDGE_STONE_OBSTACLES,
   GARDEN_ISLAND_OBSTACLE,
   GARDEN_ISLET_OBSTACLES,
   GARDEN_PIGEONNIER_OBSTACLE,
@@ -29,6 +30,7 @@ import {
 } from "./garden-water-exclusion";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
 import { CEMETERY_CENTER } from "./world-layout";
+import { GARDEN_SEA_EDGE_ISLAND_WATERLINE } from "./garden-sea-edge-sites";
 
 /** `isGardenObstacleTile` for an already-transformed world tile. */
 function isObstacleAt(tile: { x: number; y: number }): boolean {
@@ -84,9 +86,16 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
     expect(isObstacleAt(zoneWorldTile({ x: 0, y: 55 }))).toBe(true);
     // Open sea stays open.
     expect(isObstacleAt(zoneWorldTile({ x: 10, y: 30 }))).toBe(false);
-    expect(isObstacleAt(zoneWorldTile({ x: 45, y: 10 }))).toBe(false);
+    expect(isObstacleAt(zoneWorldTile({ x: 40, y: 10 }))).toBe(false);
     // RIM FIELD REVISION 1: the asymmetric south bank is sampled at its deeper western shoulder.
     expect(isObstacleAt(zoneWorldTile({ x: 38, y: 55 }))).toBe(true);
+    // Wave 2b: renderer-only geography is still physical to navigation.
+    expect(GARDEN_EDGE_STONE_OBSTACLES.length).toBeGreaterThan(0);
+    for (const edge of GARDEN_EDGE_STONE_OBSTACLES) {
+      expect(isObstacleAt(edge), edge.id).toBe(true);
+      expect(isGardenShipWater(edge, 1), edge.id).toBe(false);
+    }
+    expect(GARDEN_ISLAND_OBSTACLE).toEqual(GARDEN_SEA_EDGE_ISLAND_WATERLINE);
   });
 
   it("resolves invalid targets to the nearest valid water deterministically", () => {
@@ -185,6 +194,8 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
       if (Math.hypot(point.x - pigeon.x, point.y - pigeon.y) < pigeon.r - 0.4) return true;
       return GARDEN_ISLET_OBSTACLES.some((islet) => (
         Math.hypot(point.x - islet.x, point.y - islet.y) < islet.r - 0.4
+      )) || GARDEN_EDGE_STONE_OBSTACLES.some((edge) => (
+        Math.hypot(point.x - edge.x, point.y - edge.y) < edge.r - 0.4
       ));
     };
     let pointCount = 0;

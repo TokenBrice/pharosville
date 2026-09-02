@@ -81,6 +81,8 @@ export interface ThreeWorldRendererMetrics extends PharosVilleRenderMetrics {
 
 export interface ThreeWorldRenderer {
   dispose: () => void;
+  /** Exact stele scale used by the most recently drawn frame, if built. */
+  getSeaSignScale: () => number | null;
   render: (frame: ThreeWorldRendererFrame) => ThreeWorldRendererMetrics;
   /** Compiles every material in the assembled scene, including hidden variants. */
   warmup: () => Promise<void>;

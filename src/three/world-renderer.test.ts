@@ -61,6 +61,8 @@ import { WAKE_TRAIL_QUADS } from "./garden-wake-batch";
 import {
   createThreeWorldRenderer,
   disposeThreeObjectTree,
+  gardenStaticShadowBounds,
+  gardenStationRouteEndpoints,
   gardenMistBoundaryTile,
   gardenTransitionWaveReady,
   GARDEN_SHIP_TRANSITION_MIN_SECONDS,
@@ -68,6 +70,54 @@ import {
   sampleGardenShipTransition,
   type GardenShipTransitionSpec,
 } from "./world-renderer";
+
+describe("garden static shadow bounds", () => {
+  it("centres a padded square on the island and remote station roots", () => {
+    const points = [
+      { x: 60, z: 64 },
+      { x: 14, z: 74 },
+      { x: 131, z: 15 },
+      { x: 121, z: 131 },
+    ];
+    const bounds = gardenStaticShadowBounds(points, 12);
+
+    expect(bounds.centerX).toBeCloseTo(72.5);
+    expect(bounds.centerZ).toBeCloseTo(73);
+    expect(bounds.radius).toBeCloseTo(70.5);
+    for (const point of points) {
+      expect(Math.abs(point.x - bounds.centerX)).toBeLessThanOrEqual(bounds.radius - 12);
+      expect(Math.abs(point.z - bounds.centerZ)).toBeLessThanOrEqual(bounds.radius - 12);
+    }
+  });
+
+  it("includes the finite rim mesh extents in the world-derived fit", () => {
+    const edge = 140 * Math.SQRT2;
+    const bounds = gardenStaticShadowBounds([
+      { x: 0, z: 0 },
+      { x: edge, z: 0 },
+      { x: 0, z: edge },
+      { x: edge, z: edge },
+      { x: 14, z: 74 },
+      { x: 131, z: 15 },
+    ], 28);
+
+    expect(bounds.centerX).toBeCloseTo(edge / 2);
+    expect(bounds.centerZ).toBeCloseTo(edge / 2);
+    expect(bounds.radius).toBeCloseTo(edge / 2 + 28);
+  });
+});
+
+describe("station route pulse endpoints", () => {
+  it("follows the station's authored seaward bearing instead of the island radial", () => {
+    const leftLobe = gardenStationRouteEndpoints({ x: 14, z: 74 }, 0);
+    expect(leftLobe.station).toEqual({ x: 18, z: 74 });
+    expect(leftLobe.openWater).toEqual({ x: 44, z: 74 });
+
+    const rightCove = gardenStationRouteEndpoints({ x: 131, z: 80 }, Math.PI);
+    expect(rightCove.station.x).toBeCloseTo(127);
+    expect(rightCove.openWater.x).toBeCloseTo(101);
+  });
+});
 
 type TestWebGlRenderer = {
   clear: ReturnType<typeof vi.fn>;
