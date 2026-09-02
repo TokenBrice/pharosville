@@ -72,11 +72,13 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
     // wreck — the shoals themselves are open, sailable water.
     expect(isObstacleAt(CEMETERY_CENTER)).toBe(true);
     expect(isObstacleAt(landWorldTile({ x: 8, y: 50 }))).toBe(false); // the old islet's water
-    expect(isObstacleAt(zoneWorldTile({ x: 0, y: 55 }))).toBe(false); // deep in the shoals
+    // RIM FIELD: the extreme south-west edge is now the land bank enclosing Wreck Shoal.
+    expect(isObstacleAt(zoneWorldTile({ x: 0, y: 55 }))).toBe(true);
     // Open sea stays open.
     expect(isObstacleAt(zoneWorldTile({ x: 10, y: 30 }))).toBe(false);
     expect(isObstacleAt(zoneWorldTile({ x: 45, y: 10 }))).toBe(false);
-    expect(isObstacleAt(zoneWorldTile({ x: 38, y: 52 }))).toBe(false);
+    // RIM FIELD REVISION 1: the asymmetric south bank is sampled at its deeper western shoulder.
+    expect(isObstacleAt(zoneWorldTile({ x: 38, y: 55 }))).toBe(true);
   });
 
   it("resolves invalid targets to the nearest valid water deterministically", () => {

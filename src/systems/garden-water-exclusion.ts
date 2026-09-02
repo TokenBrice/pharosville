@@ -11,6 +11,7 @@ import { stableFnv1aHash } from "./stable-random";
 import { landWorldTile } from "./map-scale";
 import type { GardenHullSilhouette } from "./garden-observatory-slice";
 import { SHIP_HULL_FORM_SPAN } from "./world-types";
+import { rimLandAt, rimShoreDistance } from "./garden-rim";
 
 // Zones-v2 placement fix (2026-07-24): ship-vs-land exclusion for the RENDERED
 // garden composition. The data map (`terrainKindAt` in world-layout.ts) and
@@ -148,7 +149,7 @@ function circleValue(point: { x: number; y: number }, circle: GardenCircle, marg
 
 /**
  * True when the tile-center at (x, y) falls inside a rendered landmass
- * (island rock, garden islets, cemetery, pigeonnier). Used by data-side
+ * (authored rim, island rock, garden islets, cemetery, pigeonnier). Used by data-side
  * placement and A* motion routing so ships and waypoints never occupy or
  * cross rendered rock. Docks are deliberately excluded: moorings live
  * beside them by design.
@@ -179,6 +180,7 @@ export function isGardenObstacleTile(x: number, y: number): boolean {
 let obstacleTileMask: Uint8Array | null = null;
 
 function resolveGardenObstacleTile(x: number, y: number): boolean {
+  if (rimLandAt(x, y)) return true;
   const point = { x, y };
   if (ellipseValue(point, GARDEN_ISLAND_OBSTACLE, 0) < 1) return true;
   if (ellipseValue(point, GARDEN_CEMETERY_OBSTACLE, 0) < 1) return true;
@@ -201,6 +203,7 @@ export function isGardenShipWater(
   includeDocks = false,
 ): boolean {
   if (point.x < 0 || point.y < 0 || point.x > MAX_TILE_X || point.y > MAX_TILE_Y) return false;
+  if (rimShoreDistance(point.x, point.y) <= marginTiles) return false;
   if (ellipseValue(point, GARDEN_ISLAND_OBSTACLE, marginTiles) < 1) return false;
   if (ellipseValue(point, GARDEN_CEMETERY_OBSTACLE, marginTiles) < 1) return false;
   if (circleValue(point, GARDEN_PIGEONNIER_OBSTACLE, marginTiles) < 1) return false;
@@ -221,9 +224,8 @@ export function isGardenShipWater(
  * already valid, otherwise rejection-samples expanding rings around it
  * (several seeded angles per ring so a nearby valid arc beats a far random
  * one) and takes the first valid candidate. The map is mostly water, so the
- * search always succeeds well within the attempt budget; the final fallback
- * merely clamps into bounds (never onto land — every obstacle is far from
- * the map edge).
+ * search normally succeeds well within the attempt budget. The deterministic
+ * full-grid fallback matters now that the authored rim makes the map edge land.
  */
 export function nearestGardenShipWater(
   point: { x: number; y: number },
@@ -244,6 +246,19 @@ export function nearestGardenShipWater(
     };
     if (isGardenShipWater(candidate, marginTiles, includeDocks)) return candidate;
   }
+  let best: { x: number; y: number } | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let y = 0; y <= MAX_TILE_Y; y += 1) {
+    for (let x = 0; x <= MAX_TILE_X; x += 1) {
+      const candidate = { x, y };
+      if (!isGardenShipWater(candidate, marginTiles, includeDocks)) continue;
+      const distance = (x - point.x) ** 2 + (y - point.y) ** 2;
+      if (distance >= bestDistance) continue;
+      bestDistance = distance;
+      best = candidate;
+    }
+  }
+  if (best) return best;
   return {
     x: Math.max(0, Math.min(MAX_TILE_X, point.x)),
     y: Math.max(0, Math.min(MAX_TILE_Y, point.y)),

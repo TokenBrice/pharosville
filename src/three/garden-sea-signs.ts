@@ -18,7 +18,10 @@ import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import {
   BOARD_BASE_Y,
   BOARD_HEIGHT,
+  BOARD_THICKNESS,
   BOARD_WIDTH,
+  PILING_RADIUS,
+  PILING_SPREAD,
   SEA_SIGN_BOARD,
   createSeaSignScaleTrack,
   seaSignSites,
@@ -104,10 +107,6 @@ export interface GardenSeaSigns {
 // Board proportions, in world units at zoom 1. The siting and face geometry
 // live in a three-free module so the hit tester can share them without pulling
 // the renderer into the world chunk; re-exported here for existing callers.
-const BOARD_THICKNESS = 0.22;
-const PILING_RADIUS = 0.16;
-const PILING_SPREAD = 2.4;
-
 export {
   BOARD_BASE_Y,
   BOARD_HEIGHT,

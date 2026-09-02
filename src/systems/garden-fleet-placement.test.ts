@@ -145,8 +145,8 @@ describe("placeGardenFleet", () => {
         largestEmptyRadius = Math.max(largestEmptyRadius, nearest);
       }
     }
-    // Measured at ~19 tiles on the anchorage field; blue noise scored ~7.
-    expect(largestEmptyRadius).toBeGreaterThan(12);
+    // RIM FIELD FIX 1: the rim-only mask measures 9.38 tiles with the unchanged nine-tile lighthouse clearance.
+    expect(largestEmptyRadius).toBeGreaterThan(9);
   });
 
   it("spreads a crowded band instead of clustering it", () => {
