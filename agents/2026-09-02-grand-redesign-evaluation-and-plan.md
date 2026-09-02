@@ -154,6 +154,23 @@ Each wave is independently shippable, opens with its shed-list, captures phase-0
 - Rebatch docks, hero statics, island statics per §6. Gate: ≤450 default calls, identical frame (RMSE vs baseline within AA noise), all hit tests green.
 - Widen shadow frustum for the rim; measure.
 
+**Wave 0 ledger (2026-09-02, Apple M5 Pro, real GPU, 1600×1000, 185 ships).** Plan: `agents/2026-09-02-wave0-draw-call-funding-plan.md`.
+
+| Owner group | Before | After | How |
+|---|---|---|---|
+| wakes (`ship-wake` + `ship-bow-wave`) | 346 | 2 | `garden-wake-batch.ts` — world-wide trail/bow batches, slots for live + departing + outsider |
+| harbour ring (docks, flags, cranes, lantern ring, tide line) | 98–107 | 13 | `authorDock` → `DockRecipe`; `garden-harbor-batch.ts` — 7 vertex-coloured buckets, one `InstancedMesh` per prop kind, one instanced flag cloth; per-dock anchors |
+| island statics | 77 drawables | 61 | `mergeIslandStatics` by material signature; 13 mandatorily separate |
+| heroes | 46 (≤2 each) | 46 | already merged; Task 6 dropped |
+| fleet | 15 | 15 | unchanged |
+| **default framing, scene calls** | **676** | **~250** | target ≤450 exceeded |
+
+Gates: unit 1655/1655; lint clean; typecheck clean; animated `--assert` default PASS (250 calls, p95 16.8 ms, 72 textures); settled `--assert --reduced` PASS default (67 tex) and whole-map (70 tex); frames indistinguishable from baseline at day/dusk/night/whole-map (`outputs/w0-final-*.png` vs `outputs/redesign-*.png`). Instrument: `npm run preview -- --draw-census` (reconciles exactly to `renderer.info`).
+
+**Open gate item, inherited:** animated `--assert` at `#cam=0,0,0.28` fails on textures (79 > 72). `main` at `fb54c0c` reads the same 79 (42 scene + 37 renderer-internal), measured in-repo. Not a Wave 0 regression; **Wave 1 opens with this as Task 0** — diagnose the 37 internal textures at whole-map (post targets, PMREM, shadow map, wake field, sky billboards) and bring the framing under 72 before any plate geometry is added. The ceiling is not raised.
+
+Findings that changed the plan: the census (not estimates) put wakes, not docks or heroes, at the top; hero merging had already landed; the island's honest floor is 40 non-instanced + 21 instanced, not 12. Deferred minors carried to the final review: hoist the per-frame census callback in `world-renderer.ts`; stale `wakeSlot = -1` comment; batched wakes compose yaw only (heel dropped, accepted); add a batch-level reduced-motion wake assertion.
+
 ### Wave 1 — The frame (XL) — the wave that changes what PharosVille is
 - Finite water plane sized to plate + margin; delete the open-ocean shader domain (`MAP_CORNER_RADIUS`, `uOpenOceanRadius`, open-ocean fade) — **displaces the lozenge**.
 - Land rim geometry from an authored rim field in `src/systems/` (so placement, motion water-safety and hit tests agree); 2–4 merged meshes with vertex colours; two authored openings.

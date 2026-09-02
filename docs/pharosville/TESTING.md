@@ -306,6 +306,18 @@ The thresholds are calibrated on the DEFAULT framing, which on an RTX 5070 Ti at
 ~50 calls will trip the tripwire, and the answer is to batch it, not to raise the
 number.
 
+**Wave 0 (2026-09-02, Apple M5 Pro, 1600x1000, 185 ships).** The default
+framing now measures **~250 recurring calls** (676 before), p50/p90 16.7 ms,
+tier `full`, 72 textures on the animated arm and 67 settled. The purse came
+from three batches, each proven pixel-equivalent on the real GPU: the fleet
+wakes (346 → 2 calls — per-ship trail and bow quads had been the single
+largest owner, and the reason the total swung 693/676/578 between runs), the
+harbour ring (98 → 13; `garden-harbor-batch.ts`), and the island statics
+(77 → 61 drawables; `mergeIslandStatics`). `npm run preview -- --draw-census`
+is how those numbers were found: it wraps the renderer instance's
+`renderBufferDirect` for one settled frame and must reconcile exactly to
+`renderer.info.render.calls` — a `MISMATCH` fails `--assert`.
+
 **Whole-map framing is a valid performance case again.** At the reachable zoom
 floor (`ABSOLUTE_MIN_ZOOM` 0.28 — the viewport fit computes below it, so this is
 as far out as a visitor can pull):
@@ -314,13 +326,21 @@ as far out as a visitor can pull):
 npm run preview -- --assert --hash "#cam=0,0,0.28"
 ```
 
-measures **399 draw calls, p90 16.7 ms, tier `full`, 60 fps** over a full
+measured **399 draw calls, p90 16.7 ms, tier `full`, 60 fps** over a full
 120-sample ring (2026-07-27, RTX 5070 Ti, 1600x1000), within the same 700-call
 and 20 ms ceilings as the default framing. The old 909-call/recovery result was
 captured before whole-map detail shedding and is no longer an open debt. Do not
 raise the ceilings if this regresses. Note also that `cam=` from the URL is not
 clamped to the zoom floor, so smaller values render a framing no visitor can
 reach; anything below 0.28 is not a valid measurement.
+
+**Open gate item (2026-09-02):** on this framing the ANIMATED arm reads **79
+textures** against the 72 ceiling — 42 scene-referenced (identical to the
+default framing) plus 37 renderer-internal — and `--assert` fails on it. This
+is not Wave 0's doing: `main` at `fb54c0c` (v0.8.0) reads the same 79 with the
+same 42+37 split, measured in this checkout on a detached HEAD. The settled
+reduced arm passes at 70. It is carried as an open gate item for the frame
+wave, which re-authors this framing; do not raise the ceiling to close it.
 
 ### The CI visual lane cannot render this world
 
