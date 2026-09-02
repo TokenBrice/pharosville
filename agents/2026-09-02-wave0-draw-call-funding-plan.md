@@ -41,38 +41,51 @@
 
 ---
 
-### Task 1: Draw-owner census
+### Task 1: Draw-owner census (measured, not estimated)
 
 **Files:**
 - Create: `src/three/garden-draw-census.ts`
 - Create: `src/three/garden-draw-census.test.ts`
 - Modify: `src/renderer/render-types.ts` (metrics type)
-- Modify: `src/three/world-renderer.ts:1248-1312` (metrics assembly), reuse `textureOwnerName` at 635
+- Modify: `src/three/world-renderer.ts` — renderer construction (≈698–706), the frame `render` call site, metrics assembly (1248–1312); reuse `textureOwnerName` at 635
 - Modify: `scripts/pharosville/preview.mjs:60,386-391,1196-1219`
 - Modify: `docs/pharosville/TESTING.md` (perf section)
+
+**Design.** three assigns `renderBufferDirect` on the renderer INSTANCE in its constructor (not the prototype), and calls it once per actual draw with the real `object`, `geometry`, `material`, `group`. Wrapping the created instance for exactly one sampled frame yields the true per-owner attribution, and its sum MUST equal `renderer.info.render.calls` for that same frame — the reconciliation is an assertion, not a report. A scene-traversal count is NOT this census; it is an eligibility estimate and is not built in this wave.
 
 **Interfaces:**
 - Produces:
   ```ts
   export interface DrawOwnerCensusEntry { owner: string; calls: number; triangles: number; instanced: boolean }
   export interface DrawOwnerCensus {
-    owners: DrawOwnerCensusEntry[];          // sorted by calls desc, then owner asc
-    attributedCalls: number;                 // sum of entry.calls
-    rendererCalls: number;                   // renderer.info.render.calls at sample time
-    minimumUnattributedRendererCalls: number;// max(0, rendererCalls - attributedCalls) — composer passes, PMREM, wakes
+    owners: DrawOwnerCensusEntry[];   // sorted by calls desc, then owner asc
+    attributedCalls: number;          // sum of entry.calls — MUST equal rendererCalls
+    rendererCalls: number;            // renderer.info.render.calls measured on the sampled frame
+    sampledAtFrame: number;           // frame counter when sampled
   }
-  export function drawOwnerCensus(root: Object3D, rendererCalls: number, ownerDepth?: number): DrawOwnerCensus
+  /** Minimal structural type so the recorder is testable without a WebGL context. */
+  export interface DrawRecorderTarget {
+    renderBufferDirect: (camera: Camera, scene: Scene | null, geometry: BufferGeometry, material: Material, object: Object3D, group: { start: number; count: number } | null) => void;
+    info: { render: { calls: number } };
+  }
+  export interface DrawOwnerRecorder {
+    /** Arms the wrapper for the NEXT `render` call; the wrapper self-removes when `finish()` runs. */
+    arm(): void;
+    /** Called right after the sampled frame's `render`; returns the census or null if not armed. */
+    finish(frame: number): DrawOwnerCensus | null;
+  }
+  export function createDrawOwnerRecorder(target: DrawRecorderTarget, root: Object3D, ownerDepth?: number): DrawOwnerRecorder
   ```
-- Owner naming rule: nearest named ancestor chain, joined `/`, depth 2 by default (e.g. `content/docks`, `dock-warehouses` → `docks/dock-warehouses`). Unnamed → `object.type`.
-- A `Mesh`/`Line`/`Points` that is `visible` (and every ancestor visible) counts 1 call per material entry (array materials count per group); `InstancedMesh` counts 1 call and `count × triangles`; a `frustumCulled` object outside the camera is still counted — the census is a **scene** census (what is eligible), and the difference from `rendererCalls` is reported, never hidden.
+- Owner naming: nearest named ancestors of `object`, up to `root`, joined `/`, depth 2 (e.g. `docks/dock-warehouses`, `ships/hero-tether`). Unnamed → `object.type`.
+- Triangles per call: `group ? group.count/3 : (geometry.index?.count ?? position.count)/3`, × `object.count` for `InstancedMesh`. Shadow-map passes and the composer's full-screen quads go through the same `renderBufferDirect`, so they are attributed too (as `shadow/…` when `camera.isOrthographicCamera && scene === shadowScene` is not distinguishable — attribute by the object's owner path; a full-screen `Mesh` with no named ancestor lands as `Mesh`). The reconciliation therefore holds by construction: every counted draw is a real draw.
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 // src/three/garden-draw-census.test.ts
-import { BoxGeometry, Group, InstancedMesh, Mesh, MeshStandardMaterial, Scene } from "three";
+import { BoxGeometry, Group, InstancedMesh, Mesh, MeshStandardMaterial, OrthographicCamera, Scene } from "three";
 import { describe, expect, it } from "vitest";
-import { drawOwnerCensus } from "./garden-draw-census";
+import { createDrawOwnerRecorder, type DrawRecorderTarget } from "./garden-draw-census";
 
 function box(name: string): Mesh {
   const mesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial());
@@ -80,42 +93,76 @@ function box(name: string): Mesh {
   return mesh;
 }
 
-describe("drawOwnerCensus", () => {
-  it("attributes one call per visible mesh to its nearest named ancestors", () => {
+/** A renderer stand-in that "draws" a list of objects through renderBufferDirect and counts them in info. */
+function fakeRenderer(draws: Array<{ object: Mesh | InstancedMesh; group?: { start: number; count: number } }>): DrawRecorderTarget & { render(): void } {
+  const target: DrawRecorderTarget & { render(): void } = {
+    info: { render: { calls: 0 } },
+    renderBufferDirect() { target.info.render.calls += 1; },
+    render() {
+      target.info.render.calls = 0;
+      const camera = new OrthographicCamera();
+      for (const draw of draws) {
+        const material = Array.isArray(draw.object.material) ? draw.object.material[0] : draw.object.material;
+        target.renderBufferDirect(camera, null, draw.object.geometry, material, draw.object, draw.group ?? null);
+      }
+    },
+  };
+  return target;
+}
+
+describe("createDrawOwnerRecorder", () => {
+  it("attributes every real draw to its nearest named ancestors and reconciles exactly to info.render.calls", () => {
     const scene = new Scene();
     const content = new Group(); content.name = "content";
     const docks = new Group(); docks.name = "docks";
-    docks.add(box("dock-deck"), box("dock-deck"), box("dock-quay-wall"));
-    content.add(docks);
-    scene.add(content);
-    const census = drawOwnerCensus(scene, 3);
+    const deckA = box("dock-deck"), deckB = box("dock-deck"), quay = box("dock-quay-wall");
+    const culled = box("dock-crane");                       // in the scene, NOT drawn — must not appear
+    docks.add(deckA, deckB, quay, culled); content.add(docks); scene.add(content);
+    const renderer = fakeRenderer([{ object: deckA }, { object: deckB }, { object: quay }]);
+    const recorder = createDrawOwnerRecorder(renderer, scene);
+    recorder.arm();
+    renderer.render();
+    const census = recorder.finish(7)!;
+    expect(census.rendererCalls).toBe(3);
     expect(census.attributedCalls).toBe(3);
+    expect(census.sampledAtFrame).toBe(7);
     expect(census.owners).toEqual([
       { owner: "docks/dock-deck", calls: 2, triangles: 24, instanced: false },
       { owner: "docks/dock-quay-wall", calls: 1, triangles: 12, instanced: false },
     ]);
-    expect(census.minimumUnattributedRendererCalls).toBe(0);
   });
 
-  it("counts an InstancedMesh as one call and count-many triangles, skips invisible subtrees, and reports unattributed renderer calls", () => {
+  it("counts an InstancedMesh as one call with count-many triangles and a multi-material group per group draw", () => {
     const scene = new Scene();
-    const props = new InstancedMesh(new BoxGeometry(), new MeshStandardMaterial(), 40);
-    props.name = "dock-posts";
-    const hidden = box("dock-crane"); hidden.visible = false;
-    scene.add(props, hidden);
-    const census = drawOwnerCensus(scene, 9);
-    expect(census.owners).toEqual([{ owner: "dock-posts", calls: 1, triangles: 480, instanced: true }]);
-    expect(census.minimumUnattributedRendererCalls).toBe(8);
+    const props = new InstancedMesh(new BoxGeometry(), new MeshStandardMaterial(), 40); props.name = "dock-posts";
+    const terrace = new Mesh(new BoxGeometry(), [new MeshStandardMaterial(), new MeshStandardMaterial()]); terrace.name = "island-terrace";
+    scene.add(props, terrace);
+    const renderer = fakeRenderer([
+      { object: props },
+      { object: terrace, group: { start: 0, count: 18 } },
+      { object: terrace, group: { start: 18, count: 18 } },
+    ]);
+    const recorder = createDrawOwnerRecorder(renderer, scene);
+    recorder.arm(); renderer.render();
+    const census = recorder.finish(1)!;
+    expect(census.attributedCalls).toBe(census.rendererCalls);
+    expect(census.owners).toEqual([
+      { owner: "island-terrace", calls: 2, triangles: 12, instanced: false },
+      { owner: "dock-posts", calls: 1, triangles: 480, instanced: true },
+    ]);
   });
 
-  it("counts a multi-material mesh once per material group", () => {
+  it("restores the original renderBufferDirect after one sampled frame and returns null when not armed", () => {
     const scene = new Scene();
-    const mesh = new Mesh(new BoxGeometry(), [new MeshStandardMaterial(), new MeshStandardMaterial()]);
-    mesh.name = "island-terrace";
-    mesh.geometry.addGroup(0, 18, 0);
-    mesh.geometry.addGroup(18, 18, 1);
-    scene.add(mesh);
-    expect(drawOwnerCensus(scene, 2).owners[0].calls).toBe(2);
+    const mesh = box("x"); scene.add(mesh);
+    const renderer = fakeRenderer([{ object: mesh }]);
+    const original = renderer.renderBufferDirect;
+    const recorder = createDrawOwnerRecorder(renderer, scene);
+    expect(recorder.finish(0)).toBeNull();
+    recorder.arm(); renderer.render(); recorder.finish(1);
+    expect(renderer.renderBufferDirect).toBe(original);
+    renderer.render();                                  // second frame is not recorded
+    expect(recorder.finish(2)).toBeNull();
   });
 });
 ```
@@ -125,19 +172,19 @@ describe("drawOwnerCensus", () => {
 Run: `npm test -- src/three/garden-draw-census`
 Expected: FAIL — `Cannot find module './garden-draw-census'`.
 
-- [ ] **Step 3: Implement the census**
+- [ ] **Step 3: Implement the recorder**
 
 ```ts
 // src/three/garden-draw-census.ts
-import type { BufferGeometry, InstancedMesh, Line, Mesh, Object3D, Points } from "three";
+import type { BufferGeometry, Camera, InstancedMesh, Material, Object3D, Scene } from "three";
 
 export interface DrawOwnerCensusEntry { owner: string; calls: number; triangles: number; instanced: boolean }
-export interface DrawOwnerCensus {
-  owners: DrawOwnerCensusEntry[];
-  attributedCalls: number;
-  rendererCalls: number;
-  minimumUnattributedRendererCalls: number;
+export interface DrawOwnerCensus { owners: DrawOwnerCensusEntry[]; attributedCalls: number; rendererCalls: number; sampledAtFrame: number }
+export interface DrawRecorderTarget {
+  renderBufferDirect: (camera: Camera, scene: Scene | null, geometry: BufferGeometry, material: Material, object: Object3D, group: { start: number; count: number } | null) => void;
+  info: { render: { calls: number } };
 }
+export interface DrawOwnerRecorder { arm(): void; finish(frame: number): DrawOwnerCensus | null }
 
 function ownerName(object: Object3D, root: Object3D, depth: number): string {
   const names: string[] = [];
@@ -149,64 +196,72 @@ function ownerName(object: Object3D, root: Object3D, depth: number): string {
   return names.length ? names.reverse().join("/") : object.type;
 }
 
-function triangleCount(geometry: BufferGeometry): number {
-  const index = geometry.index;
-  const position = geometry.getAttribute("position");
-  const vertices = index ? index.count : position ? position.count : 0;
-  return Math.floor(vertices / 3);
-}
+/**
+ * Wraps the renderer INSTANCE's `renderBufferDirect` (three assigns it per instance in the
+ * constructor) for exactly one armed frame, so every counted draw is a draw that happened.
+ * `attributedCalls === rendererCalls` is therefore a reconciliation the caller may assert.
+ */
+export function createDrawOwnerRecorder(target: DrawRecorderTarget, root: Object3D, ownerDepth = 2): DrawOwnerRecorder {
+  let armed = false;
+  let original: DrawRecorderTarget["renderBufferDirect"] | null = null;
+  let byOwner = new Map<string, DrawOwnerCensusEntry>();
 
-/** Scene census of eligible draws; never a substitute for renderer.info, which it is compared against. */
-export function drawOwnerCensus(root: Object3D, rendererCalls: number, ownerDepth = 2): DrawOwnerCensus {
-  const byOwner = new Map<string, DrawOwnerCensusEntry>();
-  const visit = (object: Object3D): void => {
-    if (!object.visible) return;
-    const drawable = object as Mesh & Line & Points & InstancedMesh;
-    if (drawable.isMesh || drawable.isLine || drawable.isPoints) {
-      const materials = Array.isArray(drawable.material) ? drawable.material.length : 1;
-      const instanced = Boolean(drawable.isInstancedMesh);
-      const instances = instanced ? drawable.count : 1;
-      const owner = ownerName(object, root, ownerDepth);
-      const entry = byOwner.get(owner) ?? { owner, calls: 0, triangles: 0, instanced };
-      entry.calls += materials;
-      entry.triangles += triangleCount(drawable.geometry) * instances;
-      entry.instanced = entry.instanced || instanced;
-      byOwner.set(owner, entry);
-    }
-    for (const child of object.children) visit(child);
-  };
-  visit(root);
-  const owners = [...byOwner.values()].sort((a, b) => b.calls - a.calls || a.owner.localeCompare(b.owner));
-  const attributedCalls = owners.reduce((sum, entry) => sum + entry.calls, 0);
   return {
-    owners,
-    attributedCalls,
-    rendererCalls,
-    minimumUnattributedRendererCalls: Math.max(0, rendererCalls - attributedCalls),
+    arm() {
+      if (armed) return;
+      armed = true;
+      byOwner = new Map();
+      original = target.renderBufferDirect;
+      const wrapped = original;
+      target.renderBufferDirect = (camera, scene, geometry, material, object, group) => {
+        const owner = ownerName(object, root, ownerDepth);
+        const instanced = Boolean((object as InstancedMesh).isInstancedMesh);
+        const instances = instanced ? (object as InstancedMesh).count : 1;
+        const vertices = group ? group.count : (geometry.index?.count ?? geometry.getAttribute("position")?.count ?? 0);
+        const entry = byOwner.get(owner) ?? { owner, calls: 0, triangles: 0, instanced };
+        entry.calls += 1;
+        entry.triangles += Math.floor(vertices / 3) * instances;
+        entry.instanced = entry.instanced || instanced;
+        byOwner.set(owner, entry);
+        wrapped.call(target, camera, scene, geometry, material, object, group);
+      };
+    },
+    finish(frame) {
+      if (!armed) return null;
+      armed = false;
+      if (original) target.renderBufferDirect = original;
+      original = null;
+      const owners = [...byOwner.values()].sort((a, b) => b.calls - a.calls || a.owner.localeCompare(b.owner));
+      return {
+        owners,
+        attributedCalls: owners.reduce((sum, entry) => sum + entry.calls, 0),
+        rendererCalls: target.info.render.calls,
+        sampledAtFrame: frame,
+      };
+    },
   };
 }
 ```
-
-Note the visibility walk is manual (not `traverse`) so an invisible ancestor hides its subtree, matching what the renderer draws.
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- src/three/garden-draw-census`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: Wire into metrics**
+- [ ] **Step 5: Wire into the frame loop and metrics**
 
-In `src/renderer/render-types.ts` add to `PharosVilleRenderMetrics`: `drawOwnerCensus: DrawOwnerCensus | null;` (import the type from `../three/garden-draw-census`). In `world-renderer.ts` beside `lastTextureOwnerCensus` (≈752) add `let lastDrawOwnerCensus: DrawOwnerCensus | null = null;` and, in the same block that refreshes the texture census on `contentReplacementCount` change (≈1253–1260), set `lastDrawOwnerCensus = drawOwnerCensus(scene.root, sceneCalls);`. Add `drawOwnerCensus: lastDrawOwnerCensus,` to the metrics object (≈1309). Add `drawOwnerCensus: null` to the zero-metrics default (≈1320–1331). Fix the `getPassList`/metrics mocks in `src/hooks/use-world-render-loop.test.tsx` and `src/three/world-renderer.test.ts` if they enumerate metric keys exhaustively (grep `textureOwnerCensus` in tests and add the sibling key).
+In `src/renderer/render-types.ts` add to `PharosVilleRenderMetrics`: `drawOwnerCensus: DrawOwnerCensus | null;`. In `world-renderer.ts`: after the `WebGLRenderer` is constructed (≈706) create `const drawRecorder = createDrawOwnerRecorder(renderer, scene.root);` (the `WebGLRenderer` satisfies `DrawRecorderTarget` structurally). Keep `let lastDrawOwnerCensus: DrawOwnerCensus | null = null;` beside `lastTextureOwnerCensus` (≈752). In the same block that refreshes the texture census when `contentReplacementCount` changes (≈1253–1260) call `drawRecorder.arm()` — this arms the NEXT frame. Immediately after the frame's composer/renderer `render(...)` call (find the single site that increments the frame counter / reads `renderer.info.render`), call `const sampled = drawRecorder.finish(frameCounter); if (sampled) { lastDrawOwnerCensus = sampled; if (sampled.attributedCalls !== sampled.rendererCalls) console.warn("[pharosville] draw census did not reconcile", sampled.attributedCalls, sampled.rendererCalls); }`. Note `renderer.info.autoReset` — if the frame loop resets info manually, read `info.render.calls` BEFORE the reset; place `finish` accordingly. Add `drawOwnerCensus: lastDrawOwnerCensus,` to the metrics object (≈1309) and `drawOwnerCensus: null` to the zero-metrics default (≈1320–1331). Update exhaustive metric mocks in `src/hooks/use-world-render-loop.test.tsx` / `src/three/world-renderer.test.ts` (grep `textureOwnerCensus` and add the sibling key).
 
 - [ ] **Step 6: Preview flag**
 
-In `scripts/pharosville/preview.mjs`: add `--draw-census` to the usage block (after line 60), read `m?.drawOwnerCensus ?? null` into the metrics snapshot (≈1197), and add:
+In `scripts/pharosville/preview.mjs`: add `--draw-census` to the usage block (after line 60); read `m?.drawOwnerCensus ?? null` into the metrics snapshot (≈1197); add:
 
 ```js
 function printDrawOwnerCensus(census) {
   if (!census) { console.log("draws      owner census unavailable"); return; }
-  console.log(`draws      ${census.attributedCalls} scene-attributed · at least`
-    + ` ${census.minimumUnattributedRendererCalls} composer/offscreen/unattributed`);
+  const reconciled = census.attributedCalls === census.rendererCalls ? "reconciled" : "MISMATCH";
+  console.log(`draws      ${census.attributedCalls} attributed · ${census.rendererCalls} renderer.info · ${reconciled}`
+    + ` · frame ${census.sampledAtFrame}`);
   for (const entry of census.owners) {
     console.log(`           ${String(entry.calls).padStart(4, " ")}  ${String(entry.triangles).padStart(8, " ")}`
       + `  ${entry.instanced ? "I" : " "}  ${entry.owner}`);
@@ -214,26 +269,23 @@ function printDrawOwnerCensus(census) {
 }
 ```
 
-Call it when `args["draw-census"]` is set, right after `printTextureOwnerCensus` is considered (≈386–391).
+Call it when `args["draw-census"]` is set (beside the texture census printer, ≈386–391). In `--assert` mode, a `MISMATCH` census is a FAIL (exit 1): an attribution that does not sum to the renderer's own count is not a measurement.
 
-- [ ] **Step 7: Validate against renderer.info on the real GPU**
+- [ ] **Step 7: Validate on the real GPU**
 
 Run: `npm run preview -- --url http://localhost:5173 --draw-census --out w0-census-baseline.png`
-Expected: a table; `attributedCalls + minimumUnattributedRendererCalls === sceneCalls` printed on the `draw` line; the unattributed remainder is small (composer passes ≈ 6–10, wake offscreen 2). If attributed exceeds `sceneCalls`, the census is counting frustum-culled objects — acceptable and expected at default framing for edge docks; note the figure in the commit message.
+Expected: `draws … reconciled`; the sum equals the `draw` line's scene calls for the sampled frame (the `draw` line's `recurring` figure is a rolling read and may differ by the offscreen wake pair — the census line reconciles against its OWN frame's `info`). Save the table to `outputs/w0-census-baseline.txt`.
 
-Save the printed table to `outputs/w0-census-baseline.txt` (redirect is fine here: it is scratch under `outputs/`).
-
-- [ ] **Step 8: Run focused tests, then commit**
+- [ ] **Step 8: Focused tests, then commit**
 
 Run: `npm test -- src/three/garden-draw-census src/three/world-renderer src/hooks/use-world-render-loop`
 Expected: PASS.
 
 ```bash
 git add src/three/garden-draw-census.ts src/three/garden-draw-census.test.ts src/renderer/render-types.ts src/three/world-renderer.ts scripts/pharosville/preview.mjs docs/pharosville/TESTING.md
-git commit -m "feat(renderer): a draw-call census that names every owner"
+git commit -m "feat(renderer): a draw-call census that names every owner and reconciles to info"
 ```
 
----
 
 ### Task 2: Baseline and allocation
 
