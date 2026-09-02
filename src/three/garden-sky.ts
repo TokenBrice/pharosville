@@ -213,8 +213,11 @@ export const GARDEN_CUMULUS_BILLBOARDS_ENABLED = false;
 // light geometry, so the dome and the water cannot disagree about the bearing.
 export { GARDEN_MOON_AZIMUTH };
 const MOON_ELEVATION = Math.PI * 0.34;
-const SKY_MIDDLE_DAY = new Color(HARBOR_PALETTE.moonlight);
+const SKY_MIDDLE_DAY = new Color(HARBOR_PALETTE.moonlight)
+  .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.32);
 const SKY_VISIBLE_ZENITH_DAY = new Color(HARBOR_PALETTE.deep_sea_1);
+const SKY_LOWER_DUSK = new Color(HARBOR_PALETTE.sail_teal)
+  .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.28);
 
 // Phase 2 (item 2c) kept the dome's glow, the water's glitter and the cast
 // shadows agreeing on the sun's bearing by writing that bearing down in three
@@ -465,7 +468,10 @@ function createBackdrop(domeMaterial: ShaderMaterial): {
       // Keep these separate from the dome: that material is the environment
       // probe and retains the established physical day-cycle palette.
       uHorizon: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
+      uLower: { value: DAY_CYCLE_SKY_PRESETS.night.horizon.clone() },
       uMiddle: { value: DAY_CYCLE_SKY_PRESETS.night.horizon.clone() },
+      uMoonColor: { value: MOON_COLOR.clone() },
+      uNight: { value: 1 },
       uSunColor: domeMaterial.uniforms.uSunColor,
       uSunDir: domeMaterial.uniforms.uSunDir,
       uSunIntensity: domeMaterial.uniforms.uSunIntensity,
@@ -481,7 +487,10 @@ function createBackdrop(domeMaterial: ShaderMaterial): {
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 uHorizon;
+      uniform vec3 uLower;
       uniform vec3 uMiddle;
+      uniform vec3 uMoonColor;
+      uniform float uNight;
       uniform vec3 uSunColor;
       uniform vec3 uSunDir;
       uniform float uSunIntensity;
@@ -490,15 +499,30 @@ function createBackdrop(domeMaterial: ShaderMaterial): {
       varying vec2 vScreenPosition;
       ${gardenBokashiBandGlsl()}
       void main() {
-        float skyHeight = smoothstep(0.80, 1.0, vScreenPosition.y);
-        vec3 color = mix(uHorizon, uMiddle, smoothstep(0.02, 0.42, skyHeight));
-        color = mix(color, uZenith, smoothstep(0.38, 1.0, skyHeight));
+        // A true full-height sky ladder. The first pass held skyHeight at zero
+        // for 80% of the frame and compressed every colour into the top band,
+        // producing cream paper with a navy stripe instead of atmosphere.
+        float skyHeight = clamp(vScreenPosition.y, 0.0, 1.0);
+        vec3 color = mix(uLower, uHorizon, smoothstep(0.02, 0.24, skyHeight));
+        color = mix(color, uMiddle, smoothstep(0.18, 0.58, skyHeight));
+        color = mix(color, uZenith, smoothstep(0.50, 1.0, skyHeight));
         color *= gardenBokashiShade(skyHeight, uBokashiAmount);
 
-        vec2 screenRay = normalize(vScreenPosition - vec2(0.5, 0.80) + vec2(0.0001));
-        vec2 sunScreen = normalize(vec2(uSunDir.x - uSunDir.z, uSunDir.y) + vec2(0.0001));
-        float sunPath = pow(max(0.0, dot(screenRay, sunScreen)), 10.0);
-        color += uSunColor * sunPath * uSunIntensity * 0.035 * (1.0 - skyHeight * 0.6);
+        // Project garden-sun.ts onto the sheet: morning and evening glows move
+        // with the same arc as the key light, water road, and PMREM dome.
+        vec2 sunScreen = vec2(
+          clamp(0.5 + (uSunDir.x - uSunDir.z) * 0.28, 0.08, 0.92),
+          clamp(0.14 + max(0.0, uSunDir.y) * 0.58, 0.12, 0.76)
+        );
+        vec2 sunDelta = (vScreenPosition - sunScreen) * vec2(1.0, 1.35);
+        float sunGlow = exp(-dot(sunDelta, sunDelta) * 13.0);
+        color += uSunColor * sunGlow * uSunIntensity * 0.065;
+
+        // Night stays kachi-iro, with one broad low-value halo behind the moon
+        // rather than a second flat colour band.
+        vec2 moonDelta = (vScreenPosition - vec2(0.23, 0.73)) * vec2(1.0, 1.18);
+        float moonGlow = exp(-dot(moonDelta, moonDelta) * 18.0);
+        color += uMoonColor * moonGlow * uNight * 0.07;
         gl_FragColor = vec4(color, 1.0);
       }
     `,
@@ -681,6 +705,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     const middle = dome.material.uniforms.uMiddle.value as Color;
     const backdropZenith = backdrop.material.uniforms.uZenith.value as Color;
     const backdropHorizon = backdrop.material.uniforms.uHorizon.value as Color;
+    const backdropLower = backdrop.material.uniforms.uLower.value as Color;
     const backdropMiddle = backdrop.material.uniforms.uMiddle.value as Color;
     blendDayCycleColor(
       zenith,
@@ -701,6 +726,14 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       daylight,
     );
     blendDayCycleColor(
+      backdropLower,
+      skyPresets.night.horizon,
+      SKY_LOWER_DUSK,
+      skyPresets.day.fog,
+      dusk,
+      daylight,
+    );
+    blendDayCycleColor(
       backdropZenith,
       skyPresets.night.zenith,
       skyPresets.dusk.zenith,
@@ -717,6 +750,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       daylight,
     );
     backdropHorizon.copy(fog.color);
+    backdrop.material.uniforms.uNight.value = phase.night;
     if (season === "winter") {
       // Kigo stays a small atmospheric bias: cooler air and a light value-
       // preserving desaturation, never a fourth grade or a semantic color.
@@ -767,6 +801,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       applyStorm(middle, storm);
       applyStorm(backdropZenith, storm);
       applyStorm(backdropHorizon, storm);
+      applyStorm(backdropLower, storm);
       applyStorm(backdropMiddle, storm);
       applyStorm(fog.color, storm);
       applyStorm(sunColor, storm);

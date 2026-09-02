@@ -183,9 +183,11 @@ describe("garden sky atmospheric scattering", () => {
     expect((backdrop as Mesh).geometry).toBeInstanceOf(PlaneGeometry);
     expect((backdrop as Mesh).geometry.index?.count).toBe(6);
     const source = ((backdrop as Mesh).material as ShaderMaterial).fragmentShader;
-    expect(source).toContain("smoothstep(0.80, 1.0, vScreenPosition.y)");
+    expect(source).toContain("float skyHeight = clamp(vScreenPosition.y, 0.0, 1.0)");
+    expect(source).toContain("uLower");
     expect(source).toContain("gardenBokashiShade(skyHeight, uBokashiAmount)");
-    expect(source).toContain("dot(screenRay, sunScreen)");
+    expect(source).toContain("uSunDir.x - uSunDir.z");
+    expect(source).toContain("moonGlow");
     sky.dispose();
   });
 
@@ -273,7 +275,8 @@ describe("garden sky applyPhase", () => {
     expect((backdrop.material.uniforms.uZenith.value as Color).getHex())
       .toBe(new Color(HARBOR_PALETTE.deep_sea_1).getHex());
     expect((backdrop.material.uniforms.uMiddle.value as Color).getHex())
-      .toBe(new Color(HARBOR_PALETTE.moonlight).getHex());
+      .toBe(new Color(HARBOR_PALETTE.moonlight)
+        .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.32).getHex());
     expect(sky.fog.color.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.day.fog.getHex());
   });
 
