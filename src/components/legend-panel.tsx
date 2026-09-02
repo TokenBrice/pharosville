@@ -43,7 +43,7 @@ const LEGEND_SHIP_CLASSES: ReadonlyArray<{ name: string; reading: string }> = [
   },
   {
     name: "Kobaya runner",
-    reading: "Crypto-backed centralized issuer",
+    reading: "Unclassified or missing-governance fallback",
   },
   {
     name: "Twin-hull council boat",

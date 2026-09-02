@@ -23,6 +23,8 @@ describe("LegendPanel", () => {
     ]) {
       expect(markup).toContain(family);
     }
+    expect(markup).toContain("Unclassified or missing-governance fallback");
+    expect(markup).not.toContain("Crypto-backed centralized issuer");
     expect(markup).not.toMatch(/galleon|brigantine|schooner/i);
   });
 

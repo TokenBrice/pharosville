@@ -11,6 +11,9 @@ import {
   Quaternion,
 } from "three";
 import { describe, expect, it } from "vitest";
+import { GARDEN_HULL_SILHOUETTES } from "../systems/garden-observatory-slice";
+import { gardenShipWaterMarginTiles } from "../systems/garden-water-exclusion";
+import { SHIP_HULL_FORM_SPAN } from "../systems/world-types";
 import type { ShipHull, ShipNode, ShipSizeTier } from "../systems/world-types";
 import {
   attachGardenHeroModel,
@@ -319,6 +322,21 @@ describe("S1 curved sheer hull", () => {
 });
 
 describe("W5.3 batched silhouette form", () => {
+  it("keeps every family's maximum deformed x reach inside its water clearance", () => {
+    for (const silhouette of GARDEN_HULL_SILHOUETTES) {
+      const source = createFleetBatchGeometry(silhouette);
+      source.hull.computeBoundingBox();
+      const box = source.hull.boundingBox!;
+      const undeformedReach = Math.max(Math.abs(box.min.x), Math.abs(box.max.x));
+      const requiredTiles = undeformedReach * (1 + SHIP_HULL_FORM_SPAN) / Math.SQRT2;
+      const clearanceTiles = gardenShipWaterMarginTiles(1, silhouette);
+
+      expect(clearanceTiles, silhouette).toBeGreaterThanOrEqual(requiredTiles);
+      source.hull.dispose();
+      source.sails.dispose();
+    }
+  });
+
   it("authors all six conditional fitting tags into the shared hull geometry", () => {
     const { hull, sails } = createFleetBatchGeometry("bezaisen");
     const mask = hull.getAttribute("aStrakeMask");

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { placeGardenFleet } from "./garden-fleet-placement";
 import { terrainKindAt } from "./world-layout";
 import { isGardenShipWater, gardenShipWaterMarginTiles } from "./garden-water-exclusion";
-import { gardenShipVisualScale } from "./garden-observatory-slice";
+import {
+  GARDEN_SILHOUETTE_FOR_HULL,
+  gardenShipVisualScale,
+} from "./garden-observatory-slice";
 import type { ShipNode, ShipWaterZone } from "./world-types";
 
 const LIGHTHOUSE = { x: 19, y: 28 };
@@ -59,7 +62,10 @@ describe("placeGardenFleet", () => {
     const tiles = ships.map((entry) => placement.tileByShipId.get(entry.id)!);
 
     for (const [index, entry] of ships.entries()) {
-      const margin = gardenShipWaterMarginTiles(gardenShipVisualScale(entry.visual.scale || 1));
+      const margin = gardenShipWaterMarginTiles(
+        gardenShipVisualScale(entry.visual.scale || 1),
+        GARDEN_SILHOUETTE_FOR_HULL[entry.visual.hull],
+      );
       expect(isGardenShipWater(tiles[index]!, margin)).toBe(true);
     }
 

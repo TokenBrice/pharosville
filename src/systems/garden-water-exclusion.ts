@@ -9,6 +9,8 @@ import {
 } from "./world-layout";
 import { stableFnv1aHash } from "./stable-random";
 import { landWorldTile } from "./map-scale";
+import type { GardenHullSilhouette } from "./garden-observatory-slice";
+import { SHIP_HULL_FORM_SPAN } from "./world-types";
 
 // Zones-v2 placement fix (2026-07-24): ship-vs-land exclusion for the RENDERED
 // garden composition. The data map (`terrainKindAt` in world-layout.ts) and
@@ -98,11 +100,21 @@ const GARDEN_DOCK_OBSTACLES: readonly GardenCircle[] = [
 ] as const;
 const DOCK_MARGIN_SHARE = 0.5;
 
-// Hull plan half-length (pivot-to-bow) at visual scale 1, world units — the
-// clipper/galleon plan outlines in garden-ships.ts span ~4.85 world units.
+// Maximum undeformed |x| of each complete merged family hull at visual scale
+// 1, in world units. These include bevel/rake, masts, cabins, bridge/bays and
+// the kobaya bowsprit rather than merely the plan-shape bow. The focused
+// garden-ships test measures the geometry against this systems-side table so
+// the three-free clearance contract cannot silently drift from its renderer.
+const GARDEN_HULL_MAX_X_REACH_WORLD: Record<GardenHullSilhouette, number> = {
+  bezaisen: 3.7,
+  kobaya: 8.05,
+  twinhull: 4.92,
+  takasebune: 6.22,
+  junk: 3.64,
+  scow: 2.78,
+};
 // TILE_TO_WORLD duplicates garden-util's TILE_SCALE (√2) so this module stays
 // three-free.
-const HULL_BOW_REACH_WORLD = 4.9;
 const TILE_TO_WORLD = Math.SQRT2;
 // Bob/sway and Chaikin path-smoothing allowance on top of the hull plan.
 const SWAY_ALLOWANCE_TILES = 0.4;
@@ -113,9 +125,14 @@ const SWAY_ALLOWANCE_TILES = 0.4;
  * sway allowance. `visualScale` is the RENDERED scale (see
  * `gardenShipVisualScale` in garden-observatory-slice.ts).
  */
-export function gardenShipWaterMarginTiles(visualScale: number): number {
+export function gardenShipWaterMarginTiles(
+  visualScale: number,
+  silhouette: GardenHullSilhouette,
+): number {
   const scale = Math.max(0.4, visualScale || 1);
-  return (HULL_BOW_REACH_WORLD * scale) / TILE_TO_WORLD + SWAY_ALLOWANCE_TILES;
+  const deformedReach = GARDEN_HULL_MAX_X_REACH_WORLD[silhouette]
+    * (1 + SHIP_HULL_FORM_SPAN);
+  return (deformedReach * scale) / TILE_TO_WORLD + SWAY_ALLOWANCE_TILES;
 }
 
 function ellipseValue(point: { x: number; y: number }, ellipse: GardenEllipse, margin: number): number {

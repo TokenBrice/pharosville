@@ -210,7 +210,10 @@ export function resolveGardenShipDisplayTile(input: {
   if (sample?.state === "moored" || sample?.state === "arriving" || sample?.state === "departing") {
     return display;
   }
-  const margin = gardenShipWaterMarginTiles(gardenShipVisualScale(ship.visual.scale || 1));
+  const margin = gardenShipWaterMarginTiles(
+    gardenShipVisualScale(ship.visual.scale || 1),
+    GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+  );
   return isGardenShipWater(display, margin)
     ? display
     : nearestGardenShipWater(display, margin, `motion-display.${ship.id}`);
