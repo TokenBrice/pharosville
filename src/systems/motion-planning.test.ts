@@ -152,11 +152,12 @@ describe("W4.23 calm patrol itineraries", () => {
     }
   });
 
-  it("registers all itinerary outbound/inbound legs in the route waterPaths map", () => {
+  it("materializes every itinerary path before frame-time sampling", () => {
     const world = worldForDocklessShip();
     const ship = world.ships[0]!;
     const route = buildMotionPlan(world, ship.detailId).shipRoutes.get(ship.id)!;
     const patrol = route.openWaterPatrol!;
+    expect([...route.waterPaths.values()]).toHaveLength(patrol.itinerary.length * 2);
     for (const leg of patrol.itinerary) {
       const outKey = `${leg.outbound.from.x}.${leg.outbound.from.y}->${leg.outbound.to.x}.${leg.outbound.to.y}`;
       const inKey = `${leg.inbound.from.x}.${leg.inbound.from.y}->${leg.inbound.to.x}.${leg.inbound.to.y}`;

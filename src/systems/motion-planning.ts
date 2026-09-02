@@ -13,7 +13,7 @@ import {
   MOTION_UNDERWAY_MIN_TILES_PER_SECOND,
   OPEN_WATER_PATROL_WAYPOINTS,
 } from "./motion-config";
-import { buildCachedShipWaterRoute, LazyShipWaterPathMap, nearestMapWaterTile, reverseWaterPath, waterPathFromPoints } from "./motion-water";
+import { buildCachedShipWaterRoute, nearestMapWaterTile, reverseWaterPath, waterPathFromPoints } from "./motion-water";
 import { clamp, pathKey, positiveModulo } from "./motion-utils";
 import {
   STABLECOIN_SQUADS,
@@ -325,7 +325,7 @@ function buildShipMotionRoute(
   const riskRestDurationSeconds = 2 * restDurationSeconds - 2 * voyageDurationSeconds;
   const cycleSeconds = restDurationSeconds + riskRestDurationSeconds + 2 * voyageDurationSeconds;
   const underwaySpeedTilesPerSecond = shipUnderwaySpeed(ship.riskZone, speedScalar);
-  const waterPaths = new LazyShipWaterPathMap();
+  const waterPaths = new Map<string, ShipWaterPath>();
   const openWaterPatrol = dockStops.length === 0
     ? buildOpenWaterPatrol(
       ship,
@@ -352,20 +352,21 @@ function buildShipMotionRoute(
   });
 
   if (openWaterPatrol) {
-    // W4.23 — register each itinerary leg's outbound/inbound paths so the
-    // sampler can resolve any cycle's path via the shared LazyShipWaterPathMap.
+    // W4.23 — publish every itinerary leg while the plan is built. Sampling
+    // must only read route geometry; invoking even a cached path builder from
+    // RAF makes a cycle boundary capable of stalling a display frame.
     for (const leg of openWaterPatrol.itinerary) {
       const outboundKey = pathKey(leg.outbound.from, leg.outbound.to);
       const inboundKey = pathKey(leg.inbound.from, leg.inbound.to);
-      waterPaths.setBuilder(outboundKey, () => leg.outbound);
-      waterPaths.setBuilder(inboundKey, () => leg.inbound);
+      waterPaths.set(outboundKey, leg.outbound);
+      waterPaths.set(inboundKey, leg.inbound);
     }
   }
 
   for (const stop of dockStops) {
     const outboundKey = pathKey(riskTile, stop.mooringTile);
     const inboundKey = pathKey(stop.mooringTile, riskTile);
-    const outbound = () => buildCadenceWaterRoute({
+    const outbound = buildCadenceWaterRoute({
       from: riskTile,
       to: stop.mooringTile,
       map,
@@ -375,8 +376,8 @@ function buildShipMotionRoute(
       legDurationSeconds: voyageDurationSeconds,
       paceTilesPerSecond: underwaySpeedTilesPerSecond,
     }, waterRouteCache);
-    waterPaths.setBuilder(outboundKey, outbound);
-    waterPaths.setBuilder(inboundKey, () => reverseWaterPath(outbound()));
+    waterPaths.set(outboundKey, outbound);
+    waterPaths.set(inboundKey, reverseWaterPath(outbound));
   }
 
   // E2: change24hPct is in percent units (e.g. 10 means 10%) per recent-change.ts:16
@@ -546,7 +547,7 @@ function buildConsortMotionRoute(
     dockStopSchedule: [],
     homeDockId: null,
     openWaterPatrol,
-    waterPaths: new LazyShipWaterPathMap(),
+    waterPaths: new Map<string, ShipWaterPath>(),
     routeSeed: flagshipRoute.routeSeed,
     formationOffset,
     // E1/E2/E3: consorts use their own ship's signals (not the flagship's),

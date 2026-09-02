@@ -3,7 +3,7 @@ import { isGardenObstacleTile } from "./garden-water-exclusion";
 import { isSeawallBarrierTile, isSeawallBarrierTileXY } from "./seawall";
 import { stableHash, stableOffset, stableUnit } from "./stable-random";
 import { clamp, normalizeHeadingInto, pathKey, sameTile } from "./motion-utils";
-import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipWaterPath, ShipWaterPathBuilder, ShipWaterRouteCache } from "./motion-types";
+import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
 import type { PharosVilleMap, PharosVilleTile, ShipWaterZone } from "./world-types";
 
 export function buildShipWaterRoute(input: {
@@ -81,34 +81,6 @@ export function nearestMapWaterTile(tile: { x: number; y: number }, map: PharosV
     }
   }
   return bestTile ?? rounded;
-}
-
-export class LazyShipWaterPathMap extends Map<string, ShipWaterPath> {
-  private readonly builders = new Map<string, ShipWaterPathBuilder>();
-
-  override get size(): number {
-    return this.builders.size;
-  }
-
-  setBuilder(key: string, builder: ShipWaterPathBuilder): void {
-    this.builders.set(key, builder);
-  }
-
-  override get(key: string): ShipWaterPath | undefined {
-    const cached = super.get(key);
-    if (cached) return cached;
-
-    const builder = this.builders.get(key);
-    if (!builder) return undefined;
-
-    const path = builder();
-    super.set(key, path);
-    return path;
-  }
-
-  override has(key: string): boolean {
-    return this.builders.has(key);
-  }
 }
 
 export function warmAllWaterPaths(plan: PharosVilleMotionPlan | PharosVilleBaseMotionPlan): void {

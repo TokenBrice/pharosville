@@ -370,6 +370,8 @@ try {
   if (!args.reduced) printFrameTail(metrics);
   console.log(`tier       ${metrics.tier} (session worst: ${metrics.tierReached})`
     + ` · composer ${metrics.composer ? "on" : "off"}`);
+  console.log(`motion     sample ${round(metrics.sampleDurationMs)}ms · hit targets ${round(metrics.hitTargetDurationMs)}ms`
+    + ` · draw submit ${round(metrics.drawDurationMs)}ms`);
   console.log(`draw       ${metrics.calls} recurring calls (${metrics.sceneCalls} scene +`
     + ` ${metrics.offscreenCalls} offscreen) · ${metrics.triangles} tris · ${metrics.geometries} geoms`
     + ` · ${metrics.textures} textures · fleet ${metrics.fleetDraws}`);
@@ -1218,6 +1220,9 @@ function readMetrics(page) {
       logoAssetsLoaded: m?.logoAssetsLoaded ?? null,
       longtaskCount: m?.longtask?.count ?? null,
       longtaskMaxMs: m?.longtask?.maxDurationMs ?? null,
+      sampleDurationMs: m?.sampleDurationMs ?? null,
+      hitTargetDurationMs: m?.hitTargetDurationMs ?? null,
+      drawDurationMs: m?.drawDurationMs ?? null,
       maxFrameMs: m?.framePacing?.maxMs ?? null,
       p50: m?.framePacing?.p50Ms ?? null,
       p90: m?.framePacing?.p90Ms ?? null,

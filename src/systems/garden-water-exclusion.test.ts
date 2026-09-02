@@ -26,6 +26,7 @@ import {
   gardenShipWaterMarginTiles,
   isGardenObstacleTile,
   isGardenShipWater,
+  isGardenShipWaterSlow,
   nearestGardenShipWater,
 } from "./garden-water-exclusion";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
@@ -58,6 +59,23 @@ function shipMargin(ship: { visual: { hull: keyof typeof GARDEN_SILHOUETTE_FOR_H
 }
 
 describe("garden water exclusion (zones-v2 placement fix)", () => {
+  it("matches the exact water predicate across a sampled grid", () => {
+    const margins = [0, 1, 3, 5.5];
+    for (const margin of margins) {
+      for (let y = 0.25; y <= 139; y += 2.75) {
+        for (let x = 0.25; x <= 139; x += 2.75) {
+          const point = { x, y };
+          for (const includeDocks of [false, true]) {
+            expect(
+              isGardenShipWater(point, margin, includeDocks),
+              `(${x},${y}) margin ${margin} docks ${includeDocks}`,
+            ).toBe(isGardenShipWaterSlow(point, margin, includeDocks));
+          }
+        }
+      }
+    }
+  });
+
   it("keeps the complete hull inside the finite playable sea at rim openings", () => {
     const margin = 3;
     // The north opening has no rim land to provide this clearance, so the map

@@ -33,8 +33,6 @@ export interface ShipWaterRouteCache {
   get(key: string): ShipWaterPath | undefined;
   set(key: string, value: ShipWaterPath): void;
 }
-export type ShipWaterPathBuilder = () => ShipWaterPath;
-
 export interface ShipDockMotionStop {
   id: string;
   kind: "dock";

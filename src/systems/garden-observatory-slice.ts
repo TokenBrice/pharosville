@@ -175,6 +175,18 @@ export function selectGardenTransientShip(
   return entity?.kind === "ship" ? entity : null;
 }
 
+interface GardenShipDisplayTileCacheEntry {
+  sourceX: number;
+  sourceY: number;
+  state: ShipMotionSample["state"] | undefined;
+  tile: ScreenPoint;
+}
+
+// The renderer and the hit-target snapshot resolve the same fleet positions in
+// the same frame. Ship nodes are replaced on a world rebuild, so a WeakMap
+// gives each live ship one exact last-result cache with automatic invalidation.
+const gardenShipDisplayTileCache = new WeakMap<ShipNode, GardenShipDisplayTileCacheEntry>();
+
 export function resolveGardenShipDisplayTile(input: {
   displayOffset: ScreenPoint;
   representative: boolean;
@@ -214,13 +226,27 @@ export function resolveGardenShipDisplayTile(input: {
   if (sample?.state === "moored" || sample?.state === "arriving" || sample?.state === "departing") {
     return display;
   }
+  const cached = gardenShipDisplayTileCache.get(ship);
+  if (
+    cached
+    && cached.sourceX === display.x
+    && cached.sourceY === display.y
+    && cached.state === sample?.state
+  ) return cached.tile;
   const margin = gardenShipWaterMarginTiles(
     gardenShipVisualScale(ship.visual.scale || 1),
     GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
   );
-  return isGardenShipWater(display, margin, true)
+  const resolved = isGardenShipWater(display, margin, true)
     ? display
     : nearestGardenShipWater(display, margin, `motion-display.${ship.id}`, true);
+  gardenShipDisplayTileCache.set(ship, {
+    sourceX: display.x,
+    sourceY: display.y,
+    state: sample?.state,
+    tile: resolved,
+  });
+  return resolved;
 }
 
 export function resolveGardenEntityDisplayTile(input: {

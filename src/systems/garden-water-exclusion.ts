@@ -107,6 +107,16 @@ const GARDEN_DOCK_OBSTACLES: readonly GardenCircle[] = [
 ] as const;
 const DOCK_MARGIN_SHARE = 0.5;
 
+interface GardenWaterSafetyDistanceField {
+  /** Conservative clearance to map edge, rim and every solid obstacle. */
+  solid: Float64Array;
+  /** Conservative clearance to every dock apron before its half-margin. */
+  docks: Float64Array;
+  width: number;
+}
+
+let waterSafetyDistanceField: GardenWaterSafetyDistanceField | null = null;
+
 // Maximum undeformed |x| of each complete merged family hull at visual scale
 // 1, in world units. These include bevel/rake, masts, cabins, bridge/bays and
 // the kobaya bowsprit rather than merely the plan-shape bow. The focused
@@ -220,6 +230,21 @@ export function isGardenShipWater(
   includeDocks = false,
 ): boolean {
   const mapMargin = Math.max(0, marginTiles);
+  if (gardenWaterSafetyLookup(point, mapMargin, includeDocks)) return true;
+  return isGardenShipWaterSlow(point, mapMargin, includeDocks);
+}
+
+/**
+ * Exact predicate retained as the oracle for the conservative O(1) fast path.
+ * It is also the uncommon boundary fallback: the lookup only certifies cells
+ * whose entire area is safe, so ambiguous cells preserve the old decisions.
+ */
+export function isGardenShipWaterSlow(
+  point: { x: number; y: number },
+  marginTiles: number,
+  includeDocks = false,
+): boolean {
+  const mapMargin = Math.max(0, marginTiles);
   if (
     point.x < mapMargin || point.y < mapMargin
     || point.x > MAX_TILE_X - mapMargin || point.y > MAX_TILE_Y - mapMargin
@@ -241,6 +266,87 @@ export function isGardenShipWater(
     }
   }
   return true;
+}
+
+/**
+ * Build one static, conservative distance field for the authored geography.
+ * Each entry is a lower bound for every point in its 1×1 tile cell. A query
+ * above the requested hull margin is therefore provably safe; only shoreline
+ * cells fall back to the exact legacy predicate.
+ *
+ * Circles use their exact signed radial clearance. Ellipses use an enclosing
+ * circle, deliberately conservative but never permissive. The rim field is
+ * bilinear inside a tile, so its minimum is attained at one of the corners.
+ */
+function getGardenWaterSafetyDistanceField(): GardenWaterSafetyDistanceField {
+  if (waterSafetyDistanceField) return waterSafetyDistanceField;
+  const width = MAX_TILE_X + 1;
+  const height = MAX_TILE_Y + 1;
+  const solid = new Float64Array(width * height);
+  const docks = new Float64Array(width * height);
+
+  for (let y = 0; y < height; y += 1) {
+    const y1 = Math.min(MAX_TILE_Y, y + 1);
+    for (let x = 0; x < width; x += 1) {
+      const x1 = Math.min(MAX_TILE_X, x + 1);
+      const centerX = (x + x1) * 0.5;
+      const centerY = (y + y1) * 0.5;
+      const cellRadius = Math.hypot(x1 - x, y1 - y) * 0.5;
+      let solidClearance = Math.min(x, y, MAX_TILE_X - x1, MAX_TILE_Y - y1);
+      solidClearance = Math.min(
+        solidClearance,
+        rimShoreDistance(x, y),
+        rimShoreDistance(x1, y),
+        rimShoreDistance(x, y1),
+        rimShoreDistance(x1, y1),
+      );
+
+      const ellipseClearance = (ellipse: GardenEllipse) => (
+        Math.hypot(centerX - ellipse.x, centerY - ellipse.y)
+          - Math.max(ellipse.rx, ellipse.ry) - cellRadius
+      );
+      const circleClearance = (circle: GardenCircle) => (
+        Math.hypot(centerX - circle.x, centerY - circle.y) - circle.r - cellRadius
+      );
+      solidClearance = Math.min(
+        solidClearance,
+        ellipseClearance(GARDEN_ISLAND_OBSTACLE),
+        ellipseClearance(GARDEN_CEMETERY_OBSTACLE),
+        circleClearance(GARDEN_PIGEONNIER_OBSTACLE),
+      );
+      for (const islet of GARDEN_ISLET_OBSTACLES) {
+        solidClearance = Math.min(solidClearance, circleClearance(islet));
+      }
+      for (const edge of GARDEN_EDGE_STONE_OBSTACLES) {
+        solidClearance = Math.min(solidClearance, circleClearance(edge));
+      }
+
+      let dockClearance = Number.POSITIVE_INFINITY;
+      for (const dock of GARDEN_DOCK_OBSTACLES) {
+        dockClearance = Math.min(dockClearance, circleClearance(dock));
+      }
+      const index = y * width + x;
+      solid[index] = solidClearance;
+      docks[index] = dockClearance;
+    }
+  }
+  waterSafetyDistanceField = { docks, solid, width };
+  return waterSafetyDistanceField;
+}
+
+function gardenWaterSafetyLookup(
+  point: { x: number; y: number },
+  marginTiles: number,
+  includeDocks: boolean,
+): boolean {
+  if (
+    !Number.isFinite(point.x) || !Number.isFinite(point.y)
+    || point.x < 0 || point.y < 0 || point.x > MAX_TILE_X || point.y > MAX_TILE_Y
+  ) return false;
+  const field = getGardenWaterSafetyDistanceField();
+  const index = Math.floor(point.y) * field.width + Math.floor(point.x);
+  return field.solid[index]! > marginTiles
+    && (!includeDocks || field.docks[index]! > marginTiles * DOCK_MARGIN_SHARE);
 }
 
 /**
