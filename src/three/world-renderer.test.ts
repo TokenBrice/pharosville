@@ -1370,14 +1370,14 @@ describe("W4.1 per-part refresh reconciliation", () => {
 
     const selectedFrame = rendererFrame(world, "full", {
       selectedDetailId: outsider.detailId,
+      shipMotionSamples: new Map([[outsider.id, {
+        heading: { x: 1, y: 0 },
+        mapVisibilityAlpha: 1,
+        state: "sailing",
+        tile: outsider.tile,
+        wakeIntensity: 1,
+      } as ShipMotionSample]]),
     });
-    selectedFrame.shipMotionSamples.set(outsider.id, {
-      heading: { x: 1, y: 0 },
-      mapVisibilityAlpha: 1,
-      state: "sailing",
-      tile: outsider.tile,
-      wakeIntensity: 1,
-    } as ShipMotionSample);
     renderer.render(selectedFrame);
 
     const scene = rendererHarness.instances.at(-1)!.lastScene!;
@@ -1446,6 +1446,7 @@ function rendererFrame(
     hoveredDetailId?: string | null;
     reducedMotion?: boolean;
     selectedDetailId?: string | null;
+    shipMotionSamples?: ReadonlyMap<string, ShipMotionSample>;
     timeSeconds?: number;
     wallClockHour?: number;
   } = {},
@@ -1453,7 +1454,7 @@ function rendererFrame(
   const reducedMotion = options.reducedMotion ?? false;
   const camera = defaultCamera({ height: 1000, map: world.map, width: 1440 });
   if (options.cameraZoom != null) camera.zoom = options.cameraZoom;
-  const samples = new Map<string, ShipMotionSample>();
+  const samples = new Map<string, ShipMotionSample>(options.shipMotionSamples);
   const representative = selectGardenObservatorySlice(world, null).ships[0]?.ship;
   if (representative) {
     samples.set(representative.id, {
