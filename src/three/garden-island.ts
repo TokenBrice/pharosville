@@ -38,7 +38,10 @@ import type { GardenSeason } from "../systems/season";
 import type { SupplyTide } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { createLighthouse } from "./garden-lighthouse";
-import { applyGardenHeightFog } from "./garden-height-fog";
+import {
+  applyGardenHeightFog,
+  patchGardenHeightFogMaterial,
+} from "./garden-height-fog";
 import { createGardenKoi } from "./garden-koi";
 import { MOON_COLOR, type DayCyclePhase } from "./garden-day-cycle";
 import { setTilePosition, stableUnit } from "./garden-util";
@@ -255,6 +258,264 @@ export function createWaterAccents(): Group {
   return root;
 }
 
+const ISLAND_DYNAMIC_NAMES = new Set([
+  "island-koi",
+  "island-niwaki-pads",
+  "island-niwaki-trunks",
+  "island-raked-gravel",
+  "island-reflection-pond-skin",
+  "lighthouse-beam",
+  "lighthouse-beam-cone",
+  "lighthouse-beam-dust",
+  "pharos-obelisk-caps",
+  "pharos-obelisk-stone",
+]);
+
+// These groups are visibility/LOD transform boundaries. Their descendants
+// are static relative to the group and may merge with one another, but moving
+// them to the island root would leave them behind when the group is hidden or
+// scaled (notably when the procedural Pharos shell is replaced by its GLB).
+const ISLAND_DYNAMIC_CONTAINER_NAMES = new Set([
+  "island-niwaki",
+  "lighthouse-procedural-shell",
+  "lighthouse-shore-props",
+  "pharos-precinct-obelisks",
+]);
+
+const DEFAULT_STANDARD_ON_BEFORE_COMPILE = MeshStandardMaterial.prototype.onBeforeCompile;
+const DEFAULT_STANDARD_PROGRAM_CACHE_KEY = DEFAULT_STANDARD_ON_BEFORE_COMPILE.toString();
+const DEFAULT_MESH_ON_BEFORE_RENDER = Mesh.prototype.onBeforeRender;
+const DEFAULT_MESH_ON_AFTER_RENDER = Mesh.prototype.onAfterRender;
+
+interface IslandStaticMergeBucket {
+  material: MeshStandardMaterial;
+  meshes: Mesh<BufferGeometry, MeshStandardMaterial>[];
+  owner: Group;
+}
+
+function hasMaterialTexture(material: MeshStandardMaterial): boolean {
+  return Object.values(material).some((value) => (
+    value !== null
+    && typeof value === "object"
+    && (value as { isTexture?: boolean }).isTexture === true
+  ));
+}
+
+function hasUnsupportedMaterialPatch(material: MeshStandardMaterial): boolean {
+  const cacheKey = material.customProgramCacheKey();
+  if (material.userData.gardenHeightFog) {
+    return cacheKey !== `${DEFAULT_STANDARD_PROGRAM_CACHE_KEY}|garden-height-fog-v1`;
+  }
+  return material.onBeforeCompile !== DEFAULT_STANDARD_ON_BEFORE_COMPILE
+    || cacheKey !== DEFAULT_STANDARD_PROGRAM_CACHE_KEY;
+}
+
+function islandMaterialSignature(
+  material: MeshStandardMaterial,
+  mesh: Mesh,
+): string {
+  return JSON.stringify([
+    material.flatShading,
+    material.roughness,
+    material.metalness,
+    material.side,
+    material.emissive.getHexString(),
+    material.emissiveIntensity,
+    material.transparent,
+    material.opacity,
+    material.map === null,
+    mesh.castShadow,
+    mesh.receiveShadow,
+    material.name,
+    material.toneMapped,
+    material.depthWrite,
+    material.depthTest,
+    material.colorWrite,
+    material.alphaTest,
+    material.alphaHash,
+    material.alphaToCoverage,
+    material.blending,
+    material.blendSrc,
+    material.blendDst,
+    material.blendEquation,
+    material.blendSrcAlpha,
+    material.blendDstAlpha,
+    material.blendEquationAlpha,
+    material.blendColor.getHexString(),
+    material.blendAlpha,
+    material.depthFunc,
+    material.premultipliedAlpha,
+    material.dithering,
+    material.fog,
+    material.wireframe,
+    material.wireframeLinewidth,
+    material.polygonOffset,
+    material.polygonOffsetFactor,
+    material.polygonOffsetUnits,
+    material.stencilWrite,
+    material.stencilWriteMask,
+    material.stencilFunc,
+    material.stencilRef,
+    material.stencilFuncMask,
+    material.stencilFail,
+    material.stencilZFail,
+    material.stencilZPass,
+    material.shadowSide,
+    material.precision,
+    material.forceSinglePass,
+    material.allowOverride,
+    material.clipIntersection,
+    material.clipShadows,
+    material.clippingPlanes?.map((plane) => [
+      plane.normal.x,
+      plane.normal.y,
+      plane.normal.z,
+      plane.constant,
+    ]) ?? null,
+    material.defines,
+    material.envMapIntensity,
+    material.envMapRotation.x,
+    material.envMapRotation.y,
+    material.envMapRotation.z,
+    material.visible,
+    mesh.visible,
+    mesh.layers.mask,
+    mesh.renderOrder,
+    mesh.frustumCulled,
+  ]);
+}
+
+function prepareIslandMergeGeometry(
+  mesh: Mesh<BufferGeometry, MeshStandardMaterial>,
+  relativeMatrix: Matrix4,
+): BufferGeometry {
+  const geometry = mesh.geometry.index
+    ? mesh.geometry.toNonIndexed()
+    : mesh.geometry.clone();
+  geometry.applyMatrix4(relativeMatrix);
+
+  const positions = geometry.getAttribute("position");
+  const sourceColors = geometry.getAttribute("color");
+  const colors = new Float32Array(positions.count * 3);
+  for (let index = 0; index < positions.count; index += 1) {
+    const offset = index * 3;
+    colors[offset] = mesh.material.color.r
+      * (mesh.material.vertexColors && sourceColors ? sourceColors.getX(index) : 1);
+    colors[offset + 1] = mesh.material.color.g
+      * (mesh.material.vertexColors && sourceColors ? sourceColors.getY(index) : 1);
+    colors[offset + 2] = mesh.material.color.b
+      * (mesh.material.vertexColors && sourceColors ? sourceColors.getZ(index) : 1);
+  }
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+
+  // None of the eligible materials samples UVs or custom attributes. Keeping
+  // only the lit-standard inputs makes unlike primitive geometries mergeable
+  // without changing the shader program or its output.
+  for (const attribute of Object.keys(geometry.attributes)) {
+    if (attribute !== "position" && attribute !== "normal" && attribute !== "color") {
+      geometry.deleteAttribute(attribute);
+    }
+  }
+  return geometry;
+}
+
+function islandStaticMergeOwner(mesh: Mesh, root: Group): Group {
+  let ancestor = mesh.parent;
+  while (ancestor && ancestor !== root) {
+    if (ancestor instanceof Group && ISLAND_DYNAMIC_CONTAINER_NAMES.has(ancestor.name)) {
+      return ancestor;
+    }
+    ancestor = ancestor.parent;
+  }
+  return root;
+}
+
+/**
+ * Collapses immutable, untextured island meshes by their complete visible
+ * material state. Source albedo is moved into vertex colour, so differently
+ * coloured surfaces can share the resulting white material without a shade
+ * change. Dynamic, instanced, textured and shader-patched draws stay intact.
+ */
+export function mergeIslandStatics(root: Group): { merged: number; kept: number } {
+  root.updateMatrixWorld(true);
+  const ownerIds = new Map<Group, number>([[root, 0]]);
+  const buckets = new Map<string, IslandStaticMergeBucket>();
+  let kept = 0;
+
+  root.traverse((object) => {
+    if (!(object instanceof Mesh) || object instanceof InstancedMesh) return;
+    if (
+      object.userData.gardenKeepSeparate
+      || ISLAND_DYNAMIC_NAMES.has(object.name)
+      || Array.isArray(object.material)
+      || !(object.material instanceof MeshStandardMaterial)
+      || hasMaterialTexture(object.material)
+      || hasUnsupportedMaterialPatch(object.material)
+      || object.onBeforeRender !== DEFAULT_MESH_ON_BEFORE_RENDER
+      || object.onAfterRender !== DEFAULT_MESH_ON_AFTER_RENDER
+      || object.customDepthMaterial !== undefined
+      || object.customDistanceMaterial !== undefined
+      || object.geometry.drawRange.start !== 0
+      || object.geometry.drawRange.count !== Infinity
+    ) {
+      kept += 1;
+      return;
+    }
+    const owner = islandStaticMergeOwner(object, root);
+    if (!ownerIds.has(owner)) ownerIds.set(owner, ownerIds.size);
+    const signature = `${ownerIds.get(owner)}|${islandMaterialSignature(object.material, object)}`;
+    const bucket = buckets.get(signature) ?? { material: object.material, meshes: [], owner };
+    bucket.meshes.push(object as Mesh<BufferGeometry, MeshStandardMaterial>);
+    buckets.set(signature, bucket);
+  });
+
+  let merged = 0;
+  let signatureIndex = 0;
+  for (const bucket of buckets.values()) {
+    if (bucket.meshes.length < 2) {
+      kept += bucket.meshes.length;
+      continue;
+    }
+    const ownerInverse = bucket.owner.matrixWorld.clone().invert();
+    const geometries = bucket.meshes.map((mesh) => prepareIslandMergeGeometry(
+      mesh,
+      ownerInverse.clone().multiply(mesh.matrixWorld),
+    ));
+    const geometry = mergeGeometries(geometries, false);
+    for (const prepared of geometries) prepared.dispose();
+    if (!geometry) {
+      kept += bucket.meshes.length;
+      continue;
+    }
+
+    const source = bucket.meshes[0]!;
+    const material = bucket.material.clone();
+    material.color.set("#ffffff");
+    material.vertexColors = true;
+    material.userData = { ...material.userData };
+    delete material.userData.gardenHeightFog;
+    if (bucket.meshes.some((mesh) => mesh.material.userData.gardenHeightFog)) {
+      patchGardenHeightFogMaterial(material);
+    }
+    const mesh = new Mesh(geometry, material);
+    mesh.name = `island-merged-${signatureIndex}`;
+    mesh.castShadow = source.castShadow;
+    mesh.receiveShadow = source.receiveShadow;
+    mesh.renderOrder = source.renderOrder;
+    mesh.frustumCulled = source.frustumCulled;
+    bucket.owner.add(mesh);
+
+    for (const original of bucket.meshes) {
+      original.removeFromParent();
+      original.geometry.dispose();
+    }
+    merged += bucket.meshes.length - 1;
+    signatureIndex += 1;
+  }
+
+  return { merged, kept };
+}
+
 /**
  * I3 (contract C2(c)): when the integrator passes Lane W's shared cloud-shadow
  * source (`scene.water.cloudShadows`), every lit island material samples the
@@ -386,6 +647,7 @@ export function createTerracedIsland(
   );
   root.add(lighthouseRoot);
   const lighthouse = createLighthouse();
+  lighthouse.beacon.userData.gardenKeepSeparate = true;
   lighthouseRoot.add(lighthouse.root);
 
   const decoration = createIslandDecoration(season);
@@ -418,6 +680,7 @@ export function createTerracedIsland(
     createTerraceLanterns(),
     createRakedGravel(),
   );
+  mergeIslandStatics(root);
   if (cloudShadows) applyGardenCloudShadows(root, cloudShadows);
   applyGardenHeightFog(root);
 

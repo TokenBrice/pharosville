@@ -1,6 +1,8 @@
 import {
+  BoxGeometry,
   DataTexture,
   Color,
+  Group,
   InstancedMesh,
   Matrix4,
   Mesh,
@@ -22,16 +24,122 @@ import {
   GARDEN_QUAY_STAIR_TOP_Y,
   gardenIslandLanternWorldOffsets,
   gardenPrecinctObeliskGateposts,
+  mergeIslandStatics,
 } from "./garden-island";
+import { applyGardenHeightFog } from "./garden-height-fog";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 import { GARDEN_MOON_AZIMUTH } from "./garden-sun";
-import { TILE_SCALE } from "./garden-util";
+import { countDrawableObjects, TILE_SCALE } from "./garden-util";
 
 const world = {
   lighthouse: { tile: { x: 40, y: 40 }, detailId: "lighthouse" },
 } as unknown as PharosVilleWorld;
 
+function countInstanced(root: import("three").Object3D): number {
+  let count = 0;
+  root.traverse((object) => {
+    if (object instanceof InstancedMesh) count += 1;
+  });
+  return count;
+}
+
 describe("garden island rockwork", () => {
+  it("merges matching static meshes with vertex colour and height fog", () => {
+    const root = new Group();
+    const warm = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#c58a61", flatShading: true, roughness: 0.9 }),
+    );
+    const cool = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#617fa5", flatShading: true, roughness: 0.9 }),
+    );
+    cool.position.x = 3;
+    for (const mesh of [warm, cool]) {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+    }
+    root.position.set(30, 5, -11);
+    const pond = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#315f60", flatShading: true, roughness: 0.9 }),
+    );
+    pond.name = "island-reflection-pond-skin";
+    const shadowSplit = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#6d715d", flatShading: true, roughness: 0.9 }),
+    );
+    shadowSplit.name = "shadow-split-static";
+    const textured = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({
+        color: "#8a8d78",
+        flatShading: true,
+        roughness: 0.9,
+        roughnessMap: new DataTexture(),
+      }),
+    );
+    textured.name = "textured-static";
+    const explicitKeep = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#8a8d78", flatShading: true, roughness: 0.9 }),
+    );
+    explicitKeep.name = "explicit-keep-static";
+    explicitKeep.userData.gardenKeepSeparate = true;
+    const shaderPatched = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#6d715d", flatShading: true, roughness: 0.9 }),
+    );
+    shaderPatched.name = "shader-patched-static";
+    shaderPatched.material.onBeforeCompile = () => {};
+    const planting = new InstancedMesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#617fa5", flatShading: true, roughness: 0.9 }),
+      2,
+    );
+    planting.name = "island-tree-crowns";
+    root.add(warm, cool, pond, shadowSplit, textured, explicitKeep, shaderPatched, planting);
+    applyGardenHeightFog(root);
+
+    const before = countDrawableObjects(root);
+    const result = mergeIslandStatics(root);
+    const after = countDrawableObjects(root);
+    const merged = root.getObjectByName("island-merged-0") as Mesh;
+
+    expect(result.merged).toBe(1);
+    expect(after).toBe(before - 1);
+    expect(merged.castShadow).toBe(true);
+    expect(merged.receiveShadow).toBe(true);
+    expect((merged.material as MeshStandardMaterial).vertexColors).toBe(true);
+    expect((merged.material as MeshStandardMaterial).userData.gardenHeightFog).toBe(true);
+    expect(root.getObjectByName("island-reflection-pond-skin")).toBe(pond);
+    expect(root.getObjectByName("shadow-split-static")).toBe(shadowSplit);
+    expect(root.getObjectByName("textured-static")).toBe(textured);
+    expect(root.getObjectByName("explicit-keep-static")).toBe(explicitKeep);
+    expect(root.getObjectByName("shader-patched-static")).toBe(shaderPatched);
+    expect(root.getObjectByName("island-tree-crowns")).toBe(planting);
+    const colors = merged.geometry.getAttribute("color");
+    expect(new Set(Array.from({ length: colors.count }, (_, index) => (
+      new Color(colors.getX(index), colors.getY(index), colors.getZ(index)).getHex()
+    )))).toEqual(new Set([warm.material.color.getHex(), cool.material.color.getHex()]));
+    merged.geometry.computeBoundingBox();
+    expect(merged.geometry.boundingBox!.min.x).toBeCloseTo(-0.5);
+    expect(merged.geometry.boundingBox!.max.x).toBeCloseTo(3.5);
+  });
+
+  it("automatically merges island statics and never touches the pond, gravel or instanced planting", () => {
+    const island = createTerracedIsland(world);
+    const after = countDrawableObjects(island.root);
+    const secondPass = mergeIslandStatics(island.root);
+    expect(secondPass.merged).toBe(0);
+    expect(countDrawableObjects(island.root)).toBe(after);
+    expect(after).toBeLessThan(77);
+    expect(after).toBeLessThanOrEqual(40 + countInstanced(island.root));
+    for (const name of ["island-reflection-pond-skin", "island-raked-gravel", "island-tree-crowns", "island-shoreline-boulders"]) {
+      expect(island.root.getObjectByName(name), name).toBeDefined();
+    }
+  });
+
   it("re-skins the terraces as vertex-coloured stone that casts shadow", () => {
     const island = createTerracedIsland(world);
     const tiers: Mesh[] = [];
@@ -40,6 +148,7 @@ describe("garden island rockwork", () => {
         object instanceof Mesh
         && object.name !== "island-raked-gravel"
         && object.material instanceof MeshStandardMaterial
+        && object.material.roughnessMap instanceof DataTexture
         && object.material.vertexColors
         && object.geometry.getAttribute("color")
       ) {
