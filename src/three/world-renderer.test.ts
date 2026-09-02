@@ -466,6 +466,19 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
 
+  it("lets the authored waterfall displace the broad silver-water accents", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(world, "full", { timeSeconds: 12 }));
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    expect(scene.getObjectByName("garden-hero-waterfall")).toBeInstanceOf(Mesh);
+    expect(scene.getObjectByName("water-silver-accents")!.visible).toBe(false);
+    renderer.dispose();
+  });
+
   it("renders only the frame-selected almanac event and keeps reduced motion still", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({

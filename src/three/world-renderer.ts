@@ -139,6 +139,11 @@ import {
 } from "./garden-seasonal-dressing";
 import { createGardenWakes, type GardenWakes } from "./garden-wakes";
 import {
+  createGardenWaterfall,
+  GARDEN_WATERFALL_DISPLACEMENT,
+  type GardenWaterfall,
+} from "./garden-waterfall";
+import {
   assignGardenWakeSlots,
   createGardenWakeBatch,
   type GardenWakeBatch,
@@ -1706,6 +1711,8 @@ interface GardenContent {
   overviewLod: GardenOverviewLod;
   /** Wave 1: the finite garden's authored enclosing land and stroll route. */
   rim: GardenRimMesh;
+  /** Wave 7: one opaque rim-to-Calm cascade, sharing the persistent wake field. */
+  waterfall: GardenWaterfall;
   pigeonnier: GardenPigeonnierLandmark;
   pigeonnierMoverPositions: Array<{ x: number; y: number; z: number }>;
   pigeonnierMoverShips: Array<ShipVisual | null>;
@@ -2104,7 +2111,7 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
     zones: hashes.areas ?? "",
     // Pure authored terrain, but a map-size key makes an eventual design-span
     // change invalidate this part explicitly rather than by accident.
-    rim: `${world.map.width}x${world.map.height}|garden-rim-v1`,
+    rim: `${world.map.width}x${world.map.height}|garden-rim-v2-waterfall`,
     // Placement is a compile-time systems field, independent of live data.
     seaEdges: "garden-sea-edges.v1",
     docks: `${dockStructure}|${islandTileKey}`,
@@ -2241,7 +2248,7 @@ function rebuildWorldContentPart(
       buildZonesPart(content, world);
       break;
     case "rim":
-      buildRimPart(content);
+      buildRimPart(scene, content);
       scene.shadowNeedsRender = true;
       break;
     case "seaEdges":
@@ -3296,10 +3303,16 @@ function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
 }
 
 /** The authored perimeter field made tangible as one five-draw static body. */
-function buildRimPart(content: GardenContent): void {
+function buildRimPart(scene: GardenScene, content: GardenContent): void {
   const rim = createGardenRimMesh();
   content.parts.rim.root.add(rim.root);
   content.rim = rim;
+  const waterfall = createGardenWaterfall();
+  content.parts.rim.root.add(waterfall.mesh);
+  content.waterfall = waterfall;
+  // Shed-list: one authored event replaces the map-wide random silver arcs.
+  const displaced = scene.waterAccents.getObjectByName(GARDEN_WATERFALL_DISPLACEMENT);
+  if (displaced) displaced.visible = false;
 }
 
 /** Static decorative geography, built and disposed beside the zone field. */
@@ -3962,6 +3975,11 @@ function updateSceneForFrame(
     timeSeconds: frame.timeSeconds,
     weather,
   });
+  scene.content?.waterfall.update({
+    night: phase.night,
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+  }, scene.wakes);
   updateDayCycle(scene, frame, phase);
   const epistemicHaze = deriveEpistemicHaze(frame.world.freshness);
   scene.water.setPegSummaryEpistemicHaze(epistemicHaze.riskWaters);

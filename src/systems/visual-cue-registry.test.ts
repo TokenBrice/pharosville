@@ -23,7 +23,10 @@ function cueKey(cue: VisualCue): string {
 describe("buildVisualCueRegistry", () => {
   it("records sea-edge geography as decorative without adding a ledger cue", () => {
     expect(DECORATIVE_VISUAL_NOTES.seaEdgeGeography).toContain("carry no meaning");
+    expect(DECORATIVE_VISUAL_NOTES.heroWaterfall).toContain("carry no meaning");
+    expect(DECORATIVE_VISUAL_NOTES.heroWaterfall).toContain("displaces");
     expect(buildVisualCueRegistry().some((cue) => cue.id.includes("sea-edge"))).toBe(false);
+    expect(buildVisualCueRegistry().some((cue) => cue.id.includes("waterfall"))).toBe(false);
   });
 
   it("documents visual cues with source and DOM equivalents", () => {
