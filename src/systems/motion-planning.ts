@@ -1,6 +1,15 @@
 import { clampMapTile, nearestWaterTile } from "./world-layout";
-import { stableHash, stableOffset, stableUnit } from "./stable-random";
-import { DOCKED_SHIP_DWELL_SHARE, OPEN_WATER_PATROL_WAYPOINTS } from "./motion-config";
+import { stableHash, stableUnit } from "./stable-random";
+import {
+  DOCKED_SHIP_DWELL_SHARE,
+  MOTION_LEG_MAX_SECONDS,
+  MOTION_LEG_PLANNING_MIN_SECONDS,
+  MOTION_REST_MAX_SECONDS,
+  MOTION_REST_MIN_SECONDS,
+  MOTION_UNDERWAY_MAX_TILES_PER_SECOND,
+  MOTION_UNDERWAY_MIN_TILES_PER_SECOND,
+  OPEN_WATER_PATROL_WAYPOINTS,
+} from "./motion-config";
 import { buildCachedShipWaterRoute, LazyShipWaterPathMap, nearestMapWaterTile, reverseWaterPath, waterPathFromPoints } from "./motion-water";
 import { clamp, pathKey } from "./motion-utils";
 import {
@@ -239,9 +248,40 @@ export function buildBaseMotionPlan(world: PharosVilleWorld, timeSeconds = 0): P
     shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(ship.id) ?? 1));
   }
 
+  staggerFleetLegPhases(world.ships, shipRoutes);
+
   return {
     shipRoutes,
   };
+}
+
+/**
+ * Evenly stagger voyage phases on the one shared route clock. Hash-only
+ * phases clumped enough to swing a dense frame between 16% and 33% underway;
+ * weighted group slots keep the episodic cadence calm and predictable while
+ * squad members retain one phase and therefore one formation.
+ */
+function staggerFleetLegPhases(
+  ships: readonly ShipNode[],
+  routes: Map<string, ShipMotionRoute>,
+): void {
+  const groups = new Map<string, ShipNode[]>();
+  for (const ship of [...ships].sort((a, b) => a.id.localeCompare(b.id))) {
+    const key = ship.squadId ? `squad:${ship.squadId}` : `ship:${ship.id}`;
+    const group = groups.get(key);
+    if (group) group.push(ship);
+    else groups.set(key, [ship]);
+  }
+
+  let cumulativeWeight = 0;
+  for (const group of groups.values()) {
+    const phaseFraction = (cumulativeWeight + group.length / 2) / Math.max(1, ships.length);
+    for (const ship of group) {
+      const route = routes.get(ship.id);
+      if (route) route.phaseSeconds = phaseFraction * route.cycleSeconds;
+    }
+    cumulativeWeight += group.length;
+  }
 }
 
 export function buildMotionPlan(
@@ -282,7 +322,14 @@ function buildShipMotionRoute(
       dockTangent: null,
     }
     : null;
-  const cycleSeconds = shipCycleSeconds(ship, speedScalar);
+  const legDurationSeconds = shipLegDurationSeconds();
+  const restDurationSeconds = clamp(
+    legDurationSeconds * 2,
+    MOTION_REST_MIN_SECONDS,
+    MOTION_REST_MAX_SECONDS,
+  );
+  const cycleSeconds = 2 * (legDurationSeconds + restDurationSeconds);
+  const underwaySpeedTilesPerSecond = shipUnderwaySpeed(ship.riskZone, speedScalar);
   const waterPaths = new LazyShipWaterPathMap();
   const openWaterPatrol = dockStops.length === 0 || ship.riskPlacement === "ledger-mooring"
     ? buildOpenWaterPatrol(ship, riskTile, map, waterRouteCache, bucket)
@@ -337,6 +384,9 @@ function buildShipMotionRoute(
     routeEpoch: bucket,
     routeKey,
     cycleSeconds,
+    legDurationSeconds,
+    restDurationSeconds,
+    underwaySpeedTilesPerSecond,
     phaseSeconds: stableUnit(`${ship.id}.phase`) * cycleSeconds,
     riskTile,
     dockStops,
@@ -454,6 +504,9 @@ function buildConsortMotionRoute(
     ...(flagshipRoute.routeEpoch !== undefined ? { routeEpoch: flagshipRoute.routeEpoch } : {}),
     routeKey: `${flagshipRoute.routeKey ?? fallbackRouteKey(flagshipRoute)}:consort:${ship.id}:${offset.dx},${offset.dy}`,
     cycleSeconds: flagshipRoute.cycleSeconds,
+    legDurationSeconds: flagshipRoute.legDurationSeconds,
+    restDurationSeconds: flagshipRoute.restDurationSeconds,
+    underwaySpeedTilesPerSecond: flagshipRoute.underwaySpeedTilesPerSecond,
     phaseSeconds: flagshipRoute.phaseSeconds,
     riskTile,
     dockStops: [],
@@ -613,13 +666,27 @@ function primaryDockStop(ship: ShipNode, dockStops: readonly ShipMotionRoute["do
     ?? null;
 }
 
-function shipCycleSeconds(ship: ShipNode, speedScalar = 1): number {
-  const positiveChainCount = ship.chainPresence.length;
-  const renderedDockCount = ship.dockVisits.length;
-  const base = 1020;
-  const breadthBonus = Math.min(360, positiveChainCount * 30 + renderedDockCount * 24);
-  const jitter = stableOffset(`${ship.id}.cycle`, 84);
-  return clamp(base / speedScalar - breadthBonus + jitter, 660, 1320);
+function shipLegDurationSeconds(): number {
+  const base = 150;
+  return clamp(
+    base,
+    MOTION_LEG_PLANNING_MIN_SECONDS,
+    MOTION_LEG_MAX_SECONDS,
+  );
+}
+
+function shipUnderwaySpeed(zone: ShipNode["riskZone"], speedScalar: number): number {
+  const bandBase = zone === "danger" ? 0.72
+    : zone === "warning" ? 0.66
+      : zone === "alert" ? 0.6
+        : zone === "watch" ? 0.54
+          : zone === "ledger" ? 0.51
+            : 0.48;
+  return clamp(
+    bandBase * speedScalar,
+    MOTION_UNDERWAY_MIN_TILES_PER_SECOND,
+    MOTION_UNDERWAY_MAX_TILES_PER_SECOND,
+  );
 }
 
 function weightedDockStopSchedule(shipId: string, visits: readonly ShipDockVisit[]): string[] {

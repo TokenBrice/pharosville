@@ -16,15 +16,31 @@ export const BAND_FIRE_FLICKER_SPEED: Record<string, number> = {
 };
 
 export const ZONE_DWELL = {
-  alert: { riskDwell: 0.38, dockDwell: 0.18, transit: 0.44 },
-  calm: { riskDwell: 0.24, dockDwell: 0.24, transit: 0.52 },
-  danger: { riskDwell: 0.58, dockDwell: 0.06, transit: 0.36 },
-  ledger: { riskDwell: 0.48, dockDwell: 0.1, transit: 0.42 },
-  warning: { riskDwell: 0.46, dockDwell: 0.12, transit: 0.42 },
-  watch: { riskDwell: 0.3, dockDwell: 0.22, transit: 0.48 },
+  alert: { riskDwell: 1 / 3, dockDwell: 1 / 3, transit: 1 / 3 },
+  calm: { riskDwell: 1 / 3, dockDwell: 1 / 3, transit: 1 / 3 },
+  danger: { riskDwell: 1 / 3, dockDwell: 1 / 3, transit: 1 / 3 },
+  ledger: { riskDwell: 1 / 3, dockDwell: 1 / 3, transit: 1 / 3 },
+  warning: { riskDwell: 1 / 3, dockDwell: 1 / 3, transit: 1 / 3 },
+  watch: { riskDwell: 1 / 3, dockDwell: 1 / 3, transit: 1 / 3 },
 } as const satisfies Record<ShipWaterZone, { dockDwell: number; riskDwell: number; transit: number }>;
 
 export const DOCKED_SHIP_DWELL_SHARE = 1 / 3;
+
+/**
+ * Wave 4b leg cadence. A route cycle is two travel legs and two rests:
+ * berth -> risk-water waypoint -> next berth. Rest is deliberately twice the
+ * leg duration, which keeps the historical one-third berth share while making
+ * motion episodic: one third travelling, one third resting in risk water, one
+ * third visibly moored at a berth.
+ */
+export const MOTION_LEG_MIN_SECONDS = 90;
+export const MOTION_LEG_MAX_SECONDS = 180;
+export const MOTION_REST_MIN_SECONDS = 240;
+export const MOTION_REST_MAX_SECONDS = 480;
+export const MOTION_LEG_PLANNING_MIN_SECONDS = MOTION_REST_MIN_SECONDS / 2;
+export const MOTION_TRANSITION_SHARE = 0.3;
+export const MOTION_UNDERWAY_MIN_TILES_PER_SECOND = 0.45;
+export const MOTION_UNDERWAY_MAX_TILES_PER_SECOND = 0.8;
 
 export const ARRIVING_FULL_TRANSIT_END = 0.85;
 export const ARRIVING_DECEL_END = 0.96;

@@ -13,12 +13,12 @@ export const CYCLE_TEMPO_UNAVAILABLE_LABEL = "Unmeasured" as const;
 export type CycleTempoDisplayLabel = CycleTempoLabel | typeof CYCLE_TEMPO_UNAVAILABLE_LABEL;
 
 /**
- * The cycle pace now says something about transfers: it tracks the magnitude
+ * The underway leg pace tracks the magnitude
  * of the coin's 24h mint/redeem flow, not its market-cap tier. Direction stays
  * in the adjacent 24h supply-change fact.
  */
 export function cycleTempoReadingClause(): string {
-  return "cycle pace tracks 24h mint/redeem flow intensity by magnitude, not market-cap tier; unavailable flow uses neutral pace and is explicitly disclaimed";
+  return "underway leg pace tracks 24h mint/redeem flow intensity by magnitude, not market-cap tier; unavailable flow uses neutral pace and is explicitly disclaimed";
 }
 
 /**

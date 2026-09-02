@@ -232,16 +232,20 @@ function buildShipWaterRouteFromWaterTiles(input: {
   if (sameTile(from, to)) return waterPathFromPoints(from, to, [from]);
 
   const detouredPoints = findDetouredWaterPath(from, to, input.map, input.zone, input.shipId);
-  if (detouredPoints.length > 0) return waterPathFromPoints(from, to, chaikinSmoothPath(detouredPoints));
+  // Leg cadence samples substantially farther per frame than the old drift
+  // cycle. Keep the A* tile chain authoritative: corner-cut-safe adjacent
+  // water tiles guarantee every interpolated point remains water, whereas
+  // Chaikin's off-chain control points can bow briefly across a shore tile.
+  if (detouredPoints.length > 0) return waterPathFromPoints(from, to, detouredPoints);
 
   const points = findWaterPath(from, to, input.map, input.zone);
-  if (points.length > 0) return waterPathFromPoints(from, to, chaikinSmoothPath(points));
+  if (points.length > 0) return waterPathFromPoints(from, to, points);
 
   const waypoint = fallbackWaterWaypoint(from, to, input.map);
   const firstLeg = findWaterPath(from, waypoint, input.map, input.zone);
   const secondLeg = findWaterPath(waypoint, to, input.map, input.zone);
   if (firstLeg.length > 0 && secondLeg.length > 0) {
-    return waterPathFromPoints(from, to, chaikinSmoothPath([...firstLeg, ...secondLeg.slice(1)]));
+    return waterPathFromPoints(from, to, [...firstLeg, ...secondLeg.slice(1)]);
   }
 
   return waterPathFromPoints(from, to, [from]);

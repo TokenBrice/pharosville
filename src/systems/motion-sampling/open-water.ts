@@ -1,8 +1,7 @@
-import { ZONE_DWELL } from "../motion-config";
+import { MOTION_TRANSITION_SHARE } from "../motion-config";
 import { stableHash } from "../stable-random";
-import { normalizeHeadingInto, pathKey, positiveModulo, smoothstep } from "../motion-utils";
+import { pathKey, positiveModulo } from "../motion-utils";
 import type { ShipMotionRoute, ShipMotionSample, ShipWaterPath } from "../motion-types";
-import type { ShipWaterZone } from "../world-types";
 import {
   clampMotionTileInto,
   routePathIdentityKey,
@@ -12,13 +11,13 @@ import {
 } from "./shared";
 import { beginRoutePathSample } from "./memory";
 import { routeSamplingRuntime } from "./route-runtime";
-import { smoothstepSpeedRatio, transitSampleInto } from "./transit";
+import { transitSampleInto } from "./transit";
 import { riskWaterSampleInto } from "./risk-water";
 import { riskDriftSampleInto } from "./risk-drift";
 
 export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: number, out: ShipMotionSample): void {
   if (!route.openWaterPatrol) {
-    riskWaterSampleInto(route, timeSeconds, 0.18, route.cycleSeconds * ZONE_DWELL[route.zone].riskDwell, out);
+    riskWaterSampleInto(route, timeSeconds, 0.18, route.restDurationSeconds, out);
     return;
   }
   const runtime = routeSamplingRuntime(route);
@@ -26,10 +25,9 @@ export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: n
   const cyclePosition = timeSeconds + route.phaseSeconds;
   const elapsedSeconds = positiveModulo(cyclePosition, route.cycleSeconds);
   const cycleIndex = Math.floor(cyclePosition / route.cycleSeconds);
-  const zoneDwell = ZONE_DWELL[route.zone];
-  const riskSeconds = route.cycleSeconds * zoneDwell.riskDwell;
-  const waypointSeconds = route.cycleSeconds * zoneDwell.dockDwell;
-  const transitSecondsEach = (route.cycleSeconds - riskSeconds - waypointSeconds) / 2;
+  const riskSeconds = route.restDurationSeconds;
+  const waypointSeconds = route.restDurationSeconds;
+  const transitSecondsEach = route.legDurationSeconds;
   // W4.23 — pick this cycle's itinerary leg deterministically. Uses
   // stable-hash on (shipId, cycleIndex) so adjacent cycles produce different
   // anchors (Latin-square rotation across cycles).
@@ -47,12 +45,12 @@ export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: n
     transitSampleInto({
       route,
       path: leg.outbound,
-      progress: smoothstep(legProgress),
-      speedRatio: smoothstepSpeedRatio(legProgress),
+      progress: legProgress,
       transitSeconds: transitSecondsEach,
       routeStop: null,
       runtime,
       state: "sailing",
+      sampleState: legProgress < MOTION_TRANSITION_SHARE ? "departing" : "sailing",
       fromMooringStop: null,
       toMooringStop: null,
       timeSeconds,
@@ -62,7 +60,7 @@ export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: n
   cursor -= transitSecondsEach;
 
   if (cursor < waypointSeconds) {
-    openWaterWaypointDriftSampleInto(route, timeSeconds, cursor / Math.max(1, waypointSeconds), leg.waypoint, out);
+    openWaterWaypointRestSampleInto(route, timeSeconds, leg.waypoint, out);
     return;
   }
   cursor -= waypointSeconds;
@@ -71,12 +69,12 @@ export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: n
   transitSampleInto({
     route,
     path: leg.inbound,
-    progress: smoothstep(legProgress),
-    speedRatio: smoothstepSpeedRatio(legProgress),
+    progress: legProgress,
     transitSeconds: transitSecondsEach,
     routeStop: null,
     runtime,
     state: "sailing",
+    sampleState: legProgress >= 1 - MOTION_TRANSITION_SHARE ? "arriving" : "sailing",
     fromMooringStop: null,
     toMooringStop: null,
     timeSeconds,
@@ -103,10 +101,9 @@ function openWaterPatrolLegForCycle(route: ShipMotionRoute, cycleIndex: number):
   return itinerary[index]!;
 }
 
-function openWaterWaypointDriftSampleInto(
+function openWaterWaypointRestSampleInto(
   route: ShipMotionRoute,
   timeSeconds: number,
-  progress: number,
   waypoint: { x: number; y: number } | null,
   out: ShipMotionSample,
 ): void {
@@ -114,40 +111,23 @@ function openWaterWaypointDriftSampleInto(
   if (!patrol) {
     // Defensive fallback (the caller always resolves a patrol leg first);
     // preserve the raw zone-share window for the drift sampler.
-    riskDriftSampleInto(route, timeSeconds, progress, route.cycleSeconds * ZONE_DWELL[route.zone].riskDwell, out);
+    riskDriftSampleInto(route, timeSeconds, 1, route.restDurationSeconds, out);
     return;
   }
   const driftWaypoint = waypoint ?? patrol.waypoint;
   const routePathKey = routePathIdentityKey(route, "waypoint", pathKey(driftWaypoint, driftWaypoint));
   beginRoutePathSample(route, routePathKey);
-  const angle = timeSeconds * 0.023 + route.routeSeed * 0.00013 + progress * Math.PI * 2;
   out.shipId = route.shipId;
-  clampMotionTileInto(
-    driftWaypoint.x + Math.cos(angle) * 0.32,
-    driftWaypoint.y + Math.sin(angle * 0.85) * 0.22,
-    out.tile,
-  );
-  out.state = "sailing";
+  clampMotionTileInto(driftWaypoint.x, driftWaypoint.y, out.tile);
+  out.state = "risk-drift";
   out.zone = route.zone;
   writeRouteContextInto(route, routePathKey, out);
   writeMapVisibilityAlphaInto(out, 1);
   out.currentDockId = null;
   out.currentRouteStopId = null;
   out.currentRouteStopKind = null;
-  normalizeHeadingInto(-Math.sin(angle), Math.cos(angle * 0.85), out.heading);
-  writeVelocityInto(
-    out,
-    -Math.sin(angle) * 0.32 * 0.023,
-    Math.cos(angle * 0.85) * 0.22 * 0.85 * 0.023,
-  );
-  out.wakeIntensity = patrolWakeIntensityForZone(route.zone);
-}
-
-function patrolWakeIntensityForZone(zone: ShipWaterZone): number {
-  if (zone === "danger") return 0.66;
-  if (zone === "warning") return 0.54;
-  if (zone === "alert") return 0.48;
-  if (zone === "watch") return 0.38;
-  if (zone === "ledger") return 0.3;
-  return 0.28;
+  out.heading.x = Math.cos(route.routeSeed * 0.00013);
+  out.heading.y = Math.sin(route.routeSeed * 0.00013);
+  writeVelocityInto(out, 0, 0);
+  out.wakeIntensity = 0;
 }

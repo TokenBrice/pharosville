@@ -67,6 +67,12 @@ export interface ShipMotionRoute {
   routeEpoch?: number;
   routeKey?: string;
   cycleSeconds: number;
+  /** Duration of each deterministic travel leg in this route cycle. */
+  legDurationSeconds: number;
+  /** Duration of each rest following a leg. */
+  restDurationSeconds: number;
+  /** Perceptual cruise pace; risk band first, flow tempo as a modest scalar. */
+  underwaySpeedTilesPerSecond: number;
   phaseSeconds: number;
   riskTile: { x: number; y: number };
   dockStops: ShipDockMotionStop[];

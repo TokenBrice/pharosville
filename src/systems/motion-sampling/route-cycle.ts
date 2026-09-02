@@ -6,6 +6,7 @@ import { mooredSampleInto } from "./mooring";
 import { transitSampleInto } from "./transit";
 import { riskWaterSampleInto } from "./risk-water";
 import { openWaterPatrolSampleInto } from "./open-water";
+import { MOTION_TRANSITION_SHARE } from "../motion-config";
 
 export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, seaState: SeaState | null, out: ShipMotionSample): void {
   const runtime = routeSamplingRuntime(route);
@@ -24,14 +25,22 @@ export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number
     return;
   }
 
-  const riskSecondsEach = route.cycleSeconds * runtime.zoneDwell.riskDwell / stopCount;
-  const dockSecondsEach = route.cycleSeconds * runtime.zoneDwell.dockDwell / stopCount;
-  const transitSecondsEach = route.cycleSeconds * runtime.zoneDwell.transit / (stopCount * 2);
+  const riskSecondsEach = route.restDurationSeconds;
+  const dockSecondsEach = route.restDurationSeconds;
+  const transitSecondsEach = route.legDurationSeconds;
   let cursor = elapsedSeconds;
 
   for (let stopIndex = 0; stopIndex < stopCount; stopIndex += 1) {
-    const stop = scheduledDockStopAt(runtime, cycleIndex, stopIndex);
-    const nextStop = scheduledDockStopAt(runtime, cycleIndex, (stopIndex + 1) % stopCount);
+    const scheduledDockId = route.dockStopSchedule[positiveModulo(cycleIndex, route.dockStopSchedule.length)];
+    const stop = scheduledDockId
+      ? runtime.dockStopByDockId.get(scheduledDockId) ?? scheduledDockStopAt(runtime, cycleIndex, stopIndex)
+      : scheduledDockStopAt(runtime, cycleIndex, stopIndex);
+    const nextScheduledDockId = route.dockStopSchedule[
+      positiveModulo(cycleIndex + 1, route.dockStopSchedule.length)
+    ];
+    const nextStop = nextScheduledDockId
+      ? runtime.dockStopByDockId.get(nextScheduledDockId) ?? stop
+      : stop;
     if (!stop || !nextStop) break;
 
     if (cursor < dockSecondsEach) {
@@ -57,6 +66,9 @@ export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number
         progress: cursor / Math.max(1, transitSecondsEach),
         transitSeconds: transitSecondsEach,
         state: "departing",
+        sampleState: cursor / Math.max(1, transitSecondsEach) < MOTION_TRANSITION_SHARE
+          ? "departing"
+          : "sailing",
         routeStop: stop,
         seaState,
         fromMooringStop: stop,
@@ -82,6 +94,9 @@ export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number
         progress: cursor / Math.max(1, transitSecondsEach),
         transitSeconds: transitSecondsEach,
         state: "arriving",
+        sampleState: cursor / Math.max(1, transitSecondsEach) >= 1 - MOTION_TRANSITION_SHARE
+          ? "arriving"
+          : "sailing",
         routeStop: nextStop,
         seaState,
         fromMooringStop: null,

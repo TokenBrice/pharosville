@@ -3,6 +3,8 @@ import {
   ARRIVING_FULL_TRANSIT_END,
   CAST_OFF_ACCEL_END,
   CAST_OFF_LINE_RELEASE_END,
+  MOTION_UNDERWAY_MAX_TILES_PER_SECOND,
+  MOTION_UNDERWAY_MIN_TILES_PER_SECOND,
 } from "../motion-config";
 import { staleEvidenceMotionFactors } from "../motion-sampling-factors";
 import { sampleShipWaterPathInto as sampleWaterPathInto } from "../motion-water";
@@ -10,6 +12,7 @@ import { clamp, normalizeHeadingInto, smoothstep, smoothstepRange } from "../mot
 import { seaStateMooringSwayMultiplier, type SeaState } from "../sea-state";
 import type { ShipMotionRoute, ShipMotionSample, ShipMotionState, ShipWaterPath } from "../motion-types";
 import type { ShipWaterZone } from "../world-types";
+import { isWaterTileKind, tileKindAt } from "../world-layout";
 import {
   clampAroundPointInto,
   clampMotionTileInto,
@@ -45,6 +48,7 @@ const aheadLaneScratch: { x: number; y: number } = { x: 0, y: 0 };
 // Scratch tile reused inside transitSampleInto: holds the lane-adjusted point
 // before mooring blend writes it into out.tile.
 const transitTileScratch: { x: number; y: number } = { x: 0, y: 0 };
+const waterPathTileScratch: { x: number; y: number } = { x: 0, y: 0 };
 
 interface TransitPhaseProfile {
   alignmentToDockTangent: number;
@@ -148,6 +152,8 @@ export function transitSampleInto(input: {
   runtime: RouteSamplingRuntime;
   seaState?: SeaState | null;
   state: Extract<ShipMotionState, "arriving" | "departing" | "sailing">;
+  /** Perceptual phase inside a longer leg; path choreography still uses state. */
+  sampleState?: Extract<ShipMotionState, "arriving" | "departing" | "sailing">;
   fromMooringStop: ShipMotionRoute["dockStops"][number] | null;
   toMooringStop: ShipMotionRoute["dockStops"][number] | null;
   timeSeconds: number;
@@ -163,6 +169,8 @@ export function transitSampleInto(input: {
   // F10/T15: pass a route-path key so segment-index hints stay hot within a leg
   // but cannot survive route bucket or path swaps.
   sampleWaterPathInto(input.path, profile.pathProgress, out.tile, out.heading, memoryKey);
+  waterPathTileScratch.x = out.tile.x;
+  waterPathTileScratch.y = out.tile.y;
   // Apply lane offset (uses heading); write through a scratch tile because
   // the lane formula reads the un-offset point.
   transitLanePointInto(out.tile, out.heading, profile.pathProgress, input.runtime, transitTileScratch);
@@ -195,15 +203,24 @@ export function transitSampleInto(input: {
   if (input.toMooringStop && linearProgress >= ARRIVING_DECEL_END) {
     clampAroundPointInto(out.tile, input.toMooringStop.mooringTile, 0.5, out.tile);
   }
+  // Lane bulge and berth blending are presentation offsets around the
+  // authoritative A* chain. On a narrow channel they can cross the rounded
+  // shoreline even when the path itself is safe; fall back to the raw path
+  // point for that frame instead of ever rendering a hull on land.
+  if (!isWaterTileKind(tileKindAt(out.tile.x, out.tile.y))) {
+    out.tile.x = waterPathTileScratch.x;
+    out.tile.y = waterPathTileScratch.y;
+  }
   out.shipId = input.route.shipId;
-  out.state = input.state;
+  out.state = input.sampleState ?? input.state;
   out.zone = input.route.zone;
   writeRouteContextInto(input.route, routePathKey, out);
-  out.currentDockId = input.routeStop?.dockId ?? null;
-  out.currentRouteStopId = input.routeStop?.id ?? null;
-  out.currentRouteStopKind = input.routeStop?.kind ?? null;
+  const reportsDockTransition = out.state === "arriving" || out.state === "departing";
+  out.currentDockId = reportsDockTransition ? input.routeStop?.dockId ?? null : null;
+  out.currentRouteStopId = reportsDockTransition ? input.routeStop?.id ?? null : null;
+  out.currentRouteStopKind = reportsDockTransition ? input.routeStop?.kind ?? null : null;
   out.seaState = input.seaState ?? null;
-  writeMapVisibilityAlphaInto(out, transitMapVisibilityAlpha(input.state, linearProgress));
+  writeMapVisibilityAlphaInto(out, transitMapVisibilityAlpha(out.state, linearProgress));
 
   // #5: speed-aware wake. departing/arriving accelerate from rest and decelerate
   // back to rest, so wake should peak mid-leg. sailing legs pass their own
@@ -214,8 +231,20 @@ export function transitSampleInto(input: {
   // E2: multiply raw wake by the pre-computed wakeMultiplier (1.0 baseline;
   // boosted when |change24hPct| ≥ 2%). Smoothing is applied after the multiplier
   // so the smoother damps the already-scaled value — no smoothing-induced flicker.
+  const sampledSpeed = transitSpeedTilesPerSecond(input.path, input.transitSeconds, speedRatio);
+  const speed = out.state === "sailing" && sampledSpeed > 0
+    ? input.route.underwaySpeedTilesPerSecond
+    : sampledSpeed;
+  const speedWakeGain = out.state === "sailing"
+    ? 0.85 + 0.15 * clamp(
+      (speed - MOTION_UNDERWAY_MIN_TILES_PER_SECOND)
+        / (MOTION_UNDERWAY_MAX_TILES_PER_SECOND - MOTION_UNDERWAY_MIN_TILES_PER_SECOND),
+      0,
+      1,
+    )
+    : speedRatio;
   const baseWake = transitWakeIntensityForZone(input.route.zone);
-  const rawWake = baseWake * speedRatio * input.route.wakeMultiplier;
+  const rawWake = baseWake * speedWakeGain * input.route.wakeMultiplier;
   out.wakeIntensity = applyWakeSmoothing(memoryKey, input.timeSeconds, rawWake);
 
   // #4: per-ship heading low-pass filter. Path-segment tangents jump at every
@@ -237,7 +266,6 @@ export function transitSampleInto(input: {
     alignmentTangent,
     alignmentT,
   );
-  const speed = transitSpeedTilesPerSecond(input.path, input.transitSeconds, speedRatio);
   writeVelocityInto(out, out.heading.x * speed, out.heading.y * speed);
 }
 

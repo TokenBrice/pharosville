@@ -32,8 +32,12 @@ import type {
 // GARDEN_FLEET_BATCH_CAPACITY so the batches never reallocate. Composition is
 // now enforced by region-scoped placement density, not by a small count.
 export const GARDEN_OVERVIEW_SHIP_LIMIT = 320;
-/** How far a ship may travel from its composed berth, in tiles (N3). */
-export const GARDEN_MAX_MOTION_TILES = 9;
+/**
+ * Island-to-anchorage leg allowance. Wave 3's island-to-shore routes may
+ * replace this with a geography-derived bound once rim coves are authoritative.
+ */
+export const GARDEN_ISLAND_ANCHORAGE_MAX_MOTION_TILES = 72;
+export const GARDEN_MAX_MOTION_TILES = GARDEN_ISLAND_ANCHORAGE_MAX_MOTION_TILES;
 export const GARDEN_WATER_Y = -1.45;
 export const GARDEN_DOCK_ROOT_Y = GARDEN_WATER_Y + 0.2;
 export const GARDEN_SHIP_ROOT_Y = GARDEN_WATER_Y + 0.38;
