@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { PharosVilleWorld, VisualCue, VisualCueChannel } from "./world-types";
-import { buildVisualCueRegistry, LEGEND_MARK_ROWS } from "./visual-cue-registry";
+import {
+  buildVisualCueRegistry,
+  DECORATIVE_VISUAL_NOTES,
+  LEGEND_MARK_ROWS,
+} from "./visual-cue-registry";
 
 const ALLOWED_CHANNELS = [
   "color",
@@ -17,6 +21,11 @@ function cueKey(cue: VisualCue): string {
 }
 
 describe("buildVisualCueRegistry", () => {
+  it("records sea-edge geography as decorative without adding a ledger cue", () => {
+    expect(DECORATIVE_VISUAL_NOTES.seaEdgeGeography).toContain("carry no meaning");
+    expect(buildVisualCueRegistry().some((cue) => cue.id.includes("sea-edge"))).toBe(false);
+  });
+
   it("documents visual cues with source and DOM equivalents", () => {
     const cues = buildVisualCueRegistry();
 

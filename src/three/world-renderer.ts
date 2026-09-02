@@ -105,6 +105,7 @@ import {
 } from "./garden-harbor-life";
 import { createGardenHorizon, type GardenHorizon } from "./garden-horizon";
 import { createGardenSeaSigns, type GardenSeaSigns, type SeaSignSpec } from "./garden-sea-signs";
+import { createGardenSeaEdges, type GardenSeaEdges } from "./garden-sea-edges";
 import { SEA_BODY_TERRAIN, seaBodyForArea, type SeaBodyName } from "../systems/sea-bodies";
 import { createGardenIslets, type GardenIslets } from "./garden-islets";
 import {
@@ -1685,6 +1686,8 @@ interface GardenContent {
   transientRoot: Group;
   visibleShipCount: number;
   seaSigns: GardenSeaSigns;
+  /** Wave 2b: static, decorative geography at the seven named-water edges. */
+  seaEdges: GardenSeaEdges | null;
   zoneField: ZoneField;
   zones: ZoneVisual[];
 }
@@ -1707,6 +1710,7 @@ const WORLD_CONTENT_PART_ORDER = [
   "island",
   "landmarks",
   "zones",
+  "seaEdges",
   "docks",
   "harborLife",
   "cargoTide",
@@ -2031,6 +2035,8 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
     island: islandKey,
     landmarks: `${hashes.graves}|${hashes.pigeonnier}`,
     zones: hashes.areas ?? "",
+    // Placement is a compile-time systems field, independent of live data.
+    seaEdges: "garden-sea-edges.v1",
     docks: `${dockStructure}|${islandTileKey}`,
     harborLife: `${hashes.docks}|${islandTileKey}`,
     cargoTide: `${JSON.stringify(world.docks.map((dock) => [
@@ -2097,6 +2103,7 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     scalarTransitions: [],
     dockAccentTransitions: [],
     harborBatch: null,
+    seaEdges: null,
     lampStatusState: initialLampStatusState({}),
     sailAtlas: scene.sailAtlas,
     objectCount: 0,
@@ -2162,6 +2169,10 @@ function rebuildWorldContentPart(
       break;
     case "zones":
       buildZonesPart(content, world);
+      break;
+    case "seaEdges":
+      buildSeaEdgesPart(content);
+      scene.shadowNeedsRender = true;
       break;
     case "docks":
       buildDocksPart(content, world);
@@ -2274,6 +2285,10 @@ function disposeWorldContentPart(
   }
   if (name === "zones" && content.seaSigns) {
     content.seaSigns.dispose();
+  }
+  if (name === "seaEdges" && content.seaEdges) {
+    content.seaEdges.dispose();
+    content.seaEdges = null;
   }
   if (name === "ships") {
     // The transient outsider rides the ships build's cache and materials, so
@@ -3179,6 +3194,17 @@ function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
   content.seaSigns = seaSigns;
   content.zoneField = zoneField;
   content.zones = zones;
+}
+
+/** Static decorative geography, built and disposed beside the zone field. */
+function buildSeaEdgesPart(content: GardenContent): void {
+  const part = content.parts.seaEdges;
+  const seaEdges = createGardenSeaEdges();
+  part.root.add(seaEdges.root);
+  // Every form is static and lit. The part owns no emissive/source materials,
+  // so every surface may participate in the cached directional shadow map.
+  flagStaticShadowUsers(seaEdges.root);
+  content.seaEdges = seaEdges;
 }
 
 /** The harbour ring: quays, warehouses, cranes — and the lantern ring. */
