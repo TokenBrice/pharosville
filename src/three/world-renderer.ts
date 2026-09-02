@@ -3960,18 +3960,13 @@ function updateSceneForFrame(
     billboards: ["full", "balanced"].includes(seaQualityTier(frame.renderScheduler)),
     wind: weather,
   });
-  const seasonalIslandTile = gardenIslandDisplayTile(frame.world.lighthouse.tile);
   scene.almanacDressing.update({
     activeEvent: frame.almanacEvent ?? null,
     deltaSeconds: beamElapsedSeconds,
-    islandX: seasonalIslandTile.x * TILE_SCALE,
-    islandZ: seasonalIslandTile.y * TILE_SCALE,
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
   });
   scene.seasonalDressing.update({
-    islandX: seasonalIslandTile.x * TILE_SCALE,
-    islandZ: seasonalIslandTile.y * TILE_SCALE,
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
     weather,

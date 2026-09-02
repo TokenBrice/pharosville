@@ -17,13 +17,12 @@ import {
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { stableUnit } from "./garden-util";
+import { GARDEN_ENGAWA_KOI_WORLD } from "./garden-koi";
 
 /** Sparse by contract and below W6.1's hard ceiling of 64. */
 export const GARDEN_SPRING_PETAL_COUNT = 48;
 
 export interface GardenSeasonalDressingUpdate {
-  islandX: number;
-  islandZ: number;
   reducedMotion: boolean;
   timeSeconds: number;
   weather: WeatherPlan;
@@ -66,20 +65,22 @@ export function createGardenSeasonalDressing(season: GardenSeason): GardenSeason
   root.add(petals);
 
   const dummy = new Object3D();
-  const update = ({ islandX, islandZ, reducedMotion, timeSeconds, weather }: GardenSeasonalDressingUpdate): void => {
+  const update = ({ reducedMotion, timeSeconds, weather }: GardenSeasonalDressingUpdate): void => {
     const time = reducedMotion ? 0 : Math.max(0, timeSeconds);
     const breath = gardenBreathAt(time, GARDEN_BREATH_PHASE.mist);
     for (let index = 0; index < GARDEN_SPRING_PETAL_COUNT; index += 1) {
       const angle = stableUnit(`season.petal.angle.${index}`) * Math.PI * 2;
-      const radius = 18 + stableUnit(`season.petal.radius.${index}`) * 16;
-      const anchorX = islandX + Math.cos(angle) * radius;
-      const anchorZ = islandZ + Math.sin(angle) * radius * 0.72;
+      // Re-site the old island-centred ring into one small drift over the calm
+      // engawa shallows. The broad water interval remains an empty positive.
+      const radius = 0.8 + stableUnit(`season.petal.radius.${index}`) * 2.2;
+      const anchorX = GARDEN_ENGAWA_KOI_WORLD.x + Math.cos(angle) * radius;
+      const anchorZ = GARDEN_ENGAWA_KOI_WORLD.z + Math.sin(angle) * radius * 0.72;
       const gust = gardenGustAtWorldPosition(time, anchorX, anchorZ, weather, reducedMotion);
       const speed = 0.28 + weather.windSpeed * 0.72 + gust * 0.45;
-      const span = 22;
+      const span = 5;
       const travel = ((stableUnit(`season.petal.travel.${index}`) * span + time * speed) % span)
         - span * 0.5;
-      const cross = (stableUnit(`season.petal.cross.${index}`) - 0.5) * 2.4;
+      const cross = (stableUnit(`season.petal.cross.${index}`) - 0.5) * 1.4;
       dummy.position.set(
         anchorX + weather.windDirX * travel - weather.windDirZ * cross,
         GARDEN_WATER_Y + 0.065,

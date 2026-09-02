@@ -479,7 +479,7 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
 
-  it("renders only the frame-selected almanac event and keeps reduced motion still", () => {
+  it("renders only the frame-selected almanac event and holds its reduced-motion tableau", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
@@ -498,7 +498,7 @@ describe("Three world renderer lifecycle", () => {
       ...rendererFrame(world, "full", { reducedMotion: true }),
       almanacEvent: event,
     });
-    expect(scene.getObjectByName(`garden-almanac-${event.id}`)!.visible).toBe(false);
+    expect(scene.getObjectByName(`garden-almanac-${event.id}`)!.visible).toBe(true);
     renderer.dispose();
   });
 

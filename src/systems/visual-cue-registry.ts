@@ -5,6 +5,7 @@ export const DECORATIVE_VISUAL_NOTES = {
   engawaKoi: "The four koi in the calm engawa shallows carry no meaning; they displace the former reflection-basin koi without adding a draw.",
   heroWaterfall: "The engawa waterfall and its plunge foam carry no meaning; one authored fall displaces the broad random silver-water accents.",
   sharedGardenWind: "Rim pines, island niwaki pads and reeds carry no meaning; their former rigidity is displaced by the existing shared weather breath and gust, with no new oscillator.",
+  seasonalLandmarks: "Petals over the calm shallows and the heron, lantern-round and meteor landmark sightings carry no meaning; they displace the former island-centred dressing without adding draws or ember lanes.",
   seaEdgeGeography: "Named-water banks, reeds, bars, cliff, piles and inlet stones carry no meaning; the authoritative water field and existing DOM ledger remain the classification.",
 } as const;
 
