@@ -217,8 +217,6 @@ export const GARDEN_CUMULUS_BILLBOARDS_ENABLED = false;
 // W5.7 borrowed scenery stays 3% below the live fog value at every phase.
 // This is palette derivation, not a new swatch; keep it inside the plan's
 // binding 2–4% separation window.
-export const GARDEN_HEADLAND_VALUE_SCALE = 0.97;
-
 // The moon sits upper-left of the standard framing; V2's moon road aligns its
 // water glitter band to this azimuth. Re-exported from garden-sun, which owns
 // light geometry, so the dome and the water cannot disagree about the bearing.
@@ -638,7 +636,6 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     dome.mesh,
     stars.points,
     moon.group,
-    billboards.headlands.mesh,
     billboards.mist.mesh,
     billboards.clouds.mesh,
     billboards.geese.mesh,
@@ -668,9 +665,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   const mistColor = new Color();
   const cloudBodyColor = new Color();
   const cloudShadeColor = new Color();
-  const headlandColor = new Color();
   const geeseColor = new Color();
-  const headlandLanternColor = new Color(HARBOR_PALETTE.lantern_warm);
   const winterFog = new Color(HARBOR_PALETTE.fog_blue);
   const sunQuadDir = new Vector2(0, 1);
   const scratchSunPose = { direction: new Vector3(0, 1, 0), elevation: Math.PI / 2 };
@@ -684,8 +679,6 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   billboards.clouds.material.uniforms.uLitColor.value = sunColor;
   billboards.clouds.material.uniforms.uSunQuadDir.value = sunQuadDir;
   billboards.clouds.material.uniforms.uWindDir.value = windDir;
-  billboards.headlands.material.uniforms.uColor.value = headlandColor;
-  billboards.headlands.material.uniforms.uLanternColor.value = headlandLanternColor;
   billboards.geese.material.uniforms.uColor.value = geeseColor;
 
   const applyPhase = (phase: DayCyclePhase, wallClockHour: number, stormLevel = 0): void => {
@@ -869,25 +862,6 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       applyStorm(mistColor, storm);
       billboards.mist.material.uniforms.uOpacity.value = mistOpacity;
       billboards.mist.mesh.visible = showBillboards && mistOpacity > 0.008;
-
-      // W5.7 shakkei: decorative borrowed scenery only. Copying the live fog
-      // after its phase/storm grading keeps the ridge in the same air, exactly
-      // 3% lower in value. Presence—not color contrast—breathes by phase:
-      // quietest at noon, strongest in warm dawn/dusk haze. The single far
-      // lantern is also decorative and appears only during evening/night.
-      headlandColor.copy(fog.color).multiplyScalar(GARDEN_HEADLAND_VALUE_SCALE);
-      // With normal blending, opacity participates in the visible value gap:
-      // 0.74 × 3% = 2.22%, keeping the solid ridge inside the promised 2–4%
-      // separation even at noon instead of testing only its unblended swatch.
-      const headlandOpacity = Math.min(0.9, 0.74 + dusk * 0.16 + night * 0.08);
-      const normalizedHour = ((frame.wallClockHour % 24) + 24) % 24;
-      const eveningOrNight = normalizedHour >= 16 || normalizedHour < 5.5;
-      const headlandLanternOpacity = eveningOrNight
-        ? Math.min(0.95, dusk * 0.95 + night * 0.58)
-        : 0;
-      billboards.headlands.material.uniforms.uOpacity.value = headlandOpacity;
-      billboards.headlands.material.uniforms.uLanternOpacity.value = headlandLanternOpacity;
-      billboards.headlands.mesh.visible = showBillboards && headlandOpacity > 0.008;
 
       // The rejected always-on cumulus baseline remains off. W6.1 reuses the
       // high anchors only in summer, at less than half the old opacity.

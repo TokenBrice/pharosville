@@ -10,7 +10,6 @@ import {
   createGardenSky,
   GARDEN_BOKASHI_BAND,
   GARDEN_CUMULUS_BILLBOARDS_ENABLED,
-  GARDEN_HEADLAND_VALUE_SCALE,
   gardenBokashiAmount,
   gardenBokashiBandGlsl,
   gardenBokashiInk,
@@ -18,7 +17,6 @@ import {
 import {
   CLOUD_COUNT,
   GARDEN_AUTUMN_GEESE_COUNT,
-  HEADLAND_COUNT,
   MIST_BANK_COUNT,
 } from "./garden-sky-billboards";
 
@@ -41,12 +39,6 @@ function cloudsOf(sky: ReturnType<typeof createGardenSky>): InstancedMesh {
   const clouds = sky.root.getObjectByName("garden-sky-clouds");
   expect(clouds).toBeInstanceOf(InstancedMesh);
   return clouds as InstancedMesh;
-}
-
-function headlandsOf(sky: ReturnType<typeof createGardenSky>): InstancedMesh {
-  const headlands = sky.root.getObjectByName("garden-sky-borrowed-headlands");
-  expect(headlands).toBeInstanceOf(InstancedMesh);
-  return headlands as InstancedMesh;
 }
 
 function uniformsOf(mesh: InstancedMesh): ShaderMaterial["uniforms"] {
@@ -175,42 +167,6 @@ describe("garden sky billboard atmosphere", () => {
     winter.dispose();
   });
 
-  it("keeps borrowed scenery asymmetric, decorative, and value-close to fog", () => {
-    const sky = createGardenSky();
-    const headlands = headlandsOf(sky);
-    expect(headlands.count).toBe(HEADLAND_COUNT);
-    expect(HEADLAND_COUNT).toBe(1);
-    const anchors = headlands.geometry.getAttribute("aAnchor");
-    // Opposite the lighthouse-weighted diagonal; never centered or paired.
-    expect(anchors.getX(0)).not.toBe(anchors.getZ(0));
-
-    sky.update(dayCyclePhase(12), FRAME);
-    const noonOpacity = uniformsOf(headlands).uOpacity!.value as number;
-    const headlandColor = uniformsOf(headlands).uColor!.value as Color;
-    expect(headlandColor.r / sky.fog.color.r).toBeCloseTo(GARDEN_HEADLAND_VALUE_SCALE, 5);
-    expect(headlandColor.g / sky.fog.color.g).toBeCloseTo(GARDEN_HEADLAND_VALUE_SCALE, 5);
-    expect(headlandColor.b / sky.fog.color.b).toBeCloseTo(GARDEN_HEADLAND_VALUE_SCALE, 5);
-    const noonCompositedSeparation = (1 - GARDEN_HEADLAND_VALUE_SCALE) * noonOpacity;
-    expect(noonCompositedSeparation).toBeGreaterThanOrEqual(0.02);
-    expect(noonCompositedSeparation).toBeLessThanOrEqual(0.04);
-    expect(uniformsOf(headlands).uLanternOpacity!.value).toBe(0);
-
-    sky.update(dayCyclePhase(7), { ...FRAME, wallClockHour: 7 });
-    expect(uniformsOf(headlands).uOpacity!.value as number).toBeGreaterThan(noonOpacity);
-    // Dawn shares the warm haze phase but the unexplained light is evening-only.
-    expect(uniformsOf(headlands).uLanternOpacity!.value).toBe(0);
-
-    sky.update(dayCyclePhase(19), { ...FRAME, wallClockHour: 19 });
-    expect(uniformsOf(headlands).uOpacity!.value as number).toBeGreaterThan(noonOpacity);
-    expect(uniformsOf(headlands).uLanternOpacity!.value as number).toBeGreaterThan(0.5);
-
-    sky.update(dayCyclePhase(22), { ...FRAME, wallClockHour: 22 });
-    expect(uniformsOf(headlands).uLanternOpacity!.value as number).toBeGreaterThan(0);
-
-    sky.update(dayCyclePhase(22), { ...FRAME, billboards: false, wallClockHour: 22 });
-    expect(headlands.visible).toBe(false);
-    sky.dispose();
-  });
 });
 
 /**
