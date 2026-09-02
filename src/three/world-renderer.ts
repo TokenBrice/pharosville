@@ -207,6 +207,7 @@ import {
   type GardenSummitBirds,
 } from "./garden-summit-birds";
 import {
+  assignGardenHeroSailAtlas,
   attachGardenHeroModel,
   createBatchedShip,
   createFleetBatchGeometry,
@@ -3321,17 +3322,21 @@ function buildShipsPart(
   const sailAtlas = scene.sailAtlas;
   assignGardenSailAtlasCells(sailAtlas, slice.ships.map(({ ship }) => ship));
 
-  const ships = slice.ships.map(({ displayOffset, representative, ship }) => (
-    gardenShipUsesHeroModel(ship)
-      ? createShip(ship, displayOffset, representative, shipGeometryCache)
-      : createBatchedShip(
-          ship,
-          displayOffset,
-          representative,
-          shipGeometryCache,
-          gardenSailAtlasCell(sailAtlas, ship),
-        )
-  ));
+  const ships = slice.ships.map(({ displayOffset, representative, ship }) => {
+    const atlasCell = gardenSailAtlasCell(sailAtlas, ship);
+    if (gardenShipUsesHeroModel(ship)) {
+      const visual = createShip(ship, displayOffset, representative, shipGeometryCache);
+      assignGardenHeroSailAtlas(visual, sailAtlas.texture, atlasCell);
+      return visual;
+    }
+    return createBatchedShip(
+      ship,
+      displayOffset,
+      representative,
+      shipGeometryCache,
+      atlasCell,
+    );
+  });
 
   // Departures are renderer ghosts, never world records. Recreate them from
   // the NEW part's shared cache so disposal remains epoch-local. The normal
