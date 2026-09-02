@@ -6,6 +6,7 @@ import {
   CylinderGeometry,
   Float32BufferAttribute,
   Group,
+  InstancedBufferAttribute,
   IcosahedronGeometry,
   InstancedMesh,
   Matrix4,
@@ -24,6 +25,11 @@ import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { applyGardenHeightFog } from "./garden-height-fog";
 import { TILE_SCALE } from "./garden-util";
+import type { WeatherPlan } from "../systems/weather";
+import {
+  patchGardenInstancedWindSway,
+  updateGardenInstancedWindSway,
+} from "./garden-rim-mesh";
 
 /**
  * Six-draw physical geography for the seven named waters.
@@ -51,6 +57,7 @@ export interface GardenSeaEdges {
   readonly siteCount: number;
   readonly triangleCount: number;
   dispose(): void;
+  updateWind(weather: WeatherPlan, reducedMotion: boolean): void;
 }
 
 const STONE_SIGNATURES: readonly StoneSignature[] = ["natural", "pale", "dark", "slate"];
@@ -345,6 +352,7 @@ export function createGardenSeaEdges(): GardenSeaEdges {
     roughness: 0.94,
     vertexColors: true,
   });
+  patchGardenInstancedWindSway(reedMaterial, 1.3, 0.02);
   const reedInstances = createInstances(
     reedSites,
     reedGeometry,
@@ -357,6 +365,13 @@ export function createGardenSeaEdges(): GardenSeaEdges {
     }),
   );
   reedInstances.name = "garden-sea-edges-reeds";
+  reedGeometry.setAttribute(
+    "aGardenSway",
+    new InstancedBufferAttribute(
+      new Float32Array(reedSites.map((_site, index) => 0.72 + (index % 5) * 0.09)),
+      1,
+    ),
+  );
   root.add(reedInstances);
 
   const fixtureSites = GARDEN_SEA_EDGE_SITES.filter((site) => (
@@ -396,6 +411,9 @@ export function createGardenSeaEdges(): GardenSeaEdges {
     root,
     siteCount: GARDEN_SEA_EDGE_SITES.length,
     triangleCount,
+    updateWind(weather, reducedMotion) {
+      updateGardenInstancedWindSway(reedMaterial, weather, reducedMotion);
+    },
     dispose() {
       if (disposed) return;
       disposed = true;

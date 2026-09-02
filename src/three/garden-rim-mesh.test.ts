@@ -1,5 +1,6 @@
 import { InstancedMesh, Mesh, MeshStandardMaterial } from "three";
 import { describe, expect, it, vi } from "vitest";
+import { weatherForFrame } from "../systems/weather";
 import {
   createGardenRimMesh,
   GARDEN_ENGAWA_LANTERN_WORLD,
@@ -54,5 +55,26 @@ describe("garden rim mesh", () => {
     rim.dispose();
     rim.dispose();
     for (const dispose of disposals) expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives every pine a vertex sway weight driven by the shared weather plan", () => {
+    const rim = createGardenRimMesh();
+    const pines = rim.pineInstances;
+    const sway = pines.geometry.getAttribute("aGardenSway");
+    expect(sway.count).toBe(pines.count);
+    expect(Math.min(...Array.from(sway.array))).toBeGreaterThan(0.6);
+    const material = pines.material as MeshStandardMaterial;
+    const shader = { uniforms: {}, vertexShader: "#include <common>\n#include <begin_vertex>" };
+    material.onBeforeCompile(shader as never, null as never);
+    expect(shader.vertexShader).toContain("attribute float aGardenSway");
+    expect(shader.vertexShader).toContain("uGardenWindDirection");
+
+    const weather = weatherForFrame({ baseWind: 0.5, psiStress: 0.2, timeSeconds: 2 });
+    rim.updateWind(weather, false);
+    const uniforms = material.userData.gardenWindSwayUniforms as {
+      uGardenWindStrength: { value: number };
+    };
+    expect(uniforms.uGardenWindStrength.value).toBeGreaterThan(0);
+    rim.dispose();
   });
 });

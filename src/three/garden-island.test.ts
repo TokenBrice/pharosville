@@ -1,5 +1,6 @@
 import {
   BoxGeometry,
+  BufferGeometry,
   DataTexture,
   Color,
   Group,
@@ -15,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import { GARDEN_LIGHTHOUSE_ROOT_OFFSET } from "../systems/garden-observatory-slice";
 import { GARDEN_ISLAND_OBSTACLE } from "../systems/garden-water-exclusion";
 import type { PharosVilleWorld } from "../systems/world-types";
+import { weatherForFrame } from "../systems/weather";
 import {
   createTerracedIsland,
   GARDEN_PATH_SWEEP_POINTS,
@@ -27,6 +29,7 @@ import {
   gardenIslandLanternWorldOffsets,
   gardenPrecinctObeliskGateposts,
   mergeIslandStatics,
+  updateGardenNiwakiWind,
 } from "./garden-island";
 import { applyGardenHeightFog } from "./garden-height-fog";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
@@ -453,6 +456,14 @@ describe("garden island rockwork", () => {
     expect(grove!.children.every((child) => child instanceof InstancedMesh)).toBe(true);
     expect((grove!.getObjectByName("island-niwaki-pads") as InstancedMesh).count)
       .toBe(GARDEN_NIWAKI_SPECS.reduce((sum, pine) => sum + pine.pads.length, 0));
+    const pads = grove!.getObjectByName("island-niwaki-pads") as InstancedMesh<BufferGeometry, MeshStandardMaterial>;
+    expect(pads.geometry.getAttribute("aGardenSway").count).toBe(pads.count);
+    const weather = weatherForFrame({ baseWind: 0.5, psiStress: 0.2, timeSeconds: 2 });
+    updateGardenNiwakiWind(island.decoration, weather, false);
+    const uniforms = pads.material.userData.gardenWindSwayUniforms as {
+      uGardenWindStrength: { value: number };
+    };
+    expect(uniforms.uGardenWindStrength.value).toBeGreaterThan(0);
   });
 
   it("scales every niwaki trunk and branch to its authored endpoint distance", () => {

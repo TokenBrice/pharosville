@@ -11,6 +11,7 @@ import {
   DoubleSide,
   Float32BufferAttribute,
   Group,
+  InstancedBufferAttribute,
   InstancedMesh,
   Matrix4,
   Mesh,
@@ -36,6 +37,7 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import type { GardenSeason } from "../systems/season";
 import type { SupplyTide } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
+import type { WeatherPlan } from "../systems/weather";
 import { createLighthouse } from "./garden-lighthouse";
 import {
   applyGardenHeightFog,
@@ -47,6 +49,10 @@ import { OVERVIEW_LOD_DETAIL_NAMES } from "./garden-overview-lod";
 import { countDrawableObjects, setTilePosition, stableUnit } from "./garden-util";
 import { sampleTideLine } from "./garden-tide-line";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
+import {
+  patchGardenInstancedWindSway,
+  updateGardenInstancedWindSway,
+} from "./garden-rim-mesh";
 
 const scratchMatrix = new Matrix4();
 const scratchLeanAxis = new Vector3();
@@ -1247,14 +1253,17 @@ function createNiwakiGrove(season: GardenSeason): Group {
     trunkCount,
   );
   trunks.name = "island-niwaki-trunks";
+  const foliageMaterial = new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.98 });
+  patchGardenInstancedWindSway(foliageMaterial, 1, 0.76);
   const foliage = new InstancedMesh(
     new SphereGeometry(1, 10, 6),
-    new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.98 }),
+    foliageMaterial,
     padCount,
   );
   foliage.name = "island-niwaki-pads";
   let trunkIndex = 0;
   let padIndex = 0;
+  const padSway = new Float32Array(padCount);
   GARDEN_NIWAKI_SPECS.forEach((spec, pineIndex) => {
     const nodes = [0, 0.23, 0.46, 0.68, 0.84, 1].map((t) => niwakiPoint(spec, t));
     for (let index = 0; index < nodes.length - 1; index += 1) {
@@ -1284,11 +1293,13 @@ function createNiwakiGrove(season: GardenSeason): Group {
         color.lerp(new Color(luma, luma, luma), 0.18);
       }
       foliage.setColorAt(padIndex, color);
+      padSway[padIndex] = 0.74 + stableUnit(`niwaki-pad-sway.${pineIndex}.${padIndex}`) * 0.48;
       padIndex += 1;
     });
   });
   trunks.instanceMatrix.needsUpdate = true;
   foliage.instanceMatrix.needsUpdate = true;
+  foliage.geometry.setAttribute("aGardenSway", new InstancedBufferAttribute(padSway, 1));
   if (foliage.instanceColor) foliage.instanceColor.needsUpdate = true;
   for (const mesh of [trunks, foliage]) {
     mesh.castShadow = true;
@@ -1296,6 +1307,16 @@ function createNiwakiGrove(season: GardenSeason): Group {
   }
   root.add(trunks, foliage);
   return root;
+}
+
+/** Writes the one weather plan into the existing niwaki-pad draw. */
+export function updateGardenNiwakiWind(
+  decoration: Group,
+  weather: WeatherPlan,
+  reducedMotion: boolean,
+): void {
+  const foliage = decoration.getObjectByName("island-niwaki-pads") as InstancedMesh<BufferGeometry, MeshStandardMaterial> | undefined;
+  if (foliage) updateGardenInstancedWindSway(foliage.material, weather, reducedMotion);
 }
 
 /**

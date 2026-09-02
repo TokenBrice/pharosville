@@ -1,6 +1,7 @@
 import { InstancedMesh, Mesh, MeshStandardMaterial } from "three";
 import { describe, expect, it, vi } from "vitest";
 import { GARDEN_SEA_EDGE_SITES } from "../systems/garden-sea-edge-sites";
+import { weatherForFrame } from "../systems/weather";
 import { GARDEN_SEA_EDGES_OVERVIEW_NAME, createGardenSeaEdges } from "./garden-sea-edges";
 
 describe("garden sea edges", () => {
@@ -52,5 +53,23 @@ describe("garden sea edges", () => {
     expect(disposed).toHaveBeenCalledTimes(6);
     expect(first.root.children).toHaveLength(0);
     second.dispose();
+  });
+
+  it("adds per-instance reed sway without adding a draw or oscillator", () => {
+    const edges = createGardenSeaEdges();
+    const sway = edges.reedInstances.geometry.getAttribute("aGardenSway");
+    expect(sway.count).toBe(edges.reedInstances.count);
+    const material = edges.reedInstances.material as MeshStandardMaterial;
+    expect(material.customProgramCacheKey()).toContain("garden-instanced-wind-sway");
+    const weather = weatherForFrame({ baseWind: 0.6, psiStress: 0.3, timeSeconds: 2 });
+    edges.updateWind(weather, false);
+    const uniforms = material.userData.gardenWindSwayUniforms as {
+      uGardenWindDirection: { value: { x: number; y: number } };
+      uGardenWindStrength: { value: number };
+    };
+    expect(uniforms.uGardenWindDirection.value.x).toBeCloseTo(weather.windDirX);
+    expect(uniforms.uGardenWindStrength.value).toBeGreaterThan(0);
+    expect(edges.drawCallCount).toBe(6);
+    edges.dispose();
   });
 });

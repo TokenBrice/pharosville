@@ -6,6 +6,7 @@ import {
   DodecahedronGeometry,
   Euler,
   Group,
+  InstancedBufferAttribute,
   InstancedMesh,
   Matrix4,
   Mesh,
@@ -22,6 +23,7 @@ import {
 } from "../systems/garden-rim";
 import { PHAROSVILLE_DESIGN_SPAN, PHAROSVILLE_MAP_SCALE } from "../systems/map-scale";
 import { HARBOR_PALETTE } from "../systems/palette";
+import type { WeatherPlan } from "../systems/weather";
 import { TILE_SCALE, disposeThreeObjectTree, stableUnit } from "./garden-util";
 
 const MAP_SIZE = PHAROSVILLE_DESIGN_SPAN * PHAROSVILLE_MAP_SCALE;
@@ -72,12 +74,82 @@ export interface GardenRimMesh {
   drawCallCount: number;
   engawaPineCount: number;
   pathSegmentCount: number;
+  pineInstances: InstancedMesh;
   pineCount: number;
   root: Group;
   stoneCount: number;
   steppingStoneCount: number;
   triangleCount: number;
   dispose(): void;
+  updateWind(weather: WeatherPlan, reducedMotion: boolean): void;
+}
+
+interface GardenWindSwayUniforms {
+  uGardenWindDirection: { value: { x: number; y: number } };
+  uGardenWindStrength: { value: number };
+}
+
+/**
+ * Adds one vertex-only wind response to an existing instanced standard
+ * material. Instances differ only by `aGardenSway`; direction, breath and gust
+ * all come from the one frame weather plan, never from a local oscillator.
+ */
+export function patchGardenInstancedWindSway(
+  material: MeshStandardMaterial,
+  heightScale: number,
+  baseFlex = 0,
+): void {
+  const uniforms: GardenWindSwayUniforms = {
+    uGardenWindDirection: { value: { x: 0, y: 0 } },
+    uGardenWindStrength: { value: 0 },
+  };
+  material.userData.gardenWindSwayUniforms = uniforms;
+  const previousCompile = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    previousCompile.call(material, shader, renderer);
+    shader.uniforms.uGardenWindDirection = uniforms.uGardenWindDirection;
+    shader.uniforms.uGardenWindStrength = uniforms.uGardenWindStrength;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        attribute float aGardenSway;
+        uniform vec2 uGardenWindDirection;
+        uniform float uGardenWindStrength;`,
+      )
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec3 gardenWindWorld = vec3(uGardenWindDirection.x, 0.0, uGardenWindDirection.y);
+          vec2 gardenWindLocal = vec2(
+            dot(gardenWindWorld, normalize(instanceMatrix[0].xyz)),
+            dot(gardenWindWorld, normalize(instanceMatrix[2].xyz))
+          );
+          float gardenWindHeight = clamp(position.y / ${heightScale.toFixed(3)}, 0.0, 1.0);
+          float gardenWindFlex = mix(${baseFlex.toFixed(3)}, 1.0, gardenWindHeight * gardenWindHeight);
+          transformed.xz += gardenWindLocal * uGardenWindStrength * aGardenSway * gardenWindFlex;
+        #endif`,
+      );
+  };
+  material.customProgramCacheKey = () => `${previousKey}|garden-instanced-wind-sway-${heightScale}-${baseFlex}`;
+  material.needsUpdate = true;
+}
+
+export function updateGardenInstancedWindSway(
+  material: MeshStandardMaterial,
+  weather: WeatherPlan,
+  reducedMotion: boolean,
+): void {
+  const uniforms = material.userData.gardenWindSwayUniforms as GardenWindSwayUniforms | undefined;
+  if (!uniforms) return;
+  uniforms.uGardenWindDirection.value.x = weather.windDirX;
+  uniforms.uGardenWindDirection.value.y = weather.windDirZ;
+  const gust = reducedMotion ? 0 : weather.gust;
+  uniforms.uGardenWindStrength.value = (
+    0.035 + weather.windSpeed * 0.085 + gust * 0.14
+  ) * (0.9 + weather.breath * 0.2);
 }
 
 function addBox(
@@ -364,9 +436,11 @@ function pineTiles(): PineSpec[] {
 
 function createPines(): InstancedMesh {
   const specs = pineTiles();
+  const material = new MeshStandardMaterial({ flatShading: true, roughness: 0.94, vertexColors: true });
+  patchGardenInstancedWindSway(material, 4.6, 0.08);
   const mesh = new InstancedMesh(
     createPineGeometry(),
-    new MeshStandardMaterial({ flatShading: true, roughness: 0.94, vertexColors: true }),
+    material,
     specs.length,
   );
   mesh.name = "garden-rim-pines";
@@ -374,6 +448,7 @@ function createPines(): InstancedMesh {
   const quaternion = new Quaternion();
   const rotation = new Euler();
   const scale = new Vector3();
+  const sway = new Float32Array(specs.length);
   specs.forEach((spec, index) => {
     rotation.set(spec.leanX, spec.yaw, spec.leanZ);
     quaternion.setFromEuler(rotation);
@@ -384,7 +459,9 @@ function createPines(): InstancedMesh {
       scale,
     );
     mesh.setMatrixAt(index, matrix);
+    sway[index] = 0.68 + stableUnit(`rim-pine-sway.${spec.x}.${spec.y}`) * 0.52;
   });
+  mesh.geometry.setAttribute("aGardenSway", new InstancedBufferAttribute(sway, 1));
   mesh.instanceMatrix.needsUpdate = true;
   return mesh;
 }
@@ -565,6 +642,7 @@ export function createGardenRimMesh(): GardenRimMesh {
     drawCallCount: 5,
     engawaPineCount: 1,
     pathSegmentCount: path.segments,
+    pineInstances: pines,
     pineCount: pines.count,
     root,
     stoneCount: stones.count,
@@ -573,6 +651,9 @@ export function createGardenRimMesh(): GardenRimMesh {
       sum + (mesh.geometry.index?.count ?? mesh.geometry.getAttribute("position").count) / 3
         * (mesh instanceof InstancedMesh ? mesh.count : 1)
     ), 0),
+    updateWind(weather, reducedMotion) {
+      updateGardenInstancedWindSway(pines.material as MeshStandardMaterial, weather, reducedMotion);
+    },
     dispose() {
       if (disposed) return;
       disposed = true;

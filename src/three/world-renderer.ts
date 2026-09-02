@@ -196,6 +196,7 @@ import {
   createTerracedIsland,
   createWaterAccents,
   gardenIslandLanternWorldOffsets,
+  updateGardenNiwakiWind,
   type GardenPondReflection,
 } from "./garden-island";
 import { applyGardenMonthRecord } from "./garden-month-record";
@@ -3980,6 +3981,9 @@ function updateSceneForFrame(
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
   }, scene.wakes);
+  scene.content?.rim.updateWind(weather, frame.reducedMotion);
+  scene.content?.seaEdges?.updateWind(weather, frame.reducedMotion);
+  if (scene.content) updateGardenNiwakiWind(scene.content.decoration, weather, frame.reducedMotion);
   updateDayCycle(scene, frame, phase);
   const epistemicHaze = deriveEpistemicHaze(frame.world.freshness);
   scene.water.setPegSummaryEpistemicHaze(epistemicHaze.riskWaters);
