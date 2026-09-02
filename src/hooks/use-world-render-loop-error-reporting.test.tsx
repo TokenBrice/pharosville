@@ -22,6 +22,7 @@ import { useWorldRenderLoop, type WorldCameraStepResult } from "./use-world-rend
 const { createThreeWorldRendererMock } = vi.hoisted(() => ({
   createThreeWorldRendererMock: vi.fn(() => ({
     dispose: vi.fn(),
+    getSeaSignScale: () => 1,
     warmup: vi.fn(async () => {}),
     render: vi.fn(() => ({
       objectCount: 0,

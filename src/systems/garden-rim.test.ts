@@ -43,6 +43,10 @@ function tileKey(tile: { x: number; y: number }): string {
   return `${tile.x}.${tile.y}`;
 }
 
+function positionOf(site: { x: number; z: number }): { x: number; y: number } {
+  return { x: Math.round(site.x / Math.SQRT2), y: Math.round(site.z / Math.SQRT2) };
+}
+
 function reachableWaterFromDockRing(): Set<string> {
   const queue = DOCK_TILES.map((dock) => nearestWaterTile(dock, 12));
   const reached = new Set<string>();
@@ -182,11 +186,15 @@ describe("authored garden rim", () => {
     }
   });
 
-  it("keeps every sea-sign board and piling footprint entirely over water", () => {
+  it("keeps every maximum-rung stele footprint entirely over water", () => {
     const bodies = ["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"] as const;
     const sites = seaSignSites(bodies);
     expect(sites).toHaveLength(bodies.length);
     for (const site of sites) {
+      const positionTile = positionOf(site);
+      const positionKind = terrainKindAt(positionTile.x, positionTile.y);
+      expect(isWaterTileKind(positionKind), `${site.body} position (${positionKind})`).toBe(true);
+      expect(rimLandAt(positionTile.x, positionTile.y), `${site.body} position`).toBe(false);
       for (const tile of seaSignFootprintTiles(site)) {
         expect(tile.x, `${site.body} footprint x`).toBeGreaterThanOrEqual(0);
         expect(tile.y, `${site.body} footprint y`).toBeGreaterThanOrEqual(0);
@@ -197,6 +205,7 @@ describe("authored garden rim", () => {
         expect(rimLandAt(tile.x, tile.y), `${site.body} footprint ${tileKey(tile)}`).toBe(false);
       }
     }
+    expect(positionOf(sites.find((site) => site.body === "wreck")!)).toEqual({ x: 50, y: 122 });
   });
 
   it("keeps Wreck Shoal as water inside a west-and-south bordered inlet", () => {
