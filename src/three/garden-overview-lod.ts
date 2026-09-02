@@ -43,6 +43,9 @@ export const OVERVIEW_LOD_HIDDEN_ZOOM = 0.44;
  * one gate rather than one per mesh.
  */
 export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
+  // World-wide named-water edge batches. At whole-map scale their small forms
+  // become texture; visibility-only avoids collapsing the map toward origin.
+  "garden-sea-edges-overview",
   // Per-dock furniture, ×10 harbours.
   "dock-cargo-tide",
   "dock-chain-flag",
@@ -84,6 +87,7 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
  * to see it.
  */
 export const OVERVIEW_LOD_WHOLE_RING_NAMES: readonly string[] = [
+  "garden-sea-edges-overview",
   "dock-cargo-tide",
   "dock-chain-flag",
   "dock-crane-metal",
