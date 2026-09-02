@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { __testPathCacheSize, buildBaseMotionPlan, buildMotionPlan, BoundedShipWaterRouteCache, buildShipWaterRoute, clearShipHeadingMemory, createShipMotionSample, disposePathCacheForMap, isShipMapVisible, motionPlanSignature, resolveShipMotionSample, resolveShipMotionSampleInto, sampleShipWaterPath, shipCycleTempo, shipMapVisibilityAlpha, shipWaterPathKey, SPEED_QUARTILE_SCALARS, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
@@ -13,6 +13,13 @@ import { zoneWorldTile } from "./map-scale";
 import { isGardenObstacleTile } from "./garden-water-exclusion";
 import { patrolSpeedForZone } from "./motion-sampling/risk-drift";
 import type { PharosVilleMap, PharosVilleWorld, ShipWaterZone } from "./world-types";
+
+// The dense-fixture tests below each sample a full motion cycle over ~130
+// ships; the first to touch a map also pays the one-time water-path warm-up.
+// That is 1.5–2.3 s on a quiet runner and has crossed the 5 s default on a
+// contended hosted CI worker (2026-09-02, five timeouts on one run with no
+// code change to motion). The ceiling is a runner budget, not a contract.
+vi.setConfig({ testTimeout: 20_000 });
 
 const SHIP_CYCLE_MIN_SECONDS = 660;
 const SHIP_CYCLE_MAX_SECONDS = MOTION_CYCLE_MAX_SECONDS;
