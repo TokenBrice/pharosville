@@ -37,7 +37,7 @@ export function defaultCamera(input: {
     ...input,
     padding: cameraPadding(),
   });
-  // Standard desktops tighten the authored 0.60 plate composition by 8%. Compact-height laptop
+  // Standard desktops tighten the authored 0.60 plate composition by 2%. Compact-height laptop
   // windows use the actual fit so the lighthouse crown stays visible; once
   // the short side reaches the standard 720px floor, extra room on either side
   // restores the standard composition monotonically.
@@ -53,21 +53,26 @@ export function defaultCamera(input: {
   const compositionProgress = shortSide < MIN_SHORT_SIDE_PX
     ? 0
     : Math.max(shortSideProgress, longSideProgress);
-  const tightenFactor = 1 + compositionProgress * 0.08;
+  const tightenFactor = 1 + compositionProgress * 0.02;
   const tightened = zoomCameraAt(
     fitted,
     { x: input.width * 0.54, y: input.height * 0.5 },
-    fitted.zoom * tightenFactor,
+    Math.max(
+      minZoomForViewport({ x: input.width, y: input.height }, input.map),
+      fitted.zoom * tightenFactor,
+    ),
   );
   const framed = {
     ...tightened,
-    // Put the Pharos close to the left-hand thirds line and reserve the broad
-    // right anchorage as ma. Scaling by viewport width preserves the intent at
-    // both supported desktop profiles.
-    offsetX: tightened.offsetX - input.width * 0.075,
+    // Bring the deep lower-left Ethereum precinct into the picture with the
+    // Pharos. The tower settles just left of centre, leaving the right-hand
+    // anchorage as ma while the shore capital is no longer clipped away.
+    offsetX: tightened.offsetX + input.width * 0.06,
     // The lighthouse rises beyond the flat map bounds used by fitCameraToMap.
     // Give that vertical geometry explicit headroom at the short-side floor.
-    offsetY: tightened.offsetY + (1 - shortSideProgress) * 32,
+    offsetY: tightened.offsetY
+      + compositionProgress * input.height * 0.055
+      + (1 - shortSideProgress) * 32,
   };
   return clampCameraToMap(framed, {
     map: input.map,

@@ -511,6 +511,27 @@ function createBackdrop(domeMaterial: ShaderMaterial): {
         color = mix(color, uZenith, smoothstep(0.80, 1.0, skyHeight));
         color *= gardenBokashiShade(skyHeight, uBokashiAmount);
 
+        // Three shakkei impressions share the sheet with the sky, so plate,
+        // ships, and shore architecture occlude them naturally. Broad foot
+        // fades and 2–4% value steps keep them atmospheric rather than cutout.
+        float across = vScreenPosition.x;
+        float farCrest = 0.84
+          + exp(-pow((across - 0.28) * 4.2, 2.0)) * 0.095
+          + exp(-pow((across - 0.73) * 5.4, 2.0)) * 0.055;
+        float middleCrest = 0.8
+          + exp(-pow((across - 0.52) * 4.8, 2.0)) * 0.09;
+        float nearCrest = 0.76
+          + exp(-pow((across - 0.82) * 6.0, 2.0)) * 0.075;
+        float farRidge = smoothstep(0.68, 0.74, skyHeight)
+          * (1.0 - smoothstep(farCrest, farCrest + 0.018, skyHeight));
+        float middleRidge = smoothstep(0.66, 0.72, skyHeight)
+          * (1.0 - smoothstep(middleCrest, middleCrest + 0.016, skyHeight));
+        float nearRidge = smoothstep(0.64, 0.7, skyHeight)
+          * (1.0 - smoothstep(nearCrest, nearCrest + 0.014, skyHeight));
+        color *= 1.0 - farRidge * 0.02;
+        color *= 1.0 - middleRidge * 0.03;
+        color *= 1.0 - nearRidge * 0.04;
+
         // Project garden-sun.ts onto the sheet: morning and evening glows move
         // with the same arc as the key light, water road, and PMREM dome.
         vec2 sunScreen = vec2(
