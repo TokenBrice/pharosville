@@ -138,12 +138,15 @@ import { createGardenEnvironment, type GardenEnvironment } from "./garden-enviro
 import { createGardenCueMarker } from "./garden-cue-marker";
 import { createGardenPost } from "./garden-post";
 import {
-  createDock,
+  authorDock,
   createHarborLanterns,
   gardenDockLampWorldPositions,
-  updateDockFlagWind,
   type DockVisual,
 } from "./garden-docks";
+import {
+  createGardenHarborBatch,
+  type GardenHarborBatch,
+} from "./garden-harbor-batch";
 import {
   cargoTideSpecs,
   createGardenCargoTide,
@@ -934,6 +937,11 @@ export function createThreeWorldRenderer(
       scene.fleetSharedCache.wakeFillMaterial.dispose();
       scene.fleetSharedCache.wakeMaterial.dispose();
       for (const geometry of scene.fleetSharedCache.geometries.values()) geometry.dispose();
+      // The harbour batch also owns the off-tree source geometries retained by
+      // DockRecipe. Its disposer releases both those recipes and the mounted
+      // merged/instanced buffers before the generic scene walk below.
+      scene.content?.harborBatch?.dispose();
+      if (scene.content) scene.content.harborBatch = null;
       disposeThreeObjectTree(scene.root);
       if (detachedModel) disposeThreeObjectTree(detachedModel);
       modelLibrary.clear();
@@ -1523,6 +1531,8 @@ interface GardenContent {
   tideLine: GardenTideLine;
   decoration: Group;
   docks: DockVisual[];
+  /** World-wide quay bucket, prop and flag batches; dock roots are anchors only. */
+  harborBatch: GardenHarborBatch | null;
   objectCount: number;
   entityCues: Map<string, EntityCue>;
   /** W1: the shared instanced fleet. Drawn instead of per-ship meshes. */
@@ -1679,7 +1689,8 @@ interface GardenScalarTransition {
 
 interface GardenDockAccentTransition {
   active: boolean;
-  material: MeshStandardMaterial;
+  chainId: string;
+  color: Color;
   target: Color;
 }
 
@@ -1896,7 +1907,7 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
   const hashes = worldRenderContentPartHashes(world);
   const slice = selectGardenObservatorySlice(world, null);
   const islandTileKey = `${world.lighthouse.tile.x},${world.lighthouse.tile.y}`;
-  // Everything createDock consumes. `change24hPct` and `cargoTide` are data
+  // Everything authorDock consumes. `change24hPct` and `cargoTide` are data
   // that other parts read; sub-band supply noise is already banded out by the
   // signature's `size`.
   const dockStructure = JSON.stringify(world.docks.map((dock) => [
@@ -2007,6 +2018,7 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     lampModulation: lampStatusModulationForMix(0),
     scalarTransitions: [],
     dockAccentTransitions: [],
+    harborBatch: null,
     lampStatusState: initialLampStatusState({}),
     sailAtlas: scene.sailAtlas,
     objectCount: 0,
@@ -2105,18 +2117,10 @@ function rebuildWorldContentPart(
   }
 }
 
-function dockAccentMaterial(visual: DockVisual): MeshStandardMaterial | null {
-  const roofs = visual.root.getObjectByName("dock-warehouse-roofs") as Mesh | undefined;
-  const material = roofs?.material;
-  if (!material || Array.isArray(material) || !(material instanceof MeshStandardMaterial)) return null;
-  return material;
-}
-
 function dockAccentColors(docks: readonly DockVisual[]): Map<string, Color> {
   const colors = new Map<string, Color>();
   for (const visual of docks) {
-    const material = dockAccentMaterial(visual);
-    if (material) colors.set(visual.dock.detailId, material.color.clone());
+    colors.set(visual.recipe.dock.chainId, visual.recipe.accentColor.clone());
   }
   return colors;
 }
@@ -2126,12 +2130,12 @@ function stageDockAccentTransitions(
   previous: ReadonlyMap<string, Color>,
 ): void {
   for (const visual of content.docks) {
-    const material = dockAccentMaterial(visual);
-    const oldColor = previous.get(visual.dock.detailId);
-    if (!material || !oldColor || oldColor.equals(material.color)) continue;
-    const target = material.color.clone();
-    material.color.copy(oldColor);
-    content.dockAccentTransitions.push({ active: false, material, target });
+    const chainId = visual.recipe.dock.chainId;
+    const oldColor = previous.get(chainId);
+    const target = visual.recipe.accentColor.clone();
+    if (!oldColor || oldColor.equals(target)) continue;
+    content.harborBatch?.setDockAccent(chainId, oldColor);
+    content.dockAccentTransitions.push({ active: false, chainId, color: oldColor.clone(), target });
   }
 }
 
@@ -2203,6 +2207,10 @@ function disposeWorldContentPart(
     // Hero identity sails are fresh materials — repaint on the next logo sync.
     content.logoGenerationKey = null;
     content.wakeBatch?.dispose();
+  }
+  if (name === "docks") {
+    content.harborBatch?.dispose();
+    content.harborBatch = null;
   }
   const children = [...part.root.children];
   part.root.clear();
@@ -2584,8 +2592,8 @@ function startGardenTransitionWave(
 function adoptFreshWorldData(content: GardenContent, world: PharosVilleWorld): void {
   const dockById = new Map(world.docks.map((dock) => [dock.detailId, dock]));
   for (const visual of content.docks) {
-    const node = dockById.get(visual.dock.detailId);
-    if (node) visual.dock = node;
+    const node = dockById.get(visual.recipe.dock.detailId);
+    if (node) visual.recipe.dock = node;
   }
   const nextShipIds = new Set<string>();
   for (const ship of world.ships) {
@@ -2729,7 +2737,7 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
   const content = scene.content;
   if (!content) return;
   const harborDockIds = new Set(selectGardenDocks(world.docks).map((dock) => dock.detailId));
-  const harborDocks = content.docks.filter((dock) => harborDockIds.has(dock.dock.detailId));
+  const harborDocks = content.docks.filter((dock) => harborDockIds.has(dock.recipe.dock.detailId));
   if (harborDocks.length === 0) return;
   let centerX = 0;
   let centerZ = 0;
@@ -2737,7 +2745,7 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
     centerX += dock.root.position.x;
     centerZ += dock.root.position.z;
     scene.water.rippleRings.setRing({
-      id: `dock-pylon.${dock.dock.detailId}`,
+      id: `dock-pylon.${dock.recipe.dock.detailId}`,
       center: { x: dock.root.position.x, z: dock.root.position.z },
       radius: 4.5,
       bands: 2,
@@ -2807,7 +2815,7 @@ function registerLightLanes(
     for (const [lampIndex, lamp] of gardenDockLampWorldPositions(dock).entries()) {
       registry.set({
         color: HARBOR_PALETTE.lantern_glow,
-        id: `dock-lamp.${dock.dock.detailId}.${lampIndex}`,
+        id: `dock-lamp.${dock.recipe.dock.detailId}.${lampIndex}`,
         intensity: lampIndex === 0 ? 0.7 : 0.42,
         kind: "lantern",
         worldX: lamp.x,
@@ -2862,13 +2870,13 @@ function registerLightLanes(
   // are seeded from the lane id inside the registry (never Math.random); the
   // lanes ride the same per-tier cap and day-cycle gate as every other lane.
   const busiest = docks
-    .filter((dock) => Number.isFinite(dock.dock.totalUsd) && dock.dock.totalUsd > 0)
+    .filter((dock) => Number.isFinite(dock.recipe.dock.totalUsd) && dock.recipe.dock.totalUsd > 0)
     .toSorted((left, right) => (
-      right.dock.totalUsd - left.dock.totalUsd
-      || left.dock.id.localeCompare(right.dock.id)
+      right.recipe.dock.totalUsd - left.recipe.dock.totalUsd
+      || left.recipe.dock.id.localeCompare(right.recipe.dock.id)
     ))
     .slice(0, GARDEN_ROUTE_PULSE_LANES);
-  const busiestUsd = busiest[0]?.dock.totalUsd ?? 1;
+  const busiestUsd = busiest[0]?.recipe.dock.totalUsd ?? 1;
   for (const dock of busiest) {
     const dirX = dock.root.position.x - islandX;
     const dirZ = dock.root.position.z - islandZ;
@@ -2877,8 +2885,8 @@ function registerLightLanes(
     const nz = dirZ / dirLength;
     registry.set({
       color: HARBOR_PALETTE.lantern_glow,
-      id: `route-pulse.${dock.dock.detailId}`,
-      intensity: 0.35 + 0.45 * Math.sqrt(dock.dock.totalUsd / busiestUsd),
+      id: `route-pulse.${dock.recipe.dock.detailId}`,
+      intensity: 0.35 + 0.45 * Math.sqrt(dock.recipe.dock.totalUsd / busiestUsd),
       kind: "route",
       worldX: dock.root.position.x + nx * 30,
       worldZ: dock.root.position.z + nz * 30,
@@ -2897,8 +2905,12 @@ function registerLightLanes(
  */
 const SHADOW_CASTER_EXCLUDED_NAMES = new Set([
   "dock-chain-flag-cloth",
+  "dock-chain-flag",
   "dock-lamp-heads",
   "dock-warehouse-windows",
+  "harbor-chain-flags",
+  "harbor-lampHead",
+  "harbor-window",
 ]);
 
 /**
@@ -2926,6 +2938,7 @@ function flagStaticShadowUsers(root: Object3D, castsShadows = true): void {
       : material instanceof MeshStandardMaterial;
     object.castShadow = castsShadows
       && lit
+      && !object.name.startsWith("harbor-fine-")
       && !SHADOW_CASTER_EXCLUDED_NAMES.has(object.name);
     object.receiveShadow = true;
   });
@@ -3097,22 +3110,18 @@ function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
 function buildDocksPart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.docks;
   const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
-  const docks = world.docks.map((dock) => (
-    createDock(dock, gardenDockDisplayTile(dock.tile), islandTile)
+  const recipes = world.docks.map((dock) => (
+    authorDock(dock, gardenDockDisplayTile(dock.tile), islandTile)
   ));
-  for (const dock of docks) {
+  const batch = createGardenHarborBatch(recipes);
+  part.root.add(batch.root);
+  for (const dock of batch.docks) {
     part.root.add(dock.root);
-    // W2.2: the harbour joins the island in the static map. Quays, warehouses
-    // and their roofs, breakwaters, pilings, cranes, lamp POSTS and the chain
-    // flag are exactly as static as the rock they stand on, and at dawn and
-    // dusk they are what the low sun has to rake across. Flagged here rather
-    // than in garden-docks.ts so one site owns the whole caster contract.
-    flagStaticShadowUsers(dock.root);
-    // ...except the fine detail, which the frame loop shows and hides by zoom,
-    // hover and selection. Receiver only — see flagStaticShadowUsers.
-    flagStaticShadowUsers(dock.fineDetail, false);
-    part.cues.set(dock.dock.detailId, { radius: 2.5, root: dock.root, y: 0.08 });
+    part.cues.set(dock.recipe.dock.detailId, { radius: 2.5, root: dock.root, y: 0.08 });
   }
+  // W2.2: the whole harbour ring joins the island in the static map. The
+  // batch marks flag cloth, lights and LOD detail as non-casters by name.
+  flagStaticShadowUsers(batch.root);
   const harborLanterns = createHarborLanterns(islandTile);
   part.root.add(harborLanterns.root);
   // The lantern ring is static quay furniture too. Its glass heads share one
@@ -3124,7 +3133,8 @@ function buildDocksPart(content: GardenContent, world: PharosVilleWorld): void {
     object.receiveShadow = true;
   });
 
-  content.docks = docks;
+  content.docks = batch.docks;
+  content.harborBatch = batch;
   content.harborLanternMaterial = harborLanterns.lightMaterial;
 }
 
@@ -3172,14 +3182,14 @@ function buildCargoTidePart(content: GardenContent, world: PharosVilleWorld): vo
   // whole ring shares one geometry — see garden-tide-line.ts.
   const tideLine = createGardenTideLine(
     content.docks.map((visual) => ({
-      detailId: visual.dock.detailId,
-      width: visual.tideFace.width,
-      x: visual.root.position.x + visual.tideFace.x * Math.cos(visual.root.rotation.y)
-        + visual.tideFace.z * Math.sin(visual.root.rotation.y),
-      y: visual.root.position.y + visual.tideFace.y,
+      detailId: visual.recipe.dock.detailId,
+      width: visual.recipe.tideFace.width,
+      x: visual.root.position.x + visual.recipe.tideFace.x * Math.cos(visual.root.rotation.y)
+        + visual.recipe.tideFace.z * Math.sin(visual.root.rotation.y),
+      y: visual.root.position.y + visual.recipe.tideFace.y,
       yaw: visual.root.rotation.y,
-      z: visual.root.position.z - visual.tideFace.x * Math.sin(visual.root.rotation.y)
-        + visual.tideFace.z * Math.cos(visual.root.rotation.y),
+      z: visual.root.position.z - visual.recipe.tideFace.x * Math.sin(visual.root.rotation.y)
+        + visual.recipe.tideFace.z * Math.cos(visual.root.rotation.y),
     })),
     world.supplyTide,
   );
@@ -3966,12 +3976,21 @@ function updateSceneForFrame(
     visible: semanticView !== "analyze",
     zoom: frame.camera.zoom,
   });
+  let showAnyDockDetail = showWorldDetail;
   for (const visual of content.docks) {
-    updateDockFlagWind(visual, weather, breathTime, frame.reducedMotion);
+    const chainId = visual.recipe.dock.chainId;
+    content.harborBatch?.setFlagYaw(
+      chainId,
+      frame.reducedMotion
+        ? visual.recipe.flag.placement.yaw
+        : -visual.root.rotation.y - weather.windAngle,
+    );
     visual.fineDetail.visible = showWorldDetail
-      || visual.dock.detailId === frame.hoveredDetailId
-      || visual.dock.detailId === frame.selectedDetailId;
+      || visual.recipe.dock.detailId === frame.hoveredDetailId
+      || visual.recipe.dock.detailId === frame.selectedDetailId;
+    showAnyDockDetail ||= visual.fineDetail.visible;
   }
+  content.harborBatch?.setFineDetailVisible(showAnyDockDetail);
 
   // W1: the batched fleet is restamped from scratch each frame. Counts reset
   // here, poses are written in the ship loop, and every touched buffer is
@@ -4460,14 +4479,16 @@ function updateScalarTransitions(
   for (let index = content.dockAccentTransitions.length - 1; index >= 0; index -= 1) {
     const transition = content.dockAccentTransitions[index]!;
     if (!transition.active && !reducedMotion) continue;
-    transition.material.color.lerp(transition.target, alpha);
+    transition.color.lerp(transition.target, alpha);
+    content.harborBatch?.setDockAccent(transition.chainId, transition.color);
     const distance = Math.max(
-      Math.abs(transition.material.color.r - transition.target.r),
-      Math.abs(transition.material.color.g - transition.target.g),
-      Math.abs(transition.material.color.b - transition.target.b),
+      Math.abs(transition.color.r - transition.target.r),
+      Math.abs(transition.color.g - transition.target.g),
+      Math.abs(transition.color.b - transition.target.b),
     );
     if (distance > 0.001) continue;
-    transition.material.color.copy(transition.target);
+    transition.color.copy(transition.target);
+    content.harborBatch?.setDockAccent(transition.chainId, transition.target);
     content.dockAccentTransitions.splice(index, 1);
   }
 }

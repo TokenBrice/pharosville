@@ -1,6 +1,6 @@
 # Three.js Runtime Guide
 
-Last updated: 2026-07-30
+Last updated: 2026-09-02
 
 This is the implementation guide for the production Three.js renderer. Read
 `ARCHITECTURE.md` first for the app boundary; this file explains how to change
@@ -130,6 +130,17 @@ Use the existing helpers and caches. Never allocate a geometry, material,
 texture, vector-heavy collection, light, or async loader in the hot frame path.
 Shared GLB geometry remains cache-owned: if a stale hero clone resolves after
 content replacement, drop the attachment without disposing shared resources.
+
+### Harbor batch
+
+`authorDock` writes dock-local `DockRecipe` data; it does not construct a
+renderable subtree. `createGardenHarborBatch` transforms those recipes into
+world-wide, vertex-coloured material buckets, one instanced mesh per prop kind,
+and one atlas-driven instanced flag cloth. The per-dock roots remain empty
+anchors for cues and interaction. Runtime changes go only through
+`setDockAccent`, `setFlagYaw`, and `setFineDetailVisible`; Wave 3 shore-station
+archetypes should author into the same recipe surface rather than add per-dock
+meshes.
 
 The normal fleet is fixed-capacity instancing (320 ships). Keep its cost flat
 by extending shared batch geometry or attributes instead of adding an object

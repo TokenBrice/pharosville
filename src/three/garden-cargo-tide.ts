@@ -120,17 +120,17 @@ export function cargoTideCrateCount(tide: DockCargoTide | undefined): number {
 export function cargoTideSpecs(docks: readonly DockVisual[]): CargoTideSpec[] {
   const specs: CargoTideSpec[] = [];
   for (const visual of docks) {
-    const tide = visual.dock.cargoTide;
+    const tide = visual.recipe.dock.cargoTide;
     const count = cargoTideCrateCount(tide);
     if (count === 0) continue;
     const lane: CargoTideSlot[] = tide?.direction === "minting"
-      ? visual.cargoTideLanes.aboard
-      : visual.cargoTideLanes.ashore;
+      ? visual.recipe.cargoTideLanes.aboard
+      : visual.recipe.cargoTideLanes.ashore;
     const yaw = visual.root.rotation.y;
     const cos = Math.cos(yaw);
     const sin = Math.sin(yaw);
     specs.push({
-      detailId: visual.dock.detailId,
+      detailId: visual.recipe.dock.detailId,
       slots: lane.slice(0, count).map((slot) => ({
         x: visual.root.position.x + slot.x * cos + slot.z * sin,
         y: visual.root.position.y + slot.y,

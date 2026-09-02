@@ -4,15 +4,13 @@ import {
   Color,
   ConeGeometry,
   CylinderGeometry,
-  DoubleSide,
   ExtrudeGeometry,
   Group,
   InstancedMesh,
   MathUtils,
   Matrix4,
-  Mesh,
   MeshStandardMaterial,
-  PlaneGeometry,
+  Object3D,
   Shape,
   ShapeGeometry,
   SphereGeometry,
@@ -26,17 +24,7 @@ import {
 import { HARBOR_PALETTE } from "../systems/palette";
 import { quayMasonryHealth } from "../systems/dock-health";
 import type { DockNode } from "../systems/world-types";
-import {
-  GARDEN_BREATH_PHASE,
-  gardenBreathAt,
-  gardenGustAtWorldPosition,
-  type WeatherPlan,
-} from "../systems/weather";
-import {
-  assignGardenChainFlagCell,
-  gardenChainFlagAtlas,
-  gardenChainFlagCellUv,
-} from "./garden-chain-flag";
+import { assignGardenChainFlagCell } from "./garden-chain-flag";
 import { applyGardenHeightFog } from "./garden-height-fog";
 import { setTilePosition, stableUnit, TILE_SCALE } from "./garden-util";
 import type { GardenHarborCalmMask } from "./garden-water-contract";
@@ -178,21 +166,58 @@ export interface DockTideFace {
 }
 
 export interface DockVisual {
-  /** Local-space cargo-tide berths; see `CargoTideLanes`. */
-  cargoTideLanes: CargoTideLanes;
-  /** Where this harbour carries its tide line; see `DockTideFace`. */
-  tideFace: DockTideFace;
-  dock: DockNode;
+  recipe: DockRecipe;
   fineDetail: Group;
-  /** Seaward reach and lateral span of the built harbour, in world units. */
+  root: Group;
+}
+
+export type HarborBucket = "timber" | "stone" | "metal" | "accent" | "wall" | "window" | "roof";
+export type HarborPropKind = "post" | "lampHead" | "plank" | "bollard" | "crate" | "barrel" | "pylon" | "piling";
+
+export interface HarborBucketPart {
+  bucket: HarborBucket;
+  geometry: BufferGeometry;
+  color: Color;
+  fineDetail: boolean;
+  castShadow: boolean;
+}
+
+export interface HarborPropInstance {
+  kind: HarborPropKind;
+  matrix: Matrix4;
+  color: Color | null;
+  fineDetail: boolean;
+}
+
+export interface HarborFlagSpec {
+  chainId: string;
+  atlasCell: number;
+  accent: Color;
+  placement: { x: number; y: number; z: number; yaw: number; scale: number };
+  sag: number;
+  wavePhase: number;
+}
+
+export interface DockRecipe {
+  dock: DockNode;
+  rootMatrix: Matrix4;
+  anchorPosition: Vector3;
+  anchorRotationY: number;
+  parts: HarborBucketPart[];
+  props: HarborPropInstance[];
+  flag: HarborFlagSpec;
+  cargoTideLanes: CargoTideLanes;
+  tideFace: DockTideFace;
   footprint: { length: number; span: number };
   identity: HarborIdentity;
-  /** World-space lamp positions (post tops) for sea-lane registration. */
   lampWorldPositions: { x: number; z: number }[];
   plan: HarborPlan;
-  root: Group;
-  signature: SignatureKind;
+  signature: HarborSignature;
+  quayHealth: number;
+  accentColor: Color;
 }
+
+export type HarborSignature = SignatureKind;
 
 export function createHarborLanterns(
   islandTile: { x: number; y: number },
@@ -253,25 +278,24 @@ export function createHarborLanterns(
  * be the seaward end with the pier reaching back toward the island, which put
  * the warehouses on stilts out at sea and the berths against the rock.
  *
- * Draw budget: static structure is merged by material and repeated units are
- * instanced, so a harbour is ~18 draws regardless of how much is built into it.
- * H3 added towers, sea arms, dry docks and slipways for zero extra draws by
- * pushing every one of them into the existing per-material merge buckets — the
- * number only moves when a new *material* enters the harbour.
+ * Draw budget: this author creates no drawables. Static structure becomes
+ * coloured bucket parts and repeated units become transform recipes; the
+ * world-wide harbor batch merges all docks by material and prop kind.
  */
-export function createDock(
+export function authorDock(
   dock: DockNode,
   displayTile: { x: number; y: number },
   islandTile: { x: number; y: number },
-): DockVisual {
-  const root = new Group();
-  const fineDetail = new Group();
-  fineDetail.name = "dock-fine-detail";
-  root.add(fineDetail);
+): DockRecipe {
+  const root = new Object3D();
   setTilePosition(root, displayTile, GARDEN_DOCK_ROOT_Y);
   const seawardX = (displayTile.x - islandTile.x) * TILE_SCALE;
   const seawardZ = (displayTile.y - islandTile.y) * TILE_SCALE;
   root.rotation.y = -Math.atan2(seawardZ, seawardX);
+  root.updateMatrix();
+  const rootMatrix = root.matrix.clone();
+  const parts: HarborBucketPart[] = [];
+  const props: HarborPropInstance[] = [];
 
   const identity = harborIdentity(dock);
   const { enclosure, landmark, plan, roofline, signature, works } = identity;
@@ -299,31 +323,10 @@ export function createDock(
   const quayHealth = quayMasonryHealth(dock) ?? 0.58;
   const quayFrailty = 1 - quayHealth;
 
-  const timber = new MeshStandardMaterial({
-    color: HARBOR_PALETTE.timber_mid,
-    roughness: 0.88,
-  });
-  const stone = new MeshStandardMaterial({
-    color: new Color("#665f55").lerp(new Color("#a39d8c"), quayHealth),
-    flatShading: true,
-    roughness: 0.97,
-  });
-  const metal = new MeshStandardMaterial({
-    color: "#6d5d49",
-    metalness: 0.42,
-    roughness: 0.62,
-  });
-  // Double-sided so the flat signal pennant can share this material (and this
-  // draw) with the warehouse roofs instead of costing one of its own.
-  const accentMaterial = new MeshStandardMaterial({
-    color: accent,
-    flatShading: true,
-    roughness: 0.86,
-    side: DoubleSide,
-  });
+  const stoneColor = new Color("#665f55").lerp(new Color("#a39d8c"), quayHealth);
 
-  // Per-material merge buckets. Everything static in the harbour lands in one
-  // of these; each becomes exactly one draw call however much is pushed in.
+  // Per-material authoring buckets. Everything static in the harbour lands in
+  // one of these before the world-wide batch combines every dock.
   const deckParts: BufferGeometry[] = [];
   const stoneParts: BufferGeometry[] = [];
   const moleParts: BufferGeometry[] = [];
@@ -381,7 +384,7 @@ export function createDock(
   // R12: pilings. The deck sits above the waterline, so without legs reaching
   // down into it the outlying chain platforms read as hovering slabs. One
   // instanced mesh carries every pile on the pier.
-  root.add(createPierPilings(length, width, plan, grand));
+  pushPierPilings(props, length, width, plan, grand);
 
   // ---- Quay wall ----------------------------------------------------------
   // Cut stone at the seaward root of the pier, with a coping course and a
@@ -580,32 +583,16 @@ export function createDock(
   // ---- Signature prop -----------------------------------------------------
   // Built before the merge, because everything but the translucent net rack
   // rides in the harbour's own timber.
-  const signatureAccent = createSignatureAccent(signature, length, width, deckParts);
+  pushSignatureAccent(signature, length, width, deckParts, parts);
 
   // ---- Merged structure ---------------------------------------------------
-  const deck = new Mesh(mergeBucket(deckParts), timber);
-  deck.name = "dock-deck";
-  deck.castShadow = true;
-  deck.receiveShadow = true;
-  const quayStone = new Mesh(mergeBucket(stoneParts), stone);
-  quayStone.name = "dock-quay-wall";
-  quayStone.castShadow = true;
-  quayStone.receiveShadow = true;
-  const warehouses = new Mesh(mergeBucket(wallParts), new MeshStandardMaterial({
-    color: "#9f8c68",
-    flatShading: true,
-    roughness: 0.96,
-  }));
-  warehouses.name = "dock-warehouses";
-  warehouses.castShadow = true;
-  warehouses.receiveShadow = true;
-  root.add(deck, quayStone, warehouses);
+  parts.push(
+    harborPart("timber", mergeBucket(deckParts), HARBOR_PALETTE.timber_mid, false, true),
+    harborPart("stone", mergeBucket(stoneParts), stoneColor, false, true),
+    harborPart("wall", mergeBucket(wallParts), "#9f8c68", false, true),
+  );
   if (moleParts.length > 0) {
-    const mole = new Mesh(mergeBucket(moleParts), stone);
-    mole.name = "dock-breakwater";
-    mole.castShadow = true;
-    mole.receiveShadow = true;
-    root.add(mole);
+    parts.push(harborPart("stone", mergeBucket(moleParts), stoneColor, false, true));
   }
   if (quayHealth < 0.5) {
     const crackParts: BufferGeometry[] = [];
@@ -619,12 +606,7 @@ export function createDock(
       );
       crackParts.push(crack);
     }
-    const cracks = new Mesh(
-      mergeBucket(crackParts),
-      new MeshStandardMaterial({ color: HARBOR_PALETTE.iron_dark, roughness: 1 }),
-    );
-    cracks.name = "dock-masonry-cracks";
-    root.add(cracks);
+    parts.push(harborPart("metal", mergeBucket(crackParts), HARBOR_PALETTE.iron_dark, false, false));
   }
 
   const signalShape = new Shape();
@@ -634,22 +616,15 @@ export function createDock(
   signalShape.closePath();
   const signal = new ShapeGeometry(signalShape);
   signal.translate(length * 0.52, 2.2, -width * 0.34);
-  roofParts.push(signal);
-  const roofs = new Mesh(mergeBucket(roofParts), accentMaterial);
-  roofs.name = "dock-warehouse-roofs";
-  roofs.castShadow = true;
-  root.add(roofs);
+  parts.push(
+    harborPart("roof", mergeBucket(roofParts), accent, false, true),
+    harborPart("accent", signal, accent, false, true),
+  );
 
   // ---- Deck planking ------------------------------------------------------
   // Planks run ACROSS the pier (athwart), which is how a real deck is laid and
   // what gives the pier a direction the eye can follow to its head.
   const plankCount = Math.max(10, Math.round(length * 2.6));
-  const planks = new InstancedMesh(
-    new BoxGeometry(0.1, 0.06, width * 0.94),
-    new MeshStandardMaterial({ color: HARBOR_PALETTE.timber_dark, roughness: 0.95 }),
-    plankCount,
-  );
-  planks.name = "dock-plank-relief";
   for (let index = 0; index < plankCount; index += 1) {
     const t = index / (plankCount - 1);
     const x = -length * 0.28 + t * length * 0.94;
@@ -660,29 +635,19 @@ export function createDock(
     );
     const widthScale = 0.94 + stableUnit(`dock-plank-scale.${dock.chainId}.${index}`) * 0.12;
     scratchMatrix.makeRotationY(yaw);
-    scratchMatrix.scale(scratchScale.set(1, 1, widthScale));
+    scratchMatrix.scale(scratchScale.set(1, 1, width * 0.94 * widthScale));
     scratchMatrix.setPosition(x, lift, 0);
-    planks.setMatrixAt(index, scratchMatrix);
+    props.push(harborProp("plank", scratchMatrix, null, true));
   }
-  planks.instanceMatrix.needsUpdate = true;
-  fineDetail.add(planks);
 
   const pylonSpecs: { x: number; z: number }[] = [];
   for (const x of [-length * 0.2, length * 0.05, length * 0.3, headX]) {
     for (const z of [-width * 0.55, width * 0.55]) pylonSpecs.push({ x, z });
   }
-  const pylons = new InstancedMesh(
-    new CylinderGeometry(0.16, 0.2, 2.25, 6),
-    new MeshStandardMaterial({ color: HARBOR_PALETTE.timber_dark, roughness: 1 }),
-    pylonSpecs.length,
-  );
-  pylons.name = "dock-pylons";
-  pylonSpecs.forEach((spec, index) => {
+  pylonSpecs.forEach((spec) => {
     scratchMatrix.makeTranslation(spec.x, -0.85, spec.z);
-    pylons.setMatrixAt(index, scratchMatrix);
+    props.push(harborProp("pylon", scratchMatrix, null, true));
   });
-  pylons.instanceMatrix.needsUpdate = true;
-  fineDetail.add(pylons);
 
   // ---- Bollards and mooring ropes ----------------------------------------
   // Berth count follows the chain's supply band, so a big harbour visibly
@@ -703,41 +668,22 @@ export function createDock(
       bollardSpecs.push({ x: -length * 0.02 + t * length * 0.64, z: -width * 1.8 - width * 0.44 });
     }
   }
-  const bollards = new InstancedMesh(
-    new CylinderGeometry(0.1, 0.14, 0.44, 6),
-    metal,
-    bollardSpecs.length,
-  );
-  bollards.name = "dock-bollards";
   bollardSpecs.forEach((spec, index) => {
     const lean = index === 0 ? quayFrailty * MathUtils.degToRad(16) : 0;
     scratchMatrix.makeRotationZ(lean);
     scratchMatrix.setPosition(spec.x, 0.42, spec.z);
-    bollards.setMatrixAt(index, scratchMatrix);
+    props.push(harborProp("bollard", scratchMatrix, null, true));
   });
-  bollards.instanceMatrix.needsUpdate = true;
-  fineDetail.add(bollards);
 
   const ropeParts: BufferGeometry[] = [];
   for (const spec of bollardSpecs) {
     ropeParts.push(...mooringRopeGeometry(spec.x, spec.z, Math.sign(spec.z)));
   }
-  const ropes = new Mesh(
-    mergeGeometries(ropeParts, false)!,
-    new MeshStandardMaterial({ color: "#3d3327", roughness: 1 }),
-  );
-  ropes.name = "dock-mooring-ropes";
-  fineDetail.add(ropes);
+  parts.push(harborPart("metal", mergeGeometries(ropeParts, false)!, "#3d3327", true, false));
 
   // ---- Cargo --------------------------------------------------------------
   const crateCount = Math.max(2, Math.round(2 + supply * 8))
     + (signature === "crate-tower" ? 4 : 0);
-  const crates = new InstancedMesh(
-    new BoxGeometry(0.44, 0.4, 0.44),
-    new MeshStandardMaterial({ color: "#8d623a", flatShading: true, roughness: 1 }),
-    crateCount,
-  );
-  crates.name = "dock-crates";
   for (let index = 0; index < crateCount; index += 1) {
     const tier = Math.floor(index / 4);
     const column = index % 4;
@@ -746,28 +692,18 @@ export function createDock(
       0.7 + tier * 0.42,
       quayWidth * 0.3 + (stableUnit(`dock-crate.${dock.chainId}.${index}`) - 0.5) * 0.3,
     );
-    crates.setMatrixAt(index, scratchMatrix);
+    props.push(harborProp("crate", scratchMatrix, null, true));
   }
-  crates.instanceMatrix.needsUpdate = true;
-  fineDetail.add(crates);
 
   const barrelCount = Math.max(3, Math.round(supply * 9));
-  const barrels = new InstancedMesh(
-    new CylinderGeometry(0.16, 0.16, 0.36, 8),
-    new MeshStandardMaterial({ color: "#6f5233", flatShading: true, roughness: 1 }),
-    barrelCount,
-  );
-  barrels.name = "dock-barrels";
   for (let index = 0; index < barrelCount; index += 1) {
     scratchMatrix.makeTranslation(
       quayX - quayLength * 0.28 + (index % 5) * 0.36,
       0.68,
       -quayWidth * 0.3 - Math.floor(index / 5) * 0.36,
     );
-    barrels.setMatrixAt(index, scratchMatrix);
+    props.push(harborProp("barrel", scratchMatrix, null, true));
   }
-  barrels.instanceMatrix.needsUpdate = true;
-  fineDetail.add(barrels);
 
   // ---- Posts, lamps, flagstaff -------------------------------------------
   const lampCount = amountScale > 1.05 ? 3 : 2;
@@ -800,75 +736,42 @@ export function createDock(
     ...quayLampLocals.map((lamp) => ({ ...lamp, radius: 0.075 })),
     ...signaturePostSpecs(signature, length, width),
   ];
-  const posts = new InstancedMesh(
-    new CylinderGeometry(1, 1.2, 1, 6),
-    new MeshStandardMaterial({ color: "#5c4d3c", metalness: 0.24, roughness: 0.78 }),
-    postSpecs.length,
-  );
-  posts.name = "dock-posts";
-  postSpecs.forEach((spec, index) => {
+  postSpecs.forEach((spec) => {
     scratchMatrix.makeScale(spec.radius, spec.height, spec.radius);
     scratchMatrix.setPosition(spec.x, spec.height / 2 + 0.24, spec.z);
-    posts.setMatrixAt(index, scratchMatrix);
-  });
-  posts.instanceMatrix.needsUpdate = true;
-  root.add(posts);
-
-  const lampMaterial = new MeshStandardMaterial({
-    color: HARBOR_PALETTE.lantern_glow,
-    emissive: HARBOR_PALETTE.lantern_warm,
-    emissiveIntensity: 1.5,
-    roughness: 0.25,
-    toneMapped: false,
+    props.push(harborProp("post", scratchMatrix, null, false));
   });
   const allLamps = [
     ...lampLocals.map((lamp) => ({ x: lamp.x, y: lamp.height + 0.3, z: lamp.z })),
     ...quayLampLocals.map((lamp) => ({ x: lamp.x, y: lamp.height + 0.3, z: lamp.z })),
     ...extraLampLocals,
   ];
-  const lamps = new InstancedMesh(new SphereGeometry(0.21, 6, 4), lampMaterial, allLamps.length);
-  lamps.name = "dock-lamp-heads";
-  allLamps.forEach((lamp, index) => {
+  allLamps.forEach((lamp) => {
     const trim = 0.88 + quayHealth * 0.17;
     scratchMatrix.makeScale(trim, trim, trim);
     scratchMatrix.setPosition(lamp.x, lamp.y, lamp.z);
-    lamps.setMatrixAt(index, scratchMatrix);
+    props.push(harborProp("lampHead", scratchMatrix, null, false));
   });
-  lamps.instanceMatrix.needsUpdate = true;
-  root.add(lamps);
 
   if (windowParts.length > 0) {
-    const windows = new Mesh(
-      mergeBucket(windowParts),
-      new MeshStandardMaterial({
-        color: HARBOR_PALETTE.lantern_glow,
-        emissive: HARBOR_PALETTE.lantern_warm,
-        emissiveIntensity: 1.6,
-        roughness: 0.5,
-        toneMapped: false,
-      }),
-    );
-    windows.name = "dock-warehouse-windows";
-    root.add(windows);
+    parts.push(harborPart("window", mergeBucket(windowParts), HARBOR_PALETTE.lantern_glow, false, false));
   }
 
   // ---- The chain flag -----------------------------------------------------
-  const flag = createChainFlag(dock, accent, {
+  const flag = authorChainFlag(dock, accent, {
     height: flagstaffHeight,
     scale: 0.72 + supply * 0.4,
     x: headX,
     yaw: CAMERA_FACING_YAW - root.rotation.y,
     z: width * 0.1,
   });
-  root.add(flag);
 
   // ---- Cranes and signature props ----------------------------------------
   // The capital works cargo as well as ceremony, so it gets a gantry on top of
   // its campanile — no other harbour carries both.
   if ((landmark === "gantry" || grand) && size >= 4) {
-    root.add(createHarborCrane(headX, width, supply, timber, metal));
+    pushHarborCrane(headX, width, supply, parts);
   }
-  if (signatureAccent) root.add(signatureAccent);
 
   const lampWorldPositions = lampLocals.map((lamp) =>
     localToWorldXZ(root, lamp.x, lamp.z),
@@ -884,9 +787,10 @@ export function createDock(
     PLAN_HALF_SPAN[plan] * width,
     grand ? width * 2.23 : 0,
   );
-  applyGardenHeightFog(root, { epistemicHaze: "quay" });
-
   return {
+    accentColor: accent.clone(),
+    anchorPosition: root.position.clone(),
+    anchorRotationY: root.rotation.y,
     cargoTideLanes: cargoTideLanes(length, quayLength, quayWidth, quayX),
     tideFace: {
       width: quayLength,
@@ -898,12 +802,15 @@ export function createDock(
       z: quayWidth / 2 + 0.03,
     },
     dock,
-    fineDetail,
+    flag,
     footprint: { length, span },
     identity,
     lampWorldPositions,
+    parts,
     plan,
-    root,
+    props,
+    quayHealth,
+    rootMatrix,
     signature,
   };
 }
@@ -917,7 +824,7 @@ export function createDock(
  * lighting would evict the beacon and the island path.
  */
 export function gardenDockLampWorldPositions(dock: DockVisual): { x: number; z: number }[] {
-  return dock.lampWorldPositions;
+  return dock.recipe.lampWorldPositions;
 }
 
 /** Pier deck top and quay coping top, above the harbour root. */
@@ -965,15 +872,12 @@ function harborAmountScale(totalUsd: number): number {
  * A gantry crane over the pier head: two raking legs, a jib, a counterweight,
  * and a hook block on its fall. Merged to one draw; the whole thing is static.
  */
-function createHarborCrane(
+function pushHarborCrane(
   headX: number,
   width: number,
   supply: number,
-  timberMaterial: MeshStandardMaterial,
-  metalMaterial: MeshStandardMaterial,
-): Group {
-  const group = new Group();
-  group.name = "dock-crane";
+  parts: HarborBucketPart[],
+): void {
   const height = 2.9 + supply * 1.4;
   const frame: BufferGeometry[] = [];
   for (const side of [-1, 1]) {
@@ -989,19 +893,14 @@ function createHarborCrane(
   jib.rotateZ(-0.3);
   jib.translate(headX + 0.95, height + 0.5, 0);
   frame.push(jib);
-  const crane = new Mesh(mergeGeometries(frame, false)!, timberMaterial);
-  crane.castShadow = true;
-  group.add(crane);
+  parts.push(harborPart("timber", mergeGeometries(frame, false)!, HARBOR_PALETTE.timber_mid, false, true));
 
   const fittings: BufferGeometry[] = [];
   // Counterweight aft of the mast, hook block on its fall forward of it.
   pushGeometry(fittings, new BoxGeometry(0.34, 0.3, 0.34), headX - 0.62, height + 0.02, 0);
   pushGeometry(fittings, new BoxGeometry(0.03, 1.05, 0.03), headX + 1.85, height + 0.1, 0);
   pushGeometry(fittings, new BoxGeometry(0.22, 0.2, 0.22), headX + 1.85, height - 0.46, 0);
-  const hook = new Mesh(mergeGeometries(fittings, false)!, metalMaterial);
-  hook.castShadow = true;
-  group.add(hook);
-  return group;
+  parts.push(harborPart("metal", mergeGeometries(fittings, false)!, "#6d5d49", false, true));
 }
 
 /**
@@ -1009,92 +908,28 @@ function createHarborCrane(
  * the chain's cell in the shared flag atlas, so ten harbours fly ten different
  * logos through one texture and one material.
  */
-function createChainFlag(
+function authorChainFlag(
   dock: DockNode,
   accent: Color,
   placement: { height: number; scale: number; x: number; yaw: number; z: number },
-): Group {
-  const group = new Group();
-  group.name = "dock-chain-flag";
+): HarborFlagSpec {
   const cell = assignGardenChainFlagCell(dock, accent);
-  const texture = gardenChainFlagAtlas().texture;
-
-  const flagWidth = 1.5 * placement.scale;
-  const flagHeight = 1.0 * placement.scale;
-  const geometry = new PlaneGeometry(flagWidth, flagHeight, 8, 3);
-  // Cloth: a standing wave that deepens toward the fly, plus a slight droop,
-  // so the flag reads as fabric at overview zoom rather than as a decal.
-  const position = geometry.getAttribute("position");
   const sag = 0.07 + stableUnit(`dock-flag-sag.${dock.chainId}`) * 0.06;
   const wavePhase = (stableUnit(`dock-flag-wave.${dock.chainId}`) - 0.5) * 0.7;
-  for (let index = 0; index < position.count; index += 1) {
-    const x = position.getX(index);
-    const along = (x + flagWidth / 2) / flagWidth;
-    position.setZ(index, Math.sin(along * Math.PI * 1.7 + wavePhase) * 0.13 * placement.scale * along);
-    position.setY(index, position.getY(index) - along * along * sag * placement.scale);
-  }
-  position.needsUpdate = true;
-  geometry.computeVertexNormals();
-
-  if (cell >= 0 && texture) {
-    const uv = geometry.getAttribute("uv");
-    const { offsetX, offsetY, scale } = gardenChainFlagCellUv(cell);
-    for (let index = 0; index < uv.count; index += 1) {
-      uv.setXY(index, offsetX + uv.getX(index) * scale, offsetY + uv.getY(index) * scale);
-    }
-    uv.needsUpdate = true;
-  }
-
-  const material = new MeshStandardMaterial({
-    color: cell >= 0 && texture ? "#ffffff" : accent,
-    map: cell >= 0 ? texture : null,
-    roughness: 0.82,
-    side: DoubleSide,
-  });
-  const cloth = new Mesh(geometry, material);
-  cloth.name = "dock-chain-flag-cloth";
-  // Hoist edge against the staff, cloth flying to +X of it.
-  cloth.position.set(flagWidth / 2 + 0.06, 0, 0);
-  // W3.2 makes the cloth wind-driven. It cannot remain in the harbour's
-  // static shadow map once its bearing changes after that map was baked.
-  cloth.castShadow = false;
-
-  const pivot = new Group();
-  pivot.name = "dock-chain-flag-wind-pivot";
-  pivot.userData.staticYaw = placement.yaw;
-  pivot.add(cloth);
-  pivot.position.set(placement.x, placement.height - flagHeight * 0.75, placement.z);
-  pivot.rotation.y = placement.yaw;
-  group.add(pivot);
-
-  return group;
-}
-
-/** Routes every chain flag through the one world wind and position-delayed gust. */
-export function updateDockFlagWind(
-  dock: DockVisual,
-  weather: WeatherPlan,
-  timeSeconds: number,
-  reducedMotion: boolean,
-): void {
-  const pivot = dock.root.getObjectByName("dock-chain-flag-wind-pivot");
-  if (!pivot) return;
-  if (reducedMotion) {
-    pivot.rotation.y = Number(pivot.userData.staticYaw) || 0;
-    pivot.rotation.z = 0;
-    return;
-  }
-  // The dock itself is already yawed around the island, so cancel that local
-  // bearing before pointing the cloth's +X fly edge downwind.
-  pivot.rotation.y = -dock.root.rotation.y - weather.windAngle;
-  const gust = gardenGustAtWorldPosition(
-    timeSeconds,
-    dock.root.position.x,
-    dock.root.position.z,
-    weather,
-  );
-  const breath = gardenBreathAt(timeSeconds, GARDEN_BREATH_PHASE.sails);
-  pivot.rotation.z = (gust - 0.35) * 0.055 + (breath - 0.5) * 0.025;
+  return {
+    accent: accent.clone(),
+    atlasCell: cell,
+    chainId: dock.chainId,
+    placement: {
+      scale: placement.scale,
+      x: placement.x,
+      y: placement.height - placement.scale * 0.75,
+      yaw: placement.yaw,
+      z: placement.z,
+    },
+    sag,
+    wavePhase,
+  };
 }
 
 /** One sea arm, walked as a circular arc so it bows out and curls back in. */
@@ -1425,6 +1260,31 @@ function mergeBucket(parts: BufferGeometry[]): BufferGeometry {
   return mergeGeometries(normalized, false)!;
 }
 
+function harborPart(
+  bucket: HarborBucket,
+  geometry: BufferGeometry,
+  color: Color | string,
+  fineDetail: boolean,
+  castShadow: boolean,
+): HarborBucketPart {
+  return {
+    bucket,
+    castShadow,
+    color: color instanceof Color ? color.clone() : new Color(color),
+    fineDetail,
+    geometry,
+  };
+}
+
+function harborProp(
+  kind: HarborPropKind,
+  matrix: Matrix4,
+  color: Color | null,
+  fineDetail: boolean,
+): HarborPropInstance {
+  return { color: color?.clone() ?? null, fineDetail, kind, matrix: matrix.clone() };
+}
+
 /** Applies a translation to a geometry and pushes it into a merge bucket. */
 function pushGeometry(
   parts: BufferGeometry[],
@@ -1509,17 +1369,18 @@ function signaturePostSpecs(
  * goes into the deck bucket for free; only the translucent net rack needs a
  * material — and so a draw — of its own.
  */
-function createSignatureAccent(
+function pushSignatureAccent(
   signature: SignatureKind,
   length: number,
   width: number,
   deckParts: BufferGeometry[],
-): Mesh | null {
+  parts: HarborBucketPart[],
+): void {
   const head = length * 0.66;
   switch (signature) {
     case "derrick":
       pushGeometry(deckParts, new BoxGeometry(0.16, 0.16, width * 0.72), head, 2.66, 0);
-      return null;
+      return;
     case "dinghy": {
       const hull = new SphereGeometry(0.55, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2);
       hull.scale(0.7, 0.6, 1.5);
@@ -1527,24 +1388,19 @@ function createSignatureAccent(
       hull.rotateZ(0.12);
       hull.translate(length * 0.3, 0.32, width * 0.85);
       deckParts.push(hull);
-      return null;
+      return;
     }
     case "net-racks": {
-      const net = new Mesh(
-        new BoxGeometry(0.06, 1.1, width * 0.78),
-        new MeshStandardMaterial({
-          color: HARBOR_PALETTE.sail_teal,
-          flatShading: true,
-          opacity: 0.55,
-          roughness: 1,
-          transparent: true,
-        }),
-      );
-      net.position.set(head, 1.05, 0);
-      return net;
+      const net = new BoxGeometry(0.06, 1.1, width * 0.78);
+      net.translate(head, 1.05, 0);
+      // The world-wide wall draw carries RGB per vertex; this metadata lets it
+      // carry the old net rack's 0.55 cloth alpha in the same attribute too.
+      net.userData.harborOpacity = 0.55;
+      parts.push(harborPart("wall", net, HARBOR_PALETTE.sail_teal, false, false));
+      return;
     }
     default:
-      return null;
+      return;
   }
 }
 
@@ -1612,12 +1468,13 @@ function dockHealthAccent(healthBand: DockNode["healthBand"]): string {
  * One InstancedMesh for the whole pier: piles are the most repeated element in
  * a harbour and must not cost a draw call each.
  */
-function createPierPilings(
+function pushPierPilings(
+  props: HarborPropInstance[],
   length: number,
   width: number,
   plan: HarborPlan,
   grand: boolean,
-): InstancedMesh<CylinderGeometry, MeshStandardMaterial> {
+): void {
   const specs: { x: number; z: number }[] = [];
   const bays = Math.max(3, Math.round(length / 1.15));
   for (let bay = 0; bay <= bays; bay += 1) {
@@ -1647,24 +1504,11 @@ function createPierPilings(
   // Long enough to pass through the waterline and disappear into the shadow
   // under the deck; the exact depth is never seen, only the fact of it.
   const pileHeight = 2.6;
-  const piles = new InstancedMesh(
-    new CylinderGeometry(0.075, 0.095, pileHeight, 6),
-    new MeshStandardMaterial({
-      color: new Color(HARBOR_PALETTE.timber_dark).lerp(new Color(HARBOR_PALETTE.iron_dark), 0.45),
-      flatShading: true,
-      roughness: 0.95,
-    }),
-    specs.length,
-  );
-  piles.name = "dock-pilings";
-  piles.castShadow = true;
   const matrix = new Matrix4();
-  specs.forEach((spec, index) => {
+  specs.forEach((spec) => {
     matrix.makeTranslation(spec.x, -pileHeight / 2 - 0.1, spec.z);
-    piles.setMatrixAt(index, matrix);
+    props.push(harborProp("piling", matrix, null, false));
   });
-  piles.instanceMatrix.needsUpdate = true;
-  return piles;
 }
 
 /** Rounded-end pier deck: one extruded rounded rectangle, one draw. */
@@ -1701,7 +1545,7 @@ function roundedRectShape(w: number, h: number, r: number): Shape {
   return shape;
 }
 
-function localToWorldXZ(root: Group, localX: number, localZ: number): { x: number; z: number } {
+function localToWorldXZ(root: Object3D, localX: number, localZ: number): { x: number; z: number } {
   const cos = Math.cos(root.rotation.y);
   const sin = Math.sin(root.rotation.y);
   return {

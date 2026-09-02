@@ -25,11 +25,13 @@ function tide(overrides: Partial<DockCargoTide> = {}): DockCargoTide {
 /** A harbour placed and yawed like a composed one, with authored tide lanes. */
 function dockVisual(chainId: string, cargoTide: DockCargoTide | undefined, yaw = 0): DockVisual {
   const visual = {
-    cargoTideLanes: {
-      aboard: Array.from({ length: CARGO_TIDE_SLOTS }, (_, index) => ({ x: index, y: 0.21, z: 0 })),
-      ashore: Array.from({ length: CARGO_TIDE_SLOTS }, (_, index) => ({ x: -index, y: 0.62, z: 3 })),
+    recipe: {
+      cargoTideLanes: {
+        aboard: Array.from({ length: CARGO_TIDE_SLOTS }, (_, index) => ({ x: index, y: 0.21, z: 0 })),
+        ashore: Array.from({ length: CARGO_TIDE_SLOTS }, (_, index) => ({ x: -index, y: 0.62, z: 3 })),
+      },
+      dock: { chainId, detailId: `dock.${chainId}`, ...(cargoTide ? { cargoTide } : {}) } as DockNode,
     },
-    dock: { chainId, detailId: `dock.${chainId}`, ...(cargoTide ? { cargoTide } : {}) } as DockNode,
     root: {
       position: new Vector3(10, 0, -4),
       rotation: { y: yaw },
