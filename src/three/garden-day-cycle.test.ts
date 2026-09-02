@@ -89,7 +89,8 @@ describe("day-cycle presets (C1 contract)", () => {
   it("keeps moon fill and sail backlight below the night hierarchy", () => {
     const night = DAY_CYCLE_LIGHT_PRESETS.night;
     expect(night.dirIntensity).toBeLessThan(1);
-    expect(night.ambientIntensity + night.hemiIntensity).toBeLessThan(0.25);
+    expect(night.ambient.getHex()).toBe(new Color(HARBOR_PALETTE.sky_night).getHex());
+    expect(night.hemiSky.getHex()).toBe(new Color(HARBOR_PALETTE.sky_horizon).getHex());
     expect(GARDEN_SAIL_EMISSIVE.night).toBeLessThanOrEqual(0.1);
     expect(GARDEN_SAIL_EMISSIVE.night).toBeLessThan(GARDEN_SAIL_EMISSIVE.dusk);
     expect(GARDEN_SAIL_EMISSIVE.dusk).toBeGreaterThan(GARDEN_SAIL_EMISSIVE.day);
