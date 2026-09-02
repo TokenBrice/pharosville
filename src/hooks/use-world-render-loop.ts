@@ -130,6 +130,8 @@ export interface UseWorldRenderLoopInput {
   selectedDetailAnchor: DetailAnchor | null;
   selectedDetailId: string | null;
   selectedDetailIdRef: MutableRefObject<string | null>;
+  /** Last scale actually drawn by the renderer's stele track. */
+  seaSignScaleRef?: MutableRefObject<number | null>;
   shipMotionSamplesRef: MutableRefObject<ReadonlyMap<string, ShipMotionSample>>;
   shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;
   stepCamera: (now: number, shipMotionSamples: ReadonlyMap<string, ShipMotionSample>) => WorldCameraStepResult;
@@ -177,12 +179,16 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     selectedDetailAnchor,
     selectedDetailId,
     selectedDetailIdRef,
+    seaSignScaleRef: providedSeaSignScaleRef,
     shipMotionSamplesRef,
     shipsById,
     stepCamera,
     wallClockHour,
     world,
   } = input;
+
+  const fallbackSeaSignScaleRef = useRef<number | null>(null);
+  const seaSignScaleRef = providedSeaSignScaleRef ?? fallbackSeaSignScaleRef;
 
   const stepCameraRef = useRef(stepCamera);
   useEffect(() => {
@@ -375,6 +381,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     resetVisualMotionSmoothingState(visualMotionStateRef.current);
     hitTargetSnapshotRef.current = null;
     hitTargetsRef.current = [];
+    seaSignScaleRef.current = null;
     reducedMotionSamplesSignatureRef.current = null;
     compactShipMotionSampleCacheRef.current = createCompactShipMotionSampleCache();
     headingDeltaWindowRef.current = createNumericMaxWindow(60);
@@ -391,6 +398,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     hitTargetSnapshotRef,
     hitTargetsRef,
     resetFramePacingState,
+    seaSignScaleRef,
     shipMotionSamplesRef,
     worldContentSignature,
   ]);
@@ -578,7 +586,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       });
       shipMotionSamplesRef.current = shipMotionSamples;
       const sampleDurationMs = performance.now() - sampleStartedAt;
-      const hitTargetStartedAt = performance.now();
       let snapshotRebuildCount = 0;
       const cameraStep = stepCameraRef.current(time, shipMotionSamples);
       // Camera intent that no input event produced — a follow, a focus flight —
@@ -599,18 +606,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         scheduleNextAnimatedFrame();
         return;
       }
-      const nextSnapshot = createGardenObservatoryHitTargetSnapshot({
-        camera: frameCamera,
-        hoveredDetailId: activeHoveredDetailId,
-        selectedDetailId: activeSelectedDetailId,
-        shipMotionSamples,
-        viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
-        world: activeWorld,
-      });
-      hitTargetSnapshotRef.current = nextSnapshot;
-      hitTargetsRef.current = nextSnapshot.targets;
-      snapshotRebuildCount += 1;
-      const hitTargetDurationMs = performance.now() - hitTargetStartedAt;
       // Camera pan/zoom frames legitimately run 40-220ms intervals; feeding
       // them into the 120-sample pacing window would hold framePacingP90Ms
       // above the render-scheduler recovery threshold for ~2s after the
@@ -690,37 +685,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           }
         }
       }
-      const targets = hitTargetsRef.current;
-      const nextFrameState = frameStateRef.current;
-      const targetByDetailId = hitTargetSnapshotRef.current?.targetsByDetailId;
-      nextFrameState.samples = shipMotionSamples;
-      nextFrameState.targets = targets;
-      nextFrameState.hoveredTarget = activeHoveredDetailId
-        ? targetByDetailId?.get(activeHoveredDetailId) ?? null
-        : null;
-      nextFrameState.selectedTarget = activeSelectedDetailId
-        ? targetByDetailId?.get(activeSelectedDetailId) ?? null
-        : null;
-      nextFrameState.timeSeconds = timeSeconds;
-      nextFrameState.wallClockHour = frameWallClockHour;
-      const nextHoveredTarget = nextFrameState.hoveredTarget;
-      const tooltipEl = hoverTooltipElRef?.current;
-      if (tooltipEl) {
-        const nameplateVisible = hoverNameplateVisible(
-          hoverNameplateDwellRef.current,
-          nextHoveredTarget?.detailId ?? null,
-          time,
-        );
-        if (nextHoveredTarget && nameplateVisible) {
-          const rect = nextHoveredTarget.rect;
-          const tooltipX = Math.round(rect.x + rect.width / 2);
-          const tooltipY = Math.round(rect.y);
-          tooltipEl.style.transform = `translate(${tooltipX}px, ${tooltipY}px)`;
-          tooltipEl.dataset.visible = "true";
-        } else if (tooltipEl.dataset.visible !== "false") {
-          tooltipEl.dataset.visible = "false";
-        }
-      }
       const drawStartedAt = performance.now();
       const renderScheduler = resolveRenderSchedulerState({
         cameraIntentActive: cameraStep.cameraIntentActive,
@@ -772,6 +736,61 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         return;
       }
       renderFailureStreakRef.current = 0;
+      const drawDurationMs = performance.now() - drawStartedAt;
+
+      // The renderer owns the stele's eased, hysteretic overview rung. Build
+      // this frame's hit snapshot only after it has advanced and drawn that
+      // track, so the hand sees exactly the same extent as the eye. Pointer
+      // event rebuilds between frames reuse this last-drawn value through the
+      // shared ref rather than independently resolving a zoom rung.
+      const drawnSeaSignScale = threeRenderer.getSeaSignScale();
+      seaSignScaleRef.current = drawnSeaSignScale;
+      const hitTargetStartedAt = performance.now();
+      const nextSnapshot = createGardenObservatoryHitTargetSnapshot({
+        camera: frameCamera,
+        hoveredDetailId: activeHoveredDetailId,
+        seaSignScale: drawnSeaSignScale,
+        selectedDetailId: activeSelectedDetailId,
+        shipMotionSamples,
+        viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
+        world: activeWorld,
+      });
+      hitTargetSnapshotRef.current = nextSnapshot;
+      hitTargetsRef.current = nextSnapshot.targets;
+      snapshotRebuildCount += 1;
+      const hitTargetDurationMs = performance.now() - hitTargetStartedAt;
+
+      const targets = hitTargetsRef.current;
+      const nextFrameState = frameStateRef.current;
+      const targetByDetailId = nextSnapshot.targetsByDetailId;
+      nextFrameState.samples = shipMotionSamples;
+      nextFrameState.targets = targets;
+      nextFrameState.hoveredTarget = activeHoveredDetailId
+        ? targetByDetailId.get(activeHoveredDetailId) ?? null
+        : null;
+      nextFrameState.selectedTarget = activeSelectedDetailId
+        ? targetByDetailId.get(activeSelectedDetailId) ?? null
+        : null;
+      nextFrameState.timeSeconds = timeSeconds;
+      nextFrameState.wallClockHour = frameWallClockHour;
+      const nextHoveredTarget = nextFrameState.hoveredTarget;
+      const tooltipEl = hoverTooltipElRef?.current;
+      if (tooltipEl) {
+        const nameplateVisible = hoverNameplateVisible(
+          hoverNameplateDwellRef.current,
+          nextHoveredTarget?.detailId ?? null,
+          time,
+        );
+        if (nextHoveredTarget && nameplateVisible) {
+          const rect = nextHoveredTarget.rect;
+          const tooltipX = Math.round(rect.x + rect.width / 2);
+          const tooltipY = Math.round(rect.y);
+          tooltipEl.style.transform = `translate(${tooltipX}px, ${tooltipY}px)`;
+          tooltipEl.dataset.visible = "true";
+        } else if (tooltipEl.dataset.visible !== "false") {
+          tooltipEl.dataset.visible = "false";
+        }
+      }
       if (activeWorld.routeMode === "world" && !rendererWarmupStartedRef.current) {
         rendererWarmupStartedRef.current = true;
         void threeRenderer.warmup()
@@ -790,7 +809,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       lastRenderMetricsRef.current = {
         ...renderMetrics,
         hitTargetDurationMs,
-        drawDurationMs: performance.now() - drawStartedAt,
+        drawDurationMs,
         framePacing: framePacingStatsRef.current,
         sampleDurationMs,
         snapshotRebuildCount,
