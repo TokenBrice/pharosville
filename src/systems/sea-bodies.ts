@@ -137,14 +137,14 @@ interface SeaBody {
  * below. Re-run it after moving any seed.
  */
 export const SEA_BODY_REACH: Record<SeaBodyName, number> = {
-  calm: 0.0002,
-  open: 0.0578,
-  watch: -0.0560,
-  ledger: 0.0464,
-  alert: 0.0618,
-  wreck: -0.0199,
-  danger: -0.0848,
-  warning: -0.0054,
+  calm: 0.0203,
+  open: 0.0541,
+  watch: -0.0723,
+  ledger: 0.0440,
+  alert: 0.0610,
+  wreck: 0.0289,
+  danger: -0.1135,
+  warning: -0.0223,
 };
 
 /**
@@ -179,7 +179,7 @@ const SEA_BODIES: readonly SeaBody[] = [
       disc(0.17, 0.21, 0.065),
       // The shelf's hooked western end meets the new land rim below the
       // borrowed-horizon opening, giving Ledger Mooring a real shore cove.
-      capsule(0.12, 0.24, 0.06, 0.40, 0.05),
+      capsule(0.12, 0.24, 0.07, 0.47, 0.08),
     ],
   },
   {
@@ -222,7 +222,12 @@ const SEA_BODIES: readonly SeaBody[] = [
     // The strait itself: narrow and long, hugging the north-east corner and
     // opening to the map edge. It used to be a disc in that corner.
     name: "danger",
-    seeds: [capsule(0.975, 0.015, 0.86, 0.30, 0.065)],
+    seeds: [
+      capsule(0.975, 0.015, 0.86, 0.30, 0.065),
+      // A short continuation reaches the upper of the east headlands without
+      // filling the shallow Watch bay below it.
+      capsule(0.90, 0.27, 0.94, 0.43, 0.035),
+    ],
   },
   {
     // The graveyard, unchanged in place: the far pole from the storm corner.

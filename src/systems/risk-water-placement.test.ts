@@ -32,7 +32,7 @@ describe("risk water placement", () => {
     // H4: the floors are authored 56-tile windows x MAP_SCALE^2. That model is
     // exact only at an integer scale — the zone predicates test INCLUSIVE integer
     // design bounds (`y <= 9`), which at 2.5 clips half a design row off each edge.
-    // RIM FIELD: the upper shore replaces edge water; recalibration keeps Ledger at 10% (1,584 tiles).
+    // RIM FIELD REVISION 1: Ledger's hooked cove and recalibrated reach measure 1,601 tiles (10.0%).
     expect(ledgerTiles.length).toBeGreaterThan(250 * AREA_SCALE);
     expect(calmTiles.every((tile) => isRiskPlacementWaterTile(tile, "safe-harbor"))).toBe(true);
     expect(ledgerTiles.every((tile) => isRiskPlacementWaterTile(tile, "ledger-mooring"))).toBe(true);

@@ -73,8 +73,8 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
     // Open sea stays open.
     expect(isObstacleAt(zoneWorldTile({ x: 10, y: 30 }))).toBe(false);
     expect(isObstacleAt(zoneWorldTile({ x: 45, y: 10 }))).toBe(false);
-    // RIM FIELD: this former south-edge water sample now lands on the authored bank.
-    expect(isObstacleAt(zoneWorldTile({ x: 38, y: 52 }))).toBe(true);
+    // RIM FIELD REVISION 1: the asymmetric south bank is sampled at its deeper western shoulder.
+    expect(isObstacleAt(zoneWorldTile({ x: 38, y: 55 }))).toBe(true);
   });
 
   it("resolves invalid targets to the nearest valid water deterministically", () => {

@@ -75,8 +75,9 @@ describe("placeGardenFleet", () => {
     const placement = placeGardenFleet(ships, LIGHTHOUSE);
     for (const entry of ships) {
       const tile = placement.tileByShipId.get(entry.id)!;
+      // RIM FIELD REVISION 1: the dominant near-side lobe is balanced by a 13-tile clearing.
       expect(Math.hypot(tile.x - LIGHTHOUSE.x, tile.y - LIGHTHOUSE.y))
-        .toBeGreaterThanOrEqual(9);
+        .toBeGreaterThanOrEqual(13);
     }
   });
 
@@ -139,7 +140,7 @@ describe("placeGardenFleet", () => {
         largestEmptyRadius = Math.max(largestEmptyRadius, nearest);
       }
     }
-    // Measured at ~19 tiles on the anchorage field; blue noise scored ~7.
+    // RIM FIELD REVISION 1: the authored near-side mass retains a measured >13-tile ma clearing.
     expect(largestEmptyRadius).toBeGreaterThan(12);
   });
 

@@ -74,6 +74,8 @@ describe("authored garden rim", () => {
     }
 
     expect(RIM_OPENINGS).toHaveLength(2);
+    const openingWidths = RIM_OPENINGS.map((opening) => opening.bearingEnd - opening.bearingStart);
+    expect(openingWidths[0]! / openingWidths[1]!).toBeCloseTo(2, 5);
     expect(rimTiles / perimeterTiles).toBeGreaterThanOrEqual(0.55);
     expect(rimTiles / perimeterTiles).toBeLessThanOrEqual(0.65);
   });
@@ -92,6 +94,70 @@ describe("authored garden rim", () => {
     for (const opening of RIM_OPENINGS) {
       expect(rimDepthAt(opening.bearingStart)).toBe(0);
       expect(rimDepthAt(opening.bearingEnd)).toBe(0);
+    }
+  });
+
+  it("gives at least 35% of the rim no partner in its horizontal mirror", () => {
+    let rimTiles = 0;
+    let xorTiles = 0;
+    for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
+      for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
+        const land = rimLandAt(x, y);
+        const mirror = rimLandAt(PHAROSVILLE_MAP_WIDTH - 1 - x, y);
+        if (land) rimTiles += 1;
+        if (land !== mirror) xorTiles += 1;
+      }
+    }
+    expect(xorTiles / rimTiles).toBeGreaterThanOrEqual(0.35);
+  });
+
+  it("authors at least three headlands and two bays over 360 bearings", () => {
+    const depths = Array.from({ length: 360 }, (_, index) => rimDepthAt(-Math.PI + index * TAU / 360));
+    let headlands = 0;
+    let bays = 0;
+    for (let index = 0; index < depths.length; index += 1) {
+      const previous = depths[(index + depths.length - 1) % depths.length]!;
+      const depth = depths[index]!;
+      const next = depths[(index + 1) % depths.length]!;
+      if (previous <= 0 || depth <= 0 || next <= 0) continue;
+      if (depth > previous && depth > next) headlands += 1;
+      if (depth < previous && depth < next) bays += 1;
+    }
+    expect(headlands).toBeGreaterThanOrEqual(3);
+    expect(bays).toBeGreaterThanOrEqual(2);
+  });
+
+  it("turns the inner shoreline about every twelve edge tiles", () => {
+    const size = PHAROSVILLE_MAP_WIDTH;
+    const profiles = [
+      Array.from({ length: size }, (_, y) => {
+        let x = 0;
+        while (x < size && rimLandAt(x, y)) x += 1;
+        return x;
+      }),
+      Array.from({ length: size }, (_, y) => {
+        let inset = 0;
+        while (inset < size && rimLandAt(size - 1 - inset, y)) inset += 1;
+        return inset;
+      }),
+      Array.from({ length: size }, (_, x) => {
+        let y = 0;
+        while (y < size && rimLandAt(x, y)) y += 1;
+        return y;
+      }),
+      Array.from({ length: size }, (_, x) => {
+        let inset = 0;
+        while (inset < size && rimLandAt(x, size - 1 - inset)) inset += 1;
+        return inset;
+      }),
+    ];
+    for (const profile of profiles) {
+      let runStart = 0;
+      for (let index = 1; index <= profile.length; index += 1) {
+        if (index < profile.length && profile[index] === profile[runStart]) continue;
+        if (profile[runStart]! > 0) expect(index - runStart).toBeLessThanOrEqual(13);
+        runStart = index;
+      }
     }
   });
 
@@ -149,6 +215,16 @@ describe("authored garden rim", () => {
     }
 
     expect(bodies).toEqual(new Set(["calm", "watch", "alert", "warning", "danger", "ledger"]));
+    const precinct = RIM_COVES.filter((cove) => cove.id === "ethereum-precinct" || cove.id.endsWith("-annex"));
+    expect(precinct).toHaveLength(4);
+    for (const cove of precinct) expect(cove.body).toBe("calm");
+    for (let index = 0; index < precinct.length; index += 1) {
+      for (let otherIndex = index + 1; otherIndex < precinct.length; otherIndex += 1) {
+        const a = precinct[index]!.tile;
+        const b = precinct[otherIndex]!.tile;
+        expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThanOrEqual(24);
+      }
+    }
     for (let index = 0; index < RIM_COVES.length; index += 1) {
       for (let otherIndex = index + 1; otherIndex < RIM_COVES.length; otherIndex += 1) {
         const a = RIM_COVES[index]!.tile;
@@ -160,12 +236,12 @@ describe("authored garden rim", () => {
   });
 
   it("returns negative land, positive water, and zero on the shoreline", () => {
-    const rimTile = { x: 7, y: 47 };
-    const waterTile = { x: 8, y: 47 };
+    const rimTile = { x: 8, y: 54 };
+    const waterTile = { x: 9, y: 54 };
     expect(rimLandAt(rimTile.x, rimTile.y)).toBe(true);
     expect(rimLandAt(waterTile.x, waterTile.y)).toBe(false);
     expect(rimShoreDistance(rimTile.x, rimTile.y)).toBeLessThan(0);
     expect(rimShoreDistance(waterTile.x, waterTile.y)).toBeGreaterThan(0);
-    expect(rimShoreDistance(7.5, 47)).toBe(0);
+    expect(rimShoreDistance(8.5, 54)).toBe(0);
   });
 });

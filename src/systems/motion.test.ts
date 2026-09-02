@@ -871,11 +871,10 @@ describe("motion", () => {
 
   it("routes over semantic water terrain only", () => {
     const map = buildPharosVilleMap();
-    // N1: zone water is authored in the 56-tile design space and scaled onto
-    // the 112-tile grid, so both endpoints take the zone transform — the route
-    // still runs from the east-corner storm core across the top shelf.
+    // RIM FIELD REVISION 1: Danger now meets the upper east headland below its
+    // unequal opening, so the route begins at that measured storm-water mouth.
     const route = buildShipWaterRoute({
-      from: zoneWorldTile({ x: 55, y: 0 }),
+      from: { x: 130, y: 59 },
       to: zoneWorldTile({ x: 35, y: 10 }),
       map,
     });

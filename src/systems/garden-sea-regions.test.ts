@@ -30,7 +30,7 @@ describe("sea region field", () => {
   });
 
   it("covers the vast majority of the sea with named regions", () => {
-    // RIM FIELD: open approach plus deep water now measure 24.2%, leaving 75.8% named coverage.
+    // RIM FIELD REVISION 1: the rebalanced asymmetric shore measures 75.92% named-water coverage.
     const coverage = gardenSeaRegionCoverage();
     expect(coverage.waterTiles).toBeGreaterThan(2_000);
     // D2 (operator, 2026-07-25): the neutral water stays deliberately UNNAMED.

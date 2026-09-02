@@ -108,9 +108,9 @@ describe("buildPharosVilleWorld", () => {
     expect(world.routeMode).toBe("world");
     // THRESHOLD CHANGE. N1: land is OFFSET, not scaled, so the island keeps its
     // absolute footprint inside a 4x sea (~0.86 → ~0.9647). N2: the cemetery
-    // RIM FIELD: 3,373 authored perimeter tiles are now land, moving measured water to 0.8086 while the island stays 377 tiles.
-    expect(world.map.waterRatio).toBeGreaterThanOrEqual(0.806);
-    expect(world.map.waterRatio).toBeLessThanOrEqual(0.811);
+    // RIM FIELD REVISION 1: 3,205 asymmetric rim tiles move measured water to 0.8172 while the island stays 377 tiles.
+    expect(world.map.waterRatio).toBeGreaterThanOrEqual(0.815);
+    expect(world.map.waterRatio).toBeLessThanOrEqual(0.819);
     expect(world.lighthouse.unavailable).toBe(false);
     expect(world.docks).toHaveLength(2);
     expect(world.ships.map((ship) => ship.id)).toEqual(["usdt-tether", "usdc-circle"]);
