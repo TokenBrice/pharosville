@@ -36,7 +36,7 @@ import type {
 } from "../renderer/world-renderer-backend";
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
 import { defaultCamera } from "../systems/camera";
-import { screenToTile } from "../systems/projection";
+import { gardenWaterPlateContainsTile, screenToTile } from "../systems/projection";
 import { HARBOR_PALETTE } from "../systems/palette";
 import {
   bearingInsideRimOpening,
@@ -60,6 +60,7 @@ import {
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { seaStateForWorld } from "../systems/sea-state";
+import { stableUnit } from "../systems/stable-random";
 import { gardenAlmanacEventForDate } from "../systems/garden-almanac";
 import { DAY_CYCLE_SKY_PRESETS, type DayCyclePhase } from "./garden-day-cycle";
 import { gardenQuayEpistemicHazeUniform } from "./garden-height-fog";
@@ -1306,54 +1307,57 @@ describe("W4.2 garden-tempo transition queue", () => {
     expect(sampleGardenShipTransition(crossMap, 55).visibility).toBe(0);
   });
 
-  it("routes every dense-fixture transition through a water opening", () => {
-    const world = denseRendererWorld();
-    const center = (world.map.width - 1) * 0.5;
-    for (const ship of world.ships) {
-      const margin = gardenShipWaterMarginTiles(
-        gardenShipVisualScale(ship.visual.scale || 1),
-        GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
-      );
-      const endpoint = gardenMistBoundaryTile(ship.tile, ship.tile.x / world.map.width, margin);
-      const bearing = Math.atan2(endpoint.y - center, endpoint.x - center);
-      expect(rimLandAt(endpoint.x, endpoint.y), ship.id).toBe(false);
-      expect(isGardenShipWater(endpoint, margin), ship.id).toBe(true);
-      expect(
-        RIM_OPENINGS.some((opening) => bearingInsideRimOpening(bearing, opening)),
-        ship.id,
-      ).toBe(true);
-    }
-  });
+  it("keeps every fixture hull's arrival, departure and cross-map path inside the plate", () => {
+    const worlds = [
+      ["canonical", buildPharosVilleWorld(makePharosVilleWorldInput())],
+      ["dense", denseRendererWorld()],
+    ] as const;
+    for (const [fixture, world] of worlds) {
+      const placements = selectGardenObservatorySlice(world, null).ships;
+      for (let index = 0; index < placements.length; index += 1) {
+        const placement = placements[index]!;
+        const ship = placement.ship;
+        const margin = gardenShipWaterMarginTiles(
+          gardenShipVisualScale(ship.visual.scale || 1),
+          GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+        );
+        const target = resolveGardenShipDisplayTile({ ...placement, sample: null });
+        const farPlacement = placements[(index + Math.floor(placements.length / 2)) % placements.length]!;
+        const farTarget = resolveGardenShipDisplayTile({ ...farPlacement, sample: null });
+        const edges = [
+          gardenMistBoundaryTile(target, stableUnit(`test.arrival.${ship.id}`), margin),
+          gardenMistBoundaryTile(farTarget, stableUnit(`test.cross.${ship.id}`), margin),
+        ];
+        for (const [edgeIndex, endpoint] of edges.entries()) {
+          const centerX = (world.map.width - 1) * 0.5;
+          const centerY = (world.map.height - 1) * 0.5;
+          const bearing = Math.atan2(endpoint.y - centerY, endpoint.x - centerX);
+          const label = `${fixture} ${ship.id} edge ${edgeIndex}`;
+          expect(rimLandAt(endpoint.x, endpoint.y), label).toBe(false);
+          expect(isGardenShipWater(endpoint, margin), label).toBe(true);
+          expect(gardenWaterPlateContainsTile(endpoint, world.map), label).toBe(true);
+          expect(
+            RIM_OPENINGS.some((opening) => bearingInsideRimOpening(bearing, opening)),
+            label,
+          ).toBe(true);
+        }
 
-  it("keeps the dense fixture's largest-margin hull safe along arrival and departure paths", () => {
-    const world = denseRendererWorld();
-    const placement = selectGardenObservatorySlice(world, null).ships
-      .map((entry) => ({
-        entry,
-        margin: gardenShipWaterMarginTiles(
-          gardenShipVisualScale(entry.ship.visual.scale || 1),
-          GARDEN_SILHOUETTE_FOR_HULL[entry.ship.visual.hull],
-        ),
-      }))
-      .toSorted((left, right) => right.margin - left.margin)[0]!;
-    const target = resolveGardenShipDisplayTile({ ...placement.entry, sample: null });
-    const edge = gardenMistBoundaryTile(target, 0.37, placement.margin);
-
-    expect(isGardenShipWater(edge, placement.margin), placement.entry.ship.id).toBe(true);
-    for (const kind of ["arrival", "departure"] as const) {
-      const spec = transition({
-        from: kind === "arrival" ? edge : target,
-        kind,
-        marginTiles: placement.margin,
-        shipId: placement.entry.ship.id,
-        to: kind === "arrival" ? target : edge,
-      });
-      for (let second = 10; second <= 100; second += 2) {
-        const sample = sampleGardenShipTransition(spec, second);
-        expect(
-          isGardenShipWater(sample, placement.margin),
-          `${placement.entry.ship.id} ${kind} at ${sample.x.toFixed(2)},${sample.y.toFixed(2)}`,
-        ).toBe(true);
+        const specs = [
+          transition({ from: edges[0], kind: "arrival", marginTiles: margin, shipId: ship.id, to: target }),
+          transition({ from: target, kind: "departure", marginTiles: margin, shipId: ship.id, to: edges[0] }),
+          transition({ from: target, kind: "mist", marginTiles: margin, shipId: ship.id, to: farTarget }),
+        ];
+        for (const spec of specs) {
+          // The sampler clamps outside [start,end]; include both sides to lock
+          // down the renderer's real pre-wave and completed-transition range.
+          for (let sampleIndex = -1; sampleIndex <= 33; sampleIndex += 1) {
+            const time = spec.startSeconds + spec.durationSeconds * (sampleIndex / 32);
+            const point = sampleGardenShipTransition(spec, time);
+            const label = `${fixture} ${ship.id} ${spec.kind} sample ${sampleIndex}`;
+            expect(isGardenShipWater(point, margin), label).toBe(true);
+            expect(gardenWaterPlateContainsTile(point, world.map), label).toBe(true);
+          }
+        }
       }
     }
   });

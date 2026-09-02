@@ -6,6 +6,7 @@ import {
   PIGEONNIER_HARBOR_DOCK_TILE,
   PIGEON_ISLAND_CENTER,
   PIGEON_ISLAND_RADIUS,
+  terrainLandAt,
 } from "./world-layout";
 import { stableFnv1aHash } from "./stable-random";
 import { landWorldTile } from "./map-scale";
@@ -249,6 +250,14 @@ export function isGardenShipWaterSlow(
     point.x < mapMargin || point.y < mapMargin
     || point.x > MAX_TILE_X - mapMargin || point.y > MAX_TILE_Y - mapMargin
   ) return false;
+  // Display offsets are deliberately decoupled from data placement. They may
+  // move a valid risk/mooring tile onto terrain land while still clearing the
+  // separately-authored rendered-island obstacle, so the final authority must
+  // reject both geometries.
+  if (
+    terrainLandAt(point.x, point.y)
+    || terrainLandAt(Math.round(point.x), Math.round(point.y))
+  ) return false;
   if (rimShoreDistance(point.x, point.y) <= marginTiles) return false;
   if (ellipseValue(point, GARDEN_ISLAND_OBSTACLE, marginTiles) < 1) return false;
   if (ellipseValue(point, GARDEN_CEMETERY_OBSTACLE, marginTiles) < 1) return false;
@@ -343,6 +352,10 @@ function gardenWaterSafetyLookup(
     !Number.isFinite(point.x) || !Number.isFinite(point.y)
     || point.x < 0 || point.y < 0 || point.x > MAX_TILE_X || point.y > MAX_TILE_Y
   ) return false;
+  if (
+    terrainLandAt(point.x, point.y)
+    || terrainLandAt(Math.round(point.x), Math.round(point.y))
+  ) return false;
   const field = getGardenWaterSafetyDistanceField();
   const index = Math.floor(point.y) * field.width + Math.floor(point.x);
   return field.solid[index]! > marginTiles
@@ -365,7 +378,11 @@ export function nearestGardenShipWater(
 ): { x: number; y: number } {
   if (isGardenShipWater(point, marginTiles, includeDocks)) return point;
   const ANGLES_PER_RING = 6;
-  for (let attempt = 0; attempt < 40 * ANGLES_PER_RING; attempt += 1) {
+  // The display and data islands are offset from one another. Their combined
+  // exclusion footprint plus a titan hull can exceed the old 20-tile radial
+  // budget, which sent ordinary animation samples into the O(map) fallback.
+  // Forty tiles clears that union while still stopping well inside the plate.
+  for (let attempt = 0; attempt < 80 * ANGLES_PER_RING; attempt += 1) {
     const radius = 0.75 + Math.floor(attempt / ANGLES_PER_RING) * 0.5;
     // FNV-1a: sequential attempt suffixes avalanche into unrelated angles
     // (the djb2-based stableUnit barely moves for ".N" suffixes).

@@ -238,6 +238,22 @@ export function terrainKindAt(x: number, y: number): TerrainKind {
   return resolveTerrainKindAt(x, y);
 }
 
+/**
+ * Cheap land half of `terrainKindAt`, for continuous per-frame safety checks.
+ * Water sub-classification evaluates the full sea-body noise/SDF partition;
+ * callers that only need to reject land must not pay for that unrelated work
+ * for every moving hull. Keep this predicate structurally identical to the
+ * land branches at the top of `resolveTerrainKindAt`.
+ */
+export function terrainLandAt(x: number, y: number): boolean {
+  if (x < 0 || y < 0 || x >= PHAROSVILLE_MAP_WIDTH || y >= PHAROSVILLE_MAP_HEIGHT) return false;
+  if (islandValue(x, y) < 1) return true;
+  // The deepest authored rim is 14 tiles. Avoid its contour interpolation for
+  // the broad interior sea, which is the per-frame hull-sampling hot path.
+  const edgeDistance = Math.min(x, y, MAX_TILE_X - x, MAX_TILE_Y - y);
+  return edgeDistance <= 14 && rimLandAt(x, y);
+}
+
 function resolveTerrainKindAt(x: number, y: number): TerrainKind {
   const island = islandValue(x, y);
   const cemetery = cemeteryValue(x, y);

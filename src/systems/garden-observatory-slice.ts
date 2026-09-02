@@ -8,6 +8,7 @@ import {
 import { selectGardenObservatoryAreas } from "./observe-sequence";
 import { TILE_HEIGHT, tileToScreen, type IsoCamera, type ScreenPoint } from "./projection";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
+import { stableUnit } from "./stable-random";
 import {
   gardenShipWaterMarginTiles,
   isGardenShipWater,
@@ -220,12 +221,9 @@ export function resolveGardenShipDisplayTile(input: {
   }
   // Zones-v2 placement fix: keep the composed display tile on valid open
   // water with hull clearance from rendered landmasses (island rock, garden
-  // islets, cemetery, pigeonnier). Moored ships alone are exempt because their
-  // authored berth and dock tangent own pier clearance. Arriving/departing
-  // samples still cross open water and must pass the same conservative field.
-  if (sample?.state === "moored") {
-    return display;
-  }
+  // islets, cemetery, pigeonnier). A mooring may overlap the low dock apron,
+  // but it may never overlap the finite plate edge or the stone under that
+  // dock: berth authoring and runtime sampling therefore share this field.
   const cached = gardenShipDisplayTileCache.get(ship);
   if (
     cached
@@ -237,7 +235,9 @@ export function resolveGardenShipDisplayTile(input: {
     gardenShipVisualScale(ship.visual.scale || 1),
     GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
   );
-  const includeDocks = sample?.state !== "arriving" && sample?.state !== "departing";
+  const includeDocks = sample?.state !== "moored"
+    && sample?.state !== "arriving"
+    && sample?.state !== "departing";
   const resolved = isGardenShipWater(display, margin, includeDocks)
     ? display
     : nearestGardenShipWater(display, margin, `motion-display.${ship.id}`, includeDocks);
@@ -248,6 +248,34 @@ export function resolveGardenShipDisplayTile(input: {
     tile: resolved,
   });
   return resolved;
+}
+
+/**
+ * W7 dependency formations are composed after ordinary motion, so they need
+ * their own final water-field pass. Keeping that pass here lets drawing, hit
+ * targets and detail anchors use the identical child tile instead of letting
+ * the renderer add an unchecked offset after the shared resolver returned.
+ */
+export function resolveGardenDependencyShipDisplayTile(input: {
+  parentTile: ScreenPoint;
+  ship: ShipNode;
+}): ScreenPoint {
+  const { parentTile, ship } = input;
+  const dependency = ship.dependencyFormation;
+  if (!dependency) return parentTile;
+  const side = stableUnit(`dependency-formation.${ship.id}`) < 0.5 ? -1 : 1;
+  const spacing = 1.6 + dependency.weight * 1.4;
+  const composed = {
+    x: parentTile.x + side * spacing,
+    y: parentTile.y + spacing * 0.55,
+  };
+  const margin = gardenShipWaterMarginTiles(
+    gardenShipVisualScale(ship.visual.scale || 1),
+    GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+  );
+  return isGardenShipWater(composed, margin)
+    ? composed
+    : nearestGardenShipWater(composed, margin, `dependency-display.${ship.id}`);
 }
 
 export function resolveGardenEntityDisplayTile(input: {
@@ -262,12 +290,22 @@ export function resolveGardenEntityDisplayTile(input: {
   if (entity.kind === "grave" || entity.kind === "pigeonnier") return entity.tile;
   if (entity.kind !== "ship") return null;
   const placement = slice.ships.find(({ ship }) => ship.detailId === entity.detailId);
-  return placement
-    ? resolveGardenShipDisplayTile({
-        ...placement,
-        sample: shipMotionSamples?.get(entity.id),
-      })
-    : null;
+  if (!placement) return null;
+  const tile = resolveGardenShipDisplayTile({
+    ...placement,
+    sample: shipMotionSamples?.get(entity.id),
+  });
+  const dependency = placement.ship.dependencyFormation;
+  if (!dependency) return tile;
+  const parent = slice.ships.find(({ ship }) => ship.id === dependency.parentId);
+  if (!parent) return tile;
+  return resolveGardenDependencyShipDisplayTile({
+    parentTile: resolveGardenShipDisplayTile({
+      ...parent,
+      sample: shipMotionSamples?.get(parent.ship.id),
+    }),
+    ship: placement.ship,
+  });
 }
 
 export function gardenTileToScreen(

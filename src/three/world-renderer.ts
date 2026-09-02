@@ -55,6 +55,7 @@ import {
   gardenDockDisplayTile,
   gardenIslandDisplayTile,
   gardenSemanticView,
+  resolveGardenDependencyShipDisplayTile,
   resolveGardenShipDisplayTile,
   selectGardenDocks,
   selectGardenObservatorySlice,
@@ -510,9 +511,26 @@ export function gardenMistBoundaryTile(
     out.y = MIST_CENTER_TILE_Y + safeDy * safeScale;
   }
   if (!isGardenShipWater(out, margin)) {
-    const safe = nearestGardenShipWater(out, margin, `mist-boundary.${salt.toFixed(6)}`);
-    out.x = safe.x;
-    out.y = safe.y;
+    // The general nearest-water resolver is intentionally not used for a
+    // mist endpoint: its nearest answer may sit behind a solid rim side.
+    // Retreat along this opening's bearing so edge geography can move the
+    // endpoint inward, but never sideways through a cliff.
+    // Recompute from `out`: the shoulder fallback immediately above may have
+    // replaced the selected angle with the opening midpoint. Retreating with
+    // the stale pre-fallback vector would drift sideways out of that opening.
+    const retreatLength = Math.hypot(out.x - MIST_CENTER_TILE_X, out.y - MIST_CENTER_TILE_Y);
+    const retreatDx = retreatLength > 1e-6 ? (out.x - MIST_CENTER_TILE_X) / retreatLength : dx;
+    const retreatDy = retreatLength > 1e-6 ? (out.y - MIST_CENTER_TILE_Y) / retreatLength : dy;
+    for (let retreat = 0.5; retreat <= retreatLength; retreat += 0.5) {
+      const candidate = { x: out.x - retreatDx * retreat, y: out.y - retreatDy * retreat };
+      if (!isGardenShipWater(candidate, margin)) continue;
+      out.x = candidate.x;
+      out.y = candidate.y;
+      break;
+    }
+  }
+  if (!isGardenShipWater(out, margin)) {
+    throw new Error(`No hull-safe water remains in the selected garden rim opening (margin ${margin}).`);
   }
   return out;
 }
@@ -4436,18 +4454,13 @@ function updateSceneForFrame(
     if (dependency) {
       const parent = content.ships.find((entry) => entry.ship.id === dependency.parentId);
       if (parent) {
-        const side = stableUnit(`dependency-formation.${visual.ship.id}`) < 0.5 ? -1 : 1;
-        const spacing = 1.6 + dependency.weight * 1.4;
         const parentTile = resolveGardenShipDisplayTile({
           displayOffset: parent.displayOffset,
           representative: parent.representative,
           sample: frame.shipMotionSamples.get(parent.ship.id),
           ship: parent.ship,
         });
-        tile = {
-          x: parentTile.x + side * spacing,
-          y: parentTile.y + spacing * 0.55,
-        };
+        tile = resolveGardenDependencyShipDisplayTile({ parentTile, ship: visual.ship });
       }
     }
     visual.root.visible = true;

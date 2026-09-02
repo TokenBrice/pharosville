@@ -16,6 +16,7 @@ import {
 } from "../../garden-observatory-slice";
 import { UNIQUE_SHIP_DEFINITIONS } from "../../unique-ships";
 import { isNavigableWaterTile, PREFERRED_DOCK_TILES } from "../../world-layout";
+import { gardenWaterPlateContainsTile } from "../../projection";
 import {
   buildDockAssignmentStage,
   resetHeldMoorings,
@@ -84,6 +85,10 @@ describe("dock-assignment unique tier mooring placement", () => {
       expect(
         isGardenShipWater(visit.mooringTile, hullMargin),
         `${ship.id} -> ${visit.dockId} full hull clears rim land`,
+      ).toBe(true);
+      expect(
+        gardenWaterPlateContainsTile(visit.mooringTile, world.map),
+        `${ship.id} -> ${visit.dockId} inside finite plate`,
       ).toBe(true);
       expect(
         Math.hypot(visit.mooringTile.x - dock.tile.x, visit.mooringTile.y - dock.tile.y),

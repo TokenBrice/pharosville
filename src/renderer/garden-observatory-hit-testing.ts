@@ -12,7 +12,7 @@ import {
   gardenSemanticView,
   gardenShipSelectionRadius,
   gardenTileToScreen,
-  resolveGardenShipDisplayTile,
+  resolveGardenEntityDisplayTile,
   selectGardenObservatorySlice,
 } from "../systems/garden-observatory-slice";
 import type { ShipMotionSample } from "../systems/motion";
@@ -210,10 +210,11 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
 
   for (const placement of slice.ships) {
     const ship = placement.ship;
-    const tile = resolveGardenShipDisplayTile({
-      ...placement,
-      sample: input.shipMotionSamples?.get(ship.id),
-    });
+    const tile = resolveGardenEntityDisplayTile({
+      entity: ship,
+      slice,
+      ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
+    })!;
     const anchor = gardenTileToScreen(tile, GARDEN_SHIP_ROOT_Y, input.camera);
     const diameter = Math.max(
       32,

@@ -6,14 +6,17 @@ import {
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureStability,
+  makePharosVilleWorldInput,
 } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { buildBaseMotionPlan } from "./motion-planning";
+import { resolveShipMotionSample, type ShipMotionSample } from "./motion";
 import { warmAllWaterPaths } from "./motion-water";
 import { pathKey } from "./motion-utils";
 import {
   GARDEN_SILHOUETTE_FOR_HULL,
   gardenShipVisualScale,
+  resolveGardenDependencyShipDisplayTile,
   resolveGardenShipDisplayTile,
   selectGardenObservatorySlice,
 } from "./garden-observatory-slice";
@@ -30,7 +33,9 @@ import {
   nearestGardenShipWater,
 } from "./garden-water-exclusion";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
-import { CEMETERY_CENTER } from "./world-layout";
+import { gardenWaterPlateContainsTile } from "./projection";
+import { rimLandAt } from "./garden-rim";
+import { CEMETERY_CENTER, isWaterTileKind, terrainKindAt } from "./world-layout";
 import { GARDEN_SEA_EDGE_ISLAND_WATERLINE } from "./garden-sea-edge-sites";
 
 /** `isGardenObstacleTile` for an already-transformed world tile. */
@@ -176,6 +181,52 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
         `${ship.id} (${ship.riskZone}) at (${display.x.toFixed(1)},${display.y.toFixed(1)})`,
       ).toBe(true);
     }
+  });
+
+  it("keeps every rendered fixture hull on water for ten minutes of world clock", { timeout: 20_000 }, () => {
+    const worlds = [
+      ["canonical-api", buildPharosVilleWorld(makePharosVilleWorldInput())],
+      ["dense", denseWorld()],
+    ] as const;
+    const failures: string[] = [];
+    for (const [fixture, world] of worlds) {
+      const plan = buildBaseMotionPlan(world);
+      const slice = selectGardenObservatorySlice(world, null);
+      for (let second = 0; second <= 600; second += 1) {
+        const samples = new Map<string, ShipMotionSample>();
+        for (const ship of world.ships) {
+          samples.set(ship.id, resolveShipMotionSample({
+            flagshipSamples: samples,
+            plan,
+            reducedMotion: false,
+            ship,
+            timeSeconds: second,
+          }));
+        }
+        const baseTiles = new Map(slice.ships.map((placement) => [
+          placement.ship.id,
+          resolveGardenShipDisplayTile({ ...placement, sample: samples.get(placement.ship.id) }),
+        ]));
+        for (const placement of slice.ships) {
+          const ship = placement.ship;
+          const dependency = ship.dependencyFormation;
+          const parentTile = dependency ? baseTiles.get(dependency.parentId) : undefined;
+          const tile = dependency && parentTile
+            ? resolveGardenDependencyShipDisplayTile({ parentTile, ship })
+            : baseTiles.get(ship.id)!;
+          const label = `${fixture} t=${second} ${ship.id} at ${tile.x.toFixed(2)},${tile.y.toFixed(2)}`;
+          if (!gardenWaterPlateContainsTile(tile, world.map)) failures.push(`${label}: outside plate`);
+          else if (rimLandAt(tile.x, tile.y)) failures.push(`${label}: rim land`);
+          // Terrain is an authored tile grid; round exactly as the renderer's
+          // region/terrain consumers do, which also exercises the memoised
+          // grid instead of recomputing the sea partition ~80k times.
+          else if (!isWaterTileKind(terrainKindAt(Math.round(tile.x), Math.round(tile.y)))) {
+            failures.push(`${label}: terrain land`);
+          }
+        }
+      }
+    }
+    expect(failures).toEqual([]);
   });
 
   it("places every ship risk tile and dock mooring off the rendered landmasses", () => {

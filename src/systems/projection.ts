@@ -33,6 +33,14 @@ export interface MapLike {
  */
 export const GARDEN_PLATE_MARGIN_TILES = 8;
 
+/** True when a tile centre is carried by the finite rendered water plate. */
+export function gardenWaterPlateContainsTile(tile: TilePoint, map: MapLike): boolean {
+  return tile.x >= -GARDEN_PLATE_MARGIN_TILES
+    && tile.y >= -GARDEN_PLATE_MARGIN_TILES
+    && tile.x <= map.width - 1 + GARDEN_PLATE_MARGIN_TILES
+    && tile.y <= map.height - 1 + GARDEN_PLATE_MARGIN_TILES;
+}
+
 export function tileToIso(tile: TilePoint): ScreenPoint {
   return {
     x: (tile.x - tile.y) * (TILE_WIDTH / 2),

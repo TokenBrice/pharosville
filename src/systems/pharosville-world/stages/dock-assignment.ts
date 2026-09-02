@@ -81,7 +81,9 @@ function isBerthTile(
 ): boolean {
   if (occupied.has(`${tile.x}.${tile.y}`)) return false;
   // Zones-v2 placement fix: moorings must also clear the RENDERED island
-  // rock — data water beneath the garden island mesh is not a berth.
+  // rock and finite plate edge — data water beneath the garden island mesh,
+  // or a cove vector composed onto the background beyond the plate, is not a
+  // berth. `isGardenShipWater` owns both bounds with the full hull margin.
   if (isSeawallBarrierTile(tile) || !isNavigableWaterTile(tile)) return false;
   const hullMargin = gardenShipWaterMarginTiles(
     gardenShipVisualScale(ship.visual.scale || 1),
