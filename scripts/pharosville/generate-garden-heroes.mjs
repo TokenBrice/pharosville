@@ -255,8 +255,10 @@ function addBezaisen(add, variant, mastX, mastTop) {
     position: [0.1, 2.72, 0], rotation: [0, 0, Math.PI / 2], tone: WOOD_HIGH,
   });
   addMast(add, mastX, 1.55, mastTop + 0.12, -0.025, { platform: false });
-  addSquareSail(add, mastX, mastTop * 0.62, flagship ? 2.85 : 2.55, flagship ? 3.75 : 3.35, { yaw: 0.035 });
-  addIdentityFrame(add, mastX, mastTop * 0.43, mastTop * 0.69, 1.2);
+  // The procedural identity sail survives hero attachment and is re-homed to
+  // this mast. It is the bezaisen's ONE enormous rectangular course: leave
+  // the GLB course slot empty, with broad head/foot yards framing that cloth.
+  addIdentityFrame(add, mastX, mastTop * 0.38, mastTop * 0.88, 2.0);
 }
 
 function addKobaya(add, variant, mastX, mastTop) {
@@ -2779,7 +2781,11 @@ function addHullLoft(add, stations, { bulwarkHeight, gunports }) {
       const station = stations[i];
       const across = deckCols[j];
       const camber = 0.1 * (1 - across * across);
-      return [station.x, station.deckY + camber, across * station.deckBeam];
+      return [
+        station.x,
+        station.deckY + camber,
+        (station.zOffset ?? 0) + across * station.deckBeam,
+      ];
     },
     { expected: [0, 1, 0] },
   );
@@ -2793,7 +2799,11 @@ function addHullLoft(add, stations, { bulwarkHeight, gunports }) {
       const inset = top ? 0.94 : 1;
       const inner = row >= 2 ? 0.12 : 0;
       const y = station.deckY + (top ? bulwarkHeight : 0);
-      return [station.x, y, side * (station.deckBeam * inset - inner)];
+      return [
+        station.x,
+        y,
+        (station.zOffset ?? 0) + side * (station.deckBeam * inset - inner),
+      ];
     };
     add("wood", gridGeometry(stations.length, 2, (i, j) => bulwarkPoint(i, j), {
       expected: [0, 0, side],
@@ -2811,7 +2821,9 @@ function addHullLoft(add, stations, { bulwarkHeight, gunports }) {
   const transomRows = HULL_RING_H.map((h) => ringPoint(stern, h, 1));
   const transom = gridGeometry(2, HULL_RING_H.length, (i, j) => {
     const [x, y] = [transomRows[j][0] - 0.02 * j, transomRows[j][1]];
-    const z = transomRows[j][2] * (i === 0 ? 1 : -1);
+    const zOffset = stern.zOffset ?? 0;
+    const halfWidth = transomRows[j][2] - zOffset;
+    const z = zOffset + halfWidth * (i === 0 ? 1 : -1);
     return [x, y, z];
   }, { expected: [-1, 0, 0] });
   add("wood", transom);
@@ -2831,8 +2843,14 @@ function addHullLoft(add, stations, { bulwarkHeight, gunports }) {
 function addStrake(add, stations, { h0, h1, paint = false, painter = null, tone = null }) {
   for (const side of [-1, 1]) {
     const geometry = gridGeometry(stations.length, 2, (i, j) => {
-      const point = ringPoint(stations[i], j === 0 ? h0 : h1, side);
-      return [point[0], point[1], point[2] * 1.018 + side * 0.012];
+      const station = stations[i];
+      const zOffset = station.zOffset ?? 0;
+      const point = ringPoint(station, j === 0 ? h0 : h1, side);
+      return [
+        point[0],
+        point[1],
+        zOffset + (point[2] - zOffset) * 1.018 + side * 0.012,
+      ];
     }, { expected: [0, 0, side] });
     if (painter === "gunports") paintGunports(geometry);
     // W1/D2: `paint` routes the SHEER strake — the topmost band, the one that
