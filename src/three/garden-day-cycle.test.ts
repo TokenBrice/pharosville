@@ -69,6 +69,11 @@ describe("day-cycle presets (C1 contract)", () => {
     const key = new Color(HARBOR_PALETTE.sun_day_warm);
     const fill = new Color(HARBOR_PALETTE.sky_day_zenith);
     expect(key.r - key.b).toBeGreaterThan(fill.r - fill.b);
+    // Wave 6: the key must own the form. Ambient + hemispheric fill may reveal
+    // the cool side, but cannot flatten it back into the key's value register.
+    expect(day.dirIntensity).toBeGreaterThan(
+      (day.ambientIntensity + day.hemiIntensity) * 3,
+    );
   });
 
   it("keeps day fog structured instead of milky", () => {
@@ -104,7 +109,7 @@ describe("day-cycle presets (C1 contract)", () => {
     });
     expect(nearSea).toBeLessThan(0.02);
     expect(farSea).toBeGreaterThan(nearSea * 2);
-    expect(farSea).toBeLessThan(0.06);
+    expect(farSea).toBeLessThan(0.04);
     expect(farMonument).toBeLessThan(0.006);
   });
 });

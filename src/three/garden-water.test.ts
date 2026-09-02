@@ -658,6 +658,13 @@ describe("createGardenWater", () => {
     expect(uniformNumber(water.material, "uNight")).toBe(1);
   });
 
+  it("prints a day-only near-ink to far-pale value ladder", () => {
+    const source = createGardenWater(0).material.fragmentShader;
+    expect(source).toContain("float dayValueDepth = smoothstep(105.0, 270.0, camDistance)");
+    expect(source).toContain("float dayValueGain = mix(0.55, 1.12, dayValueDepth)");
+    expect(source).toContain("waterColor *= mix(1.0, dayValueGain, uDaylight)");
+  });
+
   it("keeps the dusk sea out of the pink-mauve wedge", () => {
     // W1.6 regression. The dusk ramp used to tint an indigo body with lantern
     // gold and ember, and every intermediate step between a warm neutral and an

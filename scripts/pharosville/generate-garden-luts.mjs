@@ -124,12 +124,12 @@ const PHASES = [
     id: "day",
     // Day is the frame the plan calls "milk": no value structure. The cube
     // answers with the one thing a LUT can honestly contribute — a gentle
-    // S-curve for structure, a cool lifted black so the darks read as ai
-    // rather than as absence, an ivory (shironeri) highlight, and a light
+    // S-curve for structure, a cool printed black so the darks read as ai
+    // rather than milk, an ivory (shironeri) highlight, and a light
     // overall desaturation that spares the reserved vermilion.
-    contrast: 0.26,
+    contrast: 0.55,
     highlightAnchor: "#f6f0e2",
-    highlightPush: 0.026,
+    highlightPush: 0.045,
     highlightRange: [0.45, 1.0],
     hueBands: [
       // Shu vermilion is the sacred accent; it survives the desaturation.
@@ -142,12 +142,12 @@ const PHASES = [
       // Sky blue toward mizu-iro.
       { center: 225, rotate: 0, saturation: 0.93, width: 45 },
     ],
-    lift: 0.038,
-    liftTint: "#8cb8ff",
-    saturation: 0.96,
-    shadowAnchor: "#38506e",
-    shadowPush: 0.034,
-    shadowRange: [0.0, 0.6],
+    lift: 0.016,
+    liftTint: "#6685ae",
+    saturation: 0.98,
+    shadowAnchor: "#213f66",
+    shadowPush: 0.06,
+    shadowRange: [0.0, 0.62],
   },
 ];
 

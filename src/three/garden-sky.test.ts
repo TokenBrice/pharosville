@@ -297,7 +297,10 @@ describe("garden sky applyPhase", () => {
       .toBe(new Color(HARBOR_PALETTE.deep_sea_1).getHex());
     expect((backdrop.material.uniforms.uMiddle.value as Color).getHex())
       .toBe(new Color(HARBOR_PALETTE.moonlight)
-        .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.32).getHex());
+        .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.42).getHex());
+    const lower = backdrop.material.uniforms.uLower.value as Color;
+    expect(colorDistance(lower, new Color(HARBOR_PALETTE.moonlight)))
+      .toBeLessThan(colorDistance(lower, DAY_CYCLE_SKY_PRESETS.day.fog));
     expect(sky.fog.color.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.day.fog.getHex());
   });
 
@@ -405,8 +408,8 @@ describe("bokashi bands", () => {
     const dusk = gardenBokashiAmount(dayCyclePhase(19));
     const night = gardenBokashiAmount(dayCyclePhase(22));
     expect(day).toBeCloseTo(GARDEN_BOKASHI_BAND.dayAmount, 5);
-    expect(dusk).toBeGreaterThan(day * 2);
-    expect(night).toBeGreaterThan(day * 2);
+    expect(dusk).toBeGreaterThan(day * 8);
+    expect(night).toBeGreaterThan(day * 8);
     expect(Math.max(dusk, night)).toBeLessThanOrEqual(1);
   });
 

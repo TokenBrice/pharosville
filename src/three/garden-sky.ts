@@ -146,8 +146,8 @@ export const GARDEN_BOKASHI_BAND = {
   ichimonjiGain: 0.07,
   paleGain: 0.11,
   deepGain: 0.24,
-  /** Dusk and night carry the bands; day keeps a quarter of them. */
-  dayAmount: 0.125,
+  /** Dusk and night carry the bands; the graded day sky needs only a trace. */
+  dayAmount: 0.08,
 } as const;
 
 /**
@@ -213,8 +213,10 @@ export const GARDEN_CUMULUS_BILLBOARDS_ENABLED = false;
 // light geometry, so the dome and the water cannot disagree about the bearing.
 export { GARDEN_MOON_AZIMUTH };
 const MOON_ELEVATION = Math.PI * 0.34;
+const SKY_LOWER_DAY = new Color(HARBOR_PALETTE.moonlight)
+  .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.18);
 const SKY_MIDDLE_DAY = new Color(HARBOR_PALETTE.moonlight)
-  .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.32);
+  .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.42);
 const SKY_VISIBLE_ZENITH_DAY = new Color(HARBOR_PALETTE.deep_sea_1);
 const SKY_LOWER_DUSK = new Color(HARBOR_PALETTE.sail_teal)
   .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.28);
@@ -506,9 +508,9 @@ function createBackdrop(domeMaterial: ShaderMaterial): {
         // The fog seam sits behind the far plate instead of filling every
         // exposed pixel: mizu below -> shironeri seam -> mizu -> kon by day,
         // and teal -> gold seam -> indigo at dusk.
-        vec3 color = mix(uLower, uHorizon, smoothstep(0.34, 0.66, skyHeight));
-        color = mix(color, uMiddle, smoothstep(0.68, 0.84, skyHeight));
-        color = mix(color, uZenith, smoothstep(0.80, 1.0, skyHeight));
+        vec3 color = mix(uLower, uHorizon, smoothstep(0.38, 0.56, skyHeight));
+        color = mix(color, uMiddle, smoothstep(0.58, 0.78, skyHeight));
+        color = mix(color, uZenith, smoothstep(0.76, 1.0, skyHeight));
         color *= gardenBokashiShade(skyHeight, uBokashiAmount);
 
         // Three shakkei impressions share the sheet with the sky, so plate,
@@ -752,7 +754,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       backdropLower,
       skyPresets.night.horizon,
       SKY_LOWER_DUSK,
-      skyPresets.day.fog,
+      SKY_LOWER_DAY,
       dusk,
       daylight,
     );

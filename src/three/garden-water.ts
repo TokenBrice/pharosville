@@ -1288,6 +1288,14 @@ ${gardenHeightFogGlsl()}
     float distanceFade = smoothstep(150.0, 520.0, camDistance);
     waterColor = mix(waterColor, uBaseColor, distanceFade * (0.08 + uDusk * 0.05 + uNight * 0.04));
 
+    // Wave 6: value follows pictorial depth before the fog seam takes over.
+    // The camera-side water is the ink plane; the far water lifts toward the
+    // sky seam. This is day-only value structure, not a new water character or
+    // a hue override, so the seven region colours and every tier stay intact.
+    float dayValueDepth = smoothstep(105.0, 270.0, camDistance);
+    float dayValueGain = mix(0.55, 1.12, dayValueDepth);
+    waterColor *= mix(1.0, dayValueGain, uDaylight);
+
     // Eight tiles of water continue beyond the authored map at the far pair
     // and east side, then dissolve into the real sky sheet. The south/engawa
     // edge stays opaque under its rock threshold. Alpha is essential here:

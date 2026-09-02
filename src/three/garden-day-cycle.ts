@@ -98,11 +98,11 @@ export const STAR_COLOR = paletteColor(P.moonlight).lerp(paletteColor(P.foam_whi
 export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPreset> = {
   day: {
     ambient: paletteColor(P.sky_day_horizon),
-    ambientIntensity: 0.38,
+    ambientIntensity: 0.13,
     dirColor: paletteColor(P.sun_day_warm),
-    dirIntensity: 1.7,
+    dirIntensity: 3.1,
     hemiGround: paletteColor(P.shallow_teal_lit),
-    hemiIntensity: 1.05,
+    hemiIntensity: 0.42,
     hemiSky: paletteColor(P.sky_day_zenith),
   },
   dusk: {
@@ -127,10 +127,10 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPre
 
 export const DAY_CYCLE_HEIGHT_FOG_PRESETS: Record<DayCyclePhaseName, DayCycleHeightFogPreset> = {
   day: {
-    density: 0.00008,
+    density: 0.000055,
     heightFalloff: 0.28,
     horizon: DAY_CYCLE_SKY_PRESETS.day.fog.clone(),
-    phaseGain: 0.16,
+    phaseGain: 0.12,
     sunTint: DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone(),
     zenith: DAY_CYCLE_SKY_PRESETS.day.zenith.clone(),
   },
