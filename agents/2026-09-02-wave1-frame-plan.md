@@ -30,7 +30,7 @@ renderer geometry follows it and never creates a second land classification.
    seam. If any phase reads as detached pills in real-GPU frames, remove it.
 5. **Engawa foreground.** Add one leaning niwaki, three stepping stones and one
    stone lantern inside the rim batches. Register its reflection as the ember
-   lane that displaces `sea-sign.watch`.
+   lane that displaces `harbor-lantern.11`.
 6. **Camera and fog.** Recompose default and postcard cameras so rim enters two
    corners, Pharos approaches a thirds point, and a broad dark water interval
    remains. Recalculate the whole-map floor for the complete plate, halve the

@@ -121,7 +121,11 @@ import {
   overviewLodTargetDetail,
   type GardenOverviewLod,
 } from "./garden-overview-lod";
-import { createGardenRimMesh, type GardenRimMesh } from "./garden-rim-mesh";
+import {
+  createGardenRimMesh,
+  GARDEN_ENGAWA_LANTERN_WORLD,
+  type GardenRimMesh,
+} from "./garden-rim-mesh";
 import { createGardenModelLibrary } from "./garden-models";
 import { createGardenWater, type GardenWater } from "./garden-water";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
@@ -2877,7 +2881,9 @@ function registerLightLanes(
   // Ring of harbor lanterns around the island (mirrors createHarborLanterns).
   const islandX = islandTile.x * TILE_SCALE;
   const islandZ = islandTile.y * TILE_SCALE;
-  for (let index = 0; index < 12; index += 1) {
+  // Wave 1 gives the twelfth ember address to the camera-side engawa tōrō;
+  // `harbor-lantern.11` is the deliberately displaced ornamental lane.
+  for (let index = 0; index < 11; index += 1) {
     const angle = (index / 12) * Math.PI * 2
       + stableUnit(`harbor-lantern-angle.${index}`) * 0.16;
     const radiusX = 22 + (index % 3) * 1.25;
@@ -2891,6 +2897,14 @@ function registerLightLanes(
       worldZ: islandZ + Math.sin(angle) * radiusZ,
     });
   }
+  registry.set({
+    color: HARBOR_PALETTE.lantern_warm,
+    id: "engawa-lantern",
+    intensity: 0.48,
+    kind: "lantern",
+    worldX: GARDEN_ENGAWA_LANTERN_WORLD.x,
+    worldZ: GARDEN_ENGAWA_LANTERN_WORLD.z,
+  });
   for (const dock of docks) {
     for (const [lampIndex, lamp] of gardenDockLampWorldPositions(dock).entries()) {
       registry.set({

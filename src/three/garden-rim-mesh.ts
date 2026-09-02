@@ -47,6 +47,13 @@ const PATH_STONE = new Color(HARBOR_PALETTE.stone_pale).lerp(
 );
 const PINE_TRUNK = new Color(HARBOR_PALETTE.timber_dark);
 const PINE_NEEDLE = new Color(HARBOR_PALETTE.sail_teal).multiplyScalar(0.68);
+const LANTERN_EMBER = new Color(HARBOR_PALETTE.lantern_warm);
+
+const ENGAWA_LANTERN_TILE = { x: 82, y: 134 } as const;
+export const GARDEN_ENGAWA_LANTERN_WORLD = {
+  x: ENGAWA_LANTERN_TILE.x * TILE_SCALE,
+  z: ENGAWA_LANTERN_TILE.y * TILE_SCALE,
+} as const;
 
 interface GeometryBuilder {
   colors: number[];
@@ -56,12 +63,37 @@ interface GeometryBuilder {
 
 export interface GardenRimMesh {
   drawCallCount: number;
+  engawaPineCount: number;
   pathSegmentCount: number;
   pineCount: number;
   root: Group;
   stoneCount: number;
+  steppingStoneCount: number;
   triangleCount: number;
   dispose(): void;
+}
+
+function addBox(
+  builder: GeometryBuilder,
+  center: readonly [number, number, number],
+  size: readonly [number, number, number],
+  color: Color,
+): void {
+  const [cx, cy, cz] = center;
+  const [sx, sy, sz] = size.map((value) => value * 0.5) as [number, number, number];
+  const x0 = cx - sx;
+  const x1 = cx + sx;
+  const y0 = cy - sy;
+  const y1 = cy + sy;
+  const z0 = cz - sz;
+  const z1 = cz + sz;
+  const colors = [color, color, color, color] as const;
+  addQuad(builder, [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], colors);
+  addQuad(builder, [x0, y0, z1], [x1, y0, z1], [x1, y0, z0], [x0, y0, z0], colors);
+  addQuad(builder, [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0], colors);
+  addQuad(builder, [x1, y0, z1], [x0, y0, z1], [x0, y1, z1], [x1, y1, z1], colors);
+  addQuad(builder, [x0, y0, z1], [x0, y0, z0], [x0, y1, z0], [x0, y1, z1], colors);
+  addQuad(builder, [x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0], colors);
 }
 
 function addVertex(builder: GeometryBuilder, x: number, y: number, z: number, color: Color): number {
@@ -204,8 +236,17 @@ function clearOfCove(tileX: number, tileY: number, extra = 2): boolean {
   ));
 }
 
-function pineTiles(): Array<{ scale: number; x: number; y: number; yaw: number }> {
-  const candidates: Array<{ scale: number; x: number; y: number; yaw: number }> = [];
+interface PineSpec {
+  leanX: number;
+  leanZ: number;
+  scale: number;
+  x: number;
+  y: number;
+  yaw: number;
+}
+
+function pineTiles(): PineSpec[] {
+  const candidates: PineSpec[] = [];
   for (let y = 4; y < MAP_LAST - 3; y += 4) {
     for (let x = 4; x < MAP_LAST - 3; x += 4) {
       if (!rimLandAt(x, y) || rimShoreDistance(x, y) > -2.2 || !clearOfCove(x, y, 3)) continue;
@@ -215,6 +256,8 @@ function pineTiles(): Array<{ scale: number; x: number; y: number; yaw: number }
       const unit = stableUnit(`rim-pine.${x}.${y}`);
       if (unit > keep) continue;
       candidates.push({
+        leanX: 0,
+        leanZ: 0,
         scale: 0.78 + stableUnit(`rim-pine-scale.${x}.${y}`) * (lowerLeft ? 0.72 : 0.48),
         x,
         y,
@@ -222,6 +265,9 @@ function pineTiles(): Array<{ scale: number; x: number; y: number; yaw: number }
       });
     }
   }
+  // Engawa foreground: a single larger niwaki leans seaward from the deep
+  // lower-left lobe. It remains in this one ring-wide pine instance batch.
+  candidates.push({ leanX: -0.3, leanZ: 0.1, scale: 1.42, x: 86, y: 134, yaw: 0.4 });
   return candidates;
 }
 
@@ -235,9 +281,11 @@ function createPines(): InstancedMesh {
   mesh.name = "garden-rim-pines";
   const matrix = new Matrix4();
   const quaternion = new Quaternion();
+  const rotation = new Euler();
   const scale = new Vector3();
   specs.forEach((spec, index) => {
-    quaternion.setFromAxisAngle(new Vector3(0, 1, 0), spec.yaw);
+    rotation.set(spec.leanX, spec.yaw, spec.leanZ);
+    quaternion.setFromEuler(rotation);
     scale.set(spec.scale, spec.scale, spec.scale);
     matrix.compose(
       new Vector3(spec.x * TILE_SCALE, rimHeight(spec.x, spec.y), spec.y * TILE_SCALE),
@@ -257,7 +305,12 @@ const HEADLANDS = [
 ] as const;
 
 function createStones(): InstancedMesh {
-  const count = HEADLANDS.length * 3;
+  const steppingStones = [
+    { scale: [1.05, 0.28, 0.82] as const, x: 82.4, y: 131.4, yaw: -0.18 },
+    { scale: [0.86, 0.22, 1.08] as const, x: 81.7, y: 129.0, yaw: 0.31 },
+    { scale: [1.12, 0.25, 0.72] as const, x: 82.6, y: 126.6, yaw: -0.42 },
+  ];
+  const count = HEADLANDS.length * 3 + steppingStones.length;
   const mesh = new InstancedMesh(
     new DodecahedronGeometry(0.72, 0),
     new MeshStandardMaterial({ color: HARBOR_PALETTE.stone_mid, flatShading: true, roughness: 1 }),
@@ -286,6 +339,18 @@ function createStones(): InstancedMesh {
       mesh.setMatrixAt(index, matrix);
       index += 1;
     }
+  }
+  for (const step of steppingStones) {
+    rotation.set(0.05, step.yaw, -0.04);
+    quaternion.setFromEuler(rotation);
+    scale.set(step.scale[0], step.scale[1], step.scale[2]);
+    matrix.compose(
+      new Vector3(step.x * TILE_SCALE, WATERLINE_Y + 0.22, step.y * TILE_SCALE),
+      quaternion,
+      scale,
+    );
+    mesh.setMatrixAt(index, matrix);
+    index += 1;
   }
   mesh.instanceMatrix.needsUpdate = true;
   return mesh;
@@ -324,6 +389,17 @@ function buildPathGeometry(): { geometry: BufferGeometry; segments: number } {
     );
     segments += 1;
   }
+  // One tōrō at the camera-side engawa. Stone body and warm chamber are merged
+  // into the path draw; its water reflection is registered separately as the
+  // scene's `engawa-lantern` ember lane.
+  const lanternX = GARDEN_ENGAWA_LANTERN_WORLD.x;
+  const lanternZ = GARDEN_ENGAWA_LANTERN_WORLD.z;
+  const lanternGround = rimHeight(ENGAWA_LANTERN_TILE.x, ENGAWA_LANTERN_TILE.y);
+  addBox(builder, [lanternX, lanternGround + 0.14, lanternZ], [1.2, 0.28, 1.05], PATH_STONE);
+  addBox(builder, [lanternX, lanternGround + 0.72, lanternZ], [0.34, 0.9, 0.34], PATH_STONE);
+  addBox(builder, [lanternX, lanternGround + 1.32, lanternZ], [0.58, 0.42, 0.58], LANTERN_EMBER);
+  addBox(builder, [lanternX, lanternGround + 1.59, lanternZ], [1.05, 0.16, 0.95], PATH_STONE);
+  addBox(builder, [lanternX, lanternGround + 1.75, lanternZ], [0.52, 0.18, 0.48], PATH_STONE);
   return { geometry: finishGeometry(builder), segments };
 }
 
@@ -352,10 +428,12 @@ export function createGardenRimMesh(): GardenRimMesh {
   let disposed = false;
   return {
     drawCallCount: 5,
+    engawaPineCount: 1,
     pathSegmentCount: path.segments,
     pineCount: pines.count,
     root,
     stoneCount: stones.count,
+    steppingStoneCount: 3,
     triangleCount: [top, face, pathMesh, pines, stones].reduce((sum, mesh) => (
       sum + (mesh.geometry.index?.count ?? mesh.geometry.getAttribute("position").count) / 3
         * (mesh instanceof InstancedMesh ? mesh.count : 1)
