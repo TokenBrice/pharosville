@@ -489,6 +489,15 @@ describe("motion", () => {
       expect(route.legDurationSeconds).toBeLessThanOrEqual(MOTION_LEG_MAX_SECONDS);
       expect(route.restDurationSeconds).toBeGreaterThanOrEqual(MOTION_REST_MIN_SECONDS);
       expect(route.restDurationSeconds).toBeLessThanOrEqual(MOTION_REST_MAX_SECONDS);
+      const paths = route.openWaterPatrol
+        ? route.openWaterPatrol.itinerary.map((leg) => leg.outbound)
+        : route.dockStops.map((stop) => route.waterPaths.get(shipWaterPathKey(route.riskTile, stop.mooringTile)));
+      for (const path of paths) {
+        if (!path) continue;
+        const physicalSpeed = path.totalLength / route.legDurationSeconds;
+        expect(physicalSpeed).toBeGreaterThanOrEqual(MOTION_UNDERWAY_MIN_TILES_PER_SECOND - 1e-9);
+        expect(physicalSpeed).toBeLessThanOrEqual(MOTION_UNDERWAY_MAX_TILES_PER_SECOND + 1e-9);
+      }
     }
 
     for (let clockIndex = 0; clockIndex < 50; clockIndex += 1) {
@@ -549,6 +558,9 @@ describe("motion", () => {
           // for arriving, ×1.0 otherwise). Tolerate the gained offset + breath.
           const dx = consortSample.tile.x - flagshipSample.tile.x;
           const dy = consortSample.tile.y - flagshipSample.tile.y;
+          // Tight water may collapse a gained formation onto the flagship;
+          // water safety takes precedence over preserving the offset sign.
+          if (Math.hypot(dx, dy) < 1e-6) continue;
           // |dx| ≤ |offset.dx * 1.4| + 1 (breathing budget); same for dy.
           // Sign is preserved by the gain since gain > 0.
           if (offset.dx !== 0) {
@@ -1499,8 +1511,11 @@ describe("motion", () => {
         const gain = flagshipSample.state === "arriving"
           ? 0.55
           : (flagshipSample.zone === "calm" && flagshipSample.state === "sailing" ? 1.4 : 1.0);
-        const breathDx = consortSample.tile.x - flagshipSample.tile.x - offset.dx * gain;
-        const breathDy = consortSample.tile.y - flagshipSample.tile.y - offset.dy * gain;
+        const actualDx = consortSample.tile.x - flagshipSample.tile.x;
+        const actualDy = consortSample.tile.y - flagshipSample.tile.y;
+        if (Math.hypot(actualDx, actualDy) < 1e-6) continue;
+        const breathDx = actualDx - offset.dx * gain;
+        const breathDy = actualDy - offset.dy * gain;
         if (Math.hypot(breathDx, breathDy) > 0.02) {
           observedBreathing = true;
           // Breathing must stay sub-tile (well below 1 tile).

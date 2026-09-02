@@ -57,9 +57,9 @@ interface TransitPhaseProfile {
   speedRatio: number;
 }
 
-const ARRIVING_DECEL_DISTANCE_SHARE = (ARRIVING_DECEL_END - ARRIVING_FULL_TRANSIT_END) * (2 / Math.PI);
+const ARRIVING_DECEL_DISTANCE_SHARE = ARRIVING_DECEL_END - ARRIVING_FULL_TRANSIT_END;
 const ARRIVING_CONTACT_PATH_START = ARRIVING_FULL_TRANSIT_END + ARRIVING_DECEL_DISTANCE_SHARE;
-const CAST_OFF_ACCEL_DISTANCE_SHARE = (CAST_OFF_ACCEL_END - CAST_OFF_LINE_RELEASE_END) * (2 / Math.PI);
+const CAST_OFF_ACCEL_DISTANCE_SHARE = CAST_OFF_ACCEL_END;
 
 function transitPhaseProfile(state: Extract<ShipMotionState, "arriving" | "departing" | "sailing">, progress: number): TransitPhaseProfile {
   const p = clamp(progress, 0, 1);
@@ -210,6 +210,7 @@ export function transitSampleInto(input: {
   if (!isWaterTileKind(tileKindAt(out.tile.x, out.tile.y))) {
     out.tile.x = waterPathTileScratch.x;
     out.tile.y = waterPathTileScratch.y;
+    clampToNearestTerrainWaterInto(out.tile);
   }
   out.shipId = input.route.shipId;
   out.state = input.sampleState ?? input.state;
@@ -267,6 +268,32 @@ export function transitSampleInto(input: {
     alignmentT,
   );
   writeVelocityInto(out, out.heading.x * speed, out.heading.y * speed);
+}
+
+function clampToNearestTerrainWaterInto(tile: { x: number; y: number }): void {
+  if (isWaterTileKind(tileKindAt(tile.x, tile.y))) return;
+  const originX = Math.round(tile.x);
+  const originY = Math.round(tile.y);
+  let bestX = originX;
+  let bestY = originY;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let dy = -12; dy <= 12; dy += 1) {
+    for (let dx = -12; dx <= 12; dx += 1) {
+      const x = originX + dx;
+      const y = originY + dy;
+      if (!isWaterTileKind(tileKindAt(x, y))) continue;
+      const distance = dx * dx + dy * dy;
+      if (distance < bestDistance) {
+        bestX = x;
+        bestY = y;
+        bestDistance = distance;
+      }
+    }
+  }
+  if (bestDistance < Number.POSITIVE_INFINITY) {
+    tile.x = bestX;
+    tile.y = bestY;
+  }
 }
 
 const fenderHeadingScratch: { x: number; y: number } = { x: 0, y: 0 };

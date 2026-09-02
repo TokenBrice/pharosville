@@ -1,4 +1,4 @@
-import { clampMapTile, nearestWaterTile } from "./world-layout";
+import { clampMapTile, isWaterTileKind, nearestWaterTile } from "./world-layout";
 import { stableHash, stableUnit } from "./stable-random";
 import {
   DOCKED_SHIP_DWELL_SHARE,
@@ -22,6 +22,7 @@ import { SEAWALL_BARRIER_TILES } from "./seawall";
 import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipDockMotionStop, ShipMotionRoute, ShipMotionRouteStop, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
 import type { DockNode, PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode } from "./world-types";
 import { precomputeShipTempos } from "./ship-cycle-tempo";
+import { seaBodyAtTile } from "./sea-bodies";
 
 // World identity is stable across React re-renders for the same TanStack
 // payload, so memoizing the signature on the world reference turns ~1000
@@ -362,7 +363,14 @@ function buildShipMotionRoute(
   for (const stop of dockStops) {
     const outboundKey = pathKey(riskTile, stop.mooringTile);
     const inboundKey = pathKey(stop.mooringTile, riskTile);
-    const outbound = () => buildCachedShipWaterRoute({ from: riskTile, to: stop.mooringTile, map, zone: ship.riskZone, shipId: ship.id, bucket }, waterRouteCache);
+    const outbound = () => buildCadenceWaterRoute({
+      from: riskTile,
+      to: stop.mooringTile,
+      map,
+      zone: ship.riskZone,
+      shipId: ship.id,
+      bucket,
+    }, waterRouteCache);
     waterPaths.setBuilder(outboundKey, outbound);
     waterPaths.setBuilder(inboundKey, () => reverseWaterPath(outbound()));
   }
@@ -667,7 +675,7 @@ function primaryDockStop(ship: ShipNode, dockStops: readonly ShipMotionRoute["do
 }
 
 function shipLegDurationSeconds(): number {
-  const base = 150;
+  const base = 180;
   return clamp(
     base,
     MOTION_LEG_PLANNING_MIN_SECONDS,
@@ -725,11 +733,22 @@ function buildOpenWaterPatrol(
 
   const itinerary = anchors
     .map((waypoint) => {
-      const outbound = buildCachedShipWaterRoute({ from: riskTile, to: waypoint, map, zone: ship.riskZone, shipId: ship.id, bucket }, waterRouteCache);
+      const outbound = buildCadenceWaterRoute({
+        from: riskTile,
+        to: waypoint,
+        map,
+        zone: ship.riskZone,
+        shipId: ship.id,
+        bucket,
+      }, waterRouteCache);
       if (outbound.points.length <= 1 || outbound.totalLength <= 0) return null;
+      const minLength = MOTION_UNDERWAY_MIN_TILES_PER_SECOND * MOTION_LEG_MAX_SECONDS;
+      const maxLength = MOTION_UNDERWAY_MAX_TILES_PER_SECOND * MOTION_LEG_MAX_SECONDS;
+      if (outbound.totalLength < minLength || outbound.totalLength > maxLength) return null;
       return { waypoint, outbound, inbound: reverseWaterPath(outbound) };
     })
-    .filter((leg): leg is { waypoint: { x: number; y: number }; outbound: ShipWaterPath; inbound: ShipWaterPath } => leg !== null);
+    .filter((leg): leg is { waypoint: { x: number; y: number }; outbound: ShipWaterPath; inbound: ShipWaterPath } => leg !== null)
+    .slice(0, openWaterPatrolItineraryLength(ship.id));
   if (itinerary.length === 0) return null;
 
   const primary = itinerary[0]!;
@@ -739,6 +758,72 @@ function buildOpenWaterPatrol(
     inbound: primary.inbound,
     itinerary,
   };
+}
+
+function buildCadenceWaterRoute(input: {
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  map: PharosVilleMap;
+  zone: ShipNode["riskZone"];
+  shipId: string;
+  bucket: number;
+}, cache: ShipWaterRouteCache): ShipWaterPath {
+  const cadenceKey = `cadence:${input.zone}:${input.shipId}:${pathKey(input.from, input.to)}`;
+  const cachedCadence = cache.get(cadenceKey);
+  if (cachedCadence) return cachedCadence;
+  const direct = buildCachedShipWaterRoute(input, cache);
+  const minLength = MOTION_UNDERWAY_MIN_TILES_PER_SECOND * MOTION_LEG_MAX_SECONDS;
+  const maxLength = MOTION_UNDERWAY_MAX_TILES_PER_SECOND * MOTION_LEG_MAX_SECONDS;
+  if (direct.totalLength >= minLength) {
+    cache.set(cadenceKey, direct);
+    return direct;
+  }
+
+  for (const authored of OPEN_WATER_PATROL_WAYPOINTS[input.zone]) {
+    const waypoint = nearestMapWaterTile(authored, input.map);
+    if ((waypoint.x === input.from.x && waypoint.y === input.from.y)
+      || (waypoint.x === input.to.x && waypoint.y === input.to.y)) continue;
+    const first = buildCachedShipWaterRoute({ ...input, to: waypoint }, cache);
+    const second = buildCachedShipWaterRoute({ ...input, from: waypoint }, cache);
+    if (first.totalLength <= 0 || second.totalLength <= 0) continue;
+    const combined = waterPathFromPoints(
+      first.from,
+      second.to,
+      [...first.points, ...second.points.slice(1)],
+    );
+    if (combined.totalLength < minLength || combined.totalLength > maxLength) continue;
+    cache.set(cadenceKey, combined);
+    return combined;
+  }
+  const candidates = input.map.tiles
+    .filter((tile) => isWaterTileKind(tile.terrain ?? tile.kind)
+      && seaBodyAtTile(tile.x, tile.y) === input.zone)
+    .map((tile) => ({
+      tile,
+      score: Math.abs(
+        Math.hypot(tile.x - input.from.x, tile.y - input.from.y)
+          + Math.hypot(input.to.x - tile.x, input.to.y - tile.y)
+          - (minLength + maxLength) / 2,
+      ),
+    }))
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 24);
+  for (const candidate of candidates) {
+    const waypoint = nearestMapWaterTile(candidate.tile, input.map);
+    const first = buildCachedShipWaterRoute({ ...input, to: waypoint }, cache);
+    const second = buildCachedShipWaterRoute({ ...input, from: waypoint }, cache);
+    if (first.totalLength <= 0 || second.totalLength <= 0) continue;
+    const combined = waterPathFromPoints(
+      first.from,
+      second.to,
+      [...first.points, ...second.points.slice(1)],
+    );
+    if (combined.totalLength < minLength || combined.totalLength > maxLength) continue;
+    cache.set(cadenceKey, combined);
+    return combined;
+  }
+  cache.set(cadenceKey, direct);
+  return direct;
 }
 
 /**
@@ -772,7 +857,6 @@ function openWaterPatrolItineraryAnchors(
   riskTile: { x: number; y: number },
   map: PharosVilleMap,
 ): { x: number; y: number }[] {
-  const length = openWaterPatrolItineraryLength(ship.id);
   const anchors: { x: number; y: number }[] = [];
   const seen = new Set<string>();
   // Cycle through the zone's anchor pool starting at the legacy offset so the
@@ -780,6 +864,7 @@ function openWaterPatrolItineraryAnchors(
   // We accumulate N distinct tiles, skipping duplicates that the
   // nearestMapWaterTile snap can produce in dense pools.
   const pool = OPEN_WATER_PATROL_WAYPOINTS[ship.riskZone];
+  const maxCandidates = Math.min(pool.length, openWaterPatrolItineraryLength(ship.id) * 4);
   const baseOffset = stableHash(`${ship.id}.open-water-patrol`) % pool.length;
   // First anchor mirrors the legacy single-waypoint pick exactly so cycle 0
   // and the route-key signature stay stable.
@@ -789,7 +874,7 @@ function openWaterPatrolItineraryAnchors(
   // Subsequent anchors rotate through the pool with a coprime stride per ship
   // so the spacing varies but stays deterministic.
   const stride = 1 + (stableHash(`${ship.id}.itinerary-stride`) % Math.max(1, pool.length - 1));
-  for (let probe = 1; probe < pool.length * 2 && anchors.length < length; probe += 1) {
+  for (let probe = 1; probe < pool.length * 2 && anchors.length < maxCandidates; probe += 1) {
     const index = (baseOffset + probe * stride) % pool.length;
     const candidate = nearestMapWaterTile(pool[index]!, map);
     const key = `${candidate.x},${candidate.y}`;
