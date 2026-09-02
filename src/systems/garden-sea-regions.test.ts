@@ -89,4 +89,23 @@ describe("sea region field", () => {
       expect(SEA_REGION_CHARACTER[name as keyof typeof SEA_REGION_ID]).toBeDefined();
     }
   });
+
+  it("gives every named body an amplified, directional character", () => {
+    const bodies = ["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"] as const;
+    for (const body of bodies) {
+      const character = SEA_REGION_CHARACTER[body];
+      expect(character.tintStrength).toBeGreaterThanOrEqual(0.42);
+      expect(character.tintStrength).toBeLessThanOrEqual(0.48);
+      expect(Number.isFinite(character.flowBearing)).toBe(true);
+      expect(character.flowHold).toBeGreaterThanOrEqual(0);
+      expect(character.flowHold).toBeLessThanOrEqual(1);
+      expect(character.crossedNormal).toBeGreaterThanOrEqual(0);
+      expect(character.crossedNormal).toBeLessThanOrEqual(1);
+    }
+    expect(SEA_REGION_CHARACTER.calm.normalDetail).toBeLessThan(0.15);
+    expect(SEA_REGION_CHARACTER.danger.normalDetail).toBeGreaterThan(1);
+    expect(SEA_REGION_CHARACTER.warning.shallowShelf).toBeGreaterThan(0.8);
+    expect(SEA_REGION_CHARACTER.wreck.swell).toBeLessThan(SEA_REGION_CHARACTER.calm.swell);
+    expect(SEA_REGION_CHARACTER.ledger.swell).toBeLessThan(SEA_REGION_CHARACTER.watch.swell);
+  });
 });

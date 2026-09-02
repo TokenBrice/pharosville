@@ -2,10 +2,10 @@ import { seaBodyPlacement } from "../systems/sea-body-anchors";
 import { seaBodyForArea, type SeaBodyName } from "../systems/sea-bodies";
 
 /**
- * Where the sea boards stand, and how big their faces are — with no three.js in
+ * Where the sea steles stand, and how big their carved faces are — with no three.js in
  * the module graph.
  *
- * The hit targets (N6) must resolve the boards exactly as the scene draws them,
+ * The hit targets (N6) must resolve the steles exactly as the scene draws them,
  * so this siting is shared rather than reimplemented. But the hit tester lives
  * in the world chunk and `garden-sea-signs.ts` imports three, so importing the
  * siting from there pulled the whole renderer across the lazy boundary: the
@@ -16,76 +16,59 @@ import { seaBodyForArea, type SeaBodyName } from "../systems/sea-bodies";
 /** One world unit per tile, on the diagonal the isometric rig is built around. */
 export const TILE_SCALE = Math.SQRT2;
 
-// Board proportions, in world units at zoom 1.
-export const BOARD_WIDTH = 7.2;
-export const BOARD_HEIGHT = 1.9;
-export const BOARD_BASE_Y = 2.5;
+// Low stele proportions in world units. The single scale rung below is true
+// world scale: unlike the retired boards, a stele never grows against a zoom.
+export const STELE_WIDTH = 5.6;
+export const STELE_FACE_HEIGHT = 1.25;
+export const STELE_FACE_BASE_Y = 0.9;
 
 /**
  * The lettered face's true-scale footprint, as the hit-target projection needs
  * it: everything here is multiplied by `seaSignScaleForZoom` at draw time.
  */
-export const SEA_SIGN_BOARD = {
-  /** Height of the face's centre above the board's own origin. */
-  baseY: BOARD_BASE_Y,
-  height: BOARD_HEIGHT,
-  width: BOARD_WIDTH,
+export const SEA_SIGN_STELE = {
+  /** Height of the face's centre above the stele's own origin. */
+  baseY: STELE_FACE_BASE_Y,
+  height: STELE_FACE_HEIGHT,
+  width: STELE_WIDTH,
   /** Squared to the isometric camera rather than to the body's own bearing. */
   yaw: Math.PI * 0.25,
 } as const;
 
 /**
- * D6: the board holds a roughly constant on-screen size — in three steps.
+ * W2a: the stele keeps one true-world-scale rung.
  *
  * Screen size is proportional to worldScale x zoom, so a scale of k/zoom holds
  * it constant, and `k / zoom` clamped to [0.85, 2.6] is what this used to be.
  * The end states were right and the transit was wrong: a continuous k/zoom is
  * the one object class in the world that ANIMATES AGAINST the camera gesture.
  * Pinch out and the sea, the fleet, the island and the tower all shrink
- * together while the boards swell to nearly 3x — the eye reads that as the
+ * together while the boards swelled to nearly 3x — the eye read that as the
  * signage fighting the hand, which is the opposite of the composure the rest
  * of the motion hierarchy is built for.
  *
- * So the response is quantized (W0.7). Inside a band the board is an ordinary
- * world object: it scales with everything else and never moves on its own.
- * Crossing a band is a discrete event — one short eased settle, run by
- * `createSeaSignScaleTrack` below — not a continuous fight.
- *
- * The ladder is chosen against the old curve, not away from it:
- *
- * - `SEA_SIGN_SCALE_STEPS[0]` (0.85) and `[2]` (2.6) are exactly the old clamp
- *   endpoints, so the two END STATES the design was reviewed at are unchanged:
- *   near world scale when you are in among the hulls, drawn out of scale on the
- *   chart at whole-map framing, the way a landmark is on an old map.
- * - The middle rung sits at the geometric mid of its own band
- *   (`0.85 / sqrt(0.40 x 0.88)` = 1.433, kept as 1.43), which is the value that
- *   minimises the worst-case departure from the old constant-screen ideal. No
- *   zoom in the interactive range (0.28..2.4) reads more than ~1.5x off the
- *   on-screen size the continuous curve gave it.
- * - The band edges dodge the framings the world already spends its attention
- *   on: 0.40 sits below the overview-LOD fade (0.44..0.62) so the boards do not
- *   step in the same breath as the shore props shed, and 0.88 sits clear of
- *   both the reference default framing (0.7776) and the explore threshold
- *   (1.05), including once hysteresis widens it to 0.827..0.933.
+ * The old three-step ladder preserved near-constant screen size, but the map
+ * read as labels resisting the camera. Stone stele UP; billboard-like scale
+ * compensation DOWN. The track API remains so hit testing and renderer wiring
+ * stay one contract, but its simplified ladder contains only the true scale.
  */
 /**
- * Board world scale per step, CLOSEST framing first. Index 0 is the zoomed-in
- * end (near world scale), the last index the whole-map end.
+ * Stele world scale per step. One rung means no camera-dependent scaling.
  */
-export const SEA_SIGN_SCALE_STEPS = [0.85, 1.43, 2.6] as const;
+export const SEA_SIGN_SCALE_STEPS = [1] as const;
 
 /**
  * Nominal band edges, in zoom, one per gap in the ladder: `[i]` is the zoom
  * below which step `i` gives way to step `i + 1`. Descending, like the steps.
  */
-export const SEA_SIGN_STEP_ZOOMS = [0.88, 0.4] as const;
+export const SEA_SIGN_STEP_ZOOMS: readonly number[] = [];
 
 /**
  * How far past a nominal edge the zoom must travel before the step actually
  * changes, as a fraction of that edge.
  *
  * Without it, a zoom parked on an edge — a trackpad pinch resting, a wheel
- * click landing there — would toggle the board between two rungs 1.7x apart,
+ * click landing there — would toggle the old board between two rungs 1.7x apart,
  * which is a worse artefact than the swell this replaces. +-6% turns each edge
  * into a band (0.827..0.933 and 0.376..0.424) that a settled camera sits
  * inside without ever crossing.
@@ -99,7 +82,7 @@ export const SEA_SIGN_STEP_FADE_SECONDS = 0.45;
  * A frame delta longer than this means the loop was not running: a hidden tab,
  * a resumed render, or the on-demand single paints the reduced-motion path
  * draws. There is no gesture to stay calm against across a gap like that, and
- * easing over it would leave the board stranded mid-settle, so the step is
+ * easing over it would leave a sign stranded mid-settle, so the step is
  * taken whole.
  */
 const SEA_SIGN_STALE_FRAME_SECONDS = 0.25;
@@ -121,7 +104,7 @@ export function seaSignStepForZoom(zoom: number): number {
  */
 export function seaSignStepWithHysteresis(zoom: number, currentStep: number): number {
   let step = Math.max(0, Math.min(SEA_SIGN_SCALE_STEPS.length - 1, Math.round(currentStep)));
-  // Zooming out: the board only grows once the zoom is clear BELOW the edge.
+  // Zooming out: a multi-rung sign only grows clear BELOW the edge.
   while (step < SEA_SIGN_STEP_ZOOMS.length && zoom < SEA_SIGN_STEP_ZOOMS[step]! * (1 - SEA_SIGN_STEP_HYSTERESIS)) {
     step += 1;
   }
@@ -133,11 +116,11 @@ export function seaSignStepWithHysteresis(zoom: number, currentStep: number): nu
 }
 
 /**
- * The SETTLED board scale for a zoom, as a pure function.
+ * The SETTLED stele scale for a zoom, as a pure function.
  *
  * This is the shared contract the hit targets (N6) resolve against, so it
  * carries no history and no easing: a hit rect built from it matches the drawn
- * board at every resting camera outside the hysteresis bands, and inside them
+ * stele at every resting camera outside the hysteresis bands, and inside them
  * it is at most one rung out for as long as the camera sits there. Draw code
  * wants `createSeaSignScaleTrack`, which adds exactly the two things a pure
  * function cannot have: the hysteresis and the settle.
@@ -179,7 +162,7 @@ function easeOutStep(progress: number): number {
 
 /**
  * The stateful half of D6: which rung is latched, and where in the settle
- * between two rungs the board currently is.
+ * between two rungs the sign currently is.
  *
  * The settle interpolates GEOMETRICALLY (`from x (target/from)^t`). A rung gap
  * is a ratio, not a difference — 0.85 -> 1.43 and 1.43 -> 2.6 are the same
@@ -228,7 +211,7 @@ export function createSeaSignScaleTrack(): SeaSignScaleTrack {
   };
 }
 
-/** Where one board ends up standing, in world units. */
+/** Where one stele ends up standing, in world units. */
 export interface SeaSignSite {
   body: SeaBodyName;
   x: number;
@@ -240,16 +223,16 @@ const MIN_SEPARATION = 11;
 /**
  * N1 siting, as a pure function of the body list.
  *
- * Boards are sited at each body's camera-facing frontier, and neighbouring
+ * Steles are sited at each body's camera-facing frontier, and neighbouring
  * bodies can present that frontier at nearly the same point — Warning Shoals
- * and Danger Strait share a coast, and their first pass put one board on top of
+ * and Danger Strait share a coast, and their first pass put one stele on top of
  * the other. Any pair that lands too close is nudged apart along the axis the
  * camera reads as horizontal, nearest-to-camera moving last so it stays in
  * front of the water it names.
  *
  * The nudge is order-dependent, which is why this is shared rather than
  * reimplemented: the hit targets (N6) have to resolve the collisions the same
- * way the scene does, or a board's target lands on its neighbour.
+ * way the scene does, or a stele's target lands on its neighbour.
  */
 export function seaSignSites(bodies: readonly SeaBodyName[]): SeaSignSite[] {
   const sited: SeaSignSite[] = [];
@@ -270,7 +253,7 @@ export function seaSignSites(bodies: readonly SeaBodyName[]): SeaSignSite[] {
   return sited;
 }
 
-/** The area fields the board list reads. Structural, so any world area fits. */
+/** The area fields the stele list reads. Structural, so any world area fits. */
 export interface SeaSignArea {
   band?: string | null;
   detailId: string;
@@ -278,18 +261,18 @@ export interface SeaSignArea {
   riskPlacement?: string | null;
 }
 
-/** A sited board together with the detail its name opens, if it has one. */
-export interface SeaSignBoard extends SeaSignSite {
+/** A sited stele together with the detail its name opens, if it has one. */
+export interface SeaSignStele extends SeaSignSite {
   /** Null for the wreck shoals, which are a place with no area record. */
   detailId: string | null;
   label: string;
 }
 
 /**
- * Every board the world draws, in the order the renderer builds its specs —
+ * Every stele the world draws, in the order the renderer builds its specs —
  * which is the order the separation nudge above depends on.
  */
-export function seaSignBoards(areas: readonly SeaSignArea[]): SeaSignBoard[] {
+export function seaSignSteles(areas: readonly SeaSignArea[]): SeaSignStele[] {
   const named: { body: SeaBodyName; detailId: string | null; label: string }[] = [];
   for (const area of areas) {
     const body = seaBodyForArea(area);
@@ -299,10 +282,10 @@ export function seaSignBoards(areas: readonly SeaSignArea[]): SeaSignBoard[] {
   named.push({ body: "wreck", detailId: null, label: "Wreck Shoals" });
 
   const siteByBody = new Map(seaSignSites(named.map((entry) => entry.body)).map((site) => [site.body, site]));
-  const boards: SeaSignBoard[] = [];
+  const steles: SeaSignStele[] = [];
   for (const entry of named) {
     const site = siteByBody.get(entry.body);
-    if (site) boards.push({ ...entry, x: site.x, z: site.z });
+    if (site) steles.push({ ...entry, x: site.x, z: site.z });
   }
-  return boards;
+  return steles;
 }

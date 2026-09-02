@@ -81,9 +81,11 @@ required to be "asymmetric, sea-first, and intentionally open". The coverage
 guard is set at 0.72 for that reason; raising it back toward 1 would recreate
 the residue body it was meant to prevent.
 
-Sea-body place-names are carried by in-world signage AND by the accessibility
-ledger, which lists every named area. The signs are canvas content and therefore
-aria-hidden, so the ledger — not the sign — is the redundant channel.
+Sea-body place-names are carried by low stone steles at body boundaries AND by
+the accessibility ledger, which lists every named area. The steles stay quiet
+and close to the water's value until their body is hovered or inspected. They
+are canvas content and therefore aria-hidden, so the ledger — not the stele —
+is the redundant channel.
 
 ## Light and atmosphere
 

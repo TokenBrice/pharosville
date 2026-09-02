@@ -104,7 +104,7 @@ import {
 } from "./garden-harbor-life";
 import { createGardenHorizon, type GardenHorizon } from "./garden-horizon";
 import { createGardenSeaSigns, type GardenSeaSigns, type SeaSignSpec } from "./garden-sea-signs";
-import { SEA_BODY_TERRAIN, seaBodyForArea } from "../systems/sea-bodies";
+import { SEA_BODY_TERRAIN, seaBodyForArea, type SeaBodyName } from "../systems/sea-bodies";
 import { createGardenIslets, type GardenIslets } from "./garden-islets";
 import {
   createGardenHeroReflections,
@@ -3095,7 +3095,7 @@ function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
   }
   const zoneField = createZoneField(zones);
   part.root.add(zoneField.root);
-  // N (Sea Master): the sea's place-names, as carved boards standing in the
+  // W2a: the sea's place-names, carved into low stone steles standing at the
   // water. Copy comes from the same area records the detail panels read, so
   // the two surfaces cannot drift.
   const seaSigns = createGardenSeaSigns(seaSignSpecs(world.areas));
@@ -3506,11 +3506,11 @@ function computeBeamDwellBearing(
 }
 
 /**
- * The boards to raise, and what they say.
+ * The boundary steles to raise, and what they say.
  *
  * Every named body gets one — including Calm Anchorage and Ledger Mooring,
  * and the wreck shoals, which have no area record at all but are a place with
- * a name like any other. These boards are the sea's only place-name display;
+ * a name like any other. These steles are the sea's in-world place-name display;
  * the old DOM chip layer was removed as a UI intrusion on the world.
  */
 function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
@@ -3533,6 +3533,32 @@ function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
     accent: zoneThemeForTerrain("wreck-water").label.accent,
   });
   return specs;
+}
+
+function seaSignBodyForDetail(
+  world: PharosVilleWorld,
+  detailId: string | null,
+): SeaBodyName | null {
+  if (!detailId) return null;
+  for (const area of world.areas) {
+    if (area.detailId === detailId) return seaBodyForArea(area);
+  }
+  // Wreck Shoal has no area detail record. Inspecting any of its lifecycle
+  // wrecks activates the body stele while the ledger keeps every grave's DOM
+  // record intact.
+  for (const grave of world.graves) {
+    if (grave.detailId === detailId) return "wreck";
+  }
+  return null;
+}
+
+/** Debug-only visual suppression; the ledger and hit semantics are unchanged. */
+function seaSignsDebugVisible(): boolean {
+  if (typeof window === "undefined") return true;
+  const hash = window.location.hash.startsWith("#")
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+  return !/(?:^|&)signs=0(?:&|$)/.test(hash);
 }
 
 /**
@@ -3960,19 +3986,19 @@ function updateSceneForFrame(
   scratchOverviewLodFrame.zoom = frame.camera.zoom;
   content.overviewLod.update(scratchOverviewLodFrame);
   const overviewDetail = content.overviewLod.detail;
-  // N (D6): the boards hold a roughly constant on-screen size as the camera
-  // pulls back, so the sea's place-names stay readable at whole-map framing —
-  // the framing that most wants them, and the one where a true-scale board is
-  // about four pixels tall. They stand down when a detail panel owns the frame.
+  // W2a: steles keep true world scale and whisper until the body is hovered or
+  // inspected. Stone place-name UP; camera-compensated board label DOWN.
   content.seaSigns.update({
     // W0.7 follow-up: the frame's own clock and motion policy, so the D6 rung
     // settle runs on the same delta as every other eased system instead of the
     // module keeping a second `performance.now()` and a second matchMedia
     // watcher of its own.
+    activeBody: seaSignBodyForDetail(frame.world, frame.selectedDetailId)
+      ?? seaSignBodyForDetail(frame.world, frame.hoveredDetailId),
     deltaSeconds: beamElapsedSeconds,
     night: phase.night,
     reducedMotion: frame.reducedMotion,
-    visible: semanticView !== "analyze",
+    visible: seaSignsDebugVisible(),
     zoom: frame.camera.zoom,
   });
   let showAnyDockDetail = showWorldDetail;

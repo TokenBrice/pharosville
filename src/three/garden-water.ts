@@ -70,7 +70,9 @@ const WATER_SIZE = 900;
 // keep garden-water free of a util import cycle.
 const TILE_SCALE_UNITS = Math.SQRT2;
 /**
- * W2 / D5+W2.7: how strongly a region tints its water.
+ * W2a: a partial luminance match lets hue carry at distance while the depth
+ * multiplier remains the body's value cue. A full match erased the hue; no
+ * match made the live DEWS colours read as paint.
  *
  * The old per-band values were 0.04-0.20 because six ellipses STACKED — a
  * WATCH tint covering the whole map had to be almost invisible or it would
@@ -78,7 +80,7 @@ const TILE_SCALE_UNITS = Math.SQRT2;
  * properly. Character (swell, chop, foam, reflectivity) still carries most of
  * the signal; this is the supporting colour.
  */
-const REGION_TINT_STRENGTH = 0.2;
+const REGION_LUMINANCE_MATCH = 0.58;
 
 /**
  * Bakes the terrain-derived sea-region field into GPU textures.
@@ -459,6 +461,7 @@ export const VERTEX_SHADER = /* glsl */ `
   uniform float uBreath;
   uniform float uStorm;
   uniform sampler2D uRegionField;
+  uniform vec4 uRegionFlow[${SEA_REGION_COUNT}];
   uniform vec4 uRegionSwell[${SEA_REGION_COUNT}];
   uniform vec4 uRegionTransform;
 
@@ -479,11 +482,12 @@ export const VERTEX_SHADER = /* glsl */ `
     vec2 regionUv = (waterPosition - uRegionTransform.xy) * uRegionTransform.zw;
     vec4 regionSample = texture2D(uRegionField, regionUv);
     int regionId = int(regionSample.r * 255.0 + 0.5);
+    vec4 regionFlow = uRegionFlow[regionId];
     float regionSwell = uRegionSwell[regionId].x;
     float regionChop = uRegionSwell[regionId].y * (1.0 + uWindSpeed * 0.3 + uStorm * 0.25);
 
     vec2 baseDir = normalize(vec2(0.9229, 0.3851));
-    vec2 phaseWindDir = -uWindDir;
+    vec2 phaseWindDir = normalize(mix(-uWindDir, regionFlow.xy, regionFlow.z));
     float rc = clamp(dot(baseDir, phaseWindDir), -1.0, 1.0);
     float rs = baseDir.x * phaseWindDir.y - baseDir.y * phaseWindDir.x;
     mat2 windRot = mat2(rc, rs, -rs, rc);
@@ -593,7 +597,9 @@ export const FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D uRegionField;
   uniform sampler2D uRegionDistance;
   uniform vec3 uRegionColor[${SEA_REGION_COUNT}];
+  uniform vec4 uRegionFlow[${SEA_REGION_COUNT}];
   uniform vec4 uRegionParams[${SEA_REGION_COUNT}];
+  uniform vec4 uRegionSwell[${SEA_REGION_COUNT}];
   uniform vec4 uRegionTransform;
 
   varying vec2 vWaterPosition;
@@ -734,18 +740,38 @@ ${gardenHeightFogGlsl()}
     float harborDistance = length((vWaterPosition - uHarborEllipse.xy) * uHarborEllipse.zw);
     float harborCalm = (1.0 - smoothstep(0.7, 1.05, harborDistance)) * uHarborCalm;
 
+    vec4 surfaceRegionSample = texture2D(uRegionField, vRegionUv);
+    int regionId = int(surfaceRegionSample.r * 255.0 + 0.5);
+    vec4 regionFlow = uRegionFlow[regionId];
+    vec4 regionWave = uRegionSwell[regionId];
+    vec2 bodyFlowDir = normalize(mix(uWindDir, regionFlow.xy, regionFlow.z));
+    vec2 bodyAcrossDir = vec2(-bodyFlowDir.y, bodyFlowDir.x);
+    float bodyAlong = dot(vWaterPosition, bodyFlowDir);
+    float bodyAcross = dot(vWaterPosition, bodyAcrossDir);
+
     float scroll = uTime * (0.6 + uTempo * 0.9) * (0.92 + uBreath * 0.16);
-    vec2 flow = uWindDir * scroll;
-    vec3 nA = sampleWaterNormal(vWaterPosition * 0.055 + flow * 0.045);
+    vec2 directedPosition = vec2(bodyAlong, bodyAcross);
+    vec3 nA = sampleWaterNormal(directedPosition * vec2(0.032, 0.075) + vec2(scroll * 0.038, 0.0));
+    vec2 nADirected = bodyFlowDir * nA.x + bodyAcrossDir * nA.y;
     vec3 blendedNormal;
     if (uDetail > 0.55) {
       vec3 nB = sampleWaterNormal(
-        rotate2(vWaterPosition, 2.3) * 0.11 - flow * 0.03 + vec2(0.37, 0.11)
+        rotate2(vWaterPosition, 2.3) * 0.11 - uWindDir * scroll * 0.03 + vec2(0.37, 0.11)
       );
-      blendedNormal = normalize(vec3(nA.xy + nB.xy, nA.z * nB.z + 0.55));
+      // Per-body direction UP; the generic crossed normal is explicitly DOWN
+      // in the quiet/linear waters through the crossed-normal character field.
+      blendedNormal = normalize(vec3(
+        nADirected + nB.xy * regionWave.z,
+        nA.z * mix(1.0, nB.z, regionWave.z) + 0.55
+      ));
     } else {
-      blendedNormal = normalize(vec3(nA.xy, nA.z + 0.55));
+      blendedNormal = normalize(vec3(nADirected, nA.z + 0.55));
     }
+    blendedNormal = normalize(mix(
+      vec3(0.0, 0.0, 1.0),
+      blendedNormal,
+      regionFlow.w
+    ));
     blendedNormal = normalize(mix(blendedNormal, vec3(0.0, 0.0, 1.0), harborCalm * 0.75));
     float camDistance = distance(cameraPosition, vWorldPosition);
     float detailFalloff = max(1.0 - smoothstep(130.0, 460.0, camDistance), 0.32) * uDetail;
@@ -754,6 +780,41 @@ ${gardenHeightFogGlsl()}
     surfaceNormal = normalize(
       surfaceNormal + vec3(vGerstnerNormal.xy * (18.0 * detailFalloff), 0.0)
     );
+
+    // These are refinements of the existing normal/ripple term, never a new
+    // oscillator. Each branch strengthens one body and demotes the shared
+    // crossed normal named in SEA_REGION_CHARACTER.
+    vec2 signatureNormal = vec2(0.0);
+    float signatureTone = 0.0;
+    if (regionId == ${SEA_REGION_ID.watch}) {
+      // Long parallel ripples UP; isotropic ripple grain DOWN.
+      float phase = bodyAcross * 0.52 + sin(bodyAlong * 0.045) * 0.34 - uTime * 0.18;
+      signatureNormal += bodyAcrossDir * cos(phase) * 0.075;
+      signatureTone = sin(phase) * 0.5;
+    } else if (regionId == ${SEA_REGION_ID.alert}) {
+      // Channel-axis current streaks UP; crossed chop DOWN.
+      float currentGate = smoothstep(0.3, 0.82, gardenValueNoise(vec2(bodyAcross * 0.2, bodyAlong * 0.035)));
+      float phase = bodyAcross * 1.15 + sin(bodyAlong * 0.12 - uTime * 0.62) * 0.5;
+      signatureNormal += bodyAcrossDir * cos(phase) * currentGate * 0.105;
+      signatureTone = sin(phase) * currentGate * 0.62;
+    } else if (regionId == ${SEA_REGION_ID.warning}) {
+      // Short broken ripples UP; the shared long swell is DOWN.
+      float brokenGate = smoothstep(0.42, 0.68, gardenValueNoise(vec2(floor(bodyAlong * 0.32), bodyAcross * 0.16)));
+      float phase = bodyAcross * 1.62 - uTime * 0.42;
+      signatureNormal += bodyAcrossDir * cos(phase) * brokenGate * 0.13;
+      signatureTone = sin(phase) * brokenGate * 0.5;
+    } else if (regionId == ${SEA_REGION_ID.danger}) {
+      // Steep diagonal wave faces UP; generic crest texture DOWN.
+      float phase = bodyAcross * 1.08 - uTime * (0.62 + uStorm * 0.25);
+      signatureNormal += bodyAcrossDir * cos(phase) * 0.23;
+      signatureTone = sin(phase) * 0.7;
+    } else if (regionId == ${SEA_REGION_ID.ledger}) {
+      // Flat horizontal striations UP; shared swell DOWN.
+      float phase = bodyAcross * 0.84 - uTime * 0.045;
+      signatureNormal += bodyAcrossDir * cos(phase) * 0.035;
+      signatureTone = sin(phase) * 0.52;
+    }
+    surfaceNormal = normalize(surfaceNormal + vec3(signatureNormal * detailFalloff, 0.0));
 
     vec2 normalDerivative = fwidth(blendedNormal.xy);
     float glintDetailWeight = 1.0 / (
@@ -929,6 +990,10 @@ ${gardenHeightFogGlsl()}
       ${glslFloat(GARDEN_WATER_CREST_FOAM.jacobianEnd)},
       crestFold
     );
+    // Danger's authored blown foam is the crest hero now: generic crest foam
+    // DOWN everywhere so the one amplified body does not make the whole sea
+    // equally loud.
+    crestFoamMask *= 0.52;
     if (crestFoamMask > 0.001) {
       vec2 crestAdvect = uWindDir * (uTime * 0.11 * (0.55 + uWindSpeed * 0.6));
       float crestNoise = gardenValueNoise((vWaterPosition - crestAdvect) * 0.24 + 31.4);
@@ -951,8 +1016,6 @@ ${gardenHeightFogGlsl()}
     float seaReflectivity = 1.0;
 
     {
-      vec4 regionSample = texture2D(uRegionField, vRegionUv);
-      int regionId = int(regionSample.r * 255.0 + 0.5);
       float boundaryDistance = texture2D(uRegionDistance, vRegionUv).r;
 
       vec3 regionTint = uRegionColor[regionId];
@@ -974,11 +1037,30 @@ ${gardenHeightFogGlsl()}
 
       float waterLuma = dot(waterColor, vec3(0.2126, 0.7152, 0.0722));
       float tintLuma = max(dot(regionTint, vec3(0.2126, 0.7152, 0.0722)), 0.03);
-      vec3 regionColor = regionTint * clamp(waterLuma * 1.6 / tintLuma, 0.35, 1.15);
+      vec3 luminanceMatchedTint = regionTint * clamp(waterLuma / tintLuma, 0.35, 1.35);
+      vec3 regionColor = mix(
+        regionTint,
+        luminanceMatchedTint,
+        ${glslFloat(REGION_LUMINANCE_MATCH)}
+      );
 
       float blend = smoothstep(0.0, 0.84, boundaryDistance);
       waterColor = mix(waterColor, regionColor, regionStrength * blend);
       waterColor *= mix(1.0, regionDepth, blend);
+      // Warning's pale shelf UP; the generic bathymetry shelf is correspondingly
+      // absent from the other bodies through the data value of zero.
+      float localShelf = regionWave.w * blend * (
+        0.72 + gardenValueNoise(vec2(bodyAlong * 0.07, bodyAcross * 0.12)) * 0.28
+      );
+      waterColor = mix(waterColor, uShallowColor, localShelf * (0.24 - uNight * 0.07));
+
+      // Body signatures modulate the existing colour/current term; they do
+      // not add light. Wreck's static silt UP while generic moving ripple DOWN.
+      waterColor *= 1.0 + signatureTone * blend * 0.035;
+      if (regionId == ${SEA_REGION_ID.wreck}) {
+        float silt = gardenFbm(vWaterPosition * 0.052 + vec2(4.2, -7.8));
+        waterColor *= mix(0.84, 0.96, silt) * mix(1.0, 0.94, blend);
+      }
 
       if (regionId == ${SEA_REGION_ID.danger}) {
         vec2 rainUv = gl_FragCoord.xy * vec2(0.055, 0.018);
@@ -1016,16 +1098,21 @@ ${gardenHeightFogGlsl()}
       );
 
       if (regionFoam > 0.3) {
-        vec2 capAdvect = uWindDir * (uTime * 0.06 * (0.5 + uTempo) * (0.6 + uWindSpeed * 0.8));
-        vec2 capUv = (vWaterPosition - capAdvect) * 0.85;
+        vec2 capAdvect = vec2(
+          uTime * 0.06 * (0.5 + uTempo) * (0.6 + uWindSpeed * 0.8),
+          0.0
+        );
+        vec2 capUv = vec2(bodyAlong, bodyAcross * 1.7) - capAdvect;
+        capUv *= 0.85;
         float capNoise = gardenFbm(capUv);
         float capThreshold = mix(0.82, 0.68, clamp(regionFoam, 0.0, 1.0));
         float caps = smoothstep(capThreshold, capThreshold + 0.13, capNoise);
         caps *= 0.35 + smoothstep(0.06, 0.24, (1.0 - vGerstnerJ) * 400.0) * 1.5;
+        float capMaximum = regionId == ${SEA_REGION_ID.danger} ? 0.18 : 0.075;
         waterColor = mix(
           waterColor,
           uHighlightColor,
-          clamp(caps * regionFoam * blend, 0.0, 0.1) * uDetail
+          clamp(caps * regionFoam * blend, 0.0, capMaximum) * uDetail
         );
       }
     }
@@ -1415,12 +1502,26 @@ export function createGardenWater(waterLevel: number): GardenWater {
       character.depth,
       character.foam,
       character.reflectivity,
-      name === "none" || name === "open" ? 0 : REGION_TINT_STRENGTH,
+      character.tintStrength,
     );
   });
   const regionSwell = SEA_REGION_ORDER.map((name) => {
     const character = SEA_REGION_CHARACTER[name];
-    return new Vector4(character.swell, character.chop, 0, 0);
+    return new Vector4(
+      character.swell,
+      character.chop,
+      character.crossedNormal,
+      character.shallowShelf,
+    );
+  });
+  const regionFlow = SEA_REGION_ORDER.map((name) => {
+    const character = SEA_REGION_CHARACTER[name];
+    return new Vector4(
+      Math.cos(character.flowBearing),
+      -Math.sin(character.flowBearing),
+      character.flowHold,
+      character.normalDetail,
+    );
   });
   // Maps world XY on the water plane into the field's 0-1 UV space.
   //
@@ -1540,6 +1641,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
     uRegionField: { value: regionField.field },
     uRegionDistance: { value: regionField.distance },
     uRegionColor: { value: regionColors },
+    uRegionFlow: { value: regionFlow },
     uRegionParams: { value: regionParams },
     uRegionSwell: { value: regionSwell },
     uRegionTransform: { value: regionTransform },
@@ -1764,7 +1866,14 @@ export function createGardenWater(waterLevel: number): GardenWater {
         const slot = zone.regionId;
         if (slot === undefined || slot <= 0 || slot >= SEA_REGION_COUNT) continue;
         regionColors[slot]!.copy(zone.color);
-        uniforms.uRegionParams.value[slot]!.w = zone.strength;
+        // W2a: live themes still own hue, while SEA_REGION_CHARACTER owns the
+        // amplified body weight. A weaker legacy zone value may not silently
+        // pull the new ~0.45 contract back to the former ~0.2 register.
+        const name = SEA_REGION_ORDER[slot]!;
+        uniforms.uRegionParams.value[slot]!.w = Math.max(
+          SEA_REGION_CHARACTER[name].tintStrength,
+          Math.min(0.52, zone.strength),
+        );
       }
     },
     setWakeState(texture, centerX, centerY, halfSize) {

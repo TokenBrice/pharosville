@@ -23,8 +23,8 @@ import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { TILE_WIDTH } from "../systems/projection";
 import {
-  SEA_SIGN_BOARD,
-  seaSignBoards,
+  SEA_SIGN_STELE,
+  seaSignSteles,
   seaSignScaleForZoom,
 } from "../three/garden-sea-signs";
 import { createGardenObservatoryHitTargetSnapshot } from "./garden-observatory-hit-testing";
@@ -38,7 +38,7 @@ describe("Garden Observatory hit targets", () => {
 
     // D1 (W3): the fleet is no longer sampled down to 20, so hit targets
     // track the rendered slice size. Lighthouse + pigeonnier are the 2 fixed
-    // singletons. Every area also carries a carved name board (N6), which is a
+    // singletons. Every area also carries a carved name stele (W2a), which is a
     // second target on the SAME detail id rather than a new destination.
     expect(snapshot.targets).toHaveLength(
       2 + slice.ships.length + world.docks.length + world.areas.length * 2 + world.graves.length,
@@ -174,19 +174,19 @@ describe("Garden Observatory hit targets", () => {
   });
 });
 
-describe("Carved sea-name board targets (N6)", () => {
+describe("Carved sea-name stele targets (W2a)", () => {
   it("opens the water body's own detail rather than a parallel one", () => {
     const world = denseWorld();
     const snapshot = createGardenObservatoryHitTargetSnapshot({
       camera: { offsetX: 720, offsetY: 430, zoom: 0.7776 },
       world,
     });
-    const boards = snapshot.targets.filter((target) => target.kind === "sea-sign");
+    const steles = snapshot.targets.filter((target) => target.kind === "sea-sign");
 
-    expect(new Set(boards.map((board) => board.detailId)))
+    expect(new Set(steles.map((stele) => stele.detailId)))
       .toEqual(new Set(world.areas.map((area) => area.detailId)));
-    for (const board of boards) {
-      expect(world.detailIndex[board.detailId]).toBeDefined();
+    for (const stele of steles) {
+      expect(world.detailIndex[stele.detailId]).toBeDefined();
     }
   });
 
@@ -198,28 +198,22 @@ describe("Carved sea-name board targets (N6)", () => {
     });
 
     for (const area of world.areas) {
-      const board = snapshot.targets.find((target) => (
+      const stele = snapshot.targets.find((target) => (
         target.kind === "sea-sign" && target.detailId === area.detailId
       ));
       const zone = snapshot.targets.find((target) => (
         target.kind === "area" && target.detailId === area.detailId
       ));
-      // One point above, so the cycle prefers the board and the body keeps the
+      // One point above, so the cycle prefers the stele and the body keeps the
       // slot its zone priority already bought it.
-      expect(board?.priority).toBe(zone!.priority + 1);
+      expect(stele?.priority).toBe(zone!.priority + 1);
       // The keyboard select path reads targetsByDetailId, so it has to be the
-      // board that carries the anchor.
+      // stele that carries the anchor.
       expect(snapshot.targetsByDetailId.get(area.detailId)?.kind).toBe("sea-sign");
     }
   });
 
-  it("tracks the zoom-QUANTIZED board, not the true-scale geometry", () => {
-    // The trap: D6 draws the boards out of scale so the sea's names stay
-    // readable as the camera pulls back. W0.7 quantized that response to three
-    // rungs, so the target has to follow the rung the scene draws — INSIDE a
-    // rung the board is an ordinary world object whose target grows with zoom,
-    // and crossing a rung steps the target by the whole rung ratio. A target
-    // built from the true-scale geometry would miss the step entirely.
+  it("tracks true world scale instead of compensating against zoom", () => {
     const world = denseWorld();
     const widthAt = (zoom: number) => {
       const snapshot = createGardenObservatoryHitTargetSnapshot({
@@ -229,44 +223,39 @@ describe("Carved sea-name board targets (N6)", () => {
       return snapshot.targets.find((target) => target.kind === "sea-sign")!.rect.width;
     };
 
-    // Either side of the 0.88 rung edge, a 2% zoom change moves the target by
-    // the rung ratio — over half again — instead of by 2%.
-    const stepRatio = seaSignScaleForZoom(0.87) / seaSignScaleForZoom(0.89);
-    expect(stepRatio).toBeGreaterThan(1.5);
-    expect(widthAt(0.87)).toBeCloseTo(widthAt(0.89) * stepRatio * (0.87 / 0.89), 6);
-    // Two framings on the same rung, and past the closest rung, are pure zoom,
-    // like everything else in the world.
+    expect(seaSignScaleForZoom(0.28)).toBe(1);
+    expect(seaSignScaleForZoom(2.4)).toBe(1);
     expect(widthAt(0.5)).toBeCloseTo(widthAt(0.8) * (0.5 / 0.8), 6);
     expect(widthAt(2)).toBeCloseTo(widthAt(1) * 2, 6);
   });
 
-  it("centres the target on the drawn board at every framing", () => {
+  it("centres the target on the drawn stele at every framing", () => {
     const world = denseWorld();
     for (const zoom of [0.4, 0.7776, 1.4]) {
       const camera = { offsetX: 720, offsetY: 430, zoom };
       const scale = seaSignScaleForZoom(zoom);
-      const board = seaSignBoards(world.areas).find((entry) => entry.detailId);
+      const stele = seaSignSteles(world.areas).find((entry) => entry.detailId);
       const target = createGardenObservatoryHitTargetSnapshot({ camera, world })
-        .targetsByDetailId.get(board!.detailId!);
+        .targetsByDetailId.get(stele!.detailId!);
 
       const centre = gardenTileToScreen(
-        { x: board!.x / Math.SQRT2, y: board!.z / Math.SQRT2 },
-        GARDEN_WATER_Y + SEA_SIGN_BOARD.baseY * scale,
+        { x: stele!.x / Math.SQRT2, y: stele!.z / Math.SQRT2 },
+        GARDEN_WATER_Y + SEA_SIGN_STELE.baseY * scale,
         camera,
       );
       expect(target?.anchor?.x).toBeCloseTo(centre.x, 6);
       expect(target?.anchor?.y).toBeCloseTo(centre.y, 6);
-      // The face's own painted width, projected. The board is yawed 45 degrees,
+      // The face's own carved width, projected. The stele is yawed 45 degrees,
       // which in this iso rig lays it exactly along the screen-horizontal axis,
-      // so one world unit of board is TILE_WIDTH / 2 screen units.
+      // so one world unit of stele is TILE_WIDTH / 2 screen units.
       expect(target?.rect.width).toBeCloseTo(
-        SEA_SIGN_BOARD.width * scale * (TILE_WIDTH / 2) * zoom,
+        SEA_SIGN_STELE.width * scale * (TILE_WIDTH / 2) * zoom,
         6,
       );
     }
   });
 
-  it("stands the boards' targets down when a detail panel owns the frame", () => {
+  it("stands the steles' duplicate targets down when a detail panel owns the frame", () => {
     const world = denseWorld();
     const snapshot = createGardenObservatoryHitTargetSnapshot({
       camera: { offsetX: 720, offsetY: 430, zoom: 0.7776 },

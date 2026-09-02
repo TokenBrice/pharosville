@@ -1,4 +1,5 @@
 import {
+  Color,
   InstancedMesh,
   Material,
   Matrix4,
@@ -6,6 +7,7 @@ import {
   Texture,
   Vector3,
 } from "three";
+import { CAUSE_HEX, type CauseOfDeath } from "@shared/lib/cause-of-death";
 import { describe, expect, it } from "vitest";
 import { CEMETERY_CENTER } from "../systems/world-layout";
 import type { GraveNode, PigeonnierNode } from "../systems/world-types";
@@ -51,35 +53,35 @@ describe("garden landmarks", () => {
     }
   });
 
-  it("batches wreck hulls by form instead of adding a drawable per entity", () => {
+  it("stages seven representative hull-rib reads and spars in two draws", () => {
     const graves = wreckField(24);
     const cemetery = createGardenCemetery(graves);
     const hullBatches: InstancedMesh[] = [];
     cemetery.root.traverse((object) => {
       if (
         object instanceof InstancedMesh
-        && object.name.startsWith("cemetery-wrecks-")
+        && object.name === "cemetery-wrecks-fan"
       ) {
         hullBatches.push(object);
       }
     });
 
-    // One batch per wreck form present, and every grave lands in exactly one.
-    expect(hullBatches).toHaveLength(3);
-    expect(hullBatches.reduce((sum, batch) => sum + batch.count, 0)).toBe(
-      graves.length,
-    );
+    expect(hullBatches).toHaveLength(1);
+    expect(hullBatches[0]!.count).toBe(7);
+    expect(cemetery.root.getObjectByName("cemetery-wreck-spars")).toBeInstanceOf(InstancedMesh);
+    expect((cemetery.root.getObjectByName("cemetery-wreck-spars") as InstancedMesh).count).toBe(7);
+    expect(objectCount(cemetery.root)).toBe(2);
     expect(hasTexture(cemetery.root)).toBe(false);
   });
 
   it("holds the whole wreck field inside a flat draw budget", () => {
-    // The real graveyard is ~95 dead and frozen coins; the draw cost must not
-    // track that number. Hulls are one batch per form, and every piece of
-    // furniture (ribs, masts, cloth, lanterns) is one batch across all wrecks.
+    // The real graveyard is ~89 dead and frozen coins; neither read count nor
+    // draw count tracks the ledger length.
     const small = createGardenCemetery(wreckField(12));
     const large = createGardenCemetery(wreckField(120));
     expect(objectCount(large.root)).toBe(objectCount(small.root));
-    expect(objectCount(large.root)).toBeLessThanOrEqual(10);
+    expect(objectCount(large.root)).toBe(2);
+    expect((large.root.getObjectByName("cemetery-wrecks-fan") as InstancedMesh).count).toBe(7);
   });
 
   it("sits every wreck in the water rather than on a plinth", () => {
@@ -98,11 +100,10 @@ describe("garden landmarks", () => {
         checked += 1;
       }
     });
-    expect(checked).toBe(24);
+    expect(checked).toBe(7);
   });
 
-  it("leaves the lantern and mourning pennant only on the freshest wrecks", () => {
-    // Two substantial wrecks (grounded, sinking-stern) among five forms.
+  it("keeps every cause colour while shedding cloth and lantern furniture", () => {
     const graves = [
       grave("grave.a", "grounded", CEMETERY_CENTER.x, CEMETERY_CENTER.y),
       grave("grave.b", "sinking-stern", CEMETERY_CENTER.x + 1, CEMETERY_CENTER.y),
@@ -111,15 +112,16 @@ describe("garden landmarks", () => {
       grave("grave.e", "shattered", CEMETERY_CENTER.x + 4, CEMETERY_CENTER.y),
     ];
     const cemetery = createGardenCemetery(graves);
-    const lanterns = cemetery.root.getObjectByName("cemetery-wreck-lanterns");
-    expect(lanterns).toBeInstanceOf(InstancedMesh);
-    expect((lanterns as InstancedMesh).count).toBe(2);
-    // Cloth is a rag of sail plus a pennant per lit wreck, in one batch.
-    const cloth = cemetery.root.getObjectByName("cemetery-wreck-cloth");
-    expect((cloth as InstancedMesh).count).toBe(4);
-    // Ribs and masts reach further down the decay range.
-    expect(cemetery.root.getObjectByName("cemetery-wreck-ribs")).toBeInstanceOf(InstancedMesh);
-    expect(cemetery.root.getObjectByName("cemetery-wreck-masts")).toBeInstanceOf(InstancedMesh);
+    expect(cemetery.root.getObjectByName("cemetery-wreck-lanterns")).toBeUndefined();
+    expect(cemetery.root.getObjectByName("cemetery-wreck-cloth")).toBeUndefined();
+    const hulls = cemetery.root.getObjectByName("cemetery-wrecks-fan") as InstancedMesh;
+    const actual = new Set<string>();
+    const color = new Color();
+    for (let index = 0; index < hulls.count; index += 1) {
+      hulls.getColorAt(index, color);
+      actual.add(`#${color.getHexString()}`);
+    }
+    expect(actual).toEqual(new Set(Object.values(CAUSE_HEX)));
   });
 
   it("places wrecks deterministically", () => {
@@ -251,13 +253,23 @@ function grave(
 ): GraveNode {
   return {
     detailId: id,
-    entry: {} as GraveNode["entry"],
+    entry: { causeOfDeath: causeForMarker(marker) } as GraveNode["entry"],
     id,
     kind: "grave",
     label: id.replace("grave.", "").toUpperCase(),
     tile: { x, y },
     visual: { marker, scale: 0.36 },
   };
+}
+
+function causeForMarker(marker: GraveNode["visual"]["marker"]): CauseOfDeath {
+  switch (marker) {
+    case "grounded": return "counterparty-failure";
+    case "sinking-stern": return "liquidity-drain";
+    case "broken-keel": return "regulatory";
+    case "shattered": return "algorithmic-failure";
+    case "skeletal": return "abandoned";
+  }
 }
 
 /** A spread of wrecks across three forms, scattered over the shoals. */

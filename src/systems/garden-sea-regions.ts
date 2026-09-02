@@ -198,10 +198,26 @@ export interface SeaRegionCharacter {
   reflectivity: number;
   /** Darkens (< 1) or lifts (> 1) the region against the base water colour. */
   depth: number;
+  /** Strength of the body's hue after partial luminance matching. */
+  tintStrength: number;
+  /** Direction the body's normal flow travels in world-tile radians. */
+  flowBearing: number;
+  /** 0 follows the shared wind; 1 holds the authored body direction. */
+  flowHold: number;
+  /** Strength of the fine normal term after the body's signature is applied. */
+  normalDetail: number;
+  /** Amount of the generic crossed normal which survives in this body. */
+  crossedNormal: number;
+  /** Pale local shelf contribution; deliberately concentrated in Warning. */
+  shallowShelf: number;
 }
 
 export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
-  none: { swell: 1, chop: 1, foam: 0, reflectivity: 1, depth: 1 },
+  none: {
+    swell: 1, chop: 1, foam: 0, reflectivity: 1, depth: 1,
+    tintStrength: 0, flowBearing: 0, flowHold: 0, normalDetail: 1,
+    crossedNormal: 1, shallowShelf: 0,
+  },
   // S1 (2026-07-25): the DEPTH multiplier is the value ramp, and it was doing
   // almost nothing — 0.78 to 1.18, +-20% around neutral. It matters more than
   // it looks, because the shader luminance-matches each region's tint against
@@ -212,19 +228,56 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   //
   // The protected inner harbour: near-still, the most mirror-like water in the
   // scene, and the region the concept render's reflection sells.
-  calm: { swell: 0.45, chop: 0.5, foam: 0.05, reflectivity: 1.5, depth: 1.14 },
-  watch: { swell: 0.85, chop: 0.9, foam: 0.18, reflectivity: 1.1, depth: 1 },
-  alert: { swell: 1.15, chop: 1.25, foam: 0.4, reflectivity: 0.8, depth: 0.88 },
-  warning: { swell: 1.45, chop: 1.7, foam: 0.68, reflectivity: 0.6, depth: 0.75 },
-  // Steep, dark, streaked with blown foam — legible as trouble without colour.
-  danger: { swell: 1.9, chop: 2.3, foam: 1, reflectivity: 0.42, depth: 0.6 },
-  // The ledger shelf reads as shallow, slack, slightly stagnant water.
-  ledger: { swell: 0.7, chop: 0.75, foam: 0.1, reflectivity: 1.2, depth: 1.2 },
-  open: { swell: 1, chop: 1, foam: 0.12, reflectivity: 1, depth: 0.97 },
+  // Calm mirror and reflection UP; generic crossed normals and crest foam DOWN.
+  calm: {
+    swell: 0.34, chop: 0.34, foam: 0.015, reflectivity: 1.62, depth: 1.13,
+    tintStrength: 0.43, flowBearing: 1.29, flowHold: 0.22, normalDetail: 0.1,
+    crossedNormal: 0.02, shallowShelf: 0,
+  },
+  // Watch's long parallel ripples UP; generic isotropic ripple grain DOWN.
+  watch: {
+    swell: 0.74, chop: 0.72, foam: 0.11, reflectivity: 1.18, depth: 1.01,
+    tintStrength: 0.44, flowBearing: 1.41, flowHold: 0.82, normalDetail: 0.48,
+    crossedNormal: 0.08, shallowShelf: 0,
+  },
+  // Alert's channel-axis current streaks UP; generic crossed chop DOWN.
+  alert: {
+    swell: 1.02, chop: 1.18, foam: 0.28, reflectivity: 0.86, depth: 0.9,
+    tintStrength: 0.45, flowBearing: -1.48, flowHold: 0.96, normalDetail: 0.68,
+    crossedNormal: 0.12, shallowShelf: 0,
+  },
+  // Warning's pale shelf and short broken ripples UP; long shared swell DOWN.
+  warning: {
+    swell: 1.26, chop: 1.62, foam: 0.62, reflectivity: 0.64, depth: 0.8,
+    tintStrength: 0.47, flowBearing: -1.3, flowHold: 0.88, normalDetail: 0.78,
+    crossedNormal: 0.18, shallowShelf: 0.82,
+  },
+  // Danger's steep diagonal waves and blown foam UP; generic crest foam DOWN.
+  danger: {
+    swell: 2.02, chop: 2.42, foam: 1.12, reflectivity: 0.38, depth: 0.58,
+    tintStrength: 0.47, flowBearing: -0.78, flowHold: 0.94, normalDetail: 1.18,
+    crossedNormal: 0.28, shallowShelf: 0,
+  },
+  // Ledger's flat horizontal striations UP; shared swell and crossed chop DOWN.
+  ledger: {
+    swell: 0.22, chop: 0.52, foam: 0.035, reflectivity: 1.12, depth: 1.16,
+    tintStrength: 0.42, flowBearing: -0.085, flowHold: 0.98, normalDetail: 0.25,
+    crossedNormal: 0.02, shallowShelf: 0,
+  },
+  open: {
+    swell: 1, chop: 1, foam: 0.12, reflectivity: 1, depth: 0.97,
+    tintStrength: 0, flowBearing: 0, flowHold: 0, normalDetail: 1,
+    crossedNormal: 1, shallowShelf: 0,
+  },
   // N2 — the wreck shoals. Slack, shallow, still: water that has stopped
   // moving. The lowest swell and chop in the world and almost no foam, so the
   // graveyard reads as a held breath next to the working sea.
-  wreck: { swell: 0.3, chop: 0.4, foam: 0.03, reflectivity: 0.9, depth: 1.26 },
+  // Wreck silt and held surface UP; generic ripple motion and white foam DOWN.
+  wreck: {
+    swell: 0.12, chop: 0.24, foam: 0.008, reflectivity: 0.74, depth: 0.7,
+    tintStrength: 0.46, flowBearing: 0.3, flowHold: 0.18, normalDetail: 0.055,
+    crossedNormal: 0, shallowShelf: 0,
+  },
 };
 
 /**

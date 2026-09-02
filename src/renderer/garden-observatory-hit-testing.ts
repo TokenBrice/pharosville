@@ -19,17 +19,17 @@ import type { ShipMotionSample } from "../systems/motion";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import type { PharosVilleWorld } from "../systems/world-types";
 // The sea signs are the one piece of scenery whose hit target cannot be derived
-// from the world model alone: where a board stands is decided by the sign
-// module's siting pass, and how big it draws is decided by its zoom response.
+// from the world model alone: where a stele stands is decided by the sign
+// module's siting pass, and its true-scale footprint is owned there too.
 // Both are imported rather than mirrored. This is a desktop-only module (the
 // world runtime is lazy-loaded behind the size gate), so it costs no bytes on
 // the blocked path.
 import {
-  SEA_SIGN_BOARD,
+  SEA_SIGN_STELE,
   TILE_SCALE,
-  seaSignBoards,
+  seaSignSteles,
   seaSignScaleForZoom,
-  type SeaSignBoard,
+  type SeaSignStele,
 } from "../three/garden-sea-sign-siting";
 
 import {
@@ -128,29 +128,30 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     }, input.viewport, selectedDetailId, hoveredDetailId);
   }
 
-  // N6: the carved name boards are the sea's primary naming surface, so each
+  // W2a: the carved stone faces are the sea's primary in-world naming surface, so each
   // one carries its water body's target instead of the invisible zone anchor
-  // doing it alone. Same detail id — the board opens exactly what the zone
+  // doing it alone. Same detail id — the stele opens exactly what the zone
   // opens — and one priority point above the zone, which is all it takes:
   // the Tab cycle keeps one stop per detail id and prefers the higher
   // priority, so the body holds its existing place in the cycle and the stop
   // simply lands on something the visitor can see.
   //
-  // Boards stand down when a detail panel owns the frame, so their targets do
-  // too; the zone target is still there to carry the body in that state.
+  // The duplicate stele targets stand down when a detail panel owns the frame;
+  // the steles themselves remain visible and the zone target still carries the
+  // body in that state.
   if (gardenSemanticView(input.camera.zoom, selectedDetailId) !== "analyze") {
     const signScale = seaSignScaleForZoom(input.camera.zoom);
-    for (const board of seaSignBoards(input.world.areas)) {
-      if (!board.detailId) continue;
-      const rect = seaSignBoardRect(board, signScale, input.camera);
+    for (const stele of seaSignSteles(input.world.areas)) {
+      if (!stele.detailId) continue;
+      const rect = seaSignSteleRect(stele, signScale, input.camera);
       const anchor = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       addVisibleTarget(targets, {
         anchor,
-        detailId: board.detailId,
-        id: `sea-sign.${board.body}`,
+        detailId: stele.detailId,
+        id: `sea-sign.${stele.body}`,
         kind: "sea-sign",
-        label: board.label,
-        priority: (areaPriorityByDetailId.get(board.detailId) ?? 1_500 + anchor.y) + 1,
+        label: stele.label,
+        priority: (areaPriorityByDetailId.get(stele.detailId) ?? 1_500 + anchor.y) + 1,
         rect,
       }, input.viewport, selectedDetailId, hoveredDetailId);
     }
@@ -238,30 +239,25 @@ function addVisibleTarget(
 }
 
 /**
- * The board's SCALED screen footprint.
+ * The stele's true-scale screen footprint.
  *
- * This is the trap in N6. The boards do not draw at true scale: decision D6
- * raises their world scale as the camera pulls back so they hold a roughly
- * constant on-screen size, which is what makes the sea's place-names legible at
- * whole-map framing. A target built from the true-scale geometry would be a
- * quarter of the drawn board at overview zoom and larger than it up close, so
- * every offset here is multiplied by the same `seaSignScaleForZoom` the
- * renderer hands the group — the two read one function and cannot drift.
+ * The scale helper remains shared with the renderer, but W2a simplified it to
+ * one rung: the stone never behaves like a billboard against camera zoom.
  *
  * The face is a flat quad yawed to face the camera, so its four corners bound
  * it exactly under the affine iso projection.
  */
-function seaSignBoardRect(board: SeaSignBoard, scale: number, camera: IsoCamera) {
-  const halfWidth = (SEA_SIGN_BOARD.width / 2) * scale;
-  // Local +x of the yawed board, in tiles: three.js maps it to world
+function seaSignSteleRect(stele: SeaSignStele, scale: number, camera: IsoCamera) {
+  const halfWidth = (SEA_SIGN_STELE.width / 2) * scale;
+  // Local +x of the yawed stele, in tiles: three.js maps it to world
   // (cos yaw, 0, -sin yaw).
-  const offsetX = (Math.cos(SEA_SIGN_BOARD.yaw) * halfWidth) / TILE_SCALE;
-  const offsetY = (-Math.sin(SEA_SIGN_BOARD.yaw) * halfWidth) / TILE_SCALE;
-  const centre = { x: board.x / TILE_SCALE, y: board.z / TILE_SCALE };
+  const offsetX = (Math.cos(SEA_SIGN_STELE.yaw) * halfWidth) / TILE_SCALE;
+  const offsetY = (-Math.sin(SEA_SIGN_STELE.yaw) * halfWidth) / TILE_SCALE;
+  const centre = { x: stele.x / TILE_SCALE, y: stele.z / TILE_SCALE };
   const left = { x: centre.x - offsetX, y: centre.y - offsetY };
   const right = { x: centre.x + offsetX, y: centre.y + offsetY };
-  const topWorldY = GARDEN_WATER_Y + (SEA_SIGN_BOARD.baseY + SEA_SIGN_BOARD.height / 2) * scale;
-  const bottomWorldY = GARDEN_WATER_Y + (SEA_SIGN_BOARD.baseY - SEA_SIGN_BOARD.height / 2) * scale;
+  const topWorldY = GARDEN_WATER_Y + (SEA_SIGN_STELE.baseY + SEA_SIGN_STELE.height / 2) * scale;
+  const bottomWorldY = GARDEN_WATER_Y + (SEA_SIGN_STELE.baseY - SEA_SIGN_STELE.height / 2) * scale;
 
   let minX = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
@@ -277,8 +273,7 @@ function seaSignBoardRect(board: SeaSignBoard, scale: number, camera: IsoCamera)
     }
   }
 
-  // The board is wide and shallow — around 98x22 CSS px at any framing that
-  // holds the constant-size band — so only its height ever needs lifting to
+  // The stele is wide and shallow, so only its height ever needs lifting to
   // the WCAG 2.5.8 minimum. Grown about the centre, so the target stays
   // concentric with what is drawn.
   const width = Math.max(24, maxX - minX);
