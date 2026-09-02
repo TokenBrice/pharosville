@@ -5,7 +5,7 @@ import {
   Quaternion,
   Vector3,
 } from "three";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   assignGardenWakeSlots,
   createGardenWakeBatch,
@@ -107,5 +107,26 @@ describe("createGardenWakeBatch", () => {
 
     expect(batch.trails.instanceMatrix.version).toBe(trailVersion + 1);
     expect(batch.bows.instanceMatrix.version).toBe(bowVersion + 1);
+  });
+
+  it("disposes its instance buffers and meshes without disposing borrowed geometry or material", () => {
+    const material = new MeshBasicMaterial();
+    const geometry = new PlaneGeometry();
+    const batch = createGardenWakeBatch(4, material, geometry);
+    const trailBufferDisposal = vi.spyOn(batch.trails.instanceMatrix, "dispose");
+    const bowBufferDisposal = vi.spyOn(batch.bows.instanceMatrix, "dispose");
+    const trailDisposal = vi.spyOn(batch.trails, "dispose");
+    const bowDisposal = vi.spyOn(batch.bows, "dispose");
+    const geometryDisposal = vi.spyOn(geometry, "dispose");
+    const materialDisposal = vi.spyOn(material, "dispose");
+
+    batch.dispose();
+
+    expect(trailBufferDisposal).toHaveBeenCalledTimes(1);
+    expect(bowBufferDisposal).toHaveBeenCalledTimes(1);
+    expect(trailDisposal).toHaveBeenCalledTimes(1);
+    expect(bowDisposal).toHaveBeenCalledTimes(1);
+    expect(geometryDisposal).not.toHaveBeenCalled();
+    expect(materialDisposal).not.toHaveBeenCalled();
   });
 });

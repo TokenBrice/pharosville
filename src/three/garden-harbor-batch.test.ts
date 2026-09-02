@@ -1,11 +1,25 @@
-import { Color, InstancedMesh, Matrix4, Mesh } from "three";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { Color, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh } from "three";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authorDock } from "./garden-docks";
 import { createGardenHarborBatch } from "./garden-harbor-batch";
+import { gardenChainFlagAtlas, resetGardenChainFlagAtlas } from "./garden-chain-flag";
 import { countDrawableObjects } from "./garden-util";
 import { dockFixture, DISPLAY_TILES, ISLAND_TILE } from "./__fixtures__/harbor";
 
 const CHAINS = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
+
+beforeEach(() => {
+  resetGardenChainFlagAtlas();
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: vi.fn(() => fakeCanvasContext()),
+  });
+});
+
+afterEach(() => {
+  resetGardenChainFlagAtlas();
+});
 
 function batchOfNine() {
   return createGardenHarborBatch(CHAINS.map((id, index) => (
@@ -88,4 +102,52 @@ describe("createGardenHarborBatch", () => {
     expect(shader.fragmentShader).toContain("vFlagCell >= 0.0");
     batch.dispose();
   });
+
+  it("disposes its merged geometry, instance buffers, and materials but keeps the shared flag atlas", () => {
+    const batch = batchOfNine();
+    const meshes = [
+      ...Object.values(batch.bucketMeshes),
+      ...Object.values(batch.fineDetailBucketMeshes),
+      ...Object.values(batch.propMeshes),
+      ...Object.values(batch.fineDetailPropMeshes),
+      batch.flags,
+    ].filter((mesh): mesh is Mesh | InstancedMesh => mesh !== null);
+    const geometries = new Set(meshes.map((mesh) => mesh.geometry));
+    const materials = new Set(meshes.flatMap((mesh) => (
+      Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    )));
+    const instanceAttributes = new Set<InstancedBufferAttribute>();
+    for (const mesh of meshes) {
+      if (!(mesh instanceof InstancedMesh)) continue;
+      instanceAttributes.add(mesh.instanceMatrix);
+      if (mesh.instanceColor) instanceAttributes.add(mesh.instanceColor);
+      for (const attribute of Object.values(mesh.geometry.attributes)) {
+        if (attribute instanceof InstancedBufferAttribute) instanceAttributes.add(attribute);
+      }
+    }
+    const geometryDisposals = [...geometries].map((geometry) => vi.spyOn(geometry, "dispose"));
+    const materialDisposals = [...materials].map((material) => vi.spyOn(material, "dispose"));
+    const attributeDisposals = [...instanceAttributes].map((attribute) => vi.spyOn(attribute, "dispose"));
+    const atlasTexture = gardenChainFlagAtlas().texture!;
+    const atlasDisposal = vi.spyOn(atlasTexture, "dispose");
+    expect((batch.flags.material as { map: unknown }).map).toBe(atlasTexture);
+
+    batch.dispose();
+
+    for (const dispose of geometryDisposals) expect(dispose).toHaveBeenCalledTimes(1);
+    for (const dispose of materialDisposals) expect(dispose).toHaveBeenCalledTimes(1);
+    for (const dispose of attributeDisposals) expect(dispose).toHaveBeenCalledTimes(1);
+    expect(atlasDisposal).not.toHaveBeenCalled();
+  });
 });
+
+function fakeCanvasContext(): CanvasRenderingContext2D {
+  return {
+    clearRect: vi.fn(),
+    fillRect: vi.fn(),
+    fillText: vi.fn(),
+    restore: vi.fn(),
+    save: vi.fn(),
+    translate: vi.fn(),
+  } as unknown as CanvasRenderingContext2D;
+}

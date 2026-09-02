@@ -1356,6 +1356,27 @@ describe("W4.1 per-part refresh reconciliation", () => {
     renderer.dispose();
   });
 
+  it("collapses a live ship's batched wake trails under reduced motion", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+
+    renderer.render(rendererFrame(world, "full", { reducedMotion: true }));
+
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    const trails = scene.getObjectByName("fleet-wake-trails") as InstancedMesh;
+    const matrix = new Matrix4();
+    const scaleEnergies = Array.from({ length: WAKE_TRAIL_QUADS }, (_, index) => {
+      trails.getMatrixAt(index, matrix);
+      return matrixScaleEnergy(matrix);
+    });
+    expect(scaleEnergies).toEqual(Array.from({ length: WAKE_TRAIL_QUADS }, () => 0));
+
+    renderer.dispose();
+  });
+
   it("writes visible wake quads for the selected outsider beyond a full fleet", () => {
     const world = overCapacityWorldFixture();
     const slice = selectGardenObservatorySlice(world, null);
@@ -1384,11 +1405,7 @@ describe("W4.1 per-part refresh reconciliation", () => {
     const trails = scene.getObjectByName("fleet-wake-trails") as InstancedMesh;
     const matrix = new Matrix4();
     trails.getMatrixAt(slice.ships.length * WAKE_TRAIL_QUADS, matrix);
-    const elements = matrix.elements;
-    const scaleEnergy = elements[0] ** 2 + elements[1] ** 2 + elements[2] ** 2
-      + elements[4] ** 2 + elements[5] ** 2 + elements[6] ** 2
-      + elements[8] ** 2 + elements[9] ** 2 + elements[10] ** 2;
-    expect(scaleEnergy).toBeGreaterThan(0);
+    expect(matrixScaleEnergy(matrix)).toBeGreaterThan(0);
 
     renderer.dispose();
   });
@@ -1485,6 +1502,13 @@ function rendererFrame(
     width: 1440,
     world,
   };
+}
+
+function matrixScaleEnergy(matrix: Matrix4): number {
+  const elements = matrix.elements;
+  return elements[0] ** 2 + elements[1] ** 2 + elements[2] ** 2
+    + elements[4] ** 2 + elements[5] ** 2 + elements[6] ** 2
+    + elements[8] ** 2 + elements[9] ** 2 + elements[10] ** 2;
 }
 
 function denseRendererWorld(): PharosVilleWorld {

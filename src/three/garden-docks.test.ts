@@ -87,8 +87,8 @@ describe("garden docks", () => {
     const large = authorDock(dock("arbitrum", 10), DISPLAY_TILE, ISLAND_TILE);
     expect(propCount(large, "bollard")).toBeGreaterThan(propCount(small, "bollard"));
     expect(propCount(large, "crate")).toBeGreaterThan(propCount(small, "crate"));
-    expect(nonFineMetalParts(small)).toBe(0);
-    expect(nonFineMetalParts(large)).toBeGreaterThan(0);
+    expect(nonFineCraneMetalParts(small)).toBe(0);
+    expect(nonFineCraneMetalParts(large)).toBeGreaterThan(0);
   });
 
   it("gives each chain a deterministic harbour plan for silhouette variety", () => {
@@ -176,7 +176,7 @@ describe("garden docks", () => {
     }
     expect(capital.identity.enclosure).toBe("grand");
     expect(capital.identity.landmark).toBe("campanile");
-    expect(nonFineMetalParts(capital)).toBeGreaterThan(0);
+    expect(nonFineCraneMetalParts(capital)).toBeGreaterThan(0);
     expect(capital.parts.filter((part) => part.bucket === "stone").length).toBeGreaterThan(1);
   });
 
@@ -251,6 +251,6 @@ function propCount(recipe: DockRecipe, kind: HarborPropKind): number {
   return recipe.props.filter((prop) => prop.kind === kind).length;
 }
 
-function nonFineMetalParts(recipe: DockRecipe): number {
-  return recipe.parts.filter((part) => part.bucket === "metal" && !part.fineDetail).length;
+function nonFineCraneMetalParts(recipe: DockRecipe): number {
+  return recipe.parts.filter((part) => part.bucket === "craneMetal" && !part.fineDetail).length;
 }

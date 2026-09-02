@@ -47,7 +47,8 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   "dock-cargo-tide",
   "dock-chain-flag",
   "dock-tide-line",
-  "dock-crane",
+  "dock-crane-metal",
+  "dock-crane-timber",
   "dock-lamp-heads",
   "dock-posts",
   "dock-warehouse-windows",
@@ -86,6 +87,8 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
 export const OVERVIEW_LOD_WHOLE_RING_NAMES: readonly string[] = [
   "dock-cargo-tide",
   "dock-chain-flag",
+  "dock-crane-metal",
+  "dock-crane-timber",
   "dock-lamp-heads",
   "dock-posts",
   "dock-tide-line",

@@ -165,7 +165,7 @@ export interface ShipVisual {
   tier: ShipFleetTier;
   wake: Group;
   wakeDetail: Group;
-  /** World-wide wake-batch slot; -1 when this transient/overflow ship is skipped. */
+  /** World-wide wake-batch slot; -1 only until the ship is assigned one. */
   wakeSlot: number;
 }
 

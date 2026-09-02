@@ -28,7 +28,17 @@ import type {
 } from "./garden-docks";
 import { applyGardenHeightFog } from "./garden-height-fog";
 
-const BUCKETS: readonly HarborBucket[] = ["timber", "stone", "metal", "accent", "wall", "window", "roof"];
+const BUCKETS: readonly HarborBucket[] = [
+  "timber",
+  "stone",
+  "metal",
+  "accent",
+  "wall",
+  "window",
+  "roof",
+  "craneTimber",
+  "craneMetal",
+];
 const PROP_KINDS: readonly HarborPropKind[] = ["post", "lampHead", "plank", "bollard", "crate", "barrel", "pylon", "piling"];
 
 type BucketMeshes = Record<HarborBucket, Mesh | null>;
@@ -68,18 +78,12 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
   const fineDetailBucketMeshes = createBucketMeshes(root, recipes, true, accentRanges);
   const propMeshes = createPropMeshes(root, recipes, false);
   const fineDetailPropMeshes = createPropMeshes(root, recipes, true);
+  const fineDetailMeshes = [
+    ...Object.values(fineDetailBucketMeshes),
+    ...Object.values(fineDetailPropMeshes),
+  ].filter((mesh): mesh is Mesh | InstancedMesh => mesh !== null);
   const { flags, flagIndex } = createFlags(recipes);
   root.add(flags);
-  if (recipes.some((recipe) => (
-    (recipe.identity.landmark === "gantry" || recipe.identity.enclosure === "grand")
-    && recipe.dock.size >= 4
-  ))) {
-    // Compatibility anchor for the overview-LOD registry. Crane geometry is
-    // folded into the world timber/metal buckets, so this node never draws.
-    const craneLodAnchor = new Group();
-    craneLodAnchor.name = "dock-crane";
-    root.add(craneLodAnchor);
-  }
   applyGardenHeightFog(root, { epistemicHaze: "quay" });
 
   return {
@@ -90,7 +94,14 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
         object.geometry.dispose();
         const materials = Array.isArray(object.material) ? object.material : [object.material];
         for (const material of materials) material.dispose();
-        if (object instanceof InstancedMesh) object.dispose();
+        if (object instanceof InstancedMesh) {
+          object.instanceMatrix.dispose();
+          object.instanceColor?.dispose();
+          for (const attribute of Object.values(object.geometry.attributes)) {
+            if (attribute instanceof InstancedBufferAttribute) attribute.dispose();
+          }
+          object.dispose();
+        }
       });
       for (const recipe of recipes) {
         for (const part of recipe.parts) part.geometry.dispose();
@@ -117,8 +128,7 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
       dock?.recipe.accentColor.copy(color);
     },
     setFineDetailVisible(visible) {
-      for (const mesh of Object.values(fineDetailBucketMeshes)) if (mesh) mesh.visible = visible;
-      for (const mesh of Object.values(fineDetailPropMeshes)) if (mesh) mesh.visible = visible;
+      for (const mesh of fineDetailMeshes) mesh.visible = visible;
     },
     setFlagPose(chainId, yaw, roll) {
       const index = flagIndex.get(chainId);
@@ -130,7 +140,17 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
 }
 
 function emptyBuckets(): BucketMeshes {
-  return { accent: null, metal: null, roof: null, stone: null, timber: null, wall: null, window: null };
+  return {
+    accent: null,
+    craneMetal: null,
+    craneTimber: null,
+    metal: null,
+    roof: null,
+    stone: null,
+    timber: null,
+    wall: null,
+    window: null,
+  };
 }
 
 function emptyProps(): PropMeshes {
@@ -184,7 +204,11 @@ function createBucketMeshes(
     const mesh = new Mesh(merged, bucketMaterial(bucket));
     mesh.name = !fineDetail && bucket === "window"
       ? "dock-warehouse-windows"
-      : `${fineDetail ? "harbor-fine" : "harbor"}-${bucket}`;
+      : !fineDetail && bucket === "craneTimber"
+        ? "dock-crane-timber"
+        : !fineDetail && bucket === "craneMetal"
+          ? "dock-crane-metal"
+          : `${fineDetail ? "harbor-fine" : "harbor"}-${bucket}`;
     mesh.castShadow = !fineDetail && castsShadow;
     mesh.receiveShadow = true;
     mesh.frustumCulled = false;
@@ -214,6 +238,8 @@ function bucketMaterial(bucket: HarborBucket): MeshStandardMaterial {
     case "timber": return new MeshStandardMaterial({ color: "#ffffff", roughness: 0.88, vertexColors: true });
     case "stone": return new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.97, vertexColors: true });
     case "metal": return new MeshStandardMaterial({ color: "#ffffff", metalness: 0.42, roughness: 0.62, vertexColors: true });
+    case "craneTimber": return new MeshStandardMaterial({ color: "#ffffff", roughness: 0.88, vertexColors: true });
+    case "craneMetal": return new MeshStandardMaterial({ color: "#ffffff", metalness: 0.42, roughness: 0.62, vertexColors: true });
     case "accent":
     case "roof": return new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.86, side: DoubleSide, vertexColors: true });
     case "wall": return new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.96, transparent: true, vertexColors: true });

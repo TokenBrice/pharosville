@@ -171,7 +171,16 @@ export interface DockVisual {
   root: Group;
 }
 
-export type HarborBucket = "timber" | "stone" | "metal" | "accent" | "wall" | "window" | "roof";
+export type HarborBucket =
+  | "timber"
+  | "stone"
+  | "metal"
+  | "accent"
+  | "wall"
+  | "window"
+  | "roof"
+  | "craneTimber"
+  | "craneMetal";
 export type HarborPropKind = "post" | "lampHead" | "plank" | "bollard" | "crate" | "barrel" | "pylon" | "piling";
 
 export interface HarborBucketPart {
@@ -893,14 +902,14 @@ function pushHarborCrane(
   jib.rotateZ(-0.3);
   jib.translate(headX + 0.95, height + 0.5, 0);
   frame.push(jib);
-  parts.push(harborPart("timber", mergeGeometries(frame, false)!, HARBOR_PALETTE.timber_mid, false, true));
+  parts.push(harborPart("craneTimber", mergeGeometries(frame, false)!, HARBOR_PALETTE.timber_mid, false, true));
 
   const fittings: BufferGeometry[] = [];
   // Counterweight aft of the mast, hook block on its fall forward of it.
   pushGeometry(fittings, new BoxGeometry(0.34, 0.3, 0.34), headX - 0.62, height + 0.02, 0);
   pushGeometry(fittings, new BoxGeometry(0.03, 1.05, 0.03), headX + 1.85, height + 0.1, 0);
   pushGeometry(fittings, new BoxGeometry(0.22, 0.2, 0.22), headX + 1.85, height - 0.46, 0);
-  parts.push(harborPart("metal", mergeGeometries(fittings, false)!, "#6d5d49", false, true));
+  parts.push(harborPart("craneMetal", mergeGeometries(fittings, false)!, "#6d5d49", false, true));
 }
 
 /**

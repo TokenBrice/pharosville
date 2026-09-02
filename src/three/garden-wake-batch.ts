@@ -195,6 +195,8 @@ export function createGardenWakeBatch(
       }
     },
     dispose() {
+      trails.instanceMatrix.dispose();
+      bows.instanceMatrix.dispose();
       trails.dispose();
       bows.dispose();
     },

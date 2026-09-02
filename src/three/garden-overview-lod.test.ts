@@ -12,11 +12,11 @@ import {
   overviewLodTargetDetail,
 } from "./garden-overview-lod";
 
-/** A prop whose geometry sits well away from its own origin, like a dock crane. */
+/** A local prop whose geometry sits well away from its own origin. */
 function propTree(): { prop: Group; root: Group } {
   const root = new Group();
   const prop = new Group();
-  prop.name = "dock-crane";
+  prop.name = "island-quay-stair";
   prop.position.set(4, 0, -2);
   const arm = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial());
   arm.position.set(0, 3, 0);
@@ -193,6 +193,32 @@ describe("createGardenOverviewLod", () => {
     expect(instanceWorldPosition(posts, 0).distanceTo(before.post)).toBeCloseTo(0, 6);
     expect(vertexWorldPosition(windows, 0).distanceTo(before.window)).toBeCloseTo(0, 6);
     expect(instanceWorldPosition(batch.flags, 0).distanceTo(before.flag)).toBeCloseTo(0, 6);
+    batch.dispose();
+  });
+
+  it("hides the actual batched crane drawables below the overview threshold and restores them at default zoom", () => {
+    const chains = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
+    const batch = createGardenHarborBatch(chains.map((chainId, index) => (
+      authorDock(dockFixture(chainId, 3 + (index % 7)), DISPLAY_TILES[index]!, ISLAND_TILE)
+    )));
+    const root = new Group();
+    root.add(batch.root);
+    const cranes = [
+      batch.bucketMeshes.craneTimber,
+      batch.bucketMeshes.craneMetal,
+    ];
+    expect(cranes.every((crane) => (
+      crane instanceof Mesh
+      && crane.geometry.getAttribute("position").count > 0
+      && OVERVIEW_LOD_WHOLE_RING_NAMES.includes(crane.name)
+    ))).toBe(true);
+    const lod = createGardenOverviewLod(root);
+
+    lod.update({ deltaSeconds: 0.016, reducedMotion: true, zoom: OVERVIEW_LOD_HIDDEN_ZOOM - 0.01 });
+    expect(cranes.every((crane) => crane?.visible === false)).toBe(true);
+
+    lod.update({ deltaSeconds: 0.016, reducedMotion: true, zoom: 0.7776 });
+    expect(cranes.every((crane) => crane?.visible === true)).toBe(true);
     batch.dispose();
   });
 

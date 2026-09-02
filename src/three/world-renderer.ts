@@ -758,6 +758,11 @@ export function createThreeWorldRenderer(
   // @types/three still narrows the r185 runtime's null scene/group arguments;
   // the recorder's structural target matches the implementation's actual calls.
   const drawRecorder = createDrawOwnerRecorder(renderer as unknown as DrawRecorderTarget, scene.root);
+  let drawCensusRequested = false;
+  const handleAssetReady = () => {
+    drawCensusRequested = true;
+    onAssetReady?.();
+  };
   const debugDrawCensus = isDebugChromeEnabled();
   const post = createGardenPost(renderer, scene.root, camera);
 
@@ -779,7 +784,6 @@ export function createThreeWorldRenderer(
     minimumUnattributedRendererTextures: 0,
   };
   let lastDrawOwnerCensus: DrawOwnerCensus | null = null;
-  let drawCensusRequested = false;
   let frameCounter = 0;
   let aoTierWeight: number | null = null;
   let aoWeightClockSeconds = 0;
@@ -1223,10 +1227,7 @@ export function createThreeWorldRenderer(
       }
 
       if (scene.content) syncShipSailTextures(scene.content, frame);
-      updateSceneForFrame(scene, camera, frame, phase, uploadScheduler, () => {
-        drawCensusRequested = true;
-        onAssetReady?.();
-      });
+      updateSceneForFrame(scene, camera, frame, phase, uploadScheduler, handleAssetReady);
 
       const tier = frame.renderScheduler.tier;
       if (SESSION_TIER_QUALITY[tier] > SESSION_TIER_QUALITY[sessionTierReached]) {
