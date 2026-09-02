@@ -7,6 +7,7 @@ import {
 } from "three";
 import { describe, expect, it } from "vitest";
 import {
+  assignGardenWakeSlots,
   createGardenWakeBatch,
   WAKE_BOW_QUADS,
   WAKE_TRAIL_QUADS,
@@ -21,6 +22,21 @@ const pose = {
 };
 
 describe("createGardenWakeBatch", () => {
+  it("assigns distinct slots to 320 live ships, two departures, and the outsider", () => {
+    const live = Array.from({ length: 320 }, () => ({ wakeSlot: -1 }));
+    const departing = Array.from({ length: 2 }, () => ({ wakeSlot: -1 }));
+    const outsider = { wakeSlot: -1 };
+
+    const allocation = assignGardenWakeSlots(live, departing);
+    outsider.wakeSlot = allocation.outsiderSlot;
+    const slots = [...live, ...departing, outsider].map((ship) => ship.wakeSlot);
+
+    expect(allocation.capacity).toBe(323);
+    expect(slots).toHaveLength(323);
+    expect(new Set(slots).size).toBe(323);
+    expect(slots).toEqual(Array.from({ length: 323 }, (_, index) => index));
+  });
+
   it("allocates exactly two fixed-capacity wake drawables", () => {
     const batch = createGardenWakeBatch(320, new MeshBasicMaterial(), new PlaneGeometry());
 

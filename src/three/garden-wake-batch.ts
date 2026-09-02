@@ -34,6 +34,32 @@ export interface GardenWakeBatch {
   dispose(): void;
 }
 
+interface GardenWakeSlotCarrier {
+  wakeSlot: number;
+}
+
+export interface GardenWakeSlotAllocation {
+  capacity: number;
+  outsiderSlot: number;
+}
+
+/** Assigns one world-global slot per epoch-owned ship and reserves the last. */
+export function assignGardenWakeSlots(
+  liveShips: readonly GardenWakeSlotCarrier[],
+  departingShips: readonly GardenWakeSlotCarrier[],
+): GardenWakeSlotAllocation {
+  let slot = 0;
+  for (const ship of liveShips) {
+    ship.wakeSlot = slot;
+    slot += 1;
+  }
+  for (const ship of departingShips) {
+    ship.wakeSlot = slot;
+    slot += 1;
+  }
+  return { capacity: slot + 1, outsiderSlot: slot };
+}
+
 const UP = new Vector3(0, 1, 0);
 const IDENTITY_QUATERNION = new Quaternion();
 const scratchShipMatrix = new Matrix4();

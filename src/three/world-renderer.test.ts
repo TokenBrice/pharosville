@@ -5,6 +5,7 @@ import {
   Color,
   Group,
   InstancedMesh,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -54,6 +55,7 @@ import {
   FLIGHT_TENDER_TITAN_COUNT,
 } from "./garden-flight-tenders";
 import { OVERVIEW_LOD_DETAIL_NAMES } from "./garden-overview-lod";
+import { WAKE_TRAIL_QUADS } from "./garden-wake-batch";
 import {
   createThreeWorldRenderer,
   disposeThreeObjectTree,
@@ -1328,6 +1330,43 @@ describe("W4.1 per-part refresh reconciliation", () => {
     }));
     expect(reselected.visibleShipCount).toBe(base.visibleShipCount + 1);
     for (const dispose of disposals) expect(dispose).not.toHaveBeenCalled();
+
+    renderer.dispose();
+  });
+
+  it("writes visible wake quads for the selected outsider beyond a full fleet", () => {
+    const world = overCapacityWorldFixture();
+    const slice = selectGardenObservatorySlice(world, null);
+    const outsider = world.ships.find((ship) => (
+      !slice.representativeDetailIds.has(ship.detailId)
+    ))!;
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(world, "full"));
+
+    const selectedFrame = rendererFrame(world, "full", {
+      selectedDetailId: outsider.detailId,
+    });
+    selectedFrame.shipMotionSamples.set(outsider.id, {
+      heading: { x: 1, y: 0 },
+      mapVisibilityAlpha: 1,
+      state: "sailing",
+      tile: outsider.tile,
+      wakeIntensity: 1,
+    } as ShipMotionSample);
+    renderer.render(selectedFrame);
+
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    const trails = scene.getObjectByName("fleet-wake-trails") as InstancedMesh;
+    const matrix = new Matrix4();
+    trails.getMatrixAt(slice.ships.length * WAKE_TRAIL_QUADS, matrix);
+    const elements = matrix.elements;
+    const scaleEnergy = elements[0] ** 2 + elements[1] ** 2 + elements[2] ** 2
+      + elements[4] ** 2 + elements[5] ** 2 + elements[6] ** 2
+      + elements[8] ** 2 + elements[9] ** 2 + elements[10] ** 2;
+    expect(scaleEnergy).toBeGreaterThan(0);
 
     renderer.dispose();
   });

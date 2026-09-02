@@ -129,7 +129,11 @@ import {
   type GardenSeasonalDressing,
 } from "./garden-seasonal-dressing";
 import { createGardenWakes, type GardenWakes } from "./garden-wakes";
-import { createGardenWakeBatch, type GardenWakeBatch } from "./garden-wake-batch";
+import {
+  assignGardenWakeSlots,
+  createGardenWakeBatch,
+  type GardenWakeBatch,
+} from "./garden-wake-batch";
 import { createGardenEnvironment, type GardenEnvironment } from "./garden-environment";
 import { createGardenCueMarker } from "./garden-cue-marker";
 import { createGardenPost } from "./garden-post";
@@ -1525,6 +1529,8 @@ interface GardenContent {
   fleetBatches: FleetBatches;
   /** Two draw calls carrying every moving hull's local wake quads. */
   wakeBatch: GardenWakeBatch;
+  /** Reserved final slot for the selected ship beyond the base fleet cap. */
+  wakeOutsiderSlot: number;
   fleetLanterns: FleetLanterns;
   fleetSailMaterial: MeshStandardMaterial | null;
   sailAtlas: GardenSailAtlas;
@@ -2637,6 +2643,7 @@ function reconcileTransientSelection(
     content.shipsGeometryCache,
     cell,
   );
+  visual.wakeSlot = content.wakeOutsiderSlot;
   if (cell !== 0) {
     content.sailAtlas.cellByShipId.set(ship.detailId, cell);
     // Invalidate the paint generation: the existing per-frame check schedules
@@ -3221,11 +3228,6 @@ function buildShipsPart(
     geometry.rotateX(-Math.PI / 2);
     return geometry;
   });
-  const wakeBatch = createGardenWakeBatch(
-    GARDEN_FLEET_BATCH_CAPACITY,
-    shipGeometryCache.wakeFillMaterial,
-    wakeQuadGeometry,
-  );
 
   // W1 (decision D2): the fleet splits in two. Hero ships (titans and uniques,
   // ~18 of ~205) keep their own scene graph because a bespoke GLB hull, the
@@ -3250,11 +3252,6 @@ function buildShipsPart(
           gardenSailAtlasCell(sailAtlas, ship),
         )
   ));
-  // Wake slots are world-global and stable in content order. Fleet silhouette
-  // slots are local to each family and therefore must never be reused here.
-  for (let index = 0; index < ships.length; index += 1) {
-    ships[index]!.wakeSlot = index;
-  }
 
   // Departures are renderer ghosts, never world records. Recreate them from
   // the NEW part's shared cache so disposal remains epoch-local. The normal
@@ -3291,10 +3288,15 @@ function buildShipsPart(
       );
       return visual;
     });
-  for (let index = 0; index < departingShips.length; index += 1) {
-    const slot = ships.length + index;
-    departingShips[index]!.wakeSlot = slot < GARDEN_FLEET_BATCH_CAPACITY ? slot : -1;
-  }
+  // Wake slots are world-global and stable in content order. Fleet silhouette
+  // slots are local to each family and therefore must never be reused here.
+  // The final slot is reserved for the transient selected outsider.
+  const wakeSlots = assignGardenWakeSlots(ships, departingShips);
+  const wakeBatch = createGardenWakeBatch(
+    wakeSlots.capacity,
+    shipGeometryCache.wakeFillMaterial,
+    wakeQuadGeometry,
+  );
 
   // +1: a spare instance slot for the transient outsider, so selecting one
   // never reallocates the contact-shadow buffer. The live count is clamped to
@@ -3359,6 +3361,7 @@ function buildShipsPart(
   content.crossBearingBuoys = crossBearingBuoys;
   content.fleetLanterns = fleetLanterns;
   content.wakeBatch = wakeBatch;
+  content.wakeOutsiderSlot = wakeSlots.outsiderSlot;
   content.heroReflectionShips = heroReflectionShips;
   content.heroReflections = heroReflections;
   content.shipGulls = shipGulls;
