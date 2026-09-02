@@ -228,15 +228,32 @@ export interface DockRecipe {
 
 export type HarborSignature = SignatureKind;
 
+/** Two approach lanterns rooted at each station mouth, just seaward of the quay. */
+export function gardenHarborLanternWorldPositions(
+  recipes: readonly DockRecipe[],
+): { x: number; z: number }[] {
+  return recipes.flatMap((recipe) => {
+    const bearing = recipe.dock.station.shoreBearing;
+    const seawardX = Math.cos(bearing);
+    const seawardZ = Math.sin(bearing);
+    const tangentX = -seawardZ;
+    const tangentZ = seawardX;
+    return [-1, 1].map((side) => ({
+      x: recipe.anchorPosition.x + seawardX * 1.25 + tangentX * side * 1.8,
+      z: recipe.anchorPosition.z + seawardZ * 1.25 + tangentZ * side * 1.8,
+    }));
+  });
+}
+
 export function createHarborLanterns(
-  islandTile: { x: number; y: number },
+  recipes: readonly DockRecipe[],
 ): {
   lightMaterial: MeshStandardMaterial;
   root: Group;
 } {
   const root = new Group();
-  setTilePosition(root, islandTile, 0);
-  const count = 12;
+  const positions = gardenHarborLanternWorldPositions(recipes);
+  const count = positions.length;
   const bodyMaterial = new MeshStandardMaterial({
     color: "#766348",
     metalness: 0.38,
@@ -259,12 +276,7 @@ export function createHarborLanterns(
     count,
   );
   for (let index = 0; index < count; index += 1) {
-    const angle = (index / count) * Math.PI * 2
-      + stableUnit(`harbor-lantern-angle.${index}`) * 0.16;
-    const radiusX = 22 + (index % 3) * 1.25;
-    const radiusZ = 15.5 + (index % 2) * 1.15;
-    const x = Math.cos(angle) * radiusX;
-    const z = Math.sin(angle) * radiusZ;
+    const { x, z } = positions[index]!;
     scratchMatrix.makeTranslation(x, WATER_LEVEL + 0.26, z);
     bodies.setMatrixAt(index, scratchMatrix);
     scratchMatrix.makeTranslation(x, WATER_LEVEL + 0.58, z);

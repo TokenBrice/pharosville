@@ -415,6 +415,9 @@ export interface DockNode {
       | "fishing-pier"
       | "stepped-inlet"
       | "reed-boathouse"
+      | "storm-mole"
+      | "salvage-slip"
+      | "signal-jetty"
       | "pigeonnier-islet";
     /** Radians from the station's landward edge toward open water. */
     shoreBearing: number;

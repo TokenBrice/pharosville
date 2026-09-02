@@ -277,8 +277,8 @@ describe("buildPharosVilleMap", () => {
   });
 
   it("keeps station slots at authored cove mouths with land behind and water ahead", () => {
-    expect(DOCK_TILES).toHaveLength(9);
-    expect(new Set(DOCK_TILES.map((tile) => `${tile.x}.${tile.y}`)).size).toBe(9);
+    expect(DOCK_TILES).toHaveLength(12);
+    expect(new Set(DOCK_TILES.map((tile) => `${tile.x}.${tile.y}`)).size).toBe(12);
     expect(EVM_BAY_DOCK_TILES[1]).toEqual(BASE_HARBOR_DOCK_TILE);
     expect(OUTER_HARBOR_DOCK_TILES[3]).toEqual(HYPERLIQUID_HARBOR_DOCK_TILE);
     expect(DOCK_TILES.every((tile) => isWaterTileKind(tileKindAt(tile.x, tile.y)))).toBe(true);
@@ -294,7 +294,7 @@ describe("buildPharosVilleMap", () => {
 
   it("distributes cove stations across bodies and outside both rim openings", () => {
     expect(new Set(RIM_COVES.map((cove) => cove.body)).size).toBeGreaterThanOrEqual(6);
-    expect(RIM_COVES).toHaveLength(10);
+    expect(RIM_COVES).toHaveLength(13);
     for (const cove of RIM_COVES) {
       const bearing = Math.atan2(
         cove.tile.y - (PHAROSVILLE_MAP_HEIGHT - 1) / 2,

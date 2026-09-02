@@ -212,7 +212,7 @@ describe("authored garden rim", () => {
     expect(rimLandAt(Math.round(CEMETERY_CENTER.x), PHAROSVILLE_MAP_HEIGHT - 1)).toBe(true);
   });
 
-  it("authors ten spaced, body-specific coves reachable from the current dock ring", () => {
+  it("authors spaced, body-specific coves reachable from the current dock ring", () => {
     const reached = reachableWaterFromDockRing();
     const bodies = new Set<SeaBodyId>();
     expect(RIM_COVES.length).toBeGreaterThanOrEqual(10);
@@ -232,7 +232,7 @@ describe("authored garden rim", () => {
       expect(Number.isFinite(cove.seawardBearing)).toBe(true);
     }
 
-    expect(bodies).toEqual(new Set(["calm", "watch", "alert", "warning", "danger", "ledger"]));
+    expect(bodies).toEqual(new Set(["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"]));
     const precinct = RIM_COVES.filter((cove) => cove.id === "ethereum-precinct" || cove.id.endsWith("-annex"));
     expect(precinct).toHaveLength(4);
     for (const cove of precinct) expect(cove.body).toBe("calm");

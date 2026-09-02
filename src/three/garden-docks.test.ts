@@ -4,6 +4,7 @@ import type { DockNode } from "../systems/world-types";
 import { HARBOR_PALETTE } from "../systems/palette";
 import {
   authorDock,
+  gardenHarborLanternWorldPositions,
   gardenHarborCalmMask,
   harborIdentity,
   harborPlan,
@@ -120,6 +121,30 @@ describe("garden docks", () => {
     }, DISPLAY_TILE, ISLAND_TILE);
     expect(north.anchorRotationY).toBeCloseTo(Math.PI / 2, 6);
     expect(Math.abs(west.anchorRotationY)).toBeCloseTo(Math.PI, 6);
+  });
+
+  it("roots approach lanterns at each remote station and offsets them seaward", () => {
+    const recipes = [
+      authorDock({
+        ...dock("base", 7),
+        station: { coveId: "left-cove", type: "annex-pavilion", shoreBearing: 0 },
+      }, { x: 14, y: 80 }, ISLAND_TILE),
+      authorDock({
+        ...dock("solana", 7),
+        station: { coveId: "right-cove", type: "tea-house-quay", shoreBearing: Math.PI },
+      }, { x: 131, y: 80 }, ISLAND_TILE),
+    ];
+    const positions = gardenHarborLanternWorldPositions(recipes);
+
+    expect(positions).toHaveLength(4);
+    for (const [recipeIndex, recipe] of recipes.entries()) {
+      const bearing = recipe.dock.station.shoreBearing;
+      for (const lantern of positions.slice(recipeIndex * 2, recipeIndex * 2 + 2)) {
+        const offsetX = lantern.x - recipe.anchorPosition.x;
+        const offsetZ = lantern.z - recipe.anchorPosition.z;
+        expect(offsetX * Math.cos(bearing) + offsetZ * Math.sin(bearing)).toBeCloseTo(1.25);
+      }
+    }
   });
 
   it("keeps the authored flag pose available for reduced motion", () => {

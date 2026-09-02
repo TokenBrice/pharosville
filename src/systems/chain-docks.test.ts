@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { fixtureChains, makeChain } from "../__fixtures__/pharosville-world";
 import { buildChainDocks } from "./chain-docks";
 import {
-  DOCK_TILES,
   EVM_BAY_DOCK_TILES,
   isNavigableWaterTile,
   isWaterTileKind,
@@ -119,6 +118,30 @@ describe("buildChainDocks", () => {
     expect(docks.every((dock) => reachable.has(tileKey(dock.tile)))).toBe(true);
   });
 
+  it("reserves every precinct form when eight generic chains compete for outer stations", () => {
+    const genericChains = Array.from({ length: 8 }, (_, index) => makeChain({
+      id: `generic-${index + 1}`,
+      name: `Generic ${index + 1}`,
+      totalUsd: 800 - index,
+    }));
+    const docks = buildChainDocks({
+      ...fixtureChains,
+      chains: genericChains,
+      globalTotalUsd: genericChains.reduce((sum, chain) => sum + chain.totalUsd, 0),
+    });
+
+    expect(docks).toHaveLength(OUTER_HARBOR_DOCK_TILES.length);
+    expect(docks.every((dock) => OUTER_HARBOR_DOCK_TILES.some((tile) => (
+      tile.x === dock.tile.x && tile.y === dock.tile.y
+    )))).toBe(true);
+    expect(docks.every((dock) => !EVM_BAY_DOCK_TILES.some((tile) => (
+      tile.x === dock.tile.x && tile.y === dock.tile.y
+    )))).toBe(true);
+    expect(new Set(docks.map((dock) => dock.station.type)).size).toBe(docks.length);
+    expect(docks.map((dock) => dock.station.type)).not.toContain("boathouse-precinct");
+    expect(docks.map((dock) => dock.station.type)).not.toContain("annex-pavilion");
+  });
+
   it("suppresses Optimism while reserving key Ethereum L2 extension slips before lower-ranked outer harbors", () => {
     const docks = buildChainDocks({
       ...fixtureChains,
@@ -231,7 +254,7 @@ describe("buildChainDocks", () => {
       "chain-6",
       "chain-7",
     ]);
-    expect(docks.map((dock) => dock.tile)).toEqual(DOCK_TILES.slice(4, 9).concat(DOCK_TILES.slice(0, 3)));
+    expect(docks.map((dock) => dock.tile)).toEqual(OUTER_HARBOR_DOCK_TILES);
     expect(docks[0]?.harboredStablecoins.map((coin) => coin.symbol)).toEqual(["A0", "B0"]);
   });
 

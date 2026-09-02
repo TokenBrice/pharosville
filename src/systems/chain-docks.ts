@@ -66,11 +66,10 @@ export function buildChainDocks(chains: ChainsResponse | null | undefined): Dock
   if (!chains?.chains?.length) return [];
   const occupiedCoves = new Set<string>();
   const standardDocks = selectChainHarbors(chains.chains)
-    .map((chain, index) => buildDockNode(
-      chain,
-      stationSlotForChain(chain.id, index, occupiedCoves),
-      chains.globalTotalUsd,
-    ));
+    .flatMap((chain) => {
+      const slot = stationSlotForChain(chain.id, occupiedCoves);
+      return slot ? [buildDockNode(chain, slot, chains.globalTotalUsd)] : [];
+    });
 
   const pigeonnierDocks = selectPigeonnierHarbors(chains.chains)
     .map((chain) => buildDockNode(chain, PIGEONNIER_STATION_SLOT, chains.globalTotalUsd));
@@ -186,7 +185,7 @@ function selectPigeonnierHarbors(chains: readonly ChainSummary[]): ChainSummary[
     .filter((chain): chain is ChainSummary => !!chain && chain.totalUsd > 0);
 }
 
-function stationSlotForChain(chainId: string, rankIndex: number, occupiedCoves: Set<string>): DockStationSlot {
+function stationSlotForChain(chainId: string, occupiedCoves: Set<string>): DockStationSlot | null {
   const preferred = PREFERRED_DOCK_STATIONS[chainId];
   if (preferred && reserveSlot(preferred, occupiedCoves)) return preferred;
 
@@ -194,13 +193,11 @@ function stationSlotForChain(chainId: string, rankIndex: number, occupiedCoves: 
   const pooled = firstOpenSlot(primaryPool, occupiedCoves);
   if (pooled) return pooled;
 
-  const fallback = firstOpenSlot([...EVM_BAY_STATION_SLOTS, ...OUTER_HARBOR_STATION_SLOTS], occupiedCoves);
-  if (fallback) return fallback;
-
-  const allSlots = [...EVM_BAY_STATION_SLOTS, ...OUTER_HARBOR_STATION_SLOTS];
-  const repeated = allSlots[rankIndex % allSlots.length] ?? EVM_BAY_STATION_SLOTS[0]!;
-  reserveSlot(repeated, occupiedCoves);
-  return repeated;
+  // Precinct forms are semantic, not overflow capacity: only Ethereum and its
+  // named annex chains may occupy them. The outer pool has eight distinct
+  // cove/type pairs, so even an all-generic top eight never needs to borrow an
+  // Ethereum boathouse or L2 annex identity.
+  return null;
 }
 
 function firstOpenSlot(slots: readonly DockStationSlot[], occupiedCoves: Set<string>): DockStationSlot | null {
