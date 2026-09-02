@@ -10,6 +10,22 @@ afterEach(() => {
 });
 
 describe("LegendPanel", () => {
+  it("names all six East-Asian hull families", () => {
+    const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
+
+    for (const family of [
+      "Bezaisen carrier",
+      "Kobaya runner",
+      "Twin-hull council boat",
+      "Takasebune barge",
+      "Battened junk",
+      "Bullion scow",
+    ]) {
+      expect(markup).toContain(family);
+    }
+    expect(markup).not.toMatch(/galleon|brigantine|schooner/i);
+  });
+
   it("uses modal dialog semantics and focuses/restores the close control", () => {
     const opener = document.createElement("button");
     opener.type = "button";

@@ -30,14 +30,16 @@ import { SAIL_DARK_CANVAS_ISSUERS } from "./garden-sail-overrides";
 import type { ShipLivery } from "../systems/world-types";
 import type { GardenHullSilhouette } from "../systems/garden-observatory-slice";
 
-const SILHOUETTES: GardenHullSilhouette[] = ["galleon", "clipper", "schooner", "junk"];
+const SILHOUETTES: GardenHullSilhouette[] = [
+  "bezaisen", "kobaya", "twinhull", "takasebune", "junk", "scow",
+];
 
 function buildBatches(capacity: number) {
   return createFleetBatches({
     cache: { geometries: new Map(), wakeFillMaterial: null as never, wakeMaterial: null as never },
     capacity,
     geometryFor: (silhouette) => createFleetBatchGeometry(silhouette),
-    pennantGeometry: createFleetBatchGeometry("galleon").sails,
+    pennantGeometry: createFleetBatchGeometry("bezaisen").sails,
     sailTexture: null,
     silhouettes: SILHOUETTES,
   });
@@ -57,7 +59,7 @@ function pose(overrides: Partial<FleetInstancePose> = {}): FleetInstancePose {
     sailFurl: 0,
     pitch: 0,
     scale: 1,
-    silhouette: "galleon",
+    silhouette: "bezaisen",
     x: 0,
     y: 0,
     z: 0,
@@ -83,22 +85,58 @@ describe("createFleetBatchGeometry", () => {
     for (const silhouette of SILHOUETTES) {
       const { sails } = createFleetBatchGeometry(silhouette);
       const flags = sails.getAttribute("aAtlasSail");
+      const sailIndices = sails.getAttribute("aSailIndex");
       expect(flags).toBeDefined();
       let marked = 0;
       for (let index = 0; index < flags.count; index += 1) {
-        if (flags.getX(index) > 0.5) marked += 1;
+        const identity = flags.getX(index) > 0.5;
+        if (identity) marked += 1;
+        // Sail index zero is reserved for the one unfurlable identity sail;
+        // every other sail must stay on the atlas's plain-canvas cell.
+        expect(identity).toBe(sailIndices.getX(index) === 0);
       }
-      // Some vertices marked, but never all of them — the plain sails must
-      // keep sampling the shared blank-canvas cell.
       expect(marked).toBeGreaterThan(0);
-      expect(marked).toBeLessThan(flags.count);
       sails.dispose();
     }
   });
 
+  it("gives every family a bounding-box aspect signature separated by at least 15%", () => {
+    const aspects = SILHOUETTES.map((silhouette) => {
+      const source = createFleetBatchGeometry(silhouette);
+      source.hull.computeBoundingBox();
+      const size = source.hull.boundingBox!.getSize(new Vector3());
+      source.hull.dispose();
+      source.sails.dispose();
+      return {
+        heightBeam: size.y / size.z,
+        lengthBeam: size.x / size.z,
+        silhouette,
+      };
+    });
+
+    for (let left = 0; left < aspects.length; left += 1) {
+      for (let right = left + 1; right < aspects.length; right += 1) {
+        const a = aspects[left]!;
+        const b = aspects[right]!;
+        const lengthDifference = Math.abs(a.lengthBeam - b.lengthBeam)
+          / Math.min(a.lengthBeam, b.lengthBeam);
+        const heightDifference = Math.abs(a.heightBeam - b.heightBeam)
+          / Math.min(a.heightBeam, b.heightBeam);
+        expect(
+          lengthDifference,
+          `${a.silhouette}/${b.silhouette} length/beam`,
+        ).toBeGreaterThanOrEqual(0.15);
+        expect(
+          heightDifference,
+          `${a.silhouette}/${b.silhouette} height/beam`,
+        ).toBeGreaterThanOrEqual(0.15);
+      }
+    }
+  });
+
   it("is deterministic across rebuilds", () => {
-    const first = createFleetBatchGeometry("clipper");
-    const second = createFleetBatchGeometry("clipper");
+    const first = createFleetBatchGeometry("kobaya");
+    const second = createFleetBatchGeometry("kobaya");
     const a = first.hull.getAttribute("position");
     const b = second.hull.getAttribute("position");
     expect(a.count).toBe(b.count);
@@ -226,7 +264,7 @@ describe("fleet batches", () => {
 
     beginFleetFrame(batches);
     for (let index = 0; index < 20; index += 1) {
-      writeFleetInstance(batches, pose({ silhouette: SILHOUETTES[index % 4]!, x: index }));
+      writeFleetInstance(batches, pose({ silhouette: SILHOUETTES[index % SILHOUETTES.length]!, x: index }));
     }
     endFleetFrame(batches);
     const drawsAt20 = fleetDrawCallCount(batches);
@@ -234,14 +272,14 @@ describe("fleet batches", () => {
 
     beginFleetFrame(batches);
     for (let index = 0; index < 320; index += 1) {
-      writeFleetInstance(batches, pose({ silhouette: SILHOUETTES[index % 4]!, x: index }));
+      writeFleetInstance(batches, pose({ silhouette: SILHOUETTES[index % SILHOUETTES.length]!, x: index }));
     }
     endFleetFrame(batches);
 
     expect(fleetInstanceCount(batches)).toBe(320);
-    // 4 silhouettes x (hull + sails) + 1 pennant batch = 9, at any fleet size.
+    // 6 families x (hull + sails) + 1 pennant batch = 13, at any fleet size.
     expect(fleetDrawCallCount(batches)).toBe(drawsAt20);
-    expect(fleetDrawCallCount(batches)).toBe(9);
+    expect(fleetDrawCallCount(batches)).toBe(13);
     for (const batch of batches.bySilhouette.values()) {
       expect(batch.hull.mesh.castShadow).toBe(true);
       expect(batch.sails.mesh.castShadow).toBe(false);
@@ -254,7 +292,7 @@ describe("fleet batches", () => {
     const batches = buildBatches(8);
     beginFleetFrame(batches);
     for (let index = 0; index < 200; index += 1) {
-      writeFleetInstance(batches, pose({ silhouette: "galleon", x: index }));
+      writeFleetInstance(batches, pose({ silhouette: "bezaisen", x: index }));
     }
     endFleetFrame(batches);
     expect(fleetInstanceCount(batches)).toBe(8);
@@ -281,7 +319,7 @@ describe("fleet batches", () => {
     // The renderer's selected transient is an additional placement. Hull and
     // sail batches remain within their per-silhouette allocation; the shared
     // pennant batch is deliberately capped rather than reallocated.
-    writeFleetInstance(batches, pose({ silhouette: "galleon", x: 320 }));
+    writeFleetInstance(batches, pose({ silhouette: "bezaisen", x: 320 }));
     endFleetFrame(batches);
 
     expect(fleetInstanceCount(batches)).toBe(321);
@@ -301,10 +339,10 @@ describe("fleet batches", () => {
   it("routes each instance to its own atlas cell", () => {
     const batches = buildBatches(16);
     beginFleetFrame(batches);
-    writeFleetInstance(batches, pose({ atlasCell: 7, silhouette: "galleon" }));
-    writeFleetInstance(batches, pose({ atlasCell: 12, silhouette: "galleon" }));
+    writeFleetInstance(batches, pose({ atlasCell: 7, silhouette: "bezaisen" }));
+    writeFleetInstance(batches, pose({ atlasCell: 12, silhouette: "bezaisen" }));
     endFleetFrame(batches);
-    const cells = batches.bySilhouette.get("galleon")!.sails.atlasCell!;
+    const cells = batches.bySilhouette.get("bezaisen")!.sails.atlasCell!;
     expect(cells.getX(0)).toBe(7);
     expect(cells.getX(1)).toBe(12);
     disposeFleetBatches(batches);
@@ -341,18 +379,18 @@ describe("fleet batches", () => {
 
   it("reuses buffers across frames instead of reallocating", () => {
     const batches = buildBatches(64);
-    const galleon = batches.bySilhouette.get("galleon")!;
-    const matrixBuffer = galleon.hull.mesh.instanceMatrix.array;
+    const bezaisen = batches.bySilhouette.get("bezaisen")!;
+    const matrixBuffer = bezaisen.hull.mesh.instanceMatrix.array;
 
     for (let frame = 0; frame < 5; frame += 1) {
       beginFleetFrame(batches);
       for (let index = 0; index < 10 + frame * 5; index += 1) {
-        writeFleetInstance(batches, pose({ silhouette: "galleon", x: index }));
+        writeFleetInstance(batches, pose({ silhouette: "bezaisen", x: index }));
       }
       endFleetFrame(batches);
     }
 
-    expect(galleon.hull.mesh.instanceMatrix.array).toBe(matrixBuffer);
+    expect(bezaisen.hull.mesh.instanceMatrix.array).toBe(matrixBuffer);
     disposeFleetBatches(batches);
   });
 
@@ -361,15 +399,15 @@ describe("fleet batches", () => {
     beginFleetFrame(batches);
     writeFleetInstance(batches, pose({
       hullForm: { beam: 0.7, height: 1.3, length: 1.2 },
-      silhouette: "galleon",
+      silhouette: "bezaisen",
     }));
     writeFleetInstance(batches, pose({
       hullForm: { beam: 1.25, height: 0.8, length: 0.75 },
-      silhouette: "galleon",
+      silhouette: "bezaisen",
     }));
     endFleetFrame(batches);
 
-    const batch = batches.bySilhouette.get("galleon")!;
+    const batch = batches.bySilhouette.get("bezaisen")!;
     for (const part of [batch.hull, batch.sails]) {
       // (length, beam, height) — the rig must deform with the hull it sits on.
       // Stored in a Float32Array, so compare at float precision.
@@ -390,12 +428,12 @@ describe("fleet batches", () => {
     for (let index = 0; index < 40; index += 1) {
       writeFleetInstance(batches, pose({
         hullForm: { beam: 0.7 + index * 0.01, height: 1, length: 1.3 - index * 0.01 },
-        silhouette: SILHOUETTES[index % 4]!,
+        silhouette: SILHOUETTES[index % SILHOUETTES.length]!,
       }));
     }
     endFleetFrame(batches);
     // 40 ships, 40 different shapes, still one draw call per part.
-    expect(fleetDrawCallCount(batches)).toBe(9);
+    expect(fleetDrawCallCount(batches)).toBe(13);
     disposeFleetBatches(batches);
   });
 
@@ -408,7 +446,7 @@ describe("fleet batches", () => {
 
 describe("W5.8/W7.3 instanced hull surface", () => {
   it("bakes repeated-prop pivots and rope masks into the merged hull", () => {
-    const source = createFleetBatchGeometry("galleon");
+    const source = createFleetBatchGeometry("bezaisen");
     const masks = source.hull.getAttribute("aPartMasks");
     const pivot = source.hull.getAttribute("aVariationPivot");
     expect(masks.itemSize).toBe(4);
@@ -436,7 +474,7 @@ describe("W5.8/W7.3 instanced hull surface", () => {
     }));
     endFleetFrame(batches);
 
-    const batch = batches.bySilhouette.get("galleon")!;
+    const batch = batches.bySilhouette.get("bezaisen")!;
     expect(batch.hull.hullSurface?.itemSize).toBe(4);
     expect(batch.hull.hullSurface?.getX(0)).toBeCloseTo(0.95);
     expect(batch.hull.hullSurface?.getY(0)).toBeCloseTo(0.82);
@@ -461,7 +499,7 @@ describe("W5.8/W7.3 instanced hull surface", () => {
       } as FleetInstancePose["hullForm"],
     }));
     endFleetFrame(batches);
-    expect(batches.bySilhouette.get("galleon")?.hull.hullSurface?.getW(0)).toBeCloseTo(18.94);
+    expect(batches.bySilhouette.get("bezaisen")?.hull.hullSurface?.getW(0)).toBeCloseTo(18.94);
     disposeFleetBatches(batches);
   });
 
@@ -496,11 +534,11 @@ describe("F1 brand-dyed cloth", () => {
   it("writes each ship's dye to every sail in its batch", () => {
     const batches = buildBatches(16);
     beginFleetFrame(batches);
-    writeFleetInstance(batches, pose({ sailColor: new Color("#2775ca"), silhouette: "galleon" }));
-    writeFleetInstance(batches, pose({ sailColor: new Color("#136649"), silhouette: "galleon" }));
+    writeFleetInstance(batches, pose({ sailColor: new Color("#2775ca"), silhouette: "bezaisen" }));
+    writeFleetInstance(batches, pose({ sailColor: new Color("#136649"), silhouette: "bezaisen" }));
     endFleetFrame(batches);
 
-    const tint = batches.bySilhouette.get("galleon")!.sails.sailTint!;
+    const tint = batches.bySilhouette.get("bezaisen")!.sails.sailTint!;
     const circle = new Color("#2775ca");
     const tether = new Color("#136649");
     expect(tint.getX(0)).toBeCloseTo(circle.r, 5);
@@ -517,12 +555,12 @@ describe("F1 brand-dyed cloth", () => {
     for (let index = 0; index < 40; index += 1) {
       writeFleetInstance(batches, pose({
         sailColor: new Color().setHSL(index / 40, 0.6, 0.4),
-        silhouette: SILHOUETTES[index % 4]!,
+        silhouette: SILHOUETTES[index % SILHOUETTES.length]!,
       }));
     }
     endFleetFrame(batches);
     // 40 ships, 40 different dyes, still one draw call per part.
-    expect(fleetDrawCallCount(batches)).toBe(9);
+    expect(fleetDrawCallCount(batches)).toBe(13);
     disposeFleetBatches(batches);
   });
 });
@@ -533,15 +571,15 @@ describe("peg trim (Tier 3 #13)", () => {
     beginFleetFrame(batches);
     writeFleetInstance(batches, pose({
       hullForm: { beam: 1, height: 1, length: 1, waterline: -0.16 },
-      silhouette: "galleon",
+      silhouette: "bezaisen",
     }));
     writeFleetInstance(batches, pose({
       hullForm: { beam: 1, height: 1, length: 1, waterline: 0.08 },
-      silhouette: "galleon",
+      silhouette: "bezaisen",
     }));
     endFleetFrame(batches);
 
-    const batch = batches.bySilhouette.get("galleon")!;
+    const batch = batches.bySilhouette.get("bezaisen")!;
     expect(batch.hull.hullForm.itemSize).toBe(4);
     expect(batch.hull.hullForm.getW(0)).toBeCloseTo(-0.16);
     expect(batch.hull.hullForm.getW(1)).toBeCloseTo(0.08);
@@ -554,7 +592,7 @@ describe("peg trim (Tier 3 #13)", () => {
 
   it("defaults an unwritten instance to the authored shape on an even keel", () => {
     const batches = buildBatches(2);
-    const batch = batches.bySilhouette.get("clipper")!;
+    const batch = batches.bySilhouette.get("kobaya")!;
     expect(batch.hull.hullForm.getX(1)).toBe(1);
     expect(batch.hull.hullForm.getY(1)).toBe(1);
     expect(batch.hull.hullForm.getZ(1)).toBe(1);
@@ -565,11 +603,11 @@ describe("peg trim (Tier 3 #13)", () => {
   it("moves the pennant with the masthead it flies from", () => {
     const batches = buildBatches(2);
     beginFleetFrame(batches);
-    writeFleetInstance(batches, pose({ mastheadOffset: { x: 0, y: 4 }, silhouette: "galleon" }));
+    writeFleetInstance(batches, pose({ mastheadOffset: { x: 0, y: 4 }, silhouette: "bezaisen" }));
     writeFleetInstance(batches, pose({
       hullForm: { beam: 1, height: 1, length: 1, waterline: -0.16 },
       mastheadOffset: { x: 0, y: 4 },
-      silhouette: "galleon",
+      silhouette: "bezaisen",
     }));
     endFleetFrame(batches);
 
@@ -912,11 +950,11 @@ describe("W3.7 attention", () => {
     });
     const batches = buildBatches(16);
     beginFleetFrame(batches);
-    writeFleetInstance(batches, pose({ atlasCell: 4, silhouette: "galleon" }));
-    writeFleetInstance(batches, pose({ atlasCell: 12, silhouette: "galleon" }));
+    writeFleetInstance(batches, pose({ atlasCell: 4, silhouette: "bezaisen" }));
+    writeFleetInstance(batches, pose({ atlasCell: 12, silhouette: "bezaisen" }));
     endFleetFrame(batches);
 
-    const attention = batches.bySilhouette.get("galleon")!.sails.sailAttention!;
+    const attention = batches.bySilhouette.get("bezaisen")!.sails.sailAttention!;
     expect(attention.getX(0)).toBe(0);
     expect(attention.getX(1)).toBe(1);
     // An unwritten instance is rank-and-file, not an unexplained bright sail.
