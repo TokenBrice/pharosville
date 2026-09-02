@@ -592,6 +592,26 @@ describe("Three world renderer lifecycle", () => {
     expect(post.dispose).toHaveBeenCalledTimes(1);
   });
 
+  it("sheds overview AO before its render targets are first used", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    const post = postHarness.instances.at(-1)!;
+
+    renderer.render(rendererFrame(world, "full", {
+      cameraZoom: 0.28,
+      timeSeconds: 1,
+    }));
+
+    // The animated overview LOD eases its own detail value from 1, but the
+    // hidden-zoom target is already exact. The post owner must see that target
+    // so N8AO cannot upload resources for a pass that is not drawn.
+    expect(post.setAOZoomDetail).toHaveBeenLastCalledWith(0);
+    renderer.dispose();
+  });
+
   it("reveals inspection detail only for Explore or the focused entity", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({

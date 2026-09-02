@@ -40,6 +40,7 @@ import type {
 import type {
   PharosVilleRenderSchedulerTier,
   TextureOwnerCensus,
+  TextureOwnerManifestEntry,
 } from "../renderer/render-types";
 import { isRenderSchedulerIdle, seaQualityTier } from "../renderer/render-scheduler";
 import {
@@ -117,6 +118,7 @@ import {
 } from "./garden-ship-gulls";
 import {
   createGardenOverviewLod,
+  overviewLodTargetDetail,
   type GardenOverviewLod,
 } from "./garden-overview-lod";
 import { createGardenModelLibrary } from "./garden-models";
@@ -660,8 +662,22 @@ function textureOwnerName(object: Object3D, root: Object3D): string {
   return object.type;
 }
 
-function textureOwnerCensus(root: Scene, rendererTextures: number): TextureOwnerCensus {
+function textureOwnerCensus(
+  root: Scene,
+  rendererTextures: number,
+  manifest: readonly TextureOwnerManifestEntry[] = [],
+  renderer?: WebGLRenderer,
+): TextureOwnerCensus {
   const ownerByTexture = new Map<Texture, string>();
+  const sceneTextures = new Set<Texture>();
+  // Explicit owners take precedence over the nearest mesh name. Water's
+  // material samples the wake/lane/environment textures, but those resources
+  // belong to their scene-scope systems; the post chain is not in the scene at
+  // all. Seeding the map also makes the census useful for renderer allocations
+  // that have no object/material edge to follow.
+  for (const entry of manifest) {
+    if (!ownerByTexture.has(entry.texture)) ownerByTexture.set(entry.texture, entry.owner);
+  }
   root.traverse((object) => {
     if (!(object as Mesh).isMesh) return;
     const owner = textureOwnerName(object, root);
@@ -669,49 +685,82 @@ function textureOwnerCensus(root: Scene, rendererTextures: number): TextureOwner
     const materials = Array.isArray(material) ? material : [material];
     for (const entry of materials) {
       for (const value of Object.values(entry)) {
-        if (value instanceof Texture && !ownerByTexture.has(value)) {
-          ownerByTexture.set(value, owner);
+        if (value instanceof Texture) {
+          sceneTextures.add(value);
+          if (!ownerByTexture.has(value)) ownerByTexture.set(value, owner);
         }
       }
       const uniforms = (entry as ShaderMaterial).uniforms;
       if (!uniforms) continue;
       for (const uniform of Object.values(uniforms)) {
-        if (uniform.value instanceof Texture && !ownerByTexture.has(uniform.value)) {
-          ownerByTexture.set(uniform.value, owner);
+        if (uniform.value instanceof Texture) {
+          sceneTextures.add(uniform.value);
+          if (!ownerByTexture.has(uniform.value)) ownerByTexture.set(uniform.value, owner);
         }
       }
     }
   });
-  if (root.environment && !ownerByTexture.has(root.environment)) {
-    ownerByTexture.set(root.environment, "environment.pmrem");
+  if (root.environment) {
+    sceneTextures.add(root.environment);
+    if (!ownerByTexture.has(root.environment)) {
+      ownerByTexture.set(root.environment, "environment.pmrem");
+    }
   }
-  // KNOWN UNATTRIBUTED: the post chain's own textures. The census walks the
-  // SCENE, and `scene.environment` is the only non-mesh owner it can reach from
-  // here; the grade pass's authored LUT and blue-noise images (garden-post.ts)
-  // hang off effect uniforms the scene graph never sees, so they land in
-  // `minimumUnattributedRendererTextures` alongside the composer's own render
-  // targets. Attributing them would mean garden-post exposing a texture
-  // manifest and this function taking a second source — new machinery for a
-  // diagnostic, deliberately not built (W2.2 rider). Two of the unattributed
-  // textures reported on a healthy full-tier frame are these.
-  const ownerCounts = new Map<string, number>();
-  for (const owner of ownerByTexture.values()) {
-    ownerCounts.set(owner, (ownerCounts.get(owner) ?? 0) + 1);
+  const ownerCounts = new Map<string, {
+    liveTextureCount: number;
+    liveTextureNames: string[];
+    textureCount: number;
+  }>();
+  for (const [texture, owner] of ownerByTexture) {
+    const stats = ownerCounts.get(owner) ?? {
+      liveTextureCount: 0,
+      liveTextureNames: [],
+      textureCount: 0,
+    };
+    stats.textureCount += 1;
+    if (renderer) {
+      const properties = (renderer as unknown as {
+        properties?: { get: (resource: object) => { __webglTexture?: unknown } };
+      }).properties;
+      const webglTexture = properties?.get(texture).__webglTexture;
+      if (webglTexture !== undefined && webglTexture !== null) {
+        stats.liveTextureCount += 1;
+        stats.liveTextureNames.push(texture.name || texture.uuid);
+      }
+    }
+    ownerCounts.set(owner, stats);
   }
   return {
     owners: [...ownerCounts]
-      .map(([owner, textureCount]) => ({ owner, textureCount }))
+      .map(([owner, stats]) => ({ owner, ...stats }))
       .sort((left, right) => (
         right.textureCount - left.textureCount
         || left.owner.localeCompare(right.owner)
       )),
-    referencedTextures: ownerByTexture.size,
+    referencedTextures: sceneTextures.size,
+    attributedTextures: ownerByTexture.size,
     rendererTextures,
     minimumUnattributedRendererTextures: Math.max(
       0,
       rendererTextures - ownerByTexture.size,
     ),
   };
+}
+
+function sceneTextureManifest(scene: GardenScene): readonly TextureOwnerManifestEntry[] {
+  const entries: TextureOwnerManifestEntry[] = [
+    ...(scene.wakes.getTextureManifest?.() ?? []),
+    ...(scene.laneRegistry.getTextureManifest?.() ?? []),
+    ...(scene.environment.getTextureManifest?.() ?? []),
+  ];
+  const shadowMap = scene.directionalLight.shadow.map;
+  if (shadowMap) {
+    entries.push({ owner: "garden-shadows.color", texture: shadowMap.texture });
+    if (shadowMap.depthTexture) {
+      entries.push({ owner: "garden-shadows.depth", texture: shadowMap.depthTexture });
+    }
+  }
+  return entries;
 }
 
 export function createThreeWorldRenderer(
@@ -780,6 +829,7 @@ export function createThreeWorldRenderer(
   let lastTextureOwnerCensus: TextureOwnerCensus = {
     owners: [],
     referencedTextures: 0,
+    attributedTextures: 0,
     rendererTextures: 0,
     minimumUnattributedRendererTextures: 0,
   };
@@ -1280,7 +1330,18 @@ export function createThreeWorldRenderer(
       );
       post.setAOQuality(activeAOQuality);
       post.setAOTierWeight(aoTierWeight);
-      post.setAOZoomDetail(scene.content?.overviewLod.detail ?? 1);
+      // Content is populated asynchronously and the overview LOD eases its
+      // detail value from 1. At or below the hidden zoom, use the policy target
+      // immediately: otherwise a whole-map first frame briefly enables N8AO,
+      // uploading its seven render-target textures before the LOD sheds that
+      // pass. The settled image is unchanged; this only prevents a resource
+      // warm-up for a pass that cannot contribute at this framing.
+      const overviewTargetDetail = overviewLodTargetDetail(frame.camera.zoom);
+      post.setAOZoomDetail(
+        overviewTargetDetail <= 0
+          ? 0
+          : scene.content?.overviewLod.detail ?? overviewTargetDetail,
+      );
       post.setGrade(
         phase.daylight,
         phase.dusk,
@@ -1309,7 +1370,10 @@ export function createThreeWorldRenderer(
         textureCount !== lastCensusTextureCount
         || contentReplacementCount !== lastCensusReplacementCount
       ) {
-        lastTextureOwnerCensus = textureOwnerCensus(scene.root, textureCount);
+        lastTextureOwnerCensus = textureOwnerCensus(scene.root, textureCount, [
+          ...(post.getTextureManifest?.() ?? []),
+          ...sceneTextureManifest(scene),
+        ], renderer);
         drawCensusRequested = true;
         lastCensusTextureCount = textureCount;
         lastCensusReplacementCount = contentReplacementCount;
