@@ -5,6 +5,8 @@ import { rimLandAt } from "../systems/garden-rim";
 import {
   createGardenWaterfall,
   GARDEN_WATERFALL_DISPLACEMENT,
+  GARDEN_WATERFALL_CASCADE_WIDTH_WORLD,
+  GARDEN_WATERFALL_PLUNGE_WIDTH_WORLD,
   GARDEN_WATERFALL_POINTS,
 } from "./garden-waterfall";
 
@@ -16,6 +18,8 @@ describe("garden waterfall", () => {
     expect(waterfall.mesh.material.transparent).toBe(false);
     expect(waterfall.mesh.material.depthWrite).toBe(true);
     expect(waterfall.mesh.material.fragmentShader).toContain("gardenDither");
+    expect(waterfall.mesh.material.fragmentShader).toContain("foamCrest");
+    expect(waterfall.mesh.material.fragmentShader).toContain("plungeFoam");
     expect(waterfall.drawCallCount).toBe(1);
     expect(waterfall.triangleCount).toBeGreaterThan(0);
     expect(waterfall.triangleCount).toBeLessThan(40);
@@ -24,6 +28,9 @@ describe("garden waterfall", () => {
     expect(rimLandAt(pool.tileX, pool.tileY)).toBe(false);
     expect(seaRegionAtTile(pool.tileX, pool.tileY)).toBe(SEA_REGION_ID.calm);
     expect(GARDEN_WATERFALL_DISPLACEMENT).toBe("water-silver-accents");
+    expect(GARDEN_WATERFALL_CASCADE_WIDTH_WORLD).toBeGreaterThanOrEqual(2.9);
+    expect(GARDEN_WATERFALL_CASCADE_WIDTH_WORLD).toBeLessThanOrEqual(3.1);
+    expect(GARDEN_WATERFALL_PLUNGE_WIDTH_WORLD).toBeGreaterThan(3.8);
   });
 
   it("scrolls from the route clock and stamps the existing wake field without moving in reduced motion", () => {

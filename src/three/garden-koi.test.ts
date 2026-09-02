@@ -6,6 +6,7 @@ import {
   GARDEN_ENGAWA_KOI_WORLD,
   GARDEN_KOI_COUNT,
   GARDEN_KOI_DISPLACEMENT,
+  GARDEN_KOI_SWIM_RATE_RANGE,
   sampleGardenKoi,
 } from "./garden-koi";
 import { SEA_REGION_ID, seaRegionAtTile } from "../systems/garden-sea-regions";
@@ -16,6 +17,14 @@ function positions(mesh: InstancedMesh): Vector3[] {
   return Array.from({ length: mesh.count }, (_, index) => {
     mesh.getMatrixAt(index, matrix);
     return new Vector3().setFromMatrixPosition(matrix);
+  });
+}
+
+function scales(mesh: InstancedMesh): number[] {
+  const matrix = new Matrix4();
+  return Array.from({ length: mesh.count }, (_, index) => {
+    mesh.getMatrixAt(index, matrix);
+    return matrix.getMaxScaleOnAxis();
   });
 }
 
@@ -52,17 +61,19 @@ describe("garden koi", () => {
 
     const koi = createGardenKoi();
     const held = positions(koi.mesh);
-    koi.update({ night: 0, reducedMotion: false, timeSeconds: 91 });
+    koi.update({ daylight: 1, night: 0, reducedMotion: false, timeSeconds: 91 });
     expect(positions(koi.mesh)).not.toEqual(held);
-    koi.update({ night: 0, reducedMotion: true, timeSeconds: 91 });
+    koi.update({ daylight: 1, night: 0, reducedMotion: true, timeSeconds: 91 });
     expect(positions(koi.mesh)).toEqual(held);
   });
 
-  it("fades completely away at night", () => {
+  it("shows larger warm glints slowly in daylight and yields completely at dusk", () => {
     const koi = createGardenKoi();
-    koi.update({ night: 0, reducedMotion: false, timeSeconds: 30 });
-    expect(koi.mesh.material.uniforms.uVisibility!.value).toBeGreaterThan(0.6);
-    koi.update({ night: 1, reducedMotion: false, timeSeconds: 30 });
+    koi.update({ daylight: 1, night: 0, reducedMotion: false, timeSeconds: 30 });
+    expect(koi.mesh.material.uniforms.uVisibility!.value).toBeGreaterThan(0.9);
+    expect(Math.max(...GARDEN_KOI_SWIM_RATE_RANGE)).toBeLessThanOrEqual(0.032);
+    expect(Math.max(...scales(koi.mesh))).toBeGreaterThan(1.75);
+    koi.update({ daylight: 0, night: 0, reducedMotion: false, timeSeconds: 30 });
     expect(koi.mesh.material.uniforms.uVisibility!.value).toBe(0);
   });
 });

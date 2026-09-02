@@ -15,6 +15,7 @@ import { TILE_SCALE } from "./garden-util";
 
 export const GARDEN_KOI_COUNT = 4;
 export const GARDEN_KOI_DISPLACEMENT = "island-reflection-basin koi";
+export const GARDEN_KOI_SWIM_RATE_RANGE = [0.026, 0.032] as const;
 export const GARDEN_ENGAWA_KOI_TILE = { x: 63, y: 127 } as const;
 export const GARDEN_ENGAWA_KOI_WORLD = {
   x: GARDEN_ENGAWA_KOI_TILE.x * TILE_SCALE,
@@ -31,10 +32,10 @@ interface KoiPlan {
 }
 
 const KOI_PLAN: readonly KoiPlan[] = [
-  { depth: 0.09, phase: 0.4, scale: 1.08, x: -0.86, z: -0.18 },
-  { depth: 0.14, phase: 2.1, scale: 0.86, x: 0.38, z: 0.36 },
-  { depth: 0.18, phase: 4.4, scale: 0.94, x: 1.08, z: -0.25 },
-  { depth: 0.12, phase: 5.7, scale: 0.8, x: -0.12, z: -0.48 },
+  { depth: 0.045, phase: 0.4, scale: 1.82, x: -0.86, z: -0.18 },
+  { depth: 0.075, phase: 2.1, scale: 1.48, x: 0.38, z: 0.36 },
+  { depth: 0.1, phase: 4.4, scale: 1.64, x: 1.08, z: -0.25 },
+  { depth: 0.065, phase: 5.7, scale: 1.42, x: -0.12, z: -0.48 },
 ];
 
 export interface GardenKoiSample {
@@ -46,6 +47,7 @@ export interface GardenKoiSample {
 }
 
 export interface GardenKoiFrame {
+  daylight: number;
   night: number;
   reducedMotion: boolean;
   timeSeconds: number;
@@ -77,14 +79,16 @@ export function sampleGardenKoi(
 ): GardenKoiSample {
   const plan = KOI_PLAN[index % KOI_PLAN.length]!;
   const time = reducedMotion ? 0 : Math.max(0, timeSeconds);
-  const a = time * (0.055 + index * 0.004) + plan.phase;
-  const b = time * (0.031 + index * 0.003) + plan.phase * 1.73;
+  const primaryRate = GARDEN_KOI_SWIM_RATE_RANGE[0] + index * 0.002;
+  const secondaryRate = 0.014 + index * 0.0015;
+  const a = time * primaryRate + plan.phase;
+  const b = time * secondaryRate + plan.phase * 1.73;
   const x = plan.x + Math.sin(a) * (0.2 + index * 0.025) + Math.sin(b) * 0.08;
   const z = plan.z + Math.cos(a * 0.82) * (0.11 + index * 0.014) + Math.sin(b * 1.19) * 0.06;
-  const dx = Math.cos(a) * (0.2 + index * 0.025) * (0.055 + index * 0.004)
-    + Math.cos(b) * 0.08 * (0.031 + index * 0.003);
-  const dz = -Math.sin(a * 0.82) * (0.11 + index * 0.014) * (0.055 + index * 0.004) * 0.82
-    + Math.cos(b * 1.19) * 0.06 * (0.031 + index * 0.003) * 1.19;
+  const dx = Math.cos(a) * (0.2 + index * 0.025) * primaryRate
+    + Math.cos(b) * 0.08 * secondaryRate;
+  const dz = -Math.sin(a * 0.82) * (0.11 + index * 0.014) * primaryRate * 0.82
+    + Math.cos(b * 1.19) * 0.06 * secondaryRate * 1.19;
   return {
     depth: plan.depth,
     heading: Math.atan2(-dz, dx),
@@ -166,6 +170,7 @@ function waterFrameFromScene(scene: Object3D): GardenKoiFrame | null {
   if (!uniforms?.uTime || !uniforms.uNight) return null;
   const timeSeconds = Number(uniforms.uTime.value) || 0;
   return {
+    daylight: Number(uniforms.uDaylight?.value) || 0,
     night: Number(uniforms.uNight.value) || 0,
     // garden-water deliberately writes uTime=0 for reduced motion. Sharing
     // that already-authored clock avoids a second clock or renderer coupling.
@@ -202,9 +207,10 @@ export function createGardenKoi(): GardenKoi {
   const colors = new Float32Array(GARDEN_KOI_COUNT * 3);
   const accent = new Float32Array(GARDEN_KOI_COUNT);
   const depthFade = new Float32Array(GARDEN_KOI_COUNT);
-  const vermilion = new Color(HARBOR_PALETTE.vermillion);
-  const paleGold = new Color(HARBOR_PALETTE.lantern_glow)
-    .lerp(new Color(HARBOR_PALETTE.lantern_warm), 0.35);
+  const vermilion = new Color(HARBOR_PALETTE.vermillion)
+    .lerp(new Color(HARBOR_PALETTE.lantern_warm), 0.18);
+  const paleGold = new Color(HARBOR_PALETTE.lantern_warm)
+    .lerp(new Color(HARBOR_PALETTE.foam_white), 0.14);
   for (let index = 0; index < GARDEN_KOI_COUNT; index += 1) {
     const color = index === 0 ? vermilion : paleGold;
     color.toArray(colors, index * 3);
@@ -218,9 +224,10 @@ export function createGardenKoi(): GardenKoi {
   const dummy = new Object3D();
   const matrix = new Matrix4();
   const update = (frame: GardenKoiFrame): void => {
-    // Koi settle completely out before full night: the dark pond owns that hour.
-    material.uniforms.uVisibility!.value = 0.88
-      * (1 - smoothstep01((frame.night - 0.28) / 0.5));
+    // Koi are a daylight glint only; the dusk water and night road keep the
+    // shallows once daylight yields.
+    material.uniforms.uVisibility!.value = 0.98
+      * smoothstep01((frame.daylight - 0.08) / 0.42);
     for (let index = 0; index < GARDEN_KOI_COUNT; index += 1) {
       const sample = sampleGardenKoi(index, frame.timeSeconds, frame.reducedMotion);
       dummy.position.set(sample.x, -sample.depth, sample.z);
@@ -232,7 +239,7 @@ export function createGardenKoi(): GardenKoi {
     }
     mesh.instanceMatrix.needsUpdate = true;
   };
-  update({ night: 0, reducedMotion: true, timeSeconds: 0 });
+  update({ daylight: 1, night: 0, reducedMotion: true, timeSeconds: 0 });
 
   // Read only the canonical water clock/phase immediately before drawing.
   // This stays allocation-free and lets garden-island own the fish without a

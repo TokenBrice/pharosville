@@ -26,14 +26,18 @@ export interface GardenWaterfallPoint {
  * stations sit in Calm Anchorage; the Ethereum cove mouth remains clear.
  */
 export const GARDEN_WATERFALL_POINTS: readonly GardenWaterfallPoint[] = [
-  { tileX: 60.35, tileY: 136.1, width: 0.52, worldY: 1.68 },
-  { tileX: 59.72, tileY: 135.0, width: 0.58, worldY: 1.53 },
-  { tileX: 60.28, tileY: 133.8, width: 0.54, worldY: 1.18 },
-  { tileX: 59.78, tileY: 132.7, width: 0.64, worldY: 0.82 },
-  { tileX: 60.18, tileY: 131.55, width: 0.7, worldY: 0.38 },
-  { tileX: 60.0, tileY: 130.35, width: 0.82, worldY: GARDEN_WATER_Y + 0.075 },
-  { tileX: 60.05, tileY: 129.15, width: 1.16, worldY: GARDEN_WATER_Y + 0.06 },
+  { tileX: 60.35, tileY: 136.1, width: 0.92, worldY: 1.68 },
+  { tileX: 59.72, tileY: 135.0, width: 1.02, worldY: 1.53 },
+  { tileX: 60.28, tileY: 133.8, width: 0.96, worldY: 1.18 },
+  { tileX: 59.78, tileY: 132.7, width: 1.04, worldY: 0.82 },
+  { tileX: 60.18, tileY: 131.55, width: 1.06, worldY: 0.38 },
+  { tileX: 60.0, tileY: 130.35, width: 1.06, worldY: GARDEN_WATER_Y + 0.075 },
+  { tileX: 60.05, tileY: 129.25, width: 1.28, worldY: GARDEN_WATER_Y + 0.06 },
+  { tileX: 60.2, tileY: 128.35, width: 1.6, worldY: GARDEN_WATER_Y + 0.052 },
 ] as const;
+
+export const GARDEN_WATERFALL_CASCADE_WIDTH_WORLD = 1.06 * 2 * TILE_SCALE;
+export const GARDEN_WATERFALL_PLUNGE_WIDTH_WORLD = 1.6 * 2 * TILE_SCALE;
 
 export const GARDEN_WATERFALL_POOL_WORLD = {
   x: GARDEN_WATERFALL_POINTS.at(-1)!.tileX * TILE_SCALE,
@@ -148,8 +152,13 @@ function waterfallMaterial(): ShaderMaterial {
         float descent = smoothstep(0.12, 0.78, vFlow);
         float ribbon = sin(vFlow * 48.0 - uTime * 2.15 + vAcross * 5.0) * 0.5 + 0.5;
         float brokenFoam = smoothstep(0.58, 0.93, ribbon) * (0.28 + descent * 0.72);
+        float foamCrest = (1.0 - smoothstep(0.04, 0.2, vFlow))
+          * (0.72 + (1.0 - vAcross) * 0.28);
+        float plungeFoam = smoothstep(0.82, 0.98, vFlow)
+          * (0.76 + (1.0 - vAcross) * 0.24);
         float centreRun = (1.0 - smoothstep(0.0, 0.72, vAcross)) * 0.22;
-        vec3 color = mix(uBase, uFoam, clamp(brokenFoam + centreRun, 0.0, 0.88));
+        float foam = clamp(max(max(brokenFoam, foamCrest), plungeFoam) + centreRun, 0.0, 1.0);
+        vec3 color = mix(uBase, uFoam * 1.08, foam);
         color = mix(color, uBase * 0.42, uNight * 0.72);
         gl_FragColor = vec4(color, 1.0);
         #include <fog_fragment>
@@ -187,8 +196,8 @@ export function createGardenWaterfall(): GardenWaterfall {
           GARDEN_WATERFALL_POOL_WORLD.z,
           Math.cos(angle),
           Math.sin(angle),
-          0.13,
-          0.55,
+          0.18,
+          0.9,
         );
       }
     },
