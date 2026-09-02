@@ -69,6 +69,15 @@ export interface ShipMotionRoute {
   cycleSeconds: number;
   /** Duration of each deterministic travel leg in this route cycle. */
   legDurationSeconds: number;
+  /**
+   * Total uninterrupted travel time between the risk anchorage and a station.
+   * Voyages longer than one 180-second leg are divided into equal logical legs;
+   * the sampler follows the same continuous water path across their boundary.
+   * Omitted only by legacy/test routes, which fall back to `legDurationSeconds`.
+   */
+  voyageDurationSeconds?: number;
+  /** Number of 90-180 second logical legs in each one-way voyage. */
+  voyageLegCount?: number;
   /** Duration of each rest following a leg. */
   restDurationSeconds: number;
   /** Duration of the risk-water rest; omitted by legacy/test routes. */

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { __testPathCacheSize, buildBaseMotionPlan, buildMotionPlan, BoundedShipWaterRouteCache, buildShipWaterRoute, clearShipHeadingMemory, createShipMotionSample, disposePathCacheForMap, isShipMapVisible, motionPlanSignature, resolveShipMotionSample, resolveShipMotionSampleInto, sampleShipWaterPath, shipCycleTempo, shipMapVisibilityAlpha, shipWaterPathKey, SPEED_QUARTILE_SCALARS, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
-import { ARRIVING_DECEL_END, ARRIVING_FULL_TRANSIT_END, CAST_OFF_LINE_RELEASE_END, MOORING_QUIET_END, MOORING_WORKING_END, MOTION_LEG_MAX_SECONDS, MOTION_LEG_MIN_SECONDS, MOTION_PAIR_WINDOW_SECONDS, MOTION_REST_MAX_SECONDS, MOTION_REST_MIN_SECONDS, MOTION_TRANSITION_SHARE, MOTION_UNDERWAY_MAX_TILES_PER_SECOND, MOTION_UNDERWAY_MIN_TILES_PER_SECOND } from "./motion-config";
+import { ARRIVING_DECEL_END, ARRIVING_FULL_TRANSIT_END, CAST_OFF_LINE_RELEASE_END, MOORING_QUIET_END, MOORING_WORKING_END, MOTION_CYCLE_MAX_SECONDS, MOTION_LEG_MAX_SECONDS, MOTION_LEG_MIN_SECONDS, MOTION_PAIR_WINDOW_SECONDS, MOTION_REST_MAX_SECONDS, MOTION_REST_MIN_SECONDS, MOTION_TRANSITION_SHARE, MOTION_UNDERWAY_MAX_TILES_PER_SECOND, MOTION_UNDERWAY_MIN_TILES_PER_SECOND } from "./motion-config";
 import { getShipHeadingDelta } from "./motion-sampling";
 import { __resetPreviousRiskCache } from "./motion-planning";
 import { chaikinSmoothPath, ensureShoreDistanceMask, shoreDistance, warmAllWaterPaths } from "./motion-water";
@@ -15,7 +15,7 @@ import { patrolSpeedForZone } from "./motion-sampling/risk-drift";
 import type { PharosVilleMap, PharosVilleWorld, ShipWaterZone } from "./world-types";
 
 const SHIP_CYCLE_MIN_SECONDS = 660;
-const SHIP_CYCLE_MAX_SECONDS = 1320;
+const SHIP_CYCLE_MAX_SECONDS = MOTION_CYCLE_MAX_SECONDS;
 
 describe("motion", () => {
   const world = buildPharosVilleWorld({
@@ -566,21 +566,31 @@ describe("motion", () => {
     expect(Math.max(...restDurations) - Math.min(...restDurations)).toBeGreaterThanOrEqual(150);
     expect(Math.max(...cadencePairCounts.values()) / routes.length).toBeLessThanOrEqual(0.1);
 
+    let multiLegVoyages = 0;
     for (const route of plan.shipRoutes.values()) {
       expect(route.legDurationSeconds).toBeGreaterThanOrEqual(MOTION_LEG_MIN_SECONDS);
       expect(route.legDurationSeconds).toBeLessThanOrEqual(MOTION_LEG_MAX_SECONDS);
+      expect(route.voyageLegCount).toBeGreaterThanOrEqual(1);
+      expect(route.voyageDurationSeconds).toBeCloseTo(
+        route.legDurationSeconds * route.voyageLegCount!,
+      );
+      if (route.voyageLegCount! > 1) multiLegVoyages += 1;
       expect(route.restDurationSeconds).toBeGreaterThanOrEqual(MOTION_REST_MIN_SECONDS);
       expect(route.restDurationSeconds).toBeLessThanOrEqual(MOTION_REST_MAX_SECONDS);
-      const paths = route.openWaterPatrol
-        ? route.openWaterPatrol.itinerary.map((leg) => leg.outbound)
-        : route.dockStops.map((stop) => route.waterPaths.get(shipWaterPathKey(route.riskTile, stop.mooringTile)));
+      expect(route.riskRestDurationSeconds).toBeGreaterThanOrEqual(MOTION_REST_MIN_SECONDS);
+      expect(route.riskRestDurationSeconds).toBeLessThanOrEqual(MOTION_REST_MAX_SECONDS);
+      const paths = route.dockStops.length > 0
+        ? route.dockStops.map((stop) => route.waterPaths.get(shipWaterPathKey(route.riskTile, stop.mooringTile)))
+        : route.openWaterPatrol?.itinerary.map((leg) => leg.outbound) ?? [];
       for (const path of paths) {
         if (!path) continue;
-        const physicalSpeed = path.totalLength / route.legDurationSeconds;
+        const physicalSpeed = path.totalLength
+          / (route.voyageDurationSeconds ?? route.legDurationSeconds);
         expect(physicalSpeed).toBeGreaterThanOrEqual(MOTION_UNDERWAY_MIN_TILES_PER_SECOND - 1e-9);
         expect(physicalSpeed).toBeLessThanOrEqual(MOTION_UNDERWAY_MAX_TILES_PER_SECOND + 1e-9);
       }
     }
+    expect(multiLegVoyages).toBeGreaterThan(0);
 
     let underwayShareSum = 0;
     let transitionShareSum = 0;
@@ -651,8 +661,10 @@ describe("motion", () => {
         { kind: "departure" as const, offset: route.restDurationSeconds },
         {
           kind: "arrival" as const,
-          offset: route.restDurationSeconds + route.legDurationSeconds + riskRest
-            + route.legDurationSeconds * (1 - MOTION_TRANSITION_SHARE),
+          offset: route.restDurationSeconds
+            + (route.voyageDurationSeconds ?? route.legDurationSeconds)
+            + riskRest
+            + (route.voyageDurationSeconds ?? route.legDurationSeconds) * (1 - MOTION_TRANSITION_SHARE),
         },
       ];
       for (const boundary of boundaries) {
@@ -1550,7 +1562,7 @@ describe("motion", () => {
       const plan = buildMotionPlan(sampleWorld, ship.detailId);
       const route = plan.shipRoutes.get(ship.id)!;
       const riskSeconds = route.restDurationSeconds;
-      const transitSecondsEach = route.legDurationSeconds;
+      const transitSecondsEach = route.voyageDurationSeconds ?? route.legDurationSeconds;
       // Outbound patrol leg spans cycle-elapsed [riskSeconds, riskSeconds + transitSecondsEach).
       const sampleAtLegFraction = (fraction: number) => resolveShipMotionSample({
         plan,
@@ -2585,10 +2597,10 @@ describe("motion", () => {
       expect(transitChecked).toBeGreaterThan(0);
     });
 
-    it("LRU cap formula uses min(4096, max(512, 16 * shipCount))", () => {
+    it("LRU cap formula uses min(4096, max(512, 24 * shipCount))", () => {
       // Verify the cap is bounded at both ends.
-      // shipCount=1 → max(512, 16) = 512.
-      const cacheSmall = new BoundedShipWaterRouteCache(Math.min(4096, Math.max(512, 16 * 1)));
+      // shipCount=1 → max(512, 24) = 512.
+      const cacheSmall = new BoundedShipWaterRouteCache(Math.min(4096, Math.max(512, 24 * 1)));
       expect(cacheSmall.size).toBe(0);
       // Fill past 512: size must stay at 512.
       for (let i = 0; i < 520; i += 1) {
@@ -2596,15 +2608,15 @@ describe("motion", () => {
       }
       expect(cacheSmall.size).toBe(512);
 
-      // shipCount=48 → max(512, 768) = 768.
-      const cacheMid = new BoundedShipWaterRouteCache(Math.min(4096, Math.max(512, 16 * 48)));
-      for (let i = 0; i < 800; i += 1) {
+      // shipCount=48 → max(512, 1152) = 1152.
+      const cacheMid = new BoundedShipWaterRouteCache(Math.min(4096, Math.max(512, 24 * 48)));
+      for (let i = 0; i < 1200; i += 1) {
         cacheMid.set(`k${i}`, { from, to, points: [from, to], cumulativeLengths: [0, 1], totalLength: 1 });
       }
-      expect(cacheMid.size).toBe(768);
+      expect(cacheMid.size).toBe(1152);
 
-      // shipCount=300 → min(4096, max(512, 4800)) = 4096.
-      const cacheLarge = new BoundedShipWaterRouteCache(Math.min(4096, Math.max(512, 16 * 300)));
+      // shipCount=300 → min(4096, max(512, 7200)) = 4096.
+      const cacheLarge = new BoundedShipWaterRouteCache(Math.min(4096, Math.max(512, 24 * 300)));
       for (let i = 0; i < 4100; i += 1) {
         cacheLarge.set(`k${i}`, { from, to, points: [from, to], cumulativeLengths: [0, 1], totalLength: 1 });
       }

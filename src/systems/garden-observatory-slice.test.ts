@@ -143,6 +143,10 @@ describe("Garden Observatory slice", () => {
     const inwardLength = Math.hypot(inward.x, inward.y);
     const sample = {
       mapVisibilityAlpha: 0,
+      // Dock-transition states bypass the independent hull-clearance resolver,
+      // which can no longer be avoided geometrically now that the 96-tile
+      // station allowance spans most of the authored rimmed map.
+      state: "moored" as const,
       tile: {
         x: placement!.ship.tile.x + (inward.x / inwardLength) * (GARDEN_MAX_MOTION_TILES + 8),
         y: placement!.ship.tile.y + (inward.y / inwardLength) * (GARDEN_MAX_MOTION_TILES + 8),

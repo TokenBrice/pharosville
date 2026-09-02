@@ -2,10 +2,12 @@ import { clampMapTile, isWaterTileKind, nearestWaterTile } from "./world-layout"
 import { stableHash, stableUnit } from "./stable-random";
 import {
   DOCKED_SHIP_DWELL_SHARE,
+  MOTION_CYCLE_MAX_SECONDS,
   MOTION_LEG_MAX_SECONDS,
   MOTION_LEG_MIN_SECONDS,
   MOTION_PAIR_HORIZON_SECONDS,
   MOTION_PAIR_SLOT_SECONDS,
+  MOTION_REST_MIN_SECONDS,
   MOTION_TRANSITION_SHARE,
   MOTION_UNDERWAY_MAX_TILES_PER_SECOND,
   MOTION_UNDERWAY_MIN_TILES_PER_SECOND,
@@ -77,8 +79,9 @@ export function __resetPreviousRiskCache(): void {
 
 /**
  * LRU-bounded cache for A* ship water routes, keyed by zone:shipId:bucket:from→to string.
- * Capacity = min(4096, max(512, 16 × shipCount)) — sized to absorb per-bucket entries
- * across multiple 10-minute windows without thrashing.
+ * Capacity = min(4096, max(512, 24 × shipCount)) — the former 16-entry allowance
+ * covered 72-tile island-anchorage motion. Shore-station voyages can reach 96
+ * tiles and exercise proportionally more cadence-waypoint candidates.
  * LRU discipline: on get() the hit entry is moved to the end (most-recently
  * used); the entry at the start (least-recently used) is evicted when full.
  * The production cache contract intentionally exposes only get/set; tests and
@@ -142,7 +145,7 @@ export class BoundedShipWaterRouteCache {
 function getMapPathCache(map: PharosVilleMap, shipCount: number): BoundedShipWaterRouteCache {
   let cache = pathCacheByMap.get(map);
   if (!cache) {
-    const capacity = Math.min(4096, Math.max(512, 16 * shipCount));
+    const capacity = Math.min(4096, Math.max(512, 24 * shipCount));
     cache = new BoundedShipWaterRouteCache(capacity);
     pathCacheByMap.set(map, cache);
   }
@@ -306,19 +309,31 @@ function buildShipMotionRoute(
     identityLegDurationSeconds,
   });
   const legDurationSeconds = cadenceGeometry.legDurationSeconds;
-  const restDurationSeconds = shipRestDurationSeconds(cadenceUnit, speedScalar);
-  const riskRestDurationSeconds = 2 * restDurationSeconds - 2 * legDurationSeconds;
-  const cycleSeconds = restDurationSeconds + riskRestDurationSeconds + 2 * legDurationSeconds;
+  const voyageDurationSeconds = cadenceGeometry.voyageDurationSeconds;
+  const voyageLegCount = cadenceGeometry.voyageLegCount;
+  // A long voyage may need a second logical leg. Carry its extension into the
+  // dock rest to preserve the identity cadence spread, bounded by the existing
+  // 22-minute cycle contract; also keep the opposite rest at its 240 s floor.
+  const identityRestDurationSeconds = shipRestDurationSeconds(cadenceUnit, speedScalar);
+  const restDurationSeconds = Math.max(
+    Math.min(
+      identityRestDurationSeconds + (voyageDurationSeconds - identityLegDurationSeconds),
+      MOTION_CYCLE_MAX_SECONDS / 3,
+    ),
+    voyageDurationSeconds + MOTION_REST_MIN_SECONDS / 2,
+  );
+  const riskRestDurationSeconds = 2 * restDurationSeconds - 2 * voyageDurationSeconds;
+  const cycleSeconds = restDurationSeconds + riskRestDurationSeconds + 2 * voyageDurationSeconds;
   const underwaySpeedTilesPerSecond = shipUnderwaySpeed(ship.riskZone, speedScalar);
   const waterPaths = new LazyShipWaterPathMap();
-  const openWaterPatrol = dockStops.length === 0 || ship.riskPlacement === "ledger-mooring"
+  const openWaterPatrol = dockStops.length === 0
     ? buildOpenWaterPatrol(
       ship,
       riskTile,
       map,
       waterRouteCache,
       bucket,
-      legDurationSeconds,
+      voyageDurationSeconds,
       underwaySpeedTilesPerSecond,
     )
     : null;
@@ -357,7 +372,7 @@ function buildShipMotionRoute(
       zone: ship.riskZone,
       shipId: ship.id,
       bucket,
-      legDurationSeconds,
+      legDurationSeconds: voyageDurationSeconds,
       paceTilesPerSecond: underwaySpeedTilesPerSecond,
     }, waterRouteCache);
     waterPaths.setBuilder(outboundKey, outbound);
@@ -382,13 +397,15 @@ function buildShipMotionRoute(
     routeKey,
     cycleSeconds,
     legDurationSeconds,
+    voyageDurationSeconds,
+    voyageLegCount,
     restDurationSeconds,
     riskRestDurationSeconds,
     underwaySpeedTilesPerSecond,
     phaseSeconds: pairedShipPhaseSeconds({
       cadenceIdentity,
       cycleSeconds,
-      legDurationSeconds,
+      voyageDurationSeconds,
       restDurationSeconds,
       riskRestDurationSeconds,
       zone: ship.riskZone,
@@ -510,6 +527,12 @@ function buildConsortMotionRoute(
     routeKey: `${flagshipRoute.routeKey ?? fallbackRouteKey(flagshipRoute)}:consort:${ship.id}:${offset.dx},${offset.dy}`,
     cycleSeconds: flagshipRoute.cycleSeconds,
     legDurationSeconds: flagshipRoute.legDurationSeconds,
+    ...(flagshipRoute.voyageDurationSeconds !== undefined
+      ? { voyageDurationSeconds: flagshipRoute.voyageDurationSeconds }
+      : {}),
+    ...(flagshipRoute.voyageLegCount !== undefined
+      ? { voyageLegCount: flagshipRoute.voyageLegCount }
+      : {}),
     restDurationSeconds: flagshipRoute.restDurationSeconds,
     ...(flagshipRoute.riskRestDurationSeconds !== undefined
       ? { riskRestDurationSeconds: flagshipRoute.riskRestDurationSeconds }
@@ -705,8 +728,8 @@ function cadenceLegDurationForGeometry(input: {
   waterRouteCache: ShipWaterRouteCache;
   bucket: number;
   identityLegDurationSeconds: number;
-}): { legDurationSeconds: number } {
-  const endpoints = input.dockStops.length > 0 && input.ship.riskPlacement !== "ledger-mooring"
+}): { legDurationSeconds: number; voyageDurationSeconds: number; voyageLegCount: number } {
+  const endpoints = input.dockStops.length > 0
     ? input.dockStops.map((stop) => stop.mooringTile)
     : openWaterPatrolItineraryAnchors(input.ship, input.riskTile, input.map);
   let minimumSeconds = MOTION_LEG_MIN_SECONDS;
@@ -725,19 +748,19 @@ function cadenceLegDurationForGeometry(input: {
       direct.totalLength / MOTION_UNDERWAY_MAX_TILES_PER_SECOND,
     );
   }
-  return {
-    legDurationSeconds: clamp(
-      Math.max(input.identityLegDurationSeconds, minimumSeconds),
-      MOTION_LEG_MIN_SECONDS,
-      MOTION_LEG_MAX_SECONDS,
-    ),
-  };
+  const voyageDurationSeconds = Math.max(input.identityLegDurationSeconds, minimumSeconds);
+  const voyageLegCount = Math.max(1, Math.ceil(voyageDurationSeconds / MOTION_LEG_MAX_SECONDS));
+  const legDurationSeconds = voyageDurationSeconds / voyageLegCount;
+  if (legDurationSeconds < MOTION_LEG_MIN_SECONDS - 1e-9) {
+    throw new Error(`Cadence split produced a short leg for ${input.ship.id}: ${legDurationSeconds.toFixed(2)}s`);
+  }
+  return { legDurationSeconds, voyageDurationSeconds, voyageLegCount };
 }
 
 function pairedShipPhaseSeconds(input: {
   cadenceIdentity: string;
   cycleSeconds: number;
-  legDurationSeconds: number;
+  voyageDurationSeconds: number;
   restDurationSeconds: number;
   riskRestDurationSeconds: number;
   zone: ShipNode["riskZone"];
@@ -754,9 +777,9 @@ function pairedShipPhaseSeconds(input: {
   const anchorsArrival = (stableHash(`${pairKey}.side.1`) & 1) === 1;
   const departureBoundary = input.restDurationSeconds;
   const arrivalBoundary = input.restDurationSeconds
-    + input.legDurationSeconds
+    + input.voyageDurationSeconds
     + input.riskRestDurationSeconds
-    + input.legDurationSeconds * (1 - MOTION_TRANSITION_SHARE);
+    + input.voyageDurationSeconds * (1 - MOTION_TRANSITION_SHARE);
   const boundary = anchorsArrival ? arrivalBoundary : departureBoundary;
   const slotTime = (slot + 0.5) * MOTION_PAIR_SLOT_SECONDS;
   return positiveModulo(boundary - slotTime, input.cycleSeconds);
