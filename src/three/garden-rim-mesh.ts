@@ -137,9 +137,10 @@ function finishGeometry(builder: GeometryBuilder): BufferGeometry {
 }
 
 function shoreJitter(tileX: number, tileY: number): number {
-  const keyX = Math.round(tileX / SAMPLE_STEP);
-  const keyY = Math.round(tileY / SAMPLE_STEP);
-  return (stableUnit(`rim-shore.${keyX}.${keyY}`) - 0.5) * 0.8;
+  // Smooth, sub-tile irregularity: unlike per-cell noise this has a usable
+  // gradient, so the mesh can project vertices onto the authored shoreline.
+  return Math.sin(tileX * 1.73 + tileY * 0.91) * 0.23
+    + Math.sin(tileX * 0.47 - tileY * 1.31) * 0.15;
 }
 
 function authoredDistance(tileX: number, tileY: number): number {
@@ -167,6 +168,38 @@ function rimColor(tileX: number, tileY: number): Color {
 function isSubtileLand(tileX: number, tileY: number): boolean {
   if (tileX < 0 || tileY < 0 || tileX > MAP_LAST || tileY > MAP_LAST) return false;
   return authoredDistance(tileX, tileY) <= 0;
+}
+
+function shoreVertexTile(tileX: number, tileY: number): { x: number; y: number } {
+  const quarter = SAMPLE_STEP * 0.5;
+  const neighbourhood = [
+    isSubtileLand(tileX - quarter, tileY - quarter),
+    isSubtileLand(tileX + quarter, tileY - quarter),
+    isSubtileLand(tileX - quarter, tileY + quarter),
+    isSubtileLand(tileX + quarter, tileY + quarter),
+  ];
+  if (neighbourhood.every(Boolean) || neighbourhood.every((land) => !land)) {
+    return { x: tileX, y: tileY };
+  }
+  const epsilon = 0.12;
+  const distance = authoredDistance(tileX, tileY);
+  const gradientX = (authoredDistance(tileX + epsilon, tileY)
+    - authoredDistance(tileX - epsilon, tileY)) / (epsilon * 2);
+  const gradientY = (authoredDistance(tileX, tileY + epsilon)
+    - authoredDistance(tileX, tileY - epsilon)) / (epsilon * 2);
+  const denominator = gradientX * gradientX + gradientY * gradientY;
+  if (denominator < 1e-5) return { x: tileX, y: tileY };
+  let moveX = -distance * gradientX / denominator;
+  let moveY = -distance * gradientY / denominator;
+  const move = Math.hypot(moveX, moveY);
+  if (move > 0.72) {
+    moveX *= 0.72 / move;
+    moveY *= 0.72 / move;
+  }
+  return {
+    x: Math.max(0, Math.min(MAP_LAST, tileX + moveX)),
+    y: Math.max(0, Math.min(MAP_LAST, tileY + moveY)),
+  };
 }
 
 function pointAtY(
@@ -201,10 +234,10 @@ function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
     for (let ix = 0; ix < samples; ix += 1) {
       const cx = ix * SAMPLE_STEP + half;
       if (!isSubtileLand(cx, cy)) continue;
-      const x0 = (cx - half) * TILE_SCALE;
-      const x1 = (cx + half) * TILE_SCALE;
-      const z0 = (cy - half) * TILE_SCALE;
-      const z1 = (cy + half) * TILE_SCALE;
+      const p00 = shoreVertexTile(cx - half, cy - half);
+      const p10 = shoreVertexTile(cx + half, cy - half);
+      const p11 = shoreVertexTile(cx + half, cy + half);
+      const p01 = shoreVertexTile(cx - half, cy + half);
       // Heights are sampled at shared corners so neighbouring tiles remain a
       // watertight sheet. Quantisation in rimHeight still creates broad,
       // unequal terraces without the hairline cracks of disconnected slabs.
@@ -214,7 +247,10 @@ function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
       const h01 = rimHeight(cx - half, cy + half);
       addQuad(
         top,
-        [x0, h00, z0], [x1, h10, z0], [x1, h11, z1], [x0, h01, z1],
+        [p00.x * TILE_SCALE, h00, p00.y * TILE_SCALE],
+        [p10.x * TILE_SCALE, h10, p10.y * TILE_SCALE],
+        [p11.x * TILE_SCALE, h11, p11.y * TILE_SCALE],
+        [p01.x * TILE_SCALE, h01, p01.y * TILE_SCALE],
         [
           rimColor(cx - half, cy - half),
           rimColor(cx + half, cy - half),
@@ -223,14 +259,21 @@ function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
         ],
       );
       const sides = [
-        { dx: -SAMPLE_STEP, dy: 0, a: [x0, h01, z1], b: [x0, h00, z0], c: [x0, WATERLINE_Y, z0], d: [x0, WATERLINE_Y, z1] },
-        { dx: SAMPLE_STEP, dy: 0, a: [x1, h10, z0], b: [x1, h11, z1], c: [x1, WATERLINE_Y, z1], d: [x1, WATERLINE_Y, z0] },
-        { dx: 0, dy: -SAMPLE_STEP, a: [x0, h00, z0], b: [x1, h10, z0], c: [x1, WATERLINE_Y, z0], d: [x0, WATERLINE_Y, z0] },
-        { dx: 0, dy: SAMPLE_STEP, a: [x1, h11, z1], b: [x0, h01, z1], c: [x0, WATERLINE_Y, z1], d: [x1, WATERLINE_Y, z1] },
+        { dx: -SAMPLE_STEP, dy: 0, a: [p01.x * TILE_SCALE, h01, p01.y * TILE_SCALE], b: [p00.x * TILE_SCALE, h00, p00.y * TILE_SCALE] },
+        { dx: SAMPLE_STEP, dy: 0, a: [p10.x * TILE_SCALE, h10, p10.y * TILE_SCALE], b: [p11.x * TILE_SCALE, h11, p11.y * TILE_SCALE] },
+        { dx: 0, dy: -SAMPLE_STEP, a: [p00.x * TILE_SCALE, h00, p00.y * TILE_SCALE], b: [p10.x * TILE_SCALE, h10, p10.y * TILE_SCALE] },
+        { dx: 0, dy: SAMPLE_STEP, a: [p11.x * TILE_SCALE, h11, p11.y * TILE_SCALE], b: [p01.x * TILE_SCALE, h01, p01.y * TILE_SCALE] },
       ] as const;
       for (const side of sides) {
         if (isSubtileLand(cx + side.dx, cy + side.dy)) continue;
-        addShoreCourses(face, side.a, side.b, side.c, side.d, rimColor(cx, cy));
+        addShoreCourses(
+          face,
+          side.a,
+          side.b,
+          pointAtY(side.b, WATERLINE_Y),
+          pointAtY(side.a, WATERLINE_Y),
+          rimColor(cx, cy),
+        );
       }
     }
   }

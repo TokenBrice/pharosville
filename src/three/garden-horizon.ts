@@ -42,8 +42,8 @@ const RIDGES = [
   },
   {
     depth: 132,
-    height: 10.5,
-    offset: 0,
+    height: 8.2,
+    offset: -55,
     profile: [0, 0.11, 0.3, 0.2, 0.48, 0.82, 0.52, 0.38, 0.16, 0.22, 0],
     width: 200,
   },

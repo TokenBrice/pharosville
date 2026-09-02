@@ -207,6 +207,8 @@ describe("garden sky atmospheric scattering", () => {
     expect(source).toContain("farRidge * 0.02");
     expect(source).toContain("middleRidge * 0.03");
     expect(source).toContain("nearRidge * 0.04");
+    expect(source).toContain("across - 0.39");
+    expect(source).not.toContain("across - 0.52");
     sky.dispose();
   });
 

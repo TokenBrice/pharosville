@@ -4,7 +4,7 @@ import {
   createGardenRimMesh,
   GARDEN_ENGAWA_LANTERN_WORLD,
 } from "./garden-rim-mesh";
-import { countDrawableObjects } from "./garden-util";
+import { countDrawableObjects, TILE_SCALE } from "./garden-util";
 
 describe("garden rim mesh", () => {
   it("builds the authored ring in five batched opaque draws", () => {
@@ -27,6 +27,16 @@ describe("garden rim mesh", () => {
     expect(rim.pathSegmentCount).toBeGreaterThan(80);
     expect(rim.coveSpurCount).toBeGreaterThanOrEqual(13);
     expect(rim.triangleCount).toBeLessThan(120_000);
+    const shore = rim.root.getObjectByName("garden-rim-tide-rock") as Mesh;
+    const positions = shore.geometry.getAttribute("position");
+    let contourVertices = 0;
+    for (let index = 0; index < positions.count; index += 1) {
+      const gridX = positions.getX(index) / (TILE_SCALE * 0.5);
+      const gridZ = positions.getZ(index) / (TILE_SCALE * 0.5);
+      if (Math.abs(gridX - Math.round(gridX)) > 0.01
+        || Math.abs(gridZ - Math.round(gridZ)) > 0.01) contourVertices += 1;
+    }
+    expect(contourVertices).toBeGreaterThan(100);
     rim.dispose();
   });
 

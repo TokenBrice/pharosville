@@ -518,8 +518,8 @@ function createBackdrop(domeMaterial: ShaderMaterial): {
         float farCrest = 0.84
           + exp(-pow((across - 0.28) * 4.2, 2.0)) * 0.095
           + exp(-pow((across - 0.73) * 5.4, 2.0)) * 0.055;
-        float middleCrest = 0.8
-          + exp(-pow((across - 0.52) * 4.8, 2.0)) * 0.09;
+        float middleCrest = 0.78
+          + exp(-pow((across - 0.39) * 5.2, 2.0)) * 0.065;
         float nearCrest = 0.76
           + exp(-pow((across - 0.82) * 6.0, 2.0)) * 0.075;
         float farRidge = smoothstep(0.68, 0.74, skyHeight)
