@@ -40,6 +40,13 @@ const BUCKETS: readonly HarborBucket[] = [
 ];
 const PROP_KINDS: readonly HarborPropKind[] = ["post", "lampHead", "plank", "bollard", "piling", "netRack", "reedClump"];
 
+/**
+ * Station windows and quay edges are land-bound embers, not extra reflection
+ * pools. They therefore share one emissive bucket while garden-lanterns keeps
+ * sole ownership of the limited water-lane budget.
+ */
+export const HARBOR_WINDOW_EMBER_INTENSITY = 1.6;
+
 type BucketMeshes = Record<HarborBucket, Mesh | null>;
 type PropMeshes = Record<HarborPropKind, InstancedMesh | null>;
 type ColorRange = { count: number; start: number };
@@ -74,8 +81,8 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
   });
 
   const accentRanges = new Map<string, Array<{ bucket: HarborBucket; range: ColorRange }>>();
-  const bucketMeshes = createBucketMeshes(root, renderRecipes, false, accentRanges);
-  const fineDetailBucketMeshes = createBucketMeshes(root, renderRecipes, true, accentRanges);
+  const bucketMeshes = createBucketMeshes(root, renderRecipes, false);
+  const fineDetailBucketMeshes = createBucketMeshes(root, renderRecipes, true);
   const propMeshes = createPropMeshes(root, recipes, false);
   const fineDetailPropMeshes = createPropMeshes(root, recipes, true);
   const fineDetailMeshes = [
@@ -171,7 +178,6 @@ function createBucketMeshes(
   root: Group,
   recipes: readonly DockRecipe[],
   fineDetail: boolean,
-  accentRanges: Map<string, Array<{ bucket: HarborBucket; range: ColorRange }>>,
 ): BucketMeshes {
   const result = emptyBuckets();
   for (const bucket of BUCKETS) {
@@ -183,7 +189,6 @@ function createBucketMeshes(
     }
     if (entries.length === 0) continue;
     const geometries: BufferGeometry[] = [];
-    let start = 0;
     let castsShadow = false;
     for (const entry of entries) {
       const geometry = entry.part.geometry.clone();
@@ -200,12 +205,6 @@ function createBucketMeshes(
         if (colorSize === 4) colors[index * colorSize + 3] = opacity;
       }
       geometry.setAttribute("color", new Float32BufferAttribute(colors, colorSize));
-      if (!fineDetail && (bucket === "roof" || bucket === "accent")) {
-        const ranges = accentRanges.get(entry.chainId) ?? [];
-        ranges.push({ bucket, range: { count, start } });
-        accentRanges.set(entry.chainId, ranges);
-      }
-      start += count;
       castsShadow ||= entry.part.castShadow;
       geometries.push(geometry);
     }
@@ -247,7 +246,7 @@ function bucketMaterial(bucket: HarborBucket): MeshStandardMaterial {
     case "accent":
     case "roof": return new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.86, side: DoubleSide, vertexColors: true });
     case "wall": return new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.96, transparent: true, vertexColors: true });
-    case "window": return new MeshStandardMaterial({ color: "#ffffff", emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: 1.6, roughness: 0.5, toneMapped: false, vertexColors: true });
+    case "window": return new MeshStandardMaterial({ color: "#ffffff", emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: HARBOR_WINDOW_EMBER_INTENSITY, roughness: 0.5, toneMapped: false, vertexColors: true });
   }
 }
 

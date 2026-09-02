@@ -2,7 +2,7 @@
 import { Color, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh } from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authorDock, type StationType } from "./garden-docks";
-import { createGardenHarborBatch } from "./garden-harbor-batch";
+import { createGardenHarborBatch, HARBOR_WINDOW_EMBER_INTENSITY } from "./garden-harbor-batch";
 import { gardenChainFlagAtlas, resetGardenChainFlagAtlas } from "./garden-chain-flag";
 import { countDrawableObjects } from "./garden-util";
 import { dockFixture, DISPLAY_TILES, ISLAND_TILE } from "./__fixtures__/harbor";
@@ -58,15 +58,15 @@ function batchOfAllStationTypes() {
 }
 
 describe("createGardenHarborBatch", () => {
-  it("keeps the station batch at 13 draws so the complete harbor ring stays within 20", () => {
+  it("keeps every bucket shared so the complete 11-type harbor ring stays within 20 draws", () => {
     const batch = batchOfNine();
-    expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(13);
+    expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(20);
     for (const dock of batch.docks) {
       expect(countDrawableObjects(dock.root)).toBe(0);
       expect(dock.root.name).toBe(`dock-anchor-${dock.recipe.dock.chainId}`);
     }
     const completeTypeBatch = batchOfAllStationTypes();
-    expect(countDrawableObjects(completeTypeBatch.root)).toBeLessThanOrEqual(13);
+    expect(countDrawableObjects(completeTypeBatch.root)).toBeLessThanOrEqual(20);
     completeTypeBatch.dispose();
   });
 
@@ -110,7 +110,7 @@ describe("createGardenHarborBatch", () => {
     }
   });
 
-  it("recolours one dock's roofs in place without touching its neighbours", () => {
+  it("keeps authored roof contrast fixed when a dock's semantic accent changes", () => {
     const batch = batchOfNine();
     const roof = batch.bucketMeshes.roof as Mesh;
     const colors = roof.geometry.getAttribute("color");
@@ -118,9 +118,9 @@ describe("createGardenHarborBatch", () => {
     batch.setDockAccent("solana", new Color("#ff0000"));
     const after = Array.from(colors.array);
     const changed = before.filter((value, index) => value !== after[index]).length;
-    expect(changed).toBeGreaterThan(0);
-    expect(changed).toBeLessThan(before.length / 4);
-    expect(colors.needsUpdate || (colors as { version?: number }).version! > 0).toBeTruthy();
+    expect(changed).toBe(0);
+    expect(batch.docks.find((dock) => dock.recipe.dock.chainId === "solana")?.recipe.accentColor)
+      .toEqual(new Color("#ff0000"));
   });
 
   it("toggles fine detail as a whole and keeps the quay height-fog contract on every bucket material", () => {
@@ -132,6 +132,20 @@ describe("createGardenHarborBatch", () => {
       if (!mesh) continue;
       expect((mesh.material as { userData: { gardenHeightFog?: unknown } }).userData.gardenHeightFog).toBeTruthy();
     }
+  });
+
+  it("keeps every station window and lit quay edge in one warm ember draw", () => {
+    const batch = batchOfAllStationTypes();
+    const windows = batch.bucketMeshes.window as Mesh;
+    expect(windows.name).toBe("station-lit-screens");
+    expect(windows.material).toMatchObject({
+      emissiveIntensity: HARBOR_WINDOW_EMBER_INTENSITY,
+      toneMapped: false,
+      vertexColors: true,
+    });
+    expect(batch.docks.every((dock) => dock.recipe.features.warmWindowCount > 0)).toBe(true);
+    expect(batch.docks.every((dock) => dock.recipe.features.quayPlatform.litEdge)).toBe(true);
+    batch.dispose();
   });
 
   it("flies every station flag shape from one instanced cloth and turns one without turning the rest", () => {

@@ -1,4 +1,4 @@
-import { Box3, Color, Matrix4, Vector3 } from "three";
+import { Color, Matrix4 } from "three";
 import { describe, expect, it } from "vitest";
 import type { DockNode } from "../systems/world-types";
 import { HARBOR_PALETTE } from "../systems/palette";
@@ -8,6 +8,7 @@ import {
   authorPrecinctBridge,
   gardenHarborLanternWorldPositions,
   gardenHarborCalmMask,
+  HARBOR_FLAG_SCALE_MULTIPLIER,
   harborIdentity,
   type DockRecipe,
   type StationType,
@@ -32,6 +33,7 @@ describe("garden station recipes", () => {
     expect(new Set(identities.map((identity) => identity.roofline)).size).toBe(ARCHETYPES.length);
     expect(new Set(identities.map((identity) => identity.flagShape)).size).toBe(ARCHETYPES.length);
     expect(new Set(identities.map((identity) => identity.signature)).size).toBe(ARCHETYPES.length);
+    expect(new Set(identities.map((identity) => identity.secondLevel)).size).toBe(ARCHETYPES.length);
     for (const type of ARCHETYPES) expect(recipeWithStation(type).station.type).toBe(type);
   });
 
@@ -52,17 +54,30 @@ describe("garden station recipes", () => {
     }
   });
 
-  it("keeps every emitted primary roof legible at the default view height", () => {
-    for (const type of EMITTED_ARCHETYPES) {
+  it("gives every station a distance-readable primary mass, named second level, lit stone quay, windows, and 1.6x flag", () => {
+    const secondLevels = new Set<string>();
+    const roofColors = new Set<string>();
+    for (const type of ARCHETYPES) {
       const recipe = recipeWithStation(type);
-      const roof = recipe.parts.find((part) => part.bucket === "roof")!;
-      roof.geometry.computeBoundingBox();
-      const bounds = roof.geometry.boundingBox as Box3;
-      const size = bounds.getSize(new Vector3());
-      expect(size.x, `${type} roof length`).toBeGreaterThanOrEqual(3.99);
-      expect(size.z, `${type} roof depth`).toBeGreaterThanOrEqual(2.99);
-      expect(bounds.max.y, `${type} roof height`).toBeGreaterThanOrEqual(2.2);
+      const minimum = type === "boathouse-precinct"
+        ? { height: 5.1, length: 15.9, span: 7.9 }
+        : { height: 4.1, length: 9.9, span: 5.8 };
+      expect(recipe.features.primaryMass.footprint.length, `${type} primary length`).toBeGreaterThanOrEqual(minimum.length);
+      expect(recipe.features.primaryMass.footprint.span, `${type} primary span`).toBeGreaterThanOrEqual(minimum.span);
+      expect(recipe.features.primaryMass.height, `${type} primary height`).toBeGreaterThanOrEqual(minimum.height);
+      expect(recipe.features.secondLevel.height, `${type} second-level height`).toBeGreaterThan(recipe.features.primaryMass.height);
+      expect(recipe.features.quayPlatform.footprint.length, `${type} quay length`).toBeGreaterThan(2.8);
+      expect(recipe.features.quayPlatform.footprint.span, `${type} quay span`).toBeGreaterThan(2.4);
+      expect(recipe.features.quayPlatform.height, `${type} raised quay`).toBeGreaterThanOrEqual(1.1);
+      expect(recipe.features.quayPlatform.litEdge, `${type} quay light`).toBe(true);
+      expect(recipe.features.warmWindowCount, `${type} warm windows`).toBeGreaterThan(0);
+      expect(recipe.flag.scaleMultiplier, `${type} flag multiplier`).toBe(HARBOR_FLAG_SCALE_MULTIPLIER);
+      expect(recipe.flag.scaleMultiplier).toBe(1.6);
+      secondLevels.add(recipe.features.secondLevel.name);
+      roofColors.add(recipe.parts.find((part) => part.bucket === "roof")!.color.getHexString());
     }
+    expect(secondLevels.size).toBe(ARCHETYPES.length);
+    expect(roofColors.size).toBe(ARCHETYPES.length);
   });
 
   it("falls back to legacy identity and island bearing while B2 is absent", () => {
@@ -83,8 +98,10 @@ describe("garden station recipes", () => {
       expect(capital.footprint.span).toBeGreaterThan(other.footprint.span);
     }
     expect(capital.identity.signature).toBe("moon-viewing-deck");
-    expect(maxGeometryY(capital)).toBeGreaterThan(5);
-    expect(Math.max(...others.map(maxGeometryY))).toBeLessThan(5);
+    expect(capital.identity.secondLevel).toBe("bell-tower");
+    expect(others.every((other) => other.identity.secondLevel !== "bell-tower")).toBe(true);
+    expect(capital.features.secondLevel.height - capital.features.primaryMass.height).toBeGreaterThanOrEqual(3);
+    expect(maxGeometryY(capital)).toBeGreaterThan(8);
   });
 
   it("keeps industrial identity props out and permits one works prop at most", () => {
@@ -143,8 +160,13 @@ describe("garden station recipes", () => {
       x: diagonal.right.x - diagonal.left.x,
       z: diagonal.right.z - diagonal.left.z,
     };
-    expect(Math.hypot(across.x, across.z)).toBeCloseTo(0.62, 6);
+    expect(Math.hypot(across.x, across.z)).toBeCloseTo(1, 6);
     expect(across.x * Math.cos(diagonal.yaw) - across.z * Math.sin(diagonal.yaw)).toBeCloseTo(0, 6);
+    expect(bridge[0]!.geometry.userData.precinctBridgeProfile).toEqual({
+      deckThickness: 0.26,
+      deckWidth: 1.18,
+      railHeight: 0.86,
+    });
     expect(fingerprint(bridge)).toBe(fingerprint(authorPrecinctBridge(precinct, annex)));
     expect(authorPrecinctBridge(annex, precinct)).toEqual([]);
     const far = recipeWithStation("annex-pavilion", "polygon", 0, { x: 14, y: 100 });
