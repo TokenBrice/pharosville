@@ -1,6 +1,10 @@
 import { BoxGeometry, Group, InstancedMesh, Mesh, MeshStandardMaterial, OrthographicCamera, Scene } from "three";
 import { describe, expect, it } from "vitest";
-import { createDrawOwnerRecorder, type DrawRecorderTarget } from "./garden-draw-census";
+import {
+  createDrawOwnerRecorder,
+  shouldRequestDrawCensus,
+  type DrawRecorderTarget,
+} from "./garden-draw-census";
 
 function box(name: string): Mesh {
   const mesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial());
@@ -26,6 +30,13 @@ function fakeRenderer(draws: Array<{ object: Mesh | InstancedMesh; group?: { sta
 }
 
 describe("createDrawOwnerRecorder", () => {
+  it("requests on topology changes and every 120 debug frames since the last sample", () => {
+    expect(shouldRequestDrawCensus({ topologyChanged: true, debug: false, framesSinceSample: 0 })).toBe(true);
+    expect(shouldRequestDrawCensus({ topologyChanged: false, debug: true, framesSinceSample: 119 })).toBe(false);
+    expect(shouldRequestDrawCensus({ topologyChanged: false, debug: true, framesSinceSample: 120 })).toBe(true);
+    expect(shouldRequestDrawCensus({ topologyChanged: false, debug: false, framesSinceSample: 120 })).toBe(false);
+  });
+
   it("attributes every real draw to its nearest named ancestors and reconciles exactly to info.render.calls", () => {
     const scene = new Scene();
     const content = new Group(); content.name = "content";
@@ -65,6 +76,20 @@ describe("createDrawOwnerRecorder", () => {
       { owner: "island-terrace", calls: 2, triangles: 12, instanced: false },
       { owner: "dock-posts", calls: 1, triangles: 480, instanced: true },
     ]);
+  });
+
+  it("does not attribute a renderBufferDirect invocation that Three declines to draw", () => {
+    const scene = new Scene();
+    const empty = new InstancedMesh(new BoxGeometry(), new MeshStandardMaterial(), 0); empty.name = "empty";
+    scene.add(empty);
+    const renderer = fakeRenderer([{ object: empty }]);
+    renderer.renderBufferDirect = () => {};
+    const recorder = createDrawOwnerRecorder(renderer, scene);
+    recorder.arm(); renderer.render();
+    const census = recorder.finish(1)!;
+    expect(census.rendererCalls).toBe(0);
+    expect(census.attributedCalls).toBe(0);
+    expect(census.owners).toEqual([]);
   });
 
   it("restores the original renderBufferDirect after one sampled frame and returns null when not armed", () => {

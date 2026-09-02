@@ -61,8 +61,14 @@ import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
 import { screenToTile } from "../systems/projection";
 import { deriveEpistemicHaze } from "../systems/epistemic-haze";
 import { seasonFromDate, type GardenSeason } from "../systems/season";
+import { isDebugChromeEnabled } from "../lib/pharosville-debug";
 import { createGardenAlmanacDressing, type GardenAlmanacDressing } from "./garden-almanac-dressing";
-import { createDrawOwnerRecorder, type DrawOwnerCensus, type DrawRecorderTarget } from "./garden-draw-census";
+import {
+  createDrawOwnerRecorder,
+  shouldRequestDrawCensus,
+  type DrawOwnerCensus,
+  type DrawRecorderTarget,
+} from "./garden-draw-census";
 import {
   GARDEN_BREATH_PHASE,
   gardenBreathAt,
@@ -740,6 +746,7 @@ export function createThreeWorldRenderer(
   // @types/three still narrows the r185 runtime's null scene/group arguments;
   // the recorder's structural target matches the implementation's actual calls.
   const drawRecorder = createDrawOwnerRecorder(renderer as unknown as DrawRecorderTarget, scene.root);
+  const debugDrawCensus = isDebugChromeEnabled();
   const post = createGardenPost(renderer, scene.root, camera);
 
   let disposed = false;
@@ -823,12 +830,14 @@ export function createThreeWorldRenderer(
       }
       scene.lighthouseModel = model;
       attachGardenLighthouseModel(model, scene.content);
+      drawCensusRequested = true;
       scheduleModelTextureUploads({
         isOwnerValid: () => !disposed && scene.lighthouseModel === model,
         model,
         onReady: () => {
           // The GLB shell replaces the procedural one — refresh the shadow map.
           scene.shadowNeedsRender = true;
+          drawCensusRequested = true;
           onAssetReady?.();
         },
         owner: scene,
@@ -854,6 +863,7 @@ export function createThreeWorldRenderer(
         .then((model) => {
           if (disposed || scene.content !== content || part.epoch !== epoch) return;
           attachGardenHeroModel(visual, model);
+          drawCensusRequested = true;
           scheduleModelTextureUploads({
             isOwnerValid: () => !disposed && scene.content === content && part.epoch === epoch,
             model,
@@ -861,6 +871,7 @@ export function createThreeWorldRenderer(
               // Ships move independently of the static island shadow map and
               // own their water-contact shadows. Keeping hero hulls out of the
               // directional pass avoids a frozen shadow ghost and redraw.
+              drawCensusRequested = true;
               onAssetReady?.();
             },
             owner,
@@ -1166,7 +1177,11 @@ export function createThreeWorldRenderer(
       // Manual reset here, with autoReset off at construction, accumulates
       // every pass of the frame into one honest total.
       renderer.info.reset();
-      if (drawCensusRequested) {
+      if (shouldRequestDrawCensus({
+        debug: debugDrawCensus,
+        framesSinceSample: frameCounter - (lastDrawOwnerCensus?.sampledAtFrame ?? 0),
+        topologyChanged: drawCensusRequested,
+      })) {
         drawCensusRequested = false;
         drawRecorder.arm();
       }
@@ -1191,7 +1206,10 @@ export function createThreeWorldRenderer(
       }
 
       if (scene.content) syncShipSailTextures(scene.content, frame);
-      updateSceneForFrame(scene, camera, frame, phase, uploadScheduler, onAssetReady);
+      updateSceneForFrame(scene, camera, frame, phase, uploadScheduler, () => {
+        drawCensusRequested = true;
+        onAssetReady?.();
+      });
 
       const tier = frame.renderScheduler.tier;
       if (SESSION_TIER_QUALITY[tier] > SESSION_TIER_QUALITY[sessionTierReached]) {

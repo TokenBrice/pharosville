@@ -9,6 +9,7 @@ import { SinceLastVisitBanner } from "./components/since-last-visit";
 import { WorldControls } from "./components/world-controls";
 import { WorldStaticOverview } from "./components/world-static-overview";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
+import { isDebugChromeEnabled } from "./lib/pharosville-debug";
 import { useShipLogoAssets } from "./hooks/use-ship-logo-assets";
 import { useChangelogDialog } from "./hooks/use-changelog-dialog";
 import { useLegendDialog } from "./hooks/use-legend-dialog";
@@ -1281,23 +1282,4 @@ function formatFrameRateLabel(frameRateFps: number | null, reducedMotion: boolea
   if (reducedMotion) return "Static";
   if (frameRateFps === null) return "FPS --";
   return `${integerFormatter.format(frameRateFps)} fps`;
-}
-
-/**
- * W0.4: the one switch that turns instrumentation chrome back on.
- *
- * `?debug=1` is the project's existing debug flag — `scripts/pharosville/preview.mjs`
- * appends it to every URL it opens — so the perf lane keeps its on-screen frame
- * readout while the shipped world stays free of it. (The machine-readable
- * `window.__pharosVilleDebug` surface the preview lane actually parses is gated
- * separately, on dev/localhost; this flag only governs visible chrome.)
- * Accepted in the query string or in the hash, because the world's own state
- * (`sel`, `t`, `n`, `cam`) may own either half of the URL and a debug session
- * should not have to care which.
- */
-function isDebugChromeEnabled(): boolean {
-  if (typeof window === "undefined") return false;
-  if (new URLSearchParams(window.location.search).get("debug") === "1") return true;
-  const rawHash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
-  return new URLSearchParams(rawHash.startsWith("?") ? rawHash.slice(1) : rawHash).get("debug") === "1";
 }

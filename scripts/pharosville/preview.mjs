@@ -332,6 +332,9 @@ try {
       if ((read.samples ?? 0) > (metrics.samples ?? 0)) metrics = read;
     }
   }
+  const settledAtFrame = metrics.frameCount
+    ?? metrics.drawOwnerCensus?.sampledAtFrame
+    ?? -1;
   if ((metrics.shipsVisible ?? 0) === 0) {
     console.error("warning: no fleet on screen — the world had not populated, so the frame below is not the world.");
   }
@@ -350,6 +353,9 @@ try {
   if (!args.reduced && tailSeconds > 0) {
     tailSweep = await sweepFrameTail(page, tailSeconds * 1000);
     if (tailSweep.reads.length > 0) metrics = medianByP90(tailSweep.reads);
+  }
+  if (args["draw-census"]) {
+    metrics = await waitForDrawOwnerCensusAfterFrame(page, settledAtFrame);
   }
 
   await applyRequestedUiState(page);
@@ -1184,6 +1190,7 @@ function readMetrics(page) {
       contentParts: m?.contentSignaturePartHashes ?? null,
       dropped: m?.framePacing?.droppedFrameCount ?? null,
       fleetDraws: m?.fleetDrawCallCount ?? null,
+      frameCount: debug?.motionFrameCount ?? null,
       fps: m?.framePacing?.effectiveFps ?? null,
       geometries: m?.gpu?.geometries ?? null,
       logoAssetsExpected: m?.logoAssetsExpected ?? null,
@@ -1210,6 +1217,28 @@ function readMetrics(page) {
       textures: m?.gpu?.textures ?? null,
     };
   });
+}
+
+async function waitForDrawOwnerCensusAfterFrame(page, frame) {
+  const deadline = Date.now() + 10_000;
+  let latest = await readMetrics(page);
+  while (
+    Date.now() < deadline
+    && (
+      (latest.drawOwnerCensus?.sampledAtFrame ?? -1) <= frame
+      || Math.abs((latest.drawOwnerCensus?.rendererCalls ?? Infinity) - (latest.sceneCalls ?? -Infinity)) > 2
+    )
+  ) {
+    await page.waitForTimeout(100);
+    latest = await readMetrics(page);
+  }
+  const sampledAtFrame = latest.drawOwnerCensus?.sampledAtFrame ?? -1;
+  const sceneDelta = Math.abs((latest.drawOwnerCensus?.rendererCalls ?? Infinity) - (latest.sceneCalls ?? -Infinity));
+  if (sampledAtFrame <= frame || sceneDelta > 2) {
+    throw new Error(`--draw-census did not receive a current sample after settled frame ${frame}`
+      + ` (latest sample ${sampledAtFrame}, scene delta ${sceneDelta})`);
+  }
+  return latest;
 }
 
 function printTextureOwnerCensus(census) {
