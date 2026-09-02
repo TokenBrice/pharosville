@@ -2979,9 +2979,13 @@ function registerLightLanes(
   for (const [index, lantern] of gardenHarborLanternWorldPositions(
     docks.map((dock) => dock.recipe),
   ).entries()) {
+    // The engawa lantern occupies this light lane. Its original harbor lamp
+    // mesh remains on shore, but does not consume a second night-light slot.
+    const laneId = gardenHarborLanternLaneId(index);
+    if (!laneId) continue;
     registry.set({
       color: HARBOR_PALETTE.lantern_glow,
-      id: `harbor-lantern.${index}`,
+      id: laneId,
       intensity: 0.62,
       kind: "lantern",
       worldX: lantern.x,
@@ -3080,6 +3084,10 @@ function registerLightLanes(
       },
     });
   }
+}
+
+export function gardenHarborLanternLaneId(index: number): string | null {
+  return index === 11 ? null : `harbor-lantern.${index}`;
 }
 
 /**

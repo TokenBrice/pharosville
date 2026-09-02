@@ -68,6 +68,7 @@ import {
   createThreeWorldRenderer,
   disposeThreeObjectTree,
   gardenStaticShadowBounds,
+  gardenHarborLanternLaneId,
   gardenStationRouteEndpoints,
   gardenMistBoundaryTile,
   gardenTransitionWaveReady,
@@ -111,6 +112,14 @@ describe("garden static shadow bounds", () => {
     expect(bounds.centerX).toBeCloseTo(edge / 2);
     expect(bounds.centerZ).toBeCloseTo(edge / 2);
     expect(bounds.radius).toBeCloseTo(edge / 2 + 28);
+  });
+});
+
+describe("engawa lantern lane", () => {
+  it("displaces harbor-lantern.11 without removing its shore mesh", () => {
+    expect(gardenHarborLanternLaneId(10)).toBe("harbor-lantern.10");
+    expect(gardenHarborLanternLaneId(11)).toBeNull();
+    expect(gardenHarborLanternLaneId(12)).toBe("harbor-lantern.12");
   });
 });
 
