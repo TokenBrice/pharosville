@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { Color, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh } from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { authorDock } from "./garden-docks";
+import { authorDock, type StationType } from "./garden-docks";
 import { createGardenHarborBatch } from "./garden-harbor-batch";
 import { gardenChainFlagAtlas, resetGardenChainFlagAtlas } from "./garden-chain-flag";
 import { countDrawableObjects } from "./garden-util";
@@ -28,13 +28,43 @@ function batchOfNine() {
 }
 
 describe("createGardenHarborBatch", () => {
-  it("draws nine harbours in at most 20 drawables and leaves every dock anchor empty", () => {
+  it("draws nine shore stations in at most 20 drawables and leaves every dock anchor empty", () => {
     const batch = batchOfNine();
     expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(20);
     for (const dock of batch.docks) {
       expect(countDrawableObjects(dock.root)).toBe(0);
       expect(dock.root.name).toBe(`dock-anchor-${dock.recipe.dock.chainId}`);
     }
+  });
+
+  it("merges three covered precinct bridges into the existing timber and roof draws", () => {
+    const types: readonly StationType[] = [
+      "boathouse-precinct", "annex-pavilion", "annex-pavilion", "annex-pavilion",
+      "gate-landing", "tea-house-quay", "fishing-pier", "stepped-inlet", "pigeonnier-islet",
+    ];
+    const recipes = CHAINS.map((id, index) => {
+      const tile = { x: 14, y: 74 + Math.min(index, 3) * 6 };
+      const node = {
+        ...dockFixture(id, 3 + (index % 7)),
+        station: { coveId: `cove.${id}`, shoreBearing: 0, type: types[index]! },
+        tile,
+      } as ReturnType<typeof dockFixture> & { station: { coveId: string; shoreBearing: number; type: StationType } };
+      return authorDock(node, tile, ISLAND_TILE);
+    });
+    const withoutBridges = recipes.reduce((sum, recipe) => (
+      sum + recipe.parts.filter((part) => part.bucket === "timber" || part.bucket === "roof").reduce(
+        (partSum, part) => partSum + part.geometry.getAttribute("position").count,
+        0,
+      )
+    ), 0);
+    const batch = createGardenHarborBatch(recipes);
+    const withBridges = [batch.bucketMeshes.timber, batch.bucketMeshes.roof].reduce(
+      (sum, mesh) => sum + (mesh?.geometry.getAttribute("position").count ?? 0),
+      0,
+    );
+    expect(withBridges).toBeGreaterThan(withoutBridges);
+    expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(20);
+    batch.dispose();
   });
 
   it("places every prop of every kind in one instanced mesh per kind", () => {
@@ -84,6 +114,8 @@ describe("createGardenHarborBatch", () => {
     batch.setFlagPose("ethereum", 1.2, 0.08);
     batch.flags.getMatrixAt(1, matrix);
     expect(matrix.equals(beforeBase)).toBe(true);
+    const shapes = batch.flags.geometry.getAttribute("aFlagShape");
+    expect(new Set(Array.from(shapes.array)).size).toBeGreaterThan(4);
   });
 
   it("keeps an unassigned atlas cell on a plain accent cloth", () => {
@@ -100,6 +132,7 @@ describe("createGardenHarborBatch", () => {
     (batch.flags.material as { onBeforeCompile(shader: unknown, renderer: unknown): void })
       .onBeforeCompile(shader, null);
     expect(shader.fragmentShader).toContain("vFlagCell >= 0.0");
+    expect(shader.fragmentShader).toContain("cutFlag");
     batch.dispose();
   });
 

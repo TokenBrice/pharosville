@@ -197,29 +197,29 @@ describe("createGardenOverviewLod", () => {
     batch.dispose();
   });
 
-  it("hides the actual batched crane drawables below the overview threshold and restores them at default zoom", () => {
+  it("hides the actual batched station-detail drawables below the overview threshold and restores them at default zoom", () => {
     const chains = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
     const batch = createGardenHarborBatch(chains.map((chainId, index) => (
       authorDock(dockFixture(chainId, 3 + (index % 7)), DISPLAY_TILES[index]!, ISLAND_TILE)
     )));
     const root = new Group();
     root.add(batch.root);
-    const cranes = [
-      batch.bucketMeshes.craneTimber,
-      batch.bucketMeshes.craneMetal,
+    const stationDetails = [
+      batch.propMeshes.netRack,
+      batch.bucketMeshes.window,
     ];
-    expect(cranes.every((crane) => (
-      crane instanceof Mesh
-      && crane.geometry.getAttribute("position").count > 0
-      && OVERVIEW_LOD_WHOLE_RING_NAMES.includes(crane.name)
+    expect(stationDetails.every((detail) => (
+      detail instanceof Mesh
+      && detail.geometry.getAttribute("position").count > 0
+      && OVERVIEW_LOD_WHOLE_RING_NAMES.includes(detail.name)
     ))).toBe(true);
     const lod = createGardenOverviewLod(root);
 
     lod.update({ deltaSeconds: 0.016, reducedMotion: true, zoom: OVERVIEW_LOD_HIDDEN_ZOOM - 0.01 });
-    expect(cranes.every((crane) => crane?.visible === false)).toBe(true);
+    expect(stationDetails.every((detail) => detail?.visible === false)).toBe(true);
 
     lod.update({ deltaSeconds: 0.016, reducedMotion: true, zoom: 0.7776 });
-    expect(cranes.every((crane) => crane?.visible === true)).toBe(true);
+    expect(stationDetails.every((detail) => detail?.visible === true)).toBe(true);
     batch.dispose();
   });
 

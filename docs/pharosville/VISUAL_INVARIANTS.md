@@ -48,8 +48,9 @@ intent, code/tests, and a matching update to the relevant route documentation.
   eighty-five stickers. Sailing in restores full brand identity exactly as
   decision F1 specified. Restraint must never be baked into the cloth colour
   itself, which would remove identity at every distance with no way back.
-- Harbors ring the rendered island waterline and retain distinct built forms.
-  Ethereum and available L2 docks remain a readable hub relationship.
+- Harbors are shore stations sited in their body's coves and retain distinct
+  built forms. Ethereum and available L2 stations read as one architectural
+  precinct through covered bridges and a shared path.
 - The TON pigeonnier is spatially distinct. The dead/frozen fleet is a quiet
   sea wreckyard, not an island and never a live-ship destination.
 - DOM labels must be legible and must not cover the lighthouse, controls, or

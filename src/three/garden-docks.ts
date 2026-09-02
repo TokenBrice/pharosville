@@ -4,185 +4,115 @@ import {
   Color,
   ConeGeometry,
   CylinderGeometry,
-  ExtrudeGeometry,
   Group,
   InstancedMesh,
   MathUtils,
   Matrix4,
   MeshStandardMaterial,
   Object3D,
-  Shape,
-  ShapeGeometry,
   SphereGeometry,
   Vector3,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import {
-  GARDEN_DOCK_ROOT_Y,
-  GARDEN_WATER_Y as WATER_LEVEL,
-} from "../systems/garden-observatory-slice";
-import { HARBOR_PALETTE } from "../systems/palette";
+import { GARDEN_DOCK_ROOT_Y, GARDEN_WATER_Y as WATER_LEVEL } from "../systems/garden-observatory-slice";
 import { quayMasonryHealth } from "../systems/dock-health";
+import { HARBOR_PALETTE } from "../systems/palette";
 import type { DockNode } from "../systems/world-types";
 import { assignGardenChainFlagCell } from "./garden-chain-flag";
 import { applyGardenHeightFog } from "./garden-height-fog";
-import { setTilePosition, stableUnit, TILE_SCALE } from "./garden-util";
+import { setTilePosition, stableUnit } from "./garden-util";
 import type { GardenHarborCalmMask } from "./garden-water-contract";
 
 const scratchMatrix = new Matrix4();
 const scratchScale = new Vector3();
 
-/** One signature prop distinguishes each harbor at a glance. */
-type SignatureKind = "arch" | "crane" | "net-racks" | "dinghy" | "crate-tower" | "derrick";
-const SIGNATURE_KINDS: readonly SignatureKind[] = [
-  "crane",
-  "net-racks",
-  "dinghy",
-  "crate-tower",
-  "derrick",
-];
-
-/**
- * N4: the harbour's *plan* — the shape of its stonework and piers. The
- * operator's note was that harbours are "barely noticeable and recognizable",
- * and a signature prop on an otherwise identical pier is not recognition. The
- * plan changes the footprint itself, so two harbours differ in silhouette
- * before any flag or prop is read.
- */
-export type HarborPlan = "t-head" | "l-quay" | "double-finger" | "mole" | "wharf";
-const HARBOR_PLANS: readonly HarborPlan[] = ["t-head", "l-quay", "double-finger", "mole", "wharf"];
-/** Outermost deck edge of each plan, in pier widths from the centreline. */
-const PLAN_HALF_SPAN: Record<HarborPlan, number> = {
-  "double-finger": 2.26,
-  "l-quay": 1.67,
-  mole: 0.75,
-  "t-head": 1.2,
-  wharf: 1.9,
-};
-
-/**
- * H3 — the four axes of harbour identity. A plan alone still left ten wharves
- * that read as one template with the numbers twiddled, because everything above
- * deck level was identical. These are the things a viewer actually reads from
- * 40 tiles out: whether the basin is enclosed, what stands up tall over it,
- * what rhythm the roofline has, and what industry occupies the hard.
- */
-/** Sea defences: how much water this harbour encloses, and from which side. */
-export type HarborEnclosure = "open" | "arm" | "hook" | "pincer" | "grand";
-/** The tall thing on the skyline — the single strongest identity cue. */
-export type HarborLandmark = "none" | "beacon" | "campanile" | "gantry" | "sheerlegs";
-/** Warehouse roof shape and bay rhythm. */
-export type HarborRoofline = "gable" | "hipped" | "sawtooth" | "vault";
-/** The industry worked on the hard beside the quay. */
-export type HarborWorks = "none" | "careen" | "drydock" | "slipway";
+export type StationType =
+  | "boathouse-precinct"
+  | "annex-pavilion"
+  | "gate-landing"
+  | "tea-house-quay"
+  | "fishing-pier"
+  | "stepped-inlet"
+  | "reed-boathouse"
+  | "pigeonnier-islet";
+export type StationSignature =
+  | "moon-viewing-deck"
+  | "open-pavilion"
+  | "gate-frame"
+  | "engawa"
+  | "net-racks"
+  | "top-lanterns"
+  | "reed-clump"
+  | "pigeonnier";
+export type StationRoofline =
+  | "deep-hip"
+  | "pavilion-hip"
+  | "lintel-cap"
+  | "tea-hip"
+  | "lean-to"
+  | "stepped-canopy"
+  | "thatch-gable"
+  | "pigeonnier-cone";
+export type StationFlagShape =
+  | "swallowtail"
+  | "notched"
+  | "pennant"
+  | "chamfered"
+  | "forked"
+  | "stepped"
+  | "tapered"
+  | "square";
 
 export interface HarborIdentity {
-  enclosure: HarborEnclosure;
-  landmark: HarborLandmark;
-  plan: HarborPlan;
-  roofline: HarborRoofline;
-  signature: SignatureKind;
-  works: HarborWorks;
+  stationType: StationType;
+  roofline: StationRoofline;
+  signature: StationSignature;
+  flagShape: StationFlagShape;
 }
+export type HarborPlan = StationType;
+export type HarborSignature = StationSignature;
 
-const HARBOR_ENCLOSURES: readonly HarborEnclosure[] = ["open", "arm", "hook", "pincer"];
-const HARBOR_LANDMARKS: readonly HarborLandmark[] = ["none", "beacon", "campanile", "gantry", "sheerlegs"];
-const HARBOR_ROOFLINES: readonly HarborRoofline[] = ["gable", "hipped", "sawtooth", "vault"];
-const HARBOR_WORKS: readonly HarborWorks[] = ["none", "careen", "drydock", "slipway"];
-
-/**
- * The named slips, each authored rather than hashed, so the ten harbours a
- * viewer actually sees are deliberately different from one another instead of
- * accidentally different. Chains outside this table fall back to a hash of
- * their id (`fallbackIdentity`), which still gives a coherent harbour.
- *
- * `grand` is Ethereum's alone: nothing else encloses a full basin, and nothing
- * else carries a campanile, a gateway and a customs house.
- */
-const CHAIN_HARBOR_IDENTITIES: Record<string, HarborIdentity> = {
-  aptos: { enclosure: "arm", landmark: "none", plan: "wharf", roofline: "gable", signature: "dinghy", works: "careen" },
-  arbitrum: { enclosure: "hook", landmark: "gantry", plan: "wharf", roofline: "gable", signature: "crane", works: "drydock" },
-  avalanche: { enclosure: "pincer", landmark: "sheerlegs", plan: "mole", roofline: "hipped", signature: "derrick", works: "careen" },
-  base: { enclosure: "arm", landmark: "beacon", plan: "t-head", roofline: "sawtooth", signature: "net-racks", works: "none" },
-  bsc: { enclosure: "pincer", landmark: "gantry", plan: "double-finger", roofline: "sawtooth", signature: "crate-tower", works: "none" },
-  ethereum: { enclosure: "grand", landmark: "campanile", plan: "t-head", roofline: "hipped", signature: "arch", works: "drydock" },
-  hyperliquid: { enclosure: "open", landmark: "campanile", plan: "double-finger", roofline: "vault", signature: "crate-tower", works: "none" },
-  polygon: { enclosure: "open", landmark: "gantry", plan: "l-quay", roofline: "vault", signature: "dinghy", works: "slipway" },
-  solana: { enclosure: "arm", landmark: "sheerlegs", plan: "l-quay", roofline: "gable", signature: "crane", works: "slipway" },
-  ton: { enclosure: "open", landmark: "beacon", plan: "wharf", roofline: "vault", signature: "dinghy", works: "none" },
-  tron: { enclosure: "hook", landmark: "beacon", plan: "mole", roofline: "vault", signature: "derrick", works: "none" },
+const STATION_TYPES: readonly StationType[] = [
+  "boathouse-precinct", "annex-pavilion", "gate-landing", "tea-house-quay",
+  "fishing-pier", "stepped-inlet", "reed-boathouse", "pigeonnier-islet",
+];
+const STATION_IDENTITY: Record<StationType, Omit<HarborIdentity, "stationType">> = {
+  "annex-pavilion": { flagShape: "notched", roofline: "pavilion-hip", signature: "open-pavilion" },
+  "boathouse-precinct": { flagShape: "swallowtail", roofline: "deep-hip", signature: "moon-viewing-deck" },
+  "fishing-pier": { flagShape: "forked", roofline: "lean-to", signature: "net-racks" },
+  "gate-landing": { flagShape: "pennant", roofline: "lintel-cap", signature: "gate-frame" },
+  "pigeonnier-islet": { flagShape: "square", roofline: "pigeonnier-cone", signature: "pigeonnier" },
+  "reed-boathouse": { flagShape: "tapered", roofline: "thatch-gable", signature: "reed-clump" },
+  "stepped-inlet": { flagShape: "stepped", roofline: "stepped-canopy", signature: "top-lanterns" },
+  "tea-house-quay": { flagShape: "chamfered", roofline: "tea-hip", signature: "engawa" },
 };
 
-// The fixed camera's azimuth. Harbour roots yaw to face the island, so the
-// flag counter-rotates by this to present its face to the viewer wherever its
-// harbour ended up — a flag edge-on is not a flag.
-const CAMERA_FACING_YAW = Math.PI / 4;
+/** Standalone fallback until the systems branch supplies `dock.station`. */
+const LEGACY_STATION_BY_CHAIN: Record<string, StationType> = {
+  aptos: "gate-landing",
+  arbitrum: "annex-pavilion",
+  avalanche: "gate-landing",
+  base: "annex-pavilion",
+  bsc: "tea-house-quay",
+  ethereum: "boathouse-precinct",
+  hyperliquid: "reed-boathouse",
+  "hyperliquid-l1": "reed-boathouse",
+  polygon: "annex-pavilion",
+  solana: "fishing-pier",
+  ton: "pigeonnier-islet",
+  tron: "stepped-inlet",
+};
 
-/**
- * How many cargo-tide slots each harbour authors per lane. The RUN's length is
- * what encodes magnitude, so the slots are laid out for a full run and the tide
- * fills the first N of them.
- */
-export const CARGO_TIDE_SLOTS = 6;
-
-/** One cargo-tide berth, in the harbour root's own local space. */
-export interface CargoTideSlot {
-  x: number;
-  y: number;
-  z: number;
+interface DockStationContract {
+  coveId: string;
+  type: StationType;
+  shoreBearing: number;
 }
+type DockWithOptionalStation = DockNode & { station?: Partial<DockStationContract> };
 
-/**
- * Where the mint/burn tide stands its cargo, per direction.
- *
- * The two lanes are the cue: `aboard` runs out along the pier deck toward the
- * ships (supply being created and loaded out), `ashore` runs back along the
- * quay's seaward edge (supply destroyed and landed). Which lane is occupied is
- * the direction, and nothing else in the harbour uses either lane — the
- * backing-diversity crates stack inboard of the quay edge and the barrels sit
- * on its landward apron.
- */
-export interface CargoTideLanes {
-  aboard: CargoTideSlot[];
-  ashore: CargoTideSlot[];
-}
-
-/**
- * The harbour's sea-washed vertical face, in local space — where the tide line
- * is read.
- *
- * NOT the pilings, despite being the obvious candidate: a pile spans local y
- * -2.7 to -0.1 against a waterline at -0.2, so barely a tenth of a unit of it
- * ever stands above water. The quay wall runs -0.44 to +0.48 and is the only
- * thing on a harbour with real height above the waterline to mark.
- */
-export interface DockTideFace {
-  /** Centre of the face, local space; `y` is the still-water line. */
-  x: number;
-  y: number;
-  z: number;
-  /** Width along the quay run. */
-  width: number;
-}
-
-export interface DockVisual {
-  recipe: DockRecipe;
-  fineDetail: Group;
-  root: Group;
-}
-
-export type HarborBucket =
-  | "timber"
-  | "stone"
-  | "metal"
-  | "accent"
-  | "wall"
-  | "window"
-  | "roof"
-  | "craneTimber"
-  | "craneMetal";
-export type HarborPropKind = "post" | "lampHead" | "plank" | "bollard" | "crate" | "barrel" | "pylon" | "piling";
-
+export interface DockVisual { recipe: DockRecipe; fineDetail: Group; root: Group }
+export type HarborBucket = "timber" | "stone" | "metal" | "accent" | "wall" | "window" | "roof";
+export type HarborPropKind = "post" | "lampHead" | "plank" | "bollard" | "piling" | "netRack" | "reedClump";
 export interface HarborBucketPart {
   bucket: HarborBucket;
   geometry: BufferGeometry;
@@ -190,25 +120,29 @@ export interface HarborBucketPart {
   fineDetail: boolean;
   castShadow: boolean;
 }
-
 export interface HarborPropInstance {
   kind: HarborPropKind;
   matrix: Matrix4;
   color: Color | null;
   fineDetail: boolean;
 }
-
 export interface HarborFlagSpec {
   chainId: string;
   atlasCell: number;
   accent: Color;
+  shape: StationFlagShape;
   placement: { x: number; y: number; z: number; yaw: number; scale: number };
   sag: number;
   wavePhase: number;
 }
 
+export const CARGO_TIDE_SLOTS = 6;
+export interface CargoTideSlot { x: number; y: number; z: number }
+export interface CargoTideLanes { aboard: CargoTideSlot[]; ashore: CargoTideSlot[] }
+export interface DockTideFace { x: number; y: number; z: number; width: number }
 export interface DockRecipe {
   dock: DockNode;
+  station: DockStationContract;
   rootMatrix: Matrix4;
   anchorPosition: Vector3;
   anchorRotationY: number;
@@ -226,45 +160,30 @@ export interface DockRecipe {
   accentColor: Color;
 }
 
-export type HarborSignature = SignatureKind;
+const CAMERA_FACING_YAW = Math.PI / 4;
+const PIER_DECK_TOP_Y = 0.21;
+const QUAY_TOP_Y = 0.62;
 
-export function createHarborLanterns(
-  islandTile: { x: number; y: number },
-): {
+export function createHarborLanterns(islandTile: { x: number; y: number }): {
   lightMaterial: MeshStandardMaterial;
   root: Group;
 } {
   const root = new Group();
   setTilePosition(root, islandTile, 0);
   const count = 12;
-  const bodyMaterial = new MeshStandardMaterial({
-    color: "#766348",
-    metalness: 0.38,
-    roughness: 0.65,
-  });
+  const bodyMaterial = new MeshStandardMaterial({ color: "#766348", metalness: 0.38, roughness: 0.65 });
   const lightMaterial = new MeshStandardMaterial({
     color: HARBOR_PALETTE.lantern_glow,
     emissive: HARBOR_PALETTE.lantern_warm,
     emissiveIntensity: 0.25,
     roughness: 0.25,
   });
-  const bodies = new InstancedMesh(
-    new CylinderGeometry(0.12, 0.2, 0.42, 6),
-    bodyMaterial,
-    count,
-  );
-  const lights = new InstancedMesh(
-    new SphereGeometry(0.16, 6, 4),
-    lightMaterial,
-    count,
-  );
+  const bodies = new InstancedMesh(new CylinderGeometry(0.12, 0.2, 0.42, 6), bodyMaterial, count);
+  const lights = new InstancedMesh(new SphereGeometry(0.16, 6, 4), lightMaterial, count);
   for (let index = 0; index < count; index += 1) {
-    const angle = (index / count) * Math.PI * 2
-      + stableUnit(`harbor-lantern-angle.${index}`) * 0.16;
-    const radiusX = 22 + (index % 3) * 1.25;
-    const radiusZ = 15.5 + (index % 2) * 1.15;
-    const x = Math.cos(angle) * radiusX;
-    const z = Math.sin(angle) * radiusZ;
+    const angle = (index / count) * Math.PI * 2 + stableUnit(`harbor-lantern-angle.${index}`) * 0.16;
+    const x = Math.cos(angle) * (22 + (index % 3) * 1.25);
+    const z = Math.sin(angle) * (15.5 + (index % 2) * 1.15);
     scratchMatrix.makeTranslation(x, WATER_LEVEL + 0.26, z);
     bodies.setMatrixAt(index, scratchMatrix);
     scratchMatrix.makeTranslation(x, WATER_LEVEL + 0.58, z);
@@ -277,657 +196,498 @@ export function createHarborLanterns(
   return { lightMaterial, root };
 }
 
-/**
- * Builds one chain harbour.
- *
- * Local +X points OUT TO SEA (the root yaws to face away from the island), so
- * the quay wall and its warehouses are the landward end, set against the
- * shore, and the pier runs from them out over open water to a head carrying
- * the crane, the lamps and the chain flag. H1 reversed this: the quay used to
- * be the seaward end with the pier reaching back toward the island, which put
- * the warehouses on stilts out at sea and the berths against the rock.
- *
- * Draw budget: this author creates no drawables. Static structure becomes
- * coloured bucket parts and repeated units become transform recipes; the
- * world-wide harbor batch merges all docks by material and prop kind.
- */
+/** Local +X points seaward; the quay is landward and each pier reaches +X. */
 export function authorDock(
   dock: DockNode,
   displayTile: { x: number; y: number },
   islandTile: { x: number; y: number },
 ): DockRecipe {
+  const fallbackBearing = Math.atan2(displayTile.y - islandTile.y, displayTile.x - islandTile.x);
+  const station = resolveDockStation(dock, fallbackBearing);
   const root = new Object3D();
   setTilePosition(root, displayTile, GARDEN_DOCK_ROOT_Y);
-  const seawardX = (displayTile.x - islandTile.x) * TILE_SCALE;
-  const seawardZ = (displayTile.y - islandTile.y) * TILE_SCALE;
-  root.rotation.y = -Math.atan2(seawardZ, seawardX);
+  root.rotation.y = -station.shoreBearing;
   root.updateMatrix();
-  const rootMatrix = root.matrix.clone();
-  const parts: HarborBucketPart[] = [];
-  const props: HarborPropInstance[] = [];
 
-  const identity = harborIdentity(dock);
-  const { enclosure, landmark, plan, roofline, signature, works } = identity;
-  // H3: the old scale ran clamp(log10/11, 0.72, 1.18) — a 1.6x spread over the
-  // whole supply range, which is why no harbour dominated. This band is wider
-  // and anchored on the range stablecoin supply actually occupies (~3e8 to
-  // ~5e11), so the largest chain is materially bigger than the smallest.
+  const identity = identityForStation(station.type);
   const amountScale = harborAmountScale(dock.totalUsd);
-  // The capital's plan is larger than any other harbour's, on top of it already
-  // topping the supply band. Ordering stays honest: `amountScale` is monotonic
-  // in totalUsd for every chain, and `grand` is architecture, not a thumb on
-  // the scale.
-  // The capital grows SEAWARD, where the harbour ring diverges and there is
-  // room. Growing its quay landward instead would drive the stonework into the
-  // tight part of the ring and foul the next chain's harbour.
-  const grand = enclosure === "grand";
-  const length = 7.2 * amountScale * (grand ? 1.34 : 1);
-  const width = (1.65 + amountScale * 0.35) * (grand ? 1.18 : 1);
-  const accent = dockAccentColor(dock);
-  // `dock.size` is the chain's supply band (1-10). It governs how much harbour
-  // gets built: a big chain gets a longer quay, more warehouses, a crane, and
-  // more berths, so scale reads as consequence rather than decoration.
-  const size = MathUtils.clamp(dock.size, 1, 10);
-  const supply = size / 10;
+  const supply = MathUtils.clamp(dock.size, 1, 10) / 10;
+  const precinct = station.type === "boathouse-precinct";
+  const length = 6.1 * amountScale * (precinct ? 1.42 : 1);
+  const width = (1.55 + amountScale * 0.34) * (precinct ? 1.35 : 1);
   const quayHealth = quayMasonryHealth(dock) ?? 0.58;
-  const quayFrailty = 1 - quayHealth;
-
+  const accent = dockAccentColor(dock);
   const stoneColor = new Color("#665f55").lerp(new Color("#a39d8c"), quayHealth);
+  const quayLength = (2.9 + supply * 2.8) * (precinct ? 1.32 : 1);
+  const quayWidth = width * (precinct ? 2.6 : 2.05);
+  const quayX = -length * (precinct ? 0.27 : 0.32);
 
-  // Per-material authoring buckets. Everything static in the harbour lands in
-  // one of these before the world-wide batch combines every dock.
-  const deckParts: BufferGeometry[] = [];
-  const stoneParts: BufferGeometry[] = [];
-  const moleParts: BufferGeometry[] = [];
-  const wallParts: BufferGeometry[] = [];
-  const roofParts: BufferGeometry[] = [];
-  const windowParts: BufferGeometry[] = [];
-  const extraLampLocals: { x: number; y: number; z: number }[] = [];
+  const timber: BufferGeometry[] = [];
+  const stone: BufferGeometry[] = [];
+  const metal: BufferGeometry[] = [];
+  const walls: BufferGeometry[] = [];
+  const roofs: BufferGeometry[] = [];
+  const windows: BufferGeometry[] = [];
+  const accents: BufferGeometry[] = [];
+  const props: HarborPropInstance[] = [];
+  authorStoneQuay(stone, quayLength, quayWidth, quayX, station.type);
+  authorStationType(station.type, {
+    length, props, quayWidth, quayX, roofs, stone, supply, timber, walls, width, windows,
+  });
 
-  // ---- Piers --------------------------------------------------------------
-  // The plan decides the deck footprint; everything downstream (bollards,
-  // ropes, lamps, crane) is placed against these same numbers.
-  const headX = length * 0.56;
-  pushGeometry(deckParts, createPierDeckGeometry(length, width, 0.42), length * 0.2, 0, 0);
-  switch (plan) {
-    case "t-head":
-      pushGeometry(deckParts, createPierDeckGeometry(1.25, width * 2.4, 0.36), headX, 0, 0);
-      break;
-    case "l-quay":
-      pushGeometry(
-        deckParts,
-        createPierDeckGeometry(1.15, width * 1.9, 0.36),
-        headX,
-        0,
-        width * 0.72,
-      );
-      break;
-    case "double-finger": {
-      // A second finger pier running parallel, joined at the root.
-      const offset = width * 1.85;
-      pushGeometry(deckParts, createPierDeckGeometry(length * 0.78, width * 0.82, 0.38), length * 0.16, 0, offset);
-      pushGeometry(deckParts, createPierDeckGeometry(0.9, offset, 0.36), -length * 0.16, 0, offset / 2);
-      break;
-    }
-    case "mole":
-      // Short timber pier: the mole itself (stone, below) carries this harbour.
-      pushGeometry(deckParts, createPierDeckGeometry(1.0, width * 1.5, 0.36), headX * 0.8, 0, 0);
-      break;
-    case "wharf":
-      pushGeometry(deckParts, createPierDeckGeometry(length * 0.5, width * 0.8, 0.36), length * 0.1, 0, -width * 1.5);
-      break;
-  }
-  if (grand) {
-    // The capital moors on both sides of a central mole: a second inner pier
-    // parallel to the first, so Ethereum alone has two working berth faces.
-    pushGeometry(
-      deckParts,
-      createPierDeckGeometry(length * 0.64, width * 0.86, 0.4),
-      length * 0.3,
-      0,
-      -width * 1.8,
-    );
-    pushGeometry(deckParts, createPierDeckGeometry(0.9, width * 1.8, 0.36), -length * 0.02, 0, -width * 0.9);
-  }
-
-  // R12: pilings. The deck sits above the waterline, so without legs reaching
-  // down into it the outlying chain platforms read as hovering slabs. One
-  // instanced mesh carries every pile on the pier.
-  pushPierPilings(props, length, width, plan, grand);
-
-  // ---- Quay wall ----------------------------------------------------------
-  // Cut stone at the seaward root of the pier, with a coping course and a
-  // stepped face down to the waterline: the thing that makes a harbour read as
-  // built rather than as a jetty dropped on the sea.
-  const quayLength = (2.6 + supply * 3.4)
-    * (plan === "mole" || plan === "wharf" ? 1.45 : 1)
-    * (grand ? 1.15 : 1);
-  const quayWidth = width * (plan === "wharf" ? 3.1 : 2.15);
-  const quayX = -length * (grand ? 0.24 : 0.34);
-  pushGeometry(stoneParts, new BoxGeometry(quayLength, 0.92, quayWidth), quayX, 0.02, 0);
-  pushGeometry(stoneParts, new BoxGeometry(quayLength + 0.28, 0.16, quayWidth + 0.28), quayX, 0.54, 0);
-  // Stepped face on the water side, so the wall has a section not a silhouette.
-  for (let step = 0; step < 3; step += 1) {
-    pushGeometry(
-      stoneParts,
-      new BoxGeometry(quayLength - step * 0.5, 0.3, 0.26),
-      quayX,
-      -0.28 - step * 0.3,
-      quayWidth / 2 + 0.13 + step * 0.2,
-    );
-  }
-
-  // ---- Warehouses ---------------------------------------------------------
-  // The roofline sets the bay rhythm too: sawtooth sheds are many and narrow,
-  // hipped blocks are few and tall, vaults are long and low.
-  const warehouseCount = Math.max(1, (size >= 8 ? 3 : size >= 5 ? 2 : 1) + ROOFLINE_BAY_BIAS[roofline]);
-  // Roof pitch is a per-chain constant, so a harbour's roofline is part of how
-  // it is recognised.
-  const pitch = 0.3 + stableUnit(`dock-roof.${dock.chainId}`) * 0.26;
-  const customsIndex = grand ? Math.floor(warehouseCount / 2) : -1;
-  for (let index = 0; index < warehouseCount; index += 1) {
-    const bay = quayLength / warehouseCount;
-    const x = quayX - quayLength / 2 + bay * (index + 0.5);
-    const customs = index === customsIndex;
-    const w = bay * (customs ? 0.9 : ROOFLINE_BAY_FILL[roofline]);
-    const d = quayWidth * (customs ? 0.66 : 0.62);
-    const h = (0.95 + stableUnit(`dock-warehouse.${dock.chainId}.${index}`) * 0.5)
-      * ROOFLINE_HEIGHT[roofline]
-      * (customs ? 2.05 : 1);
-    pushGeometry(wallParts, new BoxGeometry(w, h, d), x, 0.62 + h / 2, 0);
-    pushRoof(roofParts, customs ? "hipped" : roofline, x, w, d, 0.62 + h, pitch);
-    if (customs) {
-      // Plinth and eaves cornice, so the tallest block on the quay has a base
-      // and a top rather than being one flat face.
-      pushGeometry(stoneParts, new BoxGeometry(w * 1.1, 0.34, d * 1.1), x, 0.72, 0);
-      pushGeometry(stoneParts, new BoxGeometry(w * 1.07, 0.16, d * 1.07), x, 0.62 + h, 0);
-      // The customs house: a cupola and a lit clock face over the harbour's
-      // one civic building. Ethereum only.
-      pushGeometry(wallParts, new CylinderGeometry(d * 0.16, d * 0.18, 0.7, 8), x, 0.62 + h + 0.6, 0);
-      pushGeometry(roofParts, new ConeGeometry(d * 0.22, 0.6, 8), x, 0.62 + h + 1.25, 0);
-      const clock = new CylinderGeometry(0.22, 0.22, 0.06, 10);
-      clock.rotateX(Math.PI / 2);
-      pushGeometry(windowParts, clock, x, 0.62 + h * 0.78, d / 2 + 0.03);
-    }
-    // Loading door and a warm window: the harbour is worked, not abandoned.
-    pushGeometry(windowParts, new BoxGeometry(0.26, 0.3, 0.05), x, 0.62 + h * 0.55, d / 2 + 0.02);
-  }
-
-  // ---- Landmark -----------------------------------------------------------
-  // The tall thing. Beacon and campanile are stone, sheerlegs are timber, the
-  // gantry is its own named group; all of them but the gantry cost no draw.
-  const landmarkX = quayX + quayLength * 0.4;
-  const landmarkZ = quayWidth * 0.72;
-  switch (landmark) {
-    case "beacon": {
-      // A round rubble tower: splayed plinth, battered shaft, string course,
-      // corbelled gallery, lantern. The batter and the two projecting courses
-      // are what stop it reading as a grey pipe.
-      const height = 3.6 + supply * 1.6;
-      pushGeometry(stoneParts, new CylinderGeometry(0.86, 1.04, 0.46, 8), landmarkX, 0.65, landmarkZ);
-      pushGeometry(stoneParts, new CylinderGeometry(0.46, 0.78, height, 8), landmarkX, height / 2 + 0.86, landmarkZ);
-      pushGeometry(stoneParts, new CylinderGeometry(0.68, 0.72, 0.2, 8), landmarkX, height * 0.46 + 0.86, landmarkZ);
-      pushGeometry(stoneParts, new CylinderGeometry(0.7, 0.56, 0.28, 8), landmarkX, height + 0.94, landmarkZ);
-      pushGeometry(stoneParts, new CylinderGeometry(0.4, 0.4, 0.46, 8), landmarkX, height + 1.31, landmarkZ);
-      pushGeometry(roofParts, new ConeGeometry(0.52, 0.66, 8), landmarkX, height + 1.87, landmarkZ);
-      pushGeometry(windowParts, new BoxGeometry(0.16, 0.34, 0.1), landmarkX, height * 0.68 + 0.86, landmarkZ + 0.5);
-      extraLampLocals.push({ x: landmarkX, y: height + 1.4, z: landmarkZ });
-      break;
-    }
-    case "campanile": {
-      // Three battered stages, each stepped in behind a projecting string
-      // course, on a plinth, with corner pilasters running the full height and
-      // a lit opening per stage. A monolith of the same width top to bottom
-      // reads as a slab; a tower has a section.
-      const height = (3.8 + supply * 1.7) * (grand ? 1.24 : 1);
-      const shaft = height * 0.29;
-      const stages = 3;
-      const stage = height / stages;
-      pushGeometry(stoneParts, new BoxGeometry(shaft * 1.32, 0.5, shaft * 1.32), landmarkX, 0.66, landmarkZ);
-      for (let index = 0; index < stages; index += 1) {
-        const base = 0.91 + index * stage;
-        const wide = shaft * (1 - index * 0.11);
-        pushGeometry(stoneParts, new BoxGeometry(wide, stage, wide), landmarkX, base + stage / 2, landmarkZ);
-        // String course capping the stage, projecting proud of the wall.
-        pushGeometry(stoneParts, new BoxGeometry(wide * 1.16, 0.16, wide * 1.16), landmarkX, base + stage, landmarkZ);
-        // Corner pilasters: four vertical shadow lines that give the faces
-        // relief instead of one flat plane.
-        for (const corner of [-1, 1]) {
-          for (const side of [-1, 1]) {
-            pushGeometry(
-              stoneParts,
-              new BoxGeometry(wide * 0.2, stage, wide * 0.2),
-              landmarkX + corner * wide * 0.48,
-              base + stage / 2,
-              landmarkZ + side * wide * 0.48,
-            );
-          }
-        }
-        pushGeometry(windowParts, new BoxGeometry(wide * 0.2, stage * 0.34, 0.08), landmarkX, base + stage * 0.58, landmarkZ + wide / 2 + 0.03);
-      }
-      // Open belfry over the top course, then the spire.
-      const belfry = shaft * 0.8;
-      for (const corner of [-1, 1]) {
-        for (const side of [-1, 1]) {
-          pushGeometry(
-            stoneParts,
-            new BoxGeometry(belfry * 0.26, belfry * 0.95, belfry * 0.26),
-            landmarkX + corner * belfry * 0.37,
-            height + 1.4,
-            landmarkZ + side * belfry * 0.37,
-          );
-        }
-      }
-      pushGeometry(stoneParts, new BoxGeometry(belfry * 1.2, 0.18, belfry * 1.2), landmarkX, height + 1.96, landmarkZ);
-      pushGeometry(roofParts, new ConeGeometry(belfry * 0.92, belfry * 1.15, 4), landmarkX, height + 2.5, landmarkZ);
-      extraLampLocals.push({ x: landmarkX, y: height + 1.5, z: landmarkZ });
-      break;
-    }
-    case "sheerlegs": {
-      // Two raking legs and a back stay meeting over the quay edge, with the
-      // purchase hanging from the head. A tripod silhouette, not a box frame.
-      const height = 4.2 + supply * 1.6;
-      const foot = quayWidth * 0.34;
-      for (const side of [-1, 1]) {
-        const leg = new BoxGeometry(0.17, height, 0.17);
-        leg.rotateX(-side * 0.24);
-        leg.translate(landmarkX, height / 2 + 0.62, landmarkZ + side * foot);
-        deckParts.push(leg);
-      }
-      const stay = new BoxGeometry(0.15, height * 1.06, 0.15);
-      stay.rotateZ(0.42);
-      stay.translate(landmarkX - height * 0.22, height / 2 + 0.62, landmarkZ);
-      deckParts.push(stay);
-      pushGeometry(deckParts, new BoxGeometry(0.05, 1.5, 0.05), landmarkX, height - 0.1, landmarkZ);
-      pushGeometry(deckParts, new BoxGeometry(0.3, 0.26, 0.3), landmarkX, height - 0.95, landmarkZ);
-      break;
-    }
-    default:
-      break;
-  }
-
-  // ---- Works on the hard --------------------------------------------------
-  pushHarborWorks(works, { deckParts, quayLength, quayWidth, quayX, stoneParts });
-
-  // ---- The capital's gateway ----------------------------------------------
-  if (grand) {
-    // A monumental stone gate straddling the pier root, with the chain's colour
-    // hanging from the lintel. Ethereum is the only harbour a ship enters
-    // through a building.
-    const gateX = -length * 0.02;
-    const gateHeight = 3.4;
-    for (const side of [-1, 1]) {
-      const at = side * width * 1.02;
-      // Plinth, battered shaft, cornice: the piers carry a section rather than
-      // standing as two grey posts.
-      pushGeometry(stoneParts, new BoxGeometry(1.02, 0.34, 1.02), gateX, 0.41, at);
-      pushGeometry(stoneParts, new BoxGeometry(0.7, gateHeight, 0.86), gateX, gateHeight / 2 + 0.58, at);
-      pushGeometry(stoneParts, new BoxGeometry(0.82, 0.16, 0.98), gateX, gateHeight * 0.42 + 0.58, at);
-      pushGeometry(stoneParts, new BoxGeometry(0.94, 0.24, 1.1), gateX, gateHeight + 0.66, at);
-    }
-    pushGeometry(stoneParts, new BoxGeometry(0.86, 0.5, width * 2.72), gateX, gateHeight + 1.03, 0);
-    pushGeometry(stoneParts, new BoxGeometry(1.05, 0.2, width * 2.92), gateX, gateHeight + 1.38, 0);
-    pushGeometry(roofParts, new BoxGeometry(0.06, 1.15, width * 1.7), gateX, gateHeight + 0.2, 0);
-  }
-
-  // ---- Sea defences -------------------------------------------------------
-  // H2/H3: a curving stone arm sweeping out from the quay to shelter the basin
-  // changes the harbour's whole outline, and it is the single most recognisable
-  // thing a real harbour has. `open` harbours get none at all, which is itself
-  // a distinction — a roadstead reads differently from a sheltered basin.
-  const { maxAbsZ, tips: armTips } = pushEnclosureArms(enclosure, length, width, supply, moleParts);
-  for (const tip of armTips) {
-    // A light at each arm head: the thing that marks a harbour entrance.
-    pushGeometry(moleParts, new CylinderGeometry(0.1, 0.16, 1.15, 6), tip.x, 0.28, tip.z);
-    if (grand) {
-      // Entrance towers, not just lamp posts: the capital's harbour mouth.
-      pushGeometry(moleParts, new CylinderGeometry(0.36, 0.56, 2.6, 8), tip.x, 1.3, tip.z);
-      pushGeometry(moleParts, new CylinderGeometry(0.5, 0.5, 0.2, 8), tip.x, 2.66, tip.z);
-      extraLampLocals.push({ x: tip.x, y: 2.95, z: tip.z });
-    } else {
-      extraLampLocals.push({ x: tip.x, y: 0.92, z: tip.z });
-    }
-  }
-
-  // ---- Signature prop -----------------------------------------------------
-  // Built before the merge, because everything but the translucent net rack
-  // rides in the harbour's own timber.
-  pushSignatureAccent(signature, length, width, deckParts, parts);
-
-  // ---- Merged structure ---------------------------------------------------
-  parts.push(
-    harborPart("timber", mergeBucket(deckParts), HARBOR_PALETTE.timber_mid, false, true),
-    harborPart("stone", mergeBucket(stoneParts), stoneColor, false, true),
-    harborPart("wall", mergeBucket(wallParts), "#9f8c68", false, true),
-  );
-  if (moleParts.length > 0) {
-    parts.push(harborPart("stone", mergeBucket(moleParts), stoneColor, false, true));
-  }
+  const parts: HarborBucketPart[] = [];
+  pushMergedPart(parts, "timber", timber, HARBOR_PALETTE.timber_mid, false, true);
+  pushMergedPart(parts, "stone", stone, stoneColor, false, true);
+  pushMergedPart(parts, "metal", metal, "#3d3327", true, false);
+  pushMergedPart(parts, "wall", walls, "#a99a79", false, true);
+  pushMergedPart(parts, "roof", roofs, accent, false, true);
+  pushMergedPart(parts, "window", windows, HARBOR_PALETTE.lantern_glow, false, false);
+  pushMergedPart(parts, "accent", accents, accent, false, true);
   if (quayHealth < 0.5) {
-    const crackParts: BufferGeometry[] = [];
+    const cracks: BufferGeometry[] = [];
     for (let index = 0; index < 3; index += 1) {
-      const crack = new BoxGeometry(0.035, 0.34 + index * 0.09, 0.035);
-      crack.rotateZ((index % 2 === 0 ? -1 : 1) * (0.38 + index * 0.12));
-      crack.translate(
-        quayX - quayLength * 0.28 + index * quayLength * 0.27,
-        0.06,
-        quayWidth / 2 + 0.026,
-      );
-      crackParts.push(crack);
+      const crack = new BoxGeometry(0.04, 0.34 + index * 0.1, 0.04);
+      crack.rotateZ((index % 2 === 0 ? -1 : 1) * (0.4 + index * 0.12));
+      crack.translate(quayX - quayLength * 0.27 + index * quayLength * 0.27, 0.05, quayWidth / 2 + 0.031);
+      cracks.push(crack);
     }
-    parts.push(harborPart("stone", mergeBucket(crackParts), HARBOR_PALETTE.iron_dark, false, false));
+    parts.push(harborPart("stone", mergeBucket(cracks), HARBOR_PALETTE.iron_dark, false, false));
   }
 
-  const signalShape = new Shape();
-  signalShape.moveTo(0, 0);
-  signalShape.lineTo(0.9, -0.27);
-  signalShape.lineTo(0, -0.57);
-  signalShape.closePath();
-  const signal = new ShapeGeometry(signalShape);
-  signal.translate(length * 0.52, 2.2, -width * 0.34);
-  parts.push(
-    harborPart("roof", mergeBucket(roofParts), accent, false, true),
-    harborPart("accent", signal, accent, false, true),
-  );
-
-  // ---- Deck planking ------------------------------------------------------
-  // Planks run ACROSS the pier (athwart), which is how a real deck is laid and
-  // what gives the pier a direction the eye can follow to its head.
-  const plankCount = Math.max(10, Math.round(length * 2.6));
+  const plankCount = Math.max(5, Math.round(5 + supply * 6));
   for (let index = 0; index < plankCount; index += 1) {
-    const t = index / (plankCount - 1);
-    const x = -length * 0.28 + t * length * 0.94;
-    const lift = 0.235 + (stableUnit(`dock-plank.${dock.chainId}.${index}`) - 0.5) * 0.016;
-    const direction = stableUnit(`dock-plank-angle-sign.${dock.chainId}.${index}`) < 0.5 ? -1 : 1;
-    const yaw = direction * MathUtils.degToRad(
-      2 + stableUnit(`dock-plank-angle.${dock.chainId}.${index}`) * 7,
-    );
-    const widthScale = 0.94 + stableUnit(`dock-plank-scale.${dock.chainId}.${index}`) * 0.12;
-    scratchMatrix.makeRotationY(yaw);
-    scratchMatrix.scale(scratchScale.set(1, 1, width * 0.94 * widthScale));
-    scratchMatrix.setPosition(x, lift, 0);
+    const t = index / Math.max(1, plankCount - 1);
+    scratchMatrix.makeRotationY((stableUnit(`station-plank.${dock.chainId}.${index}`) - 0.5) * 0.08);
+    scratchMatrix.scale(scratchScale.set(1, 1, width * 0.88));
+    scratchMatrix.setPosition(-length * 0.08 + t * length * 0.62, 0.235, 0);
     props.push(harborProp("plank", scratchMatrix, null, true));
   }
-
-  const pylonSpecs: { x: number; z: number }[] = [];
-  for (const x of [-length * 0.2, length * 0.05, length * 0.3, headX]) {
-    for (const z of [-width * 0.55, width * 0.55]) pylonSpecs.push({ x, z });
-  }
-  pylonSpecs.forEach((spec) => {
-    scratchMatrix.makeTranslation(spec.x, -0.85, spec.z);
-    props.push(harborProp("pylon", scratchMatrix, null, true));
-  });
-
-  // ---- Bollards and mooring ropes ----------------------------------------
-  // Berth count follows the chain's supply band, so a big harbour visibly
-  // moors more. Each bollard trails a catenary line to the berth line beside
-  // the pier — the ropes tie to the harbour, not to individual hulls, because
-  // hull transforms live in the batched fleet this module never sees.
-  const berths = Math.max(3, Math.round(3 + supply * 7));
-  const bollardSpecs: { x: number; z: number }[] = [];
-  for (let index = 0; index < berths; index += 1) {
-    const t = (index + 0.5) / berths;
-    const x = -length * 0.24 + t * length * 0.88;
-    bollardSpecs.push({ x, z: (index % 2 === 0 ? -1 : 1) * width * 0.52 });
-  }
-  if (grand) {
-    // The inner mole is a working face too, so it gets its own berth line.
-    for (let index = 0; index < berths; index += 1) {
-      const t = (index + 0.5) / berths;
-      bollardSpecs.push({ x: -length * 0.02 + t * length * 0.64, z: -width * 1.8 - width * 0.44 });
-    }
-  }
-  bollardSpecs.forEach((spec, index) => {
-    const lean = index === 0 ? quayFrailty * MathUtils.degToRad(16) : 0;
-    scratchMatrix.makeRotationZ(lean);
-    scratchMatrix.setPosition(spec.x, 0.42, spec.z);
+  const bollardCount = Math.max(2, Math.round(2 + supply * 4));
+  for (let index = 0; index < bollardCount; index += 1) {
+    const t = (index + 0.5) / bollardCount;
+    scratchMatrix.makeRotationZ(index === 0 ? (1 - quayHealth) * MathUtils.degToRad(16) : 0);
+    scratchMatrix.setPosition(-length * 0.08 + t * length * 0.58, 0.42, (index % 2 === 0 ? -1 : 1) * width * 0.48);
     props.push(harborProp("bollard", scratchMatrix, null, true));
-  });
-
-  const ropeParts: BufferGeometry[] = [];
-  for (const spec of bollardSpecs) {
-    ropeParts.push(...mooringRopeGeometry(spec.x, spec.z, Math.sign(spec.z)));
-  }
-  parts.push(harborPart("metal", mergeGeometries(ropeParts, false)!, "#3d3327", true, false));
-
-  // ---- Cargo --------------------------------------------------------------
-  const crateCount = Math.max(2, Math.round(2 + supply * 8))
-    + (signature === "crate-tower" ? 4 : 0);
-  for (let index = 0; index < crateCount; index += 1) {
-    const tier = Math.floor(index / 4);
-    const column = index % 4;
-    scratchMatrix.makeTranslation(
-      quayX + quayLength * 0.16 + column * 0.5,
-      0.7 + tier * 0.42,
-      quayWidth * 0.3 + (stableUnit(`dock-crate.${dock.chainId}.${index}`) - 0.5) * 0.3,
-    );
-    props.push(harborProp("crate", scratchMatrix, null, true));
   }
 
-  const barrelCount = Math.max(3, Math.round(supply * 9));
-  for (let index = 0; index < barrelCount; index += 1) {
-    scratchMatrix.makeTranslation(
-      quayX - quayLength * 0.28 + (index % 5) * 0.36,
-      0.68,
-      -quayWidth * 0.3 - Math.floor(index / 5) * 0.36,
-    );
-    props.push(harborProp("barrel", scratchMatrix, null, true));
-  }
-
-  // ---- Posts, lamps, flagstaff -------------------------------------------
-  const lampCount = amountScale > 1.05 ? 3 : 2;
-  const lampLocals: { x: number; z: number; height: number }[] = [];
-  for (let index = 0; index < lampCount; index += 1) {
-    const x = length * (0.16 + (index / Math.max(1, lampCount - 1)) * 0.44);
-    const z = index % 2 === 0 ? 0 : width * 0.34 * (index % 4 === 1 ? 1 : -1);
-    lampLocals.push({ height: 1.62, x, z });
-  }
-  // Quay lanterns light the stonework too. Only the pier lamps are registered
-  // as sea lanes (see gardenDockLampWorldPositions): the lane registry caps at
-  // 48 across the whole world and ten harbours would swamp it.
-  const quayLampLocals: { x: number; z: number; height: number }[] = [];
-  for (let index = 0; index < warehouseCount + 1; index += 1) {
-    const bay = quayLength / (warehouseCount + 1);
-    quayLampLocals.push({
-      height: 1.35,
-      x: quayX - quayLength / 2 + bay * (index + 0.5),
-      z: quayWidth * 0.42,
-    });
-  }
-  const flagstaffHeight = (5.2 + supply * 2.2) * (grand ? 1.3 : 1);
-  const postSpecs: { x: number; z: number; height: number; radius: number }[] = [
-    { height: 2.25, radius: 0.08, x: length * 0.52, z: -width * 0.35 }, // signal mast
-    { height: flagstaffHeight, radius: 0.075, x: headX, z: width * 0.1 }, // flagstaff
-    // Truck at the staff head — a squat cylinder in the shared post instance
-    // rather than a mesh of its own.
-    { height: 0.16, radius: 0.11, x: headX, z: width * 0.1 },
-    ...lampLocals.map((lamp) => ({ ...lamp, radius: 0.09 })),
-    ...quayLampLocals.map((lamp) => ({ ...lamp, radius: 0.075 })),
-    ...signaturePostSpecs(signature, length, width),
-  ];
-  postSpecs.forEach((spec) => {
-    scratchMatrix.makeScale(spec.radius, spec.height, spec.radius);
-    scratchMatrix.setPosition(spec.x, spec.height / 2 + 0.24, spec.z);
+  const lamps = stationLampLocals(station.type, length, width, quayX, quayWidth);
+  const staff = stationFlagPlacement(station.type, length, width, supply);
+  for (const post of [
+    { height: staff.height, radius: 0.075, x: staff.x, z: staff.z },
+    ...lamps.map((lamp) => ({ ...lamp, radius: 0.085 })),
+  ]) {
+    scratchMatrix.makeScale(post.radius, post.height, post.radius);
+    scratchMatrix.setPosition(post.x, post.height / 2 + 0.24, post.z);
     props.push(harborProp("post", scratchMatrix, null, false));
-  });
-  const allLamps = [
-    ...lampLocals.map((lamp) => ({ x: lamp.x, y: lamp.height + 0.3, z: lamp.z })),
-    ...quayLampLocals.map((lamp) => ({ x: lamp.x, y: lamp.height + 0.3, z: lamp.z })),
-    ...extraLampLocals,
-  ];
-  allLamps.forEach((lamp) => {
-    const trim = 0.88 + quayHealth * 0.17;
-    scratchMatrix.makeScale(trim, trim, trim);
-    scratchMatrix.setPosition(lamp.x, lamp.y, lamp.z);
+  }
+  for (const lamp of lamps) {
+    scratchMatrix.makeTranslation(lamp.x, lamp.height + 0.3, lamp.z);
     props.push(harborProp("lampHead", scratchMatrix, null, false));
-  });
-
-  if (windowParts.length > 0) {
-    parts.push(harborPart("window", mergeBucket(windowParts), HARBOR_PALETTE.lantern_glow, false, false));
   }
-
-  // ---- The chain flag -----------------------------------------------------
-  const flag = authorChainFlag(dock, accent, {
-    height: flagstaffHeight,
-    scale: 0.72 + supply * 0.4,
-    x: headX,
+  const flag = authorChainFlag(dock, accent, identity.flagShape, {
+    height: staff.height,
+    scale: staff.scale,
+    x: staff.x,
     yaw: CAMERA_FACING_YAW - root.rotation.y,
-    z: width * 0.1,
+    z: staff.z,
   });
 
-  // ---- Cranes and signature props ----------------------------------------
-  // The capital works cargo as well as ceremony, so it gets a gantry on top of
-  // its campanile — no other harbour carries both.
-  if ((landmark === "gantry" || grand) && size >= 4) {
-    pushHarborCrane(headX, width, supply, parts);
-  }
-
-  const lampWorldPositions = lampLocals.map((lamp) =>
-    localToWorldXZ(root, lamp.x, lamp.z),
-  );
-
-  // Lateral span of the built harbour: the widest of the quay, the outermost
-  // deck of this plan, the inner mole, and the sea arms' bulge. Reported so the
-  // ring-clearance question ("does this harbour foul the next chain's?") is
-  // answerable from the visual rather than by eye.
-  const span = 2 * Math.max(
-    quayWidth / 2,
-    maxAbsZ,
-    PLAN_HALF_SPAN[plan] * width,
-    grand ? width * 2.23 : 0,
-  );
   return {
     accentColor: accent.clone(),
     anchorPosition: root.position.clone(),
     anchorRotationY: root.rotation.y,
     cargoTideLanes: cargoTideLanes(length, quayLength, quayWidth, quayX),
-    tideFace: {
-      width: quayLength,
-      x: quayX,
-      // Still water, in the harbour root's own space.
-      y: WATER_LEVEL - GARDEN_DOCK_ROOT_Y,
-      // Just proud of the quay's seaward face so the band is not z-fighting the
-      // stonework it is painted on.
-      z: quayWidth / 2 + 0.03,
-    },
     dock,
     flag,
-    footprint: { length, span },
+    footprint: { length, span: Math.max(quayWidth, stationSpan(station.type, width)) },
     identity,
-    lampWorldPositions,
+    lampWorldPositions: lamps.slice(0, 3).map((lamp) => localToWorldXZ(root, lamp.x, lamp.z)),
     parts,
-    plan,
+    plan: station.type,
     props,
     quayHealth,
-    rootMatrix,
-    signature,
+    rootMatrix: root.matrix.clone(),
+    signature: identity.signature,
+    station,
+    tideFace: { width: quayLength, x: quayX, y: WATER_LEVEL - GARDEN_DOCK_ROOT_Y, z: quayWidth / 2 + 0.03 },
   };
 }
 
-/**
- * World-space positions of a dock's lamp heads. The orchestrator registers
- * these with the sea-lane registry so each pier lamp lays a warm reflection.
- *
- * Deliberately only the 2-3 pier lamps, not the quay lanterns: the registry
- * caps at 48 lanes for the whole world, and ten harbours' worth of quay
- * lighting would evict the beacon and the island path.
- */
-export function gardenDockLampWorldPositions(dock: DockVisual): { x: number; z: number }[] {
-  return dock.recipe.lampWorldPositions;
+interface StationAuthorContext {
+  length: number;
+  props: HarborPropInstance[];
+  quayWidth: number;
+  quayX: number;
+  roofs: BufferGeometry[];
+  stone: BufferGeometry[];
+  supply: number;
+  timber: BufferGeometry[];
+  walls: BufferGeometry[];
+  width: number;
+  windows: BufferGeometry[];
 }
 
-/** Pier deck top and quay coping top, above the harbour root. */
-const PIER_DECK_TOP_Y = 0.21;
-const QUAY_TOP_Y = 0.62;
+function authorStationType(type: StationType, ctx: StationAuthorContext): void {
+  switch (type) {
+    case "boathouse-precinct": return authorBoathousePrecinct(ctx);
+    case "annex-pavilion": return authorAnnexPavilion(ctx);
+    case "gate-landing": return authorGateLanding(ctx);
+    case "tea-house-quay": return authorTeaHouseQuay(ctx);
+    case "fishing-pier": return authorFishingPier(ctx);
+    case "stepped-inlet": return authorSteppedInlet(ctx);
+    case "reed-boathouse": return authorReedBoathouse(ctx);
+    case "pigeonnier-islet": return authorPigeonnierLanding(ctx);
+  }
+}
 
-/**
- * Lays out both cargo-tide lanes for one harbour.
- *
- * Slots are spread across a fraction of each surface rather than stepped by a
- * fixed pitch, so a short mole and a long grand quay both hold a full run
- * without any crate walking off its own deck.
- */
-function cargoTideLanes(
-  length: number,
+function authorBoathousePrecinct(ctx: StationAuthorContext): void {
+  const { length, props, quayWidth, quayX, roofs, stone, timber, walls, width, windows } = ctx;
+  const hallX = quayX - 0.12;
+  const hallW = length * 0.52;
+  const hallD = quayWidth * 0.72;
+  const hallH = 1.32;
+  pushGeometry(walls, new BoxGeometry(hallW, hallH, hallD), hallX, 0.65 + hallH / 2, 0);
+  // The precinct's single dominant read: one long, low, very deep hip.
+  pushDeepHip(roofs, hallX, hallW * 1.14, hallD * 1.28, 0.65 + hallH, 0.72);
+  for (const z of [-hallD * 0.28, 0, hallD * 0.28]) {
+    pushGeometry(windows, new BoxGeometry(hallW * 0.5, 0.3, 0.045), hallX, 1.05, z);
+  }
+
+  // The only bell tower/campanile-equivalent in the station family.
+  const towerX = quayX - hallW * 0.28;
+  const towerZ = -quayWidth * 0.58;
+  pushGeometry(stone, new BoxGeometry(1.25, 0.38, 1.25), towerX, 0.72, towerZ);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    pushGeometry(timber, new BoxGeometry(0.18, 4.7, 0.18), towerX + sx * 0.43, 3.08, towerZ + sz * 0.43);
+  }
+  pushGeometry(timber, new BoxGeometry(1.18, 0.18, 1.18), towerX, 3.3, towerZ);
+  pushDeepHip(roofs, towerX, 1.65, 1.65, 5.3, 0.78);
+  const bell = new ConeGeometry(0.32, 0.62, 8);
+  bell.rotateX(Math.PI);
+  pushGeometry(timber, bell, towerX, 4.05, towerZ);
+
+  // An intentionally empty moon-viewing deck reaches beyond the hall.
+  pushGeometry(timber, new BoxGeometry(length * 0.58, 0.24, width * 2.05), length * 0.22, 0.1, 0);
+  pushPierPilings(props, length * 0.6, width * 1.75, length * 0.22, 5);
+}
+
+function authorAnnexPavilion(ctx: StationAuthorContext): void {
+  const { length, props, roofs, timber, width } = ctx;
+  pushGeometry(timber, new BoxGeometry(length * 0.66, 0.22, width * 1.35), length * 0.08, 0.1, 0);
+  const x = -length * 0.12;
+  const w = length * 0.42;
+  const d = width * 1.4;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    pushGeometry(timber, new BoxGeometry(0.16, 1.65, 0.16), x + sx * w * 0.38, 1.04, sz * d * 0.34);
+  }
+  pushDeepHip(roofs, x, w, d, 1.86, 0.48);
+  pushPierPilings(props, length * 0.66, width * 1.2, length * 0.08, 4);
+}
+
+function authorGateLanding(ctx: StationAuthorContext): void {
+  const { length, roofs, stone, timber, width } = ctx;
+  pushGeometry(stone, new BoxGeometry(length * 0.58, 0.34, width * 1.45), length * 0.08, 0.03, 0);
+  for (let step = 0; step < 3; step += 1) {
+    pushGeometry(stone, new BoxGeometry(0.72, 0.18, width * (1.15 - step * 0.12)), length * 0.38 + step * 0.52, -0.1 - step * 0.14, 0);
+  }
+  // A straight capped frame, deliberately without torii flare or vermilion.
+  const gateX = -length * 0.05;
+  for (const z of [-width * 0.5, width * 0.5]) {
+    pushGeometry(timber, new BoxGeometry(0.3, 2.9, 0.3), gateX, 1.78, z);
+  }
+  pushGeometry(timber, new BoxGeometry(0.42, 0.34, width * 1.52), gateX, 3.28, 0);
+  pushGeometry(roofs, new BoxGeometry(0.82, 0.16, width * 1.7), gateX, 3.54, 0);
+}
+
+function authorTeaHouseQuay(ctx: StationAuthorContext): void {
+  const { length, props, roofs, timber, walls, width, windows } = ctx;
+  const x = -length * 0.18;
+  const w = length * 0.36;
+  const d = width * 1.36;
+  pushGeometry(walls, new BoxGeometry(w, 1.48, d), x, 1.34, 0);
+  pushDeepHip(roofs, x, w * 1.2, d * 1.25, 2.08, 0.7);
+  pushGeometry(windows, new BoxGeometry(0.04, 0.56, d * 0.5), x + w / 2 + 0.025, 1.38, 0);
+  // One engawa shelf over the water is this station's signature.
+  pushGeometry(timber, new BoxGeometry(length * 0.56, 0.18, d * 1.18), length * 0.13, 0.2, 0);
+  pushPierPilings(props, length * 0.5, d, length * 0.14, 4);
+}
+
+function authorFishingPier(ctx: StationAuthorContext): void {
+  const { length, props, roofs, timber, width } = ctx;
+  const pierLength = length * 1.08;
+  pushGeometry(timber, new BoxGeometry(pierLength, 0.22, width * 0.62), length * 0.18, 0.1, 0);
+  pushPierPilings(props, pierLength, width * 0.55, length * 0.18, 7);
+  // The only lean-to roof, kept at the root so the thin pier remains legible.
+  const roof = new BoxGeometry(length * 0.3, 0.12, width * 0.95);
+  roof.rotateX(-0.34);
+  roof.translate(-length * 0.25, 1.66, 0);
+  roofs.push(roof);
+  for (const z of [-width * 0.36, width * 0.36]) {
+    pushGeometry(timber, new BoxGeometry(0.13, 1.45, 0.13), -length * 0.25, 0.92, z);
+  }
+  // Exactly one instanced works prop: the net racks.
+  scratchMatrix.makeScale(1.12, 1.12, Math.max(0.8, width));
+  scratchMatrix.setPosition(length * 0.48, 0.24, 0);
+  props.push(harborProp("netRack", scratchMatrix, null, false));
+}
+
+function authorSteppedInlet(ctx: StationAuthorContext): void {
+  const { length, roofs, stone, timber, width } = ctx;
+  for (let index = 0; index < 6; index += 1) {
+    const t = index / 5;
+    pushGeometry(stone, new BoxGeometry(length * 0.18, 0.26, width * (1.65 - t * 0.48)), -length * 0.34 + index * length * 0.13, 0.48 - index * 0.17, 0);
+  }
+  for (let level = 0; level < 3; level += 1) {
+    pushGeometry(roofs, new BoxGeometry(0.78 + level * 0.18, 0.11, width * (1.15 - level * 0.14)), -length * 0.28 + level * 0.16, 2.05 + level * 0.18, 0);
+  }
+  for (const z of [-width * 0.52, width * 0.52]) {
+    pushGeometry(timber, new BoxGeometry(0.14, 1.65, 0.14), -length * 0.25, 1.2, z);
+  }
+}
+
+function authorReedBoathouse(ctx: StationAuthorContext): void {
+  const { length, props, roofs, timber, walls, width } = ctx;
+  const x = -length * 0.05;
+  const w = length * 0.5;
+  const d = width * 1.32;
+  pushGeometry(timber, new BoxGeometry(length * 0.7, 0.2, width * 1.05), length * 0.06, 0.08, 0);
+  for (const z of [-d * 0.42, d * 0.42]) pushGeometry(walls, new BoxGeometry(w, 1.28, 0.12), x, 1.0, z);
+  // The only high, sharp A-frame: two deep thatch slopes.
+  for (const side of [-1, 1]) {
+    const slope = new BoxGeometry(w * 1.1, 0.2, d * 0.72);
+    slope.rotateX(side * 0.72);
+    slope.translate(x, 2.14, side * d * 0.25);
+    roofs.push(slope);
+  }
+  pushPierPilings(props, length * 0.62, width, length * 0.04, 5);
+  scratchMatrix.makeScale(1.25, 1.2, 1.25);
+  scratchMatrix.setPosition(length * 0.4, 0, width * 0.7);
+  props.push(harborProp("reedClump", scratchMatrix, null, false));
+}
+
+function authorPigeonnierLanding(ctx: StationAuthorContext): void {
+  const { length, props, timber, width } = ctx;
+  // The detached tower/islet stays owned by garden-islets and is unchanged.
+  pushGeometry(timber, new BoxGeometry(length * 0.52, 0.2, width * 0.72), length * 0.02, 0.08, 0);
+  pushPierPilings(props, length * 0.48, width * 0.62, length * 0.02, 4);
+}
+
+function authorStoneQuay(
+  stone: BufferGeometry[],
   quayLength: number,
   quayWidth: number,
   quayX: number,
-): CargoTideLanes {
+  type: StationType,
+): void {
+  const depth = type === "fishing-pier" || type === "pigeonnier-islet" ? 0.62 : 0.9;
+  pushGeometry(stone, new BoxGeometry(quayLength, depth, quayWidth), quayX, 0.02, 0);
+  pushGeometry(stone, new BoxGeometry(quayLength + 0.26, 0.15, quayWidth + 0.26), quayX, 0.54, 0);
+  for (let course = 0; course < 2; course += 1) {
+    pushGeometry(stone, new BoxGeometry(quayLength - course * 0.42, 0.24, 0.22), quayX, -0.28 - course * 0.24, quayWidth / 2 + 0.12 + course * 0.16);
+  }
+}
+
+/**
+ * Covered corridor between Ethereum and a nearby L2 annex. Geometry is in the
+ * precinct's local space, ready for its normal global-batch transform.
+ */
+export function authorPrecinctBridge(from: DockRecipe, to: DockRecipe): HarborBucketPart[] {
+  if (from.station.type !== "boathouse-precinct" || to.station.type !== "annex-pavilion") return [];
+  const tileDistance = Math.hypot(to.dock.tile.x - from.dock.tile.x, to.dock.tile.y - from.dock.tile.y);
+  if (tileDistance > 20.5 || tileDistance < 1) return [];
+
+  const dx = to.anchorPosition.x - from.anchorPosition.x;
+  const dz = to.anchorPosition.z - from.anchorPosition.z;
+  const cos = Math.cos(from.anchorRotationY);
+  const sin = Math.sin(from.anchorRotationY);
+  const end = { x: dx * cos - dz * sin, z: dx * sin + dz * cos };
+  const distance = Math.hypot(end.x, end.z);
+  const normal = { x: -end.z / distance, z: end.x / distance };
+  const bow = Math.min(2.2, distance * 0.1);
+  const control = { x: end.x * 0.5 + normal.x * bow, z: end.z * 0.5 + normal.z * bow };
+  const segments = MathUtils.clamp(Math.ceil(distance / 2.2), 4, 12);
+  const timber: BufferGeometry[] = [];
+  const roofs: BufferGeometry[] = [];
+  for (let index = 0; index < segments; index += 1) {
+    const a = quadraticPoint(end, control, index / segments);
+    const b = quadraticPoint(end, control, (index + 1) / segments);
+    const mx = (a.x + b.x) / 2;
+    const mz = (a.z + b.z) / 2;
+    const sx = b.x - a.x;
+    const sz = b.z - a.z;
+    const span = Math.hypot(sx, sz);
+    const yaw = -Math.atan2(sz, sx);
+    const deck = new BoxGeometry(span + 0.08, 0.14, 0.78);
+    deck.rotateY(yaw);
+    deck.translate(mx, 0.24, mz);
+    timber.push(deck);
+    for (const side of [-1, 1]) {
+      const px = mx + Math.sin(-yaw) * side * 0.31;
+      const pz = mz + Math.cos(yaw) * side * 0.31;
+      pushGeometry(timber, new BoxGeometry(0.1, 1.62, 0.1), px, 1.05, pz);
+      const slope = new BoxGeometry(span + 0.16, 0.1, 0.52);
+      slope.rotateX(side * 0.35);
+      slope.rotateY(yaw);
+      slope.translate(mx, 1.94, mz);
+      roofs.push(slope);
+    }
+  }
+  return [
+    harborPart("timber", mergeBucket(timber), HARBOR_PALETTE.timber_mid, false, true),
+    harborPart("roof", mergeBucket(roofs), from.accentColor, false, true),
+  ];
+}
+
+function quadraticPoint(end: { x: number; z: number }, control: { x: number; z: number }, t: number) {
+  const inverse = 1 - t;
+  return {
+    x: 2 * inverse * t * control.x + t * t * end.x,
+    z: 2 * inverse * t * control.z + t * t * end.z,
+  };
+}
+
+export function harborIdentity(dock: DockNode): HarborIdentity {
+  return identityForStation(resolveDockStation(dock, 0).type);
+}
+
+export function harborPlan(dock: DockNode): HarborPlan {
+  return harborIdentity(dock).stationType;
+}
+
+function resolveDockStation(dock: DockNode, fallbackBearing: number): DockStationContract {
+  const candidate = (dock as DockWithOptionalStation).station;
+  if (candidate && isStationType(candidate.type) && Number.isFinite(candidate.shoreBearing)) {
+    return {
+      coveId: typeof candidate.coveId === "string" ? candidate.coveId : `station.${dock.chainId}`,
+      shoreBearing: candidate.shoreBearing!,
+      type: candidate.type,
+    };
+  }
+  const type = LEGACY_STATION_BY_CHAIN[dock.chainId] ?? fallbackStationType(dock.chainId);
+  return { coveId: `legacy.${dock.chainId}`, shoreBearing: fallbackBearing, type };
+}
+
+function identityForStation(stationType: StationType): HarborIdentity {
+  return { stationType, ...STATION_IDENTITY[stationType] };
+}
+
+function isStationType(value: unknown): value is StationType {
+  return typeof value === "string" && STATION_TYPES.includes(value as StationType);
+}
+
+function fallbackStationType(chainId: string): StationType {
+  const options: readonly StationType[] = ["gate-landing", "tea-house-quay", "fishing-pier", "stepped-inlet", "reed-boathouse"];
+  return options[Math.min(options.length - 1, Math.floor(stableUnit(`station-type.${chainId}`) * options.length))]!;
+}
+
+function stationFlagPlacement(type: StationType, length: number, width: number, supply: number) {
+  const height = (type === "boathouse-precinct" ? 6.4 : type === "pigeonnier-islet" ? 4.4 : 4.8) + supply * 1.25;
+  return {
+    height,
+    scale: (type === "boathouse-precinct" ? 1.05 : 0.72) + supply * 0.24,
+    x: type === "stepped-inlet" ? -length * 0.2 : length * 0.4,
+    z: type === "annex-pavilion" ? width * 0.62 : -width * 0.3,
+  };
+}
+
+function stationLampLocals(type: StationType, length: number, width: number, quayX: number, quayWidth: number) {
+  if (type === "pigeonnier-islet") return [{ height: 1.45, x: length * 0.3, z: 0 }];
+  if (type === "stepped-inlet") return [
+    { height: 1.72, x: -length * 0.22, z: -width * 0.58 },
+    { height: 1.72, x: -length * 0.22, z: width * 0.58 },
+  ];
+  if (type === "boathouse-precinct") return [
+    { height: 1.72, x: length * 0.18, z: -width * 0.58 },
+    { height: 1.72, x: length * 0.18, z: width * 0.58 },
+    { height: 1.55, x: quayX, z: quayWidth * 0.42 },
+  ];
+  return [
+    { height: 1.52, x: length * 0.12, z: -width * 0.42 },
+    { height: 1.52, x: length * 0.12, z: width * 0.42 },
+  ];
+}
+
+function stationSpan(type: StationType, width: number): number {
+  switch (type) {
+    case "boathouse-precinct": return width * 3.5;
+    case "annex-pavilion": return width * 1.7;
+    case "gate-landing": return width * 1.8;
+    case "tea-house-quay": return width * 1.85;
+    case "fishing-pier": return width * 1.05;
+    case "stepped-inlet": return width * 1.8;
+    case "reed-boathouse": return width * 1.65;
+    case "pigeonnier-islet": return width;
+  }
+}
+
+function pushDeepHip(parts: BufferGeometry[], x: number, w: number, d: number, eaves: number, rise: number): void {
+  const hip = new ConeGeometry(1, 1, 4);
+  hip.rotateY(Math.PI / 4);
+  hip.scale(w * Math.SQRT1_2, rise, d * Math.SQRT1_2);
+  hip.translate(x, eaves + rise / 2, 0);
+  parts.push(hip);
+}
+
+function pushPierPilings(
+  props: HarborPropInstance[],
+  length: number,
+  width: number,
+  centerX: number,
+  bays: number,
+): void {
+  for (let bay = 0; bay <= bays; bay += 1) {
+    const x = centerX - length / 2 + (bay / bays) * length;
+    for (const z of [-width / 2, width / 2]) {
+      scratchMatrix.makeTranslation(x, -1.4, z);
+      props.push(harborProp("piling", scratchMatrix, null, false));
+    }
+  }
+}
+
+function cargoTideLanes(length: number, quayLength: number, quayWidth: number, quayX: number): CargoTideLanes {
   const aboard: CargoTideSlot[] = [];
   const ashore: CargoTideSlot[] = [];
   for (let index = 0; index < CARGO_TIDE_SLOTS; index += 1) {
     const t = index / (CARGO_TIDE_SLOTS - 1);
-    // Local +X is out to sea, so the aboard run advances seaward along the pier
-    // centreline and the ashore run retreats landward along the quay edge. The
-    // two therefore point in opposite directions as well as sitting apart.
-    aboard.push({ x: -length * 0.2 + t * length * 0.72, y: PIER_DECK_TOP_Y, z: 0 });
+    aboard.push({ x: -length * 0.12 + t * length * 0.58, y: PIER_DECK_TOP_Y, z: 0 });
     ashore.push({ x: quayX + quayLength * (0.4 - t * 0.8), y: QUAY_TOP_Y, z: quayWidth * 0.46 });
   }
   return { aboard, ashore };
 }
 
-/**
- * H3: the supply-to-scale curve. Anchored on the decade range stablecoin
- * supply actually spans (~3e8 to ~5e11 USD) rather than on log10/11, which
- * compressed every real chain into a 1.6x band. Strictly increasing in
- * `totalUsd`, so the size ordering the viewer reads is the data's ordering.
- */
 function harborAmountScale(totalUsd: number): number {
   const decades = (Math.log10(Math.max(1, totalUsd)) - 8.5) / 3.2;
   return 0.62 + MathUtils.clamp(decades, 0, 1) * 0.92;
 }
 
-/**
- * A gantry crane over the pier head: two raking legs, a jib, a counterweight,
- * and a hook block on its fall. Merged to one draw; the whole thing is static.
- */
-function pushHarborCrane(
-  headX: number,
-  width: number,
-  supply: number,
-  parts: HarborBucketPart[],
-): void {
-  const height = 2.9 + supply * 1.4;
-  const frame: BufferGeometry[] = [];
-  for (const side of [-1, 1]) {
-    const leg = new BoxGeometry(0.14, height, 0.14);
-    leg.rotateZ(side * 0.13);
-    leg.translate(headX - side * 0.28, height / 2 + 0.24, side * width * 0.3);
-    frame.push(leg);
-  }
-  // Cross brace and the head beam the jib pivots on.
-  pushGeometry(frame, new BoxGeometry(0.11, 0.11, width * 0.66), headX, height * 0.52, 0);
-  pushGeometry(frame, new BoxGeometry(0.16, 0.16, width * 0.72), headX, height + 0.24, 0);
-  const jib = new BoxGeometry(2.3 + supply * 0.9, 0.14, 0.14);
-  jib.rotateZ(-0.3);
-  jib.translate(headX + 0.95, height + 0.5, 0);
-  frame.push(jib);
-  parts.push(harborPart("craneTimber", mergeGeometries(frame, false)!, HARBOR_PALETTE.timber_mid, false, true));
-
-  const fittings: BufferGeometry[] = [];
-  // Counterweight aft of the mast, hook block on its fall forward of it.
-  pushGeometry(fittings, new BoxGeometry(0.34, 0.3, 0.34), headX - 0.62, height + 0.02, 0);
-  pushGeometry(fittings, new BoxGeometry(0.03, 1.05, 0.03), headX + 1.85, height + 0.1, 0);
-  pushGeometry(fittings, new BoxGeometry(0.22, 0.2, 0.22), headX + 1.85, height - 0.46, 0);
-  parts.push(harborPart("craneMetal", mergeGeometries(fittings, false)!, "#6d5d49", false, true));
+function dockAccentColor(dock: DockNode): Color {
+  const color = new Color(dockHealthAccent(dock.healthBand));
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+  color.setHSL(
+    (hsl.h + (stableUnit(`dock-hue.${dock.chainId}`) - 0.5) * 0.1 + 1) % 1,
+    MathUtils.clamp(hsl.s * (0.75 + stableUnit(`dock-sat.${dock.chainId}`) * 0.5), 0.2, 0.85),
+    MathUtils.clamp(hsl.l * (0.78 + stableUnit(`dock-light.${dock.chainId}`) * 0.42), 0.28, 0.72),
+  );
+  return color;
 }
 
-/**
- * The pier-head flag. The cloth is a waved plane whose UVs are remapped onto
- * the chain's cell in the shared flag atlas, so ten harbours fly ten different
- * logos through one texture and one material.
- */
+function dockHealthAccent(healthBand: DockNode["healthBand"]): string {
+  if (healthBand === "robust" || healthBand === "healthy") return "#78b689";
+  if (healthBand === "mixed") return "#dfb95a";
+  if (healthBand === "fragile") return "#d98b54";
+  return "#c9675c";
+}
+
 function authorChainFlag(
   dock: DockNode,
   accent: Color,
+  shape: StationFlagShape,
   placement: { height: number; scale: number; x: number; yaw: number; z: number },
 ): HarborFlagSpec {
-  const cell = assignGardenChainFlagCell(dock, accent);
-  const sag = 0.07 + stableUnit(`dock-flag-sag.${dock.chainId}`) * 0.06;
-  const wavePhase = (stableUnit(`dock-flag-wave.${dock.chainId}`) - 0.5) * 0.7;
   return {
     accent: accent.clone(),
-    atlasCell: cell,
+    atlasCell: assignGardenChainFlagCell(dock, accent),
     chainId: dock.chainId,
     placement: {
       scale: placement.scale,
@@ -936,337 +696,30 @@ function authorChainFlag(
       yaw: placement.yaw,
       z: placement.z,
     },
-    sag,
-    wavePhase,
+    sag: 0.07 + stableUnit(`dock-flag-sag.${dock.chainId}`) * 0.06,
+    shape,
+    wavePhase: (stableUnit(`dock-flag-wave.${dock.chainId}`) - 0.5) * 0.7,
   };
 }
 
-/** One sea arm, walked as a circular arc so it bows out and curls back in. */
-interface ArmSpec {
-  /** Blocks at supply 0.5; the run scales with the chain's band. */
-  blocks: number;
-  /** Initial heading in radians; 0 is straight out to sea. */
-  heading: number;
-  side: 1 | -1;
-  /** Total turn over the arm's run; negative curls back toward the centreline. */
-  sweep: number;
-  /** Where the arm leaves the shore, as a fraction of pier length. */
-  startX: number;
-  /** Standoff from the centreline at the root, in pier widths. */
-  startZ: number;
-}
-
-/**
- * Per-enclosure sea defences. Arms start well clear of the shore and reach
- * seaward, where the harbour ring diverges and there is room for them — an arm
- * that swept out level with the quay would foul the next chain's harbour.
- */
-const ENCLOSURE_ARMS: Record<HarborEnclosure, readonly ArmSpec[]> = {
-  // An open roadstead: no sea defence at all.
-  open: [],
-  // A single straight-ish arm giving a lee to one side.
-  arm: [{ blocks: 4, heading: 0.26, side: 1, startX: 0.24, startZ: 1.5, sweep: -0.45 }],
-  // A long arm hooking right round the basin — the classic fishing harbour.
-  hook: [{ blocks: 6, heading: 0.52, side: 1, startX: 0.2, startZ: 1.28, sweep: -1.6 }],
-  // Two arms converging on a narrow entrance.
-  pincer: [
-    { blocks: 4, heading: 0.55, side: 1, startX: 0.28, startZ: 1.4, sweep: -1.25 },
-    { blocks: 4, heading: 0.55, side: -1, startX: 0.28, startZ: 1.4, sweep: -1.25 },
-  ],
-  // The capital: two moles enclosing a full basin, met by entrance towers.
-  grand: [
-    { blocks: 6, heading: 0.4, side: 1, startX: 0.14, startZ: 1.26, sweep: -1.42 },
-    { blocks: 6, heading: 0.4, side: -1, startX: 0.14, startZ: 1.26, sweep: -1.42 },
-  ],
-};
-
-/**
- * Walks each arm block by block along its arc, pushing cut stone and tumbled
- * armour into the mole bucket. Returns the arm tips so the caller can put an
- * entrance light (or, for the capital, an entrance tower) on each.
- */
-function pushEnclosureArms(
-  enclosure: HarborEnclosure,
-  length: number,
-  width: number,
-  supply: number,
-  parts: BufferGeometry[],
-): { maxAbsZ: number; tips: { x: number; z: number }[] } {
-  const tips: { x: number; z: number }[] = [];
-  let maxAbsZ = 0;
-  for (const spec of ENCLOSURE_ARMS[enclosure]) {
-    const count = Math.max(4, Math.round(spec.blocks * (0.72 + supply * 0.56)));
-    let x = length * spec.startX;
-    let z = spec.side * width * spec.startZ;
-    for (let index = 0; index < count; index += 1) {
-      const t = index / Math.max(1, count - 1);
-      const heading = spec.heading + spec.sweep * t;
-      // Blocks shrink and settle as the arm reaches into deeper water. Courses
-      // are laid along the heading and the step is derived from the course
-      // itself, so the arm is a continuous wall rather than a dotted line.
-      const block = width * 0.66 * (1.2 - t * 0.26);
-      const course = block * 1.5;
-      const rise = 1.16 - t * 0.42;
-      const yaw = -spec.side * heading;
-      // The mole is a wall with a section, not a paving strip: a wide founding
-      // course at the waterline, a narrower body above it, and a parapet along
-      // the seaward flank. At overview zoom the parapet's shadow is what makes
-      // it read as masonry mass rather than a ribbon on the water.
-      const footing = new BoxGeometry(course, rise * 0.42, block * 1.24);
-      footing.rotateY(yaw);
-      footing.translate(x, -0.32, z);
-      parts.push(footing);
-      const body = new BoxGeometry(course, rise, block);
-      body.rotateY(yaw);
-      body.translate(x, rise / 2 - 0.42, z);
-      parts.push(body);
-      const parapet = new BoxGeometry(course * 0.98, rise * 0.5, block * 0.34);
-      parapet.rotateY(yaw);
-      // Outward flank normal: the arm advances along (cos h, sin h) in the
-      // side-mirrored frame, so the seaward side of it is (-sin h, cos h).
-      const flankX = -Math.sin(heading);
-      const flankZ = spec.side * Math.cos(heading);
-      parapet.translate(x + flankX * block * 0.33, rise * 0.72 - 0.42, z + flankZ * block * 0.33);
-      parts.push(parapet);
-      // Armour blocks tumbled along the exposed flank.
-      pushGeometry(
-        parts,
-        new BoxGeometry(block * 0.6, rise * 0.5, block * 0.6),
-        x + flankX * block * 0.84,
-        -0.5,
-        z + flankZ * block * 0.84,
-      );
-      maxAbsZ = Math.max(maxAbsZ, Math.abs(z) + block * 1.14);
-      const step = course * 0.8;
-      x += Math.cos(heading) * step;
-      z += spec.side * Math.sin(heading) * step;
-    }
-    tips.push({ x, z });
-  }
-  return { maxAbsZ, tips };
-}
-
-/** How many warehouse bays each roofline wants, relative to the supply band. */
-const ROOFLINE_BAY_BIAS: Record<HarborRoofline, number> = {
-  gable: 0,
-  // Few, large blocks under broad hipped roofs.
-  hipped: -1,
-  // Many narrow north-light sheds — an industrial saw edge.
-  sawtooth: 1,
-  // Long low vaults: fewer bays so each barrel runs longer than it is wide.
-  vault: -1,
-};
-/** How much of its bay each roofline's shed fills. */
-const ROOFLINE_BAY_FILL: Record<HarborRoofline, number> = {
-  gable: 0.82,
-  hipped: 0.9,
-  sawtooth: 0.88,
-  vault: 0.92,
-};
-/** Wall height multiplier, so the roofline changes the block's proportion too. */
-const ROOFLINE_HEIGHT: Record<HarborRoofline, number> = {
-  gable: 1,
-  hipped: 1.25,
-  sawtooth: 0.86,
-  vault: 0.8,
-};
-
-/** Pushes one warehouse roof of the given shape into the accent bucket. */
-function pushRoof(
-  parts: BufferGeometry[],
-  roofline: HarborRoofline,
-  x: number,
-  w: number,
-  d: number,
-  eaves: number,
-  pitch: number,
-): void {
-  switch (roofline) {
-    case "gable": {
-      for (const side of [-1, 1]) {
-        const slope = new BoxGeometry(w + 0.16, 0.12, d * 0.56);
-        slope.rotateX(side * pitch);
-        slope.translate(x, eaves + Math.sin(pitch) * d * 0.15, side * d * 0.24);
-        parts.push(slope);
-      }
-      pushGeometry(parts, new BoxGeometry(w + 0.24, 0.1, 0.14), x, eaves + Math.sin(pitch) * d * 0.3, 0);
-      break;
-    }
-    case "hipped": {
-      // One pyramid: a four-sided hip covering the whole block. A cone with
-      // four radial segments, turned 45 degrees so its base square lines up
-      // with the walls, is a cleaner hip than four leaning slabs.
-      const hip = new ConeGeometry(1, 1, 4);
-      hip.rotateY(Math.PI / 4);
-      hip.scale(w * 0.78, Math.min(w, d) * pitch * 1.1, d * 0.78);
-      parts.push(hip);
-      hip.translate(x, eaves + Math.min(w, d) * pitch * 0.55, 0);
-      break;
-    }
-    case "sawtooth": {
-      // Three teeth stepping along the shed: sloping roof panel, vertical
-      // glazed riser, repeat.
-      const teeth = 3;
-      const bay = w / teeth;
-      const rake = 0.55;
-      for (let index = 0; index < teeth; index += 1) {
-        const panel = new BoxGeometry(bay / Math.cos(rake), 0.09, d);
-        panel.rotateZ(rake);
-        panel.translate(x - w / 2 + bay * (index + 0.5), eaves + 0.2, 0);
-        parts.push(panel);
-        pushGeometry(parts, new BoxGeometry(0.09, bay * Math.tan(rake), d), x - w / 2 + bay * (index + 1), eaves + 0.2, 0);
-      }
-      break;
-    }
-    case "vault": {
-      // A barrel vault running the length of the shed: the only curved
-      // roofline in the world, and unmistakable in profile.
-      const vault = new CylinderGeometry(d * 0.36, d * 0.36, w, 10, 1, false, 0, Math.PI);
-      vault.rotateZ(Math.PI / 2);
-      vault.translate(x, eaves, 0);
-      parts.push(vault);
-      break;
-    }
-  }
-}
-
-/**
- * The industry on the hard beside the quay. Each of these is a real dockyard
- * feature with a shape of its own, merged into the stone and timber buckets so
- * none of them costs a draw call.
- */
-function pushHarborWorks(
-  works: HarborWorks,
-  ctx: {
-    deckParts: BufferGeometry[];
-    quayLength: number;
-    quayWidth: number;
-    quayX: number;
-    stoneParts: BufferGeometry[];
-  },
-): void {
-  const { deckParts, quayLength, quayWidth, quayX, stoneParts } = ctx;
-  // Tucked against the quay's landward flank: the ring is tight here, and a
-  // dockyard that sprawled would run into the next chain's harbour.
-  const hardZ = -quayWidth * 0.78;
-  switch (works) {
-    case "drydock": {
-      // A graving dock: stone altars around a pit, a caisson gate at the
-      // seaward end, and a hull sitting on the blocks inside it.
-      const dockLength = Math.min(quayLength * 0.8, 4.2);
-      pushGeometry(stoneParts, new BoxGeometry(dockLength + 0.7, 0.3, 2.4), quayX, -0.2, hardZ);
-      for (const side of [-1, 1]) {
-        pushGeometry(stoneParts, new BoxGeometry(dockLength, 0.9, 0.36), quayX, 0.1, hardZ + side * 0.98);
-      }
-      pushGeometry(stoneParts, new BoxGeometry(0.36, 0.9, 2.3), quayX - dockLength / 2, 0.1, hardZ);
-      pushGeometry(stoneParts, new BoxGeometry(0.4, 1.05, 2.3), quayX + dockLength / 2, 0.18, hardZ);
-      pushGeometry(deckParts, new BoxGeometry(dockLength * 0.72, 0.2, 0.3), quayX, -0.02, hardZ);
-      for (let rib = 0; rib < 5; rib += 1) {
-        const at = quayX - dockLength * 0.28 + rib * dockLength * 0.14;
-        for (const side of [-1, 1]) {
-          const frame = new BoxGeometry(0.14, 1.0, 0.14);
-          frame.rotateX(side * 0.36);
-          frame.translate(at, 0.4, hardZ + side * 0.22);
-          deckParts.push(frame);
-        }
-      }
-      break;
-    }
-    case "slipway": {
-      // Inclined ways running off the quay into the water, with a hull on the
-      // stocks: the harbour that builds its own ships.
-      const slipZ = hardZ - 0.9;
-      for (const side of [-1, 1]) {
-        const way = new BoxGeometry(0.26, 0.16, 3.4);
-        way.rotateX(-0.16);
-        way.translate(quayX + side * 0.75, 0.16, slipZ);
-        deckParts.push(way);
-      }
-      const keel = new BoxGeometry(0.34, 0.22, 2.4);
-      keel.rotateX(-0.16);
-      keel.translate(quayX, 0.62, slipZ + 0.5);
-      deckParts.push(keel);
-      for (let rib = 0; rib < 6; rib += 1) {
-        const along = -1.0 + rib * 0.4;
-        for (const side of [-1, 1]) {
-          const frame = new BoxGeometry(0.12, 1.05, 0.12);
-          frame.rotateZ(side * 0.34);
-          frame.rotateX(-0.16);
-          frame.translate(quayX + side * 0.22, 0.95 + along * 0.16, slipZ + 0.5 + along);
-          deckParts.push(frame);
-        }
-      }
-      break;
-    }
-    case "careen": {
-      // A careening hard: a hull hove down on its side against shear posts,
-      // bottom bared for breaming. Reads instantly as a beached ship.
-      const hull = new SphereGeometry(0.62, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2);
-      hull.scale(0.85, 0.75, 2.0);
-      hull.rotateZ(Math.PI * 0.62);
-      hull.translate(quayX + 0.4, 0.5, hardZ - 0.3);
-      deckParts.push(hull);
-      for (const side of [-1, 1]) {
-        const shear = new BoxGeometry(0.16, 3.0, 0.16);
-        shear.rotateZ(0.3);
-        shear.translate(quayX + 0.4, 1.6, hardZ - 0.3 + side * 0.95);
-        deckParts.push(shear);
-      }
-      pushGeometry(stoneParts, new BoxGeometry(2.2, 0.28, 2.6), quayX + 0.4, -0.22, hardZ - 0.3);
-      break;
-    }
-    default:
-      break;
-  }
-}
-
-/**
- * A mooring line: a catenary of short segments from a bollard out to the berth
- * line beside the pier, where a hull would take it up.
- */
-function mooringRopeGeometry(x: number, z: number, side: number): BufferGeometry[] {
-  const segments = 5;
-  const reach = 1.5;
-  const parts: BufferGeometry[] = [];
-  const from = new Vector3(x, 0.6, z);
-  const to = new Vector3(x + 0.35, WATER_LEVEL - GARDEN_DOCK_ROOT_Y + 0.28, z + side * reach);
-  for (let index = 0; index < segments; index += 1) {
-    const t0 = index / segments;
-    const t1 = (index + 1) / segments;
-    const a = catenaryPoint(from, to, t0);
-    const b = catenaryPoint(from, to, t1);
-    const mid = a.clone().add(b).multiplyScalar(0.5);
-    const span = b.clone().sub(a);
-    const segment = new BoxGeometry(0.035, 0.035, span.length());
-    segment.rotateX(Math.atan2(-span.y, Math.hypot(span.x, span.z)));
-    segment.rotateY(Math.atan2(span.x, span.z));
-    segment.translate(mid.x, mid.y, mid.z);
-    parts.push(segment);
-  }
-  return parts;
-}
-
-function catenaryPoint(from: Vector3, to: Vector3, t: number): Vector3 {
-  const point = from.clone().lerp(to, t);
-  point.y -= Math.sin(t * Math.PI) * 0.22;
-  return point;
-}
-
-/**
- * Merges one per-material bucket into a single geometry.
- *
- * `mergeGeometries` refuses a mix of indexed and non-indexed inputs, and the
- * deck bucket mixes both (extruded pier decks are non-indexed, everything the
- * dockyard pushes in beside them is indexed). Drop to non-indexed only when the
- * bucket is actually mixed, so the buckets that are uniform keep their shared
- * vertices.
- */
 function mergeBucket(parts: BufferGeometry[]): BufferGeometry {
   const indexed = parts.filter((part) => part.index !== null).length;
   const normalized = indexed === 0 || indexed === parts.length
     ? parts
     : parts.map((part) => (part.index === null ? part : part.toNonIndexed()));
   return mergeGeometries(normalized, false)!;
+}
+
+function pushMergedPart(
+  target: HarborBucketPart[],
+  bucket: HarborBucket,
+  geometries: BufferGeometry[],
+  color: Color | string,
+  fineDetail: boolean,
+  castShadow: boolean,
+): void {
+  if (geometries.length === 0) return;
+  target.push(harborPart(bucket, mergeBucket(geometries), color, fineDetail, castShadow));
 }
 
 function harborPart(
@@ -1285,31 +738,28 @@ function harborPart(
   };
 }
 
-function harborProp(
-  kind: HarborPropKind,
-  matrix: Matrix4,
-  color: Color | null,
-  fineDetail: boolean,
-): HarborPropInstance {
+function harborProp(kind: HarborPropKind, matrix: Matrix4, color: Color | null, fineDetail: boolean): HarborPropInstance {
   return { color: color?.clone() ?? null, fineDetail, kind, matrix: matrix.clone() };
 }
 
-/** Applies a translation to a geometry and pushes it into a merge bucket. */
-function pushGeometry(
-  parts: BufferGeometry[],
-  geometry: BufferGeometry,
-  x: number,
-  y: number,
-  z: number,
-): void {
+function pushGeometry(parts: BufferGeometry[], geometry: BufferGeometry, x: number, y: number, z: number): void {
   geometry.translate(x, y, z);
   parts.push(geometry);
 }
 
-// I2 mirror-basin extents (C2(b)): the calm mask spans the water between the
-// composed harbor docks. The centre is their midpoint; the radii derive from
-// the actual spread (half-spread + a berth margin) clamped so a single dock
-// still gets a readable basin and a far-flung pair never stills the open sea.
+function localToWorldXZ(root: Object3D, localX: number, localZ: number): { x: number; z: number } {
+  const cos = Math.cos(root.rotation.y);
+  const sin = Math.sin(root.rotation.y);
+  return {
+    x: root.position.x + localX * cos + localZ * sin,
+    z: root.position.z - localX * sin + localZ * cos,
+  };
+}
+
+export function gardenDockLampWorldPositions(dock: DockVisual): { x: number; z: number }[] {
+  return dock.recipe.lampWorldPositions;
+}
+
 const HARBOR_CALM_MARGIN_X = 5.5;
 const HARBOR_CALM_MARGIN_Z = 4.5;
 const HARBOR_CALM_MIN_RADIUS_X = 9;
@@ -1318,15 +768,7 @@ const HARBOR_CALM_MAX_RADIUS_X = 18;
 const HARBOR_CALM_MAX_RADIUS_Z = 13;
 const HARBOR_CALM_STRENGTH = 0.75;
 
-/**
- * Computes the harbor mirror-basin calm mask from the composed dock visuals.
- * Returns null when no harbor dock is composed (the water then keeps Lane W's
- * island-side default). The integrator feeds this to
- * `water.setHarborCalmMask(...)` in `registerHarborWater`.
- */
-export function gardenHarborCalmMask(
-  docks: readonly Pick<DockVisual, "root">[],
-): GardenHarborCalmMask | null {
+export function gardenHarborCalmMask(docks: readonly Pick<DockVisual, "root">[]): GardenHarborCalmMask | null {
   if (docks.length === 0) return null;
   let minX = Infinity;
   let maxX = -Infinity;
@@ -1344,221 +786,9 @@ export function gardenHarborCalmMask(
     maxZ = Math.max(maxZ, z);
   }
   return {
+    calmStrength: HARBOR_CALM_STRENGTH,
     center: { x: centerX / docks.length, z: centerZ / docks.length },
     radiusX: MathUtils.clamp((maxX - minX) / 2 + HARBOR_CALM_MARGIN_X, HARBOR_CALM_MIN_RADIUS_X, HARBOR_CALM_MAX_RADIUS_X),
     radiusZ: MathUtils.clamp((maxZ - minZ) / 2 + HARBOR_CALM_MARGIN_Z, HARBOR_CALM_MIN_RADIUS_Z, HARBOR_CALM_MAX_RADIUS_Z),
-    calmStrength: HARBOR_CALM_STRENGTH,
-  };
-}
-
-function signaturePostSpecs(
-  signature: SignatureKind,
-  length: number,
-  width: number,
-): { x: number; z: number; height: number; radius: number }[] {
-  const head = length * 0.66;
-  switch (signature) {
-    case "derrick":
-      return [
-        { height: 2.7, radius: 0.1, x: head, z: -width * 0.32 },
-        { height: 2.7, radius: 0.1, x: head, z: width * 0.32 },
-      ];
-    case "net-racks":
-      return [
-        { height: 1.5, radius: 0.08, x: head, z: -width * 0.4 },
-        { height: 1.5, radius: 0.08, x: head, z: width * 0.4 },
-      ];
-    default:
-      return [];
-  }
-}
-
-/**
- * The one-off signature prop. Everything that can share the harbour's timber
- * goes into the deck bucket for free; only the translucent net rack needs a
- * material — and so a draw — of its own.
- */
-function pushSignatureAccent(
-  signature: SignatureKind,
-  length: number,
-  width: number,
-  deckParts: BufferGeometry[],
-  parts: HarborBucketPart[],
-): void {
-  const head = length * 0.66;
-  switch (signature) {
-    case "derrick":
-      pushGeometry(deckParts, new BoxGeometry(0.16, 0.16, width * 0.72), head, 2.66, 0);
-      return;
-    case "dinghy": {
-      const hull = new SphereGeometry(0.55, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2);
-      hull.scale(0.7, 0.6, 1.5);
-      hull.rotateX(Math.PI);
-      hull.rotateZ(0.12);
-      hull.translate(length * 0.3, 0.32, width * 0.85);
-      deckParts.push(hull);
-      return;
-    }
-    case "net-racks": {
-      const net = new BoxGeometry(0.06, 1.1, width * 0.78);
-      net.translate(head, 1.05, 0);
-      // The world-wide wall draw carries RGB per vertex; this metadata lets it
-      // carry the old net rack's 0.55 cloth alpha in the same attribute too.
-      net.userData.harborOpacity = 0.55;
-      parts.push(harborPart("wall", net, HARBOR_PALETTE.sail_teal, false, false));
-      return;
-    }
-    default:
-      return;
-  }
-}
-
-/**
- * H3: the harbour's built identity. Named chains are authored in
- * `CHAIN_HARBOR_IDENTITIES`; anything else gets a coherent harbour hashed off
- * its chain id, so an unlisted chain is still a place rather than a default.
- */
-export function harborIdentity(dock: DockNode): HarborIdentity {
-  return CHAIN_HARBOR_IDENTITIES[dock.chainId] ?? fallbackIdentity(dock.chainId);
-}
-
-function fallbackIdentity(chainId: string): HarborIdentity {
-  return {
-    enclosure: pick(HARBOR_ENCLOSURES, `dock-enclosure.${chainId}`),
-    landmark: pick(HARBOR_LANDMARKS, `dock-landmark.${chainId}`),
-    plan: pick(HARBOR_PLANS, `dock-plan.${chainId}`),
-    roofline: pick(HARBOR_ROOFLINES, `dock-roofline.${chainId}`),
-    signature: pick(SIGNATURE_KINDS, `dock-signature.${chainId}`),
-    works: pick(HARBOR_WORKS, `dock-works.${chainId}`),
-  };
-}
-
-function pick<T>(options: readonly T[], key: string): T {
-  const index = Math.floor(stableUnit(key) * options.length);
-  return options[Math.min(index, options.length - 1)]!;
-}
-
-/** Deterministic per-harbor plan; Ethereum keeps the grand T-head. */
-export function harborPlan(dock: DockNode): HarborPlan {
-  return harborIdentity(dock).plan;
-}
-
-/**
- * Blends the dock's health-band accent with a stable per-chain hue shift so
- * neighbouring harbors of the same health still read as different districts.
- */
-function dockAccentColor(dock: DockNode): Color {
-  const color = new Color(dockHealthAccent(dock.healthBand));
-  const hsl = { h: 0, s: 0, l: 0 };
-  color.getHSL(hsl);
-  const shift = (stableUnit(`dock-hue.${dock.chainId}`) - 0.5) * 0.1;
-  color.setHSL(
-    (hsl.h + shift + 1) % 1,
-    MathUtils.clamp(hsl.s * (0.75 + stableUnit(`dock-sat.${dock.chainId}`) * 0.5), 0.2, 0.85),
-    // Lightness carries most of the per-chain identity so neighbouring docks of
-    // the same health band still read as distinct districts at the overview.
-    MathUtils.clamp(hsl.l * (0.78 + stableUnit(`dock-light.${dock.chainId}`) * 0.42), 0.28, 0.72),
-  );
-  return color;
-}
-
-function dockHealthAccent(healthBand: DockNode["healthBand"]): string {
-  if (healthBand === "robust" || healthBand === "healthy") return "#78b689";
-  if (healthBand === "mixed") return "#dfb95a";
-  if (healthBand === "fragile") return "#d98b54";
-  return "#c9675c";
-}
-
-/**
- * R12: the piles a pier stands on — paired down each side, following the deck
- * run, reaching from under the deck to below the waterline so the structure is
- * visibly supported rather than floating.
- *
- * One InstancedMesh for the whole pier: piles are the most repeated element in
- * a harbour and must not cost a draw call each.
- */
-function pushPierPilings(
-  props: HarborPropInstance[],
-  length: number,
-  width: number,
-  plan: HarborPlan,
-  grand: boolean,
-): void {
-  const specs: { x: number; z: number }[] = [];
-  const bays = Math.max(3, Math.round(length / 1.15));
-  for (let bay = 0; bay <= bays; bay += 1) {
-    const t = bay / bays;
-    const x = -length * 0.28 + t * length * 0.96;
-    specs.push({ x, z: -width * 0.34 });
-    specs.push({ x, z: width * 0.34 });
-  }
-  if (plan === "double-finger") {
-    const offset = width * 1.85;
-    const fingerBays = Math.max(2, Math.round((length * 0.78) / 1.25));
-    for (let bay = 0; bay <= fingerBays; bay += 1) {
-      const x = -length * 0.22 + (bay / fingerBays) * length * 0.74;
-      specs.push({ x, z: offset - width * 0.3 });
-      specs.push({ x, z: offset + width * 0.3 });
-    }
-  }
-  if (grand) {
-    const innerBays = Math.max(2, Math.round((length * 0.64) / 1.25));
-    for (let bay = 0; bay <= innerBays; bay += 1) {
-      const x = -length * 0.02 + (bay / innerBays) * length * 0.64;
-      specs.push({ x, z: -width * 1.8 - width * 0.32 });
-      specs.push({ x, z: -width * 1.8 + width * 0.32 });
-    }
-  }
-
-  // Long enough to pass through the waterline and disappear into the shadow
-  // under the deck; the exact depth is never seen, only the fact of it.
-  const pileHeight = 2.6;
-  const matrix = new Matrix4();
-  specs.forEach((spec) => {
-    matrix.makeTranslation(spec.x, -pileHeight / 2 - 0.1, spec.z);
-    props.push(harborProp("piling", matrix, null, false));
-  });
-}
-
-/** Rounded-end pier deck: one extruded rounded rectangle, one draw. */
-function createPierDeckGeometry(
-  length: number,
-  width: number,
-  thickness: number,
-): ExtrudeGeometry {
-  const radius = Math.min(width * 0.4, length * 0.18, 0.6);
-  const shape = roundedRectShape(length, width, radius);
-  const geometry = new ExtrudeGeometry(shape, {
-    bevelEnabled: false,
-    curveSegments: 1,
-    depth: thickness,
-  });
-  geometry.rotateX(-Math.PI / 2);
-  geometry.translate(0, -thickness / 2, 0);
-  return geometry;
-}
-
-function roundedRectShape(w: number, h: number, r: number): Shape {
-  const shape = new Shape();
-  const x = -w / 2;
-  const y = -h / 2;
-  shape.moveTo(x + r, y);
-  shape.lineTo(x + w - r, y);
-  shape.quadraticCurveTo(x + w, y, x + w, y + r);
-  shape.lineTo(x + w, y + h - r);
-  shape.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  shape.lineTo(x + r, y + h);
-  shape.quadraticCurveTo(x, y + h, x, y + h - r);
-  shape.lineTo(x, y + r);
-  shape.quadraticCurveTo(x, y, x + r, y);
-  return shape;
-}
-
-function localToWorldXZ(root: Object3D, localX: number, localZ: number): { x: number; z: number } {
-  const cos = Math.cos(root.rotation.y);
-  const sin = Math.sin(root.rotation.y);
-  return {
-    x: root.position.x + localX * cos + localZ * sin,
-    z: root.position.z - localX * sin + localZ * cos,
   };
 }

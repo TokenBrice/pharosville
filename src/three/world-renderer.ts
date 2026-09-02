@@ -1920,6 +1920,7 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
     dock.label,
     dock.logoPath ?? null,
     dock.size,
+    (dock as typeof dock & { station?: unknown }).station ?? null,
     dock.tile,
   ]));
   const shipEntries = slice.ships
@@ -3105,7 +3106,7 @@ function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
   content.zones = zones;
 }
 
-/** The harbour ring: quays, warehouses, cranes — and the lantern ring. */
+/** Shore stations, the Ethereum/L2 precinct bridges, and the lantern ring. */
 function buildDocksPart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.docks;
   const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);

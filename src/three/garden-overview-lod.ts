@@ -8,7 +8,7 @@ import { Box3, MathUtils, Object3D, Vector3 } from "three";
  * `#cam=0,0,0.28`, where default framing (zoom 0.7776) sits comfortably inside
  * it. The difference is not the fleet — the batches are 15 calls whatever the
  * zoom — it is that pulling back stops the frustum culling anything, so every
- * per-dock and per-hero prop in the world pays a draw call (and a second one in
+ * station and per-hero prop in the world pays a draw call (and a second one in
  * the shadow pass) to render as two or three pixels of mud.
  *
  * The repo already has the rule that says which props those are: the isometric
@@ -21,7 +21,7 @@ import { Box3, MathUtils, Object3D, Vector3 } from "three";
  * `OVERVIEW_LOD_DETAIL_NAMES`, and the world is scanned once at build.
  *
  * Nothing analytical is shed. What goes is deck and shore furniture — dock
- * posts, lamp heads, warehouse windows, the crane, the chain flag, the keeper's
+ * posts, lamp heads, lit screens, works signatures, the chain flag, the keeper's
  * rowboat and shore stones, the cottage lantern string, the quay stair, the
  * precinct obelisks, and the per-hero grade shield and overlay signal. The
  * harbour's structure, the fleet, the zones, the sea signs (which hold a
@@ -43,15 +43,14 @@ export const OVERVIEW_LOD_HIDDEN_ZOOM = 0.44;
  * one gate rather than one per mesh.
  */
 export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
-  // Per-dock furniture, ×10 harbours.
+  // Globally batched station furniture.
   "dock-cargo-tide",
   "dock-chain-flag",
   "dock-tide-line",
-  "dock-crane-metal",
-  "dock-crane-timber",
   "dock-lamp-heads",
   "dock-posts",
-  "dock-warehouse-windows",
+  "harbor-netRack",
+  "station-lit-screens",
   // The island's toy-scale grounding props, authored against a 34-unit Pharos.
   // W3.1 deleted the keeper-cottage lantern string outright (the Great
   // Quieting removed that glow vocabulary), so it no longer appears here.
@@ -86,12 +85,11 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
 export const OVERVIEW_LOD_WHOLE_RING_NAMES: readonly string[] = [
   "dock-cargo-tide",
   "dock-chain-flag",
-  "dock-crane-metal",
-  "dock-crane-timber",
   "dock-lamp-heads",
   "dock-posts",
   "dock-tide-line",
-  "dock-warehouse-windows",
+  "harbor-netRack",
+  "station-lit-screens",
 ];
 
 interface OverviewLodEntry {
