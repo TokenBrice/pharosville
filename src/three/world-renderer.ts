@@ -837,6 +837,11 @@ export function createThreeWorldRenderer(
   let frameCounter = 0;
   let aoTierWeight: number | null = null;
   let aoWeightClockSeconds = 0;
+  // A fresh whole-map session must not warm N8AO while the scene LOD eases
+  // from its construction value of 1. Once that initial settle is complete
+  // (or the user first zooms in), every later crossing follows the eased scene
+  // detail so contact shading fades with the props it grounds.
+  let initialOverviewAOSuppression: "pending" | "active" | "complete" = "pending";
   // W1.5: the environment's own clock. The probe's bake cadence and the ambient
   // crossfade it runs between bakes are both real-time eases, and this is the
   // only frame-time delta available before `updateSceneForFrame` advances the
@@ -1331,17 +1336,20 @@ export function createThreeWorldRenderer(
       post.setAOQuality(activeAOQuality);
       post.setAOTierWeight(aoTierWeight);
       // Content is populated asynchronously and the overview LOD eases its
-      // detail value from 1. At or below the hidden zoom, use the policy target
-      // immediately: otherwise a whole-map first frame briefly enables N8AO,
-      // uploading its seven render-target textures before the LOD sheds that
-      // pass. The settled image is unchanged; this only prevents a resource
-      // warm-up for a pass that cannot contribute at this framing.
+      // detail value from 1. Suppress that construction ease only when this
+      // renderer's first framing is already whole-map; otherwise later zoom
+      // crossings must forward the eased detail so AO and props fade together.
       const overviewTargetDetail = overviewLodTargetDetail(frame.camera.zoom);
-      post.setAOZoomDetail(
-        overviewTargetDetail <= 0
-          ? 0
-          : scene.content?.overviewLod.detail ?? overviewTargetDetail,
-      );
+      const overviewDetail = scene.content?.overviewLod.detail ?? overviewTargetDetail;
+      if (initialOverviewAOSuppression === "pending") {
+        initialOverviewAOSuppression = overviewTargetDetail <= 0 ? "active" : "complete";
+      } else if (
+        initialOverviewAOSuppression === "active"
+        && (overviewTargetDetail > 0 || overviewDetail <= 0)
+      ) {
+        initialOverviewAOSuppression = "complete";
+      }
+      post.setAOZoomDetail(initialOverviewAOSuppression === "active" ? 0 : overviewDetail);
       post.setGrade(
         phase.daylight,
         phase.dusk,

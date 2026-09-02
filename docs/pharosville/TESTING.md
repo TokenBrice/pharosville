@@ -340,10 +340,14 @@ overview LOD starts at detail 1 and eases to its hidden target; before this
 change that brief interval enabled N8AO and uploaded its seven private textures
 (accumulation, blue noise, output, read, write, and the two half-resolution
 depth attachments). The LOD then disabled N8AO but retained those GPU
-allocations for the session. The renderer now sends the exact hidden overview
-target to the post chain at the hidden zoom, so N8AO is never first-used in
-that framing. The settled picture is unchanged; default/detail zooms retain
-the existing AO path.
+allocations for the session. A renderer whose initial framing is whole-map now
+suppresses only that construction ease, so N8AO is never first-used there. On
+later zoom crossings it forwards the ordinary eased detail, preserving the
+contact-shadow fade while props shed. Once that ease settles at zero, the post
+owner disposes N8AO's seven GPU texture handles (but retains its pass,
+materials, and target objects); Three lazily recreates those handles on a
+subsequent zoom-in without rebuilding shaders. The settled picture is
+unchanged.
 
 The texture census now combines the scene walk with manifests from the post
 chain, wakes, lane DataTexture, PMREM/SH cube, and shadow map. It reports the
@@ -353,9 +357,9 @@ GPU (Apple M5 Pro, Metal, 1600x1000), the measured gate is:
 
 | framing | arm | renderer textures | scene references | named/reachable | minimum unattributed |
 | --- | --- | ---: | ---: | ---: | ---: |
-| default | animated | 70 | 42 | 80 | 0 |
+| default | animated | 67 | 42 | 80 | 0 |
 | whole-map | animated | 72 | 42 | 80 | 0 |
-| default | reduced | 67 | 42 | 80 | 0 |
+| default | reduced | 65 | 42 | 80 | 0 |
 | whole-map | reduced | 70 | 42 | 80 | 0 |
 
 The whole-map animated arm is therefore at, not above, the existing 72-texture

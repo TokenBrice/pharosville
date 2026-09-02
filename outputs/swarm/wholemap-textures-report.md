@@ -93,3 +93,36 @@ env -u CI npm run preview -- --url http://localhost:5206 --assert --reduced
 npm test -- src/three src/renderer       # 51 files, 643 tests
 npm run typecheck
 ```
+
+## Fix round 1 — transition lifecycle
+
+Review found that the fresh-load optimization was being applied on every
+crossing below zoom 0.44. That sent zero to the post chain immediately while
+`GardenOverviewLod.detail` was still easing, so AO contact shading could pop
+off before the props it grounded had faded. It also prevented first use but did
+not solve a visitor who allocated N8AO at default zoom and later pulled out.
+
+The renderer now has a one-shot initial-overview suppression state. It skips
+N8AO only when the renderer starts at the settled-hidden framing; after that it
+always forwards the scene's eased detail. At exact settled zero, `GardenPost`
+disposes only N8AO's six texture-owning objects (seven GPU handles because the
+half-resolution depth target has color and depth attachments). The pass,
+materials, fullscreen geometry, and target objects remain warm and are reused;
+Three recreates their GPU handles lazily on zoom-in.
+
+| Same headed hardware session | Calls | Triangles | Textures | p95 / max | Dropped |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Default before zoom-out | 251 | 347,865 | 71 | 17.6 / 17.7 ms | 0 |
+| First settled whole-map | 247 | 374,504 | 72 | 17.6 / 17.6 ms | 0 |
+| Zoom-in after release | 223 | 340,373 | 79 | 17.6 / 17.7 ms | 0 |
+| Second settled whole-map | 247 | 374,504 | 72 | 17.2 / 17.6 ms | 0 |
+
+The re-entry allocation caused no multi-frame hitch in the 120-frame hardware
+window. The realistic first-frame regression test now uses `1 / 60` second,
+and a new renderer lifecycle test proves default → eased crossing → settled
+whole-map returns to the fresh whole-map texture count.
+
+Round-1 gate measurements on Apple M5 Pro / ANGLE Metal were 67 default
+animated, 72 whole-map animated, 65 default reduced, and 70 whole-map reduced.
+All four stayed under 72; the scoped suite passed 51 files / 645 tests and
+typecheck passed.

@@ -1446,6 +1446,21 @@ const N8AO_OWNED_RESOURCE_KEYS = [
   "writeTargetInternal",
 ] as const;
 
+// These six objects account for N8AO's seven GPU textures: the half-resolution
+// depth target has both a colour and a depth attachment. Disposing a Three
+// render target releases its WebGL handles without invalidating the object, so
+// N8AO can reuse it and Three will initialise fresh handles on the next render.
+// Keep shader materials and fullscreen geometry warm; a zoom-in therefore
+// pays only one lazy target allocation frame, never a shader rebuild.
+const N8AO_TEXTURE_RESOURCE_KEYS = [
+  "accumulationRenderTarget",
+  "bluenoise",
+  "depthDownsampleTarget",
+  "outputTargetInternal",
+  "readTargetInternal",
+  "writeTargetInternal",
+] as const;
+
 const N8AO_FULLSCREEN_QUAD_KEYS = [
   "accumulationQuad",
   "copyQuad",
@@ -1508,6 +1523,16 @@ function installN8AODisposalAdapter(pass: N8AOPostPass): void {
       }
     }
   };
+}
+
+function releaseN8AOTextureResources(pass: N8AOPostPass): void {
+  const runtime = pass as unknown as Record<string, unknown>;
+  const resources = new Set<DisposableResource>();
+  for (const key of N8AO_TEXTURE_RESOURCE_KEYS) {
+    const resource = disposable(runtime[key]);
+    if (resource) resources.add(resource);
+  }
+  for (const resource of resources) resource.dispose();
 }
 
 /**
@@ -1715,6 +1740,9 @@ export function createGardenPost(
   let aoTierWeight = 1;
   let aoQuality: GardenAOQuality = "full";
   let aoZoomDetail = 1;
+  // Object existence is not residency: N8AO constructs its targets eagerly,
+  // but Three uploads them only when the enabled pass first renders.
+  let aoTextureResourcesResident = false;
   /** 1 is the awake/full profile; 0 is the idle/Performance profile. */
   let idleProfileWeight = 1;
   let idleProfileTarget = 1;
@@ -2126,7 +2154,9 @@ export function createGardenPost(
         renderer.render(scene, camera);
         return;
       }
+      const renderedAO = n8aoPass.enabled;
       composer.render(deltaTime);
+      if (renderedAO) aoTextureResourcesResident = true;
     },
     setAOTierWeight(weight) {
       aoTierWeight = clampUnit(weight);
@@ -2143,6 +2173,10 @@ export function createGardenPost(
     setAOZoomDetail(detail) {
       aoZoomDetail = detail;
       syncTierFidelity();
+      if (aoZoomDetail <= 0 && aoTextureResourcesResident) {
+        releaseN8AOTextureResources(n8aoPass);
+        aoTextureResourcesResident = false;
+      }
     },
     setBloomEnabled(bloomEnabled) {
       // Pass-level toggle: the composer skips disabled passes outright, which
