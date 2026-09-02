@@ -455,6 +455,39 @@ describe("garden island rockwork", () => {
       .toBe(GARDEN_NIWAKI_SPECS.reduce((sum, pine) => sum + pine.pads.length, 0));
   });
 
+  it("scales every niwaki trunk and branch to its authored endpoint distance", () => {
+    const authoredPoint = (pine: (typeof GARDEN_NIWAKI_SPECS)[number], t: number) => {
+      const bend = t * t * (1.08 - t * 0.08);
+      return new Vector3(
+        pine.x + pine.leanX * bend,
+        pine.height * t,
+        pine.z + pine.leanZ * bend,
+      );
+    };
+    const expectedLengths = GARDEN_NIWAKI_SPECS.flatMap((pine) => {
+      const nodes = [0, 0.23, 0.46, 0.68, 0.84, 1].map((t) => authoredPoint(pine, t));
+      const trunkLengths = nodes.slice(1).map((node, index) => node.distanceTo(nodes[index]!));
+      const branchLengths = pine.pads.map((pad) => {
+        const stem = authoredPoint(pine, Math.max(0.25, pad.t - 0.08));
+        const centre = authoredPoint(pine, pad.t)
+          .add(new Vector3(pad.offsetX, 0, pad.offsetZ));
+        return stem.distanceTo(centre);
+      });
+      return [...trunkLengths, ...branchLengths];
+    });
+    expect(Math.max(...expectedLengths)).toBeGreaterThan(1.1);
+
+    const island = createTerracedIsland(world);
+    const trunks = island.root.getObjectByName("island-niwaki-trunks") as InstancedMesh;
+    expect(trunks.count).toBe(expectedLengths.length);
+    expectedLengths.forEach((expected, index) => {
+      const matrix = new Matrix4();
+      trunks.getMatrixAt(index, matrix);
+      const yScale = new Vector3().setFromMatrixColumn(matrix, 1).length();
+      expect(yScale).toBeCloseTo(expected, 3);
+    });
+  });
+
   it("builds one deterministic gravel ribbon with coarse raked relief", () => {
     const first = createTerracedIsland(world).root.getObjectByName("island-path-sweep") as Mesh;
     const second = createTerracedIsland(world).root.getObjectByName("island-path-sweep") as Mesh;

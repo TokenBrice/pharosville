@@ -1216,9 +1216,10 @@ function setCylinderBetween(
   radius: number,
 ): void {
   const direction = to.clone().sub(from);
+  const length = direction.length();
   const midpoint = from.clone().add(to).multiplyScalar(0.5);
   const rotation = new Quaternion().setFromUnitVectors(UP_AXIS, direction.normalize());
-  scratchScale.set(radius, direction.length(), radius);
+  scratchScale.set(radius, length, radius);
   scratchMatrix.compose(midpoint, rotation, scratchScale);
   mesh.setMatrixAt(index, scratchMatrix);
 }
