@@ -97,9 +97,7 @@ const CANDIDATES_PER_SHIP = 96;
  * is never crowded out, and thin the fleet toward the map edges so the frame
  * reads as composed rather than tiled.
  */
-// RIM FIELD REVISION 1: the deeper foreground bank needs a wider counterweight
-// of open water around the lighthouse to preserve the composition's ma.
-const LIGHTHOUSE_CLEARANCE_TILES = 13;
+const LIGHTHOUSE_CLEARANCE_TILES = 9;
 const EDGE_FALLOFF_TILES = 6;
 
 /**

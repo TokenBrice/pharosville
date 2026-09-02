@@ -13,6 +13,7 @@ import {
 import { SEA_BODY_TERRAIN, type SeaBodyId } from "./sea-bodies";
 import { seaBodyAnchors } from "./sea-body-anchors";
 import { SHIP_WATER_ANCHORS } from "./risk-water-areas";
+import { seaSignFootprintTiles, seaSignSites } from "../three/garden-sea-sign-siting";
 import {
   RIM_COVES,
   RIM_OPENINGS,
@@ -181,6 +182,23 @@ describe("authored garden rim", () => {
     }
   });
 
+  it("keeps every sea-sign board and piling footprint entirely over water", () => {
+    const bodies = ["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"] as const;
+    const sites = seaSignSites(bodies);
+    expect(sites).toHaveLength(bodies.length);
+    for (const site of sites) {
+      for (const tile of seaSignFootprintTiles(site)) {
+        expect(tile.x, `${site.body} footprint x`).toBeGreaterThanOrEqual(0);
+        expect(tile.y, `${site.body} footprint y`).toBeGreaterThanOrEqual(0);
+        expect(tile.x, `${site.body} footprint x`).toBeLessThan(PHAROSVILLE_MAP_WIDTH);
+        expect(tile.y, `${site.body} footprint y`).toBeLessThan(PHAROSVILLE_MAP_HEIGHT);
+        const kind = terrainKindAt(tile.x, tile.y);
+        expect(isWaterTileKind(kind), `${site.body} footprint ${tileKey(tile)} (${kind})`).toBe(true);
+        expect(rimLandAt(tile.x, tile.y), `${site.body} footprint ${tileKey(tile)}`).toBe(false);
+      }
+    }
+  });
+
   it("keeps Wreck Shoal as water inside a west-and-south bordered inlet", () => {
     for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
       for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
@@ -243,5 +261,34 @@ describe("authored garden rim", () => {
     expect(rimShoreDistance(rimTile.x, rimTile.y)).toBeLessThan(0);
     expect(rimShoreDistance(waterTile.x, waterTile.y)).toBeGreaterThan(0);
     expect(rimShoreDistance(8.5, 54)).toBe(0);
+  });
+
+  it("uses true Euclidean clearance at diagonal shoreline corners", () => {
+    const rimTiles: { x: number; y: number }[] = [];
+    let diagonalWater: { x: number; y: number } | null = null;
+    for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
+      for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
+        if (rimLandAt(x, y)) rimTiles.push({ x, y });
+      }
+    }
+    for (let y = 1; y < PHAROSVILLE_MAP_HEIGHT - 1 && !diagonalWater; y += 1) {
+      for (let x = 1; x < PHAROSVILLE_MAP_WIDTH - 1; x += 1) {
+        if (rimLandAt(x, y)) continue;
+        const cardinalLand = rimLandAt(x - 1, y) || rimLandAt(x + 1, y)
+          || rimLandAt(x, y - 1) || rimLandAt(x, y + 1);
+        const diagonalLand = rimLandAt(x - 1, y - 1) || rimLandAt(x + 1, y - 1)
+          || rimLandAt(x - 1, y + 1) || rimLandAt(x + 1, y + 1);
+        if (!cardinalLand && diagonalLand) {
+          diagonalWater = { x, y };
+          break;
+        }
+      }
+    }
+    expect(diagonalWater).not.toBeNull();
+    const tile = diagonalWater!;
+    const bruteForce = Math.min(...rimTiles.map((land) => Math.hypot(tile.x - land.x, tile.y - land.y))) - 0.5;
+    expect(bruteForce).toBeCloseTo(Math.SQRT2 - 0.5, 6);
+    expect(rimShoreDistance(tile.x, tile.y)).toBeCloseTo(bruteForce, 6);
+    expect(rimShoreDistance(tile.x, tile.y)).toBeLessThan(1);
   });
 });

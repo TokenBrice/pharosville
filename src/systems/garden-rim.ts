@@ -195,46 +195,63 @@ export function rimLandAt(tileX: number, tileY: number): boolean {
 
 let signedDistanceField: Float32Array | null = null;
 
-function buildDistanceTo(targetLand: boolean): Uint16Array {
+function squaredDistanceTransform1d(input: Float64Array, output: Float64Array): void {
+  const length = input.length;
+  const sites = new Int32Array(length);
+  const boundaries = new Float64Array(length + 1);
+  let envelope = 0;
+  sites[0] = 0;
+  boundaries[0] = Number.NEGATIVE_INFINITY;
+  boundaries[1] = Number.POSITIVE_INFINITY;
+
+  for (let point = 1; point < length; point += 1) {
+    let site = sites[envelope]!;
+    let boundary = ((input[point]! + point * point) - (input[site]! + site * site))
+      / (2 * point - 2 * site);
+    while (boundary <= boundaries[envelope]!) {
+      envelope -= 1;
+      site = sites[envelope]!;
+      boundary = ((input[point]! + point * point) - (input[site]! + site * site))
+        / (2 * point - 2 * site);
+    }
+    envelope += 1;
+    sites[envelope] = point;
+    boundaries[envelope] = boundary;
+    boundaries[envelope + 1] = Number.POSITIVE_INFINITY;
+  }
+
+  envelope = 0;
+  for (let point = 0; point < length; point += 1) {
+    while (boundaries[envelope + 1]! < point) envelope += 1;
+    const site = sites[envelope]!;
+    output[point] = (point - site) ** 2 + input[site]!;
+  }
+}
+
+/** Felzenszwalb/Huttenlocher exact squared-Euclidean transform, two 1-D passes. */
+function buildDistanceTo(targetLand: boolean): Float32Array {
   const count = MAP_SIZE * MAP_SIZE;
-  const distance = new Uint16Array(count);
-  distance.fill(0xffff);
-  const queueX = new Uint16Array(count);
-  const queueY = new Uint16Array(count);
-  let head = 0;
-  let tail = 0;
+  const rowPass = new Float64Array(count);
+  const squared = new Float64Array(count);
+  const input = new Float64Array(MAP_SIZE);
+  const output = new Float64Array(MAP_SIZE);
+  const unreachable = MAP_SIZE * MAP_SIZE * 4;
 
   for (let y = 0; y < MAP_SIZE; y += 1) {
     for (let x = 0; x < MAP_SIZE; x += 1) {
-      if (authoredRimLandAt(x, y) !== targetLand) continue;
-      const index = y * MAP_SIZE + x;
-      distance[index] = 0;
-      queueX[tail] = x;
-      queueY[tail] = y;
-      tail += 1;
+      input[x] = authoredRimLandAt(x, y) === targetLand ? 0 : unreachable;
     }
+    squaredDistanceTransform1d(input, output);
+    for (let x = 0; x < MAP_SIZE; x += 1) rowPass[y * MAP_SIZE + x] = output[x]!;
+  }
+  for (let x = 0; x < MAP_SIZE; x += 1) {
+    for (let y = 0; y < MAP_SIZE; y += 1) input[y] = rowPass[y * MAP_SIZE + x]!;
+    squaredDistanceTransform1d(input, output);
+    for (let y = 0; y < MAP_SIZE; y += 1) squared[y * MAP_SIZE + x] = output[y]!;
   }
 
-  const visit = (x: number, y: number, nextDistance: number) => {
-    if (x < 0 || y < 0 || x >= MAP_SIZE || y >= MAP_SIZE) return;
-    const index = y * MAP_SIZE + x;
-    if (distance[index]! <= nextDistance) return;
-    distance[index] = nextDistance;
-    queueX[tail] = x;
-    queueY[tail] = y;
-    tail += 1;
-  };
-
-  while (head < tail) {
-    const x = queueX[head]!;
-    const y = queueY[head]!;
-    const nextDistance = distance[y * MAP_SIZE + x]! + 1;
-    head += 1;
-    visit(x - 1, y, nextDistance);
-    visit(x + 1, y, nextDistance);
-    visit(x, y - 1, nextDistance);
-    visit(x, y + 1, nextDistance);
-  }
+  const distance = new Float32Array(count);
+  for (let index = 0; index < count; index += 1) distance[index] = Math.sqrt(squared[index]!);
   return distance;
 }
 
@@ -256,7 +273,7 @@ function getSignedDistanceField(): Float32Array {
 }
 
 /**
- * Signed Manhattan distance to the authored shore, in tiles.
+ * Signed Euclidean distance to the authored shore, in tiles.
  *
  * Integer rim cells are negative and integer water cells positive. Bilinear
  * sampling places zero on the conceptual shoreline halfway between adjacent

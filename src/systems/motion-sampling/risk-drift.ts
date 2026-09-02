@@ -51,10 +51,8 @@ export const RISK_TRANSITION_HEADING_EASE_SECONDS = 0.5;
 // than knife-edge.
 const PATROL_SPEED_DANGER = 0.26;
 const PATROL_SPEED_WARNING = 0.15;
-// RIM FIELD: the headland shortens Alert's circuit too; retain a visible step above Watch.
-const PATROL_SPEED_ALERT = 0.102;
-// RIM FIELD: the connected inner-bank route shortened Watch's sampled arc; 0.055 preserves the monotonic risk-speed ladder.
-const PATROL_SPEED_WATCH = 0.055;
+const PATROL_SPEED_ALERT = 0.095;
+const PATROL_SPEED_WATCH = 0.052;
 const PATROL_SPEED_DEFAULT = 0.04;
 
 function patrolSpeedForZone(zone: ShipWaterZone): number {
