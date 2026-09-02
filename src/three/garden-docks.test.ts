@@ -36,11 +36,13 @@ describe("garden station recipes", () => {
   });
 
   it("falls back to legacy identity and island bearing while B2 is absent", () => {
-    const recipe = authorDock(dock("ethereum", 10), DISPLAY_TILE, ISLAND_TILE);
+    const { station: _ethereumStation, ...ethereumWithoutStation } = dock("ethereum", 10);
+    const { station: _baseStation, ...baseWithoutStation } = dock("base", 6);
+    const recipe = authorDock(ethereumWithoutStation as DockNode, DISPLAY_TILE, ISLAND_TILE);
     expect(recipe.station.type).toBe("boathouse-precinct");
     expect(recipe.station.coveId).toBe("legacy.ethereum");
     expect(recipe.anchorRotationY).toBeCloseTo(-Math.atan2(4, 22), 6);
-    expect(harborIdentity(dock("base", 6)).stationType).toBe("annex-pavilion");
+    expect(harborIdentity(baseWithoutStation as DockNode).stationType).toBe("annex-pavilion");
   });
 
   it("makes Ethereum the largest station and gives only it the bell-tower silhouette", () => {
@@ -101,6 +103,18 @@ describe("garden station recipes", () => {
     const bridge = authorPrecinctBridge(precinct, annex);
     expect(bridge.map((part) => part.bucket)).toEqual(["timber", "roof"]);
     expect(bridge.every((part) => part.geometry.getAttribute("position").count > 0)).toBe(true);
+    const postPairs = bridge[0]!.geometry.userData.precinctBridgePostPairs as Array<{
+      left: { x: number; z: number };
+      right: { x: number; z: number };
+      yaw: number;
+    }>;
+    const diagonal = postPairs.find((pair) => Math.abs(Math.sin(pair.yaw)) > 0.1)!;
+    const across = {
+      x: diagonal.right.x - diagonal.left.x,
+      z: diagonal.right.z - diagonal.left.z,
+    };
+    expect(Math.hypot(across.x, across.z)).toBeCloseTo(0.62, 6);
+    expect(across.x * Math.cos(diagonal.yaw) - across.z * Math.sin(diagonal.yaw)).toBeCloseTo(0, 6);
     expect(fingerprint(bridge)).toBe(fingerprint(authorPrecinctBridge(precinct, annex)));
     expect(authorPrecinctBridge(annex, precinct)).toEqual([]);
     const far = recipeWithStation("annex-pavilion", "polygon", 0, { x: 14, y: 100 });

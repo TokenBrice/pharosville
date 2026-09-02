@@ -174,7 +174,12 @@ describe("createGardenOverviewLod", () => {
   it("fades the batched posts, windows, and flags without pulling the ring inward", () => {
     const chains = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
     const batch = createGardenHarborBatch(chains.map((chainId, index) => (
-      authorDock(dockFixture(chainId, 3 + (index % 7)), DISPLAY_TILES[index]!, ISLAND_TILE)
+      authorDock({
+        ...dockFixture(chainId, 3 + (index % 7)),
+        ...(chainId === "solana" ? {
+          station: { coveId: "lod-fishing-pier", shoreBearing: 0, type: "fishing-pier" as const },
+        } : {}),
+      }, DISPLAY_TILES[index]!, ISLAND_TILE)
     )));
     const root = new Group();
     root.add(batch.root);
@@ -200,7 +205,12 @@ describe("createGardenOverviewLod", () => {
   it("hides the actual batched station-detail drawables below the overview threshold and restores them at default zoom", () => {
     const chains = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
     const batch = createGardenHarborBatch(chains.map((chainId, index) => (
-      authorDock(dockFixture(chainId, 3 + (index % 7)), DISPLAY_TILES[index]!, ISLAND_TILE)
+      authorDock({
+        ...dockFixture(chainId, 3 + (index % 7)),
+        ...(chainId === "solana" ? {
+          station: { coveId: "overview.solana", shoreBearing: 0, type: "fishing-pier" as const },
+        } : {}),
+      }, DISPLAY_TILES[index]!, ISLAND_TILE)
     )));
     const root = new Group();
     root.add(batch.root);

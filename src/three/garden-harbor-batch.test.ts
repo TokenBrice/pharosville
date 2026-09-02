@@ -8,6 +8,10 @@ import { countDrawableObjects } from "./garden-util";
 import { dockFixture, DISPLAY_TILES, ISLAND_TILE } from "./__fixtures__/harbor";
 
 const CHAINS = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
+const BATCH_STATION_TYPES: readonly StationType[] = [
+  "boathouse-precinct", "annex-pavilion", "annex-pavilion", "annex-pavilion",
+  "gate-landing", "tea-house-quay", "fishing-pier", "stepped-inlet", "reed-boathouse",
+];
 
 beforeEach(() => {
   resetGardenChainFlagAtlas();
@@ -23,14 +27,21 @@ afterEach(() => {
 
 function batchOfNine() {
   return createGardenHarborBatch(CHAINS.map((id, index) => (
-    authorDock(dockFixture(id, 3 + (index % 7)), DISPLAY_TILES[index]!, ISLAND_TILE)
+    authorDock({
+      ...dockFixture(id, 3 + (index % 7)),
+      station: {
+        coveId: `batch-${id}`,
+        shoreBearing: (index / CHAINS.length) * Math.PI * 2,
+        type: BATCH_STATION_TYPES[index]!,
+      },
+    }, DISPLAY_TILES[index]!, ISLAND_TILE)
   )));
 }
 
 describe("createGardenHarborBatch", () => {
-  it("draws nine shore stations in at most 20 drawables and leaves every dock anchor empty", () => {
+  it("keeps the station batch at 13 draws so the complete harbor ring stays within 20", () => {
     const batch = batchOfNine();
-    expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(20);
+    expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(13);
     for (const dock of batch.docks) {
       expect(countDrawableObjects(dock.root)).toBe(0);
       expect(dock.root.name).toBe(`dock-anchor-${dock.recipe.dock.chainId}`);
@@ -38,15 +49,11 @@ describe("createGardenHarborBatch", () => {
   });
 
   it("merges three covered precinct bridges into the existing timber and roof draws", () => {
-    const types: readonly StationType[] = [
-      "boathouse-precinct", "annex-pavilion", "annex-pavilion", "annex-pavilion",
-      "gate-landing", "tea-house-quay", "fishing-pier", "stepped-inlet", "pigeonnier-islet",
-    ];
     const recipes = CHAINS.map((id, index) => {
       const tile = { x: 14, y: 74 + Math.min(index, 3) * 6 };
       const node = {
         ...dockFixture(id, 3 + (index % 7)),
-        station: { coveId: `cove.${id}`, shoreBearing: 0, type: types[index]! },
+        station: { coveId: `cove.${id}`, shoreBearing: 0, type: BATCH_STATION_TYPES[index]! },
         tile,
       } as ReturnType<typeof dockFixture> & { station: { coveId: string; shoreBearing: number; type: StationType } };
       return authorDock(node, tile, ISLAND_TILE);

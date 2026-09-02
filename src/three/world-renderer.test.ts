@@ -755,6 +755,12 @@ describe("Three world renderer lifecycle", () => {
       stablecoins: denseFixtureStablecoins,
       stress: denseFixtureStress,
     });
+    const fishingPier = world.docks.find((dock) => dock.chainId === "solana");
+    expect(fishingPier).toBeDefined();
+    fishingPier!.station = {
+      ...fishingPier!.station,
+      type: "fishing-pier",
+    };
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),

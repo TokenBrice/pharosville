@@ -1,5 +1,6 @@
 import {
   BoxGeometry,
+  CanvasTexture,
   Group,
   InstancedMesh,
   LineBasicMaterial,
@@ -16,6 +17,7 @@ import { gardenShipWaterMarginTiles } from "../systems/garden-water-exclusion";
 import { SHIP_HULL_FORM_SPAN } from "../systems/world-types";
 import type { ShipHull, ShipNode, ShipSizeTier } from "../systems/world-types";
 import {
+  assignGardenHeroSailAtlas,
   attachGardenHeroModel,
   createFleetBatchGeometry,
   createFleetLanterns,
@@ -147,6 +149,25 @@ describe("hero hull assignment", () => {
     expect(visual.identitySail).toBeInstanceOf(Mesh);
     // The identity sail is never in the hideable set — it re-homes onto the GLB.
     expect(visual.heroHideable).not.toContain(visual.identitySail);
+  });
+
+  it("shares the fleet mark atlas with hero identity sails", () => {
+    const visual = build(ship("t", "treasury-galleon", "titan"));
+    const atlas = new CanvasTexture();
+    assignGardenHeroSailAtlas(visual, atlas, 17);
+    expect(visual.identitySailMaterial?.map).toBe(atlas);
+    expect(visual.identitySailMaterial?.emissiveMap).toBeNull();
+    expect(visual.identitySailMaterial?.userData.gardenSailAtlas).toBe(true);
+
+    const shader = {
+      uniforms: {},
+      vertexShader: "#include <common>\n#include <uv_vertex>",
+      fragmentShader: "#include <common>\n#include <map_fragment>",
+    };
+    visual.identitySailMaterial?.onBeforeCompile(shader as never, null as never);
+    expect(shader.vertexShader).toContain("uHeroAtlasCell");
+    expect(shader.fragmentShader).toContain("vHeroAtlasUv");
+    atlas.dispose();
   });
 });
 

@@ -187,9 +187,14 @@ function atmosphereForArea(area: AreaNode): string {
 }
 
 function dockHarborGroupLabel(node: DockNode): string {
-  if (node.chainId === "ethereum") return "Ethereum anchor harbor";
-  if (ETHEREUM_L2_DOCK_CHAIN_ID_SET.has(node.chainId)) return "Ethereum L2 extension";
-  return "Outer chain harbor";
+  if (node.chainId === "ethereum") return "Ethereum shore-station precinct";
+  if (ETHEREUM_L2_DOCK_CHAIN_ID_SET.has(node.chainId)) return "Ethereum precinct annex";
+  if (node.station.type === "pigeonnier-islet") return "Detached pigeonnier station";
+  return "Rim-cove shore station";
+}
+
+function stationTypeLabel(type: DockNode["station"]["type"]): string {
+  return type.split("-").map((part) => part[0]!.toUpperCase() + part.slice(1)).join(" ");
 }
 
 function chainsPresentLabel(node: ShipNode): string {
@@ -851,6 +856,7 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
   const haze = deriveEpistemicHaze(typeof context === "number" ? undefined : context.freshness);
   const topSymbols = node.harboredStablecoins.map((coin) => coin.symbol).join(", ");
   const harborGroup = dockHarborGroupLabel(node);
+  const stationType = stationTypeLabel(node.station.type);
   const backingDiversity = backingDiversityLabel(node.backingDiversity);
   const quayMasonry = quayMasonryLabel(node);
   const supplyChange = dockSupplyChangeLabel(node);
@@ -864,8 +870,8 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
     kind: node.kind,
     title: node.label,
     summary: topSymbols
-      ? `${harborGroup}, harboring ${topSymbols}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`
-      : `${harborGroup}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`,
+      ? `${stationType} at ${node.station.coveId}, part of the ${harborGroup.toLowerCase()}, harboring ${topSymbols}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`
+      : `${stationType} at ${node.station.coveId}, part of the ${harborGroup.toLowerCase()}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`,
     facts: [
       { label: "Stablecoin supply", value: usd.format(node.totalUsd) },
       ...(harborRank ? [{ label: "Harbor rank", value: harborRank }] : []),
@@ -881,6 +887,8 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
       ...(supplyChange ? [{ label: "24h supply change", value: supplyChange }] : []),
       ...(supplyMomentum ? [{ label: "Supply momentum", value: supplyMomentum }] : []),
       ...(netFlow24h ? [{ label: "Net flow 24h", value: netFlow24h }] : []),
+      { label: "Station type", value: stationType },
+      { label: "Rim cove", value: node.station.coveId },
       { label: "Harbor group", value: harborGroup },
       ...(haze.quays ? [{ label: "Quay haze", value: quayHazeLabel(haze) }] : []),
     ],

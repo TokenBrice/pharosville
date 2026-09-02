@@ -1,4 +1,4 @@
-import { dockOutwardVectorForTile } from "../../dock-layout";
+import { dockSeawardVector } from "../../dock-layout";
 import { isGardenObstacleTile } from "../../garden-water-exclusion";
 import { isSeawallBarrierTile, seawallBarrierDistance } from "../../seawall";
 import {
@@ -21,7 +21,7 @@ function normalizeDockVisitWeights(visits: ShipDockVisit[]): ShipDockVisit[] {
 }
 
 function dockOutwardVector(dock: DockNode): { x: -1 | 0 | 1; y: -1 | 0 | 1 } {
-  return dockOutwardVectorForTile(dock.tile);
+  return dockSeawardVector(dock);
 }
 
 function dockMooringDepthBonus(ship: ShipNode): number {

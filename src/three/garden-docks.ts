@@ -508,6 +508,11 @@ export function authorPrecinctBridge(from: DockRecipe, to: DockRecipe): HarborBu
   const segments = MathUtils.clamp(Math.ceil(distance / 2.2), 4, 12);
   const timber: BufferGeometry[] = [];
   const roofs: BufferGeometry[] = [];
+  const postPairs: Array<{
+    left: { x: number; z: number };
+    right: { x: number; z: number };
+    yaw: number;
+  }> = [];
   for (let index = 0; index < segments; index += 1) {
     const a = quadraticPoint(end, control, index / segments);
     const b = quadraticPoint(end, control, (index + 1) / segments);
@@ -521,8 +526,14 @@ export function authorPrecinctBridge(from: DockRecipe, to: DockRecipe): HarborBu
     deck.rotateY(yaw);
     deck.translate(mx, 0.24, mz);
     timber.push(deck);
+    const pair = {
+      left: { x: mx + Math.sin(yaw) * -0.31, z: mz + Math.cos(yaw) * -0.31 },
+      right: { x: mx + Math.sin(yaw) * 0.31, z: mz + Math.cos(yaw) * 0.31 },
+      yaw,
+    };
+    postPairs.push(pair);
     for (const side of [-1, 1]) {
-      const px = mx + Math.sin(-yaw) * side * 0.31;
+      const px = mx + Math.sin(yaw) * side * 0.31;
       const pz = mz + Math.cos(yaw) * side * 0.31;
       pushGeometry(timber, new BoxGeometry(0.1, 1.62, 0.1), px, 1.05, pz);
       const slope = new BoxGeometry(span + 0.16, 0.1, 0.52);
@@ -532,8 +543,10 @@ export function authorPrecinctBridge(from: DockRecipe, to: DockRecipe): HarborBu
       roofs.push(slope);
     }
   }
+  const timberGeometry = mergeBucket(timber);
+  timberGeometry.userData.precinctBridgePostPairs = postPairs;
   return [
-    harborPart("timber", mergeBucket(timber), HARBOR_PALETTE.timber_mid, false, true),
+    harborPart("timber", timberGeometry, HARBOR_PALETTE.timber_mid, false, true),
     harborPart("roof", mergeBucket(roofs), from.accentColor, false, true),
   ];
 }

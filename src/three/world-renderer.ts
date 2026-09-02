@@ -207,6 +207,7 @@ import {
   type GardenSummitBirds,
 } from "./garden-summit-birds";
 import {
+  assignGardenHeroSailAtlas,
   attachGardenHeroModel,
   createBatchedShip,
   createFleetBatchGeometry,
@@ -1996,7 +1997,7 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
     dock.label,
     dock.logoPath ?? null,
     dock.size,
-    (dock as typeof dock & { station?: unknown }).station ?? null,
+    dock.station,
     dock.tile,
   ]));
   const shipEntries = slice.ships
@@ -2818,11 +2819,7 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
   const harborDockIds = new Set(selectGardenDocks(world.docks).map((dock) => dock.detailId));
   const harborDocks = content.docks.filter((dock) => harborDockIds.has(dock.recipe.dock.detailId));
   if (harborDocks.length === 0) return;
-  let centerX = 0;
-  let centerZ = 0;
   for (const dock of harborDocks) {
-    centerX += dock.root.position.x;
-    centerZ += dock.root.position.z;
     scene.water.rippleRings.setRing({
       id: `dock-pylon.${dock.recipe.dock.detailId}`,
       center: { x: dock.root.position.x, z: dock.root.position.z },
@@ -2832,16 +2829,18 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
       strength: 0.18,
     });
   }
-  // L6: offset onto the lee water, not the dock centroid.
-  //
-  // Averaging up to ten harbours ringing the island lands on the ISLAND, so the
-  // glassy, normal-flattened mirror basin sat on the rock and only its
-  // overspill showed as a pale ring on the water. Pushing it south-east puts it
-  // on the sheltered water the harbours actually open onto.
-  const islandCenterX = centerX / harborDocks.length;
-  const islandCenterZ = centerZ / harborDocks.length;
+  // One shader mask cannot cover distant shore stations without flattening the
+  // entire lake between them. Seat it just seaward of the largest represented
+  // station; every selected station still gets its own pylon ripple above.
+  const primary = harborDocks.toSorted((left, right) => (
+    right.recipe.dock.totalUsd - left.recipe.dock.totalUsd
+  ))[0]!;
+  const bearing = primary.recipe.dock.station.shoreBearing;
   scene.water.setHarborCalmMask({
-    center: { x: islandCenterX + 13, z: islandCenterZ + 10 },
+    center: {
+      x: primary.root.position.x + Math.cos(bearing) * 5,
+      z: primary.root.position.z + Math.sin(bearing) * 5,
+    },
     radiusX: 13,
     radiusZ: 9,
     calmStrength: 0.7,
@@ -3327,17 +3326,21 @@ function buildShipsPart(
   const sailAtlas = scene.sailAtlas;
   assignGardenSailAtlasCells(sailAtlas, slice.ships.map(({ ship }) => ship));
 
-  const ships = slice.ships.map(({ displayOffset, representative, ship }) => (
-    gardenShipUsesHeroModel(ship)
-      ? createShip(ship, displayOffset, representative, shipGeometryCache)
-      : createBatchedShip(
-          ship,
-          displayOffset,
-          representative,
-          shipGeometryCache,
-          gardenSailAtlasCell(sailAtlas, ship),
-        )
-  ));
+  const ships = slice.ships.map(({ displayOffset, representative, ship }) => {
+    const atlasCell = gardenSailAtlasCell(sailAtlas, ship);
+    if (gardenShipUsesHeroModel(ship)) {
+      const visual = createShip(ship, displayOffset, representative, shipGeometryCache);
+      assignGardenHeroSailAtlas(visual, sailAtlas.texture, atlasCell);
+      return visual;
+    }
+    return createBatchedShip(
+      ship,
+      displayOffset,
+      representative,
+      shipGeometryCache,
+      atlasCell,
+    );
+  });
 
   // Departures are renderer ghosts, never world records. Recreate them from
   // the NEW part's shared cache so disposal remains epoch-local. The normal
