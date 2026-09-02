@@ -34,6 +34,9 @@ export type StationType =
   | "fishing-pier"
   | "stepped-inlet"
   | "reed-boathouse"
+  | "storm-mole"
+  | "salvage-slip"
+  | "signal-jetty"
   | "pigeonnier-islet";
 export type StationSignature =
   | "moon-viewing-deck"
@@ -43,6 +46,9 @@ export type StationSignature =
   | "net-racks"
   | "top-lanterns"
   | "reed-clump"
+  | "lantern-tower"
+  | "hauled-hull-frame"
+  | "signal-mast"
   | "pigeonnier";
 export type StationRoofline =
   | "deep-hip"
@@ -52,6 +58,9 @@ export type StationRoofline =
   | "lean-to"
   | "stepped-canopy"
   | "thatch-gable"
+  | "mole-tower-cap"
+  | "slipway-shed"
+  | "signal-butterfly"
   | "pigeonnier-cone";
 export type StationFlagShape =
   | "swallowtail"
@@ -61,6 +70,9 @@ export type StationFlagShape =
   | "forked"
   | "stepped"
   | "tapered"
+  | "storm-split"
+  | "dovetail"
+  | "long-pennant"
   | "square";
 
 export interface HarborIdentity {
@@ -74,7 +86,8 @@ export type HarborSignature = StationSignature;
 
 const STATION_TYPES: readonly StationType[] = [
   "boathouse-precinct", "annex-pavilion", "gate-landing", "tea-house-quay",
-  "fishing-pier", "stepped-inlet", "reed-boathouse", "pigeonnier-islet",
+  "fishing-pier", "stepped-inlet", "reed-boathouse", "storm-mole",
+  "salvage-slip", "signal-jetty", "pigeonnier-islet",
 ];
 const STATION_IDENTITY: Record<StationType, Omit<HarborIdentity, "stationType">> = {
   "annex-pavilion": { flagShape: "notched", roofline: "pavilion-hip", signature: "open-pavilion" },
@@ -83,7 +96,10 @@ const STATION_IDENTITY: Record<StationType, Omit<HarborIdentity, "stationType">>
   "gate-landing": { flagShape: "pennant", roofline: "lintel-cap", signature: "gate-frame" },
   "pigeonnier-islet": { flagShape: "square", roofline: "pigeonnier-cone", signature: "pigeonnier" },
   "reed-boathouse": { flagShape: "tapered", roofline: "thatch-gable", signature: "reed-clump" },
+  "salvage-slip": { flagShape: "dovetail", roofline: "slipway-shed", signature: "hauled-hull-frame" },
+  "signal-jetty": { flagShape: "long-pennant", roofline: "signal-butterfly", signature: "signal-mast" },
   "stepped-inlet": { flagShape: "stepped", roofline: "stepped-canopy", signature: "top-lanterns" },
+  "storm-mole": { flagShape: "storm-split", roofline: "mole-tower-cap", signature: "lantern-tower" },
   "tea-house-quay": { flagShape: "chamfered", roofline: "tea-hip", signature: "engawa" },
 };
 
@@ -169,7 +185,7 @@ export function gardenHarborLanternWorldPositions(
   recipes: readonly DockRecipe[],
 ): { x: number; z: number }[] {
   return recipes.flatMap((recipe) => {
-    const bearing = recipe.dock.station.shoreBearing;
+    const bearing = recipe.station.shoreBearing;
     const seawardX = Math.cos(bearing);
     const seawardZ = Math.sin(bearing);
     const tangentX = -seawardZ;
@@ -357,6 +373,9 @@ function authorStationType(type: StationType, ctx: StationAuthorContext): void {
     case "fishing-pier": return authorFishingPier(ctx);
     case "stepped-inlet": return authorSteppedInlet(ctx);
     case "reed-boathouse": return authorReedBoathouse(ctx);
+    case "storm-mole": return authorStormMole(ctx);
+    case "salvage-slip": return authorSalvageSlip(ctx);
+    case "signal-jetty": return authorSignalJetty(ctx);
     case "pigeonnier-islet": return authorPigeonnierLanding(ctx);
   }
 }
@@ -364,8 +383,8 @@ function authorStationType(type: StationType, ctx: StationAuthorContext): void {
 function authorBoathousePrecinct(ctx: StationAuthorContext): void {
   const { length, props, quayWidth, quayX, roofs, stone, timber, walls, width, windows } = ctx;
   const hallX = quayX - 0.12;
-  const hallW = length * 0.52;
-  const hallD = quayWidth * 0.72;
+  const hallW = Math.max(4, length * 0.52);
+  const hallD = Math.max(3, quayWidth * 0.72);
   const hallH = 1.32;
   pushGeometry(walls, new BoxGeometry(hallW, hallH, hallD), hallX, 0.65 + hallH / 2, 0);
   // The precinct's single dominant read: one long, low, very deep hip.
@@ -396,8 +415,8 @@ function authorAnnexPavilion(ctx: StationAuthorContext): void {
   const { length, props, roofs, timber, width } = ctx;
   pushGeometry(timber, new BoxGeometry(length * 0.66, 0.22, width * 1.35), length * 0.08, 0.1, 0);
   const x = -length * 0.12;
-  const w = length * 0.42;
-  const d = width * 1.4;
+  const w = Math.max(4, length * 0.42);
+  const d = Math.max(3, width * 1.4);
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
     pushGeometry(timber, new BoxGeometry(0.16, 1.65, 0.16), x + sx * w * 0.38, 1.04, sz * d * 0.34);
   }
@@ -417,14 +436,14 @@ function authorGateLanding(ctx: StationAuthorContext): void {
     pushGeometry(timber, new BoxGeometry(0.3, 2.9, 0.3), gateX, 1.78, z);
   }
   pushGeometry(timber, new BoxGeometry(0.42, 0.34, width * 1.52), gateX, 3.28, 0);
-  pushGeometry(roofs, new BoxGeometry(0.82, 0.16, width * 1.7), gateX, 3.54, 0);
+  pushGeometry(roofs, new BoxGeometry(4, 0.16, Math.max(3, width * 1.7)), gateX, 3.54, 0);
 }
 
 function authorTeaHouseQuay(ctx: StationAuthorContext): void {
   const { length, props, roofs, timber, walls, width, windows } = ctx;
   const x = -length * 0.18;
-  const w = length * 0.36;
-  const d = width * 1.36;
+  const w = Math.max(4 / 1.2, length * 0.36);
+  const d = Math.max(3 / 1.25, width * 1.36);
   pushGeometry(walls, new BoxGeometry(w, 1.48, d), x, 1.34, 0);
   pushDeepHip(roofs, x, w * 1.2, d * 1.25, 2.08, 0.7);
   pushGeometry(windows, new BoxGeometry(0.04, 0.56, d * 0.5), x + w / 2 + 0.025, 1.38, 0);
@@ -439,9 +458,9 @@ function authorFishingPier(ctx: StationAuthorContext): void {
   pushGeometry(timber, new BoxGeometry(pierLength, 0.22, width * 0.62), length * 0.18, 0.1, 0);
   pushPierPilings(props, pierLength, width * 0.55, length * 0.18, 7);
   // The only lean-to roof, kept at the root so the thin pier remains legible.
-  const roof = new BoxGeometry(length * 0.3, 0.12, width * 0.95);
+  const roof = new BoxGeometry(Math.max(4, length * 0.3), 0.12, Math.max(3.25, width * 0.95));
   roof.rotateX(-0.34);
-  roof.translate(-length * 0.25, 1.66, 0);
+  roof.translate(-length * 0.25, 2.26, 0);
   roofs.push(roof);
   for (const z of [-width * 0.36, width * 0.36]) {
     pushGeometry(timber, new BoxGeometry(0.13, 1.45, 0.13), -length * 0.25, 0.92, z);
@@ -459,7 +478,13 @@ function authorSteppedInlet(ctx: StationAuthorContext): void {
     pushGeometry(stone, new BoxGeometry(length * 0.18, 0.26, width * (1.65 - t * 0.48)), -length * 0.34 + index * length * 0.13, 0.48 - index * 0.17, 0);
   }
   for (let level = 0; level < 3; level += 1) {
-    pushGeometry(roofs, new BoxGeometry(0.78 + level * 0.18, 0.11, width * (1.15 - level * 0.14)), -length * 0.28 + level * 0.16, 2.05 + level * 0.18, 0);
+    pushGeometry(
+      roofs,
+      new BoxGeometry(4 + level * 0.18, 0.11, Math.max(3, width * (1.15 - level * 0.14))),
+      -length * 0.28 + level * 0.16,
+      2.22 + level * 0.18,
+      0,
+    );
   }
   for (const z of [-width * 0.52, width * 0.52]) {
     pushGeometry(timber, new BoxGeometry(0.14, 1.65, 0.14), -length * 0.25, 1.2, z);
@@ -471,19 +496,83 @@ function authorReedBoathouse(ctx: StationAuthorContext): void {
   const x = -length * 0.05;
   const w = length * 0.5;
   const d = width * 1.32;
+  const roofW = Math.max(4, w * 1.1);
+  const roofD = Math.max(3, d);
   pushGeometry(timber, new BoxGeometry(length * 0.7, 0.2, width * 1.05), length * 0.06, 0.08, 0);
   for (const z of [-d * 0.42, d * 0.42]) pushGeometry(walls, new BoxGeometry(w, 1.28, 0.12), x, 1.0, z);
   // The only high, sharp A-frame: two deep thatch slopes.
   for (const side of [-1, 1]) {
-    const slope = new BoxGeometry(w * 1.1, 0.2, d * 0.72);
+    const slope = new BoxGeometry(roofW, 0.2, roofD * 0.72);
     slope.rotateX(side * 0.72);
-    slope.translate(x, 2.14, side * d * 0.25);
+    slope.translate(x, 2.24, side * roofD * 0.25);
     roofs.push(slope);
   }
   pushPierPilings(props, length * 0.62, width, length * 0.04, 5);
   scratchMatrix.makeScale(1.25, 1.2, 1.25);
   scratchMatrix.setPosition(length * 0.4, 0, width * 0.7);
   props.push(harborProp("reedClump", scratchMatrix, null, false));
+}
+
+function authorStormMole(ctx: StationAuthorContext): void {
+  const { length, roofs, stone, walls, width, windows } = ctx;
+  const radius = Math.max(3.2, length * 0.48);
+  for (let index = 0; index < 7; index += 1) {
+    const angle = -0.72 + index * 0.24;
+    const block = new BoxGeometry(Math.max(1.35, length * 0.2), 0.72, Math.max(1.45, width * 0.84));
+    block.rotateY(-angle);
+    block.translate(-length * 0.3 + Math.cos(angle) * radius, 0.18, Math.sin(angle) * radius);
+    stone.push(block);
+  }
+  // One broad lantern tower terminates the weather-facing curve.
+  const towerX = -length * 0.3 + radius;
+  pushGeometry(walls, new BoxGeometry(3.2, 2.15, 2.2), towerX, 1.62, 0);
+  pushGeometry(windows, new BoxGeometry(3.24, 0.42, 2.24), towerX, 2.38, 0);
+  pushDeepHip(roofs, towerX, 4, 3, 2.72, 0.62);
+}
+
+function authorSalvageSlip(ctx: StationAuthorContext): void {
+  const { length, props, roofs, timber, width } = ctx;
+  const slipLength = length * 0.92;
+  for (const z of [-width * 0.32, width * 0.32]) {
+    const rail = new BoxGeometry(slipLength, 0.16, 0.2);
+    rail.rotateZ(-0.1);
+    rail.translate(length * 0.08, 0.18, z);
+    timber.push(rail);
+  }
+  pushPierPilings(props, slipLength, width * 0.75, length * 0.08, 5);
+  // A single hauled-out hull frame: one keel with repeated ribs, all in the timber bucket.
+  pushGeometry(timber, new BoxGeometry(length * 0.48, 0.18, 0.2), length * 0.12, 0.62, 0);
+  for (let rib = 0; rib < 5; rib += 1) {
+    const x = -length * 0.06 + rib * length * 0.09;
+    for (const side of [-1, 1]) {
+      const frame = new BoxGeometry(0.12, 1.35, 0.12);
+      frame.rotateX(side * 0.72);
+      frame.translate(x, 1.12, side * 0.42);
+      timber.push(frame);
+    }
+  }
+  // A shallow paired gable shelters the head of the slip.
+  for (const side of [-1, 1]) {
+    const slope = new BoxGeometry(4, 0.16, 1.8);
+    slope.rotateX(side * 0.45);
+    slope.translate(-length * 0.24, 2.42, side * 0.66);
+    roofs.push(slope);
+  }
+}
+
+function authorSignalJetty(ctx: StationAuthorContext): void {
+  const { length, props, roofs, timber, width } = ctx;
+  const jettyLength = length * 1.04;
+  pushGeometry(timber, new BoxGeometry(jettyLength, 0.2, Math.max(0.82, width * 0.5)), length * 0.17, 0.1, 0);
+  pushPierPilings(props, jettyLength, Math.max(0.7, width * 0.42), length * 0.17, 6);
+  // The butterfly canopy is the sole roofline; its tall mast carries the station pennant.
+  for (const side of [-1, 1]) {
+    const wing = new BoxGeometry(4, 0.14, 1.62);
+    wing.rotateX(side * -0.24);
+    wing.translate(-length * 0.22, 2.34, side * 0.73);
+    roofs.push(wing);
+  }
+  pushGeometry(timber, new BoxGeometry(0.12, 0.12, 1.25), length * 0.38, 4.25, 0);
 }
 
 function authorPigeonnierLanding(ctx: StationAuthorContext): void {
@@ -615,11 +704,18 @@ function fallbackStationType(chainId: string): StationType {
 }
 
 function stationFlagPlacement(type: StationType, length: number, width: number, supply: number) {
-  const height = (type === "boathouse-precinct" ? 6.4 : type === "pigeonnier-islet" ? 4.4 : 4.8) + supply * 1.25;
+  const height = (
+    type === "boathouse-precinct" ? 6.4
+      : type === "signal-jetty" ? 5.4
+        : type === "pigeonnier-islet" ? 4.4
+          : 4.8
+  ) + supply * 1.25;
   return {
     height,
     scale: (type === "boathouse-precinct" ? 1.05 : 0.72) + supply * 0.24,
-    x: type === "stepped-inlet" ? -length * 0.2 : length * 0.4,
+    x: type === "stepped-inlet" ? -length * 0.2
+      : type === "storm-mole" ? length * 0.18
+        : length * 0.4,
     z: type === "annex-pavilion" ? width * 0.62 : -width * 0.3,
   };
 }
@@ -650,6 +746,9 @@ function stationSpan(type: StationType, width: number): number {
     case "fishing-pier": return width * 1.05;
     case "stepped-inlet": return width * 1.8;
     case "reed-boathouse": return width * 1.65;
+    case "storm-mole": return width * 3.2;
+    case "salvage-slip": return width * 1.8;
+    case "signal-jetty": return width * 1.55;
     case "pigeonnier-islet": return width;
   }
 }

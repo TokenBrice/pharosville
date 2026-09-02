@@ -38,7 +38,7 @@ import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
 import { defaultCamera } from "../systems/camera";
 import { screenToTile } from "../systems/projection";
 import { HARBOR_PALETTE } from "../systems/palette";
-import type { PharosVilleWorld, ShipHull, ShipNode } from "../systems/world-types";
+import type { DockNode, PharosVilleWorld, ShipHull, ShipNode } from "../systems/world-types";
 import {
   GARDEN_HULL_SILHOUETTES,
   selectGardenDocks,
@@ -360,6 +360,25 @@ describe("disposeThreeObjectTree", () => {
 });
 
 describe("Three world renderer lifecycle", () => {
+  it("builds the docks part and station-root lanes from a station-less fallback dock", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const { station: _station, ...withoutStation } = world.docks[0]!;
+    const stationlessWorld = {
+      ...world,
+      docks: [withoutStation as DockNode, ...world.docks.slice(1)],
+    };
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+
+    expect(() => renderer.render(rendererFrame(stationlessWorld, "full"))).not.toThrow();
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    expect(scene.getObjectByName("harbor-batch")).toBeDefined();
+    expect(scene.getObjectByName("dock-chain-flag")).toBeInstanceOf(InstancedMesh);
+    renderer.dispose();
+  });
+
   it("allocates one hull and one sail batch for each of the six fleet families", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({

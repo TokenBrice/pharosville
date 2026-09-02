@@ -12,6 +12,11 @@ const BATCH_STATION_TYPES: readonly StationType[] = [
   "boathouse-precinct", "annex-pavilion", "annex-pavilion", "annex-pavilion",
   "gate-landing", "tea-house-quay", "fishing-pier", "stepped-inlet", "reed-boathouse",
 ];
+const ALL_STATION_TYPES: readonly StationType[] = [
+  "boathouse-precinct", "annex-pavilion", "gate-landing", "tea-house-quay",
+  "fishing-pier", "stepped-inlet", "reed-boathouse", "storm-mole",
+  "salvage-slip", "signal-jetty", "pigeonnier-islet",
+];
 
 beforeEach(() => {
   resetGardenChainFlagAtlas();
@@ -38,6 +43,20 @@ function batchOfNine() {
   )));
 }
 
+function batchOfAllStationTypes() {
+  return createGardenHarborBatch(ALL_STATION_TYPES.map((type, index) => {
+    const id = `flag-${type}`;
+    return authorDock({
+      ...dockFixture(id, 6),
+      station: {
+        coveId: `batch-${id}`,
+        shoreBearing: (index / ALL_STATION_TYPES.length) * Math.PI * 2,
+        type,
+      },
+    }, DISPLAY_TILES[index % DISPLAY_TILES.length]!, ISLAND_TILE);
+  }));
+}
+
 describe("createGardenHarborBatch", () => {
   it("keeps the station batch at 13 draws so the complete harbor ring stays within 20", () => {
     const batch = batchOfNine();
@@ -46,6 +65,9 @@ describe("createGardenHarborBatch", () => {
       expect(countDrawableObjects(dock.root)).toBe(0);
       expect(dock.root.name).toBe(`dock-anchor-${dock.recipe.dock.chainId}`);
     }
+    const completeTypeBatch = batchOfAllStationTypes();
+    expect(countDrawableObjects(completeTypeBatch.root)).toBeLessThanOrEqual(13);
+    completeTypeBatch.dispose();
   });
 
   it("merges three covered precinct bridges into the existing timber and roof draws", () => {
@@ -112,17 +134,17 @@ describe("createGardenHarborBatch", () => {
     }
   });
 
-  it("flies nine flags from one instanced cloth and turns one without turning the rest", () => {
-    const batch = batchOfNine();
-    expect(batch.flags.count).toBe(9);
+  it("flies every station flag shape from one instanced cloth and turns one without turning the rest", () => {
+    const batch = batchOfAllStationTypes();
+    expect(batch.flags.count).toBe(ALL_STATION_TYPES.length);
     const matrix = new Matrix4();
     batch.flags.getMatrixAt(1, matrix);
     const beforeBase = matrix.clone();
-    batch.setFlagPose("ethereum", 1.2, 0.08);
+    batch.setFlagPose("flag-boathouse-precinct", 1.2, 0.08);
     batch.flags.getMatrixAt(1, matrix);
     expect(matrix.equals(beforeBase)).toBe(true);
     const shapes = batch.flags.geometry.getAttribute("aFlagShape");
-    expect(new Set(Array.from(shapes.array)).size).toBeGreaterThan(4);
+    expect(new Set(Array.from(shapes.array)).size).toBe(ALL_STATION_TYPES.length);
   });
 
   it("keeps an unassigned atlas cell on a plain accent cloth", () => {

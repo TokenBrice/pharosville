@@ -1,7 +1,8 @@
-import { Color, Matrix4 } from "three";
+import { Box3, Color, Matrix4, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import type { DockNode } from "../systems/world-types";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { EVM_BAY_STATION_SLOTS, OUTER_HARBOR_STATION_SLOTS } from "../systems/world-layout";
 import {
   authorDock,
   authorPrecinctBridge,
@@ -17,8 +18,13 @@ import { dockFixture as dock, ISLAND_TILE } from "./__fixtures__/harbor";
 const DISPLAY_TILE = { x: 40, y: 32 };
 const ARCHETYPES: readonly StationType[] = [
   "boathouse-precinct", "annex-pavilion", "gate-landing", "tea-house-quay",
-  "fishing-pier", "stepped-inlet", "reed-boathouse", "pigeonnier-islet",
+  "fishing-pier", "stepped-inlet", "reed-boathouse", "storm-mole",
+  "salvage-slip", "signal-jetty", "pigeonnier-islet",
 ];
+const EMITTED_ARCHETYPES: readonly StationType[] = [...new Set([
+  ...EVM_BAY_STATION_SLOTS,
+  ...OUTER_HARBOR_STATION_SLOTS,
+].map((slot) => slot.type))];
 
 describe("garden station recipes", () => {
   it("authors one explicit roofline, flag shape, and signature per station type", () => {
@@ -34,6 +40,29 @@ describe("garden station recipes", () => {
     const recipe = recipeWithStation("gate-landing", "gate", bearing);
     expect(recipe.anchorRotationY).toBeCloseTo(-bearing, 6);
     expect(recipe.station.shoreBearing).toBe(bearing);
+  });
+
+  it("renders every emitted station type at its authored shore bearing", () => {
+    for (const [index, type] of EMITTED_ARCHETYPES.entries()) {
+      const bearing = -Math.PI + index * 0.51;
+      const recipe = recipeWithStation(type, `emitted-${type}`, bearing);
+      expect(recipe.station.type).toBe(type);
+      expect(recipe.anchorRotationY).toBeCloseTo(-bearing, 6);
+      expect(recipe.parts.some((part) => part.bucket === "roof")).toBe(true);
+    }
+  });
+
+  it("keeps every emitted primary roof legible at the default view height", () => {
+    for (const type of EMITTED_ARCHETYPES) {
+      const recipe = recipeWithStation(type);
+      const roof = recipe.parts.find((part) => part.bucket === "roof")!;
+      roof.geometry.computeBoundingBox();
+      const bounds = roof.geometry.boundingBox as Box3;
+      const size = bounds.getSize(new Vector3());
+      expect(size.x, `${type} roof length`).toBeGreaterThanOrEqual(3.99);
+      expect(size.z, `${type} roof depth`).toBeGreaterThanOrEqual(2.99);
+      expect(bounds.max.y, `${type} roof height`).toBeGreaterThanOrEqual(2.2);
+    }
   });
 
   it("falls back to legacy identity and island bearing while B2 is absent", () => {
@@ -151,7 +180,7 @@ describe("garden station recipes", () => {
 
     expect(positions).toHaveLength(4);
     for (const [recipeIndex, recipe] of recipes.entries()) {
-      const bearing = recipe.dock.station.shoreBearing;
+      const bearing = recipe.station.shoreBearing;
       for (const lantern of positions.slice(recipeIndex * 2, recipeIndex * 2 + 2)) {
         const offsetX = lantern.x - recipe.anchorPosition.x;
         const offsetZ = lantern.z - recipe.anchorPosition.z;

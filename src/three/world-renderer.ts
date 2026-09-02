@@ -2866,7 +2866,7 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
   const primary = harborDocks.toSorted((left, right) => (
     right.recipe.dock.totalUsd - left.recipe.dock.totalUsd
   ))[0]!;
-  const bearing = primary.recipe.dock.station.shoreBearing;
+  const bearing = primary.recipe.station.shoreBearing;
   scene.water.setHarborCalmMask({
     center: {
       x: primary.root.position.x + Math.cos(bearing) * 5,
@@ -3001,7 +3001,7 @@ function registerLightLanes(
   for (const dock of busiest) {
     const endpoints = gardenStationRouteEndpoints(
       dock.root.position,
-      dock.recipe.dock.station.shoreBearing,
+      dock.recipe.station.shoreBearing,
     );
     registry.set({
       color: HARBOR_PALETTE.lantern_glow,

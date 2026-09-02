@@ -387,6 +387,9 @@ function flagShapeIndex(shape: DockRecipe["flag"]["shape"]): number {
     case "forked": return 5;
     case "stepped": return 6;
     case "tapered": return 7;
+    case "storm-split": return 8;
+    case "dovetail": return 9;
+    case "long-pennant": return 10;
   }
 }
 
@@ -427,11 +430,14 @@ else if (vFlagShape > 2.5 && vFlagShape < 3.5) cutFlag = flagY > 1.0 - flagX;
 else if (vFlagShape > 3.5 && vFlagShape < 4.5) cutFlag = flagX > 0.78 && flagY > 1.55 - flagX;
 else if (vFlagShape > 4.5 && vFlagShape < 5.5) cutFlag = flagX > 0.7 && flagY < (flagX - 0.7) * 1.65;
 else if (vFlagShape > 5.5 && vFlagShape < 6.5) cutFlag = (flagX > 0.82 && vFlagUv.y < 0.28) || (flagX > 0.66 && vFlagUv.y < 0.13);
-else if (vFlagShape > 6.5) cutFlag = flagY > 1.0 - flagX * 0.48;
+else if (vFlagShape > 6.5 && vFlagShape < 7.5) cutFlag = flagY > 1.0 - flagX * 0.48;
+else if (vFlagShape > 7.5 && vFlagShape < 8.5) cutFlag = flagX > 0.68 && flagY < (flagX - 0.68) * 1.15;
+else if (vFlagShape > 8.5 && vFlagShape < 9.5) cutFlag = flagX > 0.76 && flagY < (flagX - 0.76) * 2.8;
+else if (vFlagShape > 9.5) cutFlag = flagY > 0.82 - flagX * 0.72;
 if (cutFlag) discard;
 if (vFlagCell >= 0.0) {
   #include <map_fragment>
 }`);
   };
-  material.customProgramCacheKey = () => "garden-station-flag-v3";
+  material.customProgramCacheKey = () => "garden-station-flag-v4";
 }
