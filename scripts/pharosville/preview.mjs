@@ -1245,11 +1245,19 @@ function printTextureOwnerCensus(census) {
     console.log("textures   owner census unavailable");
     return;
   }
-  console.log(`textures   ${census.referencedTextures} scene-referenced ·`
-    + ` at least ${census.minimumUnattributedRendererTextures}`
+  const attributed = census.attributedTextures ?? census.referencedTextures;
+  console.log(`textures   ${census.rendererTextures} renderer allocations ·`
+    + ` ${census.referencedTextures} scene-referenced · ${attributed} named/reachable`);
+  console.log(`           at least ${census.minimumUnattributedRendererTextures}`
     + " renderer-internal/unattributed");
   for (const entry of census.owners ?? []) {
-    console.log(`           ${String(entry.textureCount).padStart(2, " ")}  ${entry.owner}`);
+    const live = entry.liveTextureCount === undefined
+      ? ""
+      : ` · ${String(entry.liveTextureCount).padStart(2, " ")} resident`;
+    console.log(`           ${String(entry.textureCount).padStart(2, " ")}  ${entry.owner}${live}`);
+    if ((entry.liveTextureNames?.length ?? 0) > 0) {
+      console.log(`                 live: ${entry.liveTextureNames.join(", ")}`);
+    }
   }
 }
 
