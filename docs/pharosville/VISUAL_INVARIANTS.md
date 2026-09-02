@@ -50,10 +50,18 @@ intent, code/tests, and a matching update to the relevant route documentation.
   eighty-five stickers. Sailing in restores full brand identity exactly as
   decision F1 specified. Restraint must never be baked into the cloth colour
   itself, which would remove identity at every distance with no way back.
-- Harbors are shore stations sited in their body's named rim coves. Ethereum
-  and its L2 annexes read as one bridge-connected architectural precinct;
-  other stations retain distinct built forms, while TON keeps its detached
-  pigeonnier islet.
+- Harbors are shore stations sited in their body's named rim coves. Every
+  station keeps a landward, distance-readable primary roof at least twice an
+  ordinary hull's length, a contrasting clay/slate/thatch/timber palette, and
+  a uniquely named upper silhouette that clears nearby sails. A raised stone
+  quay keeps one warm lit edge, windows glow at dusk/night, and the chain flag
+  is 1.6 times its former scale. Ethereum's hall and true campanile (shaft,
+  open belfry, bell, and cap) read with its L2 belvederes as one precinct
+  through thick railed, covered bridges; the vermilion double-lintel torii and
+  every other upper archetype remain nameable from the default camera, while
+  TON keeps its detached pigeonnier islet. The enlarged architecture, quay
+  edge, windows, and bridge rails carry no new analytical meaning beyond the
+  existing station identity and harbor reading.
 - The finite plate is water-led and garden-framed: the irregular rim covers
   roughly 55–65% of the perimeter, has exactly two open-sea openings, and is
   6–14 tiles deep away from those openings. Shore stations sit in coves, not
@@ -70,7 +78,7 @@ intent, code/tests, and a matching update to the relevant route documentation.
 | --- | --- | --- |
 | Lighthouse | PSI score/band | DOM record and beacon state |
 | Ship | stablecoin identity, scale, class, risk | branded sail/livery plus DOM record |
-| Harbor | chain supply and concentration | built form, flag, DOM record |
+| Harbor | chain supply and concentration | hull-dominant landward roof, contrasting archetype palette, sail-clearing named upper silhouette, 1.6× chain flag, DOM record; raised lit quay/window embers are decorative and carry no meaning |
 | Water body | existing risk/ledger category | water character, boundary/buoy, DOM label |
 | Wreck | lifecycle status | model/cause color plus DOM record |
 
@@ -93,10 +101,13 @@ guard is set at 0.72 for that reason; raising it back toward 1 would recreate
 the residue body it was meant to prevent.
 
 Sea-body place-names are carried by low stone steles at body boundaries AND by
-the accessibility ledger, which lists every named area. The steles stay quiet
-and close to the water's value until their body is hovered or inspected. They
-are canvas content and therefore aria-hidden, so the ledger — not the stele —
-is the redundant channel.
+the accessibility ledger, which lists every named area. The steles carry a
+high-contrast carved name at default zoom; hover or inspection raises it to a
+stronger warm-pale emphasis, and at night the inactive carving turns cool pale
+so it remains readable against the darkened stone. They are canvas content and
+therefore aria-hidden, so the ledger — not the stele — is the redundant channel.
+Per-body boundary banks and foam seams are decorative and carry no meaning; the
+field, steles, labels, and ledger own classification.
 
 The seven named waters are Calm Anchorage, Watch Breakwater, Alert Channel,
 Warning Shoals, Danger Strait, Ledger Mooring, and Wreck Shoal. Their edge
