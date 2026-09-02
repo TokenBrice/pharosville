@@ -232,6 +232,37 @@ function resolveCachedShipWaterTile(
   return resolved;
 }
 
+/**
+ * Largest patrol amplitude (danger, 4.4 tiles) plus headroom: motion inside
+ * this radius is the hull working its own water and keeps the whole berth
+ * offset, so a drift never reads as a slide along the offset direction.
+ */
+export const GARDEN_HOME_DRIFT_TILES = 6;
+
+// Nearest mooring reach per ship, from its data tile. Ship nodes are replaced
+// on a world rebuild, so the WeakMap invalidates itself.
+const gardenVoyageReachCache = new WeakMap<ShipNode, number>();
+
+function gardenVoyageReach(ship: ShipNode): number {
+  const cached = gardenVoyageReachCache.get(ship);
+  if (cached !== undefined) return cached;
+  let reach = Number.POSITIVE_INFINITY;
+  for (const visit of ship.dockVisits) {
+    const distance = Math.hypot(visit.mooringTile.x - ship.tile.x, visit.mooringTile.y - ship.tile.y);
+    if (distance < reach) reach = distance;
+  }
+  gardenVoyageReachCache.set(ship, reach);
+  return reach;
+}
+
+/** 1 at home, 0 once the hull has travelled its nearest mooring's distance. */
+export function gardenHomeOffsetWeight(ship: ShipNode, motionDistance: number): number {
+  const reach = gardenVoyageReach(ship);
+  if (!Number.isFinite(reach) || reach <= GARDEN_HOME_DRIFT_TILES) return 1;
+  const progress = (motionDistance - GARDEN_HOME_DRIFT_TILES) / (reach - GARDEN_HOME_DRIFT_TILES);
+  return 1 - Math.min(1, Math.max(0, progress));
+}
+
 export function resolveGardenShipDisplayTile(input: {
   displayOffset: ScreenPoint;
   representative: boolean;
@@ -258,9 +289,18 @@ export function resolveGardenShipDisplayTile(input: {
     const motionScale = motionDistance > GARDEN_MAX_MOTION_TILES
       ? GARDEN_MAX_MOTION_TILES / motionDistance
       : 1;
+    // The blue-noise offset belongs to the HOME berth only. Data motion runs
+    // from the ship's data tile to a dock mooring, and stations render at
+    // their data tile, so a moored hull must sit AT the mooring: carrying the
+    // offset along put it `mooring + offset` — up to a hundred tiles from the
+    // quay and, for rim coves, off the plate onto the paper. The offset fades
+    // over the voyage instead: whole inside the home patrol radius, gone by
+    // the time the hull reaches its nearest mooring, continuous in between so
+    // the sail out reads as one line rather than a jump.
+    const offsetWeight = gardenHomeOffsetWeight(ship, motionDistance);
     display = {
-      x: ship.tile.x + displayOffset.x + motionX * motionScale,
-      y: ship.tile.y + displayOffset.y + motionY * motionScale,
+      x: ship.tile.x + displayOffset.x * offsetWeight + motionX * motionScale,
+      y: ship.tile.y + displayOffset.y * offsetWeight + motionY * motionScale,
     };
   }
   // Zones-v2 placement fix: keep the composed display tile on valid open

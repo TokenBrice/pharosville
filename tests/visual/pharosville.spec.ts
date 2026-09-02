@@ -291,16 +291,17 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
     return settled;
   }).toBe(true);
   const onScreenDetailIds = new Set(await shipTargetIds(page));
-  // Every hull now resolves onto the water plate, so the old `index % 5`
-  // stride no longer lands on an off-screen ship. `busd0-usual` is culled at
-  // this framing and its deep link frames cleanly. The Ethena pair is culled
-  // too but resolves to the north-west corner while moored, and the selection
-  // dolly does not bring that rect fully on screen — a framing limit recorded
-  // in the handover, not this contract's subject.
-  const outsider = denseFixtureStablecoins.peggedAssets.find((asset) => asset.id === "busd0-usual");
+  // Every hull now resolves onto the water plate and moored hulls sit at
+  // their stations, so the old `index % 5` stride no longer lands on an
+  // off-screen ship. The candidate is pinned rather than "first culled":
+  // this contract also centre-clicks the framed target, and a hull moored
+  // among its station's neighbours has an overlapping target (clicking
+  // susde-ethena selects the hull beside it). usdd-tron-dao-reserve holds no
+  // berth, is culled at this framing, and sits alone once framed.
+  const outsider = denseFixtureStablecoins.peggedAssets.find((asset) => asset.id === "usdd-tron-dao-reserve");
   expect(outsider).toBeDefined();
-  expect(onScreenDetailIds.has(`ship.${outsider!.id}`)).toBe(false);
   if (!outsider) throw new Error("Dense fixture must include an off-screen ship.");
+  expect(onScreenDetailIds.has(`ship.${outsider.id}`)).toBe(false);
   const outsiderDetailId = `ship.${outsider.id}`;
 
   await page.goto("about:blank");
