@@ -2,9 +2,14 @@ import { InstancedMesh, Matrix4, ShaderMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import {
   createGardenKoi,
+  GARDEN_ENGAWA_KOI_TILE,
+  GARDEN_ENGAWA_KOI_WORLD,
   GARDEN_KOI_COUNT,
+  GARDEN_KOI_DISPLACEMENT,
   sampleGardenKoi,
 } from "./garden-koi";
+import { SEA_REGION_ID, seaRegionAtTile } from "../systems/garden-sea-regions";
+import { rimShoreDistance } from "../systems/garden-rim";
 
 function positions(mesh: InstancedMesh): Vector3[] {
   const matrix = new Matrix4();
@@ -22,6 +27,15 @@ describe("garden koi", () => {
     expect(koi.mesh.material).toBeInstanceOf(ShaderMaterial);
     expect(koi.mesh.geometry.getAttribute("aFishDepthFade").count).toBe(GARDEN_KOI_COUNT);
     expect(positions(koi.mesh).every((position) => position.y < 0)).toBe(true);
+    expect(koi.mesh.matrixWorldAutoUpdate).toBe(false);
+    expect(new Vector3().setFromMatrixPosition(koi.mesh.matrixWorld)).toEqual(
+      new Vector3(GARDEN_ENGAWA_KOI_WORLD.x, GARDEN_ENGAWA_KOI_WORLD.y, GARDEN_ENGAWA_KOI_WORLD.z),
+    );
+    expect(seaRegionAtTile(GARDEN_ENGAWA_KOI_TILE.x, GARDEN_ENGAWA_KOI_TILE.y))
+      .toBe(SEA_REGION_ID.calm);
+    expect(rimShoreDistance(GARDEN_ENGAWA_KOI_TILE.x, GARDEN_ENGAWA_KOI_TILE.y))
+      .toBeGreaterThan(1);
+    expect(GARDEN_KOI_DISPLACEMENT).toContain("reflection-basin");
   });
 
   it("spends shu vermilion-and-white on exactly one fish", () => {

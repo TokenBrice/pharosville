@@ -25,6 +25,8 @@ describe("buildVisualCueRegistry", () => {
     expect(DECORATIVE_VISUAL_NOTES.seaEdgeGeography).toContain("carry no meaning");
     expect(DECORATIVE_VISUAL_NOTES.heroWaterfall).toContain("carry no meaning");
     expect(DECORATIVE_VISUAL_NOTES.heroWaterfall).toContain("displaces");
+    expect(DECORATIVE_VISUAL_NOTES.engawaKoi).toContain("carry no meaning");
+    expect(DECORATIVE_VISUAL_NOTES.engawaKoi).toContain("displace");
     expect(buildVisualCueRegistry().some((cue) => cue.id.includes("sea-edge"))).toBe(false);
     expect(buildVisualCueRegistry().some((cue) => cue.id.includes("waterfall"))).toBe(false);
   });

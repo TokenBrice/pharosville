@@ -10,8 +10,17 @@ import {
   ShaderMaterial,
 } from "three";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
+import { TILE_SCALE } from "./garden-util";
 
 export const GARDEN_KOI_COUNT = 4;
+export const GARDEN_KOI_DISPLACEMENT = "island-reflection-basin koi";
+export const GARDEN_ENGAWA_KOI_TILE = { x: 63, y: 127 } as const;
+export const GARDEN_ENGAWA_KOI_WORLD = {
+  x: GARDEN_ENGAWA_KOI_TILE.x * TILE_SCALE,
+  y: GARDEN_WATER_Y + 0.025,
+  z: GARDEN_ENGAWA_KOI_TILE.y * TILE_SCALE,
+} as const;
 
 interface KoiPlan {
   depth: number;
@@ -166,9 +175,11 @@ function waterFrameFromScene(scene: Object3D): GardenKoiFrame | null {
 }
 
 /**
- * W5.4 decorative koi: four precious glints below the reflection-pond skin.
- * They encode no data. One shu-vermilion-and-white fish is the explicit koi
- * exception to the reserved accent; the remaining three are pale yamabuki.
+ * Four precious glints in the calm shallows below the engawa. They carry no
+ * meaning. Re-siting this existing draw displaces the reflection-basin koi so
+ * the island's mirror stays an empty secondary read. One shu-vermilion-and-
+ * white fish is the explicit koi exception to the reserved accent; the other
+ * three are pale yamabuki.
  */
 export function createGardenKoi(): GardenKoi {
   const geometry = createKoiGeometry();
@@ -177,6 +188,16 @@ export function createGardenKoi(): GardenKoi {
   mesh.name = "island-koi";
   mesh.frustumCulled = false;
   mesh.renderOrder = 4;
+  // The koi remain lifecycle-owned by the island pond group, but their draw is
+  // deliberately world-locked in Calm Anchorage. This avoids a second koi
+  // mesh or a world-renderer timer while leaving the basin itself empty.
+  mesh.matrixAutoUpdate = false;
+  mesh.matrixWorldAutoUpdate = false;
+  mesh.matrixWorld.makeTranslation(
+    GARDEN_ENGAWA_KOI_WORLD.x,
+    GARDEN_ENGAWA_KOI_WORLD.y,
+    GARDEN_ENGAWA_KOI_WORLD.z,
+  );
 
   const colors = new Float32Array(GARDEN_KOI_COUNT * 3);
   const accent = new Float32Array(GARDEN_KOI_COUNT);
