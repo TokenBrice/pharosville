@@ -26,6 +26,15 @@ export const GARDEN_WATER_MAX_ZONE_TINTS = 6;
 export const GARDEN_WATER_MAX_RIPPLE_RINGS = 12;
 
 /**
+ * Wave 1 finite-plate contract.
+ *
+ * Water ends just beyond the outer tile centres. The margin gives displaced
+ * vertices and the two authored sea openings room to disappear into the fog
+ * seam without restoring a second, renderer-only "open ocean" domain.
+ */
+export const GARDEN_WATER_PLATE_MARGIN_TILES = 1.5;
+
+/**
  * W2.6 — the feature-frozen sea's look constants.
  *
  * These are exported because future water work may refine an existing term,

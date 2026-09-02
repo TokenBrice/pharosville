@@ -38,6 +38,7 @@ import {
   GARDEN_WATER_CREST_FOAM,
   GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN,
   GARDEN_WATER_NIGHT_EMISSIVE_BUDGET,
+  GARDEN_WATER_PLATE_MARGIN_TILES,
   GARDEN_WATER_PROBE_BLEND,
   GARDEN_WATER_PROBE_ROUGHNESS,
   GARDEN_WATER_SHORE_FOAM,
@@ -129,17 +130,11 @@ describe("water shader uniform hygiene", () => {
     expect(water.mesh.children).toHaveLength(0);
   });
 
-  /**
-   * W1.4: the bokashi bands are the only sky this world has, and the water
-   * draws them. The shader has TWO exit paths — the open-ocean early-out and
-   * the end of main — and at wide framings the early-out draws most of the far
-   * water in the upper frame. Applying the wipe to one path only would step the
-   * ramp at exactly the map boundary L1 spent its effort erasing.
-   */
-  it("wipes the bokashi bands on BOTH of the shader's exit paths", () => {
+  it("keeps one encoded output path on the finite water plate", () => {
     expect(FRAGMENT_SHADER).toContain("float gardenBokashiShade(");
     const calls = FRAGMENT_SHADER.match(/gl_FragColor\.rgb \*= gardenBokashiShade\(/g);
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(1);
+    expect(FRAGMENT_SHADER).not.toContain("return;");
   });
 });
 
@@ -181,6 +176,22 @@ describe("createGardenWater", () => {
     expect(uniformNumber(water.material, "uBeaconFlicker")).toBe(1);
   });
 
+  it("covers only the map extent plus the finite plate margin", () => {
+    const water = createGardenWater(GARDEN_WATER_Y);
+    const geometry = water.mesh.geometry as PlaneGeometry;
+    geometry.computeBoundingBox();
+    const bounds = geometry.boundingBox!;
+    const mapSpan = 139 * Math.SQRT2;
+    const margin = GARDEN_WATER_PLATE_MARGIN_TILES * Math.SQRT2;
+
+    expect(geometry.parameters.width).toBeCloseTo(mapSpan + margin * 2);
+    expect(geometry.parameters.height).toBeCloseTo(mapSpan + margin * 2);
+    expect(bounds.min.x).toBeCloseTo(-margin);
+    expect(bounds.max.x).toBeCloseTo(mapSpan + margin);
+    expect(bounds.min.y).toBeCloseTo(-mapSpan - margin);
+    expect(bounds.max.y).toBeCloseTo(margin);
+  });
+
   it("binds the scene PMREM directly without a world-renderer wire", () => {
     const water = createGardenWater(0);
     const scene = new Scene();
@@ -218,7 +229,7 @@ describe("createGardenWater", () => {
     expect(GARDEN_WATER_PROBE_BLEND).toBeGreaterThan(0.75);
     expect(GARDEN_WATER_PROBE_BLEND).toBeLessThan(1);
     expect(source).toContain("vec3 skySample = gardenEnvironmentReflection(");
-    expect(source).toContain("vec3 openEnvironment = gardenEnvironmentReflection(");
+    expect(source).not.toContain("openEnvironment");
   });
 
   it("keeps foam sparse and filters glint normals by screen-space variation", () => {
@@ -327,24 +338,21 @@ describe("createGardenWater", () => {
     expect(transform.w).toBeCloseTo(-transform.z);
   });
 
-  it("closes the open-ocean early-out with the same encoding as the main path", () => {
-    // Three only compiles tone mapping and an encoding `linearToOutputTexel`
-    // in when a material draws to the default framebuffer, so both chunks are
-    // no-ops under the post composer and go live the frame it is shed at the
-    // `constrained` tier. An early-out that returns without them writes linear
-    // values into the sRGB canvas, and the open sea outside the map snaps to a
-    // near-black void behind a hard diamond seam.
+  it("has no renderer-only open-ocean or rounded-lozenge domain", () => {
     const water = createGardenWater(0);
     const source = water.mesh.material.fragmentShader;
-    const earlyOut = source.slice(0, source.indexOf("return;"));
     for (const chunk of ["tonemapping_fragment", "colorspace_fragment", "fog_fragment"]) {
-      expect(source.split(`#include <${chunk}>`)).toHaveLength(3);
-      expect(earlyOut).toContain(`#include <${chunk}>`);
+      expect(source.split(`#include <${chunk}>`)).toHaveLength(2);
     }
-    // W2.1 is part of that close too: most upper-frame water takes this branch,
-    // so omitting the analytic term would reveal the rounded map boundary.
-    expect(source.split("gl_FragColor.rgb = gardenApplyHeightFog(")).toHaveLength(3);
-    expect(earlyOut).toContain("gl_FragColor.rgb = gardenApplyHeightFog(");
+    for (const removed of [
+      "MAP_CORNER_RADIUS",
+      "uMapEdge",
+      "uOpenOceanCenter",
+      "uOpenOceanRadius",
+      "gardenOpenOcean",
+      "oceanBlend",
+    ]) expect(source).not.toContain(removed);
+    expect(source.split("gl_FragColor.rgb = gardenApplyHeightFog(")).toHaveLength(2);
   });
 
   it("samples the region field with nearest filtering", () => {
