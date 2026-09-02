@@ -60,6 +60,7 @@ import {
   selectGardenTransientShip,
 } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
+import { RIM_OPENINGS, rimShoreDistance } from "../systems/garden-rim";
 import { screenToTile } from "../systems/projection";
 import { deriveEpistemicHaze } from "../systems/epistemic-haze";
 import { seasonFromDate, type GardenSeason } from "../systems/season";
@@ -421,27 +422,53 @@ const MIST_MAX_TILE_X = PHAROSVILLE_MAP_WIDTH - 1.5;
 const MIST_MAX_TILE_Y = PHAROSVILLE_MAP_HEIGHT - 1.5;
 const MIST_CENTER_TILE_X = (PHAROSVILLE_MAP_WIDTH - 1) / 2;
 const MIST_CENTER_TILE_Y = (PHAROSVILLE_MAP_HEIGHT - 1) / 2;
+export const GARDEN_TRANSITION_HULL_CLEARANCE_TILES = 2.5;
+
+function normaliseTransitionBearing(bearing: number): number {
+  return Math.atan2(Math.sin(bearing), Math.cos(bearing));
+}
 
 /**
- * The mist line is the playable-water edge used by garden-water's `uMapEdge`:
- * half the 140-tile region span, inset half a tile so a hull never samples
- * outside the detailed sea. `garden-sky`'s FOG_NEAR/FOG_FAR are camera-depth
- * planes, not a radial world boundary, so they cannot safely site a hull.
- * Arrivals begin on this edge and departures end on it, already inside the
- * sea/aerial blend where the detailed map gives way to open ocean.
+ * Ships enter through one of the two authored rim openings, never through a
+ * cliff. The bearing selects the closest opening; the inset leaves a full hull
+ * of water between the route and either stone shoulder.
  */
 export function gardenMistBoundaryTile(
   toward: GardenTransitionTile,
   salt = 0,
   out: GardenTransitionTile = { x: 0, y: 0 },
 ): GardenTransitionTile {
-  let dx = toward.x - MIST_CENTER_TILE_X;
-  let dy = toward.y - MIST_CENTER_TILE_Y;
-  if (Math.abs(dx) + Math.abs(dy) < 1e-6) {
-    const angle = salt * Math.PI * 2;
-    dx = Math.cos(angle);
-    dy = Math.sin(angle);
+  const desired = Math.abs(toward.x - MIST_CENTER_TILE_X)
+      + Math.abs(toward.y - MIST_CENTER_TILE_Y) < 1e-6
+    ? normaliseTransitionBearing(salt * Math.PI * 2)
+    : Math.atan2(toward.y - MIST_CENTER_TILE_Y, toward.x - MIST_CENTER_TILE_X);
+  const openingInset = Math.atan2(
+    GARDEN_TRANSITION_HULL_CLEARANCE_TILES + 0.5,
+    Math.min(MIST_CENTER_TILE_X, MIST_CENTER_TILE_Y),
+  );
+  let angle = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const opening of RIM_OPENINGS) {
+    const start = opening.bearingStart + openingInset;
+    const end = opening.bearingEnd - openingInset;
+    const candidate = MathUtils.clamp(desired, start, end);
+    const distance = Math.abs(normaliseTransitionBearing(desired - candidate));
+    if (distance >= bestDistance) continue;
+    bestDistance = distance;
+    angle = candidate;
   }
+  // A small stable spread keeps simultaneous traffic from forming one rail,
+  // while the final clamp preserves the shoulder clearance.
+  const opening = RIM_OPENINGS.find((entry) => (
+    angle >= entry.bearingStart + openingInset && angle <= entry.bearingEnd - openingInset
+  ))!;
+  angle = MathUtils.clamp(
+    angle + (salt - 0.5) * openingInset,
+    opening.bearingStart + openingInset,
+    opening.bearingEnd - openingInset,
+  );
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
   const scaleX = dx > 0
     ? (MIST_MAX_TILE_X - MIST_CENTER_TILE_X) / dx
     : (MIST_MIN_TILE - MIST_CENTER_TILE_X) / dx;
@@ -451,6 +478,23 @@ export function gardenMistBoundaryTile(
   const scale = Math.min(Math.abs(scaleX), Math.abs(scaleY));
   out.x = MathUtils.clamp(MIST_CENTER_TILE_X + dx * scale, MIST_MIN_TILE, MIST_MAX_TILE_X);
   out.y = MathUtils.clamp(MIST_CENTER_TILE_Y + dy * scale, MIST_MIN_TILE, MIST_MAX_TILE_Y);
+  // The angular shoulder inset is deliberately conservative. Keep this guard
+  // close to the authoring math so a future narrower opening cannot silently
+  // put the route back through land.
+  if (rimShoreDistance(out.x, out.y) < GARDEN_TRANSITION_HULL_CLEARANCE_TILES) {
+    const middle = (opening.bearingStart + opening.bearingEnd) * 0.5;
+    const safeDx = Math.cos(middle);
+    const safeDy = Math.sin(middle);
+    const safeScaleX = safeDx > 0
+      ? (MIST_MAX_TILE_X - MIST_CENTER_TILE_X) / safeDx
+      : (MIST_MIN_TILE - MIST_CENTER_TILE_X) / safeDx;
+    const safeScaleY = safeDy > 0
+      ? (MIST_MAX_TILE_Y - MIST_CENTER_TILE_Y) / safeDy
+      : (MIST_MIN_TILE - MIST_CENTER_TILE_Y) / safeDy;
+    const safeScale = Math.min(Math.abs(safeScaleX), Math.abs(safeScaleY));
+    out.x = MIST_CENTER_TILE_X + safeDx * safeScale;
+    out.y = MIST_CENTER_TILE_Y + safeDy * safeScale;
+  }
   return out;
 }
 

@@ -136,7 +136,7 @@ function normaliseBearing(bearing: number): number {
   return value - Math.PI;
 }
 
-function bearingInsideOpening(bearing: number, opening: RimOpening): boolean {
+export function bearingInsideRimOpening(bearing: number, opening: RimOpening): boolean {
   const value = normaliseBearing(bearing);
   const start = normaliseBearing(opening.bearingStart);
   const end = normaliseBearing(opening.bearingEnd);
@@ -148,7 +148,7 @@ function bearingInsideOpening(bearing: number, opening: RimOpening): boolean {
 /** Tiles of authored rim depth at a bearing; exactly zero in either opening. */
 export function rimDepthAt(bearing: number): number {
   const value = normaliseBearing(bearing);
-  if (RIM_OPENINGS.some((opening) => bearingInsideOpening(value, opening))) return 0;
+  if (RIM_OPENINGS.some((opening) => bearingInsideRimOpening(value, opening))) return 0;
 
   for (let index = 1; index < RIM_CONTOUR.length; index += 1) {
     const previous = RIM_CONTOUR[index - 1]!;

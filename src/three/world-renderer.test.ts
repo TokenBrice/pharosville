@@ -38,6 +38,12 @@ import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
 import { defaultCamera } from "../systems/camera";
 import { screenToTile } from "../systems/projection";
 import { HARBOR_PALETTE } from "../systems/palette";
+import {
+  bearingInsideRimOpening,
+  RIM_OPENINGS,
+  rimLandAt,
+  rimShoreDistance,
+} from "../systems/garden-rim";
 import type { PharosVilleWorld, ShipHull, ShipNode } from "../systems/world-types";
 import {
   GARDEN_HULL_SILHOUETTES,
@@ -65,6 +71,7 @@ import {
   gardenStationRouteEndpoints,
   gardenMistBoundaryTile,
   gardenTransitionWaveReady,
+  GARDEN_TRANSITION_HULL_CLEARANCE_TILES,
   GARDEN_SHIP_TRANSITION_MIN_SECONDS,
   GARDEN_TRANSITION_WAVE_SECONDS,
   sampleGardenShipTransition,
@@ -1243,6 +1250,22 @@ describe("W4.2 garden-tempo transition queue", () => {
       to: { x: 128, y: 122 },
     });
     expect(sampleGardenShipTransition(crossMap, 55).visibility).toBe(0);
+  });
+
+  it("routes every dense-fixture transition through a water opening", () => {
+    const world = denseRendererWorld();
+    const center = (world.map.width - 1) * 0.5;
+    for (const ship of world.ships) {
+      const endpoint = gardenMistBoundaryTile(ship.tile, ship.tile.x / world.map.width);
+      const bearing = Math.atan2(endpoint.y - center, endpoint.x - center);
+      expect(rimLandAt(endpoint.x, endpoint.y), ship.id).toBe(false);
+      expect(rimShoreDistance(endpoint.x, endpoint.y), ship.id)
+        .toBeGreaterThanOrEqual(GARDEN_TRANSITION_HULL_CLEARANCE_TILES);
+      expect(
+        RIM_OPENINGS.some((opening) => bearingInsideRimOpening(bearing, opening)),
+        ship.id,
+      ).toBe(true);
+    }
   });
 
   it("adopts ledger truth immediately while the selected hull remains en route", () => {
