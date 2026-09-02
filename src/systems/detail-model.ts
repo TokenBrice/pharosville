@@ -23,6 +23,7 @@ import {
 } from "./ship-fittings";
 import type { PharosVilleFreshness } from "./world-types";
 import { deriveEpistemicHaze, quayHazeLabel, riskWaterHazeLabel } from "./epistemic-haze";
+import { motionCadenceDetailLabel } from "./motion-config";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
@@ -30,6 +31,12 @@ const ELEVATED_DEWS_BANDS = new Set<DewsAreaBand>(["ALERT", "WARNING", "DANGER"]
 
 function marketCapLabel(value: number): string {
   return Number.isFinite(value) && value > 0 ? usd.format(value) : "Unavailable";
+}
+
+export function wreckSilhouetteLabel(marker: GraveNode["visual"]["marker"]): string {
+  if (marker === "grounded" || marker === "sinking-stern") return "Substantial hull — much of the vessel remains";
+  if (marker === "broken-keel") return "Broken keel — the hull has split around exposed frames";
+  return "Bare remains — keel and ribs are exposed";
 }
 
 export interface ShipFleetRank {
@@ -187,9 +194,14 @@ function atmosphereForArea(area: AreaNode): string {
 }
 
 function dockHarborGroupLabel(node: DockNode): string {
-  if (node.chainId === "ethereum") return "Ethereum anchor harbor";
-  if (ETHEREUM_L2_DOCK_CHAIN_ID_SET.has(node.chainId)) return "Ethereum L2 extension";
-  return "Outer chain harbor";
+  if (node.chainId === "ethereum") return "Ethereum shore-station precinct";
+  if (ETHEREUM_L2_DOCK_CHAIN_ID_SET.has(node.chainId)) return "Ethereum precinct annex";
+  if (node.station.type === "pigeonnier-islet") return "Detached pigeonnier station";
+  return "Rim-cove shore station";
+}
+
+function stationTypeLabel(type: DockNode["station"]["type"]): string {
+  return type.split("-").map((part) => part[0]!.toUpperCase() + part.slice(1)).join(" ");
 }
 
 function chainsPresentLabel(node: ShipNode): string {
@@ -216,9 +228,7 @@ function chainFootprintLabel(node: ShipNode): string {
   } else if (chainCount >= 2 || renderedDockCount === 1) {
     footprint = "Narrow footprint";
   }
-  // E3: signal extended dock dwell when chain breadth qualifies (≥4 positive chains).
-  const dwellSuffix = chainCount >= 4 ? " (extended dwell)" : "";
-  return `${footprint}${dwellSuffix}; ${pluralize(chainCount, "positive chain deployment")}, ${pluralize(renderedDockCount, "rendered dock stop")}`;
+  return `${footprint}; ${pluralize(chainCount, "positive chain deployment")}, ${pluralize(renderedDockCount, "rendered dock stop")}`;
 }
 
 // E2: format change24hPct (percent units, e.g. 10 = +10%) for the detail panel.
@@ -851,6 +861,7 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
   const haze = deriveEpistemicHaze(typeof context === "number" ? undefined : context.freshness);
   const topSymbols = node.harboredStablecoins.map((coin) => coin.symbol).join(", ");
   const harborGroup = dockHarborGroupLabel(node);
+  const stationType = stationTypeLabel(node.station.type);
   const backingDiversity = backingDiversityLabel(node.backingDiversity);
   const quayMasonry = quayMasonryLabel(node);
   const supplyChange = dockSupplyChangeLabel(node);
@@ -864,8 +875,8 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
     kind: node.kind,
     title: node.label,
     summary: topSymbols
-      ? `${harborGroup}, harboring ${topSymbols}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`
-      : `${harborGroup}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`,
+      ? `${stationType} at ${node.station.coveId}, part of the ${harborGroup.toLowerCase()}, harboring ${topSymbols}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`
+      : `${stationType} at ${node.station.coveId}, part of the ${harborGroup.toLowerCase()}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`,
     facts: [
       { label: "Stablecoin supply", value: usd.format(node.totalUsd) },
       ...(harborRank ? [{ label: "Harbor rank", value: harborRank }] : []),
@@ -881,6 +892,8 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
       ...(supplyChange ? [{ label: "24h supply change", value: supplyChange }] : []),
       ...(supplyMomentum ? [{ label: "Supply momentum", value: supplyMomentum }] : []),
       ...(netFlow24h ? [{ label: "Net flow 24h", value: netFlow24h }] : []),
+      { label: "Station type", value: stationType },
+      { label: "Rim cove", value: node.station.coveId },
       { label: "Harbor group", value: harborGroup },
       ...(haze.quays ? [{ label: "Quay haze", value: quayHazeLabel(haze) }] : []),
     ],
@@ -1147,6 +1160,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     { label: "In service since / tracked", value: shipAgeDetailLabel(node) },
     { label: "Cycle tempo", value: cycleTempoDetailLabel(cycleTempo) },
     ...(safetyGrade ? [{ label: "Safety grade", value: safetyGrade }] : []),
+    { label: "Route cadence", value: motionCadenceDetailLabel() },
     { label: "Issuance work, 24h", value: shipIssuanceDetailLabel(node) },
     { label: "Redemption fitting", value: shipRedemptionFittingLabel(node) },
     { label: "Collateral cargo", value: shipCollateralFittingLabel(node) },
@@ -1214,6 +1228,7 @@ export function detailForGrave(node: GraveNode): DetailModel {
     facts: [
       { label: "Symbol", value: node.entry.symbol },
       { label: "Cause", value: causeLabel },
+      { label: "Wreck silhouette", value: wreckSilhouetteLabel(node.visual.marker) },
       { label: "Date", value: node.entry.deathDate },
       ...(node.entry.peakMcap != null && Number.isFinite(node.entry.peakMcap)
         ? [{ label: "Peak market cap", value: usd.format(node.entry.peakMcap) }]

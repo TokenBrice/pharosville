@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { CanvasTexture, Color, Mesh, MeshStandardMaterial } from "three";
+import { CanvasTexture, Color, MeshStandardMaterial } from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeChain } from "../__fixtures__/pharosville-world";
 import { buildChainDocks } from "../systems/chain-docks";
@@ -14,7 +14,8 @@ import {
   gardenChainFlagCellUv,
   resetGardenChainFlagAtlas,
 } from "./garden-chain-flag";
-import { createDock } from "./garden-docks";
+import { authorDock } from "./garden-docks";
+import { createGardenHarborBatch } from "./garden-harbor-batch";
 
 // jsdom has no 2D context, so the suite stubs one and asserts on the paint
 // calls — the same approach garden-sail-texture.test.ts uses.
@@ -94,19 +95,20 @@ describe("garden chain flag atlas", () => {
   });
 
   it("gives the harbour flag the atlas texture and its own cell's UVs", () => {
-    const visual = createDock(dock("base", "Base"), { x: 40, y: 32 }, { x: 18, y: 28 });
-    const flag = visual.root.getObjectByName("dock-chain-flag");
-    const cloth = flag!.children[0]!.children[0] as Mesh;
-    const material = cloth.material as MeshStandardMaterial;
+    const recipe = authorDock(dock("base", "Base"), { x: 40, y: 32 }, { x: 18, y: 28 });
+    const batch = createGardenHarborBatch([recipe]);
+    const material = batch.flags.material as MeshStandardMaterial;
     expect(material.map).toBe(gardenChainFlagAtlas().texture);
-    const uv = cloth.geometry.getAttribute("uv");
-    const cell = gardenChainFlagCellUv(0);
-    for (let index = 0; index < uv.count; index += 1) {
-      expect(uv.getX(index)).toBeGreaterThanOrEqual(cell.offsetX - 1e-6);
-      expect(uv.getX(index)).toBeLessThanOrEqual(cell.offsetX + cell.scale + 1e-6);
-      expect(uv.getY(index)).toBeGreaterThanOrEqual(cell.offsetY - 1e-6);
-      expect(uv.getY(index)).toBeLessThanOrEqual(cell.offsetY + cell.scale + 1e-6);
-    }
+    expect(batch.flags.geometry.getAttribute("aFlagCell").getX(0)).toBe(0);
+    const shader = {
+      uniforms: {},
+      vertexShader: "#include <common>\n#include <uv_vertex>",
+      fragmentShader: "#include <common>\n#include <map_fragment>",
+    };
+    material.onBeforeCompile(shader as never, null as never);
+    expect(shader.vertexShader).toContain("attribute float aFlagCell;");
+    expect(shader.vertexShader).toContain("vMapUv =");
+    batch.dispose();
   });
 
   // The failure mode this guards is silence: if `logoPath` is ever dropped
@@ -194,6 +196,7 @@ function dock(chainId: string, label: string): DockNode {
     healthBand: "healthy",
     id: `dock.${chainId}`,
     kind: "dock",
+    station: { coveId: "fixture-cove", type: "tea-house-quay", shoreBearing: 0 },
     label,
     logoPath: `/chains/${chainId}.png`,
     size: 7,

@@ -57,6 +57,7 @@ import { createGardenSailTexture, gardenSailClothColor } from "./garden-sail-tex
 import {
   FLEET_BATCH_TINTS,
   FLEET_MAX_SAILS,
+  FLEET_SAIL_ATLAS_COLUMNS,
   markAtlasSail,
   mergeTintedParts,
   setFleetAttention,
@@ -165,6 +166,8 @@ export interface ShipVisual {
   tier: ShipFleetTier;
   wake: Group;
   wakeDetail: Group;
+  /** World-wide wake-batch slot; -1 only until the ship is assigned one. */
+  wakeSlot: number;
 }
 
 /** Fleet-wide lantern instances: two shared draw calls for the whole fleet. */
@@ -179,7 +182,7 @@ export interface FleetLanterns {
   entries: readonly { local: Vector3; swayPhase: number; visual: ShipVisual }[];
 }
 
-type GardenSailKind = "fore-aft" | "square" | "junk";
+type GardenSailKind = "fore-aft" | "triangle" | "rectangle" | "junk";
 
 interface GardenSailPlan {
   centerY: number;
@@ -193,6 +196,8 @@ interface GardenMastPlan {
   height: number;
   sails: readonly GardenSailPlan[];
   x: number;
+  /** Athwartships offset; used by the council boat's visibly split rig. */
+  z?: number;
 }
 
 interface ShipSailTextureTarget {
@@ -208,173 +213,101 @@ interface ShipSailTextureTarget {
 const HERO_IDENTITY_SAIL_YAW = 0.09;
 
 const GARDEN_SHIP_RIGS: Record<GardenHullSilhouette, readonly GardenMastPlan[]> = {
-  galleon: [
-    {
-      height: 4.8,
-      sails: [{ centerY: 2.6, height: 2.4, kind: "fore-aft", reverse: true, width: 1.5 }],
-      x: -2.2,
-    },
-    {
-      height: 6.3,
-      sails: [
-        { centerY: 2.7, height: 2.7, kind: "square", width: 2.05 },
-        { centerY: 5.05, height: 1.9, kind: "square", width: 1.7 },
-      ],
-      x: 0,
-    },
+  // Bezaisen: one mast and one deliberately outsize square of cloth. There is
+  // no secondary sail to dilute the family read or the atlas identity mark.
+  bezaisen: [
     {
       height: 5.4,
-      sails: [
-        { centerY: 2.6, height: 2.3, kind: "square", reverse: true, width: 1.7 },
-        { centerY: 4.6, height: 1.6, kind: "square", reverse: true, width: 1.4 },
-      ],
-      x: 2.2,
-    },
-  ],
-  clipper: [
-    {
-      height: 4.6,
-      sails: [{ centerY: 2.55, height: 2.5, kind: "square", width: 1.5 }],
-      x: -2.1,
-    },
-    {
-      height: 7.2,
-      sails: [
-        { centerY: 2.65, height: 2.6, kind: "square", reverse: true, width: 1.75 },
-        { centerY: 4.8, height: 1.75, kind: "square", reverse: true, width: 1.45 },
-        { centerY: 6.3, height: 1.3, kind: "square", reverse: true, width: 1.2 },
-      ],
+      sails: [{ centerY: 3.15, height: 4.1, kind: "rectangle", width: 3.35 }],
       x: 0.15,
     },
+  ],
+  // Kobaya: a low needle under two opposed triangular sails. The long spar
+  // below continues the bow past the already-fine stem.
+  kobaya: [
     {
-      height: 5,
-      sails: [
-        { centerY: 2.5, height: 2.2, kind: "square", width: 1.4 },
-        { centerY: 4.3, height: 1.5, kind: "square", width: 1.15 },
-      ],
-      x: 2.4,
+      height: 4.75,
+      sails: [{ centerY: 2.65, height: 3.65, kind: "triangle", reverse: true, width: 2.45 }],
+      x: -1.45,
+    },
+    {
+      height: 5.15,
+      sails: [{ centerY: 2.85, height: 3.9, kind: "triangle", width: 2.7 }],
+      x: 1.25,
     },
   ],
-  schooner: [
+  // Twin-hull council boat: each hull owns a mast. Their z offsets are part of
+  // the rig geometry, leaving a clear slot of water beneath the bridge deck.
+  twinhull: [
     {
-      height: 4.6,
-      sails: [{ centerY: 2.6, height: 3, kind: "fore-aft", reverse: true, width: 1.8 }],
-      x: -1.5,
+      height: 5.55,
+      sails: [{ centerY: 3.05, height: 4.15, kind: "triangle", reverse: true, width: 2.15 }],
+      x: -0.7,
+      z: -1.02,
     },
     {
-      height: 5.9,
-      sails: [
-        { centerY: 2.9, height: 3.5, kind: "fore-aft", width: 2.05 },
-        { centerY: 2.3, height: 1.7, kind: "fore-aft", width: 1.15 },
-      ],
-      x: 1.3,
+      height: 6.05,
+      sails: [{ centerY: 3.25, height: 4.45, kind: "triangle", width: 2.3 }],
+      x: 0.7,
+      z: 1.02,
     },
   ],
+  // Takasebune: the cargo roofs, not the rig, own the silhouette. One low
+  // identity sail sits forward so four covered bays remain readable behind it.
+  takasebune: [
+    {
+      height: 2.35,
+      sails: [{ centerY: 1.5, height: 1.55, kind: "rectangle", width: 1.45 }],
+      x: 3.35,
+    },
+  ],
+  // Junk: a short hull underneath a tall asymmetric battened fan. The small
+  // forward fan exposes more lattice and prevents a generic single-mast read.
   junk: [
     {
-      height: 5.2,
-      sails: [{ centerY: 2.75, height: 3.5, kind: "junk", width: 2.4 }],
-      x: -1.1,
+      height: 7.35,
+      sails: [{ centerY: 4.05, height: 5.7, kind: "junk", width: 3.05 }],
+      x: -0.8,
     },
     {
-      height: 4.4,
-      sails: [{ centerY: 2.5, height: 2.9, kind: "junk", reverse: true, width: 2 }],
-      x: 1.4,
-    },
-  ],
-  // W2 — Indiaman: three masts like the galleon but taller and further apart,
-  // with a fore-and-aft spanker aft. The tallest rig in the batched fleet.
-  indiaman: [
-    {
-      height: 5,
-      sails: [{ centerY: 2.7, height: 2.5, kind: "fore-aft", reverse: true, width: 1.6 }],
-      x: -2.9,
-    },
-    {
-      height: 6.9,
-      sails: [
-        { centerY: 2.9, height: 2.9, kind: "square", width: 2.2 },
-        { centerY: 5.45, height: 2.1, kind: "square", width: 1.85 },
-      ],
-      x: -0.15,
-    },
-    {
-      height: 5.9,
-      sails: [
-        { centerY: 2.75, height: 2.5, kind: "square", reverse: true, width: 1.85 },
-        { centerY: 5, height: 1.8, kind: "square", reverse: true, width: 1.55 },
-      ],
-      x: 2.6,
+      height: 4.15,
+      sails: [{ centerY: 2.45, height: 2.75, kind: "junk", reverse: true, width: 1.55 }],
+      x: 1.55,
     },
   ],
-  // W2 — Barque: square-rigged forward, fore-and-aft on the mizzen. That mixed
-  // plan is literally what makes a barque a barque, and it reads at range.
-  barque: [
+  // Scow: one squat mast and one low sail over the deepest, roundest hull.
+  scow: [
     {
-      height: 4.7,
-      sails: [{ centerY: 2.55, height: 2.5, kind: "fore-aft", reverse: true, width: 1.4 }],
-      x: -2.6,
-    },
-    {
-      height: 7.4,
-      sails: [
-        { centerY: 2.7, height: 2.8, kind: "square", width: 1.9 },
-        { centerY: 5, height: 1.9, kind: "square", width: 1.6 },
-        { centerY: 6.5, height: 1.3, kind: "square", width: 1.25 },
-      ],
-      x: 0.1,
-    },
-    {
-      height: 5.1,
-      sails: [
-        { centerY: 2.55, height: 2.2, kind: "square", reverse: true, width: 1.45 },
-        { centerY: 4.4, height: 1.5, kind: "square", reverse: true, width: 1.2 },
-      ],
-      x: 2.6,
-    },
-  ],
-  // W2 — Hoy: one short mast with one broad low sail. Bullion does not need
-  // speed, and the stubby rig over a wide hull is the whole read.
-  hoy: [
-    {
-      height: 3.9,
-      sails: [
-        { centerY: 2.1, height: 2.4, kind: "fore-aft", width: 2.3 },
-        { centerY: 1.7, height: 1.5, kind: "fore-aft", width: 1.05 },
-      ],
-      x: 0.2,
+      height: 2.85,
+      sails: [{ centerY: 1.75, height: 1.8, kind: "fore-aft", width: 2.05 }],
+      x: 0,
     },
   ],
 };
 
-// Galleon and junk carry a tall stern castle / high transom house (family
-// identity, D2); the schooner stays deliberately low and sleek.
+// Large deck structures that belong to the silhouette rather than per-ship
+// fittings. Takasebune bays and the twin-hull bridge are authored below as
+// repeated family parts because neither is a single cabin.
 const GARDEN_SHIP_CABINS: Partial<Record<
   GardenHullSilhouette,
   { height: number; width: number; x: number; z: number }
 >> = {
-  galleon: { height: 1.08, width: 1.78, x: -2.4, z: 1.62 },
-  junk: { height: 0.98, width: 1.68, x: -1.95, z: 1.36 },
-  schooner: { height: 0.42, width: 1.05, x: -2.15, z: 0.92 },
-  // W2: the indiaman carries the tallest poop of all — a laden merchantman's
-  // stern accommodation. The hoy's is a squat deckhouse over the strongroom.
-  // The barque stays open aft, like the clipper it shares its lines with.
-  indiaman: { height: 1.34, width: 2, x: -2.85, z: 1.6 },
-  hoy: { height: 0.72, width: 1.3, x: -1.6, z: 1.5 },
+  bezaisen: { height: 1.72, width: 2.2, x: -2.35, z: 2.75 },
+  junk: { height: 0.72, width: 1.4, x: -2, z: 1.45 },
+  scow: { height: 0.48, width: 1.5, x: -0.9, z: 2.35 },
 };
 
-// S2: every family carries a slight mast rake — clippers/schooners/barques lean
-// forward (bow at +x), the heavy merchantmen a touch aft, junks visibly
-// forward. A table rather than a ternary chain: at seven silhouettes the chain
+// Every family carries a slight mast rake: runners and working craft lean
+// forward (bow at +x), while the broad carrier sits almost upright. A table
+// rather than a ternary chain: at six silhouettes the chain
 // was already the least readable thing in the file, and it lived in two copies.
 const GARDEN_SHIP_MAST_RAKE: Record<GardenHullSilhouette, number> = {
-  barque: -0.04,
-  clipper: -0.045,
-  galleon: 0.02,
-  hoy: -0.06,
-  indiaman: 0.03,
+  bezaisen: 0.025,
+  kobaya: -0.075,
+  twinhull: -0.025,
+  takasebune: -0.02,
   junk: -0.035,
-  schooner: -0.075,
+  scow: -0.015,
 };
 
 /**
@@ -403,20 +336,12 @@ interface GardenDeckProps {
 }
 
 const GARDEN_SHIP_DECK_PROPS: Record<GardenHullSilhouette, GardenDeckProps> = {
-  // Merchant hulls carry cargo on deck; the lean ones carry working gear.
-  galleon: {
-    capstan: 1.6, cargo: { columns: 2, rows: 2, x: -1 }, hatches: [-0.4, 0.8], towedBoat: -3.65,
-  },
-  indiaman: {
-    boat: 0.4, capstan: 2.2, cargo: { columns: 3, rows: 2, x: -1.6 },
-    hatches: [-0.6, 1.4], towedBoat: -4.2,
-  },
-  clipper: { capstan: 1.2, hatches: [0.2] },
-  barque: { boat: -1.2, capstan: 1.8, hatches: [-0.3, 0.9] },
-  schooner: { capstan: -0.2, hatches: [0.2] },
-  junk: { cargo: { columns: 2, rows: 2, x: -0.6 }, hatches: [0, 0.9], towedBoat: -3.3 },
-  // The hoy IS its cargo: a single dense block amidships and nothing else.
-  hoy: { capstan: 1.4, cargo: { columns: 2, rows: 2, x: 0.2 } },
+  bezaisen: { capstan: 1.8, cargo: { columns: 2, rows: 2, x: -0.4 }, hatches: [1.1] },
+  kobaya: { capstan: -0.2, hatches: [0.4] },
+  twinhull: { hatches: [0] },
+  takasebune: {},
+  junk: { cargo: { columns: 2, rows: 2, x: -0.3 }, hatches: [0.8] },
+  scow: { capstan: 1.05, cargo: { columns: 2, rows: 2, x: -0.2 } },
 };
 
 /**
@@ -438,10 +363,7 @@ const GARDEN_SHIP_BOWSPRITS: Partial<Record<
   GardenHullSilhouette,
   { length: number; x: number }
 >> = {
-  barque: { length: 2, x: 4.7 },
-  clipper: { length: 2.2, x: 4.75 },
-  galleon: { length: 1.45, x: 4.15 },
-  indiaman: { length: 1.7, x: 4.7 },
+  kobaya: { length: 3.6, x: 6.25 },
 };
 
 // Per-tier lantern layout in ship-local space (stern, then bow, then a
@@ -566,6 +488,7 @@ export function createBatchedShip(
     tier,
     wake: wake.root,
     wakeDetail: wake.detail,
+    wakeSlot: -1,
   };
 }
 
@@ -660,7 +583,7 @@ function batchedHullColor(ship: ShipNode): Color {
  *   poles, which trades one monotony for another and looked worse still once
  *   W3 made the masts taller.
  * - **Under way**, a stable per-ship hash furls at most one sail. Working ships
- *   rarely carry everything; this is what stops sixty-four galleons from flying
+ *   rarely carry everything; this is what stops dozens of carriers from flying
  *   an identical rig.
  *
  * `idle` is deliberately NOT treated as berthed: it is the state of a ship with
@@ -930,7 +853,7 @@ export function createShip(
   for (const [mastIndex, mastPlan] of rig.entries()) {
     scratchMatrix.makeRotationZ(mastRotation);
     scratchMatrix.scale(scratchPosition.set(1, mastPlan.height, 1));
-    scratchMatrix.setPosition(mastPlan.x, 0.55 + mastPlan.height / 2, 0);
+    scratchMatrix.setPosition(mastPlan.x, 0.55 + mastPlan.height / 2, mastPlan.z ?? 0);
     masts.setMatrixAt(mastIndex, scratchMatrix);
     for (const [sailIndex, sailPlan] of mastPlan.sails.entries()) {
       const reverse = sailPlan.reverse ?? false;
@@ -953,7 +876,11 @@ export function createShip(
         ),
         isIdentitySail ? identitySailMaterial : plainSailMaterial,
       );
-      sail.position.set(mastPlan.x + (reverse ? -0.06 : 0.06), sailPlan.centerY, 0.03);
+      sail.position.set(
+        mastPlan.x + (reverse ? -0.06 : 0.06),
+        sailPlan.centerY,
+        (mastPlan.z ?? 0) + 0.03,
+      );
       if (isIdentitySail) {
         sail.scale.set(1.22, 1.22, 1);
         identitySailMesh = sail;
@@ -1044,7 +971,7 @@ export function createShip(
       side: DoubleSide,
     }),
   );
-  flag.position.set(tallestMast.x, tallestMast.height + 0.52, 0.02);
+  flag.position.set(tallestMast.x, tallestMast.height + 0.52, (tallestMast.z ?? 0) + 0.02);
   flag.rotation.z = ship.visual.hullForm?.propRotation ?? 0;
   fineDetail.add(flag);
   heroHideable.push(flag);
@@ -1205,6 +1132,7 @@ export function createShip(
     tier,
     wake: wake.root,
     wakeDetail: wake.detail,
+    wakeSlot: -1,
   };
 }
 
@@ -1252,6 +1180,67 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
     visual.identitySail.scale.set(1.28, 1.42, 1);
     visual.identitySail.rotation.set(0, HERO_IDENTITY_SAIL_YAW, 0);
   }
+}
+
+/**
+ * Routes a hero's identity sail through the fleet's shared mark atlas.
+ *
+ * Shore-station voyages bring more hero hulls into the default frustum. Their
+ * former one-texture-per-hero sails made that camera-dependent residency exceed
+ * the texture ceiling even though stations themselves own no texture. Sharing
+ * the already-painted fleet atlas preserves every mark and makes residency
+ * independent of which cove a hero is visiting.
+ */
+export function assignGardenHeroSailAtlas(
+  visual: ShipVisual,
+  texture: CanvasTexture | null,
+  cell: number,
+): void {
+  const material = visual.identitySailMaterial;
+  if (!material || !texture || cell <= 0) return;
+  const previousCompile = material.onBeforeCompile;
+  const previousCacheKey = material.customProgramCacheKey.bind(material);
+  material.map = texture;
+  material.emissiveMap = null;
+  material.color.copy(visual.sailColor);
+  material.userData.gardenSailAtlas = true;
+  material.onBeforeCompile = (shader, renderer) => {
+    previousCompile(shader, renderer);
+    shader.uniforms.uHeroAtlasCell = { value: cell };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        uniform float uHeroAtlasCell;
+        varying vec2 vHeroAtlasUv;`,
+      )
+      .replace(
+        "#include <uv_vertex>",
+        `#include <uv_vertex>
+        {
+          float columns = ${FLEET_SAIL_ATLAS_COLUMNS}.0;
+          float canvasRow = floor(uHeroAtlasCell / columns);
+          float textureRow = columns - 1.0 - canvasRow;
+          vec2 cellOrigin = vec2(mod(uHeroAtlasCell, columns), textureRow) / columns;
+          vHeroAtlasUv = cellOrigin + uv / columns;
+        }`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        varying vec2 vHeroAtlasUv;`,
+      )
+      .replace(
+        "#include <map_fragment>",
+        `#ifdef USE_MAP
+          vec4 heroSailTexel = texture2D(map, vHeroAtlasUv);
+          diffuseColor.rgb = mix(diffuseColor.rgb, heroSailTexel.rgb, heroSailTexel.a);
+        #endif`,
+      );
+  };
+  material.customProgramCacheKey = () => `${previousCacheKey()}|garden-hero-sail-atlas-v1`;
+  material.needsUpdate = true;
 }
 
 function mergeGardenHeroStatics(visual: ShipVisual, model: Group): void {
@@ -1434,6 +1423,7 @@ export function syncShipSailTextures(
     // ships still own a per-ship identity sail texture (W1 / D3).
     const material = visual.identitySailMaterial;
     if (!material) continue;
+    if (material.userData.gardenSailAtlas === true) continue;
     const previousTexture = material.map;
     material.map = createGardenSailTexture(
       visual.ship,
@@ -1772,7 +1762,7 @@ export function createFleetBatchGeometry(
   for (const mastPlan of rig) {
     const matrix = transform().makeRotationZ(mastRotation);
     matrix.scale(new Vector3(1, mastPlan.height, 1));
-    matrix.setPosition(mastPlan.x, 0.55 + mastPlan.height / 2, 0);
+    matrix.setPosition(mastPlan.x, 0.55 + mastPlan.height / 2, mastPlan.z ?? 0);
     parts.push({ geometry: mastGeometry, tint: FLEET_BATCH_TINTS.mast, transform: matrix });
   }
   if (bowsprit) {
@@ -1799,6 +1789,8 @@ export function createFleetBatchGeometry(
       transform: transform().setPosition(cabinDimensions.x, 0.58 + cabinDimensions.height, 0),
     });
   }
+
+  addFamilySilhouetteParts(parts, silhouette);
 
   // W2.4: deck furniture. `DECK_Y` is the inner deck plate; props sit on it.
   const props = GARDEN_SHIP_DECK_PROPS[silhouette];
@@ -1924,7 +1916,7 @@ export function createFleetBatchGeometry(
       matrix.setPosition(
         mastPlan.x + (reverse ? -0.06 : 0.06),
         sailPlan.centerY,
-        0.03,
+        (mastPlan.z ?? 0) + 0.03,
       );
       sailParts.push({ geometry, transform: matrix });
     }
@@ -1941,6 +1933,59 @@ type ShipFittingPart = {
   tint?: Color;
   transform?: Matrix4;
 };
+
+/**
+ * Family-defining structures that must survive the fleet merge. These are not
+ * per-ship facts: they are the large, repeated shapes that let a 20 px hull be
+ * named before its logo can be read.
+ */
+function addFamilySilhouetteParts(
+  parts: ShipFittingPart[],
+  silhouette: GardenHullSilhouette,
+): void {
+  // A short deck lashing keeps the existing per-instance rope-sag surface
+  // channel live without changing any family's outline or adding a draw.
+  parts.push({
+    geometry: new BoxGeometry(0.82, 0.035, 0.035),
+    tint: FLEET_BATCH_TINTS.mast,
+    transform: new Matrix4().setPosition(0.2, 0.76, 0.32),
+  });
+
+  if (silhouette === "twinhull") {
+    // A bridge deck visibly spans the two hulls; two crossbeams leave water
+    // showing fore and aft instead of turning the pair into one broad slab.
+    parts.push({
+      geometry: new BoxGeometry(3.7, 0.18, 3.05),
+      tint: FLEET_BATCH_TINTS.deck,
+      transform: new Matrix4().setPosition(0, 0.7, 0),
+    });
+    for (const x of [-1.75, 1.75]) {
+      parts.push({
+        geometry: new BoxGeometry(0.34, 0.28, 3.1),
+        tint: FLEET_BATCH_TINTS.mast,
+        transform: new Matrix4().setPosition(x, 0.61, 0),
+      });
+    }
+  }
+
+  if (silhouette === "takasebune") {
+    // Four large covered cargo bays make yield visible as length. Their roofs
+    // alternate shallow pitch so the run reads as bays, not a single cabin.
+    for (const [index, x] of [-3.15, -1.05, 1.05, 3.15].entries()) {
+      parts.push({
+        geometry: new BoxGeometry(1.72, 0.62, 1.72),
+        tint: index % 2 === 0 ? FLEET_BATCH_TINTS.deck : FLEET_BATCH_TINTS.gunwale,
+        transform: new Matrix4().setPosition(x, 0.91, 0),
+      });
+      parts.push({
+        geometry: new BoxGeometry(1.9, 0.14, 1.95),
+        tint: FLEET_BATCH_TINTS.mast,
+        transform: new Matrix4().makeRotationX(index % 2 === 0 ? 0.04 : -0.04)
+          .setPosition(x, 1.29, 0),
+      });
+    }
+  }
+}
 
 function fittingVisible(tag: number, code: number): boolean {
   const redemption = code % 4;
@@ -2072,7 +2117,21 @@ function mergeAtlasSails(
   return merged;
 }
 
-function createHullGeometry(silhouette: GardenHullSilhouette): ExtrudeGeometry {
+function createHullGeometry(silhouette: GardenHullSilhouette): BufferGeometry {
+  if (silhouette !== "twinhull") return createSingleHullGeometry(silhouette);
+
+  const demiHulls = [-1.02, 1.02].map((z) => {
+    const geometry = createSingleHullGeometry(silhouette);
+    geometry.translate(0, 0, z);
+    return geometry;
+  });
+  const merged = mergeGeometries(demiHulls, false);
+  for (const geometry of demiHulls) geometry.dispose();
+  if (!merged) throw new Error("garden-ships: twin-hull merge failed");
+  return merged;
+}
+
+function createSingleHullGeometry(silhouette: GardenHullSilhouette): ExtrudeGeometry {
   const shape = createHullShape(silhouette, 1);
   const geometry = new ExtrudeGeometry(shape, {
     bevelEnabled: true,
@@ -2156,6 +2215,26 @@ function createDeckGeometry(
   scale: number,
   sheer: number,
   kind: "rim" | "inner",
+): BufferGeometry {
+  if (silhouette !== "twinhull") {
+    return createSingleDeckGeometry(silhouette, scale, sheer, kind);
+  }
+  const demiDecks = [-1.02, 1.02].map((z) => {
+    const geometry = createSingleDeckGeometry(silhouette, scale, sheer, kind);
+    geometry.translate(0, 0, z);
+    return geometry;
+  });
+  const merged = mergeGeometries(demiDecks, false);
+  for (const geometry of demiDecks) geometry.dispose();
+  if (!merged) throw new Error("garden-ships: twin-deck merge failed");
+  return merged;
+}
+
+function createSingleDeckGeometry(
+  silhouette: GardenHullSilhouette,
+  scale: number,
+  sheer: number,
+  kind: "rim" | "inner",
 ): ShapeGeometry {
   const geometry = new ShapeGeometry(createHullShape(silhouette, scale));
   geometry.rotateX(-Math.PI / 2);
@@ -2197,51 +2276,42 @@ function createHullShape(silhouette: GardenHullSilhouette, scale: number): Shape
   // createHullGeometry via GARDEN_HULL_FORM. Points run stern → starboard →
   // bow → port, x along the keel (bow at +x), y = half-beam.
   const points: Record<GardenHullSilhouette, ReadonlyArray<readonly [number, number]>> = {
-    // Galleon: high rounded tuck stern, full midship, bluff flared bow.
-    galleon: [
-      [-3.3, -1.05], [-3.55, -0.85], [-3.65, 0], [-3.55, 0.85], [-3.3, 1.05],
-      [-1.6, 1.32], [0.4, 1.3], [2.1, 1.18], [3.4, 0.82], [4.05, 0],
-      [3.4, -0.82], [2.1, -1.18], [0.4, -1.3], [-1.6, -1.32],
+    // Bezaisen: broad plank carrier with a square transom and bluff entry.
+    bezaisen: [
+      [-3.25, -1.72], [-3.45, -1.05], [-3.48, 0], [-3.45, 1.05], [-3.25, 1.72],
+      [-1.8, 1.98], [0.1, 2], [1.75, 1.9], [2.9, 1.5], [3.45, 0],
+      [2.9, -1.5], [1.75, -1.9], [0.1, -2], [-1.8, -1.98],
     ],
-    // Clipper: elliptical counter stern, lean entry, long raked bow.
-    clipper: [
-      [-3.5, -0.42], [-3.62, -0.2], [-3.62, 0.2], [-3.5, 0.42],
-      [-2.2, 0.68], [-0.6, 0.76], [1.2, 0.74], [2.9, 0.6], [4.1, 0.32], [4.85, 0],
-      [4.1, -0.32], [2.9, -0.6], [1.2, -0.74], [-0.6, -0.76], [-2.2, -0.68],
+    // Kobaya: intentionally needle-thin, with a long fine run into the stem.
+    kobaya: [
+      [-4.15, -0.38], [-4.28, -0.18], [-4.28, 0.18], [-4.15, 0.38],
+      [-2.7, 0.58], [-0.8, 0.65], [1.4, 0.62], [3.45, 0.48], [4.72, 0.24], [5.32, 0],
+      [4.72, -0.24], [3.45, -0.48], [1.4, -0.62], [-0.8, -0.65], [-2.7, -0.58],
     ],
-    // Schooner: sleek hull with a long bow overhang, soft bilge.
-    schooner: [
-      [-3.68, -0.5], [-3.78, -0.22], [-3.78, 0.22], [-3.68, 0.5],
-      [-2.4, 0.78], [-0.6, 0.82], [1.4, 0.78], [3, 0.55], [4.35, 0],
-      [3, -0.55], [1.4, -0.78], [-0.6, -0.82], [-2.4, -0.78],
+    // Twin-hull: this is one narrow demi-hull; createHullGeometry places a
+    // mirrored pair far enough apart that the water slot remains unmistakable.
+    twinhull: [
+      [-4.35, -0.32], [-4.5, 0], [-4.35, 0.32], [-2.7, 0.44], [-0.6, 0.46],
+      [1.65, 0.43], [3.55, 0.3], [4.5, 0], [3.55, -0.3], [1.65, -0.43],
+      [-0.6, -0.46], [-2.7, -0.44],
     ],
-    // Junk: bluff at both ends, flat transom-like bow, beamy waist.
+    // Takasebune: an extremely long, parallel-sided river barge.
+    takasebune: [
+      [-5.78, -1.05], [-5.92, 0], [-5.78, 1.05], [-4.2, 1.35], [-1.5, 1.4],
+      [1.5, 1.4], [4.3, 1.3], [5.55, 0.9], [5.95, 0], [5.55, -0.9],
+      [4.3, -1.3], [1.5, -1.4], [-1.5, -1.4], [-4.2, -1.35],
+    ],
+    // Junk: short, bluff and transom-ended beneath its tall fan.
     junk: [
-      [-3.18, -0.95], [-3.28, -0.5], [-3.3, 0], [-3.28, 0.5], [-3.18, 0.95],
-      [-1.6, 1.16], [0.4, 1.14], [2, 1.02], [3.05, 0.62], [3.65, 0],
-      [3.05, -0.62], [2, -1.02], [0.4, -1.14], [-1.6, -1.16],
+      [-3.02, -0.95], [-3.12, -0.48], [-3.12, 0], [-3.12, 0.48], [-3.02, 0.95],
+      [-1.5, 1.28], [0.35, 1.3], [1.85, 1.16], [2.95, 0.72], [3.38, 0],
+      [2.95, -0.72], [1.85, -1.16], [0.35, -1.3], [-1.5, -1.28],
     ],
-    // W2 — Indiaman: the galleon stretched. Longest hull afloat in the batched
-    // fleet, square-tucked stern, full parallel midbody. A coin that pays a
-    // yield out of real reserves is carrying more, further.
-    indiaman: [
-      [-4, -1], [-4.15, -0.7], [-4.2, 0], [-4.15, 0.7], [-4, 1],
-      [-2.2, 1.24], [-0.2, 1.26], [1.6, 1.2], [3, 0.95], [4.1, 0.5], [4.6, 0],
-      [4.1, -0.5], [3, -0.95], [1.6, -1.2], [-0.2, -1.26], [-2.2, -1.24],
-    ],
-    // W2 — Barque: the clipper's length with a working ship's fuller waist and
-    // a rounded stern. Leaner than the indiaman, fatter than the clipper.
-    barque: [
-      [-3.75, -0.6], [-3.9, -0.3], [-3.95, 0], [-3.9, 0.3], [-3.75, 0.6],
-      [-2.3, 0.9], [-0.5, 0.98], [1.3, 0.94], [2.9, 0.74], [4, 0.4], [4.6, 0],
-      [4, -0.4], [2.9, -0.74], [1.3, -0.94], [-0.5, -0.98], [-2.3, -0.9],
-    ],
-    // W2 — Hoy: short, blunt and very beamy. Bullion is dense, so the hull that
-    // carries it is a box, not a runner. Widest beam-to-length in the fleet.
-    hoy: [
-      [-2.7, -1.15], [-2.85, -0.75], [-2.9, 0], [-2.85, 0.75], [-2.7, 1.15],
-      [-1.3, 1.35], [0.3, 1.38], [1.7, 1.3], [2.6, 1], [3.1, 0],
-      [2.6, -1], [1.7, -1.3], [0.3, -1.38], [-1.3, -1.35],
+    // Scow: round-ended, very beamy and visually deep.
+    scow: [
+      [-2.12, -1.55], [-2.48, -1], [-2.58, 0], [-2.48, 1], [-2.12, 1.55],
+      [-1.1, 1.92], [0.2, 2], [1.4, 1.88], [2.3, 1.42], [2.58, 0],
+      [2.3, -1.42], [1.4, -1.88], [0.2, -2], [-1.1, -1.92],
     ],
   };
   const shape = new Shape();
@@ -2268,34 +2338,26 @@ const GARDEN_HULL_FORM: Record<
 > = {
   // sternRake (W5.3) leans the sternpost aft as the topsides rise, the mirror
   // of bowRake. Without it every hull ended in a vertical transom regardless of
-  // family; the counter-sterned clipper and schooner need the overhang, and the
-  // junk's near-vertical transom is now a deliberate contrast rather than the
+  // family; the kobaya needs a slight overhang, while the junk's near-vertical
+  // transom is a deliberate contrast rather than the
   // only option available.
-  galleon: {
-    bowFlare: 0.1, bowRake: 0.14, sheerBow: 0.3, sheerStern: 0.24, sternRake: 0.2, tumblehome: 0.16,
+  bezaisen: {
+    bowFlare: 0.06, bowRake: 0.06, sheerBow: 0.18, sheerStern: 0.38, sternRake: 0.04, tumblehome: 0.08,
   },
-  clipper: {
-    bowFlare: 0.18, bowRake: 0.38, sheerBow: 0.26, sheerStern: 0.16, sternRake: 0.3, tumblehome: 0.1,
+  kobaya: {
+    bowFlare: 0.08, bowRake: 0.32, sheerBow: 0.16, sheerStern: 0.08, sternRake: 0.14, tumblehome: 0.08,
   },
-  schooner: {
-    bowFlare: 0.08, bowRake: 0.24, sheerBow: 0.22, sheerStern: 0.14, sternRake: 0.26, tumblehome: 0.08,
+  twinhull: {
+    bowFlare: 0.05, bowRake: 0.18, sheerBow: 0.14, sheerStern: 0.08, sternRake: 0.12, tumblehome: 0.05,
+  },
+  takasebune: {
+    bowFlare: 0.02, bowRake: 0.03, sheerBow: 0.07, sheerStern: 0.05, sternRake: 0.02, tumblehome: 0.02,
   },
   junk: {
     bowFlare: 0.05, bowRake: 0.06, sheerBow: 0.18, sheerStern: 0.26, sternRake: 0.05, tumblehome: 0.06,
   },
-  // W2: the indiaman is the galleon's heavier sister — more tumblehome (a
-  // laden merchantman narrows hard above the waterline) and a taller stern.
-  indiaman: {
-    bowFlare: 0.12, bowRake: 0.16, sheerBow: 0.32, sheerStern: 0.3, sternRake: 0.18, tumblehome: 0.22,
-  },
-  // Barque: clipper rake with a working hull's straighter sheer.
-  barque: {
-    bowFlare: 0.14, bowRake: 0.3, sheerBow: 0.2, sheerStern: 0.18, sternRake: 0.24, tumblehome: 0.12,
-  },
-  // Hoy: almost no sheer and almost no rake — a slab that sits down in the
-  // water. The flatness IS the silhouette.
-  hoy: {
-    bowFlare: 0.02, bowRake: 0.04, sheerBow: 0.1, sheerStern: 0.12, sternRake: 0.04, tumblehome: 0.04,
+  scow: {
+    bowFlare: 0.1, bowRake: 0.02, sheerBow: 0.08, sheerStern: 0.1, sternRake: 0.02, tumblehome: -0.12,
   },
 };
 
@@ -2355,20 +2417,24 @@ function createSailGeometry(plan: GardenSailPlan): BufferGeometry {
   // final point walks the foot edge back to the mast so low rows keep width.
   const leech: Array<readonly [number, number]> = plan.kind === "fore-aft"
     ? [[halfHeight, 0], [-halfHeight * 0.78, direction * plan.width], [-halfHeight, 0]]
-    : plan.kind === "square"
+    : plan.kind === "triangle"
       ? [
         [halfHeight, 0],
-        [halfHeight * 0.7, direction * plan.width * 0.88],
-        [-halfHeight * 0.72, direction * plan.width],
+        [-halfHeight * 0.78, direction * plan.width],
         [-halfHeight, 0],
       ]
-      : [
-        [halfHeight, 0],
-        [halfHeight * 0.68, direction * plan.width * 0.72],
-        [0, direction * plan.width],
-        [-halfHeight * 0.75, direction * plan.width * 0.86],
-        [-halfHeight, 0],
-      ];
+      : plan.kind === "rectangle"
+        ? [
+          [halfHeight, direction * plan.width],
+          [-halfHeight, direction * plan.width],
+        ]
+        : [
+          [halfHeight, 0],
+          [halfHeight * 0.68, direction * plan.width * 0.72],
+          [0, direction * plan.width],
+          [-halfHeight * 0.75, direction * plan.width * 0.86],
+          [-halfHeight, 0],
+        ];
   const edgeXAt = (y: number): number => {
     for (let index = 0; index < leech.length - 1; index += 1) {
       const [y0, x0] = leech[index]!;
@@ -2385,8 +2451,8 @@ function createSailGeometry(plan: GardenSailPlan): BufferGeometry {
   const SEGMENTS_V = 6;
   // Belly depth scales with sail width; the yard yaw twists the head a few
   // degrees around the mast axis so square sails never read as paper.
-  const belly = plan.width * (plan.kind === "square" ? 0.18 : 0.14);
-  const yardYaw = plan.kind === "square" ? direction * 0.1 : direction * 0.05;
+  const belly = plan.width * (plan.kind === "rectangle" ? 0.18 : 0.14);
+  const yardYaw = plan.kind === "rectangle" ? direction * 0.1 : direction * 0.05;
 
   const vertexCount = (SEGMENTS_U + 1) * (SEGMENTS_V + 1);
   const positions = new Float32Array(vertexCount * 3);
@@ -2444,7 +2510,7 @@ function bakeSailVertexColors(geometry: BufferGeometry, plan: GardenSailPlan): v
   const position = geometry.getAttribute("position");
   const uv = geometry.getAttribute("uv");
   const colors = new Float32Array(position.count * 3);
-  const panels = plan.kind === "square" ? 4 : 3;
+  const panels = plan.kind === "rectangle" ? 5 : 3;
   for (let index = 0; index < position.count; index += 1) {
     const u = uv.getX(index);
     const v = uv.getY(index);
@@ -2454,6 +2520,13 @@ function bakeSailVertexColors(geometry: BufferGeometry, plan: GardenSailPlan): v
     // Reef bands across the foot, where reef points would be tied off.
     for (const band of [0.14, 0.27]) {
       shade -= 0.06 * (1 - MathUtils.smoothstep(Math.abs(v - band), 0, 0.035));
+    }
+    if (plan.kind === "junk") {
+      // Five high-contrast battens make the sail an asymmetric fan at default
+      // zoom; they are cloth shading, so they stay inside the one sail draw.
+      for (const batten of [0.16, 0.32, 0.48, 0.64, 0.8]) {
+        shade -= 0.18 * (1 - MathUtils.smoothstep(Math.abs(v - batten), 0, 0.025));
+      }
     }
     // The belly catches less light toward the leech as it curves away.
     shade *= 1 - 0.06 * u * u;
@@ -2479,34 +2552,40 @@ function riggingPoints(
   // Bow at +x: masts sorted bow-ward first so each forestay can target the
   // mast ahead of it.
   const bowFirst = [...rig].sort((left, right) => right.x - left.x);
-  const halfBeam = Math.max(
-    ...createHullShape(silhouette, 1).getPoints(4).map((point) => Math.abs(point.y)),
-  );
+  const hullPoints = createHullShape(silhouette, 1).getPoints(4);
+  const halfBeam = Math.max(...hullPoints.map((point) => Math.abs(point.y)));
+  const bowX = Math.max(...hullPoints.map((point) => point.x));
+  const sternX = Math.min(...hullPoints.map((point) => point.x));
   for (const [index, mastPlan] of bowFirst.entries()) {
-    const head = new Vector3(mastPlan.x, mastPlan.height + 0.34, 0);
+    const mastZ = mastPlan.z ?? 0;
+    const head = new Vector3(mastPlan.x, mastPlan.height + 0.34, mastZ);
     const ahead = bowFirst[index - 1];
     // Forestay: to the mast ahead at ~2/3 height, or to the stem/bowsprit.
     points.push(
       head,
       ahead
-        ? new Vector3(ahead.x, ahead.height * 0.66, 0)
-        : new Vector3(4.45, 0.78, 0),
+        ? new Vector3(ahead.x, ahead.height * 0.66, ahead.z ?? 0)
+        : new Vector3(bowX, 0.78, mastZ),
     );
     // Backstay to the stern deck.
-    points.push(head, new Vector3(-3.12, 0.74, 0));
+    points.push(head, new Vector3(sternX, 0.74, mastZ));
     // Two shrouds to the rails, a touch aft of the mast.
-    points.push(head, new Vector3(mastPlan.x - 0.32, 0.6, halfBeam * 0.82));
-    points.push(head, new Vector3(mastPlan.x - 0.32, 0.6, -halfBeam * 0.82));
+    points.push(head, new Vector3(mastPlan.x - 0.32, 0.6, mastZ + halfBeam * 0.82));
+    points.push(head, new Vector3(mastPlan.x - 0.32, 0.6, mastZ - halfBeam * 0.82));
     // W5.4 halyards: the lines that actually hoist each yard, running from the
     // masthead down to the head of every sail on this mast. Two segments per
     // sail, so the rig reads as worked rather than decorative.
     for (const sailPlan of mastPlan.sails) {
       const direction = sailPlan.reverse ? -1 : 1;
       const headY = sailPlan.centerY + sailPlan.height * 0.5;
-      points.push(head, new Vector3(mastPlan.x + direction * 0.05, headY, 0.05));
+      points.push(head, new Vector3(mastPlan.x + direction * 0.05, headY, mastZ + 0.05));
       points.push(
-        new Vector3(mastPlan.x + direction * 0.05, headY, 0.05),
-        new Vector3(mastPlan.x + direction * sailPlan.width * 0.9, headY - 0.06, 0.05),
+        new Vector3(mastPlan.x + direction * 0.05, headY, mastZ + 0.05),
+        new Vector3(
+          mastPlan.x + direction * sailPlan.width * 0.9,
+          headY - 0.06,
+          mastZ + 0.05,
+        ),
       );
     }
   }
@@ -2516,10 +2595,14 @@ function riggingPoints(
         const direction = sailPlan.reverse ? -1 : 1;
         const near = mastPlan.x;
         const far = mastPlan.x + direction * sailPlan.width;
+        const mastZ = mastPlan.z ?? 0;
         for (let batten = 0; batten < 3; batten += 1) {
           const y = sailPlan.centerY - sailPlan.height * 0.32
             + (batten / 2) * sailPlan.height * 0.64;
-          points.push(new Vector3(near, y, 0.045), new Vector3(far, y, 0.045));
+          points.push(
+            new Vector3(near, y, mastZ + 0.045),
+            new Vector3(far, y, mastZ + 0.045),
+          );
         }
       }
     }
@@ -2536,8 +2619,6 @@ export function createPennantGeometry(): ShapeGeometry {
   return new ShapeGeometry(shape);
 }
 
-const WAKE_QUAD_COUNT = 7;
-
 function createWake(cache: GardenShipGeometryCache): { detail: Group; root: Group } {
   const root = new Group();
   const detail = new Group();
@@ -2545,42 +2626,8 @@ function createWake(cache: GardenShipGeometryCache): { detail: Group; root: Grou
   detail.name = "ship-wake-detail";
   root.add(detail);
 
-  // A short trail of soft foam quads astern of the hull. Each quad grows then
-  // tapers along the trail so the wake reads as a widening-then-fading wedge;
-  // the per-frame ship loop stretches the whole trail by wake intensity and
-  // hides it entirely under reduced motion / constrained tiers.
-  const quadGeometry = cachedShipGeometry(cache, "wake.quad", () => {
-    const geometry = new PlaneGeometry(1, 1);
-    geometry.rotateX(-Math.PI / 2);
-    return geometry;
-  });
-  const trail = new InstancedMesh(quadGeometry, cache.wakeFillMaterial, WAKE_QUAD_COUNT);
-  const matrix = new Matrix4();
-  for (let index = 0; index < WAKE_QUAD_COUNT; index += 1) {
-    const age = index / (WAKE_QUAD_COUNT - 1);
-    const length = 1.1 + age * 1.7;
-    const width = 0.9 + Math.sin(age * Math.PI) * 2.3;
-    matrix.makeScale(length, 1, width);
-    matrix.setPosition(-2.3 - age * 3.9, -0.34, 0);
-    trail.setMatrixAt(index, matrix);
-  }
-  trail.instanceMatrix.needsUpdate = true;
-  root.add(trail);
-
-  // W6: the bow wave. The trail astern already stretched with speed, but the
-  // stem pushed no water at all, so a ship under way read as one being dragged
-  // rather than driven. Two short foam wedges flaring off the forefoot, on the
-  // same intensity signal the trail rides, so they only appear with way on.
-  const bowWave = new InstancedMesh(quadGeometry, cache.wakeFillMaterial, 2);
-  bowWave.name = "ship-bow-wave";
-  for (const [index, side] of [-1, 1].entries()) {
-    matrix.makeScale(2.1, 1, 0.85);
-    matrix.setPosition(3.15, -0.34, side * 0.62);
-    bowWave.setMatrixAt(index, matrix);
-  }
-  bowWave.instanceMatrix.needsUpdate = true;
-  root.add(bowWave);
-
+  // The nine foam quads now live in the world-wide GardenWakeBatch. Keep only
+  // the close-inspection line work below this per-ship anchor.
   for (const z of [-0.5, 0.5]) {
     const geometry = cachedShipGeometry(
       cache,

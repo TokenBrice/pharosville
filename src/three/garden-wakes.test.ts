@@ -72,6 +72,18 @@ describe("planWakeWindow", () => {
 });
 
 describe("garden wakes stamps", () => {
+  it("exposes both ping-pong textures to the owner census", () => {
+    const wakes = createGardenWakes(rendererStub() as never);
+    const manifest = wakes.getTextureManifest();
+
+    expect(manifest.map(({ owner }) => owner)).toEqual([
+      "garden-wakes.target-a",
+      "garden-wakes.target-b",
+    ]);
+    expect(manifest[0]!.texture).not.toBe(manifest[1]!.texture);
+    wakes.dispose();
+  });
+
   it("converts world XZ to water space and rejects ships outside the window", () => {
     const renderer = rendererStub();
     const wakes = createGardenWakes(renderer as never);

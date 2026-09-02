@@ -180,6 +180,7 @@ describe("AccessibilityLedger", () => {
       docks: [{
         id: "dock.ethereum",
         kind: "dock",
+        station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
         label: "Ethereum",
         chainId: "ethereum",
         tile: { x: 1, y: 1 },
@@ -198,6 +199,7 @@ describe("AccessibilityLedger", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
     expect(markup).toContain("#1 of 2 rendered harbors");
+    expect(markup).toContain("boathouse precinct station at ethereum-precinct cove");
     expect(markup).toContain("72.7% of stablecoin supply");
     expect(markup).toContain("concentration moderately concentrated (HHI 0.40)");
   });
@@ -212,6 +214,7 @@ describe("AccessibilityLedger", () => {
         {
           id: "dock.ethereum",
           kind: "dock",
+          station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
           chainId: "ethereum",
           label: "Ethereum",
           tile: { x: 1, y: 1 },
@@ -236,6 +239,7 @@ describe("AccessibilityLedger", () => {
         {
           id: "dock.solana",
           kind: "dock",
+          station: { coveId: "watch-east-bay", type: "tea-house-quay", shoreBearing: Math.PI },
           chainId: "solana",
           label: "Solana",
           tile: { x: 2, y: 2 },
@@ -341,6 +345,26 @@ describe("AccessibilityLedger", () => {
     expect(markup.toLowerCase()).toContain("#71717a");
   });
 
+  it("lists canonical Wreck Shoal as the seventh named area", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      areas: [{
+        id: "area.risk-water.wreck-shoal",
+        kind: "area",
+        label: "Wreck Shoal",
+        tile: { x: 15, y: 123 },
+        detailId: "area.risk-water.wreck-shoal",
+        facts: [{ label: "Water style", value: "protected tidal inlet and wreck shoal" }],
+        sourceFields: ["cemeteryEntries[]", "world-layout wreck-water field"],
+        summary: "Wreck-water lifecycle area; no live-ship risk placement.",
+      }],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Wreck Shoal: No live-ship risk placement");
+    expect(markup).toContain("world-layout wreck-water field");
+  });
+
   it("appends a heritage-hull clause for ships carrying uniqueRationale", () => {
     const world = sampleWorldWithUniqueShip();
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
@@ -355,7 +379,9 @@ describe("AccessibilityLedger", () => {
 
     // No mint/burn row → neutral pace with an explicit missing-data reading.
     expect(markup).toContain("cycle tempo Unmeasured");
-    expect(markup).toContain("cycle pace tracks 24h mint/redeem flow intensity by magnitude, not market-cap tier");
+    expect(markup).toContain("underway leg pace tracks 24h mint/redeem flow intensity by magnitude, not market-cap tier");
+    expect(markup).toContain("route cadence 90–180 s legs; 240–480 s rests; arrivals and departures are paired");
+    expect(markup).toContain("Routes show rendered-chain and risk-water presence only");
   });
 
   it("states per-ship issuance failure and garden-tempo parity", () => {
@@ -696,7 +722,7 @@ describe("AccessibilityLedger", () => {
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("TerraUSD (UST): Algorithmic Failure, 2022-05-12, peak market cap $18.8B.");
+    expect(markup).toContain("TerraUSD (UST): Algorithmic Failure, 2022-05-12, peak market cap $18.8B; wreck silhouette Broken keel");
     expect(markup).toContain("The largest stablecoin collapse in history.");
   });
 
@@ -726,7 +752,7 @@ describe("AccessibilityLedger", () => {
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("NuBits (NBT): Abandoned, 2016-06-01.");
+    expect(markup).toContain("NuBits (NBT): Abandoned, 2016-06-01; wreck silhouette Bare remains");
     expect(markup).not.toContain("peak market cap");
   });
 

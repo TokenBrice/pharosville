@@ -5,23 +5,23 @@ import { Box3, MathUtils, Object3D, Vector3 } from "three";
  *
  * Whole-map framing is the shot that shows the whole product, and it was the
  * one frame that broke the budget: 917 draw calls against a 700 ceiling at
- * `#cam=0,0,0.28`, where default framing (zoom 0.7776) sits comfortably inside
+ * `#cam=0,0,0.28`, where the Wave 1 landing framing (zoom 0.648) sits inside
  * it. The difference is not the fleet — the batches are 15 calls whatever the
  * zoom — it is that pulling back stops the frustum culling anything, so every
- * per-dock and per-hero prop in the world pays a draw call (and a second one in
+ * station and per-hero prop in the world pays a draw call (and a second one in
  * the shadow pass) to render as two or three pixels of mud.
  *
  * The repo already has the rule that says which props those are: the isometric
  * silhouette law (`scripts/pharosville/hero-silhouettes.mjs`) — a feature needs
  * roughly 0.7 world units of clearance to resolve. One world unit projects to
  * `TILE_HEIGHT × zoom` screen pixels, so at zoom 0.28 that clearance is about
- * three pixels and at the default 0.7776 it is nine. This module is the single
+ * three pixels and at the default 0.648 it is about seven. This module is the single
  * place that decides what that means for the scene graph, rather than a second
  * zoom mechanism per module: every shed prop is named, the names live in
  * `OVERVIEW_LOD_DETAIL_NAMES`, and the world is scanned once at build.
  *
  * Nothing analytical is shed. What goes is deck and shore furniture — dock
- * posts, lamp heads, warehouse windows, the crane, the chain flag, the keeper's
+ * posts, lamp heads, lit screens, works signatures, the chain flag, the keeper's
  * rowboat and shore stones, the cottage lantern string, the quay stair, the
  * precinct obelisks, and the per-hero grade shield and overlay signal. The
  * harbour's structure, the fleet, the zones, the sea signs (which hold a
@@ -43,23 +43,30 @@ export const OVERVIEW_LOD_HIDDEN_ZOOM = 0.44;
  * one gate rather than one per mesh.
  */
 export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
-  // Per-dock furniture, ×10 harbours.
+  // World-wide named-water edge batches. At whole-map scale their small forms
+  // become texture; visibility-only avoids collapsing the map toward origin.
+  "garden-sea-edges-overview",
+  // Globally batched station furniture.
   "dock-cargo-tide",
   "dock-chain-flag",
   "dock-tide-line",
-  "dock-crane",
   "dock-lamp-heads",
   "dock-posts",
-  "dock-warehouse-windows",
+  "harbor-netRack",
+  "station-lit-screens",
   // The island's toy-scale grounding props, authored against a 34-unit Pharos.
   // W3.1 deleted the keeper-cottage lantern string outright (the Great
   // Quieting removed that glow vocabulary), so it no longer appears here.
   "island-quay-stair",
   "island-koi",
   "island-niwaki",
-  "island-raked-gravel",
   "lighthouse-shore-props",
   "pharos-precinct-obelisks",
+  // The rim body remains at whole-map framing; its distributed furniture is
+  // less than a few pixels there and fades only by visibility.
+  "garden-rim-path",
+  "garden-rim-pines",
+  "garden-rim-stones",
   // Per-hero badges, ×~29 hulls, and the three hero gull flocks.
   "ship-gull-flock",
   "ship-overview-detail",
@@ -84,8 +91,17 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
  * to see it.
  */
 export const OVERVIEW_LOD_WHOLE_RING_NAMES: readonly string[] = [
+  "garden-sea-edges-overview",
   "dock-cargo-tide",
+  "dock-chain-flag",
+  "dock-lamp-heads",
+  "dock-posts",
   "dock-tide-line",
+  "harbor-netRack",
+  "station-lit-screens",
+  "garden-rim-path",
+  "garden-rim-pines",
+  "garden-rim-stones",
 ];
 
 interface OverviewLodEntry {

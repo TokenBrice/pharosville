@@ -11,7 +11,7 @@ import type { TerrainKind } from "./world-types";
  *
  * The six DEWS zones used to be drawn as overlapping ellipses with a 4–20%
  * tint — a chart annotation floating on uniform water. Meanwhile
- * `terrainKindAt` ALREADY partitions 88.5% of the sea into named, contiguous,
+ * `terrainKindAt` partitions 75.8% of the rim-bounded sea into named, contiguous,
  * organically-shaped regions, and ship placement and motion already obey it
  * (plan finding F6). The renderer simply never drew it.
  *
@@ -52,6 +52,7 @@ export function seaRegionIdForArea(area: SeaBodyAreaKey): number {
 }
 
 const REGION_FOR_TERRAIN: Partial<Record<TerrainKind, number>> = {
+  rim: SEA_REGION_ID.none,
   "alert-water": SEA_REGION_ID.alert,
   "calm-water": SEA_REGION_ID.calm,
   "harbor-water": SEA_REGION_ID.calm,
@@ -68,11 +69,22 @@ const REGION_FOR_TERRAIN: Partial<Record<TerrainKind, number>> = {
 };
 
 /**
- * Field resolution. 512² over a 56-tile map is ~9 samples per tile, enough
+ * Field resolution. 512² over a 140-tile map is ~3.7 samples per tile, enough
  * that the boundary distance channel stays smooth under the shader's blend
  * without the texture itself becoming a memory concern (256 KiB, one upload).
  */
 export const SEA_REGION_FIELD_SIZE = 512;
+
+/**
+ * Tile distance represented by a fully white boundary-distance texel.
+ *
+ * The transform used to divide by a fixed 24 texels, which silently changed
+ * its world width whenever a focused test built a smaller field. Keeping the
+ * scale in tiles makes both the shader's boundary banks and the field itself
+ * speak the same unit: named-body seams can now be asserted as a deliberate
+ * few-tile treatment rather than as an opaque normalised threshold.
+ */
+export const SEA_REGION_DISTANCE_FULL_SCALE_TILES = 6.5;
 
 export interface SeaRegionField {
   /** RGBA: R = region id (0-255 scaled), G = boundary distance, B = shore distance. */
@@ -137,9 +149,9 @@ export function buildSeaRegionField(size = SEA_REGION_FIELD_SIZE): SeaRegionFiel
   chamferDistance(distance, size);
 
   // Normalise: the shader wants 0 at a boundary rising to 1 well inside a
-  // region. 24 texels ~ 2.6 tiles, the width the foam line and the character
-  // blend read best at.
-  const distanceScale = 24;
+  // region. The scale is expressed in map tiles so alternate bake sizes keep
+  // exactly the same physical bank width as the production 512px field.
+  const distanceScale = (size / tileSpan) * SEA_REGION_DISTANCE_FULL_SCALE_TILES;
   for (let index = 0; index < size * size; index += 1) {
     data[index * 4] = ids[index]!;
     data[index * 4 + 1] = Math.min(255, Math.round((distance[index]! / distanceScale) * 255));
@@ -188,6 +200,8 @@ function chamferDistance(distance: Float32Array, size: number): void {
  * reads the sea state from its motion.
  */
 export interface SeaRegionCharacter {
+  /** Authored hue destination; shader luminance matching keeps value with depth. */
+  tint: string;
   /** Multiplies the shared swell amplitude. */
   swell: number;
   /** Multiplies chop frequency — higher reads as rougher, more broken water. */
@@ -198,10 +212,34 @@ export interface SeaRegionCharacter {
   reflectivity: number;
   /** Darkens (< 1) or lifts (> 1) the region against the base water colour. */
   depth: number;
+  /** Strength of the body's hue after partial luminance matching. */
+  tintStrength: number;
+  /** Direction the body's normal flow travels in world-tile radians. */
+  flowBearing: number;
+  /** 0 follows the shared wind; 1 holds the authored body direction. */
+  flowHold: number;
+  /** Strength of the fine normal term after the body's signature is applied. */
+  normalDetail: number;
+  /** Amount of the generic crossed normal which survives in this body. */
+  crossedNormal: number;
+  /** Pale local shelf contribution; deliberately concentrated in Warning. */
+  shallowShelf: number;
+  /** Physical width of the low-frequency body-boundary treatment. */
+  boundaryWidthTiles: number;
+  /** Pale seam contribution inside the body's boundary bank. */
+  boundaryFoam: number;
+  /** Value-only bank/striations contribution inside the body's boundary bank. */
+  boundaryBank: number;
 }
 
 export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
-  none: { swell: 1, chop: 1, foam: 0, reflectivity: 1, depth: 1 },
+  none: {
+    tint: "#ffffff",
+    swell: 1, chop: 1, foam: 0, reflectivity: 1, depth: 1,
+    tintStrength: 0, flowBearing: 0, flowHold: 0, normalDetail: 1,
+    crossedNormal: 1, shallowShelf: 0,
+    boundaryWidthTiles: 0, boundaryFoam: 0, boundaryBank: 0,
+  },
   // S1 (2026-07-25): the DEPTH multiplier is the value ramp, and it was doing
   // almost nothing — 0.78 to 1.18, +-20% around neutral. It matters more than
   // it looks, because the shader luminance-matches each region's tint against
@@ -212,40 +250,91 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   //
   // The protected inner harbour: near-still, the most mirror-like water in the
   // scene, and the region the concept render's reflection sells.
-  calm: { swell: 0.45, chop: 0.5, foam: 0.05, reflectivity: 1.5, depth: 1.14 },
-  watch: { swell: 0.85, chop: 0.9, foam: 0.18, reflectivity: 1.1, depth: 1 },
-  alert: { swell: 1.15, chop: 1.25, foam: 0.4, reflectivity: 0.8, depth: 0.88 },
-  warning: { swell: 1.45, chop: 1.7, foam: 0.68, reflectivity: 0.6, depth: 0.75 },
-  // Steep, dark, streaked with blown foam — legible as trouble without colour.
-  danger: { swell: 1.9, chop: 2.3, foam: 1, reflectivity: 0.42, depth: 0.6 },
-  // The ledger shelf reads as shallow, slack, slightly stagnant water.
-  ledger: { swell: 0.7, chop: 0.75, foam: 0.1, reflectivity: 1.2, depth: 1.2 },
-  open: { swell: 1, chop: 1, foam: 0.12, reflectivity: 1, depth: 0.97 },
+  // Calm mirror and reflection UP; generic crossed normals and crest foam DOWN.
+  calm: {
+    tint: "#4b927f",
+    swell: 0.34, chop: 0.34, foam: 0.015, reflectivity: 1.62, depth: 1.13,
+    tintStrength: 0.62, flowBearing: 1.29, flowHold: 0.22, normalDetail: 0.08,
+    crossedNormal: 0.01, shallowShelf: 0,
+    boundaryWidthTiles: 2.6, boundaryFoam: 0.025, boundaryBank: 0.13,
+  },
+  // Watch's long parallel ripples UP; generic isotropic ripple grain DOWN.
+  watch: {
+    tint: "#287687",
+    swell: 0.74, chop: 0.72, foam: 0.11, reflectivity: 1.18, depth: 1.01,
+    tintStrength: 0.64, flowBearing: 1.41, flowHold: 0.86, normalDetail: 0.54,
+    crossedNormal: 0.06, shallowShelf: 0,
+    boundaryWidthTiles: 3, boundaryFoam: 0.05, boundaryBank: 0.1,
+  },
+  // Alert's channel-axis current streaks UP; generic crossed chop DOWN.
+  alert: {
+    tint: "#647970",
+    swell: 1.02, chop: 1.18, foam: 0.28, reflectivity: 0.86, depth: 0.9,
+    tintStrength: 0.66, flowBearing: -1.48, flowHold: 0.98, normalDetail: 0.86,
+    crossedNormal: 0.08, shallowShelf: 0,
+    boundaryWidthTiles: 3.25, boundaryFoam: 0.07, boundaryBank: 0.13,
+  },
+  // Warning's pale shelf and short broken ripples UP; long shared swell DOWN.
+  warning: {
+    tint: "#92947a",
+    swell: 1.26, chop: 1.62, foam: 0.62, reflectivity: 0.64, depth: 0.8,
+    tintStrength: 0.68, flowBearing: -1.3, flowHold: 0.9, normalDetail: 0.84,
+    crossedNormal: 0.14, shallowShelf: 0.94,
+    boundaryWidthTiles: 3.6, boundaryFoam: 0.18, boundaryBank: 0.05,
+  },
+  // Danger's steep diagonal waves and blown foam UP; generic crest foam DOWN.
+  danger: {
+    tint: "#30375d",
+    swell: 2.02, chop: 2.42, foam: 1.12, reflectivity: 0.38, depth: 0.58,
+    tintStrength: 0.7, flowBearing: -0.78, flowHold: 0.96, normalDetail: 1.28,
+    crossedNormal: 0.24, shallowShelf: 0,
+    boundaryWidthTiles: 3.4, boundaryFoam: 0.24, boundaryBank: 0.16,
+  },
+  // Ledger's flat horizontal striations UP; shared swell and crossed chop DOWN.
+  ledger: {
+    tint: "#4e5a70",
+    swell: 0.22, chop: 0.52, foam: 0.035, reflectivity: 1.12, depth: 1.16,
+    tintStrength: 0.64, flowBearing: -0.085, flowHold: 0.99, normalDetail: 0.22,
+    crossedNormal: 0.01, shallowShelf: 0,
+    boundaryWidthTiles: 2.8, boundaryFoam: 0.02, boundaryBank: 0.16,
+  },
+  open: {
+    tint: "#ffffff",
+    swell: 1, chop: 1, foam: 0.12, reflectivity: 1, depth: 0.97,
+    tintStrength: 0, flowBearing: 0, flowHold: 0, normalDetail: 1,
+    crossedNormal: 1, shallowShelf: 0,
+    boundaryWidthTiles: 0, boundaryFoam: 0, boundaryBank: 0,
+  },
   // N2 — the wreck shoals. Slack, shallow, still: water that has stopped
   // moving. The lowest swell and chop in the world and almost no foam, so the
   // graveyard reads as a held breath next to the working sea.
-  wreck: { swell: 0.3, chop: 0.4, foam: 0.03, reflectivity: 0.9, depth: 1.26 },
+  // Wreck silt and held surface UP; generic ripple motion and white foam DOWN.
+  wreck: {
+    tint: "#756f5d",
+    swell: 0.12, chop: 0.24, foam: 0.008, reflectivity: 0.74, depth: 0.7,
+    tintStrength: 0.68, flowBearing: 0.3, flowHold: 0.18, normalDetail: 0.04,
+    crossedNormal: 0, shallowShelf: 0,
+    boundaryWidthTiles: 3.1, boundaryFoam: 0.015, boundaryBank: 0.22,
+  },
 };
 
 /**
- * Fallback tint per region, in case nothing drives a slot from the live theme.
+ * Authored tint per region, also used before a live theme drives the slot.
  *
- * DEWS bands are recoloured every frame from the day-blended palette via
- * `setZoneState`; the wreck shoals are NOT a DEWS band, so without a default
- * its uniform slot would stay at the zero-initialised colour and the whole
- * corner would render black.
+ * `setZoneState` retains a small day-blended theme admixture, but these dyes
+ * are the body identities. Wreck has no DEWS band at all, so keeping every
+ * slot seeded from the same table also prevents its corner rendering black.
  */
 export const SEA_REGION_FALLBACK_TINT: Record<SeaRegionName, string> = {
-  none: "#ffffff",
-  calm: "#7fb2a8",
-  watch: "#6f9fb5",
-  alert: "#c3a06a",
-  warning: "#c08a5a",
-  danger: "#a55f52",
-  ledger: "#8d8aa8",
-  open: "#ffffff",
-  // Drowned green-grey: algal, still, colder than the working sea.
-  wreck: "#5d7068",
+  none: SEA_REGION_CHARACTER.none.tint,
+  calm: SEA_REGION_CHARACTER.calm.tint,
+  watch: SEA_REGION_CHARACTER.watch.tint,
+  alert: SEA_REGION_CHARACTER.alert.tint,
+  warning: SEA_REGION_CHARACTER.warning.tint,
+  danger: SEA_REGION_CHARACTER.danger.tint,
+  ledger: SEA_REGION_CHARACTER.ledger.tint,
+  open: SEA_REGION_CHARACTER.open.tint,
+  wreck: SEA_REGION_CHARACTER.wreck.tint,
 };
 
 export const SEA_REGION_ORDER: readonly SeaRegionName[] = [

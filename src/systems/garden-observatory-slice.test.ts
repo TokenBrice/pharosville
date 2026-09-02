@@ -12,24 +12,48 @@ import { SEA_REGION_ID, seaRegionAtTile } from "./garden-sea-regions";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   GARDEN_SHIP_ROOT_Y,
+  GARDEN_HULL_SILHOUETTES,
+  GARDEN_SILHOUETTE_FOR_HULL,
   GARDEN_OVERVIEW_SHIP_LIMIT,
   gardenAreaCenterTile,
   gardenAreaDisplayTile,
   gardenCameraViewHeight,
   gardenDockDisplayTile,
   gardenSemanticView,
+  gardenShipVisualScale,
   gardenTileToScreen,
+  resolveGardenDependencyShipDisplayTile,
   resolveGardenEntityDisplayTile,
   resolveGardenShipDisplayTile,
   GARDEN_MAX_MOTION_TILES,
+  gardenHomeOffsetWeight,
   selectGardenObservatorySlice,
   selectGardenTransientShip,
   selectRepresentativeShips,
 } from "./garden-observatory-slice";
+import { gardenShipWaterMarginTiles, isGardenShipWater } from "./garden-water-exclusion";
 import { tileToScreen } from "./projection";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
 
 describe("Garden Observatory slice", () => {
+  it("maps all nine semantic hull classes onto exactly six East-Asian families", () => {
+    expect(GARDEN_SILHOUETTE_FOR_HULL).toEqual({
+      "algo-junk": "junk",
+      "chartered-brigantine": "bezaisen",
+      "commodity-peg-hoy": "scow",
+      "crypto-caravel": "kobaya",
+      "dao-schooner": "twinhull",
+      "foreign-peg-junk": "junk",
+      "treasury-galleon": "bezaisen",
+      "yield-barque": "takasebune",
+      "yield-indiaman": "takasebune",
+    });
+    expect(Object.keys(GARDEN_SILHOUETTE_FOR_HULL)).toHaveLength(9);
+    expect(new Set(Object.values(GARDEN_SILHOUETTE_FOR_HULL)))
+      .toEqual(new Set(GARDEN_HULL_SILHOUETTES));
+    expect(GARDEN_HULL_SILHOUETTES).toHaveLength(6);
+  });
+
   it("derives Overview, Explore, and Analyze without a second mode state", () => {
     expect(gardenSemanticView(0.8, null)).toBe("overview");
     expect(gardenSemanticView(1.05, null)).toBe("explore");
@@ -98,44 +122,144 @@ describe("Garden Observatory slice", () => {
       representative: false,
       ship: { detailId: outsider!.detailId },
     });
+    const transient = selected.ships.at(-1)!;
+    const transientTile = resolveGardenShipDisplayTile({ ...transient, sample: null });
+    const transientMargin = gardenShipWaterMarginTiles(
+      gardenShipVisualScale(transient.ship.visual.scale || 1),
+      GARDEN_SILHOUETTE_FOR_HULL[transient.ship.visual.hull],
+    );
+    expect(isGardenShipWater(transientTile, transientMargin)).toBe(true);
 
     const cleared = selectGardenObservatorySlice(world, null);
     expect(cleared.ships).toHaveLength(GARDEN_OVERVIEW_SHIP_LIMIT);
     expect(cleared.transientSelectedDetailId).toBeNull();
   });
 
-  it("keeps representative offsets stable and materializes transients at their samples", () => {
+  it("revalidates dependency formation after its renderer-visible offset", () => {
+    const world = denseWorld();
+    const ship = {
+      ...world.ships[0]!,
+      dependencyFormation: { parentId: "parent", type: "collateral" as const, weight: 1 },
+    };
+    const tile = resolveGardenDependencyShipDisplayTile({
+      parentTile: { x: 1, y: 1 },
+      ship,
+    });
+    const margin = gardenShipWaterMarginTiles(
+      gardenShipVisualScale(ship.visual.scale || 1),
+      GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+    );
+    expect(isGardenShipWater(tile, margin)).toBe(true);
+  });
+
+  it("moors a representative hull at its dock, fading the berth offset over the voyage", () => {
+    const world = denseWorld();
+    const slice = selectGardenObservatorySlice(world, null);
+    const placement = slice.ships.find(({ displayOffset, ship }) => (
+      ship.dockVisits.length > 0
+      && Math.hypot(displayOffset.x, displayOffset.y) > 20
+    ));
+    expect(placement).toBeDefined();
+    const { ship } = placement!;
+    const home = ship.tile;
+    const mooring = ship.dockVisits
+      .map((visit) => visit.mooringTile)
+      .toSorted((left, right) => Math.hypot(left.x - home.x, left.y - home.y) - Math.hypot(right.x - home.x, right.y - home.y))[0]!;
+    const margin = gardenShipWaterMarginTiles(
+      gardenShipVisualScale(ship.visual.scale || 1),
+      GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+    );
+
+    // Moored: the hull sits on the berth the dock assignment chose, not on a
+    // copy of it displaced by the home offset (which is what put moored hulls
+    // beyond the rim before).
+    const moored = resolveGardenShipDisplayTile({ ...placement!, sample: { state: "moored", tile: mooring } });
+    expect(Math.hypot(moored.x - mooring.x, moored.y - mooring.y)).toBeLessThan(1e-6);
+
+    // Idle and small drift: the whole home offset stays, so the berth is the
+    // blue-noise placement and a patrol never slides along the offset.
+    const idle = resolveGardenShipDisplayTile({ ...placement!, sample: { state: "idle", tile: home } });
+    const drifted = resolveGardenShipDisplayTile({
+      ...placement!,
+      sample: { state: "risk-drift", tile: { x: home.x + 3, y: home.y } },
+    });
+    expect(isGardenShipWater(idle, margin)).toBe(true);
+    expect(Math.hypot(drifted.x - idle.x, drifted.y - idle.y)).toBeLessThan(3 + 1e-6);
+
+    // Sailing: the path from berth to mooring is continuous — no step larger
+    // than the sample step plus the offset's share of that step.
+    const reach = Math.hypot(mooring.x - home.x, mooring.y - home.y);
+    const offsetLength = Math.hypot(placement!.displayOffset.x, placement!.displayOffset.y);
+    let previous = idle;
+    for (let step = 1; step <= 40; step += 1) {
+      const t = step / 40;
+      const next = resolveGardenShipDisplayTile({
+        ...placement!,
+        sample: { state: "sailing", tile: { x: home.x + (mooring.x - home.x) * t, y: home.y + (mooring.y - home.y) * t } },
+      });
+      const composedStep = reach / 40 + offsetLength / 40 * (reach / (reach - 6));
+      expect(Math.hypot(next.x - previous.x, next.y - previous.y), `step ${step}`).toBeLessThan(composedStep + 12);
+      previous = next;
+    }
+  });
+
+  it("keeps representative motion bounded and materializes transients on hull-safe water", () => {
     const world = denseWorld();
     const placement = selectGardenObservatorySlice(world, null).ships.find(({ displayOffset }) => (
       displayOffset.x !== 0 || displayOffset.y !== 0
     ));
     expect(placement).toBeDefined();
+    // Aim inward. The motion contribution remains capped; if that composed
+    // point still meets authored geography, the final hull field may move it
+    // farther to the nearest valid water instead of preserving an unsafe cap.
+    const inward = {
+      x: 70 - placement!.ship.tile.x - placement!.displayOffset.x,
+      y: 70 - placement!.ship.tile.y - placement!.displayOffset.y,
+    };
+    const inwardLength = Math.hypot(inward.x, inward.y);
     const sample = {
       mapVisibilityAlpha: 0,
-      tile: { x: 9, y: 11 },
+      state: "moored" as const,
+      tile: {
+        x: placement!.ship.tile.x + (inward.x / inwardLength) * (GARDEN_MAX_MOTION_TILES + 8),
+        y: placement!.ship.tile.y + (inward.y / inwardLength) * (GARDEN_MAX_MOTION_TILES + 8),
+      },
+    };
+    // The berth offset fades with voyage distance, so the cap is measured from
+    // the berth the composition actually used at this distance.
+    const offsetWeight = gardenHomeOffsetWeight(placement!.ship, GARDEN_MAX_MOTION_TILES + 8);
+    const representativeBase = {
+      x: placement!.ship.tile.x + placement!.displayOffset.x * offsetWeight,
+      y: placement!.ship.tile.y + placement!.displayOffset.y * offsetWeight,
     };
 
     const representativeDisplay = resolveGardenShipDisplayTile({
       ...placement!,
       sample,
     });
-    const representativeBase = {
-      x: placement!.ship.tile.x + placement!.displayOffset.x,
-      y: placement!.ship.tile.y + placement!.displayOffset.y,
-    };
     expect(Math.hypot(
       representativeDisplay.x - representativeBase.x,
       representativeDisplay.y - representativeBase.y,
-    )).toBeCloseTo(GARDEN_MAX_MOTION_TILES);
+    )).toBeGreaterThanOrEqual(GARDEN_MAX_MOTION_TILES - 1e-6);
+    const representativeMargin = gardenShipWaterMarginTiles(
+      gardenShipVisualScale(placement!.ship.visual.scale || 1),
+      GARDEN_SILHOUETTE_FOR_HULL[placement!.ship.visual.hull],
+    );
+    expect(isGardenShipWater(representativeDisplay, representativeMargin)).toBe(true);
 
-    // A transient (non-representative) placement follows its motion sample
-    // exactly, with no display offset composed in.
-    expect(resolveGardenShipDisplayTile({
+    // A transient has no representative offset, but it still cannot bypass
+    // the finite plate and hull-clearance field through a moored sample.
+    const transientDisplay = resolveGardenShipDisplayTile({
       displayOffset: { x: 0, y: 0 },
       representative: false,
-      sample,
+      sample: { ...sample, tile: { x: -20, y: -20 } },
       ship: world.ships[0]!,
-    })).toEqual(sample.tile);
+    });
+    const transientMargin = gardenShipWaterMarginTiles(
+      gardenShipVisualScale(world.ships[0]!.visual.scale || 1),
+      GARDEN_SILHOUETTE_FOR_HULL[world.ships[0]!.visual.hull],
+    );
+    expect(isGardenShipWater(transientDisplay, transientMargin)).toBe(true);
   });
 
   it("keeps roster offsets deterministic and projects the Three plane from the shared camera scale", () => {

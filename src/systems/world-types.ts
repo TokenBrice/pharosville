@@ -6,11 +6,13 @@ import type { NetFlowDirection24h } from "@shared/lib/mint-burn-signals";
 import type { DependencyType } from "@shared/types/dependency-types";
 import type { ShipAgeProfile } from "./ship-age";
 import type { SupplyTide } from "./supply-tide";
+import type { RimCoveId } from "./garden-rim";
 
 export type TileKind = "deep-water" | "water" | "shore" | "land" | "road";
 
 export type TerrainKind =
   | TileKind
+  | "rim"
   | "alert-water"
   | "calm-water"
   | "harbor-water"
@@ -403,6 +405,23 @@ export interface DockNode {
   label: string;
   chainId: string;
   tile: { x: number; y: number };
+  station: {
+    coveId: RimCoveId;
+    type:
+      | "boathouse-precinct"
+      | "annex-pavilion"
+      | "gate-landing"
+      | "tea-house-quay"
+      | "fishing-pier"
+      | "stepped-inlet"
+      | "reed-boathouse"
+      | "storm-mole"
+      | "salvage-slip"
+      | "signal-jetty"
+      | "pigeonnier-islet";
+    /** Radians from the station's landward edge toward open water. */
+    shoreBearing: number;
+  };
   totalUsd: number;
   size: number;
   healthBand: ChainSummary["healthBand"];

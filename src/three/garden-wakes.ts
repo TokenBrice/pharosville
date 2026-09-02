@@ -15,6 +15,7 @@ import {
   type Texture,
   type WebGLRenderer,
 } from "three";
+import type { TextureOwnerManifestEntry } from "../renderer/render-types";
 
 /**
  * Phase 3 (Breathtaking Rendering, item 2): persistent ship wakes.
@@ -63,7 +64,7 @@ const WAKE_VIEW_COVER = 1.35;
 /** Pan distance (as a fraction of the window) that counts as a teleport. */
 const WAKE_TELEPORT_FRACTION = 0.5;
 /** Foam decay rate, 1/seconds — a stamp reads for ~8 s. */
-const WAKE_DECAY_RATE = 0.24;
+const WAKE_DECAY_RATE = 0.12;
 /** Idle frames-worth of seconds after which the field is cleared and sleeps. */
 const WAKE_IDLE_TIMEOUT = 14;
 /** Same coherent branch threshold used by the water shader. */
@@ -129,6 +130,8 @@ export interface GardenWakes {
   readonly stampCount: number;
   /** The field the water should sample this frame. */
   readonly texture: Texture;
+  /** Both ping-pong attachments, including the back buffer not sampled by water. */
+  getTextureManifest: () => readonly TextureOwnerManifestEntry[];
   /** Whether the field is live (stamped within the idle timeout). */
   readonly active: boolean;
   dispose: () => void;
@@ -236,6 +239,10 @@ function createTarget(): WebGLRenderTarget {
 export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
   const firstTarget = createTarget();
   const secondTarget = createTarget();
+  const textureManifest: readonly TextureOwnerManifestEntry[] = [
+    { owner: "garden-wakes.target-a", texture: firstTarget.texture },
+    { owner: "garden-wakes.target-b", texture: secondTarget.texture },
+  ];
   let front = firstTarget;
   let back = secondTarget;
 
@@ -341,6 +348,9 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
     },
     get texture() {
       return front.texture;
+    },
+    getTextureManifest() {
+      return textureManifest;
     },
     get active() {
       return active;

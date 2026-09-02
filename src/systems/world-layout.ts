@@ -1,10 +1,11 @@
-import type { GraveNode, PharosVilleMap, PharosVilleTile, TerrainKind, TileKind } from "./world-types";
+import type { DockNode, GraveNode, PharosVilleMap, PharosVilleTile, TerrainKind, TileKind } from "./world-types";
 import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
 import { mulberry32 } from "./rng";
 import { seaTerrainAtTile } from "./sea-bodies";
 import { isSeawallBarrierTile } from "./seawall";
 import { stableHash, stableUnit } from "./stable-random";
 import { clamp } from "./motion-utils";
+import { RIM_COVES, rimLandAt, type RimCove } from "./garden-rim";
 import {
   PHAROSVILLE_DESIGN_SPAN,
   PHAROSVILLE_LAND_OFFSET,
@@ -65,116 +66,63 @@ export const ETHEREUM_L2_DOCK_CHAIN_IDS = ["base", "arbitrum", "polygon"] as con
 /** Chain IDs that get priority placement around the Ethereum harbor (L1 + L2s). */
 export const ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS = ["ethereum", ...ETHEREUM_L2_DOCK_CHAIN_IDS] as const;
 
-/**
- * H1 (2026-07-25): the harbour ring is DERIVED from the island's coastline,
- * not hand-authored.
- *
- * The authored tiles had drifted inland — six of the twelve sat at an ellipse
- * value below 0.90, which on a 24x19 island is one to three tiles up the slope
- * from the water. Cardinal-adjacency to water (the old contract) is not the
- * same as being ON the coast, so harbours read as buildings dropped in the
- * middle of the island rather than as a ring of quays around it. They were
- * also bunched: six of twelve on the southern arc, none on the west.
- *
- * Every slot is now a bearing. `shoreDockTile` marches outward from the island
- * centre along that bearing and returns the LAST land tile before the water,
- * so a harbour is on the coast by construction and stays there if the island's
- * shape is ever retuned.
- */
-const ISLAND_DESIGN_CENTER = { x: 31, y: 31 };
-/**
- * Thirteen evenly spaced bearings from due north, clockwise. Bearing 10
- * (~187deg, due west) is dropped: it lands on the lighthouse promontory, and
- * the Pharos gets the west coast to itself. That leaves TWELVE ring slots,
- * numbered clockwise from north by `harborRingTile`.
- */
-const HARBOR_RING_BEARINGS = 13;
-const LIGHTHOUSE_RING_BEARING = 10;
-
-/**
- * The outermost land tile along `bearingDeg` from the island centre.
- *
- * Marched rather than solved: the coast is a union of two ellipses, and the
- * march also guarantees the returned tile is one the tile grid actually
- * contains (a solved boundary point rounds to a tile that may be water).
- */
-function shoreDockTile(bearingDeg: number): { x: number; y: number } {
-  const radians = (bearingDeg * Math.PI) / 180;
-  const stepX = Math.cos(radians);
-  const stepY = Math.sin(radians);
-  let shore = { ...ISLAND_DESIGN_CENTER };
-  for (let radius = 1; radius <= 24; radius += 0.1) {
-    const tile = {
-      x: Math.round(ISLAND_DESIGN_CENTER.x + stepX * radius),
-      y: Math.round(ISLAND_DESIGN_CENTER.y + stepY * radius),
-    };
-    if (mainIslandDesignValue(tile.x, tile.y) >= 1) break;
-    shore = tile;
-  }
-  return landWorld(shore);
+type StationType = DockNode["station"]["type"];
+export interface DockStationSlot {
+  cove: RimCove;
+  type: StationType;
 }
 
-/**
- * Ring slot -> shore tile. Slot 0 is due north and slots run clockwise,
- * skipping the lighthouse promontory so the twelve slots are contiguous.
- */
-function harborRingTile(slot: number): { x: number; y: number } {
-  const bearing = slot < LIGHTHOUSE_RING_BEARING ? slot : slot + 1;
-  return shoreDockTile(-90 + (bearing * 360) / HARBOR_RING_BEARINGS);
+function cove(id: string): RimCove {
+  const match = RIM_COVES.find((entry) => entry.id === id);
+  if (!match) throw new Error(`Missing authored rim cove: ${id}`);
+  return match;
 }
 
-// The ten chains that get a named slip take ring slots 0..9 — a continuous run
-// from due north, clockwise through east and south, to the west-south-west.
-// Slots 10 and 11 (WNW and NNW, flanking the Pharos) are the spare slips, so a
-// world with fewer chains still leaves its gap on the lighthouse's coast rather
-// than punching a hole in the middle of the ring.
-/** Dock tile reserved for Base; named so Base-specific scenery can resolve it without index lookups. */
-export const BASE_HARBOR_DOCK_TILE = harborRingTile(3);
-/**
- * The EVM bay: four contiguous slots on the north-east-to-south-east arc, in
- * the order ethereum, base, arbitrum, polygon. Contiguity is the point — the L1
- * and its L2s read as one district.
- */
-export const EVM_BAY_DOCK_TILES = [
-  harborRingTile(2), // ethereum (NE)
-  BASE_HARBOR_DOCK_TILE, // base (E)
-  harborRingTile(4), // arbitrum (ESE)
-  harborRingTile(5), // polygon (SE)
+/** The connected Ethereum precinct occupies one 18-tile arc of the deep lower-left lobe. */
+export const EVM_BAY_STATION_SLOTS: readonly DockStationSlot[] = [
+  { cove: cove("ethereum-precinct"), type: "boathouse-precinct" },
+  { cove: cove("base-annex"), type: "annex-pavilion" },
+  { cove: cove("arbitrum-annex"), type: "annex-pavilion" },
+  // The fourth authored annex mouth was named before Polygon was selected for
+  // the precinct. Cove IDs are geographic identities and remain stable.
+  { cove: cove("optimism-annex"), type: "annex-pavilion" },
 ] as const;
 
-/** Dedicated Hyperliquid dock tile (SSW coast, below the EVM bay). */
-export const HYPERLIQUID_HARBOR_DOCK_TILE = harborRingTile(8);
-/** Dedicated Solana dock tile (WSW coast, under the Pharos promontory). */
-export const SOLANA_HARBOR_DOCK_TILE = harborRingTile(9);
-/**
- * The outer ring: the north and north-east approach, then the south and west
- * coasts continuing clockwise from the EVM bay. Slots [0..5] map to bsc, tron,
- * solana, hyperliquid, aptos, avalanche; [6..7] are the spare slips.
- */
-export const OUTER_HARBOR_DOCK_TILES = [
-  harborRingTile(6), // bsc (SSE)
-  harborRingTile(1), // tron (NNE)
-  SOLANA_HARBOR_DOCK_TILE, // solana (WSW, under the Pharos)
-  HYPERLIQUID_HARBOR_DOCK_TILE, // hyperliquid (SSW)
-  harborRingTile(0), // aptos (N)
-  harborRingTile(7), // avalanche (S)
-  harborRingTile(10), // spare: WNW, north of the Pharos
-  harborRingTile(11), // spare: NNW
+/** Distinct station forms on body-specific coves outside the EVM precinct. */
+export const OUTER_HARBOR_STATION_SLOTS: readonly DockStationSlot[] = [
+  { cove: cove("warning-stone-notch"), type: "stepped-inlet" },
+  { cove: cove("ledger-fog-hook"), type: "gate-landing" },
+  { cove: cove("watch-east-bay"), type: "tea-house-quay" },
+  { cove: cove("danger-gorge"), type: "fishing-pier" },
+  { cove: cove("alert-pine-notch"), type: "reed-boathouse" },
+  { cove: cove("watch-south-mole"), type: "storm-mole" },
+  { cove: cove("wreck-salvage-cut"), type: "salvage-slip" },
+  { cove: cove("alert-signal-jetty"), type: "signal-jetty" },
 ] as const;
 
-/** Lookup of preferred dock tile per chain ID. Docking systems try this tile first before falling back to nearest-available water. */
-export const PREFERRED_DOCK_TILES: Record<string, { x: number; y: number }> = {
-  ethereum: EVM_BAY_DOCK_TILES[0],
-  base: EVM_BAY_DOCK_TILES[1],
-  arbitrum: EVM_BAY_DOCK_TILES[2],
-  polygon: EVM_BAY_DOCK_TILES[3],
-  bsc: OUTER_HARBOR_DOCK_TILES[0],
-  tron: OUTER_HARBOR_DOCK_TILES[1],
-  solana: SOLANA_HARBOR_DOCK_TILE,
-  hyperliquid: HYPERLIQUID_HARBOR_DOCK_TILE,
-  aptos: OUTER_HARBOR_DOCK_TILES[4],
-  avalanche: OUTER_HARBOR_DOCK_TILES[5],
+export const BASE_HARBOR_DOCK_TILE = EVM_BAY_STATION_SLOTS[1]!.cove.tile;
+export const EVM_BAY_DOCK_TILES = EVM_BAY_STATION_SLOTS.map((slot) => slot.cove.tile);
+export const OUTER_HARBOR_DOCK_TILES = OUTER_HARBOR_STATION_SLOTS.map((slot) => slot.cove.tile);
+export const SOLANA_HARBOR_DOCK_TILE = OUTER_HARBOR_STATION_SLOTS[2]!.cove.tile;
+export const HYPERLIQUID_HARBOR_DOCK_TILE = OUTER_HARBOR_STATION_SLOTS[3]!.cove.tile;
+
+export const PREFERRED_DOCK_STATIONS: Record<string, DockStationSlot> = {
+  ethereum: EVM_BAY_STATION_SLOTS[0]!,
+  base: EVM_BAY_STATION_SLOTS[1]!,
+  arbitrum: EVM_BAY_STATION_SLOTS[2]!,
+  polygon: EVM_BAY_STATION_SLOTS[3]!,
+  bsc: OUTER_HARBOR_STATION_SLOTS[0]!,
+  tron: OUTER_HARBOR_STATION_SLOTS[1]!,
+  solana: OUTER_HARBOR_STATION_SLOTS[2]!,
+  hyperliquid: OUTER_HARBOR_STATION_SLOTS[3]!,
+  aptos: OUTER_HARBOR_STATION_SLOTS[4]!,
+  avalanche: OUTER_HARBOR_STATION_SLOTS[4]!,
 };
+
+/** Compatibility lookup for scenery/tests that only need the station's water tile. */
+export const PREFERRED_DOCK_TILES: Record<string, { x: number; y: number }> = Object.fromEntries(
+  Object.entries(PREFERRED_DOCK_STATIONS).map(([chainId, slot]) => [chainId, slot.cove.tile]),
+);
 
 /** Set form of `ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS` for O(1) membership checks in render/docking hot paths. */
 export const EVM_BAY_CHAIN_IDS = new Set<string>(ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS);
@@ -219,6 +167,17 @@ export const PIGEONNIER_HARBOR_DOCK_TILE = { x: PIGEON_ISLAND_CENTER.x - 1, y: P
 export const PIGEONNIER_HARBOR_CHAIN_IDS = ["ton"] as const;
 
 PREFERRED_DOCK_TILES.ton = PIGEONNIER_HARBOR_DOCK_TILE;
+export const PIGEONNIER_STATION_SLOT: DockStationSlot = {
+  cove: {
+    id: "ton-pigeonnier-islet",
+    body: "watch",
+    tile: PIGEONNIER_HARBOR_DOCK_TILE,
+    seawardBearing: Math.PI,
+    width: 2,
+  },
+  type: "pigeonnier-islet",
+};
+PREFERRED_DOCK_STATIONS.ton = PIGEONNIER_STATION_SLOT;
 
 type GraveMarker = GraveNode["visual"]["marker"];
 
@@ -279,12 +238,29 @@ export function terrainKindAt(x: number, y: number): TerrainKind {
   return resolveTerrainKindAt(x, y);
 }
 
+/**
+ * Cheap land half of `terrainKindAt`, for continuous per-frame safety checks.
+ * Water sub-classification evaluates the full sea-body noise/SDF partition;
+ * callers that only need to reject land must not pay for that unrelated work
+ * for every moving hull. Keep this predicate structurally identical to the
+ * land branches at the top of `resolveTerrainKindAt`.
+ */
+export function terrainLandAt(x: number, y: number): boolean {
+  if (x < 0 || y < 0 || x >= PHAROSVILLE_MAP_WIDTH || y >= PHAROSVILLE_MAP_HEIGHT) return false;
+  if (islandValue(x, y) < 1) return true;
+  // The deepest authored rim is 14 tiles. Avoid its contour interpolation for
+  // the broad interior sea, which is the per-frame hull-sampling hot path.
+  const edgeDistance = Math.min(x, y, MAX_TILE_X - x, MAX_TILE_Y - y);
+  return edgeDistance <= 14 && rimLandAt(x, y);
+}
+
 function resolveTerrainKindAt(x: number, y: number): TerrainKind {
   const island = islandValue(x, y);
   const cemetery = cemeteryValue(x, y);
   const nearIslandEdge = island > 0.9;
 
   if (isOutOfBounds(x, y) || island >= 1) {
+    if (!isOutOfBounds(x, y) && rimLandAt(x, y)) return "rim";
     // Z1 (Sea Master, 2026-07-25): the sea is an SDF partition — see
     // sea-bodies.ts. This used to be a cascade of half-planes, rectangles and
     // three concentric rings around the (55, 0) corner, ending in

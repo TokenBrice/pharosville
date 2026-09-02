@@ -78,10 +78,11 @@ const LUT_STRENGTH = 0.9;
 const PHASES = [
   {
     id: "night",
-    // Night is the phase that already works; the cube's whole job here is to
-    // put the shadows on the indigo (ai/kachi-iro) axis the palette calls for
-    // and keep the lantern gold from drifting with them.
-    contrast: 0.09,
+    // The parametric grade now exposes broad night form, so the cube preserves
+    // that printed-black floor instead of bending its darkest step back toward
+    // absence. Hue still runs on the indigo (ai/kachi-iro) axis and lantern
+    // gold remains exempt from the cool-water rotation.
+    contrast: 0.06,
     highlightAnchor: "#cfe0f5",
     highlightPush: 0.02,
     highlightRange: [0.55, 1.0],
@@ -91,45 +92,51 @@ const PHASES = [
       // Foliage at night is a silhouette, not a colour.
       { center: 110, rotate: 0, saturation: 0.88, width: 50 },
       // Cyan-leaning water pulled toward the indigo family.
-      { center: 195, rotate: 12, saturation: 0.95, width: 42 },
+      { center: 195, rotate: 6, saturation: 1.0, width: 42 },
     ],
-    lift: 0.022,
-    liftTint: "#7387ff",
+    lift: 0.02,
+    liftTint: "#6f817c",
+    // Expand around the measured night-water value instead of globally
+    // crushing blacks: lit island facets rise, shadowed rim/hulls fall, and
+    // the water pivot receives only the small neutral floor below.
+    midtoneContrast: 0.65,
+    midtoneLift: 0.025,
+    midtonePivot: 0.2,
     saturation: 1.0,
-    shadowAnchor: "#1a1f3a",
-    shadowPush: 0.042,
+    shadowAnchor: "#273246",
+    shadowPush: 0.025,
     shadowRange: [0.0, 0.55],
   },
   {
     id: "dusk",
     // Dusk is the split: gold-amber highlights over teal shadows, with the
     // foliage falling to olive the way it actually does under a low sun.
-    contrast: 0.14,
+    contrast: 0.24,
     highlightAnchor: "#f2b56b",
-    highlightPush: 0.046,
+    highlightPush: 0.062,
     highlightRange: [0.5, 1.0],
     hueBands: [
       { center: 40, rotate: -4, saturation: 1.06, width: 48 },
       { center: 110, rotate: -12, saturation: 0.85, width: 48 },
-      { center: 200, rotate: 8, saturation: 0.96, width: 45 },
+      { center: 200, rotate: 8, saturation: 1.04, width: 45 },
     ],
-    lift: 0.018,
-    liftTint: "#66e6ff",
-    saturation: 1.02,
-    shadowAnchor: "#1d4a4a",
-    shadowPush: 0.038,
-    shadowRange: [0.0, 0.55],
+    lift: 0.01,
+    liftTint: "#55a6b4",
+    saturation: 1.05,
+    shadowAnchor: "#164f58",
+    shadowPush: 0.055,
+    shadowRange: [0.0, 0.58],
   },
   {
     id: "day",
     // Day is the frame the plan calls "milk": no value structure. The cube
     // answers with the one thing a LUT can honestly contribute — a gentle
-    // S-curve for structure, a cool lifted black so the darks read as ai
-    // rather than as absence, an ivory (shironeri) highlight, and a light
+    // S-curve for structure, a cool printed black so the darks read as ai
+    // rather than milk, an ivory (shironeri) highlight, and a light
     // overall desaturation that spares the reserved vermilion.
-    contrast: 0.26,
+    contrast: 0.55,
     highlightAnchor: "#f6f0e2",
-    highlightPush: 0.026,
+    highlightPush: 0.045,
     highlightRange: [0.45, 1.0],
     hueBands: [
       // Shu vermilion is the sacred accent; it survives the desaturation.
@@ -142,12 +149,12 @@ const PHASES = [
       // Sky blue toward mizu-iro.
       { center: 225, rotate: 0, saturation: 0.93, width: 45 },
     ],
-    lift: 0.038,
-    liftTint: "#8cb8ff",
-    saturation: 0.96,
-    shadowAnchor: "#38506e",
-    shadowPush: 0.034,
-    shadowRange: [0.0, 0.6],
+    lift: 0.016,
+    liftTint: "#6685ae",
+    saturation: 0.98,
+    shadowAnchor: "#213f66",
+    shadowPush: 0.06,
+    shadowRange: [0.0, 0.62],
   },
 ];
 
@@ -245,6 +252,19 @@ function gradeTexel(input, phase) {
     const shaped = channel * channel * (3 - 2 * channel);
     return channel + (shaped - channel) * phase.contrast;
   });
+
+  // 2b. Night-only local value separation. Unlike a blue shadow push this is
+  // channel-symmetric, so it preserves hue and expands existing material
+  // ratios around the moonlit water plane rather than repainting them.
+  if (phase.midtoneContrast) {
+    color = color.map((channel, index) => {
+      const expanded = phase.midtonePivot
+        + (channel - phase.midtonePivot) * (1 + phase.midtoneContrast)
+        + phase.midtoneLift;
+      const printedFloor = phase.lift * tint[index] * 0.65;
+      return clamp01(Math.max(printedFloor, expanded));
+    });
+  }
 
   // 3. Luma-keyed hue push: shadows one way, highlights the other.
   const l = luma(color);

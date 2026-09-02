@@ -10,6 +10,56 @@ afterEach(() => {
 });
 
 describe("LegendPanel", () => {
+  it("explains rim-cove stations and the connected Ethereum precinct", () => {
+    render(<LegendPanel onClose={() => undefined} />);
+    expect(screen.getByRole("heading", { name: "Shore stations & landmarks" })).toBeTruthy();
+    expect(screen.getByText(/Ethereum's boathouse precinct/)).toBeTruthy();
+  });
+  it("names all six East-Asian hull families", () => {
+    const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
+
+    for (const family of [
+      "Bezaisen carrier",
+      "Kobaya runner",
+      "Twin-hull council boat",
+      "Takasebune barge",
+      "Battened junk",
+      "Bullion scow",
+    ]) {
+      expect(markup).toContain(family);
+    }
+    expect(markup).toContain("Unclassified or missing-governance fallback");
+    expect(markup).not.toContain("Crypto-backed centralized issuer");
+    expect(markup).not.toMatch(/galleon|brigantine|schooner/i);
+  });
+
+  it("lists all seven canonical named waters", () => {
+    const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
+
+    for (const area of ["Calm Anchorage", "Watch Breakwater", "Alert Channel", "Warning Shoals", "Danger Strait", "Ledger Mooring", "Wreck Shoal"]) {
+      expect(markup).toContain(area);
+    }
+  });
+
+  it("explains the leg/rest route cadence and its meaning caveat", () => {
+    const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
+
+    expect(markup).toContain("90–180 s legs");
+    expect(markup).toContain("240–480 s rests");
+    expect(markup).toContain("arrivals and departures are paired");
+    expect(markup).toContain("Routes show rendered-chain and risk-water presence only");
+    expect(markup).not.toMatch(/bigger coins cycle|extended dwell/i);
+  });
+
+  it("explains the wreck silhouette-to-cause channel", () => {
+    const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
+
+    expect(markup).toContain("substantial hull, broken keel, or bare remains");
+    expect(markup).toContain("silhouette-to-cause reading");
+    expect(markup).toContain("cause colour");
+    expect(markup).not.toContain("cemetery islet");
+  });
+
   it("uses modal dialog semantics and focuses/restores the close control", () => {
     const opener = document.createElement("button");
     opener.type = "button";

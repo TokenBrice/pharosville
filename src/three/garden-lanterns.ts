@@ -1,5 +1,8 @@
 import { Color, DataTexture, FloatType, RGBAFormat } from "three";
-import type { PharosVilleRenderSchedulerState } from "../renderer/render-types";
+import type {
+  PharosVilleRenderSchedulerState,
+  TextureOwnerManifestEntry,
+} from "../renderer/render-types";
 
 /**
  * Shared light-lane registry: every warm light that should lay a reflection
@@ -57,11 +60,11 @@ export const MAX_GARDEN_LIGHT_LANES = 48;
  * rotated, which is a viewing condition: every route still takes its turn.
  */
 const GARDEN_LANE_BUDGET_FOR_TIER: Record<PharosVilleRenderSchedulerState["tier"], number> = {
-  full: 24,
-  balanced: 12,
-  interaction: 12,
-  recovery: 6,
-  constrained: 4,
+  full: 16,
+  balanced: 10,
+  interaction: 10,
+  recovery: 5,
+  constrained: 3,
 };
 
 /**
@@ -73,8 +76,8 @@ const GARDEN_LANE_BUDGET_FOR_TIER: Record<PharosVilleRenderSchedulerState["tier"
 export const GARDEN_LANE_EMBER_GAIN: Record<GardenLightLaneKind, number> = {
   beacon: 1,
   route: 1,
-  lantern: 0.55,
-  buoy: 0.55,
+  lantern: 0.38,
+  buoy: 0.38,
 };
 
 /**
@@ -82,7 +85,7 @@ export const GARDEN_LANE_EMBER_GAIN: Record<GardenLightLaneKind, number> = {
  * ~4.9 units — so two ember lanes inside this radius are painting one disc
  * between them. The brighter one keeps it.
  */
-export const GARDEN_EMBER_LANE_MIN_SEPARATION = 6;
+export const GARDEN_EMBER_LANE_MIN_SEPARATION = 8.5;
 
 /** How many route pulses may run at once. Registered routes above this rotate. */
 const ROUTE_RESERVE_FOR_TIER: Record<PharosVilleRenderSchedulerState["tier"], number> = {
@@ -117,6 +120,8 @@ export interface GardenLaneRegistry {
    * row 2 = route lanes only: (endX, endZ, pulseSpeed, pulsePhase).
    */
   readonly texture: DataTexture;
+  /** The lane DataTexture is sampled by water, not owned by a mesh material. */
+  getTextureManifest: () => readonly TextureOwnerManifestEntry[];
   readonly activeLaneCount: number;
   /**
    * Bounding circle (world XZ) of the active lanes, inflated by the shader's
@@ -163,6 +168,9 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
     FloatType,
   );
   texture.needsUpdate = true;
+  const textureManifest: readonly TextureOwnerManifestEntry[] = [
+    { owner: "garden-lanterns.lane-data", texture },
+  ];
   const scratchColor = new Color();
   let activeLaneCount = 0;
   let dirty = true;
@@ -190,6 +198,9 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
       return activeLaneCount;
     },
     texture,
+    getTextureManifest() {
+      return textureManifest;
+    },
     fieldBounds() {
       return { centerX: fieldCenterX, centerZ: fieldCenterZ, radius: fieldRadius };
     },

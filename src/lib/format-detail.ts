@@ -73,6 +73,7 @@ export type DetailFactKey =
   | "highWaterMark"
   | "dexCrossCheck"
   | "cycleTempo"
+  | "routeCadence"
   | "homeDock"
   | "backingDiversity"
   | "netFlow24h"
@@ -96,7 +97,11 @@ export type DetailFactKey =
   | "liquidity"
   | "resilience"
   | "decentralization"
-  | "dependencyRisk";
+  | "dependencyRisk"
+  | "waterStyle"
+  | "atmosphere"
+  | "sourceFields"
+  | "wreckSilhouette";
 
 export interface DetailFactLike {
   label: string;
@@ -136,6 +141,7 @@ const DETAIL_FACT_LABELS = {
   "worst band, 30d": "highWaterMark",
   "dex cross-check": "dexCrossCheck",
   "cycle tempo": "cycleTempo",
+  "route cadence": "routeCadence",
   "home dock": "homeDock",
   "backing diversity": "backingDiversity",
   "net flow 24h": "netFlow24h",
@@ -161,6 +167,11 @@ const DETAIL_FACT_LABELS = {
   "resilience": "resilience",
   "decentralization": "decentralization",
   "dependency risk": "dependencyRisk",
+  "water style": "waterStyle",
+  "atmosphere": "atmosphere",
+  "source": "sourceFields",
+  "source fields": "sourceFields",
+  "wreck silhouette": "wreckSilhouette",
 } as const satisfies Record<string, DetailFactKey>;
 
 export function classifyDetailFactLabel(label: string): DetailFactKey | null {
@@ -344,7 +355,16 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   const flightToQuality = lookup.get("flightToQuality");
   if (flightToQuality) identity.push({ key: "flightToQuality", label: "Flight to quality", value: flightToQuality });
   const cycleTempo = lookup.get("cycleTempo");
-  if (cycleTempo) identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
+  const routeCadence = lookup.get("routeCadence");
+  if (routeCadence) {
+    identity.push({
+      key: "routeCadence",
+      label: "Route cadence",
+      value: [routeCadence, cycleTempo ? `Cycle tempo: ${cycleTempo}` : null].filter(Boolean).join(" · "),
+    });
+  } else if (cycleTempo) {
+    identity.push({ key: "cycleTempo", label: "Cycle tempo", value: cycleTempo });
+  }
   const serviceAge = lookup.get("serviceAge");
   if (serviceAge) identity.push({ key: "serviceAge", label: "In service since / tracked", value: serviceAge });
   const issuanceWork = lookup.get("issuanceWork");
@@ -376,6 +396,14 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   // the whole reading and folding it behind a separator would bury it.
   const netFlow24h = lookup.get("netFlow24h");
   if (netFlow24h) identity.push({ key: "netFlow24h", label: "Net flow 24h", value: netFlow24h });
+  const waterStyle = lookup.get("waterStyle");
+  if (waterStyle) identity.push({ key: "waterStyle", label: "Water style", value: waterStyle });
+  const atmosphere = lookup.get("atmosphere");
+  if (atmosphere) identity.push({ key: "atmosphere", label: "Atmosphere", value: atmosphere });
+  const sourceFields = lookup.get("sourceFields");
+  if (sourceFields) identity.push({ key: "sourceFields", label: "Source fields", value: sourceFields });
+  const wreckSilhouette = lookup.get("wreckSilhouette");
+  if (wreckSilhouette) identity.push({ key: "wreckSilhouette", label: "Wreck silhouette", value: wreckSilhouette });
 
   const position: DetailDisplayRow[] = [];
   const position_ = lookup.get("representativePosition");

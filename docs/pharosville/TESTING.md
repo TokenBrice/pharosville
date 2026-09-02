@@ -82,6 +82,24 @@ textures, and 500,000 triangles. `npm run test:perf:reference` is the strict
 reference-hardware gate; headless or integrated results are diagnostics, not a
 substitute for the designated reference environment.
 
+For a measured renderer-local draw-owner census, use the real-GPU preview:
+
+```bash
+npm run preview -- --url http://localhost:5173 --draw-census --out w0-census-baseline.png
+```
+
+The census wraps the renderer instance for one scene frame. Its attributed-call
+sum must reconcile to that frame's `renderer.info.render.calls`; a scene graph
+traversal is not a draw census.
+
+Useful preview flags are composable: `--draw-census` writes the reconciled
+owner table; `--assert` gates tier, p90/p95, and resource ceilings;
+`--reduced` checks the settled zero-RAF tableau; `--hash "#cam=0,0,0.28"`
+checks the whole-map plate; `--headed --seconds 20` supports a longer visual
+review; and `--out <path>` records the frame under `outputs/`. Use the real-GPU
+preview for appearance and timing, then inspect the image and the census
+reconciliation together.
+
 ### Never judge the look or the frame time through a Playwright browser
 
 Playwright's bundled Chromium falls back to **SwiftShader**, a CPU rasteriser,
@@ -253,12 +271,9 @@ settles, `--assert` exits **78 (SKIP)**, not 0 — an in-flight frame is missing
 resources that are still arriving, and scoring it green would be the precise
 error V-07 named.
 
-Measured 2026-08-13 on an M5 Pro (settled, live data, 185 ships): **300,687
-triangles / 378 calls** default and **298,051 triangles / 362 calls** for
-`#sel=ship.satusd-river&t=12`. Both are comfortably inside the 500k ceiling —
-the audit's 536k/502k readings predate the v0.7.x horizon, lighthouse, water and
-anchorage work, and the static path no longer costs more than the animated one
-(613 calls / 304,965 tris on the same build).
+The current settled reference is approximately 316k triangles and 214–216
+calls, depending on phase and selection; it remains comfortably within the
+same ceilings.
 
 For fault-like flicker, run the bounded real-GPU artifact probe:
 
@@ -290,27 +305,69 @@ in `agents/2026-07-29-webgpu-spike-report.md`. A future experiment must be
 isolated from the production entry and keep the normal build byte budget
 unchanged.
 
-The thresholds are calibrated on the DEFAULT framing, which on an RTX 5070 Ti at
-1600x1000 measures 60 fps, p50/p90 16.7 ms, tier `full`, and 620–693 draw calls
-(2026-07-26). Note how little draw-call headroom that leaves: a feature that adds
-~50 calls will trip the tripwire, and the answer is to batch it, not to raise the
-number.
+The hard ceilings remain 700 draw calls, 500 geometries, 500,000 triangles, and
+72 textures. On the reference Apple M5 Pro at 1600×1000, the completed garden
+default is approximately 245 recurring calls, 43 textures, and 16.8 ms worst
+window p95 at tier `full`. Phase and visibility variation is expected; the
+ceiling is not a tuning target.
 
-**Whole-map framing is a valid performance case again.** At the reachable zoom
-floor (`ABSOLUTE_MIN_ZOOM` 0.28 — the viewport fit computes below it, so this is
-as far out as a visitor can pull):
+**Completed garden (2026-09-02, Apple M5 Pro, 1600×1000, 185 ships).** The
+default reference is approximately **245 recurring calls**, 321k–337k
+triangles, 217–254 geometries, and 43 textures; worst-window p95 is 16.8 ms.
+The funded batches are world-wide wakes (346 → 2 calls), shore-station harbor
+content (about 98 → 13 for the core batch), and merged island statics. The
+`--draw-census` probe wraps `renderBufferDirect` for one frame and must reconcile
+exactly to `renderer.info.render.calls` — a mismatch fails `--assert`.
+
+**Whole-map framing — valid performance case.** At the reachable zoom floor
+(`ABSOLUTE_MIN_ZOOM` 0.28):
 
 ```bash
 npm run preview -- --assert --hash "#cam=0,0,0.28"
 ```
 
-measures **399 draw calls, p90 16.7 ms, tier `full`, 60 fps** over a full
-120-sample ring (2026-07-27, RTX 5070 Ti, 1600x1000), within the same 700-call
-and 20 ms ceilings as the default framing. The old 909-call/recovery result was
-captured before whole-map detail shedding and is no longer an open debt. Do not
-raise the ceilings if this regresses. Note also that `cam=` from the URL is not
-clamped to the zoom floor, so smaller values render a framing no visitor can
-reach; anything below 0.28 is not a valid measurement.
+the completed garden measures about 215–227 recurring calls and 42–43 textures
+on the same hardware. URL values below 0.28 are not visitor-reachable and are
+not valid budget evidence.
+
+**Wave 1 frame remeasurement (2026-09-02, Apple M5 Pro, 1600×1000).** The
+finite 140×140 plate remains complete at the retained 0.28 absolute floor; its
+projected rim spans about 1,250×625 px, leaving visible sky on every side. The
+landing camera is now 0.648 (0.60 authored fit × 1.08 desktop tightening), with
+the Pharos near the left thirds line and the camera-side rim entering the lower
+corners. `gardenCameraViewHeight` therefore measures 96.45 world units at this
+viewport, now the scale-one fog reference.
+
+**Texture gate diagnosis and closure (2026-09-02):** the inherited whole-map
+failure was a first-use ordering issue, not seven whole-map scene assets. The
+overview LOD starts at detail 1 and eases to its hidden target; before this
+change that brief interval enabled N8AO and uploaded its seven private textures
+(accumulation, blue noise, output, read, write, and the two half-resolution
+depth attachments). The LOD then disabled N8AO but retained those GPU
+allocations for the session. A renderer whose initial framing is whole-map now
+suppresses only that construction ease, so N8AO is never first-used there. On
+later zoom crossings it forwards the ordinary eased detail, preserving the
+contact-shadow fade while props shed. Once that ease settles at zero, the post
+owner disposes N8AO's seven GPU texture handles (but retains its pass,
+materials, and target objects); Three lazily recreates those handles on a
+subsequent zoom-in without rebuilding shaders. The settled picture is
+unchanged.
+
+The texture census now combines the scene walk with manifests from the post
+chain, wakes, lane DataTexture, PMREM/SH cube, and shadow map. It reports the
+original 42 scene references, 80 named/reachable resources, and a zero
+`minimumUnattributedRendererTextures` lower bound in every arm. On the real
+GPU (Apple M5 Pro, Metal, 1600x1000), the measured gate is:
+
+| framing | arm | renderer textures | scene references | named/reachable | minimum unattributed |
+| --- | --- | ---: | ---: | ---: | ---: |
+| default | animated | 67 | 42 | 80 | 0 |
+| whole-map | animated | 72 | 42 | 80 | 0 |
+| default | reduced | 65 | 42 | 80 | 0 |
+| whole-map | reduced | 70 | 42 | 80 | 0 |
+
+The whole-map animated arm is therefore at, not above, the existing 72-texture
+ceiling; do not raise that ceiling.
 
 ### The CI visual lane cannot render this world
 

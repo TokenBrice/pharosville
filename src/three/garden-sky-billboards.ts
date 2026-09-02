@@ -34,10 +34,8 @@ import {
  * - Palette authority: these meshes carry NO colour constants. Body, shade,
  *   lit-edge and haze colours are all derived per frame from the day-cycle
  *   presets by garden-sky and handed in as uniforms.
- * - W5.7 borrowed scenery is decorative only: one asymmetric, connected
- *   headland profile and one unexplained lantern point. Neither has, nor may
- *   acquire, a data input. The profile is static so it recedes with the haze
- *   instead of behaving like another drifting cloud impostor.
+ * Borrowed scenery moved to garden-horizon in Wave 1, where it can be broad,
+ * layered world geometry rather than another alpha-cut billboard.
  */
 
 export interface GardenSkyBillboardLayer {
@@ -49,13 +47,11 @@ export interface GardenSkyBillboards {
   clouds: GardenSkyBillboardLayer;
   dispose: () => void;
   geese: GardenSkyBillboardLayer;
-  headlands: GardenSkyBillboardLayer;
   mist: GardenSkyBillboardLayer;
 }
 
 export const MIST_BANK_COUNT = 9;
 export const CLOUD_COUNT = 5;
-export const HEADLAND_COUNT = 1;
 export const GARDEN_AUTUMN_GEESE_COUNT = 7;
 
 /**
@@ -113,16 +109,6 @@ const CLOUDS: ReadonlyArray<readonly [number, number, number, number, number]> =
   [-55, 26, -135, 42, 14],
   [-160, 34, -100, 52, 17],
   [-95, 20, -150, 34, 11],
-];
-
-/**
- * W5.7 shakkei. One profile only: the lighthouse already weights the left of
- * the frame, so this sits on the opposite, upper-right diagonal. Its broad
- * base continues below the haze line; only the feathered ridge is perceived,
- * which is the key distinction from the retired closed cumulus "pills".
- */
-const HEADLANDS: ReadonlyArray<readonly [number, number, number, number, number]> = [
-  [-105, 3.5, -155, 78, 15],
 ];
 
 /** One asymmetrical travelling line, high in the borrowed sky. */
@@ -258,37 +244,6 @@ const CLOUD_FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
-const HEADLAND_FRAGMENT_SHADER = /* glsl */ `
-  uniform vec3 uColor;
-  uniform vec3 uLanternColor;
-  uniform float uLanternOpacity;
-  uniform float uOpacity;
-  varying vec2 vUv;
-  ${NOISE_GLSL}
-  void main() {
-    float x = vUv.x;
-    float mainRise = exp(-pow((x - 0.64) / 0.24, 2.0)) * 0.20;
-    float shoulder = exp(-pow((x - 0.24) / 0.17, 2.0)) * 0.085;
-    float grain = (bbNoise(vec2(x * 7.0, 0.37)) - 0.5) * 0.025;
-    float ridge = 0.28 + mainRise + shoulder + grain;
-    float belowRidge = smoothstep(ridge + 0.045, ridge - 0.055, vUv.y);
-    float baseFade = smoothstep(0.015, 0.23, vUv.y);
-    float sideFade = smoothstep(0.0, 0.13, x) * (1.0 - smoothstep(0.82, 1.0, x));
-    float landAlpha = belowRidge * baseFade * sideFade * uOpacity;
-
-    vec2 lanternDelta = vUv - vec2(0.69, 0.474);
-    float lanternDistance = length(vec2(lanternDelta.x, lanternDelta.y * 0.2));
-    float pixel = max(fwidth(vUv.x), 0.0015);
-    float lantern = 1.0 - smoothstep(pixel * 0.55, pixel * 1.65, lanternDistance);
-    lantern *= uLanternOpacity;
-
-    float alpha = max(landAlpha, lantern);
-    if (alpha < 0.003) discard;
-    vec3 color = mix(uColor, uLanternColor, lantern);
-    gl_FragColor = vec4(color, alpha);
-  }
-`;
-
 const GEESE_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uColor;
   uniform float uOpacity;
@@ -386,23 +341,6 @@ export function createGardenSkyBillboards(): GardenSkyBillboards {
     0.9,
     64,
   );
-  // Borrowed horizon: one static, normal-blended draw. Its colour, presence,
-  // and lantern phase are all supplied by garden-sky from existing tokens.
-  const headlands = createLayer(
-    "garden-sky-borrowed-headlands",
-    HEADLANDS,
-    HEADLAND_FRAGMENT_SHADER,
-    {
-      uColor: { value: null },
-      uLanternColor: { value: null },
-      uLanternOpacity: { value: 0 },
-      uOpacity: { value: 0 },
-    },
-    NormalBlending,
-    0,
-    1,
-    STATIC_VERTEX_SHADER,
-  );
   const geese = createLayer(
     "garden-sky-autumn-geese",
     AUTUMN_GEESE,
@@ -419,7 +357,6 @@ export function createGardenSkyBillboards(): GardenSkyBillboards {
   return {
     clouds,
     geese,
-    headlands,
     mist,
     dispose() {
       mist.mesh.geometry.dispose();
@@ -428,8 +365,6 @@ export function createGardenSkyBillboards(): GardenSkyBillboards {
       clouds.material.dispose();
       geese.mesh.geometry.dispose();
       geese.material.dispose();
-      headlands.mesh.geometry.dispose();
-      headlands.material.dispose();
     },
   };
 }

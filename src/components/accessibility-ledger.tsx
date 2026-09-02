@@ -37,12 +37,14 @@ import {
   stressBreakdownLabel,
   supplyTideLabel,
   supplyMomentumLabel,
+  wreckSilhouetteLabel,
 } from "../systems/detail-model";
 import { recentFleetTrendSummary, recentFleetTrendSummaryText, seaStateForWorld, seaStateSummary } from "../systems/sea-state";
 import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
 import type { GardenAlmanacLogEntry } from "../systems/garden-almanac";
 import { pigeonnierRoostLabel } from "../systems/pigeonnier-watch";
 import { deriveEpistemicHaze, epistemicHazeLabel } from "../systems/epistemic-haze";
+import { motionCadenceDetailLabel } from "../systems/motion-config";
 
 // Dock health-band swatches mirror the Three dock signal colors. Robust and
 // healthy share the same green; both remain listed for parity with the
@@ -251,13 +253,13 @@ function AccessibilityLedgerContent({
         {world.areas.map((area) => (
           <li key={area.id}>
             {area.label}
-            {area.riskPlacement ? `: ${area.band ? `DEWS ${area.band}, ${area.count ?? 0} stablecoins` : `risk water zone ${area.riskZone ?? "unavailable"}`}, placement ${area.riskPlacement}. ${area.summary ?? ""} Facts: ${area.facts?.map((fact) => `${fact.label} ${fact.value}`).join("; ") ?? "unavailable"}. Source fields ${area.sourceFields?.join(", ") || "unavailable"}.` : "."}
+            {`: ${area.riskPlacement ? `${area.band ? `DEWS ${area.band}, ${area.count ?? 0} stablecoins` : `risk water zone ${area.riskZone ?? "unavailable"}`}, placement ${area.riskPlacement}. ` : "No live-ship risk placement. "}${area.summary ?? ""} Facts: ${area.facts?.map((fact) => `${fact.label} ${fact.value}`).join("; ") ?? "unavailable"}. Source fields ${area.sourceFields?.join(", ") || "unavailable"}.`}
             {area.riskPlacement ? ` ${atmosphereLineForArea(area)}.` : ""}
           </li>
         ))}
       </ol>
 
-      <h3>Docks</h3>
+      <h3>Shore stations</h3>
       {world.fleetIssuance ? <p>{fleetIssuanceLedgerLine(world.fleetIssuance)}</p> : null}
       <ol>
         {world.docks.map((dock) => (
@@ -388,7 +390,7 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
   const supplyMomentum = dockSupplyMomentumLabel(dock);
   const quayMasonry = quayMasonryLabel(dock);
   return [
-    `${dock.label}: ${formatCompactUsd(dock.totalUsd)} stablecoin supply`,
+    `${dock.label}: ${dock.station.type.replaceAll("-", " ")} station at ${dock.station.coveId} cove, ${formatCompactUsd(dock.totalUsd)} stablecoin supply`,
     harborRank,
     supplyShare,
     concentration ? `concentration ${concentration}` : null,
@@ -473,6 +475,7 @@ function shipLedgerLine(
     `evidence status ${ship.placementEvidence.stale ? "caveat" : "fresh"}`,
     `source fields ${ship.placementEvidence.sourceFields.join(", ") || "unavailable"}${ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}`,
     `cycle tempo ${tempoLabel}; ${cycleTempoReadingClause()}`,
+    `route cadence ${motionCadenceDetailLabel()}`,
     shipIssuanceLedgerClause(ship),
     shipFittingsLedgerClause(ship),
     shipAgeLedgerClause(ship),
@@ -499,7 +502,7 @@ function graveLedgerLine(grave: PharosVilleWorld["graves"][number]): string {
   const peak = grave.entry.peakMcap != null && Number.isFinite(grave.entry.peakMcap)
     ? `, peak market cap ${formatCompactUsd(grave.entry.peakMcap)}`
     : "";
-  return `${grave.entry.name} (${grave.entry.symbol}): ${cause}, ${grave.entry.deathDate}${peak}. ${grave.entry.obituary}`;
+  return `${grave.entry.name} (${grave.entry.symbol}): ${cause}, ${grave.entry.deathDate}${peak}; wreck silhouette ${wreckSilhouetteLabel(grave.visual.marker)}. ${grave.entry.obituary}`;
 }
 
 function firstSentence(value: string): string {

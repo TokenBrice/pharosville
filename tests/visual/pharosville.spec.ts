@@ -257,6 +257,10 @@ test(...visualLane("accessibility", "a shared ship link selects and frames that 
 });
 
 test(...visualLane("interaction", "deep links reach an off-screen ship and preserve complete dock geography"), async ({ page }) => {
+  // Three complete renderer navigations exercise landing, ship deep-link, and
+  // dock deep-link state. Cold shader compilation can legitimately exceed the
+  // suite's one-minute default before the final navigation becomes observable.
+  test.setTimeout(90_000);
   await mockDensePharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mockScreenSize(page, 1920, 1080);
@@ -287,14 +291,17 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
     return settled;
   }).toBe(true);
   const onScreenDetailIds = new Set(await shipTargetIds(page));
-  const outsider = denseFixtureStablecoins.peggedAssets.find(
-    (asset, index) => (
-      index % 5 === 0
-      && !onScreenDetailIds.has(`ship.${asset.id}`)
-    ),
-  );
+  // Every hull now resolves onto the water plate and moored hulls sit at
+  // their stations, so the old `index % 5` stride no longer lands on an
+  // off-screen ship. The candidate is pinned rather than "first culled":
+  // this contract also centre-clicks the framed target, and a hull moored
+  // among its station's neighbours has an overlapping target (clicking
+  // susde-ethena selects the hull beside it). usdd-tron-dao-reserve holds no
+  // berth, is culled at this framing, and sits alone once framed.
+  const outsider = denseFixtureStablecoins.peggedAssets.find((asset) => asset.id === "usdd-tron-dao-reserve");
   expect(outsider).toBeDefined();
   if (!outsider) throw new Error("Dense fixture must include an off-screen ship.");
+  expect(onScreenDetailIds.has(`ship.${outsider.id}`)).toBe(false);
   const outsiderDetailId = `ship.${outsider.id}`;
 
   await page.goto("about:blank");

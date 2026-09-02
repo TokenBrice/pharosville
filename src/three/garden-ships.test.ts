@@ -1,5 +1,6 @@
 import {
   BoxGeometry,
+  CanvasTexture,
   Group,
   InstancedMesh,
   LineBasicMaterial,
@@ -11,8 +12,12 @@ import {
   Quaternion,
 } from "three";
 import { describe, expect, it } from "vitest";
+import { GARDEN_HULL_SILHOUETTES } from "../systems/garden-observatory-slice";
+import { gardenShipWaterMarginTiles } from "../systems/garden-water-exclusion";
+import { SHIP_HULL_FORM_SPAN } from "../systems/world-types";
 import type { ShipHull, ShipNode, ShipSizeTier } from "../systems/world-types";
 import {
+  assignGardenHeroSailAtlas,
   attachGardenHeroModel,
   createFleetBatchGeometry,
   createFleetLanterns,
@@ -144,6 +149,25 @@ describe("hero hull assignment", () => {
     expect(visual.identitySail).toBeInstanceOf(Mesh);
     // The identity sail is never in the hideable set — it re-homes onto the GLB.
     expect(visual.heroHideable).not.toContain(visual.identitySail);
+  });
+
+  it("shares the fleet mark atlas with hero identity sails", () => {
+    const visual = build(ship("t", "treasury-galleon", "titan"));
+    const atlas = new CanvasTexture();
+    assignGardenHeroSailAtlas(visual, atlas, 17);
+    expect(visual.identitySailMaterial?.map).toBe(atlas);
+    expect(visual.identitySailMaterial?.emissiveMap).toBeNull();
+    expect(visual.identitySailMaterial?.userData.gardenSailAtlas).toBe(true);
+
+    const shader = {
+      uniforms: {},
+      vertexShader: "#include <common>\n#include <uv_vertex>",
+      fragmentShader: "#include <common>\n#include <map_fragment>",
+    };
+    visual.identitySailMaterial?.onBeforeCompile(shader as never, null as never);
+    expect(shader.vertexShader).toContain("uHeroAtlasCell");
+    expect(shader.fragmentShader).toContain("vHeroAtlasUv");
+    atlas.dispose();
   });
 });
 
@@ -301,7 +325,7 @@ describe("S1 curved sheer hull", () => {
   it("rises toward bow and stern and narrows at the deck (tumblehome)", () => {
     const cache = makeCache();
     createShip(ship("s1", "treasury-galleon", "major"), { x: 0, y: 0 }, true, cache);
-    const hull = cache.geometries.get("hull.galleon")!;
+    const hull = cache.geometries.get("hull.bezaisen")!;
     hull.computeBoundingBox();
     // The old flat extrusion topped out at y ≈ 0.34; sheer lifts the ends past it.
     expect(hull.boundingBox!.max.y).toBeGreaterThan(0.5);
@@ -319,8 +343,23 @@ describe("S1 curved sheer hull", () => {
 });
 
 describe("W5.3 batched silhouette form", () => {
+  it("keeps every family's maximum deformed x reach inside its water clearance", () => {
+    for (const silhouette of GARDEN_HULL_SILHOUETTES) {
+      const source = createFleetBatchGeometry(silhouette);
+      source.hull.computeBoundingBox();
+      const box = source.hull.boundingBox!;
+      const undeformedReach = Math.max(Math.abs(box.min.x), Math.abs(box.max.x));
+      const requiredTiles = undeformedReach * (1 + SHIP_HULL_FORM_SPAN) / Math.SQRT2;
+      const clearanceTiles = gardenShipWaterMarginTiles(1, silhouette);
+
+      expect(clearanceTiles, silhouette).toBeGreaterThanOrEqual(requiredTiles);
+      source.hull.dispose();
+      source.sails.dispose();
+    }
+  });
+
   it("authors all six conditional fitting tags into the shared hull geometry", () => {
-    const { hull, sails } = createFleetBatchGeometry("galleon");
+    const { hull, sails } = createFleetBatchGeometry("bezaisen");
     const mask = hull.getAttribute("aStrakeMask");
     const tags = new Set(Array.from({ length: mask.count }, (_, index) => mask.getX(index)));
     for (let tag = 1; tag <= 6; tag += 1) expect(tags.has(-tag)).toBe(true);
@@ -329,7 +368,7 @@ describe("W5.3 batched silhouette form", () => {
   });
 
   it("rakes the stern aft as the topsides rise", () => {
-    const { hull } = createFleetBatchGeometry("clipper");
+    const { hull } = createFleetBatchGeometry("kobaya");
     const position = hull.getAttribute("position");
     let lowSternX = 0;
     let highSternX = 0;
@@ -346,7 +385,7 @@ describe("W5.3 batched silhouette form", () => {
   });
 
   it("bakes planking bands into the hull vertex color", () => {
-    const { hull } = createFleetBatchGeometry("galleon");
+    const { hull } = createFleetBatchGeometry("bezaisen");
     const color = hull.getAttribute("color");
     const position = hull.getAttribute("position");
     // Sample topside vertices only; planking fades out below the waterline.
@@ -361,7 +400,7 @@ describe("W5.3 batched silhouette form", () => {
   });
 
   it("crowns the deck so the rails sit below the centerline", () => {
-    const { hull } = createFleetBatchGeometry("schooner");
+    const { hull } = createFleetBatchGeometry("kobaya");
     const position = hull.getAttribute("position");
     let railY = Number.POSITIVE_INFINITY;
     let centerY = Number.NEGATIVE_INFINITY;
@@ -399,11 +438,10 @@ describe("S3 sparse rigging", () => {
     const rigging = visual.root.children.find(
       (child): child is LineSegments => child instanceof LineSegments,
     )!;
-    // 3 galleon masts × 4 standing-rigging lines, plus W5.4 running rigging:
-    // 2 halyard segments per sail. All × 2 endpoints. W3 gave the main and
-    // mizzen a topsail each, so the galleon now sets 5 sails, not 3.
-    const standing = 3 * 4;
-    const halyards = 5 * 2;
+    // One bezaisen mast × 4 standing-rigging lines, plus two halyard segments
+    // for its one enormous identity sail. All × 2 endpoints.
+    const standing = 4;
+    const halyards = 2;
     expect(rigging.geometry.getAttribute("position").count).toBe((standing + halyards) * 2);
     // The whole rig must stay one draw call however many lines it carries.
     expect(

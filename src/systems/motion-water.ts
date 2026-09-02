@@ -3,7 +3,7 @@ import { isGardenObstacleTile } from "./garden-water-exclusion";
 import { isSeawallBarrierTile, isSeawallBarrierTileXY } from "./seawall";
 import { stableHash, stableOffset, stableUnit } from "./stable-random";
 import { clamp, normalizeHeadingInto, pathKey, sameTile } from "./motion-utils";
-import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipWaterPath, ShipWaterPathBuilder, ShipWaterRouteCache } from "./motion-types";
+import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
 import type { PharosVilleMap, PharosVilleTile, ShipWaterZone } from "./world-types";
 
 export function buildShipWaterRoute(input: {
@@ -34,6 +34,8 @@ export function buildCachedShipWaterRoute(input: {
   zone: ShipWaterZone;
   shipId: string;
   bucket: number;
+  /** Skip legacy decorative wander when cadence planning owns leg length. */
+  preferDirect?: boolean;
 }, cache: ShipWaterRouteCache): ShipWaterPath {
   const from = nearestMapWaterTile(input.from, input.map);
   const to = nearestMapWaterTile(input.to, input.map);
@@ -44,11 +46,18 @@ export function buildCachedShipWaterRoute(input: {
   // route-variation flip invalidated every cached path and re-ran the whole
   // A* set to reproduce identical geometry: ~300ms of plan rebuild plus
   // ~700ms of lazy path solving, every ten minutes, forever.
-  const key = `${input.zone}:${input.shipId}:${pathKey(from, to)}`;
+  const key = `${input.zone}:${input.shipId}:${input.preferDirect ? "direct" : "wander"}:${pathKey(from, to)}`;
   const cached = cache.get(key);
   if (cached) return cached;
 
-  const route = buildShipWaterRouteFromWaterTiles({ from, to, map: input.map, zone: input.zone, shipId: input.shipId });
+  const route = buildShipWaterRouteFromWaterTiles({
+    from,
+    to,
+    map: input.map,
+    shipId: input.shipId,
+    ...(input.preferDirect ? {} : { zone: input.zone }),
+    ...(input.preferDirect !== undefined ? { preferDirect: input.preferDirect } : {}),
+  });
   cache.set(key, route);
   return route;
 }
@@ -72,34 +81,6 @@ export function nearestMapWaterTile(tile: { x: number; y: number }, map: PharosV
     }
   }
   return bestTile ?? rounded;
-}
-
-export class LazyShipWaterPathMap extends Map<string, ShipWaterPath> {
-  private readonly builders = new Map<string, ShipWaterPathBuilder>();
-
-  override get size(): number {
-    return this.builders.size;
-  }
-
-  setBuilder(key: string, builder: ShipWaterPathBuilder): void {
-    this.builders.set(key, builder);
-  }
-
-  override get(key: string): ShipWaterPath | undefined {
-    const cached = super.get(key);
-    if (cached) return cached;
-
-    const builder = this.builders.get(key);
-    if (!builder) return undefined;
-
-    const path = builder();
-    super.set(key, path);
-    return path;
-  }
-
-  override has(key: string): boolean {
-    return this.builders.has(key);
-  }
 }
 
 export function warmAllWaterPaths(plan: PharosVilleMotionPlan | PharosVilleBaseMotionPlan): void {
@@ -227,21 +208,28 @@ function buildShipWaterRouteFromWaterTiles(input: {
   map: PharosVilleMap;
   zone?: ShipWaterZone;
   shipId?: string;
+  preferDirect?: boolean;
 }): ShipWaterPath {
   const { from, to } = input;
   if (sameTile(from, to)) return waterPathFromPoints(from, to, [from]);
 
-  const detouredPoints = findDetouredWaterPath(from, to, input.map, input.zone, input.shipId);
-  if (detouredPoints.length > 0) return waterPathFromPoints(from, to, chaikinSmoothPath(detouredPoints));
+  const detouredPoints = input.preferDirect
+    ? []
+    : findDetouredWaterPath(from, to, input.map, input.zone, input.shipId);
+  // Leg cadence samples substantially farther per frame than the old drift
+  // cycle. Keep the A* tile chain authoritative: corner-cut-safe adjacent
+  // water tiles guarantee every interpolated point remains water, whereas
+  // Chaikin's off-chain control points can bow briefly across a shore tile.
+  if (detouredPoints.length > 0) return waterPathFromPoints(from, to, detouredPoints);
 
   const points = findWaterPath(from, to, input.map, input.zone);
-  if (points.length > 0) return waterPathFromPoints(from, to, chaikinSmoothPath(points));
+  if (points.length > 0) return waterPathFromPoints(from, to, points);
 
   const waypoint = fallbackWaterWaypoint(from, to, input.map);
   const firstLeg = findWaterPath(from, waypoint, input.map, input.zone);
   const secondLeg = findWaterPath(waypoint, to, input.map, input.zone);
   if (firstLeg.length > 0 && secondLeg.length > 0) {
-    return waterPathFromPoints(from, to, chaikinSmoothPath([...firstLeg, ...secondLeg.slice(1)]));
+    return waterPathFromPoints(from, to, [...firstLeg, ...secondLeg.slice(1)]);
   }
 
   return waterPathFromPoints(from, to, [from]);

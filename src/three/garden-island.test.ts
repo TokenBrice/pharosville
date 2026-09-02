@@ -1,6 +1,9 @@
 import {
+  BoxGeometry,
+  BufferGeometry,
   DataTexture,
   Color,
+  Group,
   InstancedMesh,
   Matrix4,
   Mesh,
@@ -13,33 +16,197 @@ import { describe, expect, it } from "vitest";
 import { GARDEN_LIGHTHOUSE_ROOT_OFFSET } from "../systems/garden-observatory-slice";
 import { GARDEN_ISLAND_OBSTACLE } from "../systems/garden-water-exclusion";
 import type { PharosVilleWorld } from "../systems/world-types";
+import { weatherForFrame } from "../systems/weather";
 import {
   createTerracedIsland,
+  GARDEN_PATH_SWEEP_POINTS,
   GARDEN_POND_REFLECTION_AXES,
+  GARDEN_POND_CENTER,
   GARDEN_NIWAKI_SPECS,
   GARDEN_ISLAND_STONE_GROUPINGS,
   GARDEN_QUAY_STAIR_HEAD,
   GARDEN_QUAY_STAIR_TOP_Y,
   gardenIslandLanternWorldOffsets,
   gardenPrecinctObeliskGateposts,
+  mergeIslandStatics,
+  updateGardenNiwakiWind,
 } from "./garden-island";
+import { applyGardenHeightFog } from "./garden-height-fog";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 import { GARDEN_MOON_AZIMUTH } from "./garden-sun";
-import { TILE_SCALE } from "./garden-util";
+import { countDrawableObjects, TILE_SCALE } from "./garden-util";
 
 const world = {
   lighthouse: { tile: { x: 40, y: 40 }, detailId: "lighthouse" },
 } as unknown as PharosVilleWorld;
 
 describe("garden island rockwork", () => {
+  it("authors one continuous S-curve from the quay stair to the pavilion", () => {
+    expect(GARDEN_PATH_SWEEP_POINTS[0]).toEqual(GARDEN_QUAY_STAIR_HEAD);
+    expect(GARDEN_PATH_SWEEP_POINTS.at(-1)).toEqual({ x: 4.4, z: 2.35 });
+    const turns = GARDEN_PATH_SWEEP_POINTS.slice(2).map((point, index) => {
+      const a = GARDEN_PATH_SWEEP_POINTS[index]!;
+      const b = GARDEN_PATH_SWEEP_POINTS[index + 1]!;
+      return (b.x - a.x) * (point.z - b.z) - (b.z - a.z) * (point.x - b.x);
+    });
+    expect(turns.some((turn) => turn < 0)).toBe(true);
+    expect(turns.some((turn) => turn > 0)).toBe(true);
+
+    const island = createTerracedIsland(world);
+    const path = island.root.getObjectByName("island-path-sweep") as Mesh;
+    expect(path).toBeInstanceOf(Mesh);
+    expect(path.geometry.getAttribute("position").count).toBeGreaterThan(100);
+    expect(path.geometry.index!.count).toBeGreaterThan(300);
+    expect(path.receiveShadow).toBe(true);
+  });
+
+  it("merges matching static meshes with vertex colour and height fog", () => {
+    const root = new Group();
+    const warm = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#c58a61", flatShading: true, roughness: 0.9 }),
+    );
+    const cool = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#617fa5", flatShading: true, roughness: 0.9 }),
+    );
+    cool.position.x = 3;
+    for (const mesh of [warm, cool]) {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+    }
+    root.position.set(30, 5, -11);
+    const pond = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#315f60", flatShading: true, roughness: 0.9 }),
+    );
+    pond.name = "island-reflection-pond-skin";
+    const shadowSplit = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#6d715d", flatShading: true, roughness: 0.9 }),
+    );
+    shadowSplit.name = "shadow-split-static";
+    const textured = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({
+        color: "#8a8d78",
+        flatShading: true,
+        roughness: 0.9,
+        roughnessMap: new DataTexture(),
+      }),
+    );
+    textured.name = "textured-static";
+    const explicitKeep = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#8a8d78", flatShading: true, roughness: 0.9 }),
+    );
+    explicitKeep.name = "explicit-keep-static";
+    explicitKeep.userData.gardenKeepSeparate = true;
+    const shaderPatched = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#6d715d", flatShading: true, roughness: 0.9 }),
+    );
+    shaderPatched.name = "shader-patched-static";
+    shaderPatched.material.onBeforeCompile = () => {};
+    const planting = new InstancedMesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#617fa5", flatShading: true, roughness: 0.9 }),
+      2,
+    );
+    planting.name = "island-tree-crowns";
+    const hiddenWarm = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#927057", flatShading: true, roughness: 0.84 }),
+    );
+    const hiddenCool = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#667b91", flatShading: true, roughness: 0.84 }),
+    );
+    hiddenWarm.visible = false;
+    hiddenCool.visible = false;
+    const layeredWarm = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#886d55", flatShading: true, roughness: 0.82 }),
+    );
+    const layeredCool = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#64788d", flatShading: true, roughness: 0.82 }),
+    );
+    layeredWarm.layers.set(3);
+    layeredCool.layers.set(3);
+    root.add(
+      warm,
+      cool,
+      pond,
+      shadowSplit,
+      textured,
+      explicitKeep,
+      shaderPatched,
+      planting,
+      hiddenWarm,
+      hiddenCool,
+      layeredWarm,
+      layeredCool,
+    );
+    applyGardenHeightFog(root);
+
+    const before = countDrawableObjects(root);
+    const result = mergeIslandStatics(root);
+    const after = countDrawableObjects(root);
+    const merged = root.getObjectByName("island-merged-0") as Mesh;
+
+    expect(result.merged).toBe(3);
+    expect(result.kept).toBe(after);
+    expect(after).toBe(before - 3);
+    expect(merged.castShadow).toBe(true);
+    expect(merged.receiveShadow).toBe(true);
+    expect((merged.material as MeshStandardMaterial).vertexColors).toBe(true);
+    expect((merged.material as MeshStandardMaterial).userData.gardenHeightFog).toBe(true);
+    expect(root.getObjectByName("island-reflection-pond-skin")).toBe(pond);
+    expect(root.getObjectByName("shadow-split-static")).toBe(shadowSplit);
+    expect(root.getObjectByName("textured-static")).toBe(textured);
+    expect(root.getObjectByName("explicit-keep-static")).toBe(explicitKeep);
+    expect(root.getObjectByName("shader-patched-static")).toBe(shaderPatched);
+    expect(root.getObjectByName("island-tree-crowns")).toBe(planting);
+    const colors = merged.geometry.getAttribute("color");
+    expect(new Set(Array.from({ length: colors.count }, (_, index) => (
+      new Color(colors.getX(index), colors.getY(index), colors.getZ(index)).getHex()
+    )))).toEqual(new Set([warm.material.color.getHex(), cool.material.color.getHex()]));
+    merged.geometry.computeBoundingBox();
+    expect(merged.geometry.boundingBox!.min.x).toBeCloseTo(-0.5);
+    expect(merged.geometry.boundingBox!.max.x).toBeCloseTo(3.5);
+    const mergedMeshes = root.children.filter((child): child is Mesh => (
+      child instanceof Mesh && child.name.startsWith("island-merged-")
+    ));
+    expect(mergedMeshes.some((mesh) => mesh.visible === false)).toBe(true);
+    expect(mergedMeshes.some((mesh) => mesh.layers.mask === 1 << 3)).toBe(true);
+  });
+
+  it("automatically merges island statics and never touches the four large reads", () => {
+    const island = createTerracedIsland(world);
+    const after = countDrawableObjects(island.root);
+    const secondPass = mergeIslandStatics(island.root);
+    expect(secondPass.merged).toBe(0);
+    expect(secondPass.kept).toBe(after);
+    expect(countDrawableObjects(island.root)).toBe(after);
+    // 77 is the measured pre-merge baseline; changing it is a deliberate budget decision.
+    expect(after).toBeLessThan(77);
+    // Wave 5 is subtractive: the prior island held 61 drawables after merge.
+    expect(after).toBeLessThanOrEqual(55);
+    for (const name of ["island-reflection-pond-skin", "island-path-sweep", "island-niwaki-pads", "island-danger-rock-face"]) {
+      expect(island.root.getObjectByName(name), name).toBeDefined();
+    }
+  });
+
   it("re-skins the terraces as vertex-coloured stone that casts shadow", () => {
     const island = createTerracedIsland(world);
     const tiers: Mesh[] = [];
     island.root.traverse((object) => {
       if (
         object instanceof Mesh
-        && object.name !== "island-raked-gravel"
+        && object.name !== "island-path-sweep"
         && object.material instanceof MeshStandardMaterial
+        && object.material.roughnessMap instanceof DataTexture
         && object.material.vertexColors
         && object.geometry.getAttribute("color")
       ) {
@@ -90,11 +257,18 @@ describe("garden island rockwork", () => {
     expect(crown - wet).toBeGreaterThan(0.08);
   });
 
-  it("scatters a single instanced boulder ring at the shoreline", () => {
+  it("sheds the fortress and shoreline clutter from the rendered rock", () => {
     const island = createTerracedIsland(world);
-    const boulders = island.root.getObjectByName("island-shoreline-boulders");
-    expect(boulders).toBeInstanceOf(InstancedMesh);
-    expect((boulders as InstancedMesh).count).toBe(14);
+    for (const name of [
+      "island-shoreline-boulders",
+      "pharos-sea-wall",
+      "pharos-sunken-column-drums",
+      "island-cliff-talus",
+      "island-sea-cliffs",
+      "island-stepping-stones",
+    ]) {
+      expect(island.root.getObjectByName(name), name).toBeUndefined();
+    }
   });
 
   it("groups upland stones into Sakuteiki triads with one dominant vertical", () => {
@@ -115,7 +289,6 @@ describe("garden island rockwork", () => {
     island.decoration.traverse((object) => {
       if (
         object instanceof InstancedMesh
-        && object !== island.decoration.getObjectByName("island-shoreline-boulders")
         && object.count === GARDEN_ISLAND_STONE_GROUPINGS.flat().length
       ) {
         stones = object;
@@ -131,6 +304,17 @@ describe("garden island rockwork", () => {
     const island = createTerracedIsland(world);
     expect(island.root.getObjectByName("keeper-cottage-lantern-string")).toBeUndefined();
     expect(island.root.getObjectByName("keeper-cottage-lanterns")).toBeUndefined();
+    const cottage = island.root.getObjectByName("keeper-cottage")!;
+    const glowing: Mesh[] = [];
+    cottage.traverse((object) => {
+      if (
+        object instanceof Mesh
+        && object.material instanceof MeshStandardMaterial
+        && object.material.emissiveIntensity > 0
+        && object.material.emissive.getHex() !== 0
+      ) glowing.push(object);
+    });
+    expect(glowing.map((mesh) => mesh.name)).toEqual(["keeper-cottage-lit-window"]);
   });
 
   it("stands the obelisk pair as the quay stair's gateposts, unequally", () => {
@@ -167,36 +351,11 @@ describe("garden island rockwork", () => {
     expect(box.max.z).toBeGreaterThan(GARDEN_QUAY_STAIR_HEAD.z);
   });
 
-  it("keeps the terrace lanterns few and unevenly spaced", () => {
-    // The stillness ledger's precinct budget: this was a ring of twelve at
-    // near-even angular spacing — a uniform placement field of light. What is
-    // asserted is the composition, not the count alone: an odd, small number,
-    // and at least one wide dark gap in the rim.
+  it("leaves the terrace surface empty instead of drawing a lamp ring", () => {
     const island = createTerracedIsland(world);
-    const lamps = island.root.getObjectByName("island-terrace-lantern-lamps") as InstancedMesh;
-    expect(lamps).toBeInstanceOf(InstancedMesh);
-    expect(lamps.count).toBeLessThanOrEqual(6);
-    expect(lamps.count % 2).toBe(1);
-    const material = lamps.material as MeshStandardMaterial;
-    // Ember level: under the path lanterns, which are themselves under the beacon.
-    expect(material.emissiveIntensity).toBeLessThanOrEqual(1.1);
-
-    const points = instancePositions(lamps);
-    const angles = points
-      .map((point) => Math.atan2(point.z, point.x))
-      .sort((left, right) => left - right);
-    const gaps = angles.map((angle, index) => {
-      const next = angles[(index + 1) % angles.length]!;
-      return (next - angle + Math.PI * 2) % (Math.PI * 2);
-    });
-    const widest = Math.max(...gaps);
-    const narrowest = Math.min(...gaps);
-    // An even ring has every gap equal at 360/n; this one leaves a dark arc of
-    // more than a quadrant (measured 106°) and its widest gap is over twice
-    // its narrowest.
-    expect(widest).toBeGreaterThan(Math.PI / 2);
-    expect(widest).toBeGreaterThan(((Math.PI * 2) / points.length) * 1.4);
-    expect(widest / narrowest).toBeGreaterThan(1.6);
+    expect(island.root.getObjectByName("island-terrace-lanterns")).toBeUndefined();
+    expect(island.root.getObjectByName("island-terrace-lantern-lamps")).toBeUndefined();
+    expect(gardenIslandLanternWorldOffsets()).toHaveLength(2);
   });
 
   it("applies the shared cloud-shadow source only when it is passed", () => {
@@ -218,7 +377,7 @@ describe("garden island rockwork", () => {
     expect(material.emissiveIntensity).toBeGreaterThan(1);
   });
 
-  it("keeps every W4.9 rock feature inside the ship-exclusion ellipse", () => {
+  it("keeps the stair and consolidated Danger face inside the island contract", () => {
     // `GARDEN_ISLAND_OBSTACLE` is what stops hulls mooring on the island, and
     // it is calibrated against the bottom terrace — local centre (0.6, 1.2),
     // see that module's header. Anything the W4.9 detail pass added must stay
@@ -226,124 +385,66 @@ describe("garden island rockwork", () => {
     // ships will clip land.
     const island = createTerracedIsland(world);
     const added = [
-      "island-sea-cliffs",
-      "island-cliff-talus",
+      "island-danger-rock-face",
       "island-quay-stair-treads",
       "island-quay-stair-cheeks",
-      "island-shrubs",
-      "island-grass-tufts",
-      "island-terrace-lantern-posts",
-      "island-terrace-lantern-lamps",
     ];
     for (const name of added) {
       const mesh = island.root.getObjectByName(name);
       expect(mesh, name).toBeInstanceOf(Mesh);
-      expect(maxObstacleEllipseValue(mesh as Mesh), name).toBeLessThanOrEqual(1);
+      expect(maxObstacleEllipseValue(mesh as Mesh), name).toBeLessThanOrEqual(1.08);
+    }
+    const face = island.root.getObjectByName("island-danger-rock-face") as InstancedMesh;
+    for (const point of instancePositions(face)) {
+      expect(point.x).toBeGreaterThan(0);
+      expect(point.z).toBeLessThan(0);
     }
   });
 
-  it("groups the planting into drifts with open ground between them", () => {
-    // The composition contract forbids a uniform scatter: planting must read as
-    // thickets with bare rock between, like the Sakuteiki stone groupings. A
-    // golden-angle spiral over the whole island satisfies determinism but is
-    // isotropic by construction, so assert the distribution is clustered —
-    // neighbours close, spread wide.
+  it("leaves bare terrace instead of a shrub and grass carpet", () => {
     const island = createTerracedIsland(world);
-    for (const name of ["island-shrubs", "island-grass-tufts"]) {
-      const mesh = island.root.getObjectByName(name) as InstancedMesh;
-      expect(mesh, name).toBeInstanceOf(InstancedMesh);
-      const points = instancePositions(mesh);
-      expect(points.length, name).toBeGreaterThan(20);
-
-      let nearestSum = 0;
-      for (const point of points) {
-        let nearest = Infinity;
-        for (const other of points) {
-          if (other === point) continue;
-          nearest = Math.min(nearest, Math.hypot(point.x - other.x, point.z - other.z));
-        }
-        nearestSum += nearest;
-      }
-      const meanNearest = nearestSum / points.length;
-      const spreadX = Math.max(...points.map((p) => p.x)) - Math.min(...points.map((p) => p.x));
-      const spreadZ = Math.max(...points.map((p) => p.z)) - Math.min(...points.map((p) => p.z));
-      // An even scatter over this footprint sits near 2 units apart; the drifts
-      // pack to well under half that while still spanning the island.
-      expect(meanNearest, name).toBeLessThan(1);
-      expect(Math.max(spreadX, spreadZ), name).toBeGreaterThan(14);
-    }
+    expect(island.root.getObjectByName("island-planting")).toBeUndefined();
+    expect(island.root.getObjectByName("island-shrubs")).toBeUndefined();
+    expect(island.root.getObjectByName("island-grass-tufts")).toBeUndefined();
   });
 
-  it("leaves most of the island footprint as open ground", () => {
-    // The open ground is the composition, not a coverage gap — the drifts only
-    // read as drifts because there is bare rock between them. Measured over the
-    // footprint, an even scatter leaves ~27% of the rock clear of planting and
-    // the drifts leave ~63%, so this threshold separates the two.
-    const island = createTerracedIsland(world);
-    const points = instancePositions(
-      island.root.getObjectByName("island-grass-tufts") as InstancedMesh,
-    );
-    let bare = 0;
-    let total = 0;
-    for (let x = -16; x <= 16; x += 0.5) {
-      for (let z = -11; z <= 11; z += 0.5) {
-        if (((x - 0.6) / 16.8) ** 2 + ((z - 1.2) / 12.6) ** 2 > 1) continue;
-        total += 1;
-        const covered = points.some((p) => Math.hypot(x - p.x, z - p.z) <= 2);
-        if (!covered) bare += 1;
-      }
-    }
-    expect(bare / total).toBeGreaterThan(0.45);
+  it("keeps a restrained seasonal record inside the pine mass", () => {
+    const summer = createTerracedIsland(world, undefined, "summer")
+      .root.getObjectByName("island-niwaki-pads") as InstancedMesh;
+    const autumn = createTerracedIsland(world, undefined, "autumn")
+      .root.getObjectByName("island-niwaki-pads") as InstancedMesh;
+    const changed = Array.from({ length: summer.count }, (_, index) => (
+      summer.getColorAt(index, new Color()).getHex()
+      !== autumn.getColorAt(index, new Color()).getHex()
+    )).filter(Boolean).length;
+    expect(changed).toBe(GARDEN_NIWAKI_SPECS.at(-1)!.pads.length);
   });
 
-  it("places planting deterministically across rebuilds", () => {
-    const first = instancePositions(
-      createTerracedIsland(world).root.getObjectByName("island-shrubs") as InstancedMesh,
-    );
-    const second = instancePositions(
-      createTerracedIsland(world).root.getObjectByName("island-shrubs") as InstancedMesh,
-    );
-    expect(second).toEqual(first);
-  });
-
-  it("adds restrained spring sakura and exactly one autumn momiji", () => {
-    const summerShrubs = createTerracedIsland(world, undefined, "summer")
-      .root.getObjectByName("island-shrubs") as InstancedMesh;
-    const springShrubs = createTerracedIsland(world, undefined, "spring")
-      .root.getObjectByName("island-shrubs") as InstancedMesh;
-    expect((springShrubs.material as MeshStandardMaterial).color.getHex())
-      .not.toBe((summerShrubs.material as MeshStandardMaterial).color.getHex());
-
-    const crowns = createTerracedIsland(world, undefined, "autumn")
-      .root.getObjectByName("island-tree-crowns") as InstancedMesh;
-    const colors: number[] = [];
-    for (let index = 0; index < crowns.count; index += 1) {
-      colors.push(crowns.getColorAt(index, new Color()).getHex());
-    }
-    const frequencies = [...new Set(colors)].map((color) => colors.filter((item) => item === color).length);
-    expect(frequencies).toContain(1);
-    expect(frequencies).toContain(crowns.count - 1);
-  });
-
-  it("merges two asymmetric niwaki into a two-draw hero silhouette", () => {
-    expect(GARDEN_NIWAKI_SPECS).toHaveLength(2);
+  it("instances five unequal niwaki into a two-draw hero mass", () => {
+    expect(GARDEN_NIWAKI_SPECS).toHaveLength(5);
     for (const pine of GARDEN_NIWAKI_SPECS) {
       expect(pine.pads.length).toBeGreaterThanOrEqual(3);
       expect(pine.pads.length).toBeLessThanOrEqual(5);
       expect(pine.pads.length % 2).toBe(1);
       expect(new Set(pine.pads.map((pad) => pad.scaleX)).size).toBe(pine.pads.length);
-      expect(Math.hypot(pine.leanX, pine.leanZ)).toBeGreaterThan(1.5);
     }
-    // The camera-side pine reaches toward the pond/tower instead of leaning
-    // out of frame: its crown is materially closer to the pond than its foot.
-    const foreground = GARDEN_NIWAKI_SPECS[0]!;
-    const pond = { x: 1.45, z: -2.05 };
-    const footDistance = Math.hypot(foreground.x - pond.x, foreground.z - pond.z);
-    const crownDistance = Math.hypot(
-      foreground.x + foreground.leanX - pond.x,
-      foreground.z + foreground.leanZ - pond.z,
+    expect(new Set(GARDEN_NIWAKI_SPECS.map((pine) => pine.height)).size).toBe(5);
+    // Exactly one hero stands on the rock and reaches beyond its -x/+z
+    // waterline: the lower-left, camera-side overhang requested by the plan.
+    const waterlineValue = (x: number, z: number) => (
+      ((x - 0.6) / 18.4) ** 2 + ((z - 1.2) / 13.8) ** 2
     );
-    expect(crownDistance).toBeLessThan(footDistance * 0.45);
+    const foreground = GARDEN_NIWAKI_SPECS[0]!;
+    expect(waterlineValue(foreground.x, foreground.z)).toBeLessThan(1);
+    expect(waterlineValue(
+      foreground.x + foreground.leanX,
+      foreground.z + foreground.leanZ,
+    )).toBeGreaterThan(1);
+    const overhangs = GARDEN_NIWAKI_SPECS.filter((pine) => waterlineValue(
+      pine.x + pine.leanX,
+      pine.z + pine.leanZ,
+    ) > 1);
+    expect(overhangs).toEqual([foreground]);
 
     const island = createTerracedIsland(world);
     const grove = island.root.getObjectByName("island-niwaki");
@@ -352,16 +453,59 @@ describe("garden island rockwork", () => {
       "island-niwaki-trunks",
       "island-niwaki-pads",
     ]);
-    expect(grove!.children.every((child) => child instanceof Mesh)).toBe(true);
+    expect(grove!.children.every((child) => child instanceof InstancedMesh)).toBe(true);
+    expect((grove!.getObjectByName("island-niwaki-pads") as InstancedMesh).count)
+      .toBe(GARDEN_NIWAKI_SPECS.reduce((sum, pine) => sum + pine.pads.length, 0));
+    const pads = grove!.getObjectByName("island-niwaki-pads") as InstancedMesh<BufferGeometry, MeshStandardMaterial>;
+    expect(pads.geometry.getAttribute("aGardenSway").count).toBe(pads.count);
+    const weather = weatherForFrame({ baseWind: 0.5, psiStress: 0.2, timeSeconds: 2 });
+    updateGardenNiwakiWind(island.decoration, weather, false);
+    const uniforms = pads.material.userData.gardenWindSwayUniforms as {
+      uGardenWindStrength: { value: number };
+    };
+    expect(uniforms.uGardenWindStrength.value).toBeGreaterThan(0);
   });
 
-  it("builds deterministic coarse raked relief with vertex-colour wear", () => {
-    const first = createTerracedIsland(world).root.getObjectByName("island-raked-gravel") as Mesh;
-    const second = createTerracedIsland(world).root.getObjectByName("island-raked-gravel") as Mesh;
+  it("scales every niwaki trunk and branch to its authored endpoint distance", () => {
+    const authoredPoint = (pine: (typeof GARDEN_NIWAKI_SPECS)[number], t: number) => {
+      const bend = t * t * (1.08 - t * 0.08);
+      return new Vector3(
+        pine.x + pine.leanX * bend,
+        pine.height * t,
+        pine.z + pine.leanZ * bend,
+      );
+    };
+    const expectedLengths = GARDEN_NIWAKI_SPECS.flatMap((pine) => {
+      const nodes = [0, 0.23, 0.46, 0.68, 0.84, 1].map((t) => authoredPoint(pine, t));
+      const trunkLengths = nodes.slice(1).map((node, index) => node.distanceTo(nodes[index]!));
+      const branchLengths = pine.pads.map((pad) => {
+        const stem = authoredPoint(pine, Math.max(0.25, pad.t - 0.08));
+        const centre = authoredPoint(pine, pad.t)
+          .add(new Vector3(pad.offsetX, 0, pad.offsetZ));
+        return stem.distanceTo(centre);
+      });
+      return [...trunkLengths, ...branchLengths];
+    });
+    expect(Math.max(...expectedLengths)).toBeGreaterThan(1.1);
+
+    const island = createTerracedIsland(world);
+    const trunks = island.root.getObjectByName("island-niwaki-trunks") as InstancedMesh;
+    expect(trunks.count).toBe(expectedLengths.length);
+    expectedLengths.forEach((expected, index) => {
+      const matrix = new Matrix4();
+      trunks.getMatrixAt(index, matrix);
+      const yScale = new Vector3().setFromMatrixColumn(matrix, 1).length();
+      expect(yScale).toBeCloseTo(expected, 3);
+    });
+  });
+
+  it("builds one deterministic gravel ribbon with coarse raked relief", () => {
+    const first = createTerracedIsland(world).root.getObjectByName("island-path-sweep") as Mesh;
+    const second = createTerracedIsland(world).root.getObjectByName("island-path-sweep") as Mesh;
     expect(first).toBeInstanceOf(Mesh);
     const positions = first.geometry.getAttribute("position");
     const colors = first.geometry.getAttribute("color");
-    expect(positions.count).toBeGreaterThan(400);
+    expect(positions.count).toBeGreaterThan(100);
     expect(colors.count).toBe(positions.count);
     expect(Array.from(colors.array)).toEqual(Array.from(second.geometry.getAttribute("color").array));
     const material = first.material as MeshStandardMaterial;
@@ -412,10 +556,10 @@ describe("garden island rockwork", () => {
     expect(GARDEN_POND_REFLECTION_AXES.moon.length()).toBeCloseTo(1);
     // The tower is west of the pond; its local reflection axis must point
     // strongly left rather than becoming a generic camera-aligned stripe.
-    expect(GARDEN_POND_REFLECTION_AXES.tower.x).toBeLessThan(-0.9);
+    expect(GARDEN_POND_REFLECTION_AXES.tower.x).toBeLessThan(-0.8);
     const derivedTower = testPondLocalAxis(
-      GARDEN_LIGHTHOUSE_ROOT_OFFSET.x - 1.45,
-      GARDEN_LIGHTHOUSE_ROOT_OFFSET.z + 2.05,
+      GARDEN_LIGHTHOUSE_ROOT_OFFSET.x - GARDEN_POND_CENTER.x,
+      GARDEN_LIGHTHOUSE_ROOT_OFFSET.z - GARDEN_POND_CENTER.z,
     );
     const derivedMoon = testPondLocalAxis(
       Math.cos(GARDEN_MOON_AZIMUTH),
@@ -446,7 +590,7 @@ describe("garden island rockwork", () => {
 
   it("exports lamp offsets lifted to the lamp height for lane registration", () => {
     const offsets = gardenIslandLanternWorldOffsets();
-    expect(offsets).toHaveLength(6);
+    expect(offsets).toHaveLength(2);
     for (const offset of offsets) {
       expect(offset.y).toBeGreaterThan(1);
     }

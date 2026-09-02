@@ -17,15 +17,28 @@ import type { GardenAlmanacEvent } from "../systems/garden-almanac";
 import { GARDEN_MOTION_DURATIONS } from "../systems/motion-tokens";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { TILE_SCALE } from "./garden-util";
 
 export const GARDEN_ALMANAC_FADE_SECONDS = GARDEN_MOTION_DURATIONS.breathe.ms / 1_000;
 export const GARDEN_LANTERN_ROUND_COUNT = 7;
+export const GARDEN_HERON_PERCH_WORLD = {
+  x: 82.6 * TILE_SCALE,
+  y: GARDEN_WATER_Y + 1.22,
+  z: 126.6 * TILE_SCALE,
+} as const;
+export const GARDEN_LANTERN_ROUND_TILES = [
+  { x: 10, y: 72 },
+  { x: 9, y: 82 },
+  { x: 10, y: 92 },
+  { x: 26, y: 135 },
+  { x: 48, y: 136 },
+  { x: 82, y: 136 },
+  { x: 112, y: 135 },
+] as const;
 
 export interface GardenAlmanacDressingUpdate {
   activeEvent: GardenAlmanacEvent | null;
   deltaSeconds: number;
-  islandX: number;
-  islandZ: number;
   reducedMotion: boolean;
   timeSeconds: number;
 }
@@ -41,7 +54,7 @@ export interface GardenAlmanacDressing {
 /**
  * Three deliberately small scene-owned sightings. They share the route clock,
  * use the named nine-second breathe duration for entry/exit, and allocate no
- * timers. Reduced motion removes the layer completely.
+ * timers. Reduced motion holds the active event at one complete authored pose.
  */
 export function createGardenAlmanacDressing(): GardenAlmanacDressing {
   const root = new Group();
@@ -99,63 +112,68 @@ export function createGardenAlmanacDressing(): GardenAlmanacDressing {
 
   const update = (input: GardenAlmanacDressingUpdate): void => {
     if (input.reducedMotion) {
-      shownEvent = null;
+      shownEvent = input.activeEvent;
       pendingEvent = null;
-      fade = 0;
-      hideAll(heron, lanternRound, meteor);
-      return;
-    }
-
-    const deltaSeconds = Math.max(0, Number.isFinite(input.deltaSeconds) ? input.deltaSeconds : 0);
-    const nextEvent = input.activeEvent;
-    const nextKey = nextEvent ? `${nextEvent.dayKey}:${nextEvent.id}` : null;
-    const shownKey = shownEvent ? `${shownEvent.dayKey}:${shownEvent.id}` : null;
-    if (nextKey === shownKey) {
-      pendingEvent = null;
-      fade = Math.min(1, fade + deltaSeconds / GARDEN_ALMANAC_FADE_SECONDS);
+      fade = shownEvent ? 1 : 0;
+      shownSinceSeconds = input.timeSeconds;
     } else {
-      pendingEvent = nextEvent;
-      if (shownEvent && fade > 0) {
-        fade = Math.max(0, fade - deltaSeconds / GARDEN_ALMANAC_FADE_SECONDS);
-      }
-      if (!shownEvent || fade === 0) {
-        shownEvent = pendingEvent;
+      const deltaSeconds = Math.max(0, Number.isFinite(input.deltaSeconds) ? input.deltaSeconds : 0);
+      const nextEvent = input.activeEvent;
+      const nextKey = nextEvent ? `${nextEvent.dayKey}:${nextEvent.id}` : null;
+      const shownKey = shownEvent ? `${shownEvent.dayKey}:${shownEvent.id}` : null;
+      if (nextKey === shownKey) {
         pendingEvent = null;
-        shownSinceSeconds = input.timeSeconds;
-        fade = shownEvent
-          ? Math.min(1, deltaSeconds / GARDEN_ALMANAC_FADE_SECONDS)
-          : 0;
+        fade = Math.min(1, fade + deltaSeconds / GARDEN_ALMANAC_FADE_SECONDS);
+      } else {
+        pendingEvent = nextEvent;
+        if (shownEvent && fade > 0) {
+          fade = Math.max(0, fade - deltaSeconds / GARDEN_ALMANAC_FADE_SECONDS);
+        }
+        if (!shownEvent || fade === 0) {
+          shownEvent = pendingEvent;
+          pendingEvent = null;
+          shownSinceSeconds = input.timeSeconds;
+          fade = shownEvent
+            ? Math.min(1, deltaSeconds / GARDEN_ALMANAC_FADE_SECONDS)
+            : 0;
+        }
       }
     }
 
     hideAll(heron, lanternRound, meteor);
     if (!shownEvent || fade <= 0) return;
-    const ageSeconds = Math.max(0, input.timeSeconds - shownSinceSeconds);
+    const ageSeconds = input.reducedMotion
+      ? shownEvent.id === "lantern-round" ? 18 : shownEvent.id === "heron-dusk" ? 7 : 4.5
+      : Math.max(0, input.timeSeconds - shownSinceSeconds);
 
     if (shownEvent.id === "heron-dusk") {
       heron.visible = true;
       heronMaterial.opacity = fade * 0.82;
       const landing = Math.min(1, ageSeconds / 7);
       heron.position.set(
-        input.islandX - 13.4,
-        GARDEN_WATER_Y + 1.15 + (1 - landing) * 2.2,
-        input.islandZ + 7.8,
+        GARDEN_HERON_PERCH_WORLD.x,
+        GARDEN_HERON_PERCH_WORLD.y + (1 - landing) * 2.2,
+        GARDEN_HERON_PERCH_WORLD.z,
       );
       heron.rotation.y = Math.PI * 0.22;
-      heron.rotation.z = (1 - landing) * Math.sin(input.timeSeconds * 1.4) * 0.12;
+      heron.rotation.z = input.reducedMotion
+        ? 0
+        : (1 - landing) * Math.sin(input.timeSeconds * 1.4) * 0.12;
       return;
     }
 
     if (shownEvent.id === "lantern-round") {
       lanternRound.visible = true;
-      lanternMaterial.opacity = fade * 0.9;
+      // Seven warm points, no light sources or reflection lanes: the almanac
+      // round stays beneath the beacon/moon and inside the ember budget.
+      lanternMaterial.opacity = fade * 0.58;
       const litCount = Math.min(GARDEN_LANTERN_ROUND_COUNT, Math.floor(ageSeconds / 1.8) + 1);
       for (let index = 0; index < GARDEN_LANTERN_ROUND_COUNT; index += 1) {
-        const angle = -0.9 + index * 0.42;
+        const tile = GARDEN_LANTERN_ROUND_TILES[index]!;
         lanternMatrix.makeTranslation(
-          input.islandX - 12 + Math.cos(angle) * 7.2,
-          GARDEN_WATER_Y + 1.05,
-          input.islandZ + 5 + Math.sin(angle) * 6.2,
+          tile.x * TILE_SCALE,
+          GARDEN_WATER_Y + 1.35,
+          tile.y * TILE_SCALE,
         );
         lanternRound.setMatrixAt(index, lanternMatrix);
         const lit = index < litCount;
@@ -177,9 +195,9 @@ export function createGardenAlmanacDressing(): GardenAlmanacDressing {
     meteorMaterial.opacity = fade * meteorEnvelope * 0.78;
     const travel = Math.min(1, ageSeconds / 10);
     meteor.position.set(
-      input.islandX - 26 + travel * 42,
+      (38 + travel * 74) * TILE_SCALE,
       GARDEN_WATER_Y + 31 - travel * 5,
-      input.islandZ - 18 + travel * 8,
+      (9 + travel * 11) * TILE_SCALE,
     );
     meteor.rotation.set(0.18, -0.55, -0.3);
   };

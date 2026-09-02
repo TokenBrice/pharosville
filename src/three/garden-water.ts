@@ -35,16 +35,22 @@ import {
   MOON_COLOR,
 } from "./garden-day-cycle";
 import {
+  GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS,
+  GARDEN_LIGHTHOUSE_BEAM_LENGTH,
+  GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE,
+} from "./garden-lighthouse";
+import {
   gardenHeightFogGlsl,
   gardenHeightFogUniforms,
   updateGardenHeightFog,
 } from "./garden-height-fog";
-import { GARDEN_MOON_AZIMUTH, gardenBokashiBandGlsl } from "./garden-sky";
+import { GARDEN_MOON_AZIMUTH } from "./garden-sky";
 import { gardenSunPose } from "./garden-sun";
 import { MAX_GARDEN_LIGHT_LANES } from "./garden-lanterns";
 import {
   SEA_REGION_CHARACTER,
   SEA_REGION_COUNT,
+  SEA_REGION_DISTANCE_FULL_SCALE_TILES,
   SEA_REGION_FALLBACK_TINT,
   SEA_REGION_ID,
   SEA_REGION_ORDER,
@@ -56,6 +62,7 @@ import {
   GARDEN_WATER_MAX_RIPPLE_RINGS,
   GARDEN_WATER_MAX_ZONE_TINTS,
   GARDEN_WATER_NIGHT_EMISSIVE_BUDGET,
+  GARDEN_WATER_PLATE_MARGIN_TILES,
   GARDEN_WATER_PROBE_BLEND,
   GARDEN_WATER_PROBE_ROUGHNESS,
   GARDEN_WATER_SHORE_FOAM,
@@ -65,21 +72,9 @@ import {
   type GardenWaterZoneTint,
 } from "./garden-water-contract";
 
-const WATER_SIZE = 900;
 // Tile -> world scale, mirroring TILE_SCALE in garden-util. Redeclared here to
 // keep garden-water free of a util import cycle.
 const TILE_SCALE_UNITS = Math.SQRT2;
-/**
- * W2 / D5+W2.7: how strongly a region tints its water.
- *
- * The old per-band values were 0.04-0.20 because six ellipses STACKED — a
- * WATCH tint covering the whole map had to be almost invisible or it would
- * wash everything. A partition has no stacking, so each region can read
- * properly. Character (swell, chop, foam, reflectivity) still carries most of
- * the signal; this is the supporting colour.
- */
-const REGION_TINT_STRENGTH = 0.2;
-
 /**
  * Bakes the terrain-derived sea-region field into GPU textures.
  *
@@ -130,6 +125,16 @@ function createSeaRegionTextures(): {
 }
 const WATER_SEGMENTS = 96;
 export const GARDEN_WATER_MAX_DISPLACEMENT = 0.036;
+
+/**
+ * Named-body boundary banks are intentionally broad enough to survive the
+ * whole-map camera. The exact per-body widths live with each water character;
+ * these bounds make the renderer contract inspectable without parsing GLSL.
+ */
+export const GARDEN_SEA_BOUNDARY_SEAM_WIDTH_TILES = {
+  min: 2.6,
+  max: 3.6,
+} as const;
 
 /**
  * Phase 3 (item 1): the Gerstner spectrum that replaces the 3-wave sine sum.
@@ -395,9 +400,8 @@ const DAY_MID = pc("sky_day_zenith").lerp(pc("sail_teal"), 0.45).lerp(pc("aurora
 // read as painted. What changed is that the blue is now the deep END of a teal
 // ramp rather than the whole ramp's family.
 //
-// The old comment warned that anchoring on deep_sea_1 dragged the far sea to
-// black and left the world a lit slab on a void. That risk is gone: the open
-// ocean past the map has its own definition (gardenOpenOcean) and crossfades in.
+// Anchoring on deep_sea_1 would drag the plate toward black; the finite water
+// therefore keeps its deep band in the same teal family as its shallows.
 const DAY_DEEP = pc("sail_teal").lerp(pc("sky_day_zenith"), 0.18).lerp(pc("deep_sea_1"), 0.3);
 // W1.6: the dusk sea was pink-mauve, and it was these three lines that made it.
 //
@@ -459,6 +463,7 @@ export const VERTEX_SHADER = /* glsl */ `
   uniform float uBreath;
   uniform float uStorm;
   uniform sampler2D uRegionField;
+  uniform vec4 uRegionFlow[${SEA_REGION_COUNT}];
   uniform vec4 uRegionSwell[${SEA_REGION_COUNT}];
   uniform vec4 uRegionTransform;
 
@@ -479,11 +484,15 @@ export const VERTEX_SHADER = /* glsl */ `
     vec2 regionUv = (waterPosition - uRegionTransform.xy) * uRegionTransform.zw;
     vec4 regionSample = texture2D(uRegionField, regionUv);
     int regionId = int(regionSample.r * 255.0 + 0.5);
+    vec4 regionFlow = uRegionFlow[regionId];
     float regionSwell = uRegionSwell[regionId].x;
     float regionChop = uRegionSwell[regionId].y * (1.0 + uWindSpeed * 0.3 + uStorm * 0.25);
 
     vec2 baseDir = normalize(vec2(0.9229, 0.3851));
-    vec2 phaseWindDir = -uWindDir;
+    // gardenGerstner advances opposite its phase vector. Weather already
+    // supplies -uWindDir, so the authored flow must use the same convention:
+    // visible crest travel follows flowBearing rather than running backwards.
+    vec2 phaseWindDir = normalize(mix(-uWindDir, -regionFlow.xy, regionFlow.z));
     float rc = clamp(dot(baseDir, phaseWindDir), -1.0, 1.0);
     float rs = baseDir.x * phaseWindDir.y - baseDir.y * phaseWindDir.x;
     mat2 windRot = mat2(rc, rs, -rs, rc);
@@ -586,14 +595,14 @@ export const FRAGMENT_SHADER = /* glsl */ `
   uniform vec2 uWindDir;
   uniform float uWindSpeed;
   uniform float uBreath;
-  uniform vec2 uOpenOceanCenter;
-  uniform float uOpenOceanRadius;
-  uniform float uMapEdge;
   uniform float uPegSummaryEpistemicHaze;
   uniform sampler2D uRegionField;
   uniform sampler2D uRegionDistance;
   uniform vec3 uRegionColor[${SEA_REGION_COUNT}];
+  uniform vec3 uRegionBoundary[${SEA_REGION_COUNT}];
+  uniform vec4 uRegionFlow[${SEA_REGION_COUNT}];
   uniform vec4 uRegionParams[${SEA_REGION_COUNT}];
+  uniform vec4 uRegionSwell[${SEA_REGION_COUNT}];
   uniform vec4 uRegionTransform;
 
   varying vec2 vWaterPosition;
@@ -606,8 +615,6 @@ export const FRAGMENT_SHADER = /* glsl */ `
   #include <cube_uv_reflection_fragment>
 
   const float LANE_TEXELS = ${MAX_GARDEN_LIGHT_LANES}.0;
-
-  const float MAP_CORNER_RADIUS = 44.0;
 
   vec3 sampleWaterNormal(vec2 uv) {
     return texture2D(uNormalMap, uv).xyz * 2.0 - 1.0;
@@ -662,90 +669,65 @@ export const FRAGMENT_SHADER = /* glsl */ `
     #endif
   }
 
-  vec3 gardenOpenOcean(
-    float tonalCurrent,
-    float cloudLight,
-    float facet,
-    float fresnelTerm,
-    vec3 environmentColor,
-    float camDist
-  ) {
-    vec3 color = mix(uBandColor[3], uDeepColor, 0.30) * (0.94 + tonalCurrent * 0.04);
-    color *= (0.95 + facet * 0.1) * mix(1.0, cloudLight, 0.9);
-    color = mix(
-      color,
-      environmentColor,
-      fresnelTerm * (0.08 + uDaylight * 0.08 + uNight * 0.04)
-    );
-    color = mix(color, environmentColor, clamp(uEnvStrength, 0.0, 0.85));
-    float fade = smoothstep(150.0, 520.0, camDist);
-    return mix(color, uBaseColor, fade * (0.08 + uDusk * 0.05 + uNight * 0.04));
-  }
-
-${gardenBokashiBandGlsl()}
 ${gardenHeightFogGlsl()}
 
   void main() {
-    vec2 fromMapCenter = vWaterPosition - uOpenOceanCenter;
-    vec2 boxArm = abs(fromMapCenter) - vec2(max(0.0, uMapEdge - MAP_CORNER_RADIUS));
-    float mapDistance = length(max(boxArm, 0.0))
-      + min(max(boxArm.x, boxArm.y), 0.0)
-      + MAP_CORNER_RADIUS;
-    if (mapDistance > uOpenOceanRadius) {
-      float openTonalCurrent = 0.5 + 0.5 * sin(
-        dot(vWaterPosition, vec2(0.046, -0.058)) + uTime * 0.027
-      );
-      float openCloudCover = 0.0;
-      if (uCloudShadowStrength > 0.001) {
-        vec2 openCloudUv = vec2(vWaterPosition.x, -vWaterPosition.y) * uCloudShadowTransform.xy
-          + uCloudShadowTransform.zw;
-        openCloudCover = texture2D(uCloudShadow, openCloudUv).r;
-      }
-      float openFacet = clamp(normalize(vec3(-0.46, 0.2, 0.86)).z * 0.5 + 0.55, 0.2, 1.0);
-      vec3 openView = normalize(cameraPosition - vWorldPosition);
-      vec3 openEnvironment = gardenEnvironmentReflection(
-        vec3(0.0, 1.0, 0.0),
-        openView,
-        mix(uEnvHorizonColor, uEnvZenithColor, 0.52)
-      );
-      float openCamDistance = distance(cameraPosition, vWorldPosition);
-      vec3 openColor = gardenOpenOcean(
-        openTonalCurrent,
-        1.0 - openCloudCover * uCloudShadowStrength,
-        openFacet,
-        pow(1.0 - max(0.0, openView.z), 3.0),
-        openEnvironment,
-        openCamDistance
-      );
-      gl_FragColor = vec4(openColor, 1.0);
-      #include <tonemapping_fragment>
-      #include <colorspace_fragment>
-      #include <fog_fragment>
-      gl_FragColor.rgb = gardenApplyHeightFog(
-        gl_FragColor.rgb,
-        vWorldPosition,
-        vFogDepth,
-        normalize(vWorldPosition - cameraPosition)
-      );
-      gl_FragColor.rgb *= gardenBokashiShade(vFogDepth, fogNear, uDaylight, uDusk, uNight);
-      return;
-    }
-
     float harborDistance = length((vWaterPosition - uHarborEllipse.xy) * uHarborEllipse.zw);
     float harborCalm = (1.0 - smoothstep(0.7, 1.05, harborDistance)) * uHarborCalm;
 
+    vec4 surfaceRegionSample = texture2D(uRegionField, vRegionUv);
+    int regionId = int(surfaceRegionSample.r * 255.0 + 0.5);
+    vec4 regionFlow = uRegionFlow[regionId];
+    vec4 regionWave = uRegionSwell[regionId];
+    vec2 bodyFlowDir = normalize(mix(uWindDir, regionFlow.xy, regionFlow.z));
+    vec2 bodyAcrossDir = vec2(-bodyFlowDir.y, bodyFlowDir.x);
+    float bodyAlong = dot(vWaterPosition, bodyFlowDir);
+    float bodyAcross = dot(vWaterPosition, bodyAcrossDir);
+
     float scroll = uTime * (0.6 + uTempo * 0.9) * (0.92 + uBreath * 0.16);
-    vec2 flow = uWindDir * scroll;
-    vec3 nA = sampleWaterNormal(vWaterPosition * 0.055 + flow * 0.045);
+    vec2 directedPosition = vec2(bodyAlong, bodyAcross);
+    vec3 nA;
+    vec2 nADirected;
     vec3 blendedNormal;
-    if (uDetail > 0.55) {
-      vec3 nB = sampleWaterNormal(
-        rotate2(vWaterPosition, 2.3) * 0.11 - flow * 0.03 + vec2(0.37, 0.11)
-      );
-      blendedNormal = normalize(vec3(nA.xy + nB.xy, nA.z * nB.z + 0.55));
+    if (regionId == ${SEA_REGION_ID.open}) {
+      // W2.6's measured 0.002 moon-glitter occupancy was recorded against
+      // this exact isotropic open-water normal field. Keep it unchanged so the
+      // <=0.016 emissive proxy still guards the shader that actually renders.
+      vec2 openFlow = uWindDir * scroll;
+      nA = sampleWaterNormal(vWaterPosition * 0.055 + openFlow * 0.045);
+      nADirected = nA.xy;
+      if (uDetail > 0.55) {
+        vec3 nB = sampleWaterNormal(
+          rotate2(vWaterPosition, 2.3) * 0.11 - openFlow * 0.03 + vec2(0.37, 0.11)
+        );
+        blendedNormal = normalize(vec3(nA.xy + nB.xy, nA.z * nB.z + 0.55));
+      } else {
+        blendedNormal = normalize(vec3(nA.xy, nA.z + 0.55));
+      }
     } else {
-      blendedNormal = normalize(vec3(nA.xy, nA.z + 0.55));
+      nA = sampleWaterNormal(
+        directedPosition * vec2(0.032, 0.075) + vec2(scroll * 0.038, 0.0)
+      );
+      nADirected = bodyFlowDir * nA.x + bodyAcrossDir * nA.y;
+      if (uDetail > 0.55) {
+        vec3 nB = sampleWaterNormal(
+          rotate2(vWaterPosition, 2.3) * 0.11 - uWindDir * scroll * 0.03 + vec2(0.37, 0.11)
+        );
+        // Per-body direction UP; the generic crossed normal is explicitly DOWN
+        // in the quiet/linear waters through the crossed-normal character field.
+        blendedNormal = normalize(vec3(
+          nADirected + nB.xy * regionWave.z,
+          nA.z * mix(1.0, nB.z, regionWave.z) + 0.55
+        ));
+      } else {
+        blendedNormal = normalize(vec3(nADirected, nA.z + 0.55));
+      }
     }
+    blendedNormal = normalize(mix(
+      vec3(0.0, 0.0, 1.0),
+      blendedNormal,
+      regionFlow.w
+    ));
     blendedNormal = normalize(mix(blendedNormal, vec3(0.0, 0.0, 1.0), harborCalm * 0.75));
     float camDistance = distance(cameraPosition, vWorldPosition);
     float detailFalloff = max(1.0 - smoothstep(130.0, 460.0, camDistance), 0.32) * uDetail;
@@ -754,6 +736,41 @@ ${gardenHeightFogGlsl()}
     surfaceNormal = normalize(
       surfaceNormal + vec3(vGerstnerNormal.xy * (18.0 * detailFalloff), 0.0)
     );
+
+    // These are refinements of the existing normal/ripple term, never a new
+    // oscillator. Each branch strengthens one body and demotes the shared
+    // crossed normal named in SEA_REGION_CHARACTER.
+    vec2 signatureNormal = vec2(0.0);
+    float signatureTone = 0.0;
+    if (regionId == ${SEA_REGION_ID.watch}) {
+      // Long parallel ripples UP; isotropic ripple grain DOWN.
+      float phase = bodyAcross * 0.52 + sin(bodyAlong * 0.045) * 0.34 - uTime * 0.18;
+      signatureNormal += bodyAcrossDir * cos(phase) * 0.075;
+      signatureTone = sin(phase) * 0.5;
+    } else if (regionId == ${SEA_REGION_ID.alert}) {
+      // Channel-axis current streaks UP; crossed chop DOWN.
+      float currentGate = smoothstep(0.3, 0.82, gardenValueNoise(vec2(bodyAcross * 0.2, bodyAlong * 0.035)));
+      float phase = bodyAcross * 1.15 + sin(bodyAlong * 0.12 - uTime * 0.62) * 0.5;
+      signatureNormal += bodyAcrossDir * cos(phase) * currentGate * 0.105;
+      signatureTone = sin(phase) * currentGate * 0.62;
+    } else if (regionId == ${SEA_REGION_ID.warning}) {
+      // Short broken ripples UP; the shared long swell is DOWN.
+      float brokenGate = smoothstep(0.42, 0.68, gardenValueNoise(vec2(floor(bodyAlong * 0.32), bodyAcross * 0.16)));
+      float phase = bodyAcross * 1.62 - uTime * 0.42;
+      signatureNormal += bodyAcrossDir * cos(phase) * brokenGate * 0.13;
+      signatureTone = sin(phase) * brokenGate * 0.5;
+    } else if (regionId == ${SEA_REGION_ID.danger}) {
+      // Steep diagonal wave faces UP; generic crest texture DOWN.
+      float phase = bodyAcross * 1.08 - uTime * (0.62 + uStorm * 0.25);
+      signatureNormal += bodyAcrossDir * cos(phase) * 0.23;
+      signatureTone = sin(phase) * 0.7;
+    } else if (regionId == ${SEA_REGION_ID.ledger}) {
+      // Flat horizontal striations UP; shared swell DOWN.
+      float phase = bodyAcross * 0.84 - uTime * 0.045;
+      signatureNormal += bodyAcrossDir * cos(phase) * 0.035;
+      signatureTone = sin(phase) * 0.52;
+    }
+    surfaceNormal = normalize(surfaceNormal + vec3(signatureNormal * detailFalloff, 0.0));
 
     vec2 normalDerivative = fwidth(blendedNormal.xy);
     float glintDetailWeight = 1.0 / (
@@ -796,7 +813,7 @@ ${gardenHeightFogGlsl()}
 
     float depth = smoothstep(0.92, 3.8, shoreDistance) * 0.72;
 
-    vec2 bathyP = (vWaterPosition - uOpenOceanCenter) / max(1.0, uMapEdge);
+    vec2 bathyP = vRegionUv - vec2(0.5);
     float bathyGrain = dot(bathyP, vec2(0.788, 0.616));
     float bathyAcross = dot(bathyP, vec2(-0.616, 0.788));
     float banks = sin(bathyGrain * 3.1 + 0.7) * 0.5
@@ -929,6 +946,10 @@ ${gardenHeightFogGlsl()}
       ${glslFloat(GARDEN_WATER_CREST_FOAM.jacobianEnd)},
       crestFold
     );
+    // Danger's authored blown foam is the crest hero now: generic crest foam
+    // DOWN everywhere so the one amplified body does not make the whole sea
+    // equally loud.
+    crestFoamMask *= 0.52;
     if (crestFoamMask > 0.001) {
       vec2 crestAdvect = uWindDir * (uTime * 0.11 * (0.55 + uWindSpeed * 0.6));
       float crestNoise = gardenValueNoise((vWaterPosition - crestAdvect) * 0.24 + 31.4);
@@ -951,8 +972,6 @@ ${gardenHeightFogGlsl()}
     float seaReflectivity = 1.0;
 
     {
-      vec4 regionSample = texture2D(uRegionField, vRegionUv);
-      int regionId = int(regionSample.r * 255.0 + 0.5);
       float boundaryDistance = texture2D(uRegionDistance, vRegionUv).r;
 
       vec3 regionTint = uRegionColor[regionId];
@@ -961,24 +980,33 @@ ${gardenHeightFogGlsl()}
       float regionReflect = uRegionParams[regionId].z;
       float regionStrength = uRegionParams[regionId].w;
 
-      float edgeFade = 1.0 - smoothstep(
-        uMapEdge * 0.95,
-        uOpenOceanRadius,
-        mapDistance
-      );
-      regionStrength *= edgeFade;
-      regionFoam *= edgeFade;
-      regionDepth = mix(1.0, regionDepth, edgeFade);
-      regionReflect = mix(1.0, regionReflect, edgeFade);
       seaReflectivity = regionReflect;
 
       float waterLuma = dot(waterColor, vec3(0.2126, 0.7152, 0.0722));
-      float tintLuma = max(dot(regionTint, vec3(0.2126, 0.7152, 0.0722)), 0.03);
-      vec3 regionColor = regionTint * clamp(waterLuma * 1.6 / tintLuma, 0.35, 1.15);
+      float tintLuma = max(dot(regionTint, vec3(0.2126, 0.7152, 0.0722)), 0.0001);
+      // Hue/chroma carries the body's identity, but value belongs to the local
+      // water at every phase. Match the FINAL tint exactly before depth is
+      // applied; otherwise time-invariant theme luminance lifts named night
+      // water (Wreck was ~2.3x open water despite depth 0.70).
+      vec3 regionColor = regionTint * (waterLuma / tintLuma);
 
       float blend = smoothstep(0.0, 0.84, boundaryDistance);
       waterColor = mix(waterColor, regionColor, regionStrength * blend);
       waterColor *= mix(1.0, regionDepth, blend);
+      // Warning's pale shelf UP; the generic bathymetry shelf is correspondingly
+      // absent from the other bodies through the data value of zero.
+      float localShelf = regionWave.w * blend * (
+        0.72 + gardenValueNoise(vec2(bodyAlong * 0.07, bodyAcross * 0.12)) * 0.28
+      );
+      waterColor = mix(waterColor, uShallowColor, localShelf * (0.24 - uNight * 0.07));
+
+      // Body signatures modulate the existing colour/current term; they do
+      // not add light. Wreck's static silt UP while generic moving ripple DOWN.
+      waterColor *= 1.0 + signatureTone * blend * 0.035;
+      if (regionId == ${SEA_REGION_ID.wreck}) {
+        float silt = gardenFbm(vWaterPosition * 0.052 + vec2(4.2, -7.8));
+        waterColor *= mix(0.84, 0.96, silt) * mix(1.0, 0.94, blend);
+      }
 
       if (regionId == ${SEA_REGION_ID.danger}) {
         vec2 rainUv = gl_FragCoord.xy * vec2(0.055, 0.018);
@@ -989,7 +1017,7 @@ ${gardenHeightFogGlsl()}
         float rainSeed = gardenHash(rainCell + vec2(17.0, 43.0));
         float rainLine = smoothstep(0.055, 0.0, abs(rainLocal.x - rainSeed));
         float rainDash = smoothstep(0.62, 0.98, fract(rainLocal.y + rainSeed));
-        float rain = rainLine * rainDash * blend * edgeFade;
+        float rain = rainLine * rainDash * blend;
         waterColor = mix(
           waterColor,
           uEnvHorizonColor,
@@ -1003,29 +1031,63 @@ ${gardenHeightFogGlsl()}
         clamp((regionReflect - 1.0) * 0.22, 0.0, 0.3) * blend * uEnvStrength
       );
 
-      float seam = (1.0 - smoothstep(0.0, 0.11, boundaryDistance)) * edgeFade;
-      float seamShadow = (1.0 - smoothstep(0.05, 0.24, boundaryDistance)) * edgeFade;
-      float seamWave = 0.55 + 0.45 * sin(
-        dot(vWaterPosition, vec2(0.31, 0.24)) - uTime * 0.35 * (0.6 + uTempo)
+      // A body's edge is a low-frequency BANK, not a hairline. Width is
+      // authored in tiles and normalised on the CPU against the field's known
+      // distance scale, so the treatment survives both the default and chart
+      // cameras without reclassifying a single tile.
+      vec3 boundaryCharacter = uRegionBoundary[regionId];
+      float boundaryEnabled = smoothstep(0.001, 0.02, boundaryCharacter.x);
+      float boundaryBand = (
+        1.0 - smoothstep(0.0, max(0.001, boundaryCharacter.x), boundaryDistance)
+      ) * boundaryEnabled;
+      float boundaryNoise = gardenValueNoise(
+        vec2(bodyAlong * 0.035, bodyAcross * 0.025) + float(regionId) * 7.31
       );
-      waterColor *= 1.0 - seamShadow * 0.025 * uDetail;
+      float boundaryCadence = 0.68 + boundaryNoise * 0.32;
+      if (regionId == ${SEA_REGION_ID.watch}) {
+        boundaryCadence *= 0.68 + 0.32 * sin(bodyAcross * 0.34 - uTime * 0.12);
+      } else if (regionId == ${SEA_REGION_ID.alert}) {
+        boundaryCadence *= 0.62 + 0.38 * sin(bodyAcross * 0.58 - uTime * 0.3);
+      } else if (regionId == ${SEA_REGION_ID.warning}) {
+        boundaryCadence *= smoothstep(0.34, 0.69, gardenValueNoise(
+          vec2(floor(bodyAlong * 0.11), bodyAcross * 0.055) + 23.0
+        ));
+      } else if (regionId == ${SEA_REGION_ID.danger}) {
+        boundaryCadence *= 0.64 + 0.36 * sin(bodyAcross * 0.72 - uTime * 0.48);
+      } else if (regionId == ${SEA_REGION_ID.ledger}) {
+        boundaryCadence *= 0.7 + 0.3 * sin(bodyAcross * 0.23);
+      } else if (regionId == ${SEA_REGION_ID.wreck}) {
+        boundaryCadence *= 0.72 + 0.28 * gardenFbm(vWaterPosition * 0.028 + 41.0);
+      }
+      waterColor *= 1.0 - boundaryBand * boundaryCharacter.z
+        * (0.58 + boundaryNoise * 0.42) * (0.72 + uDetail * 0.28);
       waterColor = mix(
         waterColor,
-        mix(uHighlightColor, waterColor, 0.42),
-        seam * seamWave * 0.08 * uDetail
+        uHighlightColor,
+        clamp(
+          boundaryBand * boundaryCharacter.y * boundaryCadence
+            * (0.5 + uDetail * 0.5) * (0.78 + uDaylight * 0.22),
+          0.0,
+          0.18
+        )
       );
 
       if (regionFoam > 0.3) {
-        vec2 capAdvect = uWindDir * (uTime * 0.06 * (0.5 + uTempo) * (0.6 + uWindSpeed * 0.8));
-        vec2 capUv = (vWaterPosition - capAdvect) * 0.85;
+        vec2 capAdvect = vec2(
+          uTime * 0.06 * (0.5 + uTempo) * (0.6 + uWindSpeed * 0.8),
+          0.0
+        );
+        vec2 capUv = vec2(bodyAlong, bodyAcross * 1.7) - capAdvect;
+        capUv *= 0.85;
         float capNoise = gardenFbm(capUv);
         float capThreshold = mix(0.82, 0.68, clamp(regionFoam, 0.0, 1.0));
         float caps = smoothstep(capThreshold, capThreshold + 0.13, capNoise);
         caps *= 0.35 + smoothstep(0.06, 0.24, (1.0 - vGerstnerJ) * 400.0) * 1.5;
+        float capMaximum = regionId == ${SEA_REGION_ID.danger} ? 0.18 : 0.075;
         waterColor = mix(
           waterColor,
           uHighlightColor,
-          clamp(caps * regionFoam * blend, 0.0, 0.1) * uDetail
+          clamp(caps * regionFoam * blend, 0.0, capMaximum) * uDetail
         );
       }
     }
@@ -1133,17 +1195,42 @@ ${gardenHeightFogGlsl()}
       waterColor = mix(waterColor, uHighlightColor, ripple * (0.1 + uDaylight * 0.06));
     }
 
+    // Item 3 beam road: the one beacon lane now carries to the finite rim and
+    // resolves into one soft landing pool. This refines the existing light-road
+    // term; it adds no lane, texture, pass, or independent light vocabulary.
     vec2 beamDirection = vec2(cos(uBeaconAngle), sin(uBeaconAngle));
     vec2 fromBeacon = vWaterPosition - uBeaconPosition;
     float beamAlong = dot(fromBeacon, beamDirection);
     float beamAcross = abs(dot(fromBeacon, vec2(-beamDirection.y, beamDirection.x)));
-    float beamWidth = 0.34 + max(0.0, beamAlong) * 0.029;
-    float beamLane = smoothstep(0.0, 2.0, beamAlong)
-      * (1.0 - smoothstep(30.0, 52.0, beamAlong))
-      * exp(-(beamAcross * beamAcross) / max(0.04, beamWidth * beamWidth));
+    float beamWidth = 0.55 + max(0.0, beamAlong) * ${glslFloat(
+      (GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS - 0.55) / GARDEN_LIGHTHOUSE_BEAM_LENGTH,
+    )};
+    float beamRoad = smoothstep(0.0, 3.0, beamAlong)
+      * (1.0 - smoothstep(
+        ${glslFloat(GARDEN_LIGHTHOUSE_BEAM_LENGTH - 8)},
+        ${glslFloat(GARDEN_LIGHTHOUSE_BEAM_LENGTH + 2)},
+        beamAlong
+      ))
+      * exp(-(beamAcross * beamAcross) / max(0.08, beamWidth * beamWidth));
+    vec2 beamPoolDelta = vec2(
+      beamAlong - ${glslFloat(GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE)},
+      beamAcross
+    );
+    vec2 beamPoolRadius = vec2(10.0, ${glslFloat(GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS * 1.35)});
+    float beamPool = exp(-dot(
+      beamPoolDelta / beamPoolRadius,
+      beamPoolDelta / beamPoolRadius
+    )) * smoothstep(
+      ${glslFloat(GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE - 18)},
+      ${glslFloat(GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE - 6)},
+      beamAlong
+    );
     float beamRipple = 0.56 + 0.44 * sin(beamAlong * 0.78 - uTime * 0.8 + tonalCurrent * 0.8);
-    float beaconReflection = beamLane
-      * (0.05 + smoothstep(0.48, 0.9, beamRipple) * 0.12)
+    float beamRippleCrest = smoothstep(0.48, 0.9, beamRipple);
+    float beaconReflection = (
+      beamRoad * (0.035 + beamRippleCrest * 0.08)
+      + beamPool * (0.08 + beamRippleCrest * 0.13)
+    )
       * uBeaconStrength;
     if (uBeaconStrength > 0.2) {
       float flickerGlow = 0.62 + 0.76 * uBeaconFlicker;
@@ -1272,18 +1359,35 @@ ${gardenHeightFogGlsl()}
     float distanceFade = smoothstep(150.0, 520.0, camDistance);
     waterColor = mix(waterColor, uBaseColor, distanceFade * (0.08 + uDusk * 0.05 + uNight * 0.04));
 
-    float oceanBlend = smoothstep(uMapEdge * 0.95, uOpenOceanRadius, mapDistance);
-    if (oceanBlend > 0.001) {
-      waterColor = mix(waterColor, gardenOpenOcean(
-        tonalCurrent,
-        cloudLight,
-        facetLight,
-        fresnel,
-        skySample,
-        camDistance
-      ), oceanBlend);
-    }
-    gl_FragColor = vec4(waterColor, 1.0);
+    // Wave 6: value follows pictorial depth before the fog seam takes over.
+    // The camera-side water is the ink plane; the far water lifts toward the
+    // sky seam. This is day-only value structure, not a new water character or
+    // a hue override, so the seven region colours and every tier stay intact.
+    float dayValueDepth = smoothstep(105.0, 270.0, camDistance);
+    float dayValueGain = mix(0.55, 1.12, dayValueDepth);
+    waterColor *= mix(1.0, dayValueGain, uDaylight);
+
+    // Eight tiles of water continue beyond the authored map at the far pair
+    // and east side, then dissolve into the real sky sheet. The south/engawa
+    // edge stays opaque under its rock threshold. Alpha is essential here:
+    // mixing to one fog swatch would simply exchange a blue slab for a cream
+    // slab and would still disagree with the graded sky above and below it.
+    const float PLATE_TILE_UV = ${glslFloat(1 / 140)};
+    const float PLATE_FADE_UV = ${glslFloat(GARDEN_WATER_PLATE_MARGIN_TILES / 140)};
+    float farPairFade = smoothstep(
+      -PLATE_FADE_UV,
+      0.0,
+      min(vRegionUv.x, vRegionUv.y)
+    );
+    float eastSideFade = 1.0 - smoothstep(
+      1.0 - PLATE_TILE_UV,
+      1.0 - PLATE_TILE_UV + PLATE_FADE_UV,
+      vRegionUv.x
+    );
+    float plateAlpha = farPairFade * eastSideFade;
+
+    if (plateAlpha < 0.002) discard;
+    gl_FragColor = vec4(waterColor, plateAlpha);
 
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -1311,7 +1415,6 @@ ${gardenHeightFogGlsl()}
       uPegSummaryEpistemicHaze * riskWater * epistemicMist
     );
 
-    gl_FragColor.rgb *= gardenBokashiShade(vFogDepth, fogNear, uDaylight, uDusk, uNight);
   }
 `;
 
@@ -1382,7 +1485,7 @@ export interface GardenWater {
 export type GardenWaterZone = GardenWaterZoneTint;
 
 /**
- * One full-bleed water surface — the Garden Sea. Banded depth color, sky env
+ * One finite water surface — the Garden Sea plate. Banded depth color, sky env
  * tint, sun glitter, drifting cloud shadows, and karesansui ripple rings by
  * day; the authored moon road and the shared light-lane registry keep the
  * Lantern Sea identity at night. W6 (Pharos Wonder): the beacon lane breathes
@@ -1409,18 +1512,40 @@ export function createGardenWater(waterLevel: number): GardenWater {
   // Seeded from the fallback table so every slot has a real colour even
   // before (or without) a live theme write — an unset slot renders black.
   const regionColors = SEA_REGION_ORDER.map((name) => new Color(SEA_REGION_FALLBACK_TINT[name]));
+  const regionBoundary = SEA_REGION_ORDER.map((name) => {
+    const character = SEA_REGION_CHARACTER[name];
+    return new Vector3(
+      character.boundaryWidthTiles / SEA_REGION_DISTANCE_FULL_SCALE_TILES,
+      character.boundaryFoam,
+      character.boundaryBank,
+    );
+  });
   const regionParams = SEA_REGION_ORDER.map((name) => {
     const character = SEA_REGION_CHARACTER[name];
     return new Vector4(
       character.depth,
       character.foam,
       character.reflectivity,
-      name === "none" || name === "open" ? 0 : REGION_TINT_STRENGTH,
+      character.tintStrength,
     );
   });
   const regionSwell = SEA_REGION_ORDER.map((name) => {
     const character = SEA_REGION_CHARACTER[name];
-    return new Vector4(character.swell, character.chop, 0, 0);
+    return new Vector4(
+      character.swell,
+      character.chop,
+      character.crossedNormal,
+      character.shallowShelf,
+    );
+  });
+  const regionFlow = SEA_REGION_ORDER.map((name) => {
+    const character = SEA_REGION_CHARACTER[name];
+    return new Vector4(
+      Math.cos(character.flowBearing),
+      -Math.sin(character.flowBearing),
+      character.flowHold,
+      character.normalDetail,
+    );
   });
   // Maps world XY on the water plane into the field's 0-1 UV space.
   //
@@ -1521,25 +1646,12 @@ export function createGardenWater(waterLevel: number): GardenWater {
     // W2 / D5: the sea-region field replaces the six tinted ellipses. One
     // texture, sampled in both stages, carrying the SAME terrain
     // classification the simulation obeys.
-    // The map's centre in water-local space, and the half-extent past which
-    // no shader feature can contribute. The margin (0.62 of the full span vs
-    // the 0.5 the map strictly needs) keeps shore foam and the outermost
-    // region blend well inside the detailed path.
-    uOpenOceanCenter: {
-      value: new Vector2(
-        (regionField.tileSpan * TILE_SCALE_UNITS) * 0.5,
-        -(regionField.tileSpan * TILE_SCALE_UNITS) * 0.5,
-      ),
-    },
-    uOpenOceanRadius: { value: (regionField.tileSpan * TILE_SCALE_UNITS) * 0.56 },
     uPegSummaryEpistemicHaze: { value: 0 },
-    // L2: where the PLAYABLE map actually ends, as distinct from the early-out
-    // radius 12% beyond it. The region fade is anchored to this; conflating the
-    // two is what silently stripped the zones from half the sea.
-    uMapEdge: { value: (regionField.tileSpan * TILE_SCALE_UNITS) * 0.5 },
     uRegionField: { value: regionField.field },
     uRegionDistance: { value: regionField.distance },
     uRegionColor: { value: regionColors },
+    uRegionBoundary: { value: regionBoundary },
+    uRegionFlow: { value: regionFlow },
     uRegionParams: { value: regionParams },
     uRegionSwell: { value: regionSwell },
     uRegionTransform: { value: regionTransform },
@@ -1547,13 +1659,20 @@ export function createGardenWater(waterLevel: number): GardenWater {
   const material = new ShaderMaterial({
     fog: true,
     fragmentShader: FRAGMENT_SHADER,
+    transparent: true,
     uniforms,
     vertexShader: VERTEX_SHADER,
   });
-  const mesh = new Mesh(
-    new PlaneGeometry(WATER_SIZE, WATER_SIZE, WATER_SEGMENTS, WATER_SEGMENTS),
-    material,
-  );
+  const mapSpan = (regionField.tileSpan - 1) * TILE_SCALE_UNITS;
+  const plateMargin = GARDEN_WATER_PLATE_MARGIN_TILES * TILE_SCALE_UNITS;
+  const plateSize = mapSpan + plateMargin * 2;
+  const geometry = new PlaneGeometry(plateSize, plateSize, WATER_SEGMENTS, WATER_SEGMENTS);
+  // Keep water-local XY equal to world X,-Z: every wake, calm mask, light lane
+  // and region lookup already shares that coordinate contract. Translating
+  // vertices (instead of the mesh) centres the finite plate without changing
+  // any of those semantics.
+  geometry.translate(mapSpan * 0.5, -mapSpan * 0.5, 0);
+  const mesh = new Mesh(geometry, material);
   mesh.name = "garden-water";
   mesh.position.y = waterLevel;
   mesh.rotation.x = -Math.PI / 2;
@@ -1758,13 +1877,24 @@ export function createGardenWater(waterLevel: number): GardenWater {
     setZoneState(zones) {
       // W2 / D5: zone TINTS are no longer painted as ellipses — the region
       // field carries the geometry. What still arrives here is each band's
-      // live colour, which is routed to its region slot so day/dusk/night
-      // colour blending and the theme bridge keep working unchanged.
+      // live day-blended colour, retained as a quiet admixture so the authored
+      // body dye and the theme bridge continue to share one slot.
       for (const zone of zones) {
         const slot = zone.regionId;
         if (slot === undefined || slot <= 0 || slot >= SEA_REGION_COUNT) continue;
-        regionColors[slot]!.copy(zone.color);
-        uniforms.uRegionParams.value[slot]!.w = zone.strength;
+        const name = SEA_REGION_ORDER[slot]!;
+        const character = SEA_REGION_CHARACTER[name];
+        // The character's authored dye carries the requested body identity;
+        // a small live-theme admixture keeps day-cycle palette continuity.
+        // Exact shader luminance matching then hands VALUE back to the live
+        // water before depth is applied, so stronger hue never flattens depth.
+        regionColors[slot]!.set(character.tint).lerp(zone.color, 0.18);
+        // A weaker legacy zone value may not silently pull the amplified
+        // character back toward the old indistinguishable ~0.2 register.
+        uniforms.uRegionParams.value[slot]!.w = Math.max(
+          character.tintStrength,
+          Math.min(0.72, zone.strength),
+        );
       }
     },
     setWakeState(texture, centerX, centerY, halfSize) {

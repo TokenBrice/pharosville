@@ -33,6 +33,15 @@ function lane(overrides: Partial<GardenLightLane> & { id: string }): GardenLight
 }
 
 describe("createGardenLaneRegistry", () => {
+  it("exposes its water-sampled DataTexture to the owner census", () => {
+    const registry = createGardenLaneRegistry();
+
+    expect(registry.getTextureManifest()).toEqual([
+      { owner: "garden-lanterns.lane-data", texture: registry.texture },
+    ]);
+    registry.dispose();
+  });
+
   it("packs registered lanes into the texture and reports the active count", () => {
     const registry = createGardenLaneRegistry();
     registry.set(lane({ id: "a", worldX: 3, worldZ: -2, intensity: 0.8 }));
@@ -54,14 +63,14 @@ describe("createGardenLaneRegistry", () => {
     }
     registry.set(lane({ id: "beacon", intensity: 0.01, kind: "beacon", worldX: -900 }));
 
-    expect(registry.sync("constrained")).toBe(4);
+    expect(registry.sync("constrained")).toBe(3);
     const data = registry.texture.image.data as Float32Array;
     expect(data[0]).toBe(-900);
     expect(data[3]).toBe(2);
 
-    expect(registry.sync("balanced")).toBe(12);
+    expect(registry.sync("balanced")).toBe(10);
     // W3.1: the full tier's night budget, NOT the 48-texel texture capacity.
-    expect(registry.sync("full")).toBe(24);
+    expect(registry.sync("full")).toBe(16);
     registry.dispose();
   });
 
@@ -92,10 +101,12 @@ describe("createGardenLaneRegistry", () => {
     expect(intensityAt(160)).toBeCloseTo(0.7 * 0.45 * GARDEN_LANE_EMBER_GAIN.lantern);
     expect(intensityAt(80)).toBeGreaterThan(intensityAt(120));
     expect(GARDEN_LANE_EMBER_GAIN.lantern).toBeLessThan(1);
+    expect(GARDEN_LANE_EMBER_GAIN.lantern).toBeLessThan(0.4);
     registry.dispose();
   });
 
   it("thins ember pools that would merge, keeping the brightest of a cluster", () => {
+    expect(GARDEN_EMBER_LANE_MIN_SEPARATION).toBeGreaterThan(8);
     const registry = createGardenLaneRegistry();
     // Six lamps inside one pool radius plus one lamp well clear of them.
     for (let index = 0; index < 6; index += 1) {

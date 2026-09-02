@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "./camera";
-import { ABSOLUTE_MIN_ZOOM, minZoomForViewport, tileToScreen } from "./projection";
+import { ABSOLUTE_MIN_ZOOM, mapIsoBounds, minZoomForViewport, tileToScreen } from "./projection";
 import { MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX } from "./viewport-gate";
-import { buildPharosVilleMap, CEMETERY_CENTER, isWaterTileKind, PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, PIGEON_ISLAND_CENTER } from "./world-layout";
+import { gardenIslandDisplayTile } from "./garden-observatory-slice";
+import { buildPharosVilleMap, CEMETERY_CENTER, isWaterTileKind, LIGHTHOUSE_TILE, PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, PIGEON_ISLAND_CENTER } from "./world-layout";
 import type { TerrainKind } from "./world-types";
 
 describe("camera", () => {
@@ -54,15 +55,29 @@ describe("camera", () => {
       const compositionProgress = shortSide < MIN_SHORT_SIDE_PX
         ? 0
         : Math.max(shortSideProgress, longSideProgress);
-      expect(camera.zoom).toBeCloseTo(0.72 * (1 + compositionProgress * 0.08));
+      expect(camera.zoom).toBeCloseTo(0.6 * (1 + compositionProgress * 0.02));
       // The constant 128px right-gutter is proportionally largest in the
       // 720px-wide tall case; the island remains intentionally left of center.
-      expect(center.x).toBeGreaterThanOrEqual(viewport.x * 0.37);
-      expect(center.x).toBeLessThanOrEqual(viewport.x * 0.55);
+      expect(center.x).toBeGreaterThanOrEqual(viewport.x * 0.43);
+      expect(center.x).toBeLessThanOrEqual(viewport.x * 0.68);
       expect(center.y).toBeGreaterThanOrEqual(viewport.y * 0.45);
       expect(center.y).toBeLessThanOrEqual(viewport.y * 0.65);
       expect(clampCameraToMap(camera, { map, viewport })).toEqual(camera);
     }
+  });
+
+  it("frames the Ethereum shore capital with the Pharos and a broad right-hand interval", () => {
+    const map = buildPharosVilleMap();
+    const viewport = { x: 1600, y: 1000 };
+    const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
+    const tower = tileToScreen(gardenIslandDisplayTile(LIGHTHOUSE_TILE), camera);
+    const ethereumStation = tileToScreen({ x: 14, y: 74 }, camera);
+    expect(ethereumStation.x).toBeGreaterThan(viewport.x * 0.08);
+    expect(ethereumStation.x).toBeLessThan(viewport.x * 0.2);
+    expect(tower.x).toBeGreaterThan(viewport.x * 0.43);
+    expect(tower.x).toBeLessThan(viewport.x * 0.52);
+    expect(tower.y).toBeGreaterThan(viewport.y * 0.45);
+    expect(tower.y).toBeLessThan(viewport.y * 0.58);
   });
 
   it("keeps bounded zooms inside the biased composition frame", () => {
@@ -123,15 +138,17 @@ describe("N1 zoom floor", () => {
   const map = { height: 112, width: 112 };
 
   it("stops zoom-out at the point the map still frames the viewport", () => {
-    // The map's iso bounds are 1760x880, so 1920x1080 frames it at ~1.09. The
-    // old flat 0.48 floor let the camera pull back to roughly 2.3x the map's
-    // area, and the world read as a small tile adrift in empty ocean.
-    // The 112-tile map's iso bounds are 3520x1760, so 1920x1080 frames it at
-    // ~0.545. The floor sits just under that so a sliver of sea frames the
-    // world; it must never sit above the fit or the map cannot be seen whole.
+    // The fit includes the finite plate margin, not just the outer tile
+    // centres. The floor sits just under that shared extent so a sliver of sky
+    // frames the plate; it must never sit above the fit or the plate cannot be
+    // seen whole.
     const viewport = { x: 1920, y: 1080 };
     const floor = minZoomForViewport(viewport, map);
-    const fit = Math.min(1920 / 3520, 1080 / 1760);
+    const bounds = mapIsoBounds(map);
+    const fit = Math.min(
+      viewport.x / (bounds.maxX - bounds.minX),
+      viewport.y / (bounds.maxY - bounds.minY),
+    );
     expect(floor).toBeLessThanOrEqual(fit);
     expect(floor).toBeGreaterThan(fit * 0.9);
 

@@ -51,6 +51,7 @@
  *   node scripts/pharosville/preview.mjs --legend           # keep the onboarding overlay
  *   node scripts/pharosville/preview.mjs --quick-find       # open the search chrome for review
  *   node scripts/pharosville/preview.mjs --hover-first      # hover a visible ship target
+ *   node scripts/pharosville/preview.mjs --hover-sea-sign   # hover a visible sea stele target
  *   node scripts/pharosville/preview.mjs --url http://localhost:4173 --width 2560 --height 1440
  *   node scripts/pharosville/preview.mjs --assert            # perf tripwire, exits non-zero
  *   node scripts/pharosville/preview.mjs --assert --reduced  # settled static resource gate
@@ -58,6 +59,7 @@
  *   node scripts/pharosville/preview.mjs --assert --max-p90=20 --max-draw-calls=700
  *   node scripts/pharosville/preview.mjs --assert --max-p95=20 --tail-seconds 30
  *   node scripts/pharosville/preview.mjs --texture-census    # attribute live texture owners
+ *   node scripts/pharosville/preview.mjs --draw-census      # attribute live draw owners
  *   node scripts/pharosville/preview.mjs --refresh common   # main-thread cost of a data refresh
  *   node scripts/pharosville/preview.mjs --refresh churn    # ... with every placement moved
  */
@@ -331,6 +333,7 @@ try {
       if ((read.samples ?? 0) > (metrics.samples ?? 0)) metrics = read;
     }
   }
+  const settledAtFrame = metrics.drawOwnerCensus?.sampledAtFrame ?? -1;
   if ((metrics.shipsVisible ?? 0) === 0) {
     console.error("warning: no fleet on screen — the world had not populated, so the frame below is not the world.");
   }
@@ -350,6 +353,10 @@ try {
     tailSweep = await sweepFrameTail(page, tailSeconds * 1000);
     if (tailSweep.reads.length > 0) metrics = medianByP90(tailSweep.reads);
   }
+  if (args["draw-census"] && !args.reduced) {
+    const fresh = await waitForDrawOwnerCensusAfterFrame(page, settledAtFrame);
+    metrics = { ...metrics, drawOwnerCensus: fresh.drawOwnerCensus };
+  }
 
   await applyRequestedUiState(page);
   await mkdir(outputDirectory, { recursive: true });
@@ -363,6 +370,8 @@ try {
   if (!args.reduced) printFrameTail(metrics);
   console.log(`tier       ${metrics.tier} (session worst: ${metrics.tierReached})`
     + ` · composer ${metrics.composer ? "on" : "off"}`);
+  console.log(`motion     sample ${round(metrics.sampleDurationMs)}ms · hit targets ${round(metrics.hitTargetDurationMs)}ms`
+    + ` · draw submit ${round(metrics.drawDurationMs)}ms`);
   console.log(`draw       ${metrics.calls} recurring calls (${metrics.sceneCalls} scene +`
     + ` ${metrics.offscreenCalls} offscreen) · ${metrics.triangles} tris · ${metrics.geometries} geoms`
     + ` · ${metrics.textures} textures · fleet ${metrics.fleetDraws}`);
@@ -389,6 +398,7 @@ try {
   ) {
     printTextureOwnerCensus(metrics.textureOwnerCensus);
   }
+  if (args["draw-census"]) printDrawOwnerCensus(metrics.drawOwnerCensus);
   console.log(`fleet      ${metrics.shipsVisible} ships visible`);
   console.log(`shot       ${outputPath}`);
 
@@ -535,6 +545,27 @@ async function applyRequestedUiState(page) {
       };
     });
     if (!point) throw new Error("--hover-first could not find a visible ship target.");
+    await page.mouse.move(point.x, point.y);
+    await page.waitForTimeout(250);
+  }
+  if (args["hover-sea-sign"]) {
+    const point = await page.evaluate(() => {
+      const canvas = document.querySelector('[data-testid="pharosville-canvas"]');
+      const bounds = canvas?.getBoundingClientRect();
+      const targets = window.__pharosVilleDebug?.targets ?? [];
+      if (!bounds) return null;
+      const target = targets.find(({ kind, rect }) => {
+        const x = rect.x + rect.width / 2;
+        const y = rect.y + rect.height / 2;
+        return kind === "sea-sign" && x >= 0 && y >= 0 && x <= bounds.width && y <= bounds.height;
+      });
+      if (!target) return null;
+      return {
+        x: bounds.left + target.rect.x + target.rect.width / 2,
+        y: bounds.top + target.rect.y + target.rect.height / 2,
+      };
+    });
+    if (!point) throw new Error("--hover-sea-sign could not find a visible stele target.");
     await page.mouse.move(point.x, point.y);
     await page.waitForTimeout(250);
   }
@@ -976,6 +1007,10 @@ function evaluateAssertions(metrics, shaderErrors = []) {
   if ((metrics.calls ?? Infinity) > limits.maxDrawCalls) {
     failures.push(`${metrics.calls} draw calls exceed ${limits.maxDrawCalls}`);
   }
+  if (metrics.drawOwnerCensus
+    && metrics.drawOwnerCensus.attributedCalls !== metrics.drawOwnerCensus.rendererCalls) {
+    failures.push(`draw owner census mismatch: ${metrics.drawOwnerCensus.attributedCalls} attributed calls vs ${metrics.drawOwnerCensus.rendererCalls} renderer.info calls`);
+  }
   if ((metrics.geometries ?? Infinity) > limits.maxGeometries) {
     failures.push(`${metrics.geometries} geometries exceed ${limits.maxGeometries}`);
   }
@@ -1178,12 +1213,16 @@ function readMetrics(page) {
       contentParts: m?.contentSignaturePartHashes ?? null,
       dropped: m?.framePacing?.droppedFrameCount ?? null,
       fleetDraws: m?.fleetDrawCallCount ?? null,
+      frameCount: debug?.motionFrameCount ?? null,
       fps: m?.framePacing?.effectiveFps ?? null,
       geometries: m?.gpu?.geometries ?? null,
       logoAssetsExpected: m?.logoAssetsExpected ?? null,
       logoAssetsLoaded: m?.logoAssetsLoaded ?? null,
       longtaskCount: m?.longtask?.count ?? null,
       longtaskMaxMs: m?.longtask?.maxDurationMs ?? null,
+      sampleDurationMs: m?.sampleDurationMs ?? null,
+      hitTargetDurationMs: m?.hitTargetDurationMs ?? null,
+      drawDurationMs: m?.drawDurationMs ?? null,
       maxFrameMs: m?.framePacing?.maxMs ?? null,
       p50: m?.framePacing?.p50Ms ?? null,
       p90: m?.framePacing?.p90Ms ?? null,
@@ -1195,6 +1234,7 @@ function readMetrics(page) {
       shipsVisible: m?.visibleShipCount ?? null,
       offscreenCalls: m?.gpu?.offscreenCalls ?? null,
       sceneCalls: m?.gpu?.sceneCalls ?? null,
+      drawOwnerCensus: m?.drawOwnerCensus ?? null,
       textureOwnerCensus: m?.textureOwnerCensus ?? null,
       textureUploads: m?.textureUploads ?? null,
       tier: m?.schedulerTier ?? null,
@@ -1205,16 +1245,57 @@ function readMetrics(page) {
   });
 }
 
+async function waitForDrawOwnerCensusAfterFrame(page, frame) {
+  const deadline = Date.now() + 10_000;
+  let latest = await readMetrics(page);
+  while (
+    Date.now() < deadline
+    && (
+      (latest.drawOwnerCensus?.sampledAtFrame ?? -1) <= frame
+      || Math.abs((latest.drawOwnerCensus?.rendererCalls ?? Infinity) - (latest.sceneCalls ?? -Infinity)) > 2
+    )
+  ) {
+    await page.waitForTimeout(100);
+    latest = await readMetrics(page);
+  }
+  const sampledAtFrame = latest.drawOwnerCensus?.sampledAtFrame ?? -1;
+  const sceneDelta = Math.abs((latest.drawOwnerCensus?.rendererCalls ?? Infinity) - (latest.sceneCalls ?? -Infinity));
+  if (sampledAtFrame <= frame || sceneDelta > 2) {
+    throw new Error(`--draw-census did not receive a current sample after settled frame ${frame}`
+      + ` (latest sample ${sampledAtFrame}, scene delta ${sceneDelta})`);
+  }
+  return latest;
+}
+
 function printTextureOwnerCensus(census) {
   if (!census) {
     console.log("textures   owner census unavailable");
     return;
   }
-  console.log(`textures   ${census.referencedTextures} scene-referenced ·`
-    + ` at least ${census.minimumUnattributedRendererTextures}`
+  const attributed = census.attributedTextures ?? census.referencedTextures;
+  console.log(`textures   ${census.rendererTextures} renderer allocations ·`
+    + ` ${census.referencedTextures} scene-referenced · ${attributed} named/reachable`);
+  console.log(`           at least ${census.minimumUnattributedRendererTextures}`
     + " renderer-internal/unattributed");
   for (const entry of census.owners ?? []) {
-    console.log(`           ${String(entry.textureCount).padStart(2, " ")}  ${entry.owner}`);
+    const live = entry.liveTextureCount === undefined
+      ? ""
+      : ` · ${String(entry.liveTextureCount).padStart(2, " ")} resident`;
+    console.log(`           ${String(entry.textureCount).padStart(2, " ")}  ${entry.owner}${live}`);
+    if ((entry.liveTextureNames?.length ?? 0) > 0) {
+      console.log(`                 live: ${entry.liveTextureNames.join(", ")}`);
+    }
+  }
+}
+
+function printDrawOwnerCensus(census) {
+  if (!census) { console.log("draws      owner census unavailable"); return; }
+  const reconciled = census.attributedCalls === census.rendererCalls ? "reconciled" : "MISMATCH";
+  console.log(`draws      ${census.attributedCalls} attributed · ${census.rendererCalls} renderer.info · ${reconciled}`
+    + ` · frame ${census.sampledAtFrame}`);
+  for (const entry of census.owners) {
+    console.log(`           ${String(entry.calls).padStart(4, " ")}  ${String(entry.triangles).padStart(8, " ")}`
+      + `  ${entry.instanced ? "I" : " "}  ${entry.owner}`);
   }
 }
 

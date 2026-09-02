@@ -730,13 +730,15 @@ describe("garden post-processing contracts", () => {
     const bloom = latest<FakeBloom>(postHarness.blooms);
     const grade = effectNamed("GardenGrade");
 
-    expect(colorUniform(grade, "lift")).toEqual([0.012, 0.016, 0.03]);
-    expect(numberUniform(grade, "saturation")).toBe(1.1);
-    expect(numberUniform(grade, "vignette")).toBe(0.36);
+    // Item 3: night keeps a cool printed floor and a softer edge falloff so
+    // broad hull/rim form survives without promoting another emissive source.
+    expect(colorUniform(grade, "lift")).toEqual([0.01, 0.012, 0.018]);
+    expect(numberUniform(grade, "saturation")).toBe(1.08);
+    expect(numberUniform(grade, "vignette")).toBe(0.25);
     // W1.4: the vignette's weight leans up the frame, hardest by day where the
     // haze band is brightest and gentlest at night, which has little sky to
-    // spare. The `vignette` amounts themselves are untouched — the bias
-    // redistributes the shipped darkening rather than adding to it.
+    // spare. The bias still redistributes rather than adding darkening; Item 3
+    // separately lowers only the night amount to recover the near rim.
     expect(numberUniform(grade, "vignetteBias")).toBe(0.25);
     expect(numberUniform(grade, "flash")).toBe(0);
     // W1.3: the night knee clears the lantern pool ring (~1.0 luminance) that
@@ -749,7 +751,9 @@ describe("garden post-processing contracts", () => {
     expect(n8ao.configuration.intensity).toBe(5);
 
     post.setGrade(0, 1);
-    expect(colorUniform(grade, "lift")).toEqual([0.006, 0.006, 0.008]);
+    expect(colorUniform(grade, "lift")[0]).toBeCloseTo(0.006);
+    expect(colorUniform(grade, "lift")[1]).toBeCloseTo(0.006);
+    expect(colorUniform(grade, "lift")[2]).toBeCloseTo(0.008);
     expect(numberUniform(grade, "saturation")).toBe(1.06);
     expect(numberUniform(grade, "vignetteBias")).toBe(0.35);
     expect(bloom.intensity).toBe(0.85);
@@ -868,6 +872,36 @@ describe("garden post-processing contracts", () => {
     expect(post.getPassList()).toEqual([]);
     post.setEnabled(true);
     expect(n8ao.enabled).toBe(true);
+  });
+
+  it("releases only N8AO texture resources at settled overview and reuses the pass", () => {
+    const { composer, n8ao, post } = makePost();
+    const textureKeys = [
+      "accumulationRenderTarget",
+      "bluenoise",
+      "depthDownsampleTarget",
+      "outputTargetInternal",
+      "readTargetInternal",
+      "writeTargetInternal",
+    ] as const;
+
+    post.render(1 / 60);
+    post.setAOZoomDetail(0);
+    for (const key of textureKeys) {
+      expect(n8ao[key].dispose, key).toHaveBeenCalledOnce();
+    }
+    expect(n8ao.standardDenoiseMaterial.dispose).not.toHaveBeenCalled();
+    expect(postHarness.sharedN8AOGeometry.dispose).not.toHaveBeenCalled();
+
+    post.setAOZoomDetail(0.25);
+    post.render(1 / 60);
+    expect(composer.render).toHaveBeenCalledTimes(2);
+    expect(n8ao.enabled).toBe(true);
+
+    post.setAOZoomDetail(0);
+    for (const key of textureKeys) {
+      expect(n8ao[key].dispose, key).toHaveBeenCalledTimes(2);
+    }
   });
 
   it("eases the idle profile across AO, DoF, and god rays without changing colour or passes", () => {

@@ -1,3 +1,6 @@
+import type { DrawOwnerCensus } from "../three/garden-draw-census";
+import type { Texture } from "three";
+
 export type PharosVilleRenderSchedulerTier =
   | "full"
   | "balanced"
@@ -26,17 +29,29 @@ export interface PharosVilleRenderSchedulerState {
 export interface TextureOwnerCensus {
   /** Unique texture objects referenced by the live scene graph. */
   referencedTextures: number;
+  /** Unique texture objects attributed by the scene walk or an owner manifest. */
+  attributedTextures: number;
   /** Three.js' live renderer allocation counter. */
   rendererTextures: number;
   /**
-   * Lower bound for renderer allocations not reachable from scene materials.
-   * A referenced but not-yet-drawn texture makes the true number higher.
+   * Lower bound for renderer allocations not reachable from known sources.
+   * A named but not-yet-drawn texture makes the true number higher.
    */
   minimumUnattributedRendererTextures: number;
   owners: readonly {
     owner: string;
     textureCount: number;
+    /** Subset with a live WebGL handle when the renderer exposes properties. */
+    liveTextureCount?: number;
+    /** Names/UUIDs of the live handles, useful when a shared owner has a delta. */
+    liveTextureNames?: readonly string[];
   }[];
+}
+
+/** A live texture owned outside the scene's mesh/material traversal. */
+export interface TextureOwnerManifestEntry {
+  owner: string;
+  texture: Texture;
 }
 
 export interface TextureUploadQueueMetrics {
@@ -66,6 +81,7 @@ export interface PharosVilleRenderMetrics {
   contentRebuildQueueDepth?: number;
   /** Per-content-family hashes used to attribute refresh-driven replacements. */
   contentSignaturePartHashes?: Readonly<Record<string, string>>;
+  drawOwnerCensus: DrawOwnerCensus | null;
   /** W1 evidence: draw calls the instanced fleet contributes, whatever its size. */
   fleetDrawCallCount?: number;
   objectCount: number;

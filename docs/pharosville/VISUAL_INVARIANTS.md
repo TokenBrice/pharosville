@@ -1,6 +1,6 @@
 # PharosVille Visual and Analytical Contracts
 
-Last updated: 2026-08-13
+Last updated: 2026-09-02
 
 These are product contracts, not a design diary. Change one only with explicit
 intent, code/tests, and a matching update to the relevant route documentation.
@@ -23,7 +23,11 @@ intent, code/tests, and a matching update to the relevant route documentation.
 
 ## Composition
 
-- The Garden Observatory is asymmetric, sea-first, and intentionally open.
+- The Garden Observatory is asymmetric, sea-first, and intentionally spacious.
+  An authored land rim may frame most of the finite plate, but it keeps two
+  open-sea passages and broad unnamed water between the named bodies.
+  “Spacious” names the ma inside that bounded garden; it does not require an
+  infinite ocean beyond the plate.
   Do not replace its region-scoped fleet placement with a uniform grid — or
   with any other uniform field, including blue noise. See below.
 - **The fleet moors in anchorages.** Each risk band seeds an odd number of
@@ -46,8 +50,23 @@ intent, code/tests, and a matching update to the relevant route documentation.
   eighty-five stickers. Sailing in restores full brand identity exactly as
   decision F1 specified. Restraint must never be baked into the cloth colour
   itself, which would remove identity at every distance with no way back.
-- Harbors ring the rendered island waterline and retain distinct built forms.
-  Ethereum and available L2 docks remain a readable hub relationship.
+- Harbors are shore stations sited in their body's named rim coves. Every
+  station keeps a landward, distance-readable primary roof at least twice an
+  ordinary hull's length, a contrasting clay/slate/thatch/timber palette, and
+  a uniquely named upper silhouette that clears nearby sails. A raised stone
+  quay keeps one warm lit edge, windows glow at dusk/night, and the chain flag
+  is 1.6 times its former scale. Ethereum's hall and true campanile (shaft,
+  open belfry, bell, and cap) read with its L2 belvederes as one precinct
+  through thick railed, covered bridges; the vermilion double-lintel torii and
+  every other upper archetype remain nameable from the default camera, while
+  TON keeps its detached pigeonnier islet. The enlarged architecture, quay
+  edge, windows, and bridge rails carry no new analytical meaning beyond the
+  existing station identity and harbor reading.
+- The finite plate is water-led and garden-framed: the irregular rim covers
+  roughly 55–65% of the perimeter, has exactly two open-sea openings, and is
+  6–14 tiles deep away from those openings. Shore stations sit in coves, not
+  around the island waterline; the Ethereum precinct has a shared path and
+  bridge-connected annexes.
 - The TON pigeonnier is spatially distinct. The dead/frozen fleet is a quiet
   sea wreckyard, not an island and never a live-ship destination.
 - DOM labels must be legible and must not cover the lighthouse, controls, or
@@ -59,7 +78,7 @@ intent, code/tests, and a matching update to the relevant route documentation.
 | --- | --- | --- |
 | Lighthouse | PSI score/band | DOM record and beacon state |
 | Ship | stablecoin identity, scale, class, risk | branded sail/livery plus DOM record |
-| Harbor | chain supply and concentration | built form, flag, DOM record |
+| Harbor | chain supply and concentration | hull-dominant landward roof, contrasting archetype palette, sail-clearing named upper silhouette, 1.6× chain flag, DOM record; raised lit quay/window embers are decorative and carry no meaning |
 | Water body | existing risk/ledger category | water character, boundary/buoy, DOM label |
 | Wreck | lifecycle status | model/cause color plus DOM record |
 
@@ -77,13 +96,36 @@ the second-largest body on the map.
 **Not all water is named, deliberately.** Roughly a quarter of the sea is open
 approach, and it is composition rather than an attribution gap: named waters
 only read as bodies when there is unclaimed sea between them, and the world is
-required to be "asymmetric, sea-first, and intentionally open". The coverage
+required to be "asymmetric, sea-first, and intentionally spacious". The coverage
 guard is set at 0.72 for that reason; raising it back toward 1 would recreate
 the residue body it was meant to prevent.
 
-Sea-body place-names are carried by in-world signage AND by the accessibility
-ledger, which lists every named area. The signs are canvas content and therefore
-aria-hidden, so the ledger — not the sign — is the redundant channel.
+Sea-body place-names are carried by low stone steles at body boundaries AND by
+the accessibility ledger, which lists every named area. The steles carry a
+high-contrast carved name at default zoom; hover or inspection raises it to a
+stronger warm-pale emphasis, and at night the inactive carving turns cool pale
+so it remains readable against the darkened stone. They are canvas content and
+therefore aria-hidden, so the ledger — not the stele — is the redundant channel.
+Per-body boundary banks and foam seams are decorative and carry no meaning; the
+field, steles, labels, and ledger own classification.
+
+The seven named waters are Calm Anchorage, Watch Breakwater, Alert Channel,
+Warning Shoals, Danger Strait, Ledger Mooring, and Wreck Shoal. Their edge
+geography is authored from the same field: reeds and mouth islets, banks,
+current tongues, shoal bars, a gorge cliff, slate ledger lips, and a wreck
+inlet. These forms are decorative and carry no meaning; the field, steles,
+labels, and ledger own classification. Wreck causes are read through
+representative silhouettes (substantial hull, broken keel, and bare remains)
+plus cause colour and the DOM record.
+
+The fleet has six visual families: bezaisen, kobaya, twinhull, takasebune,
+junk, and scow. The nine semantic hull classes map onto those six forms;
+market-cap tier still controls scale, and brand identity remains in the shared
+sail atlas. Motion is leg-based: island-to-shore voyages run in bounded
+90–180-second legs and 240–480-second rests, with paired arrivals and
+departures and restless rests ordered by risk band. The aggregate moored share
+remains one third, and all water-safety decisions use the authoritative field
+and its conservative distance lookup.
 
 ## Light and atmosphere
 
@@ -94,19 +136,25 @@ aria-hidden, so the ledger — not the sign — is the redundant channel.
   colour changed with the hour — which reads as a filter over the picture
   rather than as light inside it. The arc passes exactly through the calibrated
   noon bearing, so the day grade and the AO ladder cannot drift.
-- **The haze band IS this world's sky.** Under a locked orthographic camera
-  every view ray is parallel and points down, so an effectively-infinite water
-  plane fills every pixel at any elevation above zero: the sky dome can never
-  enter frame, and lowering the isometric angle would not change that. The dome
-  exists to feed the PMREM probe. The upper-frame band where far water
-  dissolves into fog is the only sky there is, which makes the fog ladder a
-  composition contract and not merely a depth cue.
+- **The haze band is this world's sky seam.** The finite plate exposes a graded
+  sky past its far edge and through its two openings: shironeri fog at the seam,
+  through mizu, to kon at the day zenith, descending to kachi-iro at night. The
+  far plate dissolves into that seam instead of ending as a tabletop cut. The
+  scattering dome still feeds the PMREM probe; the visible gradient, shared sun
+  arc and bokashi bands make the background part of the composition rather than
+  more water.
 - Aerial perspective must actually reach the DEFAULT framing. The fog range's
   scale pivot (`FOG_REFERENCE_VIEW_HEIGHT`) must track the real default view
-  height (`viewportHeight / (TILE_HEIGHT * zoom)`, ~78). A pivot
+  height (`viewportHeight / (TILE_HEIGHT * zoom)`, ~96.5 at the Wave 1 landing
+  frame). A pivot
   far below it clamps the scale to its maximum, pushes the near plane past
   everything visible, and silently switches the whole system off while leaving
   its documentation looking correct.
+
+- The visible sky continues beyond the finite plate. Its graded phase backdrop
+  is the far field; the haze band is the seam where plate, fog, and borrowed
+  mountains dissolve together. The dome remains an environment probe, not the
+  visible sky.
 
 ## Stillness
 
@@ -123,17 +171,17 @@ aria-hidden, so the ledger — not the sign — is the redundant channel.
   lanterns, and every reflection they lay on the sea — is an EMBER: warm,
   present, and subordinate. None of it may be raised to compete. This is
   enforced where the light is authored, not where it is composited: the shared
-  lane registry applies a per-kind ember gain (`GARDEN_LANE_EMBER_GAIN`, 0.55 on
+  lane registry applies a per-kind ember gain (`GARDEN_LANE_EMBER_GAIN`, 0.38 on
   lantern and buoy lanes) and exempts the beacon, and the island's own lamp
   emissives sit a step below the beacon in turn. A night frame containing a
   second thing as bright as the tower is a regression whatever else it gained.
 - **Light pools are budgeted, and a crowd of them is thinned before any one is
-  dimmed.** At most 24 reflection lanes burn at once at tier full
+  dimmed.** At most 16 reflection lanes burn at once at tier full
   (`GARDEN_LANE_BUDGET_FOR_TIER`); the 48-texel lane texture is a packing
   layout, never a target. Two ember lanes closer than
-  `GARDEN_EMBER_LANE_MIN_SEPARATION` (6 world units — the shader pool's own 1/e
-  radius plus margin) may not both burn, and the dimmer stands down. Overlapping
-  pools merge into one pale disc, which is how the sea turned milky; the remedy
+  `GARDEN_EMBER_LANE_MIN_SEPARATION` (8.5 world units — beyond the shader
+  pool's 1/e radius plus margin) may not both burn, and the dimmer stands down.
+  Overlapping pools merge into one pale disc, which is how the sea turned milky; the remedy
   is fewer lights, not weaker ones. The lamp keeps burning on land — only its
   reflection is thinned.
 - **Simultaneity is a viewing condition. A reading is not.** Analytical lanes —
@@ -181,6 +229,13 @@ aria-hidden, so the ledger — not the sign — is the redundant channel.
   colours) and asserts a mean of 0.0155. Post-AgX output still requires the
   real-GPU night preview.
 
+- Stillness has authored displacements: the lower-left engawa lantern replaces
+  `harbor-lantern.11`; the single hero waterfall replaces the
+  `water-silver-accents` draw; and the koi school lives in the calm engawa
+  shallows rather than filling the reflection basin. Seasonal and almanac
+  dressing follows the rim path and openings. These additions are quiet,
+  deterministic, and carry no new analytical meaning.
+
 ## Media and rendering
 
 - Procedural geometry/materials own the island, harbors, ordinary fleet,
@@ -200,6 +255,12 @@ aria-hidden, so the ledger — not the sign — is the redundant channel.
   transition pops.
 - Device pixels, backing pixels, resource counts, and bundle sizes remain
   bounded. Cosmetic changes do not justify relaxing measured gates.
+
+- The measured default budget is approximately 245 recurring draw calls and
+  43 textures on the reference Apple M5 Pro frame (phase variation is expected
+  within the existing ceilings). The whole-map N8AO release keeps the animated
+  overview at 72 textures or fewer; hard ceilings remain 700 calls, 500
+  geometries, 500,000 triangles, and 72 textures.
 
 ## Motion and access
 

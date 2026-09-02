@@ -9,6 +9,7 @@ import { SinceLastVisitBanner } from "./components/since-last-visit";
 import { WorldControls } from "./components/world-controls";
 import { WorldStaticOverview } from "./components/world-static-overview";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
+import { isDebugChromeEnabled } from "./lib/pharosville-debug";
 import { useShipLogoAssets } from "./hooks/use-ship-logo-assets";
 import { useChangelogDialog } from "./hooks/use-changelog-dialog";
 import { useLegendDialog } from "./hooks/use-legend-dialog";
@@ -69,10 +70,10 @@ const DATA_REFRESH_ANNOUNCEMENT_THROTTLE_MS = 30_000;
  * interactive zoom ladder (the tour sampler clamps to it regardless).
  */
 const OBSERVE_TOUR_KIND_ZOOM: Record<ObserveBeatKind, number> = {
-  lighthouse: 1.0,
-  risk: 1.35,
-  supply: 1.35,
-  concentration: 1.15,
+  lighthouse: 0.84,
+  risk: 1.08,
+  supply: 1.08,
+  concentration: 0.94,
 };
 /**
  * How long the charting veil takes to lift once the harbor has data. Long
@@ -289,6 +290,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // hook (for hover/select hit-testing) and by the recompute callback.
   const hitTargetSnapshotRef = useRef<HitTargetSnapshot | null>(null);
   const hitTargetsRef = useRef<readonly HitTarget[]>([]);
+  const seaSignScaleRef = useRef<number | null>(null);
   const shipMotionSamplesRef = useRef<ReadonlyMap<string, ShipMotionSample>>(new Map());
 
   // `recomputeHitTargets` is a stable wrapper that reads through this ref so
@@ -453,6 +455,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         camera: activeCamera,
         hoveredDetailId: hoveredDetailIdRef.current,
         selectedDetailId: selectedDetailIdRef.current,
+        seaSignScale: seaSignScaleRef.current,
         shipMotionSamples: shipMotionSamplesRef.current,
         viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
         world,
@@ -468,9 +471,20 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     hitTargetsRef,
     hoveredDetailIdRef,
     selectedDetailIdRef,
+    seaSignScaleRef,
     shipMotionSamplesRef,
     world,
   ]);
+
+  const followPendingSelectionFromSamples = useCallback((
+    samples: ReadonlyMap<string, ShipMotionSample>,
+  ) => {
+    const detailId = pendingFollowDetailIdRef.current;
+    if (!detailId || !selectedEntity || selectedEntity.detailId !== detailId) return;
+    if (selectedEntity.kind === "ship" && !samples.has(selectedEntity.id)) return;
+    pendingFollowDetailIdRef.current = null;
+    focusSelectedCamera(detailId, selectedEntity);
+  }, [focusSelectedCamera, selectedEntity]);
 
   const {
     frameRateFps,
@@ -480,6 +494,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   } = useWorldRenderLoop({
     almanacEvent: gardenAlmanac.activeEvent,
     onBucketFlip: setMotionBucket,
+    onShipMotionSamplesReady: followPendingSelectionFromSamples,
     adaptiveDprStateRef: canvas.adaptiveDprStateRef,
     logoGeneration: shipLogoAssets.logoGeneration,
     logos: shipLogoAssets.logos,
@@ -502,6 +517,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectedDetailAnchor,
     selectedDetailId,
     selectedDetailIdRef,
+    seaSignScaleRef,
     shipMotionSamplesRef,
     shipsById,
     stepCamera: canvas.stepCamera,
@@ -738,9 +754,17 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   useEffect(() => {
     if (!pendingFollowDetailIdRef.current || !selectedEntity) return;
     if (selectedEntity.detailId !== pendingFollowDetailIdRef.current) return;
-    pendingFollowDetailIdRef.current = null;
-    if (!rendererFailed) focusSelectedCamera(selectedEntity.detailId, selectedEntity);
-  }, [focusSelectedCamera, rendererFailed, selectedEntity]);
+    if (rendererFailed) return;
+    const samples = shipMotionSamplesRef.current;
+    // Selection and the first reduced-motion sample may commit in either
+    // order. Consume immediately when the sample already exists; otherwise
+    // request the one frame whose sample callback will finish the follow.
+    if (selectedEntity.kind === "ship" && !samples.has(selectedEntity.id)) {
+      requestWorldFrameRef.current();
+      return;
+    }
+    followPendingSelectionFromSamples(samples);
+  }, [followPendingSelectionFromSamples, rendererFailed, selectedEntity, shipMotionSamplesRef]);
 
   useEffect(() => observeReducedMotion((matches) => {
     if (matches) cancelCameraIntent();
@@ -1281,23 +1305,4 @@ function formatFrameRateLabel(frameRateFps: number | null, reducedMotion: boolea
   if (reducedMotion) return "Static";
   if (frameRateFps === null) return "FPS --";
   return `${integerFormatter.format(frameRateFps)} fps`;
-}
-
-/**
- * W0.4: the one switch that turns instrumentation chrome back on.
- *
- * `?debug=1` is the project's existing debug flag — `scripts/pharosville/preview.mjs`
- * appends it to every URL it opens — so the perf lane keeps its on-screen frame
- * readout while the shipped world stays free of it. (The machine-readable
- * `window.__pharosVilleDebug` surface the preview lane actually parses is gated
- * separately, on dev/localhost; this flag only governs visible chrome.)
- * Accepted in the query string or in the hash, because the world's own state
- * (`sel`, `t`, `n`, `cam`) may own either half of the URL and a debug session
- * should not have to care which.
- */
-function isDebugChromeEnabled(): boolean {
-  if (typeof window === "undefined") return false;
-  if (new URLSearchParams(window.location.search).get("debug") === "1") return true;
-  const rawHash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
-  return new URLSearchParams(rawHash.startsWith("?") ? rawHash.slice(1) : rawHash).get("debug") === "1";
 }

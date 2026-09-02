@@ -8,7 +8,10 @@ import {
   fixtureStability,
 } from "../__fixtures__/pharosville-world";
 import { overCapacityWorldFixture } from "../__fixtures__/over-capacity-world";
+import { selectionCameraTarget } from "../hooks/camera-intent";
+import { defaultCamera } from "../systems/camera";
 import {
+  GARDEN_DOCK_ROOT_Y,
   GARDEN_LIGHTHOUSE_BEACON_Y,
   GARDEN_LIGHTHOUSE_HEIGHT,
   GARDEN_LIGHTHOUSE_ROOT_OFFSET,
@@ -23,8 +26,9 @@ import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { TILE_WIDTH } from "../systems/projection";
 import {
-  SEA_SIGN_BOARD,
-  seaSignBoards,
+  SEA_SIGN_STELE,
+  createSeaSignScaleTrack,
+  seaSignSteles,
   seaSignScaleForZoom,
 } from "../three/garden-sea-signs";
 import { createGardenObservatoryHitTargetSnapshot } from "./garden-observatory-hit-testing";
@@ -38,7 +42,7 @@ describe("Garden Observatory hit targets", () => {
 
     // D1 (W3): the fleet is no longer sampled down to 20, so hit targets
     // track the rendered slice size. Lighthouse + pigeonnier are the 2 fixed
-    // singletons. Every area also carries a carved name board (N6), which is a
+    // singletons. Every area also carries a carved name stele (W2a), which is a
     // second target on the SAME detail id rather than a new destination.
     expect(snapshot.targets).toHaveLength(
       2 + slice.ships.length + world.docks.length + world.areas.length * 2 + world.graves.length,
@@ -59,6 +63,22 @@ describe("Garden Observatory hit targets", () => {
       ...world.graves.map((grave) => grave.detailId),
       ...slice.ships.map(({ ship }) => ship.detailId),
     ]));
+  });
+
+  it("preserves every shore-station target and its projected position outside the landing viewport", () => {
+    const world = denseWorld();
+    const viewport = { width: 1440, height: 1000 };
+    const camera = defaultCamera({ ...viewport, map: world.map });
+    const snapshot = createGardenObservatoryHitTargetSnapshot({ camera, viewport, world });
+    const dockTargets = snapshot.targets.filter((target) => target.kind === "dock");
+
+    expect(dockTargets).toHaveLength(world.docks.length);
+    for (const dock of world.docks) {
+      expect(snapshot.targetsByDetailId.get(dock.detailId)?.anchor).toEqual(
+        gardenTileToScreen(dock.tile, GARDEN_DOCK_ROOT_Y, camera),
+      );
+    }
+    expect(dockTargets.some((target) => !rectInsideViewport(target.rect, viewport))).toBe(true);
   });
 
   it("gives every rendered ship its own hit target", () => {
@@ -172,21 +192,70 @@ describe("Garden Observatory hit targets", () => {
       gardenTileToScreen(expectedTile, GARDEN_SHIP_ROOT_Y, camera),
     );
   });
+
+  it("keeps every dense-fleet berth and shore station fully inside both follow viewports", () => {
+    const world = denseWorld();
+    const slice = selectGardenObservatorySlice(world, null);
+
+    for (const viewport of [
+      { width: 1600, height: 1000 },
+      { width: 1200, height: 640 },
+    ]) {
+      const start = defaultCamera({ ...viewport, map: world.map });
+      const screenViewport = { x: viewport.width, y: viewport.height };
+
+      for (const placement of slice.ships) {
+        const camera = selectionCameraTarget({
+          camera: start,
+          map: world.map,
+          tile: resolveGardenShipDisplayTile({ ...placement, sample: undefined }),
+          viewport: screenViewport,
+        });
+        const target = createGardenObservatoryHitTargetSnapshot({
+          camera,
+          selectedDetailId: placement.ship.detailId,
+          viewport,
+          world,
+        }).targetsByDetailId.get(placement.ship.detailId);
+
+        expect(target, `${placement.ship.detailId} at ${viewport.width}x${viewport.height}`).toBeDefined();
+        expect(rectInsideViewport(target!.rect, viewport), `${placement.ship.detailId} at ${viewport.width}x${viewport.height}`).toBe(true);
+      }
+
+      for (const dock of world.docks) {
+        const camera = selectionCameraTarget({
+          camera: start,
+          map: world.map,
+          tile: dock.tile,
+          viewport: screenViewport,
+        });
+        const target = createGardenObservatoryHitTargetSnapshot({
+          camera,
+          selectedDetailId: dock.detailId,
+          viewport,
+          world,
+        }).targetsByDetailId.get(dock.detailId);
+
+        expect(target, `${dock.detailId} at ${viewport.width}x${viewport.height}`).toBeDefined();
+        expect(rectInsideViewport(target!.rect, viewport), `${dock.detailId} at ${viewport.width}x${viewport.height}`).toBe(true);
+      }
+    }
+  });
 });
 
-describe("Carved sea-name board targets (N6)", () => {
+describe("Carved sea-name stele targets (W2a)", () => {
   it("opens the water body's own detail rather than a parallel one", () => {
     const world = denseWorld();
     const snapshot = createGardenObservatoryHitTargetSnapshot({
       camera: { offsetX: 720, offsetY: 430, zoom: 0.7776 },
       world,
     });
-    const boards = snapshot.targets.filter((target) => target.kind === "sea-sign");
+    const steles = snapshot.targets.filter((target) => target.kind === "sea-sign");
 
-    expect(new Set(boards.map((board) => board.detailId)))
+    expect(new Set(steles.map((stele) => stele.detailId)))
       .toEqual(new Set(world.areas.map((area) => area.detailId)));
-    for (const board of boards) {
-      expect(world.detailIndex[board.detailId]).toBeDefined();
+    for (const stele of steles) {
+      expect(world.detailIndex[stele.detailId]).toBeDefined();
     }
   });
 
@@ -198,28 +267,22 @@ describe("Carved sea-name board targets (N6)", () => {
     });
 
     for (const area of world.areas) {
-      const board = snapshot.targets.find((target) => (
+      const stele = snapshot.targets.find((target) => (
         target.kind === "sea-sign" && target.detailId === area.detailId
       ));
       const zone = snapshot.targets.find((target) => (
         target.kind === "area" && target.detailId === area.detailId
       ));
-      // One point above, so the cycle prefers the board and the body keeps the
+      // One point above, so the cycle prefers the stele and the body keeps the
       // slot its zone priority already bought it.
-      expect(board?.priority).toBe(zone!.priority + 1);
+      expect(stele?.priority).toBe(zone!.priority + 1);
       // The keyboard select path reads targetsByDetailId, so it has to be the
-      // board that carries the anchor.
+      // stele that carries the anchor.
       expect(snapshot.targetsByDetailId.get(area.detailId)?.kind).toBe("sea-sign");
     }
   });
 
-  it("tracks the zoom-QUANTIZED board, not the true-scale geometry", () => {
-    // The trap: D6 draws the boards out of scale so the sea's names stay
-    // readable as the camera pulls back. W0.7 quantized that response to three
-    // rungs, so the target has to follow the rung the scene draws — INSIDE a
-    // rung the board is an ordinary world object whose target grows with zoom,
-    // and crossing a rung steps the target by the whole rung ratio. A target
-    // built from the true-scale geometry would miss the step entirely.
+  it("tracks the same discrete overview rung as the drawn stele", () => {
     const world = denseWorld();
     const widthAt = (zoom: number) => {
       const snapshot = createGardenObservatoryHitTargetSnapshot({
@@ -229,44 +292,67 @@ describe("Carved sea-name board targets (N6)", () => {
       return snapshot.targets.find((target) => target.kind === "sea-sign")!.rect.width;
     };
 
-    // Either side of the 0.88 rung edge, a 2% zoom change moves the target by
-    // the rung ratio — over half again — instead of by 2%.
-    const stepRatio = seaSignScaleForZoom(0.87) / seaSignScaleForZoom(0.89);
-    expect(stepRatio).toBeGreaterThan(1.5);
-    expect(widthAt(0.87)).toBeCloseTo(widthAt(0.89) * stepRatio * (0.87 / 0.89), 6);
-    // Two framings on the same rung, and past the closest rung, are pure zoom,
-    // like everything else in the world.
+    expect(seaSignScaleForZoom(0.28)).toBe(3.2);
+    expect(seaSignScaleForZoom(2.4)).toBe(1);
+    expect(widthAt(0.28)).toBeGreaterThan(widthAt(0.5));
     expect(widthAt(0.5)).toBeCloseTo(widthAt(0.8) * (0.5 / 0.8), 6);
     expect(widthAt(2)).toBeCloseTo(widthAt(1) * 2, 6);
   });
 
-  it("centres the target on the drawn board at every framing", () => {
+  it("uses the renderer track's exact scale throughout both hysteresis walks", () => {
+    const world = denseWorld();
+    const assertWalk = (zooms: readonly number[]) => {
+      const track = createSeaSignScaleTrack();
+      for (const [index, zoom] of zooms.entries()) {
+        const drawnScale = track.advance({
+          deltaSeconds: index === 0 ? Number.POSITIVE_INFINITY : 1 / 60,
+          zoom,
+        });
+        const snapshot = createGardenObservatoryHitTargetSnapshot({
+          camera: { offsetX: 720, offsetY: 430, zoom },
+          seaSignScale: track.scale,
+          world,
+        });
+        const target = snapshot.targets.find((entry) => entry.kind === "sea-sign")!;
+        const hitScale = target.rect.width
+          / (SEA_SIGN_STELE.width * (TILE_WIDTH / 2) * zoom);
+        expect(hitScale).toBeCloseTo(drawnScale, 6);
+      }
+    };
+
+    // Both resting zooms are inside the hysteresis band: the first walk keeps
+    // the 3.2x overview rung and the reverse walk keeps the 1x inhabited rung.
+    assertWalk([0.28, 0.41]);
+    assertWalk([0.5, 0.39]);
+  });
+
+  it("centres the target on the drawn stele at every framing", () => {
     const world = denseWorld();
     for (const zoom of [0.4, 0.7776, 1.4]) {
       const camera = { offsetX: 720, offsetY: 430, zoom };
       const scale = seaSignScaleForZoom(zoom);
-      const board = seaSignBoards(world.areas).find((entry) => entry.detailId);
+      const stele = seaSignSteles(world.areas).find((entry) => entry.detailId);
       const target = createGardenObservatoryHitTargetSnapshot({ camera, world })
-        .targetsByDetailId.get(board!.detailId!);
+        .targetsByDetailId.get(stele!.detailId!);
 
       const centre = gardenTileToScreen(
-        { x: board!.x / Math.SQRT2, y: board!.z / Math.SQRT2 },
-        GARDEN_WATER_Y + SEA_SIGN_BOARD.baseY * scale,
+        { x: stele!.x / Math.SQRT2, y: stele!.z / Math.SQRT2 },
+        GARDEN_WATER_Y + SEA_SIGN_STELE.baseY * scale,
         camera,
       );
       expect(target?.anchor?.x).toBeCloseTo(centre.x, 6);
       expect(target?.anchor?.y).toBeCloseTo(centre.y, 6);
-      // The face's own painted width, projected. The board is yawed 45 degrees,
+      // The face's own carved width, projected. The stele is yawed 45 degrees,
       // which in this iso rig lays it exactly along the screen-horizontal axis,
-      // so one world unit of board is TILE_WIDTH / 2 screen units.
+      // so one world unit of stele is TILE_WIDTH / 2 screen units.
       expect(target?.rect.width).toBeCloseTo(
-        SEA_SIGN_BOARD.width * scale * (TILE_WIDTH / 2) * zoom,
+        SEA_SIGN_STELE.width * scale * (TILE_WIDTH / 2) * zoom,
         6,
       );
     }
   });
 
-  it("stands the boards' targets down when a detail panel owns the frame", () => {
+  it("stands the steles' duplicate targets down when a detail panel owns the frame", () => {
     const world = denseWorld();
     const snapshot = createGardenObservatoryHitTargetSnapshot({
       camera: { offsetX: 720, offsetY: 430, zoom: 0.7776 },
@@ -303,4 +389,14 @@ function pointInRect(
     && point.y >= rect.y
     && point.y <= rect.y + rect.height
   );
+}
+
+function rectInsideViewport(
+  rect: { height: number; width: number; x: number; y: number },
+  viewport: { height: number; width: number },
+): boolean {
+  return rect.x >= 0
+    && rect.y >= 0
+    && rect.x + rect.width <= viewport.width
+    && rect.y + rect.height <= viewport.height;
 }

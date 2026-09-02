@@ -8,7 +8,7 @@ import {
 import { selectGardenObservatoryAreas } from "./observe-sequence";
 import { TILE_HEIGHT, tileToScreen, type IsoCamera, type ScreenPoint } from "./projection";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
-import { LIGHTHOUSE_TILE } from "./world-layout";
+import { stableUnit } from "./stable-random";
 import {
   gardenShipWaterMarginTiles,
   isGardenShipWater,
@@ -32,8 +32,13 @@ import type {
 // GARDEN_FLEET_BATCH_CAPACITY so the batches never reallocate. Composition is
 // now enforced by region-scoped placement density, not by a small count.
 export const GARDEN_OVERVIEW_SHIP_LIMIT = 320;
-/** How far a ship may travel from its composed berth, in tiles (N3). */
-export const GARDEN_MAX_MOTION_TILES = 9;
+/**
+ * Longest authored island-to-station reach, rounded up in world tiles. With
+ * harbors on the rim coves this is the single leg allowance: a voyage may run
+ * from any berth to any station.
+ */
+export const GARDEN_STATION_LEG_TILES = 96;
+export const GARDEN_MAX_MOTION_TILES = GARDEN_STATION_LEG_TILES;
 export const GARDEN_WATER_Y = -1.45;
 export const GARDEN_DOCK_ROOT_Y = GARDEN_WATER_Y + 0.2;
 export const GARDEN_SHIP_ROOT_Y = GARDEN_WATER_Y + 0.38;
@@ -59,13 +64,12 @@ export const GARDEN_LIGHTHOUSE_HEIGHT = 34;
 // rect and label anchor derive from these constants.
 
 export type GardenHullSilhouette =
-  | "galleon"
-  | "indiaman"
-  | "clipper"
-  | "barque"
-  | "schooner"
+  | "bezaisen"
+  | "kobaya"
+  | "twinhull"
+  | "takasebune"
   | "junk"
-  | "hoy";
+  | "scow";
 export type GardenSemanticView = "analyze" | "explore" | "overview";
 
 // S5 / decision D-S5: the data-side 0.7–3.0 scale keeps a ~3.7× VISUAL spread
@@ -94,14 +98,14 @@ export function gardenShipVisualScale(dataScale: number): number {
 
 export const GARDEN_SILHOUETTE_FOR_HULL: Record<ShipHull, GardenHullSilhouette> = {
   "algo-junk": "junk",
-  "chartered-brigantine": "clipper",
-  "commodity-peg-hoy": "hoy",
-  "crypto-caravel": "clipper",
-  "dao-schooner": "schooner",
+  "chartered-brigantine": "bezaisen",
+  "commodity-peg-hoy": "scow",
+  "crypto-caravel": "kobaya",
+  "dao-schooner": "twinhull",
   "foreign-peg-junk": "junk",
-  "treasury-galleon": "galleon",
-  "yield-barque": "barque",
-  "yield-indiaman": "indiaman",
+  "treasury-galleon": "bezaisen",
+  "yield-barque": "takasebune",
+  "yield-indiaman": "takasebune",
 };
 
 /**
@@ -110,7 +114,7 @@ export const GARDEN_SILHOUETTE_FOR_HULL: Record<ShipHull, GardenHullSilhouette> 
  * list, so adding a silhouette here is the only edit either needs.
  */
 export const GARDEN_HULL_SILHOUETTES = [
-  "galleon", "indiaman", "clipper", "barque", "schooner", "junk", "hoy",
+  "bezaisen", "kobaya", "twinhull", "takasebune", "junk", "scow",
 ] as const satisfies readonly GardenHullSilhouette[];
 
 export interface GardenShipPlacement {
@@ -172,6 +176,93 @@ export function selectGardenTransientShip(
   return entity?.kind === "ship" ? entity : null;
 }
 
+interface GardenShipDisplayTileCacheEntry {
+  sourceX: number;
+  sourceY: number;
+  state: ShipMotionSample["state"] | undefined;
+  tile: ScreenPoint;
+}
+
+// The renderer and the hit-target snapshot resolve the same fleet positions in
+// the same frame. Ship nodes are replaced on a world rebuild, so a WeakMap
+// gives each live ship one last-result cache with automatic invalidation.
+const gardenShipDisplayTileCache = new WeakMap<ShipNode, GardenShipDisplayTileCacheEntry>();
+const gardenDependencyDisplayTileCache = new WeakMap<ShipNode, GardenShipDisplayTileCacheEntry>();
+
+/**
+ * Composed display tiles that miss the water field need the radial
+ * nearest-water search, which is hundreds of field lookups. Moored hulls bob
+ * and patrols drift a fraction of a tile per frame, so an exact-source cache
+ * missed every frame for every corrected hull and the search ran ~25 times a
+ * frame in a dense world (≈+5 ms of draw submit). The correction is a local
+ * property of the field: while the source stays within a tile of the last
+ * one, the previous displacement lands the hull on water nearly always, and
+ * one lookup verifies it. Only a real move (transition, rebuild, state flip)
+ * pays for the search again.
+ */
+function resolveCachedShipWaterTile(
+  cache: WeakMap<ShipNode, GardenShipDisplayTileCacheEntry>,
+  ship: ShipNode,
+  source: ScreenPoint,
+  state: ShipMotionSample["state"] | undefined,
+  margin: number,
+  includeDocks: boolean,
+  seed: string,
+): ScreenPoint {
+  const cached = cache.get(ship);
+  if (cached && cached.state === state) {
+    if (cached.sourceX === source.x && cached.sourceY === source.y) return cached.tile;
+    if (Math.abs(source.x - cached.sourceX) < 1 && Math.abs(source.y - cached.sourceY) < 1) {
+      const shifted = {
+        x: source.x + (cached.tile.x - cached.sourceX),
+        y: source.y + (cached.tile.y - cached.sourceY),
+      };
+      if (isGardenShipWater(shifted, margin, includeDocks)) {
+        cached.sourceX = source.x;
+        cached.sourceY = source.y;
+        cached.tile = shifted;
+        return shifted;
+      }
+    }
+  }
+  const resolved = isGardenShipWater(source, margin, includeDocks)
+    ? source
+    : nearestGardenShipWater(source, margin, seed, includeDocks);
+  cache.set(ship, { sourceX: source.x, sourceY: source.y, state, tile: resolved });
+  return resolved;
+}
+
+/**
+ * Largest patrol amplitude (danger, 4.4 tiles) plus headroom: motion inside
+ * this radius is the hull working its own water and keeps the whole berth
+ * offset, so a drift never reads as a slide along the offset direction.
+ */
+export const GARDEN_HOME_DRIFT_TILES = 6;
+
+// Nearest mooring reach per ship, from its data tile. Ship nodes are replaced
+// on a world rebuild, so the WeakMap invalidates itself.
+const gardenVoyageReachCache = new WeakMap<ShipNode, number>();
+
+function gardenVoyageReach(ship: ShipNode): number {
+  const cached = gardenVoyageReachCache.get(ship);
+  if (cached !== undefined) return cached;
+  let reach = Number.POSITIVE_INFINITY;
+  for (const visit of ship.dockVisits) {
+    const distance = Math.hypot(visit.mooringTile.x - ship.tile.x, visit.mooringTile.y - ship.tile.y);
+    if (distance < reach) reach = distance;
+  }
+  gardenVoyageReachCache.set(ship, reach);
+  return reach;
+}
+
+/** 1 at home, 0 once the hull has travelled its nearest mooring's distance. */
+export function gardenHomeOffsetWeight(ship: ShipNode, motionDistance: number): number {
+  const reach = gardenVoyageReach(ship);
+  if (!Number.isFinite(reach) || reach <= GARDEN_HOME_DRIFT_TILES) return 1;
+  const progress = (motionDistance - GARDEN_HOME_DRIFT_TILES) / (reach - GARDEN_HOME_DRIFT_TILES);
+  return 1 - Math.min(1, Math.max(0, progress));
+}
+
 export function resolveGardenShipDisplayTile(input: {
   displayOffset: ScreenPoint;
   representative: boolean;
@@ -198,23 +289,75 @@ export function resolveGardenShipDisplayTile(input: {
     const motionScale = motionDistance > GARDEN_MAX_MOTION_TILES
       ? GARDEN_MAX_MOTION_TILES / motionDistance
       : 1;
+    // The blue-noise offset belongs to the HOME berth only. Data motion runs
+    // from the ship's data tile to a dock mooring, and stations render at
+    // their data tile, so a moored hull must sit AT the mooring: carrying the
+    // offset along put it `mooring + offset` — up to a hundred tiles from the
+    // quay and, for rim coves, off the plate onto the paper. The offset fades
+    // over the voyage instead: whole inside the home patrol radius, gone by
+    // the time the hull reaches its nearest mooring, continuous in between so
+    // the sail out reads as one line rather than a jump.
+    const offsetWeight = gardenHomeOffsetWeight(ship, motionDistance);
     display = {
-      x: ship.tile.x + displayOffset.x + motionX * motionScale,
-      y: ship.tile.y + displayOffset.y + motionY * motionScale,
+      x: ship.tile.x + displayOffset.x * offsetWeight + motionX * motionScale,
+      y: ship.tile.y + displayOffset.y * offsetWeight + motionY * motionScale,
     };
   }
   // Zones-v2 placement fix: keep the composed display tile on valid open
   // water with hull clearance from rendered landmasses (island rock, garden
-  // islets, cemetery, pigeonnier). Dock-proximate motion states are exempt:
-  // moored/arriving/departing ships sit at authored moorings next to piers,
-  // where the dock tangent already orients the hull along the wharf.
-  if (sample?.state === "moored" || sample?.state === "arriving" || sample?.state === "departing") {
-    return display;
-  }
-  const margin = gardenShipWaterMarginTiles(gardenShipVisualScale(ship.visual.scale || 1));
-  return isGardenShipWater(display, margin)
-    ? display
-    : nearestGardenShipWater(display, margin, `motion-display.${ship.id}`);
+  // islets, cemetery, pigeonnier). A mooring may overlap the low dock apron,
+  // but it may never overlap the finite plate edge or the stone under that
+  // dock: berth authoring and runtime sampling therefore share this field.
+  const margin = gardenShipWaterMarginTiles(
+    gardenShipVisualScale(ship.visual.scale || 1),
+    GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+  );
+  const includeDocks = sample?.state !== "moored"
+    && sample?.state !== "arriving"
+    && sample?.state !== "departing";
+  return resolveCachedShipWaterTile(
+    gardenShipDisplayTileCache,
+    ship,
+    display,
+    sample?.state,
+    margin,
+    includeDocks,
+    `motion-display.${ship.id}`,
+  );
+}
+
+/**
+ * W7 dependency formations are composed after ordinary motion, so they need
+ * their own final water-field pass. Keeping that pass here lets drawing, hit
+ * targets and detail anchors use the identical child tile instead of letting
+ * the renderer add an unchecked offset after the shared resolver returned.
+ */
+export function resolveGardenDependencyShipDisplayTile(input: {
+  parentTile: ScreenPoint;
+  ship: ShipNode;
+}): ScreenPoint {
+  const { parentTile, ship } = input;
+  const dependency = ship.dependencyFormation;
+  if (!dependency) return parentTile;
+  const side = stableUnit(`dependency-formation.${ship.id}`) < 0.5 ? -1 : 1;
+  const spacing = 1.6 + dependency.weight * 1.4;
+  const composed = {
+    x: parentTile.x + side * spacing,
+    y: parentTile.y + spacing * 0.55,
+  };
+  const margin = gardenShipWaterMarginTiles(
+    gardenShipVisualScale(ship.visual.scale || 1),
+    GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+  );
+  return resolveCachedShipWaterTile(
+    gardenDependencyDisplayTileCache,
+    ship,
+    composed,
+    undefined,
+    margin,
+    false,
+    `dependency-display.${ship.id}`,
+  );
 }
 
 export function resolveGardenEntityDisplayTile(input: {
@@ -229,12 +372,22 @@ export function resolveGardenEntityDisplayTile(input: {
   if (entity.kind === "grave" || entity.kind === "pigeonnier") return entity.tile;
   if (entity.kind !== "ship") return null;
   const placement = slice.ships.find(({ ship }) => ship.detailId === entity.detailId);
-  return placement
-    ? resolveGardenShipDisplayTile({
-        ...placement,
-        sample: shipMotionSamples?.get(entity.id),
-      })
-    : null;
+  if (!placement) return null;
+  const tile = resolveGardenShipDisplayTile({
+    ...placement,
+    sample: shipMotionSamples?.get(entity.id),
+  });
+  const dependency = placement.ship.dependencyFormation;
+  if (!dependency) return tile;
+  const parent = slice.ships.find(({ ship }) => ship.id === dependency.parentId);
+  if (!parent) return tile;
+  return resolveGardenDependencyShipDisplayTile({
+    parentTile: resolveGardenShipDisplayTile({
+      ...parent,
+      sample: shipMotionSamples?.get(parent.ship.id),
+    }),
+    ship: placement.ship,
+  });
 }
 
 export function gardenTileToScreen(
@@ -256,69 +409,9 @@ export function gardenIslandDisplayTile(tile: ScreenPoint): ScreenPoint {
   };
 }
 
-/**
- * H1 (2026-07-25): harbours ring the RENDERED island's waterline.
- *
- * Two bugs stacked here, and together they are why half the harbours looked
- * planted in the middle of the island.
- *
- * 1. This function used to displace dock index 1 by (+3, +5) — a composition
- *    nudge from when the world rendered two representative docks and the
- *    second needed separating from the first. With ten harbours it simply
- *    walked one of them five tiles inland.
- * 2. The rendered island is NOT where the terrain field says the island is.
- *    `gardenIslandDisplayTile` seats the rock model at the lighthouse tile
- *    plus GARDEN_ISLAND_TILE_OFFSET, which lands ~6 tiles south of the
- *    terrain ellipse. A dock tile that is genuinely on the terrain coast can
- *    therefore be several tiles inside the rock the viewer actually sees.
- *
- * So the data tile keeps its terrain meaning (it must: the seawall, the
- * navigable-water mask and the dock contract all read it) and only its BEARING
- * around the terrain island is used. That bearing is re-projected onto the
- * rendered island's waterline ellipse and pushed out along the ellipse normal,
- * which puts every harbour just offshore of the rock the viewer sees, evenly
- * spaced, by construction.
- */
-const GARDEN_TERRAIN_ISLAND_CENTER = landWorldTile({ x: 31, y: 31 });
-/**
- * The rendered island's waterline footprint in tiles, from garden-island.ts
- * ISLAND_TIERS[0] (bottomRadius 18.4, scaleZ 0.75, centred at +0.6/+1.2 world
- * units off the root) converted at TILE_SCALE = sqrt(2).
- */
-const GARDEN_RENDERED_ISLAND_OFFSET = { x: 0.42, y: 0.85 } as const;
-const GARDEN_RENDERED_ISLAND_RADIUS = { x: 13.0, y: 9.8 } as const;
-/**
- * How far off that waterline a harbour root sits. The quay and its warehouses
- * are the harbour's landward end (~2 tiles back from the root), so this is
- * tuned to set the stonework against the shore with the pier reaching out over
- * open water.
- */
-const GARDEN_DOCK_OFFSHORE_TILES = 2.8;
-
+/** Shore stations render at their authoritative cove-mouth water tile. */
 export function gardenDockDisplayTile(tile: ScreenPoint): ScreenPoint {
-  const bearing = Math.atan2(
-    tile.y - GARDEN_TERRAIN_ISLAND_CENTER.y,
-    tile.x - GARDEN_TERRAIN_ISLAND_CENTER.x,
-  );
-  const cos = Math.cos(bearing);
-  const sin = Math.sin(bearing);
-  const { x: radiusX, y: radiusY } = GARDEN_RENDERED_ISLAND_RADIUS;
-  // Radius of the rendered waterline ellipse along this bearing.
-  const reach = (radiusX * radiusY) / Math.hypot(radiusY * cos, radiusX * sin);
-  const coastX = cos * reach;
-  const coastY = sin * reach;
-  // Outward normal of the ellipse at that point — a radial push would crowd
-  // the harbours at the island's blunt ends and splay them at its flanks.
-  const normalX = coastX / (radiusX * radiusX);
-  const normalY = coastY / (radiusY * radiusY);
-  const normalLength = Math.hypot(normalX, normalY) || 1;
-  const center = gardenIslandDisplayTile(LIGHTHOUSE_TILE);
-  return {
-    x: center.x + GARDEN_RENDERED_ISLAND_OFFSET.x + coastX
-      + (normalX / normalLength) * GARDEN_DOCK_OFFSHORE_TILES,
-    y: center.y + GARDEN_RENDERED_ISLAND_OFFSET.y + coastY
-      + (normalY / normalLength) * GARDEN_DOCK_OFFSHORE_TILES,
-  };
+  return tile;
 }
 
 // Zones-v2 (operator hand-drawn overlay, 2026-07-24 — supersedes the Z1

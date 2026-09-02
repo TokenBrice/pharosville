@@ -89,6 +89,30 @@ describe("composeCurrently", () => {
 // P3 metaphor quick-wins: the gated signals must FOLD into existing rows so
 // the panel's <= 8 fact-row density contract holds for the worst-case ship.
 describe("buildDetailFactSections folds", () => {
+  it("renders named-water facts in the area detail record", () => {
+    const { identity } = buildDetailFactSections([
+      { label: "Water style", value: "protected tidal inlet and wreck shoal" },
+      { label: "Atmosphere", value: "still wreck water" },
+      { label: "Source fields", value: "cemeteryEntries[], world-layout wreck-water field" },
+    ]);
+
+    expect(identity).toEqual([
+      { key: "waterStyle", label: "Water style", value: "protected tidal inlet and wreck shoal" },
+      { key: "atmosphere", label: "Atmosphere", value: "still wreck water" },
+      { key: "sourceFields", label: "Source fields", value: "cemeteryEntries[], world-layout wreck-water field" },
+    ]);
+  });
+
+  it("renders the wreck silhouette in grave details", () => {
+    const { identity } = buildDetailFactSections([
+      { label: "Wreck silhouette", value: "Broken keel — the hull has split around exposed frames" },
+    ]);
+    expect(identity).toEqual([{
+      key: "wreckSilhouette",
+      label: "Wreck silhouette",
+      value: "Broken keel — the hull has split around exposed frames",
+    }]);
+  });
   it("folds Bluechip audit into the Class row", () => {
     const { identity } = buildDetailFactSections([
       { label: "Ship class", value: "CeFi" },
@@ -128,6 +152,17 @@ describe("buildDetailFactSections folds", () => {
       { key: "psiTrend", label: "Trend", value: "Observed 24h drift steady" },
       { key: "psiComposition", label: "Composition", value: "severity 40%, breadth 20%" },
     ]);
+  });
+
+  it("renders Route cadence as an explicit ship detail row", () => {
+    const { identity } = buildDetailFactSections([
+      { label: "Route cadence", value: "90–180 s legs; 240–480 s rests; routes show presence only" },
+    ]);
+    expect(identity).toEqual([{
+      key: "routeCadence",
+      label: "Route cadence",
+      value: "90–180 s legs; 240–480 s rests; routes show presence only",
+    }]);
   });
 
   it("folds the depeg record into the 24h row instead of spending its own row", () => {

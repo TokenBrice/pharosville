@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { Matrix4 } from "three";
+import { Matrix4, Vector3 } from "three";
 import { weatherForFrame } from "../systems/weather";
 import {
   createGardenSeasonalDressing,
   GARDEN_SPRING_PETAL_COUNT,
 } from "./garden-seasonal-dressing";
+import { GARDEN_ENGAWA_KOI_WORLD } from "./garden-koi";
 
 describe("garden seasonal dressing", () => {
   const weather = weatherForFrame({ baseWind: 0.4, psiStress: 0.2, timeSeconds: 12 });
@@ -19,17 +20,22 @@ describe("garden seasonal dressing", () => {
 
   it("is deterministic and resolves reduced motion to one time-zero pose", () => {
     const dressing = createGardenSeasonalDressing("spring");
-    dressing.update({ islandX: 10, islandZ: -4, reducedMotion: true, timeSeconds: 12, weather });
+    dressing.update({ reducedMotion: true, timeSeconds: 12, weather });
     const first = matrixAt(dressing, 0);
-    dressing.update({ islandX: 10, islandZ: -4, reducedMotion: true, timeSeconds: 900, weather });
+    dressing.update({ reducedMotion: true, timeSeconds: 900, weather });
     expect(matrixAt(dressing, 0)).toEqual(first);
+    const position = new Vector3().setFromMatrixPosition(new Matrix4().fromArray(first));
+    expect(Math.hypot(
+      position.x - GARDEN_ENGAWA_KOI_WORLD.x,
+      position.z - GARDEN_ENGAWA_KOI_WORLD.z,
+    )).toBeLessThan(6);
   });
 
   it("advects animated petals on the shared wind clock", () => {
     const dressing = createGardenSeasonalDressing("spring");
-    dressing.update({ islandX: 0, islandZ: 0, reducedMotion: false, timeSeconds: 1, weather });
+    dressing.update({ reducedMotion: false, timeSeconds: 1, weather });
     const first = matrixAt(dressing, 0);
-    dressing.update({ islandX: 0, islandZ: 0, reducedMotion: false, timeSeconds: 8, weather });
+    dressing.update({ reducedMotion: false, timeSeconds: 8, weather });
     expect(matrixAt(dressing, 0)).not.toEqual(first);
   });
 });

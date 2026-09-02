@@ -6,28 +6,37 @@ import {
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureStability,
+  makePharosVilleWorldInput,
 } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { buildBaseMotionPlan } from "./motion-planning";
+import { resolveShipMotionSample, type ShipMotionSample } from "./motion";
 import { warmAllWaterPaths } from "./motion-water";
 import { pathKey } from "./motion-utils";
 import {
+  GARDEN_SILHOUETTE_FOR_HULL,
   gardenShipVisualScale,
+  resolveGardenDependencyShipDisplayTile,
   resolveGardenShipDisplayTile,
   selectGardenObservatorySlice,
 } from "./garden-observatory-slice";
 import {
   GARDEN_CEMETERY_OBSTACLE,
+  GARDEN_EDGE_STONE_OBSTACLES,
   GARDEN_ISLAND_OBSTACLE,
   GARDEN_ISLET_OBSTACLES,
   GARDEN_PIGEONNIER_OBSTACLE,
   gardenShipWaterMarginTiles,
   isGardenObstacleTile,
   isGardenShipWater,
+  isGardenShipWaterSlow,
   nearestGardenShipWater,
 } from "./garden-water-exclusion";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
-import { CEMETERY_CENTER } from "./world-layout";
+import { gardenWaterPlateContainsTile } from "./projection";
+import { rimLandAt } from "./garden-rim";
+import { CEMETERY_CENTER, isWaterTileKind, terrainKindAt } from "./world-layout";
+import { GARDEN_SEA_EDGE_ISLAND_WATERLINE } from "./garden-sea-edge-sites";
 
 /** `isGardenObstacleTile` for an already-transformed world tile. */
 function isObstacleAt(tile: { x: number; y: number }): boolean {
@@ -47,11 +56,39 @@ function denseWorld() {
   });
 }
 
-function shipMargin(ship: { visual: { scale?: number } }): number {
-  return gardenShipWaterMarginTiles(gardenShipVisualScale(ship.visual.scale || 1));
+function shipMargin(ship: { visual: { hull: keyof typeof GARDEN_SILHOUETTE_FOR_HULL; scale?: number } }): number {
+  return gardenShipWaterMarginTiles(
+    gardenShipVisualScale(ship.visual.scale || 1),
+    GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+  );
 }
 
 describe("garden water exclusion (zones-v2 placement fix)", () => {
+  it("matches the exact water predicate across a sampled grid", () => {
+    const margins = [0, 1, 3, 5.5];
+    for (const margin of margins) {
+      for (let y = 0.25; y <= 139; y += 2.75) {
+        for (let x = 0.25; x <= 139; x += 2.75) {
+          const point = { x, y };
+          for (const includeDocks of [false, true]) {
+            expect(
+              isGardenShipWater(point, margin, includeDocks),
+              `(${x},${y}) margin ${margin} docks ${includeDocks}`,
+            ).toBe(isGardenShipWaterSlow(point, margin, includeDocks));
+          }
+        }
+      }
+    }
+  });
+
+  it("keeps the complete hull inside the finite playable sea at rim openings", () => {
+    const margin = 3;
+    // The north opening has no rim land to provide this clearance, so the map
+    // edge itself must reject a berth whose centre is legal but hull is not.
+    expect(isGardenShipWater({ x: 70, y: margin - 0.001 }, margin)).toBe(false);
+    expect(isGardenShipWater({ x: 70, y: margin }, margin)).toBe(true);
+  });
+
   it("marks the rendered landmasses as obstacles and open sea as water", () => {
     // Island heart and garden islets are obstacles. N1: every landmass is
     // authored in the 56-tile design space and OFFSET onto the 112-tile grid,
@@ -68,11 +105,20 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
     // wreck — the shoals themselves are open, sailable water.
     expect(isObstacleAt(CEMETERY_CENTER)).toBe(true);
     expect(isObstacleAt(landWorldTile({ x: 8, y: 50 }))).toBe(false); // the old islet's water
-    expect(isObstacleAt(zoneWorldTile({ x: 0, y: 55 }))).toBe(false); // deep in the shoals
+    // RIM FIELD: the extreme south-west edge is now the land bank enclosing Wreck Shoal.
+    expect(isObstacleAt(zoneWorldTile({ x: 0, y: 55 }))).toBe(true);
     // Open sea stays open.
     expect(isObstacleAt(zoneWorldTile({ x: 10, y: 30 }))).toBe(false);
-    expect(isObstacleAt(zoneWorldTile({ x: 45, y: 10 }))).toBe(false);
-    expect(isObstacleAt(zoneWorldTile({ x: 38, y: 52 }))).toBe(false);
+    expect(isObstacleAt(zoneWorldTile({ x: 40, y: 10 }))).toBe(false);
+    // RIM FIELD REVISION 1: the asymmetric south bank is sampled at its deeper western shoulder.
+    expect(isObstacleAt(zoneWorldTile({ x: 38, y: 55 }))).toBe(true);
+    // Wave 2b: renderer-only geography is still physical to navigation.
+    expect(GARDEN_EDGE_STONE_OBSTACLES.length).toBeGreaterThan(0);
+    for (const edge of GARDEN_EDGE_STONE_OBSTACLES) {
+      expect(isObstacleAt(edge), edge.id).toBe(true);
+      expect(isGardenShipWater(edge, 1), edge.id).toBe(false);
+    }
+    expect(GARDEN_ISLAND_OBSTACLE).toEqual(GARDEN_SEA_EDGE_ISLAND_WATERLINE);
   });
 
   it("resolves invalid targets to the nearest valid water deterministically", () => {
@@ -137,6 +183,52 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
     }
   });
 
+  it("keeps every rendered fixture hull on water for ten minutes of world clock", { timeout: 20_000 }, () => {
+    const worlds = [
+      ["canonical-api", buildPharosVilleWorld(makePharosVilleWorldInput())],
+      ["dense", denseWorld()],
+    ] as const;
+    const failures: string[] = [];
+    for (const [fixture, world] of worlds) {
+      const plan = buildBaseMotionPlan(world);
+      const slice = selectGardenObservatorySlice(world, null);
+      for (let second = 0; second <= 600; second += 1) {
+        const samples = new Map<string, ShipMotionSample>();
+        for (const ship of world.ships) {
+          samples.set(ship.id, resolveShipMotionSample({
+            flagshipSamples: samples,
+            plan,
+            reducedMotion: false,
+            ship,
+            timeSeconds: second,
+          }));
+        }
+        const baseTiles = new Map(slice.ships.map((placement) => [
+          placement.ship.id,
+          resolveGardenShipDisplayTile({ ...placement, sample: samples.get(placement.ship.id) }),
+        ]));
+        for (const placement of slice.ships) {
+          const ship = placement.ship;
+          const dependency = ship.dependencyFormation;
+          const parentTile = dependency ? baseTiles.get(dependency.parentId) : undefined;
+          const tile = dependency && parentTile
+            ? resolveGardenDependencyShipDisplayTile({ parentTile, ship })
+            : baseTiles.get(ship.id)!;
+          const label = `${fixture} t=${second} ${ship.id} at ${tile.x.toFixed(2)},${tile.y.toFixed(2)}`;
+          if (!gardenWaterPlateContainsTile(tile, world.map)) failures.push(`${label}: outside plate`);
+          else if (rimLandAt(tile.x, tile.y)) failures.push(`${label}: rim land`);
+          // Terrain is an authored tile grid; round exactly as the renderer's
+          // region/terrain consumers do, which also exercises the memoised
+          // grid instead of recomputing the sea partition ~80k times.
+          else if (!isWaterTileKind(terrainKindAt(Math.round(tile.x), Math.round(tile.y)))) {
+            failures.push(`${label}: terrain land`);
+          }
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
   it("places every ship risk tile and dock mooring off the rendered landmasses", () => {
     const world = denseWorld();
     for (const ship of world.ships) {
@@ -171,6 +263,8 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
       if (Math.hypot(point.x - pigeon.x, point.y - pigeon.y) < pigeon.r - 0.4) return true;
       return GARDEN_ISLET_OBSTACLES.some((islet) => (
         Math.hypot(point.x - islet.x, point.y - islet.y) < islet.r - 0.4
+      )) || GARDEN_EDGE_STONE_OBSTACLES.some((edge) => (
+        Math.hypot(point.x - edge.x, point.y - edge.y) < edge.r - 0.4
       ));
     };
     let pointCount = 0;

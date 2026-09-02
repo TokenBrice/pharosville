@@ -13,10 +13,10 @@ export function gardenAttractKeyframes(
 ): ObserveTourKeyframe[] {
   const island = gardenIslandDisplayTile(lighthouseTile);
   const postcards = [
-    { tile: { x: island.x + 5, y: island.y + 3 }, zoom: 0.94 }, // tower past torii
-    { tile: { x: map.width * 0.62, y: map.height * 0.43 }, zoom: 0.82 }, // anchorage void
-    { tile: { x: island.x + 1.5, y: island.y + 1 }, zoom: 1.12 }, // grove
-    { tile: { x: island.x - 4, y: island.y - 2 }, zoom: 1.02 }, // dusk beam
+    { tile: { x: island.x + 7, y: island.y + 12 }, zoom: 0.76 }, // tower past engawa
+    { tile: { x: map.width * 0.61, y: map.height * 0.44 }, zoom: 0.68 }, // anchorage ma
+    { tile: { x: map.width * 0.33, y: map.height * 0.58 }, zoom: 0.74 }, // rim and cove
+    { tile: { x: island.x - 3, y: island.y - 1 }, zoom: 0.84 }, // dusk beam
   ] as const;
   return postcards.map((postcard, beatIndex) => {
     const iso = tileToIso(postcard.tile);

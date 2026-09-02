@@ -92,45 +92,63 @@ export const DUSK_EMBER_COLOR = paletteColor(P.lantern_warm).lerp(paletteColor(P
 export const MOON_COLOR = paletteColor(P.moonlight);
 export const STAR_COLOR = paletteColor(P.moonlight).lerp(paletteColor(P.foam_white), 0.4);
 
-// Night rig is deliberately dim so warm emissives (beacon, lanterns) carry the
-// scene; the day rig is the ukiyo-e morning: a warm cream key sun against a
-// cool indigo-teal sky fill (warm highlights / cool-teal shadows).
+// Night keeps the warm emissive hierarchy, but the non-emissive floor is high
+// enough that hull, island and rim silhouettes survive the Stillness blur
+// audit. The brighter fog-derived sky fill is diffuse form light, not another
+// source: the beacon remains the only HDR key and the moon road the secondary.
+// Day is the ukiyo-e morning: a warm cream key sun against a cool indigo-teal
+// sky fill (warm highlights / cool-teal shadows).
 export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPreset> = {
   day: {
     ambient: paletteColor(P.sky_day_horizon),
-    ambientIntensity: 0.38,
+    ambientIntensity: 0.18,
     dirColor: paletteColor(P.sun_day_warm),
-    dirIntensity: 1.7,
+    dirIntensity: 3.1,
     hemiGround: paletteColor(P.shallow_teal_lit),
-    hemiIntensity: 1.05,
+    hemiIntensity: 0.45,
     hemiSky: paletteColor(P.sky_day_zenith),
   },
   dusk: {
     ambient: paletteColor(P.lantern_warm).lerp(paletteColor(P.moonlight), 0.4),
-    ambientIntensity: 0.26,
+    ambientIntensity: 0.18,
     dirColor: paletteColor(P.lantern_warm),
-    dirIntensity: 1.1,
+    dirIntensity: 1.9,
     hemiGround: paletteColor(P.ember),
-    hemiIntensity: 0.56,
+    hemiIntensity: 0.44,
     hemiSky: paletteColor(P.sky_horizon),
   },
   night: {
-    ambient: paletteColor(P.moonlight),
-    ambientIntensity: 0.2,
-    dirColor: paletteColor(P.moonlight),
-    dirIntensity: 0.95,
-    hemiGround: paletteColor(P.deep_sea_2),
-    hemiIntensity: 0.44,
-    hemiSky: paletteColor(P.fog_blue),
+    // Scalar energy remains above the environment probe, but these deliberately
+    // dark, warm-biased colours keep the analytic fill from bleaching the rim
+    // into the moonlit water. The fill reveals silhouettes; it does not repaint
+    // them at the probe's cool average or compete with the beacon.
+    ambient: paletteColor(P.sky_night).lerp(paletteColor(P.stone_dark), 0.48),
+    ambientIntensity: 0.28,
+    dirColor: paletteColor(P.moonlight).lerp(paletteColor(P.lantern_cold), 0.18),
+    dirIntensity: 1.05,
+    hemiGround: paletteColor(P.deep_sea_2).lerp(paletteColor(P.timber_dark), 0.46),
+    hemiIntensity: 0.36,
+    hemiSky: paletteColor(P.sky_night).lerp(paletteColor(P.fog_blue), 0.1),
   },
 };
 
+/**
+ * Wave 6 sail value, separate from the cloth's issuer-owned colour policy.
+ * Moonlight may reveal the dye after dark, but the fleet cannot become a
+ * second field of white lamps competing with the beacon and moon road.
+ */
+export const GARDEN_SAIL_EMISSIVE = Object.freeze({
+  day: 0.06,
+  dusk: 0.12,
+  night: 0.09,
+});
+
 export const DAY_CYCLE_HEIGHT_FOG_PRESETS: Record<DayCyclePhaseName, DayCycleHeightFogPreset> = {
   day: {
-    density: 0.00016,
+    density: 0.000055,
     heightFalloff: 0.28,
     horizon: DAY_CYCLE_SKY_PRESETS.day.fog.clone(),
-    phaseGain: 0.32,
+    phaseGain: 0.12,
     sunTint: DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone(),
     zenith: DAY_CYCLE_SKY_PRESETS.day.zenith.clone(),
   },
@@ -307,7 +325,13 @@ export function updateDayCycle(
   // Dimmer per-lantern halo to match the smaller quad (W1.10): the fleet's
   // warmth should come from MANY small lights, not from each one flaring.
   scene.content.shipLanternGlowMaterial.opacity = dusk * 0.12 + night * 0.24;
-  const sailEmissive = 0.16 + dusk * 0.14 + night * 0.62;
+  const sailEmissive = blendDayCycleScalar(
+    GARDEN_SAIL_EMISSIVE.night,
+    GARDEN_SAIL_EMISSIVE.dusk,
+    GARDEN_SAIL_EMISSIVE.day,
+    dusk,
+    daylight,
+  );
   // The batched fleet shares ONE sail material, so the night backlight is a
   // single write instead of one per ship (W1 / D2).
   if (scene.content.fleetSailMaterial) {
@@ -324,8 +348,8 @@ export function updateDayCycle(
   const beamTime = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
   // Daylight suppresses the light-in-air pieces; the lit sea lane fades with
   // the lighthouse light instead.
-  const coneOpacity = (dusk * 0.04 + night * 0.14) * (1 - daylight * 0.9);
-  const dustOpacity = (dusk * 0.1 + night * 0.28) * (1 - daylight);
+  const coneOpacity = (dusk * 0.035 + night * 0.11) * (1 - daylight * 0.9);
+  const dustOpacity = (dusk * 0.09 + night * 0.24) * (1 - daylight);
   const planeOpacity = (0.008 + dusk * 0.025 + night * 0.06) * (1 - daylight * 0.9);
   for (const child of scene.content.beam.children) {
     if (!(child instanceof Mesh) && !(child instanceof Points)) continue;

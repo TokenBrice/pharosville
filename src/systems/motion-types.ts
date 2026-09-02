@@ -33,8 +33,6 @@ export interface ShipWaterRouteCache {
   get(key: string): ShipWaterPath | undefined;
   set(key: string, value: ShipWaterPath): void;
 }
-export type ShipWaterPathBuilder = () => ShipWaterPath;
-
 export interface ShipDockMotionStop {
   id: string;
   kind: "dock";
@@ -67,6 +65,23 @@ export interface ShipMotionRoute {
   routeEpoch?: number;
   routeKey?: string;
   cycleSeconds: number;
+  /** Duration of each deterministic travel leg in this route cycle. */
+  legDurationSeconds: number;
+  /**
+   * Total uninterrupted travel time between the risk anchorage and a station.
+   * Voyages longer than one 180-second leg are divided into equal logical legs;
+   * the sampler follows the same continuous water path across their boundary.
+   * Omitted only by legacy/test routes, which fall back to `legDurationSeconds`.
+   */
+  voyageDurationSeconds?: number;
+  /** Number of 90-180 second logical legs in each one-way voyage. */
+  voyageLegCount?: number;
+  /** Duration of each rest following a leg. */
+  restDurationSeconds: number;
+  /** Duration of the risk-water rest; omitted by legacy/test routes. */
+  riskRestDurationSeconds?: number;
+  /** Perceptual cruise pace; risk band first, flow tempo as a modest scalar. */
+  underwaySpeedTilesPerSecond: number;
   phaseSeconds: number;
   riskTile: { x: number; y: number };
   dockStops: ShipDockMotionStop[];
@@ -115,10 +130,6 @@ export interface ShipMotionRoute {
   // Baseline 1.0; formula: 1 + clamp(|pct| / 20, 0, 0.6) when |pct| ≥ 2
   // (change24hPct is in percent units — e.g. 10 means 10% — per recent-change.ts:16).
   wakeMultiplier: number;
-  // E3: dock-dwell share override for ships with broad chain presence.
-  // chainPresence.length ≥ 4 → base × 1.15; otherwise the DOCKED_SHIP_DWELL_SHARE
-  // constant applies. undefined means "use the base constant".
-  dockDwellShareOverride?: number;
   /**
    * W4.25 — when the ship's risk tile changed since the previous plan build,
    * the previous risk tile is preserved for one cycle. The sampler blends

@@ -153,6 +153,13 @@ export default defineConfig(({ mode }) => {
             if (id.includes("/node_modules/lucide-react/")) {
               return "vendor-icons";
             }
+            if (
+              id.includes("/node_modules/three/")
+              || id.includes("/node_modules/postprocessing/")
+              || id.includes("/node_modules/n8ao/")
+            ) {
+              return "vendor-rendering";
+            }
             return undefined;
           },
         },

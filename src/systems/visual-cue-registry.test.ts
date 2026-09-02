@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { PharosVilleWorld, VisualCue, VisualCueChannel } from "./world-types";
-import { buildVisualCueRegistry, LEGEND_MARK_ROWS } from "./visual-cue-registry";
+import {
+  buildVisualCueRegistry,
+  DECORATIVE_VISUAL_NOTES,
+  LEGEND_MARK_ROWS,
+} from "./visual-cue-registry";
 
 const ALLOWED_CHANNELS = [
   "color",
@@ -17,6 +21,23 @@ function cueKey(cue: VisualCue): string {
 }
 
 describe("buildVisualCueRegistry", () => {
+  it("records sea-edge geography as decorative without adding a ledger cue", () => {
+    expect(DECORATIVE_VISUAL_NOTES.seaEdgeGeography).toContain("carry no meaning");
+    expect(DECORATIVE_VISUAL_NOTES.heroWaterfall).toContain("carry no meaning");
+    expect(DECORATIVE_VISUAL_NOTES.heroWaterfall).toContain("displaces");
+    expect(DECORATIVE_VISUAL_NOTES.engawaKoi).toContain("carry no meaning");
+    expect(DECORATIVE_VISUAL_NOTES.engawaKoi).toContain("displace");
+    expect(DECORATIVE_VISUAL_NOTES.sharedGardenWind).toContain("carry no meaning");
+    expect(DECORATIVE_VISUAL_NOTES.sharedGardenWind).toContain("no new oscillator");
+    expect(DECORATIVE_VISUAL_NOTES.seasonalLandmarks).toContain("carry no meaning");
+    expect(DECORATIVE_VISUAL_NOTES.seasonalLandmarks).toContain("displace");
+    expect(DECORATIVE_VISUAL_NOTES.landRim).toContain("carry no meaning");
+    expect(DECORATIVE_VISUAL_NOTES.shakkeiSky).toContain("carry no meaning");
+    expect(DECORATIVE_VISUAL_NOTES.engawaForeground).toContain("carry no meaning");
+    expect(buildVisualCueRegistry().some((cue) => cue.id.includes("sea-edge"))).toBe(false);
+    expect(buildVisualCueRegistry().some((cue) => cue.id.includes("waterfall"))).toBe(false);
+  });
+
   it("documents visual cues with source and DOM equivalents", () => {
     const cues = buildVisualCueRegistry();
 
@@ -32,7 +53,7 @@ describe("buildVisualCueRegistry", () => {
       "cue.water.semantic-terrain",
     ]));
     expect(cues.find((cue) => cue.id === "cue.ship.motion")).toMatchObject({
-      failureState: expect.stringContaining("reduced-motion static risk-water idle position with evidence caveat"),
+      failureState: expect.stringContaining("reduced-motion static risk-water or Ledger Mooring idle position"),
       target: { kind: "ship" },
       primaryChannels: ["motion", "position", "opacity"],
     });
@@ -58,15 +79,50 @@ describe("buildVisualCueRegistry", () => {
     expect(`${cue?.visual} ${cue?.questionAnswered}`).not.toMatch(/\b(alert|alarm|urgent|critical|emergency)\b/i);
   });
 
-  it("registers ship cycle tempo against per-coin mint/redeem flow intensity", () => {
+  it("registers bounded leg/rest cadence with route-presence caveats", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.motion");
 
-    expect(cue).toMatchObject({
-      sourceField: expect.stringContaining("mintBurn.coins[].flowIntensity"),
-      questionAnswered: expect.stringContaining("24h mint/redeem flow"),
-      failureState: expect.stringContaining("neutral 1.0 cycle-speed scalar"),
-    });
-    expect(cue?.domEquivalent).toContain("not market-cap tier");
+    expect(cue?.visual).toContain("90–180 second logical legs");
+    expect(cue?.visual).toContain("240–480 second rests");
+    expect(cue?.visual).toContain("paired arrivals and departures");
+    expect(cue?.visual).toContain("risk order");
+    expect(cue?.domEquivalent).toContain("rendered-chain/risk presence only");
+    expect(`${cue?.visual} ${cue?.domEquivalent}`).not.toMatch(/mooring orbit|chain-breadth dwell|extended dwell/i);
+  });
+
+  it("registers seven hover-weighted boundary steles with ledger redundancy", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.water.semantic-terrain");
+
+    expect(cue?.visual).toContain("seven low stone boundary steles");
+    expect(cue?.visual).toContain("Wreck Shoal");
+    expect(cue?.visual).toContain("hovered or inspected");
+    expect(cue?.failureState).toContain("no freestanding sign or post");
+    expect(cue?.domEquivalent).toContain("ledger is the redundant channel");
+    expect(`${cue?.visual} ${cue?.reducedMotionEquivalent}`).not.toContain("printed");
+  });
+
+  it("registers wreck silhouette-to-cause lifecycle semantics", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.grave.lifecycle");
+
+    expect(cue?.visual).toContain("substantial hull");
+    expect(cue?.visual).toContain("broken keel");
+    expect(cue?.visual).toContain("bare remains");
+    expect(cue?.visual).toContain("cause colour");
+    expect(cue?.domEquivalent).toContain("Wreck silhouette");
+    expect(cue?.domEquivalent).toContain("cause-colour swatch legend");
+  });
+
+  it("documents all six hull-family silhouettes and their complete classification source", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.hull");
+
+    for (const family of ["bezaisen", "kobaya", "paired-hull", "takasebune", "junk", "scow"]) {
+      expect(cue?.visual).toContain(family);
+    }
+    expect(cue?.sourceField).toContain("governance");
+    expect(cue?.sourceField).toContain("backing");
+    expect(cue?.sourceField).toContain("yieldBearing");
+    expect(cue?.sourceField).toContain("pegCurrency");
+    expect(cue?.domEquivalent).toContain("accessibility-ledger");
   });
 
   it("registers the per-ship issuance workset with complete parity", () => {
@@ -190,15 +246,11 @@ describe("buildVisualCueRegistry", () => {
     }
   });
 
-  it("describes area cues as printed cartographic labels instead of signs or posts", () => {
-    const areaCues = buildVisualCueRegistry().filter((cue) => cue.target.kind === "area");
+  it("describes named-water classification as steles rather than signs or posts", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.water.semantic-terrain");
 
-    expect(areaCues.map((cue) => cue.visual)).toEqual(expect.arrayContaining([
-      expect.stringContaining("printed cartographic"),
-    ]));
-    for (const cue of areaCues) {
-      expect(cue.visual).not.toMatch(/\b(sign|post|board|badge)\b/i);
-    }
+    expect(cue?.visual).toContain("boundary steles");
+    expect(cue?.visual).not.toMatch(/printed cartographic|\b(sign|post|board|badge)\b/i);
   });
 
 });

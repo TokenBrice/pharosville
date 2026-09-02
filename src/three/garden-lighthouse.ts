@@ -819,12 +819,13 @@ function createKeeperShoreProps(): Group {
   return group;
 }
 
-// The beam sweeps horizontally along the group's +X (apex at the beacon), so
-// the far end fades out roughly BEAM_LENGTH world units over the dark sea.
-// The beam crosses a meaningful arc of sea without becoming a screen-wide
-// wedge in legal ultrawide framing; the water reflection lane is separate.
-const BEAM_LENGTH = 48;
-const BEAM_BASE_RADIUS = 2.4;
+// The beam sweeps horizontally along the group's +X (apex at the beacon). Its
+// 92-unit reach meets the finite rim from the island in the default framing;
+// the broad end stays a feathered volume rather than a screen-wide wedge. The
+// water shader derives its road and landing pool from these same dimensions.
+export const GARDEN_LIGHTHOUSE_BEAM_LENGTH = 92;
+export const GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS = 4.2;
+export const GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE = 86;
 const BEAM_DUST_COUNT = 40;
 // C1 palette-derived: warm lantern gold lifted toward foam white.
 const BEAM_COLOR = palette(P.lantern_glow).lerp(palette(P.foam_white), 0.22);
@@ -832,8 +833,8 @@ const BEAM_COOL_COLOR = BEAM_COLOR.clone().lerp(LAMP_COOL_COLOR, 0.75);
 
 /**
  * The volumetric beam: an open additive cone (apex at the beacon, axis along
- * +X). Under the fixed ortho view a fresnel-ish edge term (grazing surfaces
- * glow, face-on softens) plus front+back additive overlap read as light in
+ * +X). Under the fixed ortho view an edge-attenuated profile lets front+back
+ * additive overlap carry the shaft while its silhouette feathers into the
  * air; a longitudinal fade darkens it toward the far end and slow banding
  * drifts through it. `uTime` is frozen under reduced motion by the caller.
  *
@@ -846,14 +847,20 @@ const BEAM_COOL_COLOR = BEAM_COLOR.clone().lerp(LAMP_COOL_COLOR, 0.75);
  * per-frame forward-scattering factor (ortho collapses the scattering
  * geometry to one exact dot of beam axis vs fixed view axis — the beam
  * flares as it sweeps toward the camera), and an HDR storm lift that pushes
- * the core over the bloom knee. At recovery (`uVolumetric` 0) every term is
- * gated off and the output is the pre-Phase-2 cone bit-exact — same colour,
- * same intent, one material, no tier-transition compile hitch.
+ * the core over the bloom knee. At recovery (`uVolumetric` 0) every enhancement
+ * is gated off and the output is the plain analytic cone — same colour and
+ * intent, one material, no tier-transition compile hitch.
  */
 function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
-  const geometry = new ConeGeometry(BEAM_BASE_RADIUS, BEAM_LENGTH, 28, 1, true);
+  const geometry = new ConeGeometry(
+    GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS,
+    GARDEN_LIGHTHOUSE_BEAM_LENGTH,
+    28,
+    1,
+    true,
+  );
   // Apex to the group origin, axis rotated from +Y to +X.
-  geometry.translate(0, -BEAM_LENGTH / 2, 0);
+  geometry.translate(0, -GARDEN_LIGHTHOUSE_BEAM_LENGTH / 2, 0);
   geometry.rotateZ(Math.PI / 2);
   const material = new ShaderMaterial({
     blending: AdditiveBlending,
@@ -896,15 +903,20 @@ function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
       }
 
       void main() {
-        // Bright just past the apex, carrying out over the sea before fading
-        // to nothing by the far end (~55 units of the 58-unit cone).
-        float fade = smoothstep(0.015, 0.09, vAlong)
-          * (1.0 - smoothstep(0.5, 0.99, vAlong));
-        // Ortho fresnel: grazing (silhouette) surfaces glow, face-on softens.
+        // Bright just past the apex, carrying almost to the rim before the
+        // long final third feathers into the landing pool.
+        float fade = smoothstep(0.015, 0.07, vAlong)
+          * (1.0 - smoothstep(0.62, 1.0, vAlong));
+        // Ortho volume profile: face-on overlap carries the shaft while the
+        // grazing silhouette is attenuated. The previous positive fresnel made
+        // the cone boundary its brightest line — a cut-paper wedge, not haze.
         float rim = 1.0 - abs(vNormalView.z);
-        float shaft = 0.3 + 0.7 * rim;
+        float shaft = 0.78 - 0.48 * rim;
         float bands = 0.86 + 0.14 * sin(vAlong * 30.0 - uTime * 1.3);
-        float alpha = uOpacity * fade * shaft * bands;
+        // A brighter near core gives the first thirty world units a readable
+        // volume; it yields before the long soft tail reaches the rim.
+        float nearCore = 1.0 + 0.55 * (1.0 - smoothstep(0.08, 0.34, vAlong));
+        float alpha = uOpacity * fade * shaft * bands * nearCore;
         if (uVolumetric > 0.5) {
           // Mist volume locked to world space (it stays put while the beam
           // sweeps through it — the air is what moves slowly, not the
@@ -930,7 +942,7 @@ function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
     transparent: true,
     uniforms: {
       uColor: { value: BEAM_COLOR.clone() },
-      uLength: { value: BEAM_LENGTH },
+      uLength: { value: GARDEN_LIGHTHOUSE_BEAM_LENGTH },
       uOpacity: { value: 0 },
       uScatter: { value: 0 },
       uStorm: { value: 0 },
@@ -961,8 +973,10 @@ function createBeamDust(): Points<BufferGeometry, ShaderMaterial> {
   const positions: number[] = [];
   const seeds: number[] = [];
   for (let index = 0; index < BEAM_DUST_COUNT; index += 1) {
-    const along = (0.14 + stableUnit(`beam-dust-a.${index}`) * 0.72) * BEAM_LENGTH;
-    const coneRadius = (along / BEAM_LENGTH) * BEAM_BASE_RADIUS;
+    const along = (0.14 + stableUnit(`beam-dust-a.${index}`) * 0.72)
+      * GARDEN_LIGHTHOUSE_BEAM_LENGTH;
+    const coneRadius = (along / GARDEN_LIGHTHOUSE_BEAM_LENGTH)
+      * GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS;
     const radius = coneRadius * (0.15 + stableUnit(`beam-dust-r.${index}`) * 0.7);
     const angle = stableUnit(`beam-dust-t.${index}`) * Math.PI * 2;
     positions.push(along, Math.cos(angle) * radius, Math.sin(angle) * radius);
@@ -1016,9 +1030,12 @@ function createBeamDust(): Points<BufferGeometry, ShaderMaterial> {
 
 /** Recovery/constrained fallback: the original flat additive beam plane. */
 function createBeamPlane(): Mesh<PlaneGeometry, ShaderMaterial> {
-  const geometry = new PlaneGeometry(BEAM_LENGTH, 8);
+  const geometry = new PlaneGeometry(
+    GARDEN_LIGHTHOUSE_BEAM_LENGTH,
+    GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS * 2,
+  );
   geometry.rotateX(-Math.PI / 2);
-  geometry.translate(BEAM_LENGTH / 2, 0, 0);
+  geometry.translate(GARDEN_LIGHTHOUSE_BEAM_LENGTH / 2, 0, 0);
   const material = new ShaderMaterial({
     blending: AdditiveBlending,
     depthWrite: false,

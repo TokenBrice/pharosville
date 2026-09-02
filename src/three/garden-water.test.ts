@@ -21,7 +21,11 @@ import {
   GARDEN_DEFAULT_WIND_X,
   GARDEN_DEFAULT_WIND_Z,
 } from "../systems/weather";
-import { SEA_REGION_ID } from "../systems/garden-sea-regions";
+import {
+  SEA_REGION_CHARACTER,
+  SEA_REGION_DISTANCE_FULL_SCALE_TILES,
+  SEA_REGION_ID,
+} from "../systems/garden-sea-regions";
 import type { GardenWaterFrame } from "./garden-water";
 import {
   createGardenWater,
@@ -29,6 +33,7 @@ import {
   GARDEN_ISLAND_ROCK_RADIUS,
   GARDEN_WATER_GERSTNER,
   GARDEN_WATER_MAX_DISPLACEMENT,
+  GARDEN_SEA_BOUNDARY_SEAM_WIDTH_TILES,
   sampleGardenGerstner,
   VERTEX_SHADER,
   type GardenGerstnerSampleInput,
@@ -38,6 +43,7 @@ import {
   GARDEN_WATER_CREST_FOAM,
   GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN,
   GARDEN_WATER_NIGHT_EMISSIVE_BUDGET,
+  GARDEN_WATER_PLATE_MARGIN_TILES,
   GARDEN_WATER_PROBE_BLEND,
   GARDEN_WATER_PROBE_ROUGHNESS,
   GARDEN_WATER_SHORE_FOAM,
@@ -129,17 +135,9 @@ describe("water shader uniform hygiene", () => {
     expect(water.mesh.children).toHaveLength(0);
   });
 
-  /**
-   * W1.4: the bokashi bands are the only sky this world has, and the water
-   * draws them. The shader has TWO exit paths — the open-ocean early-out and
-   * the end of main — and at wide framings the early-out draws most of the far
-   * water in the upper frame. Applying the wipe to one path only would step the
-   * ramp at exactly the map boundary L1 spent its effort erasing.
-   */
-  it("wipes the bokashi bands on BOTH of the shader's exit paths", () => {
-    expect(FRAGMENT_SHADER).toContain("float gardenBokashiShade(");
-    const calls = FRAGMENT_SHADER.match(/gl_FragColor\.rgb \*= gardenBokashiShade\(/g);
-    expect(calls).toHaveLength(2);
+  it("hands bokashi to the visible sky instead of shading water fragments", () => {
+    expect(FRAGMENT_SHADER).not.toContain("gardenBokashiShade");
+    expect(FRAGMENT_SHADER).not.toContain("return;");
   });
 });
 
@@ -181,6 +179,22 @@ describe("createGardenWater", () => {
     expect(uniformNumber(water.material, "uBeaconFlicker")).toBe(1);
   });
 
+  it("covers only the map extent plus the finite plate margin", () => {
+    const water = createGardenWater(GARDEN_WATER_Y);
+    const geometry = water.mesh.geometry as PlaneGeometry;
+    geometry.computeBoundingBox();
+    const bounds = geometry.boundingBox!;
+    const mapSpan = 139 * Math.SQRT2;
+    const margin = GARDEN_WATER_PLATE_MARGIN_TILES * Math.SQRT2;
+
+    expect(geometry.parameters.width).toBeCloseTo(mapSpan + margin * 2);
+    expect(geometry.parameters.height).toBeCloseTo(mapSpan + margin * 2);
+    expect(bounds.min.x).toBeCloseTo(-margin);
+    expect(bounds.max.x).toBeCloseTo(mapSpan + margin);
+    expect(bounds.min.y).toBeCloseTo(-mapSpan - margin);
+    expect(bounds.max.y).toBeCloseTo(margin);
+  });
+
   it("binds the scene PMREM directly without a world-renderer wire", () => {
     const water = createGardenWater(0);
     const scene = new Scene();
@@ -218,7 +232,7 @@ describe("createGardenWater", () => {
     expect(GARDEN_WATER_PROBE_BLEND).toBeGreaterThan(0.75);
     expect(GARDEN_WATER_PROBE_BLEND).toBeLessThan(1);
     expect(source).toContain("vec3 skySample = gardenEnvironmentReflection(");
-    expect(source).toContain("vec3 openEnvironment = gardenEnvironmentReflection(");
+    expect(source).not.toContain("openEnvironment");
   });
 
   it("keeps foam sparse and filters glint normals by screen-space variation", () => {
@@ -313,8 +327,59 @@ describe("createGardenWater", () => {
     expect(water.material.fragmentShader).not.toContain("uZoneEllipse");
 
     const danger = water.material.uniforms.uRegionColor!.value[5]!;
-    expect(danger.getHexString()).toBe("ef4444");
-    expect(water.material.uniforms.uRegionParams!.value[5]!.w).toBeCloseTo(0.44);
+    expect(danger.getHexString()).toBe(
+      new Color(SEA_REGION_CHARACTER.danger.tint).lerp(new Color("#ef4444"), 0.18).getHexString(),
+    );
+    expect(water.material.uniforms.uRegionParams!.value[5]!.w).toBeCloseTo(
+      SEA_REGION_CHARACTER.danger.tintStrength,
+    );
+  });
+
+  it("wires the seven directional characters into the existing normal vocabulary", () => {
+    const water = createGardenWater(0);
+    const flows = water.material.uniforms.uRegionFlow!.value;
+    const waves = water.material.uniforms.uRegionSwell!.value;
+    for (const [name, id] of Object.entries(SEA_REGION_ID)) {
+      const character = SEA_REGION_CHARACTER[name as keyof typeof SEA_REGION_CHARACTER];
+      expect(flows[id]!.x).toBeCloseTo(Math.cos(character.flowBearing));
+      expect(flows[id]!.y).toBeCloseTo(-Math.sin(character.flowBearing));
+      expect(flows[id]!.z).toBe(character.flowHold);
+      expect(flows[id]!.w).toBe(character.normalDetail);
+      expect(waves[id]!.z).toBe(character.crossedNormal);
+      expect(waves[id]!.w).toBe(character.shallowShelf);
+    }
+    const source = water.material.fragmentShader;
+    const vertexSource = water.material.vertexShader;
+    expect(source).toContain("vec3 regionColor = regionTint * (waterLuma / tintLuma)");
+    expect(source).not.toContain("mix(\n        regionTint,\n        luminanceMatchedTint");
+    expect(source).toContain(`if (regionId == ${SEA_REGION_ID.open})`);
+    expect(source).toContain("nA = sampleWaterNormal(vWaterPosition * 0.055 + openFlow * 0.045)");
+    expect(vertexSource).toContain("mix(-uWindDir, -regionFlow.xy, regionFlow.z)");
+    expect(source).toContain("signatureNormal");
+    expect(source).toContain(`regionId == ${SEA_REGION_ID.watch}`);
+    expect(source).toContain(`regionId == ${SEA_REGION_ID.alert}`);
+    expect(source).toContain(`regionId == ${SEA_REGION_ID.warning}`);
+    expect(source).toContain(`regionId == ${SEA_REGION_ID.danger}`);
+    expect(source).toContain(`regionId == ${SEA_REGION_ID.ledger}`);
+    expect(source).toContain(`regionId == ${SEA_REGION_ID.wreck}`);
+    expect(source).toContain("crestFoamMask *= 0.52");
+  });
+
+  it("wires each named body's few-tile boundary bank into the single water draw", () => {
+    const water = createGardenWater(0);
+    const boundaries = water.material.uniforms.uRegionBoundary!.value;
+    for (const [name, id] of Object.entries(SEA_REGION_ID)) {
+      const character = SEA_REGION_CHARACTER[name as keyof typeof SEA_REGION_CHARACTER];
+      expect(boundaries[id]!.x).toBeCloseTo(
+        character.boundaryWidthTiles / SEA_REGION_DISTANCE_FULL_SCALE_TILES,
+      );
+      expect(boundaries[id]!.y).toBe(character.boundaryFoam);
+      expect(boundaries[id]!.z).toBe(character.boundaryBank);
+    }
+    expect(GARDEN_SEA_BOUNDARY_SEAM_WIDTH_TILES).toEqual({ min: 2.6, max: 3.6 });
+    expect(water.material.fragmentShader).toContain("float boundaryBand");
+    expect(water.material.fragmentShader).toContain("vec3 boundaryCharacter = uRegionBoundary[regionId]");
+    expect(water.mesh.children).toHaveLength(0);
   });
 
   it("maps the region field with the water plane's z-flip", () => {
@@ -327,24 +392,35 @@ describe("createGardenWater", () => {
     expect(transform.w).toBeCloseTo(-transform.z);
   });
 
-  it("closes the open-ocean early-out with the same encoding as the main path", () => {
-    // Three only compiles tone mapping and an encoding `linearToOutputTexel`
-    // in when a material draws to the default framebuffer, so both chunks are
-    // no-ops under the post composer and go live the frame it is shed at the
-    // `constrained` tier. An early-out that returns without them writes linear
-    // values into the sRGB canvas, and the open sea outside the map snaps to a
-    // near-black void behind a hard diamond seam.
+  it("has no renderer-only open-ocean or rounded-lozenge domain", () => {
     const water = createGardenWater(0);
     const source = water.mesh.material.fragmentShader;
-    const earlyOut = source.slice(0, source.indexOf("return;"));
     for (const chunk of ["tonemapping_fragment", "colorspace_fragment", "fog_fragment"]) {
-      expect(source.split(`#include <${chunk}>`)).toHaveLength(3);
-      expect(earlyOut).toContain(`#include <${chunk}>`);
+      expect(source.split(`#include <${chunk}>`)).toHaveLength(2);
     }
-    // W2.1 is part of that close too: most upper-frame water takes this branch,
-    // so omitting the analytic term would reveal the rounded map boundary.
-    expect(source.split("gl_FragColor.rgb = gardenApplyHeightFog(")).toHaveLength(3);
-    expect(earlyOut).toContain("gl_FragColor.rgb = gardenApplyHeightFog(");
+    for (const removed of [
+      "MAP_CORNER_RADIUS",
+      "uMapEdge",
+      "uOpenOceanCenter",
+      "uOpenOceanRadius",
+      "gardenOpenOcean",
+      "oceanBlend",
+    ]) expect(source).not.toContain(removed);
+    expect(source.split("gl_FragColor.rgb = gardenApplyHeightFog(")).toHaveLength(2);
+  });
+
+  it("alpha-dissolves the far and east plate skirts while retaining the engawa edge", () => {
+    const water = createGardenWater(0);
+    const source = water.material.fragmentShader;
+    expect(GARDEN_WATER_PLATE_MARGIN_TILES).toBeGreaterThanOrEqual(6);
+    expect(GARDEN_WATER_PLATE_MARGIN_TILES).toBeLessThanOrEqual(10);
+    expect(water.material.transparent).toBe(true);
+    expect(source).toContain("min(vRegionUv.x, vRegionUv.y)");
+    expect(source).toContain("float eastSideFade");
+    expect(source).toContain("float plateAlpha = farPairFade * eastSideFade");
+    expect(source).toContain("vec4(waterColor, plateAlpha)");
+    // No vRegionUv.y upper-edge fade: the engawa/south rock edge may stay crisp.
+    expect(source).not.toContain("max(vRegionUv.x, vRegionUv.y)");
   });
 
   it("samples the region field with nearest filtering", () => {
@@ -604,6 +680,13 @@ describe("createGardenWater", () => {
     expect(dusk.equals(night)).toBe(false);
     expect(day.equals(night)).toBe(false);
     expect(uniformNumber(water.material, "uNight")).toBe(1);
+  });
+
+  it("prints a day-only near-ink to far-pale value ladder", () => {
+    const source = createGardenWater(0).material.fragmentShader;
+    expect(source).toContain("float dayValueDepth = smoothstep(105.0, 270.0, camDistance)");
+    expect(source).toContain("float dayValueGain = mix(0.55, 1.12, dayValueDepth)");
+    expect(source).toContain("waterColor *= mix(1.0, dayValueGain, uDaylight)");
   });
 
   it("keeps the dusk sea out of the pink-mauve wedge", () => {

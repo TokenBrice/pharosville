@@ -7,6 +7,7 @@ function dock(chainId: string): DockNode {
   return {
     id: `dock.${chainId}`,
     kind: "dock",
+    station: { coveId: "fixture-cove", type: "tea-house-quay", shoreBearing: 0 },
     label: chainId,
     chainId,
     tile: { x: 0, y: 0 },

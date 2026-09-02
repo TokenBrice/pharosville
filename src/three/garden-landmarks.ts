@@ -5,9 +5,10 @@ import {
   Color,
   ConeGeometry,
   CylinderGeometry,
-  DoubleSide,
   Euler,
+  Float32BufferAttribute,
   Group,
+  InstancedBufferAttribute,
   InstancedMesh,
   Matrix4,
   Mesh,
@@ -15,13 +16,12 @@ import {
   MeshStandardMaterial,
   Object3D,
   Quaternion,
-  Shape,
-  ShapeGeometry,
   SphereGeometry,
   TorusGeometry,
   Vector3,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { CAUSE_HEX } from "@shared/lib/cause-of-death";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { PIGEONNIER_ROOST_VISUAL_CAP } from "../systems/pigeonnier-watch";
 import {
@@ -30,7 +30,6 @@ import {
 } from "../systems/world-types";
 import { CEMETERY_CENTER } from "../systems/world-layout";
 import { createRockTerraceGeometry } from "./garden-island";
-
 const TILE_SCALE = Math.SQRT2;
 const WATER_Y = -1.45;
 const ROCK_TOP_WET = new Color("#33403a");
@@ -85,17 +84,18 @@ export const PIGEONNIER_MOVER_PIGEON_CAP = 5;
  * coin's status. The marker names already carry the imagery; this just builds
  * what they name.
  *
- * Grouped into three degrees of decay, which decide what furniture a wreck
- * still carries:
+ * Grouped into three silhouette families, which keep the field within three
+ * draws while retaining non-colour cause reads:
  *
- *  - `substantial` (grounded, sinking-stern) — most of the hull, a part-
- *    standing mast with a rag of rotted sail, and the lantern still burning.
- *  - `broken` (broken-keel, skeletal) — snapped or picked to the frames, a
- *    mast stub, no light.
- *  - `remnant` (shattered) — a keel line and a mast tip, nothing more.
+ *  - `substantial` (grounded, sinking-stern) — most of the hull and three ribs.
+ *  - `broken-keel` — two hull halves hinged apart around four exposed frames.
+ *  - `bare-remains` (skeletal, shattered) — only a keel, stem, and five ribs.
+ *
+ * Each family is 60–80% submerged; a low stone, two fallen spars, and a silt
+ * stain make every representative read as one grave rather than one hero ship.
  */
 type WreckForm = GraveNode["visual"]["marker"];
-type WreckDecay = "substantial" | "broken" | "remnant";
+type WreckFamily = "substantial" | "broken-keel" | "bare-remains";
 
 const WRECK_FORMS: readonly WreckForm[] = [
   "grounded",
@@ -105,32 +105,36 @@ const WRECK_FORMS: readonly WreckForm[] = [
   "shattered",
 ];
 
-interface WreckFormSpec {
-  decay: WreckDecay;
-  /** Roll onto the beam, radians. A wreck never sits upright. */
+interface WreckFamilySpec {
+  /** Roll baked into the hull alone; the grave stone and silt remain level. */
   list: number;
-  /** Bow-up (positive) or stern-down pitch, radians. */
+  /** Bow-up pitch baked into the hull alone. */
   pitch: number;
-  /** How far the hull's waterline sits below the sea surface. */
-  sink: number;
-  /** Frames still standing proud of the planking. */
-  ribs: number;
-  /** Mast length relative to hull length; 0 for no mast at all. */
-  mast: number;
+  /** Fraction of the hull silhouette's vertical extent below the waterline. */
+  sinkFraction: number;
 }
 
-const WRECK_FORM_SPECS: Record<WreckForm, WreckFormSpec> = {
-  // Counterparty failure: driven aground more or less whole, heeled over.
-  grounded: { decay: "substantial", list: 0.42, pitch: 0.05, sink: 0.16, ribs: 3, mast: 0.85 },
-  // Liquidity drain: the stern went under first and the bow still points up.
-  "sinking-stern": { decay: "substantial", list: 0.3, pitch: 0.34, sink: 0.42, ribs: 3, mast: 0.7 },
-  // Regulatory: the back broke. Two halves at an angle to each other.
-  "broken-keel": { decay: "broken", list: 0.55, pitch: 0.1, sink: 0.36, ribs: 5, mast: 0.34 },
-  // Abandoned: the planking is gone and the frames are all that is left.
-  skeletal: { decay: "broken", list: 0.48, pitch: 0.08, sink: 0.44, ribs: 7, mast: 0.28 },
-  // Algorithmic failure: went to pieces. A keel line and a stump.
-  shattered: { decay: "remnant", list: 0.72, pitch: 0.16, sink: 0.62, ribs: 2, mast: 0.16 },
+const WRECK_FAMILY_FOR_FORM: Record<WreckForm, WreckFamily> = {
+  grounded: "substantial",
+  "sinking-stern": "substantial",
+  "broken-keel": "broken-keel",
+  skeletal: "bare-remains",
+  shattered: "bare-remains",
 };
+
+const WRECK_FAMILY_SPECS: Record<WreckFamily, WreckFamilySpec> = {
+  substantial: { list: 0.22, pitch: 0.04, sinkFraction: 0.6 },
+  "broken-keel": { list: 0.3, pitch: 0.08, sinkFraction: 0.67 },
+  "bare-remains": { list: 0.36, pitch: 0.11, sinkFraction: 0.76 },
+};
+
+// Review at zoom 1.0 is the authority here: this produces a 40–60px nominal
+// boat read across the three families. It remains far below the hero fleet's
+// tall sail mass, while the input scale still orders individual graves.
+const WRECK_SCALE_CAP = 2;
+const WRECK_SCALE_BASE = 1.55;
+const WRECK_SCALE_FROM_GRAVE = 0.9;
+const WRECK_PIXEL_SCALE_AT_ZOOM_ONE = 10.5;
 
 /**
  * Builds the wreck field at its canonical world position. Grave anchors are
@@ -149,204 +153,191 @@ export function createGardenCemetery(
     CEMETERY_CENTER.y * TILE_SCALE,
   );
 
-  const drownedTimber = new MeshStandardMaterial({
-    color: "#4a4a44",
-    flatShading: true,
-    roughness: 1,
-  });
-  const boneTimber = new MeshStandardMaterial({
-    color: "#7d7c70",
-    flatShading: true,
-    roughness: 1,
-  });
-
   const anchors = new Map<string, GardenLandmarkAnchor<"grave">>();
-  const gravesByForm = new Map<WreckForm, GraveNode[]>(
-    WRECK_FORMS.map((form) => [form, [] as GraveNode[]]),
-  );
   for (const grave of graves) {
-    const localX = (grave.tile.x - CEMETERY_CENTER.x) * TILE_SCALE;
-    const localZ = (grave.tile.y - CEMETERY_CENTER.y) * TILE_SCALE;
     const anchor = createAnchor({
       detailId: grave.detailId,
       entityId: grave.id,
       kind: "grave",
       label: grave.label,
-      // A wreck is a hull, not a headstone: the pick proxy grows with it so a
-      // click anywhere along the exposed timbers still selects the coin.
       selectionRadius: 1.2 + grave.visual.scale * 3,
     });
     anchor.name = `cemetery-anchor:${grave.id}`;
-    anchor.position.set(localX, WATER_Y + 0.2, localZ);
+    anchor.position.set(
+      (grave.tile.x - CEMETERY_CENTER.x) * TILE_SCALE,
+      WATER_Y + 0.2,
+      (grave.tile.y - CEMETERY_CENTER.y) * TILE_SCALE,
+    );
     root.add(anchor);
     anchors.set(grave.detailId, anchor);
-    gravesByForm.get(grave.visual.marker)?.push(grave);
   }
 
-  // Every wreck's placement, resolved once and then shared by the hull batch
-  // and by each furniture batch, so a mast is always on its own hull.
-  const placements = new Map<string, Matrix4>();
-  for (const grave of graves) {
-    const scale = 1.5 + grave.visual.scale * 2.4;
-    const spec = WRECK_FORM_SPECS[grave.visual.marker];
-    const side = stableUnit(`${grave.id}.side`) > 0.5 ? 1 : -1;
-    const euler = new Euler(
-      side * (spec.list + (stableUnit(`${grave.id}.list`) - 0.5) * 0.22),
-      stableUnit(`${grave.id}.yaw`) * Math.PI * 2,
-      spec.pitch + (stableUnit(`${grave.id}.pitch`) - 0.5) * 0.16,
-      // Pitch in hull space, then roll onto the beam, then yaw to the swell.
-      "YXZ",
-    );
-    const matrix = new Matrix4().compose(
-      new Vector3(
-        (grave.tile.x - CEMETERY_CENTER.x) * TILE_SCALE,
-        WATER_Y - spec.sink * scale,
-        (grave.tile.y - CEMETERY_CENTER.y) * TILE_SCALE,
-      ),
-      new Quaternion().setFromEuler(euler),
-      new Vector3(scale, scale, scale),
-    );
-    placements.set(grave.id, matrix);
-  }
-
-  // ---- Hulls: one batch per form -----------------------------------------
-  for (const form of WRECK_FORMS) {
-    const formGraves = gravesByForm.get(form) ?? [];
-    if (formGraves.length === 0) continue;
-    const hulls = new InstancedMesh(
-      wreckHullGeometry(form),
-      WRECK_FORM_SPECS[form].decay === "remnant" ? boneTimber : drownedTimber,
-      formGraves.length,
-    );
-    hulls.name = `cemetery-wrecks-${form}`;
-    hulls.castShadow = true;
-    hulls.receiveShadow = true;
-    formGraves.forEach((grave, index) => {
-      hulls.setMatrixAt(index, placements.get(grave.id)!);
+  // W2a: seven structural memories UP; the one-hull-per-record field and its
+  // cloth/lantern furniture DOWN. Every grave retains its anchor and DOM row,
+  // while deterministic representatives carry the available cause forms and
+  // colours across one dark, still pool.
+  const representatives = representativeWrecks(graves, 7);
+  if (representatives.length > 0) {
+    const wreckMaterial = new MeshStandardMaterial({
+      color: "#ffffff",
+      flatShading: true,
+      roughness: 1,
+      vertexColors: true,
     });
-    hulls.instanceMatrix.needsUpdate = true;
-    root.add(hulls);
-  }
+    // Vertex colour owns every grey, bleached, stone, and silt surface.
+    // Instance colour reaches only the tiny marker/stain vertices selected by
+    // `causeMask`; the hull can therefore never become a cause-coloured hero.
+    wreckMaterial.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          "#include <color_pars_vertex>",
+          `#include <color_pars_vertex>
+attribute float causeMask;
+attribute float poolMask;
+attribute float poolVisible;`,
+        )
+        .replace(
+          "#include <begin_vertex>",
+          `#include <begin_vertex>
+transformed *= mix(1.0, poolVisible, poolMask);`,
+        )
+        .replace(
+          "#include <color_vertex>",
+          `#include <color_vertex>
+#if defined( USE_COLOR ) && defined( USE_INSTANCING_COLOR )
+  vColor.rgb = mix(color.rgb, instanceColor.rgb, causeMask);
+#endif`,
+        );
+    };
+    wreckMaterial.customProgramCacheKey = () => "cemetery-wreckyard-marker-pool-v3";
 
-  // ---- Furniture: one batch each, across every wreck ----------------------
-  const partMatrix = new Matrix4();
-  const local = new Matrix4();
-
-  const ribTotal = graves.reduce(
-    (sum, grave) => sum + WRECK_FORM_SPECS[grave.visual.marker].ribs,
-    0,
-  );
-  if (ribTotal > 0) {
-    const ribs = new InstancedMesh(wreckRibGeometry(), boneTimber, ribTotal);
-    ribs.name = "cemetery-wreck-ribs";
-    ribs.castShadow = true;
-    let index = 0;
-    for (const grave of graves) {
-      const spec = WRECK_FORM_SPECS[grave.visual.marker];
-      for (let rib = 0; rib < spec.ribs; rib += 1) {
-        const along = spec.ribs === 1 ? 0 : rib / (spec.ribs - 1) - 0.5;
-        const lean = (stableUnit(`${grave.id}.rib.${rib}`) - 0.5) * 0.5;
-        local.makeRotationZ(lean);
-        local.setPosition(along * 1.5, 0.1, 0);
-        partMatrix.multiplyMatrices(placements.get(grave.id)!, local);
-        ribs.setMatrixAt(index, partMatrix);
-        index += 1;
+    const placement = new Matrix4();
+    const poolOwner = representatives[0]!;
+    for (const family of ["substantial", "broken-keel", "bare-remains"] as const) {
+      const familyWrecks = representatives.filter(
+        (grave) => WRECK_FAMILY_FOR_FORM[grave.visual.marker] === family,
+      );
+      if (familyWrecks.length === 0) continue;
+      const poolOwnerIndex = familyWrecks.findIndex((grave) => grave.id === poolOwner.id);
+      const poolOwnerPlacement = poolOwnerIndex >= 0 ? wreckPlacement(poolOwner) : null;
+      const geometry = wreckFamilyGeometry(family, poolOwnerPlacement);
+      const poolVisibility = new Float32Array(familyWrecks.length);
+      if (poolOwnerIndex >= 0) poolVisibility[poolOwnerIndex] = 1;
+      geometry.setAttribute("poolVisible", new InstancedBufferAttribute(poolVisibility, 1));
+      const wrecks = new InstancedMesh(
+        geometry,
+        wreckMaterial,
+        familyWrecks.length,
+      );
+      wrecks.name = `cemetery-wrecks-${family}`;
+      wrecks.castShadow = true;
+      wrecks.receiveShadow = true;
+      wrecks.userData = {
+        causeColorRole: "marker-stain-only",
+        graveIds: familyWrecks.map((grave) => grave.id),
+        hullScaleCap: WRECK_SCALE_CAP,
+        hullScales: familyWrecks.map((grave) => wreckScale(grave.visual.scale)),
+        nominalPixelLengths: familyWrecks.map((grave) => (
+          geometry.userData.hullLength * wreckScale(grave.visual.scale)
+            * WRECK_PIXEL_SCALE_AT_ZOOM_ONE
+        )),
+        poolOwnerId: poolOwnerIndex >= 0 ? poolOwner.id : null,
+        sinkFractions: familyWrecks.map(() => WRECK_FAMILY_SPECS[family].sinkFraction),
+      };
+      for (let index = 0; index < familyWrecks.length; index += 1) {
+        const grave = familyWrecks[index]!;
+        const authored = wreckPlacement(grave);
+        placement.compose(
+          new Vector3(authored.x, WATER_Y, authored.z),
+          new Quaternion().setFromEuler(new Euler(0, authored.yaw, 0)),
+          new Vector3(authored.scale, authored.scale, authored.scale),
+        );
+        wrecks.setMatrixAt(index, placement);
+        wrecks.setColorAt(index, new Color(CAUSE_HEX[grave.entry.causeOfDeath]));
       }
+      wrecks.instanceMatrix.needsUpdate = true;
+      if (wrecks.instanceColor) wrecks.instanceColor.needsUpdate = true;
+      root.add(wrecks);
     }
-    ribs.instanceMatrix.needsUpdate = true;
-    root.add(ribs);
-  }
-
-  const masted = graves.filter((grave) => WRECK_FORM_SPECS[grave.visual.marker].mast > 0);
-  if (masted.length > 0) {
-    const masts = new InstancedMesh(wreckMastGeometry(), drownedTimber, masted.length);
-    masts.name = "cemetery-wreck-masts";
-    masts.castShadow = true;
-    masted.forEach((grave, index) => {
-      const spec = WRECK_FORM_SPECS[grave.visual.marker];
-      // Snapped masts lean well off vertical; a standing one only slightly.
-      const fall = (0.2 + (1 - spec.mast) * 1.1) * (stableUnit(`${grave.id}.fall`) > 0.5 ? 1 : -1);
-      local.makeRotationZ(fall);
-      local.scale(new Vector3(1, spec.mast * 2.4, 1));
-      local.setPosition(0.15, 0.18, 0);
-      partMatrix.multiplyMatrices(placements.get(grave.id)!, local);
-      masts.setMatrixAt(index, partMatrix);
-    });
-    masts.instanceMatrix.needsUpdate = true;
-    root.add(masts);
-  }
-
-  // Cloth: rotted sail on the substantial wrecks, and the mourning pennant
-  // that used to fly on the memorial stele. One geometry, one draw; the two
-  // read apart through per-instance colour.
-  const clothed = graves.filter(
-    (grave) => WRECK_FORM_SPECS[grave.visual.marker].decay === "substantial",
-  );
-  if (clothed.length > 0) {
-    const cloth = new InstancedMesh(
-      tatteredPennantGeometry(),
-      new MeshStandardMaterial({
-        color: "#ffffff",
-        flatShading: true,
-        roughness: 1,
-        side: DoubleSide,
-      }),
-      clothed.length * 2,
-    );
-    cloth.name = "cemetery-wreck-cloth";
-    const rag = new Color("#6a6a5c");
-    const mourning = new Color(HARBOR_PALETTE.stone_pale);
-    clothed.forEach((grave, index) => {
-      const spec = WRECK_FORM_SPECS[grave.visual.marker];
-      const fall = (0.2 + (1 - spec.mast) * 1.1) * (stableUnit(`${grave.id}.fall`) > 0.5 ? 1 : -1);
-      // Rag of rotted sail, hanging off the standing part of the mast.
-      local.makeRotationZ(fall);
-      local.scale(new Vector3(1.5, 1.5, 1.5));
-      local.setPosition(0.15, 0.18 + spec.mast * 1.1, 0);
-      partMatrix.multiplyMatrices(placements.get(grave.id)!, local);
-      cloth.setMatrixAt(index * 2, partMatrix);
-      cloth.setColorAt(index * 2, rag);
-      // Mourning pennant at the masthead — smaller, paler, still flying.
-      local.makeRotationZ(fall);
-      local.scale(new Vector3(0.7, 0.7, 0.7));
-      local.setPosition(0.15, 0.18 + spec.mast * 2.1, 0);
-      partMatrix.multiplyMatrices(placements.get(grave.id)!, local);
-      cloth.setMatrixAt(index * 2 + 1, partMatrix);
-      cloth.setColorAt(index * 2 + 1, mourning);
-    });
-    cloth.instanceMatrix.needsUpdate = true;
-    if (cloth.instanceColor) cloth.instanceColor.needsUpdate = true;
-    root.add(cloth);
-
-    // The image the whole zone is for: a lantern still burning on a dead ship.
-    const lanterns = new InstancedMesh(
-      new BoxGeometry(0.16, 0.2, 0.16),
-      new MeshStandardMaterial({
-        color: HARBOR_PALETTE.lantern_glow,
-        emissive: HARBOR_PALETTE.lantern_warm,
-        emissiveIntensity: 1.5,
-        roughness: 0.5,
-        toneMapped: false,
-      }),
-      clothed.length,
-    );
-    lanterns.name = "cemetery-wreck-lanterns";
-    clothed.forEach((grave, index) => {
-      local.identity();
-      local.setPosition(-0.55, 0.34, 0.12);
-      partMatrix.multiplyMatrices(placements.get(grave.id)!, local);
-      lanterns.setMatrixAt(index, partMatrix);
-    });
-    lanterns.instanceMatrix.needsUpdate = true;
-    root.add(lanterns);
   }
 
   const mistAnchor = new Object3D();
   mistAnchor.name = "cemetery-mist-anchor";
   mistAnchor.position.set(0, WATER_Y + 0.25, 0);
   root.add(mistAnchor);
-
   return { anchors, mistAnchor, root };
+}
+
+function wreckScale(graveScale: number): number {
+  return Math.min(WRECK_SCALE_CAP, WRECK_SCALE_BASE + graveScale * WRECK_SCALE_FROM_GRAVE);
+}
+
+interface WreckPlacement {
+  scale: number;
+  x: number;
+  yaw: number;
+  z: number;
+}
+
+function wreckPlacement(grave: GraveNode): WreckPlacement {
+  const x = (grave.tile.x - CEMETERY_CENTER.x) * TILE_SCALE;
+  const z = (grave.tile.y - CEMETERY_CENTER.y) * TILE_SCALE;
+  return {
+    scale: wreckScale(grave.visual.scale),
+    x,
+    yaw: Math.atan2(z, x) + (stableUnit(`${grave.id}.fan`) - 0.5) * 0.72,
+    z,
+  };
+}
+
+function representativeWrecks(
+  graves: readonly GraveNode[],
+  maximum: number,
+): GraveNode[] {
+  if (graves.length <= maximum) return [...graves];
+  const chosen: GraveNode[] = [];
+  const chosenIds = new Set<string>();
+  for (const form of WRECK_FORMS) {
+    const candidate = mostSeparatedRepresentative(
+      graves.filter((grave) => grave.visual.marker === form),
+      chosen,
+    );
+    if (candidate) {
+      chosen.push(candidate);
+      chosenIds.add(candidate.id);
+    }
+  }
+  const remaining = graves.filter((grave) => !chosenIds.has(grave.id));
+  while (chosen.length < maximum && remaining.length > 0) {
+    const grave = mostSeparatedRepresentative(remaining, chosen)!;
+    chosen.push(grave);
+    remaining.splice(remaining.findIndex((candidate) => candidate.id === grave.id), 1);
+  }
+  return chosen.slice(0, maximum);
+}
+
+/**
+ * Chooses real grave anchors, never decorative offsets, but favours the anchor
+ * furthest from those already shown. The tiny stable-id tiebreak keeps the
+ * result invariant under API ordering while preventing seven readable boats
+ * from collapsing into four overlapping piles.
+ */
+function mostSeparatedRepresentative(
+  candidates: readonly GraveNode[],
+  chosen: readonly GraveNode[],
+): GraveNode | undefined {
+  return [...candidates].sort((left, right) => {
+    const score = (grave: GraveNode) => {
+      const separation = chosen.length === 0
+        ? 0
+        : Math.min(...chosen.map((other) => Math.hypot(
+          grave.tile.x - other.tile.x,
+          grave.tile.y - other.tile.y,
+        )));
+      return separation + stableUnit(`${grave.id}.representative`) * 0.001;
+    };
+    return score(right) - score(left) || left.id.localeCompare(right.id);
+  })[0];
 }
 
 /**
@@ -375,84 +366,197 @@ function hullShell(length: number, beam: number, depth: number): BufferGeometry 
   return geometry;
 }
 
-/** The hull a wreck of this form has left, merged to one geometry. */
-function wreckHullGeometry(form: WreckForm): BufferGeometry {
-  const parts: BufferGeometry[] = [];
-  switch (form) {
-    case "grounded": {
-      parts.push(hullShell(2.6, 0.78, 0.5));
-      // Stub of bulwark still standing along one side.
-      const rail = new BoxGeometry(1.7, 0.1, 0.07);
-      rail.translate(-0.2, 0.3, 0.3);
-      parts.push(rail);
-      break;
-    }
-    case "sinking-stern": {
-      const hull = hullShell(2.5, 0.72, 0.48);
-      // Bow rides up, stern is swallowed.
-      hull.rotateZ(0.18);
-      parts.push(hull);
-      break;
-    }
-    case "broken-keel": {
-      // Two halves, hinged apart where the back broke.
-      const fore = hullShell(1.35, 0.7, 0.46);
-      fore.rotateZ(0.24);
-      fore.translate(0.72, 0.06, 0);
-      const aft = hullShell(1.25, 0.68, 0.44);
-      aft.rotateZ(-0.3);
-      aft.translate(-0.68, 0.02, 0);
-      parts.push(fore, aft);
-      // Splintered keel timbers spanning the break.
-      for (const offset of [-0.12, 0.05, 0.2]) {
-        const splinter = new BoxGeometry(0.5, 0.06, 0.06);
-        splinter.rotateZ(offset * 1.6);
-        splinter.translate(offset * 0.6, 0.05, offset);
-        parts.push(splinter);
-      }
-      break;
-    }
-    case "skeletal": {
-      // Planking gone: a keel spine and the stubs the frames stand on.
-      const keel = new BoxGeometry(2.3, 0.13, 0.16);
-      keel.translate(0, 0, 0);
-      parts.push(keel);
-      const stem = new BoxGeometry(0.12, 0.5, 0.12);
-      stem.rotateZ(-0.3);
-      stem.translate(1.12, 0.2, 0);
-      parts.push(stem);
-      break;
-    }
-    case "shattered": {
-      // A keel line barely breaking the surface, and scattered timbers.
-      const keel = new BoxGeometry(1.5, 0.1, 0.13);
-      parts.push(keel);
-      for (const [x, z, turn] of [[0.5, 0.28, 0.5], [-0.42, -0.3, -0.8], [0.1, 0.44, 1.2]] as const) {
-        const plank = new BoxGeometry(0.42, 0.05, 0.09);
-        plank.rotateY(turn);
-        plank.translate(x, -0.02, z);
-        parts.push(plank);
-      }
-      break;
-    }
+/**
+ * Three quiet grave silhouettes, each baked into one instanced geometry.
+ *
+ * Common furniture — two fallen spars, a motionless silt oval, and a low
+ * stone with its tiny cause stain — is merged into the family hull. One family
+ * also carries the single cluster-wide silt disc, hidden on every instance but
+ * its deterministic owner through `poolVisible`. That keeps
+ * the complete cemetery at three draws instead of charging a draw for every
+ * grave or every prop. `wreckRole` is a test/diagnostic contract: 0 decor,
+ * 1 submerged hull mass, 2 the only cause-coloured marker, 3 the readable
+ * gunwale/rib/stump silhouette, and 4 the taller stone marker.
+ */
+function wreckFamilyGeometry(
+  family: WreckFamily,
+  poolOwner: WreckPlacement | null,
+): BufferGeometry {
+  const bodyParts: BufferGeometry[] = [];
+  const silhouetteParts: BufferGeometry[] = [];
+  let hullLength: number;
+  if (family === "substantial") {
+    hullLength = 2.8;
+    bodyParts.push(hullShell(hullLength, 0.82, 0.56));
+    addGunwale(silhouetteParts, hullLength, 0.39);
+    addReadableRibs(silhouetteParts, 3, 1.5, 0.42);
+    silhouetteParts.push(wreckStump(1.3, 0.56, -0.18));
+  } else if (family === "broken-keel") {
+    hullLength = 2.75;
+    const fore = hullShell(1.42, 0.74, 0.5);
+    fore.rotateZ(0.24);
+    fore.translate(0.75, 0.06, 0);
+    const aft = hullShell(1.32, 0.72, 0.48);
+    aft.rotateZ(-0.3);
+    aft.translate(-0.72, 0.02, 0);
+    bodyParts.push(fore, aft);
+    const foreRail = new BoxGeometry(1.32, 0.09, 0.09);
+    foreRail.rotateZ(0.24);
+    foreRail.translate(0.77, 0.14, 0.34);
+    const aftRail = new BoxGeometry(1.22, 0.09, 0.09);
+    aftRail.rotateZ(-0.3);
+    aftRail.translate(-0.73, 0.12, -0.33);
+    silhouetteParts.push(foreRail, aftRail);
+    addReadableRibs(silhouetteParts, 4, 1.55, 0.4);
+    silhouetteParts.push(wreckStump(-1.22, 0.5, 0.24));
+  } else {
+    hullLength = 2.45;
+    bodyParts.push(new BoxGeometry(hullLength, 0.16, 0.18));
+    addReadableRibs(silhouetteParts, 5, 1.82, 0.44);
+    silhouetteParts.push(wreckStump(1.12, 0.48, -0.3));
   }
+
+  const spec = WRECK_FAMILY_SPECS[family];
+  const hullPose = new Matrix4().makeRotationFromEuler(new Euler(spec.list, 0, spec.pitch));
+  for (const part of bodyParts) part.applyMatrix4(hullPose);
+  sinkHullToWaterline(bodyParts, spec.sinkFraction);
+
+  const stoneBase = new BoxGeometry(0.62, 0.18, 0.48);
+  stoneBase.rotateY(-0.18);
+  stoneBase.translate(-1.08, 0.02, -0.82);
+  const stone = new BoxGeometry(0.36, 0.82, 0.26);
+  stone.rotateY(-0.18);
+  stone.translate(-1.08, 0.43, -0.82);
+
+  const stain = new CylinderGeometry(0.12, 0.135, 0.045, 7);
+  stain.translate(-1.08, 0.86, -0.82);
+
+  const spars = [
+    fallenSpar(2.15, -0.1, 0.12, 0.66, 1.08),
+    fallenSpar(1.65, 0.48, 0.09, -0.72, -0.52),
+  ];
+
+  const parts = [...bodyParts, ...silhouetteParts, stoneBase, stone, ...spars, stain];
+  const bodyColor = family === "substantial" ? "#a8aa9f" : "#999d96";
+  for (const part of bodyParts) markWreckPart(part, bodyColor, 0, 1);
+  for (const part of silhouetteParts) markWreckPart(part, "#c4c0aa", 0, 3);
+  markWreckPart(stoneBase, "#626b68", 0, 4);
+  markWreckPart(stone, "#747d79", 0, 4);
+  for (const spar of spars) markWreckPart(spar, "#b8b4a1", 0, 0);
+  markWreckPart(stain, "#ffffff", 1, 2);
+
+  if (poolOwner) parts.push(clusterSiltPool(poolOwner));
+  const pool = parts.at(-1)!;
+  if (poolOwner) markWreckPart(pool, "#314842", 0, 0, 1);
+
   const merged = mergeGeometries(parts, false);
-  if (!merged) throw new Error(`Could not merge wreck hull ${form}.`);
+  if (!merged) throw new Error(`Could not merge cemetery wreck family ${family}.`);
+  merged.userData = {
+    aboveWaterCue: family === "substantial"
+      ? "intact-gunwale"
+      : family === "broken-keel" ? "angled-halves" : "ribs-only",
+    causeColorRole: "marker-stain-only",
+    family,
+    hasClusterPool: Boolean(poolOwner),
+    hullLength,
+    sinkFraction: spec.sinkFraction,
+    waterlineY: 0,
+  };
   return merged;
 }
 
-/** An exposed frame: a half-hoop rib standing out of the broken planking. */
-function wreckRibGeometry(): BufferGeometry {
-  const rib = new TorusGeometry(0.36, 0.035, 3, 7, Math.PI);
-  rib.rotateY(Math.PI / 2);
-  return rib;
+/** One low-contrast pool, inverse-authored so its sole visible instance lands at the cluster origin. */
+function clusterSiltPool(owner: WreckPlacement): BufferGeometry {
+  const localCenter = new Vector3(-owner.x, 0, -owner.z)
+    .applyAxisAngle(new Vector3(0, 1, 0), -owner.yaw)
+    .divideScalar(owner.scale);
+  const pool = new CylinderGeometry(10.2 / owner.scale, 10.5 / owner.scale, 0.025, 32);
+  pool.scale(1, 1, 0.74);
+  pool.translate(localCenter.x, -0.025 / owner.scale, localCenter.z);
+  return pool;
 }
 
-/** A snapped mast, unit height so instances can scale it to what is left. */
-function wreckMastGeometry(): BufferGeometry {
-  const mast = new CylinderGeometry(0.032, 0.06, 1, 5);
-  mast.translate(0, 0.5, 0);
-  return mast;
+function addGunwale(parts: BufferGeometry[], length: number, halfBeam: number): void {
+  for (const z of [-halfBeam, halfBeam]) {
+    const rail = new BoxGeometry(length, 0.09, 0.09);
+    rail.translate(0, 0.14, z);
+    parts.push(rail);
+  }
+}
+
+function wreckStump(x: number, height: number, rake: number): BufferGeometry {
+  const stump = new BoxGeometry(0.14, height, 0.16);
+  stump.rotateZ(rake);
+  stump.translate(x, height * 0.42, 0);
+  return stump;
+}
+
+/** Places a complete posed hull so the requested share of its height is wet. */
+function sinkHullToWaterline(parts: BufferGeometry[], sinkFraction: number): void {
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const part of parts) {
+    part.computeBoundingBox();
+    minY = Math.min(minY, part.boundingBox!.min.y);
+    maxY = Math.max(maxY, part.boundingBox!.max.y);
+  }
+  const localWaterline = minY + (maxY - minY) * sinkFraction;
+  for (const part of parts) part.translate(0, -localWaterline, 0);
+}
+
+/** A snapped spar lying in the silt rather than making the wreck a mast hero. */
+function fallenSpar(
+  length: number,
+  x: number,
+  y: number,
+  z: number,
+  yaw: number,
+): BufferGeometry {
+  const spar = new CylinderGeometry(0.035, 0.052, length, 5);
+  spar.rotateZ(Math.PI / 2 - 0.08);
+  spar.rotateY(yaw);
+  spar.translate(x, y, z);
+  return spar;
+}
+
+function addReadableRibs(
+  parts: BufferGeometry[],
+  count: number,
+  span: number,
+  radius: number,
+): void {
+  for (let rib = 0; rib < count; rib += 1) {
+    const frame = new TorusGeometry(radius, 0.055, 4, 8, Math.PI);
+    frame.rotateY(Math.PI / 2);
+    frame.rotateZ((rib - (count - 1) / 2) * 0.035);
+    frame.translate((rib / Math.max(1, count - 1) - 0.5) * span, 0.2, 0);
+    parts.push(frame);
+  }
+}
+
+function markWreckPart(
+  geometry: BufferGeometry,
+  colorValue: string,
+  causeMask: number,
+  wreckRole: 0 | 1 | 2 | 3 | 4,
+  poolMask = 0,
+): void {
+  const count = geometry.getAttribute("position").count;
+  const color = new Color(colorValue);
+  const colors = new Float32Array(count * 3);
+  const masks = new Float32Array(count);
+  const roles = new Float32Array(count);
+  const poolMasks = new Float32Array(count);
+  for (let index = 0; index < count; index += 1) {
+    color.toArray(colors, index * 3);
+    masks[index] = causeMask;
+    roles[index] = wreckRole;
+    poolMasks[index] = poolMask;
+  }
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  geometry.setAttribute("causeMask", new Float32BufferAttribute(masks, 1));
+  geometry.setAttribute("wreckRole", new Float32BufferAttribute(roles, 1));
+  geometry.setAttribute("poolMask", new Float32BufferAttribute(poolMasks, 1));
 }
 
 /**
@@ -774,20 +878,6 @@ function createAnchor<Kind extends "grave" | "pigeonnier">(
   return anchor;
 }
 
-/** A frayed swallowtail pennant — notched edges read as wind-worn cloth. */
-function tatteredPennantGeometry(): ShapeGeometry {
-  const shape = new Shape();
-  shape.moveTo(0, 0);
-  shape.lineTo(0, 0.52);
-  shape.lineTo(0.64, 0.44);
-  shape.lineTo(0.42, 0.29);
-  shape.lineTo(0.58, 0.16);
-  shape.lineTo(0.32, 0.08);
-  shape.lineTo(0.44, -0.02);
-  shape.lineTo(0, 0);
-  shape.closePath();
-  return new ShapeGeometry(shape);
-}
 
 function irregularTerraceGeometry(
   topRadius: number,

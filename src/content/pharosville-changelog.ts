@@ -12,6 +12,23 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-09-02-seven-water-garden",
+    version: PHAROSVILLE_RELEASE_VERSIONS.sevenWaterGarden,
+    date: "2026-09-02",
+    title: "Seven-Water Garden",
+    summary: "PharosVille becomes a spacious water-led garden: a soft-edged shore frames the lighthouse, stations move to coves, and the fleet travels between places you can read.",
+    bullets: [
+      "Recomposed the world as a finite garden plate with an irregular rim, two openings, a graded sky beyond the shore, borrowed mountains in the fog seam, and an engawa foreground that gives the lighthouse room to breathe.",
+      "Moved every chain to a shore station in its named water, each with a silhouette you can name from the default view — the Ethereum campanile precinct bridged to its annexes, a torii landing, a thatched reed dome, a storm-mole lantern tower, a signal mast — with lit stone quays and warm windows after dusk.",
+      "Made the seven waters into places — Calm Anchorage, Watch Breakwater, Alert Channel, Warning Shoals, Danger Strait, Ledger Mooring, and Wreck Shoal — with distinct water character and boundary seams, larger edge geography, steles carved legibly at default zoom, and a quiet wreckyard of half-sunk hulls, spars, and grave markers that keeps its accessible ledger parity.",
+      "Gave the fleet six East-Asian hull families and voyages with paired arrivals, departures, and long restless rests, so movement reads as a calm journey rather than a uniform field; every hull now stays on the water plate, and moored hulls sit at their station berths.",
+      "Lifted the night so hulls, island, and rim still read against moonlit water, and lengthened the lighthouse beam to the rim with a soft volumetric tail and a light pool where it lands.",
+      "Recomposed the tsukiyama with a continuous path, unequal niwaki, a single reflection basin, one hero waterfall, koi in the engawa shallows, and a regrade that lets day, dusk, and night fall across forms instead of filtering the frame.",
+      "Funded the richer garden with world-wide wake and harbor batches, conservative water-safety lookup, draw census reconciliation, and whole-map N8AO release; the default frame is about 245 calls and 43 textures.",
+    ],
+    source: "Collected from the 2026-09-02 Seven-Water Garden redesign waves 0–8 and the operator follow-ups.",
+  },
+  {
     id: "2026-08-13-garden-of-light",
     version: PHAROSVILLE_RELEASE_VERSIONS.gardenOfLight,
     date: "2026-08-13",

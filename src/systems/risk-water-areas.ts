@@ -22,6 +22,18 @@ export interface RiskWaterAreaDefinition {
   scatterRadius: TileCoordinate;
 }
 
+/** Canonical seventh named water. Unlike the six fleet placements, Wreck
+    Shoal is a lifecycle area and never accepts a live-ship risk placement. */
+export const WRECK_SHOAL_AREA = {
+  id: "area.risk-water.wreck-shoal",
+  label: "Wreck Shoal",
+  reading: "Wreck-water lifecycle area; no live-ship risk placement",
+  labelTile: snapToSeaBody(zoneWorldTile({ x: 6, y: 49 }), "wreck"),
+  terrain: "wreck-water",
+  waterStyle: "protected tidal inlet and wreck shoal",
+  sourceFields: ["cemeteryEntries[]", "world-layout wreck-water field"],
+} as const;
+
 export const SHIP_RISK_PLACEMENTS = [
   "safe-harbor",
   "breakwater-edge",

@@ -85,6 +85,7 @@ describe("detail-model analytical links", () => {
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
+      station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
       tile: { x: 1, y: 1 },
       totalUsd: 100,
       size: 1,
@@ -251,6 +252,7 @@ describe("detail-model analytical links", () => {
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
+      station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
       tile: { x: 1, y: 1 },
       totalUsd: 300,
       size: 1,
@@ -265,6 +267,9 @@ describe("detail-model analytical links", () => {
     } satisfies DockNode;
 
     const withoutContext = detailForDock(dock);
+    expect(withoutContext.summary).toContain("Boathouse Precinct at ethereum-precinct");
+    expect(withoutContext.facts).toContainEqual({ label: "Station type", value: "Boathouse Precinct" });
+    expect(withoutContext.facts).toContainEqual({ label: "Rim cove", value: "ethereum-precinct" });
     expect(withoutContext.members?.map((member) => member.inWorldDetailId)).toEqual([undefined, undefined]);
 
     const withContext = detailForDock(dock, {
@@ -309,6 +314,7 @@ describe("detail-model analytical links", () => {
     expect(detail.paragraphs).toEqual(["The largest stablecoin collapse in history."]);
     expect(detail.facts).toEqual(expect.arrayContaining([
       { label: "Cause", value: "Algorithmic Failure" },
+      { label: "Wreck silhouette", value: "Broken keel — the hull has split around exposed frames" },
       { label: "Peak market cap", value: "$18,770,471,902" },
     ]));
     expect(detail.facts.find((fact) => fact.label === "Obituary")).toBeUndefined();
@@ -975,8 +981,8 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
     });
   });
 
-  describe("E3 — chain footprint extended dwell label", () => {
-    it("appends (extended dwell) suffix when chainPresence.length ≥ 4", () => {
+  describe("route cadence parity", () => {
+    it("keeps broad chain footprint as presence rather than a dwell modifier", () => {
       const ship = baseShipNode({
         chainPresence: [
           { chainId: "ethereum", currentUsd: 100, hasRenderedDock: true, share: 0.4 },
@@ -989,19 +995,11 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       const fact = detail.facts.find((f) => f.label === "Chain footprint");
       expect(fact).toBeDefined();
       expect(fact!.value).toContain("Broad footprint");
-      expect(fact!.value).toContain("(extended dwell)");
-    });
-
-    it("does not append (extended dwell) when chainPresence.length < 4", () => {
-      const ship = baseShipNode({
-        chainPresence: [
-          { chainId: "ethereum", currentUsd: 100, hasRenderedDock: true, share: 1 },
-        ],
-      });
-      const detail = detailForShip(ship);
-      const fact = detail.facts.find((f) => f.label === "Chain footprint");
-      expect(fact).toBeDefined();
       expect(fact!.value).not.toContain("(extended dwell)");
+      const cadence = detail.facts.find((f) => f.label === "Route cadence")?.value;
+      expect(cadence).toContain("90–180 s legs");
+      expect(cadence).toContain("240–480 s rests");
+      expect(cadence).toContain("rendered-chain and risk-water presence only");
     });
   });
 
@@ -1536,6 +1534,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
+      station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
       tile: { x: 1, y: 1 },
       totalUsd: 100,
       size: 1,
@@ -1558,6 +1557,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       kind: "dock",
       label: "Solana",
       chainId: "solana",
+      station: { coveId: "watch-east-bay", type: "tea-house-quay", shoreBearing: Math.PI },
       tile: { x: 2, y: 2 },
       totalUsd: 100,
       size: 1,
@@ -1590,6 +1590,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       kind: "dock",
       label: "Tron",
       chainId: "tron",
+      station: { coveId: "ledger-fog-hook", type: "gate-landing", shoreBearing: 0 },
       tile: { x: 3, y: 3 },
       totalUsd: 100,
       size: 1,
@@ -1680,6 +1681,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
+      station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
       tile: { x: 1, y: 1 },
       totalUsd: 100,
       size: 1,
@@ -1738,6 +1740,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
+      station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
       tile: { x: 1, y: 1 },
       totalUsd: 100,
       size: 1,

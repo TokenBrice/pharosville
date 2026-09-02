@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, type KeyboardEvent } from "react";
 import X from "lucide-react/dist/esm/icons/x";
 import { ControlsCheatsheet } from "./controls-cheatsheet";
 import { zoneThemeForTerrain } from "../systems/palette";
-import { RISK_WATER_AREAS } from "../systems/risk-water-areas";
+import { RISK_WATER_AREAS, WRECK_SHOAL_AREA } from "../systems/risk-water-areas";
 import {
   recentFleetTrendEntryLabel,
   recentFleetTrendSummaryText,
@@ -12,6 +12,7 @@ import {
 } from "../systems/sea-state";
 import { LEGEND_MARK_ROWS } from "../systems/visual-cue-registry";
 import type { ShipRiskPlacement } from "../systems/world-types";
+import { motionCadenceDetailLabel } from "../systems/motion-config";
 
 export interface LegendPanelProps {
   onClose: () => void;
@@ -38,20 +39,28 @@ const LEGEND_ZONE_PLACEMENTS: ReadonlyArray<ShipRiskPlacement> = [
 
 const LEGEND_SHIP_CLASSES: ReadonlyArray<{ name: string; reading: string }> = [
   {
-    name: "Treasury galleon",
-    reading: "Centralized issuer (fiat reserves)",
+    name: "Bezaisen carrier",
+    reading: "Centralized issuer or dependent backing",
   },
   {
-    name: "Chartered brigantine",
-    reading: "Centralized-dependent backing",
+    name: "Kobaya runner",
+    reading: "Unclassified or missing-governance fallback",
   },
   {
-    name: "DAO schooner",
+    name: "Twin-hull council boat",
     reading: "Decentralized governance",
   },
   {
-    name: "Legacy junk",
-    reading: "Algorithmic backing",
+    name: "Takasebune barge",
+    reading: "Yield-bearing reserves",
+  },
+  {
+    name: "Battened junk",
+    reading: "Algorithmic or foreign-currency peg",
+  },
+  {
+    name: "Bullion scow",
+    reading: "Gold or silver peg",
   },
 ];
 
@@ -182,6 +191,14 @@ export function LegendPanel({ onClose, onObserve, onSelectDetail, recentFleetTre
                 </li>
               );
             })}
+            <li key={WRECK_SHOAL_AREA.id}>
+              <span
+                className="pharosville-legend-panel__swatch"
+                style={{ backgroundColor: zoneThemeForTerrain(WRECK_SHOAL_AREA.terrain).base }}
+                aria-hidden="true"
+              />
+              <strong>{WRECK_SHOAL_AREA.label}</strong> — {WRECK_SHOAL_AREA.reading}
+            </li>
           </ul>
         </section>
 
@@ -196,8 +213,9 @@ export function LegendPanel({ onClose, onObserve, onSelectDetail, recentFleetTre
           </ul>
           <p>
             Hull size tracks market-cap tier (compressed, not linear). The
-            ship&apos;s cruising pace also tracks its supply tier — bigger coins
-            cycle a little faster; pace never means transfers or activity. The
+            fleet follows the leg/rest contract: {motionCadenceDetailLabel()} Within those bounds,
+            measured 24h mint/redeem flow intensity modestly changes underway pace;
+            unavailable flow uses neutral pace. The
             largest titans and culturally significant heritage hulls stay
             visible even while moored; smaller ships disappear into their dock
             while berthed.
@@ -205,15 +223,19 @@ export function LegendPanel({ onClose, onObserve, onSelectDetail, recentFleetTre
         </section>
 
         <section aria-labelledby="pharosville-legend-harbors">
-          <h3 id="pharosville-legend-harbors">Harbors &amp; landmarks</h3>
+          <h3 id="pharosville-legend-harbors">Shore stations &amp; landmarks</h3>
           <p>
-            Docks are blockchains; a ship calling at a dock means the coin has
+            Rim-cove stations are blockchains; Ethereum&apos;s boathouse precinct
+            and the Base, Arbitrum and Polygon annex pavilions form one connected
+            place. A ship calling at a station means the coin has
             real supply on that chain (it does not imply bridge volume or
             transfers). The Pharos lighthouse glows with the fleet-wide Peg
             Stability Index. Its beam warmth tracks fleet-wide PSI; the colour
             of the water and sky a ship sails in is that area&apos;s own DEWS
-            peg-risk reading — they are separate signals. The cemetery islet
-            remembers coins lost at sea.
+            peg-risk reading — they are separate signals. Wreck Shoal remembers
+            coins lost at sea: a substantial hull, broken keel, or bare remains
+            gives a silhouette-to-cause reading, while cause colour and the DOM
+            record state the cause directly.
           </p>
         </section>
 

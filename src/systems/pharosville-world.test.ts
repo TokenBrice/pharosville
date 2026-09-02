@@ -108,10 +108,9 @@ describe("buildPharosVilleWorld", () => {
     expect(world.routeMode).toBe("world");
     // THRESHOLD CHANGE. N1: land is OFFSET, not scaled, so the island keeps its
     // absolute footprint inside a 4x sea (~0.86 → ~0.9647). N2: the cemetery
-    // islet drowned into the wreck shoals, and the measured share is now 0.9699.
-    // See world-layout.test.ts, which pins the unchanged 377-tile island.
-    expect(world.map.waterRatio).toBeGreaterThanOrEqual(0.978);
-    expect(world.map.waterRatio).toBeLessThanOrEqual(0.982);
+    // RIM FIELD REVISION 1: 3,205 asymmetric rim tiles move measured water to 0.8172 while the island stays 377 tiles.
+    expect(world.map.waterRatio).toBeGreaterThanOrEqual(0.815);
+    expect(world.map.waterRatio).toBeLessThanOrEqual(0.819);
     expect(world.lighthouse.unavailable).toBe(false);
     expect(world.docks).toHaveLength(2);
     expect(world.ships.map((ship) => ship.id)).toEqual(["usdt-tether", "usdc-circle"]);
@@ -127,7 +126,8 @@ describe("buildPharosVilleWorld", () => {
       .toBe("ship.usdc-circle");
     expect(world.graves).toHaveLength(3);
     expect(world.detailIndex["lighthouse"]).toBeDefined();
-    expect(terrainKindAt(0, 55)).toBe("calm-water");
+    // RIM FIELD: the west perimeter sample is now authored land, not residual Calm water.
+    expect(terrainKindAt(0, 55)).toBe("rim");
     expect(Object.keys(world.detailIndex).some((detailId) => detailId.startsWith("building."))).toBe(false);
     expect(world.areas.every((area) => area.id.startsWith("area.dews.") || area.id.startsWith("area.risk-water."))).toBe(true);
     expect(world.visualCues.length).toBeGreaterThan(0);
@@ -370,6 +370,7 @@ describe("buildPharosVilleWorld", () => {
     const alertArea = world.areas.find((area) => area.band === "ALERT");
     const watchArea = world.areas.find((area) => area.band === "WATCH");
     const ledgerArea = world.areas.find((area) => area.riskPlacement === "ledger-mooring");
+    const wreckArea = world.areas.find((area) => area.id === "area.risk-water.wreck-shoal");
     const usdc = world.ships[0];
 
     expect(counts).toMatchObject({
@@ -393,11 +394,17 @@ describe("buildPharosVilleWorld", () => {
     expect(world.areas.map((area) => area.detailId)).not.toContain("area.risk-water.data-fog");
     expect(ledgerArea).toMatchObject({ label: "Ledger Mooring", riskZone: "ledger", detailId: "area.risk-water.ledger-mooring" });
     expect(ledgerArea?.tile ? terrainKindAt(ledgerArea.tile.x, ledgerArea.tile.y) : null).toBe("ledger-water");
+    expect(wreckArea).toMatchObject({ label: "Wreck Shoal", detailId: "area.risk-water.wreck-shoal" });
+    expect(wreckArea?.tile ? terrainKindAt(wreckArea.tile.x, wreckArea.tile.y) : null).toBe("wreck-water");
     expect(world.detailIndex["area.risk-water.data-fog"]).toBeUndefined();
     expect(world.detailIndex["area.risk-water.ledger-mooring"]?.facts).toEqual(expect.arrayContaining([
       { label: "Risk water zone", value: "ledger" },
       { label: "Risk placement", value: "ledger-mooring" },
     ]));
+    expect(world.detailIndex["area.risk-water.wreck-shoal"]).toMatchObject({
+      title: "Wreck Shoal",
+      links: [expect.objectContaining({ label: "Cemetery" })],
+    });
     // Z3 (Sea Master): each area's tile is snapped into its own body, so the
     // exact coordinate follows the coastline. The claim worth asserting is that
     // every area sits in the water it names.

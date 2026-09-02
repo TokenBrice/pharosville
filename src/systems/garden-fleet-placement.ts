@@ -7,7 +7,10 @@ import {
   gardenShipWaterMarginTiles,
   isGardenShipWater,
 } from "./garden-water-exclusion";
-import { gardenShipVisualScale } from "./garden-observatory-slice";
+import {
+  GARDEN_SILHOUETTE_FOR_HULL,
+  gardenShipVisualScale,
+} from "./garden-observatory-slice";
 import type { ShipNode, ShipWaterZone, TerrainKind } from "./world-types";
 
 /**
@@ -377,7 +380,10 @@ export function placeGardenFleet(
     // Moorings are sized against the band's typical hull, since that is what
     // sets how much water each berth actually consumes.
     const meanHullGap = (ordered.reduce(
-      (sum, entry) => sum + gardenShipWaterMarginTiles(gardenShipVisualScale(entry.visual.scale || 1)),
+      (sum, entry) => sum + gardenShipWaterMarginTiles(
+        gardenShipVisualScale(entry.visual.scale || 1),
+        GARDEN_SILHOUETTE_FOR_HULL[entry.visual.hull],
+      ),
       0,
     ) / Math.max(1, ordered.length)) * MIN_HULL_GAP;
     const anchorages = seedAnchorages(zone, candidates, ordered.length, meanHullGap, lighthouseTile);
@@ -386,6 +392,7 @@ export function placeGardenFleet(
     for (const [shipIndex, ship] of ordered.entries()) {
       const margin = gardenShipWaterMarginTiles(
         gardenShipVisualScale(ship.visual.scale || 1),
+        GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
       );
       const anchorage = anchorageForBerth(anchorages, shipIndex);
 

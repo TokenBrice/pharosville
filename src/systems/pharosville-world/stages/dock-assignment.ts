@@ -1,12 +1,18 @@
-import { dockOutwardVectorForTile } from "../../dock-layout";
-import { isGardenObstacleTile } from "../../garden-water-exclusion";
+import { dockSeawardVector } from "../../dock-layout";
+import {
+  gardenShipWaterMarginTiles,
+  isGardenShipWater,
+} from "../../garden-water-exclusion";
+import {
+  GARDEN_SILHOUETTE_FOR_HULL,
+  gardenShipVisualScale,
+} from "../../garden-observatory-slice";
 import { isSeawallBarrierTile, seawallBarrierDistance } from "../../seawall";
 import {
   clampMapTile,
   isNavigableWaterTile,
   MAX_TILE_X,
   MAX_TILE_Y,
-  nearestAvailableWaterTile,
 } from "../../world-layout";
 import type { DockNode, ShipDockVisit, ShipNode } from "../../world-types";
 import type { DockAssignmentStage } from "../pipeline-types";
@@ -21,7 +27,7 @@ function normalizeDockVisitWeights(visits: ShipDockVisit[]): ShipDockVisit[] {
 }
 
 function dockOutwardVector(dock: DockNode): { x: -1 | 0 | 1; y: -1 | 0 | 1 } {
-  return dockOutwardVectorForTile(dock.tile);
+  return dockSeawardVector(dock);
 }
 
 function dockMooringDepthBonus(ship: ShipNode): number {
@@ -75,9 +81,15 @@ function isBerthTile(
 ): boolean {
   if (occupied.has(`${tile.x}.${tile.y}`)) return false;
   // Zones-v2 placement fix: moorings must also clear the RENDERED island
-  // rock — data water beneath the garden island mesh is not a berth.
+  // rock and finite plate edge — data water beneath the garden island mesh,
+  // or a cove vector composed onto the background beyond the plate, is not a
+  // berth. `isGardenShipWater` owns both bounds with the full hull margin.
   if (isSeawallBarrierTile(tile) || !isNavigableWaterTile(tile)) return false;
-  if (isGardenObstacleTile(tile.x, tile.y)) return false;
+  const hullMargin = gardenShipWaterMarginTiles(
+    gardenShipVisualScale(ship.visual.scale || 1),
+    GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+  );
+  if (!isGardenShipWater(tile, hullMargin)) return false;
   return seawallBarrierDistance(tile) >= dockMooringBarrierClearance(ship);
 }
 
@@ -122,7 +134,7 @@ function dockMooringTile(
       const tile = { x, y };
       const key = `${x}.${y}`;
       if (occupied.has(key) || !isNavigableWaterTile(tile)) continue;
-      if (isGardenObstacleTile(tile.x, tile.y)) continue;
+      if (!isBerthTile(tile, ship, occupied)) continue;
       const barrierDistance = seawallBarrierDistance(tile);
       if (barrierDistance < minBarrierClearance) continue;
       const score = Math.abs(tile.x - target.x) + Math.abs(tile.y - target.y) - barrierDistance * 0.02;
@@ -134,7 +146,7 @@ function dockMooringTile(
   }
 
   if (bestTile) return bestTile;
-  return nearestAvailableWaterTile(target, occupied);
+  throw new Error(`No rim-safe berth available for ${ship.id} at ${dock.id}`);
 }
 
 /**

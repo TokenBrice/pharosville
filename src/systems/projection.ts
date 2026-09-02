@@ -22,6 +22,25 @@ export interface MapLike {
   height: number;
 }
 
+/**
+ * The finite Garden Sea continues past the outer tile centres so the rim,
+ * displaced water, and both sea openings end inside the authored plate rather
+ * than at the interactive camera clamp.
+ *
+ * Camera framing and the renderer must share this extent. A smaller camera
+ * bound makes an edge berth impossible to bring fully on screen at inspection
+ * zoom even though the berth itself is still on the plate.
+ */
+export const GARDEN_PLATE_MARGIN_TILES = 8;
+
+/** True when a tile centre is carried by the finite rendered water plate. */
+export function gardenWaterPlateContainsTile(tile: TilePoint, map: MapLike): boolean {
+  return tile.x >= -GARDEN_PLATE_MARGIN_TILES
+    && tile.y >= -GARDEN_PLATE_MARGIN_TILES
+    && tile.x <= map.width - 1 + GARDEN_PLATE_MARGIN_TILES
+    && tile.y <= map.height - 1 + GARDEN_PLATE_MARGIN_TILES;
+}
+
 export function tileToIso(tile: TilePoint): ScreenPoint {
   return {
     x: (tile.x - tile.y) * (TILE_WIDTH / 2),
@@ -61,17 +80,20 @@ export function screenToTile(point: ScreenPoint, camera: IsoCamera): TilePoint {
 }
 
 export function mapIsoBounds(map: MapLike) {
+  const minTile = -GARDEN_PLATE_MARGIN_TILES;
+  const maxTileX = map.width - 1 + GARDEN_PLATE_MARGIN_TILES;
+  const maxTileY = map.height - 1 + GARDEN_PLATE_MARGIN_TILES;
   const corners = [
-    tileToIso({ x: 0, y: 0 }),
-    tileToIso({ x: map.width - 1, y: 0 }),
-    tileToIso({ x: 0, y: map.height - 1 }),
-    tileToIso({ x: map.width - 1, y: map.height - 1 }),
+    tileToIso({ x: minTile, y: minTile }),
+    tileToIso({ x: maxTileX, y: minTile }),
+    tileToIso({ x: minTile, y: maxTileY }),
+    tileToIso({ x: maxTileX, y: maxTileY }),
   ];
   return {
-    minX: Math.min(...corners.map((corner) => corner.x)) - TILE_WIDTH,
-    maxX: Math.max(...corners.map((corner) => corner.x)) + TILE_WIDTH,
-    minY: Math.min(...corners.map((corner) => corner.y)) - TILE_HEIGHT,
-    maxY: Math.max(...corners.map((corner) => corner.y)) + TILE_HEIGHT,
+    minX: Math.min(...corners.map((corner) => corner.x)),
+    maxX: Math.max(...corners.map((corner) => corner.x)),
+    minY: Math.min(...corners.map((corner) => corner.y)),
+    maxY: Math.max(...corners.map((corner) => corner.y)),
   };
 }
 
@@ -92,7 +114,11 @@ export function fitCameraToMap(input: {
   const boundsHeight = Math.max(1, bounds.maxY - bounds.minY);
   const availableWidth = Math.max(320, input.width - padding.left - padding.right);
   const availableHeight = Math.max(320, input.height - padding.top - padding.bottom);
-  const zoom = Math.max(0.72, Math.min(1.25, Math.min(availableWidth / boundsWidth, availableHeight / boundsHeight)));
+  // Wave 1: the rim is now part of the composition, not terrain outside the
+  // camera. The old 0.72 minimum cropped it into anonymous strips; 0.60 keeps
+  // two camera-side rim entries in the landing frame while the true whole-map
+  // floor remains owned by minZoomForViewport.
+  const zoom = Math.max(GARDEN_FIT_CAMERA_MIN_ZOOM, Math.min(1.25, Math.min(availableWidth / boundsWidth, availableHeight / boundsHeight)));
   const contentWidth = boundsWidth * zoom;
   const contentHeight = boundsHeight * zoom;
   return {
@@ -101,6 +127,9 @@ export function fitCameraToMap(input: {
     zoom,
   };
 }
+
+/** Authored landing composition floor; whole-map uses minZoomForViewport. */
+export const GARDEN_FIT_CAMERA_MIN_ZOOM = 0.6;
 
 /**
  * Absolute zoom floor, used only when no viewport/map is available to compute

@@ -1,6 +1,6 @@
 # PharosVille Maintenance Guide
 
-Last updated: 2026-07-25
+Last updated: 2026-09-02
 
 Current code and route contracts win over historical plans. Use this directory
 for durable operational guidance; use `agents/` for plans and handoffs, not as
@@ -25,8 +25,11 @@ an alternative source of runtime truth.
 
 ## Runtime summary
 
-PharosVille uses a pure world model in `src/systems/`, one production Three.js
-renderer in `src/three/`, and a thin engine-neutral boundary in `src/renderer/`.
+PharosVille is the Seven-Water Garden: a finite water-led plate framed by an
+irregular rim with two openings, shore-station coves, a tsukiyama lighthouse
+island, six fleet families, and leg-based voyages. Its pure world model lives
+in `src/systems/`, with one production Three.js renderer in `src/three/` and a
+thin engine-neutral boundary in `src/renderer/`.
 The desktop gate runs before desktop data, logos, models, or the renderer load.
 The full eligible fleet renders through capacity-bounded instancing; analytical
 meaning remains in DOM details and the accessibility ledger. GPU failure falls
@@ -38,6 +41,10 @@ back to a DOM signal overview, never another graphics stack.
 - Keep motion deterministic, water-safe, and shared by rendering, hit testing,
   selection, follow, and debug surfaces.
 - Keep runtime images same-origin and in the checked media pipeline.
+- Keep the rim, seven-water field, station topology, conservative water-safety
+  field, and leg samples authoritative across rendering, hit testing, and DOM
+  parity. Use `garden-draw-census.ts` plus real-GPU `npm run preview` when
+  measuring the approximately 245-call/43-texture default budget.
 - Plans may be deleted once their durable outcome exists in code or these docs.
 - Do not commit generated output, test results, scratch captures, or local env
   files.

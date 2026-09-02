@@ -4,6 +4,7 @@ import {
   DAY_CYCLE_HEIGHT_FOG_PRESETS,
   DAY_CYCLE_LIGHT_PRESETS,
   DAY_CYCLE_SKY_PRESETS,
+  GARDEN_SAIL_EMISSIVE,
   dayCyclePhase,
 } from "./garden-day-cycle";
 import { HARBOR_PALETTE } from "../systems/palette";
@@ -69,6 +70,40 @@ describe("day-cycle presets (C1 contract)", () => {
     const key = new Color(HARBOR_PALETTE.sun_day_warm);
     const fill = new Color(HARBOR_PALETTE.sky_day_zenith);
     expect(key.r - key.b).toBeGreaterThan(fill.r - fill.b);
+    // Wave 6: the key must own the form. Ambient + hemispheric fill may reveal
+    // the cool side, but cannot flatten it back into the key's value register.
+    expect(day.dirIntensity).toBeGreaterThan(
+      (day.ambientIntensity + day.hemiIntensity) * 3,
+    );
+  });
+
+  it("keeps dusk gold directional and its indigo fill subordinate", () => {
+    const dusk = DAY_CYCLE_LIGHT_PRESETS.dusk;
+    expect(dusk.dirIntensity).toBeGreaterThan(
+      (dusk.ambientIntensity + dusk.hemiIntensity) * 3,
+    );
+    expect(dusk.dirColor.r).toBeGreaterThan(dusk.dirColor.b);
+    expect(dusk.hemiSky.b).toBeGreaterThan(dusk.hemiSky.r);
+  });
+
+  it("keeps moon fill and sail backlight below the night hierarchy", () => {
+    const night = DAY_CYCLE_LIGHT_PRESETS.night;
+    expect(night.dirIntensity).toBeLessThan(1.5);
+    // Item 3 energy audit: the dark-tinted analytic fill must outweigh the
+    // environment correction while remaining subordinate to the moon key. The
+    // colour split, rather than one oversized hard key, preserves land/sea form.
+    expect(night.ambientIntensity).toBeGreaterThanOrEqual(0.25);
+    expect(night.hemiIntensity).toBeGreaterThanOrEqual(0.35);
+    expect(night.dirIntensity).toBeGreaterThanOrEqual(1);
+    expect(night.dirIntensity).toBeGreaterThan(
+      night.ambientIntensity + night.hemiIntensity,
+    );
+    expect(night.ambient.getHex()).not.toBe(new Color(HARBOR_PALETTE.sky_night).getHex());
+    expect(night.hemiSky.getHex()).not.toBe(new Color(HARBOR_PALETTE.sky_horizon).getHex());
+    expect(GARDEN_SAIL_EMISSIVE.night).toBeGreaterThanOrEqual(0.09);
+    expect(GARDEN_SAIL_EMISSIVE.night).toBeLessThanOrEqual(0.1);
+    expect(GARDEN_SAIL_EMISSIVE.night).toBeLessThan(GARDEN_SAIL_EMISSIVE.dusk);
+    expect(GARDEN_SAIL_EMISSIVE.dusk).toBeGreaterThan(GARDEN_SAIL_EMISSIVE.day);
   });
 
   it("keeps day fog structured instead of milky", () => {
@@ -104,7 +139,7 @@ describe("day-cycle presets (C1 contract)", () => {
     });
     expect(nearSea).toBeLessThan(0.02);
     expect(farSea).toBeGreaterThan(nearSea * 2);
-    expect(farSea).toBeLessThan(0.06);
+    expect(farSea).toBeLessThan(0.04);
     expect(farMonument).toBeLessThan(0.006);
   });
 });

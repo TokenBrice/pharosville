@@ -1,5 +1,8 @@
-import { BoxGeometry, Group, Mesh, MeshBasicMaterial } from "three";
+import { BoxGeometry, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
+import { dockFixture, DISPLAY_TILES, ISLAND_TILE } from "./__fixtures__/harbor";
+import { authorDock } from "./garden-docks";
+import { createGardenHarborBatch } from "./garden-harbor-batch";
 import {
   createGardenOverviewLod,
   OVERVIEW_LOD_DETAIL_NAMES,
@@ -9,11 +12,11 @@ import {
   overviewLodTargetDetail,
 } from "./garden-overview-lod";
 
-/** A prop whose geometry sits well away from its own origin, like a dock crane. */
+/** A local prop whose geometry sits well away from its own origin. */
 function propTree(): { prop: Group; root: Group } {
   const root = new Group();
   const prop = new Group();
-  prop.name = "dock-crane";
+  prop.name = "island-quay-stair";
   prop.position.set(4, 0, -2);
   const arm = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial());
   arm.position.set(0, 3, 0);
@@ -47,13 +50,13 @@ const SNAP = { deltaSeconds: 10, reducedMotion: false };
 
 describe("overviewLodTargetDetail", () => {
   it("keeps default framing whole and whole-map framing bare", () => {
-    // The default camera fits the world at 0.7776 and the absolute zoom floor
+    // The Wave 1 default camera fits the world at 0.648 and the absolute zoom floor
     // is 0.28; the band has to sit strictly between them so neither framing
     // ever pays for a partially-shed prop.
     expect(OVERVIEW_LOD_HIDDEN_ZOOM).toBeGreaterThan(0.28);
-    expect(OVERVIEW_LOD_FULL_ZOOM).toBeLessThan(0.7776);
+    expect(OVERVIEW_LOD_FULL_ZOOM).toBeLessThan(0.648);
 
-    expect(overviewLodTargetDetail(0.7776)).toBe(1);
+    expect(overviewLodTargetDetail(0.648)).toBe(1);
     expect(overviewLodTargetDetail(2.4)).toBe(1);
     expect(overviewLodTargetDetail(0.28)).toBe(0);
     expect(overviewLodTargetDetail(OVERVIEW_LOD_HIDDEN_ZOOM)).toBe(0);
@@ -78,8 +81,9 @@ describe("createGardenOverviewLod", () => {
     expect(OVERVIEW_LOD_DETAIL_NAMES).toEqual(expect.arrayContaining([
       "island-koi",
       "island-niwaki",
-      "island-raked-gravel",
     ]));
+    // The path is now a primary island read, not a toy-scale gravel apron.
+    expect(OVERVIEW_LOD_DETAIL_NAMES).not.toContain("island-path-sweep");
   });
 
   it("leaves the authored transform untouched above the band", () => {
@@ -87,7 +91,7 @@ describe("createGardenOverviewLod", () => {
     const lod = createGardenOverviewLod(root);
     expect(lod.entryCount).toBe(1);
 
-    lod.update({ ...SNAP, zoom: 0.7776 });
+    lod.update({ ...SNAP, zoom: 0.648 });
 
     expect(lod.detail).toBe(1);
     expect(prop.visible).toBe(true);
@@ -129,7 +133,7 @@ describe("createGardenOverviewLod", () => {
   it("eases across the band instead of stepping", () => {
     const { root } = propTree();
     const lod = createGardenOverviewLod(root);
-    lod.update({ ...SNAP, zoom: 0.7776 });
+    lod.update({ ...SNAP, zoom: 0.648 });
 
     // A single 16 ms frame after a hard zoom-out must travel only part way.
     lod.update({ deltaSeconds: 0.016, reducedMotion: false, zoom: 0.28 });
@@ -167,6 +171,68 @@ describe("createGardenOverviewLod", () => {
     expect(prop.visible).toBe(false);
   });
 
+  it("fades the batched posts, windows, and flags without pulling the ring inward", () => {
+    const chains = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
+    const batch = createGardenHarborBatch(chains.map((chainId, index) => (
+      authorDock({
+        ...dockFixture(chainId, 3 + (index % 7)),
+        ...(chainId === "solana" ? {
+          station: { coveId: "lod-fishing-pier", shoreBearing: 0, type: "fishing-pier" as const },
+        } : {}),
+      }, DISPLAY_TILES[index]!, ISLAND_TILE)
+    )));
+    const root = new Group();
+    root.add(batch.root);
+    root.updateMatrixWorld(true);
+    const posts = batch.propMeshes.post as InstancedMesh;
+    const windows = batch.bucketMeshes.window as Mesh;
+    const before = {
+      flag: instanceWorldPosition(batch.flags, 0),
+      post: instanceWorldPosition(posts, 0),
+      window: vertexWorldPosition(windows, 0),
+    };
+    const lod = createGardenOverviewLod(root);
+
+    lod.update({ ...SNAP, zoom: 0.53 });
+    root.updateMatrixWorld(true);
+
+    expect(instanceWorldPosition(posts, 0).distanceTo(before.post)).toBeCloseTo(0, 6);
+    expect(vertexWorldPosition(windows, 0).distanceTo(before.window)).toBeCloseTo(0, 6);
+    expect(instanceWorldPosition(batch.flags, 0).distanceTo(before.flag)).toBeCloseTo(0, 6);
+    batch.dispose();
+  });
+
+  it("hides the actual batched station-detail drawables below the overview threshold and restores them at default zoom", () => {
+    const chains = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
+    const batch = createGardenHarborBatch(chains.map((chainId, index) => (
+      authorDock({
+        ...dockFixture(chainId, 3 + (index % 7)),
+        ...(chainId === "solana" ? {
+          station: { coveId: "overview.solana", shoreBearing: 0, type: "fishing-pier" as const },
+        } : {}),
+      }, DISPLAY_TILES[index]!, ISLAND_TILE)
+    )));
+    const root = new Group();
+    root.add(batch.root);
+    const stationDetails = [
+      batch.propMeshes.netRack,
+      batch.bucketMeshes.window,
+    ];
+    expect(stationDetails.every((detail) => (
+      detail instanceof Mesh
+      && detail.geometry.getAttribute("position").count > 0
+      && OVERVIEW_LOD_WHOLE_RING_NAMES.includes(detail.name)
+    ))).toBe(true);
+    const lod = createGardenOverviewLod(root);
+
+    lod.update({ deltaSeconds: 0.016, reducedMotion: true, zoom: OVERVIEW_LOD_HIDDEN_ZOOM - 0.01 });
+    expect(stationDetails.every((detail) => detail?.visible === false)).toBe(true);
+
+    lod.update({ deltaSeconds: 0.016, reducedMotion: true, zoom: 0.648 });
+    expect(stationDetails.every((detail) => detail?.visible === true)).toBe(true);
+    batch.dispose();
+  });
+
   it("names whole-ring groups the policy already sheds", () => {
     // A name here that the detail list does not carry would shed nothing, and
     // the exemption would be silently dead.
@@ -178,7 +244,7 @@ describe("createGardenOverviewLod", () => {
   it("snaps under reduced motion, which draws one static frame", () => {
     const { prop, root } = propTree();
     const lod = createGardenOverviewLod(root);
-    lod.update({ ...SNAP, zoom: 0.7776 });
+    lod.update({ ...SNAP, zoom: 0.648 });
 
     lod.update({ deltaSeconds: 0.016, reducedMotion: true, zoom: 0.28 });
 
@@ -186,3 +252,17 @@ describe("createGardenOverviewLod", () => {
     expect(prop.visible).toBe(false);
   });
 });
+
+const instanceMatrix = new Matrix4();
+const instanceWorldMatrix = new Matrix4();
+function instanceWorldPosition(mesh: InstancedMesh, index: number): Vector3 {
+  mesh.getMatrixAt(index, instanceMatrix);
+  instanceWorldMatrix.multiplyMatrices(mesh.matrixWorld, instanceMatrix);
+  return new Vector3().setFromMatrixPosition(instanceWorldMatrix);
+}
+
+function vertexWorldPosition(mesh: Mesh, index: number): Vector3 {
+  return new Vector3()
+    .fromBufferAttribute(mesh.geometry.getAttribute("position"), index)
+    .applyMatrix4(mesh.matrixWorld);
+}

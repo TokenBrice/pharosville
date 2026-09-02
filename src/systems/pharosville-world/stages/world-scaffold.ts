@@ -13,6 +13,7 @@ import {
 } from "../../world-layout";
 import {
   SHIP_RISK_PLACEMENTS,
+  WRECK_SHOAL_AREA,
   riskWaterAreaForPlacement,
 } from "../../risk-water-areas";
 import { countShipsByRiskPlacement } from "./ship-placement";
@@ -325,7 +326,7 @@ function summaryForRiskWaterPlacement(placement: ShipNode["riskPlacement"], band
 }
 
 function buildAreas(shipCountsByRiskPlacement: ReadonlyMap<ShipNode["riskPlacement"], number>): PharosVilleWorld["areas"] {
-  return SHIP_RISK_PLACEMENTS.map((placement) => {
+  const riskAreas = SHIP_RISK_PLACEMENTS.map((placement) => {
     const riskWaterArea = riskWaterAreaForPlacement(placement);
     const band = riskWaterArea.band;
     const id = areaIdForRiskWaterPlacement(placement, band);
@@ -352,6 +353,23 @@ function buildAreas(shipCountsByRiskPlacement: ReadonlyMap<ShipNode["riskPlaceme
       summary: summaryForRiskWaterPlacement(placement, band),
     };
   });
+  return [
+    ...riskAreas,
+    {
+      id: WRECK_SHOAL_AREA.id,
+      kind: "area" as const,
+      label: WRECK_SHOAL_AREA.label,
+      tile: WRECK_SHOAL_AREA.labelTile,
+      detailId: WRECK_SHOAL_AREA.id,
+      facts: [
+        { label: "Water style", value: WRECK_SHOAL_AREA.waterStyle },
+        { label: "Source", value: WRECK_SHOAL_AREA.sourceFields.join(", ") },
+      ],
+      links: [{ label: "Cemetery", href: "/cemetery/" }],
+      sourceFields: [...WRECK_SHOAL_AREA.sourceFields],
+      summary: `${WRECK_SHOAL_AREA.label} — ${WRECK_SHOAL_AREA.reading}. Wreck silhouettes and cause colour identify the records held here; the area itself is not a live-ship risk placement.`,
+    },
+  ];
 }
 
 // P3 metaphor quick-win, extended for Tier 3 #13: ride the per-chain readings
