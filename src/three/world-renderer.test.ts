@@ -42,15 +42,21 @@ import {
   bearingInsideRimOpening,
   RIM_OPENINGS,
   rimLandAt,
-  rimShoreDistance,
 } from "../systems/garden-rim";
 import type { DockNode, PharosVilleWorld, ShipHull, ShipNode } from "../systems/world-types";
 import {
   GARDEN_HULL_SILHOUETTES,
+  GARDEN_SILHOUETTE_FOR_HULL,
+  gardenShipVisualScale,
+  resolveGardenShipDisplayTile,
   selectGardenDocks,
   selectGardenObservatorySlice,
   selectRepresentativeShips,
 } from "../systems/garden-observatory-slice";
+import {
+  gardenShipWaterMarginTiles,
+  isGardenShipWater,
+} from "../systems/garden-water-exclusion";
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { seaStateForWorld } from "../systems/sea-state";
@@ -72,7 +78,6 @@ import {
   gardenStationRouteEndpoints,
   gardenMistBoundaryTile,
   gardenTransitionWaveReady,
-  GARDEN_TRANSITION_HULL_CLEARANCE_TILES,
   GARDEN_SHIP_TRANSITION_MIN_SECONDS,
   GARDEN_TRANSITION_WAVE_SECONDS,
   sampleGardenShipTransition,
@@ -1151,6 +1156,7 @@ describe("W6.5 sky-probe environment", () => {
 });
 
 describe("W4.2 garden-tempo transition queue", () => {
+  const TEST_TRANSITION_MARGIN_TILES = 2.5;
   const transition = (
     overrides: Partial<GardenShipTransitionSpec> = {},
   ): GardenShipTransitionSpec => ({
@@ -1158,6 +1164,7 @@ describe("W4.2 garden-tempo transition queue", () => {
     durationSeconds: 90,
     from: { x: 20, y: 24 },
     kind: "reanchor",
+    marginTiles: TEST_TRANSITION_MARGIN_TILES,
     shipId: "ship.test",
     startSeconds: 10,
     to: { x: 62, y: 54 },
@@ -1277,7 +1284,7 @@ describe("W4.2 garden-tempo transition queue", () => {
 
   it("keeps arrivals and departures on or inside the playable mist boundary", () => {
     const berth = { x: 68, y: 61 };
-    const edge = gardenMistBoundaryTile(berth, 0.3);
+    const edge = gardenMistBoundaryTile(berth, 0.3, TEST_TRANSITION_MARGIN_TILES);
     const arrivals = transition({ from: edge, kind: "arrival", to: berth });
     const departures = transition({ from: berth, kind: "departure", to: edge });
     for (const spec of [arrivals, departures]) {
@@ -1303,15 +1310,51 @@ describe("W4.2 garden-tempo transition queue", () => {
     const world = denseRendererWorld();
     const center = (world.map.width - 1) * 0.5;
     for (const ship of world.ships) {
-      const endpoint = gardenMistBoundaryTile(ship.tile, ship.tile.x / world.map.width);
+      const margin = gardenShipWaterMarginTiles(
+        gardenShipVisualScale(ship.visual.scale || 1),
+        GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+      );
+      const endpoint = gardenMistBoundaryTile(ship.tile, ship.tile.x / world.map.width, margin);
       const bearing = Math.atan2(endpoint.y - center, endpoint.x - center);
       expect(rimLandAt(endpoint.x, endpoint.y), ship.id).toBe(false);
-      expect(rimShoreDistance(endpoint.x, endpoint.y), ship.id)
-        .toBeGreaterThanOrEqual(GARDEN_TRANSITION_HULL_CLEARANCE_TILES);
+      expect(isGardenShipWater(endpoint, margin), ship.id).toBe(true);
       expect(
         RIM_OPENINGS.some((opening) => bearingInsideRimOpening(bearing, opening)),
         ship.id,
       ).toBe(true);
+    }
+  });
+
+  it("keeps the dense fixture's largest-margin hull safe along arrival and departure paths", () => {
+    const world = denseRendererWorld();
+    const placement = selectGardenObservatorySlice(world, null).ships
+      .map((entry) => ({
+        entry,
+        margin: gardenShipWaterMarginTiles(
+          gardenShipVisualScale(entry.ship.visual.scale || 1),
+          GARDEN_SILHOUETTE_FOR_HULL[entry.ship.visual.hull],
+        ),
+      }))
+      .toSorted((left, right) => right.margin - left.margin)[0]!;
+    const target = resolveGardenShipDisplayTile({ ...placement.entry, sample: null });
+    const edge = gardenMistBoundaryTile(target, 0.37, placement.margin);
+
+    expect(isGardenShipWater(edge, placement.margin), placement.entry.ship.id).toBe(true);
+    for (const kind of ["arrival", "departure"] as const) {
+      const spec = transition({
+        from: kind === "arrival" ? edge : target,
+        kind,
+        marginTiles: placement.margin,
+        shipId: placement.entry.ship.id,
+        to: kind === "arrival" ? target : edge,
+      });
+      for (let second = 10; second <= 100; second += 2) {
+        const sample = sampleGardenShipTransition(spec, second);
+        expect(
+          isGardenShipWater(sample, placement.margin),
+          `${placement.entry.ship.id} ${kind} at ${sample.x.toFixed(2)},${sample.y.toFixed(2)}`,
+        ).toBe(true);
+      }
     }
   });
 

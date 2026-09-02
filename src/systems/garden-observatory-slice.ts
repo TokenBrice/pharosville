@@ -220,10 +220,10 @@ export function resolveGardenShipDisplayTile(input: {
   }
   // Zones-v2 placement fix: keep the composed display tile on valid open
   // water with hull clearance from rendered landmasses (island rock, garden
-  // islets, cemetery, pigeonnier). Dock-proximate motion states are exempt:
-  // moored/arriving/departing ships sit at authored moorings next to piers,
-  // where the dock tangent already orients the hull along the wharf.
-  if (sample?.state === "moored" || sample?.state === "arriving" || sample?.state === "departing") {
+  // islets, cemetery, pigeonnier). Moored ships alone are exempt because their
+  // authored berth and dock tangent own pier clearance. Arriving/departing
+  // samples still cross open water and must pass the same conservative field.
+  if (sample?.state === "moored") {
     return display;
   }
   const cached = gardenShipDisplayTileCache.get(ship);
@@ -237,9 +237,10 @@ export function resolveGardenShipDisplayTile(input: {
     gardenShipVisualScale(ship.visual.scale || 1),
     GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
   );
-  const resolved = isGardenShipWater(display, margin, true)
+  const includeDocks = sample?.state !== "arriving" && sample?.state !== "departing";
+  const resolved = isGardenShipWater(display, margin, includeDocks)
     ? display
-    : nearestGardenShipWater(display, margin, `motion-display.${ship.id}`, true);
+    : nearestGardenShipWater(display, margin, `motion-display.${ship.id}`, includeDocks);
   gardenShipDisplayTileCache.set(ship, {
     sourceX: display.x,
     sourceY: display.y,

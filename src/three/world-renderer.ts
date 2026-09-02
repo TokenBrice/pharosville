@@ -45,6 +45,7 @@ import type {
 import { isRenderSchedulerIdle, seaQualityTier } from "../renderer/render-scheduler";
 import {
   GARDEN_HULL_SILHOUETTES,
+  GARDEN_SILHOUETTE_FOR_HULL,
   GARDEN_LIGHTHOUSE_BEACON_Y,
   GARDEN_LIGHTHOUSE_ROOT_OFFSET,
   GARDEN_SHIP_ROOT_Y,
@@ -60,7 +61,12 @@ import {
   selectGardenTransientShip,
 } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
-import { RIM_OPENINGS, rimShoreDistance } from "../systems/garden-rim";
+import { RIM_OPENINGS } from "../systems/garden-rim";
+import {
+  gardenShipWaterMarginTiles,
+  isGardenShipWater,
+  nearestGardenShipWater,
+} from "../systems/garden-water-exclusion";
 import { screenToTile } from "../systems/projection";
 import { deriveEpistemicHaze } from "../systems/epistemic-haze";
 import { seasonFromDate, type GardenSeason } from "../systems/season";
@@ -88,7 +94,7 @@ import {
   type LampStatusModulation,
   type LampStatusHysteresisState,
 } from "../systems/lamp-status";
-import type { PharosVilleWorld } from "../systems/world-types";
+import type { PharosVilleWorld, ShipNode } from "../systems/world-types";
 import {
   worldRenderContentPartHashes,
 } from "../systems/world-render-content-signature";
@@ -409,6 +415,7 @@ export interface GardenShipTransitionSpec {
   durationSeconds: number;
   from: GardenTransitionTile;
   kind: GardenShipTransitionKind;
+  marginTiles: number;
   shipId: string;
   startSeconds: number;
   to: GardenTransitionTile;
@@ -423,12 +430,8 @@ export interface GardenShipTransitionSample {
   y: number;
 }
 
-const MIST_MIN_TILE = 0.5;
-const MIST_MAX_TILE_X = PHAROSVILLE_MAP_WIDTH - 1.5;
-const MIST_MAX_TILE_Y = PHAROSVILLE_MAP_HEIGHT - 1.5;
 const MIST_CENTER_TILE_X = (PHAROSVILLE_MAP_WIDTH - 1) / 2;
 const MIST_CENTER_TILE_Y = (PHAROSVILLE_MAP_HEIGHT - 1) / 2;
-export const GARDEN_TRANSITION_HULL_CLEARANCE_TILES = 2.5;
 
 function normaliseTransitionBearing(bearing: number): number {
   return Math.atan2(Math.sin(bearing), Math.cos(bearing));
@@ -442,14 +445,19 @@ function normaliseTransitionBearing(bearing: number): number {
 export function gardenMistBoundaryTile(
   toward: GardenTransitionTile,
   salt = 0,
+  marginTiles: number,
   out: GardenTransitionTile = { x: 0, y: 0 },
 ): GardenTransitionTile {
+  const margin = Math.max(0.5, marginTiles);
+  const minTile = margin;
+  const maxTileX = PHAROSVILLE_MAP_WIDTH - 1 - margin;
+  const maxTileY = PHAROSVILLE_MAP_HEIGHT - 1 - margin;
   const desired = Math.abs(toward.x - MIST_CENTER_TILE_X)
       + Math.abs(toward.y - MIST_CENTER_TILE_Y) < 1e-6
     ? normaliseTransitionBearing(salt * Math.PI * 2)
     : Math.atan2(toward.y - MIST_CENTER_TILE_Y, toward.x - MIST_CENTER_TILE_X);
   const openingInset = Math.atan2(
-    GARDEN_TRANSITION_HULL_CLEARANCE_TILES + 0.5,
+    margin + 0.5,
     Math.min(MIST_CENTER_TILE_X, MIST_CENTER_TILE_Y),
   );
   let angle = 0;
@@ -476,30 +484,35 @@ export function gardenMistBoundaryTile(
   const dx = Math.cos(angle);
   const dy = Math.sin(angle);
   const scaleX = dx > 0
-    ? (MIST_MAX_TILE_X - MIST_CENTER_TILE_X) / dx
-    : (MIST_MIN_TILE - MIST_CENTER_TILE_X) / dx;
+    ? (maxTileX - MIST_CENTER_TILE_X) / dx
+    : (minTile - MIST_CENTER_TILE_X) / dx;
   const scaleY = dy > 0
-    ? (MIST_MAX_TILE_Y - MIST_CENTER_TILE_Y) / dy
-    : (MIST_MIN_TILE - MIST_CENTER_TILE_Y) / dy;
+    ? (maxTileY - MIST_CENTER_TILE_Y) / dy
+    : (minTile - MIST_CENTER_TILE_Y) / dy;
   const scale = Math.min(Math.abs(scaleX), Math.abs(scaleY));
-  out.x = MathUtils.clamp(MIST_CENTER_TILE_X + dx * scale, MIST_MIN_TILE, MIST_MAX_TILE_X);
-  out.y = MathUtils.clamp(MIST_CENTER_TILE_Y + dy * scale, MIST_MIN_TILE, MIST_MAX_TILE_Y);
+  out.x = MathUtils.clamp(MIST_CENTER_TILE_X + dx * scale, minTile, maxTileX);
+  out.y = MathUtils.clamp(MIST_CENTER_TILE_Y + dy * scale, minTile, maxTileY);
   // The angular shoulder inset is deliberately conservative. Keep this guard
   // close to the authoring math so a future narrower opening cannot silently
   // put the route back through land.
-  if (rimShoreDistance(out.x, out.y) < GARDEN_TRANSITION_HULL_CLEARANCE_TILES) {
+  if (!isGardenShipWater(out, margin)) {
     const middle = (opening.bearingStart + opening.bearingEnd) * 0.5;
     const safeDx = Math.cos(middle);
     const safeDy = Math.sin(middle);
     const safeScaleX = safeDx > 0
-      ? (MIST_MAX_TILE_X - MIST_CENTER_TILE_X) / safeDx
-      : (MIST_MIN_TILE - MIST_CENTER_TILE_X) / safeDx;
+      ? (maxTileX - MIST_CENTER_TILE_X) / safeDx
+      : (minTile - MIST_CENTER_TILE_X) / safeDx;
     const safeScaleY = safeDy > 0
-      ? (MIST_MAX_TILE_Y - MIST_CENTER_TILE_Y) / safeDy
-      : (MIST_MIN_TILE - MIST_CENTER_TILE_Y) / safeDy;
+      ? (maxTileY - MIST_CENTER_TILE_Y) / safeDy
+      : (minTile - MIST_CENTER_TILE_Y) / safeDy;
     const safeScale = Math.min(Math.abs(safeScaleX), Math.abs(safeScaleY));
     out.x = MIST_CENTER_TILE_X + safeDx * safeScale;
     out.y = MIST_CENTER_TILE_Y + safeDy * safeScale;
+  }
+  if (!isGardenShipWater(out, margin)) {
+    const safe = nearestGardenShipWater(out, margin, `mist-boundary.${salt.toFixed(6)}`);
+    out.x = safe.x;
+    out.y = safe.y;
   }
   return out;
 }
@@ -515,6 +528,8 @@ function curvedTransitionPoint(
   to: GardenTransitionTile,
   bend: number,
   progress: number,
+  marginTiles: number,
+  seed: string,
   out: GardenTransitionTile,
 ): GardenTransitionTile {
   const dx = to.x - from.x;
@@ -532,8 +547,14 @@ function curvedTransitionPoint(
     + progress * progress * to.y;
   // Curvature near a corner can otherwise put the keel a fraction beyond the
   // playable sea. Clamp is a last-line invariant, not a path-shape device.
-  out.x = MathUtils.clamp(out.x, MIST_MIN_TILE, MIST_MAX_TILE_X);
-  out.y = MathUtils.clamp(out.y, MIST_MIN_TILE, MIST_MAX_TILE_Y);
+  const margin = Math.max(0.5, marginTiles);
+  out.x = MathUtils.clamp(out.x, margin, PHAROSVILLE_MAP_WIDTH - 1 - margin);
+  out.y = MathUtils.clamp(out.y, margin, PHAROSVILLE_MAP_HEIGHT - 1 - margin);
+  if (!isGardenShipWater(out, margin)) {
+    const safe = nearestGardenShipWater(out, margin, seed);
+    out.x = safe.x;
+    out.y = safe.y;
+  }
   return out;
 }
 
@@ -562,22 +583,42 @@ function transitionPointAt(
       transition.to,
       transition.bend,
       amount,
+      transition.marginTiles,
+      `transition.${transition.shipId}.${transition.kind}`,
       point,
     );
   }
   const oldEdge = gardenMistBoundaryTile(
     transition.from,
     0.17,
+    transition.marginTiles,
     transitionOldEdgeScratch,
   );
   const newEdge = gardenMistBoundaryTile(
     transition.to,
     0.83,
+    transition.marginTiles,
     transitionNewEdgeScratch,
   );
   return amount < 0.5
-    ? curvedTransitionPoint(transition.from, oldEdge, transition.bend, amount * 2, point)
-    : curvedTransitionPoint(newEdge, transition.to, -transition.bend, amount * 2 - 1, point);
+    ? curvedTransitionPoint(
+      transition.from,
+      oldEdge,
+      transition.bend,
+      amount * 2,
+      transition.marginTiles,
+      `transition.${transition.shipId}.mist-old`,
+      point,
+    )
+    : curvedTransitionPoint(
+      newEdge,
+      transition.to,
+      -transition.bend,
+      amount * 2 - 1,
+      transition.marginTiles,
+      `transition.${transition.shipId}.mist-new`,
+      point,
+    );
 }
 
 /** Clock-pure transition sampling; reload persistence is intentionally absent. */
@@ -2477,11 +2518,19 @@ function shipBerthTile(visual: ShipVisual): GardenTransitionTile {
   });
 }
 
+function shipTransitionMarginTiles(ship: ShipNode): number {
+  return gardenShipWaterMarginTiles(
+    gardenShipVisualScale(ship.visual.scale || 1),
+    GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+  );
+}
+
 function gardenShipTransition(
   shipId: string,
   from: GardenTransitionTile,
   to: GardenTransitionTile,
   kind: GardenShipTransitionKind,
+  marginTiles: number,
 ): GardenShipTransitionSpec {
   const distance = Math.hypot(to.x - from.x, to.y - from.y);
   const actualKind = kind === "reanchor" && distance > GARDEN_SHIP_CROSS_MAP_TILES
@@ -2496,6 +2545,7 @@ function gardenShipTransition(
       + durationUnit * (GARDEN_SHIP_TRANSITION_MAX_SECONDS - GARDEN_SHIP_TRANSITION_MIN_SECONDS),
     from: { ...from },
     kind: actualKind,
+    marginTiles,
     shipId,
     // Pending transitions render their `from` point until a wave admits them.
     startSeconds: Number.POSITIVE_INFINITY,
@@ -2642,7 +2692,13 @@ function applyShipsPoseUpdate(
     } else {
       queueShipTransition(
         content,
-        gardenShipTransition(visual.ship.id, from, newBerth, "reanchor"),
+        gardenShipTransition(
+          visual.ship.id,
+          from,
+          newBerth,
+          "reanchor",
+          shipTransitionMarginTiles(visual.ship),
+        ),
       );
     }
   }
@@ -3620,6 +3676,7 @@ function buildShipsPart(
       const from = previous ?? gardenMistBoundaryTile(
         target,
         stableUnit(`garden-transition.arrival-edge.${visual.ship.id}`),
+        shipTransitionMarginTiles(visual.ship),
       );
       queueShipTransition(
         content,
@@ -3628,6 +3685,7 @@ function buildShipsPart(
           from,
           target,
           staged.oldIds.has(visual.ship.id) ? "reanchor" : "arrival",
+          shipTransitionMarginTiles(visual.ship),
         ),
       );
     }
@@ -3642,8 +3700,10 @@ function buildShipsPart(
           gardenMistBoundaryTile(
             seed.from,
             stableUnit(`garden-transition.departure-edge.${visual.ship.id}`),
+            shipTransitionMarginTiles(visual.ship),
           ),
           "departure",
+          shipTransitionMarginTiles(visual.ship),
         ),
       );
     }
@@ -4363,6 +4423,13 @@ function updateSceneForFrame(
         transitionVisibility = transitionSample.visibility;
         transitionHeadingX = transitionSample.headingX;
         transitionHeadingY = transitionSample.headingY;
+        if (!isGardenShipWater(tile, transition.marginTiles)) {
+          tile = nearestGardenShipWater(
+            tile,
+            transition.marginTiles,
+            `transition-display.${visual.ship.id}.${transition.kind}`,
+          );
+        }
       }
     }
     const dependency = !transition && !departing ? visual.ship.dependencyFormation : null;
