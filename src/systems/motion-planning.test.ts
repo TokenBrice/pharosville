@@ -166,28 +166,28 @@ describe("W4.23 calm patrol itineraries", () => {
   });
 
   it("path-cache headroom is comfortable when every patrol ship grows to a 3-anchor itinerary", () => {
-    // Cache capacity is min(4096, max(512, 16 × shipCount)). For the dense
+    // Cache capacity is min(4096, max(512, 24 × shipCount)). For the dense
     // fixture the floor of 512 dominates, and even with every ship growing
     // to 3 anchors (the worst case ~6x growth call-out in the plan, since
     // each cycle's outbound + inbound is built per-anchor) the entry count
     // sits well within the cap.
     expect(ACTIVE_META_BY_ID.size).toBeGreaterThan(0); // sanity: stablecoin meta loaded
     const world = denseWorld();
-    const plan = buildMotionPlan(world, null);
-    let docklessShips = 0;
-    let routesWithItinerary = 0;
-    let maxItinerary = 0;
-    for (const [, route] of plan.shipRoutes) {
-      if (!route.openWaterPatrol) continue;
-      docklessShips += 1;
-      routesWithItinerary += 1;
-      maxItinerary = Math.max(maxItinerary, route.openWaterPatrol.itinerary.length);
-    }
+    // Capacity depends only on which ships patrol and their deterministic
+    // itinerary sizes. Building the full plan here needlessly solves every A*
+    // leg while other source files run in parallel, turning arithmetic into a
+    // machine-load timeout without adding coverage.
+    const patrolShips = world.ships.filter((ship) => ship.dockVisits.length === 0);
+    const docklessShips = patrolShips.length;
+    const routesWithItinerary = patrolShips.filter((ship) => (
+      openWaterPatrolItineraryLength(ship.id) > 0
+    )).length;
+    const maxItinerary = Math.max(...patrolShips.map((ship) => openWaterPatrolItineraryLength(ship.id)));
     expect(maxItinerary).toBeLessThanOrEqual(3);
-    expect(routesWithItinerary).toBeGreaterThanOrEqual(0);
+    expect(routesWithItinerary).toBe(docklessShips);
     // Each itinerary anchor contributes one outbound + one inbound path. The
-    // dense fixture sits well below the 512-entry cache floor, so the ~6×
-    // headroom margin called out in the plan is preserved without a cap bump.
+    // dense fixture's patrol itinerary still sits below the 512-entry floor;
+    // the additional per-ship allowance is reserved for 96-tile station routes.
     expect(docklessShips * 6).toBeLessThan(512);
   });
 });

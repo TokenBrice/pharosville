@@ -188,7 +188,10 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   } = input;
 
   const fallbackSeaSignScaleRef = useRef<number | null>(null);
-  const seaSignScaleRef = providedSeaSignScaleRef ?? fallbackSeaSignScaleRef;
+  const seaSignScaleTargetRef = useRef<MutableRefObject<number | null>>(fallbackSeaSignScaleRef);
+  useEffect(() => {
+    seaSignScaleTargetRef.current = providedSeaSignScaleRef ?? fallbackSeaSignScaleRef;
+  }, [providedSeaSignScaleRef, fallbackSeaSignScaleRef]);
 
   const stepCameraRef = useRef(stepCamera);
   useEffect(() => {
@@ -381,7 +384,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     resetVisualMotionSmoothingState(visualMotionStateRef.current);
     hitTargetSnapshotRef.current = null;
     hitTargetsRef.current = [];
-    seaSignScaleRef.current = null;
+    seaSignScaleTargetRef.current.current = null;
     reducedMotionSamplesSignatureRef.current = null;
     compactShipMotionSampleCacheRef.current = createCompactShipMotionSampleCache();
     headingDeltaWindowRef.current = createNumericMaxWindow(60);
@@ -398,7 +401,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     hitTargetSnapshotRef,
     hitTargetsRef,
     resetFramePacingState,
-    seaSignScaleRef,
+    seaSignScaleTargetRef,
     shipMotionSamplesRef,
     worldContentSignature,
   ]);
@@ -744,7 +747,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       // event rebuilds between frames reuse this last-drawn value through the
       // shared ref rather than independently resolving a zoom rung.
       const drawnSeaSignScale = threeRenderer.getSeaSignScale();
-      seaSignScaleRef.current = drawnSeaSignScale;
+      seaSignScaleTargetRef.current.current = drawnSeaSignScale;
       const hitTargetStartedAt = performance.now();
       const nextSnapshot = createGardenObservatoryHitTargetSnapshot({
         camera: frameCamera,

@@ -9,6 +9,11 @@ import {
 } from "../../../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "../../pharosville-world";
 import { seawallBarrierDistance } from "../../seawall";
+import { gardenShipWaterMarginTiles, isGardenShipWater } from "../../garden-water-exclusion";
+import {
+  GARDEN_SILHOUETTE_FOR_HULL,
+  gardenShipVisualScale,
+} from "../../garden-observatory-slice";
 import { UNIQUE_SHIP_DEFINITIONS } from "../../unique-ships";
 import { isNavigableWaterTile, PREFERRED_DOCK_TILES } from "../../world-layout";
 import {
@@ -71,7 +76,15 @@ describe("dock-assignment unique tier mooring placement", () => {
 
     for (const { ship, visit } of visits) {
       const dock = docks.get(visit.dockId)!;
+      const hullMargin = gardenShipWaterMarginTiles(
+        gardenShipVisualScale(ship.visual.scale || 1),
+        GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+      );
       expect(isNavigableWaterTile(visit.mooringTile), `${ship.id} -> ${visit.dockId} water`).toBe(true);
+      expect(
+        isGardenShipWater(visit.mooringTile, hullMargin),
+        `${ship.id} -> ${visit.dockId} full hull clears rim land`,
+      ).toBe(true);
       expect(
         Math.hypot(visit.mooringTile.x - dock.tile.x, visit.mooringTile.y - dock.tile.y),
         `${ship.id} -> ${visit.dockId} distance`,

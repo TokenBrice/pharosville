@@ -134,7 +134,7 @@ describe("Garden Observatory slice", () => {
       x: placement!.ship.tile.x + placement!.displayOffset.x,
       y: placement!.ship.tile.y + placement!.displayOffset.y,
     };
-    // Aim well into the map so this assertion isolates the nine-tile motion
+    // Aim well into the map so this assertion isolates the named motion
     // cap rather than exercising the independent hull-clearance resolver.
     const inward = {
       x: 70 - representativeBase.x,
@@ -143,9 +143,13 @@ describe("Garden Observatory slice", () => {
     const inwardLength = Math.hypot(inward.x, inward.y);
     const sample = {
       mapVisibilityAlpha: 0,
+      // Dock-transition states bypass the independent hull-clearance resolver,
+      // which can no longer be avoided geometrically now that the 96-tile
+      // station allowance spans most of the authored rimmed map.
+      state: "moored" as const,
       tile: {
-        x: placement!.ship.tile.x + (inward.x / inwardLength) * 20,
-        y: placement!.ship.tile.y + (inward.y / inwardLength) * 20,
+        x: placement!.ship.tile.x + (inward.x / inwardLength) * (GARDEN_MAX_MOTION_TILES + 8),
+        y: placement!.ship.tile.y + (inward.y / inwardLength) * (GARDEN_MAX_MOTION_TILES + 8),
       },
     };
 

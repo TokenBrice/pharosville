@@ -64,7 +64,7 @@ const WAKE_VIEW_COVER = 1.35;
 /** Pan distance (as a fraction of the window) that counts as a teleport. */
 const WAKE_TELEPORT_FRACTION = 0.5;
 /** Foam decay rate, 1/seconds — a stamp reads for ~8 s. */
-const WAKE_DECAY_RATE = 0.24;
+const WAKE_DECAY_RATE = 0.12;
 /** Idle frames-worth of seconds after which the field is cleared and sleeps. */
 const WAKE_IDLE_TIMEOUT = 14;
 /** Same coherent branch threshold used by the water shader. */

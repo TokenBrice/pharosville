@@ -164,14 +164,37 @@ const CAMERA_FACING_YAW = Math.PI / 4;
 const PIER_DECK_TOP_Y = 0.21;
 const QUAY_TOP_Y = 0.62;
 
-export function createHarborLanterns(islandTile: { x: number; y: number }): {
+/** Two approach lanterns rooted at each station mouth, just seaward of the quay. */
+export function gardenHarborLanternWorldPositions(
+  recipes: readonly DockRecipe[],
+): { x: number; z: number }[] {
+  return recipes.flatMap((recipe) => {
+    const bearing = recipe.dock.station.shoreBearing;
+    const seawardX = Math.cos(bearing);
+    const seawardZ = Math.sin(bearing);
+    const tangentX = -seawardZ;
+    const tangentZ = seawardX;
+    return [-1, 1].map((side) => ({
+      x: recipe.anchorPosition.x + seawardX * 1.25 + tangentX * side * 1.8,
+      z: recipe.anchorPosition.z + seawardZ * 1.25 + tangentZ * side * 1.8,
+    }));
+  });
+}
+
+export function createHarborLanterns(
+  recipes: readonly DockRecipe[],
+): {
   lightMaterial: MeshStandardMaterial;
   root: Group;
 } {
   const root = new Group();
-  setTilePosition(root, islandTile, 0);
-  const count = 12;
-  const bodyMaterial = new MeshStandardMaterial({ color: "#766348", metalness: 0.38, roughness: 0.65 });
+  const positions = gardenHarborLanternWorldPositions(recipes);
+  const count = positions.length;
+  const bodyMaterial = new MeshStandardMaterial({
+    color: "#766348",
+    metalness: 0.38,
+    roughness: 0.65,
+  });
   const lightMaterial = new MeshStandardMaterial({
     color: HARBOR_PALETTE.lantern_glow,
     emissive: HARBOR_PALETTE.lantern_warm,
@@ -181,9 +204,7 @@ export function createHarborLanterns(islandTile: { x: number; y: number }): {
   const bodies = new InstancedMesh(new CylinderGeometry(0.12, 0.2, 0.42, 6), bodyMaterial, count);
   const lights = new InstancedMesh(new SphereGeometry(0.16, 6, 4), lightMaterial, count);
   for (let index = 0; index < count; index += 1) {
-    const angle = (index / count) * Math.PI * 2 + stableUnit(`harbor-lantern-angle.${index}`) * 0.16;
-    const x = Math.cos(angle) * (22 + (index % 3) * 1.25);
-    const z = Math.sin(angle) * (15.5 + (index % 2) * 1.15);
+    const { x, z } = positions[index]!;
     scratchMatrix.makeTranslation(x, WATER_LEVEL + 0.26, z);
     bodies.setMatrixAt(index, scratchMatrix);
     scratchMatrix.makeTranslation(x, WATER_LEVEL + 0.58, z);

@@ -8,7 +8,7 @@ import {
   SEA_ROOM_MAX_NUDGE_PER_FRAME,
   seaRoomSeparationRadius,
 } from "./motion-sampling";
-import { activeStopCountForCycle, routeSamplingRuntime, scheduledDockStopAt } from "./motion-sampling/route-runtime";
+import { activeStopCountForCycle, routeSamplingRuntime } from "./motion-sampling/route-runtime";
 import { seaStateForSources, type SeaState } from "./sea-state";
 import { isWaterTileKind, PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, tileKindAt } from "./world-layout";
 import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionSample } from "./motion-types";
@@ -316,14 +316,14 @@ describe("W4.24 consort tile validation", () => {
 });
 
 describe("F2 risk-repath heading easing", () => {
-  // makeRoute's calm docked cycle: dock [0,400) → departing [400,712) →
-  // risk-drift [712,888) → arriving [888,1200). The sampler derives W4.25
+  // makeRoute's leg cycle: berth rest [0,420) → outbound [420,600) →
+  // risk rest [600,1020) → inbound [1020,1200). The sampler derives W4.25
   // elapsed-risk seconds from the actual scheduled risk window
-  // (riskSecondsEach = 176s for this route), so one wall-clock second inside
+  // (riskSecondsEach = 420s for this route), so one wall-clock second inside
   // the window equals one elapsed risk second — the documented 3s tack-out
   // and 500ms heading ease run at their stated durations.
-  const RISK_WINDOW_START = 712;
-  const RISK_SECONDS_EACH = 176;
+  const RISK_WINDOW_START = 600;
+  const RISK_SECONDS_EACH = 420;
 
   function planFor(route: ShipMotionRoute): PharosVilleMotionPlan {
     return {
@@ -349,7 +349,7 @@ describe("F2 risk-repath heading easing", () => {
     return { ...makeRoute(), previousRiskTile: { x: 14, y: 22 } };
   }
 
-  it("starts the risk-drift phase on the orbital heading (no snap at entry)", () => {
+  it("starts the risk-rest phase on its held heading (no snap at entry)", () => {
     const eased = sampleAt(makeRepathRoute(), RISK_WINDOW_START);
     const control = sampleAt(makeRoute(), RISK_WINDOW_START);
     expect(eased.state).toBe("risk-drift");
@@ -368,7 +368,7 @@ describe("F2 risk-repath heading easing", () => {
     expect(eased.heading.x).toBeGreaterThan(0.5);
   });
 
-  it("returns to the pure orbital heading once the tack-out completes", () => {
+  it("returns to the held rest heading once the tack-out completes", () => {
     const t = timeForElapsedRiskSeconds(4.0);
     const eased = sampleAt(makeRepathRoute(), t);
     const control = sampleAt(makeRoute(), t);
@@ -388,12 +388,11 @@ describe("F2 risk-repath heading easing", () => {
   it("measures the tack-out against the actual scheduled risk window (3s wall clock)", () => {
     // Corrected invariant: the window the sampler assumes equals the window
     // the route cycle actually schedules. For this docked calm route the
-    // runtime dwell override yields riskSecondsEach = 176s (not the raw
-    // ZONE_DWELL share of 288s), so the 3s tack-out must complete exactly
+    // route carries riskSecondsEach = 420s, so the 3s tack-out completes exactly
     // 3 wall-clock seconds into the risk-drift phase.
-    expect(sampleAt(makeRoute(), RISK_WINDOW_START - 0.1).state).toBe("departing");
+    expect(sampleAt(makeRoute(), RISK_WINDOW_START - 0.1).state).toBe("sailing");
     expect(sampleAt(makeRoute(), RISK_WINDOW_START + RISK_SECONDS_EACH - 0.1).state).toBe("risk-drift");
-    expect(sampleAt(makeRoute(), RISK_WINDOW_START + RISK_SECONDS_EACH + 0.1).state).toBe("arriving");
+    expect(sampleAt(makeRoute(), RISK_WINDOW_START + RISK_SECONDS_EACH + 0.1).state).toBe("sailing");
 
     const before = sampleAt(makeRepathRoute(), RISK_WINDOW_START + 2.9);
     expect(before.state).toBe("risk-drift");
@@ -433,13 +432,12 @@ describe("weighted dock-visit cadence", () => {
   function nonHomePicksAcrossCycles(route: ShipMotionRoute, cycles: number): Map<string, number> {
     const runtime = routeSamplingRuntime(route);
     const stopCount = activeStopCountForCycle(runtime);
-    expect(stopCount).toBe(2); // home + 1 rotating non-home slot per cycle
+    expect(stopCount).toBe(1); // one complete berth→risk→berth voyage per cycle
     const counts = new Map<string, number>();
     for (let cycleIndex = 0; cycleIndex < cycles; cycleIndex += 1) {
-      expect(scheduledDockStopAt(runtime, cycleIndex, 0)?.dockId).toBe("dock.a");
-      const picked = scheduledDockStopAt(runtime, cycleIndex, 1);
-      expect(picked).not.toBeNull();
-      counts.set(picked!.dockId, (counts.get(picked!.dockId) ?? 0) + 1);
+      const dockId = route.dockStopSchedule[cycleIndex % route.dockStopSchedule.length]!;
+      if (dockId === route.homeDockId) continue;
+      counts.set(dockId, (counts.get(dockId) ?? 0) + 1);
     }
     return counts;
   }
@@ -450,7 +448,7 @@ describe("weighted dock-visit cadence", () => {
     const minor = counts.get("dock.c") ?? 0;
     // Non-home schedule multiset is [b, c, b, b, b] → b takes 4 of every 5
     // non-home visits (8 vs 2 across 10 cycles).
-    expect(dominant).toBe(8);
+    expect(dominant).toBe(6);
     expect(minor).toBe(2);
     expect(dominant).toBeGreaterThanOrEqual(3 * minor);
   });
@@ -475,6 +473,9 @@ function makeRoute(): ShipMotionRoute {
   return {
     shipId: "usdc-circle",
     cycleSeconds: 1200,
+    legDurationSeconds: 180,
+    restDurationSeconds: 420,
+    underwaySpeedTilesPerSecond: 0.48,
     phaseSeconds: 0,
     riskTile: { x: 20, y: 22 },
     dockStops: [stop],

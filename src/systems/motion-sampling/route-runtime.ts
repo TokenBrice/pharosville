@@ -96,9 +96,7 @@ export function routeSamplingRuntime(route: ShipMotionRoute): RouteSamplingRunti
 }
 
 export function activeStopCountForCycle(runtime: RouteSamplingRuntime): number {
-  if (runtime.scheduledStopCount <= 0) return 0;
-  const homeCount = runtime.homeStop ? 1 : 0;
-  return Math.min(runtime.scheduledStopCount, homeCount + runtime.scheduledNonHomeStops.length);
+  return runtime.scheduledStopCount <= 0 ? 0 : 1;
 }
 
 export function scheduledDockStopAt(

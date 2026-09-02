@@ -12,6 +12,12 @@ import { landWorldTile } from "./map-scale";
 import type { GardenHullSilhouette } from "./garden-observatory-slice";
 import { SHIP_HULL_FORM_SPAN } from "./world-types";
 import { rimLandAt, rimShoreDistance } from "./garden-rim";
+import {
+  GARDEN_EDGE_STONE_OBSTACLES,
+  GARDEN_SEA_EDGE_ISLAND_WATERLINE,
+} from "./garden-sea-edge-sites";
+
+export { GARDEN_EDGE_STONE_OBSTACLES } from "./garden-sea-edge-sites";
 
 // Zones-v2 placement fix (2026-07-24): ship-vs-land exclusion for the RENDERED
 // garden composition. The data map (`terrainKindAt` in world-layout.ts) and
@@ -45,7 +51,7 @@ interface GardenEllipse {
 export const GARDEN_ISLAND_OBSTACLE: GardenEllipse = {
   // N1: authored in design space; offset onto the enlarged grid so the
   // footprint tracks the island, whose absolute size did not change.
-  ...landWorldTile({ x: 30.42, y: 36.85 }),
+  ...GARDEN_SEA_EDGE_ISLAND_WATERLINE,
   rx: 13.9,
   ry: 10.5,
 };
@@ -137,22 +143,30 @@ export function gardenShipWaterMarginTiles(
 }
 
 function ellipseValue(point: { x: number; y: number }, ellipse: GardenEllipse, margin: number): number {
+  return ellipseValueXY(point.x, point.y, ellipse, margin);
+}
+
+function ellipseValueXY(x: number, y: number, ellipse: GardenEllipse, margin: number): number {
   const rx = ellipse.rx + margin;
   const ry = ellipse.ry + margin;
-  return ((point.x - ellipse.x) / rx) ** 2 + ((point.y - ellipse.y) / ry) ** 2;
+  return ((x - ellipse.x) / rx) ** 2 + ((y - ellipse.y) / ry) ** 2;
 }
 
 function circleValue(point: { x: number; y: number }, circle: GardenCircle, margin: number): number {
+  return circleValueXY(point.x, point.y, circle, margin);
+}
+
+function circleValueXY(x: number, y: number, circle: GardenCircle, margin: number): number {
   const r = circle.r + margin;
-  return ((point.x - circle.x) / r) ** 2 + ((point.y - circle.y) / r) ** 2;
+  return ((x - circle.x) / r) ** 2 + ((y - circle.y) / r) ** 2;
 }
 
 /**
- * True when the tile-center at (x, y) falls inside a rendered landmass
- * (authored rim, island rock, garden islets, cemetery, pigeonnier). Used by data-side
+ * True when the tile-center at (x, y) falls inside a rendered landmass or the
+ * decorative physical geography at a named water's edge. Used by data-side
  * placement and A* motion routing so ships and waypoints never occupy or
- * cross rendered rock. Docks are deliberately excluded: moorings live
- * beside them by design.
+ * cross rendered rock, reeds, bars, piles or buoys. Docks are deliberately
+ * excluded: moorings live beside them by design.
  */
 export function isGardenObstacleTile(x: number, y: number): boolean {
   // Integer tiles are the overwhelming majority of callers — the whole-map
@@ -181,12 +195,15 @@ let obstacleTileMask: Uint8Array | null = null;
 
 function resolveGardenObstacleTile(x: number, y: number): boolean {
   if (rimLandAt(x, y)) return true;
-  const point = { x, y };
-  if (ellipseValue(point, GARDEN_ISLAND_OBSTACLE, 0) < 1) return true;
-  if (ellipseValue(point, GARDEN_CEMETERY_OBSTACLE, 0) < 1) return true;
-  if (circleValue(point, GARDEN_PIGEONNIER_OBSTACLE, 0) < 1) return true;
-  for (const islet of GARDEN_ISLET_OBSTACLES) {
-    if (circleValue(point, islet, 0) < 1) return true;
+  if (ellipseValueXY(x, y, GARDEN_ISLAND_OBSTACLE, 0) < 1) return true;
+  if (ellipseValueXY(x, y, GARDEN_CEMETERY_OBSTACLE, 0) < 1) return true;
+  if (circleValueXY(x, y, GARDEN_PIGEONNIER_OBSTACLE, 0) < 1) return true;
+  for (let index = 0; index < GARDEN_ISLET_OBSTACLES.length; index += 1) {
+    const islet = GARDEN_ISLET_OBSTACLES[index]!;
+    if (circleValueXY(x, y, islet, 0) < 1) return true;
+  }
+  for (const edge of GARDEN_EDGE_STONE_OBSTACLES) {
+    if (circleValueXY(x, y, edge, 0) < 1) return true;
   }
   return false;
 }
@@ -213,6 +230,9 @@ export function isGardenShipWater(
   if (circleValue(point, GARDEN_PIGEONNIER_OBSTACLE, marginTiles) < 1) return false;
   for (const islet of GARDEN_ISLET_OBSTACLES) {
     if (circleValue(point, islet, marginTiles) < 1) return false;
+  }
+  for (const edge of GARDEN_EDGE_STONE_OBSTACLES) {
+    if (circleValue(point, edge, marginTiles) < 1) return false;
   }
   if (includeDocks) {
     const dockMargin = marginTiles * DOCK_MARGIN_SHARE;

@@ -95,6 +95,9 @@ export const OUTER_HARBOR_STATION_SLOTS: readonly DockStationSlot[] = [
   { cove: cove("watch-east-bay"), type: "tea-house-quay" },
   { cove: cove("danger-gorge"), type: "fishing-pier" },
   { cove: cove("alert-pine-notch"), type: "reed-boathouse" },
+  { cove: cove("watch-south-mole"), type: "storm-mole" },
+  { cove: cove("wreck-salvage-cut"), type: "salvage-slip" },
+  { cove: cove("alert-signal-jetty"), type: "signal-jetty" },
 ] as const;
 
 export const BASE_HARBOR_DOCK_TILE = EVM_BAY_STATION_SLOTS[1]!.cove.tile;

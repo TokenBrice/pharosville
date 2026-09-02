@@ -1,5 +1,10 @@
 import type { VisualCue } from "./world-types";
 
+/** Non-semantic scene additions audited beside, but excluded from, cue parity. */
+export const DECORATIVE_VISUAL_NOTES = {
+  seaEdgeGeography: "Named-water banks, reeds, bars, cliff, piles and inlet stones carry no meaning; the authoritative water field and existing DOM ledger remain the classification.",
+} as const;
+
 export const LEGEND_MARK_ROWS = [
   {
     cueId: "cue.pigeonnier.notable-movers",
