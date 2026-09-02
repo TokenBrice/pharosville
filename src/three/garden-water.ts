@@ -1288,15 +1288,27 @@ ${gardenHeightFogGlsl()}
     float distanceFade = smoothstep(150.0, 520.0, camDistance);
     waterColor = mix(waterColor, uBaseColor, distanceFade * (0.08 + uDusk * 0.05 + uNight * 0.04));
 
-    // The finite plate's two far edges disappear into the exact scene-fog
-    // colour that begins the visible sky ladder. This is a colour seam, not a
-    // second water domain: near/camera-side edges remain available for the
-    // engawa foreground while the distant tabletop cut is dissolved.
-    float farPlateInterior = min(vRegionUv.x, vRegionUv.y);
-    float farPlateFade = smoothstep(-0.006, 0.035, farPlateInterior);
-    waterColor = mix(fogColor, waterColor, farPlateFade);
+    // Eight tiles of water continue beyond the authored map at the far pair
+    // and east side, then dissolve into the real sky sheet. The south/engawa
+    // edge stays opaque under its rock threshold. Alpha is essential here:
+    // mixing to one fog swatch would simply exchange a blue slab for a cream
+    // slab and would still disagree with the graded sky above and below it.
+    const float PLATE_TILE_UV = ${glslFloat(1 / 140)};
+    const float PLATE_FADE_UV = ${glslFloat(GARDEN_WATER_PLATE_MARGIN_TILES / 140)};
+    float farPairFade = smoothstep(
+      -PLATE_FADE_UV,
+      0.0,
+      min(vRegionUv.x, vRegionUv.y)
+    );
+    float eastSideFade = 1.0 - smoothstep(
+      1.0 - PLATE_TILE_UV,
+      1.0 - PLATE_TILE_UV + PLATE_FADE_UV,
+      vRegionUv.x
+    );
+    float plateAlpha = farPairFade * eastSideFade;
 
-    gl_FragColor = vec4(waterColor, 1.0);
+    if (plateAlpha < 0.002) discard;
+    gl_FragColor = vec4(waterColor, plateAlpha);
 
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -1559,6 +1571,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
   const material = new ShaderMaterial({
     fog: true,
     fragmentShader: FRAGMENT_SHADER,
+    transparent: true,
     uniforms,
     vertexShader: VERTEX_SHADER,
   });

@@ -32,7 +32,7 @@ export const GARDEN_WATER_MAX_RIPPLE_RINGS = 12;
  * vertices and the two authored sea openings room to disappear into the fog
  * seam without restoring a second, renderer-only "open ocean" domain.
  */
-export const GARDEN_WATER_PLATE_MARGIN_TILES = 1.5;
+export const GARDEN_WATER_PLATE_MARGIN_TILES = 8;
 
 /**
  * W2.6 — the feature-frozen sea's look constants.

@@ -385,10 +385,17 @@ describe("createGardenWater", () => {
     expect(source.split("gl_FragColor.rgb = gardenApplyHeightFog(")).toHaveLength(2);
   });
 
-  it("dissolves only the far plate edges into the shared fog seam", () => {
-    const source = createGardenWater(0).material.fragmentShader;
-    expect(source).toContain("float farPlateInterior = min(vRegionUv.x, vRegionUv.y)");
-    expect(source).toContain("waterColor = mix(fogColor, waterColor, farPlateFade)");
+  it("alpha-dissolves the far and east plate skirts while retaining the engawa edge", () => {
+    const water = createGardenWater(0);
+    const source = water.material.fragmentShader;
+    expect(GARDEN_WATER_PLATE_MARGIN_TILES).toBeGreaterThanOrEqual(6);
+    expect(GARDEN_WATER_PLATE_MARGIN_TILES).toBeLessThanOrEqual(10);
+    expect(water.material.transparent).toBe(true);
+    expect(source).toContain("min(vRegionUv.x, vRegionUv.y)");
+    expect(source).toContain("float eastSideFade");
+    expect(source).toContain("float plateAlpha = farPairFade * eastSideFade");
+    expect(source).toContain("vec4(waterColor, plateAlpha)");
+    // No vRegionUv.y upper-edge fade: the engawa/south rock edge may stay crisp.
     expect(source).not.toContain("max(vRegionUv.x, vRegionUv.y)");
   });
 
