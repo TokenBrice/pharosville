@@ -39,7 +39,7 @@ import {
   gardenHeightFogUniforms,
   updateGardenHeightFog,
 } from "./garden-height-fog";
-import { GARDEN_MOON_AZIMUTH, gardenBokashiBandGlsl } from "./garden-sky";
+import { GARDEN_MOON_AZIMUTH } from "./garden-sky";
 import { gardenSunPose } from "./garden-sun";
 import { MAX_GARDEN_LIGHT_LANES } from "./garden-lanterns";
 import {
@@ -656,7 +656,6 @@ export const FRAGMENT_SHADER = /* glsl */ `
     #endif
   }
 
-${gardenBokashiBandGlsl()}
 ${gardenHeightFogGlsl()}
 
   void main() {
@@ -1192,6 +1191,14 @@ ${gardenHeightFogGlsl()}
     float distanceFade = smoothstep(150.0, 520.0, camDistance);
     waterColor = mix(waterColor, uBaseColor, distanceFade * (0.08 + uDusk * 0.05 + uNight * 0.04));
 
+    // The finite plate's two far edges disappear into the exact scene-fog
+    // colour that begins the visible sky ladder. This is a colour seam, not a
+    // second water domain: near/camera-side edges remain available for the
+    // engawa foreground while the distant tabletop cut is dissolved.
+    float farPlateInterior = min(vRegionUv.x, vRegionUv.y);
+    float farPlateFade = smoothstep(-0.006, 0.035, farPlateInterior);
+    waterColor = mix(fogColor, waterColor, farPlateFade);
+
     gl_FragColor = vec4(waterColor, 1.0);
 
     #include <tonemapping_fragment>
@@ -1220,7 +1227,6 @@ ${gardenHeightFogGlsl()}
       uPegSummaryEpistemicHaze * riskWater * epistemicMist
     );
 
-    gl_FragColor.rgb *= gardenBokashiShade(vFogDepth, fogNear, uDaylight, uDusk, uNight);
   }
 `;
 

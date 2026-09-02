@@ -8,6 +8,7 @@ import {
   Group,
   Mesh,
   MeshBasicMaterial,
+  PlaneGeometry,
   Points,
   ShaderMaterial,
   SphereGeometry,
@@ -30,6 +31,8 @@ import {
 import { GARDEN_MOON_AZIMUTH, gardenSunPose } from "./garden-sun";
 
 const DOME_RADIUS = 300;
+const SKY_BACKDROP_SIZE = 1_200;
+const SKY_BACKDROP_Y = -2;
 const STAR_COUNT = 720;
 // P2 aerial perspective: the fog ladder is tuned to the default ortho
 // framing (1440×960, zoom 0.78, elevation 30° — ground-plane depth spans
@@ -115,44 +118,20 @@ const FOG_MIN_SCALE = 1;
 // zoom AND keeps the world's edge dissolving at wide zoom.
 const FOG_MAX_SCALE = 1.5;
 
-// --- W1.4: bokashi bands -----------------------------------------------------
+// --- Wave 1: bokashi bands on the visible sky seam --------------------------
 //
 // The ladder above is the "long quiet mid-gradient" of a woodblock sky. This is
 // the rest of the wipe: the two or three DELIBERATE stops a printer lays over a
 // flat field, which is what makes a Hiroshige sky read as depth without a single
 // physical scattering term.
 //
-// It lives here, with the ladder, because garden-sky owns the haze band — but it
-// is DRAWN by garden-water, and that is a geometric fact rather than a layering
-// choice. Under the locked orthographic camera the dome can never enter frame
-// (VISUAL_INVARIANTS "Light and atmosphere"); the upper-frame band where far
-// water dissolves into fog is the only sky this world has, and that band is
-// water fragments. So the ramp is defined once here and injected into the water
-// shader by `gardenBokashiBandGlsl()`, the same way `gardenOpenOcean` is one
-// definition shared by both of that shader's paths.
+// The finite plate lets the dome enter frame. The bands therefore live on the
+// dome's visible lower hemisphere, beginning at the same shironeri colour the
+// far plate fades into. They no longer tint water or depend on camera depth.
 //
-// PARAMETER. `d = fogDepth / fogNear`, so the stops are expressed as multiples
-// of the fog's own near plane rather than as world depths. That makes them
-// scale-invariant for free: `update()` below scales `fog.near`/`fog.far` with
-// the camera's view height, so the bands ride the ladder out as the frame widens
-// and pull in with it, instead of sliding off a framing they were tuned at.
-//
-// It also buys the strongest guarantee in the design. Every stop starts at
-// d >= 1, so the ink is EXACTLY zero at and below the near plane — the same
-// depth the W6.8 ladder promises the island at zero haze. The bands cannot touch
-// the monument, the harbour or the near fleet at any framing, by construction
-// rather than by tuning. `gardenBokashiInk` is exported so that is a test and
-// not a claim.
-//
-// WHERE THE STOPS LAND. Measured, not estimated: a reduced-motion before/after
-// pair at 22:00 differenced row by row puts the near plane at 0.47 of the frame
-// height and the top row at d = 1.42, so `d = 1.42 - 0.90 * fracFromTop` across
-// the default framing. Reading DOWN from the top of the frame:
-//
-//   deep top band     d 1.42-1.28   top 0.00-0.16   deep indigo, fast falloff
-//   pale strip        d 1.31-1.13        0.12-0.32   lighter, the horizon seam
-//   ichimonji strip   d 1.16-1.00        0.29-0.47   darker, farthest water
-//   (below d = 1.00)                     0.47-1.00   untouched
+// `skyHeight = abs(vHeight)` is zero at the seam and rises into the visible
+// background. The stops are fractions of that hemisphere, so they stay glued
+// to the sky at every camera zoom instead of sliding with scene fog depth.
 //
 // That is Hiroshige's order — a dark band at the top, the fog ladder's long
 // quiet gradient under it, a pale strip at the seam, and the ichimonji mirroring
@@ -168,11 +147,11 @@ const FOG_MAX_SCALE = 1.5;
 // into the ai family on its own, and at day it shades an already-pale fog by a
 // third as much.
 export const GARDEN_BOKASHI_BAND = {
-  /** Multiples of `fog.near`: [in-start, in-end, out-start, out-end]. */
-  ichimonji: [1, 1.06, 1.1, 1.16],
-  pale: [1.13, 1.2, 1.25, 1.31],
-  /** The deep top band has no upper edge — it saturates at the frame's top row. */
-  deep: [1.28, 1.42],
+  /** Visible-sky height: [in-start, in-end, out-start, out-end]. */
+  ichimonji: [0.015, 0.055, 0.1, 0.17],
+  pale: [0.12, 0.2, 0.31, 0.43],
+  /** The deep upper band has no outer edge. */
+  deep: [0.56, 0.86],
   ichimonjiGain: 0.07,
   paleGain: 0.11,
   deepGain: 0.24,
@@ -187,13 +166,13 @@ export const GARDEN_BOKASHI_BAND = {
  * The GLSL below is generated from the same constants, so this is the ramp the
  * water actually draws rather than a model of it.
  */
-export function gardenBokashiInk(fogDepth: number, fogNear: number): number {
+export function gardenBokashiInk(skyHeight: number): number {
   const B = GARDEN_BOKASHI_BAND;
   const step = (edge0: number, edge1: number, value: number): number => {
     const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
     return t * t * (3 - 2 * t);
   };
-  const d = fogDepth / Math.max(fogNear, 1);
+  const d = Math.min(1, Math.max(0, skyHeight));
   const ichimonji = step(B.ichimonji[0], B.ichimonji[1], d)
     * (1 - step(B.ichimonji[2], B.ichimonji[3], d));
   const pale = step(B.pale[0], B.pale[1], d) * (1 - step(B.pale[2], B.pale[3], d));
@@ -207,26 +186,17 @@ export function gardenBokashiAmount(phase: DayCyclePhase): number {
 }
 
 /**
- * The ramp as a GLSL shade multiplier, for injection into the water shader.
- *
- * Takes its phase weights and fog plane as arguments and reads no uniforms, so
- * it can be called from both of that shader's exit paths — the open-ocean
- * early-out and the end of main — which is required: at the default framing most
- * of the far water in the upper frame is outside the map, and the early-out is
- * what draws it.
+ * The ramp as a GLSL shade multiplier for the visible sky material.
  */
 export function gardenBokashiBandGlsl(): string {
   const B = GARDEN_BOKASHI_BAND;
   const n = (value: number): string => (Number.isInteger(value) ? value.toFixed(1) : String(value));
   return /* glsl */ `
   float gardenBokashiShade(
-    float fogDepth,
-    float fogNearPlane,
-    float daylight,
-    float dusk,
-    float night
+    float skyHeight,
+    float amount
   ) {
-    float d = fogDepth / max(fogNearPlane, 1.0);
+    float d = clamp(skyHeight, 0.0, 1.0);
     float ichimonji = smoothstep(${n(B.ichimonji[0])}, ${n(B.ichimonji[1])}, d)
       * (1.0 - smoothstep(${n(B.ichimonji[2])}, ${n(B.ichimonji[3])}, d));
     float pale = smoothstep(${n(B.pale[0])}, ${n(B.pale[1])}, d)
@@ -235,7 +205,6 @@ export function gardenBokashiBandGlsl(): string {
     float ink = pale * ${n(B.paleGain)}
       - ichimonji * ${n(B.ichimonjiGain)}
       - deep * ${n(B.deepGain)};
-    float amount = night + dusk + daylight * ${n(B.dayAmount)};
     return 1.0 + ink * amount;
   }
 `;
@@ -255,6 +224,8 @@ export const GARDEN_HEADLAND_VALUE_SCALE = 0.97;
 // light geometry, so the dome and the water cannot disagree about the bearing.
 export { GARDEN_MOON_AZIMUTH };
 const MOON_ELEVATION = Math.PI * 0.34;
+const SKY_MIDDLE_DAY = new Color(HARBOR_PALETTE.moonlight);
+const SKY_VISIBLE_ZENITH_DAY = new Color(HARBOR_PALETTE.deep_sea_1);
 
 // Phase 2 (item 2c) kept the dome's glow, the water's glitter and the cast
 // shadows agreeing on the sun's bearing by writing that bearing down in three
@@ -362,6 +333,8 @@ function createDome(): {
       uHazeColor: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
       uHazeStrength: { value: 0 },
       uHorizon: { value: horizon },
+      uMiddle: { value: DAY_CYCLE_SKY_PRESETS.night.horizon.clone() },
+      uBokashiAmount: { value: 1 },
       uScattering: { value: 0 },
       uSunColor: { value: DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone() },
       uSunDir: { value: new Vector3(0, 1, 0) },
@@ -383,6 +356,8 @@ function createDome(): {
       uniform vec3 uHazeColor;
       uniform float uHazeStrength;
       uniform vec3 uHorizon;
+      uniform vec3 uMiddle;
+      uniform float uBokashiAmount;
       uniform float uScattering;
       uniform vec3 uSunColor;
       uniform vec3 uSunDir;
@@ -390,10 +365,16 @@ function createDome(): {
       uniform vec3 uZenith;
       varying vec3 vDir;
       varying float vHeight;
+      ${gardenBokashiBandGlsl()}
       void main() {
         vec3 dir = normalize(vDir);
-        float t = smoothstep(-0.06, 0.7, vHeight);
-        vec3 color = mix(uHorizon, uZenith, t);
+        // The finite plate exposes the dome's lower hemisphere. Mirroring its
+        // height gives that visible half the same seam-to-zenith ladder as the
+        // PMREM half: shironeri -> mizu -> kon by day, kachi-iro at night.
+        float skyHeight = clamp(abs(vHeight), 0.0, 1.0);
+        vec3 color = mix(uHorizon, uMiddle, smoothstep(0.015, 0.28, skyHeight));
+        color = mix(color, uZenith, smoothstep(0.3, 0.86, skyHeight));
+        color *= gardenBokashiShade(skyHeight, uBokashiAmount);
         // Faint brightening right at the horizon band.
         float glow = smoothstep(0.16, -0.04, abs(vHeight)) * 0.12;
         color += uHorizon * glow;
@@ -410,8 +391,13 @@ function createDome(): {
         // reason.
         float mu = dot(dir, uSunDir);
         float up = max(dir.y, 0.0);
+        float visibleHemisphere = 1.0 - step(0.0, vHeight);
+        float visibleSeam = 1.0 - smoothstep(0.035, 0.38, skyHeight);
         // Optical depth: the long atmospheric path near the horizon.
-        float airMass = exp(-up * 3.0);
+        // On the exposed lower hemisphere, distance from the seam replaces
+        // physical altitude; otherwise every visible pixel receives maximum
+        // haze and the three-colour ladder collapses back to flat fog paper.
+        float airMass = mix(exp(-up * 3.0), visibleSeam, visibleHemisphere);
         // Rayleigh phase (strongest broadside to the sun) redistributes the
         // gradient's luminance along the dome without moving its hue anchors.
         float rayPhase = 0.75 * (1.0 + mu * mu);
@@ -439,7 +425,11 @@ function createDome(): {
         // The haze band the far water melts into; the water shader's additive
         // height fog lands on the SAME fog colour, so sea and sky fuse at the
         // horizon instead of ending on an edge.
-        float hazeBand = smoothstep(0.24, -0.02, dir.y);
+        float hazeBand = mix(
+          smoothstep(0.24, -0.02, dir.y),
+          visibleSeam,
+          visibleHemisphere
+        );
         color = mix(color, uHazeColor, hazeBand * uHazeStrength);
 
         // G4 ember west band: a warm azimuthal glow where the sun sets, so the
@@ -454,7 +444,81 @@ function createDome(): {
   });
   const mesh = new Mesh(new SphereGeometry(DOME_RADIUS, 32, 16), material);
   mesh.name = "garden-sky-dome";
+  // The finite plate's visible background is the edge-anchored sheet below;
+  // this sphere remains a material/lifecycle owner for the PMREM probe only.
+  mesh.visible = false;
   mesh.renderOrder = -2;
+  mesh.frustumCulled = false;
+  return { material, mesh };
+}
+
+/**
+ * A world-backed sky sheet immediately behind the finite plate.
+ *
+ * The orthographic camera looks down, so a conventional upper hemisphere is
+ * not a reliable visible background. This two-triangle sheet is deliberately
+ * presentation-only: water/land occlude it, while the exposed upper frame
+ * walks from the shironeri seam into the sky ladder. The separate dome remains
+ * the PMREM source. A screen-height ramp is intentional here: unlike radial
+ * distance from the plate it cannot draw a detached halo around the garden.
+ */
+function createBackdrop(domeMaterial: ShaderMaterial): {
+  material: ShaderMaterial;
+  mesh: Mesh<PlaneGeometry, ShaderMaterial>;
+} {
+  const material = new ShaderMaterial({
+    depthTest: true,
+    depthWrite: false,
+    fog: false,
+    uniforms: {
+      uBokashiAmount: domeMaterial.uniforms.uBokashiAmount,
+      // The visible sheet has the explicit shironeri → mizu → kon ladder.
+      // Keep these separate from the dome: that material is the environment
+      // probe and retains the established physical day-cycle palette.
+      uHorizon: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
+      uMiddle: { value: DAY_CYCLE_SKY_PRESETS.night.horizon.clone() },
+      uSunColor: domeMaterial.uniforms.uSunColor,
+      uSunDir: domeMaterial.uniforms.uSunDir,
+      uSunIntensity: domeMaterial.uniforms.uSunIntensity,
+      uZenith: { value: DAY_CYCLE_SKY_PRESETS.night.zenith.clone() },
+    },
+    vertexShader: /* glsl */ `
+      varying vec2 vScreenPosition;
+      void main() {
+        vec4 clipPosition = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vScreenPosition = clipPosition.xy / clipPosition.w * 0.5 + 0.5;
+        gl_Position = clipPosition;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uHorizon;
+      uniform vec3 uMiddle;
+      uniform vec3 uSunColor;
+      uniform vec3 uSunDir;
+      uniform float uSunIntensity;
+      uniform vec3 uZenith;
+      uniform float uBokashiAmount;
+      varying vec2 vScreenPosition;
+      ${gardenBokashiBandGlsl()}
+      void main() {
+        float skyHeight = smoothstep(0.80, 1.0, vScreenPosition.y);
+        vec3 color = mix(uHorizon, uMiddle, smoothstep(0.02, 0.42, skyHeight));
+        color = mix(color, uZenith, smoothstep(0.38, 1.0, skyHeight));
+        color *= gardenBokashiShade(skyHeight, uBokashiAmount);
+
+        vec2 screenRay = normalize(vScreenPosition - vec2(0.5, 0.80) + vec2(0.0001));
+        vec2 sunScreen = normalize(vec2(uSunDir.x - uSunDir.z, uSunDir.y) + vec2(0.0001));
+        float sunPath = pow(max(0.0, dot(screenRay, sunScreen)), 10.0);
+        color += uSunColor * sunPath * uSunIntensity * 0.035 * (1.0 - skyHeight * 0.6);
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `,
+  });
+  const mesh = new Mesh(new PlaneGeometry(SKY_BACKDROP_SIZE, SKY_BACKDROP_SIZE), material);
+  mesh.name = "garden-sky-backdrop";
+  mesh.position.set(0, SKY_BACKDROP_Y, 0);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.renderOrder = -3;
   mesh.frustumCulled = false;
   return { material, mesh };
 }
@@ -558,6 +622,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   const root = new Group();
   root.name = "garden-sky";
   const dome = createDome();
+  const backdrop = createBackdrop(dome.material);
   const stars = createStars();
   const moon = createMoon();
   // Phase 2 (items 2d/6): the drifting billboard atmosphere — mist banks and
@@ -569,6 +634,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   // probe), so the haze zone over the far water is where sky reads.
   const billboards = createGardenSkyBillboards();
   root.add(
+    backdrop.mesh,
     dome.mesh,
     stars.points,
     moon.group,
@@ -628,15 +694,52 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     const skyPresets = DAY_CYCLE_SKY_PRESETS;
     const zenith = dome.material.uniforms.uZenith.value as Color;
     const horizon = dome.material.uniforms.uHorizon.value as Color;
-    blendDayCycleColor(zenith, skyPresets.night.zenith, skyPresets.dusk.zenith, skyPresets.day.zenith, dusk, daylight);
-    blendDayCycleColor(horizon, skyPresets.night.horizon, skyPresets.dusk.horizon, skyPresets.day.horizon, dusk, daylight);
+    const middle = dome.material.uniforms.uMiddle.value as Color;
+    const backdropZenith = backdrop.material.uniforms.uZenith.value as Color;
+    const backdropHorizon = backdrop.material.uniforms.uHorizon.value as Color;
+    const backdropMiddle = backdrop.material.uniforms.uMiddle.value as Color;
+    blendDayCycleColor(
+      zenith,
+      skyPresets.night.zenith,
+      skyPresets.dusk.zenith,
+      skyPresets.day.zenith,
+      dusk,
+      daylight,
+    );
     blendDayCycleColor(fog.color, skyPresets.night.fog, skyPresets.dusk.fog, skyPresets.day.fog, dusk, daylight);
+    horizon.copy(fog.color);
+    blendDayCycleColor(
+      middle,
+      skyPresets.night.horizon,
+      skyPresets.dusk.horizon,
+      skyPresets.day.horizon,
+      dusk,
+      daylight,
+    );
+    blendDayCycleColor(
+      backdropZenith,
+      skyPresets.night.zenith,
+      skyPresets.dusk.zenith,
+      SKY_VISIBLE_ZENITH_DAY,
+      dusk,
+      daylight,
+    );
+    blendDayCycleColor(
+      backdropMiddle,
+      skyPresets.night.horizon,
+      skyPresets.dusk.horizon,
+      SKY_MIDDLE_DAY,
+      dusk,
+      daylight,
+    );
+    backdropHorizon.copy(fog.color);
     if (season === "winter") {
       // Kigo stays a small atmospheric bias: cooler air and a light value-
       // preserving desaturation, never a fourth grade or a semantic color.
       fog.color.lerp(winterFog, 0.1);
       zenith.lerp(winterFog, 0.04);
       horizon.lerp(winterFog, 0.05);
+      middle.lerp(winterFog, 0.04);
     }
     geeseColor.copy(fog.color).multiplyScalar(0.52);
     // Ember west band owns the dusk horizon; it stays out of day and night,
@@ -673,9 +776,14 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       0.8,
       0.42 + dusk * 0.08 + storm * 0.3,
     );
+    dome.material.uniforms.uBokashiAmount.value = gardenBokashiAmount(phase);
     if (storm > 0) {
       applyStorm(zenith, storm);
       applyStorm(horizon, storm);
+      applyStorm(middle, storm);
+      applyStorm(backdropZenith, storm);
+      applyStorm(backdropHorizon, storm);
+      applyStorm(backdropMiddle, storm);
       applyStorm(fog.color, storm);
       applyStorm(sunColor, storm);
     }
@@ -684,6 +792,8 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   return {
     applyPhase,
     dispose() {
+      backdrop.mesh.geometry.dispose();
+      backdrop.material.dispose();
       dome.mesh.geometry.dispose();
       dome.mesh.material.dispose();
       stars.points.geometry.dispose();

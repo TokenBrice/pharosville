@@ -130,10 +130,8 @@ describe("water shader uniform hygiene", () => {
     expect(water.mesh.children).toHaveLength(0);
   });
 
-  it("keeps one encoded output path on the finite water plate", () => {
-    expect(FRAGMENT_SHADER).toContain("float gardenBokashiShade(");
-    const calls = FRAGMENT_SHADER.match(/gl_FragColor\.rgb \*= gardenBokashiShade\(/g);
-    expect(calls).toHaveLength(1);
+  it("hands bokashi to the visible sky instead of shading water fragments", () => {
+    expect(FRAGMENT_SHADER).not.toContain("gardenBokashiShade");
     expect(FRAGMENT_SHADER).not.toContain("return;");
   });
 });
@@ -353,6 +351,13 @@ describe("createGardenWater", () => {
       "oceanBlend",
     ]) expect(source).not.toContain(removed);
     expect(source.split("gl_FragColor.rgb = gardenApplyHeightFog(")).toHaveLength(2);
+  });
+
+  it("dissolves only the far plate edges into the shared fog seam", () => {
+    const source = createGardenWater(0).material.fragmentShader;
+    expect(source).toContain("float farPlateInterior = min(vRegionUv.x, vRegionUv.y)");
+    expect(source).toContain("waterColor = mix(fogColor, waterColor, farPlateFade)");
+    expect(source).not.toContain("max(vRegionUv.x, vRegionUv.y)");
   });
 
   it("samples the region field with nearest filtering", () => {
