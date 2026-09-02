@@ -740,7 +740,6 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       daylight,
     );
     blendDayCycleColor(fog.color, skyPresets.night.fog, skyPresets.dusk.fog, skyPresets.day.fog, dusk, daylight);
-    horizon.copy(fog.color);
     blendDayCycleColor(
       middle,
       skyPresets.night.horizon,
@@ -773,16 +772,21 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       dusk,
       daylight,
     );
-    backdropHorizon.copy(fog.color);
     backdrop.material.uniforms.uNight.value = phase.night;
     if (season === "winter") {
       // Kigo stays a small atmospheric bias: cooler air and a light value-
       // preserving desaturation, never a fourth grade or a semantic color.
       fog.color.lerp(winterFog, 0.1);
       zenith.lerp(winterFog, 0.04);
-      horizon.lerp(winterFog, 0.05);
       middle.lerp(winterFog, 0.04);
+      backdropZenith.lerp(winterFog, 0.04);
+      backdropMiddle.lerp(winterFog, 0.04);
+      backdropLower.lerp(winterFog, 0.1);
     }
+    // The finite water plate dissolves against this exact colour. Copy after
+    // seasonal grading so winter cannot open a seam at the horizon.
+    horizon.copy(fog.color);
+    backdropHorizon.copy(fog.color);
     geeseColor.copy(fog.color).multiplyScalar(0.52);
     // Ember west band owns the dusk horizon; it stays out of day and night,
     // and a storm smothers it.

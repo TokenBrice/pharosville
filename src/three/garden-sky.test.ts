@@ -170,6 +170,14 @@ describe("garden sky billboard atmosphere", () => {
     expect(colorDistance(winter.fog.color, cool)).toBeLessThan(
       colorDistance(spring.fog.color, cool),
     );
+    const springBackdrop = spring.root.getObjectByName("garden-sky-backdrop") as Mesh<PlaneGeometry, ShaderMaterial>;
+    const winterBackdrop = winter.root.getObjectByName("garden-sky-backdrop") as Mesh<PlaneGeometry, ShaderMaterial>;
+    expect((winterBackdrop.material.uniforms.uHorizon.value as Color).getHex())
+      .toBe(winter.fog.color.getHex());
+    for (const uniform of ["uLower", "uMiddle", "uZenith"] as const) {
+      expect(colorDistance(winterBackdrop.material.uniforms[uniform].value as Color, cool))
+        .toBeLessThan(colorDistance(springBackdrop.material.uniforms[uniform].value as Color, cool));
+    }
     spring.dispose();
     winter.dispose();
   });
