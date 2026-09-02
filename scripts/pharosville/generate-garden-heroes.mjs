@@ -69,40 +69,28 @@ const SKY_SQUADRON_HULL = {
 
 installFileReader();
 
-// W5.1 / decision D4: ten distinct hero hulls carry the 24 largest
-// stablecoins. `garden-hero-titan` (treasury galleon) and
-// `garden-hero-heritage` (tea clipper) keep their ids because the runtime
-// fallback contract already names them; the other eight are new. Each hull is
-// recognisable by silhouette alone — sheer, rig plan, castles and stern
-// gallery all differ — so identity survives at overview zoom where livery
-// colour is a few pixels wide.
+// Wave 8: the checked hero fleet speaks the same six-family East-Asian hull
+// language as the procedural fleet. IDs are intentionally historical runtime
+// contracts; the family field, not the old id, now owns each silhouette.
 const HERO_MODELS = [
-  { build: buildTitan, id: "garden-hero-titan" },
-  { build: buildHeritage, id: "garden-hero-heritage" },
-  { build: buildCarrack, id: "garden-hero-carrack" },
-  { build: buildBrigantine, id: "garden-hero-brigantine" },
-  { build: buildDhow, id: "garden-hero-dhow" },
-  { build: buildJunk, id: "garden-hero-junk" },
-  { build: buildBarquentine, id: "garden-hero-barquentine" },
-  { build: buildCog, id: "garden-hero-cog" },
-  { build: buildXebec, id: "garden-hero-xebec" },
-  { build: buildCutter, id: "garden-hero-cutter" },
-  // N5(b): seven bespoke hulls, one per named titan. These are not variations
-  // on the generic ten — each carries a structure no other vessel has (netted
-  // cargo and derricks, a glazed gallery, a temple portico, outrigger floats,
-  // oar banks, paddle boxes), so the ship people look for by name is
-  // identifiable from its silhouette alone.
-  { build: buildTether, id: "garden-hero-tether" },
-  { build: buildCircle, id: "garden-hero-circle" },
-  { build: buildMaker, id: "garden-hero-maker" },
-  { build: buildSky, id: "garden-hero-sky" },
-  { build: buildEthena, id: "garden-hero-ethena" },
-  { build: buildLiberty, id: "garden-hero-liberty" },
-  { build: buildPaypal, id: "garden-hero-paypal" },
-  // W5 (decision D6): XAUT had no bespoke hull at all — it shared the generic
-  // treasury galleon with BUIDL, which is the one titan the operator could not
-  // recognise because it was not its own ship.
-  { build: buildBullion, id: "garden-hero-bullion" },
+  easternHero("garden-hero-titan", "bezaisen", "grand"),
+  easternHero("garden-hero-heritage", "bezaisen", "weathered"),
+  easternHero("garden-hero-carrack", "takasebune", "fortified"),
+  easternHero("garden-hero-brigantine", "kobaya", "swift"),
+  easternHero("garden-hero-dhow", "kobaya", "triangular"),
+  easternHero("garden-hero-junk", "junk", "classic"),
+  easternHero("garden-hero-barquentine", "twinhull", "trader"),
+  easternHero("garden-hero-cog", "scow", "cargo"),
+  easternHero("garden-hero-xebec", "junk", "raked"),
+  easternHero("garden-hero-cutter", "kobaya", "small"),
+  easternHero("garden-hero-tether", "bezaisen", "flagship"),
+  easternHero("garden-hero-circle", "takasebune", "circle"),
+  easternHero("garden-hero-maker", "twinhull", "council"),
+  easternHero("garden-hero-sky", "twinhull", "sky"),
+  easternHero("garden-hero-ethena", "junk", "ethena"),
+  easternHero("garden-hero-liberty", "bezaisen", "liberty"),
+  easternHero("garden-hero-paypal", "takasebune", "packet"),
+  easternHero("garden-hero-bullion", "scow", "bullion"),
 ];
 
 const summaries = [];
@@ -163,6 +151,197 @@ for (const model of HERO_MODELS) {
 }
 
 console.log(JSON.stringify(summaries, null, 2));
+
+function easternHeroAnchors() {
+  return {
+  "garden-hero-titan": { bow: [5.5, 2.5, 0], label: [0, 9.2, 0], masthead: [1.3, 7.5, 0], selection: [0, 2.6, 0], stern: [-4.15, 6.15, 0] },
+  "garden-hero-heritage": { bow: [4.4, 1.85, 0], label: [0, 7.3, 0], masthead: [0.8, 6.25, 0], selection: [0, 1.9, 0], stern: [-3.5, 2.75, 0] },
+  "garden-hero-carrack": { bow: [5.7, 1.55, 0], label: [0, 7.6, 0], masthead: [0.55, 6.4, 0], selection: [0, 1.8, 0], stern: [-5.4, 2.3, 0] },
+  "garden-hero-brigantine": { bow: [5.1, 1.45, 0], label: [0, 7.5, 0], masthead: [2.45, 6.2, 0], selection: [0, 1.5, 0], stern: [-3.3, 1.8, 0] },
+  "garden-hero-dhow": { bow: [4.4, 2.4, 0], label: [0, 9.2, 0], masthead: [-2.7, 6.3, 0], selection: [0, 1.8, 0], stern: [-3.6, 3.1, 0] },
+  "garden-hero-junk": { bow: [4.6, 2.5, 0], label: [0, 9.4, 0], masthead: [0.35, 8.2, 0], selection: [0, 2.4, 0], stern: [-5.05, 4.7, 0] },
+  "garden-hero-barquentine": { bow: [4.5, 1.35, 0], label: [0, 7.8, 0], masthead: [3.1, 6.7, 0], selection: [0, 1.6, 0], stern: [-3.7, 1.7, 0] },
+  "garden-hero-cog": { bow: [3.7, 1.3, 0], label: [0, 6.1, 0], masthead: [0.2, 4.8, 0], selection: [0, 1.5, 0], stern: [-3.7, 1.6, 0] },
+  "garden-hero-xebec": { bow: [4.2, 1.6, 0], label: [0, 9.1, 0], masthead: [0.15, 7.8, 0], selection: [0, 1.8, 0], stern: [-4.1, 2.5, 0] },
+  "garden-hero-cutter": { bow: [4.8, 1.25, 0], label: [0, 6.9, 0], masthead: [0.5, 5.8, 0], selection: [0, 1.3, 0], stern: [-2.8, 1.5, 0] },
+  "garden-hero-tether": { bow: [4.6, 2.3, 0], label: [0, 9.6, 0], masthead: [-0.1, 8.05, 0], selection: [0, 2.9, 0], stern: [-4.3, 6.9, 0] },
+  "garden-hero-circle": { bow: [5.8, 1.45, 0], label: [0, 8, 0], masthead: [0.5, 6.8, 0], selection: [0, 1.7, 0], stern: [-5.4, 2.1, 0] },
+  "garden-hero-maker": { bow: [4.4, 1.35, 0], label: [0, 7.9, 0], masthead: [1.5, 6.8, 0], selection: [0, 1.7, 0], stern: [-3.8, 2.3, 0] },
+  "garden-hero-sky": { bow: [4.5, 1.4, 0], label: [0, 8.3, 0], masthead: [1.8, 7.2, 0], selection: [0, 1.8, 0], stern: [-3.9, 2.2, 0] },
+  "garden-hero-ethena": { bow: [4.1, 1.55, 0], label: [0, 9.3, 0], masthead: [1, 8, 0], selection: [0, 1.8, 0], stern: [-3.9, 2.4, 0] },
+  "garden-hero-liberty": { bow: [4.7, 2.5, 0], label: [0, 8.9, 0], masthead: [1.1, 7.55, 0], selection: [0, 2.2, 0], stern: [-3.2, 3.4, 0] },
+  "garden-hero-paypal": { bow: [5.8, 1.4, 0], label: [0, 7.4, 0], masthead: [3.5, 6.2, 0], selection: [0, 1.6, 0], stern: [-5.3, 2, 0] },
+  "garden-hero-bullion": { bow: [3.7, 1.05, 0], label: [0, 5.8, 0], masthead: [-2.75, 4.5, 0], selection: [0, 1.4, 0], stern: [-3.8, 1.55, 0] },
+  };
+}
+
+function easternHero(id, family, variant) {
+  return { build: () => buildEasternHero(id, family, variant), id };
+}
+
+/**
+ * Compact shared authoring kit for the six fleet families. The exaggerated
+ * massing is deliberate: beam, deckhouse, hull count and sail outline must
+ * survive a 20 px render before small fittings or livery become legible.
+ */
+function buildEasternHero(id, family, variant) {
+  const builder = createBuilder(id);
+  const { add } = builder;
+  const anchors = easternHeroAnchors()[id];
+  const mastX = anchors.masthead[0];
+  const mastTop = anchors.masthead[1];
+
+  if (family === "bezaisen") addBezaisen(add, variant, mastX, mastTop);
+  else if (family === "kobaya") addKobaya(add, variant, mastX, mastTop);
+  else if (family === "twinhull") addTwinHull(add, variant, mastX, mastTop);
+  else if (family === "takasebune") addTakasebune(add, variant, mastX, mastTop);
+  else if (family === "junk") addEasternJunk(add, variant, mastX, mastTop);
+  else addScow(add, variant, mastX, mastTop);
+
+  add("glow", new BoxGeometry(0.34, 0.32, 0.18), {
+    position: [anchors.stern[0], Math.min(anchors.stern[1], mastTop - 0.55), 0],
+  });
+  add("glow", new BoxGeometry(0.28, 0.28, 0.18), {
+    position: [anchors.bow[0], Math.min(anchors.bow[1], mastTop - 0.7), 0],
+  });
+  addBanner(add, anchors.masthead, variant === "flagship" ? 1.45 : 0.9, 0.34);
+
+  builder.addAnchor("anchor-lantern-stern", anchors.stern, "lantern-stern");
+  builder.addAnchor("anchor-lantern-bow", anchors.bow, "lantern-bow");
+  builder.addAnchor("anchor-masthead", anchors.masthead, "masthead");
+  builder.addAnchor("anchor-selection", anchors.selection, "selection");
+  builder.addAnchor("anchor-label", anchors.label, "label");
+  return builder.finalize({ assertZSymmetric: true });
+}
+
+function familyStations({ beam, bow = 5, deck = 1.2, depth = 0.8, length = 10, rise = 0.35, zOffset = 0 }) {
+  return hullStations({
+    bowSharpness: 1.65,
+    bowTrim: 0.98,
+    bowX: bow,
+    count: 13,
+    deckMid: deck,
+    deckRiseBow: rise,
+    deckRiseStern: rise * 0.65,
+    keelDepth: depth,
+    keelFlatness: 0.72,
+    maxBeam: beam,
+    sternX: bow - length,
+    transomFraction: 0.74,
+    tumbleAft: 0.9,
+    tumbleBow: 0.94,
+  }).map((station) => ({ ...station, zOffset }));
+}
+
+function addFamilyHull(add, stations, bulwarkHeight = 0.24) {
+  addHullLoft(add, stations, { bulwarkHeight, gunports: false });
+  addStrake(add, stations, { h0: 0.88, h1: 0.97, paint: true, tone: WOOD_TRIM });
+}
+
+function addBezaisen(add, variant, mastX, mastTop) {
+  const flagship = variant === "flagship";
+  const beam = flagship ? 2.45 : variant === "grand" ? 2.2 : 1.92;
+  const stations = familyStations({ beam, bow: flagship ? 5.6 : 5.15, deck: 1.28, depth: 0.92, length: flagship ? 11.6 : 10.3, rise: 0.48 });
+  addFamilyHull(add, stations, 0.34);
+  const sternHeight = flagship ? 3.75 : variant === "grand" ? 3.3 : 2.65;
+  add("wood", new BoxGeometry(3.25, sternHeight, beam * 1.52), {
+    position: [-3.25, 1.3 + sternHeight / 2, 0], tone: variant === "weathered" ? WOOD_MID : WOOD_HIGH,
+  });
+  add("trim", new BoxGeometry(3.65, 0.18, beam * 1.72), {
+    position: [-3.25, 1.3 + sternHeight, 0], tone: WOOD_TRIM,
+  });
+  add("wood", new BoxGeometry(3.1, 1.15, beam * 1.32), { position: [0.1, 1.95, 0] });
+  add("wood", new CylinderGeometry(beam * 0.9, beam * 0.9, 3.8, 4), {
+    position: [0.1, 2.72, 0], rotation: [0, 0, Math.PI / 2], tone: WOOD_HIGH,
+  });
+  addMast(add, mastX, 1.55, mastTop + 0.12, -0.025, { platform: false });
+  addSquareSail(add, mastX, mastTop * 0.62, flagship ? 2.85 : 2.55, flagship ? 3.75 : 3.35, { yaw: 0.035 });
+  addIdentityFrame(add, mastX, mastTop * 0.43, mastTop * 0.69, 1.2);
+}
+
+function addKobaya(add, variant, mastX, mastTop) {
+  const small = variant === "small";
+  const stations = familyStations({ beam: small ? 0.72 : 0.9, bow: 5.25, deck: 0.82, depth: 0.52, length: small ? 8.6 : 10.4, rise: 0.22 });
+  addFamilyHull(add, stations, 0.16);
+  add("wood", new BoxGeometry(2.1, 0.75, 1.22), { position: [-2.7, 1.25, 0] });
+  add("trim", new BoxGeometry(2.4, 0.13, 1.48), { position: [-2.7, 1.7, 0], tone: WOOD_TRIM });
+  add("spar", new CylinderGeometry(0.055, 0.09, small ? 3.2 : 4.3, 5), {
+    position: [6.25, 1.45, 0], rotation: [0, 0, Math.PI / 2 - 0.2],
+  });
+  addMast(add, mastX, 1.0, mastTop + 0.08, -0.055, { platform: false });
+  addLateen(add, [mastX + 0.15, mastTop - 0.25, 0], [mastX + 0.1, 2.1, 0], [mastX - 3.0, 2.45, 0], 0.34);
+  const foreX = Math.min(3.25, mastX + 2.7);
+  addMast(add, foreX, 0.98, mastTop * 0.78, -0.035, { platform: false });
+  addJib(add, [foreX, mastTop * 0.7, 0], [5.9, 2.0, 0], [foreX, 1.5, 0], 0.26);
+  if (variant === "triangular") add("wood", new ConeGeometry(0.72, 0.55, 4), { position: [-2.6, 2.05, 0], rotation: [0, Math.PI / 4, 0], tone: WOOD_HIGH });
+  if (variant === "swift") addOarBank(add, { count: 4, deckY: 0.96, halfBeam: 0.88, length: 1.6, spacing: 0.9, x: 0 });
+}
+
+function addTwinHull(add, variant, mastX, mastTop) {
+  const offset = variant === "council" ? 1.45 : 1.3;
+  for (const side of [-1, 1]) {
+    addFamilyHull(add, familyStations({ beam: 0.58, bow: 4.8, deck: 0.72, depth: 0.52, length: 9.2, rise: 0.18, zOffset: side * offset }), 0.12);
+  }
+  add("wood", new BoxGeometry(6.8, 0.24, offset * 2 + 1.05), { position: [0, 1.02, 0] });
+  add("trim", new BoxGeometry(4.0, 0.16, offset * 2 + 1.25), { position: [-0.6, 1.22, 0], tone: WOOD_TRIM });
+  for (const side of [-1, 1]) {
+    const top = mastTop - (side > 0 ? 0.05 : 0.65);
+    add("spar", new CylinderGeometry(0.07, 0.1, top - 1.15, 6), { position: [mastX, (top + 1.15) / 2, side * offset] });
+    add("sail", triangleSailGeometry([mastX, top - 0.25, side * offset], [mastX, 2.0, side * offset], [mastX - 2.35, 2.2, side * offset], 0.22));
+  }
+  if (variant === "council") addTorii(add, -1.1, 1.28, offset * 1.15);
+  else if (variant === "sky") addSunArch(add, { halfBeam: offset, height: 1.35, radius: 0.5, x: -0.8, y: 1.22 });
+  else addPavilion(add, { halfBeam: offset * 0.72, height: 1.0, length: 2.2, x: -1.25 });
+}
+
+function addTakasebune(add, variant, mastX, mastTop) {
+  const stations = familyStations({ beam: 1.25, bow: 6.25, deck: 0.72, depth: 0.48, length: 12.5, rise: 0.12 });
+  addFamilyHull(add, stations, 0.13);
+  const bays = variant === "packet" ? 5 : 4;
+  for (let index = 0; index < bays; index += 1) {
+    const x = -3.6 + index * 1.65;
+    add("wood", new BoxGeometry(1.38, 0.7, 1.85), { position: [x, 1.18, 0], tone: index % 2 ? WOOD_MID : WOOD_HIGH });
+    add("wood", new CylinderGeometry(1.08, 1.08, 1.52, 4), { position: [x, 1.75, 0], rotation: [0, 0, Math.PI / 2], tone: WOOD_HIGH });
+  }
+  addMast(add, mastX, 0.9, mastTop + 0.08, -0.025, { platform: false });
+  addLateen(add, [mastX, mastTop - 0.25, 0], [mastX, 2.1, 0], [mastX - 2.6, 2.35, 0], 0.28);
+  addIdentityFrame(add, mastX, mastTop * 0.42, mastTop * 0.64, 1.05);
+  if (variant === "circle") addSunArch(add, { halfBeam: 0.72, height: 1.0, radius: 0.46, x: -4.15, y: 1.0 });
+  if (variant === "fortified") add("wood", new BoxGeometry(2.1, 1.25, 2.2), { position: [-4.45, 2.25, 0] });
+}
+
+function addEasternJunk(add, variant, mastX, mastTop) {
+  const stations = familyStations({ beam: 1.72, bow: 4.35, deck: 1.12, depth: 0.62, length: 8.9, rise: 0.26 });
+  addFamilyHull(add, stations, 0.28);
+  add("wood", new BoxGeometry(2.45, 1.2, 2.55), { position: [-3.05, 1.95, 0] });
+  add("trim", new BoxGeometry(2.75, 0.15, 2.85), { position: [-3.05, 2.62, 0], tone: WOOD_TRIM });
+  addMast(add, mastX, 1.35, mastTop + 0.08, variant === "raked" ? -0.08 : -0.025, { platform: false });
+  addBattenedLug(add, { aft: variant === "raked" ? 3.0 : 2.65, battens: 5, billow: 0.28, footY: 2.45, forward: 0.72, mastX, topY: mastTop - 0.25 });
+  const aftX = mastX - 2.65;
+  addMast(add, aftX, 1.25, mastTop * 0.72, -0.04, { platform: false });
+  addBattenedLug(add, { aft: 1.45, battens: 4, billow: 0.2, footY: 2.25, forward: 0.4, mastX: aftX, topY: mastTop * 0.69 });
+  if (variant === "ethena") addTorii(add, -3.2, 2.68, 1.18);
+}
+
+function addScow(add, variant, mastX, mastTop) {
+  const stations = familyStations({ beam: variant === "bullion" ? 2.45 : 2.15, bow: 4.1, deck: 0.78, depth: 0.95, length: 8.2, rise: 0.12 });
+  addFamilyHull(add, stations, 0.22);
+  add("wood", new SphereGeometry(1.45, 9, 6), { position: [-0.65, 1.25, 0], scale: [1.65, 0.72, 1.5], tone: WOOD_MID });
+  addMast(add, mastX, 1.0, mastTop + 0.08, -0.02, { platform: false });
+  addSquareSail(add, mastX, mastTop * 0.62, 1.55, 1.55, { yaw: 0.04 });
+  if (variant === "bullion") {
+    add("wood", new BoxGeometry(2.7, 1.15, 2.8), { position: [1.2, 1.65, 0], tone: WOOD_WALE });
+    add("trim", new BoxGeometry(2.95, 0.16, 3.05), { position: [1.2, 2.3, 0], tone: WOOD_TRIM });
+  } else {
+    for (const x of [-2.4, 1.75]) add("wood", new BoxGeometry(1.35, 0.8, 1.55), { position: [x, 1.35, 0] });
+  }
+}
+
+function addTorii(add, x, y, halfBeam) {
+  for (const side of [-1, 1]) add("wood", new CylinderGeometry(0.09, 0.12, 1.5, 6), { position: [x, y + 0.75, side * halfBeam], tone: WOOD_TRIM });
+  add("trim", new BoxGeometry(0.18, 0.18, halfBeam * 2 + 0.8), { position: [x, y + 1.52, 0], tone: WOOD_TRIM });
+  add("trim", new BoxGeometry(0.16, 0.14, halfBeam * 2 + 1.15), { position: [x, y + 1.78, 0], tone: WOOD_TRIM });
+}
 
 /**
  * Monumental galleon three-master: broad beam, full curved sheer with
@@ -2570,7 +2749,7 @@ function ringPoint(station, h, side) {
   const y = station.keelY + (station.deckY - station.keelY) * Math.pow(h, 0.92);
   const hWater = -station.keelY / Math.max(station.deckY - station.keelY, 0.001);
   const halfWidth = profileWidth(h, hWater, station.waterBeam, station.deckBeam);
-  return [station.x, y, side * halfWidth];
+  return [station.x, y, (station.zOffset ?? 0) + side * halfWidth];
 }
 
 /**
