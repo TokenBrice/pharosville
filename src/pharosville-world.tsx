@@ -476,6 +476,16 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     world,
   ]);
 
+  const followPendingSelectionFromSamples = useCallback((
+    samples: ReadonlyMap<string, ShipMotionSample>,
+  ) => {
+    const detailId = pendingFollowDetailIdRef.current;
+    if (!detailId || !selectedEntity || selectedEntity.detailId !== detailId) return;
+    if (selectedEntity.kind === "ship" && !samples.has(selectedEntity.id)) return;
+    pendingFollowDetailIdRef.current = null;
+    focusSelectedCamera(detailId, selectedEntity);
+  }, [focusSelectedCamera, selectedEntity]);
+
   const {
     frameRateFps,
     rendererWarmupReady,
@@ -484,6 +494,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   } = useWorldRenderLoop({
     almanacEvent: gardenAlmanac.activeEvent,
     onBucketFlip: setMotionBucket,
+    onShipMotionSamplesReady: followPendingSelectionFromSamples,
     adaptiveDprStateRef: canvas.adaptiveDprStateRef,
     logoGeneration: shipLogoAssets.logoGeneration,
     logos: shipLogoAssets.logos,
@@ -743,9 +754,17 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   useEffect(() => {
     if (!pendingFollowDetailIdRef.current || !selectedEntity) return;
     if (selectedEntity.detailId !== pendingFollowDetailIdRef.current) return;
-    pendingFollowDetailIdRef.current = null;
-    if (!rendererFailed) focusSelectedCamera(selectedEntity.detailId, selectedEntity);
-  }, [focusSelectedCamera, rendererFailed, selectedEntity]);
+    if (rendererFailed) return;
+    const samples = shipMotionSamplesRef.current;
+    // Selection and the first reduced-motion sample may commit in either
+    // order. Consume immediately when the sample already exists; otherwise
+    // request the one frame whose sample callback will finish the follow.
+    if (selectedEntity.kind === "ship" && !samples.has(selectedEntity.id)) {
+      requestWorldFrameRef.current();
+      return;
+    }
+    followPendingSelectionFromSamples(samples);
+  }, [followPendingSelectionFromSamples, rendererFailed, selectedEntity, shipMotionSamplesRef]);
 
   useEffect(() => observeReducedMotion((matches) => {
     if (matches) cancelCameraIntent();

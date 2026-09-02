@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "./camera";
-import { ABSOLUTE_MIN_ZOOM, minZoomForViewport, tileToScreen } from "./projection";
+import { ABSOLUTE_MIN_ZOOM, mapIsoBounds, minZoomForViewport, tileToScreen } from "./projection";
 import { MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX } from "./viewport-gate";
 import { gardenIslandDisplayTile } from "./garden-observatory-slice";
 import { buildPharosVilleMap, CEMETERY_CENTER, isWaterTileKind, LIGHTHOUSE_TILE, PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, PIGEON_ISLAND_CENTER } from "./world-layout";
@@ -138,15 +138,17 @@ describe("N1 zoom floor", () => {
   const map = { height: 112, width: 112 };
 
   it("stops zoom-out at the point the map still frames the viewport", () => {
-    // The map's iso bounds are 1760x880, so 1920x1080 frames it at ~1.09. The
-    // old flat 0.48 floor let the camera pull back to roughly 2.3x the map's
-    // area, and the world read as a small tile adrift in empty ocean.
-    // The 112-tile map's iso bounds are 3520x1760, so 1920x1080 frames it at
-    // ~0.545. The floor sits just under that so a sliver of sea frames the
-    // world; it must never sit above the fit or the map cannot be seen whole.
+    // The fit includes the finite plate margin, not just the outer tile
+    // centres. The floor sits just under that shared extent so a sliver of sky
+    // frames the plate; it must never sit above the fit or the plate cannot be
+    // seen whole.
     const viewport = { x: 1920, y: 1080 };
     const floor = minZoomForViewport(viewport, map);
-    const fit = Math.min(1920 / 3520, 1080 / 1760);
+    const bounds = mapIsoBounds(map);
+    const fit = Math.min(
+      viewport.x / (bounds.maxX - bounds.minX),
+      viewport.y / (bounds.maxY - bounds.minY),
+    );
     expect(floor).toBeLessThanOrEqual(fit);
     expect(floor).toBeGreaterThan(fit * 0.9);
 

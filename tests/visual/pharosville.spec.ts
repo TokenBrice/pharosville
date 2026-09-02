@@ -257,6 +257,10 @@ test(...visualLane("accessibility", "a shared ship link selects and frames that 
 });
 
 test(...visualLane("interaction", "deep links reach an off-screen ship and preserve complete dock geography"), async ({ page }) => {
+  // Three complete renderer navigations exercise landing, ship deep-link, and
+  // dock deep-link state. Cold shader compilation can legitimately exceed the
+  // suite's one-minute default before the final navigation becomes observable.
+  test.setTimeout(90_000);
   await mockDensePharosVilleData(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mockScreenSize(page, 1920, 1080);

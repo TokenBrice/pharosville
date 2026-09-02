@@ -103,8 +103,10 @@ export interface UseWorldRenderLoopInput {
    * wall clock). The hook mirrors the latest callback into a ref so RAF and
    * reduced-motion timer paths can share bucket advancement without rebinding
    * the frame loop.
-   */
+  */
   onBucketFlip?: (bucket: number) => void;
+  /** Called after a frame publishes the display samples shared by render and hit testing. */
+  onShipMotionSamplesReady?: (samples: ReadonlyMap<string, ShipMotionSample>) => void;
   adaptiveDprStateRef: MutableRefObject<AdaptiveDprState>;
   logoGeneration: number;
   logos: ThreeLogoAssets;
@@ -157,6 +159,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const {
     almanacEvent,
     onBucketFlip,
+    onShipMotionSamplesReady,
     adaptiveDprStateRef,
     logoGeneration,
     logos,
@@ -202,6 +205,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   useEffect(() => {
     onBucketFlipRef.current = onBucketFlip;
   }, [onBucketFlip]);
+
+  const onShipMotionSamplesReadyRef = useRef(onShipMotionSamplesReady);
+  useEffect(() => {
+    onShipMotionSamplesReadyRef.current = onShipMotionSamplesReady;
+  }, [onShipMotionSamplesReady]);
 
   const animationFramePendingRef = useRef(false);
   const paintRequestRef = useRef<() => void>(() => {});
@@ -588,6 +596,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         timeSeconds: motionTimeSeconds,
       });
       shipMotionSamplesRef.current = shipMotionSamples;
+      onShipMotionSamplesReadyRef.current?.(shipMotionSamples);
       const sampleDurationMs = performance.now() - sampleStartedAt;
       let snapshotRebuildCount = 0;
       const cameraStep = stepCameraRef.current(time, shipMotionSamples);

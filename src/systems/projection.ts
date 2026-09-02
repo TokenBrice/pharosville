@@ -22,6 +22,17 @@ export interface MapLike {
   height: number;
 }
 
+/**
+ * The finite Garden Sea continues past the outer tile centres so the rim,
+ * displaced water, and both sea openings end inside the authored plate rather
+ * than at the interactive camera clamp.
+ *
+ * Camera framing and the renderer must share this extent. A smaller camera
+ * bound makes an edge berth impossible to bring fully on screen at inspection
+ * zoom even though the berth itself is still on the plate.
+ */
+export const GARDEN_PLATE_MARGIN_TILES = 8;
+
 export function tileToIso(tile: TilePoint): ScreenPoint {
   return {
     x: (tile.x - tile.y) * (TILE_WIDTH / 2),
@@ -61,17 +72,20 @@ export function screenToTile(point: ScreenPoint, camera: IsoCamera): TilePoint {
 }
 
 export function mapIsoBounds(map: MapLike) {
+  const minTile = -GARDEN_PLATE_MARGIN_TILES;
+  const maxTileX = map.width - 1 + GARDEN_PLATE_MARGIN_TILES;
+  const maxTileY = map.height - 1 + GARDEN_PLATE_MARGIN_TILES;
   const corners = [
-    tileToIso({ x: 0, y: 0 }),
-    tileToIso({ x: map.width - 1, y: 0 }),
-    tileToIso({ x: 0, y: map.height - 1 }),
-    tileToIso({ x: map.width - 1, y: map.height - 1 }),
+    tileToIso({ x: minTile, y: minTile }),
+    tileToIso({ x: maxTileX, y: minTile }),
+    tileToIso({ x: minTile, y: maxTileY }),
+    tileToIso({ x: maxTileX, y: maxTileY }),
   ];
   return {
-    minX: Math.min(...corners.map((corner) => corner.x)) - TILE_WIDTH,
-    maxX: Math.max(...corners.map((corner) => corner.x)) + TILE_WIDTH,
-    minY: Math.min(...corners.map((corner) => corner.y)) - TILE_HEIGHT,
-    maxY: Math.max(...corners.map((corner) => corner.y)) + TILE_HEIGHT,
+    minX: Math.min(...corners.map((corner) => corner.x)),
+    maxX: Math.max(...corners.map((corner) => corner.x)),
+    minY: Math.min(...corners.map((corner) => corner.y)),
+    maxY: Math.max(...corners.map((corner) => corner.y)),
   };
 }
 

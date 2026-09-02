@@ -8,7 +8,10 @@ import {
   fixtureStability,
 } from "../__fixtures__/pharosville-world";
 import { overCapacityWorldFixture } from "../__fixtures__/over-capacity-world";
+import { selectionCameraTarget } from "../hooks/camera-intent";
+import { defaultCamera } from "../systems/camera";
 import {
+  GARDEN_DOCK_ROOT_Y,
   GARDEN_LIGHTHOUSE_BEACON_Y,
   GARDEN_LIGHTHOUSE_HEIGHT,
   GARDEN_LIGHTHOUSE_ROOT_OFFSET,
@@ -60,6 +63,22 @@ describe("Garden Observatory hit targets", () => {
       ...world.graves.map((grave) => grave.detailId),
       ...slice.ships.map(({ ship }) => ship.detailId),
     ]));
+  });
+
+  it("preserves every shore-station target and its projected position outside the landing viewport", () => {
+    const world = denseWorld();
+    const viewport = { width: 1440, height: 1000 };
+    const camera = defaultCamera({ ...viewport, map: world.map });
+    const snapshot = createGardenObservatoryHitTargetSnapshot({ camera, viewport, world });
+    const dockTargets = snapshot.targets.filter((target) => target.kind === "dock");
+
+    expect(dockTargets).toHaveLength(world.docks.length);
+    for (const dock of world.docks) {
+      expect(snapshot.targetsByDetailId.get(dock.detailId)?.anchor).toEqual(
+        gardenTileToScreen(dock.tile, GARDEN_DOCK_ROOT_Y, camera),
+      );
+    }
+    expect(dockTargets.some((target) => !rectInsideViewport(target.rect, viewport))).toBe(true);
   });
 
   it("gives every rendered ship its own hit target", () => {
@@ -172,6 +191,55 @@ describe("Garden Observatory hit targets", () => {
     expect(inspected.targetsByDetailId.get(placement!.ship.detailId)?.anchor).toEqual(
       gardenTileToScreen(expectedTile, GARDEN_SHIP_ROOT_Y, camera),
     );
+  });
+
+  it("keeps every dense-fleet berth and shore station fully inside both follow viewports", () => {
+    const world = denseWorld();
+    const slice = selectGardenObservatorySlice(world, null);
+
+    for (const viewport of [
+      { width: 1600, height: 1000 },
+      { width: 1200, height: 640 },
+    ]) {
+      const start = defaultCamera({ ...viewport, map: world.map });
+      const screenViewport = { x: viewport.width, y: viewport.height };
+
+      for (const placement of slice.ships) {
+        const camera = selectionCameraTarget({
+          camera: start,
+          map: world.map,
+          tile: resolveGardenShipDisplayTile({ ...placement, sample: undefined }),
+          viewport: screenViewport,
+        });
+        const target = createGardenObservatoryHitTargetSnapshot({
+          camera,
+          selectedDetailId: placement.ship.detailId,
+          viewport,
+          world,
+        }).targetsByDetailId.get(placement.ship.detailId);
+
+        expect(target, `${placement.ship.detailId} at ${viewport.width}x${viewport.height}`).toBeDefined();
+        expect(rectInsideViewport(target!.rect, viewport), `${placement.ship.detailId} at ${viewport.width}x${viewport.height}`).toBe(true);
+      }
+
+      for (const dock of world.docks) {
+        const camera = selectionCameraTarget({
+          camera: start,
+          map: world.map,
+          tile: dock.tile,
+          viewport: screenViewport,
+        });
+        const target = createGardenObservatoryHitTargetSnapshot({
+          camera,
+          selectedDetailId: dock.detailId,
+          viewport,
+          world,
+        }).targetsByDetailId.get(dock.detailId);
+
+        expect(target, `${dock.detailId} at ${viewport.width}x${viewport.height}`).toBeDefined();
+        expect(rectInsideViewport(target!.rect, viewport), `${dock.detailId} at ${viewport.width}x${viewport.height}`).toBe(true);
+      }
+    }
   });
 });
 
@@ -321,4 +389,14 @@ function pointInRect(
     && point.y >= rect.y
     && point.y <= rect.y + rect.height
   );
+}
+
+function rectInsideViewport(
+  rect: { height: number; width: number; x: number; y: number },
+  viewport: { height: number; width: number },
+): boolean {
+  return rect.x >= 0
+    && rect.y >= 0
+    && rect.x + rect.width <= viewport.width
+    && rect.y + rect.height <= viewport.height;
 }

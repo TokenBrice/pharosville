@@ -107,7 +107,11 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       label: dock.label,
       priority: 2_000 + anchor.y,
       rect: rectAroundAnchor(anchor, 112 * input.camera.zoom, 52 * input.camera.zoom),
-    }, input.viewport, selectedDetailId, hoveredDetailId);
+    // Shore stations are the authored dock geography, not a dense movable
+    // population. Keep all eight targets in the interaction/debug model even
+    // when the recomposed landing camera places a far-rim station outside the
+    // viewport; ships remain viewport-culled below.
+    }, null, selectedDetailId, hoveredDetailId);
   }
 
   const areaPriorityByDetailId = new Map<string, number>();

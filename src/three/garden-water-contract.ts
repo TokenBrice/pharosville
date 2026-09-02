@@ -1,4 +1,5 @@
 import type { Color, DataTexture } from "three";
+import { GARDEN_PLATE_MARGIN_TILES } from "../systems/projection";
 
 /**
  * C2 — Water-shader interface contract (frozen in P0, 2026-07-24).
@@ -32,7 +33,7 @@ export const GARDEN_WATER_MAX_RIPPLE_RINGS = 12;
  * vertices and the two authored sea openings room to disappear into the fog
  * seam without restoring a second, renderer-only "open ocean" domain.
  */
-export const GARDEN_WATER_PLATE_MARGIN_TILES = 8;
+export const GARDEN_WATER_PLATE_MARGIN_TILES = GARDEN_PLATE_MARGIN_TILES;
 
 /**
  * W2.6 — the feature-frozen sea's look constants.
