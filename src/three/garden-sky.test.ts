@@ -203,12 +203,9 @@ describe("garden sky atmospheric scattering", () => {
     expect(source).toContain("gardenBokashiShade(skyHeight, uBokashiAmount)");
     expect(source).toContain("uSunDir.x - uSunDir.z");
     expect(source).toContain("moonGlow");
-    expect(source).toContain("float farCrest");
-    expect(source).toContain("farRidge * 0.02");
-    expect(source).toContain("middleRidge * 0.03");
-    expect(source).toContain("nearRidge * 0.04");
-    expect(source).toContain("across - 0.39");
-    expect(source).not.toContain("across - 0.52");
+    // Shakkei has one owner: the world-backed, batched garden-horizon mesh.
+    expect(source).not.toContain("farCrest");
+    expect(source).not.toContain("nearRidge");
     sky.dispose();
   });
 

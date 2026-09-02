@@ -8,6 +8,7 @@ import {
 import { countDrawableObjects } from "./garden-util";
 import {
   createGardenHorizon,
+  GARDEN_HORIZON_DISPLACEMENT,
   GARDEN_HORIZON_VALUE_SCALES,
 } from "./garden-horizon";
 
@@ -18,15 +19,18 @@ describe("garden horizon", () => {
     const horizon = createGardenHorizon();
     expect(horizon.root.name).toBe("garden-horizon");
     expect(horizon.silhouetteCount).toBe(3);
+    expect(horizon.mistBandCount).toBe(1);
     expect(horizon.drawCallCount).toBe(1);
-    expect(horizon.triangleCount).toBe(60);
+    expect(horizon.triangleCount).toBe(62);
     expect(countDrawableObjects(horizon.root)).toBe(1);
     const mesh = horizon.root.children[0] as Mesh;
     expect(mesh.material).toBeInstanceOf(ShaderMaterial);
     const positions = mesh.geometry.getAttribute("position");
     expect((mesh.material as ShaderMaterial).transparent).toBe(true);
     expect((mesh.material as ShaderMaterial).depthWrite).toBe(false);
+    expect((mesh.material as ShaderMaterial).depthTest).toBe(true);
     expect(mesh.geometry.getAttribute("aRelief")).toBeDefined();
+    expect(mesh.geometry.getAttribute("aKind")).toBeDefined();
     expect(mesh.geometry.getAttribute("aVertical")).toBeDefined();
     // Each eleven-point strip alternates base/ridge vertices. Both endpoints
     // return to transparent zero relief, so no layer can become a closed pill.
@@ -37,6 +41,9 @@ describe("garden horizon", () => {
       expect(positions.getY(start + 20)).toBe(-7);
       expect(positions.getY(start + 21)).toBe(0);
     }
+    expect(Math.max(...Array.from(positions.array).filter((_, index) => index % 3 === 1)))
+      .toBeGreaterThan(18);
+    expect(GARDEN_HORIZON_DISPLACEMENT).toContain("backdrop ridge");
     horizon.dispose();
   });
 
