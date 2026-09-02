@@ -202,7 +202,11 @@ export function isGardenShipWater(
   marginTiles: number,
   includeDocks = false,
 ): boolean {
-  if (point.x < 0 || point.y < 0 || point.x > MAX_TILE_X || point.y > MAX_TILE_Y) return false;
+  const mapMargin = Math.max(0, marginTiles);
+  if (
+    point.x < mapMargin || point.y < mapMargin
+    || point.x > MAX_TILE_X - mapMargin || point.y > MAX_TILE_Y - mapMargin
+  ) return false;
   if (rimShoreDistance(point.x, point.y) <= marginTiles) return false;
   if (ellipseValue(point, GARDEN_ISLAND_OBSTACLE, marginTiles) < 1) return false;
   if (ellipseValue(point, GARDEN_CEMETERY_OBSTACLE, marginTiles) < 1) return false;

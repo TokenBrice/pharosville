@@ -56,6 +56,14 @@ function shipMargin(ship: { visual: { hull: keyof typeof GARDEN_SILHOUETTE_FOR_H
 }
 
 describe("garden water exclusion (zones-v2 placement fix)", () => {
+  it("keeps the complete hull inside the finite playable sea at rim openings", () => {
+    const margin = 3;
+    // The north opening has no rim land to provide this clearance, so the map
+    // edge itself must reject a berth whose centre is legal but hull is not.
+    expect(isGardenShipWater({ x: 70, y: margin - 0.001 }, margin)).toBe(false);
+    expect(isGardenShipWater({ x: 70, y: margin }, margin)).toBe(true);
+  });
+
   it("marks the rendered landmasses as obstacles and open sea as water", () => {
     // Island heart and garden islets are obstacles. N1: every landmass is
     // authored in the 56-tile design space and OFFSET onto the 112-tile grid,

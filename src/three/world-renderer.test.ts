@@ -1023,8 +1023,18 @@ describe("W4.2 garden-tempo transition queue", () => {
   });
 
   it("lets sub-five-percent churn sail, then snaps twenty-percent churn and clears it", () => {
+    const exactEdge = { x: 70, y: 0.5 };
+    const edgeJourney = transition({
+      from: exactEdge,
+      to: { x: 70, y: 20 },
+    });
+    const edgeStart = sampleGardenShipTransition(edgeJourney, edgeJourney.startSeconds);
+    const edgeSailing = sampleGardenShipTransition(edgeJourney, edgeJourney.startSeconds + 1);
+    expect(Math.hypot(edgeSailing.x - edgeStart.x, edgeSailing.y - edgeStart.y)).toBeLessThan(0.5);
+
     const worldA = denseRendererWorld();
-    const subject = denseTransitionSubject(worldA);
+    const subject = selectGardenObservatorySlice(worldA, null).ships
+      .find((entry) => entry.ship.riskZone !== "danger")!.ship;
     const lowChurn = withDangerShips(worldA, new Set([subject.id]));
     const massCount = Math.ceil(worldA.ships.length * 0.2);
     const massIds = new Set(worldA.ships.slice(0, massCount).map((ship) => ship.id));
@@ -1095,7 +1105,8 @@ describe("W4.2 garden-tempo transition queue", () => {
 
   it("adopts ledger truth immediately while the selected hull remains en route", () => {
     const worldA = denseRendererWorld();
-    const subject = denseTransitionSubject(worldA);
+    const subject = selectGardenObservatorySlice(worldA, null).ships
+      .find((entry) => entry.ship.riskZone !== "danger")!.ship;
     const moved = {
       ...subject,
       change24hPct: 37.25,
@@ -1539,22 +1550,6 @@ function denseRendererWorld(): PharosVilleWorld {
     stablecoins: denseFixtureStablecoins,
     stress: denseFixtureStress,
   });
-}
-
-// W4.2 fixture: per-family hull clearance moved the former first non-danger
-// ship's composed berth to y≈0.115. The transition sampler correctly clamps
-// that old edge to its playable y=0.5 mist boundary, which is a 0.54479-unit
-// marker move before the journey has progressed. Keep the low-churn scenario
-// on a berth safely inside the boundary; this ship is still one of 132 (<5%),
-// and it remains inside the first ceil(132×20%) mass set.
-const DENSE_TRANSITION_SUBJECT_ID = "usyc-hashnote";
-
-function denseTransitionSubject(world: PharosVilleWorld): ShipNode {
-  const entry = selectGardenObservatorySlice(world, null).ships.find(
-    ({ ship }) => ship.id === DENSE_TRANSITION_SUBJECT_ID,
-  );
-  if (!entry) throw new Error(`Dense fixture missing ${DENSE_TRANSITION_SUBJECT_ID}`);
-  return entry.ship;
 }
 
 function withDangerShips(world: PharosVilleWorld, ids: ReadonlySet<string>): PharosVilleWorld {
