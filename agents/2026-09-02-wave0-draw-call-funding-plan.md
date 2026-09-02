@@ -651,6 +651,41 @@ Run only if Task 2's census shows > 2 recurring draws per `hero-*` root.
 
 ---
 
+### Task 8: Fleet wake batch (added 2026-09-02 from the first measured census)
+
+The Task 1 census showed the largest owner is not docks or heroes: `content-part-ships/ship-wake` 116 calls + `ship-wake/ship-bow-wave` 108 calls ≈ **224 calls** at the default framing, and the count moves frame to frame with how many hulls have way on (the 693 → 676 → 578 total swings in the baseline runs are this). Each ship owns a `ship-wake` root (`garden-ships.ts` `createWake`, ≈2541–2598): a 7-quad trail `InstancedMesh` and a 2-quad bow `InstancedMesh`, both on the shared `cache.wakeFillMaterial` and one cached quad geometry, plus two `Line`s under `ship-wake-detail`. The per-frame loop (`world-renderer.ts` ≈4135–4140) toggles `visual.wake.visible` and sets `visual.wake.scale.x`. Same material, same geometry, per-ship mesh — the textbook case for one world-wide instanced batch. Run this task BEFORE Task 7; it is not conditional.
+
+**Files:**
+- Create: `src/three/garden-wake-batch.ts`, `src/three/garden-wake-batch.test.ts`
+- Modify: `src/three/garden-ships.ts` (`createWake` → returns only the detail `Line` group; the `ShipVisual.wake` root becomes an empty anchor `Group` named `ship-wake`), `src/three/world-renderer.ts` (≈4135–4140 per-ship update → batch write; `buildShipsPart` creates/owns the batch; disposal), `src/three/garden-fleet-batch.ts` only if the capacity constant is reused from there.
+
+**Interfaces:**
+- Produces:
+  ```ts
+  export const WAKE_TRAIL_QUADS = 7; export const WAKE_BOW_QUADS = 2;
+  export interface GardenWakeBatch {
+    root: Group;                        // name "fleet-wakes"; two children: "fleet-wake-trails", "fleet-wake-bows"
+    trails: InstancedMesh; bows: InstancedMesh;   // capacity × quads each, frustumCulled = false
+    /** Writes this ship's 9 instance matrices from its world pose; hidden ships collapse to a zero-scale matrix. */
+    setShip(slot: number, pose: { x: number; y: number; z: number; headingY: number; hullScale: number }, visible: boolean, intensityScaleX: number): void;
+    /** Marks instanceMatrix.needsUpdate once per frame after all setShip calls. */
+    commit(): void;
+    dispose(): void;
+  }
+  export function createGardenWakeBatch(capacity: number /* GARDEN_FLEET_BATCH_CAPACITY */, material: Material, quadGeometry: BufferGeometry): GardenWakeBatch
+  ```
+- Local layout is copied verbatim from `createWake`: trail quad `index` → `scale(1.1 + age·1.7, 1, 0.9 + sin(age·π)·2.3)`, `position(−2.3 − age·3.9, −0.34, 0)` with `age = index/(WAKE_TRAIL_QUADS−1)`; bow quads → `scale(2.1, 1, 0.85)`, `position(3.15, −0.34, ±0.62)`. The per-ship wake root's former `scale.x` (intensity) multiplies the local X before composing with the ship's world matrix. Slot = the ship's fleet-batch slot (or its index in `content.ships` for heroes — heroes must be included; today they have wakes too).
+- The `ship-wake-detail` `Line`s stay per ship under the anchor (they are LOD-gated to close zoom; census will show whether they matter — do not batch lines in this task).
+
+- [ ] **Step 1: Write the failing tests** — `garden-wake-batch.test.ts`: (a) capacity 320 → `trails.count === 320·7`, `bows.count === 320·2`, exactly 2 drawables under `root`; (b) `setShip(3, {x:10,y:0,z:−4,headingY:π/2,hullScale:1}, true, 1.3)` then `commit()` → decomposing trail matrix for slot 3 quad 0 gives position ≈ ship pos + rotated `(−2.3·1.3, −0.34, 0)` and scale x ≈ `1.1·1.3`; (c) `setShip(3, …, false, 1)` → all 9 matrices of slot 3 have zero scale; (d) `commit()` sets `instanceMatrix.needsUpdate` on both meshes.
+- [ ] **Step 2: Run** `npm test -- src/three/garden-wake-batch` → FAIL (module not found).
+- [ ] **Step 3: Implement** per Interfaces (≈120 lines; scratch `Matrix4`/`Quaternion`/`Vector3`, no per-frame allocation).
+- [ ] **Step 4: Run** → PASS.
+- [ ] **Step 5: Cut over.** `createWake` returns `{ detail, root }` where `root` is an empty named anchor (keep `root.visible=false` default so existing visibility logic still gates the detail lines). In `buildShipsPart`, create the batch once with `cache.wakeFillMaterial` and the cached `wake.quad` geometry and add `batch.root` to the part root; store `content.wakeBatch`. At ≈4135–4140 replace the visibility/scale writes with `content.wakeBatch.setShip(slot, pose, visible, 0.7 + min(1.5, wakeIntensity)·0.85 · overviewDetail)` and keep `visual.wake.visible = visible` for the detail lines; call `content.wakeBatch.commit()` once after the ship loop. Dispose in the ships part disposer.
+- [ ] **Step 6: Run** `npm test -- src/three src/renderer` → PASS (update world-renderer tests that counted wake drawables or read `visual.wake.scale`).
+- [ ] **Step 7: Real-GPU gate** — `npm run preview -- --url http://localhost:5173 --draw-census --out w0-t8-day.png` and `#t=22&n=1`: census shows `fleet-wakes/*` = 2 rows and no `ship-wake`/`ship-bow-wave` rows; wakes visible behind moving hulls exactly as in `w0-baseline-day.png` (same wedge shape, same fade); reduced motion still hides them (`--reduced` frame has none); `--assert` passes.
+- [ ] **Step 8: Commit** `feat(ships): draw every wake from one batch`.
+
 ### Task 7: Wave gate and ledger
 
 - [ ] **Step 1: Full real-GPU gate**
