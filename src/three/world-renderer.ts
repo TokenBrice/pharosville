@@ -144,6 +144,7 @@ import { createGardenPost } from "./garden-post";
 import {
   authorDock,
   createHarborLanterns,
+  gardenHarborLanternWorldPositions,
   gardenDockLampWorldPositions,
   type DockVisual,
 } from "./garden-docks";
@@ -208,6 +209,7 @@ import {
   type GardenSummitBirds,
 } from "./garden-summit-birds";
 import {
+  assignGardenHeroSailAtlas,
   attachGardenHeroModel,
   createBatchedShip,
   createFleetBatchGeometry,
@@ -292,23 +294,45 @@ const GARDEN_FLEET_AERIAL_STRENGTH = 0.4;
 
 /** The Pharos crown — the tallest thing that casts, and so what sizes the frustum. */
 const SHADOW_CASTER_HEIGHT = 34;
+/** Allowance around island/station roots for static architecture and foliage. */
+export const GARDEN_SHADOW_STATIC_FOOTPRINT_ALLOWANCE = 28;
+
+export interface GardenStaticShadowBounds {
+  centerX: number;
+  centerZ: number;
+  radius: number;
+}
+
 /**
- * Half-extent of the STATIC world the shadow frustum must always contain.
- *
- * W2.2 raised this from 30 (the island's own footprint) to cover the harbour
- * ring as well, now that the quays, warehouses, cranes, breakwaters and lamp
- * posts are casters. 44 is the measured worst case: harbours are sited on an
- * ellipse ~22 x 18 world units off the island centre and grow seaward with
- * supply, and a full sweep of bearings with EVERY harbour pinned at the top of
- * the supply band (harborAmountScale saturates at ~5e11) puts the outermost
- * geometry — a `grand` enclosure's breakwater arm — at 43.6 units. Locked by
- * `harbour ring fits inside the static shadow frustum` in
- * world-renderer.test.ts, which rebuilds that sweep.
- *
- * Ships are deliberately NOT part of this: they move, and a moving caster would
- * force a per-frame map re-render (see updateShadows).
+ * Square shadow fit shared by the island, stations, and Wave B1's rim casters.
+ * Ships stay out because moving casters would force a per-frame map redraw.
  */
-export const GARDEN_SHADOW_STATIC_RADIUS = 44;
+export function gardenStaticShadowBounds(
+  points: readonly { x: number; z: number }[],
+  footprintAllowance = GARDEN_SHADOW_STATIC_FOOTPRINT_ALLOWANCE,
+): GardenStaticShadowBounds {
+  if (points.length === 0) {
+    return { centerX: 0, centerZ: 0, radius: Math.max(0, footprintAllowance) };
+  }
+  let minX = points[0]!.x;
+  let maxX = minX;
+  let minZ = points[0]!.z;
+  let maxZ = minZ;
+  for (const point of points.slice(1)) {
+    minX = Math.min(minX, point.x);
+    maxX = Math.max(maxX, point.x);
+    minZ = Math.min(minZ, point.z);
+    maxZ = Math.max(maxZ, point.z);
+  }
+  return {
+    centerX: (minX + maxX) / 2,
+    centerZ: (minZ + maxZ) / 2,
+    radius: Math.max(maxX - minX, maxZ - minZ) / 2 + Math.max(0, footprintAllowance),
+  };
+}
+
+/** Conservative bootstrap until the first world-derived fit is applied. */
+const GARDEN_SHADOW_INITIAL_RADIUS = 128;
 /**
  * Ground reach cap for the frustum offset. At the key light's floor elevation
  * the tower's true reach is ~280 units, far past anything the eye can follow
@@ -319,18 +343,13 @@ const SHADOW_MAX_REACH = 150;
 /**
  * How far back along its own direction the shadow light sits.
  *
- * W2.2 raised this from 90, which was too short and had been quietly clipping
- * casters at low sun. The frustum centre is pushed up to SHADOW_MAX_REACH/2
- * downstream of the island (73 units in the light's own axis at the elevation
- * where the reach cap bites), so a caster on the SUNWARD rim of the static
- * radius sat 90 − 73 − 44 ≈ −27 units from the light: behind its near plane,
- * and therefore casting nothing. It has to clear
- * SHADOW_MAX_REACH/2 + GARDEN_SHADOW_STATIC_RADIUS + SHADOW_CASTER_HEIGHT with
- * margin — hence 170, which leaves the nearest caster ~43 units in front of the
- * near plane. Ortho projection, so distance costs no quality; it only widens
- * the depth range the `bias` constant is expressed in (see below).
+ * The fit now spans the remote station roots as well as the island. 260 clears
+ * the 75-unit low-sun recenter, the measured ~114-unit static half-extent, and
+ * the 34-unit Pharos caster with margin. Ortho projection means that extra
+ * distance costs no texture density; it only widens the depth range that bias
+ * is expressed in (see createGardenScene).
  */
-const SHADOW_LIGHT_DISTANCE = 170;
+const SHADOW_LIGHT_DISTANCE = 260;
 /**
  * How far the sun must swing before the static-caster shadow map is redrawn.
  *
@@ -1807,9 +1826,8 @@ function createGardenScene(
   // ≈ 24 units once projected into the light's view plane, still inside the
   // ±30 shadow frustum below.
   directionalLight.position.set(-35, 48, -30);
-  // Tight ortho frustum fitted to the island, the harbour ring around it (W2.2)
-  // and the L1 tower's long day shadow; updateShadows re-fits and re-centres it
-  // each frame and toggles cost per tier.
+  // The bootstrap is replaced before drawing by updateShadows' island + station
+  // root fit, then extended for the Pharos tower's long day shadow.
   directionalLight.castShadow = true;
   directionalLight.shadow.mapSize.set(2048, 2048);
   // W2.2 bias hygiene. The old pair (-0.0005 / 0.8) was fitted to a 1024 map
@@ -1817,14 +1835,13 @@ function createGardenScene(
   // normal offset was ~13 texels of slop, which the island's chunky terraces
   // hid but the harbour's thin dock planks and quay copings would not (offsets
   // that large slide a plank's shadow off the plank — peter-panning). At
-  // 2048 over the wider fit a texel is ~0.043 units, so the offset can come
-  // down to ~8 texels and still clear acne on the terraces.
+  // At the dense station fit one texel is ~0.11 world units at noon, so the
+  // offset remains a few texels while clearing acne on the terraces.
   //
   // `bias` is in normalized depth, so it scales with the ortho depth range:
-  // -0.00025 over the 215-unit near/far span below is ~0.054 world units, the
-  // same constant slop the old -0.0005 bought over its 139-unit span. The
-  // longer light distance is a fix, not a retune (see SHADOW_LIGHT_DISTANCE).
-  directionalLight.shadow.bias = -0.00025;
+  // -0.00015 over the ~389-unit near/far span is ~0.058 world units, preserving
+  // the old world-space slop after extending the light for remote stations.
+  directionalLight.shadow.bias = -0.00015;
   directionalLight.shadow.normalBias = 0.35;
   // Vogel-disk PCF radius, in texels (see the shadowMap.type note above). 4
   // texels ≈ 0.17 world units of penumbra at the full-tier fit: soft enough
@@ -1832,12 +1849,12 @@ function createGardenScene(
   // a bollard still touches the deck it stands on.
   directionalLight.shadow.radius = 4;
   const shadowCamera = directionalLight.shadow.camera;
-  shadowCamera.left = -GARDEN_SHADOW_STATIC_RADIUS;
-  shadowCamera.right = GARDEN_SHADOW_STATIC_RADIUS;
-  shadowCamera.top = GARDEN_SHADOW_STATIC_RADIUS;
-  shadowCamera.bottom = -GARDEN_SHADOW_STATIC_RADIUS;
+  shadowCamera.left = -GARDEN_SHADOW_INITIAL_RADIUS;
+  shadowCamera.right = GARDEN_SHADOW_INITIAL_RADIUS;
+  shadowCamera.top = GARDEN_SHADOW_INITIAL_RADIUS;
+  shadowCamera.bottom = -GARDEN_SHADOW_INITIAL_RADIUS;
   shadowCamera.near = 1;
-  shadowCamera.far = SHADOW_LIGHT_DISTANCE + GARDEN_SHADOW_STATIC_RADIUS + 2;
+  shadowCamera.far = SHADOW_LIGHT_DISTANCE + GARDEN_SHADOW_INITIAL_RADIUS + 2;
   shadowCamera.updateProjectionMatrix();
   root.add(directionalLight);
 
@@ -2000,6 +2017,7 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
     dock.label,
     dock.logoPath ?? null,
     dock.size,
+    dock.station,
     dock.tile,
   ]));
   const shipEntries = slice.ships
@@ -2832,11 +2850,7 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
   const harborDockIds = new Set(selectGardenDocks(world.docks).map((dock) => dock.detailId));
   const harborDocks = content.docks.filter((dock) => harborDockIds.has(dock.recipe.dock.detailId));
   if (harborDocks.length === 0) return;
-  let centerX = 0;
-  let centerZ = 0;
   for (const dock of harborDocks) {
-    centerX += dock.root.position.x;
-    centerZ += dock.root.position.z;
     scene.water.rippleRings.setRing({
       id: `dock-pylon.${dock.recipe.dock.detailId}`,
       center: { x: dock.root.position.x, z: dock.root.position.z },
@@ -2846,16 +2860,18 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
       strength: 0.18,
     });
   }
-  // L6: offset onto the lee water, not the dock centroid.
-  //
-  // Averaging up to ten harbours ringing the island lands on the ISLAND, so the
-  // glassy, normal-flattened mirror basin sat on the rock and only its
-  // overspill showed as a pale ring on the water. Pushing it south-east puts it
-  // on the sheltered water the harbours actually open onto.
-  const islandCenterX = centerX / harborDocks.length;
-  const islandCenterZ = centerZ / harborDocks.length;
+  // One shader mask cannot cover distant shore stations without flattening the
+  // entire lake between them. Seat it just seaward of the largest represented
+  // station; every selected station still gets its own pylon ripple above.
+  const primary = harborDocks.toSorted((left, right) => (
+    right.recipe.dock.totalUsd - left.recipe.dock.totalUsd
+  ))[0]!;
+  const bearing = primary.recipe.dock.station.shoreBearing;
   scene.water.setHarborCalmMask({
-    center: { x: islandCenterX + 13, z: islandCenterZ + 10 },
+    center: {
+      x: primary.root.position.x + Math.cos(bearing) * 5,
+      z: primary.root.position.z + Math.sin(bearing) * 5,
+    },
     radiusX: 13,
     radiusZ: 9,
     calmStrength: 0.7,
@@ -2870,6 +2886,18 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
  */
 /** How many of the busiest harbours get a route pulse lane (Phase 4). */
 const GARDEN_ROUTE_PULSE_LANES = 4;
+
+export function gardenStationRouteEndpoints(
+  stationRoot: { x: number; z: number },
+  shoreBearing: number,
+): { openWater: { x: number; z: number }; station: { x: number; z: number } } {
+  const x = Math.cos(shoreBearing);
+  const z = Math.sin(shoreBearing);
+  return {
+    openWater: { x: stationRoot.x + x * 30, z: stationRoot.z + z * 30 },
+    station: { x: stationRoot.x + x * 4, z: stationRoot.z + z * 4 },
+  };
+}
 
 function registerLightLanes(
   registry: GardenLaneRegistry,
@@ -2887,21 +2915,21 @@ function registerLightLanes(
     worldX: islandTile.x * TILE_SCALE,
     worldZ: islandTile.y * TILE_SCALE,
   });
-  // Ring of harbor lanterns around the island (mirrors createHarborLanterns).
+  // Paired approach lanterns at each station mouth. Both the geometry and this
+  // registry consume the same station-root helper, so remote cove lights never
+  // fall back to the former island ellipse.
   const islandX = islandTile.x * TILE_SCALE;
   const islandZ = islandTile.y * TILE_SCALE;
-  for (let index = 0; index < 12; index += 1) {
-    const angle = (index / 12) * Math.PI * 2
-      + stableUnit(`harbor-lantern-angle.${index}`) * 0.16;
-    const radiusX = 22 + (index % 3) * 1.25;
-    const radiusZ = 15.5 + (index % 2) * 1.15;
+  for (const [index, lantern] of gardenHarborLanternWorldPositions(
+    docks.map((dock) => dock.recipe),
+  ).entries()) {
     registry.set({
       color: HARBOR_PALETTE.lantern_glow,
       id: `harbor-lantern.${index}`,
       intensity: 0.62,
       kind: "lantern",
-      worldX: islandX + Math.cos(angle) * radiusX,
-      worldZ: islandZ + Math.sin(angle) * radiusZ,
+      worldX: lantern.x,
+      worldZ: lantern.z,
     });
   }
   for (const dock of docks) {
@@ -2971,21 +2999,20 @@ function registerLightLanes(
     .slice(0, GARDEN_ROUTE_PULSE_LANES);
   const busiestUsd = busiest[0]?.recipe.dock.totalUsd ?? 1;
   for (const dock of busiest) {
-    const dirX = dock.root.position.x - islandX;
-    const dirZ = dock.root.position.z - islandZ;
-    const dirLength = Math.hypot(dirX, dirZ) || 1;
-    const nx = dirX / dirLength;
-    const nz = dirZ / dirLength;
+    const endpoints = gardenStationRouteEndpoints(
+      dock.root.position,
+      dock.recipe.dock.station.shoreBearing,
+    );
     registry.set({
       color: HARBOR_PALETTE.lantern_glow,
       id: `route-pulse.${dock.recipe.dock.detailId}`,
       intensity: 0.35 + 0.45 * Math.sqrt(dock.recipe.dock.totalUsd / busiestUsd),
       kind: "route",
-      worldX: dock.root.position.x + nx * 30,
-      worldZ: dock.root.position.z + nz * 30,
+      worldX: endpoints.openWater.x,
+      worldZ: endpoints.openWater.z,
       route: {
-        x: dock.root.position.x + nx * 4,
-        z: dock.root.position.z + nz * 4,
+        x: endpoints.station.x,
+        z: endpoints.station.z,
       },
     });
   }
@@ -3207,7 +3234,7 @@ function buildSeaEdgesPart(content: GardenContent): void {
   content.seaEdges = seaEdges;
 }
 
-/** The harbour ring: quays, warehouses, cranes — and the lantern ring. */
+/** The shore stations: quays, warehouses, cranes, and approach lanterns. */
 function buildDocksPart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.docks;
   const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
@@ -3220,12 +3247,12 @@ function buildDocksPart(content: GardenContent, world: PharosVilleWorld): void {
     part.root.add(dock.root);
     part.cues.set(dock.recipe.dock.detailId, { radius: 2.5, root: dock.root, y: 0.08 });
   }
-  // W2.2: the whole harbour ring joins the island in the static map. The
+  // Every shore station joins the island in the static map. The
   // batch marks flag cloth, lights and LOD detail as non-casters by name.
   flagStaticShadowUsers(batch.root);
-  const harborLanterns = createHarborLanterns(islandTile);
+  const harborLanterns = createHarborLanterns(recipes);
   part.root.add(harborLanterns.root);
-  // The lantern ring is static quay furniture too. Its glass heads share one
+  // The station lanterns are static quay furniture too. Their glass heads share one
   // material with no name to exclude, so they are skipped by identity: a lamp
   // is a source, not an occluder.
   harborLanterns.root.traverse((object) => {
@@ -3352,17 +3379,21 @@ function buildShipsPart(
   const sailAtlas = scene.sailAtlas;
   assignGardenSailAtlasCells(sailAtlas, slice.ships.map(({ ship }) => ship));
 
-  const ships = slice.ships.map(({ displayOffset, representative, ship }) => (
-    gardenShipUsesHeroModel(ship)
-      ? createShip(ship, displayOffset, representative, shipGeometryCache)
-      : createBatchedShip(
-          ship,
-          displayOffset,
-          representative,
-          shipGeometryCache,
-          gardenSailAtlasCell(sailAtlas, ship),
-        )
-  ));
+  const ships = slice.ships.map(({ displayOffset, representative, ship }) => {
+    const atlasCell = gardenSailAtlasCell(sailAtlas, ship);
+    if (gardenShipUsesHeroModel(ship)) {
+      const visual = createShip(ship, displayOffset, representative, shipGeometryCache);
+      assignGardenHeroSailAtlas(visual, sailAtlas.texture, atlasCell);
+      return visual;
+    }
+    return createBatchedShip(
+      ship,
+      displayOffset,
+      representative,
+      shipGeometryCache,
+      atlasCell,
+    );
+  });
 
   // Departures are renderer ghosts, never world records. Recreate them from
   // the NEW part's shared cache so disposal remains epoch-local. The normal
@@ -3664,8 +3695,8 @@ function seaSignsDebugVisible(): boolean {
 }
 
 /**
- * Re-centres the directional light's tight shadow frustum on the island and its
- * harbour ring and sets the per-tier cost, returning the active shadow-map size
+ * Re-centres the directional light's shadow frustum on the island and remote
+ * station roots and sets the per-tier cost, returning the active shadow-map size
  * (0 when off).
  * Shadow support stays compiled (enabled + castShadow never change); cost is
  * toggled via `shadow.intensity`/`autoUpdate` and the map is only reallocated
@@ -3678,8 +3709,13 @@ function updateShadows(
 ): number {
   const light = scene.directionalLight;
   const islandTile = gardenIslandDisplayTile(frame.world.lighthouse.tile);
-  const centerX = islandTile.x * TILE_SCALE;
-  const centerZ = islandTile.y * TILE_SCALE;
+  const staticBounds = gardenStaticShadowBounds([
+    { x: islandTile.x * TILE_SCALE, z: islandTile.y * TILE_SCALE },
+    ...frame.world.docks.map((dock) => {
+      const tile = gardenDockDisplayTile(dock.tile);
+      return { x: tile.x * TILE_SCALE, z: tile.y * TILE_SCALE };
+    }),
+  ]);
 
   // The key light rides the day's arc (garden-sun.ts) instead of sitting at a
   // fixed bearing, so shadow DIRECTION and LENGTH now say what time it is.
@@ -3701,8 +3737,8 @@ function updateShadows(
     SHADOW_CASTER_HEIGHT / Math.max(Math.tan(pose.elevation), 1e-3),
     SHADOW_MAX_REACH,
   );
-  const frustumX = centerX - (direction.x / groundLength) * reach * 0.5;
-  const frustumZ = centerZ - (direction.z / groundLength) * reach * 0.5;
+  const frustumX = staticBounds.centerX - (direction.x / groundLength) * reach * 0.5;
+  const frustumZ = staticBounds.centerZ - (direction.z / groundLength) * reach * 0.5;
   light.target.position.set(frustumX, 3, frustumZ);
   light.position.set(
     frustumX + direction.x * SHADOW_LIGHT_DISTANCE,
@@ -3710,7 +3746,7 @@ function updateShadows(
     frustumZ + direction.z * SHADOW_LIGHT_DISTANCE,
   );
 
-  const halfSize = GARDEN_SHADOW_STATIC_RADIUS
+  const halfSize = staticBounds.radius
     + (SHADOW_CASTER_HEIGHT * Math.cos(pose.elevation)) / 2;
   const shadowCamera = light.shadow.camera;
   if (Math.abs(shadowCamera.right - halfSize) > 0.25) {
@@ -3734,7 +3770,7 @@ function updateShadows(
 
   // W6.2 (Grand Scale Revamp): shadows survive down to `recovery`.
   //
-  // The casters (island, lighthouse, harbour ring) are static and the light
+  // The casters (island, lighthouse, and shore stations) are static and the light
   // direction moves only on the re-steer threshold above, so
   // `autoUpdate = false` means the map is rendered on scene change and on
   // re-steer, not per frame — the recurring cost is still just the PCF taps in
@@ -3752,15 +3788,11 @@ function updateShadows(
   // release — a visible softening of the island's shadow on every pan, plus a
   // GPU reallocation per drag, for a tier that says nothing about load.
   //
-  // W2.2 doubled every rung. The frustum now has to hold the harbour ring as
-  // well as the island (GARDEN_SHADOW_STATIC_RADIUS: 30 -> 44), which is 2.2x
-  // the area, so holding the old sizes would have spent the harbour's shadows
-  // out of the island's texel density. Doubling instead BUYS density: at full
-  // tier a texel covers ~0.043 world units against the old ~0.059, and at
-  // balanced ~0.086 against ~0.117. The extra cost is episodic by construction
-  // — 4x the pixels of a pass that runs on re-steer and content change, not per
-  // frame — and the recurring cost (PCF taps in the receiving materials) does
-  // not move with map size at all.
+  // The map dimensions stay fixed while the world-derived frustum grows to the
+  // rim. In the dense fixture the static radius is 114.27 world units: 8.96
+  // texels/world at full, 4.48 at balanced, and 3.36 at recovery before the
+  // time-of-day shadow-reach allowance. Cost remains episodic: this pass runs
+  // on re-steer/content change, while recurring PCF sampling is unchanged.
   const shadowTier = seaQualityTier(frame.renderScheduler);
   const size = shadowTier === "full"
     ? 2048
@@ -3776,7 +3808,7 @@ function updateShadows(
     return 0;
   }
   light.shadow.intensity = 1;
-  // The casters (island, lighthouse, and since W2.2 the whole harbour ring) are
+  // The casters (island, lighthouse, and all shore stations) are
   // static, so the shadow map only needs re-rendering when the scene, the
   // frustum size, or the sun's bearing changes — not every frame. This keeps
   // the extra pass near-zero cost. Ships stay out of the map for exactly this

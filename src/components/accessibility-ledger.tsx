@@ -257,7 +257,7 @@ function AccessibilityLedgerContent({
         ))}
       </ol>
 
-      <h3>Docks</h3>
+      <h3>Shore stations</h3>
       {world.fleetIssuance ? <p>{fleetIssuanceLedgerLine(world.fleetIssuance)}</p> : null}
       <ol>
         {world.docks.map((dock) => (
@@ -388,7 +388,7 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
   const supplyMomentum = dockSupplyMomentumLabel(dock);
   const quayMasonry = quayMasonryLabel(dock);
   return [
-    `${dock.label}: ${formatCompactUsd(dock.totalUsd)} stablecoin supply`,
+    `${dock.label}: ${dock.station.type.replaceAll("-", " ")} station at ${dock.station.coveId} cove, ${formatCompactUsd(dock.totalUsd)} stablecoin supply`,
     harborRank,
     supplyShare,
     concentration ? `concentration ${concentration}` : null,

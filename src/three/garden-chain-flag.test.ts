@@ -196,6 +196,7 @@ function dock(chainId: string, label: string): DockNode {
     healthBand: "healthy",
     id: `dock.${chainId}`,
     kind: "dock",
+    station: { coveId: "fixture-cove", type: "tea-house-quay", shoreBearing: 0 },
     label,
     logoPath: `/chains/${chainId}.png`,
     size: 7,

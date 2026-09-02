@@ -115,6 +115,9 @@ export const RIM_COVES: readonly RimCove[] = [
   { id: "danger-gorge", body: "danger", tile: { x: 130, y: 59 }, seawardBearing: Math.PI, width: 3 },
   { id: "watch-east-bay", body: "watch", tile: { x: 131, y: 80 }, seawardBearing: Math.PI, width: 5 },
   { id: "watch-south-reed", body: "watch", tile: { x: 121, y: 131 }, seawardBearing: -Math.PI / 2, width: 4 },
+  { id: "watch-south-mole", body: "watch", tile: { x: 131, y: 105 }, seawardBearing: Math.PI, width: 3 },
+  { id: "wreck-salvage-cut", body: "wreck", tile: { x: 55, y: 129 }, seawardBearing: 0, width: 4 },
+  { id: "alert-signal-jetty", body: "alert", tile: { x: 104, y: 12 }, seawardBearing: Math.PI / 2, width: 3 },
 ];
 
 /** Notes for the Wave B1 mesh author; the field itself remains authoritative. */
