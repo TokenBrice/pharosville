@@ -15,6 +15,7 @@ import {
 } from "three";
 import { LightProbeGenerator } from "three/examples/jsm/lights/LightProbeGenerator.js";
 import type { DayCyclePhase } from "./garden-day-cycle";
+import type { TextureOwnerManifestEntry } from "../renderer/render-types";
 
 /**
  * W6.5 — image-based lighting from the world's own sky.
@@ -292,6 +293,8 @@ export interface GardenEnvironmentUpdateOptions {
 export interface GardenEnvironment {
   /** Bakes so far. Test evidence that the probe is cached, not per frame. */
   readonly bakeCount: number;
+  /** PMREM and harmonic-cube textures, including a bake awaiting commitment. */
+  getTextureManifest: () => readonly TextureOwnerManifestEntry[];
   dispose(): void;
   /**
    * Rebakes only when the quantised phase has moved. Safe to call every frame.
@@ -528,6 +531,17 @@ export function createGardenEnvironment(
     waitedSeconds: number;
   } | null = null;
 
+  function getTextureManifest(): readonly TextureOwnerManifestEntry[] {
+    const entries: TextureOwnerManifestEntry[] = [
+      { owner: "garden-environment.sh-cube", texture: shCubeTarget.texture },
+    ];
+    if (target) entries.push({ owner: "garden-environment.pmrem", texture: target.texture });
+    if (pending && pending.target !== target) {
+      entries.push({ owner: "garden-environment.pmrem.pending", texture: pending.target.texture });
+    }
+    return entries;
+  }
+
   /**
    * Renders the dome into the harmonic cube and starts the async projection.
    *
@@ -599,6 +613,7 @@ export function createGardenEnvironment(
     get bakeCount() {
       return bakeCount;
     },
+    getTextureManifest,
     dispose() {
       if (disposed) return;
       disposed = true;

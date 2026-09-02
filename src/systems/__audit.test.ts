@@ -6,7 +6,7 @@ import { gardenShipVisualScale } from "./garden-observatory-slice";
 
 test("map audit", () => {
   const counts: Record<string, number> = {};
-  const margin = gardenShipWaterMarginTiles(gardenShipVisualScale(1));
+  const margin = gardenShipWaterMarginTiles(gardenShipVisualScale(1), "bezaisen");
   let water = 0;
   let eligible = 0;
   for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {

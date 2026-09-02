@@ -12,6 +12,7 @@ import { buildBaseMotionPlan } from "./motion-planning";
 import { warmAllWaterPaths } from "./motion-water";
 import { pathKey } from "./motion-utils";
 import {
+  GARDEN_SILHOUETTE_FOR_HULL,
   gardenShipVisualScale,
   resolveGardenShipDisplayTile,
   selectGardenObservatorySlice,
@@ -47,11 +48,22 @@ function denseWorld() {
   });
 }
 
-function shipMargin(ship: { visual: { scale?: number } }): number {
-  return gardenShipWaterMarginTiles(gardenShipVisualScale(ship.visual.scale || 1));
+function shipMargin(ship: { visual: { hull: keyof typeof GARDEN_SILHOUETTE_FOR_HULL; scale?: number } }): number {
+  return gardenShipWaterMarginTiles(
+    gardenShipVisualScale(ship.visual.scale || 1),
+    GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+  );
 }
 
 describe("garden water exclusion (zones-v2 placement fix)", () => {
+  it("keeps the complete hull inside the finite playable sea at rim openings", () => {
+    const margin = 3;
+    // The north opening has no rim land to provide this clearance, so the map
+    // edge itself must reject a berth whose centre is legal but hull is not.
+    expect(isGardenShipWater({ x: 70, y: margin - 0.001 }, margin)).toBe(false);
+    expect(isGardenShipWater({ x: 70, y: margin }, margin)).toBe(true);
+  });
+
   it("marks the rendered landmasses as obstacles and open sea as water", () => {
     // Island heart and garden islets are obstacles. N1: every landmass is
     // authored in the 56-tile design space and OFFSET onto the 112-tile grid,
@@ -68,11 +80,13 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
     // wreck — the shoals themselves are open, sailable water.
     expect(isObstacleAt(CEMETERY_CENTER)).toBe(true);
     expect(isObstacleAt(landWorldTile({ x: 8, y: 50 }))).toBe(false); // the old islet's water
-    expect(isObstacleAt(zoneWorldTile({ x: 0, y: 55 }))).toBe(false); // deep in the shoals
+    // RIM FIELD: the extreme south-west edge is now the land bank enclosing Wreck Shoal.
+    expect(isObstacleAt(zoneWorldTile({ x: 0, y: 55 }))).toBe(true);
     // Open sea stays open.
     expect(isObstacleAt(zoneWorldTile({ x: 10, y: 30 }))).toBe(false);
     expect(isObstacleAt(zoneWorldTile({ x: 45, y: 10 }))).toBe(false);
-    expect(isObstacleAt(zoneWorldTile({ x: 38, y: 52 }))).toBe(false);
+    // RIM FIELD REVISION 1: the asymmetric south bank is sampled at its deeper western shoulder.
+    expect(isObstacleAt(zoneWorldTile({ x: 38, y: 55 }))).toBe(true);
   });
 
   it("resolves invalid targets to the nearest valid water deterministically", () => {

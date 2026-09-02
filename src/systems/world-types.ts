@@ -11,6 +11,7 @@ export type TileKind = "deep-water" | "water" | "shore" | "land" | "road";
 
 export type TerrainKind =
   | TileKind
+  | "rim"
   | "alert-water"
   | "calm-water"
   | "harbor-water"

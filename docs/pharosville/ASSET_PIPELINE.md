@@ -13,7 +13,7 @@ shader/material work, or DOM.
 | Stablecoin logo | `useShipLogoAssets` → sail atlas | painted symbol and livery |
 | Chain logo | `garden-chain-flag.ts` → flag atlas | painted chain initials and accent flag |
 | Lighthouse GLB | `garden-models.ts` | aligned procedural lighthouse |
-| 17 hero-hull GLBs | `garden-models.ts` | procedural tier hull |
+| 18 hero-hull GLBs | `garden-models.ts` | procedural tier hull |
 | Water normal | `garden-water.ts` | shader water without normal detail |
 | Sail/flag atlases | renderer memory | fallback cloth/mark remains |
 
@@ -25,7 +25,7 @@ to browser code.
 ## Checked models
 
 The model manifest in `src/three/garden-models.ts` is the contract for one
-lighthouse and seventeen hero hulls. It records content-hashed URL, bytes,
+lighthouse and eighteen hero hulls. It records content-hashed URL, bytes,
 hash, dimensions, origin, anchors, pick proxy, geometry budgets, provenance,
 and license. `RUNTIME_FACTS.md` is generated from that manifest.
 

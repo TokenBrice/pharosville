@@ -40,6 +40,7 @@ import { screenToTile } from "../systems/projection";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { PharosVilleWorld, ShipHull, ShipNode } from "../systems/world-types";
 import {
+  GARDEN_HULL_SILHOUETTES,
   selectGardenDocks,
   selectGardenObservatorySlice,
   selectRepresentativeShips,
@@ -74,6 +75,7 @@ type TestWebGlRenderer = {
   compileAsync: ReturnType<typeof vi.fn>;
   dispose: ReturnType<typeof vi.fn>;
   info: {
+    memory: { geometries: number; textures: number };
     render: { calls: number; lines: number; points: number; triangles: number };
   };
   initTexture: ReturnType<typeof vi.fn>;
@@ -102,6 +104,7 @@ type TestGardenPost = {
 
 const postHarness = vi.hoisted(() => ({
   instances: [] as TestGardenPost[],
+  simulateAOTextures: false,
 }));
 
 type TestGardenEnvironment = {
@@ -125,10 +128,15 @@ const environmentHarness = vi.hoisted(() => ({
 // draws via the mocked renderer (keeping `lastScene` populated for the scene
 // assertions) and tracks the tier policy the renderer drives it with.
 vi.mock("./garden-post", () => ({
-  createGardenPost: vi.fn((renderer: { render: (scene: unknown, camera: unknown) => void }, scene: unknown, camera: unknown) => {
+  createGardenPost: vi.fn((renderer: {
+    info: { memory: { textures: number } };
+    render: (scene: unknown, camera: unknown) => void;
+  }, scene: unknown, camera: unknown) => {
     let enabled = true;
     let bloomEnabled = true;
     let aoEnabled = true;
+    let aoZoomDetail = 1;
+    let aoTexturesResident = false;
     const instance: TestGardenPost = {
       dispose: vi.fn(),
       // Mirrors the real getPassList, which lists only the enabled passes.
@@ -145,13 +153,29 @@ vi.mock("./garden-post", () => ({
         : [])),
       isComposerEnabled: vi.fn(() => enabled),
       render: vi.fn(() => {
+        if (
+          postHarness.simulateAOTextures
+          && enabled
+          && aoEnabled
+          && aoZoomDetail > 0
+          && !aoTexturesResident
+        ) {
+          renderer.info.memory.textures += 7;
+          aoTexturesResident = true;
+        }
         renderer.render(scene, camera);
       }),
       setAOTierWeight: vi.fn((value: number) => {
         aoEnabled = value > 0;
       }),
       setAOQuality: vi.fn(),
-      setAOZoomDetail: vi.fn(),
+      setAOZoomDetail: vi.fn((value: number) => {
+        aoZoomDetail = value;
+        if (postHarness.simulateAOTextures && value <= 0 && aoTexturesResident) {
+          renderer.info.memory.textures -= 7;
+          aoTexturesResident = false;
+        }
+      }),
       setBloomEnabled: vi.fn((value: boolean) => {
         bloomEnabled = value;
       }),
@@ -266,6 +290,7 @@ vi.mock("three", async (importOriginal) => {
 beforeEach(() => {
   rendererHarness.instances.length = 0;
   postHarness.instances.length = 0;
+  postHarness.simulateAOTextures = false;
   environmentHarness.instances.length = 0;
   Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
     configurable: true,
@@ -301,6 +326,24 @@ describe("disposeThreeObjectTree", () => {
 });
 
 describe("Three world renderer lifecycle", () => {
+  it("allocates one hull and one sail batch for each of the six fleet families", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(world, "full"));
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+
+    expect(GARDEN_HULL_SILHOUETTES).toHaveLength(6);
+    for (const silhouette of GARDEN_HULL_SILHOUETTES) {
+      expect(scene.getObjectByName(`fleet-hull-${silhouette}`)).toBeInstanceOf(InstancedMesh);
+      expect(scene.getObjectByName(`fleet-sails-${silhouette}`)).toBeInstanceOf(InstancedMesh);
+    }
+    expect(scene.getObjectByName("fleet-pennants")).toBeInstanceOf(InstancedMesh);
+    renderer.dispose();
+  });
+
   it("luffs chain flags in gusts and restores zero roll for reduced motion", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({
@@ -590,6 +633,69 @@ describe("Three world renderer lifecycle", () => {
 
     renderer.dispose();
     expect(post.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("sheds overview AO before its render targets are first used", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    const post = postHarness.instances.at(-1)!;
+
+    renderer.render(rendererFrame(world, "full", {
+      cameraZoom: 0.28,
+      timeSeconds: 1 / 60,
+    }));
+
+    // The animated overview LOD eases its own detail value from 1, but the
+    // hidden-zoom target is already exact. The post owner must see that target
+    // so N8AO cannot upload resources for a pass that is not drawn.
+    expect(post.setAOZoomDetail).toHaveBeenLastCalledWith(0);
+    renderer.dispose();
+  });
+
+  it("releases overview AO textures after a default-to-whole-map transition settles", () => {
+    postHarness.simulateAOTextures = true;
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+
+    const freshWhole = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    freshWhole.render(rendererFrame(world, "full", {
+      cameraZoom: 0.28,
+      timeSeconds: 1 / 60,
+    }));
+    const freshWholeTextureCount = rendererHarness.instances.at(-1)!.info.memory.textures;
+    freshWhole.dispose();
+
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(world, "full", { timeSeconds: 1 / 60 }));
+    const webgl = rendererHarness.instances.at(-1)!;
+    const post = postHarness.instances.at(-1)!;
+    expect(webgl.info.memory.textures).toBe(freshWholeTextureCount + 7);
+
+    renderer.render(rendererFrame(world, "full", {
+      cameraZoom: 0.28,
+      timeSeconds: 2 / 60,
+    }));
+    const crossingDetail = post.setAOZoomDetail.mock.calls.at(-1)?.[0] as number;
+    expect(crossingDetail).toBeGreaterThan(0);
+    expect(crossingDetail).toBeLessThan(1);
+
+    for (let frame = 3; frame <= 120; frame += 1) {
+      renderer.render(rendererFrame(world, "full", {
+        cameraZoom: 0.28,
+        timeSeconds: frame / 60,
+      }));
+    }
+    expect(post.setAOZoomDetail).toHaveBeenLastCalledWith(0);
+    expect(webgl.info.memory.textures).toBeLessThanOrEqual(freshWholeTextureCount);
+    renderer.dispose();
   });
 
   it("reveals inspection detail only for Explore or the focused entity", () => {
@@ -1004,9 +1110,18 @@ describe("W4.2 garden-tempo transition queue", () => {
   });
 
   it("lets sub-five-percent churn sail, then snaps twenty-percent churn and clears it", () => {
+    const exactEdge = { x: 70, y: 0.5 };
+    const edgeJourney = transition({
+      from: exactEdge,
+      to: { x: 70, y: 20 },
+    });
+    const edgeStart = sampleGardenShipTransition(edgeJourney, edgeJourney.startSeconds);
+    const edgeSailing = sampleGardenShipTransition(edgeJourney, edgeJourney.startSeconds + 1);
+    expect(Math.hypot(edgeSailing.x - edgeStart.x, edgeSailing.y - edgeStart.y)).toBeLessThan(0.5);
+
     const worldA = denseRendererWorld();
-    const slice = selectGardenObservatorySlice(worldA, null);
-    const subject = slice.ships.find((entry) => entry.ship.riskZone !== "danger")!.ship;
+    const subject = selectGardenObservatorySlice(worldA, null).ships
+      .find((entry) => entry.ship.riskZone !== "danger")!.ship;
     const lowChurn = withDangerShips(worldA, new Set([subject.id]));
     const massCount = Math.ceil(worldA.ships.length * 0.2);
     const massIds = new Set(worldA.ships.slice(0, massCount).map((ship) => ship.id));

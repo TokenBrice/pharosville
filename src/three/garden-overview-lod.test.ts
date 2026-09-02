@@ -81,8 +81,9 @@ describe("createGardenOverviewLod", () => {
     expect(OVERVIEW_LOD_DETAIL_NAMES).toEqual(expect.arrayContaining([
       "island-koi",
       "island-niwaki",
-      "island-raked-gravel",
     ]));
+    // The path is now a primary island read, not a toy-scale gravel apron.
+    expect(OVERVIEW_LOD_DETAIL_NAMES).not.toContain("island-path-sweep");
   });
 
   it("leaves the authored transform untouched above the band", () => {

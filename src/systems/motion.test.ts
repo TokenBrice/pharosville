@@ -26,6 +26,20 @@ describe("motion", () => {
     cemeteryEntries: [],
     freshness: {},
   });
+  // Rim-aware dense patrol planning is intentionally substantial. Build this
+  // immutable fixture once outside individual test timeout windows; the tests
+  // below only read the world and route plan.
+  const denseWorldFixture = buildPharosVilleWorld({
+    stablecoins: denseFixtureStablecoins,
+    chains: denseFixtureChains,
+    stability: fixtureStability,
+    pegSummary: denseFixturePegSummary,
+    stress: denseFixtureStress,
+    reportCards: denseFixtureReportCards,
+    cemeteryEntries: [],
+    freshness: {},
+  });
+  const densePlanFixture = buildBaseMotionPlan(denseWorldFixture);
 
   it("keeps dockless patrols meaningful across every risk water zone", () => {
     const cases: Array<{ expectedTerrains: string[]; minDistance: number; zone: ShipWaterZone; world: PharosVilleWorld }> = [
@@ -113,6 +127,14 @@ describe("motion", () => {
       expect(stats.riskDriftSamples).toBeGreaterThan(0);
       expect(stats.maxRiskSpeed).toBe(0);
     }
+
+    // N3: the authored water still sizes each band's patrol reach.
+    //
+    // Amplitude is sized to each band's own water — storm-water is ~190 tiles
+    // while calm-water is ~5,900 — because a leg that overruns its region
+    // would carry a ship out of the water it is labelled with and break the
+    // analytical claim. So the calm itinerary is widest and danger tightest.
+    expect(danger.maxRiskDistance).toBeLessThan(calm.maxRiskDistance);
 
     expect(calm.maxSailingWake).toBeLessThan(watch.maxSailingWake);
     expect(watch.maxSailingWake).toBeLessThan(alert.maxSailingWake);
@@ -472,17 +494,8 @@ describe("motion", () => {
   });
 
   it("keeps dense-fleet legs perceptible, staggered, and water-safe at 50 deterministic clock samples", () => {
-    const denseWorld = buildPharosVilleWorld({
-      stablecoins: denseFixtureStablecoins,
-      chains: denseFixtureChains,
-      stability: fixtureStability,
-      pegSummary: denseFixturePegSummary,
-      stress: denseFixtureStress,
-      reportCards: denseFixtureReportCards,
-      cemeteryEntries: [],
-      freshness: {},
-    });
-    const plan = buildMotionPlan(denseWorld, null);
+    const denseWorld = denseWorldFixture;
+    const plan = densePlanFixture;
     const routes = [...plan.shipRoutes.values()];
     const legDurations = routes.map((route) => route.legDurationSeconds);
     const restDurations = routes.map((route) => route.restDurationSeconds);
@@ -545,16 +558,7 @@ describe("motion", () => {
   }, 15_000);
 
   it("keeps identity timing distinct when every ship shares an extreme flow pace", () => {
-    const denseWorld = buildPharosVilleWorld({
-      stablecoins: denseFixtureStablecoins,
-      chains: denseFixtureChains,
-      stability: fixtureStability,
-      pegSummary: denseFixturePegSummary,
-      stress: denseFixtureStress,
-      reportCards: denseFixtureReportCards,
-      cemeteryEntries: [],
-      freshness: {},
-    });
+    const denseWorld = denseWorldFixture;
 
     for (const flowIntensity of [0, 100]) {
       const flowWorld = {
@@ -576,17 +580,8 @@ describe("motion", () => {
   }, 15_000);
 
   it("keeps identity phases stable across roster changes and pairs harbour boundary events", () => {
-    const denseWorld = buildPharosVilleWorld({
-      stablecoins: denseFixtureStablecoins,
-      chains: denseFixtureChains,
-      stability: fixtureStability,
-      pegSummary: denseFixturePegSummary,
-      stress: denseFixtureStress,
-      reportCards: denseFixtureReportCards,
-      cemeteryEntries: [],
-      freshness: {},
-    });
-    const fullPlan = buildBaseMotionPlan(denseWorld);
+    const denseWorld = denseWorldFixture;
+    const fullPlan = densePlanFixture;
     const removedId = denseWorld.ships.find((ship) => !ship.squadId)?.id ?? denseWorld.ships[0]!.id;
     const reducedWorld = { ...denseWorld, ships: denseWorld.ships.filter((ship) => ship.id !== removedId) };
     const reducedPlan = buildBaseMotionPlan(reducedWorld);
@@ -1007,11 +1002,10 @@ describe("motion", () => {
 
   it("routes over semantic water terrain only", () => {
     const map = buildPharosVilleMap();
-    // N1: zone water is authored in the 56-tile design space and scaled onto
-    // the 112-tile grid, so both endpoints take the zone transform — the route
-    // still runs from the east-corner storm core across the top shelf.
+    // RIM FIELD REVISION 1: Danger now meets the upper east headland below its
+    // unequal opening, so the route begins at that measured storm-water mouth.
     const route = buildShipWaterRoute({
-      from: zoneWorldTile({ x: 55, y: 0 }),
+      from: { x: 130, y: 59 },
       to: zoneWorldTile({ x: 35, y: 10 }),
       map,
     });
@@ -1137,19 +1131,10 @@ describe("motion", () => {
       cemeteryEntries: [],
       freshness: {},
     });
-    const denseWorld = buildPharosVilleWorld({
-      stablecoins: denseFixtureStablecoins,
-      chains: denseFixtureChains,
-      stability: fixtureStability,
-      pegSummary: denseFixturePegSummary,
-      stress: denseFixtureStress,
-      reportCards: denseFixtureReportCards,
-      cemeteryEntries: [],
-      freshness: {},
-    });
+    const denseWorld = denseWorldFixture;
 
     for (const world of [sampleWorld, denseWorld]) {
-      const plan = buildMotionPlan(world, null);
+      const plan = world === denseWorld ? densePlanFixture : buildMotionPlan(world, null);
       for (const ship of world.ships.filter((entry) => entry.dockVisits.length > 0)) {
         const route = plan.shipRoutes.get(ship.id)!;
         let closest = Number.POSITIVE_INFINITY;
@@ -1628,17 +1613,8 @@ describe("motion", () => {
     it("docked-fleet phaseSeconds desynchronize so harbors do not moor in lockstep", () => {
       // Many docked ships at once: the dense fixture exercises the harbor
       // crowd path that motivated this invariant.
-      const denseWorld = buildPharosVilleWorld({
-        stablecoins: denseFixtureStablecoins,
-        chains: denseFixtureChains,
-        stability: fixtureStability,
-        pegSummary: denseFixturePegSummary,
-        stress: denseFixtureStress,
-        reportCards: denseFixtureReportCards,
-        cemeteryEntries: [],
-        freshness: {},
-      });
-      const plan = buildMotionPlan(denseWorld, null);
+      const denseWorld = denseWorldFixture;
+      const plan = densePlanFixture;
       const dockedShips = denseWorld.ships.filter((ship) => ship.dockVisits.length > 0);
       expect(dockedShips.length).toBeGreaterThan(8);
 

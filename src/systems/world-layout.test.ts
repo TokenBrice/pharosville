@@ -74,15 +74,15 @@ describe("buildPharosVilleMap", () => {
     // wreck shoals), removing its ~65 land tiles, and the measured share is now
     // 0.9699. The invariant that still holds exactly is the absolute main-island
     // footprint asserted just below.
-    // H4: MAP_SCALE 2 -> 2.5 grew the sea again around the same island, so
-    // the measured share rose from 0.9699 to 0.9807.
-    expect(map.waterRatio).toBeGreaterThanOrEqual(0.978);
-    expect(map.waterRatio).toBeLessThanOrEqual(0.982);
+    // RIM FIELD REVISION 1: 3,205 asymmetric rim tiles move the measured water ratio to 0.8172.
+    expect(map.waterRatio).toBeGreaterThanOrEqual(0.815);
+    expect(map.waterRatio).toBeLessThanOrEqual(0.819);
     const mainIslandLandTiles = landTilesExcludingIslets(map.tiles);
     // Baseline was 592 main-island land tiles; 377 is a 36.3% reduction
     // resulting from the single-oval + lighthouse-promontory geometry. Neither
     // the N1 map growth nor the N2 cemetery drowning may change this — the
     // island is offset, not scaled, and the cemetery was never part of it.
+    // RIM FIELD REVISION 1: the rim reshape remains disjoint, so the island stays exactly 377 tiles.
     expect(mainIslandLandTiles).toHaveLength(377);
     const mainIslandBounds = landBoundsExcludingIslets(map.tiles);
     const islandEnvelopeMin = landWorldTile({ x: 15, y: 22 });
@@ -125,6 +125,7 @@ describe("buildPharosVilleMap", () => {
       "warning-water",
       "storm-water",
       "wreck-water",
+      "rim",
       "grass",
       "rock",
     ]));
@@ -193,6 +194,7 @@ describe("buildPharosVilleMap", () => {
    */
   it("gives every named body a share close to its traffic target", () => {
     const { shares, total } = bodyShares();
+    // RIM FIELD REVISION 1: recalibration puts all eight shares within 0.01 point over 16,001 body tiles.
     expect(total).toBeGreaterThan(15_000);
     for (const [body, target] of Object.entries(SEA_BODY_TARGET_SHARE)) {
       expect(shares[body as SeaBodyName], body).toBeGreaterThan(0);
@@ -208,6 +210,7 @@ describe("buildPharosVilleMap", () => {
     // two if its seeds are pulled apart — and a Calm Anchorage in two halves is
     // not an anchorage. Ships also path within their own water, so a detached
     // fragment is a place the fleet can be stranded.
+    // RIM FIELD REVISION 1: the weakest hooked bodies still measure Ledger 0.936 and Alert 0.956 contiguous.
     for (const body of SEA_BODY_NAMES) {
       const tiles = seaBodyTiles(body);
       expect(tiles.length, body).toBeGreaterThan(0);
@@ -240,6 +243,7 @@ describe("buildPharosVilleMap", () => {
     // Anchors are farthest-point sampled from the body itself (Z3), so this is
     // the guard that the derivation stays honest — an anchor outside its body
     // silently reroutes the whole placement to the nearest edge.
+    // RIM FIELD REVISION 1: the new Ledger and Danger shore spurs keep all fourteen derived anchors body-local.
     for (const body of SEA_BODY_NAMES) {
       const terrain = SEA_BODY_TERRAIN[body];
       for (const anchor of seaBodyAnchors(body, 14)) {
@@ -440,6 +444,8 @@ function landBoundsExcludingIslets(tiles: PharosVilleTile[]) {
 function landTilesExcludingIslets(tiles: PharosVilleTile[]) {
   const pigeonRadius = 2;
   return tiles.filter((tile) => {
+    // RIM FIELD: perimeter land is real terrain but not part of the unchanged 377-tile lighthouse island.
+    if (tile.terrain === "rim") return false;
     if (isWaterTileKind(tile.kind)) return false;
     const dPigeon = Math.hypot(tile.x - PIGEON_ISLAND_CENTER.x, tile.y - PIGEON_ISLAND_CENTER.y);
     return dPigeon > pigeonRadius;

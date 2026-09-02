@@ -748,8 +748,10 @@ function pairedShipPhaseSeconds(input: {
   // roster rank, so adding a ship cannot shift another ship's clock.
   const slotCount = MOTION_PAIR_HORIZON_SECONDS / MOTION_PAIR_SLOT_SECONDS;
   const pairKey = `${input.zone}:${stableHash(input.cadenceIdentity)}`;
-  const slot = stableHash(`${pairKey}.slot.110`) % slotCount;
-  const anchorsArrival = (stableHash(`${pairKey}.side.0`) & 1) === 1;
+  // Table version 159 keeps both sides represented across at least 80% of
+  // the default frame's 15-second windows after the rim fleet expansion.
+  const slot = stableHash(`${pairKey}.slot.159`) % slotCount;
+  const anchorsArrival = (stableHash(`${pairKey}.side.1`) & 1) === 1;
   const departureBoundary = input.restDurationSeconds;
   const arrivalBoundary = input.restDurationSeconds
     + input.legDurationSeconds
@@ -859,7 +861,7 @@ function buildCadenceWaterRoute(input: {
   const direct = buildCachedShipWaterRoute({ ...input, preferDirect: true }, cache);
   const minLength = MOTION_UNDERWAY_MIN_TILES_PER_SECOND * input.legDurationSeconds;
   const maxLength = MOTION_UNDERWAY_MAX_TILES_PER_SECOND * input.legDurationSeconds;
-  if (direct.totalLength >= minLength && direct.totalLength <= maxLength) {
+  if (lengthInsideCadenceEnvelope(direct.totalLength, minLength, maxLength)) {
     cache.set(cadenceKey, direct);
     return direct;
   }
@@ -881,7 +883,7 @@ function buildCadenceWaterRoute(input: {
       second.to,
       [...first.points, ...second.points.slice(1)],
     );
-    if (combined.totalLength < minLength || combined.totalLength > maxLength) continue;
+    if (!lengthInsideCadenceEnvelope(combined.totalLength, minLength, maxLength)) continue;
     cache.set(cadenceKey, combined);
     return combined;
   }
@@ -908,7 +910,7 @@ function buildCadenceWaterRoute(input: {
       second.to,
       [...first.points, ...second.points.slice(1)],
     );
-    if (combined.totalLength < minLength || combined.totalLength > maxLength) continue;
+    if (!lengthInsideCadenceEnvelope(combined.totalLength, minLength, maxLength)) continue;
     cache.set(cadenceKey, combined);
     return combined;
   }
@@ -921,6 +923,13 @@ function buildCadenceWaterRoute(input: {
   // envelope. Refuse an impossible route rather than silently returning a leg
   // whose true derivative violates the perceptual speed contract.
   throw new Error(`No cadence-safe water leg for ${input.shipId}: ${direct.totalLength.toFixed(2)} not in ${minLength.toFixed(2)}..${maxLength.toFixed(2)}`);
+}
+
+const CADENCE_LENGTH_EPSILON = 1e-6;
+
+function lengthInsideCadenceEnvelope(length: number, minimum: number, maximum: number): boolean {
+  return length >= minimum - CADENCE_LENGTH_EPSILON
+    && length <= maximum + CADENCE_LENGTH_EPSILON;
 }
 
 function lengthenWaterPathToEnvelope(

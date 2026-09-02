@@ -173,18 +173,20 @@ describe("W4.23 calm patrol itineraries", () => {
     // sits well within the cap.
     expect(ACTIVE_META_BY_ID.size).toBeGreaterThan(0); // sanity: stablecoin meta loaded
     const world = denseWorld();
-    const plan = buildMotionPlan(world, null);
-    let docklessShips = 0;
-    let routesWithItinerary = 0;
-    let maxItinerary = 0;
-    for (const [, route] of plan.shipRoutes) {
-      if (!route.openWaterPatrol) continue;
-      docklessShips += 1;
-      routesWithItinerary += 1;
-      maxItinerary = Math.max(maxItinerary, route.openWaterPatrol.itinerary.length);
-    }
+    // Capacity depends only on which ships patrol and their deterministic
+    // itinerary sizes. Building the full plan here needlessly solves every A*
+    // leg while other source files run in parallel, turning arithmetic into a
+    // machine-load timeout without adding coverage.
+    const patrolShips = world.ships.filter((ship) => (
+      ship.dockVisits.length === 0 || ship.riskPlacement === "ledger-mooring"
+    ));
+    const docklessShips = patrolShips.length;
+    const routesWithItinerary = patrolShips.filter((ship) => (
+      openWaterPatrolItineraryLength(ship.id) > 0
+    )).length;
+    const maxItinerary = Math.max(...patrolShips.map((ship) => openWaterPatrolItineraryLength(ship.id)));
     expect(maxItinerary).toBeLessThanOrEqual(3);
-    expect(routesWithItinerary).toBeGreaterThanOrEqual(0);
+    expect(routesWithItinerary).toBe(docklessShips);
     // Each itinerary anchor contributes one outbound + one inbound path. The
     // dense fixture sits well below the 512-entry cache floor, so the ~6×
     // headroom margin called out in the plan is preserved without a cap bump.

@@ -63,13 +63,12 @@ export const GARDEN_LIGHTHOUSE_HEIGHT = 34;
 // rect and label anchor derive from these constants.
 
 export type GardenHullSilhouette =
-  | "galleon"
-  | "indiaman"
-  | "clipper"
-  | "barque"
-  | "schooner"
+  | "bezaisen"
+  | "kobaya"
+  | "twinhull"
+  | "takasebune"
   | "junk"
-  | "hoy";
+  | "scow";
 export type GardenSemanticView = "analyze" | "explore" | "overview";
 
 // S5 / decision D-S5: the data-side 0.7–3.0 scale keeps a ~3.7× VISUAL spread
@@ -98,14 +97,14 @@ export function gardenShipVisualScale(dataScale: number): number {
 
 export const GARDEN_SILHOUETTE_FOR_HULL: Record<ShipHull, GardenHullSilhouette> = {
   "algo-junk": "junk",
-  "chartered-brigantine": "clipper",
-  "commodity-peg-hoy": "hoy",
-  "crypto-caravel": "clipper",
-  "dao-schooner": "schooner",
+  "chartered-brigantine": "bezaisen",
+  "commodity-peg-hoy": "scow",
+  "crypto-caravel": "kobaya",
+  "dao-schooner": "twinhull",
   "foreign-peg-junk": "junk",
-  "treasury-galleon": "galleon",
-  "yield-barque": "barque",
-  "yield-indiaman": "indiaman",
+  "treasury-galleon": "bezaisen",
+  "yield-barque": "takasebune",
+  "yield-indiaman": "takasebune",
 };
 
 /**
@@ -114,7 +113,7 @@ export const GARDEN_SILHOUETTE_FOR_HULL: Record<ShipHull, GardenHullSilhouette> 
  * list, so adding a silhouette here is the only edit either needs.
  */
 export const GARDEN_HULL_SILHOUETTES = [
-  "galleon", "indiaman", "clipper", "barque", "schooner", "junk", "hoy",
+  "bezaisen", "kobaya", "twinhull", "takasebune", "junk", "scow",
 ] as const satisfies readonly GardenHullSilhouette[];
 
 export interface GardenShipPlacement {
@@ -215,7 +214,10 @@ export function resolveGardenShipDisplayTile(input: {
   if (sample?.state === "moored" || sample?.state === "arriving" || sample?.state === "departing") {
     return display;
   }
-  const margin = gardenShipWaterMarginTiles(gardenShipVisualScale(ship.visual.scale || 1));
+  const margin = gardenShipWaterMarginTiles(
+    gardenShipVisualScale(ship.visual.scale || 1),
+    GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+  );
   return isGardenShipWater(display, margin)
     ? display
     : nearestGardenShipWater(display, margin, `motion-display.${ship.id}`);
