@@ -69,6 +69,19 @@ describe("buildVisualCueRegistry", () => {
     expect(cue?.domEquivalent).toContain("not market-cap tier");
   });
 
+  it("documents all six hull-family silhouettes and their complete classification source", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.hull");
+
+    for (const family of ["bezaisen", "kobaya", "paired-hull", "takasebune", "junk", "scow"]) {
+      expect(cue?.visual).toContain(family);
+    }
+    expect(cue?.sourceField).toContain("governance");
+    expect(cue?.sourceField).toContain("backing");
+    expect(cue?.sourceField).toContain("yieldBearing");
+    expect(cue?.sourceField).toContain("pegCurrency");
+    expect(cue?.domEquivalent).toContain("accessibility-ledger");
+  });
+
   it("registers the per-ship issuance workset with complete parity", () => {
     expect(buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.issuance-work")).toMatchObject({
       target: { kind: "ship" },

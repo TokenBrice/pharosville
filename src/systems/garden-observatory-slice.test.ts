@@ -12,6 +12,8 @@ import { SEA_REGION_ID, seaRegionAtTile } from "./garden-sea-regions";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   GARDEN_SHIP_ROOT_Y,
+  GARDEN_HULL_SILHOUETTES,
+  GARDEN_SILHOUETTE_FOR_HULL,
   GARDEN_OVERVIEW_SHIP_LIMIT,
   gardenAreaCenterTile,
   gardenAreaDisplayTile,
@@ -30,6 +32,24 @@ import { tileToScreen } from "./projection";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
 
 describe("Garden Observatory slice", () => {
+  it("maps all nine semantic hull classes onto exactly six East-Asian families", () => {
+    expect(GARDEN_SILHOUETTE_FOR_HULL).toEqual({
+      "algo-junk": "junk",
+      "chartered-brigantine": "bezaisen",
+      "commodity-peg-hoy": "scow",
+      "crypto-caravel": "kobaya",
+      "dao-schooner": "twinhull",
+      "foreign-peg-junk": "junk",
+      "treasury-galleon": "bezaisen",
+      "yield-barque": "takasebune",
+      "yield-indiaman": "takasebune",
+    });
+    expect(Object.keys(GARDEN_SILHOUETTE_FOR_HULL)).toHaveLength(9);
+    expect(new Set(Object.values(GARDEN_SILHOUETTE_FOR_HULL)))
+      .toEqual(new Set(GARDEN_HULL_SILHOUETTES));
+    expect(GARDEN_HULL_SILHOUETTES).toHaveLength(6);
+  });
+
   it("derives Overview, Explore, and Analyze without a second mode state", () => {
     expect(gardenSemanticView(0.8, null)).toBe("overview");
     expect(gardenSemanticView(1.05, null)).toBe("explore");
