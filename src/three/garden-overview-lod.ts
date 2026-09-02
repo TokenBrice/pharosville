@@ -58,7 +58,6 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   "island-quay-stair",
   "island-koi",
   "island-niwaki",
-  "island-raked-gravel",
   "lighthouse-shore-props",
   "pharos-precinct-obelisks",
   // Per-hero badges, ×~29 hulls, and the three hero gull flocks.
