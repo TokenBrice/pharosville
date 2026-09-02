@@ -12,6 +12,7 @@ import { buildBaseMotionPlan } from "./motion-planning";
 import { warmAllWaterPaths } from "./motion-water";
 import { pathKey } from "./motion-utils";
 import {
+  GARDEN_SILHOUETTE_FOR_HULL,
   gardenShipVisualScale,
   resolveGardenShipDisplayTile,
   selectGardenObservatorySlice,
@@ -47,8 +48,11 @@ function denseWorld() {
   });
 }
 
-function shipMargin(ship: { visual: { scale?: number } }): number {
-  return gardenShipWaterMarginTiles(gardenShipVisualScale(ship.visual.scale || 1));
+function shipMargin(ship: { visual: { hull: keyof typeof GARDEN_SILHOUETTE_FOR_HULL; scale?: number } }): number {
+  return gardenShipWaterMarginTiles(
+    gardenShipVisualScale(ship.visual.scale || 1),
+    GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+  );
 }
 
 describe("garden water exclusion (zones-v2 placement fix)", () => {
