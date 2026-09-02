@@ -5,6 +5,7 @@ import {
   Matrix4,
   Mesh,
   Object3D,
+  Quaternion,
   Texture,
   Vector3,
 } from "three";
@@ -59,29 +60,44 @@ describe("garden landmarks", () => {
     }
   });
 
-  it("stages seven representative wreck reads in three silhouette draws", () => {
+  it("stages five to seven representative graves in at most three silhouette draws", () => {
     const graves = wreckField(24);
     const cemetery = createGardenCemetery(graves);
-    const wreckBatches: InstancedMesh[] = [];
+    const renderedBatches: InstancedMesh[] = [];
     cemetery.root.traverse((object) => {
       if (
         object instanceof InstancedMesh
         && object.name.startsWith("cemetery-wrecks-")
       ) {
-        wreckBatches.push(object);
+        renderedBatches.push(object);
       }
     });
 
-    expect(wreckBatches.map((batch) => batch.name).sort()).toEqual([
+    expect(renderedBatches.map((batch) => batch.name).sort()).toEqual([
+      "cemetery-wrecks-bare-remains",
       "cemetery-wrecks-broken-keel",
-      "cemetery-wrecks-remains",
       "cemetery-wrecks-substantial",
     ]);
-    expect(wreckBatches.reduce((sum, batch) => sum + batch.count, 0)).toBe(7);
-    expect(new Set(wreckBatches.map((batch) => batch.geometry.getAttribute("position").count)).size)
+    expect(renderedBatches.reduce((sum, batch) => sum + batch.count, 0)).toBe(7);
+    expect(new Set(renderedBatches.map((batch) => batch.geometry.getAttribute("position").count)).size)
       .toBe(3);
     expect(objectCount(cemetery.root)).toBe(3);
     expect(hasTexture(cemetery.root)).toBe(false);
+    expect(renderedBatches.filter((batch) => batch.geometry.userData.hasClusterPool))
+      .toHaveLength(1);
+    expect(renderedBatches.reduce((visiblePools, batch) => {
+      const visibility = batch.geometry.getAttribute("poolVisible");
+      return visiblePools + Array.from(
+        { length: visibility.count },
+        (_, index) => visibility.getX(index),
+      ).reduce((sum, value) => sum + value, 0);
+    }, 0)).toBe(1);
+
+    for (const available of [4, 5, 6, 7, 12]) {
+      const rendered = wreckBatches(createGardenCemetery(wreckField(available)).root)
+        .reduce((sum, batch) => sum + batch.count, 0);
+      expect(rendered).toBe(Math.min(available, 7));
+    }
   });
 
   it("holds the whole wreck field inside a flat draw budget", () => {
@@ -95,7 +111,7 @@ describe("garden landmarks", () => {
     expect(readCount).toBe(7);
   });
 
-  it("sits every wreck in the water rather than on a plinth", () => {
+  it("sinks 60–80 percent of each hull at the waterline", () => {
     const cemetery = createGardenCemetery(wreckField(24));
     const matrix = new Matrix4();
     const position = new Vector3();
@@ -106,8 +122,9 @@ describe("garden landmarks", () => {
       for (let index = 0; index < object.count; index += 1) {
         object.getMatrixAt(index, matrix);
         position.setFromMatrixPosition(matrix);
-        // Local space: the root sits at y=0, so the sea surface is WATER_Y.
-        expect(position.y).toBeLessThanOrEqual(-1.45);
+        // Local space: the root sits at y=0, so the instance origin is the
+        // canonical WATER_Y and the geometry is sunk around its own y=0.
+        expect(position.y).toBeCloseTo(-1.45, 6);
         const tile = {
           x: Math.round(CEMETERY_CENTER.x + position.x / Math.SQRT2),
           y: Math.round(CEMETERY_CENTER.y + position.z / Math.SQRT2),
@@ -117,11 +134,48 @@ describe("garden landmarks", () => {
         expect(rimLandAt(tile.x, tile.y), `${object.name}.${index}`).toBe(false);
         checked += 1;
       }
+
+      const positions = object.geometry.getAttribute("position");
+      const roles = object.geometry.getAttribute("wreckRole");
+      const hullYs = Array.from({ length: positions.count }, (_, index) => index)
+        .filter((index) => roles.getX(index) === 1)
+        .map((index) => positions.getY(index));
+      const minY = Math.min(...hullYs);
+      const maxY = Math.max(...hullYs);
+      const sinkFraction = (0 - minY) / (maxY - minY);
+      expect(sinkFraction).toBeGreaterThanOrEqual(0.6);
+      expect(sinkFraction).toBeLessThanOrEqual(0.8);
+      expect(sinkFraction).toBeCloseTo(object.geometry.userData.sinkFraction, 5);
     });
     expect(checked).toBe(7);
   });
 
-  it("keeps every cause colour while shedding cloth and lantern furniture", () => {
+  it("keeps each family readable above water beside a taller stone marker", () => {
+    const cemetery = createGardenCemetery(wreckField(24));
+    const cues = new Set<string>();
+    for (const batch of wreckBatches(cemetery.root)) {
+      const positions = batch.geometry.getAttribute("position");
+      const roles = batch.geometry.getAttribute("wreckRole");
+      const yForRole = (role: number) => Array.from(
+        { length: positions.count },
+        (_, index) => index,
+      ).filter((index) => roles.getX(index) === role)
+        .map((index) => positions.getY(index));
+      const readableSilhouette = yForRole(3);
+      const stone = yForRole(4);
+      expect(readableSilhouette.length).toBeGreaterThan(0);
+      expect(Math.max(...readableSilhouette)).toBeGreaterThan(0.35);
+      expect(Math.max(...stone)).toBeGreaterThan(Math.max(...readableSilhouette));
+      cues.add(batch.geometry.userData.aboveWaterCue);
+      for (const nominalPixels of batch.userData.nominalPixelLengths) {
+        expect(nominalPixels).toBeGreaterThanOrEqual(40);
+        expect(nominalPixels).toBeLessThanOrEqual(60);
+      }
+    }
+    expect(cues).toEqual(new Set(["intact-gunwale", "angled-halves", "ribs-only"]));
+  });
+
+  it("restricts every cause colour to the small marker stain", () => {
     const graves = [
       grave("grave.a", "grounded", CEMETERY_CENTER.x, CEMETERY_CENTER.y),
       grave("grave.b", "sinking-stern", CEMETERY_CENTER.x + 1, CEMETERY_CENTER.y),
@@ -137,16 +191,30 @@ describe("garden landmarks", () => {
     for (const batch of wreckBatches(cemetery.root)) {
       const masks = batch.geometry.getAttribute("causeMask");
       const colors = batch.geometry.getAttribute("color");
+      const roles = batch.geometry.getAttribute("wreckRole");
+      expect(batch.userData.causeColorRole).toBe("marker-stain-only");
+      expect(batch.geometry.userData.causeColorRole).toBe("marker-stain-only");
       expect(Array.from({ length: masks.count }, (_, index) => masks.getX(index)))
         .toContain(0);
       expect(Array.from({ length: masks.count }, (_, index) => masks.getX(index)))
         .toContain(1);
-      const paleIndex = Array.from({ length: masks.count }, (_, index) => index)
-        .find((index) => masks.getX(index) === 0)!;
-      const expectedPale = new Color("#b2ad98");
-      expect(colors.getX(paleIndex)).toBeCloseTo(expectedPale.r, 6);
-      expect(colors.getY(paleIndex)).toBeCloseTo(expectedPale.g, 6);
-      expect(colors.getZ(paleIndex)).toBeCloseTo(expectedPale.b, 6);
+      const causeVertices = Array.from({ length: masks.count }, (_, index) => index)
+        .filter((index) => masks.getX(index) === 1);
+      expect(causeVertices.every((index) => roles.getX(index) === 2)).toBe(true);
+      const causeXs = causeVertices.map((index) => batch.geometry.getAttribute("position").getX(index));
+      const causeZs = causeVertices.map((index) => batch.geometry.getAttribute("position").getZ(index));
+      expect(Math.max(...causeXs) - Math.min(...causeXs)).toBeLessThan(0.3);
+      expect(Math.max(...causeZs) - Math.min(...causeZs)).toBeLessThan(0.3);
+      const nonCauseColors = new Set(
+        Array.from({ length: masks.count }, (_, index) => index)
+          .filter((index) => masks.getX(index) === 0)
+          .map((index) => new Color(
+            colors.getX(index),
+            colors.getY(index),
+            colors.getZ(index),
+          ).getHexString()),
+      );
+      expect(nonCauseColors.size).toBeGreaterThanOrEqual(4);
       for (let index = 0; index < batch.count; index += 1) {
         batch.getColorAt(index, color);
         actual.add(`#${color.getHexString()}`);
@@ -155,22 +223,43 @@ describe("garden landmarks", () => {
     expect(actual).toEqual(new Set(Object.values(CAUSE_HEX)));
   });
 
-  it("places wrecks deterministically", () => {
+  it("scales each hull from its grave value without exceeding the fleet-safe cap", () => {
+    const small = grave("grave.small", "grounded", CEMETERY_CENTER.x, CEMETERY_CENTER.y);
+    small.visual.scale = 0.25;
+    const large = grave("grave.large", "grounded", CEMETERY_CENTER.x + 1, CEMETERY_CENTER.y);
+    large.visual.scale = 0.45;
+    const extreme = grave("grave.extreme", "grounded", CEMETERY_CENTER.x + 2, CEMETERY_CENTER.y);
+    extreme.visual.scale = 4;
+    const batch = wreckBatches(createGardenCemetery([small, large, extreme]).root)[0]!;
+    const scales = new Map<string, number>();
+    const matrix = new Matrix4();
+    const scale = new Vector3();
+    for (let index = 0; index < batch.count; index += 1) {
+      batch.getMatrixAt(index, matrix);
+      matrix.decompose(new Vector3(), new Quaternion(), scale);
+      scales.set(batch.userData.graveIds[index], scale.x);
+    }
+    expect(scales.get(small.id)).toBeLessThan(scales.get(large.id)!);
+    expect(scales.get(large.id)).toBeLessThan(batch.userData.hullScaleCap);
+    expect(scales.get(extreme.id)).toBeCloseTo(batch.userData.hullScaleCap, 6);
+    expect(batch.userData.hullScaleCap).toBe(2);
+  });
+
+  it("places each wreck deterministically by id even when input order changes", () => {
     const first = createGardenCemetery(wreckField(16));
-    const second = createGardenCemetery(wreckField(16));
-    const read = (cemetery: ReturnType<typeof createGardenCemetery>): number[] => {
-      const out: number[] = [];
+    const second = createGardenCemetery(wreckField(16).reverse());
+    const read = (cemetery: ReturnType<typeof createGardenCemetery>): Map<string, number[]> => {
+      const out = new Map<string, number[]>();
       const matrix = new Matrix4();
-      cemetery.root.traverse((object) => {
-        if (!(object instanceof InstancedMesh)) return;
+      for (const object of wreckBatches(cemetery.root)) {
         for (let index = 0; index < object.count; index += 1) {
           object.getMatrixAt(index, matrix);
-          out.push(...matrix.elements);
+          out.set(object.userData.graveIds[index], [...matrix.elements]);
         }
-      });
+      }
       return out;
     };
-    expect(read(first)).toEqual(read(second));
+    expect([...read(first).entries()].sort()).toEqual([...read(second).entries()].sort());
   });
 
   it("builds a compact TON dispatch tower with integration anchors", () => {
