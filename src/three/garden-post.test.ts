@@ -870,6 +870,36 @@ describe("garden post-processing contracts", () => {
     expect(n8ao.enabled).toBe(true);
   });
 
+  it("releases only N8AO texture resources at settled overview and reuses the pass", () => {
+    const { composer, n8ao, post } = makePost();
+    const textureKeys = [
+      "accumulationRenderTarget",
+      "bluenoise",
+      "depthDownsampleTarget",
+      "outputTargetInternal",
+      "readTargetInternal",
+      "writeTargetInternal",
+    ] as const;
+
+    post.render(1 / 60);
+    post.setAOZoomDetail(0);
+    for (const key of textureKeys) {
+      expect(n8ao[key].dispose, key).toHaveBeenCalledOnce();
+    }
+    expect(n8ao.standardDenoiseMaterial.dispose).not.toHaveBeenCalled();
+    expect(postHarness.sharedN8AOGeometry.dispose).not.toHaveBeenCalled();
+
+    post.setAOZoomDetail(0.25);
+    post.render(1 / 60);
+    expect(composer.render).toHaveBeenCalledTimes(2);
+    expect(n8ao.enabled).toBe(true);
+
+    post.setAOZoomDetail(0);
+    for (const key of textureKeys) {
+      expect(n8ao[key].dispose, key).toHaveBeenCalledTimes(2);
+    }
+  });
+
   it("eases the idle profile across AO, DoF, and god rays without changing colour or passes", () => {
     const { composer, light, n8ao, post } = makePost({ withShadowLight: true });
     const tiltShift = effectNamed("GardenTiltShift");
