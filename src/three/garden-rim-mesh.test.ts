@@ -25,7 +25,8 @@ describe("garden rim mesh", () => {
     expect(GARDEN_ENGAWA_LANTERN_WORLD.x).toBeGreaterThan(0);
     expect(GARDEN_ENGAWA_LANTERN_WORLD.z).toBeGreaterThan(GARDEN_ENGAWA_LANTERN_WORLD.x);
     expect(rim.pathSegmentCount).toBeGreaterThan(80);
-    expect(rim.triangleCount).toBeLessThan(80_000);
+    expect(rim.coveSpurCount).toBeGreaterThanOrEqual(13);
+    expect(rim.triangleCount).toBeLessThan(120_000);
     rim.dispose();
   });
 

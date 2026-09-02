@@ -29,10 +29,16 @@ const MAP_LAST = MAP_SIZE - 1;
 const WATERLINE_Y = -0.11;
 const SAMPLE_STEP = 0.5;
 
+// Decorative garden frame only: rim form, planting, stones, and the stroll
+// ribbon carry no market or risk meaning.
+
 const WET_ROCK = new Color(HARBOR_PALETTE.deep_sea_2).lerp(
   new Color(HARBOR_PALETTE.stone_dark),
   0.42,
 );
+const TIDE_STAIN = new Color(HARBOR_PALETTE.stone_dark)
+  .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.18)
+  .multiplyScalar(0.72);
 const EARTH = new Color(HARBOR_PALETTE.timber_dark).lerp(
   new Color(HARBOR_PALETTE.stone_mid),
   0.5,
@@ -62,6 +68,7 @@ interface GeometryBuilder {
 }
 
 export interface GardenRimMesh {
+  coveSpurCount: number;
   drawCallCount: number;
   engawaPineCount: number;
   pathSegmentCount: number;
@@ -141,16 +148,17 @@ function authoredDistance(tileX: number, tileY: number): number {
 
 function rimHeight(tileX: number, tileY: number): number {
   const inland = Math.max(0, -authoredDistance(tileX, tileY));
-  const rise = 0.6 + Math.min(1, inland / 7.5) * 1.48;
-  const grain = (stableUnit(`rim-height.${Math.round(tileX * 2)}.${Math.round(tileY * 2)}`) - 0.5) * 0.2;
+  const rise = 0.62 + Math.min(1, inland / 7.5) * 1.5;
   // Danger Strait's east bank is the one deliberate cliff face.
-  const dangerCliff = tileX > MAP_LAST - 7 && tileY > 38 && tileY < 82 ? 0.32 : 0;
-  return Math.min(2.2, rise + grain + dangerCliff);
+  const dangerCliff = tileX > MAP_LAST - 8 && tileY > 38 && tileY < 82 ? 0.38 : 0;
+  const stepped = 0.6 + Math.floor(Math.max(0, rise + dangerCliff - 0.6) / 0.34) * 0.34;
+  const grain = (stableUnit(`rim-height.${Math.round(tileX * 2)}.${Math.round(tileY * 2)}`) - 0.5) * 0.055;
+  return Math.max(0.6, Math.min(2.2, stepped + grain));
 }
 
 function rimColor(tileX: number, tileY: number): Color {
   const inland = Math.max(0, -authoredDistance(tileX, tileY));
-  const moss = Math.min(0.82, Math.max(0, (inland - 0.45) / 5));
+  const moss = Math.min(0.52, Math.max(0, (inland - 0.8) / 6));
   const color = EARTH.clone().lerp(MOSS, moss);
   color.multiplyScalar(0.88 + stableUnit(`rim-color.${Math.round(tileX)}.${Math.round(tileY)}`) * 0.16);
   return color;
@@ -159,6 +167,28 @@ function rimColor(tileX: number, tileY: number): Color {
 function isSubtileLand(tileX: number, tileY: number): boolean {
   if (tileX < 0 || tileY < 0 || tileX > MAP_LAST || tileY > MAP_LAST) return false;
   return authoredDistance(tileX, tileY) <= 0;
+}
+
+function pointAtY(
+  top: readonly [number, number, number],
+  y: number,
+): [number, number, number] {
+  return [top[0], y, top[2]];
+}
+
+function addShoreCourses(
+  builder: GeometryBuilder,
+  a: readonly [number, number, number],
+  b: readonly [number, number, number],
+  c: readonly [number, number, number],
+  d: readonly [number, number, number],
+  topColor: Color,
+): void {
+  const stainY = Math.min(a[1], b[1], 0.34);
+  const stainA = pointAtY(a, stainY);
+  const stainB = pointAtY(b, stainY);
+  addQuad(builder, a, b, stainB, stainA, [topColor, topColor, TIDE_STAIN, TIDE_STAIN]);
+  addQuad(builder, stainA, stainB, c, d, [TIDE_STAIN, TIDE_STAIN, WET_ROCK, WET_ROCK]);
 }
 
 function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
@@ -175,6 +205,9 @@ function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
       const x1 = (cx + half) * TILE_SCALE;
       const z0 = (cy - half) * TILE_SCALE;
       const z1 = (cy + half) * TILE_SCALE;
+      // Heights are sampled at shared corners so neighbouring tiles remain a
+      // watertight sheet. Quantisation in rimHeight still creates broad,
+      // unequal terraces without the hairline cracks of disconnected slabs.
       const h00 = rimHeight(cx - half, cy - half);
       const h10 = rimHeight(cx + half, cy - half);
       const h11 = rimHeight(cx + half, cy + half);
@@ -182,7 +215,12 @@ function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
       addQuad(
         top,
         [x0, h00, z0], [x1, h10, z0], [x1, h11, z1], [x0, h01, z1],
-        [rimColor(cx - half, cy - half), rimColor(cx + half, cy - half), rimColor(cx + half, cy + half), rimColor(cx - half, cy + half)],
+        [
+          rimColor(cx - half, cy - half),
+          rimColor(cx + half, cy - half),
+          rimColor(cx + half, cy + half),
+          rimColor(cx - half, cy + half),
+        ],
       );
       const sides = [
         { dx: -SAMPLE_STEP, dy: 0, a: [x0, h01, z1], b: [x0, h00, z0], c: [x0, WATERLINE_Y, z0], d: [x0, WATERLINE_Y, z1] },
@@ -192,7 +230,7 @@ function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
       ] as const;
       for (const side of sides) {
         if (isSubtileLand(cx + side.dx, cy + side.dy)) continue;
-        addQuad(face, side.a, side.b, side.c, side.d, [EARTH, EARTH, WET_ROCK, WET_ROCK]);
+        addShoreCourses(face, side.a, side.b, side.c, side.d, rimColor(cx, cy));
       }
     }
   }
@@ -247,12 +285,12 @@ interface PineSpec {
 
 function pineTiles(): PineSpec[] {
   const candidates: PineSpec[] = [];
-  for (let y = 4; y < MAP_LAST - 3; y += 4) {
-    for (let x = 4; x < MAP_LAST - 3; x += 4) {
+  for (let y = 3; y < MAP_LAST - 2; y += 3) {
+    for (let x = 3; x < MAP_LAST - 2; x += 3) {
       if (!rimLandAt(x, y) || rimShoreDistance(x, y) > -2.2 || !clearOfCove(x, y, 3)) continue;
       const lowerLeft = x < 48 && y > 72;
       const thinEast = x > 122;
-      const keep = lowerLeft ? 0.88 : thinEast ? 0.18 : 0.42;
+      const keep = lowerLeft ? 0.92 : thinEast ? 0.12 : 0.3;
       const unit = stableUnit(`rim-pine.${x}.${y}`);
       if (unit > keep) continue;
       candidates.push({
@@ -263,6 +301,16 @@ function pineTiles(): PineSpec[] {
         y,
         yaw: stableUnit(`rim-pine-yaw.${x}.${y}`) * Math.PI * 2,
       });
+      if (lowerLeft && stableUnit(`rim-pine-cluster.${x}.${y}`) < 0.48) {
+        candidates.push({
+          leanX: -0.08,
+          leanZ: 0.05,
+          scale: 0.62 + stableUnit(`rim-pine-cluster-scale.${x}.${y}`) * 0.34,
+          x: x + 1.15,
+          y: y - 0.75,
+          yaw: stableUnit(`rim-pine-cluster-yaw.${x}.${y}`) * Math.PI * 2,
+        });
+      }
     }
   }
   // Engawa foreground: a single larger niwaki leans seaward from the deep
@@ -356,7 +404,31 @@ function createStones(): InstancedMesh {
   return mesh;
 }
 
-function buildPathGeometry(): { geometry: BufferGeometry; segments: number } {
+function addPathRibbon(
+  builder: GeometryBuilder,
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): boolean {
+  if (!rimLandAt(a.x, a.y) || !rimLandAt(b.x, b.y)) return false;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const px = -dy / length * 0.56;
+  const py = dx / length * 0.56;
+  const ay = rimHeight(a.x, a.y) + 0.065;
+  const by = rimHeight(b.x, b.y) + 0.065;
+  addQuad(
+    builder,
+    [(a.x + px) * TILE_SCALE, ay, (a.y + py) * TILE_SCALE],
+    [(b.x + px) * TILE_SCALE, by, (b.y + py) * TILE_SCALE],
+    [(b.x - px) * TILE_SCALE, by, (b.y - py) * TILE_SCALE],
+    [(a.x - px) * TILE_SCALE, ay, (a.y - py) * TILE_SCALE],
+    [PATH_STONE, PATH_STONE, PATH_STONE, PATH_STONE],
+  );
+  return true;
+}
+
+function buildPathGeometry(): { coveSpurs: number; geometry: BufferGeometry; segments: number } {
   const builder: GeometryBuilder = { colors: [], indices: [], positions: [] };
   const points: Array<{ x: number; y: number }> = [];
   // Clockwise perimeter route, three tiles inland. Gaps follow the two
@@ -372,22 +444,41 @@ function buildPathGeometry(): { geometry: BufferGeometry; segments: number } {
     if (!rimLandAt(a.x, a.y) || !rimLandAt(b.x, b.y)) continue;
     if (!clearOfCove(a.x, a.y, 2.5) || !clearOfCove(b.x, b.y, 2.5)) continue;
     if (Math.hypot(a.x - b.x, a.y - b.y) > 3) continue;
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const length = Math.hypot(dx, dy) || 1;
-    const px = -dy / length * 0.42;
-    const py = dx / length * 0.42;
-    const ay = rimHeight(a.x, a.y) + 0.045;
-    const by = rimHeight(b.x, b.y) + 0.045;
-    addQuad(
-      builder,
-      [(a.x + px) * TILE_SCALE, ay, (a.y + py) * TILE_SCALE],
-      [(b.x + px) * TILE_SCALE, by, (b.y + py) * TILE_SCALE],
-      [(b.x - px) * TILE_SCALE, by, (b.y - py) * TILE_SCALE],
-      [(a.x - px) * TILE_SCALE, ay, (a.y - py) * TILE_SCALE],
-      [PATH_STONE, PATH_STONE, PATH_STONE, PATH_STONE],
-    );
-    segments += 1;
+    if (addPathRibbon(builder, a, b)) segments += 1;
+  }
+  let coveSpurs = 0;
+  for (const cove of RIM_COVES) {
+    const landward = {
+      x: cove.tile.x - Math.cos(cove.seawardBearing) * 1.6,
+      y: cove.tile.y - Math.sin(cove.seawardBearing) * 1.6,
+    };
+    const perimeter = cove.tile.x < 24
+      ? { x: 3, y: landward.y }
+      : cove.tile.x > MAP_LAST - 24
+        ? { x: MAP_LAST - 3, y: landward.y }
+        : cove.tile.y < 24
+          ? { x: landward.x, y: 3 }
+          : { x: landward.x, y: MAP_LAST - 3 };
+    const steps = Math.max(1, Math.ceil(Math.hypot(
+      landward.x - perimeter.x,
+      landward.y - perimeter.y,
+    ) / 1.5));
+    for (let step = 1; step <= steps; step += 1) {
+      const t0 = (step - 1) / steps;
+      const t1 = step / steps;
+      const a = {
+        x: perimeter.x + (landward.x - perimeter.x) * t0,
+        y: perimeter.y + (landward.y - perimeter.y) * t0,
+      };
+      const b = {
+        x: perimeter.x + (landward.x - perimeter.x) * t1,
+        y: perimeter.y + (landward.y - perimeter.y) * t1,
+      };
+      if (addPathRibbon(builder, a, b)) {
+        segments += 1;
+        coveSpurs += 1;
+      }
+    }
   }
   // One tōrō at the camera-side engawa. Stone body and warm chamber are merged
   // into the path draw; its water reflection is registered separately as the
@@ -400,7 +491,7 @@ function buildPathGeometry(): { geometry: BufferGeometry; segments: number } {
   addBox(builder, [lanternX, lanternGround + 1.32, lanternZ], [0.58, 0.42, 0.58], LANTERN_EMBER);
   addBox(builder, [lanternX, lanternGround + 1.59, lanternZ], [1.05, 0.16, 0.95], PATH_STONE);
   addBox(builder, [lanternX, lanternGround + 1.75, lanternZ], [0.52, 0.18, 0.48], PATH_STONE);
-  return { geometry: finishGeometry(builder), segments };
+  return { coveSpurs, geometry: finishGeometry(builder), segments };
 }
 
 export function createGardenRimMesh(): GardenRimMesh {
@@ -427,6 +518,7 @@ export function createGardenRimMesh(): GardenRimMesh {
   }
   let disposed = false;
   return {
+    coveSpurCount: path.coveSpurs,
     drawCallCount: 5,
     engawaPineCount: 1,
     pathSegmentCount: path.segments,
