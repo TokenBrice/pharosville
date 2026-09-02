@@ -10,6 +10,8 @@ import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad"
 import { isSeawallBarrierTile, seawallBarrierDistance } from "./seawall";
 import { buildPharosVilleMap, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
 import { zoneWorldTile } from "./map-scale";
+import { isGardenObstacleTile } from "./garden-water-exclusion";
+import { patrolSpeedForZone } from "./motion-sampling/risk-drift";
 import type { PharosVilleMap, PharosVilleWorld, ShipWaterZone } from "./world-types";
 
 const SHIP_CYCLE_MIN_SECONDS = 660;
@@ -104,7 +106,7 @@ describe("motion", () => {
     }
   });
 
-  it("keeps risk rests still while ordering underway wakes by turbulence", () => {
+  it("keeps risk rests locally bounded while ordering underway wakes by turbulence", () => {
     const calm = cycleStats(worldForShip({ chainCirculating: {}, chains: ["ethereum"] }));
     const watch = cycleStats(worldForShip({ chainCirculating: {}, chains: ["ethereum"], stressBand: "WATCH" }));
     const alert = cycleStats(worldForShip({
@@ -125,8 +127,9 @@ describe("motion", () => {
 
     for (const stats of [calm, watch, alert, warning, danger]) {
       expect(stats.riskDriftSamples).toBeGreaterThan(0);
-      expect(stats.maxRiskSpeed).toBe(0);
     }
+    expect(calm.maxRiskSpeed).toBe(0);
+    for (const stats of [watch, alert, warning, danger]) expect(stats.maxRiskSpeed).toBeGreaterThan(0);
 
     // N3: the authored water still sizes each band's patrol reach.
     //
@@ -140,6 +143,57 @@ describe("motion", () => {
     expect(watch.maxSailingWake).toBeLessThan(alert.maxSailingWake);
     expect(alert.maxSailingWake).toBeLessThan(warning.maxSailingWake);
     expect(warning.maxSailingWake).toBeLessThan(danger.maxSailingWake);
+  });
+
+  it("orders bounded risk-rest displacement by turbulence", () => {
+    expect((["calm", "watch", "alert", "warning", "danger"] as const).map(patrolSpeedForZone))
+      .toEqual([0.04, 0.052, 0.095, 0.15, 0.26]);
+    const bandWorlds = [
+      worldForShip({ chainCirculating: {}, chains: ["ethereum"] }),
+      worldForShip({ chainCirculating: {}, chains: ["ethereum"], stressBand: "WATCH" }),
+      worldForShip({
+        chainCirculating: {},
+        chains: ["ethereum"],
+        pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: 100 }),
+      }),
+      worldForShip({
+        chainCirculating: {},
+        chains: ["ethereum"],
+        pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: 250 }),
+      }),
+      worldForShip({
+        chainCirculating: {},
+        chains: ["ethereum"],
+        pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", activeDepeg: true }),
+      }),
+    ];
+    const means = bandWorlds.map((bandWorld) => {
+      __resetPreviousRiskCache();
+      const ship = bandWorld.ships[0]!;
+      const plan = buildMotionPlan(bandWorld, ship.detailId);
+      const route = plan.shipRoutes.get(ship.id)!;
+      let displacementSum = 0;
+      const sampleCount = 80;
+      for (let index = 0; index < sampleCount; index += 1) {
+        const sample = resolveShipMotionSample({
+          plan,
+          reducedMotion: false,
+          ship,
+          timeSeconds: route.restDurationSeconds * ((index + 0.5) / sampleCount) - route.phaseSeconds,
+        });
+        const displacement = distance(sample.tile, route.riskTile);
+        displacementSum += displacement;
+        expect(displacement).toBeLessThanOrEqual(0.6 + 1e-9);
+        expect(isWaterTileKind(tileKindForSample(sample.tile))).toBe(true);
+        expect(isGardenObstacleTile(sample.tile.x, sample.tile.y)).toBe(false);
+        expect(isSeawallBarrierTile(sample.tile)).toBe(false);
+      }
+      return displacementSum / sampleCount;
+    });
+
+    for (let index = 1; index < means.length; index += 1) {
+      expect(means[index - 1]).toBeLessThan(means[index]!);
+    }
   });
 
   it("builds deterministic routes for every visible ship", () => {

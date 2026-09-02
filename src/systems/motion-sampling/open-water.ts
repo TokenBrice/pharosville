@@ -2,14 +2,7 @@ import { MOTION_TRANSITION_SHARE } from "../motion-config";
 import { stableHash } from "../stable-random";
 import { pathKey, positiveModulo } from "../motion-utils";
 import type { ShipMotionRoute, ShipMotionSample, ShipWaterPath } from "../motion-types";
-import {
-  clampMotionTileInto,
-  routePathIdentityKey,
-  writeMapVisibilityAlphaInto,
-  writeRouteContextInto,
-  writeVelocityInto,
-} from "./shared";
-import { beginRoutePathSample } from "./memory";
+import { routePathIdentityKey } from "./shared";
 import { routeSamplingRuntime } from "./route-runtime";
 import { transitSampleInto } from "./transit";
 import { riskWaterSampleInto } from "./risk-water";
@@ -60,7 +53,14 @@ export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: n
   cursor -= transitSecondsEach;
 
   if (cursor < waypointSeconds) {
-    openWaterWaypointRestSampleInto(route, timeSeconds, leg.waypoint, out);
+    openWaterWaypointRestSampleInto(
+      route,
+      timeSeconds,
+      cursor / Math.max(1, waypointSeconds),
+      waypointSeconds,
+      leg.waypoint,
+      out,
+    );
     return;
   }
   cursor -= waypointSeconds;
@@ -104,6 +104,8 @@ function openWaterPatrolLegForCycle(route: ShipMotionRoute, cycleIndex: number):
 function openWaterWaypointRestSampleInto(
   route: ShipMotionRoute,
   timeSeconds: number,
+  progress: number,
+  riskWindowSeconds: number,
   waypoint: { x: number; y: number } | null,
   out: ShipMotionSample,
 ): void {
@@ -116,18 +118,14 @@ function openWaterWaypointRestSampleInto(
   }
   const driftWaypoint = waypoint ?? patrol.waypoint;
   const routePathKey = routePathIdentityKey(route, "waypoint", pathKey(driftWaypoint, driftWaypoint));
-  beginRoutePathSample(route, routePathKey);
-  out.shipId = route.shipId;
-  clampMotionTileInto(driftWaypoint.x, driftWaypoint.y, out.tile);
-  out.state = "risk-drift";
-  out.zone = route.zone;
-  writeRouteContextInto(route, routePathKey, out);
-  writeMapVisibilityAlphaInto(out, 1);
-  out.currentDockId = null;
-  out.currentRouteStopId = null;
-  out.currentRouteStopKind = null;
-  out.heading.x = Math.cos(route.routeSeed * 0.00013);
-  out.heading.y = Math.sin(route.routeSeed * 0.00013);
-  writeVelocityInto(out, 0, 0);
-  out.wakeIntensity = 0;
+  riskDriftSampleInto(
+    route,
+    timeSeconds,
+    progress,
+    riskWindowSeconds,
+    out,
+    driftWaypoint,
+    routePathKey,
+    false,
+  );
 }
