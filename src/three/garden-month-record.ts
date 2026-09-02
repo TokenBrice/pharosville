@@ -34,7 +34,20 @@ export function applyGardenMonthRecord(root: Group, record?: GardenMonthRecord):
   const growth = growthOf(record);
   root.traverse((object) => {
     if (object instanceof InstancedMesh && object.material instanceof MeshStandardMaterial) {
-      if (object.name === "island-shrubs") {
+      if (object.name === "island-niwaki-pads") {
+        // Wave 5 shed the shrub/grass carpet. The same month record now works
+        // through the five hero pines' existing instance buffers: fuller pads
+        // after a calm month, tighter and drier after a stressed one.
+        rescaleInstances(object, 0.9 + growth * 0.14);
+        const target = growth >= 0.5 ? green : dry;
+        const amount = Math.abs(growth - 0.5) * 0.55;
+        const color = new Color();
+        for (let index = 0; index < object.count; index += 1) {
+          object.getColorAt(index, color);
+          object.setColorAt(index, color.lerp(target, amount));
+        }
+        if (object.instanceColor) object.instanceColor.needsUpdate = true;
+      } else if (object.name === "island-shrubs") {
         tintMaterial(object.material, growth, 0.72);
         rescaleInstances(object, 0.82 + growth * 0.28);
         const blossomShare = growth <= 0.6 ? 0 : (growth - 0.6) * 0.34;
