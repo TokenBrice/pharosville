@@ -107,11 +107,11 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPre
   },
   dusk: {
     ambient: paletteColor(P.lantern_warm).lerp(paletteColor(P.moonlight), 0.4),
-    ambientIntensity: 0.26,
+    ambientIntensity: 0.14,
     dirColor: paletteColor(P.lantern_warm),
-    dirIntensity: 1.1,
+    dirIntensity: 1.8,
     hemiGround: paletteColor(P.ember),
-    hemiIntensity: 0.56,
+    hemiIntensity: 0.4,
     hemiSky: paletteColor(P.sky_horizon),
   },
   night: {

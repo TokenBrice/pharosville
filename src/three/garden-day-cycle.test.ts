@@ -76,6 +76,15 @@ describe("day-cycle presets (C1 contract)", () => {
     );
   });
 
+  it("keeps dusk gold directional and its indigo fill subordinate", () => {
+    const dusk = DAY_CYCLE_LIGHT_PRESETS.dusk;
+    expect(dusk.dirIntensity).toBeGreaterThan(
+      (dusk.ambientIntensity + dusk.hemiIntensity) * 3,
+    );
+    expect(dusk.dirColor.r).toBeGreaterThan(dusk.dirColor.b);
+    expect(dusk.hemiSky.b).toBeGreaterThan(dusk.hemiSky.r);
+  });
+
   it("keeps day fog structured instead of milky", () => {
     const day = DAY_CYCLE_HEIGHT_FOG_PRESETS.day;
     const dusk = DAY_CYCLE_HEIGHT_FOG_PRESETS.dusk;
