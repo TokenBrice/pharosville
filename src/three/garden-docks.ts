@@ -26,7 +26,7 @@ import { quayMasonryHealth } from "../systems/dock-health";
 import type { DockNode } from "../systems/world-types";
 import { assignGardenChainFlagCell } from "./garden-chain-flag";
 import { applyGardenHeightFog } from "./garden-height-fog";
-import { setTilePosition, stableUnit, TILE_SCALE } from "./garden-util";
+import { setTilePosition, stableUnit } from "./garden-util";
 import type { GardenHarborCalmMask } from "./garden-water-contract";
 
 const scratchMatrix = new Matrix4();
@@ -294,12 +294,12 @@ export function createHarborLanterns(
 export function authorDock(
   dock: DockNode,
   displayTile: { x: number; y: number },
-  islandTile: { x: number; y: number },
+  _islandTile: { x: number; y: number },
 ): DockRecipe {
   const root = new Object3D();
   setTilePosition(root, displayTile, GARDEN_DOCK_ROOT_Y);
-  const seawardX = (displayTile.x - islandTile.x) * TILE_SCALE;
-  const seawardZ = (displayTile.y - islandTile.y) * TILE_SCALE;
+  const seawardX = Math.cos(dock.station.shoreBearing);
+  const seawardZ = Math.sin(dock.station.shoreBearing);
   root.rotation.y = -Math.atan2(seawardZ, seawardX);
   root.updateMatrix();
   const rootMatrix = root.matrix.clone();

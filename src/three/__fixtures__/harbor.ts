@@ -28,6 +28,11 @@ export function dockFixture(
     label: chainId,
     size,
     stablecoinCount: 1,
+    station: {
+      coveId: `fixture-${chainId}`,
+      type: chainId === "ethereum" ? "boathouse-precinct" : "tea-house-quay",
+      shoreBearing: Math.atan2(32 - ISLAND_TILE.y, 40 - ISLAND_TILE.x),
+    },
     tile: { x: 40, y: 32 },
     totalUsd,
   };

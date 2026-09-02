@@ -10,12 +10,17 @@ import {
 import { buildPharosVilleWorld } from "../../pharosville-world";
 import { seawallBarrierDistance } from "../../seawall";
 import { UNIQUE_SHIP_DEFINITIONS } from "../../unique-ships";
-import { PREFERRED_DOCK_TILES } from "../../world-layout";
-import { buildDockAssignmentStage, resetHeldMoorings } from "./dock-assignment";
+import { isNavigableWaterTile, PREFERRED_DOCK_TILES } from "../../world-layout";
+import {
+  buildDockAssignmentStage,
+  resetHeldMoorings,
+} from "./dock-assignment";
 import { resetHeldShipPlacements } from "./ship-placement";
 import type { PharosVilleInputs } from "../pipeline-types";
 import type { DockNode, ShipNode } from "../../world-types";
 import type { StablecoinData } from "@shared/types";
+
+const DENSE_STATION_MOORING_MAX_TILES = 20;
 
 function denseWorldInputs(peggedAssets?: readonly StablecoinData[]): PharosVilleInputs {
   return {
@@ -55,6 +60,30 @@ describe("dock-assignment unique tier mooring placement", () => {
         const distance = seawallBarrierDistance(visit.mooringTile);
         expect(distance, `${ship.id} -> ${visit.dockId}`).toBeGreaterThanOrEqual(3.3);
       }
+    }
+  });
+
+  it("keeps every dense-fixture berth on navigable water and local to its shore station", () => {
+    const world = buildPharosVilleWorld(denseWorldInputs());
+    const docks = new Map(world.docks.map((dock) => [dock.id, dock]));
+    const visits = world.ships.flatMap((ship) => ship.dockVisits.map((visit) => ({ ship, visit })));
+    expect(visits.length).toBeGreaterThan(0);
+
+    for (const { ship, visit } of visits) {
+      const dock = docks.get(visit.dockId)!;
+      expect(isNavigableWaterTile(visit.mooringTile), `${ship.id} -> ${visit.dockId} water`).toBe(true);
+      expect(
+        Math.hypot(visit.mooringTile.x - dock.tile.x, visit.mooringTile.y - dock.tile.y),
+        `${ship.id} -> ${visit.dockId} distance`,
+      ).toBeLessThanOrEqual(DENSE_STATION_MOORING_MAX_TILES);
+      const seawardX = Math.cos(dock.station.shoreBearing);
+      const seawardY = Math.sin(dock.station.shoreBearing);
+      const stationToBerthX = visit.mooringTile.x - dock.tile.x;
+      const stationToBerthY = visit.mooringTile.y - dock.tile.y;
+      expect(
+        stationToBerthX * seawardX + stationToBerthY * seawardY,
+        `${ship.id} -> ${visit.dockId} seaward`,
+      ).toBeGreaterThan(0);
     }
   });
 
@@ -117,6 +146,7 @@ describe("dock-assignment held berths follow their dock", () => {
     return [{
       id: "dock.driftchain",
       kind: "dock",
+      station: { coveId: "fixture-cove", type: "tea-house-quay", shoreBearing: 0 },
       label: "Driftchain",
       chainId: "driftchain",
       tile,

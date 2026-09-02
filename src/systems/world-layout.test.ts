@@ -14,12 +14,14 @@ import {
   DOCK_TILES,
   BASE_HARBOR_DOCK_TILE,
   EVM_BAY_DOCK_TILES,
+  EVM_BAY_STATION_SLOTS,
   HYPERLIQUID_HARBOR_DOCK_TILE,
   graveNodesFromEntries,
   isNavigableWaterTile,
   isWaterTileKind,
   LIGHTHOUSE_TILE,
   OUTER_HARBOR_DOCK_TILES,
+  OUTER_HARBOR_STATION_SLOTS,
   PHAROSVILLE_MAP_HEIGHT,
   PHAROSVILLE_MAP_WIDTH,
   PIGEON_ISLAND_CENTER,
@@ -30,9 +32,10 @@ import {
   tileKindAt,
 } from "./world-layout";
 import { SEAWALL_BARRIER_TILES, isSeawallBarrierTile } from "./seawall";
-import { dockOutwardVectorForTile } from "./dock-layout";
+import { dockSeawardVector } from "./dock-layout";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
 import type { PharosVilleTile } from "./world-types";
+import { RIM_COVES, rimDepthAt, rimLandAt } from "./garden-rim";
 
 // N1: the live grid is 112x112, but terrain and zones stay AUTHORED in the
 // original 56-tile DESIGN space. Every literal below is therefore a design-space
@@ -273,49 +276,32 @@ describe("buildPharosVilleMap", () => {
     }
   });
 
-  it("keeps dock slots on coastline edges with water access", () => {
-    // H1: the twelve slots are DERIVED from the island's coastline, so this
-    // pins the properties that make them a harbour ring rather than a list of
-    // tiles that has to be re-authored whenever the island is retuned.
-    expect(DOCK_TILES).toHaveLength(12);
-    expect(new Set(DOCK_TILES.map((tile) => `${tile.x}.${tile.y}`)).size).toBe(12);
+  it("keeps station slots at authored cove mouths with land behind and water ahead", () => {
+    expect(DOCK_TILES).toHaveLength(9);
+    expect(new Set(DOCK_TILES.map((tile) => `${tile.x}.${tile.y}`)).size).toBe(9);
     expect(EVM_BAY_DOCK_TILES[1]).toEqual(BASE_HARBOR_DOCK_TILE);
     expect(OUTER_HARBOR_DOCK_TILES[3]).toEqual(HYPERLIQUID_HARBOR_DOCK_TILE);
-    expect(DOCK_TILES.every((tile) => !isWaterTileKind(tileKindAt(tile.x, tile.y)))).toBe(true);
-    expect(DOCK_TILES.every((tile) => cardinalNeighbors(tile).some((neighbor) => (
-      isWaterTileKind(tileKindAt(neighbor.x, neighbor.y))
-    )))).toBe(true);
-    expect(DOCK_TILES.every((tile) => outwardWaterDirections(tile).length > 0)).toBe(true);
-    expect(DOCK_TILES.every((tile) => isProductionOutwardWater(tile))).toBe(true);
+    expect(DOCK_TILES.every((tile) => isWaterTileKind(tileKindAt(tile.x, tile.y)))).toBe(true);
+    for (const slot of [...EVM_BAY_STATION_SLOTS, ...OUTER_HARBOR_STATION_SLOTS]) {
+      const outward = dockSeawardVector({ station: { shoreBearing: slot.cove.seawardBearing } });
+      expect(isWaterTileKind(tileKindAt(slot.cove.tile.x + outward.x, slot.cove.tile.y + outward.y))).toBe(true);
+      expect(Array.from({ length: 14 }, (_, index) => index + 1).some((distance) => rimLandAt(
+        slot.cove.tile.x - outward.x * distance,
+        slot.cove.tile.y - outward.y * distance,
+      )), slot.cove.id).toBe(true);
+    }
   });
 
-  it("spreads the harbour ring right around the island", () => {
-    // The failure this guards is the one the operator reported: harbours
-    // bunched on one arc (six of twelve were on the southern coast) and
-    // sitting inland rather than on the water's edge.
-    const center = landWorldTile({ x: 31, y: 31 });
-    const quadrants = new Set(DOCK_TILES.map((tile) => (
-      `${tile.x >= center.x ? "E" : "W"}${tile.y >= center.y ? "S" : "N"}`
-    )));
-    expect(quadrants.size).toBe(4);
-
-    for (const tile of DOCK_TILES) {
-      // On the coast: the next tile outward is water, not more island.
-      const outward = dockOutwardVectorForTile(tile);
-      expect(
-        isWaterTileKind(tileKindAt(tile.x + outward.x, tile.y + outward.y)),
-        `${tile.x}.${tile.y} is not on the waterline`,
-      ).toBe(true);
-    }
-
-    // No two slots collide, and none is far enough from its neighbours to
-    // leave a bare stretch of coast (the ring is ~68 tiles round).
-    for (const tile of DOCK_TILES) {
-      const nearest = Math.min(...DOCK_TILES
-        .filter((other) => other !== tile)
-        .map((other) => Math.hypot(other.x - tile.x, other.y - tile.y)));
-      expect(nearest, `${tile.x}.${tile.y}`).toBeGreaterThan(3.5);
-      expect(nearest, `${tile.x}.${tile.y}`).toBeLessThan(11);
+  it("distributes cove stations across bodies and outside both rim openings", () => {
+    expect(new Set(RIM_COVES.map((cove) => cove.body)).size).toBeGreaterThanOrEqual(6);
+    expect(RIM_COVES).toHaveLength(10);
+    for (const cove of RIM_COVES) {
+      const bearing = Math.atan2(
+        cove.tile.y - (PHAROSVILLE_MAP_HEIGHT - 1) / 2,
+        cove.tile.x - (PHAROSVILLE_MAP_WIDTH - 1) / 2,
+      );
+      expect(rimDepthAt(bearing), cove.id).toBeGreaterThan(0);
+      expect(isWaterTileKind(tileKindAt(cove.tile.x, cove.tile.y)), cove.id).toBe(true);
     }
   });
 
@@ -450,35 +436,6 @@ function landTilesExcludingIslets(tiles: PharosVilleTile[]) {
     const dPigeon = Math.hypot(tile.x - PIGEON_ISLAND_CENTER.x, tile.y - PIGEON_ISLAND_CENTER.y);
     return dPigeon > pigeonRadius;
   });
-}
-
-function outwardWaterDirections(tile: { x: number; y: number }) {
-  const centerDistance = Math.hypot(tile.x - CIVIC_CORE_CENTER.x, tile.y - CIVIC_CORE_CENTER.y);
-  return cardinalDirections().filter((direction) => {
-    const waterTile = {
-      x: tile.x + direction.x,
-      y: tile.y + direction.y,
-    };
-    const mooringTile = {
-      x: tile.x + direction.x * 2,
-      y: tile.y + direction.y * 2,
-    };
-    const waterDistance = Math.hypot(waterTile.x - CIVIC_CORE_CENTER.x, waterTile.y - CIVIC_CORE_CENTER.y);
-    return waterDistance > centerDistance
-      && isWaterTileKind(tileKindAt(waterTile.x, waterTile.y))
-      && isWaterTileKind(tileKindAt(mooringTile.x, mooringTile.y));
-  });
-}
-
-// Exercises the SAME outward vector production docks and gangways use, rather
-// than a second copy of the rule that can drift away from it.
-function isProductionOutwardWater(tile: { x: number; y: number }) {
-  const outward = dockOutwardVectorForTile(tile);
-  const waterTile = {
-    x: tile.x + outward.x,
-    y: tile.y + outward.y,
-  };
-  return isWaterTileKind(tileKindAt(waterTile.x, waterTile.y));
 }
 
 function cardinalNeighbors(tile: { x: number; y: number }): { x: number; y: number }[] {

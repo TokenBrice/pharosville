@@ -213,9 +213,11 @@ export function LegendPanel({ onClose, onObserve, onSelectDetail, recentFleetTre
         </section>
 
         <section aria-labelledby="pharosville-legend-harbors">
-          <h3 id="pharosville-legend-harbors">Harbors &amp; landmarks</h3>
+          <h3 id="pharosville-legend-harbors">Shore stations &amp; landmarks</h3>
           <p>
-            Docks are blockchains; a ship calling at a dock means the coin has
+            Rim-cove stations are blockchains; Ethereum&apos;s boathouse precinct
+            and the Base, Arbitrum and Polygon annex pavilions form one connected
+            place. A ship calling at a station means the coin has
             real supply on that chain (it does not imply bridge volume or
             transfers). The Pharos lighthouse glows with the fleet-wide Peg
             Stability Index. Its beam warmth tracks fleet-wide PSI; the colour

@@ -109,6 +109,19 @@ describe("garden docks", () => {
     expect(worldYaw(west)).toBeCloseTo(Math.PI / 4, 6);
   });
 
+  it("faces the pier from the station's authored shore bearing", () => {
+    const north = authorDock({
+      ...dock("base", 7),
+      station: { coveId: "north-cove", type: "annex-pavilion", shoreBearing: -Math.PI / 2 },
+    }, DISPLAY_TILE, ISLAND_TILE);
+    const west = authorDock({
+      ...dock("base", 7),
+      station: { coveId: "west-cove", type: "annex-pavilion", shoreBearing: Math.PI },
+    }, DISPLAY_TILE, ISLAND_TILE);
+    expect(north.anchorRotationY).toBeCloseTo(Math.PI / 2, 6);
+    expect(Math.abs(west.anchorRotationY)).toBeCloseTo(Math.PI, 6);
+  });
+
   it("keeps the authored flag pose available for reduced motion", () => {
     const recipe = authorDock(dock("base", 7), DISPLAY_TILE, ISLAND_TILE);
     const batch = createGardenHarborBatch([recipe]);
