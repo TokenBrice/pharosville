@@ -352,7 +352,7 @@ try {
     tailSweep = await sweepFrameTail(page, tailSeconds * 1000);
     if (tailSweep.reads.length > 0) metrics = medianByP90(tailSweep.reads);
   }
-  if (args["draw-census"]) {
+  if (args["draw-census"] && !args.reduced) {
     const fresh = await waitForDrawOwnerCensusAfterFrame(page, settledAtFrame);
     metrics = { ...metrics, drawOwnerCensus: fresh.drawOwnerCensus };
   }
