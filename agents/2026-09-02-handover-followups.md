@@ -40,3 +40,11 @@ File: `src/three/garden-landmarks.ts` (wreck cemetery; `1dd8646` silhouettes), `
 ## Process
 - One agent per item (Sol for 2/3/4/5, Sol medium for 1), sequentially on `main` with focused tests, then `npm test -- src`, typecheck, lint, `validate:release`; commit per item in the repo's voice.
 - Then rebuild `release/v0.9.0` from final main as above.
+
+## Resolution (2026-09-02, later)
+- Items 1–5 landed on `main` as one commit each (`2f71ce2`, `68ac412`, `0ab7939`, `d64b2c9`, `764074d`, docs `bee54f3`), plus `328a249`: removing the moored exemption made every corrected hull run the radial nearest-water search per frame (draw submit 8 → 12.9 ms, 30 fps); the resolver now reuses the last correction vector while the source stays within a tile. Real-GPU `--assert` back at p95 16.8 ms / draw submit 2.2 ms, 247 calls, 42 textures.
+- Live-data audit (185 ships, 601 s of world clock, 111k slice samples): no hull on rim/terrain land or off the plate. Script: `outputs/live-hull-audit.mts` (scratch).
+- Follow-ups found, not fixed:
+  - Moored display composition: a representative hull's moored tile is `mooringTile + displayOffset`, not the mooring. With blue-noise berths ~100 tiles from the data tile this put moored hulls on the paper (the operator's screenshot); item 1 now resolves them to the nearest safe water, which keeps them on the plate but not at their dock. The garden needs its own moored anchor (dock display berth), not the data-space delta.
+  - Deep link to a moored ship before the first motion sample: `focusSelectedCamera` resolves the tile with an empty sample map, so it frames the no-sample tile, which differs from the moored one by the mooring delta. Visible on `usde-ethena`/`susde-ethena` (dense fixture): the visual deep-link test now pins `busd0-usual`.
+  - A few ships render an iridescent sail/hull (near the Ethereum precinct and Wreck Shoal); pre-existing, ship-side, not harbor materials.
