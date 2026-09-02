@@ -232,10 +232,7 @@ export function transitSampleInto(input: {
   // E2: multiply raw wake by the pre-computed wakeMultiplier (1.0 baseline;
   // boosted when |change24hPct| ≥ 2%). Smoothing is applied after the multiplier
   // so the smoother damps the already-scaled value — no smoothing-induced flicker.
-  const sampledSpeed = transitSpeedTilesPerSecond(input.path, input.transitSeconds, speedRatio);
-  const speed = out.state === "sailing" && sampledSpeed > 0
-    ? input.route.underwaySpeedTilesPerSecond
-    : sampledSpeed;
+  const speed = transitSpeedTilesPerSecond(input.path, input.transitSeconds, speedRatio);
   const speedWakeGain = out.state === "sailing"
     ? 0.85 + 0.15 * clamp(
       (speed - MOTION_UNDERWAY_MIN_TILES_PER_SECOND)

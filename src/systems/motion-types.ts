@@ -71,6 +71,8 @@ export interface ShipMotionRoute {
   legDurationSeconds: number;
   /** Duration of each rest following a leg. */
   restDurationSeconds: number;
+  /** Duration of the risk-water rest; omitted by legacy/test routes. */
+  riskRestDurationSeconds?: number;
   /** Perceptual cruise pace; risk band first, flow tempo as a modest scalar. */
   underwaySpeedTilesPerSecond: number;
   phaseSeconds: number;

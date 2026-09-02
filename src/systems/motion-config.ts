@@ -28,17 +28,19 @@ export const DOCKED_SHIP_DWELL_SHARE = 1 / 3;
 
 /**
  * Wave 4b leg cadence. A route cycle is two travel legs and two rests:
- * berth -> risk-water waypoint -> next berth. Rest is deliberately twice the
- * leg duration, which keeps the historical one-third berth share while making
- * motion episodic: one third travelling, one third resting in risk water, one
- * third visibly moored at a berth.
+ * berth -> risk-water waypoint -> next berth. Identity-derived durations keep
+ * individual ships from becoming a fleet-wide metronome. The paired dock and
+ * risk rests are balanced so a docked route still spends exactly one third of
+ * its cycle visibly moored.
  */
 export const MOTION_LEG_MIN_SECONDS = 90;
 export const MOTION_LEG_MAX_SECONDS = 180;
 export const MOTION_REST_MIN_SECONDS = 240;
 export const MOTION_REST_MAX_SECONDS = 480;
-export const MOTION_LEG_PLANNING_MIN_SECONDS = MOTION_REST_MIN_SECONDS / 2;
 export const MOTION_TRANSITION_SHARE = 0.3;
+export const MOTION_PAIR_WINDOW_SECONDS = 15;
+export const MOTION_PAIR_HORIZON_SECONDS = 600;
+export const MOTION_PAIR_SLOT_SECONDS = 10;
 export const MOTION_UNDERWAY_MIN_TILES_PER_SECOND = 0.45;
 export const MOTION_UNDERWAY_MAX_TILES_PER_SECOND = 0.8;
 

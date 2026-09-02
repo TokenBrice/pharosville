@@ -25,7 +25,7 @@ export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number
     return;
   }
 
-  const riskSecondsEach = route.restDurationSeconds;
+  const riskSecondsEach = route.riskRestDurationSeconds ?? route.restDurationSeconds;
   const dockSecondsEach = route.restDurationSeconds;
   const transitSecondsEach = route.legDurationSeconds;
   let cursor = elapsedSeconds;

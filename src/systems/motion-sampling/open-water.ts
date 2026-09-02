@@ -26,7 +26,7 @@ export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: n
   const elapsedSeconds = positiveModulo(cyclePosition, route.cycleSeconds);
   const cycleIndex = Math.floor(cyclePosition / route.cycleSeconds);
   const riskSeconds = route.restDurationSeconds;
-  const waypointSeconds = route.restDurationSeconds;
+  const waypointSeconds = route.riskRestDurationSeconds ?? route.restDurationSeconds;
   const transitSecondsEach = route.legDurationSeconds;
   // W4.23 — pick this cycle's itinerary leg deterministically. Uses
   // stable-hash on (shipId, cycleIndex) so adjacent cycles produce different

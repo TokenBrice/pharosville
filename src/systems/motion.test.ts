@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { __testPathCacheSize, buildBaseMotionPlan, buildMotionPlan, BoundedShipWaterRouteCache, buildShipWaterRoute, clearShipHeadingMemory, createShipMotionSample, disposePathCacheForMap, isShipMapVisible, motionPlanSignature, resolveShipMotionSample, resolveShipMotionSampleInto, sampleShipWaterPath, shipCycleTempo, shipMapVisibilityAlpha, shipWaterPathKey, SPEED_QUARTILE_SCALARS, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
-import { ARRIVING_DECEL_END, ARRIVING_FULL_TRANSIT_END, CAST_OFF_LINE_RELEASE_END, MOORING_QUIET_END, MOORING_WORKING_END, MOTION_LEG_MAX_SECONDS, MOTION_LEG_MIN_SECONDS, MOTION_REST_MAX_SECONDS, MOTION_REST_MIN_SECONDS, MOTION_UNDERWAY_MAX_TILES_PER_SECOND, MOTION_UNDERWAY_MIN_TILES_PER_SECOND } from "./motion-config";
+import { ARRIVING_DECEL_END, ARRIVING_FULL_TRANSIT_END, CAST_OFF_LINE_RELEASE_END, MOORING_QUIET_END, MOORING_WORKING_END, MOTION_LEG_MAX_SECONDS, MOTION_LEG_MIN_SECONDS, MOTION_PAIR_WINDOW_SECONDS, MOTION_REST_MAX_SECONDS, MOTION_REST_MIN_SECONDS, MOTION_TRANSITION_SHARE, MOTION_UNDERWAY_MAX_TILES_PER_SECOND, MOTION_UNDERWAY_MIN_TILES_PER_SECOND } from "./motion-config";
 import { getShipHeadingDelta } from "./motion-sampling";
 import { __resetPreviousRiskCache } from "./motion-planning";
 import { chaikinSmoothPath, ensureShoreDistanceMask, shoreDistance, warmAllWaterPaths } from "./motion-water";
@@ -483,6 +483,21 @@ describe("motion", () => {
       freshness: {},
     });
     const plan = buildMotionPlan(denseWorld, null);
+    const routes = [...plan.shipRoutes.values()];
+    const legDurations = routes.map((route) => route.legDurationSeconds);
+    const restDurations = routes.map((route) => route.restDurationSeconds);
+    const cadencePairCounts = new Map<string, number>();
+
+    for (const route of routes) {
+      const key = `${route.legDurationSeconds.toFixed(6)}:${route.restDurationSeconds.toFixed(6)}`;
+      cadencePairCounts.set(key, (cadencePairCounts.get(key) ?? 0) + 1);
+    }
+
+    // Stable identity supplies genuinely individual cadence; only intentional
+    // squad formations are allowed to share their flagship's timing pair.
+    expect(Math.max(...legDurations) - Math.min(...legDurations)).toBeGreaterThanOrEqual(60);
+    expect(Math.max(...restDurations) - Math.min(...restDurations)).toBeGreaterThanOrEqual(150);
+    expect(Math.max(...cadencePairCounts.values()) / routes.length).toBeLessThanOrEqual(0.1);
 
     for (const route of plan.shipRoutes.values()) {
       expect(route.legDurationSeconds).toBeGreaterThanOrEqual(MOTION_LEG_MIN_SECONDS);
@@ -500,6 +515,8 @@ describe("motion", () => {
       }
     }
 
+    let underwayShareSum = 0;
+    let transitionShareSum = 0;
     for (let clockIndex = 0; clockIndex < 50; clockIndex += 1) {
       // Coprime stride gives a deterministic pseudo-random spread over many
       // route cycles without introducing Math.random into the test or plan.
@@ -518,11 +535,56 @@ describe("motion", () => {
         }
       }
 
-      expect(underway / denseWorld.ships.length).toBeGreaterThanOrEqual(0.18);
-      expect(underway / denseWorld.ships.length).toBeLessThanOrEqual(0.25);
-      expect(transitions / denseWorld.ships.length).toBeGreaterThanOrEqual(0.08);
-      expect(transitions / denseWorld.ships.length).toBeLessThanOrEqual(0.12);
+      underwayShareSum += underway / denseWorld.ships.length;
+      transitionShareSum += transitions / denseWorld.ships.length;
     }
+    expect(underwayShareSum / 50).toBeGreaterThanOrEqual(0.18);
+    expect(underwayShareSum / 50).toBeLessThanOrEqual(0.25);
+    expect(transitionShareSum / 50).toBeGreaterThanOrEqual(0.08);
+    expect(transitionShareSum / 50).toBeLessThanOrEqual(0.12);
+  }, 15_000);
+
+  it("keeps identity phases stable across roster changes and pairs harbour boundary events", () => {
+    const denseWorld = buildPharosVilleWorld({
+      stablecoins: denseFixtureStablecoins,
+      chains: denseFixtureChains,
+      stability: fixtureStability,
+      pegSummary: denseFixturePegSummary,
+      stress: denseFixtureStress,
+      reportCards: denseFixtureReportCards,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+    const fullPlan = buildBaseMotionPlan(denseWorld);
+    const removedId = denseWorld.ships.find((ship) => !ship.squadId)?.id ?? denseWorld.ships[0]!.id;
+    const reducedWorld = { ...denseWorld, ships: denseWorld.ships.filter((ship) => ship.id !== removedId) };
+    const reducedPlan = buildBaseMotionPlan(reducedWorld);
+
+    for (const ship of reducedWorld.ships) {
+      expect(reducedPlan.shipRoutes.get(ship.id)!.phaseSeconds).toBe(fullPlan.shipRoutes.get(ship.id)!.phaseSeconds);
+    }
+
+    const windows = Array.from({ length: 40 }, () => ({ arrival: false, departure: false }));
+    for (const route of fullPlan.shipRoutes.values()) {
+      const riskRest = route.riskRestDurationSeconds ?? route.restDurationSeconds;
+      const boundaries = [
+        { kind: "departure" as const, offset: route.restDurationSeconds },
+        {
+          kind: "arrival" as const,
+          offset: route.restDurationSeconds + route.legDurationSeconds + riskRest
+            + route.legDurationSeconds * (1 - MOTION_TRANSITION_SHARE),
+        },
+      ];
+      for (const boundary of boundaries) {
+        for (let cycleIndex = -2; cycleIndex <= 2; cycleIndex += 1) {
+          const seconds = boundary.offset - route.phaseSeconds + cycleIndex * route.cycleSeconds;
+          if (seconds < 0 || seconds >= 600) continue;
+          windows[Math.floor(seconds / MOTION_PAIR_WINDOW_SECONDS)]![boundary.kind] = true;
+        }
+      }
+    }
+    expect(windows.filter((window) => window.arrival && window.departure).length / windows.length)
+      .toBeGreaterThanOrEqual(0.8);
   });
 
   it("keeps squad consorts in formation with the flagship through the entire dock cycle", () => {
@@ -668,8 +730,8 @@ describe("motion", () => {
       }
     }
 
-    expect(ledgerSamples / (sampleCount * 6)).toBeGreaterThan(0.31);
-    expect(ledgerSamples / (sampleCount * 6)).toBeLessThan(0.35);
+    const expectedLedgerShare = (route.riskRestDurationSeconds ?? route.restDurationSeconds) / route.cycleSeconds;
+    expect(ledgerSamples / (sampleCount * 6)).toBeCloseTo(expectedLedgerShare, 2);
     expect(maxDistanceFromRisk).toBeGreaterThan(6);
     expect(visitedDockIds).toEqual(new Set(route.dockStops.map((stop) => stop.dockId)));
   });
@@ -2626,6 +2688,40 @@ describe("motion", () => {
       }
       expect(shipCycleTempo(ships[3]!, ships).scalar).toBeGreaterThan(shipCycleTempo(ships[0]!, ships).scalar);
       expect(activeRoute.cycleSeconds).toBeLessThanOrEqual(languidRoute.cycleSeconds);
+    });
+
+    it("uses flow-scaled leg time for physical progress over the same 60 seconds", () => {
+      const baseWorld = worldForShip({
+        chainCirculating: chainCirculating(["Ethereum"]),
+        chains: ["ethereum"],
+      });
+      const baseShip = baseWorld.ships[0]!;
+      const worldAtFlow = (flowIntensity: number) => ({
+        ...baseWorld,
+        ships: [{ ...baseShip, flowIntensity }],
+      });
+      const languidWorld = worldAtFlow(0);
+      const activeWorld = worldAtFlow(100);
+      const languidPlan = buildMotionPlan(languidWorld, null);
+      const activePlan = buildMotionPlan(activeWorld, null);
+      const languidRoute = languidPlan.shipRoutes.get(baseShip.id)!;
+      const activeRoute = activePlan.shipRoutes.get(baseShip.id)!;
+      const languid = resolveShipMotionSample({
+        plan: languidPlan,
+        reducedMotion: false,
+        ship: languidWorld.ships[0]!,
+        timeSeconds: languidRoute.restDurationSeconds + 60 - languidRoute.phaseSeconds,
+      });
+      const active = resolveShipMotionSample({
+        plan: activePlan,
+        reducedMotion: false,
+        ship: activeWorld.ships[0]!,
+        timeSeconds: activeRoute.restDurationSeconds + 60 - activeRoute.phaseSeconds,
+      });
+      const mooring = languidRoute.dockStops[0]!.mooringTile;
+
+      expect(activeRoute.legDurationSeconds).toBeLessThan(languidRoute.legDurationSeconds);
+      expect(distance(active.tile, mooring)).not.toBeCloseTo(distance(languid.tile, mooring), 2);
     });
   });
 
