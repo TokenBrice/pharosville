@@ -332,9 +332,7 @@ try {
       if ((read.samples ?? 0) > (metrics.samples ?? 0)) metrics = read;
     }
   }
-  const settledAtFrame = metrics.frameCount
-    ?? metrics.drawOwnerCensus?.sampledAtFrame
-    ?? -1;
+  const settledAtFrame = metrics.drawOwnerCensus?.sampledAtFrame ?? -1;
   if ((metrics.shipsVisible ?? 0) === 0) {
     console.error("warning: no fleet on screen — the world had not populated, so the frame below is not the world.");
   }
@@ -355,7 +353,8 @@ try {
     if (tailSweep.reads.length > 0) metrics = medianByP90(tailSweep.reads);
   }
   if (args["draw-census"]) {
-    metrics = await waitForDrawOwnerCensusAfterFrame(page, settledAtFrame);
+    const fresh = await waitForDrawOwnerCensusAfterFrame(page, settledAtFrame);
+    metrics = { ...metrics, drawOwnerCensus: fresh.drawOwnerCensus };
   }
 
   await applyRequestedUiState(page);
