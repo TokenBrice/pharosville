@@ -3735,8 +3735,7 @@ function computeBeamDwellBearing(
  * The boundary steles to raise, and what they say.
  *
  * Every named body gets one — including Calm Anchorage and Ledger Mooring,
- * and the wreck shoals, which have no area record at all but are a place with
- * a name like any other. These steles are the sea's in-world place-name display;
+ * and Wreck Shoal. These steles are the sea's in-world place-name display;
  * the old DOM chip layer was removed as a UI intrusion on the world.
  */
 function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
@@ -3752,12 +3751,6 @@ function seaSignSpecs(areas: PharosVilleWorld["areas"]): SeaSignSpec[] {
       accent: zoneThemeForTerrain(SEA_BODY_TERRAIN[body]).label.accent,
     });
   }
-  specs.push({
-    body: "wreck",
-    label: "Wreck Shoals",
-    reading: null,
-    accent: zoneThemeForTerrain("wreck-water").label.accent,
-  });
   return specs;
 }
 
@@ -3769,9 +3762,7 @@ function seaSignBodyForDetail(
   for (const area of world.areas) {
     if (area.detailId === detailId) return seaBodyForArea(area);
   }
-  // Wreck Shoal has no area detail record. Inspecting any of its lifecycle
-  // wrecks activates the body stele while the ledger keeps every grave's DOM
-  // record intact.
+  // Inspecting any lifecycle wreck also activates its named body's stele.
   for (const grave of world.graves) {
     if (grave.detailId === detailId) return "wreck";
   }

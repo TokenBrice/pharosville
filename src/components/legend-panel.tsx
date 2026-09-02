@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, type KeyboardEvent } from "react";
 import X from "lucide-react/dist/esm/icons/x";
 import { ControlsCheatsheet } from "./controls-cheatsheet";
 import { zoneThemeForTerrain } from "../systems/palette";
-import { RISK_WATER_AREAS } from "../systems/risk-water-areas";
+import { RISK_WATER_AREAS, WRECK_SHOAL_AREA } from "../systems/risk-water-areas";
 import {
   recentFleetTrendEntryLabel,
   recentFleetTrendSummaryText,
@@ -190,6 +190,14 @@ export function LegendPanel({ onClose, onObserve, onSelectDetail, recentFleetTre
                 </li>
               );
             })}
+            <li key={WRECK_SHOAL_AREA.id}>
+              <span
+                className="pharosville-legend-panel__swatch"
+                style={{ backgroundColor: zoneThemeForTerrain(WRECK_SHOAL_AREA.terrain).base }}
+                aria-hidden="true"
+              />
+              <strong>{WRECK_SHOAL_AREA.label}</strong> — {WRECK_SHOAL_AREA.reading}
+            </li>
           </ul>
         </section>
 

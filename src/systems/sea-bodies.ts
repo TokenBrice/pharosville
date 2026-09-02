@@ -81,6 +81,7 @@ export const SEA_BODY_TERRAIN: Record<SeaBodyName, TerrainKind> = {
  * area record fits without importing `AreaNode`.
  */
 export interface SeaBodyAreaKey {
+  id?: string | null;
   band?: string | null;
   riskPlacement?: string | null;
 }
@@ -101,6 +102,7 @@ export interface SeaBodyAreaKey {
  * the name -> id lookup.
  */
 export function seaBodyForArea(area: SeaBodyAreaKey): SeaBodyName | null {
+  if (area.id === "area.risk-water.wreck-shoal") return "wreck";
   if (area.band === "CALM") return "calm";
   if (area.band === "WATCH") return "watch";
   if (area.band === "ALERT") return "alert";

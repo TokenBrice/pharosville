@@ -370,6 +370,7 @@ describe("buildPharosVilleWorld", () => {
     const alertArea = world.areas.find((area) => area.band === "ALERT");
     const watchArea = world.areas.find((area) => area.band === "WATCH");
     const ledgerArea = world.areas.find((area) => area.riskPlacement === "ledger-mooring");
+    const wreckArea = world.areas.find((area) => area.id === "area.risk-water.wreck-shoal");
     const usdc = world.ships[0];
 
     expect(counts).toMatchObject({
@@ -393,11 +394,17 @@ describe("buildPharosVilleWorld", () => {
     expect(world.areas.map((area) => area.detailId)).not.toContain("area.risk-water.data-fog");
     expect(ledgerArea).toMatchObject({ label: "Ledger Mooring", riskZone: "ledger", detailId: "area.risk-water.ledger-mooring" });
     expect(ledgerArea?.tile ? terrainKindAt(ledgerArea.tile.x, ledgerArea.tile.y) : null).toBe("ledger-water");
+    expect(wreckArea).toMatchObject({ label: "Wreck Shoal", detailId: "area.risk-water.wreck-shoal" });
+    expect(wreckArea?.tile ? terrainKindAt(wreckArea.tile.x, wreckArea.tile.y) : null).toBe("wreck-water");
     expect(world.detailIndex["area.risk-water.data-fog"]).toBeUndefined();
     expect(world.detailIndex["area.risk-water.ledger-mooring"]?.facts).toEqual(expect.arrayContaining([
       { label: "Risk water zone", value: "ledger" },
       { label: "Risk placement", value: "ledger-mooring" },
     ]));
+    expect(world.detailIndex["area.risk-water.wreck-shoal"]).toMatchObject({
+      title: "Wreck Shoal",
+      links: [expect.objectContaining({ label: "Cemetery" })],
+    });
     // Z3 (Sea Master): each area's tile is snapped into its own body, so the
     // exact coordinate follows the coastline. The claim worth asserting is that
     // every area sits in the water it names.

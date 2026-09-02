@@ -96,7 +96,10 @@ export type DetailFactKey =
   | "liquidity"
   | "resilience"
   | "decentralization"
-  | "dependencyRisk";
+  | "dependencyRisk"
+  | "waterStyle"
+  | "atmosphere"
+  | "sourceFields";
 
 export interface DetailFactLike {
   label: string;
@@ -161,6 +164,10 @@ const DETAIL_FACT_LABELS = {
   "resilience": "resilience",
   "decentralization": "decentralization",
   "dependency risk": "dependencyRisk",
+  "water style": "waterStyle",
+  "atmosphere": "atmosphere",
+  "source": "sourceFields",
+  "source fields": "sourceFields",
 } as const satisfies Record<string, DetailFactKey>;
 
 export function classifyDetailFactLabel(label: string): DetailFactKey | null {
@@ -376,6 +383,12 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   // the whole reading and folding it behind a separator would bury it.
   const netFlow24h = lookup.get("netFlow24h");
   if (netFlow24h) identity.push({ key: "netFlow24h", label: "Net flow 24h", value: netFlow24h });
+  const waterStyle = lookup.get("waterStyle");
+  if (waterStyle) identity.push({ key: "waterStyle", label: "Water style", value: waterStyle });
+  const atmosphere = lookup.get("atmosphere");
+  if (atmosphere) identity.push({ key: "atmosphere", label: "Atmosphere", value: atmosphere });
+  const sourceFields = lookup.get("sourceFields");
+  if (sourceFields) identity.push({ key: "sourceFields", label: "Source fields", value: sourceFields });
 
   const position: DetailDisplayRow[] = [];
   const position_ = lookup.get("representativePosition");

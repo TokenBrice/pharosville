@@ -33,6 +33,14 @@ describe("LegendPanel", () => {
     expect(markup).not.toMatch(/galleon|brigantine|schooner/i);
   });
 
+  it("lists all seven canonical named waters", () => {
+    const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
+
+    for (const area of ["Calm Anchorage", "Watch Breakwater", "Alert Channel", "Warning Shoals", "Danger Strait", "Ledger Mooring", "Wreck Shoal"]) {
+      expect(markup).toContain(area);
+    }
+  });
+
   it("uses modal dialog semantics and focuses/restores the close control", () => {
     const opener = document.createElement("button");
     opener.type = "button";

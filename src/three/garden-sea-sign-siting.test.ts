@@ -44,16 +44,17 @@ describe("sea-stele overview-LOD siting (W2a)", () => {
     }
   });
 
-  it("adds Wreck Shoal without inventing a detail record", () => {
+  it("sites the canonical Wreck Shoal area with its detail record", () => {
     const steles = seaSignSteles([
       { band: "CALM", detailId: "area.calm", label: "Calm Anchorage" },
       { band: "DANGER", detailId: "area.danger", label: "Danger Strait" },
+      { id: "area.risk-water.wreck-shoal", detailId: "area.risk-water.wreck-shoal", label: "Wreck Shoal" },
     ]);
     expect(steles.map((stele) => stele.body)).toEqual(["calm", "danger", "wreck"]);
     expect(steles.at(-1)).toMatchObject({
       body: "wreck",
-      detailId: null,
-      label: "Wreck Shoals",
+      detailId: "area.risk-water.wreck-shoal",
+      label: "Wreck Shoal",
     });
   });
 });

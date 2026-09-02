@@ -89,6 +89,19 @@ describe("composeCurrently", () => {
 // P3 metaphor quick-wins: the gated signals must FOLD into existing rows so
 // the panel's <= 8 fact-row density contract holds for the worst-case ship.
 describe("buildDetailFactSections folds", () => {
+  it("renders named-water facts in the area detail record", () => {
+    const { identity } = buildDetailFactSections([
+      { label: "Water style", value: "protected tidal inlet and wreck shoal" },
+      { label: "Atmosphere", value: "still wreck water" },
+      { label: "Source fields", value: "cemeteryEntries[], world-layout wreck-water field" },
+    ]);
+
+    expect(identity).toEqual([
+      { key: "waterStyle", label: "Water style", value: "protected tidal inlet and wreck shoal" },
+      { key: "atmosphere", label: "Atmosphere", value: "still wreck water" },
+      { key: "sourceFields", label: "Source fields", value: "cemeteryEntries[], world-layout wreck-water field" },
+    ]);
+  });
   it("folds Bluechip audit into the Class row", () => {
     const { identity } = buildDetailFactSections([
       { label: "Ship class", value: "CeFi" },

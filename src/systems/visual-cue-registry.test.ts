@@ -90,6 +90,17 @@ describe("buildVisualCueRegistry", () => {
     expect(cue?.domEquivalent).toContain("not market-cap tier");
   });
 
+  it("registers seven hover-weighted boundary steles with ledger redundancy", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.water.semantic-terrain");
+
+    expect(cue?.visual).toContain("seven low stone boundary steles");
+    expect(cue?.visual).toContain("Wreck Shoal");
+    expect(cue?.visual).toContain("hovered or inspected");
+    expect(cue?.failureState).toContain("no freestanding sign or post");
+    expect(cue?.domEquivalent).toContain("ledger is the redundant channel");
+    expect(`${cue?.visual} ${cue?.reducedMotionEquivalent}`).not.toContain("printed");
+  });
+
   it("documents all six hull-family silhouettes and their complete classification source", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.hull");
 
@@ -224,15 +235,11 @@ describe("buildVisualCueRegistry", () => {
     }
   });
 
-  it("describes area cues as printed cartographic labels instead of signs or posts", () => {
-    const areaCues = buildVisualCueRegistry().filter((cue) => cue.target.kind === "area");
+  it("describes named-water classification as steles rather than signs or posts", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.water.semantic-terrain");
 
-    expect(areaCues.map((cue) => cue.visual)).toEqual(expect.arrayContaining([
-      expect.stringContaining("printed cartographic"),
-    ]));
-    for (const cue of areaCues) {
-      expect(cue.visual).not.toMatch(/\b(sign|post|board|badge)\b/i);
-    }
+    expect(cue?.visual).toContain("boundary steles");
+    expect(cue?.visual).not.toMatch(/printed cartographic|\b(sign|post|board|badge)\b/i);
   });
 
 });

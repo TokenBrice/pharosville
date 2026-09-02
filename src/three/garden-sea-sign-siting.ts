@@ -309,6 +309,7 @@ export function seaSignSites(bodies: readonly SeaBodyName[]): SeaSignSite[] {
 
 /** The area fields the stele list reads. Structural, so any world area fits. */
 export interface SeaSignArea {
+  id?: string | null;
   band?: string | null;
   detailId: string;
   label: string;
@@ -317,8 +318,7 @@ export interface SeaSignArea {
 
 /** A sited stele together with the detail its name opens, if it has one. */
 export interface SeaSignStele extends SeaSignSite {
-  /** Null for the wreck shoals, which are a place with no area record. */
-  detailId: string | null;
+  detailId: string;
   label: string;
 }
 
@@ -327,14 +327,12 @@ export interface SeaSignStele extends SeaSignSite {
  * which is the order the separation nudge above depends on.
  */
 export function seaSignSteles(areas: readonly SeaSignArea[]): SeaSignStele[] {
-  const named: { body: SeaBodyName; detailId: string | null; label: string }[] = [];
+  const named: { body: SeaBodyName; detailId: string; label: string }[] = [];
   for (const area of areas) {
     const body = seaBodyForArea(area);
     if (!body) continue;
     named.push({ body, detailId: area.detailId, label: area.label });
   }
-  named.push({ body: "wreck", detailId: null, label: "Wreck Shoals" });
-
   const siteByBody = new Map(seaSignSites(named.map((entry) => entry.body)).map((site) => [site.body, site]));
   const steles: SeaSignStele[] = [];
   for (const entry of named) {

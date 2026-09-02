@@ -345,6 +345,26 @@ describe("AccessibilityLedger", () => {
     expect(markup.toLowerCase()).toContain("#71717a");
   });
 
+  it("lists canonical Wreck Shoal as the seventh named area", () => {
+    const world: PharosVilleWorld = {
+      ...sampleWorld(),
+      areas: [{
+        id: "area.risk-water.wreck-shoal",
+        kind: "area",
+        label: "Wreck Shoal",
+        tile: { x: 15, y: 123 },
+        detailId: "area.risk-water.wreck-shoal",
+        facts: [{ label: "Water style", value: "protected tidal inlet and wreck shoal" }],
+        sourceFields: ["cemeteryEntries[]", "world-layout wreck-water field"],
+        summary: "Wreck-water lifecycle area; no live-ship risk placement.",
+      }],
+    };
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(markup).toContain("Wreck Shoal: No live-ship risk placement");
+    expect(markup).toContain("world-layout wreck-water field");
+  });
+
   it("appends a heritage-hull clause for ships carrying uniqueRationale", () => {
     const world = sampleWorldWithUniqueShip();
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);

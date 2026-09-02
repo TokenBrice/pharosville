@@ -259,12 +259,12 @@ export function buildVisualCueRegistry(): VisualCue[] {
       id: "cue.water.semantic-terrain",
       target: { kind: "area" },
       primaryChannels: ["color", "shape", "motion"],
-      visual: "printed cartographic water labels over calm DEWS anchorage, watch breakwater chop, alert current, warning shoals, storm strait, and ledger-water texture",
-      sourceField: "stress.signals[], pegSummary.coins[], stablecoinMeta.flags.navToken",
-      questionAnswered: "Which named water areas encode calm, NAV-ledger, alert, warning, or danger conditions?",
-      failureState: "generic water texture with DOM area detail still available",
-      domEquivalent: "named area detail panel and accessibility ledger rows",
-      reducedMotionEquivalent: "static semantic water texture and printed labels",
+      visual: "seven low stone boundary steles naming Calm Anchorage, Watch Breakwater, Alert Channel, Warning Shoals, Danger Strait, Ledger Mooring, and Wreck Shoal; their water-near lettering stays quiet until the named body is hovered or inspected",
+      sourceField: "world-layout sea-body field; stress.signals[], pegSummary.coins[], stablecoinMeta.flags.navToken, cemeteryEntries[]",
+      questionAnswered: "Which named water is this: calm, watch, alert, warning, danger, NAV-ledger, or wreck lifecycle water?",
+      failureState: "quiet water-near stele with the named area detail and accessibility ledger still available; no freestanding sign or post carries classification",
+      domEquivalent: "named area detail panel for all seven waters plus the accessibility ledger Named areas list; the ledger is the redundant channel because canvas steles are aria-hidden",
+      reducedMotionEquivalent: "the same static hover-weighted boundary steles and semantic water texture; the accessibility ledger remains the redundant channel",
     },
     {
       // The one cue that reads the SIGN of the peg deviation. `cue.ship.distance`
