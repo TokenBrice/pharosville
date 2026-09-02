@@ -203,7 +203,7 @@ function resolveGardenObstacleTile(x: number, y: number): boolean {
     if (circleValueXY(x, y, islet, 0) < 1) return true;
   }
   for (const edge of GARDEN_EDGE_STONE_OBSTACLES) {
-    if (circleValue(point, edge, 0) < 1) return true;
+    if (circleValueXY(x, y, edge, 0) < 1) return true;
   }
   return false;
 }
