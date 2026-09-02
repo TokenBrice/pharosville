@@ -199,9 +199,11 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       kind: grave.kind,
       label: grave.label,
       priority: 2_500 + anchor.y,
+      // Half-sunk graveyard hulls span 40–60 px at zoom 1 (garden-landmarks),
+      // so the target covers the boat, not just the stele beside it.
       rect: rectAboveAnchor(
         anchor,
-        36 * input.camera.zoom,
+        60 * input.camera.zoom,
         52 * input.camera.zoom,
         8 * input.camera.zoom,
       ),

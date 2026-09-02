@@ -185,8 +185,52 @@ interface GardenShipDisplayTileCacheEntry {
 
 // The renderer and the hit-target snapshot resolve the same fleet positions in
 // the same frame. Ship nodes are replaced on a world rebuild, so a WeakMap
-// gives each live ship one exact last-result cache with automatic invalidation.
+// gives each live ship one last-result cache with automatic invalidation.
 const gardenShipDisplayTileCache = new WeakMap<ShipNode, GardenShipDisplayTileCacheEntry>();
+const gardenDependencyDisplayTileCache = new WeakMap<ShipNode, GardenShipDisplayTileCacheEntry>();
+
+/**
+ * Composed display tiles that miss the water field need the radial
+ * nearest-water search, which is hundreds of field lookups. Moored hulls bob
+ * and patrols drift a fraction of a tile per frame, so an exact-source cache
+ * missed every frame for every corrected hull and the search ran ~25 times a
+ * frame in a dense world (≈+5 ms of draw submit). The correction is a local
+ * property of the field: while the source stays within a tile of the last
+ * one, the previous displacement lands the hull on water nearly always, and
+ * one lookup verifies it. Only a real move (transition, rebuild, state flip)
+ * pays for the search again.
+ */
+function resolveCachedShipWaterTile(
+  cache: WeakMap<ShipNode, GardenShipDisplayTileCacheEntry>,
+  ship: ShipNode,
+  source: ScreenPoint,
+  state: ShipMotionSample["state"] | undefined,
+  margin: number,
+  includeDocks: boolean,
+  seed: string,
+): ScreenPoint {
+  const cached = cache.get(ship);
+  if (cached && cached.state === state) {
+    if (cached.sourceX === source.x && cached.sourceY === source.y) return cached.tile;
+    if (Math.abs(source.x - cached.sourceX) < 1 && Math.abs(source.y - cached.sourceY) < 1) {
+      const shifted = {
+        x: source.x + (cached.tile.x - cached.sourceX),
+        y: source.y + (cached.tile.y - cached.sourceY),
+      };
+      if (isGardenShipWater(shifted, margin, includeDocks)) {
+        cached.sourceX = source.x;
+        cached.sourceY = source.y;
+        cached.tile = shifted;
+        return shifted;
+      }
+    }
+  }
+  const resolved = isGardenShipWater(source, margin, includeDocks)
+    ? source
+    : nearestGardenShipWater(source, margin, seed, includeDocks);
+  cache.set(ship, { sourceX: source.x, sourceY: source.y, state, tile: resolved });
+  return resolved;
+}
 
 export function resolveGardenShipDisplayTile(input: {
   displayOffset: ScreenPoint;
@@ -224,13 +268,6 @@ export function resolveGardenShipDisplayTile(input: {
   // islets, cemetery, pigeonnier). A mooring may overlap the low dock apron,
   // but it may never overlap the finite plate edge or the stone under that
   // dock: berth authoring and runtime sampling therefore share this field.
-  const cached = gardenShipDisplayTileCache.get(ship);
-  if (
-    cached
-    && cached.sourceX === display.x
-    && cached.sourceY === display.y
-    && cached.state === sample?.state
-  ) return cached.tile;
   const margin = gardenShipWaterMarginTiles(
     gardenShipVisualScale(ship.visual.scale || 1),
     GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
@@ -238,16 +275,15 @@ export function resolveGardenShipDisplayTile(input: {
   const includeDocks = sample?.state !== "moored"
     && sample?.state !== "arriving"
     && sample?.state !== "departing";
-  const resolved = isGardenShipWater(display, margin, includeDocks)
-    ? display
-    : nearestGardenShipWater(display, margin, `motion-display.${ship.id}`, includeDocks);
-  gardenShipDisplayTileCache.set(ship, {
-    sourceX: display.x,
-    sourceY: display.y,
-    state: sample?.state,
-    tile: resolved,
-  });
-  return resolved;
+  return resolveCachedShipWaterTile(
+    gardenShipDisplayTileCache,
+    ship,
+    display,
+    sample?.state,
+    margin,
+    includeDocks,
+    `motion-display.${ship.id}`,
+  );
 }
 
 /**
@@ -273,9 +309,15 @@ export function resolveGardenDependencyShipDisplayTile(input: {
     gardenShipVisualScale(ship.visual.scale || 1),
     GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
   );
-  return isGardenShipWater(composed, margin)
-    ? composed
-    : nearestGardenShipWater(composed, margin, `dependency-display.${ship.id}`);
+  return resolveCachedShipWaterTile(
+    gardenDependencyDisplayTileCache,
+    ship,
+    composed,
+    undefined,
+    margin,
+    false,
+    `dependency-display.${ship.id}`,
+  );
 }
 
 export function resolveGardenEntityDisplayTile(input: {
