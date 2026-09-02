@@ -308,15 +308,19 @@ npm run preview -- --url http://localhost:5173 --hash "#cam=0,0,0.28" --draw-cen
 
 Group the census rows by owner prefix and fill in:
 
-| Owner group | Baseline calls | Target | Task |
-|---|---|---|---|
-| `docks/*` (all per-dock meshes + flags + cranes + lanterns) | | ≤ 20 | Task 3–4 |
-| `island/*` | | ≤ 12 | Task 5 |
-| `ships/hero-*` (per hero root) | | ≤ 2 per hero | Task 6 (only if baseline > 2/hero) |
-| `ships/fleet-*` | | 15 (unchanged) | — |
-| everything else | | unchanged | — |
+Measured 2026-09-02 (Apple M5 Pro, real GPU, default framing, 185 ships). "Baseline" = first reconciled census (`outputs/w0-census-baseline.txt`, 676 scene calls, taken after Task 5's island merge was live in the tree, so the island row's pre-merge figure comes from Task 5's own count). "Pre-docks" = settled clean-tree census after Tasks 1/5/8 landed (`outputs/w0-t2-pre-docks.txt`, 337 scene calls, 338 = 338 reconciled).
 
-Decision rule: Tasks 3–5 always run (they are the infrastructure Wave 1–3 build on). Task 6 runs only if the census shows more than two recurring draws per hero root. If, after Tasks 3–5, the default framing is still above 450 calls, add a Task 7 for the next-largest owner group in the census before declaring the wave done — do not close the wave on estimates.
+| Owner group | Baseline calls | Pre-docks calls | Target | Task |
+|---|---|---|---|---|
+| wakes (`ship-wake` + `ship-bow-wave`) | **346** (largest owner; not in the original funding table) | 2 | 2 | Task 8 — done |
+| `docks/*` (per-dock meshes + flags + cranes + lantern ring + tide line) | 105 | 107 | ≤ 20 | Task 3–4 |
+| island (`content-part-island/*`, `island-*`, `pharos-*`, lighthouse shell, niwaki) | 77 drawables pre-merge (Task 5 count); 62 calls post-merge | 62 | measured floor: 40 non-instanced + 21 instanced (13 mandatorily separate: textured rock/gravel, pond/koi/beam shaders, basic-material draws) | Task 5 — done |
+| `hero-garden-*` (29 hero hulls, merged solid + canvas) | 46 | 46 | ≤ 2 per hero — already met | Task 6 — dropped |
+| `fleet-batches/*` | 15 | 15 | 15 (unchanged) | — |
+| everything else (water 1, sky, signs 10, lanterns, buoys, tenders, birds, composer ≈ 24 unnamed `Mesh`) | ≈ 100 | ≈ 105 | unchanged | — |
+| **total scene calls** | **676** | **337** | ≤ 450 (already met); expect ≈ 250 after Task 3–4 | |
+
+Decision rule (applied): Task 8 was added from the measured census and ran first; Task 6 is dropped on measurement; Tasks 3–4 run as infrastructure for Wave 3 regardless of the total already being under 450. Frame-to-frame volatility of the total (693 → 676 → 578 in the first three baseline runs) was the per-ship wake toggling; after Task 8 the total is stable to within a few calls.
 
 - [ ] **Step 3: Commit the filled table**
 
