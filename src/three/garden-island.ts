@@ -44,7 +44,8 @@ import {
 } from "./garden-height-fog";
 import { createGardenKoi } from "./garden-koi";
 import { MOON_COLOR, type DayCyclePhase } from "./garden-day-cycle";
-import { setTilePosition, stableUnit } from "./garden-util";
+import { OVERVIEW_LOD_DETAIL_NAMES } from "./garden-overview-lod";
+import { countDrawableObjects, setTilePosition, stableUnit } from "./garden-util";
 import { sampleTideLine } from "./garden-tide-line";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 
@@ -276,10 +277,8 @@ const ISLAND_DYNAMIC_NAMES = new Set([
 // them to the island root would leave them behind when the group is hidden or
 // scaled (notably when the procedural Pharos shell is replaced by its GLB).
 const ISLAND_DYNAMIC_CONTAINER_NAMES = new Set([
-  "island-niwaki",
   "lighthouse-procedural-shell",
-  "lighthouse-shore-props",
-  "pharos-precinct-obelisks",
+  ...OVERVIEW_LOD_DETAIL_NAMES,
 ]);
 
 const DEFAULT_STANDARD_ON_BEFORE_COMPILE = MeshStandardMaterial.prototype.onBeforeCompile;
@@ -440,7 +439,6 @@ export function mergeIslandStatics(root: Group): { merged: number; kept: number 
   root.updateMatrixWorld(true);
   const ownerIds = new Map<Group, number>([[root, 0]]);
   const buckets = new Map<string, IslandStaticMergeBucket>();
-  let kept = 0;
 
   root.traverse((object) => {
     if (!(object instanceof Mesh) || object instanceof InstancedMesh) return;
@@ -458,7 +456,6 @@ export function mergeIslandStatics(root: Group): { merged: number; kept: number 
       || object.geometry.drawRange.start !== 0
       || object.geometry.drawRange.count !== Infinity
     ) {
-      kept += 1;
       return;
     }
     const owner = islandStaticMergeOwner(object, root);
@@ -473,7 +470,6 @@ export function mergeIslandStatics(root: Group): { merged: number; kept: number 
   let signatureIndex = 0;
   for (const bucket of buckets.values()) {
     if (bucket.meshes.length < 2) {
-      kept += bucket.meshes.length;
       continue;
     }
     const ownerInverse = bucket.owner.matrixWorld.clone().invert();
@@ -484,7 +480,6 @@ export function mergeIslandStatics(root: Group): { merged: number; kept: number 
     const geometry = mergeGeometries(geometries, false);
     for (const prepared of geometries) prepared.dispose();
     if (!geometry) {
-      kept += bucket.meshes.length;
       continue;
     }
 
@@ -503,6 +498,8 @@ export function mergeIslandStatics(root: Group): { merged: number; kept: number 
     mesh.receiveShadow = source.receiveShadow;
     mesh.renderOrder = source.renderOrder;
     mesh.frustumCulled = source.frustumCulled;
+    mesh.visible = source.visible;
+    mesh.layers.mask = source.layers.mask;
     bucket.owner.add(mesh);
 
     for (const original of bucket.meshes) {
@@ -513,7 +510,7 @@ export function mergeIslandStatics(root: Group): { merged: number; kept: number 
     signatureIndex += 1;
   }
 
-  return { merged, kept };
+  return { merged, kept: countDrawableObjects(root) };
 }
 
 /**

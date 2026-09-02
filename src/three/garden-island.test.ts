@@ -98,7 +98,40 @@ describe("garden island rockwork", () => {
       2,
     );
     planting.name = "island-tree-crowns";
-    root.add(warm, cool, pond, shadowSplit, textured, explicitKeep, shaderPatched, planting);
+    const hiddenWarm = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#927057", flatShading: true, roughness: 0.84 }),
+    );
+    const hiddenCool = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#667b91", flatShading: true, roughness: 0.84 }),
+    );
+    hiddenWarm.visible = false;
+    hiddenCool.visible = false;
+    const layeredWarm = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#886d55", flatShading: true, roughness: 0.82 }),
+    );
+    const layeredCool = new Mesh(
+      new BoxGeometry(1, 1, 1),
+      new MeshStandardMaterial({ color: "#64788d", flatShading: true, roughness: 0.82 }),
+    );
+    layeredWarm.layers.set(3);
+    layeredCool.layers.set(3);
+    root.add(
+      warm,
+      cool,
+      pond,
+      shadowSplit,
+      textured,
+      explicitKeep,
+      shaderPatched,
+      planting,
+      hiddenWarm,
+      hiddenCool,
+      layeredWarm,
+      layeredCool,
+    );
     applyGardenHeightFog(root);
 
     const before = countDrawableObjects(root);
@@ -106,8 +139,9 @@ describe("garden island rockwork", () => {
     const after = countDrawableObjects(root);
     const merged = root.getObjectByName("island-merged-0") as Mesh;
 
-    expect(result.merged).toBe(1);
-    expect(after).toBe(before - 1);
+    expect(result.merged).toBe(3);
+    expect(result.kept).toBe(after);
+    expect(after).toBe(before - 3);
     expect(merged.castShadow).toBe(true);
     expect(merged.receiveShadow).toBe(true);
     expect((merged.material as MeshStandardMaterial).vertexColors).toBe(true);
@@ -125,6 +159,11 @@ describe("garden island rockwork", () => {
     merged.geometry.computeBoundingBox();
     expect(merged.geometry.boundingBox!.min.x).toBeCloseTo(-0.5);
     expect(merged.geometry.boundingBox!.max.x).toBeCloseTo(3.5);
+    const mergedMeshes = root.children.filter((child): child is Mesh => (
+      child instanceof Mesh && child.name.startsWith("island-merged-")
+    ));
+    expect(mergedMeshes.some((mesh) => mesh.visible === false)).toBe(true);
+    expect(mergedMeshes.some((mesh) => mesh.layers.mask === 1 << 3)).toBe(true);
   });
 
   it("automatically merges island statics and never touches the pond, gravel or instanced planting", () => {
@@ -132,8 +171,11 @@ describe("garden island rockwork", () => {
     const after = countDrawableObjects(island.root);
     const secondPass = mergeIslandStatics(island.root);
     expect(secondPass.merged).toBe(0);
+    expect(secondPass.kept).toBe(after);
     expect(countDrawableObjects(island.root)).toBe(after);
+    // 77 is the measured pre-merge baseline; changing it is a deliberate budget decision.
     expect(after).toBeLessThan(77);
+    // 40 is the non-instanced floor: 13 excluded draws, unique singles, and shell parts.
     expect(after).toBeLessThanOrEqual(40 + countInstanced(island.root));
     for (const name of ["island-reflection-pond-skin", "island-raked-gravel", "island-tree-crowns", "island-shoreline-boulders"]) {
       expect(island.root.getObjectByName(name), name).toBeDefined();
