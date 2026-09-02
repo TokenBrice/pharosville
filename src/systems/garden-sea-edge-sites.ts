@@ -103,6 +103,8 @@ interface EdgeGuide {
   readonly id: string;
   readonly length: number;
   readonly material: GardenSeaEdgeMaterial;
+  /** Whether the resolved centre belongs to navigable water or the authored rim. */
+  readonly surface?: "rim-land";
   readonly target: BoundaryTarget;
   readonly width: number;
 }
@@ -135,7 +137,7 @@ const GUIDES: readonly EdgeGuide[] = [
 
   // Danger Strait: one dark wall on the rim immediately below the authored
   // Danger opening. Its guide resolves outside, never inside, the open arc.
-  { body: "danger", form: "cliff", guide: { x: 137, y: 57 }, height: 5.2, id: "danger-rim-cliff", length: 5.4, material: "dark", target: "rim", width: 1.2 },
+  { body: "danger", form: "cliff", guide: { x: 137, y: 57 }, height: 5.2, id: "danger-rim-cliff", length: 5.4, material: "dark", surface: "rim-land", target: "rim", width: 1.2 },
 
   // Ledger Mooring: a right-angled slate lip and an orderly run of piles.
   { body: "ledger", form: "slate-edge", guide: { x: 68, y: 18 }, height: 0.85, id: "ledger-slate-west", length: 6.2, material: "slate", target: "open", width: 1.4 },
@@ -253,9 +255,18 @@ function resolveGuide(
   let bestDistance = Number.POSITIVE_INFINITY;
   for (let y = 1; y < PHAROSVILLE_MAP_HEIGHT - 1; y += 1) {
     for (let x = 1; x < PHAROSVILLE_MAP_WIDTH - 1; x += 1) {
-      if (seaRegionAtTile(x, y) !== regionId(guide.body)) continue;
-      if (!isWaterTileKind(terrainKindAt(x, y)) || rimLandAt(x, y)) continue;
-      if (!meetsTarget(x, y, guide.target) || seaEdgeTileInOpening({ x, y })) continue;
+      const rimSite = guide.surface === "rim-land";
+      if (rimSite) {
+        // The Danger face belongs to the shore, not the strait: resolve a rim
+        // tile whose cardinal neighbour is live Danger water on the opening's
+        // flank. It therefore cannot narrow the navigable field.
+        if (!rimLandAt(x, y) || !meetsTarget(x, y, guide.body)) continue;
+      } else {
+        if (seaRegionAtTile(x, y) !== regionId(guide.body)) continue;
+        if (!isWaterTileKind(terrainKindAt(x, y)) || rimLandAt(x, y)) continue;
+        if (!meetsTarget(x, y, guide.target)) continue;
+      }
+      if (seaEdgeTileInOpening({ x, y })) continue;
       if (!candidateIsClear(x, y, radius)) continue;
       if (resolved.some((site) => site.form === guide.form
         && Math.hypot(x - site.tile.x, y - site.tile.y) < 1.5)) continue;
@@ -289,12 +300,13 @@ export const GARDEN_SEA_EDGE_SITES: readonly GardenSeaEdgeSite[] = Object.freeze
 );
 
 /**
- * Ship-safety footprints for every physical edge feature. The historical
- * "edge stones" name is retained for the obstacle lane, but reeds, piles and
- * buoys are included too: decorative does not mean navigable.
+ * Ship-safety footprints for every physical edge feature placed on water. The
+ * historical "edge stones" name is retained for the obstacle lane, but reeds,
+ * piles and buoys are included too: decorative does not mean navigable. The
+ * Danger cliff is already rim land and must not narrow the strait a second time.
  */
 export const GARDEN_EDGE_STONE_OBSTACLES: readonly GardenSeaEdgeObstacle[] = Object.freeze(
-  GARDEN_SEA_EDGE_SITES.map((site) => Object.freeze({
+  GARDEN_SEA_EDGE_SITES.filter((site) => site.form !== "cliff").map((site) => Object.freeze({
     body: site.body,
     id: site.id,
     r: site.footprintRadius,

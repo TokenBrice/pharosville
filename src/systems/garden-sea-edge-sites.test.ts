@@ -35,8 +35,24 @@ describe("garden sea-edge sites", () => {
     }
   });
 
-  it("resolves every element onto its own water at a live field boundary, never rim or an opening", () => {
-    for (const site of GARDEN_SEA_EDGE_SITES) {
+  it("resolves water elements onto their live field boundary and the Danger cliff onto its rim flank", () => {
+    const cliff = GARDEN_SEA_EDGE_SITES.find((site) => site.form === "cliff");
+    expect(cliff).toBeDefined();
+    expect(rimLandAt(cliff!.tile.x, cliff!.tile.y)).toBe(true);
+    expect([
+      { x: 1, y: 0 },
+      { x: -1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 0, y: -1 },
+    ].some((offset) => {
+      const x = cliff!.tile.x + offset.x;
+      const y = cliff!.tile.y + offset.y;
+      return isWaterTileKind(terrainKindAt(x, y))
+        && seaRegionAtTile(x, y) === SEA_REGION_ID.danger;
+    })).toBe(true);
+    expect(seaEdgeTileInOpening(cliff!.tile)).toBe(false);
+
+    for (const site of GARDEN_SEA_EDGE_SITES.filter((candidate) => candidate !== cliff)) {
       expect(isWaterTileKind(terrainKindAt(site.tile.x, site.tile.y)), site.id).toBe(true);
       expect(rimLandAt(site.tile.x, site.tile.y), site.id).toBe(false);
       expect(seaRegionAtTile(site.tile.x, site.tile.y), site.id).toBe(SEA_REGION_ID[site.body]);
@@ -67,9 +83,12 @@ describe("garden sea-edge sites", () => {
     }
   });
 
-  it("exports one deterministic obstacle footprint for every rendered site", () => {
-    expect(GARDEN_EDGE_STONE_OBSTACLES).toHaveLength(GARDEN_SEA_EDGE_SITES.length);
-    expect(GARDEN_EDGE_STONE_OBSTACLES).toEqual(GARDEN_SEA_EDGE_SITES.map((site) => ({
+  it("exports deterministic water obstacles without narrowing Danger Strait for its land cliff", () => {
+    const waterSites = GARDEN_SEA_EDGE_SITES.filter((site) => site.form !== "cliff");
+    expect(GARDEN_EDGE_STONE_OBSTACLES).toHaveLength(waterSites.length);
+    expect(GARDEN_EDGE_STONE_OBSTACLES.some((obstacle) => obstacle.id === "danger-rim-cliff"))
+      .toBe(false);
+    expect(GARDEN_EDGE_STONE_OBSTACLES).toEqual(waterSites.map((site) => ({
       body: site.body,
       id: site.id,
       r: site.footprintRadius,
