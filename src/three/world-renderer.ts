@@ -121,6 +121,7 @@ import {
   overviewLodTargetDetail,
   type GardenOverviewLod,
 } from "./garden-overview-lod";
+import { createGardenRimMesh, type GardenRimMesh } from "./garden-rim-mesh";
 import { createGardenModelLibrary } from "./garden-models";
 import { createGardenWater, type GardenWater } from "./garden-water";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
@@ -294,20 +295,15 @@ const SHADOW_CASTER_HEIGHT = 34;
 /**
  * Half-extent of the STATIC world the shadow frustum must always contain.
  *
- * W2.2 raised this from 30 (the island's own footprint) to cover the harbour
- * ring as well, now that the quays, warehouses, cranes, breakwaters and lamp
- * posts are casters. 44 is the measured worst case: harbours are sited on an
- * ellipse ~22 x 18 world units off the island centre and grow seaward with
- * supply, and a full sweep of bearings with EVERY harbour pinned at the top of
- * the supply band (harborAmountScale saturates at ~5e11) puts the outermost
- * geometry — a `grand` enclosure's breakwater arm — at 43.6 units. Locked by
- * `harbour ring fits inside the static shadow frustum` in
- * world-renderer.test.ts, which rebuilds that sweep.
+ * Wave 1 widens this from the 44-unit harbour-ring fit to the complete finite
+ * plate. The 139-tile square is 196.6 world units wide; its worst projected
+ * half-diagonal is 139.0 units. 142 leaves room for the rim's jittered shore
+ * and 2.2-unit landward rise without growing the existing shadow textures.
  *
  * Ships are deliberately NOT part of this: they move, and a moving caster would
  * force a per-frame map re-render (see updateShadows).
  */
-export const GARDEN_SHADOW_STATIC_RADIUS = 44;
+export const GARDEN_SHADOW_STATIC_RADIUS = 142;
 /**
  * Ground reach cap for the frustum offset. At the key light's floor elevation
  * the tower's true reach is ~280 units, far past anything the eye can follow
@@ -325,11 +321,11 @@ const SHADOW_MAX_REACH = 150;
  * radius sat 90 − 73 − 44 ≈ −27 units from the light: behind its near plane,
  * and therefore casting nothing. It has to clear
  * SHADOW_MAX_REACH/2 + GARDEN_SHADOW_STATIC_RADIUS + SHADOW_CASTER_HEIGHT with
- * margin — hence 170, which leaves the nearest caster ~43 units in front of the
+ * margin — hence 280, which leaves the nearest caster ~29 units in front of the
  * near plane. Ortho projection, so distance costs no quality; it only widens
  * the depth range the `bias` constant is expressed in (see below).
  */
-const SHADOW_LIGHT_DISTANCE = 170;
+const SHADOW_LIGHT_DISTANCE = 280;
 /**
  * How far the sun must swing before the static-caster shadow map is redrawn.
  *
@@ -1634,6 +1630,8 @@ interface GardenContent {
   pondReflection: GardenPondReflection;
   /** Tier 3 #15: sheds the props that cannot read at whole-map framing. */
   overviewLod: GardenOverviewLod;
+  /** Wave 1: the finite garden's authored enclosing land and stroll route. */
+  rim: GardenRimMesh;
   pigeonnier: GardenPigeonnierLandmark;
   pigeonnierMoverPositions: Array<{ x: number; y: number; z: number }>;
   pigeonnierMoverShips: Array<ShipVisual | null>;
@@ -1703,6 +1701,7 @@ const WORLD_CONTENT_PART_ORDER = [
   "island",
   "landmarks",
   "zones",
+  "rim",
   "docks",
   "harborLife",
   "cargoTide",
@@ -2027,6 +2026,9 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
     island: islandKey,
     landmarks: `${hashes.graves}|${hashes.pigeonnier}`,
     zones: hashes.areas ?? "",
+    // Pure authored terrain, but a map-size key makes an eventual design-span
+    // change invalidate this part explicitly rather than by accident.
+    rim: `${world.map.width}x${world.map.height}|garden-rim-v1`,
     docks: `${dockStructure}|${islandTileKey}`,
     harborLife: `${hashes.docks}|${islandTileKey}`,
     cargoTide: `${JSON.stringify(world.docks.map((dock) => [
@@ -2158,6 +2160,10 @@ function rebuildWorldContentPart(
       break;
     case "zones":
       buildZonesPart(content, world);
+      break;
+    case "rim":
+      buildRimPart(content);
+      scene.shadowNeedsRender = true;
       break;
     case "docks":
       buildDocksPart(content, world);
@@ -3177,6 +3183,13 @@ function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
   content.zones = zones;
 }
 
+/** The authored perimeter field made tangible as one five-draw static body. */
+function buildRimPart(content: GardenContent): void {
+  const rim = createGardenRimMesh();
+  content.parts.rim.root.add(rim.root);
+  content.rim = rim;
+}
+
 /** The harbour ring: quays, warehouses, cranes — and the lantern ring. */
 function buildDocksPart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.docks;
@@ -3696,15 +3709,12 @@ function updateShadows(
   // release — a visible softening of the island's shadow on every pan, plus a
   // GPU reallocation per drag, for a tier that says nothing about load.
   //
-  // W2.2 doubled every rung. The frustum now has to hold the harbour ring as
-  // well as the island (GARDEN_SHADOW_STATIC_RADIUS: 30 -> 44), which is 2.2x
-  // the area, so holding the old sizes would have spent the harbour's shadows
-  // out of the island's texel density. Doubling instead BUYS density: at full
-  // tier a texel covers ~0.043 world units against the old ~0.059, and at
-  // balanced ~0.086 against ~0.117. The extra cost is episodic by construction
-  // — 4x the pixels of a pass that runs on re-steer and content change, not per
-  // frame — and the recurring cost (PCF taps in the receiving materials) does
-  // not move with map size at all.
+  // Wave 1 keeps the existing 2048/1024/768 texture ladder while widening the
+  // frustum over the finite plate. At the largest day half-size (~159), a full
+  // texel covers ~0.155 world units (balanced ~0.31): still below the rim's
+  // 0.5-tile mesh sampling and foliage silhouettes, with no texture-budget
+  // increase. The pass remains episodic by construction — content change and
+  // sun re-steer, never per frame.
   const shadowTier = seaQualityTier(frame.renderScheduler);
   const size = shadowTier === "full"
     ? 2048

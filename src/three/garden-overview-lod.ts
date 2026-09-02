@@ -60,6 +60,11 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   "island-niwaki",
   "lighthouse-shore-props",
   "pharos-precinct-obelisks",
+  // The rim body remains at whole-map framing; its distributed furniture is
+  // less than a few pixels there and fades only by visibility.
+  "garden-rim-path",
+  "garden-rim-pines",
+  "garden-rim-stones",
   // Per-hero badges, ×~29 hulls, and the three hero gull flocks.
   "ship-gull-flock",
   "ship-overview-detail",
@@ -92,6 +97,9 @@ export const OVERVIEW_LOD_WHOLE_RING_NAMES: readonly string[] = [
   "dock-posts",
   "dock-tide-line",
   "dock-warehouse-windows",
+  "garden-rim-path",
+  "garden-rim-pines",
+  "garden-rim-stones",
 ];
 
 interface OverviewLodEntry {
