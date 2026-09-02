@@ -160,7 +160,7 @@ Each wave is independently shippable, opens with its shed-list, captures phase-0
 |---|---|---|---|
 | wakes (`ship-wake` + `ship-bow-wave`) | 346 | 2 | `garden-wake-batch.ts` — world-wide trail/bow batches, slots for live + departing + outsider |
 | harbour ring (docks, flags, cranes, lantern ring, tide line) | 98–107 | 13 | `authorDock` → `DockRecipe`; `garden-harbor-batch.ts` — 7 vertex-coloured buckets, one `InstancedMesh` per prop kind, one instanced flag cloth; per-dock anchors |
-| island statics | 77 drawables | 61 | `mergeIslandStatics` by material signature; 13 mandatorily separate |
+| island statics | 77 drawables (test count) | 61 drawables | `mergeIslandStatics` by material signature; 13 mandatorily separate. **Call savings NOT independently measured**: the first reconciled census already had the merge live in the tree (62 island calls before and after in every census); the 16-object reduction is a unit count, not GPU funding evidence. |
 | heroes | 46 (≤2 each) | 46 | already merged; Task 6 dropped |
 | fleet | 15 | 15 | unchanged |
 | **default framing, scene calls** | **676** | **~250** | target ≤450 exceeded |

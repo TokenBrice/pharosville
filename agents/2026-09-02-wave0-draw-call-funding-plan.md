@@ -314,7 +314,7 @@ Measured 2026-09-02 (Apple M5 Pro, real GPU, default framing, 185 ships). "Basel
 |---|---|---|---|---|
 | wakes (`ship-wake` + `ship-bow-wave`) | **346** (largest owner; not in the original funding table) | 2 | 2 | Task 8 — done |
 | `docks/*` (per-dock meshes + flags + cranes + lantern ring + tide line) | 105 | 107 | ≤ 20 | Task 3–4 |
-| island (`content-part-island/*`, `island-*`, `pharos-*`, lighthouse shell, niwaki) | 77 drawables pre-merge (Task 5 count); 62 calls post-merge | 62 | measured floor: 40 non-instanced + 21 instanced (13 mandatorily separate: textured rock/gravel, pond/koi/beam shaders, basic-material draws) | Task 5 — done |
+| island (`content-part-island/*`, `island-*`, `pharos-*`, lighthouse shell, niwaki) | 62 calls (already post-merge — the merge was live in the tree when this census ran; no pre-merge call figure exists; Task 5's own test counted 77 → 61 drawables) | 62 | measured floor: 40 non-instanced + 21 instanced (13 mandatorily separate: textured rock/gravel, pond/koi/beam shaders, basic-material draws). **Task 5 is recorded as 0 measured call savings**, not as satisfying the original `≤12` target, which was set before the mandatory exclusions were known. | Task 5 — done |
 | `hero-garden-*` (29 hero hulls, merged solid + canvas) | 46 | 46 | ≤ 2 per hero — already met | Task 6 — dropped |
 | `fleet-batches/*` | 15 | 15 | 15 (unchanged) | — |
 | everything else (water 1, sky, signs 10, lanterns, buoys, tenders, birds, composer ≈ 24 unnamed `Mesh`) | ≈ 100 | ≈ 105 | unchanged | — |

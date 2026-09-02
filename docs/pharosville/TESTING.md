@@ -313,12 +313,12 @@ from three batches, each proven pixel-equivalent on the real GPU: the fleet
 wakes (346 → 2 calls — per-ship trail and bow quads had been the single
 largest owner, and the reason the total swung 693/676/578 between runs), the
 harbour ring (98 → 13; `garden-harbor-batch.ts`), and the island statics
-(77 → 61 drawables; `mergeIslandStatics`). `npm run preview -- --draw-census`
+(77 → 61 drawables; `mergeIslandStatics` — a unit count, not an independently measured call saving). `npm run preview -- --draw-census`
 is how those numbers were found: it wraps the renderer instance's
 `renderBufferDirect` for one settled frame and must reconcile exactly to
 `renderer.info.render.calls` — a `MISMATCH` fails `--assert`.
 
-**Whole-map framing is a valid performance case again.** At the reachable zoom
+**Whole-map framing — historical call/fps measurement; its texture gate is currently OPEN (see below).** At the reachable zoom
 floor (`ABSOLUTE_MIN_ZOOM` 0.28 — the viewport fit computes below it, so this is
 as far out as a visitor can pull):
 
