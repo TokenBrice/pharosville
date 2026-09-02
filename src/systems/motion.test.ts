@@ -544,6 +544,37 @@ describe("motion", () => {
     expect(transitionShareSum / 50).toBeLessThanOrEqual(0.12);
   }, 15_000);
 
+  it("keeps identity timing distinct when every ship shares an extreme flow pace", () => {
+    const denseWorld = buildPharosVilleWorld({
+      stablecoins: denseFixtureStablecoins,
+      chains: denseFixtureChains,
+      stability: fixtureStability,
+      pegSummary: denseFixturePegSummary,
+      stress: denseFixtureStress,
+      reportCards: denseFixtureReportCards,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+
+    for (const flowIntensity of [0, 100]) {
+      const flowWorld = {
+        ...denseWorld,
+        ships: denseWorld.ships.map((ship) => ({ ...ship, flowIntensity })),
+      };
+      const routes = [...buildBaseMotionPlan(flowWorld).shipRoutes.values()];
+      const pairCounts = new Map<string, number>();
+      for (const route of routes) {
+        expect(route.legDurationSeconds).toBeGreaterThanOrEqual(MOTION_LEG_MIN_SECONDS);
+        expect(route.legDurationSeconds).toBeLessThanOrEqual(MOTION_LEG_MAX_SECONDS);
+        expect(route.restDurationSeconds).toBeGreaterThanOrEqual(MOTION_REST_MIN_SECONDS);
+        expect(route.restDurationSeconds).toBeLessThanOrEqual(MOTION_REST_MAX_SECONDS);
+        const pair = `${route.legDurationSeconds.toFixed(6)}:${route.restDurationSeconds.toFixed(6)}`;
+        pairCounts.set(pair, (pairCounts.get(pair) ?? 0) + 1);
+      }
+      expect(Math.max(...pairCounts.values()) / routes.length).toBeLessThanOrEqual(0.1);
+    }
+  }, 15_000);
+
   it("keeps identity phases stable across roster changes and pairs harbour boundary events", () => {
     const denseWorld = buildPharosVilleWorld({
       stablecoins: denseFixtureStablecoins,
@@ -585,7 +616,7 @@ describe("motion", () => {
     }
     expect(windows.filter((window) => window.arrival && window.departure).length / windows.length)
       .toBeGreaterThanOrEqual(0.8);
-  });
+  }, 15_000);
 
   it("keeps squad consorts in formation with the flagship through the entire dock cycle", () => {
     const world = buildPharosVilleWorld(makerSquadFixtureInputs());
@@ -2696,16 +2727,17 @@ describe("motion", () => {
         chains: ["ethereum"],
       });
       const baseShip = baseWorld.ships[0]!;
+      const pacedShip = { ...baseShip, id: "flow-pace-28", detailId: "ship.flow-pace-28" };
       const worldAtFlow = (flowIntensity: number) => ({
         ...baseWorld,
-        ships: [{ ...baseShip, flowIntensity }],
+        ships: [{ ...pacedShip, flowIntensity }],
       });
       const languidWorld = worldAtFlow(0);
       const activeWorld = worldAtFlow(100);
       const languidPlan = buildMotionPlan(languidWorld, null);
       const activePlan = buildMotionPlan(activeWorld, null);
-      const languidRoute = languidPlan.shipRoutes.get(baseShip.id)!;
-      const activeRoute = activePlan.shipRoutes.get(baseShip.id)!;
+      const languidRoute = languidPlan.shipRoutes.get(pacedShip.id)!;
+      const activeRoute = activePlan.shipRoutes.get(pacedShip.id)!;
       const languid = resolveShipMotionSample({
         plan: languidPlan,
         reducedMotion: false,

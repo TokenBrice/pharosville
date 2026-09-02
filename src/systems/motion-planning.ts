@@ -6,8 +6,6 @@ import {
   MOTION_LEG_MIN_SECONDS,
   MOTION_PAIR_HORIZON_SECONDS,
   MOTION_PAIR_SLOT_SECONDS,
-  MOTION_REST_MAX_SECONDS,
-  MOTION_REST_MIN_SECONDS,
   MOTION_TRANSITION_SHARE,
   MOTION_UNDERWAY_MAX_TILES_PER_SECOND,
   MOTION_UNDERWAY_MIN_TILES_PER_SECOND,
@@ -308,7 +306,7 @@ function buildShipMotionRoute(
     identityLegDurationSeconds,
   });
   const legDurationSeconds = cadenceGeometry.legDurationSeconds;
-  const restDurationSeconds = shipRestDurationSeconds(legDurationSeconds);
+  const restDurationSeconds = shipRestDurationSeconds(cadenceUnit, speedScalar);
   const riskRestDurationSeconds = 2 * restDurationSeconds - 2 * legDurationSeconds;
   const cycleSeconds = restDurationSeconds + riskRestDurationSeconds + 2 * legDurationSeconds;
   const underwaySpeedTilesPerSecond = shipUnderwaySpeed(ship.riskZone, speedScalar);
@@ -682,14 +680,21 @@ function shipCadenceIdentity(ship: ShipNode): string {
 }
 
 function shipLegDurationSeconds(identityUnit: number, speedScalar: number): number {
-  // 105..180 s leaves room for a 150 s rest spread while preserving the
-  // aggregate one-third berth share. Stable identity makes pair collisions
-  // vanishingly rare and never depends on roster order.
-  return clamp((105 + identityUnit * 75) / speedScalar, MOTION_LEG_MIN_SECONDS, MOTION_LEG_MAX_SECONDS);
+  // Flow translates the whole 75-second identity band instead of scaling and
+  // clipping its upper tail. Languid ships span 105..180 s; active ships span
+  // 90..165 s. Every identity therefore retains a distinct cadence at either
+  // pace extreme.
+  const pace = clamp(speedScalar, 0.85, 1.15);
+  const lowerBound = 97.5 + (1 - pace) * 50;
+  return lowerBound + identityUnit * 75;
 }
 
-function shipRestDurationSeconds(legDurationSeconds: number): number {
-  return clamp(2.1 * legDurationSeconds + 20, MOTION_REST_MIN_SECONDS, MOTION_REST_MAX_SECONDS);
+function shipRestDurationSeconds(identityUnit: number, speedScalar: number): number {
+  // The independent 155-second rest band shifts with the same pace without a
+  // clamp plateau: 265..420 s at measured-zero flow and 250..405 s at max.
+  const pace = clamp(speedScalar, 0.85, 1.15);
+  const lowerBound = 257.5 + (1 - pace) * 50;
+  return lowerBound + identityUnit * 155;
 }
 
 function cadenceLegDurationForGeometry(input: {
