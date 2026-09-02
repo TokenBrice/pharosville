@@ -165,6 +165,8 @@ export interface ShipVisual {
   tier: ShipFleetTier;
   wake: Group;
   wakeDetail: Group;
+  /** World-wide wake-batch slot; -1 when this transient/overflow ship is skipped. */
+  wakeSlot: number;
 }
 
 /** Fleet-wide lantern instances: two shared draw calls for the whole fleet. */
@@ -566,6 +568,7 @@ export function createBatchedShip(
     tier,
     wake: wake.root,
     wakeDetail: wake.detail,
+    wakeSlot: -1,
   };
 }
 
@@ -1205,6 +1208,7 @@ export function createShip(
     tier,
     wake: wake.root,
     wakeDetail: wake.detail,
+    wakeSlot: -1,
   };
 }
 
@@ -2536,8 +2540,6 @@ export function createPennantGeometry(): ShapeGeometry {
   return new ShapeGeometry(shape);
 }
 
-const WAKE_QUAD_COUNT = 7;
-
 function createWake(cache: GardenShipGeometryCache): { detail: Group; root: Group } {
   const root = new Group();
   const detail = new Group();
@@ -2545,42 +2547,8 @@ function createWake(cache: GardenShipGeometryCache): { detail: Group; root: Grou
   detail.name = "ship-wake-detail";
   root.add(detail);
 
-  // A short trail of soft foam quads astern of the hull. Each quad grows then
-  // tapers along the trail so the wake reads as a widening-then-fading wedge;
-  // the per-frame ship loop stretches the whole trail by wake intensity and
-  // hides it entirely under reduced motion / constrained tiers.
-  const quadGeometry = cachedShipGeometry(cache, "wake.quad", () => {
-    const geometry = new PlaneGeometry(1, 1);
-    geometry.rotateX(-Math.PI / 2);
-    return geometry;
-  });
-  const trail = new InstancedMesh(quadGeometry, cache.wakeFillMaterial, WAKE_QUAD_COUNT);
-  const matrix = new Matrix4();
-  for (let index = 0; index < WAKE_QUAD_COUNT; index += 1) {
-    const age = index / (WAKE_QUAD_COUNT - 1);
-    const length = 1.1 + age * 1.7;
-    const width = 0.9 + Math.sin(age * Math.PI) * 2.3;
-    matrix.makeScale(length, 1, width);
-    matrix.setPosition(-2.3 - age * 3.9, -0.34, 0);
-    trail.setMatrixAt(index, matrix);
-  }
-  trail.instanceMatrix.needsUpdate = true;
-  root.add(trail);
-
-  // W6: the bow wave. The trail astern already stretched with speed, but the
-  // stem pushed no water at all, so a ship under way read as one being dragged
-  // rather than driven. Two short foam wedges flaring off the forefoot, on the
-  // same intensity signal the trail rides, so they only appear with way on.
-  const bowWave = new InstancedMesh(quadGeometry, cache.wakeFillMaterial, 2);
-  bowWave.name = "ship-bow-wave";
-  for (const [index, side] of [-1, 1].entries()) {
-    matrix.makeScale(2.1, 1, 0.85);
-    matrix.setPosition(3.15, -0.34, side * 0.62);
-    bowWave.setMatrixAt(index, matrix);
-  }
-  bowWave.instanceMatrix.needsUpdate = true;
-  root.add(bowWave);
-
+  // The nine foam quads now live in the world-wide GardenWakeBatch. Keep only
+  // the close-inspection line work below this per-ship anchor.
   for (const z of [-0.5, 0.5]) {
     const geometry = cachedShipGeometry(
       cache,

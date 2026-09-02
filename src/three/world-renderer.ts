@@ -20,6 +20,7 @@ import {
   Object3D,
   OrthographicCamera,
   PCFShadowMap,
+  PlaneGeometry,
   PointLight,
   Quaternion,
   Scene,
@@ -128,6 +129,7 @@ import {
   type GardenSeasonalDressing,
 } from "./garden-seasonal-dressing";
 import { createGardenWakes, type GardenWakes } from "./garden-wakes";
+import { createGardenWakeBatch, type GardenWakeBatch } from "./garden-wake-batch";
 import { createGardenEnvironment, type GardenEnvironment } from "./garden-environment";
 import { createGardenCueMarker } from "./garden-cue-marker";
 import { createGardenPost } from "./garden-post";
@@ -234,6 +236,7 @@ import {
   type GardenSailAtlas,
 } from "./garden-sail-atlas";
 import {
+  cachedShipGeometry,
   countDrawableObjects,
   disposeThreeObjectTree,
   normalizedHeading,
@@ -555,6 +558,7 @@ const scratchShadowPosition = new Vector3();
 const scratchShadowScale = new Vector3();
 const scratchShadowQuaternion = new Quaternion();
 const SHADOW_UP = new Vector3(0, 1, 0);
+const scratchWakePose = { headingY: 0, hullScale: 1, x: 0, y: 0, z: 0 };
 // W6.4: the hull tint handed to a reflection instance, blended per frame.
 const scratchReflectionColor = new Color();
 // Reused argument records for the per-frame update calls below. Every callee
@@ -1519,6 +1523,8 @@ interface GardenContent {
   entityCues: Map<string, EntityCue>;
   /** W1: the shared instanced fleet. Drawn instead of per-ship meshes. */
   fleetBatches: FleetBatches;
+  /** Two draw calls carrying every moving hull's local wake quads. */
+  wakeBatch: GardenWakeBatch;
   fleetLanterns: FleetLanterns;
   fleetSailMaterial: MeshStandardMaterial | null;
   sailAtlas: GardenSailAtlas;
@@ -2190,6 +2196,7 @@ function disposeWorldContentPart(
     resetFleetSailAttention();
     // Hero identity sails are fresh materials — repaint on the next logo sync.
     content.logoGenerationKey = null;
+    content.wakeBatch?.dispose();
   }
   const children = [...part.root.children];
   part.root.clear();
@@ -3209,6 +3216,16 @@ function buildShipsPart(
     }),
   };
   content.shipsGeometryCache = shipGeometryCache;
+  const wakeQuadGeometry = cachedShipGeometry(shipGeometryCache, "wake.quad", () => {
+    const geometry = new PlaneGeometry(1, 1);
+    geometry.rotateX(-Math.PI / 2);
+    return geometry;
+  });
+  const wakeBatch = createGardenWakeBatch(
+    GARDEN_FLEET_BATCH_CAPACITY,
+    shipGeometryCache.wakeFillMaterial,
+    wakeQuadGeometry,
+  );
 
   // W1 (decision D2): the fleet splits in two. Hero ships (titans and uniques,
   // ~18 of ~205) keep their own scene graph because a bespoke GLB hull, the
@@ -3233,6 +3250,11 @@ function buildShipsPart(
           gardenSailAtlasCell(sailAtlas, ship),
         )
   ));
+  // Wake slots are world-global and stable in content order. Fleet silhouette
+  // slots are local to each family and therefore must never be reused here.
+  for (let index = 0; index < ships.length; index += 1) {
+    ships[index]!.wakeSlot = index;
+  }
 
   // Departures are renderer ghosts, never world records. Recreate them from
   // the NEW part's shared cache so disposal remains epoch-local. The normal
@@ -3269,13 +3291,17 @@ function buildShipsPart(
       );
       return visual;
     });
+  for (let index = 0; index < departingShips.length; index += 1) {
+    const slot = ships.length + index;
+    departingShips[index]!.wakeSlot = slot < GARDEN_FLEET_BATCH_CAPACITY ? slot : -1;
+  }
 
   // +1: a spare instance slot for the transient outsider, so selecting one
   // never reallocates the contact-shadow buffer. The live count is clamped to
   // the ship list every frame; unwritten slots hold zero-scale matrices.
   const shipShadows = createShipShadows(ships.length + departingShips.length + 1);
   shipShadows.count = ships.length + departingShips.length;
-  part.root.add(shipShadows);
+  part.root.add(shipShadows, wakeBatch.root);
   for (const ship of ships) {
     // Batched roots carry no drawable children — they exist so entity cues,
     // follow-selected, the wake and the lane registry keep the same anchor
@@ -3332,6 +3358,7 @@ function buildShipsPart(
   content.crossBearingBuoyShips = buoyShips;
   content.crossBearingBuoys = crossBearingBuoys;
   content.fleetLanterns = fleetLanterns;
+  content.wakeBatch = wakeBatch;
   content.heroReflectionShips = heroReflectionShips;
   content.heroReflections = heroReflections;
   content.shipGulls = shipGulls;
@@ -4132,12 +4159,27 @@ function updateSceneForFrame(
     // Wakes remain a fleet-motion cue in overview/explore. In analyze, where a
     // selection already owns the hierarchy, retain only the focused hull's
     // wake so unrelated foam cannot compete with its ring, route, or panel.
-    visual.wake.visible = !frame.reducedMotion
+    const wakeVisible = !frame.reducedMotion
       && !constrained
       && wakeIntensity > 0.08
       && overviewDetail > 0
       && (semanticView !== "analyze" || showShipDetail);
-    visual.wake.scale.x = (0.7 + Math.min(1.5, wakeIntensity) * 0.85) * overviewDetail;
+    const wakeScaleX = (0.7 + Math.min(1.5, wakeIntensity) * 0.85) * overviewDetail;
+    visual.wake.visible = wakeVisible;
+    // The close-range line detail stays under its ship-local anchor and keeps
+    // the same longitudinal intensity stretch as before the quad cutover.
+    visual.wake.scale.x = wakeScaleX;
+    scratchWakePose.x = visual.root.position.x;
+    scratchWakePose.y = visual.root.position.y;
+    scratchWakePose.z = visual.root.position.z;
+    scratchWakePose.headingY = visual.root.rotation.y;
+    scratchWakePose.hullScale = visual.root.scale.x;
+    content.wakeBatch.setShip(
+      visual.wakeSlot,
+      scratchWakePose,
+      wakeVisible,
+      wakeScaleX,
+    );
     // Phase 3 (item 2): stamp the persistent wake field for every hull making
     // way. The pose is final for this frame and the heading already
     // normalized — the field consumes these at the top of next frame.
@@ -4216,6 +4258,7 @@ function updateSceneForFrame(
       });
     }
   }
+  content.wakeBatch.commit();
   endFleetFrame(content.fleetBatches);
   // W4.1: the shadow buffer holds a spare slot for the transient outsider;
   // clamp the live count so slots beyond the fleet are never drawn.
