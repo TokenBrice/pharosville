@@ -80,16 +80,23 @@ describe("createDrawOwnerRecorder", () => {
 
   it("does not attribute a renderBufferDirect invocation that Three declines to draw", () => {
     const scene = new Scene();
-    const empty = new InstancedMesh(new BoxGeometry(), new MeshStandardMaterial(), 0); empty.name = "empty";
-    scene.add(empty);
-    const renderer = fakeRenderer([{ object: empty }]);
-    renderer.renderBufferDirect = () => {};
+    const drawn = box("drawn");
+    const skipped = box("skipped");
+    scene.add(drawn, skipped);
+    const renderer = fakeRenderer([{ object: drawn }, { object: skipped }]);
+    const issueDraw = renderer.renderBufferDirect;
+    renderer.renderBufferDirect = (camera, renderScene, geometry, material, object, group) => {
+      if (object === skipped) return;
+      issueDraw(camera, renderScene, geometry, material, object, group);
+    };
     const recorder = createDrawOwnerRecorder(renderer, scene);
     recorder.arm(); renderer.render();
     const census = recorder.finish(1)!;
-    expect(census.rendererCalls).toBe(0);
-    expect(census.attributedCalls).toBe(0);
-    expect(census.owners).toEqual([]);
+    expect(census.rendererCalls).toBe(1);
+    expect(census.attributedCalls).toBe(1);
+    expect(census.owners).toEqual([
+      { owner: "drawn", calls: 1, triangles: 12, instanced: false },
+    ]);
   });
 
   it("restores the original renderBufferDirect after one sampled frame and returns null when not armed", () => {

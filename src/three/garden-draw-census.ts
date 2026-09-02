@@ -44,17 +44,17 @@ export function createDrawOwnerRecorder(target: DrawRecorderTarget, root: Object
       original = target.renderBufferDirect;
       const wrapped = original;
       target.renderBufferDirect = (camera, scene, geometry, material, object, group) => {
-        const callsBefore = target.info.render.calls;
+        const before = target.info.render.calls;
         wrapped.call(target, camera, scene, geometry, material, object, group);
-        const calls = target.info.render.calls - callsBefore;
-        if (calls <= 0) return;
+        const delta = target.info.render.calls - before;
+        if (delta <= 0) return;
         const owner = ownerName(object, root, ownerDepth);
         const instanced = Boolean((object as InstancedMesh).isInstancedMesh);
         const instances = instanced ? (object as InstancedMesh).count : 1;
         const vertices = group ? group.count : (geometry.index?.count ?? geometry.getAttribute("position")?.count ?? 0);
         const entry = byOwner.get(owner) ?? { owner, calls: 0, triangles: 0, instanced };
-        entry.calls += calls;
-        entry.triangles += Math.floor(vertices / 3) * instances * calls;
+        entry.calls += delta;
+        entry.triangles += Math.floor(vertices / 3) * instances * delta;
         entry.instanced = entry.instanced || instanced;
         byOwner.set(owner, entry);
       };
