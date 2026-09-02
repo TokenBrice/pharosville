@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.8.0` (`gardenOfLight`)
-- Latest changelog entry: `2026-08-13-garden-of-light` / `v0.8.0` / 2026-08-13 / Garden of Light
+- Latest app version: `v0.9.0` (`sevenWaterGarden`)
+- Latest changelog entry: `2026-09-02-seven-water-garden` / `v0.9.0` / 2026-09-02 / Seven-Water Garden
 
 ## Viewport Gate
 
@@ -120,7 +120,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 ## Dock Rules
 
 - Standard chain harbor cap: `8`
-- Preferred chain IDs: `ethereum`, `base`, `arbitrum`, `polygon`, `bsc`, `tron`, `solana`, `hyperliquid`, `aptos`, `avalanche`
+- Preferred chain IDs: `x`, `cove`, `id`, `body`, `tile`, `seawardBearing`, `width`, `type`
 - Suppressed rendered harbor IDs: `optimism`
 - Detached dispatch wharf chain IDs: `ton`
 

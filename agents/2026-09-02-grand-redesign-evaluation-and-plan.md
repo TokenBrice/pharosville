@@ -1,7 +1,7 @@
 # PharosVille Grand Redesign — Evaluation and Plan
 
 - **Date:** 2026-09-02 (post v0.8.0 "Garden of Light")
-- **Status:** **Approved direction — operator decided all open items 2026-09-02:** soft shore/fog plate edge · ~60 % land rim with two openings · all chain harbors move to shore stations · East-Asian hull families for all six · hero GLBs regenerated as the last wave · stone steles replace boards · episodic legs at 18–25 % underway · one hero waterfall in Wave 7 · **execution: Wave 0 starts immediately while Wave 1 is planned in detail.**
+- **Status:** **Waves 0–8 executed 2026-09-02; see Wave ledgers**
 - **Provenance:** real-GPU frames captured via `npm run preview` on Apple M5 Pro (`outputs/redesign-{day,wholemap,dusk,night}.png`, 1600×1000, 60 fps vsync-capped, 693 calls / 354k tris / 72 textures / 185 ships), two read-only code audits (systems, renderer), one independent design critique, one independent art+technical direction review (Sol), plus the prior plan ledgers (`agents/2026-08-13-ultimate-garden-design-plan.md`, `docs/superpowers/specs/2026-08-13-pharosville-visual-poetry-design.md`).
 
 ---
@@ -167,7 +167,9 @@ Each wave is independently shippable, opens with its shed-list, captures phase-0
 
 Gates: unit 1655/1655; lint clean; typecheck clean; animated `--assert` default PASS (250 calls, p95 16.8 ms, 72 textures); settled `--assert --reduced` PASS default (67 tex) and whole-map (70 tex); frames indistinguishable from baseline at day/dusk/night/whole-map (`outputs/w0-final-*.png` vs `outputs/redesign-*.png`). Instrument: `npm run preview -- --draw-census` (reconciles exactly to `renderer.info`).
 
-**Open gate item, inherited:** animated `--assert` at `#cam=0,0,0.28` fails on textures (79 > 72). `main` at `fb54c0c` reads the same 79 (42 scene + 37 renderer-internal), measured in-repo. Not a Wave 0 regression; **Wave 1 opens with this as Task 0** — diagnose the 37 internal textures at whole-map (post targets, PMREM, shadow map, wake field, sky billboards) and bring the framing under 72 before any plate geometry is added. The ceiling is not raised.
+The inherited whole-map texture gate is closed by the Wave 1 N8AO lifecycle
+fix: the animated overview now measures 72 textures, with no unattributed
+renderer textures, and the ceiling was not raised.
 
 Findings that changed the plan: the census (not estimates) put wakes, not docks or heroes, at the top; hero merging had already landed; the island's honest floor is 40 non-instanced + 21 instanced, not 12. Deferred minors carried to the final review: hoist the per-frame census callback in `world-renderer.ts`; stale `wakeSlot = -1` comment; batched wakes compose yaw only (heel dropped, accepted); add a batch-level reduced-motion wake assertion.
 
@@ -211,6 +213,25 @@ Findings that changed the plan: the census (not estimates) put wakes, not docks 
 
 ### Wave 8 — Hero re-generation (L, decision 3)
 - 18 hero GLBs regenerated through `ASSET_PIPELINE.md` rules in the six-family language; manifest hashes, fallbacks and budgets updated.
+
+### Wave ledgers — execution summary
+
+All waves landed on `main` on 2026-09-02. Wave 0 funded the scene with
+`garden-wake-batch` and harbor batching (346→2 wake calls; about 250 default
+calls). Wave 1 landed the finite plate, rim, sky seam, shakkei, camera, and fog
+(`19f09eb`, `dc22a54`, `301a9e7`, `efd225a`); the whole-map N8AO lifecycle then closed the
+79→72 texture gate. Wave 2 landed seven-water edge geography and steles
+(`99a2283`, `078d6d1`), with signless waters remaining distinguishable. Wave 3
+landed shore coves, station recipes, archetypes, and the connected Ethereum
+precinct (`288e358`, `4c724f0`), with the integrated harbor batch at 13 core
+draws. Wave 4 landed six families and leg cadence (`fe80825`, `8f6ff60`);
+voyages now span 90–180 seconds with 240–480-second rests and paired events.
+Wave 5 recomposed the tsukiyama (`e0aa256`); Wave 6 regraded forms and night
+hierarchy (`c322c96`, `e8ba245`); Wave 7 added the waterfall, engawa koi, shared
+wind, and rim-sited events (`5b37612`, `4643870`, `dbbabea`, `9dfdec2`), at net
+zero scene draws. Wave 8 regenerated all 18 hero GLBs (`d5292e3`, `a0a4f90`),
+keeping the default reference near 245 calls / 43 textures and worst p95 at
+16.8 ms on the Apple M5 Pro.
 
 ## 8. Do-not-repeat (carried forward)
 

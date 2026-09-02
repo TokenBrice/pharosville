@@ -1,6 +1,6 @@
 # PharosVille Architecture
 
-Last updated: 2026-07-29
+Last updated: 2026-09-02
 
 PharosVille is a desktop-gated React app with a pure data-to-world layer and
 one imperative Three.js/WebGL renderer. The DOM remains the analytical and
@@ -12,16 +12,10 @@ failure-safe surface.
 Browser → /api/<allowlisted read path> → Pages Function → PHAROS_API_BASE
 ```
 
-- Browser code calls same-origin `/api/*` only.
-- `functions/api/[[path]].ts` permits only registry-backed `GET` endpoints and
-  injects `PHAROS_API_KEY` server-side. The key never belongs in client code,
-  URLs, logs, docs, or fixtures.
-- `src/client.tsx` is the gate. The physical screen and current-window tests
-  each admit either the standard 900×720 profile or the wide-laptop 1200×640
-  profile before lazy-loading desktop data. Dimensions are sorted, so neither
-  test uses viewport orientation or aspect ratio.
-- Blocked screens render a DOM fallback or rotate prompt. They must not query
-  the world, import the Three.js runtime, decode logos, or request models.
+The gate in `src/client.tsx` admits only the 900×720 or 1200×640 size profiles
+before desktop data, logos, models, or Three.js load. Dimensions are sorted;
+these are SIZE tests, never orientation tests. The Pages Function alone reads
+`PHAROS_API_KEY`, and browser code calls same-origin `/api/*` only.
 
 ## Runtime pipeline
 
@@ -30,83 +24,62 @@ API hooks → buildPharosVilleWorld() → motion plan + display slice
          → route-owned frame loop → Three.js frame + DOM parity
 ```
 
-1. `src/pharosville-desktop-data.tsx` fetches data only after the gate passes.
-2. `src/systems/` deterministically constructs `PharosVilleWorld`: map,
-   harbors, ships, analytical water, lifecycle wrecks, detail models, and
-   visual-cue provenance.
-3. `src/pharosville-world.tsx` owns selection, URL state, camera intent,
-   accessible overlays, and the shared refs that connect interaction to the
-   renderer.
-4. `useWorldRenderLoop` owns the single normal-motion RAF, motion samples,
-   adaptive DPR, scheduler, hit-target snapshots, metrics, and renderer
-   lifecycle.
-5. `src/three/world-renderer.ts` consumes a frame contract; it never invents
-   analytical meaning.
+`src/systems/` builds the authoritative finite 140×140 plate: the irregular
+land rim and its two openings, seven named waters, shore coves and stations,
+the connected Ethereum/L2 precinct, the tsukiyama island, and the leg-based
+motion plan. `src/pharosville-world.tsx` owns selection, URL state, camera
+intent, accessible overlays, and shared refs. `useWorldRenderLoop` owns the
+single normal-motion RAF, samples, scheduler, hit snapshots, metrics, and
+renderer lifecycle.
 
-The Garden Observatory renders the complete eligible fleet up to its fixed
-capacity of 320. Composition comes from deterministic, region-scoped placement
-and exclusion zones, not from the retired 20-ship overview cap.
+## Rendering boundary and modules
 
-## Rendering boundary
+`src/renderer/` owns the engine-neutral backend, scheduler, metrics, and hit
+testing. `src/three/` owns scene construction, GPU resources, and disposal.
 
-`src/renderer/` is the narrow engine-neutral boundary: the renderer interface,
-scheduler, metrics, and hit testing. `src/three/` owns scene construction and
-GPU disposal.
+- `garden-rim.ts` is the authoritative water-safety/placement field; its
+  `garden-rim-mesh.ts` turns the finite rim into batched shore geometry.
+- `garden-sea-edges.ts` and `src/systems/garden-sea-edge-sites.ts` place the
+  decorative edge geography from the seven-body field.
+- `garden-docks.ts` authors `DockRecipe` station archetypes;
+  `garden-harbor-batch.ts` renders their global material buckets and instanced
+  props. Cove, station type, and shore bearing come from `DockNode.station`.
+- `garden-wake-batch.ts` owns world-wide trail and bow batches. Its slots cover
+  live, departing, and outsider ships without per-ship wake meshes.
+- `garden-draw-census.ts` attributes draw submissions and must reconcile with
+  `renderer.info`; it is diagnostic evidence, not a second renderer.
+- `garden-waterfall.ts` is the single hero fall; `garden-water-exclusion.ts`
+  is the conservative distance field used by placement and motion.
+- `garden-sky.ts`, `garden-horizon.ts`, and `garden-day-cycle.ts` compose the
+  graded sky, fog seam, shakkei, and shared phase state. `garden-post.ts` owns
+  the post chain and its overview N8AO lifecycle.
 
-The scene includes a procedurally built island, harbors, water regions,
-landmarks, weather, and ambient life; most fleet ships are instanced batches.
-The lighthouse and selected hero hulls load checked GLBs over aligned
-procedural fallbacks. Stablecoin and harbor marks are painted into shared
-in-memory atlases from same-origin images.
+The fleet uses six batched hull families and a shared sail atlas. The lighthouse
+and selected heroes use checked GLBs over aligned procedural fallbacks.
 
-One deterministic weather plan (`src/systems/weather.ts`) derives wind, gust,
-storm, and lightning from the world clock and PSI stress; water, rain, fleet
-cloth, gulls, sky, and post all consume it. The sea is a Gerstner spectrum
-with a persistent wake field (`garden-wakes.ts`), and the sky is an analytic
-scattering dome with wind-driven billboard mist; the authored cumulus layer
-in `garden-sky-billboards.ts` is disabled pending whole-map A/B review.
-Post-processing is a pmndrs `postprocessing`
-chain — N8AO, bloom, a fused grade+AgX pass with per-phase and storm tuning,
-SMAA — not the three/examples composer. Observe mode is a cinematic spline
-tour (`src/systems/observe-tour.ts`) driven through the same camera state as
-interactive pan/zoom.
+## Contracts and budgets
 
-The frame contract is intentionally shared by drawing, pointer hit testing,
-keyboard targets, follow-selected, detail anchoring, and debug telemetry. A
-display or motion transform must change in all of those places together.
+The finite plate, rim field, sea-body partition, station topology, display
+transforms, and leg samples are shared by drawing, hit testing, keyboard
+targets, following, detail anchors, and telemetry. Shader edge smoothing is
+presentation only. Reduced motion is a complete deterministic static frame.
 
-## Failure and accessibility
-
-If the renderer module fails, WebGL cannot start, the context is lost, or a
-frame throws, the WebGL surface is hidden and `WorldStaticOverview` presents
-the already-built signals as selectable DOM. There is no second graphical
-renderer.
-
-The detail panel, accessibility ledger, area labels, announcements, and
-controls never depend on reading WebGL pixels. Every analytical cue must carry
-source fields, caveats, and a DOM equivalent.
-
-## Change ownership
-
-| Change | Primary owner |
-| --- | --- |
-| API semantics, placement, risk, detail copy | `src/systems/` |
-| Camera, pointer and keyboard behavior | `src/hooks/`, `src/renderer/` |
-| Geometry, material, post-processing, resource disposal | `src/three/` |
-| DOM controls, detail and accessibility parity | `src/components/`, `src/pharosville-world.tsx` |
-| Checked models, textures, logos | `docs/pharosville/ASSET_PIPELINE.md` |
+Hard ceilings are 700 calls, 500 geometries, 500,000 triangles, and 72
+textures. The reference default is approximately 245 calls and 43 textures;
+whole-map N8AO is released so its animated overview remains at or below 72.
+Repeated structures are batched or instanced and renderer-owned resources are
+disposed with their content subtree.
 
 ## Validation
-
-Use the smallest relevant lane:
 
 ```bash
 npm test -- src/systems
 npm test -- src/three src/renderer
 npm run check:viewport-gate
+npm run validate:docs
 npm run test:visual
 npm run test:perf
 ```
 
-See `THREEJS_AGENT_REFERENCE.md` for renderer work and `TESTING.md` for the
-complete test and review matrix.
+See `THREEJS_AGENT_REFERENCE.md` for renderer changes and `TESTING.md` for
+real-GPU preview and census evidence.

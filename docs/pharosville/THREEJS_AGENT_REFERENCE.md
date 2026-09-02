@@ -38,10 +38,12 @@ Within `src/three/`, keep ownership local:
 | Module group | Responsibility |
 | --- | --- |
 | `garden-water`, `garden-sea-regions`, `garden-zones`, `garden-wakes` | shader water (Gerstner + region field), persistent wake field, weather and buoy cues |
+| `garden-rim-mesh`, `garden-sea-edges`, `garden-waterfall` | finite plate rim, decorative seven-water edge geography, and the single hero fall |
+| `garden-draw-census`, `garden-wake-batch` | reconciled draw-owner census and world-wide trail/bow batches |
 | `garden-ships`, `garden-fleet-batch`, `garden-sail-atlas` | ship geometry, hero attachment, fleet instances, shared sail atlas |
-| `garden-docks`, `garden-chain-flag`, `garden-harbor-life` | harbor forms, flag atlas, districts and ambient life |
+| `garden-docks`, `garden-harbor-batch`, `garden-chain-flag`, `garden-harbor-life` | `DockRecipe` station archetypes, global harbor buckets, flag atlas, districts and ambient life |
 | `garden-island`, `garden-lighthouse`, `garden-landmarks`, `garden-islets` | island, Pharos (volumetric beam), wreckyard, pigeonnier, scenic anchors |
-| `garden-sky`, `garden-sky-billboards`, `garden-horizon`, `garden-day-cycle`, `garden-post` | scattering sky, mist/cumulus billboards, time-of-day composition, pmndrs post |
+| `garden-sky`, `garden-horizon`, `garden-day-cycle`, `garden-post` | graded sky, fog seam/shakkei, time-of-day composition, pmndrs post |
 | `garden-models`, generators | model manifest, cached GLBs, deterministic artifacts |
 
 Two cross-module systems own their own contracts:
@@ -99,9 +101,31 @@ New effects plug into the ladder, never around it: the volumetric beam runs
 at full/balanced and degrades to the plain cone below (`uVolumetric`), mist
 billboards and the wake field ease in at balanced+ (the caustic web at full
 only), and route pulse lanes animate at balanced+ and hold static below —
-the same static-lane behavior every lane has always had. The authored
-cumulus billboard layer is disabled pending operator A/B review at whole-map
-zoom.
+the same static-lane behavior every lane has always had. The visible backdrop
+is the graded sky beyond the finite plate; the hidden dome remains the PMREM
+source.
+
+## Garden topology and batch surfaces
+
+`src/systems/garden-rim.ts` is authoritative for rim land, the two openings,
+coves, shore distance, and rim depth. `garden-water-exclusion.ts` materializes
+the conservative water-safety field for the rim, island, islets, cemetery,
+station aprons, and sea-edge obstacles. `garden-sea-edge-sites.ts` resolves
+decorative banks, tongues, bars, cliff, ledger lips, and wreck inlet from the
+same seven-body field; these forms carry no meaning.
+
+`garden-docks.ts` uses `authorDock(dock, displayTile, islandTile)` to write a
+`DockRecipe`. Station archetypes author roofs, quays, bridges, flags, and
+signature props into global buckets consumed by `garden-harbor-batch.ts`.
+Anchors remain empty Groups; runtime mutation is limited to
+`setDockAccent`, `setFlagPose`, and `setFineDetailVisible`.
+
+`garden-wake-batch.ts` owns fixed slots for live, departing, and outsider ships.
+`garden-draw-census.ts` attributes one frame and must reconcile with
+`renderer.info`; it is diagnostic instrumentation, not a second renderer.
+The six hull families are fixed-capacity batches. Leg-based motion samples,
+including paired arrivals/departures and risk-band rests, are shared by
+rendering, hit testing, follow, and DOM targets.
 
 ## Offscreen passes and the draw-call budget
 

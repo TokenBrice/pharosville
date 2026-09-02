@@ -54,6 +54,11 @@ intent, code/tests, and a matching update to the relevant route documentation.
   and its L2 annexes read as one bridge-connected architectural precinct;
   other stations retain distinct built forms, while TON keeps its detached
   pigeonnier islet.
+- The finite plate is water-led and garden-framed: the irregular rim covers
+  roughly 55–65% of the perimeter, has exactly two open-sea openings, and is
+  6–14 tiles deep away from those openings. Shore stations sit in coves, not
+  around the island waterline; the Ethereum precinct has a shared path and
+  bridge-connected annexes.
 - The TON pigeonnier is spatially distinct. The dead/frozen fleet is a quiet
   sea wreckyard, not an island and never a live-ship destination.
 - DOM labels must be legible and must not cover the lighthouse, controls, or
@@ -93,6 +98,24 @@ and close to the water's value until their body is hovered or inspected. They
 are canvas content and therefore aria-hidden, so the ledger — not the stele —
 is the redundant channel.
 
+The seven named waters are Calm Anchorage, Watch Breakwater, Alert Channel,
+Warning Shoals, Danger Strait, Ledger Mooring, and Wreck Shoal. Their edge
+geography is authored from the same field: reeds and mouth islets, banks,
+current tongues, shoal bars, a gorge cliff, slate ledger lips, and a wreck
+inlet. These forms are decorative and carry no meaning; the field, steles,
+labels, and ledger own classification. Wreck causes are read through
+representative silhouettes (substantial hull, broken keel, and bare remains)
+plus cause colour and the DOM record.
+
+The fleet has six visual families: bezaisen, kobaya, twinhull, takasebune,
+junk, and scow. The nine semantic hull classes map onto those six forms;
+market-cap tier still controls scale, and brand identity remains in the shared
+sail atlas. Motion is leg-based: island-to-shore voyages run in bounded
+90–180-second legs and 240–480-second rests, with paired arrivals and
+departures and restless rests ordered by risk band. The aggregate moored share
+remains one third, and all water-safety decisions use the authoritative field
+and its conservative distance lookup.
+
 ## Light and atmosphere
 
 - **One arc owns where the light is.** `garden-sun.ts` is the single source for
@@ -116,6 +139,11 @@ is the redundant channel.
   far below it clamps the scale to its maximum, pushes the near plane past
   everything visible, and silently switches the whole system off while leaving
   its documentation looking correct.
+
+- The visible sky continues beyond the finite plate. Its graded phase backdrop
+  is the far field; the haze band is the seam where plate, fog, and borrowed
+  mountains dissolve together. The dome remains an environment probe, not the
+  visible sky.
 
 ## Stillness
 
@@ -190,6 +218,13 @@ is the redundant channel.
   colours) and asserts a mean of 0.0155. Post-AgX output still requires the
   real-GPU night preview.
 
+- Stillness has authored displacements: the lower-left engawa lantern replaces
+  `harbor-lantern.11`; the single hero waterfall replaces the
+  `water-silver-accents` draw; and the koi school lives in the calm engawa
+  shallows rather than filling the reflection basin. Seasonal and almanac
+  dressing follows the rim path and openings. These additions are quiet,
+  deterministic, and carry no new analytical meaning.
+
 ## Media and rendering
 
 - Procedural geometry/materials own the island, harbors, ordinary fleet,
@@ -209,6 +244,12 @@ is the redundant channel.
   transition pops.
 - Device pixels, backing pixels, resource counts, and bundle sizes remain
   bounded. Cosmetic changes do not justify relaxing measured gates.
+
+- The measured default budget is approximately 245 recurring draw calls and
+  43 textures on the reference Apple M5 Pro frame (phase variation is expected
+  within the existing ceilings). The whole-map N8AO release keeps the animated
+  overview at 72 textures or fewer; hard ceilings remain 700 calls, 500
+  geometries, 500,000 triangles, and 72 textures.
 
 ## Motion and access
 
