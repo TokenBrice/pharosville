@@ -78,7 +78,7 @@ function cove(id: string): RimCove {
   return match;
 }
 
-/** The connected Ethereum precinct occupies one 18-tile arc of the deep lower-left lobe. */
+/** The connected Ethereum precinct occupies a 21-tile stretch of the deep lower-left lobe, spread across three shore columns with unequal mouth intervals. */
 export const EVM_BAY_STATION_SLOTS: readonly DockStationSlot[] = [
   { cove: cove("ethereum-precinct"), type: "boathouse-precinct" },
   { cove: cove("base-annex"), type: "annex-pavilion" },
@@ -88,35 +88,61 @@ export const EVM_BAY_STATION_SLOTS: readonly DockStationSlot[] = [
   { cove: cove("optimism-annex"), type: "annex-pavilion" },
 ] as const;
 
-/** Distinct station forms on body-specific coves outside the EVM precinct. */
+/**
+ * Distinct station forms on body-specific coves outside the EVM precinct.
+ *
+ * Slot order is the fill order for non-preferred chains, so the first four
+ * slots are the ones a typical top-eight binds. Round three (2026-09-03)
+ * demoted both west mouths below the fill line — the precinct already owns
+ * the western shore, and the ledger body only touches it at (9,54), so a
+ * bound ledger berth parked another station directly behind the annexes —
+ * and keeps TWO southern mouths on the fill line (the VISUAL_INVARIANTS
+ * contract: at least two rendered stations at y >= 112). The fill four read
+ * south (reed boathouse), east (gorge fishing pier), south (salvage cut),
+ * north (stepped inlet); the tea-house quay and signal jetty stay
+ * fifth-or-later fills so the north arc never exceeds its two-station
+ * budget, and the gate landing and storm mole bind only for feeds deep
+ * enough to reach past five outer harbours.
+ */
 export const OUTER_HARBOR_STATION_SLOTS: readonly DockStationSlot[] = [
-  { cove: cove("warning-stone-notch"), type: "stepped-inlet" },
-  { cove: cove("ledger-fog-hook"), type: "gate-landing" },
-  { cove: cove("watch-east-bay"), type: "tea-house-quay" },
+  { cove: cove("watch-south-reed"), type: "reed-boathouse" },
   { cove: cove("danger-gorge"), type: "fishing-pier" },
-  { cove: cove("alert-pine-notch"), type: "reed-boathouse" },
-  { cove: cove("watch-south-mole"), type: "storm-mole" },
   { cove: cove("wreck-salvage-cut"), type: "salvage-slip" },
+  { cove: cove("warning-stone-notch"), type: "stepped-inlet" },
+  { cove: cove("watch-east-bay"), type: "tea-house-quay" },
+  { cove: cove("ledger-fog-hook"), type: "gate-landing" },
   { cove: cove("alert-signal-jetty"), type: "signal-jetty" },
+  { cove: cove("wreck-west-ledge"), type: "storm-mole" },
 ] as const;
 
 export const BASE_HARBOR_DOCK_TILE = EVM_BAY_STATION_SLOTS[1]!.cove.tile;
 export const EVM_BAY_DOCK_TILES = EVM_BAY_STATION_SLOTS.map((slot) => slot.cove.tile);
 export const OUTER_HARBOR_DOCK_TILES = OUTER_HARBOR_STATION_SLOTS.map((slot) => slot.cove.tile);
-export const SOLANA_HARBOR_DOCK_TILE = OUTER_HARBOR_STATION_SLOTS[2]!.cove.tile;
-export const HYPERLIQUID_HARBOR_DOCK_TILE = OUTER_HARBOR_STATION_SLOTS[3]!.cove.tile;
+/** Solana's preferred berth: the camera-near south-rim reed boathouse. */
+export const SOLANA_HARBOR_DOCK_TILE = OUTER_HARBOR_STATION_SLOTS[0]!.cove.tile;
+/** Hyperliquid's preferred berth: the gorge fishing pier on the east shore. */
+export const HYPERLIQUID_HARBOR_DOCK_TILE = OUTER_HARBOR_STATION_SLOTS[1]!.cove.tile;
 
 export const PREFERRED_DOCK_STATIONS: Record<string, DockStationSlot> = {
   ethereum: EVM_BAY_STATION_SLOTS[0]!,
   base: EVM_BAY_STATION_SLOTS[1]!,
   arbitrum: EVM_BAY_STATION_SLOTS[2]!,
   polygon: EVM_BAY_STATION_SLOTS[3]!,
-  bsc: OUTER_HARBOR_STATION_SLOTS[0]!,
-  tron: OUTER_HARBOR_STATION_SLOTS[1]!,
-  solana: OUTER_HARBOR_STATION_SLOTS[2]!,
-  hyperliquid: OUTER_HARBOR_STATION_SLOTS[3]!,
-  aptos: OUTER_HARBOR_STATION_SLOTS[4]!,
-  avalanche: OUTER_HARBOR_STATION_SLOTS[4]!,
+  // Round three re-bound the usual outer chains so every preferred berth
+  // still flies an archetype LEGACY_STATION_BY_CHAIN
+  // (src/three/garden-docks.ts) names for a top-tier chain, no berth sits
+  // west of the precinct, and the dense fixture's rendered quartet carries
+  // two southern mouths: Tron keeps the stepped inlet (north), BSC the
+  // tea-house quay (east shore, demoted below the fill line but still BSC's
+  // preferred berth), and Solana trades piers with Hyperliquid — Solana
+  // takes the reed boathouse on the south rim so a feed without Hyperliquid
+  // still renders it, Hyperliquid the gorge fishing pier.
+  bsc: OUTER_HARBOR_STATION_SLOTS[4]!,
+  tron: OUTER_HARBOR_STATION_SLOTS[3]!,
+  solana: OUTER_HARBOR_STATION_SLOTS[0]!,
+  hyperliquid: OUTER_HARBOR_STATION_SLOTS[1]!,
+  aptos: OUTER_HARBOR_STATION_SLOTS[2]!,
+  avalanche: OUTER_HARBOR_STATION_SLOTS[2]!,
 };
 
 /** Compatibility lookup for scenery/tests that only need the station's water tile. */

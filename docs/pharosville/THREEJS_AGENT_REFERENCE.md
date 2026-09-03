@@ -1,6 +1,6 @@
 # Three.js Runtime Guide
 
-Last updated: 2026-09-02
+Last updated: 2026-09-03
 
 This is the implementation guide for the production Three.js renderer. Read
 `ARCHITECTURE.md` first for the app boundary; this file explains how to change
@@ -38,10 +38,10 @@ Within `src/three/`, keep ownership local:
 | Module group | Responsibility |
 | --- | --- |
 | `garden-water`, `garden-sea-regions`, `garden-zones`, `garden-wakes` | shader water (Gerstner + region field), persistent wake field, weather and buoy cues |
-| `garden-rim-mesh`, `garden-sea-edges`, `garden-waterfall` | finite plate rim, decorative seven-water edge geography, and the single hero fall |
+| `garden-rim-mesh`, `garden-sea-edges`, `garden-waterfall` | finite plate rim and camera-side land skirt, decorative seven-water edge geography, and the single hero fall |
 | `garden-draw-census`, `garden-wake-batch` | reconciled draw-owner census and world-wide trail/bow batches |
 | `garden-ships`, `garden-fleet-batch`, `garden-sail-atlas` | ship geometry, hero attachment, fleet instances, shared sail atlas |
-| `garden-docks`, `garden-harbor-batch`, `garden-chain-flag`, `garden-harbor-life` | `DockRecipe` station archetypes, global harbor buckets, flag atlas, districts and ambient life |
+| `garden-docks`, `garden-harbor-batch`, `garden-chain-flag`, `garden-harbor-life` | articulated `DockRecipe` station archetypes, global harbor buckets, flag atlas, districts and ambient life |
 | `garden-island`, `garden-lighthouse`, `garden-landmarks`, `garden-islets` | island, Pharos (volumetric beam), wreckyard, pigeonnier, scenic anchors |
 | `garden-sky`, `garden-horizon`, `garden-day-cycle`, `garden-post` | graded sky, fog seam/shakkei, time-of-day composition, pmndrs post |
 | `garden-models`, generators | model manifest, cached GLBs, deterministic artifacts |
@@ -114,11 +114,24 @@ station aprons, and sea-edge obstacles. `garden-sea-edge-sites.ts` resolves
 decorative banks, tongues, bars, cliff, ledger lips, and wreck inlet from the
 same seven-body field; these forms carry no meaning.
 
+`garden-rim-mesh.ts` also owns the camera-side decorative land skirt: past
+the south and east plate limits it extrudes the authored boundary silhouette
+across the plate margin from clamped field samples, so land at the boundary
+stays land while the Danger Strait reach of the east edge stays water, and
+the far pair of margins keeps dissolving into the haze seam. The skirt never
+feeds `rimLandAt` or any placement, navigation, or berthing decision.
+
 `garden-docks.ts` uses `authorDock(dock, displayTile, islandTile)` to write a
 `DockRecipe`. Station archetypes author roofs, quays, bridges, flags, and
 signature props into global buckets consumed by `garden-harbor-batch.ts`.
-Anchors remain empty Groups; runtime mutation is limited to
-`setDockAccent`, `setFlagPose`, and `setFineDetailVisible`.
+The same module owns the shared roof-articulation vocabulary — ridge beams
+and caps, eave fascias, gable and gablet plates, eave brackets, pent skirts,
+stepped courses — authored as a second, darker part inside the existing
+`roof` bucket, so the articulated roofline adds no bucket, material, or draw
+call and the 11-type station ring still fits the batch's 20-drawable ceiling
+in `garden-harbor-batch.test.ts`. Anchors remain empty Groups; runtime
+mutation is limited to `setDockAccent`, `setFlagPose`, and
+`setFineDetailVisible`.
 
 `garden-wake-batch.ts` owns fixed slots for live, departing, and outsider ships.
 `garden-draw-census.ts` attributes one frame and must reconcile with

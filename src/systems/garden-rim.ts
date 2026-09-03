@@ -101,23 +101,48 @@ const RIM_CONTOUR: readonly RimContourPoint[] = [
   { bearing: radians(180), depth: 11 },
 ] as const;
 
-/** Authored water mouths reserved for Wave 3's shore stations. */
+/** Authored water mouths reserved for Wave 3's shore stations.
+ *
+ * The ring is authored as a spread: every arc of the rim (north, east,
+ * south-east, south-west, west) carries at least one mouth, no three mouths
+ * crowd a 30-tile neighbourhood, and the camera-near southern arc (y >= 112)
+ * carries as many stations as the far north. Operator note (2026-09-03):
+ * harbours used to mass north of the lighthouse; the mouths below are the
+ * rebalanced ring, each verified against the authored field (water of its
+ * body, rimShoreDistance in (0, 2], outside both openings, rim land within
+ * 14 tiles landward of the authored seawardBearing).
+ */
 export const RIM_COVES: readonly RimCove[] = [
   { id: "ledger-fog-hook", body: "ledger", tile: { x: 9, y: 54 }, seawardBearing: 0, width: 4 },
-  // One close, deliberately uneven precinct: Ethereum and three L2 annexes
-  // occupy an eighteen-tile arc of the deep engawa shore.
+  // One close, deliberately uneven precinct: Ethereum's hall and three L2
+  // annexes occupy a twenty-one-tile stretch of the deep engawa shore. Round
+  // three spread the mouths off the single x=14 column — the northern annex
+  // steps onto the x=12 diagonal and the southernmost onto x=13, with
+  // unequal 6/7/8-tile intervals — so the group reads as an inhabited
+  // stretch of coast rather than a stacked pier. Every mouth re-verified
+  // against the field: calm water, rimShoreDistance in (0, 2], rim land
+  // within 14 tiles landward.
   { id: "ethereum-precinct", body: "calm", tile: { x: 14, y: 74 }, seawardBearing: 0, width: 6 },
-  { id: "arbitrum-annex", body: "calm", tile: { x: 14, y: 80 }, seawardBearing: 0, width: 4 },
-  { id: "base-annex", body: "calm", tile: { x: 14, y: 86 }, seawardBearing: 0, width: 5 },
-  { id: "optimism-annex", body: "calm", tile: { x: 14, y: 92 }, seawardBearing: 0, width: 3 },
-  { id: "alert-pine-notch", body: "alert", tile: { x: 92, y: 15 }, seawardBearing: Math.PI / 2, width: 4 },
-  { id: "warning-stone-notch", body: "warning", tile: { x: 118, y: 10 }, seawardBearing: Math.PI / 2, width: 3 },
-  { id: "danger-gorge", body: "danger", tile: { x: 130, y: 59 }, seawardBearing: Math.PI, width: 3 },
-  { id: "watch-east-bay", body: "watch", tile: { x: 131, y: 80 }, seawardBearing: Math.PI, width: 5 },
-  { id: "watch-south-reed", body: "watch", tile: { x: 121, y: 131 }, seawardBearing: -Math.PI / 2, width: 4 },
-  { id: "watch-south-mole", body: "watch", tile: { x: 131, y: 105 }, seawardBearing: Math.PI, width: 3 },
-  { id: "wreck-salvage-cut", body: "wreck", tile: { x: 55, y: 129 }, seawardBearing: 0, width: 4 },
+  { id: "arbitrum-annex", body: "calm", tile: { x: 12, y: 68 }, seawardBearing: 0, width: 4 },
+  { id: "base-annex", body: "calm", tile: { x: 14, y: 81 }, seawardBearing: 0, width: 5 },
+  { id: "optimism-annex", body: "calm", tile: { x: 13, y: 89 }, seawardBearing: 0, width: 3 },
+  // North arc keeps exactly two mouths (the operator's "too far north"
+  // complaint): the alert signal mast and the warning stepped inlet.
   { id: "alert-signal-jetty", body: "alert", tile: { x: 104, y: 12 }, seawardBearing: Math.PI / 2, width: 3 },
+  { id: "warning-stone-notch", body: "warning", tile: { x: 118, y: 10 }, seawardBearing: Math.PI / 2, width: 3 },
+  // East arc: the gorge mouth sits one tile further out than the old
+  // (130, 59) authoring so rim land starts immediately landward of the berth.
+  { id: "danger-gorge", body: "danger", tile: { x: 131, y: 59 }, seawardBearing: Math.PI, width: 3 },
+  { id: "watch-east-bay", body: "watch", tile: { x: 132, y: 80 }, seawardBearing: Math.PI, width: 5 },
+  // Camera-near south arc: the reed mooring moved onto verified south-rim
+  // water (land immediately south) and is now bound to a rendered station.
+  { id: "watch-south-reed", body: "watch", tile: { x: 122, y: 132 }, seawardBearing: -Math.PI / 2, width: 4 },
+  { id: "wreck-salvage-cut", body: "wreck", tile: { x: 55, y: 129 }, seawardBearing: 0, width: 4 },
+  // The wreck shelf's northern ledge answers the west arc below the
+  // precinct: without it the whole western shore south of the annexes, all
+  // the way to the salvage cut, carried no harbour. It sits clear of the
+  // wreck scatter ellipse (which owns everything below y ~ 115).
+  { id: "wreck-west-ledge", body: "wreck", tile: { x: 14, y: 110 }, seawardBearing: 0, width: 4 },
 ];
 
 /** Notes for the Wave B1 mesh author; the field itself remains authoritative. */

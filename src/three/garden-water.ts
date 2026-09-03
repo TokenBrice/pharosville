@@ -489,9 +489,6 @@ export const VERTEX_SHADER = /* glsl */ `
     float regionChop = uRegionSwell[regionId].y * (1.0 + uWindSpeed * 0.3 + uStorm * 0.25);
 
     vec2 baseDir = normalize(vec2(0.9229, 0.3851));
-    // gardenGerstner advances opposite its phase vector. Weather already
-    // supplies -uWindDir, so the authored flow must use the same convention:
-    // visible crest travel follows flowBearing rather than running backwards.
     vec2 phaseWindDir = normalize(mix(-uWindDir, -regionFlow.xy, regionFlow.z));
     float rc = clamp(dot(baseDir, phaseWindDir), -1.0, 1.0);
     float rs = baseDir.x * phaseWindDir.y - baseDir.y * phaseWindDir.x;
@@ -690,9 +687,6 @@ ${gardenHeightFogGlsl()}
     vec2 nADirected;
     vec3 blendedNormal;
     if (regionId == ${SEA_REGION_ID.open}) {
-      // W2.6's measured 0.002 moon-glitter occupancy was recorded against
-      // this exact isotropic open-water normal field. Keep it unchanged so the
-      // <=0.016 emissive proxy still guards the shader that actually renders.
       vec2 openFlow = uWindDir * scroll;
       nA = sampleWaterNormal(vWaterPosition * 0.055 + openFlow * 0.045);
       nADirected = nA.xy;
@@ -713,8 +707,6 @@ ${gardenHeightFogGlsl()}
         vec3 nB = sampleWaterNormal(
           rotate2(vWaterPosition, 2.3) * 0.11 - uWindDir * scroll * 0.03 + vec2(0.37, 0.11)
         );
-        // Per-body direction UP; the generic crossed normal is explicitly DOWN
-        // in the quiet/linear waters through the crossed-normal character field.
         blendedNormal = normalize(vec3(
           nADirected + nB.xy * regionWave.z,
           nA.z * mix(1.0, nB.z, regionWave.z) + 0.55
@@ -737,35 +729,27 @@ ${gardenHeightFogGlsl()}
       surfaceNormal + vec3(vGerstnerNormal.xy * (18.0 * detailFalloff), 0.0)
     );
 
-    // These are refinements of the existing normal/ripple term, never a new
-    // oscillator. Each branch strengthens one body and demotes the shared
-    // crossed normal named in SEA_REGION_CHARACTER.
     vec2 signatureNormal = vec2(0.0);
     float signatureTone = 0.0;
     if (regionId == ${SEA_REGION_ID.watch}) {
-      // Long parallel ripples UP; isotropic ripple grain DOWN.
       float phase = bodyAcross * 0.52 + sin(bodyAlong * 0.045) * 0.34 - uTime * 0.18;
       signatureNormal += bodyAcrossDir * cos(phase) * 0.075;
       signatureTone = sin(phase) * 0.5;
     } else if (regionId == ${SEA_REGION_ID.alert}) {
-      // Channel-axis current streaks UP; crossed chop DOWN.
       float currentGate = smoothstep(0.3, 0.82, gardenValueNoise(vec2(bodyAcross * 0.2, bodyAlong * 0.035)));
       float phase = bodyAcross * 1.15 + sin(bodyAlong * 0.12 - uTime * 0.62) * 0.5;
       signatureNormal += bodyAcrossDir * cos(phase) * currentGate * 0.105;
       signatureTone = sin(phase) * currentGate * 0.62;
     } else if (regionId == ${SEA_REGION_ID.warning}) {
-      // Short broken ripples UP; the shared long swell is DOWN.
       float brokenGate = smoothstep(0.42, 0.68, gardenValueNoise(vec2(floor(bodyAlong * 0.32), bodyAcross * 0.16)));
       float phase = bodyAcross * 1.62 - uTime * 0.42;
       signatureNormal += bodyAcrossDir * cos(phase) * brokenGate * 0.13;
       signatureTone = sin(phase) * brokenGate * 0.5;
     } else if (regionId == ${SEA_REGION_ID.danger}) {
-      // Steep diagonal wave faces UP; generic crest texture DOWN.
       float phase = bodyAcross * 1.08 - uTime * (0.62 + uStorm * 0.25);
       signatureNormal += bodyAcrossDir * cos(phase) * 0.23;
       signatureTone = sin(phase) * 0.7;
     } else if (regionId == ${SEA_REGION_ID.ledger}) {
-      // Flat horizontal striations UP; shared swell DOWN.
       float phase = bodyAcross * 0.84 - uTime * 0.045;
       signatureNormal += bodyAcrossDir * cos(phase) * 0.035;
       signatureTone = sin(phase) * 0.52;
@@ -929,8 +913,7 @@ ${gardenHeightFogGlsl()}
     );
 
     waterColor = mix(waterColor, uShallowColor, clamp(isletShelf, 0.0, 1.0) * (0.22 - uNight * 0.06));
-    float isletLine = (1.0 - smoothstep(0.018, 0.07, abs(cemDist - (1.0 + shoreBreath))))
-      + (1.0 - smoothstep(0.02, 0.085, abs(pigDist - (1.0 - shoreBreath))));
+    float isletLine = 1.0 - smoothstep(0.02, 0.085, abs(pigDist - (1.0 - shoreBreath)));
     isletLine *= smoothstep(0.4, 0.74, gardenValueNoise(
       (vWaterPosition + shoreAdvect) * 0.37 - 5.2
     ));
@@ -946,9 +929,6 @@ ${gardenHeightFogGlsl()}
       ${glslFloat(GARDEN_WATER_CREST_FOAM.jacobianEnd)},
       crestFold
     );
-    // Danger's authored blown foam is the crest hero now: generic crest foam
-    // DOWN everywhere so the one amplified body does not make the whole sea
-    // equally loud.
     crestFoamMask *= 0.52;
     if (crestFoamMask > 0.001) {
       vec2 crestAdvect = uWindDir * (uTime * 0.11 * (0.55 + uWindSpeed * 0.6));
@@ -984,24 +964,16 @@ ${gardenHeightFogGlsl()}
 
       float waterLuma = dot(waterColor, vec3(0.2126, 0.7152, 0.0722));
       float tintLuma = max(dot(regionTint, vec3(0.2126, 0.7152, 0.0722)), 0.0001);
-      // Hue/chroma carries the body's identity, but value belongs to the local
-      // water at every phase. Match the FINAL tint exactly before depth is
-      // applied; otherwise time-invariant theme luminance lifts named night
-      // water (Wreck was ~2.3x open water despite depth 0.70).
       vec3 regionColor = regionTint * (waterLuma / tintLuma);
 
       float blend = smoothstep(0.0, 0.84, boundaryDistance);
       waterColor = mix(waterColor, regionColor, regionStrength * blend);
       waterColor *= mix(1.0, regionDepth, blend);
-      // Warning's pale shelf UP; the generic bathymetry shelf is correspondingly
-      // absent from the other bodies through the data value of zero.
       float localShelf = regionWave.w * blend * (
         0.72 + gardenValueNoise(vec2(bodyAlong * 0.07, bodyAcross * 0.12)) * 0.28
       );
       waterColor = mix(waterColor, uShallowColor, localShelf * (0.24 - uNight * 0.07));
 
-      // Body signatures modulate the existing colour/current term; they do
-      // not add light. Wreck's static silt UP while generic moving ripple DOWN.
       waterColor *= 1.0 + signatureTone * blend * 0.035;
       if (regionId == ${SEA_REGION_ID.wreck}) {
         float silt = gardenFbm(vWaterPosition * 0.052 + vec2(4.2, -7.8));
@@ -1031,10 +1003,6 @@ ${gardenHeightFogGlsl()}
         clamp((regionReflect - 1.0) * 0.22, 0.0, 0.3) * blend * uEnvStrength
       );
 
-      // A body's edge is a low-frequency BANK, not a hairline. Width is
-      // authored in tiles and normalised on the CPU against the field's known
-      // distance scale, so the treatment survives both the default and chart
-      // cameras without reclassifying a single tile.
       vec3 boundaryCharacter = uRegionBoundary[regionId];
       float boundaryEnabled = smoothstep(0.001, 0.02, boundaryCharacter.x);
       float boundaryBand = (
@@ -1195,9 +1163,6 @@ ${gardenHeightFogGlsl()}
       waterColor = mix(waterColor, uHighlightColor, ripple * (0.1 + uDaylight * 0.06));
     }
 
-    // Item 3 beam road: the one beacon lane now carries to the finite rim and
-    // resolves into one soft landing pool. This refines the existing light-road
-    // term; it adds no lane, texture, pass, or independent light vocabulary.
     vec2 beamDirection = vec2(cos(uBeaconAngle), sin(uBeaconAngle));
     vec2 fromBeacon = vWaterPosition - uBeaconPosition;
     float beamAlong = dot(fromBeacon, beamDirection);
@@ -1359,20 +1324,10 @@ ${gardenHeightFogGlsl()}
     float distanceFade = smoothstep(150.0, 520.0, camDistance);
     waterColor = mix(waterColor, uBaseColor, distanceFade * (0.08 + uDusk * 0.05 + uNight * 0.04));
 
-    // Wave 6: value follows pictorial depth before the fog seam takes over.
-    // The camera-side water is the ink plane; the far water lifts toward the
-    // sky seam. This is day-only value structure, not a new water character or
-    // a hue override, so the seven region colours and every tier stay intact.
     float dayValueDepth = smoothstep(105.0, 270.0, camDistance);
     float dayValueGain = mix(0.55, 1.12, dayValueDepth);
     waterColor *= mix(1.0, dayValueGain, uDaylight);
 
-    // Eight tiles of water continue beyond the authored map at the far pair
-    // and east side, then dissolve into the real sky sheet. The south/engawa
-    // edge stays opaque under its rock threshold. Alpha is essential here:
-    // mixing to one fog swatch would simply exchange a blue slab for a cream
-    // slab and would still disagree with the graded sky above and below it.
-    const float PLATE_TILE_UV = ${glslFloat(1 / 140)};
     const float PLATE_FADE_UV = ${glslFloat(GARDEN_WATER_PLATE_MARGIN_TILES / 140)};
     float farPairFade = smoothstep(
       -PLATE_FADE_UV,
@@ -1380,11 +1335,16 @@ ${gardenHeightFogGlsl()}
       min(vRegionUv.x, vRegionUv.y)
     );
     float eastSideFade = 1.0 - smoothstep(
-      1.0 - PLATE_TILE_UV,
-      1.0 - PLATE_TILE_UV + PLATE_FADE_UV,
+      1.0,
+      1.0 + PLATE_FADE_UV,
       vRegionUv.x
     );
-    float plateAlpha = farPairFade * eastSideFade;
+    float southSideFade = 1.0 - smoothstep(
+      1.0,
+      1.0 + PLATE_FADE_UV,
+      vRegionUv.y
+    );
+    float plateAlpha = farPairFade * eastSideFade * southSideFade;
 
     if (plateAlpha < 0.002) discard;
     gl_FragColor = vec4(waterColor, plateAlpha);
@@ -1856,7 +1816,8 @@ export function createGardenWater(waterLevel: number): GardenWater {
     setIsletCenters(cemetery, pigeonnier) {
       uniforms.uCemeteryCenter.value.set(cemetery.x, -cemetery.z);
       uniforms.uPigeonnierCenter.value.set(pigeonnier.x, -pigeonnier.z);
-      setDefaultRing("garden.islet.cemetery", cemetery, 12, 2, 11, 0.45, 0.5);
+      // No `garden.islet.cemetery` ring: see the isletLine note above. The
+      // cemetery centre still drives the shallow shelf through uCemeteryCenter.
       setDefaultRing("garden.islet.pigeonnier", pigeonnier, 10, 2, 9, 0.45, 0.5);
     },
     setLaneState(texture, activeLaneCount, fieldBounds) {

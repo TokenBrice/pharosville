@@ -1,6 +1,6 @@
 # PharosVille Visual and Analytical Contracts
 
-Last updated: 2026-09-02
+Last updated: 2026-09-03
 
 These are product contracts, not a design diary. Change one only with explicit
 intent, code/tests, and a matching update to the relevant route documentation.
@@ -50,23 +50,44 @@ intent, code/tests, and a matching update to the relevant route documentation.
   eighty-five stickers. Sailing in restores full brand identity exactly as
   decision F1 specified. Restraint must never be baked into the cloth colour
   itself, which would remove identity at every distance with no way back.
-- Harbors are shore stations sited in their body's named rim coves. Every
-  station keeps a landward, distance-readable primary roof at least twice an
-  ordinary hull's length, a contrasting clay/slate/thatch/timber palette, and
-  a uniquely named upper silhouette that clears nearby sails. A raised stone
-  quay keeps one warm lit edge, windows glow at dusk/night, and the chain flag
-  is 1.6 times its former scale. Ethereum's hall and true campanile (shaft,
-  open belfry, bell, and cap) read with its L2 belvederes as one precinct
-  through thick railed, covered bridges; the vermilion double-lintel torii and
-  every other upper archetype remain nameable from the default camera, while
-  TON keeps its detached pigeonnier islet. The enlarged architecture, quay
-  edge, windows, and bridge rails carry no new analytical meaning beyond the
-  existing station identity and harbor reading.
+- Harbors are shore stations sited in their body's named rim coves, and the
+  station ring is spread around that rim rather than massed on the far
+  shore: at most two rendered stations sit at or north of tile y=30, at
+  least two hold the camera-near southern arc at y>=112, both horizontal
+  extremes of the rim are inhabited, and outside the Ethereum precinct no
+  three stations sit within 30 tiles of one another. Those numbers are the
+  contract `src/systems/chain-docks.test.ts` enforces for any feed; the
+  failure mode they prevent is a far-shore row of silhouettes across empty
+  foreground water. Every station keeps a landward, distance-readable
+  primary roof at least twice an ordinary hull's length, a contrasting
+  clay/slate/thatch/timber palette, and a uniquely named upper silhouette
+  that clears nearby sails — second-level silhouettes now span roughly
+  7.2–12.4 world units with the Ethereum campanile the tallest, and the
+  chain flag stays at exactly 1.6 times its former scale. Every roof is an
+  articulated structure rather than a single unbroken plane: a ridge beam
+  and cap, an eave fascia, a gable or gablet end, eave brackets, and a
+  surface break (pent skirt or stepped course), with each archetype
+  carrying one named signature element. A raised stone quay keeps one warm
+  lit edge, windows glow at dusk/night, and Ethereum's hall and true
+  campanile (shaft, open belfry, bell, and cap) read with its L2 belvederes
+  as one precinct through thick railed, covered bridges; the vermilion
+  double-lintel torii and every other upper archetype remain nameable from
+  the default camera, while TON keeps its detached pigeonnier islet. The
+  enlarged architecture, quay edge, windows, and bridge rails carry no new
+  analytical meaning beyond the existing station identity and harbor
+  reading.
 - The finite plate is water-led and garden-framed: the irregular rim covers
   roughly 55–65% of the perimeter, has exactly two open-sea openings, and is
-  6–14 tiles deep away from those openings. Shore stations sit in coves, not
-  around the island waterline; the Ethereum precinct has a shared path and
-  bridge-connected annexes.
+  6–14 tiles deep away from those openings. The two camera-near plate
+  margins — the map's south edge and the east edge south of the Danger
+  Strait opening — carry a decorative land skirt out across the plate
+  margin, so the authored shoreline reads to the near corner instead of
+  stranding a band of open water past the map edge; the far pair of margins
+  still dissolves into the haze seam, and the Danger Strait and both far
+  openings stay open water. The skirt is renderer-side only: it never
+  reclassifies a tile, and it changes no navigation, placement, or
+  berthing. Shore stations sit in coves, not around the island waterline;
+  the Ethereum precinct has a shared path and bridge-connected annexes.
 - The TON pigeonnier is spatially distinct. The dead/frozen fleet is a quiet
   sea wreckyard, not an island and never a live-ship destination.
 - DOM labels must be legible and must not cover the lighthouse, controls, or
@@ -256,9 +277,10 @@ and its conservative distance lookup.
 - Device pixels, backing pixels, resource counts, and bundle sizes remain
   bounded. Cosmetic changes do not justify relaxing measured gates.
 
-- The measured default budget is approximately 245 recurring draw calls and
-  43 textures on the reference Apple M5 Pro frame (phase variation is expected
-  within the existing ceilings). The whole-map N8AO release keeps the animated
+- The measured default budget is approximately 256 recurring draw calls,
+  335,105 triangles, 230 geometries, and 43 textures on the reference Apple
+  M5 Pro frame (60 fps at tier full; phase variation is expected within the
+  existing ceilings). The whole-map N8AO release keeps the animated
   overview at 72 textures or fewer; hard ceilings remain 700 calls, 500
   geometries, 500,000 triangles, and 72 textures.
 

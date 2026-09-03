@@ -180,6 +180,10 @@ describe("createGardenWater", () => {
   });
 
   it("covers only the map extent plus the finite plate margin", () => {
+    // The plane keeps the full symmetric margin on all four sides: since the
+    // camera-side land skirt (garden-rim-mesh) the south and east margins are
+    // alpha-dissolved in the fragment shader rather than cut from the
+    // geometry, so plate containment and camera fitting stay symmetric.
     const water = createGardenWater(GARDEN_WATER_Y);
     const geometry = water.mesh.geometry as PlaneGeometry;
     geometry.computeBoundingBox();
@@ -409,7 +413,7 @@ describe("createGardenWater", () => {
     expect(source.split("gl_FragColor.rgb = gardenApplyHeightFog(")).toHaveLength(2);
   });
 
-  it("alpha-dissolves the far and east plate skirts while retaining the engawa edge", () => {
+  it("alpha-dissolves all four plate skirts behind the camera-side land skirt", () => {
     const water = createGardenWater(0);
     const source = water.material.fragmentShader;
     expect(GARDEN_WATER_PLATE_MARGIN_TILES).toBeGreaterThanOrEqual(6);
@@ -417,9 +421,16 @@ describe("createGardenWater", () => {
     expect(water.material.transparent).toBe(true);
     expect(source).toContain("min(vRegionUv.x, vRegionUv.y)");
     expect(source).toContain("float eastSideFade");
-    expect(source).toContain("float plateAlpha = farPairFade * eastSideFade");
+    expect(source).toContain("float southSideFade");
+    expect(source).toContain("float plateAlpha = farPairFade * eastSideFade * southSideFade");
     expect(source).toContain("vec4(waterColor, plateAlpha)");
-    // No vRegionUv.y upper-edge fade: the engawa/south rock edge may stay crisp.
+    // Deliberate reversal of the former pin ("retaining the engawa edge"):
+    // the camera-near margins now carry the rim mesh's land skirt, so their
+    // water — cove notches and the Danger Strait channel — must dissolve
+    // into the haze like the far pair rather than stay opaque to the rim.
+    // Both camera-near fades start at the true boundary (uv 1.0); none may
+    // start one tile inside it, which would thin water in front of the land.
+    expect(source).not.toContain("PLATE_TILE_UV");
     expect(source).not.toContain("max(vRegionUv.x, vRegionUv.y)");
   });
 
@@ -616,9 +627,11 @@ describe("createGardenWater", () => {
 
     water.setIslandCenter(24, -16);
     expect(water.rippleRings.ringCount()).toBe(1);
+    // Only the pigeonnier islet registers a shoreline ring train now: the
+    // wreckyard is open water and its concentric ring read as a target decal.
     water.setIsletCenters({ x: 40, z: -20 }, { x: -10, z: 8 });
-    expect(water.rippleRings.ringCount()).toBe(3);
-    expect(uniformNumber(water.material, "uRippleCount")).toBe(3);
+    expect(water.rippleRings.ringCount()).toBe(2);
+    expect(uniformNumber(water.material, "uRippleCount")).toBe(2);
 
     water.rippleRings.setRing({
       id: "garden.dock.alpha",
@@ -628,17 +641,17 @@ describe("createGardenWater", () => {
       periodSeconds: 8,
       strength: 0.4,
     });
-    expect(water.rippleRings.ringCount()).toBe(4);
-    expect(uniformNumber(water.material, "uRippleCount")).toBe(4);
-    const ring = water.material.uniforms.uRipple!.value[3]!;
+    expect(water.rippleRings.ringCount()).toBe(3);
+    expect(uniformNumber(water.material, "uRippleCount")).toBe(3);
+    const ring = water.material.uniforms.uRipple!.value[2]!;
     expect(ring).toMatchObject({ x: 30, y: 4, z: 7 });
-    const params = water.material.uniforms.uRippleParams!.value[3]!;
+    const params = water.material.uniforms.uRippleParams!.value[2]!;
     expect(params.x).toBe(2);
     expect(params.y).toBe(8);
     expect(params.z).toBeCloseTo(0.4);
 
     water.rippleRings.removeRing("garden.dock.alpha");
-    expect(water.rippleRings.ringCount()).toBe(3);
+    expect(water.rippleRings.ringCount()).toBe(2);
   });
 
   it("keeps a default harbor-calm mask until Lane I overrides it", () => {

@@ -233,7 +233,6 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
         );
       }
       float flameFbm(vec2 p) {
-        // Two octaves suffice: the posterized toon bands hide the third.
         float sum = flameNoise(p) * 0.66;
         sum += flameNoise(p * 2.03 + 17.7) * 0.34;
         return sum;
@@ -244,8 +243,6 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
         float n = flameFbm(vec2(vUv.x * 3.0, vUv.y * 2.2 - rise));
         n = n * 0.72 + 0.28 * flameFbm(vec2(vUv.x * 6.5 + 13.7, vUv.y * 5.0 - rise * 1.7));
 
-        // Teardrop/egg mask: broad belly low, pinched tip high, centreline
-        // swayed by the noise field and the CPU flicker.
         float sway = (n - 0.5) * 0.22 * vUv.y + (uFlicker - 0.5) * 0.07 * vUv.y;
         float cx = abs(vUv.x - 0.5 + sway);
         float width = 0.34 * (1.0 - vUv.y * 0.58)
@@ -255,24 +252,17 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
         float flame = clamp(body * (0.75 + n * 0.5) + (n - 0.5) * 0.25 * vUv.y, 0.0, 1.0);
         flame *= smoothstep(0.0, 0.06, vUv.y);
 
-        // Posterize into three graphic bands, antialiased in screen space so
-        // the edges do not crawl as the camera or flame field moves.
         float bandWidth = max(fwidth(flame) * 0.75, 0.008);
         float mid = smoothstep(0.30 - bandWidth, 0.30 + bandWidth, flame);
         float core = smoothstep(0.62 - bandWidth, 0.62 + bandWidth, flame);
         vec3 color = uColorOuter;
         color = mix(color, uColorMid, mid);
         color = mix(color, uColorCore, core);
-        // Temperature is a restrained overlay: the PSI bands remain visible
-        // and recognizable instead of being replaced by a status swatch.
         color = mix(color, mix(color, uStatusCoolColor, 0.38), uStatusCool);
         float alpha = smoothstep(0.08 - bandWidth, 0.08 + bandWidth, flame) * 0.96;
         if (alpha < 0.01) discard;
 
         float hdr = uIntensity * uStatusIntensity * 0.32 * (0.88 + uFlicker * 0.3);
-        // Band-shaped gain: only the cream core burns hot enough to bloom;
-        // the gold mid and vermillion edge stay near 1.0 so the posterized
-        // bands keep their hue instead of blowing to a white column.
         float gain = mix(0.45, 0.62, mid) + core * 0.75;
         gl_FragColor = vec4(color * (hdr * gain), alpha);
       }
@@ -447,11 +437,9 @@ function createSmoke(
           uNoise,
           vUv * 0.85 + vSeed * 7.31 + vec2(uTime * 0.006, -vAge * 0.22)
         ).r;
-        // Alpha-erosion dissolve: the puff breaks up as it ages.
         float erode = smoothstep(vAge * 0.85, vAge * 0.85 + 0.3, n);
         float alpha = mask * erode * uOpacity;
         if (alpha < 0.004) discard;
-        // Ukiyo-e two-tone: a hard step splits the puff into flat bands.
         float bandWidth = max(fwidth(n) * 0.75, 0.01);
         float band = smoothstep(0.42 - bandWidth, 0.42 + bandWidth, n);
         vec3 dayColor = mix(uDayDark, uDayLight, band);

@@ -372,63 +372,30 @@ function createDome(): {
       ${gardenBokashiBandGlsl()}
       void main() {
         vec3 dir = normalize(vDir);
-        // The finite plate exposes the dome's lower hemisphere. Mirroring its
-        // height gives that visible half the same seam-to-zenith ladder as the
-        // PMREM half: shironeri -> mizu -> kon by day, kachi-iro at night.
         float skyHeight = clamp(abs(vHeight), 0.0, 1.0);
         vec3 color = mix(uHorizon, uMiddle, smoothstep(0.015, 0.28, skyHeight));
         color = mix(color, uZenith, smoothstep(0.3, 0.86, skyHeight));
         color *= gardenBokashiShade(skyHeight, uBokashiAmount);
-        // Faint brightening right at the horizon band.
         float glow = smoothstep(0.16, -0.04, abs(vHeight)) * 0.12;
         color += uHorizon * glow;
 
-        // --- Phase 2 (2c): analytic atmospheric scattering ------------------
-        // Preetham-spirited Rayleigh/Mie field, mapped onto the authored
-        // palette: the physics decides WHERE the dome brightens, saturates
-        // and glows; the day-cycle colours decide every HUE. uScattering
-        // fades the whole layer to zero at night, where the authored indigo
-        // and the stars rule unmodified. Under the locked down-looking
-        // camera this dome is never on screen directly — it IS the PMREM
-        // probe (garden-environment), so this field is what lights the
-        // world's metals — and it must stay palette-true for exactly that
-        // reason.
         float mu = dot(dir, uSunDir);
         float up = max(dir.y, 0.0);
         float visibleHemisphere = 1.0 - step(0.0, vHeight);
         float visibleSeam = 1.0 - smoothstep(0.035, 0.38, skyHeight);
-        // Optical depth: the long atmospheric path near the horizon.
-        // On the exposed lower hemisphere, distance from the seam replaces
-        // physical altitude; otherwise every visible pixel receives maximum
-        // haze and the three-colour ladder collapses back to flat fog paper.
         float airMass = mix(exp(-up * 3.0), visibleSeam, visibleHemisphere);
-        // Rayleigh phase (strongest broadside to the sun) redistributes the
-        // gradient's luminance along the dome without moving its hue anchors.
         float rayPhase = 0.75 * (1.0 + mu * mu);
         float rayleigh = mix(0.82, 1.12, (1.0 - airMass) * rayPhase * 0.5);
         color *= mix(1.0, rayleigh, uScattering);
-        // Short-wave scatter saturates the upper sky; the long path near the
-        // horizon desaturates toward the haze. Only the MIX of the authored
-        // pair moves — never the hues themselves.
         float luma = dot(color, vec3(0.299, 0.587, 0.114));
         color = mix(vec3(luma), color, 1.0 + uScattering * 0.3 * (1.0 - airMass));
         color = mix(color, uHazeColor, uScattering * airMass * airMass * 0.3);
-        // Mie forward scatter: the warm aureole around the sun, coloured by
-        // the light rig's own sun tint — the same colour the water glitter
-        // uses, so sky, sea and shadows agree.
         float mie = pow(max(mu, 0.0), 12.0) * (0.25 + airMass * 0.75);
         color += uSunColor * mie * uScattering * 0.14;
-        // The sun itself: a soft disc plus a tight corona, HDR at/just over
-        // the bloom knee (~0.95) so it blooms lightly, storm-smothered, and
-        // gone at night (uSunIntensity -> 0).
         float corona = pow(max(mu, 0.0), 220.0);
         float disc = smoothstep(0.99955, 0.99985, mu);
         color += uSunColor * (corona * 0.5 + disc) * uSunIntensity;
 
-        // --- Phase 2 (2d): the height fog's sky half ------------------------
-        // The haze band the far water melts into; the water shader's additive
-        // height fog lands on the SAME fog colour, so sea and sky fuse at the
-        // horizon instead of ending on an edge.
         float hazeBand = mix(
           smoothstep(0.24, -0.02, dir.y),
           visibleSeam,
@@ -436,9 +403,6 @@ function createDome(): {
         );
         color = mix(color, uHazeColor, hazeBand * uHazeStrength);
 
-        // G4 ember west band: a warm azimuthal glow where the sun sets, so the
-        // dusk frame reads as its own state instead of dimmed night. The band
-        // faces away from the isometric camera (frame-centre far horizon).
         float west = pow(max(0.0, dot(normalize(vec3(dir.x, 0.0, dir.z)), vec3(-0.7071, 0.0, -0.7071))), 2.5);
         float band = smoothstep(0.42, 0.02, abs(vHeight - 0.06));
         color += uEmberColor * west * band * uEmberStrength;
@@ -511,20 +475,12 @@ function createBackdrop(domeMaterial: ShaderMaterial): {
       varying vec2 vScreenPosition;
       ${gardenBokashiBandGlsl()}
       void main() {
-        // A true full-height sky ladder. The first pass held skyHeight at zero
-        // for 80% of the frame and compressed every colour into the top band,
-        // producing cream paper with a navy stripe instead of atmosphere.
         float skyHeight = clamp(vScreenPosition.y, 0.0, 1.0);
-        // The fog seam sits behind the far plate instead of filling every
-        // exposed pixel: mizu below -> shironeri seam -> mizu -> kon by day,
-        // and teal -> gold seam -> indigo at dusk.
         vec3 color = mix(uLower, uHorizon, smoothstep(0.38, 0.56, skyHeight));
         color = mix(color, uMiddle, smoothstep(0.58, 0.78, skyHeight));
         color = mix(color, uZenith, smoothstep(0.76, 1.0, skyHeight));
         color *= gardenBokashiShade(skyHeight, uBokashiAmount);
 
-        // Project garden-sun.ts onto the sheet: morning and evening glows move
-        // with the same arc as the key light, water road, and PMREM dome.
         vec2 sunScreen = vec2(
           clamp(0.5 + (uSunDir.x - uSunDir.z) * 0.28, 0.08, 0.92),
           clamp(0.14 + max(0.0, uSunDir.y) * 0.58, 0.12, 0.76)
@@ -533,8 +489,6 @@ function createBackdrop(domeMaterial: ShaderMaterial): {
         float sunGlow = exp(-dot(sunDelta, sunDelta) * 13.0);
         color += uSunColor * sunGlow * uSunIntensity * 0.065;
 
-        // Night stays kachi-iro, with one broad low-value halo behind the moon
-        // rather than a second flat colour band.
         vec2 moonDelta = (vScreenPosition - vec2(0.23, 0.73)) * vec2(1.0, 1.18);
         float moonGlow = exp(-dot(moonDelta, moonDelta) * 18.0);
         color += uMoonColor * moonGlow * uNight * 0.07;

@@ -876,8 +876,6 @@ function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
       varying vec3 vNormalView;
       varying vec3 vWorldPos;
 
-      // Deterministic value noise — the mist pattern is a pure function of
-      // world position and the frozen-under-reduced-motion clock.
       float beamHash(vec3 p) {
         p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
         p *= 17.0;
@@ -903,34 +901,20 @@ function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
       }
 
       void main() {
-        // Bright just past the apex, carrying almost to the rim before the
-        // long final third feathers into the landing pool.
         float fade = smoothstep(0.015, 0.07, vAlong)
           * (1.0 - smoothstep(0.62, 1.0, vAlong));
-        // Ortho volume profile: face-on overlap carries the shaft while the
-        // grazing silhouette is attenuated. The previous positive fresnel made
-        // the cone boundary its brightest line — a cut-paper wedge, not haze.
         float rim = 1.0 - abs(vNormalView.z);
         float shaft = 0.78 - 0.48 * rim;
         float bands = 0.86 + 0.14 * sin(vAlong * 30.0 - uTime * 1.3);
-        // A brighter near core gives the first thirty world units a readable
-        // volume; it yields before the long soft tail reaches the rim.
         float nearCore = 1.0 + 0.55 * (1.0 - smoothstep(0.08, 0.34, vAlong));
         float alpha = uOpacity * fade * shaft * bands * nearCore;
         if (uVolumetric > 0.5) {
-          // Mist volume locked to world space (it stays put while the beam
-          // sweeps through it — the air is what moves slowly, not the
-          // pattern on the cone). Storm thickens it: shafts read hardest in
-          // bad weather, matching the storm-driven fog.
           vec3 mistPoint = vWorldPos * 0.22
             + vec3(uTime * 0.05, uTime * 0.013, -uTime * 0.031);
           float mist = beamNoise(mistPoint) * 0.65
             + beamNoise(mistPoint * 2.7 + 11.3) * 0.35;
           float density = clamp(0.55 + uStorm * 0.9, 0.0, 1.0);
           float volume = mix(1.0, 0.45 + 1.1 * mist, density);
-          // Forward scattering + storm HDR lift: the beam flares as it
-          // sweeps toward the camera, and a storm-lit core crosses the bloom
-          // knee so the shafts glow instead of merely tinting.
           float scatter = 1.0 + uScatter * (0.9 + uStorm * 0.6);
           alpha *= volume * scatter * (1.0 + uStorm * 0.8);
         }
@@ -1012,7 +996,6 @@ function createBeamDust(): Points<BufferGeometry, ShaderMaterial> {
 
       void main() {
         vec3 p = position;
-        // Slow drift, small enough that motes stay inside the cone envelope.
         p.x += sin(uTime * 0.25 + aSeed * 6.28) * 0.6;
         p.y += sin(uTime * 0.31 + aSeed * 12.0) * 0.25;
         p.z += cos(uTime * 0.27 + aSeed * 9.0) * 0.25;
