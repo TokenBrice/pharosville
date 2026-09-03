@@ -36,7 +36,8 @@ export { GARDEN_EDGE_STONE_OBSTACLES } from "./garden-sea-edge-sites";
 // - Garden islets (garden-islets.ts): purely decorative meshes absent from the
 //   terrain model, so no data-side check ever avoided them. Radii = stone
 //   group span + ~1 tile.
-// - Cemetery/pigeonnier: data anchors (world-layout) + ~0.8 tile buffer.
+// - Cemetery: the rendered quiet graveyard — 18 wrecks in four loose groups;
+//   the ellipse is measured off their hull extents (see the constant below).
 //
 // All math is in TILE space (world units / √2). This module must stay
 // three-free so systems and motion code can import it.
@@ -58,17 +59,22 @@ export const GARDEN_ISLAND_OBSTACLE: GardenEllipse = {
 };
 
 /**
- * N2: the cemetery islet no longer exists — dead stablecoins are wrecks
- * scattered across the south-west wreck shoals, which are open water. The
- * obstacle is kept as a small courtesy clearance around the densest cluster so
- * a live hull never parks inside a wreck, but it no longer walls off a
- * landmass that is not there.
+ * N2: the wreckyard is open water, not a landmass — the obstacle is a
+ * courtesy clearance around the RENDERED quiet graveyard, re-derived when
+ * the field dropped from ~89 hulls to 18 in four loose groups. Measured
+ * against the real selection: hull extents (half-lengths included) span
+ * x −11.1..+11.5 and y −3.4..+9.7 tiles around CEMETERY_CENTER, so the
+ * ellipse is offset south over that crescent and sized with a hull
+ * half-beam to spare. Live ships neither moor among the wreck groups nor
+ * clip a hull passing them, while the shoal's empty north half and the
+ * water beyond the rim groups stay sailable. (Was rx 13.6 / ry 10.6
+ * centred — the full ~89-grave scatter plus a half-beam.)
  */
 export const GARDEN_CEMETERY_OBSTACLE: GardenEllipse = {
   x: CEMETERY_CENTER.x,
-  y: CEMETERY_CENTER.y,
-  rx: 3.2,
-  ry: 2.4,
+  y: CEMETERY_CENTER.y + 2,
+  rx: 12.3,
+  ry: 8.2,
 } as const;
 
 interface GardenCircle {

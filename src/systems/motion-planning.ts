@@ -79,8 +79,10 @@ export function __resetPreviousRiskCache(): void {
 /**
  * LRU-bounded cache for A* ship water routes, keyed by zone:shipId:bucket:from→to string.
  * Capacity = min(4096, max(512, 24 × shipCount)) — the former 16-entry allowance
- * covered 72-tile island-anchorage motion. Shore-station voyages can reach 96
- * tiles and exercise proportionally more cadence-waypoint candidates.
+ * covered 72-tile island-anchorage motion. Shore-station voyages reached
+ * 96 tiles before the 2026-09 harbour re-siting and now reach ~128 (the
+ * south-reed boathouse from a north risk tile), exercising proportionally
+ * more cadence-waypoint candidates.
  * LRU discipline: on get() the hit entry is moved to the end (most-recently
  * used); the entry at the start (least-recently used) is evicted when full.
  * The production cache contract intentionally exposes only get/set; tests and

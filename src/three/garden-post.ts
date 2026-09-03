@@ -378,35 +378,21 @@ const GRADE_FRAGMENT_SHADER = /* glsl */ `
   void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
     vec3 color = max(inputColor.rgb, vec3(0.0));
 
-    // lift / gamma / gain
     color = color * gain + lift;
     color = pow(max(color, vec3(0.0)), vec3(1.0) / gamma);
 
-    // split-tone: cool the shadows, warm the highlights
     float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
     vec3 tone = mix(shadowTint, highlightTint, smoothstep(0.0, 0.9, luma));
     color *= mix(vec3(1.0), tone, split);
 
-    // saturation around the graded luma
     float gradedLuma = dot(color, vec3(0.2126, 0.7152, 0.0722));
     color = mix(vec3(gradedLuma), color, saturation);
 
-    // vignette, biased toward the top edge (W1.4 bokashi bias). The radial
-    // falloff is unchanged; its weight is redistributed up the frame, so the
-    // sky band above the horizon carries the darkening and the water in the
-    // near foreground keeps its light. At bias 0 this is the old symmetric
-    // vignette exactly.
     float d = distance(uv, vec2(0.5));
     float vig = smoothstep(0.35, 0.85, d);
     float bokashi = mix(1.0 - vignetteBias, 1.0 + vignetteBias, smoothstep(0.15, 0.95, uv.y));
     color *= 1.0 - vignette * vig * bokashi;
 
-    // Phase 2 lightning: a full-screen cool-white flash, added AFTER the
-    // vignette so the whole frame lights at once. This add does NOT feed bloom
-    // — the grade pass runs after the bloom pass, so the prefilter never sees
-    // it (the claim that it did was wrong from Phase 2 until W0.3 corrected
-    // it). The strike's glow flare is bought on the bloom side instead, via
-    // BLOOM_FLASH_INTENSITY; this term stays the direct, unbloomed lift.
     color += flash * vec3(0.75, 0.82, 1.0);
 
     outputColor = vec4(color, inputColor.a);
@@ -547,9 +533,6 @@ const LUT_FRAGMENT_SHADER = /* glsl */ `
   uniform float ditherMix;
   uniform float grain;
 
-  // One 32^3 cube is a 32x32 grid of blue slices laid out as a 1024-wide strip;
-  // the three phase cubes are stacked into one 1024x96 texture (night, dusk,
-  // day, top to bottom). See scripts/pharosville/generate-garden-luts.mjs.
   #define LUT_EDGE 32.0
   #define LUT_WIDTH 1024.0
   #define LUT_HEIGHT 96.0
@@ -593,8 +576,6 @@ const LUT_FRAGMENT_SHADER = /* glsl */ `
   void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
     vec3 display = gardenLinearToDisplay(clamp(inputColor.rgb, 0.0, 1.0));
 
-    // Uniform-controlled and therefore wavefront-coherent: this costs nothing
-    // when it is false, and it is only false before the texture has loaded.
     if (lutMix > 0.0) {
       vec3 graded = lutWeights.x * sampleLutBand(display, 0.0)
         + lutWeights.y * sampleLutBand(display, 1.0)
@@ -603,25 +584,15 @@ const LUT_FRAGMENT_SHADER = /* glsl */ `
     }
 
     if (ditherMix > 0.0) {
-      // W1.2: one output code of blue noise, tiled 1:1 with device pixels.
-      // Gradient banding is a QUANTIZATION artifact — the sky band and the
-      // water's flat mid-tones cross an 8-bit step over hundreds of pixels, so
-      // the step reads as a contour line. Sub-code noise turns that contour
-      // into dither the eye integrates back to the gradient it wanted.
       float noise = texture2D(ditherNoise, gl_FragCoord.xy / DITHER_TILE).r;
       display += (noise - 0.5) * ditherMix / 255.0;
 
-      // Paper grain: the same mask read at a coarser scale as a multiplicative
-      // tooth, for the woodblock register. Near-imperceptible by design and off
-      // unless it earns its place.
       if (grain > 0.0) {
         float tooth = texture2D(ditherNoise, gl_FragCoord.xy / (DITHER_TILE * 1.7) + vec2(0.37)).r;
         display *= 1.0 + (tooth - 0.5) * grain;
       }
     }
 
-    // pow() of a negative is undefined and mix() evaluates both branches, so
-    // the decode is only ever handed a value the transfer function accepts.
     outputColor = vec4(gardenDisplayToLinear(clamp(display, 0.0, 1.0)), inputColor.a);
   }
 `;
@@ -778,17 +749,11 @@ const TILT_SHIFT_FRAGMENT_SHADER = /* glsl */ `
   uniform float strength;
 
   void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
-    // Uniform-controlled, so the whole wavefront takes the same branch: at a
-    // tier that has faded the pass out this costs one comparison per fragment
-    // and no texture fetch.
     if (strength <= 0.0) {
       outputColor = inputColor;
       return;
     }
 
-    // Orthographic depth is linear, so this is an exact view-space distance.
-    // getViewZ resolves to the orthographic reconstruction because the pass
-    // camera is not a PerspectiveCamera.
     float viewDistance = -getViewZ(depth);
 
     float farCoc = smoothstep(
@@ -796,17 +761,12 @@ const TILT_SHIFT_FRAGMENT_SHADER = /* glsl */ `
       focusCenter + focusRange + farFalloff,
       viewDistance
     );
-    // smoothstep is undefined when edge0 > edge1, so the near side is written
-    // as the complement of an increasing ramp rather than a descending one.
     float nearCoc = 1.0 - smoothstep(
       focusCenter - focusRange - nearFalloff,
       focusCenter - focusRange,
       viewDistance
     );
 
-    // The diorama lean. This MULTIPLIES the depth verdict, so it can deepen a
-    // softness the band already granted but can never invent one — see the
-    // comment block above for why that distinction is the whole design.
     float bias = mix(1.0 - gradientBias, 1.0 + gradientBias, smoothstep(gradientLow, gradientHigh, uv.y));
     float coc = clamp(max(farCoc * bias, nearCoc * (2.0 - bias)), 0.0, 1.0);
 
@@ -1082,9 +1042,6 @@ const GODRAY_MARCH_FRAGMENT_SHADER = /* glsl */ `
     float segmentLength = length(segment);
     vec3 direction = segment / max(segmentLength, 1e-4);
 
-    // Clip the march to the slab of air the medium occupies. Without this the
-    // ray would be walked across the camera's whole 500-unit range to sample
-    // 28 points, almost all of them in vacuum above the haze.
     float tMin = 0.0;
     float tMax = segmentLength;
     if (abs(direction.y) > 1e-4) {
@@ -1100,9 +1057,6 @@ const GODRAY_MARCH_FRAGMENT_SHADER = /* glsl */ `
 
     float span = tMax - tMin;
     float stepSize = span / float(${GODRAY_STEPS});
-    // Interleaved gradient noise (Jimenez): a low-discrepancy, purely
-    // positional dither. Deterministic per pixel and free of any clock, so a
-    // reduced-motion frame is bit-identical from one render to the next.
     float jitter = fract(52.9829189 * fract(0.06711056 * gl_FragCoord.x + 0.00583715 * gl_FragCoord.y));
 
     float lit = 0.0;
@@ -1111,10 +1065,6 @@ const GODRAY_MARCH_FRAGMENT_SHADER = /* glsl */ `
       vec4 shadowClip = shadowMatrix * vec4(samplePoint, 1.0);
       vec3 shadowCoord = shadowClip.xyz / shadowClip.w;
 
-      // Outside the static map's frustum there is no answer, so contribute
-      // nothing rather than guess — and feather the last quarter of the way
-      // out so the shafts dissolve into the haze instead of ending on the
-      // rectangle the shadow camera happens to cover.
       vec2 edge = abs(shadowCoord.xy - 0.5) * 2.0;
       float inside = 1.0 - smoothstep(0.55, 1.0, max(edge.x, edge.y));
       inside *= step(0.0, shadowCoord.z) * step(shadowCoord.z, 1.0);
@@ -1125,21 +1075,8 @@ const GODRAY_MARCH_FRAGMENT_SHADER = /* glsl */ `
       lit += visibility * density * inside;
     }
 
-    // An INTEGRAL, not an average: multiplying by the step length turns the sum
-    // into the lit optical thickness the ray actually crossed, in world units.
-    // The distinction is not pedantry — a ray that stops on the tower's flank
-    // has metres of air in front of it and a ray that reaches the sea has tens,
-    // and an average would hand both the same brightness, painting the tower's
-    // own face with the haze that belongs in front of it.
     float thickness = clamp(lit * stepSize / referenceThickness, 0.0, 1.0);
 
-    // The contrast curve is what keeps this reading as LIGHT rather than fog.
-    // A low sun lights nearly the whole slab, so the honest answer is a broad
-    // plateau — physically right, and on screen a warm smear over half the
-    // anchorage (measured: the first tuning pass did exactly that). Bending the
-    // thickness before it is scaled widens the gap between a shaft and its
-    // shadow without raising the level of either: a full column keeps its value
-    // while a half-occluded one falls to a fifth rather than a half.
     float shaft = pow(thickness, 2.2);
     gl_FragColor = vec4(rayColor * shaft, 1.0);
   }
@@ -1150,7 +1087,6 @@ const GODRAY_FRAGMENT_SHADER = /* glsl */ `
   uniform float rayWeight;
 
   void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
-    // Uniform branch: outside the low-sun window this stage is one comparison.
     if (rayWeight <= 0.0) {
       outputColor = inputColor;
       return;

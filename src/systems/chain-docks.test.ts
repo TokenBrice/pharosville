@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fixtureChains, makeChain } from "../__fixtures__/pharosville-world";
+import { denseFixtureChains, fixtureChains, makeChain } from "../__fixtures__/pharosville-world";
 import { buildChainDocks } from "./chain-docks";
 import {
   EVM_BAY_DOCK_TILES,
@@ -8,9 +8,11 @@ import {
   MAX_TILE_X,
   MAX_TILE_Y,
   OUTER_HARBOR_DOCK_TILES,
+  OUTER_HARBOR_STATION_SLOTS,
   PIGEONNIER_HARBOR_DOCK_TILE,
   PREFERRED_DOCK_TILES,
   tileKindAt,
+  terrainKindAt,
 } from "./world-layout";
 import { dockSeawardVector } from "./dock-layout";
 import { landWorldTile } from "./map-scale";
@@ -94,7 +96,12 @@ describe("buildChainDocks", () => {
     expect(precinct.slice(1).every((dock) => dock.station.type === "annex-pavilion")).toBe(true);
     expect(Math.max(...precinct.map((dock) => dock.tile.y)) - Math.min(...precinct.map((dock) => dock.tile.y)))
       .toBeLessThanOrEqual(24);
-    expect(precinct.every((dock) => dock.tile.x === precinct[0]!.tile.x)).toBe(true);
+    // Round three: the precinct reads as a stretch of coast, not a stack —
+    // three distinct shore columns with pairwise-unequal mouth intervals.
+    expect(new Set(precinct.map((dock) => dock.tile.x)).size).toBeGreaterThanOrEqual(3);
+    const shoreY = precinct.map((dock) => dock.tile.y).toSorted((a, b) => a - b);
+    const intervals = shoreY.slice(1).map((y, index) => y - shoreY[index]!);
+    expect(new Set(intervals).size).toBe(intervals.length);
 
     const coveById = new Map(RIM_COVES.map((entry) => [entry.id, entry]));
     const alongShore = precinct.toSorted((left, right) => left.tile.y - right.tile.y);
@@ -140,6 +147,106 @@ describe("buildChainDocks", () => {
     expect(new Set(docks.map((dock) => dock.station.type)).size).toBe(docks.length);
     expect(docks.map((dock) => dock.station.type)).not.toContain("boathouse-precinct");
     expect(docks.map((dock) => dock.station.type)).not.toContain("annex-pavilion");
+  });
+
+  it("spreads rendered harbor stations around the rim instead of massing them north", () => {
+    const docks = buildChainDocks(denseFixtureChains);
+    // The dense fixture is the normal-feed shape: the four Ethereum-family
+    // chains take the precinct, the next four by supply take outer slots.
+    expect(docks).toHaveLength(8);
+
+    const precinct = docks.filter((dock) => dock.station.type === "boathouse-precinct"
+      || dock.station.type === "annex-pavilion");
+    const outer = docks.filter((dock) => !precinct.includes(dock));
+
+    // (a) The west shore belongs to the precinct alone: exactly its four
+    // mouths render at x <= 30. Round two still moored Tron's gate-landing
+    // on the western ledger shore, stacking a fifth station directly behind
+    // the annexes — the remaining west-side mass the operator flagged.
+    expect(precinct).toHaveLength(4);
+    expect(precinct.every((dock) => dock.tile.x <= 30)).toBe(true);
+    expect(outer.every((dock) => dock.tile.x > 30)).toBe(true);
+
+    // Camera-near southern arc (VISUAL_INVARIANTS contract, restored round
+    // three): at least two rendered stations at y >= 112, one of them the
+    // south-rim reed boathouse — the two southern mouths are 67 tiles apart,
+    // so the pair reads as two harbours, not a cluster.
+    expect(docks.filter((dock) => dock.tile.y >= 112).length).toBeGreaterThanOrEqual(2);
+    expect(docks.some((dock) => dock.station.coveId === "watch-south-reed")).toBe(true);
+
+    // (b) At least two outer stations are camera-near (south rim or east
+    // shore): the dense feed puts its outer quartet on the east shore, the
+    // north warning shelf and the south rim.
+    expect(outer.filter((dock) => dock.tile.y >= 112 || dock.tile.x >= 120).length).toBeGreaterThanOrEqual(2);
+
+    // (c) The four outer mouths span at least three distinct rim arcs.
+    const arcOf = (tile: { x: number; y: number }) =>
+      tile.y <= 30 ? "north" : tile.y >= 112 ? "south" : tile.x >= 120 ? "east" : "inland";
+    expect(new Set(outer.map((dock) => arcOf(dock.tile))).size).toBeGreaterThanOrEqual(3);
+
+
+    // (d) Far-north budget: at most two rendered stations above y = 30 (the
+    // operator's complaint was a ring massed north of the lighthouse).
+    expect(docks.filter((dock) => dock.tile.y <= 30).length).toBeLessThanOrEqual(2);
+
+    // Outside the precinct, no three rendered stations sit within a 30-tile
+    // radius of one another (no pairwise-triple entirely inside 30 tiles).
+    const spread = outer;
+    for (let a = 0; a < spread.length; a += 1) {
+      for (let b = a + 1; b < spread.length; b += 1) {
+        for (let c = b + 1; c < spread.length; c += 1) {
+          const trio = [spread[a]!, spread[b]!, spread[c]!];
+          const widest = Math.max(...[
+            [trio[0]!, trio[1]!],
+            [trio[0]!, trio[2]!],
+            [trio[1]!, trio[2]!],
+          ].map(([left, right]) => Math.hypot(
+            left.tile.x - right.tile.x,
+            left.tile.y - right.tile.y,
+          )));
+          expect(widest, trio.map((dock) => dock.station.coveId).join("/")).toBeGreaterThan(30);
+        }
+      }
+    }
+
+    // (e) The precinct stays one connected calm-water group spread along its
+    // shore: mutually within 24 tiles, three distinct columns with unequal
+    // mouth intervals, every annex inside authorPrecinctBridge's 1..20.5 gate.
+    for (const dock of precinct) {
+      expect(terrainKindAt(dock.tile.x, dock.tile.y), dock.station.coveId).toBe("calm-water");
+      for (const other of precinct) {
+        expect(Math.hypot(dock.tile.x - other.tile.x, dock.tile.y - other.tile.y)).toBeLessThanOrEqual(24);
+      }
+    }
+    const boathouse = precinct.find((dock) => dock.station.type === "boathouse-precinct")!;
+    for (const annex of precinct.filter((dock) => dock !== boathouse)) {
+      const bridgeSpan = Math.hypot(annex.tile.x - boathouse.tile.x, annex.tile.y - boathouse.tile.y);
+      expect(bridgeSpan, annex.station.coveId).toBeGreaterThanOrEqual(6);
+      expect(bridgeSpan, annex.station.coveId).toBeLessThanOrEqual(20.5);
+    }
+    expect(new Set(precinct.map((dock) => dock.tile.x)).size).toBeGreaterThanOrEqual(3);
+    const shoreY = precinct.map((dock) => dock.tile.y).toSorted((a, b) => a - b);
+    const intervals = shoreY.slice(1).map((y, index) => y - shoreY[index]!);
+    expect(new Set(intervals).size).toBe(intervals.length);
+
+
+    // The slot tables express the same ring for any feed: the fill line (the
+    // first four outer slots a non-preferred feed binds) never offers a west
+    // mouth, and even the generic worst case that binds every outer cove
+    // (plus TON's pigeonnier wharf) respects the north budget and inhabits
+    // the south arc and both extremes.
+    expect(OUTER_HARBOR_STATION_SLOTS.slice(0, 4).every((slot) => slot.cove.tile.x > 30)).toBe(true);
+    const ring = [
+      ...EVM_BAY_DOCK_TILES,
+      ...OUTER_HARBOR_DOCK_TILES,
+      PIGEONNIER_HARBOR_DOCK_TILE,
+    ];
+    const outerRing = [...OUTER_HARBOR_DOCK_TILES, PIGEONNIER_HARBOR_DOCK_TILE];
+    expect(outerRing.filter((tile) => tile.y <= 30).length).toBeLessThanOrEqual(2);
+    expect(outerRing.filter((tile) => tile.y >= 112).length).toBeGreaterThanOrEqual(2);
+    expect(outerRing.some((tile) => tile.x <= 20)).toBe(true);
+    expect(outerRing.some((tile) => tile.x >= 120)).toBe(true);
+    expect(new Set(ring.map((tile) => `${tile.x}.${tile.y}`)).size).toBe(ring.length);
   });
 
   it("suppresses Optimism while reserving key Ethereum L2 extension slips before lower-ranked outer harbors", () => {

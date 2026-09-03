@@ -244,7 +244,9 @@ describe("authored garden rim", () => {
     expect(bodies).toEqual(new Set(["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"]));
     const precinct = RIM_COVES.filter((cove) => cove.id === "ethereum-precinct" || cove.id.endsWith("-annex"));
     expect(precinct).toHaveLength(4);
-    for (const cove of precinct) expect(cove.body).toBe("calm");
+    // Round three: the precinct spreads over at least three shore columns —
+    // it was a straight x=14 stack through round two.
+    expect(new Set(precinct.map((cove) => cove.tile.x)).size).toBeGreaterThanOrEqual(3);
     for (let index = 0; index < precinct.length; index += 1) {
       for (let otherIndex = index + 1; otherIndex < precinct.length; otherIndex += 1) {
         const a = precinct[index]!.tile;

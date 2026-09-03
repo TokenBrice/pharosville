@@ -59,16 +59,18 @@ describe("garden station recipes", () => {
     const roofColors = new Set<string>();
     for (const type of ARCHETYPES) {
       const recipe = recipeWithStation(type);
+      // v0.9 polish: stations grew ~1.3x on footprint length and roof mass and
+      // ~1.15x on span (Z growth stays shy of the 3.5-tile dock separation).
       const minimum = type === "boathouse-precinct"
-        ? { height: 5.1, length: 15.9, span: 7.9 }
-        : { height: 4.1, length: 9.9, span: 5.8 };
+        ? { height: 7.0, length: 20.6, span: 9.8 }
+        : { height: 5.4, length: 12.6, span: 6.5 };
       expect(recipe.features.primaryMass.footprint.length, `${type} primary length`).toBeGreaterThanOrEqual(minimum.length);
       expect(recipe.features.primaryMass.footprint.span, `${type} primary span`).toBeGreaterThanOrEqual(minimum.span);
       expect(recipe.features.primaryMass.height, `${type} primary height`).toBeGreaterThanOrEqual(minimum.height);
       expect(recipe.features.secondLevel.height, `${type} second-level height`).toBeGreaterThan(recipe.features.primaryMass.height);
-      expect(recipe.features.quayPlatform.footprint.length, `${type} quay length`).toBeGreaterThan(2.8);
-      expect(recipe.features.quayPlatform.footprint.span, `${type} quay span`).toBeGreaterThan(2.4);
-      expect(recipe.features.quayPlatform.height, `${type} raised quay`).toBeGreaterThanOrEqual(1.1);
+      expect(recipe.features.quayPlatform.footprint.length, `${type} quay length`).toBeGreaterThan(6.0);
+      expect(recipe.features.quayPlatform.footprint.span, `${type} quay span`).toBeGreaterThan(5.0);
+      expect(recipe.features.quayPlatform.height, `${type} raised quay`).toBeGreaterThanOrEqual(1.45);
       expect(recipe.features.quayPlatform.litEdge, `${type} quay light`).toBe(true);
       expect(recipe.features.warmWindowCount, `${type} warm windows`).toBeGreaterThan(0);
       expect(recipe.flag.scaleMultiplier, `${type} flag multiplier`).toBe(HARBOR_FLAG_SCALE_MULTIPLIER);
@@ -78,6 +80,42 @@ describe("garden station recipes", () => {
     }
     expect(secondLevels.size).toBe(ARCHETYPES.length);
     expect(roofColors.size).toBe(ARCHETYPES.length);
+    // v0.9 polish: second-level heights used to crowd into 7.2..9.8; they now
+    // spread so every archetype owns a distinct rung, Ethereum at the top.
+    const secondHeights = ARCHETYPES.map((type) => recipeWithStation(type).features.secondLevel.height);
+    expect(Math.min(...secondHeights)).toBeGreaterThanOrEqual(7.0);
+    expect(Math.max(...secondHeights)).toBeLessThanOrEqual(12.6);
+    expect(Math.max(...secondHeights) - Math.min(...secondHeights)).toBeGreaterThanOrEqual(5);
+    expect(ARCHETYPES[secondHeights.indexOf(Math.max(...secondHeights))]).toBe("boathouse-precinct");
+  });
+
+  it("gives every station roof a ridge, eave and gable profile instead of a flat plane", () => {
+    for (const type of ARCHETYPES) {
+      const recipe = recipeWithStation(type);
+      const roofParts = recipe.parts.filter((part) => part.bucket === "roof");
+      // The field part stays the station's ladder colour; a second, darker
+      // trim part carries the ridge cap, fascia shadow lines and gable plate.
+      expect(roofParts.length, `${type} roof parts`).toBeGreaterThanOrEqual(2);
+      const [field, trim] = roofParts;
+      const fieldProfile = field.geometry.userData.roofField as { fieldShells: number; fieldTriangles: number };
+      expect(fieldProfile.fieldShells, `${type} field shells`).toBeGreaterThanOrEqual(1);
+      // A flat single quad is 2 triangles; every articulated field breaks up.
+      expect(fieldProfile.fieldTriangles, `${type} field triangles`).toBeGreaterThanOrEqual(6);
+      const trimProfile = trim.geometry.userData.roofTrim as {
+        brackets: number; fascias: number; gablePlates: number;
+        ridgeCaps: number; ridgeBeams: number; surfaceBreaks: number;
+      };
+      expect(trimProfile.ridgeCaps, `${type} ridge cap`).toBeGreaterThanOrEqual(1);
+      expect(trimProfile.fascias, `${type} eave fascias`).toBeGreaterThanOrEqual(4);
+      expect(trimProfile.gablePlates, `${type} gable plate`).toBeGreaterThanOrEqual(1);
+      expect(trimProfile.brackets, `${type} eave brackets`).toBeGreaterThanOrEqual(4);
+      expect(trimProfile.surfaceBreaks, `${type} surface break`).toBeGreaterThanOrEqual(1);
+      const luminance = (color: Color) => color.r + color.g + color.b;
+      expect(luminance(trim.color), `${type} trim darker than field`).toBeLessThan(luminance(field.color));
+      const structure = recipe.parts.find((part) => part.bucket === "timber")!.geometry.userData.roofStructure as { brackets: number; ridgeBeams: number };
+      expect(structure.ridgeBeams, `${type} ridge beam`).toBeGreaterThanOrEqual(1);
+      expect(structure.brackets, `${type} structural brackets`).toBeGreaterThanOrEqual(4);
+    }
   });
 
   it("falls back to legacy identity and island bearing while B2 is absent", () => {
@@ -101,7 +139,7 @@ describe("garden station recipes", () => {
     expect(capital.identity.secondLevel).toBe("bell-tower");
     expect(others.every((other) => other.identity.secondLevel !== "bell-tower")).toBe(true);
     expect(capital.features.secondLevel.height - capital.features.primaryMass.height).toBeGreaterThanOrEqual(3);
-    expect(maxGeometryY(capital)).toBeGreaterThan(8);
+    expect(maxGeometryY(capital)).toBeGreaterThan(11);
   });
 
   it("keeps industrial identity props out and permits one works prop at most", () => {

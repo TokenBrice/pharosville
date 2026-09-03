@@ -738,14 +738,8 @@ const HULL_FORM_DEFORM = `
 {
   transformed.x *= aHullForm.x;
   transformed.z *= aHullForm.y;
-  // smoothstep keeps the deformation continuous across the waterline, so no
-  // crease appears where the two zones meet.
   float topsides = smoothstep(0.0, 0.45, transformed.y);
   transformed.y *= mix(1.0, aHullForm.z, topsides);
-  // Tier 3 #13: how she rides. A rigid lift/settle of the WHOLE vessel — no
-  // ramp — because a ship taking on draft does not stretch, it sinks. The sail
-  // material carries the same term, so the rig stays stepped in a hull that has
-  // moved.
   transformed.y += aHullForm.w;
 }`;
 
@@ -993,26 +987,11 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         {
           float columns = ${FLEET_SAIL_ATLAS_COLUMNS}.0;
           float cell = aAtlasSail > 0.5 ? aAtlasCell : 0.0;
-          // CanvasTexture uploads with flipY=true. Atlas cells are painted in
-          // canvas order (row 0 at the TOP), while texture V starts at the
-          // BOTTOM. Mirror the CELL ROW here while leaving the cell-local UV
-          // alone: geometry v=0 is the sail foot and must still read the
-          // bottom of the painted mark.
-          //
-          // This is identity-critical, not a cosmetic flip. Without it every
-          // batched ship samples the same column from the opposite atlas row;
-          // even cell 0 (the transparent plain-sail cell) samples a populated
-          // logo cell and stamps a stranger's mark across ordinary canvas.
           float canvasRow = floor(cell / columns);
           float textureRow = columns - 1.0 - canvasRow;
           vec2 cellOrigin = vec2(mod(cell, columns), textureRow) / columns;
           vAtlasUv = cellOrigin + uv / columns;
           vSailTint = aSailTint;
-          // W3.7: the CELL-LOCAL uv, kept separately from the atlas uv. The
-          // weave is a property of this sail's cloth, so it must run 0..1 across
-          // each sail rather than across the 16x16 atlas — and every sail in the
-          // rig carries a real 0..1 uv (createSailGeometry), so the plain sails
-          // get their cloth too, not just the one with the mark on it.
           vClothUv = uv;
           vSailAttention = aSailAttention;
         }`,
@@ -1033,9 +1012,6 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         varying vec3 vSailTint;
         varying float vAerialDepth;
         varying float vSailAttention;
-        // W3.7: the weave's relief, handed forward from <map_fragment> (which
-        // runs first) to <normal_fragment_begin>. Initialised to zero so a
-        // material with no map — the geometry-only test path — perturbs nothing.
         float gClothWarp = 0.0;
         float gClothWeft = 0.0;`,
       )
@@ -1055,36 +1031,11 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         `#ifdef USE_MAP
           vec4 sailTexel = texture2D(map, vAtlasUv);
 
-          // Aerial perspective. See fleetAerialUniforms for why the fleet needs
-          // its own recession on top of the scene fog.
           float aerial = smoothstep(uAerialNear, uAerialFar, vAerialDepth);
 
-          // The mark thins with zoom, and thins further with depth. Both are
-          // applied to the atlas ALPHA — "how much of this texel is a mark" —
-          // so a faded mark reveals the ship's own dyed cloth underneath rather
-          // than washing toward a neutral.
           float markVisibility = uMarkPresence * (1.0 - aerial * 0.8);
           vec3 sailCloth = mix(vSailTint, sailTexel.rgb, sailTexel.a * markVisibility);
 
-          // Chroma, not value: converge toward the cloth's OWN luminance so the
-          // sail keeps its place in the value structure while its brand colour
-          // recedes. Desaturating toward a constant instead would flatten the
-          // far fleet into a single grey mass and lose the silhouettes.
-          // Depth restraint and zoom restraint are combined with max(), not
-          // added: they are two readings of the same idea, and compounding them
-          // would grey the far fleet out entirely at wide framing.
-          //
-          // W3.7 adds two things to that sentence and changes nothing else:
-          //   * attention (0 for the rank and file, easing to 1 on hover or
-          //     selection) cancels both ZOOM-keyed terms, so the ship the
-          //     visitor is pointing at wears its full dye;
-          //   * the framing step composes MULTIPLICATIVELY on what is left —
-          //     "one further 18% of the remaining chroma" — so it can never
-          //     stack with the depth cue into a grey fleet, and it is exactly
-          //     zero at the zoom where marks are judged.
-          // Value is untouched by all of it: the mix target's luminance IS
-          // clothLuma, so luma(sailCloth) is invariant and the pirate contrast
-          // floor cannot move.
           float attention = clamp(vSailAttention, 0.0, 1.0);
           float clothLuma = dot(sailCloth, vec3(0.2126, 0.7152, 0.0722));
           float framingStep = uFramingRestraint * (1.0 - attention);
@@ -1092,21 +1043,6 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           restraint = 1.0 - (1.0 - restraint) * (1.0 - framingStep);
           sailCloth = mix(sailCloth, vec3(clothLuma), restraint);
 
-          // W3.7 cloth-ness: a woven canvas impression across the WHOLE sail.
-          //
-          // The rig already carries panel seams and reef bands in its vertex
-          // colours — the coarse read, seven vertices wide. This is the fine
-          // one: warp and weft threads, with the over-under crossing term that
-          // makes a plain weave look woven rather than gridded, plus a slow
-          // slub so it is hand-woven canvas and not a screen door. Weft is
-          // slightly denser than warp, which gives the cloth a grain direction.
-          //
-          // Three guards keep it an impression rather than a texture:
-          //   * zoom (uClothWeave) — off entirely at overview, full at explore;
-          //   * fwidth — threads that have shrunk toward a pixel are faded out
-          //     before they can shimmer, whatever the zoom says;
-          //   * the mark — the weave stands down under the emblem, so the one
-          //     thing the sail exists to show is never woven over.
           vec2 threads = vClothUv * vec2(${CLOTH_WARP_THREADS}, ${CLOTH_WEFT_THREADS}) * 6.2831853;
           float warp = sin(threads.x);
           float weft = sin(threads.y);
@@ -1117,31 +1053,11 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           float markCover = sailTexel.a * markVisibility;
           float weaveAmount = uClothWeave * clothDetail
             * (1.0 - markCover * ${CLOTH_WEAVE_MARK_RELIEF});
-          // Ambient occlusion in the interstices, highlight on the crowns — a
-          // multiplier about 1, so the cloth's own value is preserved on average
-          // and the sail keeps its place in the frame's value structure.
           sailCloth *= 1.0 + weave * ${CLOTH_WEAVE_SHADE} * weaveAmount;
-          // ...and the relief the lighting reads, handed to the normal stage.
           gClothWarp = cos(threads.x) * weaveAmount;
           gClothWeft = cos(threads.y) * weaveAmount;
 
           diffuseColor.rgb *= sailCloth;
-          // The night backlight is THIS ship's cloth glowing, not a cream wash
-          // laid over it.
-          //
-          // The material's emissive is a flat warm gold and the batched fleet
-          // shares ONE material, so without this the same cream was ADDED to
-          // every sail in the world at up to 0.78 intensity — against a dyed
-          // cloth whose albedo runs 0.1-0.3, that was ~85% of the sail's final
-          // colour. Measured at noon on the reference GPU: forcing the dye to
-          // pure red moved a sail texel by 24/255. The dye and the logo were
-          // both there and both being washed out, which is why 169 of 187
-          // ships flew what read as blank canvas.
-          //
-          // Hero ships never had the problem because they own a material each
-          // and set \`emissiveMap = map\`, so their glow is already modulated by
-          // their own painted sail. This is that same rule for the batch, where
-          // the per-instance dye plus the atlas texel IS the sail.
           totalEmissiveRadiance *= sailCloth;
         #endif`,
       )

@@ -1,6 +1,6 @@
 # PharosVille Architecture
 
-Last updated: 2026-09-02
+Last updated: 2026-09-03
 
 PharosVille is a desktop-gated React app with a pure data-to-world layer and
 one imperative Three.js/WebGL renderer. The DOM remains the analytical and
@@ -65,7 +65,7 @@ targets, following, detail anchors, and telemetry. Shader edge smoothing is
 presentation only. Reduced motion is a complete deterministic static frame.
 
 Hard ceilings are 700 calls, 500 geometries, 500,000 triangles, and 72
-textures. The reference default is approximately 245 calls and 43 textures;
+textures. The reference default is approximately 256 calls and 43 textures;
 whole-map N8AO is released so its animated overview remains at or below 72.
 Repeated structures are batched or instanced and renderer-owned resources are
 disposed with their content subtree.

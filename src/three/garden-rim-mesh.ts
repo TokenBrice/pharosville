@@ -23,6 +23,7 @@ import {
 } from "../systems/garden-rim";
 import { PHAROSVILLE_DESIGN_SPAN, PHAROSVILLE_MAP_SCALE } from "../systems/map-scale";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { GARDEN_PLATE_MARGIN_TILES } from "../systems/projection";
 import type { WeatherPlan } from "../systems/weather";
 import { TILE_SCALE, disposeThreeObjectTree, stableUnit } from "./garden-util";
 
@@ -30,7 +31,15 @@ const MAP_SIZE = PHAROSVILLE_DESIGN_SPAN * PHAROSVILLE_MAP_SCALE;
 const MAP_LAST = MAP_SIZE - 1;
 const WATERLINE_Y = -0.11;
 const SAMPLE_STEP = 0.5;
-
+/** How far past tile 139 the decorative camera-side land skirt reaches. */
+const CAMERA_SIDE_SKIRT_REACH_TILES = 4.5;
+/** Cut-off steepness past the reach; beats the deepest boundary shore
+ *  distance (~12 tiles) well inside the eight-tile plate margin. */
+const CAMERA_SIDE_SKIRT_CUT_SLOPE = 6.5;
+/** Skirt pines keep this fraction of the in-bounds keep odds at the boundary. */
+const CAMERA_SIDE_SKIRT_PINE_KEEP = 0.1;
+/** Skirt pines trail to none by this many tiles past the boundary. */
+const CAMERA_SIDE_SKIRT_PINE_FADE_TILES = 6;
 // Decorative garden frame only: rim form, planting, stones, and the stroll
 // ribbon carry no market or risk meaning.
 
@@ -69,7 +78,8 @@ export const GARDEN_ENGAWA_PINE_HEIGHT = 18;
 export const GARDEN_NEAR_RIM_BAY_DEPTHS = [3.2, 4.8, 3.6] as const;
 export const GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT = 1.55;
 export const GARDEN_NEAR_RIM_DISPLACEMENT = "straight shoreline and ordinary headland pines";
-
+/** The camera-side skirt displaces open water past the south/east plate limits. */
+export const GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT = "the open water band beyond the camera-side plate limits";
 const ENGAWA_LANTERN_TILE = { x: 82, y: 134 } as const;
 export const GARDEN_ENGAWA_LANTERN_WORLD = {
   x: ENGAWA_LANTERN_TILE.x * TILE_SCALE,
@@ -257,11 +267,33 @@ function cameraSideBayExcursion(tileX: number, tileY: number): number {
   const west = bell(tileY, 112, 13) * 3.4 * bell(tileX, -1, 25);
   return Math.max(south, west);
 }
+/**
+ * Decorative camera-side land skirt. Past the south and east rim the authored
+ * boundary silhouette is carried outward across the plate margin so the
+ * camera-near edges read as land receding into haze instead of a band of open
+ * water. Only this renderer term changes: the rimShoreDistance field clamps
+ * out-of-bounds samples to the boundary tile, so stretches that are water at
+ * the boundary — the Danger Strait reach of the east edge — stay water, and
+ * the far pair (x < 0 or y < 0) never gets a skirt at all.
+ */
+function cameraSideSkirtExcursion(tileX: number, tileY: number): number {
+  const beyond = Math.max(0, tileX - MAP_LAST, tileY - MAP_LAST);
+  if (beyond <= 0) return 0;
+  // Low-frequency reach wobble keeps the outer silhouette a headland line
+  // rather than a straight extruded band (deterministic: no Math.random).
+  const reach = CAMERA_SIDE_SKIRT_REACH_TILES
+    + Math.sin(tileX * 0.163 + 2.1) * 0.7
+    + Math.sin(tileY * 0.211 - tileX * 0.087) * 0.4;
+  // Inside the reach the clamped field extrudes unchanged; a slow seaward
+  // drift and the hard cut past the reach shape the outer coastline.
+  return beyond * 0.18 + Math.max(0, beyond - reach) * CAMERA_SIDE_SKIRT_CUT_SLOPE;
+}
 
 function authoredDistance(tileX: number, tileY: number): number {
   return rimShoreDistance(tileX, tileY)
     + shoreJitter(tileX, tileY)
-    + cameraSideBayExcursion(tileX, tileY);
+    + cameraSideBayExcursion(tileX, tileY)
+    + cameraSideSkirtExcursion(tileX, tileY);
 }
 
 function rimHeight(tileX: number, tileY: number): number {
@@ -276,7 +308,21 @@ function rimHeight(tileX: number, tileY: number): number {
   const dangerCliff = tileX > MAP_LAST - 8 && tileY > 38 && tileY < 82 ? 0.38 : 0;
   const stepped = 0.6 + Math.floor(Math.max(0, rise + dangerCliff - 0.6) / 0.34) * 0.34;
   const grain = (stableUnit(`rim-height.${Math.round(tileX * 2)}.${Math.round(tileY * 2)}`) - 0.5) * 0.055;
-  return Math.max(0.6, Math.min(3.1, stepped + grain));
+  const height = Math.max(0.6, Math.min(3.1, stepped + grain));
+  const beyond = Math.max(0, tileX - MAP_LAST, tileY - MAP_LAST);
+  if (beyond <= 0) return height;
+  // The skirt lets its surface down toward the outer margin so the land
+  // recedes into the haze instead of ending as a wall at the plate limit.
+  const recede = Math.min(1, beyond / (CAMERA_SIDE_SKIRT_REACH_TILES + 2));
+  const letDown = 1 - 0.5 * recede * recede;
+  // Gentle swells and dells keep the apron from reading as one flat plane.
+  // The term eases in over the first tile and a half (no seam against the
+  // authored rim), rides under the let-down, and is capped at the un-lowered
+  // height so the skirt always stays below the in-bounds rim crest.
+  const swellEase = Math.min(1, beyond / 1.5);
+  const swell = (Math.sin(tileX * 0.31 + tileY * 0.23) * 0.3
+    + Math.sin(tileX * 0.11 - tileY * 0.27 + 1.7) * 0.22) * swellEase * letDown;
+  return Math.max(0.45, Math.min(height, height * letDown + swell));
 }
 
 function rimColor(tileX: number, tileY: number): Color {
@@ -287,8 +333,17 @@ function rimColor(tileX: number, tileY: number): Color {
   return color;
 }
 
+/**
+ * Decorative surface land test. In bounds this is the authored silhouette
+ * plus its decorative cuts, unchanged. Past the south and east rim the
+ * clamped rimShoreDistance sample extrudes the authored boundary silhouette
+ * outward across the camera-side plate margin — water at the boundary (the
+ * Danger Strait reach of the east edge) therefore stays water. The far pair
+ * keeps no skirt, so the north and west margins still dissolve into the haze
+ * seam. This never feeds rimLandAt or any placement decision.
+ */
 function isSubtileLand(tileX: number, tileY: number): boolean {
-  if (tileX < 0 || tileY < 0 || tileX > MAP_LAST || tileY > MAP_LAST) return false;
+  if (tileX < 0 || tileY < 0) return false;
   return authoredDistance(tileX, tileY) <= 0;
 }
 
@@ -318,9 +373,12 @@ function shoreVertexTile(tileX: number, tileY: number): { x: number; y: number }
     moveX *= 0.72 / move;
     moveY *= 0.72 / move;
   }
+  // Upper clamp reaches into the plate margin so coast cells of the
+  // camera-side skirt project onto their shoreline like every other coast.
+  const skirtLimit = MAP_LAST + GARDEN_PLATE_MARGIN_TILES;
   return {
-    x: Math.max(0, Math.min(MAP_LAST, tileX + moveX)),
-    y: Math.max(0, Math.min(MAP_LAST, tileY + moveY)),
+    x: Math.max(0, Math.min(skirtLimit, tileX + moveX)),
+    y: Math.max(0, Math.min(skirtLimit, tileY + moveY)),
   };
 }
 
@@ -368,7 +426,10 @@ function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
   const top: GeometryBuilder = { colors: [], indices: [], positions: [] };
   const face: GeometryBuilder = { colors: [], indices: [], positions: [] };
   const half = SAMPLE_STEP / 2;
-  const samples = Math.round(MAP_SIZE / SAMPLE_STEP);
+  // The walk spans the plate margin on the camera-near sides only: cells
+  // beyond x/y 139 evaluate the skirt; cells before 0 are always water, so
+  // the far pair generates nothing and keeps dissolving into the haze.
+  const samples = Math.round((MAP_SIZE + GARDEN_PLATE_MARGIN_TILES) / SAMPLE_STEP);
   for (let iy = 0; iy < samples; iy += 1) {
     const cy = iy * SAMPLE_STEP + half;
     for (let ix = 0; ix < samples; ix += 1) {
@@ -505,6 +566,34 @@ function pineTiles(): PineSpec[] {
   // Engawa foreground: a single larger niwaki leans seaward from the deep
   // lower-left lobe. It remains in this one ring-wide pine instance batch.
   candidates.push({ leanX: -0.52, leanZ: 0.2, scale: 4, x: 86, y: 134, yaw: 0.34 });
+  // Camera-side skirt dressing: the same shore pines continue past the south
+  // and east rim on the in-bounds three-tile lattice, thinned from roughly a
+  // third to a half of the in-bounds keep odds at the boundary and trailing
+  // to none at the outer coast. In-bounds rings are untouched, and the far
+  // pair (x < 0 or y < 0) is water in isSubtileLand, so it gains nothing.
+  for (let y = 3; y <= MAP_LAST + 5; y += 3) {
+    for (let x = 3; x <= MAP_LAST + 5; x += 3) {
+      const beyond = Math.max(0, x - MAP_LAST, y - MAP_LAST);
+      // Lattice points still inside the map were settled (or not) by the
+      // in-bounds pass above and keep their authored odds.
+      if (beyond === 0) continue;
+      if (!isSubtileLand(x, y) || authoredDistance(x, y) > -2.2) continue;
+      if (!clearOfCove(x, y, 3)) continue;
+      // The engawa hero keeps its pocket; no ordinary pine crowds it.
+      if (Math.hypot(x - 86, y - 134) < 11) continue;
+      const keep = CAMERA_SIDE_SKIRT_PINE_KEEP
+        * Math.max(0, 1 - beyond / CAMERA_SIDE_SKIRT_PINE_FADE_TILES);
+      if (stableUnit(`rim-skirt-pine.${x}.${y}`) > keep) continue;
+      candidates.push({
+        leanX: 0,
+        leanZ: 0,
+        scale: 0.7 + stableUnit(`rim-skirt-pine-scale.${x}.${y}`) * 0.4,
+        x,
+        y,
+        yaw: stableUnit(`rim-skirt-pine-yaw.${x}.${y}`) * Math.PI * 2,
+      });
+    }
+  }
   return candidates;
 }
 
@@ -548,13 +637,44 @@ const HEADLANDS = [
   { x: 94, y: 136 },
 ] as const;
 
+/**
+ * Deterministic skirt boulders: a few of the same dodecahedron stones
+ * continuing the headland vocabulary across the camera-side apron. Anchors
+ * skip the Danger Strait stretch of the east boundary (open sea in the
+ * authored field, so no skirt land); the land test drops any anchor that
+ * lands on skirt water, keeping the stones sparse and shore-hugging.
+ */
+function skirtStoneTiles(): Array<{ x: number; y: number }> {
+  const anchors = [
+    { axis: "south", at: 22 },
+    { axis: "south", at: 58 },
+    { axis: "south", at: 94 },
+    { axis: "south", at: 126 },
+    { axis: "east", at: 24 },
+    { axis: "east", at: 122 },
+  ] as const;
+  const spots: Array<{ x: number; y: number }> = [];
+  for (const anchor of anchors) {
+    const along = anchor.at
+      + (stableUnit(`rim-skirt-stone-along.${anchor.axis}.${anchor.at}`) - 0.5) * 6;
+    const out = MAP_LAST + 1.3
+      + stableUnit(`rim-skirt-stone-out.${anchor.axis}.${anchor.at}`) * 2.4;
+    const x = anchor.axis === "south" ? along : out;
+    const y = anchor.axis === "south" ? out : along;
+    if (!isSubtileLand(x, y) || authoredDistance(x, y) > -0.7) continue;
+    spots.push({ x, y });
+  }
+  return spots;
+}
+
 function createStones(): InstancedMesh {
   const steppingStones = [
     { scale: [1.05, 0.28, 0.82] as const, x: 82.4, y: 131.4, yaw: -0.18 },
     { scale: [0.86, 0.22, 1.08] as const, x: 81.7, y: 129.0, yaw: 0.31 },
     { scale: [1.12, 0.25, 0.72] as const, x: 82.6, y: 126.6, yaw: -0.42 },
   ];
-  const count = HEADLANDS.length * 3 + steppingStones.length;
+  const skirtStones = skirtStoneTiles();
+  const count = HEADLANDS.length * 3 + steppingStones.length + skirtStones.length;
   const mesh = new InstancedMesh(
     new DodecahedronGeometry(0.72, 0),
     new MeshStandardMaterial({ color: HARBOR_PALETTE.stone_mid, flatShading: true, roughness: 1 }),
@@ -590,6 +710,18 @@ function createStones(): InstancedMesh {
     scale.set(step.scale[0], step.scale[1], step.scale[2]);
     matrix.compose(
       new Vector3(step.x * TILE_SCALE, WATERLINE_Y + 0.22, step.y * TILE_SCALE),
+      quaternion,
+      scale,
+    );
+    mesh.setMatrixAt(index, matrix);
+    index += 1;
+  }
+  for (const spot of skirtStones) {
+    rotation.set(0.34, stableUnit(`rim-skirt-stone-yaw.${spot.x}.${spot.y}`) * Math.PI * 2, 0.18);
+    quaternion.setFromEuler(rotation);
+    scale.set(0.62, 0.55, 0.88);
+    matrix.compose(
+      new Vector3(spot.x * TILE_SCALE, rimHeight(spot.x, spot.y) + 0.3, spot.y * TILE_SCALE),
       quaternion,
       scale,
     );
@@ -680,7 +812,10 @@ function buildPathGeometry(): { coveSpurs: number; geometry: BufferGeometry; seg
   // into the existing path draw. This is the viewer's place, and replaces the
   // otherwise continuous pale stroll ribbon at the lower-left corner.
   const deckCentreX = 84.5 * TILE_SCALE;
-  const deckCentreZ = 137.1 * TILE_SCALE;
+  // Centre pulled to 136.35 so the deck's near lip (136.35 + 5.2/2) stays
+  // inside tile 139: the whole path draw — ribbon, cove spurs, and this
+  // veranda — remains on the authored plate.
+  const deckCentreZ = 136.35 * TILE_SCALE;
   const deckTop = Math.max(1.9, rimHeight(84.5, 136.2) + 0.28);
   addBox(
     builder,

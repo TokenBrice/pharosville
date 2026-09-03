@@ -35,7 +35,11 @@ import {
 import { landWorldTile, zoneWorldTile } from "./map-scale";
 import { gardenWaterPlateContainsTile } from "./projection";
 import { rimLandAt } from "./garden-rim";
-import { CEMETERY_CENTER, isWaterTileKind, terrainKindAt } from "./world-layout";
+import {
+  CEMETERY_CENTER,
+  isWaterTileKind,
+  terrainKindAt,
+} from "./world-layout";
 import { GARDEN_SEA_EDGE_ISLAND_WATERLINE } from "./garden-sea-edge-sites";
 
 /** `isGardenObstacleTile` for an already-transformed world tile. */
@@ -100,10 +104,32 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
     expect(isObstacleAt(landWorldTile({ x: 4, y: 20 }))).toBe(true); // turtle islet
     expect(isObstacleAt(landWorldTile({ x: 26, y: 44 }))).toBe(true); // lone islet
     expect(isObstacleAt(zoneWorldTile({ x: 50, y: 50 }))).toBe(true); // pigeonnier
-    // N2: the cemetery islet is gone. What is left at the heart of the wreck
-    // shoals is a small courtesy clearance so a live hull never parks inside a
-    // wreck — the shoals themselves are open, sailable water.
+    // N2: the wreckyard is open water, not a landmass — the courtesy
+    // clearance hugs the RENDERED quiet graveyard: 18 wrecks in four loose
+    // groups whose hull extents span x −11.1..+11.5 / y −3.4..+9.7 around
+    // the centre, so the ellipse offsets south over that crescent. A live
+    // hull never parks among the groups or clips one passing them.
     expect(isObstacleAt(CEMETERY_CENTER)).toBe(true);
+    expect(GARDEN_CEMETERY_OBSTACLE.rx).toBe(12.3);
+    expect(GARDEN_CEMETERY_OBSTACLE.ry).toBe(8.2);
+    expect(GARDEN_CEMETERY_OBSTACLE.y).toBe(CEMETERY_CENTER.y + 2);
+    // The east rim group's water stays cleared...
+    expect(isObstacleAt({
+      x: CEMETERY_CENTER.x + 11,
+      y: CEMETERY_CENTER.y,
+    })).toBe(true);
+    // ...while the water beyond the rendered field's hull extent is open
+    // again — the de-sterilised ring the old full-scatter ellipse blocked.
+    expect(isObstacleAt({
+      x: CEMETERY_CENTER.x + 12.6,
+      y: CEMETERY_CENTER.y,
+    })).toBe(false);
+    // The de-sterilised water: the shoal's empty north half (bare quiet
+    // water in the render — no wreck renders there) and the open sea beyond
+    // the east rim group are sailable again, where the old full-scatter
+    // ellipse blocked them.
+    expect(isObstacleAt({ x: CEMETERY_CENTER.x, y: CEMETERY_CENTER.y - 7.5 })).toBe(false);
+    expect(isObstacleAt({ x: CEMETERY_CENTER.x + 13.4, y: CEMETERY_CENTER.y })).toBe(false);
     expect(isObstacleAt(landWorldTile({ x: 8, y: 50 }))).toBe(false); // the old islet's water
     // RIM FIELD: the extreme south-west edge is now the land bank enclosing Wreck Shoal.
     expect(isObstacleAt(zoneWorldTile({ x: 0, y: 55 }))).toBe(true);
@@ -253,6 +279,8 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
     warmAllWaterPaths(plan);
     // Chaikin smoothing cuts corners slightly; assert against the obstacle
     // shapes inset by 0.4 tiles so legitimate smoothing slack cannot flake.
+    // The cemetery ellipse hugs the quiet graveyard's four loose groups:
+    // A* paths route around the wrecks, not through them.
     const insetObstacle = (x: number, y: number): boolean => {
       const point = { x, y };
       const island = GARDEN_ISLAND_OBSTACLE;
