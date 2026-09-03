@@ -12,6 +12,20 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-09-03-the-inhabited-rim",
+    version: PHAROSVILLE_RELEASE_VERSIONS.inhabitedRim,
+    date: "2026-09-03",
+    title: "The Inhabited Rim",
+    summary: "The harbor ring finishes its circuit: stations spread around the whole rim including the near shore, every station roof becomes articulated craft instead of a single plane, and the map's near edges end in land rather than stray open water.",
+    bullets: [
+      "Spread the harbor stations around the whole rim — the far north keeps at most two, the camera-near southern shore carries stations of its own, both east and west extremes are inhabited, and outside the Ethereum precinct no three stations crowd one neighborhood — so the ring no longer reads as a distant row across empty foreground water.",
+      "Gave every station an articulated roof — ridge beam and cap, eave fascia, gable or gablet end, bracketed eaves, and a pent skirt or stepped course breaking the plane — with one named signature element per station, taller second-level silhouettes led by the Ethereum campanile, and the chain flag held at 1.6 times its former scale.",
+      "Carried the authored shoreline out past the map's south and east edges, where a band of open water used to float free of the garden, and dressed that near ground with thinning pines, occasional boulders, and gentle relief; the far horizons still dissolve into haze, the Danger Strait stays open, and no tile, route, berth, or reading changes.",
+      "Re-laid Wreck Shoal as a quiet graveyard: eighteen dark, waterlogged, half-sunk hulls in four uneven groups with open water between them, bone-pale frames and ribs showing through, a few leaning masts and tattered pennants, and one lantern still burning on the largest wreck — cause colour stays a small desaturated mark on the grave stone, and every grave keeps its ledger and detail-panel record.",
+    ],
+    source: "Collected from the 2026-09-03 operator follow-up polish after the Seven-Water Garden release.",
+  },
+  {
     id: "2026-09-02-seven-water-garden",
     version: PHAROSVILLE_RELEASE_VERSIONS.sevenWaterGarden,
     date: "2026-09-02",

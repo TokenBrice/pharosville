@@ -17,6 +17,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   quietAnchorage: "v0.7.2",
   gardenOfLight: "v0.8.0",
   sevenWaterGarden: "v0.9.0",
+  inhabitedRim: "v0.10.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.sevenWaterGarden;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.inhabitedRim;

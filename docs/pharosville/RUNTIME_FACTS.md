@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.9.0` (`sevenWaterGarden`)
-- Latest changelog entry: `2026-09-02-seven-water-garden` / `v0.9.0` / 2026-09-02 / Seven-Water Garden
+- Latest app version: `v0.10.0` (`inhabitedRim`)
+- Latest changelog entry: `2026-09-03-the-inhabited-rim` / `v0.10.0` / 2026-09-03 / The Inhabited Rim
 
 ## Viewport Gate
 
