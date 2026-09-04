@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.11.0` (`theEthereumMole`)
-- Latest changelog entry: `2026-09-04-the-ethereum-mole` / `v0.11.0` / 2026-09-04 / The Ethereum Mole
+- Latest app version: `v0.11.1` (`moleErrata`)
+- Latest changelog entry: `2026-09-04-mole-errata` / `v0.11.1` / 2026-09-04 / Mole Errata
 
 ## Viewport Gate
 
@@ -68,7 +68,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - world lazy chunk: raw <= 440 KiB, gzip <= 145 KiB
 - Three.js renderer chunk: raw <= 1,600 KiB, gzip <= 454 KiB
 - entry CSS: raw <= 36 KiB, gzip <= 8 KiB
-- Total JS: raw <= 3,200 KiB, gzip <= 820 KiB
+- Total JS: raw <= 3,200 KiB, gzip <= 886 KiB
 
 ## Squads
 

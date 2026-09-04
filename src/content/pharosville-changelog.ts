@@ -12,6 +12,19 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-09-04-mole-errata",
+    version: PHAROSVILLE_RELEASE_VERSIONS.moleErrata,
+    date: "2026-09-04",
+    title: "Mole Errata",
+    summary: "Corrects two overstated numbers in the v0.11.0 notes below, and restores the size headroom that release consumed.",
+    bullets: [
+      "The ring is eight harbor mouths, not nine: the TON cote stands on its own detached islet rather than on the rim, and appears only when TON carries supply. The world itself is unchanged — only the description was wrong.",
+      "Station geometry roughly doubled per ordinary harbor and the Ethereum Mole is about six times the largest of the old stations; v0.11.0 claimed a fourfold rise across the board, and its phrasing could be read as more stations, when the rendered count has stayed at nine throughout.",
+      "Raised the JavaScript size budget that v0.11.0 had left with twelve bytes of room, so the guard measures real growth again instead of failing on the next sentence anyone adds.",
+    ],
+    source: "Errata for v0.11.0; the v0.11.0 entry below is left as published.",
+  },
+  {
     id: "2026-09-04-the-ethereum-mole",
     version: PHAROSVILLE_RELEASE_VERSIONS.theEthereumMole,
     date: "2026-09-04",
