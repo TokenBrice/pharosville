@@ -20,6 +20,8 @@ import { dockSeawardVector } from "./dock-layout";
 import { landWorldTile } from "./map-scale";
 import { RIM_OPENINGS, rimDepthAt, rimLandAt } from "./garden-rim";
 
+type StationType = DockNode["station"]["type"];
+
 // The eight authored rim mouths and the archetype each one wears. The place
 // owns the architecture; the chain brings its flag — every binding test
 // below checks docks against this oracle, not against chain identity.
@@ -30,7 +32,7 @@ import { RIM_OPENINGS, rimDepthAt, rimLandAt } from "./garden-rim";
 // the ring: without it, every cove→archetype check would read `undefined` for
 // the ninth dock and pass or fail by accident.
 const AUTHORED_SLOTS = [...EVM_BAY_STATION_SLOTS, ...OUTER_HARBOR_STATION_SLOTS];
-const SLOT_TYPE_BY_COVE = new Map(
+const SLOT_TYPE_BY_COVE: Record<string, StationType> = Object.fromEntries(
   [...AUTHORED_SLOTS, PIGEONNIER_STATION_SLOT].map((slot) => [slot.cove.id, slot.type]),
 );
 const AUTHORED_MOUTH_IDS = new Set(AUTHORED_SLOTS.map((slot) => slot.cove.id));
@@ -149,7 +151,7 @@ describe("buildChainDocks", () => {
     expect(docks.filter((dock) => EVM_BAY_DOCK_TILES.some((tile) => (
       tile.x === dock.tile.x && tile.y === dock.tile.y
     ))).map((dock) => dock.chainId)).toEqual(["ethereum"]);
-    expect(docks.every((dock) => SLOT_TYPE_BY_COVE.get(dock.station.coveId) === dock.station.type)).toBe(true);
+    expect(docks.every((dock) => SLOT_TYPE_BY_COVE[dock.station.coveId] === dock.station.type)).toBe(true);
     expect(new Set(docks.map((dock) => `${dock.tile.x}.${dock.tile.y}`)).size).toBe(docks.length);
 
     // Global spread: with no precinct left to exempt, no three rendered
@@ -201,7 +203,7 @@ describe("buildChainDocks", () => {
     // exactly as large as the cap) and the spread below measures the whole
     // ring, not a fill subset.
     expect(docks).toHaveLength(8);
-    expect(docks.every((dock) => SLOT_TYPE_BY_COVE.get(dock.station.coveId) === dock.station.type)).toBe(true);
+    expect(docks.every((dock) => SLOT_TYPE_BY_COVE[dock.station.coveId] === dock.station.type)).toBe(true);
 
     // The precinct exemption is retired: no three rendered stations anywhere
     // on the ring sit within a 30-tile neighbourhood of one another.
@@ -439,7 +441,7 @@ describe("buildChainDocks", () => {
     const expectFullRing = (docks: DockNode[]) => {
       expect(docks).toHaveLength(8);
       expect(new Set(docks.map((dock) => dock.station.coveId))).toEqual(AUTHORED_MOUTH_IDS);
-      expect(docks.every((dock) => SLOT_TYPE_BY_COVE.get(dock.station.coveId) === dock.station.type)).toBe(true);
+      expect(docks.every((dock) => SLOT_TYPE_BY_COVE[dock.station.coveId] === dock.station.type)).toBe(true);
       expectNoStationTrioWithin30(docks);
     };
 
@@ -536,7 +538,7 @@ describe("buildChainDocks", () => {
     const withoutTon = sparseChains(0);
     expect(withoutTon).toHaveLength(3);
     expect(withoutTon.map((dock) => dock.chainId)).not.toContain("ton");
-    expect(withoutTon.every((dock) => SLOT_TYPE_BY_COVE.get(dock.station.coveId) === dock.station.type)).toBe(true);
+    expect(withoutTon.every((dock) => SLOT_TYPE_BY_COVE[dock.station.coveId] === dock.station.type)).toBe(true);
     expectNoStationTrioWithin30(withoutTon);
 
     const withTon = sparseChains(5);
@@ -545,7 +547,7 @@ describe("buildChainDocks", () => {
     expect(ton?.tile).toEqual(PIGEONNIER_HARBOR_DOCK_TILE);
     expect(ton?.station.type).toBe("pigeonnier-islet");
     expect(withTon.filter((dock) => dock.chainId !== "ton")
-      .every((dock) => SLOT_TYPE_BY_COVE.get(dock.station.coveId) === dock.station.type)).toBe(true);
+      .every((dock) => SLOT_TYPE_BY_COVE[dock.station.coveId] === dock.station.type)).toBe(true);
     expectNoStationTrioWithin30(withTon);
   });
 });

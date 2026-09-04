@@ -200,7 +200,7 @@ mass.** Eight rim slots plus the untouched pigeonnier.
 
 | cove | tile | arc | archetype | chain | nameable silhouette | roof rung / accent token |
 | --- | --- | --- | --- | --- | --- | --- |
-| `ethereum-mole` | (15,95) | **W** | **`ethereum-mole`** (was `boathouse-precinct`) | `ethereum` | civic hall + offset campanile on an enclosing stone mole | `#a95f43` / `stone_mid`, `iron_dark` |
+| `ethereum-mole` | (15,95) | **W** | **`ethereum-mole`** (was `boathouse-precinct`) | `ethereum` | civic hall + offset campanile on an enclosing stone mole | `roof_clay` `#a66147` / `stone_mid`, `iron_dark` |
 | `ledger-fog-hook` | (9,54) | **W** | **`hatago-wharf`** (new) | `base` | two-storey travellers' inn, stacked roofs, lantern row over a water stair | `#56606b` (new rung) / `timber_warm`, `lantern_warm` |
 | `warning-stone-notch` | (118,10) | **N** | `stepped-inlet` | `tron` | wide stone stair descending into water under a lantern crown | `#747a7c` / `iron_dark` |
 | `danger-gorge` | (131,59) | **E** | `fishing-pier` | `solana` | long thin pier, single lean-to, tall forked net rack | `#9c694c` / `aurora_green` |

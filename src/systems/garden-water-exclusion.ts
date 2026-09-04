@@ -155,16 +155,29 @@ const moleRect = (
  * in the authority table alongside the outer envelope and are covered by the
  * same drift guard. The basin between the arms is deliberately NOT excluded:
  * it is water ships are meant to enter through the angled entrance.
+ *
+ * The components are REQUIRED, not optional. Falling back to an empty list
+ * would make every piece of Mole masonry navigable — the exact regression this
+ * table exists to prevent — so a missing entry throws at module load rather
+ * than quietly opening the breakwater.
  */
-export const GARDEN_MOLE_OBSTACLES: readonly StationFootprintRect[] = (
-  moleBounds.components ?? []
-).map((component) => moleRect(
-  component.id,
-  component.minX,
-  component.maxX,
-  component.minZ,
-  component.maxZ,
-));
+const moleComponents = moleBounds.components;
+if (!moleComponents?.length) {
+  throw new Error(
+    "STATION_LOCAL_BOUNDS['ethereum-mole'].components is missing: without the "
+    + "apron/hall and arm bounds, ships would sail through the Mole's masonry.",
+  );
+}
+
+export const GARDEN_MOLE_OBSTACLES: readonly StationFootprintRect[] = moleComponents.map(
+  (component) => moleRect(
+    component.id,
+    component.minX,
+    component.maxX,
+    component.minZ,
+    component.maxZ,
+  ),
+);
 
 /** The eight ordinary stations remain one circumscribing circle each. */
 export const GARDEN_DOCK_OBSTACLES: readonly GardenCircle[] = [

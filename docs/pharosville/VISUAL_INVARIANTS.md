@@ -65,8 +65,10 @@ intent, code/tests, and a matching update to the relevant route documentation.
   fill the Mole at all — the mole slot is EVM-pool-only. Those numbers are
   the contract `src/systems/chain-docks.test.ts` enforces; the failure mode
   they prevent is a far-shore row of silhouettes across empty foreground
-  water. The rendered harbor count stays eight chain harbors
-  plus the TON pigeonnier, so no density amendment accompanies the smaller
+  water. On a dense feed the rendered harbor count stays eight chain harbors
+  plus the TON pigeonnier — TON itself renders only when its supply is
+  non-zero, and a sparse feed renders fewer — so no density amendment
+  accompanies the smaller
   mouth inventory. Every station keeps a landward, distance-readable
   primary roof at least twice an ordinary hull's length, a contrasting
   clay/slate/thatch/timber palette, and a uniquely named upper silhouette
