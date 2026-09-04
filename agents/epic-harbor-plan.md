@@ -208,7 +208,7 @@ mass.** Eight rim slots plus the untouched pigeonnier.
 | `watch-south-reed` | (122,132) | **S** | `reed-boathouse` | `polygon` | high sharp thatch gable, open boat-bay mouth, reed dome | `#c7ae72` / `timber_warm` |
 | `calm-engawa-south` | (60,130) | **S** | `tea-house-quay` | `bsc` | tea house, round moon window, engawa water shelf | `#40515b` / `lantern_warm` |
 | `wreck-shoal-east` | (31,125) | **S** | `storm-mole` | `arbitrum` | crenellated stone breakwater curving out, lantern tower at its head | `#354750` / `fog_pale` |
-| pigeonnier islet | (125,126) | **S** | `pigeonnier-islet` | `ton` | round cote, cone roof, dark entry holes, perch ledges | `#bc7455` / `moonlight` |
+| pigeonnier islet | (125,126) | **S** | `pigeonnier-islet` | `ton` | round cote, cone roof, dark entry holes, perch ledges | `roof_cote_clay` `#ba7557` / `moonlight` |
 
 Identity rationale is chain-truth, not flavour: `base` = "bring the next billion onchain",
 whose product is *arrival* — a gate you pass through, sited on the fog-hook approach;
