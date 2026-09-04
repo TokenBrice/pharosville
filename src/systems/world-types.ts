@@ -408,16 +408,14 @@ export interface DockNode {
   station: {
     coveId: RimCoveId;
     type:
-      | "boathouse-precinct"
-      | "annex-pavilion"
-      | "gate-landing"
-      | "tea-house-quay"
-      | "fishing-pier"
+      | "ethereum-mole"
+      | "hatago-wharf"
+      | "uogashi"
       | "stepped-inlet"
+      | "fishing-pier"
+      | "tea-house-quay"
       | "reed-boathouse"
       | "storm-mole"
-      | "salvage-slip"
-      | "signal-jetty"
       | "pigeonnier-islet";
     /** Radians from the station's landward edge toward open water. */
     shoreBearing: number;

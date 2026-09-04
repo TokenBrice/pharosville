@@ -12,7 +12,26 @@ import {
   seaEdgeBoundaryAt,
   seaEdgeTileInOpening,
 } from "./garden-sea-edge-sites";
-import { isWaterTileKind, terrainKindAt } from "./world-layout";
+import {
+  EVM_BAY_STATION_SLOTS,
+  OUTER_HARBOR_STATION_SLOTS,
+  PIGEONNIER_STATION_SLOT,
+  isWaterTileKind,
+  terrainKindAt,
+} from "./world-layout";
+import { distanceToStationFootprint, stationFootprintRect } from "./dock-layout";
+
+// R4: use the same cove-rooted oriented rectangle contract as every consumer.
+const STATION_FOOTPRINTS = [
+  EVM_BAY_STATION_SLOTS,
+  OUTER_HARBOR_STATION_SLOTS,
+  PIGEONNIER_STATION_SLOT,
+].flat().map((slot) => stationFootprintRect(
+  slot.type,
+  slot.cove.tile,
+  slot.cove.seawardBearing,
+  slot.cove.id,
+));
 
 describe("garden sea-edge sites", () => {
   it("gives every named body authored edge geography and leaves open approach empty", () => {
@@ -44,30 +63,26 @@ describe("garden sea-edge sites", () => {
       .toMatchObject({ height: 0.48 * 1.5, length: 5.4 * 1.5, width: 2 * 1.5 });
     expect(GARDEN_SEA_EDGE_SITES.find((site) => site.id === "ledger-pile-1"))
       .toMatchObject({ height: 2.7 * 1.5, length: 0.55 * 1.5, width: 0.55 * 1.5 });
-    // The rim-land Danger wall is the deliberate exception: enlarging it had
-    // no clearance-valid site and would narrow the navigable strait.
+    // The displaced Danger wall keeps its reviewed, non-enlarged footprint.
     expect(GARDEN_SEA_EDGE_SITES.find((site) => site.id === "danger-rim-cliff"))
       .toMatchObject({ height: 5.2, length: 5.4, width: 1.2 });
   });
 
-  it("resolves water elements onto their live field boundary and the Danger cliff onto its rim flank", () => {
+  it("resolves every water element onto its live field boundary", () => {
     const cliff = GARDEN_SEA_EDGE_SITES.find((site) => site.form === "cliff");
-    expect(cliff).toBeDefined();
-    expect(rimLandAt(cliff!.tile.x, cliff!.tile.y)).toBe(true);
+    expect(cliff).toMatchObject({ body: "danger", surface: "water" });
+    expect(cliff!.tile).toEqual({ x: 121, y: 50 });
     expect([
       { x: 1, y: 0 },
       { x: -1, y: 0 },
       { x: 0, y: 1 },
       { x: 0, y: -1 },
-    ].some((offset) => {
-      const x = cliff!.tile.x + offset.x;
-      const y = cliff!.tile.y + offset.y;
-      return isWaterTileKind(terrainKindAt(x, y))
-        && seaRegionAtTile(x, y) === SEA_REGION_ID.danger;
-    })).toBe(true);
-    expect(seaEdgeTileInOpening(cliff!.tile)).toBe(false);
+    ].some((offset) => (
+      seaRegionAtTile(cliff!.tile.x + offset.x, cliff!.tile.y + offset.y)
+        === SEA_REGION_ID.watch
+    ))).toBe(true);
 
-    for (const site of GARDEN_SEA_EDGE_SITES.filter((candidate) => candidate !== cliff)) {
+    for (const site of GARDEN_SEA_EDGE_SITES) {
       expect(isWaterTileKind(terrainKindAt(site.tile.x, site.tile.y)), site.id).toBe(true);
       expect(rimLandAt(site.tile.x, site.tile.y), site.id).toBe(false);
       expect(seaRegionAtTile(site.tile.x, site.tile.y), site.id).toBe(SEA_REGION_ID[site.body]);
@@ -98,12 +113,11 @@ describe("garden sea-edge sites", () => {
     }
   });
 
-  it("exports deterministic water obstacles without narrowing Danger Strait for its land cliff", () => {
-    const waterSites = GARDEN_SEA_EDGE_SITES.filter((site) => site.form !== "cliff");
-    expect(GARDEN_EDGE_STONE_OBSTACLES).toHaveLength(waterSites.length);
+  it("exports every physical water feature as a deterministic obstacle", () => {
+    expect(GARDEN_EDGE_STONE_OBSTACLES).toHaveLength(GARDEN_SEA_EDGE_SITES.length);
     expect(GARDEN_EDGE_STONE_OBSTACLES.some((obstacle) => obstacle.id === "danger-rim-cliff"))
-      .toBe(false);
-    expect(GARDEN_EDGE_STONE_OBSTACLES).toEqual(waterSites.map((site) => ({
+      .toBe(true);
+    expect(GARDEN_EDGE_STONE_OBSTACLES).toEqual(GARDEN_SEA_EDGE_SITES.map((site) => ({
       body: site.body,
       id: site.id,
       r: site.footprintRadius,
@@ -115,5 +129,39 @@ describe("garden sea-edge sites", () => {
       expect(new Set(sites.map((site) => `${site.tile.x},${site.tile.y}`)).size, form)
         .toBe(sites.length);
     }
+  });
+
+  it("keeps every stele outside the nine enlarged station footprints", () => {
+    let tightest = Number.POSITIVE_INFINITY;
+    for (const site of GARDEN_SEA_EDGE_SITES) {
+      for (const station of STATION_FOOTPRINTS) {
+        const distance = distanceToStationFootprint(site.tile, station);
+        expect(distance, `${site.id} / ${station.id}`)
+          .toBeGreaterThanOrEqual(site.footprintRadius);
+        tightest = Math.min(tightest, distance - site.footprintRadius);
+      }
+    }
+    // The keep-out remains load-bearing: a site is within two tiles of the
+    // exact station-envelope limit.
+    expect(tightest).toBeLessThan(2);
+  });
+
+  it("guards the landward origin against cove-only and seaward-centred regressions", () => {
+    const ledger = STATION_FOOTPRINTS.find((station) => station.id === "ledger-fog-hook")!;
+    const ledgerCove = RIM_COVES.find((cove) => cove.id === "ledger-fog-hook")!;
+    const landwardHall = { x: 2, y: 54 };
+    expect(distanceToStationFootprint(landwardHall, ledger)).toBe(0);
+    expect(Math.hypot(
+      landwardHall.x - ledgerCove.tile.x,
+      landwardHall.y - ledgerCove.tile.y,
+    )).toBeGreaterThan(ledgerCove.width * 0.5 + GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES);
+
+    const along = landwardHall.x - ledger.origin.x;
+    const legacyHalfAlong = (ledger.maxAlong - ledger.minAlong) / 2;
+    const legacySeawardCentredDistance = Math.max(
+      Math.abs(along - legacyHalfAlong) - legacyHalfAlong,
+      0,
+    );
+    expect(legacySeawardCentredDistance).toBeGreaterThan(0);
   });
 });

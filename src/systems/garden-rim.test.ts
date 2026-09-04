@@ -21,6 +21,7 @@ import {
   rimLandAt,
   rimShoreDistance,
 } from "./garden-rim";
+import { MAX_CHAIN_HARBORS } from "./chain-docks";
 
 const TAU = Math.PI * 2;
 
@@ -224,7 +225,11 @@ describe("authored garden rim", () => {
   it("authors spaced, body-specific coves reachable from the current dock ring", () => {
     const reached = reachableWaterFromDockRing();
     const bodies = new Set<SeaBodyId>();
-    expect(RIM_COVES.length).toBeGreaterThanOrEqual(10);
+    // The ring size is a contract, not a floor: the twelve-mouth ring was
+    // deliberately cut to eight so the mouth count equals MAX_CHAIN_HARBORS —
+    // every authored mouth is inhabited in a normal feed instead of two
+    // sitting permanently dark (agents/epic-harbor-plan.md §3).
+    expect(RIM_COVES).toHaveLength(MAX_CHAIN_HARBORS);
 
     for (const cove of RIM_COVES) {
       bodies.add(cove.body);
@@ -241,19 +246,10 @@ describe("authored garden rim", () => {
       expect(Number.isFinite(cove.seawardBearing)).toBe(true);
     }
 
-    expect(bodies).toEqual(new Set(["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"]));
-    const precinct = RIM_COVES.filter((cove) => cove.id === "ethereum-precinct" || cove.id.endsWith("-annex"));
-    expect(precinct).toHaveLength(4);
-    // Round three: the precinct spreads over at least three shore columns —
-    // it was a straight x=14 stack through round two.
-    expect(new Set(precinct.map((cove) => cove.tile.x)).size).toBeGreaterThanOrEqual(3);
-    for (let index = 0; index < precinct.length; index += 1) {
-      for (let otherIndex = index + 1; otherIndex < precinct.length; otherIndex += 1) {
-        const a = precinct[index]!.tile;
-        const b = precinct[otherIndex]!.tile;
-        expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThanOrEqual(24);
-      }
-    }
+    // Six named bodies carry a mouth; `alert` is deliberately the one left
+    // mouthless — the trade that held the station count at nine.
+    expect(bodies).toEqual(new Set(["calm", "watch", "warning", "danger", "ledger", "wreck"]));
+
     for (let index = 0; index < RIM_COVES.length; index += 1) {
       for (let otherIndex = index + 1; otherIndex < RIM_COVES.length; otherIndex += 1) {
         const a = RIM_COVES[index]!.tile;

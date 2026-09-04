@@ -22,6 +22,8 @@ import {
 } from "./garden-observatory-slice";
 import {
   GARDEN_CEMETERY_OBSTACLE,
+  GARDEN_DOCK_OBSTACLES,
+  GARDEN_MOLE_OBSTACLES,
   GARDEN_EDGE_STONE_OBSTACLES,
   GARDEN_ISLAND_OBSTACLE,
   GARDEN_ISLET_OBSTACLES,
@@ -37,7 +39,11 @@ import { gardenWaterPlateContainsTile } from "./projection";
 import { rimLandAt } from "./garden-rim";
 import {
   CEMETERY_CENTER,
+  DOCK_TILES,
+  EVM_BAY_STATION_SLOTS,
   isWaterTileKind,
+  OUTER_HARBOR_STATION_SLOTS,
+  PIGEONNIER_HARBOR_DOCK_TILE,
   terrainKindAt,
 } from "./world-layout";
 import { GARDEN_SEA_EDGE_ISLAND_WATERLINE } from "./garden-sea-edge-sites";
@@ -45,6 +51,32 @@ import { GARDEN_SEA_EDGE_ISLAND_WATERLINE } from "./garden-sea-edge-sites";
 /** `isGardenObstacleTile` for an already-transformed world tile. */
 function isObstacleAt(tile: { x: number; y: number }): boolean {
   return isGardenObstacleTile(tile.x, tile.y);
+}
+function pointAlongBearing(
+  tile: { x: number; y: number },
+  bearing: number,
+  distance: number,
+  turn = 0,
+): { x: number; y: number } {
+  const angle = bearing + turn;
+  return {
+    x: tile.x + Math.cos(angle) * distance,
+    y: tile.y + Math.sin(angle) * distance,
+  };
+}
+
+function pointAtMoleLocalWorld(
+  tile: { x: number; y: number },
+  bearing: number,
+  alongWorld: number,
+  acrossWorld: number,
+): { x: number; y: number } {
+  const along = alongWorld / Math.SQRT2;
+  const across = acrossWorld / Math.SQRT2;
+  return {
+    x: tile.x + Math.cos(bearing) * along - Math.sin(bearing) * across,
+    y: tile.y + Math.sin(bearing) * along + Math.cos(bearing) * across,
+  };
 }
 
 function denseWorld() {
@@ -145,6 +177,83 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
       expect(isGardenShipWater(edge, 1), edge.id).toBe(false);
     }
     expect(GARDEN_ISLAND_OBSTACLE).toEqual(GARDEN_SEA_EDGE_ISLAND_WATERLINE);
+  });
+
+  it("keeps dock exclusions mirrored to authored mouths", () => {
+    const authoredDockTiles = [...DOCK_TILES, PIGEONNIER_HARBOR_DOCK_TILE];
+    const obstacleMouths = [
+      GARDEN_MOLE_OBSTACLES[0]!.origin,
+      ...GARDEN_DOCK_OBSTACLES.map(({ x, y }) => ({ x, y })),
+    ];
+    expect(obstacleMouths).toEqual(authoredDockTiles);
+    // Ordinary authored mouths remain excluded. The Mole's cove origin is
+    // inside its basin, so its obstacle coverage is anchored there without
+    // turning the mouth itself into masonry.
+    for (const tile of authoredDockTiles.slice(1)) {
+      expect(isGardenShipWater(tile, 0, true), `${tile.x}.${tile.y}`).toBe(false);
+    }
+    expect(isGardenShipWater(authoredDockTiles[0]!, 0, true)).toBe(true);
+  });
+
+  it("keeps ordinary station circles scaled to their authored envelopes", () => {
+    const largeSlot = OUTER_HARBOR_STATION_SLOTS.find((slot) => slot.type === "fishing-pier")!;
+    const smallSlot = OUTER_HARBOR_STATION_SLOTS.find((slot) => slot.type === "reed-boathouse")!;
+    const probeDistance = 7.5;
+    const largeProbe = pointAlongBearing(
+      largeSlot.cove.tile,
+      largeSlot.cove.seawardBearing,
+      probeDistance,
+    );
+    // The west/north side avoids the nearby TON pigeonnier while staying the
+    // same distance from the reed-boathouse mouth.
+    const smallProbe = pointAlongBearing(
+      smallSlot.cove.tile,
+      smallSlot.cove.seawardBearing,
+      probeDistance,
+      -Math.PI / 4,
+    );
+
+    // The supply-scaled navigation envelopes remain distinct: the fishing
+    // pier reaches eight tiles while the reed boathouse reaches seven.
+    expect(isGardenShipWater(largeProbe, 0)).toBe(true);
+    expect(isGardenShipWater(largeProbe, 0, true)).toBe(false);
+    expect(isGardenShipWater(smallProbe, 0)).toBe(true);
+    expect(isGardenShipWater(smallProbe, 0, true)).toBe(true);
+  });
+
+  it("excludes the Mole masonry while leaving its basin reachable through the entrance", () => {
+    const moleSlot = EVM_BAY_STATION_SLOTS[0]!;
+    const localPoint = (alongWorld: number, acrossWorld: number) => pointAtMoleLocalWorld(
+      moleSlot.cove.tile,
+      moleSlot.cove.seawardBearing,
+      alongWorld,
+      acrossWorld,
+    );
+
+    const longArm = localPoint(6, -9.5);
+    const shortArm = localPoint(2.5, 9.25);
+    const hall = localPoint(-8, 0);
+    const apron = localPoint(-18, 0);
+    for (const [label, point] of [
+      ["long arm", longArm],
+      ["short arm", shortArm],
+      ["hall", hall],
+      ["apron", apron],
+    ] as const) {
+      expect(isGardenShipWater(point, 0, true), label).toBe(false);
+    }
+
+    // Sample a continuous ship-centre route from the 18 × 14 basin to open
+    // sea on the authored 12° entrance heading. Membership alone would not
+    // catch two arm obstacles accidentally closing the basin.
+    const route = Array.from({ length: 73 }, (_, index) => {
+      const alongWorld = 6 + index * 0.25;
+      const acrossWorld = Math.tan(12 * Math.PI / 180) * (alongWorld - 6);
+      return localPoint(alongWorld, acrossWorld);
+    });
+    for (const [index, point] of route.entries()) {
+      expect(isGardenShipWater(point, 1, true), `entrance route sample ${index}`).toBe(true);
+    }
   });
 
   it("resolves invalid targets to the nearest valid water deterministically", () => {

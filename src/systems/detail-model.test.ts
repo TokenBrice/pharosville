@@ -85,7 +85,7 @@ describe("detail-model analytical links", () => {
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
-      station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
+      station: { coveId: "ethereum-mole", type: "ethereum-mole", shoreBearing: 0 },
       tile: { x: 1, y: 1 },
       totalUsd: 100,
       size: 1,
@@ -252,7 +252,7 @@ describe("detail-model analytical links", () => {
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
-      station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
+      station: { coveId: "ethereum-mole", type: "ethereum-mole", shoreBearing: 0 },
       tile: { x: 1, y: 1 },
       totalUsd: 300,
       size: 1,
@@ -267,9 +267,9 @@ describe("detail-model analytical links", () => {
     } satisfies DockNode;
 
     const withoutContext = detailForDock(dock);
-    expect(withoutContext.summary).toContain("Boathouse Precinct at ethereum-precinct");
-    expect(withoutContext.facts).toContainEqual({ label: "Station type", value: "Boathouse Precinct" });
-    expect(withoutContext.facts).toContainEqual({ label: "Rim cove", value: "ethereum-precinct" });
+    expect(withoutContext.summary).toContain("Ethereum Mole at ethereum-mole");
+    expect(withoutContext.facts).toContainEqual({ label: "Station type", value: "Ethereum Mole" });
+    expect(withoutContext.facts).toContainEqual({ label: "Rim cove", value: "ethereum-mole" });
     expect(withoutContext.members?.map((member) => member.inWorldDetailId)).toEqual([undefined, undefined]);
 
     const withContext = detailForDock(dock, {
@@ -1534,7 +1534,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
-      station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
+      station: { coveId: "ethereum-mole", type: "ethereum-mole", shoreBearing: 0 },
       tile: { x: 1, y: 1 },
       totalUsd: 100,
       size: 1,
@@ -1557,7 +1557,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       kind: "dock",
       label: "Solana",
       chainId: "solana",
-      station: { coveId: "watch-east-bay", type: "tea-house-quay", shoreBearing: Math.PI },
+      station: { coveId: "danger-gorge", type: "fishing-pier", shoreBearing: Math.PI },
       tile: { x: 2, y: 2 },
       totalUsd: 100,
       size: 1,
@@ -1590,7 +1590,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       kind: "dock",
       label: "Tron",
       chainId: "tron",
-      station: { coveId: "ledger-fog-hook", type: "gate-landing", shoreBearing: 0 },
+      station: { coveId: "warning-stone-notch", type: "stepped-inlet", shoreBearing: 0 },
       tile: { x: 3, y: 3 },
       totalUsd: 100,
       size: 1,
@@ -1681,7 +1681,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
-      station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
+      station: { coveId: "ethereum-mole", type: "ethereum-mole", shoreBearing: 0 },
       tile: { x: 1, y: 1 },
       totalUsd: 100,
       size: 1,
@@ -1740,7 +1740,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       kind: "dock",
       label: "Ethereum",
       chainId: "ethereum",
-      station: { coveId: "ethereum-precinct", type: "boathouse-precinct", shoreBearing: 0 },
+      station: { coveId: "ethereum-mole", type: "ethereum-mole", shoreBearing: 0 },
       tile: { x: 1, y: 1 },
       totalUsd: 100,
       size: 1,

@@ -225,11 +225,13 @@ export function LegendPanel({ onClose, onObserve, onSelectDetail, recentFleetTre
         <section aria-labelledby="pharosville-legend-harbors">
           <h3 id="pharosville-legend-harbors">Shore stations &amp; landmarks</h3>
           <p>
-            Rim-cove stations are blockchains; Ethereum&apos;s boathouse precinct
-            and the Base, Arbitrum and Polygon annex pavilions form one connected
-            place. A ship calling at a station means the coin has
-            real supply on that chain (it does not imply bridge volume or
-            transfers). The Pharos lighthouse glows with the fleet-wide Peg
+            Rim-cove stations are blockchains; Ethereum stands alone on the
+            west shore as a monumental stone mole — the harbor&apos;s
+            counterpart to the lighthouse — while Base, Arbitrum, Polygon
+            and every other chain keep self-standing harbors of their own
+            around the rim. A ship calling at a station means the coin has
+            real supply on that chain (it does not imply cross-chain volume
+            or transfers). The Pharos lighthouse glows with the fleet-wide Peg
             Stability Index. Its beam warmth tracks fleet-wide PSI; the colour
             of the water and sky a ship sails in is that area&apos;s own DEWS
             peg-risk reading — they are separate signals. Wreck Shoal remembers

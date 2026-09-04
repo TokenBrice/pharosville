@@ -352,3 +352,43 @@ describe("buildCargoTideStage", () => {
       .toEqual(build().docks.map((entry) => entry.cargoTide));
   });
 });
+
+describe("buildCargoTideStage scope chain-id boundary (L13)", () => {
+  it("tracks a canonical harbour under an aliased scope id instead of darkening its tide", () => {
+    // The docks carry the canonical ids the scaffold boundary normalized to;
+    // the mint-burn scope arrives in the payload's own raw upstream
+    // vocabulary. Before this join canonicalised, `hyperliquid-l1` marked the
+    // `hyperliquid` quay chain-not-in-scope and darkened its cargo tide — the
+    // one real bypass of the scaffold boundary.
+    const stage = buildCargoTideStage(
+      [dock("hyperliquid")],
+      [ship("usdc-circle", [["hyperliquid", 1]])],
+      payload([coin("usdc-circle", 8_000_000, 8_000_000, 0)], ["hyperliquid-l1"]),
+    );
+
+    expect(tideOf(stage.docks, "hyperliquid")).toMatchObject({
+      direction: "minting",
+      netFlowUsd: 8_000_000,
+      reason: "tracked",
+      tracked: true,
+    });
+  });
+
+  it("keeps an unrecognised scope id raw so an unlisted chain's quay stays measured", () => {
+    // Same rule, same fallback as the scaffold boundary: `resolveChainId`
+    // returns null outside CHAIN_META, and dropping such ids would silently
+    // narrow the payload's scope and untrack a harbour it did report on.
+    const stage = buildCargoTideStage(
+      [dock("unknown-issuance-chain")],
+      [ship("usdc-circle", [["unknown-issuance-chain", 1]])],
+      payload([coin("usdc-circle", -3_000_000, 1_000_000, 4_000_000)], ["unknown-issuance-chain"]),
+    );
+
+    expect(tideOf(stage.docks, "unknown-issuance-chain")).toMatchObject({
+      direction: "burning",
+      netFlowUsd: -3_000_000,
+      reason: "tracked",
+      tracked: true,
+    });
+  });
+});

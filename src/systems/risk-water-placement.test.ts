@@ -4,13 +4,37 @@ import {
   nearestRiskPlacementWaterTile,
   riskPlacementWaterTiles,
 } from "./risk-water-placement";
-import { terrainKindAt } from "./world-layout";
+import {
+  EVM_BAY_STATION_SLOTS,
+  OUTER_HARBOR_STATION_SLOTS,
+  PIGEONNIER_STATION_SLOT,
+  terrainKindAt,
+} from "./world-layout";
+import { distanceToStationFootprint, stationFootprintRect } from "./dock-layout";
+import { SHIP_RISK_PLACEMENTS } from "./risk-water-areas";
 import { PHAROSVILLE_MAP_SCALE, zoneWorldTile } from "./map-scale";
 
 // N1: zone water is AUTHORED in the original 56-tile design space and scaled
 // onto the 112-tile grid, so every tile literal below stays a design-space
 // coordinate and areas multiply by MAP_SCALE².
 const AREA_SCALE = PHAROSVILLE_MAP_SCALE ** 2;
+
+// R4: use the same cove-rooted oriented rectangle contract as every consumer.
+const STATION_FOOTPRINTS = [
+  EVM_BAY_STATION_SLOTS,
+  OUTER_HARBOR_STATION_SLOTS,
+  PIGEONNIER_STATION_SLOT,
+].flat().map((slot) => stationFootprintRect(
+  slot.type,
+  slot.cove.tile,
+  slot.cove.seawardBearing,
+  slot.cove.id,
+));
+
+// A risk marker occupies its whole tile, so a centre within half a tile of an
+// envelope still overlaps the structure (matches the module's rejection
+// margin).
+const RISK_MARKER_TILE_HALF = 0.5;
 
 describe("risk water placement", () => {
   it("resolves Ledger Mooring placements from the top-center shelf", () => {
@@ -41,4 +65,35 @@ describe("risk water placement", () => {
     const ledgerSouthEast = zoneWorldTile({ x: 25, y: 7 });
     expect(ledgerTiles.some((tile) => tile.x >= ledgerSouthEast.x && tile.y >= ledgerSouthEast.y)).toBe(true);
   });
+
+  it("keeps every risk tile off the nine enlarged station footprints", () => {
+    for (const placement of SHIP_RISK_PLACEMENTS) {
+      for (const tile of riskPlacementWaterTiles(placement)) {
+        for (const station of STATION_FOOTPRINTS) {
+          expect(
+            distanceToStationFootprint(tile, station),
+            `${placement} tile (${tile.x},${tile.y}) vs ${station.id}`,
+          ).toBeGreaterThan(RISK_MARKER_TILE_HALF);
+        }
+      }
+    }
+  });
+
+  it("rejects harbor mouth tiles that were valid risk water before the station keep-out", () => {
+    // L11, measured before R4: the ethereum-mole mouth (15,95) and the
+    // calm-engawa-south mouth (60,130) were themselves valid safe-harbor
+    // placement water — calm-water, clear of every garden obstacle — so risk
+    // tiles could be scattered straight onto the quays. Both mouths are roots
+    // of their station envelopes, so removing the footprint term makes these
+    // predicates true again and the exhaustive check above fails with these
+    // very tiles.
+    expect(isRiskPlacementWaterTile({ x: 15, y: 95 }, "safe-harbor")).toBe(false);
+    expect(isRiskPlacementWaterTile({ x: 60, y: 130 }, "safe-harbor")).toBe(false);
+  });
+  it("does not shift the real envelope seaward from its cove origin", () => {
+    // This safe-harbor tile lies in the empty seaward tail of the old
+    // cove-to-cove+length box. The measured ledger bounds end before it.
+    expect(isRiskPlacementWaterTile({ x: 15, y: 52 }, "safe-harbor")).toBe(true);
+  });
 });
+

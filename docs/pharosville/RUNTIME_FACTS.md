@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.10.0` (`inhabitedRim`)
-- Latest changelog entry: `2026-09-03-the-inhabited-rim` / `v0.10.0` / 2026-09-03 / The Inhabited Rim
+- Latest app version: `v0.11.0` (`theEthereumMole`)
+- Latest changelog entry: `2026-09-04-the-ethereum-mole` / `v0.11.0` / 2026-09-04 / The Ethereum Mole
 
 ## Viewport Gate
 
@@ -120,7 +120,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 ## Dock Rules
 
 - Standard chain harbor cap: `8`
-- Preferred chain IDs: `x`, `cove`, `id`, `body`, `tile`, `seawardBearing`, `width`, `type`
+- Preferred chain IDs: `ethereum`, `base`, `tron`, `solana`, `hyperliquid`, `polygon`, `bsc`, `arbitrum`, `ton`
 - Suppressed rendered harbor IDs: `optimism`
 - Detached dispatch wharf chain IDs: `ton`
 

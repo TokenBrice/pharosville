@@ -61,10 +61,11 @@ export const LIGHTHOUSE_TILE = landWorld({ x: 18, y: 28 });
  */
 export const ISLAND_PERIPHERY_TILE_DISTANCE = 4;
 
-/** Ethereum L2 chain IDs that share the EVM bay docks (excludes the L1 itself). */
-export const ETHEREUM_L2_DOCK_CHAIN_IDS = ["base", "arbitrum", "polygon"] as const;
-/** Chain IDs that get priority placement around the Ethereum harbor (L1 + L2s). */
-export const ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS = ["ethereum", ...ETHEREUM_L2_DOCK_CHAIN_IDS] as const;
+/** The one chain whose berth is hard-reserved: Ethereum stands alone as the
+ * west-shore monument. Reserving the whole EVM family was the original
+ * cluster driver — four reserved slots on one 21-tile stretch — so the L2s
+ * now earn harbours by supply like every other chain. */
+export const ETHEREUM_HARBOR_PRIORITY_CHAIN_IDS = ["ethereum"] as const;
 
 type StationType = DockNode["station"]["type"];
 export interface DockStationSlot {
@@ -78,71 +79,54 @@ function cove(id: string): RimCove {
   return match;
 }
 
-/** The connected Ethereum precinct occupies a 21-tile stretch of the deep lower-left lobe, spread across three shore columns with unequal mouth intervals. */
+/** The Mole occupies the EVM bay's single reserved mouth — the broad west-shore
+ * promontory at (15,95), standing alone where the four-slot precinct clustered. */
 export const EVM_BAY_STATION_SLOTS: readonly DockStationSlot[] = [
-  { cove: cove("ethereum-precinct"), type: "boathouse-precinct" },
-  { cove: cove("base-annex"), type: "annex-pavilion" },
-  { cove: cove("arbitrum-annex"), type: "annex-pavilion" },
-  // The fourth authored annex mouth was named before Polygon was selected for
-  // the precinct. Cove IDs are geographic identities and remain stable.
-  { cove: cove("optimism-annex"), type: "annex-pavilion" },
+  { cove: cove("ethereum-mole"), type: "ethereum-mole" },
 ] as const;
 
 /**
- * Distinct station forms on body-specific coves outside the EVM precinct.
+ * Distinct station forms on body-specific coves around the rest of the rim.
  *
- * Slot order is the fill order for non-preferred chains, so the first four
- * slots are the ones a typical top-eight binds. Round three (2026-09-03)
- * demoted both west mouths below the fill line — the precinct already owns
- * the western shore, and the ledger body only touches it at (9,54), so a
- * bound ledger berth parked another station directly behind the annexes —
- * and keeps TWO southern mouths on the fill line (the VISUAL_INVARIANTS
- * contract: at least two rendered stations at y >= 112). The fill four read
- * south (reed boathouse), east (gorge fishing pier), south (salvage cut),
- * north (stepped inlet); the tea-house quay and signal jetty stay
- * fifth-or-later fills so the north arc never exceeds its two-station
- * budget, and the gate landing and storm mole bind only for feeds deep
- * enough to reach past five outer harbours.
+ * Slot order is the fill order for chains without a preferred berth, and the
+ * first four slots are the fill line a gate pins: all sit east of x = 30 —
+ * the far-west ledger mouth stays last so a fill-bound berth never parks on
+ * the narrow western shore — and at least two are southern (the
+ * VISUAL_INVARIANTS contract: at least two rendered stations at y >= 112).
+ * The fill four read south (reed boathouse), east (gorge fishing pier),
+ * south (engawa tea-house quay), east (watch-bay market hall); the storm
+ * mole, stepped inlet and hatago wharf bind only for feeds deep enough to
+ * reach past four outer harbours.
  */
 export const OUTER_HARBOR_STATION_SLOTS: readonly DockStationSlot[] = [
   { cove: cove("watch-south-reed"), type: "reed-boathouse" },
   { cove: cove("danger-gorge"), type: "fishing-pier" },
-  { cove: cove("wreck-salvage-cut"), type: "salvage-slip" },
+  { cove: cove("calm-engawa-south"), type: "tea-house-quay" },
+  { cove: cove("watch-east-bay"), type: "uogashi" },
+  { cove: cove("wreck-shoal-east"), type: "storm-mole" },
   { cove: cove("warning-stone-notch"), type: "stepped-inlet" },
-  { cove: cove("watch-east-bay"), type: "tea-house-quay" },
-  { cove: cove("ledger-fog-hook"), type: "gate-landing" },
-  { cove: cove("alert-signal-jetty"), type: "signal-jetty" },
-  { cove: cove("wreck-west-ledge"), type: "storm-mole" },
+  { cove: cove("ledger-fog-hook"), type: "hatago-wharf" },
 ] as const;
 
-export const BASE_HARBOR_DOCK_TILE = EVM_BAY_STATION_SLOTS[1]!.cove.tile;
 export const EVM_BAY_DOCK_TILES = EVM_BAY_STATION_SLOTS.map((slot) => slot.cove.tile);
 export const OUTER_HARBOR_DOCK_TILES = OUTER_HARBOR_STATION_SLOTS.map((slot) => slot.cove.tile);
-/** Solana's preferred berth: the camera-near south-rim reed boathouse. */
-export const SOLANA_HARBOR_DOCK_TILE = OUTER_HARBOR_STATION_SLOTS[0]!.cove.tile;
-/** Hyperliquid's preferred berth: the gorge fishing pier on the east shore. */
-export const HYPERLIQUID_HARBOR_DOCK_TILE = OUTER_HARBOR_STATION_SLOTS[1]!.cove.tile;
 
+/** The place owns the architecture; the chain brings its flag and its
+ * supply-scaled mass. Eight named chains hold explicit berths so the normal
+ * top-eight binds deterministically; any chain without a preferred berth —
+ * `aptos` and `avalanche` deliberately hold none, since both once pointed at
+ * the same fill slot — falls through to the outer fill order, takes the
+ * freed mouth and inherits that place's form. Only the flag changes.
+ */
 export const PREFERRED_DOCK_STATIONS: Record<string, DockStationSlot> = {
-  ethereum: EVM_BAY_STATION_SLOTS[0]!,
-  base: EVM_BAY_STATION_SLOTS[1]!,
-  arbitrum: EVM_BAY_STATION_SLOTS[2]!,
-  polygon: EVM_BAY_STATION_SLOTS[3]!,
-  // Round three re-bound the usual outer chains so every preferred berth
-  // still flies an archetype LEGACY_STATION_BY_CHAIN
-  // (src/three/garden-docks.ts) names for a top-tier chain, no berth sits
-  // west of the precinct, and the dense fixture's rendered quartet carries
-  // two southern mouths: Tron keeps the stepped inlet (north), BSC the
-  // tea-house quay (east shore, demoted below the fill line but still BSC's
-  // preferred berth), and Solana trades piers with Hyperliquid — Solana
-  // takes the reed boathouse on the south rim so a feed without Hyperliquid
-  // still renders it, Hyperliquid the gorge fishing pier.
-  bsc: OUTER_HARBOR_STATION_SLOTS[4]!,
-  tron: OUTER_HARBOR_STATION_SLOTS[3]!,
-  solana: OUTER_HARBOR_STATION_SLOTS[0]!,
-  hyperliquid: OUTER_HARBOR_STATION_SLOTS[1]!,
-  aptos: OUTER_HARBOR_STATION_SLOTS[2]!,
-  avalanche: OUTER_HARBOR_STATION_SLOTS[2]!,
+  ethereum: EVM_BAY_STATION_SLOTS[0]!, // the Mole, west promontory
+  base: OUTER_HARBOR_STATION_SLOTS[6]!, // hatago wharf, ledger fog hook (west)
+  tron: OUTER_HARBOR_STATION_SLOTS[5]!, // stepped inlet, warning shelf (north)
+  solana: OUTER_HARBOR_STATION_SLOTS[1]!, // fishing pier, danger gorge (east)
+  hyperliquid: OUTER_HARBOR_STATION_SLOTS[3]!, // market hall, watch east bay (east)
+  polygon: OUTER_HARBOR_STATION_SLOTS[0]!, // reed boathouse, south rim
+  bsc: OUTER_HARBOR_STATION_SLOTS[2]!, // tea-house quay, south engawa
+  arbitrum: OUTER_HARBOR_STATION_SLOTS[4]!, // storm mole, wreck shoal (south-west)
 };
 
 /** Compatibility lookup for scenery/tests that only need the station's water tile. */

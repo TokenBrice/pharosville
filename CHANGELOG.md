@@ -2,6 +2,20 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.11.0 - 2026-09-04 - The Ethereum Mole
+
+Ethereum leaves the west-shore cluster to stand alone as a monumental stone
+mole — the harbor's counterpart to the lighthouse — while the other chains
+spread into a ring of nine distinct harbors around the whole rim.
+
+Collected from commits `3c1890d` through `2b3ba3a` after v0.10.0 — the epic harbor redistribution, monument, and authoring-fidelity waves.
+
+- Rebuilt Ethereum as a monument instead of a bigger shed: a low civic hall under a deep hipped roof, an offset open belfry rising past every other roofline, and two unequal breakwater arms enclosing a still basin of water you enter through an angled gap. It is deliberately the lighthouse's opposite — measured masonry and a carved-out void where the Pharos is a natural promontory with a pale crown and fire.
+- Spread the chain harbors from a four-station west-shore cluster into eight mouths around the rim, so the largest stretch of station-free shore falls from 111° to 49°, no three harbors crowd one neighborhood, and nothing else stands within thirty tiles of Ethereum. The precinct, its annex pavilions, the bridges that joined them and the station torii are gone; Base, Arbitrum and Polygon now keep self-standing harbors of their own.
+- Gave every harbor a form you can name at a glance — a lantern-rowed travellers' inn, a market hall under a great hanging steelyard, a stepped stone inlet, a tea house's moon window, a thatched reed dome, a storm-mole lantern tower, a pigeon cote on its islet — each with its own chain accent, and a roof palette now governed by the same colour contract as the rest of the world.
+- Rebuilt the buildings themselves: recessed bays, real shadow-casting reveals, chamfered hero edges, waterline foundations that join the shore, and windows that vary in number rather than brightness. Station density rises roughly fourfold while the night stays exactly as quiet — the lighthouse remains the one dominant light, and the Mole's belfry carries no glow at all.
+- Fixed things the old cluster had been hiding: ships could report moored while rendering up to fifty-five tiles short of the berth, sail straight through a breakwater, or moor nowhere at all when the data feed spelled a chain's name differently; quieter shipping routes never took their turn in the lane rotation; and scenery could grow through a building because clearance was measured against the cove mouth rather than the harbor standing on it.
+
 ## v0.10.0 - 2026-09-03 - The Inhabited Rim
 
 The harbor ring finishes its circuit: stations spread around the whole rim

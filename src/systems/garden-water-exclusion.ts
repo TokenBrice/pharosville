@@ -1,13 +1,19 @@
 import {
   CEMETERY_CENTER,
-  DOCK_TILES,
+  EVM_BAY_STATION_SLOTS,
   MAX_TILE_X,
   MAX_TILE_Y,
-  PIGEONNIER_HARBOR_DOCK_TILE,
+  OUTER_HARBOR_STATION_SLOTS,
+  PIGEONNIER_STATION_SLOT,
   PIGEON_ISLAND_CENTER,
   PIGEON_ISLAND_RADIUS,
   terrainLandAt,
 } from "./world-layout";
+import {
+  STATION_LOCAL_BOUNDS,
+  stationClearanceTiles,
+  type StationFootprintRect,
+} from "./dock-layout";
 import { stableFnv1aHash } from "./stable-random";
 import { landWorldTile } from "./map-scale";
 import type { GardenHullSilhouette } from "./garden-observatory-slice";
@@ -98,19 +104,103 @@ export const GARDEN_PIGEONNIER_OBSTACLE: GardenCircle = {
   r: PIGEON_ISLAND_RADIUS.x + 0.9,
 } as const;
 
+// TILE_TO_WORLD duplicates garden-util's TILE_SCALE (√2) so this module stays
+// three-free.
+const TILE_TO_WORLD = Math.SQRT2;
+// A static obstacle table has no live DockNode supply or size. Saturate the
+// authored ladder and use its largest size so a later-grown station is never
+// given an optimistic water exclusion.
+const MAX_DOCK_OBSTACLE_SUPPLY_USD = Number.POSITIVE_INFINITY;
+const MAX_DOCK_OBSTACLE_SIZE = 10;
+
 /**
  * Dock/pier structures a free-moored ship must clear (zone representatives
- * only — docked ships intentionally moor beside these). Circles cover the
- * pier deck and its moored-workings apron; the keeper's rowboat and the
- * beacon-tower base sit inside the island obstacle already. Dock aprons take
- * only HALF the ship's hull margin (unlike solid landmasses, which take the
- * full half-length): piers are low, narrow decks a tangentially-moored hull
- * reads clear of, and a full-length apron around every wharf would make the
- * harbor ring un moorable for titans.
+ * only — docked ships intentionally moor beside these). Ordinary station
+ * circles cover the complete authored precinct and its moored-workings apron;
+ * the keeper's rowboat and beacon-tower base sit inside the island obstacle
+ * already. Dock aprons take only HALF the ship's hull margin (unlike solid
+ * landmasses, which take the full half-length): piers are low, narrow decks a
+ * tangentially-moored hull reads clear of, and a full-length apron around
+ * every wharf would make the harbor ring unmoorable for titans.
+ *
+ * The Mole cannot use a precinct circle: its arms enclose an 18 × 14 world-unit
+ * navigable basin. Three cove-rooted oriented rectangles instead follow its
+ * solid composition — the landward apron/hall and one rectangle per arm,
+ * including each squared hammerhead. This preserves the basin and entrance
+ * while rotating the masonry with the authored cove bearing.
  */
-const GARDEN_DOCK_OBSTACLES: readonly GardenCircle[] = [
-  ...DOCK_TILES.map((tile) => ({ x: tile.x, y: tile.y, r: 2.2 })),
-  { x: PIGEONNIER_HARBOR_DOCK_TILE.x, y: PIGEONNIER_HARBOR_DOCK_TILE.y, r: 2.2 },
+const moleSlot = EVM_BAY_STATION_SLOTS.find((slot) => slot.type === "ethereum-mole")!;
+const moleBounds = STATION_LOCAL_BOUNDS["ethereum-mole"];
+const moleRect = (
+  id: string,
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number,
+): StationFootprintRect => ({
+  id,
+  origin: moleSlot.cove.tile,
+  minAlong: minX / TILE_TO_WORLD,
+  maxAlong: maxX / TILE_TO_WORLD,
+  minAcross: minZ / TILE_TO_WORLD,
+  maxAcross: maxZ / TILE_TO_WORLD,
+  seawardX: Math.cos(moleSlot.cove.seawardBearing),
+  seawardY: Math.sin(moleSlot.cove.seawardBearing),
+});
+
+/**
+ * The Mole's three keep-outs come from `STATION_LOCAL_BOUNDS` components, not
+ * from literals here. The arms are the one place where drifted geometry would
+ * silently reopen a navigable path through solid masonry, so their bounds live
+ * in the authority table alongside the outer envelope and are covered by the
+ * same drift guard. The basin between the arms is deliberately NOT excluded:
+ * it is water ships are meant to enter through the angled entrance.
+ *
+ * The components are REQUIRED, not optional. Falling back to an empty list
+ * would make every piece of Mole masonry navigable — the exact regression this
+ * table exists to prevent — so a missing entry throws at module load rather
+ * than quietly opening the breakwater.
+ */
+const moleComponents = moleBounds.components;
+if (!moleComponents?.length) {
+  throw new Error(
+    "STATION_LOCAL_BOUNDS['ethereum-mole'].components is missing: without the "
+    + "apron/hall and arm bounds, ships would sail through the Mole's masonry.",
+  );
+}
+
+export const GARDEN_MOLE_OBSTACLES: readonly StationFootprintRect[] = moleComponents.map(
+  (component) => moleRect(
+    component.id,
+    component.minX,
+    component.maxX,
+    component.minZ,
+    component.maxZ,
+  ),
+);
+
+/** The eight ordinary stations remain one circumscribing circle each. */
+export const GARDEN_DOCK_OBSTACLES: readonly GardenCircle[] = [
+  ...[...EVM_BAY_STATION_SLOTS, ...OUTER_HARBOR_STATION_SLOTS]
+    .filter((slot) => slot.type !== "ethereum-mole")
+    .map((slot) => ({
+      x: slot.cove.tile.x,
+      y: slot.cove.tile.y,
+      r: stationClearanceTiles(
+        slot.type,
+        MAX_DOCK_OBSTACLE_SUPPLY_USD,
+        MAX_DOCK_OBSTACLE_SIZE,
+      ),
+    })),
+  {
+    x: PIGEONNIER_STATION_SLOT.cove.tile.x,
+    y: PIGEONNIER_STATION_SLOT.cove.tile.y,
+    r: stationClearanceTiles(
+      PIGEONNIER_STATION_SLOT.type,
+      MAX_DOCK_OBSTACLE_SUPPLY_USD,
+      MAX_DOCK_OBSTACLE_SIZE,
+    ),
+  },
 ] as const;
 const DOCK_MARGIN_SHARE = 0.5;
 
@@ -137,9 +227,6 @@ const GARDEN_HULL_MAX_X_REACH_WORLD: Record<GardenHullSilhouette, number> = {
   junk: 3.64,
   scow: 2.78,
 };
-// TILE_TO_WORLD duplicates garden-util's TILE_SCALE (√2) so this module stays
-// three-free.
-const TILE_TO_WORLD = Math.SQRT2;
 // Bob/sway and Chaikin path-smoothing allowance on top of the hull plan.
 const SWAY_ALLOWANCE_TILES = 0.4;
 
@@ -176,6 +263,21 @@ function circleValue(point: { x: number; y: number }, circle: GardenCircle, marg
 function circleValueXY(x: number, y: number, circle: GardenCircle, margin: number): number {
   const r = circle.r + margin;
   return ((x - circle.x) / r) ** 2 + ((y - circle.y) / r) ** 2;
+}
+
+
+function stationRectDistanceXY(
+  x: number,
+  y: number,
+  station: StationFootprintRect,
+): number {
+  const dx = x - station.origin.x;
+  const dy = y - station.origin.y;
+  const along = dx * station.seawardX + dy * station.seawardY;
+  const across = -dx * station.seawardY + dy * station.seawardX;
+  const outsideAlong = Math.max(station.minAlong - along, along - station.maxAlong, 0);
+  const outsideAcross = Math.max(station.minAcross - across, across - station.maxAcross, 0);
+  return Math.hypot(outsideAlong, outsideAcross);
 }
 
 /**
@@ -279,6 +381,9 @@ export function isGardenShipWaterSlow(
     for (const dock of GARDEN_DOCK_OBSTACLES) {
       if (circleValue(point, dock, dockMargin) < 1) return false;
     }
+    for (const mole of GARDEN_MOLE_OBSTACLES) {
+      if (stationRectDistanceXY(point.x, point.y, mole) <= dockMargin) return false;
+    }
   }
   return true;
 }
@@ -339,6 +444,12 @@ function getGardenWaterSafetyDistanceField(): GardenWaterSafetyDistanceField {
       let dockClearance = Number.POSITIVE_INFINITY;
       for (const dock of GARDEN_DOCK_OBSTACLES) {
         dockClearance = Math.min(dockClearance, circleClearance(dock));
+      }
+      for (const mole of GARDEN_MOLE_OBSTACLES) {
+        dockClearance = Math.min(
+          dockClearance,
+          stationRectDistanceXY(centerX, centerY, mole) - cellRadius,
+        );
       }
       const index = y * width + x;
       solid[index] = solidClearance;

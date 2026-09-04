@@ -1,10 +1,14 @@
+import { distanceToStationFootprint, stationFootprintRect } from "./dock-layout";
 import { SEA_REGION_ID, seaRegionAtTile } from "./garden-sea-regions";
 import { RIM_COVES, rimDepthAt, rimLandAt } from "./garden-rim";
 import { SHIP_WATER_ANCHORS } from "./risk-water-areas";
 import type { SeaBodyId, SeaBodyName } from "./sea-bodies";
 import {
+  EVM_BAY_STATION_SLOTS,
+  OUTER_HARBOR_STATION_SLOTS,
   PHAROSVILLE_MAP_HEIGHT,
   PHAROSVILLE_MAP_WIDTH,
+  PIGEONNIER_STATION_SLOT,
   isWaterTileKind,
   terrainKindAt,
 } from "./world-layout";
@@ -46,6 +50,7 @@ export interface GardenSeaEdgeSite {
   readonly id: string;
   readonly length: number;
   readonly material: GardenSeaEdgeMaterial;
+  readonly surface: "rim-land" | "water";
   readonly tile: { readonly x: number; readonly y: number };
   readonly width: number;
 }
@@ -151,9 +156,10 @@ const GUIDES: readonly EdgeGuide[] = [
   { body: "warning", form: "shoal-bar", guide: { x: 119, y: 27 }, height: 0.6, id: "warning-bar-middle", length: 6.4, material: "pale", target: "alert", width: 1.8 },
   { body: "warning", form: "shoal-bar", guide: { x: 121, y: 35 }, height: 0.42, id: "warning-bar-outer", length: 5.0, material: "pale", target: "danger", width: 2.2 },
 
-  // Danger Strait: one dark wall on the rim immediately below the authored
-  // Danger opening. Its guide resolves outside, never inside, the open arc.
-  { body: "danger", form: "cliff", guide: { x: 137, y: 57 }, height: 5.2, id: "danger-rim-cliff", length: 5.4, material: "dark", surface: "rim-land", target: "rim", width: 1.2 },
+  // The fishing-pier's measured landward hall now occupies the former rim
+  // anchor at (137,57). Keep the dark gorge wall on the adjacent Danger/Watch
+  // seam instead of layering scenery through the station.
+  { body: "danger", form: "cliff", guide: { x: 121, y: 50 }, height: 5.2, id: "danger-rim-cliff", length: 5.4, material: "dark", target: "watch", width: 1.2 },
 
   // Ledger Mooring: a right-angled slate lip and an orderly run of piles.
   { body: "ledger", form: "slate-edge", guide: { x: 71, y: 13 }, height: 0.85, id: "ledger-slate-west", length: 4.2, material: "slate", target: "open", width: 1.4 },
@@ -177,6 +183,27 @@ const CARDINAL_NEIGHBOURS = [
 ] as const;
 
 const MOORINGS = Object.values(SHIP_WATER_ANCHORS).flat();
+
+/**
+ * R4 keep-outs for the nine rendered stations. Each uses the complete measured
+ * recipe envelope, rotated by the cove's authored seaward bearing and rooted
+ * at its tile, so scenery clears the landward hall and apron rather than an
+ * invented seaward-centred box. Sites are authored without a live feed, and
+ * the measured maximum-recipe bounds are therefore the conservative contract.
+ */
+const STATION_FOOTPRINT_RECTS = Object.freeze(
+  [
+    ...EVM_BAY_STATION_SLOTS,
+    ...OUTER_HARBOR_STATION_SLOTS,
+    PIGEONNIER_STATION_SLOT,
+  ].map((slot) => stationFootprintRect(
+    slot.type,
+    slot.cove.tile,
+    slot.cove.seawardBearing,
+    slot.cove.id,
+  )),
+);
+
 
 function regionId(body: SeaBodyName): number {
   return SEA_REGION_ID[body];
@@ -245,6 +272,9 @@ function candidateIsClear(x: number, y: number, radius: number): boolean {
   if (MOORINGS.some((mooring) => (
     Math.hypot(x - mooring.x, y - mooring.y) < radius + GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES
   ))) return false;
+  if (STATION_FOOTPRINT_RECTS.some((station) => (
+    distanceToStationFootprint({ x, y }, station) < radius
+  ))) return false;
   return RIM_COVES.every((cove) => (
     Math.hypot(x - cove.tile.x, y - cove.tile.y)
       >= radius + GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES
@@ -308,6 +338,7 @@ function resolveGuide(
     length: guide.length * scale,
     material: guide.material,
     tile: Object.freeze(best),
+    surface: guide.surface ?? "water",
     width: guide.width * scale,
   });
 }
@@ -327,12 +358,12 @@ export const GARDEN_SEA_EDGE_SITES: readonly GardenSeaEdgeSite[] = Object.freeze
  * Danger cliff is already rim land and must not narrow the strait a second time.
  */
 export const GARDEN_EDGE_STONE_OBSTACLES: readonly GardenSeaEdgeObstacle[] = Object.freeze(
-  GARDEN_SEA_EDGE_SITES.filter((site) => site.form !== "cliff")
+  GARDEN_SEA_EDGE_SITES.filter((site) => site.surface === "water")
     .map((site) => Object.freeze({
-    body: site.body,
-    id: site.id,
-    r: site.footprintRadius,
-    x: site.tile.x,
-    y: site.tile.y,
-  })),
+      body: site.body,
+      id: site.id,
+      r: site.footprintRadius,
+      x: site.tile.x,
+      y: site.tile.y,
+    })),
 );

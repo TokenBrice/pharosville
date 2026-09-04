@@ -33,9 +33,9 @@ import type {
 // now enforced by region-scoped placement density, not by a small count.
 export const GARDEN_OVERVIEW_SHIP_LIMIT = 320;
 /**
- * Longest authored island-to-station reach, rounded up in world tiles. With
- * harbors on the rim coves this is the single leg allowance: a voyage may run
- * from any berth to any station.
+ * Maximum ordinary open-water sailing reach in display tiles. This is a
+ * presentation cap for representative hulls, not a motion-planning limit:
+ * berth-bound samples bypass it so the model's mooring tile remains visible.
  */
 export const GARDEN_STATION_LEG_TILES = 96;
 export const GARDEN_MAX_MOTION_TILES = GARDEN_STATION_LEG_TILES;
@@ -271,6 +271,15 @@ export function resolveGardenShipDisplayTile(input: {
 }): ScreenPoint {
   const { displayOffset, representative, sample, ship } = input;
   const tile = sample?.tile ?? ship.tile;
+  // L1 (2026-09-04): use one state-derived gate for both presentation rules.
+  // A moored hull, or one on the arrival/departure leg at its berth, must
+  // reach the model's authoritative mooring even when that leg exceeds the
+  // ordinary sailing cap. The same gate below lets those hulls overlap the
+  // dock apron; keeping the state list in one place prevents the cap and water
+  // field from disagreeing about berth commitment.
+  const berthBound = sample?.state === "moored"
+    || sample?.state === "arriving"
+    || sample?.state === "departing";
   let display: ScreenPoint;
   if (!representative) {
     display = tile;
@@ -279,14 +288,16 @@ export function resolveGardenShipDisplayTile(input: {
     const motionY = tile.y - ship.tile.y;
     const motionDistance = Math.hypot(motionX, motionY);
     // N3: the composed display tile is the blue-noise berth plus the ship's
-    // own motion, capped so a ship never wanders into a neighbour's water.
+    // own motion. Ordinary open-water sailing is capped so a patrol never
+    // wanders into a neighbour's water; berth-bound samples use the full leg
+    // to reach their authoritative mooring.
     //
     // The cap was 2.5 tiles, set when the map was 56 wide and berths were
     // ~10 tiles apart — it silently flattened any patrol larger than itself.
     // With the world at 112 tiles and ~58 eligible tiles per ship there is
     // room for a real circuit, so the cap rises to match the largest patrol
     // amplitude (danger, 4.4 tiles) with headroom for the transit legs.
-    const motionScale = motionDistance > GARDEN_MAX_MOTION_TILES
+    const motionScale = !berthBound && motionDistance > GARDEN_MAX_MOTION_TILES
       ? GARDEN_MAX_MOTION_TILES / motionDistance
       : 1;
     // The blue-noise offset belongs to the HOME berth only. Data motion runs
@@ -312,9 +323,7 @@ export function resolveGardenShipDisplayTile(input: {
     gardenShipVisualScale(ship.visual.scale || 1),
     GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
   );
-  const includeDocks = sample?.state !== "moored"
-    && sample?.state !== "arriving"
-    && sample?.state !== "departing";
+  const includeDocks = !berthBound;
   return resolveCachedShipWaterTile(
     gardenShipDisplayTileCache,
     ship,

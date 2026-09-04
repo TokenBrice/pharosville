@@ -12,15 +12,11 @@ import {
   CEMETERY_CENTER,
   CEMETERY_RADIUS,
   DOCK_TILES,
-  BASE_HARBOR_DOCK_TILE,
-  EVM_BAY_DOCK_TILES,
   EVM_BAY_STATION_SLOTS,
-  HYPERLIQUID_HARBOR_DOCK_TILE,
   graveNodesFromEntries,
   isNavigableWaterTile,
   isWaterTileKind,
   LIGHTHOUSE_TILE,
-  OUTER_HARBOR_DOCK_TILES,
   OUTER_HARBOR_STATION_SLOTS,
   PHAROSVILLE_MAP_HEIGHT,
   PHAROSVILLE_MAP_WIDTH,
@@ -277,14 +273,11 @@ describe("buildPharosVilleMap", () => {
   });
 
   it("keeps station slots at authored cove mouths with land behind and water ahead", () => {
-    expect(DOCK_TILES).toHaveLength(12);
-    expect(new Set(DOCK_TILES.map((tile) => `${tile.x}.${tile.y}`)).size).toBe(12);
-    expect(EVM_BAY_DOCK_TILES[1]).toEqual(BASE_HARBOR_DOCK_TILE);
-    // Round-three fill-order rework: Hyperliquid's preferred berth is the
-    // gorge fishing pier on the east shore (fill slot 1); Solana took the
-    // camera-near south reed boathouse so the dense feed keeps two southern
-    // stations.
-    expect(OUTER_HARBOR_DOCK_TILES[1]).toEqual(HYPERLIQUID_HARBOR_DOCK_TILE);
+    // 12 -> 8 (2026-09-04 ring rework): the four-mouth EVM precinct became
+    // the single ethereum mole and the freed slots rebuilt the south and
+    // east rim, so the ring is now exactly as large as the harbor cap.
+    expect(DOCK_TILES).toHaveLength(8);
+    expect(new Set(DOCK_TILES.map((tile) => `${tile.x}.${tile.y}`)).size).toBe(8);
     expect(DOCK_TILES.every((tile) => isWaterTileKind(tileKindAt(tile.x, tile.y)))).toBe(true);
     for (const slot of [...EVM_BAY_STATION_SLOTS, ...OUTER_HARBOR_STATION_SLOTS]) {
       const outward = dockSeawardVector({ station: { shoreBearing: slot.cove.seawardBearing } });
@@ -298,11 +291,24 @@ describe("buildPharosVilleMap", () => {
 
   it("distributes cove stations across bodies and outside both rim openings", () => {
     expect(new Set(RIM_COVES.map((cove) => cove.body)).size).toBeGreaterThanOrEqual(6);
-    // 13 -> 12 (2026-09-03 spread rework): alert-pine-notch and
-    // watch-south-mole were retired (three north mouths broke the two-station
-    // north budget; the mole crowded the pigeonnier berth) and the freed slot
-    // became wreck-west-ledge, so every authored mouth is now bindable.
-    expect(RIM_COVES).toHaveLength(12);
+    // 12 -> 8 (2026-09-04 ring rework): the EVM precinct collapsed into the
+    // single ethereum mole, alert-signal-jetty / watch-terrace-quay /
+    // wreck-salvage-cut / wreck-west-ledge were retired, and two new south
+    // mouths keep the camera-near arc inhabited. The ring is exactly as
+    // large as the eight-harbor cap, so every authored mouth is bindable by
+    // a full feed — this id set is the real guard against a retired mouth
+    // surviving in a registry or fixture.
+    expect(RIM_COVES).toHaveLength(8);
+    expect(RIM_COVES.map((cove) => cove.id).toSorted()).toEqual([
+      "calm-engawa-south",
+      "danger-gorge",
+      "ethereum-mole",
+      "ledger-fog-hook",
+      "watch-east-bay",
+      "watch-south-reed",
+      "warning-stone-notch",
+      "wreck-shoal-east",
+    ].toSorted());
     for (const cove of RIM_COVES) {
       const bearing = Math.atan2(
         cove.tile.y - (PHAROSVILLE_MAP_HEIGHT - 1) / 2,

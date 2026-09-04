@@ -193,10 +193,11 @@ function stationSlotForChain(chainId: string, occupiedCoves: Set<string>): DockS
   const pooled = firstOpenSlot(primaryPool, occupiedCoves);
   if (pooled) return pooled;
 
-  // Precinct forms are semantic, not overflow capacity: only Ethereum and its
-  // named annex chains may occupy them. The outer pool has eight distinct
-  // cove/type pairs, so even an all-generic top eight never needs to borrow an
-  // Ethereum boathouse or L2 annex identity.
+  // The Mole's berth is semantic, not overflow capacity: only Ethereum may
+  // occupy the reserved EVM-bay mouth. The outer pool has seven distinct
+  // cove/type pairs, so a top eight that includes Ethereum fills every outer
+  // mouth and only a selection without it — unreachable in production, since
+  // Ethereum is the one chain still hard-reserved — ever runs dry.
   return null;
 }
 

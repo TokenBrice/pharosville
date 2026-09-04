@@ -1,6 +1,6 @@
 # PharosVille Visual and Analytical Contracts
 
-Last updated: 2026-09-03
+Last updated: 2026-09-04
 
 These are product contracts, not a design diary. Change one only with explicit
 intent, code/tests, and a matching update to the relevant route documentation.
@@ -50,32 +50,44 @@ intent, code/tests, and a matching update to the relevant route documentation.
   eighty-five stickers. Sailing in restores full brand identity exactly as
   decision F1 specified. Restraint must never be baked into the cloth colour
   itself, which would remove identity at every distance with no way back.
-- Harbors are shore stations sited in their body's named rim coves, and the
-  station ring is spread around that rim rather than massed on the far
-  shore: at most two rendered stations sit at or north of tile y=30, at
-  least two hold the camera-near southern arc at y>=112, both horizontal
-  extremes of the rim are inhabited, and outside the Ethereum precinct no
-  three stations sit within 30 tiles of one another. Those numbers are the
-  contract `src/systems/chain-docks.test.ts` enforces for any feed; the
-  failure mode they prevent is a far-shore row of silhouettes across empty
-  foreground water. Every station keeps a landward, distance-readable
+- Harbors are shore stations sited in their body's named rim coves —
+  eight authored coves for the eight chain harbors — and the station ring
+  is spread around that rim rather than massed on the far shore. On any
+  feed carrying at least eight eligible chains including Ethereum — the
+  production case — at most two rendered stations sit at or north of tile
+  y=30, at least two hold the camera-near southern arc at y>=112, both
+  horizontal extremes of the rim are inhabited, and all four rim arcs are
+  occupied. Two rules hold on EVERY feed, however sparse: no three stations
+  sit within 30 tiles of one another, and every rendered dock sits on a
+  valid assigned mouth wearing that mouth's archetype. The arc and extreme
+  requirements are deliberately scoped, because a feed of fewer than four
+  eligible chains cannot inhabit four arcs and one without Ethereum cannot
+  fill the Mole at all — the mole slot is EVM-pool-only. Those numbers are
+  the contract `src/systems/chain-docks.test.ts` enforces; the failure mode
+  they prevent is a far-shore row of silhouettes across empty foreground
+  water. On a dense feed the rendered harbor count stays eight chain harbors
+  plus the TON pigeonnier — TON itself renders only when its supply is
+  non-zero, and a sparse feed renders fewer — so no density amendment
+  accompanies the smaller
+  mouth inventory. Every station keeps a landward, distance-readable
   primary roof at least twice an ordinary hull's length, a contrasting
   clay/slate/thatch/timber palette, and a uniquely named upper silhouette
   that clears nearby sails — second-level silhouettes now span roughly
-  7.2–12.4 world units with the Ethereum campanile the tallest, and the
+  7.2–12.1 world units for chain stations, the Ethereum Mole excepted at
+  a 21.5 local cap (≤21.7 above water), and the
   chain flag stays at exactly 1.6 times its former scale. Every roof is an
   articulated structure rather than a single unbroken plane: a ridge beam
   and cap, an eave fascia, a gable or gablet end, eave brackets, and a
   surface break (pent skirt or stepped course), with each archetype
   carrying one named signature element. A raised stone quay keeps one warm
-  lit edge, windows glow at dusk/night, and Ethereum's hall and true
-  campanile (shaft, open belfry, bell, and cap) read with its L2 belvederes
-  as one precinct through thick railed, covered bridges; the vermilion
-  double-lintel torii and every other upper archetype remain nameable from
-  the default camera, while TON keeps its detached pigeonnier islet. The
-  enlarged architecture, quay edge, windows, and bridge rails carry no new
-  analytical meaning beyond the existing station identity and harbor
-  reading.
+  lit edge, windows glow at dusk/night, and the Ethereum Mole stands alone
+  as the ring's civic monument; L2 stations are self-standing distant
+  harbors; every upper archetype remains nameable from the default camera,
+  while TON keeps its detached pigeonnier islet. The station landing torii
+  is retired; the world keeps its separate decorative torii on the garden
+  islets, rendered from its own geometry. The enlarged architecture, quay
+  edge, and windows carry no new analytical meaning beyond the existing
+  station identity and harbor reading.
 - The finite plate is water-led and garden-framed: the irregular rim covers
   roughly 55–65% of the perimeter, has exactly two open-sea openings, and is
   6–14 tiles deep away from those openings. The two camera-near plate
@@ -87,7 +99,8 @@ intent, code/tests, and a matching update to the relevant route documentation.
   openings stay open water. The skirt is renderer-side only: it never
   reclassifies a tile, and it changes no navigation, placement, or
   berthing. Shore stations sit in coves, not around the island waterline;
-  the Ethereum precinct has a shared path and bridge-connected annexes.
+  the Ethereum Mole stands alone as the ring's civic monument; L2
+  stations are self-standing distant harbors.
 - The TON pigeonnier is spatially distinct. The dead/frozen fleet is a quiet
   sea wreckyard, not an island and never a live-ship destination.
 - DOM labels must be legible and must not cover the lighthouse, controls, or
@@ -99,7 +112,7 @@ intent, code/tests, and a matching update to the relevant route documentation.
 | --- | --- | --- |
 | Lighthouse | PSI score/band | DOM record and beacon state |
 | Ship | stablecoin identity, scale, class, risk | branded sail/livery plus DOM record |
-| Harbor | chain supply and concentration | hull-dominant landward roof, contrasting archetype palette, sail-clearing named upper silhouette, 1.6× chain flag, DOM record; raised lit quay/window embers are decorative and carry no meaning |
+| Harbor | chain supply and concentration | hull-dominant landward roof, supply-driven roof mass, contrasting archetype palette with per-chain accent, sail-clearing named upper silhouette, 1.6× chain flag, DOM record; raised lit quay/window embers are decorative and carry no meaning, and the Mole's basin, tide courses, and capstones likewise carry no analytical meaning |
 | Water body | existing risk/ledger category | water character, boundary/buoy, DOM label |
 | Wreck | lifecycle status | model/cause color plus DOM record |
 

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { Color, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh } from "three";
+import { Color, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, type Group } from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authorDock, type StationType } from "./garden-docks";
 import { createGardenHarborBatch, HARBOR_WINDOW_EMBER_INTENSITY } from "./garden-harbor-batch";
@@ -8,15 +8,36 @@ import { countDrawableObjects } from "./garden-util";
 import { dockFixture, DISPLAY_TILES, ISLAND_TILE } from "./__fixtures__/harbor";
 
 const CHAINS = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
+// The nine-dock set pairs each chain with its slot archetype (aptos stands
+// in for the pigeonnier so the ninth berth's form is batched too); the
+// all-archetype set flies one flag per surviving station type.
 const BATCH_STATION_TYPES: readonly StationType[] = [
-  "boathouse-precinct", "annex-pavilion", "annex-pavilion", "annex-pavilion",
-  "gate-landing", "tea-house-quay", "fishing-pier", "stepped-inlet", "reed-boathouse",
+  "ethereum-mole", "hatago-wharf", "storm-mole", "reed-boathouse",
+  "tea-house-quay", "stepped-inlet", "fishing-pier", "uogashi", "pigeonnier-islet",
 ];
 const ALL_STATION_TYPES: readonly StationType[] = [
-  "boathouse-precinct", "annex-pavilion", "gate-landing", "tea-house-quay",
-  "fishing-pier", "stepped-inlet", "reed-boathouse", "storm-mole",
-  "salvage-slip", "signal-jetty", "pigeonnier-islet",
+  "ethereum-mole", "hatago-wharf", "uogashi", "stepped-inlet", "fishing-pier",
+  "tea-house-quay", "reed-boathouse", "storm-mole", "pigeonnier-islet",
 ];
+
+const EXPECTED_HARBOR_DRAWABLE_NAMES = [
+  "dock-chain-flag",
+  "dock-lamp-heads",
+  "dock-posts",
+  "harbor-accent",
+  "harbor-fine-bollard",
+  "harbor-fine-metal",
+  "harbor-fine-plank",
+  "harbor-metal",
+  "harbor-netRack",
+  "harbor-piling",
+  "harbor-reedClump",
+  "harbor-roof",
+  "harbor-stone",
+  "harbor-timber",
+  "harbor-wall",
+  "station-lit-screens",
+] as const;
 
 beforeEach(() => {
   resetGardenChainFlagAtlas();
@@ -58,42 +79,24 @@ function batchOfAllStationTypes() {
 }
 
 describe("createGardenHarborBatch", () => {
-  it("keeps every bucket shared so the complete 11-type harbor ring stays within 20 draws", () => {
+  it("pins the complete 9-type harbor ring to its 16 shared drawables", () => {
     const batch = batchOfNine();
+    const drawableNames = namedDrawables(batch.root);
+    expect(drawableNames).toEqual(EXPECTED_HARBOR_DRAWABLE_NAMES);
+    expect(drawableNames).toHaveLength(16);
+    expect(countDrawableObjects(batch.root)).toBe(16);
     expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(20);
     for (const dock of batch.docks) {
       expect(countDrawableObjects(dock.root)).toBe(0);
       expect(dock.root.name).toBe(`dock-anchor-${dock.recipe.dock.chainId}`);
     }
     const completeTypeBatch = batchOfAllStationTypes();
+    const completeTypeDrawableNames = namedDrawables(completeTypeBatch.root);
+    expect(completeTypeDrawableNames).toEqual(EXPECTED_HARBOR_DRAWABLE_NAMES);
+    expect(completeTypeDrawableNames).toHaveLength(16);
+    expect(countDrawableObjects(completeTypeBatch.root)).toBe(16);
     expect(countDrawableObjects(completeTypeBatch.root)).toBeLessThanOrEqual(20);
     completeTypeBatch.dispose();
-  });
-
-  it("merges three covered precinct bridges into the existing timber and roof draws", () => {
-    const recipes = CHAINS.map((id, index) => {
-      const tile = { x: 14, y: 74 + Math.min(index, 3) * 6 };
-      const node = {
-        ...dockFixture(id, 3 + (index % 7)),
-        station: { coveId: `cove.${id}`, shoreBearing: 0, type: BATCH_STATION_TYPES[index]! },
-        tile,
-      } as ReturnType<typeof dockFixture> & { station: { coveId: string; shoreBearing: number; type: StationType } };
-      return authorDock(node, tile, ISLAND_TILE);
-    });
-    const withoutBridges = recipes.reduce((sum, recipe) => (
-      sum + recipe.parts.filter((part) => part.bucket === "timber" || part.bucket === "roof").reduce(
-        (partSum, part) => partSum + part.geometry.getAttribute("position").count,
-        0,
-      )
-    ), 0);
-    const batch = createGardenHarborBatch(recipes);
-    const withBridges = [batch.bucketMeshes.timber, batch.bucketMeshes.roof].reduce(
-      (sum, mesh) => sum + (mesh?.geometry.getAttribute("position").count ?? 0),
-      0,
-    );
-    expect(withBridges).toBeGreaterThan(withoutBridges);
-    expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(20);
-    batch.dispose();
   });
 
   it("places every prop of every kind in one instanced mesh per kind", () => {
@@ -110,21 +113,45 @@ describe("createGardenHarborBatch", () => {
     }
   });
 
-  it("keeps authored roof contrast fixed when a dock's semantic accent changes", () => {
+  it("bakes each architectural accent into its own range and recolours only the selected station", () => {
     const batch = batchOfNine();
     const roof = batch.bucketMeshes.roof as Mesh;
-    const colors = roof.geometry.getAttribute("color");
-    const before = Array.from(colors.array);
+    const accent = batch.bucketMeshes.accent as Mesh;
+    const roofBefore = Array.from(roof.geometry.getAttribute("color").array);
+    const accentBefore = Array.from(accent.geometry.getAttribute("color").array);
+    let vertexStart = 0;
+    for (const dock of batch.docks) {
+      const part = dock.recipe.parts.find((candidate) => candidate.bucket === "accent")!;
+      const baked = accent.geometry.getAttribute("color");
+      const expected = part.color;
+      expect(baked.getX(vertexStart)).toBeCloseTo(expected.r, 6);
+      expect(baked.getY(vertexStart)).toBeCloseTo(expected.g, 6);
+      expect(baked.getZ(vertexStart)).toBeCloseTo(expected.b, 6);
+      vertexStart += part.geometry.getAttribute("position").count;
+    }
+    const targetIndex = CHAINS.indexOf("solana");
+    const targetStart = batch.docks.slice(0, targetIndex).reduce((sum, dock) => (
+      sum + dock.recipe.parts.find((part) => part.bucket === "accent")!.geometry.getAttribute("position").count * 3
+    ), 0);
+    const targetCount = batch.docks[targetIndex]!.recipe.parts
+      .find((part) => part.bucket === "accent")!.geometry.getAttribute("position").count * 3;
     batch.setDockAccent("solana", new Color("#ff0000"));
-    const after = Array.from(colors.array);
-    const changed = before.filter((value, index) => value !== after[index]).length;
-    expect(changed).toBe(0);
+    const roofAfter = Array.from(roof.geometry.getAttribute("color").array);
+    const accentAfter = Array.from(accent.geometry.getAttribute("color").array);
+    const changed = accentBefore.flatMap((value, index) => value === accentAfter[index] ? [] : [index]);
+    expect(roofBefore.filter((value, index) => value !== roofAfter[index])).toHaveLength(0);
+    expect(changed).toEqual(Array.from({ length: targetCount }, (_, index) => targetStart + index));
     expect(batch.docks.find((dock) => dock.recipe.dock.chainId === "solana")?.recipe.accentColor)
       .toEqual(new Color("#ff0000"));
   });
 
   it("toggles fine detail as a whole and keeps the quay height-fog contract on every bucket material", () => {
     const batch = batchOfNine();
+    for (const mesh of Object.values(batch.fineDetailBucketMeshes)) if (mesh) expect(mesh.visible).toBe(false);
+    for (const mesh of Object.values(batch.fineDetailPropMeshes)) if (mesh) expect(mesh.visible).toBe(false);
+    batch.setFineDetailVisible(true);
+    for (const mesh of Object.values(batch.fineDetailBucketMeshes)) if (mesh) expect(mesh.visible).toBe(true);
+    for (const mesh of Object.values(batch.fineDetailPropMeshes)) if (mesh) expect(mesh.visible).toBe(true);
     batch.setFineDetailVisible(false);
     for (const mesh of Object.values(batch.fineDetailBucketMeshes)) if (mesh) expect(mesh.visible).toBe(false);
     for (const mesh of Object.values(batch.fineDetailPropMeshes)) if (mesh) expect(mesh.visible).toBe(false);
@@ -148,13 +175,46 @@ describe("createGardenHarborBatch", () => {
     batch.dispose();
   });
 
+  it("holds per-station and whole-layer fidelity triangle ceilings", () => {
+    for (const type of ALL_STATION_TYPES) {
+      const batch = createGardenHarborBatch([
+        authorDock({
+          ...dockFixture(`budget-${type}`, 6),
+          station: { coveId: `budget-${type}`, shoreBearing: 0, type },
+        }, DISPLAY_TILES[0]!, ISLAND_TILE),
+      ]);
+      const coarse = [
+        ...Object.values(batch.bucketMeshes),
+        ...Object.values(batch.propMeshes),
+        batch.flags,
+      ].filter((mesh): mesh is Mesh | InstancedMesh => mesh !== null);
+      const fine = [
+        ...Object.values(batch.fineDetailBucketMeshes),
+        ...Object.values(batch.fineDetailPropMeshes),
+      ].filter((mesh): mesh is Mesh | InstancedMesh => mesh !== null);
+      expect(coarse.reduce((sum, mesh) => sum + triangleCount(mesh), 0), `${type} coarse`).toBeLessThanOrEqual(6_000);
+      expect(fine.reduce((sum, mesh) => sum + triangleCount(mesh), 0), `${type} fine`).toBeLessThanOrEqual(6_000);
+      batch.dispose();
+    }
+    const layer = batchOfAllStationTypes();
+    const layerTriangles = [
+      ...Object.values(layer.bucketMeshes),
+      ...Object.values(layer.propMeshes),
+      layer.flags,
+    ].filter((mesh): mesh is Mesh | InstancedMesh => mesh !== null)
+      .reduce((sum, mesh) => sum + triangleCount(mesh), 0);
+    expect(layerTriangles).toBeLessThanOrEqual(60_000);
+    expect(countDrawableObjects(layer.root)).toBeLessThanOrEqual(20);
+    layer.dispose();
+  });
+
   it("flies every station flag shape from one instanced cloth and turns one without turning the rest", () => {
     const batch = batchOfAllStationTypes();
     expect(batch.flags.count).toBe(ALL_STATION_TYPES.length);
     const matrix = new Matrix4();
     batch.flags.getMatrixAt(1, matrix);
     const beforeBase = matrix.clone();
-    batch.setFlagPose("flag-boathouse-precinct", 1.2, 0.08);
+    batch.setFlagPose("flag-ethereum-mole", 1.2, 0.08);
     batch.flags.getMatrixAt(1, matrix);
     expect(matrix.equals(beforeBase)).toBe(true);
     const shapes = batch.flags.geometry.getAttribute("aFlagShape");
@@ -216,6 +276,19 @@ describe("createGardenHarborBatch", () => {
     expect(atlasDisposal).not.toHaveBeenCalled();
   });
 });
+
+function namedDrawables(root: Group): string[] {
+  const names: string[] = [];
+  root.traverse((object) => {
+    if (object instanceof Mesh) names.push(object.name);
+  });
+  return names.sort();
+}
+
+function triangleCount(mesh: Mesh | InstancedMesh): number {
+  const triangles = (mesh.geometry.index?.count ?? mesh.geometry.getAttribute("position").count) / 3;
+  return triangles * (mesh instanceof InstancedMesh ? mesh.count : 1);
+}
 
 function fakeCanvasContext(): CanvasRenderingContext2D {
   return {

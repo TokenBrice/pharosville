@@ -71,6 +71,18 @@ export const HARBOR_PALETTE = {
   timber_dark: "#3a2a1e", // already kogecha's hue exactly (焦茶, H 57)
   timber_mid: "#674b34", // kogecha (焦茶)
   timber_warm: "#836c49", // rikyūcha (利休茶), grayed tea-brown
+  // Station roofs form one material ladder: storm slate and tea-house slate at
+  // the dark end, then slate kawara, clay, timber shake, weathered copper,
+  // dressed stone and cote clay, with thatch catching the most light.
+  roof_storm_slate: "#354750",
+  roof_tea_house_slate: "#40515b",
+  roof_slate_kawara: "#56606b",
+  roof_clay: "#a66147", // re-graded in chroma only to clear the quiet-field ceiling
+  roof_timber_shake: "#9c694c",
+  roof_weathered_copper: "#6f7a5e",
+  roof_dressed_stone: "#747a7c",
+  roof_cote_clay: "#ba7557", // re-graded in chroma only to clear the quiet-field ceiling
+  roof_thatch: "#c7ae72",
   ember: "#2a1a0e",
   lantern_warm: "#d49a3e", // yamabuki (山吹) — RESERVED, and hex-pinned
   lantern_glow: "#f7d68a",

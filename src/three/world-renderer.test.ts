@@ -2,6 +2,7 @@
 import {
   BoxGeometry,
   BufferGeometry,
+  DataTexture,
   Color,
   Group,
   InstancedMesh,
@@ -63,6 +64,10 @@ import { seaStateForWorld } from "../systems/sea-state";
 import { stableUnit } from "../systems/stable-random";
 import { gardenAlmanacEventForDate } from "../systems/garden-almanac";
 import { DAY_CYCLE_SKY_PRESETS, type DayCyclePhase } from "./garden-day-cycle";
+import {
+  GARDEN_ROUTE_PULSE_ROTATION_SECONDS,
+  MAX_GARDEN_LIGHT_LANES,
+} from "./garden-lanterns";
 import { gardenQuayEpistemicHazeUniform } from "./garden-height-fog";
 import {
   FLIGHT_TENDERS_MESH_NAME,
@@ -138,6 +143,70 @@ describe("station route pulse endpoints", () => {
     const rightCove = gardenStationRouteEndpoints({ x: 131, z: 80 }, Math.PI);
     expect(rightCove.station.x).toBeCloseTo(127);
     expect(rightCove.openWater.x).toBeCloseTo(101);
+  });
+
+  it("keeps all eight rim-mouth routes on the plate and rotates every one", () => {
+    const world = denseRendererWorld();
+    const routes = selectGardenDocks(world.docks)
+      .filter((dock) => Number.isFinite(dock.totalUsd) && dock.totalUsd > 0);
+    expect(routes).toHaveLength(8);
+
+    const endpointKey = (
+      openWater: { x: number; z: number },
+      station: { x: number; z: number },
+    ) => [
+      openWater.x,
+      openWater.z,
+      station.x,
+      station.z,
+    ].map((coordinate) => coordinate.toFixed(3)).join(",");
+    const expected = new Set(routes.map((dock) => {
+      const endpoints = gardenStationRouteEndpoints(
+        { x: dock.tile.x * Math.SQRT2, z: dock.tile.y * Math.SQRT2 },
+        dock.station.shoreBearing,
+      );
+      for (const endpoint of [endpoints.openWater, endpoints.station]) {
+        expect(
+          gardenWaterPlateContainsTile(
+            { x: endpoint.x / Math.SQRT2, y: endpoint.z / Math.SQRT2 },
+            world.map,
+          ),
+          `${dock.station.coveId} endpoint ${endpoint.x},${endpoint.z}`,
+        ).toBe(true);
+      }
+      return endpointKey(endpoints.openWater, endpoints.station);
+    }));
+
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    const observed = new Set<string>();
+    for (let window = 0; window < routes.length; window += 1) {
+      renderer.render(rendererFrame(world, "full", {
+        timeSeconds: window * GARDEN_ROUTE_PULSE_ROTATION_SECONDS,
+      }));
+      const water = rendererHarness.instances.at(-1)!.lastScene!
+        .getObjectByName("garden-water") as Mesh;
+      const uniforms = (water.material as ShaderMaterial).uniforms;
+      const laneCount = uniforms.uLaneCount!.value as number;
+      const laneTexture = uniforms.uLaneTexture!.value as DataTexture;
+      const data = laneTexture.image.data as Float32Array;
+      let routesThisWindow = 0;
+      for (let index = 0; index < laneCount; index += 1) {
+        const header = index * 4;
+        if (data[header + 3] !== 3) continue;
+        const route = (MAX_GARDEN_LIGHT_LANES * 2 + index) * 4;
+        observed.add(endpointKey(
+          { x: data[header]!, z: data[header + 1]! },
+          { x: data[route]!, z: data[route + 1]! },
+        ));
+        routesThisWindow += 1;
+      }
+      expect(routesThisWindow).toBeLessThanOrEqual(4);
+    }
+    expect(observed).toEqual(expected);
+    renderer.dispose();
   });
 });
 
@@ -417,6 +486,62 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
 
+  it("seats the calm mask on the Ethereum Mole basin and keeps every harbor ripple", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const harborDocks = selectGardenDocks(world.docks);
+    const mole = harborDocks.find((dock) => dock.station.type === "ethereum-mole")!;
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(world, "full"));
+    const water = rendererHarness.instances.at(-1)!.lastScene!
+      .getObjectByName("garden-water") as Mesh;
+    const uniforms = (water.material as ShaderMaterial).uniforms;
+    const ellipse = uniforms.uHarborEllipse!.value;
+    const moleX = mole.tile.x * Math.SQRT2;
+    const moleZ = mole.tile.y * Math.SQRT2;
+    expect(ellipse.x).toBeCloseTo(moleX + Math.cos(mole.station.shoreBearing) * 9);
+    expect(ellipse.y).toBeCloseTo(-moleZ - Math.sin(mole.station.shoreBearing) * 9);
+    expect(ellipse.z).toBeCloseTo(1 / 9);
+    expect(ellipse.w).toBeCloseTo(1 / 7);
+
+    const rippleCount = uniforms.uRippleCount!.value as number;
+    const ripples = (uniforms.uRipple!.value as Array<{ x: number; y: number; z: number }>)
+      .slice(0, rippleCount);
+    for (const dock of harborDocks) {
+      const dockX = dock.tile.x * Math.SQRT2;
+      const dockZ = dock.tile.y * Math.SQRT2;
+      expect(
+        ripples.some((ring) => (
+          Math.abs(ring.x - dockX) < 1e-6
+          && Math.abs(ring.y + dockZ) < 1e-6
+          && Math.abs(ring.z - 4.5) < 1e-6
+        )),
+        `${dock.station.type} pylon ripple`,
+      ).toBe(true);
+    }
+    renderer.dispose();
+  });
+
+  it("disables the basin mask when a sparse feed has no Ethereum Mole", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const withoutMole = {
+      ...world,
+      docks: world.docks.filter((dock) => dock.station.type !== "ethereum-mole"),
+    };
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(withoutMole, "full"));
+    const water = rendererHarness.instances.at(-1)!.lastScene!
+      .getObjectByName("garden-water") as Mesh;
+    const uniforms = (water.material as ShaderMaterial).uniforms;
+    expect(uniforms.uHarborCalm!.value).toBe(0);
+    renderer.dispose();
+  });
+
   it("allocates one hull and one sail batch for each of the six fleet families", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({
@@ -642,12 +767,12 @@ describe("Three world renderer lifecycle", () => {
     const contentRoot = scene.children.at(-1)!;
     const waterAccents = scene.children[4]!;
     const wakes = wakeGroups(contentRoot);
-    const districts = contentRoot.getObjectByName("garden-harbor-districts");
+    const harborBatch = contentRoot.getObjectByName("harbor-batch");
     const gullFlock = contentRoot.getObjectByName("garden-harbor-gull-flock");
 
     expect(webGlRenderer.setPixelRatio).toHaveBeenLastCalledWith(2);
     expect(waterAccents.visible).toBe(true);
-    expect(districts).toBeDefined();
+    expect(harborBatch).toBeDefined();
     expect(gullFlock).toBeDefined();
     expect(gullFlock?.visible).toBe(true);
     expect(wakes.length).toBeGreaterThan(0);

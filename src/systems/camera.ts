@@ -5,6 +5,7 @@ import {
   mapIsoBounds,
   minZoomForViewport,
   tileToIso,
+  TILE_WIDTH,
   zoomCameraAt,
 } from "./projection";
 import { MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX } from "./viewport-gate";
@@ -23,6 +24,8 @@ export interface CameraBoundsInput {
 export const GARDEN_DEFAULT_CAMERA_TIGHTEN = 1.02;
 export const GARDEN_DEFAULT_CAMERA_ZOOM = GARDEN_FIT_CAMERA_MIN_ZOOM
   * GARDEN_DEFAULT_CAMERA_TIGHTEN;
+const LANDING_PHAROS_TILE = { x: 60, y: 70 } as const;
+const LANDING_ETHEREUM_MOLE_TILE = { x: 15, y: 95 } as const;
 
 function cameraPadding(input?: CameraBoundsInput["padding"]) {
   return {
@@ -38,9 +41,10 @@ export function defaultCamera(input: {
   map: MapLike;
   width: number;
 }): IsoCamera {
+  const padding = cameraPadding();
   const fitted = fitCameraToMap({
     ...input,
-    padding: cameraPadding(),
+    padding,
   });
   // Standard desktops tighten the authored 0.60 plate composition by 2%. Compact-height laptop
   // windows use the actual fit so the lighthouse crown stays visible; once
@@ -67,12 +71,19 @@ export function defaultCamera(input: {
       fitted.zoom * tightenFactor,
     ),
   );
+  const pharosIso = tileToIso(LANDING_PHAROS_TILE);
+  const moleIso = tileToIso(LANDING_ETHEREUM_MOLE_TILE);
+  // Seat the Mole one half-tile inside the left water margin, then preserve
+  // the authored (15,95) -> (60,70) isometric interval to the Pharos. At the
+  // 900px floor the plate's existing right gutter wins if that interval would
+  // consume it: the lighthouse remains the primary anchor and the water to its
+  // right stays empty anchorage — ma, not missing content.
+  const pharosScreenX = TILE_WIDTH / 2
+    + (pharosIso.x - moleIso.x) * tightened.zoom;
+  const authoredOffsetX = pharosScreenX - pharosIso.x * tightened.zoom;
   const framed = {
     ...tightened,
-    // Bring the deep lower-left Ethereum precinct into the picture with the
-    // Pharos. The tower settles just left of centre, leaving the right-hand
-    // anchorage as ma while the shore capital is no longer clipped away.
-    offsetX: tightened.offsetX + input.width * 0.06,
+    offsetX: Math.min(authoredOffsetX, input.width - padding.right),
     // The lighthouse rises beyond the flat map bounds used by fitCameraToMap.
     // Give that vertical geometry explicit headroom at the short-side floor.
     offsetY: tightened.offsetY

@@ -107,7 +107,6 @@ import {
 import {
   createGardenFireflies,
   createGardenGullFlock,
-  createGardenHarborDistricts,
   type GardenFireflies,
   type GardenGullFlock,
 } from "./garden-harbor-life";
@@ -2976,18 +2975,16 @@ function disposeDepartingVisual(scene: GardenScene, visual: ShipVisual): void {
 }
 
 /**
- * C2 wiring for the harbor: registers karesansui ripple rings (W5) on the
- * composed docks' pylons and hands Lane W's shader the mirror-basin extents
- * (I2) as a calm mask centred on those docks. Only the two representative
- * docks get rings so the island/islet default rings and Lane S's ship-mooring
- * rings keep headroom under GARDEN_WATER_MAX_RIPPLE_RINGS.
+ * C2 wiring for the harbor: every composed dock gets a karesansui pylon
+ * ripple (W5), while the shader's one calm mask belongs only to the enclosed
+ * Ethereum Mole basin (I2). Distant ring mouths must never be joined by one
+ * lake-flattening ellipse.
  */
 function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void {
   const content = scene.content;
   if (!content) return;
   const harborDockIds = new Set(selectGardenDocks(world.docks).map((dock) => dock.detailId));
   const harborDocks = content.docks.filter((dock) => harborDockIds.has(dock.recipe.dock.detailId));
-  if (harborDocks.length === 0) return;
   for (const dock of harborDocks) {
     scene.water.rippleRings.setRing({
       id: `dock-pylon.${dock.recipe.dock.detailId}`,
@@ -2998,20 +2995,28 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
       strength: 0.18,
     });
   }
-  // One shader mask cannot cover distant shore stations without flattening the
-  // entire lake between them. Seat it just seaward of the largest represented
-  // station; every selected station still gets its own pylon ripple above.
-  const primary = harborDocks.toSorted((left, right) => (
-    right.recipe.dock.totalUsd - left.recipe.dock.totalUsd
-  ))[0]!;
-  const bearing = primary.recipe.station.shoreBearing;
+  const mole = harborDocks.find((dock) => dock.recipe.station.type === "ethereum-mole");
+  if (!mole) {
+    // A sparse feed has no civic basin. Explicitly clear a prior world frame's
+    // mask instead of moving it onto whichever unrelated harbor ranks first.
+    scene.water.setHarborCalmMask({
+      center: { x: 0, z: 0 },
+      radiusX: 9,
+      radiusZ: 7,
+      calmStrength: 0,
+    });
+    return;
+  }
+  const bearing = mole.recipe.station.shoreBearing;
+  // The basin is 18 × 14 world units and begins at the mouth: its centre sits
+  // one 9-unit radius seaward, clear of the landward civic hall.
   scene.water.setHarborCalmMask({
     center: {
-      x: primary.root.position.x + Math.cos(bearing) * 5,
-      z: primary.root.position.z + Math.sin(bearing) * 5,
+      x: mole.root.position.x + Math.cos(bearing) * 9,
+      z: mole.root.position.z + Math.sin(bearing) * 9,
     },
-    radiusX: 13,
-    radiusZ: 9,
+    radiusX: 9,
+    radiusZ: 7,
     calmStrength: 0.7,
   });
 }
@@ -3022,8 +3027,6 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
  * omnidirectional pools. Lane world positions mirror the geometry each module
  * builds. The registry caps them per tier; callers register all of them.
  */
-/** How many of the busiest harbours get a route pulse lane (Phase 4). */
-const GARDEN_ROUTE_PULSE_LANES = 4;
 
 export function gardenStationRouteEndpoints(
   stationRoot: { x: number; z: number },
@@ -3134,21 +3137,17 @@ function registerLightLanes(
       });
     }
   }
-  // Phase 4 (item 3): data-pulse lanes on the busiest trade routes. The top
-  // harbours by held value — the same traffic sizing the docks themselves
-  // wear — get one segment each, from open water into the quay, so route
-  // activity reads as glints flowing in off the sea. The pulse speed/phase
-  // are seeded from the lane id inside the registry (never Math.random); the
-  // lanes ride the same per-tier cap and day-cycle gate as every other lane.
-  const busiest = docks
+  // Data-pulse lanes on every rendered trade route. The lane registry admits
+  // only the per-tier simultaneous quota and rotates the rest, so registration
+  // must not pre-truncate the set or quieter harbours never get a turn.
+  const routes = docks
     .filter((dock) => Number.isFinite(dock.recipe.dock.totalUsd) && dock.recipe.dock.totalUsd > 0)
     .toSorted((left, right) => (
       right.recipe.dock.totalUsd - left.recipe.dock.totalUsd
       || left.recipe.dock.id.localeCompare(right.recipe.dock.id)
-    ))
-    .slice(0, GARDEN_ROUTE_PULSE_LANES);
-  const busiestUsd = busiest[0]?.recipe.dock.totalUsd ?? 1;
-  for (const dock of busiest) {
+    ));
+  const busiestUsd = routes[0]?.recipe.dock.totalUsd ?? 1;
+  for (const dock of routes) {
     const endpoints = gardenStationRouteEndpoints(
       dock.root.position,
       dock.recipe.station.shoreBearing,
@@ -3190,7 +3189,7 @@ const SHADOW_CASTER_EXCLUDED_NAMES = new Set([
  *
  * Casting is keyed on MeshStandardMaterial because that is what "a real lit
  * surface" means in this world — the flat MeshBasicMaterial discs (island
- * shoal, harbour district pads, zone tints) are transparent paint on the water
+ * shoal, zone tints) are transparent paint on the water
  * and would stamp hard-edged silhouettes if they were ever allowed in.
  *
  * `castsShadows` lets a caller keep a subtree as a receiver only. That is what
@@ -3401,7 +3400,7 @@ function buildSeaEdgesPart(content: GardenContent): void {
   content.seaEdges = seaEdges;
 }
 
-/** Shore stations, the Ethereum/L2 precinct bridges, and approach lanterns. */
+/** The nine shore stations and their approach lanterns. */
 function buildDocksPart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.docks;
   const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
@@ -3434,20 +3433,16 @@ function buildDocksPart(content: GardenContent, world: PharosVilleWorld): void {
 }
 
 /**
- * The light instanced life around the harbour — district pads, the gull
- * flock, fireflies. Keyed on the FULL dock family (including `change24hPct`,
- * which drives quay tempo), so the routine supply tick rebuilds this cheap
- * part and never the masonry it decorates.
+ * The light instanced life around the harbour — the gull flock, fireflies.
+ * Keyed on the FULL dock family (including `change24hPct`, which drives quay
+ * tempo), so the routine supply tick rebuilds this cheap part and never the
+ * masonry it decorates.
  */
 function buildHarborLifePart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.harborLife;
   const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
-  const harborDistricts = createGardenHarborDistricts(
-    world.docks,
-    world.lighthouse.tile,
-  );
-  // The flock works the quays as well as the island, so it needs the same dock
-  // list the harbour districts got — that is what carries harbour tempo.
+  // The flock works the quays as well as the island — the dock list is what
+  // carries harbour tempo.
   const gullFlock = createGardenGullFlock(world.lighthouse.tile, {
     docks: world.docks,
   });
@@ -3455,7 +3450,7 @@ function buildHarborLifePart(content: GardenContent, world: PharosVilleWorld): v
     gardenIslandLanternWorldOffsets(),
     islandTile,
   );
-  part.root.add(harborDistricts.root, gullFlock.root, fireflies.root);
+  part.root.add(gullFlock.root, fireflies.root);
 
   content.fireflies = fireflies;
   content.gullFlock = gullFlock;

@@ -16,11 +16,17 @@ import {
   Vector3,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { distanceToStationFootprint, stationFootprintRect } from "../systems/dock-layout";
 import {
   RIM_COVES,
   rimLandAt,
   rimShoreDistance,
 } from "../systems/garden-rim";
+import {
+  EVM_BAY_STATION_SLOTS,
+  OUTER_HARBOR_STATION_SLOTS,
+  PIGEONNIER_STATION_SLOT,
+} from "../systems/world-layout";
 import { PHAROSVILLE_DESIGN_SPAN, PHAROSVILLE_MAP_SCALE } from "../systems/map-scale";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { GARDEN_PLATE_MARGIN_TILES } from "../systems/projection";
@@ -30,7 +36,9 @@ import { TILE_SCALE, disposeThreeObjectTree, stableUnit } from "./garden-util";
 const MAP_SIZE = PHAROSVILLE_DESIGN_SPAN * PHAROSVILLE_MAP_SCALE;
 const MAP_LAST = MAP_SIZE - 1;
 const WATERLINE_Y = -0.11;
-const SAMPLE_STEP = 0.5;
+// Reviewed half-tile contour cadence, tightened enough to retain the authored
+// irregular shoreline after rectangular station reservations restore detail.
+const SAMPLE_STEP = 0.44475;
 /** How far past tile 139 the decorative camera-side land skirt reaches. */
 const CAMERA_SIDE_SKIRT_REACH_TILES = 4.5;
 /** Cut-off steepness past the reach; beats the deepest boundary shore
@@ -40,6 +48,22 @@ const CAMERA_SIDE_SKIRT_CUT_SLOPE = 6.5;
 const CAMERA_SIDE_SKIRT_PINE_KEEP = 0.1;
 /** Skirt pines trail to none by this many tiles past the boundary. */
 const CAMERA_SIDE_SKIRT_PINE_FADE_TILES = 6;
+// Rim dressing is authored without a live feed. Reserve each complete
+// maximum-recipe envelope at its cove-root origin, rotated into the authored
+// seaward bearing.
+const RIM_STATION_CLEARANCES = [
+  ...EVM_BAY_STATION_SLOTS,
+  ...OUTER_HARBOR_STATION_SLOTS,
+  PIGEONNIER_STATION_SLOT,
+].map((slot) => ({
+  cove: slot.cove,
+  rect: stationFootprintRect(
+    slot.type,
+    slot.cove.tile,
+    slot.cove.seawardBearing,
+    slot.cove.id,
+  ),
+}));
 // Decorative garden frame only: rim form, planting, stones, and the stroll
 // ribbon carry no market or risk meaning.
 
@@ -245,20 +269,20 @@ function bell(value: number, centre: number, radius: number): number {
   return t * t;
 }
 
-function coveMouthClearance(tileX: number, tileY: number): number {
-  return RIM_COVES.reduce((closest, cove) => Math.min(
+function stationMouthClearance(tileX: number, tileY: number): number {
+  return RIM_STATION_CLEARANCES.reduce((closest, station) => Math.min(
     closest,
-    Math.hypot(tileX - cove.tile.x, tileY - cove.tile.y) - cove.width * 0.5,
+    distanceToStationFootprint({ x: tileX, y: tileY }, station.rect),
   ), Number.POSITIVE_INFINITY);
 }
 
 /**
  * Three camera-side bays cut only INTO the authoritative rim silhouette; no
- * decorative land is projected into navigable water. Cove reservations get a
- * six-tile shoulder, so their mouths remain visually and physically open.
+ * decorative land is projected into navigable water. Station envelopes get a
+ * six-tile shoulder, so widened buildings do not acquire a bay through them.
  */
-function cameraSideBayExcursion(tileX: number, tileY: number): number {
-  if (coveMouthClearance(tileX, tileY) < 6) return 0;
+export function gardenRimBayExcursionAt(tileX: number, tileY: number): number {
+  if (stationMouthClearance(tileX, tileY) < 6) return 0;
   const south = Math.max(
     bell(tileX, 29, 13) * GARDEN_NEAR_RIM_BAY_DEPTHS[0],
     bell(tileX, 68, 11) * GARDEN_NEAR_RIM_BAY_DEPTHS[1],
@@ -292,7 +316,7 @@ function cameraSideSkirtExcursion(tileX: number, tileY: number): number {
 function authoredDistance(tileX: number, tileY: number): number {
   return rimShoreDistance(tileX, tileY)
     + shoreJitter(tileX, tileY)
-    + cameraSideBayExcursion(tileX, tileY)
+    + gardenRimBayExcursionAt(tileX, tileY)
     + cameraSideSkirtExcursion(tileX, tileY);
 }
 
@@ -514,9 +538,9 @@ function createPineGeometry(): BufferGeometry {
   return mergeGeometries(pieces, false)!;
 }
 
-function clearOfCove(tileX: number, tileY: number, extra = 2): boolean {
-  return RIM_COVES.every((cove) => (
-    Math.hypot(tileX - cove.tile.x, tileY - cove.tile.y) > cove.width * 0.5 + extra
+function clearOfStation(tileX: number, tileY: number, extra = 0): boolean {
+  return RIM_STATION_CLEARANCES.every((station) => (
+    distanceToStationFootprint({ x: tileX, y: tileY }, station.rect) > extra
   ));
 }
 
@@ -533,7 +557,7 @@ function pineTiles(): PineSpec[] {
   const candidates: PineSpec[] = [];
   for (let y = 3; y < MAP_LAST - 2; y += 3) {
     for (let x = 3; x < MAP_LAST - 2; x += 3) {
-      if (!rimLandAt(x, y) || authoredDistance(x, y) > -2.2 || !clearOfCove(x, y, 3)) continue;
+      if (!rimLandAt(x, y) || authoredDistance(x, y) > -2.2 || !clearOfStation(x, y, 3)) continue;
       if (HEADLANDS.some((headland) => Math.hypot(x - headland.x, y - headland.y) < 4.5)) continue;
       // The engawa is one silhouette, not another grove: its hero tree
       // explicitly displaces every ordinary pine in this near-corner pocket.
@@ -578,7 +602,7 @@ function pineTiles(): PineSpec[] {
       // in-bounds pass above and keep their authored odds.
       if (beyond === 0) continue;
       if (!isSubtileLand(x, y) || authoredDistance(x, y) > -2.2) continue;
-      if (!clearOfCove(x, y, 3)) continue;
+      if (!clearOfStation(x, y, 3)) continue;
       // The engawa hero keeps its pocket; no ordinary pine crowds it.
       if (Math.hypot(x - 86, y - 134) < 11) continue;
       const keep = CAMERA_SIDE_SKIRT_PINE_KEEP
@@ -641,8 +665,11 @@ const HEADLANDS = [
  * Deterministic skirt boulders: a few of the same dodecahedron stones
  * continuing the headland vocabulary across the camera-side apron. Anchors
  * skip the Danger Strait stretch of the east boundary (open sea in the
- * authored field, so no skirt land); the land test drops any anchor that
- * lands on skirt water, keeping the stones sparse and shore-hugging.
+ * authored field, so no skirt land); the land and station tests drop any
+ * generated anchor that lands on skirt water or a berth envelope. The five
+ * HEADLANDS above are the coast's fukinsei punctuation, not scatter candidates;
+ * their triads are deliberately retained and independently guarded by the
+ * footprint test rather than silently smoothing a future coast.
  */
 function skirtStoneTiles(): Array<{ x: number; y: number }> {
   const anchors = [
@@ -662,6 +689,7 @@ function skirtStoneTiles(): Array<{ x: number; y: number }> {
     const x = anchor.axis === "south" ? along : out;
     const y = anchor.axis === "south" ? out : along;
     if (!isSubtileLand(x, y) || authoredDistance(x, y) > -0.7) continue;
+    if (!clearOfStation(x, y)) continue;
     spots.push({ x, y });
   }
   return spots;
@@ -672,7 +700,7 @@ function createStones(): InstancedMesh {
     { scale: [1.05, 0.28, 0.82] as const, x: 82.4, y: 131.4, yaw: -0.18 },
     { scale: [0.86, 0.22, 1.08] as const, x: 81.7, y: 129.0, yaw: 0.31 },
     { scale: [1.12, 0.25, 0.72] as const, x: 82.6, y: 126.6, yaw: -0.42 },
-  ];
+  ].filter((stone) => clearOfStation(stone.x, stone.y));
   const skirtStones = skirtStoneTiles();
   const count = HEADLANDS.length * 3 + steppingStones.length + skirtStones.length;
   const mesh = new InstancedMesh(
@@ -770,41 +798,40 @@ function buildPathGeometry(): { coveSpurs: number; geometry: BufferGeometry; seg
     const a = points[index - 1]!;
     const b = points[index]!;
     if (!rimLandAt(a.x, a.y) || !rimLandAt(b.x, b.y)) continue;
-    if (!clearOfCove(a.x, a.y, 2.5) || !clearOfCove(b.x, b.y, 2.5)) continue;
+    if (!clearOfStation(a.x, a.y, 2.5) || !clearOfStation(b.x, b.y, 2.5)) continue;
     if (Math.hypot(a.x - b.x, a.y - b.y) > 3) continue;
     if (addPathRibbon(builder, a, b)) segments += 1;
   }
   let coveSpurs = 0;
-  for (const cove of RIM_COVES) {
-    const landward = {
-      x: cove.tile.x - Math.cos(cove.seawardBearing) * 1.6,
-      y: cove.tile.y - Math.sin(cove.seawardBearing) * 1.6,
-    };
-    const perimeter = cove.tile.x < 24
-      ? { x: 3, y: landward.y }
-      : cove.tile.x > MAP_LAST - 24
-        ? { x: MAP_LAST - 3, y: landward.y }
-        : cove.tile.y < 24
-          ? { x: landward.x, y: 3 }
-          : { x: landward.x, y: MAP_LAST - 3 };
-    const steps = Math.max(1, Math.ceil(Math.hypot(
-      landward.x - perimeter.x,
-      landward.y - perimeter.y,
-    ) / 1.5));
-    for (let step = 1; step <= steps; step += 1) {
-      const t0 = (step - 1) / steps;
-      const t1 = step / steps;
-      const a = {
-        x: perimeter.x + (landward.x - perimeter.x) * t0,
-        y: perimeter.y + (landward.y - perimeter.y) * t0,
-      };
-      const b = {
-        x: perimeter.x + (landward.x - perimeter.x) * t1,
-        y: perimeter.y + (landward.y - perimeter.y) * t1,
-      };
-      if (addPathRibbon(builder, a, b)) {
+  for (const station of RIM_STATION_CLEARANCES) {
+    const { cove } = station;
+    if (!RIM_COVES.includes(cove)) continue;
+    // Route one approach along a rectangle flank. Search landward from the
+    // water-rooted cove for the first land point beyond an across-shore edge;
+    // the whole straight ribbon then stays outside the measured envelope.
+    const seawardX = Math.cos(cove.seawardBearing);
+    const seawardY = Math.sin(cove.seawardBearing);
+    const tangentX = -seawardY;
+    const tangentY = seawardX;
+    coveSearch:
+    for (const across of [station.rect.maxAcross + 1, station.rect.minAcross - 1]) {
+      for (let along = 0; along >= station.rect.minAlong - 1; along -= 1) {
+        const approach = {
+          x: cove.tile.x + seawardX * along + tangentX * across,
+          y: cove.tile.y + seawardY * along + tangentY * across,
+        };
+        if (!rimLandAt(approach.x, approach.y)) continue;
+        const landwardX = -seawardX;
+        const landwardY = -seawardY;
+        const perimeter = Math.abs(landwardX) >= Math.abs(landwardY)
+          ? { x: landwardX < 0 ? 3 : MAP_LAST - 3, y: approach.y }
+          : { x: approach.x, y: landwardY < 0 ? 3 : MAP_LAST - 3 };
+        if (!clearOfStation(perimeter.x, perimeter.y, 0.75)
+          || !clearOfStation(approach.x, approach.y, 0.75)
+          || !addPathRibbon(builder, perimeter, approach)) continue;
         segments += 1;
         coveSpurs += 1;
+        break coveSearch;
       }
     }
   }

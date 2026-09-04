@@ -12,11 +12,19 @@ import {
   Matrix4,
   MeshStandardMaterial,
   Object3D,
+  PlaneGeometry,
   SphereGeometry,
   TorusGeometry,
   Vector3,
 } from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import {
+  stationFootprint,
+  stationScaleFor,
+  type StationFootprint,
+  type StationScale,
+  type StationType,
+} from "../systems/dock-layout";
 import { GARDEN_DOCK_ROOT_Y, GARDEN_WATER_Y as WATER_LEVEL } from "../systems/garden-observatory-slice";
 import { quayMasonryHealth } from "../systems/dock-health";
 import { HARBOR_PALETTE } from "../systems/palette";
@@ -24,71 +32,51 @@ import type { DockNode } from "../systems/world-types";
 import { assignGardenChainFlagCell } from "./garden-chain-flag";
 import { applyGardenHeightFog } from "./garden-height-fog";
 import { setTilePosition, stableUnit } from "./garden-util";
-import type { GardenHarborCalmMask } from "./garden-water-contract";
+export type { StationType } from "../systems/dock-layout";
 
 const scratchMatrix = new Matrix4();
 const scratchScale = new Vector3();
 
-export type StationType =
-  | "boathouse-precinct"
-  | "annex-pavilion"
-  | "gate-landing"
-  | "tea-house-quay"
-  | "fishing-pier"
-  | "stepped-inlet"
-  | "reed-boathouse"
-  | "storm-mole"
-  | "salvage-slip"
-  | "signal-jetty"
-  | "pigeonnier-islet";
 export type StationSignature =
-  | "moon-viewing-deck"
-  | "open-pavilion"
-  | "gate-frame"
+  | "enclosed-basin"
+  | "guest-lantern-row"
+  | "steelyard"
   | "engawa"
   | "net-racks"
   | "top-lanterns"
   | "reed-clump"
   | "lantern-tower"
-  | "hauled-hull-frame"
-  | "signal-mast"
   | "pigeonnier";
 export type StationRoofline =
   | "deep-hip"
-  | "pavilion-hip"
-  | "lintel-cap"
+  | "hatago-stacked"
+  | "market-monopitch"
   | "tea-hip"
   | "lean-to"
   | "stepped-canopy"
   | "thatch-gable"
   | "mole-tower-cap"
-  | "slipway-shed"
-  | "signal-butterfly"
   | "pigeonnier-cone";
 export type StationFlagShape =
   | "swallowtail"
-  | "notched"
-  | "pennant"
+  | "nobori"
+  | "twin-tail"
   | "chamfered"
   | "forked"
   | "stepped"
   | "tapered"
   | "storm-split"
-  | "dovetail"
-  | "long-pennant"
   | "square";
 
 export type StationSecondLevel =
   | "bell-tower"
-  | "open-belvedere"
-  | "torii-gate"
+  | "inn-gallery"
+  | "scale-beam"
   | "moon-window-loft"
   | "net-drying-rack"
   | "lantern-crown"
   | "thatched-dome"
   | "lantern-tower"
-  | "hauled-hull-frame"
-  | "signal-mast"
   | "pigeonnier-cote";
 
 export interface HarborIdentity {
@@ -115,41 +103,37 @@ export interface HarborFeatureDimensions {
 export interface HarborStationFeatures {
   primaryMass: HarborFeatureDimensions;
   secondLevel: HarborFeatureDimensions & { name: StationSecondLevel };
-  quayPlatform: HarborFeatureDimensions & { litEdge: boolean };
+  quayPlatform: HarborFeatureDimensions & { litEdge: boolean; litEdgeCount: number };
   warmWindowCount: number;
 }
 
 const STATION_TYPES: readonly StationType[] = [
-  "boathouse-precinct", "annex-pavilion", "gate-landing", "tea-house-quay",
-  "fishing-pier", "stepped-inlet", "reed-boathouse", "storm-mole",
-  "salvage-slip", "signal-jetty", "pigeonnier-islet",
+  "ethereum-mole", "hatago-wharf", "uogashi", "stepped-inlet",
+  "fishing-pier", "tea-house-quay", "reed-boathouse", "storm-mole",
+  "pigeonnier-islet",
 ];
 const STATION_IDENTITY: Record<StationType, Omit<HarborIdentity, "stationType">> = {
-  "annex-pavilion": { flagShape: "notched", roofline: "pavilion-hip", secondLevel: "open-belvedere", signature: "open-pavilion" },
-  "boathouse-precinct": { flagShape: "swallowtail", roofline: "deep-hip", secondLevel: "bell-tower", signature: "moon-viewing-deck" },
+  "ethereum-mole": { flagShape: "swallowtail", roofline: "deep-hip", secondLevel: "bell-tower", signature: "enclosed-basin" },
   "fishing-pier": { flagShape: "forked", roofline: "lean-to", secondLevel: "net-drying-rack", signature: "net-racks" },
-  "gate-landing": { flagShape: "pennant", roofline: "lintel-cap", secondLevel: "torii-gate", signature: "gate-frame" },
+  "hatago-wharf": { flagShape: "nobori", roofline: "hatago-stacked", secondLevel: "inn-gallery", signature: "guest-lantern-row" },
   "pigeonnier-islet": { flagShape: "square", roofline: "pigeonnier-cone", secondLevel: "pigeonnier-cote", signature: "pigeonnier" },
   "reed-boathouse": { flagShape: "tapered", roofline: "thatch-gable", secondLevel: "thatched-dome", signature: "reed-clump" },
-  "salvage-slip": { flagShape: "dovetail", roofline: "slipway-shed", secondLevel: "hauled-hull-frame", signature: "hauled-hull-frame" },
-  "signal-jetty": { flagShape: "long-pennant", roofline: "signal-butterfly", secondLevel: "signal-mast", signature: "signal-mast" },
   "stepped-inlet": { flagShape: "stepped", roofline: "stepped-canopy", secondLevel: "lantern-crown", signature: "top-lanterns" },
   "storm-mole": { flagShape: "storm-split", roofline: "mole-tower-cap", secondLevel: "lantern-tower", signature: "lantern-tower" },
   "tea-house-quay": { flagShape: "chamfered", roofline: "tea-hip", secondLevel: "moon-window-loft", signature: "engawa" },
+  uogashi: { flagShape: "twin-tail", roofline: "market-monopitch", secondLevel: "scale-beam", signature: "steelyard" },
 };
 
 /** Standalone fallback until the systems branch supplies `dock.station`. */
 const LEGACY_STATION_BY_CHAIN: Record<string, StationType> = {
-  aptos: "gate-landing",
-  arbitrum: "annex-pavilion",
-  avalanche: "gate-landing",
-  base: "annex-pavilion",
+  arbitrum: "storm-mole",
+  base: "hatago-wharf",
   bsc: "tea-house-quay",
-  ethereum: "boathouse-precinct",
-  hyperliquid: "fishing-pier",
-  "hyperliquid-l1": "fishing-pier",
-  polygon: "annex-pavilion",
-  solana: "reed-boathouse",
+  ethereum: "ethereum-mole",
+  hyperliquid: "uogashi",
+  "hyperliquid-l1": "uogashi",
+  polygon: "reed-boathouse",
+  solana: "fishing-pier",
   ton: "pigeonnier-islet",
   tron: "stepped-inlet",
 };
@@ -203,7 +187,7 @@ export interface DockRecipe {
   flag: HarborFlagSpec;
   cargoTideLanes: CargoTideLanes;
   tideFace: DockTideFace;
-  footprint: { length: number; span: number };
+  footprint: StationFootprint;
   features: HarborStationFeatures;
   identity: HarborIdentity;
   lampWorldPositions: { x: number; z: number }[];
@@ -287,15 +271,18 @@ export function authorDock(
   const identity = identityForStation(station.type);
   const amountScale = harborAmountScale(dock.totalUsd);
   const supply = MathUtils.clamp(dock.size, 1, 10) / 10;
-  const precinct = station.type === "boathouse-precinct";
-  const length = 7.6 * amountScale * (precinct ? 1.5 : 1.06);
-  const width = (1.62 + amountScale * 0.36) * (precinct ? 1.42 : 1.08);
+  const flagWavePhase = dockFlagWavePhase(dock.chainId);
+  const ethereumMole = station.type === "ethereum-mole";
+  const stationScale = stationScaleFor(station.type, dock.totalUsd);
+  const footprint = stationFootprint(station.type, dock.totalUsd, dock.size);
+  const length = 7.6 * amountScale * (ethereumMole ? 1.5 : 1.06);
+  const width = (1.62 + amountScale * 0.36) * (ethereumMole ? 1.42 : 1.08);
   const quayHealth = quayMasonryHealth(dock) ?? 0.58;
   const accent = dockAccentColor(dock);
   const stoneColor = new Color("#665f55").lerp(new Color("#a39d8c"), quayHealth);
-  const quayLength = (3.6 + supply * 3.5) * (precinct ? 1.38 : 1.05);
-  const quayWidth = width * (precinct ? 2.7 : 2.15);
-  const quayX = -length * (precinct ? 0.27 : 0.3);
+  const quayLength = (3.6 + supply * 3.5) * (ethereumMole ? 1.38 : 1.05);
+  const quayWidth = width * (ethereumMole ? 2.7 : 2.15);
+  const quayX = -length * (ethereumMole ? 0.27 : 0.3);
 
   const timber: BufferGeometry[] = [];
   const stone: BufferGeometry[] = [];
@@ -316,6 +303,8 @@ export function authorDock(
     ridgeCaps: 0,
     surfaceBreaks: 0,
   };
+
+  const fineMetal: BufferGeometry[] = [];
   const featureGeometry: StationFeatureGeometry = {
     primaryMass: [],
     quayLitEdge: [],
@@ -324,21 +313,23 @@ export function authorDock(
     warmWindows: [],
   };
   const stationContext: StationAuthorContext = {
-    accents, articulation, featureGeometry, length, metal, props, quayLength, quayWidth, quayX, roofTrim, roofs, stone, supply, timber, walls, width, windows,
+    accents, articulation, featureGeometry, fineMetal, flagWavePhase, length, metal, props, quayLength, quayWidth, quayX, roofTrim, roofs, stationScale, stone, supply, timber, walls, width, windows,
   };
   authorStoneQuay(stationContext, station.type);
   STATION_AUTHORS[station.type](stationContext);
+  authorStationFidelity(stationContext, station.type);
 
   const parts: HarborBucketPart[] = [];
   pushMergedPart(parts, "timber", timber, HARBOR_PALETTE.timber_mid, false, true);
   pushMergedPart(parts, "stone", stone, stoneColor, false, true);
-  pushMergedPart(parts, "metal", metal, "#3d3327", true, false);
+  pushMergedPart(parts, "metal", metal, HARBOR_PALETTE.iron_dark, false, false);
+  pushMergedPart(parts, "metal", fineMetal, HARBOR_PALETTE.iron_dark, true, false);
   pushMergedPart(parts, "wall", walls, "#a99a79", false, true);
   pushMergedPart(parts, "roof", roofs, STATION_ROOF_COLOR[station.type], false, true);
   pushMergedPart(parts, "roof", roofTrim, roofTrimColor(station.type), false, true);
   pushMergedPart(parts, "window", windows, HARBOR_PALETTE.lantern_glow, false, false);
-  pushMergedPart(parts, "accent", accents, "#ad3f2f", false, true);
-  if (quayHealth < 0.5) {
+  pushMergedPart(parts, "accent", accents, STATION_ACCENT_COLOR[station.type], false, true);
+  if (!ethereumMole && quayHealth < 0.5) {
     const cracks: BufferGeometry[] = [];
     for (let index = 0; index < 3; index += 1) {
       const crack = new BoxGeometry(0.04, 0.34 + index * 0.1, 0.04);
@@ -349,33 +340,38 @@ export function authorDock(
     parts.push(harborPart("stone", mergeBucket(cracks), HARBOR_PALETTE.iron_dark, false, false));
   }
 
-  const plankCount = Math.max(5, Math.round(5 + supply * 6));
-  for (let index = 0; index < plankCount; index += 1) {
-    const t = index / Math.max(1, plankCount - 1);
-    scratchMatrix.makeRotationY((stableUnit(`station-plank.${dock.chainId}.${index}`) - 0.5) * 0.08);
-    scratchMatrix.scale(scratchScale.set(1, 1, width * 0.88));
-    scratchMatrix.setPosition(-length * 0.14 + t * length * 0.58, 0.26, 0);
-    props.push(harborProp("plank", scratchMatrix, null, true));
-  }
-  const bollardCount = Math.max(2, Math.round(2 + supply * 4));
-  for (let index = 0; index < bollardCount; index += 1) {
-    const t = (index + 0.5) / bollardCount;
-    scratchMatrix.makeRotationZ(index === 0 ? (1 - quayHealth) * MathUtils.degToRad(16) : 0);
-    scratchMatrix.setPosition(-length * 0.14 + t * length * 0.56, 0.46, (index % 2 === 0 ? -1 : 1) * width * 0.48);
-    props.push(harborProp("bollard", scratchMatrix, null, true));
+  if (!ethereumMole) {
+    const plankCount = Math.max(5, Math.round(5 + supply * 6));
+    for (let index = 0; index < plankCount; index += 1) {
+      const t = index / Math.max(1, plankCount - 1);
+      scratchMatrix.makeRotationY((stableUnit(`station-plank.${dock.chainId}.${index}`) - 0.5) * 0.08);
+      scratchMatrix.scale(scratchScale.set(1, 1, width * 0.88));
+      scratchMatrix.setPosition(-length * 0.14 + t * length * 0.58, 0.26, 0);
+      props.push(harborProp("plank", scratchMatrix, null, true));
+    }
+    const bollardCount = Math.max(2, Math.round(2 + supply * 4));
+    for (let index = 0; index < bollardCount; index += 1) {
+      const t = (index + 0.5) / bollardCount;
+      scratchMatrix.makeRotationZ(index === 0 ? (1 - quayHealth) * MathUtils.degToRad(16) : 0);
+      scratchMatrix.setPosition(-length * 0.14 + t * length * 0.56, 0.46, (index % 2 === 0 ? -1 : 1) * width * 0.48);
+      props.push(harborProp("bollard", scratchMatrix, null, true));
+    }
   }
 
-  const lamps = stationLampLocals(station.type, length, width, quayX, quayWidth);
+  const lamps = stationLampLocals(station.type, length, width);
   const staff = stationFlagPlacement(station.type, length, width, supply);
-  for (const post of [
-    { height: staff.height, radius: 0.075, x: staff.x, z: staff.z },
-    ...lamps.map((lamp) => ({ ...lamp, radius: 0.085 })),
-  ]) {
+  const stationPosts = ethereumMole
+    ? [{ height: staff.height, radius: 0.075, x: staff.x, z: staff.z }]
+    : [
+        { height: staff.height, radius: 0.075, x: staff.x, z: staff.z },
+        ...lamps.map((lamp) => ({ ...lamp, radius: 0.085 })),
+      ];
+  for (const post of stationPosts) {
     scratchMatrix.makeScale(post.radius, post.height, post.radius);
     scratchMatrix.setPosition(post.x, post.height / 2 + QUAY_TOP_Y, post.z);
     props.push(harborProp("post", scratchMatrix, null, false));
   }
-  for (const lamp of lamps) {
+  if (!ethereumMole) for (const lamp of lamps) {
     scratchMatrix.makeTranslation(lamp.x, lamp.height + QUAY_TOP_Y + 0.06, lamp.z);
     props.push(harborProp("lampHead", scratchMatrix, null, false));
   }
@@ -396,7 +392,7 @@ export function authorDock(
     dock,
     flag,
     features: stationFeatures(station.type, featureGeometry),
-    footprint: { length, span: Math.max(quayWidth, width * STATION_SPAN_SCALE[station.type]) },
+    footprint,
     identity,
     lampWorldPositions: lamps.slice(0, 3).map((lamp) => localToWorldXZ(root, lamp.x, lamp.z)),
     parts,
@@ -414,7 +410,9 @@ interface StationAuthorContext {
   accents: BufferGeometry[];
   articulation: RoofArticulationProfile;
   featureGeometry: StationFeatureGeometry;
+  flagWavePhase: number;
   length: number;
+  fineMetal: BufferGeometry[];
   metal: BufferGeometry[];
   props: HarborPropInstance[];
   quayLength: number;
@@ -423,6 +421,7 @@ interface StationAuthorContext {
   roofTrim: BufferGeometry[];
   roofs: BufferGeometry[];
   stone: BufferGeometry[];
+  stationScale: StationScale;
   supply: number;
   timber: BufferGeometry[];
   walls: BufferGeometry[];
@@ -446,19 +445,29 @@ interface RoofArticulationProfile {
   surfaceBreaks: number;
 }
 
-/** The station's own roof hex — one distinct rung per archetype (test-pinned). */
+/** The station's own palette-governed roof rung, one per archetype. */
 const STATION_ROOF_COLOR: Record<StationType, string> = {
-  "annex-pavilion": "#c58b55",
-  "boathouse-precinct": "#a95f43",
-  "fishing-pier": "#9c694c",
-  "gate-landing": "#8a4d3c",
-  "pigeonnier-islet": "#bc7455",
-  "reed-boathouse": "#c7ae72",
-  "salvage-slip": "#824e3c",
-  "signal-jetty": "#b87845",
-  "stepped-inlet": "#747a7c",
-  "storm-mole": "#354750",
-  "tea-house-quay": "#40515b",
+  "ethereum-mole": HARBOR_PALETTE.roof_clay,
+  "fishing-pier": HARBOR_PALETTE.roof_timber_shake,
+  "hatago-wharf": HARBOR_PALETTE.roof_slate_kawara,
+  "pigeonnier-islet": HARBOR_PALETTE.roof_cote_clay,
+  "reed-boathouse": HARBOR_PALETTE.roof_thatch,
+  "stepped-inlet": HARBOR_PALETTE.roof_dressed_stone,
+  "storm-mole": HARBOR_PALETTE.roof_storm_slate,
+  "tea-house-quay": HARBOR_PALETTE.roof_tea_house_slate,
+  uogashi: HARBOR_PALETTE.roof_weathered_copper,
+};
+
+const STATION_ACCENT_COLOR: Record<StationType, string> = {
+  "ethereum-mole": HARBOR_PALETTE.stone_mid,
+  "fishing-pier": HARBOR_PALETTE.aurora_green,
+  "hatago-wharf": HARBOR_PALETTE.timber_warm,
+  "pigeonnier-islet": HARBOR_PALETTE.moonlight,
+  "reed-boathouse": HARBOR_PALETTE.timber_warm,
+  "stepped-inlet": HARBOR_PALETTE.iron_dark,
+  "storm-mole": HARBOR_PALETTE.fog_pale,
+  "tea-house-quay": HARBOR_PALETTE.lantern_warm,
+  uogashi: HARBOR_PALETTE.lantern_cold,
 };
 
 /** The ridge/fascia trim is the station's own roof hex scaled down, never a new tone. */
@@ -501,17 +510,15 @@ interface StationFeatureGeometry {
 
 /** One named author per archetype — the readable index of this file's stations. */
 const STATION_AUTHORS: Record<StationType, (ctx: StationAuthorContext) => void> = {
-  "annex-pavilion": authorAnnexPavilion,
-  "boathouse-precinct": authorBoathousePrecinct,
+  "ethereum-mole": authorEthereumMole,
   "fishing-pier": authorFishingPier,
-  "gate-landing": authorGateLanding,
+  "hatago-wharf": authorHatagoWharf,
   "pigeonnier-islet": authorPigeonnierLanding,
   "reed-boathouse": authorReedBoathouse,
-  "salvage-slip": authorSalvageSlip,
-  "signal-jetty": authorSignalJetty,
   "stepped-inlet": authorSteppedInlet,
   "storm-mole": authorStormMole,
   "tea-house-quay": authorTeaHouseQuay,
+  uogashi: authorUogashi,
 };
 
 function pushFeatureGeometry(
@@ -556,7 +563,7 @@ function pushWarmWindow(
  * the opposite of the usual inline-over-micro-helper rule — and folds long
  * literal runs into flat stride-6 [w, h, d, x, y, z, …] tables. Every
  * helper below must preserve order, dimensions, positions, rotation and
- * bucket exactly; an offline digest of all eleven stations (positions,
+ * bucket exactly; an offline digest of all nine stations (positions,
  * normals, uvs, colours, props, telemetry) is compared before/after any
  * change to this kit. */
 function pushBox(bucket: BufferGeometry[], w: number, h: number, d: number, x: number, y: number, z: number): void {
@@ -568,6 +575,37 @@ function pushBoxes(bucket: BufferGeometry[], table: readonly number[]): void {
   for (let index = 0; index < table.length; index += 6) {
     pushBox(bucket, table[index]!, table[index + 1]!, table[index + 2]!, table[index + 3]!, table[index + 4]!, table[index + 5]!);
   }
+}
+
+/**
+ * A one-strip chamfer for masonry hero edges. The eight-point section costs
+ * 28 triangles rather than rounding every edge and keeps the broad faces hard.
+ */
+function chamferedBoxGeometry(w: number, h: number, d: number, bevel: number): BufferGeometry {
+  const b = Math.min(bevel, h * 0.24, d * 0.24);
+  return toCreasedNormals(prismGeometry([
+    [-d / 2 + b, -h / 2],
+    [d / 2 - b, -h / 2],
+    [d / 2, -h / 2 + b],
+    [d / 2, h / 2 - b],
+    [d / 2 - b, h / 2],
+    [-d / 2 + b, h / 2],
+    [-d / 2, h / 2 - b],
+    [-d / 2, -h / 2 + b],
+  ], w), Math.PI / 5);
+}
+
+function pushChamferedBox(
+  bucket: BufferGeometry[],
+  w: number,
+  h: number,
+  d: number,
+  x: number,
+  y: number,
+  z: number,
+  bevel = 0.08,
+): void {
+  pushGeometry(bucket, chamferedBoxGeometry(w, h, d, bevel), x, y, z);
 }
 
 function featureBox(
@@ -660,162 +698,414 @@ function eaveBracketRow(
   }
 }
 
-function authorBoathousePrecinct(ctx: StationAuthorContext): void {
-  const { length, props, quayWidth, quayX, stone, timber, walls, width } = ctx;
-  const hallX = quayX - 3.9;
-  const roofW = Math.max(21, length * 1.05);
-  const roofD = Math.max(9.2, quayWidth * 1.15);
-  const hallW = roofW * 0.86;
-  const hallD = roofD * 0.8;
-  // A stone podium lifts the hall above the quay so the landward stair reads.
-  const podiumTop = 2.95;
-  featureBox(ctx, "primaryMass", stone, hallW + 0.8, podiumTop - QUAY_TOP_Y, hallD + 0.8, hallX, (podiumTop + QUAY_TOP_Y) / 2, 0);
-  featureBox(ctx, "primaryMass", walls, hallW, 5.6 - podiumTop, hallD, hallX, (podiumTop + 5.6) / 2, 0);
-  // The precinct hall is a true irimoya: pent skirt, waist break, ridge cap,
-  // fascia shadow lines, gable plate and eave brackets — the one roof every
-  // other station's articulation echoes at a smaller scale.
-  articulateIrimoya(ctx, hallX, 5.6, 7.4, roofW / 2, roofD / 2, { skirt: { drop: 1.6, outset: 0.62 } });
-  for (const z of [-hallD * 0.3, 0, hallD * 0.3]) {
-    warmBox(ctx, 0.12, 0.72, 1.5, hallX + hallW / 2 + 0.07, 4.4, z);
+interface FacadeFidelity {
+  bays: number;
+  openingHeight: number;
+  openingWidth: number;
+  xOffset: number;
+}
+
+const FACADE_FIDELITY: Record<Exclude<StationType, "ethereum-mole">, FacadeFidelity> = {
+  "fishing-pier": { bays: 2, openingHeight: 1.7, openingWidth: 0.62, xOffset: -3.2 },
+  "hatago-wharf": { bays: 4, openingHeight: 2.2, openingWidth: 0.58, xOffset: -3.4 },
+  "pigeonnier-islet": { bays: 3, openingHeight: 1.25, openingWidth: 0.46, xOffset: -3.2 },
+  "reed-boathouse": { bays: 1, openingHeight: 2.65, openingWidth: 0.52, xOffset: -3.2 },
+  "stepped-inlet": { bays: 3, openingHeight: 1.35, openingWidth: 0.48, xOffset: -2.8 },
+  "storm-mole": { bays: 2, openingHeight: 1.85, openingWidth: 0.68, xOffset: -3.2 },
+  "tea-house-quay": { bays: 2, openingHeight: 1.55, openingWidth: 0.42, xOffset: -3.2 },
+  uogashi: { bays: 5, openingHeight: 2.35, openingWidth: 0.7, xOffset: -3.2 },
+};
+
+/**
+ * Overview geometry shared as a grammar, never as a silhouette: a battered
+ * waterline seat, one recessed working face, and a single chain-coloured
+ * plaque. The opposite wall and most of every roof stay deliberately calm.
+ */
+function authorStationFidelity(ctx: StationAuthorContext, type: StationType): void {
+  if (type === "ethereum-mole") {
+    authorMoleMasonry(ctx);
+    pushChamferedBox(ctx.accents, 0.16, 0.62, 1.2, -2.91, 1.12, -5.1, 0.05);
+    return;
+  }
+  const spec = FACADE_FIDELITY[type];
+  const hallX = ctx.quayX + spec.xOffset;
+  const facadeX = hallX + ctx.stationScale.length / 2;
+  const span = ctx.stationScale.span;
+  const bayRun = span / spec.bays;
+
+  // The submerged toe overlaps both land and water. Its chamfer is confined
+  // to the exposed nosing instead of softening every plank and fitting.
+  pushChamferedBox(
+    ctx.stone,
+    ctx.quayLength + 0.35,
+    0.72,
+    ctx.quayWidth + 0.3,
+    ctx.quayX,
+    0.12,
+    0,
+    0.11,
+  );
+  for (const z of [-ctx.quayWidth / 2 - 0.19, ctx.quayWidth / 2 + 0.19]) {
+    pushBox(ctx.stone, ctx.quayLength + 0.5, 0.2, 0.16, ctx.quayX, 0.28, z);
   }
 
-  // A real campanile: plinth, square shaft, open belfry, visible bell, and a
-  // hip cap with corner finials. It sits beyond the hall eave so the whole
-  // profile survives sail occlusion, pulled toward the cove-facing shoulder.
-  const towerX = hallX + roofW * 0.2;
-  const towerZ = -roofD * 0.42;
-  secondBox(ctx, stone, 3.1, 0.6, 3.1, towerX, QUAY_TOP_Y + 0.3, towerZ);
-  secondBox(ctx, walls, 2.9, 6.2, 2.9, towerX, 5.25, towerZ);
-  for (const z of [-0.6, 0, 0.6]) {
-    warmBox(ctx, 0.14, 0.8, 0.42, towerX + 1.47, 9.2, towerZ + z);
+  // Dark infill sits 0.14 behind the pilaster/lintel plane. Bay counts and
+  // proportions are intentionally sparse and station-specific.
+  for (let bay = 0; bay < spec.bays; bay += 1) {
+    const z = -span / 2 + bayRun * (bay + 0.5);
+    const width = bayRun * spec.openingWidth * (bay === spec.bays - 1 ? 0.82 : 1);
+    const height = spec.openingHeight * (bay % 2 === 0 ? 1 : 0.82);
+    pushBox(ctx.metal, 0.1, height, width, facadeX - 0.13, QUAY_TOP_Y + height / 2 + 0.22, z);
+    pushChamferedBox(ctx.timber, 0.22, height + 0.34, 0.22, facadeX + 0.01, QUAY_TOP_Y + height / 2 + 0.22, z - width / 2 - 0.13, 0.04);
+    pushBox(ctx.timber, 0.2, 0.22, width + 0.45, facadeX + 0.02, QUAY_TOP_Y + height + 0.31, z);
   }
-  secondBox(ctx, timber, 3.05, 0.26, 3.05, towerX, 8.45, towerZ);
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    secondBox(ctx, timber, 0.3, 1.9, 0.3, towerX + sx * 1.06, 9.55, towerZ + sz * 1.06);
-  }
-  secondBox(ctx, timber, 3.05, 0.26, 3.05, towerX, 10.6, towerZ);
-  const bell = new ConeGeometry(0.95, 1.6, 10);
-  bell.rotateX(Math.PI);
-  pushFeatureGeometry(ctx, "secondLevel", timber, bell, towerX, 9.7, towerZ);
-  articulatePyramidRoof(ctx, towerX, towerZ, 10.72, 12.35, 1.85, 1.85, "secondLevel");
+  pushBox(ctx.timber, 0.2, 0.24, span * 0.86, facadeX + 0.02, QUAY_TOP_Y + 0.2, 0);
+  pushChamferedBox(ctx.accents, 0.16, 0.58, 0.9, ctx.quayX + ctx.quayLength / 2 + 0.08, 1.08, -ctx.quayWidth * 0.3, 0.05);
+}
 
-  // An intentionally empty moon-viewing deck reaches beyond the hall.
-  pushBox(timber, length * 0.58, 0.26, width * 2.05, length * 0.16, 0.11, 0);
-  pushPierPilings(props, length * 0.6, width * 1.75, length * 0.16, 5);
-  // Veranda with railing plus a stone stair from quay to podium: the
-  // precinct's named ground-level signature.
-  const verandaX = hallX + hallW / 2 + 1.15;
-  pushBox(timber, 2.3, 0.22, hallD * 1.15, verandaX, podiumTop + 0.11, 0);
-  for (const z of [-hallD * 0.55, 0, hallD * 0.55]) {
-    pushBox(timber, 0.15, 1.05, 0.15, verandaX + 1.0, podiumTop + 0.75, z);
+function authorMoleMasonry(ctx: StationAuthorContext): void {
+  // Running-bond wet masonry on the two outer arm faces. Three fixed tide
+  // courses retain the specified count; alternating joints keep them from
+  // becoming ruler stripes.
+  for (const [from, to, z] of [[-5, 17, -12.08], [-5, 10, 11.58]] as const) {
+    for (let course = 0; course < 3; course += 1) {
+      let x = from - (course % 2) * 0.7;
+      let joint = 0;
+      while (x < to) {
+        const nominal = [1.25, 1.7, 1.45, 2.05, 1.55][joint % 5]!;
+        const run = Math.min(nominal, to - x);
+        if (run > 0.3) pushChamferedBox(ctx.stone, run - 0.05, 0.25, 0.24, x + run / 2, 0.12 + course * 0.31, z, 0.045);
+        x += nominal;
+        joint += 1;
+      }
+    }
   }
+
+  // Ashlar bay rhythm only on the seaward hall face; the opposite 24-unit
+  // wall and the central roof fields remain calm.
+  for (let course = 0; course < 4; course += 1) {
+    let z = -11.7 - (course % 2) * 0.62;
+    let joint = 0;
+    while (z < 11.7) {
+      const nominal = [1.18, 1.52, 1.36, 1.82, 2.1][joint % 5]!;
+      const run = Math.min(nominal, 11.7 - z);
+      if (run > 0.28) pushChamferedBox(ctx.stone, 0.24, 0.62, run - 0.05, -3.13, 3.35 + course * 0.7, z + run / 2, 0.055);
+      z += nominal;
+      joint += 1;
+    }
+  }
+
+  // Chamfered apron setts stop the 26 × 10 court reading as one slab while
+  // leaving a broad uninterrupted centre on the bent gate-to-hall axis.
+  for (let row = 0; row < 3; row += 1) {
+    for (let column = 0; column < 12; column += 1) {
+      if (row === 1 && column >= 4 && column <= 8) continue;
+      const x = -21.9 + row * 2.35;
+      const z = -11.8 + column * 2.05 + (row % 2) * 0.35;
+      pushChamferedBox(ctx.stone, 2.08, 0.2, 1.82, x, 2.76, z, 0.065);
+    }
+  }
+
+  // The one thick gateway compresses an empty centre. Bell and gate stay
+  // coarse structural ironwork; civic bollards remain inspection greebles.
+  pushChamferedBox(ctx.metal, 0.46, 3.7, 0.46, -22.2, 3.6, 1.15, 0.07);
+  pushChamferedBox(ctx.metal, 0.46, 3.7, 0.46, -22.2, 3.6, 4.85, 0.07);
+  pushChamferedBox(ctx.metal, 0.5, 0.62, 4.45, -22.2, 5.18, 3, 0.09);
+}
+
+
+function authorEthereumMole(ctx: StationAuthorContext): void {
+  const { metal, roofs, stone, timber, walls } = ctx;
+  // The Mole is laid out independently of supply. Local +X is seaward:
+  // apron [-23,-13], hall [-13,-3], basin [-3,15], and arms [-5,17].
+  // The hall's 24-unit axis therefore runs alongshore, opposite the Pharos.
+  const hallX = -8;
+  const hallZ = 0;
+  const hallDepth = 10;
+  const hallLength = 24;
+
+  // Battered wet toes frame an 18 × 14 water void. Their inner faces remain
+  // exactly at z=±7; only the masonry outside those faces is authored.
+  for (const [armLength, armWidth, armX, armZ] of [
+    [22, 5, 6, -9.5],
+    [15, 4.5, 2.5, 9.25],
+  ] as const) {
+    const toe = prismGeometry([
+      [-armWidth / 2 - 0.25, -0.2],
+      [armWidth / 2 + 0.25, -0.2],
+      [armWidth / 2, 0.75],
+      [-armWidth / 2, 0.75],
+    ], armLength);
+    pushGeometry(stone, toe, armX, 0, armZ);
+    featureBox(ctx, "quayPlatform", stone, armLength, 0.8, armWidth, armX, 1.15, armZ);
+    for (const courseY of [0.05, 0.45, 0.9]) {
+      pushBox(stone, armLength, 0.24, 0.18, armX, courseY, armZ + Math.sign(armZ) * (armWidth / 2 + 0.09));
+    }
+  }
+
+  // Unequal capstones deliberately break their joints every fifth position.
+  for (const [armEnd, z, side] of [[17, -7.28, -1], [10, 7.28, 1]] as const) {
+    let x = -5;
+    let joint = 0;
+    while (x < armEnd - 0.01) {
+      const nominal = [1.2, 1.65, 2.05, 1.45, 2.4][joint % 5]!;
+      const run = joint % 5 === 4 ? Math.min(nominal * 1.45, armEnd - x) : Math.min(nominal, armEnd - x);
+      pushBox(stone, run - 0.06, 0.25, 0.55, x + run / 2, 1.425, z + side * 0.275);
+      x += run;
+      joint += 1;
+    }
+  }
+  // Squared hammerheads cap both termini without adding a lantern tower.
+  pushBoxes(stone, [
+    2.2, 1.75, 7.2, 15.9, 0.675, -10.6,
+    2.2, 1.75, 6.6, 8.9, 0.675, 10.3,
+  ]);
+
+  // Hall-side quay closes the bracket without filling the basin. Its single
+  // warm edge is the monument's only continuous emissive line.
+  featureBoxes(ctx, "quayPlatform", stone, [
+    2, 1.75, 24, -4, 0.675, 0,
+    2, 0.18, 24.4, -4, 1.46, 0,
+  ]);
+  featureBox(ctx, "quayLitEdge", ctx.windows, 0.12, 0.18, 14, -2.94, 1.42, 0);
+
+  // A 26 × 10 civic apron, with the stair and folded ramp cut into the same
+  // stone bucket. The empty off-centre court is left as negative space.
+  pushBoxes(stone, [
+    10, 1.25, 26, -18, 2.175, 0,
+    1.25, 0.32, 7, -13.62, 1.71, 3.1,
+    2.5, 0.62, 7, -14.25, 1.86, 3.1,
+    3.75, 0.94, 7, -14.88, 2.02, 3.1,
+    5, 1.25, 7, -15.5, 2.175, 3.1,
+    7.5, 0.42, 3, -18.25, 2.59, -9.5,
+    3, 0.42, 5.5, -21.5, 2.59, -5.25,
+  ]);
+
+  // Podium and ashlar hall: top 2.8, wall cornice 7.0.
+  featureBox(ctx, "primaryMass", stone, hallDepth, 1.25, hallLength, hallX, 2.175, hallZ);
+  featureBox(ctx, "primaryMass", walls, hallDepth - 0.4, 4.2, hallLength - 0.4, hallX, 4.9, hallZ);
+  // Pilasters and a recessed seaward doorway give real 0.20-depth relief.
+  for (const z of [-9, -4.5, 4.5, 9]) pushBox(stone, 0.28, 4.05, 0.44, -3.18, 4.78, z);
   pushBoxes(timber, [
-    0.12, 0.12, hallD * 1.2, verandaX + 1.0, podiumTop + 1.28, 0,
-    0.12, 0.1, hallD * 1.2, verandaX + 1.0, podiumTop + 0.85, 0,
+    0.32, 3.2, 0.42, -3.02, 4.4, 1.6,
+    0.32, 3.2, 0.42, -3.02, 4.4, 4.4,
+    0.48, 0.55, 3.5, -2.94, 6.1, 3,
   ]);
-  const stairX = hallX + (hallW + 0.8) / 2 + 0.31;
+  for (const z of [-7.2, -2.4, 7.1]) warmBox(ctx, 0.1, 0.72, 0.8, -3.76, 5.05, z);
+  authorMoleHallRoof(ctx, hallX, hallZ, hallDepth, hallLength);
+  // Two shielded portal lamps share the ember bucket but are not apertures.
+  for (const z of [1.1, 4.9]) {
+    pushBoxes(timber, [
+      0.3, 2.1, 0.3, -22.15, 3.85, z,
+      0.65, 0.16, 0.65, -22.15, 4.92, z,
+    ]);
+    pushBox(ctx.windows, 0.3, 0.34, 0.3, -22.15, 4.65, z);
+  }
+
+  // Offset 3.8-square campanile, wholly beyond one hall eave. Its shaft ends
+  // at 15.0; four piers leave the belfry centre visibly empty through 19.0.
+  const towerX = -8;
+  const towerZ = -14;
+  secondBox(ctx, stone, 4.2, 0.55, 4.2, towerX, 3.075, towerZ);
+  secondBox(ctx, walls, 3.8, 11.65, 3.8, towerX, 9.175, towerZ);
+  secondBox(ctx, stone, 4.05, 0.35, 4.05, towerX, 14.825, towerZ);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    secondBox(ctx, stone, 0.48, 4, 0.48, towerX + sx * 1.42, 17, towerZ + sz * 1.42);
+  }
+  secondBox(ctx, timber, 3.45, 0.28, 3.45, towerX, 18.86, towerZ);
+  const bell = new ConeGeometry(0.72, 1.35, 10);
+  bell.rotateX(Math.PI);
+  pushFeatureGeometry(ctx, "secondLevel", metal, bell, towerX, 17.15, towerZ);
+  const cap = new ConeGeometry(1, 2.5, 4);
+  cap.rotateY(Math.PI / 4);
+  cap.scale(2.35 * Math.SQRT2, 1, 2.35 * Math.SQRT2);
+  cap.translate(towerX, 20.25, towerZ);
+  addFeatureGeometry(ctx, "secondLevel", roofs, cap);
+  pushEaveFascia(ctx, towerX, 19, 2.35, 2.35, towerZ);
+  trimBox(ctx, 2.7, 0.13, 0.34, towerX, 20.3, towerZ);
+  ctx.articulation.ridgeCaps += 1;
+  ctx.articulation.surfaceBreaks += 1;
+
+  // Eight civic bollards at an authored rhythm: five long, three short.
+  for (const [x, z] of [
+    [-2.8, -7.55], [0.1, -7.55], [4.6, -7.55], [9.8, -7.55], [14.2, -7.55],
+    [-2.1, 7.55], [2.4, 7.55], [7.7, 7.55],
+  ]) {
+    pushBox(ctx.fineMetal, 0.44, 0.72, 0.44, x, 1.91, z);
+  }
+}
+
+/** Deep hipped hall roof, rotated so its long ridge follows the shore. */
+function authorMoleHallRoof(ctx: StationAuthorContext, cx: number, cz: number, depth: number, length: number): void {
+  const hx = depth / 2;
+  const hz = length / 2;
+  const ridgeHalf = 8.2;
+  const triangles: number[] = [];
+  const quad = (a: XYZ, b: XYZ, c: XYZ, d: XYZ) => triangles.push(...a, ...b, ...c, ...a, ...c, ...d);
+  quad([cx - hx, 7, cz - hz], [cx + hx, 7, cz - hz], [cx, 9.2, cz - ridgeHalf], [cx, 9.2, cz + ridgeHalf]);
+  quad([cx + hx, 7, cz + hz], [cx - hx, 7, cz + hz], [cx, 9.2, cz + ridgeHalf], [cx, 9.2, cz - ridgeHalf]);
+  triangles.push(
+    cx - hx, 7, cz - hz, cx, 9.2, cz + ridgeHalf, cx, 9.2, cz - ridgeHalf,
+    cx - hx, 7, cz + hz, cx, 9.2, cz + ridgeHalf, cx - hx, 7, cz - hz,
+    cx + hx, 7, cz - hz, cx, 9.2, cz - ridgeHalf, cx, 9.2, cz + ridgeHalf,
+    cx + hx, 7, cz - hz, cx, 9.2, cz + ridgeHalf, cx + hx, 7, cz + hz,
+  );
+  addFeatureGeometry(ctx, "primaryMass", ctx.roofs, triangleGeometry(triangles));
+  ctx.articulation.fieldShells += 1;
+  pushBox(ctx.timber, 0.34, 0.2, ridgeHalf * 2 + 0.6, cx, 9.02, cz);
+  ctx.articulation.ridgeBeams += 1;
+  trimBox(ctx, 0.52, 0.14, ridgeHalf * 2 + 0.35, cx, 9.13, cz);
+  ctx.articulation.ridgeCaps += 1;
+  pushBoxes(ctx.roofTrim, [
+    depth + 0.3, 0.24, 0.18, cx, 6.96, cz - hz,
+    depth + 0.3, 0.24, 0.18, cx, 6.96, cz + hz,
+    0.18, 0.24, length + 0.3, cx - hx, 6.96, cz,
+    0.18, 0.24, length + 0.3, cx + hx, 6.96, cz,
+    0.2, 0.15, length * 0.72, cx - hx * 0.55, 8.05, cz,
+    0.2, 0.15, length * 0.72, cx + hx * 0.55, 8.05, cz,
+  ]);
+  ctx.articulation.fascias += 4;
+  ctx.articulation.surfaceBreaks += 1;
+  const gable = prismGeometry([[-2.1, 7.05], [2.1, 7.05], [0, 9.12]], 0.4);
+  gable.rotateY(Math.PI / 2);
+  gable.translate(cx, 0, cz - hz - 0.06);
+  ctx.roofTrim.push(gable);
+  ctx.articulation.gablePlates += 1;
+  for (const z of [-8, -2.6, 2.6, 8]) {
+    for (const x of [-hx + 0.22, hx - 0.22]) pushBox(ctx.timber, 0.5, 0.16, 0.58, cx + x, 6.66, cz + z);
+  }
+  ctx.articulation.brackets += 8;
+}
+
+function authorHatagoWharf(ctx: StationAuthorContext): void {
+  const { accents, flagWavePhase, length, props, stationScale, timber, walls } = ctx;
+  const hallX = ctx.quayX - 3.4;
+  const hallW = stationScale.length;
+  const hallD = stationScale.span;
+  const lowerTop = 5.5 * stationScale.heightScale;
+  const roofTop = stationScale.secondLevelTop;
+  const roofEave = roofTop - 2.2 * stationScale.heightScale;
+  // The inn keeps a taller closed lodging floor beneath an open upper engawa;
+  // its length and roof height both carry supply while its authored span holds.
+  featureBox(ctx, "primaryMass", walls, hallW, lowerTop - QUAY_TOP_Y, hallD, hallX, (lowerTop + QUAY_TOP_Y) / 2, 0);
+  secondBox(ctx, walls, hallW * 0.9, roofEave - lowerTop, hallD * 0.58, hallX - 0.25, (roofEave + lowerTop) / 2, -hallD * 0.18);
+  secondBox(ctx, timber, 2.0, 0.24, hallD * 1.06, hallX + hallW * 0.48, lowerTop + 0.15, 0);
+  for (const z of [-0.41, -0.14, 0.14, 0.41].map((fraction) => fraction * hallD)) {
+    secondBox(ctx, timber, 0.22, roofEave - lowerTop + 0.3, 0.22, hallX + hallW * 0.52, (roofEave + lowerTop) / 2, z);
+  }
+  secondBoxes(ctx, timber, [
+    0.18, 0.18, hallD * 1.06, hallX + hallW * 0.52, roofEave - 0.4, 0,
+    0.14, 0.14, hallD * 1.06, hallX + hallW * 0.52, lowerTop + 0.7, 0,
+  ]);
+  // A full irimoya crowns the guest floor. Supply may occupy one more room,
+  // but the row stays sparse and uneven so it never becomes a bright barcode.
+  articulateIrimoya(ctx, hallX, roofEave, roofTop, hallW / 2, hallD / 2, { course: true }, "secondLevel");
+  const guestWindows = 2 + Math.round(ctx.supply * 2);
+  const windowFractions = [-0.36, -0.1, 0.17, 0.39];
+  for (let index = 0; index < guestWindows; index += 1) {
+    warmBox(ctx, 0.1, index % 2 === 0 ? 0.82 : 0.66, 0.42, hallX + hallW / 2 + 0.07, 7.55, windowFractions[index]! * hallD);
+  }
+
+  // A stepped water stair gets its own subordinate roof and paired noren.
+  const stairX = hallX + hallW / 2 + 1.45;
   for (let step = 0; step < 4; step += 1) {
-    const top = QUAY_TOP_Y + (4 - step) * 0.35;
-    pushBox(stone, 0.62, top - QUAY_TOP_Y, 3.0, stairX + step * 0.62, (top + QUAY_TOP_Y) / 2, hallD * 0.42);
+    pushBox(ctx.stone, 0.72, 0.28 + step * 0.3, 2.7, stairX + step * 0.68, 0.14 + step * 0.15, 0);
   }
+  for (const z of [-1.15, 1.15]) pushBox(timber, 0.18, 3.4, 0.18, stairX, 3.25, z);
+  articulateIrimoya(ctx, stairX, 5.05, 6.25, 2.35, 1.65, { course: true }, "secondLevel");
+  for (const z of [-0.62, 0.62]) {
+    const curtain = new PlaneGeometry(1.12, 1.38, 2, 2);
+    const position = curtain.getAttribute("position");
+    for (let index = 0; index < position.count; index += 1) {
+      const along = position.getX(index) / 1.12 + 0.5;
+      position.setZ(index, Math.sin(along * Math.PI * 1.7 + flagWavePhase) * 0.08 * along);
+    }
+    position.needsUpdate = true;
+    curtain.computeVertexNormals();
+    curtain.rotateY(Math.PI / 2);
+    curtain.translate(stairX + 0.12, 4.05, z);
+    accents.push(curtain);
+  }
+  pushBox(timber, length * 0.62, 0.24, hallD * 0.92, length * 0.1, 0.1, 0);
+  pushPierPilings(props, length * 0.58, hallD * 0.84, length * 0.1, 5);
 }
 
-function authorAnnexPavilion(ctx: StationAuthorContext): void {
-  const { length, props, timber, width } = ctx;
-  pushBox(timber, length * 0.66, 0.26, width * 1.4, length * 0.08, 0.11, 0);
-  const x = ctx.quayX - 3.2;
-  const w = 13.4;
-  const d = 7.0;
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    pushBox(timber, 0.26, 2.1, 0.26, x + sx * w * 0.38, QUAY_TOP_Y + 1.05, sz * d * 0.34);
-  }
-  articulateIrimoya(ctx, x, 3.55, 5.5, w / 2, d / 2, { course: true });
-
-  // A roof-top open belvedere makes every L2 an obvious but subordinate
-  // satellite of the Ethereum hall, sharing its hip vocabulary at half scale.
-  secondBox(ctx, timber, 4.6, 0.24, 3.9, x, 5.62, 0);
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    secondBox(ctx, timber, 0.2, 2.2, 0.2, x + sx * 1.95, 6.84, sz * 1.55);
-  }
-  // Latticed screen wall under the seaward railing: the annex's signature.
-  for (const z of [-1.35, -0.45, 0.45, 1.35]) {
-    secondBox(ctx, timber, 0.07, 1.15, 0.07, x + 2.0, 6.3, z);
-  }
-  for (const y of [6.05, 6.5, 6.95]) {
-    secondBox(ctx, timber, 0.06, 0.09, 3.3, x + 2.0, y, 0);
-  }
-  articulateIrimoya(ctx, x, 7.95, 8.75, 2.3, 1.95, { brackets: false }, "secondLevel");
-  warmBox(ctx, 0.1, 0.62, 1.3, x + w * 0.39, 5.85, d * 0.14);
-  pushPierPilings(props, length * 0.66, width * 1.25, length * 0.08, 4);
-}
-
-function authorGateLanding(ctx: StationAuthorContext): void {
-  const { accents, length, stone, walls, width } = ctx;
-  pushBox(stone, length * 0.58, 0.4, width * 1.5, length * 0.08, 0.05, 0);
-  for (let step = 0; step < 3; step += 1) {
-    pushBox(stone, 0.86, 0.22, width * (1.15 - step * 0.12), length * 0.38 + step * 0.62, 0.13 - step * 0.17, 0);
-  }
+function authorUogashi(ctx: StationAuthorContext): void {
+  const { metal, props, stationScale, timber, walls } = ctx;
   const hallX = ctx.quayX - 3.2;
-  const hallW = 13;
-  const hallD = 7;
-  pushBox(walls, hallW * 0.84, 2.9, hallD * 0.82, hallX, QUAY_TOP_Y + 1.45, 0);
-  articulateIrimoya(ctx, hallX, 4.45, 5.5, hallW / 2, hallD / 2, { course: true }, "primaryMass", 0.22);
-  warmBox(ctx, 0.1, 0.9, hallD * 0.5, hallX + hallW * 0.42 + 0.05, 3.0, 0);
+  const hallW = stationScale.length;
+  const hallD = stationScale.span;
+  const primaryTop = 5.5 * stationScale.heightScale;
+  featureBox(ctx, "primaryMass", timber, hallW, 0.26, hallD, hallX, 1.68, 0);
+  pushPierPilings(props, hallW, hallD * 0.9, hallX, 7);
+  // The working hall is closed only landward; its broad market face stays
+  // open between a regular line of stall posts under one mono-pitch roof.
+  featureBox(ctx, "primaryMass", walls, hallW, primaryTop - QUAY_TOP_Y, 0.28, hallX, (primaryTop + QUAY_TOP_Y) / 2, -hallD / 2 + 0.14);
+  for (const fraction of [-0.45, -0.225, 0, 0.225, 0.45]) {
+    pushBox(timber, 0.24, primaryTop - QUAY_TOP_Y, 0.24, hallX + fraction * hallW, (primaryTop + QUAY_TOP_Y) / 2, hallD / 2 - 0.18);
+  }
+  const roofLow = primaryTop - 0.1;
+  articulateLeanToRoof(
+    ctx,
+    hallX,
+    0,
+    leanToHighYForTop(stationScale.secondLevelTop, roofLow, hallD / 2),
+    roofLow,
+    hallD / 2,
+    hallW,
+    -1,
+    { course: true },
+    "secondLevel",
+  );
+  // Tally boards repeat down the landward wall like a restrained ledger.
+  for (const fraction of [-0.34, -0.17, 0, 0.17, 0.34]) {
+    pushBox(timber, hallW * 0.1, 1.65, 0.12, hallX + fraction * hallW, primaryTop - 1.1, -hallD / 2 - 0.07);
+  }
+  warmBox(ctx, hallW * 0.15, 0.55, 0.1, hallX + hallW * 0.34, primaryTop - 0.5, -hallD / 2 - 0.13);
 
-  // A doubled lintel and broad oversailing cap make the seaward gate read as
-  // a torii without borrowing the reserved danger vermilion.
-  const gateX = ctx.quayX + 1.3;
-  for (const z of [-2.6, 2.6]) {
-    secondBox(ctx, accents, 0.62, 7.5, 0.62, gateX, QUAY_TOP_Y + 3.75, z);
-  }
-  secondBoxes(ctx, accents, [
-    0.68, 0.46, 6.1, gateX, 7.9, 0,
-    0.84, 0.52, 7.2, gateX, 8.62, 0,
-    1.16, 0.34, 8.3, gateX, 9.1, 0,
-  ]);
-  // Rope-and-shide swag sagging between the posts: the gate's signature.
-  for (let index = 0; index < 7; index += 1) {
-    const t = index / 6;
-    const sag = Math.sin(t * Math.PI) * 0.55;
-    const streamer = new BoxGeometry(0.14, 0.4, 0.05);
-    streamer.rotateZ((index % 2 === 0 ? 1 : -1) * 0.5);
-    streamer.translate(gateX, 7.35 - sag, -2.35 + t * 4.7);
-    accents.push(streamer);
-  }
-  // Paired stone lanterns flank the landing steps.
-  for (const side of [-1, 1]) {
-    const lanternX = length * 0.3;
-    const lanternZ = side * (width * 1.05 + 0.6);
-    pushBox(stone, 0.78, 0.4, 0.78, lanternX, 0.44, lanternZ);
-    pushGeometry(stone, new CylinderGeometry(0.16, 0.22, 1.0, 6), lanternX, 1.14, lanternZ);
-    warmBox(ctx, 0.52, 0.5, 0.52, lanternX, 1.9, lanternZ);
-    pushGeometry(stone, new ConeGeometry(0.55, 0.45, 6), lanternX, 2.35, lanternZ);
-  }
+  // One oversized five-piece steelyard — post, pivoting beam, hanging pan —
+  // breaks the roofline without competing with the Pharos or Mole towers.
+  const scaleX = hallX + hallW * 0.27;
+  const scaleZ = hallD * 0.26;
+  secondBox(ctx, metal, 0.28, stationScale.secondLevelTop - QUAY_TOP_Y - 0.4, 0.28, scaleX, (stationScale.secondLevelTop + QUAY_TOP_Y - 0.4) / 2, scaleZ);
+  const beam = new BoxGeometry(4.8, 0.18, 0.18);
+  beam.rotateZ(-0.12);
+  pushFeatureGeometry(ctx, "secondLevel", metal, beam, scaleX + 1.65, stationScale.secondLevelTop - 0.45, scaleZ);
+  const pivot = new CylinderGeometry(0.27, 0.27, 0.5, 10);
+  pivot.rotateX(Math.PI / 2);
+  pushFeatureGeometry(ctx, "secondLevel", metal, pivot, scaleX, stationScale.secondLevelTop - 0.48, scaleZ);
+  secondBox(ctx, metal, 0.1, 1.75, 0.1, scaleX + 3.35, stationScale.secondLevelTop - 1.48, scaleZ);
+  const pan = new CylinderGeometry(0.72, 0.5, 0.16, 12);
+  pushFeatureGeometry(ctx, "secondLevel", metal, pan, scaleX + 3.35, stationScale.secondLevelTop - 2.38, scaleZ);
 }
+
 
 function authorTeaHouseQuay(ctx: StationAuthorContext): void {
-  const { length, props, timber, walls } = ctx;
+  const { length, props, stationScale, timber, walls } = ctx;
   const x = ctx.quayX - 3.2;
-  const w = 13;
-  const d = 7.0;
-  pushBox(walls, w * 0.88, 3.1, d * 0.84, x, QUAY_TOP_Y + 1.55, 0);
-  articulateIrimoya(ctx, x, 4.65, 6.35, w / 2, d / 2, { course: true });
+  const w = stationScale.length;
+  const d = stationScale.span;
+  const primaryTop = 6.35 * stationScale.heightScale;
+  pushBox(walls, w * 0.88, 3.1 * stationScale.heightScale, d * 0.84, x, QUAY_TOP_Y + 1.55 * stationScale.heightScale, 0);
+  articulateIrimoya(ctx, x, 4.65 * stationScale.heightScale, primaryTop, w / 2, d / 2, { course: true });
   warmBox(ctx, 0.1, 0.95, d * 0.5, x + w * 0.44 + 0.05, 3.1, 0);
 
   // The moon-window loft rises above the engawa as one quiet square lantern;
   // a compact hip keeps it in the tea-house family rather than reading tower.
-  secondBox(ctx, walls, 3.1, 2.4, 2.8, x, 6.8, 0);
+  const loftEave = stationScale.secondLevelTop - 0.6 * stationScale.heightScale;
+  secondBox(ctx, walls, 3.1, loftEave - primaryTop, 2.8, x, (loftEave + primaryTop) / 2, 0);
   // Framed moon window with mullions: the tea-house's signature.
+  const moonY = (loftEave + primaryTop) / 2;
   const moonZ = 1.46;
-  pushFeatureGeometry(ctx, "secondLevel", timber, new TorusGeometry(0.95, 0.13, 6, 14), x, 6.9, moonZ);
+  pushFeatureGeometry(ctx, "secondLevel", timber, new TorusGeometry(0.95, 0.13, 6, 14), x, moonY, moonZ);
   for (const barX of [-0.34, 0.34]) {
-    secondBox(ctx, timber, 0.08, 1.9, 0.08, x + barX, 6.9, moonZ);
+    secondBox(ctx, timber, 0.08, 1.9, 0.08, x + barX, moonY, moonZ);
   }
-  secondBox(ctx, timber, 1.9, 0.08, 0.08, x, 6.9, moonZ);
+  secondBox(ctx, timber, 1.9, 0.08, 0.08, x, moonY, moonZ);
   const moonGlass = new CylinderGeometry(0.84, 0.84, 0.08, 12);
   moonGlass.rotateX(Math.PI / 2);
-  pushWarmWindow(ctx, moonGlass, x, 6.9, moonZ - 0.03);
-  articulateIrimoya(ctx, x, 8.0, 8.6, 1.9, 1.75, { brackets: false }, "secondLevel");
+  pushWarmWindow(ctx, moonGlass, x, moonY, moonZ - 0.03);
+  articulateIrimoya(ctx, x, loftEave, stationScale.secondLevelTop, 1.9, 1.75, { brackets: false }, "secondLevel");
   // One engawa shelf over the water, now with its railing.
   pushBox(timber, length * 0.56, 0.22, d * 1.05, length * 0.13, 0.12, 0);
   for (const side of [-1, 1]) {
@@ -828,23 +1118,27 @@ function authorTeaHouseQuay(ctx: StationAuthorContext): void {
 }
 
 function authorFishingPier(ctx: StationAuthorContext): void {
-  const { length, props, timber, width } = ctx;
+  const { length, props, stationScale, timber, width } = ctx;
   const pierLength = length * 1.08;
   pushBox(timber, pierLength, 0.26, width * 0.64, length * 0.18, 0.11, 0);
   pushPierPilings(props, pierLength, width * 0.55, length * 0.18, 7);
   // The only lean-to roof, kept at the root so the thin pier remains legible.
   const shelterX = ctx.quayX - 3.2;
-  articulateLeanToRoof(ctx, shelterX, 0, 5.9, 3.2, 3.6, 13, 1, { course: true });
-  for (const z of [-3.0, 3.0]) {
-    pushBox(timber, 0.26, 4.3, 0.26, shelterX + 4.0, QUAY_TOP_Y + 2.15, z);
-    pushBox(timber, 0.26, 1.6, 0.26, shelterX - 4.0, QUAY_TOP_Y + 0.8, z);
+  const primaryTop = 5.9 * stationScale.heightScale;
+  const roofLow = 3.2 * stationScale.heightScale;
+  const roofHalfD = roofHalfSpanForOuterSpan(stationScale.span, primaryTop - roofLow, true);
+  articulateLeanToRoof(ctx, shelterX, 0, primaryTop, roofLow, roofHalfD, stationScale.length, 1, { course: true });
+  for (const z of [-stationScale.span * 0.45, stationScale.span * 0.45]) {
+    pushBox(timber, 0.26, 4.3, 0.26, shelterX + stationScale.length * 0.31, QUAY_TOP_Y + 2.15, z);
+    pushBox(timber, 0.26, 1.6, 0.26, shelterX - stationScale.length * 0.31, QUAY_TOP_Y + 0.8, z);
   }
   // A tall, forked drying rack is a second skyline above the low lean-to.
   const rackX = ctx.quayX + 1.0;
+  const rackTop = stationScale.secondLevelTop;
   for (const z of [-2.0, 2.0]) {
-    secondBox(ctx, timber, 0.28, 5.35, 0.28, rackX, QUAY_TOP_Y + 2.675, z);
+    secondBox(ctx, timber, 0.28, rackTop - QUAY_TOP_Y - 0.3, 0.28, rackX, (rackTop + QUAY_TOP_Y - 0.3) / 2, z);
   }
-  secondBox(ctx, timber, 0.3, 0.3, 4.9, rackX, 7.05, 0);
+  secondBox(ctx, timber, 0.3, 0.3, 4.9, rackX, rackTop - 0.15, 0);
   // Hung drying nets slung from the rack crossbar: part of the signature.
   for (const z of [-1.5, 0, 1.5]) {
     const net = new BoxGeometry(1.5, 1.1, 0.06);
@@ -859,11 +1153,11 @@ function authorFishingPier(ctx: StationAuthorContext): void {
   const winch = new CylinderGeometry(0.5, 0.5, 0.85, 10);
   winch.rotateZ(Math.PI / 2);
   winch.translate(length * 0.32, 0.78, width * 0.45);
-  ctx.metal.push(winch);
+  ctx.fineMetal.push(winch);
   for (const side of [-1, 1]) {
     const winchPost = new BoxGeometry(0.1, 0.75, 0.1);
     winchPost.translate(length * 0.32, 0.62, width * 0.45 + side * 0.55);
-    ctx.metal.push(winchPost);
+    ctx.fineMetal.push(winchPost);
   }
   // Exactly one instanced works prop adds the visible net web inside that frame.
   scratchMatrix.makeScale(1.45, 1.9, Math.max(1.2, width));
@@ -872,7 +1166,7 @@ function authorFishingPier(ctx: StationAuthorContext): void {
 }
 
 function authorSteppedInlet(ctx: StationAuthorContext): void {
-  const { length, roofs, stone, timber, width } = ctx;
+  const { length, roofs, stationScale, stone, timber, width } = ctx;
   for (let index = 0; index < 6; index += 1) {
     const t = index / 5;
     pushBox(stone, length * 0.2, 0.34, width * (1.72 - t * 0.5), -length * 0.36 + index * length * 0.14, 0.62 - index * 0.22, 0);
@@ -886,21 +1180,23 @@ function authorSteppedInlet(ctx: StationAuthorContext): void {
     ctx.metal.push(ring);
   }
   const canopyX = ctx.quayX - 2.8;
+  const primaryTop = 5.6 * stationScale.heightScale;
   // Stepped canopy: two lower courses are the surface break, then a shallow
   // irimoya cap carries the ridge, fascia, gable and brackets.
   featureBoxes(ctx, "primaryMass", roofs, [
-    13.4, 0.24, 7.0, canopyX, 4.35, 0,
-    12.2, 0.24, 6.2, canopyX + 0.2, 4.68, 0,
+    stationScale.length, 0.24, stationScale.span, canopyX, 4.35 * stationScale.heightScale, 0,
+    stationScale.length * 0.91, 0.24, stationScale.span * 0.89, canopyX + 0.2, 4.68 * stationScale.heightScale, 0,
   ]);
   ctx.articulation.fieldShells += 2;
   ctx.articulation.surfaceBreaks += 1;
-  articulateIrimoya(ctx, canopyX + 0.35, 4.92, 5.6, 5.7, 2.85);
-  for (const z of [-2.6, 2.6]) {
+  articulateIrimoya(ctx, canopyX + 0.35, 4.92 * stationScale.heightScale, primaryTop, stationScale.length * 0.425, stationScale.span * 0.41);
+  for (const z of [-stationScale.span / 3, stationScale.span / 3]) {
     pushBox(timber, 0.26, 2.9, 0.26, canopyX, 3.0, z);
   }
   // Crown lanterns raised clear of the taller canopy: part of the signature.
   for (const [index, z] of [-0.9, 0, 0.9].entries()) {
-    const y = 6.55 + index * 0.28;
+    const crownTop = stationScale.secondLevelTop - (2 - index) * 0.28;
+    const y = crownTop - 0.955;
     secondBox(ctx, timber, 0.22, 1.3, 0.22, canopyX + 0.35, y - 0.5, z * 1.6);
     warmBox(ctx, 0.85, 0.8, 0.85, canopyX + 0.35, y, z * 1.6);
     pushFeatureGeometry(ctx, "secondLevel", roofs, new ConeGeometry(0.72, 0.55, 4), canopyX + 0.35, y + 0.68, z * 1.6);
@@ -908,12 +1204,16 @@ function authorSteppedInlet(ctx: StationAuthorContext): void {
 }
 
 function authorReedBoathouse(ctx: StationAuthorContext): void {
-  const { length, props, timber, walls, width } = ctx;
+  const { length, props, stationScale, timber, walls, width } = ctx;
   const x = ctx.quayX - 3.2;
-  const w = 13;
-  const halfD = 3.5;
-  const eaveY = 3.6;
-  const apexY = 6.1;
+  const w = stationScale.length;
+  const halfD = roofHalfSpanForOuterSpan(
+    stationScale.span,
+    (6.1 - 3.6) * stationScale.heightScale,
+    false,
+  );
+  const eaveY = 3.6 * stationScale.heightScale;
+  const apexY = 6.1 * stationScale.heightScale;
   pushBox(timber, length * 0.7, 0.24, width * 1.1, length * 0.06, 0.1, 0);
   for (const z of [-halfD * 0.84, halfD * 0.84]) pushBox(walls, w * 0.86, 2.05, 0.22, x, QUAY_TOP_Y + 1.025, z);
   // The only high, sharp A-frame: two deep thatch slopes bound at the ridge.
@@ -926,13 +1226,14 @@ function authorReedBoathouse(ctx: StationAuthorContext): void {
     pushBox(timber, 0.18, 2.5, 0.18, x + w * 0.43, 2.8, z);
   }
   pushBox(timber, 0.2, 0.2, 3.1, x + w * 0.43, 4.1, 0);
-  warmBox(ctx, 0.1, 0.9, 1.6, x + w * 0.43 + 0.28, 2.9, -2.6);
+  warmBox(ctx, 0.1, 0.9, 1.6, x + w * 0.43 + 0.28, 2.9, -halfD * 0.74);
   // A thatch dome on a reed drum stays soft against the reeds and cannot be
   // mistaken for the gate, mast, or lantern-tower silhouettes.
-  pushFeatureGeometry(ctx, "secondLevel", walls, new CylinderGeometry(2.0, 2.3, 2.6, 8), x, 7.2, 0);
+  const domeHeight = 1.5 * stationScale.heightScale;
+  pushFeatureGeometry(ctx, "secondLevel", walls, new CylinderGeometry(2.0, 2.3, 2.6, 8), x, stationScale.secondLevelTop - domeHeight - 1.3, 0);
   const dome = new SphereGeometry(1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
-  dome.scale(2.4, 1.5, 2.1);
-  dome.translate(x, 8.5, 0);
+  dome.scale(2.4, domeHeight, 2.1);
+  dome.translate(x, stationScale.secondLevelTop - domeHeight, 0);
   addFeatureGeometry(ctx, "secondLevel", ctx.roofs, dome);
   pushPierPilings(props, length * 0.62, width, length * 0.04, 5);
   scratchMatrix.makeScale(1.45, 1.4, 1.45);
@@ -941,7 +1242,7 @@ function authorReedBoathouse(ctx: StationAuthorContext): void {
 }
 
 function authorStormMole(ctx: StationAuthorContext): void {
-  const { length, stone, timber, walls, width } = ctx;
+  const { length, stationScale, stone, timber, walls, width } = ctx;
   const radius = Math.min(5.2, Math.max(4.0, length * 0.48));
   for (let index = 0; index < 8; index += 1) {
     const angle = -0.78 + index * 0.22;
@@ -961,128 +1262,47 @@ function authorStormMole(ctx: StationAuthorContext): void {
     }
   }
   const houseX = ctx.quayX - 3.2;
-  pushBox(walls, 11, 3.0, 5.8, houseX, QUAY_TOP_Y + 1.5, 0);
-  articulateIrimoya(ctx, houseX, 4.55, 6.2, 6.5, 3.5, { course: true });
-  warmBox(ctx, 0.1, 0.9, 1.8, houseX + 5.55, 3.1, 0);
+  const primaryTop = 6.2 * stationScale.heightScale;
+  pushBox(walls, stationScale.length * 0.85, 3.0, stationScale.span * 0.83, houseX, QUAY_TOP_Y + 1.5, 0);
+  articulateIrimoya(ctx, houseX, 4.55 * stationScale.heightScale, primaryTop, stationScale.length / 2, stationScale.span / 2, { course: true });
+  warmBox(ctx, 0.1, 0.9, 1.8, houseX + stationScale.length * 0.425 + 0.05, 3.1, 0);
 
   // One broad lantern tower terminates the weather-facing curve, girdled by a
   // gallery railing: the storm station's signature.
   const towerX = ctx.quayX + 1.5;
+  const towerRoofBase = stationScale.secondLevelTop - 0.88 * stationScale.heightScale;
   secondBox(ctx, stone, 3.4, 0.5, 3.4, towerX, 1.8, 0);
-  secondBox(ctx, walls, 3.0, 5.55, 3.0, towerX, 4.83, 0);
-  secondBox(ctx, timber, 4.1, 0.22, 4.1, towerX, 7.7, 0);
+  secondBox(ctx, walls, 3.0, towerRoofBase - 2.0, 3.0, towerX, (towerRoofBase + 2.0) / 2, 0);
+  secondBox(ctx, timber, 4.1, 0.22, 4.1, towerX, towerRoofBase - 1.02, 0);
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    secondBox(ctx, timber, 0.13, 0.9, 0.13, towerX + sx * 1.86, 8.28, sz * 1.86);
+    secondBox(ctx, timber, 0.13, 0.9, 0.13, towerX + sx * 1.86, towerRoofBase - 0.55, sz * 1.86);
   }
   secondBoxes(ctx, timber, [
-    4.0, 0.12, 0.12, towerX, 8.7, 1.95,
-    4.0, 0.12, 0.12, towerX, 8.7, -1.95,
-    0.12, 0.12, 4.0, towerX + 1.95, 8.7, 0,
-    0.12, 0.12, 4.0, towerX - 1.95, 8.7, 0,
+    4.0, 0.12, 0.12, towerX, towerRoofBase - 0.1, 1.95,
+    4.0, 0.12, 0.12, towerX, towerRoofBase - 0.1, -1.95,
+    0.12, 0.12, 4.0, towerX + 1.95, towerRoofBase - 0.1, 0,
+    0.12, 0.12, 4.0, towerX - 1.95, towerRoofBase - 0.1, 0,
   ]);
-  warmBox(ctx, 2.5, 0.95, 2.5, towerX, 8.15, 0);
-  articulatePyramidRoof(ctx, towerX, 0, 8.72, 9.6, 2.05, 2.05, "secondLevel");
+  warmBox(ctx, 2.5, 0.95, 2.5, towerX, towerRoofBase - 0.65, 0);
+  articulatePyramidRoof(ctx, towerX, 0, towerRoofBase, stationScale.secondLevelTop, 2.05, 2.05, "secondLevel");
 }
 
-function authorSalvageSlip(ctx: StationAuthorContext): void {
-  const { length, props, timber, width } = ctx;
-  const slipLength = length * 0.92;
-  for (const z of [-width * 0.34, width * 0.34]) {
-    const rail = new BoxGeometry(slipLength, 0.18, 0.22);
-    rail.rotateZ(-0.1);
-    rail.translate(length * 0.08, 0.2, z);
-    timber.push(rail);
-  }
-  pushPierPilings(props, slipLength, width * 0.78, length * 0.08, 5);
-  const shelterX = ctx.quayX - 3.2;
-  const frameX = ctx.quayX + 0.9;
-  // A shallow paired gable shelters the head of the slip.
-  articulateGableRoof(ctx, shelterX, 3.7, 5.6, 13, 3.4, { course: true });
-  // A single hauled-out hull frame: one keel with repeated ribs, resting on
-  // cradle timbers — and a winch drum with chain coil hauling it: the signature.
-  secondBox(ctx, timber, 5.6, 0.28, 0.3, frameX, 2.35, 0);
-  for (const cradleX of [-1.8, 0, 1.8]) {
-    secondBox(ctx, timber, 0.85, 0.55, 2.1, frameX + cradleX, 1.85, 0);
-  }
-  for (let rib = 0; rib < 6; rib += 1) {
-    const x = frameX - 2.2 + rib * 0.88;
-    for (const side of [-1, 1]) {
-      const frame = new BoxGeometry(0.24, 8.4, 0.24);
-      frame.rotateX(side * 0.72);
-      frame.translate(x, 5.75, side * 0.95);
-      addFeatureGeometry(ctx, "secondLevel", timber, frame);
-    }
-  }
-  const winchX = ctx.quayX - 0.6;
-  const winch = new CylinderGeometry(0.55, 0.55, 0.9, 10);
-  winch.rotateZ(Math.PI / 2);
-  winch.translate(winchX, 1.05, 0);
-  ctx.metal.push(winch);
-  for (const side of [-1, 1]) {
-    const winchPost = new BoxGeometry(0.12, 0.9, 0.12);
-    winchPost.translate(winchX, 0.95, side * 0.6);
-    ctx.metal.push(winchPost);
-  }
-  for (const [coilY, coilScale] of [[0.78, 1], [1.0, 0.82]] as const) {
-    const coil = new TorusGeometry(0.6 * coilScale, 0.1, 6, 12);
-    coil.rotateX(Math.PI / 2);
-    coil.translate(winchX + 1.35, coilY, 0.45);
-    ctx.metal.push(coil);
-  }
-  warmBox(ctx, 1.2, 0.8, 0.1, shelterX, 3.4, 3.6);
-}
-
-function authorSignalJetty(ctx: StationAuthorContext): void {
-  const { length, props, timber, width } = ctx;
-  const jettyLength = length * 1.04;
-  pushBox(timber, jettyLength, 0.24, Math.max(1.0, width * 0.52), length * 0.17, 0.11, 0);
-  pushPierPilings(props, jettyLength, Math.max(0.85, width * 0.44), length * 0.17, 6);
-  // The butterfly canopy is the sole roofline; each wing is a mono-pitch with
-  // its own ridge cap, fascia, gablet and stepped course.
-  const canopyX = ctx.quayX - 3.2;
-  for (const side of [-1, 1] as const) {
-    articulateLeanToRoof(ctx, canopyX, side * 1.8, 5.5, 4.05, 1.55, 13, side, { course: true });
-    pushBox(timber, 0.24, 3.95, 0.24, canopyX - 3.4, QUAY_TOP_Y + 1.975, side * 3.3);
-    pushBox(timber, 0.24, 3.95, 0.24, canopyX + 3.4, QUAY_TOP_Y + 1.975, side * 3.3);
-  }
-  ridgeCap(ctx, 13.2, 0.14, 0.55, canopyX, 4.12, 0);
-  // The tall mast carries the station pennant; a signal yard flies two hoisted
-  // pennants over a lookout ladder: the jetty's signature.
-  const mastX = ctx.quayX + 1.0;
-  secondBox(ctx, timber, 0.32, 9.4, 0.32, mastX, QUAY_TOP_Y + 4.7, 0);
-  secondBox(ctx, timber, 0.26, 0.26, 4.2, mastX, 10.3, 0);
-  for (const z of [-1.5, 1.5]) {
-    const pennant = new ConeGeometry(0.26, 1.1, 4);
-    pennant.scale(1, 1, 0.18);
-    pennant.rotateX(Math.PI);
-    pennant.translate(mastX, 9.6, z);
-    ctx.accents.push(pennant);
-  }
-  for (const side of [-1, 1]) {
-    const stile = new BoxGeometry(0.07, 3.6, 0.07);
-    stile.translate(mastX, 3.4, side * 0.3);
-    ctx.metal.push(stile);
-  }
-  for (let rung = 0; rung < 7; rung += 1) {
-    const rungBar = new BoxGeometry(0.06, 0.06, 0.64);
-    rungBar.translate(mastX, 1.9 + rung * 0.5, 0);
-    ctx.metal.push(rungBar);
-  }
-  warmBox(ctx, 0.95, 0.8, 0.1, canopyX, 3.4, 3.1);
-}
 
 function authorPigeonnierLanding(ctx: StationAuthorContext): void {
-  const { length, props, timber, walls, width } = ctx;
+  const { length, props, stationScale, timber, walls, width } = ctx;
   // The detached data landmark remains owned by garden-islets; this cote is
   // the chain station at its wharf and repeats that conical vocabulary at a
   // smaller scale so TON's landing is not the only roofless recipe.
   pushBox(timber, length * 0.52, 0.24, width * 0.78, length * 0.02, 0.1, 0);
   const houseX = ctx.quayX - 3.2;
-  pushBox(walls, 10.6, 3.0, 5.5, houseX, QUAY_TOP_Y + 1.5, 0);
-  articulateConeRoof(ctx, houseX, 4.6, 6.55, 6.5, 3.5, "primaryMass");
-  warmBox(ctx, 0.1, 0.9, 1.7, houseX + 5.35, 3.1, 0);
+  const primaryTop = 6.55 * stationScale.heightScale;
+  pushBox(walls, stationScale.length * 0.84, 3.0, stationScale.span * 0.98, houseX, QUAY_TOP_Y + 1.5, 0);
+  articulateConeRoof(ctx, houseX, 4.6 * stationScale.heightScale, primaryTop, stationScale.length / 2, stationScale.span / 2, "primaryMass");
+  warmBox(ctx, 0.1, 0.9, 1.7, houseX + stationScale.length * 0.42 + 0.05, 3.1, 0);
 
   const coteX = houseX - 3.1;
+  const coteRoofHeight = 1.4 * stationScale.heightScale;
+  const coteRoofCenter = stationScale.secondLevelTop - coteRoofHeight / 2;
   pushFeatureGeometry(ctx, "secondLevel", walls, new CylinderGeometry(1.5, 1.85, 5.6, 8), coteX, 4.35, 0);
   for (const z of [-0.7, 0, 0.7]) {
     warmBox(ctx, 0.3, 0.46, 0.12, coteX + 1.52, 5.6, z);
@@ -1094,9 +1314,9 @@ function authorPigeonnierLanding(ctx: StationAuthorContext): void {
     ctx.metal.push(hole);
     pushBox(timber, 0.55, 0.09, 0.3, coteX + 1.78, holeY - 0.28, holeZ);
   }
-  pushFeatureGeometry(ctx, "secondLevel", ctx.roofs, new ConeGeometry(2.35, 1.4, 8), coteX, 7.85, 0);
+  pushFeatureGeometry(ctx, "secondLevel", ctx.roofs, new ConeGeometry(2.35, coteRoofHeight, 8), coteX, coteRoofCenter, 0);
   const coteFinial = new ConeGeometry(0.13, 0.55, 6);
-  coteFinial.translate(coteX, 8.85, 0);
+  coteFinial.translate(coteX, stationScale.secondLevelTop + 0.3, 0);
   ctx.roofTrim.push(coteFinial);
   ctx.articulation.finials += 1;
   pushPierPilings(props, length * 0.48, width * 0.66, length * 0.02, 4);
@@ -1106,6 +1326,7 @@ function authorStoneQuay(
   ctx: StationAuthorContext,
   type: StationType,
 ): void {
+  if (type === "ethereum-mole") return;
   const { quayLength, quayWidth, quayX, stone } = ctx;
   const depth = type === "fishing-pier" || type === "pigeonnier-islet" ? 2.15 : 2.4;
   featureBoxes(ctx, "quayPlatform", stone, [
@@ -1244,6 +1465,26 @@ function pushSlopeCourses(
     trimCourse(ctx, (ridgeTo - ridgeFrom) * 0.9, 0.15, slopeLength * 0.34, side * pitch, courseX, eaveY + rise * 0.46 + 0.08, side * halfD * 0.55);
   }
   ctx.articulation.surfaceBreaks += 1;
+}
+
+/** Compensate for the lean-to slab's thickness so its rendered top is authored. */
+function leanToHighYForTop(targetTop: number, lowY: number, halfD: number): number {
+  let highY = targetTop - 0.13;
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const pitch = Math.atan2(highY - lowY, 2 * halfD);
+    highY = targetTop - Math.cos(pitch) * 0.13;
+  }
+  return highY;
+}
+
+/** Keep a pitched slab's outer eave on the ladder span despite its thickness. */
+function roofHalfSpanForOuterSpan(targetSpan: number, rise: number, fullRun: boolean): number {
+  let halfSpan = targetSpan / 2;
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const pitch = Math.atan2(rise, halfSpan * (fullRun ? 2 : 1));
+    halfSpan = targetSpan / 2 - Math.sin(pitch) * 0.13;
+  }
+  return halfSpan;
 }
 
 /** Sharp A-frame gable: two slab slopes, ridge beam + cap, optional thatch
@@ -1473,11 +1714,18 @@ function stationFeatures(
   type: StationType,
   geometry: StationFeatureGeometry,
 ): HarborStationFeatures {
+  const primaryMass = measureFeature(geometry.primaryMass);
+  if (type === "ethereum-mole") {
+    const longAxis = Math.max(primaryMass.footprint.length, primaryMass.footprint.span);
+    const shortAxis = Math.min(primaryMass.footprint.length, primaryMass.footprint.span);
+    primaryMass.footprint = { length: longAxis, span: shortAxis };
+  }
   return {
-    primaryMass: measureFeature(geometry.primaryMass),
+    primaryMass,
     quayPlatform: {
       ...measureFeature(geometry.quayPlatform),
       litEdge: geometry.quayLitEdge.length > 0,
+      litEdgeCount: geometry.quayLitEdge.length,
     },
     secondLevel: {
       ...measureFeature(geometry.secondLevel),
@@ -1506,90 +1754,6 @@ function measureFeature(geometries: readonly BufferGeometry[]): HarborFeatureDim
   };
 }
 
-/**
- * Covered corridor between Ethereum and a nearby L2 annex. Geometry is in the
- * precinct's local space, ready for its normal global-batch transform.
- */
-export function authorPrecinctBridge(from: DockRecipe, to: DockRecipe): HarborBucketPart[] {
-  if (from.station.type !== "boathouse-precinct" || to.station.type !== "annex-pavilion") return [];
-  const tileDistance = Math.hypot(to.dock.tile.x - from.dock.tile.x, to.dock.tile.y - from.dock.tile.y);
-  if (tileDistance > 20.5 || tileDistance < 1) return [];
-
-  const dx = to.anchorPosition.x - from.anchorPosition.x;
-  const dz = to.anchorPosition.z - from.anchorPosition.z;
-  const cos = Math.cos(from.anchorRotationY);
-  const sin = Math.sin(from.anchorRotationY);
-  const end = { x: dx * cos - dz * sin, z: dx * sin + dz * cos };
-  const distance = Math.hypot(end.x, end.z);
-  const normal = { x: -end.z / distance, z: end.x / distance };
-  const bow = Math.min(2.2, distance * 0.1);
-  const control = { x: end.x * 0.5 + normal.x * bow, z: end.z * 0.5 + normal.z * bow };
-  const segments = MathUtils.clamp(Math.ceil(distance / 2.2), 4, 12);
-  const deckWidth = 1.18;
-  const deckThickness = 0.26;
-  const railHalfSpan = 0.5;
-  const railHeight = 0.86;
-  const timber: BufferGeometry[] = [];
-  const roofs: BufferGeometry[] = [];
-  const postPairs: Array<{
-    left: { x: number; z: number };
-    right: { x: number; z: number };
-    yaw: number;
-  }> = [];
-  for (let index = 0; index < segments; index += 1) {
-    const a = quadraticPoint(end, control, index / segments);
-    const b = quadraticPoint(end, control, (index + 1) / segments);
-    const mx = (a.x + b.x) / 2;
-    const mz = (a.z + b.z) / 2;
-    const sx = b.x - a.x;
-    const sz = b.z - a.z;
-    const span = Math.hypot(sx, sz);
-    const yaw = -Math.atan2(sz, sx);
-    const deck = new BoxGeometry(span + 0.08, deckThickness, deckWidth);
-    deck.rotateY(yaw);
-    deck.translate(mx, 0.29, mz);
-    timber.push(deck);
-    const pair = {
-      left: { x: mx + Math.sin(yaw) * -railHalfSpan, z: mz + Math.cos(yaw) * -railHalfSpan },
-      right: { x: mx + Math.sin(yaw) * railHalfSpan, z: mz + Math.cos(yaw) * railHalfSpan },
-      yaw,
-    };
-    postPairs.push(pair);
-    for (const side of [-1, 1]) {
-      const px = mx + Math.sin(yaw) * side * railHalfSpan;
-      const pz = mz + Math.cos(yaw) * side * railHalfSpan;
-      pushGeometry(timber, new BoxGeometry(0.1, 1.62, 0.1), px, 1.05, pz);
-      const rail = new BoxGeometry(span + 0.1, 0.13, 0.13);
-      rail.rotateY(yaw);
-      rail.translate(px, railHeight, pz);
-      timber.push(rail);
-      const slope = new BoxGeometry(span + 0.16, 0.1, 0.52);
-      slope.rotateX(side * 0.35);
-      slope.rotateY(yaw);
-      slope.translate(mx, 1.94, mz);
-      roofs.push(slope);
-    }
-  }
-  const timberGeometry = mergeBucket(timber);
-  timberGeometry.userData.precinctBridgePostPairs = postPairs;
-  timberGeometry.userData.precinctBridgeProfile = {
-    deckThickness,
-    deckWidth,
-    railHeight,
-  };
-  return [
-    harborPart("timber", timberGeometry, HARBOR_PALETTE.timber_mid, false, true),
-    harborPart("roof", mergeBucket(roofs), STATION_ROOF_COLOR[from.station.type], false, true),
-  ];
-}
-
-function quadraticPoint(end: { x: number; z: number }, control: { x: number; z: number }, t: number) {
-  const inverse = 1 - t;
-  return {
-    x: 2 * inverse * t * control.x + t * t * end.x,
-    z: 2 * inverse * t * control.z + t * t * end.z,
-  };
-}
 
 export function harborIdentity(dock: DockNode): HarborIdentity {
   return identityForStation(resolveDockStation(dock, 0).type);
@@ -1621,59 +1785,45 @@ function isStationType(value: unknown): value is StationType {
 }
 
 function fallbackStationType(chainId: string): StationType {
-  const options: readonly StationType[] = ["gate-landing", "tea-house-quay", "fishing-pier", "stepped-inlet", "reed-boathouse"];
+  const options: readonly StationType[] = ["hatago-wharf", "uogashi", "tea-house-quay", "fishing-pier", "stepped-inlet", "reed-boathouse"];
   return options[Math.min(options.length - 1, Math.floor(stableUnit(`station-type.${chainId}`) * options.length))]!;
 }
 
 function stationFlagPlacement(type: StationType, length: number, width: number, supply: number) {
   const height = (
-    type === "boathouse-precinct" ? 6.4
-      : type === "signal-jetty" ? 5.4
-        : type === "pigeonnier-islet" ? 4.4
-          : 4.8
+    type === "ethereum-mole" ? 6.4
+      : type === "pigeonnier-islet" ? 4.4
+        : 4.8
   ) + supply * 1.25;
   return {
     height,
-    scale: ((type === "boathouse-precinct" ? 1.05 : 0.72) + supply * 0.24)
+    scale: ((type === "ethereum-mole" ? 1.05 : 0.72) + supply * 0.24)
       * HARBOR_FLAG_SCALE_MULTIPLIER,
-    x: type === "stepped-inlet" ? -length * 0.2
-      : type === "storm-mole" ? length * 0.18
-        : length * 0.4,
-    z: type === "annex-pavilion" ? width * 0.62 : -width * 0.3,
+    x: type === "ethereum-mole" ? -9.5
+      : type === "stepped-inlet" ? -length * 0.2
+        : type === "storm-mole" ? length * 0.18
+          : length * 0.4,
+    z: type === "ethereum-mole" ? -11
+      : type === "hatago-wharf" ? width * 0.62
+        : -width * 0.3,
   };
 }
 
-function stationLampLocals(type: StationType, length: number, width: number, quayX: number, quayWidth: number) {
+function stationLampLocals(type: StationType, length: number, width: number) {
   if (type === "pigeonnier-islet") return [{ height: 1.45, x: length * 0.3, z: 0 }];
   if (type === "stepped-inlet") return [
     { height: 1.72, x: -length * 0.22, z: -width * 0.58 },
     { height: 1.72, x: -length * 0.22, z: width * 0.58 },
   ];
-  if (type === "boathouse-precinct") return [
-    { height: 1.72, x: length * 0.18, z: -width * 0.58 },
-    { height: 1.72, x: length * 0.18, z: width * 0.58 },
-    { height: 1.55, x: quayX, z: quayWidth * 0.42 },
+  if (type === "ethereum-mole") return [
+    { height: 1.72, x: -22.15, z: 1.1 },
+    { height: 1.72, x: -22.15, z: 4.9 },
   ];
   return [
     { height: 1.52, x: length * 0.12, z: -width * 0.42 },
     { height: 1.52, x: length * 0.12, z: width * 0.42 },
   ];
 }
-
-/** Footprint span multiplier per station (Z stays shy of dock separation). */
-const STATION_SPAN_SCALE: Record<StationType, number> = {
-  "annex-pavilion": 1.7,
-  "boathouse-precinct": 3.6,
-  "fishing-pier": 1.05,
-  "gate-landing": 1.8,
-  "pigeonnier-islet": 1,
-  "reed-boathouse": 1.65,
-  "salvage-slip": 1.8,
-  "signal-jetty": 1.55,
-  "stepped-inlet": 1.8,
-  "storm-mole": 3.2,
-  "tea-house-quay": 1.85,
-};
 
 function pushPierPilings(
   props: HarborPropInstance[],
@@ -1726,6 +1876,10 @@ function dockHealthAccent(healthBand: DockNode["healthBand"]): string {
   return "#c9675c";
 }
 
+function dockFlagWavePhase(chainId: string): number {
+  return (stableUnit(`dock-flag-wave.${chainId}`) - 0.5) * 0.7;
+}
+
 function authorChainFlag(
   dock: DockNode,
   accent: Color,
@@ -1746,7 +1900,7 @@ function authorChainFlag(
     scaleMultiplier: HARBOR_FLAG_SCALE_MULTIPLIER,
     sag: 0.07 + stableUnit(`dock-flag-sag.${dock.chainId}`) * 0.06,
     shape,
-    wavePhase: (stableUnit(`dock-flag-wave.${dock.chainId}`) - 0.5) * 0.7,
+    wavePhase: dockFlagWavePhase(dock.chainId),
   };
 }
 
@@ -1808,35 +1962,3 @@ export function gardenDockLampWorldPositions(dock: DockVisual): { x: number; z: 
   return dock.recipe.lampWorldPositions;
 }
 
-const HARBOR_CALM_MARGIN_X = 5.5;
-const HARBOR_CALM_MARGIN_Z = 4.5;
-const HARBOR_CALM_MIN_RADIUS_X = 9;
-const HARBOR_CALM_MIN_RADIUS_Z = 7;
-const HARBOR_CALM_MAX_RADIUS_X = 18;
-const HARBOR_CALM_MAX_RADIUS_Z = 13;
-const HARBOR_CALM_STRENGTH = 0.75;
-
-export function gardenHarborCalmMask(docks: readonly Pick<DockVisual, "root">[]): GardenHarborCalmMask | null {
-  if (docks.length === 0) return null;
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minZ = Infinity;
-  let maxZ = -Infinity;
-  let centerX = 0;
-  let centerZ = 0;
-  for (const dock of docks) {
-    const { x, z } = dock.root.position;
-    centerX += x;
-    centerZ += z;
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x);
-    minZ = Math.min(minZ, z);
-    maxZ = Math.max(maxZ, z);
-  }
-  return {
-    calmStrength: HARBOR_CALM_STRENGTH,
-    center: { x: centerX / docks.length, z: centerZ / docks.length },
-    radiusX: MathUtils.clamp((maxX - minX) / 2 + HARBOR_CALM_MARGIN_X, HARBOR_CALM_MIN_RADIUS_X, HARBOR_CALM_MAX_RADIUS_X),
-    radiusZ: MathUtils.clamp((maxZ - minZ) / 2 + HARBOR_CALM_MARGIN_Z, HARBOR_CALM_MIN_RADIUS_Z, HARBOR_CALM_MAX_RADIUS_Z),
-  };
-}

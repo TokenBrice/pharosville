@@ -1,7 +1,8 @@
 import { BoxGeometry, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
+import { STATION_SCALE_LADDER } from "../systems/dock-layout";
 import { dockFixture, DISPLAY_TILES, ISLAND_TILE } from "./__fixtures__/harbor";
-import { authorDock } from "./garden-docks";
+import { authorDock, type StationType } from "./garden-docks";
 import { createGardenHarborBatch } from "./garden-harbor-batch";
 import {
   createGardenOverviewLod,
@@ -45,6 +46,31 @@ function wholeRingTree(): { crates: Mesh[]; prop: Group; root: Group } {
   root.add(prop);
   return { crates, prop, root };
 }
+const CURRENT_STATION_TYPES: readonly StationType[] = [
+  "ethereum-mole",
+  "hatago-wharf",
+  "uogashi",
+  "stepped-inlet",
+  "fishing-pier",
+  "tea-house-quay",
+  "reed-boathouse",
+  "storm-mole",
+  "pigeonnier-islet",
+];
+
+function overviewHarborBatch() {
+  return createGardenHarborBatch(CURRENT_STATION_TYPES.map((type, index) => {
+    const chainId = `lod-${type}`;
+    return authorDock({
+      ...dockFixture(chainId, 6),
+      station: {
+        coveId: `lod-${type}`,
+        shoreBearing: (index / CURRENT_STATION_TYPES.length) * Math.PI * 2,
+        type,
+      },
+    }, DISPLAY_TILES[index % DISPLAY_TILES.length]!, ISLAND_TILE);
+  }));
+}
 
 const SNAP = { deltaSeconds: 10, reducedMotion: false };
 
@@ -82,8 +108,53 @@ describe("createGardenOverviewLod", () => {
       "island-koi",
       "island-niwaki",
     ]));
+    expect([...Object.keys(STATION_SCALE_LADDER)].sort()).toEqual([...CURRENT_STATION_TYPES].sort());
     // The path is now a primary island read, not a toy-scale gravel apron.
     expect(OVERVIEW_LOD_DETAIL_NAMES).not.toContain("island-path-sweep");
+    // Fine station detail has its own hover/inspect gate and must not be
+    // made visible by this overview policy.
+    expect(OVERVIEW_LOD_DETAIL_NAMES.some((name) => name.startsWith("harbor-fine-"))).toBe(false);
+  });
+
+  it("sheds only harbor greebles while retaining structural station breaks", () => {
+    const batch = overviewHarborBatch();
+    const visibleNames = new Set<string>();
+    const allNames = new Set<string>();
+    batch.root.traverse((object) => {
+      if (!(object instanceof Mesh)) return;
+      allNames.add(object.name);
+      if (object.visible) visibleNames.add(object.name);
+    });
+    const shedNames = [
+      "dock-chain-flag",
+      "dock-lamp-heads",
+      "dock-posts",
+      "harbor-netRack",
+      "station-lit-screens",
+    ];
+    expect(shedNames.every((name) => visibleNames.has(name))).toBe(true);
+    expect(shedNames.every((name) => OVERVIEW_LOD_DETAIL_NAMES.includes(name))).toBe(true);
+
+    // These are the coarse station silhouette and structural breaks. The
+    // Mole and the ordinary archetypes share these buckets, so they must
+    // remain at whole-map framing even as the furniture fades.
+    const structuralNames = [
+      "harbor-timber",
+      "harbor-stone",
+      "harbor-metal",
+      "harbor-accent",
+      "harbor-wall",
+      "harbor-roof",
+      "harbor-piling",
+      "harbor-reedClump",
+    ];
+    expect(structuralNames.every((name) => !OVERVIEW_LOD_DETAIL_NAMES.includes(name))).toBe(true);
+    expect(structuralNames.filter((name) => visibleNames.has(name)).length).toBeGreaterThan(0);
+    expect([...allNames]
+      .filter((name) => name.startsWith("harbor-fine-"))
+      .every((name) => !OVERVIEW_LOD_DETAIL_NAMES.includes(name)))
+      .toBe(true);
+    batch.dispose();
   });
 
   it("leaves the authored transform untouched above the band", () => {
@@ -172,15 +243,7 @@ describe("createGardenOverviewLod", () => {
   });
 
   it("fades the batched posts, windows, and flags without pulling the ring inward", () => {
-    const chains = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
-    const batch = createGardenHarborBatch(chains.map((chainId, index) => (
-      authorDock({
-        ...dockFixture(chainId, 3 + (index % 7)),
-        ...(chainId === "solana" ? {
-          station: { coveId: "lod-fishing-pier", shoreBearing: 0, type: "fishing-pier" as const },
-        } : {}),
-      }, DISPLAY_TILES[index]!, ISLAND_TILE)
-    )));
+    const batch = overviewHarborBatch();
     const root = new Group();
     root.add(batch.root);
     root.updateMatrixWorld(true);
@@ -203,15 +266,7 @@ describe("createGardenOverviewLod", () => {
   });
 
   it("hides the actual batched station-detail drawables below the overview threshold and restores them at default zoom", () => {
-    const chains = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
-    const batch = createGardenHarborBatch(chains.map((chainId, index) => (
-      authorDock({
-        ...dockFixture(chainId, 3 + (index % 7)),
-        ...(chainId === "solana" ? {
-          station: { coveId: "overview.solana", shoreBearing: 0, type: "fishing-pier" as const },
-        } : {}),
-      }, DISPLAY_TILES[index]!, ISLAND_TILE)
-    )));
+    const batch = overviewHarborBatch();
     const root = new Group();
     root.add(batch.root);
     const stationDetails = [

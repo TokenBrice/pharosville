@@ -30,6 +30,9 @@ function ownerName(object: Object3D, root: Object3D, depth: number): string {
  * Wraps the renderer INSTANCE's `renderBufferDirect` (three assigns it per instance in the
  * constructor) for exactly one armed frame, so every counted draw is a draw that happened.
  * `attributedCalls === rendererCalls` is therefore a reconciliation the caller may assert.
+ *
+ * It is deliberately scene-agnostic: merged and instanced harbor drawables
+ * are counted from the renderer call itself rather than a hard-coded part list.
  */
 export function createDrawOwnerRecorder(target: DrawRecorderTarget, root: Object3D, ownerDepth = 2): DrawOwnerRecorder {
   let armed = false;
