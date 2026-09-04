@@ -120,7 +120,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 ## Dock Rules
 
 - Standard chain harbor cap: `8`
-- Preferred chain IDs: `x`, `cove`, `id`, `body`, `tile`, `seawardBearing`, `width`, `type`
+- Preferred chain IDs: `ethereum`, `base`, `tron`, `solana`, `hyperliquid`, `polygon`, `bsc`, `arbitrum`, `ton`
 - Suppressed rendered harbor IDs: `optimism`
 - Detached dispatch wharf chain IDs: `ton`
 

@@ -10,10 +10,11 @@ afterEach(() => {
 });
 
 describe("LegendPanel", () => {
-  it("explains rim-cove stations and the connected Ethereum precinct", () => {
+  it("explains rim-cove stations and the standalone Ethereum mole", () => {
     render(<LegendPanel onClose={() => undefined} />);
     expect(screen.getByRole("heading", { name: "Shore stations & landmarks" })).toBeTruthy();
-    expect(screen.getByText(/Ethereum's boathouse precinct/)).toBeTruthy();
+    expect(screen.getByText(/monumental stone mole/)).toBeTruthy();
+    expect(screen.getByText(/self-standing harbors of their own/)).toBeTruthy();
   });
   it("names all six East-Asian hull families", () => {
     const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);

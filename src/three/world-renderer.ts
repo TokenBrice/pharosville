@@ -3027,8 +3027,6 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
  * omnidirectional pools. Lane world positions mirror the geometry each module
  * builds. The registry caps them per tier; callers register all of them.
  */
-/** How many of the busiest harbours get a route pulse lane (Phase 4). */
-const GARDEN_ROUTE_PULSE_LANES = 4;
 
 export function gardenStationRouteEndpoints(
   stationRoot: { x: number; z: number },
@@ -3139,21 +3137,17 @@ function registerLightLanes(
       });
     }
   }
-  // Phase 4 (item 3): data-pulse lanes on the busiest trade routes. The top
-  // harbours by held value — the same traffic sizing the docks themselves
-  // wear — get one segment each, from open water into the quay, so route
-  // activity reads as glints flowing in off the sea. The pulse speed/phase
-  // are seeded from the lane id inside the registry (never Math.random); the
-  // lanes ride the same per-tier cap and day-cycle gate as every other lane.
-  const busiest = docks
+  // Data-pulse lanes on every rendered trade route. The lane registry admits
+  // only the per-tier simultaneous quota and rotates the rest, so registration
+  // must not pre-truncate the set or quieter harbours never get a turn.
+  const routes = docks
     .filter((dock) => Number.isFinite(dock.recipe.dock.totalUsd) && dock.recipe.dock.totalUsd > 0)
     .toSorted((left, right) => (
       right.recipe.dock.totalUsd - left.recipe.dock.totalUsd
       || left.recipe.dock.id.localeCompare(right.recipe.dock.id)
-    ))
-    .slice(0, GARDEN_ROUTE_PULSE_LANES);
-  const busiestUsd = busiest[0]?.recipe.dock.totalUsd ?? 1;
-  for (const dock of busiest) {
+    ));
+  const busiestUsd = routes[0]?.recipe.dock.totalUsd ?? 1;
+  for (const dock of routes) {
     const endpoints = gardenStationRouteEndpoints(
       dock.root.position,
       dock.recipe.station.shoreBearing,

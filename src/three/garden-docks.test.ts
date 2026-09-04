@@ -1,4 +1,4 @@
-import { Color, Matrix4 } from "three";
+import { Box3, Color, InstancedMesh, Matrix4, Mesh } from "three";
 import { describe, expect, it } from "vitest";
 import type { DockNode } from "../systems/world-types";
 import { HARBOR_PALETTE } from "../systems/palette";
@@ -209,11 +209,66 @@ describe("garden station recipes", () => {
       expect(capital.footprint.length).toBeGreaterThan(other.footprint.length);
       expect(capital.footprint.span).toBeGreaterThan(other.footprint.span);
     }
-    expect(capital.identity.signature).toBe("moon-viewing-deck");
+    expect(capital.identity.signature).toBe("enclosed-basin");
     expect(capital.identity.secondLevel).toBe("bell-tower");
     expect(others.every((other) => other.identity.secondLevel !== "bell-tower")).toBe(true);
     expect(capital.features.secondLevel.height - capital.features.primaryMass.height).toBeGreaterThanOrEqual(3);
     expect(maxGeometryY(capital)).toBeGreaterThan(11);
+  });
+
+  it("pins the Ethereum Mole composition, night discipline, and render budget", () => {
+    const mole = recipeWithStation("ethereum-mole", "ethereum");
+    const bounds = recipeBounds(mole);
+    expect(bounds.max.y).toBeCloseTo(21.5, 6);
+    expect(bounds.max.x - bounds.min.x).toBeLessThanOrEqual(40);
+    expect(bounds.max.z - bounds.min.z).toBeLessThanOrEqual(34);
+
+    // The two masonry bands leave the authored 18 × 14 basin as actual
+    // negative space, rather than covering it with a decorative water plane.
+    const stone = mole.parts.find((part) => part.bucket === "stone")!.geometry;
+    const stonePosition = stone.getAttribute("position");
+    let basinVertices = 0;
+    let longArmEnd = -Infinity;
+    let shortArmEnd = -Infinity;
+    for (let index = 0; index < stonePosition.count; index += 1) {
+      const x = stonePosition.getX(index);
+      const y = stonePosition.getY(index);
+      const z = stonePosition.getZ(index);
+      if (x > -3 && x < 15 && y >= 0.75 && Math.abs(z) < 7) basinVertices += 1;
+      if (z < -7) longArmEnd = Math.max(longArmEnd, x);
+      if (z > 7) shortArmEnd = Math.max(shortArmEnd, x);
+    }
+    expect(basinVertices).toBe(0);
+    expect(longArmEnd).toBeCloseTo(17, 5);
+    expect(shortArmEnd).toBeCloseTo(10, 5);
+    expect(longArmEnd - (-5)).toBeCloseTo(22, 5);
+    expect(shortArmEnd - (-5)).toBeCloseTo(15, 5);
+
+    expect(mole.identity.signature).toBe("enclosed-basin");
+    expect(mole.lampWorldPositions).toHaveLength(2);
+    expect(mole.props.filter((prop) => prop.kind === "lampHead")).toHaveLength(0);
+    expect(mole.features.quayPlatform.litEdgeCount).toBe(1);
+    expect(mole.features.warmWindowCount).toBeLessThanOrEqual(4);
+    const emissive = mole.parts.find((part) => part.bucket === "window")!.geometry;
+    emissive.computeBoundingBox();
+    expect(emissive.boundingBox!.max.y).toBeLessThanOrEqual(15);
+    const vermillion = new Color(HARBOR_PALETTE.vermillion).getHex();
+    expect(mole.parts.every((part) => part.color.getHex() !== vermillion)).toBe(true);
+
+    const batch = createGardenHarborBatch([mole]);
+    let triangles = 0;
+    let draws = 0;
+    batch.root.traverse((object) => {
+      if (!(object instanceof Mesh) || !object.visible) return;
+      draws += 1;
+      const geometryTriangles = object.geometry.index
+        ? object.geometry.index.count / 3
+        : object.geometry.getAttribute("position").count / 3;
+      triangles += geometryTriangles * (object instanceof InstancedMesh ? object.count : 1);
+    });
+    expect(triangles).toBeLessThanOrEqual(9_000);
+    expect(draws).toBeLessThanOrEqual(8);
+    batch.dispose();
   });
 
   it("keeps industrial identity props out and permits one works prop at most", () => {
@@ -333,4 +388,13 @@ function maxGeometryY(recipe: DockRecipe): number {
     for (let index = 0; index < position.count; index += 1) max = Math.max(max, position.getY(index));
   }
   return max;
+}
+
+function recipeBounds(recipe: DockRecipe): Box3 {
+  const bounds = new Box3().makeEmpty();
+  for (const part of recipe.parts) {
+    part.geometry.computeBoundingBox();
+    if (part.geometry.boundingBox) bounds.union(part.geometry.boundingBox);
+  }
+  return bounds;
 }

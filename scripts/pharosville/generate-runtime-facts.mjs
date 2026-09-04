@@ -1,9 +1,13 @@
 #!/usr/bin/env node
+import "tsx/cjs";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { aggregateBudgets, bundleBudgets } from "../bundle-budgets.mjs";
+
+const require = createRequire(import.meta.url);
 
 const OUTPUT_PATH = "docs/pharosville/RUNTIME_FACTS.md";
 
@@ -231,15 +235,22 @@ function parseHeritageFacts(repoRoot) {
     .map((match) => ({ id: match[1], scale: Number(match[2]) }))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
-
 function parseDockFacts(repoRoot) {
   const dockSource = readText(repoRoot, "src/systems/chain-docks.ts");
   const layoutSource = readText(repoRoot, "src/systems/world-layout.ts");
-  const preferredBlock = matchRequired(layoutSource, /PREFERRED_DOCK_TILES:[\s\S]*?=\s*{([\s\S]*?)};/, "preferred dock tiles")[1];
+  // Preferred berths are read from the module itself rather than scraped from
+  // its text: the export already changed shape once (object literal to
+  // Object.fromEntries) and the old regex silently slid to the next `= {`
+  // block, publishing slot keys as chain ids while the self-consistent
+  // --check gate stayed green.
+  const worldLayout = require(resolve(repoRoot, "src/systems/world-layout.ts"));
+  if (!worldLayout.PREFERRED_DOCK_TILES) {
+    throw new Error("PREFERRED_DOCK_TILES is not exported by src/systems/world-layout.ts.");
+  }
   return {
     maxChainHarbors: normalizeNumber(matchRequired(dockSource, /MAX_CHAIN_HARBORS\s*=\s*([\d_]+)/, "max chain harbors")[1]),
     pigeonnierChainIds: parseQuotedArray(layoutSource, /PIGEONNIER_HARBOR_CHAIN_IDS\s*=\s*\[([\s\S]*?)]\s*as const/, "pigeonnier chain IDs"),
-    preferredChainIds: [...preferredBlock.matchAll(/^\s*([A-Za-z0-9_-]+):/gm)].map((match) => match[1]),
+    preferredChainIds: Object.keys(worldLayout.PREFERRED_DOCK_TILES),
     suppressedChainIds: parseQuotedArray(dockSource, /SUPPRESSED_CHAIN_HARBOR_IDS\s*=\s*new Set<string>\(\[([\s\S]*?)]\)/, "suppressed chain IDs"),
   };
 }
