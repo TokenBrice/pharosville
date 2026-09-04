@@ -751,11 +751,25 @@ pins that wording (`src/components/legend-panel.test.tsx:12-17`).
 both footprint area and height; Ethereum ≥1.20× the largest station under any feed;
 rendered-length ordering follows supply on the dense fixture; min base L ≥12.6; every roof
 rung distinct; detail-panel and ledger strings derive from `dock.station.type` with no
-duplicated literals; no UI copy mentions a precinct or annexes. **Include the rendered
-changelog:** `src/content/pharosville-changelog.ts:36` still advertises "the Ethereum
-campanile precinct bridged to its annexes" and "a torii landing" to users — reword it.
-**Leave `:52` alone**: its "torii grove" refers to the still-rendered garden-islet torii,
-not the deleted station form.
+duplicated literals; no **current-state** UI copy mentions a precinct or annexes — the
+legend panel especially, which described the precinct and annexes as "one connected place".
+
+**Amended 2026-09-04 — the rendered changelog is exempt, and its historical entries are
+restored.** This clause originally required rewording
+`src/content/pharosville-changelog.ts:36` because it "advertises the Ethereum campanile
+precinct bridged to its annexes to users". That was a mistake of category, made when the
+concern was current-state copy claiming scenery that does not exist. `changelog-panel.tsx`
+renders every entry under an explicit version badge and a `<time>` element, so it is a dated
+historical record, not a description of the present world — and v0.9.0 genuinely did ship the
+precinct, the torii landing and the signal mast. Retconning that bullet to describe a mole
+states something false about a past release, and doing it in only one of the two mirrored
+surfaces would additionally break the agreement `RELEASES.md` requires.
+
+So the v0.9.0 and v0.10.0 bullets are restored verbatim to match `CHANGELOG.md`, and the
+removal is recorded where it belongs: in the v0.11.0 entry, which states that the precinct,
+its annex pavilions, the connecting bridges and the station torii were replaced by the
+Ethereum Mole and a distributed ring. **Leave `:52` alone** either way: its "torii grove"
+refers to the still-rendered garden-islet torii, not the deleted station form.
 
 **Phase 5 — Fidelity.** The §7 adopted programme, ranks 1–6, plus the fine-detail split fix.
 Rank 7 (atlas) only if the operator's preview shows material scale still missing.

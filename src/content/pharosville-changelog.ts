@@ -12,13 +12,28 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-09-04-the-ethereum-mole",
+    version: PHAROSVILLE_RELEASE_VERSIONS.theEthereumMole,
+    date: "2026-09-04",
+    title: "The Ethereum Mole",
+    summary: "Ethereum leaves the west-shore cluster to stand alone as a monumental stone mole — the harbor's counterpart to the lighthouse — while the other chains spread into a ring of nine distinct harbors around the whole rim.",
+    bullets: [
+      "Rebuilt Ethereum as a monument instead of a bigger shed: a low civic hall under a deep hipped roof, an offset open belfry rising past every other roofline, and two unequal breakwater arms enclosing a still basin of water you enter through an angled gap. It is deliberately the lighthouse's opposite — measured masonry and a carved-out void where the Pharos is a natural promontory with a pale crown and fire.",
+      "Spread the chain harbors from a four-station west-shore cluster into eight mouths around the rim, so the largest stretch of station-free shore falls from 111° to 49°, no three harbors crowd one neighborhood, and nothing else stands within thirty tiles of Ethereum. The precinct, its annex pavilions, the bridges that joined them and the station torii are gone; Base, Arbitrum and Polygon now keep self-standing harbors of their own.",
+      "Gave every harbor a form you can name at a glance — a lantern-rowed travellers' inn, a market hall under a great hanging steelyard, a stepped stone inlet, a tea house's moon window, a thatched reed dome, a storm-mole lantern tower, a pigeon cote on its islet — each with its own chain accent, and a roof palette now governed by the same colour contract as the rest of the world.",
+      "Rebuilt the buildings themselves: recessed bays, real shadow-casting reveals, chamfered hero edges, waterline foundations that join the shore, and windows that vary in number rather than brightness. Station density rises roughly fourfold while the night stays exactly as quiet — the lighthouse remains the one dominant light, and the Mole's belfry carries no glow at all.",
+      "Fixed things the old cluster had been hiding: ships could report moored while rendering up to fifty-five tiles short of the berth, sail straight through a breakwater, or moor nowhere at all when the data feed spelled a chain's name differently; quieter shipping routes never took their turn in the lane rotation; and scenery could grow through a building because clearance was measured against the cove mouth rather than the harbor standing on it.",
+    ],
+    source: "Collected from commits `3c1890d` through `2b3ba3a` after v0.10.0 — the epic harbor redistribution, monument, and authoring-fidelity waves.",
+  },
+  {
     id: "2026-09-03-the-inhabited-rim",
     version: PHAROSVILLE_RELEASE_VERSIONS.inhabitedRim,
     date: "2026-09-03",
     title: "The Inhabited Rim",
     summary: "The harbor ring finishes its circuit: stations spread around the whole rim including the near shore, every station roof becomes articulated craft instead of a single plane, and the map's near edges end in land rather than stray open water.",
     bullets: [
-      "Spread the harbor stations around the whole rim — the far north keeps at most two, the camera-near southern shore carries stations of its own, both east and west extremes are inhabited, and no three stations crowd one neighborhood anywhere on the rim — so the ring no longer reads as a distant row across empty foreground water.",
+      "Spread the harbor stations around the whole rim — the far north keeps at most two, the camera-near southern shore carries stations of its own, both east and west extremes are inhabited, and outside the Ethereum precinct no three stations crowd one neighborhood — so the ring no longer reads as a distant row across empty foreground water.",
       "Gave every station an articulated roof — ridge beam and cap, eave fascia, gable or gablet end, bracketed eaves, and a pent skirt or stepped course breaking the plane — with one named signature element per station, taller second-level silhouettes led by the Ethereum campanile, and the chain flag held at 1.6 times its former scale.",
       "Carried the authored shoreline out past the map's south and east edges, where a band of open water used to float free of the garden, and dressed that near ground with thinning pines, occasional boulders, and gentle relief; the far horizons still dissolve into haze, the Danger Strait stays open, and no tile, route, berth, or reading changes.",
       "Re-laid Wreck Shoal as a quiet graveyard: eighteen dark, waterlogged, half-sunk hulls in four uneven groups with open water between them, bone-pale frames and ribs showing through, a few leaning masts and tattered pennants, and one lantern still burning on the largest wreck — cause colour stays a small desaturated mark on the grave stone, and every grave keeps its ledger and detail-panel record.",
@@ -33,7 +48,7 @@ export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
     summary: "PharosVille becomes a spacious water-led garden: a soft-edged shore frames the lighthouse, stations move to coves, and the fleet travels between places you can read.",
     bullets: [
       "Recomposed the world as a finite garden plate with an irregular rim, two openings, a graded sky beyond the shore, borrowed mountains in the fog seam, and an engawa foreground that gives the lighthouse room to breathe.",
-      "Moved every chain to a shore station in its named water, each with a silhouette you can name from the default view — an Ethereum mole with an offset campanile standing alone on the west shore, a lantern-rowed travellers' inn, a market hall under a great hanging steelyard, a thatched reed dome, a storm-mole lantern tower, a tea house's moon window — with lit stone quays and warm windows after dusk.",
+      "Moved every chain to a shore station in its named water, each with a silhouette you can name from the default view — the Ethereum campanile precinct bridged to its annexes, a torii landing, a thatched reed dome, a storm-mole lantern tower, a signal mast — with lit stone quays and warm windows after dusk.",
       "Made the seven waters into places — Calm Anchorage, Watch Breakwater, Alert Channel, Warning Shoals, Danger Strait, Ledger Mooring, and Wreck Shoal — with distinct water character and boundary seams, larger edge geography, steles carved legibly at default zoom, and a quiet wreckyard of half-sunk hulls, spars, and grave markers that keeps its accessible ledger parity.",
       "Gave the fleet six East-Asian hull families and voyages with paired arrivals, departures, and long restless rests, so movement reads as a calm journey rather than a uniform field; every hull now stays on the water plate, and moored hulls sit at their station berths.",
       "Lifted the night so hulls, island, and rim still read against moonlit water, and lengthened the lighthouse beam to the rim with a soft volumetric tail and a light pool where it lands.",
