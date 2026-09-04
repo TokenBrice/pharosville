@@ -86,8 +86,18 @@ export const aggregateBudgets = {
   // 2026-07-25 Grand Scale Revamp (D7/O9): measured 1,856.5 KiB raw /
   // 526.6 KiB gzip. Raised alongside the renderer chunk so the earmarked
   // headroom for the remaining look work fits.
+  // 2026-09-04 epic harbor redistribution (v0.11.0): the eight-mouth ring, the
+  // Ethereum Mole and §7 fidelity ranks 1-6 measured 2,581.1 KiB raw /
+  // 839,668 bytes gzip against the 839,680-byte cap — 99.999%, leaving TWELVE
+  // bytes. The gate passed, so nothing shipped over budget, but a cap with 12
+  // bytes spare is a landmine rather than a budget: ~250 characters of added
+  // release-notes prose failed it, which is how this was found. Measured with
+  // the checker's own `gzipSync` defaults (level 9 reads 837,570 and misleads).
+  // Gzip raised to measured+8% (820 -> 886 KiB), matching the 2026-07-29
+  // precedent above. Raw untouched at 2,581.1 of 3,200 used. The frame-time
+  // gate is deliberately NOT relaxed alongside it.
   maxJsRawBytes: 3_200 * 1024,
-  maxJsGzipBytes: 820 * 1024,
+  maxJsGzipBytes: 886 * 1024,
 };
 
 export const forbiddenBundleChunks = [
