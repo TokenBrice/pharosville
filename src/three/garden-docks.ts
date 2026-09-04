@@ -17,7 +17,7 @@ import {
   TorusGeometry,
   Vector3,
 } from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   stationFootprint,
   stationScaleFor,
@@ -302,6 +302,8 @@ export function authorDock(
     ridgeCaps: 0,
     surfaceBreaks: 0,
   };
+
+  const fineMetal: BufferGeometry[] = [];
   const featureGeometry: StationFeatureGeometry = {
     primaryMass: [],
     quayLitEdge: [],
@@ -310,20 +312,22 @@ export function authorDock(
     warmWindows: [],
   };
   const stationContext: StationAuthorContext = {
-    accents, articulation, featureGeometry, flagWavePhase, length, metal, props, quayLength, quayWidth, quayX, roofTrim, roofs, stationScale, stone, supply, timber, walls, width, windows,
+    accents, articulation, featureGeometry, fineMetal, flagWavePhase, length, metal, props, quayLength, quayWidth, quayX, roofTrim, roofs, stationScale, stone, supply, timber, walls, width, windows,
   };
   authorStoneQuay(stationContext, station.type);
   STATION_AUTHORS[station.type](stationContext);
+  authorStationFidelity(stationContext, station.type);
 
   const parts: HarborBucketPart[] = [];
   pushMergedPart(parts, "timber", timber, HARBOR_PALETTE.timber_mid, false, true);
   pushMergedPart(parts, "stone", stone, stoneColor, false, true);
-  pushMergedPart(parts, "metal", metal, "#3d3327", true, false);
+  pushMergedPart(parts, "metal", metal, HARBOR_PALETTE.iron_dark, false, false);
+  pushMergedPart(parts, "metal", fineMetal, HARBOR_PALETTE.iron_dark, true, false);
   pushMergedPart(parts, "wall", walls, "#a99a79", false, true);
   pushMergedPart(parts, "roof", roofs, STATION_ROOF_COLOR[station.type], false, true);
   pushMergedPart(parts, "roof", roofTrim, roofTrimColor(station.type), false, true);
   pushMergedPart(parts, "window", windows, HARBOR_PALETTE.lantern_glow, false, false);
-  pushMergedPart(parts, "accent", accents, "#ad3f2f", false, true);
+  pushMergedPart(parts, "accent", accents, STATION_ACCENT_COLOR[station.type], false, true);
   if (!ethereumMole && quayHealth < 0.5) {
     const cracks: BufferGeometry[] = [];
     for (let index = 0; index < 3; index += 1) {
@@ -407,6 +411,7 @@ interface StationAuthorContext {
   featureGeometry: StationFeatureGeometry;
   flagWavePhase: number;
   length: number;
+  fineMetal: BufferGeometry[];
   metal: BufferGeometry[];
   props: HarborPropInstance[];
   quayLength: number;
@@ -439,17 +444,29 @@ interface RoofArticulationProfile {
   surfaceBreaks: number;
 }
 
-/** The station's own roof hex — one distinct rung per archetype (test-pinned). */
+/** The station's own palette-governed roof rung, one per archetype. */
 const STATION_ROOF_COLOR: Record<StationType, string> = {
-  "ethereum-mole": "#a95f43",
-  "fishing-pier": "#9c694c",
-  "hatago-wharf": "#56606b",
-  "pigeonnier-islet": "#bc7455",
-  "reed-boathouse": "#c7ae72",
-  "stepped-inlet": "#747a7c",
-  "storm-mole": "#354750",
-  "tea-house-quay": "#40515b",
-  uogashi: "#6f7a5e",
+  "ethereum-mole": HARBOR_PALETTE.roof_clay,
+  "fishing-pier": HARBOR_PALETTE.roof_timber_shake,
+  "hatago-wharf": HARBOR_PALETTE.roof_slate_kawara,
+  "pigeonnier-islet": HARBOR_PALETTE.roof_cote_clay,
+  "reed-boathouse": HARBOR_PALETTE.roof_thatch,
+  "stepped-inlet": HARBOR_PALETTE.roof_dressed_stone,
+  "storm-mole": HARBOR_PALETTE.roof_storm_slate,
+  "tea-house-quay": HARBOR_PALETTE.roof_tea_house_slate,
+  uogashi: HARBOR_PALETTE.roof_weathered_copper,
+};
+
+const STATION_ACCENT_COLOR: Record<StationType, string> = {
+  "ethereum-mole": HARBOR_PALETTE.stone_mid,
+  "fishing-pier": HARBOR_PALETTE.aurora_green,
+  "hatago-wharf": HARBOR_PALETTE.timber_warm,
+  "pigeonnier-islet": HARBOR_PALETTE.moonlight,
+  "reed-boathouse": HARBOR_PALETTE.timber_warm,
+  "stepped-inlet": HARBOR_PALETTE.iron_dark,
+  "storm-mole": HARBOR_PALETTE.fog_pale,
+  "tea-house-quay": HARBOR_PALETTE.lantern_warm,
+  uogashi: HARBOR_PALETTE.lantern_cold,
 };
 
 /** The ridge/fascia trim is the station's own roof hex scaled down, never a new tone. */
@@ -559,6 +576,37 @@ function pushBoxes(bucket: BufferGeometry[], table: readonly number[]): void {
   }
 }
 
+/**
+ * A one-strip chamfer for masonry hero edges. The eight-point section costs
+ * 28 triangles rather than rounding every edge and keeps the broad faces hard.
+ */
+function chamferedBoxGeometry(w: number, h: number, d: number, bevel: number): BufferGeometry {
+  const b = Math.min(bevel, h * 0.24, d * 0.24);
+  return toCreasedNormals(prismGeometry([
+    [-d / 2 + b, -h / 2],
+    [d / 2 - b, -h / 2],
+    [d / 2, -h / 2 + b],
+    [d / 2, h / 2 - b],
+    [d / 2 - b, h / 2],
+    [-d / 2 + b, h / 2],
+    [-d / 2, h / 2 - b],
+    [-d / 2, -h / 2 + b],
+  ], w), Math.PI / 5);
+}
+
+function pushChamferedBox(
+  bucket: BufferGeometry[],
+  w: number,
+  h: number,
+  d: number,
+  x: number,
+  y: number,
+  z: number,
+  bevel = 0.08,
+): void {
+  pushGeometry(bucket, chamferedBoxGeometry(w, h, d, bevel), x, y, z);
+}
+
 function featureBox(
   ctx: StationAuthorContext,
   feature: keyof StationFeatureGeometry,
@@ -648,6 +696,122 @@ function eaveBracketRow(
     }
   }
 }
+
+interface FacadeFidelity {
+  bays: number;
+  openingHeight: number;
+  openingWidth: number;
+  xOffset: number;
+}
+
+const FACADE_FIDELITY: Record<Exclude<StationType, "ethereum-mole">, FacadeFidelity> = {
+  "fishing-pier": { bays: 2, openingHeight: 1.7, openingWidth: 0.62, xOffset: -3.2 },
+  "hatago-wharf": { bays: 4, openingHeight: 2.2, openingWidth: 0.58, xOffset: -3.4 },
+  "pigeonnier-islet": { bays: 3, openingHeight: 1.25, openingWidth: 0.46, xOffset: -3.2 },
+  "reed-boathouse": { bays: 1, openingHeight: 2.65, openingWidth: 0.52, xOffset: -3.2 },
+  "stepped-inlet": { bays: 3, openingHeight: 1.35, openingWidth: 0.48, xOffset: -2.8 },
+  "storm-mole": { bays: 2, openingHeight: 1.85, openingWidth: 0.68, xOffset: -3.2 },
+  "tea-house-quay": { bays: 2, openingHeight: 1.55, openingWidth: 0.42, xOffset: -3.2 },
+  uogashi: { bays: 5, openingHeight: 2.35, openingWidth: 0.7, xOffset: -3.2 },
+};
+
+/**
+ * Overview geometry shared as a grammar, never as a silhouette: a battered
+ * waterline seat, one recessed working face, and a single chain-coloured
+ * plaque. The opposite wall and most of every roof stay deliberately calm.
+ */
+function authorStationFidelity(ctx: StationAuthorContext, type: StationType): void {
+  if (type === "ethereum-mole") {
+    authorMoleMasonry(ctx);
+    pushChamferedBox(ctx.accents, 0.16, 0.62, 1.2, -2.91, 1.12, -5.1, 0.05);
+    return;
+  }
+  const spec = FACADE_FIDELITY[type];
+  const hallX = ctx.quayX + spec.xOffset;
+  const facadeX = hallX + ctx.stationScale.length / 2;
+  const span = ctx.stationScale.span;
+  const bayRun = span / spec.bays;
+
+  // The submerged toe overlaps both land and water. Its chamfer is confined
+  // to the exposed nosing instead of softening every plank and fitting.
+  pushChamferedBox(
+    ctx.stone,
+    ctx.quayLength + 0.35,
+    0.72,
+    ctx.quayWidth + 0.3,
+    ctx.quayX,
+    0.12,
+    0,
+    0.11,
+  );
+  for (const z of [-ctx.quayWidth / 2 - 0.19, ctx.quayWidth / 2 + 0.19]) {
+    pushBox(ctx.stone, ctx.quayLength + 0.5, 0.2, 0.16, ctx.quayX, 0.28, z);
+  }
+
+  // Dark infill sits 0.14 behind the pilaster/lintel plane. Bay counts and
+  // proportions are intentionally sparse and station-specific.
+  for (let bay = 0; bay < spec.bays; bay += 1) {
+    const z = -span / 2 + bayRun * (bay + 0.5);
+    const width = bayRun * spec.openingWidth * (bay === spec.bays - 1 ? 0.82 : 1);
+    const height = spec.openingHeight * (bay % 2 === 0 ? 1 : 0.82);
+    pushBox(ctx.metal, 0.1, height, width, facadeX - 0.13, QUAY_TOP_Y + height / 2 + 0.22, z);
+    pushChamferedBox(ctx.timber, 0.22, height + 0.34, 0.22, facadeX + 0.01, QUAY_TOP_Y + height / 2 + 0.22, z - width / 2 - 0.13, 0.04);
+    pushBox(ctx.timber, 0.2, 0.22, width + 0.45, facadeX + 0.02, QUAY_TOP_Y + height + 0.31, z);
+  }
+  pushBox(ctx.timber, 0.2, 0.24, span * 0.86, facadeX + 0.02, QUAY_TOP_Y + 0.2, 0);
+  pushChamferedBox(ctx.accents, 0.16, 0.58, 0.9, ctx.quayX + ctx.quayLength / 2 + 0.08, 1.08, -ctx.quayWidth * 0.3, 0.05);
+}
+
+function authorMoleMasonry(ctx: StationAuthorContext): void {
+  // Running-bond wet masonry on the two outer arm faces. Three fixed tide
+  // courses retain the specified count; alternating joints keep them from
+  // becoming ruler stripes.
+  for (const [from, to, z] of [[-5, 17, -12.08], [-5, 10, 11.58]] as const) {
+    for (let course = 0; course < 3; course += 1) {
+      let x = from - (course % 2) * 0.7;
+      let joint = 0;
+      while (x < to) {
+        const nominal = [1.25, 1.7, 1.45, 2.05, 1.55][joint % 5]!;
+        const run = Math.min(nominal, to - x);
+        if (run > 0.3) pushChamferedBox(ctx.stone, run - 0.05, 0.25, 0.24, x + run / 2, 0.12 + course * 0.31, z, 0.045);
+        x += nominal;
+        joint += 1;
+      }
+    }
+  }
+
+  // Ashlar bay rhythm only on the seaward hall face; the opposite 24-unit
+  // wall and the central roof fields remain calm.
+  for (let course = 0; course < 4; course += 1) {
+    let z = -11.7 - (course % 2) * 0.62;
+    let joint = 0;
+    while (z < 11.7) {
+      const nominal = [1.18, 1.52, 1.36, 1.82, 2.1][joint % 5]!;
+      const run = Math.min(nominal, 11.7 - z);
+      if (run > 0.28) pushChamferedBox(ctx.stone, 0.24, 0.62, run - 0.05, -3.13, 3.35 + course * 0.7, z + run / 2, 0.055);
+      z += nominal;
+      joint += 1;
+    }
+  }
+
+  // Chamfered apron setts stop the 26 × 10 court reading as one slab while
+  // leaving a broad uninterrupted centre on the bent gate-to-hall axis.
+  for (let row = 0; row < 3; row += 1) {
+    for (let column = 0; column < 12; column += 1) {
+      if (row === 1 && column >= 4 && column <= 8) continue;
+      const x = -21.9 + row * 2.35;
+      const z = -11.8 + column * 2.05 + (row % 2) * 0.35;
+      pushChamferedBox(ctx.stone, 2.08, 0.2, 1.82, x, 2.76, z, 0.065);
+    }
+  }
+
+  // The one thick gateway compresses an empty centre. Bell and gate stay
+  // coarse structural ironwork; civic bollards remain inspection greebles.
+  pushChamferedBox(ctx.metal, 0.46, 3.7, 0.46, -22.2, 3.6, 1.15, 0.07);
+  pushChamferedBox(ctx.metal, 0.46, 3.7, 0.46, -22.2, 3.6, 4.85, 0.07);
+  pushChamferedBox(ctx.metal, 0.5, 0.62, 4.45, -22.2, 5.18, 3, 0.09);
+}
+
 
 function authorEthereumMole(ctx: StationAuthorContext): void {
   const { metal, roofs, stone, timber, walls } = ctx;
@@ -766,7 +930,7 @@ function authorEthereumMole(ctx: StationAuthorContext): void {
     [-2.8, -7.55], [0.1, -7.55], [4.6, -7.55], [9.8, -7.55], [14.2, -7.55],
     [-2.1, 7.55], [2.4, 7.55], [7.7, 7.55],
   ]) {
-    pushBox(metal, 0.44, 0.72, 0.44, x, 1.91, z);
+    pushBox(ctx.fineMetal, 0.44, 0.72, 0.44, x, 1.91, z);
   }
 }
 
@@ -832,13 +996,13 @@ function authorHatagoWharf(ctx: StationAuthorContext): void {
     0.18, 0.18, hallD * 1.06, hallX + hallW * 0.52, roofEave - 0.4, 0,
     0.14, 0.14, hallD * 1.06, hallX + hallW * 0.52, lowerTop + 0.7, 0,
   ]);
-  // A full irimoya crowns the guest floor. The upper lantern row grows with
-  // supply, making a busier inn read as more occupied rather than merely wider.
+  // A full irimoya crowns the guest floor. Supply may occupy one more room,
+  // but the row stays sparse and uneven so it never becomes a bright barcode.
   articulateIrimoya(ctx, hallX, roofEave, roofTop, hallW / 2, hallD / 2, { course: true }, "secondLevel");
-  const guestWindows = 3 + Math.round(ctx.supply * 5);
+  const guestWindows = 2 + Math.round(ctx.supply * 2);
+  const windowFractions = [-0.36, -0.1, 0.17, 0.39];
   for (let index = 0; index < guestWindows; index += 1) {
-    const z = -hallD * 0.38 + (index / Math.max(1, guestWindows - 1)) * hallD * 0.76;
-    warmBox(ctx, 0.12, 0.78, 0.48, hallX + hallW / 2 + 0.07, 7.55, z);
+    warmBox(ctx, 0.1, index % 2 === 0 ? 0.82 : 0.66, 0.42, hallX + hallW / 2 + 0.07, 7.55, windowFractions[index]! * hallD);
   }
 
   // A stepped water stair gets its own subordinate roof and paired noren.
@@ -988,11 +1152,11 @@ function authorFishingPier(ctx: StationAuthorContext): void {
   const winch = new CylinderGeometry(0.5, 0.5, 0.85, 10);
   winch.rotateZ(Math.PI / 2);
   winch.translate(length * 0.32, 0.78, width * 0.45);
-  ctx.metal.push(winch);
+  ctx.fineMetal.push(winch);
   for (const side of [-1, 1]) {
     const winchPost = new BoxGeometry(0.1, 0.75, 0.1);
     winchPost.translate(length * 0.32, 0.62, width * 0.45 + side * 0.55);
-    ctx.metal.push(winchPost);
+    ctx.fineMetal.push(winchPost);
   }
   // Exactly one instanced works prop adds the visible net web inside that frame.
   scratchMatrix.makeScale(1.45, 1.9, Math.max(1.2, width));

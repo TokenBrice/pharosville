@@ -86,21 +86,45 @@ describe("createGardenHarborBatch", () => {
     }
   });
 
-  it("keeps authored roof contrast fixed when a dock's semantic accent changes", () => {
+  it("bakes each architectural accent into its own range and recolours only the selected station", () => {
     const batch = batchOfNine();
     const roof = batch.bucketMeshes.roof as Mesh;
-    const colors = roof.geometry.getAttribute("color");
-    const before = Array.from(colors.array);
+    const accent = batch.bucketMeshes.accent as Mesh;
+    const roofBefore = Array.from(roof.geometry.getAttribute("color").array);
+    const accentBefore = Array.from(accent.geometry.getAttribute("color").array);
+    let vertexStart = 0;
+    for (const dock of batch.docks) {
+      const part = dock.recipe.parts.find((candidate) => candidate.bucket === "accent")!;
+      const baked = accent.geometry.getAttribute("color");
+      const expected = part.color;
+      expect(baked.getX(vertexStart)).toBeCloseTo(expected.r, 6);
+      expect(baked.getY(vertexStart)).toBeCloseTo(expected.g, 6);
+      expect(baked.getZ(vertexStart)).toBeCloseTo(expected.b, 6);
+      vertexStart += part.geometry.getAttribute("position").count;
+    }
+    const targetIndex = CHAINS.indexOf("solana");
+    const targetStart = batch.docks.slice(0, targetIndex).reduce((sum, dock) => (
+      sum + dock.recipe.parts.find((part) => part.bucket === "accent")!.geometry.getAttribute("position").count * 3
+    ), 0);
+    const targetCount = batch.docks[targetIndex]!.recipe.parts
+      .find((part) => part.bucket === "accent")!.geometry.getAttribute("position").count * 3;
     batch.setDockAccent("solana", new Color("#ff0000"));
-    const after = Array.from(colors.array);
-    const changed = before.filter((value, index) => value !== after[index]).length;
-    expect(changed).toBe(0);
+    const roofAfter = Array.from(roof.geometry.getAttribute("color").array);
+    const accentAfter = Array.from(accent.geometry.getAttribute("color").array);
+    const changed = accentBefore.flatMap((value, index) => value === accentAfter[index] ? [] : [index]);
+    expect(roofBefore.filter((value, index) => value !== roofAfter[index])).toHaveLength(0);
+    expect(changed).toEqual(Array.from({ length: targetCount }, (_, index) => targetStart + index));
     expect(batch.docks.find((dock) => dock.recipe.dock.chainId === "solana")?.recipe.accentColor)
       .toEqual(new Color("#ff0000"));
   });
 
   it("toggles fine detail as a whole and keeps the quay height-fog contract on every bucket material", () => {
     const batch = batchOfNine();
+    for (const mesh of Object.values(batch.fineDetailBucketMeshes)) if (mesh) expect(mesh.visible).toBe(false);
+    for (const mesh of Object.values(batch.fineDetailPropMeshes)) if (mesh) expect(mesh.visible).toBe(false);
+    batch.setFineDetailVisible(true);
+    for (const mesh of Object.values(batch.fineDetailBucketMeshes)) if (mesh) expect(mesh.visible).toBe(true);
+    for (const mesh of Object.values(batch.fineDetailPropMeshes)) if (mesh) expect(mesh.visible).toBe(true);
     batch.setFineDetailVisible(false);
     for (const mesh of Object.values(batch.fineDetailBucketMeshes)) if (mesh) expect(mesh.visible).toBe(false);
     for (const mesh of Object.values(batch.fineDetailPropMeshes)) if (mesh) expect(mesh.visible).toBe(false);
@@ -122,6 +146,39 @@ describe("createGardenHarborBatch", () => {
     expect(batch.docks.every((dock) => dock.recipe.features.warmWindowCount > 0)).toBe(true);
     expect(batch.docks.every((dock) => dock.recipe.features.quayPlatform.litEdge)).toBe(true);
     batch.dispose();
+  });
+
+  it("holds per-station and whole-layer fidelity triangle ceilings", () => {
+    for (const type of ALL_STATION_TYPES) {
+      const batch = createGardenHarborBatch([
+        authorDock({
+          ...dockFixture(`budget-${type}`, 6),
+          station: { coveId: `budget-${type}`, shoreBearing: 0, type },
+        }, DISPLAY_TILES[0]!, ISLAND_TILE),
+      ]);
+      const coarse = [
+        ...Object.values(batch.bucketMeshes),
+        ...Object.values(batch.propMeshes),
+        batch.flags,
+      ].filter((mesh): mesh is Mesh | InstancedMesh => mesh !== null);
+      const fine = [
+        ...Object.values(batch.fineDetailBucketMeshes),
+        ...Object.values(batch.fineDetailPropMeshes),
+      ].filter((mesh): mesh is Mesh | InstancedMesh => mesh !== null);
+      expect(coarse.reduce((sum, mesh) => sum + triangleCount(mesh), 0), `${type} coarse`).toBeLessThanOrEqual(6_000);
+      expect(fine.reduce((sum, mesh) => sum + triangleCount(mesh), 0), `${type} fine`).toBeLessThanOrEqual(6_000);
+      batch.dispose();
+    }
+    const layer = batchOfAllStationTypes();
+    const layerTriangles = [
+      ...Object.values(layer.bucketMeshes),
+      ...Object.values(layer.propMeshes),
+      layer.flags,
+    ].filter((mesh): mesh is Mesh | InstancedMesh => mesh !== null)
+      .reduce((sum, mesh) => sum + triangleCount(mesh), 0);
+    expect(layerTriangles).toBeLessThanOrEqual(60_000);
+    expect(countDrawableObjects(layer.root)).toBeLessThanOrEqual(20);
+    layer.dispose();
   });
 
   it("flies every station flag shape from one instanced cloth and turns one without turning the rest", () => {
@@ -192,6 +249,11 @@ describe("createGardenHarborBatch", () => {
     expect(atlasDisposal).not.toHaveBeenCalled();
   });
 });
+
+function triangleCount(mesh: Mesh | InstancedMesh): number {
+  const triangles = (mesh.geometry.index?.count ?? mesh.geometry.getAttribute("position").count) / 3;
+  return triangles * (mesh instanceof InstancedMesh ? mesh.count : 1);
+}
 
 function fakeCanvasContext(): CanvasRenderingContext2D {
   return {

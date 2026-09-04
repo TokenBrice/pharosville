@@ -763,16 +763,20 @@ function pairedShipPhaseSeconds(input: {
   // roster rank, so adding a ship cannot shift another ship's clock.
   const slotCount = MOTION_PAIR_HORIZON_SECONDS / MOTION_PAIR_SLOT_SECONDS;
   const pairKey = `${input.zone}:${stableHash(input.cadenceIdentity)}`;
-  // Table version 171 keeps both sides represented across at least 80% of
-  // the default frame's 15-second windows after the 2026-09 harbour
-  // re-siting. The 8-mouth ring geometry-floors voyages by the far-berth
-  // legs, stretching cycles to 793–1272 s; only ~48 of 132 unanchored
-  // boundaries then land inside the 600 s pairing frame, and the version-159
-  // deal measured 0.775 (7 departure-only windows). Version 171 measures
-  // 0.825 — the mechanism's ceiling on this fixture — and lifts the
-  // dense-grid underway share to 0.1847 (from 0.1795 against the 0.179
-  // floor).
-  const slot = stableHash(`${pairKey}.slot.171`) % slotCount;
+  // Table version 699 keeps both sides represented across at least 80% of
+  // the default frame's 15-second windows. Lineage: version 159 was re-dealt
+  // to 171 after the 2026-09 harbour re-siting stretched the 8-mouth ring's
+  // geometry-floored cycles to 793–1272 s (v159 measured 0.775; v171 hit
+  // 0.825, then the ceiling). The ethereum-mole precinct widening
+  // (clearance envelope 24×10 → 40×30) re-floored the far-berth water legs
+  // near the monument, and v171 fell back to 0.775 (2 departure-only + 7
+  // arrival-only windows) with only 37 of 132 unanchored boundaries landing
+  // inside the 600 s pairing frame. Sweeping the 92 distinct deals reachable
+  // by three- and four-digit version strings now ceilings at 0.850; version
+  // 699 hits it (6 unpaired windows) and keeps the sibling dense-grid
+  // statistics mid-band: underway 0.1854 against the 0.179 floor,
+  // transition 0.0896 inside the 0.08–0.12 band.
+  const slot = stableHash(`${pairKey}.slot.699`) % slotCount;
   const anchorsArrival = (stableHash(`${pairKey}.side.1`) & 1) === 1;
   const departureBoundary = input.restDurationSeconds;
   const arrivalBoundary = input.restDurationSeconds

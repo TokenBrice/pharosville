@@ -648,7 +648,9 @@ function createPines(): InstancedMesh {
 }
 
 const HEADLANDS = [
-  { x: 5, y: 110 },
+  // The west triad sits one tile farther out than its original (5, 110)
+  // anchor, retaining the headland while clearing the Mole's full precinct.
+  { x: 4, y: 111 },
   { x: 78, y: 4 },
   { x: 135, y: 100 },
   { x: 43, y: 136 },

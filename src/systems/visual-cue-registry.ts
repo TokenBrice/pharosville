@@ -226,12 +226,42 @@ export function buildVisualCueRegistry(): VisualCue[] {
       id: "cue.dock.size",
       target: { kind: "dock" },
       primaryChannels: ["size", "shape", "position"],
-      visual: "shore-station footprint and type at a named rim cove, with Ethereum's boathouse precinct and its available L2 annex pavilions joined by one covered bridge and shared path",
+      visual: "shore-station footprint and type at a named rim cove",
       sourceField: "chains.chains[].id, chains.chains[].totalUsd, chains.chains[].topStablecoins",
-      questionAnswered: "Which chains hold major stablecoin supply, which L2s belong to Ethereum harbor, and which stablecoins dominate each chain?",
+      questionAnswered: "Which chains hold major stablecoin supply, and which stablecoins dominate each chain?",
       failureState: "station unavailable state",
       domEquivalent: "dock detail Station type, Rim cove, Stablecoin supply, Harbor rank, Share of stablecoin supply, Concentration, and harbored-stablecoin rows plus station ledger rows",
-      reducedMotionEquivalent: "static station footprint, covered bridge with fixed lantern light, and station ledger rows",
+      reducedMotionEquivalent: "static station footprint and station ledger rows",
+    },
+    {
+      // The plate's second monument, beside the lighthouse itself. The Mole
+      // is authored at the top scale rung whatever supply the feed reports,
+      // so its size reads as standing rather than as a supply gauge; the
+      // rank rows carry the measured magnitude.
+      id: "cue.dock.mole-monument",
+      target: { kind: "dock" },
+      primaryChannels: ["shape", "size", "position"],
+      visual: "Ethereum stands alone at its own rim cove as a standalone stone mole: two unequal masonry arms running out from a landward civic hall under a deep-hipped roof, and an offset campanile — an open belfry on four piers holding its bell — rising past every other station's roofline",
+      sourceField: "chains.chains[].id (the ethereum row authors the fixed-scale mole archetype), chains.chains[].totalUsd, chains.chains[].topStablecoins",
+      questionAnswered: "Where is Ethereum in this fleet, and how does its harbor stand among the rendered stations?",
+      failureState: "no mole at the cove when no ethereum row arrived — the monument is absent rather than handed to whichever harbor ranks first, and the shore-station ledger lists no ethereum line",
+      domEquivalent: "dock detail Station type 'Ethereum Mole' and Rim cove rows naming the monument, Harbor rank and Share of stablecoin supply rows for its measured standing, plus the shore-station ledger line",
+      reducedMotionEquivalent: "identical — the arms, hall and campanile are static stone composition at every setting, and the fixed top-rung scale carries the reading without any motion",
+    },
+    {
+      // The ring's one enclosed harbor water. The basin is authored as
+      // negative space between the arms, and the water field's single calm
+      // mask seats on it alone — no other mouth is joined into one
+      // flattened lake.
+      id: "cue.dock.mole-basin",
+      target: { kind: "dock" },
+      primaryChannels: ["shape", "motion"],
+      visual: "the mole's arms enclose an 18 × 14 water void left as negative space, with the hall-side quay closing the bracket along its landward side, and the water field's one calm mask seats inside it — so the enclosed water lies as a still, sky-tinted mirror while every other harbor keeps its own ripple",
+      sourceField: "chains.chains[].id (the calm mask seats only on the rendered ethereum-mole basin)",
+      questionAnswered: "Which harbor encloses still water of its own instead of sitting on the open sea?",
+      failureState: "no still basin when no ethereum row arrived — the mask is explicitly cleared rather than moved onto whichever harbor ranks first, so no other quay silently claims the mirror",
+      domEquivalent: "dock detail Station type and Rim cove rows naming the station whose arms enclose the basin, plus the shore-station ledger line",
+      reducedMotionEquivalent: "identical — the basin is authored as a static still mirror, so freezing the open sea costs it nothing; the sky-tinted mirror and the arms that enclose it carry the reading at every setting",
     },
     {
       id: "cue.ship.distance",

@@ -22,10 +22,10 @@ import { Box3, MathUtils, Object3D, Vector3 } from "three";
  *
  * Nothing analytical is shed. What goes is deck and shore furniture — dock
  * posts, lamp heads, lit screens, works signatures, the chain flag, the keeper's
- * rowboat and shore stones, the cottage lantern string, the quay stair, the
- * precinct obelisks, and the per-hero grade shield and overlay signal. The
- * harbour's structure, the fleet, the zones, the sea signs (which hold a
- * constant on-screen size for exactly this framing) and the monument all stay.
+ * rowboat and shore stones, the quay stair, the precinct obelisks, and the
+ * per-hero grade shield and overlay signal. The harbour's structure, the
+ * fleet, the zones, the sea signs (which hold a constant on-screen size for
+ * exactly this framing) and the monument all stay.
  */
 
 /** At or above this zoom every shed prop is at its authored transform. */
@@ -46,7 +46,12 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   // World-wide named-water edge batches. At whole-map scale their small forms
   // become texture; visibility-only avoids collapsing the map toward origin.
   "garden-sea-edges-overview",
-  // Globally batched station furniture.
+  // Globally batched station furniture. Within the coarse harbor layer these
+  // are sub-silhouette greebles — ember windows, quay posts, lamp heads, the
+  // works signature, and chain flags. Its massing buckets (timber/stone/metal/
+  // accent/wall/roof) plus overview-visible pilings and reed clumps are
+  // structural and never tier out; inspection-only planks, bollards and metal
+  // greebles keep their own harbor-fine-* gate.
   "dock-cargo-tide",
   "dock-chain-flag",
   "dock-tide-line",
@@ -55,8 +60,6 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   "harbor-netRack",
   "station-lit-screens",
   // The island's toy-scale grounding props, authored against a 34-unit Pharos.
-  // W3.1 deleted the keeper-cottage lantern string outright (the Great
-  // Quieting removed that glow vocabulary), so it no longer appears here.
   "island-quay-stair",
   "island-koi",
   "island-niwaki",

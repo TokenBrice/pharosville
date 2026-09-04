@@ -9,7 +9,7 @@ import {
   PIGEON_ISLAND_RADIUS,
   terrainLandAt,
 } from "./world-layout";
-import { stationClearanceTiles, stationFootprint } from "./dock-layout";
+import { STATION_SCALE_LADDER, stationClearanceTiles } from "./dock-layout";
 import { stableFnv1aHash } from "./stable-random";
 import { landWorldTile } from "./map-scale";
 import type { GardenHullSilhouette } from "./garden-observatory-slice";
@@ -120,21 +120,22 @@ const MAX_DOCK_OBSTACLE_SIZE = 10;
  * harbor ring un moorable for titans.
  *
  * Ordinary dock radii follow each slot's authored station envelope. The
- * Mole is the one deliberate exception: its full 24 × 10 hall envelope
- * produces a ten-tile circumscribing radius, which would also wall off its
- * 18 × 14 world-unit inner basin. That basin is navigable water by design
- * (plan §5), so the single circle protects the Mole's mouth/quay and arm
- * roots using half the hall's alongshore span while leaving the basin
- * entrance open. The outer arms are not representable honestly by one
- * circle around a navigable void; Phase 3's exact arm geometry owns any
- * future multi-shape refinement.
+ * Mole is the one deliberate exception, and it must read the HALL rung
+ * rather than the precinct footprint. `stationFootprint("ethereum-mole")`
+ * reports the whole 40 × 30 precinct — apron, arms and hammerheads — because
+ * scenery and risk markers must keep out of all of it. Ships must not: the
+ * 18 × 14 world-unit inner basin those arms enclose is navigable water by
+ * design (plan §5), and a circle sized to the precinct would wall the
+ * monument off from its own harbour.
+ *
+ * So the single ship circle protects the mouth, quay and arm roots using half
+ * the HALL's alongshore span (`STATION_SCALE_LADDER`), leaving the basin
+ * entrance open. The outer arms are not representable honestly by one circle
+ * drawn around a navigable void; Phase 3's exact arm geometry owns any future
+ * multi-shape refinement.
  */
 const MOLE_MOUTH_OBSTACLE_RADIUS_TILES = Math.ceil(
-  stationFootprint(
-    "ethereum-mole",
-    MAX_DOCK_OBSTACLE_SUPPLY_USD,
-    MAX_DOCK_OBSTACLE_SIZE,
-  ).span / 2 / TILE_TO_WORLD,
+  STATION_SCALE_LADDER["ethereum-mole"].span / 2 / TILE_TO_WORLD,
 );
 
 export const GARDEN_DOCK_OBSTACLES: readonly GardenCircle[] = [

@@ -33,6 +33,17 @@ const SCALE_LADDER: Record<StationType, { length: number; span: number; top: num
   "reed-boathouse": { length: 13.6, span: 6.0, top: 11.2 },
   "pigeonnier-islet": { length: 12.6, span: 5.6, top: 8.6 },
 };
+const ACCENT_COLOR: Record<StationType, string> = {
+  "ethereum-mole": HARBOR_PALETTE.stone_mid,
+  "fishing-pier": HARBOR_PALETTE.aurora_green,
+  "hatago-wharf": HARBOR_PALETTE.timber_warm,
+  "pigeonnier-islet": HARBOR_PALETTE.moonlight,
+  "reed-boathouse": HARBOR_PALETTE.timber_warm,
+  "stepped-inlet": HARBOR_PALETTE.iron_dark,
+  "storm-mole": HARBOR_PALETTE.fog_pale,
+  "tea-house-quay": HARBOR_PALETTE.lantern_warm,
+  uogashi: HARBOR_PALETTE.lantern_cold,
+};
 const FIXTURE_USD = 7_000_000_000;
 const fixtureSupplyFactor = Math.min(1, Math.max(0, (Math.log10(FIXTURE_USD) - 8.5) / 3.2));
 const fixtureLengthMultiplier = 0.95 + fixtureSupplyFactor * 0.40;
@@ -266,9 +277,33 @@ describe("garden station recipes", () => {
         : object.geometry.getAttribute("position").count / 3;
       triangles += geometryTriangles * (object instanceof InstancedMesh ? object.count : 1);
     });
+    expect(triangles).toBeGreaterThanOrEqual(5_500);
     expect(triangles).toBeLessThanOrEqual(9_000);
-    expect(draws).toBeLessThanOrEqual(8);
+    // The fidelity pass spends the programme's permitted single added draw on
+    // the per-chain accent bucket: the old Mole ceiling was 8, the new is 9.
+    expect(draws).toBeLessThanOrEqual(9);
     batch.dispose();
+  });
+
+  it("keeps architectural voids and structural ironwork in the cruise tier", () => {
+    for (const type of ["reed-boathouse", "pigeonnier-islet"] as const) {
+      const recipe = recipeWithStation(type);
+      const coarseMetal = recipe.parts.find((part) => part.bucket === "metal" && !part.fineDetail);
+      expect(coarseMetal, `${type} coarse void`).toBeDefined();
+      coarseMetal!.geometry.computeBoundingBox();
+      expect(coarseMetal!.geometry.boundingBox!.max.y, `${type} visible void height`).toBeGreaterThan(4);
+    }
+    const fishing = recipeWithStation("fishing-pier");
+    expect(fishing.parts.some((part) => part.bucket === "metal" && part.fineDetail)).toBe(true);
+  });
+
+  it("uses one palette-owned architectural accent per station", () => {
+    for (const type of ARCHETYPES) {
+      const accents = recipeWithStation(type).parts.filter((part) => part.bucket === "accent");
+      expect(accents, type).toHaveLength(1);
+      expect(accents[0]!.color.getHex(), type).toBe(new Color(ACCENT_COLOR[type]).getHex());
+      expect(accents[0]!.color.getHex(), `${type} never vermillion`).not.toBe(new Color(HARBOR_PALETTE.vermillion).getHex());
+    }
   });
 
   it("keeps industrial identity props out and permits one works prop at most", () => {
@@ -295,7 +330,8 @@ describe("garden station recipes", () => {
     } satisfies DockNode;
     const recipe = authorDock(weak, DISPLAY_TILE, ISLAND_TILE);
     const cracks = recipe.parts.find((part) => (
-      part.color.getHexString() === new Color(HARBOR_PALETTE.iron_dark).getHexString()
+      part.bucket === "stone"
+      && part.color.getHexString() === new Color(HARBOR_PALETTE.iron_dark).getHexString()
       && !part.fineDetail
     ));
     expect(cracks?.bucket).toBe("stone");

@@ -8,7 +8,7 @@ export interface StationScaleRung {
   secondLevelTop: number;
 }
 
-/** Authored station envelopes from the §6 harbor scale ladder. */
+/** Authored civic-hall dimensions from the §6 harbor scale ladder. */
 export const STATION_SCALE_LADDER: Record<StationType, StationScaleRung> = {
   "ethereum-mole": { baseLength: 24.0, span: 10.0, secondLevelTop: 21.5 },
   "stepped-inlet": { baseLength: 16.0, span: 7.8, secondLevelTop: 9.4 },
@@ -31,8 +31,9 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
- * Applies the live supply multiplier to the authored ladder. The Mole is a
- * civic landmark rather than a supply display, so its envelope never changes.
+ * Applies the live supply multiplier to the authored hall scale ladder. The
+ * Mole is a civic landmark rather than a supply display, so its hall never
+ * changes.
  */
 export function stationScaleFor(type: StationType, totalUsd: number): StationScale {
   const rung = STATION_SCALE_LADDER[type];
@@ -59,28 +60,36 @@ export interface StationFootprint {
 }
 
 /**
- * Authored envelope for a station type at a given dock size (1–10).
+ * Occupied precinct envelope for scenery and risk-marker clearance at a
+ * given dock size (1–10).
  *
- * The station ladder bounds today's quay and pier recipe at every size, but
- * those dimensions remain in this calculation so a later recipe adjustment
- * cannot silently outgrow the systems-owned placement envelope.
+ * The Mole is the one station whose clearance envelope exceeds its hall:
+ * its landward apron, navigable basin and unequal breakwater arms occupy
+ * 40 × 30 world units around the 24 × 10 civic hall. Ship exclusion MUST NOT
+ * use that precinct envelope because ships are meant to enter the basin;
+ * the navigation layer owns a separate Mole-specific mouth radius.
+ *
+ * For every ordinary station, the scale ladder bounds today's quay and pier
+ * recipe at every size. Those recipe dimensions remain in this calculation
+ * so a later adjustment cannot silently outgrow the systems-owned placement
+ * envelope.
  */
 export function stationFootprint(
   type: StationType,
   totalUsd: number,
   size: number,
 ): StationFootprint {
+  if (type === "ethereum-mole") return { length: 40, span: 30 };
   const scale = stationScaleFor(type, totalUsd);
   const amountScale = 0.82 + clamp(
     (Math.log10(Math.max(1, totalUsd)) - 8.5) / 3.2,
     0,
     1,
   ) * 1.13;
-  const mole = type === "ethereum-mole";
-  const pierLength = 7.6 * amountScale * (mole ? 1.5 : 1.06);
-  const pierWidth = (1.62 + amountScale * 0.36) * (mole ? 1.42 : 1.08);
-  const quayLength = (3.6 + clamp(size, 1, 10) / 10 * 3.5) * (mole ? 1.38 : 1.05);
-  const quaySpan = pierWidth * (mole ? 2.7 : 2.15);
+  const pierLength = 7.6 * amountScale * 1.06;
+  const pierWidth = (1.62 + amountScale * 0.36) * 1.08;
+  const quayLength = (3.6 + clamp(size, 1, 10) / 10 * 3.5) * 1.05;
+  const quaySpan = pierWidth * 2.15;
   return {
     length: Math.max(scale.length, pierLength, quayLength),
     span: Math.max(scale.span, quaySpan),
@@ -90,6 +99,8 @@ export function stationFootprint(
 /**
  * Conservative circumscribing radius used by tile-space placement systems.
  * Round outward so integer tile searches never shave a station corner.
+ * Navigation callers must retain the Mole's basin-aware mouth radius rather
+ * than applying this precinct-sized radius to `ethereum-mole`.
  */
 export function stationClearanceTiles(type: StationType, totalUsd: number, size: number): number {
   const { length, span } = stationFootprint(type, totalUsd, size);

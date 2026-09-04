@@ -42,13 +42,13 @@ describe("garden rim mesh", () => {
     expect(GARDEN_ENGAWA_LANTERN_WORLD.x).toBeGreaterThan(0);
     expect(GARDEN_ENGAWA_LANTERN_WORLD.z).toBeGreaterThan(GARDEN_ENGAWA_LANTERN_WORLD.x);
     expect(rim.pathSegmentCount).toBeGreaterThan(80);
-    // Footprint clearance truncates the old 13+ cove-width spurs to eight
-    // genuinely clear approach segments; the broken ribbons are not retained
-    // merely to preserve the former count.
-    expect(rim.coveSpurCount).toBe(8);
+    // The full station envelopes truncate the old 13+ cove-width spurs to
+    // seven genuinely clear approach segments. The Mole's former eighth spur
+    // now ends inside its widened precinct; every other cove retains its spur.
+    expect(rim.coveSpurCount).toBe(7);
     // The footprint reservations deliberately remove roughly 3k triangles
     // from the former >57,868 dressing floor. The surviving irregular coast,
-    // hero headlands and skirt still keep the five draws above 52k.
+    // all five hero-headland triads and the skirt keep the five draws above 52k.
     expect(rim.triangleCount).toBeGreaterThan(52_000);
     expect(rim.triangleCount).toBeLessThan(85_000);
     const shore = rim.root.getObjectByName("garden-rim-tide-rock") as Mesh;

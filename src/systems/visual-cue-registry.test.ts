@@ -165,6 +165,49 @@ describe("buildVisualCueRegistry", () => {
     expect(cues).toContainEqual(expect.objectContaining({ target: { kind: "area" } }));
   });
 
+  it("retires the deleted L2-precinct scenery instead of rewording it", () => {
+    // boathouse-precinct, annex-pavilion, salvage-slip, signal-jetty and
+    // gate-landing are deleted archetypes; ethereum-precinct and the annex
+    // coves are retired with them. No cue may promise a structure the world
+    // cannot draw — most of all in reduced motion, which is a complete
+    // static composition.
+    const retired = /boathouse[- ]precinct|\bannex|covered bridge|bridge lantern|salvage-slip|signal-jetty|gate-landing|ethereum-precinct|wreck-salvage-cut|wreck-west-ledge/i;
+    const cueCopy = buildVisualCueRegistry().map((cue) =>
+      `${cue.visual} ${cue.questionAnswered} ${cue.failureState} ${cue.domEquivalent} ${cue.reducedMotionEquivalent}`,
+    );
+    const legendCopy = LEGEND_MARK_ROWS.map((row) => row.text);
+    const decorativeCopy = Object.values(DECORATIVE_VISUAL_NOTES);
+
+    for (const copy of [...cueCopy, ...legendCopy, ...decorativeCopy]) {
+      expect(copy).not.toMatch(retired);
+    }
+  });
+
+  it("cues the standalone Ethereum Mole monument and its enclosed basin", () => {
+    const cues = buildVisualCueRegistry();
+    const monument = cues.find((cue) => cue.id === "cue.dock.mole-monument");
+    const basin = cues.find((cue) => cue.id === "cue.dock.mole-basin");
+
+    expect(monument).toMatchObject({
+      target: { kind: "dock" },
+      primaryChannels: ["shape", "size", "position"],
+    });
+    expect(monument?.visual).toContain("stone mole");
+    expect(monument?.visual).toContain("offset campanile");
+    expect(monument?.visual).toContain("stands alone");
+    // The monument is authored, never inherited: a feed without ethereum
+    // leaves the cove empty instead of promoting another harbor.
+    expect(monument?.failureState).toContain("absent rather than handed to whichever harbor ranks first");
+    expect(basin).toMatchObject({
+      target: { kind: "dock" },
+      primaryChannels: ["shape", "motion"],
+    });
+    expect(basin?.visual).toContain("water void");
+    expect(basin?.visual).toContain("still");
+    expect(basin?.visual).toContain("every other harbor keeps its own ripple");
+    expect(basin?.failureState).toContain("explicitly cleared rather than moved onto whichever harbor ranks first");
+  });
+
   it("covers world node kinds", () => {
     const cues = buildVisualCueRegistry();
     const targetKeys = new Set(cues.map(cueKey));

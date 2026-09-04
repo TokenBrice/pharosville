@@ -80,7 +80,7 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
   });
 
   const accentRanges = new Map<string, Array<{ bucket: HarborBucket; range: ColorRange }>>();
-  const bucketMeshes = createBucketMeshes(root, renderRecipes, false);
+  const bucketMeshes = createBucketMeshes(root, renderRecipes, false, accentRanges);
   const fineDetailBucketMeshes = createBucketMeshes(root, renderRecipes, true);
   const propMeshes = createPropMeshes(root, recipes, false);
   const fineDetailPropMeshes = createPropMeshes(root, recipes, true);
@@ -88,6 +88,7 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
     ...Object.values(fineDetailBucketMeshes),
     ...Object.values(fineDetailPropMeshes),
   ].filter((mesh): mesh is Mesh | InstancedMesh => mesh !== null);
+  for (const mesh of fineDetailMeshes) mesh.visible = false;
   const { flags, flagIndex } = createFlags(recipes);
   root.add(flags);
   applyGardenHeightFog(root, { epistemicHaze: "quay" });
@@ -166,6 +167,7 @@ function createBucketMeshes(
   root: Group,
   recipes: readonly DockRecipe[],
   fineDetail: boolean,
+  accentRanges?: Map<string, Array<{ bucket: HarborBucket; range: ColorRange }>>,
 ): BucketMeshes {
   const result = emptyBuckets();
   for (const bucket of BUCKETS) {
@@ -193,6 +195,12 @@ function createBucketMeshes(
         if (colorSize === 4) colors[index * colorSize + 3] = opacity;
       }
       geometry.setAttribute("color", new Float32BufferAttribute(colors, colorSize));
+      if (bucket === "accent" && !fineDetail && accentRanges) {
+        const ranges = accentRanges.get(entry.chainId) ?? [];
+        const start = geometries.reduce((sum, candidate) => sum + candidate.getAttribute("position").count, 0);
+        ranges.push({ bucket, range: { count, start } });
+        accentRanges.set(entry.chainId, ranges);
+      }
       castsShadow ||= entry.part.castShadow;
       geometries.push(geometry);
     }
