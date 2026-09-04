@@ -1,5 +1,5 @@
 import { riskWaterAreaForPlacement } from "./risk-water-areas";
-import { stationFootprint } from "./dock-layout";
+import { distanceToStationFootprint, stationFootprintRect } from "./dock-layout";
 import { isGardenObstacleTile } from "./garden-water-exclusion";
 import {
   EVM_BAY_STATION_SLOTS,
@@ -25,57 +25,23 @@ import type { ShipRiskPlacement } from "./world-types";
  * `ethereum-mole` and `calm-engawa-south` mouth tiles were themselves valid
  * safe-harbor water.
  *
- * Each keep-out is the station's authored ENVELOPE RECTANGLE, oriented along
- * the cove's seaward bearing: the renderer roots every station at its quay
- * with local +X running land→sea (garden-docks.ts authorDock), so the
- * envelope spans the berth and the water beyond it. A marker only has to
- * not stand on the structure, so the exact rectangle is the honest test —
- * the circumscribing `stationClearanceTiles` radius is the ship-exclusion
- * shape, deliberately greedy to keep hulls off quay corners, and would erase
- * whole coves of placement water (the Danger strait's only shore-adjacent
- * water lies within 7.1 tiles of the gorge berth, alongshore of a pier that
- * reaches seaward). Type comes from the authored slot tables; placement
- * water is a pure function of authored geography evaluated before any chain
- * binds to a berth, so no supply figure is in scope and every rectangle
- * takes the most conservative envelope the ladder can produce (saturated
- * supply multiplier, maximum dock size 10). A rendered station can only be
- * smaller than its rectangle, never larger.
+ * Each keep-out is the station's measured local envelope, rotated by the
+ * cove's authored seaward bearing and rooted at the cove tile. This preserves
+ * the real landward apron and hall as well as the seaward pier. Placement is
+ * authored before a live chain binds to the berth, so the fixed measured
+ * maximum recipe bounds are the conservative contract.
  */
-interface StationFootprintRect {
-  readonly center: { x: number; y: number };
-  /** Half the envelope's seaward length, in tiles. */
-  readonly halfAlong: number;
-  /** Half the envelope's shore span, in tiles. */
-  readonly halfAcross: number;
-  readonly seawardX: number;
-  readonly seawardY: number;
-}
-
-const STATION_FOOTPRINT_RECTS: readonly StationFootprintRect[] = Object.freeze(
+const STATION_FOOTPRINT_RECTS = Object.freeze(
   [
     ...EVM_BAY_STATION_SLOTS,
     ...OUTER_HARBOR_STATION_SLOTS,
     PIGEONNIER_STATION_SLOT,
-  ].map((slot) => {
-    const { length, span } = stationFootprint(slot.type, Number.POSITIVE_INFINITY, 10);
-    // World units become tiles by TILE_SCALE = √2; the systems layer keeps
-    // its own factor rather than importing the three layer (as
-    // garden-water-exclusion does for the same freedom).
-    const halfAlong = length / 2 / Math.SQRT2;
-    const halfAcross = span / 2 / Math.SQRT2;
-    const seawardX = Math.cos(slot.cove.seawardBearing);
-    const seawardY = Math.sin(slot.cove.seawardBearing);
-    return {
-      center: {
-        x: slot.cove.tile.x + seawardX * halfAlong,
-        y: slot.cove.tile.y + seawardY * halfAlong,
-      },
-      halfAlong,
-      halfAcross,
-      seawardX,
-      seawardY,
-    };
-  }),
+  ].map((slot) => stationFootprintRect(
+    slot.type,
+    slot.cove.tile,
+    slot.cove.seawardBearing,
+    slot.cove.id,
+  )),
 );
 
 /**
@@ -86,15 +52,6 @@ const STATION_FOOTPRINT_RECTS: readonly StationFootprintRect[] = Object.freeze(
  */
 const RISK_MARKER_TILE_HALF = 0.5;
 
-/** Tile-centre distance to a station's envelope rectangle; 0 when inside it. */
-function distanceToStationFootprint(x: number, y: number, station: StationFootprintRect): number {
-  const along = (x - station.center.x) * station.seawardX + (y - station.center.y) * station.seawardY;
-  const across = -(x - station.center.x) * station.seawardY + (y - station.center.y) * station.seawardX;
-  return Math.hypot(
-    Math.max(Math.abs(along) - station.halfAlong, 0),
-    Math.max(Math.abs(across) - station.halfAcross, 0),
-  );
-}
 
 export function isRiskPlacementWaterTile(tile: { x: number; y: number }, placement: ShipRiskPlacement): boolean {
   // Zones-v2 placement fix: painted zone water under the RENDERED island
@@ -105,7 +62,7 @@ export function isRiskPlacementWaterTile(tile: { x: number; y: number }, placeme
   // lies within half a tile of the harbor ring's enlarged envelope is quay,
   // pier or mole, not open sea (R4).
   if (STATION_FOOTPRINT_RECTS.some((station) => (
-    distanceToStationFootprint(tile.x, tile.y, station) <= RISK_MARKER_TILE_HALF
+    distanceToStationFootprint(tile, station) <= RISK_MARKER_TILE_HALF
   ))) return false;
   const terrain = terrainKindAt(tile.x, tile.y);
   const validTerrains = riskWaterAreaForPlacement(placement).validTerrains;

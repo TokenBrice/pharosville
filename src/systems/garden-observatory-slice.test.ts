@@ -25,6 +25,7 @@ import {
   resolveGardenDependencyShipDisplayTile,
   resolveGardenEntityDisplayTile,
   resolveGardenShipDisplayTile,
+  GARDEN_HOME_DRIFT_TILES,
   GARDEN_MAX_MOTION_TILES,
   gardenHomeOffsetWeight,
   selectGardenObservatorySlice,
@@ -155,52 +156,79 @@ describe("Garden Observatory slice", () => {
   it("moors a representative hull at its dock, fading the berth offset over the voyage", () => {
     const world = denseWorld();
     const slice = selectGardenObservatorySlice(world, null);
-    const placement = slice.ships.find(({ displayOffset, ship }) => (
-      ship.dockVisits.length > 0
-      && Math.hypot(displayOffset.x, displayOffset.y) > 20
-    ));
-    expect(placement).toBeDefined();
-    const { ship } = placement!;
-    const home = ship.tile;
-    const mooring = ship.dockVisits
-      .map((visit) => visit.mooringTile)
-      .toSorted((left, right) => Math.hypot(left.x - home.x, left.y - home.y) - Math.hypot(right.x - home.x, right.y - home.y))[0]!;
-    const margin = gardenShipWaterMarginTiles(
-      gardenShipVisualScale(ship.visual.scale || 1),
-      GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
-    );
+    // The old first-match fixture (usx-solstice) now cuts through shoreline
+    // clearance on its invented straight-line leg. Select a genuinely open
+    // route so this test exercises offset fading rather than nearest-water
+    // snapping around solid geometry.
+    const voyage = slice.ships
+      .filter(({ displayOffset, ship }) => (
+        ship.dockVisits.length > 0
+        && Math.hypot(displayOffset.x, displayOffset.y) > 20
+      ))
+      .map((placement) => {
+        const { ship } = placement;
+        const home = ship.tile;
+        const mooring = ship.dockVisits
+          .map((visit) => visit.mooringTile)
+          .toSorted((left, right) => (
+            Math.hypot(left.x - home.x, left.y - home.y)
+            - Math.hypot(right.x - home.x, right.y - home.y)
+          ))[0]!;
+        const margin = gardenShipWaterMarginTiles(
+          gardenShipVisualScale(ship.visual.scale || 1),
+          GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+        );
+        const reach = Math.hypot(mooring.x - home.x, mooring.y - home.y);
+        const routeIsOpen = reach > GARDEN_HOME_DRIFT_TILES && Array.from({ length: 41 }, (_, step) => {
+          const t = step / 40;
+          const offsetWeight = gardenHomeOffsetWeight(ship, reach * t);
+          return isGardenShipWater({
+            x: home.x + (mooring.x - home.x) * t + placement.displayOffset.x * offsetWeight,
+            y: home.y + (mooring.y - home.y) * t + placement.displayOffset.y * offsetWeight,
+          }, margin, false);
+        }).every(Boolean);
+        return { home, margin, mooring, placement, reach, routeIsOpen };
+      })
+      .find(({ routeIsOpen }) => routeIsOpen);
+    expect(voyage).toBeDefined();
+    const { home, margin, mooring, placement, reach } = voyage!;
+    const { ship } = placement;
 
     // Moored: the hull sits on the berth the dock assignment chose, not on a
     // copy of it displaced by the home offset (which is what put moored hulls
     // beyond the rim before).
-    const moored = resolveGardenShipDisplayTile({ ...placement!, sample: { state: "moored", tile: mooring } });
+    const moored = resolveGardenShipDisplayTile({ ...placement, sample: { state: "moored", tile: mooring } });
     expect(Math.hypot(moored.x - mooring.x, moored.y - mooring.y)).toBeLessThan(1e-6);
 
     // Idle and small drift: the whole home offset stays, so the berth is the
     // blue-noise placement and a patrol never slides along the offset.
-    const idle = resolveGardenShipDisplayTile({ ...placement!, sample: { state: "idle", tile: home } });
+    const idle = resolveGardenShipDisplayTile({ ...placement, sample: { state: "idle", tile: home } });
     const drifted = resolveGardenShipDisplayTile({
-      ...placement!,
+      ...placement,
       sample: { state: "risk-drift", tile: { x: home.x + 3, y: home.y } },
     });
     expect(isGardenShipWater(idle, margin)).toBe(true);
     expect(Math.hypot(drifted.x - idle.x, drifted.y - idle.y)).toBeLessThan(3 + 1e-6);
 
-    // Sailing: the path from berth to mooring is continuous — no step larger
-    // than the sample step plus the offset's share of that step.
-    const reach = Math.hypot(mooring.x - home.x, mooring.y - home.y);
-    const offsetLength = Math.hypot(placement!.displayOffset.x, placement!.displayOffset.y);
+    // Arrival: the legal open-water path from berth to mooring is continuous —
+    // no step exceeds the sample step plus the offset's share of that step.
+    const offsetLength = Math.hypot(placement.displayOffset.x, placement.displayOffset.y);
     let previous = idle;
+    let previousOffsetWeight = gardenHomeOffsetWeight(ship, 0);
     for (let step = 1; step <= 40; step += 1) {
       const t = step / 40;
       const next = resolveGardenShipDisplayTile({
-        ...placement!,
-        sample: { state: "sailing", tile: { x: home.x + (mooring.x - home.x) * t, y: home.y + (mooring.y - home.y) * t } },
+        ...placement,
+        sample: { state: "arriving", tile: { x: home.x + (mooring.x - home.x) * t, y: home.y + (mooring.y - home.y) * t } },
       });
-      const composedStep = reach / 40 + offsetLength / 40 * (reach / (reach - 6));
+      const offsetWeight = gardenHomeOffsetWeight(ship, reach * t);
+      const composedStep = reach / 40 + offsetLength / 40 * (reach / (reach - GARDEN_HOME_DRIFT_TILES));
+      expect(offsetWeight, `offset step ${step}`).toBeLessThanOrEqual(previousOffsetWeight);
       expect(Math.hypot(next.x - previous.x, next.y - previous.y), `step ${step}`).toBeLessThan(composedStep + 12);
       previous = next;
+      previousOffsetWeight = offsetWeight;
     }
+    expect(previousOffsetWeight).toBe(0);
   });
 
   it("keeps long berths at their sample for berth states and caps open-water sailing", () => {

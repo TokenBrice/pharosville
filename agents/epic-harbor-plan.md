@@ -504,9 +504,24 @@ the operator's `npm run preview`):
 | 7 | **One neutral trim/mark atlas — only after the geometry pass proves it necessary** | Medium at inspection | +1 tex, +0 tri, +0 draws *if* every bucket UV is compatible | Palette authority: neutral/value-only, colours still from `HARBOR_PALETTE`; displaces literal micro-crack geometry |
 | 8 | **Keep the existing half-res N8AO**; add restrained geometry-local cavity value only where it misses | Medium | +0 all | Do not raise global AO for harbors; do not bake AO into vertices the runtime recolours |
 
-**Combined upper case:** ~**+0–1 draws, +14.6k–33.5k triangles, +1 texture** → roughly
-256–257 draws / 349.7k–368.6k triangles / 44 textures, against ceilings of
-700 / 500,000 / 72. Comfortable, and headroom is not a spending target.
+**Combined upper case (planning estimate):** ~**+0–1 draws, +14.6k–33.5k triangles,
++1 texture** → roughly 256–257 draws / 349.7k–368.6k triangles / 44 textures, against
+ceilings of 700 / 500,000 / 72. Comfortable, and headroom is not a spending target.
+
+**Amended after measurement (2026-09-04): +2 draws, not +0–1.** The harbor layer measured
+14 drawables before this epic and **16** after. The two additions are `harbor-accent` and
+`harbor-metal`, and both are load-bearing consequences of changes this plan itself mandates:
+`harbor-accent` is the per-chain architectural accent bucket §6 requires (previously the
+accent geometry was empty because every station shared one hardcoded hex), and
+`harbor-metal` is the coarse structural-ironwork tier §7 rank 5 requires (the metal bucket
+was entirely `fineDetail`, so the ironwork and the two architectural voids were invisible at
+cruise). Merging either into a neighbouring bucket would erase a real material policy —
+accent carries the runtime recolour contract and flat-shaded DoubleSide roughness 0.86;
+metal carries metalness 0.42 / roughness 0.62 — so the honest resolution is to amend the
+estimate rather than merge for the sake of the number. The layer sits at 16 against its
+retained 20-draw backstop and a 700-draw hard ceiling, with the whole recorded frame at
+~256. `garden-harbor-batch.test.ts` now pins the exact 16 by name so the next change to
+bucket population is caught rather than drifting under a generous cap.
 
 Design each station at **three scales**: blurred-frame silhouette, overview-visible
 structural breaks, inspection-only greebles. The first two never tier out; only the third
@@ -744,7 +759,9 @@ not the deleted station form.
 
 **Phase 5 — Fidelity.** The §7 adopted programme, ranks 1–6, plus the fine-detail split fix.
 Rank 7 (atlas) only if the operator's preview shows material scale still missing.
-*Accept:* measured census within +0–1 draws / +33.5k triangles / +1 texture of baseline;
+*Accept:* measured census within the **amended** +2 draws / +33.5k triangles / +1 texture of
+baseline (see §7 — the +2 is `harbor-accent` and `harbor-metal`, both mandated by §6 and §7
+rank 5, pinned by name);
 **coarse-tier triangles per station ≤ 6,000 and the whole harbor layer ≤ 60,000** (R7);
 each station's blurred silhouette distinguishable from every other; at least one calm face
 and roof field per station; architectural voids visible at cruise.

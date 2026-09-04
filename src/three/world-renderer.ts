@@ -3400,7 +3400,7 @@ function buildSeaEdgesPart(content: GardenContent): void {
   content.seaEdges = seaEdges;
 }
 
-/** Shore stations, the Ethereum/L2 precinct bridges, and approach lanterns. */
+/** The nine shore stations and their approach lanterns. */
 function buildDocksPart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.docks;
   const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);

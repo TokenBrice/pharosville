@@ -52,14 +52,20 @@ intent, code/tests, and a matching update to the relevant route documentation.
   itself, which would remove identity at every distance with no way back.
 - Harbors are shore stations sited in their body's named rim coves —
   eight authored coves for the eight chain harbors — and the station ring
-  is spread around that rim rather than massed on the far shore: at most
-  two rendered stations sit at or north of tile y=30, at least two hold
-  the camera-near southern arc at y>=112, both horizontal extremes of the
-  rim are inhabited, and no three stations sit within 30 tiles of one
-  another. Those numbers are the
-  contract `src/systems/chain-docks.test.ts` enforces for any feed; the
-  failure mode they prevent is a far-shore row of silhouettes across empty
-  foreground water. The rendered harbor count stays eight chain harbors
+  is spread around that rim rather than massed on the far shore. On any
+  feed carrying at least eight eligible chains including Ethereum — the
+  production case — at most two rendered stations sit at or north of tile
+  y=30, at least two hold the camera-near southern arc at y>=112, both
+  horizontal extremes of the rim are inhabited, and all four rim arcs are
+  occupied. Two rules hold on EVERY feed, however sparse: no three stations
+  sit within 30 tiles of one another, and every rendered dock sits on a
+  valid assigned mouth wearing that mouth's archetype. The arc and extreme
+  requirements are deliberately scoped, because a feed of fewer than four
+  eligible chains cannot inhabit four arcs and one without Ethereum cannot
+  fill the Mole at all — the mole slot is EVM-pool-only. Those numbers are
+  the contract `src/systems/chain-docks.test.ts` enforces; the failure mode
+  they prevent is a far-shore row of silhouettes across empty foreground
+  water. The rendered harbor count stays eight chain harbors
   plus the TON pigeonnier, so no density amendment accompanies the smaller
   mouth inventory. Every station keeps a landward, distance-readable
   primary roof at least twice an ordinary hull's length, a contrasting

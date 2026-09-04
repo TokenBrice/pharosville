@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { Color, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh } from "three";
+import { Color, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, type Group } from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authorDock, type StationType } from "./garden-docks";
 import { createGardenHarborBatch, HARBOR_WINDOW_EMBER_INTENSITY } from "./garden-harbor-batch";
@@ -19,6 +19,25 @@ const ALL_STATION_TYPES: readonly StationType[] = [
   "ethereum-mole", "hatago-wharf", "uogashi", "stepped-inlet", "fishing-pier",
   "tea-house-quay", "reed-boathouse", "storm-mole", "pigeonnier-islet",
 ];
+
+const EXPECTED_HARBOR_DRAWABLE_NAMES = [
+  "dock-chain-flag",
+  "dock-lamp-heads",
+  "dock-posts",
+  "harbor-accent",
+  "harbor-fine-bollard",
+  "harbor-fine-metal",
+  "harbor-fine-plank",
+  "harbor-metal",
+  "harbor-netRack",
+  "harbor-piling",
+  "harbor-reedClump",
+  "harbor-roof",
+  "harbor-stone",
+  "harbor-timber",
+  "harbor-wall",
+  "station-lit-screens",
+] as const;
 
 beforeEach(() => {
   resetGardenChainFlagAtlas();
@@ -60,14 +79,22 @@ function batchOfAllStationTypes() {
 }
 
 describe("createGardenHarborBatch", () => {
-  it("keeps every bucket shared so the complete 9-type harbor ring stays within 20 draws", () => {
+  it("pins the complete 9-type harbor ring to its 16 shared drawables", () => {
     const batch = batchOfNine();
+    const drawableNames = namedDrawables(batch.root);
+    expect(drawableNames).toEqual(EXPECTED_HARBOR_DRAWABLE_NAMES);
+    expect(drawableNames).toHaveLength(16);
+    expect(countDrawableObjects(batch.root)).toBe(16);
     expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(20);
     for (const dock of batch.docks) {
       expect(countDrawableObjects(dock.root)).toBe(0);
       expect(dock.root.name).toBe(`dock-anchor-${dock.recipe.dock.chainId}`);
     }
     const completeTypeBatch = batchOfAllStationTypes();
+    const completeTypeDrawableNames = namedDrawables(completeTypeBatch.root);
+    expect(completeTypeDrawableNames).toEqual(EXPECTED_HARBOR_DRAWABLE_NAMES);
+    expect(completeTypeDrawableNames).toHaveLength(16);
+    expect(countDrawableObjects(completeTypeBatch.root)).toBe(16);
     expect(countDrawableObjects(completeTypeBatch.root)).toBeLessThanOrEqual(20);
     completeTypeBatch.dispose();
   });
@@ -249,6 +276,14 @@ describe("createGardenHarborBatch", () => {
     expect(atlasDisposal).not.toHaveBeenCalled();
   });
 });
+
+function namedDrawables(root: Group): string[] {
+  const names: string[] = [];
+  root.traverse((object) => {
+    if (object instanceof Mesh) names.push(object.name);
+  });
+  return names.sort();
+}
 
 function triangleCount(mesh: Mesh | InstancedMesh): number {
   const triangles = (mesh.geometry.index?.count ?? mesh.geometry.getAttribute("position").count) / 3;

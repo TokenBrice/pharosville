@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { DockNode } from "../systems/world-types";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { EVM_BAY_STATION_SLOTS, OUTER_HARBOR_STATION_SLOTS } from "../systems/world-layout";
+import { STATION_LOCAL_BOUNDS, STATION_SCALE_LADDER } from "../systems/dock-layout";
 import {
   authorDock,
   gardenHarborLanternWorldPositions,
@@ -61,6 +62,40 @@ describe("garden station recipes", () => {
     expect(new Set(identities.map((identity) => identity.signature)).size).toBe(ARCHETYPES.length);
     expect(new Set(identities.map((identity) => identity.secondLevel)).size).toBe(ARCHETYPES.length);
     for (const type of ARCHETYPES) expect(recipeWithStation(type).station.type).toBe(type);
+  });
+
+  it("keeps every maximum recipe inside its declared local envelope", () => {
+    const roundingTolerance = 0.011;
+    for (const type of ARCHETYPES) {
+      const node = {
+        ...dock(type, 10, null, Number.POSITIVE_INFINITY),
+        station: { coveId: `cove.${type}`, shoreBearing: 0, type },
+      } as DockNode & { station: { coveId: string; shoreBearing: number; type: StationType } };
+      const bounds = recipeBounds(authorDock(node, DISPLAY_TILE, ISLAND_TILE));
+      const declared = STATION_LOCAL_BOUNDS[type];
+      expect(bounds.min.x, `${type} minX`).toBeGreaterThanOrEqual(declared.minX - roundingTolerance);
+      expect(bounds.max.x, `${type} maxX`).toBeLessThanOrEqual(declared.maxX + roundingTolerance);
+      expect(bounds.min.z, `${type} minZ`).toBeGreaterThanOrEqual(declared.minZ - roundingTolerance);
+      expect(bounds.max.z, `${type} maxZ`).toBeLessThanOrEqual(declared.maxZ + roundingTolerance);
+      if (type === "ethereum-mole") {
+        const components = declared.components!;
+        const recipe = authorDock(node, DISPLAY_TILE, ISLAND_TILE);
+        for (const part of recipe.parts.filter((candidate) => candidate.bucket === "stone")) {
+          const position = part.geometry.getAttribute("position");
+          for (let index = 0; index < position.count; index += 1) {
+            const x = position.getX(index);
+            const z = position.getZ(index);
+            expect(components.some((component) => (
+              x >= component.minX - roundingTolerance
+              && x <= component.maxX + roundingTolerance
+              && z >= component.minZ - roundingTolerance
+              && z <= component.maxZ + roundingTolerance
+            )), `ethereum-mole ${part.bucket} vertex ${index} outside solid components`)
+              .toBe(true);
+          }
+        }
+      }
+    }
   });
 
   it("uses the incoming shore bearing and keeps local +X seaward", () => {
@@ -135,8 +170,10 @@ describe("garden station recipes", () => {
         height: recipe.features.secondLevel.height,
       };
     });
+    let pairsExamined = 0;
     for (let left = 0; left < profiles.length; left += 1) {
       for (let right = left + 1; right < profiles.length; right += 1) {
+        pairsExamined += 1;
         const first = profiles[left]!;
         const second = profiles[right]!;
         const areaGap = Math.abs(first.area - second.area) / Math.min(first.area, second.area);
@@ -147,6 +184,7 @@ describe("garden station recipes", () => {
         ).toBe(true);
       }
     }
+    expect(pairsExamined).toBe(36);
     const mole = profiles.find((profile) => profile.type === "ethereum-mole")!;
     const largestOrdinaryLength = Math.max(
       ...profiles.filter((profile) => profile.type !== "ethereum-mole").map((profile) => profile.length),
@@ -342,9 +380,53 @@ describe("garden station recipes", () => {
   it("keeps station scale monotonic with supply", () => {
     const scaleOf = (totalUsd: number): number => authorDock(
       dock("solana", 6, null, totalUsd), DISPLAY_TILE, ISLAND_TILE,
-    ).footprint.length;
+    ).features.primaryMass.footprint.length;
     expect(scaleOf(500_000_000)).toBeLessThan(scaleOf(5_000_000_000));
     expect(scaleOf(5_000_000_000)).toBeLessThan(scaleOf(80_000_000_000));
+  });
+
+  it("orders dense rendered hall lengths by supply while keeping the Mole fixed", () => {
+    const denseFixture = [
+      ["ethereum-mole", 18_000_000_000],
+      ["stepped-inlet", 12_000_000_000],
+      ["fishing-pier", 8_000_000_000],
+      ["tea-house-quay", 6_000_000_000],
+      ["hatago-wharf", 4_000_000_000],
+      ["uogashi", 2_000_000_000],
+      ["storm-mole", 1_000_000_000],
+      ["reed-boathouse", 100_000_000],
+      ["pigeonnier-islet", 10_000_000],
+    ] as const;
+    const rendered = denseFixture.map(([type, totalUsd], index) => {
+      const recipe = recipeWithStation(type, `dense-${index}`, 0, DISPLAY_TILE, totalUsd);
+      return {
+        type,
+        totalUsd,
+        length: recipe.features.primaryMass.footprint.length,
+      };
+    });
+    const ordinary = rendered.filter((entry) => entry.type !== "ethereum-mole");
+    const orderedBySupply = ordinary.toSorted((left, right) => right.totalUsd - left.totalUsd);
+
+    expect(rendered).toHaveLength(9);
+    expect(new Set(rendered.map((entry) => entry.type))).toEqual(new Set(ARCHETYPES));
+    expect(new Set(rendered.map((entry) => entry.totalUsd)).size).toBe(rendered.length);
+    expect(ordinary).toHaveLength(8);
+    for (let index = 0; index < orderedBySupply.length - 1; index += 1) {
+      const largerSupply = orderedBySupply[index]!;
+      const smallerSupply = orderedBySupply[index + 1]!;
+      expect(
+        largerSupply.length,
+        `${largerSupply.type} ($${largerSupply.totalUsd}) vs ${smallerSupply.type} ($${smallerSupply.totalUsd})`,
+      ).toBeGreaterThan(smallerSupply.length);
+    }
+    for (const entry of ordinary) {
+      expect(entry.length, `${entry.type} lower clamp`).toBeGreaterThanOrEqual(12.6);
+      expect(entry.length, `${entry.type} upper clamp`).toBeLessThanOrEqual(20.0);
+    }
+
+    const mole = rendered.find((entry) => entry.type === "ethereum-mole")!;
+    expect(mole.length).toBeCloseTo(STATION_SCALE_LADDER["ethereum-mole"].baseLength, 5);
   });
 
 

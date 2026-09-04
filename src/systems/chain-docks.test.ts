@@ -18,7 +18,7 @@ import {
 } from "./world-layout";
 import { dockSeawardVector } from "./dock-layout";
 import { landWorldTile } from "./map-scale";
-import { rimDepthAt, rimLandAt } from "./garden-rim";
+import { RIM_OPENINGS, rimDepthAt, rimLandAt } from "./garden-rim";
 
 // The eight authored rim mouths and the archetype each one wears. The place
 // owns the architecture; the chain brings its flag — every binding test
@@ -38,6 +38,7 @@ const AUTHORED_MOUTH_IDS = new Set(AUTHORED_SLOTS.map((slot) => slot.cove.id));
 // N1: the island (and its dock ring) is authored at design (31,31) in the
 // original 56-tile space and offset onto the 112-tile grid.
 const CIVIC_CORE_CENTER = landWorldTile({ x: 31, y: 31 });
+const CLOSED_RIM_ARC_TOLERANCE_DEGREES = 0.5;
 
 describe("buildChainDocks", () => {
   it("sizes docks from chain totalUsd and keeps concentration separate", () => {
@@ -241,6 +242,17 @@ describe("buildChainDocks", () => {
     expect(outerRing.some((tile) => tile.x <= 20)).toBe(true);
     expect(outerRing.some((tile) => tile.x >= 120)).toBe(true);
     expect(new Set(ring.map((tile) => `${tile.x}.${tile.y}`)).size).toBe(ring.length);
+  });
+
+  it("keeps the dense ring's closed-rim gap below the redistributed ceiling", () => {
+    const docks = buildChainDocks(denseFixtureChains);
+    const largestClosedRimArc = largestClosedRimArcDegrees(docks);
+
+    // Provenance: the old clustered ring left 111° empty; this dense fixture
+    // measures 48.954° after redistribution. The remaining south-centre `ma`
+    // is intentional: predicate rules leave that unnamed open water without
+    // a mouth.
+    expect(largestClosedRimArc).toBeLessThanOrEqual(49 + CLOSED_RIM_ARC_TOLERANCE_DEGREES);
   });
 
   it("suppresses Optimism and reserves only the Ethereum mole before lower-ranked outer harbors", () => {
@@ -599,4 +611,40 @@ function floodNavigableWater(start: { x: number; y: number }): Set<string> {
     }
   }
   return reached;
+}
+
+const TAU = Math.PI * 2;
+
+function largestClosedRimArcDegrees(docks: readonly DockNode[]): number {
+  const bearings = docks
+    .map((dock) => Math.atan2(
+      dock.tile.y - MAX_TILE_Y / 2,
+      dock.tile.x - MAX_TILE_X / 2,
+    ))
+    .map((bearing) => bearing < 0 ? bearing + TAU : bearing)
+    .toSorted((left, right) => left - right);
+  let largest = 0;
+
+  for (let index = 0; index < bearings.length; index += 1) {
+    const start = bearings[index]!;
+    const end = index + 1 < bearings.length ? bearings[index + 1]! : bearings[0]! + TAU;
+    const gap = end - start;
+    const openingSpan = RIM_OPENINGS.reduce((total, opening) => {
+      const openingStart = opening.bearingStart < 0
+        ? opening.bearingStart + TAU
+        : opening.bearingStart;
+      const openingEnd = opening.bearingEnd < 0
+        ? opening.bearingEnd + TAU
+        : opening.bearingEnd;
+      return total + [-TAU, 0, TAU].reduce((overlap, offset) => (
+        overlap + Math.max(
+          0,
+          Math.min(end, openingEnd + offset) - Math.max(start, openingStart + offset),
+        )
+      ), 0);
+    }, 0);
+    largest = Math.max(largest, Math.max(0, gap - openingSpan));
+  }
+
+  return largest * 180 / Math.PI;
 }

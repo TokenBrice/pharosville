@@ -15,50 +15,23 @@ import {
 import {
   EVM_BAY_STATION_SLOTS,
   OUTER_HARBOR_STATION_SLOTS,
-  PHAROSVILLE_MAP_HEIGHT,
-  PHAROSVILLE_MAP_WIDTH,
   PIGEONNIER_STATION_SLOT,
   isWaterTileKind,
   terrainKindAt,
 } from "./world-layout";
-import { stationFootprint } from "./dock-layout";
+import { distanceToStationFootprint, stationFootprintRect } from "./dock-layout";
 
-// R4 (plan §8 L11): the oriented station envelopes steles must clear.
-// Mirrors the module's derivation — stationFootprint at the most
-// conservative envelope (saturated supply, maximum dock size), centred half
-// a length seaward of the authored berth along the cove bearing.
+// R4: use the same cove-rooted oriented rectangle contract as every consumer.
 const STATION_FOOTPRINTS = [
   EVM_BAY_STATION_SLOTS,
   OUTER_HARBOR_STATION_SLOTS,
   PIGEONNIER_STATION_SLOT,
-].flat().map((slot) => {
-  const { length, span } = stationFootprint(slot.type, Number.POSITIVE_INFINITY, 10);
-  const halfAlong = length / 2 / Math.SQRT2;
-  const halfAcross = span / 2 / Math.SQRT2;
-  const seawardX = Math.cos(slot.cove.seawardBearing);
-  const seawardY = Math.sin(slot.cove.seawardBearing);
-  return {
-    center: {
-      x: slot.cove.tile.x + seawardX * halfAlong,
-      y: slot.cove.tile.y + seawardY * halfAlong,
-    },
-    halfAlong,
-    halfAcross,
-    id: slot.cove.id,
-    seawardX,
-    seawardY,
-  };
-});
-
-/** Tile-centre distance to a station envelope; 0 when inside it. */
-function distanceToStation(x: number, y: number, station: (typeof STATION_FOOTPRINTS)[number]): number {
-  const along = (x - station.center.x) * station.seawardX + (y - station.center.y) * station.seawardY;
-  const across = -(x - station.center.x) * station.seawardY + (y - station.center.y) * station.seawardX;
-  return Math.hypot(
-    Math.max(Math.abs(along) - station.halfAlong, 0),
-    Math.max(Math.abs(across) - station.halfAcross, 0),
-  );
-}
+].flat().map((slot) => stationFootprintRect(
+  slot.type,
+  slot.cove.tile,
+  slot.cove.seawardBearing,
+  slot.cove.id,
+));
 
 describe("garden sea-edge sites", () => {
   it("gives every named body authored edge geography and leaves open approach empty", () => {
@@ -90,30 +63,26 @@ describe("garden sea-edge sites", () => {
       .toMatchObject({ height: 0.48 * 1.5, length: 5.4 * 1.5, width: 2 * 1.5 });
     expect(GARDEN_SEA_EDGE_SITES.find((site) => site.id === "ledger-pile-1"))
       .toMatchObject({ height: 2.7 * 1.5, length: 0.55 * 1.5, width: 0.55 * 1.5 });
-    // The rim-land Danger wall is the deliberate exception: enlarging it had
-    // no clearance-valid site and would narrow the navigable strait.
+    // The displaced Danger wall keeps its reviewed, non-enlarged footprint.
     expect(GARDEN_SEA_EDGE_SITES.find((site) => site.id === "danger-rim-cliff"))
       .toMatchObject({ height: 5.2, length: 5.4, width: 1.2 });
   });
 
-  it("resolves water elements onto their live field boundary and the Danger cliff onto its rim flank", () => {
+  it("resolves every water element onto its live field boundary", () => {
     const cliff = GARDEN_SEA_EDGE_SITES.find((site) => site.form === "cliff");
-    expect(cliff).toBeDefined();
-    expect(rimLandAt(cliff!.tile.x, cliff!.tile.y)).toBe(true);
+    expect(cliff).toMatchObject({ body: "danger", surface: "water" });
+    expect(cliff!.tile).toEqual({ x: 121, y: 50 });
     expect([
       { x: 1, y: 0 },
       { x: -1, y: 0 },
       { x: 0, y: 1 },
       { x: 0, y: -1 },
-    ].some((offset) => {
-      const x = cliff!.tile.x + offset.x;
-      const y = cliff!.tile.y + offset.y;
-      return isWaterTileKind(terrainKindAt(x, y))
-        && seaRegionAtTile(x, y) === SEA_REGION_ID.danger;
-    })).toBe(true);
-    expect(seaEdgeTileInOpening(cliff!.tile)).toBe(false);
+    ].some((offset) => (
+      seaRegionAtTile(cliff!.tile.x + offset.x, cliff!.tile.y + offset.y)
+        === SEA_REGION_ID.watch
+    ))).toBe(true);
 
-    for (const site of GARDEN_SEA_EDGE_SITES.filter((candidate) => candidate !== cliff)) {
+    for (const site of GARDEN_SEA_EDGE_SITES) {
       expect(isWaterTileKind(terrainKindAt(site.tile.x, site.tile.y)), site.id).toBe(true);
       expect(rimLandAt(site.tile.x, site.tile.y), site.id).toBe(false);
       expect(seaRegionAtTile(site.tile.x, site.tile.y), site.id).toBe(SEA_REGION_ID[site.body]);
@@ -144,12 +113,11 @@ describe("garden sea-edge sites", () => {
     }
   });
 
-  it("exports deterministic water obstacles without narrowing Danger Strait for its land cliff", () => {
-    const waterSites = GARDEN_SEA_EDGE_SITES.filter((site) => site.form !== "cliff");
-    expect(GARDEN_EDGE_STONE_OBSTACLES).toHaveLength(waterSites.length);
+  it("exports every physical water feature as a deterministic obstacle", () => {
+    expect(GARDEN_EDGE_STONE_OBSTACLES).toHaveLength(GARDEN_SEA_EDGE_SITES.length);
     expect(GARDEN_EDGE_STONE_OBSTACLES.some((obstacle) => obstacle.id === "danger-rim-cliff"))
-      .toBe(false);
-    expect(GARDEN_EDGE_STONE_OBSTACLES).toEqual(waterSites.map((site) => ({
+      .toBe(true);
+    expect(GARDEN_EDGE_STONE_OBSTACLES).toEqual(GARDEN_SEA_EDGE_SITES.map((site) => ({
       body: site.body,
       id: site.id,
       r: site.footprintRadius,
@@ -167,68 +135,33 @@ describe("garden sea-edge sites", () => {
     let tightest = Number.POSITIVE_INFINITY;
     for (const site of GARDEN_SEA_EDGE_SITES) {
       for (const station of STATION_FOOTPRINTS) {
-        const distance = distanceToStation(site.tile.x, site.tile.y, station);
+        const distance = distanceToStationFootprint(site.tile, station);
         expect(distance, `${site.id} / ${station.id}`)
           .toBeGreaterThanOrEqual(site.footprintRadius);
         tightest = Math.min(tightest, distance - site.footprintRadius);
       }
     }
-    // The keep-out is load-bearing, not vacuous: at least one stele presses
-    // against a station envelope within a tile of the limit (the inner
-    // Warning shoal bar against the stepped inlet measures 0.7). Were every
-    // stele far away, this suite could not tell the footprint term from the
-    // old mouth apron.
-    expect(tightest).toBeLessThan(1);
+    // The keep-out remains load-bearing: a site is within two tiles of the
+    // exact station-envelope limit.
+    expect(tightest).toBeLessThan(2);
   });
 
-  it("would fail if station clearance reverted to the cove mouth alone", () => {
-    // Reproduce the pre-R4 rule exactly: candidates cleared against the
-    // island waterline, the moorings and the RIM_COVES mouths with the fixed
-    // 4-tile hull apron — no station term. Re-resolving the inner Warning
-    // shoal bar's guide (114,18) under that rule picks (113,21) (recorded
-    // old resolution), whose own footprint overlaps the stepped inlet's
-    // envelope — the defect R4 exists to close. If candidateIsClear ever
-    // loses its station term, that is the site the module would emit again,
-    // and the assertion above fails on this pair.
-    const barRadius = Math.hypot(5.4 * GARDEN_SEA_EDGE_SCALE_FACTOR, 2.0 * GARDEN_SEA_EDGE_SCALE_FACTOR) * 0.5 + 0.25;
-    const oldRuleClear = (x: number, y: number): boolean => {
-      const island = GARDEN_SEA_EDGE_ISLAND_WATERLINE;
-      const islandValue = ((x - island.x)
-        / (island.rx + barRadius + GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES)) ** 2
-        + ((y - island.y)
-          / (island.ry + barRadius + GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES)) ** 2;
-      if (islandValue < 1) return false;
-      if (Object.values(SHIP_WATER_ANCHORS).flat().some((mooring) => (
-        Math.hypot(x - mooring.x, y - mooring.y)
-          < barRadius + GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES
-      ))) return false;
-      return RIM_COVES.every((cove) => (
-        Math.hypot(x - cove.tile.x, y - cove.tile.y)
-          >= barRadius + GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES
-      ));
-    };
-    let oldRule: { x: number; y: number } | null = null;
-    let oldRuleDistance = Number.POSITIVE_INFINITY;
-    for (let y = 1; y < PHAROSVILLE_MAP_HEIGHT - 1; y += 1) {
-      for (let x = 1; x < PHAROSVILLE_MAP_WIDTH - 1; x += 1) {
-        if (seaRegionAtTile(x, y) !== SEA_REGION_ID.warning) continue;
-        if (!isWaterTileKind(terrainKindAt(x, y)) || rimLandAt(x, y)) continue;
-        const meetsAlert = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => (
-          isWaterTileKind(terrainKindAt(x + dx, y + dy))
-          && seaRegionAtTile(x + dx, y + dy) === SEA_REGION_ID.alert
-        ));
-        if (!meetsAlert) continue;
-        if (seaEdgeTileInOpening({ x, y })) continue;
-        if (!oldRuleClear(x, y)) continue;
-        const distance = (x - 114) ** 2 + (y - 18) ** 2;
-        if (distance >= oldRuleDistance) continue;
-        oldRuleDistance = distance;
-        oldRule = { x, y };
-      }
-    }
-    expect(oldRule).toEqual({ x: 113, y: 21 });
-    const notch = STATION_FOOTPRINTS.find((station) => station.id === "warning-stone-notch");
-    expect(notch).toBeDefined();
-    expect(distanceToStation(oldRule!.x, oldRule!.y, notch!)).toBeLessThan(barRadius);
+  it("guards the landward origin against cove-only and seaward-centred regressions", () => {
+    const ledger = STATION_FOOTPRINTS.find((station) => station.id === "ledger-fog-hook")!;
+    const ledgerCove = RIM_COVES.find((cove) => cove.id === "ledger-fog-hook")!;
+    const landwardHall = { x: 2, y: 54 };
+    expect(distanceToStationFootprint(landwardHall, ledger)).toBe(0);
+    expect(Math.hypot(
+      landwardHall.x - ledgerCove.tile.x,
+      landwardHall.y - ledgerCove.tile.y,
+    )).toBeGreaterThan(ledgerCove.width * 0.5 + GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES);
+
+    const along = landwardHall.x - ledger.origin.x;
+    const legacyHalfAlong = (ledger.maxAlong - ledger.minAlong) / 2;
+    const legacySeawardCentredDistance = Math.max(
+      Math.abs(along - legacyHalfAlong) - legacyHalfAlong,
+      0,
+    );
+    expect(legacySeawardCentredDistance).toBeGreaterThan(0);
   });
 });

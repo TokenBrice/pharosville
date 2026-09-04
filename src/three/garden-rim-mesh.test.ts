@@ -1,6 +1,6 @@
 import { InstancedMesh, Matrix4, Mesh, MeshStandardMaterial } from "three";
 import { describe, expect, it, vi } from "vitest";
-import { stationClearanceTiles } from "../systems/dock-layout";
+import { distanceToStationFootprint, stationFootprintRect } from "../systems/dock-layout";
 import { RIM_COVES, RIM_OPENINGS, rimLandAt } from "../systems/garden-rim";
 import {
   EVM_BAY_STATION_SLOTS,
@@ -42,14 +42,10 @@ describe("garden rim mesh", () => {
     expect(GARDEN_ENGAWA_LANTERN_WORLD.x).toBeGreaterThan(0);
     expect(GARDEN_ENGAWA_LANTERN_WORLD.z).toBeGreaterThan(GARDEN_ENGAWA_LANTERN_WORLD.x);
     expect(rim.pathSegmentCount).toBeGreaterThan(80);
-    // The full station envelopes truncate the old 13+ cove-width spurs to
-    // seven genuinely clear approach segments. The Mole's former eighth spur
-    // now ends inside its widened precinct; every other cove retains its spur.
-    expect(rim.coveSpurCount).toBe(7);
-    // The footprint reservations deliberately remove roughly 3k triangles
-    // from the former >57,868 dressing floor. The surviving irregular coast,
-    // all five hero-headland triads and the skirt keep the five draws above 52k.
-    expect(rim.triangleCount).toBeGreaterThan(52_000);
+    // The cove-rooted rectangles retain the Mole spur without admitting
+    // dressing onto any authored station geometry.
+    expect(rim.coveSpurCount).toBe(8);
+    expect(rim.triangleCount).toBeGreaterThan(63_000);
     expect(rim.triangleCount).toBeLessThan(85_000);
     const shore = rim.root.getObjectByName("garden-rim-tide-rock") as Mesh;
     const positions = shore.geometry.getAttribute("position");
@@ -81,7 +77,12 @@ describe("garden rim mesh", () => {
       PIGEONNIER_STATION_SLOT,
     ].map((slot) => ({
       cove: slot.cove,
-      radius: stationClearanceTiles(slot.type, Number.POSITIVE_INFINITY, 10),
+      rect: stationFootprintRect(
+        slot.type,
+        slot.cove.tile,
+        slot.cove.seawardBearing,
+        slot.cove.id,
+      ),
     }));
     const instanceTiles = (mesh: InstancedMesh) => {
       const tiles: Array<{ x: number; y: number }> = [];
@@ -103,6 +104,15 @@ describe("garden rim mesh", () => {
         y: pathPositions.getZ(index) / TILE_SCALE,
       });
     }
+    const stonePoints = instanceTiles(
+      rim.root.getObjectByName("garden-rim-stones") as InstancedMesh,
+    );
+    expect(stonePoints[0]!.x).toBeCloseTo(5, 5);
+    expect(stonePoints[0]!.y).toBeCloseTo(110, 5);
+    expect(stonePoints[1]!.x).toBeCloseTo(4.340, 3);
+    expect(stonePoints[1]!.y).toBeCloseTo(110.817, 3);
+    expect(stonePoints[2]!.x).toBeCloseTo(4.779, 3);
+    expect(stonePoints[2]!.y).toBeCloseTo(108.974, 3);
     const scenery = [
       { name: "path", points: pathPoints },
       {
@@ -111,33 +121,22 @@ describe("garden rim mesh", () => {
       },
       {
         name: "stone",
-        points: instanceTiles(rim.root.getObjectByName("garden-rim-stones") as InstancedMesh),
+        points: stonePoints,
       },
     ];
     for (const station of stationClearances) {
       for (const feature of scenery) {
         const intruders = feature.points.filter((point) => (
-          Math.hypot(
-            point.x - station.cove.tile.x,
-            point.y - station.cove.tile.y,
-          ) <= station.radius
+          distanceToStationFootprint(point, station.rect) <= 0
         ));
         expect(
           intruders,
-          `${feature.name} inside ${station.cove.id} ${station.radius}-tile footprint`,
+          `${feature.name} inside ${station.cove.id} station footprint`,
         ).toEqual([]);
       }
-      for (
-        let y = Math.floor(station.cove.tile.y - station.radius);
-        y <= Math.ceil(station.cove.tile.y + station.radius);
-        y += 1
-      ) {
-        for (
-          let x = Math.floor(station.cove.tile.x - station.radius);
-          x <= Math.ceil(station.cove.tile.x + station.radius);
-          x += 1
-        ) {
-          if (Math.hypot(x - station.cove.tile.x, y - station.cove.tile.y) > station.radius) continue;
+      for (let y = 0; y < 140; y += 1) {
+        for (let x = 0; x < 140; x += 1) {
+          if (distanceToStationFootprint({ x, y }, station.rect) > 0) continue;
           expect(
             gardenRimBayExcursionAt(x, y),
             `bay excursion inside ${station.cove.id} at ${x},${y}`,
@@ -160,12 +159,13 @@ describe("garden rim mesh", () => {
         legacyPathPoint.y - ledgerCove.tile.y,
       ),
     ).toBeGreaterThan(ledgerCove.width * 0.5 + 2.5);
-    expect(
-      Math.hypot(
-        legacyPathPoint.x - ledger.cove.tile.x,
-        legacyPathPoint.y - ledger.cove.tile.y,
-      ),
-    ).toBeLessThanOrEqual(ledger.radius);
+    expect(distanceToStationFootprint(legacyPathPoint, ledger.rect)).toBe(0);
+    const legacyHalfAlong = (ledger.rect.maxAlong - ledger.rect.minAlong) / 2;
+    expect(Math.max(
+      Math.abs((legacyPathPoint.x - ledger.rect.origin.x) - legacyHalfAlong)
+        - legacyHalfAlong,
+      0,
+    )).toBeGreaterThan(0);
 
     // Clearance only interrupts dressing. The authoritative fukinsei coast
     // and its two unequal open-sea passages remain the same authored field.

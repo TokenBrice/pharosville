@@ -21,6 +21,7 @@ import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/Buff
 import {
   stationFootprint,
   stationScaleFor,
+  type StationFootprint,
   type StationScale,
   type StationType,
 } from "../systems/dock-layout";
@@ -186,7 +187,7 @@ export interface DockRecipe {
   flag: HarborFlagSpec;
   cargoTideLanes: CargoTideLanes;
   tideFace: DockTideFace;
-  footprint: { length: number; span: number };
+  footprint: StationFootprint;
   features: HarborStationFeatures;
   identity: HarborIdentity;
   lampWorldPositions: { x: number; z: number }[];

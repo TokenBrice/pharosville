@@ -16,7 +16,7 @@ import {
   Vector3,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { stationClearanceTiles } from "../systems/dock-layout";
+import { distanceToStationFootprint, stationFootprintRect } from "../systems/dock-layout";
 import {
   RIM_COVES,
   rimLandAt,
@@ -36,7 +36,9 @@ import { TILE_SCALE, disposeThreeObjectTree, stableUnit } from "./garden-util";
 const MAP_SIZE = PHAROSVILLE_DESIGN_SPAN * PHAROSVILLE_MAP_SCALE;
 const MAP_LAST = MAP_SIZE - 1;
 const WATERLINE_Y = -0.11;
-const SAMPLE_STEP = 0.5;
+// Reviewed half-tile contour cadence, tightened enough to retain the authored
+// irregular shoreline after rectangular station reservations restore detail.
+const SAMPLE_STEP = 0.44475;
 /** How far past tile 139 the decorative camera-side land skirt reaches. */
 const CAMERA_SIDE_SKIRT_REACH_TILES = 4.5;
 /** Cut-off steepness past the reach; beats the deepest boundary shore
@@ -46,17 +48,21 @@ const CAMERA_SIDE_SKIRT_CUT_SLOPE = 6.5;
 const CAMERA_SIDE_SKIRT_PINE_KEEP = 0.1;
 /** Skirt pines trail to none by this many tiles past the boundary. */
 const CAMERA_SIDE_SKIRT_PINE_FADE_TILES = 6;
-// Rim dressing is authored without a live feed. Use each slot's maximum
-// supply-scaled envelope: infinity is intentional because the systems helper
-// clamps it to the largest plausible rung, while size 10 closes the other
-// independent scale axis conservatively.
+// Rim dressing is authored without a live feed. Reserve each complete
+// maximum-recipe envelope at its cove-root origin, rotated into the authored
+// seaward bearing.
 const RIM_STATION_CLEARANCES = [
   ...EVM_BAY_STATION_SLOTS,
   ...OUTER_HARBOR_STATION_SLOTS,
   PIGEONNIER_STATION_SLOT,
 ].map((slot) => ({
   cove: slot.cove,
-  radius: stationClearanceTiles(slot.type, Number.POSITIVE_INFINITY, 10),
+  rect: stationFootprintRect(
+    slot.type,
+    slot.cove.tile,
+    slot.cove.seawardBearing,
+    slot.cove.id,
+  ),
 }));
 // Decorative garden frame only: rim form, planting, stones, and the stroll
 // ribbon carry no market or risk meaning.
@@ -266,7 +272,7 @@ function bell(value: number, centre: number, radius: number): number {
 function stationMouthClearance(tileX: number, tileY: number): number {
   return RIM_STATION_CLEARANCES.reduce((closest, station) => Math.min(
     closest,
-    Math.hypot(tileX - station.cove.tile.x, tileY - station.cove.tile.y) - station.radius,
+    distanceToStationFootprint({ x: tileX, y: tileY }, station.rect),
   ), Number.POSITIVE_INFINITY);
 }
 
@@ -534,7 +540,7 @@ function createPineGeometry(): BufferGeometry {
 
 function clearOfStation(tileX: number, tileY: number, extra = 0): boolean {
   return RIM_STATION_CLEARANCES.every((station) => (
-    Math.hypot(tileX - station.cove.tile.x, tileY - station.cove.tile.y) > station.radius + extra
+    distanceToStationFootprint({ x: tileX, y: tileY }, station.rect) > extra
   ));
 }
 
@@ -648,9 +654,7 @@ function createPines(): InstancedMesh {
 }
 
 const HEADLANDS = [
-  // The west triad sits one tile farther out than its original (5, 110)
-  // anchor, retaining the headland while clearing the Mole's full precinct.
-  { x: 4, y: 111 },
+  { x: 5, y: 110 },
   { x: 78, y: 4 },
   { x: 135, y: 100 },
   { x: 43, y: 136 },
@@ -802,40 +806,32 @@ function buildPathGeometry(): { coveSpurs: number; geometry: BufferGeometry; seg
   for (const station of RIM_STATION_CLEARANCES) {
     const { cove } = station;
     if (!RIM_COVES.includes(cove)) continue;
-    // Stop the approach outside the full station envelope. The extra tile
-    // covers the ribbon's half-width without shaving the adjacent authored
-    // shoulder or extending the circular reservation into a smooth coast arc.
-    const landward = {
-      x: cove.tile.x - Math.cos(cove.seawardBearing) * (station.radius + 1),
-      y: cove.tile.y - Math.sin(cove.seawardBearing) * (station.radius + 1),
-    };
-    const perimeter = cove.tile.x < 24
-      ? { x: 3, y: landward.y }
-      : cove.tile.x > MAP_LAST - 24
-        ? { x: MAP_LAST - 3, y: landward.y }
-        : cove.tile.y < 24
-          ? { x: landward.x, y: 3 }
-          : { x: landward.x, y: MAP_LAST - 3 };
-    const steps = Math.max(1, Math.ceil(Math.hypot(
-      landward.x - perimeter.x,
-      landward.y - perimeter.y,
-    ) / 1.5));
-    for (let step = 1; step <= steps; step += 1) {
-      const t0 = (step - 1) / steps;
-      const t1 = step / steps;
-      const a = {
-        x: perimeter.x + (landward.x - perimeter.x) * t0,
-        y: perimeter.y + (landward.y - perimeter.y) * t0,
-      };
-      const b = {
-        x: perimeter.x + (landward.x - perimeter.x) * t1,
-        y: perimeter.y + (landward.y - perimeter.y) * t1,
-      };
-      if (clearOfStation(a.x, a.y, 0.75)
-        && clearOfStation(b.x, b.y, 0.75)
-        && addPathRibbon(builder, a, b)) {
+    // Route one approach along a rectangle flank. Search landward from the
+    // water-rooted cove for the first land point beyond an across-shore edge;
+    // the whole straight ribbon then stays outside the measured envelope.
+    const seawardX = Math.cos(cove.seawardBearing);
+    const seawardY = Math.sin(cove.seawardBearing);
+    const tangentX = -seawardY;
+    const tangentY = seawardX;
+    coveSearch:
+    for (const across of [station.rect.maxAcross + 1, station.rect.minAcross - 1]) {
+      for (let along = 0; along >= station.rect.minAlong - 1; along -= 1) {
+        const approach = {
+          x: cove.tile.x + seawardX * along + tangentX * across,
+          y: cove.tile.y + seawardY * along + tangentY * across,
+        };
+        if (!rimLandAt(approach.x, approach.y)) continue;
+        const landwardX = -seawardX;
+        const landwardY = -seawardY;
+        const perimeter = Math.abs(landwardX) >= Math.abs(landwardY)
+          ? { x: landwardX < 0 ? 3 : MAP_LAST - 3, y: approach.y }
+          : { x: approach.x, y: landwardY < 0 ? 3 : MAP_LAST - 3 };
+        if (!clearOfStation(perimeter.x, perimeter.y, 0.75)
+          || !clearOfStation(approach.x, approach.y, 0.75)
+          || !addPathRibbon(builder, perimeter, approach)) continue;
         segments += 1;
         coveSpurs += 1;
+        break coveSearch;
       }
     }
   }

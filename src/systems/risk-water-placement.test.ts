@@ -10,7 +10,7 @@ import {
   PIGEONNIER_STATION_SLOT,
   terrainKindAt,
 } from "./world-layout";
-import { stationFootprint } from "./dock-layout";
+import { distanceToStationFootprint, stationFootprintRect } from "./dock-layout";
 import { SHIP_RISK_PLACEMENTS } from "./risk-water-areas";
 import { PHAROSVILLE_MAP_SCALE, zoneWorldTile } from "./map-scale";
 
@@ -19,42 +19,17 @@ import { PHAROSVILLE_MAP_SCALE, zoneWorldTile } from "./map-scale";
 // coordinate and areas multiply by MAP_SCALE².
 const AREA_SCALE = PHAROSVILLE_MAP_SCALE ** 2;
 
-// R4 (plan §8 L11): the oriented station envelopes placement water must keep
-// risk markers off. Mirrors the module's derivation — stationFootprint at the
-// most conservative envelope (saturated supply, maximum dock size), centred
-// half a length seaward of the authored berth along the cove bearing.
+// R4: use the same cove-rooted oriented rectangle contract as every consumer.
 const STATION_FOOTPRINTS = [
   EVM_BAY_STATION_SLOTS,
   OUTER_HARBOR_STATION_SLOTS,
   PIGEONNIER_STATION_SLOT,
-].flat().map((slot) => {
-  const { length, span } = stationFootprint(slot.type, Number.POSITIVE_INFINITY, 10);
-  const halfAlong = length / 2 / Math.SQRT2;
-  const halfAcross = span / 2 / Math.SQRT2;
-  const seawardX = Math.cos(slot.cove.seawardBearing);
-  const seawardY = Math.sin(slot.cove.seawardBearing);
-  return {
-    center: {
-      x: slot.cove.tile.x + seawardX * halfAlong,
-      y: slot.cove.tile.y + seawardY * halfAlong,
-    },
-    halfAlong,
-    halfAcross,
-    id: slot.cove.id,
-    seawardX,
-    seawardY,
-  };
-});
-
-/** Tile-centre distance to a station envelope; 0 when inside it. */
-function distanceToStation(x: number, y: number, station: (typeof STATION_FOOTPRINTS)[number]): number {
-  const along = (x - station.center.x) * station.seawardX + (y - station.center.y) * station.seawardY;
-  const across = -(x - station.center.x) * station.seawardY + (y - station.center.y) * station.seawardX;
-  return Math.hypot(
-    Math.max(Math.abs(along) - station.halfAlong, 0),
-    Math.max(Math.abs(across) - station.halfAcross, 0),
-  );
-}
+].flat().map((slot) => stationFootprintRect(
+  slot.type,
+  slot.cove.tile,
+  slot.cove.seawardBearing,
+  slot.cove.id,
+));
 
 // A risk marker occupies its whole tile, so a centre within half a tile of an
 // envelope still overlaps the structure (matches the module's rejection
@@ -96,7 +71,7 @@ describe("risk water placement", () => {
       for (const tile of riskPlacementWaterTiles(placement)) {
         for (const station of STATION_FOOTPRINTS) {
           expect(
-            distanceToStation(tile.x, tile.y, station),
+            distanceToStationFootprint(tile, station),
             `${placement} tile (${tile.x},${tile.y}) vs ${station.id}`,
           ).toBeGreaterThan(RISK_MARKER_TILE_HALF);
         }
@@ -115,4 +90,10 @@ describe("risk water placement", () => {
     expect(isRiskPlacementWaterTile({ x: 15, y: 95 }, "safe-harbor")).toBe(false);
     expect(isRiskPlacementWaterTile({ x: 60, y: 130 }, "safe-harbor")).toBe(false);
   });
+  it("does not shift the real envelope seaward from its cove origin", () => {
+    // This safe-harbor tile lies in the empty seaward tail of the old
+    // cove-to-cove+length box. The measured ledger bounds end before it.
+    expect(isRiskPlacementWaterTile({ x: 15, y: 52 }, "safe-harbor")).toBe(true);
+  });
 });
+
