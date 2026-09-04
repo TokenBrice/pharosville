@@ -1,11 +1,19 @@
 import { InstancedMesh, Matrix4, Mesh, MeshStandardMaterial } from "three";
 import { describe, expect, it, vi } from "vitest";
+import { stationClearanceTiles } from "../systems/dock-layout";
+import { RIM_COVES, RIM_OPENINGS, rimLandAt } from "../systems/garden-rim";
+import {
+  EVM_BAY_STATION_SLOTS,
+  OUTER_HARBOR_STATION_SLOTS,
+  PIGEONNIER_STATION_SLOT,
+} from "../systems/world-layout";
 import { weatherForFrame } from "../systems/weather";
 import {
   createGardenRimMesh,
   GARDEN_ENGAWA_DISPLACEMENT,
   GARDEN_ENGAWA_LANTERN_WORLD,
   GARDEN_ENGAWA_PINE_HEIGHT,
+  gardenRimBayExcursionAt,
   GARDEN_NEAR_RIM_BAY_DEPTHS,
   GARDEN_NEAR_RIM_DISPLACEMENT,
   GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT,
@@ -34,10 +42,14 @@ describe("garden rim mesh", () => {
     expect(GARDEN_ENGAWA_LANTERN_WORLD.x).toBeGreaterThan(0);
     expect(GARDEN_ENGAWA_LANTERN_WORLD.z).toBeGreaterThan(GARDEN_ENGAWA_LANTERN_WORLD.x);
     expect(rim.pathSegmentCount).toBeGreaterThan(80);
-    expect(rim.coveSpurCount).toBeGreaterThanOrEqual(13);
-    // 57,868 before the camera-side skirt dressing; the same five draws now
-    // also dress the apron, so the pin tightens to the ~85k working budget.
-    expect(rim.triangleCount).toBeGreaterThan(57_868);
+    // Footprint clearance truncates the old 13+ cove-width spurs to eight
+    // genuinely clear approach segments; the broken ribbons are not retained
+    // merely to preserve the former count.
+    expect(rim.coveSpurCount).toBe(8);
+    // The footprint reservations deliberately remove roughly 3k triangles
+    // from the former >57,868 dressing floor. The surviving irregular coast,
+    // hero headlands and skirt still keep the five draws above 52k.
+    expect(rim.triangleCount).toBeGreaterThan(52_000);
     expect(rim.triangleCount).toBeLessThan(85_000);
     const shore = rim.root.getObjectByName("garden-rim-tide-rock") as Mesh;
     const positions = shore.geometry.getAttribute("position");
@@ -57,6 +69,113 @@ describe("garden rim mesh", () => {
     expect(Math.min(...GARDEN_NEAR_RIM_BAY_DEPTHS)).toBeGreaterThanOrEqual(3);
     expect(GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT).toBeGreaterThanOrEqual(1.5);
     expect(GARDEN_NEAR_RIM_DISPLACEMENT).toContain("straight shoreline");
+    rim.dispose();
+  });
+
+  it("keeps every rim dressing feature outside the largest station footprints", () => {
+    const rim = createGardenRimMesh();
+    const matrix = new Matrix4();
+    const stationClearances = [
+      ...EVM_BAY_STATION_SLOTS,
+      ...OUTER_HARBOR_STATION_SLOTS,
+      PIGEONNIER_STATION_SLOT,
+    ].map((slot) => ({
+      cove: slot.cove,
+      radius: stationClearanceTiles(slot.type, Number.POSITIVE_INFINITY, 10),
+    }));
+    const instanceTiles = (mesh: InstancedMesh) => {
+      const tiles: Array<{ x: number; y: number }> = [];
+      for (let index = 0; index < mesh.count; index += 1) {
+        mesh.getMatrixAt(index, matrix);
+        tiles.push({
+          x: matrix.elements[12] / TILE_SCALE,
+          y: matrix.elements[14] / TILE_SCALE,
+        });
+      }
+      return tiles;
+    };
+    const path = rim.root.getObjectByName("garden-rim-path") as Mesh;
+    const pathPositions = path.geometry.getAttribute("position");
+    const pathPoints: Array<{ x: number; y: number }> = [];
+    for (let index = 0; index < pathPositions.count; index += 1) {
+      pathPoints.push({
+        x: pathPositions.getX(index) / TILE_SCALE,
+        y: pathPositions.getZ(index) / TILE_SCALE,
+      });
+    }
+    const scenery = [
+      { name: "path", points: pathPoints },
+      {
+        name: "pine",
+        points: instanceTiles(rim.root.getObjectByName("garden-rim-pines") as InstancedMesh),
+      },
+      {
+        name: "stone",
+        points: instanceTiles(rim.root.getObjectByName("garden-rim-stones") as InstancedMesh),
+      },
+    ];
+    for (const station of stationClearances) {
+      for (const feature of scenery) {
+        const intruders = feature.points.filter((point) => (
+          Math.hypot(
+            point.x - station.cove.tile.x,
+            point.y - station.cove.tile.y,
+          ) <= station.radius
+        ));
+        expect(
+          intruders,
+          `${feature.name} inside ${station.cove.id} ${station.radius}-tile footprint`,
+        ).toEqual([]);
+      }
+      for (
+        let y = Math.floor(station.cove.tile.y - station.radius);
+        y <= Math.ceil(station.cove.tile.y + station.radius);
+        y += 1
+      ) {
+        for (
+          let x = Math.floor(station.cove.tile.x - station.radius);
+          x <= Math.ceil(station.cove.tile.x + station.radius);
+          x += 1
+        ) {
+          if (Math.hypot(x - station.cove.tile.x, y - station.cove.tile.y) > station.radius) continue;
+          expect(
+            gardenRimBayExcursionAt(x, y),
+            `bay excursion inside ${station.cove.id} at ${x},${y}`,
+          ).toBe(0);
+        }
+      }
+    }
+
+    // The old width-based route admitted this west-rim point and therefore
+    // drew a ribbon through the hatago. It is genuine land on the authored
+    // route, not a synthetic off-coast counterexample, and the maximum
+    // station footprint rejects it.
+    const ledger = stationClearances.find(({ cove }) => cove.id === "ledger-fog-hook")!;
+    const ledgerCove = RIM_COVES.find((cove) => cove.id === "ledger-fog-hook")!;
+    const legacyPathPoint = { x: 3, y: 54 };
+    expect(rimLandAt(legacyPathPoint.x, legacyPathPoint.y)).toBe(true);
+    expect(
+      Math.hypot(
+        legacyPathPoint.x - ledgerCove.tile.x,
+        legacyPathPoint.y - ledgerCove.tile.y,
+      ),
+    ).toBeGreaterThan(ledgerCove.width * 0.5 + 2.5);
+    expect(
+      Math.hypot(
+        legacyPathPoint.x - ledger.cove.tile.x,
+        legacyPathPoint.y - ledger.cove.tile.y,
+      ),
+    ).toBeLessThanOrEqual(ledger.radius);
+
+    // Clearance only interrupts dressing. The authoritative fukinsei coast
+    // and its two unequal open-sea passages remain the same authored field.
+    expect(RIM_OPENINGS).toHaveLength(2);
+    expect(
+      RIM_OPENINGS[0]!.bearingEnd - RIM_OPENINGS[0]!.bearingStart,
+    ).toBeCloseTo(
+      (RIM_OPENINGS[1]!.bearingEnd - RIM_OPENINGS[1]!.bearingStart) * 2,
+      8,
+    );
     rim.dispose();
   });
 

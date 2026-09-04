@@ -12,7 +12,53 @@ import {
   seaEdgeBoundaryAt,
   seaEdgeTileInOpening,
 } from "./garden-sea-edge-sites";
-import { isWaterTileKind, terrainKindAt } from "./world-layout";
+import {
+  EVM_BAY_STATION_SLOTS,
+  OUTER_HARBOR_STATION_SLOTS,
+  PHAROSVILLE_MAP_HEIGHT,
+  PHAROSVILLE_MAP_WIDTH,
+  PIGEONNIER_STATION_SLOT,
+  isWaterTileKind,
+  terrainKindAt,
+} from "./world-layout";
+import { stationFootprint } from "./dock-layout";
+
+// R4 (plan §8 L11): the oriented station envelopes steles must clear.
+// Mirrors the module's derivation — stationFootprint at the most
+// conservative envelope (saturated supply, maximum dock size), centred half
+// a length seaward of the authored berth along the cove bearing.
+const STATION_FOOTPRINTS = [
+  EVM_BAY_STATION_SLOTS,
+  OUTER_HARBOR_STATION_SLOTS,
+  PIGEONNIER_STATION_SLOT,
+].flat().map((slot) => {
+  const { length, span } = stationFootprint(slot.type, Number.POSITIVE_INFINITY, 10);
+  const halfAlong = length / 2 / Math.SQRT2;
+  const halfAcross = span / 2 / Math.SQRT2;
+  const seawardX = Math.cos(slot.cove.seawardBearing);
+  const seawardY = Math.sin(slot.cove.seawardBearing);
+  return {
+    center: {
+      x: slot.cove.tile.x + seawardX * halfAlong,
+      y: slot.cove.tile.y + seawardY * halfAlong,
+    },
+    halfAlong,
+    halfAcross,
+    id: slot.cove.id,
+    seawardX,
+    seawardY,
+  };
+});
+
+/** Tile-centre distance to a station envelope; 0 when inside it. */
+function distanceToStation(x: number, y: number, station: (typeof STATION_FOOTPRINTS)[number]): number {
+  const along = (x - station.center.x) * station.seawardX + (y - station.center.y) * station.seawardY;
+  const across = -(x - station.center.x) * station.seawardY + (y - station.center.y) * station.seawardX;
+  return Math.hypot(
+    Math.max(Math.abs(along) - station.halfAlong, 0),
+    Math.max(Math.abs(across) - station.halfAcross, 0),
+  );
+}
 
 describe("garden sea-edge sites", () => {
   it("gives every named body authored edge geography and leaves open approach empty", () => {
@@ -115,5 +161,74 @@ describe("garden sea-edge sites", () => {
       expect(new Set(sites.map((site) => `${site.tile.x},${site.tile.y}`)).size, form)
         .toBe(sites.length);
     }
+  });
+
+  it("keeps every stele outside the nine enlarged station footprints", () => {
+    let tightest = Number.POSITIVE_INFINITY;
+    for (const site of GARDEN_SEA_EDGE_SITES) {
+      for (const station of STATION_FOOTPRINTS) {
+        const distance = distanceToStation(site.tile.x, site.tile.y, station);
+        expect(distance, `${site.id} / ${station.id}`)
+          .toBeGreaterThanOrEqual(site.footprintRadius);
+        tightest = Math.min(tightest, distance - site.footprintRadius);
+      }
+    }
+    // The keep-out is load-bearing, not vacuous: at least one stele presses
+    // against a station envelope within a tile of the limit (the inner
+    // Warning shoal bar against the stepped inlet measures 0.7). Were every
+    // stele far away, this suite could not tell the footprint term from the
+    // old mouth apron.
+    expect(tightest).toBeLessThan(1);
+  });
+
+  it("would fail if station clearance reverted to the cove mouth alone", () => {
+    // Reproduce the pre-R4 rule exactly: candidates cleared against the
+    // island waterline, the moorings and the RIM_COVES mouths with the fixed
+    // 4-tile hull apron — no station term. Re-resolving the inner Warning
+    // shoal bar's guide (114,18) under that rule picks (113,21) (recorded
+    // old resolution), whose own footprint overlaps the stepped inlet's
+    // envelope — the defect R4 exists to close. If candidateIsClear ever
+    // loses its station term, that is the site the module would emit again,
+    // and the assertion above fails on this pair.
+    const barRadius = Math.hypot(5.4 * GARDEN_SEA_EDGE_SCALE_FACTOR, 2.0 * GARDEN_SEA_EDGE_SCALE_FACTOR) * 0.5 + 0.25;
+    const oldRuleClear = (x: number, y: number): boolean => {
+      const island = GARDEN_SEA_EDGE_ISLAND_WATERLINE;
+      const islandValue = ((x - island.x)
+        / (island.rx + barRadius + GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES)) ** 2
+        + ((y - island.y)
+          / (island.ry + barRadius + GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES)) ** 2;
+      if (islandValue < 1) return false;
+      if (Object.values(SHIP_WATER_ANCHORS).flat().some((mooring) => (
+        Math.hypot(x - mooring.x, y - mooring.y)
+          < barRadius + GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES
+      ))) return false;
+      return RIM_COVES.every((cove) => (
+        Math.hypot(x - cove.tile.x, y - cove.tile.y)
+          >= barRadius + GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES
+      ));
+    };
+    let oldRule: { x: number; y: number } | null = null;
+    let oldRuleDistance = Number.POSITIVE_INFINITY;
+    for (let y = 1; y < PHAROSVILLE_MAP_HEIGHT - 1; y += 1) {
+      for (let x = 1; x < PHAROSVILLE_MAP_WIDTH - 1; x += 1) {
+        if (seaRegionAtTile(x, y) !== SEA_REGION_ID.warning) continue;
+        if (!isWaterTileKind(terrainKindAt(x, y)) || rimLandAt(x, y)) continue;
+        const meetsAlert = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => (
+          isWaterTileKind(terrainKindAt(x + dx, y + dy))
+          && seaRegionAtTile(x + dx, y + dy) === SEA_REGION_ID.alert
+        ));
+        if (!meetsAlert) continue;
+        if (seaEdgeTileInOpening({ x, y })) continue;
+        if (!oldRuleClear(x, y)) continue;
+        const distance = (x - 114) ** 2 + (y - 18) ** 2;
+        if (distance >= oldRuleDistance) continue;
+        oldRuleDistance = distance;
+        oldRule = { x, y };
+      }
+    }
+    expect(oldRule).toEqual({ x: 113, y: 21 });
+    const notch = STATION_FOOTPRINTS.find((station) => station.id === "warning-stone-notch");
+    expect(notch).toBeDefined();
+    expect(distanceToStation(oldRule!.x, oldRule!.y, notch!)).toBeLessThan(barRadius);
   });
 });

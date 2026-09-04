@@ -2975,18 +2975,16 @@ function disposeDepartingVisual(scene: GardenScene, visual: ShipVisual): void {
 }
 
 /**
- * C2 wiring for the harbor: registers karesansui ripple rings (W5) on the
- * composed docks' pylons and hands Lane W's shader the mirror-basin extents
- * (I2) as a calm mask centred on those docks. Only the two representative
- * docks get rings so the island/islet default rings and Lane S's ship-mooring
- * rings keep headroom under GARDEN_WATER_MAX_RIPPLE_RINGS.
+ * C2 wiring for the harbor: every composed dock gets a karesansui pylon
+ * ripple (W5), while the shader's one calm mask belongs only to the enclosed
+ * Ethereum Mole basin (I2). Distant ring mouths must never be joined by one
+ * lake-flattening ellipse.
  */
 function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void {
   const content = scene.content;
   if (!content) return;
   const harborDockIds = new Set(selectGardenDocks(world.docks).map((dock) => dock.detailId));
   const harborDocks = content.docks.filter((dock) => harborDockIds.has(dock.recipe.dock.detailId));
-  if (harborDocks.length === 0) return;
   for (const dock of harborDocks) {
     scene.water.rippleRings.setRing({
       id: `dock-pylon.${dock.recipe.dock.detailId}`,
@@ -2997,20 +2995,28 @@ function registerHarborWater(scene: GardenScene, world: PharosVilleWorld): void 
       strength: 0.18,
     });
   }
-  // One shader mask cannot cover distant shore stations without flattening the
-  // entire lake between them. Seat it just seaward of the largest represented
-  // station; every selected station still gets its own pylon ripple above.
-  const primary = harborDocks.toSorted((left, right) => (
-    right.recipe.dock.totalUsd - left.recipe.dock.totalUsd
-  ))[0]!;
-  const bearing = primary.recipe.station.shoreBearing;
+  const mole = harborDocks.find((dock) => dock.recipe.station.type === "ethereum-mole");
+  if (!mole) {
+    // A sparse feed has no civic basin. Explicitly clear a prior world frame's
+    // mask instead of moving it onto whichever unrelated harbor ranks first.
+    scene.water.setHarborCalmMask({
+      center: { x: 0, z: 0 },
+      radiusX: 9,
+      radiusZ: 7,
+      calmStrength: 0,
+    });
+    return;
+  }
+  const bearing = mole.recipe.station.shoreBearing;
+  // The basin is 18 × 14 world units and begins at the mouth: its centre sits
+  // one 9-unit radius seaward, clear of the landward civic hall.
   scene.water.setHarborCalmMask({
     center: {
-      x: primary.root.position.x + Math.cos(bearing) * 5,
-      z: primary.root.position.z + Math.sin(bearing) * 5,
+      x: mole.root.position.x + Math.cos(bearing) * 9,
+      z: mole.root.position.z + Math.sin(bearing) * 9,
     },
-    radiusX: 13,
-    radiusZ: 9,
+    radiusX: 9,
+    radiusZ: 7,
     calmStrength: 0.7,
   });
 }

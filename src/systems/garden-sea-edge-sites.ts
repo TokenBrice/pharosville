@@ -1,10 +1,14 @@
+import { stationFootprint } from "./dock-layout";
 import { SEA_REGION_ID, seaRegionAtTile } from "./garden-sea-regions";
 import { RIM_COVES, rimDepthAt, rimLandAt } from "./garden-rim";
 import { SHIP_WATER_ANCHORS } from "./risk-water-areas";
 import type { SeaBodyId, SeaBodyName } from "./sea-bodies";
 import {
+  EVM_BAY_STATION_SLOTS,
+  OUTER_HARBOR_STATION_SLOTS,
   PHAROSVILLE_MAP_HEIGHT,
   PHAROSVILLE_MAP_WIDTH,
+  PIGEONNIER_STATION_SLOT,
   isWaterTileKind,
   terrainKindAt,
 } from "./world-layout";
@@ -178,6 +182,82 @@ const CARDINAL_NEIGHBOURS = [
 
 const MOORINGS = Object.values(SHIP_WATER_ANCHORS).flat();
 
+/**
+ * R4 keep-outs for the nine rendered stations (plan §8 L11): a stele clears
+ * the building that stands on a cove, not merely the cove's authored mouth.
+ * The rim-ring stations grew to envelopes up to 20 world units long, so the
+ * historical 4-tile mouth apron below no longer bounds the quay, pier or
+ * mole a site must clear — measured on the mouth-only rule, the inner and
+ * middle Warning shoal bars resolved with their own footprints overlapping
+ * the stepped inlet's envelope.
+ *
+ * Each keep-out is the station's authored ENVELOPE RECTANGLE, oriented along
+ * the cove's seaward bearing: the renderer roots every station at its quay
+ * with local +X running land→sea (garden-docks.ts authorDock), so the
+ * envelope spans the berth and the water beyond it. A stele only has to not
+ * overlap the structure, so the exact rectangle is the honest test — the
+ * circumscribing `stationClearanceTiles` radius is deliberately greedy (it
+ * is the ship-exclusion shape) and would demand a stele stand clear of
+ * corners no building occupies. On the Danger gorge that greed is fatal
+ * rather than tidy: the strait's only rim flank with a danger-water
+ * neighbour lies within 7.1 tiles of the berth, all of it alongshore of a
+ * pier that reaches seaward, so a footprint-sized circle centred anywhere
+ * near the mouth leaves the authored cliff nowhere legal to stand.
+ *
+ * The station TYPE comes from the authored slot tables because the place
+ * owns the architecture; guides resolve against the authored field before
+ * any chain binds to a berth, so no supply figure exists at siting time and
+ * every rectangle takes the most conservative envelope the ladder can
+ * produce (saturated supply multiplier, maximum dock size 10). A rendered
+ * station can only be smaller than its rectangle, never larger.
+ */
+interface StationFootprintRect {
+  readonly center: { x: number; y: number };
+  /** Half the envelope's seaward length, in tiles. */
+  readonly halfAlong: number;
+  /** Half the envelope's shore span, in tiles. */
+  readonly halfAcross: number;
+  readonly seawardX: number;
+  readonly seawardY: number;
+}
+
+const STATION_FOOTPRINT_RECTS: readonly StationFootprintRect[] = Object.freeze(
+  [
+    ...EVM_BAY_STATION_SLOTS,
+    ...OUTER_HARBOR_STATION_SLOTS,
+    PIGEONNIER_STATION_SLOT,
+  ].map((slot) => {
+    const { length, span } = stationFootprint(slot.type, Number.POSITIVE_INFINITY, 10);
+    // World units become tiles by TILE_SCALE = √2; the systems layer keeps
+    // its own factor rather than importing the three layer (as
+    // garden-water-exclusion does for the same freedom).
+    const halfAlong = length / 2 / Math.SQRT2;
+    const halfAcross = span / 2 / Math.SQRT2;
+    const seawardX = Math.cos(slot.cove.seawardBearing);
+    const seawardY = Math.sin(slot.cove.seawardBearing);
+    return {
+      center: {
+        x: slot.cove.tile.x + seawardX * halfAlong,
+        y: slot.cove.tile.y + seawardY * halfAlong,
+      },
+      halfAlong,
+      halfAcross,
+      seawardX,
+      seawardY,
+    };
+  }),
+);
+
+/** Tile-centre distance to a station's envelope rectangle; 0 when inside it. */
+function distanceToStationFootprint(x: number, y: number, station: StationFootprintRect): number {
+  const along = (x - station.center.x) * station.seawardX + (y - station.center.y) * station.seawardY;
+  const across = -(x - station.center.x) * station.seawardY + (y - station.center.y) * station.seawardX;
+  return Math.hypot(
+    Math.max(Math.abs(along) - station.halfAlong, 0),
+    Math.max(Math.abs(across) - station.halfAcross, 0),
+  );
+}
+
 function regionId(body: SeaBodyName): number {
   return SEA_REGION_ID[body];
 }
@@ -244,6 +324,9 @@ function candidateIsClear(x: number, y: number, radius: number): boolean {
   if (!clearOfIsland(x, y, radius)) return false;
   if (MOORINGS.some((mooring) => (
     Math.hypot(x - mooring.x, y - mooring.y) < radius + GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES
+  ))) return false;
+  if (STATION_FOOTPRINT_RECTS.some((station) => (
+    distanceToStationFootprint(x, y, station) < radius
   ))) return false;
   return RIM_COVES.every((cove) => (
     Math.hypot(x - cove.tile.x, y - cove.tile.y)

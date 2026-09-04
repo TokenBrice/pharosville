@@ -2,8 +2,22 @@ import { describe, expect, it } from "vitest";
 import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "./camera";
 import { ABSOLUTE_MIN_ZOOM, mapIsoBounds, minZoomForViewport, tileToScreen } from "./projection";
 import { MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX } from "./viewport-gate";
-import { gardenIslandDisplayTile } from "./garden-observatory-slice";
-import { buildPharosVilleMap, CEMETERY_CENTER, isWaterTileKind, LIGHTHOUSE_TILE, PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, PIGEON_ISLAND_CENTER } from "./world-layout";
+import {
+  GARDEN_LIGHTHOUSE_HEIGHT,
+  GARDEN_LIGHTHOUSE_ROOT_OFFSET,
+  gardenIslandDisplayTile,
+  gardenTileToScreen,
+} from "./garden-observatory-slice";
+import {
+  buildPharosVilleMap,
+  CEMETERY_CENTER,
+  EVM_BAY_STATION_SLOTS,
+  isWaterTileKind,
+  LIGHTHOUSE_TILE,
+  PHAROSVILLE_MAP_HEIGHT,
+  PHAROSVILLE_MAP_WIDTH,
+  PIGEON_ISLAND_CENTER,
+} from "./world-layout";
 import type { TerrainKind } from "./world-types";
 
 describe("camera", () => {
@@ -28,7 +42,7 @@ describe("camera", () => {
     expect(zoomOut(zoomIn(camera, { x: 1000, y: 800 }), { x: 1000, y: 800 }).zoom).toBeCloseTo(1);
   });
 
-  it("frames the authored island mass left of the extra sea margin by default", () => {
+  it("keeps the authored island mass inside the right-hand sea gutter by default", () => {
     const map = buildPharosVilleMap();
     const centerTile = landBoundsCenter(map.tiles);
 
@@ -56,28 +70,55 @@ describe("camera", () => {
         ? 0
         : Math.max(shortSideProgress, longSideProgress);
       expect(camera.zoom).toBeCloseTo(0.6 * (1 + compositionProgress * 0.02));
-      // The constant 128px right-gutter is proportionally largest in the
-      // 720px-wide tall case; the island remains intentionally left of center.
+      // The landing frame may move the island right to admit the Mole, but
+      // never spends the authored 128px anchorage gutter on the island centre.
       expect(center.x).toBeGreaterThanOrEqual(viewport.x * 0.43);
-      expect(center.x).toBeLessThanOrEqual(viewport.x * 0.68);
+      expect(center.x).toBeLessThanOrEqual(viewport.x - 128);
       expect(center.y).toBeGreaterThanOrEqual(viewport.y * 0.45);
       expect(center.y).toBeLessThanOrEqual(viewport.y * 0.65);
       expect(clampCameraToMap(camera, { map, viewport })).toEqual(camera);
     }
   });
 
-  it("frames the Ethereum shore capital with the Pharos and a broad right-hand interval", () => {
+  it("keeps the Mole, Pharos headroom, and right-hand ma at both landing sizes", () => {
     const map = buildPharosVilleMap();
-    const viewport = { x: 1600, y: 1000 };
-    const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
-    const tower = tileToScreen(gardenIslandDisplayTile(LIGHTHOUSE_TILE), camera);
-    const ethereumStation = tileToScreen({ x: 14, y: 74 }, camera);
-    expect(ethereumStation.x).toBeGreaterThan(viewport.x * 0.08);
-    expect(ethereumStation.x).toBeLessThan(viewport.x * 0.2);
-    expect(tower.x).toBeGreaterThan(viewport.x * 0.43);
-    expect(tower.x).toBeLessThan(viewport.x * 0.52);
-    expect(tower.y).toBeGreaterThan(viewport.y * 0.45);
-    expect(tower.y).toBeLessThan(viewport.y * 0.58);
+
+    for (const viewport of [
+      { x: 900, y: 720 },
+      { x: 1200, y: 640 },
+    ]) {
+      const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
+      const mole = tileToScreen(EVM_BAY_STATION_SLOTS[0].cove.tile, camera);
+      const islandTile = gardenIslandDisplayTile(LIGHTHOUSE_TILE);
+      const lighthouseTile = {
+        x: islandTile.x + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x / Math.SQRT2,
+        y: islandTile.y + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z / Math.SQRT2,
+      };
+      const towerBase = gardenTileToScreen(
+        lighthouseTile,
+        GARDEN_LIGHTHOUSE_ROOT_OFFSET.y,
+        camera,
+      );
+      const towerTop = gardenTileToScreen(
+        lighthouseTile,
+        GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT,
+        camera,
+      );
+
+      expect(mole.x).toBeGreaterThan(0);
+      expect(mole.x).toBeLessThan(viewport.x);
+      expect(mole.y).toBeGreaterThan(0);
+      expect(mole.y).toBeLessThan(viewport.y);
+      // The explicit vertical correction keeps at least 32px of sky above the
+      // statue even in the compact-height profile the flat-map fit cannot see.
+      expect(towerTop.y).toBeGreaterThanOrEqual(32);
+      expect(towerTop.y).toBeLessThan(towerBase.y);
+      expect(towerBase.y).toBeLessThan(viewport.y);
+      // The water to the right of the Pharos remains a larger interval than
+      // the Mole's left inset: deliberate ma rather than a centred ring.
+      expect(viewport.x - towerBase.x).toBeGreaterThan(mole.x);
+      expect(clampCameraToMap(camera, { map, viewport })).toEqual(camera);
+    }
   });
 
   it("keeps bounded zooms inside the biased composition frame", () => {

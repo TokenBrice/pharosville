@@ -18,6 +18,12 @@ import {
   Vector3,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import {
+  stationFootprint,
+  stationScaleFor,
+  type StationScale,
+  type StationType,
+} from "../systems/dock-layout";
 import { GARDEN_DOCK_ROOT_Y, GARDEN_WATER_Y as WATER_LEVEL } from "../systems/garden-observatory-slice";
 import { quayMasonryHealth } from "../systems/dock-health";
 import { HARBOR_PALETTE } from "../systems/palette";
@@ -25,21 +31,11 @@ import type { DockNode } from "../systems/world-types";
 import { assignGardenChainFlagCell } from "./garden-chain-flag";
 import { applyGardenHeightFog } from "./garden-height-fog";
 import { setTilePosition, stableUnit } from "./garden-util";
-import type { GardenHarborCalmMask } from "./garden-water-contract";
+export type { StationType } from "../systems/dock-layout";
 
 const scratchMatrix = new Matrix4();
 const scratchScale = new Vector3();
 
-export type StationType =
-  | "ethereum-mole"
-  | "hatago-wharf"
-  | "uogashi"
-  | "stepped-inlet"
-  | "fishing-pier"
-  | "tea-house-quay"
-  | "reed-boathouse"
-  | "storm-mole"
-  | "pigeonnier-islet";
 export type StationSignature =
   | "moon-viewing-deck"
   | "guest-lantern-row"
@@ -125,25 +121,6 @@ const STATION_IDENTITY: Record<StationType, Omit<HarborIdentity, "stationType">>
   "storm-mole": { flagShape: "storm-split", roofline: "mole-tower-cap", secondLevel: "lantern-tower", signature: "lantern-tower" },
   "tea-house-quay": { flagShape: "chamfered", roofline: "tea-hip", secondLevel: "moon-window-loft", signature: "engawa" },
   uogashi: { flagShape: "twin-tail", roofline: "market-monopitch", secondLevel: "scale-beam", signature: "steelyard" },
-};
-
-interface StationScaleRung {
-  baseLength: number;
-  span: number;
-  secondLevelTop: number;
-}
-
-/** Authored station envelopes from the §6 harbor scale ladder. */
-const STATION_SCALE_LADDER: Record<StationType, StationScaleRung> = {
-  "ethereum-mole": { baseLength: 24.0, span: 10.0, secondLevelTop: 21.5 },
-  "stepped-inlet": { baseLength: 16.0, span: 7.8, secondLevelTop: 9.4 },
-  "fishing-pier": { baseLength: 15.4, span: 6.7, secondLevelTop: 8.3 },
-  "tea-house-quay": { baseLength: 15.0, span: 7.4, secondLevelTop: 10.7 },
-  "hatago-wharf": { baseLength: 14.6, span: 6.6, secondLevelTop: 11.8 },
-  uogashi: { baseLength: 14.2, span: 7.8, secondLevelTop: 7.2 },
-  "storm-mole": { baseLength: 13.4, span: 8.8, secondLevelTop: 12.1 },
-  "reed-boathouse": { baseLength: 13.6, span: 6.0, secondLevelTop: 11.2 },
-  "pigeonnier-islet": { baseLength: 12.6, span: 5.6, secondLevelTop: 8.6 },
 };
 
 /** Standalone fallback until the systems branch supplies `dock.station`. */
@@ -296,6 +273,7 @@ export function authorDock(
   const flagWavePhase = dockFlagWavePhase(dock.chainId);
   const ethereumMole = station.type === "ethereum-mole";
   const stationScale = stationScaleFor(station.type, dock.totalUsd);
+  const footprint = stationFootprint(station.type, dock.totalUsd, dock.size);
   const length = 7.6 * amountScale * (ethereumMole ? 1.5 : 1.06);
   const width = (1.62 + amountScale * 0.36) * (ethereumMole ? 1.42 : 1.08);
   const quayHealth = quayMasonryHealth(dock) ?? 0.58;
@@ -404,7 +382,7 @@ export function authorDock(
     dock,
     flag,
     features: stationFeatures(station.type, featureGeometry),
-    footprint: { length: Math.max(length, stationScale.length), span: Math.max(quayWidth, stationScale.span) },
+    footprint,
     identity,
     lampWorldPositions: lamps.slice(0, 3).map((lamp) => localToWorldXZ(root, lamp.x, lamp.z)),
     parts,
@@ -432,7 +410,7 @@ interface StationAuthorContext {
   roofTrim: BufferGeometry[];
   roofs: BufferGeometry[];
   stone: BufferGeometry[];
-  stationScale: StationScaleRung & { heightScale: number; length: number };
+  stationScale: StationScale;
   supply: number;
   timber: BufferGeometry[];
   walls: BufferGeometry[];
@@ -1574,26 +1552,6 @@ function stationLampLocals(type: StationType, length: number, width: number, qua
   ];
 }
 
-function stationScaleFor(
-  type: StationType,
-  totalUsd: number,
-): StationScaleRung & { heightScale: number; length: number } {
-  const rung = STATION_SCALE_LADDER[type];
-  if (type === "ethereum-mole") return { ...rung, heightScale: 1, length: rung.baseLength };
-  const supplyFactor = MathUtils.clamp(
-    (Math.log10(Math.max(1, totalUsd)) - 8.5) / 3.2,
-    0,
-    1,
-  );
-  const heightScale = 0.95 + supplyFactor * 0.15;
-  return {
-    ...rung,
-    heightScale,
-    length: MathUtils.clamp(rung.baseLength * (0.95 + supplyFactor * 0.40), 12.6, 20.0),
-    secondLevelTop: rung.secondLevelTop * heightScale,
-  };
-}
-
 function pushPierPilings(
   props: HarborPropInstance[],
   length: number,
@@ -1731,35 +1689,3 @@ export function gardenDockLampWorldPositions(dock: DockVisual): { x: number; z: 
   return dock.recipe.lampWorldPositions;
 }
 
-const HARBOR_CALM_MARGIN_X = 5.5;
-const HARBOR_CALM_MARGIN_Z = 4.5;
-const HARBOR_CALM_MIN_RADIUS_X = 9;
-const HARBOR_CALM_MIN_RADIUS_Z = 7;
-const HARBOR_CALM_MAX_RADIUS_X = 18;
-const HARBOR_CALM_MAX_RADIUS_Z = 13;
-const HARBOR_CALM_STRENGTH = 0.75;
-
-export function gardenHarborCalmMask(docks: readonly Pick<DockVisual, "root">[]): GardenHarborCalmMask | null {
-  if (docks.length === 0) return null;
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minZ = Infinity;
-  let maxZ = -Infinity;
-  let centerX = 0;
-  let centerZ = 0;
-  for (const dock of docks) {
-    const { x, z } = dock.root.position;
-    centerX += x;
-    centerZ += z;
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x);
-    minZ = Math.min(minZ, z);
-    maxZ = Math.max(maxZ, z);
-  }
-  return {
-    calmStrength: HARBOR_CALM_STRENGTH,
-    center: { x: centerX / docks.length, z: centerZ / docks.length },
-    radiusX: MathUtils.clamp((maxX - minX) / 2 + HARBOR_CALM_MARGIN_X, HARBOR_CALM_MIN_RADIUS_X, HARBOR_CALM_MAX_RADIUS_X),
-    radiusZ: MathUtils.clamp((maxZ - minZ) / 2 + HARBOR_CALM_MARGIN_Z, HARBOR_CALM_MIN_RADIUS_Z, HARBOR_CALM_MAX_RADIUS_Z),
-  };
-}

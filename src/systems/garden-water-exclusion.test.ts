@@ -22,6 +22,7 @@ import {
 } from "./garden-observatory-slice";
 import {
   GARDEN_CEMETERY_OBSTACLE,
+  GARDEN_DOCK_OBSTACLES,
   GARDEN_EDGE_STONE_OBSTACLES,
   GARDEN_ISLAND_OBSTACLE,
   GARDEN_ISLET_OBSTACLES,
@@ -37,7 +38,11 @@ import { gardenWaterPlateContainsTile } from "./projection";
 import { rimLandAt } from "./garden-rim";
 import {
   CEMETERY_CENTER,
+  DOCK_TILES,
+  EVM_BAY_STATION_SLOTS,
   isWaterTileKind,
+  OUTER_HARBOR_STATION_SLOTS,
+  PIGEONNIER_HARBOR_DOCK_TILE,
   terrainKindAt,
 } from "./world-layout";
 import { GARDEN_SEA_EDGE_ISLAND_WATERLINE } from "./garden-sea-edge-sites";
@@ -45,6 +50,18 @@ import { GARDEN_SEA_EDGE_ISLAND_WATERLINE } from "./garden-sea-edge-sites";
 /** `isGardenObstacleTile` for an already-transformed world tile. */
 function isObstacleAt(tile: { x: number; y: number }): boolean {
   return isGardenObstacleTile(tile.x, tile.y);
+}
+function pointAlongBearing(
+  tile: { x: number; y: number },
+  bearing: number,
+  distance: number,
+  turn = 0,
+): { x: number; y: number } {
+  const angle = bearing + turn;
+  return {
+    x: tile.x + Math.cos(angle) * distance,
+    y: tile.y + Math.sin(angle) * distance,
+  };
 }
 
 function denseWorld() {
@@ -145,6 +162,54 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
       expect(isGardenShipWater(edge, 1), edge.id).toBe(false);
     }
     expect(GARDEN_ISLAND_OBSTACLE).toEqual(GARDEN_SEA_EDGE_ISLAND_WATERLINE);
+  });
+
+  it("keeps dock exclusion circles mirrored to authored dock mouths", () => {
+    const authoredDockTiles = [...DOCK_TILES, PIGEONNIER_HARBOR_DOCK_TILE];
+    expect(GARDEN_DOCK_OBSTACLES).toHaveLength(authoredDockTiles.length);
+    expect(GARDEN_DOCK_OBSTACLES.map(({ x, y }) => ({ x, y }))).toEqual(authoredDockTiles);
+    for (const tile of authoredDockTiles) {
+      expect(isGardenShipWater(tile, 0, true), `${tile.x}.${tile.y}`).toBe(false);
+    }
+  });
+
+  it("scales dock exclusion by station envelope while leaving the Mole basin navigable", () => {
+    const largeSlot = OUTER_HARBOR_STATION_SLOTS.find((slot) => slot.type === "fishing-pier")!;
+    const smallSlot = OUTER_HARBOR_STATION_SLOTS.find((slot) => slot.type === "reed-boathouse")!;
+    const probeDistance = 7.5;
+    const largeProbe = pointAlongBearing(
+      largeSlot.cove.tile,
+      largeSlot.cove.seawardBearing,
+      probeDistance,
+    );
+    // The west/north side avoids the nearby TON pigeonnier while staying the
+    // same distance from the reed-boathouse mouth.
+    const smallProbe = pointAlongBearing(
+      smallSlot.cove.tile,
+      smallSlot.cove.seawardBearing,
+      probeDistance,
+      -Math.PI / 4,
+    );
+
+    // Both probes are open water without dock aprons. The fishing pier's
+    // saturated envelope reaches eight tiles, while the reed boathouse's
+    // reaches seven; a fixed 2.2-tile circle would let the large probe pass.
+    expect(isGardenShipWater(largeProbe, 0)).toBe(true);
+    expect(isGardenShipWater(largeProbe, 0, true)).toBe(false);
+    expect(isGardenShipWater(smallProbe, 0)).toBe(true);
+    expect(isGardenShipWater(smallProbe, 0, true)).toBe(true);
+
+    // Six tiles down the Mole's authored seaward axis is inside its §5
+    // 18 × 14 world-unit inner basin. Its water remains reachable even when
+    // dock aprons are included; the full hall circle would reject this point.
+    const moleSlot = EVM_BAY_STATION_SLOTS[0]!;
+    const basinPoint = pointAlongBearing(
+      moleSlot.cove.tile,
+      moleSlot.cove.seawardBearing,
+      6,
+    );
+    expect(isGardenShipWater(basinPoint, 1)).toBe(true);
+    expect(isGardenShipWater(basinPoint, 1, true)).toBe(true);
   });
 
   it("resolves invalid targets to the nearest valid water deterministically", () => {

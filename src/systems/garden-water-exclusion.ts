@@ -1,13 +1,15 @@
 import {
   CEMETERY_CENTER,
-  DOCK_TILES,
+  EVM_BAY_STATION_SLOTS,
   MAX_TILE_X,
   MAX_TILE_Y,
-  PIGEONNIER_HARBOR_DOCK_TILE,
+  OUTER_HARBOR_STATION_SLOTS,
+  PIGEONNIER_STATION_SLOT,
   PIGEON_ISLAND_CENTER,
   PIGEON_ISLAND_RADIUS,
   terrainLandAt,
 } from "./world-layout";
+import { stationClearanceTiles, stationFootprint } from "./dock-layout";
 import { stableFnv1aHash } from "./stable-random";
 import { landWorldTile } from "./map-scale";
 import type { GardenHullSilhouette } from "./garden-observatory-slice";
@@ -98,6 +100,15 @@ export const GARDEN_PIGEONNIER_OBSTACLE: GardenCircle = {
   r: PIGEON_ISLAND_RADIUS.x + 0.9,
 } as const;
 
+// TILE_TO_WORLD duplicates garden-util's TILE_SCALE (√2) so this module stays
+// three-free.
+const TILE_TO_WORLD = Math.SQRT2;
+// A static obstacle table has no live DockNode supply or size. Saturate the
+// authored ladder and use its largest size so a later-grown station is never
+// given an optimistic water exclusion.
+const MAX_DOCK_OBSTACLE_SUPPLY_USD = Number.POSITIVE_INFINITY;
+const MAX_DOCK_OBSTACLE_SIZE = 10;
+
 /**
  * Dock/pier structures a free-moored ship must clear (zone representatives
  * only — docked ships intentionally moor beside these). Circles cover the
@@ -107,10 +118,46 @@ export const GARDEN_PIGEONNIER_OBSTACLE: GardenCircle = {
  * full half-length): piers are low, narrow decks a tangentially-moored hull
  * reads clear of, and a full-length apron around every wharf would make the
  * harbor ring un moorable for titans.
+ *
+ * Ordinary dock radii follow each slot's authored station envelope. The
+ * Mole is the one deliberate exception: its full 24 × 10 hall envelope
+ * produces a ten-tile circumscribing radius, which would also wall off its
+ * 18 × 14 world-unit inner basin. That basin is navigable water by design
+ * (plan §5), so the single circle protects the Mole's mouth/quay and arm
+ * roots using half the hall's alongshore span while leaving the basin
+ * entrance open. The outer arms are not representable honestly by one
+ * circle around a navigable void; Phase 3's exact arm geometry owns any
+ * future multi-shape refinement.
  */
-const GARDEN_DOCK_OBSTACLES: readonly GardenCircle[] = [
-  ...DOCK_TILES.map((tile) => ({ x: tile.x, y: tile.y, r: 2.2 })),
-  { x: PIGEONNIER_HARBOR_DOCK_TILE.x, y: PIGEONNIER_HARBOR_DOCK_TILE.y, r: 2.2 },
+const MOLE_MOUTH_OBSTACLE_RADIUS_TILES = Math.ceil(
+  stationFootprint(
+    "ethereum-mole",
+    MAX_DOCK_OBSTACLE_SUPPLY_USD,
+    MAX_DOCK_OBSTACLE_SIZE,
+  ).span / 2 / TILE_TO_WORLD,
+);
+
+export const GARDEN_DOCK_OBSTACLES: readonly GardenCircle[] = [
+  ...[...EVM_BAY_STATION_SLOTS, ...OUTER_HARBOR_STATION_SLOTS].map((slot) => ({
+    x: slot.cove.tile.x,
+    y: slot.cove.tile.y,
+    r: slot.type === "ethereum-mole"
+      ? MOLE_MOUTH_OBSTACLE_RADIUS_TILES
+      : stationClearanceTiles(
+        slot.type,
+        MAX_DOCK_OBSTACLE_SUPPLY_USD,
+        MAX_DOCK_OBSTACLE_SIZE,
+      ),
+  })),
+  {
+    x: PIGEONNIER_STATION_SLOT.cove.tile.x,
+    y: PIGEONNIER_STATION_SLOT.cove.tile.y,
+    r: stationClearanceTiles(
+      PIGEONNIER_STATION_SLOT.type,
+      MAX_DOCK_OBSTACLE_SUPPLY_USD,
+      MAX_DOCK_OBSTACLE_SIZE,
+    ),
+  },
 ] as const;
 const DOCK_MARGIN_SHARE = 0.5;
 
@@ -137,9 +184,6 @@ const GARDEN_HULL_MAX_X_REACH_WORLD: Record<GardenHullSilhouette, number> = {
   junk: 3.64,
   scow: 2.78,
 };
-// TILE_TO_WORLD duplicates garden-util's TILE_SCALE (√2) so this module stays
-// three-free.
-const TILE_TO_WORLD = Math.SQRT2;
 // Bob/sway and Chaikin path-smoothing allowance on top of the hull plan.
 const SWAY_ALLOWANCE_TILES = 0.4;
 

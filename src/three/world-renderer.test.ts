@@ -417,6 +417,62 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
 
+  it("seats the calm mask on the Ethereum Mole basin and keeps every harbor ripple", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const harborDocks = selectGardenDocks(world.docks);
+    const mole = harborDocks.find((dock) => dock.station.type === "ethereum-mole")!;
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(world, "full"));
+    const water = rendererHarness.instances.at(-1)!.lastScene!
+      .getObjectByName("garden-water") as Mesh;
+    const uniforms = (water.material as ShaderMaterial).uniforms;
+    const ellipse = uniforms.uHarborEllipse!.value;
+    const moleX = mole.tile.x * Math.SQRT2;
+    const moleZ = mole.tile.y * Math.SQRT2;
+    expect(ellipse.x).toBeCloseTo(moleX + Math.cos(mole.station.shoreBearing) * 9);
+    expect(ellipse.y).toBeCloseTo(-moleZ - Math.sin(mole.station.shoreBearing) * 9);
+    expect(ellipse.z).toBeCloseTo(1 / 9);
+    expect(ellipse.w).toBeCloseTo(1 / 7);
+
+    const rippleCount = uniforms.uRippleCount!.value as number;
+    const ripples = (uniforms.uRipple!.value as Array<{ x: number; y: number; z: number }>)
+      .slice(0, rippleCount);
+    for (const dock of harborDocks) {
+      const dockX = dock.tile.x * Math.SQRT2;
+      const dockZ = dock.tile.y * Math.SQRT2;
+      expect(
+        ripples.some((ring) => (
+          Math.abs(ring.x - dockX) < 1e-6
+          && Math.abs(ring.y + dockZ) < 1e-6
+          && Math.abs(ring.z - 4.5) < 1e-6
+        )),
+        `${dock.station.type} pylon ripple`,
+      ).toBe(true);
+    }
+    renderer.dispose();
+  });
+
+  it("disables the basin mask when a sparse feed has no Ethereum Mole", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const withoutMole = {
+      ...world,
+      docks: world.docks.filter((dock) => dock.station.type !== "ethereum-mole"),
+    };
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    renderer.render(rendererFrame(withoutMole, "full"));
+    const water = rendererHarness.instances.at(-1)!.lastScene!
+      .getObjectByName("garden-water") as Mesh;
+    const uniforms = (water.material as ShaderMaterial).uniforms;
+    expect(uniforms.uHarborCalm!.value).toBe(0);
+    renderer.dispose();
+  });
+
   it("allocates one hull and one sail batch for each of the six fleet families", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({

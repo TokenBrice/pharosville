@@ -6,7 +6,6 @@ import { EVM_BAY_STATION_SLOTS, OUTER_HARBOR_STATION_SLOTS } from "../systems/wo
 import {
   authorDock,
   gardenHarborLanternWorldPositions,
-  gardenHarborCalmMask,
   HARBOR_FLAG_SCALE_MULTIPLIER,
   harborIdentity,
   type DockRecipe,
@@ -296,17 +295,18 @@ describe("garden station recipes", () => {
     }
   });
 
-  it("keeps lamp registration and the composed calm-mask contract", () => {
+  it("keeps lamp registration for every composed station", () => {
+    // The old companion assertion here exercised `gardenHarborCalmMask`, a
+    // dormant export the renderer never called: it averaged one ellipse over
+    // every dock root and clamped it, so once the ring spread around the rim
+    // it covered none of the harbours. The basin mask is now seated on the
+    // Ethereum Mole in `world-renderer.ts` and asserted there; this test keeps
+    // the part of the contract that still belongs to the batch.
     const batch = createGardenHarborBatch([
       recipeWithStation("ethereum-mole", "ethereum", 0, { x: 42, y: 31 }),
       recipeWithStation("fishing-pier", "solana", 0, { x: 25, y: 23 }),
     ]);
     expect(batch.docks.every((visual) => visual.recipe.lampWorldPositions.length >= 1)).toBe(true);
-    const mask = gardenHarborCalmMask(batch.docks)!;
-    expect(mask.radiusX).toBeGreaterThanOrEqual(9);
-    expect(mask.radiusZ).toBeGreaterThanOrEqual(7);
-    expect(mask.radiusZ).toBeLessThanOrEqual(13);
-    expect(gardenHarborCalmMask([])).toBeNull();
     batch.dispose();
   });
 });
