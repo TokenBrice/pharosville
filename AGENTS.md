@@ -8,7 +8,7 @@ Local dev server (maintained): http://localhost:5173/
 
 ## Hard Rules
 
-- Work only in `/home/ahirice/Documents/git/pharosville` unless the operator explicitly authorizes a specific read elsewhere.
+- Work only in `/Users/ahirice/Documents/git/pharosville` unless the operator explicitly authorizes a specific read elsewhere.
 - This repo is independent from `TokenBrice/pharos-watch` and the local `stablecoin-dashboard` checkout. Do not edit, clean up, merge, or deploy the host repo from here.
 - Canonical remote: `https://github.com/TokenBrice/pharosville.git`.
 - Canonical app URL: `https://pharosville.pharos.watch/`.

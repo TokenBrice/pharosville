@@ -8,14 +8,16 @@ import { countDrawableObjects } from "./garden-util";
 import { dockFixture, DISPLAY_TILES, ISLAND_TILE } from "./__fixtures__/harbor";
 
 const CHAINS = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
+// The nine-dock set pairs each chain with its slot archetype (aptos stands
+// in for the pigeonnier so the ninth berth's form is batched too); the
+// all-archetype set flies one flag per surviving station type.
 const BATCH_STATION_TYPES: readonly StationType[] = [
-  "boathouse-precinct", "annex-pavilion", "annex-pavilion", "annex-pavilion",
-  "gate-landing", "tea-house-quay", "fishing-pier", "stepped-inlet", "reed-boathouse",
+  "ethereum-mole", "hatago-wharf", "storm-mole", "reed-boathouse",
+  "tea-house-quay", "stepped-inlet", "fishing-pier", "uogashi", "pigeonnier-islet",
 ];
 const ALL_STATION_TYPES: readonly StationType[] = [
-  "boathouse-precinct", "annex-pavilion", "gate-landing", "tea-house-quay",
-  "fishing-pier", "stepped-inlet", "reed-boathouse", "storm-mole",
-  "salvage-slip", "signal-jetty", "pigeonnier-islet",
+  "ethereum-mole", "hatago-wharf", "uogashi", "stepped-inlet", "fishing-pier",
+  "tea-house-quay", "reed-boathouse", "storm-mole", "pigeonnier-islet",
 ];
 
 beforeEach(() => {
@@ -58,7 +60,7 @@ function batchOfAllStationTypes() {
 }
 
 describe("createGardenHarborBatch", () => {
-  it("keeps every bucket shared so the complete 11-type harbor ring stays within 20 draws", () => {
+  it("keeps every bucket shared so the complete 9-type harbor ring stays within 20 draws", () => {
     const batch = batchOfNine();
     expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(20);
     for (const dock of batch.docks) {
@@ -68,32 +70,6 @@ describe("createGardenHarborBatch", () => {
     const completeTypeBatch = batchOfAllStationTypes();
     expect(countDrawableObjects(completeTypeBatch.root)).toBeLessThanOrEqual(20);
     completeTypeBatch.dispose();
-  });
-
-  it("merges three covered precinct bridges into the existing timber and roof draws", () => {
-    const recipes = CHAINS.map((id, index) => {
-      const tile = { x: 14, y: 74 + Math.min(index, 3) * 6 };
-      const node = {
-        ...dockFixture(id, 3 + (index % 7)),
-        station: { coveId: `cove.${id}`, shoreBearing: 0, type: BATCH_STATION_TYPES[index]! },
-        tile,
-      } as ReturnType<typeof dockFixture> & { station: { coveId: string; shoreBearing: number; type: StationType } };
-      return authorDock(node, tile, ISLAND_TILE);
-    });
-    const withoutBridges = recipes.reduce((sum, recipe) => (
-      sum + recipe.parts.filter((part) => part.bucket === "timber" || part.bucket === "roof").reduce(
-        (partSum, part) => partSum + part.geometry.getAttribute("position").count,
-        0,
-      )
-    ), 0);
-    const batch = createGardenHarborBatch(recipes);
-    const withBridges = [batch.bucketMeshes.timber, batch.bucketMeshes.roof].reduce(
-      (sum, mesh) => sum + (mesh?.geometry.getAttribute("position").count ?? 0),
-      0,
-    );
-    expect(withBridges).toBeGreaterThan(withoutBridges);
-    expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(20);
-    batch.dispose();
   });
 
   it("places every prop of every kind in one instanced mesh per kind", () => {
@@ -154,7 +130,7 @@ describe("createGardenHarborBatch", () => {
     const matrix = new Matrix4();
     batch.flags.getMatrixAt(1, matrix);
     const beforeBase = matrix.clone();
-    batch.setFlagPose("flag-boathouse-precinct", 1.2, 0.08);
+    batch.setFlagPose("flag-ethereum-mole", 1.2, 0.08);
     batch.flags.getMatrixAt(1, matrix);
     expect(matrix.equals(beforeBase)).toBe(true);
     const shapes = batch.flags.geometry.getAttribute("aFlagShape");

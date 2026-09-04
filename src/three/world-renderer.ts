@@ -107,7 +107,6 @@ import {
 import {
   createGardenFireflies,
   createGardenGullFlock,
-  createGardenHarborDistricts,
   type GardenFireflies,
   type GardenGullFlock,
 } from "./garden-harbor-life";
@@ -3190,7 +3189,7 @@ const SHADOW_CASTER_EXCLUDED_NAMES = new Set([
  *
  * Casting is keyed on MeshStandardMaterial because that is what "a real lit
  * surface" means in this world — the flat MeshBasicMaterial discs (island
- * shoal, harbour district pads, zone tints) are transparent paint on the water
+ * shoal, zone tints) are transparent paint on the water
  * and would stamp hard-edged silhouettes if they were ever allowed in.
  *
  * `castsShadows` lets a caller keep a subtree as a receiver only. That is what
@@ -3434,20 +3433,16 @@ function buildDocksPart(content: GardenContent, world: PharosVilleWorld): void {
 }
 
 /**
- * The light instanced life around the harbour — district pads, the gull
- * flock, fireflies. Keyed on the FULL dock family (including `change24hPct`,
- * which drives quay tempo), so the routine supply tick rebuilds this cheap
- * part and never the masonry it decorates.
+ * The light instanced life around the harbour — the gull flock, fireflies.
+ * Keyed on the FULL dock family (including `change24hPct`, which drives quay
+ * tempo), so the routine supply tick rebuilds this cheap part and never the
+ * masonry it decorates.
  */
 function buildHarborLifePart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.harborLife;
   const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
-  const harborDistricts = createGardenHarborDistricts(
-    world.docks,
-    world.lighthouse.tile,
-  );
-  // The flock works the quays as well as the island, so it needs the same dock
-  // list the harbour districts got — that is what carries harbour tempo.
+  // The flock works the quays as well as the island — the dock list is what
+  // carries harbour tempo.
   const gullFlock = createGardenGullFlock(world.lighthouse.tile, {
     docks: world.docks,
   });
@@ -3455,7 +3450,7 @@ function buildHarborLifePart(content: GardenContent, world: PharosVilleWorld): v
     gardenIslandLanternWorldOffsets(),
     islandTile,
   );
-  part.root.add(harborDistricts.root, gullFlock.root, fireflies.root);
+  part.root.add(gullFlock.root, fireflies.root);
 
   content.fireflies = fireflies;
   content.gullFlock = gullFlock;

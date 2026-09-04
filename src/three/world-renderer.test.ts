@@ -642,12 +642,12 @@ describe("Three world renderer lifecycle", () => {
     const contentRoot = scene.children.at(-1)!;
     const waterAccents = scene.children[4]!;
     const wakes = wakeGroups(contentRoot);
-    const districts = contentRoot.getObjectByName("garden-harbor-districts");
+    const harborBatch = contentRoot.getObjectByName("harbor-batch");
     const gullFlock = contentRoot.getObjectByName("garden-harbor-gull-flock");
 
     expect(webGlRenderer.setPixelRatio).toHaveBeenLastCalledWith(2);
     expect(waterAccents.visible).toBe(true);
-    expect(districts).toBeDefined();
+    expect(harborBatch).toBeDefined();
     expect(gullFlock).toBeDefined();
     expect(gullFlock?.visible).toBe(true);
     expect(wakes.length).toBeGreaterThan(0);

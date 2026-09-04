@@ -1,7 +1,9 @@
 import { RUNTIME_CEMETERY_ENTRIES } from "@shared/lib/cemetery-runtime";
+import { resolveChainId } from "@shared/lib/chains";
 import { PSI_HEX_COLORS } from "@shared/lib/psi-colors";
 import { STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT } from "@shared/lib/status-thresholds";
 import type { StabilityIndexResponse } from "@shared/types";
+import type { ChainSummary } from "@shared/types/chains";
 import { buildGardenMonthRecord } from "../../garden-month-record";
 import { buildChainDocks } from "../../chain-docks";
 import { buildSupplyTide } from "../../supply-tide";
@@ -391,10 +393,96 @@ function withChainSignals(docks: DockNode[], chains: PharosVilleInputs["chains"]
   });
 }
 
+// The chains payload is the one door raw upstream chain ids walk through, and
+// every consumer below keys on `chain.id`: `buildChainDocks` (slot binding,
+// suppression, cap rank), `withChainSignals` above (this file's own join) and
+// `buildSupplyTide`. Upstream aliases (`hyperliquid-l1`, `OP Mainnet`) would
+// otherwise put one chain on a different berth, a different flag dye and —
+// worst of the four reproduced defects — a harbour no ship ever moors at,
+// depending on which spelling the feed chose that day. So every id
+// canonicalises exactly once, here, and all three consumers receive the same
+// normalized object. Normalizing only one consumer is worse than none: the
+// `withChainSignals` join is self-consistent today precisely because both
+// sides read the same raw payload.
+//
+// `?? chain.id` is load-bearing: `resolveChainId` returns null for anything
+// outside `CHAIN_META`, and the API names ~90 chains while `CHAIN_META` lists
+// far fewer. Dropping the unlisted would silently shrink harbor eligibility
+// and the supply totals, so an unknown id passes through raw.
+function normalizeChainsResponse(chains: PharosVilleInputs["chains"]): PharosVilleInputs["chains"] {
+  if (!chains) return chains;
+
+  const survivorByCanonicalId = new Map<string, ChainSummary>();
+  const rawIdsByCanonicalId = new Map<string, string[]>();
+  for (const chain of chains.chains) {
+    const canonicalId = resolveChainId(chain.id) ?? chain.id;
+    const incumbent = survivorByCanonicalId.get(canonicalId);
+    if (incumbent) survivorByCanonicalId.set(canonicalId, survivesAliasCollapse(incumbent, chain, canonicalId));
+    else survivorByCanonicalId.set(canonicalId, chain);
+    const rawIds = rawIdsByCanonicalId.get(canonicalId);
+    if (rawIds) rawIds.push(chain.id);
+    else rawIdsByCanonicalId.set(canonicalId, [chain.id]);
+  }
+
+  // Emit each canonical group once, at its first occurrence, wearing the
+  // canonical id — so an alias-free feed keeps its input order untouched.
+  const canonicalized: ChainSummary[] = [];
+  const emittedCanonicalIds = new Set<string>();
+  for (const chain of chains.chains) {
+    const canonicalId = resolveChainId(chain.id) ?? chain.id;
+    if (emittedCanonicalIds.has(canonicalId)) continue;
+    emittedCanonicalIds.add(canonicalId);
+    canonicalized.push({ ...survivorByCanonicalId.get(canonicalId)!, id: canonicalId });
+  }
+
+  if (import.meta.env.DEV) {
+    for (const [canonicalId, rawIds] of rawIdsByCanonicalId) {
+      if (rawIds.length < 2 || warnedAliasCollapses.has(canonicalId)) continue;
+      warnedAliasCollapses.add(canonicalId);
+      console.warn(
+        `[pharosville] chains feed reported "${canonicalId}" under raw ids ` +
+        `${[...new Set(rawIds)].join(", ")}; kept one entry by the alias-collapse rule ` +
+        `and did not sum supply — if these are genuinely different chains, this is a data bug`,
+      );
+    }
+  }
+
+  return { ...chains, chains: canonicalized };
+}
+
+// Collapsing aliases creates a hazard of its own: a feed carrying both
+// spellings would hand `selectChainHarbors` two entries under one canonical
+// id, whose Map keeps whichever inserted last — a different `totalUsd`, a
+// different `healthBand`, possibly a different cap outcome on every load. So
+// duplicates collapse deterministically BEFORE `buildChainDocks` sees them:
+// prefer the entry already named by the canonical id; else the largest
+// `totalUsd`; else the lexicographically first raw id. NEVER sum — the API is
+// not documented to partition one chain across spellings, and supply drives
+// dock size, harbor rank and the share-of-global fact, so a double-count is
+// the worse failure. The dev warning above makes a genuine partition surface
+// as a bug report instead of a quiet halving.
+function survivesAliasCollapse(
+  incumbent: ChainSummary,
+  candidate: ChainSummary,
+  canonicalId: string,
+): ChainSummary {
+  const candidateIsCanonical = candidate.id === canonicalId;
+  const incumbentIsCanonical = incumbent.id === canonicalId;
+  if (candidateIsCanonical !== incumbentIsCanonical) return candidateIsCanonical ? candidate : incumbent;
+  if (candidate.totalUsd !== incumbent.totalUsd) return candidate.totalUsd > incumbent.totalUsd ? candidate : incumbent;
+  return candidate.id < incumbent.id ? candidate : incumbent;
+}
+
+// One warning per canonical id per session, mirroring `logSchemaDriftOnce` in
+// `src/lib/api.ts` — the world rebuilds on every live update, and a feed that
+// really partitions a chain should page a developer, not flood the console.
+const warnedAliasCollapses = new Set<string>();
+
 export function buildWorldScaffoldStage(inputs: PharosVilleInputs): BuildWorldScaffoldStage {
-  const docks = withChainSignals(buildChainDocks(inputs.chains), inputs.chains);
+  const chains = normalizeChainsResponse(inputs.chains);
+  const docks = withChainSignals(buildChainDocks(chains), chains);
   return {
-    supplyTide: buildSupplyTide(inputs.chains),
+    supplyTide: buildSupplyTide(chains),
     map: buildPharosVilleMap(),
     lighthouse: buildLighthouse(inputs.stability, inputs.pegSummary),
     pigeonnier: buildPigeonnier(),

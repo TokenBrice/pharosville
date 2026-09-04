@@ -101,48 +101,44 @@ const RIM_CONTOUR: readonly RimContourPoint[] = [
   { bearing: radians(180), depth: 11 },
 ] as const;
 
-/** Authored water mouths reserved for Wave 3's shore stations.
+/** Authored water mouths of the harbor ring, one per rendered berth.
  *
- * The ring is authored as a spread: every arc of the rim (north, east,
- * south-east, south-west, west) carries at least one mouth, no three mouths
- * crowd a 30-tile neighbourhood, and the camera-near southern arc (y >= 112)
- * carries as many stations as the far north. Operator note (2026-09-03):
- * harbours used to mass north of the lighthouse; the mouths below are the
- * rebalanced ring, each verified against the authored field (water of its
- * body, rimShoreDistance in (0, 2], outside both openings, rim land within
- * 14 tiles landward of the authored seawardBearing).
+ * The ring is authored as a full circuit: every arc of the rim (west, north,
+ * east, south) carries at least one mouth, no three mouths crowd a 30-tile
+ * neighbourhood, and the camera-near southern arc carries three of the eight.
+ * Eight mouths plus the untouched TON pigeonnier islet is nine berths — the
+ * same rendered station count as the twelve-mouth ring it replaces, whose six
+ * west-arc mouths left a 111-degree station-free stretch of south rim. Each
+ * mouth was field-verified against the authored field: water of its named
+ * body, rimShoreDistance in (0, 2], outside both openings, and rim land
+ * within 14 tiles landward of the authored seawardBearing.
+ *
+ * The `alert` body is the one named water left without a mouth. That is a
+ * deliberate trade, not an oversight: holding the ring at eight mouths keeps
+ * the station count at nine, and `alert` offers 74 valid candidate tiles —
+ * far more than the two-tile `danger` and `ledger` bodies the ring therefore
+ * keeps — so it is the cheapest mouth to re-add if the cap ever grows. Body
+ * diversity stays at six, above the >= 6 gate.
  */
 export const RIM_COVES: readonly RimCove[] = [
+  // The Mole stands alone: 34 tiles from any other mouth, on the west
+  // shore's broadest promontory, with 117 tiles of clear water eastward for
+  // the approach. It replaces all four mouths of the retired L2 precinct.
+  { id: "ethereum-mole", body: "calm", tile: { x: 15, y: 95 }, seawardBearing: 0, width: 6 },
   { id: "ledger-fog-hook", body: "ledger", tile: { x: 9, y: 54 }, seawardBearing: 0, width: 4 },
-  // One close, deliberately uneven precinct: Ethereum's hall and three L2
-  // annexes occupy a twenty-one-tile stretch of the deep engawa shore. Round
-  // three spread the mouths off the single x=14 column — the northern annex
-  // steps onto the x=12 diagonal and the southernmost onto x=13, with
-  // unequal 6/7/8-tile intervals — so the group reads as an inhabited
-  // stretch of coast rather than a stacked pier. Every mouth re-verified
-  // against the field: calm water, rimShoreDistance in (0, 2], rim land
-  // within 14 tiles landward.
-  { id: "ethereum-precinct", body: "calm", tile: { x: 14, y: 74 }, seawardBearing: 0, width: 6 },
-  { id: "arbitrum-annex", body: "calm", tile: { x: 12, y: 68 }, seawardBearing: 0, width: 4 },
-  { id: "base-annex", body: "calm", tile: { x: 14, y: 81 }, seawardBearing: 0, width: 5 },
-  { id: "optimism-annex", body: "calm", tile: { x: 13, y: 89 }, seawardBearing: 0, width: 3 },
-  // North arc keeps exactly two mouths (the operator's "too far north"
-  // complaint): the alert signal mast and the warning stepped inlet.
-  { id: "alert-signal-jetty", body: "alert", tile: { x: 104, y: 12 }, seawardBearing: Math.PI / 2, width: 3 },
+  // The north arc's one mouth; the retired alert jetty was its second.
   { id: "warning-stone-notch", body: "warning", tile: { x: 118, y: 10 }, seawardBearing: Math.PI / 2, width: 3 },
-  // East arc: the gorge mouth sits one tile further out than the old
+  // East extreme: the gorge mouth sits one tile further out than the old
   // (130, 59) authoring so rim land starts immediately landward of the berth.
   { id: "danger-gorge", body: "danger", tile: { x: 131, y: 59 }, seawardBearing: Math.PI, width: 3 },
   { id: "watch-east-bay", body: "watch", tile: { x: 132, y: 80 }, seawardBearing: Math.PI, width: 5 },
-  // Camera-near south arc: the reed mooring moved onto verified south-rim
-  // water (land immediately south) and is now bound to a rendered station.
+  // Camera-near south arc, three mouths strong.
   { id: "watch-south-reed", body: "watch", tile: { x: 122, y: 132 }, seawardBearing: -Math.PI / 2, width: 4 },
-  { id: "wreck-salvage-cut", body: "wreck", tile: { x: 55, y: 129 }, seawardBearing: 0, width: 4 },
-  // The wreck shelf's northern ledge answers the west arc below the
-  // precinct: without it the whole western shore south of the annexes, all
-  // the way to the salvage cut, carried no harbour. It sits clear of the
-  // wreck scatter ellipse (which owns everything below y ~ 115).
-  { id: "wreck-west-ledge", body: "wreck", tile: { x: 14, y: 110 }, seawardBearing: 0, width: 4 },
+  { id: "calm-engawa-south", body: "calm", tile: { x: 60, y: 130 }, seawardBearing: -Math.PI / 2, width: 4 },
+  // The best available south-west tile, 5.5 tiles clear of the wreck-scatter
+  // graves that carpet the corner; east of x = 30 so the outer fill line
+  // never reaches the far western shore.
+  { id: "wreck-shoal-east", body: "wreck", tile: { x: 31, y: 125 }, seawardBearing: -Math.PI / 2, width: 3 },
 ];
 
 /** Notes for the Wave B1 mesh author; the field itself remains authoritative. */

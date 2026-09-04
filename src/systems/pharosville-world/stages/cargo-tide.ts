@@ -1,3 +1,4 @@
+import { resolveChainId } from "@shared/lib/chains";
 import {
   getLiteralMintingPressureScore,
   getNetFlowDirection24h,
@@ -185,7 +186,13 @@ export function buildCargoTideStage(
     };
   }
 
-  const scope = new Set(scopeChainIds);
+  // The scope arrives in the payload's raw upstream vocabulary, while every
+  // dock below carries the canonical id the scaffold boundary normalized to.
+  // An aliased scope (`hyperliquid-l1` where the dock says `hyperliquid`)
+  // would mark that harbour untracked and darken its tide, so these ids
+  // canonicalise too — same rule, same fallback: an id `resolveChainId` does
+  // not recognise passes through raw rather than silently narrowing the scope.
+  const scope = new Set(scopeChainIds.map((chainId) => resolveChainId(chainId) ?? chainId));
   // Only harbours that are BOTH in the payload's scope and actually rendered can
   // receive an allocation, so the renormalisation below divides by the share the
   // world can really show rather than by a share it cannot draw.

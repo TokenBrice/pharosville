@@ -4,7 +4,6 @@ import type { BluechipGrade, DimensionKey } from "@shared/types";
 import { formatCompactUsd } from "../lib/format-detail";
 import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode } from "./world-types";
 import { pigeonnierRoostLabel } from "./pigeonnier-watch";
-import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "./world-layout";
 import { analyticalRouteHref } from "./route-links";
 import { formationLabel, squadForMember, squadRole } from "./maker-squad";
 import { zoneThemeForTerrain } from "./palette";
@@ -165,8 +164,6 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-const ETHEREUM_L2_DOCK_CHAIN_ID_SET = new Set<string>(ETHEREUM_L2_DOCK_CHAIN_IDS);
-
 // Per-band atmospheric descriptor used by the area detail panel. Cloud and
 // chop wording escalates with the DEWS band. Lightning is fleet-wide and
 // time-slotted, so an area band may describe the capability but never claim an
@@ -191,13 +188,6 @@ const ATMOSPHERE_DESCRIPTORS: Record<DewsAreaBand, string> = {
 function atmosphereForArea(area: AreaNode): string {
   if (!area.band) return "Calm waters; no DEWS atmosphere modulation";
   return `${area.label} — ${area.band}, ${ATMOSPHERE_DESCRIPTORS[area.band]}`;
-}
-
-function dockHarborGroupLabel(node: DockNode): string {
-  if (node.chainId === "ethereum") return "Ethereum shore-station precinct";
-  if (ETHEREUM_L2_DOCK_CHAIN_ID_SET.has(node.chainId)) return "Ethereum precinct annex";
-  if (node.station.type === "pigeonnier-islet") return "Detached pigeonnier station";
-  return "Rim-cove shore station";
 }
 
 function stationTypeLabel(type: DockNode["station"]["type"]): string {
@@ -860,7 +850,6 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
   const inWorldDetailIds = typeof context === "number" ? undefined : context.inWorldDetailIds;
   const haze = deriveEpistemicHaze(typeof context === "number" ? undefined : context.freshness);
   const topSymbols = node.harboredStablecoins.map((coin) => coin.symbol).join(", ");
-  const harborGroup = dockHarborGroupLabel(node);
   const stationType = stationTypeLabel(node.station.type);
   const backingDiversity = backingDiversityLabel(node.backingDiversity);
   const quayMasonry = quayMasonryLabel(node);
@@ -875,8 +864,8 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
     kind: node.kind,
     title: node.label,
     summary: topSymbols
-      ? `${stationType} at ${node.station.coveId}, part of the ${harborGroup.toLowerCase()}, harboring ${topSymbols}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`
-      : `${stationType} at ${node.station.coveId}, part of the ${harborGroup.toLowerCase()}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`,
+      ? `${stationType} at ${node.station.coveId}, harboring ${topSymbols}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`
+      : `${stationType} at ${node.station.coveId}. Its size follows the stablecoin supply held on this chain — not bridge traffic, not transfers.`,
     facts: [
       { label: "Stablecoin supply", value: usd.format(node.totalUsd) },
       ...(harborRank ? [{ label: "Harbor rank", value: harborRank }] : []),
@@ -894,7 +883,6 @@ export function detailForDock(node: DockNode, context: DockDetailContext | numbe
       ...(netFlow24h ? [{ label: "Net flow 24h", value: netFlow24h }] : []),
       { label: "Station type", value: stationType },
       { label: "Rim cove", value: node.station.coveId },
-      { label: "Harbor group", value: harborGroup },
       ...(haze.quays ? [{ label: "Quay haze", value: quayHazeLabel(haze) }] : []),
     ],
     links: [{ label: "Chain", href: analyticalRouteHref(`/chains/${node.chainId}/`) }],

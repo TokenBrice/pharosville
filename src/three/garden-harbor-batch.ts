@@ -19,7 +19,6 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { HARBOR_PALETTE } from "../systems/palette";
 import { CHAIN_FLAG_ATLAS_COLUMNS, gardenChainFlagAtlas } from "./garden-chain-flag";
 import {
-  authorPrecinctBridge,
   type DockRecipe,
   type DockVisual,
   type HarborBucket,
@@ -68,7 +67,7 @@ export interface GardenHarborBatch {
 export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenHarborBatch {
   const root = new Group();
   root.name = "harbor-batch";
-  const renderRecipes = recipesWithPrecinctBridges(recipes);
+  const renderRecipes = recipes;
   const docks = recipes.map((recipe): DockVisual => {
     const anchor = new Group();
     anchor.name = `dock-anchor-${recipe.dock.chainId}`;
@@ -146,17 +145,6 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
   };
 }
 
-function recipesWithPrecinctBridges(recipes: readonly DockRecipe[]): DockRecipe[] {
-  const precinct = recipes.find((recipe) => recipe.station.type === "boathouse-precinct");
-  if (!precinct) return [...recipes];
-  const bridgeParts = recipes
-    .filter((recipe) => recipe.station.type === "annex-pavilion")
-    .flatMap((annex) => authorPrecinctBridge(precinct, annex));
-  if (bridgeParts.length === 0) return [...recipes];
-  return recipes.map((recipe) => recipe === precinct
-    ? { ...recipe, parts: [...recipe.parts, ...bridgeParts] }
-    : recipe);
-}
 
 function emptyBuckets(): BucketMeshes {
   return {
@@ -380,15 +368,13 @@ function flagShapeIndex(shape: DockRecipe["flag"]["shape"]): number {
   switch (shape) {
     case "square": return 0;
     case "swallowtail": return 1;
-    case "notched": return 2;
-    case "pennant": return 3;
+    case "nobori": return 2;
+    case "twin-tail": return 3;
     case "chamfered": return 4;
     case "forked": return 5;
     case "stepped": return 6;
     case "tapered": return 7;
     case "storm-split": return 8;
-    case "dovetail": return 9;
-    case "long-pennant": return 10;
   }
 }
 
@@ -424,19 +410,17 @@ float flagX = vFlagUv.x;
 float flagY = abs(vFlagUv.y - 0.5) * 2.0;
 bool cutFlag = false;
 if (vFlagShape > 0.5 && vFlagShape < 1.5) cutFlag = flagX > 0.72 && flagY < (flagX - 0.72) * 2.2;
-else if (vFlagShape > 1.5 && vFlagShape < 2.5) cutFlag = flagX > 0.82 && flagY < 0.34;
-else if (vFlagShape > 2.5 && vFlagShape < 3.5) cutFlag = flagY > 1.0 - flagX;
+else if (vFlagShape > 1.5 && vFlagShape < 2.5) cutFlag = flagX > 0.42;
+else if (vFlagShape > 2.5 && vFlagShape < 3.5) cutFlag = flagX > 0.64 && flagY < (flagX - 0.64) * 1.85;
 else if (vFlagShape > 3.5 && vFlagShape < 4.5) cutFlag = flagX > 0.78 && flagY > 1.55 - flagX;
 else if (vFlagShape > 4.5 && vFlagShape < 5.5) cutFlag = flagX > 0.7 && flagY < (flagX - 0.7) * 1.65;
 else if (vFlagShape > 5.5 && vFlagShape < 6.5) cutFlag = (flagX > 0.82 && vFlagUv.y < 0.28) || (flagX > 0.66 && vFlagUv.y < 0.13);
 else if (vFlagShape > 6.5 && vFlagShape < 7.5) cutFlag = flagY > 1.0 - flagX * 0.48;
 else if (vFlagShape > 7.5 && vFlagShape < 8.5) cutFlag = flagX > 0.68 && flagY < (flagX - 0.68) * 1.15;
-else if (vFlagShape > 8.5 && vFlagShape < 9.5) cutFlag = flagX > 0.76 && flagY < (flagX - 0.76) * 2.8;
-else if (vFlagShape > 9.5) cutFlag = flagY > 0.82 - flagX * 0.72;
 if (cutFlag) discard;
 if (vFlagCell >= 0.0) {
   #include <map_fragment>
 }`);
   };
-  material.customProgramCacheKey = () => "garden-station-flag-v4";
+  material.customProgramCacheKey = () => "garden-station-flag-v5";
 }

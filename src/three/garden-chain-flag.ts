@@ -178,6 +178,11 @@ const FLAG_HOIST_PX = 14;
  * warehouse roofs (`garden-docks.ts:255`), which is the larger, closer surface
  * and the better carrier for a four-state band.
  *
+ * Keys are the canonical chain ids the world scaffold normalizes every feed
+ * to (`hyperliquid`, never the upstream `hyperliquid-l1` spelling) — unlike
+ * `VENDORED_CHAIN_MARKS` in `chain-docks.ts`, which keys logo filename slugs
+ * and legitimately keeps the alias.
+ *
  * Only the chains a harbour can actually be built for are listed. Anything
  * else falls back to the health accent, which is the previous behaviour and
  * still gives the ~90 other chains the API can report a distinct flag.
@@ -189,7 +194,7 @@ const CHAIN_FLAG_FIELD: Record<string, string> = {
   base: "#0052ff",
   bsc: "#f0b90b",
   ethereum: "#627eea",
-  "hyperliquid-l1": "#97fce4",
+  hyperliquid: "#97fce4",
   polygon: "#8247e5",
   solana: "#9945ff",
   ton: "#0098ea",

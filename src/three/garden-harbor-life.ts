@@ -1,30 +1,20 @@
 import {
-  BoxGeometry,
   BufferGeometry,
   CircleGeometry,
-  Color,
   DoubleSide,
   Float32BufferAttribute,
   Group,
   InstancedMesh,
   MeshBasicMaterial,
-  MeshStandardMaterial,
   Object3D,
 } from "three";
 import {
   GARDEN_DOCK_ROOT_Y,
-  GARDEN_WATER_Y,
   gardenDockDisplayTile,
   gardenIslandDisplayTile,
 } from "../systems/garden-observatory-slice";
 import type { ScreenPoint } from "../systems/projection";
-import { ETHEREUM_L2_DOCK_CHAIN_IDS } from "../systems/world-layout";
 import type { DockNode } from "../systems/world-types";
-import { HARBOR_PALETTE } from "../systems/palette";
-import {
-  registerGardenRouteLanes,
-  type GardenLightLane,
-} from "./garden-lanterns";
 import {
   GARDEN_BIRD_SORTIE_CHANCE,
   GARDEN_BIRD_SORTIE_SHARE,
@@ -39,17 +29,6 @@ export const GARDEN_QUAY_GULL_COUNT = 2;
 
 export interface GardenHarborLifeOptions {
   tileScale?: number;
-  waterY?: number;
-}
-
-export interface GardenHarborDistricts {
-  causewayChainIds: readonly string[];
-  causewaySegmentCount: number;
-  causeways: InstancedMesh<BoxGeometry, MeshStandardMaterial> | null;
-  lanternCount: number;
-  lanterns: InstancedMesh<BoxGeometry, MeshStandardMaterial> | null;
-  pads: null;
-  root: Group;
 }
 
 export interface GardenGullFlockUpdate {
@@ -296,57 +275,6 @@ function quayTempo(change24hPct: number | null | undefined): number {
   const unit = change24hPct / QUAY_TEMPO_FULL_SCALE_PCT;
   return Math.max(-1, Math.min(1, unit));
 }
-const CAUSEWAY_STONES_PER_ROUTE = 6;
-const CAUSEWAY_LANTERNS_PER_ROUTE = 2;
-
-/**
- * Ethereum's rollup relationship as harbor architecture: low broken stone
- * runs with navigable gaps and two sparse lantern posts per route. Stone and
- * posts share one instanced draw; the warm heads share a second. The old
- * translucent district pads and ribbon are deliberately absent.
- */
-export function createGardenHarborDistricts(
-  docks: readonly DockNode[],
-  lighthouseTile: ScreenPoint,
-  options: GardenHarborLifeOptions = {},
-): GardenHarborDistricts {
-  const root = new Group();
-  root.name = "garden-harbor-districts";
-  const tileScale = options.tileScale ?? DEFAULT_TILE_SCALE;
-  const waterY = options.waterY ?? GARDEN_WATER_Y;
-  const displayedDocks = docks.map((dock) => ({
-    dock,
-    tile: gardenDockDisplayTile(dock.tile),
-  }));
-
-  const ethereum = displayedDocks.find(({ dock }) => dock.chainId === "ethereum");
-  const rollups = ETHEREUM_L2_DOCK_CHAIN_IDS.flatMap((chainId) => {
-    const match = displayedDocks.find(({ dock }) => dock.chainId === chainId);
-    return match ? [match] : [];
-  });
-  const linkedRollups = ethereum ? rollups : [];
-  const architecture = ethereum && linkedRollups.length > 0
-    ? createCausewayArchitecture(
-        ethereum.tile,
-        linkedRollups.map(({ dock, tile }) => ({ chainId: dock.chainId, tile })),
-        gardenIslandDisplayTile(lighthouseTile),
-        tileScale,
-        waterY,
-      )
-    : null;
-  if (architecture) root.add(architecture.stonework, architecture.lanterns);
-  registerGardenRouteLanes(architecture?.routeLanes ?? []);
-
-  return {
-    causewayChainIds: linkedRollups.map(({ dock }) => dock.chainId),
-    causewaySegmentCount: architecture?.segmentCount ?? 0,
-    causeways: architecture?.stonework ?? null,
-    lanternCount: architecture?.lanternCount ?? 0,
-    lanterns: architecture?.lanterns ?? null,
-    pads: null,
-    root,
-  };
-}
 
 /**
  * Creates one instanced flock. Reduced motion always resolves to the same
@@ -528,174 +456,6 @@ export function createGardenGullFlock(
   const flock = { gulls, root, update };
   update({ constrained: false, reducedMotion: true, timeSeconds: 0 });
   return flock;
-}
-
-function createCausewayArchitecture(
-  fromTile: ScreenPoint,
-  routes: readonly { chainId: string; tile: ScreenPoint }[],
-  islandTile: ScreenPoint,
-  tileScale: number,
-  waterY: number,
-) {
-  const stonework = new InstancedMesh(
-    new BoxGeometry(1, 1, 1),
-    new MeshStandardMaterial({
-      color: "#ffffff",
-      metalness: 0,
-      roughness: 0.94,
-      vertexColors: true,
-    }),
-    routes.length * (CAUSEWAY_STONES_PER_ROUTE + CAUSEWAY_LANTERNS_PER_ROUTE),
-  );
-  stonework.name = "garden-ethereum-rollup-stonework";
-  const lanterns = new InstancedMesh(
-    new BoxGeometry(1, 1, 1),
-    new MeshStandardMaterial({
-      color: HARBOR_PALETTE.lantern_warm,
-      emissive: HARBOR_PALETTE.lantern_warm,
-      emissiveIntensity: 0.72,
-      roughness: 0.55,
-    }),
-    routes.length * CAUSEWAY_LANTERNS_PER_ROUTE,
-  );
-  lanterns.name = "garden-ethereum-rollup-lanterns";
-
-  const dummy = new Object3D();
-  const stoneColors = [
-    new Color(HARBOR_PALETTE.stone_mid),
-    new Color(HARBOR_PALETTE.stone_pale),
-    new Color(HARBOR_PALETTE.stone_dark),
-  ];
-  const routeLanes: GardenLightLane[] = [];
-  let stoneIndex = 0;
-  let lanternIndex = 0;
-  for (const { chainId, tile: toTile } of routes) {
-    const from = {
-      x: fromTile.x * tileScale,
-      z: fromTile.y * tileScale,
-    };
-    const to = {
-      x: toTile.x * tileScale,
-      z: toTile.y * tileScale,
-    };
-    const island = {
-      x: islandTile.x * tileScale,
-      z: islandTile.y * tileScale,
-    };
-    const dx = to.x - from.x;
-    const dz = to.z - from.z;
-    const length = Math.max(0.001, Math.hypot(dx, dz));
-    const normal = { x: -dz / length, z: dx / length };
-    const midpoint = { x: (from.x + to.x) / 2, z: (from.z + to.z) / 2 };
-    const direction = (
-      (midpoint.x + normal.x * 2.4 - island.x) ** 2
-      + (midpoint.z + normal.z * 2.4 - island.z) ** 2
-    ) >= (
-      (midpoint.x - normal.x * 2.4 - island.x) ** 2
-      + (midpoint.z - normal.z * 2.4 - island.z) ** 2
-    ) ? 1 : -1;
-    const control = {
-      x: midpoint.x + normal.x * direction * 2.4,
-      z: midpoint.z + normal.z * direction * 2.4,
-    };
-    const routeSeed = stableUnit(`causeway.${chainId}`);
-    const lanternSlots = new Set([
-      1 + Math.floor(routeSeed * 2),
-      4 + Math.floor(stableUnit(`causeway-lantern.${chainId}`) * 2),
-    ]);
-    for (let segment = 0; segment < CAUSEWAY_STONES_PER_ROUTE; segment += 1) {
-      const seed = stableUnit(`${chainId}.causeway-stone.${segment}`);
-      // Unequal centers and lengths create visible navigation gaps.
-      const t = 0.08 + segment * 0.17 + (seed - 0.5) * 0.035;
-      const point = quadraticPoint(from, control, to, t);
-      const tangent = quadraticTangent(from, control, to, t);
-      const blockLength = Math.min(1.45, length * (0.075 + seed * 0.018));
-      const blockWidth = 0.62
-        + stableUnit(`${chainId}.causeway-width.${segment}`) * 0.18;
-      const blockHeight = 0.2
-        + stableUnit(`${chainId}.causeway-height.${segment}`) * 0.12;
-      dummy.position.set(point.x, waterY + blockHeight * 0.42, point.z);
-      dummy.rotation.set(0, -Math.atan2(tangent.z, tangent.x), 0);
-      dummy.scale.set(blockLength, blockHeight, blockWidth);
-      dummy.updateMatrix();
-      stonework.setMatrixAt(stoneIndex, dummy.matrix);
-      stonework.setColorAt(
-        stoneIndex,
-        stoneColors[(segment + Math.floor(seed * 3)) % 3]!,
-      );
-      stoneIndex += 1;
-
-      if (lanternSlots.has(segment)) {
-        const side = segment % 2 === 0 ? -1 : 1;
-        const tangentLength = Math.max(0.001, Math.hypot(tangent.x, tangent.z));
-        const sideX = (-tangent.z / tangentLength) * side;
-        const sideZ = (tangent.x / tangentLength) * side;
-        const postX = point.x + sideX * blockWidth * 0.32;
-        const postZ = point.z + sideZ * blockWidth * 0.32;
-        const postHeight = 0.68 + seed * 0.18;
-        dummy.position.set(postX, waterY + postHeight * 0.5, postZ);
-        dummy.rotation.set(0, -Math.atan2(tangent.z, tangent.x), 0);
-        dummy.scale.set(0.1, postHeight, 0.1);
-        dummy.updateMatrix();
-        stonework.setMatrixAt(stoneIndex, dummy.matrix);
-        stonework.setColorAt(stoneIndex, stoneColors[2]!);
-        stoneIndex += 1;
-
-        dummy.position.set(postX, waterY + postHeight + 0.07, postZ);
-        dummy.rotation.set(0, Math.PI / 4, 0);
-        dummy.scale.set(0.18, 0.16, 0.18);
-        dummy.updateMatrix();
-        lanterns.setMatrixAt(lanternIndex, dummy.matrix);
-        lanternIndex += 1;
-      }
-    }
-
-    routeLanes.push({
-      color: HARBOR_PALETTE.lantern_warm,
-      id: `ethereum-causeway.${chainId}`,
-      intensity: 0.28,
-      kind: "route",
-      worldX: from.x,
-      worldZ: from.z,
-      route: { x: to.x, z: to.z },
-    });
-  }
-  stonework.instanceMatrix.needsUpdate = true;
-  if (stonework.instanceColor) stonework.instanceColor.needsUpdate = true;
-  lanterns.instanceMatrix.needsUpdate = true;
-  return {
-    lanternCount: lanternIndex,
-    lanterns,
-    routeLanes,
-    segmentCount: routes.length * CAUSEWAY_STONES_PER_ROUTE,
-    stonework,
-  };
-}
-
-function quadraticPoint(
-  from: { x: number; z: number },
-  control: { x: number; z: number },
-  to: { x: number; z: number },
-  t: number,
-): { x: number; z: number } {
-  const oneMinusT = 1 - t;
-  return {
-    x: oneMinusT ** 2 * from.x + 2 * oneMinusT * t * control.x + t ** 2 * to.x,
-    z: oneMinusT ** 2 * from.z + 2 * oneMinusT * t * control.z + t ** 2 * to.z,
-  };
-}
-
-function quadraticTangent(
-  from: { x: number; z: number },
-  control: { x: number; z: number },
-  to: { x: number; z: number },
-  t: number,
-): { x: number; z: number } {
-  const oneMinusT = 1 - t;
-  return {
-    x: 2 * oneMinusT * (control.x - from.x) + 2 * t * (to.x - control.x),
-    z: 2 * oneMinusT * (control.z - from.z) + 2 * t * (to.z - control.z),
-  };
 }
 
 function createGullGeometry(): BufferGeometry {

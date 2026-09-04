@@ -155,7 +155,12 @@ describe("dock-assignment unique tier mooring placement", () => {
 
 describe("dock-assignment held berths follow their dock", () => {
   const HOME_TILE = PREFERRED_DOCK_TILES.ethereum!;
-  const MOVED_TILE = PREFERRED_DOCK_TILES.avalanche!;
+  // The relocation target must be a real current berth so the mooring search
+  // finds water there. Solana's danger-gorge mouth is the far side of the rim
+  // from the ethereum mole. (`avalanche` had a preferred berth before the rim
+  // redistribution; it now falls through to the fill pool and holds no
+  // PREFERRED_DOCK_TILES entry, so it can no longer supply this tile.)
+  const MOVED_TILE = PREFERRED_DOCK_TILES.solana!;
 
   // `dock.id` is `dock.<chainId>`, so it survives a move: a chain with no
   // PREFERRED_DOCK_TILES entry draws from the shared pool in supply-rank order
