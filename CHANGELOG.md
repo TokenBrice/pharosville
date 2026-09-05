@@ -2,6 +2,16 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.14.1 - 2026-09-06 - Room to Sail
+
+The harbor opens back out around the new Pharos, station names step back into captions, and boats stop wearing signs.
+
+Collected from commit `b74f42f` after v0.14.0.
+
+- Opened the resting frame back out from the sailed-in close view to about twice the water, so the fleet is in view without zooming; the fleet stays complete through the first zoom-out steps and sail marks are fully legible at rest. The wide framing that reads as a harbor rather than a carpet still arrives on the approach to whole-map.
+- Quieted the harbor station chips into captions: smaller, half transparent, no shadow, coming forward only under the pointer.
+- Removed the persistent chips on ships failing the DEX cross-check or lying in Danger water; a ship carries a chip only while selected or during an arrival or departure beat. The cross-bearing buoy, water colour, detail rows and ledger still carry those readings.
+
 ## v0.14.0 - 2026-09-05 - Epic Pharos
 
 The Great Lighthouse of Alexandria stands on a fortified platform in a closer, warmer harbor — and the deployed site finally shows its real models.

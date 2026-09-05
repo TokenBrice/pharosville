@@ -23,6 +23,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   aCalmerHarbor: "v0.12.0",
   clearerWaters: "v0.13.0",
   epicPharos: "v0.14.0",
+  roomToSail: "v0.14.1",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.epicPharos;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.roomToSail;
