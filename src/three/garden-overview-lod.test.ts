@@ -106,6 +106,10 @@ describe("createGardenOverviewLod", () => {
     expect(new Set(OVERVIEW_LOD_DETAIL_NAMES).size).toBe(OVERVIEW_LOD_DETAIL_NAMES.length);
     expect(OVERVIEW_LOD_DETAIL_NAMES).toEqual(expect.arrayContaining([
       "island-koi",
+      // Warm-village A6: both camera-near foreground masses shed with the
+      // rest of the skirt furniture below the band.
+      "garden-rim-foreground-pines",
+      "garden-rim-foreground-torii",
     ]));
     expect([...Object.keys(STATION_SCALE_LADDER)].sort()).toEqual([...CURRENT_STATION_TYPES].sort());
     // The path is now a primary island read, not a toy-scale gravel apron.
@@ -113,6 +117,11 @@ describe("createGardenOverviewLod", () => {
     // Fine station detail has its own hover/inspect gate and must not be
     // made visible by this overview policy.
     expect(OVERVIEW_LOD_DETAIL_NAMES.some((name) => name.startsWith("harbor-fine-"))).toBe(false);
+    // The foreground masses are localized props at their own world position,
+    // so they shrink in place rather than fading whole-ring like the origin
+    // groups whose instance matrices carry the ring's transform.
+    expect(OVERVIEW_LOD_WHOLE_RING_NAMES).not.toContain("garden-rim-foreground-pines");
+    expect(OVERVIEW_LOD_WHOLE_RING_NAMES).not.toContain("garden-rim-foreground-torii");
   });
 
   it("sheds only harbor greebles while retaining structural station breaks", () => {

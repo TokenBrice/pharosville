@@ -25,14 +25,14 @@ const ARCHETYPES: readonly StationType[] = [
 ];
 const SCALE_LADDER: Record<StationType, { length: number; span: number; top: number }> = {
   "ethereum-mole": { length: 24.0, span: 10.0, top: 21.5 },
-  "stepped-inlet": { length: 16.0, span: 7.8, top: 9.4 },
-  "fishing-pier": { length: 15.4, span: 6.7, top: 8.3 },
-  "tea-house-quay": { length: 15.0, span: 7.4, top: 10.7 },
-  "hatago-wharf": { length: 14.6, span: 6.6, top: 11.8 },
-  uogashi: { length: 14.2, span: 7.8, top: 7.2 },
-  "storm-mole": { length: 13.4, span: 8.8, top: 12.1 },
-  "reed-boathouse": { length: 13.6, span: 6.0, top: 11.2 },
-  "pigeonnier-islet": { length: 12.6, span: 5.6, top: 8.6 },
+  "stepped-inlet": { length: 16.0, span: 7.8, top: 15.6 },
+  "fishing-pier": { length: 15.4, span: 6.7, top: 14.7 },
+  "tea-house-quay": { length: 15.0, span: 7.4, top: 16.2 },
+  "hatago-wharf": { length: 14.6, span: 6.6, top: 17.2 },
+  uogashi: { length: 14.2, span: 7.8, top: 13.3 },
+  "storm-mole": { length: 13.4, span: 8.8, top: 17.9 },
+  "reed-boathouse": { length: 13.6, span: 6.0, top: 16.6 },
+  "pigeonnier-islet": { length: 12.6, span: 5.6, top: 15.0 },
 };
 const ACCENT_COLOR: Record<StationType, string> = {
   "ethereum-mole": HARBOR_PALETTE.stone_mid,
@@ -142,14 +142,18 @@ describe("garden station recipes", () => {
     }
     expect(secondLevels.size).toBe(ARCHETYPES.length);
     expect(roofColors.size).toBe(ARCHETYPES.length);
-    // The ordinary stations retain their authored 7.2..12.1 ordering while
-    // supply raises the whole band through the §6 height multiplier. The Mole
-    // alone is exempt and remains at its 21.5 local silhouette.
+    // The ordinary stations retain their authored 13.3..17.9 ordering while
+    // supply raises the whole band through the height multiplier (2026-09-05
+    // recognizability re-base: silhouettes grew ~1.46–1.85x vertically for the
+    // zoom-1.0 rest, footprints unchanged). The Mole alone is exempt and
+    // remains at its 21.5 local silhouette, ≥1.20x the tallest authored rung
+    // (pinned on the ladder in dock-layout.test.ts; supply can close the live
+    // ratio to ~1.09x at 1e20 but never the order).
     const ordinaryHeights = ARCHETYPES
       .filter((type) => type !== "ethereum-mole")
       .map((type) => recipeWithStation(type).features.secondLevel.height);
-    expect(Math.min(...ordinaryHeights)).toBeCloseTo(7.2 * fixtureHeightMultiplier, 5);
-    expect(Math.max(...ordinaryHeights)).toBeCloseTo(12.1 * fixtureHeightMultiplier, 5);
+    expect(Math.min(...ordinaryHeights)).toBeCloseTo(13.3 * fixtureHeightMultiplier, 5);
+    expect(Math.max(...ordinaryHeights)).toBeCloseTo(17.9 * fixtureHeightMultiplier, 5);
     const moleHeight = recipeWithStation("ethereum-mole").features.secondLevel.height;
     expect(moleHeight).toBeGreaterThan(Math.max(...ordinaryHeights));
     expect(moleHeight).toBeCloseTo(21.5, 5);

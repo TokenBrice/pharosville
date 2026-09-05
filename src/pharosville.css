@@ -1384,6 +1384,65 @@ textarea {
   font: 0.86em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* Always-on station names displace hover-only naming. Their positions come
+   from the render-loop projection; the ledger remains the a11y channel. */
+.pharosville-harbor-labels {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.pharosville-harbor-label-chip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 190px;
+  height: 22px;
+  padding: 2px 7px 2px 4px;
+  overflow: hidden;
+  border: 1px solid rgba(216, 184, 122, 0.6);
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(44, 28, 14, 0.94), rgba(24, 13, 7, 0.95));
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.42);
+  color: var(--pv-parchment);
+  font: 0.72rem/1 Georgia, "Times New Roman", serif;
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: pointer;
+  visibility: hidden;
+}
+.pharosville-harbor-label-chip[data-visible="true"] { visibility: visible; }
+.pharosville-harbor-label-chip__mark {
+  position: relative;
+  display: grid;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  color: var(--pv-brass-highlight);
+  font: 700 0.52rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.pharosville-harbor-label-chip__mark img {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+}
+.pharosville-harbor-label-chip__mark [data-fallback="hidden"] { display: none; }
+.pharosville-harbor-label-chip strong {
+  overflow: hidden;
+  color: var(--pv-brass-highlight);
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+}
+.pharosville-harbor-label-chip__state {
+  flex: none;
+  color: rgba(244, 232, 204, 0.8);
+  text-transform: capitalize;
+}
 /* World hover tooltip: positioned by the render loop via style.transform
    (anchor = hovered hit-rect top-center); the card offsets itself above the
    anchor. Decorative duplicate of detail info, so aria-hidden and

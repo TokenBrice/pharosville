@@ -192,12 +192,19 @@ function paintSailField(
  * restore the complete, familiar logo inside one restrained contrast plate.
  *
  * The plate is deliberately neutral and consistent rather than another
- * hash-derived livery shape: the logo is data, not decoration. A 55px radius
- * leaves a safe atlas gutter while giving the authentic asset almost 80% of
- * the cell.
+ * hash-derived livery shape: the logo is data, not decoration.
+ *
+ * C4 (2026-09-05): the mark spans 0.9 of the 128px cell — 115.2px, axial
+ * half-extent 57.6 — so the brand mark fills more of the sail at the 1.0
+ * rest, and the plate grows with it to 62. That keeps the old pairing's
+ * geometry at both ends: the mark still sits inside the rim with a shoulder
+ * (4.4px, was 5.1px at 0.78/55), and the disc still ends 2px inside the
+ * cell on every side. The fill path is the arc itself and the falloff is
+ * already zero at the rim, so no texel beyond the radius is painted and the
+ * adjacent atlas cells stay clean without a wider gutter.
  */
-const IDENTITY_FIELD_RADIUS = 55;
-const IDENTITY_LOGO_SPAN = 0.78;
+const IDENTITY_FIELD_RADIUS = 62;
+const IDENTITY_LOGO_SPAN = 0.9;
 
 function paintSailIdentity(
   context: CanvasRenderingContext2D,

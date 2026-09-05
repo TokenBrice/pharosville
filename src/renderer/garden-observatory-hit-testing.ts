@@ -21,7 +21,7 @@ import {
   gardenFleetThinningShips,
   type GardenFleetThinningShip,
 } from "../systems/garden-fleet-thinning";
-import { HARBOR_QUAY_TOP_Y, stationFlagPlacement } from "../systems/dock-layout";
+import { HARBOR_QUAY_TOP_Y, stationFlagPlacement, stationScaleFor } from "../systems/dock-layout";
 import type { DockNode } from "../systems/world-types";
 import type { ShipMotionSample } from "../systems/motion";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
@@ -46,9 +46,16 @@ import {
   type HitTargetSnapshot,
 } from "./hit-testing";
 
-interface GardenHitTargetViewport {
+export interface GardenHitTargetViewport {
   height: number;
   width: number;
+}
+
+export interface GardenStationLabelFrame {
+  anchorsByDetailId: ReadonlyMap<string, ScreenPoint>;
+  lighthouseRect: HitTarget["rect"];
+  viewport: GardenHitTargetViewport;
+  zoom: number;
 }
 
 const fleetThinningShipsByWorld = new WeakMap<PharosVilleWorld, GardenFleetThinningShip[]>();
@@ -277,6 +284,44 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     ),
     targets,
     targetsByDetailId: new Map(targets.map((target) => [target.detailId, target])),
+  };
+}
+
+/**
+ * Projects the station roof anchors from the same camera and authored display
+ * tiles as hit testing. This is the DOM label surface's only projection path;
+ * it adds no scene object, draw, or texture.
+ */
+export function createGardenStationLabelFrame(input: {
+  camera: IsoCamera;
+  snapshot: HitTargetSnapshot;
+  viewport: GardenHitTargetViewport;
+  world: PharosVilleWorld;
+}): GardenStationLabelFrame {
+  const anchorsByDetailId = new Map<string, ScreenPoint>();
+  for (const dock of input.world.docks) {
+    anchorsByDetailId.set(dock.detailId, gardenTileToScreen(
+      gardenDockDisplayTile(dock.tile),
+      GARDEN_DOCK_ROOT_Y + stationScaleFor(dock.station.type, dock.totalUsd).secondLevelTop,
+      input.camera,
+    ));
+  }
+  const pigeonnierTarget = input.snapshot.targetsByDetailId.get(input.world.pigeonnier.detailId);
+  if (pigeonnierTarget) anchorsByDetailId.set(input.world.pigeonnier.detailId, {
+    x: pigeonnierTarget.rect.x + pigeonnierTarget.rect.width / 2,
+    y: pigeonnierTarget.rect.y,
+  });
+  for (const target of input.snapshot.targets) {
+    if (target.kind === "ship" && target.anchor) anchorsByDetailId.set(target.detailId, target.anchor);
+  }
+
+  const lighthouseRect = input.snapshot.targetsByDetailId.get(input.world.lighthouse.detailId)?.rect
+    ?? { height: 0, width: 0, x: -1, y: -1 };
+  return {
+    anchorsByDetailId,
+    lighthouseRect,
+    viewport: input.viewport,
+    zoom: input.camera.zoom,
   };
 }
 

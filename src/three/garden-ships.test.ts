@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import {
   BoxGeometry,
   CanvasTexture,
+  Color,
   Group,
   InstancedMesh,
   LineBasicMaterial,
@@ -13,17 +14,22 @@ import {
   Quaternion,
 } from "three";
 import { describe, expect, it, vi } from "vitest";
-import { GARDEN_HULL_SILHOUETTES } from "../systems/garden-observatory-slice";
+import {
+  GARDEN_HULL_SILHOUETTES,
+  type GardenHullSilhouette,
+} from "../systems/garden-observatory-slice";
 import { gardenShipWaterBeamTiles, gardenShipWaterMarginTiles } from "../systems/garden-water-exclusion";
 import { SHIP_HULL_FORM_SPAN } from "../systems/world-types";
 import type { ShipHull, ShipNode, ShipSizeTier } from "../systems/world-types";
 import {
   assignGardenHeroSailAtlas,
   attachGardenHeroModel,
+  createBatchedShip,
   createFleetBatchGeometry,
   createFleetLanterns,
   createShip,
   gardenShipVisualScale,
+  GARDEN_HULL_FAMILY_PAINT,
   GARDEN_SHIP_VISUAL_SCALE_MAX,
   GARDEN_SHIP_VISUAL_SCALE_MIN,
   resetFleetSailAttention,
@@ -706,8 +712,130 @@ describe("W3.7 attention bridge", () => {
       { logoGenerationKey: null, ships: after },
       attentionFrame({ selectedDetailId: "usdt" }),
     );
+
     expect(gardenFleetAttention(2)).toBe(1);
     expect(gardenFleetAttention(9)).toBe(0);
     resetFleetSailAttention();
+  });
+});
+describe("warm-village C2: per-family hull paint", () => {
+  // One ShipHull class per silhouette, for builders keyed on the raw class.
+  const HULL_FOR_FAMILY = {
+    bezaisen: "treasury-galleon",
+    kobaya: "crypto-caravel",
+    twinhull: "dao-schooner",
+    takasebune: "yield-barque",
+    junk: "algo-junk",
+    scow: "commodity-peg-hoy",
+  } as const satisfies Record<GardenHullSilhouette, ShipHull>;
+
+  /** Ottosson OKLab of a colour's sRGB — same measurement the paint comments cite. */
+  function oklchOf(color: Color): { C: number; H: number; L: number } {
+    const hex = color.getHexString();
+    const channel = (start: number) => {
+      const c = parseInt(hex.slice(start, start + 2), 16) / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    const r = channel(0), g = channel(2), b = channel(4);
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2916691107 * r + 0.6239594514 * g + 0.0845399073 * b);
+    const s = Math.cbrt(0.1193444823 * r + 0.2725433442 * g + 0.6475147746 * b);
+    const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+    const bb = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+    let H = (Math.atan2(bb, a) * 180) / Math.PI;
+    if (H < 0) H += 360;
+    return {
+      C: Math.hypot(a, bb),
+      H,
+      L: 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    };
+  }
+
+  /** Largest per-channel gap in the working (linear) space the batches store. */
+  function maxChannelDistance(a: Color, b: Color): number {
+    return Math.max(Math.abs(a.r - b.r), Math.abs(a.g - b.g), Math.abs(a.b - b.b));
+  }
+
+  function branded(id: string, hull: ShipHull, primary: string): ShipNode {
+    const node = ship(id, hull, "major");
+    node.visual.livery = { primary } as NonNullable<ShipNode["visual"]["livery"]>;
+    return node;
+  }
+
+  function batched(node: ShipNode): ShipVisual {
+    return createBatchedShip(node, { x: 0, y: 0 }, true, makeCache(), 0);
+  }
+
+  it("exports a paint pair for exactly the six families on a readable OKLCH ladder", () => {
+    expect(Object.keys(GARDEN_HULL_FAMILY_PAINT).sort())
+      .toEqual([...GARDEN_HULL_SILHOUETTES].sort());
+    const timbers = Object.entries(GARDEN_HULL_FAMILY_PAINT)
+      .map(([family, paint]) => ({ family, ...oklchOf(paint.timber) }));
+    for (let i = 0; i < timbers.length; i += 1) {
+      for (let j = i + 1; j < timbers.length; j += 1) {
+        const a = timbers[i]!;
+        const b = timbers[j]!;
+        const dL = Math.abs(a.L - b.L);
+        let dH = Math.abs(a.H - b.H);
+        if (dH > 180) dH = 360 - dH;
+        // Warm timbers share one OKLab hue band, so value is their separator;
+        // the grey-teal twinhull separates by hue. Either alone must suffice.
+        expect(
+          dL >= 0.06 || dH >= 25,
+          `${a.family}/${b.family}: dL ${dL.toFixed(3)} dH ${dH.toFixed(0)}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("keeps every family colour inside the palette's OKLCH chroma ceiling", () => {
+    for (const [family, paint] of Object.entries(GARDEN_HULL_FAMILY_PAINT)) {
+      expect(oklchOf(paint.timber).C, `${family} timber`).toBeLessThan(0.14);
+      expect(oklchOf(paint.trim).C, `${family} trim`).toBeLessThan(0.14);
+    }
+  });
+
+  it("keys the timber on family: two issuers of one family share it within the brand whisper", () => {
+    const timber = GARDEN_HULL_FAMILY_PAINT.kobaya.timber;
+    const tether = batched(branded("usdt-tether", HULL_FOR_FAMILY.kobaya, "#2775ca"));
+    const circle = batched(branded("usdc-circle", HULL_FOR_FAMILY.kobaya, "#d8b04a"));
+    // The whisper lerps channel-wise in the working space, so no channel can
+    // sit further than 0.12 from the family timber.
+    expect(maxChannelDistance(tether.hullColor, timber)).toBeLessThanOrEqual(0.12 + 1e-6);
+    expect(maxChannelDistance(circle.hullColor, timber)).toBeLessThanOrEqual(0.12 + 1e-6);
+    // The whisper carries real issuer dye — a hull is never repainted, but a
+    // coin's timber never quite forgets its yard either.
+    expect(maxChannelDistance(tether.hullColor, timber)).toBeGreaterThan(0);
+    expect(tether.hullColor.getHexString()).not.toBe(circle.hullColor.getHexString());
+  });
+
+  it("gives six families six distinct timbers under a single issuer", () => {
+    const hulls = Object.values(HULL_FOR_FAMILY)
+      .map((hull) => batched(branded(`coin-${hull}`, hull, "#2775ca")));
+    const hexes = new Set(hulls.map((visual) => visual.hullColor.getHexString()));
+    expect(hexes.size).toBe(GARDEN_HULL_SILHOUETTES.length);
+  });
+
+  it("keeps the sheer strake carrying the issuer's colour, not the family's", () => {
+    const primary = "#2775ca";
+    const kobaya = batched(branded("usdt-tether", HULL_FOR_FAMILY.kobaya, primary));
+    const junk = batched(branded("eth-issuer", HULL_FOR_FAMILY.junk, primary));
+    expect(kobaya.trimColor.getHexString()).toBe(new Color(primary).getHexString());
+    // Same issuer, different family: same rail, different timber.
+    expect(junk.trimColor.getHexString()).toBe(kobaya.trimColor.getHexString());
+    expect(junk.hullColor.getHexString()).not.toBe(kobaya.hullColor.getHexString());
+    // A different issuer repaints the rail.
+    const otherYard = batched(branded("usdt-tether", HULL_FOR_FAMILY.kobaya, "#d8b04a"));
+    expect(otherYard.trimColor.getHexString()).toBe(new Color("#d8b04a").getHexString());
+  });
+
+  it("paints an unbranded ship's strake in her family's trim", () => {
+    const kobaya = batched(ship("ghost", HULL_FOR_FAMILY.kobaya, "major"));
+    const junk = batched(ship("wraith", HULL_FOR_FAMILY.junk, "major"));
+    expect(kobaya.trimColor.getHexString())
+      .toBe(GARDEN_HULL_FAMILY_PAINT.kobaya.trim.getHexString());
+    expect(junk.trimColor.getHexString())
+      .toBe(GARDEN_HULL_FAMILY_PAINT.junk.trim.getHexString());
+    expect(kobaya.trimColor.getHexString()).not.toBe(junk.trimColor.getHexString());
   });
 });

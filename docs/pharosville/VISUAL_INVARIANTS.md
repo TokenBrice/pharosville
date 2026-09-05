@@ -96,8 +96,12 @@ intent, code/tests, and a matching update to the relevant route documentation.
   primary roof at least twice an ordinary hull's length, a contrasting
   clay/slate/thatch/timber palette, and a uniquely named upper silhouette
   that clears nearby sails — second-level silhouettes now span roughly
-  7.2–12.1 world units for chain stations, the Ethereum Mole excepted at
-  a 21.5 local cap (≤21.7 above water), and the
+  13.3–17.9 world units for chain stations (re-based 2026-09-05 so an
+  ordinary hall reads near the reference's 1/6-frame landmark scale at the
+  zoom-1.0 rest; vertical only — footprints, water exclusion, and berthing
+  unchanged; `src/systems/dock-layout.test.ts`), the Ethereum Mole excepted
+  at a 21.5 local cap (≤21.7 above water), still ≥1.20× the tallest ordinary
+  rung on the authored ladder, and the
   chain flag uses 2.6 times its original scale, on a raised seaward staff clear
   of the station roof. This supersedes the 1.6× limit to meet the operator's
   harbor-recognition request: flags must show their complete chain mark and
@@ -124,20 +128,43 @@ intent, code/tests, and a matching update to the relevant route documentation.
   still dissolves into the haze seam, and the Danger Strait and both far
   openings stay open water. The skirt is renderer-side only: it never
   reclassifies a tile, and it changes no navigation, placement, or
-  berthing. Shore stations sit in coves, not around the island waterline;
-  the Ethereum Mole stands alone as the ring's civic monument; L2
-  stations are self-standing distant harbors.
+  berthing. The skirt's rest-frame corner (the bottom-left at the 1.0 rest,
+  around tile 60,141) carries two named dark foreground masses — the corner
+  pine group and the kuro torii with its fence run,
+  `GARDEN_RIM_FOREGROUND_MASSES` in `src/three/garden-rim-mesh.ts` — which
+  frame the plate's near edge, displace that same open-water band rather
+  than adding a new prop vocabulary, stay clear of the lighthouse rect and
+  the Mole quay from the default camera, are pure silhouettes after dark
+  (no emissive), and shed with the other skirt furniture below zoom 0.62
+  (`garden-rim-mesh.test.ts`). Shore stations sit in coves, not around the
+  island waterline; the Ethereum Mole stands alone as the ring's civic
+  monument; L2 stations are self-standing distant harbors.
 - The TON pigeonnier is spatially distinct. The dead/frozen fleet is a quiet
   sea wreckyard, not an island and never a live-ship destination.
 - DOM labels must be legible and must not cover the lighthouse, controls, or
   active detail panel.
+- **Harbor stations are named in-frame at every zoom.** The eight rendered
+  chain stations and the TON pigeonnier carry always-on, aria-hidden DOM chips
+  projected from their existing station/landmark label anchors — whole-map
+  framing, where all nine share the frame, included. Each chip shows the
+  chain logo when its existing same-origin
+  `logoPath` is available (otherwise the painted initials), the chain name,
+  and one existing concentration-state word; the TON fallback names its
+  existing watch state. When chips overlap, the lower-supply station steps
+  below the higher-supply one. A chip is hidden rather than covering the
+  lighthouse, bottom controls, or an active detail panel, and an off-screen
+  anchor hides its chip. Ships receive a chip only while selected (the
+  arrival/anomaly trigger input is reserved for the life phase). These chips
+  displace hover-only station naming, add no WebGL draw or texture, and stay
+  aria-hidden because the accessibility ledger is the spoken naming channel.
+  Pinned in `src/components/harbor-label-chips.test.tsx`.
 
 ## World encoding
 
 | Element | Required reading | Redundant channel |
 | --- | --- | --- |
 | Lighthouse | PSI score/band | DOM record and beacon state |
-| Ship | stablecoin identity, scale, class, risk | branded sail/livery plus DOM record |
+| Ship | stablecoin identity, scale, class, risk | branded sail/livery, family-coded hull timber plus DOM record |
 | Harbor | chain supply and concentration | hull-dominant landward roof, supply-driven roof mass, contrasting archetype palette with per-chain accent, sail-clearing named upper silhouette, 2.6× chain flag on a raised seaward staff, DOM record; raised lit quay/window embers are decorative and carry no meaning, and the Mole's basin, tide courses, and capstones likewise carry no analytical meaning |
 | Water body | existing risk/ledger category | water character, boundary/buoy, DOM label |
 | Wreck | lifecycle status | model/cause color plus DOM record |
@@ -181,7 +208,11 @@ plus cause colour and the DOM record.
 The fleet has six visual families: bezaisen, kobaya, twinhull, takasebune,
 junk, and scow. The nine semantic hull classes map onto those six forms;
 market-cap tier still controls scale, and brand identity remains in the shared
-sail atlas. Motion is leg-based: island-to-shore voyages run in bounded
+sail atlas. Each family carries its own authored timber — six palette-derived
+hull colours on an OKLCH value/hue ladder (`GARDEN_HULL_FAMILY_PAINT`) with the
+issuer's 0.12 whisper in the timber, while the sheer strake stays painted in
+the issuer's colour — so hull form and hull colour encode the same family
+reading (warm-village C2, 2026-09-05). Motion is leg-based: island-to-shore voyages run in bounded
 90–180-second legs and 240–480-second rests, with paired arrivals and
 departures and restless rests ordered by risk band. The aggregate moored share
 remains one third, and all water-safety decisions use the authoritative field

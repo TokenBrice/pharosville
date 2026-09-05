@@ -69,6 +69,10 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   "garden-rim-path",
   "garden-rim-pines",
   "garden-rim-stones",
+  // Camera-near repoussoirs (warm-village A6): at whole-map they are the
+  // same frame-edge mud as the rest of the skirt furniture.
+  "garden-rim-foreground-pines",
+  "garden-rim-foreground-torii",
   // Per-hero badges, ×~29 hulls, and the three hero gull flocks.
   "ship-gull-flock",
   "ship-overview-detail",

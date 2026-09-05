@@ -3,6 +3,7 @@ import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo,
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
+import { HarborLabelChips, updateHarborLabelChipLayout } from "./components/harbor-label-chips";
 import { HarborLog } from "./components/harbor-log";
 import { QuickFind } from "./components/quick-find";
 import { SinceLastVisitBanner } from "./components/since-last-visit";
@@ -273,6 +274,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const selectedDetailIdRef = useLatestRef(selectedDetailId);
   const motionPlanRef = useLatestRef(motionPlan);
   const hoverTooltipElRef = useRef<HTMLDivElement | null>(null);
+  const harborLabelChipsElRef = useRef<HTMLDivElement | null>(null);
 
   // Hover tooltip content: a glanceable title + one-line reading for the
   // hovered entity. Hidden for the selected entity (the detail panel already
@@ -489,6 +491,27 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     focusSelectedCamera(detailId, selectedEntity);
   }, [focusSelectedCamera, selectedEntity]);
 
+  const updateHarborLabelsForFrame = useCallback((
+    frame: Parameters<typeof updateHarborLabelChipLayout>[1],
+  ) => {
+    const shell = shellRef.current;
+    const container = harborLabelChipsElRef.current;
+    if (!shell || !container) return;
+    const shellRect = shell.getBoundingClientRect();
+    const exclusionRects = Array.from(shell.querySelectorAll<HTMLElement>(
+      ".pharosville-world-controls, .pharosville-detail-dock:not([hidden])",
+    )).map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        x: rect.left - shellRect.left,
+        y: rect.top - shellRect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+    });
+    updateHarborLabelChipLayout(container, { ...frame, exclusionRects });
+  }, []);
+
   const {
     frameRateFps,
     rendererWarmupReady,
@@ -498,6 +521,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     almanacEvent: gardenAlmanac.activeEvent,
     onBucketFlip: setMotionBucket,
     onShipMotionSamplesReady: followPendingSelectionFromSamples,
+    onStationLabelFrame: updateHarborLabelsForFrame,
     adaptiveDprStateRef: canvas.adaptiveDprStateRef,
     logoGeneration: shipLogoAssets.logoGeneration,
     logos: shipLogoAssets.logos,
@@ -1064,6 +1088,14 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         </div>
       )}
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
+        {!rendererFailed && (
+          <HarborLabelChips
+            containerRef={harborLabelChipsElRef}
+            onSelectDetail={(detailId) => selectDetail(detailId, null)}
+            selectedShipDetailId={selectedEntity?.kind === "ship" ? selectedEntity.detailId : null}
+            world={world}
+          />
+        )}
         {!rendererFailed && (
           <div
             ref={hoverTooltipElRef}
