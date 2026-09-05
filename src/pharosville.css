@@ -1385,7 +1385,9 @@ textarea {
 }
 
 /* Always-on station names displace hover-only naming. Their positions come
-   from the render-loop projection; the ledger remains the a11y channel. */
+   from the render-loop projection; the ledger remains the a11y channel.
+   Quieted 2026-09-06: a chip is a caption, not a signpost — small, half
+   transparent, no shadow, and it only comes forward under the pointer. */
 .pharosville-harbor-labels {
   position: absolute;
   inset: 0;
@@ -1400,47 +1402,55 @@ textarea {
   display: flex;
   align-items: center;
   gap: 4px;
-  max-width: 190px;
-  height: 22px;
-  padding: 2px 7px 2px 4px;
+  max-width: 170px;
+  height: 18px;
+  padding: 1px 6px 1px 3px;
   overflow: hidden;
-  border: 1px solid rgba(216, 184, 122, 0.6);
+  border: 1px solid rgba(216, 184, 122, 0.22);
   border-radius: 2px;
-  background: linear-gradient(180deg, rgba(44, 28, 14, 0.94), rgba(24, 13, 7, 0.95));
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.42);
+  background: rgba(20, 12, 6, 0.55);
   color: var(--pv-parchment);
-  font: 0.72rem/1 Georgia, "Times New Roman", serif;
+  font: 0.64rem/1 Georgia, "Times New Roman", serif;
   white-space: nowrap;
+  opacity: 0.68;
+  transition: opacity 160ms ease, background-color 160ms ease;
   pointer-events: auto;
   cursor: pointer;
   visibility: hidden;
+}
+.pharosville-harbor-label-chip:hover,
+.pharosville-harbor-label-chip:focus-visible {
+  opacity: 1;
+  background: rgba(24, 13, 7, 0.9);
+  border-color: rgba(216, 184, 122, 0.6);
 }
 .pharosville-harbor-label-chip[data-visible="true"] { visibility: visible; }
 .pharosville-harbor-label-chip__mark {
   position: relative;
   display: grid;
-  flex: 0 0 16px;
-  width: 16px;
-  height: 16px;
+  flex: 0 0 13px;
+  width: 13px;
+  height: 13px;
   place-items: center;
   color: var(--pv-brass-highlight);
-  font: 700 0.52rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 700 0.46rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .pharosville-harbor-label-chip__mark img {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   object-fit: contain;
 }
 .pharosville-harbor-label-chip__mark [data-fallback="hidden"] { display: none; }
 .pharosville-harbor-label-chip strong {
   overflow: hidden;
   color: var(--pv-brass-highlight);
-  font-size: 0.74rem;
+  font-size: 0.66rem;
+  font-weight: 600;
   text-overflow: ellipsis;
 }
 .pharosville-harbor-label-chip__state {
   flex: none;
-  color: rgba(244, 232, 204, 0.8);
+  color: rgba(244, 232, 204, 0.62);
   text-transform: capitalize;
 }
 /* World hover tooltip: positioned by the render loop via style.transform

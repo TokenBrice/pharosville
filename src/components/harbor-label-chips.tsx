@@ -6,7 +6,7 @@ import type { PharosVilleWorld } from "../systems/world-types";
 const CHIP_GAP_PX = 6;
 const CHIP_COLLISION_GAP_PX = 2;
 const CHIP_FALLBACK_WIDTH_PX = 118;
-const CHIP_HEIGHT_PX = 22;
+const CHIP_HEIGHT_PX = 18;
 const NO_TRANSIENT_SHIP_LABELS: readonly string[] = [];
 
 interface HarborLabelChipItem {
@@ -30,8 +30,8 @@ export interface HarborLabelChipLayoutInput extends GardenStationLabelFrame {
 }
 
 export interface HarborLabelChipsProps {
-  /** Reserved for Phase 3 arrival/anomaly beats; no transient chips render until ids are supplied. */
-  arrivalOrAnomalyShipDetailIds?: readonly string[];
+  /** Ships mid arrival/departure beat; they carry a brief nameplate and nothing else does. */
+  arrivalShipDetailIds?: readonly string[];
   containerRef: RefObject<HTMLDivElement | null>;
   onSelectDetail: (detailId: string) => void;
   selectedShipDetailId?: string | null;
@@ -44,7 +44,7 @@ export interface HarborLabelChipsProps {
  * deliberately aria-hidden. Position is written by the world's existing RAF.
  */
 export function HarborLabelChips({
-  arrivalOrAnomalyShipDetailIds = NO_TRANSIENT_SHIP_LABELS,
+  arrivalShipDetailIds = NO_TRANSIENT_SHIP_LABELS,
   containerRef,
   onSelectDetail,
   selectedShipDetailId = null,
@@ -68,7 +68,7 @@ export function HarborLabelChips({
       supply: 0,
     });
 
-    const transientIds = new Set(arrivalOrAnomalyShipDetailIds);
+    const transientIds = new Set(arrivalShipDetailIds);
     if (selectedShipDetailId) transientIds.add(selectedShipDetailId);
     for (const detailId of transientIds) {
       const ship = world.entityById[detailId];
@@ -83,7 +83,7 @@ export function HarborLabelChips({
       });
     }
     return stationItems;
-  }, [arrivalOrAnomalyShipDetailIds, selectedShipDetailId, world]);
+  }, [arrivalShipDetailIds, selectedShipDetailId, world]);
 
   return (
     <div ref={containerRef} className="pharosville-harbor-labels" aria-hidden="true" data-testid="pharosville-harbor-labels">

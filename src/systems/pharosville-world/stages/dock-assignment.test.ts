@@ -183,7 +183,9 @@ describe("dock-assignment unique tier mooring placement", () => {
     expect(keys.size).toBeGreaterThan(count);
     const held = buildDockAssignmentStage(assigned, world.docks).ships;
     expect(held.map((ship) => ship.dockVisits)).toEqual(assigned.map((ship) => ship.dockVisits));
-  });
+  // Two full 320-ship assignments plus water lookups: ~2 s alone, and it
+  // has crossed the 5 s default under full-suite parallel load.
+  }, 20_000);
 
   it("moors unique-tier ships with flagship-tier barrier clearance (>= 3.3)", () => {
     const world = buildPharosVilleWorld(denseWorldInputs());

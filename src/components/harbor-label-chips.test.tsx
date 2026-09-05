@@ -18,7 +18,7 @@ describe("HarborLabelChips", () => {
     const chips = Array.from(view.container.querySelectorAll<HTMLElement>("[data-detail-id]"));
     expect(chips).toHaveLength(9);
     for (const chip of chips) {
-      vi.spyOn(chip, "getBoundingClientRect").mockReturnValue(domRect(100, 22));
+      vi.spyOn(chip, "getBoundingClientRect").mockReturnValue(domRect(100, 18));
     }
 
     const anchorsByDetailId = new Map<string, { x: number; y: number }>();
@@ -38,7 +38,7 @@ describe("HarborLabelChips", () => {
     const larger = view.container.querySelector<HTMLElement>('[data-detail-id="dock.chain-0"]')!;
     const smaller = view.container.querySelector<HTMLElement>('[data-detail-id="dock.chain-1"]')!;
     const lighthouseOccluded = view.container.querySelector<HTMLElement>('[data-detail-id="dock.chain-3"]')!;
-    expect(larger.style.transform).toBe("translate(150px, 72px)");
+    expect(larger.style.transform).toBe("translate(150px, 76px)");
     expect(smaller.style.transform).toBe("translate(150px, 96px)");
     expect(lighthouseOccluded.dataset.visible).toBe("false");
     expect(chips.filter((chip) => chip.dataset.visible === "true")).toHaveLength(8);
@@ -55,7 +55,7 @@ describe("HarborLabelChips", () => {
     );
     const chips = Array.from(view.container.querySelectorAll<HTMLElement>("[data-detail-id]"));
     for (const chip of chips) {
-      vi.spyOn(chip, "getBoundingClientRect").mockReturnValue(domRect(100, 22));
+      vi.spyOn(chip, "getBoundingClientRect").mockReturnValue(domRect(100, 18));
     }
     // Well-separated anchors so no collision or exclusion hides anything: the
     // only variable under test is zoom, and the operator's decision is that

@@ -12,6 +12,19 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-09-06-room-to-sail",
+    version: PHAROSVILLE_RELEASE_VERSIONS.roomToSail,
+    date: "2026-09-06",
+    title: "Room to Sail",
+    summary: "The harbor opens back out around the new Pharos, station names step back into captions, and boats stop wearing signs.",
+    bullets: [
+      "Opened the resting frame back out from the sailed-in close view to about twice the water, so the fleet is in view without zooming; the fleet stays complete through the first zoom-out steps and sail marks are fully legible at rest. The wide framing that reads as a harbor rather than a carpet still arrives on the approach to whole-map.",
+      "Quieted the harbor station chips into captions: smaller, half transparent, no shadow, coming forward only under the pointer.",
+      "Removed the persistent chips on ships failing the DEX cross-check or lying in Danger water; a ship carries a chip only while selected or during an arrival or departure beat. The cross-bearing buoy, water colour, detail rows and ledger still carry those readings.",
+    ],
+    source: "Collected from commit `b74f42f` after v0.14.0.",
+  },
+  {
     id: "2026-09-05-epic-pharos",
     version: PHAROSVILLE_RELEASE_VERSIONS.epicPharos,
     date: "2026-09-05",

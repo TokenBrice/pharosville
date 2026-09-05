@@ -532,16 +532,17 @@ describe("garden rim mesh", () => {
           `${mass.name} overlaps the Mole quay at ${viewport.width}x${viewport.height}`,
         ).toBe(false);
         if (viewport.width === 1568) {
-          // The masses own the bottom-left rest corner: they intersect the
-          // corner quarter and bleed past the frame's bottom edge.
+          // The masses own the lower-left of the rest frame. At the 0.72
+          // rest (2026-09-06) they stand as near-shore silhouettes inside
+          // the lower-left quarter rather than bleeding past the frame edge
+          // as they did at the 1.0 rest they were first sited for.
           const corner: ScreenRect = {
-            maxX: viewport.width * 0.25,
+            maxX: viewport.width * 0.3,
             maxY: viewport.height,
             minX: 0,
-            minY: viewport.height * 0.7,
+            minY: viewport.height * 0.6,
           };
           expect(rectsOverlap(scaled, corner), `${mass.name} misses the rest corner`).toBe(true);
-          expect(scaled.maxY, `${mass.name} does not cross the frame bottom`).toBeGreaterThan(viewport.height);
         }
       }
     }

@@ -248,12 +248,12 @@ const FLEET_FRAMING_RESTRAINT = 0.10;
 /**
  * Above this zoom the wide-frame step begins to dissolve. It stays fully
  * present through overview framing, then hands the dye back over the final
- * approach to the authored zoom-1.0 rest.
+ * approach to the authored rest (0.72 since 2026-09-06; was 1.0).
  */
-const FRAMING_RESTRAINT_RELEASE_ZOOM = 0.95;
+const FRAMING_RESTRAINT_RELEASE_ZOOM = 0.66;
 
 /** At the resting zoom the extra framing step is gone entirely. */
-const FRAMING_RESTRAINT_CLEAR_ZOOM = 1.0;
+const FRAMING_RESTRAINT_CLEAR_ZOOM = 0.72;
 
 /**
  * The further chroma step this framing asks of a rank-and-file ship, before
@@ -345,9 +345,9 @@ export function gardenFleetSailRestraint(input: {
 /**
  * How much of the painted mark survives at a given zoom.
  *
- * Marks are fully present at the authored zoom-1.0 rest. Below 0.85 they fade
- * toward a deliberately non-zero floor: a distant sail should still read as
- * cloth that HAS a device on it rather than as blank canvas.
+ * Marks are fully present at the authored rest (0.72 since 2026-09-06). Below
+ * 0.62 they fade toward a deliberately non-zero floor: a distant sail should
+ * still read as cloth that HAS a device on it rather than as blank canvas.
  */
 export function gardenFleetMarkPresence(zoom: number): number {
   const t = MathUtils.clamp(
@@ -360,9 +360,9 @@ export function gardenFleetMarkPresence(zoom: number): number {
 }
 
 /** Marks are fully present until the camera pulls back below this zoom. */
-const MARK_FADE_ZOOM = 0.85;
+const MARK_FADE_ZOOM = 0.62;
 /** Below this zoom a mark is pixels of noise, so only the floor remains. */
-const MARK_MIN_ZOOM = 0.58;
+const MARK_MIN_ZOOM = 0.42;
 /** Never fully absent — see `gardenFleetMarkPresence`. */
 const MARK_MIN_PRESENCE = 0.45;
 

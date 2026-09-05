@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultCamera } from "./camera";
+import { defaultCamera, GARDEN_DEFAULT_CAMERA_ZOOM } from "./camera";
 import {
   easeOutQuint,
   GARDEN_ARRIVAL_DURATION_MS,
@@ -28,12 +28,11 @@ describe("garden arrival", () => {
   });
 
   it("opens at 0.82 of the resting frame and eases onto the new rest", () => {
-    // Warm-village A1 (2026-09-05): arrival still opens wider than rest by
-    // the authored 0.82 factor and settles on defaultCamera's sailed-in
-    // framing (1.0 on standard desktops) over the same nine seconds.
+    // Arrival opens wider than rest by the authored 0.82 factor and settles
+    // on defaultCamera's framing over the same nine seconds.
     const map = buildPharosVilleMap();
     const rest = defaultCamera({ height: 1004, map, width: 1568 });
-    expect(rest.zoom).toBe(1);
+    expect(rest.zoom).toBe(GARDEN_DEFAULT_CAMERA_ZOOM);
     const opening = gardenArrivalCamera(rest);
     expect(opening.zoom).toBeCloseTo(rest.zoom * 0.82);
     const settled = sampleGardenArrivalCamera(opening, rest, GARDEN_ARRIVAL_DURATION_MS);
