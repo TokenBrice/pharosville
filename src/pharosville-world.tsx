@@ -45,6 +45,7 @@ import {
   gardenArrivalBeatEnvelope,
   selectGardenArrivalBeatShipDetailIds,
 } from "./systems/garden-arrival-beats";
+import { selectGardenAnomalyShipDetailIds, unionGardenShipLabelDetailIds } from "./systems/garden-anomaly-labels";
 import { buildObserveSequence, type ObserveBeatKind } from "./systems/observe-sequence";
 import type { ObserveTourKeyframe } from "./systems/observe-tour";
 import { GARDEN_ATTRACT_IDLE_MS, gardenAttractKeyframes } from "./systems/garden-attract";
@@ -241,6 +242,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
   const [arrivalBeatShipDetailIds, setArrivalBeatShipDetailIds] = useState<readonly string[]>([]);
   const arrivalBeatSecondRef = useRef<number | null>(null);
+  const anomalyShipDetailIds = useMemo(() => selectGardenAnomalyShipDetailIds(world), [world]);
+  const arrivalOrAnomalyShipDetailIds = useMemo(
+    () => unionGardenShipLabelDetailIds(anomalyShipDetailIds, arrivalBeatShipDetailIds),
+    [anomalyShipDetailIds, arrivalBeatShipDetailIds],
+  );
   const shipCounterLabel = useMemo(() => fleetCounterLabel(world.ships), [world.ships]);
   const recentFleetTrend = useMemo(() => recentFleetTrendSummary(world), [world]);
   // W5.01 — derive the live risk-band tack-out per ship from the motion plan
@@ -1120,7 +1126,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
         {!rendererFailed && (
           <HarborLabelChips
-            arrivalOrAnomalyShipDetailIds={arrivalBeatShipDetailIds}
+            arrivalOrAnomalyShipDetailIds={arrivalOrAnomalyShipDetailIds}
             containerRef={harborLabelChipsElRef}
             onSelectDetail={(detailId) => selectDetail(detailId, null)}
             selectedShipDetailId={selectedEntity?.kind === "ship" ? selectedEntity.detailId : null}
