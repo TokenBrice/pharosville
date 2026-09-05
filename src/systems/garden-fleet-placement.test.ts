@@ -92,15 +92,19 @@ describe("placeGardenFleet", () => {
     // Single-linkage grouping at 6 tiles is the clearest discriminator, because
     // it measures the thing the eye actually reads: are there HARBOURS, or is
     // every hull its own island? Measured on the anchorage field, 90 ships form
-    // 38 groups sized 22, 11, 8, 6, 4, 3, 3, 3 — a hierarchy. The blue-noise
-    // field it replaced formed 85 groups whose largest held 3, which is another
-    // way of saying it formed none.
+    // 47 groups whose largest hold 10, 8, 7, 5, 4 — still a hierarchy, flatter
+    // than under the 0.55 floor (43 groups, largest 22) because the 0.8 visual
+    // floor (GARDEN_SHIP_VISUAL_SCALE_MIN, 2026-09-05) widens every hull's
+    // water margin and berths the same fleet more loosely. The blue-noise
+    // field it replaced formed 85 groups whose largest held 3, which is
+    // another way of saying it formed none.
     //
     // Note that nearest-neighbour STATISTICS are a poor test here and a
-    // Clark-Evans index is nearly useless: the hull gap (4.03 tiles) is almost
-    // exactly the spacing a uniform random scatter of this fleet would produce
-    // anyway, so no legal arrangement can score as "clustered" by that measure.
-    // Structure is the thing to assert, not average spacing.
+    // Clark-Evans index is nearly useless: the hull gap (5.03 tiles at the 0.8
+    // floor; 4.03 before it) is almost exactly the spacing a uniform random
+    // scatter of this fleet would produce anyway, so no legal arrangement can
+    // score as "clustered" by that measure. Structure is the thing to assert,
+    // not average spacing.
     const ships = fleet("calm", 90);
     const placement = placeGardenFleet(ships, LIGHTHOUSE);
     const tiles = ships.map((entry) => placement.tileByShipId.get(entry.id)!);
@@ -145,7 +149,10 @@ describe("placeGardenFleet", () => {
         largestEmptyRadius = Math.max(largestEmptyRadius, nearest);
       }
     }
-    // RIM FIELD FIX 1: the rim-only mask measures 9.38 tiles with the unchanged nine-tile lighthouse clearance.
+    // RIM FIELD FIX 1, re-measured at the 0.8 visual floor (2026-09-05): the
+    // rim-only mask measures 11.46 tiles — the wider hull margins berth fewer
+    // ships per mooring and leave more ma — with the unchanged nine-tile
+    // lighthouse clearance.
     expect(largestEmptyRadius).toBeGreaterThan(9);
   });
 

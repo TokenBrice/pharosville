@@ -41,15 +41,38 @@ intent, code/tests, and a matching update to the relevant route documentation.
   by the largest empty circle inside a band's water — not by nearest-neighbour
   statistics, which the hull gap makes uninformative at this fleet size.
 - The Pharos lighthouse remains the visual and analytical anchor.
-- The full eligible fleet may render up to the 320-ship batch capacity. Density,
-  water-safe placement, lighthouse clearance, and edge falloff preserve
-  composition; the former 20-ship cap is retired.
-- **Distance and zoom are viewing conditions, not identity changes.** The fleet
-  recedes with depth (chroma, never value) and its marks thin as the camera
-  pulls back, so a wide framing reads as a harbour rather than as a hundred and
-  eighty-five stickers. Sailing in restores full brand identity exactly as
-  decision F1 specified. Restraint must never be baked into the cloth colour
-  itself, which would remove identity at every distance with no way back.
+- **The resting frame is a sailed-in close composition.** `defaultCamera`
+  rests at `GARDEN_DEFAULT_CAMERA_ZOOM` (1.0) wherever the authored Pharos
+  (60,70) → Ethereum Mole (15,95) landing interval seats with the island centre
+  clear of the 128 px right-hand anchorage gutter; narrower gates fit the
+  interval instead (0.825 at 1200 px wide) and no legal viewport rests below
+  `GARDEN_REST_ZOOM_FLOOR` (0.8). The statue tip keeps its sky. Whole-map
+  framing remains the explicit zoom-out via `minZoomForViewport`. The four
+  idle postcards are sailed-in framings (zoom 1.0–1.4), never wider than rest.
+  Pinned in `src/systems/camera.test.ts` and `garden-attract.test.ts`
+  (warm-village A1, 2026-09-05; replaces the retired 0.60 plate composition).
+- **Fleet placement capacity and displayed hull count are separate.** The
+  eligible fleet retains the 320-ship placement and batch capacity; density,
+  water-safe placement, lighthouse clearance, and edge falloff preserve the
+  authored anchorage composition. Below zoom 0.7, displayed hulls thin
+  reversibly toward each risk band's dominant mooring plus one or two
+  representatives per other mooring at whole-map framing; thinned hulls leave
+  pointer hit testing but never the keyboard order, detail panel, or ledger.
+  This viewing condition is never baked into placement; the former 20-ship cap
+  remains retired. Pinned in `src/systems/garden-fleet-thinning.test.ts`.
+- **Distance, zoom, and displayed hull count are viewing conditions, not
+  identity changes.** The fleet recedes with depth (chroma, never value), its
+  marks begin fading only below zoom 0.85, and its displayed count thins below
+  zoom 0.7, so a wide framing reads as a harbour rather than as a hundred and
+  eighty-five stickers. At the zoom-1.0 rest marks are fully present and the
+  extra framing restraint is fully released; wider framing applies at most the
+  operator-approved ~10 % further chroma restraint (2026-09-05, superseding the
+  15–20 % step of 2026-08-13). Sailing in to zoom 0.7 restores every eligible
+  hull. Restraint and thinning must never be baked into the cloth colour or
+  into placement, which would remove identity or hulls with no way back.
+  Market-cap tier still controls hull scale: the 0.7–3.0 data band maps onto a
+  ~2.6× visual range above a 0.8 legibility floor so all six hull families stay
+  separable at rest (`src/three/garden-ships.test.ts`).
 - Harbors are shore stations sited in their body's named rim coves —
   eight authored coves for the eight chain harbors — and the station ring
   is spread around that rim rather than massed on the far shore. On any
@@ -181,12 +204,21 @@ and its conservative distance lookup.
   arc and bokashi bands make the background part of the composition rather than
   more water.
 - Aerial perspective must actually reach the DEFAULT framing. The fog range's
-  scale pivot (`FOG_REFERENCE_VIEW_HEIGHT`) must track the real default view
-  height (`viewportHeight / (TILE_HEIGHT * zoom)`, ~96.5 at the Wave 1 landing
-  frame). A pivot
-  far below it clamps the scale to its maximum, pushes the near plane past
-  everything visible, and silently switches the whole system off while leaving
-  its documentation looking correct.
+  scale pivot (`FOG_REFERENCE_VIEW_HEIGHT`) derives from
+  `GARDEN_DEFAULT_CAMERA_ZOOM` and so tracks the real default view height
+  (`viewportHeight / (TILE_HEIGHT * zoom)`, 62.5 at the 1.0 rest frame). A
+  pivot far below it clamps the scale to its maximum, pushes the near plane
+  past everything visible, and silently switches the whole system off while
+  leaving its documentation looking correct; `garden-sky.test.ts` pins the
+  near plane at the default framing.
+- **Dusk is an ember hour, not a brown-grey one.** The dusk fog and horizon
+  dye derive from `lantern_warm` toward `vermillion`, the dusk zenith is a navy
+  distinct from night, the dusk key rakes (key:fill ≈ 4:1, sun floor 0.06 rad
+  from the single `garden-sun` arc), and the borrowed mountains step through
+  three value planes (0.90/0.80/0.70) behind the seam. The output tone mapper
+  is a single switch, `GARDEN_TONE_MAPPING` in `garden-post.ts`, consumed by
+  both the renderer and the post pass; the LUT remains the sanctioned place
+  for any posterizing look.
 
 - The visible sky continues beyond the finite plate. Its graded phase backdrop
   is the far field; the haze band is the seam where plate, fog, and borrowed
@@ -284,8 +316,13 @@ and its conservative distance lookup.
   fails: sail symbols and painted chain initials are the required fallbacks.
 - Repeated fleet structures, marks, lanterns, and appropriate scenery use
   batching or instancing. One shared sail atlas replaces per-ship textures.
-- Palette and region themes are shared contracts; do not introduce arbitrary
-  debug colors or post effects to solve basic composition problems.
+- Palette and region themes are shared contracts: every non-reserved
+  `HARBOR_PALETTE` token stays below OKLCH C 0.14 (raised from 0.10 on
+  2026-09-05 so land reads warm ochre/green against a cooler, more saturated
+  teal-to-indigo sea), reserved accents keep their authored exceptions, and
+  `sail_teal`/`sail_red`/`lantern_warm`/`vermillion` are immutable
+  (`src/systems/palette.test.ts`). Do not introduce arbitrary debug colors or
+  post effects to solve basic composition problems.
 - Quality tiers preserve semantic hues, palette authority, tone mapping,
   day-cycle grade, and vignette. Enumerated fidelity effects may change local
   luminance or contrast, but must retain the same meaning and avoid abrupt

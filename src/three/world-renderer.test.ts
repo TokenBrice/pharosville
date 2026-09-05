@@ -270,6 +270,7 @@ const environmentHarness = vi.hoisted(() => ({
 // draws via the mocked renderer (keeping `lastScene` populated for the scene
 // assertions) and tracks the tier policy the renderer drives it with.
 vi.mock("./garden-post", () => ({
+  GARDEN_TONE_MAPPING: "neutral",
   createGardenPost: vi.fn((renderer: {
     info: { memory: { textures: number } };
     render: (scene: unknown, camera: unknown) => void;

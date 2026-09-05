@@ -41,13 +41,19 @@ describe("garden horizon", () => {
       expect(positions.getY(start + 20)).toBe(-7);
       expect(positions.getY(start + 21)).toBe(0);
     }
+    // The shader derives its value scales from the exported constant — it
+    // once hardcoded its own copy and the two drifted apart silently.
+    const shader = (mesh.material as ShaderMaterial).fragmentShader;
+    for (const scale of GARDEN_HORIZON_VALUE_SCALES) {
+      expect(shader).toContain(scale.toFixed(2));
+    }
     expect(Math.max(...Array.from(positions.array).filter((_, index) => index % 3 === 1)))
       .toBeGreaterThan(18);
     expect(GARDEN_HORIZON_DISPLACEMENT).toContain("backdrop ridge");
     horizon.dispose();
   });
 
-  it("stays 2–4% off the phase fog at day, dawn, dusk, and night", () => {
+  it("layers below the phase fog at day, dawn, dusk, and night", () => {
     const horizon = createGardenHorizon();
     const material = (horizon.root.children[0] as Mesh).material as ShaderMaterial;
     for (const hour of [12, 6, 19, 22]) {
@@ -65,9 +71,15 @@ describe("garden horizon", () => {
       );
       expect(color.getHex()).toBe(expected.getHex());
       for (const scale of GARDEN_HORIZON_VALUE_SCALES) {
-        expect(1 - scale).toBeGreaterThanOrEqual(0.02);
-        expect(1 - scale).toBeLessThanOrEqual(0.040_001);
+        // Warm-village B3 (2026-09-05): the old 2–4% whisper graded the
+        // ridges into one flat strip; each now steps ~10% further below the
+        // fog value (10/20/30% far→near) so the three planes actually layer.
+        expect(1 - scale).toBeGreaterThanOrEqual(0.099_999);
+        expect(1 - scale).toBeLessThanOrEqual(0.300_001);
       }
+      // Far ridge closest to the fog, near ridge darkest — aerial order.
+      expect(GARDEN_HORIZON_VALUE_SCALES[0]).toBeGreaterThan(GARDEN_HORIZON_VALUE_SCALES[1]!);
+      expect(GARDEN_HORIZON_VALUE_SCALES[1]).toBeGreaterThan(GARDEN_HORIZON_VALUE_SCALES[2]!);
       expect(horizon.root.visible).toBe(true);
     }
     horizon.update(dayCyclePhase(12), { ...FRAME, tier: "constrained" });

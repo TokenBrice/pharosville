@@ -88,10 +88,11 @@ const GARDEN_COLORS = {
 /** Motion + lantern tier: titans/uniques bob slowest and carry a lantern string. */
 export type ShipFleetTier = "titan" | "heritage" | "standard";
 
-// S5 / decision D-S5: the visual-scale mapping (~3.7× spread, 0.55 legibility
-// floor) lives in garden-observatory-slice (orchestrator-integrated per
-// contract C3) so selection radii and label layout consume the same spread;
-// re-exported here for the fleet module's existing consumers/tests.
+// S5 / decision D-S5: the visual-scale mapping (~2.6× spread since the
+// 2026-09-05 resting-frame re-base, 0.8 legibility floor) lives in
+// garden-observatory-slice (orchestrator-integrated per contract C3) so
+// selection radii and label layout consume the same spread; re-exported here
+// for the fleet module's existing consumers/tests.
 export {
   GARDEN_SHIP_DATA_SCALE_MAX,
   GARDEN_SHIP_DATA_SCALE_MIN,

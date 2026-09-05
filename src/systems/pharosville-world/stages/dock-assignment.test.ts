@@ -9,6 +9,7 @@ import {
   fixtureStability,
 } from "../../../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "../../pharosville-world";
+import { buildBaseMotionPlan } from "../../motion";
 import { seawallBarrierDistance } from "../../seawall";
 import { distanceToStationFootprint } from "../../dock-layout";
 import { GARDEN_MOLE_OBSTACLES, gardenShipWaterMarginTiles, isGardenShipWater } from "../../garden-water-exclusion";
@@ -72,6 +73,46 @@ describe("dock-assignment unique tier mooring placement", () => {
     expect(assign().map((ship) => ship.dockVisits)).toEqual(ships.map((ship) => ship.dockVisits));
   });
 
+  it("keeps a 0.8-floor skiff berth distinct from its anchorage so its voyage has length", () => {
+    const world = buildPharosVilleWorld(denseWorldInputs());
+    const dock = world.docks.find((entry) => entry.chainId === "arbitrum")!;
+    const source = world.ships.find((ship) => ship.visual.scale < 0.8)!;
+    // A lone skiff: no squad, so the optional squad fields are omitted rather
+    // than nulled (exactOptionalPropertyTypes).
+    const { squadId, squadRole, ...loneSource } = source;
+    void squadId;
+    void squadRole;
+    const skiff = {
+      ...loneSource,
+      id: "floor-skiff",
+      marketCapUsd: 1,
+      homeDockChainId: dock.chainId,
+      visual: { ...source.visual, scale: 0.55, sizeTier: "skiff" as const },
+      chainPresence: [{
+        chainId: dock.chainId,
+        currentUsd: 1,
+        share: 1,
+        hasRenderedDock: true,
+      }],
+      dockVisits: [],
+    };
+    const initial = buildDockAssignmentStage([skiff], [dock]).ships[0]!;
+    const anchorage = initial.dockVisits[0]!.mooringTile;
+
+    resetHeldMoorings();
+    const assigned = buildDockAssignmentStage([{
+      ...skiff,
+      riskTile: anchorage,
+      tile: anchorage,
+    }], [dock]).ships;
+    const berth = assigned[0]!.dockVisits[0]!.mooringTile;
+
+    expect(gardenShipVisualScale(skiff.visual.scale)).toBe(0.8);
+    expect(berth).not.toEqual(anchorage);
+    const route = buildBaseMotionPlan({ ...world, ships: assigned }).shipRoutes.get(skiff.id)!;
+    expect([...route.waterPaths.values()].every((path) => path.totalLength > 0)).toBe(true);
+  });
+
   it("spreads busy-cove overflow instead of packing every remaining berth at the quay", () => {
     const world = buildPharosVilleWorld(denseWorldInputs());
     const dock = world.docks.find((entry) => entry.chainId === "base")!;
@@ -109,15 +150,19 @@ describe("dock-assignment unique tier mooring placement", () => {
       for (const solid of GARDEN_MOLE_OBSTACLES) {
         expect(distanceToStationFootprint(footprint, solid)).toBeGreaterThanOrEqual(footprint.halfBeam - 1e-6);
       }
-      expect(Math.hypot(footprint.x - dock.tile.x, footprint.y - dock.tile.y)).toBeLessThan(38);
+      // 2026-09-05: the 0.8 visual-scale floor lengthens every scale-1 hull
+      // ~29%, so the same 136-berth fan reaches 38.1 tiles (was < 38).
+      expect(Math.hypot(footprint.x - dock.tile.x, footprint.y - dock.tile.y)).toBeLessThan(40);
     }
     let pairs = 0;
     for (let i = 0; i < footprints.length; i += 1) for (let j = i + 1; j < footprints.length; j += 1) {
       if (berthsOverlap(footprints[i]!, footprints[j]!)) pairs += 1;
     }
     // Potential visits, not simultaneous dock occupancy: the narrow 17-tile fan
-    // had 2,174 intersections of 9,180 pairs; the widened anchorage has 833.
-    expect(pairs / (136 * 135 / 2)).toBeLessThan(0.12);
+    // had 2,174 intersections of 9,180 pairs; the widened anchorage had 833 at
+    // the 0.55 visual floor and measures 1,229 (0.134) at the 0.8 floor, whose
+    // longer hulls overlap more for the same centres. Still 43% below the fan.
+    expect(pairs / (136 * 135 / 2)).toBeLessThan(0.14);
   });
 
   it.each([320, 321])("assigns the entire %i-ship fleet without reserving every possible visit forever", (count) => {

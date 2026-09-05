@@ -390,14 +390,16 @@ describe("createFleetLanterns", () => {
 });
 
 describe("S5 visual scale spread (D-S5)", () => {
-  it("maps the 0.7–3.0 data band to a ~3.7× visual spread with a legibility floor", () => {
+  it("maps the 0.7–3.0 data band to a ~2.6× visual spread with a legibility floor", () => {
     expect(gardenShipVisualScale(0.7)).toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MIN);
     expect(gardenShipVisualScale(3)).toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MAX);
     const spread = gardenShipVisualScale(3) / gardenShipVisualScale(0.7);
-    expect(spread).toBeGreaterThan(3.4);
-    expect(spread).toBeLessThan(4);
-    // Small-ship floor stays close to the old minimum (0.72 × 0.82 ≈ 0.59).
-    expect(GARDEN_SHIP_VISUAL_SCALE_MIN).toBeGreaterThanOrEqual(0.5);
+    expect(spread).toBeGreaterThan(2.5);
+    expect(spread).toBeLessThan(2.7);
+    // Warm-village resting frame (2026-09-05, plan A5): floor raised
+    // 0.55 → 0.8 so all six hull families stay separable at the zoom-1.0
+    // rest framing; titans still dwarf skiffs at ~2.6× (was ~3.7×).
+    expect(GARDEN_SHIP_VISUAL_SCALE_MIN).toBe(0.8);
     // Monotonic across the data band.
     expect(gardenShipVisualScale(1.5)).toBeGreaterThan(gardenShipVisualScale(1));
     expect(gardenShipVisualScale(2)).toBeGreaterThan(gardenShipVisualScale(1.5));

@@ -45,6 +45,17 @@ const STAR_COUNT = 720;
 // band — the bokashi seam where far water meets sky. Zooming out only
 // deepens the haze toward FOG_FAR; zooming in (explore) shrinks the span
 // below FOG_NEAR so close-ups stay crisp.
+//
+// 2026-09-05 (warm-village A1, then preview-driven retune): the rest framing
+// moved to zoom 1.0 (view height ~62.5 wu at 1000 px, against the ~77 this
+// ladder was calibrated at), narrowing the visible ground span to ~125–250 wu.
+// FOG_REFERENCE_VIEW_HEIGHT below tracks GARDEN_DEFAULT_CAMERA_ZOOM, so the
+// pivot moved with the camera — but at a 1.0 scale floor the unit ladder put
+// the first haze ~40% up the rest frame, and the preview showed the frame top
+// as a wash. The authored rest answer is the FOG_MIN_SCALE rest ladder below:
+// first haze ~72% up, the island and midground zero-haze, the frame top
+// graded (~0.1 day / ~0.24 dusk) so the seam still dissolves at the default
+// framing without owning a third of it.
 // W6.8 aerial perspective: a LONGER, EARLIER ramp — not a denser one.
 //
 // The ladder above (192/275, span 83) put almost the whole cue in the last
@@ -95,12 +106,22 @@ const FOG_FAR = 300;
 //
 // The scale-one pivot comes from the same 1600x1000 default camera zoom used by
 // `defaultCamera`; a camera recomposition therefore cannot silently alter the
-// signed-off daylight haze. The clamp keeps doing its two jobs from there — pulling
-// toward 1.5 as the camera pulls out so the world's edge dissolves instead of
-// ending as a diamond slab in a void, and holding at 1.0 on the way in so
-// close-ups stay crisp.
+// signed-off daylight haze. The clamp keeps doing its two jobs from there —
+// pulling toward 1.5 as the camera pulls out so the world's edge dissolves
+// instead of ending as a diamond slab in a void, and holding at the REST
+// LADDER on the way in (below).
 const FOG_REFERENCE_VIEW_HEIGHT = gardenCameraViewHeight(1000, GARDEN_DEFAULT_CAMERA_ZOOM);
-const FOG_MIN_SCALE = 1;
+// Warm-village (2026-09-05, preview-driven second step): the floor is the
+// REST ladder, not 1.0. The 1.0 rest zoom narrowed the visible ground span to
+// ~125–250 wu, and a 1.0 floor put the first haze ~40% up the frame — with
+// the ember dusk dye that read as an orange wash over half the picture. At
+// the default framing and closer, the scale now holds at ~1.21 so the near
+// plane lands ~215 wu (~72% up the rest span) and the ladder grades only the
+// far third while still reaching the frame top (~0.24 at 250 wu at dusk).
+// Close-ups stay crisp — the floor pushes the fog AWAY. The wide end is
+// untouched: the 1.5 cap below still pulls the near plane to 267 at
+// whole-map, so the world's edge keeps dissolving exactly as W6.6 authored.
+const FOG_MIN_SCALE = 1.21;
 // Capped at 1.5, not 2.6. W6.6 scaled fog with the view to stop noon becoming
 // a white-out, but at whole-map framing a 2.6x scale pushed FOG_NEAR out to
 // ~500 units — well past the far edge of a 158-unit world — so no fog reached
@@ -205,9 +226,11 @@ export function gardenBokashiBandGlsl(): string {
 // as pale pills at whole-map zoom. Keep the implementation for controlled A/B
 // work; mist banks remain the active billboard atmosphere.
 export const GARDEN_CUMULUS_BILLBOARDS_ENABLED = false;
-// W5.7 borrowed scenery stays 3% below the live fog value at every phase.
-// This is palette derivation, not a new swatch; keep it inside the plan's
-// binding 2–4% separation window.
+// W5.7 borrowed scenery stays below the live fog value at every phase —
+// palette derivation, not a new swatch. 2026-09-05 (warm-village B3): the
+// binding 2–4% whisper became three deliberate planes (10/20/30% below the
+// fog, far→near) so the ridges layer instead of grading into one strip; see
+// GARDEN_HORIZON_VALUE_SCALES in garden-horizon.ts.
 // The moon sits upper-left of the standard framing; V2's moon road aligns its
 // water glitter band to this azimuth. Re-exported from garden-sun, which owns
 // light geometry, so the dome and the water cannot disagree about the bearing.
@@ -765,7 +788,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       * (1 - storm * 0.85);
     dome.material.uniforms.uHazeStrength.value = Math.min(
       0.8,
-      0.42 + dusk * 0.08 + storm * 0.3,
+      0.42 + storm * 0.3,
     );
     dome.material.uniforms.uBokashiAmount.value = gardenBokashiAmount(phase);
     if (storm > 0) {

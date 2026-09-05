@@ -140,6 +140,12 @@ function isBerthTile(
   occupied: ReadonlyMap<string, OccupiedBerth>,
 ): boolean {
   if (occupied.has(`${tile.x}.${tile.y}`)) return false;
+  // A berth is a voyage endpoint, so it must be distinct from the ship's
+  // anchorage. Without this guard a crowded fan can hand a ship its own risk
+  // tile, leaving motion planning with a zero-length leg that cannot satisfy
+  // the underway cadence envelope. This also invalidates a degenerate sticky
+  // berth when the ship's risk placement later moves onto it.
+  if (tile.x === ship.riskTile.x && tile.y === ship.riskTile.y) return false;
   // Zones-v2 placement fix: moorings must also clear the RENDERED island
   // rock and finite plate edge — data water beneath the garden island mesh,
   // or a cove vector composed onto the background beyond the plate, is not a

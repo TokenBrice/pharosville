@@ -573,8 +573,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const startAttractTour = canvas.startAttractTour;
   const stopAttractTour = canvas.stopAttractTour;
   const attractKeyframes = useMemo(
-    () => gardenAttractKeyframes(world.lighthouse.tile, world.map),
-    [world.lighthouse.tile, world.map],
+    () => gardenAttractKeyframes(world.lighthouse.tile),
+    [world.lighthouse.tile],
   );
   useEffect(() => {
     const eligible = threeExperienceReady

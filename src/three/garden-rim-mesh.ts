@@ -68,27 +68,34 @@ const RIM_STATION_CLEARANCES = [
 // Decorative garden frame only: rim form, planting, stones, and the stroll
 // ribbon carry no market or risk meaning.
 
-const WET_ROCK = new Color(HARBOR_PALETTE.deep_sea_2).lerp(
+const WET_ROCK = new Color(HARBOR_PALETTE.deep_sea_1).lerp(
   new Color(HARBOR_PALETTE.stone_dark),
-  0.42,
-);
+  0.5,
+); // OKLCH L 0.278 C 0.046 H 263 — cool wet blue-rock
 const TIDE_STAIN = new Color(HARBOR_PALETTE.stone_dark)
   .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.18)
   .multiplyScalar(0.72);
-const EARTH = new Color(HARBOR_PALETTE.timber_dark).lerp(
-  new Color(HARBOR_PALETTE.stone_mid),
-  0.5,
-);
-const MOSS = new Color(HARBOR_PALETTE.sail_teal).lerp(
-  new Color(HARBOR_PALETTE.aurora_green),
-  0.28,
-);
+const EARTH = new Color(HARBOR_PALETTE.timber_mid).lerp(
+  new Color(HARBOR_PALETTE.timber_warm),
+  0.42,
+); // OKLCH L 0.466 C 0.073 H 67 — warm ochre-brown
+const MOSS = new Color(HARBOR_PALETTE.aurora_green)
+  .multiplyScalar(0.78); // OKLCH L 0.571 C 0.115 H 145 — living moss
 const PATH_STONE = new Color(HARBOR_PALETTE.stone_pale).lerp(
-  new Color(HARBOR_PALETTE.fog_day),
-  0.16,
-);
+  new Color(HARBOR_PALETTE.roof_thatch),
+  0.34,
+); // OKLCH L 0.604 C 0.074 H 74 — warm sand
 const PINE_TRUNK = new Color(HARBOR_PALETTE.timber_dark);
-const PINE_NEEDLE = new Color(HARBOR_PALETTE.sail_teal).multiplyScalar(0.68);
+const PINE_NEEDLE = new Color(HARBOR_PALETTE.aurora_green)
+  .multiplyScalar(0.58); // OKLCH L 0.519 C 0.104 H 145 — deep pine green
+export const GARDEN_RIM_COLOR_HEX = {
+  earth: `#${EARTH.getHexString()}`,
+  moss: `#${MOSS.getHexString()}`,
+  pathStone: `#${PATH_STONE.getHexString()}`,
+  pineNeedle: `#${PINE_NEEDLE.getHexString()}`,
+  wetRock: `#${WET_ROCK.getHexString()}`,
+} as const;
+export const GARDEN_RIM_MOSS_BLEND_MAX = 0.62;
 const LANTERN_EMBER = new Color(HARBOR_PALETTE.lantern_warm);
 const ENGAWA_TIMBER = new Color(HARBOR_PALETTE.timber_dark).multiplyScalar(0.54);
 const ENGAWA_TIMBER_LIT = ENGAWA_TIMBER.clone().lerp(
@@ -362,7 +369,7 @@ function rimHeight(tileX: number, tileY: number): number {
 
 function rimColor(tileX: number, tileY: number): Color {
   const inland = Math.max(0, -authoredDistance(tileX, tileY));
-  const moss = MathUtils.smoothstep(inland, 0.8, 6) * 0.48;
+  const moss = MathUtils.smoothstep(inland, 0.8, 6) * GARDEN_RIM_MOSS_BLEND_MAX;
   const color = WET_ROCK.clone().lerp(EARTH, MathUtils.smoothstep(inland, 0, 2.4)).lerp(MOSS, moss);
   color.multiplyScalar(0.94 + Math.sin(tileX * 0.24 - tileY * 0.18) * 0.055);
   return color;

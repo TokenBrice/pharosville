@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH } from "./world-layout";
-import { fitCameraToMap, screenToTile, tileToIso, tileToScreen, zoomCameraAt } from "./projection";
+import { fitCameraToMap, GARDEN_FIT_CAMERA_MIN_ZOOM, screenToTile, tileToIso, tileToScreen, zoomCameraAt } from "./projection";
 
 describe("projection", () => {
   it("projects tiles into deterministic isometric coordinates", () => {
@@ -19,7 +19,9 @@ describe("projection", () => {
     );
     expect(Math.abs(center.x - 1440 / 2)).toBeLessThan(40);
     expect(Math.abs(center.y - 1000 / 2)).toBeLessThan(40);
-    expect(camera.zoom).toBeGreaterThanOrEqual(0.6);
+    // Warm-village A1: the fit floor is the sailed-in 1.0 rest (0.6 before);
+    // whole-map zoom-out is minZoomForViewport's job, not the fit's.
+    expect(camera.zoom).toBeGreaterThanOrEqual(GARDEN_FIT_CAMERA_MIN_ZOOM);
   });
 
   it("zooms around the pointer without shifting the iso point under it", () => {

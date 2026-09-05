@@ -18,6 +18,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  NeutralToneMapping,
   Object3D,
   OrthographicCamera,
   PCFShadowMap,
@@ -62,6 +63,12 @@ import {
   selectGardenObservatorySlice,
   selectGardenTransientShip,
 } from "../systems/garden-observatory-slice";
+import {
+  gardenFleetDisplayPresence,
+  gardenFleetThinningShips,
+  type GardenFleetThinningShip,
+} from "../systems/garden-fleet-thinning";
+import { placeGardenFleet } from "../systems/garden-fleet-placement";
 import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
 import { RIM_OPENINGS } from "../systems/garden-rim";
 import {
@@ -157,7 +164,7 @@ import {
 } from "./garden-wake-batch";
 import { createGardenEnvironment, type GardenEnvironment } from "./garden-environment";
 import { createGardenCueMarker } from "./garden-cue-marker";
-import { createGardenPost } from "./garden-post";
+import { createGardenPost, GARDEN_TONE_MAPPING } from "./garden-post";
 import {
   authorDock,
   createHarborLanterns,
@@ -701,6 +708,7 @@ const scratchShadowPosition = new Vector3();
 const scratchShadowScale = new Vector3();
 const scratchShadowQuaternion = new Quaternion();
 const SHADOW_UP = new Vector3(0, 1, 0);
+const scratchFleetPresenceScale = new Vector3();
 const scratchWakePose = { headingY: 0, hullScale: 1, x: 0, y: 0, z: 0 };
 // W6.4: the hull tint handed to a reflection instance, blended per frame.
 const scratchReflectionColor = new Color();
@@ -812,7 +820,11 @@ export function createThreeWorldRenderer(
     powerPreference: "high-performance",
   });
   renderer.outputColorSpace = SRGBColorSpace;
-  renderer.toneMapping = AgXToneMapping;
+  // Warm-village B5: the ONE tone-mapping decision lives in garden-post's
+  // GARDEN_TONE_MAPPING; the renderer constant and the post ToneMappingEffect
+  // both derive from it, so flipping the string is the whole A/B. Exposure
+  // stays 1.12 for either curve.
+  renderer.toneMapping = GARDEN_TONE_MAPPING === "neutral" ? NeutralToneMapping : AgXToneMapping;
   renderer.toneMappingExposure = 1.12;
   // D3 / W2.2: soft harbour-wide static shadows. Supported tiers share the
   // shadow shader variant; constrained disables the caster (see updateShadows)
@@ -1666,6 +1678,10 @@ interface GardenContent {
   fleetLanterns: FleetLanterns;
   fleetSailMaterial: MeshStandardMaterial | null;
   sailAtlas: GardenSailAtlas;
+  /** Placement hierarchy consumed by the reversible wide-frame thinning pass. */
+  fleetThinningShips: GardenFleetThinningShip[];
+  /** Last frame's display presence, shared by hull-adjacent instance updates. */
+  fleetDisplayPresenceByShipId: Map<string, number>;
   harborLanternMaterial: MeshStandardMaterial;
   fireflies: GardenFireflies;
   gullFlock: GardenGullFlock;
@@ -2146,6 +2162,8 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     entityCues: new Map<string, EntityCue>(),
     fleetBatches: scene.fleetBatches,
     fleetSailMaterial: scene.fleetBatches.materials[1] ?? null,
+    fleetDisplayPresenceByShipId: new Map<string, number>(),
+    fleetThinningShips: [],
     lampStatusMix: 0,
     lampStatusTargetMix: 0,
     pendingLampStatusTargetMix: null,
@@ -3420,6 +3438,10 @@ function buildShipsPart(
   // The base slice only: the transient outsider is reconciled separately
   // (reconcileTransientSelection) so selection never rebuilds the fleet.
   const slice = selectGardenObservatorySlice(world, null);
+  const fleetPlacement = placeGardenFleet(
+    slice.ships.map(({ ship }) => ship),
+    world.lighthouse.tile,
+  );
   const shipGeometryCache: GardenShipGeometryCache = {
     geometries: new Map(),
     wakeFillMaterial: new MeshBasicMaterial({
@@ -3575,6 +3597,10 @@ function buildShipsPart(
   // contributor, or when the coin it named is not in the rendered fleet — the
   // sweep then keeps the even turn it has always had.
   content.beamDwellBearing = computeBeamDwellBearing(world, slice);
+  content.fleetThinningShips = gardenFleetThinningShips(
+    slice.ships.map(({ ship }) => ship),
+    fleetPlacement.mooringByShipId,
+  );
   content.crossBearingBuoyShips = buoyShips;
   content.crossBearingBuoys = crossBearingBuoys;
   content.fleetLanterns = fleetLanterns;
@@ -4308,6 +4334,18 @@ function updateSceneForFrame(
     });
   }
 
+  const selectedShipId = frame.selectedDetailId
+    ? content.ships.find(({ ship }) => ship.detailId === frame.selectedDetailId)?.ship.id ?? null
+    : null;
+  const hoveredShipId = frame.hoveredDetailId
+    ? content.ships.find(({ ship }) => ship.detailId === frame.hoveredDetailId)?.ship.id ?? null
+    : null;
+  content.fleetDisplayPresenceByShipId = gardenFleetDisplayPresence({
+    hoveredShipId,
+    selectedShipId,
+    ships: content.fleetThinningShips,
+    zoom: frame.camera.zoom,
+  });
   let visibleShipCount = 0;
   const issuanceAlpha = frame.reducedMotion
     ? 1
@@ -4326,6 +4364,9 @@ function updateSceneForFrame(
     const visual = departing
       ? content.departingShips[index - content.ships.length]!
       : content.ships[index]!;
+    const displayPresence = departing
+      ? 1
+      : content.fleetDisplayPresenceByShipId.get(visual.ship.id) ?? 1;
     const sample = departing ? undefined : frame.shipMotionSamples.get(visual.ship.id);
     const targetTile = resolveGardenShipDisplayTile({
       displayOffset: visual.displayOffset,
@@ -4380,10 +4421,12 @@ function updateSceneForFrame(
         tile = resolveGardenDependencyShipDisplayTile({ parentTile, ship: visual.ship });
       }
     }
-    visual.root.visible = true;
-    visibleShipCount += 1;
+    visual.root.visible = displayPresence > 0;
+    if (displayPresence >= 0.5) visibleShipCount += 1;
     visual.root.scale.setScalar(
-      gardenShipVisualScale(visual.ship.visual.scale || 1) * transitionVisibility,
+      gardenShipVisualScale(visual.ship.visual.scale || 1)
+        * transitionVisibility
+        * displayPresence,
     );
     setTilePosition(visual.root, tile, GARDEN_SHIP_ROOT_Y);
 
@@ -4428,7 +4471,7 @@ function updateSceneForFrame(
     scene.laneRegistry.set({
       color: HARBOR_PALETTE.lantern_glow,
       id: `ship-lantern.${visual.ship.id}`,
-      intensity: visual.laneIntensity,
+      intensity: visual.laneIntensity * displayPresence,
       kind: "lantern",
       worldX: visual.root.position.x,
       worldZ: visual.root.position.z,
@@ -4444,12 +4487,15 @@ function updateSceneForFrame(
     // Wakes remain a fleet-motion cue in overview/explore. In analyze, where a
     // selection already owns the hierarchy, retain only the focused hull's
     // wake so unrelated foam cannot compete with its ring, route, or panel.
-    const wakeVisible = !frame.reducedMotion
+    const wakeVisible = displayPresence > 0
+      && !frame.reducedMotion
       && !constrained
       && wakeIntensity > 0.08
       && overviewDetail > 0
       && (semanticView !== "analyze" || showShipDetail);
-    const wakeScaleX = (0.7 + Math.min(1.5, wakeIntensity) * 0.85) * overviewDetail;
+    const wakeScaleX = (0.7 + Math.min(1.5, wakeIntensity) * 0.85)
+      * overviewDetail
+      * displayPresence;
     visual.wake.visible = wakeVisible;
     // The close-range line detail stays under its ship-local anchor and keeps
     // the same longitudinal intensity stretch as before the quad cutover.
@@ -4468,13 +4514,13 @@ function updateSceneForFrame(
     // Phase 3 (item 2): stamp the persistent wake field for every hull making
     // way. The pose is final for this frame and the heading already
     // normalized — the field consumes these at the top of next frame.
-    if (heading && wakeIntensity > 0.12 && !frame.reducedMotion) {
+    if (heading && wakeIntensity * displayPresence > 0.12 && !frame.reducedMotion) {
       scene.wakes.stamp(
         visual.root.position.x,
         visual.root.position.z,
         heading.x,
         heading.y,
-        Math.min(1, wakeIntensity),
+        Math.min(1, wakeIntensity * displayPresence),
         visual.ship.visual.hullForm?.length ?? 1,
       );
     }
@@ -4491,9 +4537,9 @@ function updateSceneForFrame(
     const shadowRadius = Math.max(1.15, visual.selectionRadius * 1.25);
     const hullForm = visual.ship.visual.hullForm;
     scratchShadowScale.set(
-      shadowRadius * 1.65 * (hullForm?.length ?? 1),
-      1,
-      shadowRadius * 0.72 * (hullForm?.beam ?? 1),
+      shadowRadius * 1.65 * (hullForm?.length ?? 1) * displayPresence,
+      displayPresence,
+      shadowRadius * 0.72 * (hullForm?.beam ?? 1) * displayPresence,
     );
     scratchShadowQuaternion.setFromAxisAngle(
       SHADOW_UP,
@@ -4675,6 +4721,23 @@ function updateSceneForFrame(
       selectedDetailId: frame.selectedDetailId,
     },
   );
+  // Lanterns live in a fleet-wide instance pair rather than under each ship
+  // root, so apply the same per-hull display presence to their matrices after
+  // the ordinary billboard update.
+  for (let index = 0; index < content.fleetLanterns.entries.length; index += 1) {
+    const entry = content.fleetLanterns.entries[index]!;
+    const presence = content.fleetDisplayPresenceByShipId.get(entry.visual.ship.id) ?? 1;
+    if (presence >= 1) continue;
+    scratchFleetPresenceScale.setScalar(presence);
+    content.fleetLanterns.cores.getMatrixAt(index, scratchMatrix);
+    scratchMatrix.scale(scratchFleetPresenceScale);
+    content.fleetLanterns.cores.setMatrixAt(index, scratchMatrix);
+    content.fleetLanterns.glow.getMatrixAt(index, scratchMatrix);
+    scratchMatrix.scale(scratchFleetPresenceScale);
+    content.fleetLanterns.glow.setMatrixAt(index, scratchMatrix);
+  }
+  content.fleetLanterns.cores.instanceMatrix.needsUpdate = true;
+  content.fleetLanterns.glow.instanceMatrix.needsUpdate = true;
   const activeLaneCount = scene.laneRegistry.sync(frame.renderScheduler.tier, laneGlowScale, {
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,

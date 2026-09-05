@@ -65,15 +65,19 @@ export type GardenHullSilhouette =
   | "scow";
 export type GardenSemanticView = "analyze" | "explore" | "overview";
 
-// S5 / decision D-S5: the data-side 0.7–3.0 scale keeps a ~3.7× VISUAL spread
-// (was clamped 0.72–1.6 → ~2.2×) so titans visibly dwarf skiffs. The floor
-// (0.55) keeps the smallest hulls legible and clickable at overview zoom.
+// S5 / decision D-S5, re-based by the warm-village resting frame
+// (2026-09-05, plan A5): the data-side 0.7–3.0 scale maps to a ~2.6× VISUAL
+// spread (0.8–2.05; D-S5 originally relaxed it to 0.55–2.05 → ~3.7×, and
+// before that a clamp at 0.72–1.6 → ~2.2×) so titans still visibly dwarf
+// skiffs. The raised floor (0.8) keeps the smallest hulls legible and
+// clickable at overview zoom AND separable as six families at the zoom-1.0
+// rest framing, where 0.55 compressed most coins into one 20–40 px footprint.
 // C3 (scale & anchor contract): the mapping lives here in the
 // orchestrator-owned slice so ship rendering (garden-ships), selection radii
 // (below), and label layout all consume the SAME spread. Kept three-free —
 // this module must stay importable without pulling the renderer into the
 // world lazy chunk.
-export const GARDEN_SHIP_VISUAL_SCALE_MIN = 0.55;
+export const GARDEN_SHIP_VISUAL_SCALE_MIN = 0.8;
 export const GARDEN_SHIP_VISUAL_SCALE_MAX = 2.05;
 export const GARDEN_SHIP_DATA_SCALE_MIN = 0.7;
 export const GARDEN_SHIP_DATA_SCALE_MAX = 3;
@@ -512,11 +516,11 @@ export function gardenSemanticView(
 }
 
 export function gardenShipSelectionRadius(ship: ShipNode): number {
-  // C3: ship visualScale mapping integration point. S5 (decision D-S5)
-  // de-compressed the data-side 0.7–3.0 scale to a ~3.7× visual spread (see
-  // gardenShipVisualScale above); this consumes the SAME mapping so selection
-  // rings and label layout track the rendered footprint (1.9× hull scale, as
-  // before the de-compression).
+  // C3: ship visualScale mapping integration point. S5 (decision D-S5) first
+  // de-compressed the data-side 0.7–3.0 scale; the warm-village resting frame
+  // re-based it to a ~2.6× visual spread (see gardenShipVisualScale above);
+  // this consumes the SAME mapping so selection rings and label layout track
+  // the rendered footprint (1.9× hull scale, as before the de-compression).
   return gardenShipVisualScale(ship.visual.scale || 1) * 1.9;
 }
 
