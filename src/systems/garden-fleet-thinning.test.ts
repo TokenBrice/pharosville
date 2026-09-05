@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GARDEN_FLEET_THINNING_FADE_WIDTH,
+  GARDEN_FLEET_THINNING_START_ZOOM,
   gardenFleetDisplayPresence,
   type GardenFleetThinningShip,
 } from "./garden-fleet-thinning";
@@ -38,13 +39,13 @@ const FLEET: GardenFleetThinningShip[] = [
 ];
 
 describe("gardenFleetDisplayPresence", () => {
-  it("keeps every placed hull visible at and above zoom 0.7", () => {
-    const presence = gardenFleetDisplayPresence({ ships: FLEET, zoom: 0.7 });
+  it("keeps every placed hull visible at and above the thinning start zoom", () => {
+    const presence = gardenFleetDisplayPresence({ ships: FLEET, zoom: GARDEN_FLEET_THINNING_START_ZOOM });
     expect([...presence.values()]).toEqual(FLEET.map(() => 1));
   });
 
   it("is deterministic and monotone non-increasing as zoom decreases", () => {
-    const zooms = [0.7, 0.62, 0.54, 0.46, 0.38, 0.3];
+    const zooms = [0.5, 0.46, 0.42, 0.38, 0.34, 0.3];
     const byZoom = zooms.map((zoom) => gardenFleetDisplayPresence({ ships: FLEET, zoom }));
     for (const entry of FLEET) {
       for (let index = 1; index < byZoom.length; index += 1) {
@@ -54,7 +55,7 @@ describe("gardenFleetDisplayPresence", () => {
       }
     }
     const reversed = gardenFleetDisplayPresence({ ships: [...FLEET].reverse(), zoom: 0.46 });
-    expect([...reversed].toSorted()).toEqual([...byZoom[3]!].toSorted());
+    expect([...reversed].toSorted()).toEqual([...byZoom[1]!].toSorted());
   });
 
   it("retains the dominant mooring and secondary representatives at whole-map zoom", () => {
@@ -90,14 +91,14 @@ describe("gardenFleetDisplayPresence", () => {
 
   it("gives each removable hull exactly one 0.05 zoom fade band", () => {
     const firstToYield = FLEET.find((entry) => entry.id === "small-outer")!;
-    const atStart = gardenFleetDisplayPresence({ ships: FLEET, zoom: 0.7 });
+    const atStart = gardenFleetDisplayPresence({ ships: FLEET, zoom: GARDEN_FLEET_THINNING_START_ZOOM });
     const atMiddle = gardenFleetDisplayPresence({
       ships: FLEET,
-      zoom: 0.7 - GARDEN_FLEET_THINNING_FADE_WIDTH / 2,
+      zoom: GARDEN_FLEET_THINNING_START_ZOOM - GARDEN_FLEET_THINNING_FADE_WIDTH / 2,
     });
     const atEnd = gardenFleetDisplayPresence({
       ships: FLEET,
-      zoom: 0.7 - GARDEN_FLEET_THINNING_FADE_WIDTH,
+      zoom: GARDEN_FLEET_THINNING_START_ZOOM - GARDEN_FLEET_THINNING_FADE_WIDTH,
     });
     expect(atStart.get(firstToYield.id)).toBe(1);
     expect(atMiddle.get("large-outer-4")).toBe(1);

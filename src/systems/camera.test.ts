@@ -89,10 +89,10 @@ describe("camera", () => {
       // never spends the authored 128px anchorage gutter on the island centre.
       expect(center.x).toBeGreaterThanOrEqual(viewport.x * 0.43);
       expect(center.x).toBeLessThanOrEqual(viewport.x - 128);
-      // Epic Pharos 2026-09-05: first reduce crown sky 48→36px, then allow
-      // the 38-unit crown-owned seat up to 0.73 (was 0.70). This preserves
-      // sky without spending the compact gates' bottom padding on the tower.
-      expect(center.y).toBeGreaterThanOrEqual(viewport.y * 0.45);
+      // Crown-owned vertical seat: with 36px of crown sky the 38-unit Pharos
+      // puts the island centre between ~40% (tall desktops at the 0.72
+      // rest, 2026-09-06) and ~73% (compact gates) down the frame.
+      expect(center.y).toBeGreaterThanOrEqual(viewport.y * 0.38);
       expect(center.y).toBeLessThanOrEqual(viewport.y * 0.73);
       expect(clampCameraToMap(camera, { map, viewport })).toEqual(camera);
     }
@@ -152,21 +152,19 @@ describe("camera", () => {
     }
   });
 
-  it("rests at the sailed-in 1.0 with the landing interval framed on standard desktops", () => {
+  it("rests at the 0.72 frame with the landing interval framed on both gates", () => {
     const map = buildPharosVilleMap();
 
-    // Warm-village A1 (2026-09-05): the default rest is the 1.0 close
-    // composition. The Pharos (60,70) and Ethereum Mole (15,95) tiles stay
-    // inside the viewport minus the authored bottom/right padding wherever
-    // the landing interval seats at 1.0. Seating the Mole half a tile inside
-    // the left margin while the island centre keeps the 128px right gutter
-    // needs a 1424px window, so the 1200px gate fits the interval instead
-    // (0.825); no legal viewport rests below the 0.8 floor.
+    // 2026-09-06: the rest opened out from the warm-village 1.0 to 0.72. The
+    // Pharos (60,70) and Ethereum Mole (15,95) tiles stay inside the viewport
+    // minus the authored bottom/right padding. Seating the interval on the
+    // 1200px gate allows 0.825, above the rest, so both gates rest at the
+    // same zoom; no legal viewport rests below the 0.6 floor.
     const desktop = defaultCamera({ height: 1004, map, width: 1568 });
     expect(desktop.zoom).toBe(GARDEN_DEFAULT_CAMERA_ZOOM);
 
     const laptop = defaultCamera({ height: 640, map, width: 1200 });
-    expect(laptop.zoom).toBeCloseTo(1056 / 1280);
+    expect(laptop.zoom).toBe(GARDEN_DEFAULT_CAMERA_ZOOM);
     expect(laptop.zoom).toBeGreaterThanOrEqual(GARDEN_REST_ZOOM_FLOOR);
 
     for (const { camera, viewport } of [

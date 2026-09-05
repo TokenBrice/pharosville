@@ -835,14 +835,13 @@ function createStones(): InstancedMesh {
 // ---------------------------------------------------------------------------
 // Warm-village A6: camera-near foreground silhouette masses.
 //
-// At the zoom-1.0 rest (`defaultCamera`) the frame is an interior window on
-// the Pharos–Mole interval. Computing the rest corners with the projection
-// helpers: on 1568×1004 the bottom-left corner lands on the south-west skirt
-// around tile (59.7,140.7) and the bottom-right corner on open interior
-// water near (108.7,91.7); on 1200×640 (zoom 0.825) the bottom-left lands on
-// the in-bounds south rim near (44.7,125.9), inside the authored dense
-// lower-left pine band, and the bottom-right again on water. So exactly one
-// rest corner can carry land-standing foreground, and these two masses own
+// Sited at the zoom-1.0 rest (`defaultCamera`, warm-village), where the frame
+// was an interior window on the Pharos–Mole interval and the bottom-left
+// corner of 1568×1004 landed on the south-west skirt around tile (59.7,140.7)
+// with the bottom-right on interior water. The rest has since opened out to
+// 0.72 (2026-09-06); the same masses now read as near-shore silhouettes in
+// the lower-left quarter instead of bleeding past the frame edge, and they
+// keep their place — exactly one rest corner carries land, and these two own
 // it: a dark pine group and a low kuro torii with a fence run, both past
 // tile 139 on decorative skirt land. They displace the open-water band named
 // by GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT — no new prop vocabulary, no tile

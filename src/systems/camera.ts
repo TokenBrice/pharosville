@@ -27,15 +27,18 @@ export interface CameraBoundsInput {
 }
 
 /**
- * Warm-village A1 (2026-09-05): the resting frame is a sailed-in close
- * composition at 1.0, replacing the retired `0.6 * 1.02` plate framing.
- * Standard desktops rest exactly here; compact gates rest slightly lower
- * while seating the landing interval (see `defaultCamera`). Whole-map
- * remains the explicit zoom-out via `minZoomForViewport`.
+ * Resting frame. Warm-village A1 (2026-09-05) sailed the rest in to 1.0;
+ * the operator's verdict the next day was that the world felt small and
+ * needed constant zooming to see the fleet, so the rest opened back out to
+ * `GARDEN_FIT_CAMERA_MIN_ZOOM` (0.72 — about twice the 1.0 frame's area,
+ * still well inside the retired 0.612 plate). Standard desktops rest exactly
+ * here; compact gates rest slightly lower while seating the landing interval
+ * (see `defaultCamera`). Whole-map remains the explicit zoom-out via
+ * `minZoomForViewport`.
  */
 export const GARDEN_DEFAULT_CAMERA_ZOOM = GARDEN_FIT_CAMERA_MIN_ZOOM;
 /** The rest never opens this wide, even where the landing interval cannot seat. */
-export const GARDEN_REST_ZOOM_FLOOR = 0.8;
+export const GARDEN_REST_ZOOM_FLOOR = 0.6;
 const LANDING_PHAROS_TILE = { x: 60, y: 70 } as const;
 const LANDING_ETHEREUM_MOLE_TILE = { x: 15, y: 95 } as const;
 /**
@@ -79,17 +82,17 @@ export function defaultCamera(input: {
   }).y;
   const crownIsoY = towerIsoY
     - (GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT) * isoYPerWorldUnit;
-  // Resting rule (warm-village A1): rest at GARDEN_DEFAULT_CAMERA_ZOOM (1.0)
-  // wherever the authored landing composition seats, fitting it instead when
-  // the viewport is too narrow, and never resting below GARDEN_REST_ZOOM_FLOOR.
+  // Resting rule: rest at GARDEN_DEFAULT_CAMERA_ZOOM wherever the authored
+  // landing composition seats, fitting it instead when the viewport is too
+  // narrow, and never resting below GARDEN_REST_ZOOM_FLOOR.
   //
   // The composition: the Mole is seated half a tile inside the left water
   // margin, which spans -moleIso.x of iso space to the island centre; the
   // island centre must not spend the 128px right-hand anchorage gutter (the
   // water east of the island stays empty — ma, not missing content). The
   // widest zoom honouring both is (width - gutter - half-tile inset) /
-  // mole span, e.g. 0.825 on the 1200px gate; wider viewports get the full
-  // 1.0 rest with the interval comfortably inside the gutter. Below the
+  // mole span, e.g. 0.825 on the 1200px gate — above the rest, so every
+  // supported gate rests at the same zoom. Below the
   // floor the gutter wins and the Mole quay waits off-frame to the west:
   // the lighthouse remains the primary anchor. Viewports so large the plate
   // itself fills the screen keep their fit (up to 1.25) rather than being

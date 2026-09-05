@@ -1,7 +1,10 @@
 import type { GardenFleetMooringPlacement } from "./garden-fleet-placement";
 import type { ShipNode, ShipSizeTier } from "./world-types";
 
-export const GARDEN_FLEET_THINNING_START_ZOOM = 0.7;
+// 0.5 (was 0.7, 2026-09-06): the rest opened out to 0.72 and the fleet must
+// stay whole there and through the first zoom-out steps; thinning is for the
+// approach to whole-map, not for the resting frame.
+export const GARDEN_FLEET_THINNING_START_ZOOM = 0.5;
 export const GARDEN_FLEET_THINNING_FADE_WIDTH = 0.05;
 export const GARDEN_FLEET_WHOLE_MAP_ZOOM = 0.3;
 

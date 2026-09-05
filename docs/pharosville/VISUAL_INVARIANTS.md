@@ -41,20 +41,22 @@ intent, code/tests, and a matching update to the relevant route documentation.
   by the largest empty circle inside a band's water — not by nearest-neighbour
   statistics, which the hull gap makes uninformative at this fleet size.
 - The Pharos lighthouse remains the visual and analytical anchor.
-- **The resting frame is a sailed-in close composition.** `defaultCamera`
-  rests at `GARDEN_DEFAULT_CAMERA_ZOOM` (1.0) wherever the authored Pharos
+- **The resting frame shows the harbor, not a window on it.** `defaultCamera`
+  rests at `GARDEN_DEFAULT_CAMERA_ZOOM` (0.72) wherever the authored Pharos
   (60,70) → Ethereum Mole (15,95) landing interval seats with the island centre
   clear of the 128 px right-hand anchorage gutter; narrower gates fit the
-  interval instead (0.825 at 1200 px wide) and no legal viewport rests below
-  `GARDEN_REST_ZOOM_FLOOR` (0.8). The statue tip keeps its sky. Whole-map
-  framing remains the explicit zoom-out via `minZoomForViewport`. The four
-  idle postcards are sailed-in framings (zoom 1.0–1.4), never wider than rest.
-  Pinned in `src/systems/camera.test.ts` and `garden-attract.test.ts`
-  (warm-village A1, 2026-09-05; replaces the retired 0.60 plate composition).
+  interval instead and no legal viewport rests below `GARDEN_REST_ZOOM_FLOOR`
+  (0.6). The statue tip keeps its sky. Whole-map framing remains the explicit
+  zoom-out via `minZoomForViewport`. The four idle postcards are sailed-in
+  framings (zoom 1.0–1.4), always closer than rest. Pinned in
+  `src/systems/camera.test.ts` and `garden-attract.test.ts` (2026-09-06:
+  opened back out from the warm-village 1.0 rest, which read as small and
+  needed constant zooming to see the fleet; the retired 0.60 plate stays
+  retired).
 - **Fleet placement capacity and displayed hull count are separate.** The
   eligible fleet retains the 320-ship placement and batch capacity; density,
   water-safe placement, lighthouse clearance, and edge falloff preserve the
-  authored anchorage composition. Below zoom 0.7, displayed hulls thin
+  authored anchorage composition. Below zoom 0.5, displayed hulls thin
   reversibly toward each risk band's dominant mooring plus one or two
   representatives per other mooring at whole-map framing; thinned hulls leave
   pointer hit testing but never the keyboard order, detail panel, or ledger.
@@ -62,12 +64,12 @@ intent, code/tests, and a matching update to the relevant route documentation.
   remains retired. Pinned in `src/systems/garden-fleet-thinning.test.ts`.
 - **Distance, zoom, and displayed hull count are viewing conditions, not
   identity changes.** The fleet recedes with depth (chroma, never value), its
-  marks begin fading only below zoom 0.85, and its displayed count thins below
-  zoom 0.7, so a wide framing reads as a harbour rather than as a hundred and
-  eighty-five stickers. At the zoom-1.0 rest marks are fully present and the
+  marks begin fading only below zoom 0.62, and its displayed count thins below
+  zoom 0.5, so a wide framing reads as a harbour rather than as a hundred and
+  eighty-five stickers. At the 0.72 rest marks are fully present and the
   extra framing restraint is fully released; wider framing applies at most the
   operator-approved ~10 % further chroma restraint (2026-09-05, superseding the
-  15–20 % step of 2026-08-13). Sailing in to zoom 0.7 restores every eligible
+  15–20 % step of 2026-08-13). Sailing in to zoom 0.5 restores every eligible
   hull. Restraint and thinning must never be baked into the cloth colour or
   into placement, which would remove identity or hulls with no way back.
   Market-cap tier still controls hull scale: the 0.7–3.0 data band maps onto a
@@ -143,21 +145,25 @@ intent, code/tests, and a matching update to the relevant route documentation.
   sea wreckyard, not an island and never a live-ship destination.
 - DOM labels must be legible and must not cover the lighthouse, controls, or
   active detail panel.
-- **Harbor stations are named in-frame at every zoom.** The eight rendered
-  chain stations and the TON pigeonnier carry always-on, aria-hidden DOM chips
-  projected from their existing station/landmark label anchors — whole-map
-  framing, where all nine share the frame, included. Each chip shows the
-  chain logo when its existing same-origin
-  `logoPath` is available (otherwise the painted initials), the chain name,
-  and one existing concentration-state word; the TON fallback names its
-  existing watch state. When chips overlap, the lower-supply station steps
-  below the higher-supply one. A chip is hidden rather than covering the
-  lighthouse, bottom controls, or an active detail panel, and an off-screen
-  anchor hides its chip. Ships receive a chip only while selected (the
-  arrival/anomaly trigger input is reserved for the life phase). These chips
-  displace hover-only station naming, add no WebGL draw or texture, and stay
-  aria-hidden because the accessibility ledger is the spoken naming channel.
-  Pinned in `src/components/harbor-label-chips.test.tsx`.
+- **Harbor stations are named in-frame at every zoom, quietly.** The eight
+  rendered chain stations and the TON pigeonnier carry always-on, aria-hidden
+  DOM chips projected from their existing station/landmark label anchors —
+  whole-map framing, where all nine share the frame, included. Each chip shows
+  the chain logo when its existing same-origin `logoPath` is available
+  (otherwise the painted initials), the chain name, and one existing
+  concentration-state word; the TON fallback names its existing watch state.
+  A chip is a caption, not a signpost (2026-09-06): 18 px tall, half
+  transparent, no shadow, and it comes forward only under the pointer. When
+  chips overlap, the lower-supply station steps below the higher-supply one.
+  A chip is hidden rather than covering the lighthouse, bottom controls, or an
+  active detail panel, and an off-screen anchor hides its chip. Ships receive
+  a chip only while selected or during an arrival/departure beat; persistent
+  anomaly chips on ships were removed 2026-09-06 (a boat wearing a sign all
+  day read as clutter; DEX disagreement and Danger water keep their in-world
+  cues, detail rows and ledger parity). These chips displace hover-only
+  station naming, add no WebGL draw or texture, and stay aria-hidden because
+  the accessibility ledger is the spoken naming channel. Pinned in
+  `src/components/harbor-label-chips.test.tsx`.
 
 ## World encoding
 

@@ -691,10 +691,10 @@ describe("peg trim (Tier 3 #13)", () => {
  * are VIEWING CONDITIONS, not identity changes. These cases pin the three
  * clauses that make that true of the new default-framing step.
  */
-const OVERVIEW_ZOOM = 0.44;
-const WIDE_ZOOM = 0.8;
-const DEFAULT_ZOOM = 1.0;
-const INSPECTION_ZOOM = 1.05;
+const OVERVIEW_ZOOM = 0.4;
+const WIDE_ZOOM = 0.6;
+const DEFAULT_ZOOM = 0.72;
+const INSPECTION_ZOOM = 1.0;
 
 const FRAGMENT_STUB = [
   "#include <common>",
@@ -710,18 +710,19 @@ const VERTEX_STUB = [
 
 describe("W3.7 sail restraint as a viewing condition", () => {
   it("uses the smaller wide-frame step and fully releases it at rest", () => {
-    // Operator decision 2026-09-05: replace the former 15–20% default-frame
-    // pin with a 10% wide-frame restraint that is exactly gone at zoom-1 rest.
+    // Operator decision 2026-09-05: a 10% wide-frame restraint that is exactly
+    // gone at rest. Rest moved 1.0 → 0.72 on 2026-09-06; the thresholds moved
+    // with it.
     expect(gardenFleetFramingRestraint(WIDE_ZOOM)).toBeCloseTo(0.1, 12);
     expect(gardenFleetFramingRestraint(DEFAULT_ZOOM)).toBe(0);
   });
 
   it("keeps marks full at rest and preserves the stronger overview floor", () => {
-    // Operator decision 2026-09-05: identity is fully legible at the new rest,
-    // while whole-map marks retain 45% presence instead of the former 26%.
+    // Identity is fully legible at rest, while whole-map marks retain 45%
+    // presence instead of the former 26%.
     expect(gardenFleetMarkPresence(DEFAULT_ZOOM)).toBe(1);
-    expect(gardenFleetMarkPresence(0.85)).toBe(1);
-    expect(gardenFleetMarkPresence(0.58)).toBeCloseTo(0.45, 12);
+    expect(gardenFleetMarkPresence(0.62)).toBe(1);
+    expect(gardenFleetMarkPresence(0.42)).toBeCloseTo(0.45, 12);
     expect(gardenFleetMarkPresence(OVERVIEW_ZOOM)).toBeCloseTo(0.45, 12);
   });
 
@@ -1040,10 +1041,12 @@ describe("W3.7 woven cloth", () => {
   it("stays off at overview framing and comes fully in at inspection", () => {
     expect(gardenFleetClothWeave(OVERVIEW_ZOOM)).toBe(0);
     expect(gardenFleetClothWeave(0.52)).toBe(0);
-    // At the new zoom-1 rest the surface is nearly resolved; the final fraction
-    // still arrives only at close inspection.
-    expect(gardenFleetClothWeave(DEFAULT_ZOOM)).toBeGreaterThan(0.8);
-    expect(gardenFleetClothWeave(DEFAULT_ZOOM)).toBeLessThan(1);
+    // The weave is a NEAR-framing property and did not move with the rest
+    // (0.72 since 2026-09-06): partially present at rest, nearly resolved at
+    // the old 1.0 rest, fully arrived only at close inspection.
+    expect(gardenFleetClothWeave(DEFAULT_ZOOM)).toBeGreaterThan(0);
+    expect(gardenFleetClothWeave(1.0)).toBeGreaterThan(0.8);
+    expect(gardenFleetClothWeave(1.0)).toBeLessThan(1);
     expect(gardenFleetClothWeave(1.12)).toBe(1);
   });
 

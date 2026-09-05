@@ -132,12 +132,14 @@ export function fitCameraToMap(input: {
 }
 
 /**
- * Authored resting composition floor (warm-village A1, 2026-09-05): the
- * sailed-in 1.0 default framing. `defaultCamera` may rest slightly below it
- * to seat the Pharos→Mole landing interval on compact gates, but never under
- * its own rest floor; whole-map zoom-out uses `minZoomForViewport`.
+ * Authored resting composition floor (2026-09-06): 0.72. Warm-village A1 had
+ * sailed the rest in to 1.0 and the world read as small; 0.72 shows roughly
+ * twice the water without returning to the retired 0.612 plate. `defaultCamera`
+ * may rest slightly below it to seat the Pharos→Mole landing interval on
+ * compact gates, but never under its own rest floor; whole-map zoom-out uses
+ * `minZoomForViewport`.
  */
-export const GARDEN_FIT_CAMERA_MIN_ZOOM = 1.0;
+export const GARDEN_FIT_CAMERA_MIN_ZOOM = 0.72;
 
 /**
  * Absolute zoom floor, used only when no viewport/map is available to compute
