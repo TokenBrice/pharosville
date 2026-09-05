@@ -2,6 +2,19 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.13.0 - 2026-09-05 - Clearer Waters
+
+More recognizable harbors, cedar sea signs, and roomier boat traffic sharpen the garden around the lighthouse.
+
+Collected from commit `3443462` after v0.12.0.
+
+- Raised and enlarged chain flags, moved obscured staffs clear of roofs, and preserved complete logos and visible cloth at whole-map zoom. Flags now select their harbor directly.
+- Replaced stone sea labels with cedar boards on wooden pilings and readable serif lettering. More distinct Watch, Alert, and Warning water colors retain soft transitions, while subdued night lettering keeps the beacon dominant.
+- Restored the lighthouse island's mature pines at distant zoom and gave long cargo barges arched reed covers with dark supporting hoops.
+- Spread busy anchorages across a wider berth fan, kept hulls clear of the Ethereum Mole's stone arms, and made crowded fallback berths minimize overlap. Soft underway avoidance now follows the positions actually drawn and yields to moored boats; saturated anchorages can still overlap.
+- Removed the display-only voyage cap that caused jumps at arrival, kept sailing and docking clearance consistent, and recalibrated paired arrivals and departures for the longer routes.
+- Fixed the opening camera move drifting back toward its starting pose after arrival, so the intended landing frame holds, including on compact laptop windows.
+
 ## v0.12.0 - 2026-09-05 - A Calmer Harbor
 
 A more connected sea, a more composed still harbor, and direct controls for finding a ship or choosing the light.

@@ -114,3 +114,15 @@ startup. Local evidence: `outputs/garden-final-stress.log`.
 The operator authorized the changelog and release. Publication follows the
 protected PR, green main deployment, and automated GitHub Release workflow.
 
+
+Arrival completion now synchronizes the ordinary camera target to the final
+pose. The regression reproduced next-frame drift before the fix and holds the
+destination afterward; all 35 focused camera/arrival checks and typecheck pass.
+Corrected real-GPU laptop evidence: `outputs/release-013-laptop.png` and its
+log, 1200×640 constrained, complete lighthouse crown, 148 calls,
+260,696 triangles, 172 geometries, 29 textures, worst p95 and worst frame
+16.8 ms across 16 windows. This supersedes the earlier cropped laptop capture.
+
+Release declaration: v0.13.0, Clearer Waters, source commit `3443462`.
+The three release surfaces agree; final release validation is running before
+the protected PR is merged.

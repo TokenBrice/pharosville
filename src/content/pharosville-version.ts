@@ -21,6 +21,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   theEthereumMole: "v0.11.0",
   moleErrata: "v0.11.1",
   aCalmerHarbor: "v0.12.0",
+  clearerWaters: "v0.13.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.aCalmerHarbor;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.clearerWaters;
