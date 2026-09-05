@@ -401,7 +401,8 @@ function writeFlagMatrix(
   flagScratchA.multiply(flagScratchB.makeRotationY(yaw));
   flagScratchA.multiply(flagScratchB.makeRotationZ(roll));
   flagScratchA.multiply(flagScratchB.makeTranslation(0.06, 0, 0));
-  flagScratchA.multiply(flagScratchB.makeScale(placement.scale, placement.scale, placement.scale));
+  // Shape the nobori cloth, not its UVs: clipping the right half erased its chain mark.
+  flagScratchA.multiply(flagScratchB.makeScale(placement.scale * (recipe.flag.shape === "nobori" ? 0.62 : 1), placement.scale, placement.scale));
   flagScratchC.multiplyMatrices(recipe.rootMatrix, flagScratchA);
   flags.setMatrixAt(index, flagScratchC);
 }
@@ -418,7 +419,6 @@ float flagX = vFlagUv.x;
 float flagY = abs(vFlagUv.y - 0.5) * 2.0;
 bool cutFlag = false;
 if (vFlagShape > 0.5 && vFlagShape < 1.5) cutFlag = flagX > 0.72 && flagY < (flagX - 0.72) * 2.2;
-else if (vFlagShape > 1.5 && vFlagShape < 2.5) cutFlag = flagX > 0.42;
 else if (vFlagShape > 2.5 && vFlagShape < 3.5) cutFlag = flagX > 0.64 && flagY < (flagX - 0.64) * 1.85;
 else if (vFlagShape > 3.5 && vFlagShape < 4.5) cutFlag = flagX > 0.78 && flagY > 1.55 - flagX;
 else if (vFlagShape > 4.5 && vFlagShape < 5.5) cutFlag = flagX > 0.7 && flagY < (flagX - 0.7) * 1.65;
@@ -430,5 +430,5 @@ if (vFlagCell >= 0.0) {
   #include <map_fragment>
 }`);
   };
-  material.customProgramCacheKey = () => "garden-station-flag-v5";
+  material.customProgramCacheKey = () => "garden-station-flag-v6";
 }

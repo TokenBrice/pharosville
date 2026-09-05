@@ -39,6 +39,7 @@ import {
   type ShipMotionSample,
 } from "../systems/motion";
 import { applySeaRoomSeparationPass } from "../systems/motion-sampling";
+import { resolveGardenShipDisplayTile, selectGardenObservatorySlice } from "../systems/garden-observatory-slice";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import { seaStateForWorld, type SeaState } from "../systems/sea-state";
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
@@ -597,6 +598,18 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         targetSamples: semanticShipMotionSamples,
         timeSeconds: motionTimeSeconds,
       });
+      // Resolve the composition before separation: raw route tiles do not include
+      // the garden's home offsets, and separating those misses visible neighbours.
+      for (const sample of shipMotionSamples.values()) sample.displayTile = null;
+      for (const placement of selectGardenObservatorySlice(activeWorld, activeSelectedDetailId).ships) {
+        const sample = shipMotionSamples.get(placement.ship.id);
+        if (sample) sample.displayTile = { ...resolveGardenShipDisplayTile({ ...placement, sample }) };
+      }
+      applySeaRoomSeparationPass(shipMotionSamples, activeWorld.ships, {
+        reducedMotion,
+        seaState,
+        timeSeconds: motionTimeSeconds,
+      });
       shipMotionSamplesRef.current = shipMotionSamples;
       onShipMotionSamplesReadyRef.current?.(shipMotionSamples);
       const sampleDurationMs = performance.now() - sampleStartedAt;
@@ -890,7 +903,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
             if (isContinuousPositionDiagnosticSample(prev, sample)) {
               const headingDelta = headingDeltaDegreesPerSecond(prev, sample, nextFrameState.timeSeconds);
               if (headingDelta > frameMaxHeadingDeg) frameMaxHeadingDeg = headingDelta;
-              const d = Math.hypot(sample.tile.x - prev.x, sample.tile.y - prev.y);
+              const tile = sample.displayTile ?? sample.tile;
+              const d = Math.hypot(tile.x - prev.x, tile.y - prev.y);
               if (d > frameMaxPosDelta) frameMaxPosDelta = d;
             }
             writeLastTilePositionSample(prev, sample, nextFrameState.timeSeconds);
@@ -1245,10 +1259,6 @@ function collectShipMotionSamples(input: {
       if (!liveIds.has(id)) samples.delete(id);
     }
   }
-  applySeaRoomSeparationPass(samples, input.world.ships, {
-    reducedMotion: input.reducedMotion,
-    seaState: input.seaState,
-  });
   return { samples };
 }
 
@@ -1297,8 +1307,8 @@ function compactShipMotionSamples(
     compact.currentRouteStopKind = sample.currentRouteStopKind;
     compact.mapVisible = ship ? isShipMapVisible(ship, sample) : true;
     compact.state = sample.state;
-    compact.x = sample.tile.x;
-    compact.y = sample.tile.y;
+    compact.x = (sample.displayTile ?? sample.tile).x;
+    compact.y = (sample.displayTile ?? sample.tile).y;
     compact.zone = sample.zone;
     output.push(compact);
   }
@@ -1325,8 +1335,8 @@ function createLastTilePositionSample(sample: ShipMotionSample, timeSeconds: num
     state: sample.state,
     timeSeconds,
     visibilityAlpha: sample.mapVisibilityAlpha,
-    x: sample.tile.x,
-    y: sample.tile.y,
+    x: (sample.displayTile ?? sample.tile).x,
+    y: (sample.displayTile ?? sample.tile).y,
   };
 }
 
@@ -1338,8 +1348,8 @@ function writeLastTilePositionSample(target: LastTilePositionSample, sample: Shi
   target.state = sample.state;
   target.timeSeconds = timeSeconds;
   target.visibilityAlpha = sample.mapVisibilityAlpha;
-  target.x = sample.tile.x;
-  target.y = sample.tile.y;
+  target.x = (sample.displayTile ?? sample.tile).x;
+  target.y = (sample.displayTile ?? sample.tile).y;
 }
 
 function isContinuousPositionDiagnosticSample(previous: LastTilePositionSample, sample: ShipMotionSample): boolean {

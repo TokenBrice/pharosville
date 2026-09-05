@@ -207,3 +207,34 @@ export function dockSeawardVector(dock: ShoreFacingDock): { x: -1 | 0 | 1; y: -1
   if (Math.abs(x) >= Math.abs(y)) return { x: x < 0 ? -1 : 1, y: 0 };
   return { x: 0, y: y < 0 ? -1 : 1 };
 }
+
+export const HARBOR_FLAG_SCALE_MULTIPLIER = 2.6;
+export const HARBOR_QUAY_TOP_Y = 1.55;
+
+export function harborAmountScale(totalUsd: number): number {
+  const decades = (Math.log10(Math.max(1, totalUsd)) - 8.5) / 3.2;
+  return 0.82 + Math.min(1, Math.max(0, decades)) * 1.13;
+}
+
+
+export function stationFlagPlacement(type: StationType, totalUsd: number, size: number) {
+  const amount = harborAmountScale(totalUsd);
+  const supply = Math.min(10, Math.max(1, size)) / 10;
+  const length = 7.6 * amount * (type === "ethereum-mole" ? 1.5 : 1.06);
+  const width = (1.62 + amount * 0.36) * (type === "ethereum-mole" ? 1.42 : 1.08);
+  const height = (
+    type === "ethereum-mole" ? 10
+      : type === "pigeonnier-islet" ? 7.4
+        : 8.2
+  ) + supply * 1.25;
+  return {
+    height,
+    scale: ((type === "ethereum-mole" ? 1.05 : 0.72) + supply * 0.24)
+      * HARBOR_FLAG_SCALE_MULTIPLIER,
+    // The mole-head standard stands clear of the hall, on the outer arm.
+    x: type === "ethereum-mole" ? 14.8 : length * 0.4,
+    z: type === "ethereum-mole" ? -10.6
+      : type === "hatago-wharf" ? width * 0.62
+        : -width * 0.3,
+  };
+}

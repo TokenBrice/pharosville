@@ -254,7 +254,7 @@ const GARDEN_SHIP_RIGS: Record<GardenHullSilhouette, readonly GardenMastPlan[]> 
     },
   ],
   // Takasebune: the cargo roofs, not the rig, own the silhouette. One low
-  // identity sail sits forward so four covered bays remain readable behind it.
+  // identity sail sits forward so four arched cargo covers remain readable behind it.
   takasebune: [
     {
       height: 2.35,
@@ -1984,20 +1984,27 @@ function addFamilySilhouetteParts(
   }
 
   if (silhouette === "takasebune") {
-    // Four large covered cargo bays make yield visible as length. Their roofs
-    // alternate shallow pitch so the run reads as bays, not a single cabin.
+    // Four rounded reed covers keep the long working-barge identity, with
+    // dark hoops breaking the former row of featureless rectangular boxes.
     for (const [index, x] of [-3.15, -1.05, 1.05, 3.15].entries()) {
+      const cover = new CylinderGeometry(0.96, 0.96, 1.82, 8, 1, false, 0, Math.PI);
+      cover.rotateZ(Math.PI / 2);
+      cover.scale(1, 0.65, 1);
       parts.push({
-        geometry: new BoxGeometry(1.72, 0.62, 1.72),
+        geometry: cover,
         tint: index % 2 === 0 ? FLEET_BATCH_TINTS.deck : FLEET_BATCH_TINTS.gunwale,
-        transform: new Matrix4().setPosition(x, 0.91, 0),
+        transform: new Matrix4().setPosition(x, 0.64, 0),
       });
-      parts.push({
-        geometry: new BoxGeometry(1.9, 0.14, 1.95),
-        tint: FLEET_BATCH_TINTS.mast,
-        transform: new Matrix4().makeRotationX(index % 2 === 0 ? 0.04 : -0.04)
-          .setPosition(x, 1.29, 0),
-      });
+      for (const along of [-0.84, 0, 0.84]) {
+        const hoop = new CylinderGeometry(0.99, 0.99, 0.075, 8, 1, true, 0, Math.PI);
+        hoop.rotateZ(Math.PI / 2);
+        hoop.scale(1, 0.65, 1);
+        parts.push({
+          geometry: hoop,
+          tint: FLEET_BATCH_TINTS.mast,
+          transform: new Matrix4().setPosition(x + along, 0.64, 0),
+        });
+      }
     }
   }
 }

@@ -13,6 +13,8 @@ import { seaStateForSources, type SeaState } from "./sea-state";
 import { isWaterTileKind, PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, tileKindAt } from "./world-layout";
 import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionSample } from "./motion-types";
 import type { ShipNode } from "./world-types";
+import { gardenShipVisualScale } from "./garden-observatory-slice";
+import { gardenShipWaterMarginTiles, isGardenShipWater, nearestGardenShipWater } from "./garden-water-exclusion";
 
 describe("motion sampling sea-state metadata", () => {
   it("scales moored berth sway from the supplied sea state", () => {
@@ -57,188 +59,133 @@ describe("motion sampling sea-state metadata", () => {
   });
 });
 
-describe("W3.20 sea-room separation pass", () => {
-  function makeSample(id: string, x: number, y: number, state: ShipMotionSample["state"] = "sailing"): ShipMotionSample {
-    return {
-      shipId: id,
-      tile: { x, y },
-      state,
-      zone: "calm",
-      currentDockId: null,
-      currentRouteStopId: null,
-      currentRouteStopKind: null,
-      heading: { x: 1, y: 0 },
-      mapVisibilityAlpha: 1,
-      wakeIntensity: 0,
+describe("sea-room separation on final display positions", () => {
+  const origin = nearestGardenShipWater({ x: 100, y: 65 }, 15, "separation-test", true);
+  function ship(id: string, scale = 0.7): ShipNode {
+    return { id, dockVisits: [], visual: { hull: "treasury-galleon", scale } } as unknown as ShipNode;
+  }
+  function sample(id: string, dx = 0, state: ShipMotionSample["state"] = "sailing"): ShipMotionSample {
+    return { ...createShipMotionSample(), shipId: id, state, mapVisibilityAlpha: 1,
+      tile: { x: 1, y: 1 }, displayTile: { x: origin.x + dx, y: origin.y }, heading: { x: 1, y: 0 } };
+  }
+  function runPair(frames: number, moored = false) {
+    const a = sample("a", 0, moored ? "moored" : "sailing");
+    const b = sample("b", 0.5);
+    const samples = new Map([["a", a], ["b", b]]);
+    const ships = [ship("a"), ship("b")];
+    let previousA = a.displayTile!.x;
+    let previousB = b.displayTile!.x;
+    for (let frame = 0; frame < frames; frame += 1) {
+      a.displayTile = { ...origin };
+      b.displayTile = { x: origin.x + 0.5, y: origin.y };
+      applySeaRoomSeparationPass(samples, ships, { timeSeconds: frame / 60 });
+      expect(Math.abs(a.displayTile.x - previousA)).toBeLessThanOrEqual(1.2 / 60 + 1e-7);
+      expect(Math.abs(b.displayTile.x - previousB)).toBeLessThanOrEqual(1.2 / 60 + 1e-7);
+      previousA = a.displayTile.x;
+      previousB = b.displayTile.x;
+    }
+    return { a, b, samples, ships };
+  }
+
+  it("accumulates bounded continuous avoidance despite every frame resetting its route sample", () => {
+    const { a, b } = runPair(360);
+    expect(b.displayTile!.x - a.displayTile!.x).toBeGreaterThan(4);
+    expect(a.tile).toEqual({ x: 1, y: 1 });
+    expect(b.tile).toEqual({ x: 1, y: 1 });
+    expect(SEA_ROOM_MAX_NUDGE_PER_FRAME).toBe(0.15);
+  });
+
+  it("publishes final displacement velocity while preserving the collision-tested heading", () => {
+    const { a, b, samples, ships } = runPair(10);
+    const previous = { ...a.displayTile! };
+    const heading = { ...a.heading };
+    a.displayTile = { ...origin };
+    b.displayTile = { x: origin.x + 0.5, y: origin.y };
+    applySeaRoomSeparationPass(samples, ships, { timeSeconds: 10 / 60 });
+    expect(a.velocity!.x).toBeCloseTo((a.displayTile.x - previous.x) * 60, 6);
+    expect(a.velocity!.y).toBeCloseTo((a.displayTile.y - previous.y) * 60, 6);
+    expect(a.speedTilesPerSecond).toBeCloseTo(Math.hypot(a.velocity!.x, a.velocity!.y), 6);
+    expect(a.heading).toEqual(heading);
+  });
+
+  it("treats moored hulls as fixed obstacles and steers moving vessels around them", () => {
+    const { a, b } = runPair(360, true);
+    expect(a.displayTile).toEqual(origin);
+    expect(b.displayTile!.x).toBeGreaterThan(origin.x + 4.5);
+  });
+
+  it("uses rendered hull size instead of a sub-hull point radius", () => {
+    const run = (scale: number) => {
+      const a = sample("a");
+      const b = sample("b", 6);
+      return applySeaRoomSeparationPass(new Map([["a", a], ["b", b]]), [ship("a", scale), ship("b", scale)]);
     };
-  }
-
-  function makeShip(id: string, role?: "flagship" | "consort"): ShipNode {
-    return ({ id, ...(role ? { squadRole: role } : {}) } as unknown) as ShipNode;
-  }
-
-  function calmSea(): SeaState {
-    return seaStateForSources({
-      areas: [{ band: "CALM", count: 1 }],
-      lighthouse: { psiBand: "STEADY", score: 12, unavailable: false },
-      wallClockHour: 12,
-    });
-  }
-
-  function stormSea(): SeaState {
-    return seaStateForSources({
-      areas: [{ band: "DANGER", count: 1 }],
-      lighthouse: { psiBand: "DANGER", score: 90, unavailable: false },
-      wallClockHour: 23,
-    });
-  }
-
-  it("nudges a pair of ships apart when they sit within the separation radius", () => {
-    const a = makeSample("ship.a", 10, 10);
-    const b = makeSample("ship.b", 10.4, 10);
-    const samples = new Map([
-      [a.shipId, a],
-      [b.shipId, b],
-    ]);
-    const ships = [makeShip("ship.a"), makeShip("ship.b")];
-
-    const before = b.tile.x - a.tile.x;
-    expect(before).toBeCloseTo(0.4, 6);
-    const nudged = applySeaRoomSeparationPass(samples, ships);
-    expect(nudged).toBe(1);
-    const after = b.tile.x - a.tile.x;
-    // Each ship moved by min((0.7 - 0.4) / 2, 0.15) = 0.15 tile, total + 0.30.
-    expect(after).toBeCloseTo(before + 0.3, 6);
-    expect(a.tile.y).toBe(10);
-    expect(b.tile.y).toBe(10);
+    expect(run(0.7)).toBe(0);
+    expect(run(3)).toBe(1);
   });
 
-  it("leaves moored ships untouched", () => {
-    const moored = makeSample("ship.a", 10, 10, "moored");
-    const sailing = makeSample("ship.b", 10.4, 10);
-    const samples = new Map([
-      [moored.shipId, moored],
-      [sailing.shipId, sailing],
-    ]);
-    const ships = [makeShip("ship.a"), makeShip("ship.b")];
+  it("does not move a hull through the shoreline to resolve a collision", () => {
+    const margin = gardenShipWaterMarginTiles(gardenShipVisualScale(0.7), "bezaisen");
+    let shore: { x: number; y: number } | undefined;
+    for (let y = 20; y < 120 && !shore; y += 10) for (let x = 10; x < 130 && !shore; x += 1) {
+      if (!isGardenShipWater({ x, y }, margin, true) || isGardenShipWater({ x: x + 1, y }, margin, true)) continue;
+      let safe = x;
+      let blocked = x + 1;
+      for (let iteration = 0; iteration < 24; iteration += 1) {
+        const middle = (safe + blocked) / 2;
+        if (isGardenShipWater({ x: middle, y }, margin, true)) safe = middle;
+        else blocked = middle;
+      }
+      shore = { x: safe, y };
+    }
+    expect(shore).toBeDefined();
+    const a = sample("a");
+    const b = sample("b");
+    a.displayTile = { ...shore! };
+    b.displayTile = { x: shore!.x - 0.5, y: shore!.y };
+    applySeaRoomSeparationPass(new Map([["a", a], ["b", b]]), [ship("a"), ship("b")]);
+    expect(a.displayTile).toEqual(shore);
+    expect(isGardenShipWater(a.displayTile, margin, true)).toBe(true);
+    expect(isGardenShipWater(b.displayTile, margin, true)).toBe(true);
 
-    const nudged = applySeaRoomSeparationPass(samples, ships);
-    expect(nudged).toBe(0);
-    expect(moored.tile).toEqual({ x: 10, y: 10 });
-    expect(sailing.tile).toEqual({ x: 10.4, y: 10 });
+    const persistent = new Map([["a", a], ["b", b]]);
+    let previous = shore!.x - 0.2;
+    for (let frame = 0; frame < 90; frame += 1) {
+      const advance = Math.max(0, frame - 60) * 0.005;
+      a.displayTile = { x: shore!.x - 0.2 + advance, y: shore!.y };
+      b.displayTile = { x: shore!.x - 0.7 + advance, y: shore!.y };
+      applySeaRoomSeparationPass(persistent, [ship("a"), ship("b")], { timeSeconds: frame / 60 });
+      expect(isGardenShipWater(a.displayTile, margin, true)).toBe(true);
+      expect(Math.abs(a.displayTile.x - previous)).toBeLessThan(0.026);
+      previous = a.displayTile.x;
+    }
   });
 
-  it("leaves squad consorts untouched so they stay glued to their flagship", () => {
-    // Consort sits right on top of its flagship-style partner; without the
-    // consort skip the pair would nudge apart and break formation cohesion.
-    const consort = makeSample("ship.consort", 10, 10);
-    const partner = makeSample("ship.partner", 10.3, 10);
-    const samples = new Map([
-      [consort.shipId, consort],
-      [partner.shipId, partner],
-    ]);
-    const ships = [makeShip("ship.consort", "consort"), makeShip("ship.partner")];
-
-    const nudged = applySeaRoomSeparationPass(samples, ships);
-    expect(nudged).toBe(0);
-    expect(consort.tile).toEqual({ x: 10, y: 10 });
-    expect(partner.tile).toEqual({ x: 10.3, y: 10 });
+  it("preserves reduced-motion and formation positions", () => {
+    const { a, b, samples, ships } = runPair(60);
+    a.displayTile = { ...origin };
+    b.displayTile = { ...origin };
+    expect(applySeaRoomSeparationPass(samples, ships, { reducedMotion: true })).toBe(0);
+    expect(a.displayTile).toEqual(origin);
+    expect(b.displayTile).toEqual(origin);
+    ships[1]!.squadRole = "consort";
+    expect(applySeaRoomSeparationPass(samples, ships)).toBe(0);
   });
 
-  it("enforces the per-frame nudge cap of 0.15 tile when ships are heavily overlapping", () => {
-    // Ships sitting on top of each other → half-shortfall is 0.35 tile,
-    // capped at SEA_ROOM_MAX_NUDGE_PER_FRAME = 0.15. After one pass the total
-    // separation should equal exactly 2 × cap = 0.30 tile (along the +x axis
-    // since the degenerate-overlap fallback uses +x deterministically).
-    const a = makeSample("ship.a", 10, 10);
-    const b = makeSample("ship.b", 10, 10);
-    const samples = new Map([
-      [a.shipId, a],
-      [b.shipId, b],
-    ]);
-    const ships = [makeShip("ship.a"), makeShip("ship.b")];
-
-    applySeaRoomSeparationPass(samples, ships);
-    expect(SEA_ROOM_MAX_NUDGE_PER_FRAME).toBeCloseTo(0.15, 6);
-    expect(b.tile.x - a.tile.x).toBeCloseTo(2 * SEA_ROOM_MAX_NUDGE_PER_FRAME, 6);
-  });
-
-  it("uses deterministic id-sorted iteration for stable frame-to-frame nudges", () => {
-    const a1 = makeSample("ship.a", 10, 10);
-    const b1 = makeSample("ship.b", 10.2, 10);
-    const samples1 = new Map([
-      [a1.shipId, a1],
-      [b1.shipId, b1],
-    ]);
-    const a2 = makeSample("ship.a", 10, 10);
-    const b2 = makeSample("ship.b", 10.2, 10);
-    const samples2 = new Map([
-      [b2.shipId, b2],
-      [a2.shipId, a2],
-    ]);
-    const ships1 = [makeShip("ship.a"), makeShip("ship.b")];
-    const ships2 = [makeShip("ship.b"), makeShip("ship.a")];
-
-    applySeaRoomSeparationPass(samples1, ships1);
-    applySeaRoomSeparationPass(samples2, ships2);
-    expect(a1.tile.x).toBeCloseTo(a2.tile.x, 9);
-    expect(b1.tile.x).toBeCloseTo(b2.tile.x, 9);
-  });
-
-  it("modulates the radius by the supplied sea state's swell", () => {
-    const calm = calmSea();
-    const storm = stormSea();
-    expect(seaRoomSeparationRadius(null)).toBeCloseTo(SEA_ROOM_BASE_RADIUS_TILES, 6);
-    expect(seaRoomSeparationRadius(calm)).toBeGreaterThanOrEqual(SEA_ROOM_BASE_RADIUS_TILES);
-    expect(seaRoomSeparationRadius(storm)).toBeGreaterThan(seaRoomSeparationRadius(calm));
-  });
-
-  it("nudges further apart in rough seas than calm seas at the same starting gap", () => {
-    const ships = [makeShip("ship.a"), makeShip("ship.b")];
-
-    const calmA = makeSample("ship.a", 10, 10);
-    const calmB = makeSample("ship.b", 10.65, 10);
-    const calmSamples = new Map([[calmA.shipId, calmA], [calmB.shipId, calmB]]);
-    applySeaRoomSeparationPass(calmSamples, ships, { seaState: calmSea() });
-    const calmDelta = calmB.tile.x - calmA.tile.x;
-
-    const stormA = makeSample("ship.a", 10, 10);
-    const stormB = makeSample("ship.b", 10.65, 10);
-    const stormSamples = new Map([[stormA.shipId, stormA], [stormB.shipId, stormB]]);
-    applySeaRoomSeparationPass(stormSamples, ships, { seaState: stormSea() });
-    const stormDelta = stormB.tile.x - stormA.tile.x;
-
-    expect(stormDelta).toBeGreaterThan(calmDelta);
-  });
-
-  it("is a hard no-op under reduced motion so deterministic idle samples are preserved", () => {
-    const a = makeSample("ship.a", 10, 10);
-    const b = makeSample("ship.b", 10.1, 10);
-    const samples = new Map([
-      [a.shipId, a],
-      [b.shipId, b],
-    ]);
-    const ships = [makeShip("ship.a"), makeShip("ship.b")];
-
-    const nudged = applySeaRoomSeparationPass(samples, ships, { reducedMotion: true });
-    expect(nudged).toBe(0);
-    expect(a.tile).toEqual({ x: 10, y: 10 });
-    expect(b.tile).toEqual({ x: 10.1, y: 10 });
-  });
-
-  it("ignores pairs already outside the radius", () => {
-    const a = makeSample("ship.a", 10, 10);
-    const b = makeSample("ship.b", 12, 10);
-    const samples = new Map([
-      [a.shipId, a],
-      [b.shipId, b],
-    ]);
-    const ships = [makeShip("ship.a"), makeShip("ship.b")];
-
-    const nudged = applySeaRoomSeparationPass(samples, ships);
-    expect(nudged).toBe(0);
-    expect(a.tile.x).toBe(10);
-    expect(b.tile.x).toBe(12);
+  it("widens the comfort gap with swell and keeps pair order deterministic", () => {
+    expect(seaRoomSeparationRadius(null)).toBe(SEA_ROOM_BASE_RADIUS_TILES);
+    expect(seaRoomSeparationRadius({ swell: 1 } as SeaState)).toBeGreaterThan(seaRoomSeparationRadius(null));
+    const first = runPair(10);
+    const a = sample("a");
+    const b = sample("b", 0.5);
+    const reversed = new Map([["b", b], ["a", a]]);
+    for (let frame = 0; frame < 10; frame += 1) {
+      a.displayTile = { ...origin };
+      b.displayTile = { x: origin.x + 0.5, y: origin.y };
+      applySeaRoomSeparationPass(reversed, [ship("b"), ship("a")], { timeSeconds: frame / 60 });
+    }
+    expect(a.displayTile).toEqual(first.a.displayTile);
+    expect(b.displayTile).toEqual(first.b.displayTile);
   });
 });
 

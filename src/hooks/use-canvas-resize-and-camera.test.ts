@@ -68,6 +68,32 @@ describe("wheel camera helpers", () => {
 });
 
 describe("camera intent helpers", () => {
+  it("holds the completed arrival destination through subsequent camera frames", () => {
+    const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
+    const viewport = { x: 1200, y: 640 };
+    const destination = defaultCamera({ width: viewport.x, height: viewport.y, map: world.map });
+    const onComplete = vi.fn();
+    act(() => {
+      result.current.canvasSizeRef.current = viewport;
+      result.current.setCamera(destination);
+      result.current.startArrival(onComplete);
+      result.current.stepCamera(1_000, new Map());
+    });
+    expect(result.current.cameraRef.current!.zoom).toBeLessThan(destination.zoom);
+    act(() => { result.current.stepCamera(10_001, new Map()); });
+    expect(result.current.cameraRef.current).toEqual(destination);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    for (const time of [10_017, 10_033, 11_000, 15_000]) {
+      act(() => {
+        const frame = result.current.stepCamera(time, new Map());
+        expect(frame.camera).toEqual(destination);
+        expect(frame.cameraChanged).toBe(false);
+        expect(frame.cameraIntentActive).toBe(false);
+      });
+    }
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
   it("damps camera intent toward the target without overshooting", () => {
     const current = { offsetX: 0, offsetY: 0, zoom: 1 };
     const target = { offsetX: 100, offsetY: -50, zoom: 1.5 };

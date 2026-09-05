@@ -15,6 +15,8 @@ import {
   resolveGardenEntityDisplayTile,
   selectGardenObservatorySlice,
 } from "../systems/garden-observatory-slice";
+import { HARBOR_QUAY_TOP_Y, stationFlagPlacement } from "../systems/dock-layout";
+import type { DockNode } from "../systems/world-types";
 import type { ShipMotionSample } from "../systems/motion";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import type { PharosVilleWorld } from "../systems/world-types";
@@ -99,6 +101,17 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       GARDEN_DOCK_ROOT_Y,
       input.camera,
     );
+    // Separate cloth target avoids making the empty sea between a tall flag
+    // and its quay clickable. The quay remains the canonical detail anchor.
+    if (dock.station) addVisibleTarget(targets, {
+      anchor,
+      detailId: dock.detailId,
+      id: `${dock.id}.flag`,
+      kind: "dock-flag",
+      label: dock.label,
+      priority: 2_000 + anchor.y,
+      rect: gardenDockFlagHitRect(dock, input.camera),
+    }, null, selectedDetailId, hoveredDetailId);
     addVisibleTarget(targets, {
       anchor,
       detailId: dock.detailId,
@@ -358,4 +371,54 @@ function rectIntersectsViewport(
     && rect.y + rect.height >= -margin
     && rect.y <= viewport.height + margin
   );
+}
+
+/** Shared staff authoring plus the cloth's bounded flutter/yaw envelope. */
+const flagBoundsByDock = new WeakMap<DockNode, HitTarget["rect"]>();
+
+export function gardenDockFlagHitRect(dock: DockNode, camera: IsoCamera): HitTarget["rect"] {
+  let bounds = flagBoundsByDock.get(dock);
+  if (!bounds) {
+    bounds = authoredDockFlagBounds(dock);
+    flagBoundsByDock.set(dock, bounds);
+  }
+  return {
+    x: bounds.x * camera.zoom + camera.offsetX - 2,
+    y: bounds.y * camera.zoom + camera.offsetY - 2,
+    width: bounds.width * camera.zoom + 4,
+    height: bounds.height * camera.zoom + 4,
+  };
+}
+
+function authoredDockFlagBounds(dock: DockNode): HitTarget["rect"] {
+  const camera = { offsetX: 0, offsetY: 0, zoom: 1 };
+  const staff = stationFlagPlacement(dock.station.type, dock.totalUsd, dock.size);
+  const bearing = -dock.station.shoreBearing;
+  const cos = Math.cos(bearing);
+  const sin = Math.sin(bearing);
+  const tile = gardenDockDisplayTile(dock.tile);
+  const centre = {
+    x: tile.x + (staff.x * cos + staff.z * sin) / TILE_SCALE,
+    y: tile.y + (-staff.x * sin + staff.z * cos) / TILE_SCALE,
+  };
+  const height = GARDEN_DOCK_ROOT_Y + staff.height + HARBOR_QUAY_TOP_Y - staff.scale * 0.75;
+  const points: ScreenPoint[] = [];
+  for (const yawOffset of [-0.28, 0, 0.28]) for (const roll of [-0.075, 0, 0.075]) {
+    const yaw = Math.PI / 4 + yawOffset;
+    for (const x of [0.06, 0.06 + staff.scale * 1.5]) {
+      for (const y of [-0.63 * staff.scale, 0.5 * staff.scale]) for (const z of [-0.13 * staff.scale, 0.13 * staff.scale]) {
+        const rx = x * Math.cos(roll) - y * Math.sin(roll);
+        const ry = x * Math.sin(roll) + y * Math.cos(roll);
+        points.push(gardenTileToScreen({
+          x: centre.x + (rx * Math.cos(yaw) + z * Math.sin(yaw)) / TILE_SCALE,
+          y: centre.y + (-rx * Math.sin(yaw) + z * Math.cos(yaw)) / TILE_SCALE,
+        }, height + ry, camera));
+      }
+    }
+  }
+  const minX = Math.min(...points.map((point) => point.x));
+  const maxX = Math.max(...points.map((point) => point.x));
+  const minY = Math.min(...points.map((point) => point.y));
+  const maxY = Math.max(...points.map((point) => point.y));
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }

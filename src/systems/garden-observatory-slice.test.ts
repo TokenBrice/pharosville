@@ -26,17 +26,21 @@ import {
   resolveGardenEntityDisplayTile,
   resolveGardenShipDisplayTile,
   GARDEN_HOME_DRIFT_TILES,
-  GARDEN_MAX_MOTION_TILES,
   gardenHomeOffsetWeight,
   selectGardenObservatorySlice,
   selectGardenTransientShip,
   selectRepresentativeShips,
 } from "./garden-observatory-slice";
+import { buildBaseMotionPlan, resolveShipMotionSample } from "./motion";
+import { MOTION_TRANSITION_SHARE } from "./motion-config";
 import { gardenShipWaterMarginTiles, isGardenShipWater } from "./garden-water-exclusion";
 import { tileToScreen } from "./projection";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
 
 describe("Garden Observatory slice", () => {
+  // Route construction is setup, shared by the full-fleet continuity check.
+  const voyageWorld = denseWorld();
+  const voyagePlan = buildBaseMotionPlan(voyageWorld);
   it("maps all nine semantic hull classes onto exactly six East-Asian families", () => {
     expect(GARDEN_SILHOUETTE_FOR_HULL).toEqual({
       "algo-junk": "junk",
@@ -235,106 +239,36 @@ describe("Garden Observatory slice", () => {
     expect(previousOffsetWeight).toBe(0);
   });
 
-  it("keeps long berths at their sample for berth states and caps open-water sailing", () => {
-    const world = denseWorld();
-    const placements = selectGardenObservatorySlice(world, null).ships;
-    const far = placements
-      .filter(({ ship }) => ship.dockVisits.length > 0)
-      .map((placement) => {
-        const nearest = placement.ship.dockVisits
-          .map((visit) => ({
-            tile: visit.mooringTile,
-            reach: Math.hypot(
-              visit.mooringTile.x - placement.ship.tile.x,
-              visit.mooringTile.y - placement.ship.tile.y,
-            ),
-          }))
-          .toSorted((left, right) => left.reach - right.reach)[0]!;
-        return { placement, ...nearest };
-      })
-      .filter(({ reach }) => reach > GARDEN_MAX_MOTION_TILES)
-      .toSorted((left, right) => right.reach - left.reach)[0];
-    expect(far).toBeDefined();
-    expect(far!.reach).toBeGreaterThan(GARDEN_MAX_MOTION_TILES);
-
-    const farMargin = gardenShipWaterMarginTiles(
-      gardenShipVisualScale(far!.placement.ship.visual.scale || 1),
-      GARDEN_SILHOUETTE_FOR_HULL[far!.placement.ship.visual.hull],
-    );
-    expect(isGardenShipWater(far!.tile, farMargin, false)).toBe(true);
-    for (const state of ["moored", "arriving", "departing"] as const) {
-      const display = resolveGardenShipDisplayTile({
-        ...far!.placement,
-        sample: { state, tile: far!.tile },
-      });
-      expect(display.x).toBeCloseTo(far!.tile.x, 8);
-      expect(display.y).toBeCloseTo(far!.tile.y, 8);
+  it("keeps sailing-to-arrival transitions continuous across long shore voyages", () => {
+    const world = voyageWorld;
+    const plan = voyagePlan;
+    let checked = 0;
+    for (const placement of selectGardenObservatorySlice(world, null).ships) {
+      const route = plan.shipRoutes.get(placement.ship.id)!;
+      if (!route.dockStops.length) continue;
+      const voyage = route.voyageDurationSeconds ?? route.legDurationSeconds;
+      const boundary = route.restDurationSeconds + voyage
+        + (route.riskRestDurationSeconds ?? route.restDurationSeconds)
+        + voyage * (1 - MOTION_TRANSITION_SHARE) - route.phaseSeconds;
+      const samples = [boundary - 0.001, boundary + 0.001].map((timeSeconds) =>
+        resolveShipMotionSample({ plan, ship: placement.ship, timeSeconds, reducedMotion: false }));
+      expect(samples.map((sample) => sample.state)).toEqual(["sailing", "arriving"]);
+      const points = samples.map((sample) => resolveGardenShipDisplayTile({ ...placement, sample }));
+      expect(Math.hypot(points[1]!.x - points[0]!.x, points[1]!.y - points[0]!.y),
+        placement.ship.id).toBeLessThan(0.05);
+      checked += 1;
     }
-
-    // Find a deterministic open-water leg longer than the display cap whose
-    // capped composition also stays on open water. That makes the assertion
-    // about the sailing cap itself, rather than a nearest-water correction.
-    const sailingDistance = GARDEN_MAX_MOTION_TILES + 20;
-    let openWaterSailing: {
-      placement: typeof placements[number];
-      sample: { x: number; y: number };
-      base: { x: number; y: number };
-      expected: { x: number; y: number };
-    } | undefined;
-    for (const placement of placements) {
-      if (!placement.representative) continue;
-      const margin = gardenShipWaterMarginTiles(
-        gardenShipVisualScale(placement.ship.visual.scale || 1),
-        GARDEN_SILHOUETTE_FOR_HULL[placement.ship.visual.hull],
-      );
-      for (let angle = 0; angle < 360; angle += 1) {
-        const radians = angle * Math.PI / 180;
-        const direction = { x: Math.cos(radians), y: Math.sin(radians) };
-        const sample = {
-          x: placement.ship.tile.x + direction.x * sailingDistance,
-          y: placement.ship.tile.y + direction.y * sailingDistance,
-        };
-        const motionX = sample.x - placement.ship.tile.x;
-        const motionY = sample.y - placement.ship.tile.y;
-        const motionDistance = Math.hypot(motionX, motionY);
-        const offsetWeight = gardenHomeOffsetWeight(placement.ship, motionDistance);
-        const base = {
-          x: placement.ship.tile.x + placement.displayOffset.x * offsetWeight,
-          y: placement.ship.tile.y + placement.displayOffset.y * offsetWeight,
-        };
-        const expected = {
-          x: base.x + motionX * GARDEN_MAX_MOTION_TILES / motionDistance,
-          y: base.y + motionY * GARDEN_MAX_MOTION_TILES / motionDistance,
-        };
-        if (isGardenShipWater(sample, margin, true) && isGardenShipWater(expected, margin, true)) {
-          openWaterSailing = { placement, sample, base, expected };
-          break;
-        }
-      }
-      if (openWaterSailing) break;
-    }
-    expect(openWaterSailing).toBeDefined();
-    const sailingDisplay = resolveGardenShipDisplayTile({
-      ...openWaterSailing!.placement,
-      sample: { state: "sailing", tile: openWaterSailing!.sample },
-    });
-    expect(sailingDisplay.x).toBeCloseTo(openWaterSailing!.expected.x, 8);
-    expect(sailingDisplay.y).toBeCloseTo(openWaterSailing!.expected.y, 8);
-    expect(Math.hypot(
-      sailingDisplay.x - openWaterSailing!.base.x,
-      sailingDisplay.y - openWaterSailing!.base.y,
-    )).toBeCloseTo(GARDEN_MAX_MOTION_TILES, 8);
+    expect(checked).toBeGreaterThan(100);
   });
 
-  it("keeps representative motion bounded and materializes transients on hull-safe water", () => {
+  it("keeps representative voyages and transients on hull-safe water", () => {
     const world = denseWorld();
     const placement = selectGardenObservatorySlice(world, null).ships.find(({ displayOffset }) => (
       displayOffset.x !== 0 || displayOffset.y !== 0
     ));
     expect(placement).toBeDefined();
-    // Aim inward. The motion contribution remains capped; if that composed
-    // point still meets authored geography, the final hull field may move it
-    // farther to the nearest valid water instead of preserving an unsafe cap.
+    // Aim a long voyage inward; the final hull field still owns water safety.
+    const voyageDistance = 104;
     const inward = {
       x: 70 - placement!.ship.tile.x - placement!.displayOffset.x,
       y: 70 - placement!.ship.tile.y - placement!.displayOffset.y,
@@ -344,26 +278,14 @@ describe("Garden Observatory slice", () => {
       mapVisibilityAlpha: 0,
       state: "sailing" as const,
       tile: {
-        x: placement!.ship.tile.x + (inward.x / inwardLength) * (GARDEN_MAX_MOTION_TILES + 8),
-        y: placement!.ship.tile.y + (inward.y / inwardLength) * (GARDEN_MAX_MOTION_TILES + 8),
+        x: placement!.ship.tile.x + (inward.x / inwardLength) * voyageDistance,
+        y: placement!.ship.tile.y + (inward.y / inwardLength) * voyageDistance,
       },
     };
-    // The berth offset fades with voyage distance, so the cap is measured from
-    // the berth the composition actually used at this distance.
-    const offsetWeight = gardenHomeOffsetWeight(placement!.ship, GARDEN_MAX_MOTION_TILES + 8);
-    const representativeBase = {
-      x: placement!.ship.tile.x + placement!.displayOffset.x * offsetWeight,
-      y: placement!.ship.tile.y + placement!.displayOffset.y * offsetWeight,
-    };
-
     const representativeDisplay = resolveGardenShipDisplayTile({
       ...placement!,
       sample,
     });
-    expect(Math.hypot(
-      representativeDisplay.x - representativeBase.x,
-      representativeDisplay.y - representativeBase.y,
-    )).toBeGreaterThanOrEqual(GARDEN_MAX_MOTION_TILES - 1e-6);
     const representativeMargin = gardenShipWaterMarginTiles(
       gardenShipVisualScale(placement!.ship.visual.scale || 1),
       GARDEN_SILHOUETTE_FOR_HULL[placement!.ship.visual.hull],

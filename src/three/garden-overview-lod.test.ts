@@ -106,7 +106,6 @@ describe("createGardenOverviewLod", () => {
     expect(new Set(OVERVIEW_LOD_DETAIL_NAMES).size).toBe(OVERVIEW_LOD_DETAIL_NAMES.length);
     expect(OVERVIEW_LOD_DETAIL_NAMES).toEqual(expect.arrayContaining([
       "island-koi",
-      "island-niwaki",
     ]));
     expect([...Object.keys(STATION_SCALE_LADDER)].sort()).toEqual([...CURRENT_STATION_TYPES].sort());
     // The path is now a primary island read, not a toy-scale gravel apron.
@@ -126,7 +125,6 @@ describe("createGardenOverviewLod", () => {
       if (object.visible) visibleNames.add(object.name);
     });
     const shedNames = [
-      "dock-chain-flag",
       "dock-lamp-heads",
       "dock-posts",
       "harbor-netRack",
@@ -139,6 +137,7 @@ describe("createGardenOverviewLod", () => {
     // Mole and the ordinary archetypes share these buckets, so they must
     // remain at whole-map framing even as the furniture fades.
     const structuralNames = [
+      "dock-chain-flag",
       "harbor-timber",
       "harbor-stone",
       "harbor-metal",
@@ -149,6 +148,11 @@ describe("createGardenOverviewLod", () => {
       "harbor-reedClump",
     ];
     expect(structuralNames.every((name) => !OVERVIEW_LOD_DETAIL_NAMES.includes(name))).toBe(true);
+    const flag = batch.root.getObjectByName("dock-chain-flag")!;
+    const lod = createGardenOverviewLod(batch.root);
+    lod.update({ zoom: 0.28, reducedMotion: true, deltaSeconds: 0 });
+    expect(flag.visible).toBe(true);
+    expect(flag.scale).toEqual(new Vector3(1, 1, 1));
     expect(structuralNames.filter((name) => visibleNames.has(name)).length).toBeGreaterThan(0);
     expect([...allNames]
       .filter((name) => name.startsWith("harbor-fine-"))

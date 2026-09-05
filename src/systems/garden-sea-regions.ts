@@ -260,7 +260,7 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   },
   // Watch's long parallel ripples UP; generic isotropic ripple grain DOWN.
   watch: {
-    tint: "#287687",
+    tint: "#357f9a",
     swell: 0.74, chop: 0.72, foam: 0.11, reflectivity: 1.18, depth: 1.01,
     tintStrength: 0.64, flowBearing: 1.41, flowHold: 0.86, normalDetail: 0.54,
     crossedNormal: 0.06, shallowShelf: 0,
@@ -268,7 +268,7 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   },
   // Alert's channel-axis current streaks UP; generic crossed chop DOWN.
   alert: {
-    tint: "#647970",
+    tint: "#73845b",
     swell: 1.02, chop: 1.18, foam: 0.28, reflectivity: 0.86, depth: 0.9,
     tintStrength: 0.66, flowBearing: -1.48, flowHold: 0.98, normalDetail: 0.86,
     crossedNormal: 0.08, shallowShelf: 0,
@@ -276,7 +276,7 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   },
   // Warning's pale shelf and short broken ripples UP; long shared swell DOWN.
   warning: {
-    tint: "#92947a",
+    tint: "#af9868",
     swell: 1.26, chop: 1.62, foam: 0.62, reflectivity: 0.64, depth: 0.8,
     tintStrength: 0.68, flowBearing: -1.3, flowHold: 0.9, normalDetail: 0.84,
     crossedNormal: 0.14, shallowShelf: 0.94,

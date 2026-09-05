@@ -8,10 +8,10 @@ import {
 } from "../systems/world-layout";
 
 /**
- * Where the sea steles stand, and how big their carved faces are — with no three.js in
+ * Where the sea boards stand, and how big their lettered faces are — with no three.js in
  * the module graph.
  *
- * The hit targets (N6) must resolve the steles exactly as the scene draws them,
+ * The hit targets (N6) must resolve the boards exactly as the scene draws them,
  * so this siting is shared rather than reimplemented. But the hit tester lives
  * in the world chunk and `garden-sea-signs.ts` imports three, so importing the
  * siting from there pulled the whole renderer across the lazy boundary: the
@@ -22,8 +22,8 @@ import {
 /** One world unit per tile, on the diagonal the isometric rig is built around. */
 export const TILE_SCALE = Math.SQRT2;
 
-// Low stele proportions in world units. The overview rung enlarges each whole
-// stele discretely; it is not continuous billboard compensation.
+// Low board proportions in world units. The overview rung enlarges each whole
+// board discretely; it is not continuous billboard compensation.
 export const STELE_WIDTH = 5.6;
 export const STELE_FACE_HEIGHT = 1.25;
 export const STELE_FACE_BASE_Y = 0.9;
@@ -34,7 +34,7 @@ export const STELE_DEPTH = 0.6;
  * multiply this by the renderer track's current scale.
  */
 export const SEA_SIGN_STELE = {
-  /** Height of the face's centre above the stele's own origin. */
+  /** Height of the face's centre above the board's own origin. */
   baseY: STELE_FACE_BASE_Y,
   height: STELE_FACE_HEIGHT,
   width: STELE_WIDTH,
@@ -43,7 +43,7 @@ export const SEA_SIGN_STELE = {
 } as const;
 
 /**
- * W2a fix: the stele is true-scale in the inhabited camera range and gets one
+ * W2a fix: the board is true-scale in the inhabited camera range and gets one
  * chart-scale overview rung below zoom 0.4.
  *
  * Screen size is proportional to worldScale x zoom, so a scale of k/zoom holds
@@ -56,12 +56,11 @@ export const SEA_SIGN_STELE = {
  * of the motion hierarchy is built for.
  *
  * The old three-step ladder preserved near-constant screen size, but the map
- * read as labels resisting the camera. Stone stele UP; billboard-like scale
- * compensation DOWN. One discrete far rung makes an active carving readable
+ * read as labels resisting the camera. One discrete far rung makes the lettering readable
  * on the chart without making it continuously fight the camera gesture.
  */
 /**
- * Stele world scale per step: inhabited world first, whole-map chart second.
+ * Board world scale per step: inhabited world first, whole-map chart second.
  */
 export const SEA_SIGN_SCALE_STEPS = [1, 2.6] as const;
 
@@ -124,7 +123,7 @@ export function seaSignStepWithHysteresis(zoom: number, currentStep: number): nu
 }
 
 /**
- * The SETTLED stele scale for a zoom, as a pure function.
+ * The SETTLED board scale for a zoom, as a pure function.
  *
  * This carries no history and is only a fallback for snapshots built before a
  * live renderer exists. Live hit targets consume `createSeaSignScaleTrack`'s
@@ -216,7 +215,7 @@ export function createSeaSignScaleTrack(): SeaSignScaleTrack {
   };
 }
 
-/** Where one stele ends up standing, in world units. */
+/** Where one board ends up standing, in world units. */
 export interface SeaSignSite {
   body: SeaBodyName;
   x: number;
@@ -226,7 +225,7 @@ export interface SeaSignSite {
 const MIN_SEPARATION = 11;
 
 /**
- * Every map tile touched by the stele at its maximum overview rung.
+ * Every map tile touched by the board at its maximum overview rung.
  *
  * Expanding the oriented rectangle by a tile cell's projected half-width is
  * conservative: if every returned tile is water, the full stone volume cannot
@@ -274,11 +273,11 @@ function footprintIsWater(site: Pick<SeaSignSite, "x" | "z">): boolean {
  * Steles begin at each body's camera-facing frontier, and neighbouring bodies
  * can present that frontier at nearly the same point. Candidates are searched
  * outward through that body's own water until both the maximum-scale physical
- * footprint and the inter-stele separation are clear.
+ * footprint and the inter-board separation are clear.
  *
  * The search is order-dependent, which is why this is shared rather than
  * reimplemented: the hit targets (N6) have to resolve the same final sites as
- * the scene, or a stele's target lands on its neighbour.
+ * the scene, or a board's target lands on its neighbour.
  */
 export function seaSignSites(bodies: readonly SeaBodyName[]): SeaSignSite[] {
   const sited: SeaSignSite[] = [];
@@ -301,13 +300,13 @@ export function seaSignSites(bodies: readonly SeaBodyName[]): SeaSignSite[] {
         bestDistance = distance;
       }
     }
-    // A missing sign is safer than a stele planted through land.
+    // A missing sign is safer than a board planted through land.
     if (best) sited.push(best);
   }
   return sited;
 }
 
-/** The area fields the stele list reads. Structural, so any world area fits. */
+/** The area fields the board list reads. Structural, so any world area fits. */
 export interface SeaSignArea {
   id?: string | null;
   band?: string | null;
@@ -316,7 +315,7 @@ export interface SeaSignArea {
   riskPlacement?: string | null;
 }
 
-/** A sited stele together with the detail its name opens, if it has one. */
+/** A sited board together with the detail its name opens, if it has one. */
 export interface SeaSignStele extends SeaSignSite {
   detailId: string;
   label: string;
@@ -327,7 +326,7 @@ export interface SeaSignStele extends SeaSignSite {
 const stelesByAreas = new WeakMap<readonly SeaSignArea[], readonly Readonly<SeaSignStele>[]>();
 
 /**
- * Every stele the world draws, in the order the renderer builds its specs —
+ * Every board the world draws, in the order the renderer builds its specs —
  * which is the order the separation nudge above depends on.
  */
 export function seaSignSteles(areas: readonly SeaSignArea[]): readonly Readonly<SeaSignStele>[] {

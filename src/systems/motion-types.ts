@@ -150,6 +150,8 @@ export interface ShipMotionRoute {
 }
 
 export interface ShipMotionSample {
+  /** Final water-safe presentation position, shared by render, hit testing and following. */
+  displayTile?: { x: number; y: number } | null;
   shipId: string;
   tile: { x: number; y: number };
   state: ShipMotionState;

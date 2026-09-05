@@ -1,3 +1,6 @@
+import { Vector3, Matrix4 } from "three";
+import { authorDock } from "../three/garden-docks";
+import { buildHitTargetSpatialIndex, hitTest, hitTestSpatial } from "./hit-testing";
 import { describe, expect, it } from "vitest";
 import {
   denseFixtureChains,
@@ -34,6 +37,42 @@ import {
 import { createGardenObservatoryHitTargetSnapshot } from "./garden-observatory-hit-testing";
 
 describe("Garden Observatory hit targets", () => {
+  it("picks authored flag cloth without swallowing the sea between flag and quay", () => {
+    const world = denseWorld();
+    for (const zoom of [0.28, 0.50184, 1.4]) {
+      const camera = { offsetX: 720, offsetY: 430, zoom };
+      const snapshot = createGardenObservatoryHitTargetSnapshot({ camera, world });
+      for (const dock of world.docks) {
+        const recipe = authorDock(dock, dock.tile, gardenIslandDisplayTile(world.lighthouse.tile));
+        const { placement } = recipe.flag;
+        const flag = snapshot.targets.find((target) => target.id === `${dock.id}.flag`)!;
+        const quay = snapshot.targetsByDetailId.get(dock.detailId)!;
+        expect(quay.id).toBe(dock.id);
+        for (const yaw of [-0.28, 0, 0.28]) for (const roll of [-0.06, 0.06]) {
+          const matrix = new Matrix4().makeTranslation(placement.x, placement.y, placement.z)
+            .multiply(new Matrix4().makeRotationY(placement.yaw + yaw))
+            .multiply(new Matrix4().makeRotationZ(roll))
+            .multiply(new Matrix4().makeTranslation(0.06, 0, 0))
+            .multiply(new Matrix4().makeScale(placement.scale, placement.scale, placement.scale));
+          matrix.premultiply(recipe.rootMatrix);
+          for (const x of [0, 1.5]) for (const y of [-0.63, 0.5]) {
+            const point = new Vector3(x, y, 0).applyMatrix4(matrix);
+            const screen = gardenTileToScreen({ x: point.x / Math.SQRT2, y: point.z / Math.SQRT2 }, point.y, camera);
+            expect(hitTest([flag, quay], screen)?.detailId, dock.chainId).toBe(dock.detailId);
+            expect(hitTestSpatial(buildHitTargetSpatialIndex([flag, quay]), screen)?.detailId, dock.chainId).toBe(dock.detailId);
+          }
+        }
+        const gap = {
+          x: (flag.rect.x + flag.rect.width / 2 + quay.anchor!.x) / 2,
+          y: (flag.rect.y + flag.rect.height / 2 + quay.anchor!.y) / 2,
+        };
+        if (Math.abs(flag.rect.y - quay.rect.y) > flag.rect.height + quay.rect.height) {
+          expect(hitTest([flag, quay], gap)).toBeNull();
+        }
+      }
+    }
+  });
+
   it("publishes the lighthouse, production docks, and the whole rendered fleet", () => {
     const world = denseWorld();
     const camera = { offsetX: 720, offsetY: 430, zoom: 1 };
@@ -45,7 +84,7 @@ describe("Garden Observatory hit targets", () => {
     // singletons. Every area also carries a carved name stele (W2a), which is a
     // second target on the SAME detail id rather than a new destination.
     expect(snapshot.targets).toHaveLength(
-      2 + slice.ships.length + world.docks.length + world.areas.length * 2 + world.graves.length,
+      2 + slice.ships.length + world.docks.length * 2 + world.areas.length * 2 + world.graves.length,
     );
     expect(snapshot.targets.filter((target) => target.kind === "sea-sign"))
       .toHaveLength(world.areas.length);
