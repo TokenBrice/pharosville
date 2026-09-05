@@ -137,4 +137,3 @@ the correct world/caveat records without an application crash, but assertions
 timed out. Chromium now explicitly disables WebGL under CI unless hardware is
 requested. Local real-GPU checks remain unchanged. Existing launch-argument
 regressions cover CI, local, explicit opt-in/out, and Firefox behavior.
-
