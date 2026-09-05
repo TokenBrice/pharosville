@@ -43,18 +43,17 @@ import { seaRegionBoundaryPoints, seaRegionIdForArea } from "../systems/garden-s
 const ELLIPSE_X = ZONE_ELLIPSE_X;
 const ELLIPSE_Z = ZONE_ELLIPSE_Z;
 
-// Z3 (Garden Sea palette contract): day-harmonized band hues. Each DEWS label
-// accent is pulled toward a HARBOR_PALETTE anchor so the charted rings sit
-// inside the ukiyo-e day grade — muted teal-green calm → deep amber warning →
-// ember danger (vermillion stays the reserved danger accent). The water
-// shader luminance-matches the tint against the live water color (contract
-// C2(a)), and DOM labels keep the raw DEWS accents, so hue is never the only
-// encoding. Ledger Mooring (band null) keeps its ink accent unharmonized.
+// Warm-village (2026-09-05): buoy dyes follow the newly cooler sea family
+// from green-teal calm through blue-teal warning. Increasing the cool-anchor
+// share keeps the intermediate DEWS gold/orange accents from painting warm
+// islands onto the water. Danger alone still resolves to reserved vermillion;
+// its blink and band name remain redundant non-hue encodings. Ledger Mooring
+// (band null) keeps its ink accent unharmonized.
 const ZONE_COLOR_HARMONY: Record<string, { anchor: string; mix: number }> = {
-  CALM: { anchor: HARBOR_PALETTE.sail_teal, mix: 0.55 },
-  WATCH: { anchor: HARBOR_PALETTE.sail_teal, mix: 0.3 },
-  ALERT: { anchor: HARBOR_PALETTE.lantern_warm, mix: 0.4 },
-  WARNING: { anchor: HARBOR_PALETTE.timber_warm, mix: 0.5 },
+  CALM: { anchor: HARBOR_PALETTE.shallow_teal_lit, mix: 0.65 },
+  WATCH: { anchor: HARBOR_PALETTE.shallow_teal_lit, mix: 0.58 },
+  ALERT: { anchor: HARBOR_PALETTE.shallow_teal_lit, mix: 0.86 },
+  WARNING: { anchor: HARBOR_PALETTE.shallow_teal, mix: 0.9 },
   DANGER: { anchor: HARBOR_PALETTE.vermillion, mix: 0.5 },
 };
 
@@ -81,10 +80,9 @@ const ZONE_COLOR_HARMONY: Record<string, { anchor: string; mix: number }> = {
 // The old weights existed to force separation out of tints that were fighting
 // the sea rather than belonging to it. Now that every ZONE_THEMES water base
 // sits in the sea's own blue-green family and separates by LIGHTNESS, less
-// weight reads as more: the day palette's jade ramp shows through, and the
-// regions still part because value and character (swell, chop, foam,
-// reflectivity) carry them. Laying a water colour on at 0.44 was what turned
-// 43% of the sea cyan and buried the authored teal underneath it.
+// weight reads as more: the authored teal ramp shows through, and the regions
+// still part because value and character (swell, chop, foam, reflectivity)
+// carry them.
 const REGION_TINT_STRENGTH_BAND = 0.18;
 const REGION_TINT_STRENGTH_DANGER = 0.24;
 
@@ -195,11 +193,11 @@ function zoneBandColor(area: AreaNode): Color {
  * operator's report that the sea zones need clarifying.
  *
  * `ZONE_THEMES[terrain].base` is already the theme bridge's WATER colour for
- * each terrain, and it is already a naturalistic ramp — cyan-blue calm, teal
- * watch, green alert, olive warning, ink storm, slate ledger. Using it means
- * no anchor collapse is needed: every region is inside a water gamut to begin
- * with, so hue AND value separate, and the invariant that zone colour comes
- * from the shared palette bridge is satisfied more directly than before.
+ * each terrain, and it is now a naturalistic hue/value ramp — green-teal calm
+ * through progressively bluer, darker danger, with slate ledger outside the
+ * analytical ladder. No anchor collapse is needed: every region is inside a
+ * water gamut to begin with, so hue and value separate while the shared
+ * palette bridge remains the single source of truth.
  */
 function zoneSeaColor(area: AreaNode): Color {
   const placement = area.riskPlacement

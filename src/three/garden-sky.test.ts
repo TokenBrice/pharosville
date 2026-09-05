@@ -1,7 +1,7 @@
 import { Color, InstancedMesh, Mesh, PlaneGeometry, ShaderMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { HARBOR_PALETTE } from "../systems/palette";
-import { defaultCamera } from "../systems/camera";
+import { defaultCamera, GARDEN_DEFAULT_CAMERA_ZOOM } from "../systems/camera";
 import { gardenCameraViewHeight } from "../systems/garden-observatory-slice";
 import { buildPharosVilleMap } from "../systems/world-layout";
 import {
@@ -338,7 +338,7 @@ describe("garden sky aerial perspective", () => {
   it("leaves the island at zero haze, so the graded monument cannot shift", () => {
     const { near } = fogRangeAtViewHeight(DEFAULT_VIEW_HEIGHT);
     // The island spans ground depth ~155-195 at the calibration framing and its
-    // near half is what the AgX/ortho grade was pinned against.
+    // near half is what the tone-mapped ortho grade was pinned against.
     expect(near).toBeGreaterThanOrEqual(178);
   });
 
@@ -352,12 +352,21 @@ describe("garden sky aerial perspective", () => {
     expect(fogAt(232, near, far)).toBeLessThan(0.482);
   });
 
-  it("halves the former day midground fog contribution", () => {
+  it("starts the rest ladder ~70% up the frame, so fog is far-field only", () => {
     const { far, near } = fogRangeAtViewHeight(DEFAULT_VIEW_HEIGHT);
-    // The pre-frame day ladder measured 0.139 at depth 195. Doubling only the
-    // ramp span preserves its near plane and yields half that haze (~0.0697).
-    expect(fogAt(195, near, far)).toBeGreaterThan(0.065);
-    expect(fogAt(195, near, far)).toBeLessThan(0.075);
+    // Warm-village (2026-09-05, preview step 2): at the 1.0 rest the visible
+    // ground span is ~125–250 wu, and the W6.8 unit ladder (near 178) fogged
+    // from ~40% up — with the ember dye that read as an orange wash over half
+    // the picture. The authored rest ladder (FOG_MIN_SCALE ~1.21) leaves the
+    // island AND the midground ships at exactly zero haze, lifts first past
+    // ~215 wu (~72% up the span), and still grades the frame top (~0.12 at
+    // the doubled day span) so the seam dissolves without owning a third of
+    // the frame.
+    expect(fogAt(195, near, far)).toBe(0);
+    expect(fogAt(212, near, far)).toBe(0);
+    expect(fogAt(225, near, far)).toBeGreaterThan(0);
+    expect(fogAt(250, near, far)).toBeGreaterThan(0.05);
+    expect(fogAt(250, near, far)).toBeLessThan(0.2);
   });
 
   it("still pulls haze in at whole-map framing, per the W6.6 hard-edge finding", () => {
@@ -365,6 +374,21 @@ describe("garden sky aerial perspective", () => {
     // Capped by FOG_MAX_SCALE. The old ladder put the near plane at 288 here and
     // the map edge resolved as a hard diamond slab in a void.
     expect(wide.near).toBeLessThan(288);
+  });
+
+  it("pivots the fog scale on the real default framing, so rest keeps the ladder on", () => {
+    // Aerial-perspective contract: FOG_REFERENCE_VIEW_HEIGHT must track the
+    // default view height (gardenCameraViewHeight(1000, GARDEN_DEFAULT_CAMERA_ZOOM)).
+    // A pivot stranded at an old framing (34 was the 2026-08-13 bug; so is any
+    // value far below the current 1.0 rest zoom's ~62.5) clamps the scale to
+    // its 1.5 maximum at rest, pushes the near plane past everything visible
+    // and silently switches the whole system off. At the default framing the
+    // ladder must run at its authored scale, not the wide-framing cap.
+    const rest = fogRangeAtViewHeight(
+      gardenCameraViewHeight(1000, GARDEN_DEFAULT_CAMERA_ZOOM),
+    );
+    expect(rest.near).toBeGreaterThanOrEqual(178);
+    expect(rest.near).toBeLessThan(178 * 1.25);
   });
 });
 

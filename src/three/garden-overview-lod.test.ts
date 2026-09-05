@@ -1,9 +1,23 @@
-import { BoxGeometry, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Vector3 } from "three";
+import {
+  DataTexture,
+  BoxGeometry,
+  Group,
+  InstancedMesh,
+  Matrix4,
+  Mesh,
+  MeshBasicMaterial,
+  RGBAFormat,
+  Vector3,
+} from "three";
 import { describe, expect, it } from "vitest";
 import { STATION_SCALE_LADDER } from "../systems/dock-layout";
 import { dockFixture, DISPLAY_TILES, ISLAND_TILE } from "./__fixtures__/harbor";
 import { authorDock, type StationType } from "./garden-docks";
 import { createGardenHarborBatch } from "./garden-harbor-batch";
+import {
+  createGardenStationSmoke,
+  stationSmokeSpecs,
+} from "./garden-station-smoke";
 import {
   createGardenOverviewLod,
   OVERVIEW_LOD_DETAIL_NAMES,
@@ -98,7 +112,6 @@ describe("overviewLodTargetDetail", () => {
     }
   });
 });
-
 describe("createGardenOverviewLod", () => {
   it("names props the composed world still builds", () => {
     // Guard against an upstream rename silently un-culling the overview frame.
@@ -106,13 +119,26 @@ describe("createGardenOverviewLod", () => {
     expect(new Set(OVERVIEW_LOD_DETAIL_NAMES).size).toBe(OVERVIEW_LOD_DETAIL_NAMES.length);
     expect(OVERVIEW_LOD_DETAIL_NAMES).toEqual(expect.arrayContaining([
       "island-koi",
+      // Warm-village A6: both camera-near foreground masses shed with the
+      // rest of the skirt furniture below the band.
+      "garden-rim-foreground-pines",
+      "garden-rim-foreground-torii",
+      // Warm-village D3: the station chimneys' whole-ring smoke group sheds
+      // with the other sub-silhouette harbour furniture.
+      "dock-station-smoke",
     ]));
+    expect(OVERVIEW_LOD_WHOLE_RING_NAMES).toContain("dock-station-smoke");
     expect([...Object.keys(STATION_SCALE_LADDER)].sort()).toEqual([...CURRENT_STATION_TYPES].sort());
     // The path is now a primary island read, not a toy-scale gravel apron.
     expect(OVERVIEW_LOD_DETAIL_NAMES).not.toContain("island-path-sweep");
     // Fine station detail has its own hover/inspect gate and must not be
     // made visible by this overview policy.
     expect(OVERVIEW_LOD_DETAIL_NAMES.some((name) => name.startsWith("harbor-fine-"))).toBe(false);
+    // The foreground masses are localized props at their own world position,
+    // so they shrink in place rather than fading whole-ring like the origin
+    // groups whose instance matrices carry the ring's transform.
+    expect(OVERVIEW_LOD_WHOLE_RING_NAMES).not.toContain("garden-rim-foreground-pines");
+    expect(OVERVIEW_LOD_WHOLE_RING_NAMES).not.toContain("garden-rim-foreground-torii");
   });
 
   it("sheds only harbor greebles while retaining structural station breaks", () => {
@@ -244,6 +270,34 @@ describe("createGardenOverviewLod", () => {
     // It still sheds at the same zoom as everything else.
     lod.update({ ...SNAP, zoom: 0.28 });
     expect(prop.visible).toBe(false);
+  });
+
+  it("sheds the real station chimney smoke whole-ring without moving a puff anchor", () => {
+    const batch = overviewHarborBatch();
+    const root = new Group();
+    root.add(batch.root);
+    const noise = new DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1, RGBAFormat);
+    const smoke = createGardenStationSmoke(stationSmokeSpecs(batch.docks), noise);
+    root.add(smoke.root);
+    const mesh = smoke.root.getObjectByName("dock-station-smoke-puffs") as InstancedMesh;
+    const anchors = mesh.geometry.getAttribute("aAnchor");
+    const anchorsBefore = Array.from(anchors.array as Float32Array);
+    const lod = createGardenOverviewLod(root);
+
+    lod.update({ ...SNAP, zoom: 0.53 });
+
+    // Whole-ring group: mid-band it is only ever shown or hidden — its puff
+    // anchors are world positions inside one instanced mesh, so shrinking the
+    // group would slide every chimney toward the map centre.
+    expect(smoke.root.visible).toBe(true);
+    expect(smoke.root.scale.toArray()).toEqual([1, 1, 1]);
+    expect(smoke.root.position.toArray()).toEqual([0, 0, 0]);
+    expect(Array.from(anchors.array as Float32Array)).toEqual(anchorsBefore);
+
+    lod.update({ ...SNAP, zoom: 0.28 });
+    expect(smoke.root.visible).toBe(false);
+    smoke.dispose();
+    batch.dispose();
   });
 
   it("fades the foreground pine silhouette without moving its instances", () => {

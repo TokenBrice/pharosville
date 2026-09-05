@@ -20,7 +20,12 @@ import {
 } from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dayCyclePhase } from "./garden-day-cycle";
-import { createGardenPost, gardenGodRayLowSunGate, type GardenPost } from "./garden-post";
+import {
+  createGardenPost,
+  gardenGodRayLowSunGate,
+  GARDEN_TONE_MAPPING,
+  type GardenPost,
+} from "./garden-post";
 import { gardenKeyLightPose } from "./garden-sun";
 
 const postHarness = vi.hoisted(() => {
@@ -111,7 +116,7 @@ vi.mock("n8ao", () => {
 vi.mock("postprocessing", () => {
   const BlendFunction = { ADD: "ADD", SRC: "SRC" };
   const EffectAttribute = { CONVOLUTION: 2, DEPTH: 1 };
-  const ToneMappingMode = { AGX: "AGX" };
+  const ToneMappingMode = { AGX: "AGX", NEUTRAL: "NEUTRAL" };
 
   class FakeEffect {
     attributes: number;
@@ -543,7 +548,7 @@ describe("garden post-processing contracts", () => {
     ));
     // W1.1: the authored cube is the LAST effect of the grade pass, not a
     // fourth pass. Its position after ToneMappingEffect is the contract — a LUT
-    // ahead of AgX would be graded on values it has no entries for.
+    // ahead of the tone mapper would be graded on values it has no entries for.
     // W2.3/W2.4: the two hero atmosphere stages join the SAME pass, ahead of
     // the grade, so the softened pixels and the shafts are graded and
     // tone-mapped with the rest of the frame instead of painted over it — and
@@ -577,7 +582,12 @@ describe("garden post-processing contracts", () => {
       (candidate as FakeEffect).name === "ToneMappingEffect"
     )) as FakeEffect[];
     expect(toneEffects).toHaveLength(1);
-    expect(toneEffects[0]?.toneMappingOptions).toEqual({ mode: "AGX" });
+    // B5 (2026-09-05): the mode follows the ONE exported switch — the same
+    // constant world-renderer feeds renderer.toneMapping — so the A/B cannot
+    // leave the post chain and the renderer on different curves.
+    expect(toneEffects[0]?.toneMappingOptions).toEqual({
+      mode: GARDEN_TONE_MAPPING === "neutral" ? "NEUTRAL" : "AGX",
+    });
     expect(composer.passes.at(-1)?.renderToScreen).toBe(true);
     expect(composer.passes.slice(0, -1).every((pass) => !pass.renderToScreen)).toBe(true);
     expect(effectNamed("SMAAEffect").attributes).toBe(2);
@@ -754,7 +764,11 @@ describe("garden post-processing contracts", () => {
     expect(colorUniform(grade, "lift")[0]).toBeCloseTo(0.006);
     expect(colorUniform(grade, "lift")[1]).toBeCloseTo(0.006);
     expect(colorUniform(grade, "lift")[2]).toBeCloseTo(0.008);
-    expect(numberUniform(grade, "saturation")).toBe(1.06);
+    // B6 (2026-09-05): 1.06 -> 1.15 — the ember hour buys back the mid chroma
+    // the tone curve compresses; 0.36 -> 0.28 — the fogged frame top is no
+    // longer double-darkened by the corner falloff.
+    expect(numberUniform(grade, "saturation")).toBe(1.15);
+    expect(numberUniform(grade, "vignette")).toBe(0.28);
     expect(numberUniform(grade, "vignetteBias")).toBe(0.35);
     expect(bloom.intensity).toBe(0.85);
     expect(bloom.luminanceMaterial.threshold).toBe(1.15);
@@ -767,9 +781,9 @@ describe("garden post-processing contracts", () => {
     expect(colorUniform(grade, "lift")[1]).toBeCloseTo(0.004);
     expect(colorUniform(grade, "lift")[2]).toBeCloseTo(0.006);
     expect(numberUniform(grade, "saturation")).toBe(0.97);
-    // 0.32 since 2026-08-13, up from 0.24 — the day was the outlier against
-    // dusk and night at 0.36, and with real haze in the far field the frame has
-    // the range to carry it.
+    // 0.32 since 2026-08-13, up from 0.24 — the day was the outlier, and with
+    // real haze in the far field the frame has the range to carry it (dusk
+    // stepped down to 0.28 and night sits at 0.25 in the 2026-09-05 pass).
     expect(numberUniform(grade, "vignette")).toBe(0.32);
     expect(numberUniform(grade, "vignetteBias")).toBe(0.45);
     expect(bloom.intensity).toBe(0.92);
@@ -934,7 +948,7 @@ describe("garden post-processing contracts", () => {
     expect(n8ao.configuration.intensity).toBeGreaterThan(performanceAOIntensity);
     expect(n8ao.configuration.aoRadius).toBeLessThan(2);
     expect(n8ao.configuration.aoRadius).toBeGreaterThan(1.4);
-    expect(numberUniform(tiltShift, "strength")).toBeLessThan(0.72);
+    expect(numberUniform(tiltShift, "strength")).toBeLessThan(0.6);
     expect(numberUniform(tiltShift, "strength")).toBeGreaterThan(0);
     expect(numberUniform(godRays, "rayWeight")).toBeLessThan(0.02);
     expect(numberUniform(godRays, "rayWeight")).toBeGreaterThan(0);
@@ -958,13 +972,13 @@ describe("garden post-processing contracts", () => {
     expect(n8ao.configuration.intensity).toBeGreaterThan(performanceAOIntensity);
     expect(n8ao.configuration.intensity).toBeLessThan(awakeAOIntensity);
     expect(numberUniform(tiltShift, "strength")).toBeGreaterThan(0);
-    expect(numberUniform(tiltShift, "strength")).toBeLessThan(0.72);
+    expect(numberUniform(tiltShift, "strength")).toBeLessThan(0.6);
     expect(numberUniform(godRays, "rayWeight")).toBeGreaterThan(0);
     expect(numberUniform(godRays, "rayWeight")).toBeLessThan(0.02);
     for (let frame = 0; frame < 90; frame += 1) post.render(1 / 60);
     expect(n8ao.configuration.intensity).toBe(awakeAOIntensity);
     expect(n8ao.configuration.aoRadius).toBe(2);
-    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.72);
+    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.6);
     expect(numberUniform(godRays, "rayWeight")).toBeCloseTo(0.02, 3);
 
     // A reduced-motion repaint is a complete static composition even if it
@@ -975,7 +989,7 @@ describe("garden post-processing contracts", () => {
     post.render(0);
     expect(n8ao.configuration.intensity).toBe(awakeAOIntensity);
     expect(n8ao.configuration.aoRadius).toBe(2);
-    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.72);
+    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.6);
     expect(numberUniform(godRays, "rayWeight")).toBeCloseTo(0.02, 3);
   });
 
@@ -987,9 +1001,11 @@ describe("garden post-processing contracts", () => {
     // W2.3 rides the SAME eased weight the AO does, because it is the same
     // tier decision — full/balanced on, below off, over a 180 ms ease driven
     // by world-renderer. It is a fidelity, not a colour.
-    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.72);
+    // B6 (2026-09-05): 0.72 -> 0.6 with gradient bias 0.32 -> 0.26 — one step
+    // down so the closer rest framing reads its far field through the haze.
+    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.6);
     post.setAOTierWeight(0.5);
-    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.36);
+    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.3);
     post.setAOTierWeight(0);
     expect(numberUniform(tiltShift, "strength")).toBe(0);
     post.setAOTierWeight(1);
@@ -997,7 +1013,7 @@ describe("garden post-processing contracts", () => {
     // Unlike AO, the band is expressed in view heights, so it says the same
     // thing at overview zoom as at detail zoom and must NOT ride the LOD fade.
     post.setAOZoomDetail(0);
-    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.72);
+    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.6);
     post.setAOZoomDetail(1);
 
     // Tier invariance: shedding the softening may not move a single grade
@@ -1076,8 +1092,10 @@ describe("garden post-processing contracts", () => {
     const lateAfternoon = rayWeightAt(17);
     const emberEvening = rayWeightAt(20);
 
-    // Dusk is the money shot: the arc floors the key light at 0.12 rad there,
-    // the window is wide open, and the dusk row is the densest.
+    // Dusk is the money shot: by 19:00 the sun is down to ~0.086 rad (below
+    // the former 0.12 floor and no longer floored there since the 2026-09-05
+    // ember-hour re-base), the window is wide open, and the dusk row is the
+    // densest.
     expect(dusk).toBeCloseTo(0.02, 3);
     // Dawn is the same window from the other side, but the sun is already
     // ~19° up: present and deliberately paler.

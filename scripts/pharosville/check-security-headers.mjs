@@ -33,15 +33,19 @@ export const REQUIRED_PERMISSIONS_POLICY_FEATURES = [
   "xr-spatial-tracking",
 ];
 
+// `img-src blob:` and `script-src 'wasm-unsafe-eval'` are load-bearing for the
+// world, not hardening slack: SVG fleet logos decode through object URLs and
+// every runtime GLB is meshopt-compressed, so a policy without them silently
+// ships the procedural fallback lighthouse, fallback hulls and blank sails.
 const REQUIRED_CSP_DIRECTIVES = {
   "base-uri": ["'self'"],
   "connect-src": ["'self'"],
   "default-src": ["'self'"],
   "form-action": ["'self'"],
   "frame-ancestors": ["'none'"],
-  "img-src": ["'self'"],
+  "img-src": ["'self'", "blob:"],
   "object-src": ["'none'"],
-  "script-src": ["'self'"],
+  "script-src": ["'self'", "'wasm-unsafe-eval'"],
   "style-src": ["'self'"],
 };
 

@@ -18,6 +18,7 @@ import {
 } from "./garden-sail-texture";
 import { Color } from "three";
 
+const arc = vi.fn();
 const addColorStop = vi.fn();
 const drawImage = vi.fn();
 const fill = vi.fn();
@@ -27,6 +28,7 @@ const stroke = vi.fn();
 const strokeRect = vi.fn();
 
 beforeEach(() => {
+  arc.mockClear();
   addColorStop.mockClear();
   drawImage.mockClear();
   fill.mockClear();
@@ -104,12 +106,19 @@ describe("sail identity field", () => {
     // cue; the disc-free extraction remains only as a resilient fallback.
     expect(drawImage).toHaveBeenCalledOnce();
     expect(drawImage.mock.calls[0]![0]).toBe(image);
-    // Square, centred, and contained inside the plate.
+    // Square, centred, and contained inside the plate (2026-09-05 C4: span
+    // 0.9 — the brand mark fills more of the sail at the 1.0 rest).
     const [, x, y, width, height] = drawImage.mock.calls[0]!;
-    expect(width).toBeCloseTo(128 * 0.78);
-    expect(height).toBeCloseTo(128 * 0.78);
-    expect(x).toBeCloseTo(64 - (128 * 0.78) / 2);
-    expect(y).toBeCloseTo(64 - (128 * 0.78) / 2);
+    expect(width).toBeCloseTo(128 * 0.9);
+    expect(height).toBeCloseTo(128 * 0.9);
+    expect(x).toBeCloseTo(64 - (128 * 0.9) / 2);
+    expect(y).toBeCloseTo(64 - (128 * 0.9) / 2);
+    // The plate radius follows the span: both the plate fill and the mark's
+    // clip circle draw at (64, 64) r=62, wrapping the 57.6px axial
+    // half-extent with a 4.4px shoulder while the rim keeps a 2px zero-alpha
+    // margin inside the 128px cell, so neighbouring atlas cells stay clean.
+    expect(arc).toHaveBeenCalledTimes(2);
+    expect(arc).toHaveBeenCalledWith(64, 64, 62, 0, Math.PI * 2);
   });
 
   it("falls back to the extracted emblem when the full logo cannot draw", () => {
@@ -129,7 +138,7 @@ describe("sail identity field", () => {
 
 function fakeContext(): CanvasRenderingContext2D {
   return {
-    arc: vi.fn(),
+    arc,
     beginPath: vi.fn(),
     bezierCurveTo: vi.fn(),
     clip: vi.fn(),

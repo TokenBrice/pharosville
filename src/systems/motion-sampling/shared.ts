@@ -33,12 +33,14 @@ export function createShipMotionSample(): ShipMotionSample {
     mapVisibilityAlpha: 1,
     wakeIntensity: 0,
     seaState: null,
+    segment: null,
     riskTransition: null,
   };
 }
 
 export function resetSampleChoreography(out: ShipMotionSample): void {
   out.seaState = null;
+  out.segment = null;
   out.mapVisibilityAlpha = 1;
   out.riskTransition = null;
 }

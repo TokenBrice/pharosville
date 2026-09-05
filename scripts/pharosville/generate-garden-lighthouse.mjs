@@ -52,28 +52,21 @@ const STONE_HIGH = new Color("#f7edca");
 // break between lit face and shadowed joint.
 const STONE_OCCLUDED = new Color("#3d4551");
 
-// L1 silhouette contract (Pharos Wonder 2026-07-24, decision D1 — supersedes
-// D-L1's 30-unit "epic, not bigger" call): the attested three-tier Pharos of
-// Alexandria, 34 units to the sceptre tip. Battered square tier (white-marble
-// ramp) → octagonal drum with corbel table and Triton corner finials → short
-// cylindrical drum → open bronze brazier (beacon) → bronze-gilt Zeus Soter
-// statue. Anchors match GARDEN_LIGHTHOUSE_BEACON_Y / _HEIGHT exactly.
-//
-// W4 (grand-scale revamp 2026-07-25) keeps every number below untouched: the
-// MASS was right, the SURFACE was not. Everything added in this revision is
-// cladding, relief, and AO inside the same silhouette.
+// Monumental Pharos: battered square keep, octagonal drum, open lantern,
+// conical cap and Zeus Soter. Shared anchors match the procedural shell.
 const TERRACE_TOP_Y = 2.5;
-const SQUARE_TOP_Y = 17.5;
-const SQUARE_BASE_HALF = 3.4;
-const SQUARE_TOP_HALF = 2.9;
-const OCT_BASE_Y = 17.5;
-const OCT_TOP_Y = 26;
-const OCT_BASE_RADIUS = 2.15;
-const OCT_TOP_RADIUS = 2.0;
-const CYL_TOP_Y = 29.5;
-const CYL_RADIUS = 1.35;
-const BEACON_Y = 30.1;
-const SCEPTRE_TIP_Y = 34;
+const SQUARE_TOP_Y = 20.5;
+const SQUARE_BASE_HALF = 4.6;
+const SQUARE_TOP_HALF = 3.7;
+const OCT_BASE_Y = SQUARE_TOP_Y;
+const OCT_TOP_Y = 29.0;
+const OCT_BASE_RADIUS = 2.75;
+const OCT_TOP_RADIUS = 2.5;
+const LANTERN_BASE_Y = 29.4;
+const LANTERN_TOP_Y = 32.8;
+const LANTERN_RADIUS = 1.9;
+const BEACON_Y = 30.2;
+const SCEPTRE_TIP_Y = 38;
 // A 4-segment cylinder rotated π/4 reads as a square shaft with a flat face
 // fronting +Z (same convention as OCT for the drums).
 const SQ = Math.PI / 4;
@@ -249,7 +242,6 @@ function createLighthouse() {
       new Vector3(...scale),
     );
     geometry.applyMatrix4(matrix);
-    if (transform.seat) seatOnGround(geometry);
     // Every material in this model is flat-shaded, so interpolated normals are
     // dead weight: three's GLTFLoader re-flags flatShading for any primitive
     // without NORMAL, and dropping the attribute lets mergeVertices weld each
@@ -315,9 +307,7 @@ function createLighthouse() {
       open,
     ), { position: [0, y, 0], rotation: [0, OCT, 0] });
 
-  // Battered square tier: half-width tapers 3.4 → 2.9 (Strabo's white-marble
-  // mass). A 4-segment cylinder rotated π/4 reads as a square shaft with a
-  // flat face fronting +Z.
+  // Square shaft, battered from 4.6 to 3.7 half-width; each face is +Z local.
   const squareHalf = (y) => SQUARE_BASE_HALF
     + (SQUARE_TOP_HALF - SQUARE_BASE_HALF)
       * (y - TERRACE_TOP_Y) / (SQUARE_TOP_Y - TERRACE_TOP_Y);
@@ -399,7 +389,9 @@ function createLighthouse() {
             courseY0,
             courseY0 + height,
           )) continue;
-          const relief = (hashUnit(course, faceIndex, block) - 0.5) * 0.042;
+          // Keep the quoin's 0.015 projection outermost, including at the
+          // stylobate: hash jitter must not shift the base-centre bounds.
+          const relief = (hashUnit(course, faceIndex, block) - 0.5) * 0.028;
           const out = inradius - bandInset + relief;
           const depth = out - (inradius - wallDepth);
           place(
@@ -415,38 +407,13 @@ function createLighthouse() {
     }
   };
 
-  // --- Waterline: rock cluster the terrace is rooted in (L2/L3). ------------
-  // Five displaced boulders in an odd Sakuteiki grouping, kept from v3 but
-  // tucked against the wider square terrace (they still poke past its edges
-  // and above the first step). Mirrored pairs keep the base-centre origin
-  // contract exact (bounds symmetry check below).
-  const mirroredRock = (radius, detail, jitter, position, scale, rotationY) => {
-    const rock = displacedRock(radius, detail, jitter);
-    add("stone", rock, { position, rotation: [0, rotationY, 0], scale, seat: true });
-    const twin = displacedRock(radius, detail, jitter);
-    add("stone", mirrorGeometry(twin), {
-      position: [-position[0], position[1], position[2]],
-      rotation: [0, -rotationY, 0],
-      scale,
-      seat: true,
-    });
-  };
-  mirroredRock(0.8, 2, 0.3, [3.95, 0.5, 1.45], [1.1, 0.8, 0.95], 0.6);
-  mirroredRock(0.6, 1, 0.35, [4.25, 0.5, -1.2], [1.0, 1.05, 0.9], 1.9);
-  add("stone", displacedRock(0.7, 1, 0.3), {
-    position: [0, 0.55, -4.2],
-    rotation: [0, 2.7, 0],
-    scale: [1.15, 0.85, 0.9],
-    seat: true,
-  });
-
   // --- Grand square terrace: three coursed steps up to the tower plinth. ----
   // Cores are sunk behind a single ring of facing blocks each, so the terrace
   // gets the same joint read as the shaft instead of three bare boxes.
   const terraceSteps = [
-    { half: 4.6, y0: 0, y1: 0.85 },
-    { half: 4.2, y0: 0.85, y1: 1.7 },
-    { half: 3.85, y0: 1.7, y1: 2.5 },
+    { half: 6.2, y0: 0, y1: 0.85 },
+    { half: 5.7, y0: 0.85, y1: 1.7 },
+    { half: 5.2, y0: 1.7, y1: 2.5 },
   ];
   for (const step of terraceSteps) {
     const core = (step.half - MORTAR_INSET) * 2;
@@ -468,28 +435,20 @@ function createLighthouse() {
   }
   registerCrease(TERRACE_TOP_Y, SQUARE_BASE_HALF);
 
-  // --- Square tier (y 2.5 → 17.5), ~44% of the height — the Pharos mass. ----
-  // W4.3 apertures: the elevated pylon doorway and a rhythm of arched slit
-  // windows, each cut through the ashlar skin so the reveal has real depth.
+  // Three disciplined window rows on every face make the lower keep read
+  // as an inhabited monumental building rather than a slender chimney.
   const SQUARE_FACES = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
-  const squareWindows = [
-    { face: 0, height: 1.35, sill: 5.1, u: 1.55, width: 0.66 },
-    { face: 0, height: 1.5, sill: 11.0, u: -1.45, width: 0.7 },
-    { face: 0, height: 1.3, sill: 14.5, u: -1.5, width: 0.62 },
-    { face: 1, height: 1.5, sill: 9.2, u: 0, width: 0.7 },
-    { face: 1, height: 1.35, sill: 13.1, u: 0.15, width: 0.66 },
-    { face: 1, height: 1.2, sill: 6.0, u: -1.7, width: 0.6 },
-    { face: 2, height: 1.4, sill: 14.3, u: -0.9, width: 0.68 },
-    { face: 2, height: 1.35, sill: 8.2, u: 1.25, width: 0.66 },
-    { face: 2, height: 1.3, sill: 11.4, u: -1.9, width: 0.62 },
-    { face: 3, height: 1.5, sill: 9.2, u: 0, width: 0.7 },
-    { face: 3, height: 1.35, sill: 13.1, u: -0.15, width: 0.66 },
-    { face: 3, height: 1.2, sill: 6.0, u: 1.7, width: 0.6 },
-  ];
-  const DOOR_U = 0.55;
-  const DOOR_WIDTH = 1.26;
-  const DOOR_SILL = 7.95;
-  const DOOR_HEIGHT = 1.9;
+  const squareWindows = SQUARE_FACES.flatMap((_, face) =>
+    [6.5, 11.5, 16.5].flatMap((sill) =>
+      [-2.25, 0, 2.25].map((u) => ({
+        face, height: 1.35, sill, u, width: 0.72,
+      })),
+    ),
+  );
+  const DOOR_U = 0;
+  const DOOR_WIDTH = 1.8;
+  const DOOR_SILL = 3.35;
+  const DOOR_HEIGHT = 2.05;
   const squareApertures = [
     ...squareWindows.map((window) => ({
       face: window.face,
@@ -519,7 +478,7 @@ function createLighthouse() {
   ashlarTier({
     apertures: squareApertures,
     blockWidth: 0.78,
-    courses: 28,
+    courses: 34,
     faceAngles: SQUARE_FACES,
     faceWidthAt: (y) => squareHalf(y) * 2,
     inradiusAt: squareHalf,
@@ -529,11 +488,8 @@ function createLighthouse() {
     y1: SQUARE_TOP_Y,
   });
 
-  // Plinth moulding where the battered shaft meets the terrace, and one
-  // string course splitting the 15-unit shaft into two readable registers.
-  // Both are chosen to clear every aperture, so the ring never slices a
-  // window reveal. They are also the two strongest AO creases on the tier.
-  for (const [y, height, project] of [[2.72, 0.44, 0.17], [4.5, 0.3, 0.13]]) {
+  // Projecting string courses divide the three window registers.
+  for (const [y, height, project] of [[2.72, 0.44, 0.17], [9.7, 0.24, 0.13], [14.7, 0.24, 0.13]]) {
     const half = squareHalf(y);
     add("stone", new CylinderGeometry(
       (half + project) * SQRT2,
@@ -557,11 +513,11 @@ function createLighthouse() {
   dentilCourse({
     depth: 0.16,
     faceAngles: SQUARE_FACES,
-    faceWidth: squareHalf(4.28) * 2,
+    faceWidth: squareHalf(20.05) * 2,
     height: 0.14,
-    inradius: squareHalf(4.28),
+    inradius: squareHalf(20.05),
     width: 0.13,
-    y: 4.28,
+    y: 20.05,
   });
 
   // --- W4.3 arched window reveals -------------------------------------------
@@ -632,8 +588,7 @@ function createLighthouse() {
   }
 
   // --- W4.3 bronze double doors ---------------------------------------------
-  // Elevated pylon doorway (~y 8, storm-raised per the coins): a deep reveal,
-  // two studded bronze leaves under a relieving arch, and a proud threshold.
+  // Tall recessed bronze portal above a broad frontal stair.
   const doorFace = squareHalf(DOOR_SILL + DOOR_HEIGHT / 2);
   const doorBack = doorFace - SQUARE_WALL_DEPTH + 0.06;
   add("stone", new BoxGeometry(DOOR_WIDTH + 0.9, DOOR_HEIGHT + DOOR_WIDTH / 2 + 0.7, 0.16), {
@@ -688,62 +643,13 @@ function createLighthouse() {
     position: [DOOR_U, DOOR_SILL + DOOR_HEIGHT - 0.02, doorBack + 0.1],
   });
 
-  // --- W4.3 the great ramp: a causeway spiralling the base ------------------
-  // Five inclined runs wrap the square tier anticlockwise from the terrace to
-  // the pylon door, each with a parapet, a coping course, and an arcade of
-  // piers carrying the deck — al-Balawi's fuel-hauling route. The path is a
-  // Chebyshev square at RAMP_OFFSET from each face, so its corners stay inside
-  // the terrace footprint and the model's bounds are untouched.
-  const RAMP_OFFSET = 4.05;
-  const RAMP_HALF_WIDTH = 0.4;
-  const rampRuns = [
-    { angle: 0, u0: -RAMP_OFFSET, u1: RAMP_OFFSET, y0: 2.62, y1: 3.72 },
-    { angle: Math.PI / 2, u0: -RAMP_OFFSET, u1: RAMP_OFFSET, y0: 3.72, y1: 4.82 },
-    { angle: Math.PI, u0: -RAMP_OFFSET, u1: RAMP_OFFSET, y0: 4.82, y1: 5.92 },
-    { angle: -Math.PI / 2, u0: -RAMP_OFFSET, u1: RAMP_OFFSET, y0: 5.92, y1: 7.02 },
-    { angle: 0, u0: -RAMP_OFFSET, u1: DOOR_U + 0.9, y0: 7.02, y1: DOOR_SILL - 0.11 },
-  ];
-  for (let runIndex = 0; runIndex < rampRuns.length; runIndex += 1) {
-    const run = rampRuns[runIndex];
-    const length = run.u1 - run.u0;
-    const rise = run.y1 - run.y0;
-    const pitch = Math.atan2(rise, length);
-    const midU = (run.u0 + run.u1) / 2;
-    const midY = (run.y0 + run.y1) / 2;
-    const deckLength = Math.hypot(length, rise);
-    place("stone", new BoxGeometry(deckLength, 0.2, RAMP_HALF_WIDTH * 2), run.angle, midU, midY, RAMP_OFFSET, pitch);
-    // Outer parapet plus its coping course.
-    place("stone", new BoxGeometry(deckLength, 0.46, 0.16), run.angle, midU, midY + 0.31, RAMP_OFFSET + RAMP_HALF_WIDTH - 0.07, pitch);
-    place("stone", new BoxGeometry(deckLength, 0.1, 0.26), run.angle, midU, midY + 0.57, RAMP_OFFSET + RAMP_HALF_WIDTH - 0.05, pitch);
-    registerOverhang(midY - 0.12, RAMP_OFFSET + RAMP_HALF_WIDTH, 0.7);
-    // Arcade underneath: piers down to whichever surface is below, with a
-    // five-voussoir arch head on the two lowest, most visible runs.
-    const supportY = runIndex === 0 ? 1.7 : run.y0 - 3.3;
-    const piers = 5;
-    for (let pier = 0; pier < piers; pier += 1) {
-      const t = (pier + 0.5) / piers;
-      const u = run.u0 + t * length;
-      const deckY = run.y0 + t * rise - 0.12;
-      const height = deckY - supportY;
-      if (height < 0.4) continue;
-      place("stone", new BoxGeometry(0.34, height, 0.42), run.angle, u, supportY + height / 2, RAMP_OFFSET);
-      if (runIndex > 1 || pier === piers - 1) continue;
-      const nextU = run.u0 + (pier + 1.5) / piers * length;
-      const bayHalf = (nextU - u) / 2;
-      const springY = deckY - 0.62;
-      for (let index = 0; index < 5; index += 1) {
-        const theta = Math.PI * (index + 0.5) / 5;
-        place(
-          "stone",
-          new BoxGeometry(0.3, 0.26, 0.36),
-          run.angle,
-          (u + nextU) / 2 + Math.cos(theta) * (bayHalf - 0.08),
-          springY + Math.sin(theta) * (bayHalf - 0.08) * 0.7,
-          RAMP_OFFSET,
-          theta - Math.PI / 2,
-        );
-      }
-    }
+  // Broad frontal stair, contained entirely on the stepped stylobate.
+  for (let step = 0; step < 6; step += 1) {
+    const height = (DOOR_SILL - TERRACE_TOP_Y) * (step + 1) / 6;
+    const depth = 1.25 - step * 0.16;
+    add("stone", new BoxGeometry(3.0, height, depth), {
+      position: [0, TERRACE_TOP_Y + height / 2, 4.65 + depth / 2],
+    });
   }
 
   // --- Votive frieze on the seaward face ------------------------------------
@@ -759,7 +665,7 @@ function createLighthouse() {
   // bronze ground, separated by paired fillets. Every feature is >= 0.3 units,
   // which reads as carved relief at overview zoom and as detail up close, and
   // cannot be mistaken for text at either.
-  const BAND_Y = 16.15;
+  const BAND_Y = 19.55;
   const bandFace = squareHalf(BAND_Y);
   add("stone", new BoxGeometry(5.1, 1.02, 0.14), {
     position: [0, BAND_Y, bandFace - 0.05],
@@ -807,45 +713,15 @@ function createLighthouse() {
     });
   }
 
-  // --- W4.3 corbel table and dentil cornice at the square/octagon joint ------
-  for (let index = 0; index < 8; index += 1) {
-    const angle = index * Math.PI / 4 + OCT;
-    add("stone", new BoxGeometry(0.32, 0.5, 0.62), {
-      position: [Math.sin(angle) * 2.62, 17.72, Math.cos(angle) * 2.62],
-      rotation: [0, angle, 0],
-    });
-  }
-  dentilCourse({
-    depth: 0.2,
-    faceAngles: SQUARE_FACES,
-    faceWidth: squareHalf(17.28) * 2,
-    height: 0.2,
-    inradius: squareHalf(17.28),
-    width: 0.16,
-    y: 17.28,
-  });
-  registerOverhang(17.18, 3.05, 0.9);
-  add("stone", new CylinderGeometry(2.4, 3.0, 0.65, 8, 1, true), {
-    position: [0, 17.825, 0],
-    rotation: [0, OCT, 0],
-  });
-  add("stone", new CylinderGeometry(2.55, 2.55, 0.24, 8), {
-    position: [0, 18.27, 0],
-    rotation: [0, OCT, 0],
-  });
-  registerCrease(18.39, 2.4);
-  registerOverhang(18.15, 2.6, 0.8);
+  // Octagonal foot moulding rises directly from the broad square gallery.
+  oct("stone", 2.9, 3.12, 0.35, SQUARE_TOP_Y + 0.175);
+  oct("stone", 2.95, 2.95, 0.18, SQUARE_TOP_Y + 0.44);
+  registerCrease(SQUARE_TOP_Y + 0.53, 2.8);
+  registerOverhang(SQUARE_TOP_Y + 0.35, 3.12, 0.8);
 
-  // --- L6 gallery: the projecting terrace at the head of the square tier -----
-  // The single biggest thing the silhouette was missing. Without it the square
-  // tier ran straight into the drum and the whole monument read as a chimney
-  // with ornament on it; the coins and every reconstruction show the octagon
-  // SET BACK on a broad walled walkway that oversails the shaft.
-  //
-  // It stays inside the terrace footprint (half 4.6), so the model's bounds and
-  // therefore every anchor contract are untouched.
+  // Projecting corbelled gallery with a continuous balustrade.
   const GALLERY_Y = SQUARE_TOP_Y;
-  const GALLERY_HALF = 3.82;
+  const GALLERY_HALF = 4.7;
   const GALLERY_SHAFT_HALF = squareHalf(GALLERY_Y - 0.5);
   // Corbel brackets carrying the oversail, five to a face plus the corners.
   for (const angle of SQUARE_FACES) {
@@ -971,15 +847,11 @@ function createLighthouse() {
   triton(TRITON_OFFSET, -TRITON_OFFSET, TRITON_Y);
   triton(-TRITON_OFFSET, -TRITON_OFFSET, TRITON_Y);
 
-  // --- Octagonal drum (y 17.5 → 26), the second tier of the coins. ----------
+  // Octagonal middle drum: one tall arched window on each flat face.
   const OCT_FACES = Array.from({ length: 8 }, (_, index) => index * Math.PI / 4);
-  const octWindows = [];
-  for (let index = 0; index < 8; index += 1) {
-    octWindows.push({ face: index, height: 1.15, sill: 20.5, u: 0, width: 0.58 });
-  }
-  for (const index of [0, 2, 4, 6]) {
-    octWindows.push({ face: index, height: 0.95, sill: 23.6, u: 0, width: 0.5 });
-  }
+  const octWindows = OCT_FACES.map((_, face) => ({
+    face, height: 2.15, sill: 24.25, u: 0, width: 0.82,
+  }));
   const octApertures = octWindows.map((window) => ({
     face: window.face,
     u0: window.u - window.width / 2 - 0.15,
@@ -1020,193 +892,97 @@ function createLighthouse() {
     });
   }
 
-  // --- W4.3 colonnade ring on the octagonal drum ----------------------------
-  // Eight free-standing columns on the corbel slab, one per facet, carrying an
-  // octagonal architrave with its own dentil course. This is the single change
-  // that gives the drum a human scale reference at overview zoom.
-  const COLONNADE_RADIUS = 2.44;
-  const COLONNADE_BASE_Y = 18.39;
-  const COLONNADE_TOP_Y = 22.35;
+  // Eight edge pilasters follow the drum's batter; the face centres stay
+  // clear for windows. Capitals support the corbel table at its head.
   for (let index = 0; index < 8; index += 1) {
-    const angle = index * Math.PI / 4;
-    const x = Math.sin(angle) * COLONNADE_RADIUS;
-    const z = Math.cos(angle) * COLONNADE_RADIUS;
-    add("stone", new BoxGeometry(0.44, 0.18, 0.44), {
-      position: [x, COLONNADE_BASE_Y + 0.09, z],
-      rotation: [0, angle, 0],
-    });
-    add("stone", new CylinderGeometry(0.17, 0.19, 0.16, 12), {
-      position: [x, COLONNADE_BASE_Y + 0.26, z],
-    });
-    // 12-gon shaft: at this scale the facets read as flutes.
-    const shaftHeight = COLONNADE_TOP_Y - COLONNADE_BASE_Y - 0.78;
-    add("stone", new CylinderGeometry(0.145, 0.175, shaftHeight, 12, 1, true), {
-      position: [x, COLONNADE_BASE_Y + 0.34 + shaftHeight / 2, z],
-    });
-    add("stone", new CylinderGeometry(0.2, 0.145, 0.16, 12), {
-      position: [x, COLONNADE_TOP_Y - 0.36, z],
-    });
-    add("stone", new BoxGeometry(0.44, 0.16, 0.44), {
-      position: [x, COLONNADE_TOP_Y - 0.2, z],
-      rotation: [0, angle, 0],
-    });
+    const angle = index * Math.PI / 4 + OCT;
+    const y0 = OCT_BASE_Y + 0.53;
+    const y1 = OCT_TOP_Y - 0.4;
+    const shaft = new CylinderGeometry(0.15, 0.2, y1 - y0, 6);
+    shaft.rotateX(Math.atan2(OCT_BASE_RADIUS - OCT_TOP_RADIUS, OCT_TOP_Y - OCT_BASE_Y));
+    place("stone", shaft, angle, 0, (y0 + y1) / 2, octRadius((y0 + y1) / 2));
+    place("stone", new BoxGeometry(0.52, 0.22, 0.48), angle, 0, y0, octRadius(y0));
+    place("stone", new BoxGeometry(0.48, 0.28, 0.5), angle, 0, y1, octRadius(y1));
   }
-  add("stone", new CylinderGeometry(2.66, 2.6, 0.3, 8), {
-    position: [0, COLONNADE_TOP_Y + 0.03, 0],
-    rotation: [0, OCT, 0],
-  });
   dentilCourse({
-    depth: 0.16,
+    depth: 0.28,
     faceAngles: OCT_FACES,
-    faceWidth: 2.62 * OCT_HALF_CHORD * 2,
-    height: 0.16,
-    inradius: 2.62 * OCT_FACE,
-    width: 0.15,
-    y: COLONNADE_TOP_Y + 0.31,
+    faceWidth: OCT_TOP_RADIUS * OCT_HALF_CHORD * 2,
+    height: 0.26,
+    inradius: OCT_TOP_RADIUS * OCT_FACE,
+    width: 0.22,
+    y: OCT_TOP_Y - 0.2,
   });
-  add("stone", new CylinderGeometry(2.58, 2.7, 0.18, 8), {
-    position: [0, COLONNADE_TOP_Y + 0.48, 0],
-    rotation: [0, OCT, 0],
-  });
-  registerOverhang(COLONNADE_TOP_Y - 0.14, 2.7, 3.9);
-  registerCrease(COLONNADE_BASE_Y, 2.44);
+  registerOverhang(OCT_TOP_Y - 0.35, 2.65, 0.9);
 
-  // --- Octagon cornice into the short cylindrical drum (y 26 → 29.5). -------
-  dentilCourse({
-    depth: 0.18,
-    faceAngles: OCT_FACES,
-    faceWidth: octRadius(25.6) * OCT_HALF_CHORD * 2,
-    height: 0.18,
-    inradius: octRadius(25.6) * OCT_FACE,
-    width: 0.15,
-    y: 25.6,
+  // Broad annular floor is the shared summit-bird perch. The open lantern
+  // sits inboard, leaving its outer rim unobstructed in both representations.
+  add("stone", new CylinderGeometry(2.55, 2.55, 0.4, 32), {
+    position: [0, (OCT_TOP_Y + LANTERN_BASE_Y) / 2, 0],
   });
-  add("stone", new CylinderGeometry(1.72, 2.16, 0.42, 8, 1, true), {
-    position: [0, 26.0, 0],
-    rotation: [0, OCT, 0],
+  registerCrease(LANTERN_BASE_Y, LANTERN_RADIUS);
+  for (let index = 0; index < 8; index += 1) {
+    const angle = index * Math.PI / 4 + OCT;
+    place("stone", new CylinderGeometry(0.24, 0.27, 0.18, 8), angle, 0, 29.49, LANTERN_RADIUS);
+    place("stone", new CylinderGeometry(0.16, 0.18, 2.45, 12), angle, 0, 30.805, LANTERN_RADIUS);
+    place("stone", new BoxGeometry(0.45, 0.22, 0.45), angle, 0, 32.14, LANTERN_RADIUS);
+    // Real semicircular arch voussoirs bridge each neighbouring column pair.
+    const faceAngle = angle + Math.PI / 8;
+    const archRadius = LANTERN_RADIUS * Math.sin(Math.PI / 8);
+    for (let stone = 0; stone < 9; stone += 1) {
+      const theta = Math.PI * (stone + 0.5) / 9;
+      place("stone", new BoxGeometry(0.27, 0.24, 0.36),
+        faceAngle, Math.cos(theta) * archRadius,
+        32.03 + Math.sin(theta) * archRadius,
+        LANTERN_RADIUS * OCT_FACE, theta - Math.PI / 2);
+    }
+  }
+  // Emissive-only inner wall makes every lantern opening burn warm at dusk,
+  // with no additional lights or textures and an open top around the fire.
+  add("window", new CylinderGeometry(1.3, 1.3, 2.75, 32, 1, true), {
+    position: [0, 30.925, 0],
   });
-  add("stone", new CylinderGeometry(1.62, 1.62, 0.26, 16), {
-    position: [0, 26.3, 0],
+  add("stone", new CylinderGeometry(2.18, 2.08, 0.4, 32), {
+    position: [0, LANTERN_TOP_Y + 0.2, 0],
   });
-  registerOverhang(25.5, 2.2, 0.9);
-  registerCrease(26.43, 1.5);
+  registerOverhang(LANTERN_TOP_Y, 2.18, 0.7);
+  add("stone", new ConeGeometry(2.2, 1.2, 32), {
+    position: [0, 33.8, 0],
+  });
+  add("gilt", new CylinderGeometry(0.48, 0.48, 0.12, 16), {
+    position: [0, 34.4, 0],
+  });
+  add("stone", new CylinderGeometry(0.52, 0.65, 0.6, 8), {
+    position: [0, 34.7, 0],
+  });
 
-  const cylBase = 26.43;
-  add("stone", new CylinderGeometry(
-    CYL_RADIUS - MORTAR_INSET,
-    CYL_RADIUS - MORTAR_INSET,
-    CYL_TOP_Y - cylBase,
-    16,
-  ), { position: [0, (cylBase + CYL_TOP_Y) / 2, 0] });
-  const CYL_FACES = Array.from({ length: 16 }, (_, index) => index * Math.PI / 8);
-  ashlarTier({
-    blockWidth: 0.44,
-    courses: 6,
-    faceAngles: CYL_FACES,
-    faceWidthAt: () => CYL_RADIUS * Math.sin(Math.PI / 16) * 2,
-    inradiusAt: () => CYL_RADIUS * Math.cos(Math.PI / 16),
-    y0: cylBase,
-    y1: CYL_TOP_Y,
+  // Bowl centred on the beacon, nestled inside the lantern's glowing drum.
+  add("bronze", new CylinderGeometry(0.48, 0.65, 0.3, 12), {
+    position: [0, 29.72, 0],
   });
-  dentilCourse({
-    depth: 0.14,
-    faceAngles: CYL_FACES,
-    faceWidth: CYL_RADIUS * Math.sin(Math.PI / 16) * 2,
-    height: 0.14,
-    inradius: CYL_RADIUS * Math.cos(Math.PI / 16),
-    width: 0.12,
-    y: 29.2,
-  });
-  add("stone", new CylinderGeometry(1.62, 1.5, 0.24, 16), {
-    position: [0, 29.48, 0],
-  });
-  registerOverhang(29.36, 1.66, 0.7);
-
-  // --- Open bronze brazier (D2 — the lantern room dies; the brazier lives): -
-  // foot, flared bowl with an inward-facing liner, and a dark ember bed whose
-  // centre is exactly BEACON_Y (the flame/beam anchor).
-  add("bronze", new CylinderGeometry(0.55, 0.82, 0.3, 12), {
-    position: [0, 29.65, 0],
-  });
-  add("bronze", new CylinderGeometry(1.25, 0.55, 0.95, 12, 1, true), {
-    position: [0, 30.275, 0],
-  });
-  add("bronze", mirrorGeometry(new CylinderGeometry(1.16, 0.48, 0.85, 12, 1, true)), {
-    position: [0, 30.25, 0],
-  });
-  add("ember", new CylinderGeometry(1.02, 1.02, 0.16, 12), {
+  add("bronze", new CylinderGeometry(1.1, 0.48, 0.65, 16, 1, true), {
     position: [0, BEACON_Y, 0],
   });
-  // Bronze rim moulding and four cardinal handles, so the bowl reads as cast
-  // metal rather than a lathe primitive.
-  add("bronze", new TorusGeometry(1.24, 0.07, 4, 12), {
-    position: [0, 30.74, 0],
+  add("bronze", mirrorGeometry(new CylinderGeometry(1.02, 0.42, 0.6, 16, 1, true)), {
+    position: [0, BEACON_Y, 0],
+  });
+  add("ember", new CylinderGeometry(0.98, 0.98, 0.16, 16), {
+    position: [0, BEACON_Y, 0],
+  });
+  add("bronze", new TorusGeometry(1.1, 0.065, 4, 16), {
+    position: [0, BEACON_Y + 0.325, 0],
     rotation: [Math.PI / 2, 0, 0],
   });
-  for (let index = 0; index < 4; index += 1) {
-    const angle = index * Math.PI / 2 + Math.PI / 4;
-    add("bronze", new TorusGeometry(0.17, 0.035, 4, 8, Math.PI), {
-      position: [Math.sin(angle) * 1.3, 30.62, Math.cos(angle) * 1.3],
-      rotation: [0, angle, 0],
-    });
-  }
-
-  // --- W4.6 the bronze mirror dish ------------------------------------------
-  // A polished concave dish on a gimbal behind the brazier, throwing the fire
-  // seaward. Poster-art licence per D4/D6: it is the attested "mirror" given
-  // real modelled form — a parabolic bowl, a rim torus, two trunnions and a
-  // forked standard rooted on the drum cornice.
-  const DISH_Y = 31.0;
-  const DISH_Z = -1.75;
-  const DISH_TILT = -0.3;
-  // A sphere cap's front faces sit on its convex side, so the polished
-  // concave face is drawn from a winding-reversed copy (the same trick the
-  // brazier's bowl liner uses) and the cast back is a slightly larger shell
-  // behind it. Without this the dish's working face is back-face culled and
-  // the crown reads as a hole.
-  const dishShell = () => {
-    const cap = new SphereGeometry(1.0, 16, 5, 0, Math.PI * 2, 0, 0.72);
-    cap.rotateX(-Math.PI / 2);
-    return cap;
-  };
-  add("bronze", mirrorGeometry(dishShell()), {
-    position: [0, DISH_Y, DISH_Z],
-    rotation: [DISH_TILT, 0, 0],
-  });
-  add("darkBronze", dishShell(), {
-    position: [0, DISH_Y, DISH_Z - 0.05],
-    rotation: [DISH_TILT, 0, 0],
-    scale: [1.06, 1.06, 1.06],
-  });
-  add("bronze", new TorusGeometry(0.66, 0.055, 4, 16), {
-    position: [0, DISH_Y + 0.06, DISH_Z + 0.2],
-    rotation: [DISH_TILT, 0, 0],
-  });
-  // Forked standard rooted on the drum cornice, raking back to the trunnions
-  // the dish swings on — compact enough to stay inside the crown silhouette.
-  add("darkBronze", new BoxGeometry(0.86, 0.14, 0.46), {
-    position: [0, 29.56, -1.42],
-  });
-  add("darkBronze", new CylinderGeometry(0.085, 0.13, 1.2, 6), {
-    position: [0, 30.12, -1.51],
-    rotation: [-0.15, 0, 0],
-  });
-  for (const side of [-1, 1]) {
-    add("darkBronze", new CylinderGeometry(0.055, 0.08, 0.95, 6), {
-      position: [side * 0.3, 30.66, -1.66],
-      rotation: [-0.1, 0, -side * 0.52],
-    });
-    add("bronze", new CylinderGeometry(0.06, 0.06, 0.24, 6), {
-      position: [side * 0.55, DISH_Y + 0.02, DISH_Z + 0.05],
-      rotation: [0, 0, Math.PI / 2],
-    });
-  }
 
   // --- Crowning Zeus Soter (D2, Roman-coin type) ----------------------------
   // W4.6: real modelled form. Moulded plinth, a draped robe built from six
   // lathed courses with vertical fold ribs, shoulders and a himation roll, a
   // radiate head, one arm outstretched to the sea (+Z) and one bearing the
   // sceptre whose tip is exactly SCEPTRE_TIP_Y.
+  const statueStart = geometryByMaterial.get("gilt").length;
+  // Author the sculptural detail in its original local proportions, then
+  // seat its 29.9–34 range exactly on the summit's 35–38 range.
+  const statueTip = 34;
   add("gilt", new CylinderGeometry(0.46, 0.52, 0.16, 8), { position: [0, 29.98, 0] });
   add("gilt", new CylinderGeometry(0.38, 0.46, 0.18, 8), { position: [0, 30.15, 0] });
   add("gilt", new CylinderGeometry(0.34, 0.38, 0.14, 8), { position: [0, 30.31, 0] });
@@ -1271,13 +1047,18 @@ function createLighthouse() {
     rotation: [0, 0, 0.2],
   });
   add("gilt", new CylinderGeometry(0.05, 0.05, 2.3, 6), {
-    position: [-0.5, SCEPTRE_TIP_Y - 1.15, 0.1],
+    position: [-0.5, statueTip - 1.15, 0.1],
   });
   add("gilt", new SphereGeometry(0.1, 6, 4), { position: [-0.5, 33.87, 0.1] });
   add("gilt", new TorusGeometry(0.09, 0.022, 4, 8), {
     position: [-0.5, 33.62, 0.1],
     rotation: [Math.PI / 2, 0, 0],
   });
+  const statueScaleY = 3 / (statueTip - 29.9);
+  for (const geometry of geometryByMaterial.get("gilt").slice(statueStart)) {
+    geometry.scale(1, statueScaleY, 1);
+    geometry.translate(0, SCEPTRE_TIP_Y - statueTip * statueScaleY, 0);
+  }
 
   // Everything is authored; the occlusion registries are complete, so the
   // stone can finally be painted (W4.2/W4.4 — geometry-aware baked AO).
@@ -1396,24 +1177,25 @@ function blockedByAperture(apertures, face, u0, u1, y0, y1) {
 
 /** Outer reach of the tower's nominal envelope at height y. */
 function envelopeReach(y) {
-  if (y < 0.85) return 4.6;
-  if (y < 1.7) return 4.2;
-  if (y < TERRACE_TOP_Y) return 3.85;
+  if (y < 0.85) return 6.2;
+  if (y < 1.7) return 5.7;
+  if (y < TERRACE_TOP_Y) return 5.2;
   if (y <= SQUARE_TOP_Y) {
     return SQUARE_BASE_HALF
       + (SQUARE_TOP_HALF - SQUARE_BASE_HALF)
         * (y - TERRACE_TOP_Y) / (SQUARE_TOP_Y - TERRACE_TOP_Y);
   }
-  if (y <= 18.15) return 3.0 + (2.4 - 3.0) * (y - SQUARE_TOP_Y) / (18.15 - SQUARE_TOP_Y);
-  if (y <= 18.39) return 2.55;
   if (y <= OCT_TOP_Y) {
     const radius = OCT_BASE_RADIUS
       + (OCT_TOP_RADIUS - OCT_BASE_RADIUS)
         * (y - OCT_BASE_Y) / (OCT_TOP_Y - OCT_BASE_Y);
     return radius * OCT_FACE;
   }
-  if (y <= CYL_TOP_Y) return CYL_RADIUS;
-  return 1.3;
+  if (y <= LANTERN_BASE_Y) return 2.55;
+  if (y <= LANTERN_TOP_Y) return LANTERN_RADIUS;
+  if (y <= 33.2) return 2.18;
+  if (y <= 34.4) return 2.2 * (34.4 - y) / 1.2;
+  return 0.52;
 }
 
 /** Reach of a vertex in the metric of the tier it belongs to. */
@@ -1495,36 +1277,7 @@ function paintStone(geometry) {
   geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
 }
 
-// Deterministic low-poly boulder: an icosahedron whose vertices are pushed
-// along their own direction by a stable hash, so reruns are byte-identical.
-// Welded first so the displaced mesh stays indexed like the other stone parts.
-function displacedRock(radius, detail, jitter) {
-  const geometry = mergeVertices(new IcosahedronGeometry(radius, detail));
-  const position = geometry.getAttribute("position");
-  const vertex = new Vector3();
-  for (let index = 0; index < position.count; index += 1) {
-    vertex.fromBufferAttribute(position, index);
-    const push = 1 + (hash3(vertex.x, vertex.y, vertex.z) - 0.5) * jitter;
-    vertex.multiplyScalar(push);
-    position.setXYZ(index, vertex.x, vertex.y, vertex.z);
-  }
-  geometry.computeVertexNormals();
-  return geometry;
-}
-
-// Flattens anything below the base plane: rocks read seated on the terrace
-// and the base-centre origin contract (bounds.min.y === 0) stays exact.
-function seatOnGround(geometry) {
-  const position = geometry.getAttribute("position");
-  for (let index = 0; index < position.count; index += 1) {
-    if (position.getY(index) < 0) position.setY(index, 0);
-  }
-  position.needsUpdate = true;
-}
-
-// Exact mirror across the x=0 plane (mirrored rock pairs keep the model's
-// base-centre bounds symmetric). Negative x scale flips winding, so each
-// triangle's winding is reversed to keep faces outward.
+// Mirror across x=0 while preserving the authored triangle orientation.
 function mirrorGeometry(geometry) {
   const mirrored = geometry.clone();
   mirrored.applyMatrix4(new Matrix4().makeScale(-1, 1, 1));

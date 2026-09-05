@@ -51,14 +51,18 @@ const SUNRISE_HOUR = 5;
 const SUNSET_HOUR = 19.5;
 
 /**
- * The key light never rakes below ~7°.
+ * The key light never rakes below ~3.4°.
  *
- * Below that the cast shadow of the 34-unit tower runs past 275 units and the
- * terminator across the island's own curvature turns to mush, so the frame
- * loses the form the shadow was there to describe. Golden hour wants a LOW sun,
- * not a horizontal one.
+ * 2026-09-05 (warm-village B4): lowered from 0.12 (~7°). The old floor was
+ * set when dusk was a tinted noon; the ember hour now needs the sun LOW so
+ * its light rakes across the fleet and the monument. At 0.06 rad the tower's
+ * cast shadow does run off the plate — at dusk that is the point — but the
+ * direction stays above the horizon and the shadow frustum still catches the
+ * shadow's start, so the form the light describes survives. The sky's own sun
+ * (`gardenSunPose`) is unclamped and still sets, which is what fades the
+ * scattering dome out on schedule.
  */
-const MIN_KEY_ELEVATION = 0.12;
+const MIN_KEY_ELEVATION = 0.06;
 
 /**
  * Where the moon sits after dark.

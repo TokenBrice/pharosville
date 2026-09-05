@@ -10,10 +10,9 @@ describe("HARBOR_PALETTE", () => {
     }
   });
 
-  // W1.6 (dentō-shoku pass). The palette gets exactly one loud colour and it is
-  // shu vermilion; everything else is a dyed, grayed traditional anchor. That is
-  // the single property that makes the world read Japanese rather than merely
-  // blue, so it is a test and not a comment.
+  // Warm-village pass (2026-09-05). Vermilion remains the one sacred accent,
+  // while the raised quiet-field ceiling lets authored roofs, land, and sea
+  // carry enough dye to separate warm ground from cool water.
   //
   // The ceiling is perceptual chroma, NOT HSL saturation, and the difference
   // matters: HSL S is a ratio against available lightness, so it runs away on
@@ -30,14 +29,22 @@ describe("HARBOR_PALETTE", () => {
   ]);
 
   it("keeps every non-accent token under the dentō-shoku chroma ceiling", () => {
-    // 0.10 in OKLCH C is roughly where a dye stops reading as "grayed" — well
-    // clear of the muted anchors (ainezu 0.031, rikyūcha 0.046, nando-iro
-    // 0.073) and well below the accents (yamabuki 0.127, shu 0.177).
-    const CEILING = 0.1;
+    // The warm-village decision raises the perceptual dye allowance from 0.10
+    // to 0.14; the reserved accents stay exempt and unchanged.
+    const CEILING = 0.14;
     for (const [token, hex] of Object.entries(HARBOR_PALETTE)) {
       if (RESERVED_ACCENTS.has(token)) continue;
-      expect(oklchChroma(hex), `${token} (${hex}) must stay grayed`).toBeLessThan(CEILING);
+      expect(oklchChroma(hex), `${token} (${hex}) must stay within the authored ceiling`).toBeLessThan(CEILING);
     }
+  });
+
+  it("keeps the reserved and issuer-identity hex anchors unchanged", () => {
+    // These exact pins are the boundary of the re-grade: warmth may increase
+    // around them, but identity cloth and the sacred accents do not move.
+    expect(HARBOR_PALETTE.lantern_warm).toBe("#d49a3e");
+    expect(HARBOR_PALETTE.vermillion).toBe("#c23a22");
+    expect(HARBOR_PALETTE.sail_teal).toBe("#3a5e5a");
+    expect(HARBOR_PALETTE.sail_red).toBe("#9a3a2e");
   });
 
   it("leaves vermilion the loudest thing in the palette", () => {
@@ -52,9 +59,9 @@ describe("HARBOR_PALETTE", () => {
 
   it("keeps the overlay-badge colors distinguishable after the re-grade", () => {
     // `garden-ships.ts` encodes the NAV / YIELD overlay badge in hue alone
-    // (lantern_cold vs aurora_green vs #c9675c). Pulling aurora_green onto
-    // rokushō lowered its chroma; this is the check that it did not lower it
-    // into its neighbours.
+    // (lantern_cold vs aurora_green vs #c9675c). Moving aurora_green from
+    // verdigris to grass raised its chroma; this checks that the re-grade still
+    // keeps the three hue-only badge states distinct.
     const nav = oklchHue(HARBOR_PALETTE.lantern_cold);
     const yields = oklchHue(HARBOR_PALETTE.aurora_green);
     const other = oklchHue("#c9675c");
@@ -80,14 +87,27 @@ describe("ZONE_THEMES", () => {
     //
     // This replaces two pinned hex literals. Those pinned the wrong thing: they
     // held `calm-water` at #125e7e, a saturated cyan-blue laid over the 43% of
-    // the sea that is Calm, which is what pulled the rendered sea to blue
-    // eleven points above green while the day palette's own ramp is jade.
+    // the sea that is Calm, which pulled the rendered sea away from the
+    // authored cool-teal descent.
     const ladder = ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water"] as const;
     const levels = ladder.map((terrain) => relativeLuminance(ZONE_THEMES[terrain]!.base));
     for (let step = 1; step < levels.length; step += 1) {
       expect(levels[step]!, `${ladder[step]} must be darker than ${ladder[step - 1]}`)
         .toBeLessThan(levels[step - 1]!);
     }
+  });
+
+  it("walks calm to danger toward cooler blue-teal while descending in value", () => {
+    // Warm-village re-grade: hue now helps distinguish the analytical water
+    // family without replacing its existing monotonic value encoding.
+    const ladder = ["calm-water", "watch-water", "alert-water", "warning-water", "storm-water"] as const;
+    const hues = ladder.map((terrain) => oklchHue(ZONE_THEMES[terrain]!.base));
+    for (let step = 1; step < hues.length; step += 1) {
+      expect(hues[step]!, `${ladder[step]} must be bluer than ${ladder[step - 1]}`)
+        .toBeGreaterThan(hues[step - 1]!);
+    }
+    expect(hues[0]).toBeGreaterThanOrEqual(190);
+    expect(hues.at(-1)).toBeLessThanOrEqual(245);
   });
 
   it("keeps every risk-water base inside the sea's own blue-green family", () => {

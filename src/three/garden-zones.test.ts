@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { Color, InstancedMesh, Matrix4, Mesh } from "three";
 import { describe, expect, it } from "vitest";
-import { DEWS_AREA_LABEL_COLORS, HARBOR_PALETTE, LEDGER_INK_HEX } from "../systems/palette";
+import { HARBOR_PALETTE, LEDGER_INK_HEX } from "../systems/palette";
 import type { AreaNode, DewsAreaBand } from "../systems/world-types";
 import { SEA_REGION_ID, seaRegionAtTile } from "../systems/garden-sea-regions";
 import { ZONE_BASE_RADIUS } from "../systems/garden-zone-radii";
@@ -102,25 +102,33 @@ describe("createZone", () => {
     expect(watch.buoys.length).toBeLessThanOrEqual(8);
   });
 
-  it("harmonizes band colors into the garden palette but leaves ledger ink alone", () => {
-    const calm = createZone(area("CALM"));
-    const danger = createZone(area("DANGER"));
-    // Z3: the water tint is never a literal copy of the DEWS accent.
-    expect(calm.tint.color.getHex()).not.toBe(new Color(DEWS_AREA_LABEL_COLORS.CALM).getHex());
-    // S1: the tint is the theme bridge's WATER colour for the terrain, so
-    // danger is ink and calm is cyan-blue — not "danger is warm". What has to
-    // hold is the value ramp (danger is the darkest water in the world) and
-    // that both sit on the cool side, inside a water gamut.
-    const luma = (color: Color) => color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
-    expect(luma(danger.tint.color)).toBeLessThan(luma(calm.tint.color) * 0.5);
+  it("harmonizes buoy colors into the cool garden-sea family but leaves ledger ink alone", () => {
+    const bands = ["CALM", "WATCH", "ALERT", "WARNING", "DANGER"] as const;
+    const zones = bands.map((band) => createZone(area(band)));
+    const calm = zones[0]!;
+    const danger = zones[4]!;
+    // Warm-village re-grade: pin the derived buoy dyes so future accent or
+    // harmony changes cannot silently put warm painted patches back in the sea.
+    expect(zones.map((zone) => zone.buoys[0]!.color.getHexString())).toEqual([
+      "5b9895",
+      "499499",
+      "497981",
+      "446274",
+      "cc4531",
+    ]);
+    // The region tint itself comes from the theme bridge's WATER colour.
+    // Danger is the darkest cool patch; its reserved warm accent lives on the
+    // sparse blinking buoy rather than across the broad water surface.
+    const dangerLuma = danger.tint.color.r * 0.2126
+      + danger.tint.color.g * 0.7152 + danger.tint.color.b * 0.0722;
+    const calmLuma = calm.tint.color.r * 0.2126
+      + calm.tint.color.g * 0.7152 + calm.tint.color.b * 0.0722;
+    expect(dangerLuma).toBeLessThan(calmLuma * 0.5);
     expect(danger.tint.color.b).toBeGreaterThan(danger.tint.color.r);
     expect(calm.tint.color.b).toBeGreaterThan(calm.tint.color.r);
     const { band: _band, ...ledgerArea } = area("WATCH");
     const ledger = createZone({ ...ledgerArea, riskPlacement: "ledger-mooring" });
-    // W2.7: every band's tint is now pulled toward deep sea so it reads as
-    // WATER rather than an overlay. Ledger keeps its unharmonized ink hue as
-    // its base — the check is that it starts from ink, not that it stays
-    // pure ink after the water pull.
+    expect(ledger.buoys[0]!.color.getHexString()).toBe("d9b974");
     const ink = new Color(LEDGER_INK_HEX);
     const deepSea = new Color(HARBOR_PALETTE.deep_sea_2);
     const distanceTo = (from: Color, to: Color) => Math.hypot(
@@ -128,10 +136,8 @@ describe("createZone", () => {
       from.g - to.g,
       from.b - to.b,
     );
-    // R5: every band is now pulled hard toward a mid-BLUE sea anchor so it
-    // stays inside a water gamut, which deliberately brings the bands closer
-    // to each other in hue than to their raw DEWS accents. What must survive
-    // is that each band remains DISTINGUISHABLE from its neighbours...
+    // R5: every broad region is pulled toward a mid-blue sea anchor; the
+    // ledger remains distinguishable while moving away from raw UI ink.
     expect(distanceTo(ledger.tint.color, calm.tint.color)).toBeGreaterThan(0.05);
     // ...and that it has moved out of the raw accent and toward the sea.
     expect(distanceTo(ledger.tint.color, deepSea)).toBeLessThan(distanceTo(ink, deepSea));

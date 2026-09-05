@@ -38,23 +38,16 @@ export const GARDEN_SHIP_ROOT_Y = GARDEN_WATER_Y + 0.38;
 export const GARDEN_ZONE_ROOT_Y = GARDEN_WATER_Y + 0.04;
 export const GARDEN_ISLAND_TILE_OFFSET = { x: 12, y: 8 } as const;
 export const GARDEN_LIGHTHOUSE_ROOT_OFFSET = { x: -7, y: 2.55, z: -1.25 } as const;
-// Pharos Wonder (2026-07-24, agents/2026-07-24-pharos-wonder-plan.md, decision
-// D1 — supersedes D-L1's 30-unit "epic, not bigger" call): the tower grows to
-// 34 units so the attested Pharos stack (battered square base → octagonal drum
-// → cylindrical drum → brazier → Zeus Soter statue) fits at the historical
-// proportion rhythm. BEACON_Y is now the open-brazier centre (flame and beam
-// origin); HEIGHT is the statue's raised-hand tip. Both match the GLB v4
-// anchors exactly so the fallback shell, the loaded model, the DOM label
-// rect, and the selection anchor never disagree.
-export const GARDEN_LIGHTHOUSE_BEACON_Y = 30.1;
-export const GARDEN_LIGHTHOUSE_HEIGHT = 34;
-// C3 (scale & anchor contract): the three lighthouse constants above are the
-// integration point. Pharos Wonder D1 re-proposed the monument scale-up
-// (34 world units, statue tip) and moved the beam-origin/beacon anchor to the
-// open brazier; world-renderer.ts integration (camera fit + shadow frustum +
-// selection cue radius) consumes them. Selection radius, PSI beacon
-// semantics, and DOM/ARIA contracts survive the scale-up unchanged: the hit
-// rect and label anchor derive from these constants.
+// Epic Pharos 2026-09-05 (D1): the broad battered square tier, octagonal
+// drum, columned lantern and Zeus Soter crown stand 38 units above the court.
+// BEACON_Y is the brazier centre inside the lantern (flame and beam origin);
+// HEIGHT is the sceptre tip. Both match the GLB and procedural shell.
+export const GARDEN_LIGHTHOUSE_BEACON_Y = 30.2;
+export const GARDEN_LIGHTHOUSE_HEIGHT = 38;
+// C3 (scale & anchor contract): these three constants are the integration
+// point for Epic Pharos 2026-09-05. Camera fit, shadow-frustum height, hit
+// rect and selection anchor follow the monument; selection radius, PSI
+// beacon semantics and DOM/ARIA contracts remain unchanged.
 
 export type GardenHullSilhouette =
   | "bezaisen"
@@ -65,15 +58,19 @@ export type GardenHullSilhouette =
   | "scow";
 export type GardenSemanticView = "analyze" | "explore" | "overview";
 
-// S5 / decision D-S5: the data-side 0.7–3.0 scale keeps a ~3.7× VISUAL spread
-// (was clamped 0.72–1.6 → ~2.2×) so titans visibly dwarf skiffs. The floor
-// (0.55) keeps the smallest hulls legible and clickable at overview zoom.
+// S5 / decision D-S5, re-based by the warm-village resting frame
+// (2026-09-05, plan A5): the data-side 0.7–3.0 scale maps to a ~2.6× VISUAL
+// spread (0.8–2.05; D-S5 originally relaxed it to 0.55–2.05 → ~3.7×, and
+// before that a clamp at 0.72–1.6 → ~2.2×) so titans still visibly dwarf
+// skiffs. The raised floor (0.8) keeps the smallest hulls legible and
+// clickable at overview zoom AND separable as six families at the zoom-1.0
+// rest framing, where 0.55 compressed most coins into one 20–40 px footprint.
 // C3 (scale & anchor contract): the mapping lives here in the
 // orchestrator-owned slice so ship rendering (garden-ships), selection radii
 // (below), and label layout all consume the SAME spread. Kept three-free —
 // this module must stay importable without pulling the renderer into the
 // world lazy chunk.
-export const GARDEN_SHIP_VISUAL_SCALE_MIN = 0.55;
+export const GARDEN_SHIP_VISUAL_SCALE_MIN = 0.8;
 export const GARDEN_SHIP_VISUAL_SCALE_MAX = 2.05;
 export const GARDEN_SHIP_DATA_SCALE_MIN = 0.7;
 export const GARDEN_SHIP_DATA_SCALE_MAX = 3;
@@ -512,11 +509,11 @@ export function gardenSemanticView(
 }
 
 export function gardenShipSelectionRadius(ship: ShipNode): number {
-  // C3: ship visualScale mapping integration point. S5 (decision D-S5)
-  // de-compressed the data-side 0.7–3.0 scale to a ~3.7× visual spread (see
-  // gardenShipVisualScale above); this consumes the SAME mapping so selection
-  // rings and label layout track the rendered footprint (1.9× hull scale, as
-  // before the de-compression).
+  // C3: ship visualScale mapping integration point. S5 (decision D-S5) first
+  // de-compressed the data-side 0.7–3.0 scale; the warm-village resting frame
+  // re-based it to a ~2.6× visual spread (see gardenShipVisualScale above);
+  // this consumes the SAME mapping so selection rings and label layout track
+  // the rendered footprint (1.9× hull scale, as before the de-compression).
   return gardenShipVisualScale(ship.visual.scale || 1) * 1.9;
 }
 

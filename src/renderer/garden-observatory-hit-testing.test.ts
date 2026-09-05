@@ -193,6 +193,10 @@ describe("Garden Observatory hit targets", () => {
     expect(target?.anchor).toEqual(beacon);
     expect(target && pointInRect(base, target.rect)).toBe(true);
     expect(target && pointInRect(top, target.rect)).toBe(true);
+    // Epic Pharos's broad stylobate must remain clickable beyond the old
+    // 80px target, not just along the tower's vertical centreline.
+    expect(target && pointInRect({ x: base.x + 49, y: base.y }, target.rect)).toBe(true);
+    expect(target && pointInRect({ x: base.x - 49, y: base.y }, target.rect)).toBe(true);
   });
 
   it("anchors a ship target to the exact shared displayed tile", () => {

@@ -82,8 +82,32 @@ describe("day-cycle presets (C1 contract)", () => {
     expect(dusk.dirIntensity).toBeGreaterThan(
       (dusk.ambientIntensity + dusk.hemiIntensity) * 3,
     );
-    expect(dusk.dirColor.r).toBeGreaterThan(dusk.dirColor.b);
-    expect(dusk.hemiSky.b).toBeGreaterThan(dusk.hemiSky.r);
+    // Warm-village B4 (2026-09-05): key 2.6 against a 0.62 fill (ambient
+    // raised 0.18 -> 0.28 so the analytic fill stays above the 0.6
+    // environment probe) is the authored ~4.2:1 — the ember hour rakes
+    // instead of tinting, still well clear of the old ~3:1.
+    expect(dusk.dirIntensity / (dusk.ambientIntensity + dusk.hemiIntensity))
+      .toBeGreaterThanOrEqual(4);
+    // Warm-village B3/B4 (2026-09-05): the retired fog dye was
+    // `sky_horizon lerp lantern_warm 0.36` ≈ #886440 brown-grey smog. The
+    // ember derivation (lantern_warm → vermillion 0.2, reined to sky_horizon
+    // 0.5 after the preview showed 0.35 painting the fleet orange) must be
+    // visibly warmer/more chromatic than that, the horizon band must sit
+    // warmer than the air above it, and the dusk zenith must be a navy
+    // distinct from both the night zenith and the dusk fog.
+    const duskSky = DAY_CYCLE_SKY_PRESETS.dusk;
+    const retiredFog = new Color(HARBOR_PALETTE.sky_horizon)
+      .lerp(new Color(HARBOR_PALETTE.lantern_warm), 0.36);
+    expect(duskSky.fog.r - duskSky.fog.b).toBeGreaterThan(retiredFog.r - retiredFog.b);
+    expect(duskSky.horizon.r - duskSky.horizon.b).toBeGreaterThan(duskSky.fog.r - duskSky.fog.b);
+    const nightZenith = DAY_CYCLE_SKY_PRESETS.night.zenith;
+    expect(duskSky.zenith.b).toBeGreaterThan(duskSky.zenith.r);
+    // A third of the way to the day zenith: closer to navy than to either end.
+    expect(duskSky.zenith.getHex()).not.toBe(new Color(HARBOR_PALETTE.sky_horizon).getHex());
+    expect(duskSky.zenith.getHex()).not.toBe(nightZenith.getHex());
+    // Height fog thinned 0.00062 -> 0.00035 so the ember reaches the near
+    // half; dusk keeps the densest air of the three phases.
+    expect(DAY_CYCLE_HEIGHT_FOG_PRESETS.dusk.density).toBeLessThan(0.0005);
   });
 
   it("keeps moon fill and sail backlight below the night hierarchy", () => {

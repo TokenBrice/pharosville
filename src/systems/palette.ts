@@ -3,50 +3,40 @@ import type { DewsAreaBand } from "./world-types";
 /**
  * The harbor's dye lot.
  *
- * W1.6 (2026-08-13) — dentō-shoku discipline. Every token below was re-graded
- * toward a named traditional Japanese colour, in OKLCH, as a REFINEMENT: no
- * token moved more than ~0.02 in chroma or ~16° in hue, so this reads as the
- * same world at a lower volume rather than a repaint.
+ * Warm-village palette (2026-09-05). The perceptual OKLCH ceiling is now
+ * C < 0.14: enough dye for warm ochre roofs and timber, living moss, and a
+ * cooler teal sea to separate the two largest fields by hue instead of value
+ * alone. `roof_clay`, `roof_cote_clay`, `roof_thatch`,
+ * `roof_timber_shake`, `timber_mid`, and `timber_warm` moved toward the warm
+ * ochre/terracotta register; `aurora_green` moved from verdigris to grass;
+ * `deep_sea_1`, `shallow_teal`, and `shallow_teal_lit` moved toward a clearer
+ * teal/indigo descent.
  *
- * Why OKLCH and not HSL. The obvious reading of "nothing above ~35 %
- * saturation" is HSL S, and by that measure half the sea family looks like a
- * violation — `deep_sea_2` reads 49 %. But so does the real thing: authentic
- * kachi-iro (#181b39) measures HSL S 41 %. HSL saturation is a ratio against
- * available lightness, so it inflates without bound as a colour darkens, and a
- * near-black indigo is exactly where it lies hardest. The ceiling is therefore
- * applied in perceptual chroma — OKLCH C, cross-checked against the sRGB-cube
- * spread `palette.test.ts` already uses to rank loudness. Under either, the
- * only tokens above the line are the reserved accent family, which is the
- * property that was actually wanted.
+ * Why OKLCH and not HSL. HSL saturation is a ratio against available
+ * lightness, so it inflates without bound as a colour darkens: authentic
+ * kachi-iro (#181b39) measures HSL S 41 % while remaining a near-black
+ * indigo. The ceiling is therefore applied in perceptual chroma — OKLCH C —
+ * and cross-checked against the sRGB-cube spread ranked in `palette.test.ts`.
  *
- * The one genuine outlier the audit found was `aurora_green` at C 0.113 — a
- * grass green louder than anything in the palette except the accents, and the
- * tint 46 %/24 % of the day sea is mixed from. It is now rokushō (緑青),
- * verdigris, at C 0.086.
- *
- * RESERVED, and deliberately left above the ceiling:
- *   - `vermillion` #c23a22 is shu-akane (真朱) to within one hex step
- *     (OKLCH L 0.547 C 0.177 H 32 against the reference's 0.548/0.176/33). It
- *     is the single sacred accent, spent on the Pharos beacon flame (D6,
- *     `garden-beacon-fire.ts`), the DEWS DANGER band, and nothing else.
- *   - `lantern_warm` #d49a3e is yamabuki (山吹) gold and is PINNED by
- *     `scripts/check-pharosville-colors.mjs`; it carries lantern warmth.
- *   - `lantern_glow`, `sail_red` and `bloodmoon_red` sit in the same warm
- *     accent family and are load-bearing for identity or rare events.
+ * RESERVED accents are unchanged and may sit above the ceiling:
+ *   - `vermillion` #c23a22 is shu-akane (真朱), the single sacred accent,
+ *     spent on the Pharos beacon flame and the DEWS DANGER band.
+ *   - `lantern_warm` #d49a3e is yamabuki (山吹) gold and remains hex-pinned by
+ *     `scripts/check-pharosville-colors.mjs`.
+ *   - `lantern_glow`, `sail_red`, and `bloodmoon_red` remain load-bearing
+ *     identity or rare-event accents.
  *
  * NOT TOUCHED: `sail_teal` / `sail_red` are issuer-identity anchors and the
- * restraint contract forbids grading them; `DEWS_AREA_LABEL_COLORS` was
- * harmonized separately (W0.5) and its ladder is locked by test.
+ * restraint contract forbids grading them; `DEWS_AREA_LABEL_COLORS` remains
+ * the separately harmonized ladder locked by test.
  */
 export const HARBOR_PALETTE = {
-  // The sea reads as one dentō-shoku descent — asagi/nando at the shelf, ai in
-  // the body, kachi-iro (褐色, near-black indigo) in the deep. The old family
-  // sat flat at OKLCH H 266-271 for every rung; the hues now walk 250 -> 274 so
-  // depth is a hue journey as well as a value one.
-  deep_sea_2: "#0a0e20", // kachi-iro, deepened
-  deep_sea_1: "#0f1b33", // ai-fukami (深藍) / kon-iro
-  shallow_teal: "#152d4c", // kon-iro (紺色)
-  shallow_teal_lit: "#1c446a", // ai-iro (藍色)
+  // The cool field is a teal-to-indigo descent; authored values stay below the
+  // C 0.14 ceiling while retaining enough dye to survive lighting and fog.
+  deep_sea_2: "#0a0e20",
+  deep_sea_1: "#002a52", // ai-fukami — OKLCH L 0.284 C 0.085 H 252
+  shallow_teal: "#006078", // nando-iro — OKLCH L 0.454 C 0.084 H 223
+  shallow_teal_lit: "#007487", // asagi-iro — OKLCH L 0.514 C 0.091 H 214
   sky_night: "#0f1128", // kachi-iro (勝色) night zenith
   sky_horizon: "#1c2240", // kachi-iro
   // Fog is where chroma had to come out: mist that carries a hue is paint.
@@ -69,20 +59,20 @@ export const HARBOR_PALETTE = {
   stone_pale: "#6a5e4e",
   iron_dark: "#1a1612",
   timber_dark: "#3a2a1e", // already kogecha's hue exactly (焦茶, H 57)
-  timber_mid: "#674b34", // kogecha (焦茶)
-  timber_warm: "#836c49", // rikyūcha (利休茶), grayed tea-brown
+  timber_mid: "#6b421f", // kogecha — OKLCH L 0.420 C 0.075 H 59
+  timber_warm: "#826235", // rikyūcha, warmed — OKLCH L 0.519 C 0.074 H 74
   // Station roofs form one material ladder: storm slate and tea-house slate at
   // the dark end, then slate kawara, clay, timber shake, weathered copper,
   // dressed stone and cote clay, with thatch catching the most light.
   roof_storm_slate: "#354750",
   roof_tea_house_slate: "#40515b",
   roof_slate_kawara: "#56606b",
-  roof_clay: "#a66147", // re-graded in chroma only to clear the quiet-field ceiling
-  roof_timber_shake: "#9c694c",
+  roof_clay: "#ad6034", // bengara clay — OKLCH L 0.570 C 0.116 H 49
+  roof_timber_shake: "#ad6331", // warm cedar — OKLCH L 0.575 C 0.115 H 52
   roof_weathered_copper: "#6f7a5e",
   roof_dressed_stone: "#747a7c",
-  roof_cote_clay: "#ba7557", // re-graded in chroma only to clear the quiet-field ceiling
-  roof_thatch: "#c7ae72",
+  roof_cote_clay: "#c8733f", // akakō clay — OKLCH L 0.640 C 0.126 H 50
+  roof_thatch: "#d9a34d", // kitsurubami straw — OKLCH L 0.750 C 0.121 H 77
   ember: "#2a1a0e",
   lantern_warm: "#d49a3e", // yamabuki (山吹) — RESERVED, and hex-pinned
   lantern_glow: "#f7d68a",
@@ -91,7 +81,7 @@ export const HARBOR_PALETTE = {
   sail_teal: "#3a5e5a", // issuer identity — restraint contract, do not grade
   sail_red: "#9a3a2e", // issuer identity — restraint contract, do not grade
   foam_white: "#e8eef0",
-  aurora_green: "#5e976e", // rokushō (緑青), verdigris — the one real outlier
+  aurora_green: "#519a55", // kusa-iro grass — OKLCH L 0.621 C 0.125 H 145
   bloodmoon_red: "#c83a3a",
 } as const;
 
@@ -153,42 +143,25 @@ export interface ZoneVisualTheme {
  * The WATER colour of each terrain — the tint its sea carries, and the swatch
  * the legend and detail panel show for it.
  *
- * L3 (Sea Master, 2026-07-25): this ramp is a VALUE ladder inside one hue
- * family, not a set of band accents.
+ * Warm-village re-grade (2026-09-05): the risk-water ladder now walks from
+ * green-teal calm toward blue-teal danger while descending in lightness. The
+ * cooler, more saturated family separates sea from the ochre/green land
+ * without turning analytical regions into warm paint.
  *
- * `calm-water` used to be `#125e7e`, a saturated cyan-blue, laid over the 43%
- * of the sea that is Calm. Measured off a real-GPU noon frame, that pulled the
- * rendered sea to (81, 115, 126) — blue eleven points above green — while the
- * day palette's own ramp is a jade teal (#49857f -> #3c6f72 -> #2b4f65). The
- * authored sea never reached the screen.
- *
- * Every entry now sits in the sea's own blue-green family and separates by
- * LIGHTNESS, monotonically along the DEWS escalation: jade calm, teal watch,
- * greying alert, dulled warning, ink storm. That matters because the water
- * shader luminance-matches each tint against the live water before mixing it —
- * which is what stops a tint reading as paint on a surface, and which throws
- * most of a hue's own brightness away. Value is what survives, so value is what
- * carries the reading, hue-blind or not.
- *
- * The one deliberate outsider is `ledger-water`: NAV-priced water is not a risk
- * band at all, and its slate keeps it legible as a different KIND of water
- * rather than a rung on the same ladder.
- *
- * An earlier pass (R5) had the opposite problem — it left alert ochre, warning
- * orange and danger red, which read as concentric cream/pink/khaki bands and
- * made the sea look like mud. Desaturating toward grey-green rather than
- * warming toward olive is what keeps this ramp out of that ditch.
+ * The one deliberate outsider is `ledger-water`: NAV-priced water is not a
+ * risk band at all, and its slate keeps it legible as a different KIND of
+ * water rather than a rung on the same ladder.
  */
 export const ZONE_THEMES = {
-  "alert-water": { base: "#3a5f63", label: { accent: DEWS_AREA_LABEL_COLORS.ALERT } },
-  "calm-water": { base: "#2d7d6a", label: { accent: DEWS_AREA_LABEL_COLORS.CALM } },
-  "deep-water": { base: "#08161c", label: { accent: "#d8b56a" } },
-  "harbor-water": { base: "#2b6f6a", label: { accent: "#d8b56a" } },
+  "alert-water": { base: "#00657b", label: { accent: DEWS_AREA_LABEL_COLORS.ALERT } }, // L 0.469 C 0.085 H 220
+  "calm-water": { base: "#008081", label: { accent: DEWS_AREA_LABEL_COLORS.CALM } }, // L 0.544 C 0.093 H 196
+  "deep-water": { base: "#001d35", label: { accent: "#d8b56a" } },
+  "harbor-water": { base: "#007780", label: { accent: "#d8b56a" } },
   "ledger-water": { base: "#3d4860", label: { accent: LEDGER_INK_HEX } },
-  "storm-water": { base: "#23343a", label: { accent: DEWS_AREA_LABEL_COLORS.DANGER } },
-  "watch-water": { base: "#2f6470", label: { accent: DEWS_AREA_LABEL_COLORS.WATCH } },
-  "warning-water": { base: "#40504e", label: { accent: DEWS_AREA_LABEL_COLORS.WARNING } },
-  water: { base: "#1d5f68", label: { accent: "#d8b56a" } },
+  "storm-water": { base: "#003b58", label: { accent: DEWS_AREA_LABEL_COLORS.DANGER } }, // L 0.335 C 0.074 H 238
+  "watch-water": { base: "#00737e", label: { accent: DEWS_AREA_LABEL_COLORS.WATCH } }, // L 0.508 C 0.087 H 206
+  "warning-water": { base: "#00536f", label: { accent: DEWS_AREA_LABEL_COLORS.WARNING } }, // L 0.414 C 0.082 H 230
+  water: { base: "#006378", label: { accent: "#d8b56a" } },
 } as const satisfies Record<string, ZoneVisualTheme>;
 
 export function zoneThemeForTerrain(kind: string): ZoneVisualTheme {

@@ -167,9 +167,23 @@ const ANCHORAGE_SEPARATION_FACTOR = 1.25;
 /** Sample depth when seeding a mooring. */
 const ANCHORAGE_CANDIDATES = 96;
 
+export interface GardenFleetMooringPlacement {
+  /** True for the band's largest, first-authored anchorage. */
+  dominantMooring: boolean;
+  /** Stable within-band mooring identifier using its authored seed index. */
+  mooringId: string;
+  /** Zero-based order from the mooring's centre outward. */
+  rankWithinMooring: number;
+  /** Number of berths assigned to this mooring. */
+  mooringSize: number;
+  riskBand: ShipWaterZone;
+}
+
 export interface GardenFleetPlacement {
   /** Absolute display tile per ship id. */
   tileByShipId: Map<string, { x: number; y: number }>;
+  /** Display-only hierarchy retained from the authored anchorage allocation. */
+  mooringByShipId: Map<string, GardenFleetMooringPlacement>;
 }
 
 interface RegionTiles {
@@ -231,6 +245,7 @@ function densityWeight(
 
 interface Anchorage {
   berths: number;
+  index: number;
   radius: number;
   x: number;
   y: number;
@@ -276,7 +291,13 @@ function seedAnchorages(
       orphaned.push(plan.berths);
       continue;
     }
-    anchorages.push({ berths: plan.berths, radius: plan.radius, x: seeded.x, y: seeded.y });
+    anchorages.push({
+      berths: plan.berths,
+      index,
+      radius: plan.radius,
+      x: seeded.x,
+      y: seeded.y,
+    });
   }
 
   const orphanTotal = orphaned.reduce((sum, berths) => sum + berths, 0);
@@ -356,6 +377,7 @@ export function placeGardenFleet(
 ): GardenFleetPlacement {
   const regions = regionTiles();
   const tileByShipId = new Map<string, { x: number; y: number }>();
+  const mooringByShipId = new Map<string, GardenFleetMooringPlacement>();
 
   const byZone = new Map<ShipWaterZone, ShipNode[]>();
   for (const ship of ships) {
@@ -371,8 +393,17 @@ export function placeGardenFleet(
     const candidates = region?.tiles ?? [];
     if (candidates.length === 0) {
       // A band with no painted water of its own (possible when a band is
-      // empty in the data) falls back to the ship's authored tile.
-      for (const ship of ordered) tileByShipId.set(ship.id, { ...ship.tile });
+      // empty in the data) falls back to one deterministic dominant mooring.
+      for (const [rankWithinMooring, ship] of ordered.entries()) {
+        tileByShipId.set(ship.id, { ...ship.tile });
+        mooringByShipId.set(ship.id, {
+          dominantMooring: true,
+          mooringId: `${zone}.0`,
+          mooringSize: ordered.length,
+          rankWithinMooring,
+          riskBand: zone,
+        });
+      }
       continue;
     }
 
@@ -387,6 +418,7 @@ export function placeGardenFleet(
       0,
     ) / Math.max(1, ordered.length)) * MIN_HULL_GAP;
     const anchorages = seedAnchorages(zone, candidates, ordered.length, meanHullGap, lighthouseTile);
+    const nextRankByAnchorage = new Map<Anchorage, number>();
 
     const placed: { x: number; y: number }[] = [];
     for (const [shipIndex, ship] of ordered.entries()) {
@@ -395,6 +427,17 @@ export function placeGardenFleet(
         GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
       );
       const anchorage = anchorageForBerth(anchorages, shipIndex);
+      const rankWithinMooring = anchorage
+        ? nextRankByAnchorage.get(anchorage) ?? 0
+        : shipIndex;
+      if (anchorage) nextRankByAnchorage.set(anchorage, rankWithinMooring + 1);
+      mooringByShipId.set(ship.id, {
+        dominantMooring: anchorage ? anchorage === anchorages[0] : true,
+        mooringId: `${zone}.${anchorage?.index ?? 0}`,
+        mooringSize: anchorage?.berths ?? ordered.length,
+        rankWithinMooring,
+        riskBand: zone,
+      });
 
       // Two passes, run in ORDER and short-circuited — never interleaved.
       //
@@ -473,7 +516,7 @@ export function placeGardenFleet(
     }
   }
 
-  return { tileByShipId };
+  return { mooringByShipId, tileByShipId };
 }
 
 /** Which mooring the nth ship of a band berths at. */

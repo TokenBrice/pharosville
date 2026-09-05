@@ -18,9 +18,12 @@ import { gardenSunPose } from "./garden-sun";
  * This is an extra term in the existing fog ladder, never a replacement for
  * the view-scaled linear fog owned by garden-sky. In particular it does not
  * move that ladder's `FOG_REFERENCE_VIEW_HEIGHT` pivot: the pivot must keep
- * tracking the real default view height (~78), because the upper-frame haze
- * band — not the sky dome, which cannot enter the locked ortho frame — is the
- * visible sky. Bokashi bands and mist shelves remain later near-field accents.
+ * tracking the real default view height (~62.5 wu at the 1.0 rest zoom and
+ * 1000 px — it was ~77 when this comment said "~78", before the resting
+ * camera was re-based in the 2026-09-05 warm-village pass), because the
+ * upper-frame haze band — not the sky dome, which cannot enter the locked
+ * ortho frame — is the visible sky. Bokashi bands and mist shelves remain
+ * later near-field accents.
  */
 
 export const gardenHeightFogUniforms = {

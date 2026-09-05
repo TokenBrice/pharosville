@@ -3,6 +3,7 @@ import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo,
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
+import { HarborLabelChips, updateHarborLabelChipLayout } from "./components/harbor-label-chips";
 import { HarborLog } from "./components/harbor-log";
 import { QuickFind } from "./components/quick-find";
 import { SinceLastVisitBanner } from "./components/since-last-visit";
@@ -40,6 +41,11 @@ import {
   selectGardenObservatorySlice,
 } from "./systems/garden-observatory-slice";
 import { buildBaseMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
+import {
+  gardenArrivalBeatEnvelope,
+  selectGardenArrivalBeatShipDetailIds,
+} from "./systems/garden-arrival-beats";
+import { selectGardenAnomalyShipDetailIds, unionGardenShipLabelDetailIds } from "./systems/garden-anomaly-labels";
 import { buildObserveSequence, type ObserveBeatKind } from "./systems/observe-sequence";
 import type { ObserveTourKeyframe } from "./systems/observe-tour";
 import { GARDEN_ATTRACT_IDLE_MS, gardenAttractKeyframes } from "./systems/garden-attract";
@@ -234,6 +240,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world, motionBucket * 600), [baseMotionPlanSignature, motionBucket]);
   const motionPlan = baseMotionPlan;
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
+  const [arrivalBeatShipDetailIds, setArrivalBeatShipDetailIds] = useState<readonly string[]>([]);
+  const arrivalBeatSecondRef = useRef<number | null>(null);
+  const anomalyShipDetailIds = useMemo(() => selectGardenAnomalyShipDetailIds(world), [world]);
+  const arrivalOrAnomalyShipDetailIds = useMemo(
+    () => unionGardenShipLabelDetailIds(anomalyShipDetailIds, arrivalBeatShipDetailIds),
+    [anomalyShipDetailIds, arrivalBeatShipDetailIds],
+  );
   const shipCounterLabel = useMemo(() => fleetCounterLabel(world.ships), [world.ships]);
   const recentFleetTrend = useMemo(() => recentFleetTrendSummary(world), [world]);
   // W5.01 — derive the live risk-band tack-out per ship from the motion plan
@@ -273,6 +286,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const selectedDetailIdRef = useLatestRef(selectedDetailId);
   const motionPlanRef = useLatestRef(motionPlan);
   const hoverTooltipElRef = useRef<HTMLDivElement | null>(null);
+  const harborLabelChipsElRef = useRef<HTMLDivElement | null>(null);
 
   // Hover tooltip content: a glanceable title + one-line reading for the
   // hovered entity. Hidden for the selected entity (the detail panel already
@@ -488,6 +502,51 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     pendingFollowDetailIdRef.current = null;
     focusSelectedCamera(detailId, selectedEntity);
   }, [focusSelectedCamera, selectedEntity]);
+  const publishShipMotionSamples = useCallback((
+    samples: ReadonlyMap<string, ShipMotionSample>,
+    timeSeconds: number,
+  ) => {
+    followPendingSelectionFromSamples(samples);
+    const second = Math.floor(timeSeconds);
+    if (arrivalBeatSecondRef.current === second) return;
+    arrivalBeatSecondRef.current = second;
+    const next = selectGardenArrivalBeatShipDetailIds(
+      world.ships,
+      samples,
+      reducedMotion,
+    ).filter((detailId) => {
+      const ship = world.entityById[detailId];
+      return ship?.kind === "ship"
+        && gardenArrivalBeatEnvelope(samples.get(ship.id), reducedMotion).nameplate;
+    });
+    setArrivalBeatShipDetailIds((current) => (
+      current.length === next.length && current.every((detailId, index) => detailId === next[index])
+        ? current
+        : next
+    ));
+  }, [followPendingSelectionFromSamples, reducedMotion, world.entityById, world.ships]);
+
+
+  const updateHarborLabelsForFrame = useCallback((
+    frame: Parameters<typeof updateHarborLabelChipLayout>[1],
+  ) => {
+    const shell = shellRef.current;
+    const container = harborLabelChipsElRef.current;
+    if (!shell || !container) return;
+    const shellRect = shell.getBoundingClientRect();
+    const exclusionRects = Array.from(shell.querySelectorAll<HTMLElement>(
+      ".pharosville-world-controls, .pharosville-detail-dock:not([hidden])",
+    )).map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        x: rect.left - shellRect.left,
+        y: rect.top - shellRect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+    });
+    updateHarborLabelChipLayout(container, { ...frame, exclusionRects });
+  }, []);
 
   const {
     frameRateFps,
@@ -497,7 +556,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   } = useWorldRenderLoop({
     almanacEvent: gardenAlmanac.activeEvent,
     onBucketFlip: setMotionBucket,
-    onShipMotionSamplesReady: followPendingSelectionFromSamples,
+    onShipMotionSamplesReady: publishShipMotionSamples,
+    onStationLabelFrame: updateHarborLabelsForFrame,
     adaptiveDprStateRef: canvas.adaptiveDprStateRef,
     logoGeneration: shipLogoAssets.logoGeneration,
     logos: shipLogoAssets.logos,
@@ -573,8 +633,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const startAttractTour = canvas.startAttractTour;
   const stopAttractTour = canvas.stopAttractTour;
   const attractKeyframes = useMemo(
-    () => gardenAttractKeyframes(world.lighthouse.tile, world.map),
-    [world.lighthouse.tile, world.map],
+    () => gardenAttractKeyframes(world.lighthouse.tile),
+    [world.lighthouse.tile],
   );
   useEffect(() => {
     const eligible = threeExperienceReady
@@ -1064,6 +1124,15 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         </div>
       )}
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
+        {!rendererFailed && (
+          <HarborLabelChips
+            arrivalOrAnomalyShipDetailIds={arrivalOrAnomalyShipDetailIds}
+            containerRef={harborLabelChipsElRef}
+            onSelectDetail={(detailId) => selectDetail(detailId, null)}
+            selectedShipDetailId={selectedEntity?.kind === "ship" ? selectedEntity.detailId : null}
+            world={world}
+          />
+        )}
         {!rendererFailed && (
           <div
             ref={hoverTooltipElRef}

@@ -54,6 +54,9 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   // greebles keep their own harbor-fine-* gate.
   "dock-cargo-tide",
   "dock-tide-line",
+  // Warm-village D3: the station chimneys' instanced smoke, one whole-ring
+  // group like the crates — sub-silhouette puffs, shed whole below the band.
+  "dock-station-smoke",
   "dock-lamp-heads",
   "dock-posts",
   "harbor-netRack",
@@ -69,6 +72,10 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   "garden-rim-path",
   "garden-rim-pines",
   "garden-rim-stones",
+  // Camera-near repoussoirs (warm-village A6): at whole-map they are the
+  // same frame-edge mud as the rest of the skirt furniture.
+  "garden-rim-foreground-pines",
+  "garden-rim-foreground-torii",
   // Per-hero badges, ×~29 hulls, and the three hero gull flocks.
   "ship-gull-flock",
   "ship-overview-detail",
@@ -97,6 +104,7 @@ export const OVERVIEW_LOD_WHOLE_RING_NAMES: readonly string[] = [
   "dock-cargo-tide",
   "dock-lamp-heads",
   "dock-posts",
+  "dock-station-smoke",
   "dock-tide-line",
   "harbor-netRack",
   "station-lit-screens",

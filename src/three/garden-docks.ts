@@ -189,6 +189,8 @@ export interface DockRecipe {
   parts: HarborBucketPart[];
   props: HarborPropInstance[];
   flag: HarborFlagSpec;
+  /** Ridge chimney anchor for the three hearth archetypes; null elsewhere. */
+  chimney: StationChimneyAnchor | null;
   cargoTideLanes: CargoTideLanes;
   tideFace: DockTideFace;
   footprint: StationFootprint;
@@ -392,6 +394,7 @@ export function authorDock(
     accentColor: accent.clone(),
     anchorPosition: root.position.clone(),
     anchorRotationY: root.rotation.y,
+    chimney: stationChimneyLocal(station.type, stationScale, quayX),
     cargoTideLanes: cargoTideLanes(length, quayLength, quayWidth, quayX),
     dock,
     flag,
@@ -1007,7 +1010,7 @@ function authorHatagoWharf(ctx: StationAuthorContext): void {
   const guestWindows = 2 + Math.round(ctx.supply * 2);
   const windowFractions = [-0.36, -0.1, 0.17, 0.39];
   for (let index = 0; index < guestWindows; index += 1) {
-    warmBox(ctx, 0.1, index % 2 === 0 ? 0.82 : 0.66, 0.42, hallX + hallW / 2 + 0.07, 7.55, windowFractions[index]! * hallD);
+    warmBox(ctx, 0.1, index % 2 === 0 ? 0.82 : 0.66, 0.42, hallX + hallW / 2 + 0.07, lowerTop + 2.05 * stationScale.heightScale, windowFractions[index]! * hallD);
   }
 
   // A stepped water stair gets its own subordinate roof and paired noren.
@@ -1146,7 +1149,7 @@ function authorFishingPier(ctx: StationAuthorContext): void {
   // Hung drying nets slung from the rack crossbar: part of the signature.
   for (const z of [-1.5, 0, 1.5]) {
     const net = new BoxGeometry(1.5, 1.1, 0.06);
-    net.translate(rackX + 0.1, 6.25, z);
+    net.translate(rackX + 0.1, rackTop - 2.05, z);
     timber.push(net);
   }
   warmBox(ctx, 1.2, 0.7, 0.1, shelterX, 3.6, 3.35);
@@ -1197,11 +1200,14 @@ function authorSteppedInlet(ctx: StationAuthorContext): void {
   for (const z of [-stationScale.span / 3, stationScale.span / 3]) {
     pushBox(timber, 0.26, 2.9, 0.26, canopyX, 3.0, z);
   }
-  // Crown lanterns raised clear of the taller canopy: part of the signature.
+  // Crown lanterns raised clear of the canopy on stems rooted in its cap:
+  // part of the signature. The stems grow with the ladder so the crowns stay
+  // connected at the taller rung instead of hovering above the roof.
   for (const [index, z] of [-0.9, 0, 0.9].entries()) {
     const crownTop = stationScale.secondLevelTop - (2 - index) * 0.28;
     const y = crownTop - 0.955;
-    secondBox(ctx, timber, 0.22, 1.3, 0.22, canopyX + 0.35, y - 0.5, z * 1.6);
+    const stemBase = 4.92 * stationScale.heightScale;
+    secondBox(ctx, timber, 0.22, y + 0.15 - stemBase, 0.22, canopyX + 0.35, (y + 0.15 + stemBase) / 2, z * 1.6);
     warmBox(ctx, 0.85, 0.8, 0.85, canopyX + 0.35, y, z * 1.6);
     pushFeatureGeometry(ctx, "secondLevel", roofs, new ConeGeometry(0.72, 0.55, 4), canopyX + 0.35, y + 0.68, z * 1.6);
   }
@@ -1232,12 +1238,16 @@ function authorReedBoathouse(ctx: StationAuthorContext): void {
   pushBox(timber, 0.2, 0.2, 3.1, x + w * 0.43, 4.1, 0);
   warmBox(ctx, 0.1, 0.9, 1.6, x + w * 0.43 + 0.28, 2.9, -halfD * 0.74);
   // A thatch dome on a reed drum stays soft against the reeds and cannot be
-  // mistaken for the gate, mast, or lantern-tower silhouettes.
+  // mistaken for the gate, mast, or lantern-tower silhouettes. The drum roots
+  // through the A-frame ridge and grows with the ladder so the raised dome
+  // stays seated rather than floating above the shed.
   const domeHeight = 1.5 * stationScale.heightScale;
-  pushFeatureGeometry(ctx, "secondLevel", walls, new CylinderGeometry(2.0, 2.3, 2.6, 8), x, stationScale.secondLevelTop - domeHeight - 1.3, 0);
+  const drumBase = apexY - 0.55 * stationScale.heightScale;
+  const drumTop = stationScale.secondLevelTop - domeHeight;
+  pushFeatureGeometry(ctx, "secondLevel", walls, new CylinderGeometry(2.0, 2.3, drumTop - drumBase, 8), x, (drumTop + drumBase) / 2, 0);
   const dome = new SphereGeometry(1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
   dome.scale(2.4, domeHeight, 2.1);
-  dome.translate(x, stationScale.secondLevelTop - domeHeight, 0);
+  dome.translate(x, drumTop, 0);
   addFeatureGeometry(ctx, "secondLevel", ctx.roofs, dome);
   pushPierPilings(props, length * 0.62, width, length * 0.04, 5);
   scratchMatrix.makeScale(1.45, 1.4, 1.45);
@@ -1307,12 +1317,17 @@ function authorPigeonnierLanding(ctx: StationAuthorContext): void {
   const coteX = houseX - 3.1;
   const coteRoofHeight = 1.4 * stationScale.heightScale;
   const coteRoofCenter = stationScale.secondLevelTop - coteRoofHeight / 2;
-  pushFeatureGeometry(ctx, "secondLevel", walls, new CylinderGeometry(1.5, 1.85, 5.6, 8), coteX, 4.35, 0);
+  // The cote drum grows with the ladder and its cone seats 0.4 into it, so
+  // the raised silhouette stays one connected tower; entry holes and perch
+  // windows keep their authored offsets below the drum top.
+  const coteTop = coteRoofCenter - coteRoofHeight / 2 + 0.4;
+  pushFeatureGeometry(ctx, "secondLevel", walls, new CylinderGeometry(1.5, 1.85, coteTop - 1.55, 8), coteX, (coteTop + 1.55) / 2, 0);
   for (const z of [-0.7, 0, 0.7]) {
-    warmBox(ctx, 0.3, 0.46, 0.12, coteX + 1.52, 5.6, z);
+    warmBox(ctx, 0.3, 0.46, 0.12, coteX + 1.52, coteTop - 1.55, z);
   }
   // Dark entry holes with perch ledges: the cote's signature.
-  for (const [holeY, holeZ] of [[4.6, -0.55], [6.4, 0.55]] as const) {
+  for (const [holeOffset, holeZ] of [[2.55, -0.55], [0.75, 0.55]] as const) {
+    const holeY = coteTop - holeOffset;
     const hole = new BoxGeometry(0.34, 0.4, 0.12);
     hole.translate(coteX + 1.52, holeY, holeZ);
     ctx.metal.push(hole);
@@ -1793,6 +1808,45 @@ function fallbackStationType(chainId: string): StationType {
   return options[Math.min(options.length - 1, Math.floor(stableUnit(`station-type.${chainId}`) * options.length))]!;
 }
 
+/**
+ * Chimney anchor for the three hearth archetypes (warm-village D3), in the
+ * station's local frame. Each sits ON the archetype's own ridge, at the hearth
+ * the smoke belongs to: the uogashi kitchen's mono-pitch ridge, the hatago
+ * inn's main irimoya ridge, and the tea-house hearth on the landward ridge run
+ * clear of the moon-window loft. Every other archetype returns null — no
+ * chimney, no smoke. Consumers transform this through the recipe's anchor pose
+ * the way `cargoTideSpecs` does for crate slots.
+ */
+export interface StationChimneyAnchor { x: number; y: number; z: number }
+
+function stationChimneyLocal(
+  type: StationType,
+  stationScale: StationScale,
+  quayX: number,
+): StationChimneyAnchor | null {
+  if (type === "uogashi") {
+    // authorUogashi's lean-to: high landward side at z = -span/2, ridge height
+    // compensated for the slab's thickness by leanToHighYForTop.
+    const hallD = stationScale.span;
+    const roofLow = 5.5 * stationScale.heightScale - 0.1;
+    return {
+      x: quayX - 3.2 + stationScale.length * 0.2,
+      y: leanToHighYForTop(stationScale.secondLevelTop, roofLow, hallD / 2),
+      z: -hallD / 2,
+    };
+  }
+  if (type === "hatago-wharf") {
+    // authorHatagoWharf's main irimoya ridge runs along x at z = 0 and tops
+    // out at the station's second-level height.
+    return { x: quayX - 3.4 + stationScale.length * 0.1, y: stationScale.secondLevelTop, z: 0 };
+  }
+  if (type === "tea-house-quay") {
+    // authorTeaHouseQuay's primary irimoya ridge at z = 0; the landward run,
+    // clear of the moon-window loft (half-width 1.9) that occupies its centre.
+    return { x: quayX - 3.2 - stationScale.length * 0.28, y: 6.35 * stationScale.heightScale, z: 0 };
+  }
+  return null;
+}
 
 function stationLampLocals(type: StationType, length: number, width: number) {
   if (type === "pigeonnier-islet") return [{ height: 1.45, x: length * 0.3, z: 0 }];

@@ -56,8 +56,8 @@ const COURSE_PROUD = 0.07;
  * Five courses for the five bands above the calmest one: BEDROCK leaves the
  * stone bare, so `severity` (0-5) is exactly the number of courses shown. Each
  * course is sized to its own terrace step and inset from the step's top and
- * bottom edges, so the stack reads as banding cut into the stonework rather
- * than as a skin wrapped over it.
+ * bottom edges. Epic Pharos 2026-09-05 re-cuts their half-widths to 6.2,
+ * 5.7 and 5.2 through LIGHTHOUSE_TERRACE_STEPS; the vertical courses stay put.
  */
 const COURSES: ReadonlyArray<readonly [number, number, number]> = [
   [0.24, 0.36, 0],

@@ -30,8 +30,21 @@ export interface GardenHorizon {
   update: (phase: DayCyclePhase, frame: GardenHorizonFrame) => void;
 }
 
-/** Three fog-close values: enough separation to layer, never enough to cut out. */
-export const GARDEN_HORIZON_VALUE_SCALES = [0.98, 0.97, 0.96] as const;
+/**
+ * Warm-village B3 (2026-09-05): the ridges read as THREE PLANES, not one fog
+ * band. The old 0.98/0.97/0.96 kept every layer within 2–4% of the fog colour,
+ * which graded into a single flat strip. Each ridge now steps a further ~10%
+ * down in value from far to near (fog-close far ridge, silhouette near ridge),
+ * ordered the way aerial perspective actually works.
+ */
+export const GARDEN_HORIZON_VALUE_SCALES = [0.9, 0.8, 0.7] as const;
+
+// The GLSL reads the exported scales so the shader and the contract constant
+// cannot drift apart (they did once: the shader hardcoded 0.98/0.97/0.96).
+const HORIZON_VALUE_SCALE_GLSL = `
+        float valueScale = vLayer < 0.5 ? ${GARDEN_HORIZON_VALUE_SCALES[0].toFixed(2)}
+          : (vLayer < 1.5 ? ${GARDEN_HORIZON_VALUE_SCALES[1].toFixed(2)} : ${GARDEN_HORIZON_VALUE_SCALES[2].toFixed(2)});
+      `;
 export const GARDEN_HORIZON_DISPLACEMENT = "screen-space backdrop ridge impressions";
 
 const RIDGES = [
@@ -168,7 +181,7 @@ function createMaterial(): ShaderMaterial {
           gl_FragColor = vec4(uFogColor * 1.015, mist * 0.24);
           return;
         }
-        float valueScale = vLayer < 0.5 ? 0.98 : (vLayer < 1.5 ? 0.97 : 0.96);
+        ${HORIZON_VALUE_SCALE_GLSL.trim()}
         float profile = smoothstep(0.035, 0.48, vRelief);
         float baseFade = smoothstep(0.0, 0.5, vVertical);
         float distanceCool = (2.0 - vLayer) * 0.08;

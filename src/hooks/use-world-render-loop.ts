@@ -4,7 +4,11 @@ import { isDebugChromeEnabled } from "../lib/pharosville-debug";
 // collection, and visual debug telemetry. Shared cross-hook refs (camera,
 // canvas size, hit-targets, samples) are passed in.
 import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from "react";
-import { createGardenObservatoryHitTargetSnapshot } from "../renderer/garden-observatory-hit-testing";
+import {
+  createGardenObservatoryHitTargetSnapshot,
+  createGardenStationLabelFrame,
+  type GardenStationLabelFrame,
+} from "../renderer/garden-observatory-hit-testing";
 import type { HitTarget, HitTargetSnapshot } from "../renderer/hit-testing";
 import {
   createRenderSchedulerHysteresisState,
@@ -108,8 +112,13 @@ export interface UseWorldRenderLoopInput {
    * the frame loop.
   */
   onBucketFlip?: (bucket: number) => void;
-  /** Called after a frame publishes the display samples shared by render and hit testing. */
-  onShipMotionSamplesReady?: (samples: ReadonlyMap<string, ShipMotionSample>) => void;
+  /** Called after a frame publishes display samples, with the same route-owned clock. */
+  onShipMotionSamplesReady?: (
+    samples: ReadonlyMap<string, ShipMotionSample>,
+    timeSeconds: number,
+  ) => void;
+  /** Publishes station/selected-ship label anchors in the same RAF as hit testing. */
+  onStationLabelFrame?: (frame: GardenStationLabelFrame) => void;
   adaptiveDprStateRef: MutableRefObject<AdaptiveDprState>;
   logoGeneration: number;
   logos: ThreeLogoAssets;
@@ -164,6 +173,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     onBucketFlip,
     onShipMotionSamplesReady,
     adaptiveDprStateRef,
+    onStationLabelFrame,
     logoGeneration,
     logos,
     camera,
@@ -213,6 +223,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   useEffect(() => {
     onShipMotionSamplesReadyRef.current = onShipMotionSamplesReady;
   }, [onShipMotionSamplesReady]);
+
+  const onStationLabelFrameRef = useRef(onStationLabelFrame);
+  useEffect(() => {
+    onStationLabelFrameRef.current = onStationLabelFrame;
+  }, [onStationLabelFrame]);
 
   const animationFramePendingRef = useRef(false);
   const paintRequestRef = useRef<() => void>(() => {});
@@ -611,7 +626,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         timeSeconds: motionTimeSeconds,
       });
       shipMotionSamplesRef.current = shipMotionSamples;
-      onShipMotionSamplesReadyRef.current?.(shipMotionSamples);
+      onShipMotionSamplesReadyRef.current?.(shipMotionSamples, motionTimeSeconds);
       const sampleDurationMs = performance.now() - sampleStartedAt;
       let snapshotRebuildCount = 0;
       const cameraStep = stepCameraRef.current(time, shipMotionSamples);
@@ -788,6 +803,12 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       });
       hitTargetSnapshotRef.current = nextSnapshot;
       hitTargetsRef.current = nextSnapshot.targets;
+      onStationLabelFrameRef.current?.(createGardenStationLabelFrame({
+        camera: frameCamera,
+        snapshot: nextSnapshot,
+        viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
+        world: activeWorld,
+      }));
       snapshotRebuildCount += 1;
       const hitTargetDurationMs = performance.now() - hitTargetStartedAt;
 

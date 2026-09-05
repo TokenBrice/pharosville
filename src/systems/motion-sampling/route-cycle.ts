@@ -1,17 +1,31 @@
 import { positiveModulo } from "../motion-utils";
 import type { SeaState } from "../sea-state";
-import type { ShipMotionRoute, ShipMotionSample } from "../motion-types";
+import type { ShipMotionRoute, ShipMotionSample, ShipMotionSegmentKind } from "../motion-types";
 import { activeStopCountForCycle, routeSamplingRuntime, scheduledDockStopAt } from "./route-runtime";
 import { mooredSampleInto } from "./mooring";
 import { transitSampleInto } from "./transit";
 import { riskWaterSampleInto } from "./risk-water";
 import { openWaterPatrolSampleInto } from "./open-water";
 import { MOTION_TRANSITION_SHARE } from "../motion-config";
+function writeRouteSegment(
+  out: ShipMotionSample,
+  kind: ShipMotionSegmentKind,
+  secondsInto: number,
+  durationSeconds: number,
+): void {
+  const segment = out.segment ?? { kind, secondsInto: 0, secondsRemaining: 0 };
+  segment.kind = kind;
+  segment.secondsInto = Math.max(0, secondsInto);
+  segment.secondsRemaining = Math.max(0, durationSeconds - secondsInto);
+  out.segment = segment;
+}
+
 
 export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number, seaState: SeaState | null, out: ShipMotionSample): void {
   const runtime = routeSamplingRuntime(route);
   if (runtime.scheduledStopCount === 0) {
     openWaterPatrolSampleInto(route, timeSeconds, out);
+    out.segment = null;
     out.seaState = seaState;
     return;
   }
@@ -22,6 +36,7 @@ export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number
   const stopCount = activeStopCountForCycle(runtime);
   if (stopCount === 0) {
     openWaterPatrolSampleInto(route, timeSeconds, out);
+    out.segment = null;
     return;
   }
 
@@ -55,6 +70,7 @@ export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number
         timeSeconds,
         runtime,
       }, out);
+      writeRouteSegment(out, "dock-dwell", cursor, dockSecondsEach);
       return;
     }
     cursor -= dockSecondsEach;
@@ -76,12 +92,14 @@ export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number
         timeSeconds,
         runtime,
       }, out);
+      writeRouteSegment(out, "departure-transit", cursor, transitSecondsEach);
       return;
     }
     cursor -= transitSecondsEach;
 
     if (cursor < riskSecondsEach) {
       riskWaterSampleInto(route, timeSeconds, cursor / Math.max(1, riskSecondsEach), riskSecondsEach, out);
+      writeRouteSegment(out, "risk-rest", cursor, riskSecondsEach);
       out.seaState = seaState;
       return;
     }
@@ -104,11 +122,13 @@ export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number
         timeSeconds,
         runtime,
       }, out);
+      writeRouteSegment(out, "arrival-transit", cursor, transitSecondsEach);
       return;
     }
     cursor -= transitSecondsEach;
   }
 
   riskWaterSampleInto(route, timeSeconds, 1, riskSecondsEach, out);
+  writeRouteSegment(out, "risk-rest", riskSecondsEach, riskSecondsEach);
   out.seaState = seaState;
 }

@@ -37,24 +37,22 @@ import type { LampStatusModulation } from "../systems/lamp-status";
 import { gardenModelAnchor } from "./garden-models";
 import { stableUnit } from "./garden-util";
 
-// L1 silhouette contract (Pharos Wonder 2026-07-24, decision D1 — supersedes
-// D-L1's 30-unit call): the fallback shell mirrors the GLB v4 three-tier
-// Pharos — battered square tier (2.5→17.5, half-width 3.4→2.9) → octagonal
-// drum (→26) → cylindrical drum (→29.5) → open brazier (beacon at
-// GARDEN_LIGHTHOUSE_BEACON_Y) → Zeus Soter statue (sceptre tip at
-// GARDEN_LIGHTHOUSE_HEIGHT) — so the pre-load/failure frame and the loaded
-// model never disagree on anchors.
+// L1 silhouette contract (Epic Pharos 2026-09-05): shell and GLB share a
+// 12.4-wide stepped stylobate, battered square (2.5→20.5, half 4.6→3.7),
+// octagonal drum (20.5→29, radius 2.75→2.5), columned lantern (29.4→32.8),
+// conical cap (33.2→34.4), pedestal and Zeus (35→38, sceptre tip).
+// The lantern brazier/beam share GARDEN_LIGHTHOUSE_BEACON_Y; the crown
+// shares GARDEN_LIGHTHOUSE_HEIGHT, including on pre-load/failure frames.
 const TERRACE_TOP_Y = 2.5;
-const SQUARE_TOP_Y = 17.5;
-const SQUARE_BASE_HALF = 3.4;
-const SQUARE_TOP_HALF = 2.9;
-const OCT_TOP_Y = 26;
-const OCT_BASE_RADIUS = 2.15;
-const OCT_TOP_RADIUS = 2.0;
-const CYL_TOP_Y = 29.5;
-const CYL_RADIUS = 1.35;
-/** L6: half-extent of the projecting gallery at the square tier's head. */
-const GALLERY_HALF = 3.82;
+const SQUARE_TOP_Y = 20.5;
+const SQUARE_BASE_HALF = 4.6;
+const SQUARE_TOP_HALF = 3.7;
+const OCT_TOP_Y = 29;
+const OCT_BASE_RADIUS = 2.75;
+const OCT_TOP_RADIUS = 2.5;
+const LANTERN_RADIUS = 1.9;
+/** Half-extent of the projecting gallery at the square tier's head. */
+const GALLERY_HALF = 4.7;
 const OCT_FACE = Math.cos(Math.PI / 8);
 const SQRT2 = Math.SQRT2;
 
@@ -318,15 +316,15 @@ export function updateLighthouseLampStatus(
  *
  * Worth knowing: the loaded GLB shell replaces this procedural tower, and its
  * generator (`scripts/pharosville/generate-garden-lighthouse.mjs`, the
- * `terraceSteps` table) cuts the identical three steps — half-widths 4.6 / 4.2
- * / 3.85 over y 0-0.85 / 0.85-1.7 / 1.7-2.5. Verified, not enforced: nothing
+ * `terraceSteps` table) cuts the identical three steps — half-widths 6.2 / 5.7
+ * / 5.2 over y 0-0.85 / 0.85-1.7 / 1.7-2.5. Verified, not enforced: nothing
  * links the two tables, so if the GLB's terrace is ever re-cut this moves with
  * it or the stain floats off the stonework.
  */
 export const LIGHTHOUSE_TERRACE_STEPS = [
-  [9.2, 0.85, 0.425],
-  [8.4, 0.85, 1.275],
-  [7.7, 0.8, 2.1],
+  [12.4, 0.85, 0.425],
+  [11.4, 0.85, 1.275],
+  [10.4, 0.8, 2.1],
 ] as const;
 
 export function createLighthouse(): {
@@ -394,7 +392,7 @@ export function createLighthouse(): {
     root.add(step);
   }
 
-  // Battered square tier (half-width 3.4 → 2.9): a square cylinder with
+  // Battered square tier (half-width 4.6 → 3.7): a square cylinder with
   // different top/bottom half-widths, rotated π/4 so a flat face fronts +Z
   // (same facing convention as the GLB).
   const lowerTier = new Mesh(
@@ -439,7 +437,7 @@ export function createLighthouse(): {
   lintel.position.set(0.55, 9.6, squareHalf(9.6) + 0.04);
   root.add(lintel);
   const ramp = new Mesh(new BoxGeometry(6.0, 0.18, 0.95), stairMaterial);
-  ramp.position.set(-1.7, 5.14, 3.6);
+  ramp.position.set(-1.7, 5.14, squareHalf(5.14) + 0.3);
   ramp.rotation.z = Math.atan2(5.04, 3.2);
   root.add(ramp);
 
@@ -454,42 +452,60 @@ export function createLighthouse(): {
     roughness: 0.38,
     toneMapped: false,
   });
-  // Slit windows up the tiers — a vertical rhythm of scale cues (L3).
-  for (const [x, y] of [
-    [-1.4, 11.2],
-    [1.5, 5.4],
-  ] as const) {
-    const window = new Mesh(new BoxGeometry(0.26, 0.52, 0.1), windowMaterial);
-    window.position.set(x, y, squareHalf(y) + 0.03);
-    root.add(window);
+  // Three arched window rows on all four battered faces, emissive-only.
+  // A shallow box and semicircular head keep the fallback cheap.
+  for (const y of [6.3, 12, 17.4]) {
+    for (let side = 0; side < 4; side += 1) {
+      const face = new Group();
+      for (const x of [-2.2, 0, 2.2]) {
+        const window = new Mesh(new BoxGeometry(0.48, 1.1, 0.12), windowMaterial);
+        window.position.set(x, y, squareHalf(y) + 0.08);
+        face.add(window);
+        const arch = new Mesh(
+          new CylinderGeometry(0.24, 0.24, 0.12, 8, 1, false, -Math.PI / 2, Math.PI),
+          windowMaterial,
+        );
+        arch.rotation.x = -Math.PI / 2;
+        arch.position.set(x, y + 0.55, squareHalf(y) + 0.08);
+        face.add(arch);
+      }
+      face.rotation.y = side * Math.PI / 2;
+      root.add(face);
+    }
   }
-  for (const side of [-1, 1]) {
-    const window = new Mesh(new BoxGeometry(0.26, 0.52, 0.1), windowMaterial);
-    window.position.set(side * (squareHalf(9.6) + 0.03), 9.6, 0);
-    window.rotation.y = side * Math.PI / 2;
+  for (let side = 0; side < 8; side += 1) {
+    const angle = side * Math.PI / 4;
+    const window = new Mesh(new BoxGeometry(0.5, 2.1, 0.12), windowMaterial);
+    const reach = octRadius(25) * OCT_FACE + 0.06;
+    window.position.set(Math.sin(angle) * reach, 25, Math.cos(angle) * reach);
+    window.rotation.y = angle;
     root.add(window);
+    const arch = new Mesh(
+      new CylinderGeometry(0.25, 0.25, 0.12, 8, 1, false, -Math.PI / 2, Math.PI),
+      windowMaterial,
+    );
+    arch.rotation.x = -Math.PI / 2;
+    arch.position.set(0, 26.05, reach);
+    const archRoot = new Group();
+    archRoot.add(arch);
+    archRoot.rotation.y = angle;
+    root.add(archRoot);
+    const pilasterAngle = angle + Math.PI / 8;
+    const pilaster = new Mesh(new CylinderGeometry(0.14, 0.18, 8.5, 6), midStone);
+    pilaster.position.set(
+      Math.sin(pilasterAngle) * 2.625, 24.75, Math.cos(pilasterAngle) * 2.625,
+    );
+    root.add(pilaster);
   }
-  const drumWindow = new Mesh(new BoxGeometry(0.26, 0.52, 0.1), windowMaterial);
-  drumWindow.position.set(0, 21, octRadius(21) * OCT_FACE + 0.03);
-  root.add(drumWindow);
-
-  // Corbel table at the octagon's base: flared ring plus a slab cornice.
   const corbelFlare = new Mesh(
-    new CylinderGeometry(2.4, 3.0, 0.65, 8),
+    new CylinderGeometry(GALLERY_HALF * SQRT2, SQUARE_TOP_HALF * SQRT2, 0.65, 4),
     midStone,
   );
-  corbelFlare.position.y = 17.825;
-  corbelFlare.rotation.y = Math.PI / 8;
+  corbelFlare.position.y = SQUARE_TOP_Y - 0.45;
+  corbelFlare.rotation.y = Math.PI / 4;
   root.add(corbelFlare);
-  const corbelSlab = new Mesh(
-    new CylinderGeometry(2.55, 2.55, 0.24, 8),
-    shadowStone,
-  );
-  corbelSlab.position.y = 18.27;
-  corbelSlab.rotation.y = Math.PI / 8;
-  root.add(corbelSlab);
 
-  // Octagonal drum (17.5 → 26), then the short cylindrical drum (→ 29.5).
+  // Octagonal drum with a flat face fronting +Z.
   const octDrum = new Mesh(
     new CylinderGeometry(OCT_TOP_RADIUS, OCT_BASE_RADIUS, OCT_TOP_Y - SQUARE_TOP_Y, 8),
     paleStone,
@@ -518,17 +534,26 @@ export function createLighthouse(): {
       const rail = new Mesh(
         new BoxGeometry(
           axis === "x" ? 0.3 : GALLERY_HALF * 2,
-          0.9,
+          0.18,
           axis === "x" ? GALLERY_HALF * 2 : 0.3,
         ),
         paleStone,
       );
       rail.position.set(
         axis === "x" ? side * (GALLERY_HALF - 0.14) : 0,
-        SQUARE_TOP_Y + 0.68,
+        SQUARE_TOP_Y + 1.04,
         axis === "z" ? side * (GALLERY_HALF - 0.14) : 0,
       );
       root.add(rail);
+      for (let post = -4; post <= 4; post += 1) {
+        const baluster = new Mesh(new BoxGeometry(0.16, 0.72, 0.16), paleStone);
+        baluster.position.set(
+          axis === "x" ? side * (GALLERY_HALF - 0.14) : post,
+          SQUARE_TOP_Y + 0.59,
+          axis === "z" ? side * (GALLERY_HALF - 0.14) : post,
+        );
+        root.add(baluster);
+      }
     }
   }
   for (const [cornerX, cornerZ] of [
@@ -571,32 +596,55 @@ export function createLighthouse(): {
     root.add(triton);
   }
 
-  const drumBaseRing = new Mesh(
-    new CylinderGeometry(1.5, 1.5, 0.28, 16),
-    shadowStone,
-  );
-  drumBaseRing.position.y = 26.14;
+  // Shared drum-head perch ledge, lantern floor and open colonnade.
+  const drumBaseRing = new Mesh(new CylinderGeometry(2.55, 2.55, 0.4, 24), shadowStone);
+  drumBaseRing.position.y = 29.2;
   root.add(drumBaseRing);
-  const cylDrum = new Mesh(
-    new CylinderGeometry(CYL_RADIUS, CYL_RADIUS, CYL_TOP_Y - OCT_TOP_Y, 16),
-    midStone,
-  );
-  cylDrum.position.y = (OCT_TOP_Y + CYL_TOP_Y) / 2;
-  root.add(cylDrum);
+  for (let column = 0; column < 8; column += 1) {
+    const angle = column * Math.PI / 4;
+    const shaft = new Mesh(new CylinderGeometry(0.17, 0.17, 3.4, 8), paleStone);
+    shaft.position.set(Math.sin(angle) * LANTERN_RADIUS, 31.1, Math.cos(angle) * LANTERN_RADIUS);
+    root.add(shaft);
+    const capital = new Mesh(new BoxGeometry(0.5, 0.22, 0.5), midStone);
+    capital.position.set(shaft.position.x, 32.69, shaft.position.z);
+    root.add(capital);
+    // Raised arch between neighbouring columns, open below its soffit.
+    const arch = new Mesh(
+      new CylinderGeometry(0.73, 0.73, 0.22, 12, 1, true, -Math.PI / 2, Math.PI),
+      paleStone,
+    );
+    const archRoot = new Group();
+    arch.rotation.x = -Math.PI / 2;
+    arch.position.set(0, 32.05, LANTERN_RADIUS * Math.cos(Math.PI / 8));
+    archRoot.add(arch);
+    archRoot.rotation.y = angle + Math.PI / 8;
+    root.add(archRoot);
+  }
+  const lanternGlow = new Mesh(new CylinderGeometry(1.3, 1.3, 2.8, 24), windowMaterial);
+  lanternGlow.position.y = 31.0;
+  root.add(lanternGlow);
+  const entablature = new Mesh(new CylinderGeometry(2.17, 2.17, 0.4, 24), midStone);
+  entablature.position.y = 33;
+  root.add(entablature);
+  const cap = new Mesh(new ConeGeometry(2.17, 1.2, 24), paleStone);
+  cap.position.y = 33.8;
+  root.add(cap);
+  const pedestal = new Mesh(new CylinderGeometry(0.55, 0.7, 0.6, 8), midStone);
+  pedestal.position.y = 34.7;
+  root.add(pedestal);
 
-  // Open bronze brazier (D2 — no glazed lantern): foot, flared bowl, and a
-  // dark ember bed centred exactly at GARDEN_LIGHTHOUSE_BEACON_Y.
+  // Bronze brazier inside the lantern, with coals pinned to the fire origin.
   const brazierFoot = new Mesh(
     new CylinderGeometry(0.55, 0.82, 0.3, 12),
     brazierBronze,
   );
-  brazierFoot.position.y = 29.65;
+  brazierFoot.position.y = 29.55;
   root.add(brazierFoot);
   const brazierBowl = new Mesh(
-    new CylinderGeometry(1.25, 0.55, 0.95, 12, 1, true),
+    new CylinderGeometry(1.25, 0.55, 0.75, 12, 1, true),
     brazierBronze,
   );
-  brazierBowl.position.y = 30.275;
+  brazierBowl.position.y = GARDEN_LIGHTHOUSE_BEACON_Y;
   root.add(brazierBowl);
   const emberBed = new Mesh(
     new CylinderGeometry(1.02, 1.02, 0.16, 12),
@@ -615,26 +663,26 @@ export function createLighthouse(): {
   // Crowning Zeus Soter: tapered robe, head, long vertical sceptre in one
   // hand, the other arm outstretched toward the sea (+Z front). Bronze-gilt,
   // oversized per the Roman-coin convention; sceptre tip = HEIGHT.
-  const robe = new Mesh(new CylinderGeometry(0.3, 0.52, 2.0, 8), gilt);
-  robe.position.y = 31.4;
+  const robe = new Mesh(new CylinderGeometry(0.3, 0.52, 1.6, 8), gilt);
+  robe.position.y = 35.8;
   root.add(robe);
   const chest = new Mesh(new CylinderGeometry(0.34, 0.3, 0.55, 8), gilt);
-  chest.position.y = 32.675;
+  chest.position.y = 36.875;
   root.add(chest);
   const head = new Mesh(new SphereGeometry(0.23, 8, 6), gilt);
-  head.position.y = 33.22;
+  head.position.y = 37.42;
   root.add(head);
   const sceptre = new Mesh(new CylinderGeometry(0.05, 0.05, 2.3, 6), gilt);
   sceptre.position.set(-0.5, GARDEN_LIGHTHOUSE_HEIGHT - 1.15, 0.1);
   root.add(sceptre);
   const sceptreTip = new Mesh(new SphereGeometry(0.1, 6, 4), gilt);
-  sceptreTip.position.set(-0.5, 33.87, 0.1);
+  sceptreTip.position.set(-0.5, GARDEN_LIGHTHOUSE_HEIGHT - 0.1, 0.1);
   root.add(sceptreTip);
   const seaArm = new Mesh(new BoxGeometry(0.16, 0.16, 1.05), gilt);
-  seaArm.position.set(0.18, 32.78, 0.6);
+  seaArm.position.set(0.18, 36.98, 0.6);
   root.add(seaArm);
   const sceptreArm = new Mesh(new BoxGeometry(0.52, 0.14, 0.14), gilt);
-  sceptreArm.position.set(-0.32, 32.72, 0.08);
+  sceptreArm.position.set(-0.32, 36.92, 0.08);
   root.add(sceptreArm);
 
   const shell = new Group();
@@ -772,7 +820,7 @@ function createKeeperShoreProps(): Group {
   const rowboat = new Group();
   rowboat.name = "keeper-rowboat";
   // Simple clinker read: a tapered six-sided hull lying on its side, a bench,
-  // and two shipped oars. ~1.7 units long against the 34-unit Pharos (L3).
+  // and two shipped oars. ~1.7 units long against the 38-unit Pharos.
   const hull = new Mesh(new CylinderGeometry(0.26, 0.15, 1.7, 6), hullMaterial);
   hull.rotation.z = Math.PI / 2;
   hull.scale.y = 0.72;
@@ -786,16 +834,13 @@ function createKeeperShoreProps(): Group {
     oar.rotation.y = side * 0.5;
     rowboat.add(oar);
   }
-  rowboat.position.set(-11.0, WATER_LOCAL_Y + 0.14, 6.3);
+  rowboat.position.set(-13.0, WATER_LOCAL_Y + 0.14, 6.3);
   // Long axis along the shoreline tangent at the lee-side waterline.
   rowboat.rotation.y = -1.37;
   group.add(rowboat);
 
-  // Waterline stones between the base rocks and the shore — half-sunk, wet.
-  // Clustered on the island's front-lee waterline (lighthouse-local ≈
-  // (-10, 6)): the west/back shore is occluded by the shoreline boulders
-  // from the fixed camera, anything further in buries in the terrace slope,
-  // anything further out floats off the shoal.
+  // Half-sunk stones on the island's west waterline, outside the fortified
+  // precinct (outer half-width 8.6 plus its corner bastions).
   const stoneMaterial = new MeshStandardMaterial({
     color: SHORE_STONE,
     flatShading: true,
@@ -803,11 +848,11 @@ function createKeeperShoreProps(): Group {
   });
   const stoneGeometry = new IcosahedronGeometry(1, 0);
   for (const [x, z, size, squash, turn] of [
-    [-9.0, 5.6, 0.5, 0.7, 0.4],
-    [-10.0, 6.6, 0.38, 0.75, 2.1],
-    [-11.2, 7.4, 0.55, 0.7, 1.2],
-    [-10.6, 5.2, 0.34, 0.8, 2.9],
-    [-9.4, 6.8, 0.44, 0.7, 0.9],
+    [-12.5, 5.6, 0.5, 0.7, 0.4],
+    [-13.0, 6.6, 0.38, 0.75, 2.1],
+    [-14.0, 7.4, 0.55, 0.7, 1.2],
+    [-13.6, 5.2, 0.34, 0.8, 2.9],
+    [-12.9, 6.8, 0.44, 0.7, 0.9],
   ] as const) {
     const stone = new Mesh(stoneGeometry, stoneMaterial);
     stone.position.set(x, WATER_LOCAL_Y + size * squash * 0.35, z);

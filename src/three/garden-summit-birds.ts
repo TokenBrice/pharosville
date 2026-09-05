@@ -26,13 +26,15 @@ import { stableUnit } from "./garden-util";
  * Real flocks do not do that. They SIT: on rails, cornices, mastheads and
  * bollards, and every so often one lifts, flies a turn, and settles again. Forty
  * birds circling forever reads as clockwork; eight birds sitting still with two
- * of them up reads as a harbour that happens to have birds in it — and it is
- * quieter, which is the whole of Wave 3.
+ * or three of them up reads as a harbour that happens to have birds in it — and
+ * it is quieter, which is the whole of Wave 3.
  *
  * So each bird now sits on a real ledge of the monument (the cornice ring at the
  * head of the octagonal drum, just under the brazier) and leaves it only for a
  * deterministic sortie: one wide circle out over the sea that begins and ends on
- * the very perch it left. At any instant about a quarter of the flock is up.
+ * the very perch it left. At any instant about a third of the flock is up
+ * (warm-village D2, 2026-09-05: the W3.4 quarter became a third — amplitude,
+ * not count; the same eight birds, aloft longer on wider turns).
  *
  * ## Still a pure function of the one clock
  *
@@ -54,15 +56,21 @@ const BIRD_COLOR = new Color(HARBOR_PALETTE.iron_dark);
  * Seconds between a bird's own sortie windows. One roll of the die per window
  * per bird; a bird that rolls a sortie spends `SORTIE_SHARE` of that window in
  * the air, so the share of the flock airborne at any instant is
- * `SORTIE_CHANCE * SORTIE_SHARE` — about a quarter, deliberately.
+ * `SORTIE_CHANCE * SORTIE_SHARE` — about a third (0.55 × 0.6), deliberately.
  *
  * Long on purpose: the eye must never be able to count the beat. A bird's next
  * turn is somewhere in the next minute or two, and the windows are offset per
  * bird, so the flock has no shared phase to notice.
+ *
+ * D2 (2026-09-05) raised the share 0.45 → 0.6 so flight reads at the zoom-1.0
+ * rest; the chance, the period and the per-bird phase offsets are untouched
+ * (the W3.4 clockwork critique stands). Displacement: none — this re-tunes an
+ * existing oscillator, adds no clock, no draw and no bird, and slows or stops
+ * nothing else.
  */
 export const GARDEN_BIRD_SORTIE_PERIOD = 62;
 export const GARDEN_BIRD_SORTIE_CHANCE = 0.55;
-export const GARDEN_BIRD_SORTIE_SHARE = 0.45;
+export const GARDEN_BIRD_SORTIE_SHARE = 0.6;
 
 /**
  * The shared choreography, as GLSL. Inlined into the bird vertex shaders (this
@@ -162,35 +170,30 @@ export function gardenBirdSortieOffset(
 }
 
 /**
- * The perch, in the flock's own space (origin at the brazier,
- * `GARDEN_LIGHTHOUSE_BEACON_Y` = 30.1 in the lighthouse's).
- *
- * The head of the octagonal drum is a real annular ledge, and it is the ONE
- * ledge this tower has that is both wide enough to roost on and high enough to
- * keep the summit flock a summit flock: the octagon caps at y = 26 out to
- * radius 2.0, the cylindrical drum rises off it at radius 1.35, and a
- * shadow-stone base ring sits on the join — y 26.14 r 1.50 (top 26.28) in the
- * procedural shell, y 26.30 r 1.62 (top 26.43) in the GLB. Perching at 26.47
- * clears the loaded model by a hair and the fallback shell by 0.19, which on a
- * 34-unit monument is nothing; the radius is inside both rings, so the
- * silhouettes read as standing ON stone rather than clinging to a lip.
- *
- * Everything else on this tower is either the fire (the brazier rim and ember
- * bed, radius 1.02–1.25 at the beacon itself) or eleven units down on the
- * gallery. The old orbit — radius 8.2–9.8, a unit or two above the brazier —
- * had no geometry under it at any point on its ring.
+ * The perch is relative to the brazier origin (30.2 lighthouse-local).
+ * Epic Pharos 2026-09-05 shares a drum-head ledge in shell and GLB:
+ * y 29.0–29.4, outer radius 2.55. Birds stand just above its top and
+ * outside the lantern columns (radius 1.9), with wing clearance at the lip.
  */
-const PERCH_RADIUS = 1.44;
-const PERCH_Y = 26.47 - 30.1;
+const PERCH_RADIUS = 2.6;
+const PERCH_Y = 29.44 - 30.2;
 /**
- * The turn. Loop radius is picked so the far side of the circle reaches out to
- * roughly where the old permanent orbit ran (8.7–10.5 from the tower's axis),
- * and the climb lifts her to about the brazier's own height at mid-turn — the
- * composition the flock always had, now visited rather than inhabited.
+ * The turn. Warm-village D2 (2026-09-05) widened the W3.4 loop 3.6 ± 0.9 →
+ * 6 ± 1.2 and lifted the climb 4.4 → 6 so a sortie reads at the zoom-1.0 rest:
+ * the far side of the circle now sweeps 12.2–17.0 from the tower's axis,
+ * past where the old permanent orbit ran (8.2–9.8), and mid-turn carries her
+ * above the brazier plane — the composition the flock always
+ * had, now visited on a wider beat rather than inhabited.
+ *
+ * Epic Pharos clearances: the loop is tangent to the perch, and its closest
+ * approach to the axis is the perch radius itself — 2.6 — because the outward
+ * component is never negative. It clears the lantern columns (radius 1.9
+ * plus their capitals) and the 2.17-radius cap throughout the climb; the
+ * figure above the cap is narrower still. No oscillator or bird count changes.
  */
-const LOOP_RADIUS = 3.6;
-const LOOP_RADIUS_SPREAD = 0.9;
-const CLIMB = 4.4;
+const LOOP_RADIUS = 6;
+const LOOP_RADIUS_SPREAD = 1.2;
+const CLIMB = 6;
 const CLIMB_SPREAD = 2.4;
 
 export interface GardenSummitBirdsUpdate {

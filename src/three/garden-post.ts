@@ -39,6 +39,22 @@ import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import type { TextureOwnerManifestEntry } from "../renderer/render-types";
 
 /**
+ * The world's ONE tone-mapping decision (warm-village B5, 2026-09-05).
+ *
+ * Both consumers of the curve read this constant and nothing else: the
+ * renderer's `renderer.toneMapping` (three's `NeutralToneMapping` /
+ * `AgXToneMapping`, which also feeds `toneMappingExposure` into the shader
+ * chunk) and the post chain's `ToneMappingEffect` mode below. Flipping this
+ * string is the complete A/B — there is exactly one output mapping, never a
+ * stacked effect, and quality tiers inherit it whole.
+ *
+ * "neutral" is the Khronos curve three ships as NeutralToneMapping: unlike
+ * AgX it does not compress mid chroma, which is where this palette's limited
+ * saturation lives. Exposure stays 1.12 either way.
+ */
+export const GARDEN_TONE_MAPPING: "agx" | "neutral" = "neutral";
+
+/**
  * Phase 1b (Breathtaking Rendering): one table owns every per-day-phase post
  * value — the grade preset, the bloom knee/strength, and the AO intensity.
  * The day cycle blends night → dusk → day over the whole record with the
@@ -55,8 +71,8 @@ import type { TextureOwnerManifestEntry } from "../renderer/render-types";
  * W1.3 (2026-08-13) re-derived the knees from what the frame ACTUALLY hands
  * the prefilter, because the older figures above conflated `emissiveIntensity`
  * with the relative luminance the LuminanceMaterial computes. The prefilter
- * sees the linear HDR frame BEFORE the grade and before AgX, so an emissive
- * surface reaches it at `emissiveIntensity * luminance(emissiveColorLinear)`,
+ * sees the linear HDR frame BEFORE the grade and before tone mapping, so an
+ * emissive surface reaches it at `emissiveIntensity * luminance(emissiveColorLinear)`,
  * and every warm emitter in this world is `lantern_warm` (#d49a3e), whose
  * linear relative luminance is 0.371 — not 1. Recomputed against the shipped
  * drivers, at night:
@@ -200,10 +216,14 @@ const DUSK_GRADE: GradePreset = {
   gamma: [1.0, 1.0, 1.0],
   highlightTint: [1.14, 1.0, 0.8],
   lift: [0.006, 0.006, 0.008],
-  saturation: 1.06,
+  // B6 (2026-09-05): saturation 1.06 -> 1.15 — AgX/Neutral mid chroma had
+  // nothing left to recover after the palette was capped; the ember hour now
+  // buys its warmth back here. Vignette 0.36 -> 0.28: the fogged frame top is
+  // no longer double-darkened by a heavy corner falloff on top of the haze.
+  saturation: 1.15,
   shadowTint: [0.95, 0.97, 1.05],
   split: 0.5,
-  vignette: 0.36,
+  vignette: 0.28,
   vignetteBias: 0.35,
 };
 const DAY_GRADE: GradePreset = {
@@ -498,12 +518,12 @@ function loadPostTexture(
  * W1.1 — the per-phase 3D LUTs, and W1.2 — the blue-noise dither.
  *
  * WHERE IT RUNS. This is a THIRD effect registered into the SAME EffectPass as
- * the grade and the AgX tone mapper, not a new pass: pmndrs chains the effects
+ * the grade and the tone mapper, not a new pass: pmndrs chains the effects
  * of one pass into a single fullscreen draw, feeding each `mainImage` the
  * previous effect's output. Registered after the tone mapper, it therefore sees
  * the display-referred frame — which is the only place a look-up table may run.
  * A LUT applied to the linear HDR frame would be graded on values it has no
- * entries for, and the AgX curve would then re-render the grade into something
+ * entries for, and the tone-mapping curve would then re-render the grade
  * nobody authored.
  *
  * WHAT SPACE IT WORKS IN. The composer's intermediate buffer is LINEAR
@@ -702,11 +722,12 @@ const DOF_FAR_FALLOFF = 0.5;
 const DOF_NEAR_FALLOFF = 0.45;
 /**
  * How much the screen-vertical gradient may lean the softness up the frame.
- * At 0.32 the top of the frame carries 1.32x the far softness the depth band
- * granted it and the bottom 0.68x, with the near field mirrored — the classic
- * diorama lean, biasing what depth already decided.
+ * At 0.26 the top of the frame carries 1.26x the far softness the depth band
+ * granted it and the bottom 0.74x, with the near field mirrored — the classic
+ * diorama lean, biasing what depth already decided. Lowered from 0.32 in the
+ * 2026-09-05 warm-village pass so the closer rest framing keeps its far field.
  */
-const DOF_GRADIENT_BIAS = 0.32;
+const DOF_GRADIENT_BIAS = 0.26;
 const DOF_GRADIENT_LOW = 0.16;
 const DOF_GRADIENT_HIGH = 0.92;
 /**
@@ -729,13 +750,16 @@ const DOF_GRADIENT_HIGH = 0.92;
  * water is six units NEARER than the water behind it and the depth band knows
  * that. A screen gradient alone would have had it exactly backwards.
  *
- * The shipped 0.72, with the falloffs tightened alongside it, runs ~1.5x that
- * table: a veil over the haze band and the nearest water, the anchorage sharp.
- * The first tuning pass ran a narrower band at a similar strength and softened
- * fleet detail a third of the way up the frame, which is the line this must
- * stay under. A viewer should read "tender diorama", never "tilt-shift filter".
+ * The shipped value ran 0.72 with the falloffs tightened alongside it —
+ * ~1.5x the table above: a veil over the haze band and the nearest water,
+ * the anchorage sharp. Stepped down to 0.6 in the 2026-09-05 warm-village
+ * pass (with the gradient bias 0.32 -> 0.26) so the closer rest framing
+ * reads its far field through the haze instead of behind a veil. The first
+ * tuning pass ran a narrower band at a similar strength and softened fleet
+ * detail a third of the way up the frame, which is the line this must stay
+ * under. A viewer should read "tender diorama", never "tilt-shift filter".
  */
-const DOF_STRENGTH = 0.72;
+const DOF_STRENGTH = 0.6;
 
 const TILT_SHIFT_FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D softFieldBuffer;
@@ -812,8 +836,8 @@ class GardenTiltShiftEffect extends Effect {
     });
 
     // HalfFloat to match the composer's own buffer: the blurred copy is mixed
-    // back into a linear HDR frame that still has to survive AgX, so clipping
-    // the soft field to LDR here would darken every soft highlight.
+    // back into a linear HDR frame that still has to survive tone mapping, so
+    // clipping the soft field to LDR here would darken every soft highlight.
     this.blurTargetA = new WebGLRenderTarget(1, 1, {
       depthBuffer: false,
       magFilter: LinearFilter,
@@ -958,7 +982,8 @@ const GODRAY_SHADOW_BIAS = 0.0016;
  * `gardenKeyLightPose` — the sun by day, crossed to the moon after dark. That
  * choice is deliberate: rays that agree with the shadow map must be gated by
  * the same pose the map was drawn for. Against the shipped arc it lands at
- * ~1.0 at dusk (t=19, elevation floored to 0.12), ~0.55 at dawn (t=7, 0.34),
+ * ~1.0 at dusk (t=19, 0.086 — the low-sun window is wide open there), ~0.55
+ * at dawn (t=7, 0.34),
  * ~0.28 through late afternoon (t=17), and exactly 0 at noon (0.80) and at
  * night, where the pose has crossed to the high moon (0.91).
  */
@@ -1479,13 +1504,15 @@ function releaseN8AOTextureResources(pass: N8AOPostPass): void {
  * rendering plan — supersedes the three/examples EffectComposer stack):
  *
  *   RenderPass → N8AOPostPass (AO on scene color) → EffectPass(BloomEffect) →
- *   EffectPass(GardenTiltShift + GardenGodRays + GardenGrade + ToneMapping AGX
- *   + GardenLut, fused) → EffectPass(SMAA)
+ *   EffectPass(GardenTiltShift + GardenGodRays + GardenGrade + ToneMapping
+ *   (Neutral or AgX, from GARDEN_TONE_MAPPING) + GardenLut, fused) →
+ *   EffectPass(SMAA)
  *
  * drawn through a multisampled (4×) HalfFloat frame buffer so MSAA survives
  * the composite. Tone mapping and color-space output each happen exactly
  * once: the ToneMappingEffect reuses three's own `tonemapping_pars_fragment`
- * AgX (including `toneMappingExposure`, fed by the renderer), and the final
+ * curve selected by GARDEN_TONE_MAPPING (including `toneMappingExposure`,
+ * fed by the renderer), and the final
  * pass encodes sRGB via the EffectMaterial's `colorspace_fragment` when it
  * renders to screen — the renderer only applies either when rendering to the
  * canvas directly, so scene materials are never double-processed. SMAA runs
@@ -1595,10 +1622,13 @@ export function createGardenPost(
   const bloomPass = new EffectPass(camera, bloomEffect);
 
   const gradeEffect = new GardenGradeEffect();
-  // ToneMappingEffect with AGX resolves `toneMapping()` to three's
-  // AgXToneMapping shader chunk — the same curve, exposure uniform and all,
-  // that OutputPass applied in the old chain.
-  const toneMappingEffect = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
+  // ToneMappingEffect resolves `toneMapping()` to three's own shader chunk for
+  // whatever curve GARDEN_TONE_MAPPING selects — the same curve, exposure
+  // uniform and all, that OutputPass applied in the old chain. The renderer
+  // and this effect read the same exported constant, so the A/B is one flip.
+  const toneMappingEffect = new ToneMappingEffect({
+    mode: GARDEN_TONE_MAPPING === "neutral" ? ToneMappingMode.NEUTRAL : ToneMappingMode.AGX,
+  });
   const lutEffect = new GardenLutEffect();
   const tiltShiftEffect = new GardenTiltShiftEffect();
   const godRaysEffect = new GardenGodRaysEffect();
@@ -1612,7 +1642,7 @@ export function createGardenPost(
   // softened pixels and the shafts are graded, tone-mapped and looked up with
   // everything else rather than painted over the finished picture:
   //
-  //   tilt-shift (depth band) → god rays (add) → parametric grade → AgX →
+  //   tilt-shift (depth band) → god rays (add) → parametric grade → tone map →
   //   authored cube + dither
   //
   // Depth-of-field first because the shafts are light IN THE AIR between the

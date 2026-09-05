@@ -34,6 +34,17 @@ describe("createGardenShipGulls", () => {
     }
   });
 
+  it("re-tunes the turn's amplitude, not its count (warm-village D2, 2026-09-05)", () => {
+    const ship = gullShip("usdt");
+    createGardenShipGulls([ship]);
+    // The loop band is baked into the vertex shader: 1.4 ± 0.7 → 2.4 ± 0.7 so
+    // the abeam sweep runs 4.8–6.2 out and a sortie reads at the zoom-1.0
+    // rest. Five gulls per hull, unchanged; the tangent property keeps the
+    // loop on the perch's own side of the rig at every width.
+    const shader = flockMeshes(ship)[0]!.material.vertexShader;
+    expect(shader).toContain("2.40 + aSeed * 0.70");
+  });
+
   it("seeds each ship's flock differently and identically across builds", () => {
     const [first] = [gullShip("usdt")];
     const second = gullShip("usdt");

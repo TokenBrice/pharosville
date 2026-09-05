@@ -15,7 +15,13 @@ import {
   resolveGardenEntityDisplayTile,
   selectGardenObservatorySlice,
 } from "../systems/garden-observatory-slice";
-import { HARBOR_QUAY_TOP_Y, stationFlagPlacement } from "../systems/dock-layout";
+import { placeGardenFleet } from "../systems/garden-fleet-placement";
+import {
+  gardenFleetDisplayPresence,
+  gardenFleetThinningShips,
+  type GardenFleetThinningShip,
+} from "../systems/garden-fleet-thinning";
+import { HARBOR_QUAY_TOP_Y, stationFlagPlacement, stationScaleFor } from "../systems/dock-layout";
 import type { DockNode } from "../systems/world-types";
 import type { ShipMotionSample } from "../systems/motion";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
@@ -35,15 +41,24 @@ import {
 } from "../three/garden-sea-sign-siting";
 
 import {
-  hitTargetSnapshotFromTargets,
+  buildHitTargetSpatialIndex,
   type HitTarget,
   type HitTargetSnapshot,
 } from "./hit-testing";
 
-interface GardenHitTargetViewport {
+export interface GardenHitTargetViewport {
   height: number;
   width: number;
 }
+
+export interface GardenStationLabelFrame {
+  anchorsByDetailId: ReadonlyMap<string, ScreenPoint>;
+  lighthouseRect: HitTarget["rect"];
+  viewport: GardenHitTargetViewport;
+  zoom: number;
+}
+
+const fleetThinningShipsByWorld = new WeakMap<PharosVilleWorld, GardenFleetThinningShip[]>();
 
 export function createGardenObservatoryHitTargetSnapshot(input: {
   camera: IsoCamera;
@@ -58,6 +73,19 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
   const selectedDetailId = input.selectedDetailId ?? null;
   const hoveredDetailId = input.hoveredDetailId ?? null;
   const slice = selectGardenObservatorySlice(input.world, selectedDetailId);
+  const thinningShips = fleetThinningShipsForWorld(input.world);
+  const selectedShipId = selectedDetailId
+    ? slice.ships.find(({ ship }) => ship.detailId === selectedDetailId)?.ship.id ?? null
+    : null;
+  const hoveredShipId = hoveredDetailId
+    ? slice.ships.find(({ ship }) => ship.detailId === hoveredDetailId)?.ship.id ?? null
+    : null;
+  const displayPresence = gardenFleetDisplayPresence({
+    hoveredShipId,
+    selectedShipId,
+    ships: thinningShips,
+    zoom: input.camera.zoom,
+  });
   const targets: HitTarget[] = [];
 
   const islandTile = gardenIslandDisplayTile(input.world.lighthouse.tile);
@@ -90,7 +118,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     rect: rectBetweenAnchors(
       lighthouseTop,
       lighthouseBase,
-      80 * input.camera.zoom,
+      100 * input.camera.zoom,
       14 * input.camera.zoom,
     ),
   }, input.viewport, selectedDetailId, hoveredDetailId);
@@ -246,7 +274,71 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     }, input.viewport, selectedDetailId, hoveredDetailId);
   }
 
-  return hitTargetSnapshotFromTargets(targets);
+  // Keyboard traversal and detail lookup retain the complete target list.
+  // Only the pointer index follows display thinning, so invisible water never
+  // remains clickable while accessibility can still reach every ship.
+  return {
+    spatialIndex: buildHitTargetSpatialIndex(
+      targets.filter((target) => displayPresence.get(target.id) === undefined
+        || displayPresence.get(target.id)! >= 0.5),
+    ),
+    targets,
+    targetsByDetailId: new Map(targets.map((target) => [target.detailId, target])),
+  };
+}
+
+/**
+ * Projects the station roof anchors from the same camera and authored display
+ * tiles as hit testing. This is the DOM label surface's only projection path;
+ * it adds no scene object, draw, or texture.
+ */
+export function createGardenStationLabelFrame(input: {
+  camera: IsoCamera;
+  snapshot: HitTargetSnapshot;
+  viewport: GardenHitTargetViewport;
+  world: PharosVilleWorld;
+}): GardenStationLabelFrame {
+  const anchorsByDetailId = new Map<string, ScreenPoint>();
+  for (const dock of input.world.docks) {
+    anchorsByDetailId.set(dock.detailId, gardenTileToScreen(
+      gardenDockDisplayTile(dock.tile),
+      GARDEN_DOCK_ROOT_Y + stationScaleFor(dock.station.type, dock.totalUsd).secondLevelTop,
+      input.camera,
+    ));
+  }
+  const pigeonnierTarget = input.snapshot.targetsByDetailId.get(input.world.pigeonnier.detailId);
+  if (pigeonnierTarget) anchorsByDetailId.set(input.world.pigeonnier.detailId, {
+    x: pigeonnierTarget.rect.x + pigeonnierTarget.rect.width / 2,
+    y: pigeonnierTarget.rect.y,
+  });
+  for (const target of input.snapshot.targets) {
+    if (target.kind === "ship" && target.anchor) anchorsByDetailId.set(target.detailId, target.anchor);
+  }
+
+  const lighthouseRect = input.snapshot.targetsByDetailId.get(input.world.lighthouse.detailId)?.rect
+    ?? { height: 0, width: 0, x: -1, y: -1 };
+  return {
+    anchorsByDetailId,
+    lighthouseRect,
+    viewport: input.viewport,
+    zoom: input.camera.zoom,
+  };
+}
+
+function fleetThinningShipsForWorld(world: PharosVilleWorld): GardenFleetThinningShip[] {
+  const cached = fleetThinningShipsByWorld.get(world);
+  if (cached) return cached;
+  const slice = selectGardenObservatorySlice(world, null);
+  const placement = placeGardenFleet(
+    slice.ships.map(({ ship }) => ship),
+    world.lighthouse.tile,
+  );
+  const ships = gardenFleetThinningShips(
+    slice.ships.map(({ ship }) => ship),
+    placement.mooringByShipId,
+  );
+  fleetThinningShipsByWorld.set(world, ships);
+  return ships;
 }
 
 function addVisibleTarget(

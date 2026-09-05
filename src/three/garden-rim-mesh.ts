@@ -1,5 +1,6 @@
 import {
   BufferAttribute,
+  BoxGeometry,
   BufferGeometry,
   Color,
   CylinderGeometry,
@@ -68,32 +69,51 @@ const RIM_STATION_CLEARANCES = [
 // Decorative garden frame only: rim form, planting, stones, and the stroll
 // ribbon carry no market or risk meaning.
 
-const WET_ROCK = new Color(HARBOR_PALETTE.deep_sea_2).lerp(
+const WET_ROCK = new Color(HARBOR_PALETTE.deep_sea_1).lerp(
   new Color(HARBOR_PALETTE.stone_dark),
-  0.42,
-);
+  0.5,
+); // OKLCH L 0.278 C 0.046 H 263 — cool wet blue-rock
 const TIDE_STAIN = new Color(HARBOR_PALETTE.stone_dark)
   .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.18)
   .multiplyScalar(0.72);
-const EARTH = new Color(HARBOR_PALETTE.timber_dark).lerp(
-  new Color(HARBOR_PALETTE.stone_mid),
-  0.5,
-);
-const MOSS = new Color(HARBOR_PALETTE.sail_teal).lerp(
-  new Color(HARBOR_PALETTE.aurora_green),
-  0.28,
-);
+const EARTH = new Color(HARBOR_PALETTE.timber_mid).lerp(
+  new Color(HARBOR_PALETTE.timber_warm),
+  0.42,
+); // OKLCH L 0.466 C 0.073 H 67 — warm ochre-brown
+const MOSS = new Color(HARBOR_PALETTE.aurora_green)
+  .multiplyScalar(0.78); // OKLCH L 0.571 C 0.115 H 145 — living moss
 const PATH_STONE = new Color(HARBOR_PALETTE.stone_pale).lerp(
-  new Color(HARBOR_PALETTE.fog_day),
-  0.16,
-);
+  new Color(HARBOR_PALETTE.roof_thatch),
+  0.34,
+); // OKLCH L 0.604 C 0.074 H 74 — warm sand
 const PINE_TRUNK = new Color(HARBOR_PALETTE.timber_dark);
-const PINE_NEEDLE = new Color(HARBOR_PALETTE.sail_teal).multiplyScalar(0.68);
+const PINE_NEEDLE = new Color(HARBOR_PALETTE.aurora_green)
+  .multiplyScalar(0.58); // OKLCH L 0.519 C 0.104 H 145 — deep pine green
+export const GARDEN_RIM_COLOR_HEX = {
+  earth: `#${EARTH.getHexString()}`,
+  moss: `#${MOSS.getHexString()}`,
+  pathStone: `#${PATH_STONE.getHexString()}`,
+  pineNeedle: `#${PINE_NEEDLE.getHexString()}`,
+  wetRock: `#${WET_ROCK.getHexString()}`,
+} as const;
+export const GARDEN_RIM_MOSS_BLEND_MAX = 0.62;
 const LANTERN_EMBER = new Color(HARBOR_PALETTE.lantern_warm);
 const ENGAWA_TIMBER = new Color(HARBOR_PALETTE.timber_dark).multiplyScalar(0.54);
 const ENGAWA_TIMBER_LIT = ENGAWA_TIMBER.clone().lerp(
   new Color(HARBOR_PALETTE.stone_dark),
   0.16,
+);
+// Warm-village A6: the camera-near foreground masses are dark-valued
+// silhouettes — value drops of the rim's own pine/timber dyes, never new
+// hues, and never emissive: after dark they read as black shapes against the
+// sea exactly like the skirt they stand on.
+const FOREGROUND_PINE_TRUNK = PINE_TRUNK.clone().multiplyScalar(0.66);
+const FOREGROUND_PINE_NEEDLE = PINE_NEEDLE.clone().multiplyScalar(0.58);
+const FOREGROUND_TIMBER = new Color(HARBOR_PALETTE.timber_dark)
+  .lerp(new Color(HARBOR_PALETTE.iron_dark), 0.34);
+const FOREGROUND_TIMBER_LIT = FOREGROUND_TIMBER.clone().lerp(
+  new Color(HARBOR_PALETTE.stone_mid),
+  0.2,
 );
 
 /** The veranda replaces the lower-left stroll-ribbon segment as foreground. */
@@ -103,8 +123,16 @@ export const GARDEN_ENGAWA_PINE_HEIGHT = 14;
 export const GARDEN_NEAR_RIM_BAY_DEPTHS = [3.2, 4.8, 3.6] as const;
 export const GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT = 1.55;
 export const GARDEN_NEAR_RIM_DISPLACEMENT = "straight shoreline and ordinary headland pines";
-/** The camera-side skirt displaces open water past the south/east plate limits. */
-export const GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT = "the open water band beyond the camera-side plate limits";
+/**
+ * The camera-side skirt displaces open water past the south/east plate
+ * limits. Warm-village A6 (2026-09-05): the rest frame's land-bearing near
+ * corner — the bottom-left at `defaultCamera`, which lands on this skirt
+ * around tile (60,141) — now also carries the two named foreground masses
+ * (`GARDEN_RIM_FOREGROUND_MASSES`: the corner pine group and the
+ * torii-and-fence run). They displace the same open-water band rather than
+ * adding a parallel prop vocabulary.
+ */
+export const GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT = "the open water band beyond the camera-side plate limits, now carrying the named foreground masses at the rest corner";
 const ENGAWA_LANTERN_TILE = { x: 82, y: 134 } as const;
 export const GARDEN_ENGAWA_LANTERN_WORLD = {
   x: ENGAWA_LANTERN_TILE.x * TILE_SCALE,
@@ -121,6 +149,8 @@ export interface GardenRimMesh {
   coveSpurCount: number;
   drawCallCount: number;
   engawaPineCount: number;
+  /** The two camera-near silhouette masses (warm-village A6). */
+  foregroundMassCount: number;
   pathSegmentCount: number;
   pineInstances: InstancedMesh;
   pineCount: number;
@@ -362,22 +392,24 @@ function rimHeight(tileX: number, tileY: number): number {
 
 function rimColor(tileX: number, tileY: number): Color {
   const inland = Math.max(0, -authoredDistance(tileX, tileY));
-  const moss = MathUtils.smoothstep(inland, 0.8, 6) * 0.48;
+  const moss = MathUtils.smoothstep(inland, 0.8, 6) * GARDEN_RIM_MOSS_BLEND_MAX;
   const color = WET_ROCK.clone().lerp(EARTH, MathUtils.smoothstep(inland, 0, 2.4)).lerp(MOSS, moss);
   color.multiplyScalar(0.94 + Math.sin(tileX * 0.24 - tileY * 0.18) * 0.055);
   return color;
 }
 
 /**
- * Decorative surface land test. In bounds this is the authored silhouette
- * plus its decorative cuts, unchanged. Past the south and east rim the
- * clamped rimShoreDistance sample extrudes the authored boundary silhouette
- * outward across the camera-side plate margin — water at the boundary (the
- * Danger Strait reach of the east edge) therefore stays water. The far pair
- * keeps no skirt, so the north and west margins still dissolve into the haze
- * seam. This never feeds rimLandAt or any placement decision.
+ * Decorative surface land test, exported so tests and future skirt furniture
+ * share the one predicate. In bounds this is the authored silhouette plus
+ * its decorative cuts, unchanged. Past the south and east rim the clamped
+ * rimShoreDistance sample extrudes the authored boundary silhouette outward
+ * across the camera-side plate margin — water at the boundary (the Danger
+ * Strait reach of the east edge) therefore stays water. The far pair keeps
+ * no skirt, so the north and west margins still dissolve into the haze seam.
+ * It answers where decoration may STAND: it never feeds rimLandAt, tile
+ * classification, navigation, or placement.
  */
-function isSubtileLand(tileX: number, tileY: number): boolean {
+export function gardenRimDecorativeLandAt(tileX: number, tileY: number): boolean {
   if (tileX < 0 || tileY < 0) return false;
   return authoredDistance(tileX, tileY) <= 0;
 }
@@ -385,10 +417,10 @@ function isSubtileLand(tileX: number, tileY: number): boolean {
 function shoreVertexTile(tileX: number, tileY: number): { x: number; y: number } {
   const quarter = SAMPLE_STEP * 0.5;
   const neighbourhood = [
-    isSubtileLand(tileX - quarter, tileY - quarter),
-    isSubtileLand(tileX + quarter, tileY - quarter),
-    isSubtileLand(tileX - quarter, tileY + quarter),
-    isSubtileLand(tileX + quarter, tileY + quarter),
+    gardenRimDecorativeLandAt(tileX - quarter, tileY - quarter),
+    gardenRimDecorativeLandAt(tileX + quarter, tileY - quarter),
+    gardenRimDecorativeLandAt(tileX - quarter, tileY + quarter),
+    gardenRimDecorativeLandAt(tileX + quarter, tileY + quarter),
   ];
   if (neighbourhood.every(Boolean) || neighbourhood.every((land) => !land)) {
     return { x: tileX, y: tileY };
@@ -469,7 +501,7 @@ function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
     const cy = iy * SAMPLE_STEP + half;
     for (let ix = 0; ix < samples; ix += 1) {
       const cx = ix * SAMPLE_STEP + half;
-      if (!isSubtileLand(cx, cy)) continue;
+      if (!gardenRimDecorativeLandAt(cx, cy)) continue;
       const p00 = shoreVertexTile(cx - half, cy - half);
       const p10 = shoreVertexTile(cx + half, cy - half);
       const p11 = shoreVertexTile(cx + half, cy + half);
@@ -500,7 +532,7 @@ function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
         { dx: 0, dy: SAMPLE_STEP, a: [p11.x * TILE_SCALE, h11, p11.y * TILE_SCALE], b: [p01.x * TILE_SCALE, h01, p01.y * TILE_SCALE] },
       ] as const;
       for (const side of sides) {
-        if (isSubtileLand(cx + side.dx, cy + side.dy)) continue;
+        if (gardenRimDecorativeLandAt(cx + side.dx, cy + side.dy)) continue;
         addShoreCourses(
           face,
           side.a,
@@ -534,14 +566,17 @@ function colorGeometry(geometry: BufferGeometry, color: Color): BufferGeometry {
   return geometry;
 }
 
-function createPineGeometry(): BufferGeometry {
+function createPineGeometry(
+  trunk: Color = PINE_TRUNK,
+  needle: Color = PINE_NEEDLE,
+): BufferGeometry {
   const pieces: BufferGeometry[] = [];
   const up = new Vector3(0, 1, 0);
   const branch = (from: number[], to: number[], base: number, tip: number, sides: number) => {
     const start = new Vector3(...from);
     const end = new Vector3(...to);
     const direction = end.clone().sub(start);
-    const wood = colorGeometry(new CylinderGeometry(tip, base, direction.length(), sides, 1, true), PINE_TRUNK);
+    const wood = colorGeometry(new CylinderGeometry(tip, base, direction.length(), sides, 1, true), trunk);
     wood.applyQuaternion(new Quaternion().setFromUnitVectors(up, direction.normalize()));
     wood.translate(...start.add(end).multiplyScalar(0.5).toArray());
     pieces.push(wood);
@@ -559,7 +594,7 @@ function createPineGeometry(): BufferGeometry {
     [0.36, 4.1, -0.08, 0.72, 0.4, 0.56, 0.12],
   ] as const;
   for (const [x, y, z, sx, sy, sz, tilt] of padSpecs) {
-    const pad = colorGeometry(new SphereGeometry(1, 8, 4), PINE_NEEDLE);
+    const pad = colorGeometry(new SphereGeometry(1, 8, 4), needle);
     pad.scale(sx, sy, sz);
     pad.rotateZ(tilt);
     pad.translate(x, y, z);
@@ -594,6 +629,8 @@ function pineTiles(): PineSpec[] {
       // The engawa is one silhouette, not another grove: its hero tree
       // explicitly displaces every ordinary pine in this near-corner pocket.
       if (Math.hypot(x - 86, y - 134) < 11) continue;
+      // Same rule for the two foreground mass pockets (warm-village A6).
+      if (inForegroundMassPocket(x, y)) continue;
       const lowerLeft = x < 48 && y > 72;
       const thinEast = x > 122;
       const keep = lowerLeft ? 0.92 : thinEast ? 0.12 : 0.3;
@@ -626,17 +663,20 @@ function pineTiles(): PineSpec[] {
   // and east rim on the in-bounds three-tile lattice, thinned from roughly a
   // third to a half of the in-bounds keep odds at the boundary and trailing
   // to none at the outer coast. In-bounds rings are untouched, and the far
-  // pair (x < 0 or y < 0) is water in isSubtileLand, so it gains nothing.
+  // pair (x < 0 or y < 0) is water in gardenRimDecorativeLandAt, so it gains
+  // nothing.
   for (let y = 3; y <= MAP_LAST + 5; y += 3) {
     for (let x = 3; x <= MAP_LAST + 5; x += 3) {
       const beyond = Math.max(0, x - MAP_LAST, y - MAP_LAST);
       // Lattice points still inside the map were settled (or not) by the
       // in-bounds pass above and keep their authored odds.
       if (beyond === 0) continue;
-      if (!isSubtileLand(x, y) || authoredDistance(x, y) > -2.2) continue;
+      if (!gardenRimDecorativeLandAt(x, y) || authoredDistance(x, y) > -2.2) continue;
       if (!clearOfStation(x, y, 3)) continue;
       // The engawa hero keeps its pocket; no ordinary pine crowds it.
       if (Math.hypot(x - 86, y - 134) < 11) continue;
+      // The foreground masses own their pockets too.
+      if (inForegroundMassPocket(x, y)) continue;
       const keep = CAMERA_SIDE_SKIRT_PINE_KEEP
         * Math.max(0, 1 - beyond / CAMERA_SIDE_SKIRT_PINE_FADE_TILES);
       if (stableUnit(`rim-skirt-pine.${x}.${y}`) > keep) continue;
@@ -720,7 +760,7 @@ function skirtStoneTiles(): Array<{ x: number; y: number }> {
       + stableUnit(`rim-skirt-stone-out.${anchor.axis}.${anchor.at}`) * 2.4;
     const x = anchor.axis === "south" ? along : out;
     const y = anchor.axis === "south" ? out : along;
-    if (!isSubtileLand(x, y) || authoredDistance(x, y) > -0.7) continue;
+    if (!gardenRimDecorativeLandAt(x, y) || authoredDistance(x, y) > -0.7) continue;
     if (!clearOfStation(x, y)) continue;
     spots.push({ x, y });
   }
@@ -789,6 +829,209 @@ function createStones(): InstancedMesh {
     index += 1;
   }
   mesh.instanceMatrix.needsUpdate = true;
+  return mesh;
+}
+
+// ---------------------------------------------------------------------------
+// Warm-village A6: camera-near foreground silhouette masses.
+//
+// At the zoom-1.0 rest (`defaultCamera`) the frame is an interior window on
+// the Pharos–Mole interval. Computing the rest corners with the projection
+// helpers: on 1568×1004 the bottom-left corner lands on the south-west skirt
+// around tile (59.7,140.7) and the bottom-right corner on open interior
+// water near (108.7,91.7); on 1200×640 (zoom 0.825) the bottom-left lands on
+// the in-bounds south rim near (44.7,125.9), inside the authored dense
+// lower-left pine band, and the bottom-right again on water. So exactly one
+// rest corner can carry land-standing foreground, and these two masses own
+// it: a dark pine group and a low kuro torii with a fence run, both past
+// tile 139 on decorative skirt land. They displace the open-water band named
+// by GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT — no new prop vocabulary, no tile
+// reclassification, no navigation/placement change, and nothing emissive:
+// after dark they are black shapes against the sea (night one-dominant-light
+// untouched). The calm-engawa-south station envelope reaches y≈143 at
+// x 57–63, so both masses sit east of tile 66 to keep the rim's own
+// three-tile scenery margin.
+// ---------------------------------------------------------------------------
+
+export const GARDEN_RIM_FOREGROUND_PINE_NAME = "garden-rim-foreground-pines";
+export const GARDEN_RIM_FOREGROUND_TORII_NAME = "garden-rim-foreground-torii";
+
+/** One authored foreground mass: what it is, where it stands, how tall. */
+export interface GardenRimForegroundMassSpec {
+  /** Ordinary rim-pine lattice candidates inside this radius are dropped. */
+  readonly clearRadiusTiles: number;
+  /** Crest height above the skirt surface, world units. */
+  readonly height: number;
+  /** The composed mesh name; registered in OVERVIEW_LOD_DETAIL_NAMES. */
+  readonly name: string;
+  /** Anchor tile. Past tile 139: outside the authoritative grid entirely. */
+  readonly tile: { readonly x: number; readonly y: number };
+}
+
+const FOREGROUND_PINES = [
+  { height: 15.4, leanX: -0.06, leanZ: 0.1, tileX: 71.5, tileY: 141.6, yaw: 2.2 },
+  { height: 10.8, leanX: 0.04, leanZ: -0.05, tileX: 72.6, tileY: 142.8, yaw: 4.1 },
+  { height: 13.2, leanX: -0.03, leanZ: 0.07, tileX: 74.3, tileY: 144.2, yaw: 0.7 },
+  { height: 12.0, leanX: 0, leanZ: 0, tileX: 75.9, tileY: 142.5, yaw: 3.1 },
+] as const;
+const FOREGROUND_GATE = { tileX: 66.8, tileY: 142.0, yaw: -0.32 } as const;
+const FOREGROUND_FENCE_POSTS = [
+  { height: 2.6, tileX: 68.6, tileY: 143.0 },
+  { height: 2.7, tileX: 69.7, tileY: 143.6 },
+  { height: 2.8, tileX: 70.8, tileY: 144.2 },
+] as const;
+
+/**
+ * The authored masses. Heights are crest heights; `height` doubles as the
+ * declared per-mass crest for the contract test, and both masses stay well
+ * inside the renderer budget (≤ 2 draw calls, ≤ 1.2k triangles together).
+ */
+export const GARDEN_RIM_FOREGROUND_MASSES: readonly GardenRimForegroundMassSpec[] = [
+  {
+    clearRadiusTiles: 4.5,
+    height: 15.4,
+    name: GARDEN_RIM_FOREGROUND_PINE_NAME,
+    tile: {
+      x: (Math.min(...FOREGROUND_PINES.map((pine) => pine.tileX))
+        + Math.max(...FOREGROUND_PINES.map((pine) => pine.tileX))) / 2,
+      y: (Math.min(...FOREGROUND_PINES.map((pine) => pine.tileY))
+        + Math.max(...FOREGROUND_PINES.map((pine) => pine.tileY))) / 2,
+    },
+  },
+  {
+    clearRadiusTiles: 4.5,
+    height: 6.22,
+    name: GARDEN_RIM_FOREGROUND_TORII_NAME,
+    tile: { x: FOREGROUND_GATE.tileX, y: FOREGROUND_GATE.tileY },
+  },
+] as const;
+
+function inForegroundMassPocket(tileX: number, tileY: number): boolean {
+  return GARDEN_RIM_FOREGROUND_MASSES.some((mass) => (
+    Math.hypot(tileX - mass.tile.x, tileY - mass.tile.y) < mass.clearRadiusTiles
+  ));
+}
+
+function createForegroundPines(): Mesh {
+  const pieces: BufferGeometry[] = [];
+  const matrix = new Matrix4();
+  const quaternion = new Quaternion();
+  const rotation = new Euler();
+  const scale = new Vector3();
+  for (const pine of FOREGROUND_PINES) {
+    rotation.set(pine.leanX, pine.yaw, pine.leanZ);
+    quaternion.setFromEuler(rotation);
+    scale.setScalar(pine.height / 4.5);
+    matrix.compose(
+      new Vector3(
+        pine.tileX * TILE_SCALE,
+        rimHeight(pine.tileX, pine.tileY) - 0.12,
+        pine.tileY * TILE_SCALE,
+      ),
+      quaternion,
+      scale,
+    );
+    const piece = createPineGeometry(FOREGROUND_PINE_TRUNK, FOREGROUND_PINE_NEEDLE);
+    piece.applyMatrix4(matrix);
+    pieces.push(piece);
+  }
+  const geometry = mergeGeometries(pieces, false)!;
+  pieces.forEach((piece) => piece.dispose());
+  const mesh = new Mesh(
+    geometry,
+    new MeshStandardMaterial({ flatShading: true, roughness: 0.95, vertexColors: true }),
+  );
+  mesh.name = GARDEN_RIM_FOREGROUND_PINE_NAME;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+function createForegroundTorii(): Mesh {
+  const pieces: BufferGeometry[] = [];
+  const alongX = Math.cos(FOREGROUND_GATE.yaw);
+  // rotateY maps +X to (cos yaw, -sin yaw); the placement vector follows the
+  // same convention so members sit on the line their rotation lays out.
+  const alongZ = -Math.sin(FOREGROUND_GATE.yaw);
+  const gateX = FOREGROUND_GATE.tileX * TILE_SCALE;
+  const gateZ = FOREGROUND_GATE.tileY * TILE_SCALE;
+  const ground = rimHeight(FOREGROUND_GATE.tileX, FOREGROUND_GATE.tileY);
+  // Yawed (and optionally pitched) timber member; length rides the X axis,
+  // pitch rotates the +X end upward, then yaw turns it into place.
+  const timber = (
+    length: number,
+    height: number,
+    depth: number,
+    x: number,
+    y: number,
+    z: number,
+    color: Color,
+    yaw: number = FOREGROUND_GATE.yaw,
+    pitch = 0,
+  ) => {
+    const piece = colorGeometry(new BoxGeometry(length, height, depth), color);
+    if (pitch !== 0) piece.rotateZ(pitch);
+    piece.rotateY(yaw);
+    piece.translate(x, y, z);
+    pieces.push(piece);
+  };
+  // Kuro gate: no vermillion — the reserved accent stays with the beacon and
+  // danger semantics, and a silhouette mass reads by value, not by hue.
+  for (const side of [-1, 1]) {
+    timber(
+      0.52, 6.15, 0.52,
+      gateX + side * 2.9 * alongX, ground + 2.75, gateZ + side * 2.9 * alongZ,
+      FOREGROUND_TIMBER,
+    );
+  }
+  timber(6.3, 0.36, 0.44, gateX, ground + 4.35, gateZ, FOREGROUND_TIMBER);
+  timber(0.32, 0.95, 0.32, gateX, ground + 4.95, gateZ, FOREGROUND_TIMBER);
+  timber(7.2, 0.34, 0.5, gateX, ground + 5.4, gateZ, FOREGROUND_TIMBER);
+  timber(8.1, 0.44, 0.58, gateX, ground + 6.0, gateZ, FOREGROUND_TIMBER_LIT);
+  // The fence run reads east from the gate along the skirt shore; two rails
+  // thread the post tops so the line follows the land, not a plane.
+  const anchors = [
+    { x: gateX + 2.9 * alongX, y: ground, z: gateZ + 2.9 * alongZ },
+    ...FOREGROUND_FENCE_POSTS.map((post) => ({
+      x: post.tileX * TILE_SCALE,
+      y: rimHeight(post.tileX, post.tileY),
+      z: post.tileY * TILE_SCALE,
+    })),
+  ];
+  for (const post of FOREGROUND_FENCE_POSTS) {
+    timber(
+      0.34, post.height, 0.34,
+      post.tileX * TILE_SCALE,
+      rimHeight(post.tileX, post.tileY) + post.height / 2 - 0.2,
+      post.tileY * TILE_SCALE,
+      FOREGROUND_TIMBER,
+    );
+  }
+  for (const railHeight of [1.35, 2.25]) {
+    for (let index = 1; index < anchors.length; index += 1) {
+      const a = anchors[index - 1]!;
+      const b = anchors[index]!;
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const run = Math.hypot(dx, dz);
+      timber(
+        run + 0.3, 0.14, 0.1,
+        (a.x + b.x) / 2, (a.y + b.y) / 2 + railHeight, (a.z + b.z) / 2,
+        FOREGROUND_TIMBER,
+        Math.atan2(-dz, dx),
+        Math.atan2(b.y - a.y, run),
+      );
+    }
+  }
+  const geometry = mergeGeometries(pieces, false)!;
+  pieces.forEach((piece) => piece.dispose());
+  const mesh = new Mesh(
+    geometry,
+    new MeshStandardMaterial({ flatShading: true, roughness: 0.95, vertexColors: true }),
+  );
+  mesh.name = GARDEN_RIM_FOREGROUND_TORII_NAME;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   return mesh;
 }
 
@@ -922,29 +1165,33 @@ export function createGardenRimMesh(): GardenRimMesh {
   face.name = "garden-rim-tide-rock";
   const pines = createPines();
   const stones = createStones();
+  const foregroundPines = createForegroundPines();
+  const foregroundTorii = createForegroundTorii();
   const path = buildPathGeometry();
   const pathMesh = new Mesh(
     path.geometry,
     new MeshStandardMaterial({ flatShading: true, roughness: 1, vertexColors: true }),
   );
   pathMesh.name = "garden-rim-path";
-  root.add(top, face, pathMesh, pines, stones);
-  for (const object of [top, face, pathMesh, pines, stones]) {
+  root.add(top, face, pathMesh, pines, stones, foregroundPines, foregroundTorii);
+  const drawables = [top, face, pathMesh, pines, stones, foregroundPines, foregroundTorii];
+  for (const object of drawables) {
     object.castShadow = true;
     object.receiveShadow = true;
   }
   let disposed = false;
   return {
     coveSpurCount: path.coveSpurs,
-    drawCallCount: 5,
+    drawCallCount: 7,
     engawaPineCount: 1,
+    foregroundMassCount: 2,
     pathSegmentCount: path.segments,
     pineInstances: pines,
     pineCount: pines.count,
     root,
     stoneCount: stones.count,
     steppingStoneCount: 3,
-    triangleCount: [top, face, pathMesh, pines, stones].reduce((sum, mesh) => (
+    triangleCount: drawables.reduce((sum, mesh) => (
       sum + (mesh.geometry.index?.count ?? mesh.geometry.getAttribute("position").count) / 3
         * (mesh instanceof InstancedMesh ? mesh.count : 1)
     ), 0),

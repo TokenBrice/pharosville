@@ -75,6 +75,15 @@ describe("gardenKeyLightPose", () => {
     }
   });
 
+  it("lets the ember hour rake — the late-dusk key drops below the former 7° floor", () => {
+    // Warm-village B4 (2026-09-05): MIN_KEY_ELEVATION 0.12 -> 0.06 so the
+    // ember hour throws long shadows. At 19:15 the old floor clamped the key
+    // to exactly 0.12; the authored arc now sits below it.
+    const ember = gardenKeyLightPose(19.25, dayCyclePhase(19.25));
+    expect(ember.elevation).toBeLessThan(0.12);
+    expect(ember.elevation).toBeGreaterThanOrEqual(GARDEN_KEY_MIN_ELEVATION - 1e-9);
+  });
+
   it("is the sun at midday and the moon in the dead of night", () => {
     const noon = gardenKeyLightPose(12.25, dayCyclePhase(12.25));
     expect(noon.direction.distanceTo(gardenSunPose(12.25).direction)).toBeLessThan(1e-6);

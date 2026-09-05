@@ -77,7 +77,7 @@ describe("garden tide stain (3c)", () => {
     mesh.geometry.computeBoundingBox();
     const box = mesh.geometry.boundingBox!;
 
-    // Proud of the widest step, but not by enough to become a cornice.
+    // Proud of Epic Pharos's 6.2-half-width step, but not enough for a cornice.
     const widest = LIGHTHOUSE_TERRACE_STEPS[0]![0] / 2;
     expect(box.max.x).toBeGreaterThan(widest);
     expect(box.max.x).toBeLessThan(widest + 0.2);

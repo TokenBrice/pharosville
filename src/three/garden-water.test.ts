@@ -697,6 +697,15 @@ describe("createGardenWater", () => {
     expect(water.material.uniforms.uHarborEllipse!.value).toMatchObject({ x: 10, y: 6 });
   });
 
+  it("pins the authored cool-teal day descent", () => {
+    // Warm-village re-grade: exact derived pins catch a palette or mix change
+    // that would collapse the intended warm-land/cool-sea hue separation.
+    const water = createGardenWater(0);
+    expect(uniformColor(water.material, "uShallowColor").getHexString()).toBe("1f788c");
+    expect(uniformColor(water.material, "uBaseColor").getHexString()).toBe("006c81");
+    expect(uniformColor(water.material, "uDeepColor").getHexString()).toBe("005670");
+  });
+
   it("moves through distinct day, dusk, and night palettes", () => {
     const water = createGardenWater(0);
 
@@ -771,7 +780,14 @@ describe("createGardenWater", () => {
     const noon = uniformNumber(water.material, "uGardenHeightFogDensity");
     water.update(frame({ wallClockHour: 0 }));
     const night = uniformNumber(water.material, "uGardenHeightFogDensity");
-    water.update(frame({ wallClockHour: 18 }));
+    // 18:00 is not full dusk: daylight only decays through 19:00
+    // (dayCyclePhase smoothsteps 16:30-19:00), and the blend law lerps
+    // toward the near-clear day density for every bit of daylight left,
+    // so the dusk preset is not authoritative there. 19:00 is the last
+    // hour of unbroken evening glow with zero daylight — the same
+    // full-dusk hour the mauve-wedge test above samples — so this reads
+    // the dusk preset itself: the densest air of the three phases.
+    water.update(frame({ wallClockHour: 19 }));
     const dusk = uniformNumber(water.material, "uGardenHeightFogDensity");
 
     expect(noon).toBeGreaterThan(0);

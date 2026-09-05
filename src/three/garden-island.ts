@@ -39,6 +39,7 @@ import type { SupplyTide } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
 import type { WeatherPlan } from "../systems/weather";
 import { createLighthouse } from "./garden-lighthouse";
+import { createGardenPrecinct, precinctTerrainHeight } from "./garden-precinct";
 import {
   applyGardenHeightFog,
   patchGardenHeightFogMaterial,
@@ -129,7 +130,7 @@ const ISLAND_LANTERN_POSITIONS = [
 const LANTERN_LAMP_LOCAL_Y = 0.88;
 
 /**
- * The four craggy rock tiers, as
+ * The three surviving garden shelves below the square fortress plateau, as
  * `[topRadius, bottomRadius, height, segments, seed, x, y, z, scaleZ, rotation, topColor]`.
  * Hoisted from the build loop so `islandTerrainHeight()` seats the W4.9
  * additions (stair, talus, planting) against the same numbers the geometry is
@@ -140,7 +141,6 @@ const ISLAND_TIERS = [
   [16.8, 18.4, 1.45, 32, 0.3, 0.6, -0.74, 1.2, 0.75, 0.08, TERRACE_WET],
   [13.7, 15.7, 1.72, 30, 1.25, -1.8, 0.05, 0.65, 0.7, -0.12, TERRACE_WET],
   [10.1, 12.3, 1.55, 28, 2.2, -4.45, 1.22, 0.05, 0.64, 0.18, TERRACE_MOSS],
-  [6.1, 8.1, 1.15, 24, 3.35, -6.7, 2.18, -1.1, 0.66, -0.08, TERRACE_MOSS],
 ] as const;
 
 /**
@@ -151,7 +151,7 @@ const ISLAND_TIERS = [
  * is all it is used for.
  */
 function islandTerrainHeight(x: number, z: number): number {
-  let height = WATER_LEVEL;
+  let height = precinctTerrainHeight(x, z);
   for (const [topRadius, bottomRadius, tierHeight, , , cx, cy, cz, scaleZ] of ISLAND_TIERS) {
     const top = cy + tierHeight / 2;
     const base = cy - tierHeight / 2;
@@ -560,8 +560,8 @@ export function createTerracedIsland(
   shoal.renderOrder = 1;
   root.add(shoal);
 
-  // Craggy stone tiers: same footprint and top-shelf heights as before, but
-  // re-skinned as displaced rock with a wet-base → pale-crown vertex gradient.
+  // The three lower shelves keep the garden coast's footprint; the former
+  // small crown is replaced by the precinct's broad, clipped cliff plateau.
   for (const [topRadius, bottomRadius, height, segments, seed, x, y, z, scaleZ, rotation, topColor] of ISLAND_TIERS) {
     const tier = new Mesh(
       createRockTerraceGeometry(
@@ -588,8 +588,8 @@ export function createTerracedIsland(
 
   for (const [shelfIndex, [radius, x, y, z, scaleZ, seed]] of ([
     [4.55, 3.55, 0.92, 2.9, 0.48, 0.4],
-    [3.65, -6.0, 1.9, 2.0, 0.43, 1.8],
-    [2.9, 2.25, 2.42, -3.7, 0.52, 2.7],
+    [3.65, -6.0, 1.2, 10.3, 0.43, 1.8],
+    [3.9, 8.0, 0.8, 6.0, 0.75, 2.7],
   ] as const).entries()) {
     const plantedShelf = new Mesh(
       createRockTerraceGeometry(
@@ -632,13 +632,12 @@ export function createTerracedIsland(
   root.add(decoration);
   const reflectionPond = createIslandReflectionPond();
   root.add(
-    createKeeperCottage(),
+    createGardenPrecinct(),
     createObservatoryPavilion(),
     reflectionPond.root,
   );
-  // The obelisks survive only as the quay stair's deliberately unequal
-  // gateposts. The old sea wall and drowned drums are shed: both described a
-  // fortress, not a garden-rock, and neither displaced a larger composition.
+  // The unequal obelisks now mark the fortress gate approach, not a separate
+  // monument on the old bare terrace.
   root.add(
     createPrecinctObelisks(),
     createDangerRockFace(),
@@ -1155,8 +1154,8 @@ export const GARDEN_NIWAKI_SPECS: readonly NiwakiSpec[] = [
     height: 7.15,
     leanX: 1.15,
     leanZ: 0.45,
-    x: -8,
-    z: 5.8,
+    x: -11.5,
+    z: 9.1,
     pads: [
       { t: 0.48, offsetX: 0.4, offsetZ: -0.15, scaleX: 2.1, scaleY: 0.36, scaleZ: 1.18, tone: 1, yaw: 0.18 },
       { t: 0.72, offsetX: -0.48, offsetZ: 0.2, scaleX: 2.42, scaleY: 0.4, scaleZ: 1.28, tone: 0, yaw: -0.2 },
@@ -1167,8 +1166,8 @@ export const GARDEN_NIWAKI_SPECS: readonly NiwakiSpec[] = [
     height: 6.35,
     leanX: -0.55,
     leanZ: 0.85,
-    x: -4.5,
-    z: 4.2,
+    x: -6.5,
+    z: 10.5,
     pads: [
       { t: 0.42, offsetX: -0.4, offsetZ: 0.1, scaleX: 2.18, scaleY: 0.36, scaleZ: 1.1, tone: 0, yaw: -0.2 },
       { t: 0.57, offsetX: 0.52, offsetZ: -0.25, scaleX: 1.58, scaleY: 0.29, scaleZ: 0.94, tone: 1, yaw: 0.22 },
@@ -1181,8 +1180,8 @@ export const GARDEN_NIWAKI_SPECS: readonly NiwakiSpec[] = [
     height: 5.5,
     leanX: 1.05,
     leanZ: 0.45,
-    x: -0.8,
-    z: 7,
+    x: 0.8,
+    z: 10.2,
     pads: [
       { t: 0.5, offsetX: 0.35, offsetZ: -0.1, scaleX: 1.86, scaleY: 0.33, scaleZ: 1.04, tone: 1, yaw: 0.15 },
       { t: 0.73, offsetX: -0.45, offsetZ: 0.18, scaleX: 2.12, scaleY: 0.36, scaleZ: 1.15, tone: 0, yaw: -0.22 },
@@ -1319,54 +1318,6 @@ export function updateGardenNiwakiWind(
   if (foliage) updateGardenInstancedWindSway(foliage.material, weather, reducedMotion);
 }
 
-/**
- * The keeper's cottage: foundation, walls, roof, one lit window. That is the
- * whole accessory list, and W3.1 (The Great Quieting) is why — the paper-
- * lantern string along the east eave (three instanced lanterns on two sagging
- * cords, shipped as "I4 warm micro-life") is deleted. It was a fifth glow
- * vocabulary spent on a detail the fixed 30° camera reads at a handful of
- * pixels, and at night it put three more warm points beside the one that says
- * something: the lit window, which is the keeper being home. One light per
- * building; the cottage says it with the window.
- */
-function createKeeperCottage(): Group {
-  const root = new Group();
-  root.name = "keeper-cottage";
-  root.position.set(-10, islandTerrainHeight(-10, -1), -1);
-  root.rotation.y = -0.18;
-  const foundation = new Mesh(
-    new BoxGeometry(4.7, 0.38, 3.2),
-    new MeshStandardMaterial({ color: "#8f8d7d", flatShading: true, roughness: 1 }),
-  );
-  foundation.position.y = 0.18;
-  const walls = new Mesh(
-    new BoxGeometry(4.1, 1.9, 2.7),
-    new MeshStandardMaterial({ color: "#c7bea7", flatShading: true, roughness: 0.96 }),
-  );
-  walls.position.y = 1.25;
-  const roof = new Mesh(
-    new ConeGeometry(3.25, 1.5, 4),
-    new MeshStandardMaterial({
-      color: "#6b4a3e",
-      flatShading: true,
-      roughness: 0.84,
-    }),
-  );
-  roof.position.y = 2.75;
-  roof.rotation.y = Math.PI / 4;
-  roof.scale.z = 0.72;
-  const windowMaterial = new MeshStandardMaterial({
-    color: "#dfbd73",
-    emissive: HARBOR_PALETTE.lantern_warm,
-    emissiveIntensity: 0.45,
-    roughness: 0.38,
-  });
-  const window = new Mesh(new BoxGeometry(0.74, 0.65, 0.08), windowMaterial);
-  window.name = "keeper-cottage-lit-window";
-  window.position.set(0.8, 1.42, 1.39);
-  root.add(foundation, walls, roof, window);
-  return root;
-}
 
 function createObservatoryPavilion(): Group {
   const root = new Group();
@@ -1411,7 +1362,7 @@ function createObservatoryPavilion(): Group {
   return root;
 }
 
-export const GARDEN_POND_CENTER = { x: 1.2, z: 5.2 } as const;
+export const GARDEN_POND_CENTER = { x: 8.0, z: 6.0 } as const;
 const POND_CENTER_X = GARDEN_POND_CENTER.x;
 const POND_CENTER_Z = GARDEN_POND_CENTER.z;
 const POND_YAW = -0.18;
@@ -1425,7 +1376,12 @@ const POND_YAW = -0.18;
  */
 export const GARDEN_POND_REFLECTION_AXES = {
   moon: new Vector2(-0.19572, -0.98066),
-  tower: new Vector2(-0.88397, 0.46754),
+  tower: new Vector2(
+    Math.cos(POND_YAW) * (GARDEN_LIGHTHOUSE_ROOT_OFFSET.x - POND_CENTER_X)
+      - Math.sin(POND_YAW) * (GARDEN_LIGHTHOUSE_ROOT_OFFSET.z - POND_CENTER_Z),
+    -Math.sin(POND_YAW) * (GARDEN_LIGHTHOUSE_ROOT_OFFSET.x - POND_CENTER_X)
+      - Math.cos(POND_YAW) * (GARDEN_LIGHTHOUSE_ROOT_OFFSET.z - POND_CENTER_Z),
+  ).normalize(),
 } as const;
 
 interface GardenPondReflectionUniforms {
@@ -1441,7 +1397,7 @@ export interface GardenPondReflection {
 function pondReflectionGlsl(): string {
   return /* glsl */ `
     vec2 p=vGardenPondPosition;
-    vec2 tp=vec2(dot(p,vec2(-.88397,.46754)),dot(p,vec2(-.46754,-.88397)));
+    vec2 tp=vec2(dot(p,vec2(${GARDEN_POND_REFLECTION_AXES.tower.x},${GARDEN_POND_REFLECTION_AXES.tower.y})),dot(p,vec2(${-GARDEN_POND_REFLECTION_AXES.tower.y},${GARDEN_POND_REFLECTION_AXES.tower.x})));
     float t=(2.8-tp.x)/5.6;
     float w=mix(.78,.22,t)+.2*smoothstep(.66,.72,t)*(1.-smoothstep(.84,.9,t));
     float a=max(fwidth(tp.y),.012);
@@ -1551,10 +1507,10 @@ function createIslandReflectionPond(): { reflection: GardenPondReflection; root:
  * Intermediate bends make one broad S without entering the reflection basin.
  */
 export const GARDEN_PATH_SWEEP_POINTS: readonly { x: number; z: number }[] = [
-  { x: -2, z: -4.6 },
-  { x: 4, z: -3 },
-  { x: 5.5, z: 0.5 },
-  { x: 0.5, z: 2.4 },
+  { x: 3.4, z: -1.25 },
+  { x: 3.7, z: -0.4 },
+  { x: 5.4, z: 0.2 },
+  { x: 5.2, z: 1.4 },
   { x: 4.4, z: 2.35 },
 ] as const;
 
@@ -1830,13 +1786,10 @@ function cliffSlabGeometry(): BoxGeometry {
   return geometry;
 }
 
-// The cut-stone stair: quay head at the waterline on the lee (-z) shore, up to
-// the +x edge of the lighthouse terrace. The line is chosen to clear the
-// reflection pond, the keeper cottage, the upper stone triad and the garden
-// path, so the stair is a second, formal route to the tower rather than a
-// duplicate of the winding one.
+// The quay stair climbs from the lee shore to the east fortress gate. The
+// final stone landing joins the open arch, while the garden path turns south.
 const QUAY_STAIR_START = { x: 16.9, z: -5.79 } as const;
-const QUAY_STAIR_END = { x: -2.0, z: -4.6 } as const;
+const QUAY_STAIR_END = { x: 3.4, z: -1.25 } as const;
 // The stair head is the precinct's threshold — the obelisk gateposts and their
 // planting keep-outs are derived from it, so it is contract, not decoration.
 export {

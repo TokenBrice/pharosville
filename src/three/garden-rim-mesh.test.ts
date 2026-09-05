@@ -1,39 +1,80 @@
 import { InstancedMesh, Matrix4, Mesh, MeshStandardMaterial } from "three";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type MockInstance } from "vitest";
+import { defaultCamera } from "../systems/camera";
 import { distanceToStationFootprint, stationFootprintRect } from "../systems/dock-layout";
 import { RIM_COVES, RIM_OPENINGS, rimLandAt } from "../systems/garden-rim";
 import {
+  gardenIslandDisplayTile,
+  gardenTileToScreen,
+  GARDEN_LIGHTHOUSE_HEIGHT,
+  GARDEN_LIGHTHOUSE_ROOT_OFFSET,
+} from "../systems/garden-observatory-slice";
+import { TILE_WIDTH } from "../systems/projection";
+import {
+  buildPharosVilleMap,
   EVM_BAY_STATION_SLOTS,
+  LIGHTHOUSE_TILE,
   OUTER_HARBOR_STATION_SLOTS,
+  PHAROSVILLE_MAP_HEIGHT,
+  PHAROSVILLE_MAP_WIDTH,
   PIGEONNIER_STATION_SLOT,
 } from "../systems/world-layout";
 import { weatherForFrame } from "../systems/weather";
 import {
   createGardenRimMesh,
+  gardenRimBayExcursionAt,
+  gardenRimDecorativeLandAt,
   GARDEN_ENGAWA_DISPLACEMENT,
   GARDEN_ENGAWA_LANTERN_WORLD,
   GARDEN_ENGAWA_PINE_HEIGHT,
-  gardenRimBayExcursionAt,
   GARDEN_NEAR_RIM_BAY_DEPTHS,
   GARDEN_NEAR_RIM_DISPLACEMENT,
   GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT,
   GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT,
+  GARDEN_RIM_COLOR_HEX,
+  GARDEN_RIM_FOREGROUND_MASSES,
+  GARDEN_RIM_FOREGROUND_PINE_NAME,
+  GARDEN_RIM_MOSS_BLEND_MAX,
 } from "./garden-rim-mesh";
+import { GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS } from "./garden-lighthouse";
 import { GARDEN_NIWAKI_SPECS } from "./garden-island";
 import { countDrawableObjects, TILE_SCALE } from "./garden-util";
 
+interface ScreenRect {
+  maxX: number;
+  maxY: number;
+  minX: number;
+  minY: number;
+}
+
+function rectsOverlap(a: ScreenRect, b: ScreenRect): boolean {
+  return a.minX <= b.maxX && b.minX <= a.maxX && a.minY <= b.maxY && b.minY <= a.maxY;
+}
+
+function unionInto(rect: ScreenRect, x: number, y: number): void {
+  rect.minX = Math.min(rect.minX, x);
+  rect.maxX = Math.max(rect.maxX, x);
+  rect.minY = Math.min(rect.minY, y);
+  rect.maxY = Math.max(rect.maxY, y);
+}
+
 describe("garden rim mesh", () => {
-  it("builds the authored ring in five batched opaque draws", () => {
+  it("builds the authored ring in seven batched opaque draws", () => {
     const rim = createGardenRimMesh();
     expect(rim.root.name).toBe("garden-rim");
-    expect(rim.drawCallCount).toBe(5);
+    // Warm-village A6: the two camera-near silhouette masses each add one
+    // merged mesh, so the ring holds seven draws — five before.
+    expect(rim.drawCallCount).toBe(7);
     expect(rim.drawCallCount).toBeLessThanOrEqual(12);
-    expect(countDrawableObjects(rim.root)).toBe(5);
+    expect(countDrawableObjects(rim.root)).toBe(7);
     expect(rim.root.getObjectByName("garden-rim-land")).toBeInstanceOf(Mesh);
     expect(rim.root.getObjectByName("garden-rim-tide-rock")).toBeInstanceOf(Mesh);
     expect(rim.root.getObjectByName("garden-rim-path")).toBeInstanceOf(Mesh);
     expect(rim.root.getObjectByName("garden-rim-pines")).toBeInstanceOf(InstancedMesh);
     expect(rim.root.getObjectByName("garden-rim-stones")).toBeInstanceOf(InstancedMesh);
+    expect(rim.root.getObjectByName("garden-rim-foreground-pines")).toBeInstanceOf(Mesh);
+    expect(rim.root.getObjectByName("garden-rim-foreground-torii")).toBeInstanceOf(Mesh);
+    expect(rim.foregroundMassCount).toBe(2);
     expect(rim.pineCount).toBeGreaterThan(20);
     expect(rim.engawaPineCount).toBe(1);
     expect(rim.steppingStoneCount).toBe(3);
@@ -68,6 +109,20 @@ describe("garden rim mesh", () => {
     expect(GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT).toBeGreaterThanOrEqual(1.5);
     expect(GARDEN_NEAR_RIM_DISPLACEMENT).toContain("straight shoreline");
     rim.dispose();
+  });
+
+  it("pins the warm-land and living-green derived dyes", () => {
+    // Warm-village re-grade: these pins protect the authored hue split itself,
+    // not merely the palette inputs from which Three.js mixes the final dyes.
+    expect(GARDEN_RIM_COLOR_HEX).toEqual({
+      earth: "#75512a",
+      moss: "#48894b",
+      pathStone: "#9c7b4e",
+      pineNeedle: "#3e7841",
+      wetRock: "#1c283f",
+    });
+    // More inland green breaks up the former uniform cool-brown rim.
+    expect(GARDEN_RIM_MOSS_BLEND_MAX).toBe(0.62);
   });
 
   it("keeps continuous earth between local ledges and articulates the existing pine batch", () => {
@@ -197,7 +252,7 @@ describe("garden rim mesh", () => {
     const legacyHalfAlong = (ledger.rect.maxAlong - ledger.rect.minAlong) / 2;
     expect(Math.max(
       Math.abs((legacyPathPoint.x - ledger.rect.origin.x) - legacyHalfAlong)
-        - legacyHalfAlong,
+      - legacyHalfAlong,
       0,
     )).toBeGreaterThan(0);
 
@@ -315,9 +370,187 @@ describe("garden rim mesh", () => {
     rim.dispose();
   });
 
+  it("frames the rest corner with two dark skirt silhouette masses", () => {
+    const rim = createGardenRimMesh();
+    const map = buildPharosVilleMap();
+    const gridLast = Math.max(PHAROSVILLE_MAP_WIDTH, PHAROSVILLE_MAP_HEIGHT) - 1;
+    const stationClearances = [
+      ...EVM_BAY_STATION_SLOTS,
+      ...OUTER_HARBOR_STATION_SLOTS,
+      PIGEONNIER_STATION_SLOT,
+    ].map((slot) => ({
+      cove: slot.cove,
+      rect: stationFootprintRect(
+        slot.type,
+        slot.cove.tile,
+        slot.cove.seawardBearing,
+        slot.cove.id,
+      ),
+    }));
+    const massRects: Record<string, ScreenRect> = {};
+    for (const mass of GARDEN_RIM_FOREGROUND_MASSES) {
+      const mesh = rim.root.getObjectByName(mass.name) as Mesh;
+      expect(mesh, mass.name).toBeInstanceOf(Mesh);
+      // Dark silhouette: vertex-coloured derived dyes, zero emissive — after
+      // dark these are black shapes, never a second light (Stillness).
+      const material = mesh.material as MeshStandardMaterial;
+      expect(material.vertexColors).toBe(true);
+      expect(material.emissive.getHex()).toBe(0);
+      mesh.geometry.computeBoundingBox();
+      const bb = mesh.geometry.boundingBox!;
+      // On the decorative land skirt: the anchor stands past the last tile of
+      // the authoritative grid (so it occupies no water tile at all) and the
+      // decorative land predicate holds across its footing disc.
+      expect(
+        Math.max(mass.tile.x, mass.tile.y),
+        `${mass.name} anchor off the tile grid`,
+      ).toBeGreaterThan(gridLast);
+      for (const [dx, dy] of [[0, 0], [1.4, 0], [-1.4, 0], [0, 1.4], [0, -1.4]] as const) {
+        expect(
+          gardenRimDecorativeLandAt(mass.tile.x + dx, mass.tile.y + dy),
+          `${mass.name} footing at ${mass.tile.x + dx},${mass.tile.y + dy}`,
+        ).toBe(true);
+      }
+      // Anchors keep the rim's three-tile scenery margin; the swept mass (a
+      // kasagi tip may overhang the reservation tail over open skirt) stays
+      // strictly outside every station footprint.
+      for (const station of stationClearances) {
+        expect(
+          distanceToStationFootprint(mass.tile, station.rect),
+          `${mass.name} anchor vs ${station.cove.id}`,
+        ).toBeGreaterThan(3);
+        for (const [x, y] of [
+          [bb.min.x / TILE_SCALE, bb.min.z / TILE_SCALE],
+          [bb.max.x / TILE_SCALE, bb.min.z / TILE_SCALE],
+          [bb.min.x / TILE_SCALE, bb.max.z / TILE_SCALE],
+          [bb.max.x / TILE_SCALE, bb.max.z / TILE_SCALE],
+        ] as const) {
+          expect(
+            distanceToStationFootprint({ x, y }, station.rect),
+            `${mass.name} bounds vs ${station.cove.id}`,
+          ).toBeGreaterThan(0);
+        }
+      }
+      // Stated triangle budget (warm-village A6): four merged dark pines
+      // stay ≤ 1000 triangles, the gate + fence run ≤ 400.
+      const triangles = (mesh.geometry.index?.count
+        ?? mesh.geometry.getAttribute("position").count) / 3;
+      expect(
+        triangles,
+        `${mass.name} triangle budget`,
+      ).toBeLessThanOrEqual(mass.name === GARDEN_RIM_FOREGROUND_PINE_NAME ? 1000 : 400);
+      // The crest honours the authored mass height: pines in the 10–16 u
+      // band, the gate low.
+      const crest = bb.max.y - Math.min(bb.min.y, 0.9);
+      expect(crest, `${mass.name} crest`).toBeGreaterThanOrEqual(mass.height * 0.85);
+      massRects[mass.name] = {
+        maxX: Number.NEGATIVE_INFINITY,
+        maxY: Number.NEGATIVE_INFINITY,
+        minX: Number.POSITIVE_INFINITY,
+        minY: Number.POSITIVE_INFINITY,
+      };
+      for (const [x, y, z] of [
+        [bb.min.x, bb.min.y, bb.min.z],
+        [bb.max.x, bb.min.y, bb.min.z],
+        [bb.min.x, bb.max.y, bb.min.z],
+        [bb.max.x, bb.max.y, bb.min.z],
+        [bb.min.x, bb.min.y, bb.max.z],
+        [bb.max.x, bb.min.y, bb.max.z],
+        [bb.min.x, bb.max.y, bb.max.z],
+        [bb.max.x, bb.max.y, bb.max.z],
+      ] as const) {
+        const point = gardenTileToScreen({ x: x / TILE_SCALE, y: z / TILE_SCALE }, y, {
+          offsetX: 0,
+          offsetY: 0,
+          zoom: 1,
+        });
+        unionInto(massRects[mass.name]!, point.x, point.y);
+      }
+    }
+    expect(rim.foregroundMassCount).toBe(2);
+
+    // Projected default-camera bounds must miss the lighthouse rect and the
+    // Mole quay at both rest sizes, and must cross the desktop rest frame's
+    // bottom-left near corner (the only land-bearing rest corner; the
+    // bottom-right corner is interior water by the camera math).
+    const islandTile = gardenIslandDisplayTile(LIGHTHOUSE_TILE);
+    const towerTile = {
+      x: islandTile.x + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x / Math.SQRT2,
+      y: islandTile.y + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z / Math.SQRT2,
+    };
+    const mole = stationClearances.find(({ cove }) => cove.id === "ethereum-mole")!;
+    const pxPerWorldUnitX = (TILE_WIDTH / 2) / TILE_SCALE;
+    const towerHalfWidth = GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS * 2 * pxPerWorldUnitX;
+    for (const viewport of [
+      { height: 1004, width: 1568 },
+      { height: 640, width: 1200 },
+    ]) {
+      const camera = defaultCamera({ ...viewport, height: viewport.height, map, width: viewport.width });
+      const crown = gardenTileToScreen(
+        towerTile,
+        GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT,
+        camera,
+      );
+      const foot = gardenTileToScreen(towerTile, 0, camera);
+      const lighthouseRect: ScreenRect = {
+        maxX: crown.x + towerHalfWidth * camera.zoom,
+        maxY: foot.y,
+        minX: crown.x - towerHalfWidth * camera.zoom,
+        minY: crown.y,
+      };
+      const moleRect: ScreenRect = {
+        maxX: Number.NEGATIVE_INFINITY,
+        maxY: Number.NEGATIVE_INFINITY,
+        minX: Number.POSITIVE_INFINITY,
+        minY: Number.POSITIVE_INFINITY,
+      };
+      for (const along of [mole.rect.minAlong, mole.rect.maxAlong]) {
+        for (const across of [mole.rect.minAcross, mole.rect.maxAcross]) {
+          for (const worldY of [0, 21.7]) {
+            const point = gardenTileToScreen({
+              x: mole.rect.origin.x + mole.rect.seawardX * along - mole.rect.seawardY * across,
+              y: mole.rect.origin.y + mole.rect.seawardY * along + mole.rect.seawardX * across,
+            }, worldY, camera);
+            unionInto(moleRect, point.x, point.y);
+          }
+        }
+      }
+      for (const mass of GARDEN_RIM_FOREGROUND_MASSES) {
+        const rect = massRects[mass.name]!;
+        const scaled: ScreenRect = {
+          maxX: rect.maxX * camera.zoom + camera.offsetX,
+          maxY: rect.maxY * camera.zoom + camera.offsetY,
+          minX: rect.minX * camera.zoom + camera.offsetX,
+          minY: rect.minY * camera.zoom + camera.offsetY,
+        };
+        expect(
+          rectsOverlap(scaled, lighthouseRect),
+          `${mass.name} overlaps the lighthouse rect at ${viewport.width}x${viewport.height}`,
+        ).toBe(false);
+        expect(
+          rectsOverlap(scaled, moleRect),
+          `${mass.name} overlaps the Mole quay at ${viewport.width}x${viewport.height}`,
+        ).toBe(false);
+        if (viewport.width === 1568) {
+          // The masses own the bottom-left rest corner: they intersect the
+          // corner quarter and bleed past the frame's bottom edge.
+          const corner: ScreenRect = {
+            maxX: viewport.width * 0.25,
+            maxY: viewport.height,
+            minX: 0,
+            minY: viewport.height * 0.7,
+          };
+          expect(rectsOverlap(scaled, corner), `${mass.name} misses the rest corner`).toBe(true);
+          expect(scaled.maxY, `${mass.name} does not cross the frame bottom`).toBeGreaterThan(viewport.height);
+        }
+      }
+    }
+    rim.dispose();
+  });
+
   it("marks every rim batch as a static shadow user and disposes once", () => {
     const rim = createGardenRimMesh();
-    const disposals: Array<ReturnType<typeof vi.spyOn>> = [];
+    const disposals: MockInstance[] = [];
     for (const child of rim.root.children as Array<Mesh | InstancedMesh>) {
       expect(child.castShadow).toBe(true);
       expect(child.receiveShadow).toBe(true);

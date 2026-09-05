@@ -298,16 +298,12 @@ describe("garden island rockwork", () => {
     expect(stones).toBeInstanceOf(InstancedMesh);
   });
 
-  it("leaves the keeper cottage its lit window and nothing else that glows", () => {
-    // W3.1: the paper-lantern string is deleted, not dimmed. One light per
-    // building — the window says the keeper is home, and three more warm
-    // points beside it said nothing at all.
+  it("moves the keeper's single warm window into the fortress gatehouse", () => {
     const island = createTerracedIsland(world);
-    expect(island.root.getObjectByName("keeper-cottage-lantern-string")).toBeUndefined();
-    expect(island.root.getObjectByName("keeper-cottage-lanterns")).toBeUndefined();
-    const cottage = island.root.getObjectByName("keeper-cottage")!;
+    expect(island.root.getObjectByName("keeper-cottage")).toBeUndefined();
+    const precinct = island.root.getObjectByName("island-fortified-precinct")!;
     const glowing: Mesh[] = [];
-    cottage.traverse((object) => {
+    precinct.traverse((object) => {
       if (
         object instanceof Mesh
         && object.material instanceof MeshStandardMaterial
@@ -315,7 +311,7 @@ describe("garden island rockwork", () => {
         && object.material.emissive.getHex() !== 0
       ) glowing.push(object);
     });
-    expect(glowing.map((mesh) => mesh.name)).toEqual(["keeper-cottage-lit-window"]);
+    expect(glowing.map((mesh) => mesh.name)).toEqual(["island-gatehouse-lit-window"]);
   });
 
   it("stands the obelisk pair as the quay stair's gateposts, unequally", () => {
@@ -389,6 +385,10 @@ describe("garden island rockwork", () => {
       "island-danger-rock-face",
       "island-quay-stair-treads",
       "island-quay-stair-cheeks",
+      "island-precinct-masonry",
+      "island-precinct-cliff",
+      "island-precinct-recesses",
+      "island-gatehouse-lit-window",
     ];
     for (const name of added) {
       const mesh = island.root.getObjectByName(name);
@@ -621,21 +621,13 @@ const OBSTACLE_LOCAL = {
 };
 
 /**
- * Worst ellipse value over a mesh's transformed geometry bounds — every
- * instance for an InstancedMesh. < 1 means fully inside the obstacle. Every
- * mesh checked here hangs off a group seated at the island root's origin, so
- * the instance matrices are already island-local.
+ * Worst ellipse value over actual transformed vertices — every instance for
+ * an InstancedMesh. The ellipse is convex, so containing each triangle's
+ * vertices contains its interior too. A merged chamfered fortress has empty
+ * bounding-box corners outside its real footprint; those are not land.
  */
 function maxObstacleEllipseValue(mesh: Mesh): number {
-  mesh.geometry.computeBoundingBox();
-  const box = mesh.geometry.boundingBox;
-  if (!box) throw new Error(`${mesh.name} has no bounding box.`);
-  const corners: Vector3[] = [];
-  for (const x of [box.min.x, box.max.x]) {
-    for (const y of [box.min.y, box.max.y]) {
-      for (const z of [box.min.z, box.max.z]) corners.push(new Vector3(x, y, z));
-    }
-  }
+  const positions = mesh.geometry.getAttribute("position");
   const matrices: Matrix4[] = [];
   if (mesh instanceof InstancedMesh) {
     for (let index = 0; index < mesh.count; index += 1) {
@@ -649,8 +641,8 @@ function maxObstacleEllipseValue(mesh: Mesh): number {
   const point = new Vector3();
   let worst = 0;
   for (const matrix of matrices) {
-    for (const corner of corners) {
-      point.copy(corner).applyMatrix4(matrix);
+    for (let index = 0; index < positions.count; index++) {
+      point.fromBufferAttribute(positions, index).applyMatrix4(matrix);
       worst = Math.max(
         worst,
         ((point.x - OBSTACLE_LOCAL.cx) / OBSTACLE_LOCAL.rx) ** 2

@@ -88,10 +88,11 @@ const GARDEN_COLORS = {
 /** Motion + lantern tier: titans/uniques bob slowest and carry a lantern string. */
 export type ShipFleetTier = "titan" | "heritage" | "standard";
 
-// S5 / decision D-S5: the visual-scale mapping (~3.7× spread, 0.55 legibility
-// floor) lives in garden-observatory-slice (orchestrator-integrated per
-// contract C3) so selection radii and label layout consume the same spread;
-// re-exported here for the fleet module's existing consumers/tests.
+// S5 / decision D-S5: the visual-scale mapping (~2.6× spread since the
+// 2026-09-05 resting-frame re-base, 0.8 legibility floor) lives in
+// garden-observatory-slice (orchestrator-integrated per contract C3) so
+// selection radii and label layout consume the same spread; re-exported here
+// for the fleet module's existing consumers/tests.
 export {
   GARDEN_SHIP_DATA_SCALE_MAX,
   GARDEN_SHIP_DATA_SCALE_MIN,
@@ -114,7 +115,7 @@ export interface ShipVisual {
   bobPhase: number;
   displayOffset: { x: number; y: number };
   fineDetail: Group;
-  /** Timber multiplier written to the hull batch's instanceColor (W1/D1). */
+  /** Family timber + issuer whisper, written to the hull batch's instanceColor (W1/D1, warm-village C2). */
   hullColor: Color;
   /** Issuer paint written to the hull batch's `aTrim` — the sheer strake (W1/D2). */
   trimColor: Color;
@@ -494,78 +495,112 @@ export function createBatchedShip(
 }
 
 /**
- * The livery multiplier the hull batch's `instanceColor` carries. Matches the
- * S4 color blocking `createShip` applies to its hull material, so a batched
- * ship and a hero ship of the same livery read identically.
+ * The colour multiplier the hull batch's `instanceColor` carries: family
+ * timber plus the brand whisper. Matches the hull material `createShip`
+ * applies, so a batched ship and a hero ship of one family and issuer read
+ * identically.
  */
 /**
- * F1: 0.32 -> 0.58 toward the brand colour.
+ * W1 (decision D1) → warm-village C2 (2026-09-05): the hull is a MATERIAL,
+ * and the material belongs to the FAMILY.
  *
- * The hull is the largest continuous area a ship presents, and at the zoom the
- * fleet is actually read at it resolves long before any sail does. At 0.32 the
- * brand was a hint on dark timber and every hull in the harbour was the same
- * brown; 0.58 makes it a painted hull that still reads as timber, because the
- * dark base is what supplies the wood.
+ * Two steps of history. The hull was once timber_dark lerped 0.58 toward the
+ * issuer's primary — measured over the 214 branded coins that put 100 hulls
+ * (47%) more than 60° off the timber hue: violet, magenta, lime and
+ * electric-blue hulls that swamped the plank/wale/AO ramp bakeHullVertexColors
+ * bakes in and out-shouted the sail, which since the heraldry work is the
+ * identity channel. W1 D1 replaced that with six authored timbers — but
+ * HASH-PICKED PER ISSUER, so hull colour and hull form stayed uncorrelated:
+ * six near-identical browns scattered across six silhouettes, with nothing
+ * for the eye to group by. That hash encoded nothing and was not claimed to;
+ * this is what replaces it.
+ *
+ * Since the warm-village resting frame (zoom 1.0, hulls 33–106 px) each of
+ * the six families carries its own authored pair — timber + trim — derived
+ * from HARBOR_PALETTE tokens only (no new hex; every value clears the palette
+ * ceiling at C ≤ 0.094). Silhouette and colour now correlate: a bezaisen is
+ * dark kogecha, a kobaya is pale sand, and the fleet groups by hull the way
+ * it already grouped by rig.
+ *
+ * The timbers are an OKLCH ladder, measured with the standard Ottosson
+ * matrices on the authored sRGB (this file and its test use one consistent
+ * measurement; it does not exactly reproduce the figures annotated in
+ * palette.ts). The five warm families separate by LIGHTNESS — junk 0.41 →
+ * bezaisen 0.50 → takasebune 0.58 → scow 0.69 → kobaya 0.79 — because every
+ * weathered timber hue lives in one narrow OKLab band (H 77–98), while the
+ * twinhull's grey-teal separates by hue (H 260, ≥ 162° from every warm
+ * family). Every pair clears ΔL ≥ 0.083 or ΔH ≥ 160; garden-ships.test.ts
+ * pins the ladder at ΔL 0.06 / ΔH 25° so it cannot silently close.
+ *
+ * Values are the material colour BEFORE the vertex ramp, which darkens
+ * midships (×0.82) and lifts the gunwale (×1.0), so they sit deliberately
+ * lighter than the final pixel.
+ *
+ * Treat the exported colours as constants: clone before use.
  */
-/**
- * W1 (decision D1): the hull is a MATERIAL, not a brand swatch.
- *
- * This used to be `timber_dark.lerp(livery.primary, 0.58)` — an RGB lerp more
- * than half the way to the issuer's colour. Measured over the 214 branded
- * coins, that put 100 hulls (47%) more than 60° off the timber hue at
- * saturations up to 0.79: violet, magenta, lime and electric-blue hulls. Two
- * costs beyond taste — it swamped the plank/wale/AO ramp `bakeHullVertexColors`
- * bakes in (the instance colour multiplies it, so a saturated hue flattens it
- * to plastic), and it made the hull louder than the sail, which since the
- * heraldry work is the identity channel.
- *
- * Six authored ship timbers, hash-picked. Six materials read as six KINDS of
- * ship where 214 derived hues read as one kind in fancy dress. Values are the
- * material colour BEFORE the vertex ramp, which darkens midships (×0.82) and
- * lifts the gunwale (×1.0), so they sit deliberately lighter than the final
- * pixel.
- *
- * Timber choice is a free hash pick under decision D3: it encodes nothing, and
- * is not claimed to.
- */
-const HULL_TIMBERS = [
-  "#8a6a44", // oak — the harbour's own timber_warm
-  "#9a7448", // teak
-  "#a87e46", // pitch pine, the golden one
-  "#453b31", // tarred black — tar OVER wood, not a silhouette; the vertex ramp
-             // takes it to ~#3d3430 midships, still the darkest hull afloat
-  "#7d7768", // weathered grey
-  "#6c5238", // elm
-] as const;
+export const GARDEN_HULL_FAMILY_PAINT: Readonly<
+  Record<GardenHullSilhouette, Readonly<{ timber: Color; trim: Color }>>
+> = {
+  // Dark kogecha timber / warm ochre (bengara) trim — the heavy carrier.
+  // timber #7B582F OKLCH L 0.499 C 0.069 H 91 · trim #AD6034 L 0.591 C 0.094 H 77
+  bezaisen: {
+    timber: new Color(HARBOR_PALETTE.timber_warm).lerp(new Color(HARBOR_PALETTE.timber_mid), 0.35),
+    trim: new Color(HARBOR_PALETTE.roof_clay),
+  },
+  // Pale sand timber / indigo trim — the light courier.
+  // timber #C3B79C OKLCH L 0.786 C 0.034 H 98 · trim #002A52 L 0.273 C 0.094 H 274
+  kobaya: {
+    timber: new Color(HARBOR_PALETTE.timber_warm).lerp(new Color(HARBOR_PALETTE.fog_day), 0.7),
+    trim: new Color(HARBOR_PALETTE.deep_sea_1),
+  },
+  // Weathered grey-teal timber / white trim — the only cool hull afloat.
+  // timber #34535F OKLCH L 0.416 C 0.039 H 260 · trim #E8EEF0 L 0.944 C 0.016 H 283
+  twinhull: {
+    timber: new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.shallow_teal), 0.5),
+    trim: new Color(HARBOR_PALETTE.foam_white),
+  },
+  // Warm rikyū tea timber / reed-green trim — the canal runner.
+  // timber #A66332 OKLCH L 0.584 C 0.093 H 82 · trim #4F844C L 0.554 C 0.078 H 138
+  takasebune: {
+    timber: new Color(HARBOR_PALETTE.timber_warm).lerp(new Color(HARBOR_PALETTE.roof_timber_shake), 0.8),
+    trim: new Color(HARBOR_PALETTE.aurora_green).lerp(new Color(HARBOR_PALETTE.stone_mid), 0.35),
+  },
+  // Deep red-brown lacquer / black trim — the darkest hull afloat, bengara over soot.
+  // timber #663920 OKLCH L 0.408 C 0.060 H 77 · trim #1A1612 L 0.205 C 0.008 H 84
+  junk: {
+    timber: new Color(HARBOR_PALETTE.roof_clay).lerp(new Color(HARBOR_PALETTE.iron_dark), 0.7),
+    trim: new Color(HARBOR_PALETTE.iron_dark),
+  },
+  // Light tan timber / tar-black trim — the working barge.
+  // timber #B0946D OKLCH L 0.690 C 0.060 H 94 · trim #2A1A0E L 0.241 C 0.029 H 83
+  scow: {
+    timber: new Color(HARBOR_PALETTE.timber_warm).lerp(new Color(HARBOR_PALETTE.sun_day_warm), 0.3),
+    trim: new Color(HARBOR_PALETTE.ember),
+  },
+};
 
 /**
- * How much of the issuer's brand survives in the timber. Small on purpose: it
- * exists ONLY to keep the F1 invariant — a coin and its staked sibling must
- * read as the same yard — at a hue shift too slight to look painted. The brand
+ * How much of the issuer's brand survives in the timber. Small on purpose:
+ * the timber is the family's material and this whisper is the only issuer
+ * dye it takes — a coin and its staked sibling still agree whenever they
+ * share a family, at a hue shift too slight to look painted. The brand
  * proper lives on the sheer strake (D2) and on the sails.
  */
 const HULL_BRAND_WHISPER = 0.12;
 
 /**
- * Keyed on the ISSUER, not the coin. Asset ids are `<symbol>-<issuer>`, so
- * `usdt-tether` and `xaut-tether` hash to one timber and read as two ships
- * from one yard — which is what the F1 invariant asks for, and a better story
- * than the whisper alone could tell. Hashing the full id gave sUSDS a
- * different timber from USDS, which is exactly the failure F1 names.
+ * Family timber + the 0.12 issuer whisper; see GARDEN_HULL_FAMILY_PAINT.
+ *
+ * The timber is keyed on the ship's FAMILY (its silhouette), not its issuer.
+ * The W1 hash of the yard tried to make two coins of one issuer agree; keying
+ * the family does that whenever the coins share a class AND makes every
+ * kobaya from every yard the same pale sand — the grouping the eye was
+ * missing. Issuer kinship reads through the strake, pennant and sails;
+ * family reads through the hull.
  */
-function shipTimber(ship: ShipNode): Color {
-  const separator = ship.id.indexOf("-");
-  const yard = separator > 0 ? ship.id.slice(separator + 1) : ship.id;
-  const index = Math.min(
-    HULL_TIMBERS.length - 1,
-    Math.floor(stableUnit(`${yard}.timber`) * HULL_TIMBERS.length),
-  );
-  return new Color(HULL_TIMBERS[index]);
-}
-
 function batchedHullColor(ship: ShipNode): Color {
-  const timber = shipTimber(ship);
-  return timber.lerp(
+  const timber = GARDEN_HULL_FAMILY_PAINT[SILHOUETTE_FOR_HULL[ship.visual.hull]].timber;
+  return timber.clone().lerp(
     new Color(safeCssColor(ship.visual.livery?.primary, HARBOR_PALETTE.timber_warm)),
     HULL_BRAND_WHISPER,
   );
@@ -618,9 +653,14 @@ const FURL_ALL_UPPERS = (2 ** FLEET_MAX_SAILS - 1) - (2 ** FURL_UPPER_FIRST - 1)
  * findings in agents/2026-07-25-fleet-hulls-and-titans-plan.md). The gunwale's
  * own baked highlight tint rides on top of this in the shader, so the painted
  * rail stays the brightest band even under a dark brand.
+ *
+ * Warm-village C2: an unbranded ship's fallback is no longer the shared
+ * timber_warm but her FAMILY's trim, so a hull with no livery still names its
+ * family twice. Branded ships are unchanged — the strake carries the issuer.
  */
 function batchedTrimColor(ship: ShipNode): Color {
-  return new Color(safeCssColor(ship.visual.livery?.primary, HARBOR_PALETTE.timber_warm));
+  const paint = GARDEN_HULL_FAMILY_PAINT[SILHOUETTE_FOR_HULL[ship.visual.hull]];
+  return new Color(safeCssColor(ship.visual.livery?.primary, paint.trim.getStyle()));
 }
 
 /**
@@ -727,9 +767,10 @@ export function createShip(
   const visualScale = gardenShipVisualScale(ship.visual.scale || 1);
   root.scale.setScalar(visualScale);
 
-  // W1 (D1/D2): the hull is timber; the issuer's colour lives on the sheer
-  // strake, the pennant and the sails. Same palette and same whisper the
-  // batched fleet uses, so a hero's fallback hull and a skiff agree.
+  // W1 (D1/D2, warm-village C2): the hull is the FAMILY's timber; the
+  // issuer's colour lives on the sheer strake, the pennant and the sails.
+  // Same paint map and same whisper the batched fleet uses, so a hero's
+  // fallback hull and a skiff of one family agree.
   const hullColor = batchedHullColor(ship);
   const trimColor = batchedTrimColor(ship);
   const accentColor = new Color(HARBOR_PALETTE.timber_warm).lerp(

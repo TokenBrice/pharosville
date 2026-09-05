@@ -123,7 +123,22 @@ export function createGardenBeaconFire(cloudNoise: DataTexture): GardenBeaconFir
   embers.position.set(FIRE_FORWARD_X, 0, FIRE_FORWARD_Z);
   root.add(embers);
 
-  const smoke = createSmoke(uniforms, cloudNoise);
+  const smoke = createSmokePlume(uniforms, cloudNoise, {
+    count: SMOKE_COUNT,
+    dayDark: SMOKE_DAY_DARK,
+    dayLight: SMOKE_DAY_LIGHT,
+    name: "lighthouse-smoke",
+    night: SMOKE_NIGHT,
+    backlight: SMOKE_BACKLIGHT,
+    quadSize: 1.6,
+    rise: 7.2,
+    riseBase: 0.3,
+    scaleMax: 1.9,
+    scaleMin: 0.55,
+    seedPrefix: "beacon-smoke",
+    windDrift: 5.5,
+    wobble: 0.3,
+  });
   smoke.position.set(FIRE_FORWARD_X * 0.6, 0, FIRE_FORWARD_Z * 0.6);
   root.add(smoke);
 
@@ -395,26 +410,70 @@ function createEmbers(uniforms: BeaconFireUniforms): Points<BufferGeometry, Shad
 }
 
 /**
- * Smoke plume: one InstancedMesh of small camera-facing quads, age-from-uTime
- * in the vertex shader (no CPU sim), rising and drifting on the sky-mist wind
- * diagonal. The fragment alpha-erodes against the shared cloud-noise texture
- * (the same texture object the water shader binds — one noise source for the
- * whole garden). Day identity (D3): a proud cool grey-blue column posterized
- * into two flat tonal bands with hard cutout edges, ukiyo-e style; by night a
- * thin dark wisp backlit by the flame. Normal blending, depthWrite off, quads
- * kept small against overdraw.
+ * Smoke plume vocabulary, shared by the beacon's own plume and the station
+ * chimneys (`garden-station-smoke.ts`): one InstancedMesh of small
+ * camera-facing quads, age-from-uTime in the vertex shader (no CPU sim),
+ * rising and drifting on the sky-mist wind diagonal. The fragment alpha-erodes
+ * against the shared cloud-noise texture (the same texture object the water
+ * shader binds — one noise source for the whole garden). Day identity (D3):
+ * a proud cool grey-blue column posterized into two flat tonal bands with hard
+ * cutout edges, ukiyo-e style; by night a thin dark wisp backlit by whatever
+ * `backlight` names (the flame for the beacon, black for a cold hearth).
+ * Normal blending, depthWrite off, quads kept small against overdraw.
+ *
+ * `spec.anchors` places several plumes in ONE mesh (one draw); omitting it
+ * leaves a single plume at the mesh's own origin, which is how the beacon
+ * uses it. `aGate` starts fully open; the station chimneys close per-instance
+ * from their cargo-tide state.
  */
-function createSmoke(
-  uniforms: BeaconFireUniforms,
+export interface SmokePlumeSpec {
+  /** Total instance count — puffs × anchors. */
+  count: number;
+  name: string;
+  /** Instance i seeds from `${seedPrefix}.${i}`, so plumes stay deterministic. */
+  seedPrefix: string;
+  /** Per-instance anchors in this mesh's own space; omit for one plume at the origin. */
+  anchors?: readonly Vector3[];
+  quadSize: number;
+  /** Vertical travel over one puff's life, and its base lift off the anchor. */
+  rise: number;
+  riseBase: number;
+  /** Wind drift on age² along the shared ambient diagonal. */
+  windDrift: number;
+  /** Side-to-side wobble amplitude. */
+  wobble: number;
+  scaleMin: number;
+  scaleMax: number;
+  dayLight: Color;
+  dayDark: Color;
+  night: Color;
+  /** Backlight from a fire behind the plume; black when nothing there burns. */
+  backlight: Color;
+}
+
+export function createSmokePlume(
+  uniforms: Pick<BeaconFireUniforms, "uTime">,
   cloudNoise: DataTexture,
+  spec: SmokePlumeSpec,
 ): InstancedMesh<BufferGeometry, ShaderMaterial> {
-  const geometry = new PlaneGeometry(1.6, 1.6);
+  const geometry = new PlaneGeometry(spec.quadSize, spec.quadSize);
   geometry.rotateY(Math.PI / 4);
   const seeds: number[] = [];
-  for (let index = 0; index < SMOKE_COUNT; index += 1) {
-    seeds.push(stableUnit(`beacon-smoke.${index}`));
+  const anchorCount = spec.anchors?.length ?? 1;
+  const anchors = new Float32Array(spec.count * 3);
+  const gates = new Float32Array(spec.count).fill(1);
+  for (let index = 0; index < spec.count; index += 1) {
+    seeds.push(stableUnit(`${spec.seedPrefix}.${index}`));
+    const anchor = spec.anchors?.[index % anchorCount];
+    if (anchor) {
+      anchors[index * 3] = anchor.x;
+      anchors[index * 3 + 1] = anchor.y;
+      anchors[index * 3 + 2] = anchor.z;
+    }
   }
   geometry.setAttribute("aSeed", new InstancedBufferAttribute(new Float32Array(seeds), 1));
+  geometry.setAttribute("aAnchor", new InstancedBufferAttribute(anchors, 3));
+  geometry.setAttribute("aGate", new InstancedBufferAttribute(gates, 1));
   const material = new ShaderMaterial({
     blending: NormalBlending,
     depthWrite: false,
@@ -428,6 +487,7 @@ function createSmoke(
       uniform float uOpacity;
       uniform float uTime;
       varying float vAge;
+      varying float vGate;
       varying float vSeed;
       varying vec2 vUv;
 
@@ -438,7 +498,7 @@ function createSmoke(
           vUv * 0.85 + vSeed * 7.31 + vec2(uTime * 0.006, -vAge * 0.22)
         ).r;
         float erode = smoothstep(vAge * 0.85, vAge * 0.85 + 0.3, n);
-        float alpha = mask * erode * uOpacity;
+        float alpha = mask * erode * uOpacity * vGate;
         if (alpha < 0.004) discard;
         float bandWidth = max(fwidth(n) * 0.75, 0.01);
         float band = smoothstep(0.42 - bandWidth, 0.42 + bandWidth, n);
@@ -453,38 +513,54 @@ function createSmoke(
     transparent: true,
     uniforms: {
       ...uniforms,
-      uBacklight: { value: SMOKE_BACKLIGHT },
-      uDayDark: { value: SMOKE_DAY_DARK },
-      uDayLight: { value: SMOKE_DAY_LIGHT },
+      uBacklight: { value: spec.backlight },
+      uDayDark: { value: spec.dayDark },
+      uDayLight: { value: spec.dayLight },
       uDayMix: { value: 0 },
-      uNight: { value: SMOKE_NIGHT },
+      uNight: { value: spec.night },
       uNoise: { value: cloudNoise },
       uOpacity: { value: 0 },
+      uRise: { value: spec.rise },
+      uRiseBase: { value: spec.riseBase },
+      uScaleMax: { value: spec.scaleMax },
+      uScaleMin: { value: spec.scaleMin },
       uWind: { value: new Vector2(WIND_X, WIND_Z) },
+      uWindDrift: { value: spec.windDrift },
+      uWobble: { value: spec.wobble },
     },
     vertexShader: /* glsl */ `
       attribute float aSeed;
+      attribute vec3 aAnchor;
+      attribute float aGate;
       uniform float uTime;
       uniform vec2 uWind;
+      uniform float uRise;
+      uniform float uRiseBase;
+      uniform float uScaleMin;
+      uniform float uScaleMax;
+      uniform float uWindDrift;
+      uniform float uWobble;
       varying float vAge;
+      varying float vGate;
       varying float vSeed;
       varying vec2 vUv;
 
       void main() {
         float age = fract(uTime * (0.05 + aSeed * 0.028) + aSeed * 7.13);
-        vec3 center = vec3(0.0, 0.3 + age * 7.2, 0.0);
-        center.x += uWind.x * age * age * 5.5 + sin(aSeed * 40.0 + age * 3.0) * 0.3;
-        center.z += uWind.y * age * age * 5.5;
-        float scale = mix(0.55, 1.9, age);
+        vec3 center = aAnchor + vec3(0.0, uRiseBase + age * uRise, 0.0);
+        center.x += uWind.x * age * age * uWindDrift + sin(aSeed * 40.0 + age * 3.0) * uWobble;
+        center.z += uWind.y * age * age * uWindDrift;
+        float scale = mix(uScaleMin, uScaleMax, age);
         vAge = age;
+        vGate = aGate;
         vSeed = aSeed;
         vUv = uv;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(center + position * scale, 1.0);
       }
     `,
   });
-  const mesh = new InstancedMesh(geometry, material, SMOKE_COUNT);
-  mesh.name = "lighthouse-smoke";
+  const mesh = new InstancedMesh(geometry, material, spec.count);
+  mesh.name = spec.name;
   mesh.frustumCulled = false;
   return mesh;
 }

@@ -2,6 +2,22 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.14.0 - 2026-09-05 - Epic Pharos
+
+The Great Lighthouse of Alexandria stands on a fortified platform in a closer, warmer harbor — and the deployed site finally shows its real models.
+
+Collected from commits `f55afbc` through `fddc5ef` after v0.13.0 — the warm village waves and the Epic Pharos rebuild.
+
+- Rebuilt the Pharos as the Wonder: a broad battered marble keep with three rows of lit arched windows, a frontal stair to bronze doors, a corbelled gallery with four Triton finials, a pilastered octagonal drum, and a columned lantern whose fire glows gold through open arches beneath a conical cap and the bronze Zeus — 38 units to the sceptre tip on a stylobate half again as wide.
+- Set the tower on a fortified precinct: crenellated curtain walls, four corner bastions rising from the sea rock, a paved court and an east gatehouse the quay stair now climbs to. The keeper's cottage, three pines and the reflection pond moved to make room; the island's shipping footprint did not grow.
+- Fixed the deployed site rendering the plain fallback lighthouse, fallback hulls and blank sails: the content-security policy blocked the WebAssembly model decoder and object-URL logo images. The static header check now requires both sources.
+- Moved the resting camera in from a distant plate view to a sailed-in composition (zoom 1.0, never below 0.8), re-authored the idle postcards as close framings, and let the arrival move ease into the new rest. Whole-map remains one zoom-out away, and the hull count thins toward each water's main anchorage as you pull back so the wide view reads as a harbor rather than a carpet. The taller crown is seated with slightly less sky above it; compact laptop windows keep the crown, lantern and precinct in frame.
+- Warmed the world at the source: the palette's chroma ceiling rose so land reads ochre and green against a more saturated teal-to-indigo sea, dusk is an ember hour with a raking key light and a navy zenith instead of a brown-grey wash, the horizon steps through three ridge planes, and Neutral tone mapping keeps those colors.
+- Named the harbor: every chain station and the TON pigeonnier carries an always-on chip with its logo, name, and concentration state at every zoom, hiding rather than covering the lighthouse, controls, or an open record. Ships get a chip while selected, during an arrival or departure, or while failing the DEX cross-check or lying in Danger water.
+- Made each of the six hull families its own color on a value-and-hue ladder while sails keep issuer identity, enlarged sail emblems, raised the smallest hulls off a 0.55 floor to 0.8, grew ordinary station halls, and framed the near corner with a pine group and a dark torii and fence.
+- Gave the fleet readable beats: on arrival and departure a ship dips and resets its sails, throws a bow or stern wave into the wake field, and shows a brief nameplate, capped at six at once. Birds fly wider and more often, and three hearth stations smoke while their cargo tide runs — unlit, so the beacon stays the night's one light.
+- Fixed a live-data crash when a small coin's berth coincided with its anchorage, and kept every batched sail within the GPU's vertex-attribute limit.
+
 ## v0.13.0 - 2026-09-05 - Clearer Waters
 
 More recognizable harbors, cedar sea signs, and roomier boat traffic sharpen the garden around the lighthouse.

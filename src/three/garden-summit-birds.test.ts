@@ -38,7 +38,7 @@ describe("gardenBirdSortie", () => {
     expect(resting / samples).toBeGreaterThan(0.6);
   });
 
-  it("keeps roughly a quarter of the harbour's birds in the air", () => {
+  it("keeps roughly a third of the harbour's birds in the air", () => {
     let airborne = 0;
     let samples = 0;
     for (let seed = 0; seed < 1; seed += 0.011) {
@@ -49,13 +49,30 @@ describe("gardenBirdSortie", () => {
       }
     }
     // The design figure is CHANCE x SHARE: a bird flies that share of her
-    // windows, for that share of the window.
+    // windows, for that share of the window — 0.55 x 0.6 ≈ a third since the
+    // warm-village D2 retune (2026-09-05, amplitude not count; W3.4's quarter
+    // became a third so flight reads at the zoom-1.0 rest).
     const expected = GARDEN_BIRD_SORTIE_CHANCE * GARDEN_BIRD_SORTIE_SHARE;
     expect(airborne / samples).toBeGreaterThan(expected - 0.06);
     expect(airborne / samples).toBeLessThan(expected + 0.06);
-    // And the brief's own bound: presence through intermittency, never a sky
-    // full of birds.
+    // And the brief's own bound still holds a third aloft: presence through
+    // intermittency, never a sky full of birds.
     expect(airborne / samples).toBeLessThan(0.35);
+  });
+
+  it("re-tunes amplitude, not count (warm-village D2, 2026-09-05)", () => {
+    // The share rose 0.45 → 0.6; the chance, the period and the per-bird phase
+    // offsets are the W3.4 clockwork critique and stay untouched.
+    expect(GARDEN_BIRD_SORTIE_SHARE).toBe(0.6);
+    expect(GARDEN_BIRD_SORTIE_CHANCE).toBe(0.55);
+    expect(GARDEN_BIRD_SORTIE_PERIOD).toBe(62);
+    // The widened loop (3.6 ± 0.9 → 6 ± 1.2) and lifted climb (4.4 → 6, spread
+    // unchanged) are baked into the vertex shader; pin the band so the sweep
+    // cannot silently shrink back. The loop stays tangent to the perch, so its
+    // closest approach to the tower axis is the perch radius at every width.
+    const material = birdMesh().material as ShaderMaterial;
+    expect(material.vertexShader).toContain("6.00 + aSeed * 1.20");
+    expect(material.vertexShader).toContain("6.00 + aSeed * 2.40");
   });
 
   it("is a pure function of the clock, with no shared phase", () => {

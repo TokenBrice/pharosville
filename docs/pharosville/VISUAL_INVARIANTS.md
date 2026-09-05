@@ -41,15 +41,38 @@ intent, code/tests, and a matching update to the relevant route documentation.
   by the largest empty circle inside a band's water — not by nearest-neighbour
   statistics, which the hull gap makes uninformative at this fleet size.
 - The Pharos lighthouse remains the visual and analytical anchor.
-- The full eligible fleet may render up to the 320-ship batch capacity. Density,
-  water-safe placement, lighthouse clearance, and edge falloff preserve
-  composition; the former 20-ship cap is retired.
-- **Distance and zoom are viewing conditions, not identity changes.** The fleet
-  recedes with depth (chroma, never value) and its marks thin as the camera
-  pulls back, so a wide framing reads as a harbour rather than as a hundred and
-  eighty-five stickers. Sailing in restores full brand identity exactly as
-  decision F1 specified. Restraint must never be baked into the cloth colour
-  itself, which would remove identity at every distance with no way back.
+- **The resting frame is a sailed-in close composition.** `defaultCamera`
+  rests at `GARDEN_DEFAULT_CAMERA_ZOOM` (1.0) wherever the authored Pharos
+  (60,70) → Ethereum Mole (15,95) landing interval seats with the island centre
+  clear of the 128 px right-hand anchorage gutter; narrower gates fit the
+  interval instead (0.825 at 1200 px wide) and no legal viewport rests below
+  `GARDEN_REST_ZOOM_FLOOR` (0.8). The statue tip keeps its sky. Whole-map
+  framing remains the explicit zoom-out via `minZoomForViewport`. The four
+  idle postcards are sailed-in framings (zoom 1.0–1.4), never wider than rest.
+  Pinned in `src/systems/camera.test.ts` and `garden-attract.test.ts`
+  (warm-village A1, 2026-09-05; replaces the retired 0.60 plate composition).
+- **Fleet placement capacity and displayed hull count are separate.** The
+  eligible fleet retains the 320-ship placement and batch capacity; density,
+  water-safe placement, lighthouse clearance, and edge falloff preserve the
+  authored anchorage composition. Below zoom 0.7, displayed hulls thin
+  reversibly toward each risk band's dominant mooring plus one or two
+  representatives per other mooring at whole-map framing; thinned hulls leave
+  pointer hit testing but never the keyboard order, detail panel, or ledger.
+  This viewing condition is never baked into placement; the former 20-ship cap
+  remains retired. Pinned in `src/systems/garden-fleet-thinning.test.ts`.
+- **Distance, zoom, and displayed hull count are viewing conditions, not
+  identity changes.** The fleet recedes with depth (chroma, never value), its
+  marks begin fading only below zoom 0.85, and its displayed count thins below
+  zoom 0.7, so a wide framing reads as a harbour rather than as a hundred and
+  eighty-five stickers. At the zoom-1.0 rest marks are fully present and the
+  extra framing restraint is fully released; wider framing applies at most the
+  operator-approved ~10 % further chroma restraint (2026-09-05, superseding the
+  15–20 % step of 2026-08-13). Sailing in to zoom 0.7 restores every eligible
+  hull. Restraint and thinning must never be baked into the cloth colour or
+  into placement, which would remove identity or hulls with no way back.
+  Market-cap tier still controls hull scale: the 0.7–3.0 data band maps onto a
+  ~2.6× visual range above a 0.8 legibility floor so all six hull families stay
+  separable at rest (`src/three/garden-ships.test.ts`).
 - Harbors are shore stations sited in their body's named rim coves —
   eight authored coves for the eight chain harbors — and the station ring
   is spread around that rim rather than massed on the far shore. On any
@@ -73,8 +96,12 @@ intent, code/tests, and a matching update to the relevant route documentation.
   primary roof at least twice an ordinary hull's length, a contrasting
   clay/slate/thatch/timber palette, and a uniquely named upper silhouette
   that clears nearby sails — second-level silhouettes now span roughly
-  7.2–12.1 world units for chain stations, the Ethereum Mole excepted at
-  a 21.5 local cap (≤21.7 above water), and the
+  13.3–17.9 world units for chain stations (re-based 2026-09-05 so an
+  ordinary hall reads near the reference's 1/6-frame landmark scale at the
+  zoom-1.0 rest; vertical only — footprints, water exclusion, and berthing
+  unchanged; `src/systems/dock-layout.test.ts`), the Ethereum Mole excepted
+  at a 21.5 local cap (≤21.7 above water), still ≥1.20× the tallest ordinary
+  rung on the authored ladder, and the
   chain flag uses 2.6 times its original scale, on a raised seaward staff clear
   of the station roof. This supersedes the 1.6× limit to meet the operator's
   harbor-recognition request: flags must show their complete chain mark and
@@ -101,20 +128,43 @@ intent, code/tests, and a matching update to the relevant route documentation.
   still dissolves into the haze seam, and the Danger Strait and both far
   openings stay open water. The skirt is renderer-side only: it never
   reclassifies a tile, and it changes no navigation, placement, or
-  berthing. Shore stations sit in coves, not around the island waterline;
-  the Ethereum Mole stands alone as the ring's civic monument; L2
-  stations are self-standing distant harbors.
+  berthing. The skirt's rest-frame corner (the bottom-left at the 1.0 rest,
+  around tile 60,141) carries two named dark foreground masses — the corner
+  pine group and the kuro torii with its fence run,
+  `GARDEN_RIM_FOREGROUND_MASSES` in `src/three/garden-rim-mesh.ts` — which
+  frame the plate's near edge, displace that same open-water band rather
+  than adding a new prop vocabulary, stay clear of the lighthouse rect and
+  the Mole quay from the default camera, are pure silhouettes after dark
+  (no emissive), and shed with the other skirt furniture below zoom 0.62
+  (`garden-rim-mesh.test.ts`). Shore stations sit in coves, not around the
+  island waterline; the Ethereum Mole stands alone as the ring's civic
+  monument; L2 stations are self-standing distant harbors.
 - The TON pigeonnier is spatially distinct. The dead/frozen fleet is a quiet
   sea wreckyard, not an island and never a live-ship destination.
 - DOM labels must be legible and must not cover the lighthouse, controls, or
   active detail panel.
+- **Harbor stations are named in-frame at every zoom.** The eight rendered
+  chain stations and the TON pigeonnier carry always-on, aria-hidden DOM chips
+  projected from their existing station/landmark label anchors — whole-map
+  framing, where all nine share the frame, included. Each chip shows the
+  chain logo when its existing same-origin
+  `logoPath` is available (otherwise the painted initials), the chain name,
+  and one existing concentration-state word; the TON fallback names its
+  existing watch state. When chips overlap, the lower-supply station steps
+  below the higher-supply one. A chip is hidden rather than covering the
+  lighthouse, bottom controls, or an active detail panel, and an off-screen
+  anchor hides its chip. Ships receive a chip only while selected (the
+  arrival/anomaly trigger input is reserved for the life phase). These chips
+  displace hover-only station naming, add no WebGL draw or texture, and stay
+  aria-hidden because the accessibility ledger is the spoken naming channel.
+  Pinned in `src/components/harbor-label-chips.test.tsx`.
 
 ## World encoding
 
 | Element | Required reading | Redundant channel |
 | --- | --- | --- |
 | Lighthouse | PSI score/band | DOM record and beacon state |
-| Ship | stablecoin identity, scale, class, risk | branded sail/livery plus DOM record |
+| Ship | stablecoin identity, scale, class, risk | branded sail/livery, family-coded hull timber plus DOM record |
 | Harbor | chain supply and concentration | hull-dominant landward roof, supply-driven roof mass, contrasting archetype palette with per-chain accent, sail-clearing named upper silhouette, 2.6× chain flag on a raised seaward staff, DOM record; raised lit quay/window embers are decorative and carry no meaning, and the Mole's basin, tide courses, and capstones likewise carry no analytical meaning |
 | Water body | existing risk/ledger category | water character, boundary/buoy, DOM label |
 | Wreck | lifecycle status | model/cause color plus DOM record |
@@ -158,7 +208,11 @@ plus cause colour and the DOM record.
 The fleet has six visual families: bezaisen, kobaya, twinhull, takasebune,
 junk, and scow. The nine semantic hull classes map onto those six forms;
 market-cap tier still controls scale, and brand identity remains in the shared
-sail atlas. Motion is leg-based: island-to-shore voyages run in bounded
+sail atlas. Each family carries its own authored timber — six palette-derived
+hull colours on an OKLCH value/hue ladder (`GARDEN_HULL_FAMILY_PAINT`) with the
+issuer's 0.12 whisper in the timber, while the sheer strake stays painted in
+the issuer's colour — so hull form and hull colour encode the same family
+reading (warm-village C2, 2026-09-05). Motion is leg-based: island-to-shore voyages run in bounded
 90–180-second legs and 240–480-second rests, with paired arrivals and
 departures and restless rests ordered by risk band. The aggregate moored share
 remains one third, and all water-safety decisions use the authoritative field
@@ -181,12 +235,21 @@ and its conservative distance lookup.
   arc and bokashi bands make the background part of the composition rather than
   more water.
 - Aerial perspective must actually reach the DEFAULT framing. The fog range's
-  scale pivot (`FOG_REFERENCE_VIEW_HEIGHT`) must track the real default view
-  height (`viewportHeight / (TILE_HEIGHT * zoom)`, ~96.5 at the Wave 1 landing
-  frame). A pivot
-  far below it clamps the scale to its maximum, pushes the near plane past
-  everything visible, and silently switches the whole system off while leaving
-  its documentation looking correct.
+  scale pivot (`FOG_REFERENCE_VIEW_HEIGHT`) derives from
+  `GARDEN_DEFAULT_CAMERA_ZOOM` and so tracks the real default view height
+  (`viewportHeight / (TILE_HEIGHT * zoom)`, 62.5 at the 1.0 rest frame). A
+  pivot far below it clamps the scale to its maximum, pushes the near plane
+  past everything visible, and silently switches the whole system off while
+  leaving its documentation looking correct; `garden-sky.test.ts` pins the
+  near plane at the default framing.
+- **Dusk is an ember hour, not a brown-grey one.** The dusk fog and horizon
+  dye derive from `lantern_warm` toward `vermillion`, the dusk zenith is a navy
+  distinct from night, the dusk key rakes (key:fill ≈ 4:1, sun floor 0.06 rad
+  from the single `garden-sun` arc), and the borrowed mountains step through
+  three value planes (0.90/0.80/0.70) behind the seam. The output tone mapper
+  is a single switch, `GARDEN_TONE_MAPPING` in `garden-post.ts`, consumed by
+  both the renderer and the post pass; the LUT remains the sanctioned place
+  for any posterizing look.
 
 - The visible sky continues beyond the finite plate. Its graded phase backdrop
   is the far field; the haze band is the seam where plate, fog, and borrowed
@@ -231,11 +294,14 @@ and its conservative distance lookup.
 - **The Pharos precinct carries three secondary reads and no more:** the
   pavilion, the reflection pond, and the signal mast. The tower is the primary.
   Everything else on the rock is landscape (grove, Sakuteiki triads, talus,
-  cliffs, tide-stain courses), a service building with a single light (the
-  keeper's cottage — one lit window, no strung lanterns), or a part of some
-  other composition (the obelisk pair are the quay stair's gateposts, not a
-  monument of their own). A fourth free-standing monument must name which of the
-  three it replaces.
+  cliffs, tide-stain courses), the fortified platform the tower stands on
+  (curtain walls, corner bastions, paved court — masonry, not a monument; it
+  is the tower's base the way the rock is), a service building with a single
+  light (the gatehouse on the platform's east wall — one lit window, no strung
+  lanterns; it replaced the keeper's cottage in Epic Pharos 2026-09-05), or a
+  part of some other composition (the obelisk pair are the quay stair's
+  gateposts, not a monument of their own). A fourth free-standing monument must
+  name which of the three it replaces.
 - **Empty terrace surface is a positive element,** exactly as the emptiness
   between anchorages is. Props on the rock stand at unequal intervals with at
   least one wide dark arc left bare — a ring of evenly-spaced lanterns is the
@@ -268,10 +334,30 @@ and its conservative distance lookup.
 
 - Stillness has authored displacements: the lower-left engawa lantern replaces
   `harbor-lantern.11`; the single hero waterfall replaces the
-  `water-silver-accents` draw; and the koi school lives in the calm engawa
-  shallows rather than filling the reflection basin. Seasonal and almanac
-  dressing follows the rim path and openings. These additions are quiet,
-  deterministic, and carry no new analytical meaning.
+  `water-silver-accents` draw; the koi school lives in the calm engawa
+  shallows rather than filling the reflection basin; and station chimney
+  smoke on three archetypes (uogashi, hatago-wharf, tea-house-quay) displaces
+  the beacon plume's uniqueness — unlit, ember-tier, data-gated on the cargo
+  tide, one instanced draw (`garden-station-smoke.test.ts`). Seasonal and
+  almanac dressing follows the rim path and openings. These additions are
+  quiet, deterministic, and carry no new analytical meaning.
+- **Arrivals and departures are the fleet's readable beats.** Their transient
+  sail dips, existing wake-field bow/stern stamps, and transient DOM
+  nameplates derive from the route-owned segment clock; no ship owns a timer.
+  During the first 4 seconds of dock dwell, sails ease from 1.0 to 0.6 over
+  1.2 seconds, hold for 1 second, and ease back to 1.0 by second 4; departure
+  repeats the dip over the last 4 seconds of dwell and the first 2 seconds of
+  transit. Outside these windows every ship's sail scale is exactly 1.0,
+  moored and hero/GLB identity sails included — the sail is the identity
+  channel and a beat may never become a moored state. This displaces the
+  beam's monopoly on large motion and 30 % of the moored-bob amplitude, adds
+  no draw or texture, and at tier full caps wake/nameplate simultaneity at six
+  by market cap while every ship remains eligible for the dip. Reduced motion
+  returns the quiet envelope with fully set sails. Pinned in
+  `src/systems/garden-arrival-beats.test.ts` and
+  `src/three/garden-fleet-batch.test.ts`. Bird life is amplitude, not count:
+  the sortie share is 0.6 with wider loops (2026-09-05 D2), an existing
+  oscillator re-tuned rather than a new one.
 
 ## Media and rendering
 
@@ -284,8 +370,13 @@ and its conservative distance lookup.
   fails: sail symbols and painted chain initials are the required fallbacks.
 - Repeated fleet structures, marks, lanterns, and appropriate scenery use
   batching or instancing. One shared sail atlas replaces per-ship textures.
-- Palette and region themes are shared contracts; do not introduce arbitrary
-  debug colors or post effects to solve basic composition problems.
+- Palette and region themes are shared contracts: every non-reserved
+  `HARBOR_PALETTE` token stays below OKLCH C 0.14 (raised from 0.10 on
+  2026-09-05 so land reads warm ochre/green against a cooler, more saturated
+  teal-to-indigo sea), reserved accents keep their authored exceptions, and
+  `sail_teal`/`sail_red`/`lantern_warm`/`vermillion` are immutable
+  (`src/systems/palette.test.ts`). Do not introduce arbitrary debug colors or
+  post effects to solve basic composition problems.
 - Quality tiers preserve semantic hues, palette authority, tone mapping,
   day-cycle grade, and vignette. Enumerated fidelity effects may change local
   luminance or contrast, but must retain the same meaning and avoid abrupt

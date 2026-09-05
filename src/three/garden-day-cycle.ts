@@ -67,6 +67,20 @@ export interface DayCycleHeightFogPreset {
 // dusk is the ember horizon (G4 — a real, distinct state again); day is the
 // ukiyo-e bokashi gradient: deep indigo-teal zenith, pale warm horizon, fog
 // matched to the horizon band (G5, decision D-R1).
+//
+// Warm-village B3 (2026-09-05): the dusk AIR is dyed ember, not brown-grey.
+// The old `sky_horizon lerp lantern_warm 0.36` mixed warm gold into dark navy
+// and read as smog (#886440) — low chroma, no firelight. The dye now starts
+// from the warm end — yamabuki gold pulled a fifth of the way toward the
+// reserved shu-akane, the same pair the west-band ember accent below already
+// derives from — then reined halfway back to kachi-iro. Preview step 2
+// (2026-09-05) pulled the rein in from 0.35/0.2: at the closer 1.0 rest the
+// stronger mix painted the midground fleet orange, so the ember now reads as
+// HUE ON THE SEAM rather than as paint over the picture. The horizon band
+// stays warmer than the air above it, and the dusk zenith lifts a third of
+// the way to the day zenith so it is a NAVY distinct from night: warm lit
+// faces rake against a cool sky instead of against a night sky that never left.
+const DUSK_EMBER_AIR = paletteColor(P.lantern_warm).lerp(paletteColor(P.vermillion), 0.2);
 export const DAY_CYCLE_SKY_PRESETS: Record<DayCyclePhaseName, DayCycleSkyPreset> = {
   day: {
     fog: paletteColor(P.fog_day),
@@ -74,9 +88,9 @@ export const DAY_CYCLE_SKY_PRESETS: Record<DayCyclePhaseName, DayCycleSkyPreset>
     zenith: paletteColor(P.sky_day_zenith),
   },
   dusk: {
-    fog: paletteColor(P.sky_horizon).lerp(paletteColor(P.lantern_warm), 0.36),
-    horizon: paletteColor(P.sky_horizon).lerp(paletteColor(P.lantern_warm), 0.5),
-    zenith: paletteColor(P.sky_horizon),
+    fog: DUSK_EMBER_AIR.clone().lerp(paletteColor(P.sky_horizon), 0.5),
+    horizon: DUSK_EMBER_AIR.clone().lerp(paletteColor(P.sky_horizon), 0.35),
+    zenith: paletteColor(P.sky_horizon).lerp(paletteColor(P.sky_day_zenith), 0.35),
   },
   night: {
     fog: paletteColor(P.sky_horizon),
@@ -109,12 +123,18 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPre
     hemiSky: paletteColor(P.sky_day_zenith),
   },
   dusk: {
+    // B4 (2026-09-05): the ember hour rakes. Key 1.9 -> 2.6 with hemi
+    // 0.44 -> 0.34 and ambient 0.18 -> 0.28 lifts key:fill from ~3:1 to
+    // ~4.2:1, so lit faces carry the form and the fill only reveals the
+    // shaded side. The 0.62 fill also keeps the environment probe a minor
+    // term at dusk (GARDEN_ENVIRONMENT_INTENSITY is 0.6; the probe may not
+    // outweigh the analytic fill it sits beside).
     ambient: paletteColor(P.lantern_warm).lerp(paletteColor(P.moonlight), 0.4),
-    ambientIntensity: 0.18,
+    ambientIntensity: 0.28,
     dirColor: paletteColor(P.lantern_warm),
-    dirIntensity: 1.9,
+    dirIntensity: 2.6,
     hemiGround: paletteColor(P.ember),
-    hemiIntensity: 0.44,
+    hemiIntensity: 0.34,
     hemiSky: paletteColor(P.sky_horizon),
   },
   night: {
@@ -153,7 +173,10 @@ export const DAY_CYCLE_HEIGHT_FOG_PRESETS: Record<DayCyclePhaseName, DayCycleHei
     zenith: DAY_CYCLE_SKY_PRESETS.day.zenith.clone(),
   },
   dusk: {
-    density: 0.00062,
+    // B3 (2026-09-05): thinned from 0.00062 — the ember dye has to read on
+    // the near half too, not lay a smog wash over everything; dusk keeps the
+    // densest air of the three phases, so it is still the haziest hour.
+    density: 0.00035,
     heightFalloff: 0.2,
     horizon: DAY_CYCLE_SKY_PRESETS.dusk.fog.clone(),
     phaseGain: 0.78,
@@ -309,8 +332,8 @@ export function updateDayCycle(
   for (const material of scene.content.statueGleamMaterials) {
     material.emissiveIntensity = statueGleam;
   }
-  // Cap warm emissives below the clip point so AgX keeps them golden instead
-  // of rolling them off to white pinpricks.
+  // Cap warm emissives below the clip point so the tone mapper keeps them
+  // golden instead of rolling them off to white pinpricks.
   scene.content.harborLanternMaterial.emissiveIntensity = 0.18 + dusk * 1.2 + night * 1.9;
   scene.content.beam.visible = true;
   // Lane S grounded the fleet on a darker 0.28 base opacity (S7); the curve
@@ -319,8 +342,8 @@ export function updateDayCycle(
   // is only a few pixels tall and its shadow is most of what grounds it.
   scene.content.shipShadows.material.opacity = 0.34 + daylight * 0.14;
   // Ship lantern cores bloom warm at night; the additive glow halo and the
-  // sail backlight rise with them. Kept below the AgX clip (~2.2) so they roll
-  // to gold, not white pinpricks.
+  // sail backlight rise with them. Kept below the tone-mapping clip (~2.2) so
+  // they roll to gold, not white pinpricks.
   scene.content.shipLanternMaterial.emissiveIntensity = 0.05 + dusk * 0.85 + night * 1.9;
   // Dimmer per-lantern halo to match the smaller quad (W1.10): the fleet's
   // warmth should come from MANY small lights, not from each one flaring.

@@ -22,6 +22,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   moleErrata: "v0.11.1",
   aCalmerHarbor: "v0.12.0",
   clearerWaters: "v0.13.0",
+  epicPharos: "v0.14.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.clearerWaters;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.epicPharos;

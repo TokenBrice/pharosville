@@ -181,6 +181,16 @@ export function consortShadowSampleInto(
   copyVelocityInto(flagshipSample, out);
   writeMapVisibilityAlphaInto(out, flagshipSample.mapVisibilityAlpha);
   out.wakeIntensity = flagshipSample.wakeIntensity;
+  const flagshipSegment = flagshipSample.segment;
+  if (flagshipSegment) {
+    const segment = out.segment ?? { ...flagshipSegment };
+    segment.kind = flagshipSegment.kind;
+    segment.secondsInto = flagshipSegment.secondsInto;
+    segment.secondsRemaining = flagshipSegment.secondsRemaining;
+    out.segment = segment;
+  } else {
+    out.segment = null;
+  }
   out.seaState = input.seaState ?? flagshipSample.seaState ?? null;
   // W4.25 — consorts mirror their flagship's risk-transition state so the
   // whole squad reads as "tracking new risk band" together in DOM parity.

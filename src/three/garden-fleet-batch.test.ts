@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Color, Matrix4, MeshStandardMaterial, Vector3 } from "three";
 import { createFleetBatchGeometry } from "./garden-ships";
 import {
+  GARDEN_SAIL_DIP_MIN_SCALE,
+  gardenArrivalBeatEnvelope,
+} from "../systems/garden-arrival-beats";
+import {
   FLEET_SAIL_ATLAS_CELLS,
   FLEET_MAX_SAILS,
   beginFleetFrame,
@@ -197,6 +201,33 @@ describe("fleet sail deformation", () => {
       }
     }
   });
+  it("dips a sail to 0.6 about its yard without moving the hull batch", () => {
+    const set = deformFleetSailVertex({ ...sailInput, windFlutter: 0, sailScale: 1 });
+    const dipped = deformFleetSailVertex({ ...sailInput, windFlutter: 0, sailScale: 0.6 });
+
+    expect(set.y).toBeCloseTo(2.2, 10);
+    expect(dipped.y).toBeCloseTo(3.4 - (3.4 - 2.2) * 0.6, 10);
+    expect(dipped.x).toBe(set.x);
+  });
+
+  it("preserves every furl bit and yard-relative dip through Float32 packing", () => {
+    for (let mask = 0; mask < 2 ** FLEET_MAX_SAILS; mask += 1) {
+      const packed = Math.fround(mask + (1 - GARDEN_SAIL_DIP_MIN_SCALE) * 0.99);
+      for (let sailIndex = 0; sailIndex < FLEET_MAX_SAILS; sailIndex += 1) {
+        const decoded = deformFleetSailVertex({
+          ...sailInput, furlMask: packed, sailIndex, windFlutter: 0,
+        });
+        const expected = deformFleetSailVertex({
+          ...sailInput, furlMask: mask, sailIndex, windFlutter: 0,
+          sailScale: GARDEN_SAIL_DIP_MIN_SCALE,
+        });
+        expect(decoded.setSail).toBe(expected.setSail);
+        expect(decoded.y).toBeCloseTo(expected.y, 5);
+        expect(decoded.z).toBeCloseTo(expected.z, 5);
+      }
+    }
+  });
+
 
   it("keeps every furled sail bundled under every hull form and wind state", () => {
     for (let sailIndex = 0; sailIndex < FLEET_MAX_SAILS; sailIndex += 1) {
@@ -259,6 +290,39 @@ describe("fleet downwind convention", () => {
 });
 
 describe("fleet batches", () => {
+  it("fits every sail geometry within the vertex attribute limit", () => {
+    const batches = buildBatches(1);
+    for (const { sails } of batches.bySilhouette.values()) {
+      const attributeCount = Object.keys(sails.mesh.geometry.attributes).length;
+      expect(attributeCount).toBeLessThanOrEqual(16);
+      // instanceMatrix is stored on the mesh and consumes four additional slots.
+      expect(attributeCount + 4).toBeLessThanOrEqual(16);
+    }
+    disposeFleetBatches(batches);
+  });
+
+  it("restores a dipped identity sail to full scale thirty seconds into dwell", () => {
+    const batches = buildBatches(1);
+    const sails = batches.bySilhouette.get("bezaisen")!.sails;
+    const furlMask = 21;
+    for (const secondsInto of [1.2, 30]) {
+      const beat = gardenArrivalBeatEnvelope({
+        segment: { kind: "dock-dwell", secondsInto, secondsRemaining: 100 - secondsInto },
+      });
+      beginFleetFrame(batches);
+      writeFleetInstance(batches, pose({
+        silhouette: "bezaisen",
+        sailFurl: furlMask,
+        sailScale: 1 - beat.furl * (1 - GARDEN_SAIL_DIP_MIN_SCALE),
+      }));
+      endFleetFrame(batches);
+      const packed = sails.mesh.geometry.getAttribute("aSailFurl").getX(0);
+      if (secondsInto === 30) expect(packed).toBe(furlMask);
+      else expect(packed).toBeCloseTo(furlMask + 0.396, 5);
+    }
+    disposeFleetBatches(batches);
+  });
+
   it("keeps draw calls flat as the fleet grows", () => {
     const batches = buildBatches(400);
 
@@ -628,7 +692,8 @@ describe("peg trim (Tier 3 #13)", () => {
  * clauses that make that true of the new default-framing step.
  */
 const OVERVIEW_ZOOM = 0.44;
-const DEFAULT_ZOOM = 0.648;
+const WIDE_ZOOM = 0.8;
+const DEFAULT_ZOOM = 1.0;
 const INSPECTION_ZOOM = 1.05;
 
 const FRAGMENT_STUB = [
@@ -644,17 +709,24 @@ const VERTEX_STUB = [
 ].join("\n");
 
 describe("W3.7 sail restraint as a viewing condition", () => {
-  it("takes one gentle step at the default framing, inside the operator's band", () => {
-    const step = gardenFleetFramingRestraint(DEFAULT_ZOOM);
-    // Operator decision 2026-08-13: ~15-20% further desaturation at default
-    // zoom. Anything outside that band is a different decision, not a tuning.
-    expect(step).toBeGreaterThanOrEqual(0.15);
-    expect(step).toBeLessThanOrEqual(0.2);
+  it("uses the smaller wide-frame step and fully releases it at rest", () => {
+    // Operator decision 2026-09-05: replace the former 15–20% default-frame
+    // pin with a 10% wide-frame restraint that is exactly gone at zoom-1 rest.
+    expect(gardenFleetFramingRestraint(WIDE_ZOOM)).toBeCloseTo(0.1, 12);
+    expect(gardenFleetFramingRestraint(DEFAULT_ZOOM)).toBe(0);
   });
 
-  it("is exactly gone at the zoom where marks are judged", () => {
-    // Structural, not tuned: the step's release ends at the explore threshold,
-    // so no pale-sail issuer can be pushed anywhere by it at inspection framing.
+  it("keeps marks full at rest and preserves the stronger overview floor", () => {
+    // Operator decision 2026-09-05: identity is fully legible at the new rest,
+    // while whole-map marks retain 45% presence instead of the former 26%.
+    expect(gardenFleetMarkPresence(DEFAULT_ZOOM)).toBe(1);
+    expect(gardenFleetMarkPresence(0.85)).toBe(1);
+    expect(gardenFleetMarkPresence(0.58)).toBeCloseTo(0.45, 12);
+    expect(gardenFleetMarkPresence(OVERVIEW_ZOOM)).toBeCloseTo(0.45, 12);
+  });
+
+  it("is exactly gone at rest and inspection framing", () => {
+    expect(gardenFleetFramingRestraint(DEFAULT_ZOOM)).toBe(0);
     expect(gardenFleetFramingRestraint(INSPECTION_ZOOM)).toBe(0);
     expect(gardenFleetFramingRestraint(1.4)).toBe(0);
   });
@@ -668,10 +740,9 @@ describe("W3.7 sail restraint as a viewing condition", () => {
       if (Number.isFinite(previous)) largestJump = Math.max(largestJump, previous - step);
       previous = step;
     }
-    // No cliff anywhere on the ramp — the step eases away over a fifth of the
-    // zoom range, so a hundredth of zoom can never move it more than a
-    // hundredth of the step. A switch would move the whole 0.18 in one sample.
-    expect(largestJump).toBeLessThan(0.015);
+    // No cliff anywhere on the ramp: even across the deliberately short final
+    // approach to rest, a hundredth of zoom cannot move the whole 0.10 step.
+    expect(largestJump).toBeLessThan(0.03);
   });
 
   it("cancels entirely on hover and selection, at every framing", () => {
@@ -704,8 +775,8 @@ describe("W3.7 sail restraint as a viewing condition", () => {
   });
 
   it("composes on the existing recession instead of stacking with it", () => {
-    const framing = gardenFleetFramingRestraint(DEFAULT_ZOOM);
-    const zoomRestraint = (1 - gardenFleetMarkPresence(DEFAULT_ZOOM)) * 0.55;
+    const framing = gardenFleetFramingRestraint(WIDE_ZOOM);
+    const zoomRestraint = (1 - gardenFleetMarkPresence(WIDE_ZOOM)) * 0.55;
     const combined = gardenFleetSailRestraint({
       aerial: 0,
       attention: 0,
@@ -807,12 +878,12 @@ describe("W3.7 chroma only, never value", () => {
     }
   });
 
-  it("keeps two quieted issuers apart from one another at the default framing", () => {
+  it("keeps two quieted issuers apart from one another at wide framing", () => {
     const restraint = gardenFleetSailRestraint({
       aerial: 0,
       attention: 0,
-      framing: gardenFleetFramingRestraint(DEFAULT_ZOOM),
-      zoomRestraint: (1 - gardenFleetMarkPresence(DEFAULT_ZOOM)) * 0.55,
+      framing: gardenFleetFramingRestraint(WIDE_ZOOM),
+      zoomRestraint: (1 - gardenFleetMarkPresence(WIDE_ZOOM)) * 0.55,
     });
     const circle = applyRestraint(
       gardenSailClothColor(livery("#2775ca"), "usdc-circle"),
@@ -969,10 +1040,10 @@ describe("W3.7 woven cloth", () => {
   it("stays off at overview framing and comes fully in at inspection", () => {
     expect(gardenFleetClothWeave(OVERVIEW_ZOOM)).toBe(0);
     expect(gardenFleetClothWeave(0.52)).toBe(0);
-    // A whisper at the default framing — the frame where colour restraint, not
-    // surface detail, is doing the work.
-    expect(gardenFleetClothWeave(DEFAULT_ZOOM)).toBeGreaterThan(0.1);
-    expect(gardenFleetClothWeave(DEFAULT_ZOOM)).toBeLessThan(0.4);
+    // At the new zoom-1 rest the surface is nearly resolved; the final fraction
+    // still arrives only at close inspection.
+    expect(gardenFleetClothWeave(DEFAULT_ZOOM)).toBeGreaterThan(0.8);
+    expect(gardenFleetClothWeave(DEFAULT_ZOOM)).toBeLessThan(1);
     expect(gardenFleetClothWeave(1.12)).toBe(1);
   });
 

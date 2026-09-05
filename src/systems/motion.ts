@@ -45,5 +45,6 @@ export type {
   ShipMotionSample,
   ShipMotionState,
   ShipMotionStopKind,
+  ShipMotionSegmentKind,
   ShipWaterPath,
 } from "./motion-types";

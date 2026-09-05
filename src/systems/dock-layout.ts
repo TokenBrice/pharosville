@@ -8,17 +8,28 @@ export interface StationScaleRung {
   secondLevelTop: number;
 }
 
-/** Authored civic-hall dimensions from the §6 harbor scale ladder. */
+/**
+ * Authored civic-hall dimensions from the §6 harbor scale ladder. The
+ * ordinary rungs were re-based 2026-09-05 for the zoom-1.0 rest (operator
+ * decision A4, "warm village"): each silhouette grew ~1.46–1.85x in vertical
+ * scale only, so footprints, water exclusion, and berthing are untouched.
+ * The band is 13.3–17.9 rather than the nominal 14–18 because the
+ * clone-separation contract (no two archetypes within 10% on BOTH footprint
+ * area and second-level height, `garden-docks.test.ts`) plus the preserved
+ * uogashi→storm-mole order forces a >=1.331x spread between the shortest and
+ * tallest ordinary rung, and the Mole's 21.5 landmark cap keeps a >=1.20x
+ * lead over the tallest (17.9 x 1.2 = 21.48 <= 21.5).
+ */
 export const STATION_SCALE_LADDER: Record<StationType, StationScaleRung> = {
   "ethereum-mole": { baseLength: 24.0, span: 10.0, secondLevelTop: 21.5 },
-  "stepped-inlet": { baseLength: 16.0, span: 7.8, secondLevelTop: 9.4 },
-  "fishing-pier": { baseLength: 15.4, span: 6.7, secondLevelTop: 8.3 },
-  "tea-house-quay": { baseLength: 15.0, span: 7.4, secondLevelTop: 10.7 },
-  "hatago-wharf": { baseLength: 14.6, span: 6.6, secondLevelTop: 11.8 },
-  uogashi: { baseLength: 14.2, span: 7.8, secondLevelTop: 7.2 },
-  "storm-mole": { baseLength: 13.4, span: 8.8, secondLevelTop: 12.1 },
-  "reed-boathouse": { baseLength: 13.6, span: 6.0, secondLevelTop: 11.2 },
-  "pigeonnier-islet": { baseLength: 12.6, span: 5.6, secondLevelTop: 8.6 },
+  "stepped-inlet": { baseLength: 16.0, span: 7.8, secondLevelTop: 15.6 },
+  "fishing-pier": { baseLength: 15.4, span: 6.7, secondLevelTop: 14.7 },
+  "tea-house-quay": { baseLength: 15.0, span: 7.4, secondLevelTop: 16.2 },
+  "hatago-wharf": { baseLength: 14.6, span: 6.6, secondLevelTop: 17.2 },
+  uogashi: { baseLength: 14.2, span: 7.8, secondLevelTop: 13.3 },
+  "storm-mole": { baseLength: 13.4, span: 8.8, secondLevelTop: 17.9 },
+  "reed-boathouse": { baseLength: 13.6, span: 6.0, secondLevelTop: 16.6 },
+  "pigeonnier-islet": { baseLength: 12.6, span: 5.6, secondLevelTop: 15.0 },
 };
 
 export interface StationScale extends StationScaleRung {
@@ -222,11 +233,15 @@ export function stationFlagPlacement(type: StationType, totalUsd: number, size: 
   const supply = Math.min(10, Math.max(1, size)) / 10;
   const length = 7.6 * amount * (type === "ethereum-mole" ? 1.5 : 1.06);
   const width = (1.62 + amount * 0.36) * (type === "ethereum-mole" ? 1.42 : 1.08);
+  // Staffs rose with the 2026-09-05 station-scale ladder (ordinary x1.62,
+  // pigeonnier x1.74, tracking each band's growth) so the standard still
+  // reads against — and clears the eaves of — its now-taller hall. The
+  // mole-head standard is unchanged: it stands on the outer arm in clear air.
   const height = (
     type === "ethereum-mole" ? 10
-      : type === "pigeonnier-islet" ? 7.4
-        : 8.2
-  ) + supply * 1.25;
+      : type === "pigeonnier-islet" ? 12.9
+        : 13.3
+  ) + supply * (type === "ethereum-mole" ? 1.25 : type === "pigeonnier-islet" ? 2.2 : 2.0);
   return {
     height,
     scale: ((type === "ethereum-mole" ? 1.05 : 0.72) + supply * 0.24)

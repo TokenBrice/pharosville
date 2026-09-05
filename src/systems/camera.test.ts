@@ -1,7 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { cameraZoomLabel, clampCameraToMap, defaultCamera, followTile, panCamera, zoomIn, zoomOut } from "./camera";
-import { ABSOLUTE_MIN_ZOOM, mapIsoBounds, minZoomForViewport, tileToScreen } from "./projection";
-import { MIN_LONG_SIDE_PX, MIN_SHORT_SIDE_PX } from "./viewport-gate";
+import {
+  cameraZoomLabel,
+  clampCameraToMap,
+  defaultCamera,
+  followTile,
+  GARDEN_DEFAULT_CAMERA_ZOOM,
+  GARDEN_REST_ZOOM_FLOOR,
+  panCamera,
+  zoomIn,
+  zoomOut,
+} from "./camera";
+import {
+  ABSOLUTE_MIN_ZOOM,
+  mapIsoBounds,
+  minZoomForViewport,
+  tileToIso,
+  tileToScreen,
+  TILE_WIDTH,
+} from "./projection";
 import {
   GARDEN_LIGHTHOUSE_HEIGHT,
   GARDEN_LIGHTHOUSE_ROOT_OFFSET,
@@ -41,7 +57,6 @@ describe("camera", () => {
 
     expect(zoomOut(zoomIn(camera, { x: 1000, y: 800 }), { x: 1000, y: 800 }).zoom).toBeCloseTo(1);
   });
-
   it("keeps the authored island mass inside the right-hand sea gutter by default", () => {
     const map = buildPharosVilleMap();
     const centerTile = landBoundsCenter(map.tiles);
@@ -57,35 +72,39 @@ describe("camera", () => {
       const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
       const center = tileToScreen(centerTile, camera);
 
-      const shortSide = Math.min(viewport.x, viewport.y);
-      const shortSideProgress = Math.max(
-        0,
-        Math.min(1, (shortSide - MIN_SHORT_SIDE_PX) / 280),
+      // Warm-village A1 (2026-09-05): rest is the sailed-in 1.0 close
+      // composition (was 0.6 * 1.02), refined per width to seat the
+      // Mole -> island-centre landing span inside the right-hand ma gutter,
+      // and never resting below the 0.8 floor.
+      const moleIsoX = tileToIso(EVM_BAY_STATION_SLOTS[0].cove.tile).x;
+      const expectedRest = Math.max(
+        GARDEN_REST_ZOOM_FLOOR,
+        Math.min(
+          GARDEN_DEFAULT_CAMERA_ZOOM,
+          (viewport.x - 128 - TILE_WIDTH / 2) / -moleIsoX,
+        ),
       );
-      const longSideProgress = Math.max(
-        0,
-        Math.min(1, (Math.max(viewport.x, viewport.y) - MIN_LONG_SIDE_PX) / 100),
-      );
-      const compositionProgress = shortSide < MIN_SHORT_SIDE_PX
-        ? 0
-        : Math.max(shortSideProgress, longSideProgress);
-      expect(camera.zoom).toBeCloseTo(0.6 * (1 + compositionProgress * 0.02));
+      expect(camera.zoom).toBeCloseTo(expectedRest);
       // The landing frame may move the island right to admit the Mole, but
       // never spends the authored 128px anchorage gutter on the island centre.
       expect(center.x).toBeGreaterThanOrEqual(viewport.x * 0.43);
       expect(center.x).toBeLessThanOrEqual(viewport.x - 128);
+      // Epic Pharos 2026-09-05: first reduce crown sky 48→36px, then allow
+      // the 38-unit crown-owned seat up to 0.73 (was 0.70). This preserves
+      // sky without spending the compact gates' bottom padding on the tower.
       expect(center.y).toBeGreaterThanOrEqual(viewport.y * 0.45);
-      expect(center.y).toBeLessThanOrEqual(viewport.y * 0.65);
+      expect(center.y).toBeLessThanOrEqual(viewport.y * 0.73);
       expect(clampCameraToMap(camera, { map, viewport })).toEqual(camera);
     }
   });
 
-  it("keeps the Mole, Pharos headroom, and right-hand ma at both landing sizes", () => {
+  it("seats the landing interval, Pharos headroom, and right-hand ma at both landing sizes", () => {
     const map = buildPharosVilleMap();
+    const moleIsoX = tileToIso(EVM_BAY_STATION_SLOTS[0].cove.tile).x;
 
     for (const viewport of [
-      { x: 900, y: 720 },
-      { x: 1200, y: 640 },
+      { x: 900, y: 720 },  // compact square gate: the interval cannot seat at the rest floor
+      { x: 1200, y: 640 }, // wide-laptop gate: the landing interval still seats
     ]) {
       const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
       const mole = tileToScreen(EVM_BAY_STATION_SLOTS[0].cove.tile, camera);
@@ -105,18 +124,62 @@ describe("camera", () => {
         camera,
       );
 
-      expect(mole.x).toBeGreaterThan(0);
-      expect(mole.x).toBeLessThan(viewport.x);
-      expect(mole.y).toBeGreaterThan(0);
-      expect(mole.y).toBeLessThan(viewport.y);
-      // The explicit vertical correction keeps at least 32px of sky above the
-      // statue even in the compact-height profile the flat-map fit cannot see.
+      // The crown-owned vertical seat keeps at least 32px of sky above the
+      // statue even in the compact-height profile the flat-map fit cannot
+      // see; at the 1.0 rest the tower itself is ~half the frame height.
       expect(towerTop.y).toBeGreaterThanOrEqual(32);
       expect(towerTop.y).toBeLessThan(towerBase.y);
-      expect(towerBase.y).toBeLessThan(viewport.y);
+      expect(towerBase.y).toBeLessThan(viewport.y - 80);
       // The water to the right of the Pharos remains a larger interval than
       // the Mole's left inset: deliberate ma rather than a centred ring.
       expect(viewport.x - towerBase.x).toBeGreaterThan(mole.x);
+      expect(clampCameraToMap(camera, { map, viewport })).toEqual(camera);
+
+      if (viewport.x - 128 - TILE_WIDTH / 2 >= -moleIsoX * GARDEN_REST_ZOOM_FLOOR) {
+        // Wide enough to seat the authored interval at the rest floor: the
+        // Mole quay is framed alongside the Pharos.
+        expect(mole.x).toBeGreaterThan(0);
+        expect(mole.x).toBeLessThan(viewport.x);
+        expect(mole.y).toBeGreaterThan(0);
+        expect(mole.y).toBeLessThan(viewport.y);
+      } else {
+        // Warm-village A1: below the seating width the right gutter wins —
+        // the lighthouse remains the primary anchor and the Mole quay waits
+        // off-frame to the west rather than spending the anchorage ma.
+        expect(camera.zoom).toBeCloseTo(GARDEN_REST_ZOOM_FLOOR);
+        expect(mole.x).toBeLessThanOrEqual(TILE_WIDTH / 2);
+      }
+    }
+  });
+
+  it("rests at the sailed-in 1.0 with the landing interval framed on standard desktops", () => {
+    const map = buildPharosVilleMap();
+
+    // Warm-village A1 (2026-09-05): the default rest is the 1.0 close
+    // composition. The Pharos (60,70) and Ethereum Mole (15,95) tiles stay
+    // inside the viewport minus the authored bottom/right padding wherever
+    // the landing interval seats at 1.0. Seating the Mole half a tile inside
+    // the left margin while the island centre keeps the 128px right gutter
+    // needs a 1424px window, so the 1200px gate fits the interval instead
+    // (0.825); no legal viewport rests below the 0.8 floor.
+    const desktop = defaultCamera({ height: 1004, map, width: 1568 });
+    expect(desktop.zoom).toBe(GARDEN_DEFAULT_CAMERA_ZOOM);
+
+    const laptop = defaultCamera({ height: 640, map, width: 1200 });
+    expect(laptop.zoom).toBeCloseTo(1056 / 1280);
+    expect(laptop.zoom).toBeGreaterThanOrEqual(GARDEN_REST_ZOOM_FLOOR);
+
+    for (const { camera, viewport } of [
+      { camera: desktop, viewport: { x: 1568, y: 1004 } },
+      { camera: laptop, viewport: { x: 1200, y: 640 } },
+    ]) {
+      for (const tile of [LIGHTHOUSE_TILE, EVM_BAY_STATION_SLOTS[0].cove.tile]) {
+        const point = tileToScreen(tile, camera);
+        expect(point.x).toBeGreaterThanOrEqual(0);
+        expect(point.x).toBeLessThanOrEqual(viewport.x - 128);
+        expect(point.y).toBeGreaterThanOrEqual(0);
+        expect(point.y).toBeLessThanOrEqual(viewport.y - 80);
+      }
       expect(clampCameraToMap(camera, { map, viewport })).toEqual(camera);
     }
   });

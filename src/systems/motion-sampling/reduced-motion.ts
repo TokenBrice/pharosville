@@ -38,6 +38,10 @@ export function reducedMotionSampleInto(
   out.wakeIntensity = 0;
   resetSampleChoreography(out);
   out.seaState = seaState;
+  // Pin stillness to the quiet middle of a synthetic dwell. Consumers still
+  // receive a deterministic segment shape, but no arrival/departure window can
+  // accidentally animate the reduced-motion composition.
+  out.segment = { kind: "dock-dwell", secondsInto: 12, secondsRemaining: 12 };
 
   if (!route) {
     out.tile.x = ship.riskTile.x;

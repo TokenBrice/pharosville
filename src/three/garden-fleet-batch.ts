@@ -16,6 +16,7 @@ import {
   type Texture,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { GARDEN_SAIL_DIP_MIN_SCALE } from "../systems/garden-arrival-beats";
 import type { GardenHullSilhouette } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
 import {
@@ -86,7 +87,7 @@ export interface FleetBatchPart {
   /** W5.8/W7.3: (value scalar, age patina or -1, prop rotation, rope sag). */
   hullSurface: InstancedBufferAttribute | null;
   mesh: InstancedMesh;
-  /** Per-instance furl bitmask (W2.3/W4); only meaningful on the sail batch. */
+  /** Per-instance furl bitmask plus fractional sail dip; only meaningful on the sail batch. */
   sailFurl: InstancedBufferAttribute | null;
   /** Per-instance cloth dye (F1); only meaningful on the sail batch. */
   sailTint: InstancedBufferAttribute | null;
@@ -159,9 +160,8 @@ const fleetWindUniforms = {
  * The scene's linear fog is calibrated against the MONUMENT (garden-sky.ts):
  * everything at or below depth 178 reads at zero haze so the island's colour,
  * which the whole grade is tuned to, cannot move. That is the right call and it
- * is also why fog alone cannot fix the fleet: at the default framing the ground
- * plane spans depth ~121–255, so most of ~185 hulls sit below FOG_NEAR and are
- * rendered at full saturation regardless of where they are in the picture.
+ * is also why fog alone cannot fix the fleet: much of the harbour lies in
+ * front of FOG_NEAR, where a dense field of hulls receives no fog restraint.
  *
  * So the fleet carries its own recession, on two axes that fog does not touch:
  *
@@ -216,14 +216,14 @@ const fleetAerialUniforms = {
 const CLOTH_RESTRAINT_AT_OVERVIEW = 0.55;
 
 /**
- * W3.7: the default-framing step — one further, gentle act of the SAME
- * restraint, at the framing where visitors actually dwell.
+ * W3.7: one further, gentle act of the SAME restraint while the camera is
+ * pulled back from its resting frame.
  *
  * The wide shot is already handled: `uClothRestraint` above ramps to 0.55 at
- * whole-map framing. But the default framing (zoom 0.7776) sits only a third of
- * the way up that ramp, and that is the frame the product opens on — ~185 sails
- * each still carrying most of its brand chroma, which reads as a corporate
- * regatta rather than as a harbour.
+ * whole-map framing. The authored rest now sits at zoom 1.0, where ships and
+ * marks are legible enough to carry their full identity. Wider framings still
+ * gather roughly 185 sails into one field, so they take a smaller 10% step
+ * before the step dissolves completely on the approach to rest.
  *
  * This is deliberately NOT a new mechanism. It is the same shader-side,
  * zoom-keyed, chroma-only recession the restraint contract sanctions, composed
@@ -233,35 +233,27 @@ const CLOTH_RESTRAINT_AT_OVERVIEW = 0.55;
  *    so `luma(result) == luma(cloth)` exactly (the mix target's luminance IS the
  *    source's). Value is mathematically untouched, which is why the pirate
  *    contrast floor — a luminance ratio against white — cannot move under it.
- * 2. **Fully reversible.** It eases to exactly zero by the zoom at which marks
- *    are judged, so sailing in restores the dye F1 specified.
+ * 2. **Fully reversible.** It eases to exactly zero at the resting zoom, so the
+ *    default frame restores the dye F1 specified.
  * 3. **Never in the cloth.** `gardenSailClothColor` is untouched; lifting sail
  *    dye toward canvas is the recorded harmful experiment and stays dead.
  *
- * Operator decision 2026-08-13: **one gentle step — ~15-20% further
- * desaturation at default zoom; every issuer must stay recognizably itself at a
- * glance.** 0.18 is read as "a further 18% of whatever chroma is left", which is
- * why it composes multiplicatively with the existing term rather than adding to
- * it — adding would let two independent cues stack into a grey fleet.
+ * Operator decision 2026-09-05: replace the former 15–20% default-frame step
+ * with a 10% wide-frame step that is fully released at the new zoom-1.0 rest.
+ * It composes multiplicatively with the existing term rather than adding to it
+ * so two independent cues can never stack into a grey fleet.
  */
-const FLEET_FRAMING_RESTRAINT = 0.18;
+const FLEET_FRAMING_RESTRAINT = 0.10;
 
 /**
- * Above this zoom the step begins to dissolve. Set just above the default
- * framing (0.7776) so the default frame pays the step in full and the very
- * first turn of the wheel already starts handing the dye back — the restraint
- * has to feel like a viewing condition responding to the visitor, not a mode.
+ * Above this zoom the wide-frame step begins to dissolve. It stays fully
+ * present through overview framing, then hands the dye back over the final
+ * approach to the authored zoom-1.0 rest.
  */
-const FRAMING_RESTRAINT_RELEASE_ZOOM = 0.84;
+const FRAMING_RESTRAINT_RELEASE_ZOOM = 0.95;
 
-/**
- * ...and by this zoom it is gone entirely. 1.05 is the explore/inspection
- * threshold `gardenSemanticView` already uses — the zoom at which world detail
- * appears and a mark is the subject rather than a suggestion. Ending the step
- * exactly there is what makes the contrast-floor guarantee structural rather
- * than tuned: at the zoom where marks are judged, the step contributes zero.
- */
-const FRAMING_RESTRAINT_CLEAR_ZOOM = 1.05;
+/** At the resting zoom the extra framing step is gone entirely. */
+const FRAMING_RESTRAINT_CLEAR_ZOOM = 1.0;
 
 /**
  * The further chroma step this framing asks of a rank-and-file ship, before
@@ -283,12 +275,9 @@ export function gardenFleetFramingRestraint(zoom: number): number {
  *
  * Cloth-ness is a NEAR-framing property: at whole-map framing a sail is a few
  * pixels and a thread pattern there is only shimmer, so the weave is off below
- * ~0.52 and comes fully in at explore framing. Wave 1 moved the landing view
- * to 0.648, so this lower threshold preserves the same barely-there cloth cue
- * there without letting it reach the whole-map frame. The weave and
- * desaturation
- * step is handing back the dye. The two trade places: far away the fleet is
- * quiet colour; up close it is coloured cloth.
+ * ~0.52 and nearly resolved at the authored zoom-1.0 rest. The final fraction
+ * arrives at inspection framing. The weave and desaturation step trade places:
+ * far away the fleet is quiet colour; up close it is coloured cloth.
  */
 export function gardenFleetClothWeave(zoom: number): number {
   const t = MathUtils.clamp(
@@ -356,22 +345,26 @@ export function gardenFleetSailRestraint(input: {
 /**
  * How much of the painted mark survives at a given zoom.
  *
- * Floor is deliberately non-zero at the default framing: the sails should read
- * as cloth that HAS a device on it, seen from across a harbour, rather than as
- * blank canvas. Fully suppressing the mark tips from restraint into absence.
+ * Marks are fully present at the authored zoom-1.0 rest. Below 0.85 they fade
+ * toward a deliberately non-zero floor: a distant sail should still read as
+ * cloth that HAS a device on it rather than as blank canvas.
  */
 export function gardenFleetMarkPresence(zoom: number): number {
-  const t = MathUtils.clamp((zoom - MARK_FADE_ZOOM) / (MARK_FULL_ZOOM - MARK_FADE_ZOOM), 0, 1);
+  const t = MathUtils.clamp(
+    (zoom - MARK_MIN_ZOOM) / (MARK_FADE_ZOOM - MARK_MIN_ZOOM),
+    0,
+    1,
+  );
   const eased = t * t * (3 - 2 * t);
   return MARK_MIN_PRESENCE + (1 - MARK_MIN_PRESENCE) * eased;
 }
 
+/** Marks are fully present until the camera pulls back below this zoom. */
+const MARK_FADE_ZOOM = 0.85;
 /** Below this zoom a mark is pixels of noise, so only the floor remains. */
-const MARK_FADE_ZOOM = 0.58;
-/** At and above explore framing the mark is the subject; render it fully. */
-const MARK_FULL_ZOOM = 1.12;
+const MARK_MIN_ZOOM = 0.58;
 /** Never fully absent — see `gardenFleetMarkPresence`. */
-const MARK_MIN_PRESENCE = 0.26;
+const MARK_MIN_PRESENCE = 0.45;
 
 export interface FleetAerialPerspective {
   /** Scene fog near plane, already view-scaled by garden-sky. */
@@ -399,8 +392,8 @@ export function setFleetAerialPerspective(aerial: FleetAerialPerspective | null)
   // Marks and chroma recede together on the same zoom curve — one act of
   // restraint, not two competing ones.
   fleetAerialUniforms.uClothRestraint.value = (1 - presence) * CLOTH_RESTRAINT_AT_OVERVIEW;
-  // W3.7: ...and the default framing takes one further, gentle step on the same
-  // axis, which attention (hover/selection) cancels per instance.
+  // W3.7: the wide framing takes one further, gentle step on the same axis;
+  // it is fully released at rest and attention cancels it per instance.
   fleetAerialUniforms.uFramingRestraint.value = gardenFleetFramingRestraint(aerial.zoom);
   fleetAerialUniforms.uClothWeave.value = gardenFleetClothWeave(aerial.zoom);
   // Start the chroma ramp well inside the fog's near plane so the midground
@@ -770,7 +763,9 @@ function withHullForm(vertexShader: string): string {
 export const FLEET_MAX_SAILS = 6;
 const SAIL_LOCAL_DEFORM = `
 {
-  float furlBits = floor(aSailFurl / exp2(aSailIndex));
+  float sailScale = 1.0 - fract(aSailFurl) / 0.99;
+  transformed.y = aSailHead.y - (aSailHead.y - transformed.y) * sailScale;
+  float furlBits = floor(floor(aSailFurl) / exp2(aSailIndex));
   float furled = furlBits - 2.0 * floor(furlBits * 0.5);
   float setSail = 1.0 - furled;
   float sailDrop = clamp(aSailHead.y - transformed.y, 0.0, 1.2);
@@ -803,7 +798,9 @@ const SAIL_LOCAL_DEFORM = `
 }`;
 
 export interface FleetSailDeformInput {
+  /** Integer furl bitmask, optionally carrying the packed sail dip fraction. */
   furlMask: number;
+  sailScale?: number;
   hullForm: { beam: number; height: number; length: number; waterline: number };
   instanceX: number;
   instanceZ: number;
@@ -821,17 +818,22 @@ export function deformFleetSailVertex(input: FleetSailDeformInput): {
   y: number;
   z: number;
 } {
-  const furlBits = Math.floor(input.furlMask / (2 ** input.sailIndex));
+  const furlMask = Math.floor(input.furlMask);
+  const furlBits = Math.floor(furlMask / (2 ** input.sailIndex));
   const furled = furlBits - 2 * Math.floor(furlBits * 0.5);
   const setSail = 1 - furled;
   const windFlutter = Math.min(1, Math.max(0, input.windFlutter));
-  const sailDrop = Math.min(1.2, Math.max(0, input.sailHead.y - input.vertex.y));
+  const sailScale = input.sailScale === undefined
+    ? 1 - (input.furlMask - furlMask) / 0.99
+    : MathUtils.clamp(input.sailScale, GARDEN_SAIL_DIP_MIN_SCALE, 1);
+  const scaledY = input.sailHead.y - (input.sailHead.y - input.vertex.y) * sailScale;
+  const sailDrop = Math.min(1.2, Math.max(0, input.sailHead.y - scaledY));
   const flutterPhase = Math.max(0, input.windTime) * (2 + windFlutter * 3.5)
     + input.sailIndex * 1.7
     + input.instanceX * 0.31
     + input.instanceZ * 0.17;
   let x = input.vertex.x;
-  let y = input.vertex.y;
+  let y = scaledY;
   let z = input.vertex.z
     + Math.sin(flutterPhase) * sailDrop * (0.015 + windFlutter * 0.06) * setSail;
   y = y * setSail + (input.sailHead.y - 0.05) * furled;
@@ -1123,8 +1125,8 @@ function createInstancedPart(
     sailTint = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
     sailTint.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aSailTint", sailTint);
-    // W2.3/W4: furl bitmask. Defaults to 0 — every sail set — so an unwritten
-    // instance renders the authored rig.
+    // Integer bits select furled sails; the fractional part stores the yard-relative
+    // arrival dip without consuming another vertex attribute. Zero means fully set.
     sailFurl = new InstancedBufferAttribute(new Float32Array(capacity), 1);
     sailFurl.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aSailFurl", sailFurl);
@@ -1286,6 +1288,8 @@ export interface FleetInstancePose {
   mastheadOffset: { x: number; y: number };
   /** W2.3/W4: bitmask of sails furled onto their yards, bit i = sail i. */
   sailFurl: number;
+  /** Vertical sail scale about the yard; 1 at rest, 0.6 at a transient beat's minimum. */
+  sailScale?: number;
   /** W1/D2: the issuer's paint on the sheer strake. */
   trimColor: Color;
   x: number;
@@ -1367,7 +1371,8 @@ export function writeFleetInstance(
     batch.sails.sailTint.setXYZ(slot, pose.sailColor.r, pose.sailColor.g, pose.sailColor.b);
   }
   if (batch.sails.sailFurl) {
-    batch.sails.sailFurl.setX(slot, pose.sailFurl);
+    const sailScale = MathUtils.clamp(pose.sailScale ?? 1, GARDEN_SAIL_DIP_MIN_SCALE, 1);
+    batch.sails.sailFurl.setX(slot, pose.sailFurl + (1 - sailScale) * 0.99);
   }
   if (batch.sails.sailAttention) {
     // W3.7: the pose may name attention outright (tests, and any future caller

@@ -121,7 +121,7 @@ export interface GardenModelMetadata {
   };
 }
 
-const LIGHTHOUSE_SHA256 = "1b2fa7dcc436fb900038079ee178d8630359a8c9351c7a77497b1f82be8d6973";
+const LIGHTHOUSE_SHA256 = "683bcbcac8ccd18f9f6b6237931f5011600e1d87088507dab912aca1fd39b9c9";
 const lighthouseUrl = `/pharosville/models/garden-lighthouse-shell.glb?v=${LIGHTHOUSE_SHA256.slice(0, 12)}`;
 
 const HERO_TITAN_SHA256 = "226d585a2264290773b1dc487cc4e7f974a7735cec8a1ffebd0ea1aa01ec67f6";
@@ -231,18 +231,16 @@ export const GARDEN_MODEL_MANIFEST = {
     id: "garden-lighthouse-shell",
     label: "Garden Observatory lighthouse shell",
     artifact: {
-      bytes: 207_452,
+      bytes: 232_848,
       compression: "meshopt",
       gltfVersion: 2,
       sha256: LIGHTHOUSE_SHA256,
       url: lighthouseUrl,
     },
     dimensions: {
-      x: 9.649,
-      y: 34,
-      // 9.469 -> 9.490: the terrace steps gained proud corner quoins, which
-      // are the widest thing on the +z side. The silhouette is unchanged.
-      z: 9.49,
+      x: 12.43,
+      y: 38,
+      z: 12.43,
     },
     scale: {
       modelUnitsPerWorldUnit: 1,
@@ -257,19 +255,19 @@ export const GARDEN_MODEL_MANIFEST = {
     anchors: {
       beacon: {
         node: "anchor-beacon",
-        position: [0, 30.1, 0],
+        position: [0, 30.2, 0],
       },
       beam: {
         node: "anchor-beam",
-        position: [0, 30.1, 0],
+        position: [0, 30.2, 0],
       },
       label: {
         node: "anchor-label",
-        position: [0, 34.9, 0],
+        position: [0, 38.9, 0],
       },
       selection: {
         node: "anchor-selection",
-        position: [0, 17, 0],
+        position: [0, 19, 0],
       },
     },
     lod: {
@@ -282,58 +280,30 @@ export const GARDEN_MODEL_MANIFEST = {
       }],
     },
     pickProxy: {
-      center: [0, 17, 0],
-      height: 34,
-      radius: 5,
+      center: [0, 19, 0],
+      height: 38,
+      radius: 6.6,
       shape: "cylinder",
     },
     geometry: {
       drawCalls: 7,
       materials: 7,
       textures: 0,
-      triangles: 33_444,
-      vertices: 21_642,
+      triangles: 37_160,
+      vertices: 24_304,
     },
     budgets: {
-      // Grand-scale revamp raise (2026-07-25, measured cause, W4.1–W4.6): GLB
-      // v5 keeps the v4 silhouette exactly (34 units, beacon 30.1) and spends
-      // every added triangle on SURFACE. Measured from the regenerated
-      // artifact: 2,420 → 31,716 tris, 3,447 → 20,598 verts, 6 → 7 draws, and
-      // 156,816 → 519,364 bytes. What the spend bought: ashlar coursing with
-      // running bond, per-block relief jitter and interlocking quoins on the
-      // square/octagon/cylinder tiers; a 0.46-deep wall so window and door
-      // reveals are real openings; twenty-two arched reveals with voussoir
-      // heads, sills and hood moulds; bronze double doors; a plinth and string
-      // course; four dentil courses; an eight-column colonnade on the drum; a
-      // spiral ramp with its arcade; modelled Tritons, Zeus Soter and the
-      // bronze mirror dish. Baked geometry-aware AO rides in the vertex
-      // colours (still zero textures).
-      //
-      // The 7th draw is the new "window-shell" group (W4.5): every aperture
-      // sits behind material "lighthouse-window-glow" so the runtime can drive
-      // the interior glow across the day cycle without adding a light.
-      //
-      // L6 (2026-07-25) added 1,728 triangles and 26,956 bytes for the
-      // projecting balustraded gallery at the head of the square tier (corbel
-      // brackets, deck, coping, balusters, rail, corner piers, with the Tritons
-      // moved out onto the piers) and replaced the abstract 13-glyph dedication
-      // strip — which read as garbled text at overview zoom — with a three-bay
-      // rosette frieze in relief. Silhouette contract untouched: still 34 units
-      // tall, beacon at 30.1, and inside the terrace footprint on x/z.
-      //
-      // Bytes are held down without a decoder or a glTF extension: the model
-      // is entirely flat-shaded, so NORMAL is dropped (three's GLTFLoader
-      // re-flags flatShading for primitives without it) and mergeVertices
-      // welds each box's 24 corners to 8; COLOR_0 ships as normalized
-      // UNSIGNED_BYTE VEC4, which is core glTF 2.0. Together those cut the
-      // per-vertex cost from 36 bytes to 16 — a float export of the same
-      // geometry measures ~1.5 MiB.
-      maxBytes: 232 * 1024,
-      maxDrawCalls: 12,
-      maxMaterials: 12,
+      // Monumental Pharos: 38-unit crown, broader battered keep, 36 lower
+      // windows, pilastered octagon and an eight-column glowing lantern.
+      // Seven material-merged draws; baked UBYTE vertex AO, no textures.
+      // Measured 232,848 bytes / 37,160 triangles / 24,304 vertices leaves
+      // deliberate headroom without approaching the precinct's frame budget.
+      maxBytes: 280 * 1024,
+      maxDrawCalls: 8,
+      maxMaterials: 8,
       maxTextures: 0,
-      maxTriangles: 40_000,
-      maxVertices: 26_000,
+      maxTriangles: 45_000,
+      maxVertices: 30_000,
     },
     provenance: {
       createdBy: "agent-authored",

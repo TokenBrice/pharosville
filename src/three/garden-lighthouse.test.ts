@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { Box3, Vector3 } from "three";
+import { GARDEN_LIGHTHOUSE_HEIGHT } from "../systems/garden-observatory-slice";
 import { lampStatusModulationForMix } from "../systems/lamp-status";
 import {
   GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS,
@@ -10,6 +12,17 @@ import {
 import { disposeThreeObjectTree } from "./garden-util";
 
 describe("garden lighthouse beam ownership", () => {
+  it("keeps the fallback silhouette aligned with the monumental GLB envelope", () => {
+    const lighthouse = createLighthouse();
+    const bounds = new Box3().setFromObject(lighthouse.shell);
+    const size = bounds.getSize(new Vector3());
+    expect(bounds.min.y).toBeCloseTo(0, 5);
+    expect(bounds.max.y).toBeCloseTo(GARDEN_LIGHTHOUSE_HEIGHT, 5);
+    expect(size.x).toBeCloseTo(12.4, 5);
+    expect(size.z).toBeCloseTo(12.4, 5);
+    disposeThreeObjectTree(lighthouse.root);
+  });
+
   it("creates one primary cone, one low-tier fallback, and no radial fan", () => {
     const lighthouse = createLighthouse();
     expect(lighthouse.root.getObjectByName("lighthouse-ray-fan")).toBeUndefined();

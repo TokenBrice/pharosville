@@ -274,6 +274,20 @@ function copyTargetMetadata(target: ShipMotionSample, out: ShipMotionSample): vo
   out.currentDockId = target.currentDockId;
   out.currentRouteStopId = target.currentRouteStopId;
   out.currentRouteStopKind = target.currentRouteStopKind;
+  const targetSegment = target.segment;
+  if (targetSegment) {
+    const segment = out.segment ?? { ...targetSegment };
+    segment.kind = targetSegment.kind;
+    segment.secondsInto = targetSegment.secondsInto;
+    segment.secondsRemaining = targetSegment.secondsRemaining;
+    out.segment = segment;
+  } else if (hasOwn(target, "segment")) {
+    out.segment = null;
+  } else {
+    // Same discipline as seaState: a sample that never carried the field
+    // must not grow one in display memory (keeps sample shapes identical).
+    delete out.segment;
+  }
 
   if (hasOwn(target, "seaState")) {
     const seaState = target.seaState;
@@ -364,5 +378,6 @@ function createDisplaySample(): ShipMotionSample {
     wakeIntensity: 0,
     mapVisibilityAlpha: 1,
     seaState: null,
+    segment: null,
   };
 }
