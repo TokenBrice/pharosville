@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 
+import { hardwareGpuLaunchArgs } from "../tests/helpers/playwright-config.ts";
+
 import {
   findSecretFindingsInText,
   shouldScanCommittedPath,
@@ -1096,5 +1098,30 @@ webpBody.writeUInt32LE(4096, 16);
 assert.deepEqual(findMediaFileProblems("/logos/cut.webp", webpBody), [
   "WebP chunk VP8L declares 4096 bytes but only 64 are present",
 ]);
+
+
+// The local correctness lane must reach Metal on macOS while preserving Linux
+// Vulkan and the explicit CI/software opt-out. These are flags, not GPU metrics.
+{
+  const previousCI = process.env.CI;
+  const previousGpu = process.env.PHAROSVILLE_VISUAL_GPU;
+  try {
+    delete process.env.CI;
+    delete process.env.PHAROSVILLE_VISUAL_GPU;
+    assert.ok(hardwareGpuLaunchArgs("chromium", "darwin").includes("--use-angle=metal"));
+    assert.ok(!hardwareGpuLaunchArgs("chromium", "darwin").includes("--use-angle=vulkan"));
+    assert.ok(hardwareGpuLaunchArgs("chromium", "linux").includes("--use-angle=vulkan"));
+    assert.deepEqual(hardwareGpuLaunchArgs("firefox", "darwin"), []);
+    process.env.CI = "1";
+    assert.deepEqual(hardwareGpuLaunchArgs("chromium", "darwin"), []);
+    process.env.PHAROSVILLE_VISUAL_GPU = "1";
+    assert.ok(hardwareGpuLaunchArgs("chromium", "darwin").includes("--use-angle=metal"));
+    process.env.PHAROSVILLE_VISUAL_GPU = "0";
+    assert.deepEqual(hardwareGpuLaunchArgs("chromium", "linux"), []);
+  } finally {
+    if (previousCI === undefined) delete process.env.CI; else process.env.CI = previousCI;
+    if (previousGpu === undefined) delete process.env.PHAROSVILLE_VISUAL_GPU; else process.env.PHAROSVILLE_VISUAL_GPU = previousGpu;
+  }
+}
 
 console.log("Guard script self-tests passed.");

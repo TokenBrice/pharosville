@@ -128,7 +128,6 @@ export type PharosVilleMockOptions = {
 
 export const PHAROSVILLE_DESKTOP_DATA_ENDPOINTS = PHAROSVILLE_API_ENDPOINT_PATHS;
 
-const FRESH_META: ApiMeta = { updatedAt: 1_700_000_000, ageSeconds: 60, status: "fresh" };
 
 export async function mockScreenSize(page: Page, width: number, height: number): Promise<void> {
   // Playwright's `setViewportSize` only changes the viewport; screen-gate
@@ -207,7 +206,9 @@ export async function mockPharosVillePayloads(
   for (const key of PHAROSVILLE_API_ENDPOINT_KEYS) {
     const path = PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY[key];
     const failure = options.failures?.[key];
-    const meta = { ...FRESH_META, ...options.meta?.[key] };
+    // Fresh fixture responses must have a fresh epoch as well as a status;
+    // retained-data aging deliberately checks both.
+    const meta: ApiMeta = { updatedAt: Math.floor(Date.now() / 1000) - 60, ageSeconds: 60, status: "fresh", ...options.meta?.[key] };
     const endpoint = new URL(path, "http://localhost");
     await page.route((url) => (
       url.pathname === endpoint.pathname && url.search === endpoint.search
