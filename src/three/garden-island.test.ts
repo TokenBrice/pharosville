@@ -31,6 +31,7 @@ import {
   mergeIslandStatics,
   updateGardenNiwakiWind,
 } from "./garden-island";
+import { createGardenOverviewLod } from "./garden-overview-lod";
 import { applyGardenHeightFog } from "./garden-height-fog";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 import { GARDEN_MOON_AZIMUTH } from "./garden-sun";
@@ -398,6 +399,20 @@ describe("garden island rockwork", () => {
     for (const point of instancePositions(face)) {
       expect(point.x).toBeGreaterThan(0);
       expect(point.z).toBeLessThan(0);
+    }
+  });
+
+  it("keeps the niwaki landscape at authored size through default and whole-map zoom", () => {
+    const island = createTerracedIsland(world);
+    const grove = island.root.getObjectByName("island-niwaki")!;
+    const position = grove.position.clone();
+    const scale = grove.scale.clone();
+    const lod = createGardenOverviewLod(island.root);
+    for (const zoom of [0.50184, 0.28, 0.648]) {
+      lod.update({ zoom, reducedMotion: true, deltaSeconds: 0 });
+      expect(grove.visible).toBe(true);
+      expect(grove.position).toEqual(position);
+      expect(grove.scale).toEqual(scale);
     }
   });
 

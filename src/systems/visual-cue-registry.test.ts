@@ -90,13 +90,13 @@ describe("buildVisualCueRegistry", () => {
     expect(`${cue?.visual} ${cue?.domEquivalent}`).not.toMatch(/mooring orbit|chain-breadth dwell|extended dwell/i);
   });
 
-  it("registers seven hover-weighted boundary steles with ledger redundancy", () => {
+  it("registers seven cedar boundary boards with ledger redundancy", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.water.semantic-terrain");
 
-    expect(cue?.visual).toContain("seven low stone boundary steles");
+    expect(cue?.visual).toContain("seven low cedar boundary boards");
     expect(cue?.visual).toContain("Wreck Shoal");
     expect(cue?.visual).toContain("hovered or inspected");
-    expect(cue?.failureState).toContain("no freestanding sign or post");
+    expect(cue?.failureState).toContain("authoritative water field retains classification");
     expect(cue?.domEquivalent).toContain("ledger is the redundant channel");
     expect(`${cue?.visual} ${cue?.reducedMotionEquivalent}`).not.toContain("printed");
   });
@@ -289,11 +289,11 @@ describe("buildVisualCueRegistry", () => {
     }
   });
 
-  it("describes named-water classification as steles rather than signs or posts", () => {
+  it("describes physical timber signs and their serif lettering", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.water.semantic-terrain");
 
-    expect(cue?.visual).toContain("boundary steles");
-    expect(cue?.visual).not.toMatch(/printed cartographic|\b(sign|post|board|badge)\b/i);
+    expect(cue?.visual).toContain("paired pilings");
+    expect(cue?.visual).toContain("mixed-case serif lettering");
   });
 
 });

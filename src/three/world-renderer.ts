@@ -3544,7 +3544,7 @@ function buildShipsPart(
   // claims nothing, which is the whole point of the signal.
   //
   // The buoys ride WITH their hulls rather than sitting at the berth: a ship
-  // patrols up to `GARDEN_MAX_MOTION_TILES` from its anchor, so a buoy nailed
+  // sails away from its anchor, so a buoy nailed
   // to the berth would spend most of its time nowhere near the ship it is
   // describing, and a cue you cannot associate with its subject is not a cue.
   const buoyShips = ships.filter((visual) => visual.ship.dexCrossCheck?.agrees === false);
@@ -4243,7 +4243,7 @@ function updateSceneForFrame(
       chainId,
       frame.reducedMotion
         ? visual.recipe.flag.placement.yaw
-        : -visual.root.rotation.y - weather.windAngle,
+        : visual.recipe.flag.placement.yaw + Math.sin(weather.windAngle) * 0.28,
       flagRoll,
     );
     visual.fineDetail.visible = showWorldDetail

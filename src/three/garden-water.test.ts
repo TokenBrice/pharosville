@@ -388,7 +388,7 @@ describe("createGardenWater", () => {
 
   it("fades regional surface deviations through the continuous distance field in both stages", () => {
     for (const source of [VERTEX_SHADER, FRAGMENT_SHADER]) {
-      expect(source).toContain("float regionBlend = smoothstep(0.0, 0.84, boundaryDistance)");
+      expect(source).toContain("float regionBlend = smoothstep(0.0, 0.56, boundaryDistance)");
       expect(source).toContain("regionFlow.z *= regionBlend");
     }
     expect(VERTEX_SHADER).toContain("mix(0.5, uRegionSwell[regionId].x, regionBlend)");

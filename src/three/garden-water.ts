@@ -487,7 +487,7 @@ export const VERTEX_SHADER = /* glsl */ `
     int regionId = int(regionSample.r * 255.0 + 0.5);
     // IDs remain categorical; only their surface deviations fade at the seam.
     float boundaryDistance = texture2D(uRegionDistance, regionUv).r;
-    float regionBlend = smoothstep(0.0, 0.84, boundaryDistance);
+    float regionBlend = smoothstep(0.0, 0.56, boundaryDistance);
     vec4 regionFlow = uRegionFlow[regionId];
     regionFlow.z *= regionBlend;
     float regionSwell = mix(0.5, uRegionSwell[regionId].x, regionBlend);
@@ -681,7 +681,7 @@ ${gardenHeightFogGlsl()}
     vec4 surfaceRegionSample = texture2D(uRegionField, vRegionUv);
     int regionId = int(surfaceRegionSample.r * 255.0 + 0.5);
     float boundaryDistance = texture2D(uRegionDistance, vRegionUv).r;
-    float regionBlend = smoothstep(0.0, 0.84, boundaryDistance);
+    float regionBlend = smoothstep(0.0, 0.56, boundaryDistance);
     vec4 regionFlow = uRegionFlow[regionId];
     regionFlow.z *= regionBlend;
     vec4 regionWave = uRegionSwell[regionId];

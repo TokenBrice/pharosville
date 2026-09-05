@@ -763,20 +763,11 @@ function pairedShipPhaseSeconds(input: {
   // roster rank, so adding a ship cannot shift another ship's clock.
   const slotCount = MOTION_PAIR_HORIZON_SECONDS / MOTION_PAIR_SLOT_SECONDS;
   const pairKey = `${input.zone}:${stableHash(input.cadenceIdentity)}`;
-  // Table version 699 keeps both sides represented across at least 80% of
-  // the default frame's 15-second windows. Lineage: version 159 was re-dealt
-  // to 171 after the 2026-09 harbour re-siting stretched the 8-mouth ring's
-  // geometry-floored cycles to 793–1272 s (v159 measured 0.775; v171 hit
-  // 0.825, then the ceiling). The ethereum-mole precinct widening
-  // (clearance envelope 24×10 → 40×30) re-floored the far-berth water legs
-  // near the monument, and v171 fell back to 0.775 (2 departure-only + 7
-  // arrival-only windows) with only 37 of 132 unanchored boundaries landing
-  // inside the 600 s pairing frame. Sweeping the 92 distinct deals reachable
-  // by three- and four-digit version strings now ceilings at 0.850; version
-  // 699 hits it (6 unpaired windows) and keeps the sibling dense-grid
-  // statistics mid-band: underway 0.1854 against the 0.179 floor,
-  // transition 0.0896 inside the 0.08–0.12 band.
-  const slot = stableHash(`${pairKey}.slot.699`) % slotCount;
+  // Salt 114 covers 32/40 paired 15 s windows on the dense fixture after
+  // widening the berth field; 699 covered 31/40. The salt is fixed globally,
+  // so roster changes never re-deal surviving identities. Duty-cycle shares
+  // depend on leg/rest durations and are checked over complete cycles.
+  const slot = stableHash(`${pairKey}.slot.114`) % slotCount;
   const anchorsArrival = (stableHash(`${pairKey}.side.1`) & 1) === 1;
   const departureBoundary = input.restDurationSeconds;
   const arrivalBoundary = input.restDurationSeconds

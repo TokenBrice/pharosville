@@ -662,6 +662,9 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       commitCameraState(sampled.camera);
       if (sampled.done) {
         arrivalRef.current = null;
+        // Hand the destination back to ordinary camera intent; retaining the
+        // intro target would pull the next frame back out of the landing view.
+        cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: sampled.camera };
         arrival.onComplete();
       }
       return { camera: sampled.camera, cameraChanged, cameraIntentActive: !sampled.done };

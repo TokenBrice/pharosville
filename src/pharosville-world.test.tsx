@@ -372,7 +372,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
     const panel = await screen.findByTestId("pharosville-harbor-ledger-panel");
     expect(panel.getAttribute("aria-modal")).toBe("true");
-    expect(document.activeElement).toBe(screen.getByLabelText("Close harbor ledger"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Close harbor ledger")));
 
     fireEvent.click(screen.getByLabelText("Close harbor ledger"));
     expect(screen.queryByTestId("pharosville-harbor-ledger-panel")).toBeNull();

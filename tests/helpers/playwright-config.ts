@@ -55,6 +55,9 @@ export function shouldUseHardwareGpu() {
 }
 
 export function hardwareGpuLaunchArgs(browser: string, platform: NodeJS.Platform = process.platform): string[] {
+  // CI proves the DOM fallback. Default Chromium can still create SwiftShader
+  // without hardware flags, blocking that DOM behind software scene rendering.
+  if (browser === "chromium" && process.env.CI && !shouldUseHardwareGpu()) return ["--disable-webgl"];
   // ANGLE Vulkan falls back to SwiftShader on macOS; Metal reaches the real GPU.
   return browser === "chromium" && shouldUseHardwareGpu()
     ? [...HARDWARE_GPU_ARGS, platform === "darwin" ? "--use-angle=metal" : "--use-angle=vulkan"]

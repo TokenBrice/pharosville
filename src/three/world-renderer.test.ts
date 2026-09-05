@@ -575,6 +575,8 @@ describe("Three world renderer lifecycle", () => {
       .getObjectByName("dock-chain-flag") as InstancedMesh;
     const matrix = new Matrix4();
     flags.getMatrixAt(0, matrix);
+    const clothNormal = new Vector3(0, 0, 1).transformDirection(matrix);
+    expect(clothNormal.dot(new Vector3(Math.SQRT1_2, 0, Math.SQRT1_2))).toBeGreaterThan(0.95);
     const luffingUp = new Vector3(0, 1, 0).transformDirection(matrix);
     expect(Math.hypot(luffingUp.x, luffingUp.z)).toBeGreaterThan(0);
 

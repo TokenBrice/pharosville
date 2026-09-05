@@ -398,8 +398,10 @@ Reproduced in `mcr.microsoft.com/playwright:v1.59.1-noble`, the exact CI image:
   the Firefox half of `visual` therefore exercises the DOM fallback, which it
   does correctly: the signal overview renders and the accessibility ledger
   carries every ship.
-- **Chromium reaches SwiftShader and is too slow for the assertions** — the
-  motion lane times out on `locator.screenshot` at 180s.
+- **Default Chromium can reach SwiftShader and block DOM assertions** —
+  omitting hardware flags does not prevent software WebGL. The original motion
+  lane timed out on `locator.screenshot` at 180s; the expanded dense-data DOM
+  cases also stalled while their correct caveat ledger was already present.
 
 This is not a regression. The Three.js world arrived in v0.4.0 and has never
 been through these lanes; they were calibrated against the lighter world that
@@ -411,8 +413,11 @@ runner is. That lane proves the signal overview renders, the accessibility
 ledger carries every named water, ship and dock, details open by pointer and by
 keyboard with panel parity, Escape closes them, the live region exists, and a
 blocked viewport requests nothing. The single `visual` job runs that contract
-in both Chromium and Firefox. Verified inside the CI image: 2 passed in under
-4s per browser.
+in both Chromium and Firefox. Chromium now launches with `--disable-webgl`
+under CI unless `PHAROSVILLE_VISUAL_GPU=1` explicitly requests hardware. This
+makes the intended no-WebGL contract deterministic rather than depending on
+whether the browser falls back to SwiftShader. Local browser launches retain
+hardware rendering and the existing explicit GPU opt-out.
 
 **The full lane still runs, on hardware that can run it.** `npm run test:visual`
 locally runs the complete current visual suite, including the active-runtime

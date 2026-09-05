@@ -236,6 +236,7 @@ describe("createGardenHarborBatch", () => {
       .onBeforeCompile(shader, null);
     expect(shader.fragmentShader).toContain("vFlagCell >= 0.0");
     expect(shader.fragmentShader).toContain("cutFlag");
+    expect(shader.fragmentShader).not.toContain("flagX > 0.42");
     batch.dispose();
   });
 

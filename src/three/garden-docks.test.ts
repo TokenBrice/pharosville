@@ -115,7 +115,7 @@ describe("garden station recipes", () => {
     }
   });
 
-  it("gives every station a distance-readable primary mass, named second level, lit stone quay, windows, and 1.6x flag", () => {
+  it("gives every station a distance-readable primary mass, named second level, lit stone quay, windows, and 2.6x flag", () => {
     const secondLevels = new Set<string>();
     const roofColors = new Set<string>();
     for (const type of ARCHETYPES) {
@@ -136,7 +136,7 @@ describe("garden station recipes", () => {
       expect(recipe.features.quayPlatform.litEdge, `${type} quay light`).toBe(true);
       expect(recipe.features.warmWindowCount, `${type} warm windows`).toBeGreaterThan(0);
       expect(recipe.flag.scaleMultiplier, `${type} flag multiplier`).toBe(HARBOR_FLAG_SCALE_MULTIPLIER);
-      expect(recipe.flag.scaleMultiplier).toBe(1.6);
+      expect(recipe.flag.scaleMultiplier).toBe(2.6);
       secondLevels.add(recipe.features.secondLevel.name);
       roofColors.add(recipe.parts.find((part) => part.bucket === "roof")!.color.getHexString());
     }
@@ -429,6 +429,14 @@ describe("garden station recipes", () => {
     expect(mole.length).toBeCloseTo(STATION_SCALE_LADDER["ethereum-mole"].baseLength, 5);
   });
 
+
+  it("plants the Ethereum standard on the mole head clear of its hall roof", () => {
+    const { placement } = recipeWithStation("ethereum-mole").flag;
+    expect(placement.x).toBeGreaterThan(12);
+    expect(placement.x).toBeLessThan(17);
+    expect(placement.z).toBeLessThan(-7);
+    expect(placement.y - placement.scale * 0.5).toBeGreaterThan(7);
+  });
 
   it("flies camera-facing flags and restores reduced-motion pose", () => {
     const recipe = recipeWithStation("hatago-wharf", "base", Math.PI / 2);

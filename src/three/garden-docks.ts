@@ -20,6 +20,10 @@ import {
 import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   stationFootprint,
+  stationFlagPlacement,
+  HARBOR_FLAG_SCALE_MULTIPLIER,
+  harborAmountScale,
+  HARBOR_QUAY_TOP_Y as QUAY_TOP_Y,
   stationScaleFor,
   type StationFootprint,
   type StationScale,
@@ -199,8 +203,8 @@ export interface DockRecipe {
 
 const CAMERA_FACING_YAW = Math.PI / 4;
 const PIER_DECK_TOP_Y = 0.24;
-const QUAY_TOP_Y = 1.55;
-export const HARBOR_FLAG_SCALE_MULTIPLIER = 1.6;
+
+export { HARBOR_FLAG_SCALE_MULTIPLIER } from "../systems/dock-layout";
 
 /** Two approach lanterns rooted at each station mouth, just seaward of the quay. */
 export function gardenHarborLanternWorldPositions(
@@ -359,7 +363,7 @@ export function authorDock(
   }
 
   const lamps = stationLampLocals(station.type, length, width);
-  const staff = stationFlagPlacement(station.type, length, width, supply);
+  const staff = stationFlagPlacement(station.type, dock.totalUsd, dock.size);
   const stationPosts = ethereumMole
     ? [{ height: staff.height, radius: 0.075, x: staff.x, z: staff.z }]
     : [
@@ -1789,25 +1793,6 @@ function fallbackStationType(chainId: string): StationType {
   return options[Math.min(options.length - 1, Math.floor(stableUnit(`station-type.${chainId}`) * options.length))]!;
 }
 
-function stationFlagPlacement(type: StationType, length: number, width: number, supply: number) {
-  const height = (
-    type === "ethereum-mole" ? 6.4
-      : type === "pigeonnier-islet" ? 4.4
-        : 4.8
-  ) + supply * 1.25;
-  return {
-    height,
-    scale: ((type === "ethereum-mole" ? 1.05 : 0.72) + supply * 0.24)
-      * HARBOR_FLAG_SCALE_MULTIPLIER,
-    x: type === "ethereum-mole" ? -9.5
-      : type === "stepped-inlet" ? -length * 0.2
-        : type === "storm-mole" ? length * 0.18
-          : length * 0.4,
-    z: type === "ethereum-mole" ? -11
-      : type === "hatago-wharf" ? width * 0.62
-        : -width * 0.3,
-  };
-}
 
 function stationLampLocals(type: StationType, length: number, width: number) {
   if (type === "pigeonnier-islet") return [{ height: 1.45, x: length * 0.3, z: 0 }];
@@ -1852,10 +1837,6 @@ function cargoTideLanes(length: number, quayLength: number, quayWidth: number, q
   return { aboard, ashore };
 }
 
-function harborAmountScale(totalUsd: number): number {
-  const decades = (Math.log10(Math.max(1, totalUsd)) - 8.5) / 3.2;
-  return 0.82 + MathUtils.clamp(decades, 0, 1) * 1.13;
-}
 
 function dockAccentColor(dock: DockNode): Color {
   const color = new Color(dockHealthAccent(dock.healthBand));

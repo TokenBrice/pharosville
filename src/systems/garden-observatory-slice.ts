@@ -32,13 +32,6 @@ import type {
 // GARDEN_FLEET_BATCH_CAPACITY so the batches never reallocate. Composition is
 // now enforced by region-scoped placement density, not by a small count.
 export const GARDEN_OVERVIEW_SHIP_LIMIT = 320;
-/**
- * Maximum ordinary open-water sailing reach in display tiles. This is a
- * presentation cap for representative hulls, not a motion-planning limit:
- * berth-bound samples bypass it so the model's mooring tile remains visible.
- */
-export const GARDEN_STATION_LEG_TILES = 96;
-export const GARDEN_MAX_MOTION_TILES = GARDEN_STATION_LEG_TILES;
 export const GARDEN_WATER_Y = -1.45;
 export const GARDEN_DOCK_ROOT_Y = GARDEN_WATER_Y + 0.2;
 export const GARDEN_SHIP_ROOT_Y = GARDEN_WATER_Y + 0.38;
@@ -266,20 +259,19 @@ export function gardenHomeOffsetWeight(ship: ShipNode, motionDistance: number): 
 export function resolveGardenShipDisplayTile(input: {
   displayOffset: ScreenPoint;
   representative: boolean;
-  sample: (Pick<ShipMotionSample, "tile"> & Partial<Pick<ShipMotionSample, "state">>) | null | undefined;
+  sample: (Pick<ShipMotionSample, "tile"> & Partial<Pick<ShipMotionSample, "state" | "displayTile">>) | null | undefined;
   ship: ShipNode;
 }): ScreenPoint {
   const { displayOffset, representative, sample, ship } = input;
+  if (sample?.displayTile) return sample.displayTile;
   const tile = sample?.tile ?? ship.tile;
-  // L1 (2026-09-04): use one state-derived gate for both presentation rules.
-  // A moored hull, or one on the arrival/departure leg at its berth, must
-  // reach the model's authoritative mooring even when that leg exceeds the
-  // ordinary sailing cap. The same gate below lets those hulls overlap the
-  // dock apron; keeping the state list in one place prevents the cap and water
-  // field from disagreeing about berth commitment.
+  // A sailing leg belongs to the same harbor approach as its arriving and
+  // departing phases. Changing the apron policy at a phase boundary used to
+  // teleport the displayed hull several tiles while its motion sample was continuous.
   const berthBound = sample?.state === "moored"
     || sample?.state === "arriving"
-    || sample?.state === "departing";
+    || sample?.state === "departing"
+    || (sample?.state === "sailing" && ship.dockVisits.length > 0);
   let display: ScreenPoint;
   if (!representative) {
     display = tile;
@@ -287,19 +279,8 @@ export function resolveGardenShipDisplayTile(input: {
     const motionX = tile.x - ship.tile.x;
     const motionY = tile.y - ship.tile.y;
     const motionDistance = Math.hypot(motionX, motionY);
-    // N3: the composed display tile is the blue-noise berth plus the ship's
-    // own motion. Ordinary open-water sailing is capped so a patrol never
-    // wanders into a neighbour's water; berth-bound samples use the full leg
-    // to reach their authoritative mooring.
-    //
-    // The cap was 2.5 tiles, set when the map was 56 wide and berths were
-    // ~10 tiles apart — it silently flattened any patrol larger than itself.
-    // With the world at 112 tiles and ~58 eligible tiles per ship there is
-    // room for a real circuit, so the cap rises to match the largest patrol
-    // amplitude (danger, 4.4 tiles) with headroom for the transit legs.
-    const motionScale = !berthBound && motionDistance > GARDEN_MAX_MOTION_TILES
-      ? GARDEN_MAX_MOTION_TILES / motionDistance
-      : 1;
+    // The route already bounds its patrol and voyage. A second display-only
+    // radius clipped long voyages, then jumped to the berth on arrival.
     // The blue-noise offset belongs to the HOME berth only. Data motion runs
     // from the ship's data tile to a dock mooring, and stations render at
     // their data tile, so a moored hull must sit AT the mooring: carrying the
@@ -310,8 +291,8 @@ export function resolveGardenShipDisplayTile(input: {
     // the sail out reads as one line rather than a jump.
     const offsetWeight = gardenHomeOffsetWeight(ship, motionDistance);
     display = {
-      x: ship.tile.x + displayOffset.x * offsetWeight + motionX * motionScale,
-      y: ship.tile.y + displayOffset.y * offsetWeight + motionY * motionScale,
+      x: ship.tile.x + displayOffset.x * offsetWeight + motionX,
+      y: ship.tile.y + displayOffset.y * offsetWeight + motionY,
     };
   }
   // Zones-v2 placement fix: keep the composed display tile on valid open

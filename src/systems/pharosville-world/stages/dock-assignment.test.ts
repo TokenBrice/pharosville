@@ -10,7 +10,8 @@ import {
 } from "../../../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "../../pharosville-world";
 import { seawallBarrierDistance } from "../../seawall";
-import { gardenShipWaterMarginTiles, isGardenShipWater } from "../../garden-water-exclusion";
+import { distanceToStationFootprint } from "../../dock-layout";
+import { GARDEN_MOLE_OBSTACLES, gardenShipWaterMarginTiles, isGardenShipWater } from "../../garden-water-exclusion";
 import {
   GARDEN_SILHOUETTE_FOR_HULL,
   gardenShipVisualScale,
@@ -29,7 +30,8 @@ import type { PharosVilleInputs } from "../pipeline-types";
 import type { DockNode, ShipNode } from "../../world-types";
 import type { StablecoinData } from "@shared/types";
 
-const DENSE_STATION_MOORING_MAX_TILES = 20;
+// A wider anchorage fan gives crowded stations room without detaching voyages from their harbor.
+const DENSE_STATION_MOORING_MAX_TILES = 30;
 
 function denseWorldInputs(peggedAssets?: readonly StablecoinData[]): PharosVilleInputs {
   return {
@@ -68,6 +70,54 @@ describe("dock-assignment unique tier mooring placement", () => {
     const footprints = ships.map((ship) => berthFootprint(ship.dockVisits[0]!.mooringTile, ship, dock));
     expect(berthsOverlap(footprints[0]!, footprints[1]!)).toBe(false);
     expect(assign().map((ship) => ship.dockVisits)).toEqual(ships.map((ship) => ship.dockVisits));
+  });
+
+  it("spreads busy-cove overflow instead of packing every remaining berth at the quay", () => {
+    const world = buildPharosVilleWorld(denseWorldInputs());
+    const dock = world.docks.find((entry) => entry.chainId === "base")!;
+    const footprints = world.ships.flatMap((ship) => ship.dockVisits
+      .filter((visit) => visit.dockId === dock.id)
+      .map((visit) => berthFootprint(visit.mooringTile, ship, dock)));
+    let overlapPairs = 0;
+    for (let i = 0; i < footprints.length; i += 1) {
+      for (let j = i + 1; j < footprints.length; j += 1) {
+        if (berthsOverlap(footprints[i]!, footprints[j]!)) overlapPairs += 1;
+      }
+    }
+    expect(footprints.length).toBeGreaterThan(30);
+    // All possible visits, not simultaneous occupation. The nearest-point
+    // fallback overlapped 522 of 703 pairs; least-penetration placement is 208.
+    expect(overlapPairs / (footprints.length * (footprints.length - 1) / 2)).toBeLessThan(0.4);
+  });
+
+  it("spreads 136 Ethereum visits across the local anchorage instead of a narrow queue", () => {
+    const world = overCapacityWorldFixture();
+    const dock = world.docks.find((entry) => entry.chainId === "ethereum")!;
+    const fleet = world.ships.slice(0, 136).map((ship, index) => ({
+      ...ship,
+      id: `fan-${index}`,
+      squadRole: "flagship" as const,
+      chainPresence: [{ chainId: "ethereum", currentUsd: ship.marketCapUsd, share: 1, hasRenderedDock: true }],
+    }));
+    resetHeldMoorings();
+    const assigned = buildDockAssignmentStage(fleet, [dock]).ships;
+    const footprints = assigned.map((ship) => berthFootprint(ship.dockVisits[0]!.mooringTile, ship, dock));
+    expect(footprints).toHaveLength(136);
+    expect(new Set(footprints.map(({ x, y }) => `${x}.${y}`)).size).toBe(136);
+    for (const footprint of footprints) {
+      expect(isGardenShipWater(footprint, footprint.halfLength)).toBe(true);
+      for (const solid of GARDEN_MOLE_OBSTACLES) {
+        expect(distanceToStationFootprint(footprint, solid)).toBeGreaterThanOrEqual(footprint.halfBeam - 1e-6);
+      }
+      expect(Math.hypot(footprint.x - dock.tile.x, footprint.y - dock.tile.y)).toBeLessThan(38);
+    }
+    let pairs = 0;
+    for (let i = 0; i < footprints.length; i += 1) for (let j = i + 1; j < footprints.length; j += 1) {
+      if (berthsOverlap(footprints[i]!, footprints[j]!)) pairs += 1;
+    }
+    // Potential visits, not simultaneous dock occupancy: the narrow 17-tile fan
+    // had 2,174 intersections of 9,180 pairs; the widened anchorage has 833.
+    expect(pairs / (136 * 135 / 2)).toBeLessThan(0.12);
   });
 
   it.each([320, 321])("assigns the entire %i-ship fleet without reserving every possible visit forever", (count) => {

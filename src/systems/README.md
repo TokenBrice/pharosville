@@ -28,12 +28,16 @@ The `systems/` directory owns the pure data-to-world layer for the standalone Ph
   `resetHeldShipPlacements()` and `resetHeldMoorings()`.
 - Berths guarantee unique water-safe centers, with held positions claimed
   before newcomers. The existing local search prefers nonoverlapping
-  dock-facing family envelopes when space allows; otherwise it retains its
-  point-safe local choice and original whole-map fallback. Envelopes are a
+  dock-facing family envelopes when space allows; crowded local candidates
+  minimize squared hull penetration before distance to the quay. It retains
+  the original unique, point-safe whole-map fallback. Envelopes are a
   composition preference, not permanent reservations for every potential
   visit: temporal overlap remains possible. The family approximation does
   not encompass every loaded hero model or animated yaw. Dock/risk labels and
   route ownership remain unchanged.
+- The complete planned voyage is displayed without a separate distance cap.
+  Sailing, arrival and departure share harbor-apron clearance, avoiding a
+  position jump when the sample changes phase. Solid land clearance remains.
 - Use shared runtime-neutral helpers such as `getCirculatingRaw()` and `@shared/*` imports instead of route-local copies of shared logic.
 - Keep source-field provenance with any visual cue that represents analytics.
 - Keep route-specific visual semantics here; shared scoring/methodology logic belongs in `shared/lib/` only when it is a real cross-route contract.
@@ -41,6 +45,18 @@ The `systems/` directory owns the pure data-to-world layer for the standalone Ph
 - Reduced-motion samples settle directly at authored risk anchorages (Ledger
   Mooring retains its representative stop); squad offsets remain relative to
   the flagship. Renderer, hit targets and details use the same display sample.
+
+The render-loop sea-room pass runs after route smoothing and garden placement.
+It writes the final `ShipMotionSample.displayTile` shared by rendering, hit tests,
+following and debug positions; the semantic route tile stays unchanged. Hull
+length and beam come from the water-clearance envelopes. Persistent detours yield
+to fixed moored vessels, stay within eight tiles of the route, and move at most
+1.2 tiles/second (0.15 tiles per frame). Only clear vessels ease back to their
+route. Water checks reject unsafe steps; berth-distance taper returns detours to
+zero at docking. Final displacement supplies follow velocity; the route-smoothed
+heading stays unchanged so collision-tested hulls cannot turn broadside afterwards.
+This is soft local avoidance: formation children remain attached to parents,
+moored overlaps require berth allocation, and reduced motion remains canonical.
 
 ## Common Extension Points
 

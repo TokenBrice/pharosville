@@ -21,7 +21,7 @@ import { Box3, MathUtils, Mesh, Object3D, Vector3, type Material } from "three";
  * `OVERVIEW_LOD_DETAIL_NAMES`, and the world is scanned once at build.
  *
  * Nothing analytical is shed. What goes is deck and shore furniture — dock
- * posts, lamp heads, lit screens, works signatures, the chain flag, the keeper's
+ * posts, lamp heads, lit screens, works signatures, the keeper's
  * rowboat and shore stones, the quay stair, the precinct obelisks, and the
  * per-hero grade shield and overlay signal. The harbour's structure, the
  * fleet, the zones, the sea signs (which hold a constant on-screen size for
@@ -48,21 +48,20 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   "garden-sea-edges-overview",
   // Globally batched station furniture. Within the coarse harbor layer these
   // are sub-silhouette greebles — ember windows, quay posts, lamp heads, the
-  // works signature, and chain flags. Its massing buckets (timber/stone/metal/
+  // works signature. Identity flags stay visible. Its massing buckets (timber/stone/metal/
   // accent/wall/roof) plus overview-visible pilings and reed clumps are
   // structural and never tier out; inspection-only planks, bollards and metal
   // greebles keep their own harbor-fine-* gate.
   "dock-cargo-tide",
-  "dock-chain-flag",
   "dock-tide-line",
   "dock-lamp-heads",
   "dock-posts",
   "harbor-netRack",
   "station-lit-screens",
   // The island's toy-scale grounding props, authored against a 34-unit Pharos.
+  // The five niwaki are landscape massing and retain their authored size.
   "island-quay-stair",
   "island-koi",
-  "island-niwaki",
   "lighthouse-shore-props",
   "pharos-precinct-obelisks",
   // The rim body remains at whole-map framing; its distributed furniture is
@@ -96,7 +95,6 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
 export const OVERVIEW_LOD_WHOLE_RING_NAMES: readonly string[] = [
   "garden-sea-edges-overview",
   "dock-cargo-tide",
-  "dock-chain-flag",
   "dock-lamp-heads",
   "dock-posts",
   "dock-tide-line",

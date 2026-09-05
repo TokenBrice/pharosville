@@ -1,5 +1,6 @@
 import { dockSeawardVector } from "../../dock-layout";
 import {
+  GARDEN_MOLE_OBSTACLES,
   gardenShipWaterMarginTiles,
   gardenShipWaterBeamTiles,
   isGardenShipWater,
@@ -27,6 +28,19 @@ interface OccupiedBerth {
   forwardY: number;
 }
 
+const moleFootprints: readonly OccupiedBerth[] = GARDEN_MOLE_OBSTACLES.map((rect) => {
+  const along = (rect.minAlong + rect.maxAlong) / 2;
+  const across = (rect.minAcross + rect.maxAcross) / 2;
+  return {
+    x: rect.origin.x + along * rect.seawardX - across * rect.seawardY,
+    y: rect.origin.y + along * rect.seawardY + across * rect.seawardX,
+    halfLength: (rect.maxAlong - rect.minAlong) / 2,
+    halfBeam: (rect.maxAcross - rect.minAcross) / 2,
+    forwardX: rect.seawardX,
+    forwardY: rect.seawardY,
+  };
+});
+
 export function berthFootprint(tile: { x: number; y: number }, ship: ShipNode, dock: DockNode): OccupiedBerth {
   const scale = gardenShipVisualScale(ship.visual.scale || 1);
   const silhouette = GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull];
@@ -42,18 +56,24 @@ export function berthFootprint(tile: { x: number; y: number }, ship: ShipNode, d
   };
 }
 
-function separatedOnAxis(a: OccupiedBerth, b: OccupiedBerth, x: number, y: number): boolean {
+function penetrationOnAxis(a: OccupiedBerth, b: OccupiedBerth, x: number, y: number): number {
   const extent = (berth: OccupiedBerth) =>
     Math.abs(x * berth.forwardX + y * berth.forwardY) * berth.halfLength
     + Math.abs(-x * berth.forwardY + y * berth.forwardX) * berth.halfBeam;
-  return Math.abs((a.x - b.x) * x + (a.y - b.y) * y) >= extent(a) + extent(b);
+  return extent(a) + extent(b) - Math.abs((a.x - b.x) * x + (a.y - b.y) * y);
+}
+
+function berthOverlapDepth(a: OccupiedBerth, b: OccupiedBerth): number {
+  return Math.max(0, Math.min(
+    penetrationOnAxis(a, b, a.forwardX, a.forwardY),
+    penetrationOnAxis(a, b, -a.forwardY, a.forwardX),
+    penetrationOnAxis(a, b, b.forwardX, b.forwardY),
+    penetrationOnAxis(a, b, -b.forwardY, b.forwardX),
+  ));
 }
 
 export function berthsOverlap(a: OccupiedBerth, b: OccupiedBerth): boolean {
-  return !separatedOnAxis(a, b, a.forwardX, a.forwardY)
-    && !separatedOnAxis(a, b, -a.forwardY, a.forwardX)
-    && !separatedOnAxis(a, b, b.forwardX, b.forwardY)
-    && !separatedOnAxis(a, b, -b.forwardY, b.forwardX);
+  return berthOverlapDepth(a, b) > 0;
 }
 
 function normalizeDockVisitWeights(visits: ShipDockVisit[]): ShipDockVisit[] {
@@ -116,6 +136,7 @@ function dockMooringBarrierClearance(ship: ShipNode): number {
 function isBerthTile(
   tile: { x: number; y: number },
   ship: ShipNode,
+  dock: DockNode,
   occupied: ReadonlyMap<string, OccupiedBerth>,
 ): boolean {
   if (occupied.has(`${tile.x}.${tile.y}`)) return false;
@@ -129,6 +150,10 @@ function isBerthTile(
     GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
   );
   if (!isGardenShipWater(tile, hullMargin)) return false;
+  // A low working apron may be approached; the mole's hall and stone arms
+  // are solid. Test the oriented hull so the open basin remains usable.
+  const footprint = berthFootprint(tile, ship, dock);
+  if (moleFootprints.some((solid) => berthsOverlap(footprint, solid))) return false;
   return seawallBarrierDistance(tile) >= dockMooringBarrierClearance(ship);
 }
 
@@ -142,7 +167,7 @@ function dockMooringTile(
   const fan = { x: -outward.y, y: outward.x };
   const baseDepth = 2 + Math.floor(index / 7) + dockMooringDepthBonus(ship);
   const baseLane = (index % 7) - 3;
-  const laneOffsets = [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5];
+  const laneOffsets = [0, ...Array.from({ length: 16 }, (_, lane) => [-lane - 1, lane + 1]).flat()];
   const minBarrierClearance = dockMooringBarrierClearance(ship);
   const target = clampMapTile({
     x: dock.tile.x + outward.x * (baseDepth + 2) + fan.x * baseLane,
@@ -150,43 +175,41 @@ function dockMooringTile(
   });
   let bestTile: { x: number; y: number } | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
-  let clearTile: { x: number; y: number } | null = null;
-  let clearScore = Number.POSITIVE_INFINITY;
+  let bestOverlap = Number.POSITIVE_INFINITY;
 
-  for (let depth = baseDepth; depth <= baseDepth + 8; depth += 1) {
+  for (let depth = baseDepth; depth <= baseDepth + 12; depth += 1) {
     for (const laneOffset of laneOffsets) {
       const lane = baseLane + laneOffset;
       const tile = clampMapTile({
         x: dock.tile.x + outward.x * depth + fan.x * lane,
         y: dock.tile.y + outward.y * depth + fan.y * lane,
       });
-      if (!isBerthTile(tile, ship, occupied)) continue;
+      if (!isBerthTile(tile, ship, dock, occupied)) continue;
       const score = depth * 10 + Math.abs(laneOffset) + Math.abs(lane) * 0.01;
-      // ponytail: soft envelopes preserve busy-cove capacity; use timed visit
-      // reservations if simultaneous berth overlap needs a hard guarantee.
-      if (score < clearScore) {
-        const footprint = berthFootprint(tile, ship, dock);
-        let clear = true;
-        for (const other of occupied.values()) {
-          if (berthsOverlap(footprint, other)) { clear = false; break; }
-        }
-        if (clear) { clearScore = score; clearTile = tile; }
+      // ponytail: local berth envelopes are soft reservations for all possible
+      // visits. When full, minimize penetration rather than collapse back to
+      // the nearest occupied quay; timed reservations would guarantee capacity.
+      const footprint = berthFootprint(tile, ship, dock);
+      let overlap = 0;
+      for (const other of occupied.values()) {
+        overlap += berthOverlapDepth(footprint, other) ** 2;
+        if (overlap > bestOverlap) break;
       }
-      if (score < bestScore) {
+      if (overlap < bestOverlap || (overlap === bestOverlap && score < bestScore)) {
+        bestOverlap = overlap;
         bestScore = score;
         bestTile = tile;
       }
     }
   }
 
-  if (clearTile) return clearTile;
   if (bestTile) return bestTile;
   for (let y = 0; y <= MAX_TILE_Y; y += 1) {
     for (let x = 0; x <= MAX_TILE_X; x += 1) {
       const tile = { x, y };
       const key = `${x}.${y}`;
       if (occupied.has(key) || !isNavigableWaterTile(tile)) continue;
-      if (!isBerthTile(tile, ship, occupied)) continue;
+      if (!isBerthTile(tile, ship, dock, occupied)) continue;
       const barrierDistance = seawallBarrierDistance(tile);
       if (barrierDistance < minBarrierClearance) continue;
       const score = Math.abs(tile.x - target.x) + Math.abs(tile.y - target.y) - barrierDistance * 0.02;
@@ -253,7 +276,7 @@ function assignDockVisits(ships: readonly ShipNode[], docks: readonly DockNode[]
       if (!dock) continue;
       const key = berthKey(ship.id, dock);
       const heldTile = heldMooringTiles.get(key);
-      if (!heldTile || !isBerthTile(heldTile, ship, occupied)) continue;
+      if (!heldTile || !isBerthTile(heldTile, ship, dock, occupied)) continue;
       occupied.set(`${heldTile.x}.${heldTile.y}`, berthFootprint(heldTile, ship, dock));
       heldForBuild.set(key, heldTile);
     }

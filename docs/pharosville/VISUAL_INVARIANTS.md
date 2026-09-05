@@ -75,7 +75,10 @@ intent, code/tests, and a matching update to the relevant route documentation.
   that clears nearby sails — second-level silhouettes now span roughly
   7.2–12.1 world units for chain stations, the Ethereum Mole excepted at
   a 21.5 local cap (≤21.7 above water), and the
-  chain flag stays at exactly 1.6 times its former scale. Every roof is an
+  chain flag uses 2.6 times its original scale, on a raised seaward staff clear
+  of the station roof. This supersedes the 1.6× limit to meet the operator's
+  harbor-recognition request: flags must show their complete chain mark and
+  remain broadly camera-facing while luffing. Every roof is an
   articulated structure rather than a single unbroken plane: a ridge beam
   and cap, an eave fascia, a gable or gablet end, eave brackets, and a
   surface break (pent skirt or stepped course), with each archetype
@@ -112,7 +115,7 @@ intent, code/tests, and a matching update to the relevant route documentation.
 | --- | --- | --- |
 | Lighthouse | PSI score/band | DOM record and beacon state |
 | Ship | stablecoin identity, scale, class, risk | branded sail/livery plus DOM record |
-| Harbor | chain supply and concentration | hull-dominant landward roof, supply-driven roof mass, contrasting archetype palette with per-chain accent, sail-clearing named upper silhouette, 1.6× chain flag, DOM record; raised lit quay/window embers are decorative and carry no meaning, and the Mole's basin, tide courses, and capstones likewise carry no analytical meaning |
+| Harbor | chain supply and concentration | hull-dominant landward roof, supply-driven roof mass, contrasting archetype palette with per-chain accent, sail-clearing named upper silhouette, 2.6× chain flag on a raised seaward staff, DOM record; raised lit quay/window embers are decorative and carry no meaning, and the Mole's basin, tide courses, and capstones likewise carry no analytical meaning |
 | Water body | existing risk/ledger category | water character, boundary/buoy, DOM label |
 | Wreck | lifecycle status | model/cause color plus DOM record |
 
@@ -134,20 +137,20 @@ required to be "asymmetric, sea-first, and intentionally spacious". The coverage
 guard is set at 0.72 for that reason; raising it back toward 1 would recreate
 the residue body it was meant to prevent.
 
-Sea-body place-names are carried by low stone steles at body boundaries AND by
-the accessibility ledger, which lists every named area. The steles carry a
-high-contrast carved name at default zoom; hover or inspection raises it to a
-stronger warm-pale emphasis, and at night the inactive carving turns cool pale
-so it remains readable against the darkened stone. They are canvas content and
-therefore aria-hidden, so the ledger — not the stele — is the redundant channel.
+Sea-body place-names are carried by low cedar boards on paired pilings at body
+boundaries AND by the accessibility ledger, which lists every named area.
+Mixed-case serif names use one shared ink atlas and the timber uses one batched
+draw. Hover or inspection raises the ink to warm-pale emphasis; at night the
+inactive ink turns muted tan so it remains readable against darkened timber. The
+world signs are aria-hidden; the ledger remains the redundant naming channel.
 Per-body boundary banks and foam seams are decorative and carry no meaning; the
-field, steles, labels, and ledger own classification.
+field, boards, labels, and ledger own classification.
 
 The seven named waters are Calm Anchorage, Watch Breakwater, Alert Channel,
 Warning Shoals, Danger Strait, Ledger Mooring, and Wreck Shoal. Their edge
 geography is authored from the same field: reeds and mouth islets, banks,
 current tongues, shoal bars, a gorge cliff, slate ledger lips, and a wreck
-inlet. These forms are decorative and carry no meaning; the field, steles,
+inlet. These forms are decorative and carry no meaning; the field, boards,
 labels, and ledger own classification. Wreck causes are read through
 representative silhouettes (substantial hull, broken keel, and bare remains)
 plus cause colour and the DOM record.
@@ -306,6 +309,15 @@ and its conservative distance lookup.
   anchorage, using its rest heading; Ledger Mooring keeps its own representative
   stop and squad consorts keep their flagship offsets. This is a composed
   representative view, not a count of ships instantaneously docked.
+- Soft sea-room avoidance operates on final garden positions after route
+  smoothing. It uses hull length/beam envelopes, keeps moored hulls fixed, and
+  preserves formation-child attachment. Persistent corrections stay within eight
+  tiles of the route and 1.2 tiles/second, reject unsafe water/mole steps, and
+  taper to zero at the berth. They relax home only when clear. Final position
+  derivatives drive follow velocity; the route-smoothed hull heading is preserved.
+  Rendering, hit testing, following and debug positions share `displayTile`.
+  This reduces underway crowding; it does not guarantee collision-free berths
+  or formations, and reduced-motion anchorages are never nudged.
 - Hidden/offscreen surfaces pause and resume without a catch-up teleport.
 - Keyboard traversal, pan/zoom, selection, Escape clear, controls, detail
   anchors, and hit testing remain useful without inspecting WebGL pixels.

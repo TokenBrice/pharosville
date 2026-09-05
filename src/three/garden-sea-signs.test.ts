@@ -1,15 +1,16 @@
+// @vitest-environment jsdom
 import {
+  CanvasTexture,
   InstancedMesh,
   Mesh,
   MeshBasicMaterial,
 } from "three";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEWS_AREA_LABEL_COLORS } from "../systems/palette";
 import {
   createGardenSeaSigns,
   GARDEN_SEA_STELE_ACTIVE_CARVING_COLOR,
   GARDEN_SEA_STELE_DEFAULT_CARVING_COLOR,
-  GARDEN_SEA_STELE_GLYPH_FILL,
   GARDEN_SEA_STELE_NAME_HEIGHT_FRACTION,
   GARDEN_SEA_STELE_NAME_WIDTH_FRACTION,
   GARDEN_SEA_STELE_NIGHT_CARVING_COLOR,
@@ -17,6 +18,12 @@ import {
   seaSignScaleForZoom,
   type SeaSignSpec,
 } from "./garden-sea-signs";
+
+const fillText = vi.fn();
+beforeEach(() => {
+  fillText.mockClear();
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ fillText } as unknown as CanvasRenderingContext2D);
+});
 
 const specs: SeaSignSpec[] = [
   { accent: DEWS_AREA_LABEL_COLORS.CALM, body: "calm", label: "Calm Anchorage", reading: "20 ships" },
@@ -54,16 +61,21 @@ describe("garden sea steles", () => {
     expect(stones).toBeInstanceOf(InstancedMesh);
     expect((stones as InstancedMesh).count).toBe(specs.length);
     expect(carvings.material).toBeInstanceOf(MeshBasicMaterial);
-    expect((carvings.material as MeshBasicMaterial).map).toBeNull();
+    expect((carvings.material as MeshBasicMaterial).map).toBeInstanceOf(CanvasTexture);
     expect(signs.lampPositions).toEqual([]);
     signs.dispose();
   });
 
-  it("cuts every carved name into one textureless stroke mesh", () => {
+  it("paints mixed-case serif names into one shared atlas", () => {
     const signs = createGardenSeaSigns(specs);
     const carvings = signs.root.getObjectByName("garden-sea-steles-carving") as Mesh;
-    expect((carvings.material as MeshBasicMaterial).map).toBeNull();
-    expect(carvings.geometry.getAttribute("position").count).toBeGreaterThan(specs.length * 40);
+    expect((carvings.material as MeshBasicMaterial).map).toBeInstanceOf(CanvasTexture);
+    expect(carvings.geometry.getAttribute("position").count).toBe(specs.length * 4);
+    expect(fillText).toHaveBeenCalledWith("Calm", 512, 74, 980);
+    expect(fillText).toHaveBeenCalledWith("Anchorage", 512, 182, 980);
+    const uv = carvings.geometry.getAttribute("uv");
+    expect(uv.getY(0)).toBeCloseTo(1);
+    expect(uv.getY(4)).toBeCloseTo(2 / 3);
     signs.dispose();
   });
 
@@ -74,14 +86,14 @@ describe("garden sea steles", () => {
     )).toBeGreaterThan(3);
     expect(GARDEN_SEA_STELE_NAME_WIDTH_FRACTION).toBeGreaterThanOrEqual(0.9);
     expect(GARDEN_SEA_STELE_NAME_HEIGHT_FRACTION).toBeGreaterThanOrEqual(0.8);
-    expect(GARDEN_SEA_STELE_GLYPH_FILL.x).toBeGreaterThanOrEqual(0.9);
-    expect(GARDEN_SEA_STELE_GLYPH_FILL.y).toBeGreaterThanOrEqual(0.85);
     expect(contrastRatio(
       GARDEN_SEA_STELE_ACTIVE_CARVING_COLOR,
       GARDEN_SEA_STELE_STONE_COLOR,
     )).toBeGreaterThan(3);
     expect(relativeLuminance(GARDEN_SEA_STELE_NIGHT_CARVING_COLOR))
       .toBeGreaterThan(relativeLuminance(GARDEN_SEA_STELE_DEFAULT_CARVING_COLOR) * 5);
+    expect(relativeLuminance(GARDEN_SEA_STELE_NIGHT_CARVING_COLOR))
+      .toBeLessThan(relativeLuminance(GARDEN_SEA_STELE_ACTIVE_CARVING_COLOR) * 0.35);
   });
 
   it("keeps true world scale nearby and enlarges the face on the overview rung", () => {
@@ -128,12 +140,16 @@ describe("garden sea steles", () => {
     signs.dispose();
   });
 
-  it("allocates no texture when a name becomes active", () => {
+  it("reuses and disposes the shared atlas when names become active", () => {
     const signs = createGardenSeaSigns(specs);
     const carvings = signs.root.getObjectByName("garden-sea-steles-carving") as Mesh;
-    expect((carvings.material as MeshBasicMaterial).map).toBeNull();
+    expect((carvings.material as MeshBasicMaterial).map).toBeInstanceOf(CanvasTexture);
+    const atlas = (carvings.material as MeshBasicMaterial).map!;
+    const dispose = vi.spyOn(atlas, "dispose");
     signs.update({ activeBody: "calm", night: 1, visible: true, zoom: 0.28 });
-    expect((carvings.material as MeshBasicMaterial).map).toBeNull();
+    expect((carvings.material as MeshBasicMaterial).map).toBe(atlas);
+    expect((carvings.material as MeshBasicMaterial).map).toBeInstanceOf(CanvasTexture);
     signs.dispose();
+    expect(dispose).toHaveBeenCalledOnce();
   });
 });
