@@ -10,6 +10,7 @@ import {
 } from "three";
 import {
   GARDEN_DOCK_ROOT_Y,
+  GARDEN_LIGHTHOUSE_ROOT_OFFSET,
   gardenDockDisplayTile,
   gardenIslandDisplayTile,
 } from "../systems/garden-observatory-slice";
@@ -171,18 +172,34 @@ const QUAY_TEMPO_FULL_SCALE_PCT = 3;
 // higher — enough to tell two harbours apart side by side, not enough to look
 // frantic.
 //
-// The wheel stays tight because harbours may sit as close as
-// GARDEN_DOCK_SEPARATION_TILES (3.5 tiles, ~5 units) apart, and two flocks
-// that overlap belong to neither quay. Clearance is bought with height
-// instead: the tallest dock furniture is a landmark tower topping out near
-// y = 5, so the flock rides above the cranes and below the island's own gulls
-// at 7.2+, which keeps the two flocks separate readings.
+// D2 (2026-09-05) widened the wheel 2.4 → 4 and raised it 4.2 → 5.5 so the
+// turns read at the zoom-1.0 rest (at the old numbers a quay gull crossed the
+// resting frame in ~3 px). That spends the old tight-separation argument —
+// harbours may sit as close as GARDEN_DOCK_SEPARATION_TILES (3.5 tiles, ~5
+// units) apart, and at the minimum two wheels can now meet over the water
+// between their piers — and keeps the reading instead by ownership: each wheel
+// is tangent to its own pier head and bulges seaward along its own pier line,
+// so the birds still belong to the quay they work, and the tempo channels
+// (rate, width, height, perch reach) still separate filling from draining.
+//
+// Height is above the QUAY, not the roof: `QUAY_GULL_HEIGHT` is absolute in
+// this flock's island-local space (y = 0 at the island root, water at −1.45,
+// the pier deck at −1.0), so the wheel tops out 6.5 over its own planking. The
+// station roofs raised on 2026-09-05 tower far above it — second levels top out
+// 13.3–17.9 above the dock root (≈12–16.6 here) — and no bird crosses them:
+// every hall, rack and tower in `garden-docks.ts` stands landward of the perch
+// (x ≤ quayX + 1.5, and the perch never comes inboard of +0.7), while the loop
+// is tangent to the perch and its seaward component is never negative — it owns
+// the seaward half-plane outright. The gulls ride in the pier's own air, under
+// the eaves, and stay below the island's own gulls at 7.2+.
 const QUAY_GULL_SPEED_SWING = 0.45;
-const QUAY_GULL_RADIUS = 2.4;
+const QUAY_GULL_RADIUS = 4;
 const QUAY_GULL_RADIUS_SWING = 0.6;
-const QUAY_GULL_HEIGHT = 4.2;
+const QUAY_GULL_HEIGHT = 5.5;
 const QUAY_GULL_HEIGHT_SWING = 0.5;
-const QUAY_GULL_SCALE = 0.42;
+// D2: 0.42 → 0.55 — the W3.4 silhouette was ~3 px at rest; this keeps it a
+// small bird without making it unreadable.
+const QUAY_GULL_SCALE = 0.55;
 
 /**
  * W3.4 — the harbour's birds rest.
@@ -194,17 +211,26 @@ const QUAY_GULL_SCALE = 0.42;
  * wall, the lighthouse terrace, an obelisk, the keeper's ridge, the signal
  * yard, the pier decks — and lift only for deterministic sorties out of
  * `garden-summit-birds.ts`, the choreography the whole harbour shares. At any
- * instant roughly a quarter of them are up.
+ * instant roughly a third of them are up (D2, 2026-09-05 — the W3.4 quarter
+ * became a third; amplitude, not count).
  *
  * The periods are long enough that no beat is countable, and offset per bird, so
  * the flock has no shared phase. Weather still rides on top of it: a building
  * storm raises the chance and length of a sortie until the whole flock is up and
  * spread (birds startle — that is what a flock does), and gathering night lets
  * the chance fall to nothing before the flock fades out to roost.
+ *
+ * D2 widened the island loops 3.5 ± 1.8 → 6 ± 1.2 to match, and swept the
+ * clearances that the wider circles now cross — see the perch table.
  */
 const ISLAND_GULL_PERIOD = 74;
-const ISLAND_GULL_LOOP_RADIUS = 3.5;
-const ISLAND_GULL_LOOP_SPREAD = 1.8;
+const ISLAND_GULL_LOOP_RADIUS = 6;
+const ISLAND_GULL_LOOP_SPREAD = 1.2;
+// The terrace top-step bird keeps the W3.4 band: her loop's tangent graze of
+// the battered square (a wing-tip past the corner at worst, body clear) does
+// not improve with width, and her turn reads fine at the old radius.
+const ISLAND_GULL_TERRACE_LOOP_RADIUS = 3.5;
+const ISLAND_GULL_TERRACE_LOOP_SPREAD = 1.8;
 const QUAY_GULL_TURN_SECONDS = 58;
 
 /**
@@ -220,8 +246,33 @@ const QUAY_GULL_TURN_SECONDS = 58;
  * cottage ridge (apex 5.58) and the signal mast's yard arm (y 6.48, arms ±0.85
  * along the root's π/4 diagonal). Four on the rim, five inland, at five
  * different heights: an unequal scatter rather than a ring (fukinsei).
+ *
+ * ## D2 (2026-09-05): the wider loops and the tower's foot
+ *
+ * The lighthouse stands at `GARDEN_LIGHTHOUSE_ROOT_OFFSET` (−7, −1.25) in this
+ * space, on terrace steps half-widths 4.6/4.2/3.85 and a battered square tier
+ * 3.4 → 2.9 over y 5.05–20.05 — and the two terrace perches sit on its steps,
+ * where a tangent circle launched radially from the island's centre swings its
+ * late leg back ACROSS the tower's foot. Swept numerically at the real seeds:
+ * the W3.4 loops already put the middle-step bird's body 0.8 through the square
+ * tier's corner and the cottage bird's body 0.3 through it, invisible only
+ * because the birds were ~3 px. The D2 retune fixes both rather than deepening
+ * them — the middle-step bird launches directly away from the tower axis
+ * instead of radially ("tower-away", the summit flock's own rule for what
+ * "outward" means at a monument: her perch is then the closest point of her
+ * whole loop to the axis, 5.13 out, body clear by ~1), and the cottage bird's
+ * wider circle now clears the same corner by ~1 on its own. The top-step bird
+ * keeps the W3.4 band (her tangent graze is a wing-tip past the corner at
+ * worst, body clear, and widening does not improve it); the obelisk bird's
+ * launch arc clears the corner in body by 0.2 at the new width. The sea wall is
+ * 0.30 tall — rim birds cross it freely overhead, which is what gulls do.
+ *
+ * `loop`: "terrace" keeps the W3.4 tight band; "tower-away" launches directly
+ * away from the lighthouse axis. Unset means the default: radial out from the
+ * island's centre, wide D2 band.
  */
 const ISLAND_GULL_PERCHES: readonly {
+  loop?: "terrace" | "tower-away";
   x: number;
   y: number;
   z: number;
@@ -231,8 +282,8 @@ const ISLAND_GULL_PERCHES: readonly {
   { x: -11.56, y: 0.34, z: 10.33, apex: 8.6 },
   { x: -9.93, y: 0.34, z: -9.0, apex: 7.4 },
   { x: 13.94, y: 0.34, z: -6.94, apex: 9.1 },
-  { x: -10.3, y: 5.09, z: 2.1, apex: 8.3 },
-  { x: -3.4, y: 4.29, z: -4.9, apex: 7.6 },
+  { x: -10.3, y: 5.09, z: 2.1, apex: 8.3, loop: "terrace" },
+  { x: -3.4, y: 4.29, z: -4.9, apex: 7.6, loop: "tower-away" },
   { x: -9.2, y: 5.8, z: 4.1, apex: 9.4 },
   { x: -1.2, y: 5.62, z: -0.3, apex: 8.0 },
   { x: 6.35, y: 6.52, z: 4.05, apex: 9.6 },
@@ -385,11 +436,29 @@ export function createGardenGullFlock(
       // How far into the air she is: zero on the perch at both ends of a turn.
       const air = Math.sin(Math.PI * sortie);
       const span = Math.hypot(perch.x, perch.z) || 1;
+      // Launch bearing and loop band (D2): radial out from the island's centre
+      // on the wide band, except the terrace top-step bird (keeps the W3.4
+      // band) and the terrace middle-step bird (launches directly away from
+      // the tower axis so her wider loop cannot cross the tower's foot — see
+      // the perch table).
+      let launchX = perch.x / span;
+      let launchZ = perch.z / span;
+      let loopRadius = ISLAND_GULL_LOOP_RADIUS + seed * ISLAND_GULL_LOOP_SPREAD;
+      if (perch.loop === "tower-away") {
+        const fromTower = Math.hypot(
+          perch.x - GARDEN_LIGHTHOUSE_ROOT_OFFSET.x,
+          perch.z - GARDEN_LIGHTHOUSE_ROOT_OFFSET.z,
+        ) || 1;
+        launchX = (perch.x - GARDEN_LIGHTHOUSE_ROOT_OFFSET.x) / fromTower;
+        launchZ = (perch.z - GARDEN_LIGHTHOUSE_ROOT_OFFSET.z) / fromTower;
+      } else if (perch.loop === "terrace") {
+        loopRadius = ISLAND_GULL_TERRACE_LOOP_RADIUS + seed * ISLAND_GULL_TERRACE_LOOP_SPREAD;
+      }
       const [offsetX, lift, offsetZ, heading] = gardenBirdSortieOffset(
         sortie,
-        perch.x / span,
-        perch.z / span,
-        (ISLAND_GULL_LOOP_RADIUS + seed * ISLAND_GULL_LOOP_SPREAD) * (1 + scatter * 0.7),
+        launchX,
+        launchZ,
+        loopRadius * (1 + scatter * 0.7),
         perch.apex - perch.y + scatter * (2.2 + (index % 3) * 0.9),
       );
       const gullX = perch.x + offsetX + (wanderX + driftX) * air;

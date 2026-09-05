@@ -16,6 +16,7 @@ import {
   type Texture,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { GARDEN_SAIL_DIP_MIN_SCALE } from "../systems/garden-arrival-beats";
 import type { GardenHullSilhouette } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
 import {
@@ -86,7 +87,7 @@ export interface FleetBatchPart {
   /** W5.8/W7.3: (value scalar, age patina or -1, prop rotation, rope sag). */
   hullSurface: InstancedBufferAttribute | null;
   mesh: InstancedMesh;
-  /** Per-instance furl bitmask (W2.3/W4); only meaningful on the sail batch. */
+  /** Per-instance furl bitmask plus fractional sail dip; only meaningful on the sail batch. */
   sailFurl: InstancedBufferAttribute | null;
   /** Per-instance cloth dye (F1); only meaningful on the sail batch. */
   sailTint: InstancedBufferAttribute | null;
@@ -762,7 +763,9 @@ function withHullForm(vertexShader: string): string {
 export const FLEET_MAX_SAILS = 6;
 const SAIL_LOCAL_DEFORM = `
 {
-  float furlBits = floor(aSailFurl / exp2(aSailIndex));
+  float sailScale = 1.0 - fract(aSailFurl) / 0.99;
+  transformed.y = aSailHead.y - (aSailHead.y - transformed.y) * sailScale;
+  float furlBits = floor(floor(aSailFurl) / exp2(aSailIndex));
   float furled = furlBits - 2.0 * floor(furlBits * 0.5);
   float setSail = 1.0 - furled;
   float sailDrop = clamp(aSailHead.y - transformed.y, 0.0, 1.2);
@@ -795,7 +798,9 @@ const SAIL_LOCAL_DEFORM = `
 }`;
 
 export interface FleetSailDeformInput {
+  /** Integer furl bitmask, optionally carrying the packed sail dip fraction. */
   furlMask: number;
+  sailScale?: number;
   hullForm: { beam: number; height: number; length: number; waterline: number };
   instanceX: number;
   instanceZ: number;
@@ -813,17 +818,22 @@ export function deformFleetSailVertex(input: FleetSailDeformInput): {
   y: number;
   z: number;
 } {
-  const furlBits = Math.floor(input.furlMask / (2 ** input.sailIndex));
+  const furlMask = Math.floor(input.furlMask);
+  const furlBits = Math.floor(furlMask / (2 ** input.sailIndex));
   const furled = furlBits - 2 * Math.floor(furlBits * 0.5);
   const setSail = 1 - furled;
   const windFlutter = Math.min(1, Math.max(0, input.windFlutter));
-  const sailDrop = Math.min(1.2, Math.max(0, input.sailHead.y - input.vertex.y));
+  const sailScale = input.sailScale === undefined
+    ? 1 - (input.furlMask - furlMask) / 0.99
+    : MathUtils.clamp(input.sailScale, GARDEN_SAIL_DIP_MIN_SCALE, 1);
+  const scaledY = input.sailHead.y - (input.sailHead.y - input.vertex.y) * sailScale;
+  const sailDrop = Math.min(1.2, Math.max(0, input.sailHead.y - scaledY));
   const flutterPhase = Math.max(0, input.windTime) * (2 + windFlutter * 3.5)
     + input.sailIndex * 1.7
     + input.instanceX * 0.31
     + input.instanceZ * 0.17;
   let x = input.vertex.x;
-  let y = input.vertex.y;
+  let y = scaledY;
   let z = input.vertex.z
     + Math.sin(flutterPhase) * sailDrop * (0.015 + windFlutter * 0.06) * setSail;
   y = y * setSail + (input.sailHead.y - 0.05) * furled;
@@ -1115,8 +1125,8 @@ function createInstancedPart(
     sailTint = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
     sailTint.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aSailTint", sailTint);
-    // W2.3/W4: furl bitmask. Defaults to 0 — every sail set — so an unwritten
-    // instance renders the authored rig.
+    // Integer bits select furled sails; the fractional part stores the yard-relative
+    // arrival dip without consuming another vertex attribute. Zero means fully set.
     sailFurl = new InstancedBufferAttribute(new Float32Array(capacity), 1);
     sailFurl.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aSailFurl", sailFurl);
@@ -1278,6 +1288,8 @@ export interface FleetInstancePose {
   mastheadOffset: { x: number; y: number };
   /** W2.3/W4: bitmask of sails furled onto their yards, bit i = sail i. */
   sailFurl: number;
+  /** Vertical sail scale about the yard; 1 at rest, 0.6 at a transient beat's minimum. */
+  sailScale?: number;
   /** W1/D2: the issuer's paint on the sheer strake. */
   trimColor: Color;
   x: number;
@@ -1359,7 +1371,8 @@ export function writeFleetInstance(
     batch.sails.sailTint.setXYZ(slot, pose.sailColor.r, pose.sailColor.g, pose.sailColor.b);
   }
   if (batch.sails.sailFurl) {
-    batch.sails.sailFurl.setX(slot, pose.sailFurl);
+    const sailScale = MathUtils.clamp(pose.sailScale ?? 1, GARDEN_SAIL_DIP_MIN_SCALE, 1);
+    batch.sails.sailFurl.setX(slot, pose.sailFurl + (1 - sailScale) * 0.99);
   }
   if (batch.sails.sailAttention) {
     // W3.7: the pose may name attention outright (tests, and any future caller

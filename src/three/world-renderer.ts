@@ -68,6 +68,12 @@ import {
   gardenFleetThinningShips,
   type GardenFleetThinningShip,
 } from "../systems/garden-fleet-thinning";
+import {
+  GARDEN_SAIL_DIP_MIN_SCALE,
+  gardenArrivalBeatEnvelopeInto,
+  selectGardenArrivalBeatShipDetailIds,
+  type GardenArrivalBeatEnvelope,
+} from "../systems/garden-arrival-beats";
 import { placeGardenFleet } from "../systems/garden-fleet-placement";
 import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
 import { RIM_OPENINGS } from "../systems/garden-rim";
@@ -221,6 +227,11 @@ import {
   updateLighthouseRimLight,
 } from "./garden-lighthouse";
 import { createGardenBeaconFire, type GardenBeaconFire } from "./garden-beacon-fire";
+import {
+  createGardenStationSmoke,
+  stationSmokeSpecs,
+  type GardenStationSmoke,
+} from "./garden-station-smoke";
 import { createGardenSignalMast, type GardenSignalMast } from "./garden-signal-mast";
 import {
   createGardenCrossBearingBuoys,
@@ -710,6 +721,7 @@ const scratchShadowQuaternion = new Quaternion();
 const SHADOW_UP = new Vector3(0, 1, 0);
 const scratchFleetPresenceScale = new Vector3();
 const scratchWakePose = { headingY: 0, hullScale: 1, x: 0, y: 0, z: 0 };
+const scratchArrivalBeat: GardenArrivalBeatEnvelope = { furl: 0, bowWave: 0, nameplate: false };
 // W6.4: the hull tint handed to a reflection instance, blended per frame.
 const scratchReflectionColor = new Color();
 // Reused argument records for the per-frame update calls below. Every callee
@@ -1667,6 +1679,12 @@ interface GardenContent {
   docks: DockVisual[];
   /** World-wide quay bucket, prop and flag batches; dock roots are anchors only. */
   harborBatch: GardenHarborBatch | null;
+  /**
+   * D3: the three hearth chimneys' instanced smoke, one unlit draw for the
+   * whole ring. Null only before the first docks build; the cargo-tide gate
+   * is read live each frame, so no rebuild follows a tide refresh.
+   */
+  stationSmoke: GardenStationSmoke | null;
   objectCount: number;
   entityCues: Map<string, EntityCue>;
   /** W1: the shared instanced fleet. Drawn instead of per-ship meshes. */
@@ -2247,7 +2265,7 @@ function rebuildWorldContentPart(
       scene.shadowNeedsRender = true;
       break;
     case "docks":
-      buildDocksPart(content, world);
+      buildDocksPart(scene, content, world);
       scene.shadowNeedsRender = true;
       break;
     case "harborLife":
@@ -2376,6 +2394,8 @@ function disposeWorldContentPart(
   if (name === "docks") {
     content.harborBatch?.dispose();
     content.harborBatch = null;
+    content.stationSmoke?.dispose();
+    content.stationSmoke = null;
   }
   const children = [...part.root.children];
   part.root.clear();
@@ -3333,7 +3353,7 @@ function buildSeaEdgesPart(content: GardenContent): void {
 }
 
 /** The nine shore stations and their approach lanterns. */
-function buildDocksPart(content: GardenContent, world: PharosVilleWorld): void {
+function buildDocksPart(scene: GardenScene, content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.docks;
   const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
   const recipes = world.docks.map((dock) => (
@@ -3359,9 +3379,20 @@ function buildDocksPart(content: GardenContent, world: PharosVilleWorld): void {
     object.receiveShadow = true;
   });
 
+  // D3: one instanced, unlit smoke plume for the three hearth archetypes,
+  // reusing the beacon fire's own plume vocabulary. Anchors are ridge points
+  // from the recipes; the cargo-tide gate is read live each frame below, so a
+  // data refresh re-kettles the chimneys without this part rebuilding.
+  const stationSmoke = createGardenStationSmoke(
+    stationSmokeSpecs(batch.docks),
+    scene.water.cloudShadows.texture,
+  );
+  part.root.add(stationSmoke.root);
+
   content.docks = batch.docks;
   content.harborBatch = batch;
   content.harborLanternMaterial = harborLanterns.lightMaterial;
+  content.stationSmoke = stationSmoke;
 }
 
 /**
@@ -4108,6 +4139,17 @@ function updateSceneForFrame(
   content.beaconHalo.scale.multiplyScalar(1 + (flicker - 0.5) * 0.1);
   content.beaconHalo.material.opacity *= 0.92 + flicker * 0.16;
   content.lighthouseLight.intensity *= 1 + (flicker - 0.5) * 0.3;
+  // D3: the station chimneys ride the same route clock and the same day-cycle
+  // ladder as the beacon's plume. Smoke is data-gated per harbour by the cargo
+  // tide (the crates' own reading), so this reads the live dock nodes rather
+  // than waiting for a docks-part rebuild.
+  content.stationSmoke?.update({
+    docks: content.docks,
+    phase,
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+    tier: frame.renderScheduler.tier,
+  });
   content.summitBirds.update({
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
@@ -4346,6 +4388,11 @@ function updateSceneForFrame(
     ships: content.fleetThinningShips,
     zoom: frame.camera.zoom,
   });
+  const readableArrivalBeatDetailIds = selectGardenArrivalBeatShipDetailIds(
+    content.ships,
+    frame.shipMotionSamples,
+    frame.reducedMotion,
+  );
   let visibleShipCount = 0;
   const issuanceAlpha = frame.reducedMotion
     ? 1
@@ -4368,6 +4415,9 @@ function updateSceneForFrame(
       ? 1
       : content.fleetDisplayPresenceByShipId.get(visual.ship.id) ?? 1;
     const sample = departing ? undefined : frame.shipMotionSamples.get(visual.ship.id);
+    gardenArrivalBeatEnvelopeInto(sample, frame.reducedMotion, scratchArrivalBeat);
+    const beatSailScale = 1 - scratchArrivalBeat.furl * (1 - GARDEN_SAIL_DIP_MIN_SCALE);
+    const readableArrivalBeat = readableArrivalBeatDetailIds.includes(visual.ship.detailId);
     const targetTile = resolveGardenShipDisplayTile({
       displayOffset: visual.displayOffset,
       representative: visual.representative,
@@ -4449,11 +4499,13 @@ function updateSceneForFrame(
       visual.prevHeadingAngle = null;
     }
     visual.root.rotation.z = heel;
-    // Larger hulls bob slower and shallower (titans slowest); standard as-is.
+    // Arrival/departure sail and wake beats displace 30% of the old ambient
+    // moored bob oscillator; that sub-pixel motion no longer owns the same
+    // attention while a berth event is readable.
     const bobBreath = gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.bob);
     const bobAmplitude = frame.reducedMotion
       ? 0
-      : (0.035 + frame.seaState.swell * 0.055)
+      : (0.035 + frame.seaState.swell * 0.055) * 0.7
         * visual.motionAmplitudeScale
         * (0.92 + bobBreath * 0.16);
     visual.root.position.y += Math.sin(
@@ -4524,6 +4576,50 @@ function updateSceneForFrame(
         visual.ship.visual.hullForm?.length ?? 1,
       );
     }
+    if (
+      heading
+      && readableArrivalBeat
+      && scratchArrivalBeat.bowWave > 0
+      && displayPresence > 0
+      && !constrained
+      && overviewDetail > 0
+    ) {
+      const hullLength = visual.ship.visual.hullForm?.length ?? 1;
+      const stampStrength = scratchArrivalBeat.bowWave * displayPresence;
+      if (sample?.segment?.kind === "dock-dwell") {
+        // Three positions make one bow flourish in the existing eight-second
+        // field; no particles, geometry, draw, or independent decay clock.
+        for (let stampIndex = 1; stampIndex <= 3; stampIndex += 1) {
+          const bowOffset = hullLength * visual.root.scale.x * stampIndex * 0.16;
+          scene.wakes.stamp(
+            visual.root.position.x + heading.x * bowOffset,
+            visual.root.position.z + heading.y * bowOffset,
+            heading.x,
+            heading.y,
+            stampStrength * (1 - stampIndex * 0.12),
+            hullLength,
+          );
+        }
+      } else if (sample?.segment?.kind === "departure-transit") {
+        const sternOffset = hullLength * visual.root.scale.x * 0.35;
+        scene.wakes.stamp(
+          visual.root.position.x - heading.x * sternOffset,
+          visual.root.position.z - heading.y * sternOffset,
+          heading.x,
+          heading.y,
+          stampStrength,
+          hullLength,
+        );
+      }
+    }
+    if (visual.identitySail) {
+      const previousScale = typeof visual.identitySail.userData.arrivalBeatScale === "number"
+        ? visual.identitySail.userData.arrivalBeatScale
+        : 1;
+      // Restore the authored hero/GLB identity sail when no transient dip is active.
+      visual.identitySail.scale.y = visual.identitySail.scale.y / previousScale * beatSailScale;
+      visual.identitySail.userData.arrivalBeatScale = beatSailScale;
+    }
     visual.fineDetail.visible = showShipDetail;
     visual.wakeDetail.visible = showShipDetail;
 
@@ -4580,6 +4676,7 @@ function updateSceneForFrame(
         scale: visual.root.scale.x,
         mastheadOffset: gardenShipMastheadOffset(visual.silhouette),
         sailFurl: gardenShipSailFurl(visual.ship.id, visual.sampleState),
+        sailScale: beatSailScale,
         silhouette: visual.silhouette,
         trimColor: visual.trimColor,
         x: visual.root.position.x,

@@ -112,8 +112,11 @@ export interface UseWorldRenderLoopInput {
    * the frame loop.
   */
   onBucketFlip?: (bucket: number) => void;
-  /** Called after a frame publishes the display samples shared by render and hit testing. */
-  onShipMotionSamplesReady?: (samples: ReadonlyMap<string, ShipMotionSample>) => void;
+  /** Called after a frame publishes display samples, with the same route-owned clock. */
+  onShipMotionSamplesReady?: (
+    samples: ReadonlyMap<string, ShipMotionSample>,
+    timeSeconds: number,
+  ) => void;
   /** Publishes station/selected-ship label anchors in the same RAF as hit testing. */
   onStationLabelFrame?: (frame: GardenStationLabelFrame) => void;
   adaptiveDprStateRef: MutableRefObject<AdaptiveDprState>;
@@ -623,7 +626,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         timeSeconds: motionTimeSeconds,
       });
       shipMotionSamplesRef.current = shipMotionSamples;
-      onShipMotionSamplesReadyRef.current?.(shipMotionSamples);
+      onShipMotionSamplesReadyRef.current?.(shipMotionSamples, motionTimeSeconds);
       const sampleDurationMs = performance.now() - sampleStartedAt;
       let snapshotRebuildCount = 0;
       const cameraStep = stepCameraRef.current(time, shipMotionSamples);

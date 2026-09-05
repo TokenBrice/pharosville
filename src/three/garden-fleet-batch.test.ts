@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Color, Matrix4, MeshStandardMaterial, Vector3 } from "three";
 import { createFleetBatchGeometry } from "./garden-ships";
 import {
+  GARDEN_SAIL_DIP_MIN_SCALE,
+  gardenArrivalBeatEnvelope,
+} from "../systems/garden-arrival-beats";
+import {
   FLEET_SAIL_ATLAS_CELLS,
   FLEET_MAX_SAILS,
   beginFleetFrame,
@@ -197,6 +201,33 @@ describe("fleet sail deformation", () => {
       }
     }
   });
+  it("dips a sail to 0.6 about its yard without moving the hull batch", () => {
+    const set = deformFleetSailVertex({ ...sailInput, windFlutter: 0, sailScale: 1 });
+    const dipped = deformFleetSailVertex({ ...sailInput, windFlutter: 0, sailScale: 0.6 });
+
+    expect(set.y).toBeCloseTo(2.2, 10);
+    expect(dipped.y).toBeCloseTo(3.4 - (3.4 - 2.2) * 0.6, 10);
+    expect(dipped.x).toBe(set.x);
+  });
+
+  it("preserves every furl bit and yard-relative dip through Float32 packing", () => {
+    for (let mask = 0; mask < 2 ** FLEET_MAX_SAILS; mask += 1) {
+      const packed = Math.fround(mask + (1 - GARDEN_SAIL_DIP_MIN_SCALE) * 0.99);
+      for (let sailIndex = 0; sailIndex < FLEET_MAX_SAILS; sailIndex += 1) {
+        const decoded = deformFleetSailVertex({
+          ...sailInput, furlMask: packed, sailIndex, windFlutter: 0,
+        });
+        const expected = deformFleetSailVertex({
+          ...sailInput, furlMask: mask, sailIndex, windFlutter: 0,
+          sailScale: GARDEN_SAIL_DIP_MIN_SCALE,
+        });
+        expect(decoded.setSail).toBe(expected.setSail);
+        expect(decoded.y).toBeCloseTo(expected.y, 5);
+        expect(decoded.z).toBeCloseTo(expected.z, 5);
+      }
+    }
+  });
+
 
   it("keeps every furled sail bundled under every hull form and wind state", () => {
     for (let sailIndex = 0; sailIndex < FLEET_MAX_SAILS; sailIndex += 1) {
@@ -259,6 +290,39 @@ describe("fleet downwind convention", () => {
 });
 
 describe("fleet batches", () => {
+  it("fits every sail geometry within the vertex attribute limit", () => {
+    const batches = buildBatches(1);
+    for (const { sails } of batches.bySilhouette.values()) {
+      const attributeCount = Object.keys(sails.mesh.geometry.attributes).length;
+      expect(attributeCount).toBeLessThanOrEqual(16);
+      // instanceMatrix is stored on the mesh and consumes four additional slots.
+      expect(attributeCount + 4).toBeLessThanOrEqual(16);
+    }
+    disposeFleetBatches(batches);
+  });
+
+  it("restores a dipped identity sail to full scale thirty seconds into dwell", () => {
+    const batches = buildBatches(1);
+    const sails = batches.bySilhouette.get("bezaisen")!.sails;
+    const furlMask = 21;
+    for (const secondsInto of [1.2, 30]) {
+      const beat = gardenArrivalBeatEnvelope({
+        segment: { kind: "dock-dwell", secondsInto, secondsRemaining: 100 - secondsInto },
+      });
+      beginFleetFrame(batches);
+      writeFleetInstance(batches, pose({
+        silhouette: "bezaisen",
+        sailFurl: furlMask,
+        sailScale: 1 - beat.furl * (1 - GARDEN_SAIL_DIP_MIN_SCALE),
+      }));
+      endFleetFrame(batches);
+      const packed = sails.mesh.geometry.getAttribute("aSailFurl").getX(0);
+      if (secondsInto === 30) expect(packed).toBe(furlMask);
+      else expect(packed).toBeCloseTo(furlMask + 0.396, 5);
+    }
+    disposeFleetBatches(batches);
+  });
+
   it("keeps draw calls flat as the fleet grows", () => {
     const batches = buildBatches(400);
 

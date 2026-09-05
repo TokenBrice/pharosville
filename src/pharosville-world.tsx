@@ -41,6 +41,10 @@ import {
   selectGardenObservatorySlice,
 } from "./systems/garden-observatory-slice";
 import { buildBaseMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
+import {
+  gardenArrivalBeatEnvelope,
+  selectGardenArrivalBeatShipDetailIds,
+} from "./systems/garden-arrival-beats";
 import { buildObserveSequence, type ObserveBeatKind } from "./systems/observe-sequence";
 import type { ObserveTourKeyframe } from "./systems/observe-tour";
 import { GARDEN_ATTRACT_IDLE_MS, gardenAttractKeyframes } from "./systems/garden-attract";
@@ -235,6 +239,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world, motionBucket * 600), [baseMotionPlanSignature, motionBucket]);
   const motionPlan = baseMotionPlan;
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
+  const [arrivalBeatShipDetailIds, setArrivalBeatShipDetailIds] = useState<readonly string[]>([]);
+  const arrivalBeatSecondRef = useRef<number | null>(null);
   const shipCounterLabel = useMemo(() => fleetCounterLabel(world.ships), [world.ships]);
   const recentFleetTrend = useMemo(() => recentFleetTrendSummary(world), [world]);
   // W5.01 — derive the live risk-band tack-out per ship from the motion plan
@@ -490,6 +496,30 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     pendingFollowDetailIdRef.current = null;
     focusSelectedCamera(detailId, selectedEntity);
   }, [focusSelectedCamera, selectedEntity]);
+  const publishShipMotionSamples = useCallback((
+    samples: ReadonlyMap<string, ShipMotionSample>,
+    timeSeconds: number,
+  ) => {
+    followPendingSelectionFromSamples(samples);
+    const second = Math.floor(timeSeconds);
+    if (arrivalBeatSecondRef.current === second) return;
+    arrivalBeatSecondRef.current = second;
+    const next = selectGardenArrivalBeatShipDetailIds(
+      world.ships,
+      samples,
+      reducedMotion,
+    ).filter((detailId) => {
+      const ship = world.entityById[detailId];
+      return ship?.kind === "ship"
+        && gardenArrivalBeatEnvelope(samples.get(ship.id), reducedMotion).nameplate;
+    });
+    setArrivalBeatShipDetailIds((current) => (
+      current.length === next.length && current.every((detailId, index) => detailId === next[index])
+        ? current
+        : next
+    ));
+  }, [followPendingSelectionFromSamples, reducedMotion, world.entityById, world.ships]);
+
 
   const updateHarborLabelsForFrame = useCallback((
     frame: Parameters<typeof updateHarborLabelChipLayout>[1],
@@ -520,7 +550,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   } = useWorldRenderLoop({
     almanacEvent: gardenAlmanac.activeEvent,
     onBucketFlip: setMotionBucket,
-    onShipMotionSamplesReady: followPendingSelectionFromSamples,
+    onShipMotionSamplesReady: publishShipMotionSamples,
     onStationLabelFrame: updateHarborLabelsForFrame,
     adaptiveDprStateRef: canvas.adaptiveDprStateRef,
     logoGeneration: shipLogoAssets.logoGeneration,
@@ -1090,6 +1120,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
         {!rendererFailed && (
           <HarborLabelChips
+            arrivalOrAnomalyShipDetailIds={arrivalBeatShipDetailIds}
             containerRef={harborLabelChipsElRef}
             onSelectDetail={(detailId) => selectDetail(detailId, null)}
             selectedShipDetailId={selectedEntity?.kind === "ship" ? selectedEntity.detailId : null}

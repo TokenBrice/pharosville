@@ -331,10 +331,30 @@ and its conservative distance lookup.
 
 - Stillness has authored displacements: the lower-left engawa lantern replaces
   `harbor-lantern.11`; the single hero waterfall replaces the
-  `water-silver-accents` draw; and the koi school lives in the calm engawa
-  shallows rather than filling the reflection basin. Seasonal and almanac
-  dressing follows the rim path and openings. These additions are quiet,
-  deterministic, and carry no new analytical meaning.
+  `water-silver-accents` draw; the koi school lives in the calm engawa
+  shallows rather than filling the reflection basin; and station chimney
+  smoke on three archetypes (uogashi, hatago-wharf, tea-house-quay) displaces
+  the beacon plume's uniqueness — unlit, ember-tier, data-gated on the cargo
+  tide, one instanced draw (`garden-station-smoke.test.ts`). Seasonal and
+  almanac dressing follows the rim path and openings. These additions are
+  quiet, deterministic, and carry no new analytical meaning.
+- **Arrivals and departures are the fleet's readable beats.** Their transient
+  sail dips, existing wake-field bow/stern stamps, and transient DOM
+  nameplates derive from the route-owned segment clock; no ship owns a timer.
+  During the first 4 seconds of dock dwell, sails ease from 1.0 to 0.6 over
+  1.2 seconds, hold for 1 second, and ease back to 1.0 by second 4; departure
+  repeats the dip over the last 4 seconds of dwell and the first 2 seconds of
+  transit. Outside these windows every ship's sail scale is exactly 1.0,
+  moored and hero/GLB identity sails included — the sail is the identity
+  channel and a beat may never become a moored state. This displaces the
+  beam's monopoly on large motion and 30 % of the moored-bob amplitude, adds
+  no draw or texture, and at tier full caps wake/nameplate simultaneity at six
+  by market cap while every ship remains eligible for the dip. Reduced motion
+  returns the quiet envelope with fully set sails. Pinned in
+  `src/systems/garden-arrival-beats.test.ts` and
+  `src/three/garden-fleet-batch.test.ts`. Bird life is amplitude, not count:
+  the sortie share is 0.6 with wider loops (2026-09-05 D2), an existing
+  oscillator re-tuned rather than a new one.
 
 ## Media and rendering
 

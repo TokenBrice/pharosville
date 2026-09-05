@@ -110,10 +110,11 @@ describe("harbour tempo", () => {
 
   it("takes its turns more often, wider and higher over the filling harbour", () => {
     const flock = createGardenGullFlock(LIGHTHOUSE_TILE, { docks: TEMPO_DOCKS });
-    // W3.4 keeps every tempo channel it ever had — the gulls simply spend most
-    // of their time sitting between turns. Rate now reads as how OFTEN a bird
-    // takes a turn (the share of time she is up is the same at every harbour,
-    // by design: it is the frequency that carries the reading).
+    // W3.4 keeps every tempo channel it ever had — and D2 (2026-09-05) keeps
+    // the intermittency: a third aloft is the design (0.55 chance x 0.6
+    // share), so two thirds of any harbour's watch is still spent on the
+    // planks. Rate reads as how OFTEN a bird takes a turn; the share of time
+    // she is up is the same at every harbour, by design.
     const survey = (index: number) => {
       let sorties = 0;
       let wasUp = false;
@@ -136,13 +137,24 @@ describe("harbour tempo", () => {
     };
 
     const filling = survey(FILLING);
+    const fillingMate = survey(FILLING + 1);
     const draining = survey(DRAINING);
+    const drainingMate = survey(DRAINING + 1);
     expect(filling.sorties).toBeGreaterThan(draining.sorties);
+    // D2 amplitude: the filling wheel swings more than 11 u out from the quay
+    // centre (the W3.4 wheel topped out near 8), past the pier head.
+    expect(filling.reach).toBeGreaterThan(10.5);
     expect(filling.reach).toBeGreaterThan(draining.reach);
+    // The wheel tops out at 6.0 in the flock's waterline-rooted space — above
+    // the pier's own furniture, an eave's worth below the raised halls
+    // (13.3–17.9 above the dock root), which the loop never crosses.
+    expect(filling.ceiling).toBeCloseTo(6, 5);
     expect(filling.ceiling).toBeGreaterThan(draining.ceiling);
-    // And whichever harbour it is, the bird is on the quay most of the time.
-    expect(filling.perched).toBeGreaterThan(0.6);
-    expect(draining.perched).toBeGreaterThan(0.6);
+    // And whichever harbour it is, the pair is still on the quay most of the
+    // time: one 600 s sweep of one bird resolves the two-thirds figure only
+    // coarsely (the window die correlates samples), so both seats are read.
+    expect((filling.perched + fillingMate.perched) / 2).toBeGreaterThan(0.55);
+    expect((draining.perched + drainingMate.perched) / 2).toBeGreaterThan(0.55);
   });
 
   it("stands every gull on the quay under reduced motion, tempo still reading", () => {
@@ -165,15 +177,22 @@ describe("harbour tempo", () => {
     expect(quayRadius(flock, FILLING)).toBeGreaterThan(quayRadius(flock, DRAINING));
   });
 
-  it("perches the island flock on the island, and lifts about a quarter of it", () => {
+  it("perches the island flock on the island, and lifts about a third of it", () => {
     const flock = createGardenGullFlock(LIGHTHOUSE_TILE);
+    // The reduced-motion pose IS the perch ring; capture it to measure reach.
+    flock.update({ constrained: false, reducedMotion: true, timeSeconds: 0 });
+    const roosts = Array.from({ length: GARDEN_GULL_COUNT }, (_, index) =>
+      new Vector3().setFromMatrixPosition(instanceMatrix(flock.gulls, index)));
     const heights: number[][] = Array.from({ length: GARDEN_GULL_COUNT }, () => []);
+    let maxReach = 0;
     for (let seconds = 0; seconds <= 900; seconds += 3) {
       flock.update({ constrained: false, reducedMotion: false, timeSeconds: seconds });
       for (let index = 0; index < GARDEN_GULL_COUNT; index += 1) {
-        heights[index]!.push(
-          new Vector3().setFromMatrixPosition(instanceMatrix(flock.gulls, index)).y,
-        );
+        const position = new Vector3()
+          .setFromMatrixPosition(instanceMatrix(flock.gulls, index));
+        heights[index]!.push(position.y);
+        const roost = roosts[index]!;
+        maxReach = Math.max(maxReach, Math.hypot(position.x - roost.x, position.z - roost.z));
       }
     }
     // A bird's own floor over a long sweep IS her perch — she returns to the
@@ -188,8 +207,15 @@ describe("harbour tempo", () => {
       }
     }
     const share = airborne / samples;
-    expect(share).toBeGreaterThan(0.12);
+    // The D2 design figure is a third aloft (0.55 chance x 0.6 share). One
+    // 900 s sweep of nine birds on a 74 s period resolves that only coarsely —
+    // the window die correlates each bird's ~12 windows — so the pin brackets
+    // a quarter-to-third read and keeps the never-a-sky-full cap.
+    expect(share).toBeGreaterThan(0.18);
     expect(share).toBeLessThan(0.35);
+    // D2 amplitude: the widest turns now swing 12+ u out from the roost (the
+    // W3.4 band topped at 10.6), so a sortie reads at the zoom-1.0 rest.
+    expect(maxReach).toBeGreaterThan(11.5);
     // Nine birds, nine different perches: no two share a roost.
     const perches = heights.map((track) => Math.min(...track).toFixed(3));
     expect(new Set(perches).size).toBeGreaterThan(4);

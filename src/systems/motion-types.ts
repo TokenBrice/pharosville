@@ -148,6 +148,12 @@ export interface ShipMotionRoute {
    */
   previousRiskLabel?: string;
 }
+export type ShipMotionSegmentKind =
+  | "dock-dwell"
+  | "departure-transit"
+  | "risk-rest"
+  | "arrival-transit";
+
 
 export interface ShipMotionSample {
   /** Final water-safe presentation position, shared by render, hit testing and following. */
@@ -167,6 +173,16 @@ export interface ShipMotionSample {
   mapVisibilityAlpha: number;
   wakeIntensity: number;
   seaState?: SeaState | null;
+  /**
+   * Clock-pure position inside the route-cycle segment that produced this
+   * sample. Render consumers use it for short state-driven beats without
+   * reconstructing route timing or keeping per-ship timers.
+   */
+  segment?: {
+    kind: ShipMotionSegmentKind;
+    secondsInto: number;
+    secondsRemaining: number;
+  } | null;
   /**
    * W4.25 — when the sampler is mid-tack-out (the 3-second blended transit
    * from a previous risk tile to the current one), this surfaces the

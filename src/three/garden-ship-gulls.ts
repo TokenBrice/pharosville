@@ -77,8 +77,17 @@ const PERCHES: readonly [number, number, number][] = [
   [0.35, 1.72, 1.29],
 ];
 
-/** The turn: a wide circle abeam, reaching about as far out as the old ring. */
-const LOOP_RADIUS = 1.4;
+/**
+ * The turn: a wide circle abeam. D2 (2026-09-05) widened it 1.4 ± 0.7 →
+ * 2.4 ± 0.7 so the far side of the sweep runs 4.8–6.2 out over the water —
+ * past where the old permanent ring ever reached — and the sortie reads at the
+ * zoom-1.0 rest. The tangent property is width-independent: the loop never
+ * comes back inboard of its perch's side of the rig, so she still crosses
+ * neither rig nor hull, and the mast is only ever beside her at truck height,
+ * where the pole is below her. Displacement: none new — the same oscillator,
+ * tuned.
+ */
+const LOOP_RADIUS = 2.4;
 const LOOP_RADIUS_SPREAD = 0.7;
 /** Lifts her to roughly the old flock height at the top of the turn. */
 const CLIMB = 2.8;

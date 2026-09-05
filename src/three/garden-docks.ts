@@ -189,6 +189,8 @@ export interface DockRecipe {
   parts: HarborBucketPart[];
   props: HarborPropInstance[];
   flag: HarborFlagSpec;
+  /** Ridge chimney anchor for the three hearth archetypes; null elsewhere. */
+  chimney: StationChimneyAnchor | null;
   cargoTideLanes: CargoTideLanes;
   tideFace: DockTideFace;
   footprint: StationFootprint;
@@ -392,6 +394,7 @@ export function authorDock(
     accentColor: accent.clone(),
     anchorPosition: root.position.clone(),
     anchorRotationY: root.rotation.y,
+    chimney: stationChimneyLocal(station.type, stationScale, quayX),
     cargoTideLanes: cargoTideLanes(length, quayLength, quayWidth, quayX),
     dock,
     flag,
@@ -1805,6 +1808,45 @@ function fallbackStationType(chainId: string): StationType {
   return options[Math.min(options.length - 1, Math.floor(stableUnit(`station-type.${chainId}`) * options.length))]!;
 }
 
+/**
+ * Chimney anchor for the three hearth archetypes (warm-village D3), in the
+ * station's local frame. Each sits ON the archetype's own ridge, at the hearth
+ * the smoke belongs to: the uogashi kitchen's mono-pitch ridge, the hatago
+ * inn's main irimoya ridge, and the tea-house hearth on the landward ridge run
+ * clear of the moon-window loft. Every other archetype returns null — no
+ * chimney, no smoke. Consumers transform this through the recipe's anchor pose
+ * the way `cargoTideSpecs` does for crate slots.
+ */
+export interface StationChimneyAnchor { x: number; y: number; z: number }
+
+function stationChimneyLocal(
+  type: StationType,
+  stationScale: StationScale,
+  quayX: number,
+): StationChimneyAnchor | null {
+  if (type === "uogashi") {
+    // authorUogashi's lean-to: high landward side at z = -span/2, ridge height
+    // compensated for the slab's thickness by leanToHighYForTop.
+    const hallD = stationScale.span;
+    const roofLow = 5.5 * stationScale.heightScale - 0.1;
+    return {
+      x: quayX - 3.2 + stationScale.length * 0.2,
+      y: leanToHighYForTop(stationScale.secondLevelTop, roofLow, hallD / 2),
+      z: -hallD / 2,
+    };
+  }
+  if (type === "hatago-wharf") {
+    // authorHatagoWharf's main irimoya ridge runs along x at z = 0 and tops
+    // out at the station's second-level height.
+    return { x: quayX - 3.4 + stationScale.length * 0.1, y: stationScale.secondLevelTop, z: 0 };
+  }
+  if (type === "tea-house-quay") {
+    // authorTeaHouseQuay's primary irimoya ridge at z = 0; the landward run,
+    // clear of the moon-window loft (half-width 1.9) that occupies its centre.
+    return { x: quayX - 3.2 - stationScale.length * 0.28, y: 6.35 * stationScale.heightScale, z: 0 };
+  }
+  return null;
+}
 
 function stationLampLocals(type: StationType, length: number, width: number) {
   if (type === "pigeonnier-islet") return [{ height: 1.45, x: length * 0.3, z: 0 }];

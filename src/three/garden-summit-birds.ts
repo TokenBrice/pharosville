@@ -26,13 +26,15 @@ import { stableUnit } from "./garden-util";
  * Real flocks do not do that. They SIT: on rails, cornices, mastheads and
  * bollards, and every so often one lifts, flies a turn, and settles again. Forty
  * birds circling forever reads as clockwork; eight birds sitting still with two
- * of them up reads as a harbour that happens to have birds in it — and it is
- * quieter, which is the whole of Wave 3.
+ * or three of them up reads as a harbour that happens to have birds in it — and
+ * it is quieter, which is the whole of Wave 3.
  *
  * So each bird now sits on a real ledge of the monument (the cornice ring at the
  * head of the octagonal drum, just under the brazier) and leaves it only for a
  * deterministic sortie: one wide circle out over the sea that begins and ends on
- * the very perch it left. At any instant about a quarter of the flock is up.
+ * the very perch it left. At any instant about a third of the flock is up
+ * (warm-village D2, 2026-09-05: the W3.4 quarter became a third — amplitude,
+ * not count; the same eight birds, aloft longer on wider turns).
  *
  * ## Still a pure function of the one clock
  *
@@ -54,15 +56,21 @@ const BIRD_COLOR = new Color(HARBOR_PALETTE.iron_dark);
  * Seconds between a bird's own sortie windows. One roll of the die per window
  * per bird; a bird that rolls a sortie spends `SORTIE_SHARE` of that window in
  * the air, so the share of the flock airborne at any instant is
- * `SORTIE_CHANCE * SORTIE_SHARE` — about a quarter, deliberately.
+ * `SORTIE_CHANCE * SORTIE_SHARE` — about a third (0.55 × 0.6), deliberately.
  *
  * Long on purpose: the eye must never be able to count the beat. A bird's next
  * turn is somewhere in the next minute or two, and the windows are offset per
  * bird, so the flock has no shared phase to notice.
+ *
+ * D2 (2026-09-05) raised the share 0.45 → 0.6 so flight reads at the zoom-1.0
+ * rest; the chance, the period and the per-bird phase offsets are untouched
+ * (the W3.4 clockwork critique stands). Displacement: none — this re-tunes an
+ * existing oscillator, adds no clock, no draw and no bird, and slows or stops
+ * nothing else.
  */
 export const GARDEN_BIRD_SORTIE_PERIOD = 62;
 export const GARDEN_BIRD_SORTIE_CHANCE = 0.55;
-export const GARDEN_BIRD_SORTIE_SHARE = 0.45;
+export const GARDEN_BIRD_SORTIE_SHARE = 0.6;
 
 /**
  * The shared choreography, as GLSL. Inlined into the bird vertex shaders (this
@@ -183,14 +191,24 @@ export function gardenBirdSortieOffset(
 const PERCH_RADIUS = 1.44;
 const PERCH_Y = 26.47 - 30.1;
 /**
- * The turn. Loop radius is picked so the far side of the circle reaches out to
- * roughly where the old permanent orbit ran (8.7–10.5 from the tower's axis),
- * and the climb lifts her to about the brazier's own height at mid-turn — the
- * composition the flock always had, now visited rather than inhabited.
+ * The turn. Warm-village D2 (2026-09-05) widened the W3.4 loop 3.6 ± 0.9 →
+ * 6 ± 1.2 and lifted the climb 4.4 → 6 so a sortie reads at the zoom-1.0 rest:
+ * the far side of the circle now sweeps 13.4–15.8 from the tower's axis, well
+ * past where the old permanent orbit ran (8.2–9.8), and mid-turn carries her
+ * two to five units above the brazier plane — the composition the flock always
+ * had, now visited on a wider beat rather than inhabited.
+ *
+ * Clearances, because the sweep grew: the loop is tangent to the perch, and its
+ * closest approach to the tower's axis is the perch radius itself — 1.44, at
+ * perch height — at EVERY radius, since the outward component of the offset is
+ * never negative. That clears the drum (1.35), both base rings and the brazier
+ * (1.02–1.25) by construction. Above the beacon the statue rises on the axis,
+ * but the loop only enters that height band (y > 30.1) past 6.9 from the axis,
+ * far outside the figure. Displacement: none new — the same oscillator, tuned.
  */
-const LOOP_RADIUS = 3.6;
-const LOOP_RADIUS_SPREAD = 0.9;
-const CLIMB = 4.4;
+const LOOP_RADIUS = 6;
+const LOOP_RADIUS_SPREAD = 1.2;
+const CLIMB = 6;
 const CLIMB_SPREAD = 2.4;
 
 export interface GardenSummitBirdsUpdate {
