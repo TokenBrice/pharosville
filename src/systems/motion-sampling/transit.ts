@@ -44,6 +44,9 @@ export function transitMapVisibilityAlpha(
 const aheadPointScratch: { x: number; y: number } = { x: 0, y: 0 };
 const aheadHeadingScratch: { x: number; y: number } = { x: 0, y: 0 };
 const aheadLaneScratch: { x: number; y: number } = { x: 0, y: 0 };
+const laneBeforeScratch = { x: 0, y: 0 };
+const laneAfterScratch = { x: 0, y: 0 };
+const laneHeadingScratch = { x: 0, y: 0 };
 
 // Scratch tile reused inside transitSampleInto: holds the lane-adjusted point
 // before mooring blend writes it into out.tile.
@@ -173,7 +176,7 @@ export function transitSampleInto(input: {
   waterPathTileScratch.y = out.tile.y;
   // Apply lane offset (uses heading); write through a scratch tile because
   // the lane formula reads the un-offset point.
-  transitLanePointInto(out.tile, out.heading, profile.pathProgress, input.runtime, transitTileScratch);
+  transitLanePointInto(out.tile, input.path, profile.pathProgress, input.runtime, transitTileScratch);
   out.tile.x = transitTileScratch.x;
   out.tile.y = transitTileScratch.y;
 
@@ -183,7 +186,7 @@ export function transitSampleInto(input: {
   // visible "crab" sideways motion.
   const aheadProgress = Math.min(1, profile.pathProgress + 0.01);
   sampleWaterPathInto(input.path, aheadProgress, aheadPointScratch, aheadHeadingScratch, memoryKey);
-  transitLanePointInto(aheadPointScratch, aheadHeadingScratch, aheadProgress, input.runtime, aheadLaneScratch);
+  transitLanePointInto(aheadPointScratch, input.path, aheadProgress, input.runtime, aheadLaneScratch);
   const fdx = aheadLaneScratch.x - out.tile.x;
   const fdy = aheadLaneScratch.y - out.tile.y;
   if (fdx !== 0 || fdy !== 0) {
@@ -420,21 +423,30 @@ function applyMooringBlendInto(input: {
 
 function transitLanePointInto(
   point: { x: number; y: number },
-  heading: { x: number; y: number },
+  path: ShipWaterPath | undefined,
   progress: number,
   runtime: RouteSamplingRuntime,
   out: { x: number; y: number },
 ): void {
   const laneStrength = Math.sin(clamp(progress, 0, 1) * Math.PI);
-  if (laneStrength <= 0.01) {
+  if (laneStrength <= 0.01 || !path || path.totalLength <= 0) {
     out.x = point.x;
     out.y = point.y;
     return;
   }
-  const laneMagnitude = runtime.laneMagnitude * laneStrength;
+  // A raw segment tangent flips at corners, teleporting the lateral lane.
+  // Average the path's direction across one tile; leave the chord unnormalised
+  // so a hairpin smoothly gives up its lane width instead of flipping sides.
+  const step = 0.5 / path.totalLength;
+  const before = Math.max(0, progress - step);
+  const after = Math.min(1, progress + step);
+  sampleWaterPathInto(path, before, laneBeforeScratch, laneHeadingScratch);
+  sampleWaterPathInto(path, after, laneAfterScratch, laneHeadingScratch);
+  const span = (after - before) * path.totalLength;
+  const laneMagnitude = runtime.laneMagnitude * laneStrength * runtime.laneSign / span;
   clampMotionTileInto(
-    point.x + -heading.y * laneMagnitude * runtime.laneSign,
-    point.y + heading.x * laneMagnitude * runtime.laneSign,
+    point.x - (laneAfterScratch.y - laneBeforeScratch.y) * laneMagnitude,
+    point.y + (laneAfterScratch.x - laneBeforeScratch.x) * laneMagnitude,
     out,
   );
 }

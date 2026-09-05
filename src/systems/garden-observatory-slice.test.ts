@@ -179,7 +179,11 @@ describe("Garden Observatory slice", () => {
           GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
         );
         const reach = Math.hypot(mooring.x - home.x, mooring.y - home.y);
-        const routeIsOpen = reach > GARDEN_HOME_DRIFT_TILES && Array.from({ length: 41 }, (_, step) => {
+        const patrolIsOpen = [0, 3].every((drift) => isGardenShipWater({
+          x: home.x + placement.displayOffset.x + drift,
+          y: home.y + placement.displayOffset.y,
+        }, margin));
+        const routeIsOpen = patrolIsOpen && reach > GARDEN_HOME_DRIFT_TILES && Array.from({ length: 41 }, (_, step) => {
           const t = step / 40;
           const offsetWeight = gardenHomeOffsetWeight(ship, reach * t);
           return isGardenShipWater({

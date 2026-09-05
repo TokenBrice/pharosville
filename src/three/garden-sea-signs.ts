@@ -69,7 +69,7 @@ const STELE_CENTER_Y = 0.65;
 const FACE_OFFSET = STELE_DEPTH * 0.51;
 export const GARDEN_SEA_STELE_STONE_COLOR = "#71827d";
 export const GARDEN_SEA_STELE_DEFAULT_CARVING_COLOR = "#132c33";
-export const GARDEN_SEA_STELE_NIGHT_CARVING_COLOR = "#b7c9c2";
+export const GARDEN_SEA_STELE_NIGHT_CARVING_COLOR = "#829b96";
 export const GARDEN_SEA_STELE_ACTIVE_CARVING_COLOR = "#fff0c9";
 export const GARDEN_SEA_STELE_NAME_WIDTH_FRACTION = 0.94;
 export const GARDEN_SEA_STELE_NAME_HEIGHT_FRACTION = 0.82;
@@ -320,26 +320,32 @@ const GLYPHS: Readonly<Record<string, readonly string[]>> = {
 
 /** A tiny cut-stone alphabet: one merged mesh, no canvas or GPU texture. */
 function createSteleNameGeometry(label: string): BufferGeometry {
-  const text = label.toUpperCase();
-  const columns = Math.max(1, text.length * (GLYPH_COLUMNS + 1) - 1);
+  // Two short lines give the cut letters natural proportions. Compressing a
+  // whole sea name into one line made tall slivers even on the enlarged stone.
+  const lines = label.toUpperCase().split(" ");
+  const columns = Math.max(1, ...lines.map((line) => line.length * (GLYPH_COLUMNS + 1) - 1));
+  const rows = lines.length * (GLYPH_ROWS + 1) - 1;
   const unitX = STELE_WIDTH * GARDEN_SEA_STELE_NAME_WIDTH_FRACTION / columns;
-  const unitY = STELE_FACE_HEIGHT * GARDEN_SEA_STELE_NAME_HEIGHT_FRACTION / GLYPH_ROWS;
+  const unitY = STELE_FACE_HEIGHT * GARDEN_SEA_STELE_NAME_HEIGHT_FRACTION / rows;
   const parts: PlaneGeometry[] = [];
-  for (let characterIndex = 0; characterIndex < text.length; characterIndex += 1) {
-    const glyph = GLYPHS[text[characterIndex]!] ?? [];
-    for (let row = 0; row < glyph.length; row += 1) {
-      for (let column = 0; column < GLYPH_COLUMNS; column += 1) {
-        if (glyph[row]![column] !== "1") continue;
-        const block = new PlaneGeometry(
-          unitX * GARDEN_SEA_STELE_GLYPH_FILL.x,
-          unitY * GARDEN_SEA_STELE_GLYPH_FILL.y,
-        );
-        block.translate(
-          (characterIndex * (GLYPH_COLUMNS + 1) + column - (columns - 1) / 2) * unitX,
-          ((GLYPH_ROWS - 1) / 2 - row) * unitY,
-          0,
-        );
-        parts.push(block);
+  for (const [lineIndex, text] of lines.entries()) {
+    const lineColumns = text.length * (GLYPH_COLUMNS + 1) - 1;
+    for (let characterIndex = 0; characterIndex < text.length; characterIndex += 1) {
+      const glyph = GLYPHS[text[characterIndex]!] ?? [];
+      for (let row = 0; row < glyph.length; row += 1) {
+        for (let column = 0; column < GLYPH_COLUMNS; column += 1) {
+          if (glyph[row]![column] !== "1") continue;
+          const block = new PlaneGeometry(
+            unitX * GARDEN_SEA_STELE_GLYPH_FILL.x,
+            unitY * GARDEN_SEA_STELE_GLYPH_FILL.y,
+          );
+          block.translate(
+            (characterIndex * (GLYPH_COLUMNS + 1) + column - (lineColumns - 1) / 2) * unitX,
+            ((rows - 1) / 2 - lineIndex * (GLYPH_ROWS + 1) - row) * unitY,
+            0,
+          );
+          parts.push(block);
+        }
       }
     }
   }

@@ -93,7 +93,7 @@ describe("garden sea steles", () => {
     signs.update({ night: 0, reducedMotion: true, visible: true, zoom: 0.28 });
     carvings.geometry.computeBoundingBox();
     const farWidth = carvings.geometry.boundingBox!.max.x - carvings.geometry.boundingBox!.min.x;
-    expect(seaSignScaleForZoom(0.28)).toBe(3.2);
+    expect(seaSignScaleForZoom(0.28)).toBe(2.6);
     expect(farWidth).toBeGreaterThan(nearWidth);
     // The root never scales the absolute sites away from their body boundaries.
     expect(signs.root.scale.toArray()).toEqual([1, 1, 1]);

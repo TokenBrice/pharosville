@@ -292,7 +292,7 @@ describe("Carved sea-name stele targets (W2a)", () => {
       return snapshot.targets.find((target) => target.kind === "sea-sign")!.rect.width;
     };
 
-    expect(seaSignScaleForZoom(0.28)).toBe(3.2);
+    expect(seaSignScaleForZoom(0.28)).toBe(2.6);
     expect(seaSignScaleForZoom(2.4)).toBe(1);
     expect(widthAt(0.28)).toBeGreaterThan(widthAt(0.5));
     expect(widthAt(0.5)).toBeCloseTo(widthAt(0.8) * (0.5 / 0.8), 6);
@@ -321,7 +321,7 @@ describe("Carved sea-name stele targets (W2a)", () => {
     };
 
     // Both resting zooms are inside the hysteresis band: the first walk keeps
-    // the 3.2x overview rung and the reverse walk keeps the 1x inhabited rung.
+    // the 2.6x overview rung and the reverse walk keeps the 1x inhabited rung.
     assertWalk([0.28, 0.41]);
     assertWalk([0.5, 0.39]);
   });
