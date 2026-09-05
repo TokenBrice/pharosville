@@ -115,10 +115,10 @@ describe("refreshRestoredMeta", () => {
     expect(later?.warning).toBe(restored.warning);
   });
 
-  it("leaves a live response untouched, identity included", () => {
+  it("ages retained live responses through the stale threshold", () => {
     const live: ApiMeta = { updatedAt: Math.floor(NOW / 1000), ageSeconds: 3, status: "fresh" };
 
-    expect(refreshRestoredMeta(live, CHAINS_MAX_AGE_SEC, NOW + 3_600_000)).toBe(live);
+    expect(refreshRestoredMeta(live, CHAINS_MAX_AGE_SEC, NOW + 14_400_000)).toMatchObject({ ageSeconds: 14_400, status: "stale" });
     expect(refreshRestoredMeta(null, CHAINS_MAX_AGE_SEC, NOW)).toBeNull();
   });
 });
@@ -138,6 +138,15 @@ describe("readPersistedPayload", () => {
     expect(restored?.storedAt).toBe(NOW - 60_000);
     expect(restored?.meta.status).not.toBe("fresh");
     expect(restored?.meta.status).toBe("degraded");
+  });
+
+  it.each([
+    { data: { ...VALID_CHAINS_PAYLOAD, chains: [null] }, meta: null },
+    { data: VALID_CHAINS_PAYLOAD, meta: { updatedAt: "bad", ageSeconds: 0, status: "fresh" } },
+  ])("discards same-version corruption before world construction", (corruption) => {
+    storeRaw(storage, { v: INTERNALS.STORE_VERSION, storedAt: NOW, ...corruption });
+    expect(readPersistedPayload("chains", CHAINS_MAX_AGE_SEC, NOW)).toBeNull();
+    expect(storage.entries.has(CHAINS_KEY)).toBe(false);
   });
 
   it("returns null without throwing when there is no storage at all", () => {
@@ -285,9 +294,8 @@ describe("persistPayloadWhenIdle", () => {
 
     persistPayloadWhenIdle("chains", { chains: "not an array" }, null, NOW);
 
-    // The bad payload is rejected AND the entry it would have replaced is
-    // dropped, so a shape change cannot leave a stale world behind.
-    await vi.waitFor(() => expect(storage.entries.has(CHAINS_KEY)).toBe(false), PERSIST_WAIT);
+    await vi.dynamicImportSettled();
+    expect(readPersistedPayload("chains", CHAINS_MAX_AGE_SEC, NOW)?.data).toEqual(VALID_CHAINS_PAYLOAD);
   });
 
   it("does not rewrite the same endpoint again inside the throttle window", async () => {

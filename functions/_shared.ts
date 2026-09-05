@@ -108,7 +108,7 @@ export function maybeStoreJsonEdgeCache(
   response: Response,
 ): void {
   if (!cache || response.status !== 200 || !isJsonResponse(response)) return;
-  waitUntilOrVoid(context, cache.put(cacheKey, response.clone()).catch(() => undefined));
+  waitUntilOrVoid(context, cache.put(cacheKey, response.clone()).catch((error) => reportEdgeCacheFailure("normal-write", error)));
 }
 
 /**

@@ -5,6 +5,7 @@ import { ApiPathError, apiFetchWithMeta, SchemaValidationError } from "./api";
 describe("apiFetchWithMeta path guard", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("fetches same-origin /api/ paths", async () => {
@@ -14,7 +15,7 @@ describe("apiFetchWithMeta path guard", () => {
     const { data } = await apiFetchWithMeta("/api/stablecoins?limit=1", z.object({ ok: z.boolean() }));
 
     expect(data).toEqual({ ok: true });
-    expect(fetchMock).toHaveBeenCalledWith("/api/stablecoins?limit=1", undefined);
+    expect(fetchMock).toHaveBeenCalledWith("/api/stablecoins?limit=1", { signal: expect.any(AbortSignal) });
   });
 
   it.each([
@@ -61,6 +62,8 @@ describe("apiFetchWithMeta path guard", () => {
   });
 
   it("extracts API metadata without loading the shared Zod metadata schema", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_012_000);
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ok: true,
       _meta: {
@@ -99,11 +102,43 @@ describe("apiFetchWithMeta path guard", () => {
     });
   });
 
-  it("loads known endpoint schemas for strict dev and test validation when no schema is passed", async () => {
+  it("rejects wrong-shaped endpoint JSON before world construction", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ chains: [] })));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(apiFetchWithMeta("/api/chains")).rejects.toBeInstanceOf(SchemaValidationError);
-    expect(fetchMock).toHaveBeenCalledWith("/api/chains", undefined);
+    expect(fetchMock).toHaveBeenCalledWith("/api/chains", { signal: expect.any(AbortSignal) });
+  });
+});
+
+describe("bounded response consumption", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  it.each(["timeout", "caller abort"])("settles a stalled JSON body on %s", async (kind) => {
+    vi.useFakeTimers();
+    const caller = new AbortController();
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_path, init) => {
+      signal = init.signal;
+      return new Response(new ReadableStream({ start() {} }));
+    }));
+    const pending = apiFetchWithMeta("/api/fixture", undefined, { signal: caller.signal });
+    const checked = expect(pending).rejects.toMatchObject({ name: kind === "timeout" ? "TimeoutError" : "AbortError" });
+    await Promise.resolve();
+    if (kind === "timeout") await vi.advanceTimersByTimeAsync(15_000);
+    else caller.abort();
+    await checked;
+    expect(signal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("reconciles body and cache ages once, preserving upstream degradation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_800_000_000_000);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      ok: true, _meta: { updatedAt: 1_799_999_980, ageSeconds: 20, status: "degraded" },
+    }, { headers: { "x-data-age": "40", age: "10" } })));
+    const { meta } = await apiFetchWithMeta("/api/fixture");
+    expect(meta).toMatchObject({ ageSeconds: 50, updatedAt: 1_799_999_950, status: "degraded" });
   });
 });

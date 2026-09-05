@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   useQuery,
   type QueryFunctionContext,
@@ -156,6 +157,19 @@ export function useApiQueryWithMeta<T>(
     createApiPollingQueryOptionsWithMeta(key, path, cronInterval, opts),
   );
 
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== "hidden") setNow(Date.now());
+    };
+    const timer = window.setInterval(refresh, 30_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
+
   return {
     error,
     isError,
@@ -163,10 +177,8 @@ export function useApiQueryWithMeta<T>(
     isSuccess,
     refetch: () => refetch().then(() => {}),
     data: data?.data,
-    // Read-time, not fetch-time: while every refetch fails the restored payload
-    // stays put, and its age has to keep counting up rather than report the
-    // figure it had when the page loaded.
-    meta: refreshRestoredMeta(data?.meta ?? null, resolveMetaMaxAgeSec(cronInterval, opts)),
+    // Coarse visible-page ticks also age retained live responses during outages.
+    meta: refreshRestoredMeta(data?.meta ?? null, resolveMetaMaxAgeSec(cronInterval, opts), now),
   };
 }
 

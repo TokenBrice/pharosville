@@ -7,6 +7,7 @@ import {
   jsonErrorResponse,
   LAST_GOOD_CACHE_PATH_PREFIX,
   maybeStoreJsonEdgeCache,
+  reportEdgeCacheFailure,
   maybeStoreLastGoodEdgeCache,
   readLastGoodEdgeCache,
   withDefaultJsonCacheControl,
@@ -131,7 +132,7 @@ type UpstreamFetchResult =
   | { durationMs: number; ok: true; response: Response }
   | { durationMs: number; errorKind: "fetch-error" | "timeout"; ok: false };
 
-async function fetchUpstream(url: string, apiKey: string): Promise<UpstreamFetchResult> {
+async function fetchUpstream(url: string, apiKey: string, key: PharosVilleApiEndpointKey): Promise<UpstreamFetchResult> {
   const controller = new AbortController();
   const startedAt = Date.now();
   let timedOut = false;
@@ -140,14 +141,29 @@ async function fetchUpstream(url: string, apiKey: string): Promise<UpstreamFetch
     controller.abort();
   }, UPSTREAM_TIMEOUT_MS);
   try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "X-API-Key": apiKey,
-      },
-      redirect: "manual",
-      signal: controller.signal,
-    });
+    const request = (async () => {
+      const upstream = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          "X-API-Key": apiKey,
+        },
+        redirect: "manual",
+        signal: controller.signal,
+      });
+      // Consume under the same deadline: a successful header is not a complete response.
+      const text = await upstream.text();
+      let body = text;
+      if (upstream.ok && isJsonResponse(upstream)) {
+        const json: unknown = JSON.parse(text);
+        const project = endpointProjector(key);
+        if (project) body = JSON.stringify(project(json));
+      }
+      return new Response(body || null, { status: upstream.status, statusText: upstream.statusText, headers: upstream.headers });
+    })();
+    const response = await Promise.race([
+      request,
+      new Promise<never>((_, reject) => controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true })),
+    ]);
     return { durationMs: Date.now() - startedAt, ok: true, response };
   } catch {
     return {
@@ -174,34 +190,6 @@ function logUpstreamFailure(context: PagesContext, endpointPath: string, failure
     ray: context.request.headers.get("cf-ray") ?? "",
     country: context.request.headers.get("cf-ipcountry") ?? "",
   }));
-}
-
-/**
- * Drops the parts of an upstream payload the app's own contract does not model
- * (see `_project.ts`). Streams the body straight through when the endpoint has
- * no projector, and falls back to forwarding it untouched if the payload is not
- * the JSON we expected — a projection is an optimisation, never a gate.
- */
-async function projectUpstreamBody(
-  context: PagesContext,
-  key: PharosVilleApiEndpointKey,
-  upstream: Response,
-): Promise<BodyInit | null> {
-  const project = endpointProjector(key);
-  if (!project || !upstream.ok || !isJsonResponse(upstream)) return upstream.body;
-  const text = await upstream.text();
-  try {
-    return JSON.stringify(project(JSON.parse(text)));
-  } catch {
-    console.error(JSON.stringify({
-      source: "pharosville-api-proxy",
-      event: "projection_skipped",
-      level: "warn",
-      endpointKey: key,
-      ray: context.request.headers.get("cf-ray") ?? "",
-    }));
-    return text;
-  }
 }
 
 export async function onRequest(context: PagesContext): Promise<Response> {
@@ -231,11 +219,14 @@ export async function onRequest(context: PagesContext): Promise<Response> {
 
   const cache = getEdgeCache();
   const cacheKey = buildPathCacheKey(url, CACHE_KEY_ORIGIN);
-  const cached = await cache?.match(cacheKey);
+  const cached = await cache?.match(cacheKey).catch((error) => {
+    reportEdgeCacheFailure("normal-read", error);
+    return undefined;
+  });
   if (cached) return withSecurityHeaders(cached, API_SECURITY_RESPONSE_HEADERS);
 
   const lastGoodCacheKey = buildLastGoodCacheKey(url, CACHE_KEY_ORIGIN);
-  const upstream = await fetchUpstream(buildUpstreamUrl(base, url), apiKey);
+  const upstream = await fetchUpstream(buildUpstreamUrl(base, url), apiKey, endpoint.key);
   if (!upstream.ok) {
     logUpstreamFailure(context, endpoint.path, upstream);
     const lastGood = await readLastGoodEdgeCache(cache, lastGoodCacheKey);
@@ -251,7 +242,7 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     if (lastGood) return staleLastGoodResponse(lastGood);
   }
 
-  const body = await projectUpstreamBody(context, endpoint.key, upstream.response);
+  const body = upstream.response.body;
   const response = prepareProxyResponseForCache(new Response(body, {
     status: upstream.response.status,
     statusText: upstream.response.statusText,

@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -29,6 +29,8 @@ describe("useApiQueryWithMeta", () => {
 
   afterEach(() => {
     mockedUseQuery.mockReset();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("narrowly tracks tracked fields to avoid unnecessary background updates", () => {
@@ -38,7 +40,7 @@ describe("useApiQueryWithMeta", () => {
         meta: {
           ageSeconds: 12,
           status: "fresh",
-          updatedAt: 1_700_000_000,
+          updatedAt: Math.floor(Date.now() / 1000) - 12,
         } satisfies ApiMeta,
       },
       error: null,
@@ -69,6 +71,30 @@ describe("useApiQueryWithMeta", () => {
       }),
     );
     expect(typeof result.current.refetch).toBe("function");
+  });
+
+  it("ages retained evidence on visible ticks, reassesses on return, and recovers", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_800_000_000_000);
+    const wrapped = { data: { data: {}, meta: { updatedAt: 1_800_000_000, ageSeconds: 0, status: "fresh" } },
+      error: new Error("offline"), isError: true, isLoading: false, isSuccess: false, refetch: vi.fn() };
+    mockedUseQuery.mockReturnValue(wrapped as unknown as ReturnType<typeof useQuery>);
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const { result, rerender, unmount } = renderHook(() => useApiQueryWithMeta(["fixture"], "/api/fixture", 1_000));
+    expect(result.current.meta?.status).toBe("fresh");
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(result.current.meta?.status).toBe("stale");
+    visibility.mockReturnValue("hidden");
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(result.current.meta?.ageSeconds).toBe(30);
+    visibility.mockReturnValue("visible");
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(result.current.meta?.ageSeconds).toBe(90);
+    wrapped.data.meta = { updatedAt: 1_800_000_090, ageSeconds: 0, status: "fresh" };
+    rerender();
+    expect(result.current.meta?.status).toBe("fresh");
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it.each(WORLD_ENDPOINT_KEYS)("derives %s query options from the endpoint registry", (endpointKey) => {

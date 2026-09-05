@@ -22,10 +22,21 @@ jobs:
         env:
           SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}
         run: node scripts/pharosville/check-security-headers.mjs --url "$SMOKE_UI_URL"
-      - name: Smoke live
+      - name: Smoke live with strict freshness
+        id: first-smoke
+        continue-on-error: true
         env:
           SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}
-        run: npm run smoke:live -- --url "$SMOKE_UI_URL"
+        run: npm run smoke:live -- --url "$SMOKE_UI_URL" --strict-freshness
+      # A single cadence hiccup should not page; two failed observations five
+      # minutes apart should. Deploy workflows retain their warning-only smoke.
+      - name: Confirm sustained canary failure
+        if: steps.first-smoke.outcome == 'failure'
+        env:
+          SMOKE_UI_URL: ${{ vars.SMOKE_UI_URL || 'https://pharosville.pharos.watch' }}
+        run: |
+          sleep 300
+          npm run smoke:live -- --url "$SMOKE_UI_URL" --strict-freshness
       # Proves the client-error pipe end to end: without this, /_log could 404
       # or 500 for months and nothing would notice, because the only callers
       # are browsers that have already failed and never report the failure to

@@ -450,6 +450,44 @@ describe("PharosVille API proxy", () => {
     expect(body._meta).toEqual({ updatedAt: 1_700_000_000, ageSeconds: 5, status: "fresh" });
   });
 
+  it.each(["stalled", "interrupted", "truncated"])("serves last-good after a %s projected body", async (kind) => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cache = new MemoryEdgeCache();
+    installEdgeCache(cache);
+    const url = "https://pharosville.pharos.watch/api/report-cards";
+    await cache.put(new Request("https://pharosville.pharos.watch/api/__last-good/api/report-cards"), Response.json({ cards: [] }, {
+      headers: { "x-pharosville-last-good-stored-at": String(Math.floor(Date.now() / 1000)), "x-data-age": "5" },
+    }));
+    const stream = new ReadableStream({ start(controller) {
+      if (kind === "interrupted") controller.error(new Error("body interrupted"));
+    } });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(kind === "truncated" ? '{"cards":[' : stream, {
+      headers: { "content-type": "application/json" },
+    }));
+    const pending = onRequest(makeContext(url));
+    if (kind === "stalled") await vi.advanceTimersByTimeAsync(8_000);
+    const response = await pending;
+    expect(response.status).toBe(200);
+    expect(response.headers.get("warning")).toContain("110");
+    await expect(response.json()).resolves.toEqual({ cards: [] });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("continues upstream after a normal cache read rejection and reports write rejection", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const waiting: Promise<unknown>[] = [];
+    installEdgeCache({ match: async () => { throw new Error("cache unavailable"); }, put: async () => { throw new Error("cache unavailable"); } } as unknown as MemoryEdgeCache);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ ok: true }));
+    const response = await onRequest(makeContext("https://pharosville.pharos.watch/api/chains", { waitUntilPromises: waiting }));
+    await Promise.all(waiting);
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(log.mock.calls.flat().join(" ")).toContain("normal-read");
+    expect(log.mock.calls.flat().join(" ")).toContain("normal-write");
+    expect(log.mock.calls.flat().join(" ")).not.toContain("test-proxy-key");
+  });
+
   describe("last-good fallback", () => {
     const SHORT_TTL_URL = "https://pharosville.pharos.watch/api/stablecoins";
     const LAST_GOOD_URL = "https://pharosville.pharos.watch/api/__last-good/api/stablecoins";
@@ -630,8 +668,7 @@ describe("PharosVille API proxy", () => {
       await Promise.all(waitUntilPromises);
 
       // Still forwarded live — the edge does not judge a body it was asked to relay.
-      expect(served.status).toBe(200);
-      await expect(served.text()).resolves.toBe('{"peggedAssets":[');
+      expect(served.status).toBe(502);
       await expect(cache.match(new Request(LAST_GOOD_URL))).resolves.toBeUndefined();
 
       cache.responses.delete(SHORT_TTL_URL);
@@ -654,7 +691,7 @@ describe("PharosVille API proxy", () => {
     });
   });
 
-  it("forwards the payload untouched when it is not the JSON the projector expects", async () => {
+  it("rejects malformed JSON instead of forwarding a broken projected payload", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response("not json at all", {
         status: 200,
@@ -664,8 +701,6 @@ describe("PharosVille API proxy", () => {
 
     const response = await onRequest(makeContext("https://preview.example.com/api/report-cards"));
 
-    // A projection is an optimisation, never a gate.
-    expect(response.status).toBe(200);
-    await expect(response.text()).resolves.toBe("not json at all");
+    expect(response.status).toBe(502);
   });
 });
