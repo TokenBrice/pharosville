@@ -12,6 +12,17 @@ afterEach(() => {
 });
 
 describe("useWorldTimeControls", () => {
+  it("sets dusk from a visible input and resets the effective time to local", () => {
+    const { result } = renderHook(() => useWorldTimeControls({ requestPaint: vi.fn() }));
+    act(() => result.current.setSessionHour(18.25));
+    expect(result.current.wallClockHour).toBe(18.25);
+    act(() => result.current.resetLocalTime());
+    expect(result.current.manualTimeOverrideHour).toBeNull();
+    expect(result.current.nightMode).toBe(false);
+    expect(globalThis.__pharosVilleTestWallClockHour).toBeUndefined();
+    const now = new Date();
+    expect(result.current.wallClockHour).toBeCloseTo(now.getHours() + now.getMinutes() / 60, 1);
+  });
   it("seeds night mode and a clamped manual time override", async () => {
     const requestPaint = vi.fn();
     const { result } = renderHook(() => useWorldTimeControls({

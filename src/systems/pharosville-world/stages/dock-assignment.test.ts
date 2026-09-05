@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { overCapacityWorldFixture } from "../../../__fixtures__/over-capacity-world";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
@@ -19,6 +20,8 @@ import { isNavigableWaterTile, PREFERRED_DOCK_TILES } from "../../world-layout";
 import { gardenWaterPlateContainsTile } from "../../projection";
 import {
   buildDockAssignmentStage,
+  berthFootprint,
+  berthsOverlap,
   resetHeldMoorings,
 } from "./dock-assignment";
 import { resetHeldShipPlacements } from "./ship-placement";
@@ -47,6 +50,44 @@ describe("dock-assignment unique tier mooring placement", () => {
   beforeEach(() => {
     resetHeldShipPlacements();
     resetHeldMoorings();
+  });
+
+  it("prefers separated local envelopes when the cove has room", () => {
+    const world = buildPharosVilleWorld(denseWorldInputs());
+    const dock = world.docks.find((dock) => dock.chainId === "ethereum")!;
+    const source = world.ships.find((ship) => ship.visual.scale < 0.8)!;
+    const fleet = ["first", "second"].map((id) => ({
+      ...source, id,
+      chainPresence: [{ chainId: dock.chainId, currentUsd: 1_000, share: 1, hasRenderedDock: true }],
+    }));
+    const assign = () => {
+      resetHeldMoorings();
+      return buildDockAssignmentStage(fleet, [dock]).ships;
+    };
+    const ships = assign();
+    const footprints = ships.map((ship) => berthFootprint(ship.dockVisits[0]!.mooringTile, ship, dock));
+    expect(berthsOverlap(footprints[0]!, footprints[1]!)).toBe(false);
+    expect(assign().map((ship) => ship.dockVisits)).toEqual(ships.map((ship) => ship.dockVisits));
+  });
+
+  it.each([320, 321])("assigns the entire %i-ship fleet without reserving every possible visit forever", (count) => {
+    const world = overCapacityWorldFixture();
+    resetHeldMoorings();
+    const assigned = buildDockAssignmentStage(world.ships.slice(0, count), world.docks).ships;
+    const keys = new Set<string>();
+    for (const ship of assigned) {
+      const margin = gardenShipWaterMarginTiles(gardenShipVisualScale(ship.visual.scale), GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull]);
+      for (const visit of ship.dockVisits) {
+        const key = `${visit.mooringTile.x}.${visit.mooringTile.y}`;
+        expect(keys.has(key), key).toBe(false);
+        keys.add(key);
+        expect(isGardenShipWater(visit.mooringTile, margin)).toBe(true);
+      }
+    }
+    expect(assigned).toHaveLength(count);
+    expect(keys.size).toBeGreaterThan(count);
+    const held = buildDockAssignmentStage(assigned, world.docks).ships;
+    expect(held.map((ship) => ship.dockVisits)).toEqual(assigned.map((ship) => ship.dockVisits));
   });
 
   it("moors unique-tier ships with flagship-tier barrier clearance (>= 3.3)", () => {
@@ -189,7 +230,7 @@ describe("dock-assignment held berths follow their dock", () => {
     homeDockChainId: "driftchain",
     riskTile: { x: 40, y: 40 },
     squadRole: null,
-    visual: { sizeTier: "major" },
+    visual: { sizeTier: "major", hull: "treasury-galleon", scale: 1 },
     chainPresence: [{ chainId: "driftchain", currentUsd: 1_000_000, share: 1, hasRenderedDock: true }],
   }] as unknown as ShipNode[];
 

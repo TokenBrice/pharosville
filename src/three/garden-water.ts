@@ -463,6 +463,7 @@ export const VERTEX_SHADER = /* glsl */ `
   uniform float uBreath;
   uniform float uStorm;
   uniform sampler2D uRegionField;
+  uniform sampler2D uRegionDistance;
   uniform vec4 uRegionFlow[${SEA_REGION_COUNT}];
   uniform vec4 uRegionSwell[${SEA_REGION_COUNT}];
   uniform vec4 uRegionTransform;
@@ -484,9 +485,14 @@ export const VERTEX_SHADER = /* glsl */ `
     vec2 regionUv = (waterPosition - uRegionTransform.xy) * uRegionTransform.zw;
     vec4 regionSample = texture2D(uRegionField, regionUv);
     int regionId = int(regionSample.r * 255.0 + 0.5);
+    // IDs remain categorical; only their surface deviations fade at the seam.
+    float boundaryDistance = texture2D(uRegionDistance, regionUv).r;
+    float regionBlend = smoothstep(0.0, 0.84, boundaryDistance);
     vec4 regionFlow = uRegionFlow[regionId];
-    float regionSwell = uRegionSwell[regionId].x;
-    float regionChop = uRegionSwell[regionId].y * (1.0 + uWindSpeed * 0.3 + uStorm * 0.25);
+    regionFlow.z *= regionBlend;
+    float regionSwell = mix(0.5, uRegionSwell[regionId].x, regionBlend);
+    float regionChop = mix(1.0, uRegionSwell[regionId].y, regionBlend)
+      * (1.0 + uWindSpeed * 0.3 + uStorm * 0.25);
 
     vec2 baseDir = normalize(vec2(0.9229, 0.3851));
     vec2 phaseWindDir = normalize(mix(-uWindDir, -regionFlow.xy, regionFlow.z));
@@ -674,7 +680,10 @@ ${gardenHeightFogGlsl()}
 
     vec4 surfaceRegionSample = texture2D(uRegionField, vRegionUv);
     int regionId = int(surfaceRegionSample.r * 255.0 + 0.5);
+    float boundaryDistance = texture2D(uRegionDistance, vRegionUv).r;
+    float regionBlend = smoothstep(0.0, 0.84, boundaryDistance);
     vec4 regionFlow = uRegionFlow[regionId];
+    regionFlow.z *= regionBlend;
     vec4 regionWave = uRegionSwell[regionId];
     vec2 bodyFlowDir = normalize(mix(uWindDir, regionFlow.xy, regionFlow.z));
     vec2 bodyAcrossDir = vec2(-bodyFlowDir.y, bodyFlowDir.x);
@@ -718,7 +727,7 @@ ${gardenHeightFogGlsl()}
     blendedNormal = normalize(mix(
       vec3(0.0, 0.0, 1.0),
       blendedNormal,
-      regionFlow.w
+      regionFlow.w * regionBlend
     ));
     blendedNormal = normalize(mix(blendedNormal, vec3(0.0, 0.0, 1.0), harborCalm * 0.75));
     float camDistance = distance(cameraPosition, vWorldPosition);
@@ -754,7 +763,7 @@ ${gardenHeightFogGlsl()}
       signatureNormal += bodyAcrossDir * cos(phase) * 0.035;
       signatureTone = sin(phase) * 0.52;
     }
-    surfaceNormal = normalize(surfaceNormal + vec3(signatureNormal * detailFalloff, 0.0));
+    surfaceNormal = normalize(surfaceNormal + vec3(signatureNormal * detailFalloff * regionBlend, 0.0));
 
     vec2 normalDerivative = fwidth(blendedNormal.xy);
     float glintDetailWeight = 1.0 / (
@@ -952,32 +961,29 @@ ${gardenHeightFogGlsl()}
     float seaReflectivity = 1.0;
 
     {
-      float boundaryDistance = texture2D(uRegionDistance, vRegionUv).r;
-
       vec3 regionTint = uRegionColor[regionId];
       float regionDepth = uRegionParams[regionId].x;
       float regionFoam = uRegionParams[regionId].y;
       float regionReflect = uRegionParams[regionId].z;
       float regionStrength = uRegionParams[regionId].w;
 
-      seaReflectivity = regionReflect;
+      seaReflectivity = mix(1.0, regionReflect, regionBlend);
 
       float waterLuma = dot(waterColor, vec3(0.2126, 0.7152, 0.0722));
       float tintLuma = max(dot(regionTint, vec3(0.2126, 0.7152, 0.0722)), 0.0001);
       vec3 regionColor = regionTint * (waterLuma / tintLuma);
 
-      float blend = smoothstep(0.0, 0.84, boundaryDistance);
-      waterColor = mix(waterColor, regionColor, regionStrength * blend);
-      waterColor *= mix(1.0, regionDepth, blend);
-      float localShelf = regionWave.w * blend * (
+      waterColor = mix(waterColor, regionColor, regionStrength * regionBlend);
+      waterColor *= mix(1.0, regionDepth, regionBlend);
+      float localShelf = regionWave.w * regionBlend * (
         0.72 + gardenValueNoise(vec2(bodyAlong * 0.07, bodyAcross * 0.12)) * 0.28
       );
       waterColor = mix(waterColor, uShallowColor, localShelf * (0.24 - uNight * 0.07));
 
-      waterColor *= 1.0 + signatureTone * blend * 0.035;
+      waterColor *= 1.0 + signatureTone * regionBlend * 0.035;
       if (regionId == ${SEA_REGION_ID.wreck}) {
         float silt = gardenFbm(vWaterPosition * 0.052 + vec2(4.2, -7.8));
-        waterColor *= mix(0.84, 0.96, silt) * mix(1.0, 0.94, blend);
+        waterColor *= mix(1.0, mix(0.84, 0.96, silt) * 0.94, regionBlend);
       }
 
       if (regionId == ${SEA_REGION_ID.danger}) {
@@ -987,9 +993,9 @@ ${gardenHeightFogGlsl()}
         vec2 rainCell = floor(rainUv);
         vec2 rainLocal = fract(rainUv);
         float rainSeed = gardenHash(rainCell + vec2(17.0, 43.0));
-        float rainLine = smoothstep(0.055, 0.0, abs(rainLocal.x - rainSeed));
+        float rainLine = (1.0 - smoothstep(0.0, 0.055, abs(rainLocal.x - rainSeed)));
         float rainDash = smoothstep(0.62, 0.98, fract(rainLocal.y + rainSeed));
-        float rain = rainLine * rainDash * blend;
+        float rain = rainLine * rainDash * regionBlend;
         waterColor = mix(
           waterColor,
           uEnvHorizonColor,
@@ -1000,14 +1006,14 @@ ${gardenHeightFogGlsl()}
       waterColor = mix(
         waterColor,
         mix(uEnvHorizonColor, uEnvZenithColor, 0.35),
-        clamp((regionReflect - 1.0) * 0.22, 0.0, 0.3) * blend * uEnvStrength
+        clamp((regionReflect - 1.0) * 0.22, 0.0, 0.3) * regionBlend * uEnvStrength
       );
 
       vec3 boundaryCharacter = uRegionBoundary[regionId];
       float boundaryEnabled = smoothstep(0.001, 0.02, boundaryCharacter.x);
       float boundaryBand = (
         1.0 - smoothstep(0.0, max(0.001, boundaryCharacter.x), boundaryDistance)
-      ) * boundaryEnabled;
+      ) * boundaryEnabled * regionBlend;
       float boundaryNoise = gardenValueNoise(
         vec2(bodyAlong * 0.035, bodyAcross * 0.025) + float(regionId) * 7.31
       );
@@ -1055,7 +1061,7 @@ ${gardenHeightFogGlsl()}
         waterColor = mix(
           waterColor,
           uHighlightColor,
-          clamp(caps * regionFoam * blend, 0.0, capMaximum) * uDetail
+          clamp(caps * regionFoam * regionBlend, 0.0, capMaximum) * uDetail
         );
       }
     }
@@ -1240,8 +1246,10 @@ ${gardenHeightFogGlsl()}
 
     {
       vec2 fromTower = vWaterPosition - uBeaconPosition;
-      float alongColumn = fromTower.y;
-      float acrossColumn = abs(fromTower.x);
+      // Camera-facing +world X/+world Z is +local X/-local Y on the water.
+      vec2 columnDirection = normalize(vec2(1.0, -1.0));
+      float alongColumn = dot(fromTower, columnDirection);
+      float acrossColumn = abs(dot(fromTower, vec2(-columnDirection.y, columnDirection.x)));
       float columnWidth = 1.6 + max(0.0, alongColumn) * 0.10;
       float column = smoothstep(0.0, 1.5, alongColumn)
         * (1.0 - smoothstep(16.0, 44.0, alongColumn))

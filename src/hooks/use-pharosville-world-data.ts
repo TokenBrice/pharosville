@@ -74,23 +74,6 @@ function resolveRouteMode(input: {
   return "world";
 }
 
-// Stable identity tag used by the world-input signature: TanStack Query
-// reuses the same `data` reference across refetches when content hasn't
-// changed, so this WeakMap assigns each unique reference a monotonic id.
-// Result: signature changes iff payload reference changes (which iff content
-// changed). `undefined` payloads collapse to "_".
-const refIdMap = new WeakMap<object, number>();
-let nextRefId = 0;
-function refIdSignature(value: unknown): string {
-  if (value === null || value === undefined) return "_";
-  if (typeof value !== "object") return String(value);
-  const known = refIdMap.get(value);
-  if (known !== undefined) return String(known);
-  nextRefId += 1;
-  refIdMap.set(value, nextRefId);
-  return String(nextRefId);
-}
-
 /**
  * How long the enrichment feeds get to arrive alongside the essentials before
  * the harbour opens without them. Long enough that the common case (all six
@@ -208,27 +191,6 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
 
   const completeWorldRef = useRef<PharosVilleWorldModel | null>(null);
 
-  // Single content-signature dependency (HOOKS F5): the world memo's prior
-  // 14-item dep array was hard to audit; we collapse it into a stable hash of
-  // every input that buildPharosVilleWorld() actually reads. TanStack Query
-  // returns reference-stable `data` across refetches when content hasn't
-  // changed, so the payload identity portion of the signature reuses cheaply.
-  // The staleness flags are booleans (1/0 each, joined). When this signature
-  // string equals the prior render's, the memo hits.
-  const worldInputSignature = (
-    `${routeMode}`
-    + `|${canPublishCurrentPayloads ? 1 : 0}|${currentHasCompleteData ? 1 : 0}`
-    + `|${stablecoinsStale ? 1 : 0}${chainsStale ? 1 : 0}${stabilityStale ? 1 : 0}`
-    + `${pegSummaryStale ? 1 : 0}${stressStale ? 1 : 0}${reportCardsStale ? 1 : 0}${mintBurnStale ? 1 : 0}`
-    + `|${refIdSignature(publishedData.stablecoins)}`
-    + `|${refIdSignature(publishedData.chains)}`
-    + `|${refIdSignature(publishedData.stability)}`
-    + `|${refIdSignature(publishedData.pegSummary)}`
-    + `|${refIdSignature(publishedData.stress)}`
-    + `|${refIdSignature(publishedData.reportCards)}`
-    + `|${refIdSignature(publishedData.mintBurn)}`
-  );
-
   const world = useMemo<PharosVilleWorldModel>(() => {
     // Hold the last complete "world"-mode build during transient incomplete passes.
     if (!canPublishCurrentPayloads && completeWorldRef.current) {
@@ -257,9 +219,12 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
       completeWorldRef.current = built;
     }
     return built;
-    // worldInputSignature subsumes every input above; the lint rule can't see through it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [worldInputSignature]);
+  }, [
+    canPublishCurrentPayloads, currentHasCompleteData, routeMode,
+    publishedData.stablecoins, publishedData.chains, publishedData.stability,
+    publishedData.pegSummary, publishedData.stress, publishedData.reportCards, publishedData.mintBurn,
+    stablecoinsStale, chainsStale, stabilityStale, pegSummaryStale, stressStale, reportCardsStale, mintBurnStale,
+  ]);
 
   const queryClient = useQueryClient();
   const refetchAll = useCallback(() => {

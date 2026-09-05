@@ -63,7 +63,7 @@ export const SEA_SIGN_STELE = {
 /**
  * Stele world scale per step: inhabited world first, whole-map chart second.
  */
-export const SEA_SIGN_SCALE_STEPS = [1, 3.2] as const;
+export const SEA_SIGN_SCALE_STEPS = [1, 2.6] as const;
 
 /**
  * Nominal band edges, in zoom, one per gap in the ladder: `[i]` is the zoom
@@ -322,11 +322,17 @@ export interface SeaSignStele extends SeaSignSite {
   label: string;
 }
 
+// Areas are replaced with the world. Siting is static; only its screen
+// projection needs to follow the camera on each frame.
+const stelesByAreas = new WeakMap<readonly SeaSignArea[], readonly Readonly<SeaSignStele>[]>();
+
 /**
  * Every stele the world draws, in the order the renderer builds its specs —
  * which is the order the separation nudge above depends on.
  */
-export function seaSignSteles(areas: readonly SeaSignArea[]): SeaSignStele[] {
+export function seaSignSteles(areas: readonly SeaSignArea[]): readonly Readonly<SeaSignStele>[] {
+  const cached = stelesByAreas.get(areas);
+  if (cached) return cached;
   const named: { body: SeaBodyName; detailId: string; label: string }[] = [];
   for (const area of areas) {
     const body = seaBodyForArea(area);
@@ -339,5 +345,6 @@ export function seaSignSteles(areas: readonly SeaSignArea[]): SeaSignStele[] {
     const site = siteByBody.get(entry.body);
     if (site) steles.push({ ...entry, x: site.x, z: site.z });
   }
+  stelesByAreas.set(areas, steles);
   return steles;
 }

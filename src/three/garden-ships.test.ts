@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
   BoxGeometry,
   CanvasTexture,
@@ -11,9 +12,9 @@ import {
   Object3D,
   Quaternion,
 } from "three";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GARDEN_HULL_SILHOUETTES } from "../systems/garden-observatory-slice";
-import { gardenShipWaterMarginTiles } from "../systems/garden-water-exclusion";
+import { gardenShipWaterBeamTiles, gardenShipWaterMarginTiles } from "../systems/garden-water-exclusion";
 import { SHIP_HULL_FORM_SPAN } from "../systems/world-types";
 import type { ShipHull, ShipNode, ShipSizeTier } from "../systems/world-types";
 import {
@@ -35,8 +36,8 @@ import {
 } from "./garden-ships";
 import { gardenFleetAttention } from "./garden-fleet-batch";
 import type { GardenRippleRingEmitter } from "./garden-water-contract";
-import { GARDEN_MODEL_MANIFEST } from "./garden-models";
-import type { GardenShipGeometryCache } from "./garden-util";
+import { createGardenModelLibrary, GARDEN_MODEL_MANIFEST } from "./garden-models";
+import { disposeThreeObjectTree, type GardenShipGeometryCache } from "./garden-util";
 
 function makeCache(): GardenShipGeometryCache {
   return {
@@ -81,6 +82,28 @@ describe("createShip vertex shading", () => {
       return mesh.geometry.getAttribute("color") && !material.vertexColors;
     });
     expect(keel).toBeDefined();
+  });
+
+  it("shares one cached shield geometry across badge layers and ships, disposing it once", () => {
+    const cache = makeCache();
+    const root = new Group();
+    for (const id of ["shield-a", "shield-b"]) {
+      const node = ship(id, "treasury-galleon", "titan");
+      node.reportCard = { overallGrade: "A" } as NonNullable<ShipNode["reportCard"]>;
+      const visual = createShip(node, { x: 0, y: 0 }, true, cache);
+      root.add(visual.root);
+      const shield = visual.root.getObjectByName("ship-bluechip-shield") as Mesh;
+      const mark = visual.root.getObjectByName("ship-bluechip-shield-mark") as Mesh;
+      expect(shield.geometry).toBe(cache.geometries.get("bluechip-shield"));
+      expect(mark.geometry).toBe(shield.geometry);
+      expect(mark.material).not.toBe(shield.material);
+      expect(mark.scale.x).toBe(0.42);
+      expect(shield.scale.x).toBe(1);
+    }
+    const geometry = cache.geometries.get("bluechip-shield")!;
+    const dispose = vi.spyOn(geometry, "dispose");
+    disposeThreeObjectTree(root);
+    expect(dispose).toHaveBeenCalledTimes(1);
   });
 
   it("keeps report-card fittings on a hero when its model attaches", () => {
@@ -191,6 +214,37 @@ function heroFixture(id: "garden-hero-titan" | "garden-hero-heritage"): Group {
 }
 
 describe("attachGardenHeroModel", () => {
+  it("keeps the real Tether GLB's normalized timber colors through the rendered merge", async () => {
+    const visual = build(ship("usdt-tether", "treasury-galleon", "titan"));
+    const asset = GARDEN_MODEL_MANIFEST[visual.heroModelId!].artifact.url.split("?")[0];
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array(readFileSync(`public${asset}`)))));
+    try {
+      const model = await createGardenModelLibrary().load(visual.heroModelId!);
+      const wood = model.getObjectByName("wood-hull") as Mesh;
+      const source = wood.geometry.getAttribute("color");
+      const indices = wood.geometry.index!;
+      const tint = (wood.material as MeshStandardMaterial).color.clone().multiply(visual.heroHullTint);
+      attachGardenHeroModel(visual, model);
+      const merged = model.getObjectByName("hero-merged-solid") as Mesh;
+      const color = merged.geometry.getAttribute("color");
+      let error = 0;
+      for (let vertex = 0; vertex < indices.count; vertex += 1) {
+        const original = indices.getX(vertex);
+        error = Math.max(error,
+          Math.abs(color.getX(vertex) - source.getX(original) * tint.r),
+          Math.abs(color.getY(vertex) - source.getY(original) * tint.g),
+          Math.abs(color.getZ(vertex) - source.getZ(original) * tint.b));
+      }
+      expect(error).toBeLessThan(1e-7);
+      const normals = merged.geometry.getAttribute("normal");
+      for (let vertex = 0; vertex < normals.count; vertex += 1) {
+        expect(Math.hypot(normals.getX(vertex), normals.getY(vertex), normals.getZ(vertex))).toBeCloseTo(1, 3);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("hides the procedural hull, mounts the GLB, and re-homes the identity sail", () => {
     const visual = build(ship("t", "treasury-galleon", "titan"));
     const identitySail = visual.identitySail;
@@ -220,6 +274,42 @@ describe("attachGardenHeroModel", () => {
     const before = visual.heroHideable.map((part) => part.visible);
     attachGardenHeroModel(visual, heroFixture("garden-hero-titan"));
     expect(visual.heroHideable.map((part) => part.visible)).toEqual(before);
+  });
+
+  it("preserves source material response in the existing merged solid draw", () => {
+    const visual = build(ship("t", "treasury-galleon", "titan"));
+    const model = heroFixture("garden-hero-titan");
+    const sources = model.children.filter((child): child is Mesh => child instanceof Mesh);
+    const responses = [[0.84, 0], [0.9, 0.35]] as const;
+    sources.forEach((mesh, index) => {
+      const material = mesh.material as MeshStandardMaterial;
+      [material.roughness, material.metalness] = responses[index]!;
+    });
+    attachGardenHeroModel(visual, model);
+    const merged = model.getObjectByName("hero-merged-solid") as Mesh;
+    const surface = merged.geometry.getAttribute("aHeroSurface");
+    expect(surface.array).toBeInstanceOf(Uint8Array);
+    expect(surface.normalized).toBe(true);
+    let vertex = 0;
+    sources.forEach((mesh, index) => {
+      const count = mesh.geometry.index?.count ?? mesh.geometry.getAttribute("position").count;
+      for (let end = vertex + count; vertex < end; vertex += 1) {
+        expect(surface.getX(vertex)).toBeCloseTo(responses[index]![0], 2);
+        expect(surface.getY(vertex)).toBeCloseTo(responses[index]![1], 2);
+      }
+      expect((mesh.material as MeshStandardMaterial).roughness).toBe(responses[index]![0]);
+    });
+    expect(surface.count).toBe(vertex);
+    const shader = {
+      uniforms: {},
+      vertexShader: "#include <common>\n#include <begin_vertex>",
+      fragmentShader: "#include <common>\n#include <roughnessmap_fragment>\n#include <metalnessmap_fragment>\n#include <emissivemap_fragment>",
+    };
+    (merged.material as MeshStandardMaterial).onBeforeCompile(shader as never, null as never);
+    expect(shader.vertexShader).toContain("vHeroSurface = aHeroSurface");
+    expect(shader.fragmentShader).toContain("roughnessFactor *= vHeroSurface.x");
+    expect(shader.fragmentShader).toContain("metalnessFactor *= vHeroSurface.y");
+    expect(model.children.filter((child) => child instanceof Mesh)).toHaveLength(1);
   });
 
   it("carries restrained wabi value and age patina onto hero wood, never sails", () => {
@@ -343,7 +433,7 @@ describe("S1 curved sheer hull", () => {
 });
 
 describe("W5.3 batched silhouette form", () => {
-  it("keeps every family's maximum deformed x reach inside its water clearance", () => {
+  it("keeps every family's maximum deformed length and beam inside its water clearance", () => {
     for (const silhouette of GARDEN_HULL_SILHOUETTES) {
       const source = createFleetBatchGeometry(silhouette);
       source.hull.computeBoundingBox();
@@ -353,6 +443,9 @@ describe("W5.3 batched silhouette form", () => {
       const clearanceTiles = gardenShipWaterMarginTiles(1, silhouette);
 
       expect(clearanceTiles, silhouette).toBeGreaterThanOrEqual(requiredTiles);
+      const undeformedBeam = Math.max(Math.abs(box.min.z), Math.abs(box.max.z));
+      const requiredBeamTiles = undeformedBeam * (1 + SHIP_HULL_FORM_SPAN) / Math.SQRT2;
+      expect(gardenShipWaterBeamTiles(1, silhouette), silhouette).toBeGreaterThanOrEqual(requiredBeamTiles);
       source.hull.dispose();
       source.sails.dispose();
     }

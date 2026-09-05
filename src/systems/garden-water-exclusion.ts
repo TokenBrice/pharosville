@@ -230,6 +230,22 @@ const GARDEN_HULL_MAX_X_REACH_WORLD: Record<GardenHullSilhouette, number> = {
 // Bob/sway and Chaikin path-smoothing allowance on top of the hull plan.
 const SWAY_ALLOWANCE_TILES = 0.4;
 
+// Maximum |z| of the same merged hulls. Berths know the vessel's heading,
+// so slender craft need not reserve their whole length on both axes.
+const GARDEN_HULL_MAX_Z_REACH_WORLD: Record<GardenHullSilhouette, number> = {
+  bezaisen: 2.141,
+  kobaya: 0.869,
+  twinhull: 1.631,
+  takasebune: 1.550,
+  junk: 1.441,
+  scow: 2.390,
+};
+
+export function gardenShipWaterBeamTiles(visualScale: number, silhouette: GardenHullSilhouette): number {
+  return GARDEN_HULL_MAX_Z_REACH_WORLD[silhouette] * (1 + SHIP_HULL_FORM_SPAN)
+    * Math.max(0.4, visualScale || 1) / TILE_TO_WORLD + SWAY_ALLOWANCE_TILES;
+}
+
 /**
  * Water margin (tiles) a ship needs beyond every obstacle so its hull never
  * overlaps rock at any bob/sway: the ship's visual half-length plus a small

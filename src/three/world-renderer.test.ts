@@ -3,6 +3,7 @@ import {
   BoxGeometry,
   BufferGeometry,
   DataTexture,
+  DirectionalLight,
   Color,
   Group,
   InstancedMesh,
@@ -376,6 +377,8 @@ const emptyLogoAssets: ThreeLogoAssets = {
 vi.mock("three", async (importOriginal) => {
   const actual = await importOriginal<typeof import("three")>();
   class WebGLRenderer {
+    readonly domElement: HTMLCanvasElement;
+    readonly capabilities = { maxSamples: 4 };
     autoClear = true;
     clear = vi.fn();
     compile = vi.fn(() => new Set());
@@ -418,7 +421,8 @@ vi.mock("three", async (importOriginal) => {
     toneMapping = 0;
     toneMappingExposure = 1;
 
-    constructor() {
+    constructor({ canvas }: { canvas: HTMLCanvasElement }) {
+      this.domElement = canvas;
       rendererHarness.instances.push(this);
     }
   }
@@ -862,6 +866,31 @@ describe("Three world renderer lifecycle", () => {
 
     renderer.dispose();
     expect(post.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes the shadow sampler on a cold constrained start and restores recovery shadows", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    const cold = renderer.render(rendererFrame(world, "constrained"));
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    const light = scene.children.find((object) => object instanceof DirectionalLight) as DirectionalLight;
+    expect(light).toBeDefined();
+    expect(light.shadow.map).toBeNull();
+    expect(light.castShadow).toBe(false);
+    expect(cold.shadowMapSize).toBe(0);
+
+    const recovery = renderer.render(rendererFrame(world, "recovery", { timeSeconds: 2 }));
+    expect(light.castShadow).toBe(true);
+    expect(light.shadow.needsUpdate).toBe(true);
+    expect(recovery.shadowMapSize).toBe(768);
+
+    renderer.render(rendererFrame(world, "constrained", { timeSeconds: 3 }));
+    expect(light.castShadow).toBe(false);
+    expect(light.shadow.intensity).toBe(0);
+    renderer.dispose();
   });
 
   it("keeps N8AO textures cold at the landing and whole-map framings", () => {

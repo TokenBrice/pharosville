@@ -1,3 +1,5 @@
+import { parseApiMeta } from "./api";
+import { isRenderableWorldPayload } from "./world-payload-guard";
 import { classifyFreshnessRatio } from "@shared/lib/status-thresholds";
 import type { ApiMeta } from "@shared/types/api-meta";
 import type { PharosVilleApiEndpointKey } from "@shared/types/pharosville-endpoint-keys";
@@ -17,9 +19,9 @@ import type { PharosVilleApiEndpointKey } from "@shared/types/pharosville-endpoi
  * that through the library would have meant a custom serialise/deserialise pair
  * anyway, on top of a dependency and its own restore lifecycle.
  *
- * VALIDATION SITS ON THE WRITE SIDE. Payloads are checked against the shared
+ * FULL SCHEMA VALIDATION SITS ON THE WRITE SIDE. Payloads are checked against the shared
  * Zod contract before they are allowed into the store, so nothing unvalidated
- * can ever be restored. That is deliberately not a read-time check: the
+ * can be written. Reads additionally check critical shape and finite values; the
  * contract module pulls Zod and every payload schema, and `src/lib/api.ts`
  * documents at length why that must stay off the world's critical path. The
  * validation therefore runs where `auditApiPayloadContract` already runs —
@@ -124,34 +126,34 @@ export function deriveRestoredMeta(
   // Without meta the only timestamp we have is when this browser saw the body.
   // That understates age, which is why the warning below still applies.
   const updatedAt = storedMeta?.updatedAt ?? Math.floor(storedAt / 1000);
-  const ageSeconds = Math.max(0, Math.floor(nowMs / 1000) - updatedAt);
+  const ageSeconds = Math.max(
+    0,
+    Math.floor(nowMs / 1000) - updatedAt,
+    (storedMeta?.ageSeconds ?? 0) + Math.max(0, Math.floor((nowMs - storedAt) / 1000)),
+  );
   const classified = classifyFreshnessRatio(ageSeconds / Math.max(1, metaMaxAgeSec));
 
   return {
     updatedAt,
     ageSeconds,
-    status: classified === "fresh" ? "degraded" : classified,
+    status: storedMeta?.status === "stale" ? "stale" : classified === "fresh" ? "degraded" : classified,
     warning: RESTORED_WARNING,
     ...(storedMeta?.dependencies !== undefined ? { dependencies: storedMeta.dependencies } : {}),
   };
 }
 
-/**
- * Re-age a restored payload's meta at read time. {@link deriveRestoredMeta}
- * runs once, at restore; if every refetch after it fails the app keeps serving
- * that same restored body, and its age would otherwise stay frozen at whatever
- * it was when the page loaded. Recomputing on read keeps the age growing (and
- * lets the classification cross into `stale`) for as long as the outage lasts.
- * Anything that is not a restored payload is returned untouched, identity
- * included.
- */
+/** Re-age retained live and restored evidence without upgrading upstream degradation. */
 export function refreshRestoredMeta(
   meta: ApiMeta | null,
   metaMaxAgeSec: number,
   nowMs: number = Date.now(),
 ): ApiMeta | null {
-  if (!meta || meta.warning !== RESTORED_WARNING) return meta;
-  return deriveRestoredMeta(meta, meta.updatedAt * 1000, metaMaxAgeSec, nowMs);
+  if (!meta) return null;
+  const ageSeconds = Math.max(meta.ageSeconds, Math.floor(nowMs / 1000) - meta.updatedAt, 0);
+  const classified = classifyFreshnessRatio(ageSeconds / Math.max(1, metaMaxAgeSec));
+  const status = meta.status === "stale" || classified === "stale" ? "stale"
+    : meta.status === "degraded" || classified === "degraded" ? "degraded" : "fresh";
+  return ageSeconds === meta.ageSeconds && status === meta.status ? meta : { ...meta, ageSeconds, status };
 }
 
 /**
@@ -191,7 +193,8 @@ export function readPersistedPayload<T>(
   // A clock that moved backwards makes the age unknowable, so treat it as expired.
   const age = nowMs - entry.storedAt;
   if (age > MAX_AGE_MS || age < -MAX_AGE_MS) return discard(storage, endpointKey);
-  if (entry.data === undefined || entry.data === null) return discard(storage, endpointKey);
+  if (!isRenderableWorldPayload(endpointKey, entry.data)) return discard(storage, endpointKey);
+  if (entry.meta != null && !parseApiMeta(entry.meta)) return discard(storage, endpointKey);
 
   return {
     data: entry.data as T,
@@ -255,7 +258,7 @@ async function validateAndPersist(
   const { PHAROSVILLE_API_CONTRACT } = await import("@shared/lib/pharosville-api-contract");
   const schema = PHAROSVILLE_API_CONTRACT[endpointKey]?.schema;
   if (!schema || !schema.safeParse(data).success) {
-    clearPersistedPayload(endpointKey);
+    lastPersistedAt.delete(endpointKey);
     return;
   }
   if (!writePersistedPayload(endpointKey, data, meta, nowMs)) {

@@ -110,14 +110,37 @@ describe("createGardenModelLibrary", () => {
     vi.stubGlobal("fetch", request);
     const library = createGardenModelLibrary();
 
-    for (const id of ["garden-lighthouse-shell", "garden-hero-tether"] as const) {
+    for (const id of Object.keys(GARDEN_MODEL_MANIFEST) as (keyof typeof GARDEN_MODEL_MANIFEST)[]) {
       const model = await library.load(id);
       const size = new Box3().setFromObject(model).getSize(new Vector3());
       expect(size.x).toBeCloseTo(GARDEN_MODEL_MANIFEST[id].dimensions.x, 2);
       expect(size.y).toBeCloseTo(GARDEN_MODEL_MANIFEST[id].dimensions.y, 2);
       expect(size.z).toBeCloseTo(GARDEN_MODEL_MANIFEST[id].dimensions.z, 2);
+      const reference = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
+        .parseAsync(new Uint8Array(readFileSync(assetPathFor(id))).buffer, "");
+      model.traverse((object) => {
+        if (!(object instanceof Mesh)) return;
+        const expected = reference.scene.getObjectByName(object.name) as Mesh;
+        // Bounds alone miss padded color and normal records: POSITION uses
+        // packed floats, while RGB8 and XYZ16 have 4/8-byte vertex strides.
+        for (const name of Object.keys(object.geometry.attributes)) {
+          const actual = object.geometry.getAttribute(name);
+          const source = expected.geometry.getAttribute(name);
+          expect(actual.count).toBe(source.count);
+          expect(actual.itemSize).toBe(source.itemSize);
+          expect(actual.normalized).toBe(source.normalized);
+          let error = 0;
+          for (let vertex = 0; vertex < actual.count; vertex += 1) {
+            for (let axis = 0; axis < actual.itemSize; axis += 1) {
+              error = Math.max(error, Math.abs(actual.getComponent(vertex, axis) - source.getComponent(vertex, axis)));
+            }
+          }
+          expect(error, `${id}/${object.name}/${name}`).toBeLessThan(1e-7);
+        }
+        expect(object.geometry.index!.array).toEqual(expected.geometry.index!.array);
+      });
     }
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledTimes(Object.keys(GARDEN_MODEL_MANIFEST).length);
     vi.unstubAllGlobals();
   });
 

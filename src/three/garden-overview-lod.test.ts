@@ -242,6 +242,29 @@ describe("createGardenOverviewLod", () => {
     expect(prop.visible).toBe(false);
   });
 
+  it("fades the foreground pine silhouette without moving its instances", () => {
+    const material = new MeshBasicMaterial();
+    const pine = new InstancedMesh(new BoxGeometry(1, 1, 1), material, 1);
+    pine.name = "garden-rim-pines";
+    pine.setMatrixAt(0, new Matrix4().makeTranslation(60, 0, -40));
+    const initial = Array.from(pine.instanceMatrix.array);
+    const root = new Group().add(pine);
+    const lod = createGardenOverviewLod(root);
+    lod.update({ ...SNAP, zoom: 0.52 });
+    expect(material.opacity).toBeGreaterThan(0);
+    expect(material.opacity).toBeLessThan(1);
+    expect(material.transparent).toBe(true);
+    expect(Array.from(pine.instanceMatrix.array)).toEqual(initial);
+    expect(pine.scale.toArray()).toEqual([1, 1, 1]);
+    lod.update({ ...SNAP, zoom: 0.28 });
+    expect(pine.visible).toBe(false);
+    lod.update({ ...SNAP, zoom: 0.65 });
+    expect(material.opacity).toBe(1);
+    expect(material.depthWrite).toBe(true);
+    pine.geometry.dispose();
+    material.dispose();
+  });
+
   it("fades the batched posts, windows, and flags without pulling the ring inward", () => {
     const batch = overviewHarborBatch();
     const root = new Group();

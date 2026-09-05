@@ -1737,3 +1737,18 @@ textarea {
     height: 44px;
   }
 }
+
+/* Native modal geometry retains the reference-panel placement. */
+dialog.pharosville-changelog-panel { position: fixed; height: auto; margin: 0; padding: 0; }
+dialog.pharosville-changelog-panel:not([open]) { display: none; }
+dialog.pharosville-changelog-panel::backdrop { background: rgba(0, 0, 0, 0.22); }
+.pharosville-detail-dock[hidden] { display: none; }
+.pharosville-skip-map { position: absolute; z-index: 20; left: 24px; top: 16px; transform: translateY(-200%); }
+.pharosville-skip-map:focus { transform: none; background: var(--pv-parchment-light); padding: 10px; color: var(--pv-ink-text); }
+.pharosville-footer__freshness { font-size: 0.8em; margin-left: 0.5em; }
+.pharosville-light-control { position: relative; }
+.pharosville-light-control summary { list-style: none; cursor: pointer; }
+.pharosville-light-control summary::-webkit-details-marker { display: none; }
+.pharosville-light-control__panel { position: absolute; right: 0; bottom: 44px; width: 200px; display: grid; gap: 10px; padding: 16px; background: var(--pv-timber-edge); color: var(--pv-parchment); border: 1px solid var(--pv-brass-dark); }
+.pharosville-light-control__panel input[type="time"] { display: block; width: 100%; }
+.pharosville-ledger summary { cursor: pointer; }

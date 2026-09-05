@@ -126,6 +126,7 @@ export interface AccessibilityLedgerProps {
   presentation?: "screen-reader" | "visible";
   /** Panel-level label; the words of the ledger body never vary by audience. */
   title?: string;
+  onSelectDetail?: (detailId: string) => void;
 }
 
 function AccessibilityLedgerContent({
@@ -135,6 +136,7 @@ function AccessibilityLedgerContent({
   riskTransitionByShipId,
   presentation = "screen-reader",
   title = "PharosVille accessibility ledger",
+  onSelectDetail,
 }: AccessibilityLedgerProps) {
   const staleSources = freshnessEntries(world)
     .filter((entry) => entry.stale)
@@ -173,6 +175,14 @@ function AccessibilityLedgerContent({
           : " All source groups are current."}
       </p>
 
+      {presentation === "visible" && <nav aria-label="Ledger sections" onClick={(event) => {
+        const link = event.target instanceof Element ? event.target.closest("a") : null;
+        if (!link) return;
+        event.preventDefault();
+        document.getElementById(link.hash.slice(1))?.focus();
+      }}>
+        <a href="#ledger-areas">Areas</a>{" · "}<a href="#ledger-stations">Stations</a>{" · "}<a href="#ledger-ships">Ships</a>{" · "}<a href="#ledger-cemetery">Cemetery</a>
+      </nav>}
       <dl>
         <div>
           <dt>Route mode</dt>
@@ -248,7 +258,7 @@ function AccessibilityLedgerContent({
         </ol>
       ) : <p>No rare sightings recorded this session.</p>}
 
-      <h3>Named areas</h3>
+      <h3 id="ledger-areas" tabIndex={-1}>Named areas</h3>
       <ol>
         {world.areas.map((area) => (
           <li key={area.id}>
@@ -259,17 +269,30 @@ function AccessibilityLedgerContent({
         ))}
       </ol>
 
-      <h3>Shore stations</h3>
+      <h3 id="ledger-stations" tabIndex={-1}>Shore stations</h3>
       {world.fleetIssuance ? <p>{fleetIssuanceLedgerLine(world.fleetIssuance)}</p> : null}
       <ol>
         {world.docks.map((dock) => (
           <li key={dock.id}>
-            {dockLedgerLine(dock)}
+            {presentation === "visible" ? <details>
+              <summary>{dock.label} — {formatCompactUsd(dock.totalUsd)} supply</summary>
+              {onSelectDetail && <button type="button" onClick={() => onSelectDetail(dock.detailId)}>Select in harbor</button>}
+              <p>{dockLedgerLine(dock)}</p>
+            </details> : dockLedgerLine(dock)}
           </li>
         ))}
       </ol>
 
-      <h3>Ships</h3>
+      <h3 id="ledger-ships" tabIndex={-1}>Ships</h3>
+      {presentation === "visible" && <label>Jump to ship <select defaultValue="" onChange={(event) => {
+        const record = document.getElementById(`ledger-ship-${event.target.value}`);
+        const disclosure = record?.querySelector("details");
+        if (disclosure) disclosure.open = true;
+        record?.querySelector("summary")?.focus();
+      }}>
+        <option value="" disabled>Choose a ship</option>
+        {world.ships.toSorted((a, b) => a.label.localeCompare(b.label)).map((ship) => <option key={ship.id} value={ship.id}>{ship.label} ({ship.symbol})</option>)}
+      </select></label>}
       <ol>
         {world.ships.map((ship) => {
           const tempo = cycleTempoById.get(ship.id)!;
@@ -278,8 +301,12 @@ function AccessibilityLedgerContent({
           // null or has completed (progress >= 1).
           const transition = riskTransitionByShipId?.get(ship.id) ?? null;
           return (
-            <li key={ship.id}>
-              {shipLedgerLine(ship, tempo.label, transition, world.ships)}
+            <li key={ship.id} id={`ledger-ship-${ship.id}`}>
+              {presentation === "visible" ? <details>
+                <summary>{ship.label} ({ship.symbol}) — {formatCompactUsd(ship.marketCapUsd)}, {ship.riskWaterLabel}</summary>
+                {onSelectDetail && <button type="button" onClick={() => onSelectDetail(ship.detailId)}>Select in harbor</button>}
+                <p>{shipLedgerLine(ship, tempo.label, transition, world.ships)}</p>
+              </details> : shipLedgerLine(ship, tempo.label, transition, world.ships)}
             </li>
           );
         })}
@@ -324,7 +351,7 @@ function AccessibilityLedgerContent({
         );
       })}
 
-      <h3>Cemetery</h3>
+      <h3 id="ledger-cemetery" tabIndex={-1}>Cemetery</h3>
       <ol>
         {world.graves.map((grave) => (
           <li key={grave.id}>

@@ -1,3 +1,4 @@
+import { emptyTextureStorageEstimate, textureOwnerCensus } from "./texture-owner-census";
 import {
   AgXToneMapping,
   AmbientLight,
@@ -785,100 +786,6 @@ function scheduleModelTextureUploads(input: {
   }
 }
 
-function textureOwnerName(object: Object3D, root: Object3D): string {
-  let current: Object3D | null = object;
-  while (current && current !== root) {
-    if (current.name) return current.name;
-    current = current.parent;
-  }
-  return object.type;
-}
-
-function textureOwnerCensus(
-  root: Scene,
-  rendererTextures: number,
-  manifest: readonly TextureOwnerManifestEntry[] = [],
-  renderer?: WebGLRenderer,
-): TextureOwnerCensus {
-  const ownerByTexture = new Map<Texture, string>();
-  const sceneTextures = new Set<Texture>();
-  // Explicit owners take precedence over the nearest mesh name. Water's
-  // material samples the wake/lane/environment textures, but those resources
-  // belong to their scene-scope systems; the post chain is not in the scene at
-  // all. Seeding the map also makes the census useful for renderer allocations
-  // that have no object/material edge to follow.
-  for (const entry of manifest) {
-    if (!ownerByTexture.has(entry.texture)) ownerByTexture.set(entry.texture, entry.owner);
-  }
-  root.traverse((object) => {
-    if (!(object as Mesh).isMesh) return;
-    const owner = textureOwnerName(object, root);
-    const { material } = object as Mesh;
-    const materials = Array.isArray(material) ? material : [material];
-    for (const entry of materials) {
-      for (const value of Object.values(entry)) {
-        if (value instanceof Texture) {
-          sceneTextures.add(value);
-          if (!ownerByTexture.has(value)) ownerByTexture.set(value, owner);
-        }
-      }
-      const uniforms = (entry as ShaderMaterial).uniforms;
-      if (!uniforms) continue;
-      for (const uniform of Object.values(uniforms)) {
-        if (uniform.value instanceof Texture) {
-          sceneTextures.add(uniform.value);
-          if (!ownerByTexture.has(uniform.value)) ownerByTexture.set(uniform.value, owner);
-        }
-      }
-    }
-  });
-  if (root.environment) {
-    sceneTextures.add(root.environment);
-    if (!ownerByTexture.has(root.environment)) {
-      ownerByTexture.set(root.environment, "environment.pmrem");
-    }
-  }
-  const ownerCounts = new Map<string, {
-    liveTextureCount: number;
-    liveTextureNames: string[];
-    textureCount: number;
-  }>();
-  for (const [texture, owner] of ownerByTexture) {
-    const stats = ownerCounts.get(owner) ?? {
-      liveTextureCount: 0,
-      liveTextureNames: [],
-      textureCount: 0,
-    };
-    stats.textureCount += 1;
-    if (renderer) {
-      const properties = (renderer as unknown as {
-        properties?: { get: (resource: object) => { __webglTexture?: unknown } };
-      }).properties;
-      const webglTexture = properties?.get(texture).__webglTexture;
-      if (webglTexture !== undefined && webglTexture !== null) {
-        stats.liveTextureCount += 1;
-        stats.liveTextureNames.push(texture.name || texture.uuid);
-      }
-    }
-    ownerCounts.set(owner, stats);
-  }
-  return {
-    owners: [...ownerCounts]
-      .map(([owner, stats]) => ({ owner, ...stats }))
-      .sort((left, right) => (
-        right.textureCount - left.textureCount
-        || left.owner.localeCompare(right.owner)
-      )),
-    referencedTextures: sceneTextures.size,
-    attributedTextures: ownerByTexture.size,
-    rendererTextures,
-    minimumUnattributedRendererTextures: Math.max(
-      0,
-      rendererTextures - ownerByTexture.size,
-    ),
-  };
-}
-
 function sceneTextureManifest(scene: GardenScene): readonly TextureOwnerManifestEntry[] {
   const entries: TextureOwnerManifestEntry[] = [
     ...(scene.wakes.getTextureManifest?.() ?? []),
@@ -907,10 +814,9 @@ export function createThreeWorldRenderer(
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.toneMapping = AgXToneMapping;
   renderer.toneMappingExposure = 1.12;
-  // D3 / W2.2: soft harbour-wide static shadows. Shadow support is compiled once
-  // (enabled + castShadow stay on); per-tier cost is driven at runtime via
-  // shadow.intensity and mapSize (see updateShadows), which avoids material
-  // recompile stalls.
+  // D3 / W2.2: soft harbour-wide static shadows. Supported tiers share the
+  // shadow shader variant; constrained disables the caster (see updateShadows)
+  // so a cold start never binds an absent PCF depth map.
   //
   // W2.2 correction: this said `PCFSoftShadowMap`, which three 0.185 rewrites to
   // `PCFShadowMap` on the first shadow render while logging a deprecation
@@ -958,7 +864,11 @@ export function createThreeWorldRenderer(
   let contentPartRebuildCount = 0;
   let lastCensusReplacementCount = -1;
   let lastCensusTextureCount = -1;
+  let lastCensusWidth = -1;
+  let lastCensusHeight = -1;
   let lastTextureOwnerCensus: TextureOwnerCensus = {
+    byteEstimates: emptyTextureStorageEstimate(),
+    attributedLiveTextures: null,
     owners: [],
     referencedTextures: 0,
     attributedTextures: 0,
@@ -1509,7 +1419,9 @@ export function createThreeWorldRenderer(
       const geometryCount = renderer.info.memory.geometries;
       const textureCount = renderer.info.memory.textures;
       if (
-        textureCount !== lastCensusTextureCount
+        renderer.domElement.width !== lastCensusWidth
+        || renderer.domElement.height !== lastCensusHeight
+        || textureCount !== lastCensusTextureCount
         || contentReplacementCount !== lastCensusReplacementCount
       ) {
         lastTextureOwnerCensus = textureOwnerCensus(scene.root, textureCount, [
@@ -1517,6 +1429,8 @@ export function createThreeWorldRenderer(
           ...sceneTextureManifest(scene),
         ], renderer);
         drawCensusRequested = true;
+        lastCensusWidth = renderer.domElement.width;
+        lastCensusHeight = renderer.domElement.height;
         lastCensusTextureCount = textureCount;
         lastCensusReplacementCount = contentReplacementCount;
       }
@@ -3855,9 +3769,8 @@ function seaSignsDebugVisible(): boolean {
  * Re-centres the directional light's shadow frustum on the island and remote
  * station roots and sets the per-tier cost, returning the active shadow-map size
  * (0 when off).
- * Shadow support stays compiled (enabled + castShadow never change); cost is
- * toggled via `shadow.intensity`/`autoUpdate` and the map is only reallocated
- * on a tier change, so no material recompile stalls occur.
+ * Shadow-supported tiers share a shader variant and reallocate only when the
+ * map size changes. Constrained removes the caster and its comparison sampler.
  */
 function updateShadows(
   scene: GardenScene,
@@ -3968,6 +3881,11 @@ function updateShadows(
       : shadowTier === "constrained"
         ? 0
         : 768;
+  // Intensity zero still samples the PCF depth texture. On a cold constrained
+  // start no map exists, and Three's unallocated shadow-array fallback binds a
+  // color texture to sampler2DShadow, invalidating every receiving mesh draw.
+  // Remove the sampler entirely while shadows are disabled.
+  light.castShadow = size > 0;
   if (size === 0) {
     light.shadow.intensity = 0;
     light.shadow.autoUpdate = false;
@@ -4582,12 +4500,11 @@ function updateSceneForFrame(
       visual.root.rotation.y,
     );
     scratchShadowPosition.set(
-      // A short offset along the light direction reads as a cast shadow while
-      // still overlapping the hull, so the ship sits IN the water rather than
-      // floating beside its own shape.
-      visual.root.position.x + 0.7,
+      // Ambient contact grounding stays under the hull through the day cycle;
+      // this disc is not a directional cast shadow from the moving sun.
+      visual.root.position.x,
       WATER_LEVEL + 0.028,
-      visual.root.position.z + 0.85,
+      visual.root.position.z,
     );
     scratchMatrix.compose(scratchShadowPosition, scratchShadowQuaternion, scratchShadowScale);
     content.shipShadows.setMatrixAt(index, scratchMatrix);

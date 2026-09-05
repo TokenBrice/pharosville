@@ -1,3 +1,4 @@
+import { formatCompactUsd } from "../lib/format-detail";
 import { riskWaterAreaForPlacement } from "./risk-water-areas";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "./world-types";
 
@@ -55,7 +56,7 @@ export function selectGardenObservatoryAreas(
 }
 
 export function buildObserveSequence(
-  world: Pick<PharosVilleWorld, "docks" | "lighthouse" | "ships">,
+  world: Pick<PharosVilleWorld, "docks" | "lighthouse" | "ships"> & Partial<Pick<PharosVilleWorld, "freshness">>,
 ): ObserveBeat[] {
   const beats: ObserveBeat[] = [{
     detailId: world.lighthouse.detailId,
@@ -85,7 +86,7 @@ export function buildObserveSequence(
     beats.push({
       detailId: supplyShip.detailId,
       kind: "supply",
-      label: `${supplyShip.symbol} has the observatory's strongest weekly supply move at ${formatSignedPercent(supplyShip.change7dPct)}.`,
+      label: `${supplyShip.symbol} has the observatory's largest weekly percentage supply change${riskShip && supplyShip.detailId !== riskShip.detailId ? " outside the leading risk watch" : ""} at ${formatSignedPercent(supplyShip.change7dPct)}; ${formatCompactUsd(supplyShip.marketCapUsd)} market cap.`,
       tile: supplyShip.tile,
     });
   }
@@ -101,11 +102,19 @@ export function buildObserveSequence(
     beats.push({
       detailId: concentrationDock.detailId,
       kind: "concentration",
-      label: `${concentrationDock.label} has the observatory's highest dock concentration at HHI ${concentrationDock.concentration.toFixed(2)}.`,
+      label: `${concentrationDock.label} has the observatory's highest dock concentration at HHI ${concentrationDock.concentration.toFixed(2)} — higher means supply is concentrated in fewer stablecoins; ${formatCompactUsd(concentrationDock.totalUsd)} total supply.`,
       tile: concentrationDock.tile,
     });
   }
 
+  const freshness = world.freshness;
+  for (const beat of beats) {
+    const stale = beat.kind === "lighthouse" ? freshness?.stabilityStale
+      : beat.kind === "concentration" ? freshness?.chainsStale
+      : beat.kind === "supply" ? freshness?.stablecoinsStale
+      : freshness?.pegSummaryStale || freshness?.stressStale || freshness?.stablecoinsStale;
+    if (stale) beat.label += " This reading uses stale or unavailable evidence; inspect the ledger for provenance.";
+  }
   return beats;
 }
 

@@ -88,7 +88,12 @@ describe("AccessibilityLedger", () => {
     const normalize = (markup: string) => markup
       .replace('class="sr-only"', "")
       .replace('class="pharosville-ledger"', "")
-      .replace("PharosVille accessibility ledger", "");
+      .replace("PharosVille accessibility ledger", "")
+      .replace(/<nav[\s\S]*?<\/nav>/g, "")
+      .replace(/<label>Jump to ship[\s\S]*?<\/label>/g, "")
+      .replace(/<summary[\s\S]*?<\/summary>/g, "")
+      .replace(/<\/?details>/g, "")
+      .replace(/<\/?p>/g, "");
 
     expect(normalize(renderToStaticMarkup(<AccessibilityLedger world={world} />)))
       .toBe(normalize(renderToStaticMarkup(

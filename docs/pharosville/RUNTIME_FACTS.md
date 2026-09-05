@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.11.1` (`moleErrata`)
-- Latest changelog entry: `2026-09-04-mole-errata` / `v0.11.1` / 2026-09-04 / Mole Errata
+- Latest app version: `v0.12.0` (`aCalmerHarbor`)
+- Latest changelog entry: `2026-09-05-a-calmer-harbor` / `v0.12.0` / 2026-09-05 / A Calmer Harbor
 
 ## Viewport Gate
 

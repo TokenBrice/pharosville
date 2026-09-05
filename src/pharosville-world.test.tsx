@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => {
     canvasHandleKeyDown: vi.fn(),
     canvasSizeRef,
     focusTile: vi.fn(),
+    focusSelection: undefined as undefined | ((tile: { x: number; y: number }, onRest: () => void) => null),
     reducedMotion: true,
     rendererWarmupReady: true,
     rendererStatus: "ready",
@@ -93,6 +94,7 @@ vi.mock("./hooks/use-canvas-resize-and-camera", () => ({
     canvasSize: mocks.canvasSizeRef.current,
     canvasSizeRef: mocks.canvasSizeRef,
     focusTile: mocks.focusTile,
+    focusSelection: mocks.focusSelection,
     skipArrival: mocks.skipArrival,
     startArrival: mocks.startArrival,
     startAttractTour: mocks.startAttractTour,
@@ -189,6 +191,7 @@ beforeEach(() => {
   mocks.canvasHandleKeyDown.mockClear();
   mocks.cancelCameraIntent.mockClear();
   mocks.focusTile.mockClear();
+  mocks.focusSelection = undefined;
   mocks.startObserveTour.mockClear();
   mocks.startAttractTour.mockClear();
   mocks.stopAttractTour.mockClear();
@@ -213,6 +216,53 @@ afterEach(() => {
 });
 
 describe("PharosVilleWorld UI accessibility controls", () => {
+  it.each([true, false].flatMap((reduced) => ["ship.usdc", "dock.ethereum"].map((detailId) => ({ reduced, detailId }))))("preserves cold-load $detailId through arrival (reduced=$reduced)", async ({ reduced, detailId }) => {
+    mocks.reducedMotion = reduced;
+    window.history.replaceState(null, "", `/#sel=${detailId}&t=18`);
+    const settled = worldFixture();
+    const loading = { ...settled, entityById: {}, routeMode: "loading" as const };
+    const { rerender } = render(<PharosVilleWorld world={loading} />);
+    rerender(<PharosVilleWorld world={settled} />);
+    await waitFor(() => expect(mocks.focusTile).toHaveBeenCalledWith(resolveGardenEntityDisplayTile({
+      entity: settled.entityById[detailId]!,
+      slice: selectGardenObservatorySlice(settled, detailId),
+    })));
+    expect(screen.getByTestId("pharosville-detail-panel").parentElement?.hidden).toBe(false);
+    expect(mocks.startArrival).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("pharosville-charting-veil")).toBeNull();
+  });
+
+  it("reveals a linked harbor only when its selection camera reports rest", async () => {
+    window.history.replaceState(null, "", "/#sel=dock.ethereum&t=6");
+    let onRest: () => void = () => { throw new Error("No harbor framing callback"); };
+    mocks.focusSelection = vi.fn((_tile, callback) => { onRest = callback; return null; });
+    const world = worldFixture();
+    render(<PharosVilleWorld world={world} />);
+    await waitFor(() => expect(mocks.focusSelection).toHaveBeenCalledWith(resolveGardenEntityDisplayTile({
+      entity: world.entityById["dock.ethereum"]!,
+      slice: selectGardenObservatorySlice(world, "dock.ethereum"),
+    }), expect.any(Function)));
+    const dock = screen.getByTestId("pharosville-detail-panel").parentElement!;
+    expect(dock.hidden).toBe(true);
+    expect(dock.hasAttribute("inert")).toBe(true);
+    act(() => onRest());
+    expect(dock.hidden).toBe(false);
+    expect(dock.hasAttribute("inert")).toBe(false);
+  });
+
+  it("protects reading time and restarts the full attract delay after closing Find", () => {
+    vi.useFakeTimers();
+    mocks.reducedMotion = false;
+    render(<PharosVilleWorld world={worldFixture()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Find /" }));
+    act(() => vi.advanceTimersByTime(180_000));
+    expect(mocks.startAttractTour).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Escape" });
+    act(() => vi.advanceTimersByTime(119_999));
+    expect(mocks.startAttractTour).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(mocks.startAttractTour).toHaveBeenCalledTimes(1);
+  });
   it("skips the establishing ease on any input", () => {
     mocks.reducedMotion = false;
     mocks.startArrival.mockImplementation(() => undefined);
@@ -235,7 +285,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(mocks.startArrival).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Read harbormaster's note" }));
-    expect(screen.getByText("The lanterns are warm; the ledger is current.")).toBeTruthy();
+    expect(screen.getByText("Each sail is a stablecoin; the lighthouse gathers the stability reading. Select a ship or Find one by name.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Put away harbormaster's note" }));
     expect(window.localStorage.getItem(HARBORMASTER_NOTE_STORAGE_KEY)).toBe("1");
     expect(screen.queryByRole("button", { name: "Read harbormaster's note" })).toBeNull();
@@ -244,12 +294,12 @@ describe("PharosVilleWorld UI accessibility controls", () => {
   // Interface revamp DU4/DU7/DU11 + W0.4: the footer carries five items and
   // nothing else — mark, legend, changelog, harbor ledger, berth count. The
   // frame rate is instrumentation and lives behind ?debug=1.
-  it("shows how much of the fleet holds a berth in the footer", () => {
+  it("shows how much of the fleet has harbor ties in the footer", () => {
     const { container } = render(<PharosVilleWorld world={worldFixture()} />);
 
-    // "hold a berth", not "docked": the figure counts ships with a home harbor
+    // "have harbor ties", not "docked": the figure counts ships with a home harbor
     // among the charted chains, not ships moored at this instant.
-    expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 of 1 hold a berth");
+    expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 of 1 have harbor ties");
     const footer = container.querySelector(".pharosville-footer");
     expect(footer?.querySelector(".pharosville-footer__primary")).toBeTruthy();
     expect(footer?.querySelector(".pharosville-footer__telemetry")).toBeTruthy();
@@ -257,7 +307,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     // Derived, not a literal: a version bump is a release chore, not a reason
     // for this test to fail.
     expect(footer?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      `PharosVille ${PHAROSVILLE_LATEST_VERSION}·Legend·Changelog·Harbor ledger·1 of 1 hold a berth`,
+      `PharosVille ${PHAROSVILLE_LATEST_VERSION}·Legend·Find /·Harbor ledgerReadings current·1 of 1 have harbor ties`,
     );
     expect(footer?.textContent).not.toContain("Copy link");
     expect(footer?.textContent).not.toContain("not financial advice");
@@ -294,7 +344,9 @@ describe("PharosVilleWorld UI accessibility controls", () => {
   it("opens the commit-collected changelog from the beta footer", async () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Changelog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    await screen.findByTestId("pharosville-legend-panel");
+    fireEvent.click(screen.getByText("Changelog", { selector: "button" }));
     const panel = await screen.findByTestId("pharosville-changelog-panel");
     expect(panel.textContent).toContain("True Waters");
     expect(panel.textContent).toContain("v0.3.0");
@@ -352,7 +404,11 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     ] as const;
 
     for (const [control, testId] of panels) {
-      fireEvent.click(screen.getByRole("button", { name: control }));
+      if (control === "Changelog") {
+        fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+        await screen.findByTestId("pharosville-legend-panel");
+        fireEvent.click(screen.getByText("Changelog", { selector: "button" }));
+      } else fireEvent.click(screen.getByRole("button", { name: control }));
       const panel = await screen.findByTestId(testId);
       mocks.canvasHandleKeyDown.mockClear();
 
@@ -361,6 +417,18 @@ describe("PharosVilleWorld UI accessibility controls", () => {
       expect(screen.queryByTestId(testId)).toBeNull();
       expect(mocks.canvasHandleKeyDown).not.toHaveBeenCalled();
     }
+  });
+
+  it("keeps the current selection while interacting with a reference dialog", async () => {
+    render(<PharosVilleWorld world={worldFixture()} />);
+    const shell = screen.getByTestId("pharosville-world");
+    fireEvent.keyDown(shell, { key: "Tab" });
+    fireEvent.keyDown(shell, { key: "Enter" });
+    expect(screen.getByTestId("pharosville-detail-panel")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    const legend = await screen.findByTestId("pharosville-legend-panel");
+    fireEvent.pointerDown(legend.querySelector("svg")!);
+    expect(screen.getByTestId("pharosville-detail-panel")).toBeTruthy();
   });
 
   it("mounts exactly one ledger, so the world is never announced twice", async () => {
@@ -380,7 +448,9 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
     await screen.findByTestId("pharosville-harbor-ledger-panel");
 
-    fireEvent.click(screen.getByRole("button", { name: "Changelog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    await screen.findByTestId("pharosville-legend-panel");
+    fireEvent.click(screen.getByText("Changelog", { selector: "button" }));
     await screen.findByTestId("pharosville-changelog-panel");
     expect(screen.queryByTestId("pharosville-harbor-ledger-panel")).toBeNull();
 
@@ -527,7 +597,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBe(6.5));
     expect(mocks.requestPaint).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByLabelText("Switch to night"));
+    fireEvent.click(screen.getByText("Night preset"));
     // D-R2: with no override the presentation follows the visitor's wall clock
     // (it does not snap back to a fixed noon default).
     await waitFor(() => expect(globalThis.__pharosVilleTestWallClockHour).toBeUndefined());
@@ -689,7 +759,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.getByRole("heading", { name: "Harbor signal overview" })).toBeTruthy();
     expect(screen.getByText("The Pharos lighthouse reports PSI 82, STEADY.")).toBeTruthy();
     expect(screen.getByText(/USDC is the observatory's leading risk watch/)).toBeTruthy();
-    expect(screen.getByText(/USDC has the observatory's strongest weekly supply move/)).toBeTruthy();
+    expect(screen.getByText(/USDC has the observatory's largest weekly percentage supply change/)).toBeTruthy();
     expect(screen.getByText(/Ethereum Dock has the observatory's highest dock concentration/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Use standard view" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Recenter map" })).toBeNull();

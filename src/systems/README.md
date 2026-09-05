@@ -26,10 +26,21 @@ The `systems/` directory owns the pure data-to-world layer for the standalone Ph
   A ship keeps its tile while its risk placement is unchanged, which keeps its A* path
   keys and stops the fleet teleporting on refresh. Tests that need a cold build call
   `resetHeldShipPlacements()` and `resetHeldMoorings()`.
+- Berths guarantee unique water-safe centers, with held positions claimed
+  before newcomers. The existing local search prefers nonoverlapping
+  dock-facing family envelopes when space allows; otherwise it retains its
+  point-safe local choice and original whole-map fallback. Envelopes are a
+  composition preference, not permanent reservations for every potential
+  visit: temporal overlap remains possible. The family approximation does
+  not encompass every loaded hero model or animated yaw. Dock/risk labels and
+  route ownership remain unchanged.
 - Use shared runtime-neutral helpers such as `getCirculatingRaw()` and `@shared/*` imports instead of route-local copies of shared logic.
 - Keep source-field provenance with any visual cue that represents analytics.
 - Keep route-specific visual semantics here; shared scoring/methodology logic belongs in `shared/lib/` only when it is a real cross-route contract.
 - Use `stable-random.ts` for deterministic scatter and seeded placement, not `Math.random()`.
+- Reduced-motion samples settle directly at authored risk anchorages (Ledger
+  Mooring retains its representative stop); squad offsets remain relative to
+  the flagship. Renderer, hit targets and details use the same display sample.
 
 ## Common Extension Points
 

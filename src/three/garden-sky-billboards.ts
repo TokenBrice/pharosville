@@ -202,7 +202,7 @@ const MIST_FRAGMENT_SHADER = /* glsl */ `
   ${NOISE_GLSL}
   void main() {
     vec2 p = vUv - 0.5;
-    float radial = smoothstep(0.5, 0.08, length(p * vec2(1.0, 2.1)));
+    float radial = (1.0 - smoothstep(0.08, 0.5, length(p * vec2(1.0, 2.1))));
     float breakup = bbNoise(vUv * vec2(5.0, 3.0) + vSeed * 17.0) * 0.65
       + bbNoise(vUv * vec2(11.0, 7.0) + vSeed * 29.0) * 0.35;
     float alpha = radial * smoothstep(0.25, 0.75, breakup + radial * 0.4)
@@ -226,9 +226,9 @@ const CLOUD_FRAGMENT_SHADER = /* glsl */ `
     vec2 p = vUv - 0.5;
     float s1 = bbHash(vec2(vSeed, 1.0)) - 0.5;
     float s2 = bbHash(vec2(vSeed, 2.0)) - 0.5;
-    float field = smoothstep(0.30, 0.02, length(p - vec2(s1 * 0.2, -0.04)))
-      + smoothstep(0.24, 0.02, length(p - vec2(0.18 + s2 * 0.1, 0.06)))
-      + smoothstep(0.22, 0.02, length(p - vec2(-0.2 + s1 * 0.1, 0.05)));
+    float field = (1.0 - smoothstep(0.02, 0.30, length(p - vec2(s1 * 0.2, -0.04))))
+      + (1.0 - smoothstep(0.02, 0.24, length(p - vec2(0.18 + s2 * 0.1, 0.06))))
+      + (1.0 - smoothstep(0.02, 0.22, length(p - vec2(-0.2 + s1 * 0.1, 0.05))));
     float breakup = bbNoise(vUv * 4.5 + vSeed * 13.0) * 0.6
       + bbNoise(vUv * 9.0 + vSeed * 31.0) * 0.4;
     float shape = smoothstep(0.42, 0.8, field * (0.7 + breakup * 0.6));

@@ -60,6 +60,10 @@
  *   node scripts/pharosville/preview.mjs --assert --max-p95=20 --tail-seconds 30
  *   node scripts/pharosville/preview.mjs --texture-census    # attribute live texture owners
  *   node scripts/pharosville/preview.mjs --draw-census      # attribute live draw owners
+ *   node scripts/pharosville/preview.mjs --light-cycle --json # native time control phase/resource audit
+ *   node scripts/pharosville/preview.mjs --blur-audit       # temporary 16px canvas attention audit
+ *   node scripts/pharosville/preview.mjs --fixture dense --overlap --json
+ *   node scripts/pharosville/preview.mjs --fixture stress --force-tier recovery --pan-zoom
  *   node scripts/pharosville/preview.mjs --refresh common   # main-thread cost of a data refresh
  *   node scripts/pharosville/preview.mjs --refresh churn    # ... with every placement moved
  */
@@ -68,6 +72,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
+import { installPreviewFixture, analyzeTargetOverlap } from "./preview-fixture.mjs";
 import { analyzeArtifactFlashFrames } from "./artifact-flash-metric.mjs";
 
 /**
@@ -99,6 +104,11 @@ const args = parseArgs(process.argv.slice(2));
 if (args["artifact-check"] && args.reduced) {
   throw new Error("--artifact-check needs normal motion; --reduced is intentionally static.");
 }
+const fixture = args.fixture ?? null;
+if (fixture && !["dense", "calm", "stress"].includes(fixture)) throw new Error("--fixture needs dense, calm, or stress");
+if (fixture && args.refresh) throw new Error("--fixture and --refresh measure different data paths; run them separately");
+const forcedTier = args["force-tier"] ?? null;
+if (forcedTier && !["constrained", "recovery"].includes(forcedTier)) throw new Error("--force-tier needs constrained or recovery (dev server only)");
 const assertMode = Boolean(args.assert);
 const limits = {
   // The perf suite's ceiling (docs/pharosville/TESTING.md); a steady 668 today.
@@ -113,7 +123,7 @@ const limits = {
   // decile further out: 20ms tolerates a missed vsync, and refuses to call a
   // second in which one frame in twenty cost more than that "smooth".
   maxP95Ms: numberFlag("max-p95", 20),
-  requiredTier: typeof args["require-tier"] === "string" ? args["require-tier"] : "full",
+  requiredTier: typeof args["require-tier"] === "string" ? args["require-tier"] : forcedTier ?? "full",
 };
 const url = args.url ?? "http://localhost:5173";
 /**
@@ -167,7 +177,7 @@ let tailSweep = null;
 // A refresh probe must not be measuring the day cycle as well: a 31-minute
 // clock jump would step the sky and rebake the PMREM probe inside the window.
 // Pinning the hour makes the payload the only thing that moved.
-const hash = args.hash ?? (refreshMode ? "#t=12" : "");
+const hash = args.hash ?? (refreshMode || fixture ? "#t=12" : "");
 const width = Number(args.width ?? 1600);
 const height = Number(args.height ?? 1000);
 // Long enough for the frame-pacing window to fill with steady-state frames
@@ -239,6 +249,8 @@ try {
     });
   }
 
+  if (fixture) await installPreviewFixture(page, fixture);
+  if (forcedTier) await page.addInitScript((tier) => { window.__pharosVilleTestSchedulerTier = tier; }, forcedTier);
   if (refreshMode) await installRefreshProbe(page);
 
   // Shader tripwire: a material the driver rejects is skipped SILENTLY at draw
@@ -249,7 +261,7 @@ try {
   const shaderErrors = [];
   page.on("console", (msg) => {
     const text = msg.text();
-    if (/Shader Error|VALIDATE_STATUS|program not valid|Fragment shader is not compiled|Vertex shader is not compiled/.test(text)) {
+    if (/Shader Error|VALIDATE_STATUS|program not valid|Fragment shader is not compiled|Vertex shader is not compiled|render failed|An error occurred in|The above error occurred|Uncaught/.test(text)) {
       shaderErrors.push(text.split("\n")[0].slice(0, 300));
     }
   });
@@ -257,10 +269,11 @@ try {
     shaderErrors.push(`pageerror: ${String(err.message ?? err).split("\n")[0].slice(0, 300)}`);
   });
 
-  const renderer = await readWebglRenderer(page);
+  const { renderer, timerQuerySupported } = await readWebglRenderer(page);
   console.log(`chrome     ${chromePath}`);
   console.log(`flags      ${await describeOperatorFlags()}`);
   console.log(`GPU        ${renderer}`);
+  console.log(`GPU timer  EXT_disjoint_timer_query_webgl2 ${timerQuerySupported ? "supported" : "unsupported"} (capability only; no timings measured)`);
   if (/swiftshader|softwarerasterizer|llvmpipe/i.test(renderer)) {
     if (assertMode) {
       // A software rasteriser is the SKIP arm, not the FAIL arm: nothing about
@@ -358,11 +371,55 @@ try {
     metrics = { ...metrics, drawOwnerCensus: fresh.drawOwnerCensus };
   }
 
+  if (forcedTier && metrics.tier !== forcedTier) throw new Error(`Forced tier ${forcedTier} not active; use the dev server, not a production build (got ${metrics.tier})`);
   await applyRequestedUiState(page);
   await mkdir(outputDirectory, { recursive: true });
   await page.screenshot({ path: outputPath });
+  if (args["blur-audit"]) {
+    const originalStyle = await canvas.evaluate((element) => {
+      const style = element.getAttribute("style");
+      element.style.filter = "blur(16px)";
+      return style;
+    });
+    try {
+      const blurredPath = outputPath.replace(/\.png$/i, "") + "-blur.png";
+      await page.screenshot({ path: blurredPath });
+      console.log(`blur audit ${blurredPath} (temporary canvas CSS filter; clean capture unchanged)`);
+    } finally {
+      await canvas.evaluate((element, style) => {
+        if (style === null) element.removeAttribute("style");
+        else element.setAttribute("style", style);
+      }, originalStyle);
+    }
+  }
+  if (args.overlap) {
+    const projection = await page.evaluate(() => {
+      const debug = window.__pharosVilleDebug;
+      return { targets: debug?.targets ?? [], selected: debug?.selectedDetailId ?? null, size: debug?.canvasSize };
+    });
+    metrics.targetOverlap = analyzeTargetOverlap(projection.targets, projection.selected, projection.size?.x ?? width, projection.size?.y ?? height);
+    console.log(`overlap    ${metrics.targetOverlap.overlappingPairs} overlapping projected hit-rectangle pairs among ${metrics.targetOverlap.visibleShipTargets} targets (not sail occlusion)`);
+    await page.evaluate((diagnostic) => {
+      const canvas = document.querySelector('[data-testid="pharosville-canvas"]').getBoundingClientRect();
+      const overlay = document.createElement("div");
+      overlay.id = "preview-target-overlay";
+      overlay.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:99999";
+      const targets = [...diagnostic.largestTargets, ...(diagnostic.selected ? [diagnostic.selected] : [])];
+      for (const { detailId, rect } of targets) {
+        const box = document.createElement("div");
+        const selected = detailId === diagnostic.selected?.detailId;
+        box.style.cssText = `position:absolute;left:${canvas.left + rect.x}px;top:${canvas.top + rect.y}px;width:${rect.width}px;height:${rect.height}px;border:1px dashed ${selected ? "#ffef00" : "#ff65d8"};color:white;font:10px monospace;background:rgba(0,0,0,.12)`;
+        box.textContent = detailId;
+        overlay.append(box);
+      }
+      document.body.append(overlay);
+    }, metrics.targetOverlap);
+    await page.screenshot({ path: outputPath.replace(/\.png$/i, "") + "-targets.png" });
+    await page.evaluate(() => document.getElementById("preview-target-overlay")?.remove());
+  }
 
   console.log(`URL        ${target}`);
+  console.log(`data       ${fixture ?? "live"}${fixture ? " checked-in fixture; Date fixed at fixture epoch + 60 seconds" : ""} · forced tier ${forcedTier ?? "none"}`);
   console.log(`viewport   ${width}x${height} @${args.dpr ?? 1}x, ${args.headed ? "headed" : "headless"}`
     + `, motion ${args.reduced ? "reduced" : "normal"}`);
   console.log(`frame      ${round(metrics.fps)} fps · p50 ${round(metrics.p50)}ms · p90 ${round(metrics.p90)}ms`
@@ -408,11 +465,72 @@ try {
   // Last, deliberately: the probe mutates the payload, so everything above —
   // including the screenshot — describes the world as the API actually serves it.
   if (refreshMode) await reportRefreshCost(page);
+  if (args["pan-zoom"]) {
+    const bounds = await canvas.boundingBox();
+    if (!bounds) throw new Error("Canvas unavailable for --pan-zoom");
+    await page.mouse.move(bounds.x + bounds.width * 0.5, bounds.y + bounds.height * 0.6);
+    await page.mouse.down();
+    metrics.panZoom = [];
+    for (let step = 1; step <= 12; step += 1) {
+      await page.mouse.move(bounds.x + bounds.width * (0.5 + step / 120), bounds.y + bounds.height * 0.6);
+      await page.waitForTimeout(120);
+      if (step % 4 === 0) {
+        metrics.panZoom.push({ stage: `pan-${step / 4}`, ...await readMetrics(page) });
+        await page.screenshot({ path: outputPath.replace(/\.png$/i, "") + `-pan-${step / 4}.png` });
+      }
+    }
+    await page.mouse.up();
+    for (let step = 1; step <= 3; step += 1) {
+      await page.mouse.wheel(0, -80);
+      await page.waitForTimeout(500);
+      metrics.panZoom.push({ stage: `zoom-${step}`, ...await readMetrics(page) });
+      await page.screenshot({ path: outputPath.replace(/\.png$/i, "") + `-pan-zoom-${step}.png` });
+    }
+    console.log("pan-zoom   six pan/zoom transition screenshots recorded; interaction windows are not steady-state frame gates");
+  }
+
+  if (args["light-cycle"]) {
+    metrics.lightCycle = [];
+    for (const time of ["06:00", "12:00", "18:00", "22:00"]) {
+      const errorsBeforePhase = shaderErrors.length;
+      const disclosure = page.locator(".pharosville-light-control");
+      if (!await disclosure.evaluate((element) => element.open)) await disclosure.locator("summary").click();
+      await page.getByLabel("Time of day", { exact: true }).fill(time);
+      await disclosure.locator("summary").click();
+      let phaseMetrics;
+      let settled = true;
+      if (args.reduced) {
+        const result = await waitForSettledStaticMetrics(page);
+        phaseMetrics = result.metrics;
+        settled = result.settled;
+      } else {
+        await page.waitForTimeout(2_000);
+        await page.waitForFunction(() => (window.__pharosVilleDebug?.renderMetrics?.textureUploads?.pending ?? 0) === 0,
+          undefined, { timeout: 10_000 }).catch(() => { settled = false; });
+        phaseMetrics = await readMetrics(page);
+      }
+      const path = outputPath.replace(/\.png$/i, "") + `-light-${time.replace(":", "")}.png`;
+      await page.screenshot({ path });
+      const errors = shaderErrors.slice(errorsBeforePhase);
+      if (!settled) errors.push("phase resources did not settle");
+      if (Math.abs((phaseMetrics.wallClockHour ?? -1) - Number(time.slice(0, 2))) > 0.01) errors.push("native time control did not reach requested hour");
+      for (const [field, limit] of [["calls", limits.maxDrawCalls], ["geometries", limits.maxGeometries], ["textures", limits.maxTextures], ["triangles", limits.maxTriangles]]) {
+        if ((phaseMetrics[field] ?? Infinity) > limit) errors.push(`${field} ${phaseMetrics[field]} exceeds ${limit}`);
+      }
+      metrics.lightCycle.push({ time, path, settled, errors, metrics: phaseMetrics });
+      console.log(`light      ${time} ${errors.length ? "FAILED" : "resource/shader checks passed"} · ${phaseMetrics.calls} calls · ${phaseMetrics.textures} textures · ${path}`);
+      if (errors.length) {
+        console.error(errors.join("\n"));
+        process.exitCode = 1;
+      }
+    }
+    console.log("light      transition snapshots check resources/shaders; steady-state timing gate above is unchanged");
+  }
 
   if (args.json) {
     await writeFile(
       resolve(outputDirectory, typeof args.json === "string" ? args.json : "preview.json"),
-      `${JSON.stringify({ metrics, renderer, target }, null, 2)}\n`,
+      `${JSON.stringify({ metrics, tailSweep, renderer, timerQuerySupported, target, fixture, forcedTier }, null, 2)}\n`,
     );
   }
 } finally {
@@ -944,6 +1062,7 @@ async function reportRefreshCost(page) {
  * would flatter the renderer rather than test it.
  */
 function evaluateAssertions(metrics, shaderErrors = []) {
+  if (shaderErrors.length > 0) console.error(`page errors before gate: \n  ${shaderErrors.slice(0, 8).join("\n  ")}`);
   if ((metrics.shipsVisible ?? 0) === 0 || (!args.reduced && (metrics.samples ?? 0) === 0)) {
     console.log("\nSKIP: the world never populated, so no representative frame was measured.");
     process.exitCode = SKIP_EXIT_CODE;
@@ -1204,6 +1323,13 @@ function readMetrics(page) {
     const debug = window.__pharosVilleDebug;
     const m = debug?.renderMetrics;
     return {
+      observedAtMs: performance.now(),
+      visibilityState: document.visibilityState,
+      documentHasFocus: document.hasFocus(),
+      longtaskSupported: typeof PerformanceObserver !== "undefined" && PerformanceObserver.supportedEntryTypes?.includes("longtask"),
+      gpuWarmupCount: m?.gpuWarmupCount ?? null,
+      camera: debug?.camera ?? null,
+      wallClockHour: debug?.wallClockHour ?? null,
       calls: m?.gpu?.calls ?? null,
       environmentBakeCalls: m?.environmentBakeCalls ?? null,
       environmentBakeCount: m?.environmentBakeCount ?? null,
@@ -1277,11 +1403,24 @@ function printTextureOwnerCensus(census) {
     + ` ${census.referencedTextures} scene-referenced · ${attributed} named/reachable`);
   console.log(`           at least ${census.minimumUnattributedRendererTextures}`
     + " renderer-internal/unattributed");
+  const mib = (bytes) => `${(bytes / 1048576).toFixed(2)} MiB`;
+  if (census.byteEstimates) {
+    const bytes = census.byteEstimates;
+    console.log(`           estimated logical storage (NOT measured VRAM):`
+      + ` textures ${mib(bytes.textureBytes)} reachable / ${mib(bytes.liveTextureBytes)} live handles;`
+      + ` depth/MSAA renderbuffers ${mib(bytes.renderbufferBytes)} reachable / ${mib(bytes.liveRenderbufferBytes)} live targets`);
+    console.log(`           unknown bytes: ${bytes.unknownTextureCount} reachable textures`
+      + ` (${bytes.unknownLiveTextureCount} live), ${bytes.unknownRenderTargetCount} target layouts;`
+      + ` ${census.attributedLiveTextures ?? "unknown"} distinct attributed live handles`);
+    console.log("           excludes driver padding/pooling, default framebuffer, and unattributed allocations");
+  }
   for (const entry of census.owners ?? []) {
     const live = entry.liveTextureCount === undefined
       ? ""
       : ` · ${String(entry.liveTextureCount).padStart(2, " ")} resident`;
-    console.log(`           ${String(entry.textureCount).padStart(2, " ")}  ${entry.owner}${live}`);
+    const bytes = entry.byteEstimates;
+    const storage = bytes ? ` · est. ${mib(bytes.liveTextureBytes + bytes.liveRenderbufferBytes)} live storage` : "";
+    console.log(`           ${String(entry.textureCount).padStart(2, " ")}  ${entry.owner}${live}${storage}`);
     if ((entry.liveTextureNames?.length ?? 0) > 0) {
       console.log(`                 live: ${entry.liveTextureNames.join(", ")}`);
     }
@@ -1304,9 +1443,12 @@ async function readWebglRenderer(page) {
   return page.evaluate(() => {
     const canvas = document.createElement("canvas");
     const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
-    if (!gl) return "NO WEBGL CONTEXT";
+    if (!gl) return { renderer: "NO WEBGL CONTEXT", timerQuerySupported: false };
     const ext = gl.getExtension("WEBGL_debug_renderer_info");
-    return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : "(renderer info unavailable)";
+    return {
+      renderer: ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : "(renderer info unavailable)",
+      timerQuerySupported: Boolean(gl.getExtension("EXT_disjoint_timer_query_webgl2")),
+    };
   });
 }
 

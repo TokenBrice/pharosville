@@ -302,7 +302,10 @@ and its conservative distance lookup.
 - One route-owned clock drives normal motion. No per-entity timers, independent
   CSS analytical animation, or renderer loops.
 - Reduced motion is a complete deterministic static composition with zero
-  continuous RAF.
+  continuous RAF. Ordinary ships settle directly at their authored safe risk
+  anchorage, using its rest heading; Ledger Mooring keeps its own representative
+  stop and squad consorts keep their flagship offsets. This is a composed
+  representative view, not a count of ships instantaneously docked.
 - Hidden/offscreen surfaces pause and resume without a catch-up teleport.
 - Keyboard traversal, pan/zoom, selection, Escape clear, controls, detail
   anchors, and hit testing remain useful without inspecting WebGL pixels.

@@ -100,6 +100,24 @@ review; and `--out <path>` records the frame under `outputs/`. Use the real-GPU
 preview for appearance and timing, then inspect the image and the census
 reconciliation together.
 
+For reproducible hardware comparisons, `--fixture calm|dense|stress` reuses the
+checked-in browser fixtures and fixes the wall clock while leaving real RAF and
+performance timing intact. `--overlap` records projected ship hit-rectangle
+overlap and an annotated companion capture; this is a crowding proxy, not a
+measurement of sail-pixel occlusion. `--pan-zoom` records six gesture frames;
+`--blur-audit` saves a 16px canvas-blur companion for the attention audit.
+`--json <name.json>` preserves the metrics beside the images in `outputs/`.
+
+`--texture-census` includes logical storage estimates for reachable textures,
+unique live handles and known depth/MSAA renderbuffers, with unknown allocations
+listed separately. These are **not measured VRAM**. The GPU preflight reports
+timer-query support; it does not time individual GPU passes.
+
+For lower-tier visual inspection on the dev server, `--force-tier recovery` or
+`--force-tier constrained` uses a debug-only test global. It cannot activate in
+a production build. Pair it with the matching `--require-tier` when asserting
+that particular fidelity state; the normal reference pacing gate remains full.
+
 ### Never judge the look or the frame time through a Playwright browser
 
 Playwright's bundled Chromium falls back to **SwiftShader**, a CPU rasteriser,

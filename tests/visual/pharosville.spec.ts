@@ -547,3 +547,93 @@ async function selectedTargetWithinViewport(
   const { height, width, x, y } = target.rect;
   return x >= 0 && y >= 0 && x + width <= 1440 && y + height <= 1000;
 }
+
+test(...visualLane("interaction", "native reference dialogs preserve focus and light controls choose stillness"), async ({ page }) => {
+  test.setTimeout(120_000);
+  await mockPharosVilleData(page);
+  await mockScreenSize(page, 1920, 1080);
+  await page.setViewportSize({ width: 1200, height: 640 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/?debug=1#t=12");
+  await waitForRuntimeDebug(page, false);
+
+  const find = page.getByRole("button", { name: "Find /" });
+  const skip = page.getByRole("button", { name: "Skip map to controls" });
+  await page.keyboard.press("Tab");
+  await expect(skip).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(find).toBeFocused();
+  await find.click();
+  await expect(page.getByRole("combobox")).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  const legendTrigger = page.getByRole("button", { name: "Legend", exact: true });
+  await legendTrigger.click();
+  const legend = page.getByRole("dialog", { name: "Legend", exact: true });
+  await expect(legend).toBeVisible();
+  expect(await legend.evaluate((dialog) => dialog.matches(":modal"))).toBe(true);
+  await find.evaluate((button: HTMLButtonElement) => button.focus());
+  expect(await legend.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true);
+  const more = legend.locator("summary");
+  await legend.getByRole("button", { name: "Close legend" }).focus();
+  for (let step = 0; step < 8 && !await more.evaluate((summary) => summary === document.activeElement); step += 1) {
+    await page.keyboard.press("Tab");
+  }
+  await expect(more).toBeFocused();
+  await page.keyboard.press("Tab");
+  // Browsers can visit their own chrome at a native modal's end. They must
+  // never focus closed disclosure contents or the inert page underneath.
+  expect(await legend.locator("details:not([open]) button").evaluateAll((buttons) => buttons.some((button) => button === document.activeElement))).toBe(false);
+  expect(await legend.evaluate((dialog) => dialog.contains(document.activeElement) || document.activeElement === document.body)).toBe(true);
+  await more.focus();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  expect(await legend.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(legend).toHaveCount(0);
+  await expect(legendTrigger).toBeFocused();
+
+  await page.getByRole("button", { name: "Harbor ledger", exact: true }).click();
+  const ledger = page.getByRole("dialog", { name: "Harbor ledger", exact: true });
+  await expect(ledger.getByRole("navigation", { name: "Ledger sections" })).toBeVisible();
+  const ledgerBox = await ledger.boundingBox();
+  expect(ledgerBox!.y + ledgerBox!.height).toBeLessThanOrEqual(640);
+  const jump = ledger.getByLabel("Jump to ship");
+  const option = await jump.locator("option").nth(1).getAttribute("value");
+  await jump.selectOption(option!);
+  const record = ledger.locator("details[open]").first();
+  await expect(record.locator("summary")).toBeFocused();
+  await record.getByRole("button", { name: "Select in harbor" }).click();
+  await expect(ledger).toHaveCount(0);
+  const detail = page.getByTestId("pharosville-detail-panel");
+  await expect(detail).toBeVisible();
+  await expect(detail.getByRole("button", { name: "Close details" })).toBeFocused();
+
+  await page.getByLabel(/Light and motion:/).click();
+  await page.getByLabel("Time of day").fill("18:15");
+  await expect(page).toHaveURL(/t=18\.25/);
+  await page.getByRole("button", { name: "Local time", exact: true }).click();
+  await expect(page.getByLabel(/Light and motion:/)).toHaveAttribute("aria-label", /local$/);
+  await page.getByLabel("Still", { exact: true }).check();
+  await expect(page.getByTestId("pharosville-fps-counter")).toHaveText("Static");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(page.getByLabel("Still", { exact: true })).toBeDisabled();
+});
+
+test(...visualLane("interaction", "a cold reduced-motion selection link frames its ship before exposing details"), async ({ page }) => {
+  await mockPharosVilleData(page);
+  await mockScreenSize(page, 1920, 1080);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/?debug=1#sel=ship.usdt-tether&t=18");
+  await waitForRuntimeDebug(page, true);
+  await expect(page.getByTestId("pharosville-detail-panel")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close details" })).toBeFocused();
+  await expect.poll(async () => {
+    const debug = await readVisualDebug(page);
+    const target = debug.targets?.find((entry) => entry.detailId === "ship.usdt-tether");
+    if (!target) return false;
+    const anchor = debug.selectedDetailAnchor ?? { x: target.rect.x + target.rect.width / 2, y: target.rect.y + target.rect.height / 2 };
+    return Math.abs(anchor.x - 800) < 160 && Math.abs(anchor.y - 500) < 100;
+  }).toBe(true);
+});

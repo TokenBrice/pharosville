@@ -1,3 +1,4 @@
+import { isRenderableWorldPayload } from "./world-payload-guard";
 import { classifyFreshnessRatio } from "@shared/lib/status-thresholds";
 import { PHAROSVILLE_API_CLIENT_ENDPOINTS } from "@shared/lib/pharosville-api-client-contract";
 import type { ApiDependencyMeta, ApiMeta } from "@shared/types/api-meta";
@@ -135,7 +136,7 @@ function parseApiDependencyMeta(value: unknown): ApiDependencyMeta | null {
   };
 }
 
-function parseApiMeta(value: unknown): ApiMeta | null {
+export function parseApiMeta(value: unknown): ApiMeta | null {
   if (
     !isRecord(value)
     || typeof value.updatedAt !== "number"
@@ -276,13 +277,26 @@ async function fetchApiJson(
   init?: RequestInit,
 ): Promise<{ data: unknown; normalizedPath: string; response: Response }> {
   const normalizedPath = assertSameOriginApiPath(path);
-  const res = await fetch(normalizedPath, init);
-  if (!res.ok) throw await buildFetchError(path, res);
-  return {
-    data: await res.json(),
-    normalizedPath,
-    response: res,
-  };
+  const controller = new AbortController();
+  const signal = init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
+  const timeout = setTimeout(() => controller.abort(new DOMException("API request timed out", "TimeoutError")), 15_000);
+  let onAbort: () => void = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason);
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([(async () => {
+      signal.throwIfAborted();
+      const res = await fetch(normalizedPath, { ...init, signal });
+      if (!res.ok) throw await buildFetchError(path, res);
+      return { data: await res.json(), normalizedPath, response: res };
+    })(), aborted]);
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener("abort", onAbort);
+  }
 }
 
 export async function apiFetchWithMeta<T>(
@@ -306,18 +320,25 @@ export async function apiFetchWithMeta<T>(
     data = rest;
   }
 
-  if (!meta) {
-    const ageHeader = res.headers.get("X-Data-Age");
-    if (ageHeader) {
-      const age = Number(ageHeader);
-      if (Number.isFinite(age) && age >= 0) {
-        meta = {
-          updatedAt: Math.floor(Date.now() / 1000) - age,
-          ageSeconds: age,
-          status: classifyFreshnessRatio(age / maxAgeSec),
-        };
-      }
-    }
+  const dataAgeHeader = res.headers.get("X-Data-Age");
+  const dataAge = dataAgeHeader === null ? null : Number(dataAgeHeader);
+  const rawCacheAge = Number(res.headers.get("Age"));
+  const cacheAge = Number.isFinite(rawCacheAge) ? Math.max(0, rawCacheAge) : 0;
+  if (meta || (dataAge !== null && Number.isFinite(dataAge) && dataAge >= 0)) {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    // Header and body ages describe the same evidence; CDN residence is added once.
+    const ageSeconds = Math.max(
+      Math.max(meta?.ageSeconds ?? 0, dataAge !== null && Number.isFinite(dataAge) ? dataAge : 0) + cacheAge,
+      meta ? nowSeconds - meta.updatedAt : 0,
+    );
+    const classified = classifyFreshnessRatio(ageSeconds / Math.max(1, maxAgeSec));
+    meta = {
+      ...meta,
+      updatedAt: Math.min(meta?.updatedAt ?? nowSeconds, nowSeconds - ageSeconds),
+      ageSeconds,
+      status: meta?.status === "stale" || classified === "stale" ? "stale"
+        : meta?.status === "degraded" || classified === "degraded" ? "degraded" : "fresh",
+    };
   }
 
   const warningHeader = res.headers.get("Warning");
@@ -337,6 +358,11 @@ export async function apiFetchWithMeta<T>(
         warning: warningHeader,
       };
     }
+  }
+
+  const endpoint = PHAROSVILLE_API_CLIENT_ENDPOINTS.find((candidate) => candidate.path === normalizedPath);
+  if (endpoint && !isRenderableWorldPayload(endpoint.key, data)) {
+    throw new SchemaValidationError(normalizedPath, "invalid render-critical payload");
   }
 
   // A caller that hands in its own schema wants validated data and gets it

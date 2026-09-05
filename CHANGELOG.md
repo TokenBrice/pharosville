@@ -2,6 +2,19 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.12.0 - 2026-09-05 - A Calmer Harbor
+
+A more connected sea, a more composed still harbor, and direct controls for finding a ship or choosing the light.
+
+Collected from commits `ab5a72b` through `619ca55` after v0.11.1.
+
+- Softened the transitions between the seven waters, shaped the shore into smoother earth and local rock ledges, and gave the foreground pines bent trunks, unequal branches and a gradual appearance as you move closer. Smaller carved sea signs leave more attention for the garden.
+- Restored the intended colors, normals and material differences in the large ship models, aligned the lighthouse reflection with the view, and fixed a constrained-quality shadow fault that could make opaque scenery disappear.
+- Recomposed stillness around stable risk-water positions instead of crowding ordinary ships around their home docks. Moorings prefer clear hull space while keeping a safe fallback in busy coves, and ships turn through route hairpins without a sudden sideways flip.
+- Added a visible Find action, a time-of-day control with a Local time reset, and a Still choice that respects system reduced motion. Shared ship and harbor links now bring their subject into view before revealing its record.
+- Made reference panels native modal dialogs, added a keyboard shortcut past the map to its controls, and gave the harbor ledger section jumps, disclosures and actions to select a ship or station. Reading panels and search hold off the idle camera tour.
+- Kept retained readings aging honestly during outages and bounded stalled or interrupted responses while preserving usable last-good data. Cached fixed sea-sign placement and shared repeated shield geometry reduce unnecessary work without reducing fleet visibility or raising resource limits.
+
 ## v0.11.1 - 2026-09-04 - Mole Errata
 
 Corrects two overstated numbers in the v0.11.0 notes below, and restores the

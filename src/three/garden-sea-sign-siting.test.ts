@@ -11,9 +11,9 @@ import {
 
 describe("sea-stele overview-LOD siting (W2a)", () => {
   it("keeps true scale in-world and a readable chart rung at whole-map", () => {
-    expect(SEA_SIGN_SCALE_STEPS).toEqual([1, 3.2]);
+    expect(SEA_SIGN_SCALE_STEPS).toEqual([1, 2.6]);
     expect(SEA_SIGN_STEP_ZOOMS).toEqual([0.4]);
-    expect(seaSignScaleForZoom(0.28)).toBe(3.2);
+    expect(seaSignScaleForZoom(0.28)).toBe(2.6);
     expect(seaSignStepForZoom(0.28)).toBe(1);
     for (const zoom of [0.7776, 1.4, 2.4]) {
       expect(seaSignScaleForZoom(zoom)).toBe(1);
@@ -23,7 +23,7 @@ describe("sea-stele overview-LOD siting (W2a)", () => {
 
   it("settles the discrete overview rung and bypasses it under reduced-motion history", () => {
     const track = createSeaSignScaleTrack();
-    expect(track.advance({ deltaSeconds: Number.POSITIVE_INFINITY, zoom: 0.28 })).toBe(3.2);
+    expect(track.advance({ deltaSeconds: Number.POSITIVE_INFINITY, zoom: 0.28 })).toBe(2.6);
     expect(track.step).toBe(1);
     expect(track.advance({ deltaSeconds: 1 / 60, reducedMotion: true, zoom: 1.2 })).toBe(1);
     expect(track.step).toBe(0);
@@ -56,5 +56,20 @@ describe("sea-stele overview-LOD siting (W2a)", () => {
       detailId: "area.risk-water.wreck-shoal",
       label: "Wreck Shoal",
     });
+  });
+
+  it("reuses static sites until the immutable area input changes", () => {
+    const areas = [
+      { band: "CALM", detailId: "area.calm", label: "Calm Anchorage" },
+      { band: "DANGER", detailId: "area.danger", label: "Danger Strait" },
+    ];
+    const first = seaSignSteles(areas);
+    expect(seaSignSteles(areas)).toBe(first);
+    const changed = [{ ...areas[1]!, label: "Updated danger reading" }];
+    const next = seaSignSteles(changed);
+    expect(next).not.toBe(first);
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatchObject({ body: "danger", label: "Updated danger reading" });
+    expect(first.map((site) => site.label)).toEqual(["Calm Anchorage", "Danger Strait"]);
   });
 });

@@ -156,6 +156,11 @@ export function resolveRenderSchedulerState(
   };
 }
 
+/** Test seam called only by the dev+debug render loop; cadence/motion are unchanged. */
+export function applyPreviewSchedulerTier(state: PharosVilleRenderSchedulerState, tier: unknown): PharosVilleRenderSchedulerState {
+  return tier === "constrained" || tier === "recovery" ? { ...state, tier, loadTier: tier } : state;
+}
+
 function resolveRenderSchedulerTier(
   input: {
     cameraIntentActive: boolean;

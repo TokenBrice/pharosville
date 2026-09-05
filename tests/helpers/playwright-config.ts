@@ -45,7 +45,6 @@ type AllowedBrowser = keyof typeof browserDeviceProfiles;
 const HARDWARE_GPU_ARGS = [
   "--ignore-gpu-blocklist",
   "--enable-gpu",
-  "--use-angle=vulkan",
   "--use-cmd-decoder=passthrough",
 ];
 
@@ -55,8 +54,11 @@ export function shouldUseHardwareGpu() {
   return !process.env.CI;
 }
 
-export function hardwareGpuLaunchArgs(browser: string): string[] {
-  return browser === "chromium" && shouldUseHardwareGpu() ? [...HARDWARE_GPU_ARGS] : [];
+export function hardwareGpuLaunchArgs(browser: string, platform: NodeJS.Platform = process.platform): string[] {
+  // ANGLE Vulkan falls back to SwiftShader on macOS; Metal reaches the real GPU.
+  return browser === "chromium" && shouldUseHardwareGpu()
+    ? [...HARDWARE_GPU_ARGS, platform === "darwin" ? "--use-angle=metal" : "--use-angle=vulkan"]
+    : [];
 }
 
 /**

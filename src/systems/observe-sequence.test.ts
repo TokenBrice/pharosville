@@ -51,11 +51,16 @@ describe("buildObserveSequence", () => {
       "supply",
       "concentration",
     ]);
+    const aged = buildObserveSequence({ ...world, freshness: { chainsStale: true } });
+    expect(aged.map((beat) => beat.detailId)).toEqual(beats.map((beat) => beat.detailId));
+    expect(aged[3]?.label).toContain("stale or unavailable evidence");
+    expect(aged[0]?.label).toBe(beats[0]?.label);
+    expect(beats[2]?.label).toContain("largest weekly percentage supply change");
     expect(beats[1]).toMatchObject({ detailId: "danger-watch", tile: { x: 4, y: 5 } });
     expect(beats[2]).toMatchObject({ detailId: "calm-growth", tile: { x: 3, y: 4 } });
     expect(beats[3]).toMatchObject({ detailId: "dock.b", tile: { x: 2, y: 2 } });
     expect(beats[3]?.label).toBe(
-      "Beta has the observatory's highest dock concentration at HHI 0.80.",
+      "Beta has the observatory's highest dock concentration at HHI 0.80 — higher means supply is concentrated in fewer stablecoins; $1 total supply.",
     );
   });
 

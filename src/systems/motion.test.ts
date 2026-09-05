@@ -489,22 +489,19 @@ describe("motion", () => {
     expect(new Set(multiRoute.dockStopSchedule).size).toBeGreaterThan(new Set(singleRoute.dockStopSchedule).size);
   });
 
-  it("returns a static primary-dock berth for reduced-motion docked samples", () => {
+  it("holds the risk anchorage without claiming a dock in reduced motion", () => {
     const ship = world.ships[0]!;
     const plan = buildMotionPlan(world, ship.detailId);
     const route = plan.shipRoutes.get(ship.id)!;
-    const primaryStop = route.dockStops.find((stop) => stop.dockId === route.homeDockId) ?? route.dockStops[0]!;
     const sample = resolveShipMotionSample({ plan, reducedMotion: true, ship, timeSeconds: 120 });
 
-    expect(sample.tile).toEqual(primaryStop.mooringTile);
+    expect(sample.tile).toEqual(route.riskTile);
+    expect(resolveShipMotionSample({ plan, reducedMotion: true, ship, timeSeconds: 9_000 })).toEqual(sample);
     expect(sample.state).toBe("idle");
-    expect(sample.currentDockId).toBe(primaryStop.dockId);
-    expect(sample.currentRouteStopId).toBe(primaryStop.id);
-    expect(sample.currentRouteStopKind).toBe("dock");
+    expect(sample.currentDockId).toBeNull();
+    expect(sample.currentRouteStopId).toBeNull();
+    expect(sample.currentRouteStopKind).toBeNull();
     expect(sample.zone).toBe(ship.riskZone);
-    if (primaryStop.dockTangent) {
-      expect(sample.heading).toEqual(primaryStop.dockTangent);
-    }
     expect(sample.wakeIntensity).toBe(0);
     expect(sample.velocity).toEqual({ x: 0, y: 0 });
     expect(sample.speedTilesPerSecond).toBe(0);
@@ -621,12 +618,13 @@ describe("motion", () => {
     let underwayShareSum = 0;
     let transitionShareSum = 0;
     for (let clockIndex = 0; clockIndex < 50; clockIndex += 1) {
-      // Coprime stride gives a deterministic pseudo-random spread over many
-      // route cycles without introducing Math.random into the test or plan.
-      const timeSeconds = ((clockIndex * 7_919) % 50_000) + 0.37;
+      // Measure each full duty cycle evenly. A shared sparse wall-clock grid
+      // aliases identity phases when a berth change lengthens a route.
       let underway = 0;
       let transitions = 0;
       for (const ship of denseWorld.ships) {
+        const route = plan.shipRoutes.get(ship.id)!;
+        const timeSeconds = route.cycleSeconds * (clockIndex + 0.37) / 50 - route.phaseSeconds;
         const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds });
         expect(tileKindForSample(sample.tile), `${ship.id} at t=${timeSeconds}`).toMatch(/water/);
         if (sample.state === "sailing") {
@@ -641,15 +639,7 @@ describe("motion", () => {
       underwayShareSum += underway / denseWorld.ships.length;
       transitionShareSum += transitions / denseWorld.ships.length;
     }
-    // 2026-09 harbour re-siting graze: the re-bound berth assignments moved
-    // several dense-fleet voyage floors, and this deterministic 50-sample
-    // clock grid now measures 0.179545… — 0.25% under the former 0.18 floor.
-    // The fleet's duty cycle itself did not regress: uniform full-cycle
-    // sampling still measures 0.1842 sailing (moored holds ~1/3), and routes
-    // whose voyages the re-siting lengthened sail MORE (0.1919 mean share vs
-    // 0.1799 for identity-budget routes), so the voyage-floor mechanism is
-    // not what dragged the grid measurement. Floor re-pinned at 0.179 to
-    // keep the perceptibility guard tight against the measured value.
+    // Keep the perceptibility floor, measured over complete route cycles.
     expect(underwayShareSum / 50).toBeGreaterThanOrEqual(0.179);
     expect(underwayShareSum / 50).toBeLessThanOrEqual(0.25);
     expect(transitionShareSum / 50).toBeGreaterThanOrEqual(0.08);
@@ -3066,15 +3056,9 @@ describe("motion", () => {
       const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: t });
       if (prevSample) {
         const tileDelta = Math.hypot(sample.tile.x - prevSample.tile.x, sample.tile.y - prevSample.tile.y);
-        // D1 and D2 fixed the high-impact seams; threshold accommodates the
-        // residual riskDrift→arriving boundary drift and the lane-offset kink
-        // at interior path vertices (the raw tangent rotates discretely at a
-        // vertex, so the perpendicular lane displacement steps with it —
-        // ~0.21 tile worst-case for this fixture's wander geometry after the
-        // zones-v2 exclusion rerouting moved the south-shore moorings off the
-        // rendered island rock). Still far below the visual smoother's
-        // 3-tile hard-snap threshold.
-        expect(tileDelta).toBeLessThan(0.22);
+        // Includes phase boundaries and interior hairpins: the lane's local
+        // chord must not flip its lateral offset when a segment turns back.
+        expect(tileDelta, `${ship.id} at ${t.toFixed(3)}s: ${prevSample.state} ${JSON.stringify(prevSample.tile)} -> ${sample.state} ${JSON.stringify(sample.tile)}`).toBeLessThan(0.22);
         // Skip heading check for moored/risk-drift states — intentional orbit
         // and drift-circle heading rotation; not a transit seam.
         if (prevSample.state !== "moored" && sample.state !== "moored"

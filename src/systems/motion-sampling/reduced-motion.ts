@@ -1,6 +1,6 @@
 import { squadForMember, squadFormationOffsetForPlacement } from "../maker-squad";
 import type { SeaState } from "../sea-state";
-import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionRouteStop, ShipMotionSample } from "../motion-types";
+import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionSample } from "../motion-types";
 import type { ShipNode } from "../world-types";
 import {
   clampMotionTileInto,
@@ -14,8 +14,6 @@ import {
 interface ReducedMotionRouteFrame {
   tile: { x: number; y: number };
   heading: { x: number; y: number };
-  dockStop: ShipMotionRoute["dockStops"][number] | null;
-  ledgerStop: ShipMotionRouteStop | null;
 }
 
 export function reducedMotionSampleInto(
@@ -67,50 +65,14 @@ export function reducedMotionSampleInto(
   out.tile.y = frame.tile.y;
   out.heading.x = frame.heading.x;
   out.heading.y = frame.heading.y;
-
-  if (frame.ledgerStop) {
-    // Existing NAV policy treats Ledger Mooring as the static representative
-    // frame rather than a rendered chain dock visit.
-    return;
-  }
-
-  if (frame.dockStop) {
-    out.currentDockId = frame.dockStop.dockId;
-    out.currentRouteStopId = frame.dockStop.id;
-    out.currentRouteStopKind = frame.dockStop.kind;
-  }
 }
 
 function reducedMotionRouteFrame(route: ShipMotionRoute): ReducedMotionRouteFrame {
-  if (route.riskStop?.kind === "ledger") {
-    return {
-      tile: route.riskStop.mooringTile,
-      heading: route.riskStop.dockTangent ?? { x: 0, y: 0 },
-      dockStop: null,
-      ledgerStop: route.riskStop,
-    };
-  }
-
-  const dockStop = primaryRouteDockStop(route);
-  if (dockStop) {
-    return {
-      tile: dockStop.mooringTile,
-      heading: dockStop.dockTangent ?? { x: 0, y: 0 },
-      dockStop,
-      ledgerStop: null,
-    };
-  }
-
+  // Stillness uses the authored risk anchorages, not every ship's primary
+  // dock at once. Chain ties stay in its record; the full fleet keeps its
+  // canonical, water-safe display composition with no simulation warm-up.
   return {
-    tile: route.riskTile,
-    heading: { x: 0, y: 0 },
-    dockStop: null,
-    ledgerStop: null,
+    tile: route.riskStop?.kind === "ledger" ? route.riskStop.mooringTile : route.riskTile,
+    heading: route.riskStop?.dockTangent ?? { x: 0, y: 0 },
   };
-}
-
-function primaryRouteDockStop(route: ShipMotionRoute): ShipMotionRoute["dockStops"][number] | null {
-  return (route.homeDockId ? route.dockStops.find((stop) => stop.dockId === route.homeDockId) : null)
-    ?? route.dockStops[0]
-    ?? null;
 }

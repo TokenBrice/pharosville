@@ -14,6 +14,7 @@ import {
 
 export interface DetailPanelProps {
   detail: DetailModel;
+  visible?: boolean;
   headingId?: string;
   onSelectDetail?: (detailId: string) => void;
   panelId?: string;
@@ -36,6 +37,7 @@ const COPY_FEEDBACK_MS = 2500;
 
 export function DetailPanel({
   detail,
+  visible = true,
   headingId = "pharosville-detail-panel-title",
   onSelectDetail,
   panelId = "pharosville-detail-panel",
@@ -85,12 +87,13 @@ export function DetailPanel({
   // element on unmount. If that element is no longer in the DOM, fall back
   // to the canvas shell so keyboard users land somewhere predictable.
   useEffect(() => {
+    if (!visible) return;
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     focusWithoutScroll(closeButtonRef.current ?? panelRef.current);
     return () => {
       restoreDialogFocus(previouslyFocused);
     };
-  }, []);
+  }, [visible]);
 
 
   return (

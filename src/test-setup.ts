@@ -75,3 +75,10 @@ beforeEach(() => {
 });
 
 export {};
+
+// jsdom has no top layer or keyboard default actions; browser assertions own
+// modality/Tab behavior. This models only the native dialog lifecycle.
+if (typeof HTMLDialogElement !== "undefined") {
+  HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  HTMLDialogElement.prototype.close = function () { this.open = false; };
+}

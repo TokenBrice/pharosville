@@ -1,6 +1,7 @@
 import { dockSeawardVector } from "../../dock-layout";
 import {
   gardenShipWaterMarginTiles,
+  gardenShipWaterBeamTiles,
   isGardenShipWater,
 } from "../../garden-water-exclusion";
 import {
@@ -16,6 +17,44 @@ import {
 } from "../../world-layout";
 import type { DockNode, ShipDockVisit, ShipNode } from "../../world-types";
 import type { DockAssignmentStage } from "../pipeline-types";
+
+interface OccupiedBerth {
+  x: number;
+  y: number;
+  halfLength: number;
+  halfBeam: number;
+  forwardX: number;
+  forwardY: number;
+}
+
+export function berthFootprint(tile: { x: number; y: number }, ship: ShipNode, dock: DockNode): OccupiedBerth {
+  const scale = gardenShipVisualScale(ship.visual.scale || 1);
+  const silhouette = GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull];
+  const dx = dock.tile.x - tile.x;
+  const dy = dock.tile.y - tile.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  return {
+    ...tile,
+    halfLength: gardenShipWaterMarginTiles(scale, silhouette),
+    halfBeam: gardenShipWaterBeamTiles(scale, silhouette),
+    forwardX: dx / distance,
+    forwardY: dy / distance,
+  };
+}
+
+function separatedOnAxis(a: OccupiedBerth, b: OccupiedBerth, x: number, y: number): boolean {
+  const extent = (berth: OccupiedBerth) =>
+    Math.abs(x * berth.forwardX + y * berth.forwardY) * berth.halfLength
+    + Math.abs(-x * berth.forwardY + y * berth.forwardX) * berth.halfBeam;
+  return Math.abs((a.x - b.x) * x + (a.y - b.y) * y) >= extent(a) + extent(b);
+}
+
+export function berthsOverlap(a: OccupiedBerth, b: OccupiedBerth): boolean {
+  return !separatedOnAxis(a, b, a.forwardX, a.forwardY)
+    && !separatedOnAxis(a, b, -a.forwardY, a.forwardX)
+    && !separatedOnAxis(a, b, b.forwardX, b.forwardY)
+    && !separatedOnAxis(a, b, -b.forwardY, b.forwardX);
+}
 
 function normalizeDockVisitWeights(visits: ShipDockVisit[]): ShipDockVisit[] {
   const totalWeight = visits.reduce((sum, visit) => sum + visit.weight, 0);
@@ -77,7 +116,7 @@ function dockMooringBarrierClearance(ship: ShipNode): number {
 function isBerthTile(
   tile: { x: number; y: number },
   ship: ShipNode,
-  occupied: ReadonlySet<string>,
+  occupied: ReadonlyMap<string, OccupiedBerth>,
 ): boolean {
   if (occupied.has(`${tile.x}.${tile.y}`)) return false;
   // Zones-v2 placement fix: moorings must also clear the RENDERED island
@@ -97,7 +136,7 @@ function dockMooringTile(
   dock: DockNode,
   ship: ShipNode,
   index: number,
-  occupied: ReadonlySet<string>,
+  occupied: ReadonlyMap<string, OccupiedBerth>,
 ): { x: number; y: number } {
   const outward = dockOutwardVector(dock);
   const fan = { x: -outward.y, y: outward.x };
@@ -111,6 +150,8 @@ function dockMooringTile(
   });
   let bestTile: { x: number; y: number } | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
+  let clearTile: { x: number; y: number } | null = null;
+  let clearScore = Number.POSITIVE_INFINITY;
 
   for (let depth = baseDepth; depth <= baseDepth + 8; depth += 1) {
     for (const laneOffset of laneOffsets) {
@@ -121,6 +162,16 @@ function dockMooringTile(
       });
       if (!isBerthTile(tile, ship, occupied)) continue;
       const score = depth * 10 + Math.abs(laneOffset) + Math.abs(lane) * 0.01;
+      // ponytail: soft envelopes preserve busy-cove capacity; use timed visit
+      // reservations if simultaneous berth overlap needs a hard guarantee.
+      if (score < clearScore) {
+        const footprint = berthFootprint(tile, ship, dock);
+        let clear = true;
+        for (const other of occupied.values()) {
+          if (berthsOverlap(footprint, other)) { clear = false; break; }
+        }
+        if (clear) { clearScore = score; clearTile = tile; }
+      }
       if (score < bestScore) {
         bestScore = score;
         bestTile = tile;
@@ -128,6 +179,7 @@ function dockMooringTile(
     }
   }
 
+  if (clearTile) return clearTile;
   if (bestTile) return bestTile;
   for (let y = 0; y <= MAX_TILE_Y; y += 1) {
     for (let x = 0; x <= MAX_TILE_X; x += 1) {
@@ -184,7 +236,7 @@ function berthKey(shipId: string, dock: DockNode): string {
 
 function assignDockVisits(ships: readonly ShipNode[], docks: readonly DockNode[]): ShipNode[] {
   const dockByChainId = new Map(docks.map((dock) => [dock.chainId, dock]));
-  const occupied = new Set<string>();
+  const occupied = new Map<string, OccupiedBerth>();
   const dockedIndex = new Map<string, number>();
 
   const byMarketCap = ships
@@ -202,7 +254,7 @@ function assignDockVisits(ships: readonly ShipNode[], docks: readonly DockNode[]
       const key = berthKey(ship.id, dock);
       const heldTile = heldMooringTiles.get(key);
       if (!heldTile || !isBerthTile(heldTile, ship, occupied)) continue;
-      occupied.add(`${heldTile.x}.${heldTile.y}`);
+      occupied.set(`${heldTile.x}.${heldTile.y}`, berthFootprint(heldTile, ship, dock));
       heldForBuild.set(key, heldTile);
     }
   }
@@ -236,7 +288,7 @@ function assignDockVisits(ships: readonly ShipNode[], docks: readonly DockNode[]
           dockedIndex.set(dock.chainId, index + 1);
           const key = berthKey(ship.id, dock);
           const mooringTile = heldForBuild.get(key) ?? dockMooringTile(dock, ship, index, occupied);
-          occupied.add(`${mooringTile.x}.${mooringTile.y}`);
+          occupied.set(`${mooringTile.x}.${mooringTile.y}`, berthFootprint(mooringTile, ship, dock));
           nextHeld.set(key, mooringTile);
           return [{
             chainId: presence.chainId,
