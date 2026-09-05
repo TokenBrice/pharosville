@@ -274,12 +274,12 @@ assert.equal(
   true,
 );
 // The meshopt GLBs and SVG logos fail closed to procedural fallbacks under a
-// policy without these two sources — the deployed lighthouse regressed to the
-// plain shell exactly this way.
-assert.deepEqual(
-  validateCsp("default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'"),
-  ["img-src missing blob:", "script-src missing 'wasm-unsafe-eval'"],
-);
+// document policy without these two sources — the deployed lighthouse
+// regressed to the plain shell exactly this way. The JSON proxy's policy runs
+// no script and is not held to them.
+const apiCsp = "default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'";
+assert.deepEqual(validateCsp(apiCsp), ["img-src missing blob:", "script-src missing 'wasm-unsafe-eval'"]);
+assert.deepEqual(validateCsp(apiCsp, { document: false }), []);
 assert.equal(validatePermissionsPolicy("autoplay=(), camera=()").some((finding) => finding.includes("display-capture")), true);
 assert.equal(REQUIRED_PERMISSIONS_POLICY_FEATURES.includes("screen-wake-lock"), true);
 assert.deepEqual(validateStaticHeadersText(readFileSync(resolve("public/_headers"), "utf8")), []);
