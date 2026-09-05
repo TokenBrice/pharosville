@@ -24,6 +24,7 @@ import {
   Quaternion,
   Shape,
   ShapeGeometry,
+  Uint8BufferAttribute,
   Vector3,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -1031,16 +1032,22 @@ export function createShip(
     && ship.reportCard?.overallGrade
     && ship.reportCard.overallGrade !== "NR"
   ) {
-    const shieldShape = new Shape();
-    shieldShape.moveTo(0, 0.42);
-    shieldShape.lineTo(0.34, 0.18);
-    shieldShape.lineTo(0.25, -0.3);
-    shieldShape.lineTo(0, -0.5);
-    shieldShape.lineTo(-0.25, -0.3);
-    shieldShape.lineTo(-0.34, 0.18);
-    shieldShape.closePath();
+    // Both badge layers (and all ships) use the same silhouette. Keep one
+    // fleet-owned geometry so a moving badge entering view cannot register
+    // two identical GPU buffers on consecutive frames.
+    const shieldGeometry = cachedShipGeometry(cache, "bluechip-shield", () => {
+      const shieldShape = new Shape();
+      shieldShape.moveTo(0, 0.42);
+      shieldShape.lineTo(0.34, 0.18);
+      shieldShape.lineTo(0.25, -0.3);
+      shieldShape.lineTo(0, -0.5);
+      shieldShape.lineTo(-0.25, -0.3);
+      shieldShape.lineTo(-0.34, 0.18);
+      shieldShape.closePath();
+      return new ShapeGeometry(shieldShape);
+    });
     const shield = new Mesh(
-      new ShapeGeometry(shieldShape),
+      shieldGeometry,
       new MeshStandardMaterial({
         color: "#66717a",
         metalness: 0.56,
@@ -1053,12 +1060,13 @@ export function createShip(
     shield.rotation.x = -0.18;
     overviewDetail.add(shield);
     const shieldMark = new Mesh(
-      new ShapeGeometry(shieldShape),
+      shieldGeometry,
       new MeshBasicMaterial({
         color: HARBOR_PALETTE.lantern_glow,
         side: DoubleSide,
       }),
     );
+    shieldMark.name = "ship-bluechip-shield-mark";
     shieldMark.scale.setScalar(0.42);
     shieldMark.position.set(1.35, 1.05, 0.835);
     shieldMark.rotation.x = -0.18;
@@ -1261,6 +1269,7 @@ function mergeGardenHeroStatics(visual: ShipVisual, model: Group): void {
     const sourceColor = geometry.getAttribute("color");
     const colors = new Float32Array(position.count * 3);
     const glow = new Float32Array(position.count);
+    const surface = new Uint8Array(position.count * 2);
     const material = object.material as MeshStandardMaterial;
     const tint = material.color.clone();
     if (object.name === "wood-hull") tint.multiply(visual.heroHullTint);
@@ -1284,9 +1293,12 @@ function mergeGardenHeroStatics(visual: ShipVisual, model: Group): void {
       colors[index * 3 + 1] = tint.g * (sourceColor?.getY(index) ?? 1) * wearLift;
       colors[index * 3 + 2] = tint.b * (sourceColor?.getZ(index) ?? 1) * wearLift;
       glow[index] = object.name === "glow-hull" ? 1 : object.name === "spar-hull" ? 0.035 : 0;
+      surface[index * 2] = Math.round(MathUtils.clamp(material.roughness ?? 0.84, 0, 1) * 255);
+      surface[index * 2 + 1] = Math.round(MathUtils.clamp(material.metalness ?? 0, 0, 1) * 255);
     }
     geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
     geometry.setAttribute("aHeroGlow", new Float32BufferAttribute(glow, 1));
+    geometry.setAttribute("aHeroSurface", new Uint8BufferAttribute(surface, 2, true));
     if (object.name === "sail-hull") sailParts.push(geometry);
     else solidParts.push(geometry);
   });
@@ -1298,7 +1310,8 @@ function mergeGardenHeroStatics(visual: ShipVisual, model: Group): void {
     const material = new MeshStandardMaterial({
       color: "#ffffff",
       flatShading: !canvas,
-      roughness: canvas ? 0.8 : 0.84,
+      roughness: canvas ? 0.8 : 1,
+      metalness: canvas ? 0 : 1,
       side: DoubleSide,
       vertexColors: true,
     });
@@ -1308,16 +1321,18 @@ function mergeGardenHeroStatics(visual: ShipVisual, model: Group): void {
       material.onBeforeCompile = (shader, renderer) => {
         previousCompile.call(material, shader, renderer);
         shader.vertexShader = shader.vertexShader
-          .replace("#include <common>", "#include <common>\nattribute float aHeroGlow; varying float vHeroGlow;")
-          .replace("#include <begin_vertex>", "#include <begin_vertex>\nvHeroGlow = aHeroGlow;");
+          .replace("#include <common>", "#include <common>\nattribute float aHeroGlow; varying float vHeroGlow; attribute vec2 aHeroSurface; varying vec2 vHeroSurface;")
+          .replace("#include <begin_vertex>", "#include <begin_vertex>\nvHeroGlow = aHeroGlow; vHeroSurface = aHeroSurface;");
         shader.fragmentShader = shader.fragmentShader
-          .replace("#include <common>", "#include <common>\nvarying float vHeroGlow;")
+          .replace("#include <common>", "#include <common>\nvarying float vHeroGlow; varying vec2 vHeroSurface;")
+          .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor *= vHeroSurface.x;")
+          .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor *= vHeroSurface.y;")
           .replace(
             "#include <emissivemap_fragment>",
             "#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.72, 0.35) * vHeroGlow * 1.4;",
           );
       };
-      material.customProgramCacheKey = () => "garden-hero-merged-solid-v1";
+      material.customProgramCacheKey = () => "garden-hero-merged-solid-v2";
     }
     const mesh = new Mesh(geometry, material);
     mesh.name = name;

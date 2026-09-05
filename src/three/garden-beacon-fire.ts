@@ -432,7 +432,7 @@ function createSmoke(
       varying vec2 vUv;
 
       void main() {
-        float mask = smoothstep(0.5, 0.3, length(vUv - 0.5));
+        float mask = (1.0 - smoothstep(0.3, 0.5, length(vUv - 0.5)));
         float n = texture2D(
           uNoise,
           vUv * 0.85 + vSeed * 7.31 + vec2(uTime * 0.006, -vAge * 0.22)

@@ -8,6 +8,7 @@ import {
   Group,
   InstancedBufferAttribute,
   InstancedMesh,
+  MathUtils,
   Matrix4,
   Mesh,
   MeshStandardMaterial,
@@ -15,7 +16,7 @@ import {
   SphereGeometry,
   Vector3,
 } from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { distanceToStationFootprint, stationFootprintRect } from "../systems/dock-layout";
 import {
   RIM_COVES,
@@ -97,7 +98,7 @@ const ENGAWA_TIMBER_LIT = ENGAWA_TIMBER.clone().lerp(
 
 /** The veranda replaces the lower-left stroll-ribbon segment as foreground. */
 export const GARDEN_ENGAWA_DISPLACEMENT = "lower-left rim path and pine thicket";
-export const GARDEN_ENGAWA_PINE_HEIGHT = 18;
+export const GARDEN_ENGAWA_PINE_HEIGHT = 14;
 /** These camera-side bays displace the former straight shoreline run. */
 export const GARDEN_NEAR_RIM_BAY_DEPTHS = [3.2, 4.8, 3.6] as const;
 export const GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT = 1.55;
@@ -327,12 +328,22 @@ function rimHeight(tileX: number, tileY: number): number {
     bell(tileX, -1, 31) * bell(tileY, 106, 53),
   );
   const shoreBase = 0.62 + cameraSide * (GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT - 0.62);
-  const rise = shoreBase + Math.min(1, inland / 7.5) * 1.5;
-  // Danger Strait's east bank is the one deliberate cliff face.
-  const dangerCliff = tileX > MAP_LAST - 8 && tileY > 38 && tileY < 82 ? 0.38 : 0;
-  const stepped = 0.6 + Math.floor(Math.max(0, rise + dangerCliff - 0.6) / 0.34) * 0.34;
-  const grain = (stableUnit(`rim-height.${Math.round(tileX * 2)}.${Math.round(tileY * 2)}`) - 0.5) * 0.055;
-  const height = Math.max(0.6, Math.min(3.1, stepped + grain));
+  const rise = shoreBase + MathUtils.smoothstep(inland, 0, 8.5) * 1.3;
+  // Two broken outcrop shelves interrupt continuous earth, not every contour.
+  const outcrop = MathUtils.smoothstep(
+    Math.sin(tileX * 0.12 + tileY * 0.055) + Math.sin(tileY * 0.17 - 0.8),
+    0.35, 1.45,
+  );
+  const ledge = outcrop * (
+    MathUtils.smoothstep(inland, 1.2, 1.65) * 0.22
+    + MathUtils.smoothstep(inland, 4.1, 4.8) * 0.28
+  );
+  // Danger Strait retains its single deliberate cliff with tapered ends.
+  const dangerCliff = MathUtils.smoothstep(tileX, MAP_LAST - 10, MAP_LAST - 6)
+    * MathUtils.smoothstep(tileY, 38, 44)
+    * (1 - MathUtils.smoothstep(tileY, 76, 82)) * 0.38;
+  const grain = Math.sin(tileX * 0.43 + tileY * 0.31) * 0.045;
+  const height = Math.max(0.6, Math.min(3.1, rise + ledge + dangerCliff + grain));
   const beyond = Math.max(0, tileX - MAP_LAST, tileY - MAP_LAST);
   if (beyond <= 0) return height;
   // The skirt lets its surface down toward the outer margin so the land
@@ -351,9 +362,9 @@ function rimHeight(tileX: number, tileY: number): number {
 
 function rimColor(tileX: number, tileY: number): Color {
   const inland = Math.max(0, -authoredDistance(tileX, tileY));
-  const moss = Math.min(0.52, Math.max(0, (inland - 0.8) / 6));
-  const color = EARTH.clone().lerp(MOSS, moss);
-  color.multiplyScalar(0.88 + stableUnit(`rim-color.${Math.round(tileX)}.${Math.round(tileY)}`) * 0.16);
+  const moss = MathUtils.smoothstep(inland, 0.8, 6) * 0.48;
+  const color = WET_ROCK.clone().lerp(EARTH, MathUtils.smoothstep(inland, 0, 2.4)).lerp(MOSS, moss);
+  color.multiplyScalar(0.94 + Math.sin(tileX * 0.24 - tileY * 0.18) * 0.055);
   return color;
 }
 
@@ -464,8 +475,7 @@ function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
       const p11 = shoreVertexTile(cx + half, cy + half);
       const p01 = shoreVertexTile(cx - half, cy + half);
       // Heights are sampled at shared corners so neighbouring tiles remain a
-      // watertight sheet. Quantisation in rimHeight still creates broad,
-      // unequal terraces without the hairline cracks of disconnected slabs.
+      // watertight sheet; local ledges interrupt otherwise continuous earth.
       const h00 = rimHeight(cx - half, cy - half);
       const h10 = rimHeight(cx + half, cy - half);
       const h11 = rimHeight(cx + half, cy + half);
@@ -504,7 +514,12 @@ function buildLandGeometry(): { face: BufferGeometry; top: BufferGeometry } {
       }
     }
   }
-  return { face: finishGeometry(face), top: finishGeometry(top) };
+  const topGeometry = finishGeometry(top);
+  topGeometry.deleteAttribute("normal");
+  const smoothTop = mergeVertices(topGeometry);
+  smoothTop.computeVertexNormals();
+  topGeometry.dispose();
+  return { face: finishGeometry(face), top: smoothTop };
 }
 
 function colorGeometry(geometry: BufferGeometry, color: Color): BufferGeometry {
@@ -521,21 +536,38 @@ function colorGeometry(geometry: BufferGeometry, color: Color): BufferGeometry {
 
 function createPineGeometry(): BufferGeometry {
   const pieces: BufferGeometry[] = [];
-  const trunk = colorGeometry(new CylinderGeometry(0.22, 0.36, 4.5, 7), PINE_TRUNK);
-  trunk.translate(0, 2.25, 0);
-  pieces.push(trunk);
+  const up = new Vector3(0, 1, 0);
+  const branch = (from: number[], to: number[], base: number, tip: number, sides: number) => {
+    const start = new Vector3(...from);
+    const end = new Vector3(...to);
+    const direction = end.clone().sub(start);
+    const wood = colorGeometry(new CylinderGeometry(tip, base, direction.length(), sides, 1, true), PINE_TRUNK);
+    wood.applyQuaternion(new Quaternion().setFromUnitVectors(up, direction.normalize()));
+    wood.translate(...start.add(end).multiplyScalar(0.5).toArray());
+    pieces.push(wood);
+  };
+  branch([0, 0, 0], [0.32, 1.65, 0.08], 0.32, 0.23, 5);
+  branch([0.32, 1.65, 0.08], [-0.16, 3.0, 0.12], 0.24, 0.15, 5);
+  branch([-0.16, 3.0, 0.12], [0.35, 4.14, -0.08], 0.16, 0.06, 5);
+  branch([0.22, 1.85, 0.09], [-1.02, 2.45, 0.25], 0.14, 0.04, 4);
+  branch([-0.03, 2.65, 0.11], [0.95, 3.14, -0.25], 0.12, 0.035, 4);
+  branch([-0.08, 3.2, 0.09], [-0.62, 3.54, 0.4], 0.085, 0.025, 4);
   const padSpecs = [
-    [-0.6, 2.5, 0.15, 1.55, 0.34, 1.1],
-    [0.48, 3.35, -0.12, 1.4, 0.28, 0.96],
-    [-0.18, 4.15, 0.08, 1.05, 0.25, 0.8],
+    [-1.0, 2.57, 0.25, 1.12, 0.44, 0.78, -0.14],
+    [0.93, 3.2, -0.25, 0.98, 0.36, 0.66, 0.18],
+    [-0.57, 3.64, 0.4, 0.73, 0.34, 0.58, -0.2],
+    [0.36, 4.1, -0.08, 0.72, 0.4, 0.56, 0.12],
   ] as const;
-  for (const [x, y, z, sx, sy, sz] of padSpecs) {
-    const pad = colorGeometry(new SphereGeometry(1, 9, 5), PINE_NEEDLE);
+  for (const [x, y, z, sx, sy, sz, tilt] of padSpecs) {
+    const pad = colorGeometry(new SphereGeometry(1, 8, 4), PINE_NEEDLE);
     pad.scale(sx, sy, sz);
+    pad.rotateZ(tilt);
     pad.translate(x, y, z);
     pieces.push(pad);
   }
-  return mergeGeometries(pieces, false)!;
+  const geometry = mergeGeometries(pieces, false)!;
+  pieces.forEach((piece) => piece.dispose());
+  return geometry;
 }
 
 function clearOfStation(tileX: number, tileY: number, extra = 0): boolean {
@@ -589,7 +621,7 @@ function pineTiles(): PineSpec[] {
   }
   // Engawa foreground: a single larger niwaki leans seaward from the deep
   // lower-left lobe. It remains in this one ring-wide pine instance batch.
-  candidates.push({ leanX: -0.52, leanZ: 0.2, scale: 4, x: 86, y: 134, yaw: 0.34 });
+  candidates.push({ leanX: -0.14, leanZ: 0.08, scale: GARDEN_ENGAWA_PINE_HEIGHT / 4.5, x: 86, y: 134, yaw: 0.34 });
   // Camera-side skirt dressing: the same shore pines continue past the south
   // and east rim on the in-bounds three-tile lattice, thinned from roughly a
   // third to a half of the in-bounds keep odds at the boundary and trailing
@@ -883,7 +915,7 @@ export function createGardenRimMesh(): GardenRimMesh {
   const root = new Group();
   root.name = "garden-rim";
   const land = buildLandGeometry();
-  const landMaterial = new MeshStandardMaterial({ flatShading: true, roughness: 0.98, vertexColors: true });
+  const landMaterial = new MeshStandardMaterial({ flatShading: false, roughness: 0.98, vertexColors: true });
   const top = new Mesh(land.top, landMaterial);
   top.name = "garden-rim-land";
   const face = new Mesh(land.face, landMaterial);

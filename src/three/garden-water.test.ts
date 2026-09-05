@@ -386,6 +386,26 @@ describe("createGardenWater", () => {
     expect(water.mesh.children).toHaveLength(0);
   });
 
+  it("fades regional surface deviations through the continuous distance field in both stages", () => {
+    for (const source of [VERTEX_SHADER, FRAGMENT_SHADER]) {
+      expect(source).toContain("float regionBlend = smoothstep(0.0, 0.84, boundaryDistance)");
+      expect(source).toContain("regionFlow.z *= regionBlend");
+    }
+    expect(VERTEX_SHADER).toContain("mix(0.5, uRegionSwell[regionId].x, regionBlend)");
+    expect(VERTEX_SHADER).toContain("mix(1.0, uRegionSwell[regionId].y, regionBlend)");
+    expect(FRAGMENT_SHADER).toContain("regionFlow.w * regionBlend");
+    expect(FRAGMENT_SHADER).toContain("signatureNormal * detailFalloff * regionBlend");
+    expect(FRAGMENT_SHADER).toContain("seaReflectivity = mix(1.0, regionReflect, regionBlend)");
+    expect(FRAGMENT_SHADER).toContain("boundaryEnabled * regionBlend");
+    expect(FRAGMENT_SHADER).toContain("mix(1.0, mix(0.84, 0.96, silt) * 0.94, regionBlend)");
+  });
+
+  it("projects the tower mirror toward camera-facing positive world X and Z", () => {
+    expect(FRAGMENT_SHADER).toContain("columnDirection = normalize(vec2(1.0, -1.0))");
+    expect(FRAGMENT_SHADER).toContain("alongColumn = dot(fromTower, columnDirection)");
+    expect(FRAGMENT_SHADER).toContain("vec2(-columnDirection.y, columnDirection.x)");
+  });
+
   it("maps the region field with the water plane's z-flip", () => {
     // A tile (tx, ty) lands at world (tx*sqrt2, _, ty*sqrt2), and the plane's
     // -90deg X rotation maps world +Z to local -Y — so V must be negated.

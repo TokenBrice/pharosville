@@ -58,13 +58,47 @@ describe("garden rim mesh", () => {
     }
     expect(contourVertices).toBeGreaterThan(100);
     expect(GARDEN_ENGAWA_DISPLACEMENT).toContain("pine thicket");
-    expect(GARDEN_ENGAWA_PINE_HEIGHT).toBeGreaterThanOrEqual(
-      Math.max(...GARDEN_NIWAKI_SPECS.map((pine) => pine.height)) * 2,
-    );
+    // A foreground tree still frames the garden, but no longer doubles the
+    // tallest island pine and puts its canopy through the fleet's sails.
+    const islandPineHeight = Math.max(...GARDEN_NIWAKI_SPECS.map((pine) => pine.height));
+    expect(GARDEN_ENGAWA_PINE_HEIGHT).toBeGreaterThan(islandPineHeight);
+    expect(GARDEN_ENGAWA_PINE_HEIGHT).toBeLessThan(islandPineHeight * 2);
     expect(Math.max(...GARDEN_NEAR_RIM_BAY_DEPTHS)).toBeGreaterThanOrEqual(4.5);
     expect(Math.min(...GARDEN_NEAR_RIM_BAY_DEPTHS)).toBeGreaterThanOrEqual(3);
     expect(GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT).toBeGreaterThanOrEqual(1.5);
     expect(GARDEN_NEAR_RIM_DISPLACEMENT).toContain("straight shoreline");
+    rim.dispose();
+  });
+
+  it("keeps continuous earth between local ledges and articulates the existing pine batch", () => {
+    const rim = createGardenRimMesh();
+    const land = rim.root.getObjectByName("garden-rim-land") as Mesh;
+    const positions = land.geometry.getAttribute("position");
+    let earth = 0;
+    let offFormerTerraces = 0;
+    for (let index = 0; index < positions.count; index += 1) {
+      if (Math.max(positions.getX(index), positions.getZ(index)) > 139 * TILE_SCALE) continue;
+      const height = positions.getY(index);
+      earth += 1;
+      const terrace = (height - 0.6) / 0.34;
+      if (Math.abs(terrace - Math.round(terrace)) * 0.34 > 0.03) offFormerTerraces += 1;
+    }
+    expect(offFormerTerraces / earth).toBeGreaterThan(0.65);
+    expect((land.material as MeshStandardMaterial).flatShading).toBe(false);
+    // Six tapered wood segments and four unequal foliage lobes replace the
+    // pole/three pads with essentially the same per-instance triangle cost.
+    const pine = rim.pineInstances.geometry;
+    expect(pine.index!.count / 3).toBeLessThanOrEqual(250);
+    const pinePositions = pine.getAttribute("position");
+    const low = [];
+    const high = [];
+    for (let index = 0; index < pinePositions.count; index += 1) {
+      const y = pinePositions.getY(index);
+      if (y > 1.5 && y < 1.8) low.push(pinePositions.getX(index));
+      if (y > 2.9 && y < 3.05) high.push(pinePositions.getX(index));
+    }
+    expect(Math.max(...low)).toBeGreaterThan(0.4);
+    expect(Math.min(...high)).toBeLessThan(-0.2);
     rim.dispose();
   });
 

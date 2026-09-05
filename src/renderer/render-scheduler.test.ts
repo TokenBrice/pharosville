@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createRenderSchedulerHysteresisState,
+  applyPreviewSchedulerTier,
   RENDER_SCHEDULER_DOWNSHIFT_STREAK,
   RENDER_SCHEDULER_IDLE_AFTER_MS,
   RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS,
@@ -306,5 +307,19 @@ describe("render scheduler hysteresis", () => {
 
     // The pending downshift streak survives the interruption.
     expect(resolveRenderSchedulerState(pressured, state).tier).toBe("recovery");
+  });
+});
+
+
+describe("preview scheduler tier seam", () => {
+  it("changes quality consistently without changing cadence or allowing arbitrary tiers", () => {
+    const state = resolveRenderSchedulerState({ cameraIntentActive: true, reducedMotion: true });
+    for (const tier of ["constrained", "recovery"] as const) {
+      const forced = applyPreviewSchedulerTier(state, tier);
+      expect(forced.tier).toBe(tier);
+      expect(seaQualityTier(forced)).toBe(tier);
+      expect(forced.targetFrameMs).toBe(state.targetFrameMs);
+    }
+    expect(applyPreviewSchedulerTier(state, "invalid")).toBe(state);
   });
 });

@@ -858,6 +858,7 @@ interface GardenGlb {
   bufferViews: Array<{
     byteLength: number;
     byteOffset?: number;
+    byteStride?: number;
     extensions: {
       EXT_meshopt_compression: {
         byteLength: number;
@@ -929,9 +930,24 @@ function createGardenGlbLoader(): GardenModelSourceLoader {
       });
       const attribute = (index: number): BufferAttribute => {
         const accessor = json.accessors[index]!;
-        const view = views[accessor.bufferView]!;
-        const offset = accessor.byteOffset ?? 0;
+        let view = views[accessor.bufferView]!;
+        let offset = accessor.byteOffset ?? 0;
         const length = accessor.count * itemSizes[accessor.type];
+        const componentBytes = accessor.componentType === 5126 ? 4 : accessor.componentType === 5121 ? 1 : 2;
+        const itemBytes = itemSizes[accessor.type] * componentBytes;
+        const stride = json.bufferViews[accessor.bufferView]!.byteStride ?? itemBytes;
+        if (stride !== itemBytes) {
+          // glTF pads RGB8/XYZ16 records to four-byte alignment. Keep their
+          // integer normalization, but remove per-vertex padding before Three
+          // or the hero merger treats this as a tightly packed attribute.
+          const packed = new Uint8Array(accessor.count * itemBytes);
+          for (let vertex = 0; vertex < accessor.count; vertex += 1) {
+            const start = offset + vertex * stride;
+            packed.set(view.subarray(start, start + itemBytes), vertex * itemBytes);
+          }
+          view = packed;
+          offset = 0;
+        }
         const array = accessor.componentType === 5126
           ? new Float32Array(view.buffer, offset, length)
           : accessor.componentType === 5123

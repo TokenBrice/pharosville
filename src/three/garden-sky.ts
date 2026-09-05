@@ -376,7 +376,7 @@ function createDome(): {
         vec3 color = mix(uHorizon, uMiddle, smoothstep(0.015, 0.28, skyHeight));
         color = mix(color, uZenith, smoothstep(0.3, 0.86, skyHeight));
         color *= gardenBokashiShade(skyHeight, uBokashiAmount);
-        float glow = smoothstep(0.16, -0.04, abs(vHeight)) * 0.12;
+        float glow = (1.0 - smoothstep(-0.04, 0.16, abs(vHeight))) * 0.12;
         color += uHorizon * glow;
 
         float mu = dot(dir, uSunDir);
@@ -397,14 +397,14 @@ function createDome(): {
         color += uSunColor * (corona * 0.5 + disc) * uSunIntensity;
 
         float hazeBand = mix(
-          smoothstep(0.24, -0.02, dir.y),
+          (1.0 - smoothstep(-0.02, 0.24, dir.y)),
           visibleSeam,
           visibleHemisphere
         );
         color = mix(color, uHazeColor, hazeBand * uHazeStrength);
 
         float west = pow(max(0.0, dot(normalize(vec3(dir.x, 0.0, dir.z)), vec3(-0.7071, 0.0, -0.7071))), 2.5);
-        float band = smoothstep(0.42, 0.02, abs(vHeight - 0.06));
+        float band = (1.0 - smoothstep(0.02, 0.42, abs(vHeight - 0.06)));
         color += uEmberColor * west * band * uEmberStrength;
         gl_FragColor = vec4(color, 1.0);
       }
@@ -558,7 +558,7 @@ function createStars(): { material: ShaderMaterial; points: Points } {
       varying float vTwinkle;
       void main() {
         float d = length(gl_PointCoord - vec2(0.5));
-        float alpha = smoothstep(0.5, 0.0, d) * vTwinkle * uOpacity;
+        float alpha = (1.0 - smoothstep(0.0, 0.5, d)) * vTwinkle * uOpacity;
         if (alpha < 0.01) discard;
         gl_FragColor = vec4(uColor, alpha);
       }

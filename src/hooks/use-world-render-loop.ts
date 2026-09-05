@@ -1,3 +1,4 @@
+import { isDebugChromeEnabled } from "../lib/pharosville-debug";
 // Owns the requestAnimationFrame draw loop, per-frame timing/metrics refs,
 // hit-target snapshot maintenance during the frame, ship motion sample
 // collection, and visual debug telemetry. Shared cross-hook refs (camera,
@@ -9,6 +10,7 @@ import {
   createRenderSchedulerHysteresisState,
   resolveRenderSchedulerIdleState,
   resolveRenderSchedulerState,
+  applyPreviewSchedulerTier,
 } from "../renderer/render-scheduler";
 import type { RenderSchedulerHysteresisState } from "../renderer/render-scheduler";
 import type { PharosVilleRenderMetrics } from "../renderer/render-types";
@@ -698,7 +700,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         }
       }
       const drawStartedAt = performance.now();
-      const renderScheduler = resolveRenderSchedulerState({
+      let renderScheduler = resolveRenderSchedulerState({
         cameraIntentActive: cameraStep.cameraIntentActive,
         // Same reason the pacing sample is dropped above: a compiling frame's
         // draw duration measures the compile, not the frame.
@@ -707,6 +709,10 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         idleActive: idleState.idle,
         reducedMotion,
       }, renderSchedulerHysteresisRef.current);
+      if (import.meta.env.DEV && previewSchedulerTier !== undefined) {
+        renderScheduler = applyPreviewSchedulerTier(renderScheduler,
+          previewSchedulerTier);
+      }
       let renderMetrics: PharosVilleRenderMetrics;
       try {
         renderMetrics = threeRenderer.render({
@@ -1449,3 +1455,8 @@ function isVisualDebugAllowed(): boolean {
   }
   return cachedDebugAllowed;
 }
+
+// Installed before navigation by the real-GPU preview harness, never a shipped control.
+const previewSchedulerTier = import.meta.env.DEV && isDebugChromeEnabled()
+  ? (window as typeof window & { __pharosVilleTestSchedulerTier?: unknown }).__pharosVilleTestSchedulerTier
+  : undefined;

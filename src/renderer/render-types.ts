@@ -26,7 +26,21 @@ export interface PharosVilleRenderSchedulerState {
   loadTier?: Exclude<PharosVilleRenderSchedulerTier, "interaction">;
 }
 
+/** Logical storage estimates, not measured VRAM. Unknown resources contribute no bytes. */
+export interface TextureStorageEstimate {
+  textureBytes: number;
+  liveTextureBytes: number;
+  renderbufferBytes: number;
+  liveRenderbufferBytes: number;
+  unknownTextureCount: number;
+  unknownLiveTextureCount: number;
+  unknownRenderTargetCount: number;
+}
+
 export interface TextureOwnerCensus {
+  byteEstimates: TextureStorageEstimate;
+  /** Unique observed WebGL handles; null when renderer properties are unavailable. */
+  attributedLiveTextures: number | null;
   /** Unique texture objects referenced by the live scene graph. */
   referencedTextures: number;
   /** Unique texture objects attributed by the scene walk or an owner manifest. */
@@ -41,6 +55,7 @@ export interface TextureOwnerCensus {
   owners: readonly {
     owner: string;
     textureCount: number;
+    byteEstimates: TextureStorageEstimate;
     /** Subset with a live WebGL handle when the renderer exposes properties. */
     liveTextureCount?: number;
     /** Names/UUIDs of the live handles, useful when a shared owner has a delta. */

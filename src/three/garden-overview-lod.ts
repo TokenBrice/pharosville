@@ -1,4 +1,4 @@
-import { Box3, MathUtils, Object3D, Vector3 } from "three";
+import { Box3, MathUtils, Mesh, Object3D, Vector3, type Material } from "three";
 
 /**
  * Overview LOD: one policy for the detail that cannot read at wide framing.
@@ -111,6 +111,7 @@ interface OverviewLodEntry {
   readonly basePosition: Vector3;
   readonly baseScale: Vector3;
   readonly object: Object3D;
+  readonly pineMaterial: Material | null;
   /**
    * Where this prop's own centre sits in its parent's space, so the shrink
    * happens about the prop rather than about its parent's origin.
@@ -153,6 +154,11 @@ export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
   root.traverse((object) => {
     if (!names.has(object.name)) return;
     const shrinks = !wholeRing.has(object.name);
+    // The foreground tree is a silhouette, not sub-pixel furniture. Its global
+    // instance batch must fade in place instead of appearing whole at the edge.
+    const pineMaterial = object.name === "garden-rim-pines" && object instanceof Mesh
+      && !Array.isArray(object.material) ? object.material : null;
+    if (pineMaterial) pineMaterial.transparent = true;
     if (shrinks) {
       new Box3().setFromObject(object).getCenter(scratchCentre);
       object.worldToLocal(scratchCentre);
@@ -163,6 +169,7 @@ export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
       basePosition: object.position.clone(),
       baseScale: object.scale.clone(),
       object,
+      pineMaterial,
       // The prop's matrix is T·R·S, so the centre contributes R·S·c to its
       // parent-space position; holding position + R·S·c fixed as S scales by f
       // is what keeps the prop shrinking in place.
@@ -190,6 +197,10 @@ export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
       applied = detail;
       for (const entry of entries) {
         entry.object.visible = detail > 0;
+        if (entry.pineMaterial) {
+          entry.pineMaterial.opacity = detail;
+          entry.pineMaterial.depthWrite = detail === 1;
+        }
         if (detail <= 0 || !entry.shrinks) continue;
         entry.object.scale.copy(entry.baseScale).multiplyScalar(detail);
         entry.object.position.copy(entry.basePosition)
