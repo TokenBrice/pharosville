@@ -92,6 +92,8 @@ export function useWorldTimeControls(input: {
   }, [wallClockHour]);
 
   return {
+    setSessionHour: (hour: number) => setManualTimeOverrideHourState(clampManualTimeOverrideHour(hour)),
+    resetLocalTime: () => { restoreManualWallClockOverride(); setManualTimeOverrideHourState(null); setNightMode(false); requestPaint(); },
     manualTimeOverrideHour,
     nightMode,
     nudgeSessionHour,

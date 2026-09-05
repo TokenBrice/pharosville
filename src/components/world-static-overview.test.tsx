@@ -11,7 +11,7 @@ it("presents the four ranked signals and opens their existing details", () => {
   expect(screen.getByRole("heading", { name: "Harbor signal overview" })).toBeTruthy();
   expect(screen.getByText("The Pharos lighthouse reports PSI 82, STEADY.")).toBeTruthy();
   expect(screen.getByText(/USDC is the observatory's leading risk watch/)).toBeTruthy();
-  expect(screen.getByText(/DAI has the observatory's strongest weekly supply move/)).toBeTruthy();
+  expect(screen.getByText(/DAI has the observatory's largest weekly percentage supply change/)).toBeTruthy();
   expect(screen.getByText(/Ethereum Dock has the observatory's highest dock concentration/)).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: "Open Weekly supply details" }));

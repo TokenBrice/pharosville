@@ -923,7 +923,9 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
 
   useEffect(() => {
     if (lastSelectedDetailIdRef.current !== selectedDetailId) {
-      stopFollowChase();
+      // The world may have queued its new selection dolly in a layout effect.
+      // Only cancel an existing chase/tour, not that newer selection intent.
+      if (followChaseDetailIdRef.current || observeTourRef.current) stopFollowChase();
       lastSelectedDetailIdRef.current = selectedDetailId;
     }
   }, [selectedDetailId, stopFollowChase]);

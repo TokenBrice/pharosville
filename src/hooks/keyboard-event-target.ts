@@ -7,6 +7,6 @@
  * cycle), arrows scroll its body (and must not pan the camera).
  */
 export function isDialogEventTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement
-    && Boolean(target.closest("[role='dialog'], [role='alertdialog']"));
+  return target instanceof Element
+    && Boolean(target.closest("dialog, [role='dialog'], [role='alertdialog']"));
 }

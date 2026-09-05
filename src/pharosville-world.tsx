@@ -91,7 +91,10 @@ function harbormasterNoteAvailable(): boolean {
 }
 
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
-  const [reducedMotion, setReducedMotion] = useState(true);
+  const [osReducedMotion, setReducedMotion] = useState(true);
+  const [still, setStill] = useState(false);
+  const [lightControlsOpen, setLightControlsOpen] = useState(false);
+  const reducedMotion = osReducedMotion || still;
   const [motionPreferenceResolved, setMotionPreferenceResolved] = useState(false);
   const shellRef = useRef<HTMLElement | null>(null);
   // Holds the faint world controls; `useRecentWorldInput` flags it after any
@@ -381,7 +384,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       shipMotionSamples: shipMotionSamplesRef.current,
       slice: selectGardenObservatorySlice(world, detailId),
     });
-    if (!displayTile || entity.kind !== "ship") {
+    if (!displayTile || (entity.kind !== "ship" && entity.kind !== "dock")) {
       queueMicrotask(markPanelReady);
       return;
     }
@@ -398,7 +401,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     }
   }, [focusCanvasSelection, focusCanvasTile, shipMotionSamplesRef, world]);
 
-  // W4.6: selecting a ship is itself the camera command. The layout effect
+  // Selecting a ship or harbor is itself the camera command. The layout effect
   // hides the panel before the browser paints the selection commit; its
   // callback reveals the panel only after the exponential dolly settles.
   useLayoutEffect(() => {
@@ -578,7 +581,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       && !reducedMotion
       && observeIndex === null
       && selectedDetailId === null
-      && gardenAlmanac.activeEvent === null;
+      && gardenAlmanac.activeEvent === null
+      && !legend.legendOpen && !changelog.changelogOpen && !harborLedgerOpen && !quickFindOpen && !lightControlsOpen;
     if (!eligible) {
       stopAttractTour();
       return;
@@ -609,6 +613,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     };
   }, [
     attractKeyframes,
+    legend.legendOpen,
+    changelog.changelogOpen,
+    harborLedgerOpen,
+    quickFindOpen,
+    lightControlsOpen,
     gardenAlmanac.activeEvent,
     observeIndex,
     reducedMotion,
@@ -737,7 +746,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 
     const handleOutsidePointerDown = (event: PointerEvent) => {
       const target = event.target;
-      if (!(target instanceof Node)) return;
+      if (!(target instanceof Node) || isDialogEventTarget(target)) return;
       const shell = shellRef.current;
       if (!shell?.contains(target)) return;
       const detailPanel = document.getElementById("pharosville-detail-panel");
@@ -836,6 +845,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   }, [observeBeat]);
 
   const handleSelectStaticDetail = useCallback((detailId: string) => {
+    setQuickFindOpen(false);
     selectDetail(detailId, null);
   }, [selectDetail]);
 
@@ -939,9 +949,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     }
     if (!rendererWarmupReady || arrivalStartedRef.current || !motionPreferenceResolved) return undefined;
     arrivalStartedRef.current = true;
-    // A restored moment is already an authored vantage. Do not replace it
-    // with the establishing camera after URL restoration has run.
-    if (worldUrlState.initialState.camera || worldUrlState.initialState.selectedDetailId) {
+    // A cold-load selection resolves only after data arrives. Preserve the URL's
+    // intent even while its entity is absent from the initial loading world.
+    if (worldUrlState.initialState.camera || worldUrlState.initialState.hasExplicitSelection) {
       setArrivalStage("complete");
       return undefined;
     }
@@ -955,7 +965,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     setArrivalStage("arriving");
     startCanvasArrival(() => setArrivalStage("complete"));
     return undefined;
-  }, [motionPreferenceResolved, reducedMotion, rendererWarmupReady, startCanvasArrival, worldIsCharting, worldUrlState.initialState.camera, worldUrlState.initialState.selectedDetailId]);
+  }, [motionPreferenceResolved, reducedMotion, rendererWarmupReady, startCanvasArrival, worldIsCharting, worldUrlState.initialState.camera, worldUrlState.initialState.hasExplicitSelection]);
 
   useEffect(() => {
     if (arrivalStage !== "arriving") return undefined;
@@ -984,6 +994,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const chartingVeilMounted = !rendererFailed && (worldIsCharting || arrivalStage !== "complete");
 
   return (
+    <>
+      <button type="button" className="pharosville-skip-map" onClick={() => document.getElementById("pharosville-find")?.focus()}>Skip map to controls</button>
     <main
       ref={shellRef}
       className="pharosville-desktop pharosville-shell"
@@ -1033,7 +1045,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         <div className="pharosville-harbormaster-note" data-open={harbormasterNoteOpen ? "true" : "false"}>
           {harbormasterNoteOpen && (
             <aside aria-label="Harbormaster's note" className="pharosville-harbormaster-note__paper">
-              <p>The lanterns are warm; the ledger is current.</p>
+              <p>Each sail is a stablecoin; the lighthouse gathers the stability reading. Select a ship or Find one by name.</p>
               <p>Ships keep their own water, and the quiet between them is part of the chart.</p>
               <p aria-hidden="true">— the harbormaster</p>
               <button type="button" onClick={dismissHarbormasterNote} aria-label="Put away harbormaster's note">×</button>
@@ -1080,11 +1092,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             {observeBeat.label}
           </p>
         )}
-        {quickFindOpen && !rendererFailed && (
+        {quickFindOpen && (
           <QuickFind
             candidates={quickFindCandidates}
             onClose={closeQuickFind}
-            onSelect={handleQuickFindSelect}
+            onSelect={rendererFailed ? handleSelectStaticDetail : handleQuickFindSelect}
           />
         )}
         <SinceLastVisitBanner delta={visitSnapshot.delta} onDismiss={visitSnapshot.dismiss} />
@@ -1092,9 +1104,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           <div
             className={selectedDetailAnchor ? `pharosville-detail-dock pharosville-detail-dock--anchored pharosville-detail-dock--${selectedDetailAnchor.side}` : "pharosville-detail-dock"}
             data-camera-rest={panelReadyDetailId === selectedDetailId ? "true" : "false"}
+            hidden={panelReadyDetailId !== selectedDetailId}
+            inert={panelReadyDetailId !== selectedDetailId}
             style={detailDockStyle}
           >
-            <DetailPanel detail={selectedDetail} onClose={clearSelection} onSelectDetail={selectDetail} setAnnouncement={setAnnouncement} />
+            <DetailPanel visible={panelReadyDetailId === selectedDetailId} detail={selectedDetail} onClose={clearSelection} onSelectDetail={selectDetail} setAnnouncement={setAnnouncement} />
           </div>
         )}
       </div>
@@ -1104,6 +1118,14 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             onResetView={handleCanvasResetView}
             nightMode={timeControls.nightMode}
             onToggleNightMode={timeControls.toggleNightMode}
+            hour={timeControls.wallClockHour}
+            manualTime={timeControls.manualTimeOverrideHour !== null || timeControls.nightMode}
+            onChangeHour={timeControls.setSessionHour}
+            onLocalTime={timeControls.resetLocalTime}
+            still={reducedMotion}
+            osReducedMotion={osReducedMotion}
+            onChangeStill={(next) => { if (next) cancelCameraIntent(); setStill(next); }}
+            onLightControlsOpen={setLightControlsOpen}
             {...(threeExperienceReady ? {
               // Under reduced motion the control steps rather than runs, so it
               // never latches into a "stop" state the press would not honour.
@@ -1121,6 +1143,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       {legend.legendOpen && (
         <Suspense fallback={<ChangelogPanelLoading />}>
           <LazyLegendPanel
+            onChangelog={openChangelogExclusive}
             onClose={legend.closeLegend}
             onSelectDetail={selectDetail}
             recentFleetTrend={recentFleetTrend}
@@ -1133,6 +1156,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           <LazyHarborLedgerPanel
             almanacEntries={gardenAlmanac.entries}
             onClose={closeHarborLedger}
+            onSelectDetail={rendererFailed ? handleSelectStaticDetail : handleQuickFindSelect}
             world={world}
             riskTransitionByShipId={riskTransitionByShipId}
           />
@@ -1146,9 +1170,10 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           </span>
           <button className="pharosville-footer__button" type="button" onClick={openLegendExclusive}>Legend</button>
           <span className="pharosville-footer__separator" aria-hidden="true">·</span>
-          <button className="pharosville-footer__button" type="button" onClick={openChangelogExclusive}>Changelog</button>
+          <button className="pharosville-footer__button" type="button" id="pharosville-find" onClick={() => setQuickFindOpen(true)}>Find <kbd>/</kbd></button>
           <span className="pharosville-footer__separator" aria-hidden="true">·</span>
           <button className="pharosville-footer__button" type="button" onClick={openHarborLedgerExclusive}>Harbor ledger</button>
+          <span className="pharosville-footer__freshness">{worldDataRefreshSnapshot(world).staleSourceLabels.length > 0 ? "Some readings stale" : "Readings current"}</span>
         </span>
         <span className="pharosville-footer__telemetry">
           <span className="pharosville-footer__separator" aria-hidden="true">·</span>
@@ -1178,6 +1203,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         />
       )}
     </main>
+    </>
   );
 }
 
@@ -1292,13 +1318,13 @@ function ChangelogPanelLoading() {
  * to be drawn as a harbor, so this counts ships with a berth SOMEWHERE on the
  * chart — a reading of how concentrated supply is on the charted chains. It is
  * not how many ships are moored at this moment: that share is set by
- * `DOCKED_SHIP_DWELL_SHARE` and varies by zone. The copy says "hold a berth"
+ * `DOCKED_SHIP_DWELL_SHARE` and varies by zone. The copy says "have harbor ties"
  * rather than "docked" because "docked" invites the second reading.
  */
 function fleetCounterLabel(ships: PharosVilleWorldModel["ships"]): string {
   const berthedShips = ships.filter((ship) => ship.dockVisits.length > 0).length;
   const totalShips = ships.length;
-  return `${integerFormatter.format(berthedShips)} of ${integerFormatter.format(totalShips)} hold a berth`;
+  return `${integerFormatter.format(berthedShips)} of ${integerFormatter.format(totalShips)} have harbor ties`;
 }
 
 function formatFrameRateLabel(frameRateFps: number | null, reducedMotion: boolean): string {

@@ -1,3 +1,4 @@
+import { reportClientError } from "../error-reporter";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 interface SectionErrorBoundaryProps {
@@ -18,6 +19,7 @@ export class SectionErrorBoundary extends Component<SectionErrorBoundaryProps, S
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    reportClientError("render", { kind: "component-failure", section: this.props.name, message: error.message }, `${this.props.name}:${error.message}`);
     console.error(`[${this.props.name}] render failed`, error, info);
   }
 
@@ -31,6 +33,7 @@ export class SectionErrorBoundary extends Component<SectionErrorBoundaryProps, S
           <p className="pharosville-narrow__kicker">{this.props.name}</p>
           <h2 id="pharosville-error-title">The harbor did not render.</h2>
           <p>{this.props.supportingText}</p>
+          <button type="button" onClick={() => window.location.reload()}>Reload harbor</button>
         </div>
       </section>
     );

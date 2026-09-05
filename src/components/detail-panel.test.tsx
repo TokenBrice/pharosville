@@ -24,6 +24,19 @@ const renderShipPanel = (shipId: string, depegId: string | null = null) => {
 };
 
 describe("DetailPanel structure (old-school revamp)", () => {
+  it("defers focus until a hidden selection becomes visible", () => {
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    const detail = { id: "ship:test", title: "Test", kind: "SHIP", summary: "", facts: [], links: [] } as DetailModel;
+    const view = render(<DetailPanel onClose={() => undefined} detail={detail} visible={false} />);
+    expect(document.activeElement).toBe(opener);
+    view.rerender(<DetailPanel onClose={() => undefined} detail={detail} visible />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close details" }));
+    view.rerender(<DetailPanel onClose={() => undefined} detail={detail} visible={false} />);
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
   it("uses non-modal landmark semantics and focuses/restores the close control", () => {
     const opener = document.createElement("button");
     opener.type = "button";

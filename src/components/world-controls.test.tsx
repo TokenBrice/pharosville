@@ -6,6 +6,18 @@ import { WorldControls } from "./world-controls";
 afterEach(cleanup);
 
 describe("WorldControls", () => {
+  it("chooses dusk and Still while retaining system reduced motion as a minimum", () => {
+    const onChangeHour = vi.fn();
+    const onChangeStill = vi.fn();
+    const view = render(<WorldControls hour={18.25} manualTime onChangeHour={onChangeHour} onChangeStill={onChangeStill} />);
+    fireEvent.change(screen.getByLabelText("Time of day"), { target: { value: "06:30" } });
+    expect(onChangeHour).toHaveBeenCalledWith(6.5);
+    fireEvent.click(screen.getByLabelText("Still"));
+    expect(onChangeStill).toHaveBeenCalledWith(true);
+    view.rerender(<WorldControls still osReducedMotion />);
+    expect((screen.getByLabelText("Still") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Still") as HTMLInputElement).checked).toBe(true);
+  });
   it("renders only recenter, observe and day-night", () => {
     render(
       <WorldControls
@@ -17,8 +29,8 @@ describe("WorldControls", () => {
 
     expect(screen.getByLabelText("Reset view")).toBeTruthy();
     expect(screen.getByLabelText("Observe harbor")).toBeTruthy();
-    expect(screen.getByLabelText("Switch to night")).toBeTruthy();
-    expect(screen.getAllByRole("button")).toHaveLength(3);
+    expect(screen.getByLabelText("Light and motion: 12:00 local")).toBeTruthy();
+    expect(screen.getAllByRole("button")).toHaveLength(4);
 
     // The retired toolbar's other controls are gone for good.
     expect(screen.queryByLabelText(/set session hour/i)).toBeNull();
@@ -32,7 +44,7 @@ describe("WorldControls", () => {
     render(<WorldControls onResetView={vi.fn()} onToggleNightMode={vi.fn()} />);
 
     expect(screen.queryByLabelText(/observe/i)).toBeNull();
-    expect(screen.getAllByRole("button")).toHaveLength(2);
+    expect(screen.getAllByRole("button")).toHaveLength(3);
   });
 
   it("keeps every control reachable and operable from the keyboard", () => {
@@ -74,6 +86,6 @@ describe("WorldControls", () => {
     );
 
     expect(screen.getByLabelText("Stop observing").getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByLabelText("Switch to day").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Day preset")).toBeTruthy();
   });
 });

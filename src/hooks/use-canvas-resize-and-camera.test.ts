@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useLayoutEffect, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { HitTargetSnapshot } from "../renderer/hit-testing";
 import { defaultCamera } from "../systems/camera";
 import type { ShipMotionSample } from "../systems/motion";
@@ -193,6 +193,33 @@ describe("camera intent helpers", () => {
     const resolvedStepResult = requireStepResult(stepResult);
     expect(resolvedStepResult.cameraChanged).toBe(false);
     expect(resolvedStepResult.cameraIntentActive).toBe(false);
+  });
+
+  it("preserves a selection dolly queued during the selection commit", () => {
+    const onRest = vi.fn();
+    const ship = world.ships[0]!;
+    const input = makeCanvasInput();
+    const { result, rerender } = renderHook(({ selected }: { selected: boolean }) => {
+      const camera = useCanvasResizeAndCamera({ ...input, selectedEntity: selected ? ship : null });
+      const focusSelection = camera.focusSelection;
+      useLayoutEffect(() => {
+        if (selected) focusSelection({ x: 48, y: 48 }, onRest);
+      }, [selected, focusSelection]);
+      return camera;
+    }, { initialProps: { selected: false } });
+    act(() => {
+      result.current.canvasSizeRef.current = { x: 800, y: 600 };
+      result.current.setCamera(defaultCamera({ height: 600, map: world.map, width: 800 }));
+    });
+    const start = result.current.cameraRef.current;
+    rerender({ selected: true });
+    act(() => { result.current.stepCamera(1_000, new Map()); });
+    expect(result.current.cameraRef.current).not.toEqual(start);
+    expect(onRest).not.toHaveBeenCalled();
+    act(() => {
+      for (let frame = 1; frame < 600; frame += 1) result.current.stepCamera(1_000 + frame * 16.67, new Map());
+    });
+    expect(onRest).toHaveBeenCalledTimes(1);
   });
 
   it("applies reduced-motion selection framing instantly and reports camera rest", () => {
