@@ -124,5 +124,17 @@ log, 1200×640 constrained, complete lighthouse crown, 148 calls,
 16.8 ms across 16 windows. This supersedes the earlier cropped laptop capture.
 
 Release declaration: v0.13.0, Clearer Waters, source commit `3443462`.
-The three release surfaces agree; final release validation is running before
-the protected PR is merged.
+The three release surfaces agree. Final release validation passed: 1,904 unit
+tests, 18 Chromium and two Firefox production contracts, all guards/build
+checks, and both real-GPU arms. Animated live: full tier, 225 calls,
+336,041 triangles, 225 geometries, 44 textures, worst p95/frame 16.8 ms.
+Settled static: 232 calls, 340,583 triangles, 214 geometries, 44 textures.
+Local final log: `outputs/release-013-validation.log`.
+
+PR #43's first CI browser run exposed that the intended no-WebGL DOM lane
+could still initialize SwiftShader. Both failed dense-data snapshots contained
+the correct world/caveat records without an application crash, but assertions
+timed out. Chromium now explicitly disables WebGL under CI unless hardware is
+requested. Local real-GPU checks remain unchanged. Existing launch-argument
+regressions cover CI, local, explicit opt-in/out, and Firefox behavior.
+

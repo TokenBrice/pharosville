@@ -1101,7 +1101,7 @@ assert.deepEqual(findMediaFileProblems("/logos/cut.webp", webpBody), [
 
 
 // The local correctness lane must reach Metal on macOS while preserving Linux
-// Vulkan and the explicit CI/software opt-out. These are flags, not GPU metrics.
+// Vulkan, the CI DOM fallback, and an explicit GPU opt-in. These are flags, not GPU metrics.
 {
   const previousCI = process.env.CI;
   const previousGpu = process.env.PHAROSVILLE_VISUAL_GPU;
@@ -1113,10 +1113,14 @@ assert.deepEqual(findMediaFileProblems("/logos/cut.webp", webpBody), [
     assert.ok(hardwareGpuLaunchArgs("chromium", "linux").includes("--use-angle=vulkan"));
     assert.deepEqual(hardwareGpuLaunchArgs("firefox", "darwin"), []);
     process.env.CI = "1";
-    assert.deepEqual(hardwareGpuLaunchArgs("chromium", "darwin"), []);
+    assert.deepEqual(hardwareGpuLaunchArgs("chromium", "darwin"), ["--disable-webgl"]);
+    assert.deepEqual(hardwareGpuLaunchArgs("chromium", "linux"), ["--disable-webgl"]);
+    assert.deepEqual(hardwareGpuLaunchArgs("firefox", "linux"), []);
     process.env.PHAROSVILLE_VISUAL_GPU = "1";
     assert.ok(hardwareGpuLaunchArgs("chromium", "darwin").includes("--use-angle=metal"));
     process.env.PHAROSVILLE_VISUAL_GPU = "0";
+    assert.deepEqual(hardwareGpuLaunchArgs("chromium", "linux"), ["--disable-webgl"]);
+    delete process.env.CI;
     assert.deepEqual(hardwareGpuLaunchArgs("chromium", "linux"), []);
   } finally {
     if (previousCI === undefined) delete process.env.CI; else process.env.CI = previousCI;
