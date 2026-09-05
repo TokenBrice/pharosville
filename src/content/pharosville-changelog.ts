@@ -12,6 +12,22 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-09-05-a-calmer-harbor",
+    version: PHAROSVILLE_RELEASE_VERSIONS.aCalmerHarbor,
+    date: "2026-09-05",
+    title: "A Calmer Harbor",
+    summary: "A more connected sea, a more composed still harbor, and direct controls for finding a ship or choosing the light.",
+    bullets: [
+      "Softened the transitions between the seven waters, shaped the shore into smoother earth and local rock ledges, and gave the foreground pines bent trunks, unequal branches and a gradual appearance as you move closer. Smaller carved sea signs leave more attention for the garden.",
+      "Restored the intended colors, normals and material differences in the large ship models, aligned the lighthouse reflection with the view, and fixed a constrained-quality shadow fault that could make opaque scenery disappear.",
+      "Recomposed stillness around stable risk-water positions instead of crowding ordinary ships around their home docks. Moorings prefer clear hull space while keeping a safe fallback in busy coves, and ships turn through route hairpins without a sudden sideways flip.",
+      "Added a visible Find action, a time-of-day control with a Local time reset, and a Still choice that respects system reduced motion. Shared ship and harbor links now bring their subject into view before revealing its record.",
+      "Made reference panels native modal dialogs, added a keyboard shortcut past the map to its controls, and gave the harbor ledger section jumps, disclosures and actions to select a ship or station. Reading panels and search hold off the idle camera tour.",
+      "Kept retained readings aging honestly during outages and bounded stalled or interrupted responses while preserving usable last-good data. Cached fixed sea-sign placement and shared repeated shield geometry reduce unnecessary work without reducing fleet visibility or raising resource limits.",
+    ],
+    source: "Collected from commits `ab5a72b` through `619ca55` after v0.11.1.",
+  },
+  {
     id: "2026-09-04-mole-errata",
     version: PHAROSVILLE_RELEASE_VERSIONS.moleErrata,
     date: "2026-09-04",
