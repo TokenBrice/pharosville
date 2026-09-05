@@ -33,20 +33,27 @@ export const REQUIRED_PERMISSIONS_POLICY_FEATURES = [
   "xr-spatial-tracking",
 ];
 
-// `img-src blob:` and `script-src 'wasm-unsafe-eval'` are load-bearing for the
-// world, not hardening slack: SVG fleet logos decode through object URLs and
-// every runtime GLB is meshopt-compressed, so a policy without them silently
-// ships the procedural fallback lighthouse, fallback hulls and blank sails.
 const REQUIRED_CSP_DIRECTIVES = {
   "base-uri": ["'self'"],
   "connect-src": ["'self'"],
   "default-src": ["'self'"],
   "form-action": ["'self'"],
   "frame-ancestors": ["'none'"],
-  "img-src": ["'self'", "blob:"],
+  "img-src": ["'self'"],
   "object-src": ["'none'"],
-  "script-src": ["'self'", "'wasm-unsafe-eval'"],
+  "script-src": ["'self'"],
   "style-src": ["'self'"],
+};
+
+// Required on the DOCUMENT policy only (the `/*` block that serves the app
+// shell). They are load-bearing for the world, not hardening slack: SVG fleet
+// logos decode through object URLs and every runtime GLB is meshopt-compressed,
+// so a policy without them silently ships the procedural fallback lighthouse,
+// fallback hulls and blank sails. The JSON proxy under /api/* runs no script
+// and carries its own tighter policy, so these are not demanded there.
+const REQUIRED_DOCUMENT_CSP_SOURCES = {
+  "img-src": ["blob:"],
+  "script-src": ["'wasm-unsafe-eval'"],
 };
 
 function parsePolicyDirectives(value) {
@@ -74,7 +81,7 @@ function parsePermissionsDirectives(value) {
   return directives;
 }
 
-export function validateCsp(value) {
+export function validateCsp(value, { document = true } = {}) {
   const findings = [];
   const directives = parsePolicyDirectives(value);
 
@@ -84,7 +91,10 @@ export function validateCsp(value) {
       findings.push(`missing ${name}`);
       continue;
     }
-    for (const source of requiredSources) {
+    const required = document
+      ? [...requiredSources, ...(REQUIRED_DOCUMENT_CSP_SOURCES[name] ?? [])]
+      : requiredSources;
+    for (const source of required) {
       if (!sources.includes(source)) findings.push(`${name} missing ${source}`);
     }
   }
@@ -218,7 +228,9 @@ function getPathChecks(path) {
 
   if (path.startsWith("/api/")) {
     return [
-      ...baseChecks,
+      ...baseChecks.map((check) => (check.name === "content-security-policy"
+        ? { ...check, findings: (value) => validateCsp(value, { document: false }) }
+        : check)),
       {
         name: "x-pharosville-proxy",
         label: "x-pharosville-proxy",
