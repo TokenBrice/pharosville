@@ -271,3 +271,68 @@ explicit `VISUAL_INVARIANTS.md` + test change in the same commit; items marked
 - Stacking outline + LUT + dither + Kuwahara post passes; inverted-hull
   outlines on the fleet; WebGPU/TSL migration for style; dozens of point
   lights; universal looping bob as "life"; a second renderer or fallback.
+
+## 7. Outcome (2026-09-05) — implemented on local `main`
+
+Commits `f55afbc` (phase 1), `70a970b` (phase 2), `4c41637` (phase 3),
+`7d1a2a9` (anomaly nameplates). Evidence frames: `outputs/wv2-*.png`
+(phase 1 day/dusk/night/whole-map), `outputs/wv3-*.png` (phase 2 incl.
+whole-map chips), `outputs/wv6-day.png` (phase 3 after the sail fixes). Live
+rest frame: 213 recurring calls, ~335k tris, 50 textures, 60 fps p95 16.8 ms
+on the reference GPU. `npm run validate:changed` green after every phase;
+`validate:release` recorded below.
+
+Deviations from the plan, all decided during execution:
+- Tone mapper: Neutral chosen over AgX from the dusk/day/night frames (AgX read
+  flatter/greyer at dusk; Neutral keeps the ember and the teal).
+- Fog ladder: instead of moving FOG_NEAR/FAR, `FOG_MIN_SCALE` 1 → 1.21 so the
+  ladder starts ~70 % up the frame at rest and every wider framing is
+  byte-identical to before.
+- Dusk ambient 0.18 → 0.28 (not unchanged) so hemi+ambient stays above the
+  0.6 PMREM probe; key:fill lands at ~4.2:1.
+- Station band 13.3–17.9 u, not 14–18: the clone-separation contract
+  (no two archetypes within 10 % on both area and height) plus the Mole's
+  1.20× lead cap the floor at 13.45.
+- Sail furl is a transient 1.0 → 0.6 → 1.0 dip; the first cut held sails
+  furled while moored, which erased the identity channel and was reversed.
+- Station chips are on at every zoom (the first cut's 0.5–1.8 band was
+  removed: whole-map is where all nine stations share the frame).
+- Live fix outside the plan: a dock berth may no longer coincide with a
+  ship's risk anchorage (zero-length voyage crash on the live payload).
+
+### Release-note draft (unversioned — lift into the release PR)
+
+Title: Warm Village. Summary: a closer, warmer harbor where every station is
+named, every hull family is recognizable, and arrivals are visible events.
+Collected from commits `f55afbc` through `7d1a2a9` after v0.13.0.
+
+- Moved the resting camera in from a distant plate view to a sailed-in
+  composition (zoom 1.0, never below 0.8), re-authored the idle postcards as
+  close framings, and let the arrival move ease into the new rest. Whole-map
+  remains one zoom-out away, and the hull count now thins toward each water's
+  main anchorage as you pull back so the wide view reads as a harbor rather
+  than a carpet.
+- Warmed the world at the source: the palette's chroma ceiling rose so land
+  reads ochre and green against a more saturated teal-to-indigo sea, dusk is
+  an ember hour with a raking key light and a navy zenith instead of a
+  brown-grey wash, the horizon steps through three ridge planes, and Neutral
+  tone mapping keeps those colors. The fog ladder now starts in the frame's
+  upper third at rest.
+- Named the harbor: every chain station and the TON pigeonnier carries an
+  always-on chip with its logo, name, and concentration state at every zoom,
+  hiding rather than covering the lighthouse, controls, or an open record.
+  Ships get a chip while selected, during an arrival or departure, or while
+  failing the DEX cross-check or lying in Danger water.
+- Made each of the six hull families its own color on a value-and-hue ladder
+  while sails keep issuer identity, enlarged sail emblems, raised the smallest
+  hulls off a 0.55 floor to 0.8, grew ordinary station halls to 13.3–17.9
+  units, and framed the near corner with a pine group and a dark torii and
+  fence.
+- Gave the fleet readable beats: on arrival and departure a ship dips and
+  resets its sails, throws a bow or stern wave into the wake field, and shows
+  a brief nameplate, capped at six at once; moored sails otherwise stay fully
+  set. Birds fly wider and more often, and three hearth stations smoke while
+  their cargo tide runs — unlit, so the beacon stays the night's one light.
+- Fixed a live-data crash when a small coin's berth coincided with its
+  anchorage, and kept every batched sail within the GPU's vertex-attribute
+  limit.
