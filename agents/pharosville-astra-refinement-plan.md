@@ -6,7 +6,7 @@ Reviewed revision: `8566b38` / v0.11.1
 
 Status: original review and implementation scope. Authorized implementation and
 local acceptance are complete;
-see [the execution record](pharosville-astra-execution.md) for current changes,
+see [the execution record](./pharosville-astra-execution.md) for current changes,
 acceptance evidence and remaining limitations. Measurements below describe the
 reviewed revision, not the refined working tree.
 

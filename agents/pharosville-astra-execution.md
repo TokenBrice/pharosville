@@ -1,6 +1,6 @@
 # Astra refinement execution
 
-Objective: fully execute [the refinement plan](pharosville-astra-refinement-plan.md).
+Objective: fully execute [the refinement plan](./pharosville-astra-refinement-plan.md).
 
 Started 2026-09-05 at `8566b38`. The original plan is the scope; conditional
 experiments require evidence, and a justified no-change result must be recorded.
