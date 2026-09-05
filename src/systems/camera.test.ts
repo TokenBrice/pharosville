@@ -89,11 +89,11 @@ describe("camera", () => {
       // never spends the authored 128px anchorage gutter on the island centre.
       expect(center.x).toBeGreaterThanOrEqual(viewport.x * 0.43);
       expect(center.x).toBeLessThanOrEqual(viewport.x - 128);
-      // 0.70 (was 0.65): the crown-owned vertical seat places the island
-      // centre up to ~69% down the frame on compact-height gates at the 1.0
-      // rest, so the band widens by the same authored step.
+      // Epic Pharos 2026-09-05: first reduce crown sky 48→36px, then allow
+      // the 38-unit crown-owned seat up to 0.73 (was 0.70). This preserves
+      // sky without spending the compact gates' bottom padding on the tower.
       expect(center.y).toBeGreaterThanOrEqual(viewport.y * 0.45);
-      expect(center.y).toBeLessThanOrEqual(viewport.y * 0.7);
+      expect(center.y).toBeLessThanOrEqual(viewport.y * 0.73);
       expect(clampCameraToMap(camera, { map, viewport })).toEqual(camera);
     }
   });
@@ -129,7 +129,7 @@ describe("camera", () => {
       // see; at the 1.0 rest the tower itself is ~half the frame height.
       expect(towerTop.y).toBeGreaterThanOrEqual(32);
       expect(towerTop.y).toBeLessThan(towerBase.y);
-      expect(towerBase.y).toBeLessThan(viewport.y);
+      expect(towerBase.y).toBeLessThan(viewport.y - 80);
       // The water to the right of the Pharos remains a larger interval than
       // the Mole's left inset: deliberate ma rather than a centred ring.
       expect(viewport.x - towerBase.x).toBeGreaterThan(mole.x);

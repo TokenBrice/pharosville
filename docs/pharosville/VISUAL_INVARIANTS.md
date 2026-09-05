@@ -294,11 +294,14 @@ and its conservative distance lookup.
 - **The Pharos precinct carries three secondary reads and no more:** the
   pavilion, the reflection pond, and the signal mast. The tower is the primary.
   Everything else on the rock is landscape (grove, Sakuteiki triads, talus,
-  cliffs, tide-stain courses), a service building with a single light (the
-  keeper's cottage — one lit window, no strung lanterns), or a part of some
-  other composition (the obelisk pair are the quay stair's gateposts, not a
-  monument of their own). A fourth free-standing monument must name which of the
-  three it replaces.
+  cliffs, tide-stain courses), the fortified platform the tower stands on
+  (curtain walls, corner bastions, paved court — masonry, not a monument; it
+  is the tower's base the way the rock is), a service building with a single
+  light (the gatehouse on the platform's east wall — one lit window, no strung
+  lanterns; it replaced the keeper's cottage in Epic Pharos 2026-09-05), or a
+  part of some other composition (the obelisk pair are the quay stair's
+  gateposts, not a monument of their own). A fourth free-standing monument must
+  name which of the three it replaces.
 - **Empty terrace surface is a positive element,** exactly as the emptiness
   between anchorages is. Props on the rock stand at unequal intervals with at
   least one wide dark arc left bare — a ring of evenly-spaced lanterns is the

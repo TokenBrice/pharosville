@@ -170,41 +170,26 @@ export function gardenBirdSortieOffset(
 }
 
 /**
- * The perch, in the flock's own space (origin at the brazier,
- * `GARDEN_LIGHTHOUSE_BEACON_Y` = 30.1 in the lighthouse's).
- *
- * The head of the octagonal drum is a real annular ledge, and it is the ONE
- * ledge this tower has that is both wide enough to roost on and high enough to
- * keep the summit flock a summit flock: the octagon caps at y = 26 out to
- * radius 2.0, the cylindrical drum rises off it at radius 1.35, and a
- * shadow-stone base ring sits on the join — y 26.14 r 1.50 (top 26.28) in the
- * procedural shell, y 26.30 r 1.62 (top 26.43) in the GLB. Perching at 26.47
- * clears the loaded model by a hair and the fallback shell by 0.19, which on a
- * 34-unit monument is nothing; the radius is inside both rings, so the
- * silhouettes read as standing ON stone rather than clinging to a lip.
- *
- * Everything else on this tower is either the fire (the brazier rim and ember
- * bed, radius 1.02–1.25 at the beacon itself) or eleven units down on the
- * gallery. The old orbit — radius 8.2–9.8, a unit or two above the brazier —
- * had no geometry under it at any point on its ring.
+ * The perch is relative to the brazier origin (30.2 lighthouse-local).
+ * Epic Pharos 2026-09-05 shares a drum-head ledge in shell and GLB:
+ * y 29.0–29.4, outer radius 2.55. Birds stand just above its top and
+ * outside the lantern columns (radius 1.9), with wing clearance at the lip.
  */
-const PERCH_RADIUS = 1.44;
-const PERCH_Y = 26.47 - 30.1;
+const PERCH_RADIUS = 2.6;
+const PERCH_Y = 29.44 - 30.2;
 /**
  * The turn. Warm-village D2 (2026-09-05) widened the W3.4 loop 3.6 ± 0.9 →
  * 6 ± 1.2 and lifted the climb 4.4 → 6 so a sortie reads at the zoom-1.0 rest:
- * the far side of the circle now sweeps 13.4–15.8 from the tower's axis, well
+ * the far side of the circle now sweeps 12.2–17.0 from the tower's axis,
  * past where the old permanent orbit ran (8.2–9.8), and mid-turn carries her
- * two to five units above the brazier plane — the composition the flock always
+ * above the brazier plane — the composition the flock always
  * had, now visited on a wider beat rather than inhabited.
  *
- * Clearances, because the sweep grew: the loop is tangent to the perch, and its
- * closest approach to the tower's axis is the perch radius itself — 1.44, at
- * perch height — at EVERY radius, since the outward component of the offset is
- * never negative. That clears the drum (1.35), both base rings and the brazier
- * (1.02–1.25) by construction. Above the beacon the statue rises on the axis,
- * but the loop only enters that height band (y > 30.1) past 6.9 from the axis,
- * far outside the figure. Displacement: none new — the same oscillator, tuned.
+ * Epic Pharos clearances: the loop is tangent to the perch, and its closest
+ * approach to the axis is the perch radius itself — 2.6 — because the outward
+ * component is never negative. It clears the lantern columns (radius 1.9
+ * plus their capitals) and the 2.17-radius cap throughout the climb; the
+ * figure above the cap is narrower still. No oscillator or bird count changes.
  */
 const LOOP_RADIUS = 6;
 const LOOP_RADIUS_SPREAD = 1.2;

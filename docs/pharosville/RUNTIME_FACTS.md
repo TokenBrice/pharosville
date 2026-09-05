@@ -39,7 +39,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 | Model | URL | Bytes | Geometry | SHA-256 |
 | --- | --- | --- | --- | --- |
-| `garden-lighthouse-shell` | `/pharosville/models/garden-lighthouse-shell.glb` | 203 KiB | 7 draws / 33,444 tris / 21,642 verts / 0 textures | `1b2fa7dcc436fb900038079ee178d8630359a8c9351c7a77497b1f82be8d6973` |
+| `garden-lighthouse-shell` | `/pharosville/models/garden-lighthouse-shell.glb` | 227 KiB | 7 draws / 37,160 tris / 24,304 verts / 0 textures | `683bcbcac8ccd18f9f6b6237931f5011600e1d87088507dab912aca1fd39b9c9` |
 | `garden-hero-titan` | `/pharosville/models/garden-hero-titan.glb` | 20 KiB | 4 draws / 930 tris / 842 verts / 0 textures | `226d585a2264290773b1dc487cc4e7f974a7735cec8a1ffebd0ea1aa01ec67f6` |
 | `garden-hero-heritage` | `/pharosville/models/garden-hero-heritage.glb` | 20 KiB | 4 draws / 930 tris / 842 verts / 0 textures | `07dd1b57119aca31cc22a86d7347a9f7876c62601f02f45aec937658720789fe` |
 | `garden-hero-carrack` | `/pharosville/models/garden-hero-carrack.glb` | 24 KiB | 5 draws / 1,058 tris / 1,032 verts / 0 textures | `70f87b2d3c2c66133027028f3d0a7299b58834c1f7c657e308495e62e3b6013a` |

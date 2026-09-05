@@ -226,7 +226,8 @@ describe("harbour tempo", () => {
     for (let index = 0; index < GARDEN_GULL_COUNT; index += 1) {
       const position = new Vector3()
         .setFromMatrixPosition(instanceMatrix(flock.gulls, index));
-      expect(position.y).toBeLessThan(7);
+      // The fortress bastion parapets are the highest resting surfaces.
+      expect(position.y).toBeLessThan(7.7);
       // On the island, not out over the water: the sea wall's own ellipse is
       // 17.2 x 12.9, and every perch is inside it.
       expect(Math.hypot(position.x, position.z)).toBeLessThan(19);

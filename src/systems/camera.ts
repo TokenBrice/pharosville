@@ -38,8 +38,13 @@ export const GARDEN_DEFAULT_CAMERA_ZOOM = GARDEN_FIT_CAMERA_MIN_ZOOM;
 export const GARDEN_REST_ZOOM_FLOOR = 0.8;
 const LANDING_PHAROS_TILE = { x: 60, y: 70 } as const;
 const LANDING_ETHEREUM_MOLE_TILE = { x: 15, y: 95 } as const;
-/** Sky kept above the Pharos statue tip in the resting frame, in px. */
-const LANDING_CROWN_SKY_PX = 48;
+/**
+ * Epic Pharos 2026-09-05: 36px of crown sky preserves the authored 0.8 rest
+ * floor. At the 640px laptop gate the near island cliff may slide under the
+ * footer; the crown, lantern, tower and precinct retain the frame priority.
+ * Do not shrink the warm-village rest to preserve that subordinate scenery.
+ */
+const LANDING_CROWN_SKY_PX = 36;
 
 function cameraPadding(input?: CameraBoundsInput["padding"]) {
   return {

@@ -38,23 +38,16 @@ export const GARDEN_SHIP_ROOT_Y = GARDEN_WATER_Y + 0.38;
 export const GARDEN_ZONE_ROOT_Y = GARDEN_WATER_Y + 0.04;
 export const GARDEN_ISLAND_TILE_OFFSET = { x: 12, y: 8 } as const;
 export const GARDEN_LIGHTHOUSE_ROOT_OFFSET = { x: -7, y: 2.55, z: -1.25 } as const;
-// Pharos Wonder (2026-07-24, agents/2026-07-24-pharos-wonder-plan.md, decision
-// D1 — supersedes D-L1's 30-unit "epic, not bigger" call): the tower grows to
-// 34 units so the attested Pharos stack (battered square base → octagonal drum
-// → cylindrical drum → brazier → Zeus Soter statue) fits at the historical
-// proportion rhythm. BEACON_Y is now the open-brazier centre (flame and beam
-// origin); HEIGHT is the statue's raised-hand tip. Both match the GLB v4
-// anchors exactly so the fallback shell, the loaded model, the DOM label
-// rect, and the selection anchor never disagree.
-export const GARDEN_LIGHTHOUSE_BEACON_Y = 30.1;
-export const GARDEN_LIGHTHOUSE_HEIGHT = 34;
-// C3 (scale & anchor contract): the three lighthouse constants above are the
-// integration point. Pharos Wonder D1 re-proposed the monument scale-up
-// (34 world units, statue tip) and moved the beam-origin/beacon anchor to the
-// open brazier; world-renderer.ts integration (camera fit + shadow frustum +
-// selection cue radius) consumes them. Selection radius, PSI beacon
-// semantics, and DOM/ARIA contracts survive the scale-up unchanged: the hit
-// rect and label anchor derive from these constants.
+// Epic Pharos 2026-09-05 (D1): the broad battered square tier, octagonal
+// drum, columned lantern and Zeus Soter crown stand 38 units above the court.
+// BEACON_Y is the brazier centre inside the lantern (flame and beam origin);
+// HEIGHT is the sceptre tip. Both match the GLB and procedural shell.
+export const GARDEN_LIGHTHOUSE_BEACON_Y = 30.2;
+export const GARDEN_LIGHTHOUSE_HEIGHT = 38;
+// C3 (scale & anchor contract): these three constants are the integration
+// point for Epic Pharos 2026-09-05. Camera fit, shadow-frustum height, hit
+// rect and selection anchor follow the monument; selection radius, PSI
+// beacon semantics and DOM/ARIA contracts remain unchanged.
 
 export type GardenHullSilhouette =
   | "bezaisen"

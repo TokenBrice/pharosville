@@ -328,8 +328,8 @@ const CAMERA_DISTANCE = 110;
  */
 const GARDEN_FLEET_AERIAL_STRENGTH = 0.4;
 
-/** The Pharos crown — the tallest thing that casts, and so what sizes the frustum. */
-const SHADOW_CASTER_HEIGHT = 34;
+/** Epic Pharos 2026-09-05 sceptre tip — the tallest caster sizes the frustum. */
+const SHADOW_CASTER_HEIGHT = 38;
 /** Allowance around island/station roots for static architecture and foliage. */
 export const GARDEN_SHADOW_STATIC_FOOTPRINT_ALLOWANCE = 28;
 

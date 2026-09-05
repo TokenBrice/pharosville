@@ -118,7 +118,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     rect: rectBetweenAnchors(
       lighthouseTop,
       lighthouseBase,
-      80 * input.camera.zoom,
+      100 * input.camera.zoom,
       14 * input.camera.zoom,
     ),
   }, input.viewport, selectedDetailId, hoveredDetailId);
