@@ -31,8 +31,9 @@ const radians = (degrees: number) => degrees * Math.PI / 180;
  * The two places where the garden water is allowed to run out into fog.
  *
  * The broad north-west opening is the borrowed-horizon view. The narrower
- * north-east opening follows Danger Strait. A short, deep headland separates
- * them so they read as two passages rather than one missing side.
+ * north-east opening follows Danger Strait. A broad, shallow cap (about 50
+ * tiles wide at the north edge, about 12 deep) divides them; the two-passage
+ * reading comes from the openings' bearings, not from a narrow spit.
  */
 export const RIM_OPENINGS: readonly RimOpening[] = [
   { bearingStart: radians(-165), bearingEnd: radians(-85) },
@@ -143,7 +144,7 @@ export const RIM_COVES: readonly RimCove[] = [
 
 /** Notes for the Wave B1 mesh author; the field itself remains authoritative. */
 export const RIM_DESIGN_NOTES: readonly string[] = [
-  "The upper-left borrowed-horizon opening is twice the width of the off-axis top-right Danger Strait opening; a steep, narrow headland divides them.",
+  "The upper-left borrowed-horizon opening is twice the width of the off-axis top-right Danger Strait opening; a broad, shallow cap (about 50 tiles wide at the north edge, about 12 deep) divides them, and the two-passage reading comes from the openings' bearings rather than a narrow spit.",
   "The right shore stays thin: two modest headlands interrupt its six-tile recessed bay, with no matching forms on the opposite shore.",
   "The camera-side lower-left is the dominant mass, swelling through several twelve-to-fourteen-tile shoulders into a broad engawa lobe and a pointed promontory.",
   "Wreck Shoal is bitten out of that foreground lobe as an irregular tidal inlet, held by land on its west and south sides rather than enclosed symmetrically.",

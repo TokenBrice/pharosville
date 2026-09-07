@@ -142,20 +142,24 @@ const AUTHORED_RISK_WATER_AREAS: Record<ShipRiskPlacement, RiskWaterAreaDefiniti
     // Z1: Alert Channel anchors its painted alert-water ring. Zones-v2
     // (operator overlay): the RENDERED arc centers off-frame NE, outermost of
     // the Alert>Warning>Danger escalation (see garden-observatory-slice.ts).
-    regionTile: { x: 50, y: 16 },
-    labelTile: { x: 50, y: 16 },
+    // 2026-09-07 re-cut: Alert is the channel running from the north cap down
+    // the east shelf to the shore south of the gorge, inboard of Warning.
+    // The old east-corner-ring anchors all snapped onto one edge tile; these
+    // run down the channel's spine so moorings keep off the Warning seam.
+    regionTile: { x: 43.2, y: 18.4 },
+    labelTile: { x: 43.2, y: 18.4 },
     terrain: "alert-water",
     validTerrains: ["alert-water"],
-    waterStyle: "east-corner alert ring",
+    waterStyle: "east-shelf alert channel",
     motionZone: "alert",
     shipAnchors: [
-      { x: 55, y: 12 },
-      { x: 55, y: 14 },
-      { x: 55, y: 17 },
-      { x: 47, y: 14 },
-      { x: 45, y: 12 },
-      { x: 40, y: 0 },
-      { x: 43, y: 0 },
+      { x: 38.4, y: 5.6 },
+      { x: 37.2, y: 9.6 },
+      { x: 39.2, y: 12.8 },
+      { x: 40.8, y: 16 },
+      { x: 42, y: 19.2 },
+      { x: 43.6, y: 22.4 },
+      { x: 45.2, y: 25.6 },
     ],
     scatterRadius: { x: 8, y: 7 },
   },

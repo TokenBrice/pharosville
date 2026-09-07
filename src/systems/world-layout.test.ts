@@ -217,25 +217,59 @@ describe("buildPharosVilleMap", () => {
     }
   });
 
-  it("keeps the escalation running north-east and the poles apart", () => {
-    // The world reads danger at one end and memory at the other, and the DEWS
-    // ladder is a journey outward: sailing north-east from the anchorage you
-    // cross calm, then watch, then alert, then warning, then the strait.
-    const bearing = (body: SeaBodyName): number => {
-      const tile = seaBodyCentroidTile(body)!;
-      return (tile.x - tile.y) / PHAROSVILLE_MAP_WIDTH;
-    };
-    const ladder: SeaBodyName[] = ["calm", "watch", "alert", "warning", "danger"];
-    for (let step = 1; step < ladder.length; step += 1) {
-      expect(bearing(ladder[step]!), `${ladder[step]} vs ${ladder[step - 1]}`)
-        .toBeGreaterThan(bearing(ladder[step - 1]!));
+  it("keeps Watch inboard of Alert and off the strait, and the north-east diagonal monotone", () => {
+    // 2026-09-07 composition review: the test this replaces ordered five body
+    // CENTROIDS by (x - y). It was green while Watch sat outboard of Alert and
+    // shared a 21-tile seam with Danger — a centroid says nothing about which
+    // waters touch. What the map has to show is the seams, and the order you
+    // cross the bodies sailing north-east from the island.
+    const seams = bodySeams();
+    const seam = (a: SeaBodyName, b: SeaBodyName): number => seams.get([a, b].sort().join("|")) ?? 0;
+    // Early-warning water never meets the strait or its shoals: Alert is the buffer.
+    expect(seam("watch", "danger"), "watch|danger").toBe(0);
+    expect(seam("watch", "warning"), "watch|warning").toBe(0);
+    // Watch is inboard: most of its frontier is the open approach ring, some of
+    // it is Alert. Calm|Watch is NOT asserted zero — open separates them (D2).
+    expect(seam("alert", "watch"), "alert|watch").toBeGreaterThan(0);
+    expect(seam("open", "watch"), "open|watch > alert|watch").toBeGreaterThan(seam("alert", "watch"));
+    // Warning is the shoal between the channel and the strait, so most of
+    // Danger's inshore frontier is Warning. Alert meets Danger only along the
+    // strait's short continuation down the east shore — Alert is the buffer
+    // there because Watch may not be (the solved Danger reach is deeply
+    // negative, the corner wedge being all its own, so a Warning seed cannot
+    // be made to wrap that flank). The gorge cliff stands on this seam, so it
+    // must exist; it must stay well short of the Warning seam.
+    expect(seam("alert", "danger"), "alert|danger").toBeGreaterThan(0);
+    expect(seam("alert", "danger"), "alert|danger").toBeLessThanOrEqual(seam("warning", "danger") / 2);
+
+    // Sailing the x + y = 140 diagonal from the island's lee to the strait
+    // mouth, the ladder reads once, with no body returning after it is left.
+    const diagonal: SeaBodyName[] = [];
+    for (let x = 60; x <= 135; x += 1) {
+      const body = bodyAtTile(x, PHAROSVILLE_MAP_HEIGHT - x);
+      if (body && diagonal[diagonal.length - 1] !== body) diagonal.push(body);
     }
+    while (diagonal[0] === "calm") diagonal.shift();
+    expect(diagonal).toEqual(["open", "alert", "warning", "danger"]);
+
+    // The poles hold: danger north-east, memory south-west.
     const danger = seaBodyCentroidTile("danger")!;
     const wreck = seaBodyCentroidTile("wreck")!;
     expect(danger.x).toBeGreaterThan(PHAROSVILLE_MAP_WIDTH * 0.6);
     expect(danger.y).toBeLessThan(PHAROSVILLE_MAP_HEIGHT * 0.4);
     expect(wreck.x).toBeLessThan(PHAROSVILLE_MAP_WIDTH * 0.4);
     expect(wreck.y).toBeGreaterThan(PHAROSVILLE_MAP_HEIGHT * 0.6);
+  });
+
+  it("keeps the graveyard's water off the Ethereum Mole's stern", () => {
+    // The Mole is Calm's berth; wreck water lapping its stern reads as the
+    // flagship moored in the graveyard.
+    const mole = RIM_COVES.find((cove) => cove.id === "ethereum-mole")!.tile;
+    for (let y = mole.y - 6; y <= mole.y + 6; y += 1) {
+      for (let x = mole.x - 6; x <= mole.x + 6; x += 1) {
+        expect(bodyAtTile(x, y), `${x},${y}`).not.toBe("wreck");
+      }
+    }
   });
 
   it("lands every derived ship anchor in its own body", () => {
@@ -509,6 +543,32 @@ function terrainCounts(tiles: Array<{ terrain?: string }>): Map<string, number> 
     counts.set(String(tile.terrain), (counts.get(String(tile.terrain)) ?? 0) + 1);
   }
   return counts;
+}
+
+const BODY_OF_TERRAIN = new Map(Object.entries(SEA_BODY_TERRAIN).map(([body, terrain]) => [terrain, body as SeaBodyName]));
+
+/** The sea body a tile belongs to, or null for land and the deep rim. */
+function bodyAtTile(x: number, y: number): SeaBodyName | null {
+  return BODY_OF_TERRAIN.get(terrainKindAt(x, y)) ?? null;
+}
+
+/** Count of 4-neighbour water tile pairs lying in different bodies, keyed by the sorted pair "a|b". */
+function bodySeams(): Map<string, number> {
+  const seams = new Map<string, number>();
+  for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT; y += 1) {
+    for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
+      const a = bodyAtTile(x, y);
+      if (!a) continue;
+      for (const [nx, ny] of [[x + 1, y], [x, y + 1]] as const) {
+        if (nx >= PHAROSVILLE_MAP_WIDTH || ny >= PHAROSVILLE_MAP_HEIGHT) continue;
+        const b = bodyAtTile(nx, ny);
+        if (!b || b === a) continue;
+        const key = [a, b].sort().join("|");
+        seams.set(key, (seams.get(key) ?? 0) + 1);
+      }
+    }
+  }
+  return seams;
 }
 
 /** Share of the classified sea each body holds. */

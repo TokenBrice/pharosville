@@ -71,7 +71,9 @@ describe("garden sea-edge sites", () => {
   it("resolves every water element onto its live field boundary", () => {
     const cliff = GARDEN_SEA_EDGE_SITES.find((site) => site.form === "cliff");
     expect(cliff).toMatchObject({ body: "danger", surface: "water" });
-    expect(cliff!.tile).toEqual({ x: 121, y: 50 });
+    // 2026-09-07 re-cut: the gorge wall stands on the Danger/Alert seam —
+    // Watch no longer touches the strait anywhere.
+    expect(cliff!.tile).toEqual({ x: 122, y: 49 });
     expect([
       { x: 1, y: 0 },
       { x: -1, y: 0 },
@@ -79,7 +81,7 @@ describe("garden sea-edge sites", () => {
       { x: 0, y: -1 },
     ].some((offset) => (
       seaRegionAtTile(cliff!.tile.x + offset.x, cliff!.tile.y + offset.y)
-        === SEA_REGION_ID.watch
+        === SEA_REGION_ID.alert
     ))).toBe(true);
 
     for (const site of GARDEN_SEA_EDGE_SITES) {
