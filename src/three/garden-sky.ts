@@ -90,8 +90,8 @@ const STAR_COUNT = 720;
 // plane goes 288 -> 267), which works against the other half of the W6.6
 // finding — the whole-map framing that resolved as a hard-edged diamond slab
 // floating in a void.
-const FOG_NEAR = 178;
-const FOG_FAR = 300;
+const FOG_NEAR = 124;
+const FOG_FAR = 240;
 // W6.6 (Grand Scale Revamp): the ladder above was calibrated for ONE framing
 // (1440x960 at the then-current zoom). The revamp made the world worth zooming out for —
 // 187 ships across the whole sea — and at wide zoom the ground plane spans far

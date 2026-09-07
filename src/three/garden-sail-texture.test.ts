@@ -91,7 +91,7 @@ describe("sail identity field", () => {
     expect(strokeRect).not.toHaveBeenCalled();
   });
 
-  it("prefers the authentic full logo over an extracted emblem", () => {
+  it("prints the disc-free mark into the cloth rather than pasting the logo asset", () => {
     const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
     const image = document.createElement("img");
     Object.defineProperties(image, {
@@ -102,12 +102,16 @@ describe("sail identity field", () => {
 
     createGardenSailTexture(ship, { emblem, image, src: "/logos/usdc.svg" });
 
-    // The original colour block and silhouette are the fleet-scale recognition
-    // cue; the disc-free extraction remains only as a resilient fallback.
+    // 2026-09-07: the extracted mark wins. C4's recognition argument holds and
+    // the span is unchanged at 0.9 — but the raw asset carries its OWN plate
+    // and brand fill, so preferring it made ~75% of every sail a near-white
+    // vector disc with a hard edge, identical in value at noon, dusk and 21:00,
+    // 185 times over. `emblem` keeps the mark's colours and drops only the
+    // carrier disc, so the same shape at the same size reads as printed cloth.
+    // The raw logo stays as the fallback (see the next case).
     expect(drawImage).toHaveBeenCalledOnce();
-    expect(drawImage.mock.calls[0]![0]).toBe(image);
-    // Square, centred, and contained inside the plate (2026-09-05 C4: span
-    // 0.9 — the brand mark fills more of the sail at the 1.0 rest).
+    expect(drawImage.mock.calls[0]![0]).toBe(emblem);
+    // Square, centred, and contained inside the plate (C4 span 0.9 retained).
     const [, x, y, width, height] = drawImage.mock.calls[0]!;
     expect(width).toBeCloseTo(128 * 0.9);
     expect(height).toBeCloseTo(128 * 0.9);
@@ -121,7 +125,7 @@ describe("sail identity field", () => {
     expect(arc).toHaveBeenCalledWith(64, 64, 62, 0, Math.PI * 2);
   });
 
-  it("falls back to the extracted emblem when the full logo cannot draw", () => {
+  it("falls back to the unmodified logo when the extracted mark cannot draw", () => {
     const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
     const image = document.createElement("img");
     const emblem = document.createElement("canvas");
@@ -132,7 +136,7 @@ describe("sail identity field", () => {
     createGardenSailTexture(ship, { emblem, image, src: "/logos/usdc.svg" });
 
     expect(drawImage).toHaveBeenCalledTimes(2);
-    expect(drawImage.mock.calls[1]![0]).toBe(emblem);
+    expect(drawImage.mock.calls[1]![0]).toBe(image);
   });
 });
 
@@ -175,10 +179,12 @@ describe("F1 brand-dyed cloth", () => {
     const livery = { ...base, primary: "#2775ca", sailColor: "#dbe6f7" };
     const primary = new Color("#2775ca");
 
-    // The cloth must land ON the brand colour, not on the cream mix of it that
-    // `sailColor` carries — that dilution is what put a 200-ship fleet into one
-    // narrow band of oatmeal.
-    expect(distance(gardenSailClothColor(livery, "usdc-circle"), primary)).toBeLessThan(0.2);
+    // The cloth must stay in the brand's neighbourhood, not on the cream mix of
+    // it that `sailColor` carries — that dilution is what put a 200-ship fleet
+    // into one narrow band of oatmeal. 2026-09-07: the bound opened 0.2 -> 0.3
+    // for CLOTH_CHROMA_RESTRAINT, which is chroma-only; the gap to the cream
+    // wash below is what proves the dilution has NOT come back.
+    expect(distance(gardenSailClothColor(livery, "usdc-circle"), primary)).toBeLessThan(0.3);
     expect(distance(new Color(livery.sailColor), primary)).toBeGreaterThan(0.6);
   });
 
@@ -266,7 +272,11 @@ describe("F1 brand-dyed cloth", () => {
     // D5 kept the floor at 2.0 knowing DAI dyes to 2.09, because its amber is
     // an operator-owned recognition cue. This pins the exact rendered cloth: if
     // it moves, someone has changed a decision rather than a detail.
-    expect(cloth.getHexString()).toBe("daac69");
+    // 2026-09-07: hex moved daac69 -> cfae85 under CLOTH_CHROMA_RESTRAINT.
+    // The LUMINANCE assertion below did not move at all, which is the point:
+    // the restraint is chroma-only, so D5's amber recognition cue keeps its
+    // exact value and only its chroma is pulled toward the fleet's palette.
+    expect(cloth.getHexString()).toBe("cfae85");
     // Not under black canvas — the pirate branch would drop this far below 0.1.
     expect(cloth.r * 0.2126 + cloth.g * 0.7152 + cloth.b * 0.0722).toBeCloseTo(0.4528, 3);
     expect(SAIL_DARK_CANVAS_ISSUERS.has("dai-makerdao")).toBe(false);

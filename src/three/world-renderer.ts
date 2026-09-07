@@ -3608,18 +3608,26 @@ function buildShipsPart(
   const crossBearingBuoys = createGardenCrossBearingBuoys(buoySpecs);
   part.root.add(crossBearingBuoys.root);
 
-  // W6.4: the mirror column, extended from the Pharos to the fleet. Only the
-  // hero hulls get one — they are the ships with a silhouette worth reflecting,
-  // and the batched fleet is a shared instance whose per-ship colour lives in a
-  // buffer rather than on a visual.
-  const heroReflectionShips = ships.filter((visual) => !visual.batched);
-  const heroReflections = createGardenHeroReflections(heroReflectionShips.length);
+  // W6.4: the mirror column, extended from the Pharos to the fleet.
+  //
+  // 2026-09-07: extended again, from the ~29 heroes to the WHOLE fleet. The
+  // original restriction reasoned that a batched ship's colour "lives in a
+  // buffer rather than on a visual" — but `hullColor`/`sailColor` are on every
+  // ShipVisual, batched included (garden-ships.ts:470-472), and the batched
+  // roots are fully posed in the same pass that feeds this one. So the reason
+  // did not hold, and the cost of dropping it is nil: this is ONE instanced
+  // draw either way, and the delta is 2 triangles and one matrix write per
+  // extra ship. Still water that mirrors 29 of 185 hulls reads as a bug; the
+  // reference boards are mostly reflection.
+  const reflectionShips = ships;
+  const heroReflections = createGardenHeroReflections(reflectionShips.length);
   part.root.add(heroReflections.mesh);
 
   // Gulls over the biggest hulls in the fleet. Ranked by the same market cap
   // the hull scale already encodes, so the traffic agrees with the size.
+  // Heroes only — a gull per batched hull is 185 flocks, not traffic.
   const shipGulls = createGardenShipGulls(
-    [...heroReflectionShips]
+    [...ships.filter((visual) => !visual.batched)]
       .sort((left, right) => (right.ship.marketCapUsd ?? 0) - (left.ship.marketCapUsd ?? 0))
       .slice(0, GARDEN_GULL_SHIP_COUNT),
   );
@@ -3637,7 +3645,7 @@ function buildShipsPart(
   content.fleetLanterns = fleetLanterns;
   content.wakeBatch = wakeBatch;
   content.wakeOutsiderSlot = wakeSlots.outsiderSlot;
-  content.heroReflectionShips = heroReflectionShips;
+  content.heroReflectionShips = reflectionShips;
   content.heroReflections = heroReflections;
   content.shipGulls = shipGulls;
   content.shipLanternGlowMaterial = fleetLanterns.glowMaterial;

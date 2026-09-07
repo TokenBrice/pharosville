@@ -152,10 +152,15 @@ export const GARDEN_SAIL_EMISSIVE = Object.freeze({
 
 export const DAY_CYCLE_HEIGHT_FOG_PRESETS: Record<DayCyclePhaseName, DayCycleHeightFogPreset> = {
   day: {
-    density: 0.000055,
+    // 2026-09-07: 0.000055 -> 0.00012, gain 0.12 -> 0.2. The height term is the
+    // art-directed half of the aerial perspective: at falloff 0.28 the sea
+    // plane hazes ~10x harder than the Pharos crown at y=8, so distance eats
+    // the water and open fleet while the monument stays crisp. Still below
+    // night's density, so the authored day < night < dusk order holds.
+    density: 0.00012,
     heightFalloff: 0.28,
     horizon: DAY_CYCLE_SKY_PRESETS.day.fog.clone(),
-    phaseGain: 0.12,
+    phaseGain: 0.2,
     sunTint: DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone(),
     zenith: DAY_CYCLE_SKY_PRESETS.day.zenith.clone(),
   },

@@ -29,11 +29,36 @@ export const GARDEN_SAIL_TEXTURE_SIZE = TEXTURE_SIZE;
  * near-black brand (BUIDL, Frax) is a dark navy sail rather than a hole in the
  * scene. Nothing here changes what a colour MEANS — the brand colour was
  * already the ship's identity, it was just being diluted away.
+ *
  */
 const CLOTH_CANVAS_LIFT = 0.17;
 
 const CLOTH_LUMINANCE_FLOOR = 0.1;
 const CLOTH_CANVAS = "#f4ecd8";
+
+/**
+ * 2026-09-07: how far the dyed cloth is pulled toward its OWN luminance.
+ *
+ * F1 was right that a cream wash collapsed the fleet, and it is still not
+ * reinstated here — the lift stays at 0.17. The remaining problem is different:
+ * 185 hulls each carrying an undiluted brand hue means the frame has 185
+ * competing chromas and therefore no palette, which is the clearest single
+ * difference from the reference art (each of those boards holds to about
+ * three). Lifting toward cream would fix the clash and wreck the picture,
+ * because `Color` is LINEAR here: a 0.32 lift drags a near-black brand from
+ * luminance 0.10 to 0.27 and throws away the fleet's darks, which are most of
+ * its value structure.
+ *
+ * Pulling toward the cloth's own luminance instead is chroma-only and value-
+ * exact. Every gate that reasons about VALUE — the luminance floor, the pirate
+ * contrast rule, DAI's pinned 0.4528, the WCAG separations — is arithmetically
+ * untouched, and the hues converge just enough to read as one dyed fleet.
+ * Same principle the shader's depth restraint already uses
+ * (`garden-fleet-batch.ts:1041`), applied once at the dye instead of per frame.
+ *
+ * 0.30 keeps the two-issuer separation gate at ~0.33 against its 0.30 floor.
+ */
+const CLOTH_CHROMA_RESTRAINT = 0.3;
 
 /**
  * H1/D5: the pirate rule.
@@ -72,6 +97,10 @@ export function gardenSailClothColor(
   if (luminance < CLOTH_LUMINANCE_FLOOR) {
     cloth.lerp(new Color(CLOTH_CANVAS), (CLOTH_LUMINANCE_FLOOR - luminance) * 2.4);
   }
+  // Chroma-only, luminance-exact. Applied before the pirate branch so that
+  // branch still reads the cloth's true contrast against white.
+  const clothLuma = cloth.r * 0.2126 + cloth.g * 0.7152 + cloth.b * 0.0722;
+  cloth.lerp(new Color(clothLuma, clothLuma, clothLuma), CLOTH_CHROMA_RESTRAINT);
   if (SAIL_DARK_CANVAS_ISSUERS.has(shipId) || whiteContrast(cloth) < PIRATE_CONTRAST_FLOOR) {
     // Not #000 — the brand's HUE survives at very low lightness, so Maker reads
     // as a dark bronze-black and Aave as a dark green-black. Invisible at
@@ -231,9 +260,36 @@ function paintSailIdentity(
   drawIdentityFieldPath(context, centerX, centerY, IDENTITY_FIELD_RADIUS);
   context.clip();
 
-  // The unmodified logo is the canonical recognition cue. Prefer it to the
-  // extracted emblem so its original disc, colour block and silhouette survive
-  // the jump from a texture sample to a handful of pixels on screen.
+  // 2026-09-07: the extracted, disc-free mark is preferred over the raw logo.
+  //
+  // C4 chose the opposite for recognition, and the recognition argument was
+  // right — but what it bought was a UI badge, not heraldry: the raw asset
+  // carries its OWN circular plate and brand fill, so at span 0.9 roughly
+  // three quarters of every sail is a near-white-albedo vector disc with a
+  // hard edge. That is the brightest thing in the frame at noon, at dusk and
+  // at 21:00 alike, times 185, which is most of what "it doesn't look like
+  // the reference art" is pointing at.
+  //
+  // `emblem` keeps the mark's own colours (garden-sail-emblem.ts:200) and
+  // drops only the carrier disc, so the SAME shape at the SAME span still
+  // reads — printed into cloth rather than stuck onto it. The raw logo stays
+  // as the fallback for issuers whose mark the extractor cannot isolate.
+  if (logo?.emblem) {
+    try {
+      context.drawImage(
+        logo.emblem,
+        centerX - box / 2,
+        centerY - box / 2,
+        box,
+        box,
+      );
+      context.restore();
+      return;
+    } catch {
+      // Fall through to the unmodified logo.
+    }
+  }
+
   if (logo?.image) {
     try {
       // ImageBitmap (the createImageBitmap decode path) has no naturalWidth —
@@ -263,21 +319,6 @@ function paintSailIdentity(
     }
   }
 
-  if (logo?.emblem) {
-    try {
-      context.drawImage(
-        logo.emblem,
-        centerX - box / 2,
-        centerY - box / 2,
-        box,
-        box,
-      );
-      context.restore();
-      return;
-    } catch {
-      // A failed image stays a markless brand-dyed sail.
-    }
-  }
   context.restore();
 }
 
@@ -319,7 +360,7 @@ function paintIdentityField(
 /** Fraction of the radius held at full plate opacity before the shoulder. */
 const IDENTITY_FIELD_CORE = 0.62;
 /** Plate opacity under the mark itself. */
-const IDENTITY_FIELD_ALPHA = 0.86;
+const IDENTITY_FIELD_ALPHA = 0.42;
 
 /** `rgba(...)` for a canvas paint, in sRGB — three's Color components are linear. */
 function cssRgba(color: Color, alpha: number): string {
