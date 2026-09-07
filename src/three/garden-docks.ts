@@ -134,10 +134,10 @@ const LEGACY_STATION_BY_CHAIN: Record<string, StationType> = {
   base: "hatago-wharf",
   bsc: "tea-house-quay",
   ethereum: "ethereum-mole",
-  hyperliquid: "uogashi",
-  "hyperliquid-l1": "uogashi",
+  hyperliquid: "fishing-pier",
+  "hyperliquid-l1": "fishing-pier",
   polygon: "reed-boathouse",
-  solana: "fishing-pier",
+  solana: "uogashi",
   ton: "pigeonnier-islet",
   tron: "stepped-inlet",
 };

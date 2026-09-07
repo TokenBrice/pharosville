@@ -492,7 +492,7 @@ describe("garden station recipes", () => {
     // the part of the contract that still belongs to the batch.
     const batch = createGardenHarborBatch([
       recipeWithStation("ethereum-mole", "ethereum", 0, { x: 42, y: 31 }),
-      recipeWithStation("fishing-pier", "solana", 0, { x: 25, y: 23 }),
+      recipeWithStation("uogashi", "solana", 0, { x: 25, y: 23 }),
     ]);
     expect(batch.docks.every((visual) => visual.recipe.lampWorldPositions.length >= 1)).toBe(true);
     batch.dispose();

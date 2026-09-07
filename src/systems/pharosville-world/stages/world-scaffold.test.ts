@@ -334,8 +334,8 @@ describe("chain id normalization boundary (D8)", () => {
     // to the first open outer mouth (watch-south-reed, reed-boathouse).
     expect(world.docks.map((dock) => dock.chainId)).toEqual(["ethereum", "hyperliquid"]);
     const hyperliquid = world.docks.find((dock) => dock.chainId === "hyperliquid")!;
-    expect(hyperliquid.station.coveId).toBe("watch-east-bay");
-    expect(hyperliquid.station.type).toBe("uogashi");
+    expect(hyperliquid.station.coveId).toBe("danger-gorge");
+    expect(hyperliquid.station.type).toBe("fishing-pier");
   });
 
   it("flies the canonical chain's flag dye rather than the shared health accent (L6)", () => {
