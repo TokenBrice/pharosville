@@ -10,9 +10,9 @@ describe("HARBOR_PALETTE", () => {
     }
   });
 
-  // Warm-village pass (2026-09-05). Vermilion remains the one sacred accent,
-  // while the raised quiet-field ceiling lets authored roofs, land, and sea
-  // carry enough dye to separate warm ground from cool water.
+  // Golden Garden pass (2026-09-07). Vermilion remains the one sacred accent,
+  // while the field ceiling rises to one step under it so land, roofs, and sea
+  // can carry a golden-hour register instead of a restrained one.
   //
   // The ceiling is perceptual chroma, NOT HSL saturation, and the difference
   // matters: HSL S is a ratio against available lightness, so it runs away on
@@ -28,10 +28,11 @@ describe("HARBOR_PALETTE", () => {
     "bloodmoon_red", // rare-event accent
   ]);
 
-  it("keeps every non-accent token under the dentō-shoku chroma ceiling", () => {
-    // The warm-village decision raises the perceptual dye allowance from 0.10
-    // to 0.14; the reserved accents stay exempt and unchanged.
-    const CEILING = 0.14;
+  it("keeps every non-accent token under the chroma ceiling", () => {
+    // The Golden Garden decision raises the perceptual dye allowance from 0.14
+    // to 0.16 — vermillion sits at 0.177, so the reserved accent stays the
+    // loudest by construction; the reserved accents stay exempt and unchanged.
+    const CEILING = 0.16;
     for (const [token, hex] of Object.entries(HARBOR_PALETTE)) {
       if (RESERVED_ACCENTS.has(token)) continue;
       expect(oklchChroma(hex), `${token} (${hex}) must stay within the authored ceiling`).toBeLessThan(CEILING);

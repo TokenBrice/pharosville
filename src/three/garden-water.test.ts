@@ -697,13 +697,14 @@ describe("createGardenWater", () => {
     expect(water.material.uniforms.uHarborEllipse!.value).toMatchObject({ x: 10, y: 6 });
   });
 
-  it("pins the authored cool-teal day descent", () => {
-    // Warm-village re-grade: exact derived pins catch a palette or mix change
-    // that would collapse the intended warm-land/cool-sea hue separation.
+  it("pins the authored turquoise-to-indigo day descent", () => {
+    // Golden Garden re-grade: exact derived pins catch a palette or mix change
+    // that would collapse the intended warm-land/cool-sea hue separation or
+    // drag the shelf back toward a cyan pool.
     const water = createGardenWater(0);
-    expect(uniformColor(water.material, "uShallowColor").getHexString()).toBe("1f788c");
-    expect(uniformColor(water.material, "uBaseColor").getHexString()).toBe("006c81");
-    expect(uniformColor(water.material, "uDeepColor").getHexString()).toBe("005670");
+    expect(uniformColor(water.material, "uShallowColor").getHexString()).toBe("5c978d");
+    expect(uniformColor(water.material, "uBaseColor").getHexString()).toBe("138183");
+    expect(uniformColor(water.material, "uDeepColor").getHexString()).toBe("0d5768");
   });
 
   it("moves through distinct day, dusk, and night palettes", () => {

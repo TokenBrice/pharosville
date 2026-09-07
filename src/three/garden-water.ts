@@ -365,41 +365,42 @@ const MOON_DIR = new Vector2(
   -Math.sin(GARDEN_MOON_AZIMUTH),
 ).normalize();
 
-// Palette-derived sea presets (no ad-hoc hex literals). Warm-village
-// (2026-09-05) separates the cool water field from the ochre/green land by hue:
-// day stays in a saturated teal family, dusk descends into indigo, and night
-// remains dark. Every broad band stays below the bloom knee.
+// Palette-derived sea presets (no ad-hoc hex literals). Golden Garden
+// (2026-09-07): the day sea is a turquoise shelf warmed a breath by the sun,
+// an emerald-teal body and an indigo deep — a hue descent, so the lit shelf
+// reads as light on water rather than as a cyan pool. Dusk descends through
+// the violet mist so the ember road lies on its complement; night keeps the
+// violet-indigo abyss with a cyan whisper on the shelf. Every broad band
+// stays below the bloom knee.
 const pc = (key: keyof typeof HARBOR_PALETTE): Color => new Color(HARBOR_PALETTE[key]);
 
 const DAY_SHALLOW = pc("shallow_teal_lit")
-  .lerp(pc("lantern_cold"), 0.15); // OKLCH L 0.531 C 0.085 H 217
+  .lerp(pc("shallow_teal"), 0.2)
+  .lerp(pc("sun_day_warm"), 0.1);
 const DAY_MID = pc("shallow_teal_lit")
-  .lerp(pc("shallow_teal"), 0.45); // OKLCH L 0.490 C 0.088 H 217
+  .lerp(pc("shallow_teal"), 0.55);
 const DAY_DEEP = pc("shallow_teal")
-  .lerp(pc("deep_sea_1"), 0.25); // OKLCH L 0.423 C 0.082 H 227
+  .lerp(pc("deep_sea_1"), 0.5);
 
-// Dusk keeps the blue-green side of the spectrum in its shelf and body, then
-// reaches indigo only in the deep. Warmth belongs to the sun path, not a dye
-// spread through the entire surface.
 const DUSK_SHALLOW = pc("shallow_teal")
-  .lerp(pc("sail_teal"), 0.22)
-  .lerp(pc("lantern_cold"), 0.12)
-  .lerp(pc("lantern_warm"), 0.03); // OKLCH L 0.490 C 0.059 H 221
+  .lerp(pc("fog_blue"), 0.25)
+  .lerp(pc("lantern_warm"), 0.06);
 const DUSK_MID = pc("deep_sea_1")
-  .lerp(pc("shallow_teal"), 0.32); // OKLCH L 0.356 C 0.079 H 238
+  .lerp(pc("shallow_teal"), 0.22)
+  .lerp(pc("sky_horizon"), 0.25);
 const DUSK_DEEP = pc("deep_sea_2")
-  .lerp(pc("deep_sea_1"), 0.52); // OKLCH L 0.244 C 0.069 H 255
+  .lerp(pc("sky_horizon"), 0.45);
 
-// Night uses the newly saturated indigo token sparingly: the shallow and mid
-// rungs gain hue separation without lifting the broad open-water field.
 const NIGHT_SHALLOW = pc("deep_sea_1")
-  .lerp(pc("shallow_teal"), 0.06); // OKLCH L 0.300 C 0.083 H 249
+  .lerp(pc("deep_sea_2"), 0.25)
+  .lerp(pc("lantern_cold"), 0.1);
 const NIGHT_MID = pc("deep_sea_1")
-  .lerp(pc("deep_sea_2"), 0.2); // OKLCH L 0.268 C 0.079 H 253
-const NIGHT_DEEP = pc("deep_sea_2"); // OKLCH L 0.171 C 0.038 H 272
-const DAY_HIGHLIGHT = pc("foam_white");
-const DUSK_HIGHLIGHT = DAY_HIGHLIGHT.clone()
-  .lerp(pc("lantern_warm"), 0.38); // OKLCH L 0.874 C 0.025 H 68
+  .lerp(pc("deep_sea_2"), 0.65);
+const NIGHT_DEEP = pc("deep_sea_2");
+const DAY_HIGHLIGHT = pc("foam_white")
+  .lerp(pc("sun_day_warm"), 0.3);
+const DUSK_HIGHLIGHT = pc("foam_white")
+  .lerp(pc("lantern_warm"), 0.45);
 const NIGHT_HIGHLIGHT = pc("moonlight");
 const BEACON_HIGHLIGHT = pc("lantern_glow");
 const MOON_ROAD_COLOR = pc("moonlight");

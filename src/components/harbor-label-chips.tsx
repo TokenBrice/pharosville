@@ -1,6 +1,5 @@
-import { useMemo, type RefObject, type SyntheticEvent } from "react";
+import { useMemo, type RefObject } from "react";
 import type { GardenStationLabelFrame } from "../renderer/garden-observatory-hit-testing";
-import { dockConcentrationLabel } from "../systems/detail-model";
 import type { PharosVilleWorld } from "../systems/world-types";
 
 const CHIP_GAP_PX = 6;
@@ -13,7 +12,6 @@ interface HarborLabelChipItem {
   detailId: string;
   initials: string;
   label: string;
-  logoPath: string | null;
   state: string;
   supply: number;
 }
@@ -38,11 +36,7 @@ export interface HarborLabelChipsProps {
   world: PharosVilleWorld;
 }
 
-/**
- * The always-on station naming surface. It displaces hover-only station naming;
- * the accessibility ledger remains the spoken channel, so these chips are
- * deliberately aria-hidden. Position is written by the world's existing RAF.
- */
+/** Selected and arriving/departing ship captions; station identity lives on rooftop flags. */
 export function HarborLabelChips({
   arrivalShipDetailIds = NO_TRANSIENT_SHIP_LABELS,
   containerRef,
@@ -51,22 +45,7 @@ export function HarborLabelChips({
   world,
 }: HarborLabelChipsProps) {
   const items = useMemo(() => {
-    const stationItems: HarborLabelChipItem[] = world.docks.map((dock) => ({
-      detailId: dock.detailId,
-      initials: paintedInitials(dock.label),
-      label: dock.label,
-      logoPath: dock.logoPath?.startsWith("/") ? dock.logoPath : null,
-      state: dockConcentrationLabel(dock.concentration)?.split(" ", 1)[0] ?? "unavailable",
-      supply: dock.totalUsd,
-    }));
-    stationItems.push({
-      detailId: world.pigeonnier.detailId,
-      initials: "TON",
-      label: world.pigeonnier.label,
-      logoPath: null,
-      state: "watch",
-      supply: 0,
-    });
+    const stationItems: HarborLabelChipItem[] = [];
 
     const transientIds = new Set(arrivalShipDetailIds);
     if (selectedShipDetailId) transientIds.add(selectedShipDetailId);
@@ -77,7 +56,6 @@ export function HarborLabelChips({
         detailId,
         initials: paintedInitials(ship.label),
         label: ship.label,
-        logoPath: null,
         state: ship.riskZone,
         supply: ship.marketCapUsd,
       });
@@ -100,8 +78,7 @@ export function HarborLabelChips({
           onClick={() => onSelectDetail(item.detailId)}
         >
           <span className="pharosville-harbor-label-chip__mark" aria-hidden="true">
-            {item.logoPath ? <img src={item.logoPath} alt="" onError={hideBrokenMark} /> : null}
-            <span data-fallback={item.logoPath ? "hidden" : "visible"}>{item.initials}</span>
+            <span>{item.initials}</span>
           </span>
           <strong>{item.label}</strong>
           <span className="pharosville-harbor-label-chip__state">{item.state}</span>
@@ -118,10 +95,6 @@ export function updateHarborLabelChipLayout(
 ): void {
   if (!container) return;
   const chips = Array.from(container.querySelectorAll<HTMLElement>("[data-detail-id]"));
-  // Chips are always on at every zoom (operator decision 2026-09-05): the
-  // whole-map framing is exactly where all nine stations share the frame and
-  // need naming. Only per-anchor hiding below applies (off-screen, exclusion).
-
   const exclusions = [input.lighthouseRect, ...(input.exclusionRects ?? [])];
   const placed: ScreenRect[] = [];
   const ordered = chips.sort((a, b) => numericSupply(b) - numericSupply(a));
@@ -172,10 +145,4 @@ function paintedInitials(label: string): string {
   return words.length === 1
     ? words[0]!.slice(0, 2).toUpperCase()
     : words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
-}
-
-function hideBrokenMark(event: SyntheticEvent<HTMLImageElement>): void {
-  event.currentTarget.hidden = true;
-  const fallback = event.currentTarget.nextElementSibling;
-  if (fallback instanceof HTMLElement) fallback.dataset.fallback = "visible";
 }

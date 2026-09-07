@@ -290,14 +290,18 @@ describe("garden sky applyPhase", () => {
     expect((sky.domeMaterial.uniforms.uMiddle.value as Color).getHex())
       .toBe(DAY_CYCLE_SKY_PRESETS.day.horizon.getHex());
     const backdrop = sky.root.getObjectByName("garden-sky-backdrop") as Mesh<PlaneGeometry, ShaderMaterial>;
+    // Golden Garden: the visible day sheet grades gold-cream → cerulean → a
+    // deeper blue, so the lower band sits nearer the warm horizon than the
+    // zenith and the top never reaches the old kon (deep_sea_1) wash.
     expect((backdrop.material.uniforms.uZenith.value as Color).getHex())
-      .toBe(new Color(HARBOR_PALETTE.deep_sea_1).getHex());
+      .toBe(new Color(HARBOR_PALETTE.sky_day_zenith)
+        .lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.3).getHex());
     expect((backdrop.material.uniforms.uMiddle.value as Color).getHex())
-      .toBe(new Color(HARBOR_PALETTE.moonlight)
-        .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.42).getHex());
+      .toBe(new Color(HARBOR_PALETTE.sky_day_horizon)
+        .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.68).getHex());
     const lower = backdrop.material.uniforms.uLower.value as Color;
-    expect(colorDistance(lower, new Color(HARBOR_PALETTE.moonlight)))
-      .toBeLessThan(colorDistance(lower, DAY_CYCLE_SKY_PRESETS.day.fog));
+    expect(colorDistance(lower, new Color(HARBOR_PALETTE.sky_day_horizon)))
+      .toBeLessThan(colorDistance(lower, new Color(HARBOR_PALETTE.sky_day_zenith)));
     expect(sky.fog.color.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.day.fog.getHex());
   });
 

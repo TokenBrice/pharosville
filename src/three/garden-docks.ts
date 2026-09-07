@@ -134,10 +134,10 @@ const LEGACY_STATION_BY_CHAIN: Record<string, StationType> = {
   base: "hatago-wharf",
   bsc: "tea-house-quay",
   ethereum: "ethereum-mole",
-  hyperliquid: "uogashi",
-  "hyperliquid-l1": "uogashi",
+  hyperliquid: "fishing-pier",
+  "hyperliquid-l1": "fishing-pier",
   polygon: "reed-boathouse",
-  solana: "fishing-pier",
+  solana: "uogashi",
   ton: "pigeonnier-islet",
   tron: "stepped-inlet",
 };
@@ -366,15 +366,13 @@ export function authorDock(
 
   const lamps = stationLampLocals(station.type, length, width);
   const staff = stationFlagPlacement(station.type, dock.totalUsd, dock.size);
-  const stationPosts = ethereumMole
-    ? [{ height: staff.height, radius: 0.075, x: staff.x, z: staff.z }]
-    : [
-        { height: staff.height, radius: 0.075, x: staff.x, z: staff.z },
-        ...lamps.map((lamp) => ({ ...lamp, radius: 0.085 })),
-      ];
+  const stationPosts = [
+    { height: staff.height + QUAY_TOP_Y - staff.baseY, baseY: staff.baseY, radius: 0.075, x: staff.x, z: staff.z },
+    ...(ethereumMole ? [] : lamps.map((lamp) => ({ ...lamp, baseY: QUAY_TOP_Y, radius: 0.085 }))),
+  ];
   for (const post of stationPosts) {
     scratchMatrix.makeScale(post.radius, post.height, post.radius);
-    scratchMatrix.setPosition(post.x, post.height / 2 + QUAY_TOP_Y, post.z);
+    scratchMatrix.setPosition(post.x, post.height / 2 + post.baseY, post.z);
     props.push(harborProp("post", scratchMatrix, null, false));
   }
   if (!ethereumMole) for (const lamp of lamps) {

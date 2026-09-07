@@ -139,14 +139,14 @@ interface SeaBody {
  * below. Re-run it after moving any seed.
  */
 export const SEA_BODY_REACH: Record<SeaBodyName, number> = {
-  calm: 0.0203,
-  open: 0.0541,
-  watch: -0.0723,
-  ledger: 0.0440,
-  alert: 0.0610,
-  wreck: 0.0289,
-  danger: -0.1135,
-  warning: -0.0223,
+  calm: 0.0059,
+  open: 0.0468,
+  watch: 0.0174,
+  ledger: 0.0389,
+  alert: 0.0051,
+  wreck: 0.0552,
+  danger: -0.1186,
+  warning: -0.0507,
 };
 
 /**
@@ -154,8 +154,11 @@ export const SEA_BODY_REACH: Record<SeaBodyName, number> = {
  *
  * The island sits at roughly (0.53, 0.54). Danger stays in the north-east and
  * the wreck shoals in the south-west, so the map still reads danger at one pole
- * and memory at the other, and the DEWS escalation stays monotonic along a
- * north-east bearing: Calm -> open sea -> Watch -> Alert -> Warning -> Danger.
+ * and memory at the other. The DEWS ladder reads OUTWARD from the island: the
+ * open approach ring, then Watch (east and south-east, inboard), then Alert,
+ * then Warning, then Danger along the north-east diagonal. Watch never touches
+ * Danger or Warning — Alert is the buffer on the east shore — and the seam
+ * test in world-layout.test.ts guards that (2026-09-07 composition review).
  * What changes is that each one is now a PLACE.
  */
 const SEA_BODIES: readonly SeaBody[] = [
@@ -167,17 +170,20 @@ const SEA_BODIES: readonly SeaBody[] = [
     name: "calm",
     seeds: [
       capsule(0.10, 0.30, 0.16, 0.62, 0.16),
-      capsule(0.16, 0.62, 0.42, 0.76, 0.13),
+      // The lobe's south-east end reaches the calm-engawa-south mouth (60,
+      // 130) and closes the rim pocket east of the wreck bar.
+      capsule(0.16, 0.62, 0.42, 0.84, 0.13),
       capsule(0.12, 0.22, 0.34, 0.26, 0.10),
     ],
   },
   {
-    // The mooring shelf along the northern shore: a long bar with a scalloped
-    // southern edge, not the rectangle it used to be.
+    // The mooring shelf along the northern edge, running out through the
+    // borrowed-horizon opening — there is no northern shore on that arc. A
+    // long bar with a scalloped southern edge, not the rectangle it used to be.
     name: "ledger",
     seeds: [
       capsule(0.06, 0.09, 0.24, 0.14, 0.085),
-      capsule(0.26, 0.07, 0.44, 0.12, 0.075),
+      capsule(0.26, 0.07, 0.45, 0.135, 0.075),
       disc(0.17, 0.21, 0.065),
       // The shelf's hooked western end meets the new land rim below the
       // borrowed-horizon opening, giving Ledger Mooring a real shore cove.
@@ -186,26 +192,33 @@ const SEA_BODIES: readonly SeaBody[] = [
   },
   {
     // The working sea east and south-east of the island, behind the breakwater
-    // arc — the water between the anchorage and the alert channel.
+    // arc — the water between the anchorage and the alert channel, inboard of
+    // Alert on the east shelf. Its shoulder starts south of the gorge's
+    // latitude so it never reaches the strait (2026-09-07 re-cut).
     name: "watch",
     seeds: [
-      capsule(0.72, 0.46, 0.80, 0.80, 0.12),
+      capsule(0.78, 0.56, 0.80, 0.80, 0.10),
       // The rim closes the old edge-route between Watch's upper reach and
-      // south basin; this inner-bank run keeps them one navigable body.
-      capsule(0.88, 0.48, 0.86, 0.66, 0.07),
+      // south basin; this inner-bank run keeps them one navigable body. Its
+      // north end sits below the watch-east-bay mouth so the shore between
+      // the gorge and the bay stays Alert.
+      capsule(0.90, 0.60, 0.86, 0.66, 0.07),
       // Out to the south-east corner: the TON pigeonnier islet sits at (0.91,
       // 0.91) and is authored as standing off the Watch shelf, so Watch has to
-      // reach it or the wharf ends up in unnamed open sea.
-      capsule(0.56, 0.84, 0.95, 0.93, 0.085),
+      // reach it or the wharf ends up in unnamed open sea. Thin, and starting
+      // east of the island's lee, so it stays out of the open south channel.
+      capsule(0.66, 0.86, 0.95, 0.93, 0.05),
     ],
   },
   {
     // The approach channel: the outermost of three bands you cross sailing out
-    // toward the storm corner, and the widest, so "channel" means channel.
+    // toward the storm corner, and the widest, so "channel" means channel. Its
+    // tail runs down the east shelf to the shore south of the gorge, where it
+    // is the buffer between the strait's continuation and Watch.
     name: "alert",
     seeds: [
-      capsule(0.755, 0.04, 0.66, 0.26, 0.075),
-      capsule(0.68, 0.24, 0.62, 0.44, 0.065),
+      capsule(0.73, 0.06, 0.66, 0.26, 0.075),
+      capsule(0.70, 0.28, 0.86, 0.52, 0.065),
     ],
   },
   {
@@ -218,28 +231,43 @@ const SEA_BODIES: readonly SeaBody[] = [
     // single tile and the solver inflated its reach until the partition
     // degenerated into wedges.
     name: "warning",
-    seeds: [capsule(0.875, 0.02, 0.775, 0.30, 0.055)],
+    seeds: [
+      capsule(0.875, 0.02, 0.775, 0.30, 0.035),
+      // A short shoal along the inshore flank of the strait's continuation,
+      // so Alert meets Danger along less of it.
+      capsule(0.82, 0.30, 0.85, 0.40, 0.045),
+    ],
   },
   {
     // The strait itself: narrow and long, hugging the north-east corner and
     // opening to the map edge. It used to be a disc in that corner.
+    //
+    // Everything between this seed and the map edge is Danger's whatever its
+    // radius, so the solved reach is deeply negative: a seed here wins only
+    // where it is much nearer than any Alert or Watch seed. Both seeds are
+    // therefore sized small, and the continuation ends ON the danger-gorge
+    // mouth (131, 59) so the mouth keeps storm water.
     name: "danger",
     seeds: [
-      capsule(0.975, 0.015, 0.86, 0.30, 0.065),
-      // A short continuation reaches the upper of the east headlands without
-      // filling the shallow Watch bay below it.
-      capsule(0.90, 0.27, 0.94, 0.43, 0.035),
+      capsule(0.985, 0.01, 0.93, 0.32, 0.03),
+      // The continuation runs down the east shore to the gorge mouth and stops
+      // there; Alert holds the shore below it, above the Watch bay.
+      capsule(0.93, 0.32, 0.945, 0.425, 0.07),
     ],
   },
   {
     // The graveyard, unchanged in place: the far pole from the storm corner.
+    // An east-west bar along the south rim rather than a north-south lobe, so
+    // its water grows east over the shoals and not north up the Ethereum
+    // Mole's stern (2026-09-07: no wreck water within six tiles of the Mole).
     name: "wreck",
-    seeds: [capsule(0.08, 0.82, 0.24, 0.95, 0.11)],
+    seeds: [capsule(0.09, 0.92, 0.24, 0.92, 0.08)],
   },
   {
     // Deliberately unnamed open sea (decision D2). The island's own approach
-    // ring, a channel running south to the map edge, and the northern gap
-    // between the mooring shelf and the alert channel.
+    // ring, a channel running south to the south rim (the rim closes the map
+    // from y >= 134), and the northern gap between the mooring shelf and the
+    // alert channel.
     //
     // This is the body that makes the others read. Named waters only look like
     // BODIES when there is unclaimed sea between them; without it the map is a
@@ -270,7 +298,10 @@ export const SEA_BODY_TARGET_SHARE: Record<SeaBodyName, number> = {
   watch: 0.12,
   ledger: 0.10,
   alert: 0.08,
-  wreck: 0.07,
+  // 2026-09-07: 0.07 -> 0.06. The share was sized for the old 89-hull field;
+  // traffic to the graveyard is graves, not ships, and at 0.07 the solver
+  // pushed wreck water back up the Ethereum Mole's stern.
+  wreck: 0.06,
   danger: 0.05,
   warning: 0.04,
 };

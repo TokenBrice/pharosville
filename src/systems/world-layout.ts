@@ -122,8 +122,10 @@ export const PREFERRED_DOCK_STATIONS: Record<string, DockStationSlot> = {
   ethereum: EVM_BAY_STATION_SLOTS[0]!, // the Mole, west promontory
   base: OUTER_HARBOR_STATION_SLOTS[6]!, // hatago wharf, ledger fog hook (west)
   tron: OUTER_HARBOR_STATION_SLOTS[5]!, // stepped inlet, warning shelf (north)
-  solana: OUTER_HARBOR_STATION_SLOTS[1]!, // fishing pier, danger gorge (east)
-  hyperliquid: OUTER_HARBOR_STATION_SLOTS[3]!, // market hall, watch east bay (east)
+  // A trading venue moored at the storm gorge reads as the place's weather;
+  // the flagship peg moored there reads as a false depeg. Hence the swap.
+  solana: OUTER_HARBOR_STATION_SLOTS[3]!, // market hall, watch east bay (east)
+  hyperliquid: OUTER_HARBOR_STATION_SLOTS[1]!, // fishing pier, danger gorge (east)
   polygon: OUTER_HARBOR_STATION_SLOTS[0]!, // reed boathouse, south rim
   bsc: OUTER_HARBOR_STATION_SLOTS[2]!, // tea-house quay, south engawa
   arbitrum: OUTER_HARBOR_STATION_SLOTS[4]!, // storm mole, wreck shoal (south-west)
@@ -143,17 +145,13 @@ export const DOCK_TILES = [
   ...OUTER_HARBOR_DOCK_TILES,
 ];
 
-// Cemetery remains a separate memorial islet, snapped to the bottom-left edge
-// as in the positioning source while staying outside the central island model.
-/** Center of the cemetery scatter region (the planted graves) on the bottom-left memorial islet. */
+/** Center of the cemetery scatter region (the planted graves) on the south-west wreck shoals. */
 // N2: the graveyard is a stretch of SEA in the south-west corner, not an
 // islet. Zone space, so it scales with the map like the other water zones.
 export const CEMETERY_CENTER = zoneWorldTile({ x: 6.0, y: 49.0 });
 /** Ellipse half-axes for the inner planted-grave region (graves stay within this footprint). */
 // Wrecks scatter across the shoals rather than crowding a churchyard plot.
 export const CEMETERY_RADIUS = { x: 12.0, y: 9.0 } as const;
-/** Ellipse half-axes for the outer cemetery islet landmass that surrounds the graves. */
-export const CEMETERY_ISLAND_RADIUS = { x: 5.4, y: 3.8 } as const;
 
 // Pigeonnier islet in the southeast Watch Breakwater shelf — a single-tile
 // messenger-tower platform far enough from the main shipping lanes that

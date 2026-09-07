@@ -137,15 +137,15 @@ describe("buildChainDocks", () => {
     expect(byChain.get("polygon")?.station.type).toBe("reed-boathouse");
     expect(byChain.get("bsc")?.station.type).toBe("tea-house-quay");
     expect(byChain.get("tron")?.station.type).toBe("stepped-inlet");
-    expect(byChain.get("solana")?.station.type).toBe("fishing-pier");
+    expect(byChain.get("solana")?.station.type).toBe("uogashi");
     expect(docks.map((dock) => dock.chainId)).not.toContain("optimism");
     expect(docks.map((dock) => dock.chainId)).not.toContain("mantle");
 
     // Aptos ranks eighth with no preferred berth, so it inherits the one
-    // freed mouth — the east-bay market hall — and wears that place's
+    // freed mouth — the danger-gorge fishing pier — and wears that place's
     // archetype. Only the flag differs from a named chain's berth.
-    expect(byChain.get("aptos")?.station.coveId).toBe("watch-east-bay");
-    expect(byChain.get("aptos")?.station.type).toBe("uogashi");
+    expect(byChain.get("aptos")?.station.coveId).toBe("danger-gorge");
+    expect(byChain.get("aptos")?.station.type).toBe("fishing-pier");
 
     // The mole is Ethereum's alone: no other rendered dock sits on it.
     expect(docks.filter((dock) => EVM_BAY_DOCK_TILES.some((tile) => (
@@ -289,6 +289,12 @@ describe("buildChainDocks", () => {
       "arbitrum",
       "polygon",
     ]);
+    // Mirror of the §4 binding for the chain the top-eight feed above omits:
+    // hyperliquid holds the danger-gorge mouth and wears its fishing pier.
+    const hyperliquid = docks.find((dock) => dock.chainId === "hyperliquid")!;
+    expect(hyperliquid.tile).toEqual(PREFERRED_DOCK_TILES.hyperliquid);
+    expect(hyperliquid.station.coveId).toBe("danger-gorge");
+    expect(hyperliquid.station.type).toBe("fishing-pier");
     expect(docks.map((dock) => dock.chainId)).not.toContain("optimism");
     expect(docks.map((dock) => dock.chainId)).not.toContain("aptos");
     expect(docks.map((dock) => dock.chainId)).not.toContain("avalanche");
@@ -492,7 +498,7 @@ describe("buildChainDocks", () => {
 
     // A generic chain out-ranking a named one also claims mouths in
     // selection order — here sui ranks above hyperliquid but below every
-    // other preferred chain, so when sui's turn comes the market bay is the
+    // other preferred chain, so when sui's turn comes the danger gorge is the
     // one open mouth and hyperliquid is pushed out of the eight entirely.
     // Coverage, spread and the archetype-of-place all hold; only which flag
     // flies over each building changes.
@@ -513,8 +519,8 @@ describe("buildChainDocks", () => {
     });
     expectFullRing(genericAhead);
     expect(genericAhead.map((dock) => dock.chainId)).not.toContain("hyperliquid");
-    expect(genericAhead.find((dock) => dock.chainId === "sui")?.station.coveId).toBe("watch-east-bay");
-    expect(genericAhead.find((dock) => dock.chainId === "sui")?.station.type).toBe("uogashi");
+    expect(genericAhead.find((dock) => dock.chainId === "sui")?.station.coveId).toBe("danger-gorge");
+    expect(genericAhead.find((dock) => dock.chainId === "sui")?.station.type).toBe("fishing-pier");
   });
 
   it("renders only valid assigned mouths on sparse feeds and flies the TON wharf iff TON has supply", () => {

@@ -80,22 +80,23 @@ const PHASES = [
     id: "night",
     // The parametric grade now exposes broad night form, so the cube preserves
     // that printed-black floor instead of bending its darkest step back toward
-    // absence. Hue still runs on the indigo (ai/kachi-iro) axis and lantern
-    // gold remains exempt from the cool-water rotation.
+    // absence. Golden Garden (2026-09-07): the night axis is violet-indigo,
+    // lantern gold is exempt from the cool rotation, and cyan water leans
+    // toward the indigo family so the moon road sits on its complement.
     contrast: 0.06,
-    highlightAnchor: "#cfe0f5",
+    highlightAnchor: "#d3dcf7",
     highlightPush: 0.02,
     highlightRange: [0.55, 1.0],
     hueBands: [
       // Lantern and beacon warmth is the one thing night must not lose.
-      { center: 38, rotate: 0, saturation: 1.08, width: 46 },
+      { center: 38, rotate: 0, saturation: 1.1, width: 46 },
       // Foliage at night is a silhouette, not a colour.
-      { center: 110, rotate: 0, saturation: 0.88, width: 50 },
-      // Cyan-leaning water pulled toward the indigo family.
-      { center: 195, rotate: 6, saturation: 1.0, width: 42 },
+      { center: 115, rotate: 0, saturation: 0.9, width: 50 },
+      // Cyan-leaning water pulled toward the indigo-violet family.
+      { center: 195, rotate: 8, saturation: 1.02, width: 42 },
     ],
     lift: 0.02,
-    liftTint: "#6f817c",
+    liftTint: "#6c6f8e",
     // Expand around the measured night-water value instead of globally
     // crushing blacks: lit island facets rise, shadowed rim/hulls fall, and
     // the water pivot receives only the small neutral floor below.
@@ -103,58 +104,61 @@ const PHASES = [
     midtoneLift: 0.025,
     midtonePivot: 0.2,
     saturation: 1.0,
-    shadowAnchor: "#273246",
-    shadowPush: 0.025,
+    shadowAnchor: "#2a2650",
+    shadowPush: 0.028,
     shadowRange: [0.0, 0.55],
   },
   {
     id: "dusk",
-    // Dusk is the split: gold-amber highlights over teal shadows, with the
-    // foliage falling to olive the way it actually does under a low sun.
+    // Dusk is the split: gold-amber highlights over VIOLET shadows. The retired
+    // cube pushed shadows to a teal (#164f58) and desaturated foliage to olive,
+    // which under an orange key read as brown smog. Ember is light only
+    // against its complement.
     contrast: 0.24,
-    highlightAnchor: "#f2b56b",
-    highlightPush: 0.062,
+    highlightAnchor: "#f5b565",
+    highlightPush: 0.064,
     highlightRange: [0.5, 1.0],
     hueBands: [
-      { center: 40, rotate: -4, saturation: 1.06, width: 48 },
-      { center: 110, rotate: -12, saturation: 0.85, width: 48 },
-      { center: 200, rotate: 8, saturation: 1.04, width: 45 },
+      { center: 40, rotate: -4, saturation: 1.08, width: 48 },
+      { center: 115, rotate: -6, saturation: 0.96, width: 48 },
+      { center: 210, rotate: 10, saturation: 1.06, width: 45 },
     ],
     lift: 0.01,
-    liftTint: "#55a6b4",
-    saturation: 1.05,
-    shadowAnchor: "#164f58",
-    shadowPush: 0.055,
+    liftTint: "#6a5a9e",
+    saturation: 1.06,
+    shadowAnchor: "#3d2f6e",
+    shadowPush: 0.058,
     shadowRange: [0.0, 0.58],
   },
   {
     id: "day",
-    // Day is the frame the plan calls "milk": no value structure. The cube
-    // answers with the one thing a LUT can honestly contribute — a gentle
-    // S-curve for structure, a cool printed black so the darks read as ai
-    // rather than milk, an ivory (shironeri) highlight, and a light
-    // overall desaturation that spares the reserved vermilion.
-    contrast: 0.55,
-    highlightAnchor: "#f6f0e2",
-    highlightPush: 0.045,
+    // Golden day: a gentle S-curve for structure, a warm ivory highlight, a
+    // shadow that leans violet-blue (not navy — navy on ochre is mud), and
+    // foliage that is ALLOWED to be green. The retired cube desaturated the
+    // greens to 0.86 and rotated them toward yellow; luxuriant land is the
+    // whole point of this grade, so the foliage band now lifts instead.
+    contrast: 0.5,
+    highlightAnchor: "#fbf0d8",
+    highlightPush: 0.05,
     highlightRange: [0.45, 1.0],
     hueBands: [
-      // Shu vermilion is the sacred accent; it survives the desaturation.
+      // Shu vermilion is the sacred accent; it survives untouched.
       { center: 8, rotate: 0, saturation: 1.04, width: 28 },
-      { center: 40, rotate: 0, saturation: 1.0, width: 40 },
-      // Foliage toward matsuba-iro: less chroma, a touch more yellow.
-      { center: 110, rotate: -10, saturation: 0.86, width: 45 },
-      // The jade sea is most of the frame — it is calmed, never re-hued.
-      { center: 180, rotate: 0, saturation: 0.97, width: 45 },
-      // Sky blue toward mizu-iro.
-      { center: 225, rotate: 0, saturation: 0.93, width: 45 },
+      // Ochre, terracotta and thatch: a little more dye under the honey key.
+      { center: 45, rotate: 0, saturation: 1.06, width: 40 },
+      // Foliage: sunlit moss, a touch more chroma, no yellow rotation.
+      { center: 120, rotate: 0, saturation: 1.1, width: 48 },
+      // The turquoise sea is most of the frame — a breath more dye, no re-hue.
+      { center: 190, rotate: 0, saturation: 1.04, width: 45 },
+      // Sky blue stays cerulean.
+      { center: 235, rotate: 0, saturation: 1.0, width: 45 },
     ],
-    lift: 0.016,
-    liftTint: "#6685ae",
-    saturation: 0.98,
-    shadowAnchor: "#213f66",
-    shadowPush: 0.06,
-    shadowRange: [0.0, 0.62],
+    lift: 0.014,
+    liftTint: "#6c7ab0",
+    saturation: 1.02,
+    shadowAnchor: "#3a4a8a",
+    shadowPush: 0.05,
+    shadowRange: [0.0, 0.6],
   },
 ];
 

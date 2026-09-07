@@ -88,23 +88,24 @@ describe("day-cycle presets (C1 contract)", () => {
     // instead of tinting, still well clear of the old ~3:1.
     expect(dusk.dirIntensity / (dusk.ambientIntensity + dusk.hemiIntensity))
       .toBeGreaterThanOrEqual(4);
-    // Warm-village B3/B4 (2026-09-05): the retired fog dye was
-    // `sky_horizon lerp lantern_warm 0.36` ≈ #886440 brown-grey smog. The
-    // ember derivation (lantern_warm → vermillion 0.2, reined to sky_horizon
-    // 0.5 after the preview showed 0.35 painting the fleet orange) must be
-    // visibly warmer/more chromatic than that, the horizon band must sit
-    // warmer than the air above it, and the dusk zenith must be a navy
-    // distinct from both the night zenith and the dusk fog.
+    // Golden Garden (2026-09-07): the retired fog dye was
+    // `sky_horizon lerp lantern_warm 0.36` ≈ #886440 brown-grey smog, and the
+    // warm-village fix that reined the ember toward navy still mixed orange
+    // into grey. Ember reads as light only against its complement, so the
+    // contract is now a SPLIT: the horizon band carries the ember and must be
+    // visibly warmer than the retired smog; the fog above it is the violet
+    // side (bluer than it is red) and cooler than the horizon; and the dusk
+    // zenith is a violet-blue distinct from both night and the fog.
     const duskSky = DAY_CYCLE_SKY_PRESETS.dusk;
-    const retiredFog = new Color(HARBOR_PALETTE.sky_horizon)
-      .lerp(new Color(HARBOR_PALETTE.lantern_warm), 0.36);
-    expect(duskSky.fog.r - duskSky.fog.b).toBeGreaterThan(retiredFog.r - retiredFog.b);
-    expect(duskSky.horizon.r - duskSky.horizon.b).toBeGreaterThan(duskSky.fog.r - duskSky.fog.b);
+    const retiredFog = new Color("#886440");
+    expect(duskSky.horizon.r - duskSky.horizon.b).toBeGreaterThan(retiredFog.r - retiredFog.b);
+    expect(duskSky.fog.r - duskSky.fog.b).toBeLessThan(duskSky.horizon.r - duskSky.horizon.b);
+    expect(duskSky.fog.b).toBeGreaterThan(duskSky.fog.r);
     const nightZenith = DAY_CYCLE_SKY_PRESETS.night.zenith;
     expect(duskSky.zenith.b).toBeGreaterThan(duskSky.zenith.r);
-    // A third of the way to the day zenith: closer to navy than to either end.
     expect(duskSky.zenith.getHex()).not.toBe(new Color(HARBOR_PALETTE.sky_horizon).getHex());
     expect(duskSky.zenith.getHex()).not.toBe(nightZenith.getHex());
+    expect(duskSky.zenith.getHex()).not.toBe(duskSky.fog.getHex());
     // Height fog thinned 0.00062 -> 0.00035 so the ember reaches the near
     // half; dusk keeps the densest air of the three phases.
     expect(DAY_CYCLE_HEIGHT_FOG_PRESETS.dusk.density).toBeLessThan(0.0005);

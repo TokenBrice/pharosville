@@ -763,12 +763,14 @@ function pairedShipPhaseSeconds(input: {
   // roster rank, so adding a ship cannot shift another ship's clock.
   const slotCount = MOTION_PAIR_HORIZON_SECONDS / MOTION_PAIR_SLOT_SECONDS;
   const pairKey = `${input.zone}:${stableHash(input.cadenceIdentity)}`;
-  // Salt 148 covers 33/40 paired 15 s windows on the dense fixture after the
-  // 0.8 visual floor lengthened hulls (2026-09-05); salt 114 covered 32/40 on
-  // the pre-floor geometry. The salt is fixed globally, so roster changes
-  // never re-deal surviving identities. Duty-cycle shares depend on leg/rest
-  // durations and are checked over complete cycles.
-  const slot = stableHash(`${pairKey}.slot.148`) % slotCount;
+  // Salt 198 covers 32/40 paired 15 s windows on the dense fixture after the
+  // 2026-09-07 sea re-cut moved the east-shelf routes (salt 148 fell to
+  // 31/40); 148 covered 33/40 after the 0.8 visual floor lengthened hulls
+  // (2026-09-05), and 114 covered 32/40 on the pre-floor geometry. Re-scan
+  // salts 100-260 after any water-body change. The salt is fixed globally,
+  // so roster changes never re-deal surviving identities. Duty-cycle shares
+  // depend on leg/rest durations and are checked over complete cycles.
+  const slot = stableHash(`${pairKey}.slot.198`) % slotCount;
   const anchorsArrival = (stableHash(`${pairKey}.side.1`) & 1) === 1;
   const departureBoundary = input.restDurationSeconds;
   const arrivalBoundary = input.restDurationSeconds

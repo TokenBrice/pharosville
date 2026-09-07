@@ -294,7 +294,7 @@ describe("dock-assignment unique tier mooring placement", () => {
 describe("dock-assignment held berths follow their dock", () => {
   const HOME_TILE = PREFERRED_DOCK_TILES.ethereum!;
   // The relocation target must be a real current berth so the mooring search
-  // finds water there. Solana's danger-gorge mouth is the far side of the rim
+  // finds water there. Solana's watch-east-bay mouth is the far side of the rim
   // from the ethereum mole. (`avalanche` had a preferred berth before the rim
   // redistribution; it now falls through to the fill pool and holds no
   // PREFERRED_DOCK_TILES entry, so it can no longer supply this tile.)

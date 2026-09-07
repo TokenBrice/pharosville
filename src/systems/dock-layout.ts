@@ -219,7 +219,7 @@ export function dockSeawardVector(dock: ShoreFacingDock): { x: -1 | 0 | 1; y: -1
   return { x: 0, y: y < 0 ? -1 : 1 };
 }
 
-export const HARBOR_FLAG_SCALE_MULTIPLIER = 2.6;
+export const HARBOR_FLAG_SCALE_MULTIPLIER = 4.2;
 export const HARBOR_QUAY_TOP_Y = 1.55;
 
 export function harborAmountScale(totalUsd: number): number {
@@ -232,24 +232,27 @@ export function stationFlagPlacement(type: StationType, totalUsd: number, size: 
   const amount = harborAmountScale(totalUsd);
   const supply = Math.min(10, Math.max(1, size)) / 10;
   const length = 7.6 * amount * (type === "ethereum-mole" ? 1.5 : 1.06);
-  const width = (1.62 + amount * 0.36) * (type === "ethereum-mole" ? 1.42 : 1.08);
-  // Staffs rose with the 2026-09-05 station-scale ladder (ordinary x1.62,
-  // pigeonnier x1.74, tracking each band's growth) so the standard still
-  // reads against — and clears the eaves of — its now-taller hall. The
-  // mole-head standard is unchanged: it stands on the outer arm in clear air.
-  const height = (
-    type === "ethereum-mole" ? 10
-      : type === "pigeonnier-islet" ? 12.9
-        : 13.3
-  ) + supply * (type === "ethereum-mole" ? 1.25 : type === "pigeonnier-islet" ? 2.2 : 2.0);
+  const station = stationScaleFor(type, totalUsd);
+  const quayX = -length * (type === "ethereum-mole" ? 0.27 : 0.3);
+  const scale = ((type === "ethereum-mole" ? 1.05 : 0.72) + supply * 0.24)
+    * HARBOR_FLAG_SCALE_MULTIPLIER;
+  // Seat each staff in its upper roof/rack; the cloth clears the roof entirely.
+  const roofX = {
+    "ethereum-mole": -8,
+    "hatago-wharf": quayX - 3.4,
+    "fishing-pier": quayX + 1,
+    "stepped-inlet": quayX - 2.45,
+    "storm-mole": quayX + 1.5,
+    "pigeonnier-islet": quayX - 6.3,
+    "tea-house-quay": quayX - 3.2,
+    "reed-boathouse": quayX - 3.2,
+    uogashi: quayX - 3.2,
+  }[type];
   return {
-    height,
-    scale: ((type === "ethereum-mole" ? 1.05 : 0.72) + supply * 0.24)
-      * HARBOR_FLAG_SCALE_MULTIPLIER,
-    // The mole-head standard stands clear of the hall, on the outer arm.
-    x: type === "ethereum-mole" ? 14.8 : length * 0.4,
-    z: type === "ethereum-mole" ? -10.6
-      : type === "hatago-wharf" ? width * 0.62
-        : -width * 0.3,
+    baseY: station.secondLevelTop - 0.3,
+    height: station.secondLevelTop + scale * 1.5 + 0.8 - HARBOR_QUAY_TOP_Y,
+    scale,
+    x: roofX,
+    z: type === "ethereum-mole" ? -14 : type === "uogashi" ? -station.span / 2 : 0,
   };
 }

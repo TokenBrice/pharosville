@@ -157,9 +157,11 @@ const GUIDES: readonly EdgeGuide[] = [
   { body: "warning", form: "shoal-bar", guide: { x: 121, y: 35 }, height: 0.42, id: "warning-bar-outer", length: 5.0, material: "pale", target: "danger", width: 2.2 },
 
   // The fishing-pier's measured landward hall now occupies the former rim
-  // anchor at (137,57). Keep the dark gorge wall on the adjacent Danger/Watch
-  // seam instead of layering scenery through the station.
-  { body: "danger", form: "cliff", guide: { x: 121, y: 50 }, height: 5.2, id: "danger-rim-cliff", length: 5.4, material: "dark", target: "watch", width: 1.2 },
+  // anchor at (137,57). Keep the dark gorge wall on the adjacent Danger/Alert
+  // seam instead of layering scenery through the station. Alert, not Watch:
+  // since the 2026-09-07 re-cut Watch never touches the strait (the seam test
+  // in world-layout.test.ts pins watch|danger = 0), and Alert is the buffer.
+  { body: "danger", form: "cliff", guide: { x: 121, y: 50 }, height: 5.2, id: "danger-rim-cliff", length: 5.4, material: "dark", target: "alert", width: 1.2 },
 
   // Ledger Mooring: a right-angled slate lip and an orderly run of piles.
   { body: "ledger", form: "slate-edge", guide: { x: 71, y: 13 }, height: 0.85, id: "ledger-slate-west", length: 4.2, material: "slate", target: "open", width: 1.4 },

@@ -1,6 +1,6 @@
 # PharosVille Visual and Analytical Contracts
 
-Last updated: 2026-09-04
+Last updated: 2026-09-07
 
 These are product contracts, not a design diary. Change one only with explicit
 intent, code/tests, and a matching update to the relevant route documentation.
@@ -145,25 +145,13 @@ intent, code/tests, and a matching update to the relevant route documentation.
   sea wreckyard, not an island and never a live-ship destination.
 - DOM labels must be legible and must not cover the lighthouse, controls, or
   active detail panel.
-- **Harbor stations are named in-frame at every zoom, quietly.** The eight
-  rendered chain stations and the TON pigeonnier carry always-on, aria-hidden
-  DOM chips projected from their existing station/landmark label anchors —
-  whole-map framing, where all nine share the frame, included. Each chip shows
-  the chain logo when its existing same-origin `logoPath` is available
-  (otherwise the painted initials), the chain name, and one existing
-  concentration-state word; the TON fallback names its existing watch state.
-  A chip is a caption, not a signpost (2026-09-06): 18 px tall, half
-  transparent, no shadow, and it comes forward only under the pointer. When
-  chips overlap, the lower-supply station steps below the higher-supply one.
-  A chip is hidden rather than covering the lighthouse, bottom controls, or an
-  active detail panel, and an off-screen anchor hides its chip. Ships receive
-  a chip only while selected or during an arrival/departure beat; persistent
-  anomaly chips on ships were removed 2026-09-06 (a boat wearing a sign all
-  day read as clutter; DEX disagreement and Danger water keep their in-world
-  cues, detail rows and ledger parity). These chips displace hover-only
-  station naming, add no WebGL draw or texture, and stay aria-hidden because
-  the accessibility ledger is the spoken naming channel. Pinned in
-  `src/components/harbor-label-chips.test.tsx`.
+- **Harbor identity lives on large rooftop flags.** Chain name/concentration
+  captions and the pigeonnier caption are removed (operator decision
+  2026-09-07). Flags sit on each station's upper roof or rack, clear of the
+  sea and fleet; concentration remains in details and the accessible ledger.
+  Ships retain captions only while selected or during an arrival/departure
+  beat. Captions remain aria-hidden, avoid the lighthouse and controls, and
+  hide off-screen. Pinned in `src/components/harbor-label-chips.test.tsx`.
 
 ## World encoding
 
@@ -248,14 +236,26 @@ and its conservative distance lookup.
   past everything visible, and silently switches the whole system off while
   leaving its documentation looking correct; `garden-sky.test.ts` pins the
   near plane at the default framing.
-- **Dusk is an ember hour, not a brown-grey one.** The dusk fog and horizon
-  dye derive from `lantern_warm` toward `vermillion`, the dusk zenith is a navy
-  distinct from night, the dusk key rakes (key:fill ≈ 4:1, sun floor 0.06 rad
-  from the single `garden-sun` arc), and the borrowed mountains step through
-  three value planes (0.90/0.80/0.70) behind the seam. The output tone mapper
-  is a single switch, `GARDEN_TONE_MAPPING` in `garden-post.ts`, consumed by
-  both the renderer and the post pass; the LUT remains the sanctioned place
-  for any posterizing look.
+- **The shadow side is the key's complement, never merely "cooler" (Golden
+  Garden, 2026-09-07).** A honey key over violet-leaning shadows by day, an
+  ember over violet at dusk, cyan moonlight over violet-indigo at night. The
+  failure this replaced was warm hues at restrained chroma under a cyan fill:
+  the day hemisphere GROUND term was `shallow_teal_lit`, so land was lit from
+  below by pool-blue and ochre read as mud. Ground bounce is now warm
+  earth-and-moss (`DAY_CYCLE_LIGHT_PRESETS.day.hemiGround`), the day grade
+  no longer pushes shadows cyan, and the LUT's day cube lifts foliage rather
+  than desaturating it. The palette's field ceiling is OKLCH C < 0.16, one
+  step under the reserved vermillion (0.177), which remains the loudest thing
+  by construction (`palette.test.ts`).
+- **Dusk is an ember hour on a violet sky, not a brown-grey one.** The ember
+  (`lantern_warm` toward `vermillion`) lives on the horizon band; the dusk fog
+  is its violet complement (bluer than red) and the dusk zenith a violet-blue
+  distinct from night — mixing the ember into the air itself produced smog
+  twice. The dusk key rakes (key:fill ≈ 4:1, sun floor 0.06 rad from the single
+  `garden-sun` arc), and the borrowed mountains step through three value planes
+  (0.90/0.80/0.70) behind the seam. The output tone mapper is a single switch,
+  `GARDEN_TONE_MAPPING` in `garden-post.ts`, consumed by both the renderer and
+  the post pass; the LUT remains the sanctioned place for any posterizing look.
 
 - The visible sky continues beyond the finite plate. Its graded phase backdrop
   is the far field; the haze band is the seam where plate, fog, and borrowed

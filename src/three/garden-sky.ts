@@ -236,23 +236,29 @@ export const GARDEN_CUMULUS_BILLBOARDS_ENABLED = false;
 // light geometry, so the dome and the water cannot disagree about the bearing.
 export { GARDEN_MOON_AZIMUTH };
 const MOON_ELEVATION = Math.PI * 0.34;
-const SKY_LOWER_DAY = new Color(HARBOR_PALETTE.moonlight)
-  .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.18);
-const SKY_MIDDLE_DAY = new Color(HARBOR_PALETTE.moonlight)
-  .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.42);
-const SKY_VISIBLE_ZENITH_DAY = new Color(HARBOR_PALETTE.deep_sea_1);
+// Golden Garden (2026-09-07): the visible day sheet grades from the gold-cream
+// horizon up through cerulean to a deeper blue at the top — the old sheet
+// stepped from a pale steel (moonlight) straight into kon and read as a cold
+// wash over the top of the frame. Dusk's lower band is the ember glow over
+// the violet mist, not a teal.
+const SKY_LOWER_DAY = new Color(HARBOR_PALETTE.sky_day_horizon)
+  .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.32);
+const SKY_MIDDLE_DAY = new Color(HARBOR_PALETTE.sky_day_horizon)
+  .lerp(new Color(HARBOR_PALETTE.sky_day_zenith), 0.68);
+const SKY_VISIBLE_ZENITH_DAY = new Color(HARBOR_PALETTE.sky_day_zenith)
+  .lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.3);
 // Visible-sheet-only night endpoints. The hidden dome keeps the physical
-// environment probe unchanged; this small fog-blue admixture lifts the field
+// environment probe unchanged; this small mist admixture lifts the field
 // beyond the finite plate so the dark rim has a readable silhouette against
 // it, without making the sky a competing light source.
 const SKY_LOWER_NIGHT = new Color(HARBOR_PALETTE.sky_horizon)
-  .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.08);
+  .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.1);
 const SKY_MIDDLE_NIGHT = new Color(HARBOR_PALETTE.sky_horizon)
   .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.04);
 const SKY_VISIBLE_ZENITH_NIGHT = new Color(HARBOR_PALETTE.sky_night)
   .lerp(new Color(HARBOR_PALETTE.sky_horizon), 0.12);
-const SKY_LOWER_DUSK = new Color(HARBOR_PALETTE.sail_teal)
-  .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.28);
+const SKY_LOWER_DUSK = DUSK_EMBER_COLOR.clone()
+  .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.42);
 
 // Phase 2 (item 2c) kept the dome's glow, the water's glitter and the cast
 // shadows agreeing on the sun's bearing by writing that bearing down in three

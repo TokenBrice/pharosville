@@ -107,13 +107,13 @@ describe("createZone", () => {
     const zones = bands.map((band) => createZone(area(band)));
     const calm = zones[0]!;
     const danger = zones[4]!;
-    // Warm-village re-grade: pin the derived buoy dyes so future accent or
+    // Golden Garden re-grade: pin the derived buoy dyes so future accent or
     // harmony changes cannot silently put warm painted patches back in the sea.
     expect(zones.map((zone) => zone.buoys[0]!.color.getHexString())).toEqual([
-      "5b9895",
-      "499499",
-      "497981",
-      "446274",
+      "5da79b",
+      "4ca29e",
+      "4d9289",
+      "467172",
       "cc4531",
     ]);
     // The region tint itself comes from the theme bridge's WATER colour.

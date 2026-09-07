@@ -740,10 +740,12 @@ describe("garden post-processing contracts", () => {
     const bloom = latest<FakeBloom>(postHarness.blooms);
     const grade = effectNamed("GardenGrade");
 
-    // Item 3: night keeps a cool printed floor and a softer edge falloff so
-    // broad hull/rim form survives without promoting another emissive source.
-    expect(colorUniform(grade, "lift")).toEqual([0.01, 0.012, 0.018]);
-    expect(numberUniform(grade, "saturation")).toBe(1.08);
+    // Golden Garden: night keeps a violet printed floor and a softer edge
+    // falloff so broad hull/rim form survives without promoting another
+    // emissive source; saturation sits near neutral so the moon does not
+    // turn the sea electric.
+    expect(colorUniform(grade, "lift")).toEqual([0.01, 0.01, 0.018]);
+    expect(numberUniform(grade, "saturation")).toBe(1.02);
     expect(numberUniform(grade, "vignette")).toBe(0.25);
     // W1.4: the vignette's weight leans up the frame, hardest by day where the
     // haze band is brightest and gentlest at night, which has little sky to
@@ -762,13 +764,12 @@ describe("garden post-processing contracts", () => {
 
     post.setGrade(0, 1);
     expect(colorUniform(grade, "lift")[0]).toBeCloseTo(0.006);
-    expect(colorUniform(grade, "lift")[1]).toBeCloseTo(0.006);
-    expect(colorUniform(grade, "lift")[2]).toBeCloseTo(0.008);
-    // B6 (2026-09-05): 1.06 -> 1.15 — the ember hour buys back the mid chroma
-    // the tone curve compresses; 0.36 -> 0.28 — the fogged frame top is no
-    // longer double-darkened by the corner falloff.
-    expect(numberUniform(grade, "saturation")).toBe(1.15);
-    expect(numberUniform(grade, "vignette")).toBe(0.28);
+    expect(colorUniform(grade, "lift")[1]).toBeCloseTo(0.005);
+    expect(colorUniform(grade, "lift")[2]).toBeCloseTo(0.01);
+    // Golden Garden: the ember hour buys back mid chroma at 1.12 over violet
+    // shadows; 0.26 vignette so the ember horizon is not double-darkened.
+    expect(numberUniform(grade, "saturation")).toBe(1.12);
+    expect(numberUniform(grade, "vignette")).toBe(0.26);
     expect(numberUniform(grade, "vignetteBias")).toBe(0.35);
     expect(bloom.intensity).toBe(0.85);
     expect(bloom.luminanceMaterial.threshold).toBe(1.15);
@@ -779,13 +780,12 @@ describe("garden post-processing contracts", () => {
     post.setGrade(1, 0);
     expect(colorUniform(grade, "lift")[0]).toBeCloseTo(0.004);
     expect(colorUniform(grade, "lift")[1]).toBeCloseTo(0.004);
-    expect(colorUniform(grade, "lift")[2]).toBeCloseTo(0.006);
-    expect(numberUniform(grade, "saturation")).toBe(0.97);
-    // 0.32 since 2026-08-13, up from 0.24 — the day was the outlier, and with
-    // real haze in the far field the frame has the range to carry it (dusk
-    // stepped down to 0.28 and night sits at 0.25 in the 2026-09-05 pass).
-    expect(numberUniform(grade, "vignette")).toBe(0.32);
-    expect(numberUniform(grade, "vignetteBias")).toBe(0.45);
+    expect(colorUniform(grade, "lift")[2]).toBeCloseTo(0.007);
+    // Golden Garden: the day is luxuriant (1.12) and its vignette lighter
+    // (0.26) so the warm haze at the seam is not crushed into a corner band.
+    expect(numberUniform(grade, "saturation")).toBe(1.12);
+    expect(numberUniform(grade, "vignette")).toBe(0.26);
+    expect(numberUniform(grade, "vignetteBias")).toBe(0.4);
     expect(bloom.intensity).toBe(0.92);
     // W1.3: 50 % of margin over the bokashi haze band (~0.7–0.8) instead of the
     // old 19 %, so the day sky cannot bloom even if the wipe drifts brighter —
@@ -796,7 +796,7 @@ describe("garden post-processing contracts", () => {
     expect(n8ao.configuration.intensity).toBe(3);
 
     post.setGrade(0.4, 0.25, 0.5, 0.65);
-    expect(colorUniform(grade, "lift")[0]).toBeCloseTo(0.0101);
+    expect(colorUniform(grade, "lift")[0]).toBeCloseTo(0.0092);
     expect(numberUniform(grade, "flash")).toBe(0.65);
     // W0.3: a stroke lifts bloom intensity on the same envelope as the grade's
     // flash add — the grade pass runs after the bloom pass, so this is the only

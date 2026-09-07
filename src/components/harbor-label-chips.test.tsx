@@ -8,12 +8,21 @@ import { HarborLabelChips, updateHarborLabelChipLayout } from "./harbor-label-ch
 afterEach(cleanup);
 
 describe("HarborLabelChips", () => {
-  it("projects nine anchors, steps the lower-supply overlap down, and excludes the lighthouse", () => {
+  it("removes harbor and pigeonnier captions while retaining selected ship captions", () => {
+    const world = labelWorld();
+    const props = { containerRef: createRef<HTMLDivElement>(), onSelectDetail: vi.fn(), world };
+    const view = render(<HarborLabelChips {...props} />);
+    expect(view.container.querySelectorAll("[data-detail-id]")).toHaveLength(0);
+    view.rerender(<HarborLabelChips {...props} selectedShipDetailId="ship.chain-0" />);
+    expect(view.container.querySelectorAll("[data-detail-id]")).toHaveLength(1);
+    expect(view.container.textContent).not.toContain("Concentrated");
+  });
+  it("projects ship anchors, steps the lower-supply overlap down, and excludes the lighthouse", () => {
     const containerRef = createRef<HTMLDivElement>();
     const onSelectDetail = vi.fn();
     const world = labelWorld();
     const view = render(
-      <HarborLabelChips containerRef={containerRef} onSelectDetail={onSelectDetail} world={world} />,
+      <HarborLabelChips containerRef={containerRef} onSelectDetail={onSelectDetail} world={world} arrivalShipDetailIds={Object.keys(world.entityById)} />,
     );
     const chips = Array.from(view.container.querySelectorAll<HTMLElement>("[data-detail-id]"));
     expect(chips).toHaveLength(9);
@@ -23,7 +32,7 @@ describe("HarborLabelChips", () => {
 
     const anchorsByDetailId = new Map<string, { x: number; y: number }>();
     for (let index = 0; index < 9; index += 1) {
-      anchorsByDetailId.set(index < 8 ? `dock.chain-${index}` : "pigeonnier", {
+      anchorsByDetailId.set(index < 8 ? `ship.chain-${index}` : "ship.arrival", {
         x: index < 2 ? 200 : 100 + index * 110,
         y: index < 2 ? 100 : 180,
       });
@@ -35,33 +44,31 @@ describe("HarborLabelChips", () => {
       zoom: 1,
     });
 
-    const larger = view.container.querySelector<HTMLElement>('[data-detail-id="dock.chain-0"]')!;
-    const smaller = view.container.querySelector<HTMLElement>('[data-detail-id="dock.chain-1"]')!;
-    const lighthouseOccluded = view.container.querySelector<HTMLElement>('[data-detail-id="dock.chain-3"]')!;
+    const larger = view.container.querySelector<HTMLElement>('[data-detail-id="ship.chain-0"]')!;
+    const smaller = view.container.querySelector<HTMLElement>('[data-detail-id="ship.chain-1"]')!;
+    const lighthouseOccluded = view.container.querySelector<HTMLElement>('[data-detail-id="ship.chain-3"]')!;
     expect(larger.style.transform).toBe("translate(150px, 76px)");
     expect(smaller.style.transform).toBe("translate(150px, 96px)");
     expect(lighthouseOccluded.dataset.visible).toBe("false");
     expect(chips.filter((chip) => chip.dataset.visible === "true")).toHaveLength(8);
 
     fireEvent.click(larger);
-    expect(onSelectDetail).toHaveBeenCalledWith("dock.chain-0");
+    expect(onSelectDetail).toHaveBeenCalledWith("ship.chain-0");
   });
 
   it("keeps every on-screen chip visible at whole-map and sailed-in zooms alike", () => {
     const containerRef = createRef<HTMLDivElement>();
     const world = labelWorld();
     const view = render(
-      <HarborLabelChips containerRef={containerRef} onSelectDetail={vi.fn()} world={world} />,
+      <HarborLabelChips containerRef={containerRef} onSelectDetail={vi.fn()} world={world} arrivalShipDetailIds={Object.keys(world.entityById)} />,
     );
     const chips = Array.from(view.container.querySelectorAll<HTMLElement>("[data-detail-id]"));
     for (const chip of chips) {
       vi.spyOn(chip, "getBoundingClientRect").mockReturnValue(domRect(100, 18));
     }
-    // Well-separated anchors so no collision or exclusion hides anything: the
-    // only variable under test is zoom, and the operator's decision is that
-    // station chips are always on — whole-map is where all nine share a frame.
-    const anchorsByDetailId = new Map(world.docks.map((dock, index) => [dock.detailId, { x: 60 + index * 130, y: 100 }]));
-    anchorsByDetailId.set(world.pigeonnier.detailId, { x: 400, y: 300 });
+    // Selected/arrival captions remain visible across zoom levels.
+    const anchorsByDetailId = new Map(world.docks.map((dock, index) => [dock.detailId.replace("dock.", "ship."), { x: 60 + index * 130, y: 100 }]));
+    anchorsByDetailId.set("ship.arrival", { x: 400, y: 300 });
     const frame = {
       anchorsByDetailId,
       lighthouseRect: { x: -1, y: -1, width: 0, height: 0 },
@@ -102,7 +109,9 @@ function labelWorld(): PharosVilleWorld {
       tile: { x: 10, y: 10 },
       detailId: "pigeonnier",
     },
-    entityById: {},
+    entityById: Object.fromEntries([...docks, { detailId: "pigeonnier", label: "Arrival", totalUsd: 0 }].map((dock) => [dock.detailId === "pigeonnier" ? "ship.arrival" : dock.detailId.replace("dock.", "ship."), {
+      kind: "ship", label: dock.label, marketCapUsd: dock.totalUsd, riskZone: "calm",
+    }])),
   } as unknown as PharosVilleWorld;
 }
 

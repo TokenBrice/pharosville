@@ -206,7 +206,9 @@ describe("authored garden rim", () => {
         expect(rimLandAt(tile.x, tile.y), `${site.body} footprint ${tileKey(tile)}`).toBe(false);
       }
     }
-    expect(positionOf(sites.find((site) => site.body === "wreck")!)).toEqual({ x: 50, y: 122 });
+    // 2026-09-07: the wreck bar re-cut (water pulled off the Mole's stern)
+    // moves the shoal's sign one tile; still over the shoals' east lobe.
+    expect(positionOf(sites.find((site) => site.body === "wreck")!)).toEqual({ x: 49, y: 123 });
   });
 
   it("keeps Wreck Shoal as water inside a west-and-south bordered inlet", () => {
@@ -232,7 +234,7 @@ describe("authored garden rim", () => {
     expect(RIM_COVES).toHaveLength(MAX_CHAIN_HARBORS);
 
     for (const cove of RIM_COVES) {
-      bodies.add(cove.body);
+      if (cove.body !== "open") bodies.add(cove.body);
       expect(terrainKindAt(cove.tile.x, cove.tile.y), cove.id).toBe(SEA_BODY_TERRAIN[cove.body]);
       expect(isWaterTileKind(terrainKindAt(cove.tile.x, cove.tile.y)), cove.id).toBe(true);
       expect(rimShoreDistance(cove.tile.x, cove.tile.y), cove.id).toBeGreaterThan(0);
