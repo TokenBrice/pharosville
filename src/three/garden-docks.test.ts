@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { DockNode } from "../systems/world-types";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { EVM_BAY_STATION_SLOTS, OUTER_HARBOR_STATION_SLOTS } from "../systems/world-layout";
-import { STATION_LOCAL_BOUNDS, STATION_SCALE_LADDER } from "../systems/dock-layout";
+import { stationScaleFor, STATION_LOCAL_BOUNDS, STATION_SCALE_LADDER } from "../systems/dock-layout";
 import {
   authorDock,
   gardenHarborLanternWorldPositions,
@@ -115,7 +115,7 @@ describe("garden station recipes", () => {
     }
   });
 
-  it("gives every station a distance-readable primary mass, named second level, lit stone quay, windows, and 2.6x flag", () => {
+  it("gives every station a distance-readable primary mass, named second level, lit stone quay, windows, and 4.2x flag", () => {
     const secondLevels = new Set<string>();
     const roofColors = new Set<string>();
     for (const type of ARCHETYPES) {
@@ -136,7 +136,7 @@ describe("garden station recipes", () => {
       expect(recipe.features.quayPlatform.litEdge, `${type} quay light`).toBe(true);
       expect(recipe.features.warmWindowCount, `${type} warm windows`).toBeGreaterThan(0);
       expect(recipe.flag.scaleMultiplier, `${type} flag multiplier`).toBe(HARBOR_FLAG_SCALE_MULTIPLIER);
-      expect(recipe.flag.scaleMultiplier).toBe(2.6);
+      expect(recipe.flag.scaleMultiplier).toBe(4.2);
       secondLevels.add(recipe.features.secondLevel.name);
       roofColors.add(recipe.parts.find((part) => part.bucket === "roof")!.color.getHexString());
     }
@@ -434,12 +434,15 @@ describe("garden station recipes", () => {
   });
 
 
-  it("plants the Ethereum standard on the mole head clear of its hall roof", () => {
-    const { placement } = recipeWithStation("ethereum-mole").flag;
-    expect(placement.x).toBeGreaterThan(12);
-    expect(placement.x).toBeLessThan(17);
-    expect(placement.z).toBeLessThan(-7);
-    expect(placement.y - placement.scale * 0.5).toBeGreaterThan(7);
+  it("mounts every flag above its building with cloth clear of the roof", () => {
+    for (const type of ARCHETYPES) {
+      const recipe = recipeWithStation(type);
+      const { placement } = recipe.flag;
+      expect(placement.x).toBeLessThan(0);
+      const roofTop = stationScaleFor(type, recipe.dock.totalUsd).secondLevelTop;
+      expect(placement.y - placement.scale * 0.63).toBeGreaterThan(roofTop);
+    }
+    expect(recipeWithStation("ethereum-mole").flag.placement.z).toBe(-14);
   });
 
   it("flies camera-facing flags and restores reduced-motion pose", () => {

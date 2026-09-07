@@ -232,7 +232,7 @@ describe("authored garden rim", () => {
     expect(RIM_COVES).toHaveLength(MAX_CHAIN_HARBORS);
 
     for (const cove of RIM_COVES) {
-      bodies.add(cove.body);
+      if (cove.body !== "open") bodies.add(cove.body);
       expect(terrainKindAt(cove.tile.x, cove.tile.y), cove.id).toBe(SEA_BODY_TERRAIN[cove.body]);
       expect(isWaterTileKind(terrainKindAt(cove.tile.x, cove.tile.y)), cove.id).toBe(true);
       expect(rimShoreDistance(cove.tile.x, cove.tile.y), cove.id).toBeGreaterThan(0);

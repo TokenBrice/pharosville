@@ -145,25 +145,13 @@ intent, code/tests, and a matching update to the relevant route documentation.
   sea wreckyard, not an island and never a live-ship destination.
 - DOM labels must be legible and must not cover the lighthouse, controls, or
   active detail panel.
-- **Harbor stations are named in-frame at every zoom, quietly.** The eight
-  rendered chain stations and the TON pigeonnier carry always-on, aria-hidden
-  DOM chips projected from their existing station/landmark label anchors —
-  whole-map framing, where all nine share the frame, included. Each chip shows
-  the chain logo when its existing same-origin `logoPath` is available
-  (otherwise the painted initials), the chain name, and one existing
-  concentration-state word; the TON fallback names its existing watch state.
-  A chip is a caption, not a signpost (2026-09-06): 18 px tall, half
-  transparent, no shadow, and it comes forward only under the pointer. When
-  chips overlap, the lower-supply station steps below the higher-supply one.
-  A chip is hidden rather than covering the lighthouse, bottom controls, or an
-  active detail panel, and an off-screen anchor hides its chip. Ships receive
-  a chip only while selected or during an arrival/departure beat; persistent
-  anomaly chips on ships were removed 2026-09-06 (a boat wearing a sign all
-  day read as clutter; DEX disagreement and Danger water keep their in-world
-  cues, detail rows and ledger parity). These chips displace hover-only
-  station naming, add no WebGL draw or texture, and stay aria-hidden because
-  the accessibility ledger is the spoken naming channel. Pinned in
-  `src/components/harbor-label-chips.test.tsx`.
+- **Harbor identity lives on large rooftop flags.** Chain name/concentration
+  captions and the pigeonnier caption are removed (operator decision
+  2026-09-07). Flags sit on each station's upper roof or rack, clear of the
+  sea and fleet; concentration remains in details and the accessible ledger.
+  Ships retain captions only while selected or during an arrival/departure
+  beat. Captions remain aria-hidden, avoid the lighthouse and controls, and
+  hide off-screen. Pinned in `src/components/harbor-label-chips.test.tsx`.
 
 ## World encoding
 

@@ -1,11 +1,11 @@
 import { PHAROSVILLE_DESIGN_SPAN, PHAROSVILLE_MAP_SCALE } from "./map-scale";
-import type { SeaBodyId } from "./sea-bodies";
+import type { SeaBodyName } from "./sea-bodies";
 
 export type RimCoveId = string;
 
 export interface RimCove {
   id: RimCoveId;
-  body: SeaBodyId;
+  body: SeaBodyName;
   /** Shore tile at the cove mouth, on water. */
   tile: { x: number; y: number };
   /** Radians, from shore toward open water. */
@@ -109,9 +109,9 @@ const RIM_CONTOUR: readonly RimContourPoint[] = [
  * Eight mouths plus the untouched TON pigeonnier islet is nine berths — the
  * same rendered station count as the twelve-mouth ring it replaces, whose six
  * west-arc mouths left a 111-degree station-free stretch of south rim. Each
- * mouth was field-verified against the authored field: water of its named
- * body, rimShoreDistance in (0, 2], outside both openings, and rim land
- * within 14 tiles landward of the authored seawardBearing.
+ * mouth was field-verified against the authored field: water of its declared
+ * body (including Polygon's open approach), rimShoreDistance in (0, 2], outside
+ * both openings, and rim land within 14 tiles landward of the authored seawardBearing.
  *
  * The `alert` body is the one named water left without a mouth. That is a
  * deliberate trade, not an oversight: holding the ring at eight mouths keeps
@@ -132,8 +132,8 @@ export const RIM_COVES: readonly RimCove[] = [
   // (130, 59) authoring so rim land starts immediately landward of the berth.
   { id: "danger-gorge", body: "danger", tile: { x: 131, y: 59 }, seawardBearing: Math.PI, width: 3 },
   { id: "watch-east-bay", body: "watch", tile: { x: 132, y: 80 }, seawardBearing: Math.PI, width: 5 },
-  // Camera-near south arc, three mouths strong.
-  { id: "watch-south-reed", body: "watch", tile: { x: 122, y: 132 }, seawardBearing: -Math.PI / 2, width: 4 },
+  // Polygon moves west along the south shore into the open approach, clear of TON.
+  { id: "watch-south-reed", body: "open", tile: { x: 110, y: 131 }, seawardBearing: -Math.PI / 2, width: 4 },
   { id: "calm-engawa-south", body: "calm", tile: { x: 60, y: 130 }, seawardBearing: -Math.PI / 2, width: 4 },
   // The best available south-west tile, 5.5 tiles clear of the wreck-scatter
   // graves that carpet the corner; east of x = 30 so the outer fill line
