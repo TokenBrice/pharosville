@@ -86,12 +86,25 @@ describe("deriveShipWabiSurface", () => {
   it("is stable per entity and keeps every decorative channel in its restraint band", () => {
     const first = deriveShipWabiSurface("usdc-circle");
     expect(deriveShipWabiSurface("usdc-circle")).toEqual(first);
-    expect(Math.abs(first.hullValue - 1)).toBeGreaterThanOrEqual(0.04);
-    expect(Math.abs(first.hullValue - 1)).toBeLessThanOrEqual(0.06);
+    // 2026-09-07 T1.10: band widened 0.04-0.06 -> 0.06-0.15, so a fleet that is
+    // 43% one silhouette still separates by value at rest.
+    expect(Math.abs(first.hullValue - 1)).toBeGreaterThanOrEqual(0.06);
+    expect(Math.abs(first.hullValue - 1)).toBeLessThanOrEqual(0.15);
     expect(Math.abs(first.propRotation) * 180 / Math.PI).toBeGreaterThanOrEqual(2);
     expect(Math.abs(first.propRotation) * 180 / Math.PI).toBeLessThanOrEqual(9);
     expect(Math.abs(first.ropeSag)).toBeGreaterThanOrEqual(0.025);
     expect(Math.abs(first.ropeSag)).toBeLessThanOrEqual(0.07);
+  });
+
+  it("never drifts a hull past the clamp both renderers apply", () => {
+    // 2026-09-07 T1.10: `garden-fleet-batch.ts` and `garden-ships.ts` both clamp
+    // hullValue to 0.85-1.15. A wider spread here than there is silently a
+    // NARROWER spread on screen, with every extreme piling up on the two rails.
+    for (let index = 0; index < 400; index += 1) {
+      const { hullValue } = deriveShipWabiSurface(`clamp-probe-${index}`);
+      expect(hullValue).toBeGreaterThanOrEqual(0.85);
+      expect(hullValue).toBeLessThanOrEqual(1.15);
+    }
   });
 
   it("does not cluster a run of ids that differ at the varying lead", () => {

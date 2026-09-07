@@ -571,15 +571,31 @@ describe("W5.8/W7.3 instanced hull surface", () => {
     const hullMaterial = new MeshStandardMaterial();
     patchFleetHullFormMaterial(hullMaterial);
     const hullShader = {
-      fragmentShader: "#include <common>",
+      fragmentShader: "#include <common>\n#include <roughnessmap_fragment>",
       uniforms: {} as Record<string, unknown>,
-      vertexShader: "#include <common>\n#include <begin_vertex>\n#include <color_vertex>",
+      vertexShader: "#include <common>\n#include <begin_vertex>\n#include <color_vertex>\n#include <project_vertex>",
     };
     hullMaterial.onBeforeCompile(hullShader as never, null as never);
     expect(hullShader.vertexShader).toContain("vColor.xyz *= aHullSurface.x");
     expect(hullShader.vertexShader).toContain("aPartMasks.z * age");
     expect(hullShader.vertexShader).toContain("aPartMasks.x");
     expect(hullShader.vertexShader).toContain("aPartMasks.y");
+
+    // 2026-09-07 T3.4: the hull's finish. The waterline band must stay under
+    // 0.12 ship-local units and roughness must never floor below 0.45 — both
+    // are pinned here because they are the two numbers that decide whether the
+    // fleet reads as varnished timber or as 200 twinkling plastic hulls.
+    expect(hullShader.vertexShader).toContain("smoothstep(0.0, 0.11,");
+    expect(hullShader.fragmentShader).toContain("mix(roughnessFactor, 0.45, vHullGloss)");
+    for (const stage of [hullShader.vertexShader, hullShader.fragmentShader]) {
+      expect(stage).toContain("varying float vHullGloss;");
+    }
+    // No new attribute: the rail gloss rides the rim term the masks already
+    // carry. The hull batch is at 15 of the 16 attribute slots.
+    expect(hullShader.vertexShader).toContain("aPartMasks.w * 0.55");
+    // A cache key that did not change means the OLD program is reused and none
+    // of the above ever reaches the GPU.
+    expect(hullMaterial.customProgramCacheKey()).toContain("gloss");
 
     const sailMaterial = new MeshStandardMaterial();
     patchSailAtlasMaterial(sailMaterial);

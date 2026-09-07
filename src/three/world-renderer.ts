@@ -223,6 +223,7 @@ import { applyGardenMonthRecord } from "./garden-month-record";
 import {
   applyLighthouseRimLight,
   attachGardenLighthouseModel,
+  collectLighthouseGlowMaterials,
   updateLighthouseLampStatus,
   updateLighthouseRimLight,
 } from "./garden-lighthouse";
@@ -1747,6 +1748,15 @@ interface GardenContent {
   /** Seeds captured before a ships-part rebuild and consumed by its builder. */
   stagedShipRebuild: StagedShipRebuild | null;
   signalMast: GardenSignalMast;
+  /**
+   * T0.2 (2026-09-07): every "lighthouse-window-glow" aperture in this island
+   * build — the tower's window rows and the precinct gatehouse light, which
+   * share one material name. VISUAL_INVARIANTS.md:115 has promised that these
+   * glow at dusk/night since before the renderer could do it; nothing read this
+   * material until now, so every building aperture in the world was a frozen
+   * constant. The GLB attach appends its own clones to the same array.
+   */
+  lighthouseWindowMaterials: MeshStandardMaterial[];
   statueGleamMaterials: MeshStandardMaterial[];
   tideStain: GardenTideStain;
   summitBirds: GardenSummitBirds;
@@ -3212,6 +3222,11 @@ function buildIslandPart(
   applyLighthouseRimLight(island.lighthouseRoot);
   // The procedural shell's gilt is per-build (fresh materials each rebuild),
   // so the statue gleam can drive it directly; the GLB path clones first.
+  // T0.2: the tower's window rows and the precinct gatehouse light share one
+  // material NAME, so a single traverse of the island collects both. Built
+  // per-island so it cannot leak across rebuilds.
+  const lighthouseWindowMaterials: MeshStandardMaterial[] = [];
+  collectLighthouseGlowMaterials(island.root, lighthouseWindowMaterials);
   const statueGleamMaterials: MeshStandardMaterial[] = [];
   island.lighthouseShell.traverse((object) => {
     if (
@@ -3258,6 +3273,7 @@ function buildIslandPart(
   content.lighthouseShell = island.lighthouseShell;
   content.pondReflection = island.pondReflection;
   content.signalMast = signalMast;
+  content.lighthouseWindowMaterials = lighthouseWindowMaterials;
   content.statueGleamMaterials = statueGleamMaterials;
   content.summitBirds = summitBirds;
   content.summitBirdsRoot = summitBirds.root;
@@ -3328,9 +3344,15 @@ function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
   content.zones = zones;
 }
 
-/** The authored perimeter field made tangible as one five-draw static body. */
+/**
+ * The authored perimeter field made tangible as one nine-draw static body.
+ *
+ * (Said "five-draw" until 2026-09-07; it had been seven for some time and the
+ * vegetation pass took it to nine — rim land, pines, broadleaves, understory,
+ * the two foreground silhouette masses and the path furniture.)
+ */
 function buildRimPart(scene: GardenScene, content: GardenContent): void {
-  const rim = createGardenRimMesh();
+  const rim = createGardenRimMesh(scene.season);
   content.parts.rim.root.add(rim.root);
   content.rim = rim;
   const waterfall = createGardenWaterfall();
@@ -3980,6 +4002,26 @@ function updateShadows(
   return size;
 }
 
+/**
+ * Roll into a turn, from the ship's angular RATE.
+ *
+ * Pure and exported so the frame-rate independence below is actually testable —
+ * the old inline form scaled a per-FRAME heading delta by 2.4, so on a 120 Hz
+ * display every ship heeled half as far into the same turn as on a 60 Hz one,
+ * and a hitched frame produced a spike that the clamp quietly swallowed.
+ *
+ * 0.04 is 2.4/60, so 60 fps behaviour is unchanged by construction. The
+ * denominator floor caps the rate a single very short frame can report.
+ */
+export function gardenShipHeelFromTurn(
+  deltaRadians: number,
+  deltaSeconds: number,
+): number {
+  if (!Number.isFinite(deltaRadians) || !Number.isFinite(deltaSeconds)) return 0;
+  const rate = deltaRadians / Math.max(deltaSeconds, 1 / 240);
+  return MathUtils.clamp(rate * 0.04, -0.16, 0.16);
+}
+
 function updateSceneForFrame(
   scene: GardenScene,
   camera: OrthographicCamera,
@@ -4500,7 +4542,14 @@ function updateSceneForFrame(
       if (!frame.reducedMotion && visual.prevHeadingAngle !== null) {
         let delta = headingAngle - visual.prevHeadingAngle;
         delta = Math.atan2(Math.sin(delta), Math.cos(delta));
-        heel = MathUtils.clamp(delta * 2.4, -0.16, 0.16);
+        // 2026-09-07: scale the angular RATE, not the per-frame delta.
+        // `delta * 2.4` was frame-rate dependent: on a 120 Hz display every
+        // ship heeled half as far into the same turn as on a 60 Hz one, and a
+        // hitched frame produced a heel spike. The clamp was hiding it. 0.04
+        // is 2.4/60, so 60 fps behaviour is unchanged by construction.
+        // `beamElapsedSeconds` is this frame's delta: computed at the top of
+        // the frame and the clock advanced on the very next line.
+        heel = gardenShipHeelFromTurn(delta, beamElapsedSeconds);
       }
       visual.prevHeadingAngle = headingAngle;
     } else {
@@ -4511,15 +4560,57 @@ function updateSceneForFrame(
     // moored bob oscillator; that sub-pixel motion no longer owns the same
     // attention while a berth event is readable.
     const bobBreath = gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.bob);
+    // 2026-09-07: the gust front is now visible ON the fleet, not just in the
+    // sails. `gardenGustEnvelope` is a 24 s front travelling at 24 u/s across
+    // the harbour and only the sail shader sampled it positionally, so the one
+    // discrete recurring EVENT in the world was invisible on 185 hulls. Held to
+    // 0.35 deliberately: any stronger and the fleet acquires a countable 24 s
+    // pulse, which is the failure mode VISUAL_INVARIANTS warns about.
+    const hullGust = frame.reducedMotion
+      ? 0
+      : gardenGustAtWorldPosition(
+        breathTime,
+        visual.root.position.x,
+        visual.root.position.z,
+        weather,
+      );
     const bobAmplitude = frame.reducedMotion
       ? 0
       : (0.035 + frame.seaState.swell * 0.055) * 0.7
         * visual.motionAmplitudeScale
-        * (0.92 + bobBreath * 0.16);
-    visual.root.position.y += Math.sin(
-      frame.timeSeconds * (0.72 + frame.seaState.tempo * 0.25) / visual.motionPeriodScale
-      + visual.bobPhase,
+        * (0.92 + bobBreath * 0.16)
+        * (1 + hullGust * 0.35);
+    const bobT = frame.timeSeconds * (0.72 + frame.seaState.tempo * 0.25)
+      / visual.motionPeriodScale;
+    // Two incommensurate terms rather than one sine. A single frequency reads
+    // as a metronome once you stare, which is the exact failure mode for a
+    // scene designed to be stared at. 1.37 never repeats within a session.
+    visual.root.position.y += (
+      Math.sin(bobT + visual.bobPhase) * 0.78
+      + Math.sin(bobT * 1.37 + visual.bobPhase * 2.3) * 0.22
     ) * bobAmplitude;
+    // 2026-09-07: roll and pitch. `pitch` was a DEAD CHANNEL — the batch reads
+    // `visual.root.rotation.x` and nothing ever assigned it — and `heel` is
+    // turn-only, so a resting hull had neither. Two thirds of the fleet is at
+    // rest at any instant, which is most of why 185 hulls read as decals on
+    // glass. Roll leads heave by ~90 degrees and pitch runs at 0.61x the heave
+    // rate; those incommensurate ratios are what make a hull look like it is ON
+    // water rather than bolted to it. Both channels were already plumbed CPU to
+    // GPU, so this costs two sines per hull and no draw calls.
+    //
+    // Explicitly zeroed under reduced motion rather than merely amplitude
+    // scaled, so the static composition stays bit-identical.
+    if (frame.reducedMotion) {
+      visual.root.rotation.x = 0;
+    } else {
+      const rollAmplitude = (0.020 + frame.seaState.swell * 0.045)
+        * visual.motionAmplitudeScale
+        * (1 + hullGust * 0.35);
+      visual.root.rotation.z = heel
+        + Math.sin(bobT + visual.bobPhase + 1.9) * rollAmplitude;
+      visual.root.rotation.x = Math.sin(bobT * 0.61 + visual.bobPhase * 1.7)
+        * rollAmplitude * 0.45;
+    }
     const issuanceDraft = departing ? 0 : content.issuanceDraftById.get(visual.ship.id) ?? 0;
     // Hero hulls are their own scene graph, so their whole root takes draft.
     // Batched hulls take the same offset through aHullForm.w below.

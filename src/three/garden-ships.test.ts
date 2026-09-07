@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import {
   BoxGeometry,
+  type BufferGeometry,
   CanvasTexture,
   Color,
   Group,
@@ -23,6 +24,8 @@ import { SHIP_HULL_FORM_SPAN } from "../systems/world-types";
 import type { ShipHull, ShipNode, ShipSizeTier } from "../systems/world-types";
 import {
   assignGardenHeroSailAtlas,
+  GARDEN_SAIL_SEGMENTS_U,
+  GARDEN_SAIL_SEGMENTS_V,
   attachGardenHeroModel,
   createBatchedShip,
   createFleetBatchGeometry,
@@ -837,5 +840,80 @@ describe("warm-village C2: per-family hull paint", () => {
     expect(junk.trimColor.getHexString())
       .toBe(GARDEN_HULL_FAMILY_PAINT.junk.trim.getHexString());
     expect(kobaya.trimColor.getHexString()).not.toBe(junk.trimColor.getHexString());
+  });
+});
+
+describe("2026-09-07 T1.9: sail bands land on the cloth grid", () => {
+  /**
+   * The baked cloth bands are vertex color on a
+   * GARDEN_SAIL_SEGMENTS_U x GARDEN_SAIL_SEGMENTS_V grid, so a band that falls
+   * between two rows is sampled by neither and renders as EXACTLY nothing.
+   * That is how three of five junk battens and both reef bands were invisible
+   * on every sail in the fleet before T1.9 — the constants existed, the shading
+   * never did. This test is the regression: it reads the built cloth, not the
+   * table, so re-siting a band off-row fails here even if the constant looks
+   * plausible.
+   */
+  function rowDarkening(geometry: BufferGeometry): Map<number, number> {
+    const uv = geometry.getAttribute("uv");
+    const color = geometry.getAttribute("color");
+    // u = 0 is the mast edge: no seam, no belly falloff. Whatever darkening
+    // survives there is a horizontal band and nothing else.
+    const byRow = new Map<number, number>();
+    for (let index = 0; index < uv.count; index += 1) {
+      if (uv.getX(index) > 1e-6) continue;
+      const row = Math.round(uv.getY(index) * GARDEN_SAIL_SEGMENTS_V);
+      byRow.set(row, Math.max(byRow.get(row) ?? 0, 1 - color.getX(index)));
+    }
+    return byRow;
+  }
+
+  it("darkens exactly the five interior rows of a junk sail, one batten each", () => {
+    const source = createFleetBatchGeometry("junk");
+    const byRow = rowDarkening(source.sails);
+    expect([...byRow.keys()].toSorted((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    for (const row of [1, 2, 3, 4, 5]) {
+      // One batten's full depth, not two overlapping and not a fraction of one:
+      // the falloff is under the row pitch, so no row sees a neighbour's band.
+      expect(byRow.get(row), `junk row ${row}`).toBeCloseTo(0.18, 6);
+    }
+    // Head and foot rows stay clear so the yard and the boom read as edges.
+    for (const row of [0, 6]) expect(byRow.get(row), `junk row ${row}`).toBe(0);
+    source.hull.dispose();
+    source.sails.dispose();
+  });
+
+  it("bakes no horizontal band into any non-junk family's cloth", () => {
+    // The two reef bands (v = 0.14 / 0.27) were deleted, not re-sited: they had
+    // never rendered, and every row a re-site could use is a junk batten row.
+    for (const silhouette of GARDEN_HULL_SILHOUETTES) {
+      if (silhouette === "junk") continue;
+      const source = createFleetBatchGeometry(silhouette);
+      for (const [row, darkening] of rowDarkening(source.sails)) {
+        expect(darkening, `${silhouette} row ${row}`).toBe(0);
+      }
+      source.hull.dispose();
+      source.sails.dispose();
+    }
+  });
+
+  it("puts every vertical panel seam on a cloth column", () => {
+    // panels must divide GARDEN_SAIL_SEGMENTS_U or the seams vanish the same
+    // way the battens did.
+    const source = createFleetBatchGeometry("bezaisen");
+    const uv = source.sails.getAttribute("uv");
+    const color = source.sails.getAttribute("color");
+    const seamColumns = new Set<number>();
+    for (let index = 0; index < uv.count; index += 1) {
+      // Row 0 only: no belly falloff there either (it scales with u, so read
+      // the seam against the row's own maximum instead).
+      if (uv.getY(index) > 1e-6) continue;
+      const column = Math.round(uv.getX(index) * GARDEN_SAIL_SEGMENTS_U);
+      const belly = 1 - 0.06 * (column / GARDEN_SAIL_SEGMENTS_U) ** 2;
+      if (1 - color.getX(index) / belly > 1e-6) seamColumns.add(column);
+    }
+    expect([...seamColumns].toSorted((a, b) => a - b)).toEqual([1, 3, 5]);
+    source.hull.dispose();
+    source.sails.dispose();
   });
 });

@@ -84,6 +84,7 @@ import {
   gardenHarborLanternLaneId,
   gardenStationRouteEndpoints,
   gardenMistBoundaryTile,
+  gardenShipHeelFromTurn,
   gardenTransitionWaveReady,
   GARDEN_SHIP_TRANSITION_MIN_SECONDS,
   GARDEN_TRANSITION_WAVE_SECONDS,
@@ -2081,3 +2082,30 @@ function ship(
     },
   } as ShipNode;
 }
+
+describe("gardenShipHeelFromTurn", () => {
+  // 2026-09-07. The old inline form was `clamp(delta * 2.4, ...)` on a
+  // per-FRAME heading delta, so heel depended on the display's refresh rate.
+  it("gives the same heel for the same turn at 60 and 120 fps", () => {
+    const turnRate = 0.6; // rad/s
+    const at60 = gardenShipHeelFromTurn(turnRate / 60, 1 / 60);
+    const at120 = gardenShipHeelFromTurn(turnRate / 120, 1 / 120);
+    expect(at120).toBeCloseTo(at60, 12);
+  });
+
+  it("keeps the historical 60 fps calibration", () => {
+    // 0.04 was chosen as 2.4/60 precisely so this holds.
+    const delta = 0.01;
+    expect(gardenShipHeelFromTurn(delta, 1 / 60)).toBeCloseTo(delta * 2.4, 12);
+  });
+
+  it("clamps a hitched frame instead of spiking", () => {
+    expect(gardenShipHeelFromTurn(3, 1 / 10000)).toBe(0.16);
+    expect(gardenShipHeelFromTurn(-3, 1 / 10000)).toBe(-0.16);
+  });
+
+  it("is inert on non-finite input", () => {
+    expect(gardenShipHeelFromTurn(Number.NaN, 1 / 60)).toBe(0);
+    expect(gardenShipHeelFromTurn(0.01, Number.NaN)).toBe(0);
+  });
+});

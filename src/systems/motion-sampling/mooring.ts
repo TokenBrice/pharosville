@@ -77,7 +77,7 @@ export function mooredSampleInto(input: {
   const phaseOffset = mooredPhaseFor(input.route, input.stop, input.runtime);
   const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.stop, input.runtime);
   const staleFactors = staleEvidenceMotionFactors(input.route.staleEvidence);
-  const angle = input.timeSeconds * 0.027 * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
+  const angle = input.timeSeconds * MOORED_SWAY_RATE * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
   const radius = mooredRadiusForZone(input.route.zone);
   const seaSway = seaStateMooringSwayMultiplier(input.seaState);
   const swayAmplitude = phase.swayMultiplier * seaSway;
@@ -161,7 +161,7 @@ export function mooredRouteStopSampleInto(
   const phaseOffset = mooredPhaseFor(route, stop, runtime);
   const radiusMultiplier = mooredRadiusMultiplierFor(route, stop, runtime);
   const staleFactors = staleEvidenceMotionFactors(route.staleEvidence);
-  const angle = timeSeconds * 0.018 * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
+  const angle = timeSeconds * MOORED_SWAY_RATE * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
   const radius = mooredRadiusForZone(route.zone);
   out.shipId = route.shipId;
   clampMotionTileInto(
@@ -181,10 +181,35 @@ export function mooredRouteStopSampleInto(
   writeMapVisibilityAlphaInto(out, 1);
 }
 
-const MOORED_RADIUS_DANGER = { x: 0.22, y: 0.14 };
-const MOORED_RADIUS_WARNING = { x: 0.24, y: 0.16 };
-const MOORED_RADIUS_ALERT = { x: 0.26, y: 0.17 };
-const MOORED_RADIUS_DEFAULT = { x: 0.28, y: 0.18 };
+/**
+ * 2026-09-07: moored sway rate raised and radius cut to match.
+ *
+ * The rates were 0.027 and 0.018 rad/s — periods of 233 s and 349 s. Over one
+ * 240-480 s dock rest a hull completed one or two orbits of a quarter-tile
+ * ellipse. That is a DRIFT, not a sway: the eye integrates it as "not moving"
+ * and the position quietly disagrees with itself between glances. At ~45 s a
+ * viewer can resolve it as a boat working against its lines.
+ *
+ * The radii are scaled by ~0.54 in the same change so the total excursion stays
+ * sub-tile — same footprint, resolvable period. Zone ordering (danger tightest)
+ * is preserved.
+ */
+/**
+ * One rate for BOTH moored samplers.
+ *
+ * They used to differ (0.027 here, 0.018 in the hold variant), which made the
+ * sway angle discontinuous across the moored<->transit boundary — a real pop,
+ * ~0.004 tiles, that sat just under the C0 gate in motion.test.ts and scaled
+ * linearly with the rate. Raising the rate exposed it at 0.022. The amplitude
+ * difference between the two samplers is already carried by the 0.72 radius
+ * factor in the hold variant, so the rates never needed to differ at all.
+ */
+export const MOORED_SWAY_RATE = 0.14;
+
+const MOORED_RADIUS_DANGER = { x: 0.12, y: 0.076 };
+const MOORED_RADIUS_WARNING = { x: 0.13, y: 0.086 };
+const MOORED_RADIUS_ALERT = { x: 0.14, y: 0.092 };
+const MOORED_RADIUS_DEFAULT = { x: 0.15, y: 0.097 };
 
 export function mooredRadiusForZone(zone: ShipWaterZone): { x: number; y: number } {
   if (zone === "danger") return MOORED_RADIUS_DANGER;

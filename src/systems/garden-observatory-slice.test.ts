@@ -44,7 +44,9 @@ describe("Garden Observatory slice", () => {
   it("maps all nine semantic hull classes onto exactly six East-Asian families", () => {
     expect(GARDEN_SILHOUETTE_FOR_HULL).toEqual({
       "algo-junk": "junk",
-      "chartered-brigantine": "bezaisen",
+      // 2026-09-07 T0.5/T3.3: was "bezaisen". kobaya had zero live coins and
+      // bezaisen 43.3%; the brigantine is the class that balances both.
+      "chartered-brigantine": "kobaya",
       "commodity-peg-hoy": "scow",
       "crypto-caravel": "kobaya",
       "dao-schooner": "twinhull",

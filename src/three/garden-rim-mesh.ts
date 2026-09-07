@@ -6,6 +6,7 @@ import {
   CylinderGeometry,
   DodecahedronGeometry,
   Euler,
+  IcosahedronGeometry,
   Group,
   InstancedBufferAttribute,
   InstancedMesh,
@@ -31,6 +32,7 @@ import {
 } from "../systems/world-layout";
 import { PHAROSVILLE_DESIGN_SPAN, PHAROSVILLE_MAP_SCALE } from "../systems/map-scale";
 import { HARBOR_PALETTE } from "../systems/palette";
+import type { GardenSeason } from "../systems/season";
 import { GARDEN_PLATE_MARGIN_TILES } from "../systems/projection";
 import type { WeatherPlan } from "../systems/weather";
 import { TILE_SCALE, disposeThreeObjectTree, stableUnit } from "./garden-util";
@@ -150,6 +152,8 @@ interface GeometryBuilder {
 }
 
 export interface GardenRimMesh {
+  /** Momiji instances on the rim; crown colour follows the season (T2.2d). */
+  broadleafCount: number;
   coveSpurCount: number;
   drawCallCount: number;
   engawaPineCount: number;
@@ -162,6 +166,8 @@ export interface GardenRimMesh {
   stoneCount: number;
   steppingStoneCount: number;
   triangleCount: number;
+  /** Understory domes on the rim (T2.2a). */
+  understoryCount: number;
   dispose(): void;
   updateWind(weather: WeatherPlan, reducedMotion: boolean): void;
 }
@@ -570,7 +576,12 @@ function colorGeometry(geometry: BufferGeometry, color: Color): BufferGeometry {
   return geometry;
 }
 
-function createPineGeometry(
+/**
+ * One rim pine, solid and vertex-coloured: six tapered trunk/branch cylinders
+ * and four needle pads. Exported (2026-09-07, T2.2b) so the islets can lean
+ * the same tree over open water without a second tree vocabulary.
+ */
+export function createPineGeometry(
   trunk: Color = PINE_TRUNK,
   needle: Color = PINE_NEEDLE,
 ): BufferGeometry {
@@ -637,7 +648,11 @@ function pineTiles(): PineSpec[] {
       if (inForegroundMassPocket(x, y)) continue;
       const lowerLeft = x < 48 && y > 72;
       const thinEast = x > 122;
-      const keep = lowerLeft ? 0.92 : thinEast ? 0.12 : 0.3;
+      // T2.2c (2026-09-07): general keep 0.3 -> 0.5, east 0.12 -> 0.3. The
+      // measured census was 41 trees in the whole world — one pine per nine
+      // rim tiles — against a brief that says "Japanese garden". The east
+      // stays the thinner half of the ring, just not near-bare.
+      const keep = lowerLeft ? 0.92 : thinEast ? 0.3 : 0.5;
       const unit = stableUnit(`rim-pine.${x}.${y}`);
       if (unit > keep) continue;
       candidates.push({
@@ -697,8 +712,7 @@ function pineTiles(): PineSpec[] {
   return candidates;
 }
 
-function createPines(): InstancedMesh {
-  const specs = pineTiles();
+function createPines(specs: readonly PineSpec[]): InstancedMesh {
   const material = new MeshStandardMaterial({ flatShading: true, roughness: 0.94, vertexColors: true });
   patchGardenInstancedWindSway(material, 4.6, 0.08);
   const mesh = new InstancedMesh(
@@ -726,6 +740,265 @@ function createPines(): InstancedMesh {
   });
   mesh.geometry.setAttribute("aGardenSway", new InstancedBufferAttribute(sway, 1));
   mesh.instanceMatrix.needsUpdate = true;
+  return mesh;
+}
+
+// ---------------------------------------------------------------------------
+// T2.2 (2026-09-07): rim understory and a second broadleaf species.
+//
+// Census before this pass: 41 trees in the whole world, vegetation 5 of 233
+// draw calls and ~9k of 361k triangles — 2% of the draw budget. The land rim
+// was 42,560 triangles of bare vertex-coloured slab carrying one pine per
+// nine tiles.
+//
+// Everything here is SOLID, textureless, vertex- or instance-coloured
+// geometry. No alpha-tested or alpha-blended foliage cards: N8AO runs with
+// `autoDetectTransparency = false`, `transparencyAware = false` and
+// `halfRes = true` (garden-post.ts), so a card occludes as a solid half-res
+// rectangle — a dark bruise around every plant — and punches holes in the
+// transparent water.
+// ---------------------------------------------------------------------------
+
+/** Understory lattice pitch, tiles. Half the pine lattice's three. */
+const UNDERSTORY_LATTICE_TILES = 1.5;
+/** Odds a clear lattice point carries a dome, away from any pine. */
+const UNDERSTORY_KEEP_OPEN = 0.78;
+/** Odds at a pine base; the ground cover reads as the grove's own skirt. */
+const UNDERSTORY_KEEP_AT_PINE = 1;
+/** Tiles over which the pine-base bonus falls back to the open odds. */
+const UNDERSTORY_PINE_REACH_TILES = 4.5;
+/** Broadleaf lattice pitch, tiles — offset half a cell off the pine grid. */
+const BROADLEAF_LATTICE_TILES = 3;
+
+interface ShrubSpec {
+  scaleY: number;
+  scaleXZ: number;
+  tone: number;
+  x: number;
+  y: number;
+  yaw: number;
+}
+
+/**
+ * Rim understory: one instanced batch of scaled icosahedral domes on a
+ * 1.5-tile lattice, using the same seeding, station clearance and authored
+ * shore-distance guards as `pineTiles`. Denser at the pine bases so the
+ * groves gain a skirt instead of standing on a shaved slab.
+ */
+function understoryTiles(pines: readonly PineSpec[]): ShrubSpec[] {
+  const spots: ShrubSpec[] = [];
+  const step = UNDERSTORY_LATTICE_TILES;
+  for (let y = 3; y < MAP_LAST - 2; y += step) {
+    for (let x = 3; x < MAP_LAST - 2; x += step) {
+      // Half a tile inland rather than the pines' 2.2: ground cover may reach
+      // the shoulder of the shore the pines keep clear of.
+      if (!rimLandAt(x, y) || authoredDistance(x, y) > -0.6) continue;
+      if (!clearOfStation(x, y, 2)) continue;
+      // The engawa and the two foreground masses keep their clean pockets.
+      if (Math.hypot(x - 86, y - 134) < 9) continue;
+      if (inForegroundMassPocket(x, y)) continue;
+      let nearest = Number.POSITIVE_INFINITY;
+      for (const pine of pines) {
+        nearest = Math.min(nearest, Math.hypot(x - pine.x, y - pine.y));
+      }
+      const bonus = Math.max(0, 1 - nearest / UNDERSTORY_PINE_REACH_TILES);
+      const keep = UNDERSTORY_KEEP_OPEN
+        + (UNDERSTORY_KEEP_AT_PINE - UNDERSTORY_KEEP_OPEN) * bonus * bonus;
+      if (stableUnit(`rim-understory.${x}.${y}`) > keep) continue;
+      spots.push({
+        scaleXZ: 0.42 + stableUnit(`rim-understory-spread.${x}.${y}`) * 0.58,
+        scaleY: 0.24 + stableUnit(`rim-understory-rise.${x}.${y}`) * 0.34,
+        // Shaded green under the canopy, sunlit moss in the open.
+        tone: Math.min(1, bonus * 0.8 + stableUnit(`rim-understory-tone.${x}.${y}`) * 0.45),
+        x: x + (stableUnit(`rim-understory-jitter-x.${x}.${y}`) - 0.5) * step,
+        y: y + (stableUnit(`rim-understory-jitter-y.${x}.${y}`) - 0.5) * step,
+        yaw: stableUnit(`rim-understory-yaw.${x}.${y}`) * Math.PI * 2,
+      });
+    }
+  }
+  return spots;
+}
+
+function createUnderstory(pines: readonly PineSpec[]): InstancedMesh {
+  const specs = understoryTiles(pines);
+  const material = new MeshStandardMaterial({
+    color: "#ffffff",
+    flatShading: true,
+    roughness: 0.99,
+  });
+  patchGardenInstancedWindSway(material, 0.9, 0.5);
+  const mesh = new InstancedMesh(new IcosahedronGeometry(1, 0), material, specs.length);
+  mesh.name = "garden-rim-understory";
+  const matrix = new Matrix4();
+  const quaternion = new Quaternion();
+  const rotation = new Euler();
+  const scale = new Vector3();
+  const colour = new Color();
+  const sway = new Float32Array(specs.length);
+  specs.forEach((spec, index) => {
+    rotation.set(0, spec.yaw, 0);
+    quaternion.setFromEuler(rotation);
+    scale.set(spec.scaleXZ, spec.scaleY, spec.scaleXZ * 0.86);
+    matrix.compose(
+      new Vector3(
+        spec.x * TILE_SCALE,
+        rimHeight(spec.x, spec.y) + spec.scaleY * 0.35,
+        spec.y * TILE_SCALE,
+      ),
+      quaternion,
+      scale,
+    );
+    mesh.setMatrixAt(index, matrix);
+    mesh.setColorAt(index, colour.copy(MOSS).lerp(PINE_NEEDLE, spec.tone));
+    sway[index] = 0.7 + stableUnit(`rim-understory-sway.${spec.x}.${spec.y}`) * 0.5;
+  });
+  mesh.geometry.setAttribute("aGardenSway", new InstancedBufferAttribute(sway, 1));
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  return mesh;
+}
+
+/**
+ * Momiji: a short trunk under three flattened crown lobes, ~116 triangles.
+ * Vertex colour owns the trunk; `aFoliageMask` hands the crown — and only the
+ * crown — to the per-instance seasonal colour, the same split the cemetery
+ * wreck markers use for their cause stains. In winter the crown is dropped at
+ * build time, so the bare trunks cost 8 triangles each and no shader branch.
+ */
+function createBroadleafGeometry(bare: boolean): BufferGeometry {
+  const pieces: BufferGeometry[] = [];
+  const masks: number[] = [];
+  const push = (piece: BufferGeometry, mask: number) => {
+    pieces.push(piece);
+    const count = piece.getAttribute("position").count;
+    for (let index = 0; index < count; index += 1) masks.push(mask);
+  };
+  const trunk = colorGeometry(new CylinderGeometry(0.13, 0.2, 1.5, 4, 1, true), PINE_TRUNK);
+  trunk.translate(0, 0.75, 0);
+  push(trunk, 0);
+  if (!bare) {
+    const lobes = [
+      [0, 1.85, 0, 1.05, 0.52, 0.98],
+      [-0.62, 1.5, 0.28, 0.72, 0.38, 0.7],
+      [0.58, 1.62, -0.24, 0.66, 0.34, 0.64],
+    ] as const;
+    for (const [x, y, z, sx, sy, sz] of lobes) {
+      const lobe = colorGeometry(new SphereGeometry(1, 6, 4), MOSS);
+      lobe.scale(sx, sy, sz);
+      lobe.translate(x, y, z);
+      push(lobe, 1);
+    }
+  }
+  const geometry = mergeGeometries(pieces, false)!;
+  pieces.forEach((piece) => piece.dispose());
+  geometry.setAttribute("aFoliageMask", new BufferAttribute(new Float32Array(masks), 1));
+  return geometry;
+}
+
+/**
+ * Seasonal crown colour (T2.2d). Autumn is deliberately varied per instance
+ * between vermillion and the warm sun token — one flat red mass reads as a
+ * bug, not as a season.
+ */
+function broadleafSeasonColor(season: GardenSeason, seed: string, target: Color): Color {
+  const unit = stableUnit(`rim-broadleaf-season.${seed}`);
+  switch (season) {
+    case "spring":
+      // The petal recipe from garden-seasonal-dressing.ts, per-instance
+      // varied so the blossom bank is not one decal colour.
+      return target
+        .copy(new Color(HARBOR_PALETTE.foam_white))
+        .lerp(new Color(HARBOR_PALETTE.vermillion), 0.12 + unit * 0.14);
+    case "autumn":
+      return target
+        .copy(new Color(HARBOR_PALETTE.vermillion))
+        .lerp(new Color(HARBOR_PALETTE.sun_day_warm), unit)
+        .lerp(MOSS, unit < 0.18 ? 0.45 : 0);
+    case "winter":
+      // No crown to colour; the bare trunk keeps its vertex dye.
+      return target.setRGB(1, 1, 1);
+    default:
+      return target.copy(MOSS).lerp(PINE_NEEDLE, 0.15 + unit * 0.5);
+  }
+}
+
+function broadleafTiles(): ShrubSpec[] {
+  const spots: ShrubSpec[] = [];
+  const step = BROADLEAF_LATTICE_TILES;
+  // Half a cell off the pine lattice so the two species interleave instead
+  // of competing for the same points.
+  for (let y = 4.5; y < MAP_LAST - 2; y += step) {
+    for (let x = 4.5; x < MAP_LAST - 2; x += step) {
+      if (!rimLandAt(x, y) || authoredDistance(x, y) > -2 || !clearOfStation(x, y, 3)) continue;
+      if (HEADLANDS.some((headland) => Math.hypot(x - headland.x, y - headland.y) < 4.5)) continue;
+      if (Math.hypot(x - 86, y - 134) < 11) continue;
+      if (inForegroundMassPocket(x, y)) continue;
+      if (stableUnit(`rim-broadleaf.${x}.${y}`) > 0.5) continue;
+      spots.push({
+        scaleXZ: 1,
+        scaleY: 1,
+        tone: 0,
+        x,
+        y,
+        yaw: stableUnit(`rim-broadleaf-yaw.${x}.${y}`) * Math.PI * 2,
+      });
+    }
+  }
+  return spots;
+}
+
+function createBroadleaf(season: GardenSeason): InstancedMesh {
+  const specs = broadleafTiles();
+  const material = new MeshStandardMaterial({
+    color: "#ffffff",
+    flatShading: true,
+    roughness: 0.96,
+    vertexColors: true,
+  });
+  // Vertex colour owns the trunk; instance colour reaches only the crown
+  // vertices selected by aFoliageMask (garden-landmarks' wreck-marker split).
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <color_pars_vertex>",
+        `#include <color_pars_vertex>
+attribute float aFoliageMask;`,
+      )
+      .replace(
+        "#include <color_vertex>",
+        `#include <color_vertex>
+#if defined( USE_COLOR ) && defined( USE_INSTANCING_COLOR )
+  vColor.rgb = mix(color.rgb, instanceColor.rgb, aFoliageMask);
+#endif`,
+      );
+  };
+  material.customProgramCacheKey = () => "garden-rim-broadleaf-season-v1";
+  patchGardenInstancedWindSway(material, 2.4, 0.12);
+  const mesh = new InstancedMesh(createBroadleafGeometry(season === "winter"), material, specs.length);
+  mesh.name = "garden-rim-broadleaf";
+  const matrix = new Matrix4();
+  const quaternion = new Quaternion();
+  const rotation = new Euler();
+  const scale = new Vector3();
+  const colour = new Color();
+  const sway = new Float32Array(specs.length);
+  specs.forEach((spec, index) => {
+    rotation.set(0, spec.yaw, 0);
+    quaternion.setFromEuler(rotation);
+    const size = 1.5 + stableUnit(`rim-broadleaf-scale.${spec.x}.${spec.y}`) * 1.1;
+    scale.set(size, size * (0.9 + stableUnit(`rim-broadleaf-rise.${spec.x}.${spec.y}`) * 0.35), size);
+    matrix.compose(
+      new Vector3(spec.x * TILE_SCALE, rimHeight(spec.x, spec.y) - 0.1, spec.y * TILE_SCALE),
+      quaternion,
+      scale,
+    );
+    mesh.setMatrixAt(index, matrix);
+    mesh.setColorAt(index, broadleafSeasonColor(season, `${spec.x}.${spec.y}`, colour));
+    sway[index] = 0.72 + stableUnit(`rim-broadleaf-sway.${spec.x}.${spec.y}`) * 0.5;
+  });
+  mesh.geometry.setAttribute("aGardenSway", new InstancedBufferAttribute(sway, 1));
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   return mesh;
 }
 
@@ -839,21 +1112,21 @@ function createStones(): InstancedMesh {
 // ---------------------------------------------------------------------------
 // Warm-village A6: camera-near foreground silhouette masses.
 //
-// Sited at the zoom-1.0 rest (`defaultCamera`, warm-village), where the frame
-// was an interior window on the Pharos–Mole interval and the bottom-left
-// corner of 1568×1004 landed on the south-west skirt around tile (59.7,140.7)
-// with the bottom-right on interior water. The rest has since opened out to
-// 0.72 (2026-09-06); the same masses now read as near-shore silhouettes in
-// the lower-left quarter instead of bleeding past the frame edge, and they
-// keep their place — exactly one rest corner carries land, and these two own
-// it: a dark pine group and a low kuro torii with a fence run, both past
-// tile 139 on decorative skirt land. They displace the open-water band named
+// Sited for the zoom-1.0 rest (`defaultCamera`, warm-village), then re-sited
+// on 2026-09-07 for the 0.72 rest opened on 2026-09-06. At 0.72 the masses
+// stood complete inside the lower-left quarter as near-shore silhouettes, so
+// they framed nothing; they now run west along the skirt until the pine
+// group's left flank is cut by the frame edge at 1568×1004 and the hero
+// trunk carries the corner. Exactly one rest corner carries land and these
+// two own it: a dark pine group and a low kuro torii with a fence run, both
+// past tile 139 on decorative skirt land. They displace the open-water band named
 // by GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT — no new prop vocabulary, no tile
 // reclassification, no navigation/placement change, and nothing emissive:
 // after dark they are black shapes against the sea (night one-dominant-light
 // untouched). The calm-engawa-south station envelope reaches y≈143 at
-// x 57–63, so both masses sit east of tile 66 to keep the rim's own
-// three-tile scenery margin.
+// x 57–63, so both masses stay east of it — that envelope, not the frame, is
+// what caps the westward move — keeping the rim's own three-tile scenery
+// margin.
 // ---------------------------------------------------------------------------
 
 export const GARDEN_RIM_FOREGROUND_PINE_NAME = "garden-rim-foreground-pines";
@@ -871,17 +1144,34 @@ export interface GardenRimForegroundMassSpec {
   readonly tile: { readonly x: number; readonly y: number };
 }
 
+// 2026-09-07 re-site (T2.1). Old / new / why, per number:
+//   pine group tileX 71.5-75.9 -> 67.1-71.6 (-4.4 tiles west along the skirt), tileY
+//     141.6-144.2 -> 141.5-143.3 so the group anchor keeps its whole footing
+//     disc on decorative land (the outer coast sits at y~144.0 at x 69)
+//   gate tileX 66.8 -> 73.4, fence posts 68.6-70.8 -> 75.2-77.4 (+6.6 east)
+//   hero pine height 15.4 -> 19.0
+// The skirt's outer coast is at tile y~144 (gardenRimDecorativeLandAt), so
+// south buys ~1 tile and cannot carry the masses to the bottom edge; west is
+// the axis that actually runs off frame (-1 tile x = -11.5 px, +5.8 px at the
+// 0.72 rest). Moving the pine group west takes its left flank from screen
+// x +20 to x < 0 at 1568x1004, so the group is cut by the frame edge in the
+// lower-left instead of standing complete inside it. The gate trades places
+// and goes east so the two masses do not interpenetrate, and it now reads as
+// the second, inboard plane of the same foreground rather than a duplicate
+// silhouette beside the pines. The calm-engawa-south envelope (x 57-63) is
+// what stops the pines going further west: the group's anchor keeps the
+// rim's three-tile scenery margin from it.
 const FOREGROUND_PINES = [
-  { height: 15.4, leanX: -0.06, leanZ: 0.1, tileX: 71.5, tileY: 141.6, yaw: 2.2 },
-  { height: 10.8, leanX: 0.04, leanZ: -0.05, tileX: 72.6, tileY: 142.8, yaw: 4.1 },
-  { height: 13.2, leanX: -0.03, leanZ: 0.07, tileX: 74.3, tileY: 144.2, yaw: 0.7 },
-  { height: 12.0, leanX: 0, leanZ: 0, tileX: 75.9, tileY: 142.5, yaw: 3.1 },
+  { height: 19.0, leanX: -0.06, leanZ: 0.1, tileX: 67.1, tileY: 141.5, yaw: 2.2 },
+  { height: 10.8, leanX: 0.04, leanZ: -0.05, tileX: 68.3, tileY: 142.7, yaw: 4.1 },
+  { height: 13.2, leanX: -0.03, leanZ: 0.07, tileX: 70.0, tileY: 143.3, yaw: 0.7 },
+  { height: 12.0, leanX: 0, leanZ: 0, tileX: 71.6, tileY: 142.1, yaw: 3.1 },
 ] as const;
-const FOREGROUND_GATE = { tileX: 66.8, tileY: 142.0, yaw: -0.32 } as const;
+const FOREGROUND_GATE = { tileX: 73.4, tileY: 142.6, yaw: -0.32 } as const;
 const FOREGROUND_FENCE_POSTS = [
-  { height: 2.6, tileX: 68.6, tileY: 143.0 },
-  { height: 2.7, tileX: 69.7, tileY: 143.6 },
-  { height: 2.8, tileX: 70.8, tileY: 144.2 },
+  { height: 2.6, tileX: 75.2, tileY: 143.2 },
+  { height: 2.7, tileX: 76.3, tileY: 143.7 },
+  { height: 2.8, tileX: 77.4, tileY: 144.0 },
 ] as const;
 
 /**
@@ -892,7 +1182,8 @@ const FOREGROUND_FENCE_POSTS = [
 export const GARDEN_RIM_FOREGROUND_MASSES: readonly GardenRimForegroundMassSpec[] = [
   {
     clearRadiusTiles: 4.5,
-    height: 15.4,
+    // 2026-09-07: 15.4 -> 19.0, the hero trunk of the re-sited group.
+    height: 19.0,
     name: GARDEN_RIM_FOREGROUND_PINE_NAME,
     tile: {
       x: (Math.min(...FOREGROUND_PINES.map((pine) => pine.tileX))
@@ -1157,7 +1448,12 @@ function buildPathGeometry(): { coveSpurs: number; geometry: BufferGeometry; seg
   return { coveSpurs, geometry: finishGeometry(builder), segments };
 }
 
-export function createGardenRimMesh(): GardenRimMesh {
+/**
+ * @param season drives the broadleaf crown colour only (T2.2d). Defaulted to
+ * summer so every existing no-argument call site keeps compiling and keeps
+ * its authored green.
+ */
+export function createGardenRimMesh(season: GardenSeason = "summer"): GardenRimMesh {
   const root = new Group();
   root.name = "garden-rim";
   const land = buildLandGeometry();
@@ -1166,7 +1462,10 @@ export function createGardenRimMesh(): GardenRimMesh {
   top.name = "garden-rim-land";
   const face = new Mesh(land.face, landMaterial);
   face.name = "garden-rim-tide-rock";
-  const pines = createPines();
+  const pineSpecs = pineTiles();
+  const pines = createPines(pineSpecs);
+  const understory = createUnderstory(pineSpecs);
+  const broadleaf = createBroadleaf(season);
   const stones = createStones();
   const foregroundPines = createForegroundPines();
   const foregroundTorii = createForegroundTorii();
@@ -1176,16 +1475,21 @@ export function createGardenRimMesh(): GardenRimMesh {
     new MeshStandardMaterial({ flatShading: true, roughness: 1, vertexColors: true }),
   );
   pathMesh.name = "garden-rim-path";
-  root.add(top, face, pathMesh, pines, stones, foregroundPines, foregroundTorii);
-  const drawables = [top, face, pathMesh, pines, stones, foregroundPines, foregroundTorii];
+  const drawables = [
+    top, face, pathMesh, pines, understory, broadleaf, stones,
+    foregroundPines, foregroundTorii,
+  ];
+  root.add(...drawables);
   for (const object of drawables) {
     object.castShadow = true;
     object.receiveShadow = true;
   }
   let disposed = false;
   return {
+    broadleafCount: broadleaf.count,
     coveSpurCount: path.coveSpurs,
-    drawCallCount: 7,
+    // T2.2 (2026-09-07): 7 -> 9. One understory batch and one broadleaf batch.
+    drawCallCount: 9,
     engawaPineCount: 1,
     foregroundMassCount: 2,
     pathSegmentCount: path.segments,
@@ -1194,12 +1498,15 @@ export function createGardenRimMesh(): GardenRimMesh {
     root,
     stoneCount: stones.count,
     steppingStoneCount: 3,
+    understoryCount: understory.count,
     triangleCount: drawables.reduce((sum, mesh) => (
       sum + (mesh.geometry.index?.count ?? mesh.geometry.getAttribute("position").count) / 3
         * (mesh instanceof InstancedMesh ? mesh.count : 1)
     ), 0),
     updateWind(weather, reducedMotion) {
-      updateGardenInstancedWindSway(pines.material as MeshStandardMaterial, weather, reducedMotion);
+      for (const batch of [pines, understory, broadleaf]) {
+        updateGardenInstancedWindSway(batch.material as MeshStandardMaterial, weather, reducedMotion);
+      }
     },
     dispose() {
       if (disposed) return;

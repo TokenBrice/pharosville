@@ -647,8 +647,12 @@ describe("garden post-processing contracts", () => {
       "lutStrip",
       "lutWeights",
     ]);
-    // Paper grain A/B'd and dropped; the term stays behind a zeroed dial.
-    expect(numberUniform(lut, "grain")).toBe(0);
+    // Paper grain, on since 2026-09-07 at 0.035. The 2026-08-13 A/B dropped it
+    // at 0.015 as unmeasurable and as a risk to the empty sky; it is back at
+    // more than double that, with the shader term weighted by
+    // `1 - |2*luma - 1|` so it peaks in the midtones and dies out in both the
+    // sky and T1.1's new corner darks.
+    expect(numberUniform(lut, "grain")).toBe(0.035);
 
     // Night is the base of the blend, exactly as in the grade tables.
     expect(lutWeights()).toEqual([1, 0, 0]);
@@ -746,12 +750,14 @@ describe("garden post-processing contracts", () => {
     // turn the sea electric.
     expect(colorUniform(grade, "lift")).toEqual([0.01, 0.01, 0.018]);
     expect(numberUniform(grade, "saturation")).toBe(1.02);
-    expect(numberUniform(grade, "vignette")).toBe(0.25);
-    // W1.4: the vignette's weight leans up the frame, hardest by day where the
-    // haze band is brightest and gentlest at night, which has little sky to
-    // spare. The bias still redistributes rather than adding darkening; Item 3
-    // separately lowers only the night amount to recover the near rim.
-    expect(numberUniform(grade, "vignetteBias")).toBe(0.25);
+    // T1.1 (2026-09-07): night takes the smallest step of the three phases,
+    // 0.25/0.25 -> 0.28/0.15. The proposed 0.32/0.12 would have put ~22.6 % on
+    // the bottom corners, and the night grade above promises a readable
+    // camera-side rim; 0.28/0.15 lands at ~19.1 % and still moves the darks to
+    // the bottom of frame. Night stays the softest of the three amounts, as it
+    // always has.
+    expect(numberUniform(grade, "vignette")).toBe(0.28);
+    expect(numberUniform(grade, "vignetteBias")).toBe(0.15);
     expect(numberUniform(grade, "flash")).toBe(0);
     // W1.3: the night knee clears the lantern pool ring (~1.0 luminance) that
     // used to smear the whole water plane, so only the beacon and the top of
@@ -767,10 +773,12 @@ describe("garden post-processing contracts", () => {
     expect(colorUniform(grade, "lift")[1]).toBeCloseTo(0.005);
     expect(colorUniform(grade, "lift")[2]).toBeCloseTo(0.01);
     // Golden Garden: the ember hour buys back mid chroma at 1.12 over violet
-    // shadows; 0.26 vignette so the ember horizon is not double-darkened.
+    // shadows. T1.1 (2026-09-07): 0.26/0.35 -> 0.38/0.15. The old top-heavy
+    // bias was what double-darkened the ember horizon; keeping the amount low
+    // to protect it was treating the symptom.
     expect(numberUniform(grade, "saturation")).toBe(1.12);
-    expect(numberUniform(grade, "vignette")).toBe(0.26);
-    expect(numberUniform(grade, "vignetteBias")).toBe(0.35);
+    expect(numberUniform(grade, "vignette")).toBe(0.38);
+    expect(numberUniform(grade, "vignetteBias")).toBe(0.15);
     expect(bloom.intensity).toBe(0.85);
     expect(bloom.luminanceMaterial.threshold).toBe(1.15);
     expect(bloom.luminanceMaterial.smoothing).toBe(0.3);
@@ -781,11 +789,40 @@ describe("garden post-processing contracts", () => {
     expect(colorUniform(grade, "lift")[0]).toBeCloseTo(0.004);
     expect(colorUniform(grade, "lift")[1]).toBeCloseTo(0.004);
     expect(colorUniform(grade, "lift")[2]).toBeCloseTo(0.007);
-    // Golden Garden: the day is luxuriant (1.12) and its vignette lighter
-    // (0.26) so the warm haze at the seam is not crushed into a corner band.
+    // T1.1 (2026-09-07) is the headline of the composition pass and this row
+    // is where it bites hardest: 0.26/0.4 -> 0.40/0.15. The superseded pin here
+    // read the light amount as protecting the seam haze, but the vignette is a
+    // linear multiply BEFORE tone mapping and the 0.4 bias aimed it at the TOP
+    // of frame, where the sky bokashi and the depth fog already darken —
+    // leaving the bottom corners at ~12.5 % and the day frame with no floor.
     expect(numberUniform(grade, "saturation")).toBe(1.12);
-    expect(numberUniform(grade, "vignette")).toBe(0.26);
-    expect(numberUniform(grade, "vignetteBias")).toBe(0.4);
+    expect(numberUniform(grade, "vignette")).toBe(0.4);
+    expect(numberUniform(grade, "vignetteBias")).toBe(0.15);
+
+    // The intent, not just the numbers: after T1.1 every phase darkens its
+    // BOTTOM corners more than the shipped grade did, and no phase leans the
+    // weight up the frame hard enough to out-darken the bottom by more than
+    // 1.4x. `bokashi` in GRADE_FRAGMENT_SHADER is
+    // mix(1 - bias, 1 + bias, smoothstep(0.15, 0.95, uv.y)), and a corner sits
+    // at vig = smoothstep(0.35, 0.85, 0.7071) = 0.8016.
+    const cornerVig = 0.8016;
+    for (const [dayMix, duskMix, wasBottom] of [
+      [0, 0, 0.25 * cornerVig * 0.75],
+      [0, 1, 0.26 * cornerVig * 0.65],
+      [1, 0, 0.26 * cornerVig * 0.6],
+    ] as const) {
+      post.setGrade(dayMix, duskMix);
+      const amount = numberUniform(grade, "vignette");
+      const bias = numberUniform(grade, "vignetteBias");
+      const bottom = amount * cornerVig * (1 - bias);
+      const top = amount * cornerVig * (1 + bias);
+      expect(bottom).toBeGreaterThan(wasBottom);
+      expect(top / bottom).toBeLessThan(1.4);
+      // Night's camera-side rim is the darkest thing in any frame; the night
+      // grade promises it stays readable, so cap its corner loss at 20 %.
+      if (dayMix === 0 && duskMix === 0) expect(bottom).toBeLessThan(0.2);
+    }
+    post.setGrade(1, 0);
     expect(bloom.intensity).toBe(0.92);
     // W1.3: 50 % of margin over the bokashi haze band (~0.7–0.8) instead of the
     // old 19 %, so the day sky cannot bloom even if the wipe drifts brighter —
@@ -1065,7 +1102,12 @@ describe("garden post-processing contracts", () => {
       previous = gate;
     }
     expect(gardenGodRayLowSunGate(0.12, 0)).toBe(1);
-    expect(gardenGodRayLowSunGate(0.8, 0)).toBe(0);
+    // T2.3 (2026-09-07): NONE 0.55 -> 0.85, so noon's 0.80 is no longer a hard
+    // zero but a sliver — the point of the change is that midday stops being a
+    // cliff. The moon pose (0.91) is still outside the window entirely, which
+    // is the shut this test actually needs to pin.
+    expect(gardenGodRayLowSunGate(0.8, 0)).toBeCloseTo(0.015, 3);
+    expect(gardenGodRayLowSunGate(0.91, 0)).toBe(0);
     // Night closes it whatever the pose says, which is the half elevation
     // cannot do: the key light crosses back down through the low band on its
     // way to the moon.
@@ -1100,14 +1142,20 @@ describe("garden post-processing contracts", () => {
     // Dawn is the same window from the other side, but the sun is already
     // ~19° up: present and deliberately paler.
     expect(dawn).toBeGreaterThan(0.006);
-    expect(dawn).toBeLessThan(dusk * 0.6);
+    // T2.3 widened the window, so dawn closes on dusk: 0.54 -> 0.68 of it.
+    // Dusk still leads, which is the ordering that matters.
+    expect(dawn).toBeLessThan(dusk * 0.7);
     expect(lateAfternoon).toBeGreaterThan(0);
     expect(lateAfternoon).toBeLessThan(dawn);
     expect(emberEvening).toBeGreaterThan(0);
     expect(emberEvening).toBeLessThan(dusk);
 
-    // Shut at high day and at night proper — no shafts without a low sun.
-    expect(rayWeightAt(12)).toBe(0);
+    // T2.3 (2026-09-07): noon is now a sliver rather than a hard zero — under
+    // 2 % of dusk, which is the whole intent of NONE 0.55 -> 0.85. Night proper
+    // is still exactly shut, by GODRAY_NIGHT_FADE_POWER rather than by
+    // elevation.
+    expect(rayWeightAt(12)).toBeGreaterThan(0);
+    expect(rayWeightAt(12)).toBeLessThan(dusk * 0.02);
     expect(rayWeightAt(22)).toBe(0);
     expect(rayWeightAt(2)).toBe(0);
   });

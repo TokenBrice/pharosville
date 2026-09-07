@@ -1,6 +1,10 @@
 import { BoxGeometry, BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { HARBOR_PALETTE } from "../systems/palette";
+import {
+  applyLighthouseRimLight,
+  LIGHTHOUSE_WINDOW_MATERIAL_NAME,
+} from "./garden-lighthouse";
 import { stableUnit } from "./garden-util";
 
 const CX = -7;
@@ -126,7 +130,12 @@ export function createGardenPrecinct(): Group {
     new MeshStandardMaterial({ vertexColors: true, roughness: 0.96, flatShading: true }),
     new MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }),
     new MeshStandardMaterial({ color: HARBOR_PALETTE.iron_dark, roughness: 1 }),
-    new MeshStandardMaterial({ color: HARBOR_PALETTE.lantern_glow, emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: 0.65, roughness: 0.38 }),
+    // T0.2 (2026-09-07): the keeper's window was a frozen 0.65 — lit at noon,
+    // no brighter at midnight. Carrying the shared aperture material NAME puts
+    // it on the day cycle's tower-window curve (0.18 day / 1.53 night) with no
+    // handle of its own; see collectLighthouseGlowMaterials. The 0.65 here is
+    // now only the value it is born with, before the first frame runs.
+    new MeshStandardMaterial({ color: HARBOR_PALETTE.lantern_glow, emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: 0.65, name: LIGHTHOUSE_WINDOW_MATERIAL_NAME, roughness: 0.38 }),
   ];
   [stone, cliff, recesses, glow].forEach((bucket, index) => {
     const geometry = mergeGeometries(bucket, false)!;
@@ -136,6 +145,11 @@ export function createGardenPrecinct(): Group {
     mesh.userData.gardenKeepSeparate = true;
     mesh.castShadow = index < 2;
     mesh.receiveShadow = true;
+    // T1.7 (2026-09-07): the curtain masonry and its cliff are the bottom two
+    // thirds of the Pharos silhouette against the sky, and they had no rim at
+    // all while the tower above them did — the engraved edge stopped dead at
+    // the terrace. Same shared uniforms, so one day-cycle write drives both.
+    if (index < 2) applyLighthouseRimLight(mesh);
     root.add(mesh);
   });
   return root;

@@ -178,16 +178,21 @@ interface GradePreset {
   split: number;
   vignette: number;
   /**
-   * W1.4 (bokashi bias): how far the radial vignette's weight is shifted from
-   * the bottom of the frame to the top. 0 is the symmetric corner vignette this
-   * shipped with; at 0.45 the top corners carry 1.45x the darkening and the
-   * bottom corners 0.55x, so the falloff reads as Hiroshige's graded indigo
-   * band across the sky rather than as a lens artifact. The TOTAL darkening is
-   * roughly preserved — this redistributes the shipped vignette, it does not
-   * add to it, which is why the tuned `vignette` values above are untouched.
+   * How far the radial vignette's weight is shifted from the bottom of the
+   * frame to the top. 0 is a symmetric corner vignette; positive leans the
+   * darkening UP the frame, negative would lean it down.
    *
-   * The full bokashi sky work is W1.4's other half and belongs to
-   * `garden-sky.ts`; this is only the post-side bias.
+   * T1.1 (2026-09-07) inverted the intent this dial shipped with. W1.4 read it
+   * as a second bokashi band and pushed it high (day 0.4) so the top corners
+   * carried 1.4x the darkening — but the vignette is a linear multiply BEFORE
+   * tone mapping, so a top-heavy bias lands on the one region that already has
+   * two other darkeners (the sky's own bokashi and the depth fog) while
+   * starving the bottom, where every reference puts its framing darks. The
+   * bias is now small and the amount carries the work: bottom corners go from
+   * ~12.5 % darkening by day to ~27 %.
+   *
+   * The sky-side bokashi is W1.4's other half and belongs to `garden-sky.ts`;
+   * this is only the post-side bias.
    */
   vignetteBias: number;
 }
@@ -211,8 +216,15 @@ const NIGHT_GRADE: GradePreset = {
   saturation: 1.02,
   shadowTint: [0.98, 0.95, 1.06],
   split: 0.34,
-  vignette: 0.25,
-  vignetteBias: 0.25,
+  // T1.1 (2026-09-07): 0.25 -> 0.28, bias 0.25 -> 0.15. Night takes the
+  // smallest step of the three phases on purpose. The proposed 0.32/0.12 puts
+  // ~22.6 % darkening on the bottom corners; the night grade's premise above is
+  // that the camera-side rim stays readable, and that rim is the darkest thing
+  // in the frame (global lift 0.01, no key). 0.28/0.15 lands at ~19.1 %, which
+  // keeps the near rim inside the ~20 % ceiling the soft-falloff note implies
+  // while still flipping the bias to the bottom of frame.
+  vignette: 0.28,
+  vignetteBias: 0.15,
 };
 const DUSK_GRADE: GradePreset = {
   gain: [1.04, 0.98, 1.0],
@@ -222,8 +234,10 @@ const DUSK_GRADE: GradePreset = {
   saturation: 1.12,
   shadowTint: [0.94, 0.92, 1.1],
   split: 0.55,
-  vignette: 0.26,
-  vignetteBias: 0.35,
+  // T1.1 (2026-09-07): 0.26 -> 0.38, bias 0.35 -> 0.15. The old top-heavy bias
+  // double-darkened the ember horizon, which is the one thing dusk is for.
+  vignette: 0.38,
+  vignetteBias: 0.15,
 };
 const DAY_GRADE: GradePreset = {
   gain: [1.04, 1.0, 0.95],
@@ -233,8 +247,12 @@ const DAY_GRADE: GradePreset = {
   saturation: 1.12,
   shadowTint: [0.94, 0.95, 1.06],
   split: 0.45,
-  vignette: 0.26,
-  vignetteBias: 0.4,
+  // T1.1 (2026-09-07): 0.26 -> 0.40, bias 0.4 -> 0.15. Day is the headline
+  // case: 0.26/0.4 left the bottom corners at ~12.5 % darkening, so the frame
+  // had no floor at the modal hour. 0.40/0.15 reads ~27 % there and ~36 % at
+  // the top, still graded rather than symmetric.
+  vignette: 0.4,
+  vignetteBias: 0.15,
 };
 
 const POST_PHASE_NIGHT: PostPhaseConfig = {
@@ -462,16 +480,14 @@ const DITHER_TEXTURE_URL = "/pharosville/textures/garden-blue-noise.png?v=fb2836
 /**
  * W1.2 (optional half): static paper grain, as a fraction of luminance.
  *
- * A/B'd on the real GPU by day on 2026-08-13 (`outputs/w11-day-a.png` without,
- * `outputs/w11-day-grain.png` with). Kept OFF: at 0.015 it does not survive the
- * measurement — mean adjacent-pixel difference over a 300x200 patch of upper
- * haze moved 1.553 to 1.512, i.e. nothing outside run-to-run variation — and a
- * grain strong enough to see would texture the emptiness the plan is trying to
- * protect. The term stays in the shader behind this dial because the print
- * register is a live design question (W1.6) and re-testing it should cost one
- * number, not a re-derivation.
+ * 0 -> 0.035 (2026-09-07). The 2026-08-13 A/B kept this off at 0.015 because it
+ * did not survive measurement, and because a flat grain strong enough to see
+ * would have textured the empty sky the plan protects. Both halves of that are
+ * now addressed: the strength is more than doubled, and the shader weights it
+ * by `1 - |2*luma - 1|` so it peaks in the midtones and falls to nothing in the
+ * sky and in T1.1's new corner darks — the two regions the A/B was defending.
  */
-const PAPER_GRAIN_STRENGTH = 0;
+const PAPER_GRAIN_STRENGTH = 0.035;
 
 /**
  * How fast the LUT and dither fade in once their textures decode, as an
@@ -608,7 +624,12 @@ const LUT_FRAGMENT_SHADER = /* glsl */ `
 
       if (grain > 0.0) {
         float tooth = texture2D(ditherNoise, gl_FragCoord.xy / (DITHER_TILE * 1.7) + vec2(0.37)).r;
-        display *= 1.0 + (tooth - 0.5) * grain;
+        // 2026-09-07: weighted toward the midtones. A flat multiply put the
+        // most visible grain on the emptiest parts of the frame; the triangular
+        // window peaks at luma 0.5 and vanishes at both ends, so the sky stays
+        // clean and the paper tooth does not bite T1.1's new framing darks.
+        float luma = dot(display, vec3(0.2126, 0.7152, 0.0722));
+        display *= 1.0 + (tooth - 0.5) * grain * (1.0 - abs(2.0 * luma - 1.0));
       }
     }
 
@@ -981,13 +1002,20 @@ const GODRAY_SHADOW_BIAS = 0.0016;
  * `gardenKeyLightPose` — the sun by day, crossed to the moon after dark. That
  * choice is deliberate: rays that agree with the shadow map must be gated by
  * the same pose the map was drawn for. Against the shipped arc it lands at
- * ~1.0 at dusk (t=19, 0.086 — the low-sun window is wide open there), ~0.55
- * at dawn (t=7, 0.34),
- * ~0.28 through late afternoon (t=17), and exactly 0 at noon (0.80) and at
- * night, where the pose has crossed to the high moon (0.91).
+ * ~1.0 at dusk (t=19, 0.086 — the low-sun window is wide open there), ~0.83
+ * at dawn (t=7, 0.34), ~0.92 through late afternoon (t=17), a thin ~0.015 at
+ * noon (0.80), and 0 at night, where the pose has crossed to the high moon
+ * (0.91) and the night fade below closes it anyway.
+ *
+ * T2.3 (2026-09-07): NONE 0.55 -> 0.85. At 0.55 the shafts were hard-off from
+ * ~08:20 to ~16:20 — the whole modal stretch of the clock, which is the hour
+ * the piece is most often looked at. 0.85 leaves noon a barely-there sliver
+ * rather than a cliff and keeps the moon (0.91) outside the window entirely.
+ * This is the one item in the pass with real GPU cost: the 28-step half-res
+ * march now runs most of the day instead of ~5h.
  */
 const GODRAY_ELEVATION_FULL = 0.16;
-const GODRAY_ELEVATION_NONE = 0.55;
+const GODRAY_ELEVATION_NONE = 0.85;
 /**
  * The night kill. Elevation alone cannot close the window after sunset: the
  * pose crosses to the moon through the evening and passes back down through

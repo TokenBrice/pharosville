@@ -83,12 +83,33 @@ describe("garden sky billboard atmosphere", () => {
     sky.dispose();
   });
 
-  it("keeps the banks out of the midday frame and gives them dawn and night", () => {
+  it("gives the banks a midday whisper under their dawn, dusk and night body", () => {
     const sky = createGardenSky();
     const mist = mistOf(sky);
 
+    // 2026-09-07 (T2.4) — DELIBERATE REVERSAL of the earlier contract, which
+    // was named "keeps the banks out of the midday frame" and asserted
+    // `mist.visible === false` at hour 12.
+    //
+    // That contract was written against the retired 320x9 mist PLANE, whose
+    // hard-edged full-width band really did white out a noon frame. The
+    // instanced banks are nine soft radial billboards on the far anchors, and
+    // the clear-sky term `dusk * 0.55 + night * 0.48` sat at EXACTLY zero for
+    // the 8.5 hours `dayCyclePhase` reports daylight = 1 / dusk = 0 — so the
+    // modal hour of the piece got nothing from the whole system.
+    //
+    // The new intent is a whisper on the far shelves only: ~0.066 uniform
+    // opacity, which the shader's radial shape and distance fade take to about
+    // 0.036 on screen, riding the pulled-in fog ladder rather than fighting it.
+    // The old white-out concern does not apply at that opacity — a third of the
+    // dusk value on billboards that are already fading out at their anchors is
+    // aerial perspective, not a layer over the garden. The dusk and night
+    // assertions below still guard the element's real body.
     sky.update(dayCyclePhase(12), FRAME);
-    expect(mist.visible).toBe(false);
+    expect(mist.visible).toBe(true);
+    const middayOpacity = uniformsOf(mist).uOpacity!.value as number;
+    expect(middayOpacity).toBeGreaterThan(0.02);
+    expect(middayOpacity).toBeLessThan(0.09);
 
     sky.update(dayCyclePhase(18), FRAME);
     expect(mist.visible).toBe(true);

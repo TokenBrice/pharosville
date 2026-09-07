@@ -97,6 +97,8 @@ interface LighthouseModelTarget {
   lighthouseLight: PointLight;
   lighthouseRoot: Group;
   lighthouseShell: Group;
+  /** T0.2: filled with the attached GLB's cloned aperture materials. */
+  lighthouseWindowMaterials?: MeshStandardMaterial[];
   statueGleamMaterials?: MeshStandardMaterial[];
   summitBirdsRoot?: Object3D | null;
 }
@@ -138,7 +140,40 @@ export function attachGardenLighthouseModel(
   content.beam.position.copy(beamPosition);
   content.beaconFireRoot?.position.copy(beaconPosition);
   content.summitBirdsRoot?.position.copy(beaconPosition);
-  prepareLighthouseModelMaterials(model, content.statueGleamMaterials);
+  prepareLighthouseModelMaterials(
+    model,
+    content.statueGleamMaterials,
+    content.lighthouseWindowMaterials,
+  );
+}
+
+/**
+ * The material-name contract shared by the procedural shell, the generated GLB
+ * (`scripts/pharosville/generate-garden-lighthouse.mjs`) and the precinct
+ * gatehouse: any lit aperture in the world carries this name, and the runtime
+ * finds it by name alone. Same technique as "bronze-gilt" for the statue.
+ */
+export const LIGHTHOUSE_WINDOW_MATERIAL_NAME = "lighthouse-window-glow";
+
+/**
+ * T0.2 (2026-09-07): collects the day-cycle-driven materials out of a freshly
+ * built island. Both arrays are per-build, so they cannot leak across
+ * rebuilds; the window array is additive (deduped) because the GLB attach
+ * appends its clones to the same list rather than replacing the shell's.
+ */
+export function collectLighthouseGlowMaterials(
+  root: Object3D,
+  windowMaterials: MeshStandardMaterial[],
+): void {
+  root.traverse((object) => {
+    if (!(object instanceof Mesh)) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      if (!(material instanceof MeshStandardMaterial)) continue;
+      if (material.name !== LIGHTHOUSE_WINDOW_MATERIAL_NAME) continue;
+      if (!windowMaterials.includes(material)) windowMaterials.push(material);
+    }
+  });
 }
 
 /**
@@ -151,15 +186,20 @@ export function attachGardenLighthouseModel(
 function prepareLighthouseModelMaterials(
   model: Group,
   statueGleamMaterials: MeshStandardMaterial[] | undefined,
+  windowMaterials?: MeshStandardMaterial[],
 ): void {
   if (!model.userData.lighthouseGleamCloned) {
     model.userData.lighthouseGleamCloned = true;
     const clones = new Map<MeshStandardMaterial, MeshStandardMaterial>();
+    // T0.2: the apertures join the gilt in the per-instance clone set — the
+    // day cycle animates their emissive, and the model library's shared cache
+    // material must not be mutated.
+    const animated = new Set(["bronze-gilt", LIGHTHOUSE_WINDOW_MATERIAL_NAME]);
     model.traverse((object) => {
       if (!(object instanceof Mesh)) return;
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       const next = materials.map((material) => {
-        if (!(material instanceof MeshStandardMaterial) || material.name !== "bronze-gilt") {
+        if (!(material instanceof MeshStandardMaterial) || !animated.has(material.name)) {
           return material;
         }
         let clone = clones.get(material);
@@ -186,6 +226,10 @@ function prepareLighthouseModelMaterials(
       }
     });
   }
+  // The shell's own aperture materials stay in the list (its meshes are hidden
+  // once the GLB stands, so the extra writes are inert) and the GLB's clones
+  // are appended, so one array drives whichever tower is visible.
+  if (windowMaterials) collectLighthouseGlowMaterials(model, windowMaterials);
 }
 
 /**
@@ -197,9 +241,13 @@ function prepareLighthouseModelMaterials(
  * cloud+rim variants never collide. Uniforms are module-level and shared, so
  * updateLighthouseRimLight retunes every patched material in one write.
  */
-const RIM_UNIFORMS = {
+/** Exported so the rim curve (T1.7) can be pinned without a renderer. */
+export const LIGHTHOUSE_RIM_UNIFORMS = {
   uLighthouseRimColor: { value: new Color(HARBOR_PALETTE.moonlight) },
-  uLighthouseRimStrength: { value: 0.1 },
+  // T1.7 (2026-09-07): 0.1 -> 0.16. The rim is what separates the tower from
+  // the sky like an engraving, and at 0.1 it was doing that only where the
+  // fresnel already peaked. See updateLighthouseRimLight for the phase curve.
+  uLighthouseRimStrength: { value: 0.16 },
   // Matches the world-renderer key sun at (-35, 48, -30) aimed at y≈3.
   uLighthouseRimSunDir: { value: new Vector3(-35, 45, -30).normalize() },
 };
@@ -244,9 +292,9 @@ export function applyLighthouseRimLight(root: Object3D): void {
         previous.call(material, shader, renderer);
         // Share the module-level uniform objects — never copy — so one
         // day-cycle write reaches every tower material.
-        shader.uniforms.uLighthouseRimColor = RIM_UNIFORMS.uLighthouseRimColor;
-        shader.uniforms.uLighthouseRimStrength = RIM_UNIFORMS.uLighthouseRimStrength;
-        shader.uniforms.uLighthouseRimSunDir = RIM_UNIFORMS.uLighthouseRimSunDir;
+        shader.uniforms.uLighthouseRimColor = LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimColor;
+        shader.uniforms.uLighthouseRimStrength = LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimStrength;
+        shader.uniforms.uLighthouseRimSunDir = LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimSunDir;
         shader.fragmentShader = shader.fragmentShader
           .replace(
             "#include <common>",
@@ -271,7 +319,7 @@ export function applyLighthouseRimLight(root: Object3D): void {
 /** Day-cycle driver for the shared rim uniforms (called once per frame). */
 export function updateLighthouseRimLight(phase: DayCyclePhase): void {
   blendDayCycleColor(
-    RIM_UNIFORMS.uLighthouseRimColor.value,
+    LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimColor.value,
     RIM_NIGHT_COLOR,
     RIM_DUSK_COLOR,
     RIM_DAY_COLOR,
@@ -279,7 +327,10 @@ export function updateLighthouseRimLight(phase: DayCyclePhase): void {
     phase.daylight,
   );
   // Subtle by day; strongest at night where the tower meets the indigo sky.
-  RIM_UNIFORMS.uLighthouseRimStrength.value = 0.1 + phase.dusk * 0.04 + phase.night * 0.08;
+  // T1.7 (2026-09-07): 0.1/+0.04/+0.08 -> 0.16/+0.06/+0.12, so day 0.16,
+  // dusk 0.22, night 0.28. The whole curve moved together — the old dusk and
+  // night lifts were proportionally right, just built on too low a base.
+  LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimStrength.value = 0.16 + phase.dusk * 0.06 + phase.night * 0.12;
 }
 
 /**
@@ -458,7 +509,7 @@ export function createLighthouse(): {
     // W4.5: matches the GLB's aperture material name, so a day-cycle driver
     // for the interior glow finds the windows in the fallback shell and the
     // loaded model alike (same contract as the "bronze-gilt" statue gleam).
-    name: "lighthouse-window-glow",
+    name: LIGHTHOUSE_WINDOW_MATERIAL_NAME,
     roughness: 0.38,
     toneMapped: false,
   });

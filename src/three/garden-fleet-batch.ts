@@ -913,6 +913,42 @@ const HULL_SURFACE_COLOR = `
   vColor.xyz = mix(vColor.xyz, verdigris, fittingWear);
 #endif`;
 
+/**
+ * 2026-09-07 T3.4: the hull's finish, not its colour.
+ *
+ * One matte roughness over every part is what makes a batched hull read as a
+ * moulded toy: real timber has a varnished rail that catches the sun and a wet
+ * band at the waterline that catches everything. Both are fragment-only, so
+ * this costs no draw call, no attribute and no uniform — the rail reuses the
+ * `aPartMasks.w` rim term already baked by `applySurfaceMasks` (the sail batch
+ * is at 16/16 attribute slots and the hull at 15/16; there is no room for a
+ * new one and this needs none).
+ *
+ * Two numbers are load-bearing:
+ *   - the wet band is 0.11 ship-local units, UNDER the 0.12 ceiling. Wider and
+ *     it stops reading as a waterline and starts reading as a painted stripe.
+ *   - roughness floors at 0.45, never lower. The fleet is lit by one key and a
+ *     PMREM probe; below ~0.45 the hulls pick up the probe's sun disc as a hard
+ *     specular chip and 200 ships twinkle.
+ *
+ * The band is placed at the water plane (`GARDEN_SHIP_ROOT_Y - GARDEN_WATER_Y`
+ * = 0.38 below the ship root), divided by the instance's scale because the
+ * root offset is applied outside the instance matrix while `transformed` is
+ * inside it. It deliberately does NOT track bob: it is paint on a hull, and a
+ * band that slid up and down the planking every second would be worse.
+ */
+const HULL_SURFACE_GLOSS = `
+#ifdef USE_INSTANCING
+  float shipScale = max(0.001, length(instanceMatrix[1].xyz));
+#else
+  float shipScale = 1.0;
+#endif
+  float wetBand = 1.0 - smoothstep(0.0, 0.11, abs(transformed.y + 0.38 / shipScale));
+  vHullGloss = clamp(max(aPartMasks.w * 0.55, wetBand), 0.0, 1.0);`;
+
+const HULL_GLOSS_FRAGMENT = `
+  roughnessFactor = mix(roughnessFactor, 0.45, vHullGloss);`;
+
 export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = withHullForm(shader.vertexShader)
@@ -925,12 +961,25 @@ export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void
         attribute vec3 aTrim;
         attribute vec4 aHullSurface;
         attribute vec4 aVariationPivot;
-        attribute vec4 aPartMasks;`,
+        attribute vec4 aPartMasks;
+        varying float vHullGloss;`,
       )
-      .replace("#include <color_vertex>", `#include <color_vertex>\n${STRAKE_PAINT}\n${HULL_SURFACE_COLOR}`);
+      .replace("#include <color_vertex>", `#include <color_vertex>\n${STRAKE_PAINT}\n${HULL_SURFACE_COLOR}`)
+      // After every deform: `transformed` has to be final before the waterline
+      // band can know where on the planking it lands.
+      .replace("#include <project_vertex>", `${HULL_SURFACE_GLOSS}\n#include <project_vertex>`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying float vHullGloss;")
+      .replace(
+        "#include <roughnessmap_fragment>",
+        `#include <roughnessmap_fragment>\n${HULL_GLOSS_FRAGMENT}`,
+      );
     injectGardenHeightFog(shader);
   };
-  material.customProgramCacheKey = () => "garden-fleet-hull-form-strake-trim-wabi-age-fittings-height-fog";
+  // Three caches compiled programs by this key. Without the `-gloss` suffix the
+  // old program is silently reused and none of the above reaches the GPU.
+  material.customProgramCacheKey = () =>
+    "garden-fleet-hull-form-strake-trim-wabi-age-fittings-height-fog-gloss";
 }
 
 export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
@@ -1348,7 +1397,9 @@ export function writeFleetInstance(
     };
     batch.hull.hullSurface.setXYZW(
       slot,
-      MathUtils.clamp(surface.hullValue ?? 1, 0.9, 1.1),
+      // 2026-09-07 T1.10: 0.9-1.1 -> 0.85-1.15, to pass the widened decorative
+      // value spread `deriveShipWabiSurface` now produces (+-6-15%).
+      MathUtils.clamp(surface.hullValue ?? 1, 0.85, 1.15),
       surface.agePatina == null ? -1 : MathUtils.clamp(surface.agePatina, -1, 1),
       MathUtils.clamp(surface.propRotation ?? 0, -Math.PI / 18, Math.PI / 18),
       Math.max(0, Math.floor(surface.fittingCode ?? 0))

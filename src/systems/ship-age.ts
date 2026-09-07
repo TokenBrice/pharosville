@@ -32,7 +32,12 @@ export function deriveShipWabiSurface(shipId: string): ShipWabiSurface {
   const propDirection = stableUnit(`${shipId}|wabi-prop-direction`) < 0.5 ? -1 : 1;
   const ropeDirection = stableUnit(`${shipId}|wabi-rope-direction`) < 0.5 ? -1 : 1;
   return {
-    hullValue: 1 + hullDirection * (0.04 + stableUnit(`${shipId}|wabi-hull-magnitude`) * 0.02),
+    // 2026-09-07 T1.10: +-4-6% -> +-6-15%. At rest, value is the only hull
+    // channel the eye resolves at default zoom, and a single silhouette is 43%
+    // of the fleet, so a 4-6% spread reads as one flat mass. Still decorative
+    // and still symmetric about 1: it is seeded from the id alone (see the
+    // "Decorative only" contract above) and encodes nothing.
+    hullValue: 1 + hullDirection * (0.06 + stableUnit(`${shipId}|wabi-hull-magnitude`) * 0.09),
     propRotation: propDirection * (2 + stableUnit(`${shipId}|wabi-prop-magnitude`) * 7) * Math.PI / 180,
     ropeSag: ropeDirection * (0.025 + stableUnit(`${shipId}|wabi-rope-magnitude`) * 0.045),
   };

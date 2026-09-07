@@ -44,6 +44,12 @@ const PROP_KINDS: readonly HarborPropKind[] = ["post", "lampHead", "plank", "bol
  * pools. They therefore share one emissive bucket while garden-lanterns keeps
  * sole ownership of the limited water-lane budget.
  */
+/**
+ * The value the window bucket is BORN with, before the first frame. T0.2
+ * (2026-09-07): `updateDayCycle` now drives this material every frame off
+ * `content.harborBatch` (0.35 day / 1.75 dusk / 2.10 night) — it used to be a
+ * frozen constant, which is why the harbour was as lit at noon as at midnight.
+ */
 export const HARBOR_WINDOW_EMBER_INTENSITY = 1.6;
 
 type BucketMeshes = Record<HarborBucket, Mesh | null>;
