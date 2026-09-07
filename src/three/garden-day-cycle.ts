@@ -258,6 +258,12 @@ interface DayCycleContent {
   fleetSailMaterial: MeshStandardMaterial | null;
   harborLanternMaterial: MeshStandardMaterial;
   /**
+   * T0.2 remainder (2026-09-07): the island's two stone path lanterns share
+   * one lamp material (`gardenIslandLanternMaterial`). Optional and nullable
+   * so the cycle no-ops safely before the integrator wires the handle.
+   */
+  islandLanternMaterial?: MeshStandardMaterial | null;
+  /**
    * T0.2 (2026-09-07): the batched station apertures — one "window" bucket
    * mesh per detail level, holding every warm window and lit quay edge.
    *
@@ -385,6 +391,23 @@ export function updateDayCycle(
   const towerWindowGlow = 0.18 + dusk * 0.9 + night * 1.35;
   for (const material of scene.content.lighthouseWindowMaterials ?? []) {
     material.emissiveIntensity = towerWindowGlow;
+  }
+  // T0.2 remainder: the island's stone path lanterns, the last constant
+  // aperture in the world. Constant 1.15 -> 0.22 day / 1.37 dusk / 1.97 night.
+  //
+  // A path lantern is a small warm POINT, not a window, so it takes the
+  // harbour-lantern curve shape (`0.18 + dusk*1.2 + night*1.9` above) rather
+  // than the station-window one — but shifted a little on both ends for where
+  // it stands. The day base is 0.22 rather than 0.18: these two sit in the
+  // middle of a pale gravel sweep in full sun, and the harbour lanterns do
+  // not, so they need slightly more to stay visible as objects at noon while
+  // still reading as unlit. The night peak is 1.97 rather than 2.08 because
+  // they share the island with the beacon: island punctuation must never
+  // approach the one dominant light standing 34 units above it. Both ends stay
+  // under the ~2.2 tone-mapping clip — the material is `toneMapped: false`, so
+  // past it the lamps roll off to white pinpricks instead of gold.
+  if (scene.content.islandLanternMaterial) {
+    scene.content.islandLanternMaterial.emissiveIntensity = 0.22 + dusk * 1.15 + night * 1.75;
   }
   scene.content.beam.visible = true;
   // Lane S grounded the fleet on a darker 0.28 base opacity (S7); the curve

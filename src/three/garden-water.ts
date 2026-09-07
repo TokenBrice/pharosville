@@ -912,8 +912,27 @@ ${gardenHeightFogGlsl()}
     // Night quietness (garden-water-contract.ts): this is a mix toward the
     // night sky sample, not an additive term, so it does not enter the
     // open-night emissive mean and the 0.016 ceiling is untouched.
+    // The Schlick exponent is 5, so fresnel is far more derivative-sensitive
+    // than the cubic it replaced: wherever the normal map under-samples — the
+    // far field, where a texel spans more than a pixel — the wave detail beats
+    // against the sample grid and the sea develops regular diagonal banding.
+    // Observed on the real GPU 2026-09-07, strongest in the top-right of the
+    // rest frame.
+    //
+    // The fix is the filter this shader already owns. glintDetailWeight is
+    // 1/(1 + length(fwidth(normal))*18) - the screen-space variance measure the sun
+    // glitter uses for exactly this reason — so reusing it pulls the fresnel
+    // normal toward flat water precisely where the detail is unresolvable, and
+    // leaves it untouched in the near field. Calming the ALIASING rather than
+    // lowering the gain keeps the sky in the water, which is the whole point
+    // of T1.2.
+    vec3 fresnelNormal = normalize(mix(
+      vec3(0.0, 1.0, 0.0),
+      worldSurfaceNormal,
+      clamp(glintDetailWeight, 0.08, 1.0)
+    ));
     float fresnel = 0.02
-      + 0.98 * pow(1.0 - max(0.0, dot(worldSurfaceNormal, viewDirection)), 5.0);
+      + 0.98 * pow(1.0 - max(0.0, dot(fresnelNormal, viewDirection)), 5.0);
     waterColor = mix(
       waterColor,
       skySample,

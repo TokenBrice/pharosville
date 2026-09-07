@@ -8,6 +8,7 @@ import {
   Matrix4,
   Mesh,
   MeshStandardMaterial,
+  Quaternion,
   RGBAFormat,
   Vector2,
   Vector3,
@@ -26,7 +27,10 @@ import {
   GARDEN_ISLAND_STONE_GROUPINGS,
   GARDEN_QUAY_STAIR_HEAD,
   GARDEN_QUAY_STAIR_TOP_Y,
+  gardenIslandLanternMaterial,
   gardenIslandLanternWorldOffsets,
+  ISLAND_LANTERN_DAY_EMBER,
+  ISLAND_LANTERN_LAMP_NAME,
   gardenPrecinctObeliskGateposts,
   mergeIslandStatics,
   updateGardenNiwakiWind,
@@ -194,9 +198,99 @@ describe("garden island rockwork", () => {
     expect(after).toBeLessThan(77);
     // Wave 5 is subtractive: the prior island held 61 drawables after merge.
     expect(after).toBeLessThanOrEqual(55);
+    // T2.2 (2026-09-07): 48 -> 49. Lane F left 7 slots of headroom under the
+    // ceilings above and spent none of them on the island; exactly ONE goes to
+    // the karikomi hedge (see below). Pinned exactly so the next planting has
+    // to make the same deliberate decision rather than drift into the slack.
+    expect(after).toBe(49);
     for (const name of ["island-reflection-pond-skin", "island-path-sweep", "island-niwaki-pads", "island-danger-rock-face"]) {
       expect(island.root.getObjectByName(name), name).toBeDefined();
     }
+  });
+
+  it("beads the path with one karikomi draw that survives the static merge", () => {
+    // T2.2 (2026-09-07). Clipped azalea along the path's seaward flank: the
+    // vocabulary that makes the island read as GARDENED. One InstancedMesh,
+    // one slot of the seven Lane F left free.
+    const island = createTerracedIsland(world);
+    const karikomi = island.root.getObjectByName("island-karikomi");
+    expect(karikomi).toBeInstanceOf(InstancedMesh);
+    const domes = karikomi as InstancedMesh<BufferGeometry, MeshStandardMaterial>;
+
+    // 23 domes is what the greedy walk fits along the walked stretch at these
+    // radii; the count is derived, so it is pinned to catch a silent change in
+    // the path, the radii or the spacing rule.
+    expect(domes.count).toBe(23);
+    // SphereGeometry(1, 8, 5): 64 triangles a dome, ~1,472 for the batch.
+    expect(domes.geometry.index!.count / 3).toBe(64);
+    expect(domes.instanceColor, "per-dome tone").not.toBeNull();
+
+    // Solid, textureless, vertex-coloured — never an alpha card: N8AO runs
+    // `transparencyAware = false` at half res, so a card occludes as a solid
+    // rectangle. The absent roughnessMap is also what keeps the hedge out of
+    // the terrace-tier query in the next test.
+    expect(domes.material.transparent).toBe(false);
+    expect(domes.material.roughnessMap).toBeNull();
+    expect(domes.material.map).toBeNull();
+    expect(domes.castShadow).toBe(true);
+    // Without this the merge pass is entitled to swallow the draw.
+    expect(domes.userData.gardenKeepSeparate).toBe(true);
+    expect(mergeIslandStatics(island.root).merged).toBe(0);
+    expect(island.root.getObjectByName("island-karikomi")).toBe(domes);
+
+    const matrix = new Matrix4();
+    const position = new Vector3();
+    const scale = new Vector3();
+    const rotation = new Quaternion();
+    const placed: Vector3[] = [];
+    for (let index = 0; index < domes.count; index += 1) {
+      domes.getMatrixAt(index, matrix);
+      matrix.decompose(position, rotation, scale);
+      // Low and squashed: a clipped mound, never a shrub-ball. Half-height at
+      // most 0.36, so nothing here competes with the niwaki above it.
+      expect(scale.y, `dome ${index} height`).toBeLessThan(0.36);
+      expect(scale.y).toBeLessThan(scale.x * 0.57);
+      // Standing on rock, well clear of the -1.45 waterline.
+      expect(position.y, `dome ${index} seated on rock`).toBeGreaterThan(0.5);
+      // Off the gravel: the ribbon's own half-width is ~1.28, so a dome centre
+      // inside 1.4 of the centreline would be planted ON the path.
+      const nearest = Math.min(...GARDEN_PATH_SWEEP_POINTS.map(
+        ({ x, z }) => Math.hypot(position.x - x, position.z - z),
+      ));
+      expect(nearest, `dome ${index} off the gravel`).toBeGreaterThan(1.4);
+      // Clear of the two props already standing on this flank: the observatory
+      // pavilion's 2.4-unit base and the storm-signal mast at (7.2, 3.2).
+      expect(Math.hypot(position.x - 4.4, position.z - 2.35)).toBeGreaterThan(2.6);
+      expect(Math.hypot(position.x - 7.2, position.z - 3.2)).toBeGreaterThan(0.9);
+      placed.push(position.clone());
+    }
+    // A hedge, not a pile: consecutive domes advance along the flank.
+    for (let index = 1; index < placed.length; index += 1) {
+      const step = placed[index]!.distanceTo(placed[index - 1]!);
+      expect(step, `gap ${index}`).toBeGreaterThan(0.3);
+      expect(step, `gap ${index}`).toBeLessThan(1.2);
+    }
+  });
+
+  it("puts the stone path lanterns on the day cycle instead of a frozen ember", () => {
+    // T0.2 remainder (2026-09-07): the lamps were a hard 1.15 at every hour —
+    // the last constant aperture in the world after the station windows and
+    // the tower/gatehouse went on curves. The build value is now the DAY end
+    // of that curve and `updateDayCycle` owns it from the first frame.
+    const island = createTerracedIsland(world);
+    const material = gardenIslandLanternMaterial(island.decoration);
+    expect(material).not.toBeNull();
+    expect(material!.emissiveIntensity).toBe(ISLAND_LANTERN_DAY_EMBER);
+    expect(ISLAND_LANTERN_DAY_EMBER).toBe(0.22);
+    // `toneMapped: false` is why the night end of the curve has a ~2.2 ceiling.
+    expect(material!.toneMapped).toBe(false);
+    // One material for both lamps: the day cycle writes it once per frame.
+    const lamps = island.root.getObjectByName(ISLAND_LANTERN_LAMP_NAME) as InstancedMesh;
+    expect(lamps.count).toBe(2);
+    expect(lamps.material).toBe(material);
+    // The handle is looked up by name, so a build without one must return null
+    // rather than throw — the day cycle no-ops on that.
+    expect(gardenIslandLanternMaterial(new Group())).toBeNull();
   });
 
   it("re-skins the terraces as vertex-coloured stone that casts shadow", () => {
@@ -371,7 +465,14 @@ describe("garden island rockwork", () => {
     expect((lamps as InstancedMesh).count).toBe(offsets.length);
     const material = (lamps as InstancedMesh).material as MeshStandardMaterial;
     expect(material.toneMapped).toBe(false);
-    expect(material.emissiveIntensity).toBeGreaterThan(1);
+    // T0.2 remainder (2026-09-07): was `> 1` against the frozen 1.15. The lamp
+    // is no longer a constant — `updateDayCycle` writes it every frame — so
+    // the build value is the curve's DAY end and a `> 1` build-time floor
+    // would now be asserting the opposite of the intent. The night end is
+    // pinned in garden-day-cycle.test.ts; what belongs here is that the build
+    // leaves the lamp LIT (never 0) at its day level.
+    expect(material.emissiveIntensity).toBe(ISLAND_LANTERN_DAY_EMBER);
+    expect(material.emissiveIntensity).toBeGreaterThan(0);
   });
 
   it("keeps the stair and consolidated Danger face inside the island contract", () => {

@@ -271,7 +271,17 @@ describe("createGardenWater", () => {
     // driven by data rather than by a second hand-placed shape.
     const source = createGardenWater(0).material.fragmentShader;
     expect(source).toContain("float fresnel = 0.02");
-    expect(source).toContain("pow(1.0 - max(0.0, dot(worldSurfaceNormal, viewDirection)), 5.0)");
+    // 2026-09-07, second pass: Schlick still, but against a variance-FILTERED
+    // normal. Exponent 5 is far more derivative-sensitive than the cubic it
+    // replaced, so in the far field — where a normal-map texel spans more than
+    // a pixel — the wave detail beat against the sample grid and the sea
+    // developed regular diagonal banding on the real GPU. `fresnelNormal`
+    // reuses `glintDetailWeight`, the screen-space variance measure the sun
+    // glitter already relies on, to pull toward flat water exactly where the
+    // detail is unresolvable. Pinned because dropping the filter silently
+    // brings the moire back at a distance no unit test renders.
+    expect(source).toContain("pow(1.0 - max(0.0, dot(fresnelNormal, viewDirection)), 5.0)");
+    expect(source).toContain("clamp(glintDetailWeight, 0.08, 1.0)");
     expect(source).toContain("clamp(fresnel * seaReflectivity * (0.40 + uDaylight * 0.45)");
     expect(source).toContain(
       "float mirrorZone = max(harborCalm, smoothstep(1.1, 1.6, regionReflect) * regionBlend);",

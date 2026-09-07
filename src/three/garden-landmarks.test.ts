@@ -14,7 +14,6 @@ import { CAUSE_HEX, type CauseOfDeath } from "@shared/lib/cause-of-death";
 import { describe, expect, it } from "vitest";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { rimLandAt } from "../systems/garden-rim";
-import { HARBOR_WINDOW_EMBER_INTENSITY } from "./garden-harbor-batch";
 import {
   CEMETERY_CENTER,
   CEMETERY_RADIUS,
@@ -26,6 +25,7 @@ import {
   createGardenCemetery,
   createGardenPigeonnier,
   type GardenCemeteryLandmark,
+  WRECK_LANTERN_EMBER_INTENSITY,
   WRECK_STAIN_DESATURATION,
   WRECK_STAIN_STONE,
 } from "./garden-landmarks";
@@ -391,15 +391,26 @@ describe("garden landmarks", () => {
     expect(masts.count).toBe(Math.floor(rendered / 3));
     expect(cloth.count).toBe(masts.count * 2);
 
-    // Exactly one still-burning lantern, on the hero, at or below the
-    // harbour ember level.
+    // Exactly one still-burning lantern, on the hero, at the pinned ember
+    // level.
+    //
+    // 2026-09-07: this used to assert `<= HARBOR_WINDOW_EMBER_INTENSITY`.
+    // T0.2 put the station windows on a day-cycle curve, so that constant is
+    // now only the value the window bucket is BORN with — it is overwritten
+    // every frame and no longer names a level anything is subordinate to.
+    // The wreck lantern, by contrast, is genuinely frozen at every hour, so
+    // the honest protection is an exact pin on its own value: it must stay a
+    // small constant ember, well under the ~2.2 tone-mapping clip (the
+    // material is `toneMapped: false`) and never grow into a second beacon.
+    // An exact pin is strictly stronger than the `<=` it replaces.
     const lantern = cemetery.root.getObjectByName("cemetery-wreck-lantern") as InstancedMesh;
     expect(lantern).toBeInstanceOf(InstancedMesh);
     expect(lantern.count).toBe(1);
     const heroId = cemetery.root.userData.heroGraveId as string;
     expect(lantern.userData.graveId).toBe(heroId);
     const lanternMaterial = lantern.material as MeshStandardMaterial;
-    expect(lanternMaterial.emissiveIntensity).toBeLessThanOrEqual(HARBOR_WINDOW_EMBER_INTENSITY);
+    expect(lanternMaterial.emissiveIntensity).toBe(WRECK_LANTERN_EMBER_INTENSITY);
+    expect(WRECK_LANTERN_EMBER_INTENSITY).toBeLessThan(2.2);
     expect(`#${lanternMaterial.emissive.getHexString()}`).toBe(HARBOR_PALETTE.lantern_warm);
   });
 

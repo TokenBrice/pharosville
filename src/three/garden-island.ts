@@ -139,6 +139,29 @@ const ISLAND_LANTERN_POSITIONS = [
 ] as const;
 const LANTERN_LAMP_LOCAL_Y = 0.88;
 
+/** The lamp-box draw, by name, so the day cycle can find its one material. */
+export const ISLAND_LANTERN_LAMP_NAME = "island-lantern-lamps";
+
+/**
+ * T0.2 (2026-09-07): the build-time emissive of the path lamps, i.e. the DAY
+ * end of `updateDayCycle`'s island-lantern curve. The lamps were a frozen
+ * 1.15 — bright enough at noon to read as lit windows in full sun, and no
+ * brighter at midnight than at midday.
+ */
+export const ISLAND_LANTERN_DAY_EMBER = 0.22;
+
+/**
+ * The one path-lantern lamp material of a freshly built island, or null.
+ * Handed to the day cycle by the integrator; per-build, so it cannot leak
+ * across island rebuilds.
+ */
+export function gardenIslandLanternMaterial(decoration: Group): MeshStandardMaterial | null {
+  const lamps = decoration.getObjectByName(ISLAND_LANTERN_LAMP_NAME);
+  return lamps instanceof Mesh && lamps.material instanceof MeshStandardMaterial
+    ? lamps.material
+    : null;
+}
+
 /**
  * The three surviving garden shelves below the square fortress plateau, as
  * `[topRadius, bottomRadius, height, segments, seed, x, y, z, scaleZ, rotation, topColor]`.
@@ -1021,11 +1044,142 @@ export const GARDEN_ISLAND_STONE_GROUPINGS: readonly (readonly GardenIslandStone
   ],
 ];
 
+/**
+ * T2.2 island planting (2026-09-07). Lane F measured 48 drawables against the
+ * pinned `< 77` / `<= 55` ceilings and spent its own budget on the rim and the
+ * islets; ONE of the seven remaining slots buys the island the vocabulary the
+ * brief actually names. Karikomi — clipped azalea — is what makes a Japanese
+ * garden read as *gardened* rather than merely landscaped: a low, dense,
+ * deliberately sheared mass bedding the path in. 23 domes of
+ * `SphereGeometry(1, 8, 5)` (64 tris) in one InstancedMesh: 1,472 triangles
+ * for one draw call. The count is what the spacing rule below fits along the
+ * walked stretch, not a target — `KARIKOMI_DOME_CAP` is only a ceiling.
+ *
+ * The brief also asked for skirts against the stone triads. Dropped, with the
+ * reason recorded here: `GARDEN_ISLAND_STONE_GROUPINGS` is authored on its own
+ * hand-tuned `y` (the spec calls it "keys the stone to the local terrace
+ * shelf"), and measured against the built geometry EVERY stone sits at or
+ * below the surface around it — the dominant stones clear their ground by
+ * ~0.1 and the subordinates are under it entirely. Planting a skirt against a
+ * stone that is not there is planting nothing, so the budget went to the path,
+ * which is unambiguously visible. The buried triads are a separate defect and
+ * are left exactly as they were.
+ *
+ * Solid vertex-coloured geometry, never alpha cards — N8AO runs
+ * `transparencyAware = false` at half res, so a card occludes as a solid
+ * rectangle. No `roughnessMap` either: `garden-island.test.ts` finds the rock
+ * tiers by `roughnessMap instanceof DataTexture && vertexColors`, and the
+ * planting must not be swept into that set.
+ */
+const KARIKOMI_DOME_CAP = 30;
+
+function createKarikomi(season: GardenSeason): InstancedMesh<SphereGeometry, MeshStandardMaterial> {
+  // The route is walked between u=0.04 (clear of the quay stair head) and
+  // u=0.74, and every dome is set just off the ribbon's OWN half-width, so the
+  // gravel stays a clean pale line and the planting reads as its edge rather
+  // than as spill on it. The walk stops short of the end of the path because
+  // the last quarter of the seaward flank is already occupied: the observatory
+  // pavilion's 2.4-unit base at (4.4, 2.35) and the storm-signal mast the
+  // renderer stands at (7.2, 3.2).
+  //
+  // All of them go on the SEAWARD flank: the inboard side of this stretch is
+  // the precinct's cliff face (its court caps at y 2.55, its east wall at
+  // x~3.03), so anything set that side lands on the terrace ABOVE the path
+  // instead of beside it.
+  //
+  // Placement is a greedy walk, not N evenly spaced `u` values, because the
+  // offset flank is the INSIDE of the path's first bend: at a ~1.9-unit offset
+  // against a bend of comparable radius, evenly spaced parameters collapse
+  // half the hedge into one pile. Walking finely and keeping a candidate only
+  // once it has cleared the last dome by ~60% of their combined radii gives a
+  // continuous, evenly-massed body — karikomi is sheared into one lumpy shape
+  // rather than dotted, so touching is the intent and piling is not.
+  const curve = gardenPathCurve();
+  const domes: { color: Color; height: number; radius: number; seed: string; x: number; z: number }[] = [];
+  // Azalea green: read off the niwaki matsuba but a touch lighter and greyer
+  // (0.3 toward timber_dark, against the pines' 0.42), so the low clipped mass
+  // separates in value from the pine mass above it instead of merging into one
+  // silhouette.
+  const azalea = new Color(HARBOR_PALETTE.aurora_green)
+    .lerp(new Color(HARBOR_PALETTE.timber_dark), 0.3);
+  const steps = 240;
+  const curveLength = curve.getLength();
+  for (let step = 0; step <= steps && domes.length < KARIKOMI_DOME_CAP; step += 1) {
+    const u = 0.04 + (step / steps) * 0.7;
+    // Arc length, not raw `t`: a centripetal Catmull-Rom covers very little
+    // distance over its first spans, so evenly spaced parameters would pile
+    // most of the hedge into the first bend. The explicit second argument is
+    // the same number three would derive itself; passing it keeps the call
+    // inside its declared two-argument signature.
+    const t = curve.getUtoTmapping(u, u * curveLength);
+    const point = curve.getPoint(t);
+    const tangent = curve.getTangent(t);
+    const tangentLength = Math.hypot(tangent.x, tangent.z) || 1;
+    const seed = `karikomi.${domes.length}`;
+    const radius = 0.32 + stableUnit(`${seed}.r`) * 0.3;
+    const halfWidth = 1.28 + Math.sin(t * Math.PI * 3.2) * 0.12;
+    // Two staggered rows: the back row is what gives the sheared body depth.
+    const row = domes.length % 2 === 0 ? 0 : 0.4;
+    const offset = halfWidth + 0.16 + radius + row + stableUnit(`${seed}.o`) * 0.16;
+    const x = point.x + (tangent.z / tangentLength) * offset;
+    const z = point.z - (tangent.x / tangentLength) * offset;
+    const previous = domes.at(-1);
+    if (previous && Math.hypot(x - previous.x, z - previous.z) < (radius + previous.radius) * 0.6) {
+      continue;
+    }
+    const color = azalea.clone().multiplyScalar(0.86 + stableUnit(`${seed}.tone`) * 0.28);
+    if (season === "winter") {
+      const luma = color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+      color.lerp(new Color(luma, luma, luma), 0.18);
+    }
+    domes.push({
+      color,
+      height: radius * (0.44 + stableUnit(`${seed}.squash`) * 0.12),
+      radius,
+      seed,
+      x,
+      z,
+    });
+  }
+
+  const mesh = new InstancedMesh(
+    new SphereGeometry(1, 8, 5),
+    new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.97 }),
+    domes.length,
+  );
+  mesh.name = "island-karikomi";
+  // `mergeIslandStatics` already skips every InstancedMesh, but the flag is
+  // the repo's stated "do not swallow this draw" contract (garden-precinct).
+  mesh.userData.gardenKeepSeparate = true;
+  domes.forEach((dome, index) => {
+    // Seated on the rock the way the lanterns are, then sunk ~18% of its own
+    // height, so each dome is a mound growing out of the ground rather than a
+    // ball resting on it — and so the approximate terrain never floats one.
+    scratchQuaternion.setFromAxisAngle(UP_AXIS, stableUnit(`${dome.seed}.yaw`) * Math.PI);
+    scratchScale.set(
+      dome.radius,
+      dome.height,
+      dome.radius * (0.82 + stableUnit(`${dome.seed}.depth`) * 0.3),
+    );
+    scratchPosition.set(dome.x, islandTerrainHeight(dome.x, dome.z) + dome.height * 0.82, dome.z);
+    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+    mesh.setMatrixAt(index, scratchMatrix);
+    mesh.setColorAt(index, dome.color);
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
 function createIslandDecoration(season: GardenSeason): Group {
   const root = new Group();
   // Five hero niwaki replace the 21-tree scatter and its shrub understory.
   // Their two instanced draws read as one asymmetric mass at default height.
   root.add(createNiwakiGrove(season));
+  // T2.2: one draw of clipped azalea domes edging the path and the low stones.
+  root.add(createKarikomi(season));
 
   const stoneCount = GARDEN_ISLAND_STONE_GROUPINGS.reduce((sum, triad) => sum + triad.length, 0);
   const stones = new InstancedMesh(
@@ -1087,14 +1241,18 @@ function createIslandDecoration(season: GardenSeason): Group {
     new MeshStandardMaterial({
       color: HARBOR_PALETTE.lantern_glow,
       emissive: HARBOR_PALETTE.lantern_warm,
-      // Ember level: these are punctuation, never a second beacon.
-      emissiveIntensity: 1.15,
+      // T0.2 (2026-09-07): this was a frozen 1.15 — the last constant aperture
+      // in the world after the harbour, tower and gatehouse went on the day
+      // cycle. The build value is now the DAY end of the curve; `updateDayCycle`
+      // owns it from the first frame. Left non-zero so a headless build (and
+      // any renderer that never runs the cycle) still shows a lit lamp.
+      emissiveIntensity: ISLAND_LANTERN_DAY_EMBER,
       roughness: 0.42,
       toneMapped: false,
     }),
     lanternCount,
   );
-  lamps.name = "island-lantern-lamps";
+  lamps.name = ISLAND_LANTERN_LAMP_NAME;
   const caps = new InstancedMesh(
     new ConeGeometry(0.32, 0.25, 4),
     new MeshStandardMaterial({ color: "#696a61", flatShading: true, roughness: 0.9 }),
@@ -1525,17 +1683,26 @@ export const GARDEN_PATH_SWEEP_POINTS: readonly { x: number; z: number }[] = [
 ] as const;
 
 /**
+ * The one authored route, as a curve. Shared by the path ribbon and the
+ * karikomi that bead it (T2.2, 2026-09-07) so the planting can never drift
+ * off the route it is supposed to be edging.
+ */
+function gardenPathCurve(): CatmullRomCurve3 {
+  return new CatmullRomCurve3(
+    GARDEN_PATH_SWEEP_POINTS.map(({ x, z }) => new Vector3(x, 0, z)),
+    false,
+    "centripetal",
+  );
+}
+
+/**
  * The continuous pale path displaces both the seven box steps and the small
  * pavilion gravel apron. One ribbon is intentionally large enough to remain
  * a line after the 16px blur audit; coarse relief and the existing normal map
  * keep it gravel rather than paint.
  */
 function createGardenPathSweep(): Mesh<BufferGeometry, MeshStandardMaterial> {
-  const curve = new CatmullRomCurve3(
-    GARDEN_PATH_SWEEP_POINTS.map(({ x, z }) => new Vector3(x, 0, z)),
-    false,
-    "centripetal",
-  );
+  const curve = gardenPathCurve();
   const segments = 56;
   const positions: number[] = [];
   const colors: number[] = [];

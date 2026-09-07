@@ -226,6 +226,8 @@ function dayCycleRig() {
     new MeshStandardMaterial({ emissiveIntensity: 1.6, toneMapped: false }),
   );
   const towerWindow = new MeshStandardMaterial({ emissiveIntensity: 0.24 });
+  // The island's two stone path lanterns share one lamp material.
+  const islandLantern = new MeshStandardMaterial({ emissiveIntensity: 1.15, toneMapped: false });
   const scene = {
     ambientLight: new AmbientLight(),
     content: {
@@ -245,6 +247,7 @@ function dayCycleRig() {
         fineDetailBucketMeshes: { window: null },
       },
       harborLanternMaterial: new MeshStandardMaterial(),
+      islandLanternMaterial: islandLantern,
       lighthouseLight: new PointLight(),
       lighthouseWindowMaterials: [towerWindow],
       shipLanternGlowMaterial: new MeshBasicMaterial(),
@@ -264,6 +267,7 @@ function dayCycleRig() {
   const at = (hour: number) => {
     updateDayCycle(scene, frame, dayCyclePhase(hour));
     return {
+      islandLantern: islandLantern.emissiveIntensity,
       station: (stationWindows.material as MeshStandardMaterial).emissiveIntensity,
       tower: towerWindow.emissiveIntensity,
     };
@@ -289,7 +293,18 @@ describe("T0.2 building apertures (2026-09-07)", () => {
     expect(dusk.tower).toBeGreaterThan(1);
     expect(midnight.tower).toBeCloseTo(1.53, 6);
 
-    for (const key of ["station", "tower"] as const) {
+    // T0.2 remainder: the island path lanterns, the world's last constant
+    // aperture. Frozen 1.15 -> 0.22 day / 1.37 dusk / 1.97 night. They take
+    // the harbour-LANTERN curve shape (a small warm point), not the station
+    // window one, lifted 0.04 at the day end because they stand in a pale
+    // gravel sweep in full sun, and held 0.11 below the harbour lanterns'
+    // 2.08 night peak because they share the island with the beacon.
+    expect(noon.islandLantern).toBeCloseTo(0.22, 6);
+    expect(dusk.islandLantern).toBeGreaterThan(1.3);
+    expect(midnight.islandLantern).toBeCloseTo(1.97, 6);
+    expect(midnight.islandLantern).toBeLessThan(0.18 + 1.9);
+
+    for (const key of ["islandLantern", "station", "tower"] as const) {
       expect(noon[key], `${key} must be dimmest at noon`).toBeLessThan(dusk[key]);
       expect(dusk[key], `${key} must peak at night`).toBeLessThan(midnight[key]);
     }
@@ -307,6 +322,7 @@ describe("T0.2 building apertures (2026-09-07)", () => {
       const lit = at(hour);
       expect(lit.station, `station window at ${hour}h`).toBeLessThanOrEqual(2.2);
       expect(lit.tower, `tower window at ${hour}h`).toBeLessThanOrEqual(2.2);
+      expect(lit.islandLantern, `island lantern at ${hour}h`).toBeLessThanOrEqual(2.2);
     }
   });
 
@@ -316,6 +332,11 @@ describe("T0.2 building apertures (2026-09-07)", () => {
     const { at, scene } = dayCycleRig();
     scene.content.harborBatch = null as never;
     scene.content.lighthouseWindowMaterials = undefined as never;
+    // The island lantern handle lands in the same pass and must degrade the
+    // same way: absent, and null, both no-op.
+    scene.content.islandLanternMaterial = null as never;
+    expect(() => at(18.5)).not.toThrow();
+    delete (scene.content as { islandLanternMaterial?: unknown }).islandLanternMaterial;
     expect(() => at(18.5)).not.toThrow();
   });
 });

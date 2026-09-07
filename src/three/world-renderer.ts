@@ -215,6 +215,7 @@ import {
 import {
   createTerracedIsland,
   createWaterAccents,
+  gardenIslandLanternMaterial,
   gardenIslandLanternWorldOffsets,
   updateGardenNiwakiWind,
   type GardenPondReflection,
@@ -1757,6 +1758,11 @@ interface GardenContent {
    * constant. The GLB attach appends its own clones to the same array.
    */
   lighthouseWindowMaterials: MeshStandardMaterial[];
+  /**
+   * T0.2 remainder (2026-09-07): the island's two stone path lanterns share one
+   * lamp material, frozen at 1.15 until now. Per-build, so it cannot leak.
+   */
+  islandLanternMaterial: MeshStandardMaterial | null;
   statueGleamMaterials: MeshStandardMaterial[];
   tideStain: GardenTideStain;
   summitBirds: GardenSummitBirds;
@@ -3274,6 +3280,7 @@ function buildIslandPart(
   content.pondReflection = island.pondReflection;
   content.signalMast = signalMast;
   content.lighthouseWindowMaterials = lighthouseWindowMaterials;
+  content.islandLanternMaterial = gardenIslandLanternMaterial(island.decoration);
   content.statueGleamMaterials = statueGleamMaterials;
   content.summitBirds = summitBirds;
   content.summitBirdsRoot = summitBirds.root;

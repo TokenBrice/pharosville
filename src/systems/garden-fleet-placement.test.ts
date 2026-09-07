@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { placeGardenFleet } from "./garden-fleet-placement";
 import { terrainKindAt } from "./world-layout";
@@ -6,6 +7,7 @@ import {
   GARDEN_SILHOUETTE_FOR_HULL,
   gardenShipVisualScale,
 } from "./garden-observatory-slice";
+import { resolveShipClass } from "./ship-visuals";
 import type { ShipNode, ShipWaterZone } from "./world-types";
 
 const LIGHTHOUSE = { x: 19, y: 28 };
@@ -167,5 +169,69 @@ describe("placeGardenFleet", () => {
     // The old authored ring capped every band inside ~23 tiles of its centre;
     // the watch region spans most of the sea and the fleet should use it.
     expect(spread).toBeGreaterThan(20);
+  });
+});
+
+/**
+ * 2026-09-07. Routing `chartered-brigantine` onto the previously DEAD `kobaya`
+ * silhouette moved 39 of 217 ships to a hull whose x-reach is 6.70 world units
+ * against bezaisen's 3.70. The implementing agent flagged, correctly, that
+ * every other placement test here runs a synthetic fleet and nothing seated the
+ * REAL coin set against the real harbour — so the crowding question had no gate.
+ *
+ * This asserts NEAREST-NEIGHBOUR SPACING, not berth-circle overlap. Measured
+ * when written, the swap took overlapping berth circles 1229 -> 1594 pairs
+ * (+30%) while mean nearest-neighbour spacing moved 4.11 -> 4.05 tiles (-1.4%).
+ * The ships did not move closer together; only their declared clearance radius
+ * grew. `gardenShipWaterMarginTiles` is a LAND-clearance figure — placement
+ * never used it for ship-to-ship separation, and rafted hulls are what a
+ * harbour looks like — so counting circle overlaps would pin a number that
+ * corresponds to nothing a viewer can see.
+ */
+describe("real-fleet berth spacing", () => {
+  const REAL_ZONES: ShipWaterZone[] = ["calm", "watch", "alert", "warning", "danger"];
+
+  it("seats every ship in the real coin set and keeps the fleet's spacing", () => {
+    const raw = JSON.parse(
+      readFileSync("shared/data/stablecoins/coins.generated.json", "utf8"),
+    ) as unknown;
+    const coins = (
+      Array.isArray(raw) ? raw : ((raw as { coins?: unknown[] }).coins ?? [])
+    ) as unknown[];
+    const ships = coins.map((coin, index) => ({
+      detailId: `ship.real.${index}`,
+      id: `real-${index}`,
+      riskZone: REAL_ZONES[index % REAL_ZONES.length]!,
+      tile: { x: 28, y: 28 },
+      visual: { hull: resolveShipClass(coin as never).hull, scale: 1 },
+    })) as unknown as ShipNode[];
+    // Guards the fixture: an empty or reshaped coin file would otherwise make
+    // the spacing assertion below pass vacuously.
+    expect(ships.length).toBeGreaterThan(180);
+
+    const placed = placeGardenFleet(ships, LIGHTHOUSE);
+    const tiles = ships
+      .map((entry) => placed.tileByShipId.get(entry.id))
+      .filter((tile): tile is { x: number; y: number } => Boolean(tile));
+    expect(tiles.length).toBe(ships.length);
+
+    let nearestSum = 0;
+    for (let i = 0; i < tiles.length; i += 1) {
+      let nearest = Number.POSITIVE_INFINITY;
+      for (let j = 0; j < tiles.length; j += 1) {
+        if (i === j) continue;
+        nearest = Math.min(
+          nearest,
+          Math.hypot(tiles[i]!.x - tiles[j]!.x, tiles[i]!.y - tiles[j]!.y),
+        );
+      }
+      nearestSum += nearest;
+    }
+
+    // 4.05 tiles when written; 3.8 leaves ~6% headroom. A future silhouette
+    // re-route that genuinely packs the harbour tighter trips this; one that
+    // merely widens a declared clearance radius does not, which is exactly the
+    // distinction the doc comment above exists to preserve.
+    expect(nearestSum / tiles.length).toBeGreaterThan(3.8);
   });
 });
