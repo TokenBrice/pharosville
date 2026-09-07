@@ -24,6 +24,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   clearerWaters: "v0.13.0",
   epicPharos: "v0.14.0",
   roomToSail: "v0.14.1",
+  honestWaters: "v0.15.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.roomToSail;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.honestWaters;

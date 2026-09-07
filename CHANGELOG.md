@@ -2,6 +2,21 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.15.0 - 2026-09-07 - Honest Waters
+
+Watch water pulled off the strait, the north-east ladder made honest, the graveyard off the Mole, two berths traded, and the whole garden re-lit in gold over violet shadow.
+
+Collected from commits `76c7a14` through `a989bfe` and the 2026-09-07 composition consensus work after v0.14.1.
+
+- Re-cut the east shelf so the Watch water sits inboard of the Alert channel and never meets Danger Strait or the Warning shoals: sailing east from the island now reads open water, Alert, then the strait, and the storm gorge keeps a short Alert shore below it before the Watch bay.
+- Straightened the north-east corner so the diagonal from the island's lee to the strait mouth reads open, Alert, Warning, Danger once, with no band returning after it is left.
+- Pulled the graveyard's wreck water off the Ethereum Mole's stern; the shoals now run as an east-west bar along the south rim, and no wreck water lies within six tiles of the Mole.
+- Traded berths: Solana moors at the Watch east bay's market hall and Hyperliquid at the Danger gorge's fishing pier, so a trading venue reads as the strait's weather rather than the flagship peg reading as a false depeg.
+- No harbor count, cemetery, lighthouse, rim contour, or opening moved; all eight water shares hold within a point of their targets.
+- Re-lit the garden as the Golden Garden: a warm honey key over violet complement shadows, sunlit moss land, a turquoise-to-emerald-to-indigo sea, a cerulean day sky over a gold-cream horizon, violet dusk fill with a clean ember key, and a violet-indigo night with a quieter moon; the grade LUTs, water and sky ramps, island plate and month-record foliage all derive from the one palette.
+- Turned the Pharos a quarter turn so its doorway and ramp face the east gatehouse and quay stair; the beam, beacon, fire and summit birds keep their bearings.
+- Improved the harbor flags and separated Polygon's berth from TON's pigeonnier.
+
 ## v0.14.1 - 2026-09-06 - Room to Sail
 
 The harbor opens back out around the new Pharos, station names step back into captions, and boats stop wearing signs.
