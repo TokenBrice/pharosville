@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.15.0` (`honestWaters`)
-- Latest changelog entry: `2026-09-07-honest-waters` / `v0.15.0` / 2026-09-07 / Honest Waters
+- Latest app version: `v0.16.0` (`airAndLantern`)
+- Latest changelog entry: `2026-09-07-air-and-lantern` / `v0.16.0` / 2026-09-07 / Air and Lantern
 
 ## Viewport Gate
 
