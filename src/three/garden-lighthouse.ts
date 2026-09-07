@@ -55,6 +55,15 @@ const LANTERN_RADIUS = 1.9;
 const GALLERY_HALF = 4.7;
 const OCT_FACE = Math.cos(Math.PI / 8);
 const SQRT2 = Math.SQRT2;
+/**
+ * Both the procedural shell and the GLB author the doorway, approach ramp and
+ * the statue's sea-facing arm on local +Z. The precinct's open gate and the
+ * quay stair that climbs to it sit east of the tower (+X), so the tower body
+ * is yawed a quarter turn to put the door on that axis. Only the tower turns:
+ * the beam, beacon, fire and birds are siblings under `lighthouseRoot` and
+ * keep world-space bearings.
+ */
+const TOWER_YAW = Math.PI / 2;
 
 const squareHalf = (y: number): number => SQUARE_BASE_HALF
   + (SQUARE_TOP_HALF - SQUARE_BASE_HALF)
@@ -109,6 +118,7 @@ export function attachGardenLighthouseModel(
   model.traverse((object) => {
     if (object instanceof Mesh) object.castShadow = true;
   });
+  model.rotation.y = TOWER_YAW;
   content.lighthouseRoot.add(model);
   content.lighthouseShell.visible = false;
 
@@ -695,6 +705,7 @@ export function createLighthouse(): {
   // mesh per material group — visuals, materials (incl. the "bronze-gilt"
   // statue-gleam name), and shadows are identical, ~10 geometries instead.
   mergeStaticShellMeshes(shell);
+  shell.rotation.y = TOWER_YAW;
   root.add(shell);
 
   // L3 shore props (keeper's rowboat + waterline stones) stay OUTSIDE the
