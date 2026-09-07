@@ -330,7 +330,7 @@ export function authorDock(
   pushMergedPart(parts, "stone", stone, stoneColor, false, true);
   pushMergedPart(parts, "metal", metal, HARBOR_PALETTE.iron_dark, false, false);
   pushMergedPart(parts, "metal", fineMetal, HARBOR_PALETTE.iron_dark, true, false);
-  pushMergedPart(parts, "wall", walls, "#a99a79", false, true);
+  pushMergedPart(parts, "wall", walls, stationWallColor(station.type), false, true);
   pushMergedPart(parts, "roof", roofs, STATION_ROOF_COLOR[station.type], false, true);
   pushMergedPart(parts, "roof", roofTrim, roofTrimColor(station.type), false, true);
   pushMergedPart(parts, "window", windows, HARBOR_PALETTE.lantern_glow, false, false);
@@ -474,6 +474,27 @@ const STATION_ACCENT_COLOR: Record<StationType, string> = {
   "tea-house-quay": HARBOR_PALETTE.lantern_warm,
   uogashi: HARBOR_PALETTE.lantern_cold,
 };
+
+/**
+ * T1.6 (2026-09-07): all nine archetypes shared one wall hex, `"#a99a79"` —
+ * so every station body was the same plaster and the roof was the ONLY channel
+ * carrying the archetype. It was also the last raw hex literal in the harbour
+ * (C1 says every colour derives from HARBOR_PALETTE).
+ *
+ * The plaster is now `stone_pale` lifted 0.34 toward `fog_day` — #a9987e,
+ * within a hair of the retired literal, so no station changes value — and each
+ * archetype tints it toward its OWN roof rung. The tint is capped at 0.22:
+ * enough that a clay-roofed body reads warm ochre next to a slate-roofed
+ * body's cool grey, little enough that the roof still carries the archetype
+ * read and the nine walls stay one material family rather than nine hues.
+ * Every result measures OKLCH C 0.033-0.064, well under the 0.16 ceiling.
+ */
+const WALL_PLASTER = new Color(HARBOR_PALETTE.stone_pale).lerp(new Color(HARBOR_PALETTE.fog_day), 0.34);
+const WALL_ROOF_TINT = 0.22;
+
+export function stationWallColor(type: StationType): Color {
+  return WALL_PLASTER.clone().lerp(new Color(STATION_ROOF_COLOR[type]), WALL_ROOF_TINT);
+}
 
 /** The ridge/fascia trim is the station's own roof hex scaled down, never a new tone. */
 function roofTrimColor(type: StationType): Color {

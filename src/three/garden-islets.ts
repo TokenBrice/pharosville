@@ -16,6 +16,7 @@ import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import { stableUnit, TILE_SCALE } from "./garden-util";
 import { landWorldTile } from "../systems/map-scale";
 import { createGardenTorii } from "./garden-torii";
+import { createPineGeometry } from "./garden-rim-mesh";
 
 /**
  * Z5 — Garden islets (Sakuteiki stone groupings in open water).
@@ -36,8 +37,9 @@ import { createGardenTorii } from "./garden-torii";
  *
  * Rocks are clustered displaced icosahedra with a height-gradient vertex
  * color in the island rockwork style, but every color derives from
- * HARBOR_PALETTE (contract C1) — no hex literals. Two InstancedMesh batches
- * plus the merged torii = 3 draw calls. Purely decorative: no data semantics, no
+ * HARBOR_PALETTE (contract C1) — no hex literals. Three InstancedMesh batches
+ * (stone crags, stone reefs and the T2.2b islet pines) plus the merged torii
+ * = 4 draw calls. Purely decorative: no data semantics, no
  * labels, and hit-testing is DOM/projection-driven
  * (`src/renderer/hit-testing.ts`), so the islets are ignored by construction
  * (they register no hit targets and no entity cues).
@@ -63,8 +65,10 @@ export interface GardenIsletsFrame {
 }
 
 export interface GardenIslets {
-  /** C4 evidence: crag + reef batches and the merged torii. */
+  /** C4 evidence: crag + reef + pine batches and the merged torii. */
   drawCallCount: number;
+  /** Leaning pines rooted on the crag stones (T2.2b, 2026-09-07). */
+  pineCount: number;
   islets: readonly GardenIsletSpec[];
   root: Group;
   stoneCount: number;
@@ -202,6 +206,56 @@ function createStoneBatch(stones: readonly StonePlacement[], seed: string, cragg
   return { mesh, triangles: geometryTriangles * stones.length };
 }
 
+/**
+ * T2.2b (2026-09-07): a leaning pine on a rock in still water is the
+ * reference shot of this whole piece, and the islets were bare stone. Four
+ * small pines — the rim's own tree, not a second vocabulary — root on the
+ * crag stones and lean out over the water. One instanced draw, ~984
+ * triangles, solid vertex-coloured geometry (no alpha cards: N8AO runs
+ * transparency-unaware at half res and would bruise the water around them).
+ * The base pine geometry is 4.5 units tall, so `scale` reads as height/4.5.
+ */
+const ISLET_PINES: readonly {
+  leanX: number;
+  leanZ: number;
+  position: [number, number, number];
+  rotationY: number;
+  scale: number;
+}[] = [
+  // crane — the dominant stone carries the hero tree, leaning seaward
+  { leanX: 0.1, leanZ: -0.17, position: [CRANE.x + 0.3, GARDEN_WATER_Y + 2.28, CRANE.z - 0.22], rotationY: 0.9, scale: 0.5 },
+  // crane — one subordinate takes a smaller tree so the group stays odd-read
+  { leanX: -0.12, leanZ: 0.2, position: [CRANE.x + 2.15, GARDEN_WATER_Y + 0.42, CRANE.z + 0.6], rotationY: 3.4, scale: 0.3 },
+  // lone — the upright stone's companion tree, leaning back toward the crag
+  { leanX: 0.08, leanZ: 0.22, position: [LONE.x + 0.05, GARDEN_WATER_Y + 1.05, LONE.z - 0.2], rotationY: 2.05, scale: 0.4 },
+  // turtle — the one raised back in the arc gets the smallest tree
+  { leanX: -0.14, leanZ: -0.1, position: [TURTLE.x + 0.45, GARDEN_WATER_Y + 0.6, TURTLE.z - 0.62], rotationY: 5.1, scale: 0.26 },
+];
+
+function createIsletPines(): { mesh: InstancedMesh; triangles: number } {
+  const geometry = createPineGeometry();
+  const mesh = new InstancedMesh(
+    geometry,
+    new MeshStandardMaterial({ flatShading: true, roughness: 0.94, vertexColors: true }),
+    ISLET_PINES.length,
+  );
+  mesh.name = "garden-islets-pines";
+  for (const [index, pine] of ISLET_PINES.entries()) {
+    scratchPosition.set(...pine.position);
+    scratchQuaternion.setFromAxisAngle(Y_AXIS, pine.rotationY);
+    scratchScale.setScalar(pine.scale);
+    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+    scratchMatrix.multiply(new Matrix4().makeRotationX(pine.leanX));
+    scratchMatrix.multiply(new Matrix4().makeRotationZ(pine.leanZ));
+    mesh.setMatrixAt(index, scratchMatrix);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  const perPine = (geometry.getIndex()?.count ?? geometry.getAttribute("position").count) / 3;
+  return { mesh, triangles: perPine * ISLET_PINES.length };
+}
+
 export function createGardenIslets(): GardenIslets {
   const root = new Group();
   root.name = "garden-islets";
@@ -210,18 +264,22 @@ export function createGardenIslets(): GardenIslets {
   crag.mesh.name = "garden-islets-crag";
   const reef = createStoneBatch(REEF_STONES, "islet-reef", 0.42);
   reef.mesh.name = "garden-islets-reef";
+  const pines = createIsletPines();
   const torii = createGardenTorii();
-  root.add(crag.mesh, reef.mesh, torii.root);
+  // Crag and reef stay children[0] and [1]: the stone tests index them.
+  root.add(crag.mesh, reef.mesh, pines.mesh, torii.root);
 
   return {
-    drawCallCount: 2 + torii.drawCallCount,
+    drawCallCount: 3 + torii.drawCallCount,
     islets: GARDEN_ISLETS,
+    pineCount: ISLET_PINES.length,
     root,
     stoneCount: CRAG_STONES.length + REEF_STONES.length,
-    triangleCount: crag.triangles + reef.triangles + torii.triangleCount,
+    triangleCount: crag.triangles + reef.triangles + pines.triangles + torii.triangleCount,
     dispose() {
       crag.mesh.dispose();
       reef.mesh.dispose();
+      pines.mesh.dispose();
       torii.dispose();
     },
     registerRippleRings(emitter) {

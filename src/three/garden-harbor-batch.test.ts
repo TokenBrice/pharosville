@@ -161,7 +161,13 @@ describe("createGardenHarborBatch", () => {
     }
   });
 
-  it("keeps every station window and lit quay edge in one warm ember draw", () => {
+  it("keeps every station window and lit quay edge in one day-cycle-driven ember draw", () => {
+    // T0.2 (2026-09-07): HARBOR_WINDOW_EMBER_INTENSITY is now only the value
+    // the bucket is BORN with — `updateDayCycle` overwrites it every frame
+    // (0.35 day / 1.75 dusk / 2.10 night) via `content.harborBatch`. Before
+    // that fix it was a constant, so the harbour was as lit at noon as at
+    // midnight. What this test pins is the SHARE: one material, one draw, so
+    // the whole quay lights on a single write.
     const batch = batchOfAllStationTypes();
     const windows = batch.bucketMeshes.window as Mesh;
     expect(windows.name).toBe("station-lit-screens");

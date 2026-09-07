@@ -69,6 +69,13 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   "pharos-precinct-obelisks",
   // The rim body remains at whole-map framing; its distributed furniture is
   // less than a few pixels there and fades only by visibility.
+  //
+  // 2026-09-07: the understory joins it. 490 shrub domes on a 1.5-tile lattice
+  // are exactly the sub-silhouette greebles this list exists to shed — at
+  // whole-map framing each is well under a pixel, so they cost fill and read as
+  // noise. The pines and broadleaves are landscape MASSING and stay, like the
+  // niwaki above.
+  "garden-rim-understory",
   "garden-rim-path",
   "garden-rim-pines",
   "garden-rim-stones",

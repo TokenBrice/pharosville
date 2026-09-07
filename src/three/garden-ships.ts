@@ -294,7 +294,12 @@ const GARDEN_SHIP_CABINS: Partial<Record<
   GardenHullSilhouette,
   { height: number; width: number; x: number; z: number }
 >> = {
-  bezaisen: { height: 1.72, width: 2.2, x: -2.35, z: 2.75 },
+  // 2026-09-07 T3.3: height 1.72 -> 2.4. This is the bezaisen's stern castle,
+  // the feature that names the family, and at 1.72 it read as a shed. Its whole
+  // assembly (box + eaves + roof, `addFamilySilhouetteParts`) is capped under
+  // the identity sail's centerY of 3.15 so the castle can never rise into the
+  // mark field along the fixed camera azimuth.
+  bezaisen: { height: 2.4, width: 2.2, x: -2.35, z: 2.75 },
   junk: { height: 0.72, width: 1.4, x: -2, z: 1.45 },
   scow: { height: 0.48, width: 1.5, x: -0.9, z: 2.35 },
 };
@@ -365,7 +370,11 @@ const GARDEN_SHIP_BOWSPRITS: Partial<Record<
   GardenHullSilhouette,
   { length: number; x: number }
 >> = {
-  kobaya: { length: 3.6, x: 6.25 },
+  // 2026-09-07 T3.3: length 3.6 -> 2.2, x 6.25 -> 5.6 (tip 8.05 -> 6.7). The
+  // spar was sized when kobaya was an unused silhouette; with the chartered
+  // brigantine routed here it is 39 ships, and berth footprint is driven by
+  // `GARDEN_HULL_MAX_X_REACH_WORLD`, which the spar tip alone was setting.
+  kobaya: { length: 2.2, x: 5.6 },
 };
 
 // Per-tier lantern layout in ship-local space (stern, then bow, then a
@@ -741,7 +750,8 @@ function applyShipPegTrim(root: Group, ship: ShipNode, wakeRoot: Object3D): void
 /** W5.8/W7.3: value-only decorative drift plus even service-age patina. */
 function shipWoodSurfaceScale(ship: ShipNode): number {
   const surface = ship.visual.hullForm;
-  const value = MathUtils.clamp(surface?.hullValue ?? 1, 0.9, 1.1);
+  // 2026-09-07 T1.10: 0.9-1.1 -> 0.85-1.15, matching the batch clamp.
+  const value = MathUtils.clamp(surface?.hullValue ?? 1, 0.85, 1.15);
   const age = MathUtils.clamp(surface?.agePatina ?? 0, 0, 1);
   return value * MathUtils.lerp(1, 0.88, age);
 }
@@ -1839,11 +1849,13 @@ export function createFleetBatchGeometry(
         0,
       ),
     });
-    parts.push({
-      geometry: new BoxGeometry(cabinDimensions.width * 1.12, 0.12, cabinDimensions.z * 1.16),
-      tint: FLEET_BATCH_TINTS.mast,
-      transform: transform().setPosition(cabinDimensions.x, 0.58 + cabinDimensions.height, 0),
-    });
+    if (silhouette !== "bezaisen") {
+      parts.push({
+        geometry: new BoxGeometry(cabinDimensions.width * 1.12, 0.12, cabinDimensions.z * 1.16),
+        tint: FLEET_BATCH_TINTS.mast,
+        transform: transform().setPosition(cabinDimensions.x, 0.58 + cabinDimensions.height, 0),
+      });
+    }
   }
 
   addFamilySilhouetteParts(parts, silhouette);
@@ -2022,6 +2034,33 @@ function addFamilySilhouetteParts(
         transform: new Matrix4().setPosition(x, 0.61, 0),
       });
     }
+  }
+
+  if (silhouette === "bezaisen") {
+    // 2026-09-07 T3.3: the stern castle's eaves and roof. Same treatment as the
+    // takasebune covers below — a squashed half-cylinder over a dark trim band
+    // — because that is the shape language the fleet already speaks, and it is
+    // what stops a taller box from reading as a taller box.
+    //
+    // Every number here answers to one ceiling: the roof crown must stay under
+    // the identity sail's centerY (3.15) so the castle crops, at worst, the
+    // sail's lower corner and never the mark. Deck 0.52 + cabin 2.4 = 2.92 box
+    // top; the roof seats 0.02 into it and rises 1.595 * 0.15 = 0.239, crown
+    // 3.139. `garden-ships.test.ts` pins that margin.
+    const CASTLE_X = -2.35;
+    parts.push({
+      geometry: new BoxGeometry(2.464, 0.1, 3.19),
+      tint: FLEET_BATCH_TINTS.mast,
+      transform: new Matrix4().setPosition(CASTLE_X, 2.92, 0),
+    });
+    const roof = new CylinderGeometry(1.595, 1.595, 2.464, 8, 1, false, 0, Math.PI);
+    roof.rotateZ(Math.PI / 2);
+    roof.scale(1, 0.15, 1);
+    parts.push({
+      geometry: roof,
+      tint: FLEET_BATCH_TINTS.deck,
+      transform: new Matrix4().setPosition(CASTLE_X, 2.90, 0),
+    });
   }
 
   if (silhouette === "takasebune") {
@@ -2467,6 +2506,31 @@ function shapeHullVerticalForm(
 }
 
 /**
+ * Sail cloth tessellation. Every baked vertex-color band (2026-09-07 T1.9) has
+ * to land on one of these rows/columns or it does not exist: vertex color is
+ * sampled only at the grid, so an off-row band interpolates to nothing.
+ */
+export const GARDEN_SAIL_SEGMENTS_U = 6;
+export const GARDEN_SAIL_SEGMENTS_V = 6;
+
+/**
+ * Junk batten rows, 2026-09-07 T1.9.
+ * Was `[0.16, 0.32, 0.48, 0.64, 0.8]` — only 0.48 and 0.8 were near a row and
+ * three of five rendered as exactly zero. Now `n / GARDEN_SAIL_SEGMENTS_V`,
+ * n = 1..5: five real battens, one per interior row, top row left clear for
+ * the head.
+ */
+export const GARDEN_SAIL_BATTEN_V: readonly number[] = [1, 2, 3, 4, 5]
+  .map((row) => row / GARDEN_SAIL_SEGMENTS_V);
+
+/**
+ * Band half-width, 2026-09-07 T1.9: 0.025 -> 0.08, ~half the row pitch
+ * (1/6 = 0.1667). Narrower than the pitch keeps adjacent battens from bleeding
+ * into each other; wide enough that a band survives being sampled at one row.
+ */
+export const GARDEN_SAIL_BAND_FALLOFF = 0.08;
+
+/**
  * Sail cloth as a tessellated grid (S2) instead of a flat shape: the center
  * belly is displaced so sails read wind-filled, and the head (yard) is yawed
  * a few degrees versus the foot. UVs map 0–1 across the cloth so the identity
@@ -2510,23 +2574,21 @@ function createSailGeometry(plan: GardenSailPlan): BufferGeometry {
     return 0;
   };
 
-  const SEGMENTS_U = 6;
-  const SEGMENTS_V = 6;
   // Belly depth scales with sail width; the yard yaw twists the head a few
   // degrees around the mast axis so square sails never read as paper.
   const belly = plan.width * (plan.kind === "rectangle" ? 0.18 : 0.14);
   const yardYaw = plan.kind === "rectangle" ? direction * 0.1 : direction * 0.05;
 
-  const vertexCount = (SEGMENTS_U + 1) * (SEGMENTS_V + 1);
+  const vertexCount = (GARDEN_SAIL_SEGMENTS_U + 1) * (GARDEN_SAIL_SEGMENTS_V + 1);
   const positions = new Float32Array(vertexCount * 3);
   const uvs = new Float32Array(vertexCount * 2);
   const indices: number[] = [];
-  for (let row = 0; row <= SEGMENTS_V; row += 1) {
-    const v = row / SEGMENTS_V;
+  for (let row = 0; row <= GARDEN_SAIL_SEGMENTS_V; row += 1) {
+    const v = row / GARDEN_SAIL_SEGMENTS_V;
     const y = -halfHeight + v * plan.height;
     const edgeX = edgeXAt(y);
-    for (let column = 0; column <= SEGMENTS_U; column += 1) {
-      const u = column / SEGMENTS_U;
+    for (let column = 0; column <= GARDEN_SAIL_SEGMENTS_U; column += 1) {
+      const u = column / GARDEN_SAIL_SEGMENTS_U;
       const baseX = edgeX * u;
       // Yard yaw: rotate the row about the mast line, most at the head.
       const yaw = yardYaw * v * v;
@@ -2534,16 +2596,16 @@ function createSailGeometry(plan: GardenSailPlan): BufferGeometry {
       let z = -baseX * Math.sin(yaw);
       // Belly: fullest mid-panel, pinned flat at mast, head, and foot.
       z += Math.sin(u * Math.PI) * Math.sin(v * Math.PI) * belly;
-      const vertex = row * (SEGMENTS_U + 1) + column;
+      const vertex = row * (GARDEN_SAIL_SEGMENTS_U + 1) + column;
       positions[vertex * 3] = x;
       positions[vertex * 3 + 1] = y;
       positions[vertex * 3 + 2] = z;
       uvs[vertex * 2] = u;
       uvs[vertex * 2 + 1] = v;
-      if (row < SEGMENTS_V && column < SEGMENTS_U) {
+      if (row < GARDEN_SAIL_SEGMENTS_V && column < GARDEN_SAIL_SEGMENTS_U) {
         const a = vertex;
         const b = vertex + 1;
-        const c = vertex + SEGMENTS_U + 1;
+        const c = vertex + GARDEN_SAIL_SEGMENTS_U + 1;
         const d = c + 1;
         indices.push(a, c, b, b, c, d);
       }
@@ -2559,36 +2621,50 @@ function createSailGeometry(plan: GardenSailPlan): BufferGeometry {
 }
 
 /**
- * W5.4 cloth detail: vertical panel seams and two reef bands baked into the
+ * W5.4 cloth detail: vertical panel seams and the junk's battens baked into the
  * sail's vertex color, plus a slight shading of the belly so the cloth reads
  * as fabric under tension rather than a printed card.
  *
  * Deliberately greyscale and shallow. On the identity sail this multiplies the
  * logo atlas read, so anything strong here would eat the mark it exists to
- * show; the reef bands are placed in the lower third, clear of the logo field.
- * `mergeAtlasSails` fills color with 1 when a sail has none, so producing the
- * attribute here keeps every sail on the same merge path.
+ * show. `mergeAtlasSails` fills color with 1 when a sail has none, so producing
+ * the attribute here keeps every sail on the same merge path.
+ *
+ * 2026-09-07 T1.9 (Nyquist): the cloth is a `GARDEN_SAIL_SEGMENTS_V`-row grid,
+ * so a band only exists at all if it lands ON a row — vertex color cannot
+ * represent anything between two rows. The old battens (0.16/0.32/0.48/0.64/
+ * 0.8, falloff 0.025) put three of five between rows, where they rendered as
+ * exactly zero, and the two reef bands (0.14/0.27) missed every row on every
+ * sail in the fleet — they have never rendered once. Battens now sit on
+ * `n / GARDEN_SAIL_SEGMENTS_V` and the falloff is half the row pitch, so each
+ * band is sampled by exactly its own row. The reef bands are deleted rather
+ * than re-sited: every free row is a batten row on the junk, and re-siting them
+ * would newly darken every sail in the fleet, which is a look change nobody
+ * asked for and not what T1.9 is (restoring 24% of the fleet's defining form).
  */
 function bakeSailVertexColors(geometry: BufferGeometry, plan: GardenSailPlan): void {
   const position = geometry.getAttribute("position");
   const uv = geometry.getAttribute("uv");
   const colors = new Float32Array(position.count * 3);
-  const panels = plan.kind === "rectangle" ? 5 : 3;
+  // 2026-09-07 T1.9: rectangle panels 5 -> 3. `u` is also on a
+  // `GARDEN_SAIL_SEGMENTS_U` (6) grid, and 5 panels put every seam between two
+  // columns; 3 divides 6, so the seams land on columns 1, 3 and 5.
+  const panels = 3;
   for (let index = 0; index < position.count; index += 1) {
     const u = uv.getX(index);
     const v = uv.getY(index);
     // Panel seams: narrow darker lines where the cloths are sewn together.
     const seam = Math.abs((u * panels - Math.floor(u * panels)) - 0.5) * 2;
     let shade = 1 - 0.07 * (1 - MathUtils.smoothstep(seam, 0, 0.35));
-    // Reef bands across the foot, where reef points would be tied off.
-    for (const band of [0.14, 0.27]) {
-      shade -= 0.06 * (1 - MathUtils.smoothstep(Math.abs(v - band), 0, 0.035));
-    }
     if (plan.kind === "junk") {
       // Five high-contrast battens make the sail an asymmetric fan at default
       // zoom; they are cloth shading, so they stay inside the one sail draw.
-      for (const batten of [0.16, 0.32, 0.48, 0.64, 0.8]) {
-        shade -= 0.18 * (1 - MathUtils.smoothstep(Math.abs(v - batten), 0, 0.025));
+      for (const batten of GARDEN_SAIL_BATTEN_V) {
+        shade -= 0.18 * (1 - MathUtils.smoothstep(
+          Math.abs(v - batten),
+          0,
+          GARDEN_SAIL_BAND_FALLOFF,
+        ));
       }
     }
     // The belly catches less light toward the leech as it curves away.

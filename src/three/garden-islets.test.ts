@@ -1,4 +1,4 @@
-import { InstancedMesh, Matrix4, Vector3 } from "three";
+import { InstancedMesh, Matrix4, MeshStandardMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import { landWorldTile } from "../systems/map-scale";
@@ -13,11 +13,15 @@ function instancePosition(mesh: InstancedMesh, index: number): Vector3 {
 }
 
 describe("garden islets (Z5)", () => {
-  it("batches every stone into two instanced calls and the torii into one", () => {
+  it("batches stones, islet pines and the torii into four instanced calls", () => {
     const islets = createGardenIslets();
     expect(islets.root.name).toBe("garden-islets");
-    expect(islets.drawCallCount).toBe(3);
-    expect(countDrawableObjects(islets.root)).toBe(3);
+    // T2.2b (2026-09-07): 3 -> 4. The crag stones gained one instanced batch
+    // of four leaning pines — bare rock in still water was the one reference
+    // shot the islets were not making.
+    expect(islets.drawCallCount).toBe(4);
+    expect(countDrawableObjects(islets.root)).toBe(4);
+    expect(islets.pineCount).toBe(4);
     const [crag, reef] = islets.root.children as InstancedMesh[];
     expect(crag).toBeInstanceOf(InstancedMesh);
     expect(reef).toBeInstanceOf(InstancedMesh);
@@ -26,8 +30,17 @@ describe("garden islets (Z5)", () => {
     expect(reef!.count).toBe(7);
     expect(islets.stoneCount).toBe(11);
     // 80-tri displaced icosahedra × 11 instances — same per-stone budget as
-    // the island shoreline boulders.
+    // the island shoreline boulders — plus 246 tris × 4 islet pines.
     expect(islets.triangleCount).toBeGreaterThan(880);
+    expect(islets.triangleCount).toBeLessThan(2_600);
+    const pines = islets.root.getObjectByName("garden-islets-pines") as InstancedMesh;
+    expect(pines).toBeInstanceOf(InstancedMesh);
+    // Solid, textureless, vertex-coloured geometry: N8AO is transparency
+    // unaware at half res, so an alpha foliage card would bruise the water.
+    const material = pines.material as MeshStandardMaterial;
+    expect(material.transparent).toBe(false);
+    expect(material.alphaTest).toBe(0);
+    expect(material.map).toBeNull();
     islets.dispose();
   });
 

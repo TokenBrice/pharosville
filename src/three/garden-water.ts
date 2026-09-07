@@ -106,11 +106,17 @@ function createSeaRegionTextures(): {
   // Distance-only copy. Same bytes, different sampler state — the two cannot
   // share a texture because filtering is a property of the texture, not the
   // fetch.
+  //
+  // T3.2 (2026-09-07): the shore distance rides in G here rather than being
+  // read from the field texture's own B channel, because the field is sampled
+  // NEAREST (region ids are categorical and must never be interpolated) and a
+  // nearest-sampled depth ramp stair-steps at 0.27 tiles. This copy is already
+  // linear + mipmapped, and G was a redundant duplicate of the boundary value.
   const distanceData = new Uint8Array(baked.size * baked.size * 4);
   for (let index = 0; index < baked.size * baked.size; index += 1) {
     const boundary = baked.data[index * 4 + 1]!;
     distanceData[index * 4] = boundary;
-    distanceData[index * 4 + 1] = boundary;
+    distanceData[index * 4 + 1] = baked.data[index * 4 + 2]!;
     distanceData[index * 4 + 2] = boundary;
     distanceData[index * 4 + 3] = 255;
   }
@@ -652,6 +658,17 @@ ${gardenHeightFogGlsl()}
     vec4 regionFlow = uRegionFlow[regionId];
     regionFlow.z *= regionBlend;
     vec4 regionWave = uRegionSwell[regionId];
+    // T1.2 / T1.4 (2026-09-07): hoisted out of the region block below, where
+    // this pair was computed too late for anything but the beacon column. The
+    // fresnel and env-sheen terms upstream now read the same field the sim
+    // obeys, so a body's reflectivity drives its reflection.
+    float regionReflect = uRegionParams[regionId].z;
+    float seaReflectivity = mix(1.0, regionReflect, regionBlend);
+    // T1.4: stillness used to reach the shader only through the hardcoded
+    // 13x9 harbour ellipse. The region field already knows which bodies are
+    // mirrors (calm 1.62, ledger/wreck ~1.1, danger 0.38), so the mirror zone
+    // is now max(harbour, region) instead of harbour alone.
+    float mirrorZone = max(harborCalm, smoothstep(1.1, 1.6, regionReflect) * regionBlend);
     vec2 bodyFlowDir = normalize(mix(uWindDir, regionFlow.xy, regionFlow.z));
     vec2 bodyAcrossDir = vec2(-bodyFlowDir.y, bodyFlowDir.x);
     float bodyAlong = dot(vWaterPosition, bodyFlowDir);
@@ -697,7 +714,14 @@ ${gardenHeightFogGlsl()}
       regionFlow.w * regionBlend
     ));
     blendedNormal = normalize(mix(blendedNormal, vec3(0.0, 0.0, 1.0), harborCalm * 0.75));
-    float camDistance = distance(cameraPosition, vWorldPosition);
+    // T0.1 (2026-09-07): the world camera is ORTHOGRAPHIC (world-renderer.ts:860),
+    // so the old radial distance from the eye point was not depth at all — it is
+    // the radial distance to a point 110u off target, i.e. a vignette that
+    // darkened screen centre and lightened every corner including the near ones.
+    // vFogDepth (-mvPosition.z) is the view depth the scene fog already uses,
+    // and it is measured on the same ~180u scale the thresholds below were tuned
+    // against (camera sits 179.6u from target), so they keep their values.
+    float camDistance = vFogDepth;
     float detailFalloff = max(1.0 - smoothstep(130.0, 460.0, camDistance), 0.32) * uDetail;
     vec3 surfaceNormal = normalize(mix(vec3(0.0, 0.0, 1.0), blendedNormal, detailFalloff));
 
@@ -771,7 +795,22 @@ ${gardenHeightFogGlsl()}
     float isletShelf = (1.0 - smoothstep(0.5, 1.25, cemDist))
       + (1.0 - smoothstep(0.5, 1.25, pigDist));
 
-    float depth = smoothstep(0.92, 3.8, shoreDistance) * 0.72;
+    // T3.2 (2026-09-07): real distance-to-land, from the region field's
+    // shore-distance channel (0 at any coast, 1 at
+    // SEA_REGION_SHORE_FULL_SCALE_TILES = 24 tiles offshore). The base ramp
+    // used to be the island's authored ellipse ALONE, so the sea was "deep"
+    // purely by distance from one rock and had no shallows anywhere else.
+    //
+    // First pass keeps the authored art direction at half weight, exactly as
+    // planned: the banks, basin and shelves below still modulate this, and the
+    // deliberate dark pool at (34, 30) survives.
+    float shoreField = texture2D(uRegionDistance, vRegionUv).g;
+    float fieldDepth = smoothstep(0.05, 0.42, shoreField);
+    float depth = mix(smoothstep(0.92, 3.8, shoreDistance), fieldDepth, 0.5) * 0.72;
+
+    // The wet edge now exists at EVERY shoreline, not only around the island
+    // and the two islets that happened to be hand-wired. ~2.4 tiles of it.
+    shallowShelf = max(shallowShelf, 1.0 - smoothstep(0.0, 0.1, shoreField));
 
     vec2 bathyP = vRegionUv - vec2(0.5);
     float bathyGrain = dot(bathyP, vec2(0.788, 0.616));
@@ -822,10 +861,22 @@ ${gardenHeightFogGlsl()}
     }
     float cloudLight = 1.0 - cloudCover * uCloudShadowStrength;
 
-    vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+    // T0.1 (2026-09-07): under an orthographic camera every view ray is
+    // PARALLEL, so the direction to the eye is constant across the plate: the
+    // camera's world-space +Z (backward) axis, which is row 2 of the view
+    // matrix. The old per-fragment eye-to-fragment vector swept ~20
+    // degrees across the plate and put a radial gradient into fresnel and the
+    // env mask that read as a lens artefact rather than water.
+    vec3 viewDirection = normalize(vec3(
+      viewMatrix[0][2],
+      viewMatrix[1][2],
+      viewMatrix[2][2]
+    ));
     float islandDistance = length(vWaterPosition - uIslandCenter);
     float envMask = smoothstep(30.0, 110.0, islandDistance) * (0.2 + 0.8 * depth);
-    envMask = max(envMask, harborCalm * 0.75);
+    // T1.4 (2026-09-07): was harborCalm * 0.75 — the harbour ellipse was the
+    // only stillness the sky sheen knew about. Now every mirror-grade body gets it.
+    envMask = max(envMask, mirrorZone * 0.75);
     vec3 scalarSkySample = mix(
       uEnvHorizonColor,
       uEnvZenithColor,
@@ -845,17 +896,54 @@ ${gardenHeightFogGlsl()}
     vec3 keyDirection = normalize(vec3(-0.46, 0.2, 0.86));
     float facetLight = clamp(dot(surfaceNormal, keyDirection) * 0.5 + 0.55, 0.2, 1.0);
     waterColor *= (0.95 + facetLight * 0.1) * mix(1.0, cloudLight, 0.9);
-    float fresnel = pow(1.0 - max(0.0, dot(worldSurfaceNormal, viewDirection)), 3.0);
+    // T1.2 (2026-09-07): Schlick fresnel. Was pow(1 - cos, 3.0) with no base
+    // reflectance, which over-reflects at the mid angles this fixed ortho rig
+    // spends all its time at and never reaches a true grazing mirror.
+    //
+    // Gain was 0.08 + 0.08*daylight + 0.04*night (0.16 day / 0.12 night). At
+    // this rig's fixed 35.3 degree view, Schlick reads ~2.3x lower than the old
+    // cubic on flat water, so the gain rises to 0.40 + 0.45*daylight and is
+    // scaled by seaReflectivity — the field the sim already obeys, so Calm
+    // becomes a mirror and Danger goes leaden.
+    //
+    // 0.40 is a deliberately CONSERVATIVE starting point; the plan's figure is
+    // 0.55. Tune it on the real GPU, not here.
+    //
+    // Night quietness (garden-water-contract.ts): this is a mix toward the
+    // night sky sample, not an additive term, so it does not enter the
+    // open-night emissive mean and the 0.016 ceiling is untouched.
+    // The Schlick exponent is 5, so fresnel is far more derivative-sensitive
+    // than the cubic it replaced: wherever the normal map under-samples — the
+    // far field, where a texel spans more than a pixel — the wave detail beats
+    // against the sample grid and the sea develops regular diagonal banding.
+    // Observed on the real GPU 2026-09-07, strongest in the top-right of the
+    // rest frame.
+    //
+    // The fix is the filter this shader already owns. glintDetailWeight is
+    // 1/(1 + length(fwidth(normal))*18) - the screen-space variance measure the sun
+    // glitter uses for exactly this reason — so reusing it pulls the fresnel
+    // normal toward flat water precisely where the detail is unresolvable, and
+    // leaves it untouched in the near field. Calming the ALIASING rather than
+    // lowering the gain keeps the sky in the water, which is the whole point
+    // of T1.2.
+    vec3 fresnelNormal = normalize(mix(
+      vec3(0.0, 1.0, 0.0),
+      worldSurfaceNormal,
+      clamp(glintDetailWeight, 0.08, 1.0)
+    ));
+    float fresnel = 0.02
+      + 0.98 * pow(1.0 - max(0.0, dot(fresnelNormal, viewDirection)), 5.0);
     waterColor = mix(
       waterColor,
       skySample,
-      fresnel * (0.08 + uDaylight * 0.08 + uNight * 0.04)
+      clamp(fresnel * seaReflectivity * (0.40 + uDaylight * 0.45), 0.0, 0.55)
     );
 
     waterColor = mix(
       waterColor,
       skySample,
-      clamp(envMask * uEnvStrength * (1.0 + harborCalm * 1.2), 0.0, 0.85)
+      // T1.4 (2026-09-07): harborCalm -> mirrorZone, same 1.2 boost.
+      clamp(envMask * uEnvStrength * (1.0 + mirrorZone * 1.2), 0.0, 0.85)
     );
 
     waterColor = mix(waterColor, uShallowColor, shallowShelf * (0.18 - uNight * 0.05));
@@ -925,16 +1013,11 @@ ${gardenHeightFogGlsl()}
       );
     }
 
-    float seaReflectivity = 1.0;
-
     {
       vec3 regionTint = uRegionColor[regionId];
       float regionDepth = uRegionParams[regionId].x;
       float regionFoam = uRegionParams[regionId].y;
-      float regionReflect = uRegionParams[regionId].z;
       float regionStrength = uRegionParams[regionId].w;
-
-      seaReflectivity = mix(1.0, regionReflect, regionBlend);
 
       float waterLuma = dot(waterColor, vec3(0.2126, 0.7152, 0.0722));
       float tintLuma = max(dot(regionTint, vec3(0.2126, 0.7152, 0.0722)), 0.0001);
@@ -1332,7 +1415,8 @@ ${gardenHeightFogGlsl()}
       gl_FragColor.rgb,
       vWorldPosition,
       vFogDepth,
-      normalize(vWorldPosition - cameraPosition)
+      // T0.1 (2026-09-07): parallel ortho ray, not a per-fragment radial one.
+      -viewDirection
     );
 
     vec4 epistemicRegionSample = texture2D(uRegionField, vRegionUv);
@@ -1346,7 +1430,8 @@ ${gardenHeightFogGlsl()}
       gl_FragColor.rgb,
       vWorldPosition,
       vFogDepth,
-      normalize(vWorldPosition - cameraPosition),
+      // T0.1 (2026-09-07): parallel ortho ray, not a per-fragment radial one.
+      -viewDirection,
       uPegSummaryEpistemicHaze * riskWater * epistemicMist
     );
 
@@ -1646,9 +1731,17 @@ export function createGardenWater(waterLevel: number): GardenWater {
     strength: number;
   }>();
   const syncRippleUniforms = () => {
+    // T0.7 (2026-09-07): there are more claimants (island + islets + docks +
+    // pigeonnier + moored ships) than the 12 uniform slots, and this used to
+    // fill them in Map INSERTION order and silently drop the rest — so which
+    // rings rendered depended on registration timing and changed between runs.
+    // Rank by authored contrast, id as the tie-break: the twelve that draw are
+    // the twelve that read strongest, and they are the same twelve every time.
+    const ranked = [...rippleEmitters.entries()]
+      .sort(([idA, a], [idB, b]) => b.strength - a.strength || idA.localeCompare(idB))
+      .slice(0, GARDEN_WATER_MAX_RIPPLE_RINGS);
     let index = 0;
-    for (const emitter of rippleEmitters.values()) {
-      if (index >= GARDEN_WATER_MAX_RIPPLE_RINGS) break;
+    for (const [, emitter] of ranked) {
       uniforms.uRipple.value[index]!.set(
         emitter.centerX,
         emitter.centerY,

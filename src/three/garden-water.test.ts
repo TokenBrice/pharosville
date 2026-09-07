@@ -42,6 +42,7 @@ import {
 import {
   GARDEN_WATER_CREST_FOAM,
   GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN,
+  GARDEN_WATER_MAX_RIPPLE_RINGS,
   GARDEN_WATER_NIGHT_EMISSIVE_BUDGET,
   GARDEN_WATER_PLATE_MARGIN_TILES,
   GARDEN_WATER_PROBE_BLEND,
@@ -227,16 +228,97 @@ describe("createGardenWater", () => {
     expect(disposeProbe).not.toHaveBeenCalled();
   });
 
-  it("uses one exact-mip PMREM lookup and keeps the scalar sky only as pigment fallback", () => {
+  it("uses one exact-mip PMREM lookup, now at the sharp mip-4 breakpoint", () => {
     const source = createGardenWater(0).material.fragmentShader;
     expect(source.match(/textureCubeUV\(/g)).toHaveLength(1);
-    // Three r185's roughnessToMip table maps 0.4 exactly to mip 2.0. That
-    // makes textureCubeUV take its one-fetch arm, with no adjacent-mip sample.
-    expect(GARDEN_WATER_PROBE_ROUGHNESS).toBe(0.4);
+    // T1.3 (2026-09-07): this pinned 0.4 (mip 2). Three r185's roughnessToMip
+    // has EXACT breakpoints at both cubeUV_r4 = 0.4 -> mip 2 and
+    // cubeUV_r6 = 0.21 -> mip 4, so `mipF` is 0 either way and textureCubeUV
+    // still takes its one-fetch arm with no adjacent-mip sample. What the test
+    // is protecting is the single fetch, not the old blur; 0.21 buys four times
+    // the angular resolution — and a real sun disc in the water — for free.
+    expect(GARDEN_WATER_PROBE_ROUGHNESS).toBe(0.21);
     expect(GARDEN_WATER_PROBE_BLEND).toBeGreaterThan(0.75);
     expect(GARDEN_WATER_PROBE_BLEND).toBeLessThan(1);
     expect(source).toContain("vec3 skySample = gardenEnvironmentReflection(");
     expect(source).not.toContain("openEnvironment");
+  });
+
+  it("reads depth and the view ray as an ORTHOGRAPHIC camera, not a point one", () => {
+    // T0.1 (2026-09-07): this shader used to spend `distance(cameraPosition,
+    // vWorldPosition)` as "depth" and `normalize(cameraPosition -
+    // vWorldPosition)` as the view ray. Under the world's orthographic camera
+    // (world-renderer.ts:860) neither is true: rays are parallel and the camera
+    // is a point 110u off target, so both terms were radial gradients centred
+    // on screen — a vignette that lightened the far corners and darkened the
+    // middle. Depth is now `vFogDepth` (the same view depth the scene fog uses)
+    // and the view ray is the constant camera axis out of the view matrix.
+    const source = createGardenWater(0).material.fragmentShader;
+    expect(source).toContain("float camDistance = vFogDepth;");
+    expect(source).toContain("viewMatrix[0][2]");
+    // Only the comments naming the old idioms may still say cameraPosition.
+    expect(source).not.toContain("distance(cameraPosition,");
+    expect(source).not.toContain("normalize(cameraPosition");
+    expect(source).not.toContain("normalize(vWorldPosition - cameraPosition)");
+  });
+
+  it("drives fresnel and the mirror zone from the sea region, not one ellipse", () => {
+    // T1.2 / T1.4 (2026-09-07). Previously fresnel was `pow(1-cos, 3.0)` at a
+    // flat 0.16/0.12 gain and knew nothing about the water it was on, and the
+    // only stillness the sheen could see was the hardcoded harbour ellipse.
+    // Both now read `seaReflectivity` / `regionReflect` — the field the sim
+    // already obeys — so Calm mirrors, Danger goes leaden, and the reading is
+    // driven by data rather than by a second hand-placed shape.
+    const source = createGardenWater(0).material.fragmentShader;
+    expect(source).toContain("float fresnel = 0.02");
+    // 2026-09-07, second pass: Schlick still, but against a variance-FILTERED
+    // normal. Exponent 5 is far more derivative-sensitive than the cubic it
+    // replaced, so in the far field — where a normal-map texel spans more than
+    // a pixel — the wave detail beat against the sample grid and the sea
+    // developed regular diagonal banding on the real GPU. `fresnelNormal`
+    // reuses `glintDetailWeight`, the screen-space variance measure the sun
+    // glitter already relies on, to pull toward flat water exactly where the
+    // detail is unresolvable. Pinned because dropping the filter silently
+    // brings the moire back at a distance no unit test renders.
+    expect(source).toContain("pow(1.0 - max(0.0, dot(fresnelNormal, viewDirection)), 5.0)");
+    expect(source).toContain("clamp(glintDetailWeight, 0.08, 1.0)");
+    expect(source).toContain("clamp(fresnel * seaReflectivity * (0.40 + uDaylight * 0.45)");
+    expect(source).toContain(
+      "float mirrorZone = max(harborCalm, smoothstep(1.1, 1.6, regionReflect) * regionBlend);",
+    );
+    expect(source).toContain("envMask = max(envMask, mirrorZone * 0.75);");
+    // The harbour basin still flattens normals on its own: that is a motion
+    // suppression (contract C2(b)), not a reflection term.
+    expect(source).toContain("harborCalm * 0.75));");
+  });
+
+  it("keeps the twelve loudest ripple rings, deterministically, when oversubscribed", () => {
+    // T0.7 (2026-09-07): claimants exceed GARDEN_WATER_MAX_RIPPLE_RINGS, and
+    // the uniform slots used to be filled in Map insertion order — so which
+    // rings drew depended on registration timing. Rank by strength (id as
+    // tie-break) and the same twelve win every run.
+    const water = createGardenWater(0);
+    for (let index = 0; index < GARDEN_WATER_MAX_RIPPLE_RINGS + 6; index += 1) {
+      water.rippleRings.setRing({
+        id: `garden.test.ring.${index}`,
+        center: { x: index, z: 0 },
+        radius: 5,
+        bands: 2,
+        periodSeconds: 8,
+        // Later registrations are quieter, so insertion order and rank differ.
+        strength: 1 - index * 0.05,
+      });
+    }
+    expect(water.rippleRings.ringCount()).toBe(GARDEN_WATER_MAX_RIPPLE_RINGS + 6);
+    expect(uniformNumber(water.material, "uRippleCount"))
+      .toBe(GARDEN_WATER_MAX_RIPPLE_RINGS);
+    const strengths = (water.material.uniforms.uRippleParams!.value as { z: number }[])
+      .map((params) => params.z);
+    expect(strengths[0]).toBeCloseTo(1);
+    for (const [index, strength] of strengths.entries()) {
+      if (index === 0) continue;
+      expect(strength).toBeLessThanOrEqual(strengths[index - 1]!);
+    }
   });
 
   it("keeps foam sparse and filters glint normals by screen-space variation", () => {

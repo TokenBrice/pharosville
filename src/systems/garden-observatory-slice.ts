@@ -88,7 +88,12 @@ export function gardenShipVisualScale(dataScale: number): number {
 
 export const GARDEN_SILHOUETTE_FOR_HULL: Record<ShipHull, GardenHullSilhouette> = {
   "algo-junk": "junk",
-  "chartered-brigantine": "bezaisen",
+  // 2026-09-07 T0.5/T3.3: was "bezaisen". `kobaya` had 0 of 217 live coins, so
+  // the renderer allocated a hull batch, a sail batch and 320 slots per startup
+  // for a silhouette it never drew, while `bezaisen` carried 43.3% of the fleet
+  // on its own. Routing the chartered brigantine here drops bezaisen to ~24.5%
+  // and revives the only bowsprit-and-lateen form in the set.
+  "chartered-brigantine": "kobaya",
   "commodity-peg-hoy": "scow",
   "crypto-caravel": "kobaya",
   "dao-schooner": "twinhull",

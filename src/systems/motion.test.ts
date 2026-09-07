@@ -135,7 +135,13 @@ describe("motion", () => {
     for (const stats of [calm, watch, alert, warning, danger]) {
       expect(stats.riskDriftSamples).toBeGreaterThan(0);
     }
-    expect(calm.maxRiskSpeed).toBe(0);
+    // 2026-09-07: was `expect(calm.maxRiskSpeed).toBe(0)`. That magic zero came
+    // from REST_RADIUS_DEFAULT being literally 0, which froze the most populous
+    // band solid and made the calm->watch step infinite rather than a gradient.
+    // Calm now drifts at 0.07 (below watch's 0.12), so the assertion becomes
+    // the ORDERING it was always trying to express, which is the stronger pin.
+    expect(calm.maxRiskSpeed).toBeGreaterThan(0);
+    expect(calm.maxRiskSpeed).toBeLessThan(watch.maxRiskSpeed);
     for (const stats of [watch, alert, warning, danger]) expect(stats.maxRiskSpeed).toBeGreaterThan(0);
 
     // N3: the authored water still sizes each band's patrol reach.

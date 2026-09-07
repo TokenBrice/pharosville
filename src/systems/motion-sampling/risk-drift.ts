@@ -36,7 +36,18 @@ const REST_RADIUS_DANGER = 0.6;
 const REST_RADIUS_WARNING = 0.4;
 const REST_RADIUS_ALERT = 0.24;
 const REST_RADIUS_WATCH = 0.12;
-const REST_RADIUS_DEFAULT = 0;
+/**
+ * 2026-09-07: 0 -> 0.07. Calm is the most populous zone and its rest radius was
+ * literally zero, so `riskDriftSampleInto` wrote the anchor tile exactly, frame
+ * after frame, for the whole rest window — the calm anchorages read as a car
+ * park. It also meant the calm->watch step was infinite rather than a gradient,
+ * which is not what the DEWS ordering is supposed to say. 0.07 sits below
+ * watch's 0.12, so the ordering is preserved and strengthened. Combined with
+ * PATROL_SPEED_DEFAULT this is a ~0.1-tile figure-of-eight over ~40 s: below
+ * conscious notice, above frozen. `isSafeRestTile` still collapses the offset
+ * to 0 near obstacles, so no hull can drift onto land.
+ */
+const REST_RADIUS_DEFAULT = 0.07;
 
 function restRadiusForZone(zone: ShipWaterZone): number {
   if (zone === "danger") return REST_RADIUS_DANGER;

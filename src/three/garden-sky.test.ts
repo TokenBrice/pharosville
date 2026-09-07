@@ -83,12 +83,33 @@ describe("garden sky billboard atmosphere", () => {
     sky.dispose();
   });
 
-  it("keeps the banks out of the midday frame and gives them dawn and night", () => {
+  it("gives the banks a midday whisper under their dawn, dusk and night body", () => {
     const sky = createGardenSky();
     const mist = mistOf(sky);
 
+    // 2026-09-07 (T2.4) — DELIBERATE REVERSAL of the earlier contract, which
+    // was named "keeps the banks out of the midday frame" and asserted
+    // `mist.visible === false` at hour 12.
+    //
+    // That contract was written against the retired 320x9 mist PLANE, whose
+    // hard-edged full-width band really did white out a noon frame. The
+    // instanced banks are nine soft radial billboards on the far anchors, and
+    // the clear-sky term `dusk * 0.55 + night * 0.48` sat at EXACTLY zero for
+    // the 8.5 hours `dayCyclePhase` reports daylight = 1 / dusk = 0 — so the
+    // modal hour of the piece got nothing from the whole system.
+    //
+    // The new intent is a whisper on the far shelves only: ~0.066 uniform
+    // opacity, which the shader's radial shape and distance fade take to about
+    // 0.036 on screen, riding the pulled-in fog ladder rather than fighting it.
+    // The old white-out concern does not apply at that opacity — a third of the
+    // dusk value on billboards that are already fading out at their anchors is
+    // aerial perspective, not a layer over the garden. The dusk and night
+    // assertions below still guard the element's real body.
     sky.update(dayCyclePhase(12), FRAME);
-    expect(mist.visible).toBe(false);
+    expect(mist.visible).toBe(true);
+    const middayOpacity = uniformsOf(mist).uOpacity!.value as number;
+    expect(middayOpacity).toBeGreaterThan(0.02);
+    expect(middayOpacity).toBeLessThan(0.09);
 
     sky.update(dayCyclePhase(18), FRAME);
     expect(mist.visible).toBe(true);
@@ -339,11 +360,20 @@ describe("garden sky aerial perspective", () => {
     return range;
   }
 
-  it("leaves the island at zero haze, so the graded monument cannot shift", () => {
-    const { near } = fogRangeAtViewHeight(DEFAULT_VIEW_HEIGHT);
-    // The island spans ground depth ~155-195 at the calibration framing and its
-    // near half is what the tone-mapped ortho grade was pinned against.
-    expect(near).toBeGreaterThanOrEqual(178);
+  it("keeps the monument's own depth band nearly clear, so it still anchors", () => {
+    const { far, near } = fogRangeAtViewHeight(DEFAULT_VIEW_HEIGHT);
+    // 2026-09-07: the ladder was pulled in (178/300 -> 124/240) because at the
+    // old placement NOTHING in the rest frame was hazed and near and far read
+    // at identical contrast — the flatness the reference art does not have.
+    // The contract is no longer "zero haze on the island" but "the island is
+    // the CLEAREST thing in the frame": its near edge stays under 2% while the
+    // frame top now grades past 30%, which is what makes distance read.
+    expect(near).toBeLessThan(155);
+    expect(fogAt(155, near, far)).toBeLessThan(0.02);
+    expect(fogAt(195, near, far)).toBeLessThan(0.2);
+    // The height-fog term (garden-day-cycle.ts, falloff 0.28) is what keeps the
+    // tower itself crisper than the sea at the same depth; this linear term is
+    // deliberately height-blind and must stay the gentler of the two on-island.
   });
 
   it("never hazes the far frame edge as hard as the pre-W6.8 ladder did", () => {
@@ -356,21 +386,24 @@ describe("garden sky aerial perspective", () => {
     expect(fogAt(232, near, far)).toBeLessThan(0.482);
   });
 
-  it("starts the rest ladder ~70% up the frame, so fog is far-field only", () => {
+  it("grades the whole rest frame, so near and far no longer read alike", () => {
     const { far, near } = fogRangeAtViewHeight(DEFAULT_VIEW_HEIGHT);
-    // Warm-village (2026-09-05, preview step 2): at the 1.0 rest the visible
-    // ground span is ~125–250 wu, and the W6.8 unit ladder (near 178) fogged
-    // from ~40% up — with the ember dye that read as an orange wash over half
-    // the picture. The authored rest ladder (FOG_MIN_SCALE ~1.21) leaves the
-    // island AND the midground ships at exactly zero haze, lifts first past
-    // ~215 wu (~72% up the span), and still grades the frame top (~0.12 at
-    // the doubled day span) so the seam dissolves without owning a third of
-    // the frame.
-    expect(fogAt(195, near, far)).toBe(0);
-    expect(fogAt(212, near, far)).toBe(0);
-    expect(fogAt(225, near, far)).toBeGreaterThan(0);
-    expect(fogAt(250, near, far)).toBeGreaterThan(0.05);
-    expect(fogAt(250, near, far)).toBeLessThan(0.2);
+    // 2026-09-07 (operator-approved). The 2026-09-05 warm-village ladder held
+    // the island AND the midground at EXACTLY zero and only reached ~0.12 at
+    // the frame top. That is why the picture had no depth: across the whole
+    // visible span (~125-250 wu) there was effectively no aerial perspective at
+    // all, so a hull at the back read at the same contrast as one at the front.
+    //
+    // The new ladder starts just behind the island and climbs steadily, so the
+    // fleet recedes. It is still bounded: the pre-W6.8 white-out ceiling
+    // asserted in the case above (0.627 at 244) remains comfortably clear.
+    expect(fogAt(195, near, far)).toBeGreaterThan(0.1);
+    expect(fogAt(225, near, far)).toBeGreaterThan(0.2);
+    expect(fogAt(250, near, far)).toBeGreaterThan(0.3);
+    expect(fogAt(250, near, far)).toBeLessThan(0.45);
+    // Monotone and still short of a wash at the very back of the plate.
+    expect(fogAt(270, near, far)).toBeGreaterThan(fogAt(250, near, far));
+    expect(fogAt(270, near, far)).toBeLessThan(0.55);
   });
 
   it("still pulls haze in at whole-map framing, per the W6.6 hard-edge finding", () => {
@@ -388,11 +421,15 @@ describe("garden sky aerial perspective", () => {
     // its 1.5 maximum at rest, pushes the near plane past everything visible
     // and silently switches the whole system off. At the default framing the
     // ladder must run at its authored scale, not the wide-framing cap.
+    // Asserted as a RATIO against the authored base so it pins the pivot, not
+    // the ladder's placement: FOG_NEAR may be retuned for look, but the scale
+    // at the default framing must stay the authored ~1.21 and never the 1.5 cap.
+    const base = 124;
     const rest = fogRangeAtViewHeight(
       gardenCameraViewHeight(1000, GARDEN_DEFAULT_CAMERA_ZOOM),
     );
-    expect(rest.near).toBeGreaterThanOrEqual(178);
-    expect(rest.near).toBeLessThan(178 * 1.25);
+    expect(rest.near).toBeGreaterThanOrEqual(base);
+    expect(rest.near).toBeLessThan(base * 1.25);
   });
 });
 

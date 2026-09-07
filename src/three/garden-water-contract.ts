@@ -43,7 +43,14 @@ export const GARDEN_WATER_PLATE_MARGIN_TILES = GARDEN_PLATE_MARGIN_TILES;
  * interpolates these exact values into the shader source and the focused test
  * records the corresponding night-emissive ceiling.
  */
-export const GARDEN_WATER_PROBE_ROUGHNESS = 0.4;
+/**
+ * T1.3 (2026-09-07): 0.4 -> 0.21. Both are EXACT mip breakpoints in three's
+ * `roughnessToMip` (cubeUV_r4 = 0.4 -> mip 2, cubeUV_r6 = 0.21 -> mip 4), so
+ * `mipF` is 0 either way and `textureCubeUV` takes the same single-fetch arm:
+ * identical cost, four times the angular resolution. The probe dome draws a
+ * real sun disc, so this is what turns the sea's sky sheen into a specular sun.
+ */
+export const GARDEN_WATER_PROBE_ROUGHNESS = 0.21;
 export const GARDEN_WATER_PROBE_BLEND = 0.82;
 export const GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN = 18;
 export const GARDEN_WATER_CREST_FOAM = Object.freeze({

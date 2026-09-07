@@ -37,6 +37,32 @@ describe("heroReflectionStrengthForRegion", () => {
     expect(ladder.at(-1)).toBeLessThan(0.2);
   });
 
+  it("spans the live reflectivity table instead of a hand-copied range", () => {
+    // T0.6 (2026-09-07): the normalisation was pinned to the stale pair
+    // (r - 0.29) / 1.21, taken from a reflectivity table that has since moved
+    // to calm 1.62 / danger 0.38. Both ends therefore CLAMPED and the middle of
+    // the ladder was compressed — every hull between watch and warning
+    // reflected more alike than the sea it sat on did. The range is now derived
+    // from SEA_REGION_CHARACTER itself, so calm is exactly the top, danger
+    // exactly the 0.1 floor, and open water lands mid-ladder rather than high.
+    const calm = heroReflectionStrengthForRegion(SEA_REGION_ID.calm);
+    const open = heroReflectionStrengthForRegion(SEA_REGION_ID.open);
+    const danger = heroReflectionStrengthForRegion(SEA_REGION_ID.danger);
+    expect(calm).toBe(1);
+    expect(danger).toBeCloseTo(0.1, 6);
+    expect(open).toBeCloseTo(0.5, 2);
+    // Nothing above the floor may sit at the floor: that would be a clamp
+    // swallowing a distinct region again.
+    for (const regionId of [
+      SEA_REGION_ID.watch,
+      SEA_REGION_ID.alert,
+      SEA_REGION_ID.warning,
+    ]) {
+      expect(heroReflectionStrengthForRegion(regionId)).toBeGreaterThan(0.1);
+      expect(heroReflectionStrengthForRegion(regionId)).toBeLessThan(1);
+    }
+  });
+
   it("never returns zero, so a failing reflection is not an absent one", () => {
     for (const tile of [{ x: 0, y: 0 }, { x: 55, y: 55 }, { x: 111, y: 3 }]) {
       const strength = heroReflectionSeaStrength(tile.x, tile.y);

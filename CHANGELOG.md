@@ -2,6 +2,23 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.16.0 - 2026-09-07 - Air and Lantern
+
+The harbour gains air, light and planting: distance reads as distance, every window wakes after sunset, the fleet rides the swell, and the garden is finally planted.
+
+Collected from commits `52c7e12` through `d9c4782` after v0.15.0.
+
+- Ships stopped wearing signs. A coin's mark is now printed into its sail cloth instead of pasted on as its own logo badge, so the same mark at the same size reads as canvas taking the light rather than a sticker; and the cloth is pulled toward its own brightness so a fleet of a hundred and eighty-five brands settles into one palette without any ship losing its colour or going darker.
+- The whole fleet is mirrored in the water. Every hull lays a reflection, not just the twenty-nine largest.
+- Distance reads as distance. Haze now builds across the harbour so the far shore and the far fleet sit back behind the near water, and the sea recedes harder than the Pharos does, which keeps the monument crisp against a softening background.
+- The harbour lights up after sunset. Station windows, the lit quay edges, the tower's window rows, the keeper's gatehouse and the island's stone path lanterns all wake with the sky and bank down again at noon, each on its own curve so nothing competes with the beacon.
+- The fleet rides the water instead of sitting on it. Hulls roll and pitch with the swell, not just rise and fall; the calm anchorage drifts instead of standing still; moored boats work against their lines at a pace you can see; and the wind gust that crosses the harbour every half minute is now visible on the boats it passes.
+- A new kind of boat. The light two-masted courier — a needle hull under opposed triangular sails, the only bowsprit in the harbour — now carries the chartered issuers, so the most common hull drops from two ships in five to one in four and the anchorages read as a mixed fleet.
+- The garden is planted. Shrub understory across the land rim, a second broadleaf species among the pines, clipped azalea along the island path, and a leaning pine on each islet — and the broadleaves turn with the season: blossom in spring, green in summer, mixed reds in autumn, bare in winter.
+- Calm water reads as a mirror and Danger Strait as lead, both from the same reading the sea already carries; the sky sits in the water properly at every angle; and every coastline gets a soft wet edge where the water meets the rock, not just the island's.
+- The frame has depth again. The corners and foreground carry real shadow, the near pines are cut by the edge of the picture so they frame it instead of standing inside it, and a fine paper tooth sits over the whole image.
+- Midday stopped being the flattest hour. Light shafts now reach across the day rather than only at dusk, distant mist returns at noon, and the sun sits in the frame instead of behind the sea.
+
 ## v0.15.0 - 2026-09-07 - Honest Waters
 
 Watch water pulled off the strait, the north-east ladder made honest, the graveyard off the Mole, two berths traded, and the whole garden re-lit in gold over violet shadow.

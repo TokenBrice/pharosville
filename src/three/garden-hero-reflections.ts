@@ -33,7 +33,7 @@ import {
  * no second render pass, no extra target.
  *
  * It is not decoration. How mirror-like the water is belongs to the sea REGION
- * (`SEA_REGION_CHARACTER`: calm mirrors at 1.5, danger swallows light at 0.42),
+ * (`SEA_REGION_CHARACTER`: calm mirrors at 1.62, danger swallows light at 0.38),
  * so a hull's reflection reports the water it is riding: crisp in a calm
  * anchorage, a bare smear in the Danger Strait. Same encoding the water surface
  * already uses, read from the same field, now attached to the objects a visitor
@@ -148,16 +148,29 @@ const REFLECTION_ROTATION = new Quaternion()
   .setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 4);
 
 /**
+ * T0.6 (2026-09-07): the normalisation range is now DERIVED from the live
+ * reflectivity table instead of being the hand-copied 0.29/1.21 pair, which had
+ * gone stale — the ladder ends at 0.38 (danger) and 1.62 (calm), so both ends
+ * clamped and everything between them was compressed into the middle of the
+ * range. Deriving it means the ladder cannot silently drift again when
+ * `SEA_REGION_CHARACTER` is re-tuned.
+ */
+const REFLECTIVITY_FLOOR = Math.min(...REGION_REFLECTIVITY);
+const REFLECTIVITY_CEILING = Math.max(...REGION_REFLECTIVITY);
+
+/**
  * How mirror-like a sea region is, normalised so calm water reads as a
  * full-strength column and danger water as a residue.
  *
- * 0.42 (danger) -> 0.1, 1 (open) -> 0.58, 1.5 (calm) -> 1. It never reaches
+ * 0.38 (danger) -> 0.1, 1 (open) -> 0.5, 1.62 (calm) -> 1. It never reaches
  * zero: "gone" would be indistinguishable from a hull with no reflection wired
  * at all, and the reading wanted is failing, not absent.
  */
 export function heroReflectionStrengthForRegion(regionId: number): number {
   const reflectivity = REGION_REFLECTIVITY[regionId] ?? 1;
-  return Math.min(1, Math.max(0.1, (reflectivity - 0.29) / 1.21));
+  const normalised = (reflectivity - REFLECTIVITY_FLOOR)
+    / (REFLECTIVITY_CEILING - REFLECTIVITY_FLOOR);
+  return Math.min(1, Math.max(0.1, normalised));
 }
 
 /** The same, for the water under a tile. */

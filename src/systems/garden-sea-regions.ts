@@ -86,8 +86,27 @@ export const SEA_REGION_FIELD_SIZE = 512;
  */
 export const SEA_REGION_DISTANCE_FULL_SCALE_TILES = 6.5;
 
+/**
+ * T3.2 (2026-09-07): tile distance from LAND represented by a fully white
+ * shore-distance texel.
+ *
+ * `SeaRegionField` has always documented "B = shore distance" and has always
+ * written zero there, so the water shader hand-authored ~35 lines of ellipse
+ * and sine bathymetry approximating a coastline the terrain field knows
+ * exactly. 24 tiles is where the authored island ramp reached full depth
+ * (smoothstep(0.92, 3.8) on an 18.4x13.8-tile ellipse), so the new channel
+ * lands on the same physical scale the shader was already tuned against.
+ */
+export const SEA_REGION_SHORE_FULL_SCALE_TILES = 24;
+
 export interface SeaRegionField {
-  /** RGBA: R = region id (0-255 scaled), G = boundary distance, B = shore distance. */
+  /**
+   * RGBA: R = region id (0-255 scaled), G = boundary distance, B = shore
+   * distance (T3.2, 2026-09-07 — declared here since W2, written as zero until
+   * then). G and B are both normalised chamfer distances, over
+   * `SEA_REGION_DISTANCE_FULL_SCALE_TILES` and
+   * `SEA_REGION_SHORE_FULL_SCALE_TILES` respectively.
+   */
   data: Uint8Array;
   size: number;
   /** World-space extent the field covers, in tiles. */
@@ -148,6 +167,17 @@ export function buildSeaRegionField(size = SEA_REGION_FIELD_SIZE): SeaRegionFiel
   }
   chamferDistance(distance, size);
 
+  // T3.2 (2026-09-07): the shore-distance channel this interface has always
+  // declared. Same transform, different seed: every LAND texel is zero, so a
+  // water texel carries its real distance to the nearest coast — every coast,
+  // not the one island the water shader could afford to hand-author.
+  const shore = new Float32Array(size * size).fill(Number.POSITIVE_INFINITY);
+  for (let index = 0; index < size * size; index += 1) {
+    if (ids[index] === SEA_REGION_ID.none) shore[index] = 0;
+  }
+  chamferDistance(shore, size);
+  const shoreScale = (size / tileSpan) * SEA_REGION_SHORE_FULL_SCALE_TILES;
+
   // Normalise: the shader wants 0 at a boundary rising to 1 well inside a
   // region. The scale is expressed in map tiles so alternate bake sizes keep
   // exactly the same physical bank width as the production 512px field.
@@ -155,7 +185,7 @@ export function buildSeaRegionField(size = SEA_REGION_FIELD_SIZE): SeaRegionFiel
   for (let index = 0; index < size * size; index += 1) {
     data[index * 4] = ids[index]!;
     data[index * 4 + 1] = Math.min(255, Math.round((distance[index]! / distanceScale) * 255));
-    data[index * 4 + 2] = 0;
+    data[index * 4 + 2] = Math.min(255, Math.round((shore[index]! / shoreScale) * 255));
     data[index * 4 + 3] = 255;
   }
 

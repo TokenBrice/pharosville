@@ -112,11 +112,21 @@ export const STAR_COLOR = paletteColor(P.moonlight).lerp(paletteColor(P.foam_whi
 export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPreset> = {
   day: {
     ambient: paletteColor(P.sky_day_horizon),
-    ambientIntensity: 0.22,
+    // T1.8 midday fill cut (2026-09-07): ambient 0.22 -> 0.20 and hemi
+    // 0.5 -> 0.42, taking the day key:fill ratio 4.58:1 -> 5.32:1. Midday was
+    // the flattest hour in the piece because the fill sat within one stop of
+    // the key; the honey key now owns two more stops of the value ladder.
+    // HARD FLOOR: ambient + hemi must stay ABOVE
+    // `GARDEN_ENVIRONMENT_INTENSITY` (0.6) — the PMREM probe is a correction
+    // on top of the analytic fill, not a second fill light, and
+    // garden-environment.test.ts asserts that ordering for every preset.
+    // 0.20 + 0.42 = 0.62 leaves 0.02 of headroom. Do not cut further without
+    // moving that constant first; the pin lives in garden-day-cycle.test.ts.
+    ambientIntensity: 0.2,
     dirColor: paletteColor(P.sun_day_warm),
     dirIntensity: 3.3,
     hemiGround: paletteColor(P.timber_warm).lerp(paletteColor(P.aurora_green), 0.45),
-    hemiIntensity: 0.5,
+    hemiIntensity: 0.42,
     hemiSky: paletteColor(P.sky_day_zenith),
   },
   dusk: {
@@ -152,10 +162,15 @@ export const GARDEN_SAIL_EMISSIVE = Object.freeze({
 
 export const DAY_CYCLE_HEIGHT_FOG_PRESETS: Record<DayCyclePhaseName, DayCycleHeightFogPreset> = {
   day: {
-    density: 0.000055,
+    // 2026-09-07: 0.000055 -> 0.00012, gain 0.12 -> 0.2. The height term is the
+    // art-directed half of the aerial perspective: at falloff 0.28 the sea
+    // plane hazes ~10x harder than the Pharos crown at y=8, so distance eats
+    // the water and open fleet while the monument stays crisp. Still below
+    // night's density, so the authored day < night < dusk order holds.
+    density: 0.00012,
     heightFalloff: 0.28,
     horizon: DAY_CYCLE_SKY_PRESETS.day.fog.clone(),
-    phaseGain: 0.12,
+    phaseGain: 0.2,
     sunTint: DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone(),
     zenith: DAY_CYCLE_SKY_PRESETS.day.zenith.clone(),
   },
@@ -242,7 +257,33 @@ interface DayCycleContent {
   /** Shared sail material for the batched fleet (W1); null before batches exist. */
   fleetSailMaterial: MeshStandardMaterial | null;
   harborLanternMaterial: MeshStandardMaterial;
+  /**
+   * T0.2 remainder (2026-09-07): the island's two stone path lanterns share
+   * one lamp material (`gardenIslandLanternMaterial`). Optional and nullable
+   * so the cycle no-ops safely before the integrator wires the handle.
+   */
+  islandLanternMaterial?: MeshStandardMaterial | null;
+  /**
+   * T0.2 (2026-09-07): the batched station apertures — one "window" bucket
+   * mesh per detail level, holding every warm window and lit quay edge.
+   *
+   * Typed structurally rather than as `GardenHarborBatch`: garden-harbor-batch
+   * imports garden-height-fog, which imports THIS module, so a runtime import
+   * would close a cycle. Optional so the field can be absent without breaking
+   * the build.
+   */
+  harborBatch?: {
+    bucketMeshes: { window: Mesh | null };
+    fineDetailBucketMeshes: { window: Mesh | null };
+  } | null;
   lighthouseLight: PointLight;
+  /**
+   * T0.2: every building aperture that carries the "lighthouse-window-glow"
+   * material name — the tower's arched window rows (procedural shell or the
+   * cloned GLB set) and the precinct gatehouse light. Same collect-by-name
+   * contract as `statueGleamMaterials`.
+   */
+  lighthouseWindowMaterials?: readonly MeshStandardMaterial[];
   shipLanternGlowMaterial: MeshBasicMaterial;
   shipLanternMaterial: MeshStandardMaterial;
   shipShadows: InstancedMesh<CircleGeometry, MeshBasicMaterial>;
@@ -323,6 +364,51 @@ export function updateDayCycle(
   // Cap warm emissives below the clip point so the tone mapper keeps them
   // golden instead of rolling them off to white pinpricks.
   scene.content.harborLanternMaterial.emissiveIntensity = 0.18 + dusk * 1.2 + night * 1.9;
+  // T0.2 (2026-09-07). VISUAL_INVARIANTS.md:115 has promised since W4.5 that
+  // "windows glow at dusk/night". Nothing implemented it: every aperture in
+  // the world was a frozen constant, so the harbour was exactly as lit at noon
+  // as at midnight and the one thing that says "inhabited" said nothing. The
+  // apertures now ride the same curve shape as the harbour lanterns above.
+  //
+  // Station windows and lit quay edges: constant 1.6 -> 0.35 day / 1.75 dusk /
+  // 2.10 night. A faint interior by day (they are in shade, not dark), the
+  // whole quay alight after dark. The bucket is `toneMapped: false`, so the
+  // 2.10 peak stays under the ~2.2 clip — see the ship-lantern note below.
+  const stationWindowEmber = 0.35 + dusk * 1.4 + night * 1.75;
+  const harborBatch = scene.content.harborBatch;
+  if (harborBatch) {
+    for (const meshes of [harborBatch.bucketMeshes, harborBatch.fineDetailBucketMeshes]) {
+      const material = meshes.window?.material;
+      if (material instanceof MeshStandardMaterial) {
+        material.emissiveIntensity = stationWindowEmber;
+      }
+    }
+  }
+  // Tower and gatehouse apertures: constant 0.24 -> 0.18 day / 1.08 dusk /
+  // 1.53 night. Deliberately below the station curve and far below the
+  // beacon: the Pharos' own windows read as a lit stair, never as a second
+  // signal competing with the fire at its head.
+  const towerWindowGlow = 0.18 + dusk * 0.9 + night * 1.35;
+  for (const material of scene.content.lighthouseWindowMaterials ?? []) {
+    material.emissiveIntensity = towerWindowGlow;
+  }
+  // T0.2 remainder: the island's stone path lanterns, the last constant
+  // aperture in the world. Constant 1.15 -> 0.22 day / 1.37 dusk / 1.97 night.
+  //
+  // A path lantern is a small warm POINT, not a window, so it takes the
+  // harbour-lantern curve shape (`0.18 + dusk*1.2 + night*1.9` above) rather
+  // than the station-window one — but shifted a little on both ends for where
+  // it stands. The day base is 0.22 rather than 0.18: these two sit in the
+  // middle of a pale gravel sweep in full sun, and the harbour lanterns do
+  // not, so they need slightly more to stay visible as objects at noon while
+  // still reading as unlit. The night peak is 1.97 rather than 2.08 because
+  // they share the island with the beacon: island punctuation must never
+  // approach the one dominant light standing 34 units above it. Both ends stay
+  // under the ~2.2 tone-mapping clip — the material is `toneMapped: false`, so
+  // past it the lamps roll off to white pinpricks instead of gold.
+  if (scene.content.islandLanternMaterial) {
+    scene.content.islandLanternMaterial.emissiveIntensity = 0.22 + dusk * 1.15 + night * 1.75;
+  }
   scene.content.beam.visible = true;
   // Lane S grounded the fleet on a darker 0.28 base opacity (S7); the curve
   // stays at or above it so the day-cycle never overrides it back down.

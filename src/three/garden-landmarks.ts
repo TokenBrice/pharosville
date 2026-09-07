@@ -224,11 +224,19 @@ const WRECK_STONE = "#6a716d";
 export const WRECK_STAIN_STONE = WRECK_STONE;
 export const WRECK_STAIN_DESATURATION = 0.62;
 
-// The one still-burning lantern sits at the island path punctuation tier —
-// below the harbour window ember (1.6, garden-harbor-batch) and every dock
-// lamp head (1.5), and far below the Pharos beacon, which stays the only
-// dominant light in the scene.
-const WRECK_LANTERN_EMBER_INTENSITY = 1.15;
+// The one still-burning lantern is a FROZEN ember: nothing in the day cycle
+// touches it, so this single number is what it reads at every hour.
+//
+// 1.15 was chosen as "the island path punctuation tier", which was that
+// lantern's own frozen value. T0.2 (2026-09-07) put the island path lanterns
+// (and the harbour windows, and the tower apertures) on day-cycle curves, so
+// there is no longer a live constant to be subordinate TO. What the number
+// still has to hold against is the two things that never move: the ~2.2
+// tone-mapping clip (the material is `toneMapped: false`), and the Pharos
+// beacon, which stays the only dominant light in the scene. Below the night
+// peak of the island path lanterns (1.97) it also stays the quieter of the
+// two lights at the hour when the wreckyard is most visible.
+export const WRECK_LANTERN_EMBER_INTENSITY = 1.15;
 
 // Byte budget: this module's house materials repeat as object literals all
 // over the wreck field and the pigeonnier; one tiny factory called many

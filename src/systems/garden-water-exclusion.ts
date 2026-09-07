@@ -221,7 +221,11 @@ let waterSafetyDistanceField: GardenWaterSafetyDistanceField | null = null;
 // the three-free clearance contract cannot silently drift from its renderer.
 const GARDEN_HULL_MAX_X_REACH_WORLD: Record<GardenHullSilhouette, number> = {
   bezaisen: 3.7,
-  kobaya: 8.05,
+  // 2026-09-07 T3.3: 8.05 -> 6.70, the bowsprit trim that ships with routing
+  // the chartered brigantine onto this silhouette (spar tip 8.05 -> 6.70).
+  // NOTE: kobaya's own hull reaches 5.87 with no spar at all — it is a needle,
+  // and 6.70 is still 1.8x bezaisen's 3.70 berth footprint.
+  kobaya: 6.7,
   twinhull: 4.92,
   takasebune: 6.22,
   junk: 3.64,

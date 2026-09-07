@@ -9,6 +9,7 @@ import {
   gardenHarborLanternWorldPositions,
   HARBOR_FLAG_SCALE_MULTIPLIER,
   harborIdentity,
+  stationWallColor,
   type DockRecipe,
   type StationType,
 } from "./garden-docks";
@@ -53,6 +54,46 @@ const EMITTED_ARCHETYPES: readonly StationType[] = [...new Set([
   ...EVM_BAY_STATION_SLOTS,
   ...OUTER_HARBOR_STATION_SLOTS,
 ].map((slot) => slot.type))];
+
+const STATION_ROOF_TOKEN: Record<StationType, keyof typeof HARBOR_PALETTE> = {
+  "ethereum-mole": "roof_clay",
+  "fishing-pier": "roof_timber_shake",
+  "hatago-wharf": "roof_slate_kawara",
+  "pigeonnier-islet": "roof_cote_clay",
+  "reed-boathouse": "roof_thatch",
+  "stepped-inlet": "roof_dressed_stone",
+  "storm-mole": "roof_storm_slate",
+  "tea-house-quay": "roof_tea_house_slate",
+  uogashi: "roof_weathered_copper",
+};
+
+describe("T1.6 station wall colour (2026-09-07)", () => {
+  it("tints the shared plaster toward each station's own roof rung", () => {
+    // The retired wall was one hex, "#a99a79", for all nine archetypes — and
+    // the last raw hex literal in the harbour, against C1. The plaster is now
+    // palette-derived (`stone_pale` lifted 0.34 toward `fog_day`) and lands
+    // within a hair of the retired value, so NO station changes value; what
+    // changes is that each body now carries a trace of its own roof.
+    const plaster = new Color(HARBOR_PALETTE.stone_pale)
+      .lerp(new Color(HARBOR_PALETTE.fog_day), 0.34);
+    const retired = new Color("#a99a79");
+    expect(Math.hypot(plaster.r - retired.r, plaster.g - retired.g, plaster.b - retired.b))
+      .toBeLessThan(0.02);
+
+    for (const type of ARCHETYPES) {
+      const wall = stationWallColor(type);
+      const roof = new Color(HARBOR_PALETTE[STATION_ROOF_TOKEN[type]]);
+      const toPlaster = Math.hypot(wall.r - plaster.r, wall.g - plaster.g, wall.b - plaster.b);
+      const toRoof = Math.hypot(wall.r - roof.r, wall.g - roof.g, wall.b - roof.b);
+      // The tint is capped at 0.22: enough that a clay-roofed body reads warm
+      // next to a slate-roofed body's cool grey, little enough that the ROOF
+      // still carries the archetype and the nine walls stay one material.
+      expect(toPlaster, `${type} wall must stay in the plaster family`).toBeLessThan(toRoof);
+      expect(wall.getHexString(), `${type} wall must not be the retired literal`)
+        .not.toBe(retired.getHexString());
+    }
+  });
+});
 
 describe("garden station recipes", () => {
   it("authors one explicit roofline, flag shape, and signature per station type", () => {
@@ -118,6 +159,11 @@ describe("garden station recipes", () => {
   it("gives every station a distance-readable primary mass, named second level, lit stone quay, windows, and 4.2x flag", () => {
     const secondLevels = new Set<string>();
     const roofColors = new Set<string>();
+    // T1.6 (2026-09-07): the walls were ONE hex for all nine archetypes, so
+    // the roof was the only channel carrying the station's identity. The wall
+    // is now the shared plaster tinted toward each station's own roof rung.
+    const wallColors = new Set<string>();
+    let walledArchetypes = 0;
     for (const type of ARCHETYPES) {
       const recipe = recipeWithStation(type);
       const rung = SCALE_LADDER[type];
@@ -139,9 +185,19 @@ describe("garden station recipes", () => {
       expect(recipe.flag.scaleMultiplier).toBe(4.2);
       secondLevels.add(recipe.features.secondLevel.name);
       roofColors.add(recipe.parts.find((part) => part.bucket === "roof")!.color.getHexString());
+      const wall = recipe.parts.find((part) => part.bucket === "wall");
+      if (wall) {
+        wallColors.add(wall.color.getHexString());
+        walledArchetypes += 1;
+      }
     }
     expect(secondLevels.size).toBe(ARCHETYPES.length);
     expect(roofColors.size).toBe(ARCHETYPES.length);
+    // Not every archetype authors plastered walls (the open reed boathouse and
+    // the moles are timber and stone), so this is the count of the ones that
+    // DO — each of them distinct, where all of them used to share one hex.
+    expect(walledArchetypes).toBeGreaterThan(1);
+    expect(wallColors.size).toBe(walledArchetypes);
     // The ordinary stations retain their authored 13.3..17.9 ordering while
     // supply raises the whole band through the height multiplier (2026-09-05
     // recognizability re-base: silhouettes grew ~1.46–1.85x vertically for the

@@ -90,8 +90,10 @@ const STAR_COUNT = 720;
 // plane goes 288 -> 267), which works against the other half of the W6.6
 // finding — the whole-map framing that resolved as a hard-edged diamond slab
 // floating in a void.
-const FOG_NEAR = 178;
-const FOG_FAR = 300;
+const FOG_NEAR = 124;
+const FOG_FAR = 336;
+/** How much further the far plane sits by day. See `phaseFar` below. */
+const FOG_DAY_FAR_BONUS = 20;
 // W6.6 (Grand Scale Revamp): the ladder above was calibrated for ONE framing
 // (1440x960 at the then-current zoom). The revamp made the world worth zooming out for —
 // 187 ships across the whole sea — and at wide zoom the ground plane spans far
@@ -469,6 +471,10 @@ function createBackdrop(domeMaterial: ShaderMaterial): {
     fog: false,
     uniforms: {
       uBokashiAmount: domeMaterial.uniforms.uBokashiAmount,
+      // T2.5d: shared with the dome exactly the way uSunColor/uSunDir are —
+      // the ember is a phase-driven quantity, not a second authored one.
+      uEmberColor: domeMaterial.uniforms.uEmberColor,
+      uEmberStrength: domeMaterial.uniforms.uEmberStrength,
       // The visible sheet has the explicit shironeri → mizu → kon ladder.
       // Keep these separate from the dome: that material is the environment
       // probe and retains the established physical day-cycle palette.
@@ -491,6 +497,8 @@ function createBackdrop(domeMaterial: ShaderMaterial): {
       }
     `,
     fragmentShader: /* glsl */ `
+      uniform vec3 uEmberColor;
+      uniform float uEmberStrength;
       uniform vec3 uHorizon;
       uniform vec3 uLower;
       uniform vec3 uMiddle;
@@ -505,18 +513,46 @@ function createBackdrop(domeMaterial: ShaderMaterial): {
       ${gardenBokashiBandGlsl()}
       void main() {
         float skyHeight = clamp(vScreenPosition.y, 0.0, 1.0);
-        vec3 color = mix(uLower, uHorizon, smoothstep(0.38, 0.56, skyHeight));
-        color = mix(color, uMiddle, smoothstep(0.58, 0.78, skyHeight));
-        color = mix(color, uZenith, smoothstep(0.76, 1.0, skyHeight));
+        // T2.5c (2026-09-07): the water plate occludes this sheet up to screen
+        // y ~= 0.7, so the old stops (0.38/0.56, 0.58/0.78, 0.76/1.0) spent the
+        // shironeri and mizu halves of the ladder under the sea and left the
+        // visible band as very nearly flat kon. All four authored stops now
+        // land in the visible strip. Old values kept here so this one change,
+        // the riskiest of the T2.5 set, can be reverted on its own.
+        vec3 color = mix(uLower, uHorizon, smoothstep(0.62, 0.72, skyHeight));
+        color = mix(color, uMiddle, smoothstep(0.74, 0.86, skyHeight));
+        color = mix(color, uZenith, smoothstep(0.86, 1.0, skyHeight));
+        // The bokashi bands are authored against screen height, not against
+        // these stops, so they did not move: the pale strip and ichimonji now
+        // sit under the plate and the deep band (0.56 -> 0.86) reads across the
+        // whole visible strip rather than only its top.
         color *= gardenBokashiShade(skyHeight, uBokashiAmount);
 
+        // T2.5a (2026-09-07): y was clamp(0.14 + sunY * 0.58, 0.12, 0.76),
+        // which put noon at 0.56 — behind the depth-tested water plate, so the
+        // one warm accent in the visible sky was never on screen. Rebased so
+        // noon (sunDir.y ~= 0.72) lands at ~0.73 and even a horizon sun clears the
+        // seam at the 0.38 floor.
         vec2 sunScreen = vec2(
           clamp(0.5 + (uSunDir.x - uSunDir.z) * 0.28, 0.08, 0.92),
-          clamp(0.14 + max(0.0, uSunDir.y) * 0.58, 0.12, 0.76)
+          clamp(0.40 + max(0.0, uSunDir.y) * 0.46, 0.38, 0.94)
         );
         vec2 sunDelta = (vScreenPosition - sunScreen) * vec2(1.0, 1.35);
         float sunGlow = exp(-dot(sunDelta, sunDelta) * 13.0);
-        color += uSunColor * sunGlow * uSunIntensity * 0.065;
+        // T2.5b (2026-09-07): flat 0.065 -> 0.065 + 0.24 at the horizon. A low
+        // sun is the hour that wants a corona, and the invisible dome is the
+        // only thing that currently draws one.
+        color += uSunColor * sunGlow * uSunIntensity
+          * (0.065 + 0.24 * (1.0 - max(uSunDir.y, 0.0)));
+
+        // T2.5d (2026-09-07): the dome's dusk ember band, shared through the
+        // same uniforms as the sun so the visible sheet and the probe burn on
+        // the same schedule. Horizontal band just above the seam, weighted
+        // toward the sun's screen column — the dome's west term, restated in
+        // screen space because this sheet has no view direction.
+        float emberBand = 1.0 - smoothstep(0.0, 0.20, abs(skyHeight - 0.74));
+        float emberWest = mix(0.45, 1.0, exp(-pow((vScreenPosition.x - sunScreen.x) / 0.42, 2.0)));
+        color += uEmberColor * emberBand * emberWest * uEmberStrength * 0.45;
 
         vec2 moonDelta = (vScreenPosition - vec2(0.23, 0.73)) * vec2(1.0, 1.18);
         float moonGlow = exp(-dot(moonDelta, moonDelta) * 18.0);
@@ -844,7 +880,20 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       // Day doubles the linear ramp's span, exactly halving its contribution
       // at every depth inside the former range. Dusk/night retain their signed-
       // off stack; the visible sky now carries the daylight atmosphere.
-      const phaseFar = FOG_FAR + phase.daylight * (FOG_FAR - FOG_NEAR);
+      // 2026-09-07 (second pass): the day bonus is now a small explicit term,
+      // not `FOG_FAR - FOG_NEAR`.
+      //
+      // Pulling the ladder in for aerial perspective made that coupling bite:
+      // at `daylight = 0` the bonus vanishes entirely, so dusk and night got
+      // the near plane's benefit with none of the far plane's, and the frame
+      // washed to a flat violet at the back. Measured at the rest framing,
+      // dusk `fogAt(250)` was 0.71 against day's 0.36 — twice the intended
+      // haze at the hour that needs it least, because the ember, the mist
+      // banks and the low-sun scatter are already doing that work.
+      //
+      // 336 + 20 puts day at ~0.36 and dusk at ~0.39: aerial perspective at
+      // both ends, neither of them a wash.
+      const phaseFar = FOG_FAR + phase.daylight * FOG_DAY_FAR_BONUS;
       fog.far = phaseFar * fogScale * (1 - storm * 0.25);
       applyPhase(phase, frame.wallClockHour, storm);
       const { daylight, dusk, night } = phase;
@@ -872,11 +921,21 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       billboards.clouds.material.uniforms.uTime.value = billboardTime;
       billboards.clouds.material.uniforms.uWindSpeed.value = windSpeed;
 
-      // Mist banks: a dawn/night element, near-invisible at midday; a storm
-      // thickens the banks and lets a faint haze survive even the noon frame.
+      // Mist banks: a dawn/dusk/night element, plus — since 2026-09-07 (T2.4) —
+      // a whisper at midday. The clear-sky term was `dusk * 0.55 + night * 0.48`,
+      // and because `dayCyclePhase` holds daylight = 1, dusk = 0 across roughly
+      // h 8 -> 16.5, that expression was EXACTLY zero for 8.5 hours: the nine
+      // depth-layered banks contributed literally nothing at the modal hour, and
+      // only a storm could bring them back. `+ daylight * 0.12` gives the noon
+      // frame the far shelves at 0.12 density -> ~0.066 uniform opacity, which
+      // the billboard shader then multiplies by its soft radial shape and the
+      // distance fade, so the banks land near 0.03 on screen, on the far anchors
+      // only. That is a haze on the pulled-in fog ladder's shelves, not a layer
+      // over the garden.
       const mistDensity = Math.min(
         0.85,
-        (dusk * 0.55 + night * 0.48) * (1 + storm * 0.8) + storm * 0.12 * (1 - daylight),
+        (dusk * 0.55 + night * 0.48 + daylight * 0.12) * (1 + storm * 0.8)
+          + storm * 0.12 * (1 - daylight),
       );
       // W3.2: mist does not carry a private opacity oscillator. It takes the
       // mist phase of the shared 9 s breath, at a deliberately tiny ±5%.

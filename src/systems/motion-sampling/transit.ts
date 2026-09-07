@@ -22,7 +22,7 @@ import {
   writeVelocityInto,
 } from "./shared";
 import { applyHeadingSmoothing, applyWakeSmoothing, beginRoutePathSample } from "./memory";
-import { mooredPhaseFor, mooredRadiusForZone, mooredRadiusMultiplierFor, mooredSeedFor } from "./mooring";
+import { MOORED_SWAY_RATE, mooredPhaseFor, mooredRadiusForZone, mooredRadiusMultiplierFor, mooredSeedFor } from "./mooring";
 import type { RouteSamplingRuntime } from "./route-runtime";
 
 export function transitMapVisibilityAlpha(
@@ -402,7 +402,7 @@ function applyMooringBlendInto(input: {
     const seed = mooredSeedFor(input.route, input.fromMooringStop, input.runtime);
     const phaseOffset = mooredPhaseFor(input.route, input.fromMooringStop, input.runtime);
     const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.fromMooringStop, input.runtime);
-    const angle = input.timeSeconds * 0.027 * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
+    const angle = input.timeSeconds * MOORED_SWAY_RATE * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
     const radius = mooredRadiusForZone(input.route.zone);
     dx += Math.cos(angle) * radius.x * radiusMultiplier * staleFactors.radiusFactor * seaSway * (1 - releaseT);
     dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleFactors.radiusFactor * seaSway * (1 - releaseT);
@@ -412,7 +412,7 @@ function applyMooringBlendInto(input: {
     const seed = mooredSeedFor(input.route, input.toMooringStop, input.runtime);
     const phaseOffset = mooredPhaseFor(input.route, input.toMooringStop, input.runtime);
     const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.toMooringStop, input.runtime);
-    const angle = input.timeSeconds * 0.027 * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
+    const angle = input.timeSeconds * MOORED_SWAY_RATE * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
     const radius = mooredRadiusForZone(input.route.zone);
     dx += Math.cos(angle) * radius.x * radiusMultiplier * staleFactors.radiusFactor * seaSway * mooringTension;
     dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleFactors.radiusFactor * seaSway * mooringTension;

@@ -69,6 +69,46 @@ describe("sea region field", () => {
     expect(interior).toBeGreaterThan(0);
   });
 
+  it("writes a real shore distance where the interface promised one", () => {
+    // T3.2 (2026-09-07): this channel has been documented as "B = shore
+    // distance" since W2 and written as literal zero, which is why the water
+    // shader hand-authored an ellipse-and-sine bathymetry for a coastline the
+    // terrain already knows. It is now the chamfer distance to the nearest
+    // land texel, normalised over SEA_REGION_SHORE_FULL_SCALE_TILES.
+    const size = 128;
+    const field = buildSeaRegionField(size);
+    const shoreAt = (px: number, py: number) => field.data[(py * size + px) * 4 + 2]!;
+    expect(shoreAt(0, 0)).toBe(255);
+    const idAt = (px: number, py: number) => field.data[(py * size + px) * 4]!;
+
+    let land = 0;
+    let water = 0;
+    let saturated = 0;
+    for (let py = 0; py < size; py += 1) {
+      for (let px = 0; px < size; px += 1) {
+        const shore = shoreAt(px, py);
+        if (idAt(px, py) === SEA_REGION_ID.none) {
+          // Land is the seed of the transform, so it is exactly zero.
+          expect(shore).toBe(0);
+          land += 1;
+          continue;
+        }
+        water += 1;
+        expect(shore).toBeGreaterThan(0);
+        if (shore === 255) saturated += 1;
+      }
+    }
+    expect(land).toBeGreaterThan(0);
+    expect(water).toBeGreaterThan(0);
+    // Measured at bake: ~24% of the sea is 24+ tiles from any coast. The ramp
+    // has to be mostly UNSATURATED or it would carry no depth information at
+    // all, and mostly non-zero or the scale would be too coarse to shade with.
+    expect(saturated / water).toBeGreaterThan(0.1);
+    expect(saturated / water).toBeLessThan(0.45);
+    // Note the map corners are NOT land: (0, 0) is open sea well outside the
+    // rim, so it saturates rather than reading zero.
+  });
+
   it("escalates water character monotonically with risk", () => {
     // D6: colour is never the only encoding. Roughness must climb and
     // reflectivity must fall as the band worsens, so the sea state is legible
