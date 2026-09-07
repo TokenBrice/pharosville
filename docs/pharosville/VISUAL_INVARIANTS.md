@@ -1,6 +1,6 @@
 # PharosVille Visual and Analytical Contracts
 
-Last updated: 2026-09-04
+Last updated: 2026-09-07
 
 These are product contracts, not a design diary. Change one only with explicit
 intent, code/tests, and a matching update to the relevant route documentation.
@@ -236,14 +236,26 @@ and its conservative distance lookup.
   past everything visible, and silently switches the whole system off while
   leaving its documentation looking correct; `garden-sky.test.ts` pins the
   near plane at the default framing.
-- **Dusk is an ember hour, not a brown-grey one.** The dusk fog and horizon
-  dye derive from `lantern_warm` toward `vermillion`, the dusk zenith is a navy
-  distinct from night, the dusk key rakes (key:fill ≈ 4:1, sun floor 0.06 rad
-  from the single `garden-sun` arc), and the borrowed mountains step through
-  three value planes (0.90/0.80/0.70) behind the seam. The output tone mapper
-  is a single switch, `GARDEN_TONE_MAPPING` in `garden-post.ts`, consumed by
-  both the renderer and the post pass; the LUT remains the sanctioned place
-  for any posterizing look.
+- **The shadow side is the key's complement, never merely "cooler" (Golden
+  Garden, 2026-09-07).** A honey key over violet-leaning shadows by day, an
+  ember over violet at dusk, cyan moonlight over violet-indigo at night. The
+  failure this replaced was warm hues at restrained chroma under a cyan fill:
+  the day hemisphere GROUND term was `shallow_teal_lit`, so land was lit from
+  below by pool-blue and ochre read as mud. Ground bounce is now warm
+  earth-and-moss (`DAY_CYCLE_LIGHT_PRESETS.day.hemiGround`), the day grade
+  no longer pushes shadows cyan, and the LUT's day cube lifts foliage rather
+  than desaturating it. The palette's field ceiling is OKLCH C < 0.16, one
+  step under the reserved vermillion (0.177), which remains the loudest thing
+  by construction (`palette.test.ts`).
+- **Dusk is an ember hour on a violet sky, not a brown-grey one.** The ember
+  (`lantern_warm` toward `vermillion`) lives on the horizon band; the dusk fog
+  is its violet complement (bluer than red) and the dusk zenith a violet-blue
+  distinct from night — mixing the ember into the air itself produced smog
+  twice. The dusk key rakes (key:fill ≈ 4:1, sun floor 0.06 rad from the single
+  `garden-sun` arc), and the borrowed mountains step through three value planes
+  (0.90/0.80/0.70) behind the seam. The output tone mapper is a single switch,
+  `GARDEN_TONE_MAPPING` in `garden-post.ts`, consumed by both the renderer and
+  the post pass; the LUT remains the sanctioned place for any posterizing look.
 
 - The visible sky continues beyond the finite plate. Its graded phase backdrop
   is the far field; the haze band is the seam where plate, fog, and borrowed

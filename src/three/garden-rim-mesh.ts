@@ -71,24 +71,28 @@ const RIM_STATION_CLEARANCES = [
 
 const WET_ROCK = new Color(HARBOR_PALETTE.deep_sea_1).lerp(
   new Color(HARBOR_PALETTE.stone_dark),
-  0.5,
-); // OKLCH L 0.278 C 0.046 H 263 — cool wet blue-rock
+  0.55,
+); // cool wet rock, the shore's one blue-violet note
 const TIDE_STAIN = new Color(HARBOR_PALETTE.stone_dark)
   .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.18)
   .multiplyScalar(0.72);
 const EARTH = new Color(HARBOR_PALETTE.timber_mid).lerp(
   new Color(HARBOR_PALETTE.timber_warm),
-  0.42,
-); // OKLCH L 0.466 C 0.073 H 67 — warm ochre-brown
+  0.45,
+); // warm ochre-brown
+// Golden Garden (2026-09-07): moss is the sunlit token nearly at full value
+// with a breath of the honey key in it — the old 0.78 multiply put the land a
+// stop under the sea and it read as olive. Pine needles stay a deep green.
 const MOSS = new Color(HARBOR_PALETTE.aurora_green)
-  .multiplyScalar(0.78); // OKLCH L 0.571 C 0.115 H 145 — living moss
+  .multiplyScalar(0.92)
+  .lerp(new Color(HARBOR_PALETTE.sun_day_warm), 0.06);
 const PATH_STONE = new Color(HARBOR_PALETTE.stone_pale).lerp(
   new Color(HARBOR_PALETTE.roof_thatch),
-  0.34,
-); // OKLCH L 0.604 C 0.074 H 74 — warm sand
+  0.36,
+); // warm sand
 const PINE_TRUNK = new Color(HARBOR_PALETTE.timber_dark);
 const PINE_NEEDLE = new Color(HARBOR_PALETTE.aurora_green)
-  .multiplyScalar(0.58); // OKLCH L 0.519 C 0.104 H 145 — deep pine green
+  .multiplyScalar(0.58); // deep pine green
 export const GARDEN_RIM_COLOR_HEX = {
   earth: `#${EARTH.getHexString()}`,
   moss: `#${MOSS.getHexString()}`,

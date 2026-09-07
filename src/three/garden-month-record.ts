@@ -1,5 +1,6 @@
 import { Color, Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, Quaternion, Vector3 } from "three";
 import type { GardenMonthRecord } from "../systems/world-types";
+import { HARBOR_PALETTE } from "../systems/palette";
 
 const matrix = new Matrix4();
 const position = new Vector3();
@@ -7,8 +8,11 @@ const rotation = new Quaternion();
 const scale = new Vector3();
 const neutral = new Color(1, 1, 1);
 const blossom = new Color("#f1c8c1");
-const green = new Color("#557149");
-const dry = new Color("#806b49");
+// Golden Garden (2026-09-07): a calm month is the dye lot's own sunlit moss,
+// a stressed one its dry straw — the old "#557149" khaki dragged every pine
+// pad toward olive in exactly the months the garden was meant to flourish.
+const green = new Color(HARBOR_PALETTE.aurora_green).multiplyScalar(0.9);
+const dry = new Color(HARBOR_PALETTE.timber_warm).lerp(new Color(HARBOR_PALETTE.roof_thatch), 0.35);
 
 function growthOf(record?: GardenMonthRecord): number {
   return record?.unavailable ? 0.5 : Math.max(0, Math.min(1, record?.growth ?? 0.5));

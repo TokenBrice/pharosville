@@ -111,15 +111,15 @@ describe("garden rim mesh", () => {
     rim.dispose();
   });
 
-  it("pins the warm-land and living-green derived dyes", () => {
-    // Warm-village re-grade: these pins protect the authored hue split itself,
+  it("pins the warm-land and sunlit-moss derived dyes", () => {
+    // Golden Garden re-grade: these pins protect the authored hue split itself,
     // not merely the palette inputs from which Three.js mixes the final dyes.
     expect(GARDEN_RIM_COLOR_HEX).toEqual({
-      earth: "#75512a",
-      moss: "#48894b",
-      pathStone: "#9c7b4e",
-      pineNeedle: "#3e7841",
-      wetRock: "#1c283f",
+      earth: "#895922",
+      moss: "#75a143",
+      pathStone: "#ab884c",
+      pineNeedle: "#4f7e2b",
+      wetRock: "#272b3f",
     });
     // More inland green breaks up the former uniform cool-brown rim.
     expect(GARDEN_RIM_MOSS_BLEND_MAX).toBe(0.62);

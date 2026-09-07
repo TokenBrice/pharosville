@@ -63,24 +63,17 @@ export interface DayCycleHeightFogPreset {
   zenith: Color;
 }
 
-// Sky presets (consumed by garden-sky). Night keeps the Lantern Sea identity;
-// dusk is the ember horizon (G4 — a real, distinct state again); day is the
-// ukiyo-e bokashi gradient: deep indigo-teal zenith, pale warm horizon, fog
-// matched to the horizon band (G5, decision D-R1).
-//
-// Warm-village B3 (2026-09-05): the dusk AIR is dyed ember, not brown-grey.
-// The old `sky_horizon lerp lantern_warm 0.36` mixed warm gold into dark navy
-// and read as smog (#886440) — low chroma, no firelight. The dye now starts
-// from the warm end — yamabuki gold pulled a fifth of the way toward the
-// reserved shu-akane, the same pair the west-band ember accent below already
-// derives from — then reined halfway back to kachi-iro. Preview step 2
-// (2026-09-05) pulled the rein in from 0.35/0.2: at the closer 1.0 rest the
-// stronger mix painted the midground fleet orange, so the ember now reads as
-// HUE ON THE SEAM rather than as paint over the picture. The horizon band
-// stays warmer than the air above it, and the dusk zenith lifts a third of
-// the way to the day zenith so it is a NAVY distinct from night: warm lit
-// faces rake against a cool sky instead of against a night sky that never left.
-const DUSK_EMBER_AIR = paletteColor(P.lantern_warm).lerp(paletteColor(P.vermillion), 0.2);
+// Sky presets (consumed by garden-sky). Golden Garden (2026-09-07):
+//   day   — a lighter cerulean zenith over a gold-cream horizon and a warm
+//           haze, so the sky fill reveals form without cooling it;
+//   dusk  — the ember hour with a VIOLET zenith. The old dusk reined its
+//           ember back to a navy that was itself a cold grey, and the result
+//           was brown smog. Ember reads as light only against its complement,
+//           so the dusk zenith now sits on the violet `sky_horizon` lifted a
+//           quarter of the way to the day cerulean, and the fog is ember
+//           mixed with the violet mist rather than with the navy;
+//   night — violet-indigo, the Lantern Sea after dark.
+const DUSK_EMBER_AIR = paletteColor(P.lantern_warm).lerp(paletteColor(P.vermillion), 0.22);
 export const DAY_CYCLE_SKY_PRESETS: Record<DayCyclePhaseName, DayCycleSkyPreset> = {
   day: {
     fog: paletteColor(P.fog_day),
@@ -88,9 +81,9 @@ export const DAY_CYCLE_SKY_PRESETS: Record<DayCyclePhaseName, DayCycleSkyPreset>
     zenith: paletteColor(P.sky_day_zenith),
   },
   dusk: {
-    fog: DUSK_EMBER_AIR.clone().lerp(paletteColor(P.sky_horizon), 0.5),
-    horizon: DUSK_EMBER_AIR.clone().lerp(paletteColor(P.sky_horizon), 0.35),
-    zenith: paletteColor(P.sky_horizon).lerp(paletteColor(P.sky_day_zenith), 0.35),
+    fog: DUSK_EMBER_AIR.clone().lerp(paletteColor(P.fog_blue), 0.85),
+    horizon: DUSK_EMBER_AIR.clone().lerp(paletteColor(P.fog_blue), 0.3),
+    zenith: paletteColor(P.sky_horizon).lerp(paletteColor(P.sky_day_zenith), 0.25),
   },
   night: {
     fog: paletteColor(P.sky_horizon),
@@ -106,49 +99,43 @@ export const DUSK_EMBER_COLOR = paletteColor(P.lantern_warm).lerp(paletteColor(P
 export const MOON_COLOR = paletteColor(P.moonlight);
 export const STAR_COLOR = paletteColor(P.moonlight).lerp(paletteColor(P.foam_white), 0.4);
 
-// Night keeps the warm emissive hierarchy, but the non-emissive floor is high
-// enough that hull, island and rim silhouettes survive the Stillness blur
-// audit. The brighter fog-derived sky fill is diffuse form light, not another
-// source: the beacon remains the only HDR key and the moon road the secondary.
-// Day is the ukiyo-e morning: a warm cream key sun against a cool indigo-teal
-// sky fill (warm highlights / cool-teal shadows).
+// Golden Garden light rig (2026-09-07). The single largest change in the
+// re-grade: by day the hemisphere GROUND term was `shallow_teal_lit`, so every
+// upward-facing surface was lit from below by cyan — the reason ochre read as
+// mud and moss as olive. Ground bounce is now warm earth-and-moss, the sky
+// fill is the lighter cerulean lifted toward foam so it reveals form rather
+// than dyeing it, and the honey key owns the picture (key ≥ 3× fill, pinned).
+// Dusk keeps the raking ~4:1 ember key but its fill is violet, not navy-brown.
+// Night keeps the warm emissive hierarchy: the beacon remains the only HDR
+// key and the moon road the secondary; the fill here is violet-indigo and
+// reveals silhouettes without repainting them at the probe's cool average.
 export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPreset> = {
   day: {
     ambient: paletteColor(P.sky_day_horizon),
-    ambientIntensity: 0.18,
+    ambientIntensity: 0.22,
     dirColor: paletteColor(P.sun_day_warm),
-    dirIntensity: 3.1,
-    hemiGround: paletteColor(P.shallow_teal_lit),
-    hemiIntensity: 0.45,
+    dirIntensity: 3.3,
+    hemiGround: paletteColor(P.timber_warm).lerp(paletteColor(P.aurora_green), 0.45),
+    hemiIntensity: 0.5,
     hemiSky: paletteColor(P.sky_day_zenith),
   },
   dusk: {
-    // B4 (2026-09-05): the ember hour rakes. Key 1.9 -> 2.6 with hemi
-    // 0.44 -> 0.34 and ambient 0.18 -> 0.28 lifts key:fill from ~3:1 to
-    // ~4.2:1, so lit faces carry the form and the fill only reveals the
-    // shaded side. The 0.62 fill also keeps the environment probe a minor
-    // term at dusk (GARDEN_ENVIRONMENT_INTENSITY is 0.6; the probe may not
-    // outweigh the analytic fill it sits beside).
-    ambient: paletteColor(P.lantern_warm).lerp(paletteColor(P.moonlight), 0.4),
-    ambientIntensity: 0.28,
-    dirColor: paletteColor(P.lantern_warm),
-    dirIntensity: 2.6,
-    hemiGround: paletteColor(P.ember),
-    hemiIntensity: 0.34,
-    hemiSky: paletteColor(P.sky_horizon),
+    ambient: paletteColor(P.sky_horizon).lerp(paletteColor(P.lantern_warm), 0.3),
+    ambientIntensity: 0.24,
+    dirColor: paletteColor(P.lantern_warm).lerp(paletteColor(P.vermillion), 0.06),
+    dirIntensity: 2.8,
+    hemiGround: paletteColor(P.ember).lerp(paletteColor(P.timber_mid), 0.4),
+    hemiIntensity: 0.4,
+    hemiSky: paletteColor(P.sky_horizon).lerp(paletteColor(P.sky_day_zenith), 0.2),
   },
   night: {
-    // Scalar energy remains above the environment probe, but these deliberately
-    // dark, warm-biased colours keep the analytic fill from bleaching the rim
-    // into the moonlit water. The fill reveals silhouettes; it does not repaint
-    // them at the probe's cool average or compete with the beacon.
-    ambient: paletteColor(P.sky_night).lerp(paletteColor(P.stone_dark), 0.48),
+    ambient: paletteColor(P.sky_night).lerp(paletteColor(P.fog_blue), 0.3),
     ambientIntensity: 0.28,
-    dirColor: paletteColor(P.moonlight).lerp(paletteColor(P.lantern_cold), 0.18),
-    dirIntensity: 1.05,
+    dirColor: paletteColor(P.moonlight).lerp(paletteColor(P.lantern_cold), 0.15),
+    dirIntensity: 1.0,
     hemiGround: paletteColor(P.deep_sea_2).lerp(paletteColor(P.timber_dark), 0.46),
     hemiIntensity: 0.36,
-    hemiSky: paletteColor(P.sky_night).lerp(paletteColor(P.fog_blue), 0.1),
+    hemiSky: paletteColor(P.sky_night).lerp(paletteColor(P.fog_blue), 0.25),
   },
 };
 
@@ -173,18 +160,19 @@ export const DAY_CYCLE_HEIGHT_FOG_PRESETS: Record<DayCyclePhaseName, DayCycleHei
     zenith: DAY_CYCLE_SKY_PRESETS.day.zenith.clone(),
   },
   dusk: {
-    // B3 (2026-09-05): thinned from 0.00062 — the ember dye has to read on
-    // the near half too, not lay a smog wash over everything; dusk keeps the
-    // densest air of the three phases, so it is still the haziest hour.
-    density: 0.00035,
+    // Golden Garden (2026-09-07): thinned again from 0.00035 / gain 0.78 —
+    // with a violet zenith the ember no longer needs a smog wash to read; it
+    // reads as hue on the seam and as the key's rake. Dusk still keeps the
+    // densest air of the three phases (pinned), so it remains the haziest hour.
+    density: 0.00023,
     heightFalloff: 0.2,
     horizon: DAY_CYCLE_SKY_PRESETS.dusk.fog.clone(),
-    phaseGain: 0.78,
+    phaseGain: 0.4,
     sunTint: DAY_CYCLE_LIGHT_PRESETS.dusk.dirColor.clone(),
     zenith: DAY_CYCLE_SKY_PRESETS.dusk.zenith.clone(),
   },
   night: {
-    density: 0.00034,
+    density: 0.00022,
     heightFalloff: 0.24,
     horizon: DAY_CYCLE_SKY_PRESETS.night.fog.clone(),
     phaseGain: 0.04,

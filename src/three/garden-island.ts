@@ -61,16 +61,26 @@ const scratchLeanQuaternion = new Quaternion();
 
 // Height-graded rock ramp: dark wet stone at the waterline climbs to pale
 // weathered limestone at the crown. Terrace tops carry a planted colour.
+// Golden Garden (2026-09-07): derived from HARBOR_PALETTE like the rim, so the
+// rock's warmth and the terrace moss follow the dye lot instead of the grey
+// green/khaki literals this carried.
 const WATERLINE_Y = WATER_LEVEL;
 
 /** The datum notch: scored iron, not the salt crust the PSI mark already uses. */
 const TIDE_DATUM_IRON = new Color(HARBOR_PALETTE.iron_dark);
 const CROWN_RAMP_Y = 3.4;
-const STONE_WET = new Color("#242d28");
-const STONE_MID = new Color("#828874");
-const STONE_PALE = new Color("#d2cba9");
-const TERRACE_WET = new Color("#33403a");
-const TERRACE_MOSS = new Color("#6f8557");
+const STONE_WET = new Color(HARBOR_PALETTE.stone_dark)
+  .lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.3);
+const STONE_MID = new Color(HARBOR_PALETTE.stone_pale)
+  .lerp(new Color(HARBOR_PALETTE.fog_day), 0.3);
+const STONE_PALE = new Color(HARBOR_PALETTE.fog_day)
+  .lerp(new Color(HARBOR_PALETTE.sun_day_warm), 0.35);
+const TERRACE_WET = new Color(HARBOR_PALETTE.aurora_green)
+  .multiplyScalar(0.45)
+  .lerp(new Color(HARBOR_PALETTE.stone_dark), 0.3);
+const TERRACE_MOSS = new Color(HARBOR_PALETTE.aurora_green)
+  .multiplyScalar(0.88)
+  .lerp(new Color(HARBOR_PALETTE.sun_day_warm), 0.05);
 const UP_AXIS = new Vector3(0, 1, 0);
 const scratchPosition = new Vector3();
 const scratchScale = new Vector3();

@@ -3,14 +3,23 @@ import type { DewsAreaBand } from "./world-types";
 /**
  * The harbor's dye lot.
  *
- * Warm-village palette (2026-09-05). The perceptual OKLCH ceiling is now
- * C < 0.14: enough dye for warm ochre roofs and timber, living moss, and a
- * cooler teal sea to separate the two largest fields by hue instead of value
- * alone. `roof_clay`, `roof_cote_clay`, `roof_thatch`,
- * `roof_timber_shake`, `timber_mid`, and `timber_warm` moved toward the warm
- * ochre/terracotta register; `aurora_green` moved from verdigris to grass;
- * `deep_sea_1`, `shallow_teal`, and `shallow_teal_lit` moved toward a clearer
- * teal/indigo descent.
+ * Golden Garden palette (2026-09-07). The perceptual OKLCH ceiling is now
+ * C < 0.16 — one step under the reserved vermillion (C 0.177), which stays the
+ * loudest thing by construction. The previous warm-village lot (C < 0.14) put
+ * warm hues at restrained chroma under a cold indigo sky fill, and the frame
+ * read as "trying to be warm": ochre went to mud and moss to olive-grey. This
+ * lot is authored for a golden-hour key against a complementary cool side:
+ *
+ *   - Land is luxuriant: `aurora_green` moves from a blue-leaning grass
+ *     (H 145, C 0.125) to a warm, sunlit moss (H 134, C 0.15); timber, stone
+ *     and roof rungs all gain ~0.02 C and a step of lightness.
+ *   - The sea is a turquoise → emerald-teal → indigo descent rather than a
+ *     cyan pool; `deep_sea_2` and the night sky move from kachi-iro navy
+ *     toward a violet-indigo (H 286–288), which is the cool that makes an
+ *     ember or a lantern read as light instead of as an orange tint.
+ *   - The day sky is a lighter cerulean with a gold-cream horizon and a warm
+ *     fog, so the fill never fights the honey key.
+ *   - Mist keeps a hue but moves off ainezu onto a violet-grey.
  *
  * Why OKLCH and not HSL. HSL saturation is a ratio against available
  * lightness, so it inflates without bound as a colour darkens: authentic
@@ -31,57 +40,53 @@ import type { DewsAreaBand } from "./world-types";
  * the separately harmonized ladder locked by test.
  */
 export const HARBOR_PALETTE = {
-  // The cool field is a teal-to-indigo descent; authored values stay below the
-  // C 0.14 ceiling while retaining enough dye to survive lighting and fog.
-  deep_sea_2: "#0a0e20",
-  deep_sea_1: "#002a52", // ai-fukami — OKLCH L 0.284 C 0.085 H 252
-  shallow_teal: "#006078", // nando-iro — OKLCH L 0.454 C 0.084 H 223
-  shallow_teal_lit: "#007487", // asagi-iro — OKLCH L 0.514 C 0.091 H 214
-  sky_night: "#0f1128", // kachi-iro (勝色) night zenith
-  sky_horizon: "#1c2240", // kachi-iro
-  // Fog is where chroma had to come out: mist that carries a hue is paint.
-  // Both now sit on ainezu (藍鼠, "indigo mouse") — fog_blue C 0.076 -> 0.061,
-  // fog_pale C 0.070 -> 0.049.
-  fog_blue: "#365371", // ainezu, night/dusk mist
-  fog_pale: "#57758b", // ainezu, lifted
-  // Garden Sea day identity (D-R1 ukiyo-e day, supersedes the D1 pearl
-  // overcast): a saturated-but-harmonious bokashi sky, warm key sun, and one
-  // reserved vermillion accent (lighthouse crown + danger semantics).
-  // Pharos Wonder 2026-07-24 (D6): the reserved vermillion is spent on the
-  // Pharos beacon fire — the flame's outer band (garden-beacon-fire.ts).
-  sky_day_zenith: "#1f587c", // ai-iro (藍色) — was six degrees off it already
-  sky_day_horizon: "#e6d9b9", // toward shironeri (白練), undyed silk
-  fog_day: "#d8cfb4", // shironeri
-  sun_day_warm: "#f6dbae", // yamabuki light — hue 88 -> 80, off the acid edge
+  // The cool field: turquoise shelf, emerald-teal body, indigo deep, violet
+  // abyss. Authored under the C 0.16 ceiling with enough dye to survive the
+  // key light, the fog and the grade.
+  deep_sea_2: "#151030", // violet-indigo abyss — OKLCH L 0.200 C 0.061 H 287
+  deep_sea_1: "#0c2d57", // indigo — OKLCH L 0.299 C 0.085 H 256
+  shallow_teal: "#0d7176", // emerald-teal — OKLCH L 0.500 C 0.082 H 200
+  shallow_teal_lit: "#189290", // turquoise shelf — OKLCH L 0.599 C 0.098 H 193
+  sky_night: "#171233", // violet-indigo zenith — OKLCH L 0.210 C 0.063 H 287
+  sky_horizon: "#2d2554", // violet — OKLCH L 0.300 C 0.082 H 288
+  // Mist carries a violet-grey hue: it is the cool side of the ember hour.
+  fog_blue: "#52537e", // OKLCH L 0.460 C 0.070 H 282
+  fog_pale: "#767b9c", // OKLCH L 0.591 C 0.051 H 278
+  // Golden day: a lighter cerulean zenith so the sky fill reveals form
+  // without cooling it, a gold-cream horizon, warm fog, and a honey key.
+  sky_day_zenith: "#247dad", // cerulean — OKLCH L 0.561 C 0.110 H 238
+  sky_day_horizon: "#f3dca9", // gold cream — OKLCH L 0.901 C 0.071 H 87
+  fog_day: "#e2d2b3", // warm haze — OKLCH L 0.869 C 0.045 H 84
+  sun_day_warm: "#fedd9a", // honey key — OKLCH L 0.910 C 0.092 H 84
   vermillion: "#c23a22", // shu-akane (真朱) — RESERVED, the one loud thing
-  stone_dark: "#2a2620",
-  stone_mid: "#4a4238",
-  stone_pale: "#6a5e4e",
+  stone_dark: "#332a1f", // OKLCH L 0.292 C 0.023 H 72
+  stone_mid: "#5a4a37", // OKLCH L 0.420 C 0.037 H 71
+  stone_pale: "#7e6b51", // OKLCH L 0.539 C 0.045 H 75
   iron_dark: "#1a1612",
-  timber_dark: "#3a2a1e", // already kogecha's hue exactly (焦茶, H 57)
-  timber_mid: "#6b421f", // kogecha — OKLCH L 0.420 C 0.075 H 59
-  timber_warm: "#826235", // rikyūcha, warmed — OKLCH L 0.519 C 0.074 H 74
+  timber_dark: "#3a2a1e", // kogecha's hue exactly (焦茶, H 57)
+  timber_mid: "#7b4713", // OKLCH L 0.451 C 0.095 H 60
+  timber_warm: "#976b2e", // OKLCH L 0.561 C 0.095 H 72
   // Station roofs form one material ladder: storm slate and tea-house slate at
   // the dark end, then slate kawara, clay, timber shake, weathered copper,
   // dressed stone and cote clay, with thatch catching the most light.
   roof_storm_slate: "#354750",
   roof_tea_house_slate: "#40515b",
   roof_slate_kawara: "#56606b",
-  roof_clay: "#ad6034", // bengara clay — OKLCH L 0.570 C 0.116 H 49
-  roof_timber_shake: "#ad6331", // warm cedar — OKLCH L 0.575 C 0.115 H 52
-  roof_weathered_copper: "#6f7a5e",
+  roof_clay: "#bc602b", // terracotta — OKLCH L 0.590 C 0.135 H 48
+  roof_timber_shake: "#b96626", // warm cedar — OKLCH L 0.595 C 0.130 H 54
+  roof_weathered_copper: "#5f7a59", // OKLCH L 0.549 C 0.059 H 140
   roof_dressed_stone: "#747a7c",
-  roof_cote_clay: "#c8733f", // akakō clay — OKLCH L 0.640 C 0.126 H 50
-  roof_thatch: "#d9a34d", // kitsurubami straw — OKLCH L 0.750 C 0.121 H 77
+  roof_cote_clay: "#d47636", // OKLCH L 0.660 C 0.140 H 52
+  roof_thatch: "#e2ae43", // sunlit straw — OKLCH L 0.780 C 0.135 H 82
   ember: "#2a1a0e",
   lantern_warm: "#d49a3e", // yamabuki (山吹) — RESERVED, and hex-pinned
   lantern_glow: "#f7d68a",
-  lantern_cold: "#568ca4", // nando-iro (納戸色) / sora-iro
-  moonlight: "#bad8e7", // sora-iro (空色)
+  lantern_cold: "#4c94ac", // OKLCH L 0.629 C 0.080 H 222
+  moonlight: "#b2dcee", // cyan moonlight — OKLCH L 0.870 C 0.050 H 226
   sail_teal: "#3a5e5a", // issuer identity — restraint contract, do not grade
   sail_red: "#9a3a2e", // issuer identity — restraint contract, do not grade
   foam_white: "#e8eef0",
-  aurora_green: "#519a55", // kusa-iro grass — OKLCH L 0.621 C 0.125 H 145
+  aurora_green: "#67a23a", // sunlit moss — OKLCH L 0.650 C 0.150 H 134
   bloodmoon_red: "#c83a3a",
 } as const;
 
