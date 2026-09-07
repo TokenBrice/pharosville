@@ -101,7 +101,11 @@ All free: constants, uniforms, or terms inside the already-fused `EffectPass`.
 
 ## 4. Tier 3 — bigger bets, each its own pass.
 
-- **T3.1 Sun elevation `0.806 → ~0.62 rad`.** The real midday fault is
+- **T3.1 Sun elevation `0.806 → ~0.62 rad`. PARKED by the operator 2026-09-07**
+  — kept as a potential followup, not queued. Everything else in tiers 0-3
+  shipped in `6e46dce`; this is the only item outstanding, and it is parked on
+  purpose rather than left undone. Pick it up only on an explicit ask.
+  **T3.1 Sun elevation `0.806 → ~0.62 rad`.** The real midday fault is
   `dayCyclePhase` returning `daylight=1, dusk=0` for **8.5 straight hours**
   (h≈8→16.5) at 31-46° elevation. Lowering noon elevation lengthens every
   shadow 46% and feeds shadow frustum, fog sun direction and the water's sun
@@ -158,5 +162,7 @@ Tier 0 + Tier 1: **0 draw calls, 0 triangles, 0 textures.**
 Tier 2: +4-5 draw calls (→ ~238/700), ~+30k triangles (→ ~391k/500k).
 Current measured: 233 calls, 361k tris, 51 textures, p95 16.8 ms, tier full.
 
-Watch: the `#t=12.25` capture reported **50 fps** where every other hour reported
-60. Unconfirmed — re-measure with `--assert` before treating as a regression.
+Resolved: the `#t=12.25` **50 fps** reading did not reproduce. After the pass,
+`preview --assert` measures tier full, p90 16.7 ms, p95 16.8 ms, 232 draw calls
+(below the 233 baseline), 385,190 triangles, 51 textures. It was a single noisy
+capture, not a regression.
