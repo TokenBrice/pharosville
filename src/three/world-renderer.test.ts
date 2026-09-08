@@ -100,6 +100,12 @@ import {
   type GardenShipTransitionSpec,
 } from "./world-renderer";
 
+// Nearly every test here builds a dense world and renders real frames: 2-4 s
+// each on a desktop, 17 s for the two-scene AO test, and several times that on
+// a shared CI runner. One file-level ceiling instead of per-test overrides; it
+// costs nothing when the tests pass.
+vi.setConfig({ testTimeout: 120_000 });
+
 describe("engawa lantern lane", () => {
   it("displaces harbor-lantern.11 without removing its shore mesh", () => {
     expect(gardenHarborLanternLaneId(10)).toBe("harbor-lantern.10");
@@ -181,7 +187,7 @@ describe("station route pulse endpoints", () => {
     }
     expect(observed).toEqual(expected);
     renderer.dispose();
-  }, 60_000); // dense world plus eight route windows; exceeds the 5 s default under suite load
+  });
 });
 
 type TestWebGlRenderer = {
@@ -1068,7 +1074,7 @@ describe("Three world renderer lifecycle", () => {
     expect(post.setAOZoomDetail).toHaveBeenLastCalledWith(0);
     expect(webgl.info.memory.textures).toBeLessThanOrEqual(freshWholeTextureCount);
     renderer.dispose();
-  }, 60_000); // two full scene builds plus 120 frames; exceeds the 5 s default under suite load
+  });
 
   it("reveals inspection detail only for Explore or the focused entity", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
