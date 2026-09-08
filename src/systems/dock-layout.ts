@@ -34,6 +34,7 @@ export const STATION_SCALE_LADDER: Record<StationType, StationScaleRung> = {
 
 export interface StationScale extends StationScaleRung {
   heightScale: number;
+  frontageScale: number;
   length: number;
 }
 
@@ -42,24 +43,27 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
- * Applies the live supply multiplier to the authored hall scale ladder. The
- * Mole is a civic landmark rather than a supply display, so its hall never
- * changes.
+ * Allocates horizontal station mass by tracked-supply share. A decade either
+ * side of the rendered-harbour median reaches the authored 0.75–1.25 bounds;
+ * the vertical recognizability ladder remains data-independent.
  */
-export function stationScaleFor(type: StationType, totalUsd: number): StationScale {
+export function stationScaleFor(
+  type: StationType,
+  frontageShare = 1,
+  medianShare = frontageShare / Math.sqrt(10),
+): StationScale {
   const rung = STATION_SCALE_LADDER[type];
-  if (type === "ethereum-mole") return { ...rung, heightScale: 1, length: rung.baseLength };
-  const supplyFactor = clamp(
-    (Math.log10(Math.max(1, totalUsd)) - 8.5) / 3.2,
-    0,
-    1,
-  );
-  const heightScale = 0.95 + supplyFactor * 0.15;
+  if (type === "ethereum-mole") {
+    return { ...rung, frontageScale: 1, heightScale: 1, length: rung.baseLength };
+  }
+  const ratio = frontageShare > 0 && medianShare > 0 ? frontageShare / medianShare : 1;
+  const frontageScale = clamp(0.75 + 0.5 * clamp(Math.log10(ratio), -1, 1), 0.75, 1.25);
   return {
     ...rung,
-    heightScale,
-    length: clamp(rung.baseLength * (0.95 + supplyFactor * 0.40), 12.6, 20.0),
-    secondLevelTop: rung.secondLevelTop * heightScale,
+    frontageScale,
+    heightScale: 1,
+    length: rung.baseLength * frontageScale,
+    span: rung.span * frontageScale,
   };
 }
 
@@ -189,9 +193,15 @@ export function distanceToStationFootprint(
  * complete placement envelope: ships enter the Mole basin and follow the
  * ordinary station's supply-scaled berth, while scenery clears full geometry.
  */
-export function stationClearanceTiles(type: StationType, totalUsd: number, size: number): number {
+export function stationClearanceTiles(
+  type: StationType,
+  totalUsd: number,
+  size: number,
+  frontageShare = 1,
+  frontageMedianShare = frontageShare,
+): number {
   if (type === "ethereum-mole") return Math.ceil(Math.hypot(40, 30) / 2 / Math.SQRT2);
-  const scale = stationScaleFor(type, totalUsd);
+  const scale = stationScaleFor(type, frontageShare, frontageMedianShare);
   const amountScale = 0.82 + clamp(
     (Math.log10(Math.max(1, totalUsd)) - 8.5) / 3.2,
     0,

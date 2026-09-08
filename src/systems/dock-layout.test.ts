@@ -32,10 +32,11 @@ describe("station footprint", () => {
       span: 10,
       secondLevelTop: 21.5,
     });
-    expect(stationScaleFor("ethereum-mole", Number.POSITIVE_INFINITY)).toEqual({
+    expect(stationScaleFor("ethereum-mole", Number.POSITIVE_INFINITY, 0.01)).toEqual({
       baseLength: 24,
       span: 10,
       secondLevelTop: 21.5,
+      frontageScale: 1,
       heightScale: 1,
       length: 24,
     });
@@ -64,6 +65,25 @@ describe("station footprint", () => {
     // footprint-area-close uogashi/fishing-pier/tea-house/storm-mole chain.
     expect(STATION_SCALE_LADDER["ethereum-mole"].secondLevelTop)
       .toBeGreaterThanOrEqual(Math.max(...tops) * 1.2);
+  });
+
+  it("allocates monotone, bounded frontage without changing the height ladder", () => {
+    const shares = [0.001, 0.01, 0.1, 1];
+    const scales = shares.map((share) => stationScaleFor("tea-house-quay", share, 0.1));
+    expect(scales.map((scale) => scale.frontageScale)).toEqual([0.75, 0.75, 0.75, 1.25]);
+    expect(scales.map((scale) => scale.length)).toEqual([11.25, 11.25, 11.25, 18.75]);
+    expect(scales.every((scale) => scale.secondLevelTop === 16.2)).toBe(true);
+    for (let index = 1; index < scales.length; index += 1) {
+      expect(scales[index]!.length).toBeGreaterThanOrEqual(scales[index - 1]!.length);
+    }
+  });
+
+  it("keeps the Mole capped regardless of tracked-supply share", () => {
+    const tiny = stationScaleFor("ethereum-mole", 0.0001, 0.1);
+    const huge = stationScaleFor("ethereum-mole", 1, 0.001);
+    expect(tiny).toEqual(huge);
+    expect(huge.secondLevelTop).toBe(21.5);
+    expect(huge.frontageScale).toBe(1);
   });
 
   it("keeps measured recipe envelopes distinct from hall dimensions", () => {

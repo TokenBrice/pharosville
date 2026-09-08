@@ -22,7 +22,7 @@ import {
   gardenBirdSortie,
   gardenBirdSortieOffset,
 } from "./garden-summit-birds";
-import { gardenPrecinctObeliskGateposts } from "./garden-island";
+import { gardenLandingToriiPerch } from "./garden-island";
 
 /** Gulls wheeling over the island itself. */
 export const GARDEN_GULL_COUNT = 9;
@@ -229,7 +229,7 @@ const ISLAND_GULL_LOOP_RADIUS = 6;
 const ISLAND_GULL_LOOP_SPREAD = 1.2;
 const QUAY_GULL_TURN_SECONDS = 58;
 
-const OBELISK_GULL_PERCH = gardenPrecinctObeliskGateposts()[0]!;
+const TORII_GULL_PERCH = gardenLandingToriiPerch();
 
 /**
  * Where the island's nine gulls sit, island-local (which is flock-local: both
@@ -258,7 +258,7 @@ const ISLAND_GULL_PERCHES: readonly {
   { x: 13.94, y: 0.34, z: -6.94, apex: 9.1 },
   { x: -12.0, y: 5.09, z: 3.75, apex: 8.3, loop: "tower-away" },
   { x: -1.55, y: 4.29, z: -6.7, apex: 7.6, loop: "tower-away" },
-  { x: OBELISK_GULL_PERCH.x, y: OBELISK_GULL_PERCH.y + 3.81, z: OBELISK_GULL_PERCH.z, apex: 9.4 },
+  { x: TORII_GULL_PERCH.x, y: TORII_GULL_PERCH.y, z: TORII_GULL_PERCH.z, apex: 9.4 },
   { x: 1.6, y: 6.42, z: -1.25, apex: 8.0 },
   { x: 6.35, y: 6.52, z: 4.05, apex: 9.6 },
 ];

@@ -183,7 +183,7 @@ const ISLAND_TIERS = [
  * degrees, so this is an approximation — close enough to seat props on, which
  * is all it is used for.
  */
-function islandTerrainHeight(x: number, z: number): number {
+export function islandTerrainHeight(x: number, z: number): number {
   let height = precinctTerrainHeight(x, z);
   for (const [topRadius, bottomRadius, tierHeight, , , cx, cy, cz, scaleZ] of ISLAND_TIERS) {
     const top = cy + tierHeight / 2;
@@ -302,8 +302,6 @@ const ISLAND_DYNAMIC_NAMES = new Set([
   "lighthouse-beam",
   "lighthouse-beam-cone",
   "lighthouse-beam-dust",
-  "pharos-obelisk-caps",
-  "pharos-obelisk-stone",
 ]);
 
 // These groups are visibility/LOD transform boundaries. Their descendants
@@ -669,10 +667,9 @@ export function createTerracedIsland(
     createObservatoryPavilion(),
     reflectionPond.root,
   );
-  // The unequal obelisks now mark the fortress gate approach, not a separate
-  // monument on the old bare terrace.
   root.add(
-    createPrecinctObelisks(),
+    createLandingTorii(),
+    createLeeBridge(),
     createDangerRockFace(),
     createQuayStair(),
   );
@@ -848,8 +845,8 @@ function gardenGroundWear(x: number, z: number): number {
   let wear = ringWear(Math.hypot(x - 4.4, z - 2.35), 2.28, 0.52); // pavilion sill
   wear = Math.max(wear, ringWear(Math.hypot(x + 10, z + 1), 2.5, 0.48)); // cottage
   const pondRadius = Math.hypot(
-    (x - GARDEN_POND_CENTER.x) / 3.6,
-    (z - GARDEN_POND_CENTER.z) / 2.45,
+    (x - GARDEN_POND_CENTER.x) / GARDEN_POND_RADIUS,
+    (z - GARDEN_POND_CENTER.z) / (GARDEN_POND_RADIUS * 0.68),
   );
   wear = Math.max(wear, 1 - smoothstep01(Math.abs(pondRadius - 1) / 0.18));
   for (const [px, pz] of ISLAND_LANTERN_POSITIONS) {
@@ -1045,87 +1042,57 @@ export const GARDEN_ISLAND_STONE_GROUPINGS: readonly (readonly GardenIslandStone
 ];
 
 /**
- * T2.2 island planting (2026-09-07). Lane F measured 48 drawables against the
- * pinned `< 77` / `<= 55` ceilings and spent its own budget on the rim and the
- * islets; ONE of the seven remaining slots buys the island the vocabulary the
- * brief actually names. Karikomi — clipped azalea — is what makes a Japanese
- * garden read as *gardened* rather than merely landscaped: a low, dense,
- * deliberately sheared mass bedding the path in. 23 domes of
- * `SphereGeometry(1, 8, 5)` (64 tris) in one InstancedMesh: 1,472 triangles
- * for one draw call. The count is what the spacing rule below fits along the
- * walked stretch, not a target — `KARIKOMI_DOME_CAP` is only a ceiling.
- *
- * The brief also asked for skirts against the stone triads. Dropped, with the
- * reason recorded here: `GARDEN_ISLAND_STONE_GROUPINGS` is authored on its own
- * hand-tuned `y` (the spec calls it "keys the stone to the local terrace
- * shelf"), and measured against the built geometry EVERY stone sits at or
- * below the surface around it — the dominant stones clear their ground by
- * ~0.1 and the subordinates are under it entirely. Planting a skirt against a
- * stone that is not there is planting nothing, so the budget went to the path,
- * which is unambiguously visible. The buried triads are a separate defect and
- * are left exactly as they were.
- *
- * Solid vertex-coloured geometry, never alpha cards — N8AO runs
- * `transparencyAware = false` at half res, so a card occludes as a solid
- * rectangle. No `roughnessMap` either: `garden-island.test.ts` finds the rock
- * tiers by `roughnessMap instanceof DataTexture && vertexColors`, and the
- * planting must not be swept into that set.
+ * One low, solid azalea batch follows the widened path all the way beyond the
+ * tea house. Its enlarged domes remain a single opaque instanced draw.
  */
-const KARIKOMI_DOME_CAP = 30;
+const KARIKOMI_DOME_CAP = 23;
 
 function createKarikomi(season: GardenSeason): InstancedMesh<SphereGeometry, MeshStandardMaterial> {
-  // The route is walked between u=0.04 (clear of the quay stair head) and
-  // u=0.74, and every dome is set just off the ribbon's OWN half-width, so the
-  // gravel stays a clean pale line and the planting reads as its edge rather
-  // than as spill on it. The walk stops short of the end of the path because
-  // the last quarter of the seaward flank is already occupied: the observatory
-  // pavilion's 2.4-unit base at (4.4, 2.35) and the storm-signal mast the
-  // renderer stands at (7.2, 3.2).
-  //
-  // All of them go on the SEAWARD flank: the inboard side of this stretch is
-  // the precinct's cliff face (its court caps at y 2.55, its east wall at
-  // x~3.03), so anything set that side lands on the terrace ABOVE the path
-  // instead of beside it.
-  //
-  // Placement is a greedy walk, not N evenly spaced `u` values, because the
-  // offset flank is the INSIDE of the path's first bend: at a ~1.9-unit offset
-  // against a bend of comparable radius, evenly spaced parameters collapse
-  // half the hedge into one pile. Walking finely and keeping a candidate only
-  // once it has cleared the last dome by ~60% of their combined radii gives a
-  // continuous, evenly-massed body — karikomi is sheared into one lumpy shape
-  // rather than dotted, so touching is the intent and piling is not.
+  // Walk nearly end-to-end so the final span continues beyond the chaseki.
   const curve = gardenPathCurve();
   const domes: { color: Color; height: number; radius: number; seed: string; x: number; z: number }[] = [];
-  // Azalea green: read off the niwaki matsuba but a touch lighter and greyer
-  // (0.3 toward timber_dark, against the pines' 0.42), so the low clipped mass
-  // separates in value from the pine mass above it instead of merging into one
-  // silhouette.
   const azalea = new Color(HARBOR_PALETTE.aurora_green)
     .lerp(new Color(HARBOR_PALETTE.timber_dark), 0.3);
-  const steps = 240;
   const curveLength = curve.getLength();
-  for (let step = 0; step <= steps && domes.length < KARIKOMI_DOME_CAP; step += 1) {
-    const u = 0.04 + (step / steps) * 0.7;
-    // Arc length, not raw `t`: a centripetal Catmull-Rom covers very little
-    // distance over its first spans, so evenly spaced parameters would pile
-    // most of the hedge into the first bend. The explicit second argument is
-    // the same number three would derive itself; passing it keeps the call
-    // inside its declared two-argument signature.
+  // A curve normal is only locally perpendicular. On the inside of a bend,
+  // another part of the path can be nearer than the sampled source point, so
+  // validate each centre against the whole authored route before seating it.
+  const pathSamples = curve.getSpacedPoints(1024);
+  for (let step = 0; step < 23; step += 1) {
+    const u = 0.04 + (step / 22) * 0.92;
     const t = curve.getUtoTmapping(u, u * curveLength);
     const point = curve.getPoint(t);
     const tangent = curve.getTangent(t);
     const tangentLength = Math.hypot(tangent.x, tangent.z) || 1;
-    const seed = `karikomi.${domes.length}`;
-    const radius = 0.32 + stableUnit(`${seed}.r`) * 0.3;
-    const halfWidth = 1.28 + Math.sin(t * Math.PI * 3.2) * 0.12;
-    // Two staggered rows: the back row is what gives the sheared body depth.
-    const row = domes.length % 2 === 0 ? 0 : 0.4;
+    const seed = `karikomi.${step}`;
+    const radius = (0.32 + stableUnit(`${seed}.r`) * 0.3) * 1.4;
+    const halfWidth = GARDEN_PATH_HALF_WIDTH + Math.sin(t * Math.PI * 3.2) * 0.12;
+    const row = step % 2 === 0 ? 0 : 0.4;
     const offset = halfWidth + 0.16 + radius + row + stableUnit(`${seed}.o`) * 0.16;
-    const x = point.x + (tangent.z / tangentLength) * offset;
-    const z = point.z - (tangent.x / tangentLength) * offset;
-    const previous = domes.at(-1);
-    if (previous && Math.hypot(x - previous.x, z - previous.z) < (radius + previous.radius) * 0.6) {
-      continue;
+    let x = point.x + (tangent.z / tangentLength) * offset;
+    let z = point.z - (tangent.x / tangentLength) * offset;
+    const footprintRadius = radius * Math.max(1, 0.82 + stableUnit(`${seed}.depth`) * 0.3);
+    const requiredClearance = GARDEN_PATH_HALF_WIDTH + footprintRadius + 0.01;
+    for (let correction = 0; correction < 6; correction += 1) {
+      let nearest = pathSamples[0]!;
+      let nearestDistance = Math.hypot(x - nearest.x, z - nearest.z);
+      for (let sampleIndex = 1; sampleIndex < pathSamples.length; sampleIndex += 1) {
+        const sample = pathSamples[sampleIndex]!;
+        const distance = Math.hypot(x - sample.x, z - sample.z);
+        if (distance >= nearestDistance) continue;
+        nearest = sample;
+        nearestDistance = distance;
+      }
+      if (nearestDistance >= requiredClearance) break;
+      const push = requiredClearance - nearestDistance;
+      const awayX = nearestDistance > 1e-6
+        ? (x - nearest.x) / nearestDistance
+        : tangent.z / tangentLength;
+      const awayZ = nearestDistance > 1e-6
+        ? (z - nearest.z) / nearestDistance
+        : -tangent.x / tangentLength;
+      x += awayX * push;
+      z += awayZ * push;
     }
     const color = azalea.clone().multiplyScalar(0.86 + stableUnit(`${seed}.tone`) * 0.28);
     if (season === "winter") {
@@ -1141,11 +1108,10 @@ function createKarikomi(season: GardenSeason): InstancedMesh<SphereGeometry, Mes
       z,
     });
   }
-
   const mesh = new InstancedMesh(
     new SphereGeometry(1, 8, 5),
     new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.97 }),
-    domes.length,
+    Math.min(domes.length, KARIKOMI_DOME_CAP),
   );
   mesh.name = "island-karikomi";
   // `mergeIslandStatics` already skips every InstancedMesh, but the flag is
@@ -1175,8 +1141,7 @@ function createKarikomi(season: GardenSeason): InstancedMesh<SphereGeometry, Mes
 
 function createIslandDecoration(season: GardenSeason): Group {
   const root = new Group();
-  // Five hero niwaki replace the 21-tree scatter and its shrub understory.
-  // Their two instanced draws read as one asymmetric mass at default height.
+  // Five hero niwaki and one maple family share the same two instanced draws.
   root.add(createNiwakiGrove(season));
   // T2.2: one draw of clipped azalea domes edging the path and the low stones.
   root.add(createKarikomi(season));
@@ -1220,7 +1185,12 @@ function createIslandDecoration(season: GardenSeason): Group {
       } else {
         scratchScale.set(stone.scale, stone.scale * 0.55, stone.scale * 0.85);
       }
-      scratchPosition.set(stone.x, stone.y, stone.z);
+      const seat = stone.dominant ? 0.9 : 0.58;
+      scratchPosition.set(
+        stone.x,
+        islandTerrainHeight(stone.x, stone.z) + stone.scale * seat,
+        stone.z,
+      );
       scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
       stones.setMatrixAt(stoneIndex, scratchMatrix);
       stoneIndex += 1;
@@ -1299,9 +1269,8 @@ export interface NiwakiSpec {
 }
 
 /**
- * Five unequal hero pines form one camera-side mass. The first stands inside
- * the rock but reaches beyond the -x/+z waterline at the lower-left edge of
- * the locked view; the other four hold the mass inland.
+ * Five unequal hero pines and one autumn maple form one camera-side mass.
+ * The first reaches beyond the -x/+z waterline at the lower-left edge.
  */
 export const GARDEN_NIWAKI_SPECS: readonly NiwakiSpec[] = [
   {
@@ -1370,6 +1339,20 @@ export const GARDEN_NIWAKI_SPECS: readonly NiwakiSpec[] = [
       { t: 0.96, offsetX: -0.08, offsetZ: -0.02, scaleX: 0.82, scaleY: 0.2, scaleZ: 0.54, tone: 0, yaw: -0.3 },
     ],
   },
+  {
+    height: 5.8,
+    leanX: -0.7,
+    leanZ: 0.9,
+    x: -1.8,
+    z: 7.6,
+    pads: [
+      { t: 0.4, offsetX: -0.45, offsetZ: 0.14, scaleX: 1.72, scaleY: 0.42, scaleZ: 1.18, tone: 0, yaw: -0.28 },
+      { t: 0.55, offsetX: 0.5, offsetZ: -0.18, scaleX: 1.54, scaleY: 0.38, scaleZ: 1.06, tone: 1, yaw: 0.2 },
+      { t: 0.7, offsetX: -0.52, offsetZ: 0.18, scaleX: 1.94, scaleY: 0.46, scaleZ: 1.28, tone: 0, yaw: -0.12 },
+      { t: 0.84, offsetX: 0.3, offsetZ: 0.12, scaleX: 1.42, scaleY: 0.37, scaleZ: 0.98, tone: 1, yaw: 0.3 },
+      { t: 0.96, offsetX: -0.08, offsetZ: 0, scaleX: 0.92, scaleY: 0.3, scaleZ: 0.72, tone: 0, yaw: -0.22 },
+    ],
+  },
 ];
 
 function niwakiPoint(spec: NiwakiSpec, t: number): Vector3 {
@@ -1398,9 +1381,8 @@ function setCylinderBetween(
 }
 
 /**
- * The niwaki carry no analytical meaning. Five large, unequal silhouettes
- * displace the old small-tree/shrub carpet; the first leans out over the
- * camera-side water. Trunks/branches and foliage remain two instanced draws.
+ * Five niwaki and one maple form unequal silhouettes; the first leans out
+ * over camera-side water. Trunks/branches and foliage remain two draws.
  */
 function createNiwakiGrove(season: GardenSeason): Group {
   const root = new Group();
@@ -1489,6 +1471,7 @@ export function updateGardenNiwakiWind(
 
 function createObservatoryPavilion(): Group {
   const root = new Group();
+  root.name = "island-chaseki";
   root.position.set(4.4, 1.05, 2.35);
   root.rotation.y = 0.22;
   const stoneMaterial = new MeshStandardMaterial({
@@ -1497,39 +1480,38 @@ function createObservatoryPavilion(): Group {
     roughness: 1,
   });
   const timberMaterial = new MeshStandardMaterial({
-    color: "#5d4635",
-    roughness: 0.92,
+    color: HARBOR_PALETTE.timber_dark,
+    flatShading: true,
+    roughness: 0.96,
   });
-  const copperMaterial = new MeshStandardMaterial({
-    color: "#4f7166",
-    metalness: 0.28,
-    roughness: 0.66,
+  const thatchMaterial = new MeshStandardMaterial({
+    color: "#66553c",
+    flatShading: true,
+    roughness: 1,
   });
   const base = new Mesh(new CylinderGeometry(2.2, 2.4, 0.36, 8), stoneMaterial);
   base.position.y = 0.18;
   root.add(base);
   for (const [x, z] of [[-1.25, -0.8], [-1.25, 0.8], [1.25, -0.8], [1.25, 0.8]] as const) {
-    const post = new Mesh(new CylinderGeometry(0.09, 0.12, 2.4, 6), timberMaterial);
+    const post = new Mesh(new CylinderGeometry(0.1, 0.13, 2.35, 6), timberMaterial);
     post.position.set(x, 1.45, z);
     root.add(post);
   }
-  const roof = new Mesh(new ConeGeometry(2.55, 1.15, 8), copperMaterial);
-  roof.position.y = 3.05;
-  roof.scale.z = 0.72;
-  root.add(roof);
-  const instrument = new Mesh(
-    new SphereGeometry(0.38, 10, 7),
-    new MeshStandardMaterial({
-      color: "#c79d52",
-      metalness: 0.62,
-      roughness: 0.38,
-    }),
-  );
-  instrument.position.y = 1.08;
-  root.add(instrument);
+  // Two broad hipped thatch layers make an irimoya-like tea-house roof.
+  const lowerRoof = new Mesh(new ConeGeometry(2.75, 0.85, 4), thatchMaterial);
+  lowerRoof.position.y = 2.85;
+  lowerRoof.rotation.y = Math.PI / 4;
+  lowerRoof.scale.z = 0.72;
+  root.add(lowerRoof);
+  const upperRoof = new Mesh(new ConeGeometry(1.72, 0.72, 4), thatchMaterial);
+  upperRoof.position.y = 3.35;
+  upperRoof.rotation.y = Math.PI / 4;
+  upperRoof.scale.z = 0.68;
+  root.add(upperRoof);
   return root;
 }
 
+export const GARDEN_POND_RADIUS = 5.5;
 export const GARDEN_POND_CENTER = { x: 8.0, z: 6.0 } as const;
 const POND_CENTER_X = GARDEN_POND_CENTER.x;
 const POND_CENTER_Z = GARDEN_POND_CENTER.z;
@@ -1633,7 +1615,7 @@ function createIslandReflectionPond(): { reflection: GardenPondReflection; root:
     transparent: true,
   });
   patchGardenPondReflection(pondMaterial, uniforms);
-  const pondGeometry = new CircleGeometry(3.6, 40);
+  const pondGeometry = new CircleGeometry(GARDEN_POND_RADIUS, 40);
   pondGeometry.scale(1, 0.68, 1);
   const pond = new Mesh(pondGeometry, pondMaterial);
   pond.name = "island-reflection-pond-skin";
@@ -1642,7 +1624,11 @@ function createIslandReflectionPond(): { reflection: GardenPondReflection; root:
   // and stepping stones still write depth, so no fish appears through stone.
   pond.renderOrder = 5;
   root.add(pond);
-  const rimGeometry = new RingGeometry(3.46, 3.78, 40);
+  const rimGeometry = new RingGeometry(
+    GARDEN_POND_RADIUS - 0.16,
+    GARDEN_POND_RADIUS + 0.18,
+    40,
+  );
   rimGeometry.scale(1, 0.68, 1);
   const rim = new Mesh(
     rimGeometry,
@@ -1670,16 +1656,17 @@ function createIslandReflectionPond(): { reflection: GardenPondReflection; root:
 }
 
 /**
- * One authored route through the precinct. The end points are contracts: the
- * stair head is the quay threshold and the final point is the pavilion base.
- * Intermediate bends make one broad S without entering the reflection basin.
+ * The stair head is the threshold and the final point carries the walk beyond
+ * the chaseki. Intermediate bends make one broad S clear of the pond.
  */
+export const GARDEN_PATH_HALF_WIDTH = 2;
 export const GARDEN_PATH_SWEEP_POINTS: readonly { x: number; z: number }[] = [
   { x: 3.4, z: -1.25 },
   { x: 3.7, z: -0.4 },
   { x: 5.4, z: 0.2 },
   { x: 5.2, z: 1.4 },
   { x: 4.4, z: 2.35 },
+  { x: 2.7, z: 3.15 },
 ] as const;
 
 /**
@@ -1708,7 +1695,7 @@ function createGardenPathSweep(): Mesh<BufferGeometry, MeshStandardMaterial> {
   const colors: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
-  const gravel = STONE_PALE.clone().lerp(new Color(HARBOR_PALETTE.fog_day), 0.34);
+  const gravel = STONE_PALE.clone().lerp(new Color(HARBOR_PALETTE.fog_day), 0.58);
   const color = new Color();
   for (let index = 0; index <= segments; index += 1) {
     const t = index / segments;
@@ -1717,7 +1704,7 @@ function createGardenPathSweep(): Mesh<BufferGeometry, MeshStandardMaterial> {
     const tangentLength = Math.hypot(tangent.x, tangent.z) || 1;
     const normalX = -tangent.z / tangentLength;
     const normalZ = tangent.x / tangentLength;
-    const halfWidth = 1.28 + Math.sin(t * Math.PI * 3.2) * 0.12;
+    const halfWidth = GARDEN_PATH_HALF_WIDTH + Math.sin(t * Math.PI * 3.2) * 0.12;
     for (const side of [-1, 1] as const) {
       const x = point.x + normalX * halfWidth * side;
       const z = point.z + normalZ * halfWidth * side;
@@ -1765,97 +1752,71 @@ function createGardenPathSweep(): Mesh<BufferGeometry, MeshStandardMaterial> {
 // W7b — Pharos precinct dressing (2026-07-24 wonder plan, decision D8)
 // ---------------------------------------------------------------------------
 
-// Two obelisks — Empereur's precinct finds — flanking the head of the cut
-// stone stair from the quay, as its gateposts.
-//
-// W3.1 (The Great Quieting): they used to stand free on the middle shelf at
-// (-9.2, 4.1) and (-4.8, 4.1), a third monument competing with the pavilion
-// and the tower for the same seaward read. Nothing is deleted: the pair is
-// TRANSFORMED into the stair's threshold, where it earns its stone by giving
-// the climb from the water a gate to pass through — one composition instead of
-// two. Seated on the rock the stair head lands on, squared to the flight, set
-// just outside the cheek walls, and deliberately unequal (fukinsei — a matched
-// pair reads as a monument, an unmatched one as a place).
-const OBELISK_STAIR_OFFSET = 1.55;
-const OBELISK_HEIGHT_SCALES = [1, 0.86] as const;
+/** Island-local top of the landing torii's kasagi: the gull perch that replaced the obelisk. */
+export function gardenLandingToriiPerch(): { x: number; y: number; z: number } {
+  return { x: QUAY_STAIR_END.x, y: QUAY_STAIR_TOP_Y + 3.59, z: QUAY_STAIR_END.z };
+}
 
-/**
- * The gatepost pair, derived from the stair itself so the two can never drift
- * apart: seated on the rock at the stair head, squared to the flight, one to
- * each side just outside the cheek walls.
- */
-export function gardenPrecinctObeliskGateposts(): {
-  scale: number;
-  x: number;
-  y: number;
-  yaw: number;
-  z: number;
-}[] {
+/** A single timber torii marks the landing without competing with the tower. */
+function createLandingTorii(): Mesh<BufferGeometry, MeshStandardMaterial> {
   const yaw = Math.atan2(
     QUAY_STAIR_END.x - QUAY_STAIR_START.x,
     QUAY_STAIR_END.z - QUAY_STAIR_START.z,
   );
-  const acrossX = Math.cos(yaw) * OBELISK_STAIR_OFFSET;
-  const acrossZ = -Math.sin(yaw) * OBELISK_STAIR_OFFSET;
-  return OBELISK_HEIGHT_SCALES.map((scale, index) => {
-    const side = index === 0 ? 1 : -1;
-    const x = QUAY_STAIR_END.x + side * acrossX;
-    const z = QUAY_STAIR_END.z + side * acrossZ;
-    // Sunk a finger into the rock: nothing in this garden sits ON the ground.
-    return { scale, x, y: islandTerrainHeight(x, z) - 0.05, yaw, z };
-  });
+  const parts: BufferGeometry[] = [];
+  const place = (geometry: BufferGeometry, x: number, y: number, z: number) => {
+    geometry.translate(x, y, z);
+    geometry.rotateY(yaw);
+    geometry.translate(QUAY_STAIR_END.x, QUAY_STAIR_TOP_Y, QUAY_STAIR_END.z);
+    parts.push(geometry);
+  };
+  place(new BoxGeometry(0.34, 3.4, 0.34), -1.35, 1.7, 0);
+  place(new BoxGeometry(0.34, 3.4, 0.34), 1.35, 1.7, 0);
+  place(new BoxGeometry(3.7, 0.34, 0.48), 0, 3.42, 0);
+  place(new BoxGeometry(2.8, 0.25, 0.3), 0, 2.62, 0);
+  const torii = new Mesh(
+    mergeGeometries(parts, false),
+    new MeshStandardMaterial({
+      color: HARBOR_PALETTE.vermillion,
+      flatShading: true,
+      roughness: 0.9,
+    }),
+  );
+  torii.name = "island-landing-torii";
+  torii.userData.gardenKeepSeparate = true;
+  torii.castShadow = true;
+  torii.receiveShadow = true;
+  return torii;
 }
 
-function createPrecinctObelisks(): Group {
-  const root = new Group();
-  root.name = "pharos-precinct-obelisks";
-  const stoneMaterial = new MeshStandardMaterial({
-    color: "#d2cba9",
-    flatShading: true,
-    roughness: 0.94,
-  });
-  // Bronze-gilt pyramidion tips carrying the same warm emissive whisper as
-  // the crowning Zeus Soter (the vermillion accent stays spent on the flame).
-  const giltMaterial = new MeshStandardMaterial({
-    color: HARBOR_PALETTE.lantern_warm,
-    emissive: HARBOR_PALETTE.lantern_glow,
-    emissiveIntensity: 0.08,
-    metalness: 0.82,
-    roughness: 0.32,
-  });
-  // Geometry budget: the pair bakes into two merged meshes (stone + gilt).
-  // Four-sided tapered cylinders read as square shafts; the stair's own yaw
-  // squares their faces with the flight they now gate.
-  const stoneParts: BufferGeometry[] = [];
-  const giltParts: BufferGeometry[] = [];
-  for (const post of gardenPrecinctObeliskGateposts()) {
-    const place = (geometry: BufferGeometry, localY: number) => {
-      // Faces squared to the flight below, so the pair reads as the stair's
-      // gate rather than as two stones that happen to stand near it.
-      geometry.rotateY(post.yaw);
-      geometry.translate(post.x, post.y + localY, post.z);
-    };
-    const shaftHeight = 3.05 * post.scale;
-    const plinth = new BoxGeometry(0.74, 0.3, 0.74);
-    place(plinth, 0.15);
-    stoneParts.push(plinth);
-    const shaft = new CylinderGeometry(0.17, 0.27, shaftHeight, 4);
-    place(shaft, 0.3 + shaftHeight / 2);
-    stoneParts.push(shaft);
-    const cap = new ConeGeometry(0.26, 0.42, 4);
-    place(cap, 0.3 + shaftHeight + 0.21);
-    giltParts.push(cap);
+/** Five plank spans reach from the lee shore toward the satellite islet. */
+function createLeeBridge(): InstancedMesh<BoxGeometry, MeshStandardMaterial> {
+  const start = new Vector3(17.8, WATER_LEVEL + 0.42, -6.15);
+  const end = new Vector3(25.2, WATER_LEVEL + 0.42, -8.8);
+  const spans = 5;
+  const bridge = new InstancedMesh(
+    new BoxGeometry(1.72, 0.18, 1.9, 1, 1, 1),
+    new MeshStandardMaterial({
+      color: HARBOR_PALETTE.timber_dark,
+      flatShading: true,
+      roughness: 0.96,
+    }),
+    spans,
+  );
+  bridge.name = "island-lee-plank-bridge";
+  const yaw = Math.atan2(end.x - start.x, end.z - start.z);
+  scratchQuaternion.setFromAxisAngle(UP_AXIS, yaw);
+  for (let index = 0; index < spans; index += 1) {
+    scratchPosition.lerpVectors(start, end, (index + 0.5) / spans);
+    scratchPosition.y += Math.sin(((index + 0.5) / spans) * Math.PI) * 0.12;
+    scratchScale.set(1, 1, 1);
+    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+    bridge.setMatrixAt(index, scratchMatrix);
   }
-  const stone = new Mesh(mergeGeometries(stoneParts, false), stoneMaterial);
-  stone.name = "pharos-obelisk-stone";
-  const caps = new Mesh(mergeGeometries(giltParts, false), giltMaterial);
-  caps.name = "pharos-obelisk-caps";
-  for (const part of [stone, caps]) {
-    part.castShadow = true;
-    part.receiveShadow = true;
-  }
-  root.add(stone, caps);
-  return root;
+  bridge.instanceMatrix.needsUpdate = true;
+  bridge.castShadow = true;
+  bridge.receiveShadow = true;
+  return bridge;
 }
 
 function hypot2(x: number, z: number): number {
@@ -1967,8 +1928,7 @@ function cliffSlabGeometry(): BoxGeometry {
 // final stone landing joins the open arch, while the garden path turns south.
 const QUAY_STAIR_START = { x: 16.9, z: -5.79 } as const;
 const QUAY_STAIR_END = { x: 3.4, z: -1.25 } as const;
-// The stair head is the precinct's threshold — the obelisk gateposts and their
-// planting keep-outs are derived from it, so it is contract, not decoration.
+// The stair head is the precinct threshold; the torii is derived from it.
 export {
   QUAY_STAIR_END as GARDEN_QUAY_STAIR_HEAD,
   QUAY_STAIR_TOP_Y as GARDEN_QUAY_STAIR_TOP_Y,
@@ -2050,6 +2010,16 @@ function createQuayStair(): Group {
   });
   cheeks.instanceMatrix.needsUpdate = true;
 
-  root.add(steps, cheeks);
+  const footStone = new Mesh(
+    new DodecahedronGeometry(0.72, 0),
+    new MeshStandardMaterial({ color: "#8e876f", flatShading: true, roughness: 1 }),
+  );
+  footStone.name = "island-quay-foot-stone";
+  footStone.position.set(QUAY_STAIR_START.x + 0.9, WATER_LEVEL + 0.38, QUAY_STAIR_START.z - 0.35);
+  footStone.scale.set(1.25, 0.72, 0.92);
+  footStone.rotation.y = yaw + 0.4;
+  footStone.castShadow = true;
+  footStone.receiveShadow = true;
+  root.add(steps, cheeks, footStone);
   return root;
 }

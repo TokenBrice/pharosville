@@ -1,15 +1,24 @@
 export const TILE_WIDTH = 32;
 export const TILE_HEIGHT = 16;
 export const TILE_SCALE = Math.SQRT2;
-export const CAMERA_DISTANCE = 110;
+export const CAMERA_FOV_DEG = 32;
+export const CAMERA_PITCH_RAD = 12 * Math.PI / 180;
+export const CAMERA_YAW = Math.PI / 4;
+export const CAMERA_NEAR = 1;
+export const CAMERA_FAR = 600;
 
-const CAMERA_RADIUS = CAMERA_DISTANCE * Math.sqrt(8 / 3);
-const CAMERA_YAW = Math.PI / 4;
-const CAMERA_PITCH = Math.atan(1 / Math.sqrt(3));
-// Orthonormal lookAt basis for eye = target + (D, D * sqrt(2/3), D).
-const CAMERA_RIGHT = { x: Math.SQRT1_2, y: 0, z: -Math.SQRT1_2 };
-const CAMERA_UP = { x: -1 / Math.sqrt(8), y: Math.sqrt(3) / 2, z: -1 / Math.sqrt(8) };
-const CAMERA_BACK = { x: Math.sqrt(3 / 8), y: 0.5, z: Math.sqrt(3 / 8) };
+const CAMERA_TAN_HALF_FOV = Math.tan(CAMERA_FOV_DEG * Math.PI / 360);
+const CAMERA_RIGHT = { x: Math.cos(CAMERA_YAW), y: 0, z: -Math.sin(CAMERA_YAW) };
+const CAMERA_UP = {
+  x: -Math.sin(CAMERA_PITCH_RAD) * Math.sin(CAMERA_YAW),
+  y: Math.cos(CAMERA_PITCH_RAD),
+  z: -Math.sin(CAMERA_PITCH_RAD) * Math.cos(CAMERA_YAW),
+};
+const CAMERA_BACK = {
+  x: Math.cos(CAMERA_PITCH_RAD) * Math.sin(CAMERA_YAW),
+  y: Math.sin(CAMERA_PITCH_RAD),
+  z: Math.cos(CAMERA_PITCH_RAD) * Math.cos(CAMERA_YAW),
+};
 
 export interface ScreenPoint {
   x: number;
@@ -29,7 +38,7 @@ export interface IsoCamera {
 
 export interface CameraPose {
   targetTile: TilePoint;
-  /** Equivalent orbit radius: the fixed orthographic rig radius divided by zoom. */
+  /** Eye-to-target distance preserving the pose-space zoom's target-plane view height. */
   distance: number;
   yaw: number;
   pitch: number;
@@ -41,18 +50,31 @@ interface WorldPoint {
   z: number;
 }
 
-export function cameraPoseFromIso(camera: IsoCamera, viewport: ScreenPoint): CameraPose {
+export function cameraDistanceForZoom(viewportHeight: number, zoom: number): number {
+  return viewportHeight / (TILE_HEIGHT * zoom * 2 * CAMERA_TAN_HALF_FOV);
+}
+
+export function cameraEye(pose: CameraPose): WorldPoint {
+  const horizontalDistance = pose.distance * Math.cos(pose.pitch);
   return {
-    targetTile: screenToTile({ x: viewport.x / 2, y: viewport.y / 2 }, camera),
-    distance: CAMERA_RADIUS / camera.zoom,
-    yaw: CAMERA_YAW,
-    pitch: CAMERA_PITCH,
+    x: pose.targetTile.x * TILE_SCALE + horizontalDistance * Math.sin(pose.yaw),
+    y: pose.distance * Math.sin(pose.pitch),
+    z: pose.targetTile.y * TILE_SCALE + horizontalDistance * Math.cos(pose.yaw),
   };
 }
 
-/** Inverts a pose on the fixed-yaw, fixed-pitch orthographic rig. */
+export function cameraPoseFromIso(camera: IsoCamera, viewport: ScreenPoint): CameraPose {
+  return {
+    targetTile: screenToTile({ x: viewport.x / 2, y: viewport.y / 2 }, camera),
+    distance: cameraDistanceForZoom(viewport.y, camera.zoom),
+    yaw: CAMERA_YAW,
+    pitch: CAMERA_PITCH_RAD,
+  };
+}
+
+/** Inverts a pose on the fixed-yaw, fixed-pitch perspective rig. */
 export function isoFromCameraPose(pose: CameraPose, viewport: ScreenPoint): IsoCamera {
-  const zoom = CAMERA_RADIUS / pose.distance;
+  const zoom = cameraDistanceForZoom(viewport.y, 1) / pose.distance;
   const target = tileToIso(pose.targetTile);
   return {
     offsetX: viewport.x / 2 - target.x * zoom,
@@ -61,49 +83,47 @@ export function isoFromCameraPose(pose: CameraPose, viewport: ScreenPoint): IsoC
   };
 }
 
-// Row-major projection * view matrix. The symmetric depth range encloses the
-// target; x/y use exactly gardenCameraViewHeight's viewportHeight/(16*zoom).
-function orthographicMatrix(camera: IsoCamera, viewport: ScreenPoint): number[] {
-  const target = screenToTile({ x: viewport.x / 2, y: viewport.y / 2 }, camera);
-  const x = target.x * TILE_SCALE;
-  const z = target.y * TILE_SCALE;
-  const viewHeight = viewport.y / (TILE_HEIGHT * camera.zoom);
-  const sx = 2 / (viewHeight * viewport.x / Math.max(1, viewport.y));
-  const sy = 2 / viewHeight;
-  const sz = -1 / CAMERA_RADIUS;
+// Row-major perspective projection * view matrix (OpenGL depth convention).
+function perspectiveMatrix(camera: IsoCamera, viewport: ScreenPoint): number[] {
+  const eye = cameraEye(cameraPoseFromIso(camera, viewport));
+  const sx = viewport.y / (viewport.x * CAMERA_TAN_HALF_FOV);
+  const sy = 1 / CAMERA_TAN_HALF_FOV;
+  const sz = -(CAMERA_FAR + CAMERA_NEAR) / (CAMERA_FAR - CAMERA_NEAR);
+  const tz = -2 * CAMERA_FAR * CAMERA_NEAR / (CAMERA_FAR - CAMERA_NEAR);
+  const rightEye = CAMERA_RIGHT.x * eye.x + CAMERA_RIGHT.z * eye.z;
+  const upEye = CAMERA_UP.x * eye.x + CAMERA_UP.y * eye.y + CAMERA_UP.z * eye.z;
+  const backEye = CAMERA_BACK.x * eye.x + CAMERA_BACK.y * eye.y + CAMERA_BACK.z * eye.z;
   return [
-    sx * CAMERA_RIGHT.x, 0, sx * CAMERA_RIGHT.z, -sx * (CAMERA_RIGHT.x * x + CAMERA_RIGHT.z * z),
-    sy * CAMERA_UP.x, sy * CAMERA_UP.y, sy * CAMERA_UP.z, -sy * (CAMERA_UP.x * x + CAMERA_UP.z * z),
-    sz * CAMERA_BACK.x, sz * CAMERA_BACK.y, sz * CAMERA_BACK.z, -sz * (CAMERA_BACK.x * x + CAMERA_BACK.z * z),
-    0, 0, 0, 1,
+    sx * CAMERA_RIGHT.x, 0, sx * CAMERA_RIGHT.z, -sx * rightEye,
+    sy * CAMERA_UP.x, sy * CAMERA_UP.y, sy * CAMERA_UP.z, -sy * upEye,
+    sz * CAMERA_BACK.x, sz * CAMERA_BACK.y, sz * CAMERA_BACK.z, tz - sz * backEye,
+    -CAMERA_BACK.x, -CAMERA_BACK.y, -CAMERA_BACK.z, backEye,
   ];
 }
 
 export function worldToScreen(world: WorldPoint, camera: IsoCamera, viewport: ScreenPoint): ScreenPoint {
-  const matrix = orthographicMatrix(camera, viewport);
-  const ndcX = matrix[0] * world.x + matrix[1] * world.y + matrix[2] * world.z + matrix[3];
-  const ndcY = matrix[4] * world.x + matrix[5] * world.y + matrix[6] * world.z + matrix[7];
+  const matrix = perspectiveMatrix(camera, viewport);
+  const w = Math.max(1e-9, matrix[12] * world.x + matrix[13] * world.y + matrix[14] * world.z + matrix[15]);
+  const ndcX = (matrix[0] * world.x + matrix[1] * world.y + matrix[2] * world.z + matrix[3]) / w;
+  const ndcY = (matrix[4] * world.x + matrix[5] * world.y + matrix[6] * world.z + matrix[7]) / w;
   return { x: (ndcX + 1) * viewport.x / 2, y: (1 - ndcY) * viewport.y / 2 };
 }
 
-/** Parallel orthographic rays start on the plane through the renderer's eye. */
+/** Perspective rays share the eye and diverge through the viewport pixels. */
 export function screenToGroundRay(
   point: ScreenPoint,
   camera: IsoCamera,
   viewport: ScreenPoint,
 ): { origin: WorldPoint; direction: WorldPoint } {
-  const target = screenToTile({ x: viewport.x / 2, y: viewport.y / 2 }, camera);
-  const viewHeight = viewport.y / (TILE_HEIGHT * camera.zoom);
-  const viewWidth = viewHeight * viewport.x / Math.max(1, viewport.y);
-  const right = (point.x / viewport.x - 0.5) * viewWidth;
-  const up = (0.5 - point.y / viewport.y) * viewHeight;
+  const right = (2 * point.x / viewport.x - 1) * CAMERA_TAN_HALF_FOV * viewport.x / viewport.y;
+  const up = (1 - 2 * point.y / viewport.y) * CAMERA_TAN_HALF_FOV;
+  const x = right * CAMERA_RIGHT.x + up * CAMERA_UP.x - CAMERA_BACK.x;
+  const y = up * CAMERA_UP.y - CAMERA_BACK.y;
+  const z = right * CAMERA_RIGHT.z + up * CAMERA_UP.z - CAMERA_BACK.z;
+  const length = Math.hypot(x, y, z);
   return {
-    origin: {
-      x: target.x * TILE_SCALE + CAMERA_DISTANCE + right * CAMERA_RIGHT.x + up * CAMERA_UP.x,
-      y: CAMERA_DISTANCE * Math.sqrt(2 / 3) + up * CAMERA_UP.y,
-      z: target.y * TILE_SCALE + CAMERA_DISTANCE + right * CAMERA_RIGHT.z + up * CAMERA_UP.z,
-    },
-    direction: { x: -CAMERA_BACK.x, y: -CAMERA_BACK.y, z: -CAMERA_BACK.z },
+    origin: cameraEye(cameraPoseFromIso(camera, viewport)),
+    direction: { x: x / length, y: y / length, z: z / length },
   };
 }
 
@@ -114,7 +134,10 @@ export function screenToGround(
   groundY = 0,
 ): TilePoint {
   const ray = screenToGroundRay(point, camera, viewport);
-  const distance = (groundY - ray.origin.y) / ray.direction.y;
+  const intersection = (groundY - ray.origin.y) / ray.direction.y;
+  const distance = ray.direction.y >= 0 || intersection < 0
+    ? CAMERA_FAR
+    : Math.min(CAMERA_FAR, intersection);
   return {
     x: (ray.origin.x + distance * ray.direction.x) / TILE_SCALE,
     y: (ray.origin.z + distance * ray.direction.z) / TILE_SCALE,
@@ -145,6 +168,11 @@ export function gardenWaterPlateContainsTile(tile: TilePoint, map: MapLike): boo
     && tile.y <= map.height - 1 + GARDEN_PLATE_MARGIN_TILES;
 }
 
+/**
+ * The iso conversions below are pose-space helpers for fitting, clamping and
+ * zooming, not rendered screen truth. Use worldToScreen / screenToGround for
+ * perspective projection and picking.
+ */
 export function tileToIso(tile: TilePoint): ScreenPoint {
   return {
     x: (tile.x - tile.y) * (TILE_WIDTH / 2),

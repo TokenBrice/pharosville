@@ -58,32 +58,19 @@ export type GardenHullSilhouette =
   | "scow";
 export type GardenSemanticView = "analyze" | "explore" | "overview";
 
-// S5 / decision D-S5, re-based by the warm-village resting frame
-// (2026-09-05, plan A5): the data-side 0.7–3.0 scale maps to a ~2.6× VISUAL
-// spread (0.8–2.05; D-S5 originally relaxed it to 0.55–2.05 → ~3.7×, and
-// before that a clamp at 0.72–1.6 → ~2.2×) so titans still visibly dwarf
-// skiffs. The raised floor (0.8) keeps the smallest hulls legible and
-// clickable at overview zoom AND separable as six families at the zoom-1.0
-// rest framing, where 0.55 compressed most coins into one 20–40 px footprint.
-// C3 (scale & anchor contract): the mapping lives here in the
-// orchestrator-owned slice so ship rendering (garden-ships), selection radii
-// (below), and label layout all consume the SAME spread. Kept three-free —
-// this module must stay importable without pulling the renderer into the
-// world lazy chunk.
-export const GARDEN_SHIP_VISUAL_SCALE_MIN = 0.8;
-export const GARDEN_SHIP_VISUAL_SCALE_MAX = 2.05;
-export const GARDEN_SHIP_DATA_SCALE_MIN = 0.7;
-export const GARDEN_SHIP_DATA_SCALE_MAX = 3;
+// W1.5 / D2: market-cap scale is already normalized by ship-visuals. Keep this
+// boundary as an identity clamp so rendering, selection, labels, berths, and
+// motion all consume the same continuous 0.42–1.15 ladder.
+export const GARDEN_SHIP_VISUAL_SCALE_MIN = 0.42;
+export const GARDEN_SHIP_VISUAL_SCALE_MAX = 1.15;
+export const GARDEN_SHIP_DATA_SCALE_MIN = GARDEN_SHIP_VISUAL_SCALE_MIN;
+export const GARDEN_SHIP_DATA_SCALE_MAX = GARDEN_SHIP_VISUAL_SCALE_MAX;
 
 export function gardenShipVisualScale(dataScale: number): number {
-  const clamped = Math.max(
-    GARDEN_SHIP_DATA_SCALE_MIN,
-    Math.min(GARDEN_SHIP_DATA_SCALE_MAX, dataScale || 1),
+  return Math.max(
+    GARDEN_SHIP_VISUAL_SCALE_MIN,
+    Math.min(GARDEN_SHIP_VISUAL_SCALE_MAX, dataScale || 1),
   );
-  const t = (clamped - GARDEN_SHIP_DATA_SCALE_MIN)
-    / (GARDEN_SHIP_DATA_SCALE_MAX - GARDEN_SHIP_DATA_SCALE_MIN);
-  return GARDEN_SHIP_VISUAL_SCALE_MIN
-    + t * (GARDEN_SHIP_VISUAL_SCALE_MAX - GARDEN_SHIP_VISUAL_SCALE_MIN);
 }
 
 export const GARDEN_SILHOUETTE_FOR_HULL: Record<ShipHull, GardenHullSilhouette> = {
@@ -172,9 +159,12 @@ export function selectGardenTransientShip(
 }
 
 interface GardenShipDisplayTileCacheEntry {
+  berthBound: boolean;
+  margin: number;
+  seed: string;
+  includeDocks: boolean;
   sourceX: number;
   sourceY: number;
-  state: ShipMotionSample["state"] | undefined;
   tile: ScreenPoint;
 }
 
@@ -190,24 +180,28 @@ const gardenDependencyDisplayTileCache = new WeakMap<ShipNode, GardenShipDisplay
  * and patrols drift a fraction of a tile per frame, so an exact-source cache
  * missed every frame for every corrected hull and the search ran ~25 times a
  * frame in a dense world (≈+5 ms of draw submit). The correction is a local
- * property of the field: while the source stays within a tile of the last
- * one, the previous displacement lands the hull on water nearly always, and
- * one lookup verifies it. Only a real move (transition, rebuild, state flip)
- * pays for the search again.
+ * property of the field: while the source stays within the correction radius
+ * (at least one tile), the previous displacement usually still lands on water.
+ * Reuse requires the identical berth and water-exclusion query, not identical
+ * choreography state names.
  */
 function resolveCachedShipWaterTile(
   cache: WeakMap<ShipNode, GardenShipDisplayTileCacheEntry>,
   ship: ShipNode,
   source: ScreenPoint,
-  state: ShipMotionSample["state"] | undefined,
   margin: number,
+  berthBound: boolean,
   includeDocks: boolean,
   seed: string,
 ): ScreenPoint {
   const cached = cache.get(ship);
-  if (cached && cached.state === state) {
+  if (cached && cached.berthBound === berthBound && cached.includeDocks === includeDocks
+    && cached.margin === margin && cached.seed === seed) {
     if (cached.sourceX === source.x && cached.sourceY === source.y) return cached.tile;
-    if (Math.abs(source.x - cached.sourceX) < 1 && Math.abs(source.y - cached.sourceY) < 1) {
+    const correctionRadius = Math.max(1, Math.hypot(
+      cached.tile.x - cached.sourceX, cached.tile.y - cached.sourceY,
+    ));
+    if (Math.hypot(source.x - cached.sourceX, source.y - cached.sourceY) <= correctionRadius) {
       const shifted = {
         x: source.x + (cached.tile.x - cached.sourceX),
         y: source.y + (cached.tile.y - cached.sourceY),
@@ -218,12 +212,25 @@ function resolveCachedShipWaterTile(
         cached.tile = shifted;
         return shifted;
       }
+      // Continue from the previous safe point instead of restarting a radial
+      // search, whose winning direction can flip at a shoreline boundary.
+      let safe = cached.tile;
+      let blocked = shifted;
+      for (let step = 0; step < 12; step += 1) {
+        const midpoint = { x: (safe.x + blocked.x) / 2, y: (safe.y + blocked.y) / 2 };
+        if (isGardenShipWater(midpoint, margin, includeDocks)) safe = midpoint;
+        else blocked = midpoint;
+      }
+      cached.sourceX = source.x;
+      cached.sourceY = source.y;
+      cached.tile = safe;
+      return safe;
     }
   }
   const resolved = isGardenShipWater(source, margin, includeDocks)
     ? source
     : nearestGardenShipWater(source, margin, seed, includeDocks);
-  cache.set(ship, { sourceX: source.x, sourceY: source.y, state, tile: resolved });
+  cache.set(ship, { berthBound, margin, seed, includeDocks, sourceX: source.x, sourceY: source.y, tile: resolved });
   return resolved;
 }
 
@@ -311,8 +318,8 @@ export function resolveGardenShipDisplayTile(input: {
     gardenShipDisplayTileCache,
     ship,
     display,
-    sample?.state,
     margin,
+    berthBound,
     includeDocks,
     `motion-display.${ship.id}`,
   );
@@ -345,8 +352,8 @@ export function resolveGardenDependencyShipDisplayTile(input: {
     gardenDependencyDisplayTileCache,
     ship,
     composed,
-    undefined,
     margin,
+    false,
     false,
     `dependency-display.${ship.id}`,
   );
@@ -511,11 +518,8 @@ export function gardenSemanticView(
 }
 
 export function gardenShipSelectionRadius(ship: ShipNode): number {
-  // C3: ship visualScale mapping integration point. S5 (decision D-S5) first
-  // de-compressed the data-side 0.7–3.0 scale; the warm-village resting frame
-  // re-based it to a ~2.6× visual spread (see gardenShipVisualScale above);
-  // this consumes the SAME mapping so selection rings and label layout track
-  // the rendered footprint (1.9× hull scale, as before the de-compression).
+  // W1.5: consume the same identity-clamped 0.42–1.15 scale as the hull root
+  // so selection rings and label layout continue to track its footprint.
   return gardenShipVisualScale(ship.visual.scale || 1) * 1.9;
 }
 

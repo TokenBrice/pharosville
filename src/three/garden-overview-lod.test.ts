@@ -21,9 +21,11 @@ import {
 import {
   createGardenOverviewLod,
   OVERVIEW_LOD_DETAIL_NAMES,
+  OVERVIEW_LOD_FAR_ONLY_NAMES,
   OVERVIEW_LOD_FULL_ZOOM,
   OVERVIEW_LOD_HIDDEN_ZOOM,
   OVERVIEW_LOD_WHOLE_RING_NAMES,
+  overviewLodFarOnlyVisible,
   overviewLodTargetDetail,
 } from "./garden-overview-lod";
 
@@ -121,13 +123,15 @@ describe("createGardenOverviewLod", () => {
       "island-koi",
       // Warm-village A6: both camera-near foreground masses shed with the
       // rest of the skirt furniture below the band.
-      "garden-rim-foreground-pines",
-      "garden-rim-foreground-torii",
+      "garden-rim-foreground-pine-bough",
       // Warm-village D3: the station chimneys' whole-ring smoke group sheds
       // with the other sub-silhouette harbour furniture.
       "dock-station-smoke",
     ]));
     expect(OVERVIEW_LOD_WHOLE_RING_NAMES).toContain("dock-station-smoke");
+    expect(OVERVIEW_LOD_DETAIL_NAMES).not.toContain("garden-rim-pines");
+    expect(OVERVIEW_LOD_WHOLE_RING_NAMES).not.toContain("garden-rim-pines");
+    expect(OVERVIEW_LOD_FAR_ONLY_NAMES).toEqual(["garden-canopy-impostors"]);
     expect([...Object.keys(STATION_SCALE_LADDER)].sort()).toEqual([...CURRENT_STATION_TYPES].sort());
     // The path is now a primary island read, not a toy-scale gravel apron.
     expect(OVERVIEW_LOD_DETAIL_NAMES).not.toContain("island-path-sweep");
@@ -137,8 +141,7 @@ describe("createGardenOverviewLod", () => {
     // The foreground masses are localized props at their own world position,
     // so they shrink in place rather than fading whole-ring like the origin
     // groups whose instance matrices carry the ring's transform.
-    expect(OVERVIEW_LOD_WHOLE_RING_NAMES).not.toContain("garden-rim-foreground-pines");
-    expect(OVERVIEW_LOD_WHOLE_RING_NAMES).not.toContain("garden-rim-foreground-torii");
+    expect(OVERVIEW_LOD_WHOLE_RING_NAMES).not.toContain("garden-rim-foreground-pine-bough");
   });
 
   it("sheds only harbor greebles while retaining structural station breaks", () => {
@@ -300,27 +303,31 @@ describe("createGardenOverviewLod", () => {
     batch.dispose();
   });
 
-  it("fades the foreground pine silhouette without moving its instances", () => {
-    const material = new MeshBasicMaterial();
-    const pine = new InstancedMesh(new BoxGeometry(1, 1, 1), material, 1);
+  it("keeps pines at every zoom and hard-swaps broadleaf detail for its far canopy", () => {
+    const pine = new InstancedMesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial(), 1);
     pine.name = "garden-rim-pines";
-    pine.setMatrixAt(0, new Matrix4().makeTranslation(60, 0, -40));
-    const initial = Array.from(pine.instanceMatrix.array);
-    const root = new Group().add(pine);
+    const broadleaf = new InstancedMesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial(), 1);
+    broadleaf.name = "garden-rim-broadleaf";
+    const impostors = new InstancedMesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial(), 1);
+    impostors.name = "garden-canopy-impostors";
+    const root = new Group().add(pine, broadleaf, impostors);
     const lod = createGardenOverviewLod(root);
-    lod.update({ ...SNAP, zoom: 0.52 });
-    expect(material.opacity).toBeGreaterThan(0);
-    expect(material.opacity).toBeLessThan(1);
-    expect(material.transparent).toBe(true);
-    expect(Array.from(pine.instanceMatrix.array)).toEqual(initial);
-    expect(pine.scale.toArray()).toEqual([1, 1, 1]);
-    lod.update({ ...SNAP, zoom: 0.28 });
-    expect(pine.visible).toBe(false);
-    lod.update({ ...SNAP, zoom: 0.65 });
-    expect(material.opacity).toBe(1);
-    expect(material.depthWrite).toBe(true);
-    pine.geometry.dispose();
-    material.dispose();
+
+    lod.update({ ...SNAP, zoom: 0.529 });
+    expect(overviewLodFarOnlyVisible(0.529)).toBe(true);
+    expect(pine.visible).toBe(true);
+    expect(broadleaf.visible).toBe(false);
+    expect(impostors.visible).toBe(true);
+
+    lod.update({ ...SNAP, zoom: 0.53 });
+    expect(overviewLodFarOnlyVisible(0.53)).toBe(false);
+    expect(pine.visible).toBe(true);
+    expect(broadleaf.visible).toBe(true);
+    expect(impostors.visible).toBe(false);
+    for (const mesh of [pine, broadleaf, impostors]) {
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    }
   });
 
   it("fades the batched posts, windows, and flags without pulling the ring inward", () => {

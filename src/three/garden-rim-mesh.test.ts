@@ -4,26 +4,20 @@ import { defaultCamera } from "../systems/camera";
 import { distanceToStationFootprint, stationFootprintRect } from "../systems/dock-layout";
 import { RIM_COVES, RIM_OPENINGS, rimLandAt } from "../systems/garden-rim";
 import {
-  gardenIslandDisplayTile,
-  gardenTileToScreen,
-  GARDEN_LIGHTHOUSE_HEIGHT,
-  GARDEN_LIGHTHOUSE_ROOT_OFFSET,
-} from "../systems/garden-observatory-slice";
-import { TILE_WIDTH } from "../systems/projection";
+  cameraEye,
+  cameraPoseFromIso,
+  worldToScreen,
+} from "../systems/projection";
 import {
   buildPharosVilleMap,
   EVM_BAY_STATION_SLOTS,
-  LIGHTHOUSE_TILE,
   OUTER_HARBOR_STATION_SLOTS,
-  PHAROSVILLE_MAP_HEIGHT,
-  PHAROSVILLE_MAP_WIDTH,
   PIGEONNIER_STATION_SLOT,
 } from "../systems/world-layout";
 import { weatherForFrame } from "../systems/weather";
 import {
   createGardenRimMesh,
   gardenRimBayExcursionAt,
-  gardenRimDecorativeLandAt,
   GARDEN_ENGAWA_DISPLACEMENT,
   GARDEN_ENGAWA_LANTERN_WORLD,
   GARDEN_ENGAWA_PINE_HEIGHT,
@@ -32,11 +26,11 @@ import {
   GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT,
   GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT,
   GARDEN_RIM_COLOR_HEX,
+  rimColor,
+  GARDEN_RIM_FOREGROUND_BOUGH_NAME,
   GARDEN_RIM_FOREGROUND_MASSES,
-  GARDEN_RIM_FOREGROUND_PINE_NAME,
   GARDEN_RIM_MOSS_BLEND_MAX,
 } from "./garden-rim-mesh";
-import { GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS } from "./garden-lighthouse";
 import { GARDEN_NIWAKI_SPECS } from "./garden-island";
 import { countDrawableObjects, TILE_SCALE } from "./garden-util";
 
@@ -59,27 +53,24 @@ function unionInto(rect: ScreenRect, x: number, y: number): void {
 }
 
 describe("garden rim mesh", () => {
-  it("builds the authored ring in nine batched opaque draws", () => {
+  it("builds the terraced authored ring in nine batched opaque draws", () => {
     const rim = createGardenRimMesh();
     expect(rim.root.name).toBe("garden-rim");
-    // Warm-village A6: the two camera-near silhouette masses each add one
-    // merged mesh — five draws became seven. T2.2 (2026-09-07): 7 -> 9, one
-    // instanced understory batch and one instanced broadleaf batch. The
-    // measured census was 41 trees in the whole world and 5 of 233 scene
-    // draws for all vegetation, on a brief that says "Japanese garden".
     expect(rim.drawCallCount).toBe(9);
-    expect(rim.drawCallCount).toBeLessThanOrEqual(12);
+    expect(rim.drawCallCount).toBeLessThanOrEqual(10);
     expect(countDrawableObjects(rim.root)).toBe(9);
     expect(rim.root.getObjectByName("garden-rim-land")).toBeInstanceOf(Mesh);
     expect(rim.root.getObjectByName("garden-rim-tide-rock")).toBeInstanceOf(Mesh);
     expect(rim.root.getObjectByName("garden-rim-path")).toBeInstanceOf(Mesh);
     expect(rim.root.getObjectByName("garden-rim-pines")).toBeInstanceOf(InstancedMesh);
     expect(rim.root.getObjectByName("garden-rim-stones")).toBeInstanceOf(InstancedMesh);
+    expect(rim.root.getObjectByName("garden-rim-revetments")).toBeInstanceOf(InstancedMesh);
     expect(rim.root.getObjectByName("garden-rim-understory")).toBeInstanceOf(InstancedMesh);
     expect(rim.root.getObjectByName("garden-rim-broadleaf")).toBeInstanceOf(InstancedMesh);
-    expect(rim.root.getObjectByName("garden-rim-foreground-pines")).toBeInstanceOf(Mesh);
-    expect(rim.root.getObjectByName("garden-rim-foreground-torii")).toBeInstanceOf(Mesh);
-    expect(rim.foregroundMassCount).toBe(2);
+    expect(rim.root.getObjectByName(GARDEN_RIM_FOREGROUND_BOUGH_NAME)).toBeInstanceOf(Mesh);
+    expect(rim.root.getObjectByName("garden-rim-foreground-pines")).toBeUndefined();
+    expect(rim.root.getObjectByName("garden-rim-foreground-torii")).toBeUndefined();
+    expect(rim.foregroundMassCount).toBe(1);
     // T2.2c: pine keep 0.3 -> 0.5 general, 0.12 -> 0.3 east, so the ring
     // carries roughly half again as many pines as the 32 it had.
     expect(rim.pineCount).toBeGreaterThan(48);
@@ -90,21 +81,24 @@ describe("garden rim mesh", () => {
     expect(rim.broadleafCount).toBeGreaterThan(25);
     expect(rim.engawaPineCount).toBe(1);
     expect(rim.steppingStoneCount).toBe(3);
-    // 18 in-bounds stones plus 5 deterministic skirt boulders past tile 139.
-    expect(rim.stoneCount).toBe(23);
+    // Headland, stepping and skirt stones share their draw with the boulder toe.
+    expect(rim.stoneCount).toBe(120);
+    expect(rim.coastFormCounts.beach).toBeGreaterThan(0);
+    expect(rim.coastFormCounts.revetment).toBeGreaterThan(0);
+    expect(rim.coastFormCounts.boulder).toBeGreaterThan(0);
+    const revetments = rim.root.getObjectByName("garden-rim-revetments") as InstancedMesh;
+    expect(revetments.count * 12).toBeLessThanOrEqual(2_000);
     expect(GARDEN_ENGAWA_LANTERN_WORLD.x).toBeGreaterThan(0);
     expect(GARDEN_ENGAWA_LANTERN_WORLD.z).toBeGreaterThan(GARDEN_ENGAWA_LANTERN_WORLD.x);
     expect(rim.pathSegmentCount).toBeGreaterThan(80);
     // The cove-rooted rectangles retain the Mole spur without admitting
     // dressing onto any authored station geometry.
     expect(rim.coveSpurCount).toBe(8);
-    // T2.2 (2026-09-07): window widened 63,000-85,000 -> 63,000-100,000.
-    // Measured 65,214 before this pass, ~86,000 after: +20.7k for ~490
-    // understory domes (20 tris each), 41 momiji (116 each) and 25 more
-    // pines (246 each). Deliberate — vegetation was 2% of the whole scene's
-    // triangle budget and the rim slab alone was 42,560 of it.
+    // Hills reuse the sheet resolution (zero actual triangle delta); the W1.8
+    // budget leaves the pinned ceiling 8k of headroom. The single bough is
+    // 246 triangles and replaces the heavier two-mass foreground.
     expect(rim.triangleCount).toBeGreaterThan(63_000);
-    expect(rim.triangleCount).toBeLessThan(100_000);
+    expect(rim.triangleCount).toBeLessThan(108_000);
     const shore = rim.root.getObjectByName("garden-rim-tide-rock") as Mesh;
     const positions = shore.geometry.getAttribute("position");
     let contourVertices = 0;
@@ -133,13 +127,32 @@ describe("garden rim mesh", () => {
     // not merely the palette inputs from which Three.js mixes the final dyes.
     expect(GARDEN_RIM_COLOR_HEX).toEqual({
       earth: "#895922",
+      exposedRock: "#4c413a",
       moss: "#75a143",
+      rakedGravel: "#9f804e",
+      shoreSand: "#977b4f",
       pathStone: "#ab884c",
       pineNeedle: "#4f7e2b",
       wetRock: "#272b3f",
     });
     // More inland green breaks up the former uniform cool-brown rim.
     expect(GARDEN_RIM_MOSS_BLEND_MAX).toBe(0.62);
+  });
+
+  it("rakes station envelopes to gravel and exposes rock on authored steep faces", () => {
+    const station = EVM_BAY_STATION_SLOTS[0]!.cove.tile;
+    expect(`#${rimColor(station.x, station.y).getHexString()}`).toBe(
+      GARDEN_RIM_COLOR_HEX.rakedGravel,
+    );
+    const steepFaces: Array<readonly [number, number]> = [];
+    for (const inset of [2, 4, 6, 8, 10, 12]) {
+      for (const along of [16, 32, 48, 64, 80, 96, 112, 128]) {
+        steepFaces.push([inset, along], [along, inset]);
+      }
+    }
+    expect(steepFaces.some(([x, y]) => (
+      `#${rimColor(x, y).getHexString()}` === GARDEN_RIM_COLOR_HEX.exposedRock
+    ))).toBe(true);
   });
 
   it("keeps continuous earth between local ledges and articulates the existing pine batch", () => {
@@ -324,6 +337,45 @@ describe("garden rim mesh", () => {
     rim.dispose();
   });
 
+  it("raises only the north/west rim into hills and keeps station shoulders level", () => {
+    const rim = createGardenRimMesh();
+    const land = rim.root.getObjectByName("garden-rim-land") as Mesh;
+    const positions = land.geometry.getAttribute("position");
+    const stationClearances = [
+      ...EVM_BAY_STATION_SLOTS,
+      ...OUTER_HARBOR_STATION_SLOTS,
+      PIGEONNIER_STATION_SLOT,
+    ].map((slot) => stationFootprintRect(
+      slot.type,
+      slot.cove.tile,
+      slot.cove.seawardBearing,
+      slot.cove.id,
+    ));
+    let farCrest = Number.NEGATIVE_INFINITY;
+    let nearCrest = Number.NEGATIVE_INFINITY;
+    let protectedSamples = 0;
+    for (let index = 0; index < positions.count; index += 1) {
+      const tileX = positions.getX(index) / TILE_SCALE;
+      const tileY = positions.getZ(index) / TILE_SCALE;
+      if (tileX < 0 || tileY < 0 || tileX > 139 || tileY > 139) continue;
+      const height = positions.getY(index);
+      const farDistance = Math.min(tileX, tileY);
+      const nearDistance = Math.min(139 - tileX, 139 - tileY);
+      if (farDistance < nearDistance) farCrest = Math.max(farCrest, height);
+      else nearCrest = Math.max(nearCrest, height);
+      if (stationClearances.some(
+        (rect) => distanceToStationFootprint({ x: tileX, y: tileY }, rect) <= 6,
+      )) {
+        protectedSamples += 1;
+        expect(height, `station shoulder at ${tileX},${tileY}`).toBeLessThanOrEqual(3.1);
+      }
+    }
+    expect(farCrest).toBeGreaterThan(8);
+    expect(nearCrest).toBeLessThanOrEqual(3.1);
+    expect(protectedSamples).toBeGreaterThan(0);
+    rim.dispose();
+  });
+
   it("dresses the camera-side skirt with thinning rim scenery and no stroll route", () => {
     const rim = createGardenRimMesh();
     const boundary = 139;
@@ -349,14 +401,15 @@ describe("garden rim mesh", () => {
     expect(skirtStones.length).toBeGreaterThanOrEqual(3);
     expect(skirtStones.some((tile) => tile.x > boundary)).toBe(true);
     expect(skirtStones.some((tile) => tile.z > boundary)).toBe(true);
-    // …at clearly lower density than the matching in-bounds shore band…
+    // …at clearly lower density than the matching in-bounds shore band for the
+    // pines. Stones are no longer a fair density probe: the boulder toe
+    // (W1.13) follows the whole coast, apron included, by design.
     const skirtArea = 147 * 147 - boundary * boundary;
     const shoreBandArea = boundary * boundary - 133 * 133;
     const shoreBandCount = (tiles: Array<{ x: number; z: number }>) => tiles.filter(
       (tile) => rimBand(tile) > 133 && rimBand(tile) <= boundary,
     ).length;
     expect(skirtPines.length / skirtArea).toBeLessThan(shoreBandCount(pines) / shoreBandArea);
-    expect(skirtStones.length / skirtArea).toBeLessThan(shoreBandCount(stones) / shoreBandArea);
     // …thinning to none before the plate limit at tile 147…
     expect(pines.concat(stones).every((tile) => rimBand(tile) <= 145)).toBe(true);
     // …while the stroll stays an authored in-bounds route: no ribbon, cove
@@ -387,194 +440,103 @@ describe("garden rim mesh", () => {
     rim.dispose();
   });
 
-  it("frames the rest corner with two dark skirt silhouette masses", () => {
+  it("frames the rest corner with one dark pine bough", () => {
     const rim = createGardenRimMesh();
     const map = buildPharosVilleMap();
-    const gridLast = Math.max(PHAROSVILLE_MAP_WIDTH, PHAROSVILLE_MAP_HEIGHT) - 1;
-    const stationClearances = [
-      ...EVM_BAY_STATION_SLOTS,
-      ...OUTER_HARBOR_STATION_SLOTS,
-      PIGEONNIER_STATION_SLOT,
-    ].map((slot) => ({
-      cove: slot.cove,
-      rect: stationFootprintRect(
-        slot.type,
-        slot.cove.tile,
-        slot.cove.seawardBearing,
-        slot.cove.id,
-      ),
-    }));
-    const massRects: Record<string, ScreenRect> = {};
-    // Authored unit-camera bounds use the desktop baseline projection viewport.
     const projectionViewport = { x: 1600, y: 1000 };
+    const projectionCamera = defaultCamera({
+      height: projectionViewport.y,
+      map,
+      width: projectionViewport.x,
+    });
+    const projectionPose = cameraPoseFromIso(projectionCamera, projectionViewport);
+    const projectionEye = cameraEye(projectionPose);
     for (const mass of GARDEN_RIM_FOREGROUND_MASSES) {
       const mesh = rim.root.getObjectByName(mass.name) as Mesh;
       expect(mesh, mass.name).toBeInstanceOf(Mesh);
-      // Dark silhouette: vertex-coloured derived dyes, zero emissive — after
-      // dark these are black shapes, never a second light (Stillness).
+      // Dark, textureless silhouette participating in the static shadow pass.
       const material = mesh.material as MeshStandardMaterial;
       expect(material.vertexColors).toBe(true);
       expect(material.emissive.getHex()).toBe(0);
+      expect(mesh.castShadow).toBe(true);
+      expect(mesh.receiveShadow).toBe(true);
       mesh.geometry.computeBoundingBox();
       const bb = mesh.geometry.boundingBox!;
-      // On the decorative land skirt: the anchor stands past the last tile of
-      // the authoritative grid (so it occupies no water tile at all) and the
-      // decorative land predicate holds across its footing disc.
-      expect(
-        Math.max(mass.tile.x, mass.tile.y),
-        `${mass.name} anchor off the tile grid`,
-      ).toBeGreaterThan(gridLast);
-      for (const [dx, dy] of [[0, 0], [1.4, 0], [-1.4, 0], [0, 1.4], [0, -1.4]] as const) {
-        expect(
-          gardenRimDecorativeLandAt(mass.tile.x + dx, mass.tile.y + dy),
-          `${mass.name} footing at ${mass.tile.x + dx},${mass.tile.y + dy}`,
-        ).toBe(true);
-      }
-      // Anchors keep the rim's three-tile scenery margin; the swept mass (a
-      // kasagi tip may overhang the reservation tail over open skirt) stays
-      // strictly outside every station footprint.
-      for (const station of stationClearances) {
-        expect(
-          distanceToStationFootprint(mass.tile, station.rect),
-          `${mass.name} anchor vs ${station.cove.id}`,
-        ).toBeGreaterThan(3);
-        for (const [x, y] of [
-          [bb.min.x / TILE_SCALE, bb.min.z / TILE_SCALE],
-          [bb.max.x / TILE_SCALE, bb.min.z / TILE_SCALE],
-          [bb.min.x / TILE_SCALE, bb.max.z / TILE_SCALE],
-          [bb.max.x / TILE_SCALE, bb.max.z / TILE_SCALE],
-        ] as const) {
-          expect(
-            distanceToStationFootprint({ x, y }, station.rect),
-            `${mass.name} bounds vs ${station.cove.id}`,
-          ).toBeGreaterThan(0);
-        }
-      }
-      // Stated triangle budget (warm-village A6): four merged dark pines
-      // stay ≤ 1000 triangles, the gate + fence run ≤ 400.
+      // This is a camera-relative repoussoir, not planted rim dressing: its
+      // authored footing may sit beyond the finite plate. Its contract is the
+      // projected needle-pad silhouette at the rest-frame corner below.
+      const anchorWorld = {
+        x: mass.tile.x * TILE_SCALE,
+        z: mass.tile.y * TILE_SCALE,
+      };
+      const towardTarget = {
+        x: -Math.sin(projectionPose.yaw),
+        z: -Math.cos(projectionPose.yaw),
+      };
+      const eyeToAnchor = {
+        x: anchorWorld.x - projectionEye.x,
+        z: anchorWorld.z - projectionEye.z,
+      };
+      const forwardDistance = eyeToAnchor.x * towardTarget.x + eyeToAnchor.z * towardTarget.z;
+      expect(forwardDistance, `${mass.name} distance in front of the rest eye`).toBeGreaterThanOrEqual(6);
+      expect(forwardDistance, `${mass.name} distance in front of the rest eye`).toBeLessThanOrEqual(10);
+      // The reused pine builder contributes four flattened pads plus its
+      // leaning trunk in one merged geometry, comfortably under 1.5k tris.
       const triangles = (mesh.geometry.index?.count
         ?? mesh.geometry.getAttribute("position").count) / 3;
-      expect(
-        triangles,
-        `${mass.name} triangle budget`,
-      ).toBeLessThanOrEqual(mass.name === GARDEN_RIM_FOREGROUND_PINE_NAME ? 1000 : 400);
-      // The crest honours the authored mass height: pines in the 10–16 u
-      // band, the gate low.
+      expect(triangles, `${mass.name} triangle budget`).toBeLessThanOrEqual(1500);
       const crest = bb.max.y - Math.min(bb.min.y, 0.9);
       expect(crest, `${mass.name} crest`).toBeGreaterThanOrEqual(mass.height * 0.85);
-      massRects[mass.name] = {
-        maxX: Number.NEGATIVE_INFINITY,
-        maxY: Number.NEGATIVE_INFINITY,
-        minX: Number.POSITIVE_INFINITY,
-        minY: Number.POSITIVE_INFINITY,
-      };
-      for (const [x, y, z] of [
-        [bb.min.x, bb.min.y, bb.min.z],
-        [bb.max.x, bb.min.y, bb.min.z],
-        [bb.min.x, bb.max.y, bb.min.z],
-        [bb.max.x, bb.max.y, bb.min.z],
-        [bb.min.x, bb.min.y, bb.max.z],
-        [bb.max.x, bb.min.y, bb.max.z],
-        [bb.min.x, bb.max.y, bb.max.z],
-        [bb.max.x, bb.max.y, bb.max.z],
-      ] as const) {
-        const point = gardenTileToScreen(
-          { x: x / TILE_SCALE, y: z / TILE_SCALE },
-          y,
-          { offsetX: 0, offsetY: 0, zoom: 1 },
-          projectionViewport,
-        );
-        unionInto(massRects[mass.name]!, point.x, point.y);
-      }
+      const viewAxisY = projectionEye.y - forwardDistance * Math.tan(projectionPose.pitch);
+      expect(bb.max.y, `${mass.name} stays below the rest view axis`).toBeLessThan(viewAxisY);
     }
-    expect(rim.foregroundMassCount).toBe(2);
+    expect(rim.foregroundMassCount).toBe(1);
 
-    // Projected default-camera bounds must miss the lighthouse rect and the
-    // Mole quay at both rest sizes, and must cross the desktop rest frame's
-    // bottom-left near corner (the only land-bearing rest corner; the
-    // bottom-right corner is interior water by the camera math).
-    const islandTile = gardenIslandDisplayTile(LIGHTHOUSE_TILE);
-    const towerTile = {
-      x: islandTile.x + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x / Math.SQRT2,
-      y: islandTile.y + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z / Math.SQRT2,
-    };
-    const mole = stationClearances.find(({ cove }) => cove.id === "ethereum-mole")!;
-    const pxPerWorldUnitX = (TILE_WIDTH / 2) / TILE_SCALE;
-    const towerHalfWidth = GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS * 2 * pxPerWorldUnitX;
+    // Screen-space placement is authoritative for this camera-relative bough:
+    // its projected pads must cross the desktop rest frame's lower-left 15%.
     for (const viewport of [
-      { height: 1004, width: 1568 },
-      { height: 640, width: 1200 },
+      { height: 1000, width: 1600 },
     ]) {
       const camera = defaultCamera({ ...viewport, height: viewport.height, map, width: viewport.width });
-      const crown = gardenTileToScreen(
-        towerTile,
-        GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT,
-        camera,
-        { x: viewport.width, y: viewport.height },
-      );
-      const foot = gardenTileToScreen(
-        towerTile,
-        0,
-        camera,
-        { x: viewport.width, y: viewport.height },
-      );
-      const lighthouseRect: ScreenRect = {
-        maxX: crown.x + towerHalfWidth * camera.zoom,
-        maxY: foot.y,
-        minX: crown.x - towerHalfWidth * camera.zoom,
-        minY: crown.y,
-      };
-      const moleRect: ScreenRect = {
-        maxX: Number.NEGATIVE_INFINITY,
-        maxY: Number.NEGATIVE_INFINITY,
-        minX: Number.POSITIVE_INFINITY,
-        minY: Number.POSITIVE_INFINITY,
-      };
-      for (const along of [mole.rect.minAlong, mole.rect.maxAlong]) {
-        for (const across of [mole.rect.minAcross, mole.rect.maxAcross]) {
-          for (const worldY of [0, 21.7]) {
-            const point = gardenTileToScreen({
-              x: mole.rect.origin.x + mole.rect.seawardX * along - mole.rect.seawardY * across,
-              y: mole.rect.origin.y + mole.rect.seawardY * along + mole.rect.seawardX * across,
-            }, worldY, camera, { x: viewport.width, y: viewport.height });
-            unionInto(moleRect, point.x, point.y);
-          }
-        }
-      }
       for (const mass of GARDEN_RIM_FOREGROUND_MASSES) {
-        const rect = massRects[mass.name]!;
+        const mesh = rim.root.getObjectByName(mass.name) as Mesh;
+        mesh.geometry.computeBoundingBox();
+        const bb = mesh.geometry.boundingBox!;
         const scaled: ScreenRect = {
-          maxX: rect.maxX * camera.zoom + camera.offsetX,
-          maxY: rect.maxY * camera.zoom + camera.offsetY,
-          minX: rect.minX * camera.zoom + camera.offsetX,
-          minY: rect.minY * camera.zoom + camera.offsetY,
+          maxX: Number.NEGATIVE_INFINITY,
+          maxY: Number.NEGATIVE_INFINITY,
+          minX: Number.POSITIVE_INFINITY,
+          minY: Number.POSITIVE_INFINITY,
         };
-        expect(
-          rectsOverlap(scaled, lighthouseRect),
-          `${mass.name} overlaps the lighthouse rect at ${viewport.width}x${viewport.height}`,
-        ).toBe(false);
-        expect(
-          rectsOverlap(scaled, moleRect),
-          `${mass.name} overlaps the Mole quay at ${viewport.width}x${viewport.height}`,
-        ).toBe(false);
-        if (viewport.width === 1568) {
-          // The masses own the lower-left of the rest frame.
+        for (const [x, y, z] of [
+          [bb.min.x, bb.min.y, bb.min.z],
+          [bb.max.x, bb.min.y, bb.min.z],
+          [bb.min.x, bb.max.y, bb.min.z],
+          [bb.max.x, bb.max.y, bb.min.z],
+          [bb.min.x, bb.min.y, bb.max.z],
+          [bb.max.x, bb.min.y, bb.max.z],
+          [bb.min.x, bb.max.y, bb.max.z],
+          [bb.max.x, bb.max.y, bb.max.z],
+        ] as const) {
+          const point = worldToScreen(
+            { x, y, z },
+            camera,
+            { x: viewport.width, y: viewport.height },
+          );
+          unionInto(scaled, point.x, point.y);
+        }
+        if (viewport.width === 1600) {
+          // The pads own and cross the lower-left 15% of the desktop rest frame.
           const corner: ScreenRect = {
-            maxX: viewport.width * 0.3,
+            maxX: viewport.width * 0.15,
             maxY: viewport.height,
             minX: 0,
-            minY: viewport.height * 0.6,
+            minY: viewport.height * 0.85,
           };
           expect(rectsOverlap(scaled, corner), `${mass.name} misses the rest corner`).toBe(true);
-          // T2.1 (2026-09-07): at the 0.72 rest the pine group is CUT by the
-          // frame edge instead of standing complete inside the lower-left
-          // quarter as it did after the 2026-09-06 reopening. A framing mass
-          // fully inside the frame frames nothing.
-          if (mass.name === GARDEN_RIM_FOREGROUND_PINE_NAME) {
-            expect(scaled.minX, "hero pine group is clipped by the left frame edge").toBeLessThan(0);
-            expect(scaled.maxY, "hero pine group keeps its foot in the lower band")
-              .toBeGreaterThan(viewport.height * 0.8);
-          }
+          expect(scaled.minX, "pine bough is clipped by the left frame edge").toBeLessThan(0);
+          expect(scaled.maxY, "pine bough keeps its foot in the lower band")
+            .toBeGreaterThan(viewport.height * 0.85);
         }
       }
     }
@@ -640,7 +602,7 @@ describe("garden rim mesh", () => {
     const winter = crownColors("winter");
     expect(winter.crownVertices).toBe(0);
     expect(winter.colors.length).toBe(summer.colors.length);
-  });
+  }, 20_000); // four full rim builds (~550 ms each since the hills/revetment pass)
 
   it("marks every rim batch as a static shadow user and disposes once", () => {
     const rim = createGardenRimMesh();

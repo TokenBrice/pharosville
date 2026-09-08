@@ -11,7 +11,7 @@ import {
   LinearFilter,
   NearestFilter,
   NoColorSpace,
-  OrthographicCamera,
+  PerspectiveCamera,
   RepeatWrapping,
   Scene,
   Texture as ThreeTexture,
@@ -27,6 +27,13 @@ import {
   type GardenPost,
 } from "./garden-post";
 import { gardenKeyLightPose } from "./garden-sun";
+import {
+  CAMERA_FOV_DEG,
+  CAMERA_PITCH_RAD,
+  cameraDistanceForZoom,
+  cameraEye,
+  cameraPoseFromIso,
+} from "../systems/projection";
 
 const postHarness = vi.hoisted(() => {
   const makeDisposable = (name: string) => ({
@@ -88,7 +95,7 @@ vi.mock("n8ao", () => {
 
     constructor(
       readonly scene: Scene,
-      readonly camera: OrthographicCamera,
+      readonly camera: PerspectiveCamera,
       readonly width: number,
       readonly height: number,
     ) {
@@ -181,7 +188,7 @@ vi.mock("postprocessing", () => {
     renderToScreen = false;
 
     constructor(
-      readonly camera: OrthographicCamera,
+      readonly camera: PerspectiveCamera,
       ...effects: FakeEffect[]
     ) {
       this.effects = effects;
@@ -216,7 +223,7 @@ vi.mock("postprocessing", () => {
 
     constructor(
       readonly scene: Scene,
-      readonly camera: OrthographicCamera,
+      readonly camera: PerspectiveCamera,
     ) {}
 
     dispose = vi.fn();
@@ -380,28 +387,32 @@ function latest<T>(entries: unknown[]): T {
 }
 
 /**
- * The shipped vantage, reproduced: `world-renderer.ts` parks the camera at a
- * fixed 110-unit offset raked 30° down (`CAMERA_DISTANCE`, `updateCamera`) and
- * sizes the frustum from `gardenCameraViewHeight`, which is 62.5 units at the
- * 1000 px preview height. W2.3's focus band is derived from exactly this pose,
- * so a default `new OrthographicCamera()` would test a band that never ships.
+ * The shipped perspective rig, reproduced from the abstract pose used by
+ * `world-renderer.ts`. Keeping the target at the viewport centre makes this
+ * fixture exercise the same 32° / 12° camera-derived focus path as production.
  */
-const CAMERA_DISTANCE = 110;
-const VIEW_HEIGHT = 62.5;
+const VIEWPORT = { x: 1600, y: 1000 };
+const ISO_CAMERA = {
+  offsetX: VIEWPORT.x / 2,
+  offsetY: VIEWPORT.y / 2,
+  zoom: 1,
+};
+const CAMERA_DISTANCE = cameraDistanceForZoom(VIEWPORT.y, ISO_CAMERA.zoom);
+const TARGET_VIEW_HEIGHT = 2
+  * CAMERA_DISTANCE
+  * Math.tan(CAMERA_FOV_DEG * Math.PI / 360);
 /** `gardenKeyLightPose` returns a unit direction; the rig stands this far off. */
 const LIGHT_DISTANCE = 120;
 
-function makeGardenCamera(): OrthographicCamera {
-  const viewWidth = VIEW_HEIGHT * 1.6;
-  const camera = new OrthographicCamera(
-    -viewWidth / 2,
-    viewWidth / 2,
-    VIEW_HEIGHT / 2,
-    -VIEW_HEIGHT / 2,
-    0.1,
-    500,
+function makeGardenCamera(): PerspectiveCamera {
+  const camera = new PerspectiveCamera(
+    CAMERA_FOV_DEG,
+    VIEWPORT.x / VIEWPORT.y,
+    1,
+    600,
   );
-  camera.position.set(CAMERA_DISTANCE, CAMERA_DISTANCE * Math.sqrt(2 / 3), CAMERA_DISTANCE);
+  const eye = cameraEye(cameraPoseFromIso(ISO_CAMERA, VIEWPORT));
+  camera.position.set(eye.x, eye.y, eye.z);
   camera.lookAt(0, 0, 0);
   camera.updateProjectionMatrix();
   return camera;
@@ -1062,25 +1073,25 @@ describe("garden post-processing contracts", () => {
     const tiltShift = effectNamed("GardenTiltShift");
 
     post.render(1 / 60);
-    // The sharp band centres on where the locked vantage looks at the sea:
-    // the camera's drop to the water plane along its own view ray. At the
-    // shipped 30° rake from y = 110·sqrt(2/3) that is (89.81 + 1.45) / 0.5.
-    expect(numberUniform(tiltShift, "focusCenter")).toBeCloseTo(182.53, 1);
-    // ... and the widths are view heights, not world units, so a zoom cannot
-    // put the whole map out of focus or the whole detail framing into it.
-    expect(numberUniform(tiltShift, "focusRange")).toBeCloseTo(62.5 * 0.55);
-    expect(numberUniform(tiltShift, "farFalloff")).toBeCloseTo(62.5 * 0.5);
-    expect(numberUniform(tiltShift, "nearFalloff")).toBeCloseTo(62.5 * 0.45);
+    // The sharp band centres on the sea-plane intersection along the fixed
+    // 12° view ray. The water lies 1.45 units below the rig's target plane.
+    const expectedFocusCenter = CAMERA_DISTANCE + 1.45 / Math.sin(CAMERA_PITCH_RAD);
+    expect(numberUniform(tiltShift, "focusCenter")).toBeCloseTo(expectedFocusCenter);
+    // The widths follow the perspective target-plane view height rather than
+    // a hard-coded world-space span.
+    expect(numberUniform(tiltShift, "focusRange")).toBeCloseTo(TARGET_VIEW_HEIGHT * 0.55);
+    expect(numberUniform(tiltShift, "farFalloff")).toBeCloseTo(TARGET_VIEW_HEIGHT * 0.5);
+    expect(numberUniform(tiltShift, "nearFalloff")).toBeCloseTo(TARGET_VIEW_HEIGHT * 0.45);
 
     // W4.6 seam: the centre is a plain uniform, so a focus pull toward a
     // selected ship is an ease, never a pass-list change.
     post.setFocusBandDistance(140);
     post.render(1 / 60);
     expect(numberUniform(tiltShift, "focusCenter")).toBe(140);
-    expect(numberUniform(tiltShift, "focusRange")).toBeCloseTo(62.5 * 0.55);
+    expect(numberUniform(tiltShift, "focusRange")).toBeCloseTo(TARGET_VIEW_HEIGHT * 0.55);
     post.setFocusBandDistance(null);
     post.render(1 / 60);
-    expect(numberUniform(tiltShift, "focusCenter")).toBeCloseTo(182.53, 1);
+    expect(numberUniform(tiltShift, "focusCenter")).toBeCloseTo(expectedFocusCenter);
   });
 
   it("opens the god-ray window only for a sun that is both low and still up", () => {

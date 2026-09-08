@@ -398,26 +398,25 @@ describe("createFleetLanterns", () => {
   });
 });
 
-describe("S5 visual scale spread (D-S5)", () => {
-  it("maps the 0.7–3.0 data band to a ~2.6× visual spread with a legibility floor", () => {
-    expect(gardenShipVisualScale(0.7)).toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MIN);
-    expect(gardenShipVisualScale(3)).toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MAX);
-    const spread = gardenShipVisualScale(3) / gardenShipVisualScale(0.7);
-    expect(spread).toBeGreaterThan(2.5);
-    expect(spread).toBeLessThan(2.7);
-    // Warm-village resting frame (2026-09-05, plan A5): floor raised
-    // 0.55 → 0.8 so all six hull families stay separable at the zoom-1.0
-    // rest framing; titans still dwarf skiffs at ~2.6× (was ~3.7×).
-    expect(GARDEN_SHIP_VISUAL_SCALE_MIN).toBe(0.8);
-    // Monotonic across the data band.
-    expect(gardenShipVisualScale(1.5)).toBeGreaterThan(gardenShipVisualScale(1));
-    expect(gardenShipVisualScale(2)).toBeGreaterThan(gardenShipVisualScale(1.5));
+describe("W1.5 continuous visual scale spread", () => {
+  it("preserves the 0.42–1.15 market-cap ladder as a ~2.7× visual spread", () => {
+    expect(gardenShipVisualScale(0.42)).toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MIN);
+    expect(gardenShipVisualScale(1.15)).toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MAX);
+    const spread = gardenShipVisualScale(1.15) / gardenShipVisualScale(0.42);
+    expect(spread).toBeGreaterThan(2.7);
+    expect(spread).toBeLessThan(2.8);
+    expect(GARDEN_SHIP_VISUAL_SCALE_MIN).toBe(0.42);
+    // Identity inside the data band, with clamps at either edge.
+    expect(gardenShipVisualScale(0.7)).toBe(0.7);
+    expect(gardenShipVisualScale(1)).toBe(1);
+    expect(gardenShipVisualScale(0.1)).toBe(GARDEN_SHIP_VISUAL_SCALE_MIN);
+    expect(gardenShipVisualScale(2)).toBe(GARDEN_SHIP_VISUAL_SCALE_MAX);
   });
 
-  it("applies the relaxed mapping to the ship root scale", () => {
-    expect(build(ship("tiny", "treasury-galleon", "micro", 0.7)).root.scale.x)
+  it("applies the continuous mapping to the ship root scale", () => {
+    expect(build(ship("tiny", "treasury-galleon", "micro", 0.42)).root.scale.x)
       .toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MIN);
-    expect(build(ship("huge", "treasury-galleon", "flagship", 3)).root.scale.x)
+    expect(build(ship("huge", "treasury-galleon", "flagship", 1.15)).root.scale.x)
       .toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MAX);
   });
 });

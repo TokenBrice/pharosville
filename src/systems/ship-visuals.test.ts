@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { BackingType, GovernanceType, PegCurrency, StablecoinMeta } from "@shared/types";
 import { makeAsset } from "../__fixtures__/pharosville-world";
 import { STABLECOIN_SQUAD_MEMBER_IDS } from "./maker-squad";
-import { TITAN_SHIPS, resolveShipClass, resolveShipSizeTier, resolveShipVisual } from "./ship-visuals";
+import {
+  marketCapVisualScale,
+  resolveShipClass,
+  resolveShipSizeTier,
+  resolveShipVisual,
+} from "./ship-visuals";
 import { UNIQUE_SHIP_DEFINITIONS } from "./unique-ships";
 
 function makeMeta(input: {
@@ -47,15 +52,23 @@ describe("resolveShipVisual", () => {
     });
   });
 
-  it("maps market caps to compressed size tiers", () => {
-    expect(resolveShipSizeTier(20_000_000_000)).toEqual({ label: "Flagship", scale: 3, tier: "flagship" });
-    expect(resolveShipSizeTier(2_000_000_000)).toEqual({ label: "Major", scale: 1.8, tier: "major" });
-    expect(resolveShipSizeTier(200_000_000)).toEqual({ label: "Regional", scale: 1.25, tier: "regional" });
-    expect(resolveShipSizeTier(20_000_000)).toEqual({ label: "Local", scale: 0.95, tier: "local" });
-    expect(resolveShipSizeTier(2_000_000)).toEqual({ label: "Skiff", scale: 0.78, tier: "skiff" });
-    expect(resolveShipSizeTier(500_000)).toEqual({ label: "Micro", scale: 0.7, tier: "micro" });
-    expect(resolveShipSizeTier(0)).toEqual({ label: "Unknown", scale: 0.7, tier: "unknown" });
-    expect(resolveShipSizeTier(2_000_000_000).scale).toBeGreaterThan(1.5);
+  it.each([
+    ["$1M coin", 1_000_000, 0.42],
+    ["$100M coin", 100_000_000, 0.6656],
+    ["$10B coin", 10_000_000_000, 1.0550],
+    ["USDT", 200_000_000_000, 1.15],
+  ])("maps %s onto the continuous market-cap scale", (_label, marketCap, expected) => {
+    expect(marketCapVisualScale(marketCap)).toBeCloseTo(expected, 2);
+  });
+
+  it("keeps the established market-cap tier labels", () => {
+    expect(resolveShipSizeTier(20_000_000_000)).toMatchObject({ label: "Flagship", tier: "flagship" });
+    expect(resolveShipSizeTier(2_000_000_000)).toMatchObject({ label: "Major", tier: "major" });
+    expect(resolveShipSizeTier(200_000_000)).toMatchObject({ label: "Regional", tier: "regional" });
+    expect(resolveShipSizeTier(20_000_000)).toMatchObject({ label: "Local", tier: "local" });
+    expect(resolveShipSizeTier(2_000_000)).toMatchObject({ label: "Skiff", tier: "skiff" });
+    expect(resolveShipSizeTier(500_000)).toMatchObject({ label: "Micro", tier: "micro" });
+    expect(resolveShipSizeTier(0)).toEqual({ label: "Unknown", scale: 0.42, tier: "unknown" });
   });
 
   it("splits hull family by collateral model, not governance alone (N5a)", () => {
@@ -137,7 +150,7 @@ describe("resolveShipVisual", () => {
     }
   });
 
-  it("preserves peg, overlay, and compressed scale channels", () => {
+  it("preserves peg, overlay, and continuous scale channels", () => {
     const meta = makeMeta({
       backing: "crypto-backed",
       governance: "centralized-dependent",
@@ -154,7 +167,7 @@ describe("resolveShipVisual", () => {
     expect(visual.overlay).toBe("nav");
     expect(visual.sizeTier).toBe("flagship");
     expect(visual.sizeLabel).toBe("Flagship");
-    expect(visual.scale).toBe(3);
+    expect(visual.scale).toBeCloseTo(1.065, 3);
   });
 
   it("derives deterministic fallback livery variants instead of one peg color", () => {
@@ -220,12 +233,9 @@ describe("resolveShipVisual", () => {
     expect(usds.sizeLabel).toBe("Titan");
     expect(usdt.sizeTier).toBe("titan");
     expect(usdt.sizeLabel).toBe("Titan");
-    expect(usds.scale).toBe(1.15);
-    expect(usdc.scale).toBe(1.53);
-    expect(usdt.scale).toBe(1.7);
-    // Sky flagship sails in formation, so it's smaller than solo titans.
-    expect(usds.scale).toBeLessThan(usdc.scale);
-    expect(usdt.scale).toBeGreaterThan(usdc.scale);
+    expect(usds.scale).toBeCloseTo(1.03, 2);
+    expect(usdc.scale).toBe(1.15);
+    expect(usdt.scale).toBe(1.15);
   });
 
   it("resolves the titan tier for every stablecoin squad member", () => {
@@ -240,13 +250,7 @@ describe("resolveShipVisual", () => {
     }
   });
 
-  it("keeps positive scales for every titan definition", () => {
-    for (const [id, definition] of Object.entries(TITAN_SHIPS)) {
-      expect(definition.scale, id).toBeGreaterThan(0);
-    }
-  });
-
-  it("resolves the heritage tier for every cultural-significance stablecoin", () => {
+  it("keeps heritage treatment while deriving its scale from market cap", () => {
     const meta = makeMeta({ governance: "decentralized" });
     for (const [id, def] of Object.entries(UNIQUE_SHIP_DEFINITIONS)) {
       const visual = resolveShipVisual(makeAsset({
@@ -256,12 +260,12 @@ describe("resolveShipVisual", () => {
       }), meta, null);
       expect(visual.sizeTier, id).toBe("unique");
       expect(visual.sizeLabel, id).toBe("Heritage hull");
-      expect(visual.scale, id).toBe(def.scale);
+      expect(visual.scale, id).toBeCloseTo(marketCapVisualScale(250_000_000));
       expect(visual.uniqueRationale, id).toBe(def.rationale);
     }
   });
 
-  it("unique tier overrides marketcap-derived size for crvusd-curve at any cap", () => {
+  it("keeps the heritage tier while market cap controls scale", () => {
     const meta = makeMeta({ governance: "decentralized" });
     const tinyCap = resolveShipVisual(makeAsset({
       id: "crvusd-curve",
@@ -278,8 +282,8 @@ describe("resolveShipVisual", () => {
     expect(tinyCap.sizeLabel).toBe("Heritage hull");
     expect(hugeCap.sizeTier).toBe("unique");
     expect(hugeCap.sizeLabel).toBe("Heritage hull");
-    expect(tinyCap.scale).toBe(UNIQUE_SHIP_DEFINITIONS["crvusd-curve"].scale);
-    expect(hugeCap.scale).toBe(UNIQUE_SHIP_DEFINITIONS["crvusd-curve"].scale);
+    expect(tinyCap.scale).toBe(0.42);
+    expect(hugeCap.scale).toBe(1.15);
   });
 
   it("titan tier wins if a stablecoin id ever appears in both registries", () => {
@@ -312,24 +316,15 @@ describe("resolveShipVisual", () => {
     expect(titanVisual.uniqueRationale).toBeUndefined();
   });
 
-  it("uses the re-tuned scale band for stablecoin squad members", () => {
+  it("uses one cap-derived scale for stablecoin squad members", () => {
     const meta = makeMeta({ governance: "centralized-dependent" });
-    const expectedScales: Record<string, number> = {
-      "usds-sky": 1.15,
-      "dai-makerdao": 1.06,
-      "susds-sky": 0.94,
-      "sdai-sky": 0.94,
-      "stusds-sky": 0.98,
-      "usde-ethena": 1.20,
-      "susde-ethena": 0.95,
-    };
-    for (const [id, expectedScale] of Object.entries(expectedScales)) {
+    for (const id of STABLECOIN_SQUAD_MEMBER_IDS) {
       const visual = resolveShipVisual(makeAsset({
         id,
         symbol: id.toUpperCase(),
         circulating: { peggedUSD: 1_000_000_000 },
       }), meta, null);
-      expect(visual.scale, `expected scale ${expectedScale} for ${id}`).toBe(expectedScale);
+      expect(visual.scale, id).toBeCloseTo(marketCapVisualScale(1_000_000_000));
     }
   });
 });

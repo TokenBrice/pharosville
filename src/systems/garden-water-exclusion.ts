@@ -112,6 +112,8 @@ const TILE_TO_WORLD = Math.SQRT2;
 // given an optimistic water exclusion.
 const MAX_DOCK_OBSTACLE_SUPPLY_USD = Number.POSITIVE_INFINITY;
 const MAX_DOCK_OBSTACLE_SIZE = 10;
+const MAX_DOCK_OBSTACLE_FRONTAGE_SHARE = 10;
+const MAX_DOCK_OBSTACLE_FRONTAGE_MEDIAN_SHARE = 1;
 
 /**
  * Dock/pier structures a free-moored ship must clear (zone representatives
@@ -186,10 +188,13 @@ export const GARDEN_DOCK_OBSTACLES: readonly GardenCircle[] = [
     .map((slot) => ({
       x: slot.cove.tile.x,
       y: slot.cove.tile.y,
+      // Supply USD is no longer frontage input; reserve the 1.25x share cap explicitly.
       r: stationClearanceTiles(
         slot.type,
         MAX_DOCK_OBSTACLE_SUPPLY_USD,
         MAX_DOCK_OBSTACLE_SIZE,
+        MAX_DOCK_OBSTACLE_FRONTAGE_SHARE,
+        MAX_DOCK_OBSTACLE_FRONTAGE_MEDIAN_SHARE,
       ),
     })),
   {
@@ -199,6 +204,8 @@ export const GARDEN_DOCK_OBSTACLES: readonly GardenCircle[] = [
       PIGEONNIER_STATION_SLOT.type,
       MAX_DOCK_OBSTACLE_SUPPLY_USD,
       MAX_DOCK_OBSTACLE_SIZE,
+      MAX_DOCK_OBSTACLE_FRONTAGE_SHARE,
+      MAX_DOCK_OBSTACLE_FRONTAGE_MEDIAN_SHARE,
     ),
   },
 ] as const;

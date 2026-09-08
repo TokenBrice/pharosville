@@ -5,12 +5,16 @@ import {
   LinearFilter,
   LinearMipmapLinearFilter,
   NearestFilter,
+  Mesh,
+  PerspectiveCamera,
   PlaneGeometry,
+  RingGeometry,
   Scene,
   ShaderMaterial,
   SRGBColorSpace,
   Texture,
   TextureLoader,
+  Vector3,
 } from "three";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -23,7 +27,6 @@ import {
 } from "../systems/weather";
 import {
   SEA_REGION_CHARACTER,
-  SEA_REGION_DISTANCE_FULL_SCALE_TILES,
   SEA_REGION_ID,
 } from "../systems/garden-sea-regions";
 import type { GardenWaterFrame } from "./garden-water";
@@ -33,7 +36,6 @@ import {
   GARDEN_ISLAND_ROCK_RADIUS,
   GARDEN_WATER_GERSTNER,
   GARDEN_WATER_MAX_DISPLACEMENT,
-  GARDEN_SEA_BOUNDARY_SEAM_WIDTH_TILES,
   sampleGardenGerstner,
   VERTEX_SHADER,
   type GardenGerstnerSampleInput,
@@ -133,13 +135,8 @@ describe("water shader uniform hygiene", () => {
     expect(FRAGMENT_SHADER).toContain(`step(${SEA_REGION_ID.calm - 0.5}, epistemicRegionId)`);
     expect(FRAGMENT_SHADER).toContain(`step(${SEA_REGION_ID.danger + 0.5}, epistemicRegionId)`);
     expect(FRAGMENT_SHADER).toContain("gardenApplyLocalizedHeightFog(");
-    expect(water.mesh.children).toHaveLength(0);
   });
 
-  it("hands bokashi to the visible sky instead of shading water fragments", () => {
-    expect(FRAGMENT_SHADER).not.toContain("gardenBokashiShade");
-    expect(FRAGMENT_SHADER).not.toContain("return;");
-  });
 });
 
 describe("createGardenWater", () => {
@@ -147,7 +144,6 @@ describe("createGardenWater", () => {
     const water = createGardenWater(-0.12);
     water.setIslandCenter(12, -7);
 
-    expect(water.mesh.children).toHaveLength(0);
     expect(water.mesh.geometry).toBeInstanceOf(PlaneGeometry);
     expect(water.mesh.material).toBeInstanceOf(ShaderMaterial);
     // Kept on WebGL1 GLSL so the shader compiles without an upgrade path.
@@ -200,6 +196,57 @@ describe("createGardenWater", () => {
     expect(bounds.max.y).toBeCloseTo(margin);
   });
 
+  it("keeps sea beneath and beyond the plate while following the render camera", () => {
+    const water = createGardenWater(GARDEN_WATER_Y);
+    const scene = new Scene();
+    scene.add(water.mesh);
+    const camera = new PerspectiveCamera();
+    const annulus = water.mesh.getObjectByName("garden-sea-annulus") as Mesh<RingGeometry, ShaderMaterial>;
+    expect(annulus).toBeInstanceOf(Mesh);
+    expect(annulus.material).not.toBe(water.material);
+    expect(uniformNumber(annulus.material, "uAnnulus")).toBe(1);
+    const innerSea = annulus.getObjectByName("garden-sea-inner-skirt") as Mesh<RingGeometry, ShaderMaterial>;
+    expect(innerSea.geometry.parameters.innerRadius).toBe(0);
+    const triangleCount = (annulus.geometry.index!.count + innerSea.geometry.index!.count) / 3;
+    expect(triangleCount).toBeLessThanOrEqual(4_000);
+    expect(annulus.frustumCulled).toBe(false);
+    expect(annulus.material.depthWrite).toBe(true);
+    expect(annulus.renderOrder).toBeLessThan(water.mesh.renderOrder);
+    expect(annulus.layers.isEnabled(7)).toBe(false);
+
+    const draw = () => {
+      scene.updateMatrixWorld(true);
+      camera.updateMatrixWorld(true);
+      annulus.onBeforeRender(
+        {} as never, scene, camera, annulus.geometry, annulus.material, new Group(),
+      );
+    };
+    camera.position.set(260, 75, 180);
+    draw();
+    const position = annulus.getWorldPosition(new Vector3());
+    expect(position.x).toBeCloseTo(260);
+    expect(position.y).toBeCloseTo(GARDEN_WATER_Y);
+    expect(position.z).toBeCloseTo(180);
+    camera.position.set(-45, 30, 320);
+    draw();
+    annulus.getWorldPosition(position);
+    expect(position.x).toBeCloseTo(-45);
+    expect(position.y).toBeCloseTo(GARDEN_WATER_Y);
+    expect(position.z).toBeCloseTo(320);
+
+    water.update(frame({ reducedMotion: true, timeSeconds: 70 }));
+    expect(uniformNumber(annulus.material, "uTime")).toBe(0);
+    water.update(frame({ reducedMotion: true, timeSeconds: 90 }));
+    expect(uniformNumber(annulus.material, "uTime")).toBe(0);
+    const disposeRing = vi.spyOn(annulus.geometry, "dispose");
+    const disposeSkirt = vi.spyOn(innerSea.geometry, "dispose");
+    const disposeSea = vi.spyOn(annulus.material, "dispose");
+    water.dispose();
+    expect(disposeRing).toHaveBeenCalledOnce();
+    expect(disposeSkirt).toHaveBeenCalledOnce();
+    expect(disposeSea).toHaveBeenCalledOnce();
+  });
+
   it("binds the scene PMREM directly without a world-renderer wire", () => {
     const water = createGardenWater(0);
     const scene = new Scene();
@@ -242,24 +289,6 @@ describe("createGardenWater", () => {
     expect(GARDEN_WATER_PROBE_BLEND).toBeLessThan(1);
     expect(source).toContain("vec3 skySample = gardenEnvironmentReflection(");
     expect(source).not.toContain("openEnvironment");
-  });
-
-  it("reads depth and the view ray as an ORTHOGRAPHIC camera, not a point one", () => {
-    // T0.1 (2026-09-07): this shader used to spend `distance(cameraPosition,
-    // vWorldPosition)` as "depth" and `normalize(cameraPosition -
-    // vWorldPosition)` as the view ray. Under the world's orthographic camera
-    // (world-renderer.ts:860) neither is true: rays are parallel and the camera
-    // is a point 110u off target, so both terms were radial gradients centred
-    // on screen — a vignette that lightened the far corners and darkened the
-    // middle. Depth is now `vFogDepth` (the same view depth the scene fog uses)
-    // and the view ray is the constant camera axis out of the view matrix.
-    const source = createGardenWater(0).material.fragmentShader;
-    expect(source).toContain("float camDistance = vFogDepth;");
-    expect(source).toContain("viewMatrix[0][2]");
-    // Only the comments naming the old idioms may still say cameraPosition.
-    expect(source).not.toContain("distance(cameraPosition,");
-    expect(source).not.toContain("normalize(cameraPosition");
-    expect(source).not.toContain("normalize(vWorldPosition - cameraPosition)");
   });
 
   it("drives fresnel and the mirror zone from the sea region, not one ellipse", () => {
@@ -451,22 +480,6 @@ describe("createGardenWater", () => {
     expect(source).toContain("crestFoamMask *= 0.52");
   });
 
-  it("wires each named body's few-tile boundary bank into the single water draw", () => {
-    const water = createGardenWater(0);
-    const boundaries = water.material.uniforms.uRegionBoundary!.value;
-    for (const [name, id] of Object.entries(SEA_REGION_ID)) {
-      const character = SEA_REGION_CHARACTER[name as keyof typeof SEA_REGION_CHARACTER];
-      expect(boundaries[id]!.x).toBeCloseTo(
-        character.boundaryWidthTiles / SEA_REGION_DISTANCE_FULL_SCALE_TILES,
-      );
-      expect(boundaries[id]!.y).toBe(character.boundaryFoam);
-      expect(boundaries[id]!.z).toBe(character.boundaryBank);
-    }
-    expect(GARDEN_SEA_BOUNDARY_SEAM_WIDTH_TILES).toEqual({ min: 2.6, max: 3.6 });
-    expect(water.material.fragmentShader).toContain("float boundaryBand");
-    expect(water.material.fragmentShader).toContain("vec3 boundaryCharacter = uRegionBoundary[regionId]");
-    expect(water.mesh.children).toHaveLength(0);
-  });
 
   it("fades regional surface deviations through the continuous distance field in both stages", () => {
     for (const source of [VERTEX_SHADER, FRAGMENT_SHADER]) {
@@ -482,12 +495,6 @@ describe("createGardenWater", () => {
     expect(FRAGMENT_SHADER).toContain("mix(1.0, mix(0.84, 0.96, silt) * 0.94, regionBlend)");
   });
 
-  it("projects the tower mirror toward camera-facing positive world X and Z", () => {
-    expect(FRAGMENT_SHADER).toContain("columnDirection = normalize(vec2(1.0, -1.0))");
-    expect(FRAGMENT_SHADER).toContain("alongColumn = dot(fromTower, columnDirection)");
-    expect(FRAGMENT_SHADER).toContain("vec2(-columnDirection.y, columnDirection.x)");
-  });
-
   it("maps the region field with the water plane's z-flip", () => {
     // A tile (tx, ty) lands at world (tx*sqrt2, _, ty*sqrt2), and the plane's
     // -90deg X rotation maps world +Z to local -Y — so V must be negated.
@@ -498,22 +505,6 @@ describe("createGardenWater", () => {
     expect(transform.w).toBeCloseTo(-transform.z);
   });
 
-  it("has no renderer-only open-ocean or rounded-lozenge domain", () => {
-    const water = createGardenWater(0);
-    const source = water.mesh.material.fragmentShader;
-    for (const chunk of ["tonemapping_fragment", "colorspace_fragment", "fog_fragment"]) {
-      expect(source.split(`#include <${chunk}>`)).toHaveLength(2);
-    }
-    for (const removed of [
-      "MAP_CORNER_RADIUS",
-      "uMapEdge",
-      "uOpenOceanCenter",
-      "uOpenOceanRadius",
-      "gardenOpenOcean",
-      "oceanBlend",
-    ]) expect(source).not.toContain(removed);
-    expect(source.split("gl_FragColor.rgb = gardenApplyHeightFog(")).toHaveLength(2);
-  });
 
   it("alpha-dissolves all four plate skirts behind the camera-side land skirt", () => {
     const water = createGardenWater(0);

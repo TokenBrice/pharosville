@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultCamera, GARDEN_DEFAULT_CAMERA_ZOOM } from "./camera";
+import { defaultCamera } from "./camera";
 import {
   easeOutQuint,
   GARDEN_ARRIVAL_DURATION_MS,
@@ -32,7 +32,6 @@ describe("garden arrival", () => {
     // on defaultCamera's framing over the same nine seconds.
     const map = buildPharosVilleMap();
     const rest = defaultCamera({ height: 1004, map, width: 1568 });
-    expect(rest.zoom).toBe(GARDEN_DEFAULT_CAMERA_ZOOM);
     const opening = gardenArrivalCamera(rest);
     expect(opening.zoom).toBeCloseTo(rest.zoom * 0.82);
     const settled = sampleGardenArrivalCamera(opening, rest, GARDEN_ARRIVAL_DURATION_MS);

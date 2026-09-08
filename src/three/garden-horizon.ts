@@ -8,6 +8,8 @@ import {
   ShaderMaterial,
 } from "three";
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
+import { GARDEN_DEFAULT_CAMERA_ZOOM } from "../systems/camera";
+import { CAMERA_PITCH_RAD, cameraDistanceForZoom } from "../systems/projection";
 import {
   blendDayCycleColor,
   DAY_CYCLE_SKY_PRESETS,
@@ -17,12 +19,12 @@ import {
 export interface GardenHorizonFrame {
   targetX: number;
   targetZ: number;
+  fogColor: Color;
   tier: PharosVilleRenderSchedulerTier;
 }
 
 export interface GardenHorizon {
   drawCallCount: number;
-  mistBandCount: number;
   root: Group;
   silhouetteCount: number;
   triangleCount: number;
@@ -45,29 +47,32 @@ const HORIZON_VALUE_SCALE_GLSL = `
         float valueScale = vLayer < 0.5 ? ${GARDEN_HORIZON_VALUE_SCALES[0].toFixed(2)}
           : (vLayer < 1.5 ? ${GARDEN_HORIZON_VALUE_SCALES[1].toFixed(2)} : ${GARDEN_HORIZON_VALUE_SCALES[2].toFixed(2)});
       `;
-export const GARDEN_HORIZON_DISPLACEMENT = "screen-space backdrop ridge impressions";
 
+// Borrowed scenery is a distant optical silhouette, not an elevated terrain
+// shelf. Its softened feet meet the sea horizon at the 1000px reference rest.
+const HEADLAND_SEAM_Y = cameraDistanceForZoom(1000, GARDEN_DEFAULT_CAMERA_ZOOM)
+  * Math.sin(CAMERA_PITCH_RAD);
 const RIDGES = [
   {
-    depth: 122,
-    height: 21,
-    offset: -62,
+    depth: 390,
+    height: 22,
+    offset: -172,
     profile: [0, 0.22, 0.16, 0.42, 0.35, 0.58, 0.91, 0.64, 0.31, 0.14, 0],
-    width: 276,
+    width: 160,
   },
   {
-    depth: 108,
-    height: 17,
-    offset: 18,
+    depth: 350,
+    height: 28,
+    offset: 170,
     profile: [0, 0.11, 0.3, 0.2, 0.48, 0.82, 0.52, 0.38, 0.16, 0.22, 0],
-    width: 242,
+    width: 172,
   },
   {
-    depth: 94,
-    height: 14,
-    offset: 92,
+    depth: 320,
+    height: 18,
+    offset: -104,
     profile: [0, 0.18, 0.12, 0.38, 0.29, 0.62, 0.43, 0.24, 0.34, 0.12, 0],
-    width: 205,
+    width: 104,
   },
 ] as const;
 
@@ -75,7 +80,6 @@ function createGeometry(): BufferGeometry {
   const positions: number[] = [];
   const layers: number[] = [];
   const reliefs: number[] = [];
-  const kinds: number[] = [];
   const verticals: number[] = [];
   const indices: number[] = [];
   const lateralX = Math.SQRT1_2;
@@ -89,9 +93,8 @@ function createGeometry(): BufferGeometry {
       const lateral = (t - 0.5) * ridge.width + ridge.offset;
       const x = farX * ridge.depth + lateralX * lateral;
       const z = farZ * ridge.depth + lateralZ * lateral;
-      positions.push(x, -7, z, x, ridge.profile[point]! * ridge.height, z);
+      positions.push(x, HEADLAND_SEAM_Y - 6, z, x, HEADLAND_SEAM_Y + ridge.profile[point]! * ridge.height, z);
       layers.push(layer, layer);
-      kinds.push(0, 0);
       reliefs.push(ridge.profile[point]!, ridge.profile[point]!);
       verticals.push(0, 1);
       if (point === 0) continue;
@@ -102,34 +105,9 @@ function createGeometry(): BufferGeometry {
       indices.push(a, c, b, a, d, c);
     }
   }
-  // One thin fog-coloured band between the plate rim and the ridge feet. It is
-  // part of this draw and displaces the former diffuse base fade; it is not a
-  // second billboard mist vocabulary.
-  const mistBase = positions.length / 3;
-  const mistDepth = 86;
-  const mistWidth = 310;
-  for (const [lateral, vertical] of [
-    [-mistWidth / 2, 0],
-    [-mistWidth / 2, 1],
-    [mistWidth / 2, 0],
-    [mistWidth / 2, 1],
-  ] as const) {
-    const x = farX * mistDepth + lateralX * lateral;
-    const z = farZ * mistDepth + lateralZ * lateral;
-    positions.push(x, -2.5 + vertical * 5.5, z);
-    layers.push(0);
-    kinds.push(1);
-    reliefs.push(0.18);
-    verticals.push(vertical);
-  }
-  indices.push(
-    mistBase, mistBase + 3, mistBase + 1,
-    mistBase, mistBase + 2, mistBase + 3,
-  );
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(new Float32Array(positions), 3));
   geometry.setAttribute("aLayer", new BufferAttribute(new Float32Array(layers), 1));
-  geometry.setAttribute("aKind", new BufferAttribute(new Float32Array(kinds), 1));
   geometry.setAttribute("aRelief", new BufferAttribute(new Float32Array(reliefs), 1));
   geometry.setAttribute("aVertical", new BufferAttribute(new Float32Array(verticals), 1));
   geometry.setIndex(indices);
@@ -152,35 +130,29 @@ function createMaterial(): ShaderMaterial {
     },
     vertexShader: /* glsl */ `
       attribute float aLayer;
-      attribute float aKind;
       attribute float aRelief;
       attribute float aVertical;
       varying float vLayer;
-      varying float vKind;
       varying float vRelief;
+      varying float vDepth;
       varying float vVertical;
       void main() {
         vLayer = aLayer;
-        vKind = aKind;
         vRelief = aRelief;
         vVertical = aVertical;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
+        vDepth = -viewPosition.z;
+        gl_Position = projectionMatrix * viewPosition;
       }
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 uFogColor;
       uniform vec3 uSkyColor;
       varying float vLayer;
-      varying float vKind;
       varying float vRelief;
+      varying float vDepth;
       varying float vVertical;
       void main() {
-        if (vKind > 0.5) {
-          float mist = sin(clamp(vVertical, 0.0, 1.0) * 3.14159265);
-          if (mist < 0.015) discard;
-          gl_FragColor = vec4(uFogColor * 1.015, mist * 0.24);
-          return;
-        }
         ${HORIZON_VALUE_SCALE_GLSL.trim()}
         float profile = smoothstep(0.035, 0.48, vRelief);
         float baseFade = smoothstep(0.0, 0.5, vVertical);
@@ -188,17 +160,18 @@ function createMaterial(): ShaderMaterial {
         float skyMix = 0.08 + smoothstep(0.12, 0.82, vRelief) * 0.16 + distanceCool;
         float alpha = profile * baseFade * (0.34 + vLayer * 0.035);
         if (alpha < 0.004) discard;
-        gl_FragColor = vec4(mix(uFogColor, uSkyColor, skyMix) * valueScale, alpha);
+        vec3 silhouette = mix(uFogColor, uSkyColor, skyMix) * valueScale;
+        float distanceFade = smoothstep(280.0, 580.0, vDepth);
+        gl_FragColor = vec4(mix(silhouette, uFogColor, distanceFade * 0.7), alpha);
       }
     `,
   });
 }
 
 /**
- * Shakkei beyond the finite plate: three wide, overlapping ridge strips in one
- * draw. Every profile meets a transparent broad base below the fog seam and
- * both frame sides; there are no closed silhouettes that can read as detached
- * pills or opaque curtains.
+ * Three partial headlands beyond the north/west plate, with open sky between
+ * their unequal profiles. A single depth-tested draw softens their feet into
+ * the sea haze; there is no full-width curtain or extra mist strip.
  */
 export function createGardenHorizon(): GardenHorizon {
   const root = new Group();
@@ -206,9 +179,12 @@ export function createGardenHorizon(): GardenHorizon {
   const geometry = createGeometry();
   const material = createMaterial();
   const mesh = new Mesh(geometry, material);
-  mesh.name = "garden-horizon-borrowed-mountains";
+  mesh.name = "garden-horizon-headlands";
   mesh.frustumCulled = false;
   mesh.renderOrder = -1;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.raycast = () => {};
   root.add(mesh);
   const fogColor = material.uniforms.uFogColor.value as Color;
   const skyColor = material.uniforms.uSkyColor.value as Color;
@@ -216,7 +192,6 @@ export function createGardenHorizon(): GardenHorizon {
 
   return {
     drawCallCount: 1,
-    mistBandCount: 1,
     root,
     silhouetteCount: RIDGES.length,
     triangleCount: geometry.index!.count / 3,
@@ -230,14 +205,7 @@ export function createGardenHorizon(): GardenHorizon {
     update(phase, frame) {
       root.position.set(frame.targetX, 0, frame.targetZ);
       root.visible = frame.tier !== "constrained";
-      blendDayCycleColor(
-        fogColor,
-        DAY_CYCLE_SKY_PRESETS.night.fog,
-        DAY_CYCLE_SKY_PRESETS.dusk.fog,
-        DAY_CYCLE_SKY_PRESETS.day.fog,
-        phase.dusk,
-        phase.daylight,
-      );
+      fogColor.copy(frame.fogColor);
       blendDayCycleColor(
         skyColor,
         DAY_CYCLE_SKY_PRESETS.night.zenith,

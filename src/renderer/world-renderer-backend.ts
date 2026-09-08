@@ -1,5 +1,8 @@
-import type { PharosVilleRenderMetrics } from "./render-types";
-import type { PharosVilleRenderSchedulerState } from "./render-types";
+import type {
+  CameraBreath,
+  PharosVilleRenderMetrics,
+  PharosVilleRenderSchedulerState,
+} from "./render-types";
 import type { PharosVilleMotionPlan, ShipMotionSample } from "../systems/motion";
 import type { IsoCamera } from "../systems/projection";
 import type { SeaState } from "../systems/sea-state";
@@ -37,6 +40,7 @@ export interface ThreeWorldRendererFrame {
   almanacEvent?: GardenAlmanacEvent | null;
   logos: ThreeLogoAssets;
   camera: IsoCamera;
+  cameraBreath?: CameraBreath;
   dpr: number;
   height: number;
   hoveredDetailId: string | null;

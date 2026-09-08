@@ -279,14 +279,20 @@ export function authorDock(
   const supply = MathUtils.clamp(dock.size, 1, 10) / 10;
   const flagWavePhase = dockFlagWavePhase(dock.chainId);
   const ethereumMole = station.type === "ethereum-mole";
-  const stationScale = stationScaleFor(station.type, dock.totalUsd);
+  const stationScale = stationScaleFor(
+    station.type,
+    dock.frontageShare,
+    dock.frontageMedianShare,
+  );
   const footprint = stationFootprint(station.type, dock.totalUsd, dock.size);
   const length = 7.6 * amountScale * (ethereumMole ? 1.5 : 1.06);
   const width = (1.62 + amountScale * 0.36) * (ethereumMole ? 1.42 : 1.08);
   const quayHealth = quayMasonryHealth(dock) ?? 0.58;
   const accent = dockAccentColor(dock);
   const stoneColor = new Color("#665f55").lerp(new Color("#a39d8c"), quayHealth);
-  const quayLength = (3.6 + supply * 3.5) * (ethereumMole ? 1.38 : 1.05);
+  const quayLength = (3.6 + supply * 3.5)
+    * (ethereumMole ? 1.38 : 1.05)
+    * stationScale.frontageScale;
   const quayWidth = width * (ethereumMole ? 2.7 : 2.15);
   const quayX = -length * (ethereumMole ? 0.27 : 0.3);
 

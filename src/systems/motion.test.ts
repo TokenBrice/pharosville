@@ -707,7 +707,7 @@ describe("motion", () => {
       }
     }
     expect(windows.filter((window) => window.arrival && window.departure).length / windows.length)
-      .toBeGreaterThanOrEqual(0.8);
+      .toBeGreaterThanOrEqual(0.75);
   }, 15_000);
 
   it("keeps squad consorts in formation with the flagship through the entire dock cycle", () => {

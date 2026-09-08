@@ -1,4 +1,4 @@
-import { Box3, MathUtils, Mesh, Object3D, Vector3, type Material } from "three";
+import { Box3, MathUtils, Object3D, Vector3 } from "three";
 
 /**
  * Overview LOD: one policy for the detail that cannot read at wide framing.
@@ -70,19 +70,17 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   // The rim body remains at whole-map framing; its distributed furniture is
   // less than a few pixels there and fades only by visibility.
   //
-  // 2026-09-07: the understory joins it. 490 shrub domes on a 1.5-tile lattice
-  // are exactly the sub-silhouette greebles this list exists to shed — at
-  // whole-map framing each is well under a pixel, so they cost fill and read as
-  // noise. The pines and broadleaves are landscape MASSING and stay, like the
-  // niwaki above.
+  // The understory's 490 shrub domes are sub-silhouette greebles and shed.
+  // Pines remain authored landscape massing at every zoom. Individual
+  // broadleaves hard-swap to the far-only opaque canopy mass below 0.53, so
+  // the mass remains without paying for every small crown.
   "garden-rim-understory",
   "garden-rim-path",
-  "garden-rim-pines",
+  "garden-rim-broadleaf",
   "garden-rim-stones",
   // Camera-near repoussoirs (warm-village A6): at whole-map they are the
   // same frame-edge mud as the rest of the skirt furniture.
-  "garden-rim-foreground-pines",
-  "garden-rim-foreground-torii",
+  "garden-rim-foreground-pine-bough",
   // Per-hero badges, ×~29 hulls, and the three hero gull flocks.
   "ship-gull-flock",
   "ship-overview-detail",
@@ -116,15 +114,21 @@ export const OVERVIEW_LOD_WHOLE_RING_NAMES: readonly string[] = [
   "harbor-netRack",
   "station-lit-screens",
   "garden-rim-path",
-  "garden-rim-pines",
   "garden-rim-stones",
 ];
+
+/** Opaque canopy mass shown only when the individual broadleaf crowns are hidden. */
+export const OVERVIEW_LOD_FAR_ONLY_NAMES: readonly string[] = [
+  "garden-canopy-impostors",
+];
+
+/** The opaque canopy batches hard-swap at this zoom; no alpha overlap is needed. */
+export const OVERVIEW_LOD_CANOPY_SWAP_ZOOM = 0.53;
 
 interface OverviewLodEntry {
   readonly basePosition: Vector3;
   readonly baseScale: Vector3;
   readonly object: Object3D;
-  readonly pineMaterial: Material | null;
   /**
    * Where this prop's own centre sits in its parent's space, so the shrink
    * happens about the prop rather than about its parent's origin.
@@ -132,6 +136,8 @@ interface OverviewLodEntry {
   readonly pivotOffset: Vector3;
   /** False for whole-ring groups, which may only be shown or hidden. */
   readonly shrinks: boolean;
+  /** Opaque canopy detail swaps rather than participating in the eased shed. */
+  readonly canopyDetail: boolean;
 }
 
 export interface GardenOverviewLod {
@@ -159,19 +165,26 @@ export function overviewLodTargetDetail(zoom: number): number {
   return MathUtils.smoothstep(zoom, OVERVIEW_LOD_HIDDEN_ZOOM, OVERVIEW_LOD_FULL_ZOOM);
 }
 
+/** Inverse half of the opaque canopy swap for renderer-owned visibility paths. */
+export function overviewLodFarOnlyVisible(zoom: number): boolean {
+  return zoom < OVERVIEW_LOD_CANOPY_SWAP_ZOOM;
+}
+
 export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
   root.updateMatrixWorld(true);
   const names = new Set(OVERVIEW_LOD_DETAIL_NAMES);
   const wholeRing = new Set(OVERVIEW_LOD_WHOLE_RING_NAMES);
+  const farOnlyNames = new Set(OVERVIEW_LOD_FAR_ONLY_NAMES);
   const entries: OverviewLodEntry[] = [];
+  const farOnly: Object3D[] = [];
   root.traverse((object) => {
+    if (farOnlyNames.has(object.name)) {
+      farOnly.push(object);
+      return;
+    }
     if (!names.has(object.name)) return;
     const shrinks = !wholeRing.has(object.name);
-    // The foreground tree is a silhouette, not sub-pixel furniture. Its global
-    // instance batch must fade in place instead of appearing whole at the edge.
-    const pineMaterial = object.name === "garden-rim-pines" && object instanceof Mesh
-      && !Array.isArray(object.material) ? object.material : null;
-    if (pineMaterial) pineMaterial.transparent = true;
+    const canopyDetail = object.name === "garden-rim-broadleaf";
     if (shrinks) {
       new Box3().setFromObject(object).getCenter(scratchCentre);
       object.worldToLocal(scratchCentre);
@@ -181,9 +194,8 @@ export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
     entries.push({
       basePosition: object.position.clone(),
       baseScale: object.scale.clone(),
+      canopyDetail,
       object,
-      pineMaterial,
-      // The prop's matrix is T·R·S, so the centre contributes R·S·c to its
       // parent-space position; holding position + R·S·c fixed as S scales by f
       // is what keeps the prop shrinking in place.
       pivotOffset: scratchCentre.multiply(object.scale).applyQuaternion(object.quaternion).clone(),
@@ -197,9 +209,10 @@ export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
     get detail() {
       return detail;
     },
-    entryCount: entries.length,
+    entryCount: entries.length + farOnly.length,
     update({ deltaSeconds, reducedMotion, zoom }) {
       const target = overviewLodTargetDetail(zoom);
+      const farCanopyVisible = overviewLodFarOnlyVisible(zoom);
       // Reduced motion draws ONE static frame, so it must land on the target
       // rather than part-way through an approach it will never finish.
       detail = reducedMotion || !Number.isFinite(deltaSeconds)
@@ -208,12 +221,13 @@ export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
       if (Math.abs(detail - target) < 0.001) detail = target;
       if (detail === applied) return;
       applied = detail;
+      for (const object of farOnly) object.visible = farCanopyVisible;
       for (const entry of entries) {
-        entry.object.visible = detail > 0;
-        if (entry.pineMaterial) {
-          entry.pineMaterial.opacity = detail;
-          entry.pineMaterial.depthWrite = detail === 1;
+        if (entry.canopyDetail) {
+          entry.object.visible = !farCanopyVisible;
+          continue;
         }
+        entry.object.visible = detail > 0;
         if (detail <= 0 || !entry.shrinks) continue;
         entry.object.scale.copy(entry.baseScale).multiplyScalar(detail);
         entry.object.position.copy(entry.basePosition)

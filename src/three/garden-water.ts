@@ -4,10 +4,12 @@ import {
   LinearFilter,
   LinearMipmapLinearFilter,
   MathUtils,
+  Matrix4,
   Mesh,
   NearestFilter,
   PlaneGeometry,
   RepeatWrapping,
+  RingGeometry,
   RGBAFormat,
   ShaderMaterial,
   Texture,
@@ -19,6 +21,7 @@ import {
 import type { PharosVilleRenderSchedulerState } from "../renderer/render-types";
 import { seaQualityTier } from "../renderer/render-scheduler";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { CAMERA_FAR } from "../systems/projection";
 import type { SeaState } from "../systems/sea-state";
 import {
   GARDEN_BREATH_PHASE,
@@ -131,6 +134,7 @@ function createSeaRegionTextures(): {
 }
 const WATER_SEGMENTS = 96;
 export const GARDEN_WATER_MAX_DISPLACEMENT = 0.036;
+const SEA_ANNULUS_OUTER_RADIUS = CAMERA_FAR * 0.8;
 
 /**
  * Named-body boundary banks are intentionally broad enough to survive the
@@ -425,6 +429,7 @@ const NIGHT_ENV_ZENITH = DAY_CYCLE_SKY_PRESETS.night.zenith.clone().lerp(MOON_CO
 
 // Exported for the shader-hygiene guard test (undeclared-uniform tripwire).
 export const VERTEX_SHADER = /* glsl */ `
+  uniform float uAnnulus;
   uniform float uDetail;
   uniform float uHarborCalm;
   uniform vec4 uHarborEllipse;
@@ -452,15 +457,21 @@ export const VERTEX_SHADER = /* glsl */ `
   ${gerstnerSumGlsl()}
 
   void main() {
-    vec2 waterPosition = position.xy;
+    vec3 worldBase = (modelMatrix * vec4(position, 1.0)).xyz;
+    vec2 waterPosition = uAnnulus > 0.5 ? vec2(worldBase.x, -worldBase.z) : position.xy;
     float harborDistance = length((waterPosition - uHarborEllipse.xy) * uHarborEllipse.zw);
     float harborCalm = (1.0 - smoothstep(0.7, 1.05, harborDistance)) * uHarborCalm;
     vec2 regionUv = (waterPosition - uRegionTransform.xy) * uRegionTransform.zw;
     vec4 regionSample = texture2D(uRegionField, regionUv);
     int regionId = int(regionSample.r * 255.0 + 0.5);
+    if (uAnnulus > 0.5) {
+      regionId = ${SEA_REGION_ID.open};
+      harborCalm = 0.0;
+    }
     // IDs remain categorical; only their surface deviations fade at the seam.
     float boundaryDistance = texture2D(uRegionDistance, regionUv).r;
     float regionBlend = smoothstep(0.0, 0.56, boundaryDistance);
+    if (uAnnulus > 0.5) regionBlend = 1.0;
     vec4 regionFlow = uRegionFlow[regionId];
     regionFlow.z *= regionBlend;
     float regionSwell = mix(0.5, uRegionSwell[regionId].x, regionBlend);
@@ -510,7 +521,11 @@ export const VERTEX_SHADER = /* glsl */ `
 // by the point-sampled region id. It therefore cannot drift beyond Danger
 // Strait, and the existing reduced-motion time freeze stops the fall.
 export const FRAGMENT_SHADER = /* glsl */ `
+  uniform float uAnnulus;
   uniform sampler2D envMap;
+  uniform sampler2D uHeroReflection;
+  uniform mat4 uHeroReflectionMatrix;
+  uniform float uHeroReflectionStrength;
   uniform vec3 uBandColor[4];
   uniform vec3 uBaseColor;
   uniform float uBeaconAngle;
@@ -653,8 +668,13 @@ ${gardenHeightFogGlsl()}
 
     vec4 surfaceRegionSample = texture2D(uRegionField, vRegionUv);
     int regionId = int(surfaceRegionSample.r * 255.0 + 0.5);
+    if (uAnnulus > 0.5) {
+      regionId = ${SEA_REGION_ID.open};
+      harborCalm = 0.0;
+    }
     float boundaryDistance = texture2D(uRegionDistance, vRegionUv).r;
     float regionBlend = smoothstep(0.0, 0.56, boundaryDistance);
+    if (uAnnulus > 0.5) regionBlend = 1.0;
     vec4 regionFlow = uRegionFlow[regionId];
     regionFlow.z *= regionBlend;
     vec4 regionWave = uRegionSwell[regionId];
@@ -714,14 +734,8 @@ ${gardenHeightFogGlsl()}
       regionFlow.w * regionBlend
     ));
     blendedNormal = normalize(mix(blendedNormal, vec3(0.0, 0.0, 1.0), harborCalm * 0.75));
-    // T0.1 (2026-09-07): the world camera is ORTHOGRAPHIC (world-renderer.ts:860),
-    // so the old radial distance from the eye point was not depth at all — it is
-    // the radial distance to a point 110u off target, i.e. a vignette that
-    // darkened screen centre and lightened every corner including the near ones.
-    // vFogDepth (-mvPosition.z) is the view depth the scene fog already uses,
-    // and it is measured on the same ~180u scale the thresholds below were tuned
-    // against (camera sits 179.6u from target), so they keep their values.
-    float camDistance = vFogDepth;
+    // Perspective attenuation follows the actual eye-to-surface path.
+    float camDistance = distance(cameraPosition, vWorldPosition);
     float detailFalloff = max(1.0 - smoothstep(130.0, 460.0, camDistance), 0.32) * uDetail;
     vec3 surfaceNormal = normalize(mix(vec3(0.0, 0.0, 1.0), blendedNormal, detailFalloff));
 
@@ -767,7 +781,7 @@ ${gardenHeightFogGlsl()}
     ));
 
     float wakeFoam = 0.0;
-    if (uWakeStrength > 0.01) {
+    if (uAnnulus < 0.5 && uWakeStrength > 0.01) {
       vec2 wakeUv = (vWaterPosition - uWakeCenter) * uWakeInvSize + 0.5;
       if (all(greaterThan(wakeUv, vec2(0.001))) && all(lessThan(wakeUv, vec2(0.999)))) {
         float w0 = texture2D(uWakeMap, wakeUv).r;
@@ -780,6 +794,45 @@ ${gardenHeightFogGlsl()}
           surfaceNormal + vec3(wakeGrad * (10.0 * uWakeStrength), 0.0)
         );
       }
+    }
+
+    // The surrounding sea keeps the same open-water normals, swell and probe,
+    // but never evaluates plate-local foam, risk dye, wakes, lanes or caustics.
+    if (uAnnulus > 0.5) {
+      vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+      vec3 worldNormal = normalize(vec3(surfaceNormal.x, surfaceNormal.z, -surfaceNormal.y));
+      vec3 fresnelNormal = normalize(mix(
+        vec3(0.0, 1.0, 0.0), worldNormal, clamp(glintDetailWeight, 0.08, 1.0)
+      ));
+      float fresnel = 0.02
+        + 0.98 * pow(1.0 - max(0.0, dot(fresnelNormal, viewDirection)), 5.0);
+      vec3 skySample = gardenEnvironmentReflection(
+        worldNormal, viewDirection, mix(uEnvHorizonColor, uEnvZenithColor, 0.4)
+      );
+      vec3 waterColor = mix(uBandColor[2], uBandColor[3], 0.16);
+      waterColor = mix(waterColor, skySample,
+        clamp(fresnel * (0.40 + uDaylight * 0.45), 0.0, 0.55));
+      waterColor = mix(waterColor, skySample, uEnvStrength * 0.8);
+      float radialDistance = distance(cameraPosition.xz, vWorldPosition.xz);
+      float horizonFade = smoothstep(
+        ${glslFloat(SEA_ANNULUS_OUTER_RADIUS * 0.55)},
+        ${glslFloat(SEA_ANNULUS_OUTER_RADIUS * 0.94)}, radialDistance
+      );
+      gl_FragColor = vec4(waterColor, 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+      gl_FragColor.rgb = gardenApplyHeightFog(
+        gl_FragColor.rgb, vWorldPosition, camDistance, -viewDirection
+      );
+      #ifdef USE_FOG
+        #ifdef FOG_EXP2
+          float fogFactor = 1.0 - exp(-fogDensity * fogDensity * camDistance * camDistance);
+        #else
+          float fogFactor = smoothstep(fogNear, fogFar, camDistance);
+        #endif
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, max(fogFactor, horizonFade));
+      #endif
+      return;
     }
 
     vec2 shoreDelta = vWaterPosition - uIslandCenter - vec2(0.6, -1.2);
@@ -861,17 +914,7 @@ ${gardenHeightFogGlsl()}
     }
     float cloudLight = 1.0 - cloudCover * uCloudShadowStrength;
 
-    // T0.1 (2026-09-07): under an orthographic camera every view ray is
-    // PARALLEL, so the direction to the eye is constant across the plate: the
-    // camera's world-space +Z (backward) axis, which is row 2 of the view
-    // matrix. The old per-fragment eye-to-fragment vector swept ~20
-    // degrees across the plate and put a radial gradient into fresnel and the
-    // env mask that read as a lens artefact rather than water.
-    vec3 viewDirection = normalize(vec3(
-      viewMatrix[0][2],
-      viewMatrix[1][2],
-      viewMatrix[2][2]
-    ));
+    vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
     float islandDistance = length(vWaterPosition - uIslandCenter);
     float envMask = smoothstep(30.0, 110.0, islandDistance) * (0.2 + 0.8 * depth);
     // T1.4 (2026-09-07): was harborCalm * 0.75 — the harbour ellipse was the
@@ -933,6 +976,19 @@ ${gardenHeightFogGlsl()}
     ));
     float fresnel = 0.02
       + 0.98 * pow(1.0 - max(0.0, dot(fresnelNormal, viewDirection)), 5.0);
+    // The local hero image sits under the probe fresnel, never in open water.
+    float heroMask = (1.0 - smoothstep(30.0, 45.0, islandDistance))
+      * mirrorZone * seaReflectivity * uHeroReflectionStrength;
+    if (heroMask > 0.001) {
+      vec4 heroClip = uHeroReflectionMatrix * vec4(vWorldPosition, 1.0);
+      vec2 heroUv = heroClip.xy / heroClip.w * 0.5 + 0.5;
+      heroUv += surfaceNormal.xy * 0.008;
+      if (heroClip.w > 0.0 && all(greaterThanEqual(heroUv, vec2(0.0)))
+        && all(lessThanEqual(heroUv, vec2(1.0)))) {
+        vec4 hero = texture2D(uHeroReflection, heroUv);
+        waterColor = mix(waterColor, hero.rgb, clamp(heroMask * hero.a, 0.0, 0.85));
+      }
+    }
     waterColor = mix(
       waterColor,
       skySample,
@@ -1294,28 +1350,6 @@ ${gardenHeightFogGlsl()}
     }
     waterColor = mix(waterColor, uBeaconColor, clamp(beaconReflection, 0.0, 0.2));
 
-    {
-      vec2 fromTower = vWaterPosition - uBeaconPosition;
-      // Camera-facing +world X/+world Z is +local X/-local Y on the water.
-      vec2 columnDirection = normalize(vec2(1.0, -1.0));
-      float alongColumn = dot(fromTower, columnDirection);
-      float acrossColumn = abs(dot(fromTower, vec2(-columnDirection.y, columnDirection.x)));
-      float columnWidth = 1.6 + max(0.0, alongColumn) * 0.10;
-      float column = smoothstep(0.0, 1.5, alongColumn)
-        * (1.0 - smoothstep(16.0, 44.0, alongColumn))
-        * exp(-(acrossColumn * acrossColumn) / max(0.05, columnWidth * columnWidth));
-      float bands = 0.45 + 0.55 * smoothstep(
-        0.25, 0.85,
-        0.5 + 0.5 * sin(alongColumn * 1.35 - uTime * 0.55 + surfaceNormal.x * 5.0)
-      );
-      float columnLight = clamp(uNight + uDusk * 0.85, 0.0, 1.0);
-      waterColor = mix(
-        waterColor,
-        uBeaconColor,
-        clamp(column * bands * columnLight * seaReflectivity * 0.34, 0.0, 0.42)
-      );
-    }
-
     if (uRippleStrength > 0.01) {
       float shoreWorld = length(vWaterPosition - uIslandCenter - vec2(0.6, -1.2))
         - uRockRadius;
@@ -1409,13 +1443,19 @@ ${gardenHeightFogGlsl()}
 
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
-    #include <fog_fragment>
+    #ifdef USE_FOG
+      #ifdef FOG_EXP2
+        float fogFactor = 1.0 - exp(-fogDensity * fogDensity * camDistance * camDistance);
+      #else
+        float fogFactor = smoothstep(fogNear, fogFar, camDistance);
+      #endif
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
+    #endif
 
     gl_FragColor.rgb = gardenApplyHeightFog(
       gl_FragColor.rgb,
       vWorldPosition,
-      vFogDepth,
-      // T0.1 (2026-09-07): parallel ortho ray, not a per-fragment radial one.
+      camDistance,
       -viewDirection
     );
 
@@ -1429,8 +1469,7 @@ ${gardenHeightFogGlsl()}
     gl_FragColor.rgb = gardenApplyLocalizedHeightFog(
       gl_FragColor.rgb,
       vWorldPosition,
-      vFogDepth,
-      // T0.1 (2026-09-07): parallel ortho ray, not a per-fragment radial one.
+      camDistance,
       -viewDirection,
       uPegSummaryEpistemicHaze * riskWater * epistemicMist
     );
@@ -1505,13 +1544,15 @@ export interface GardenWater {
 export type GardenWaterZone = GardenWaterZoneTint;
 
 /**
- * One finite water surface — the Garden Sea plate. Banded depth color, sky env
- * tint, sun glitter, drifting cloud shadows, and karesansui ripple rings by
+ * The detailed Garden Sea plate over a camera-following open sea. Banded depth
+ * color, sky env tint, sun glitter, cloud shadows, and karesansui ripple rings by
  * day; the authored moon road and the shared light-lane registry keep the
  * Lantern Sea identity at night. W6 (Pharos Wonder): the beacon lane breathes
  * with the flame flicker and breaks into scrolled-noise firelight streaks, a
  * warm caustic glow laps the island rock, and hard-stepped foam rings expand
  * through the near-shore band — all on the analytic shore SDF, no depth pass.
+ * The annulus and inner skirt share the swell clock and sky probe, but omit
+ * plate-local effects and dissolve into the horizon fog rather than sky void.
  * Reduced motion resets every animation to one static time-zero frame;
  * cloud shadows and glitter ship at balanced+ and ripple rings at full/balanced.
  */
@@ -1576,6 +1617,10 @@ export function createGardenWater(waterLevel: number): GardenWater {
   const regionTransform = new Vector4(0, 0, 1 / regionExtent, -1 / regionExtent);
   const uniforms = {
     ...gardenHeightFogUniforms,
+    uAnnulus: { value: 0 },
+    uHeroReflection: { value: null as Texture | null },
+    uHeroReflectionMatrix: { value: new Matrix4() },
+    uHeroReflectionStrength: { value: 0 },
     fogColor: { value: new Color() },
     fogFar: { value: 1_000 },
     fogNear: { value: 1 },
@@ -1696,6 +1741,34 @@ export function createGardenWater(waterLevel: number): GardenWater {
   mesh.name = "garden-water";
   mesh.position.y = waterLevel;
   mesh.rotation.x = -Math.PI / 2;
+  // A hollow eye-centred ring would expose sky beneath the eye. Its inner
+  // skirt fills that hole and underlays the plate's translucent edge.
+  const annulusMaterial = new ShaderMaterial({
+    fog: true,
+    fragmentShader: FRAGMENT_SHADER,
+    vertexShader: VERTEX_SHADER,
+    uniforms: { ...uniforms, uAnnulus: { value: 1 } },
+    depthWrite: true,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 16,
+  });
+  const annulusInnerRadius = plateSize * Math.SQRT1_2 + 4;
+  const annulus = new Mesh(
+    new RingGeometry(annulusInnerRadius, SEA_ANNULUS_OUTER_RADIUS, 48, 24),
+    annulusMaterial,
+  );
+  annulus.name = "garden-sea-annulus";
+  annulus.frustumCulled = false;
+  annulus.renderOrder = mesh.renderOrder - 2;
+  annulus.raycast = () => {};
+  const innerSea = new Mesh(new RingGeometry(0, annulusInnerRadius, 48, 8), annulusMaterial);
+  innerSea.name = "garden-sea-inner-skirt";
+  innerSea.frustumCulled = false;
+  innerSea.renderOrder = annulus.renderOrder + 1;
+  innerSea.raycast = () => {};
+  annulus.add(innerSea);
+  mesh.add(annulus);
   // Raw ShaderMaterial does not opt into scene.environment, but Three's
   // program builder will provide its CubeUV defines/chunk when `envMap` is set
   // on the material. Bind immediately before the draw: this follows every
@@ -1713,6 +1786,25 @@ export function createGardenWater(waterLevel: number): GardenWater {
       material.needsUpdate = true;
     }
     uniforms.uEnvironmentIntensity.value = nextEnvironment
+      ? renderScene.environmentIntensity
+      : 0;
+  };
+  const annulusEnvironmentMaterial = annulusMaterial as EnvironmentShaderMaterial;
+  annulusEnvironmentMaterial.envMap = null;
+  const annulusEye = new Vector3();
+  annulus.onBeforeRender = (_renderer, renderScene, camera) => {
+    camera.getWorldPosition(annulusEye);
+    annulusEye.y = waterLevel;
+    mesh.worldToLocal(annulusEye);
+    annulus.position.copy(annulusEye);
+    annulus.updateWorldMatrix(false, true);
+    const nextEnvironment = renderScene.environment;
+    if (annulusEnvironmentMaterial.envMap !== nextEnvironment) {
+      annulusEnvironmentMaterial.envMap = nextEnvironment;
+      annulusMaterial.needsUpdate = true;
+    }
+    annulusMaterial.uniforms.envMap!.value = nextEnvironment;
+    annulusMaterial.uniforms.uEnvironmentIntensity!.value = nextEnvironment
       ? renderScene.environmentIntensity
       : 0;
   };
@@ -1827,6 +1919,9 @@ export function createGardenWater(waterLevel: number): GardenWater {
       mesh.removeFromParent();
       mesh.geometry.dispose();
       material.dispose();
+      annulus.geometry.dispose();
+      innerSea.geometry.dispose();
+      annulusMaterial.dispose();
       regionField.field.dispose();
       regionField.distance.dispose();
       cloudShadows.texture.dispose();
@@ -1836,8 +1931,10 @@ export function createGardenWater(waterLevel: number): GardenWater {
       uniforms.uLaneTexture.value = null;
       uniforms.uWakeMap.value = null;
       uniforms.uNormalMap.value = null;
+      uniforms.uHeroReflection.value = null;
       uniforms.envMap.value = null;
       environmentMaterial.envMap = null;
+      annulusEnvironmentMaterial.envMap = null;
       rippleEmitters.clear();
     },
     cloudShadowsOn() {

@@ -12,6 +12,7 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
+  PerspectiveCamera,
   Scene,
   ShaderMaterial,
   Texture,
@@ -36,9 +37,15 @@ import type {
   ThreeLogoAssets,
   ThreeWorldRendererFrame,
 } from "../renderer/world-renderer-backend";
-import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
+import type { CameraBreath, PharosVilleRenderSchedulerTier } from "../renderer/render-types";
 import { defaultCamera } from "../systems/camera";
-import { gardenWaterPlateContainsTile, screenToGround } from "../systems/projection";
+import {
+  cameraEye,
+  cameraPoseFromIso,
+  gardenWaterPlateContainsTile,
+  screenToGround,
+  TILE_SCALE,
+} from "../systems/projection";
 import { HARBOR_PALETTE } from "../systems/palette";
 import {
   bearingInsideRimOpening,
@@ -70,6 +77,7 @@ import {
   MAX_GARDEN_LIGHT_LANES,
 } from "./garden-lanterns";
 import { gardenQuayEpistemicHazeUniform } from "./garden-height-fog";
+import { GARDEN_HERO_REFLECTION_LAYER } from "./garden-hero-reflection-pass";
 import {
   FLIGHT_TENDERS_MESH_NAME,
   FLIGHT_TENDERS_PER_TITAN,
@@ -80,7 +88,6 @@ import { WAKE_TRAIL_QUADS } from "./garden-wake-batch";
 import {
   createThreeWorldRenderer,
   disposeThreeObjectTree,
-  gardenStaticShadowBounds,
   gardenHarborLanternLaneId,
   gardenStationRouteEndpoints,
   gardenMistBoundaryTile,
@@ -91,42 +98,6 @@ import {
   sampleGardenShipTransition,
   type GardenShipTransitionSpec,
 } from "./world-renderer";
-
-describe("garden static shadow bounds", () => {
-  it("centres a padded square on the island and remote station roots", () => {
-    const points = [
-      { x: 60, z: 64 },
-      { x: 14, z: 74 },
-      { x: 131, z: 15 },
-      { x: 121, z: 131 },
-    ];
-    const bounds = gardenStaticShadowBounds(points, 12);
-
-    expect(bounds.centerX).toBeCloseTo(72.5);
-    expect(bounds.centerZ).toBeCloseTo(73);
-    expect(bounds.radius).toBeCloseTo(70.5);
-    for (const point of points) {
-      expect(Math.abs(point.x - bounds.centerX)).toBeLessThanOrEqual(bounds.radius - 12);
-      expect(Math.abs(point.z - bounds.centerZ)).toBeLessThanOrEqual(bounds.radius - 12);
-    }
-  });
-
-  it("includes the finite rim mesh extents in the world-derived fit", () => {
-    const edge = 140 * Math.SQRT2;
-    const bounds = gardenStaticShadowBounds([
-      { x: 0, z: 0 },
-      { x: edge, z: 0 },
-      { x: 0, z: edge },
-      { x: edge, z: edge },
-      { x: 14, z: 74 },
-      { x: 131, z: 15 },
-    ], 28);
-
-    expect(bounds.centerX).toBeCloseTo(edge / 2);
-    expect(bounds.centerZ).toBeCloseTo(edge / 2);
-    expect(bounds.radius).toBeCloseTo(edge / 2 + 28);
-  });
-});
 
 describe("engawa lantern lane", () => {
   it("displaces harbor-lantern.11 without removing its shore mesh", () => {
@@ -222,7 +193,9 @@ type TestWebGlRenderer = {
     render: { calls: number; lines: number; points: number; triangles: number };
   };
   initTexture: ReturnType<typeof vi.fn>;
+  render: { mock: { calls: unknown[][] } };
   lastScene: Scene | null;
+  lastCamera: PerspectiveCamera | null;
   renderLists: { dispose: ReturnType<typeof vi.fn> };
   setPixelRatio: ReturnType<typeof vi.fn>;
 };
@@ -400,6 +373,11 @@ vi.mock("three", async (importOriginal) => {
       return color;
     });
     getRenderTarget = vi.fn(() => null);
+    getActiveCubeFace = vi.fn(() => 0);
+    getActiveMipmapLevel = vi.fn(() => 0);
+    getDrawingBufferSize = vi.fn((size: { set: (width: number, height: number) => unknown }) => (
+      size.set(1440, 1000)
+    ));
     initTexture = vi.fn();
     info = {
       // `autoReset` and `reset()` mirror the real WebGLRenderer: the renderer
@@ -416,9 +394,11 @@ vi.mock("three", async (importOriginal) => {
       }),
     };
     lastScene: Scene | null = null;
+    lastCamera: PerspectiveCamera | null = null;
     outputColorSpace = "";
-    render = vi.fn((scene: Scene) => {
+    render = vi.fn((scene: Scene, camera: PerspectiveCamera) => {
       this.lastScene = scene;
+      this.lastCamera = camera;
       this.info.render.calls += 1;
       this.info.render.triangles += 2;
     });
@@ -435,6 +415,7 @@ vi.mock("three", async (importOriginal) => {
       this.domElement = canvas;
       rendererHarness.instances.push(this);
     }
+    xr = { enabled: false };
   }
   return {
     ...actual,
@@ -720,9 +701,16 @@ describe("Three world renderer lifecycle", () => {
     });
     expect(first.environmentBakeCount).toBe(1);
     expect(first.environmentBakeCountChange).toBe(1);
-    expect(first.gpu.sceneCalls).toBe(1);
+    expect(first.gpu.sceneCalls).toBe(2);
     expect(first.gpu.offscreenCalls).toBe(0);
     expect(first.gpu.calls).toBe(first.gpu.sceneCalls + first.gpu.offscreenCalls);
+    const firstFrameRenders = webGlRenderer.render.mock.calls.slice(0, 2);
+    expect(firstFrameRenders.filter(([, renderCamera]) => (
+      (renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    ))).toHaveLength(1);
+    expect(firstFrameRenders.filter(([, renderCamera]) => (
+      !(renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    ))).toHaveLength(1);
     expect(first.textureOwnerCensus).toMatchObject({
       minimumUnattributedRendererTextures: 0,
       rendererTextures: 1,
@@ -734,9 +722,9 @@ describe("Three world renderer lifecycle", () => {
     const second = renderer.render(wakeFrame(2));
     expect(second.environmentBakeCountChange).toBe(0);
     expect(second.environmentBakeCalls).toBe(0);
-    expect(second.gpu.sceneCalls).toBe(1);
+    expect(second.gpu.sceneCalls).toBe(2);
     expect(second.gpu.offscreenCalls).toBe(2);
-    expect(second.gpu.calls).toBe(3);
+    expect(second.gpu.calls).toBe(4);
 
     renderer.dispose();
   });
@@ -747,7 +735,9 @@ describe("Three world renderer lifecycle", () => {
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
     });
+    const webGlRenderer = rendererHarness.instances.at(-1)!;
     const freshMetrics = renderer.render(rendererFrame(freshWorld, "full", { reducedMotion: true }));
+    const freshRenderCalls = webGlRenderer.render.mock.calls.slice();
     const scene = rendererHarness.instances.at(-1)!.lastScene!;
     const water = scene.getObjectByName("garden-water") as Mesh;
     const waterMaterial = water.material as ShaderMaterial;
@@ -759,12 +749,28 @@ describe("Three world renderer lifecycle", () => {
       freshness: { chainsStale: true, pegSummaryStale: true },
     };
     const staleMetrics = renderer.render(rendererFrame(staleWorld, "full", { reducedMotion: true }));
+    const staleRenderCalls = webGlRenderer.render.mock.calls.slice(freshRenderCalls.length);
 
     expect(scene.getObjectByName("garden-water")).toBe(water);
     expect(waterMaterial.uniforms.uPegSummaryEpistemicHaze!.value).toBe(1);
     expect(gardenQuayEpistemicHazeUniform.value).toBe(1);
     expect(staleMetrics.objectCount).toBe(freshMetrics.objectCount);
-    expect(staleMetrics.gpu.sceneCalls).toBe(freshMetrics.gpu.sceneCalls);
+    // Reduced motion holds the already-rendered hero reflection: the fresh
+    // frame draws one reflection and one scene, while the stale update only
+    // redraws the scene. The unchanged water and quay uniforms above are the
+    // observable staleness routes; they do not require synthetic extra draws.
+    expect(freshRenderCalls.filter(([, renderCamera]) => (
+      (renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    ))).toHaveLength(1);
+    expect(freshRenderCalls.filter(([, renderCamera]) => (
+      !(renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    ))).toHaveLength(1);
+    expect(staleRenderCalls.filter(([, renderCamera]) => (
+      (renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    ))).toHaveLength(0);
+    expect(staleRenderCalls.filter(([, renderCamera]) => (
+      !(renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    ))).toHaveLength(1);
     renderer.dispose();
   });
 
@@ -879,6 +885,81 @@ describe("Three world renderer lifecycle", () => {
 
     renderer.dispose();
     expect(post.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("projects depth with a perspective camera and holds shadows through sub-threshold breathing", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    const frame = rendererFrame(world, "full");
+    renderer.render(frame);
+    const camera = rendererHarness.instances.at(-1)!.lastCamera!;
+    expect(camera).toBeInstanceOf(PerspectiveCamera);
+    const near = new Vector3(1, 0, -10).applyMatrix4(camera.projectionMatrix);
+    const far = new Vector3(1, 0, -20).applyMatrix4(camera.projectionMatrix);
+    expect(near.x).toBeCloseTo(far.x * 2);
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    const light = scene.children.find((object) => object instanceof DirectionalLight) as DirectionalLight;
+    const shadowProjection = light.shadow.camera.projectionMatrix.clone();
+    const shadowPosition = light.position.clone();
+    frame.camera.offsetX += 0.01;
+    renderer.render(frame);
+    expect(light.shadow.camera.projectionMatrix.equals(shadowProjection)).toBe(true);
+    expect(light.position.equals(shadowPosition)).toBe(true);
+    renderer.dispose();
+  });
+
+  it("applies camera breath around a fixed target and treats zero breath as the base eye", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
+    });
+    const zeroFrame = rendererFrame(world, "full", {
+      cameraBreath: { dolly: 1, pitch: 0, yaw: 0 },
+    });
+    const basePose = cameraPoseFromIso(zeroFrame.camera, {
+      x: zeroFrame.width,
+      y: zeroFrame.height,
+    });
+    const baseEye = cameraEye(basePose);
+
+    renderer.render(zeroFrame);
+    const camera = rendererHarness.instances.at(-1)!.lastCamera!;
+    expect(camera.position.toArray()).toEqual([
+      baseEye.x,
+      baseEye.y,
+      baseEye.z,
+    ]);
+
+    const breath = {
+      dolly: 1.015,
+      pitch: Math.PI / 180,
+      yaw: 2 * Math.PI / 180,
+    };
+    renderer.render({ ...zeroFrame, cameraBreath: breath });
+    const target = new Vector3(
+      basePose.targetTile.x * TILE_SCALE,
+      0,
+      basePose.targetTile.y * TILE_SCALE,
+    );
+    const targetToEye = camera.position.clone().sub(target);
+    expect(targetToEye.length()).toBeCloseTo(basePose.distance * breath.dolly, 10);
+    expect(Math.asin(targetToEye.y / targetToEye.length())).toBeCloseTo(
+      basePose.pitch + breath.pitch,
+      10,
+    );
+    expect(Math.atan2(targetToEye.x, targetToEye.z)).toBeCloseTo(
+      basePose.yaw + breath.yaw,
+      10,
+    );
+    const viewDirection = camera.getWorldDirection(new Vector3());
+    const groundDistance = -camera.position.y / viewDirection.y;
+    expect(camera.position.clone().addScaledVector(viewDirection, groundDistance).distanceTo(target))
+      .toBeLessThan(1e-10);
+    renderer.dispose();
   });
 
   it("removes the shadow sampler on a cold constrained start and restores recovery shadows", () => {
@@ -1044,10 +1125,17 @@ describe("Three world renderer lifecycle", () => {
 
     renderer.render(rendererFrame(world, "full", { cameraZoom: 0.648, timeSeconds: 1 }));
     const contentRoot = rendererHarness.instances.at(-1)!.lastScene!.children.at(-1)!;
-    const props = new Map(OVERVIEW_LOD_DETAIL_NAMES.map((name) => [
+    // The landing torii replaces the obelisks as a primary island silhouette,
+    // so it remains drawn at overview rather than joining the detail LOD.
+    const composedOverviewNames = OVERVIEW_LOD_DETAIL_NAMES.filter(
+      (name) => name !== "pharos-precinct-obelisks",
+    );
+    const props = new Map(composedOverviewNames.map((name) => [
       name,
       namedObjects(contentRoot, name),
     ]));
+    const landingTorii = namedObjects(contentRoot, "island-landing-torii");
+    expect(landingTorii.length, "no composed landing torii").toBeGreaterThan(0);
 
     // Every name the policy claims must still exist in the composed world; a
     // rename upstream must fail here rather than silently un-cull the frame.
@@ -1066,6 +1154,7 @@ describe("Three world renderer lifecycle", () => {
     for (const [name, objects] of props) {
       expect(objects.every((object) => !object.visible), `${name} still drawn`).toBe(true);
     }
+    expect(landingTorii.every((object) => object.visible), "landing torii was shed").toBe(true);
 
     renderer.render(rendererFrame(world, "full", { cameraZoom: 0.648, timeSeconds: 21 }));
     for (const entry of authored) {
@@ -1408,7 +1497,11 @@ describe("W4.2 garden-tempo transition queue", () => {
       .find((entry) => entry.ship.riskZone !== "danger")!.ship;
     const lowChurn = withDangerShips(worldA, new Set([subject.id]));
     const massCount = Math.ceil(worldA.ships.length * 0.2);
-    const massIds = new Set(worldA.ships.slice(0, massCount).map((ship) => ship.id));
+    // Only ships that actually change band count toward the 20 % churn; the
+    // stable berth solve no longer moves bystanders, so danger ships would not.
+    const massIds = new Set(
+      worldA.ships.filter((ship) => ship.riskZone !== "danger").slice(0, massCount).map((ship) => ship.id),
+    );
     massIds.add(subject.id);
     const massChurn = withDangerShips(worldA, massIds);
     const renderer = createThreeWorldRenderer({
@@ -1913,6 +2006,7 @@ function rendererFrame(
   tier: PharosVilleRenderSchedulerTier,
   options: {
     cameraZoom?: number;
+    cameraBreath?: CameraBreath;
     dpr?: number;
     hoveredDetailId?: string | null;
     reducedMotion?: boolean;
@@ -1939,6 +2033,7 @@ function rendererFrame(
   return {
     logos: emptyLogoAssets,
     camera,
+    ...(options.cameraBreath ? { cameraBreath: options.cameraBreath } : {}),
     dpr: options.dpr ?? 1,
     height: 1000,
     hoveredDetailId: options.hoveredDetailId ?? null,

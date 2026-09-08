@@ -1,17 +1,20 @@
 import {
-  GARDEN_ISLAND_TILE_OFFSET,
+  gardenIslandDisplayTile,
   GARDEN_LIGHTHOUSE_HEIGHT,
   GARDEN_LIGHTHOUSE_ROOT_OFFSET,
 } from "./garden-observatory-slice";
+import { topHarboursByShare } from "./chain-docks";
+import { EVM_BAY_STATION_SLOTS, LIGHTHOUSE_TILE } from "./world-layout";
+import type { DockNode } from "./world-types";
 import type { IsoCamera, MapLike, ScreenPoint } from "./projection";
 import {
-  fitCameraToMap,
   GARDEN_FIT_CAMERA_MIN_ZOOM,
   mapIsoBounds,
   minZoomForViewport,
-  TILE_HEIGHT,
+  screenToGround,
   tileToIso,
-  TILE_WIDTH,
+  TILE_SCALE,
+  worldToScreen,
   zoomCameraAt,
 } from "./projection";
 
@@ -26,28 +29,10 @@ export interface CameraBoundsInput {
   };
 }
 
-/**
- * Resting frame. Warm-village A1 (2026-09-05) sailed the rest in to 1.0;
- * the operator's verdict the next day was that the world felt small and
- * needed constant zooming to see the fleet, so the rest opened back out to
- * `GARDEN_FIT_CAMERA_MIN_ZOOM` (0.72 — about twice the 1.0 frame's area,
- * still well inside the retired 0.612 plate). Standard desktops rest exactly
- * here; compact gates rest slightly lower while seating the landing interval
- * (see `defaultCamera`). Whole-map remains the explicit zoom-out via
- * `minZoomForViewport`.
- */
+/** Reference scale for distance-authored scenery, not a fixed resting zoom. */
 export const GARDEN_DEFAULT_CAMERA_ZOOM = GARDEN_FIT_CAMERA_MIN_ZOOM;
-/** The rest never opens this wide, even where the landing interval cannot seat. */
-export const GARDEN_REST_ZOOM_FLOOR = 0.6;
-const LANDING_PHAROS_TILE = { x: 60, y: 70 } as const;
-const LANDING_ETHEREUM_MOLE_TILE = { x: 15, y: 95 } as const;
-/**
- * Epic Pharos 2026-09-05: 36px of crown sky preserves the authored 0.8 rest
- * floor. At the 640px laptop gate the near island cliff may slide under the
- * footer; the crown, lantern, tower and precinct retain the frame priority.
- * Do not shrink the warm-village rest to preserve that subordinate scenery.
- */
-const LANDING_CROWN_SKY_PX = 36;
+/** Widest authored rest; whole-map framing remains an explicit zoom-out. */
+export const GARDEN_REST_ZOOM_FLOOR = 0.55;
 
 function cameraPadding(input?: CameraBoundsInput["padding"]) {
   return {
@@ -62,59 +47,115 @@ export function defaultCamera(input: {
   height: number;
   map: MapLike;
   width: number;
+  subjects?: readonly DockNode[];
 }): IsoCamera {
-  const padding = cameraPadding();
-  const fitted = fitCameraToMap({ ...input, padding });
-  const pharosIso = tileToIso(LANDING_PHAROS_TILE);
-  const moleIso = tileToIso(LANDING_ETHEREUM_MOLE_TILE);
-  // The rendered tower rises from the lighthouse's display anchor, above the
-  // flat map bounds `fitCameraToMap` frames. At the 1.0 rest it spans ~half
-  // the frame height, so the crown — not the flat-map fit — owns the
-  // vertical seat. Iso rise of a world-y unit under the 30-degree pitch.
-  const isoYPerWorldUnit = TILE_HEIGHT * (Math.sqrt(3) / 2);
-  const towerIsoY = tileToIso({
-    x: LANDING_PHAROS_TILE.x
-      + GARDEN_ISLAND_TILE_OFFSET.x
-      + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x / Math.SQRT2,
-    y: LANDING_PHAROS_TILE.y
-      + GARDEN_ISLAND_TILE_OFFSET.y
-      + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z / Math.SQRT2,
-  }).y;
-  const crownIsoY = towerIsoY
-    - (GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT) * isoYPerWorldUnit;
-  // Resting rule: rest at GARDEN_DEFAULT_CAMERA_ZOOM wherever the authored
-  // landing composition seats, fitting it instead when the viewport is too
-  // narrow, and never resting below GARDEN_REST_ZOOM_FLOOR.
-  //
-  // The composition: the Mole is seated half a tile inside the left water
-  // margin, which spans -moleIso.x of iso space to the island centre; the
-  // island centre must not spend the 128px right-hand anchorage gutter (the
-  // water east of the island stays empty — ma, not missing content). The
-  // widest zoom honouring both is (width - gutter - half-tile inset) /
-  // mole span, e.g. 0.825 on the 1200px gate — above the rest, so every
-  // supported gate rests at the same zoom. Below the
-  // floor the gutter wins and the Mole quay waits off-frame to the west:
-  // the lighthouse remains the primary anchor. Viewports so large the plate
-  // itself fills the screen keep their fit (up to 1.25) rather than being
-  // pulled back to the rest target.
-  const landingIntervalZoom = (input.width - padding.right - TILE_WIDTH / 2) / -moleIso.x;
-  const zoom = Math.max(
-    GARDEN_REST_ZOOM_FLOOR,
-    Math.min(fitted.zoom, landingIntervalZoom),
-  );
-  const pharosScreenX = TILE_WIDTH / 2 + (pharosIso.x - moleIso.x) * zoom;
-  const authoredOffsetX = pharosScreenX - pharosIso.x * zoom;
-  return clampCameraToMap(
-    {
-      offsetX: Math.min(authoredOffsetX, input.width - padding.right),
-      offsetY: LANDING_CROWN_SKY_PX - crownIsoY * zoom,
+  const viewport = { x: input.width, y: input.height };
+  const island = gardenIslandDisplayTile(LIGHTHOUSE_TILE);
+  const base = {
+    x: island.x * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x,
+    y: GARDEN_LIGHTHOUSE_ROOT_OFFSET.y,
+    z: island.y * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z,
+  };
+  const crown = { ...base, y: base.y + GARDEN_LIGHTHOUSE_HEIGHT };
+  const mole = EVM_BAY_STATION_SLOTS[0]!.cove.tile;
+  const harbours = topHarboursByShare(input.subjects ?? [], 3);
+  // A southern station remains a subject even when its share is outside the
+  // leading three. Without a world, the Pharos/Mole pair owns the landing.
+  const southern = topHarboursByShare(
+    (input.subjects ?? []).filter((dock) => dock.tile.y >= 112), 1,
+  )[0];
+  if (southern && !harbours.includes(southern)) harbours.push(southern);
+  const points = [mole, ...harbours.map((dock) => dock.tile)];
+  let best = { offsetX: 0, offsetY: 0, zoom: GARDEN_REST_ZOOM_FLOOR };
+  let bestViolation = Infinity;
+  let bestAim = Infinity;
+  let bestTarget = island;
+
+  const seat = (target: ScreenPoint, zoom: number): IsoCamera => {
+    const iso = tileToIso(target);
+    return {
+      offsetX: viewport.x / 2 - iso.x * zoom,
+      offsetY: viewport.y / 2 - iso.y * zoom,
       zoom,
-    },
-    {
-      map: input.map,
-      viewport: { x: input.width, y: input.height },
-    },
+    };
+  };
+  const interval = (value: number, low: number, high: number) => (
+    Math.max(0, low - value, value - high)
   );
+  const inspect = (target: ScreenPoint, zoom: number) => {
+    const camera = seat(target, zoom);
+    const top = worldToScreen(crown, camera, viewport);
+    const foot = worldToScreen(base, camera, viewport);
+    const tx = top.x / viewport.x;
+    const ty = top.y / viewport.y;
+    const bx = foot.x / viewport.x;
+    const by = foot.y / viewport.y;
+    // Crown air is non-negotiable. The short gate's low eye cannot seat a
+    // 38-unit tower at a 45%-height base; prefer the closest feasible base
+    // over clipping its crown to imitate the retired orthographic shot.
+    let violation = 1000 * (interval(tx, 0.56, 0.68) + interval(bx, 0.56, 0.68)
+      + interval(ty, 0.041, 0.30)) + interval(by, 0.25, 0.50);
+    for (const tile of points) {
+      const projected = worldToScreen(
+        { x: tile.x * TILE_SCALE, y: 0, z: tile.y * TILE_SCALE }, camera, viewport,
+      );
+      const x = projected.x / viewport.x;
+      const y = projected.y / viewport.y;
+      if (tile === mole || tile === southern?.tile) {
+        violation += 1000 * (interval(x, 0.04, 0.96) + interval(y, 0.04, 0.96));
+      }
+      // A tapered approach joins bottom-centre to the island's foot. The
+      // island is its endpoint, never an obstacle within the water interval.
+      if (y > by + 0.04 && y <= 1) {
+        const centre = bx + (0.5 - bx) * (y - by) / (1 - by);
+        violation += 1000 * Math.max(0, 0.045 - Math.abs(x - centre));
+      }
+      if (x >= 0 && x < 0.15 && y > 0.85 && y <= 1) {
+        violation += 1000 * Math.min(0.15 - x, y - 0.85);
+      }
+    }
+    const aim = Math.abs(tx - 0.62) + Math.abs(by - 0.40);
+    if (violation < bestViolation - 1e-9
+      || (Math.abs(violation - bestViolation) <= 1e-9
+        && (zoom > best.zoom || (zoom === best.zoom && aim < bestAim)))) {
+      best = camera;
+      bestTarget = target;
+      bestViolation = violation;
+      bestAim = aim;
+    }
+  };
+
+  // Seed each zoom by seating the base through the same perspective inverse
+  // used for picking; search ground-target offsets, then refine the best cell.
+  for (let step = 0; step <= 9; step += 1) {
+    const zoom = 1 - step * 0.05;
+    const seed = seat(island, zoom);
+    const underFoot = screenToGround(
+      { x: viewport.x * 0.62, y: viewport.y * 0.32 }, seed, viewport, base.y,
+    );
+    const target = {
+      x: island.x + base.x / TILE_SCALE - underFoot.x,
+      y: island.y + base.z / TILE_SCALE - underFoot.y,
+    };
+    for (let x = -48; x <= 48; x += 6) {
+      for (let y = -48; y <= 48; y += 6) {
+        inspect({ x: target.x + x, y: target.y + y }, zoom);
+      }
+    }
+  }
+  const coarseTarget = bestTarget;
+  const coarseZoom = best.zoom;
+  for (let step = -5; step <= 5; step += 1) {
+    const zoom = Math.max(GARDEN_REST_ZOOM_FLOOR, Math.min(1, coarseZoom + step * 0.01));
+    for (let x = -6; x <= 6; x += 0.5) {
+      for (let y = -6; y <= 6; y += 0.5) {
+        inspect({ x: coarseTarget.x + x, y: coarseTarget.y + y }, zoom);
+      }
+    }
+  }
+  // Map clamping is an orthographic navigation bound, not a rest-shot fit:
+  // applying it here would undo the projected subject constraints.
+  return best;
 }
 
 export function clampCameraToMap(camera: IsoCamera, input: CameraBoundsInput): IsoCamera {

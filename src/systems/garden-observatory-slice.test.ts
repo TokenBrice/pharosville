@@ -34,7 +34,7 @@ import {
 import { buildBaseMotionPlan, resolveShipMotionSample } from "./motion";
 import { MOTION_TRANSITION_SHARE } from "./motion-config";
 import { gardenShipWaterMarginTiles, isGardenShipWater } from "./garden-water-exclusion";
-import { tileToScreen } from "./projection";
+import { TILE_SCALE, worldToScreen } from "./projection";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
 
 describe("Garden Observatory slice", () => {
@@ -185,10 +185,11 @@ describe("Garden Observatory slice", () => {
           GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
         );
         const reach = Math.hypot(mooring.x - home.x, mooring.y - home.y);
+        // Anchorage patrols exclude dock aprons; the voyage may enter them.
         const patrolIsOpen = [0, 3].every((drift) => isGardenShipWater({
           x: home.x + placement.displayOffset.x + drift,
           y: home.y + placement.displayOffset.y,
-        }, margin));
+        }, margin, true));
         const routeIsOpen = patrolIsOpen && reach > GARDEN_HOME_DRIFT_TILES && Array.from({ length: 41 }, (_, step) => {
           const t = step / 40;
           const offsetWeight = gardenHomeOffsetWeight(ship, reach * t);
@@ -217,7 +218,8 @@ describe("Garden Observatory slice", () => {
       ...placement,
       sample: { state: "risk-drift", tile: { x: home.x + 3, y: home.y } },
     });
-    expect(isGardenShipWater(idle, margin)).toBe(true);
+    expect(isGardenShipWater(idle, margin, true)).toBe(true);
+    expect(isGardenShipWater(drifted, margin, true)).toBe(true);
     expect(Math.hypot(drifted.x - idle.x, drifted.y - idle.y)).toBeLessThan(3 + 1e-6);
 
     // Arrival: the legal open-water path from berth to mooring is continuous —
@@ -254,6 +256,8 @@ describe("Garden Observatory slice", () => {
         + voyage * (1 - MOTION_TRANSITION_SHARE) - route.phaseSeconds;
       const samples = [boundary - 0.001, boundary + 0.001].map((timeSeconds) =>
         resolveShipMotionSample({ plan, ship: placement.ship, timeSeconds, reducedMotion: false }));
+      // A phase-name change must not discard the shared water-field
+      // correction: sailing and arriving use the same dock-apron policy.
       expect(samples.map((sample) => sample.state)).toEqual(["sailing", "arriving"]);
       const points = samples.map((sample) => resolveGardenShipDisplayTile({ ...placement, sample }));
       expect(Math.hypot(points[1]!.x - points[0]!.x, points[1]!.y - points[0]!.y),
@@ -327,10 +331,18 @@ describe("Garden Observatory slice", () => {
     const tile = { x: 12.5, y: 7.25 };
     // Projection-only coverage uses the desktop baseline viewport.
     const viewport = { x: 1600, y: 1000 };
-    expect(gardenTileToScreen(tile, 0, camera, viewport)).toEqual(tileToScreen(tile, camera));
+    const projectedGround = gardenTileToScreen(tile, 0, camera, viewport);
+    expect(projectedGround).toEqual(worldToScreen(
+      { x: tile.x * TILE_SCALE, y: 0, z: tile.y * TILE_SCALE },
+      camera,
+      viewport,
+    ));
     const projectedShip = gardenTileToScreen(tile, GARDEN_SHIP_ROOT_Y, camera, viewport);
-    expect(projectedShip.x).toBe(784);
-    expect(projectedShip.y).toBeCloseTo(572.8267650887822);
+    expect(projectedShip).toEqual(worldToScreen(
+      { x: tile.x * TILE_SCALE, y: GARDEN_SHIP_ROOT_Y, z: tile.y * TILE_SCALE },
+      camera,
+      viewport,
+    ));
     expect(gardenCameraViewHeight(1_000, 1)).toBe(62.5);
   });
 

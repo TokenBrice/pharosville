@@ -82,18 +82,6 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 | Stablecoin ID | Scale |
 | --- | --- |
-| `buidl-blackrock` | `1.4` |
-| `dai-makerdao` | `1.06` |
-| `pyusd-paypal` | `1.4` |
-| `sdai-sky` | `0.94` |
-| `stusds-sky` | `0.98` |
-| `susde-ethena` | `0.95` |
-| `susds-sky` | `0.94` |
-| `usd1-world-liberty-financial` | `1.35` |
-| `usdc-circle` | `1.53` |
-| `usde-ethena` | `1.2` |
-| `usds-sky` | `1.15` |
-| `usdt-tether` | `1.7` |
 
 ## Heritage Hulls
 

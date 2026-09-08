@@ -73,7 +73,7 @@ describe("dock-assignment unique tier mooring placement", () => {
     expect(assign().map((ship) => ship.dockVisits)).toEqual(ships.map((ship) => ship.dockVisits));
   });
 
-  it("keeps a 0.8-floor skiff berth distinct from its anchorage so its voyage has length", () => {
+  it("keeps a 0.42-floor skiff berth distinct from its anchorage so its voyage has length", () => {
     const world = buildPharosVilleWorld(denseWorldInputs());
     const dock = world.docks.find((entry) => entry.chainId === "arbitrum")!;
     const source = world.ships.find((ship) => ship.visual.scale < 0.8)!;
@@ -87,7 +87,7 @@ describe("dock-assignment unique tier mooring placement", () => {
       id: "floor-skiff",
       marketCapUsd: 1,
       homeDockChainId: dock.chainId,
-      visual: { ...source.visual, scale: 0.55, sizeTier: "skiff" as const },
+      visual: { ...source.visual, scale: 0.3, sizeTier: "skiff" as const },
       chainPresence: [{
         chainId: dock.chainId,
         currentUsd: 1,
@@ -107,7 +107,7 @@ describe("dock-assignment unique tier mooring placement", () => {
     }], [dock]).ships;
     const berth = assigned[0]!.dockVisits[0]!.mooringTile;
 
-    expect(gardenShipVisualScale(skiff.visual.scale)).toBe(0.8);
+    expect(gardenShipVisualScale(skiff.visual.scale)).toBe(0.42);
     expect(berth).not.toEqual(anchorage);
     const route = buildBaseMotionPlan({ ...world, ships: assigned }).shipRoutes.get(skiff.id)!;
     expect([...route.waterPaths.values()].every((path) => path.totalLength > 0)).toBe(true);

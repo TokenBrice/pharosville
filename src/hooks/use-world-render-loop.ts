@@ -69,6 +69,10 @@ import {
 
 type MotionPlan = ReturnType<typeof buildMotionPlan>;
 
+const CAMERA_BREATH_INPUT_FREEZE_MS = 2_500;
+const CAMERA_BREATH_TWO_PI = Math.PI * 2;
+const STILL_CAMERA_BREATH = { dolly: 1, pitch: 0, yaw: 0 } as const;
+
 /** Which of the three ways the 3D renderer can retire itself fired. */
 type RendererFailureCause = "webgl-context" | "module-load" | "render-loop";
 
@@ -742,11 +746,24 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           previewSchedulerTier);
       }
       let renderMetrics: PharosVilleRenderMetrics;
+      const cameraBreathSuppressed = reducedMotion
+        || activeHoveredDetailId !== null
+        || activeSelectedDetailId !== null
+        || cameraStep.cameraIntentActive
+        || time - (lastInteractionAtMsRef.current ?? time) < CAMERA_BREATH_INPUT_FREEZE_MS;
+      const cameraBreath = cameraBreathSuppressed
+        ? STILL_CAMERA_BREATH
+        : {
+          dolly: 1 + 0.015 * Math.sin(CAMERA_BREATH_TWO_PI * motionTimeSeconds / 131 + 2.1),
+          pitch: Math.PI / 180 * Math.sin(CAMERA_BREATH_TWO_PI * motionTimeSeconds / 97 + 1.3),
+          yaw: 2 * Math.PI / 180 * Math.sin(CAMERA_BREATH_TWO_PI * motionTimeSeconds / 118),
+        };
       try {
         renderMetrics = threeRenderer.render({
           almanacEvent: almanacEvent ?? null,
           logos,
           camera: frameCamera,
+          cameraBreath,
           dpr,
           height: activeCanvasSize.y,
           hoveredDetailId: activeHoveredDetailId,

@@ -8,6 +8,8 @@ import {
   DirectionalLight,
   DoubleSide,
   Group,
+  Frustum,
+  Plane,
   HemisphereLight,
   InstancedMesh,
   Line,
@@ -20,7 +22,7 @@ import {
   MeshStandardMaterial,
   NeutralToneMapping,
   Object3D,
-  OrthographicCamera,
+  PerspectiveCamera,
   PCFShadowMap,
   PlaneGeometry,
   PointLight,
@@ -53,7 +55,6 @@ import {
   GARDEN_SHIP_ROOT_Y,
   gardenShipVisualScale,
   GARDEN_WATER_Y as WATER_LEVEL,
-  gardenCameraViewHeight,
   gardenDockDisplayTile,
   gardenIslandDisplayTile,
   gardenSemanticView,
@@ -84,8 +85,10 @@ import {
 } from "../systems/garden-water-exclusion";
 import {
   cameraPoseFromIso,
-  CAMERA_DISTANCE,
-  screenToGround,
+  cameraEye,
+  CAMERA_FOV_DEG,
+  CAMERA_NEAR,
+  CAMERA_FAR,
   TILE_SCALE,
 } from "../systems/projection";
 import { deriveEpistemicHaze } from "../systems/epistemic-haze";
@@ -135,9 +138,9 @@ import { createGardenSeaEdges, type GardenSeaEdges } from "./garden-sea-edges";
 import { SEA_BODY_TERRAIN, seaBodyForArea, type SeaBodyName } from "../systems/sea-bodies";
 import { createGardenIslets, type GardenIslets } from "./garden-islets";
 import {
-  createGardenHeroReflections,
-  type GardenHeroReflections,
-} from "./garden-hero-reflections";
+  createGardenHeroReflectionPass,
+  GARDEN_HERO_REFLECTION_LAYER,
+} from "./garden-hero-reflection-pass";
 import {
   createGardenShipGulls,
   GARDEN_GULL_SHIP_COUNT,
@@ -335,75 +338,39 @@ const GARDEN_FLEET_AERIAL_STRENGTH = 0.4;
 
 /** Epic Pharos 2026-09-05 sceptre tip — the tallest caster sizes the frustum. */
 const SHADOW_CASTER_HEIGHT = 38;
-/** Allowance around island/station roots for static architecture and foliage. */
-export const GARDEN_SHADOW_STATIC_FOOTPRINT_ALLOWANCE = 28;
-
-export interface GardenStaticShadowBounds {
-  centerX: number;
-  centerZ: number;
-  radius: number;
-}
-
-/**
- * Square shadow fit shared by the island, stations, and Wave B1's rim casters.
- * Ships stay out because moving casters would force a per-frame map redraw.
- */
-export function gardenStaticShadowBounds(
-  points: readonly { x: number; z: number }[],
-  footprintAllowance = GARDEN_SHADOW_STATIC_FOOTPRINT_ALLOWANCE,
-): GardenStaticShadowBounds {
-  if (points.length === 0) {
-    return { centerX: 0, centerZ: 0, radius: Math.max(0, footprintAllowance) };
-  }
-  let minX = points[0]!.x;
-  let maxX = minX;
-  let minZ = points[0]!.z;
-  let maxZ = minZ;
-  for (const point of points.slice(1)) {
-    minX = Math.min(minX, point.x);
-    maxX = Math.max(maxX, point.x);
-    minZ = Math.min(minZ, point.z);
-    maxZ = Math.max(maxZ, point.z);
-  }
-  return {
-    centerX: (minX + maxX) / 2,
-    centerZ: (minZ + maxZ) / 2,
-    radius: Math.max(maxX - minX, maxZ - minZ) / 2 + Math.max(0, footprintAllowance),
-  };
-}
-
 /** Conservative bootstrap until the first world-derived fit is applied. */
 const GARDEN_SHADOW_INITIAL_RADIUS = 128;
-/**
- * Ground reach cap for the frustum offset. At the key light's floor elevation
- * the tower's true reach is ~280 units, far past anything the eye can follow
- * across water; capping it keeps the frustum near the island where the shadow
- * actually reads.
- */
-const SHADOW_MAX_REACH = 150;
-/**
- * How far back along its own direction the shadow light sits.
- *
- * The fit now spans the remote station roots as well as the island. 260 clears
- * the 75-unit low-sun recenter, the measured ~114-unit static half-extent, and
- * the 34-unit Pharos caster with margin. Ortho projection means that extra
- * distance costs no texture density; it only widens the depth range that bias
- * is expressed in (see createGardenScene).
- */
+/** Clears the finite plate and its static casters along every sun bearing. */
 const SHADOW_LIGHT_DISTANCE = 260;
-/**
- * How far the sun must swing before the static-caster shadow map is redrawn.
- *
- * ~0.6°, comfortably finer than the softest shadow edge a 2048² map over a
- * ±61 frustum can resolve, so the re-steer is never visible as a step.
- */
-const SHADOW_RESTEER_RADIANS = 0.01;
+/** Sun and camera orientation share the half-degree re-fit threshold. */
+const SHADOW_RESTEER_RADIANS = Math.PI / 360;
 
 /** Reused across frames so the shadow rig allocates nothing in the hot path. */
 const scratchKeyPose: GardenLightPose = {
   direction: new Vector3(0, 1, 0),
   elevation: Math.PI / 2,
 };
+const cameraViewTarget = new Vector3();
+let cameraViewHeight = 0;
+const cameraViewFrustum = new Frustum();
+const cameraViewMatrix = new Matrix4();
+const shadowFrustumCorners = Array.from({ length: 8 }, () => new Vector3());
+const shadowPlateCorners = Array.from({ length: 8 }, (_, index) => new Vector3(
+  (index & 1) ? PHAROSVILLE_MAP_WIDTH * TILE_SCALE : 0,
+  (index & 2) ? SHADOW_CASTER_HEIGHT : 0,
+  (index & 4) ? PHAROSVILLE_MAP_HEIGHT * TILE_SCALE : 0,
+));
+const shadowPlatePlanes = [
+  new Plane(new Vector3(1, 0, 0), 0),
+  new Plane(new Vector3(-1, 0, 0), PHAROSVILLE_MAP_WIDTH * TILE_SCALE),
+  new Plane(new Vector3(0, 1, 0), 0),
+  new Plane(new Vector3(0, -1, 0), SHADOW_CASTER_HEIGHT),
+  new Plane(new Vector3(0, 0, 1), 0),
+  new Plane(new Vector3(0, 0, -1), PHAROSVILLE_MAP_HEIGHT * TILE_SCALE),
+];
+const shadowFitPoint = new Vector3();
+const shadowFitMin = new Vector3();
+const shadowFitMax = new Vector3();
 /** How long a lost WebGL context has to come back before the world gives up. */
 const CONTEXT_RESTORE_GRACE_MS = 5000;
 
@@ -727,8 +694,6 @@ const SHADOW_UP = new Vector3(0, 1, 0);
 const scratchFleetPresenceScale = new Vector3();
 const scratchWakePose = { headingY: 0, hullScale: 1, x: 0, y: 0, z: 0 };
 const scratchArrivalBeat: GardenArrivalBeatEnvelope = { furl: 0, bowWave: 0, nameplate: false };
-// W6.4: the hull tint handed to a reflection instance, blended per frame.
-const scratchReflectionColor = new Color();
 // Reused argument records for the per-frame update calls below. Every callee
 // destructures its input on entry and keeps nothing, so one record per call
 // site is enough to keep the frame path free of the object literals it would
@@ -738,17 +703,6 @@ const scratchOverviewLodFrame = { deltaSeconds: 0, reducedMotion: false, zoom: 1
 // Phase 2 god rays: per-frame scratch for the beam's forward-scattering dot.
 const scratchViewDirection = new Vector3();
 const scratchBeamDirection = new Vector3();
-const scratchReflectionPlacement = {
-  color: scratchReflectionColor,
-  index: 0,
-  mastheadHeight: 0,
-  strength: 0,
-  tileX: 0,
-  tileY: 0,
-  width: 0,
-  worldX: 0,
-  worldZ: 0,
-};
 const scratchIssuanceHullForm = {
   agePatina: -1,
   beam: 1,
@@ -862,7 +816,7 @@ export function createThreeWorldRenderer(
   const uploadScheduler = createTextureUploadScheduler(renderer);
   const { canvas, onAssetReady, onContextFailure } = input;
   const modelLibrary = createGardenModelLibrary();
-  const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
+  const camera = new PerspectiveCamera(CAMERA_FOV_DEG, 1, CAMERA_NEAR, CAMERA_FAR);
   // The renderer is built before the scene now: W6.5's sky probe bakes THROUGH
   // the renderer, so the scene cannot be assembled without one. Nothing in
   // `createGardenScene` reads renderer state, so the swap is order-only.
@@ -881,6 +835,8 @@ export function createThreeWorldRenderer(
   };
   const debugDrawCensus = isDebugChromeEnabled();
   const post = createGardenPost(renderer, scene.root, camera);
+  const heroReflectionPass = createGardenHeroReflectionPass(renderer);
+  Object.assign(scene.water.mesh.material.uniforms, heroReflectionPass.uniforms);
 
   let disposed = false;
   let lastDpr = 0;
@@ -971,6 +927,7 @@ export function createThreeWorldRenderer(
       }
       scene.lighthouseModel = model;
       attachGardenLighthouseModel(model, scene.content);
+      model.traverse(enableHeroReflectionLayer);
       drawCensusRequested = true;
       scheduleModelTextureUploads({
         isOwnerValid: () => !disposed && scene.lighthouseModel === model,
@@ -1055,6 +1012,7 @@ export function createThreeWorldRenderer(
       // the same session must not inherit this one's hover/selection.
       resetFleetSailAttention();
       post.dispose();
+      heroReflectionPass.dispose();
       // Owns a live PMREM render target; the generic tree walk cannot see it
       // because it hangs off `Scene.environment`, not off a child.
       scene.environment.dispose();
@@ -1300,19 +1258,15 @@ export function createThreeWorldRenderer(
       // but record its feedback/stamp passes as recurring offscreen work.
       // Stamps consumed here were collected by LAST frame's ship loop (one
       // frame of latency is invisible against an 8-second decay).
+      updateCamera(camera, frame);
       {
-        const wakeCenterTile = screenToGround(
-          { x: frame.width / 2, y: frame.height / 2 },
-          frame.camera,
-          { x: frame.width, y: frame.height },
-        );
-        const wakeViewHeight = gardenCameraViewHeight(frame.height, frame.camera.zoom);
+        const wakeCenterTile = cameraViewTarget;
         scene.wakes.update({
           deltaSeconds: MathUtils.clamp(frame.timeSeconds - scene.beamClockSeconds, 0, 0.25),
           reducedMotion: frame.reducedMotion,
-          targetX: wakeCenterTile.x * TILE_SCALE,
-          targetZ: wakeCenterTile.y * TILE_SCALE,
-          viewHalfWidth: (wakeViewHeight * (frame.width / Math.max(1, frame.height))) / 2,
+          targetX: wakeCenterTile.x,
+          targetZ: wakeCenterTile.z,
+          viewHalfWidth: cameraViewHeight * camera.aspect / 2,
           tier: seaQualityTier(frame.renderScheduler),
           visibleStrength: scene.water.wakeStrength(),
         });
@@ -1363,7 +1317,7 @@ export function createThreeWorldRenderer(
       if (SESSION_TIER_QUALITY[tier] > SESSION_TIER_QUALITY[sessionTierReached]) {
         sessionTierReached = tier;
       }
-      const shadowMapSize = updateShadows(scene, frame, phase);
+      const shadowMapSize = updateShadows(scene, camera, frame, phase);
       // The composer owns the frame's COLOR — AgX tone mapping lives in the
       // fused grade/tone-map pass, and the day-cycle grade and vignette exist
       // nowhere else — so shedding it is not a quality step down, it is a
@@ -1431,6 +1385,13 @@ export function createThreeWorldRenderer(
         scene.weather.lightning,
         scene.season === "winter" ? 1 : 0,
       );
+      if (scene.content) {
+        heroReflectionPass.render(
+          scene.root, camera, scene.content.parts.island.root,
+          scene.content.lighthouseRoot, frame.reducedMotion,
+        );
+      }
+      // garden-post's GPU timer has no public wrap hook for the reflection pass.
       // Carry the real frame delta into the post chain so its 180 ms hero
       // fades stay 180 ms at the idle 30 fps duty cycle as well as when awake.
       post.render(aoDeltaSeconds);
@@ -1595,6 +1556,9 @@ export interface GardenScene {
   shadowActiveSize: number;
   /** Sun bearing the current shadow map was drawn for; drives the re-steer. */
   shadowLightDirection: Vector3;
+  shadowViewPosition: Vector3;
+  shadowViewRotation: Quaternion;
+  shadowViewAspect: number;
   shadowNeedsRender: boolean;
   sky: GardenSky;
   water: GardenWater;
@@ -1710,10 +1674,6 @@ interface GardenContent {
   harborLanternMaterial: MeshStandardMaterial;
   fireflies: GardenFireflies;
   gullFlock: GardenGullFlock;
-  /** W6.4: one instanced draw call carrying every hero hull's mirror column. */
-  heroReflections: GardenHeroReflections;
-  /** The hulls that carry a reflection, in the reflection instances' order. */
-  heroReflectionShips: ShipVisual[];
   /** Gulls over the three largest hulls; parented to those hulls' own roots. */
   shipGulls: GardenShipGulls;
   lighthouseLight: PointLight;
@@ -1904,14 +1864,9 @@ function createGardenScene(
   const ambientLight = new AmbientLight("#fff0d1", 0.42);
   root.add(ambientLight);
   const directionalLight = new DirectionalLight("#ffe8b5", 2.3);
-  // P4: day key sun lowered from y=55 to y=48 (elevation ~50°→46°) for longer
-  // soft shadows. The 34-unit Pharos crown shadow reaches
-  // 34·√(35²+30²)/48 ≈ 32.7 units along the ground from the island center —
-  // ≈ 24 units once projected into the light's view plane, still inside the
-  // ±30 shadow frustum below.
+  // Bootstrap only; the first frame fits the visible plate before rendering.
   directionalLight.position.set(-35, 48, -30);
-  // The bootstrap is replaced before drawing by updateShadows' island + station
-  // root fit, then extended for the Pharos tower's long day shadow.
+  // updateShadows retains the fitted sun rig between hysteresis thresholds.
   directionalLight.castShadow = true;
   directionalLight.shadow.mapSize.set(2048, 2048);
   // W2.2 bias hygiene. The old pair (-0.0005 / 0.8) was fitted to a 1024 map
@@ -2051,6 +2006,9 @@ function createGardenScene(
     // Deliberately not a legal light direction, so the first frame always
     // re-steers and draws the map for wherever the sun actually is.
     shadowLightDirection: new Vector3(0, 0, 0),
+    shadowViewPosition: new Vector3(Infinity, Infinity, Infinity),
+    shadowViewRotation: new Quaternion(),
+    shadowViewAspect: 0,
     shadowNeedsRender: true,
     sky,
     water,
@@ -2585,6 +2543,9 @@ function shouldSnapShipRefresh(
     || timeSeconds - content.shipsFirstBuiltSeconds < GARDEN_YOUNG_WORLD_SNAP_SECONDS;
 }
 
+// Mass migration includes hulls still sailing toward an earlier refresh's
+// target, not just newly changed berths. Otherwise successive small refreshes
+// can cross the fleet-share threshold without ever clearing their journeys.
 function isMassShipTransition(changedShips: number, fleetSize: number): boolean {
   return fleetSize > 0
     && changedShips / fleetSize >= GARDEN_MASS_TRANSITION_SNAP_RATIO;
@@ -2607,7 +2568,9 @@ function structuralShipRefreshIsMass(
       continue;
     }
     const nextBerth = resolveGardenShipDisplayTile({ ...entry, sample: null });
-    if (Math.hypot(nextBerth.x - oldBerth.x, nextBerth.y - oldBerth.y) >= 0.01) {
+    if (content.shipTransitions.has(entry.ship.id)
+      || content.pendingShipTransitions.has(entry.ship.id)
+      || Math.hypot(nextBerth.x - oldBerth.x, nextBerth.y - oldBerth.y) >= 0.01) {
       changedShips += 1;
     }
   }
@@ -2653,7 +2616,9 @@ function applyShipsPoseUpdate(
       sample: null,
       ship: entry.ship,
     });
-    if (Math.hypot(newBerth.x - oldBerth.x, newBerth.y - oldBerth.y) >= 0.01) {
+    if (content.shipTransitions.has(entry.ship.id)
+      || content.pendingShipTransitions.has(entry.ship.id)
+      || Math.hypot(newBerth.x - oldBerth.x, newBerth.y - oldBerth.y) >= 0.01) {
       changedShips += 1;
     }
   }
@@ -2744,7 +2709,9 @@ function stageShipsRebuild(
       continue;
     }
     const nextBerth = resolveGardenShipDisplayTile({ ...entry, sample: null });
-    if (Math.hypot(nextBerth.x - oldBerth.x, nextBerth.y - oldBerth.y) >= 0.01) {
+    if (content.shipTransitions.has(entry.ship.id)
+      || content.pendingShipTransitions.has(entry.ship.id)
+      || Math.hypot(nextBerth.x - oldBerth.x, nextBerth.y - oldBerth.y) >= 0.01) {
       changedShips += 1;
     }
   }
@@ -3187,6 +3154,10 @@ function flagStaticShadowUsers(root: Object3D, castsShadows = true): void {
   });
 }
 
+function enableHeroReflectionLayer(object: Object3D): void {
+  object.layers.enable(GARDEN_HERO_REFLECTION_LAYER);
+}
+
 /**
  * The island part: terraces, the lighthouse (procedural shell until the GLB
  * lands), beacon fire, summit birds, signal mast and tide stain. Rebuilds only
@@ -3209,6 +3180,18 @@ function buildIslandPart(
   // receive. The flat MeshBasicMaterial shoal is excluded so its transparent
   // disc never stamps a hard shadow; the harbour is flagged in its own part.
   flagStaticShadowUsers(island.root);
+  island.lighthouseShell.traverse(enableHeroReflectionLayer);
+  island.root.traverse((object) => {
+    if (
+      object.name === "island-shoin-precinct"
+      || object.name === "island-niwaki"
+      || object.name === "island-karikomi"
+      || object.name.startsWith("island-planted-shelf-")
+      || (object instanceof Mesh && object.parent === island.root
+        && object.name === "" && object.material instanceof MeshStandardMaterial
+        && object.material.vertexColors && object.material.roughnessMap !== null)
+    ) object.traverse(enableHeroReflectionLayer);
+  });
   part.cues.set(world.lighthouse.detailId, {
     // Pharos Wonder D1: scaled for the 34-unit three-tier tower (was 4.5 for
     // the 30-unit v3 shell) so the selection ring spans the battered square
@@ -3642,21 +3625,6 @@ function buildShipsPart(
   const crossBearingBuoys = createGardenCrossBearingBuoys(buoySpecs);
   part.root.add(crossBearingBuoys.root);
 
-  // W6.4: the mirror column, extended from the Pharos to the fleet.
-  //
-  // 2026-09-07: extended again, from the ~29 heroes to the WHOLE fleet. The
-  // original restriction reasoned that a batched ship's colour "lives in a
-  // buffer rather than on a visual" — but `hullColor`/`sailColor` are on every
-  // ShipVisual, batched included (garden-ships.ts:470-472), and the batched
-  // roots are fully posed in the same pass that feeds this one. So the reason
-  // did not hold, and the cost of dropping it is nil: this is ONE instanced
-  // draw either way, and the delta is 2 triangles and one matrix write per
-  // extra ship. Still water that mirrors 29 of 185 hulls reads as a bug; the
-  // reference boards are mostly reflection.
-  const reflectionShips = ships;
-  const heroReflections = createGardenHeroReflections(reflectionShips.length);
-  part.root.add(heroReflections.mesh);
-
   // Gulls over the biggest hulls in the fleet. Ranked by the same market cap
   // the hull scale already encodes, so the traffic agrees with the size.
   // Heroes only — a gull per batched hull is 185 flocks, not traffic.
@@ -3679,8 +3647,6 @@ function buildShipsPart(
   content.fleetLanterns = fleetLanterns;
   content.wakeBatch = wakeBatch;
   content.wakeOutsiderSlot = wakeSlots.outsiderSlot;
-  content.heroReflectionShips = reflectionShips;
-  content.heroReflections = heroReflections;
   content.shipGulls = shipGulls;
   content.shipLanternGlowMaterial = fleetLanterns.glowMaterial;
   content.shipLanternMaterial = fleetLanterns.coreMaterial;
@@ -3864,85 +3830,93 @@ function seaSignsDebugVisible(): boolean {
   return !/(?:^|&)signs=0(?:&|$)/.test(hash);
 }
 
+/** Vertices of the convex intersection, projected directly into light space. */
+function accumulateShadowEdges(corners: readonly Vector3[], planes: readonly Plane[], lightView: Matrix4): void {
+  for (let index = 0; index < 8; index += 1) {
+    for (let bit = 1; bit <= 4; bit *= 2) {
+      if (index & bit) continue;
+      const start = corners[index]!;
+      const end = corners[index | bit]!;
+      let enter = 0;
+      let exit = 1;
+      for (const plane of planes) {
+        const a = plane.distanceToPoint(start);
+        const b = plane.distanceToPoint(end);
+        if (a < 0 && b < 0) {
+          exit = -1;
+          break;
+        }
+        if (a < 0) enter = Math.max(enter, a / (a - b));
+        else if (b < 0) exit = Math.min(exit, a / (a - b));
+      }
+      if (enter > exit) continue;
+      shadowFitPoint.lerpVectors(start, end, enter).applyMatrix4(lightView);
+      shadowFitMin.min(shadowFitPoint);
+      shadowFitMax.max(shadowFitPoint);
+      shadowFitPoint.lerpVectors(start, end, exit).applyMatrix4(lightView);
+      shadowFitMin.min(shadowFitPoint);
+      shadowFitMax.max(shadowFitPoint);
+    }
+  }
+}
+
 /**
- * Re-centres the directional light's shadow frustum on the island and remote
- * station roots and sets the per-tier cost, returning the active shadow-map size
- * (0 when off).
+ * Fits the visible plate in light space, retaining the last fit while the
+ * perspective pose breathes within half a world unit / half a degree.
  * Shadow-supported tiers share a shader variant and reallocate only when the
  * map size changes. Constrained removes the caster and its comparison sampler.
  */
 function updateShadows(
   scene: GardenScene,
+  camera: PerspectiveCamera,
   frame: ThreeWorldRendererFrame,
   phase: DayCyclePhase,
 ): number {
   const light = scene.directionalLight;
-  const islandTile = gardenIslandDisplayTile(frame.world.lighthouse.tile);
-  const staticBounds = gardenStaticShadowBounds([
-    // The rim mesh authors the complete finite plate from the origin through
-    // the outer map edge. Feed those real extents into main's world-derived
-    // fit so stations, island, and rim share one shadow contract.
-    { x: 0, z: 0 },
-    { x: PHAROSVILLE_MAP_WIDTH * TILE_SCALE, z: 0 },
-    { x: 0, z: PHAROSVILLE_MAP_HEIGHT * TILE_SCALE },
-    {
-      x: PHAROSVILLE_MAP_WIDTH * TILE_SCALE,
-      z: PHAROSVILLE_MAP_HEIGHT * TILE_SCALE,
-    },
-    { x: islandTile.x * TILE_SCALE, z: islandTile.y * TILE_SCALE },
-    ...frame.world.docks.map((dock) => {
-      const tile = gardenDockDisplayTile(dock.tile);
-      return { x: tile.x * TILE_SCALE, z: tile.y * TILE_SCALE };
-    }),
-  ]);
-
-  // The key light rides the day's arc (garden-sun.ts) instead of sitting at a
-  // fixed bearing, so shadow DIRECTION and LENGTH now say what time it is.
   const pose = gardenKeyLightPose(frame.wallClockHour, phase, scratchKeyPose);
   const direction = pose.direction;
-
-  // A low sun throws a long shadow, and a frustum centred on the island would
-  // simply clip it. Push the frustum downstream by half the tower's reach so
-  // the whole shadow stays inside the map.
-  //
-  // The arithmetic is kinder than it looks. A caster of height h at elevation e
-  // reaches L = h/tan(e) along the ground, and a ground distance d projects to
-  // d·sin(e) in the light's image plane — so the shadow always spans exactly
-  // h·cos(e) there, never more than h however low the sun gets. Centring on
-  // half of that costs a ground offset of L/2 and buys a frustum that only has
-  // to grow by h·cos(e)/2.
-  const groundLength = Math.hypot(direction.x, direction.z) || 1;
-  const reach = Math.min(
-    SHADOW_CASTER_HEIGHT / Math.max(Math.tan(pose.elevation), 1e-3),
-    SHADOW_MAX_REACH,
-  );
-  const frustumX = staticBounds.centerX - (direction.x / groundLength) * reach * 0.5;
-  const frustumZ = staticBounds.centerZ - (direction.z / groundLength) * reach * 0.5;
-  light.target.position.set(frustumX, 3, frustumZ);
-  light.position.set(
-    frustumX + direction.x * SHADOW_LIGHT_DISTANCE,
-    3 + direction.y * SHADOW_LIGHT_DISTANCE,
-    frustumZ + direction.z * SHADOW_LIGHT_DISTANCE,
-  );
-
-  const halfSize = staticBounds.radius
-    + (SHADOW_CASTER_HEIGHT * Math.cos(pose.elevation)) / 2;
-  const shadowCamera = light.shadow.camera;
-  if (Math.abs(shadowCamera.right - halfSize) > 0.25) {
-    shadowCamera.left = -halfSize;
-    shadowCamera.right = halfSize;
-    shadowCamera.top = halfSize;
-    shadowCamera.bottom = -halfSize;
-    shadowCamera.updateProjectionMatrix();
-    scene.shadowNeedsRender = true;
-  }
-
-  // The map is still not re-rendered per frame — see below — but "the light
-  // direction is fixed" is no longer one of the reasons why. It is re-rendered
-  // when the sun has actually MOVED past a threshold finer than the softest
-  // shadow edge. At the fastest the arc ever swings (the dusk handover, ~5° per
-  // three real minutes) that is one extra static-caster pass every ~20 s.
-  if (direction.angleTo(scene.shadowLightDirection) > SHADOW_RESTEER_RADIANS) {
+  const viewChanged = camera.position.distanceToSquared(scene.shadowViewPosition) > 0.25
+    || camera.quaternion.angleTo(scene.shadowViewRotation) > Math.PI / 360
+    || camera.aspect !== scene.shadowViewAspect;
+  const sunChanged = direction.angleTo(scene.shadowLightDirection) > SHADOW_RESTEER_RADIANS;
+  if (viewChanged || sunChanged) {
+    const centerX = PHAROSVILLE_MAP_WIDTH * TILE_SCALE / 2;
+    const centerZ = PHAROSVILLE_MAP_HEIGHT * TILE_SCALE / 2;
+    light.target.position.set(centerX, 0, centerZ);
+    light.position.set(
+      centerX + direction.x * SHADOW_LIGHT_DISTANCE,
+      direction.y * SHADOW_LIGHT_DISTANCE,
+      centerZ + direction.z * SHADOW_LIGHT_DISTANCE,
+    );
+    light.updateMatrixWorld();
+    light.target.updateMatrixWorld();
+    light.shadow.updateMatrices(light);
+    const shadowCamera = light.shadow.camera;
+    shadowFitMin.set(Infinity, Infinity, Infinity);
+    shadowFitMax.set(-Infinity, -Infinity, -Infinity);
+    // Clip BOTH sets of box edges. This also handles a plate fully enclosed
+    // by the view, and a narrow view entirely inside the plate.
+    accumulateShadowEdges(shadowFrustumCorners, shadowPlatePlanes, shadowCamera.matrixWorldInverse);
+    accumulateShadowEdges(shadowPlateCorners, cameraViewFrustum.planes, shadowCamera.matrixWorldInverse);
+    if (Number.isFinite(shadowFitMin.x)) {
+      shadowCamera.left = shadowFitMin.x - 8;
+      shadowCamera.right = shadowFitMax.x + 8;
+      shadowCamera.bottom = shadowFitMin.y - 8;
+      shadowCamera.top = shadowFitMax.y + 8;
+      // Offscreen architecture upstream still casts into the visible plate:
+      // retain its light-space depth even though the XY fit is view-limited.
+      for (const corner of shadowPlateCorners) {
+        shadowFitPoint.copy(corner).applyMatrix4(shadowCamera.matrixWorldInverse);
+        shadowFitMin.z = Math.min(shadowFitMin.z, shadowFitPoint.z);
+        shadowFitMax.z = Math.max(shadowFitMax.z, shadowFitPoint.z);
+      }
+      shadowCamera.near = Math.max(1, -shadowFitMax.z - 8);
+      shadowCamera.far = Math.max(shadowCamera.near + 1, -shadowFitMin.z + 8);
+      shadowCamera.updateProjectionMatrix();
+    }
+    scene.shadowViewPosition.copy(camera.position);
+    scene.shadowViewRotation.copy(camera.quaternion);
+    scene.shadowViewAspect = camera.aspect;
     scene.shadowLightDirection.copy(direction);
     scene.shadowNeedsRender = true;
   }
@@ -3967,11 +3941,8 @@ function updateShadows(
   // release — a visible softening of the island's shadow on every pan, plus a
   // GPU reallocation per drag, for a tier that says nothing about load.
   //
-  // The map dimensions stay fixed while the world-derived frustum grows to the
-  // rim. In the dense fixture the static radius is 114.27 world units: 8.96
-  // texels/world at full, 4.48 at balanced, and 3.36 at recovery before the
-  // time-of-day shadow-reach allowance. Cost remains episodic: this pass runs
-  // on re-steer/content change, while recurring PCF sampling is unchanged.
+  // Resolution is unchanged; only the visible-plate fit changes on camera
+  // reframe or sun re-steer. Recurring PCF sampling cost is unchanged.
   const shadowTier = seaQualityTier(frame.renderScheduler);
   const size = shadowTier === "full"
     ? 2048
@@ -4036,13 +4007,12 @@ export function gardenShipHeelFromTurn(
 
 function updateSceneForFrame(
   scene: GardenScene,
-  camera: OrthographicCamera,
+  camera: PerspectiveCamera,
   frame: ThreeWorldRendererFrame,
   phase: DayCyclePhase,
   uploadScheduler: TextureUploadScheduler,
   onAssetReady?: () => void,
 ): void {
-  updateCamera(camera, frame);
   const weather = scene.weather;
   // Advance the beam's own clock before any early return, so a frame drawn
   // without world content cannot leave a gap for the next one to jump across.
@@ -4051,9 +4021,9 @@ function updateSceneForFrame(
   scene.sky.update(phase, {
     reducedMotion: frame.reducedMotion,
     wallClockHour: frame.wallClockHour,
-    viewHeight: gardenCameraViewHeight(frame.height, frame.camera.zoom),
-    targetX: camera.position.x - CAMERA_DISTANCE,
-    targetZ: camera.position.z - CAMERA_DISTANCE,
+    targetX: cameraViewTarget.x,
+    targetZ: cameraViewTarget.z,
+    cameraPosition: camera.position,
     timeSeconds: frame.timeSeconds,
     stormLevel: weather.stormLevel,
     // Phase 2 billboard atmosphere (mist banks + cumulus): full/balanced only,
@@ -4101,8 +4071,9 @@ function updateSceneForFrame(
   // same way the sky dome does; the islets are static (no reduced-motion
   // work) and only gate visibility on the tier.
   scene.horizon.update(phase, {
-    targetX: camera.position.x - CAMERA_DISTANCE,
-    targetZ: camera.position.z - CAMERA_DISTANCE,
+    targetX: cameraViewTarget.x,
+    targetZ: cameraViewTarget.z,
+    fogColor: scene.sky.fog.color,
     tier: frame.renderScheduler.tier,
   });
   scene.islets.update({
@@ -4407,7 +4378,7 @@ function updateSceneForFrame(
     zoom: frame.camera.zoom,
   });
   removeCompletedDepartures(scene, content, frame.timeSeconds);
-  beginFleetFrame(content.fleetBatches);
+  beginFleetFrame(content.fleetBatches, { camera: frame.camera, viewport: { x: frame.width, y: frame.height }, timeSeconds: frame.timeSeconds });
   const sailTexture = content.sailAtlas.texture;
   const logoGeneration = frame.logos.getLogoGenerationKey();
   if (sailTexture && content.sailAtlas.logoGenerationKey !== logoGeneration) {
@@ -4848,54 +4819,6 @@ function updateSceneForFrame(
     timeSeconds: frame.timeSeconds,
   });
 
-  // W6.4: the hero hulls' mirror columns, placed once the transforms above are
-  // final. One pass over ~29 heroes, one buffer upload, one draw call.
-  //
-  // At whole-map framing they are shed outright: a reflection is a soft image
-  // of a hull that is itself thirty pixels there, so it costs fill for nothing.
-  // That is the SAME gate the rest of the overview policy rides.
-  const reflectionsVisible = semanticView !== "analyze"
-    && overviewDetail > 0
-    && !constrained;
-  content.heroReflections.mesh.visible = reflectionsVisible;
-  if (reflectionsVisible) {
-    for (let index = 0; index < content.heroReflectionShips.length; index += 1) {
-      const visual = content.heroReflectionShips[index]!;
-      // How wide the hull PRESENTS: the same footprint ellipse the contact
-      // shadow uses, measured along the screen horizontal (world (1,0,-1)/√2).
-      // A galleon lying broadside throws a broad reflection and the same hull
-      // seen bow-on throws a narrow one, which is what makes the column read as
-      // that ship rather than as a generic stripe.
-      const shadowRadius = Math.max(1.15, visual.selectionRadius * 1.25);
-      const hullForm = visual.ship.visual.hullForm;
-      const alongHull = shadowRadius * 1.65 * (hullForm?.length ?? 1);
-      const acrossHull = shadowRadius * 0.72 * (hullForm?.beam ?? 1);
-      const yaw = visual.root.rotation.y;
-      const cos = Math.cos(yaw);
-      const sin = Math.sin(yaw);
-      const footprint = Math.SQRT2 * Math.sqrt(
-        alongHull * alongHull * (cos + sin) * (cos + sin)
-        + acrossHull * acrossHull * (sin - cos) * (sin - cos),
-      );
-      // A hull's image on the water is its timber and its canvas together,
-      // canvas-weighted: the sails are most of what a ship presents from this
-      // angle, and they are the part that reads against open water.
-      scratchReflectionColor.copy(visual.hullColor).lerp(visual.sailColor, 0.6);
-      scratchReflectionPlacement.index = index;
-      scratchReflectionPlacement.mastheadHeight = visual.mastheadHeight * visual.root.scale.x;
-      scratchReflectionPlacement.strength = overviewDetail;
-      scratchReflectionPlacement.tileX = visual.root.position.x / TILE_SCALE;
-      scratchReflectionPlacement.tileY = visual.root.position.z / TILE_SCALE;
-      scratchReflectionPlacement.width = footprint;
-      scratchReflectionPlacement.worldX = visual.root.position.x;
-      scratchReflectionPlacement.worldZ = visual.root.position.z;
-      content.heroReflections.place(scratchReflectionPlacement);
-    }
-    // Reduced motion freezes the band drift at a composed pose, like every
-    // other time-driven surface in this renderer.
-    content.heroReflections.flush(frame.reducedMotion ? 0 : frame.timeSeconds);
-  }
-
   // Ship transforms are final — flutter the pennants (S8), ground moored
   // ships with karesansui ripple rings (S7 via contract C2 (d)), restamp the
   // fleet lantern instances, and re-pack the lane texture now that this
@@ -5026,32 +4949,39 @@ function updateScalarTransitions(
   }
 }
 
-// W1.1 swaps this to a PerspectiveCamera; nothing else in the file may compute view geometry.
-function updateCamera(camera: OrthographicCamera, frame: ThreeWorldRendererFrame): void {
+// View geometry is derived only here, from the shared projection contract.
+function updateCamera(camera: PerspectiveCamera, frame: ThreeWorldRendererFrame): void {
   const pose = cameraPoseFromIso(frame.camera, { x: frame.width, y: frame.height });
-  const viewHeight = gardenCameraViewHeight(frame.height, frame.camera.zoom);
-  const viewWidth = viewHeight * (frame.width / Math.max(1, frame.height));
-  const targetX = pose.targetTile.x * TILE_SCALE;
-  const targetZ = pose.targetTile.y * TILE_SCALE;
-  const rigDistance = pose.distance * frame.camera.zoom;
-  const horizontalDistance = rigDistance * Math.cos(pose.pitch);
-  // At yaw π/4 and pitch atan(1/√3), these are exactly the previous rig:
-  // (CAMERA_DISTANCE, CAMERA_DISTANCE·√(2/3), CAMERA_DISTANCE).
-  const eyeOffsetX = horizontalDistance * Math.sin(pose.yaw);
-  const eyeOffsetY = rigDistance * Math.sin(pose.pitch);
-  const eyeOffsetZ = horizontalDistance * Math.cos(pose.yaw);
-
-  camera.left = -viewWidth / 2;
-  camera.right = viewWidth / 2;
-  camera.top = viewHeight / 2;
-  camera.bottom = -viewHeight / 2;
-  camera.position.set(
-    targetX + eyeOffsetX,
-    eyeOffsetY,
-    targetZ + eyeOffsetZ,
-  );
-  camera.lookAt(targetX, 0, targetZ);
+  if (frame.cameraBreath) {
+    pose.yaw += frame.cameraBreath.yaw;
+    pose.pitch += frame.cameraBreath.pitch;
+    pose.distance *= frame.cameraBreath.dolly;
+  }
+  const eye = cameraEye(pose);
+  camera.aspect = frame.width / Math.max(1, frame.height);
+  camera.position.set(eye.x, eye.y, eye.z);
+  camera.lookAt(pose.targetTile.x * TILE_SCALE, 0, pose.targetTile.y * TILE_SCALE);
+  cameraViewTarget.set(pose.targetTile.x * TILE_SCALE, 0, pose.targetTile.y * TILE_SCALE);
+  cameraViewHeight = 2 * pose.distance * Math.tan(CAMERA_FOV_DEG * Math.PI / 360);
   camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
+  // Bound the horizon-facing frustum by the farthest plate corner in view
+  // depth; upward rays otherwise spend the map on empty sky.
+  let groundFar = camera.near;
+  for (const corner of shadowPlateCorners) {
+    shadowFitPoint.copy(corner).applyMatrix4(camera.matrixWorldInverse);
+    groundFar = Math.max(groundFar, -shadowFitPoint.z);
+  }
+  groundFar = Math.min(camera.far, groundFar);
+  for (let index = 0; index < 8; index += 1) {
+    const corner = shadowFrustumCorners[index]!;
+    corner.set((index & 1) ? 1 : -1, (index & 2) ? 1 : -1, -1)
+      .applyMatrix4(camera.projectionMatrixInverse)
+      .multiplyScalar((index & 4) ? groundFar / camera.near : 1)
+      .applyMatrix4(camera.matrixWorld);
+  }
+  cameraViewMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  cameraViewFrustum.setFromProjectionMatrix(cameraViewMatrix);
 }
 
 function updateSelectedRoute(content: GardenContent, frame: ThreeWorldRendererFrame): void {

@@ -12,12 +12,9 @@ import {
  * and one layer of billboard cumulus — the VISIBLE half of the atmosphere
  * work.
  *
- * Why billboards carry the visible sky here: the locked isometric ortho
- * camera looks 30° down at a full-bleed water plane, so the sky DOME is never
- * on screen (it feeds the PMREM probe; see garden-environment). The visible
- * "sky" is the upper-frame haze zone where far water dissolves into the fog —
- * which is exactly where these billboards live, re-anchored to the camera
- * target every frame by garden-sky's root.
+ * Mist and clouds occupy the far sea and visible sky, re-anchored to the
+ * camera target every frame by garden-sky's root. Each quad faces the eye
+ * independently, so perspective does not expose the far cards edge-on.
  *
  * Contracts kept:
  * - ONE InstancedMesh and ONE draw call per system; per-instance state is
@@ -175,9 +172,12 @@ const VERTEX_SHADER = /* glsl */ `
     vFade = sin(3.14159265 * (travel / uDriftSpan));
     vec3 center = aAnchor;
     center.xz += uWindDir * (travel - uDriftSpan * 0.5);
-    vec3 offset = vec3(0.7071, 0.0, -0.7071) * (position.x * aScale.x)
-      + vec3(0.0, 1.0, 0.0) * (position.y * aScale.y);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(center + offset, 1.0);
+    vec3 worldCenter = (modelMatrix * vec4(center, 1.0)).xyz;
+    vec3 facing = normalize(cameraPosition - worldCenter);
+    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), facing));
+    vec3 up = cross(facing, right);
+    vec3 offset = right * (position.x * aScale.x) + up * (position.y * aScale.y);
+    gl_Position = projectionMatrix * viewMatrix * vec4(worldCenter + offset, 1.0);
   }
 `;
 
@@ -187,9 +187,12 @@ const STATIC_VERTEX_SHADER = /* glsl */ `
   varying vec2 vUv;
   void main() {
     vUv = uv;
-    vec3 offset = vec3(0.7071, 0.0, -0.7071) * (position.x * aScale.x)
-      + vec3(0.0, 1.0, 0.0) * (position.y * aScale.y);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(aAnchor + offset, 1.0);
+    vec3 worldCenter = (modelMatrix * vec4(aAnchor, 1.0)).xyz;
+    vec3 facing = normalize(cameraPosition - worldCenter);
+    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), facing));
+    vec3 up = cross(facing, right);
+    vec3 offset = right * (position.x * aScale.x) + up * (position.y * aScale.y);
+    gl_Position = projectionMatrix * viewMatrix * vec4(worldCenter + offset, 1.0);
   }
 `;
 

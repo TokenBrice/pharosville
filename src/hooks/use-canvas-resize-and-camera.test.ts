@@ -7,6 +7,10 @@ import { defaultCamera } from "../systems/camera";
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { screenToIso, tileToIso } from "../systems/projection";
+import {
+  observeTourPoseFromCamera,
+  observeTourPoseToCamera,
+} from "../systems/observe-tour";
 import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
 import {
   advanceCameraIntent,
@@ -353,18 +357,20 @@ describe("camera intent helpers", () => {
       map: world.map,
       width: initialViewport.x,
     });
-    const returnCenter = screenToIso({
-      x: initialViewport.x / 2,
-      y: initialViewport.y / 2,
-    }, startCamera);
+    const returnPose = observeTourPoseFromCamera(startCamera, initialViewport);
+    const expectedReturn = observeTourPoseToCamera(
+      returnPose,
+      resizedViewport,
+      world.map,
+    );
 
     act(() => {
       result.current.canvasSizeRef.current = initialViewport;
       result.current.setCamera(startCamera);
       result.current.startObserveTour([{
         beatIndex: 0,
-        isoX: returnCenter.x + 100,
-        isoY: returnCenter.y + 80,
+        isoX: returnPose.isoX + 100,
+        isoY: returnPose.isoY + 80,
         zoom: 1.3,
       }]);
       result.current.stepCamera(1_000, new Map());
@@ -380,13 +386,9 @@ describe("camera intent helpers", () => {
     }
 
     const returned = result.current.cameraRef.current!;
-    const returnedCenter = screenToIso({
-      x: resizedViewport.x / 2,
-      y: resizedViewport.y / 2,
-    }, returned);
-    expect(returnedCenter.x).toBeCloseTo(returnCenter.x, 5);
-    expect(returnedCenter.y).toBeCloseTo(returnCenter.y, 5);
-    expect(returned.zoom).toBeCloseTo(startCamera.zoom, 6);
+    expect(returned.zoom).toBeCloseTo(expectedReturn.zoom, 6);
+    expect(returned.offsetX).toBeCloseTo(expectedReturn.offsetX, 4);
+    expect(returned.offsetY).toBeCloseTo(expectedReturn.offsetY, 4);
   });
 });
 

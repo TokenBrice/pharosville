@@ -32,7 +32,7 @@ import {
   Vector3,
   WebGLRenderTarget,
   type Camera,
-  type OrthographicCamera,
+  type PerspectiveCamera,
   type Scene,
   type WebGLRenderer,
 } from "three";
@@ -1743,13 +1743,8 @@ export function createGardenPost(
 
   const renderPass = new RenderPass(scene, camera);
 
-  // N8AO on the orthographic camera: the library injects `#define ORTHO`
-  // reconstruction paths for isOrthographicCamera (verified for the AO,
-  // denoise and compositer shaders; the half-res depth downsample uses the
-  // runtime `ortho` uniform). Ortho depth is linear, so position
-  // reconstruction is exact. The compositer only receives the define through
-  // a configuration-proxy reconfigure — setting halfRes below is what
-  // supplies it, so the assignment order here is load-bearing.
+  // N8AO detects PerspectiveCamera and uses perspective depth reconstruction
+  // in AO, denoise, composite and half-resolution downsampling.
   const n8aoPass = new N8AOPostPass(scene, camera, size.width, size.height);
   // Transparency double-rendering would render every transparent object twice
   // more per frame (two extra scene passes plus per-frame scene traversals) —
@@ -1890,15 +1885,9 @@ export function createGardenPost(
   let phaseAOIntensity = POST_PHASE_NIGHT.aoIntensity;
   const passList: string[] = [];
 
-  /**
-   * The tilt-shift is designed for the locked orthographic vantage and for
-   * nothing else: its band is expressed in view heights, which a perspective
-   * frustum does not have, and its depth reconstruction assumes the linear
-   * depth only an orthographic projection produces. If this renderer ever gets
-   * a different camera the stage stands down rather than guessing.
-   */
-  const orthographicCamera = (camera as OrthographicCamera).isOrthographicCamera === true
-    ? camera as OrthographicCamera
+  /** Focus-band width is measured at the perspective rig's target plane. */
+  const perspectiveCamera = (camera as PerspectiveCamera).isPerspectiveCamera === true
+    ? camera as PerspectiveCamera
     : null;
   /**
    * The world's shadow-casting key light, resolved ONCE.
@@ -1956,7 +1945,7 @@ export function createGardenPost(
     // Deliberately NOT scaled by `aoZoomDetail`: that scalar sheds AO with the
     // small props it grounds, while the tilt-shift band is expressed in view
     // heights and therefore says the same thing at every zoom.
-    tiltShiftEffect.strength = enabled && orthographicCamera
+    tiltShiftEffect.strength = enabled && perspectiveCamera
       ? aoTierWeight * idleProfileWeight * DOF_STRENGTH
       : 0;
   }
@@ -2102,8 +2091,9 @@ export function createGardenPost(
     // default, a horizontal rake) cannot divide the band to infinity.
     const drop = camera.position.y - GODRAY_SEA_LEVEL;
     const focusCenter = drop / Math.max(Math.abs(scratchForward.y), 0.05);
-    const viewHeight = orthographicCamera
-      ? Math.abs(orthographicCamera.top - orthographicCamera.bottom)
+    const targetDistance = camera.position.y / Math.max(Math.abs(scratchForward.y), 0.05);
+    const viewHeight = perspectiveCamera
+      ? 2 * targetDistance * Math.tan(perspectiveCamera.fov * Math.PI / 360)
       : 0;
     tiltShiftEffect.setFocusBand(focusBandOverride ?? focusCenter, viewHeight);
     // World reconstruction for the raymarch: clip -> view -> world in one

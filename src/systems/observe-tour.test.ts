@@ -11,9 +11,10 @@ import {
   type ObserveTourSample,
 } from "./observe-tour";
 import { tileToIso } from "./projection";
+import { buildPharosVilleMap } from "./world-layout";
 
 const VIEWPORT = { x: 1440, y: 960 };
-const MAP = { width: 56, height: 56 };
+const MAP = buildPharosVilleMap();
 
 function keyframe(beatIndex: number, tile: { x: number; y: number }, zoom: number): ObserveTourKeyframe {
   const iso = tileToIso(tile);
@@ -152,11 +153,14 @@ describe("observe tour", () => {
   });
 
   it("round-trips the visitor's camera into the start pose", () => {
-    const camera = defaultCamera({ width: VIEWPORT.x, height: VIEWPORT.y, map: MAP });
+    const rest = defaultCamera({ width: VIEWPORT.x, height: VIEWPORT.y, map: MAP });
+    const camera = observeTourPoseToCamera(
+      observeTourPoseFromCamera(rest, VIEWPORT),
+      VIEWPORT,
+      MAP,
+    );
     const pose = observeTourPoseFromCamera(camera, VIEWPORT);
     const back = observeTourPoseToCamera(pose, VIEWPORT, MAP);
-    // A legal camera (inside the map clamp by construction) round-trips
-    // exactly: same centered iso point, same zoom.
     expect(back.zoom).toBeCloseTo(camera.zoom, 6);
     expect(back.offsetX).toBeCloseTo(camera.offsetX, 4);
     expect(back.offsetY).toBeCloseTo(camera.offsetY, 4);
