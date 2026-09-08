@@ -5,6 +5,7 @@ import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/
 import { DetailPanel } from "./components/detail-panel";
 import { HarborLabelChips, updateHarborLabelChipLayout } from "./components/harbor-label-chips";
 import { HarborLog } from "./components/harbor-log";
+import { NowCaption } from "./components/now-caption";
 import { QuickFind } from "./components/quick-find";
 import { SinceLastVisitBanner } from "./components/since-last-visit";
 import { WorldControls } from "./components/world-controls";
@@ -17,6 +18,8 @@ import { useLegendDialog } from "./hooks/use-legend-dialog";
 import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
 import { useHarborLog } from "./hooks/use-harbor-log";
 import { useGardenAlmanac } from "./hooks/use-garden-almanac";
+import { useGardenDirector } from "./hooks/use-garden-director";
+import { dayCycleBeats } from "./systems/day-cycle-beats";
 import { HOVER_NAMEPLATE_DWELL_MS } from "./hooks/hover-nameplate-dwell";
 import { isDialogEventTarget } from "./hooks/keyboard-event-target";
 import { useLatestRef } from "./hooks/use-latest-ref";
@@ -42,8 +45,12 @@ import {
 } from "./systems/garden-observatory-slice";
 import { buildBaseMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
 import {
+  createGardenArrivalCeremonyState,
   gardenArrivalBeatEnvelope,
+  requestGardenArrivalCeremony,
   selectGardenArrivalBeatShipDetailIds,
+  type GardenArrivalBeat,
+  type GardenArrivalCandidate,
 } from "./systems/garden-arrival-beats";
 import { buildObserveSequence, type ObserveBeatKind } from "./systems/observe-sequence";
 import type { ObserveTourKeyframe } from "./systems/observe-tour";
@@ -80,20 +87,6 @@ const OBSERVE_TOUR_KIND_ZOOM: Record<ObserveBeatKind, number> = {
   supply: 1.08,
   concentration: 0.94,
 };
-/**
- * How long the charting veil takes to lift once the harbor has data. Long
- * enough to carry the scene rebuild that lands in the next frames, short
- * enough that arrival still reads as arrival.
- */
-export const HARBORMASTER_NOTE_STORAGE_KEY = "pharosville.harbor-note.dismissed";
-
-function harbormasterNoteAvailable(): boolean {
-  try {
-    return window.localStorage.getItem(HARBORMASTER_NOTE_STORAGE_KEY) !== "1";
-  } catch {
-    return false;
-  }
-}
 
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [osReducedMotion, setReducedMotion] = useState(true);
@@ -189,7 +182,18 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     initialNightMode: worldUrlState.initialState.nightMode,
     requestPaint: requestWorldFrame,
   });
+  // G3/W4.1: one director owns every beat (almanac, arrivals, keeper, fog,
+  // attract). Seeded by the UTC day so a watch log is reproducible; frozen
+  // under reduced motion.
+  const gardenDirector = useGardenDirector({
+    seed: timeControls.utcDayKey,
+    timeSeconds: timeControls.timeSeconds,
+    reducedMotion,
+  });
   const gardenAlmanac = useGardenAlmanac({
+    date: timeControls.date,
+    director: gardenDirector,
+    timeSeconds: timeControls.timeSeconds,
     reducedMotion,
     wallClockHour: timeControls.wallClockHour,
   });
@@ -245,7 +249,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // ship). Persistent anomaly chips on ships were removed 2026-09-06: a boat
   // wearing a sign all day read as clutter, not as a signal; DEX disagreement
   // and Danger water keep their in-world cues, detail rows and ledger parity.
-  const shipCounterLabel = useMemo(() => fleetCounterLabel(world.ships), [world.ships]);
   const recentFleetTrend = useMemo(() => recentFleetTrendSummary(world), [world]);
   // W5.01 — derive the live risk-band tack-out per ship from the motion plan
   // at world-refresh cadence. The detail panel and accessibility ledger both
@@ -274,6 +277,27 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     world,
   }), [riskTransitionByShipId, selectedDetailId, world]);
   const harborLog = useHarborLog({ riskTransitionByShipId, setAnnouncement, shipsById });
+  const captionHour = Math.floor(timeControls.wallClockHour * 60) / 60;
+  const captionBeats = useMemo(
+    () => dayCycleBeats(captionHour),
+    [captionHour],
+  );
+  const captionFreshness = useMemo(() => ({
+    ...world.freshness,
+    observedAt: world.generatedAt,
+  }), [world.freshness, world.generatedAt]);
+  const latestCaptionTransition = useMemo(() => {
+    const first = riskTransitionByShipId.entries().next().value;
+    if (!first) return null;
+    const [shipId, transition] = first;
+    const ship = shipsById.get(shipId);
+    if (!ship) return null;
+    return {
+      observedAt: world.generatedAt,
+      symbol: ship.symbol,
+      toLabel: transition.toLabel,
+    };
+  }, [riskTransitionByShipId, shipsById, world.generatedAt]);
 
   // Refs that mirror frequently-changing state so hook-internal effects/RAF can
   // read the latest values without rebinding on every hover/select/motionPlan
@@ -355,6 +379,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   }, [world]);
 
   const canvas = useCanvasResizeAndCamera({
+    gardenDirector,
     hasSelection,
     hitTargetSnapshotRef,
     hitTargetsRef,
@@ -454,6 +479,14 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     });
   }, [timeControls.nightMode, timeControls.wallClockHour, worldUrlState]);
 
+  // W5.5: the chrome's day/night token variant follows the same five-beat
+  // score as the light (`dayCycleBeats`), never a separate clock.
+  useEffect(() => {
+    const night = timeControls.nightMode || dayCycleBeats(timeControls.wallClockHour).night > 0.5;
+    document.documentElement.dataset.phase = night ? "night" : "day";
+    return () => { delete document.documentElement.dataset.phase; };
+  }, [timeControls.nightMode, timeControls.wallClockHour]);
+
   // Wire the late-bound recompute callbacks now that the canvas hook has
   // exposed its refs. We assign in a useEffect (not during render) so the
   // closures capture committed values only — this is rules-of-hooks-pure
@@ -500,6 +533,12 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     pendingFollowDetailIdRef.current = null;
     focusSelectedCamera(detailId, selectedEntity);
   }, [focusSelectedCamera, selectedEntity]);
+  // G3/W4.6: one arrival ceremony per director slot. The renderer keeps the
+  // sail dip and ensō on the same single highest-supply arrival; here that
+  // arrival is offered to the director and, if admitted, its annotation is
+  // published for the caption. Copy names supply, never transfer/mint/issuer.
+  const arrivalCeremonyStateRef = useRef(createGardenArrivalCeremonyState());
+  const [arrivalAnnotation, setArrivalAnnotation] = useState<GardenArrivalBeat["annotation"]>(null);
   const publishShipMotionSamples = useCallback((
     samples: ReadonlyMap<string, ShipMotionSample>,
     timeSeconds: number,
@@ -522,7 +561,34 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         ? current
         : next
     ));
-  }, [followPendingSelectionFromSamples, reducedMotion, world.entityById, world.ships]);
+    if (!reducedMotion && next.length > 0) {
+      const totalUsd = world.ships.reduce((sum, ship) => sum + Math.max(0, ship.marketCapUsd), 0);
+      const candidates: GardenArrivalCandidate[] = [];
+      for (const detailId of next) {
+        const ship = world.entityById[detailId];
+        if (ship?.kind !== "ship") continue;
+        const dock = world.docks.find((entry) => entry.chainId === ship.dockChainId);
+        candidates.push({
+          assetName: ship.label,
+          detailId,
+          harbourName: dock?.label ?? "the open anchorage",
+          id: ship.id,
+          supplyShare: totalUsd > 0 ? Math.max(0, ship.marketCapUsd) / totalUsd : 0,
+          supplyTrend: ship.issuance?.direction === "redeeming" ? "decreased" : "increased",
+        });
+      }
+      const beat = requestGardenArrivalCeremony(
+        arrivalCeremonyStateRef.current, gardenDirector, candidates, timeControls.timeSeconds,
+      );
+      if (beat?.annotation) {
+        setArrivalAnnotation(beat.annotation);
+        setAnnouncement(beat.annotation.text);
+      }
+    }
+  }, [followPendingSelectionFromSamples, gardenDirector, reducedMotion, setAnnouncement, timeControls.timeSeconds, world.docks, world.entityById, world.ships]);
+  const arrivalAnnotationLive = arrivalAnnotation !== null
+    && timeControls.timeSeconds < arrivalAnnotation.startSeconds + arrivalAnnotation.durationSeconds;
+  const arrivalAnnotationText = arrivalAnnotationLive ? arrivalAnnotation.text : null;
 
 
   const updateHarborLabelsForFrame = useCallback((
@@ -552,7 +618,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     rendererStatus,
     requestPaint,
   } = useWorldRenderLoop({
-    almanacEvent: gardenAlmanac.activeEvent,
+    almanacEvent: gardenAlmanac.evidenceEvent,
+    gardenDirector,
     onBucketFlip: setMotionBucket,
     onShipMotionSamplesReady: publishShipMotionSamples,
     onStationLabelFrame: updateHarborLabelsForFrame,
@@ -639,7 +706,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       && !reducedMotion
       && observeIndex === null
       && selectedDetailId === null
-      && gardenAlmanac.activeEvent === null
+      && !gardenAlmanac.attentionActive
       && !legend.legendOpen && !changelog.changelogOpen && !harborLedgerOpen && !quickFindOpen && !lightControlsOpen;
     if (!eligible) {
       stopAttractTour();
@@ -676,7 +743,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     harborLedgerOpen,
     quickFindOpen,
     lightControlsOpen,
-    gardenAlmanac.activeEvent,
+    gardenAlmanac.attentionActive,
     observeIndex,
     reducedMotion,
     selectedDetailId,
@@ -809,8 +876,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       if (!shell?.contains(target)) return;
       const detailPanel = document.getElementById("pharosville-detail-panel");
       if (detailPanel?.contains(target)) return;
-      if (target instanceof Element && target.closest(".pharosville-canvas")) return;
-      if (target instanceof Element && target.closest(".pharosville-overlay, .pharosville-world-chrome, .pharosville-footer")) return;
+      if (target instanceof Element && target.closest(".pharosville-canvas, .pharosville-overlay, .pharosville-world-chrome")) return;
       clearSelection();
     };
 
@@ -944,6 +1010,10 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [nudgeSessionHour, quickFindOpen, referencePanelOpen, rendererFailed, setAnnouncement]);
 
+  const openQuickFind = useCallback(() => {
+    setQuickFindOpen(true);
+  }, []);
+
   const closeQuickFind = useCallback(() => {
     setQuickFindOpen(false);
     setAnnouncement("Closed quick find.");
@@ -1038,17 +1108,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     };
   }, [arrivalStage, skipCanvasArrival]);
 
-  const [harbormasterNotePresent, setHarbormasterNotePresent] = useState(harbormasterNoteAvailable);
-  const [harbormasterNoteOpen, setHarbormasterNoteOpen] = useState(false);
-  const dismissHarbormasterNote = useCallback(() => {
-    try {
-      window.localStorage.setItem(HARBORMASTER_NOTE_STORAGE_KEY, "1");
-    } catch {
-      // The note is optional and dismissal is best-effort in private storage.
-    }
-    setHarbormasterNoteOpen(false);
-    setHarbormasterNotePresent(false);
-  }, []);
   const chartingVeilMounted = !rendererFailed && (worldIsCharting || arrivalStage !== "complete");
 
   return (
@@ -1097,28 +1156,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           aria-live="polite"
         >
           Charting market winds…
-        </div>
-      )}
-      {arrivalStage === "complete" && harbormasterNotePresent && !rendererFailed && (
-        <div className="pharosville-harbormaster-note" data-open={harbormasterNoteOpen ? "true" : "false"}>
-          {harbormasterNoteOpen && (
-            <aside aria-label="Harbormaster's note" className="pharosville-harbormaster-note__paper">
-              <p>Each sail is a stablecoin; the lighthouse gathers the stability reading. Select a ship or Find one by name.</p>
-              <p>Ships keep their own water, and the quiet between them is part of the chart.</p>
-              <p aria-hidden="true">— the harbormaster</p>
-              <button type="button" onClick={dismissHarbormasterNote} aria-label="Put away harbormaster's note">×</button>
-            </aside>
-          )}
-          {!harbormasterNoteOpen && (
-            <button
-              type="button"
-              className="pharosville-harbormaster-note__glyph"
-              aria-label="Read harbormaster's note"
-              onClick={() => setHarbormasterNoteOpen(true)}
-            >
-              ⌁
-            </button>
-          )}
         </div>
       )}
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
@@ -1180,8 +1217,24 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         )}
       </div>
       {!rendererFailed && (
-        <div className="pharosville-world-chrome" ref={chromeRef} data-recent-input="false">
+        <div
+          className="pharosville-world-chrome"
+          ref={chromeRef}
+          data-attract-holding={canvas.attractState.holding ? "true" : "false"}
+          data-recent-input="false"
+        >
+          <NowCaption
+            arrivalAnnotation={arrivalAnnotationText}
+            beats={captionBeats}
+            freshness={captionFreshness}
+            hour={captionHour}
+            latestTransition={latestCaptionTransition}
+            psi={world.lighthouse.score}
+          />
           <WorldControls
+            onOpenFind={openQuickFind}
+            onOpenLegend={openLegendExclusive}
+            onOpenLedger={openHarborLedgerExclusive}
             onResetView={handleCanvasResetView}
             nightMode={timeControls.nightMode}
             onToggleNightMode={timeControls.toggleNightMode}
@@ -1194,12 +1247,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             onChangeStill={(next) => { if (next) cancelCameraIntent(); setStill(next); }}
             onLightControlsOpen={setLightControlsOpen}
             {...(threeExperienceReady ? {
-              // Under reduced motion the control steps rather than runs, so it
-              // never latches into a "stop" state the press would not honour.
               observing: observeBeat !== null && !reducedMotion,
               onToggleObserve: handleToggleObserve,
             } : {})}
           />
+          {debugChrome && <DebugChrome frameRateLabel={frameRateLabel} />}
         </div>
       )}
       {changelog.changelogOpen && (
@@ -1229,30 +1281,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           />
         </Suspense>
       )}
-      <p className="pharosville-footer">
-        <span className="pharosville-footer__primary">
-          <span className="pharosville-footer__brand">
-            <span className="pharosville-footer__mark">PharosVille {PHAROSVILLE_LATEST_VERSION}</span>
-            <span className="pharosville-footer__separator" aria-hidden="true">·</span>
-          </span>
-          <button className="pharosville-footer__button" type="button" onClick={openLegendExclusive}>Legend</button>
-          <span className="pharosville-footer__separator" aria-hidden="true">·</span>
-          <button className="pharosville-footer__button" type="button" id="pharosville-find" onClick={() => setQuickFindOpen(true)}>Find <kbd>/</kbd></button>
-          <span className="pharosville-footer__separator" aria-hidden="true">·</span>
-          <button className="pharosville-footer__button" type="button" onClick={openHarborLedgerExclusive}>Harbor ledger</button>
-          <span className="pharosville-footer__freshness">{worldDataRefreshSnapshot(world).staleSourceLabels.length > 0 ? "Some readings stale" : "Readings current"}</span>
-        </span>
-        <span className="pharosville-footer__telemetry">
-          <span className="pharosville-footer__separator" aria-hidden="true">·</span>
-          <span className="pharosville-footer__counter" data-testid="pharosville-ship-counter">{shipCounterLabel}</span>
-          {debugChrome && (
-            <span className="pharosville-footer__frame-rate">
-              <span className="pharosville-footer__separator" aria-hidden="true">·</span>
-              <span className="pharosville-footer__fps" data-testid="pharosville-fps-counter" aria-label={`Frame rate: ${frameRateLabel}`}>{frameRateLabel}</span>
-            </span>
-          )}
-        </span>
-      </p>
       <HarborLog
         entries={harborLog.entries}
         onDismiss={harborLog.dismiss}
@@ -1372,6 +1400,69 @@ export function PharosVilleLoading({ message = "Charting market winds…" }: { m
 
 const integerFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
+interface DebugChromeSnapshot {
+  draws: string;
+  p95: string;
+  textures: string;
+  triangles: string;
+}
+
+function readDebugChromeSnapshot(): DebugChromeSnapshot {
+  const metrics = (window as typeof window & {
+    __pharosVilleDebug?: {
+      renderMetrics?: {
+        drawOwnerCensus?: {
+          owners: readonly { triangles: number }[];
+          rendererCalls: number;
+        } | null;
+        gpuTimings?: { frameP95Ms: number | null };
+        textureOwnerCensus?: { rendererTextures: number };
+      };
+    };
+  }).__pharosVilleDebug?.renderMetrics;
+  const census = metrics?.drawOwnerCensus;
+  const triangles = census?.owners.reduce((total, owner) => total + owner.triangles, 0);
+  const p95 = metrics?.gpuTimings?.frameP95Ms;
+  return {
+    draws: census ? integerFormatter.format(census.rendererCalls) : "--",
+    p95: p95 == null ? "--" : `${p95.toFixed(1)} ms`,
+    textures: metrics?.textureOwnerCensus
+      ? integerFormatter.format(metrics.textureOwnerCensus.rendererTextures)
+      : "--",
+    triangles: triangles == null ? "--" : integerFormatter.format(triangles),
+  };
+}
+
+function DebugChrome({ frameRateLabel }: { frameRateLabel: string }) {
+  const [metrics, setMetrics] = useState(readDebugChromeSnapshot);
+  useEffect(() => {
+    const sample = () => {
+      const next = readDebugChromeSnapshot();
+      setMetrics((current) => (
+        current.draws === next.draws
+        && current.p95 === next.p95
+        && current.textures === next.textures
+        && current.triangles === next.triangles
+          ? current
+          : next
+      ));
+    };
+    sample();
+    const timer = window.setInterval(sample, 500);
+    return () => window.clearInterval(timer);
+  }, []);
+  return (
+    <aside className="pharosville-debug-chrome" aria-label="Render diagnostics">
+      <span>PharosVille {PHAROSVILLE_LATEST_VERSION}</span>
+      <span data-testid="pharosville-fps-counter">{frameRateLabel}</span>
+      <span>{metrics.draws} draws</span>
+      <span>{metrics.triangles} tris</span>
+      <span>{metrics.textures} tex</span>
+      <span>{metrics.p95} p95</span>
+    </aside>
+  );
+}
+
 function ChangelogPanelLoading() {
   return (
     <aside className="pharosville-changelog-panel pharosville-changelog-panel--loading" role="status">
@@ -1380,19 +1471,6 @@ function ChangelogPanelLoading() {
   );
 }
 
-/**
- * A ship earns a dock visit only where it holds supply on a chain large enough
- * to be drawn as a harbor, so this counts ships with a berth SOMEWHERE on the
- * chart — a reading of how concentrated supply is on the charted chains. It is
- * not how many ships are moored at this moment: that share is set by
- * `DOCKED_SHIP_DWELL_SHARE` and varies by zone. The copy says "have harbor ties"
- * rather than "docked" because "docked" invites the second reading.
- */
-function fleetCounterLabel(ships: PharosVilleWorldModel["ships"]): string {
-  const berthedShips = ships.filter((ship) => ship.dockVisits.length > 0).length;
-  const totalShips = ships.length;
-  return `${integerFormatter.format(berthedShips)} of ${integerFormatter.format(totalShips)} have harbor ties`;
-}
 
 function formatFrameRateLabel(frameRateFps: number | null, reducedMotion: boolean): string {
   if (reducedMotion) return "Static";

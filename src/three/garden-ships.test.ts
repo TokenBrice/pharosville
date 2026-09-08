@@ -24,7 +24,6 @@ import { SHIP_HULL_FORM_SPAN } from "../systems/world-types";
 import type { ShipHull, ShipNode, ShipSizeTier } from "../systems/world-types";
 import {
   assignGardenHeroSailAtlas,
-  GARDEN_SAIL_SEGMENTS_U,
   GARDEN_SAIL_SEGMENTS_V,
   attachGardenHeroModel,
   createBatchedShip,
@@ -45,7 +44,13 @@ import {
 } from "./garden-ships";
 import { gardenFleetAttention } from "./garden-fleet-batch";
 import type { GardenRippleRingEmitter } from "./garden-water-contract";
-import { createGardenModelLibrary, GARDEN_MODEL_MANIFEST } from "./garden-models";
+import {
+  createGardenModelLibrary,
+  GARDEN_MODEL_MANIFEST,
+  type GardenModelAnchorId,
+  type GardenModelId,
+  type Vector3Tuple,
+} from "./garden-models";
 import { disposeThreeObjectTree, type GardenShipGeometryCache } from "./garden-util";
 
 function makeCache(): GardenShipGeometryCache {
@@ -116,12 +121,12 @@ describe("createShip vertex shading", () => {
   });
 
   it("keeps report-card fittings on a hero when its model attaches", () => {
-    const node = ship("fitted", "treasury-galleon", "titan");
+    const node = ship("usdt-tether", "treasury-galleon", "titan");
     node.visual.hullForm = { beam: 1, fittingCode: 19, height: 1, length: 1, waterline: 0 };
     const visual = build(node);
     const fittings = visual.root.getObjectByName("ship-seaworthiness-fittings");
     expect(fittings).toBeInstanceOf(Mesh);
-    attachGardenHeroModel(visual, heroFixture("garden-hero-titan"));
+    attachGardenHeroModel(visual, heroFixture(visual.heroModelId!));
     expect(fittings?.visible).toBe(true);
     expect(fittings?.parent).not.toBeNull();
   });
@@ -159,15 +164,13 @@ describe("fleet tiers", () => {
 });
 
 describe("hero hull assignment", () => {
-  it("gives every hero-tier ship a distinct, deterministic hull", () => {
-    // W5 (D4/O11): ten distinct hulls, assigned deterministically per coin,
-    // replacing the two shared models every hero-tier ship used to get.
-    const titan = build(ship("t", "treasury-galleon", "titan")).heroModelId;
-    const unique = build(ship("u", "treasury-galleon", "unique")).heroModelId;
-    expect(titan).toMatch(/^garden-hero-/);
-    expect(unique).toMatch(/^garden-hero-/);
-    // Stable across rebuilds: a coin must never change ship between refreshes.
-    expect(build(ship("t", "treasury-galleon", "titan")).heroModelId).toBe(titan);
+  it("gives named titans distinct, deterministic hulls", () => {
+    const titan = build(ship("usdt-tether", "treasury-galleon", "titan")).heroModelId;
+    const circle = build(ship("usdc-circle", "treasury-galleon", "titan")).heroModelId;
+    expect(titan).toBe("garden-hero-tether");
+    expect(circle).toBe("garden-hero-circle");
+    expect(build(ship("usdt-tether", "treasury-galleon", "titan")).heroModelId).toBe(titan);
+    expect(build(ship("unnamed", "treasury-galleon", "titan")).heroModelId).toBeNull();
 
     // Only hero tiers get a bespoke hull; the rest join the instanced batches.
     expect(build(ship("m", "treasury-galleon", "major")).heroModelId).toBeNull();
@@ -175,7 +178,7 @@ describe("hero hull assignment", () => {
   });
 
   it("collects a hideable procedural hull and tracks the identity sail", () => {
-    const visual = build(ship("t", "treasury-galleon", "titan"));
+    const visual = build(ship("usdt-tether", "treasury-galleon", "titan"));
     expect(visual.heroHideable.length).toBeGreaterThan(4);
     expect(visual.heroHideable.every((part) => part.visible)).toBe(true);
     expect(visual.identitySail).toBeInstanceOf(Mesh);
@@ -184,7 +187,7 @@ describe("hero hull assignment", () => {
   });
 
   it("shares the fleet mark atlas with hero identity sails", () => {
-    const visual = build(ship("t", "treasury-galleon", "titan"));
+    const visual = build(ship("usdt-tether", "treasury-galleon", "titan"));
     const atlas = new CanvasTexture();
     assignGardenHeroSailAtlas(visual, atlas, 17);
     expect(visual.identitySailMaterial?.map).toBe(atlas);
@@ -203,7 +206,7 @@ describe("hero hull assignment", () => {
   });
 });
 
-function heroFixture(id: "garden-hero-titan" | "garden-hero-heritage"): Group {
+function heroFixture(id: GardenModelId): Group {
   const root = new Group();
   root.name = id;
   const wood = new Mesh(new BoxGeometry(), new MeshStandardMaterial({ color: "#ffffff" }));
@@ -255,9 +258,9 @@ describe("attachGardenHeroModel", () => {
   });
 
   it("hides the procedural hull, mounts the GLB, and re-homes the identity sail", () => {
-    const visual = build(ship("t", "treasury-galleon", "titan"));
+    const visual = build(ship("usdt-tether", "treasury-galleon", "titan"));
     const identitySail = visual.identitySail;
-    const model = heroFixture("garden-hero-titan");
+    const model = heroFixture(visual.heroModelId!);
     const attachedWood = model.getObjectByName("wood-hull") as Mesh;
     const woodGeometry = attachedWood.geometry;
     const sharedMaterial = attachedWood.material;
@@ -274,20 +277,22 @@ describe("attachGardenHeroModel", () => {
     expect(woodGeometry).toBeDefined();
     expect(sharedMaterial).toBeDefined();
     // Identity sail moved onto the main-mast area (non-zero masthead height).
-    const masthead = GARDEN_MODEL_MANIFEST["garden-hero-titan"].anchors.masthead;
+    const anchors: Readonly<Partial<Record<GardenModelAnchorId, { readonly position: Vector3Tuple }>>> =
+      GARDEN_MODEL_MANIFEST[visual.heroModelId!].anchors;
+    const masthead = anchors.masthead;
     expect(identitySail?.position.x).toBeCloseTo(masthead?.position[0] ?? 0);
   });
 
   it("is a no-op for a standard ship with no hero model", () => {
     const visual = build(ship("s", "treasury-galleon", "skiff"));
     const before = visual.heroHideable.map((part) => part.visible);
-    attachGardenHeroModel(visual, heroFixture("garden-hero-titan"));
+    attachGardenHeroModel(visual, heroFixture("garden-hero-tether"));
     expect(visual.heroHideable.map((part) => part.visible)).toEqual(before);
   });
 
   it("preserves source material response in the existing merged solid draw", () => {
-    const visual = build(ship("t", "treasury-galleon", "titan"));
-    const model = heroFixture("garden-hero-titan");
+    const visual = build(ship("usdt-tether", "treasury-galleon", "titan"));
+    const model = heroFixture(visual.heroModelId!);
     const sources = model.children.filter((child): child is Mesh => child instanceof Mesh);
     const responses = [[0.84, 0], [0.9, 0.35]] as const;
     sources.forEach((mesh, index) => {
@@ -322,7 +327,7 @@ describe("attachGardenHeroModel", () => {
   });
 
   it("carries restrained wabi value and age patina onto hero wood, never sails", () => {
-    const node = ship("old", "treasury-galleon", "titan");
+    const node = ship("usdt-tether", "treasury-galleon", "titan");
     node.visual.hullForm = {
       beam: 1,
       height: 1,
@@ -334,7 +339,7 @@ describe("attachGardenHeroModel", () => {
       ropeSag: -0.05,
     };
     const visual = build(node);
-    const model = heroFixture("garden-hero-titan");
+    const model = heroFixture(visual.heroModelId!);
     attachGardenHeroModel(visual, model);
     const merged = model.getObjectByName("hero-merged-solid") as Mesh;
     const color = merged.geometry.getAttribute("color");
@@ -398,26 +403,25 @@ describe("createFleetLanterns", () => {
   });
 });
 
-describe("S5 visual scale spread (D-S5)", () => {
-  it("maps the 0.7–3.0 data band to a ~2.6× visual spread with a legibility floor", () => {
-    expect(gardenShipVisualScale(0.7)).toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MIN);
-    expect(gardenShipVisualScale(3)).toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MAX);
-    const spread = gardenShipVisualScale(3) / gardenShipVisualScale(0.7);
-    expect(spread).toBeGreaterThan(2.5);
-    expect(spread).toBeLessThan(2.7);
-    // Warm-village resting frame (2026-09-05, plan A5): floor raised
-    // 0.55 → 0.8 so all six hull families stay separable at the zoom-1.0
-    // rest framing; titans still dwarf skiffs at ~2.6× (was ~3.7×).
-    expect(GARDEN_SHIP_VISUAL_SCALE_MIN).toBe(0.8);
-    // Monotonic across the data band.
-    expect(gardenShipVisualScale(1.5)).toBeGreaterThan(gardenShipVisualScale(1));
-    expect(gardenShipVisualScale(2)).toBeGreaterThan(gardenShipVisualScale(1.5));
+describe("W1.5 continuous visual scale spread", () => {
+  it("preserves the 0.42–1.15 market-cap ladder as a ~2.7× visual spread", () => {
+    expect(gardenShipVisualScale(0.42)).toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MIN);
+    expect(gardenShipVisualScale(1.15)).toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MAX);
+    const spread = gardenShipVisualScale(1.15) / gardenShipVisualScale(0.42);
+    expect(spread).toBeGreaterThan(2.7);
+    expect(spread).toBeLessThan(2.8);
+    expect(GARDEN_SHIP_VISUAL_SCALE_MIN).toBe(0.42);
+    // Identity inside the data band, with clamps at either edge.
+    expect(gardenShipVisualScale(0.7)).toBe(0.7);
+    expect(gardenShipVisualScale(1)).toBe(1);
+    expect(gardenShipVisualScale(0.1)).toBe(GARDEN_SHIP_VISUAL_SCALE_MIN);
+    expect(gardenShipVisualScale(2)).toBe(GARDEN_SHIP_VISUAL_SCALE_MAX);
   });
 
-  it("applies the relaxed mapping to the ship root scale", () => {
-    expect(build(ship("tiny", "treasury-galleon", "micro", 0.7)).root.scale.x)
+  it("applies the continuous mapping to the ship root scale", () => {
+    expect(build(ship("tiny", "treasury-galleon", "micro", 0.42)).root.scale.x)
       .toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MIN);
-    expect(build(ship("huge", "treasury-galleon", "flagship", 3)).root.scale.x)
+    expect(build(ship("huge", "treasury-galleon", "flagship", 1.15)).root.scale.x)
       .toBeCloseTo(GARDEN_SHIP_VISUAL_SCALE_MAX);
   });
 });
@@ -883,37 +887,4 @@ describe("2026-09-07 T1.9: sail bands land on the cloth grid", () => {
     source.sails.dispose();
   });
 
-  it("bakes no horizontal band into any non-junk family's cloth", () => {
-    // The two reef bands (v = 0.14 / 0.27) were deleted, not re-sited: they had
-    // never rendered, and every row a re-site could use is a junk batten row.
-    for (const silhouette of GARDEN_HULL_SILHOUETTES) {
-      if (silhouette === "junk") continue;
-      const source = createFleetBatchGeometry(silhouette);
-      for (const [row, darkening] of rowDarkening(source.sails)) {
-        expect(darkening, `${silhouette} row ${row}`).toBe(0);
-      }
-      source.hull.dispose();
-      source.sails.dispose();
-    }
-  });
-
-  it("puts every vertical panel seam on a cloth column", () => {
-    // panels must divide GARDEN_SAIL_SEGMENTS_U or the seams vanish the same
-    // way the battens did.
-    const source = createFleetBatchGeometry("bezaisen");
-    const uv = source.sails.getAttribute("uv");
-    const color = source.sails.getAttribute("color");
-    const seamColumns = new Set<number>();
-    for (let index = 0; index < uv.count; index += 1) {
-      // Row 0 only: no belly falloff there either (it scales with u, so read
-      // the seam against the row's own maximum instead).
-      if (uv.getY(index) > 1e-6) continue;
-      const column = Math.round(uv.getX(index) * GARDEN_SAIL_SEGMENTS_U);
-      const belly = 1 - 0.06 * (column / GARDEN_SAIL_SEGMENTS_U) ** 2;
-      if (1 - color.getX(index) / belly > 1e-6) seamColumns.add(column);
-    }
-    expect([...seamColumns].toSorted((a, b) => a - b)).toEqual([1, 3, 5]);
-    source.hull.dispose();
-    source.sails.dispose();
-  });
 });

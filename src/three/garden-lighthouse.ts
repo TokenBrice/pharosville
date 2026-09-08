@@ -932,6 +932,10 @@ function createKeeperShoreProps(): Group {
 // water shader derives its road and landing pool from these same dimensions.
 export const GARDEN_LIGHTHOUSE_BEAM_LENGTH = 92;
 export const GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS = 4.2;
+/** High-energy shaft nested inside the 2.6° soft beam envelope. */
+export const GARDEN_LIGHTHOUSE_BEAM_CORE_RADIUS = 1.55;
+/** Core/soft ratio: the 0.11 night envelope carries a 0.25 peak core. */
+export const GARDEN_LIGHTHOUSE_BEAM_CORE_OPACITY_RATIO = 0.25 / 0.11;
 export const GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE = 86;
 const BEAM_DUST_COUNT = 40;
 // C1 palette-derived: warm lantern gold lifted toward foam white.
@@ -958,14 +962,35 @@ const BEAM_COOL_COLOR = BEAM_COLOR.clone().lerp(LAMP_COOL_COLOR, 0.75);
  * is gated off and the output is the plain analytic cone — same colour and
  * intent, one material, no tier-transition compile hitch.
  */
-function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
-  const geometry = new ConeGeometry(
+function createBeamCone(): Mesh<BufferGeometry, ShaderMaterial> {
+  const softGeometry = new ConeGeometry(
     GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS,
     GARDEN_LIGHTHOUSE_BEAM_LENGTH,
     28,
     1,
     true,
   );
+  const coreGeometry = new ConeGeometry(
+    GARDEN_LIGHTHOUSE_BEAM_CORE_RADIUS,
+    GARDEN_LIGHTHOUSE_BEAM_LENGTH,
+    20,
+    1,
+    true,
+  );
+  softGeometry.setAttribute(
+    "aBeamCore",
+    new Float32BufferAttribute(new Float32Array(softGeometry.attributes.position.count), 1),
+  );
+  coreGeometry.setAttribute(
+    "aBeamCore",
+    new Float32BufferAttribute(
+      new Float32Array(coreGeometry.attributes.position.count).fill(1),
+      1,
+    ),
+  );
+  const geometry = mergeGeometries([softGeometry, coreGeometry], false)!;
+  softGeometry.dispose();
+  coreGeometry.dispose();
   // Apex to the group origin, axis rotated from +Y to +X.
   geometry.translate(0, -GARDEN_LIGHTHOUSE_BEAM_LENGTH / 2, 0);
   geometry.rotateZ(Math.PI / 2);
@@ -980,6 +1005,7 @@ function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
       uniform float uStorm;
       uniform float uScatter;
       varying float vAlong;
+      varying float vBeamCore;
       varying vec3 vNormalView;
       varying vec3 vWorldPos;
 
@@ -1014,7 +1040,13 @@ function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
         float shaft = 0.78 - 0.48 * rim;
         float bands = 0.86 + 0.14 * sin(vAlong * 30.0 - uTime * 1.3);
         float nearCore = 1.0 + 0.55 * (1.0 - smoothstep(0.08, 0.34, vAlong));
-        float alpha = uOpacity * fade * shaft * bands * nearCore;
+        float coreEnergy = mix(1.0, ${GARDEN_LIGHTHOUSE_BEAM_CORE_OPACITY_RATIO.toFixed(6)}, vBeamCore);
+        // Facing the eye, a lighthouse is a flash, not a dim disc: the whole
+        // cone gains with the view-axis alignment (uScatter = cos²), the core
+        // more. End-on over a near-black sky the old 1.85x read as a brown
+        // smudge beside the lantern.
+        float forwardCore = (1.0 + uScatter * 3.2) * mix(1.0, 1.0 + uScatter * 0.85, vBeamCore);
+        float alpha = uOpacity * fade * shaft * bands * nearCore * coreEnergy * forwardCore;
         if (uVolumetric > 0.5) {
           vec3 mistPoint = vWorldPos * 0.22
             + vec3(uTime * 0.05, uTime * 0.013, -uTime * 0.031);
@@ -1041,13 +1073,16 @@ function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
       uVolumetric: { value: 0 },
     },
     vertexShader: /* glsl */ `
+      attribute float aBeamCore;
       uniform float uLength;
       varying float vAlong;
+      varying float vBeamCore;
       varying vec3 vNormalView;
       varying vec3 vWorldPos;
 
       void main() {
         vAlong = position.x / uLength;
+        vBeamCore = aBeamCore;
         vNormalView = normalize(normalMatrix * normal);
         vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);

@@ -10,7 +10,9 @@ import {
   type Material,
 } from "three";
 
-export const TILE_SCALE = Math.SQRT2;
+import { TILE_SCALE } from "../systems/projection";
+
+export { TILE_SCALE } from "../systems/projection";
 
 /**
  * Anisotropic filtering for the identity atlases (sails, harbour flags).

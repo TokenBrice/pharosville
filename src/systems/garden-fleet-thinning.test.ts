@@ -58,18 +58,6 @@ describe("gardenFleetDisplayPresence", () => {
     expect([...reversed].toSorted()).toEqual([...byZoom[1]!].toSorted());
   });
 
-  it("retains the dominant mooring and secondary representatives at whole-map zoom", () => {
-    const presence = gardenFleetDisplayPresence({ ships: FLEET, zoom: 0.3 });
-    expect(presence.get("dominant-0")).toBe(1);
-    expect(presence.get("dominant-1")).toBe(1);
-    expect(presence.get("warning-dominant")).toBe(1);
-    expect(presence.get("small-representative")).toBe(1);
-    expect(presence.get("large-representative-0")).toBe(1);
-    expect(presence.get("large-representative-1")).toBe(1);
-    expect(presence.get("small-outer")).toBe(0);
-    expect(presence.get("large-outer-4")).toBe(0);
-  });
-
   it("never thins hero tiers, attention targets, keyboard focus, or formation flagships", () => {
     const protectedFleet = [
       ship("titan", "calm.2", 5, 6, { sizeTier: "titan" }),

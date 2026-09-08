@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ShipMotionSegmentKind } from "./motion-types";
+import { createGardenDirector } from "./garden-director";
 import {
+  createGardenArrivalCeremonyState,
   GARDEN_ARRIVAL_BEAT_CAP_FULL,
   GARDEN_SAIL_DIP_MIN_SCALE,
   gardenArrivalBeatEnvelope,
+  requestGardenArrivalCeremony,
   selectGardenArrivalBeatShipDetailIds,
 } from "./garden-arrival-beats";
 
@@ -25,8 +28,8 @@ describe("gardenArrivalBeatEnvelope", () => {
     });
   });
 
-  it("dips on arrival, holds briefly, and fully recovers by four seconds", () => {
-    const arrival = [0, 0.6, 1.2, 2.2, 3.1, 4].map((secondsInto) => (
+  it("dips on arrival, holds deliberately, and fully recovers by ten seconds", () => {
+    const arrival = [0, 1.5, 3, 7, 8.5, 10].map((secondsInto) => (
       gardenArrivalBeatEnvelope(sample("dock-dwell", secondsInto, 100 - secondsInto)).furl
     ));
     expect(arrival).toEqual([0, 0.5, 1, 1, 0.5, 0]);
@@ -59,7 +62,7 @@ describe("gardenArrivalBeatEnvelope", () => {
     expect(transit[3]).toBe(0);
   });
 
-  it("peaks the arrival bow wave, decays it in two seconds, and names for three", () => {
+  it("draws the ensō wake onset and keeps one annotation subject for the ceremony", () => {
     expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 0, 100))).toEqual({
       furl: 0,
       bowWave: 1,
@@ -69,7 +72,7 @@ describe("gardenArrivalBeatEnvelope", () => {
     expect(middle.bowWave).toBeCloseTo(0.5);
     expect(middle.nameplate).toBe(true);
     expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 2, 98)).bowWave).toBe(0);
-    expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 3, 97)).nameplate).toBe(false);
+    expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 10, 90)).nameplate).toBe(false);
   });
 
   it("emits one decaying stern envelope in transit", () => {
@@ -90,23 +93,58 @@ describe("gardenArrivalBeatEnvelope", () => {
   });
 });
 
-describe("selectGardenArrivalBeatShipDetailIds", () => {
-  it("caps readable beats at six by market cap with a stable id tie-break", () => {
+describe("garden arrival ceremony", () => {
+  const arrivals = [
+    {
+      assetName: "Tether",
+      detailId: "ship.usdt",
+      harbourName: "Ethereum Mole",
+      id: "usdt",
+      supplyShare: 0.68,
+      supplyTrend: "increased" as const,
+    },
+    {
+      assetName: "USD Coin",
+      detailId: "ship.usdc",
+      harbourName: "Tron Quay",
+      id: "usdc",
+      supplyShare: 0.24,
+      supplyTrend: "decreased" as const,
+    },
+  ];
+
+  it("admits only the highest-supply arrival and emits plain-language annotation", () => {
+    const state = createGardenArrivalCeremonyState();
+    const beat = requestGardenArrivalCeremony(state, createGardenDirector("arrival"), arrivals, 1_000);
+    expect(beat?.arrival.detailId).toBe("ship.usdt");
+    expect(beat?.directorBeat).toMatchObject({
+      foreground: true,
+      kind: "arrival",
+      priority: 67,
+      subject: "ship.usdt",
+    });
+    expect(beat?.directorBeat.durationSeconds).toBeGreaterThanOrEqual(8);
+    expect(beat?.directorBeat.durationSeconds).toBeLessThanOrEqual(12);
+    expect(beat?.annotation?.text).toBe(
+      "Tether arrives at Ethereum Mole · supply increased in the window",
+    );
+    expect(beat?.annotation?.durationSeconds).toBe(beat?.directorBeat.durationSeconds);
+    expect(requestGardenArrivalCeremony(
+      state,
+      createGardenDirector("another-slot"),
+      arrivals,
+      1_119,
+    )).toBeNull();
+  });
+
+  it("caps the legacy renderer subject to one stable, significant arrival", () => {
     const ships = Array.from({ length: 9 }, (_, index) => ({
       detailId: `ship-detail-${index}`,
       id: `ship-${index}`,
       marketCapUsd: index === 7 || index === 8 ? 700 : index * 100,
     }));
     const samples = new Map(ships.map((ship) => [ship.id, sample("dock-dwell", 1, 99)]));
-
-    expect(selectGardenArrivalBeatShipDetailIds(ships, samples, false)).toEqual([
-      "ship-detail-7",
-      "ship-detail-8",
-      "ship-detail-6",
-      "ship-detail-5",
-      "ship-detail-4",
-      "ship-detail-3",
-    ]);
+    expect(selectGardenArrivalBeatShipDetailIds(ships, samples, false)).toEqual(["ship-detail-7"]);
     expect(selectGardenArrivalBeatShipDetailIds(ships, samples, false)).toHaveLength(
       GARDEN_ARRIVAL_BEAT_CAP_FULL,
     );

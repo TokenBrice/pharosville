@@ -22,6 +22,7 @@ import {
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
 import { lampStatusModulationForMix, type LampStatusModulation } from "../systems/lamp-status";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { GARDEN_BLOOM_PRACTICAL_THRESHOLD } from "./garden-post";
 import { stableUnit } from "./garden-util";
 
 /**
@@ -55,8 +56,10 @@ const LAMP_COOL = palette(P.lantern_cold);
 const EMBER_HOT = palette(P.foam_white);
 const EMBER_MID = palette(P.lantern_glow);
 const EMBER_COOL = palette(P.vermillion);
-const SMOKE_DAY_LIGHT = palette(P.fog_pale);
-const SMOKE_DAY_DARK = palette(P.fog_blue);
+// One stop down in linear light: the enlarged daymark stays graphic rather
+// than turning into a pale hole against a neutral sky.
+const SMOKE_DAY_LIGHT = palette(P.fog_pale).multiplyScalar(0.5);
+const SMOKE_DAY_DARK = palette(P.fog_blue).multiplyScalar(0.5);
 const SMOKE_NIGHT = palette(P.deep_sea_1).lerp(palette(P.fog_blue), 0.3);
 const SMOKE_BACKLIGHT = palette(P.lantern_glow);
 const MIRROR_BRONZE = palette(P.timber_mid).lerp(palette(P.iron_dark), 0.35);
@@ -65,6 +68,10 @@ const FLAME_WIDTH = 2.4;
 const FLAME_HEIGHT = 2.9;
 const EMBER_COUNT = 32;
 const SMOKE_COUNT = 16;
+export const GARDEN_BEACON_SMOKE_QUAD_SIZE = 1.6 * 1.6;
+/** Minimum night-core linear luminance; clears the selective-bloom threshold. */
+export const GARDEN_BEACON_FLAME_CORE_LUMINANCE =
+  GARDEN_BLOOM_PRACTICAL_THRESHOLD * 1.01;
 // The fire sits slightly toward the fixed camera (+X/+Z azimuth) so it reads
 // in front of the crowning statue, which shares the brazier's centre axis.
 const FIRE_FORWARD_X = 0.42;
@@ -130,7 +137,7 @@ export function createGardenBeaconFire(cloudNoise: DataTexture): GardenBeaconFir
     name: "lighthouse-smoke",
     night: SMOKE_NIGHT,
     backlight: SMOKE_BACKLIGHT,
-    quadSize: 1.6,
+    quadSize: GARDEN_BEACON_SMOKE_QUAD_SIZE,
     rise: 7.2,
     riseBase: 0.3,
     scaleMax: 1.9,
@@ -213,9 +220,9 @@ function clamp01(value: number): number {
  * The toon flame: two crossed quads (second at 45° about Y) pre-faced to the
  * fixed isometric camera azimuth, merged into a single 4-triangle geometry.
  * Value-noise fbm scrolls upward inside a teardrop mask and posterizes into
- * three flat bands — cream core, lantern-glow mid, vermillion edge. HDR head
- * lands ~2.3 at full night intensity so the post chain's bloom effect picks it
- * up over its 0.9–0.95 knee while the banked day flame stays subtle.
+ * three flat bands — cream core, lantern-glow mid, vermillion edge. The night
+ * core is raised just above the post chain's practical bloom threshold while
+ * the banked day flame stays subtle.
  */
 function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderMaterial> {
   const geometry = createCrossedQuadGeometry(FLAME_WIDTH, FLAME_HEIGHT);
@@ -230,6 +237,7 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
       uniform float uFlicker;
       uniform float uIntensity;
       uniform float uStatusCool;
+      uniform float uBloomFloor;
       uniform float uStatusIntensity;
       uniform float uTime;
       varying vec2 vUv;
@@ -279,7 +287,13 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
 
         float hdr = uIntensity * uStatusIntensity * 0.32 * (0.88 + uFlicker * 0.3);
         float gain = mix(0.45, 0.62, mid) + core * 0.75;
-        gl_FragColor = vec4(color * (hdr * gain), alpha);
+        vec3 emission = color * (hdr * gain);
+        // Only the raised night core clears selective bloom. Day remains the
+        // deliberately banked 0.26× flame, while mid/outer bands stay ember.
+        float coreLuma = max(dot(emission, vec3(0.2126, 0.7152, 0.0722)), 0.0001);
+        float nightCore = core * smoothstep(4.0, 6.0, uIntensity);
+        emission *= mix(1.0, max(1.0, uBloomFloor / coreLuma), nightCore);
+        gl_FragColor = vec4(emission, alpha);
       }
     `,
     side: DoubleSide,
@@ -291,6 +305,7 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
       uColorMid: { value: FLAME_MID },
       uColorOuter: { value: FLAME_OUTER },
       uStatusCoolColor: { value: LAMP_COOL },
+      uBloomFloor: { value: GARDEN_BEACON_FLAME_CORE_LUMINANCE },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;

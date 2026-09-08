@@ -19,6 +19,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { GARDEN_SAIL_DIP_MIN_SCALE } from "../systems/garden-arrival-beats";
 import type { GardenHullSilhouette } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { cameraEye, cameraPoseFromIso, type IsoCamera, type ScreenPoint } from "../systems/projection";
 import {
   GARDEN_GUST_ATTACK_SECONDS,
   GARDEN_GUST_CYCLE_SECONDS,
@@ -26,12 +27,10 @@ import {
   GARDEN_GUST_WORLD_SPEED,
   gardenGustAtWorldPosition,
 } from "../systems/weather";
+import { dayCycleBeats } from "./garden-day-cycle";
+import { gardenSunPose } from "./garden-sun";
 import type { GardenShipGeometryCache } from "./garden-util";
 import { cachedShipGeometry } from "./garden-util";
-import {
-  injectGardenHeightFog,
-  patchGardenHeightFogMaterial,
-} from "./garden-height-fog";
 
 /**
  * W1 (Grand Scale Revamp, decision D2): the fleet is drawn as a small fixed
@@ -43,9 +42,9 @@ import {
  * 90% of the frame — because every ship contributed ~14 draw calls and cloned
  * its own materials, so nothing batched.
  *
- * Layout: two batches per silhouette (hull assembly + sails) plus one shared
- * pennant batch. Six silhouettes → 13 draw calls for the entire fleet,
- * regardless of whether it holds 20 ships or 320.
+ * Layout: near hull + sails and one combined far hull/identity quad per
+ * silhouette, plus the shared near pennants. Six silhouettes → at most 19
+ * draws, independent of ship count; each ship enters only one LOD per frame.
  *
  * The hull assembly merges keel, hull, gunwale, deck, masts, bowsprit and
  * cabin into ONE geometry with the per-part tonal split baked into vertex
@@ -60,6 +59,7 @@ const KEEL_TINT = new Color(0.3, 0.26, 0.25);
 const DECK_TINT = new Color(1.06, 0.99, 0.86);
 const GUNWALE_TINT = new Color(1.25, 1.2, 1.1);
 const MAST_TINT = new Color(0.52, 0.44, 0.36);
+const MATTING_TINT = new Color(0.86, 0.87, 0.75);
 
 /**
  * Atlas geometry (D3). A 16x16 grid of 128px cells in a 2048² canvas texture.
@@ -80,7 +80,7 @@ export const FLEET_SAIL_ATLAS_SIZE_PX = FLEET_SAIL_ATLAS_COLUMNS * FLEET_SAIL_AT
 export interface FleetBatchPart {
   /** Per-instance atlas cell index; only meaningful on the sail batch. */
   atlasCell: InstancedBufferAttribute | null;
-  /** Per-instance eased attention (W3.7); only meaningful on the sail batch. */
+  /** Packed eased attention (x) and eye-distance presence (y). */
   sailAttention: InstancedBufferAttribute | null;
   /** Per-instance hull proportions (length, beam, height) — N5(a). */
   hullForm: InstancedBufferAttribute;
@@ -98,12 +98,14 @@ export interface FleetBatchPart {
 export interface FleetSilhouetteBatch {
   hull: FleetBatchPart;
   sails: FleetBatchPart;
+  /** One draw for the distant hull, mast and identity-sail quad. */
+  far: FleetBatchPart;
 }
 
 export interface FleetBatches {
   /** Grow-only capacity; batches are never reallocated on world replace. */
   capacity: number;
-  /** Per-silhouette hull + sail batches. */
+  /** Per-silhouette near hull/sails and combined far batches. */
   bySilhouette: Map<GardenHullSilhouette, FleetSilhouetteBatch>;
   materials: MeshStandardMaterial[];
   pennant: FleetBatchPart;
@@ -154,6 +156,21 @@ const fleetWindUniforms = {
   uWindFlutter: { value: 0 },
 };
 
+const fleetLightUniforms = {
+  uBacklight: { value: 0 },
+  uSunDir: { value: new Vector3(0, 1, 0) },
+};
+const fleetSunPose = { direction: fleetLightUniforms.uSunDir.value, elevation: 0 };
+// Cloth never enters the practical-light bloom band.
+const FLEET_CLOTH_RADIANCE_CEILING = 2.2;
+
+/** Wall-clock illumination only; shared by every fleet sail material. */
+export function setFleetLightHour(hour: number): void {
+  const beats = dayCycleBeats(hour);
+  fleetLightUniforms.uBacklight.value = beats.dawn + beats.golden;
+  gardenSunPose(hour, fleetSunPose);
+}
+
 /**
  * Aerial perspective for the batched fleet — the "quiet the carpet" cue.
  *
@@ -189,85 +206,17 @@ const fleetWindUniforms = {
  * channel for exactly this reason.
  */
 const fleetAerialUniforms = {
-  uMarkPresence: { value: 1 },
   uAerialNear: { value: 1e9 },
   uAerialFar: { value: 1e9 + 1 },
   uAerialStrength: { value: 0 },
-  uClothRestraint: { value: 0 },
-  uFramingRestraint: { value: 0 },
   uClothWeave: { value: 0 },
 };
 
-/**
- * How much brand chroma the fleet gives up at the widest framing.
- *
- * This restraint lives in the SHADER and is keyed on zoom, deliberately, rather
- * than being baked into the cloth colour in `garden-sail-texture`. Decision F1
- * made the sails strongly brand-coloured on purpose — so a ship is nameable on
- * sight instead of by reading the small mark on its mainsail — and desaturating
- * the dye itself would quietly undo that for good, at every distance, with no
- * way back.
- *
- * Zoom-gating keeps both things true. Pulled out over the whole sea, where a
- * hundred and eighty-five saturated sails are just noise, the fleet settles
- * into the palette. Sail up to it and every ship is as brandable as F1 intended.
- * The restraint is a viewing condition, not a change to what a ship IS.
- */
-const CLOTH_RESTRAINT_AT_OVERVIEW = 0.55;
+/** Chroma-only loss across the middle eye-distance third. */
+const FLEET_FRAMING_RESTRAINT = 0.25;
 
-/**
- * W3.7: one further, gentle act of the SAME restraint while the camera is
- * pulled back from its resting frame.
- *
- * The wide shot is already handled: `uClothRestraint` above ramps to 0.55 at
- * whole-map framing. The authored rest now sits at zoom 1.0, where ships and
- * marks are legible enough to carry their full identity. Wider framings still
- * gather roughly 185 sails into one field, so they take a smaller 10% step
- * before the step dissolves completely on the approach to rest.
- *
- * This is deliberately NOT a new mechanism. It is the same shader-side,
- * zoom-keyed, chroma-only recession the restraint contract sanctions, composed
- * on top of the existing term, and it obeys the same three rules:
- *
- * 1. **Chroma, never value.** The step converges the cloth on its OWN luminance,
- *    so `luma(result) == luma(cloth)` exactly (the mix target's luminance IS the
- *    source's). Value is mathematically untouched, which is why the pirate
- *    contrast floor — a luminance ratio against white — cannot move under it.
- * 2. **Fully reversible.** It eases to exactly zero at the resting zoom, so the
- *    default frame restores the dye F1 specified.
- * 3. **Never in the cloth.** `gardenSailClothColor` is untouched; lifting sail
- *    dye toward canvas is the recorded harmful experiment and stays dead.
- *
- * Operator decision 2026-09-05: replace the former 15–20% default-frame step
- * with a 10% wide-frame step that is fully released at the new zoom-1.0 rest.
- * It composes multiplicatively with the existing term rather than adding to it
- * so two independent cues can never stack into a grey fleet.
- */
-const FLEET_FRAMING_RESTRAINT = 0.10;
-
-/**
- * Above this zoom the wide-frame step begins to dissolve. It stays fully
- * present through overview framing, then hands the dye back over the final
- * approach to the authored rest (0.72 since 2026-09-06; was 1.0).
- */
-const FRAMING_RESTRAINT_RELEASE_ZOOM = 0.66;
-
-/** At the resting zoom the extra framing step is gone entirely. */
-const FRAMING_RESTRAINT_CLEAR_ZOOM = 0.72;
-
-/**
- * The further chroma step this framing asks of a rank-and-file ship, before
- * attention is applied. Zero at and above inspection framing.
- */
-export function gardenFleetFramingRestraint(zoom: number): number {
-  const t = MathUtils.clamp(
-    (zoom - FRAMING_RESTRAINT_RELEASE_ZOOM)
-      / (FRAMING_RESTRAINT_CLEAR_ZOOM - FRAMING_RESTRAINT_RELEASE_ZOOM),
-    0,
-    1,
-  );
-  const eased = t * t * (3 - 2 * t);
-  return FLEET_FRAMING_RESTRAINT * (1 - eased);
+export function gardenFleetFramingRestraint(distancePresence: number): number {
+  return FLEET_FRAMING_RESTRAINT * MathUtils.clamp(distancePresence, 0, 1);
 }
 
 /**
@@ -315,56 +264,32 @@ const CLOTH_WEAVE_RELIEF = "0.085";
 /** How far the weave stands down where the emblem is — legibility first. */
 const CLOTH_WEAVE_MARK_RELIEF = "0.7";
 
-/**
- * CPU reference for the fragment shader's restraint composition — the one place
- * the contract is expressed as arithmetic, so tests read the same numbers the
- * GPU does.
- *
- * `aerial` is the depth term (already smoothstepped and scaled by strength);
- * `zoomRestraint` is `uClothRestraint`; `framing` is the W3.7 step.
- *
- * Attention cancels both ZOOM-keyed terms — the framing step and the overview
- * recession — because both are statements about how far away the visitor is
- * standing, and hovering a ship is the visitor answering "not this one." It does
- * NOT cancel the DEPTH term: a hovered ship on the far horizon is still behind
- * the same air as everything else, and punching a saturated sail through the
- * haze would break the aerial perspective the whole frame depends on.
- */
+/** Attention restores issuer dye, but never removes the atmosphere in front. */
 export function gardenFleetSailRestraint(input: {
   aerial: number;
   attention: number;
   framing: number;
-  zoomRestraint: number;
 }): number {
   const attention = MathUtils.clamp(input.attention, 0, 1);
   const framing = input.framing * (1 - attention);
-  const base = Math.max(input.aerial, input.zoomRestraint * (1 - attention));
-  return 1 - (1 - base) * (1 - framing);
+  return 1 - (1 - input.aerial) * (1 - framing);
 }
 
-/**
- * How much of the painted mark survives at a given zoom.
- *
- * Marks are fully present at the authored rest (0.72 since 2026-09-06). Below
- * 0.62 they fade toward a deliberately non-zero floor: a distant sail should
- * still read as cloth that HAS a device on it rather than as blank canvas.
- */
-export function gardenFleetMarkPresence(zoom: number): number {
-  const t = MathUtils.clamp(
-    (zoom - MARK_MIN_ZOOM) / (MARK_FADE_ZOOM - MARK_MIN_ZOOM),
-    0,
-    1,
-  );
-  const eased = t * t * (3 - 2 * t);
-  return MARK_MIN_PRESENCE + (1 - MARK_MIN_PRESENCE) * eased;
+/** Distance presence is eased per instance before reaching either cue. */
+export function gardenFleetMarkPresence(distancePresence: number): number {
+  return 1 - (1 - MARK_MIN_PRESENCE) * MathUtils.clamp(distancePresence, 0, 1);
 }
 
-/** Marks are fully present until the camera pulls back below this zoom. */
-const MARK_FADE_ZOOM = 0.62;
-/** Below this zoom a mark is pixels of noise, so only the floor remains. */
-const MARK_MIN_ZOOM = 0.42;
-/** Never fully absent — see `gardenFleetMarkPresence`. */
 const MARK_MIN_PRESENCE = 0.45;
+const DISTANCE_HYSTERESIS_SECONDS = 0.35;
+/**
+ * Eye-space distance in scene units; the dead band is 0.5 units wide. At the
+ * rest shot the island sits ~120 u from the eye, so 150 keeps every hull in
+ * the inlet and the mid-ground clusters rigged (they are 30-60 px there) and
+ * swaps only the far-shore fleet, where a hull is a dozen pixels.
+ */
+export const FLEET_HULL_LOD_DISTANCE = 150;
+const FLEET_HULL_LOD_HALF_HYSTERESIS = 0.25;
 
 export interface FleetAerialPerspective {
   /** Scene fog near plane, already view-scaled by garden-sky. */
@@ -378,23 +303,12 @@ export interface FleetAerialPerspective {
 
 export function setFleetAerialPerspective(aerial: FleetAerialPerspective | null): void {
   if (!aerial) {
-    fleetAerialUniforms.uMarkPresence.value = 1;
     fleetAerialUniforms.uAerialStrength.value = 0;
-    fleetAerialUniforms.uClothRestraint.value = 0;
-    fleetAerialUniforms.uFramingRestraint.value = 0;
     fleetAerialUniforms.uClothWeave.value = 0;
     fleetAerialUniforms.uAerialNear.value = 1e9;
     fleetAerialUniforms.uAerialFar.value = 1e9 + 1;
     return;
   }
-  const presence = gardenFleetMarkPresence(aerial.zoom);
-  fleetAerialUniforms.uMarkPresence.value = presence;
-  // Marks and chroma recede together on the same zoom curve — one act of
-  // restraint, not two competing ones.
-  fleetAerialUniforms.uClothRestraint.value = (1 - presence) * CLOTH_RESTRAINT_AT_OVERVIEW;
-  // W3.7: the wide framing takes one further, gentle step on the same axis;
-  // it is fully released at rest and attention cancels it per instance.
-  fleetAerialUniforms.uFramingRestraint.value = gardenFleetFramingRestraint(aerial.zoom);
   fleetAerialUniforms.uClothWeave.value = gardenFleetClothWeave(aerial.zoom);
   // Start the chroma ramp well inside the fog's near plane so the midground
   // grades continuously; end it with the fog so the two cues resolve together
@@ -914,28 +828,12 @@ const HULL_SURFACE_COLOR = `
 #endif`;
 
 /**
- * 2026-09-07 T3.4: the hull's finish, not its colour.
- *
- * One matte roughness over every part is what makes a batched hull read as a
- * moulded toy: real timber has a varnished rail that catches the sun and a wet
- * band at the waterline that catches everything. Both are fragment-only, so
- * this costs no draw call, no attribute and no uniform — the rail reuses the
- * `aPartMasks.w` rim term already baked by `applySurfaceMasks` (the sail batch
- * is at 16/16 attribute slots and the hull at 15/16; there is no room for a
- * new one and this needs none).
- *
- * Two numbers are load-bearing:
- *   - the wet band is 0.11 ship-local units, UNDER the 0.12 ceiling. Wider and
- *     it stops reading as a waterline and starts reading as a painted stripe.
- *   - roughness floors at 0.45, never lower. The fleet is lit by one key and a
- *     PMREM probe; below ~0.45 the hulls pick up the probe's sun disc as a hard
- *     specular chip and 200 ships twinkle.
- *
- * The band is placed at the water plane (`GARDEN_SHIP_ROOT_Y - GARDEN_WATER_Y`
- * = 0.38 below the ship root), divided by the instance's scale because the
- * root offset is applied outside the instance matrix while `transformed` is
- * inside it. It deliberately does NOT track bob: it is paint on a hull, and a
- * band that slid up and down the planking every second would be worse.
+ * Wet timber is darker, less saturated and glossier; the painted gunwale
+ * carries full varnish. Interpolate height, not a vertex-sampled wet mask:
+ * coarse topside faces can cross the whole collar without a vertex inside it.
+ * World-space width keeps the 0.22 collar readable across the scale ladder.
+ * The authored waterline stays fixed on the planks instead of following bob.
+ * No new attributes: the rail uses the existing strake mask.
  */
 const HULL_SURFACE_GLOSS = `
 #ifdef USE_INSTANCING
@@ -943,11 +841,16 @@ const HULL_SURFACE_GLOSS = `
 #else
   float shipScale = 1.0;
 #endif
-  float wetBand = 1.0 - smoothstep(0.0, 0.11, abs(transformed.y + 0.38 / shipScale));
-  vHullGloss = clamp(max(aPartMasks.w * 0.55, wetBand), 0.0, 1.0);`;
+  vHullFinish = vec2(transformed.y * shipScale + 0.38, step(0.5, aStrakeMask));`;
+
+const HULL_WET_FRAGMENT = `
+  float wet = 1.0 - smoothstep(0.0, 0.22, abs(vHullFinish.x));
+  float wetLuma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(wetLuma), wet * 0.3);
+  diffuseColor.rgb *= mix(1.0, 0.62, wet);`;
 
 const HULL_GLOSS_FRAGMENT = `
-  roughnessFactor = mix(roughnessFactor, 0.45, vHullGloss);`;
+  roughnessFactor = mix(roughnessFactor, 0.45, clamp(max(vHullFinish.y, wet), 0.0, 1.0));`;
 
 export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
@@ -962,39 +865,37 @@ export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void
         attribute vec4 aHullSurface;
         attribute vec4 aVariationPivot;
         attribute vec4 aPartMasks;
-        varying float vHullGloss;`,
+        varying vec2 vHullFinish;`,
       )
       .replace("#include <color_vertex>", `#include <color_vertex>\n${STRAKE_PAINT}\n${HULL_SURFACE_COLOR}`)
       // After every deform: `transformed` has to be final before the waterline
       // band can know where on the planking it lands.
       .replace("#include <project_vertex>", `${HULL_SURFACE_GLOSS}\n#include <project_vertex>`);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying float vHullGloss;")
+      .replace("#include <common>", "#include <common>\nvarying vec2 vHullFinish;")
+      .replace("#include <color_fragment>", `#include <color_fragment>\n${HULL_WET_FRAGMENT}`)
       .replace(
         "#include <roughnessmap_fragment>",
         `#include <roughnessmap_fragment>\n${HULL_GLOSS_FRAGMENT}`,
       );
-    injectGardenHeightFog(shader);
   };
-  // Three caches compiled programs by this key. Without the `-gloss` suffix the
-  // old program is silently reused and none of the above reaches the GPU.
+  // The shader shape changed, so previously compiled fleet programs cannot be reused.
   material.customProgramCacheKey = () =>
-    "garden-fleet-hull-form-strake-trim-wabi-age-fittings-height-fog-gloss";
+    "garden-fleet-hull-form-strake-trim-wabi-age-fittings-wet-collar";
 }
 
 export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.uBacklight = fleetLightUniforms.uBacklight;
+    shader.uniforms.uSunDir = fleetLightUniforms.uSunDir;
     shader.uniforms.uWindTime = fleetWindUniforms.uWindTime;
     shader.uniforms.uWindFlutter = fleetWindUniforms.uWindFlutter;
     shader.uniforms.uWindBreath = fleetWindUniforms.uWindBreath;
     shader.uniforms.uWindDir = fleetWindUniforms.uWindDir;
     shader.uniforms.uWindSpeed = fleetWindUniforms.uWindSpeed;
-    shader.uniforms.uMarkPresence = fleetAerialUniforms.uMarkPresence;
     shader.uniforms.uAerialNear = fleetAerialUniforms.uAerialNear;
     shader.uniforms.uAerialFar = fleetAerialUniforms.uAerialFar;
     shader.uniforms.uAerialStrength = fleetAerialUniforms.uAerialStrength;
-    shader.uniforms.uClothRestraint = fleetAerialUniforms.uClothRestraint;
-    shader.uniforms.uFramingRestraint = fleetAerialUniforms.uFramingRestraint;
     shader.uniforms.uClothWeave = fleetAerialUniforms.uClothWeave;
     // Sail-local flutter and furling run before hull form, so height and ride
     // cannot change the animation envelope or reopen bundled canvas.
@@ -1025,7 +926,8 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         attribute float aSailIndex;
         attribute vec3 aSailHead;
         attribute vec3 aSailTint;
-        attribute float aSailAttention;
+        attribute vec2 aSailAttention;
+        varying float vSailDistance;
         varying vec2 vAtlasUv;
         varying vec2 vClothUv;
         varying vec3 vSailTint;
@@ -1044,25 +946,26 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           vAtlasUv = cellOrigin + uv / columns;
           vSailTint = aSailTint;
           vClothUv = uv;
-          vSailAttention = aSailAttention;
+          vSailAttention = aSailAttention.x;
+          vSailDistance = aSailAttention.y;
         }`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
         `#include <common>
-        uniform float uMarkPresence;
         uniform float uAerialNear;
         uniform float uAerialFar;
         uniform float uAerialStrength;
-        uniform float uClothRestraint;
-        uniform float uFramingRestraint;
         uniform float uClothWeave;
+        uniform float uBacklight;
+        uniform vec3 uSunDir;
         varying vec2 vAtlasUv;
         varying vec2 vClothUv;
         varying vec3 vSailTint;
         varying float vAerialDepth;
         varying float vSailAttention;
+        varying float vSailDistance;
         float gClothWarp = 0.0;
         float gClothWeft = 0.0;`,
       )
@@ -1084,13 +987,14 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
 
           float aerial = smoothstep(uAerialNear, uAerialFar, vAerialDepth);
 
-          float markVisibility = uMarkPresence * (1.0 - aerial * 0.8);
+          float markPresence = mix(1.0, ${MARK_MIN_PRESENCE}, vSailDistance);
+          float markVisibility = markPresence * (1.0 - aerial * 0.8);
           vec3 sailCloth = mix(vSailTint, sailTexel.rgb, sailTexel.a * markVisibility);
 
           float attention = clamp(vSailAttention, 0.0, 1.0);
           float clothLuma = dot(sailCloth, vec3(0.2126, 0.7152, 0.0722));
-          float framingStep = uFramingRestraint * (1.0 - attention);
-          float restraint = max(aerial * uAerialStrength, uClothRestraint * (1.0 - attention));
+          float framingStep = vSailDistance * ${FLEET_FRAMING_RESTRAINT} * (1.0 - attention);
+          float restraint = aerial * uAerialStrength;
           restraint = 1.0 - (1.0 - restraint) * (1.0 - framingStep);
           sailCloth = mix(sailCloth, vec3(clothLuma), restraint);
 
@@ -1130,15 +1034,23 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
                 * ${CLOTH_WEAVE_RELIEF}
           );
         }`,
+      )
+      .replace(
+        "#include <opaque_fragment>",
+        `{
+          // Three's face-oriented shading normal is view-space; transform the
+          // shared world-space sun before comparing the back face to the light.
+          vec3 clothSunDir = normalize(mat3(viewMatrix) * uSunDir);
+          float wrap = clamp(-dot(normal, clothSunDir), 0.0, 1.0);
+          outgoingLight += wrap * diffuseColor.rgb * uBacklight;
+          float clothPeak = max(max(outgoingLight.r, outgoingLight.g), outgoingLight.b);
+          outgoingLight *= min(1.0, ${FLEET_CLOTH_RADIANCE_CEILING.toFixed(1)} / max(clothPeak, 0.0001));
+        }
+        #include <opaque_fragment>`,
       );
-    // The aerial chroma restraint above settles the distant dye while
-    // preserving value; the shared fog term then places that restrained sail
-    // in the same directional air as hull, sea and land. Neither rewrites the
-    // other's arithmetic.
-    injectGardenHeightFog(shader);
   };
   material.customProgramCacheKey = () =>
-    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim-aerial-framing-weave-height-fog";
+    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim-aerial-framing-weave-backlight";
 }
 
 function createInstancedPart(
@@ -1147,6 +1059,7 @@ function createInstancedPart(
   capacity: number,
   withAtlasCell: boolean,
   withTrim = false,
+  withLivery = false,
 ): FleetBatchPart {
   const mesh = new InstancedMesh(geometry, material, capacity);
   mesh.instanceMatrix.setUsage(DynamicDrawUsage);
@@ -1154,6 +1067,14 @@ function createInstancedPart(
   scratchMatrix.makeScale(0, 0, 0);
   for (let index = 0; index < capacity; index += 1) mesh.setMatrixAt(index, scratchMatrix);
   mesh.instanceMatrix.needsUpdate = true;
+  // Livery parts are written with setColorAt; allocate the buffer now so the
+  // program compiles with USE_INSTANCING_COLOR from its first frame instead of
+  // once without it (an undeclared `instanceColor` in the far shader) and
+  // once with. Cloth never carries it: the sail program is at the 16-slot cap.
+  if (withLivery) {
+    mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
+    mesh.instanceColor.setUsage(DynamicDrawUsage);
+  }
   mesh.count = 0;
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -1179,9 +1100,9 @@ function createInstancedPart(
     sailFurl = new InstancedBufferAttribute(new Float32Array(capacity), 1);
     sailFurl.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aSailFurl", sailFurl);
-    // W3.7: attention. Defaults to 0 — rank-and-file — so an unwritten instance
-    // takes the framing's restraint rather than an unexplained full-brand sail.
-    sailAttention = new InstancedBufferAttribute(new Float32Array(capacity), 1);
+    // Two viewing conditions share one attribute location: the sail geometry
+    // already consumes WebGL's guaranteed sixteen-location budget.
+    sailAttention = new InstancedBufferAttribute(new Float32Array(capacity * 2), 2);
     sailAttention.setUsage(DynamicDrawUsage);
     geometry.setAttribute("aSailAttention", sailAttention);
   }
@@ -1223,6 +1144,7 @@ export interface FleetBatchGeometrySource {
   hull: BufferGeometry;
   /** Merged sail set, carrying the `aAtlasSail` selector. */
   sails: BufferGeometry;
+  far: BufferGeometry;
 }
 
 /**
@@ -1263,19 +1185,56 @@ export function createFleetBatches(input: {
   patchSailAtlasMaterial(sailMaterial);
   materials.push(sailMaterial);
 
+  // One material keeps the far hull and its single identity quad in one draw.
+  // Reuse the cloth's atlas/atmosphere, but do not flutter timber or dye the
+  // emblem with instanceColor. Existing attributes suffice (14 locations).
+  const farMaterial = sailMaterial.clone();
+  farMaterial.emissiveIntensity = 0;
+  patchSailAtlasMaterial(farMaterial);
+  const patchFarCloth = farMaterial.onBeforeCompile;
+  farMaterial.onBeforeCompile = (shader, renderer) => {
+    patchFarCloth(shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace(SAIL_LOCAL_DEFORM, "")
+      .replace("attribute float aSailFurl;", "")
+      .replace("attribute float aSailIndex;", "")
+      .replace("attribute vec3 aSailHead;", "")
+      .replace("vSailTint = aSailTint;", `
+        #ifdef USE_INSTANCING_COLOR
+          vSailTint = aAtlasSail > 0.5 ? aSailTint : instanceColor;
+        #else
+          vSailTint = aSailTint;
+        #endif`)
+      .replace("#include <color_vertex>", `#include <color_vertex>
+        #if defined( USE_INSTANCING_COLOR ) && defined( USE_COLOR )
+          // Undo three's instanceColor multiply: the far livery is applied via
+          // vSailTint on the hull, the vertex tone stays the authored split.
+          vColor.rgb = color.rgb;
+        #endif`)
+      .replace("varying vec2 vAtlasUv;", "varying vec2 vAtlasUv; varying float vFarCloth;")
+      .replace("vClothUv = uv;", "vClothUv = uv; vFarCloth = aAtlasSail;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("varying vec2 vAtlasUv;", "varying vec2 vAtlasUv; varying float vFarCloth;")
+      .replace("vec4 sailTexel = texture2D(map, vAtlasUv);",
+        "vec4 sailTexel = vFarCloth > 0.5 ? texture2D(map, vAtlasUv) : vec4(0.0);")
+      .replace("float weaveAmount = uClothWeave", "float weaveAmount = vFarCloth * uClothWeave")
+      .replace("outgoingLight += wrap", "outgoingLight += vFarCloth * wrap");
+  };
+  farMaterial.customProgramCacheKey = () => "garden-fleet-far-hull-identity-atlas";
+  materials.push(farMaterial);
+
   const pennantMaterial = new MeshStandardMaterial({
     color: "#ffffff",
     flatShading: true,
     roughness: 0.7,
     side: DoubleSide,
   });
-  patchGardenHeightFogMaterial(pennantMaterial);
   materials.push(pennantMaterial);
 
   const bySilhouette = new Map<GardenHullSilhouette, FleetSilhouetteBatch>();
   for (const silhouette of input.silhouettes) {
     const source = input.geometryFor(silhouette);
-    const hull = createInstancedPart(source.hull, hullMaterial, input.capacity, false, true);
+    const hull = createInstancedPart(source.hull, hullMaterial, input.capacity, false, true, true);
     hull.mesh.name = `fleet-hull-${silhouette}`;
     const sails = createInstancedPart(source.sails, sailMaterial, input.capacity, true);
     sails.mesh.name = `fleet-sails-${silhouette}`;
@@ -1285,8 +1244,13 @@ export function createFleetBatches(input: {
     // water-contact shadow. Four sail shadow submissions are also the measured
     // margin that keeps the dawn scene inside its unchanged draw-call budget.
     sails.mesh.castShadow = false;
-    root.add(hull.mesh, sails.mesh);
-    bySilhouette.set(silhouette, { hull, sails });
+    const far = createInstancedPart(source.far, farMaterial, input.capacity, true, false, true);
+    far.mesh.name = `fleet-far-${silhouette}`;
+    far.mesh.geometry.deleteAttribute("aSailFurl");
+    far.sailFurl = null;
+    far.mesh.castShadow = false;
+    root.add(hull.mesh, sails.mesh, far.mesh);
+    bySilhouette.set(silhouette, { hull, sails, far });
   }
 
   const pennant = createInstancedPart(
@@ -1294,6 +1258,8 @@ export function createFleetBatches(input: {
     pennantMaterial,
     input.capacity,
     false,
+    false,
+    true,
   );
   pennant.mesh.name = "fleet-pennants";
   pennant.mesh.castShadow = false;
@@ -1305,6 +1271,7 @@ export function createFleetBatches(input: {
 /** One ship's per-frame pose, written into every batch it participates in. */
 export interface FleetInstancePose {
   atlasCell: number;
+  shipId: string;
   /**
    * W3.7: eased attention, 0..1. Omit to let the batch resolve it from
    * `setFleetAttention`'s envelopes via this ship's atlas cell.
@@ -1346,22 +1313,63 @@ export interface FleetInstancePose {
   z: number;
 }
 
+interface FleetDistanceFrame {
+  camera: IsoCamera;
+  viewport: ScreenPoint;
+  timeSeconds: number;
+}
+
+interface FleetDistanceState {
+  eye: { x: number; y: number; z: number };
+  time: number;
+  blend: number;
+  distances: number[];
+  ships: Map<string, {
+    distance: number;
+    far: boolean;
+    presence: number | null;
+    part: FleetBatchPart;
+    slot: number;
+    seen: boolean;
+  }>;
+}
+
+const fleetDistanceStates = new WeakMap<FleetBatches, FleetDistanceState>();
+
 /**
  * Resets every batch's live count. Call once per frame before writing poses;
  * instances beyond the new count are simply not drawn, so no buffer is
  * reallocated when the fleet shrinks.
  */
-export function beginFleetFrame(batches: FleetBatches): void {
+export function beginFleetFrame(batches: FleetBatches, frame?: FleetDistanceFrame): void {
+  if (frame) {
+    const eye = cameraEye(cameraPoseFromIso(frame.camera, frame.viewport));
+    const previous = fleetDistanceStates.get(batches);
+    if (previous) {
+      previous.eye = eye;
+      previous.blend = 1 - Math.exp(-Math.max(0, frame.timeSeconds - previous.time) / DISTANCE_HYSTERESIS_SECONDS);
+      previous.time = frame.timeSeconds;
+      previous.distances.length = 0;
+      for (const ship of previous.ships.values()) ship.seen = false;
+    } else {
+      fleetDistanceStates.set(batches, {
+        eye, time: frame.timeSeconds, blend: 1, distances: [], ships: new Map(),
+      });
+    }
+  } else {
+    fleetDistanceStates.delete(batches);
+  }
   for (const batch of batches.bySilhouette.values()) {
     batch.hull.mesh.count = 0;
     batch.sails.mesh.count = 0;
+    batch.far.mesh.count = 0;
   }
   batches.pennant.mesh.count = 0;
 }
 
 /**
- * Writes one ship's pose into its silhouette batches. Allocation-free: all
- * math runs through module-scope scratch objects.
+ * Writes one ship's pose into its chosen LOD. Pose math is allocation-free;
+ * a distance record is allocated only when a ship first enters the fleet.
  */
 export function writeFleetInstance(
   batches: FleetBatches,
@@ -1369,8 +1377,36 @@ export function writeFleetInstance(
 ): void {
   const batch = batches.bySilhouette.get(pose.silhouette);
   if (!batch) return;
-  const slot = batch.hull.mesh.count;
-  if (slot >= batches.capacity) return;
+  if (batch.hull.mesh.count + batch.far.mesh.count >= batches.capacity) return;
+  const distanceState = fleetDistanceStates.get(batches);
+  let far = false;
+  let distance = 0;
+  if (distanceState) {
+    const eye = distanceState.eye;
+    distance = Math.hypot(pose.x - eye.x, pose.y - eye.y, pose.z - eye.z);
+    const previous = distanceState.ships.get(pose.shipId);
+    const threshold = FLEET_HULL_LOD_DISTANCE + (previous
+      ? previous.far ? -FLEET_HULL_LOD_HALF_HYSTERESIS : FLEET_HULL_LOD_HALF_HYSTERESIS
+      : 0);
+    far = distance > threshold;
+  }
+  const hull = far ? batch.far : batch.hull;
+  const sails = far ? batch.far : batch.sails;
+  const slot = hull.mesh.count;
+  if (distanceState) {
+    let ship = distanceState.ships.get(pose.shipId);
+    if (!ship) {
+      ship = { distance, far, presence: null, part: sails, slot, seen: true };
+      distanceState.ships.set(pose.shipId, ship);
+    } else {
+      ship.distance = distance;
+      ship.far = far;
+      ship.part = sails;
+      ship.slot = slot;
+      ship.seen = true;
+    }
+    distanceState.distances.push(distance);
+  }
 
   scratchPosition.set(pose.x, pose.y, pose.z);
   scratchQuaternion.setFromEuler(
@@ -1381,13 +1417,18 @@ export function writeFleetInstance(
   scratchScale.setScalar(pose.scale);
   scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
 
-  batch.hull.mesh.setMatrixAt(slot, scratchMatrix);
-  batch.hull.mesh.setColorAt(slot, pose.hullColor);
-  batch.hull.mesh.count = slot + 1;
-  if (batch.hull.trim) {
-    batch.hull.trim.setXYZ(slot, pose.trimColor.r, pose.trimColor.g, pose.trimColor.b);
+  hull.mesh.setMatrixAt(slot, scratchMatrix);
+  hull.mesh.setColorAt(slot, far
+    ? scratchColor.copy(pose.hullColor).multiplyScalar(MathUtils.clamp(
+      (pose.hullForm as FleetInstancePose["hullForm"] & { hullValue?: number }).hullValue ?? 1,
+      0.85, 1.15,
+    ))
+    : pose.hullColor);
+  hull.mesh.count = slot + 1;
+  if (hull.trim) {
+    hull.trim.setXYZ(slot, pose.trimColor.r, pose.trimColor.g, pose.trimColor.b);
   }
-  if (batch.hull.hullSurface) {
+  if (hull.hullSurface) {
     const surface = pose.hullForm as FleetInstancePose["hullForm"] & {
       agePatina?: number;
       fittingCode?: number;
@@ -1395,7 +1436,7 @@ export function writeFleetInstance(
       propRotation?: number;
       ropeSag?: number;
     };
-    batch.hull.hullSurface.setXYZW(
+    hull.hullSurface.setXYZW(
       slot,
       // 2026-09-07 T1.10: 0.9-1.1 -> 0.85-1.15, to pass the widened decorative
       // value spread `deriveShipWabiSurface` now produces (+-6-15%).
@@ -1410,31 +1451,33 @@ export function writeFleetInstance(
   // stepped into, and so does the trim.
   const { beam, height, length } = pose.hullForm;
   const waterline = pose.hullForm.waterline ?? 0;
-  batch.hull.hullForm.setXYZW(slot, length, beam, height, waterline);
-  batch.sails.hullForm.setXYZW(slot, length, beam, height, waterline);
-
-  batch.sails.mesh.setMatrixAt(slot, scratchMatrix);
-  batch.sails.mesh.count = slot + 1;
-  if (batch.sails.atlasCell) {
-    batch.sails.atlasCell.setX(slot, pose.atlasCell);
+  hull.hullForm.setXYZW(slot, length, beam, height, waterline);
+  if (!far) {
+    sails.hullForm.setXYZW(slot, length, beam, height, waterline);
+    sails.mesh.setMatrixAt(slot, scratchMatrix);
+    sails.mesh.count = slot + 1;
   }
-  if (batch.sails.sailTint) {
-    batch.sails.sailTint.setXYZ(slot, pose.sailColor.r, pose.sailColor.g, pose.sailColor.b);
+  if (sails.atlasCell) {
+    sails.atlasCell.setX(slot, pose.atlasCell);
   }
-  if (batch.sails.sailFurl) {
+  if (sails.sailTint) {
+    sails.sailTint.setXYZ(slot, pose.sailColor.r, pose.sailColor.g, pose.sailColor.b);
+  }
+  if (sails.sailFurl) {
     const sailScale = MathUtils.clamp(pose.sailScale ?? 1, GARDEN_SAIL_DIP_MIN_SCALE, 1);
-    batch.sails.sailFurl.setX(slot, pose.sailFurl + (1 - sailScale) * 0.99);
+    sails.sailFurl.setX(slot, pose.sailFurl + (1 - sailScale) * 0.99);
   }
-  if (batch.sails.sailAttention) {
+  if (sails.sailAttention) {
     // W3.7: the pose may name attention outright (tests, and any future caller
     // that already holds the ship's hover/selection state); otherwise it is
     // resolved from the module's eased envelopes by atlas cell.
-    batch.sails.sailAttention.setX(
+    sails.sailAttention.setX(
       slot,
       pose.attention ?? gardenFleetAttention(pose.atlasCell),
     );
   }
 
+  if (far) return;
   const pennantSlot = batches.pennant.mesh.count;
   if (pennantSlot < batches.capacity) {
     scratchPennantMatrix
@@ -1455,9 +1498,7 @@ export function writeFleetInstance(
         pose.x,
         pose.z,
         {
-          windDirX: pennantWind.dirX,
-          windDirZ: pennantWind.dirZ,
-          windSpeed: pennantWind.speed,
+          wind: { x: pennantWind.dirX, y: pennantWind.dirZ, speed: pennantWind.speed, gust: pennantWind.gust },
         },
       );
       const yaw = propRotation + (pennantWind.active ? -pose.headingAngle - pennantWind.angle
@@ -1476,9 +1517,27 @@ export function writeFleetInstance(
 
 /** Flushes every buffer touched this frame. One upload per buffer, not per ship. */
 export function endFleetFrame(batches: FleetBatches): void {
+  const distanceState = fleetDistanceStates.get(batches);
+  if (distanceState) {
+    const { distances } = distanceState;
+    distances.sort((left, right) => left - right);
+    const near = distances[Math.max(0, Math.ceil(distances.length / 3) - 1)] ?? 0;
+    const far = distances[Math.min(distances.length - 1, Math.floor(distances.length * 2 / 3))] ?? near;
+    for (const [id, ship] of distanceState.ships) {
+      if (!ship.seen) {
+        distanceState.ships.delete(id);
+        continue;
+      }
+      const target = far > near ? MathUtils.clamp((ship.distance - near) / (far - near), 0, 1) : 0;
+      const previous = ship.presence ?? target;
+      ship.presence = previous + (target - previous) * distanceState.blend;
+      ship.part.sailAttention!.setY(ship.slot, ship.presence);
+    }
+  }
   for (const batch of batches.bySilhouette.values()) {
     flushPart(batch.hull);
     flushPart(batch.sails);
+    flushPart(batch.far);
   }
   flushPart(batches.pennant);
 }
@@ -1498,7 +1557,7 @@ function flushPart(part: FleetBatchPart): void {
 /** Total live instances across the fleet — the metric the perf lane reads. */
 export function fleetInstanceCount(batches: FleetBatches): number {
   let count = 0;
-  for (const batch of batches.bySilhouette.values()) count += batch.hull.mesh.count;
+  for (const batch of batches.bySilhouette.values()) count += batch.hull.mesh.count + batch.far.mesh.count;
   return count;
 }
 
@@ -1508,6 +1567,7 @@ export function fleetDrawCallCount(batches: FleetBatches): number {
   for (const batch of batches.bySilhouette.values()) {
     if (batch.hull.mesh.count > 0) count += 1;
     if (batch.sails.mesh.count > 0) count += 1;
+    if (batch.far.mesh.count > 0) count += 1;
   }
   return count;
 }
@@ -1518,12 +1578,15 @@ export function disposeFleetBatches(batches: FleetBatches): void {
     batch.hull.mesh.dispose();
     batch.sails.mesh.geometry.dispose();
     batch.sails.mesh.dispose();
+    batch.far.mesh.geometry.dispose();
+    batch.far.mesh.dispose();
   }
   batches.pennant.mesh.geometry.dispose();
   batches.pennant.mesh.dispose();
   for (const material of batches.materials) material.dispose();
   batches.bySilhouette.clear();
   batches.root.clear();
+  fleetDistanceStates.delete(batches);
 }
 
 export const FLEET_BATCH_TINTS = {
@@ -1531,4 +1594,5 @@ export const FLEET_BATCH_TINTS = {
   gunwale: GUNWALE_TINT,
   keel: KEEL_TINT,
   mast: MAST_TINT,
+  matting: MATTING_TINT,
 } as const;

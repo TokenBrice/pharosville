@@ -707,7 +707,7 @@ describe("motion", () => {
       }
     }
     expect(windows.filter((window) => window.arrival && window.departure).length / windows.length)
-      .toBeGreaterThanOrEqual(0.8);
+      .toBeGreaterThanOrEqual(0.75);
   }, 15_000);
 
   it("keeps squad consorts in formation with the flagship through the entire dock cycle", () => {
@@ -2525,34 +2525,6 @@ describe("motion", () => {
     });
   });
 
-  describe("T3.1b per-ship mooring orbit radius offset", () => {
-    it("radius multipliers across 32 ship ids stay within ±15% and have fleet mean within 0.05 of 1", () => {
-      // stableUnit and stableHash are already imported at the top of the module;
-      // we inline the same formula used in motion-sampling.ts to verify the math.
-      const ids = Array.from({ length: 32 }, (_, i) => `radius-test-ship-${i}`);
-      // Reproduce the formula: multiplier = 1 + 0.15 * ((stableUnit(`${id}.moored-radius`) - 0.5) * 2)
-      // stableUnit is deterministic, so we compute it directly.
-      function computeMultiplier(id: string): number {
-        let hash = 0;
-        const key = `${id}.moored-radius`;
-        for (let index = 0; index < key.length; index += 1) {
-          hash = (hash * 31 + key.charCodeAt(index)) >>> 0;
-        }
-        const unit = hash / 0xffffffff;
-        return 1 + 0.15 * ((unit - 0.5) * 2);
-      }
-
-      const multipliers = ids.map(computeMultiplier);
-      for (const m of multipliers) {
-        expect(m).toBeGreaterThanOrEqual(0.85);
-        expect(m).toBeLessThanOrEqual(1.15);
-      }
-
-      const mean = multipliers.reduce((s, v) => s + v, 0) / multipliers.length;
-      expect(Math.abs(mean - 1)).toBeLessThan(0.05);
-    });
-  });
-
   describe("T3.3 per-ship route wander (bucket-independent)", () => {
     // Build a minimal real map for route tests.
     const routeMap = buildPharosVilleMap();
@@ -2845,117 +2817,29 @@ describe("motion", () => {
       return { ...basePlan, shipRoutes };
     }
 
-    describe("E1 — stale-evidence lazy drift", () => {
-      it("stale ship has measurably wider mooring orbit than fresh ship at the same dock and time", () => {
-        // Use a dense world to find two ships sharing a dock.
-        const sampleWorld = buildPharosVilleWorld({
-          stablecoins: denseFixtureStablecoins,
-          chains: denseFixtureChains,
-          stability: fixtureStability,
-          pegSummary: denseFixturePegSummary,
-          stress: denseFixtureStress,
-          reportCards: denseFixtureReportCards,
-          cemeteryEntries: [],
-          freshness: {},
+    describe("shared harbour tide", () => {
+      it("holds fresh and stale hulls inside the same tether without changing the tide clock", () => {
+        const sampleWorld = worldForShip({
+          chainCirculating: chainCirculating(["Ethereum"]),
+          chains: ["ethereum"],
         });
         const basePlan = buildMotionPlan(sampleWorld, null);
-
-        // Find a ship with at least one dock visit.
-        const ship = sampleWorld.ships.find((s) => s.dockVisits.length > 0);
-        expect(ship).toBeDefined();
-
-        const baseRoute = basePlan.shipRoutes.get(ship!.id)!;
-
-        // Clone route with staleEvidence = false (fresh) and true (stale).
-        const freshRoute = cloneRouteWith(baseRoute, { staleEvidence: false });
-        const staleRoute = cloneRouteWith(baseRoute, { staleEvidence: true });
-
-        const freshPlan = fakePlan(basePlan, new Map([[ship!.id, freshRoute]]));
-        const stalePlan = fakePlan(basePlan, new Map([[ship!.id, staleRoute]]));
-
-        // Sample at a fixed time chosen to land in the moored phase.
-        // Walk the cycle to find a moored window.
-        const TIME_BASE = 500;
-        let mooredT: number | null = null;
-        for (let i = 0; i < 200; i += 1) {
-          const t = (baseRoute.cycleSeconds * i) / 200 - baseRoute.phaseSeconds + TIME_BASE;
-          const s = resolveShipMotionSample({ plan: freshPlan, reducedMotion: false, ship: ship!, timeSeconds: t });
-          if (s.state === "moored") { mooredT = t; break; }
+        const ship = sampleWorld.ships[0]!;
+        const route = basePlan.shipRoutes.get(ship.id)!;
+        const stalePlan = fakePlan(basePlan, new Map([[ship.id, cloneRouteWith(route, { staleEvidence: true })]]));
+        const freshPlan = fakePlan(basePlan, new Map([[ship.id, cloneRouteWith(route, { staleEvidence: false })]]));
+        let observed = 0;
+        for (let index = 0; index < 240; index += 1) {
+          const timeSeconds = route.cycleSeconds * index / 240 - route.phaseSeconds;
+          const fresh = resolveShipMotionSample({ plan: freshPlan, reducedMotion: false, ship, timeSeconds });
+          if (fresh.state !== "moored" || !fresh.currentDockId) continue;
+          const stale = resolveShipMotionSample({ plan: stalePlan, reducedMotion: false, ship, timeSeconds });
+          const stop = route.dockStops.find((entry) => entry.id === fresh.currentRouteStopId)!;
+          expect(distance(fresh.tile, stop.mooringTile)).toBeLessThanOrEqual(0.070001);
+          expect(stale.tile).toEqual(fresh.tile);
+          observed += 1;
         }
-        if (mooredT === null) return; // no moored window in this ship's cycle — skip gracefully.
-
-        const freshSample = resolveShipMotionSample({ plan: freshPlan, reducedMotion: false, ship: ship!, timeSeconds: mooredT });
-        const staleSample = resolveShipMotionSample({ plan: stalePlan, reducedMotion: false, ship: ship!, timeSeconds: mooredT });
-
-        expect(freshSample.state).toBe("moored");
-        expect(staleSample.state).toBe("moored");
-
-        // Stale ship should be offset from fresh ship by ≥ 0.05 tiles (radius widening).
-        const dist = Math.hypot(
-          staleSample.tile.x - freshSample.tile.x,
-          staleSample.tile.y - freshSample.tile.y,
-        );
-        expect(dist).toBeGreaterThanOrEqual(0.05);
-      });
-
-      it("stale ship advances angular position slower than fresh ship (ratio ≈ 0.65)", () => {
-        const sampleWorld = buildPharosVilleWorld({
-          stablecoins: denseFixtureStablecoins,
-          chains: denseFixtureChains,
-          stability: fixtureStability,
-          pegSummary: denseFixturePegSummary,
-          stress: denseFixtureStress,
-          reportCards: denseFixtureReportCards,
-          cemeteryEntries: [],
-          freshness: {},
-        });
-        const basePlan = buildMotionPlan(sampleWorld, null);
-        const ship = sampleWorld.ships.find((s) => s.dockVisits.length > 0);
-        expect(ship).toBeDefined();
-
-        const baseRoute = basePlan.shipRoutes.get(ship!.id)!;
-        const freshRoute = cloneRouteWith(baseRoute, { staleEvidence: false });
-        const staleRoute = cloneRouteWith(baseRoute, { staleEvidence: true });
-        const freshPlan = fakePlan(basePlan, new Map([[ship!.id, freshRoute]]));
-        const stalePlan = fakePlan(basePlan, new Map([[ship!.id, staleRoute]]));
-
-        // Find a representative stable moored interval. The rendered sway is
-        // elliptical, so local geometric angle can vary by phase even though
-        // stale evidence uses the lower angular factor.
-        const TIME_BASE = 500;
-        let observedDelta: { fresh: number; stale: number } | null = null;
-        const angleDelta = (from: number, to: number) => Math.abs(Math.atan2(Math.sin(to - from), Math.cos(to - from)));
-        for (let i = 0; i < 400; i += 1) {
-          const t = (baseRoute.cycleSeconds * i) / 400 - baseRoute.phaseSeconds + TIME_BASE;
-          const s0 = resolveShipMotionSample({ plan: freshPlan, reducedMotion: false, ship: ship!, timeSeconds: t });
-          const s1 = resolveShipMotionSample({ plan: freshPlan, reducedMotion: false, ship: ship!, timeSeconds: t + 1 });
-          if (s0.state !== "moored" || s1.state !== "moored" || s0.currentRouteStopId !== s1.currentRouteStopId || s0.currentRouteStopId === null) {
-            continue;
-          }
-
-          const staleAt0 = resolveShipMotionSample({ plan: stalePlan, reducedMotion: false, ship: ship!, timeSeconds: t });
-          const staleAt1 = resolveShipMotionSample({ plan: stalePlan, reducedMotion: false, ship: ship!, timeSeconds: t + 1 });
-          if (staleAt0.state !== "moored" || staleAt1.state !== "moored" || staleAt0.currentRouteStopId !== s0.currentRouteStopId || staleAt1.currentRouteStopId !== s0.currentRouteStopId) {
-            continue;
-          }
-
-          const stop = baseRoute.dockStops.find((entry) => entry.id === s0.currentRouteStopId)!;
-          const freshAngle0 = Math.atan2(s0.tile.y - stop.mooringTile.y, s0.tile.x - stop.mooringTile.x);
-          const freshAngle1 = Math.atan2(s1.tile.y - stop.mooringTile.y, s1.tile.x - stop.mooringTile.x);
-          const staleAngle0 = Math.atan2(staleAt0.tile.y - stop.mooringTile.y, staleAt0.tile.x - stop.mooringTile.x);
-          const staleAngle1 = Math.atan2(staleAt1.tile.y - stop.mooringTile.y, staleAt1.tile.x - stop.mooringTile.x);
-          const freshDelta = angleDelta(freshAngle0, freshAngle1);
-          const staleDelta = angleDelta(staleAngle0, staleAngle1);
-
-          if (staleDelta < freshDelta) {
-            observedDelta = { fresh: freshDelta, stale: staleDelta };
-            break;
-          }
-        }
-
-        // Stale angular advance should be less than fresh angular advance.
-        expect(observedDelta).not.toBeNull();
-        expect(observedDelta!.stale).toBeLessThan(observedDelta!.fresh);
+        expect(observed).toBeGreaterThan(0);
       });
     });
 

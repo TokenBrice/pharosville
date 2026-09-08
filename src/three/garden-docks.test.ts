@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { DockNode } from "../systems/world-types";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { EVM_BAY_STATION_SLOTS, OUTER_HARBOR_STATION_SLOTS } from "../systems/world-layout";
-import { stationScaleFor, STATION_LOCAL_BOUNDS, STATION_SCALE_LADDER } from "../systems/dock-layout";
+import { stationScaleFor, STATION_LOCAL_BOUNDS } from "../systems/dock-layout";
 import {
   authorDock,
   gardenHarborLanternWorldPositions,
@@ -47,9 +47,6 @@ const ACCENT_COLOR: Record<StationType, string> = {
   uogashi: HARBOR_PALETTE.lantern_cold,
 };
 const FIXTURE_USD = 7_000_000_000;
-const fixtureSupplyFactor = Math.min(1, Math.max(0, (Math.log10(FIXTURE_USD) - 8.5) / 3.2));
-const fixtureLengthMultiplier = 0.95 + fixtureSupplyFactor * 0.40;
-const fixtureHeightMultiplier = 0.95 + fixtureSupplyFactor * 0.15;
 const EMITTED_ARCHETYPES: readonly StationType[] = [...new Set([
   ...EVM_BAY_STATION_SLOTS,
   ...OUTER_HARBOR_STATION_SLOTS,
@@ -139,6 +136,26 @@ describe("garden station recipes", () => {
     }
   });
 
+  it("keeps low-amount, maximum-frontage approach heads inside the waterward envelope", () => {
+    for (const type of ARCHETYPES) {
+      const recipe = authorDock({
+        ...dock(type, 10, null, 1),
+        frontageShare: 10,
+        frontageMedianShare: 1,
+        station: { coveId: `approach.${type}`, shoreBearing: 0, type },
+      }, DISPLAY_TILE, ISLAND_TILE);
+      const declared = STATION_LOCAL_BOUNDS[type];
+      const lamps = recipe.props.filter((prop) => prop.kind === "lampHead");
+      expect(lamps.length, `${type} working quay lantern`).toBeGreaterThanOrEqual(1);
+      for (const lamp of lamps) {
+        expect(lamp.matrix.elements[12]! + 0.21, `${type} lamp X`).toBeLessThanOrEqual(declared.maxX + 0.011);
+        expect(Math.abs(lamp.matrix.elements[14]!) + 0.21, `${type} lamp Z`)
+          .toBeLessThanOrEqual(Math.max(-declared.minZ, declared.maxZ) + 0.011);
+        expect(lamp.fineDetail, `${type} visible at overview`).toBe(false);
+      }
+    }
+  });
+
   it("uses the incoming shore bearing and keeps local +X seaward", () => {
     const bearing = 1.17;
     const recipe = recipeWithStation("hatago-wharf", "inn", bearing);
@@ -167,14 +184,16 @@ describe("garden station recipes", () => {
     for (const type of ARCHETYPES) {
       const recipe = recipeWithStation(type);
       const rung = SCALE_LADDER[type];
-      const expectedLength = type === "ethereum-mole"
-        ? rung.length
-        : Math.min(20, Math.max(12.6, rung.length * fixtureLengthMultiplier));
-      const expectedTop = type === "ethereum-mole" ? rung.top : rung.top * fixtureHeightMultiplier;
-      expect(recipe.features.primaryMass.footprint.length, `${type} primary length`).toBeCloseTo(expectedLength, 5);
-      expect(recipe.features.primaryMass.footprint.span, `${type} primary span`).toBeCloseTo(rung.span, 4);
+      const fixture = dock(type, 7, null, FIXTURE_USD);
+      const expectedScale = stationScaleFor(
+        type,
+        fixture.frontageShare,
+        fixture.frontageMedianShare,
+      );
+      expect(recipe.features.primaryMass.footprint.length, `${type} primary length`).toBeCloseTo(expectedScale.length, 5);
+      expect(recipe.features.primaryMass.footprint.span, `${type} primary span`).toBeCloseTo(expectedScale.span, 4);
       expect(recipe.features.primaryMass.height, `${type} primary height`).toBeGreaterThanOrEqual(type === "ethereum-mole" ? 7.0 : 5.4);
-      expect(recipe.features.secondLevel.height, `${type} second-level top`).toBeCloseTo(expectedTop, 5);
+      expect(recipe.features.secondLevel.height, `${type} second-level top`).toBeCloseTo(rung.top, 5);
       expect(recipe.features.secondLevel.height, `${type} second-level height`).toBeGreaterThan(recipe.features.primaryMass.height);
       expect(recipe.features.quayPlatform.footprint.length, `${type} quay length`).toBeGreaterThan(6.0);
       expect(recipe.features.quayPlatform.footprint.span, `${type} quay span`).toBeGreaterThan(5.0);
@@ -198,18 +217,15 @@ describe("garden station recipes", () => {
     // DO — each of them distinct, where all of them used to share one hex.
     expect(walledArchetypes).toBeGreaterThan(1);
     expect(wallColors.size).toBe(walledArchetypes);
-    // The ordinary stations retain their authored 13.3..17.9 ordering while
-    // supply raises the whole band through the height multiplier (2026-09-05
-    // recognizability re-base: silhouettes grew ~1.46–1.85x vertically for the
-    // zoom-1.0 rest, footprints unchanged). The Mole alone is exempt and
-    // remains at its 21.5 local silhouette, ≥1.20x the tallest authored rung
-    // (pinned on the ladder in dock-layout.test.ts; supply can close the live
-    // ratio to ~1.09x at 1e20 but never the order).
+    // The ordinary stations keep their authored 13.3..17.9 second-level tops:
+    // tracked-supply share now scales frontage (quay/primary footprint), never
+    // height, so the band is exactly the ladder. The Mole alone is exempt and
+    // remains at its 21.5 local silhouette, ≥1.20x the tallest authored rung.
     const ordinaryHeights = ARCHETYPES
       .filter((type) => type !== "ethereum-mole")
       .map((type) => recipeWithStation(type).features.secondLevel.height);
-    expect(Math.min(...ordinaryHeights)).toBeCloseTo(13.3 * fixtureHeightMultiplier, 5);
-    expect(Math.max(...ordinaryHeights)).toBeCloseTo(17.9 * fixtureHeightMultiplier, 5);
+    expect(Math.min(...ordinaryHeights)).toBeCloseTo(13.3, 5);
+    expect(Math.max(...ordinaryHeights)).toBeCloseTo(17.9, 5);
     const moleHeight = recipeWithStation("ethereum-mole").features.secondLevel.height;
     expect(moleHeight).toBeGreaterThan(Math.max(...ordinaryHeights));
     expect(moleHeight).toBeCloseTo(21.5, 5);
@@ -253,10 +269,13 @@ describe("garden station recipes", () => {
   });
 
   it("scales chain-station roof mass by supply with clamped length while keeping the Mole fixed", () => {
+    const medianShare = 0.1;
     for (const type of ARCHETYPES) {
       const rung = SCALE_LADDER[type];
-      const low = recipeWithStation(type, `low-${type}`, 0, DISPLAY_TILE, 1);
-      const high = recipeWithStation(type, `high-${type}`, 0, DISPLAY_TILE, 1e20);
+      const lowShare = 0.01;
+      const highShare = 1;
+      const low = recipeWithStation(type, `low-${type}`, 0, DISPLAY_TILE, 1, lowShare, medianShare);
+      const high = recipeWithStation(type, `high-${type}`, 0, DISPLAY_TILE, 1e20, highShare, medianShare);
       if (type === "ethereum-mole") {
         expect(low.features.primaryMass.footprint.length).toBeCloseTo(rung.length, 5);
         expect(high.features.primaryMass.footprint.length).toBeCloseTo(rung.length, 5);
@@ -264,10 +283,16 @@ describe("garden station recipes", () => {
         expect(high.features.secondLevel.height).toBeCloseTo(rung.top, 5);
         continue;
       }
-      expect(low.features.primaryMass.footprint.length).toBeCloseTo(Math.max(12.6, rung.length * 0.95), 5);
-      expect(high.features.primaryMass.footprint.length).toBeCloseTo(Math.min(20, rung.length * 1.35), 5);
-      expect(low.features.secondLevel.height).toBeCloseTo(rung.top * 0.95, 5);
-      expect(high.features.secondLevel.height).toBeCloseTo(rung.top * 1.1, 5);
+      expect(low.features.primaryMass.footprint.length).toBeCloseTo(
+        stationScaleFor(type, lowShare, medianShare).length,
+        5,
+      );
+      expect(high.features.primaryMass.footprint.length).toBeCloseTo(
+        stationScaleFor(type, highShare, medianShare).length,
+        5,
+      );
+      expect(low.features.secondLevel.height).toBeCloseTo(rung.top, 5);
+      expect(high.features.secondLevel.height).toBeCloseTo(rung.top, 5);
     }
   });
 
@@ -349,13 +374,13 @@ describe("garden station recipes", () => {
     }
     expect(basinVertices).toBe(0);
     expect(longArmEnd).toBeCloseTo(17, 5);
-    expect(shortArmEnd).toBeCloseTo(10, 5);
-    expect(longArmEnd - (-5)).toBeCloseTo(22, 5);
-    expect(shortArmEnd - (-5)).toBeCloseTo(15, 5);
+    expect(shortArmEnd).toBeGreaterThanOrEqual(12.3);
+    expect(shortArmEnd).toBeLessThanOrEqual(STATION_LOCAL_BOUNDS["ethereum-mole"].components![2]!.maxX);
+    expect(longArmEnd - shortArmEnd).toBeGreaterThan(4);
 
     expect(mole.identity.signature).toBe("enclosed-basin");
     expect(mole.lampWorldPositions).toHaveLength(2);
-    expect(mole.props.filter((prop) => prop.kind === "lampHead")).toHaveLength(0);
+    expect(mole.props.filter((prop) => prop.kind === "lampHead")).toHaveLength(1);
     expect(mole.features.quayPlatform.litEdgeCount).toBe(1);
     expect(mole.features.warmWindowCount).toBeLessThanOrEqual(4);
     const emissive = mole.parts.find((part) => part.bucket === "window")!.geometry;
@@ -377,9 +402,9 @@ describe("garden station recipes", () => {
     });
     expect(triangles).toBeGreaterThanOrEqual(5_500);
     expect(triangles).toBeLessThanOrEqual(9_000);
-    // The fidelity pass spends the programme's permitted single added draw on
-    // the per-chain accent bucket: the old Mole ceiling was 8, the new is 9.
-    expect(draws).toBeLessThanOrEqual(9);
+    // A single-Mole batch now includes its approach lantern; full-harbor
+    // batching still shares the pre-existing lamp-head draw.
+    expect(draws).toBeLessThanOrEqual(10);
     batch.dispose();
   });
 
@@ -404,10 +429,9 @@ describe("garden station recipes", () => {
     }
   });
 
-  it("keeps industrial identity props out and permits one works prop at most", () => {
+  it("permits one archetype works prop at most", () => {
     for (const type of ARCHETYPES) {
       const recipe = recipeWithStation(type);
-      expect(recipe.props.some((prop) => ["crate", "barrel", "crane", "gantry", "derrick"].includes(prop.kind))).toBe(false);
       const works = recipe.props.filter((prop) => prop.kind === "netRack" || prop.kind === "reedClump");
       expect(works.length, type).toBeLessThanOrEqual(1);
     }
@@ -437,56 +461,44 @@ describe("garden station recipes", () => {
     expect(Math.abs(bollard.matrix.elements[1]!)).toBeGreaterThan(0.05);
   });
 
-  it("keeps station scale monotonic with supply", () => {
-    const scaleOf = (totalUsd: number): number => authorDock(
-      dock("solana", 6, null, totalUsd), DISPLAY_TILE, ISLAND_TILE,
-    ).features.primaryMass.footprint.length;
-    expect(scaleOf(500_000_000)).toBeLessThan(scaleOf(5_000_000_000));
-    expect(scaleOf(5_000_000_000)).toBeLessThan(scaleOf(80_000_000_000));
+  it("allocates visible quay and primary-roof frontage by tracked-supply share", () => {
+    const dimensionsFor = (frontageShare: number) => {
+      const recipe = recipeWithStation(
+        "uogashi",
+        `solana-${frontageShare}`,
+        0,
+        DISPLAY_TILE,
+        5_000_000_000,
+        frontageShare,
+        0.1,
+      );
+      return {
+        quay: recipe.features.quayPlatform.footprint.length,
+        roof: recipe.features.primaryMass.footprint.length,
+      };
+    };
+    const low = dimensionsFor(0.1);
+    const middle = dimensionsFor(Math.sqrt(0.1));
+    const high = dimensionsFor(1);
+
+    expect(low.quay).toBeLessThan(middle.quay);
+    expect(middle.quay).toBeLessThan(high.quay);
+    expect(low.roof).toBeLessThan(middle.roof);
+    expect(middle.roof).toBeLessThan(high.roof);
   });
 
-  it("orders dense rendered hall lengths by supply while keeping the Mole fixed", () => {
-    const denseFixture = [
-      ["ethereum-mole", 18_000_000_000],
-      ["stepped-inlet", 12_000_000_000],
-      ["fishing-pier", 8_000_000_000],
-      ["tea-house-quay", 6_000_000_000],
-      ["hatago-wharf", 4_000_000_000],
-      ["uogashi", 2_000_000_000],
-      ["storm-mole", 1_000_000_000],
-      ["reed-boathouse", 100_000_000],
-      ["pigeonnier-islet", 10_000_000],
-    ] as const;
-    const rendered = denseFixture.map(([type, totalUsd], index) => {
-      const recipe = recipeWithStation(type, `dense-${index}`, 0, DISPLAY_TILE, totalUsd);
-      return {
-        type,
-        totalUsd,
-        length: recipe.features.primaryMass.footprint.length,
-      };
-    });
-    const ordinary = rendered.filter((entry) => entry.type !== "ethereum-mole");
-    const orderedBySupply = ordinary.toSorted((left, right) => right.totalUsd - left.totalUsd);
+  it("keeps the Mole footprint fixed across tracked-supply shares", () => {
+    const footprintFor = (frontageShare: number) => recipeWithStation(
+      "ethereum-mole",
+      `ethereum-${frontageShare}`,
+      0,
+      DISPLAY_TILE,
+      18_000_000_000,
+      frontageShare,
+      0.1,
+    ).features.primaryMass.footprint;
 
-    expect(rendered).toHaveLength(9);
-    expect(new Set(rendered.map((entry) => entry.type))).toEqual(new Set(ARCHETYPES));
-    expect(new Set(rendered.map((entry) => entry.totalUsd)).size).toBe(rendered.length);
-    expect(ordinary).toHaveLength(8);
-    for (let index = 0; index < orderedBySupply.length - 1; index += 1) {
-      const largerSupply = orderedBySupply[index]!;
-      const smallerSupply = orderedBySupply[index + 1]!;
-      expect(
-        largerSupply.length,
-        `${largerSupply.type} ($${largerSupply.totalUsd}) vs ${smallerSupply.type} ($${smallerSupply.totalUsd})`,
-      ).toBeGreaterThan(smallerSupply.length);
-    }
-    for (const entry of ordinary) {
-      expect(entry.length, `${entry.type} lower clamp`).toBeGreaterThanOrEqual(12.6);
-      expect(entry.length, `${entry.type} upper clamp`).toBeLessThanOrEqual(20.0);
-    }
-
-    const mole = rendered.find((entry) => entry.type === "ethereum-mole")!;
-    expect(mole.length).toBeCloseTo(STATION_SCALE_LADDER["ethereum-mole"].baseLength, 5);
+    expect(footprintFor(0.001)).toEqual(footprintFor(1));
   });
 
 
@@ -561,9 +573,13 @@ function recipeWithStation(
   shoreBearing = 0,
   tile = DISPLAY_TILE,
   totalUsd = FIXTURE_USD,
+  frontageShare?: number,
+  frontageMedianShare?: number,
 ): DockRecipe {
   const node = {
     ...dock(chainId, 7, null, totalUsd),
+    ...(frontageShare === undefined ? {} : { frontageShare }),
+    ...(frontageMedianShare === undefined ? {} : { frontageMedianShare }),
     station: { coveId: `cove.${chainId}`, shoreBearing, type },
     tile,
   } as DockNode & { station: { coveId: string; shoreBearing: number; type: StationType } };

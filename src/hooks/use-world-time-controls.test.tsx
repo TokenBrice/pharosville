@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  sessionHourAnnouncement,
   useWorldTimeControls,
   WORLD_TIME_NUDGE_HOUR,
 } from "./use-world-time-controls";
 
 afterEach(() => {
+  cleanup();
   delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("useWorldTimeControls", () => {
@@ -141,10 +143,41 @@ describe("useWorldTimeControls", () => {
     expect(result.current.nightMode).toBe(true);
   });
 
-  it("announces the hour it landed on", () => {
-    expect(sessionHourAnnouncement(7)).toBe("Time of day 07:00.");
-    expect(sessionHourAnnouncement(18.5)).toBe("Time of day 18:30.");
-    expect(sessionHourAnnouncement(0)).toBe("Time of day 00:00.");
-    expect(sessionHourAnnouncement(23.75)).toBe("Time of day 23:45.");
+  it("subscribes while visible, rolls over UTC midnight, and resumes at now", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-13T23:59:59.900Z"));
+    let visibility: DocumentVisibilityState = "visible";
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
+    const requestPaint = vi.fn();
+    const view = renderHook(() => useWorldTimeControls({ requestPaint }));
+    act(() => vi.advanceTimersByTime(100));
+    expect(view.result.current.utcDayKey).toBe("2026-08-14");
+    const beforeHidden = view.result.current.timeSeconds;
+    act(() => {
+      visibility = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    act(() => vi.advanceTimersByTime(3_600_000));
+    expect(view.result.current.timeSeconds).toBe(beforeHidden);
+    act(() => {
+      visibility = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(view.result.current.timeSeconds).toBe(Date.now() / 1000);
+    expect(view.result.current.timeSeconds - beforeHidden).toBe(3600);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("holds a single static time under reduced motion", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-13T12:00:00Z"));
+    const view = renderHook(() => useWorldTimeControls({ requestPaint: vi.fn(), reducedMotion: true }));
+    const initial = view.result.current.timeSeconds;
+    act(() => vi.advanceTimersByTime(3_600_000));
+    view.rerender();
+    expect(view.result.current.timeSeconds).toBe(initial);
+    expect(vi.getTimerCount()).toBe(0);
+    view.unmount();
   });
 });

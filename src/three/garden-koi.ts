@@ -11,6 +11,7 @@ import {
 } from "three";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
+import { GARDEN_POND_CENTER } from "./garden-island";
 import { TILE_SCALE } from "./garden-util";
 
 export const GARDEN_KOI_COUNT = 4;
@@ -32,10 +33,10 @@ interface KoiPlan {
 }
 
 const KOI_PLAN: readonly KoiPlan[] = [
-  { depth: 0.045, phase: 0.4, scale: 1.82, x: -0.86, z: -0.18 },
-  { depth: 0.075, phase: 2.1, scale: 1.48, x: 0.38, z: 0.36 },
-  { depth: 0.1, phase: 4.4, scale: 1.64, x: 1.08, z: -0.25 },
-  { depth: 0.065, phase: 5.7, scale: 1.42, x: -0.12, z: -0.48 },
+  { depth: 0.045, phase: 0.0, scale: 1.82, x: 0, z: 0 },
+  { depth: 0.075, phase: Math.PI, scale: 1.48, x: 0, z: 0 },
+  { depth: 0.1, phase: 4.4, scale: 1.64, x: 1.7, z: -0.8 },
+  { depth: 0.065, phase: 5.7, scale: 1.42, x: -1.5, z: 0.9 },
 ];
 
 export interface GardenKoiSample {
@@ -68,9 +69,9 @@ function smoothstep01(value: number): number {
 }
 
 /**
- * A clock-pure, closed wandering spline. The very low frequencies keep the
- * four fish from circling like a tank display; reduced motion samples t=0 and
- * therefore holds a deliberately composed station.
+ * The first pair traverses the pond's reflection path on one slow figure-eight.
+ * The other two make tiny station loops away from the mirror. Reduced motion
+ * samples the deliberate time-zero arrangement, with all four held static.
  */
 export function sampleGardenKoi(
   index: number,
@@ -80,18 +81,27 @@ export function sampleGardenKoi(
   const plan = KOI_PLAN[index % KOI_PLAN.length]!;
   const time = reducedMotion ? 0 : Math.max(0, timeSeconds);
   const primaryRate = GARDEN_KOI_SWIM_RATE_RANGE[0] + index * 0.002;
-  const secondaryRate = 0.014 + index * 0.0015;
   const a = time * primaryRate + plan.phase;
-  const b = time * secondaryRate + plan.phase * 1.73;
-  const x = plan.x + Math.sin(a) * (0.2 + index * 0.025) + Math.sin(b) * 0.08;
-  const z = plan.z + Math.cos(a * 0.82) * (0.11 + index * 0.014) + Math.sin(b * 1.19) * 0.06;
-  const dx = Math.cos(a) * (0.2 + index * 0.025) * primaryRate
-    + Math.cos(b) * 0.08 * secondaryRate;
-  const dz = -Math.sin(a * 0.82) * (0.11 + index * 0.014) * primaryRate * 0.82
-    + Math.cos(b * 1.19) * 0.06 * secondaryRate * 1.19;
+  if (index < 2) {
+    const direction = index === 0 ? 1 : -1;
+    const x = GARDEN_POND_CENTER.x + Math.sin(a) * 2.35;
+    const z = GARDEN_POND_CENTER.z + Math.sin(a * 2) * 0.92 * direction;
+    const dx = Math.cos(a) * 2.35 * primaryRate;
+    const dz = Math.cos(a * 2) * 1.84 * primaryRate * direction;
+    return {
+      depth: plan.depth,
+      heading: Math.atan2(-dz, dx),
+      scale: plan.scale,
+      x,
+      z,
+    };
+  }
+  const radius = 0.18 + index * 0.02;
+  const x = GARDEN_POND_CENTER.x + plan.x + Math.sin(a) * radius;
+  const z = GARDEN_POND_CENTER.z + plan.z + Math.cos(a) * radius * 0.62;
   return {
     depth: plan.depth,
-    heading: Math.atan2(-dz, dx),
+    heading: Math.atan2(Math.sin(a), Math.cos(a)),
     scale: plan.scale,
     x,
     z,
@@ -180,11 +190,8 @@ function waterFrameFromScene(scene: Object3D): GardenKoiFrame | null {
 }
 
 /**
- * Four precious glints in the calm shallows below the engawa. They carry no
- * meaning. Re-siting this existing draw displaces the reflection-basin koi so
- * the island's mirror stays an empty secondary read. One shu-vermilion-and-
- * white fish is the explicit koi exception to the reserved accent; the other
- * three are pale yamabuki.
+ * Four precious glints in the island pond. Two slowly cross the canonical
+ * reflection path as a figure-eight; two hold to quiet edge stations.
  */
 export function createGardenKoi(): GardenKoi {
   const geometry = createKoiGeometry();
@@ -193,16 +200,8 @@ export function createGardenKoi(): GardenKoi {
   mesh.name = "island-koi";
   mesh.frustumCulled = false;
   mesh.renderOrder = 4;
-  // The koi remain lifecycle-owned by the island pond group, but their draw is
-  // deliberately world-locked in Calm Anchorage. This avoids a second koi
-  // mesh or a world-renderer timer while leaving the basin itself empty.
-  mesh.matrixAutoUpdate = false;
-  mesh.matrixWorldAutoUpdate = false;
-  mesh.matrixWorld.makeTranslation(
-    GARDEN_ENGAWA_KOI_WORLD.x,
-    GARDEN_ENGAWA_KOI_WORLD.y,
-    GARDEN_ENGAWA_KOI_WORLD.z,
-  );
+  // The mesh remains in island-local coordinates: samples use the canonical
+  // pond centre from garden-island, so the fish and reflection cannot drift.
 
   const colors = new Float32Array(GARDEN_KOI_COUNT * 3);
   const accent = new Float32Array(GARDEN_KOI_COUNT);

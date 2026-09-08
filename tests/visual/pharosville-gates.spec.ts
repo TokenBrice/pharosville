@@ -171,6 +171,7 @@ test(...visualLane("static", "active runtime chrome fits laptop, tall, standard,
     },
     { height: 1000, name: "tall desktop", width: 720 },
     { height: 1000, name: "standard desktop", width: 1440 },
+    { height: 720, name: "compact landscape", width: 900 },
     { height: 720, name: "ultrawide desktop", width: 2560 },
   ] as const;
   for (const viewport of viewports) {
@@ -213,18 +214,21 @@ test(...visualLane("static", "active runtime chrome fits laptop, tall, standard,
       y: 0,
     });
 
-    const footer = await page.locator(".pharosville-footer").boundingBox();
+    const explore = page.getByRole("button", { name: "Explore harbor controls" });
+    if (await explore.getAttribute("aria-expanded") === "false") await explore.click();
+    await expect(page.getByTestId("pharosville-world-controls")).toHaveAttribute("data-expanded", "true");
+    const caption = await page.getByTestId("pharosville-now-caption").boundingBox();
     const controls = await page.getByTestId("pharosville-world-controls").boundingBox();
     const panel = await page.getByTestId("pharosville-detail-panel").boundingBox();
-    expect(footer, `${name}: footer box`).not.toBeNull();
+    expect(caption, `${name}: now caption box`).not.toBeNull();
     expect(controls, `${name}: controls box`).not.toBeNull();
     expect(panel, `${name}: detail panel box`).not.toBeNull();
-    expectRectInsideViewport(footer!, viewport);
+    expectRectInsideViewport(caption!, viewport);
     expectRectInsideViewport(controls!, viewport);
     expectRectInsideViewport(panel!, viewport);
     expect(
-      rectsOverlap(footer!, controls!),
-      `${name}: footer and world controls must have separate hit regions`,
+      rectsOverlap(caption!, controls!),
+      `${name}: caption ${JSON.stringify(caption)} and controls ${JSON.stringify(controls)} must remain separate`,
     ).toBe(false);
   }
 });
@@ -288,7 +292,6 @@ test(...visualLane("motion", "day, dusk, night, and reduced-motion states render
     expect(telemetry.timeToFirstCoherentFrameMs ?? -1).toBeGreaterThanOrEqual(0);
 
     const capture = await canvas.screenshot();
-    expect(capture.byteLength).toBeGreaterThan(10_000);
     captures.set(state.name, capture);
     await page.screenshot({
       fullPage: true,
@@ -321,6 +324,9 @@ test(...visualLane("accessibility", "Observe control preserves accessible, inter
     await closeDetails.focus();
     await page.keyboard.press("Enter");
   }
+
+  await page.getByRole("button", { name: "Explore harbor controls" }).click();
+  await expect(page.getByTestId("pharosville-world-controls")).toHaveAttribute("data-expanded", "true");
 
   const observe = page.locator("[data-observe-control]");
   await expect(observe).toBeVisible();

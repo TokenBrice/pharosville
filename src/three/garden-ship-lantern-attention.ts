@@ -3,6 +3,29 @@ export const SHIP_LANTERN_ATTACK_SECONDS = 0.12;
 export const SHIP_LANTERN_RELEASE_SECONDS = 0.4;
 
 const LANTERN_ATTENTION_EPSILON = 0.002;
+/**
+ * Ceremony-only lantern bow. Convoy order becomes a normalized delay so every
+ * fleet, regardless of size, completes one legible sweep inside the beat.
+ */
+export function shipLanternCeremonyBow(
+  convoyIndex: number,
+  convoyLength: number,
+  progress: number,
+  reducedMotion = false,
+): number {
+  const sample = reducedMotion ? 0.5 : Math.max(0, Math.min(1, progress));
+  const order = convoyLength <= 1 ? 0 : Math.max(0, Math.min(1, convoyIndex / (convoyLength - 1)));
+  const local = sample - order * 0.34;
+  if (local <= 0 || local >= 0.78) return 0;
+  if (local < 0.18) return smoothstep(local / 0.18);
+  if (local <= 0.58) return 1;
+  return 1 - smoothstep((local - 0.58) / 0.2);
+}
+
+function smoothstep(value: number): number {
+  const bounded = Math.max(0, Math.min(1, value));
+  return bounded * bounded * (3 - 2 * bounded);
+}
 
 export interface ShipLanternAttentionState {
   activeHoveredDetailId: string | null;

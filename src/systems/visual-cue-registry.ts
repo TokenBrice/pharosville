@@ -8,7 +8,7 @@ export const DECORATIVE_VISUAL_NOTES = {
   landRim: "The authored land rim, shore shoulders and garden frame carry no meaning; the authoritative water field, boards, labels and accessibility ledger own classification.",
   sharedGardenWind: "Rim pines, island niwaki pads and reeds carry no meaning; their former rigidity is displaced by the existing shared weather breath and gust, with no new oscillator.",
   shakkeiSky: "The borrowed shakkei mountains, haze seam and visible sky layers carry no meaning; they provide depth and atmosphere without encoding freshness, risk or category.",
-  seasonalLandmarks: "Petals over the calm shallows and the heron, lantern-round and meteor landmark sightings carry no meaning; they displace the former island-centred dressing without adding draws or ember lanes.",
+  seasonalLandmarks: "Petals over the calm shallows, the heron and meteor landmark sightings and the evening keeper's lantern walk carry no meaning; they displace the former island-centred dressing without adding draws or ember lanes.",
   seaEdgeGeography: "Named-water banks, reeds, bars, cliff, piles and inlet stones carry no meaning; the authoritative water field and existing DOM ledger remain the classification.",
 } as const;
 

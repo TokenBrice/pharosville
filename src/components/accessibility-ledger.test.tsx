@@ -83,6 +83,17 @@ describe("AccessibilityLedger", () => {
     expect(visibleMarkup).toContain("Harbor ledger");
   });
 
+  it("adds record-card presentation only to visible disclosures", () => {
+    const world = sampleWorldWithLedgerShip();
+    const visibleMarkup = renderToStaticMarkup(
+      <AccessibilityLedger world={world} presentation="visible" />,
+    );
+    const screenReaderMarkup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+
+    expect(visibleMarkup).toContain('<details class="pharosville-ledger__record">');
+    expect(screenReaderMarkup).not.toContain("pharosville-ledger__record");
+  });
+
   it("carries identical body text in both presentations", () => {
     const world = buildPharosVilleWorld(makerSquadFixtureInputs());
     const normalize = (markup: string) => markup
@@ -92,7 +103,7 @@ describe("AccessibilityLedger", () => {
       .replace(/<nav[\s\S]*?<\/nav>/g, "")
       .replace(/<label>Jump to ship[\s\S]*?<\/label>/g, "")
       .replace(/<summary[\s\S]*?<\/summary>/g, "")
-      .replace(/<\/?details>/g, "")
+      .replace(/<\/?details(?: class="pharosville-ledger__record")?>/g, "")
       .replace(/<\/?p>/g, "");
 
     expect(normalize(renderToStaticMarkup(<AccessibilityLedger world={world} />)))

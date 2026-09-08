@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { placeGardenFleet } from "./garden-fleet-placement";
-import { terrainKindAt } from "./world-layout";
+import { beforeEach, describe, expect, it } from "vitest";
+import { GARDEN_EMPTY_INLET, placeGardenFleet, resetGardenFleetPlacementCache } from "./garden-fleet-placement";
+import { PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, terrainKindAt } from "./world-layout";
+import { defaultCamera } from "./camera";
+import { TILE_SCALE, worldToScreen } from "./projection";
 import { isGardenShipWater, gardenShipWaterMarginTiles } from "./garden-water-exclusion";
 import {
   GARDEN_SILHOUETTE_FOR_HULL,
@@ -11,6 +13,8 @@ import { resolveShipClass } from "./ship-visuals";
 import type { ShipNode, ShipWaterZone } from "./world-types";
 
 const LIGHTHOUSE = { x: 19, y: 28 };
+
+beforeEach(resetGardenFleetPlacementCache);
 
 function ship(id: string, riskZone: ShipWaterZone, scale = 1): ShipNode {
   return {
@@ -26,10 +30,23 @@ function fleet(riskZone: ShipWaterZone, count: number): ShipNode[] {
   return Array.from({ length: count }, (_, index) => ship(`${riskZone}-${index}`, riskZone));
 }
 
+function inletDistance(tile: { x: number; y: number }): number {
+  return Math.min(...GARDEN_EMPTY_INLET.polyline.slice(1).map((end, index) => {
+    const start = GARDEN_EMPTY_INLET.polyline[index]!;
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const t = Math.max(0, Math.min(1,
+      ((tile.x - start.x) * dx + (tile.y - start.y) * dy) / (dx * dx + dy * dy),
+    ));
+    return Math.hypot(tile.x - start.x - t * dx, tile.y - start.y - t * dy);
+  }));
+}
+
 describe("placeGardenFleet", () => {
   it("is deterministic regardless of input order", () => {
     const ships = fleet("watch", 40);
     const first = placeGardenFleet(ships, LIGHTHOUSE).tileByShipId;
+    resetGardenFleetPlacementCache();
     const second = placeGardenFleet([...ships].reverse(), LIGHTHOUSE).tileByShipId;
     expect(second.size).toBe(first.size);
     for (const [id, tile] of first) {
@@ -88,54 +105,35 @@ describe("placeGardenFleet", () => {
     }
   });
 
-  it("moors in clusters instead of carpeting the band", () => {
-    // The property blue noise is DESIGNED to destroy, asserted directly.
-    //
-    // Single-linkage grouping at 6 tiles is the clearest discriminator, because
-    // it measures the thing the eye actually reads: are there HARBOURS, or is
-    // every hull its own island? Measured on the anchorage field, 90 ships form
-    // 47 groups whose largest hold 10, 8, 7, 5, 4 — still a hierarchy, flatter
-    // than under the 0.55 floor (43 groups, largest 22) because the 0.8 visual
-    // floor (GARDEN_SHIP_VISUAL_SCALE_MIN, 2026-09-05) widens every hull's
-    // water margin and berths the same fleet more loosely. The blue-noise
-    // field it replaced formed 85 groups whose largest held 3, which is
-    // another way of saying it formed none.
-    //
-    // Note that nearest-neighbour STATISTICS are a poor test here and a
-    // Clark-Evans index is nearly useless: the hull gap (5.03 tiles at the 0.8
-    // floor; 4.03 before it) is almost exactly the spacing a uniform random
-    // scatter of this fleet would produce anyway, so no legal arrangement can
-    // score as "clustered" by that measure. Structure is the thing to assert,
-    // not average spacing.
+  it("moors a crowded band in unequal odd-count anchorages", () => {
     const ships = fleet("calm", 90);
     const placement = placeGardenFleet(ships, LIGHTHOUSE);
-    const tiles = ships.map((entry) => placement.tileByShipId.get(entry.id)!);
-
-    const parent = tiles.map((_, index) => index);
-    const find = (index: number): number =>
-      (parent[index] === index ? index : (parent[index] = find(parent[index]!)));
-    for (let left = 0; left < tiles.length; left += 1) {
-      for (let right = left + 1; right < tiles.length; right += 1) {
-        const gap = Math.hypot(tiles[left]!.x - tiles[right]!.x, tiles[left]!.y - tiles[right]!.y);
-        if (gap < 6) parent[find(left)] = find(right);
-      }
+    const groups = new Map<string, { x: number; y: number }[]>();
+    for (const entry of ships) {
+      const mooring = placement.mooringByShipId.get(entry.id)!;
+      const tiles = groups.get(mooring.mooringId) ?? [];
+      tiles.push(placement.tileByShipId.get(entry.id)!);
+      groups.set(mooring.mooringId, tiles);
     }
-    const sizes = new Map<number, number>();
-    for (let index = 0; index < tiles.length; index += 1) {
-      const root = find(index);
-      sizes.set(root, (sizes.get(root) ?? 0) + 1);
-    }
-    const largest = Math.max(...sizes.values());
-
-    expect(largest).toBeGreaterThanOrEqual(10);
-    expect(sizes.size).toBeLessThan(tiles.length * 0.75);
+    expect(groups.size % 2).toBe(1);
+    expect(groups.size).toBeGreaterThan(1);
+    const sizes = [...groups.values()].map((tiles) => tiles.length);
+    expect(Math.max(...sizes)).toBeGreaterThan(Math.min(...sizes) * 2);
+    // The dominant harbour remains a spatial cluster, not merely a label.
+    const dominant = [...groups.values()].sort((a, b) => b.length - a.length)[0]!;
+    const neighbourReach = gardenShipWaterMarginTiles(
+      gardenShipVisualScale(1), GARDEN_SILHOUETTE_FOR_HULL["treasury-galleon"],
+    ) * 2;
+    const clustered = dominant.filter((tile) => dominant.some((other) =>
+      other !== tile && Math.hypot(tile.x - other.x, tile.y - other.y) < neighbourReach,
+    ));
+    // The inlet clips the dominant roadstead; its close-packed heart must
+    // still hold at least a third of its berths, with the rest along its lee.
+    expect(clustered.length).toBeGreaterThanOrEqual(Math.ceil(dominant.length / 3));
   });
 
   it("leaves open water big enough to be a composition rather than a gap", () => {
-    // *Ma*: the emptiness has to be large enough to read as deliberate. This
-    // measures the biggest circle you could draw inside the band's own water
-    // without touching a hull — the thing a uniform scatter cannot produce,
-    // because leaving no gaps is precisely its purpose.
+    // Measure emptiness only within the authored inlet, not an unrelated rim gap.
     const ships = fleet("calm", 90);
     const placement = placeGardenFleet(ships, LIGHTHOUSE);
     const tiles = ships.map((entry) => placement.tileByShipId.get(entry.id)!);
@@ -143,7 +141,8 @@ describe("placeGardenFleet", () => {
     let largestEmptyRadius = 0;
     for (let y = 0; y < 140; y += 1) {
       for (let x = 0; x < 140; x += 1) {
-        if (terrainKindAt(x, y) !== "calm-water") continue;
+        if (inletDistance({ x, y }) > GARDEN_EMPTY_INLET.halfWidth) continue;
+        if (!terrainKindAt(x, y).endsWith("water")) continue;
         let nearest = Number.POSITIVE_INFINITY;
         for (const tile of tiles) {
           nearest = Math.min(nearest, Math.hypot(x - tile.x, y - tile.y));
@@ -151,14 +150,10 @@ describe("placeGardenFleet", () => {
         largestEmptyRadius = Math.max(largestEmptyRadius, nearest);
       }
     }
-    // RIM FIELD FIX 1, re-measured at the 0.8 visual floor (2026-09-05): the
-    // rim-only mask measures 11.46 tiles — the wider hull margins berth fewer
-    // ships per mooring and leave more ma — with the unchanged nine-tile
-    // lighthouse clearance.
-    expect(largestEmptyRadius).toBeGreaterThan(9);
+    expect(largestEmptyRadius).toBeGreaterThanOrEqual(9);
   });
 
-  it("spreads a crowded band instead of clustering it", () => {
+  it("spreads anchorages across a crowded band", () => {
     const ships = fleet("watch", 30);
     const placement = placeGardenFleet(ships, LIGHTHOUSE);
     const tiles = ships.map((entry) => placement.tileByShipId.get(entry.id)!);
@@ -169,6 +164,55 @@ describe("placeGardenFleet", () => {
     // The old authored ring capped every band inside ~23 tiles of its centre;
     // the watch region spans most of the sea and the fleet should use it.
     expect(spread).toBeGreaterThan(20);
+  });
+
+  it("keeps all 320 hulls outside a broad projected empty inlet at both gates", () => {
+    const zones: ShipWaterZone[] = ["calm", "watch", "alert", "warning", "danger", "ledger"];
+    const ships = Array.from({ length: 320 }, (_, index) => ship(`inlet-${index}`, zones[index % zones.length]!));
+    const placement = placeGardenFleet(ships, LIGHTHOUSE);
+    expect(placement.tileByShipId.size).toBe(320);
+    const tiles = [...placement.tileByShipId.values()];
+    for (const tile of tiles) expect(inletDistance(tile)).toBeGreaterThan(GARDEN_EMPTY_INLET.halfWidth);
+    const map = { width: PHAROSVILLE_MAP_WIDTH, height: PHAROSVILLE_MAP_HEIGHT };
+    for (const viewport of [{ x: 900, y: 720 }, { x: 1200, y: 640 }]) {
+      const camera = defaultCamera({ width: viewport.x, height: viewport.y, map });
+      const project = (tile: { x: number; y: number }) =>
+        worldToScreen({ x: tile.x * TILE_SCALE, y: 0, z: tile.y * TILE_SCALE }, camera, viewport);
+      const boundary = GARDEN_EMPTY_INLET.polyline.flatMap((tile) =>
+        Array.from({ length: 32 }, (_, index) => project({
+          x: tile.x + Math.cos(index * Math.PI / 16) * GARDEN_EMPTY_INLET.halfWidth,
+          y: tile.y + Math.sin(index * Math.PI / 16) * GARDEN_EMPTY_INLET.halfWidth,
+        })),
+      ).filter((point) => point.y >= 0 && point.y <= viewport.y);
+      const left = Math.max(0, Math.min(...boundary.map((point) => point.x)));
+      const right = Math.min(viewport.x, Math.max(...boundary.map((point) => point.x)));
+      expect(right - left).toBeGreaterThanOrEqual(viewport.x * (viewport.x === 1200 ? 0.24 : 0.3));
+      const strips = GARDEN_EMPTY_INLET.polyline.slice(1).map((end, index) => {
+        const start = GARDEN_EMPTY_INLET.polyline[index]!;
+        const length = Math.hypot(end.x - start.x, end.y - start.y);
+        const nx = -(end.y - start.y) / length * GARDEN_EMPTY_INLET.halfWidth;
+        const ny = (end.x - start.x) / length * GARDEN_EMPTY_INLET.halfWidth;
+        return [
+          project({ x: start.x + nx, y: start.y + ny }),
+          project({ x: end.x + nx, y: end.y + ny }),
+          project({ x: end.x - nx, y: end.y - ny }),
+          project({ x: start.x - nx, y: start.y - ny }),
+        ];
+      });
+      for (const tile of tiles) {
+        const point = project(tile);
+        for (const polygon of strips) {
+          let inside = false;
+          for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const a = polygon[i]!;
+            const b = polygon[j]!;
+            if ((a.y > point.y) !== (b.y > point.y)
+              && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+          }
+          expect(inside).toBe(false);
+        }
+      }
+    }
   });
 });
 
@@ -191,20 +235,21 @@ describe("placeGardenFleet", () => {
 describe("real-fleet berth spacing", () => {
   const REAL_ZONES: ShipWaterZone[] = ["calm", "watch", "alert", "warning", "danger"];
 
+  const raw = JSON.parse(
+    readFileSync("shared/data/stablecoins/coins.generated.json", "utf8"),
+  ) as unknown;
+  const coins = (
+    Array.isArray(raw) ? raw : ((raw as { coins?: unknown[] }).coins ?? [])
+  ) as unknown[];
+  const ships = coins.map((coin, index) => ({
+    detailId: `ship.real.${index}`,
+    id: `real-${index}`,
+    riskZone: REAL_ZONES[index % REAL_ZONES.length]!,
+    tile: { x: 28, y: 28 },
+    visual: { hull: resolveShipClass(coin as never).hull, scale: 1 },
+  })) as unknown as ShipNode[];
+
   it("seats every ship in the real coin set and keeps the fleet's spacing", () => {
-    const raw = JSON.parse(
-      readFileSync("shared/data/stablecoins/coins.generated.json", "utf8"),
-    ) as unknown;
-    const coins = (
-      Array.isArray(raw) ? raw : ((raw as { coins?: unknown[] }).coins ?? [])
-    ) as unknown[];
-    const ships = coins.map((coin, index) => ({
-      detailId: `ship.real.${index}`,
-      id: `real-${index}`,
-      riskZone: REAL_ZONES[index % REAL_ZONES.length]!,
-      tile: { x: 28, y: 28 },
-      visual: { hull: resolveShipClass(coin as never).hull, scale: 1 },
-    })) as unknown as ShipNode[];
     // Guards the fixture: an empty or reshaped coin file would otherwise make
     // the spacing assertion below pass vacuously.
     expect(ships.length).toBeGreaterThan(180);
@@ -228,10 +273,40 @@ describe("real-fleet berth spacing", () => {
       nearestSum += nearest;
     }
 
-    // 4.05 tiles when written; 3.8 leaves ~6% headroom. A future silhouette
-    // re-route that genuinely packs the harbour tighter trips this; one that
-    // merely widens a declared clearance radius does not, which is exactly the
-    // distinction the doc comment above exists to preserve.
-    expect(nearestSum / tiles.length).toBeGreaterThan(3.8);
+    // The forty-two-tile inlet reserves formerly occupied water. A 3.75-tile
+    // mean nearest-neighbour floor preserves readable hull separation in the
+    // remaining unequal anchorages without pinning the unconstrained solve.
+    expect(nearestSum / tiles.length).toBeGreaterThan(3.75);
+  });
+
+  it("keeps every retained real-coin berth within half a tile through four-percent removals and additions", () => {
+    const placed = placeGardenFleet(ships, LIGHTHOUSE);
+
+    // Refreshes must not re-berth retained hulls when a few neighbours leave
+    // or arrive. Remove across the roster, not just its last sorted entries.
+    const churnCount = Math.floor(ships.length * 0.04);
+    const removed = new Set(Array.from({ length: churnCount }, (_, index) =>
+      ships[Math.floor(index * ships.length / churnCount)]!.id,
+    ));
+    const retained = ships.filter((entry) => !removed.has(entry.id));
+    const afterRemoval = placeGardenFleet(retained, LIGHTHOUSE);
+    const arrivals = ships.slice(0, churnCount).map((entry, index) => ({
+      ...entry,
+      id: `arrival-${index}`,
+      detailId: `ship.arrival.${index}`,
+    }));
+    resetGardenFleetPlacementCache();
+    placeGardenFleet(ships, LIGHTHOUSE);
+    const afterAddition = placeGardenFleet([...ships, ...arrivals], LIGHTHOUSE);
+    for (const [roster, placement] of [
+      [retained, afterRemoval],
+      [ships, afterAddition],
+    ] as const) {
+      for (const entry of roster) {
+        const before = placed.tileByShipId.get(entry.id)!;
+        const after = placement.tileByShipId.get(entry.id)!;
+        expect(Math.hypot(after.x - before.x, after.y - before.y), entry.id).toBeLessThan(0.5);
+      }
+    }
   });
 });

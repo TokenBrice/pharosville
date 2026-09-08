@@ -1,10 +1,14 @@
-import type { PharosVilleRenderMetrics } from "./render-types";
-import type { PharosVilleRenderSchedulerState } from "./render-types";
+import type {
+  CameraBreath,
+  PharosVilleRenderMetrics,
+  PharosVilleRenderSchedulerState,
+} from "./render-types";
 import type { PharosVilleMotionPlan, ShipMotionSample } from "../systems/motion";
 import type { IsoCamera } from "../systems/projection";
 import type { SeaState } from "../systems/sea-state";
 import type { PharosVilleWorld } from "../systems/world-types";
 import type { GardenAlmanacEvent } from "../systems/garden-almanac";
+import type { GardenDirectorState } from "../systems/garden-director";
 
 export type WorldRendererStatus = "loading" | "ready" | "failed";
 
@@ -35,8 +39,22 @@ export interface ThreeLogoAssets {
 export interface ThreeWorldRendererFrame {
   /** The one daily almanac event selected outside the renderer; null when inactive. */
   almanacEvent?: GardenAlmanacEvent | null;
+  /**
+   * G3/W4.1: the shared director. Renderer-side beats (keeper, heron, arrival
+   * ceremony) request through it in place; it is the world's object, never
+   * copied.
+   */
+  gardenDirector?: GardenDirectorState | undefined;
+  /**
+   * Wall-clock epoch seconds for director requests and beat-relative motion.
+   * `timeSeconds` is the canvas clock (starts near zero); the director's log
+   * is on the wall clock so the watch is readable. Absent in unit harnesses,
+   * where the canvas clock stands in.
+   */
+  epochSeconds?: number | undefined;
   logos: ThreeLogoAssets;
   camera: IsoCamera;
+  cameraBreath?: CameraBreath;
   dpr: number;
   height: number;
   hoveredDetailId: string | null;

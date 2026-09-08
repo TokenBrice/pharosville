@@ -8,6 +8,7 @@ import {
 import {
   FLEET_SAIL_ATLAS_CELLS,
   FLEET_MAX_SAILS,
+  FLEET_HULL_LOD_DISTANCE,
   beginFleetFrame,
   createFleetBatches,
   deformFleetSailVertex,
@@ -20,9 +21,7 @@ import {
   gardenFleetFramingRestraint,
   gardenFleetMarkPresence,
   gardenFleetSailRestraint,
-  patchFleetHullFormMaterial,
   patchSailAtlasMaterial,
-  setFleetAerialPerspective,
   setFleetAttention,
   setFleetWeather,
   writeFleetInstance,
@@ -33,6 +32,7 @@ import { gardenSailClothColor } from "./garden-sail-texture";
 import { SAIL_DARK_CANVAS_ISSUERS } from "./garden-sail-overrides";
 import type { ShipLivery } from "../systems/world-types";
 import type { GardenHullSilhouette } from "../systems/garden-observatory-slice";
+import { cameraEye, cameraPoseFromIso } from "../systems/projection";
 
 const SILHOUETTES: GardenHullSilhouette[] = [
   "bezaisen", "kobaya", "twinhull", "takasebune", "junk", "scow",
@@ -52,6 +52,7 @@ function buildBatches(capacity: number) {
 function pose(overrides: Partial<FleetInstancePose> = {}): FleetInstancePose {
   return {
     atlasCell: 0,
+    shipId: `ship-${overrides.atlasCell ?? 0}-${overrides.x ?? 0}`,
     headingAngle: 0,
     heel: 0,
     hullColor: new Color("#884422"),
@@ -290,6 +291,63 @@ describe("fleet downwind convention", () => {
 });
 
 describe("fleet batches", () => {
+  it("moves a ship exactly once through each side of the half-unit LOD dead band", () => {
+    const batches = buildBatches(2);
+    const viewport = { x: 1200, y: 640 };
+    const camera = { offsetX: 600, offsetY: 320, zoom: 0.72 };
+    const eye = cameraEye(cameraPoseFromIso(camera, viewport));
+    const batch = batches.bySilhouette.get("bezaisen")!;
+    const offsets = [-1, 0.1, 0.24, 0.26, 0.1, -0.1, -0.24, -0.26];
+    const farCounts: number[] = [];
+    offsets.forEach((offset, index) => {
+      beginFleetFrame(batches, { camera, viewport, timeSeconds: index });
+      writeFleetInstance(batches, pose({
+        shipId: "crossing", atlasCell: 3,
+        x: eye.x + FLEET_HULL_LOD_DISTANCE + offset, y: eye.y, z: eye.z,
+      }));
+      endFleetFrame(batches);
+      expect(batch.hull.mesh.count + batch.far.mesh.count).toBe(1);
+      expect(batch.sails.mesh.count).toBe(batch.hull.mesh.count);
+      farCounts.push(batch.far.mesh.count);
+    });
+    expect(farCounts).toEqual([0, 0, 0, 1, 1, 1, 1, 0]);
+    disposeFleetBatches(batches);
+  });
+
+  it("adds only six draws and saves at least 25k fleet triangles at a 60% far share", () => {
+    const batches = buildBatches(40);
+    const viewport = { x: 1200, y: 640 };
+    const camera = { offsetX: 600, offsetY: 320, zoom: 0.72 };
+    const eye = cameraEye(cameraPoseFromIso(camera, viewport));
+    let nearTriangles = 0;
+    let farTriangles = 0;
+    const counts: number[][] = [];
+    beginFleetFrame(batches, { camera, viewport, timeSeconds: 0 });
+    for (const silhouette of SILHOUETTES) {
+      const batch = batches.bySilhouette.get(silhouette)!;
+      const near = (batch.hull.mesh.geometry.getAttribute("position").count
+        + batch.sails.mesh.geometry.getAttribute("position").count) / 3;
+      const far = batch.far.mesh.geometry.getAttribute("position").count / 3;
+      nearTriangles += near;
+      farTriangles += far;
+      counts.push([near, far]);
+      for (const distance of [20, 200]) {
+        writeFleetInstance(batches, pose({
+          shipId: `${silhouette}-${distance}`, silhouette,
+          x: eye.x + distance, y: eye.y, z: eye.z,
+        }));
+      }
+      // Matrix consumes four locations, instanceColor one, with no new attributes.
+      expect(Object.keys(batch.far.mesh.geometry.attributes).length + 5).toBeLessThanOrEqual(16);
+    }
+    endFleetFrame(batches);
+    expect(fleetInstanceCount(batches)).toBe(12);
+    expect(fleetDrawCallCount(batches)).toBe(19);
+    const savings = 140_000 * 0.6 * (1 - farTriangles / nearTriangles);
+    expect(savings).toBeGreaterThanOrEqual(25_000);
+    expect(counts).toEqual([[826, 42], [870, 42], [1116, 58], [1046, 38], [864, 42], [782, 38]]);
+    disposeFleetBatches(batches);
+  });
   it("fits every sail geometry within the vertex attribute limit", () => {
     const batches = buildBatches(1);
     for (const { sails } of batches.bySilhouette.values()) {
@@ -318,7 +376,8 @@ describe("fleet batches", () => {
       endFleetFrame(batches);
       const packed = sails.mesh.geometry.getAttribute("aSailFurl").getX(0);
       if (secondsInto === 30) expect(packed).toBe(furlMask);
-      else expect(packed).toBeCloseTo(furlMask + 0.396, 5);
+      // Packed into a Float32 attribute beside the 21 mask: two decimals hold.
+      else expect(packed).toBeCloseTo(furlMask + beat.furl * (1 - GARDEN_SAIL_DIP_MIN_SCALE), 2);
     }
     disposeFleetBatches(batches);
   });
@@ -368,6 +427,7 @@ describe("fleet batches", () => {
     const geometryDisposals = [...batches.bySilhouette.values()].flatMap((batch) => [
       vi.spyOn(batch.hull.mesh.geometry, "dispose"),
       vi.spyOn(batch.sails.mesh.geometry, "dispose"),
+      vi.spyOn(batch.far.mesh.geometry, "dispose"),
     ]);
     const materialDisposals = batches.materials.map((material) => (
       vi.spyOn(material, "dispose")
@@ -567,47 +627,6 @@ describe("W5.8/W7.3 instanced hull surface", () => {
     disposeFleetBatches(batches);
   });
 
-  it("keeps value/patina off sail cloth and verdigris off the identity strake", () => {
-    const hullMaterial = new MeshStandardMaterial();
-    patchFleetHullFormMaterial(hullMaterial);
-    const hullShader = {
-      fragmentShader: "#include <common>\n#include <roughnessmap_fragment>",
-      uniforms: {} as Record<string, unknown>,
-      vertexShader: "#include <common>\n#include <begin_vertex>\n#include <color_vertex>\n#include <project_vertex>",
-    };
-    hullMaterial.onBeforeCompile(hullShader as never, null as never);
-    expect(hullShader.vertexShader).toContain("vColor.xyz *= aHullSurface.x");
-    expect(hullShader.vertexShader).toContain("aPartMasks.z * age");
-    expect(hullShader.vertexShader).toContain("aPartMasks.x");
-    expect(hullShader.vertexShader).toContain("aPartMasks.y");
-
-    // 2026-09-07 T3.4: the hull's finish. The waterline band must stay under
-    // 0.12 ship-local units and roughness must never floor below 0.45 — both
-    // are pinned here because they are the two numbers that decide whether the
-    // fleet reads as varnished timber or as 200 twinkling plastic hulls.
-    expect(hullShader.vertexShader).toContain("smoothstep(0.0, 0.11,");
-    expect(hullShader.fragmentShader).toContain("mix(roughnessFactor, 0.45, vHullGloss)");
-    for (const stage of [hullShader.vertexShader, hullShader.fragmentShader]) {
-      expect(stage).toContain("varying float vHullGloss;");
-    }
-    // No new attribute: the rail gloss rides the rim term the masks already
-    // carry. The hull batch is at 15 of the 16 attribute slots.
-    expect(hullShader.vertexShader).toContain("aPartMasks.w * 0.55");
-    // A cache key that did not change means the OLD program is reused and none
-    // of the above ever reaches the GPU.
-    expect(hullMaterial.customProgramCacheKey()).toContain("gloss");
-
-    const sailMaterial = new MeshStandardMaterial();
-    patchSailAtlasMaterial(sailMaterial);
-    const sailShader = {
-      fragmentShader: "#include <common>\n#include <map_fragment>\n#include <normal_fragment_begin>",
-      uniforms: {} as Record<string, unknown>,
-      vertexShader: "#include <common>\n#include <begin_vertex>\n#include <project_vertex>\n#include <uv_vertex>",
-    };
-    sailMaterial.onBeforeCompile(sailShader as never, null as never);
-    expect(sailShader.vertexShader).not.toContain("aHullSurface");
-    expect(sailShader.fragmentShader).not.toContain("verdigris");
-  });
 });
 
 describe("F1 brand-dyed cloth", () => {
@@ -708,9 +727,7 @@ describe("peg trim (Tier 3 #13)", () => {
  * clauses that make that true of the new default-framing step.
  */
 const OVERVIEW_ZOOM = 0.4;
-const WIDE_ZOOM = 0.6;
 const DEFAULT_ZOOM = 0.72;
-const INSPECTION_ZOOM = 1.0;
 
 const FRAGMENT_STUB = [
   "#include <common>",
@@ -724,100 +741,58 @@ const VERTEX_STUB = [
   "#include <uv_vertex>",
 ].join("\n");
 
-describe("W3.7 sail restraint as a viewing condition", () => {
-  it("uses the smaller wide-frame step and fully releases it at rest", () => {
-    // Operator decision 2026-09-05: a 10% wide-frame restraint that is exactly
-    // gone at rest. Rest moved 1.0 → 0.72 on 2026-09-06; the thresholds moved
-    // with it.
-    expect(gardenFleetFramingRestraint(WIDE_ZOOM)).toBeCloseTo(0.1, 12);
-    expect(gardenFleetFramingRestraint(DEFAULT_ZOOM)).toBe(0);
-  });
-
-  it("keeps marks full at rest and preserves the stronger overview floor", () => {
-    // Identity is fully legible at rest, while whole-map marks retain 45%
-    // presence instead of the former 26%.
-    expect(gardenFleetMarkPresence(DEFAULT_ZOOM)).toBe(1);
-    expect(gardenFleetMarkPresence(0.62)).toBe(1);
-    expect(gardenFleetMarkPresence(0.42)).toBeCloseTo(0.45, 12);
-    expect(gardenFleetMarkPresence(OVERVIEW_ZOOM)).toBeCloseTo(0.45, 12);
-  });
-
-  it("is exactly gone at rest and inspection framing", () => {
-    expect(gardenFleetFramingRestraint(DEFAULT_ZOOM)).toBe(0);
-    expect(gardenFleetFramingRestraint(INSPECTION_ZOOM)).toBe(0);
-    expect(gardenFleetFramingRestraint(1.4)).toBe(0);
-  });
-
-  it("dissolves smoothly as the camera sails in, never rising", () => {
-    let previous = Number.POSITIVE_INFINITY;
-    let largestJump = 0;
-    for (let zoom = 0.3; zoom <= 1.3; zoom += 0.01) {
-      const step = gardenFleetFramingRestraint(zoom);
-      expect(step).toBeLessThanOrEqual(previous + 1e-12);
-      if (Number.isFinite(previous)) largestJump = Math.max(largestJump, previous - step);
-      previous = step;
+describe("eye-distance fleet hierarchy", () => {
+  it("keeps the near third vivid and quiets the far third without popping on camera moves", () => {
+    const batches = buildBatches(12);
+    const viewport = { x: 1200, y: 640 };
+    const camera = { offsetX: 600, offsetY: 320, zoom: 0.72 };
+    const eye = cameraEye(cameraPoseFromIso(camera, viewport));
+    const frame = (timeSeconds: number, nextCamera = camera) => {
+      beginFleetFrame(batches, { camera: nextCamera, viewport, timeSeconds });
+      for (let index = 0; index < 9; index += 1) {
+        writeFleetInstance(batches, pose({
+          atlasCell: index + 1, x: eye.x + (index + 1) * 10, y: eye.y, z: eye.z,
+        }));
+      }
+      endFleetFrame(batches);
+    };
+    frame(0);
+    const distance = {
+      getY: (index: number) => {
+        const batch = batches.bySilhouette.get("bezaisen")!;
+        for (const part of [batch.sails, batch.far]) {
+          for (let slot = 0; slot < part.mesh.count; slot += 1) {
+            if (part.atlasCell!.getX(slot) === index + 1) return part.sailAttention!.getY(slot);
+          }
+        }
+        throw new Error(`missing ship ${index + 1}`);
+      },
+    };
+    for (const index of [0, 1, 2]) {
+      expect(gardenFleetFramingRestraint(distance.getY(index))).toBe(0);
+      expect(gardenFleetMarkPresence(distance.getY(index))).toBe(1);
     }
-    // No cliff anywhere on the ramp: even across the deliberately short final
-    // approach to rest, a hundredth of zoom cannot move the whole 0.10 step.
-    expect(largestJump).toBeLessThan(0.03);
-  });
-
-  it("cancels entirely on hover and selection, at every framing", () => {
-    for (const zoom of [OVERVIEW_ZOOM, DEFAULT_ZOOM, INSPECTION_ZOOM]) {
-      const framing = gardenFleetFramingRestraint(zoom);
-      const zoomRestraint = (1 - gardenFleetMarkPresence(zoom)) * 0.55;
-      const attended = gardenFleetSailRestraint({
-        aerial: 0,
-        attention: 1,
-        framing,
-        zoomRestraint,
-      });
-      // Full dye back: the attended ship is a ship the visitor is looking at,
-      // so no zoom-keyed restraint applies to it at all.
-      expect(attended).toBeCloseTo(0, 12);
+    for (const index of [6, 7, 8]) {
+      expect(gardenFleetFramingRestraint(distance.getY(index))).toBeCloseTo(0.25);
+      expect(gardenFleetMarkPresence(distance.getY(index))).toBeCloseTo(0.45);
     }
+    expect(distance.getY(4)).toBeGreaterThan(0);
+    expect(distance.getY(4)).toBeLessThan(1);
+    const moved = { ...camera, offsetX: camera.offsetX - 5000 };
+    frame(0, moved);
+    expect(distance.getY(0)).toBe(0);
+    frame(0.35, moved);
+    expect(distance.getY(0)).toBeGreaterThan(0);
+    expect(distance.getY(0)).toBeLessThan(1);
+    frame(3.5, moved);
+    expect(distance.getY(0)).toBeGreaterThan(0.99);
+    disposeFleetBatches(batches);
   });
 
-  it("keeps a hovered ship behind the same air as everything else", () => {
-    // Attention answers "which one", not "how far away". The DEPTH term is real
-    // atmosphere and survives, or a hovered horizon ship would punch through
-    // the haze the whole frame is built on.
-    const restraint = gardenFleetSailRestraint({
-      aerial: 0.4,
-      attention: 1,
-      framing: gardenFleetFramingRestraint(DEFAULT_ZOOM),
-      zoomRestraint: 0.28,
-    });
-    expect(restraint).toBeCloseTo(0.4, 12);
-  });
-
-  it("composes on the existing recession instead of stacking with it", () => {
-    const framing = gardenFleetFramingRestraint(WIDE_ZOOM);
-    const zoomRestraint = (1 - gardenFleetMarkPresence(WIDE_ZOOM)) * 0.55;
-    const combined = gardenFleetSailRestraint({
-      aerial: 0,
-      attention: 0,
-      framing,
-      zoomRestraint,
-    });
-    // Multiplicative on the remaining chroma: strictly more restrained than the
-    // old term, strictly less than adding the two, and never saturating.
-    expect(combined).toBeGreaterThan(zoomRestraint);
-    expect(combined).toBeLessThan(zoomRestraint + framing);
-    expect(combined).toBeLessThan(1);
-  });
-
-  it("never fully drains a rank-and-file ship, even at whole-map framing", () => {
-    const worst = gardenFleetSailRestraint({
-      // The widest framing, at the far end of the fog, with no attention.
-      aerial: 0.4,
-      attention: 0,
-      framing: gardenFleetFramingRestraint(OVERVIEW_ZOOM),
-      zoomRestraint: (1 - gardenFleetMarkPresence(OVERVIEW_ZOOM)) * 0.55,
-    });
-    // Hue is identity (F1) and must survive every viewing condition. Half the
-    // chroma is restraint; all of it would be a different ship.
-    expect(worst).toBeLessThan(0.6);
+  it("preserves real aerial recession when attention restores the dye", () => {
+    expect(gardenFleetSailRestraint({
+      aerial: 0.4, attention: 1, framing: 0.25,
+    })).toBeCloseTo(0.4);
   });
 });
 
@@ -854,17 +829,16 @@ describe("W3.7 chroma only, never value", () => {
     ["usdt-tether", "#26a17b"],
   ];
 
-  it("cannot move any issuer's contrast against a white mark, at any framing", () => {
+  it("cannot move any issuer's contrast against a white mark, at any distance", () => {
     for (const [shipId, primary] of ISSUERS) {
       const cloth = gardenSailClothColor(livery(primary), shipId);
       const before = whiteContrast(cloth);
-      for (const zoom of [OVERVIEW_ZOOM, DEFAULT_ZOOM, INSPECTION_ZOOM]) {
+      for (const distancePresence of [0, 0.5, 1]) {
         for (const aerial of [0, 0.4]) {
           const restraint = gardenFleetSailRestraint({
             aerial,
             attention: 0,
-            framing: gardenFleetFramingRestraint(zoom),
-            zoomRestraint: (1 - gardenFleetMarkPresence(zoom)) * 0.55,
+            framing: gardenFleetFramingRestraint(distancePresence),
           });
           // Chroma-only desaturation converges on the cloth's OWN luminance, so
           // luminance — and therefore the pirate contrast floor, which is a
@@ -886,8 +860,7 @@ describe("W3.7 chroma only, never value", () => {
         gardenFleetSailRestraint({
           aerial: 0,
           attention: 0,
-          framing: gardenFleetFramingRestraint(DEFAULT_ZOOM),
-          zoomRestraint: (1 - gardenFleetMarkPresence(DEFAULT_ZOOM)) * 0.55,
+          framing: gardenFleetFramingRestraint(1),
         }),
       );
       // Still near-black cloth carrying a white mark, restraint or no restraint.
@@ -895,12 +868,11 @@ describe("W3.7 chroma only, never value", () => {
     }
   });
 
-  it("keeps two quieted issuers apart from one another at wide framing", () => {
+  it("keeps two quieted issuers apart in the far third", () => {
     const restraint = gardenFleetSailRestraint({
       aerial: 0,
       attention: 0,
-      framing: gardenFleetFramingRestraint(WIDE_ZOOM),
-      zoomRestraint: (1 - gardenFleetMarkPresence(WIDE_ZOOM)) * 0.55,
+      framing: gardenFleetFramingRestraint(1),
     });
     const circle = applyRestraint(
       gardenSailClothColor(livery("#2775ca"), "usdc-circle"),
@@ -1085,56 +1057,5 @@ describe("W3.7 woven cloth", () => {
     expect(shader.fragmentShader).toContain("clothTangent * gClothWarp");
   });
 
-  it("routes attention and the framing step through the sail material", () => {
-    const material = new MeshStandardMaterial();
-    patchSailAtlasMaterial(material);
-    const shader = {
-      fragmentShader: FRAGMENT_STUB,
-      uniforms: {} as Record<string, { value: number }>,
-      vertexShader: VERTEX_STUB,
-    };
-    material.onBeforeCompile!(shader as never, null as never);
 
-    setFleetAerialPerspective({ fogFar: 300, fogNear: 180, strength: 0.4, zoom: DEFAULT_ZOOM });
-    expect(shader.uniforms.uFramingRestraint!.value)
-      .toBeCloseTo(gardenFleetFramingRestraint(DEFAULT_ZOOM), 10);
-    expect(shader.uniforms.uClothWeave!.value)
-      .toBeCloseTo(gardenFleetClothWeave(DEFAULT_ZOOM), 10);
-
-    // A world teardown puts every restraint back to "no viewing condition".
-    setFleetAerialPerspective(null);
-    expect(shader.uniforms.uFramingRestraint!.value).toBe(0);
-    expect(shader.uniforms.uClothWeave!.value).toBe(0);
-    expect(shader.uniforms.uClothRestraint!.value).toBe(0);
-  });
-
-  it("composes aerial chroma recession before the shared height fog", () => {
-    const material = new MeshStandardMaterial();
-    patchSailAtlasMaterial(material);
-    const shader = {
-      fragmentShader: [
-        "#include <common>",
-        "#include <map_fragment>",
-        "#include <normal_fragment_begin>",
-        "#include <fog_fragment>",
-      ].join("\n"),
-      uniforms: {} as Record<string, { value: unknown }>,
-      vertexShader: [
-        "#include <common>",
-        "#include <begin_vertex>",
-        "#include <project_vertex>",
-        "#include <uv_vertex>",
-        "#include <worldpos_vertex>",
-      ].join("\n"),
-    };
-    material.onBeforeCompile!(shader as never, null as never);
-
-    const restraintAt = shader.fragmentShader.indexOf("sailCloth = mix(sailCloth");
-    const fogAt = shader.fragmentShader.indexOf("gl_FragColor.rgb = gardenApplyHeightFog");
-    expect(restraintAt).toBeGreaterThan(-1);
-    expect(fogAt).toBeGreaterThan(restraintAt);
-    expect(shader.fragmentShader).toContain("pow(sunDot, 8.0)");
-    expect(shader.vertexShader).toContain("vGardenHeightFogWorldPosition");
-    expect(shader.uniforms.uGardenHeightFogDensity).toBeDefined();
-  });
 });

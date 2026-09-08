@@ -24,7 +24,7 @@ import {
 import { HARBOR_QUAY_TOP_Y, stationFlagPlacement, stationScaleFor } from "../systems/dock-layout";
 import type { DockNode } from "../systems/world-types";
 import type { ShipMotionSample } from "../systems/motion";
-import type { IsoCamera, ScreenPoint } from "../systems/projection";
+import { CAMERA_YAW, worldToScreen, type IsoCamera, type ScreenPoint, type TilePoint } from "../systems/projection";
 import type { PharosVilleWorld } from "../systems/world-types";
 // The sea signs are the one piece of scenery whose hit target cannot be derived
 // from the world model alone: where a stele stands is decided by the sign
@@ -72,6 +72,9 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
 }): HitTargetSnapshot {
   const selectedDetailId = input.selectedDetailId ?? null;
   const hoveredDetailId = input.hoveredDetailId ?? null;
+  const projectionViewport = input.viewport
+    ? { x: input.viewport.width, y: input.viewport.height }
+    : { x: 1600, y: 1000 };
   const slice = selectGardenObservatorySlice(input.world, selectedDetailId);
   const thinningShips = fleetThinningShipsForWorld(input.world);
   const selectedShipId = selectedDetailId
@@ -97,17 +100,22 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     lighthouseTile,
     GARDEN_LIGHTHOUSE_ROOT_OFFSET.y,
     input.camera,
+    projectionViewport,
   );
   const lighthouseTop = gardenTileToScreen(
     lighthouseTile,
     GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT,
     input.camera,
+    projectionViewport,
   );
   const lighthouseAnchor = gardenTileToScreen(
     lighthouseTile,
     GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_BEACON_Y,
     input.camera,
+    projectionViewport,
   );
+  const lighthouseSize = projectedWorldSize(lighthouseTile, GARDEN_LIGHTHOUSE_ROOT_OFFSET.y,
+    6.25, 0.875, input.camera, projectionViewport);
   addVisibleTarget(targets, {
     anchor: lighthouseAnchor,
     detailId: input.world.lighthouse.detailId,
@@ -118,8 +126,8 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     rect: rectBetweenAnchors(
       lighthouseTop,
       lighthouseBase,
-      100 * input.camera.zoom,
-      14 * input.camera.zoom,
+      lighthouseSize.width,
+      lighthouseSize.height,
     ),
   }, input.viewport, selectedDetailId, hoveredDetailId);
 
@@ -128,7 +136,10 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       gardenDockDisplayTile(dock.tile),
       GARDEN_DOCK_ROOT_Y,
       input.camera,
+      projectionViewport,
     );
+    const size = projectedWorldSize(gardenDockDisplayTile(dock.tile), GARDEN_DOCK_ROOT_Y,
+      7, 3.25, input.camera, projectionViewport);
     // Separate cloth target avoids making the empty sea between a tall flag
     // and its quay clickable. The quay remains the canonical detail anchor.
     if (dock.station) addVisibleTarget(targets, {
@@ -138,7 +149,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       kind: "dock-flag",
       label: dock.label,
       priority: 2_000 + anchor.y,
-      rect: gardenDockFlagHitRect(dock, input.camera),
+      rect: gardenDockFlagHitRect(dock, input.camera, projectionViewport),
     }, null, selectedDetailId, hoveredDetailId);
     addVisibleTarget(targets, {
       anchor,
@@ -147,7 +158,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       kind: dock.kind,
       label: dock.label,
       priority: 2_000 + anchor.y,
-      rect: rectAroundAnchor(anchor, 112 * input.camera.zoom, 52 * input.camera.zoom),
+      rect: rectAroundAnchor(anchor, size.width, size.height),
     // Shore stations are the authored dock geography, not a dense movable
     // population. Keep all eight targets in the interaction/debug model even
     // when the recomposed landing camera places a far-rim station outside the
@@ -161,7 +172,10 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       gardenAreaDisplayTile(area),
       GARDEN_ZONE_ROOT_Y,
       input.camera,
+      projectionViewport,
     );
+    const size = projectedWorldSize(gardenAreaDisplayTile(area), GARDEN_ZONE_ROOT_Y,
+      10.75, 6.5, input.camera, projectionViewport);
     const priority = 1_500 + anchor.y;
     areaPriorityByDetailId.set(area.detailId, priority);
     addVisibleTarget(targets, {
@@ -171,7 +185,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       kind: area.kind,
       label: area.label,
       priority,
-      rect: rectAroundAnchor(anchor, 172 * input.camera.zoom, 104 * input.camera.zoom),
+      rect: rectAroundAnchor(anchor, size.width, size.height),
     }, input.viewport, selectedDetailId, hoveredDetailId);
   }
 
@@ -197,7 +211,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       : seaSignScaleForZoom(input.camera.zoom);
     for (const stele of seaSignSteles(input.world.areas)) {
       if (!stele.detailId) continue;
-      const rect = seaSignSteleRect(stele, signScale, input.camera);
+      const rect = seaSignSteleRect(stele, signScale, input.camera, projectionViewport);
       const anchor = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       addVisibleTarget(targets, {
         anchor,
@@ -215,7 +229,10 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     input.world.pigeonnier.tile,
     0.2,
     input.camera,
+    projectionViewport,
   );
+  const pigeonnierSize = projectedWorldSize(input.world.pigeonnier.tile, 0.2,
+    4.75, 6.75, input.camera, projectionViewport);
   addVisibleTarget(targets, {
     anchor: pigeonnierAnchor,
     detailId: input.world.pigeonnier.detailId,
@@ -225,14 +242,15 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     priority: 3_000 + pigeonnierAnchor.y,
     rect: rectAboveAnchor(
       pigeonnierAnchor,
-      76 * input.camera.zoom,
-      108 * input.camera.zoom,
-      16 * input.camera.zoom,
+      pigeonnierSize.width,
+      pigeonnierSize.height,
+      pigeonnierSize.height * 16 / 108,
     ),
   }, input.viewport, selectedDetailId, hoveredDetailId);
 
   for (const grave of input.world.graves) {
-    const anchor = gardenTileToScreen(grave.tile, 0.2, input.camera);
+    const anchor = gardenTileToScreen(grave.tile, 0.2, input.camera, projectionViewport);
+    const size = projectedWorldSize(grave.tile, 0.2, 3.75, 3.25, input.camera, projectionViewport);
     addVisibleTarget(targets, {
       anchor,
       detailId: grave.detailId,
@@ -240,13 +258,12 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       kind: grave.kind,
       label: grave.label,
       priority: 2_500 + anchor.y,
-      // Half-sunk graveyard hulls span 40–60 px at zoom 1 (garden-landmarks),
-      // so the target covers the boat, not just the stele beside it.
+      // Half-sunk graveyard hulls need coverage for the boat, not just its stele.
       rect: rectAboveAnchor(
         anchor,
-        60 * input.camera.zoom,
-        52 * input.camera.zoom,
-        8 * input.camera.zoom,
+        size.width,
+        size.height,
+        size.height * 8 / 52,
       ),
     }, input.viewport, selectedDetailId, hoveredDetailId);
   }
@@ -258,10 +275,11 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       slice,
       ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
     })!;
-    const anchor = gardenTileToScreen(tile, GARDEN_SHIP_ROOT_Y, input.camera);
+    const anchor = gardenTileToScreen(tile, GARDEN_SHIP_ROOT_Y, input.camera, projectionViewport);
     const diameter = Math.max(
-      32,
-      gardenShipSelectionRadius(ship) * 2 * 16 * input.camera.zoom,
+      44,
+      projectedWorldSize(tile, GARDEN_SHIP_ROOT_Y,
+        gardenShipSelectionRadius(ship) * 2, 0, input.camera, projectionViewport).width,
     );
     addVisibleTarget(targets, {
       anchor,
@@ -277,10 +295,31 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
   // Keyboard traversal and detail lookup retain the complete target list.
   // Only the pointer index follows display thinning, so invisible water never
   // remains clickable while accessibility can still reach every ship.
+  // Perspective can send geometry at the eye plane arbitrarily far away.
+  // Bound pointer coverage without changing detail or keyboard geometry.
+  const pointerTargets: HitTarget[] = [];
+  for (const target of targets) {
+    if ((displayPresence.get(target.id) ?? 1) < 0.5) continue;
+    const { rect } = target;
+    if (!Number.isFinite(rect.x) || !Number.isFinite(rect.y)
+      || !Number.isFinite(rect.width) || !Number.isFinite(rect.height)
+      || (target.anchor && (!Number.isFinite(target.anchor.x) || !Number.isFinite(target.anchor.y)))) continue;
+    const x = Math.max(-projectionViewport.x, rect.x);
+    const y = Math.max(-projectionViewport.y, rect.y);
+    const right = Math.min(projectionViewport.x * 2, rect.x + rect.width);
+    const bottom = Math.min(projectionViewport.y * 2, rect.y + rect.height);
+    if (right < x || bottom < y) continue;
+    pointerTargets.push({
+      ...target,
+      rect: { x, y, width: right - x, height: bottom - y },
+    });
+  }
+  // The inclusive cell endpoints add up to two cells beyond the span.
+  const cellSize = Math.max(64, Math.ceil(Math.max(projectionViewport.x, projectionViewport.y) * 3 / 62));
   return {
     spatialIndex: buildHitTargetSpatialIndex(
-      targets.filter((target) => displayPresence.get(target.id) === undefined
-        || displayPresence.get(target.id)! >= 0.5),
+      pointerTargets,
+      cellSize,
     ),
     targets,
     targetsByDetailId: new Map(targets.map((target) => [target.detailId, target])),
@@ -304,6 +343,7 @@ export function createGardenStationLabelFrame(input: {
       gardenDockDisplayTile(dock.tile),
       GARDEN_DOCK_ROOT_Y + stationScaleFor(dock.station.type, dock.totalUsd).secondLevelTop,
       input.camera,
+      { x: input.viewport.width, y: input.viewport.height },
     ));
   }
   const pigeonnierTarget = input.snapshot.targetsByDetailId.get(input.world.pigeonnier.detailId);
@@ -341,6 +381,25 @@ function fleetThinningShipsForWorld(world: PharosVilleWorld): GardenFleetThinnin
   return ships;
 }
 
+function projectedWorldSize(
+  tile: TilePoint,
+  worldY: number,
+  width: number,
+  height: number,
+  camera: IsoCamera,
+  viewport: ScreenPoint,
+): { width: number; height: number } {
+  const x = tile.x * TILE_SCALE;
+  const z = tile.y * TILE_SCALE;
+  const dx = Math.cos(CAMERA_YAW) * width / 2;
+  const dz = -Math.sin(CAMERA_YAW) * width / 2;
+  const left = worldToScreen({ x: x - dx, y: worldY, z: z - dz }, camera, viewport);
+  const right = worldToScreen({ x: x + dx, y: worldY, z: z + dz }, camera, viewport);
+  const top = worldToScreen({ x, y: worldY + height / 2, z }, camera, viewport);
+  const bottom = worldToScreen({ x, y: worldY - height / 2, z }, camera, viewport);
+  return { width: Math.abs(right.x - left.x), height: Math.abs(bottom.y - top.y) };
+}
+
 function addVisibleTarget(
   targets: HitTarget[],
   target: HitTarget,
@@ -366,10 +425,15 @@ function addVisibleTarget(
  * view and one larger chart rung at whole-map zoom. It is never a continuous
  * billboard response.
  *
- * The face is a flat quad yawed to face the camera, so its four corners bound
- * it exactly under the affine iso projection.
+ * The face is a flat quad yawed to face the camera; project all four corners
+ * to retain the perspective footprint rather than treating zoom as pixel scale.
  */
-function seaSignSteleRect(stele: SeaSignStele, scale: number, camera: IsoCamera) {
+function seaSignSteleRect(
+  stele: SeaSignStele,
+  scale: number,
+  camera: IsoCamera,
+  viewport: ScreenPoint,
+) {
   const halfWidth = (SEA_SIGN_STELE.width / 2) * scale;
   // Local +x of the yawed stele, in tiles: three.js maps it to world
   // (cos yaw, 0, -sin yaw).
@@ -387,7 +451,7 @@ function seaSignSteleRect(stele: SeaSignStele, scale: number, camera: IsoCamera)
   let maxY = Number.NEGATIVE_INFINITY;
   for (const corner of [left, right]) {
     for (const worldY of [topWorldY, bottomWorldY]) {
-      const point = gardenTileToScreen(corner, worldY, camera);
+      const point = gardenTileToScreen(corner, worldY, camera, viewport);
       minX = Math.min(minX, point.x);
       maxX = Math.max(maxX, point.x);
       minY = Math.min(minY, point.y);
@@ -441,7 +505,7 @@ function rectBetweenAnchors(
   width: number,
   padding: number,
 ) {
-  const resolvedWidth = Math.max(40, width);
+  const resolvedWidth = Math.max(40, width) + Math.abs(top.x - bottom.x);
   const topY = Math.min(top.y, bottom.y) - padding;
   const bottomY = Math.max(top.y, bottom.y) + padding;
   return {
@@ -465,25 +529,25 @@ function rectIntersectsViewport(
   );
 }
 
-/** Shared staff authoring plus the cloth's bounded flutter/yaw envelope. */
-const flagBoundsByDock = new WeakMap<DockNode, HitTarget["rect"]>();
-
-export function gardenDockFlagHitRect(dock: DockNode, camera: IsoCamera): HitTarget["rect"] {
-  let bounds = flagBoundsByDock.get(dock);
-  if (!bounds) {
-    bounds = authoredDockFlagBounds(dock);
-    flagBoundsByDock.set(dock, bounds);
-  }
+export function gardenDockFlagHitRect(
+  dock: DockNode,
+  camera: IsoCamera,
+  viewport: ScreenPoint,
+): HitTarget["rect"] {
+  const bounds = authoredDockFlagBounds(dock, camera, viewport);
   return {
-    x: bounds.x * camera.zoom + camera.offsetX - 2,
-    y: bounds.y * camera.zoom + camera.offsetY - 2,
-    width: bounds.width * camera.zoom + 4,
-    height: bounds.height * camera.zoom + 4,
+    x: bounds.x - 2,
+    y: bounds.y - 2,
+    width: bounds.width + 4,
+    height: bounds.height + 4,
   };
 }
 
-function authoredDockFlagBounds(dock: DockNode): HitTarget["rect"] {
-  const camera = { offsetX: 0, offsetY: 0, zoom: 1 };
+function authoredDockFlagBounds(
+  dock: DockNode,
+  camera: IsoCamera,
+  viewport: ScreenPoint,
+): HitTarget["rect"] {
   const staff = stationFlagPlacement(dock.station.type, dock.totalUsd, dock.size);
   const bearing = -dock.station.shoreBearing;
   const cos = Math.cos(bearing);
@@ -504,7 +568,7 @@ function authoredDockFlagBounds(dock: DockNode): HitTarget["rect"] {
         points.push(gardenTileToScreen({
           x: centre.x + (rx * Math.cos(yaw) + z * Math.sin(yaw)) / TILE_SCALE,
           y: centre.y + (-rx * Math.sin(yaw) + z * Math.cos(yaw)) / TILE_SCALE,
-        }, height + ry, camera));
+        }, height + ry, camera, viewport));
       }
     }
   }

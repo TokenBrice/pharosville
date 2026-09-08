@@ -84,13 +84,38 @@ function attachRenderedHarborContext(docks: DockNode[], globalTotalUsd: number):
     .map((dock) => dock.id);
   const rankById = new Map(rankedIds.map((id, index) => [id, index + 1]));
   const hasGlobalTotal = Number.isFinite(globalTotalUsd) && globalTotalUsd > 0;
+  const shares = docks
+    .map((dock) => hasGlobalTotal ? dock.totalUsd / globalTotalUsd : 0)
+    .toSorted((left, right) => left - right);
+  const middle = Math.floor(shares.length / 2);
+  const medianShare = shares.length === 0 ? 0
+    : shares.length % 2 === 1 ? shares[middle]!
+    : (shares[middle - 1]! + shares[middle]!) / 2;
 
-  return docks.map((dock) => ({
-    ...dock,
-    harborCount,
-    ...(rankById.has(dock.id) ? { harborRank: rankById.get(dock.id)! } : {}),
-    shareOfGlobal: hasGlobalTotal ? dock.totalUsd / globalTotalUsd : null,
-  }));
+  return docks.map((dock) => {
+    const frontageShare = hasGlobalTotal ? dock.totalUsd / globalTotalUsd : 0;
+    return {
+      ...dock,
+      harborCount,
+      frontageShare,
+      frontageMedianShare: medianShare,
+      ...(rankById.has(dock.id) ? { harborRank: rankById.get(dock.id)! } : {}),
+      shareOfGlobal: hasGlobalTotal ? frontageShare : null,
+    };
+  });
+}
+
+/** Stable ordering of the largest rendered harbours by tracked-supply share. */
+export function topHarboursByShare(
+  docks: readonly DockNode[],
+  count = 3,
+): DockNode[] {
+  return docks
+    .toSorted((left, right) => (
+      (right.frontageShare ?? 0) - (left.frontageShare ?? 0)
+      || left.chainId.localeCompare(right.chainId)
+    ))
+    .slice(0, Math.max(0, count));
 }
 
 /**

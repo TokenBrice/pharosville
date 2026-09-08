@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { denseFixtureChains, fixtureChains, makeChain } from "../__fixtures__/pharosville-world";
 import type { DockNode } from "./world-types";
-import { buildChainDocks } from "./chain-docks";
+import { buildChainDocks, topHarboursByShare } from "./chain-docks";
 import {
   EVM_BAY_DOCK_TILES,
   EVM_BAY_STATION_SLOTS,
@@ -56,6 +56,22 @@ describe("buildChainDocks", () => {
     expect(docks[0]?.size).toBeGreaterThan(docks[1]?.size ?? 0);
     expect(docks[0]?.size).toBeGreaterThanOrEqual(7);
     expect(docks[1]?.size).toBeGreaterThanOrEqual(6);
+  });
+
+  it("exposes tracked-supply frontage shares and orders rest-frame subjects by them", () => {
+    const docks = buildChainDocks(fixtureChains);
+    expect(docks.map((dock) => dock.frontageShare)).toEqual([8 / 11, 3 / 11]);
+    expect(docks.every((dock) => dock.frontageMedianShare === 0.5)).toBe(true);
+    expect(topHarboursByShare(docks, 3).map((dock) => dock.chainId)).toEqual([
+      "ethereum",
+      "tron",
+    ]);
+
+    const tied = docks.map((dock) => ({ ...dock, frontageShare: 0.5 })).reverse();
+    expect(topHarboursByShare(tied, 2).map((dock) => dock.chainId)).toEqual([
+      "ethereum",
+      "tron",
+    ]);
   });
 
   it("anchors rendered stations on cove water with open water seaward and rim land within the 14-tile landward allowance", () => {

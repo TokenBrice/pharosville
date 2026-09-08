@@ -1,10 +1,11 @@
 # PharosVille Route Contract
 
-Last updated: 2026-07-27
+Last updated: 2026-09-08
 
-PharosVille is the desktop stablecoin observatory at
-`https://pharosville.pharos.watch/`. It turns live Pharos data into a maritime
-world without making the scenery the only source of truth.
+PharosVille is a living stablecoin garden at
+`https://pharosville.pharos.watch/`: a stablecoin harbour you watch like a
+garden. Live Pharos markets unfold as ships, water, light, and weather, while
+exact readings remain available in DOM details and the accessibility ledger.
 
 ## Entry and trust boundary
 
@@ -42,13 +43,20 @@ cloth, marks, livery, chain flags, and water behavior make entities readable at
 overview scale; the DOM detail panel and accessibility ledger carry exact
 values, freshness, provenance, and caveats.
 
-## Interaction and motion
+## Interaction, caption, and motion
 
+- The resting frame is the world, one deterministic “now” sentence, and one
+  quiet Explore affordance. Find, Legend, Harbor ledger, and view controls
+  reveal on pointer approach, keyboard focus, `/`, or camera input; focused
+  controls remain visible.
+- The now sentence gives an arrival ceremony first, then the latest market
+  transition, then a stale-feed warning, otherwise the wall-clock phase and
+  freshness. It changes only when those data or time inputs change.
 - Pointer and keyboard targets use the same displayed poses as rendering.
 - Selection, deep links, pan, zoom, reset, Observe, day/night, Escape clear,
   and the accessible detail flow remain supported.
-- The persistent world controls are reset, Observe, and day/night. Exact time
-  may be represented in a URL; it is not an in-app slider.
+- Version and renderer telemetry are absent from ordinary chrome. `?debug=1`
+  shows version, FPS, draws, triangles, textures, and GPU p95.
 - One route-owned clock drives normal animation. Reduced motion produces a
   composed static frame with no continuous RAF; hidden or offscreen surfaces
   pause without a catch-up teleport.

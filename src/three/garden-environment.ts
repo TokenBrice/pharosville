@@ -14,7 +14,7 @@ import {
   type WebGLRenderTarget,
 } from "three";
 import { LightProbeGenerator } from "three/examples/jsm/lights/LightProbeGenerator.js";
-import type { DayCyclePhase } from "./garden-day-cycle";
+import type { DayCycleBeats, DayCyclePhase } from "./garden-day-cycle";
 import type { TextureOwnerManifestEntry } from "../renderer/render-types";
 
 /**
@@ -92,7 +92,7 @@ import type { TextureOwnerManifestEntry } from "../renderer/render-types";
  *
  * where `bakedSH` is the spherical harmonic of the cube the live PMREM was
  * built from, `smoothSH` eases from the previous bake's harmonic to it, `I0` is
- * `GARDEN_ENVIRONMENT_INTENSITY` and `I(t)` is the live (possibly dipped)
+ * the beat-weighted environment strength and `I(t)` is the live (possibly dipped)
  * `Scene.environmentIntensity`. The environment's own diffuse contribution is
  * `bakedSH * I(t)`, so the two sum to `smoothSH * I0` — exactly one ambient
  * term, at exactly the strength the calibration table below settled on.
@@ -130,38 +130,11 @@ import type { TextureOwnerManifestEntry } from "../renderer/render-types";
  * module touches.
  */
 
-/**
- * Strength of the probe's contribution, as `Scene.environmentIntensity`.
- *
- * Measured on the real GPU (`npm run preview --reduced`, 1600x1000, the
- * noon/dusk/night triptych), as mean frame luminance against the same frame with
- * the probe contributing nothing:
- *
- * | intensity | noon    | night   | clipped |
- * |-----------|---------|---------|---------|
- * | 0.0       | 101.45  |  82.00  | 0.000%  |
- * | 0.3       | 101.63  |  82.14  | 0.000%  |
- * | 0.6       | 102.34  |  82.28  | 0.000%  |
- * | 1.0       | 102.56  |  82.45  | 0.000%  |
- * | 8.0       | 105.73  |    —    | 0.000%  |
- *
- * So the probe does NOT re-wash the frame: even at 1.0 the noon mean moves
- * ~1.1%, and an absurd 8.0 — twenty-six times what ships — moves it 4.2% without
- * clipping a single pixel. Two things explain the small numbers. Most of this
- * frame is sea and sky, both of which are `ShaderMaterial` and cannot see an
- * environment at all; and AgX has a long shoulder that compresses what is left.
- *
- * 0.6 is chosen for headroom on both sides: comfortably inside the range that
- * measured clean, and high enough to actually reach the metal, which is the
- * entire point — a `metalness: 1` surface has no diffuse term, so before this it
- * had NO specular source and rendered as flat dark shape.
- *
- * The exact strength past this point is a LOOK call, not a calibration one, and
- * it belongs to the operator on their own screen. What is settled by the table
- * above is only that no value in it forces the grade, the exposure or the tone
- * mapping to move — and none of those is touched here.
- */
-export const GARDEN_ENVIRONMENT_INTENSITY = 0.6;
+/** Reflection energy follows illumination rather than lifting every night. */
+export function gardenEnvironmentIntensityForBeats(beats: DayCycleBeats): number {
+  return beats.dawn * 0.35 + beats.day * 0.6 + beats.golden * 0.45
+    + beats.blue * 0.3 + beats.night * 0.12;
+}
 
 /**
  * Quantisation of the day-cycle blend, per axis, for the cache key.
@@ -308,6 +281,7 @@ export interface GardenEnvironment {
    */
   update(
     phase: DayCyclePhase,
+    beats: DayCycleBeats,
     stormLevel?: number,
     options?: GardenEnvironmentUpdateOptions,
   ): void;
@@ -366,9 +340,9 @@ export function gardenEnvironmentDriftTaus(): { sh: number; swap: number } {
  * `Scene.environmentIntensity` for a swap that is `swapDrift` of the way from
  * "just swapped" (1) back to rest (0).
  */
-export function gardenEnvironmentIntensityForSwap(swapDrift: number): number {
+export function gardenEnvironmentIntensityForSwap(swapDrift: number, baseIntensity: number): number {
   const drift = Math.max(0, Math.min(1, swapDrift));
-  return GARDEN_ENVIRONMENT_INTENSITY * (1 - SWAP_DIP * drift);
+  return baseIntensity * (1 - SWAP_DIP * drift);
 }
 
 /**
@@ -380,7 +354,7 @@ export function gardenEnvironmentIntensityForSwap(swapDrift: number): number {
  * live PMREM is already supplying. Their sum — which is what a material
  * actually sees — is the smooth term alone, so no phase gains energy and the
  * swap is invisible to the diffuse half. At rest (`shDrift === 0` and
- * `environmentIntensity === GARDEN_ENVIRONMENT_INTENSITY`) every coefficient is
+ * `environmentIntensity === baseIntensity`) every coefficient is
  * exactly zero.
  *
  * Writes into `out`'s existing vectors; allocates nothing.
@@ -391,6 +365,7 @@ export function writeGardenEnvironmentProbeSH(
   baked: SphericalHarmonics3,
   shDrift: number,
   environmentIntensity: number,
+  baseIntensity: number,
 ): void {
   const outCoefficients = out.coefficients;
   const previousCoefficients = previous.coefficients;
@@ -400,11 +375,11 @@ export function writeGardenEnvironmentProbeSH(
     const target = outCoefficients[index]!;
     const from = previousCoefficients[index]!;
     const to = bakedCoefficients[index]!;
-    target.x = (to.x + (from.x - to.x) * drift) * GARDEN_ENVIRONMENT_INTENSITY
+    target.x = (to.x + (from.x - to.x) * drift) * baseIntensity
       - to.x * environmentIntensity;
-    target.y = (to.y + (from.y - to.y) * drift) * GARDEN_ENVIRONMENT_INTENSITY
+    target.y = (to.y + (from.y - to.y) * drift) * baseIntensity
       - to.y * environmentIntensity;
-    target.z = (to.z + (from.z - to.z) * drift) * GARDEN_ENVIRONMENT_INTENSITY
+    target.z = (to.z + (from.z - to.z) * drift) * baseIntensity
       - to.z * environmentIntensity;
   }
 }
@@ -627,7 +602,7 @@ export function createGardenEnvironment(
       probeGeometry.dispose();
       generator.dispose();
     },
-    update(phase, stormLevel = 0, options) {
+    update(phase, beats, stormLevel = 0, options) {
       if (disposed) return;
       const reducedMotion = options?.reducedMotion === true;
       const deltaSeconds = Math.max(
@@ -708,10 +683,11 @@ export function createGardenEnvironment(
       // 4. The per-frame easing. Nine vector lerps and two scalars.
       shDrift = advanceGardenEnvironmentDrift(shDrift, deltaSeconds, SH_DRIFT_TAU_SECONDS, reducedMotion);
       swapDrift = advanceGardenEnvironmentDrift(swapDrift, deltaSeconds, SWAP_DIP_TAU_SECONDS, reducedMotion);
-      const intensity = gardenEnvironmentIntensityForSwap(swapDrift);
+      const baseIntensity = gardenEnvironmentIntensityForBeats(beats);
+      const intensity = gardenEnvironmentIntensityForSwap(swapDrift, baseIntensity);
       scene.environmentIntensity = intensity;
       if (shValid) {
-        writeGardenEnvironmentProbeSH(lightProbe.sh, previousSH, bakedSH, shDrift, intensity);
+        writeGardenEnvironmentProbeSH(lightProbe.sh, previousSH, bakedSH, shDrift, intensity, baseIntensity);
       } else {
         lightProbe.sh.zero();
       }

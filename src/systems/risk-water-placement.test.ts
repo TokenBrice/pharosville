@@ -57,7 +57,8 @@ describe("risk water placement", () => {
     // exact only at an integer scale — the zone predicates test INCLUSIVE integer
     // design bounds (`y <= 9`), which at 2.5 clips half a design row off each edge.
     // RIM FIELD REVISION 1: Ledger's hooked cove and recalibrated reach measure 1,601 tiles (10.0%).
-    expect(ledgerTiles.length).toBeGreaterThan(250 * AREA_SCALE);
+    // G2/W3.9: the Mole's waterward quay apron reserves 39 of those (1,562, 9.8%).
+    expect(ledgerTiles.length).toBeGreaterThan(245 * AREA_SCALE);
     expect(calmTiles.every((tile) => isRiskPlacementWaterTile(tile, "safe-harbor"))).toBe(true);
     expect(ledgerTiles.every((tile) => isRiskPlacementWaterTile(tile, "ledger-mooring"))).toBe(true);
     const calmSouthEast = zoneWorldTile({ x: 18, y: 40 });

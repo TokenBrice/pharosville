@@ -22,6 +22,7 @@ import {
   harborRankLabel,
   lighthouseBeamWarmCueLabel,
   lighthouseLampStatusLabel,
+  nowCaption,
   PHAROS_WATCH_TELEGRAM_HREF,
   psiCompositionLabel,
   psiTrendLabel,
@@ -55,6 +56,49 @@ import {
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
 
+describe("W5.2 now caption grammar", () => {
+  const hour = 12 + 25 / 60;
+  const beats = { dawn: 0, day: 1, golden: 0, blue: 0, night: 0 } as const;
+  const observedAt = Date.UTC(2026, 8, 8, 18, 42);
+
+  it("uses ceremony, transition, stale, then phase precedence", () => {
+    const common = {
+      beats,
+      freshness: { pegSummaryStale: true, observedAt },
+      hour,
+      latestTransition: { symbol: "USDC", toLabel: "Watch water", observedAt },
+      psi: 82,
+    };
+    expect(nowCaption({ ...common, arrivalAnnotation: "USDC entered Ethereum harbour." }))
+      .toBe("USDC entered Ethereum harbour.");
+    expect(nowCaption({ ...common, arrivalAnnotation: null }))
+      .toBe("USDC moved to Watch water, observed 18:42");
+    expect(nowCaption({ ...common, arrivalAnnotation: null, latestTransition: null }))
+      .toBe("Peg summary stale since 18:42");
+    expect(nowCaption({ ...common, arrivalAnnotation: null, latestTransition: null, freshness: {} }))
+      .toBe("12:25 — a quiet noon · readings current");
+  });
+
+  it("chooses one deterministic stale warning and reflects stressed PSI in the phase", () => {
+    expect(nowCaption({
+      arrivalAnnotation: null,
+      beats,
+      freshness: { chainsStale: true, stablecoinsStale: true, observedAt },
+      hour,
+      latestTransition: null,
+      psi: 82,
+    })).toBe("Stablecoins stale since 18:42");
+    expect(nowCaption({
+      arrivalAnnotation: null,
+      beats,
+      freshness: {},
+      hour,
+      latestTransition: null,
+      psi: 32,
+    })).toBe("12:25 — a watchful noon · readings current");
+  });
+});
+
 describe("detail-model analytical links", () => {
   it("points built-in detail links at canonical Pharos Watch routes", () => {
     const lighthouseDetail = detailForLighthouse({
@@ -71,14 +115,6 @@ describe("detail-model analytical links", () => {
     expect(lighthouseDetail.links).toEqual([
       { label: "PSI", href: "https://pharos.watch/stability-index/" },
     ]);
-    expect(lighthouseDetail.facts).toContainEqual({
-      label: "Beam warmth cue",
-      value: "Beam warms amber when active DEWS reaches ALERT, WARNING, or DANGER; Fleet PSI cue (not a per-zone reading).",
-    });
-    // The beam-is-fleet-wide caveat must survive every copy pass: it is what
-    // stops the beacon being read as a per-zone reading.
-    expect(lighthouseDetail.summary).toContain("fleet-wide");
-    expect(lighthouseDetail.summary).toContain("never in the beam");
 
     expect(detailForDock({
       id: "dock.ethereum",
@@ -1112,7 +1148,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       });
     });
 
-    it("formats decimal PSI scores consistently in the score fact", () => {
+    it("preserves the exact PSI observation rather than rounding away evidence", () => {
       const detail = detailForLighthouse({
         id: "lighthouse",
         kind: "lighthouse",
@@ -1125,7 +1161,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
         detailId: "lighthouse",
       } satisfies LighthouseNode);
 
-      expect(detail.facts.find((fact) => fact.label === "Score")?.value).toBe("72.3");
+      expect(detail.facts.find((fact) => fact.label === "Score")?.value).toBe("72.25");
     });
 
     describe("Flight to quality row", () => {

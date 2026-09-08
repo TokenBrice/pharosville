@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.16.0` (`airAndLantern`)
-- Latest changelog entry: `2026-09-07-air-and-lantern` / `v0.16.0` / 2026-09-07 / Air and Lantern
+- Latest app version: `v0.17.0` (`reborn`)
+- Latest changelog entry: `2026-09-08-reborn` / `v0.17.0` / 2026-09-08 / Reborn
 
 ## Viewport Gate
 
@@ -40,16 +40,6 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 | Model | URL | Bytes | Geometry | SHA-256 |
 | --- | --- | --- | --- | --- |
 | `garden-lighthouse-shell` | `/pharosville/models/garden-lighthouse-shell.glb` | 227 KiB | 7 draws / 37,160 tris / 24,304 verts / 0 textures | `683bcbcac8ccd18f9f6b6237931f5011600e1d87088507dab912aca1fd39b9c9` |
-| `garden-hero-titan` | `/pharosville/models/garden-hero-titan.glb` | 20 KiB | 4 draws / 930 tris / 842 verts / 0 textures | `226d585a2264290773b1dc487cc4e7f974a7735cec8a1ffebd0ea1aa01ec67f6` |
-| `garden-hero-heritage` | `/pharosville/models/garden-hero-heritage.glb` | 20 KiB | 4 draws / 930 tris / 842 verts / 0 textures | `07dd1b57119aca31cc22a86d7347a9f7876c62601f02f45aec937658720789fe` |
-| `garden-hero-carrack` | `/pharosville/models/garden-hero-carrack.glb` | 24 KiB | 5 draws / 1,058 tris / 1,032 verts / 0 textures | `70f87b2d3c2c66133027028f3d0a7299b58834c1f7c657e308495e62e3b6013a` |
-| `garden-hero-brigantine` | `/pharosville/models/garden-hero-brigantine.glb` | 29 KiB | 5 draws / 1,270 tris / 1,366 verts / 0 textures | `2a00702207a19b49c688f815da7bc0f80697b4afa8667a4777f87da67576bab7` |
-| `garden-hero-dhow` | `/pharosville/models/garden-hero-dhow.glb` | 23 KiB | 5 draws / 1,054 tris / 969 verts / 0 textures | `3bb620332d6bad25402985e7f77640f36387b7e903f439eb123617bdb1048358` |
-| `garden-hero-junk` | `/pharosville/models/garden-hero-junk.glb` | 26 KiB | 5 draws / 1,214 tris / 1,213 verts / 0 textures | `0db88b55685fe0086ff46bff3eb3f140578fcb77321a7b7d92d9522f30bf2f2c` |
-| `garden-hero-barquentine` | `/pharosville/models/garden-hero-barquentine.glb` | 33 KiB | 5 draws / 1,812 tris / 1,534 verts / 0 textures | `fbeed772c2ebec026bb18f6edde050c494414892aab6546bb8dfb532bfd1432c` |
-| `garden-hero-cog` | `/pharosville/models/garden-hero-cog.glb` | 24 KiB | 5 draws / 1,092 tris / 946 verts / 0 textures | `8a1b0f5fcfd064325c0d9cfbbfbeb78bdc2cbd51f28945145d9db5aa8b3a4792` |
-| `garden-hero-xebec` | `/pharosville/models/garden-hero-xebec.glb` | 26 KiB | 5 draws / 1,214 tris / 1,213 verts / 0 textures | `87c09779b7cfbee024e8571fef17147fa32c720a3fe588e6373e5baa1a1e9540` |
-| `garden-hero-cutter` | `/pharosville/models/garden-hero-cutter.glb` | 23 KiB | 5 draws / 1,046 tris / 950 verts / 0 textures | `c3cb5c76cbaa1e72a35159d591a6c8e02370fcef2901c92adfa75f4648c0c9aa` |
 | `garden-hero-tether` | `/pharosville/models/garden-hero-tether.glb` | 20 KiB | 4 draws / 930 tris / 842 verts / 0 textures | `fd98b1089c306898bf300a53169b4b1d3183f9038fce174dac5a2f4e37013e55` |
 | `garden-hero-circle` | `/pharosville/models/garden-hero-circle.glb` | 28 KiB | 5 draws / 1,258 tris / 1,392 verts / 0 textures | `4f1a9e6f4b2d8db04d4368ad2be3e2c6d114b686335b33ac2b58a35fa606842d` |
 | `garden-hero-maker` | `/pharosville/models/garden-hero-maker.glb` | 31 KiB | 5 draws / 1,764 tris / 1,451 verts / 0 textures | `fc0a62b0acc422aa713f18658af2d0d49dba3703bec8be97e30ab496cc52c52b` |
@@ -67,7 +57,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - desktop lazy chunk: raw <= 1,024 KiB, gzip <= 290 KiB
 - world lazy chunk: raw <= 440 KiB, gzip <= 145 KiB
 - Three.js renderer chunk: raw <= 1,600 KiB, gzip <= 454 KiB
-- entry CSS: raw <= 36 KiB, gzip <= 8 KiB
+- entry CSS: raw <= 40 KiB, gzip <= 8 KiB
 - Total JS: raw <= 3,200 KiB, gzip <= 886 KiB
 
 ## Squads
@@ -82,18 +72,6 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 | Stablecoin ID | Scale |
 | --- | --- |
-| `buidl-blackrock` | `1.4` |
-| `dai-makerdao` | `1.06` |
-| `pyusd-paypal` | `1.4` |
-| `sdai-sky` | `0.94` |
-| `stusds-sky` | `0.98` |
-| `susde-ethena` | `0.95` |
-| `susds-sky` | `0.94` |
-| `usd1-world-liberty-financial` | `1.35` |
-| `usdc-circle` | `1.53` |
-| `usde-ethena` | `1.2` |
-| `usds-sky` | `1.15` |
-| `usdt-tether` | `1.7` |
 
 ## Heritage Hulls
 

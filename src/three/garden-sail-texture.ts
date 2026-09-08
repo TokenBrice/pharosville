@@ -6,7 +6,7 @@ import {
 } from "three";
 import type { ThreeLogoAsset } from "../renderer/world-renderer-backend";
 import { SAIL_DARK_CANVAS_ISSUERS } from "./garden-sail-overrides";
-import { GARDEN_IDENTITY_ANISOTROPY, safeCssColor } from "./garden-util";
+import { GARDEN_IDENTITY_ANISOTROPY, safeCssColor, stableUnit } from "./garden-util";
 import type { ShipLivery, ShipNode } from "../systems/world-types";
 
 const TEXTURE_SIZE = 128;
@@ -158,8 +158,11 @@ export function createGardenSailCanvas(
     context.fillStyle = clothFill;
     context.fillRect(0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
   }
-  paintSailField(context, ship.visual.livery);
   paintSailIdentity(context, ship, logo);
+  context.save();
+  context.globalCompositeOperation = "multiply";
+  paintSailField(context, ship.visual.livery);
+  context.restore();
   return canvas;
 }
 
@@ -216,170 +219,72 @@ function paintSailField(
 }
 
 /**
- * The sail is read from fleet scale, where a relief-only emblem collapses into
- * the dyed cloth. Preserve the quiet field treatment introduced by H1, but
- * restore the complete, familiar logo inside one restrained contrast plate.
- *
- * The plate is deliberately neutral and consistent rather than another
- * hash-derived livery shape: the logo is data, not decoration.
- *
- * C4 (2026-09-05): the mark spans 0.9 of the 128px cell — 115.2px, axial
- * half-extent 57.6 — so the brand mark fills more of the sail at the 1.0
- * rest, and the plate grows with it to 62. That keeps the old pairing's
- * geometry at both ends: the mark still sits inside the rim with a shoulder
- * (4.4px, was 5.1px at 0.78/55), and the disc still ends 2px inside the
- * cell on every side. The fill path is the arc itself and the falloff is
- * already zero at the rim, so no texel beyond the radius is painted and the
- * adjacent atlas cells stay clean without a wider gutter.
+ * A complete mon, printed in one value-contrasting ink in the upper third.
+ * Wear is cut from a separate ink layer, never from the cloth underneath.
+ * The weave is multiplied over the finished print by createGardenSailCanvas;
+ * multiplying pale ink into dark dye would make that ink physically invisible.
  */
-const IDENTITY_FIELD_RADIUS = 62;
-const IDENTITY_LOGO_SPAN = 0.9;
+const IDENTITY_LOGO_SPAN = 0.52;
 
 function paintSailIdentity(
   context: CanvasRenderingContext2D,
   ship: ShipNode,
   logo: ThreeLogoAsset | null,
 ): void {
-  // An unresolved/failed logo stays as brand-dyed cloth. Ticker letters are
-  // not heraldry and must never appear as an asset-loading fallback.
-  if (!logo) return;
-
-  const centerX = 64;
-  const centerY = 64;
+  const layer = document.createElement("canvas");
+  layer.width = TEXTURE_SIZE;
+  layer.height = TEXTURE_SIZE;
+  const ink = layer.getContext("2d");
+  if (!ink) return;
+  const centerX = TEXTURE_SIZE / 2;
+  const centerY = TEXTURE_SIZE / 3;
   const box = TEXTURE_SIZE * IDENTITY_LOGO_SPAN;
-
-  paintIdentityField(
-    context,
-    ship.visual.livery,
-    centerX,
-    centerY,
-    IDENTITY_FIELD_RADIUS,
-  );
-
-  context.save();
-  drawIdentityFieldPath(context, centerX, centerY, IDENTITY_FIELD_RADIUS);
-  context.clip();
-
-  // 2026-09-07: the extracted, disc-free mark is preferred over the raw logo.
-  //
-  // C4 chose the opposite for recognition, and the recognition argument was
-  // right — but what it bought was a UI badge, not heraldry: the raw asset
-  // carries its OWN circular plate and brand fill, so at span 0.9 roughly
-  // three quarters of every sail is a near-white-albedo vector disc with a
-  // hard edge. That is the brightest thing in the frame at noon, at dusk and
-  // at 21:00 alike, times 185, which is most of what "it doesn't look like
-  // the reference art" is pointing at.
-  //
-  // `emblem` keeps the mark's own colours (garden-sail-emblem.ts:200) and
-  // drops only the carrier disc, so the SAME shape at the SAME span still
-  // reads — printed into cloth rather than stuck onto it. The raw logo stays
-  // as the fallback for issuers whose mark the extractor cannot isolate.
-  if (logo?.emblem) {
+  let painted = false;
+  for (const image of [logo?.emblem, logo?.image]) {
+    if (!image) continue;
     try {
-      context.drawImage(
-        logo.emblem,
-        centerX - box / 2,
-        centerY - box / 2,
-        box,
-        box,
-      );
-      context.restore();
-      return;
+      const width = "naturalWidth" in image ? image.naturalWidth || image.width : image.width;
+      const height = "naturalHeight" in image ? image.naturalHeight || image.height : image.height;
+      const dimensions = containedDimensions(width, height, box);
+      ink.drawImage(image, centerX - dimensions.width / 2, centerY - dimensions.height / 2,
+        dimensions.width, dimensions.height);
+      painted = true;
+      break;
     } catch {
-      // Fall through to the unmodified logo.
+      // A failed decode tries the canonical image, then the issuer's initials.
     }
   }
-
-  if (logo?.image) {
-    try {
-      // ImageBitmap (the createImageBitmap decode path) has no naturalWidth —
-      // its intrinsic size IS width/height.
-      const intrinsicWidth = "naturalWidth" in logo.image
-        ? logo.image.naturalWidth || logo.image.width
-        : logo.image.width;
-      const intrinsicHeight = "naturalHeight" in logo.image
-        ? logo.image.naturalHeight || logo.image.height
-        : logo.image.height;
-      const dimensions = containedDimensions(
-        intrinsicWidth,
-        intrinsicHeight,
-        box,
-      );
-      context.drawImage(
-        logo.image,
-        centerX - dimensions.width / 2,
-        centerY - dimensions.height / 2,
-        dimensions.width,
-        dimensions.height,
-      );
-      context.restore();
-      return;
-    } catch {
-      // Fall through to the extracted emblem.
-    }
+  if (!painted) {
+    ink.font = "600 36px serif";
+    ink.textAlign = "center";
+    ink.textBaseline = "middle";
+    ink.fillText(ship.symbol.slice(0, 3).toUpperCase(), centerX, centerY, box);
   }
-
-  context.restore();
-}
-
-/**
- * The contrast plate the mark sits on.
- *
- * What made this read as a STICKER rather than as painted canvas was not the
- * logo — it was the plate: a hard-edged circle filled at 0.94 with a 2px rim
- * stroke over it. That is a decal, geometrically and literally, and sixty of
- * them scattered across the frame is most of what "too messy" was pointing at.
- *
- * It is now a plate with a soft shoulder and no rim. The centre keeps enough
- * opacity to carry a white mark against a pale sail — the whole reason the
- * plate exists — while the outer fifth ramps to nothing, so the field dissolves
- * into the ship's own cloth instead of ending on an edge. Same legibility where
- * the logo actually sits, no cut-out silhouette around it.
- */
-function paintIdentityField(
-  context: CanvasRenderingContext2D,
-  livery: ShipLivery,
-  x: number,
-  y: number,
-  radius: number,
-): void {
-  context.save();
-  const matte = new Color(safeCssColor(livery.logoMatte, "#141414"));
-  const gradient = context.createRadialGradient(x, y, radius * IDENTITY_FIELD_CORE, x, y, radius);
-  gradient.addColorStop(0, cssRgba(matte, IDENTITY_FIELD_ALPHA));
-  // Quadratic-ish shoulder rather than linear: a straight ramp still shows a
-  // visible ring where it meets the cloth.
-  gradient.addColorStop(0.55, cssRgba(matte, IDENTITY_FIELD_ALPHA * 0.55));
-  gradient.addColorStop(1, cssRgba(matte, 0));
-  drawIdentityFieldPath(context, x, y, radius);
-  context.fillStyle = gradient;
-  context.fill();
-  context.restore();
-}
-
-/** Fraction of the radius held at full plate opacity before the shoulder. */
-const IDENTITY_FIELD_CORE = 0.62;
-/** Plate opacity under the mark itself. */
-const IDENTITY_FIELD_ALPHA = 0.42;
-
-/** `rgba(...)` for a canvas paint, in sRGB — three's Color components are linear. */
-function cssRgba(color: Color, alpha: number): string {
-  const hex = color.getHexString(SRGBColorSpace);
-  const red = Number.parseInt(hex.slice(0, 2), 16);
-  const green = Number.parseInt(hex.slice(2, 4), 16);
-  const blue = Number.parseInt(hex.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-}
-
-function drawIdentityFieldPath(
-  context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  radius: number,
-): void {
-  context.beginPath();
-  context.arc(x, y, radius, 0, Math.PI * 2);
-  context.closePath();
+  const cloth = gardenSailClothColor(ship.visual.livery, ship.id);
+  const luminance = 0.2126 * cloth.r + 0.7152 * cloth.g + 0.0722 * cloth.b;
+  // Neutral OKLab ink L=.25 / .88 corresponds to linear luminance L³.
+  const dark = 0.25 ** 3;
+  const light = 0.88 ** 3;
+  const darkContrast = (Math.max(luminance, dark) + 0.05) / (Math.min(luminance, dark) + 0.05);
+  const lightContrast = (Math.max(luminance, light) + 0.05) / (Math.min(luminance, light) + 0.05);
+  const value = darkContrast > lightContrast ? dark : light;
+  ink.globalCompositeOperation = "source-in";
+  ink.fillStyle = `#${new Color(value, value, value).getHexString()}`;
+  ink.fillRect(0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
+  ink.globalCompositeOperation = "destination-out";
+  const wearCount = 2 + Math.floor(stableUnit(`${ship.id}.mon.count`) * 2);
+  for (let index = 0; index < wearCount; index += 1) {
+    ink.globalAlpha = 0.1 + stableUnit(`${ship.id}.mon.alpha.${index}`) * 0.08;
+    ink.beginPath();
+    ink.arc(
+      centerX + (stableUnit(`${ship.id}.mon.x.${index}`) - 0.5) * box * 0.8,
+      centerY + (stableUnit(`${ship.id}.mon.y.${index}`) - 0.5) * box * 0.8,
+      3 + stableUnit(`${ship.id}.mon.radius.${index}`) * 5,
+      0, Math.PI * 2,
+    );
+    ink.fill();
+  }
+  context.drawImage(layer, 0, 0);
 }
 
 function containedDimensions(

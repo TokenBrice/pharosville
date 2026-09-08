@@ -19,17 +19,17 @@ import {
 import { Color } from "three";
 
 const arc = vi.fn();
-const addColorStop = vi.fn();
 const drawImage = vi.fn();
 const fill = vi.fn();
 const fillRect = vi.fn();
 const fillText = vi.fn();
 const stroke = vi.fn();
 const strokeRect = vi.fn();
+const contexts: CanvasRenderingContext2D[] = [];
 
 beforeEach(() => {
   arc.mockClear();
-  addColorStop.mockClear();
+  contexts.length = 0;
   drawImage.mockClear();
   fill.mockClear();
   fillRect.mockClear();
@@ -38,7 +38,11 @@ beforeEach(() => {
   strokeRect.mockClear();
   Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
     configurable: true,
-    value: vi.fn(() => fakeContext()),
+    value: vi.fn(() => {
+      const context = fakeContext();
+      contexts.push(context);
+      return context;
+    }),
   });
 });
 
@@ -59,73 +63,43 @@ describe("createGardenSailTexture", () => {
     expect(texture?.colorSpace).toBe(SRGBColorSpace);
     expect(texture?.wrapS).toBe(ClampToEdgeWrapping);
     expect(texture?.wrapT).toBe(ClampToEdgeWrapping);
-    expect(drawImage).toHaveBeenCalledOnce();
+    expect(drawImage.mock.calls.some(([source]) => source === image)).toBe(true);
     expect(fillText).not.toHaveBeenCalled();
   });
 
-  it("keeps an unresolved logo markless instead of painting ticker letters", () => {
+  it("prints fallback initials when the issuer logo is unresolved", () => {
     const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
 
     const texture = createGardenSailTexture(ship, null);
 
     expect(texture).toBeInstanceOf(CanvasTexture);
-    expect(drawImage).not.toHaveBeenCalled();
-    expect(fillText).not.toHaveBeenCalled();
-    expect(fill).not.toHaveBeenCalled();
+    expect(fillText).toHaveBeenCalledWith(
+      ship.symbol.slice(0, 3).toUpperCase(), expect.any(Number), expect.any(Number), expect.any(Number),
+    );
   });
 });
 
-describe("sail identity field", () => {
-  it("adds one restrained contrast plate without restoring the sail border", () => {
+describe("mon on cloth", () => {
+  it("contains the complete extracted mark without distorting its aspect ratio", () => {
     const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
     const image = document.createElement("img");
-    Object.defineProperties(image, {
-      naturalHeight: { configurable: true, value: 64 },
-      naturalWidth: { configurable: true, value: 64 },
-    });
-    createGardenSailTexture(ship, { emblem: null, image, src: ship.logoSrc ?? "" });
-
-    expect(fill).toHaveBeenCalledOnce();
-    // Weave strokes plus the single identity rim; no full-cell bolt-rope frame.
-    expect(stroke).toHaveBeenCalled();
-    expect(strokeRect).not.toHaveBeenCalled();
-  });
-
-  it("prints the disc-free mark into the cloth rather than pasting the logo asset", () => {
-    const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
-    const image = document.createElement("img");
-    Object.defineProperties(image, {
-      naturalHeight: { configurable: true, value: 64 },
-      naturalWidth: { configurable: true, value: 64 },
-    });
     const emblem = document.createElement("canvas");
+    emblem.width = 96;
+    emblem.height = 32;
 
     createGardenSailTexture(ship, { emblem, image, src: "/logos/usdc.svg" });
 
-    // 2026-09-07: the extracted mark wins. C4's recognition argument holds and
-    // the span is unchanged at 0.9 — but the raw asset carries its OWN plate
-    // and brand fill, so preferring it made ~75% of every sail a near-white
-    // vector disc with a hard edge, identical in value at noon, dusk and 21:00,
-    // 185 times over. `emblem` keeps the mark's colours and drops only the
-    // carrier disc, so the same shape at the same size reads as printed cloth.
-    // The raw logo stays as the fallback (see the next case).
-    expect(drawImage).toHaveBeenCalledOnce();
-    expect(drawImage.mock.calls[0]![0]).toBe(emblem);
-    // Square, centred, and contained inside the plate (C4 span 0.9 retained).
-    const [, x, y, width, height] = drawImage.mock.calls[0]!;
-    expect(width).toBeCloseTo(128 * 0.9);
-    expect(height).toBeCloseTo(128 * 0.9);
-    expect(x).toBeCloseTo(64 - (128 * 0.9) / 2);
-    expect(y).toBeCloseTo(64 - (128 * 0.9) / 2);
-    // The plate radius follows the span: both the plate fill and the mark's
-    // clip circle draw at (64, 64) r=62, wrapping the 57.6px axial
-    // half-extent with a 4.4px shoulder while the rim keeps a 2px zero-alpha
-    // margin inside the 128px cell, so neighbouring atlas cells stay clean.
-    expect(arc).toHaveBeenCalledTimes(2);
-    expect(arc).toHaveBeenCalledWith(64, 64, 62, 0, Math.PI * 2);
+    const [, x, y, width, height] = drawImage.mock.calls.find(([source]) => source === emblem)!;
+    expect(width / height).toBeCloseTo(3);
+    expect(x).toBeGreaterThan(0);
+    expect(y).toBeGreaterThan(0);
+    expect(x + width).toBeLessThan(128);
+    expect(y + height).toBeLessThan(128);
+    expect(drawImage.mock.calls.some(([source]) => source === image)).toBe(false);
+    expect(fillText).not.toHaveBeenCalled();
   });
 
-  it("falls back to the unmodified logo when the extracted mark cannot draw", () => {
+  it("falls back to the canonical logo when the extracted mark cannot draw", () => {
     const ship = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
     const image = document.createElement("img");
     const emblem = document.createElement("canvas");
@@ -135,8 +109,8 @@ describe("sail identity field", () => {
 
     createGardenSailTexture(ship, { emblem, image, src: "/logos/usdc.svg" });
 
-    expect(drawImage).toHaveBeenCalledTimes(2);
-    expect(drawImage.mock.calls[1]![0]).toBe(image);
+    expect(drawImage.mock.calls.some(([source]) => source === image)).toBe(true);
+    expect(fillText).not.toHaveBeenCalled();
   });
 });
 
@@ -147,12 +121,9 @@ function fakeContext(): CanvasRenderingContext2D {
     bezierCurveTo: vi.fn(),
     clip: vi.fn(),
     closePath: vi.fn(),
-    // The identity plate is a soft-shouldered radial fill rather than a hard
-    // disc with a rim stroke, so the stub has to hand back a gradient object.
-    createRadialGradient: vi.fn(() => ({ addColorStop: addColorStop })),
     drawImage,
     fill,
-    fillRect,
+    fillRect: vi.fn((...args: number[]) => fillRect(...args)),
     fillText,
     lineTo: vi.fn(),
     moveTo: vi.fn(),
@@ -290,7 +261,7 @@ describe("F1 brand-dyed cloth", () => {
     // No full-cell fill: the batch dyes the cloth per instance and reads a
     // texel's ALPHA as "how much of this is a mark". A field fill here would
     // make every sail opaque again and lose the dye.
-    expect(fillRect).not.toHaveBeenCalledWith(0, 0, 128, 128);
+    expect(contexts[0]!.fillRect).not.toHaveBeenCalledWith(0, 0, 128, 128);
   });
 
   it("still paints an opaque cloth for the hero path, which owns its material", () => {
@@ -298,6 +269,6 @@ describe("F1 brand-dyed cloth", () => {
 
     createGardenSailTexture(ship, null);
 
-    expect(fillRect).toHaveBeenCalledWith(0, 0, 128, 128);
+    expect(contexts[0]!.fillRect).toHaveBeenCalledWith(0, 0, 128, 128);
   });
 });

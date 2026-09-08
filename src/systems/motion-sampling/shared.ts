@@ -3,6 +3,7 @@ import { clamp, pathKey } from "../motion-utils";
 import type { SeaState } from "../sea-state";
 import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionSample, ShipMotionState, ShipWaterPath } from "../motion-types";
 import type { ShipNode } from "../world-types";
+import type { WeatherPlan } from "../weather";
 
 export interface ResolveShipMotionSampleInput {
   plan: PharosVilleMotionPlan;
@@ -10,6 +11,7 @@ export interface ResolveShipMotionSampleInput {
   seaState?: SeaState | null;
   ship: ShipNode;
   timeSeconds: number;
+  wind?: WeatherPlan["wind"];
   // Optional already-computed flagship samples by ship id. When the consort
   // branch finds its flagship's sample here it skips the redundant
   // sampleRouteCycleInto pass; without it, falls back to the local scratch.
@@ -20,6 +22,7 @@ export function createShipMotionSample(): ShipMotionSample {
   return {
     shipId: "",
     tile: { x: 0, y: 0 },
+    tideOffset: 0,
     state: "idle",
     zone: "calm",
     routeKey: null,
@@ -40,6 +43,7 @@ export function createShipMotionSample(): ShipMotionSample {
 
 export function resetSampleChoreography(out: ShipMotionSample): void {
   out.seaState = null;
+  out.tideOffset = 0;
   out.segment = null;
   out.mapVisibilityAlpha = 1;
   out.riskTransition = null;

@@ -175,6 +175,11 @@ export function checkMarkdownFiles({ repoRoot = process.cwd(), markdownFiles, pa
       }
     }
 
+    // Plans and handoffs under agents/ are dated records: they name files the
+    // tree had, or will have, at the time — a later deletion or a plan for a
+    // module not yet written must not fail the docs gate. Script names are
+    // still checked everywhere because they are executed, not remembered.
+    if (file.path.startsWith("agents/")) continue;
     for (const reference of findPathReferencesInMarkdown(file.path, text)) {
       const resolved = resolveReferencePath(repoRoot, file.path, reference.target);
       if (!resolved) continue;

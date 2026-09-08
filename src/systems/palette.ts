@@ -137,6 +137,28 @@ export const DEWS_AREA_LABEL_COLORS = {
 
 export const LEDGER_INK_HEX = "#d9b974";
 
+/**
+ * DOM-facing tokens share the same dye lot as the rendered harbor. Keeping the
+ * mapping here makes the CSS roles auditable without creating a second palette.
+ */
+export const HARBOR_UI_PALETTE = {
+  ink: HARBOR_PALETTE.iron_dark,
+  mist: HARBOR_PALETTE.fog_day,
+  moss: HARBOR_PALETTE.aurora_green,
+  stone: HARBOR_PALETTE.stone_mid,
+  water: HARBOR_PALETTE.deep_sea_1,
+  lantern: HARBOR_PALETTE.lantern_warm,
+  risk: {
+    calm: DEWS_AREA_LABEL_COLORS.CALM,
+    watch: DEWS_AREA_LABEL_COLORS.WATCH,
+    alert: DEWS_AREA_LABEL_COLORS.ALERT,
+    warning: DEWS_AREA_LABEL_COLORS.WARNING,
+    danger: DEWS_AREA_LABEL_COLORS.DANGER,
+    ledger: LEDGER_INK_HEX,
+    wreck: HARBOR_PALETTE.vermillion,
+  },
+} as const;
+
 export interface ZoneVisualTheme {
   base: string;
   label: {

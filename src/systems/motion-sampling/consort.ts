@@ -20,6 +20,7 @@ import {
 } from "./shared";
 import { clearShipHeadingMemory } from "./memory";
 import { sampleRouteCycleInto } from "./route-cycle";
+import { berthTidePhase, tidePhase } from "../motion-planning";
 
 // Module-scope scratch sample reused for the consort branch (flagship lookup).
 // Safe because resolveShipMotionSampleInto is synchronous and not re-entrant.
@@ -78,6 +79,13 @@ export function consortShadowSampleInto(
   if (!cachedFlagshipSample) {
     sampleRouteCycleInto(flagshipRoute, input.timeSeconds, input.seaState ?? null, flagshipScratch);
   }
+  const tideStop = flagshipRoute.dockStops.find((stop) => stop.id === flagshipSample.currentRouteStopId)
+    ?? flagshipRoute.riskStop;
+  out.tideOffset = cachedFlagshipSample?.tideOffset ?? Math.sin(
+    tideStop && flagshipSample.state === "moored"
+      ? berthTidePhase(input.timeSeconds, tideStop.mooringTile)
+      : tidePhase(input.timeSeconds),
+  ) * 0.055;
   // Prefer the route's cached formation offset over live computation.
   const offset = route.formationOffset
     ?? squadFormationOffsetForPlacement(input.ship.id, squad, input.ship.riskPlacement)

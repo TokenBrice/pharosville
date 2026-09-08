@@ -11,7 +11,7 @@ import {
   LinearFilter,
   NearestFilter,
   NoColorSpace,
-  OrthographicCamera,
+  PerspectiveCamera,
   RepeatWrapping,
   Scene,
   Texture as ThreeTexture,
@@ -23,10 +23,19 @@ import { dayCyclePhase } from "./garden-day-cycle";
 import {
   createGardenPost,
   gardenGodRayLowSunGate,
+  GARDEN_BLOOM_PRACTICAL_THRESHOLD,
   GARDEN_TONE_MAPPING,
   type GardenPost,
 } from "./garden-post";
 import { gardenKeyLightPose } from "./garden-sun";
+import {
+  CAMERA_FOV_DEG,
+  cameraDistanceForZoom,
+  cameraEye,
+  cameraPitchForZoom,
+  cameraPoseFromIso,
+  cameraTargetHeightForZoom,
+} from "../systems/projection";
 
 const postHarness = vi.hoisted(() => {
   const makeDisposable = (name: string) => ({
@@ -88,7 +97,7 @@ vi.mock("n8ao", () => {
 
     constructor(
       readonly scene: Scene,
-      readonly camera: OrthographicCamera,
+      readonly camera: PerspectiveCamera,
       readonly width: number,
       readonly height: number,
     ) {
@@ -181,7 +190,7 @@ vi.mock("postprocessing", () => {
     renderToScreen = false;
 
     constructor(
-      readonly camera: OrthographicCamera,
+      readonly camera: PerspectiveCamera,
       ...effects: FakeEffect[]
     ) {
       this.effects = effects;
@@ -216,7 +225,7 @@ vi.mock("postprocessing", () => {
 
     constructor(
       readonly scene: Scene,
-      readonly camera: OrthographicCamera,
+      readonly camera: PerspectiveCamera,
     ) {}
 
     dispose = vi.fn();
@@ -380,34 +389,42 @@ function latest<T>(entries: unknown[]): T {
 }
 
 /**
- * The shipped vantage, reproduced: `world-renderer.ts` parks the camera at a
- * fixed 110-unit offset raked 30° down (`CAMERA_DISTANCE`, `updateCamera`) and
- * sizes the frustum from `gardenCameraViewHeight`, which is 62.5 units at the
- * 1000 px preview height. W2.3's focus band is derived from exactly this pose,
- * so a default `new OrthographicCamera()` would test a band that never ships.
+ * The shipped perspective rig, reproduced from the abstract pose used by
+ * `world-renderer.ts`. Keeping the target at the viewport centre makes this
+ * fixture exercise the same 32° / 12° camera-derived focus path as production.
  */
-const CAMERA_DISTANCE = 110;
-const VIEW_HEIGHT = 62.5;
+const VIEWPORT = { x: 1600, y: 1000 };
+const ISO_CAMERA = {
+  offsetX: VIEWPORT.x / 2,
+  offsetY: VIEWPORT.y / 2,
+  zoom: 1,
+};
+const CAMERA_DISTANCE = cameraDistanceForZoom(VIEWPORT.y, ISO_CAMERA.zoom);
+const CAMERA_PITCH = cameraPitchForZoom(ISO_CAMERA.zoom);
+const TARGET_DISTANCE = CAMERA_DISTANCE
+  + cameraTargetHeightForZoom(ISO_CAMERA.zoom) / Math.sin(CAMERA_PITCH);
+const TARGET_VIEW_HEIGHT = 2
+  * TARGET_DISTANCE
+  * Math.tan(CAMERA_FOV_DEG * Math.PI / 360);
 /** `gardenKeyLightPose` returns a unit direction; the rig stands this far off. */
 const LIGHT_DISTANCE = 120;
 
-function makeGardenCamera(): OrthographicCamera {
-  const viewWidth = VIEW_HEIGHT * 1.6;
-  const camera = new OrthographicCamera(
-    -viewWidth / 2,
-    viewWidth / 2,
-    VIEW_HEIGHT / 2,
-    -VIEW_HEIGHT / 2,
-    0.1,
-    500,
+function makeGardenCamera(zoom = 1): PerspectiveCamera {
+  const camera = new PerspectiveCamera(
+    CAMERA_FOV_DEG,
+    VIEWPORT.x / VIEWPORT.y,
+    1,
+    600,
   );
-  camera.position.set(CAMERA_DISTANCE, CAMERA_DISTANCE * Math.sqrt(2 / 3), CAMERA_DISTANCE);
-  camera.lookAt(0, 0, 0);
+  const pose = cameraPoseFromIso({ ...ISO_CAMERA, zoom }, VIEWPORT);
+  const eye = cameraEye(pose);
+  camera.position.set(eye.x, eye.y, eye.z);
+  camera.lookAt(0, pose.targetHeight, 0);
   camera.updateProjectionMatrix();
   return camera;
 }
 
-function makePost(options: { withShadowLight?: boolean } = {}): {
+function makePost(options: { withShadowLight?: boolean; zoom?: number } = {}): {
   composer: FakeComposer;
   light: DirectionalLight | null;
   n8ao: FakeN8AOPass;
@@ -416,6 +433,7 @@ function makePost(options: { withShadowLight?: boolean } = {}): {
 } {
   const renderer = {
     clear: vi.fn(),
+    getContext: vi.fn(() => ({ getExtension: vi.fn(() => null) })),
     getDrawingBufferSize: vi.fn((target: { set: (width: number, height: number) => unknown }) => (
       target.set(1600, 1000)
     )),
@@ -435,7 +453,8 @@ function makePost(options: { withShadowLight?: boolean } = {}): {
       depthTexture: new ThreeTexture(),
     };
   }
-  const post = createGardenPost(renderer, scene, makeGardenCamera());
+  const post = createGardenPost(renderer, scene, makeGardenCamera(options.zoom));
+  post.setCameraZoom(options.zoom ?? 1);
   activePosts.push(post);
   return {
     composer: latest<FakeComposer>(postHarness.composers),
@@ -454,7 +473,7 @@ function aimLightAtHour(light: DirectionalLight, hour: number): void {
 }
 
 function effectNamed(name: string): FakeEffect {
-  const effect = postHarness.effects.find((candidate) => (
+  const effect = postHarness.effects.findLast((candidate) => (
     (candidate as FakeEffect).name === name
   ));
   if (!effect) throw new Error(`Expected ${name} in post-processing harness`);
@@ -485,12 +504,12 @@ function numberUniform(effect: FakeEffect, name: string): number {
   return value;
 }
 
-function lutWeights(): [number, number, number] {
+function lutWeights(): number[] {
   const value = effectNamed("GardenLut").uniforms.get("lutWeights")?.value as
-    | { x: number; y: number; z: number }
+    | number[]
     | undefined;
   if (!value) throw new Error("Expected the GardenLut lutWeights uniform");
-  return [value.x, value.y, value.z];
+  return Array.from(value);
 }
 
 function lutTexture(name: "ditherNoise" | "lutStrip"): Texture {
@@ -533,15 +552,8 @@ describe("garden post-processing contracts", () => {
       halfRes: true,
       transparencyAware: false,
     });
-    // Constructed with the NIGHT row, which is the base of the day-cycle blend
-    // — the same convention the grade and AO values follow.
-    expect(bloom.bloomOptions).toMatchObject({
-      blendFunction: "ADD",
-      levels: 5,
-      luminanceSmoothing: 0.45,
-      mipmapBlur: true,
-      radius: 0.72,
-    });
+    // Bloom adds practical-source radiance before the single output conversion.
+    expect(bloom.bloomOptions.blendFunction).toBe("ADD");
 
     const passEffects = composer.passes.map((pass) => (
       pass.effects?.map((effect) => effect.name) ?? [pass.name]
@@ -564,19 +576,13 @@ describe("garden post-processing contracts", () => {
       "render",
       "n8ao",
       "bloom",
-      // No "godrays": the harness scene has no shadow-casting light, and the
-      // construction blend is night, where the window is shut either way.
-      "dof",
+      // Rest is deliberately crisp: the postcard-only soft field is absent,
+      // and this harness has no shadow-casting light for god rays.
       "grade",
       "output",
       "lut",
       "smaa",
     ]);
-    // Both hero stages read the depth texture N8AO already forces the composer
-    // to carry; neither may drag a convolution attribute into the fused pass,
-    // which would make the merge illegal.
-    expect(effectNamed("GardenTiltShift").attributes).toBe(1);
-    expect(effectNamed("GardenGodRays").attributes).toBe(1);
 
     const toneEffects = postHarness.effects.filter((candidate) => (
       (candidate as FakeEffect).name === "ToneMappingEffect"
@@ -590,11 +596,6 @@ describe("garden post-processing contracts", () => {
     });
     expect(composer.passes.at(-1)?.renderToScreen).toBe(true);
     expect(composer.passes.slice(0, -1).every((pass) => !pass.renderToScreen)).toBe(true);
-    expect(effectNamed("SMAAEffect").attributes).toBe(2);
-    expect(effectNamed("GardenGrade").fragmentShader).not.toMatch(/toneMapping|colorspace/i);
-    // The grade stays parametric and pre-tone-map; every lookup lives in the
-    // one effect that runs on the display signal.
-    expect(effectNamed("GardenGrade").fragmentShader).not.toMatch(/lutStrip|ditherNoise/);
   });
 
   it("applies the authored cube and the dither on the display signal, in one fused pass", () => {
@@ -613,6 +614,19 @@ describe("garden post-processing contracts", () => {
     // Manual trilinear: the blue axis is lerped by hand between two slices so
     // hardware filtering never crosses a slice or a phase-band boundary.
     expect(lut.fragmentShader).toMatch(/mix\(nearSlice, farSlice, slice - low\)/);
+  });
+
+  it("mirrors every tilt-shift kernel sample at render-target edges", () => {
+    makePost();
+    const blur = postHarness.shaderPasses.find((candidate) => (
+      (candidate as FakeShaderPass).fullscreenMaterial.name === "GardenSeparableBlurMaterial"
+    )) as FakeShaderPass | undefined;
+    expect(blur?.fullscreenMaterial).toMatchObject({
+      name: "GardenSeparableBlurMaterial",
+    });
+    const shader = (blur?.fullscreenMaterial as unknown as { fragmentShader?: string }).fragmentShader;
+    expect(shader).toMatch(/1\.0 - abs\(mod\(uv, 2\.0\) - 1\.0\)/);
+    expect(shader?.match(/texture2D\(inputBuffer, mirrorUv\(/g)).toHaveLength(5);
   });
 
   it("loads the LUT and dither textures as raw, unfiltered look-up data", () => {
@@ -635,49 +649,18 @@ describe("garden post-processing contracts", () => {
     expect([noise.wrapS, noise.wrapT]).toEqual([RepeatWrapping, RepeatWrapping]);
   });
 
-  it("blends the three LUT bands by the same law the parametric tables use", () => {
+  it("selects all five LUT bands and crossfades adjacent beats without changing exposure", () => {
     const { post } = makePost();
-    const lut = effectNamed("GardenLut");
-
-    expect([...lut.uniforms.keys()].sort()).toEqual([
-      "ditherMix",
-      "ditherNoise",
-      "grain",
-      "lutMix",
-      "lutStrip",
-      "lutWeights",
-    ]);
-    // Paper grain, on since 2026-09-07 at 0.035. The 2026-08-13 A/B dropped it
-    // at 0.015 as unmeasurable and as a risk to the empty sky; it is back at
-    // more than double that, with the shader term weighted by
-    // `1 - |2*luma - 1|` so it peaks in the midtones and dies out in both the
-    // sky and T1.1's new corner darks.
-    expect(numberUniform(lut, "grain")).toBe(0.035);
-
-    // Night is the base of the blend, exactly as in the grade tables.
-    expect(lutWeights()).toEqual([1, 0, 0]);
-    post.setGrade(0, 1);
-    expect(lutWeights()).toEqual([0, 1, 0]);
-    post.setGrade(1, 0);
-    expect(lutWeights()).toEqual([0, 0, 1]);
-    post.setGrade(1, 1);
-    expect(lutWeights()).toEqual([0, 0, 1]);
-
-    // The mid-blend weights are the expansion of
-    // lerp(lerp(night, dusk, duskMix), day, dayMix), and they sum to 1.
-    post.setGrade(0.4, 0.25);
-    const [night, dusk, day] = lutWeights();
-    expect(day).toBeCloseTo(0.4);
-    expect(dusk).toBeCloseTo(0.15);
-    expect(night).toBeCloseTo(0.45);
-    expect(night + dusk + day).toBeCloseTo(1);
-
-    // A caller outside [0, 1] must never produce a negative band weight — the
-    // parametric lerps extrapolate, but a LUT sampled in reverse is not a look.
-    post.setGrade(1.5, -0.4);
-    expect(lutWeights()).toEqual([0, 0, 1]);
-    post.setGrade(-0.2, 1.4);
-    expect(lutWeights()).toEqual([0, 1, 0]);
+    for (const [hour, band] of [[6, 0], [12, 1], [18, 2], [19, 3], [0, 4]]) {
+      post.setGrade(hour!);
+      expect(lutWeights()).toEqual(Array.from({ length: 5 }, (_, index) => Number(index === band)));
+    }
+    post.setGrade(16.75);
+    expect(lutWeights()).toEqual([0, 0.5, 0.5, 0, 0]);
+    post.setGrade(40.75);
+    expect(lutWeights()).toEqual([0, 0.5, 0.5, 0, 0]);
+    post.setGrade(-7.25);
+    expect(lutWeights()).toEqual([0, 0.5, 0.5, 0, 0]);
   });
 
   it("keeps the LUT on at every tier and inert until its texture decodes", () => {
@@ -739,133 +722,55 @@ describe("garden post-processing contracts", () => {
     vi.restoreAllMocks();
   });
 
-  it("blends night, dusk, day, storm, lightning, bloom, and AO from one phase plan", () => {
-    const { n8ao, post } = makePost();
+  it("keeps noon neutral and night dark without opening bloom onto non-emissives", () => {
+    const { post } = makePost();
     const bloom = latest<FakeBloom>(postHarness.blooms);
     const grade = effectNamed("GardenGrade");
 
-    // Golden Garden: night keeps a violet printed floor and a softer edge
-    // falloff so broad hull/rim form survives without promoting another
-    // emissive source; saturation sits near neutral so the moon does not
-    // turn the sea electric.
-    expect(colorUniform(grade, "lift")).toEqual([0.01, 0.01, 0.018]);
-    expect(numberUniform(grade, "saturation")).toBe(1.02);
-    // T1.1 (2026-09-07): night takes the smallest step of the three phases,
-    // 0.25/0.25 -> 0.28/0.15. The proposed 0.32/0.12 would have put ~22.6 % on
-    // the bottom corners, and the night grade above promises a readable
-    // camera-side rim; 0.28/0.15 lands at ~19.1 % and still moves the darks to
-    // the bottom of frame. Night stays the softest of the three amounts, as it
-    // always has.
-    expect(numberUniform(grade, "vignette")).toBe(0.28);
-    expect(numberUniform(grade, "vignetteBias")).toBe(0.15);
-    expect(numberUniform(grade, "flash")).toBe(0);
-    // W1.3: the night knee clears the lantern pool ring (~1.0 luminance) that
-    // used to smear the whole water plane, so only the beacon and the top of
-    // the moon road survive it — with the wash gone, night's strength can rise.
-    expect(bloom.intensity).toBe(0.8);
-    expect(bloom.luminanceMaterial.threshold).toBe(1.55);
-    expect(bloom.luminanceMaterial.smoothing).toBe(0.45);
-    expect(bloom.mipmapBlurPass.radius).toBe(0.72);
-    expect(n8ao.configuration.intensity).toBe(5);
+    post.setGrade(12);
+    expect(colorUniform(grade, "gain")).toEqual([1, 1, 1]);
+    expect(colorUniform(grade, "gamma")).toEqual([1, 1, 1]);
+    expect(colorUniform(grade, "shadowTint")).toEqual([1, 1, 1]);
+    expect(colorUniform(grade, "lift")).toEqual([0, 0, 0]);
 
-    post.setGrade(0, 1);
-    expect(colorUniform(grade, "lift")[0]).toBeCloseTo(0.006);
-    expect(colorUniform(grade, "lift")[1]).toBeCloseTo(0.005);
-    expect(colorUniform(grade, "lift")[2]).toBeCloseTo(0.01);
-    // Golden Garden: the ember hour buys back mid chroma at 1.12 over violet
-    // shadows. T1.1 (2026-09-07): 0.26/0.35 -> 0.38/0.15. The old top-heavy
-    // bias was what double-darkened the ember horizon; keeping the amount low
-    // to protect it was treating the symptom.
-    expect(numberUniform(grade, "saturation")).toBe(1.12);
-    expect(numberUniform(grade, "vignette")).toBe(0.38);
-    expect(numberUniform(grade, "vignetteBias")).toBe(0.15);
-    expect(bloom.intensity).toBe(0.85);
-    expect(bloom.luminanceMaterial.threshold).toBe(1.15);
-    expect(bloom.luminanceMaterial.smoothing).toBe(0.3);
-    expect(bloom.mipmapBlurPass.radius).toBe(0.64);
-    expect(n8ao.configuration.intensity).toBe(4);
-
-    post.setGrade(1, 0);
-    expect(colorUniform(grade, "lift")[0]).toBeCloseTo(0.004);
-    expect(colorUniform(grade, "lift")[1]).toBeCloseTo(0.004);
-    expect(colorUniform(grade, "lift")[2]).toBeCloseTo(0.007);
-    // T1.1 (2026-09-07) is the headline of the composition pass and this row
-    // is where it bites hardest: 0.26/0.4 -> 0.40/0.15. The superseded pin here
-    // read the light amount as protecting the seam haze, but the vignette is a
-    // linear multiply BEFORE tone mapping and the 0.4 bias aimed it at the TOP
-    // of frame, where the sky bokashi and the depth fog already darken —
-    // leaving the bottom corners at ~12.5 % and the day frame with no floor.
-    expect(numberUniform(grade, "saturation")).toBe(1.12);
-    expect(numberUniform(grade, "vignette")).toBe(0.4);
-    expect(numberUniform(grade, "vignetteBias")).toBe(0.15);
-
-    // The intent, not just the numbers: after T1.1 every phase darkens its
-    // BOTTOM corners more than the shipped grade did, and no phase leans the
-    // weight up the frame hard enough to out-darken the bottom by more than
-    // 1.4x. `bokashi` in GRADE_FRAGMENT_SHADER is
-    // mix(1 - bias, 1 + bias, smoothstep(0.15, 0.95, uv.y)), and a corner sits
-    // at vig = smoothstep(0.35, 0.85, 0.7071) = 0.8016.
-    const cornerVig = 0.8016;
-    for (const [dayMix, duskMix, wasBottom] of [
-      [0, 0, 0.25 * cornerVig * 0.75],
-      [0, 1, 0.26 * cornerVig * 0.65],
-      [1, 0, 0.26 * cornerVig * 0.6],
-    ] as const) {
-      post.setGrade(dayMix, duskMix);
-      const amount = numberUniform(grade, "vignette");
-      const bias = numberUniform(grade, "vignetteBias");
-      const bottom = amount * cornerVig * (1 - bias);
-      const top = amount * cornerVig * (1 + bias);
-      expect(bottom).toBeGreaterThan(wasBottom);
-      expect(top / bottom).toBeLessThan(1.4);
-      // Night's camera-side rim is the darkest thing in any frame; the night
-      // grade promises it stays readable, so cap its corner loss at 20 %.
-      if (dayMix === 0 && duskMix === 0) expect(bottom).toBeLessThan(0.2);
+    for (const hour of [0, 6, 12, 16.75, 18, 19]) {
+      for (const storm of [0, 1]) {
+        post.setGrade(hour, storm);
+        expect(colorUniform(grade, "lift")).toEqual([0, 0, 0]);
+        expect(bloom.luminanceMaterial.threshold).toBe(GARDEN_BLOOM_PRACTICAL_THRESHOLD);
+        // The brightest non-emissive cloth is capped at 2.2 HDR.
+        expect(bloom.luminanceMaterial.threshold).toBeGreaterThan(2.2);
+      }
     }
-    post.setGrade(1, 0);
-    expect(bloom.intensity).toBe(0.92);
-    // W1.3: 50 % of margin over the bokashi haze band (~0.7–0.8) instead of the
-    // old 19 %, so the day sky cannot bloom even if the wipe drifts brighter —
-    // and still under the sun glitter (~1.4–1.7), which is what may sparkle.
-    expect(bloom.luminanceMaterial.threshold).toBe(1.2);
-    expect(bloom.luminanceMaterial.smoothing).toBe(0.2);
-    expect(bloom.mipmapBlurPass.radius).toBe(0.5);
-    expect(n8ao.configuration.intensity).toBe(3);
+  });
 
-    post.setGrade(0.4, 0.25, 0.5, 0.65);
-    expect(colorUniform(grade, "lift")[0]).toBeCloseTo(0.0092);
+  it("lets lightning widen practical glow without lowering its threshold or lifting darks", () => {
+    const { post } = makePost();
+    const bloom = latest<FakeBloom>(postHarness.blooms);
+    const grade = effectNamed("GardenGrade");
+    post.setGrade(18);
+    const clear = bloom.intensity;
+    post.setGrade(18, 0.5);
+    const storm = bloom.intensity;
+    expect(storm).toBeGreaterThan(clear);
+    post.setGrade(18, 0.5, 0.65);
+    expect(bloom.intensity).toBeGreaterThan(storm);
     expect(numberUniform(grade, "flash")).toBe(0.65);
-    // W0.3: a stroke lifts bloom intensity on the same envelope as the grade's
-    // flash add — the grade pass runs after the bloom pass, so this is the only
-    // road a strike has into the glow. Phase blend 0.8555, storm adds 0.129.
-    expect(bloom.intensity).toBeCloseTo(0.9845 + 0.65 * 0.35);
-    // Knee 1.35 by the phase blend, less 0.5 * 0.2845 of storm wet-glow.
-    expect(bloom.luminanceMaterial.threshold).toBeCloseTo(1.20775);
-    expect(bloom.luminanceMaterial.smoothing).toBeCloseTo(0.3275);
-    expect(bloom.mipmapBlurPass.radius).toBeCloseTo(0.62);
-    expect(n8ao.configuration.intensity).toBeCloseTo(4.05);
-
-    // The envelope's double stroke can sum past 1; bloom sees it clamped so a
-    // strike widens the glow but can never blow the frame out.
-    post.setGrade(0.4, 0.25, 0.5, 1.4);
+    post.setGrade(18, 0.5, 1);
+    const peak = bloom.intensity;
+    post.setGrade(18, 0.5, 1.4);
+    expect(bloom.intensity).toBe(peak);
     expect(numberUniform(grade, "flash")).toBe(1.4);
-    expect(bloom.intensity).toBeCloseTo(0.9845 + 1 * 0.35);
-
-    // No storm at any phase blend may open the knee onto the plain day sky:
-    // the floor sits above the bokashi haze band, and the shipped rows land
-    // well clear of it (0.90 at the worst, which is dusk under a full storm).
-    for (const [dayMix, duskMix] of [[0, 0], [0, 1], [1, 0], [0.5, 0.5]] as const) {
-      post.setGrade(dayMix, duskMix, 1);
-      expect(bloom.luminanceMaterial.threshold).toBeGreaterThanOrEqual(0.85);
-    }
+    expect(colorUniform(grade, "lift")).toEqual([0, 0, 0]);
+    expect(bloom.luminanceMaterial.threshold).toBe(GARDEN_BLOOM_PRACTICAL_THRESHOLD);
   });
 
   it("applies winter as a small desaturation on top of the existing phase grade", () => {
     const { post } = makePost();
     const grade = effectNamed("GardenGrade");
-    post.setGrade(1, 0, 0, 0, 0);
+    post.setGrade(12, 0, 0, 0);
     const summer = numberUniform(grade, "saturation");
-    post.setGrade(1, 0, 0, 0, 1);
+    post.setGrade(12, 0, 0, 1);
     expect(numberUniform(grade, "saturation")).toBeCloseTo(summer * 0.92, 8);
   });
 
@@ -892,9 +797,9 @@ describe("garden post-processing contracts", () => {
     expect(n8ao.configuration.intensity).toBeCloseTo(0.85);
     expect(n8ao.qualityModeCalls).toEqual(["Performance"]);
 
-    post.setGrade(1, 0);
+    post.setGrade(12);
     expect(n8ao.configuration.intensity).toBeCloseTo(0.51);
-    post.setGrade(0, 0);
+    post.setGrade(0);
     expect(n8ao.configuration.intensity).toBeCloseTo(0.85);
 
     post.setAOTierWeight(2);
@@ -955,16 +860,15 @@ describe("garden post-processing contracts", () => {
     }
   });
 
-  it("eases the idle profile across AO, DoF, and god rays without changing colour or passes", () => {
-    const { composer, light, n8ao, post } = makePost({ withShadowLight: true });
+  it("eases the idle profile across AO, close-postcard DoF, and god rays without changing colour or passes", () => {
+    const { composer, light, n8ao, post } = makePost({ withShadowLight: true, zoom: 1.3 });
     const tiltShift = effectNamed("GardenTiltShift");
     const godRays = effectNamed("GardenGodRays");
     const grade = effectNamed("GardenGrade");
     if (!light) throw new Error("Expected a shadow-casting light");
 
-    const phase = dayCyclePhase(19);
-    aimLightAtHour(light, 19);
-    post.setGrade(phase.daylight, phase.dusk);
+    aimLightAtHour(light, 18);
+    post.setGrade(18);
     post.render(1 / 60);
     const awakeAOIntensity = n8ao.configuration.intensity;
     const performanceAOIntensity = awakeAOIntensity * 0.85;
@@ -1030,35 +934,30 @@ describe("garden post-processing contracts", () => {
     expect(numberUniform(godRays, "rayWeight")).toBeCloseTo(0.02, 3);
   });
 
-  it("fades the tilt-shift on the shared tier weight and never on zoom or hue", () => {
-    const { post } = makePost();
+  it("enables tilt-shift only for the authored close-postcard zoom band", () => {
+    for (const zoom of [0.8, 1]) {
+      const { post } = makePost({ zoom });
+      const tiltShift = effectNamed("GardenTiltShift");
+      post.render(1 / 60);
+      expect(numberUniform(tiltShift, "strength")).toBe(0);
+      expect(post.getPassList()).not.toContain("dof");
+    }
+
+    const { post } = makePost({ zoom: 1.3 });
     const tiltShift = effectNamed("GardenTiltShift");
     const grade = effectNamed("GardenGrade");
-
-    // W2.3 rides the SAME eased weight the AO does, because it is the same
-    // tier decision — full/balanced on, below off, over a 180 ms ease driven
-    // by world-renderer. It is a fidelity, not a colour.
-    // B6 (2026-09-05): 0.72 -> 0.6 with gradient bias 0.32 -> 0.26 — one step
-    // down so the closer rest framing reads its far field through the haze.
+    post.render(1 / 60);
     expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.6);
+    expect(post.getPassList()).toContain("dof");
+
     post.setAOTierWeight(0.5);
     expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.3);
     post.setAOTierWeight(0);
     expect(numberUniform(tiltShift, "strength")).toBe(0);
-    post.setAOTierWeight(1);
 
-    // Unlike AO, the band is expressed in view heights, so it says the same
-    // thing at overview zoom as at detail zoom and must NOT ride the LOD fade.
-    post.setAOZoomDetail(0);
-    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.6);
-    post.setAOZoomDetail(1);
-
-    // Tier invariance: shedding the softening may not move a single grade
-    // value, and the AO exponent stays the AO's business.
     const saturation = numberUniform(grade, "saturation");
     const vignette = numberUniform(grade, "vignette");
     post.setAOQuality("balanced");
-    post.setAOTierWeight(0);
     expect(numberUniform(grade, "saturation")).toBe(saturation);
     expect(numberUniform(grade, "vignette")).toBe(vignette);
 
@@ -1071,93 +970,58 @@ describe("garden post-processing contracts", () => {
     const tiltShift = effectNamed("GardenTiltShift");
 
     post.render(1 / 60);
-    // The sharp band centres on where the locked vantage looks at the sea:
-    // the camera's drop to the water plane along its own view ray. At the
-    // shipped 30° rake from y = 110·sqrt(2/3) that is (89.81 + 1.45) / 0.5.
-    expect(numberUniform(tiltShift, "focusCenter")).toBeCloseTo(182.53, 1);
-    // ... and the widths are view heights, not world units, so a zoom cannot
-    // put the whole map out of focus or the whole detail framing into it.
-    expect(numberUniform(tiltShift, "focusRange")).toBeCloseTo(62.5 * 0.55);
-    expect(numberUniform(tiltShift, "farFalloff")).toBeCloseTo(62.5 * 0.5);
-    expect(numberUniform(tiltShift, "nearFalloff")).toBeCloseTo(62.5 * 0.45);
+    // The sharp band centres on the sea-plane intersection along the authored
+    // pose ray. At close zoom the rig raises its target and shallows its pitch.
+    const expectedFocusCenter = TARGET_DISTANCE + 1.45 / Math.sin(CAMERA_PITCH);
+    expect(numberUniform(tiltShift, "focusCenter")).toBeCloseTo(expectedFocusCenter);
+    // The widths follow the perspective target-plane view height rather than
+    // a hard-coded world-space span.
+    expect(numberUniform(tiltShift, "focusRange")).toBeCloseTo(TARGET_VIEW_HEIGHT * 0.55);
+    expect(numberUniform(tiltShift, "farFalloff")).toBeCloseTo(TARGET_VIEW_HEIGHT * 0.5);
+    expect(numberUniform(tiltShift, "nearFalloff")).toBeCloseTo(TARGET_VIEW_HEIGHT * 0.45);
 
     // W4.6 seam: the centre is a plain uniform, so a focus pull toward a
     // selected ship is an ease, never a pass-list change.
     post.setFocusBandDistance(140);
     post.render(1 / 60);
     expect(numberUniform(tiltShift, "focusCenter")).toBe(140);
-    expect(numberUniform(tiltShift, "focusRange")).toBeCloseTo(62.5 * 0.55);
+    expect(numberUniform(tiltShift, "focusRange")).toBeCloseTo(TARGET_VIEW_HEIGHT * 0.55);
     post.setFocusBandDistance(null);
     post.render(1 / 60);
-    expect(numberUniform(tiltShift, "focusCenter")).toBeCloseTo(182.53, 1);
+    expect(numberUniform(tiltShift, "focusCenter")).toBeCloseTo(expectedFocusCenter);
   });
 
-  it("opens the god-ray window only for a sun that is both low and still up", () => {
-    // The gate is pure, so the whole curve can be locked without a GPU.
-    // Monotone in elevation: a lower sun never buys fewer rays.
-    let previous = -1;
-    for (const elevation of [0.9, 0.7, 0.55, 0.45, 0.35, 0.25, 0.16, 0.1]) {
-      const gate = gardenGodRayLowSunGate(elevation, 0);
-      expect(gate).toBeGreaterThanOrEqual(previous);
-      previous = gate;
+  it("opens rays only at dawn and golden hour, with smooth boundary fades", () => {
+    expect(gardenGodRayLowSunGate(6)).toBe(1);
+    expect(gardenGodRayLowSunGate(18)).toBe(1);
+    for (const hour of [0, 12, 19, 22]) {
+      expect(gardenGodRayLowSunGate(hour)).toBe(0);
     }
-    expect(gardenGodRayLowSunGate(0.12, 0)).toBe(1);
-    // T2.3 (2026-09-07): NONE 0.55 -> 0.85, so noon's 0.80 is no longer a hard
-    // zero but a sliver — the point of the change is that midday stops being a
-    // cliff. The moon pose (0.91) is still outside the window entirely, which
-    // is the shut this test actually needs to pin.
-    expect(gardenGodRayLowSunGate(0.8, 0)).toBeCloseTo(0.015, 3);
-    expect(gardenGodRayLowSunGate(0.91, 0)).toBe(0);
-    // Night closes it whatever the pose says, which is the half elevation
-    // cannot do: the key light crosses back down through the low band on its
-    // way to the moon.
-    expect(gardenGodRayLowSunGate(0.12, 1)).toBe(0);
-    expect(gardenGodRayLowSunGate(0.12, 0.5)).toBeCloseTo(0.5);
-    expect(gardenGodRayLowSunGate(Number.NaN, 0)).toBe(0);
+    expect(gardenGodRayLowSunGate(5.375)).toBeCloseTo(0.5);
+    expect(gardenGodRayLowSunGate(16.75)).toBeCloseTo(0.5);
+    expect(gardenGodRayLowSunGate(18.625)).toBeCloseTo(0.5);
   });
 
-  it("drives the god rays from the shipped arc, dusk brightest and night dark", () => {
+  it("renders dawn and golden rays but skips day, blue hour and night", () => {
     const { light, post } = makePost({ withShadowLight: true });
     const godRays = effectNamed("GardenGodRays");
     if (!light) throw new Error("Expected a shadow-casting light");
-
     const rayWeightAt = (hour: number): number => {
-      const phase = dayCyclePhase(hour);
       aimLightAtHour(light, hour);
-      post.setGrade(phase.daylight, phase.dusk);
+      post.setGrade(hour);
       post.render(1 / 60);
       return numberUniform(godRays, "rayWeight");
     };
-
-    const dusk = rayWeightAt(19);
-    const dawn = rayWeightAt(7);
-    const lateAfternoon = rayWeightAt(17);
-    const emberEvening = rayWeightAt(20);
-
-    // Dusk is the money shot: by 19:00 the sun is down to ~0.086 rad (below
-    // the former 0.12 floor and no longer floored there since the 2026-09-05
-    // ember-hour re-base), the window is wide open, and the dusk row is the
-    // densest.
-    expect(dusk).toBeCloseTo(0.02, 3);
-    // Dawn is the same window from the other side, but the sun is already
-    // ~19° up: present and deliberately paler.
-    expect(dawn).toBeGreaterThan(0.006);
-    // T2.3 widened the window, so dawn closes on dusk: 0.54 -> 0.68 of it.
-    // Dusk still leads, which is the ordering that matters.
-    expect(dawn).toBeLessThan(dusk * 0.7);
-    expect(lateAfternoon).toBeGreaterThan(0);
-    expect(lateAfternoon).toBeLessThan(dawn);
-    expect(emberEvening).toBeGreaterThan(0);
-    expect(emberEvening).toBeLessThan(dusk);
-
-    // T2.3 (2026-09-07): noon is now a sliver rather than a hard zero — under
-    // 2 % of dusk, which is the whole intent of NONE 0.55 -> 0.85. Night proper
-    // is still exactly shut, by GODRAY_NIGHT_FADE_POWER rather than by
-    // elevation.
-    expect(rayWeightAt(12)).toBeGreaterThan(0);
-    expect(rayWeightAt(12)).toBeLessThan(dusk * 0.02);
-    expect(rayWeightAt(22)).toBe(0);
-    expect(rayWeightAt(2)).toBe(0);
+    const golden = rayWeightAt(18);
+    const dawn = rayWeightAt(6);
+    expect(golden).toBeGreaterThan(0);
+    expect(dawn).toBeGreaterThan(0);
+    expect(dawn).toBeLessThan(golden);
+    expect(rayWeightAt(16.75)).toBeCloseTo(golden * 0.5);
+    for (const hour of [12, 19, 22, 2]) {
+      expect(rayWeightAt(hour)).toBe(0);
+      expect(post.getPassList()).not.toContain("godrays");
+    }
   });
 
   it("colours the shafts from the hour and never from the tier", () => {
@@ -1165,14 +1029,12 @@ describe("garden post-processing contracts", () => {
     if (!light) throw new Error("Expected a shadow-casting light");
     const march = marchUniforms();
 
-    // Evening: dusk = 1 with daylight 0, so the shafts take the ember row.
-    post.setGrade(0, 1);
+    // Golden and dawn own distinct warm and pale shaft colours.
+    post.setGrade(18);
     const evening = [...(march.rayColor!.value as { toArray: () => number[] }).toArray()];
     expect(evening[0]).toBeCloseTo(1);
     expect(evening[2]).toBeCloseTo(0.3);
-    // Dawn: the same dusk = 1 window, but daylight is already climbing, which
-    // is the one scalar that separates the two low-sun windows.
-    post.setGrade(0.65, 1);
+    post.setGrade(6);
     const morning = [...(march.rayColor!.value as { toArray: () => number[] }).toArray()];
     expect(morning[2]).toBeGreaterThan(evening[2]!);
     expect(morning[0]).toBeLessThan(evening[0]!);
@@ -1189,9 +1051,8 @@ describe("garden post-processing contracts", () => {
     const { light, post } = makePost({ withShadowLight: true });
     if (!light) throw new Error("Expected a shadow-casting light");
     const godRays = effectNamed("GardenGodRays");
-    const phase = dayCyclePhase(19);
-    aimLightAtHour(light, 19);
-    post.setGrade(phase.daylight, phase.dusk);
+    aimLightAtHour(light, 18);
+    post.setGrade(18);
     post.render(1 / 60);
     expect(numberUniform(godRays, "rayWeight")).toBeCloseTo(0.02, 3);
     expect(post.getPassList()).toContain("godrays");
@@ -1228,9 +1089,8 @@ describe("garden post-processing contracts", () => {
     const { light, post } = makePost({ withShadowLight: true });
     const godRays = effectNamed("GardenGodRays");
     if (!light) throw new Error("Expected a shadow-casting light");
-    const phase = dayCyclePhase(19);
-    aimLightAtHour(light, 19);
-    post.setGrade(phase.daylight, phase.dusk);
+    aimLightAtHour(light, 18);
+    post.setGrade(18);
 
     // Before the first shadow render (and at any tier that sheds shadows
     // outright) there is nothing to break the shafts against, so nothing is

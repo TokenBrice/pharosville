@@ -19,121 +19,124 @@ import {
   DAY_CYCLE_LIGHT_PRESETS,
   DAY_CYCLE_SKY_PRESETS,
   GARDEN_SAIL_EMISSIVE,
+  dayCycleBeats,
   dayCyclePhase,
   updateDayCycle,
 } from "./garden-day-cycle";
-import { GARDEN_ENVIRONMENT_INTENSITY } from "./garden-environment";
+import { gardenEnvironmentIntensityForBeats } from "./garden-environment";
+import { GARDEN_BLOOM_PRACTICAL_THRESHOLD } from "./garden-post";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { gardenHeightFogFactor } from "./garden-height-fog";
 import type { ThreeWorldRendererFrame } from "../renderer/world-renderer-backend";
 
-describe("dayCyclePhase (G4 dusk fix)", () => {
-  it("holds full daylight through midday", () => {
-    const phase = dayCyclePhase(12);
-    expect(phase.daylight).toBe(1);
-    expect(phase.dusk).toBe(0);
-    expect(phase.night).toBe(0);
-  });
-
-  it("keeps the late afternoon lit instead of collapsing to night", () => {
-    // The old sine curve was already 0 by 18:30; the G4 curve still has
-    // meaningful daylight at 17:30 while dusk rises.
-    const phase = dayCyclePhase(17.5);
-    expect(phase.daylight).toBeGreaterThan(0.5);
-    expect(phase.dusk).toBeGreaterThan(0.5);
-  });
-
-  it("makes 18:30 a genuine dusk state, not early night", () => {
-    const phase = dayCyclePhase(18.5);
-    expect(phase.dusk).toBe(1);
-    // Night yields to dusk so the ember horizon owns the frame.
-    expect(phase.night).toBeLessThan(0.15);
-  });
-
-  it("covers the whole 17:00–20:00 window with a dominant dusk factor", () => {
-    for (const hour of [17, 17.5, 18, 18.5, 19, 19.5]) {
+describe("five-beat light score", () => {
+  it("forms a continuous adjacent partition throughout the clock", () => {
+    const order = ["night", "dawn", "day", "golden", "blue", "night"];
+    for (let minute = 0; minute < 1440; minute += 1) {
+      const hour = minute / 60;
+      const beats = dayCycleBeats(hour);
+      const active = Object.entries(beats).filter(([, weight]) => weight > 0);
+      expect(Object.values(beats).reduce((sum, weight) => sum + weight, 0)).toBeCloseTo(1, 12);
+      expect(active.length).toBeLessThanOrEqual(2);
+      for (const weight of Object.values(beats)) expect(weight).toBeGreaterThanOrEqual(0);
+      if (active.length === 2) {
+        expect(order.some((name, index) =>
+          active.some(([key]) => key === name)
+          && active.some(([key]) => key === order[index + 1]))).toBe(true);
+      }
+      const next = dayCycleBeats(hour + 1 / 60);
+      for (const name of Object.keys(beats) as (keyof typeof beats)[]) {
+        expect(Math.abs(next[name] - beats[name])).toBeLessThan(0.04);
+      }
       const phase = dayCyclePhase(hour);
-      expect(phase.dusk, `dusk at ${hour}`).toBeGreaterThan(0.5);
-      expect(phase.night, `night at ${hour}`).toBeLessThan(0.5);
+      expect(phase.daylight).toBe(beats.day + 0.5 * (beats.dawn + beats.golden));
+      expect(phase.dusk).toBe(0.5 * (beats.dawn + beats.golden) + beats.blue);
+      expect(phase.night).toBe(beats.night);
     }
   });
 
-  it("resolves deep night by 23:00", () => {
-    const phase = dayCyclePhase(23);
-    expect(phase.daylight).toBe(0);
-    expect(phase.dusk).toBe(0);
-    expect(phase.night).toBe(1);
+  it("hits the authored peaks and wraps midnight", () => {
+    expect(dayCycleBeats(4.75).night).toBe(1);
+    expect(dayCycleBeats(6).dawn).toBe(1);
+    expect(dayCycleBeats(7.25).day).toBe(1);
+    expect(dayCycleBeats(16.25).day).toBe(1);
+    expect(dayCycleBeats(17.25).golden).toBe(1);
+    expect(dayCycleBeats(18.25).golden).toBe(1);
+    expect(dayCycleBeats(19).blue).toBe(1);
+    expect(dayCycleBeats(20).night).toBe(1);
+    expect(dayCycleBeats(-1)).toEqual(dayCycleBeats(23));
+    expect(dayCycleBeats(36.5)).toEqual(dayCycleBeats(12.5));
   });
 
-  it("wraps negative and >24 hours", () => {
-    expect(dayCyclePhase(-1)).toEqual(dayCyclePhase(23));
-    expect(dayCyclePhase(36.5)).toEqual(dayCyclePhase(12.5));
+  it("renders the five rigs with authored contrast and restrained night fill", () => {
+    const scene = {
+      ambientLight: new AmbientLight(),
+      hemisphereLight: new HemisphereLight(),
+      directionalLight: new DirectionalLight(),
+      content: null,
+    };
+    const samples = [
+      [6, 2.9, 3.1], [12, 5, 6], [17.25, 7, 9], [19, 2.5, 3.5], [23, 4, 5],
+    ];
+    const keys: number[] = [];
+    for (const [hour, minimum, maximum] of samples) {
+      const frame = { wallClockHour: hour } as ThreeWorldRendererFrame;
+      updateDayCycle(scene, frame, dayCyclePhase(hour));
+      const fill = scene.ambientLight.intensity + scene.hemisphereLight.intensity;
+      const ratio = scene.directionalLight.intensity / fill;
+      expect(ratio).toBeGreaterThanOrEqual(minimum);
+      expect(ratio).toBeLessThanOrEqual(maximum);
+      expect(fill).toBeGreaterThan(gardenEnvironmentIntensityForBeats(dayCycleBeats(hour)));
+      keys.push(scene.directionalLight.intensity);
+    }
+    expect(keys[2]).toBeGreaterThan(keys[1]);
+    expect(keys[1]).toBeGreaterThan(keys[0]);
+    expect(keys[0]).toBeGreaterThan(keys[3]);
+    expect(keys[3]).toBeGreaterThan(keys[4]);
+    expect(scene.ambientLight.intensity).toBeLessThanOrEqual(0.06);
+    expect(scene.hemisphereLight.intensity).toBeLessThanOrEqual(0.1);
+    expect(scene.directionalLight.intensity).toBeLessThanOrEqual(0.65);
+    expect(scene.directionalLight.color.b).toBeGreaterThan(scene.directionalLight.color.r);
+  });
+
+  it("blends light colours and intensity linearly without accumulating prior frames", () => {
+    const { scene, at } = dayCycleRig();
+    const sample = (hour: number) => {
+      at(hour);
+      return [
+        ...scene.directionalLight.color.toArray(),
+        ...scene.ambientLight.color.toArray(),
+        ...scene.hemisphereLight.color.toArray(),
+        ...scene.hemisphereLight.groundColor.toArray(),
+        scene.directionalLight.intensity,
+        scene.ambientLight.intensity,
+        scene.hemisphereLight.intensity,
+      ];
+    };
+    const dawn = sample(6);
+    const day = sample(12);
+    for (let repeat = 0; repeat < 2; repeat += 1) {
+      sample(23);
+      sample(6.625).forEach((value, index) => {
+        expect(value).toBeCloseTo((dawn[index]! + day[index]!) / 2, 12);
+      });
+    }
   });
 });
 
 describe("day-cycle presets (C1 contract)", () => {
-  it("derives every sky preset from HARBOR_PALETTE", () => {
-    expect(`#${DAY_CYCLE_SKY_PRESETS.day.zenith.getHexString()}`).toBe(HARBOR_PALETTE.sky_day_zenith);
-    expect(`#${DAY_CYCLE_SKY_PRESETS.day.horizon.getHexString()}`).toBe(HARBOR_PALETTE.sky_day_horizon);
-    expect(`#${DAY_CYCLE_SKY_PRESETS.day.fog.getHexString()}`).toBe(HARBOR_PALETTE.fog_day);
-    expect(`#${DAY_CYCLE_SKY_PRESETS.night.zenith.getHexString()}`).toBe(HARBOR_PALETTE.sky_night);
-  });
-
-  it("lights the ukiyo-e day with a warm key and a cool sky fill", () => {
+  it("keeps noon neutral and confines golden warmth to the directional key", () => {
     const day = DAY_CYCLE_LIGHT_PRESETS.day;
-    expect(`#${day.dirColor.getHexString()}`).toBe(HARBOR_PALETTE.sun_day_warm);
-    expect(`#${day.hemiSky.getHexString()}`).toBe(HARBOR_PALETTE.sky_day_zenith);
-    // Warm key / cool fill split: the key is warmer (higher R–B) than the fill.
-    const key = new Color(HARBOR_PALETTE.sun_day_warm);
-    const fill = new Color(HARBOR_PALETTE.sky_day_zenith);
-    expect(key.r - key.b).toBeGreaterThan(fill.r - fill.b);
-    // Wave 6: the key must own the form. Ambient + hemispheric fill may reveal
-    // the cool side, but cannot flatten it back into the key's value register.
-    expect(day.dirIntensity).toBeGreaterThan(
-      (day.ambientIntensity + day.hemiIntensity) * 3,
-    );
-    // T1.8 midday fill cut (2026-09-07): ambient 0.22 -> 0.20, hemi 0.5 ->
-    // 0.42. Midday was the flattest hour in the piece; the key:fill ratio goes
-    // 4.58:1 -> 5.32:1 and the honey key gets two more stops of ladder.
-    expect(day.ambientIntensity).toBe(0.2);
-    expect(day.hemiIntensity).toBe(0.42);
-    expect(day.dirIntensity / (day.ambientIntensity + day.hemiIntensity))
-      .toBeGreaterThan(5.3);
+    expect(day.dirColor.r).toBe(day.dirColor.g);
+    expect(day.dirColor.g).toBe(day.dirColor.b);
+    expect(day.ambient.b).toBeGreaterThanOrEqual(day.ambient.r);
+    expect(day.hemiSky.b).toBeGreaterThanOrEqual(day.hemiSky.r);
+    const golden = DAY_CYCLE_LIGHT_PRESETS.golden;
+    expect(golden.dirColor.r).toBeGreaterThan(golden.dirColor.b);
+    expect(golden.hemiSky.b).toBeGreaterThan(golden.hemiSky.r);
   });
 
-  it("keeps every analytic fill above the environment probe it corrects", () => {
-    // THE FLOOR under T1.8, pinned here so the next fill cut fails loudly.
-    // `garden-environment.ts` treats the PMREM probe as a small CORRECTION on
-    // top of the analytic fill, never a second fill light, and
-    // garden-environment.test.ts asserts that ordering for every preset — so
-    // ambient + hemi must stay strictly ABOVE GARDEN_ENVIRONMENT_INTENSITY
-    // (0.6). The day preset is the tightest of the three at 0.20 + 0.42 =
-    // 0.62: two hundredths of headroom. Cutting the day fill any further means
-    // moving GARDEN_ENVIRONMENT_INTENSITY first, not just this number.
-    for (const [name, preset] of Object.entries(DAY_CYCLE_LIGHT_PRESETS)) {
-      expect(
-        preset.ambientIntensity + preset.hemiIntensity,
-        `${name} analytic fill must stay above the probe`,
-      ).toBeGreaterThan(GARDEN_ENVIRONMENT_INTENSITY);
-    }
-    expect(
-      DAY_CYCLE_LIGHT_PRESETS.day.ambientIntensity
-      + DAY_CYCLE_LIGHT_PRESETS.day.hemiIntensity
-      - GARDEN_ENVIRONMENT_INTENSITY,
-    ).toBeCloseTo(0.02, 6);
-  });
-
-  it("keeps dusk gold directional and its indigo fill subordinate", () => {
-    const dusk = DAY_CYCLE_LIGHT_PRESETS.dusk;
-    expect(dusk.dirIntensity).toBeGreaterThan(
-      (dusk.ambientIntensity + dusk.hemiIntensity) * 3,
-    );
-    // Warm-village B4 (2026-09-05): key 2.6 against a 0.62 fill (ambient
-    // raised 0.18 -> 0.28 so the analytic fill stays above the 0.6
-    // environment probe) is the authored ~4.2:1 — the ember hour rakes
-    // instead of tinting, still well clear of the old ~3:1.
-    expect(dusk.dirIntensity / (dusk.ambientIntensity + dusk.hemiIntensity))
-      .toBeGreaterThanOrEqual(4);
+  it("keeps the ember horizon distinct from violet air", () => {
     // Golden Garden (2026-09-07): the retired fog dye was
     // `sky_horizon lerp lantern_warm 0.36` ≈ #886440 brown-grey smog, and the
     // warm-village fix that reined the ember toward navy still mixed orange
@@ -159,18 +162,11 @@ describe("day-cycle presets (C1 contract)", () => {
 
   it("keeps moon fill and sail backlight below the night hierarchy", () => {
     const night = DAY_CYCLE_LIGHT_PRESETS.night;
-    expect(night.dirIntensity).toBeLessThan(1.5);
-    // Item 3 energy audit: the dark-tinted analytic fill must outweigh the
-    // environment correction while remaining subordinate to the moon key. The
-    // colour split, rather than one oversized hard key, preserves land/sea form.
-    expect(night.ambientIntensity).toBeGreaterThanOrEqual(0.25);
-    expect(night.hemiIntensity).toBeGreaterThanOrEqual(0.35);
-    expect(night.dirIntensity).toBeGreaterThanOrEqual(1);
+    expect(night.ambientIntensity).toBeLessThanOrEqual(0.06);
+    expect(night.hemiIntensity).toBeLessThanOrEqual(0.1);
     expect(night.dirIntensity).toBeGreaterThan(
       night.ambientIntensity + night.hemiIntensity,
     );
-    expect(night.ambient.getHex()).not.toBe(new Color(HARBOR_PALETTE.sky_night).getHex());
-    expect(night.hemiSky.getHex()).not.toBe(new Color(HARBOR_PALETTE.sky_horizon).getHex());
     expect(GARDEN_SAIL_EMISSIVE.night).toBeGreaterThanOrEqual(0.09);
     expect(GARDEN_SAIL_EMISSIVE.night).toBeLessThanOrEqual(0.1);
     expect(GARDEN_SAIL_EMISSIVE.night).toBeLessThan(GARDEN_SAIL_EMISSIVE.dusk);
@@ -223,15 +219,19 @@ describe("day-cycle presets (C1 contract)", () => {
 function dayCycleRig() {
   const stationWindows = new Mesh(
     new SphereGeometry(1, 3, 2),
-    new MeshStandardMaterial({ emissiveIntensity: 1.6, toneMapped: false }),
+    new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: 1.6, toneMapped: false }),
   );
-  const towerWindow = new MeshStandardMaterial({ emissiveIntensity: 0.24 });
+  const towerWindow = new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: 0.24 });
   // The island's two stone path lanterns share one lamp material.
-  const islandLantern = new MeshStandardMaterial({ emissiveIntensity: 1.15, toneMapped: false });
+  const islandLantern = new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: 1.15, toneMapped: false });
+  const stationLantern = new Mesh(new SphereGeometry(1, 3, 2),
+    new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: 1.5 }));
+  const fineStationLantern = stationLantern.clone();
+  fineStationLantern.material = stationLantern.material.clone();
   const scene = {
     ambientLight: new AmbientLight(),
     content: {
-      beacon: new Mesh(new SphereGeometry(1, 3, 2), new MeshStandardMaterial()),
+      beacon: new Mesh(new SphereGeometry(1, 3, 2), new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_glow })),
       beaconFire: {
         mirrorMaterial: new MeshStandardMaterial(),
         smokeMaterial: new ShaderMaterial({
@@ -245,13 +245,15 @@ function dayCycleRig() {
       harborBatch: {
         bucketMeshes: { window: stationWindows },
         fineDetailBucketMeshes: { window: null },
+        propMeshes: { lampHead: stationLantern },
+        fineDetailPropMeshes: { lampHead: fineStationLantern },
       },
-      harborLanternMaterial: new MeshStandardMaterial(),
+      harborLanternMaterial: new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_warm }),
       islandLanternMaterial: islandLantern,
       lighthouseLight: new PointLight(),
       lighthouseWindowMaterials: [towerWindow],
       shipLanternGlowMaterial: new MeshBasicMaterial(),
-      shipLanternMaterial: new MeshStandardMaterial(),
+      shipLanternMaterial: new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_glow }),
       shipShadows: new InstancedMesh(new CircleGeometry(1, 3), new MeshBasicMaterial(), 1),
       ships: [],
       statueGleamMaterials: [],
@@ -265,78 +267,57 @@ function dayCycleRig() {
     timeSeconds: 0,
   } as unknown as ThreeWorldRendererFrame;
   const at = (hour: number) => {
+    frame.wallClockHour = hour;
     updateDayCycle(scene, frame, dayCyclePhase(hour));
     return {
-      islandLantern: islandLantern.emissiveIntensity,
-      station: (stationWindows.material as MeshStandardMaterial).emissiveIntensity,
-      tower: towerWindow.emissiveIntensity,
+      islandLantern: emittedLuminance(islandLantern),
+      station: emittedLuminance(stationWindows.material),
+      tower: emittedLuminance(towerWindow),
+      harborLantern: emittedLuminance(scene.content.harborLanternMaterial),
+      shipLantern: emittedLuminance(scene.content.shipLanternMaterial),
+      stationLantern: emittedLuminance(stationLantern.material),
+      fineStationLantern: emittedLuminance(fineStationLantern.material),
+      beacon: emittedLuminance(scene.content.beacon.material),
     };
   };
   return { at, scene };
 }
 
-describe("T0.2 building apertures (2026-09-07)", () => {
-  it("lights every window at dusk and night instead of freezing them", () => {
-    // VISUAL_INVARIANTS.md:115 promised "windows glow at dusk/night" from
-    // W4.5 onward and NOTHING drove them: station apertures sat at a constant
-    // 1.6 and the tower's at 0.24, so the harbour was as lit at noon as at
-    // midnight. Both now ride the harbour-lantern curve shape.
+function emittedLuminance(material: MeshStandardMaterial): number {
+  const color = material.emissive;
+  return (color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722) * material.emissiveIntensity;
+}
+
+describe("practical light hierarchy", () => {
+  it("lights windows and lanterns progressively while keeping the tower dominant", () => {
     const { at } = dayCycleRig();
     const noon = at(12);
     const dusk = at(18.5);
     const midnight = at(1);
-
-    expect(noon.station).toBeCloseTo(0.35, 6);
-    expect(dusk.station).toBeGreaterThan(1.7);
-    expect(midnight.station).toBeCloseTo(2.1, 6);
-    expect(noon.tower).toBeCloseTo(0.18, 6);
-    expect(dusk.tower).toBeGreaterThan(1);
-    expect(midnight.tower).toBeCloseTo(1.53, 6);
-
-    // T0.2 remainder: the island path lanterns, the world's last constant
-    // aperture. Frozen 1.15 -> 0.22 day / 1.37 dusk / 1.97 night. They take
-    // the harbour-LANTERN curve shape (a small warm point), not the station
-    // window one, lifted 0.04 at the day end because they stand in a pale
-    // gravel sweep in full sun, and held 0.11 below the harbour lanterns'
-    // 2.08 night peak because they share the island with the beacon.
-    expect(noon.islandLantern).toBeCloseTo(0.22, 6);
-    expect(dusk.islandLantern).toBeGreaterThan(1.3);
-    expect(midnight.islandLantern).toBeCloseTo(1.97, 6);
-    expect(midnight.islandLantern).toBeLessThan(0.18 + 1.9);
-
-    for (const key of ["islandLantern", "station", "tower"] as const) {
+    for (const key of ["islandLantern", "station", "tower", "shipLantern",
+      "harborLantern", "stationLantern", "fineStationLantern"] as const) {
       expect(noon[key], `${key} must be dimmest at noon`).toBeLessThan(dusk[key]);
       expect(dusk[key], `${key} must peak at night`).toBeLessThan(midnight[key]);
     }
-    // The Pharos' own windows stay under the quay's so they read as a lit
-    // stair, never as a second signal beside the beacon.
     expect(midnight.tower).toBeLessThan(midnight.station);
-  });
-
-  it("keeps the ember peaks under the tone-mapping clip", () => {
-    // The station bucket is `toneMapped: false`; anything much past ~2.2 rolls
-    // off to white pinpricks instead of staying gold (same ceiling as the ship
-    // lanterns). Sweep the clock rather than trusting the endpoints.
-    const { at } = dayCycleRig();
-    for (let hour = 0; hour < 24; hour += 0.25) {
-      const lit = at(hour);
-      expect(lit.station, `station window at ${hour}h`).toBeLessThanOrEqual(2.2);
-      expect(lit.tower, `tower window at ${hour}h`).toBeLessThanOrEqual(2.2);
-      expect(lit.islandLantern, `island lantern at ${hour}h`).toBeLessThanOrEqual(2.2);
+    expect(midnight.beacon).toBeGreaterThanOrEqual(3);
+    for (const key of ["islandLantern", "shipLantern", "harborLantern",
+      "stationLantern", "fineStationLantern"] as const) {
+      expect(midnight[key], key).toBeGreaterThanOrEqual(2.6);
+      expect(midnight[key], key).toBeLessThanOrEqual(2.8);
+      expect(midnight[key], key).toBeGreaterThan(GARDEN_BLOOM_PRACTICAL_THRESHOLD);
+      expect(midnight[key], key).toBeLessThan(midnight.beacon);
     }
   });
 
-  it("degrades to a no-op when the aperture handles are absent", () => {
-    // The handles are wired in world-renderer; day-cycle must never assume
-    // them (an un-wired build renders, it just does not glow).
-    const { at, scene } = dayCycleRig();
-    scene.content.harborBatch = null as never;
-    scene.content.lighthouseWindowMaterials = undefined as never;
-    // The island lantern handle lands in the same pass and must degrade the
-    // same way: absent, and null, both no-op.
-    scene.content.islandLanternMaterial = null as never;
-    expect(() => at(18.5)).not.toThrow();
-    delete (scene.content as { islandLanternMaterial?: unknown }).islandLanternMaterial;
-    expect(() => at(18.5)).not.toThrow();
+  it("keeps windows below the bloom knee throughout the clock", () => {
+    const { at } = dayCycleRig();
+    for (let hour = 0; hour < 24; hour += 0.25) {
+      const lit = at(hour);
+      for (const key of ["station", "tower"] as const) {
+        expect(lit[key], `${key} window at ${hour}h`).toBeLessThanOrEqual(2.2);
+        expect(lit[key]).toBeLessThan(GARDEN_BLOOM_PRACTICAL_THRESHOLD);
+      }
+    }
   });
 });

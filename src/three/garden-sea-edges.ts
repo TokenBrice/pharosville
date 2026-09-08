@@ -23,7 +23,6 @@ import {
 } from "../systems/garden-sea-edge-sites";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
-import { applyGardenHeightFog } from "./garden-height-fog";
 import { TILE_SCALE } from "./garden-util";
 import type { WeatherPlan } from "../systems/weather";
 import {
@@ -267,27 +266,41 @@ function translated(geometry: BufferGeometry, x: number, y: number, z: number): 
 }
 
 function createReedGeometry(): BufferGeometry {
-  const green = new Color(HARBOR_PALETTE.aurora_green).multiplyScalar(0.72);
-  const tip = new Color(HARBOR_PALETTE.aurora_green).lerp(new Color(HARBOR_PALETTE.stone_pale), 0.24);
-  const lily = new Color(HARBOR_PALETTE.aurora_green).lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.48);
+  const darkBase = new Color(HARBOR_PALETTE.aurora_green)
+    .lerp(new Color(HARBOR_PALETTE.timber_dark), 0.58)
+    .multiplyScalar(0.62);
+  const strawGreen = new Color(HARBOR_PALETTE.roof_thatch)
+    .lerp(new Color(HARBOR_PALETTE.aurora_green), 0.54);
+  const lily = new Color(HARBOR_PALETTE.aurora_green)
+    .lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.48);
   const parts: BufferGeometry[] = [];
-  const stems = [
-    [-0.48, 0.86, -0.12],
-    [-0.18, 1.14, 0.14],
-    [0.12, 0.98, -0.2],
-    [0.38, 1.26, 0.08],
-    [0.56, 0.78, 0.25],
-  ] as const;
-  for (const [index, [x, height, z]] of stems.entries()) {
-    const stem = translated(new CylinderGeometry(0.035, 0.055, height, 5), x, height * 0.5, z);
-    parts.push(colored(stem, index % 2 === 0 ? green : tip));
+  const stemCount = 21;
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  for (let index = 0; index < stemCount; index += 1) {
+    // A deterministic sunflower walk makes a loose ellipse without rings or
+    // renderer-only randomness. Every bank therefore reads as one mass.
+    const radius = Math.sqrt((index + 0.5) / stemCount);
+    const angle = index * goldenAngle + 0.37;
+    const x = Math.cos(angle) * radius * 1.12;
+    const z = Math.sin(angle) * radius * 0.76;
+    const height = 0.7 + ((index * 11) % 21) / 20 * 0.6;
+    const stem = new CylinderGeometry(0.026, 0.043, height, 4, 1, true);
+    const positions = stem.getAttribute("position");
+    const lean = 0.08 + (index % 5) * 0.012;
+    for (let vertex = 0; vertex < positions.count; vertex += 1) {
+      const localHeight = positions.getY(vertex) / height + 0.5;
+      positions.setZ(vertex, positions.getZ(vertex) + localHeight * lean);
+    }
+    positions.needsUpdate = true;
+    paintGeometry(stem, darkBase, strawGreen, index * 0.61);
+    parts.push(translated(stem, x, height * 0.5, z));
   }
   for (const [index, [x, z, radius]] of [
-    [-0.62, 0.38, 0.28],
-    [0.06, 0.5, 0.34],
-    [0.62, -0.34, 0.24],
+    [-0.7, 0.58, 0.22],
+    [0.18, 0.72, 0.27],
+    [0.78, 0.42, 0.2],
   ].entries()) {
-    const pad = new CircleGeometry(radius, 9);
+    const pad = new CircleGeometry(radius, 8);
     pad.rotateX(-Math.PI / 2);
     parts.push(colored(translated(pad, x, 0.035 + index * 0.004, z), lily));
   }
@@ -295,6 +308,24 @@ function createReedGeometry(): BufferGeometry {
   for (const part of parts) part.dispose();
   if (!merged) throw new Error("Could not merge sea-edge reed geometry.");
   return merged;
+}
+function patchReedBankPhase(material: MeshStandardMaterial): void {
+  const previousCompile = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    previousCompile.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "attribute float aGardenSway;",
+        `attribute float aGardenSway;
+        attribute float aGardenBankPhase;`,
+      )
+      .replace(
+        "uGardenWindStrength * aGardenSway * gardenWindFlex",
+        "uGardenWindStrength * aGardenSway * (0.9 + 0.1 * sin(aGardenBankPhase + uGardenWindStrength * 8.0)) * gardenWindFlex",
+      );
+  };
+  material.customProgramCacheKey = () => `${previousKey}:reed-bank-phase-v1`;
 }
 
 function createFixtureGeometry(): BufferGeometry {
@@ -343,9 +374,7 @@ export function createGardenSeaEdges(): GardenSeaEdges {
   root.name = GARDEN_SEA_EDGES_OVERVIEW_NAME;
   const buckets = createStoneBuckets(root);
 
-  const reedSites = GARDEN_SEA_EDGE_SITES.filter((site) => (
-    site.form === "reed-lily" || site.form === "watch-reed"
-  ));
+  const reedSites = GARDEN_SEA_EDGE_SITES.filter((site) => site.form === "reed-lily");
   const reedGeometry = createReedGeometry();
   const reedMaterial = new MeshStandardMaterial({
     flatShading: true,
@@ -353,11 +382,12 @@ export function createGardenSeaEdges(): GardenSeaEdges {
     vertexColors: true,
   });
   patchGardenInstancedWindSway(reedMaterial, 1.3, 0.02);
+  patchReedBankPhase(reedMaterial);
   const reedInstances = createInstances(
     reedSites,
     reedGeometry,
     reedMaterial,
-    (site) => new Color(site.form === "reed-lily" ? HARBOR_PALETTE.aurora_green : HARBOR_PALETTE.timber_warm),
+    () => new Color(0xffffff),
     (site) => ({
       x: site.length / 2.4,
       y: site.height / 1.2,
@@ -369,6 +399,13 @@ export function createGardenSeaEdges(): GardenSeaEdges {
     "aGardenSway",
     new InstancedBufferAttribute(
       new Float32Array(reedSites.map((_site, index) => 0.72 + (index % 5) * 0.09)),
+      1,
+    ),
+  );
+  reedGeometry.setAttribute(
+    "aGardenBankPhase",
+    new InstancedBufferAttribute(
+      new Float32Array(reedSites.map((_site, index) => index * 2.399963)),
       1,
     ),
   );
@@ -397,7 +434,6 @@ export function createGardenSeaEdges(): GardenSeaEdges {
   fixtureInstances.name = "garden-sea-edges-piles-buoys";
   root.add(fixtureInstances);
 
-  applyGardenHeightFog(root);
   const drawCallCount = buckets.meshes.size + 2;
   const triangleCount = buckets.triangles
     + trianglesIn(reedGeometry) * reedSites.length

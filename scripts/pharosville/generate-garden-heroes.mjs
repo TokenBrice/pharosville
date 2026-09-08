@@ -51,20 +51,9 @@ const HULL_RING_H = [0, 0.11, 0.25, 0.4, 0.55, 0.69, 0.8, 0.89, 0.95, 1];
 
 installFileReader();
 
-// Wave 8: the checked hero fleet speaks the same six-family East-Asian hull
-// language as the procedural fleet. IDs are intentionally historical runtime
-// contracts; the family field, not the old id, now owns each silhouette.
+// Only the eight named-titan hulls remain checked assets. All other hero-tier
+// ships use the procedural fleet families at runtime.
 const HERO_MODELS = [
-  easternHero("garden-hero-titan", "bezaisen", "grand"),
-  easternHero("garden-hero-heritage", "bezaisen", "weathered"),
-  easternHero("garden-hero-carrack", "takasebune", "fortified"),
-  easternHero("garden-hero-brigantine", "kobaya", "swift"),
-  easternHero("garden-hero-dhow", "kobaya", "triangular"),
-  easternHero("garden-hero-junk", "junk", "classic"),
-  easternHero("garden-hero-barquentine", "twinhull", "trader"),
-  easternHero("garden-hero-cog", "scow", "cargo"),
-  easternHero("garden-hero-xebec", "junk", "raked"),
-  easternHero("garden-hero-cutter", "kobaya", "small"),
   easternHero("garden-hero-tether", "bezaisen", "flagship"),
   easternHero("garden-hero-circle", "takasebune", "circle"),
   easternHero("garden-hero-maker", "twinhull", "council"),
@@ -136,16 +125,6 @@ console.log(JSON.stringify(summaries, null, 2));
 
 function easternHeroAnchors() {
   return {
-  "garden-hero-titan": { bow: [5.5, 2.5, 0], label: [0, 9.2, 0], masthead: [1.3, 7.5, 0], selection: [0, 2.6, 0], stern: [-4.15, 6.15, 0] },
-  "garden-hero-heritage": { bow: [4.4, 1.85, 0], label: [0, 7.3, 0], masthead: [0.8, 6.25, 0], selection: [0, 1.9, 0], stern: [-3.5, 2.75, 0] },
-  "garden-hero-carrack": { bow: [5.7, 1.55, 0], label: [0, 7.6, 0], masthead: [0.55, 6.4, 0], selection: [0, 1.8, 0], stern: [-5.4, 2.3, 0] },
-  "garden-hero-brigantine": { bow: [5.1, 1.45, 0], label: [0, 7.5, 0], masthead: [2.45, 6.2, 0], selection: [0, 1.5, 0], stern: [-3.3, 1.8, 0] },
-  "garden-hero-dhow": { bow: [4.4, 2.4, 0], label: [0, 9.2, 0], masthead: [-2.7, 6.3, 0], selection: [0, 1.8, 0], stern: [-3.6, 3.1, 0] },
-  "garden-hero-junk": { bow: [4.6, 2.5, 0], label: [0, 9.4, 0], masthead: [0.35, 8.2, 0], selection: [0, 2.4, 0], stern: [-5.05, 4.7, 0] },
-  "garden-hero-barquentine": { bow: [4.5, 1.35, 0], label: [0, 7.8, 0], masthead: [3.1, 6.7, 0], selection: [0, 1.6, 0], stern: [-3.7, 1.7, 0] },
-  "garden-hero-cog": { bow: [3.7, 1.3, 0], label: [0, 6.1, 0], masthead: [0.2, 4.8, 0], selection: [0, 1.5, 0], stern: [-3.7, 1.6, 0] },
-  "garden-hero-xebec": { bow: [4.2, 1.6, 0], label: [0, 9.1, 0], masthead: [0.15, 7.8, 0], selection: [0, 1.8, 0], stern: [-4.1, 2.5, 0] },
-  "garden-hero-cutter": { bow: [4.8, 1.25, 0], label: [0, 6.9, 0], masthead: [0.5, 5.8, 0], selection: [0, 1.3, 0], stern: [-2.8, 1.5, 0] },
   "garden-hero-tether": { bow: [4.6, 2.3, 0], label: [0, 9.6, 0], masthead: [-0.1, 8.05, 0], selection: [0, 2.9, 0], stern: [-4.3, 6.9, 0] },
   "garden-hero-circle": { bow: [5.8, 1.45, 0], label: [0, 8, 0], masthead: [0.5, 6.8, 0], selection: [0, 1.7, 0], stern: [-5.4, 2.1, 0] },
   "garden-hero-maker": { bow: [4.4, 1.35, 0], label: [0, 7.9, 0], masthead: [1.5, 6.8, 0], selection: [0, 1.7, 0], stern: [-3.8, 2.3, 0] },
@@ -162,9 +141,8 @@ function easternHero(id, family, variant) {
 }
 
 /**
- * Compact shared authoring kit for the six fleet families. The exaggerated
- * massing is deliberate: beam, deckhouse, hull count and sail outline must
- * survive a 20 px render before small fittings or livery become legible.
+ * Compact authoring kit for the five families used by named-titan hulls.
+ * Exaggerated massing keeps each silhouette legible at overview scale.
  */
 function buildEasternHero(id, family, variant) {
   const builder = createBuilder(id);
@@ -174,7 +152,6 @@ function buildEasternHero(id, family, variant) {
   const mastTop = anchors.masthead[1];
 
   if (family === "bezaisen") addBezaisen(add, variant, mastX, mastTop);
-  else if (family === "kobaya") addKobaya(add, variant, mastX, mastTop);
   else if (family === "twinhull") addTwinHull(add, variant, mastX, mastTop);
   else if (family === "takasebune") addTakasebune(add, variant, mastX, mastTop);
   else if (family === "junk") addEasternJunk(add, variant, mastX, mastTop);
@@ -243,23 +220,6 @@ function addBezaisen(add, variant, mastX, mastTop) {
   addIdentityFrame(add, mastX, mastTop * 0.38, mastTop * 0.88, 2.0);
 }
 
-function addKobaya(add, variant, mastX, mastTop) {
-  const small = variant === "small";
-  const stations = familyStations({ beam: small ? 0.72 : 0.9, bow: 5.25, deck: 0.82, depth: 0.52, length: small ? 8.6 : 10.4, rise: 0.22 });
-  addFamilyHull(add, stations, 0.16);
-  add("wood", new BoxGeometry(2.1, 0.75, 1.22), { position: [-2.7, 1.25, 0] });
-  add("trim", new BoxGeometry(2.4, 0.13, 1.48), { position: [-2.7, 1.7, 0], tone: WOOD_TRIM });
-  add("spar", new CylinderGeometry(0.055, 0.09, small ? 3.2 : 4.3, 5), {
-    position: [6.25, 1.45, 0], rotation: [0, 0, Math.PI / 2 - 0.2],
-  });
-  addMast(add, mastX, 1.0, mastTop + 0.08, -0.055, { platform: false });
-  addLateen(add, [mastX + 0.15, mastTop - 0.25, 0], [mastX + 0.1, 2.1, 0], [mastX - 3.0, 2.45, 0], 0.34);
-  const foreX = Math.min(3.25, mastX + 2.7);
-  addMast(add, foreX, 0.98, mastTop * 0.78, -0.035, { platform: false });
-  addJib(add, [foreX, mastTop * 0.7, 0], [5.9, 2.0, 0], [foreX, 1.5, 0], 0.26);
-  if (variant === "triangular") add("wood", new ConeGeometry(0.72, 0.55, 4), { position: [-2.6, 2.05, 0], rotation: [0, Math.PI / 4, 0], tone: WOOD_HIGH });
-  if (variant === "swift") addOarBank(add, { count: 4, deckY: 0.96, halfBeam: 0.88, length: 1.6, spacing: 0.9, x: 0 });
-}
 
 function addTwinHull(add, variant, mastX, mastTop) {
   const offset = variant === "council" ? 1.45 : 1.3;
@@ -804,11 +764,6 @@ function addLateen(add, peak, tack, clew, billow) {
   add("sail", triangleSailGeometry(peak, tack, clew, billow));
 }
 
-/** Triangular jib on the bowsprit stay. */
-function addJib(add, stayBase, stayTop, tack, billow) {
-  add("sail", triangleSailGeometry(stayTop, stayBase, tack, billow));
-}
-
 /**
  * A triangle sail as an indexed fan grid between the stay edge (a-b) and the
  * clew, with billow normal to the cloth plane (z-bowed; the sail material is
@@ -986,33 +941,6 @@ function addPavilion(add, { halfBeam, height, length, x }) {
     add("sail", new PlaneGeometry(length + 0.5, 0.26), {
       position: [x, height - 0.07, side * (halfBeam + 0.24)],
     });
-  }
-}
-
-/**
- * A bank of sweeps: oars angled down to the water on both sides, each with its
- * loom inboard of the rail. The single most recognisable deck feature a vessel
- * can carry at overview zoom.
- */
-function addOarBank(add, { count, deckY, length, spacing, x, halfBeam, bladeDrop = 0.86 }) {
-  for (const side of [-1, 1]) {
-    for (let index = 0; index < count; index += 1) {
-      const ox = x + (index - (count - 1) / 2) * spacing;
-      add("spar", new CylinderGeometry(0.055, 0.07, length, 4), {
-        position: [ox - length * 0.18, deckY - 0.34, side * (halfBeam + length * 0.3)],
-        rotation: [side * 0.62, 0, 0.28],
-      });
-      // Blade at the outboard end, biting the water.
-      add("wood", new BoxGeometry(0.5, 0.07, 0.2), {
-        position: [
-          ox - length * 0.42,
-          deckY - bladeDrop,
-          side * (halfBeam + length * 0.62),
-        ],
-        rotation: [0, 0, 0.2],
-        tone: WOOD_TRIM,
-      });
-    }
   }
 }
 

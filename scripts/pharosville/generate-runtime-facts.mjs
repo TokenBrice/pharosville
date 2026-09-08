@@ -170,7 +170,7 @@ function parseGardenModelFacts(repoRoot) {
   );
   const lighthouseBlock = matchRequired(
     manifestBlock,
-    /"garden-lighthouse-shell":\s*{([\s\S]*?)\n\s*},\n\s*"garden-hero-titan"/,
+    /"garden-lighthouse-shell":\s*{([\s\S]*?)\n\s*},\n\s*"garden-hero-[a-z-]+":/,
     "lighthouse model metadata",
   )[1];
   const entries = [

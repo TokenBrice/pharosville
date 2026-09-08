@@ -23,31 +23,26 @@ interface ShipSizeDefinition {
   tier: ShipSizeTier;
 }
 
-interface TitanShipDefinition {
-  scale: number;
-}
-
 const UNKNOWN_CLASS: ShipClassDefinition = {
   hull: "crypto-caravel",
   label: "Unclassified",
 };
 
-// Squad members reduced by ~20% from prior tuning to relieve formation overlap
-// at common zoom levels (Sky: USDS+sUSDS+stUSDS; Maker: DAI+sDAI). USDC and
-// USDT remain at their solo titan scales since they don't sail in formation.
-export const TITAN_SHIPS: Record<string, TitanShipDefinition> = {
-  "usdc-circle": { scale: 1.53 },
-  "usds-sky": { scale: 1.15 },
-  "usdt-tether": { scale: 1.7 },
-  "dai-makerdao": { scale: 1.06 },
-  "susds-sky": { scale: 0.94 },
-  "sdai-sky": { scale: 0.94 },
-  "stusds-sky": { scale: 0.98 },
-  "usde-ethena": { scale: 1.20 },
-  "susde-ethena": { scale: 0.95 },
-  "pyusd-paypal": { scale: 1.40 },
-  "usd1-world-liberty-financial": { scale: 1.35 },
-  "buidl-blackrock": { scale: 1.40 },
+// These ids retain their bespoke titan tier and hull treatment. Scale is
+// exclusively market-cap-derived so the fleet has one truthful size ladder.
+export const TITAN_SHIPS: Record<string, true> = {
+  "usdc-circle": true,
+  "usds-sky": true,
+  "usdt-tether": true,
+  "dai-makerdao": true,
+  "susds-sky": true,
+  "sdai-sky": true,
+  "stusds-sky": true,
+  "usde-ethena": true,
+  "susde-ethena": true,
+  "pyusd-paypal": true,
+  "usd1-world-liberty-financial": true,
+  "buidl-blackrock": true,
 };
 
 /**
@@ -163,16 +158,25 @@ export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
  */
 const COMMODITY_PEGS = new Set(["GOLD", "SILVER"]);
 
+export function marketCapVisualScale(marketCapUsd: number): number {
+  if (!Number.isFinite(marketCapUsd) || marketCapUsd <= 0) return 0.42;
+  return Math.max(
+    0.42,
+    Math.min(1.15, 0.42 * (marketCapUsd / 1_000_000) ** 0.10),
+  );
+}
+
 export function resolveShipSizeTier(marketCapUsd: number): ShipSizeDefinition {
+  const scale = marketCapVisualScale(marketCapUsd);
   if (!Number.isFinite(marketCapUsd) || marketCapUsd <= 0) {
-    return { label: "Unknown", scale: 0.7, tier: "unknown" };
+    return { label: "Unknown", scale, tier: "unknown" };
   }
-  if (marketCapUsd >= 10_000_000_000) return { label: "Flagship", scale: 3, tier: "flagship" };
-  if (marketCapUsd >= 1_000_000_000) return { label: "Major", scale: 1.8, tier: "major" };
-  if (marketCapUsd >= 100_000_000) return { label: "Regional", scale: 1.25, tier: "regional" };
-  if (marketCapUsd >= 10_000_000) return { label: "Local", scale: 0.95, tier: "local" };
-  if (marketCapUsd >= 1_000_000) return { label: "Skiff", scale: 0.78, tier: "skiff" };
-  return { label: "Micro", scale: 0.7, tier: "micro" };
+  if (marketCapUsd >= 10_000_000_000) return { label: "Flagship", scale, tier: "flagship" };
+  if (marketCapUsd >= 1_000_000_000) return { label: "Major", scale, tier: "major" };
+  if (marketCapUsd >= 100_000_000) return { label: "Regional", scale, tier: "regional" };
+  if (marketCapUsd >= 10_000_000) return { label: "Local", scale, tier: "local" };
+  if (marketCapUsd >= 1_000_000) return { label: "Skiff", scale, tier: "skiff" };
+  return { label: "Micro", scale, tier: "micro" };
 }
 
 /**
@@ -245,7 +249,7 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, r
   const marketCap = getCirculatingRaw(asset);
   const shipClass = resolveShipClass(meta);
   const size = resolveShipSizeTier(marketCap);
-  const titan = TITAN_SHIPS[asset.id];
+  const titan = TITAN_SHIPS[asset.id] === true;
   // Titan registry wins if a stablecoin id ever appears in both. Unique
   // resolution only runs when the titan lookup misses.
   const uniqueDef = !titan ? uniqueDefinitionFor(asset) : null;
@@ -259,7 +263,7 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, r
     overlay: meta.flags.navToken ? "nav" : meta.flags.yieldBearing ? "yield" : reportCard?.overallGrade === "D" || reportCard?.overallGrade === "F" ? "watch" : "none",
     sizeTier: titan ? "titan" : uniqueDef ? "unique" : size.tier,
     sizeLabel: titan ? "Titan" : uniqueDef ? "Heritage hull" : size.label,
-    scale: titan?.scale ?? uniqueDef?.scale ?? size.scale,
+    scale: size.scale,
     hullForm: resolveShipHullForm(asset, meta, reportCard),
   };
 }

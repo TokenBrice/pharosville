@@ -31,11 +31,7 @@ describe("weather plan", () => {
     expect(a).toEqual(b);
 
     const scratch: WeatherPlan = {
-      windDirX: 0,
-      windDirZ: 0,
-      windAngle: 0,
-      windSpeed: 0,
-      gust: 0,
+      wind: { x: 0, y: 0, speed: 0, gust: 0 },
       breath: 0,
       stormLevel: 0,
       lightning: 0,
@@ -51,18 +47,18 @@ describe("weather plan", () => {
     for (const stress of [0, 0.08, 0.3, 0.45, 0.68, 0.85, 1]) {
       for (let t = 0; t < 1200; t += 7.7) {
         const plan = weatherForFrame({ timeSeconds: t, baseWind: stress, psiStress: stress });
-        expect(Math.hypot(plan.windDirX, plan.windDirZ)).toBeCloseTo(1, 6);
-        expect(plan.windSpeed).toBeGreaterThanOrEqual(0.19);
-        expect(plan.windSpeed).toBeLessThanOrEqual(1);
-        expect(plan.gust).toBeGreaterThanOrEqual(0);
-        expect(plan.gust).toBeLessThanOrEqual(1);
+        expect(Math.hypot(plan.wind.x, plan.wind.y)).toBeCloseTo(1, 6);
+        expect(plan.wind.speed).toBeGreaterThanOrEqual(0.19);
+        expect(plan.wind.speed).toBeLessThanOrEqual(1);
+        expect(plan.wind.gust).toBeGreaterThanOrEqual(0);
+        expect(plan.wind.gust).toBeLessThanOrEqual(1);
         expect(plan.breath).toBeGreaterThanOrEqual(0);
         expect(plan.breath).toBeLessThanOrEqual(1);
         expect(plan.stormLevel).toBeGreaterThanOrEqual(0);
         expect(plan.stormLevel).toBeLessThanOrEqual(1);
         expect(plan.lightning).toBeGreaterThanOrEqual(0);
         expect(plan.lightning).toBeLessThan(2);
-        expect(Number.isFinite(plan.windAngle)).toBe(true);
+        expect(Number.isFinite(Math.atan2(plan.wind.y, plan.wind.x))).toBe(true);
       }
     }
   });
@@ -70,16 +66,20 @@ describe("weather plan", () => {
   it("survives degenerate inputs without NaN", () => {
     for (const timeSeconds of [-5, 0, 1e9, Number.NaN]) {
       const plan = weatherForFrame({ timeSeconds, baseWind: Number.NaN, psiStress: Number.NaN });
-      expect(Number.isFinite(plan.windSpeed)).toBe(true);
+      expect(Number.isFinite(plan.wind.speed)).toBe(true);
       expect(Number.isFinite(plan.stormLevel)).toBe(true);
-      expect(Math.hypot(plan.windDirX, plan.windDirZ)).toBeCloseTo(1, 6);
+      expect(Math.hypot(plan.wind.x, plan.wind.y)).toBeCloseTo(1, 6);
     }
   });
 
   it("wanders the wind direction slowly without leaving the unit circle", () => {
-    const angles = [0, 60, 240, 600, 1200].map(
-      (t) => weatherForFrame({ timeSeconds: t, ...CALM }).windAngle,
-    );
+    const angles = [0, 60, 240, 600, 1200].map((timeSeconds) => {
+      const { wind } = weatherForFrame({ timeSeconds, ...CALM });
+      return Math.atan2(
+        GARDEN_DEFAULT_WIND_X * wind.y - GARDEN_DEFAULT_WIND_Z * wind.x,
+        GARDEN_DEFAULT_WIND_X * wind.x + GARDEN_DEFAULT_WIND_Z * wind.y,
+      );
+    });
     // The wander is real: the bearing moves over minutes.
     expect(Math.max(...angles) - Math.min(...angles)).toBeGreaterThan(0.4);
     // ...but stays a bounded meander, not a full rotation.
@@ -97,9 +97,9 @@ describe("weather plan", () => {
     expect(GARDEN_BREATH_PHASE.lanterns - GARDEN_BREATH_PHASE.mist).toBeCloseTo(0.1);
   });
 
-  it("schedules 2.5 gusts/minute with a two-second attack and six-second release", () => {
-    expect(GARDEN_GUST_CYCLE_SECONDS).toBe(24);
-    expect(60 / GARDEN_GUST_CYCLE_SECONDS).toBe(2.5);
+  it("separates slow gust fronts by a long quiet interval", () => {
+    expect(GARDEN_GUST_CYCLE_SECONDS).toBeGreaterThanOrEqual(480);
+    expect(gardenGustEnvelope(300)).toBe(0);
     expect(gardenGustEnvelope(0)).toBe(0);
     expect(gardenGustEnvelope(GARDEN_GUST_ATTACK_SECONDS)).toBeCloseTo(1, 8);
     expect(
@@ -112,9 +112,9 @@ describe("weather plan", () => {
     const distance = GARDEN_GUST_WORLD_SPEED * 1.25;
     expect(gardenGustDelaySeconds(distance, 0, 1, 0)).toBeCloseTo(1.25, 8);
     expect(gardenGustDelaySeconds(0, distance, 0, 1)).toBeCloseTo(1.25, 8);
-    const weather = { windDirX: 1, windDirZ: 0, windSpeed: 1 };
-    const originPeak = gardenGustAtWorldPosition(2, 0, 0, weather);
-    const downwindPeak = gardenGustAtWorldPosition(3.25, distance, 0, weather);
+    const weather = { wind: { x: 1, y: 0, speed: 1, gust: 0 } };
+    const originPeak = gardenGustAtWorldPosition(GARDEN_GUST_ATTACK_SECONDS, 0, 0, weather);
+    const downwindPeak = gardenGustAtWorldPosition(GARDEN_GUST_ATTACK_SECONDS + 1.25, distance, 0, weather);
     expect(originPeak).toBeCloseTo(1, 8);
     expect(downwindPeak).toBeCloseTo(originPeak, 8);
     expect(gardenGustAtWorldPosition(3.25, distance, 0, weather, true)).toBe(0);
@@ -123,9 +123,9 @@ describe("weather plan", () => {
   it("defines wind as downwind motion and starts on the established sea bearing", () => {
     expect(GARDEN_WIND_DIRECTION_CONVENTION).toBe("toward");
     const plan = weatherForFrame({ timeSeconds: 0, ...CALM });
-    expect(plan.windDirX).toBeCloseTo(GARDEN_DEFAULT_WIND_X, 4);
-    expect(plan.windDirZ).toBeCloseTo(GARDEN_DEFAULT_WIND_Z, 4);
-    expect(plan.windAngle).toBeCloseTo(
+    expect(plan.wind.x).toBeCloseTo(GARDEN_DEFAULT_WIND_X, 4);
+    expect(plan.wind.y).toBeCloseTo(GARDEN_DEFAULT_WIND_Z, 4);
+    expect(Math.atan2(plan.wind.y, plan.wind.x)).toBeCloseTo(
       Math.atan2(GARDEN_DEFAULT_WIND_Z, GARDEN_DEFAULT_WIND_X),
       6,
     );
@@ -143,7 +143,7 @@ describe("weather plan", () => {
     expect(crisis.stormLevel).toBeGreaterThan(tremor.stormLevel);
     expect(meltdown.stormLevel).toBeGreaterThanOrEqual(crisis.stormLevel);
     // Wind rises with the storm.
-    expect(meltdown.windSpeed).toBeGreaterThan(calm.windSpeed);
+    expect(meltdown.wind.speed).toBeGreaterThan(calm.wind.speed);
   });
 
   it("breathes the storm slowly instead of pinning it to the stress reading", () => {
@@ -184,5 +184,12 @@ describe("weather plan", () => {
     // strike is in flight there, whatever the storm.
     expect(weatherForFrame({ timeSeconds: 0, ...MELTDOWN }).lightning).toBe(0);
     expect(weatherForFrame({ timeSeconds: 0, ...CRISIS }).lightning).toBe(0);
+  });
+
+  it("freezes the same zero-phase wind regardless of wall clock under reduced motion", () => {
+    expect(weatherForFrame({ timeSeconds: 800, wallClockHour: 18, reducedMotion: true, ...CALM }))
+      .toEqual(weatherForFrame({ timeSeconds: 0, wallClockHour: 0, reducedMotion: true, ...CALM }));
+    expect(weatherForFrame({ timeSeconds: 800, wallClockHour: 18, ...CALM }).wind)
+      .not.toEqual(weatherForFrame({ timeSeconds: 800, wallClockHour: 6, ...CALM }).wind);
   });
 });

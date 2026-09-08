@@ -34,7 +34,6 @@ import { quayMasonryHealth } from "../systems/dock-health";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { DockNode } from "../systems/world-types";
 import { assignGardenChainFlagCell } from "./garden-chain-flag";
-import { applyGardenHeightFog } from "./garden-height-fog";
 import { setTilePosition, stableUnit } from "./garden-util";
 export type { StationType } from "../systems/dock-layout";
 
@@ -257,7 +256,6 @@ export function createHarborLanterns(
   bodies.instanceMatrix.needsUpdate = true;
   lights.instanceMatrix.needsUpdate = true;
   root.add(bodies, lights);
-  applyGardenHeightFog(root);
   return { lightMaterial, root };
 }
 
@@ -279,14 +277,20 @@ export function authorDock(
   const supply = MathUtils.clamp(dock.size, 1, 10) / 10;
   const flagWavePhase = dockFlagWavePhase(dock.chainId);
   const ethereumMole = station.type === "ethereum-mole";
-  const stationScale = stationScaleFor(station.type, dock.totalUsd);
+  const stationScale = stationScaleFor(
+    station.type,
+    dock.frontageShare,
+    dock.frontageMedianShare,
+  );
   const footprint = stationFootprint(station.type, dock.totalUsd, dock.size);
   const length = 7.6 * amountScale * (ethereumMole ? 1.5 : 1.06);
   const width = (1.62 + amountScale * 0.36) * (ethereumMole ? 1.42 : 1.08);
   const quayHealth = quayMasonryHealth(dock) ?? 0.58;
   const accent = dockAccentColor(dock);
   const stoneColor = new Color("#665f55").lerp(new Color("#a39d8c"), quayHealth);
-  const quayLength = (3.6 + supply * 3.5) * (ethereumMole ? 1.38 : 1.05);
+  const quayLength = (3.6 + supply * 3.5)
+    * (ethereumMole ? 1.38 : 1.05)
+    * stationScale.frontageScale;
   const quayWidth = width * (ethereumMole ? 2.7 : 2.15);
   const quayX = -length * (ethereumMole ? 0.27 : 0.3);
 
@@ -324,6 +328,7 @@ export function authorDock(
   authorStoneQuay(stationContext, station.type);
   STATION_AUTHORS[station.type](stationContext);
   authorStationFidelity(stationContext, station.type);
+  authorStationApproach(stationContext, station.type);
 
   const parts: HarborBucketPart[] = [];
   pushMergedPart(parts, "timber", timber, HARBOR_PALETTE.timber_mid, false, true);
@@ -1377,6 +1382,53 @@ function authorStoneQuay(
   // One continuous ember edge survives the overview without creating a lamp
   // forest. It shares the station-window draw and registers no new water lane.
   featureBox(ctx, "quayLitEdge", ctx.windows, quayLength + 0.5, 0.24, 0.11, quayX, QUAY_TOP_Y - 0.11, quayWidth / 2 + 0.26);
+}
+
+/**
+ * A working threshold, not another pier: three short quay courses lead from
+ * the raised landward platform toward berth water. The Mole uses its short
+ * arm so the navigable basin stays empty. All fittings share the existing
+ * coarse post/lamp draws; tapered post instances also form the barrel stack.
+ */
+function authorStationApproach(ctx: StationAuthorContext, type: StationType): void {
+  const timber = type === "hatago-wharf" || type === "fishing-pier"
+    || type === "reed-boathouse" || type === "pigeonnier-islet";
+  const startX = type === "ethereum-mole" ? 10 : ctx.quayX + ctx.quayLength / 2 + 0.2;
+  const z = type === "ethereum-mole" ? 8.8 : 0;
+  const length = 2.4;
+  const width = 2.0;
+  const bucket = timber ? ctx.timber : ctx.stone;
+  const courses = timber ? 8 : 3;
+  for (let index = 0; index < courses; index += 1) {
+    pushBox(bucket, length / courses - 0.025, 0.28, width,
+      startX + (index + 0.5) * length / courses, QUAY_TOP_Y - 0.14, z);
+  }
+  const post = (x: number, y: number, localZ: number, radius: number, height: number, color: Color | null = null) => {
+    scratchMatrix.makeScale(radius, height, radius);
+    scratchMatrix.setPosition(x, y + height / 2, localZ);
+    ctx.props.push(harborProp("post", scratchMatrix, color, false));
+  };
+  // Four full-depth mooring piles anchor the apron and remain at overview LOD.
+  for (const x of [startX + 0.25, startX + length - 0.25]) {
+    for (const side of [-1, 1]) post(x, -0.6, z + side * 0.78, 0.12, QUAY_TOP_Y + 0.95);
+  }
+  const barrelColor = new Color(HARBOR_PALETTE.timber_mid);
+  const hoopColor = new Color(HARBOR_PALETTE.iron_dark);
+  for (const [x, y, localZ] of [
+    [startX + 0.4, QUAY_TOP_Y, z + 0.4],
+    [startX + 0.95, QUAY_TOP_Y, z + 0.4],
+    [startX + 0.67, QUAY_TOP_Y + 0.6, z + 0.4],
+  ] as const) {
+    post(x, y, localZ, 0.22, 0.6, barrelColor);
+    for (const hoopY of [0.12, 0.48]) {
+      post(x, y + hoopY, localZ, 0.24, 0.05, hoopColor);
+    }
+  }
+  const lampX = startX + length - 0.3;
+  const lampZ = z - 0.65;
+  post(lampX, QUAY_TOP_Y, lampZ, 0.085, 1.52);
+  scratchMatrix.makeTranslation(lampX, QUAY_TOP_Y + 1.58, lampZ);
+  ctx.props.push(harborProp("lampHead", scratchMatrix, null, false));
 }
 
 type XYZ = [number, number, number];

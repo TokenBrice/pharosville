@@ -14,8 +14,8 @@ export const GARDEN_MOTION_CURVES = Object.freeze({
 } as const);
 
 export const GARDEN_MOTION_DURATIONS = Object.freeze({
-  whisper: Object.freeze({ css: "300ms", cssVar: "--pv-motion-duration-whisper", ms: 300 }),
-  settle: Object.freeze({ css: "450ms", cssVar: "--pv-motion-duration-settle", ms: 450 }),
+  whisper: Object.freeze({ css: "200ms", cssVar: "--pv-motion-duration-whisper", ms: 200 }),
+  settle: Object.freeze({ css: "380ms", cssVar: "--pv-motion-duration-settle", ms: 380 }),
   breathe: Object.freeze({ css: "9s", cssVar: "--pv-motion-duration-breathe", ms: 9_000 }),
   tide: Object.freeze({ css: "30s", cssVar: "--pv-motion-duration-tide", ms: 30_000 }),
   weather: Object.freeze({ css: "90s", cssVar: "--pv-motion-duration-weather", ms: 90_000 }),

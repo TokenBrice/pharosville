@@ -6,7 +6,13 @@ import type { HitTargetSnapshot } from "../renderer/hit-testing";
 import { defaultCamera } from "../systems/camera";
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
-import { screenToIso, tileToIso } from "../systems/projection";
+import { screenToIso, tileToIso, TILE_SCALE, worldToScreen } from "../systems/projection";
+import { gardenAttractKeyframes } from "../systems/garden-attract";
+import { createGardenDirector, requestGardenBeat } from "../systems/garden-director";
+import {
+  observeTourPoseFromCamera,
+  observeTourPoseToCamera,
+} from "../systems/observe-tour";
 import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
 import {
   advanceCameraIntent,
@@ -16,6 +22,7 @@ import {
   normalizeWheelDeltaY,
   selectionCameraTarget,
   useCanvasResizeAndCamera,
+  voyageCamera,
   type CameraStepResult,
   type UseCanvasResizeAndCameraInput,
   wheelZoomScaleFromDelta,
@@ -68,6 +75,52 @@ describe("wheel camera helpers", () => {
 });
 
 describe("camera intent helpers", () => {
+  it("keeps attract holds stationary and waits for director admission before relocation", () => {
+    const director = createGardenDirector("attract-test");
+    const viewport = { x: 1200, y: 640 };
+    const { result } = renderHook(() => {
+      const canvas = useCanvasResizeAndCamera(makeCanvasInput({ gardenDirector: director, directorClock: (now) => now / 1000 }));
+      useLayoutEffect(() => { canvas.canvasSizeRef.current = viewport; });
+      return canvas;
+    });
+    const book = gardenAttractKeyframes(world.lighthouse.tile);
+    act(() => {
+      result.current.canvasSizeRef.current = viewport;
+      result.current.setCamera(defaultCamera({ width: viewport.x, height: viewport.y, map: world.map }));
+      result.current.startAttractTour(book);
+      result.current.stepCamera(1000, new Map());
+      result.current.stepCamera(40_000, new Map());
+    });
+    const held = { ...result.current.cameraRef.current! };
+    expect(result.current.attractState.holding).toBe(true);
+    act(() => { result.current.stepCamera(170_000, new Map()); });
+    expect(result.current.cameraRef.current).toEqual(held);
+    expect(director.log.filter((beat) => beat.kind === "attract")).toHaveLength(1);
+    requestGardenBeat(director, { kind: "market", foreground: true, priority: 100, durationSeconds: 1000 }, 171);
+    act(() => {
+      result.current.stepCamera(500_000, new Map());
+      result.current.stepCamera(501_000, new Map());
+    });
+    expect(result.current.cameraRef.current).toEqual(held);
+    expect(result.current.attractState.holding).toBe(true);
+    act(() => {
+      result.current.stepCamera(1_200_000, new Map());
+      result.current.stepCamera(1_240_000, new Map());
+    });
+    expect(result.current.cameraRef.current).not.toEqual(held);
+    expect(director.log.filter((beat) => beat.kind === "attract")).toHaveLength(2);
+  });
+
+  it("places a voyage ship in the lower-left third at both viewport gates", () => {
+    const tile = { x: 70, y: 70 };
+    for (const viewport of [{ x: 900, y: 720 }, { x: 1200, y: 640 }]) {
+      const camera = voyageCamera(defaultCamera({ width: viewport.x, height: viewport.y, map: world.map }), tile, viewport, world.map);
+      const point = worldToScreen({ x: tile.x * TILE_SCALE, y: -1.07, z: tile.y * TILE_SCALE }, camera, viewport);
+      expect(point.x).toBeCloseTo(viewport.x / 3, 5);
+      expect(point.y).toBeCloseTo(viewport.y * 2 / 3, 5);
+    }
+  });
+
   it("holds the completed arrival destination through subsequent camera frames", () => {
     const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
     const viewport = { x: 1200, y: 640 };
@@ -228,13 +281,15 @@ describe("camera intent helpers", () => {
     const { result, rerender } = renderHook(({ selected }: { selected: boolean }) => {
       const camera = useCanvasResizeAndCamera({ ...input, selectedEntity: selected ? ship : null });
       const focusSelection = camera.focusSelection;
+      const canvasSizeRef = camera.canvasSizeRef;
       useLayoutEffect(() => {
+        // Supply the measured viewport after render refreshes the size ref.
+        canvasSizeRef.current = { x: 800, y: 600 };
         if (selected) focusSelection({ x: 48, y: 48 }, onRest);
-      }, [selected, focusSelection]);
+      }, [selected, focusSelection, canvasSizeRef]);
       return camera;
     }, { initialProps: { selected: false } });
     act(() => {
-      result.current.canvasSizeRef.current = { x: 800, y: 600 };
       result.current.setCamera(defaultCamera({ height: 600, map: world.map, width: 800 }));
     });
     const start = result.current.cameraRef.current;
@@ -353,18 +408,20 @@ describe("camera intent helpers", () => {
       map: world.map,
       width: initialViewport.x,
     });
-    const returnCenter = screenToIso({
-      x: initialViewport.x / 2,
-      y: initialViewport.y / 2,
-    }, startCamera);
+    const returnPose = observeTourPoseFromCamera(startCamera, initialViewport);
+    const expectedReturn = observeTourPoseToCamera(
+      returnPose,
+      resizedViewport,
+      world.map,
+    );
 
     act(() => {
       result.current.canvasSizeRef.current = initialViewport;
       result.current.setCamera(startCamera);
       result.current.startObserveTour([{
         beatIndex: 0,
-        isoX: returnCenter.x + 100,
-        isoY: returnCenter.y + 80,
+        isoX: returnPose.isoX + 100,
+        isoY: returnPose.isoY + 80,
         zoom: 1.3,
       }]);
       result.current.stepCamera(1_000, new Map());
@@ -380,13 +437,9 @@ describe("camera intent helpers", () => {
     }
 
     const returned = result.current.cameraRef.current!;
-    const returnedCenter = screenToIso({
-      x: resizedViewport.x / 2,
-      y: resizedViewport.y / 2,
-    }, returned);
-    expect(returnedCenter.x).toBeCloseTo(returnCenter.x, 5);
-    expect(returnedCenter.y).toBeCloseTo(returnCenter.y, 5);
-    expect(returned.zoom).toBeCloseTo(startCamera.zoom, 6);
+    expect(returned.zoom).toBeCloseTo(expectedReturn.zoom, 6);
+    expect(returned.offsetX).toBeCloseTo(expectedReturn.offsetX, 4);
+    expect(returned.offsetY).toBeCloseTo(expectedReturn.offsetY, 4);
   });
 });
 

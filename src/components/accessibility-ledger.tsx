@@ -274,7 +274,7 @@ function AccessibilityLedgerContent({
       <ol>
         {world.docks.map((dock) => (
           <li key={dock.id}>
-            {presentation === "visible" ? <details>
+            {presentation === "visible" ? <details className="pharosville-ledger__record">
               <summary>{dock.label} — {formatCompactUsd(dock.totalUsd)} supply</summary>
               {onSelectDetail && <button type="button" onClick={() => onSelectDetail(dock.detailId)}>Select in harbor</button>}
               <p>{dockLedgerLine(dock)}</p>
@@ -302,7 +302,7 @@ function AccessibilityLedgerContent({
           const transition = riskTransitionByShipId?.get(ship.id) ?? null;
           return (
             <li key={ship.id} id={`ledger-ship-${ship.id}`}>
-              {presentation === "visible" ? <details>
+              {presentation === "visible" ? <details className="pharosville-ledger__record">
                 <summary>{ship.label} ({ship.symbol}) — {formatCompactUsd(ship.marketCapUsd)}, {ship.riskWaterLabel}</summary>
                 {onSelectDetail && <button type="button" onClick={() => onSelectDetail(ship.detailId)}>Select in harbor</button>}
                 <p>{shipLedgerLine(ship, tempo.label, transition, world.ships)}</p>

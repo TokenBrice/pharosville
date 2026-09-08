@@ -11,9 +11,10 @@ import {
   type ObserveTourSample,
 } from "./observe-tour";
 import { tileToIso } from "./projection";
+import { buildPharosVilleMap } from "./world-layout";
 
 const VIEWPORT = { x: 1440, y: 960 };
-const MAP = { width: 56, height: 56 };
+const MAP = buildPharosVilleMap();
 
 function keyframe(beatIndex: number, tile: { x: number; y: number }, zoom: number): ObserveTourKeyframe {
   const iso = tileToIso(tile);
@@ -109,21 +110,19 @@ describe("observe tour", () => {
     expect(speedAt(OBSERVE_TOUR_TRAVEL_SECONDS - 0.009)).toBeLessThan(mid * 0.2);
   });
 
-  it("keeps the dwell purposeful with a bounded push-in and tangent drift", () => {
+  it("holds exactly still and leaves each dwell without a framing discontinuity", () => {
     const tour = buildObserveTour({ keyframes: KEYFRAMES, start: START });
     const out = sample();
-    const dwellStart = OBSERVE_TOUR_TRAVEL_SECONDS + 0.5;
-    sampleObserveTour(tour, dwellStart, out);
-    const early = { ...out };
-    sampleObserveTour(tour, OBSERVE_TOUR_SEGMENT_SECONDS - 0.01, out);
-
-    // Push-in: zoom creeps up over the dwell, capped at the authored 5%.
-    expect(out.zoom).toBeGreaterThan(early.zoom);
-    expect(out.zoom).toBeLessThanOrEqual(KEYFRAMES[0]!.zoom * 1.051);
-    // Tangent drift moves the framing a few iso units, never a lurch.
-    const moved = Math.hypot(out.isoX - early.isoX, out.isoY - early.isoY);
-    expect(moved).toBeGreaterThan(0.05);
-    expect(moved).toBeLessThan(9);
+    for (const segment of tour.segments) {
+      sampleObserveTour(tour, segment.startSeconds + OBSERVE_TOUR_TRAVEL_SECONDS, out);
+      const held = { ...out };
+      sampleObserveTour(tour, segment.startSeconds + segment.durationSeconds - 0.001, out);
+      expect(out).toEqual(held);
+      sampleObserveTour(tour, segment.startSeconds + segment.durationSeconds, out);
+      expect(out.isoX).toBeCloseTo(held.isoX, 8);
+      expect(out.isoY).toBeCloseTo(held.isoY, 8);
+      expect(out.zoom).toBeCloseTo(held.zoom, 8);
+    }
   });
 
   it("reports done past the end and clamps degenerate input", () => {
@@ -152,11 +151,14 @@ describe("observe tour", () => {
   });
 
   it("round-trips the visitor's camera into the start pose", () => {
-    const camera = defaultCamera({ width: VIEWPORT.x, height: VIEWPORT.y, map: MAP });
+    const rest = defaultCamera({ width: VIEWPORT.x, height: VIEWPORT.y, map: MAP });
+    const camera = observeTourPoseToCamera(
+      observeTourPoseFromCamera(rest, VIEWPORT),
+      VIEWPORT,
+      MAP,
+    );
     const pose = observeTourPoseFromCamera(camera, VIEWPORT);
     const back = observeTourPoseToCamera(pose, VIEWPORT, MAP);
-    // A legal camera (inside the map clamp by construction) round-trips
-    // exactly: same centered iso point, same zoom.
     expect(back.zoom).toBeCloseTo(camera.zoom, 6);
     expect(back.offsetX).toBeCloseTo(camera.offsetX, 4);
     expect(back.offsetY).toBeCloseTo(camera.offsetY, 4);

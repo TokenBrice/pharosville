@@ -25,14 +25,14 @@ describe("garden islets (Z5)", () => {
     const [crag, reef] = islets.root.children as InstancedMesh[];
     expect(crag).toBeInstanceOf(InstancedMesh);
     expect(reef).toBeInstanceOf(InstancedMesh);
-    // Sakuteiki odd groupings: crane 3 + lone 1 crag, turtle 5 + lone 2 reef.
+    // Crane triad plus satellite dominant; turtle five plus satellite pair.
     expect(crag!.count).toBe(4);
     expect(reef!.count).toBe(7);
     expect(islets.stoneCount).toBe(11);
-    // 80-tri displaced icosahedra × 11 instances — same per-stone budget as
-    // the island shoreline boulders — plus 246 tris × 4 islet pines.
-    expect(islets.triangleCount).toBeGreaterThan(880);
-    expect(islets.triangleCount).toBeLessThan(2_600);
+    // G2 shared plate pines: 214 triangles each; whole islets 2,004,
+    // down 128 from the test-measured G1 count of 2,132.
+    expect(islets.triangleCount).toBeGreaterThan(2_000);
+    expect(islets.triangleCount).toBeLessThanOrEqual(2_100);
     const pines = islets.root.getObjectByName("garden-islets-pines") as InstancedMesh;
     expect(pines).toBeInstanceOf(InstancedMesh);
     // Solid, textureless, vertex-coloured geometry: N8AO is transparency
@@ -54,6 +54,23 @@ describe("garden islets (Z5)", () => {
     expect(dominant.x).toBeCloseTo(crane.x * TILE_SCALE, 3);
     expect(dominant.z).toBeCloseTo(crane.y * TILE_SCALE, 3);
     expect(dominant.y).toBeLessThan(0); // base sunk below the waterline
+    islets.dispose();
+  });
+  it("moves one triad and pine onto the bridge satellite without new draws", () => {
+    const islets = createGardenIslets();
+    const satellite = GARDEN_ISLETS.find((islet) => islet.id === "garden-islet.satellite");
+    expect(satellite).toBeDefined();
+    const crag = islets.root.children[0] as InstancedMesh;
+    const reef = islets.root.children[1] as InstancedMesh;
+    const dominant = instancePosition(crag, crag.count - 1);
+    expect(dominant.x).toBeCloseTo(satellite!.center.x + 0.1, 3);
+    expect(dominant.z).toBeCloseTo(satellite!.center.z - 0.15, 3);
+    for (const index of [reef.count - 2, reef.count - 1]) {
+      expect(instancePosition(reef, index).distanceTo(
+        new Vector3(satellite!.center.x, instancePosition(reef, index).y, satellite!.center.z),
+      )).toBeLessThan(2.1);
+    }
+    expect(islets.drawCallCount).toBe(4);
     islets.dispose();
   });
 

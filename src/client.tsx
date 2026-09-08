@@ -5,6 +5,11 @@ import { RotateToLandscape } from "./rotate-to-landscape";
 import { canViewportShowMap, isWidescreenViewport } from "./systems/viewport-gate";
 import "./pharosville.css";
 
+// A real frame of the garden (G2 noon rest shot), served from public so the
+// gate and the loading hold never boot the world to show it.
+const SEASONAL_STILL_URL = "/pharosville/stills/garden-noon.jpg";
+
+
 const PharosVilleDesktopData = lazy(() => (
   import("./pharosville-desktop-data").then((mod) => ({ default: mod.PharosVilleDesktopData }))
 ));
@@ -58,8 +63,30 @@ export function PharosVilleClient() {
 
   // Both branches return before the lazy chunk is referenced, so a blocked
   // viewport still starts no world data, Three runtime, GLB or logo request.
-  if (!screenCapable) return <DesktopOnlyFallback />;
-  if (!viewportReady) return <RotateToLandscape />;
+  if (!screenCapable) {
+    return (
+      <div className="pharosville-gate">
+        <img
+          className="pharosville-gate__still"
+          src={SEASONAL_STILL_URL}
+          alt="PharosVille in summer daylight: a white lighthouse among pine-covered islands and sailing ships on calm teal water."
+        />
+        <DesktopOnlyFallback />
+      </div>
+    );
+  }
+  if (!viewportReady) {
+    return (
+      <div className="pharosville-gate">
+        <img
+          className="pharosville-gate__still"
+          src={SEASONAL_STILL_URL}
+          alt="PharosVille in summer daylight: a white lighthouse among pine-covered islands and sailing ships on calm teal water."
+        />
+        <RotateToLandscape />
+      </div>
+    );
+  }
 
   return (
     <Suspense fallback={<div className="pharosville-loading pharosville-desktop" aria-busy="true">Charting market winds…</div>}>

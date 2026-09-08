@@ -421,6 +421,10 @@ export interface DockNode {
     shoreBearing: number;
   };
   totalUsd: number;
+  /** This harbour's share of all tracked stablecoin supply. */
+  frontageShare?: number;
+  /** Median tracked-supply share among the rendered harbours. */
+  frontageMedianShare?: number;
   size: number;
   healthBand: ChainSummary["healthBand"];
   stablecoinCount: number;

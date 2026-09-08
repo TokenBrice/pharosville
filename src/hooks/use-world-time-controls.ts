@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLatestRef } from "./use-latest-ref";
 import {
   formatHourLabel,
+  readTestWallClockOverrideHour,
   resolveWallClockHour,
   restoreTestWallClockOverrideHour,
   writeTestWallClockOverrideHour,
@@ -31,8 +33,33 @@ export function useWorldTimeControls(input: {
   initialManualTimeOverrideHour?: number | null;
   initialNightMode?: boolean;
   requestPaint: () => void;
+  reducedMotion?: boolean;
 }) {
   const { initialManualTimeOverrideHour = null, initialNightMode = false, requestPaint } = input;
+  const [date, setDate] = useState(() => new Date());
+  const requestPaintRef = useLatestRef(requestPaint);
+  useEffect(() => {
+    if (input.reducedMotion) return;
+    let timer: number | undefined;
+    const sample = () => {
+      if (document.visibilityState === "hidden") return;
+      const now = new Date();
+      setDate(now);
+      requestPaintRef.current();
+      const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+      timer = window.setTimeout(sample, Math.min(1000, midnight - now.getTime()));
+    };
+    const visibilityChanged = () => {
+      clearTimeout(timer);
+      if (document.visibilityState !== "hidden") sample();
+    };
+    visibilityChanged();
+    document.addEventListener("visibilitychange", visibilityChanged);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", visibilityChanged);
+    };
+  }, [input.reducedMotion, requestPaintRef]);
   const [nightMode, setNightMode] = useState(initialNightMode);
   const [manualTimeOverrideHour, setManualTimeOverrideHourState] = useState<number | null>(() => (
     initialManualTimeOverrideHour === null ? null : clampManualTimeOverrideHour(initialManualTimeOverrideHour)
@@ -77,7 +104,11 @@ export function useWorldTimeControls(input: {
     setNightMode((n) => !n);
   }, [requestPaint, restoreManualWallClockOverride]);
 
-  const wallClockHour = resolveWallClockHour({ manualTimeOverrideHour, nightMode });
+  const wallClockHour = useMemo(() => {
+    const resolved = resolveWallClockHour({ manualTimeOverrideHour, nightMode });
+    if (manualTimeOverrideHour !== null || nightMode || readTestWallClockOverrideHour() !== null) return resolved;
+    return date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600 + date.getMilliseconds() / 3_600_000;
+  }, [date, manualTimeOverrideHour, nightMode]);
 
   // Steps from whatever the sky is showing — the visitor's clock, the night
   // preset, or a `t=` link — so the first press moves from there instead of
@@ -92,6 +123,9 @@ export function useWorldTimeControls(input: {
   }, [wallClockHour]);
 
   return {
+    date,
+    utcDayKey: date.toISOString().slice(0, 10),
+    timeSeconds: date.getTime() / 1000,
     setSessionHour: (hour: number) => setManualTimeOverrideHourState(clampManualTimeOverrideHour(hour)),
     resetLocalTime: () => { restoreManualWallClockOverride(); setManualTimeOverrideHourState(null); setNightMode(false); requestPaint(); },
     manualTimeOverrideHour,

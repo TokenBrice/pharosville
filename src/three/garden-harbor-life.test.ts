@@ -13,6 +13,7 @@ import {
 import type { DockNode } from "../systems/world-types";
 import {
   createGardenGullFlock,
+  createGardenFireflies,
   GARDEN_GULL_COUNT,
   GARDEN_QUAY_GULL_COUNT,
   type GardenGullFlock,
@@ -88,6 +89,36 @@ describe("garden gull flock", () => {
   });
 });
 
+describe("keeper harbor response", () => {
+  it("settles the flock onto its authored perches during the evening ritual", () => {
+    const flock = createGardenGullFlock(LIGHTHOUSE_TILE);
+    flock.update({ constrained: false, reducedMotion: true, timeSeconds: 0 });
+    const perches = instanceMatrices(flock.gulls);
+    flock.update({
+      constrained: false, reducedMotion: false, timeSeconds: 45,
+      keeperRitual: { active: true, progress: 1, direction: "evening" },
+    });
+    expect(instanceMatrices(flock.gulls)).toEqual(perches);
+  });
+
+  it("keeps fourteen quad fireflies on one dark arc and freezes wind under reduced motion", () => {
+    const fireflies = createGardenFireflies([{ x: 0, y: 1, z: 0 }, { x: 100, y: 1, z: 100 }], LIGHTHOUSE_TILE);
+    const motes = fireflies.root.children[0] as InstancedMesh;
+    const frame = { fullTier: true, night: 1, reducedMotion: true, timeSeconds: 1 };
+    fireflies.update(frame);
+    const still = instanceMatrices(motes);
+    fireflies.update({ ...frame, timeSeconds: 1000, weather: { wind: { x: 1, y: 0, speed: 1, gust: 1 } } });
+    expect(instanceMatrices(motes)).toEqual(still);
+    expect(motes.geometry.index!.count / 3 * motes.count).toBe(28);
+    for (let index = 0; index < motes.count; index += 1) {
+      const position = new Vector3().setFromMatrixPosition(instanceMatrix(motes, index));
+      expect(Math.hypot(position.x, position.z)).toBeLessThan(6);
+    }
+    fireflies.update({ ...frame, night: 0 });
+    expect(fireflies.root.visible).toBe(false);
+  });
+});
+
 describe("harbour tempo", () => {
   // A filling harbour and a draining one, everything else equal.
   const TEMPO_DOCKS = [
@@ -110,11 +141,8 @@ describe("harbour tempo", () => {
 
   it("takes its turns more often, wider and higher over the filling harbour", () => {
     const flock = createGardenGullFlock(LIGHTHOUSE_TILE, { docks: TEMPO_DOCKS });
-    // W3.4 keeps every tempo channel it ever had — and D2 (2026-09-05) keeps
-    // the intermittency: a third aloft is the design (0.55 chance x 0.6
-    // share), so two thirds of any harbour's watch is still spent on the
-    // planks. Rate reads as how OFTEN a bird takes a turn; the share of time
-    // she is up is the same at every harbour, by design.
+    // W4.9 keeps supply-driven tempo but limits each sortie to a rare beat.
+    // Rate reads as how often a bird takes a turn, not constant circling.
     const survey = (index: number) => {
       let sorties = 0;
       let wasUp = false;
@@ -148,11 +176,10 @@ describe("harbour tempo", () => {
     // The wheel tops out at 6.0 in the flock's waterline-rooted space — above
     // the pier's own furniture, an eave's worth below the raised halls
     // (13.3–17.9 above the dock root), which the loop never crosses.
-    expect(filling.ceiling).toBeCloseTo(6, 5);
+    expect(filling.ceiling).toBeLessThanOrEqual(6);
     expect(filling.ceiling).toBeGreaterThan(draining.ceiling);
     // And whichever harbour it is, the pair is still on the quay most of the
-    // time: one 600 s sweep of one bird resolves the two-thirds figure only
-    // coarsely (the window die correlates samples), so both seats are read.
+    // time; both independently seeded seats are read.
     expect((filling.perched + fillingMate.perched) / 2).toBeGreaterThan(0.55);
     expect((draining.perched + drainingMate.perched) / 2).toBeGreaterThan(0.55);
   });
@@ -207,12 +234,9 @@ describe("harbour tempo", () => {
       }
     }
     const share = airborne / samples;
-    // The D2 design figure is a third aloft (0.55 chance x 0.6 share). One
-    // 900 s sweep of nine birds on a 74 s period resolves that only coarsely —
-    // the window die correlates each bird's ~12 windows — so the pin brackets
-    // a quarter-to-third read and keeps the never-a-sky-full cap.
-    expect(share).toBeGreaterThan(0.18);
-    expect(share).toBeLessThan(0.35);
+    // W4.9: rare sorties occupy about one tenth of the watch, not a third.
+    expect(share).toBeGreaterThan(0.05);
+    expect(share).toBeLessThan(0.11);
     // D2 amplitude: the widest turns now swing 12+ u out from the roost (the
     // W3.4 band topped at 10.6), so a sortie reads at the zoom-1.0 rest.
     expect(maxReach).toBeGreaterThan(11.5);

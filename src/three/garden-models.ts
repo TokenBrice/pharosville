@@ -12,23 +12,11 @@ import {
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 
 /**
- * The eighteen hero hulls. Order is the authoring order in
+ * The eight named-titan hero hulls. Order is the authoring order in
  * `scripts/pharosville/generate-garden-heroes.mjs`; `unique-ships.ts` maps
- * stablecoins onto these ids and must stay in sync with this list.
+ * each model to its sole stablecoin owner.
  */
 export const GARDEN_HERO_MODEL_IDS = [
-  "garden-hero-titan",
-  "garden-hero-heritage",
-  "garden-hero-carrack",
-  "garden-hero-brigantine",
-  "garden-hero-dhow",
-  "garden-hero-junk",
-  "garden-hero-barquentine",
-  "garden-hero-cog",
-  "garden-hero-xebec",
-  "garden-hero-cutter",
-  // N5(b): bespoke hulls, one per named titan. Assigned to exactly one coin
-  // each in `unique-ships.ts` — they are not part of the shared rotation.
   "garden-hero-tether",
   "garden-hero-circle",
   "garden-hero-maker",
@@ -124,26 +112,6 @@ export interface GardenModelMetadata {
 const LIGHTHOUSE_SHA256 = "683bcbcac8ccd18f9f6b6237931f5011600e1d87088507dab912aca1fd39b9c9";
 const lighthouseUrl = `/pharosville/models/garden-lighthouse-shell.glb?v=${LIGHTHOUSE_SHA256.slice(0, 12)}`;
 
-const HERO_TITAN_SHA256 = "226d585a2264290773b1dc487cc4e7f974a7735cec8a1ffebd0ea1aa01ec67f6";
-const heroTitanUrl = `/pharosville/models/garden-hero-titan.glb?v=${HERO_TITAN_SHA256.slice(0, 12)}`;
-const HERO_HERITAGE_SHA256 = "07dd1b57119aca31cc22a86d7347a9f7876c62601f02f45aec937658720789fe";
-const heroHeritageUrl = `/pharosville/models/garden-hero-heritage.glb?v=${HERO_HERITAGE_SHA256.slice(0, 12)}`;
-const HERO_CARRACK_SHA256 = "70f87b2d3c2c66133027028f3d0a7299b58834c1f7c657e308495e62e3b6013a";
-const heroCarrackUrl = `/pharosville/models/garden-hero-carrack.glb?v=${HERO_CARRACK_SHA256.slice(0, 12)}`;
-const HERO_BRIGANTINE_SHA256 = "2a00702207a19b49c688f815da7bc0f80697b4afa8667a4777f87da67576bab7";
-const heroBrigantineUrl = `/pharosville/models/garden-hero-brigantine.glb?v=${HERO_BRIGANTINE_SHA256.slice(0, 12)}`;
-const HERO_DHOW_SHA256 = "3bb620332d6bad25402985e7f77640f36387b7e903f439eb123617bdb1048358";
-const heroDhowUrl = `/pharosville/models/garden-hero-dhow.glb?v=${HERO_DHOW_SHA256.slice(0, 12)}`;
-const HERO_JUNK_SHA256 = "0db88b55685fe0086ff46bff3eb3f140578fcb77321a7b7d92d9522f30bf2f2c";
-const heroJunkUrl = `/pharosville/models/garden-hero-junk.glb?v=${HERO_JUNK_SHA256.slice(0, 12)}`;
-const HERO_BARQUENTINE_SHA256 = "fbeed772c2ebec026bb18f6edde050c494414892aab6546bb8dfb532bfd1432c";
-const heroBarquentineUrl = `/pharosville/models/garden-hero-barquentine.glb?v=${HERO_BARQUENTINE_SHA256.slice(0, 12)}`;
-const HERO_COG_SHA256 = "8a1b0f5fcfd064325c0d9cfbbfbeb78bdc2cbd51f28945145d9db5aa8b3a4792";
-const heroCogUrl = `/pharosville/models/garden-hero-cog.glb?v=${HERO_COG_SHA256.slice(0, 12)}`;
-const HERO_XEBEC_SHA256 = "87c09779b7cfbee024e8571fef17147fa32c720a3fe588e6373e5baa1a1e9540";
-const heroXebecUrl = `/pharosville/models/garden-hero-xebec.glb?v=${HERO_XEBEC_SHA256.slice(0, 12)}`;
-const HERO_CUTTER_SHA256 = "c3cb5c76cbaa1e72a35159d591a6c8e02370fcef2901c92adfa75f4648c0c9aa";
-const heroCutterUrl = `/pharosville/models/garden-hero-cutter.glb?v=${HERO_CUTTER_SHA256.slice(0, 12)}`;
 const HERO_TETHER_SHA256 = "fd98b1089c306898bf300a53169b4b1d3183f9038fce174dac5a2f4e37013e55";
 const heroTetherUrl = `/pharosville/models/garden-hero-tether.glb?v=${HERO_TETHER_SHA256.slice(0, 12)}`;
 const HERO_CIRCLE_SHA256 = "4f1a9e6f4b2d8db04d4368ad2be3e2c6d114b686335b33ac2b58a35fa606842d";
@@ -161,9 +129,9 @@ const heroPaypalUrl = `/pharosville/models/garden-hero-paypal.glb?v=${HERO_PAYPA
 const HERO_BULLION_SHA256 = "1ff959496ad568b00da78728f56cee9dc5c3232c288a1680eff4d873141cb3e3";
 const heroBullionUrl = `/pharosville/models/garden-hero-bullion.glb?v=${HERO_BULLION_SHA256.slice(0, 12)}`;
 
-// Every hero hull shares all but identity, geometry, and budgets; this factory
-// keeps the constant boilerplate (origin/scale/lod/provenance/license)
-// authored once across all eighteen models.
+// Every named-titan hero hull shares all but identity, geometry, and budgets;
+// this factory keeps the constant boilerplate (origin/scale/lod/provenance/license)
+// authored once across all eight models.
 //
 // W5.6 (decision D8): hero GLBs carry `KHR_mesh_quantization` — NORMAL as
 // normalized SHORT, COLOR_0 as normalized UNSIGNED_BYTE. Measured across the
@@ -316,276 +284,6 @@ export const GARDEN_MODEL_MANIFEST = {
       spdx: "MIT",
     },
   },
-  "garden-hero-titan": heroModelMetadata({
-    id: "garden-hero-titan",
-    label: "Garden grand bezaisen hero hull",
-    sha256: HERO_TITAN_SHA256,
-    url: heroTitanUrl,
-    bytes: 20_632,
-    dimensions: {"x":10.97, "y":8.767, "z":4.4},
-    anchors: {
-      "lantern-stern": { node: "anchor-lantern-stern", position: [-4.15, 6.15, 0] },
-      "lantern-bow": { node: "anchor-lantern-bow", position: [5.5, 2.5, 0] },
-      masthead: { node: "anchor-masthead", position: [1.3, 7.5, 0] },
-      label: { node: "anchor-label", position: [0, 9.2, 0] },
-      selection: { node: "anchor-selection", position: [0, 2.6, 0] },
-    },
-    pickCenter: [0, 3.467, 0],
-    pickHeight: 8.767,
-    pickRadius: 5.49,
-    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 930, vertices: 842 },
-    budgets: {
-      maxBytes: 72 * 1024,
-      maxDrawCalls: 5,
-      maxMaterials: 5,
-      maxTextures: 0,
-      maxTriangles: 4_100,
-      maxVertices: 5_000,
-    },
-  }),
-  "garden-hero-heritage": heroModelMetadata({
-    id: "garden-hero-heritage",
-    label: "Garden weathered bezaisen hero hull",
-    sha256: HERO_HERITAGE_SHA256,
-    url: heroHeritageUrl,
-    bytes: 20_632,
-    dimensions: {"x":10.48, "y":7.517, "z":3.84},
-    anchors: {
-      "lantern-stern": { node: "anchor-lantern-stern", position: [-3.5, 2.75, 0] },
-      "lantern-bow": { node: "anchor-lantern-bow", position: [4.4, 1.85, 0] },
-      masthead: { node: "anchor-masthead", position: [0.8, 6.25, 0] },
-      label: { node: "anchor-label", position: [0, 7.3, 0] },
-      selection: { node: "anchor-selection", position: [0, 1.9, 0] },
-    },
-    pickCenter: [0, 2.842, 0],
-    pickHeight: 7.517,
-    pickRadius: 5.245,
-    geometry: { drawCalls: 4, materials: 4, textures: 0, triangles: 930, vertices: 842 },
-    budgets: {
-      maxBytes: 56 * 1024,
-      maxDrawCalls: 5,
-      maxMaterials: 5,
-      maxTextures: 0,
-      maxTriangles: 3_400,
-      maxVertices: 4_100,
-    },
-  }),
-  "garden-hero-carrack": heroModelMetadata({
-    id: "garden-hero-carrack",
-    label: "Garden fortified takasebune hero hull",
-    sha256: HERO_CARRACK_SHA256,
-    url: heroCarrackUrl,
-    bytes: 24_668,
-    dimensions: {"x":12.68, "y":7.229, "z":2.5},
-    anchors: {
-      "lantern-stern": { node: "anchor-lantern-stern", position: [-5.4, 2.3, 0] },
-      "lantern-bow": { node: "anchor-lantern-bow", position: [5.7, 1.55, 0] },
-      masthead: { node: "anchor-masthead", position: [0.55, 6.4, 0] },
-      label: { node: "anchor-label", position: [0, 7.6, 0] },
-      selection: { node: "anchor-selection", position: [0, 1.8, 0] },
-    },
-    pickCenter: [0, 3.136, 0],
-    pickHeight: 7.229,
-    pickRadius: 6.345,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 1_058, vertices: 1_032 },
-    budgets: {
-      maxBytes: 72 * 1024,
-      maxDrawCalls: 5,
-      maxMaterials: 5,
-      maxTextures: 0,
-      maxTriangles: 3_900,
-      maxVertices: 4_900,
-    },
-  }),
-  "garden-hero-brigantine": heroModelMetadata({
-    id: "garden-hero-brigantine",
-    label: "Garden swift kobaya hero hull",
-    sha256: HERO_BRIGANTINE_SHA256,
-    url: heroBrigantineUrl,
-    bytes: 29_260,
-    dimensions: {"x":13.704, "y":7.068, "z":3.944},
-    anchors: {
-      "lantern-stern": { node: "anchor-lantern-stern", position: [-3.3, 1.8, 0] },
-      "lantern-bow": { node: "anchor-lantern-bow", position: [5.1, 1.45, 0] },
-      masthead: { node: "anchor-masthead", position: [2.45, 6.2, 0] },
-      label: { node: "anchor-label", position: [0, 7.5, 0] },
-      selection: { node: "anchor-selection", position: [0, 1.5, 0] },
-    },
-    pickCenter: [0, 3.016, 0],
-    pickHeight: 7.068,
-    pickRadius: 6.857,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 1_270, vertices: 1_366 },
-    budgets: {
-      maxBytes: 48 * 1024,
-      maxDrawCalls: 5,
-      maxMaterials: 5,
-      maxTextures: 0,
-      maxTriangles: 2_700,
-      maxVertices: 3_100,
-    },
-  }),
-  "garden-hero-dhow": heroModelMetadata({
-    id: "garden-hero-dhow",
-    label: "Garden triangular-sail kobaya hero hull",
-    sha256: HERO_DHOW_SHA256,
-    url: heroDhowUrl,
-    bytes: 24_040,
-    dimensions: {"x":14.074, "y":7.168, "z":1.799},
-    anchors: {
-      "lantern-stern": { node: "anchor-lantern-stern", position: [-3.6, 3.1, 0] },
-      "lantern-bow": { node: "anchor-lantern-bow", position: [4.4, 2.4, 0] },
-      masthead: { node: "anchor-masthead", position: [-2.7, 6.3, 0] },
-      label: { node: "anchor-label", position: [0, 9.2, 0] },
-      selection: { node: "anchor-selection", position: [0, 1.8, 0] },
-    },
-    pickCenter: [0, 3.066, 0],
-    pickHeight: 7.168,
-    pickRadius: 7.042,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 1_054, vertices: 969 },
-    budgets: {
-      maxBytes: 48 * 1024,
-      maxDrawCalls: 5,
-      maxMaterials: 5,
-      maxTextures: 0,
-      maxTriangles: 2_600,
-      maxVertices: 3_200,
-    },
-  }),
-  "garden-hero-junk": heroModelMetadata({
-    id: "garden-hero-junk",
-    label: "Garden battened junk hero hull",
-    sha256: HERO_JUNK_SHA256,
-    url: heroJunkUrl,
-    bytes: 26_660,
-    dimensions: {"x":9.96, "y":9.168, "z":3.433},
-    anchors: {
-      "lantern-stern": { node: "anchor-lantern-stern", position: [-5.05, 4.7, 0] },
-      "lantern-bow": { node: "anchor-lantern-bow", position: [4.6, 2.5, 0] },
-      masthead: { node: "anchor-masthead", position: [0.35, 8.2, 0] },
-      label: { node: "anchor-label", position: [0, 9.4, 0] },
-      selection: { node: "anchor-selection", position: [0, 2.4, 0] },
-    },
-    pickCenter: [0, 3.966, 0],
-    pickHeight: 9.168,
-    pickRadius: 4.985,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 1_214, vertices: 1_213 },
-    budgets: {
-      maxBytes: 48 * 1024,
-      maxDrawCalls: 5,
-      maxMaterials: 5,
-      maxTextures: 0,
-      maxTriangles: 2_800,
-      maxVertices: 3_300,
-    },
-  }),
-  "garden-hero-barquentine": heroModelMetadata({
-    id: "garden-hero-barquentine",
-    label: "Garden twin-hull trader hero hull",
-    sha256: HERO_BARQUENTINE_SHA256,
-    url: heroBarquentineUrl,
-    bytes: 33_432,
-    dimensions: {"x":9.38, "y":7.568, "z":3.85},
-    anchors: {
-      "lantern-stern": { node: "anchor-lantern-stern", position: [-3.7, 1.7, 0] },
-      "lantern-bow": { node: "anchor-lantern-bow", position: [4.5, 1.35, 0] },
-      masthead: { node: "anchor-masthead", position: [3.1, 6.7, 0] },
-      label: { node: "anchor-label", position: [0, 7.8, 0] },
-      selection: { node: "anchor-selection", position: [0, 1.6, 0] },
-    },
-    pickCenter: [0, 3.266, 0],
-    pickHeight: 7.568,
-    pickRadius: 4.695,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 1_812, vertices: 1_534 },
-    budgets: {
-      maxBytes: 56 * 1024,
-      maxDrawCalls: 5,
-      maxMaterials: 5,
-      maxTextures: 0,
-      maxTriangles: 3_400,
-      maxVertices: 4_000,
-    },
-  }),
-  "garden-hero-cog": heroModelMetadata({
-    id: "garden-hero-cog",
-    label: "Garden cargo scow hero hull",
-    sha256: HERO_COG_SHA256,
-    url: heroCogUrl,
-    bytes: 24_140,
-    dimensions: {"x":8.38, "y":6.097, "z":4.299},
-    anchors: {
-      "lantern-stern": { node: "anchor-lantern-stern", position: [-3.7, 1.6, 0] },
-      "lantern-bow": { node: "anchor-lantern-bow", position: [3.7, 1.3, 0] },
-      masthead: { node: "anchor-masthead", position: [0.2, 4.8, 0] },
-      label: { node: "anchor-label", position: [0, 6.1, 0] },
-      selection: { node: "anchor-selection", position: [0, 1.5, 0] },
-    },
-    pickCenter: [0, 2.102, 0],
-    pickHeight: 6.097,
-    pickRadius: 4.195,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 1_092, vertices: 946 },
-    budgets: {
-      maxBytes: 56 * 1024,
-      maxDrawCalls: 5,
-      maxMaterials: 5,
-      maxTextures: 0,
-      maxTriangles: 2_600,
-      maxVertices: 3_300,
-    },
-  }),
-  "garden-hero-xebec": heroModelMetadata({
-    id: "garden-hero-xebec",
-    label: "Garden raked junk hero hull",
-    sha256: HERO_XEBEC_SHA256,
-    url: heroXebecUrl,
-    bytes: 26_748,
-    dimensions: {"x":9.08, "y":8.768, "z":3.433},
-    anchors: {
-      "lantern-stern": { node: "anchor-lantern-stern", position: [-4.1, 2.5, 0] },
-      "lantern-bow": { node: "anchor-lantern-bow", position: [4.2, 1.6, 0] },
-      masthead: { node: "anchor-masthead", position: [0.15, 7.8, 0] },
-      label: { node: "anchor-label", position: [0, 9.1, 0] },
-      selection: { node: "anchor-selection", position: [0, 1.8, 0] },
-    },
-    pickCenter: [0, 3.766, 0],
-    pickHeight: 8.768,
-    pickRadius: 4.545,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 1_214, vertices: 1_213 },
-    budgets: {
-      maxBytes: 56 * 1024,
-      maxDrawCalls: 5,
-      maxMaterials: 5,
-      maxTextures: 0,
-      maxTriangles: 3_100,
-      maxVertices: 3_700,
-    },
-  }),
-  "garden-hero-cutter": heroModelMetadata({
-    id: "garden-hero-cutter",
-    label: "Garden small kobaya hero hull",
-    sha256: HERO_CUTTER_SHA256,
-    url: heroCutterUrl,
-    bytes: 23_716,
-    dimensions: {"x":11.735, "y":6.668, "z":1.48},
-    anchors: {
-      "lantern-stern": { node: "anchor-lantern-stern", position: [-2.8, 1.5, 0] },
-      "lantern-bow": { node: "anchor-lantern-bow", position: [4.8, 1.25, 0] },
-      masthead: { node: "anchor-masthead", position: [0.5, 5.8, 0] },
-      label: { node: "anchor-label", position: [0, 6.9, 0] },
-      selection: { node: "anchor-selection", position: [0, 1.3, 0] },
-    },
-    pickCenter: [0, 2.816, 0],
-    pickHeight: 6.668,
-    pickRadius: 5.873,
-    geometry: { drawCalls: 5, materials: 5, textures: 0, triangles: 1_046, vertices: 950 },
-    budgets: {
-      maxBytes: 48 * 1024,
-      maxDrawCalls: 5,
-      maxMaterials: 5,
-      maxTextures: 0,
-      maxTriangles: 2_600,
-      maxVertices: 3_200,
-    },
-  }),
   "garden-hero-tether": heroModelMetadata({
     id: "garden-hero-tether",
     label: "Garden Tether flagship bezaisen",

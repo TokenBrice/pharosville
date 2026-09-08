@@ -198,7 +198,8 @@ describe("createGardenHarborBatch", () => {
         ...Object.values(batch.fineDetailBucketMeshes),
         ...Object.values(batch.fineDetailPropMeshes),
       ].filter((mesh): mesh is Mesh | InstancedMesh => mesh !== null);
-      expect(coarse.reduce((sum, mesh) => sum + triangleCount(mesh), 0), `${type} coarse`).toBeLessThanOrEqual(6_000);
+      // W3.9 spends at most 468 added triangles per station on its approach.
+      expect(coarse.reduce((sum, mesh) => sum + triangleCount(mesh), 0), `${type} coarse`).toBeLessThanOrEqual(6_500);
       expect(fine.reduce((sum, mesh) => sum + triangleCount(mesh), 0), `${type} fine`).toBeLessThanOrEqual(6_000);
       batch.dispose();
     }

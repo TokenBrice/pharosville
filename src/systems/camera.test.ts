@@ -4,37 +4,36 @@ import {
   clampCameraToMap,
   defaultCamera,
   followTile,
-  GARDEN_DEFAULT_CAMERA_ZOOM,
-  GARDEN_REST_ZOOM_FLOOR,
   panCamera,
   zoomIn,
   zoomOut,
 } from "./camera";
 import {
   ABSOLUTE_MIN_ZOOM,
+  cameraEye,
+  cameraPoseFromIso,
+  GARDEN_PLATE_MARGIN_TILES,
   mapIsoBounds,
   minZoomForViewport,
-  tileToIso,
-  tileToScreen,
-  TILE_WIDTH,
+  TILE_SCALE,
+  worldToScreen,
 } from "./projection";
 import {
   GARDEN_LIGHTHOUSE_HEIGHT,
   GARDEN_LIGHTHOUSE_ROOT_OFFSET,
+  GARDEN_SHIP_ROOT_Y,
   gardenIslandDisplayTile,
-  gardenTileToScreen,
 } from "./garden-observatory-slice";
 import {
   buildPharosVilleMap,
-  CEMETERY_CENTER,
   EVM_BAY_STATION_SLOTS,
-  isWaterTileKind,
   LIGHTHOUSE_TILE,
+  OUTER_HARBOR_STATION_SLOTS,
   PHAROSVILLE_MAP_HEIGHT,
   PHAROSVILLE_MAP_WIDTH,
-  PIGEON_ISLAND_CENTER,
 } from "./world-layout";
-import type { TerrainKind } from "./world-types";
+import { denseFixtureChains } from "../__fixtures__/pharosville-world";
+import { buildChainDocks } from "./chain-docks";
 
 describe("camera", () => {
   it("pans by screen-space deltas", () => {
@@ -57,130 +56,109 @@ describe("camera", () => {
 
     expect(zoomOut(zoomIn(camera, { x: 1000, y: 800 }), { x: 1000, y: 800 }).zoom).toBeCloseTo(1);
   });
-  it("keeps the authored island mass inside the right-hand sea gutter by default", () => {
-    const map = buildPharosVilleMap();
-    const centerTile = landBoundsCenter(map.tiles);
-
-    for (const viewport of [
-      { x: 1440, y: 1000 },
-      { x: 1280, y: 760 },
-      { x: 1000, y: 640 },
-      { x: 1200, y: 640 },
-      { x: 900, y: 720 },
-      { x: 720, y: 900 },
-    ]) {
-      const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
-      const center = tileToScreen(centerTile, camera);
-
-      // Warm-village A1 (2026-09-05): rest is the sailed-in 1.0 close
-      // composition (was 0.6 * 1.02), refined per width to seat the
-      // Mole -> island-centre landing span inside the right-hand ma gutter,
-      // and never resting below the 0.8 floor.
-      const moleIsoX = tileToIso(EVM_BAY_STATION_SLOTS[0].cove.tile).x;
-      const expectedRest = Math.max(
-        GARDEN_REST_ZOOM_FLOOR,
-        Math.min(
-          GARDEN_DEFAULT_CAMERA_ZOOM,
-          (viewport.x - 128 - TILE_WIDTH / 2) / -moleIsoX,
-        ),
-      );
-      expect(camera.zoom).toBeCloseTo(expectedRest);
-      // The landing frame may move the island right to admit the Mole, but
-      // never spends the authored 128px anchorage gutter on the island centre.
-      expect(center.x).toBeGreaterThanOrEqual(viewport.x * 0.43);
-      expect(center.x).toBeLessThanOrEqual(viewport.x - 128);
-      // Crown-owned vertical seat: with 36px of crown sky the 38-unit Pharos
-      // puts the island centre between ~40% (tall desktops at the 0.72
-      // rest, 2026-09-06) and ~73% (compact gates) down the frame.
-      expect(center.y).toBeGreaterThanOrEqual(viewport.y * 0.38);
-      expect(center.y).toBeLessThanOrEqual(viewport.y * 0.73);
-      expect(clampCameraToMap(camera, { map, viewport })).toEqual(camera);
-    }
-  });
-
-  it("seats the landing interval, Pharos headroom, and right-hand ma at both landing sizes", () => {
-    const map = buildPharosVilleMap();
-    const moleIsoX = tileToIso(EVM_BAY_STATION_SLOTS[0].cove.tile).x;
-
-    for (const viewport of [
-      { x: 900, y: 720 },  // compact square gate: the interval cannot seat at the rest floor
-      { x: 1200, y: 640 }, // wide-laptop gate: the landing interval still seats
-    ]) {
-      const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
-      const mole = tileToScreen(EVM_BAY_STATION_SLOTS[0].cove.tile, camera);
-      const islandTile = gardenIslandDisplayTile(LIGHTHOUSE_TILE);
-      const lighthouseTile = {
-        x: islandTile.x + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x / Math.SQRT2,
-        y: islandTile.y + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z / Math.SQRT2,
+  // G1 0.5-tile / 0.01-zoom feasibility scan: 900×720 has 150 candidates
+  // at 60%; 1200×640 has zero at 50% (best violation 0.0129), 31 at 44%.
+  it.each([{ x: 900, y: 720, band: 0.60 }, { x: 1200, y: 640, band: 0.44 }])(
+    "seats the eye on the near plate with crown air and an open inlet at $x × $y",
+    (viewport) => {
+      const map = buildPharosVilleMap();
+      const docks = buildChainDocks(denseFixtureChains);
+      const island = gardenIslandDisplayTile(LIGHTHOUSE_TILE);
+      const baseWorld = {
+        x: island.x * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x,
+        y: GARDEN_LIGHTHOUSE_ROOT_OFFSET.y,
+        z: island.y * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z,
       };
-      const towerBase = gardenTileToScreen(
-        lighthouseTile,
-        GARDEN_LIGHTHOUSE_ROOT_OFFSET.y,
-        camera,
-      );
-      const towerTop = gardenTileToScreen(
-        lighthouseTile,
-        GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT,
-        camera,
-      );
-
-      // The crown-owned vertical seat keeps at least 32px of sky above the
-      // statue even in the compact-height profile the flat-map fit cannot
-      // see; at the 1.0 rest the tower itself is ~half the frame height.
-      expect(towerTop.y).toBeGreaterThanOrEqual(32);
-      expect(towerTop.y).toBeLessThan(towerBase.y);
-      expect(towerBase.y).toBeLessThan(viewport.y - 80);
-      // The water to the right of the Pharos remains a larger interval than
-      // the Mole's left inset: deliberate ma rather than a centred ring.
-      expect(viewport.x - towerBase.x).toBeGreaterThan(mole.x);
-      expect(clampCameraToMap(camera, { map, viewport })).toEqual(camera);
-
-      if (viewport.x - 128 - TILE_WIDTH / 2 >= -moleIsoX * GARDEN_REST_ZOOM_FLOOR) {
-        // Wide enough to seat the authored interval at the rest floor: the
-        // Mole quay is framed alongside the Pharos.
-        expect(mole.x).toBeGreaterThan(0);
-        expect(mole.x).toBeLessThan(viewport.x);
-        expect(mole.y).toBeGreaterThan(0);
-        expect(mole.y).toBeLessThan(viewport.y);
-      } else {
-        // Warm-village A1: below the seating width the right gutter wins —
-        // the lighthouse remains the primary anchor and the Mole quay waits
-        // off-frame to the west rather than spending the anchorage ma.
-        expect(camera.zoom).toBeCloseTo(GARDEN_REST_ZOOM_FLOOR);
-        expect(mole.x).toBeLessThanOrEqual(TILE_WIDTH / 2);
+      for (const subjects of [undefined, docks]) {
+        const camera = defaultCamera({ height: viewport.y, map, width: viewport.x, ...(subjects ? { subjects } : {}) });
+        const eye = cameraEye(cameraPoseFromIso(camera, viewport));
+        const eyeTile = { x: eye.x / TILE_SCALE, y: eye.z / TILE_SCALE };
+        const base = worldToScreen(baseWorld, camera, viewport);
+        const crown = worldToScreen(
+          { ...baseWorld, y: baseWorld.y + GARDEN_LIGHTHOUSE_HEIGHT }, camera, viewport,
+        );
+        const diagnostic = JSON.stringify({ viewport, camera, eyeTile, base, crown, withDocks: !!subjects });
+        expect(camera.zoom, diagnostic).toBeGreaterThanOrEqual(0.8);
+        expect.soft(camera.zoom, diagnostic).toBeLessThanOrEqual(1.15);
+        expect(eyeTile.x, diagnostic).toBeGreaterThanOrEqual(8);
+        expect(eyeTile.y, diagnostic).toBeGreaterThanOrEqual(8);
+        expect(eyeTile.x, diagnostic).toBeLessThanOrEqual(map.width + GARDEN_PLATE_MARGIN_TILES - 4);
+        expect(eyeTile.y, diagnostic).toBeLessThanOrEqual(map.height + GARDEN_PLATE_MARGIN_TILES - 4);
+        expect(eyeTile.x + eyeTile.y, diagnostic).toBeGreaterThanOrEqual(200);
+        for (const point of [base, crown]) {
+          expect(point.x / viewport.x, diagnostic).toBeGreaterThanOrEqual(0.50);
+          expect(point.x / viewport.x, diagnostic).toBeLessThanOrEqual(0.72);
+        }
+        expect(crown.y / viewport.y, diagnostic).toBeGreaterThanOrEqual(0.04);
+        expect(base.y / viewport.y, diagnostic).toBeGreaterThanOrEqual(0.35);
+        expect(base.y / viewport.y, diagnostic).toBeLessThanOrEqual(0.65);
+        const stationTiles = subjects?.map((dock) => dock.tile)
+          ?? [...EVM_BAY_STATION_SLOTS, ...OUTER_HARBOR_STATION_SLOTS].map((slot) => slot.cove.tile);
+        const segmentX = baseWorld.x - eye.x;
+        const segmentZ = baseWorld.z - eye.z;
+        const segmentLengthSquared = segmentX ** 2 + segmentZ ** 2;
+        for (const tile of stationTiles) {
+          const stationDiagnostic = `${diagnostic}, station=${JSON.stringify(tile)}`;
+          expect.soft(Math.hypot(tile.x - eyeTile.x, tile.y - eyeTile.y), stationDiagnostic)
+            .toBeGreaterThanOrEqual(14);
+          const flag = worldToScreen(
+            { x: tile.x * TILE_SCALE, y: 26, z: tile.y * TILE_SCALE }, camera, viewport,
+          );
+          if (Math.hypot(tile.x - eyeTile.x, tile.y - eyeTile.y) <= 40) {
+            const vertices = [
+              worldToScreen({ x: tile.x * TILE_SCALE, y: 0, z: tile.y * TILE_SCALE }, camera, viewport),
+              flag,
+            ];
+            for (const reach of [-6, 6]) {
+              for (const y of [16, 26]) {
+                vertices.push(worldToScreen({
+                  x: tile.x * TILE_SCALE + reach / Math.SQRT2,
+                  y,
+                  z: tile.y * TILE_SCALE - reach / Math.SQRT2,
+                }, camera, viewport));
+              }
+            }
+            const left = Math.min(...vertices.map((point) => point.x / viewport.x));
+            const right = Math.max(...vertices.map((point) => point.x / viewport.x));
+            const top = Math.min(...vertices.map((point) => point.y / viewport.y));
+            const bottom = Math.max(...vertices.map((point) => point.y / viewport.y));
+            expect.soft(
+              right <= (1 - viewport.band) / 2 || left >= (1 + viewport.band) / 2
+                || bottom <= 0 || top >= 1,
+              stationDiagnostic,
+            ).toBe(true);
+          } else {
+            const flagX = flag.x / viewport.x;
+            expect.soft(
+              flagX >= Math.min(base.x, crown.x) / viewport.x - 0.12
+                && flagX <= Math.max(base.x, crown.x) / viewport.x + 0.12,
+              stationDiagnostic,
+            ).toBe(false);
+          }
+          const stationX = tile.x * TILE_SCALE - eye.x;
+          const stationZ = tile.y * TILE_SCALE - eye.z;
+          const along = Math.max(0, Math.min(1,
+            (stationX * segmentX + stationZ * segmentZ) / segmentLengthSquared,
+          ));
+          expect.soft(Math.hypot(stationX - along * segmentX, stationZ - along * segmentZ), stationDiagnostic)
+            .toBeGreaterThanOrEqual(4);
+        }
+        const tiles = subjects?.map((dock) => dock.tile) ?? [EVM_BAY_STATION_SLOTS[0]!.cove.tile];
+        const points = tiles.map((tile) => {
+          const point = worldToScreen(
+            { x: tile.x * TILE_SCALE, y: 0, z: tile.y * TILE_SCALE }, camera, viewport,
+          );
+          return { x: point.x / viewport.x, y: point.y / viewport.y };
+        });
+        // Without supplied harbours, the western Mole is a preference: its
+        // visibility must not pull the observer off the garden shore.
+        if (subjects) {
+          expect(points.some(({ x, y }) => x >= 0.04 && x <= 0.96 && y >= 0.04 && y <= 0.96), diagnostic).toBe(true);
+        }
+        expect(points.some(({ x, y }) => x >= 0.35 && x <= 0.65 && y >= 0.6 && y <= 0.95), diagnostic).toBe(false);
       }
-    }
-  });
-
-  it("rests at the 0.72 frame with the landing interval framed on both gates", () => {
-    const map = buildPharosVilleMap();
-
-    // 2026-09-06: the rest opened out from the warm-village 1.0 to 0.72. The
-    // Pharos (60,70) and Ethereum Mole (15,95) tiles stay inside the viewport
-    // minus the authored bottom/right padding. Seating the interval on the
-    // 1200px gate allows 0.825, above the rest, so both gates rest at the
-    // same zoom; no legal viewport rests below the 0.6 floor.
-    const desktop = defaultCamera({ height: 1004, map, width: 1568 });
-    expect(desktop.zoom).toBe(GARDEN_DEFAULT_CAMERA_ZOOM);
-
-    const laptop = defaultCamera({ height: 640, map, width: 1200 });
-    expect(laptop.zoom).toBe(GARDEN_DEFAULT_CAMERA_ZOOM);
-    expect(laptop.zoom).toBeGreaterThanOrEqual(GARDEN_REST_ZOOM_FLOOR);
-
-    for (const { camera, viewport } of [
-      { camera: desktop, viewport: { x: 1568, y: 1004 } },
-      { camera: laptop, viewport: { x: 1200, y: 640 } },
-    ]) {
-      for (const tile of [LIGHTHOUSE_TILE, EVM_BAY_STATION_SLOTS[0].cove.tile]) {
-        const point = tileToScreen(tile, camera);
-        expect(point.x).toBeGreaterThanOrEqual(0);
-        expect(point.x).toBeLessThanOrEqual(viewport.x - 128);
-        expect(point.y).toBeGreaterThanOrEqual(0);
-        expect(point.y).toBeLessThanOrEqual(viewport.y - 80);
-      }
-      expect(clampCameraToMap(camera, { map, viewport })).toEqual(camera);
-    }
-  });
+    },
+  );
 
   it("keeps bounded zooms inside the biased composition frame", () => {
     const map = buildPharosVilleMap();
@@ -192,16 +170,26 @@ describe("camera", () => {
     expect(clampCameraToMap(zoomed, { map, viewport })).toEqual(zoomed);
   });
 
-  it("follows a tile by centering it", () => {
-    const camera = followTile({
-      camera: { offsetX: 0, offsetY: 0, zoom: 1 },
-      tile: { x: 32, y: 32 },
-      viewport: { x: 1000, y: 800 },
-    });
+  it("follows a ship by centering its elevated anchor at both viewport gates", () => {
+    const tile = { x: 32, y: 32 };
+    for (const viewport of [{ x: 1600, y: 1000 }, { x: 1200, y: 640 }]) {
+      for (const zoom of [0.6, 1.2]) {
+        const camera = followTile({
+          camera: { offsetX: 0, offsetY: 0, zoom },
+          tile,
+          viewport,
+        });
+        const anchor = worldToScreen({
+          x: tile.x * TILE_SCALE,
+          y: GARDEN_SHIP_ROOT_Y,
+          z: tile.y * TILE_SCALE,
+        }, camera, viewport);
 
-    expect(camera.offsetX).toBe(500);
-    expect(camera.offsetY).toBe(-112);
-    expect(cameraZoomLabel(camera)).toBe("100%");
+        expect(anchor.x).toBeCloseTo(viewport.x / 2, 6);
+        expect(anchor.y).toBeCloseTo(viewport.y / 2, 6);
+        expect(cameraZoomLabel(camera)).toBe(`${zoom * 100}%`);
+      }
+    }
   });
 
   it("clamps follow-target framing against the biased map bounds", () => {
@@ -218,23 +206,6 @@ describe("camera", () => {
   });
 });
 
-function landBoundsCenter(tiles: Array<{ x: number; y: number; kind: TerrainKind }>) {
-  // Cemetery and pigeonnier sit on their own detached islets — exclude their
-  // tiles when computing the main-island visual focal point so the framing
-  // test reflects the dominant mass.
-  const landTiles = tiles.filter((tile) => {
-    if (isWaterTileKind(tile.kind)) return false;
-    if (Math.hypot(tile.x - CEMETERY_CENTER.x, tile.y - CEMETERY_CENTER.y) <= 6) return false;
-    if (Math.hypot(tile.x - PIGEON_ISLAND_CENTER.x, tile.y - PIGEON_ISLAND_CENTER.y) <= 2) return false;
-    return true;
-  });
-  const xs = landTiles.map((tile) => tile.x);
-  const ys = landTiles.map((tile) => tile.y);
-  return {
-    x: (Math.min(...xs) + Math.max(...xs)) / 2,
-    y: (Math.min(...ys) + Math.max(...ys)) / 2,
-  };
-}
 
 describe("N1 zoom floor", () => {
   const map = { height: 112, width: 112 };

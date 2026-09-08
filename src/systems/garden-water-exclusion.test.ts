@@ -195,7 +195,7 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
     expect(isGardenShipWater(authoredDockTiles[0]!, 0, true)).toBe(true);
   });
 
-  it("keeps ordinary station circles scaled to their authored envelopes", () => {
+  it("keeps ordinary station circles scaled to their capped frontage envelopes", () => {
     const largeSlot = OUTER_HARBOR_STATION_SLOTS.find((slot) => slot.type === "fishing-pier")!;
     const smallSlot = OUTER_HARBOR_STATION_SLOTS.find((slot) => slot.type === "reed-boathouse")!;
     const probeDistance = 7.5;
@@ -213,8 +213,8 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
       -Math.PI / 4,
     );
 
-    // The supply-scaled navigation envelopes remain distinct: the fishing
-    // pier reaches eight tiles while the reed boathouse reaches seven.
+    // The 1.25x frontage cap keeps the fishing pier at eight tiles while the
+    // smaller reed boathouse remains seven.
     expect(isGardenShipWater(largeProbe, 0)).toBe(true);
     expect(isGardenShipWater(largeProbe, 0, true)).toBe(false);
     expect(isGardenShipWater(smallProbe, 0)).toBe(true);

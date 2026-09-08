@@ -46,10 +46,12 @@ import { applySeaRoomSeparationPass } from "../systems/motion-sampling";
 import { resolveGardenShipDisplayTile, selectGardenObservatorySlice } from "../systems/garden-observatory-slice";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import { seaStateForWorld, type SeaState } from "../systems/sea-state";
+import { weatherForFrame, writeWeatherPlan, type WeatherPlan } from "../systems/weather";
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
 import { worldRenderContentSignature } from "../systems/world-render-content-signature";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 import type { GardenAlmanacEvent } from "../systems/garden-almanac";
+import type { GardenBeat, GardenDirectorState } from "../systems/garden-director";
 import { normalizeHour } from "../lib/pharosville-clock";
 import { reportClientError } from "../error-reporter";
 import { createHoverNameplateDwellState, hoverNameplateVisible } from "./hover-nameplate-dwell";
@@ -68,6 +70,12 @@ import {
 } from "./world-render-loop-metrics";
 
 type MotionPlan = ReturnType<typeof buildMotionPlan>;
+
+const CAMERA_BREATH_INPUT_FREEZE_MS = 2_500;
+const CAMERA_BREATH_TWO_PI = Math.PI * 2;
+const STILL_CAMERA_BREATH = { dolly: 1, pitch: 0, yaw: 0 } as const;
+/** Frame-local weather for the motion sampler; rewritten in place every sample pass. */
+const samplerWeather = weatherForFrame({ timeSeconds: 0, psiStress: 0, baseWind: 0, reducedMotion: true });
 
 /** Which of the three ways the 3D renderer can retire itself fired. */
 type RendererFailureCause = "webgl-context" | "module-load" | "render-loop";
@@ -105,6 +113,8 @@ interface DetailAnchor extends ScreenPoint {
 
 export interface UseWorldRenderLoopInput {
   almanacEvent?: GardenAlmanacEvent | null;
+  /** G3/W4.1: the shared director; read through a ref so expiry never restarts the loop. */
+  gardenDirector?: GardenDirectorState;
   /**
    * Called when the deterministic time bucket flips (every ~10 minutes of
    * wall clock). The hook mirrors the latest callback into a ref so RAF and
@@ -170,6 +180,7 @@ export interface WorldCameraStepResult {
 export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRenderLoopResult {
   const {
     almanacEvent,
+    gardenDirector,
     onBucketFlip,
     onShipMotionSamplesReady,
     adaptiveDprStateRef,
@@ -228,6 +239,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   useEffect(() => {
     onStationLabelFrameRef.current = onStationLabelFrame;
   }, [onStationLabelFrame]);
+
+  const gardenDirectorRef = useRef(gardenDirector);
+  useEffect(() => {
+    gardenDirectorRef.current = gardenDirector;
+  }, [gardenDirector]);
 
   const animationFramePendingRef = useRef(false);
   const paintRequestRef = useRef<() => void>(() => {});
@@ -578,6 +594,16 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       const frameWallClockHour = normalizeHour(wallClockHour);
       const sampleStartedAt = performance.now();
       const seaState = seaStateForWorld(activeWorld, { reducedMotion, wallClockHour: frameWallClockHour });
+      // G3/W4.4: one wind. The sampler reads the same plan the renderer writes
+      // from the same inputs, so bow-to-wind and the cross-current agree with
+      // the sails and flags to the frame.
+      writeWeatherPlan({
+        timeSeconds: motionTimeSeconds,
+        wallClockHour: frameWallClockHour,
+        reducedMotion,
+        psiStress: seaState.source.psiStress,
+        baseWind: seaState.wind,
+      }, samplerWeather);
       let semanticShipMotionSamples = semanticShipMotionSamplesRef.current;
       if (reducedMotion) {
         const nextSamplesSignature = `${motionPlanSignature(activeWorld)}|sea:${seaStateMotionSignature(seaState)}`;
@@ -587,6 +613,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
             reducedMotion,
             seaState,
             samples: semanticShipMotionSamples,
+            wind: samplerWeather.wind,
             timeSeconds: motionTimeSeconds,
             world: activeWorld,
           });
@@ -599,6 +626,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           reducedMotion,
           seaState,
           samples: semanticShipMotionSamples,
+          wind: samplerWeather.wind,
           timeSeconds: motionTimeSeconds,
           world: activeWorld,
         });
@@ -742,11 +770,26 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           previewSchedulerTier);
       }
       let renderMetrics: PharosVilleRenderMetrics;
+      const cameraBreathSuppressed = reducedMotion
+        || activeHoveredDetailId !== null
+        || activeSelectedDetailId !== null
+        || cameraStep.cameraIntentActive
+        || time - (lastInteractionAtMsRef.current ?? time) < CAMERA_BREATH_INPUT_FREEZE_MS;
+      const cameraBreath = cameraBreathSuppressed
+        ? STILL_CAMERA_BREATH
+        : {
+          dolly: 1 + 0.015 * Math.sin(CAMERA_BREATH_TWO_PI * motionTimeSeconds / 131 + 2.1),
+          pitch: Math.PI / 180 * Math.sin(CAMERA_BREATH_TWO_PI * motionTimeSeconds / 97 + 1.3),
+          yaw: 2 * Math.PI / 180 * Math.sin(CAMERA_BREATH_TWO_PI * motionTimeSeconds / 118),
+        };
       try {
         renderMetrics = threeRenderer.render({
           almanacEvent: almanacEvent ?? null,
+          gardenDirector: gardenDirectorRef.current,
+          epochSeconds: Date.now() / 1000,
           logos,
           camera: frameCamera,
+          cameraBreath,
           dpr,
           height: activeCanvasSize.y,
           hoveredDetailId: activeHoveredDetailId,
@@ -971,6 +1014,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           camera: frameCamera,
           canvasSize: activeCanvasSize,
           reducedMotion,
+          gardenDirector: gardenDirectorRef.current,
           renderMetrics: lastRenderMetricsRef.current,
           shipsById: activeShipsById,
           compactSampleCache: compactShipMotionSampleCacheRef.current,
@@ -1150,6 +1194,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       frameCount: motionFrameCountRef.current,
       frameState,
       reducedMotion,
+      gardenDirector,
       renderMetrics: lastRenderMetricsRef.current,
       shipsById,
       world,
@@ -1201,6 +1246,9 @@ type PharosVilleDebugState = {
   camera: IsoCamera | null;
   cameraFrameSource: "world-render-loop";
   cameraWithinBounds: boolean;
+  /** G3/W6.6: the director's bounded beat log — the unattended watch's evidence. */
+  directorLog: readonly GardenBeat[];
+  directorActive: GardenBeat | null;
   surfaceBudget: ReturnType<typeof resolveRenderSurfaceBudget> | null;
   canvasSize: ScreenPoint;
   animationFramePending: boolean;
@@ -1245,6 +1293,7 @@ function collectShipMotionSamples(input: {
   reducedMotion: boolean;
   seaState: SeaState;
   samples: ReadonlyMap<string, ShipMotionSample>;
+  wind: WeatherPlan["wind"];
   timeSeconds: number;
   world: PharosVilleWorldModel;
   trackShipHitState?: boolean;
@@ -1271,6 +1320,7 @@ function collectShipMotionSamples(input: {
         ship,
         timeSeconds: input.timeSeconds,
         flagshipSamples: samples,
+        wind: input.wind,
       }, sample);
     }
   }
@@ -1420,6 +1470,7 @@ type DebugFramePatchInput = {
     wallClockHour: number;
   };
   reducedMotion: boolean;
+  gardenDirector: GardenDirectorState | undefined;
   renderMetrics: DebugRenderMetrics;
   shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;
   world: PharosVilleWorldModel;
@@ -1440,6 +1491,8 @@ function debugFramePatch(input: DebugFramePatchInput): DebugFramePatch {
     animationFramePending: input.animationFramePending,
     camera: input.camera,
     cameraFrameSource: "world-render-loop",
+    directorActive: input.gardenDirector?.active ?? null,
+    directorLog: input.gardenDirector?.log ?? [],
     cameraWithinBounds: isCameraWithinBounds(input.camera, input.world.map, input.canvasSize),
     motionClockSource: input.reducedMotion ? "reduced-motion-static-frame" : "requestAnimationFrame",
     motionFrameCount: input.frameCount,

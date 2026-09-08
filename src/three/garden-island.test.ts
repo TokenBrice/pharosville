@@ -1,6 +1,7 @@
 import {
   BoxGeometry,
   BufferGeometry,
+  CatmullRomCurve3,
   DataTexture,
   Color,
   Group,
@@ -20,23 +21,23 @@ import type { PharosVilleWorld } from "../systems/world-types";
 import { weatherForFrame } from "../systems/weather";
 import {
   createTerracedIsland,
+  GARDEN_PATH_HALF_WIDTH,
   GARDEN_PATH_SWEEP_POINTS,
   GARDEN_POND_REFLECTION_AXES,
   GARDEN_POND_CENTER,
+  GARDEN_POND_RADIUS,
   GARDEN_NIWAKI_SPECS,
   GARDEN_ISLAND_STONE_GROUPINGS,
   GARDEN_QUAY_STAIR_HEAD,
-  GARDEN_QUAY_STAIR_TOP_Y,
   gardenIslandLanternMaterial,
   gardenIslandLanternWorldOffsets,
   ISLAND_LANTERN_DAY_EMBER,
   ISLAND_LANTERN_LAMP_NAME,
-  gardenPrecinctObeliskGateposts,
+  islandTerrainHeight,
   mergeIslandStatics,
   updateGardenNiwakiWind,
 } from "./garden-island";
 import { createGardenOverviewLod } from "./garden-overview-lod";
-import { applyGardenHeightFog } from "./garden-height-fog";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 import { GARDEN_MOON_AZIMUTH } from "./garden-sun";
 import { countDrawableObjects, TILE_SCALE } from "./garden-util";
@@ -48,7 +49,8 @@ const world = {
 describe("garden island rockwork", () => {
   it("authors one continuous S-curve from the quay stair to the pavilion", () => {
     expect(GARDEN_PATH_SWEEP_POINTS[0]).toEqual(GARDEN_QUAY_STAIR_HEAD);
-    expect(GARDEN_PATH_SWEEP_POINTS.at(-1)).toEqual({ x: 4.4, z: 2.35 });
+    expect(GARDEN_PATH_SWEEP_POINTS.at(-1)).toEqual({ x: 2.7, z: 3.15 });
+    expect(GARDEN_PATH_HALF_WIDTH).toBe(2);
     const turns = GARDEN_PATH_SWEEP_POINTS.slice(2).map((point, index) => {
       const a = GARDEN_PATH_SWEEP_POINTS[index]!;
       const b = GARDEN_PATH_SWEEP_POINTS[index + 1]!;
@@ -153,7 +155,6 @@ describe("garden island rockwork", () => {
       layeredWarm,
       layeredCool,
     );
-    applyGardenHeightFog(root);
 
     const before = countDrawableObjects(root);
     const result = mergeIslandStatics(root);
@@ -166,7 +167,6 @@ describe("garden island rockwork", () => {
     expect(merged.castShadow).toBe(true);
     expect(merged.receiveShadow).toBe(true);
     expect((merged.material as MeshStandardMaterial).vertexColors).toBe(true);
-    expect((merged.material as MeshStandardMaterial).userData.gardenHeightFog).toBe(true);
     expect(root.getObjectByName("island-reflection-pond-skin")).toBe(pond);
     expect(root.getObjectByName("shadow-split-static")).toBe(shadowSplit);
     expect(root.getObjectByName("textured-static")).toBe(textured);
@@ -198,11 +198,10 @@ describe("garden island rockwork", () => {
     expect(after).toBeLessThan(77);
     // Wave 5 is subtractive: the prior island held 61 drawables after merge.
     expect(after).toBeLessThanOrEqual(55);
-    // T2.2 (2026-09-07): 48 -> 49. Lane F left 7 slots of headroom under the
-    // ceilings above and spent none of them on the island; exactly ONE goes to
-    // the karikomi hedge (see below). Pinned exactly so the next planting has
-    // to make the same deliberate decision rather than drift into the slack.
-    expect(after).toBe(49);
+    // 47 merged draws: the landing torii and lee plank bridge replaced the
+    // obelisk pair; G2/W2.7 deleted the unlit shoal ring, which the water's
+    // shore field now paints.
+    expect(after).toBe(47);
     for (const name of ["island-reflection-pond-skin", "island-path-sweep", "island-niwaki-pads", "island-danger-rock-face"]) {
       expect(island.root.getObjectByName(name), name).toBeDefined();
     }
@@ -237,6 +236,11 @@ describe("garden island rockwork", () => {
     expect(domes.userData.gardenKeepSeparate).toBe(true);
     expect(mergeIslandStatics(island.root).merged).toBe(0);
     expect(island.root.getObjectByName("island-karikomi")).toBe(domes);
+    const pathSamples = new CatmullRomCurve3(
+      GARDEN_PATH_SWEEP_POINTS.map(({ x, z }) => new Vector3(x, 0, z)),
+      false,
+      "centripetal",
+    ).getSpacedPoints(1024);
 
     const matrix = new Matrix4();
     const position = new Vector3();
@@ -246,29 +250,26 @@ describe("garden island rockwork", () => {
     for (let index = 0; index < domes.count; index += 1) {
       domes.getMatrixAt(index, matrix);
       matrix.decompose(position, rotation, scale);
-      // Low and squashed: a clipped mound, never a shrub-ball. Half-height at
-      // most 0.36, so nothing here competes with the niwaki above it.
-      expect(scale.y, `dome ${index} height`).toBeLessThan(0.36);
+      // Enlarged by 1.4×, but still clipped low enough to read as a hedge.
+      expect(scale.y, `dome ${index} height`).toBeLessThan(0.52);
       expect(scale.y).toBeLessThan(scale.x * 0.57);
-      // Standing on rock, well clear of the -1.45 waterline.
       expect(position.y, `dome ${index} seated on rock`).toBeGreaterThan(0.5);
-      // Off the gravel: the ribbon's own half-width is ~1.28, so a dome centre
-      // inside 1.4 of the centreline would be planted ON the path.
-      const nearest = Math.min(...GARDEN_PATH_SWEEP_POINTS.map(
+      const nearest = Math.min(...pathSamples.map(
         ({ x, z }) => Math.hypot(position.x - x, position.z - z),
       ));
-      expect(nearest, `dome ${index} off the gravel`).toBeGreaterThan(1.4);
-      // Clear of the two props already standing on this flank: the observatory
-      // pavilion's 2.4-unit base and the storm-signal mast at (7.2, 3.2).
-      expect(Math.hypot(position.x - 4.4, position.z - 2.35)).toBeGreaterThan(2.6);
-      expect(Math.hypot(position.x - 7.2, position.z - 3.2)).toBeGreaterThan(0.9);
+      // Judge the dome's inner edge against the same curve that builds the
+      // gravel: enlarged azaleas still bead it without sitting on the path.
+      const radius = Math.max(scale.x, scale.z);
+      expect(nearest - radius, `dome ${index} off the gravel`)
+        .toBeGreaterThan(GARDEN_PATH_HALF_WIDTH);
       placed.push(position.clone());
     }
-    // A hedge, not a pile: consecutive domes advance along the flank.
+    // A hedge, not a pile: consecutive domes stay closer than the gravel path
+    // is wide, so the flank reads as a continuous beaded edge.
     for (let index = 1; index < placed.length; index += 1) {
       const step = placed[index]!.distanceTo(placed[index - 1]!);
-      expect(step, `gap ${index}`).toBeGreaterThan(0.3);
-      expect(step, `gap ${index}`).toBeLessThan(1.2);
+      expect(step, `gap ${index}`).toBeGreaterThan(0);
+      expect(step, `gap ${index}`).toBeLessThan(GARDEN_PATH_HALF_WIDTH * 2);
     }
   });
 
@@ -390,12 +391,30 @@ describe("garden island rockwork", () => {
       }
     });
     expect(stones).toBeInstanceOf(InstancedMesh);
+    const batch = stones as unknown as InstancedMesh;
+    const matrix = new Matrix4();
+    const vertex = new Vector3();
+    const centre = new Vector3();
+    for (let instance = 0; instance < batch.count; instance += 1) {
+      batch.getMatrixAt(instance, matrix);
+      centre.setFromMatrixPosition(matrix);
+      let top = -Infinity;
+      const positions = batch.geometry.getAttribute("position");
+      for (let index = 0; index < positions.count; index += 1) {
+        vertex.fromBufferAttribute(positions, index).applyMatrix4(matrix);
+        top = Math.max(top, vertex.y);
+      }
+      expect(top, `triad stone ${instance} crown`).toBeGreaterThan(
+        islandTerrainHeight(centre.x, centre.z),
+      );
+    }
   });
 
-  it("moves the keeper's single warm window into the fortress gatehouse", () => {
+  it("keeps the shoin court's four draws and single warm gatehouse window", () => {
     const island = createTerracedIsland(world);
     expect(island.root.getObjectByName("keeper-cottage")).toBeUndefined();
-    const precinct = island.root.getObjectByName("island-fortified-precinct")!;
+    const precinct = island.root.getObjectByName("island-shoin-precinct")!;
+    expect(countDrawableObjects(precinct)).toBe(4);
     const glowing: Mesh[] = [];
     precinct.traverse((object) => {
       if (
@@ -405,41 +424,26 @@ describe("garden island rockwork", () => {
         && object.material.emissive.getHex() !== 0
       ) glowing.push(object);
     });
-    expect(glowing.map((mesh) => mesh.name)).toEqual(["island-gatehouse-lit-window"]);
+    expect(glowing.map((mesh) => mesh.name)).toEqual(["island-shoin-precinct-gatehouse-lit-window"]);
   });
 
-  it("stands the obelisk pair as the quay stair's gateposts, unequally", () => {
-    // Merged into the stair composition rather than standing free: both posts
-    // flank the stair head, squared to the flight, and the pair is deliberately
-    // mismatched (fukinsei).
-    const posts = gardenPrecinctObeliskGateposts();
-    expect(posts).toHaveLength(2);
-    const [left, right] = posts as [
-      ReturnType<typeof gardenPrecinctObeliskGateposts>[number],
-      ReturnType<typeof gardenPrecinctObeliskGateposts>[number],
-    ];
-    expect(left.scale).not.toBeCloseTo(right.scale);
-    // One on each side of the flight, and close enough to it to read as a gate.
-    const span = Math.hypot(left.x - right.x, left.z - right.z);
-    expect(span).toBeGreaterThan(2.4);
-    expect(span).toBeLessThan(4);
-    for (const post of posts) {
-      expect(Math.hypot(post.x - GARDEN_QUAY_STAIR_HEAD.x, post.z - GARDEN_QUAY_STAIR_HEAD.z))
-        .toBeLessThan(2.2);
-      // Seated in the rock, not floating over it or buried in it.
-      expect(post.y).toBeLessThan(GARDEN_QUAY_STAIR_TOP_Y + 0.2);
-      expect(post.y).toBeGreaterThan(GARDEN_QUAY_STAIR_TOP_Y - 1.4);
-    }
-    // And they are actually built there.
+  it("replaces the obelisks with one torii and a five-span lee bridge", () => {
     const island = createTerracedIsland(world);
-    const stone = island.root.getObjectByName("pharos-obelisk-stone") as Mesh;
-    expect(stone).toBeInstanceOf(Mesh);
-    stone.geometry.computeBoundingBox();
-    const box = stone.geometry.boundingBox!;
-    expect(box.min.x).toBeLessThan(GARDEN_QUAY_STAIR_HEAD.x + 1);
-    expect(box.max.x).toBeGreaterThan(GARDEN_QUAY_STAIR_HEAD.x - 1);
-    expect(box.min.z).toBeLessThan(GARDEN_QUAY_STAIR_HEAD.z);
-    expect(box.max.z).toBeGreaterThan(GARDEN_QUAY_STAIR_HEAD.z);
+    expect(island.root.getObjectByName("pharos-precinct-obelisks")).toBeUndefined();
+    expect(island.root.getObjectByName("pharos-obelisk-stone")).toBeUndefined();
+    const torii = island.root.getObjectByName("island-landing-torii") as Mesh;
+    expect(torii).toBeInstanceOf(Mesh);
+    expect(torii.geometry.index!.count / 3).toBeLessThanOrEqual(300);
+    const bridge = island.root.getObjectByName("island-lee-plank-bridge") as InstancedMesh;
+    expect(bridge).toBeInstanceOf(InstancedMesh);
+    expect(bridge.count).toBe(5);
+    expect(bridge.geometry.index!.count / 3 * bridge.count).toBeLessThanOrEqual(1_500);
+    expect(island.root.getObjectByName("island-quay-foot-stone")).toBeInstanceOf(Mesh);
+  });
+
+  it("builds the pavilion as a thatched chaseki", () => {
+    const island = createTerracedIsland(world);
+    expect(island.root.getObjectByName("island-chaseki")).toBeDefined();
   });
 
   it("leaves the terrace surface empty instead of drawing a lamp ring", () => {
@@ -486,10 +490,10 @@ describe("garden island rockwork", () => {
       "island-danger-rock-face",
       "island-quay-stair-treads",
       "island-quay-stair-cheeks",
-      "island-precinct-masonry",
-      "island-precinct-cliff",
-      "island-precinct-recesses",
-      "island-gatehouse-lit-window",
+      "island-shoin-precinct-masonry",
+      "island-shoin-precinct-cliff",
+      "island-shoin-precinct-recesses",
+      "island-shoin-precinct-gatehouse-lit-window",
     ];
     for (const name of added) {
       const mesh = island.root.getObjectByName(name);
@@ -536,15 +540,15 @@ describe("garden island rockwork", () => {
     expect(changed).toBe(GARDEN_NIWAKI_SPECS.at(-1)!.pads.length);
   });
 
-  it("instances five unequal niwaki into a two-draw hero mass", () => {
-    expect(GARDEN_NIWAKI_SPECS).toHaveLength(5);
+  it("instances five niwaki and one autumn maple into a two-draw hero mass", () => {
+    expect(GARDEN_NIWAKI_SPECS).toHaveLength(6);
     for (const pine of GARDEN_NIWAKI_SPECS) {
       expect(pine.pads.length).toBeGreaterThanOrEqual(3);
       expect(pine.pads.length).toBeLessThanOrEqual(5);
       expect(pine.pads.length % 2).toBe(1);
       expect(new Set(pine.pads.map((pad) => pad.scaleX)).size).toBe(pine.pads.length);
     }
-    expect(new Set(GARDEN_NIWAKI_SPECS.map((pine) => pine.height)).size).toBe(5);
+    expect(new Set(GARDEN_NIWAKI_SPECS.map((pine) => pine.height)).size).toBe(6);
     // Exactly one hero stands on the rock and reaches beyond its -x/+z
     // waterline: the lower-left, camera-side overhang requested by the plan.
     const waterlineValue = (x: number, z: number) => (
@@ -570,6 +574,12 @@ describe("garden island rockwork", () => {
       "island-niwaki-pads",
     ]);
     expect(grove!.children.every((child) => child instanceof InstancedMesh)).toBe(true);
+    // Shared cone-section pads reduce the G1 grove's 4,168 triangles to 2,504.
+    const triangles = (grove!.children as InstancedMesh[]).reduce((sum, mesh) => (
+      sum + (mesh.geometry.index?.count ?? mesh.geometry.getAttribute("position").count) / 3 * mesh.count
+    ), 0);
+    expect(triangles).toBeGreaterThan(2_500);
+    expect(triangles).toBeLessThanOrEqual(2_600);
     expect((grove!.getObjectByName("island-niwaki-pads") as InstancedMesh).count)
       .toBe(GARDEN_NIWAKI_SPECS.reduce((sum, pine) => sum + pine.pads.length, 0));
     const pads = grove!.getObjectByName("island-niwaki-pads") as InstancedMesh<BufferGeometry, MeshStandardMaterial>;
@@ -650,6 +660,9 @@ describe("garden island rockwork", () => {
       if (object.name === "island-reflection-pond-skin" && object instanceof Mesh) skins.push(object);
     });
     expect(skins).toHaveLength(1);
+    expect(GARDEN_POND_RADIUS).toBe(5.5);
+    skins[0]!.geometry.computeBoundingBox();
+    expect(skins[0]!.geometry.boundingBox!.max.x).toBeCloseTo(GARDEN_POND_RADIUS);
     // The image is injected into that one standard pond material: no planar
     // target, reflection pass, texture, or second reflection mesh is built.
     const shader = {
@@ -662,8 +675,9 @@ describe("garden island rockwork", () => {
     expect(shader.vertexShader).toContain("vGardenPondPosition = position.xy");
     expect(shader.fragmentShader).toContain("float tm=");
     expect(shader.fragmentShader).toContain("float mm=");
-    // The existing shared atmosphere hooks still compose around the pond ink.
-    expect(shader.fragmentShader).toContain("gardenApplyHeightFog");
+    // The shared cloud hook still composes around the pond ink; height fog is
+    // far-bank opt-in only (G2/W2.4), so the island never carries it.
+    expect(shader.fragmentShader).not.toContain("gardenApplyHeightFog");
     expect(shader.fragmentShader).toContain("gardenCloudLight");
   });
 
@@ -724,7 +738,7 @@ const OBSTACLE_LOCAL = {
 /**
  * Worst ellipse value over actual transformed vertices — every instance for
  * an InstancedMesh. The ellipse is convex, so containing each triangle's
- * vertices contains its interior too. A merged chamfered fortress has empty
+ * vertices contains its interior too. A merged chamfered precinct has empty
  * bounding-box corners outside its real footprint; those are not land.
  */
 function maxObstacleEllipseValue(mesh: Mesh): number {

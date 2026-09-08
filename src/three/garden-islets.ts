@@ -16,21 +16,16 @@ import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import { stableUnit, TILE_SCALE } from "./garden-util";
 import { landWorldTile } from "../systems/map-scale";
 import { createGardenTorii } from "./garden-torii";
-import { createPineGeometry } from "./garden-rim-mesh";
+import { createSpeciesBatch } from "./garden-flora";
 
 /**
  * Z5 — Garden islets (Sakuteiki stone groupings in open water).
  *
- * Three small poetic islets break the open sea intentionally (composed ma,
- * not void), following the Sakuteiki rules: odd clusters, one dominant
- * vertical stone with subordinate horizontals, stones leaning toward each
- * other:
- * - "crane" (tile 29,7 — northern open water): a tall craggy dominant rock
- *   with two subordinate stones leaning in.
- * - "turtle" (tile 3,21 — western open water): a broken arc of five
- *   mostly-submerged backs around one raised stone.
- * - "lone" (tile 25,45 — the south-western quiet water between the Calm and
- *   Watch rings): one upright stone flanked by two low companions.
+ * Four small poetic islets break the open sea intentionally (composed ma):
+ * - "crane" carries a tall crag and two subordinate stones.
+ * - "turtle" is a broken arc of five mostly-submerged backs.
+ * - "lone" retains its quiet-water ripple after lending its stones and pine.
+ * - "satellite" receives that triad and pine at the landing bridge.
  *
  * All positions verified against the approved Z1 layout: open painted water,
  * clear of every zone ellipse, the island, and the harbor mirror basin.
@@ -112,24 +107,27 @@ const worldAt = (tileX: number, tileY: number): { x: number; z: number } => {
 const CRANE = worldAt(29, 7);
 const TURTLE = worldAt(3, 21);
 const LONE = worldAt(25, 45);
+// The landing bridge reaches this lee-shore satellite, 9.8 world units from
+// the island's outer stair foot.
+const SATELLITE = worldAt(28, 0);
 
 export const GARDEN_ISLETS: readonly GardenIsletSpec[] = [
   { center: CRANE, id: "garden-islet.crane", ringRadius: 4.2 },
   { center: TURTLE, id: "garden-islet.turtle", ringRadius: 5.0 },
   { center: LONE, id: "garden-islet.lone", ringRadius: 3.6 },
+  { center: SATELLITE, id: "garden-islet.satellite", ringRadius: 3.4 },
 ];
 
-// Sakuteiki groupings: the crane's subordinates lean toward the dominant
-// stone; the turtle's backs arc and dip; the lone stone keeps two low
-// companions so no grouping is even-numbered.
+// Crane and satellite are complete triads; turtle keeps five backs. The lone
+// islet lends its three stones to the landing without increasing the budget.
 const CRAG_STONES: readonly StonePlacement[] = [
   // crane — dominant vertical
   { leanX: 0.03, leanZ: 0.07, position: [CRANE.x, GARDEN_WATER_Y - 0.72, CRANE.z], rotationY: 0.53, scale: [1.5, 3.4, 1.42] },
   // crane — subordinates leaning in
   { leanX: 0.11, leanZ: -0.24, position: [CRANE.x + 2.2, GARDEN_WATER_Y - 1.02, CRANE.z + 0.65], rotationY: 2.18, scale: [1.05, 1.55, 0.9] },
   { leanX: -0.09, leanZ: 0.28, position: [CRANE.x - 1.35, GARDEN_WATER_Y - 1.12, CRANE.z - 1.4], rotationY: 4.31, scale: [0.72, 1.08, 0.86] },
-  // lone — upright companioned stone
-  { leanX: 0.05, leanZ: -0.12, position: [LONE.x + 0.1, GARDEN_WATER_Y - 0.88, LONE.z - 0.15], rotationY: 1.24, scale: [1.12, 2.05, 0.96] },
+  // satellite — upright anchor beside the bridge landing
+  { leanX: 0.05, leanZ: -0.12, position: [SATELLITE.x + 0.1, GARDEN_WATER_Y - 0.72, SATELLITE.z - 0.15], rotationY: 1.24, scale: [1.12, 2.05, 0.96] },
 ];
 
 const REEF_STONES: readonly StonePlacement[] = [
@@ -140,9 +138,9 @@ const REEF_STONES: readonly StonePlacement[] = [
   { leanX: -0.06, leanZ: 0.08, position: [TURTLE.x + 0.45, GARDEN_WATER_Y - 0.72, TURTLE.z - 0.65], rotationY: 3.17, scale: [1.45, 1.42, 1.05] },
   { leanX: 0.07, leanZ: -0.06, position: [TURTLE.x + 2.4, GARDEN_WATER_Y - 0.36, TURTLE.z + 0.15], rotationY: 5.02, scale: [1.8, 0.58, 0.95] },
   { leanX: -0.05, leanZ: 0.07, position: [TURTLE.x + 3.5, GARDEN_WATER_Y - 0.44, TURTLE.z + 1.35], rotationY: 2.47, scale: [1.35, 0.42, 0.82] },
-  // lone — two low companions
-  { leanX: 0.08, leanZ: 0.14, position: [LONE.x + 1.95, GARDEN_WATER_Y - 0.38, LONE.z + 0.5], rotationY: 0.82, scale: [1.42, 0.52, 0.88] },
-  { leanX: -0.06, leanZ: -0.12, position: [LONE.x - 1.2, GARDEN_WATER_Y - 0.46, LONE.z - 1.05], rotationY: 3.78, scale: [1.08, 0.44, 0.82] },
+  // satellite — two low companions complete its landing triad
+  { leanX: 0.08, leanZ: 0.14, position: [SATELLITE.x + 1.95, GARDEN_WATER_Y - 0.38, SATELLITE.z + 0.5], rotationY: 0.82, scale: [1.42, 0.52, 0.88] },
+  { leanX: -0.06, leanZ: -0.12, position: [SATELLITE.x - 1.2, GARDEN_WATER_Y - 0.46, SATELLITE.z - 1.05], rotationY: 3.78, scale: [1.08, 0.44, 0.82] },
 ];
 
 /**
@@ -226,32 +224,16 @@ const ISLET_PINES: readonly {
   { leanX: 0.1, leanZ: -0.17, position: [CRANE.x + 0.3, GARDEN_WATER_Y + 2.28, CRANE.z - 0.22], rotationY: 0.9, scale: 0.5 },
   // crane — one subordinate takes a smaller tree so the group stays odd-read
   { leanX: -0.12, leanZ: 0.2, position: [CRANE.x + 2.15, GARDEN_WATER_Y + 0.42, CRANE.z + 0.6], rotationY: 3.4, scale: 0.3 },
-  // lone — the upright stone's companion tree, leaning back toward the crag
-  { leanX: 0.08, leanZ: 0.22, position: [LONE.x + 0.05, GARDEN_WATER_Y + 1.05, LONE.z - 0.2], rotationY: 2.05, scale: 0.4 },
+  // satellite — one wind-shaped pine beside the bridge landing
+  { leanX: 0.08, leanZ: 0.22, position: [SATELLITE.x + 0.05, GARDEN_WATER_Y + 1.05, SATELLITE.z - 0.2], rotationY: 2.05, scale: 0.4 },
   // turtle — the one raised back in the arc gets the smallest tree
   { leanX: -0.14, leanZ: -0.1, position: [TURTLE.x + 0.45, GARDEN_WATER_Y + 0.6, TURTLE.z - 0.62], rotationY: 5.1, scale: 0.26 },
 ];
 
 function createIsletPines(): { mesh: InstancedMesh; triangles: number } {
-  const geometry = createPineGeometry();
-  const mesh = new InstancedMesh(
-    geometry,
-    new MeshStandardMaterial({ flatShading: true, roughness: 0.94, vertexColors: true }),
-    ISLET_PINES.length,
-  );
+  const mesh = createSpeciesBatch("pine", ISLET_PINES);
   mesh.name = "garden-islets-pines";
-  for (const [index, pine] of ISLET_PINES.entries()) {
-    scratchPosition.set(...pine.position);
-    scratchQuaternion.setFromAxisAngle(Y_AXIS, pine.rotationY);
-    scratchScale.setScalar(pine.scale);
-    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
-    scratchMatrix.multiply(new Matrix4().makeRotationX(pine.leanX));
-    scratchMatrix.multiply(new Matrix4().makeRotationZ(pine.leanZ));
-    mesh.setMatrixAt(index, scratchMatrix);
-  }
-  mesh.instanceMatrix.needsUpdate = true;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
+  const geometry = mesh.geometry;
   const perPine = (geometry.getIndex()?.count ?? geometry.getAttribute("position").count) / 3;
   return { mesh, triangles: perPine * ISLET_PINES.length };
 }

@@ -112,6 +112,8 @@ const TILE_TO_WORLD = Math.SQRT2;
 // given an optimistic water exclusion.
 const MAX_DOCK_OBSTACLE_SUPPLY_USD = Number.POSITIVE_INFINITY;
 const MAX_DOCK_OBSTACLE_SIZE = 10;
+const MAX_DOCK_OBSTACLE_FRONTAGE_SHARE = 10;
+const MAX_DOCK_OBSTACLE_FRONTAGE_MEDIAN_SHARE = 1;
 
 /**
  * Dock/pier structures a free-moored ship must clear (zone representatives
@@ -186,10 +188,13 @@ export const GARDEN_DOCK_OBSTACLES: readonly GardenCircle[] = [
     .map((slot) => ({
       x: slot.cove.tile.x,
       y: slot.cove.tile.y,
+      // Supply USD is no longer frontage input; reserve the 1.25x share cap explicitly.
       r: stationClearanceTiles(
         slot.type,
         MAX_DOCK_OBSTACLE_SUPPLY_USD,
         MAX_DOCK_OBSTACLE_SIZE,
+        MAX_DOCK_OBSTACLE_FRONTAGE_SHARE,
+        MAX_DOCK_OBSTACLE_FRONTAGE_MEDIAN_SHARE,
       ),
     })),
   {
@@ -199,6 +204,8 @@ export const GARDEN_DOCK_OBSTACLES: readonly GardenCircle[] = [
       PIGEONNIER_STATION_SLOT.type,
       MAX_DOCK_OBSTACLE_SUPPLY_USD,
       MAX_DOCK_OBSTACLE_SIZE,
+      MAX_DOCK_OBSTACLE_FRONTAGE_SHARE,
+      MAX_DOCK_OBSTACLE_FRONTAGE_MEDIAN_SHARE,
     ),
   },
 ] as const;
@@ -244,6 +251,24 @@ const GARDEN_HULL_MAX_Z_REACH_WORLD: Record<GardenHullSilhouette, number> = {
   junk: 1.441,
   scow: 2.390,
 };
+
+/**
+ * Rendered half-extents of a hull in world units along its own x (length) and
+ * z (beam) axes: the merged-family reach tables above at the RENDERED scale,
+ * including the hull-form deformation span. Used by the contact shadow so the
+ * ellipse is the hull's actual footprint rather than a selection-radius guess.
+ */
+export function gardenShipHullReachWorld(
+  visualScale: number,
+  silhouette: GardenHullSilhouette,
+  hullForm: { length: number; beam: number } | null | undefined,
+): { x: number; z: number } {
+  const scale = Math.max(0.4, visualScale || 1);
+  return {
+    x: GARDEN_HULL_MAX_X_REACH_WORLD[silhouette] * scale * (hullForm?.length ?? 1),
+    z: GARDEN_HULL_MAX_Z_REACH_WORLD[silhouette] * scale * (hullForm?.beam ?? 1),
+  };
+}
 
 export function gardenShipWaterBeamTiles(visualScale: number, silhouette: GardenHullSilhouette): number {
   return GARDEN_HULL_MAX_Z_REACH_WORLD[silhouette] * (1 + SHIP_HULL_FORM_SPAN)

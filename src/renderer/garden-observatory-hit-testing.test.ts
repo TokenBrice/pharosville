@@ -1,6 +1,6 @@
 import { Vector3, Matrix4 } from "three";
 import { authorDock } from "../three/garden-docks";
-import { buildHitTargetSpatialIndex, hitTest, hitTestSpatial } from "./hit-testing";
+import { hitTest, hitTestSpatial } from "./hit-testing";
 import { describe, expect, it } from "vitest";
 import {
   denseFixtureChains,
@@ -27,7 +27,7 @@ import {
 } from "../systems/garden-observatory-slice";
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
-import { TILE_WIDTH } from "../systems/projection";
+import { worldToScreen, type IsoCamera } from "../systems/projection";
 import {
   SEA_SIGN_STELE,
   createSeaSignScaleTrack,
@@ -35,8 +35,43 @@ import {
   seaSignScaleForZoom,
 } from "../three/garden-sea-signs";
 import { createGardenObservatoryHitTargetSnapshot } from "./garden-observatory-hit-testing";
+import type { SeaSignStele } from "../three/garden-sea-sign-siting";
 
+// Projection-only tests without a rendered viewport use the desktop baseline.
+const TEST_VIEWPORT = { x: 1600, y: 1000 };
 describe("Garden Observatory hit targets", () => {
+  it("bounds perspective pointer coverage without discarding detail targets", () => {
+    const world = denseWorld();
+    const camera = { offsetX: 720, offsetY: 430, zoom: 1.4 };
+    for (const viewport of [{ width: 1600, height: 1000 }, { width: 1, height: 1 }]) {
+      const snapshot = createGardenObservatoryHitTargetSnapshot({ camera, viewport, world });
+      expect(snapshot.targets.filter((target) => target.kind === "dock").map((target) => target.detailId))
+        .toEqual(world.docks.map((dock) => dock.detailId));
+      expect(snapshot.spatialIndex.cells.size).toBeLessThanOrEqual(64 * 64);
+      for (const target of snapshot.spatialIndex.targets) {
+        expect(target.rect.x).toBeGreaterThanOrEqual(-viewport.width);
+        expect(target.rect.y).toBeGreaterThanOrEqual(-viewport.height);
+        expect(target.rect.x + target.rect.width).toBeLessThanOrEqual(viewport.width * 2);
+        expect(target.rect.y + target.rect.height).toBeLessThanOrEqual(viewport.height * 2);
+        const centre = { x: target.rect.x + target.rect.width / 2, y: target.rect.y + target.rect.height / 2 };
+        expect(hitTestSpatial(snapshot.spatialIndex, centre)).toEqual(hitTest(snapshot.spatialIndex.targets, centre));
+      }
+      expect(hitTestSpatial(snapshot.spatialIndex, { x: viewport.width * 3, y: viewport.height * 3 })).toBeNull();
+    }
+  });
+
+  it("drops non-finite projections only from the pointer index", () => {
+    const world = denseWorld();
+    const snapshot = createGardenObservatoryHitTargetSnapshot({
+      camera: { offsetX: Number.NaN, offsetY: 430, zoom: 1 },
+      world,
+    });
+    expect(snapshot.spatialIndex.targets).toEqual([]);
+    expect(snapshot.targetsByDetailId.has(world.lighthouse.detailId)).toBe(true);
+    expect(snapshot.targets.filter((target) => target.kind === "dock").map((target) => target.detailId))
+      .toEqual(world.docks.map((dock) => dock.detailId));
+  });
+
   it("picks authored flag cloth without swallowing the sea between flag and quay", () => {
     const world = denseWorld();
     for (const zoom of [0.28, 0.50184, 1.4]) {
@@ -57,9 +92,18 @@ describe("Garden Observatory hit targets", () => {
           matrix.premultiply(recipe.rootMatrix);
           for (const x of [0, 1.5]) for (const y of [-0.63, 0.5]) {
             const point = new Vector3(x, y, 0).applyMatrix4(matrix);
-            const screen = gardenTileToScreen({ x: point.x / Math.SQRT2, y: point.z / Math.SQRT2 }, point.y, camera);
+            const screen = gardenTileToScreen(
+              { x: point.x / Math.SQRT2, y: point.z / Math.SQRT2 },
+              point.y,
+              camera,
+              TEST_VIEWPORT,
+            );
             expect(hitTest([flag, quay], screen)?.detailId, dock.chainId).toBe(dock.detailId);
-            expect(hitTestSpatial(buildHitTargetSpatialIndex([flag, quay]), screen)?.detailId, dock.chainId).toBe(dock.detailId);
+            if (pointInRect(screen, { x: -TEST_VIEWPORT.x, y: -TEST_VIEWPORT.y,
+              width: TEST_VIEWPORT.x * 3, height: TEST_VIEWPORT.y * 3 })) {
+              const pointerFlag = snapshot.spatialIndex.targetById.get(flag.id);
+              expect(pointerFlag && pointInRect(screen, pointerFlag.rect), dock.chainId).toBe(true);
+            }
           }
         }
         const gap = {
@@ -114,7 +158,12 @@ describe("Garden Observatory hit targets", () => {
     expect(dockTargets).toHaveLength(world.docks.length);
     for (const dock of world.docks) {
       expect(snapshot.targetsByDetailId.get(dock.detailId)?.anchor).toEqual(
-        gardenTileToScreen(dock.tile, GARDEN_DOCK_ROOT_Y, camera),
+        gardenTileToScreen(
+          dock.tile,
+          GARDEN_DOCK_ROOT_Y,
+          camera,
+          { x: viewport.width, y: viewport.height },
+        ),
       );
     }
     expect(dockTargets.some((target) => !rectInsideViewport(target.rect, viewport))).toBe(true);
@@ -176,16 +225,19 @@ describe("Garden Observatory hit targets", () => {
       lighthouseTile,
       GARDEN_LIGHTHOUSE_ROOT_OFFSET.y,
       camera,
+      TEST_VIEWPORT,
     );
     const beacon = gardenTileToScreen(
       lighthouseTile,
       GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_BEACON_Y,
       camera,
+      TEST_VIEWPORT,
     );
     const top = gardenTileToScreen(
       lighthouseTile,
       GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT,
       camera,
+      TEST_VIEWPORT,
     );
     const target = createGardenObservatoryHitTargetSnapshot({ camera, world })
       .targetsByDetailId.get(world.lighthouse.detailId);
@@ -193,10 +245,15 @@ describe("Garden Observatory hit targets", () => {
     expect(target?.anchor).toEqual(beacon);
     expect(target && pointInRect(base, target.rect)).toBe(true);
     expect(target && pointInRect(top, target.rect)).toBe(true);
-    // Epic Pharos's broad stylobate must remain clickable beyond the old
-    // 80px target, not just along the tower's vertical centreline.
-    expect(target && pointInRect({ x: base.x + 49, y: base.y }, target.rect)).toBe(true);
-    expect(target && pointInRect({ x: base.x - 49, y: base.y }, target.rect)).toBe(true);
+    // The broad stylobate remains clickable on both sides of the tower.
+    for (const direction of [-1, 1]) {
+      const edge = worldToScreen({
+        x: lighthouseTile.x * Math.SQRT2 + direction * Math.cos(Math.PI / 4) * 3,
+        y: GARDEN_LIGHTHOUSE_ROOT_OFFSET.y,
+        z: lighthouseTile.y * Math.SQRT2 - direction * Math.sin(Math.PI / 4) * 3,
+      }, camera, TEST_VIEWPORT);
+      expect(target && pointInRect(edge, target.rect)).toBe(true);
+    }
   });
 
   it("anchors a ship target to the exact shared displayed tile", () => {
@@ -222,7 +279,7 @@ describe("Garden Observatory hit targets", () => {
       world,
     });
     expect(overview.targetsByDetailId.get(placement!.ship.detailId)?.anchor).toEqual(
-      gardenTileToScreen(expectedTile, GARDEN_SHIP_ROOT_Y, camera),
+      gardenTileToScreen(expectedTile, GARDEN_SHIP_ROOT_Y, camera, TEST_VIEWPORT),
     );
 
     const inspected = createGardenObservatoryHitTargetSnapshot({
@@ -232,7 +289,7 @@ describe("Garden Observatory hit targets", () => {
       world,
     });
     expect(inspected.targetsByDetailId.get(placement!.ship.detailId)?.anchor).toEqual(
-      gardenTileToScreen(expectedTile, GARDEN_SHIP_ROOT_Y, camera),
+      gardenTileToScreen(expectedTile, GARDEN_SHIP_ROOT_Y, camera, TEST_VIEWPORT),
     );
   });
 
@@ -325,21 +382,17 @@ describe("Carved sea-name stele targets (W2a)", () => {
     }
   });
 
-  it("tracks the same discrete overview rung as the drawn stele", () => {
+  it("covers the drawn stele at each overview and inhabited scale", () => {
     const world = denseWorld();
-    const widthAt = (zoom: number) => {
-      const snapshot = createGardenObservatoryHitTargetSnapshot({
-        camera: { offsetX: 720, offsetY: 430, zoom },
-        world,
-      });
-      return snapshot.targets.find((target) => target.kind === "sea-sign")!.rect.width;
-    };
-
-    expect(seaSignScaleForZoom(0.28)).toBe(2.6);
-    expect(seaSignScaleForZoom(2.4)).toBe(1);
-    expect(widthAt(0.28)).toBeGreaterThan(widthAt(0.5));
-    expect(widthAt(0.5)).toBeCloseTo(widthAt(0.8) * (0.5 / 0.8), 6);
-    expect(widthAt(2)).toBeCloseTo(widthAt(1) * 2, 6);
+    const stele = seaSignSteles(world.areas).find((entry) => entry.detailId)!;
+    for (const zoom of [0.28, 0.5, 0.8, 1, 2]) {
+      const camera = { offsetX: 720, offsetY: 430, zoom };
+      const snapshot = createGardenObservatoryHitTargetSnapshot({ camera, world });
+      const target = snapshot.targets.find((entry) => entry.id === `sea-sign.${stele.body}`)!;
+      expect(Math.abs(target.rect.width
+        - Math.max(24, drawnSteleBounds(stele, seaSignScaleForZoom(zoom), camera).width)))
+        .toBeLessThan(0.1);
+    }
   });
 
   it("uses the renderer track's exact scale throughout both hysteresis walks", () => {
@@ -351,15 +404,17 @@ describe("Carved sea-name stele targets (W2a)", () => {
           deltaSeconds: index === 0 ? Number.POSITIVE_INFINITY : 1 / 60,
           zoom,
         });
+        const camera = { offsetX: 720, offsetY: 430, zoom };
         const snapshot = createGardenObservatoryHitTargetSnapshot({
-          camera: { offsetX: 720, offsetY: 430, zoom },
+          camera,
           seaSignScale: track.scale,
           world,
         });
         const target = snapshot.targets.find((entry) => entry.kind === "sea-sign")!;
-        const hitScale = target.rect.width
-          / (SEA_SIGN_STELE.width * (TILE_WIDTH / 2) * zoom);
-        expect(hitScale).toBeCloseTo(drawnScale, 6);
+        const stele = seaSignSteles(world.areas).find((entry) => entry.detailId)!;
+        expect(Math.abs(target.rect.width
+          - Math.max(24, drawnSteleBounds(stele, drawnScale, camera).width)))
+          .toBeLessThan(0.1);
       }
     };
 
@@ -378,20 +433,10 @@ describe("Carved sea-name stele targets (W2a)", () => {
       const target = createGardenObservatoryHitTargetSnapshot({ camera, world })
         .targetsByDetailId.get(stele!.detailId!);
 
-      const centre = gardenTileToScreen(
-        { x: stele!.x / Math.SQRT2, y: stele!.z / Math.SQRT2 },
-        GARDEN_WATER_Y + SEA_SIGN_STELE.baseY * scale,
-        camera,
-      );
-      expect(target?.anchor?.x).toBeCloseTo(centre.x, 6);
-      expect(target?.anchor?.y).toBeCloseTo(centre.y, 6);
-      // The face's own carved width, projected. The stele is yawed 45 degrees,
-      // which in this iso rig lays it exactly along the screen-horizontal axis,
-      // so one world unit of stele is TILE_WIDTH / 2 screen units.
-      expect(target?.rect.width).toBeCloseTo(
-        SEA_SIGN_STELE.width * scale * (TILE_WIDTH / 2) * zoom,
-        6,
-      );
+      const bounds = drawnSteleBounds(stele!, scale, camera);
+      expect(Math.abs(target!.anchor!.x - (bounds.x + bounds.width / 2))).toBeLessThan(0.1);
+      expect(Math.abs(target!.anchor!.y - (bounds.y + bounds.height / 2))).toBeLessThan(0.1);
+      expect(Math.abs(target!.rect.width - Math.max(24, bounds.width))).toBeLessThan(0.1);
     }
   });
 
@@ -408,6 +453,31 @@ describe("Carved sea-name stele targets (W2a)", () => {
     expect(snapshot.targetsByDetailId.get(world.areas[0]!.detailId)?.kind).toBe("area");
   });
 });
+
+function drawnSteleBounds(
+  stele: SeaSignStele,
+  scale: number,
+  camera: IsoCamera,
+) {
+  const matrix = new Matrix4().makeTranslation(stele.x, GARDEN_WATER_Y, stele.z)
+    .multiply(new Matrix4().makeRotationY(SEA_SIGN_STELE.yaw))
+    .multiply(new Matrix4().makeScale(scale, scale, scale));
+  const corners = [];
+  for (const x of [-SEA_SIGN_STELE.width / 2, SEA_SIGN_STELE.width / 2]) {
+    for (const y of [-SEA_SIGN_STELE.height / 2, SEA_SIGN_STELE.height / 2]) {
+      const world = new Vector3(x, SEA_SIGN_STELE.baseY + y, 0).applyMatrix4(matrix);
+      corners.push(worldToScreen(world, camera, TEST_VIEWPORT));
+    }
+  }
+  const x = Math.min(...corners.map((point) => point.x));
+  const y = Math.min(...corners.map((point) => point.y));
+  return {
+    x,
+    y,
+    width: Math.max(...corners.map((point) => point.x)) - x,
+    height: Math.max(...corners.map((point) => point.y)) - y,
+  };
+}
 
 function denseWorld() {
   return buildPharosVilleWorld({

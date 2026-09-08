@@ -1,5 +1,45 @@
 export const TILE_WIDTH = 32;
 export const TILE_HEIGHT = 16;
+export const TILE_SCALE = Math.SQRT2;
+export const CAMERA_FOV_DEG = 32;
+/**
+ * Pitch is pose-dependent. Standing on the garden shore (close, zoom ≥ 0.9)
+ * the eye is ~20 u up and the Pharos crown is 40 u up: a fixed 12° down-pitch
+ * would always clip the crown (the top ray reaches only 4° above the horizon).
+ * So the rig looks less far down the closer it stands: 12° at the whole-map
+ * pull-out, easing to 4° at zoom 0.9 and beyond. The horizon rises from 12.9 %
+ * to ~37.5 % of the frame as the viewer approaches — the sky band the bible
+ * asks for is earned by proximity, not by a taller tower.
+ */
+export const CAMERA_PITCH_FAR_RAD = 12 * Math.PI / 180;
+export const CAMERA_PITCH_NEAR_RAD = 4 * Math.PI / 180;
+export const CAMERA_PITCH_FAR_ZOOM = 0.45;
+export const CAMERA_PITCH_NEAR_ZOOM = 0.9;
+/** The whole-map pull-out pitch; per-frame consumers must use `cameraPoseFromIso(...).pitch`. */
+export const CAMERA_PITCH_RAD = CAMERA_PITCH_FAR_RAD;
+export const CAMERA_YAW = Math.PI / 4;
+export const CAMERA_NEAR = 1;
+export const CAMERA_FAR = 600;
+
+export function cameraPitchForZoom(zoom: number): number {
+  const t = Math.min(1, Math.max(0, (zoom - CAMERA_PITCH_FAR_ZOOM) / (CAMERA_PITCH_NEAR_ZOOM - CAMERA_PITCH_FAR_ZOOM)));
+  return CAMERA_PITCH_FAR_RAD + (CAMERA_PITCH_NEAR_RAD - CAMERA_PITCH_FAR_RAD) * t;
+}
+
+const CAMERA_TAN_HALF_FOV = Math.tan(CAMERA_FOV_DEG * Math.PI / 360);
+const CAMERA_RIGHT = { x: Math.cos(CAMERA_YAW), y: 0, z: -Math.sin(CAMERA_YAW) };
+
+interface CameraBasis {
+  up: { x: number; y: number; z: number };
+  back: { x: number; y: number; z: number };
+}
+
+function cameraBasis(pitch: number): CameraBasis {
+  return {
+    up: { x: -Math.sin(pitch) * Math.sin(CAMERA_YAW), y: Math.cos(pitch), z: -Math.sin(pitch) * Math.cos(CAMERA_YAW) },
+    back: { x: Math.cos(pitch) * Math.sin(CAMERA_YAW), y: Math.sin(pitch), z: Math.cos(pitch) * Math.cos(CAMERA_YAW) },
+  };
+}
 
 export interface ScreenPoint {
   x: number;
@@ -15,6 +55,134 @@ export interface IsoCamera {
   offsetX: number;
   offsetY: number;
   zoom: number;
+}
+
+export interface CameraPose {
+  targetTile: TilePoint;
+  /** Height of the look-at point above the tile plane, world units. */
+  targetHeight: number;
+  /** Eye-to-target distance preserving the pose-space zoom's target-plane view height. */
+  distance: number;
+  yaw: number;
+  pitch: number;
+}
+
+/**
+ * The look-at point rises as the viewer approaches: at the whole-map pull-out
+ * the rig looks at the ground; on the garden shore it looks at the tower's
+ * lower third, which is how a standing viewer keeps a 40 u crown in a 32°
+ * frame without craning. Eye height = targetHeight + distance·sin(pitch).
+ */
+export const CAMERA_TARGET_HEIGHT_NEAR = 14;
+
+export function cameraTargetHeightForZoom(zoom: number): number {
+  const t = Math.min(1, Math.max(0, (zoom - CAMERA_PITCH_FAR_ZOOM) / (CAMERA_PITCH_NEAR_ZOOM - CAMERA_PITCH_FAR_ZOOM)));
+  return CAMERA_TARGET_HEIGHT_NEAR * t;
+}
+
+interface WorldPoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export function cameraDistanceForZoom(viewportHeight: number, zoom: number): number {
+  return viewportHeight / (TILE_HEIGHT * zoom * 2 * CAMERA_TAN_HALF_FOV);
+}
+
+export function cameraEye(pose: CameraPose): WorldPoint {
+  const horizontalDistance = pose.distance * Math.cos(pose.pitch);
+  return {
+    x: pose.targetTile.x * TILE_SCALE + horizontalDistance * Math.sin(pose.yaw),
+    y: pose.targetHeight + pose.distance * Math.sin(pose.pitch),
+    z: pose.targetTile.y * TILE_SCALE + horizontalDistance * Math.cos(pose.yaw),
+  };
+}
+
+export function cameraPoseFromIso(camera: IsoCamera, viewport: ScreenPoint): CameraPose {
+  return {
+    targetTile: screenToTile({ x: viewport.x / 2, y: viewport.y / 2 }, camera),
+    targetHeight: cameraTargetHeightForZoom(camera.zoom),
+    distance: cameraDistanceForZoom(viewport.y, camera.zoom),
+    yaw: CAMERA_YAW,
+    pitch: cameraPitchForZoom(camera.zoom),
+  };
+}
+
+/** Inverts a pose on the fixed-yaw rig; pitch is recomputed from zoom by `cameraPoseFromIso`. */
+export function isoFromCameraPose(pose: CameraPose, viewport: ScreenPoint): IsoCamera {
+  const zoom = cameraDistanceForZoom(viewport.y, 1) / pose.distance;
+  const target = tileToIso(pose.targetTile);
+  return {
+    offsetX: viewport.x / 2 - target.x * zoom,
+    offsetY: viewport.y / 2 - target.y * zoom,
+    zoom,
+  };
+}
+
+// Row-major perspective projection * view matrix (OpenGL depth convention).
+function perspectiveMatrix(camera: IsoCamera, viewport: ScreenPoint): number[] {
+  const pose = cameraPoseFromIso(camera, viewport);
+  const eye = cameraEye(pose);
+  const { up, back } = cameraBasis(pose.pitch);
+  const sx = viewport.y / (viewport.x * CAMERA_TAN_HALF_FOV);
+  const sy = 1 / CAMERA_TAN_HALF_FOV;
+  const sz = -(CAMERA_FAR + CAMERA_NEAR) / (CAMERA_FAR - CAMERA_NEAR);
+  const tz = -2 * CAMERA_FAR * CAMERA_NEAR / (CAMERA_FAR - CAMERA_NEAR);
+  const rightEye = CAMERA_RIGHT.x * eye.x + CAMERA_RIGHT.z * eye.z;
+  const upEye = up.x * eye.x + up.y * eye.y + up.z * eye.z;
+  const backEye = back.x * eye.x + back.y * eye.y + back.z * eye.z;
+  return [
+    sx * CAMERA_RIGHT.x, 0, sx * CAMERA_RIGHT.z, -sx * rightEye,
+    sy * up.x, sy * up.y, sy * up.z, -sy * upEye,
+    sz * back.x, sz * back.y, sz * back.z, tz - sz * backEye,
+    -back.x, -back.y, -back.z, backEye,
+  ];
+}
+
+export function worldToScreen(world: WorldPoint, camera: IsoCamera, viewport: ScreenPoint): ScreenPoint {
+  const matrix = perspectiveMatrix(camera, viewport);
+  const w = Math.max(1e-9, matrix[12] * world.x + matrix[13] * world.y + matrix[14] * world.z + matrix[15]);
+  const ndcX = (matrix[0] * world.x + matrix[1] * world.y + matrix[2] * world.z + matrix[3]) / w;
+  const ndcY = (matrix[4] * world.x + matrix[5] * world.y + matrix[6] * world.z + matrix[7]) / w;
+  return { x: (ndcX + 1) * viewport.x / 2, y: (1 - ndcY) * viewport.y / 2 };
+}
+
+/** Perspective rays share the eye and diverge through the viewport pixels. */
+export function screenToGroundRay(
+  point: ScreenPoint,
+  camera: IsoCamera,
+  viewport: ScreenPoint,
+): { origin: WorldPoint; direction: WorldPoint } {
+  const pose = cameraPoseFromIso(camera, viewport);
+  const { up, back } = cameraBasis(pose.pitch);
+  const right = (2 * point.x / viewport.x - 1) * CAMERA_TAN_HALF_FOV * viewport.x / viewport.y;
+  const upScale = (1 - 2 * point.y / viewport.y) * CAMERA_TAN_HALF_FOV;
+  const x = right * CAMERA_RIGHT.x + upScale * up.x - back.x;
+  const y = upScale * up.y - back.y;
+  const z = right * CAMERA_RIGHT.z + upScale * up.z - back.z;
+  const length = Math.hypot(x, y, z);
+  return {
+    origin: cameraEye(pose),
+    direction: { x: x / length, y: y / length, z: z / length },
+  };
+}
+
+export function screenToGround(
+  point: ScreenPoint,
+  camera: IsoCamera,
+  viewport: ScreenPoint,
+  groundY = 0,
+): TilePoint {
+  const ray = screenToGroundRay(point, camera, viewport);
+  const intersection = (groundY - ray.origin.y) / ray.direction.y;
+  const distance = ray.direction.y >= 0 || intersection < 0
+    ? CAMERA_FAR
+    : Math.min(CAMERA_FAR, intersection);
+  return {
+    x: (ray.origin.x + distance * ray.direction.x) / TILE_SCALE,
+    y: (ray.origin.z + distance * ray.direction.z) / TILE_SCALE,
+  };
 }
 
 export interface MapLike {
@@ -41,6 +209,11 @@ export function gardenWaterPlateContainsTile(tile: TilePoint, map: MapLike): boo
     && tile.y <= map.height - 1 + GARDEN_PLATE_MARGIN_TILES;
 }
 
+/**
+ * The iso conversions below are pose-space helpers for fitting, clamping and
+ * zooming, not rendered screen truth. Use worldToScreen / screenToGround for
+ * perspective projection and picking.
+ */
 export function tileToIso(tile: TilePoint): ScreenPoint {
   return {
     x: (tile.x - tile.y) * (TILE_WIDTH / 2),

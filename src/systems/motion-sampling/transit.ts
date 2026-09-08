@@ -6,10 +6,9 @@ import {
   MOTION_UNDERWAY_MAX_TILES_PER_SECOND,
   MOTION_UNDERWAY_MIN_TILES_PER_SECOND,
 } from "../motion-config";
-import { staleEvidenceMotionFactors } from "../motion-sampling-factors";
 import { sampleShipWaterPathInto as sampleWaterPathInto } from "../motion-water";
 import { clamp, normalizeHeadingInto, smoothstep, smoothstepRange } from "../motion-utils";
-import { seaStateMooringSwayMultiplier, type SeaState } from "../sea-state";
+import { type SeaState } from "../sea-state";
 import type { ShipMotionRoute, ShipMotionSample, ShipMotionState, ShipWaterPath } from "../motion-types";
 import type { ShipWaterZone } from "../world-types";
 import { isWaterTileKind, tileKindAt } from "../world-layout";
@@ -22,8 +21,10 @@ import {
   writeVelocityInto,
 } from "./shared";
 import { applyHeadingSmoothing, applyWakeSmoothing, beginRoutePathSample } from "./memory";
-import { MOORED_SWAY_RATE, mooredPhaseFor, mooredRadiusForZone, mooredRadiusMultiplierFor, mooredSeedFor } from "./mooring";
+import { writeMooringOffsetInto } from "./mooring";
 import type { RouteSamplingRuntime } from "./route-runtime";
+
+const mooringOffsetScratch = { x: 0, y: 0 };
 
 export function transitMapVisibilityAlpha(
   state: Extract<ShipMotionState, "arriving" | "departing" | "sailing">,
@@ -393,29 +394,19 @@ function applyMooringBlendInto(input: {
   toMooringStop: ShipMotionRoute["dockStops"][number] | null;
   timeSeconds: number;
 }, tile: { x: number; y: number }): void {
-  const staleFactors = staleEvidenceMotionFactors(input.route.staleEvidence);
-  const seaSway = seaStateMooringSwayMultiplier(input.seaState);
   let dx = 0;
   let dy = 0;
   if (input.fromMooringStop) {
     const releaseT = smoothstepRange(CAST_OFF_LINE_RELEASE_END, CAST_OFF_ACCEL_END, input.progress);
-    const seed = mooredSeedFor(input.route, input.fromMooringStop, input.runtime);
-    const phaseOffset = mooredPhaseFor(input.route, input.fromMooringStop, input.runtime);
-    const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.fromMooringStop, input.runtime);
-    const angle = input.timeSeconds * MOORED_SWAY_RATE * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
-    const radius = mooredRadiusForZone(input.route.zone);
-    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleFactors.radiusFactor * seaSway * (1 - releaseT);
-    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleFactors.radiusFactor * seaSway * (1 - releaseT);
+    writeMooringOffsetInto(input.fromMooringStop, input.timeSeconds, input.seaState, mooringOffsetScratch);
+    dx += mooringOffsetScratch.x * (1 - releaseT);
+    dy += mooringOffsetScratch.y * (1 - releaseT);
   }
   if (input.toMooringStop) {
     const mooringTension = smoothstepRange(ARRIVING_DECEL_END, 1, input.progress);
-    const seed = mooredSeedFor(input.route, input.toMooringStop, input.runtime);
-    const phaseOffset = mooredPhaseFor(input.route, input.toMooringStop, input.runtime);
-    const radiusMultiplier = mooredRadiusMultiplierFor(input.route, input.toMooringStop, input.runtime);
-    const angle = input.timeSeconds * MOORED_SWAY_RATE * staleFactors.angularFactor + seed * 0.0001 + phaseOffset;
-    const radius = mooredRadiusForZone(input.route.zone);
-    dx += Math.cos(angle) * radius.x * radiusMultiplier * staleFactors.radiusFactor * seaSway * mooringTension;
-    dy += Math.sin(angle * 0.9) * radius.y * radiusMultiplier * staleFactors.radiusFactor * seaSway * mooringTension;
+    writeMooringOffsetInto(input.toMooringStop, input.timeSeconds, input.seaState, mooringOffsetScratch);
+    dx += mooringOffsetScratch.x * mooringTension;
+    dy += mooringOffsetScratch.y * mooringTension;
   }
   if (dx === 0 && dy === 0) return;
   clampMotionTileInto(tile.x + dx, tile.y + dy, tile);

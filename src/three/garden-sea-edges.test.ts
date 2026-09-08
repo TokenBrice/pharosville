@@ -12,21 +12,23 @@ describe("garden sea edges", () => {
     expect(edges.drawCallCount).toBe(6);
     expect(edges.drawCallCount).toBeLessThanOrEqual(6);
     expect(edges.root.children).toHaveLength(edges.drawCallCount);
+    expect(edges.root.children.filter((child) => child.name === "garden-sea-edges-reeds")).toHaveLength(1);
     expect(edges.reedInstances).toBeInstanceOf(InstancedMesh);
+    expect(edges.reedInstances.count).toBe(7);
     expect(edges.fixtureInstances).toBeInstanceOf(InstancedMesh);
     expect(edges.siteCount).toBe(GARDEN_SEA_EDGE_SITES.length);
-    expect(edges.triangleCount).toBeGreaterThan(0);
+    expect(edges.triangleCount).toBeGreaterThanOrEqual(4_250);
+    expect(edges.triangleCount).toBeLessThanOrEqual(4_350);
     edges.dispose();
   });
 
-  it("keeps vertex colour, shared height fog and static-shadow readiness on every draw", () => {
+  it("keeps vertex colour and static-shadow readiness on every draw", () => {
     const edges = createGardenSeaEdges();
     edges.root.traverse((object) => {
       if (!(object instanceof Mesh)) return;
       expect(object.geometry.getAttribute("color"), object.name).toBeDefined();
       expect(object.material).toBeInstanceOf(MeshStandardMaterial);
       expect((object.material as MeshStandardMaterial).vertexColors, object.name).toBe(true);
-      expect((object.material as MeshStandardMaterial).userData.gardenHeightFog, object.name).toBe(true);
       expect(object.castShadow, object.name).toBe(true);
       expect(object.receiveShadow, object.name).toBe(true);
     });
@@ -58,7 +60,10 @@ describe("garden sea edges", () => {
   it("adds per-instance reed sway without adding a draw or oscillator", () => {
     const edges = createGardenSeaEdges();
     const sway = edges.reedInstances.geometry.getAttribute("aGardenSway");
+    const phases = edges.reedInstances.geometry.getAttribute("aGardenBankPhase");
     expect(sway.count).toBe(edges.reedInstances.count);
+    expect(phases.count).toBe(edges.reedInstances.count);
+    expect(new Set(Array.from(phases.array))).toHaveProperty("size", edges.reedInstances.count);
     const material = edges.reedInstances.material as MeshStandardMaterial;
     expect(material.customProgramCacheKey()).toContain("garden-instanced-wind-sway");
     const weather = weatherForFrame({ baseWind: 0.6, psiStress: 0.3, timeSeconds: 2 });
@@ -67,7 +72,7 @@ describe("garden sea edges", () => {
       uGardenWindDirection: { value: { x: number; y: number } };
       uGardenWindStrength: { value: number };
     };
-    expect(uniforms.uGardenWindDirection.value.x).toBeCloseTo(weather.windDirX);
+    expect(uniforms.uGardenWindDirection.value.x).toBeCloseTo(weather.wind.x);
     expect(uniforms.uGardenWindStrength.value).toBeGreaterThan(0);
     expect(edges.drawCallCount).toBe(6);
     edges.dispose();

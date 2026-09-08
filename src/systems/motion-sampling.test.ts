@@ -120,12 +120,11 @@ describe("sea-room separation on final display positions", () => {
       const b = sample("b", 8);
       return applySeaRoomSeparationPass(new Map([["a", a], ["b", b]]), [ship("a", scale), ship("b", scale)]);
     };
-    // The 0.8 visual floor (2026-09-05) renders data scale 0.7 at 0.8, growing
-    // the smallest legal bezaisen half-length to ~3.16 tiles; two of them now
-    // need an 8-tile gap to sit clear (2 x 3.16 + 0.7 comfort < 8), while
-    // scale-3 hulls (~7.48-tile half-lengths) still overlap it by ~7.7 tiles.
-    expect(run(0.7)).toBe(0);
-    expect(run(3)).toBe(1);
+    // At the 0.42 visual floor the longest legal bezaisen half-length is
+    // ~1.66 tiles, so two clear an 8-tile gap. At the 1.15 ceiling each reaches
+    // ~4.54 tiles and the same pair still overlaps once comfort is included.
+    expect(run(0.42)).toBe(0);
+    expect(run(1.15)).toBe(1);
   });
 
   it("does not move a hull through the shoreline to resolve a collision", () => {

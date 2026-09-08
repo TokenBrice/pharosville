@@ -1,4 +1,4 @@
-import { stableHash, stableUnit } from "../stable-random";
+import { stableHash } from "../stable-random";
 import { pathKey, positiveModulo } from "../motion-utils";
 import { ZONE_DWELL } from "../motion-config";
 import type { ShipMotionRoute, ShipWaterPath } from "../motion-types";
@@ -10,9 +10,6 @@ export interface RouteSamplingRuntime {
   homeStop: ShipMotionRoute["dockStops"][number] | null;
   laneMagnitude: number;
   laneSign: -1 | 1;
-  mooredSeedByStopId: ReadonlyMap<string, number>;
-  mooredPhaseByStopId: ReadonlyMap<string, number>;
-  mooredRadiusMultiplierByStopId: ReadonlyMap<string, number>;
   riskToStopPathByDockId: ReadonlyMap<string, ShipWaterPath | undefined>;
   scheduledNonHomeStops: readonly ShipMotionRoute["dockStops"][number][];
   scheduledStopCount: number;
@@ -35,22 +32,8 @@ export function routeSamplingRuntime(route: ShipMotionRoute): RouteSamplingRunti
   if (cached) return cached;
 
   const dockStopByDockId = new Map<string, ShipMotionRoute["dockStops"][number]>();
-  const mooredSeedByStopId = new Map<string, number>();
-  const mooredPhaseByStopId = new Map<string, number>();
-  const mooredRadiusMultiplierByStopId = new Map<string, number>();
-  const radiusStableUnitSigned = (stableUnit(`${route.shipId}.moored-radius`) - 0.5) * 2;
-  const radiusMultiplier = 1 + 0.15 * radiusStableUnitSigned;
-  const phaseOffset = (stableHash(`${route.shipId}.moored-phase`) % 1000) / 1000 * Math.PI * 2;
   for (const stop of route.dockStops) {
     dockStopByDockId.set(stop.dockId, stop);
-    mooredSeedByStopId.set(stop.id, stableHash(`${route.shipId}.${stop.dockId}.moored`));
-    mooredPhaseByStopId.set(stop.id, phaseOffset);
-    mooredRadiusMultiplierByStopId.set(stop.id, radiusMultiplier);
-  }
-  if (route.riskStop) {
-    mooredSeedByStopId.set(route.riskStop.id, stableHash(`${route.shipId}.${route.riskStop.id}.moored`));
-    mooredPhaseByStopId.set(route.riskStop.id, phaseOffset);
-    mooredRadiusMultiplierByStopId.set(route.riskStop.id, radiusMultiplier);
   }
 
   const homeStop = route.homeDockId ? dockStopByDockId.get(route.homeDockId) ?? null : null;
@@ -81,9 +64,6 @@ export function routeSamplingRuntime(route: ShipMotionRoute): RouteSamplingRunti
     homeStop,
     laneMagnitude: 0.11 + (route.routeSeed % 7) * 0.012,
     laneSign: stableHash(`${route.shipId}.lane`) % 2 === 0 ? 1 : -1,
-    mooredSeedByStopId,
-    mooredPhaseByStopId,
-    mooredRadiusMultiplierByStopId,
     riskToStopPathByDockId,
     scheduledNonHomeStops: effectiveNonHomeStops,
     scheduledStopCount,

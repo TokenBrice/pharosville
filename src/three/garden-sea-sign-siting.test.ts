@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   SEA_SIGN_SCALE_STEPS,
+  SEA_SIGN_INSPECTION_SECONDS,
   SEA_SIGN_STEP_ZOOMS,
   createSeaSignScaleTrack,
+  createSeaSignInspectionTrack,
   seaSignScaleForZoom,
   seaSignSites,
   seaSignSteles,
@@ -27,6 +29,23 @@ describe("sea-stele overview-LOD siting (W2a)", () => {
     expect(track.step).toBe(1);
     expect(track.advance({ deltaSeconds: 1 / 60, reducedMotion: true, zoom: 1.2 })).toBe(1);
     expect(track.step).toBe(0);
+  });
+
+  it("reveals one inspected board over 380ms and has a deterministic still pose", () => {
+    expect(SEA_SIGN_INSPECTION_SECONDS).toBe(0.38);
+    const track = createSeaSignInspectionTrack();
+    expect(track.body).toBeNull();
+    expect(track.rise).toBe(0);
+    track.setInspected("warning");
+    expect(track.advance(0.19)).toBeCloseTo(0.875);
+    expect(track.body).toBe("warning");
+    expect(track.advance(0.19)).toBe(1);
+    track.setInspected(null);
+    expect(track.advance(0, true)).toBe(0);
+    expect(track.body).toBeNull();
+    track.setInspected("danger");
+    expect(track.advance(0, true)).toBe(1);
+    expect(track.body).toBe("danger");
   });
 
   it("sites every named body deterministically with separation", () => {

@@ -54,7 +54,8 @@ import type { ShipNode, ShipWaterZone, TerrainKind } from "./world-types";
  * - *shibumi* — restraint comes from the eye having a few things to look at
  *   instead of a hundred and eighty-five.
  *
- * Deterministic by construction. Runs once per world, not per frame.
+ * Cold placement is deterministic. Refreshes reserve retained hulls first,
+ * then solve arrivals and changed bands against those accepted berths.
  */
 
 /** Painted terrain kind that each risk band's ships live on. */
@@ -89,7 +90,7 @@ const MIN_HULL_GAP = 1.35;
  * pass — which is the uniform scatter this file exists to avoid. Placement runs
  * once per world, not per frame, so a deeper draw costs nothing that matters.
  */
-const CANDIDATES_PER_SHIP = 96;
+const CANDIDATES_PER_SHIP = 256;
 
 /**
  * W3.2: the composition invariant ("a framed asymmetric composition with
@@ -102,6 +103,36 @@ const CANDIDATES_PER_SHIP = 96;
  */
 const LIGHTHOUSE_CLEARANCE_TILES = 9;
 const EDGE_FALLOFF_TILES = 6;
+
+/**
+ * Camera-near approach sweeping into the island's lee. The forty-two-tile
+ * channel is authored water, not spare capacity: every placement pass excludes
+ * it, including the relaxed-spacing pass.
+ */
+export const GARDEN_EMPTY_INLET = {
+  polyline: [
+    { x: 72, y: 112 },
+    { x: 63, y: 86 },
+    { x: 43, y: 64 },
+    { x: 29, y: 45 },
+  ],
+  halfWidth: 21,
+} as const;
+
+function inletDistance(x: number, y: number): number {
+  let nearest = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < GARDEN_EMPTY_INLET.polyline.length; index += 1) {
+    const start = GARDEN_EMPTY_INLET.polyline[index - 1]!;
+    const end = GARDEN_EMPTY_INLET.polyline[index]!;
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const t = Math.max(0, Math.min(1,
+      ((x - start.x) * dx + (y - start.y) * dy) / (dx * dx + dy * dy),
+    ));
+    nearest = Math.min(nearest, Math.hypot(x - start.x - t * dx, y - start.y - t * dy));
+  }
+  return nearest;
+}
 
 /**
  * How many moorings a band seeds, by how many ships it has to berth.
@@ -192,6 +223,20 @@ interface RegionTiles {
 
 let regionCache: Map<TerrainKind, RegionTiles> | null = null;
 
+interface RetainedBerth {
+  tile: { x: number; y: number };
+  margin: number;
+  mooring: GardenFleetMooringPlacement;
+}
+
+// Accepted berths are reservations, not candidates to rerank on every refresh.
+// Keep only the current fleet; departures release their water for newcomers.
+let berthCache: {
+  lighthouseX: number;
+  lighthouseY: number;
+  byShipId: Map<string, RetainedBerth>;
+} | null = null;
+
 /**
  * All navigable tiles of each painted water region, computed once.
  *
@@ -213,9 +258,10 @@ function regionTiles(): Map<TerrainKind, RegionTiles> {
   return byKind;
 }
 
-/** Test-only: clears the memoised terrain scan. */
+/** Test-only: clears terrain and accepted berth reservations. */
 export function resetGardenFleetPlacementCache(): void {
   regionCache = null;
+  berthCache = null;
 }
 
 /**
@@ -230,6 +276,7 @@ function densityWeight(
   y: number,
   lighthouseTile: { x: number; y: number },
 ): number {
+  if (inletDistance(x, y) <= GARDEN_EMPTY_INLET.halfWidth) return 0;
   const lighthouseDistance = Math.hypot(x - lighthouseTile.x, y - lighthouseTile.y);
   if (lighthouseDistance < LIGHTHOUSE_CLEARANCE_TILES) return 0;
 
@@ -328,6 +375,7 @@ function seedOneAnchorage(
       if (!pick) continue;
       const weight = densityWeight(pick.x, pick.y, lighthouseTile);
       if (weight <= 0) continue;
+      if (!isGardenShipWater(pick, 2)) continue;
 
       let nearest = Number.POSITIVE_INFINITY;
       let clears = true;
@@ -365,11 +413,11 @@ const ANCHORAGE_SEPARATION_RELAXATIONS = [1, 0.72, 0.5] as const;
 /**
  * Scatters the fleet across its regions, mooring by mooring.
  *
- * Ships are grouped by risk band; each band seeds its anchorages, then fills
- * them in stable order. A ship samples points inside its own mooring biased
- * toward the middle, rejects anything that leaves the band's water, touches
- * land or crowds a neighbour, and takes the innermost survivor — so anchorages
- * pack from the centre out and look grown rather than dealt.
+ * Retained ids with unchanged bands and hull margins reserve their accepted
+ * water before any new candidates are considered. Departures release berths.
+ * New ships choose their mooring by an id+band hash, reject illegal or crowded
+ * candidates, and take the innermost survivor. Only an exhausted ship scans
+ * the remaining legal region; previously accepted ships are never re-solved.
  */
 export function placeGardenFleet(
   ships: readonly ShipNode[],
@@ -386,8 +434,24 @@ export function placeGardenFleet(
     byZone.set(ship.riskZone, group);
   }
 
-  for (const [zone, group] of byZone) {
-    // Stable order so a given ship keeps its berth across refreshes.
+  // Hull separation is shared across risk-band borders, not reset per band.
+  const placed: { x: number; y: number }[] = [];
+  const retained = new Map<string, RetainedBerth>();
+  const nextBerths = new Map<string, RetainedBerth>();
+  if (berthCache?.lighthouseX === lighthouseTile.x && berthCache.lighthouseY === lighthouseTile.y) {
+    for (const ship of ships) {
+      const previous = berthCache.byShipId.get(ship.id);
+      const margin = gardenShipWaterMarginTiles(
+        gardenShipVisualScale(ship.visual.scale || 1),
+        GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+      );
+      if (!previous || previous.mooring.riskBand !== ship.riskZone || previous.margin !== margin) continue;
+      retained.set(ship.id, previous);
+      placed.push(previous.tile);
+    }
+  }
+  for (const [zone, group] of [...byZone].sort(([left], [right]) => left.localeCompare(right))) {
+    // Stable tie-breaking for new ships competing for unreserved water.
     const ordered = group.toSorted((left, right) => left.id.localeCompare(right.id));
     const region = regions.get(TERRAIN_FOR_ZONE[zone]);
     const candidates = region?.tiles ?? [];
@@ -420,13 +484,15 @@ export function placeGardenFleet(
     const anchorages = seedAnchorages(zone, candidates, ordered.length, meanHullGap, lighthouseTile);
     const nextRankByAnchorage = new Map<Anchorage, number>();
 
-    const placed: { x: number; y: number }[] = [];
     for (const [shipIndex, ship] of ordered.entries()) {
       const margin = gardenShipWaterMarginTiles(
         gardenShipVisualScale(ship.visual.scale || 1),
         GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
       );
-      const anchorage = anchorageForBerth(anchorages, shipIndex);
+      const previous = retained.get(ship.id);
+      const anchorage = previous
+        ? anchorages.find((entry) => `${zone}.${entry.index}` === previous.mooring.mooringId) ?? null
+        : anchorageForShip(anchorages, ship.id, zone);
       const rankWithinMooring = anchorage
         ? nextRankByAnchorage.get(anchorage) ?? 0
         : shipIndex;
@@ -438,6 +504,12 @@ export function placeGardenFleet(
         rankWithinMooring,
         riskBand: zone,
       });
+      if (previous) {
+        tileByShipId.set(ship.id, previous.tile);
+        mooringByShipId.set(ship.id, { ...previous.mooring, rankWithinMooring });
+        nextBerths.set(ship.id, previous);
+        continue;
+      }
 
       // Two passes, run in ORDER and short-circuited — never interleaved.
       //
@@ -478,6 +550,7 @@ export function placeGardenFleet(
           // and break the one thing this file is not allowed to break.
           if (terrainKindAt(Math.round(tile.x), Math.round(tile.y)) !== terrain) continue;
           if (!isGardenShipWater(tile, margin)) continue;
+          if (inletDistance(tile.x, tile.y) <= GARDEN_EMPTY_INLET.halfWidth + margin) continue;
 
           let nearest = Number.POSITIVE_INFINITY;
           for (const other of placed) {
@@ -510,18 +583,54 @@ export function placeGardenFleet(
         }
       }
 
-      const resolved = berth ?? relaxedBest ?? { ...ship.tile };
+      // Random draws may exhaust a narrow anchorage; scan its legal water
+      // rather than returning to an authored tile inside the empty channel.
+      if (!berth) {
+        for (const tile of candidates) {
+          if (densityWeight(tile.x, tile.y, lighthouseTile) <= 0
+            || inletDistance(tile.x, tile.y) <= GARDEN_EMPTY_INLET.halfWidth + margin
+            || !isGardenShipWater(tile, margin)) continue;
+          let nearest = Number.POSITIVE_INFINITY;
+          for (const other of placed) nearest = Math.min(nearest, Math.hypot(tile.x - other.x, tile.y - other.y));
+          if (nearest > relaxedScore) {
+            relaxedBest = tile;
+            relaxedScore = nearest;
+          }
+        }
+      }
+      const resolved = berth ?? relaxedBest;
+      if (!resolved) throw new Error(`No navigable berth outside the inlet for ${ship.id}`);
       placed.push(resolved);
       tileByShipId.set(ship.id, resolved);
+      nextBerths.set(ship.id, { tile: resolved, margin, mooring: mooringByShipId.get(ship.id)! });
     }
   }
+
+  // Metadata follows occupancy, including retained moorings whose planned
+  // capacity changed. It must not claim ranks or sizes from a previous roster.
+  const membersByMooring = new Map<string, string[]>();
+  for (const [id, mooring] of mooringByShipId) {
+    const members = membersByMooring.get(mooring.mooringId) ?? [];
+    members.push(id);
+    membersByMooring.set(mooring.mooringId, members);
+  }
+  for (const members of membersByMooring.values()) {
+    for (const [rankWithinMooring, id] of members.entries()) {
+      const mooring = { ...mooringByShipId.get(id)!, mooringSize: members.length, rankWithinMooring };
+      mooringByShipId.set(id, mooring);
+      const berth = nextBerths.get(id);
+      if (berth) nextBerths.set(id, { ...berth, mooring });
+    }
+  }
+  berthCache = { lighthouseX: lighthouseTile.x, lighthouseY: lighthouseTile.y, byShipId: nextBerths };
 
   return { mooringByShipId, tileByShipId };
 }
 
-/** Which mooring the nth ship of a band berths at. */
-function anchorageForBerth(anchorages: readonly Anchorage[], berthIndex: number): Anchorage | null {
-  let remaining = berthIndex;
+/** Choose a mooring by identity, never by a ship's ordinal in the roster. */
+function anchorageForShip(anchorages: readonly Anchorage[], shipId: string, zone: ShipWaterZone): Anchorage | null {
+  const berths = anchorages.reduce((sum, anchorage) => sum + anchorage.berths, 0);
+  let remaining = stableUnit(`${zone}.${shipId}.mooring`) * berths;
   for (const anchorage of anchorages) {
     if (remaining < anchorage.berths) return anchorage;
     remaining -= anchorage.berths;

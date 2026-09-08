@@ -1,6 +1,7 @@
 import {
   selectGardenObservatorySlice,
 } from "./garden-observatory-slice";
+import { resolveShipSizeTier } from "./ship-visuals";
 import type { PharosVilleWorld } from "./world-types";
 
 const signatureByWorld = new WeakMap<PharosVilleWorld, string>();
@@ -42,7 +43,11 @@ export function worldRenderContentSignature(world: PharosVilleWorld): string {
     .toSorted((left, right) => left.ship.id.localeCompare(right.ship.id))
     .map(({ displayOffset, representative, ship }) => ({
       dexDisagrees: ship.dexCrossCheck?.agrees === false,
-      displayOffset,
+      // Cap-derived hull reach leaks sub-pixel refresh noise into the berth offset.
+      displayOffset: {
+        x: Math.round(displayOffset.x * 100) / 100,
+        y: Math.round(displayOffset.y * 100) / 100,
+      },
       dominantChainId: ship.dominantChainId,
       id: ship.id,
       issuance: ship.issuance ?? null,
@@ -52,7 +57,8 @@ export function worldRenderContentSignature(world: PharosVilleWorld): string {
       riskZone: ship.riskZone,
       symbol: ship.symbol,
       tile: ship.tile,
-      visual: ship.visual,
+      // Continuous cap scale turns refresh noise into rebuilds; its authored tier label is the baked-size key.
+      visual: { ...ship.visual, scale: resolveShipSizeTier(ship.marketCapUsd).tier },
     }));
   const heroRank = slice.ships
     .filter(({ ship }) => ship.visual.sizeTier === "titan" || ship.visual.sizeTier === "unique")

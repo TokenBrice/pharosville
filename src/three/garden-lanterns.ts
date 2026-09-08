@@ -1,8 +1,86 @@
-import { Color, DataTexture, FloatType, RGBAFormat } from "three";
+import { Color, DataTexture, FloatType, RGBAFormat, MeshStandardMaterial, Vector3 } from "three";
 import type {
   PharosVilleRenderSchedulerState,
   TextureOwnerManifestEntry,
 } from "../renderer/render-types";
+
+export interface GardenKeeperRitual {
+  active: boolean;
+  progress: number;
+  direction: "evening" | "dawn";
+}
+
+/** Day-cycle remains the base; the keeper only banks individual apertures. */
+export function gardenKeeperFixtureFactor(order: number, ritual: GardenKeeperRitual): number {
+  if (!ritual.active) return 1;
+  const passage = ritual.direction === "evening" ? order : 1 - order;
+  const t = Math.max(0, Math.min(1, (ritual.progress - passage) / 0.04));
+  const lit = t * t * (3 - 2 * t);
+  return ritual.direction === "evening" ? lit : 1 - lit;
+}
+
+/** Patch an existing shared fixture material: world position separates every instance. */
+export function createGardenKeeperFixtureLighting(
+  material: MeshStandardMaterial,
+  path: readonly Vector3[],
+): { update(ritual: GardenKeeperRitual): void } {
+  const points = path.map((point) => point.clone());
+  const progress = { value: -1 };
+  const reverse = { value: 0 };
+  const previousCompile = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    previousCompile.call(material, shader, renderer);
+    if (points.length < 2) return;
+    shader.uniforms.keeperPath = { value: points };
+    shader.uniforms.keeperProgress = progress;
+    shader.uniforms.keeperReverse = reverse;
+    shader.vertexShader = `uniform vec3 keeperPath[${points.length}];\nvarying float vKeeperOrder;\n${shader.vertexShader}`;
+    shader.vertexShader = shader.vertexShader.replace("#include <project_vertex>", `
+      #include <project_vertex>
+      vec4 keeperWorld = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+        keeperWorld = instanceMatrix * keeperWorld;
+      #endif
+      keeperWorld = modelMatrix * keeperWorld;
+      float nearest = 1.0e20;
+      float walked = 0.0;
+      float total = 0.0;
+      vKeeperOrder = 0.0;
+      for (int i = 1; i < ${points.length}; i++) {
+        vec2 a = keeperPath[i - 1].xz;
+        vec2 delta = keeperPath[i].xz - a;
+        float span = length(delta);
+        float t = clamp(dot(keeperWorld.xz - a, delta) / max(0.0001, dot(delta, delta)), 0.0, 1.0);
+        float separation = distance(keeperWorld.xz, a + delta * t);
+        if (separation < nearest) {
+          nearest = separation;
+          vKeeperOrder = walked + span * t;
+        }
+        walked += span;
+        total += span;
+      }
+      vKeeperOrder /= max(0.0001, total);
+    `);
+    shader.fragmentShader = `uniform float keeperProgress;\nuniform float keeperReverse;\nvarying float vKeeperOrder;\n${shader.fragmentShader}`;
+    shader.fragmentShader = shader.fragmentShader.replace("#include <emissivemap_fragment>", `
+      #include <emissivemap_fragment>
+      if (keeperProgress >= 0.0) {
+        float passage = mix(vKeeperOrder, 1.0 - vKeeperOrder, keeperReverse);
+        float lit = smoothstep(passage, passage + 0.04, keeperProgress);
+        totalEmissiveRadiance *= mix(lit, 1.0 - lit, keeperReverse);
+      }
+    `);
+  };
+  material.customProgramCacheKey = () => `${previousKey}:keeper:${points.length}`;
+  material.needsUpdate = true;
+  return {
+    update(ritual) {
+      progress.value = ritual.active ? ritual.progress : -1;
+      reverse.value = ritual.direction === "dawn" ? 1 : 0;
+    },
+  };
+}
 
 /**
  * Shared light-lane registry: every warm light that should lay a reflection
