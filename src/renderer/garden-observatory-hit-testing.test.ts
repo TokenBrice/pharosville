@@ -36,6 +36,8 @@ import {
 } from "../three/garden-sea-signs";
 import { createGardenObservatoryHitTargetSnapshot } from "./garden-observatory-hit-testing";
 
+// Projection-only tests without a rendered viewport use the desktop baseline.
+const TEST_VIEWPORT = { x: 1600, y: 1000 };
 describe("Garden Observatory hit targets", () => {
   it("picks authored flag cloth without swallowing the sea between flag and quay", () => {
     const world = denseWorld();
@@ -57,7 +59,12 @@ describe("Garden Observatory hit targets", () => {
           matrix.premultiply(recipe.rootMatrix);
           for (const x of [0, 1.5]) for (const y of [-0.63, 0.5]) {
             const point = new Vector3(x, y, 0).applyMatrix4(matrix);
-            const screen = gardenTileToScreen({ x: point.x / Math.SQRT2, y: point.z / Math.SQRT2 }, point.y, camera);
+            const screen = gardenTileToScreen(
+              { x: point.x / Math.SQRT2, y: point.z / Math.SQRT2 },
+              point.y,
+              camera,
+              TEST_VIEWPORT,
+            );
             expect(hitTest([flag, quay], screen)?.detailId, dock.chainId).toBe(dock.detailId);
             expect(hitTestSpatial(buildHitTargetSpatialIndex([flag, quay]), screen)?.detailId, dock.chainId).toBe(dock.detailId);
           }
@@ -114,7 +121,12 @@ describe("Garden Observatory hit targets", () => {
     expect(dockTargets).toHaveLength(world.docks.length);
     for (const dock of world.docks) {
       expect(snapshot.targetsByDetailId.get(dock.detailId)?.anchor).toEqual(
-        gardenTileToScreen(dock.tile, GARDEN_DOCK_ROOT_Y, camera),
+        gardenTileToScreen(
+          dock.tile,
+          GARDEN_DOCK_ROOT_Y,
+          camera,
+          { x: viewport.width, y: viewport.height },
+        ),
       );
     }
     expect(dockTargets.some((target) => !rectInsideViewport(target.rect, viewport))).toBe(true);
@@ -176,16 +188,19 @@ describe("Garden Observatory hit targets", () => {
       lighthouseTile,
       GARDEN_LIGHTHOUSE_ROOT_OFFSET.y,
       camera,
+      TEST_VIEWPORT,
     );
     const beacon = gardenTileToScreen(
       lighthouseTile,
       GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_BEACON_Y,
       camera,
+      TEST_VIEWPORT,
     );
     const top = gardenTileToScreen(
       lighthouseTile,
       GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT,
       camera,
+      TEST_VIEWPORT,
     );
     const target = createGardenObservatoryHitTargetSnapshot({ camera, world })
       .targetsByDetailId.get(world.lighthouse.detailId);
@@ -222,7 +237,7 @@ describe("Garden Observatory hit targets", () => {
       world,
     });
     expect(overview.targetsByDetailId.get(placement!.ship.detailId)?.anchor).toEqual(
-      gardenTileToScreen(expectedTile, GARDEN_SHIP_ROOT_Y, camera),
+      gardenTileToScreen(expectedTile, GARDEN_SHIP_ROOT_Y, camera, TEST_VIEWPORT),
     );
 
     const inspected = createGardenObservatoryHitTargetSnapshot({
@@ -232,7 +247,7 @@ describe("Garden Observatory hit targets", () => {
       world,
     });
     expect(inspected.targetsByDetailId.get(placement!.ship.detailId)?.anchor).toEqual(
-      gardenTileToScreen(expectedTile, GARDEN_SHIP_ROOT_Y, camera),
+      gardenTileToScreen(expectedTile, GARDEN_SHIP_ROOT_Y, camera, TEST_VIEWPORT),
     );
   });
 
@@ -382,6 +397,7 @@ describe("Carved sea-name stele targets (W2a)", () => {
         { x: stele!.x / Math.SQRT2, y: stele!.z / Math.SQRT2 },
         GARDEN_WATER_Y + SEA_SIGN_STELE.baseY * scale,
         camera,
+        TEST_VIEWPORT,
       );
       expect(target?.anchor?.x).toBeCloseTo(centre.x, 6);
       expect(target?.anchor?.y).toBeCloseTo(centre.y, 6);

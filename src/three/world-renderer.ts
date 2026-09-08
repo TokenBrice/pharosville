@@ -82,7 +82,12 @@ import {
   isGardenShipWater,
   nearestGardenShipWater,
 } from "../systems/garden-water-exclusion";
-import { screenToTile } from "../systems/projection";
+import {
+  cameraPoseFromIso,
+  CAMERA_DISTANCE,
+  screenToGround,
+  TILE_SCALE,
+} from "../systems/projection";
 import { deriveEpistemicHaze } from "../systems/epistemic-haze";
 import { seasonFromDate, type GardenSeason } from "../systems/season";
 import { isDebugChromeEnabled } from "../lib/pharosville-debug";
@@ -293,7 +298,6 @@ import {
   normalizedHeading,
   setTilePosition,
   stableUnit,
-  TILE_SCALE,
   type GardenShipGeometryCache,
 } from "./garden-util";
 import { setGardenQuayEpistemicHaze } from "./garden-height-fog";
@@ -312,7 +316,6 @@ import {
 export { disposeThreeObjectTree } from "./garden-util";
 
 const MAX_THREE_DPR = 2;
-const CAMERA_DISTANCE = 110;
 /**
  * Peak chroma the fleet loses at the far end of the haze ramp.
  *
@@ -1298,9 +1301,10 @@ export function createThreeWorldRenderer(
       // Stamps consumed here were collected by LAST frame's ship loop (one
       // frame of latency is invisible against an 8-second decay).
       {
-        const wakeCenterTile = screenToTile(
+        const wakeCenterTile = screenToGround(
           { x: frame.width / 2, y: frame.height / 2 },
           frame.camera,
+          { x: frame.width, y: frame.height },
         );
         const wakeViewHeight = gardenCameraViewHeight(frame.height, frame.camera.zoom);
         scene.wakes.update({
@@ -1470,6 +1474,7 @@ export function createThreeWorldRenderer(
         contentRebuildQueueDepth: content?.rebuildQueue.size ?? 0,
         contentSignaturePartHashes: worldRenderContentPartHashes(frame.world),
         composerEnabled: post.isComposerEnabled(),
+        gpuTimings: post.getGpuTimings(),
         environmentBakeCalls,
         environmentBakeCount: scene.environment.bakeCount,
         environmentBakeCountChange,
@@ -5021,22 +5026,29 @@ function updateScalarTransitions(
   }
 }
 
+// W1.1 swaps this to a PerspectiveCamera; nothing else in the file may compute view geometry.
 function updateCamera(camera: OrthographicCamera, frame: ThreeWorldRendererFrame): void {
-  const viewportCenter = { x: frame.width / 2, y: frame.height / 2 };
-  const centerTile = screenToTile(viewportCenter, frame.camera);
+  const pose = cameraPoseFromIso(frame.camera, { x: frame.width, y: frame.height });
   const viewHeight = gardenCameraViewHeight(frame.height, frame.camera.zoom);
   const viewWidth = viewHeight * (frame.width / Math.max(1, frame.height));
-  const targetX = centerTile.x * TILE_SCALE;
-  const targetZ = centerTile.y * TILE_SCALE;
+  const targetX = pose.targetTile.x * TILE_SCALE;
+  const targetZ = pose.targetTile.y * TILE_SCALE;
+  const rigDistance = pose.distance * frame.camera.zoom;
+  const horizontalDistance = rigDistance * Math.cos(pose.pitch);
+  // At yaw π/4 and pitch atan(1/√3), these are exactly the previous rig:
+  // (CAMERA_DISTANCE, CAMERA_DISTANCE·√(2/3), CAMERA_DISTANCE).
+  const eyeOffsetX = horizontalDistance * Math.sin(pose.yaw);
+  const eyeOffsetY = rigDistance * Math.sin(pose.pitch);
+  const eyeOffsetZ = horizontalDistance * Math.cos(pose.yaw);
 
   camera.left = -viewWidth / 2;
   camera.right = viewWidth / 2;
   camera.top = viewHeight / 2;
   camera.bottom = -viewHeight / 2;
   camera.position.set(
-    targetX + CAMERA_DISTANCE,
-    CAMERA_DISTANCE * Math.sqrt(2 / 3),
-    targetZ + CAMERA_DISTANCE,
+    targetX + eyeOffsetX,
+    eyeOffsetY,
+    targetZ + eyeOffsetZ,
   );
   camera.lookAt(targetX, 0, targetZ);
   camera.updateProjectionMatrix();

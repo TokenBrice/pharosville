@@ -72,6 +72,9 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
 }): HitTargetSnapshot {
   const selectedDetailId = input.selectedDetailId ?? null;
   const hoveredDetailId = input.hoveredDetailId ?? null;
+  const projectionViewport = input.viewport
+    ? { x: input.viewport.width, y: input.viewport.height }
+    : { x: 1600, y: 1000 };
   const slice = selectGardenObservatorySlice(input.world, selectedDetailId);
   const thinningShips = fleetThinningShipsForWorld(input.world);
   const selectedShipId = selectedDetailId
@@ -97,16 +100,19 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     lighthouseTile,
     GARDEN_LIGHTHOUSE_ROOT_OFFSET.y,
     input.camera,
+    projectionViewport,
   );
   const lighthouseTop = gardenTileToScreen(
     lighthouseTile,
     GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT,
     input.camera,
+    projectionViewport,
   );
   const lighthouseAnchor = gardenTileToScreen(
     lighthouseTile,
     GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_BEACON_Y,
     input.camera,
+    projectionViewport,
   );
   addVisibleTarget(targets, {
     anchor: lighthouseAnchor,
@@ -128,6 +134,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       gardenDockDisplayTile(dock.tile),
       GARDEN_DOCK_ROOT_Y,
       input.camera,
+      projectionViewport,
     );
     // Separate cloth target avoids making the empty sea between a tall flag
     // and its quay clickable. The quay remains the canonical detail anchor.
@@ -138,7 +145,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       kind: "dock-flag",
       label: dock.label,
       priority: 2_000 + anchor.y,
-      rect: gardenDockFlagHitRect(dock, input.camera),
+      rect: gardenDockFlagHitRect(dock, input.camera, projectionViewport),
     }, null, selectedDetailId, hoveredDetailId);
     addVisibleTarget(targets, {
       anchor,
@@ -161,6 +168,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       gardenAreaDisplayTile(area),
       GARDEN_ZONE_ROOT_Y,
       input.camera,
+      projectionViewport,
     );
     const priority = 1_500 + anchor.y;
     areaPriorityByDetailId.set(area.detailId, priority);
@@ -197,7 +205,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       : seaSignScaleForZoom(input.camera.zoom);
     for (const stele of seaSignSteles(input.world.areas)) {
       if (!stele.detailId) continue;
-      const rect = seaSignSteleRect(stele, signScale, input.camera);
+      const rect = seaSignSteleRect(stele, signScale, input.camera, projectionViewport);
       const anchor = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       addVisibleTarget(targets, {
         anchor,
@@ -215,6 +223,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     input.world.pigeonnier.tile,
     0.2,
     input.camera,
+    projectionViewport,
   );
   addVisibleTarget(targets, {
     anchor: pigeonnierAnchor,
@@ -232,7 +241,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
   }, input.viewport, selectedDetailId, hoveredDetailId);
 
   for (const grave of input.world.graves) {
-    const anchor = gardenTileToScreen(grave.tile, 0.2, input.camera);
+    const anchor = gardenTileToScreen(grave.tile, 0.2, input.camera, projectionViewport);
     addVisibleTarget(targets, {
       anchor,
       detailId: grave.detailId,
@@ -258,7 +267,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       slice,
       ...(input.shipMotionSamples ? { shipMotionSamples: input.shipMotionSamples } : {}),
     })!;
-    const anchor = gardenTileToScreen(tile, GARDEN_SHIP_ROOT_Y, input.camera);
+    const anchor = gardenTileToScreen(tile, GARDEN_SHIP_ROOT_Y, input.camera, projectionViewport);
     const diameter = Math.max(
       32,
       gardenShipSelectionRadius(ship) * 2 * 16 * input.camera.zoom,
@@ -304,6 +313,7 @@ export function createGardenStationLabelFrame(input: {
       gardenDockDisplayTile(dock.tile),
       GARDEN_DOCK_ROOT_Y + stationScaleFor(dock.station.type, dock.totalUsd).secondLevelTop,
       input.camera,
+      { x: input.viewport.width, y: input.viewport.height },
     ));
   }
   const pigeonnierTarget = input.snapshot.targetsByDetailId.get(input.world.pigeonnier.detailId);
@@ -369,7 +379,12 @@ function addVisibleTarget(
  * The face is a flat quad yawed to face the camera, so its four corners bound
  * it exactly under the affine iso projection.
  */
-function seaSignSteleRect(stele: SeaSignStele, scale: number, camera: IsoCamera) {
+function seaSignSteleRect(
+  stele: SeaSignStele,
+  scale: number,
+  camera: IsoCamera,
+  viewport: ScreenPoint,
+) {
   const halfWidth = (SEA_SIGN_STELE.width / 2) * scale;
   // Local +x of the yawed stele, in tiles: three.js maps it to world
   // (cos yaw, 0, -sin yaw).
@@ -387,7 +402,7 @@ function seaSignSteleRect(stele: SeaSignStele, scale: number, camera: IsoCamera)
   let maxY = Number.NEGATIVE_INFINITY;
   for (const corner of [left, right]) {
     for (const worldY of [topWorldY, bottomWorldY]) {
-      const point = gardenTileToScreen(corner, worldY, camera);
+      const point = gardenTileToScreen(corner, worldY, camera, viewport);
       minX = Math.min(minX, point.x);
       maxX = Math.max(maxX, point.x);
       minY = Math.min(minY, point.y);
@@ -465,25 +480,25 @@ function rectIntersectsViewport(
   );
 }
 
-/** Shared staff authoring plus the cloth's bounded flutter/yaw envelope. */
-const flagBoundsByDock = new WeakMap<DockNode, HitTarget["rect"]>();
-
-export function gardenDockFlagHitRect(dock: DockNode, camera: IsoCamera): HitTarget["rect"] {
-  let bounds = flagBoundsByDock.get(dock);
-  if (!bounds) {
-    bounds = authoredDockFlagBounds(dock);
-    flagBoundsByDock.set(dock, bounds);
-  }
+export function gardenDockFlagHitRect(
+  dock: DockNode,
+  camera: IsoCamera,
+  viewport: ScreenPoint,
+): HitTarget["rect"] {
+  const bounds = authoredDockFlagBounds(dock, camera, viewport);
   return {
-    x: bounds.x * camera.zoom + camera.offsetX - 2,
-    y: bounds.y * camera.zoom + camera.offsetY - 2,
-    width: bounds.width * camera.zoom + 4,
-    height: bounds.height * camera.zoom + 4,
+    x: bounds.x - 2,
+    y: bounds.y - 2,
+    width: bounds.width + 4,
+    height: bounds.height + 4,
   };
 }
 
-function authoredDockFlagBounds(dock: DockNode): HitTarget["rect"] {
-  const camera = { offsetX: 0, offsetY: 0, zoom: 1 };
+function authoredDockFlagBounds(
+  dock: DockNode,
+  camera: IsoCamera,
+  viewport: ScreenPoint,
+): HitTarget["rect"] {
   const staff = stationFlagPlacement(dock.station.type, dock.totalUsd, dock.size);
   const bearing = -dock.station.shoreBearing;
   const cos = Math.cos(bearing);
@@ -504,7 +519,7 @@ function authoredDockFlagBounds(dock: DockNode): HitTarget["rect"] {
         points.push(gardenTileToScreen({
           x: centre.x + (rx * Math.cos(yaw) + z * Math.sin(yaw)) / TILE_SCALE,
           y: centre.y + (-rx * Math.sin(yaw) + z * Math.cos(yaw)) / TILE_SCALE,
-        }, height + ry, camera));
+        }, height + ry, camera, viewport));
       }
     }
   }

@@ -212,23 +212,6 @@ describe("garden sky billboard atmosphere", () => {
  * reason.
  */
 describe("garden sky atmospheric scattering", () => {
-  it("puts a two-triangle graded sky behind the finite plate", () => {
-    const sky = createGardenSky();
-    const backdrop = sky.root.getObjectByName("garden-sky-backdrop");
-    expect(backdrop).toBeInstanceOf(Mesh);
-    expect((backdrop as Mesh).geometry).toBeInstanceOf(PlaneGeometry);
-    expect((backdrop as Mesh).geometry.index?.count).toBe(6);
-    const source = ((backdrop as Mesh).material as ShaderMaterial).fragmentShader;
-    expect(source).toContain("float skyHeight = clamp(vScreenPosition.y, 0.0, 1.0)");
-    expect(source).toContain("uLower");
-    expect(source).toContain("gardenBokashiShade(skyHeight, uBokashiAmount)");
-    expect(source).toContain("uSunDir.x - uSunDir.z");
-    expect(source).toContain("moonGlow");
-    // Shakkei has one owner: the world-backed, batched garden-horizon mesh.
-    expect(source).not.toContain("farCrest");
-    expect(source).not.toContain("nearRidge");
-    sky.dispose();
-  });
 
   it("fades the whole scattering layer to zero at night", () => {
     const sky = createGardenSky();

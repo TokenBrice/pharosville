@@ -1,4 +1,4 @@
-import { BoxGeometry, Group, InstancedMesh, Mesh, MeshStandardMaterial, OrthographicCamera, Scene } from "three";
+import { BoxGeometry, Group, InstancedMesh, Mesh, MeshStandardMaterial, OrthographicCamera, Points, PointsMaterial, Scene } from "three";
 import { describe, expect, it } from "vitest";
 import { STATION_SCALE_LADDER } from "../systems/dock-layout";
 import { dockFixture, DISPLAY_TILES, ISLAND_TILE } from "./__fixtures__/harbor";
@@ -17,12 +17,24 @@ function box(name: string): Mesh {
 }
 
 /** A renderer stand-in that "draws" a list of objects through renderBufferDirect and counts them in info. */
-function fakeRenderer(draws: Array<{ object: Mesh | InstancedMesh; group?: { start: number; count: number } }>): DrawRecorderTarget & { render(): void } {
+function fakeRenderer(draws: Array<{ object: Mesh | InstancedMesh | Points; group?: { start: number; count: number } }>): DrawRecorderTarget & { render(): void } {
   const target: DrawRecorderTarget & { render(): void } = {
-    info: { render: { calls: 0 } },
-    renderBufferDirect() { target.info.render.calls += 1; },
+    info: { render: { calls: 0, triangles: 0 } },
+    renderBufferDirect(_camera, _scene, geometry, _material, object, group) {
+      const drawRange = geometry.drawRange;
+      const groupStart = group?.start ?? 0;
+      const groupCount = group?.count ?? Infinity;
+      const available = geometry.index?.count ?? geometry.getAttribute("position")?.count ?? 0;
+      const start = Math.max(drawRange.start, groupStart);
+      const end = Math.min(drawRange.start + drawRange.count, groupStart + groupCount, available);
+      const count = Math.max(0, end - start);
+      const instances = (object as InstancedMesh).isInstancedMesh ? (object as InstancedMesh).count : 1;
+      target.info.render.calls += count > 0 ? 1 : 0;
+      if (object instanceof Mesh) target.info.render.triangles += Math.floor(count / 3) * instances;
+    },
     render() {
       target.info.render.calls = 0;
+      target.info.render.triangles = 0;
       const camera = new OrthographicCamera();
       for (const draw of draws) {
         const material = Array.isArray(draw.object.material) ? draw.object.material[0] : draw.object.material;
@@ -146,6 +158,40 @@ describe("createDrawOwnerRecorder", () => {
       { owner: "island-quay-stair-treads", calls: 2, triangles: 12, instanced: false },
       { owner: "dock-posts", calls: 1, triangles: 480, instanced: true },
     ]);
+  });
+
+  it("uses renderer triangle arithmetic for draw ranges, instances, and non-triangle primitives without duplicate ownership", () => {
+    const scene = new Scene();
+    const limited = box("limited");
+    limited.geometry.setDrawRange(6, 9);
+    const instances = new InstancedMesh(new BoxGeometry(), new MeshStandardMaterial(), 4);
+    instances.name = "instances";
+    const points = new Points(new BoxGeometry(), new PointsMaterial());
+    points.name = "points";
+    scene.add(limited, instances, points);
+
+    // The limited mesh is discoverable both from the scene and an ownership manifest.
+    // The draw list is identity-deduplicated before rendering; the recorder attributes
+    // only the real renderBufferDirect call rather than traversing either source itself.
+    const sceneMeshes: Array<Mesh | InstancedMesh | Points> = [];
+    scene.traverse((object) => {
+      if (object instanceof Mesh || object instanceof Points) sceneMeshes.push(object);
+    });
+    const manifest = [limited];
+    const draws = [...new Set([...sceneMeshes, ...manifest])].map((object) => ({ object }));
+    const renderer = fakeRenderer(draws);
+    const recorder = createDrawOwnerRecorder(renderer, scene);
+    recorder.arm(); renderer.render();
+    const census = recorder.finish(1)!;
+
+    expect(census.attributedCalls).toBe(census.rendererCalls);
+    expect(census.owners).toEqual([
+      { owner: "instances", calls: 1, triangles: 48, instanced: true },
+      { owner: "limited", calls: 1, triangles: 3, instanced: false },
+      { owner: "points", calls: 1, triangles: 0, instanced: false },
+    ]);
+    expect(census.owners.reduce((sum, entry) => sum + entry.triangles, 0))
+      .toBe(renderer.info.render.triangles);
   });
 
   it("does not attribute a renderBufferDirect invocation that Three declines to draw", () => {

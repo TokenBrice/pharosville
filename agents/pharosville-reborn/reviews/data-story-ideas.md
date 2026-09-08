@@ -1,0 +1,66 @@
+# Data story ideas
+
+## Verdict
+
+At the rest frame, PharosVille is a beautiful census but not yet an ambient market instrument: the scene says “many stablecoins exist” far more clearly than what matters today. In **10 seconds**, a viewer can learn that readings are current, 142/185 assets have harbour ties, and supply is very uneven; in **1 minute**, they may infer that size, geography, sail marks, and water bodies encode something, but cannot decode a dependable top ten or risk state; in **10 minutes**, autonomous motion adds atmosphere rather than a coherent data story unless the viewer opens the legend or ledger. The required semantic model is unusually rich, but at rest most readings are below perceptual threshold or compete with ~185 equally assertive hulls.
+
+## Findings
+
+### GAP — the encoding contract is stronger than the visible hierarchy
+
+The contract asks each ship to carry identity, scale, class, and risk, each harbour to carry chain supply/concentration, and water bodies to carry risk/ledger category (`docs/pharosville/VISUAL_INVARIANTS.md:158-164`). At noon, only a few large logos, the rough size/density gradient, and the explicit footer census are dependable; most sail marks, harbour flags, water boundaries, and family forms are too small or too numerous (`noon.png @ full water field and lower edge`). At night the lighthouse and scattered lamps dominate, while most analytical differentiation collapses (`night.png @ centre and fleet`). Thus **perceptible**: aggregate census/currentness text, a handful of brands, coarse ship-size differences, broad fleet density. **Theoretical**: exact top-N order, most identities/classes, per-ship risk, named water category, chain supply/concentration, mint/burn direction, and stale-feed geography.
+
+### GAP — market flow exists as quay micro-detail, not a rest-frame event
+
+Cargo direction is carefully truthful—pier deck means minting; quay edge means burning—and magnitude is run length (`src/three/garden-cargo-tide.ts:25-41`). Yet one course of crates across mostly off-frame harbours cannot compete with the fleet, despite being intended for default framing (`src/three/garden-cargo-tide.ts:43-58`). The implementation correctly refuses animated crates because the payload is a state, not a rate (`src/three/garden-cargo-tide.ts:60-66`); the answer is a larger ceremonial state transition, not busier crate motion.
+
+### GAP — calm ambient life is disconnected from market life
+
+The daily almanac selects exactly one decorative event—heron, lantern round, or meteor (`src/systems/garden-almanac.ts:26-48`)—and explicitly avoids inventing a resolved-stress history (`src/systems/garden-almanac.ts:50-58`). Meanwhile the 30-day PSI record already provides a truthful slow state with average, sample span, and growth (`src/systems/garden-month-record.ts:14-42`). This is the right temporal grammar, but the world does not visibly unite daily event, current market, and monthly memory.
+
+### DEFECT — freshness has semantic parity but weak visual ownership
+
+Staleness is correctly split between risk waters and quays (`src/systems/epistemic-haze.ts:10-21`) and has explicit DOM labels (`src/systems/epistemic-haze.ts:24-42`). At rest, however, atmospheric perspective and aesthetic haze make “epistemic haze” indistinguishable from weather (`noon.png @ far water`; `night.png @ shoreline`). The lamp model also suppresses one-poll flicker and transitions over 30 seconds (`src/systems/lamp-status.ts:20-24`), but a central lamp cannot identify *which* instruments are stale.
+
+## Ranked ideas
+
+### 1. **STEP CHANGE — Top-ten hero fleet, remainder as garden texture**
+Make the top 10 by market cap 2–3× authored hero ships with broad, legible cloth sails, stable rank berths, and generous negative space; collapse the other 175 into small distant flotillas/lantern traces while retaining census and inspectability. Rank infrastructure already exists (`src/systems/detail-model.ts:41-71`). This creates an instant visual sentence: who leads, by how much, and what the long tail feels like. **Cost:** +6–12 draws, +35–60k tris, ≤2 atlas textures, ~0.6–1.2 ms; **L**. **Risk:** scale can falsely imply exact ratios; label “rank/market cap” and use bounded logarithmic size. **Displaces/re-pins:** reverses every-eligible-hull-at-rest prominence, not fleet availability; displaces marina carpet. **Parity:** detail and ledger must state rank, total, cap, and “visual scale compressed.” **Truth:** never imply the ships traded with, transferred to, or bridged through nearby harbours. **Dependencies:** fleet composition/motion, camera, sail art.
+
+### 2. **STEP CHANGE — One daily tide for total tracked supply**
+Turn total supply into the harbour’s slow waterline: one clearly marked stone tide gauge plus a 24-hour easing from previous daily close to current snapshot. Use absolute level only against an explicitly labeled recent range; otherwise show direction, date, and unavailable state. It makes the dominant market fact readable from stillness rather than adding objects. **Cost:** +1–3 draws, <3k tris, no texture, <0.15 ms; **M**. **Risk:** a natural tide implies periodicity; name it “Supply tide,” pin timestamp, and do not oscillate. **Displaces:** decorative shoreline foam/readability noise; does not reclassify risk waters. **Parity:** same total, delta, baseline window, and as-of time in panel/ledger. **Truth:** aggregate issuance change, never transfers, bridge flow, or issuer action. **Dependencies:** data aggregation, water/shore lane.
+
+### 3. Depeg as a rare, unmistakable event
+On a confirmed threshold crossing, the affected hero ship heels visibly, lowers sail, and takes a slow outbound course toward Danger Strait; one restrained bell and a single ripple occur once. Persist a quiet listed pose while the condition holds; historical edge required for ceremony, otherwise render state only. **Cost:** +0–2 draws, negligible tris/tex, <0.15 ms; **L**. **Risk:** theatrical panic and false causality. Use severity/duration gates, hysteresis, no red flashing, no wreck until lifecycle data says so. **Displaces:** that day’s decorative almanac event and ordinary voyage for the asset. **Parity:** asset, price/deviation, threshold, duration/as-of, and event/state distinction in panel/ledger. **Truth:** heading toward the strait is categorical placement, not a transfer, redemption, bridge, or issuer operation. **Dependencies:** risk model, fleet motion, audio/reduced-motion.
+
+### 4. Issuance arrival ceremony
+When a *newly observed data edge* confirms positive net issuance, let a hero ship arrive at its normal anchorage, furl sail, and receive a short lantern welcome; negative issuance gets a quiet departure. Without an edge, keep the truthful static cargo course already defined (`src/three/garden-cargo-tide.ts:97-110`). **Cost:** reuse ships/lights, +0–2 draws, <0.2 ms; **L**. **Risk:** issuance is not necessarily physical mint/burn or chain movement. Copy must say “net supply increased/decreased in the reporting window.” **Displaces:** paired ambient arrival/departure and decorative lantern round. **Parity:** amount, window, sign, source coverage, timestamp. **Truth:** never call it a transfer, bridge, redemption, or issuer act. **Dependencies:** snapshot history and motion director.
+
+### 5. PSI becomes sky clarity—not sky colour
+Map PSI band to cloud-layer clarity, horizon visibility, and wind calm, with slow hysteretic transitions; preserve wall-clock light and weather-like beauty. The lighthouse remains the exact score/band channel, while sky supplies the preattentive gestalt. **Cost:** +2–4 draws, 1 texture, ~0.3–0.8 ms; **M/L**. **Risk:** viewers may read literal forecast or freshness. A calm caption names “Market stability,” while stale PSI freezes the last good sky and adds localized fog. **Displaces:** generic beige atmospheric veil and unrelated sky spectacle. **Parity:** exact PSI, band, as-of, and unavailable/frozen state. **Truth:** correlation only—never imply weather causes markets. **Dependencies:** sky/light and haze lanes.
+
+### 6. Chain concentration becomes harbour silhouette
+Allocate visible shoreline frontage and one dominant roof mass by chain supply share; guarantee the largest 3–4 harbours remain inside the rest-frame composition. Keep raised chain flags as labels, but stop asking a tiny flag to carry both identity and importance. **Cost:** no necessary new draws; +10–25k tris, <0.25 ms; **L**. **Risk:** apparent land area suggests jurisdiction or transaction volume. Use bounded/log scale and ledger wording “share of tracked stablecoin supply.” **Displaces/re-pins:** recompose decorative shore buildings; re-pin harbour identity away from flag-only emphasis while preserving flags (`docs/pharosville/VISUAL_INVARIANTS.md:160-163`). **Parity:** supply/share, rank, coverage, as-of. **Truth:** no bridge/transfer/activity inference. **Dependencies:** harbour architecture and rest camera.
+
+### 7. “Today in stablecoins” as one calm caption
+Add one low-contrast, two-line sentence that changes only on data refresh: “Tracked supply … · 24h … · PSI … · one notable depeg/none.” Fade between complete snapshots; no ticker, carousel, or toast. This gives a novice the decoding key within 10 seconds and lets the world remain quiet. **Cost:** DOM only, 0 draws/tris/textures, negligible GPU; **S/M**. **Risk:** editorial selection can overstate importance; deterministic precedence and explicit “tracked/as of” language. **Displaces:** version/FPS prominence and miscellaneous status copy, not the ledger. **Parity:** caption fields link to identical panel/ledger facts. **Truth:** say supply change and price deviation, never transfer, bridge, mint, redemption, or issuer action unless sourced. **Dependencies:** UI/HUD and accessible announcements (do not live-announce routine refreshes).
+
+### 8. Month record as a moon calendar
+Let moon phase/halo encode the trailing 30-day PSI record: phase = sample coverage across the window; halo softness = average PSI band. Keep actual local astronomy out of the metaphor, and label it “30-day garden record.” The existing model already distinguishes unavailable and calls the value slow, never a live alarm (`src/systems/garden-month-record.ts:45-58`). **Cost:** reuse moon, +0–1 draw, no/one texture, <0.1 ms; **M**. **Risk:** phase convention is opaque and conflicts with real-world moon expectations. Include a tiny month arc legend; neutral new moon for unavailable must be explicitly named. **Displaces:** decorative moon phase/halo. **Parity:** average PSI, span days, sample count, unavailable. **Truth:** historical index summary only. **Dependencies:** sky/time lane.
+
+### 9. Staleness as bounded, source-shaped fog
+Replace global-looking haze with unmistakable low fog banks physically hugging only stale risk waters or stale quays; add a small stationary instrument flag at each affected domain. Current booleans already support exactly this split (`src/systems/epistemic-haze.ts:15-21`). **Cost:** +2 draws, <4k tris, 1 noise texture shared, ~0.2–0.5 ms; **M**. **Risk:** fog can read as high risk rather than missing freshness. Never alter water risk colour, ship behaviour, or PSI sky; caption “data mist” with last-good time. **Displaces:** atmospheric fog in the same regions. **Parity:** exact stale feeds, affected readings, last-good timestamp. **Truth:** absence/age only, never market deterioration. **Dependencies:** atmosphere, freshness timestamps.
+
+### 10. Lantern count as redundant supply cadence
+Use a fixed arc of 12 lighthouse-island lanterns as coarse deciles of tracked total supply against a labeled 30-day range; illuminate only at the daily snapshot, not continuously. This gives night a readable counterpart to the tide without multiplying per-ship lamps. **Cost:** 1 instanced draw, <2k tris, no texture, <0.1 ms; **M**. **Risk:** count may imply asset count or operational status. Separate it spatially from the liveness lamp and label the gauge. **Displaces:** decorative island window/lantern embers. **Parity:** same total, baseline, bucket rule, as-of. **Truth:** stock only; no transaction or issuance implication. **Dependencies:** lighting and total-supply model.
+
+## Rejected
+
+- Per-ship live price labels: turns the garden into a trading terminal and is unreadable at rest.
+- Animate every mint/burn crate: invents rate/causality and contradicts the deliberate static-state contract.
+- Red water for depegs: conflates asset event with geographic risk classification and violates colour redundancy.
+- More hulls for more supply: worsens the carpet and makes long-tail count look like market weight.
+
+## Cross-lane notes
+
+Fleet/camera should reserve negative space and stable hero berths before sail/detail work. Sky, water, and freshness need an explicit channel treaty: **PSI owns clarity aloft; supply owns marked waterline; stale sources own localized low fog; wall clock owns illumination.** UI/data lanes must define deterministic caption precedence and preserve detail-panel/accessibility-ledger parity for every visual state. Motion/almanac should expose one event slot so market ceremonies displace—not stack atop—heron, meteor, or lantern spectacle.

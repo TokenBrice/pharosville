@@ -57,7 +57,7 @@
  *   node scripts/pharosville/preview.mjs --assert --reduced  # settled static resource gate
  *   node scripts/pharosville/preview.mjs --artifact-check    # short-interval full-frame flash probe
  *   node scripts/pharosville/preview.mjs --assert --max-p90=20 --max-draw-calls=700
- *   node scripts/pharosville/preview.mjs --assert --max-p95=20 --tail-seconds 30
+ *   node scripts/pharosville/preview.mjs --assert --max-p95=20 --max-gpu-ms=12 --tail-seconds 30
  *   node scripts/pharosville/preview.mjs --texture-census    # attribute live texture owners
  *   node scripts/pharosville/preview.mjs --draw-census      # attribute live draw owners
  *   node scripts/pharosville/preview.mjs --light-cycle --json # native time control phase/resource audit
@@ -123,6 +123,9 @@ const limits = {
   // decile further out: 20ms tolerates a missed vsync, and refuses to call a
   // second in which one frame in twenty cost more than that "smooth".
   maxP95Ms: numberFlag("max-p95", 20),
+  // Optional GPU-only ceiling. Unlike the whole-frame gates above, absence
+  // means no GPU assertion was requested.
+  maxGpuMs: numberFlag("max-gpu-ms", null),
   requiredTier: typeof args["require-tier"] === "string" ? args["require-tier"] : forcedTier ?? "full",
 };
 const url = args.url ?? "http://localhost:5173";
@@ -611,6 +614,21 @@ function printFrameTail(metrics) {
     console.log(`tail       p95 ${round(metrics.p95)}ms · p99 ${round(metrics.p99)}ms`
       + ` · max ${round(metrics.maxFrameMs)}ms  (this ${metrics.samples}-frame window)`);
   }
+  const gpu = metrics.gpuTimings;
+  if (!gpu?.supported) {
+    console.log("gpu        not measured (EXT_disjoint_timer_query_webgl2 unavailable or bundle predates W0.1)");
+  } else if (gpu.disjoint) {
+    console.log("gpu        disjoint — sample discarded");
+  } else {
+    const formatGpuMs = (value) => typeof value === "number" ? `${value.toFixed(1)}ms` : "n/a";
+    const passNames = ["scene", "n8ao", "bloom", "grade", "smaa", "reflection"];
+    const passes = passNames
+      .map((name) => gpu.passes?.find((pass) => pass.name === name))
+      .filter(Boolean)
+      .map((pass) => `${pass.name} ${formatGpuMs(pass.p95Ms)}`);
+    console.log(`gpu        frame p50 ${formatGpuMs(gpu.frameP50Ms)} · p95 ${formatGpuMs(gpu.frameP95Ms)}`
+      + `${passes.length > 0 ? `   ${passes.join(" · ")}` : ""}`);
+  }
   console.log(`longtask   ${metrics.longtaskCount ?? 0} in the rolling window`
     + ` · longest ${round(metrics.longtaskMaxMs ?? 0)}ms`
     + " — a GC pause or a rebuild lands here before it reaches the frame");
@@ -1092,6 +1110,17 @@ function evaluateAssertions(metrics, shaderErrors = []) {
     process.exitCode = SKIP_EXIT_CODE;
     return;
   }
+  if (limits.maxGpuMs !== null) {
+    const gpu = metrics.gpuTimings;
+    const gpuMeasured = gpu?.supported === true
+      && !gpu.disjoint
+      && typeof gpu.frameP95Ms === "number";
+    if (!gpuMeasured) {
+      console.log("\nSKIP: GPU was not measured, so nothing is being claimed about the GPU timing budget.");
+      process.exitCode = SKIP_EXIT_CODE;
+      return;
+    }
+  }
 
   const failures = [];
   if (shaderErrors.length > 0) {
@@ -1122,6 +1151,9 @@ function evaluateAssertions(metrics, shaderErrors = []) {
       console.error(`note: the sweep's windows left gaps (window span ${round(tailSweep.minWindowSpanMs)}ms`
         + ` < ${TAIL_POLL_INTERVAL_MS}ms poll); frames between reads were not measured.`);
     }
+  }
+  if (limits.maxGpuMs !== null && metrics.gpuTimings.frameP95Ms > limits.maxGpuMs) {
+    failures.push(`gpu p95 ${round(metrics.gpuTimings.frameP95Ms)} ms exceeds ${limits.maxGpuMs} ms`);
   }
   if ((metrics.calls ?? Infinity) > limits.maxDrawCalls) {
     failures.push(`${metrics.calls} draw calls exceed ${limits.maxDrawCalls}`);
@@ -1342,6 +1374,7 @@ function readMetrics(page) {
       frameCount: debug?.motionFrameCount ?? null,
       fps: m?.framePacing?.effectiveFps ?? null,
       geometries: m?.gpu?.geometries ?? null,
+      gpuTimings: m?.gpuTimings ?? null,
       logoAssetsExpected: m?.logoAssetsExpected ?? null,
       logoAssetsLoaded: m?.logoAssetsLoaded ?? null,
       longtaskCount: m?.longtask?.count ?? null,

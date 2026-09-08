@@ -4,7 +4,7 @@ export interface DrawOwnerCensusEntry { owner: string; calls: number; triangles:
 export interface DrawOwnerCensus { owners: DrawOwnerCensusEntry[]; attributedCalls: number; rendererCalls: number; sampledAtFrame: number }
 export interface DrawRecorderTarget {
   renderBufferDirect: (camera: Camera, scene: Scene | null, geometry: BufferGeometry, material: Material, object: Object3D, group: { start: number; count: number } | null) => void;
-  info: { render: { calls: number } };
+  info: { render: { calls: number; triangles: number } };
 }
 export interface DrawOwnerRecorder { arm(): void; finish(frame: number): DrawOwnerCensus | null }
 
@@ -31,8 +31,8 @@ function ownerName(object: Object3D, root: Object3D, depth: number): string {
  * constructor) for exactly one armed frame, so every counted draw is a draw that happened.
  * `attributedCalls === rendererCalls` is therefore a reconciliation the caller may assert.
  *
- * It is deliberately scene-agnostic: merged and instanced harbor drawables
- * are counted from the renderer call itself rather than a hard-coded part list.
+ * Draws are measured from the renderer's own call and triangle deltas. That keeps draw
+ * ranges, groups, instancing, and non-triangle primitives identical to `renderer.info`.
  */
 export function createDrawOwnerRecorder(target: DrawRecorderTarget, root: Object3D, ownerDepth = 2): DrawOwnerRecorder {
   let armed = false;
@@ -47,17 +47,17 @@ export function createDrawOwnerRecorder(target: DrawRecorderTarget, root: Object
       original = target.renderBufferDirect;
       const wrapped = original;
       target.renderBufferDirect = (camera, scene, geometry, material, object, group) => {
-        const before = target.info.render.calls;
+        const beforeCalls = target.info.render.calls;
+        const beforeTriangles = target.info.render.triangles;
         wrapped.call(target, camera, scene, geometry, material, object, group);
-        const delta = target.info.render.calls - before;
-        if (delta <= 0) return;
+        const callDelta = target.info.render.calls - beforeCalls;
+        if (callDelta <= 0) return;
+        const triangleDelta = target.info.render.triangles - beforeTriangles;
         const owner = ownerName(object, root, ownerDepth);
         const instanced = Boolean((object as InstancedMesh).isInstancedMesh);
-        const instances = instanced ? (object as InstancedMesh).count : 1;
-        const vertices = group ? group.count : (geometry.index?.count ?? geometry.getAttribute("position")?.count ?? 0);
         const entry = byOwner.get(owner) ?? { owner, calls: 0, triangles: 0, instanced };
-        entry.calls += delta;
-        entry.triangles += Math.floor(vertices / 3) * instances * delta;
+        entry.calls += callDelta;
+        entry.triangles += triangleDelta;
         entry.instanced = entry.instanced || instanced;
         byOwner.set(owner, entry);
       };

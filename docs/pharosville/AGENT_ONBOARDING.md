@@ -40,12 +40,13 @@ read only the docs needed for the change in front of you.
 
 | Task | Read only if needed | First checks |
 | --- | --- | --- |
-| App shell, API proxy, metadata, viewport gate | `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville-page.md` | `npm run validate:changed` |
-| World model, data semantics, layout, motion | `docs/pharosville/VISUAL_INVARIANTS.md`, `src/systems/README.md` | `npm test -- src/systems` |
-| Three.js renderer, hit testing, interaction | `docs/pharosville/THREEJS_AGENT_REFERENCE.md`, `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville/TESTING.md` | focused unit test (`npm test -- src/three src/renderer`), then `npm run test:visual` |
+| App shell, API proxy, metadata, viewport gate | `docs/pharosville/CONTRACTS.md`, `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville-page.md` | `npm run validate:changed` |
+| World model, data semantics, layout, motion | `docs/pharosville/CONTRACTS.md`, `src/systems/README.md` | `npm test -- src/systems` |
+| Art direction, composition, light hierarchy, visual restraint | `docs/pharosville/VISUAL_INVARIANTS.md` | operator review of the picture rules, then real-GPU `npm run preview` evidence |
+| Three.js renderer, hit testing, interaction | `docs/pharosville/CONTRACTS.md`, `docs/pharosville/THREEJS_AGENT_REFERENCE.md`, `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville/TESTING.md` | focused unit test (`npm test -- src/three src/renderer`), then `npm run test:visual` |
 | Lighthouse model or ship logos | `docs/pharosville/ASSET_PIPELINE.md` | `npm run check:garden-models` or focused sail tests |
 | Reference generation | `docs/pharosville/ASSET_PIPELINE.md` | operator review; keep scratch in `outputs/` |
-| Visual evidence, look, frame time | `docs/pharosville/TESTING.md` | `npm run preview` for anything you intend to LOOK at or quote a frame time from; `npm run test:visual` for the assertions |
+| Visual evidence, look, frame time | `docs/pharosville/VISUAL_INVARIANTS.md`, `docs/pharosville/CONTRACTS.md`, `docs/pharosville/TESTING.md` | `npm run preview` for anything you intend to LOOK at or quote a frame time from; `npm run test:visual` for the assertions |
 | Versioned release, tag, or GitHub Release | `docs/pharosville/RELEASES.md` | `npm run check:release-contract` |
 | Docs/process only | `docs/pharosville/README.md` | `npm run validate:docs` |
 | Unknown or mixed scope | this file, then exact source files | `npm run validate:changed` |

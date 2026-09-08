@@ -268,6 +268,18 @@ describe("PharosVille social card route", () => {
         expect(await onRequest(context), selection).toBe(assetResponse);
       }
     });
+    it("passes inherited names through like unknown selections", async () => {
+      vi.stubGlobal("HTMLRewriter", FakeHtmlRewriter);
+      const unknown = makeContext("https://pharosville.pharos.watch/?sel=not-a-landmark");
+      const inherited = makeContext("https://pharosville.pharos.watch/?sel=constructor");
+
+      const unknownResponse = await onRequest(unknown.context);
+      const inheritedResponse = await onRequest(inherited.context);
+
+      expect(unknownResponse).toBe(unknown.assetResponse);
+      expect(inheritedResponse).toBe(inherited.assetResponse);
+      expect(await inheritedResponse.text()).toBe(await unknownResponse.text());
+    });
 
     it("never lets a raw selection reach the page, escaped or otherwise", async () => {
       vi.stubGlobal("HTMLRewriter", FakeHtmlRewriter);

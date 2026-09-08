@@ -38,7 +38,7 @@ import type {
 } from "../renderer/world-renderer-backend";
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
 import { defaultCamera } from "../systems/camera";
-import { gardenWaterPlateContainsTile, screenToTile } from "../systems/projection";
+import { gardenWaterPlateContainsTile, screenToGround } from "../systems/projection";
 import { HARBOR_PALETTE } from "../systems/palette";
 import {
   bearingInsideRimOpening,
@@ -234,6 +234,7 @@ const rendererHarness = vi.hoisted(() => ({
 type TestGardenPost = {
   dispose: ReturnType<typeof vi.fn>;
   getPassList: ReturnType<typeof vi.fn>;
+  getGpuTimings: ReturnType<typeof vi.fn>;
   isComposerEnabled: ReturnType<typeof vi.fn>;
   render: ReturnType<typeof vi.fn>;
   setAOQuality: ReturnType<typeof vi.fn>;
@@ -283,6 +284,13 @@ vi.mock("./garden-post", () => ({
     let aoTexturesResident = false;
     const instance: TestGardenPost = {
       dispose: vi.fn(),
+      getGpuTimings: vi.fn(() => ({
+        supported: false,
+        disjoint: false,
+        frameP50Ms: null,
+        frameP95Ms: null,
+        passes: [],
+      })),
       // Mirrors the real getPassList, which lists only the enabled passes.
       getPassList: vi.fn(() => (enabled
         ? [
@@ -689,9 +697,10 @@ describe("Three world renderer lifecycle", () => {
 
     const wakeFrame = (timeSeconds: number) => {
       const frame = rendererFrame(world, "full", { timeSeconds });
-      const center = screenToTile(
+      const center = screenToGround(
         { x: frame.width / 2, y: frame.height / 2 },
         frame.camera,
+        { x: frame.width, y: frame.height },
       );
       for (const sample of frame.shipMotionSamples.values()) sample.tile = center;
       return frame;

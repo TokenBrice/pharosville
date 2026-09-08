@@ -110,6 +110,13 @@ export interface PharosVilleRenderMetrics {
    * out of the load measurement entirely. Steady-state frames read 0.
    */
   gpuWarmupCount?: number;
+  gpuTimings?: {
+    supported: boolean;
+    disjoint: boolean;
+    frameP50Ms: number | null;
+    frameP95Ms: number | null;
+    passes: Array<{ name: string; p50Ms: number; p95Ms: number; samples: number }>;
+  };
   /** PMREM work is episodic and intentionally separate from recurring calls. */
   environmentBakeCalls?: number;
   environmentBakeCount?: number;

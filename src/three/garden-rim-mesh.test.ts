@@ -405,6 +405,8 @@ describe("garden rim mesh", () => {
       ),
     }));
     const massRects: Record<string, ScreenRect> = {};
+    // Authored unit-camera bounds use the desktop baseline projection viewport.
+    const projectionViewport = { x: 1600, y: 1000 };
     for (const mass of GARDEN_RIM_FOREGROUND_MASSES) {
       const mesh = rim.root.getObjectByName(mass.name) as Mesh;
       expect(mesh, mass.name).toBeInstanceOf(Mesh);
@@ -476,11 +478,12 @@ describe("garden rim mesh", () => {
         [bb.min.x, bb.max.y, bb.max.z],
         [bb.max.x, bb.max.y, bb.max.z],
       ] as const) {
-        const point = gardenTileToScreen({ x: x / TILE_SCALE, y: z / TILE_SCALE }, y, {
-          offsetX: 0,
-          offsetY: 0,
-          zoom: 1,
-        });
+        const point = gardenTileToScreen(
+          { x: x / TILE_SCALE, y: z / TILE_SCALE },
+          y,
+          { offsetX: 0, offsetY: 0, zoom: 1 },
+          projectionViewport,
+        );
         unionInto(massRects[mass.name]!, point.x, point.y);
       }
     }
@@ -507,8 +510,14 @@ describe("garden rim mesh", () => {
         towerTile,
         GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT,
         camera,
+        { x: viewport.width, y: viewport.height },
       );
-      const foot = gardenTileToScreen(towerTile, 0, camera);
+      const foot = gardenTileToScreen(
+        towerTile,
+        0,
+        camera,
+        { x: viewport.width, y: viewport.height },
+      );
       const lighthouseRect: ScreenRect = {
         maxX: crown.x + towerHalfWidth * camera.zoom,
         maxY: foot.y,
@@ -527,7 +536,7 @@ describe("garden rim mesh", () => {
             const point = gardenTileToScreen({
               x: mole.rect.origin.x + mole.rect.seawardX * along - mole.rect.seawardY * across,
               y: mole.rect.origin.y + mole.rect.seawardY * along + mole.rect.seawardX * across,
-            }, worldY, camera);
+            }, worldY, camera, { x: viewport.width, y: viewport.height });
             unionInto(moleRect, point.x, point.y);
           }
         }

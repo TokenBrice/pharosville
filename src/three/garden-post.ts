@@ -7,6 +7,7 @@ import {
   EffectPass,
   BlendFunction,
   RenderPass,
+  type Pass,
   ShaderPass,
   SMAAEffect,
   ToneMappingEffect,
@@ -36,7 +37,7 @@ import {
   type WebGLRenderer,
 } from "three";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
-import type { TextureOwnerManifestEntry } from "../renderer/render-types";
+import type { PharosVilleRenderMetrics, TextureOwnerManifestEntry } from "../renderer/render-types";
 
 /**
  * The world's ONE tone-mapping decision (warm-village B5, 2026-09-05).
@@ -1272,6 +1273,141 @@ class GardenGodRaysEffect extends Effect {
   }
 }
 
+type GardenGpuTimings = NonNullable<PharosVilleRenderMetrics["gpuTimings"]>;
+
+/**
+ * TIME_ELAPSED queries cannot nest. Alternate whole-composer frames with
+ * per-pass frames so both measurements bracket real GPU work without errors.
+ * All query slots, sample rings, reports and sorting storage are reused.
+ */
+class GardenGpuTimer {
+  private readonly gl: WebGL2RenderingContext;
+  private readonly extension: { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null;
+  readonly report: GardenGpuTimings;
+  private readonly tracks: Array<{
+    name: string;
+    queries: WebGLQuery[];
+    pending: boolean[];
+    read: number;
+    write: number;
+    values: Float64Array;
+    count: number;
+    cursor: number;
+    metric: GardenGpuTimings["passes"][number];
+  }> = [];
+  private readonly sorted = new Float64Array(120);
+  private frameOnly = false;
+  private activeTrack = -1;
+
+  constructor(renderer: WebGLRenderer) {
+    this.gl = renderer.getContext() as WebGL2RenderingContext;
+    this.extension = this.gl.getExtension("EXT_disjoint_timer_query_webgl2");
+    this.report = {
+      supported: this.extension !== null,
+      disjoint: false,
+      frameP50Ms: null,
+      frameP95Ms: null,
+      passes: [],
+    };
+    if (!this.extension) return;
+    for (const name of ["scene", "n8ao", "bloom", "grade", "smaa", "frame"]) {
+      const queries: WebGLQuery[] = [];
+      for (let i = 0; i < 8; i += 1) {
+        const query = this.gl.createQuery();
+        if (query) queries.push(query);
+      }
+      this.tracks.push({
+        name, queries, pending: queries.map(() => false), read: 0, write: 0,
+        values: new Float64Array(120), count: 0, cursor: 0,
+        metric: { name, p50Ms: 0, p95Ms: 0, samples: 0 },
+      });
+    }
+  }
+
+  poll(): void {
+    if (!this.extension) return;
+    this.frameOnly = !this.frameOnly;
+    this.report.disjoint = this.gl.getParameter(this.extension.GPU_DISJOINT_EXT) === true;
+    this.report.passes.length = 0;
+    for (const track of this.tracks) {
+      if (this.report.disjoint) {
+        // Reusing a query after its result was invalidated discards that result.
+        track.pending.fill(false);
+        track.read = track.write = track.count = track.cursor = 0;
+        track.values.fill(0);
+      } else {
+        while (track.pending[track.read]) {
+          const query = track.queries[track.read]!;
+          if (!this.gl.getQueryParameter(query, this.gl.QUERY_RESULT_AVAILABLE)) break;
+          track.values[track.cursor] = this.gl.getQueryParameter(query, this.gl.QUERY_RESULT) / 1e6;
+          track.cursor = (track.cursor + 1) % 120;
+          track.count = Math.min(120, track.count + 1);
+          track.pending[track.read] = false;
+          track.read = (track.read + 1) % track.queries.length;
+        }
+      }
+      if (track.count === 0) continue;
+      this.sorted.fill(Infinity);
+      for (let i = 0; i < track.count; i += 1) this.sorted[i] = track.values[i]!;
+      this.sorted.sort();
+      const p50 = this.sorted[Math.ceil(track.count * 0.5) - 1]!;
+      const p95 = this.sorted[Math.ceil(track.count * 0.95) - 1]!;
+      if (track.name === "frame") {
+        this.report.frameP50Ms = p50;
+        this.report.frameP95Ms = p95;
+      } else {
+        track.metric.p50Ms = p50;
+        track.metric.p95Ms = p95;
+        track.metric.samples = track.count;
+        this.report.passes.push(track.metric);
+      }
+    }
+    if (this.report.disjoint) {
+      this.report.frameP50Ms = null;
+      this.report.frameP95Ms = null;
+    }
+  }
+
+  begin(index: number): void {
+    if (!this.extension || this.report.disjoint || this.frameOnly !== (index === 5)) return;
+    const track = this.tracks[index]!;
+    if (track.queries.length === 0 || track.pending[track.write]) return;
+    this.gl.beginQuery(this.extension.TIME_ELAPSED_EXT, track.queries[track.write]!);
+    this.activeTrack = index;
+  }
+
+  end(index: number): void {
+    if (!this.extension || this.activeTrack !== index) return;
+    this.gl.endQuery(this.extension.TIME_ELAPSED_EXT);
+    const track = this.tracks[index]!;
+    track.pending[track.write] = true;
+    track.write = (track.write + 1) % track.queries.length;
+    this.activeTrack = -1;
+  }
+
+  wrap(pass: Pass, index: number): void {
+    if (!this.extension) return;
+    const render = pass.render;
+    pass.render = (renderer, inputBuffer, outputBuffer, deltaTime, stencilTest) => {
+      this.begin(index);
+      try {
+        render.call(pass, renderer, inputBuffer, outputBuffer, deltaTime, stencilTest);
+      } finally {
+        this.end(index);
+      }
+    };
+  }
+
+  dispose(): void {
+    if (!this.extension) return;
+    if (this.activeTrack !== -1) this.end(this.activeTrack);
+    for (const track of this.tracks) {
+      for (const query of track.queries) this.gl.deleteQuery(query);
+    }
+    this.tracks.length = 0;
+  }
+}
+
 export interface GardenPost {
   dispose: () => void;
   /** Render targets and lookup textures owned by the post chain. */
@@ -1279,6 +1415,8 @@ export interface GardenPost {
   // The returned array is a reused internal buffer: read it within the frame,
   // do not retain it across frames.
   getPassList: () => string[];
+  /** Reused timing report; consume within this frame rather than retaining it. */
+  getGpuTimings: () => GardenGpuTimings;
   isComposerEnabled: () => boolean;
   render: (deltaTime?: number) => void;
   /** Eased scheduler fidelity weight (0 disables AO, 1 applies full tier weight). */
@@ -1699,6 +1837,12 @@ export function createGardenPost(
   composer.addPass(bloomPass);
   composer.addPass(gradePass);
   composer.addPass(smaaPass);
+  const gpuTimer = new GardenGpuTimer(renderer);
+  gpuTimer.wrap(renderPass, 0);
+  gpuTimer.wrap(n8aoPass, 1);
+  gpuTimer.wrap(bloomPass, 2);
+  gpuTimer.wrap(gradePass, 3);
+  gpuTimer.wrap(smaaPass, 4);
 
   const gradeUniforms = {
     gain: uniform<Color>(gradeEffect, "gain"),
@@ -2104,6 +2248,7 @@ export function createGardenPost(
 
   return {
     dispose() {
+      gpuTimer.dispose();
       // The N8AO pass carries a local adapter because n8ao@2.0.0's inherited
       // generic disposal does not reach its fullscreen-triangle wrappers.
       // The composer owns every other pass, both frame buffers, and copy pass.
@@ -2114,6 +2259,9 @@ export function createGardenPost(
       ditherTexture?.dispose();
     },
     getTextureManifest,
+    getGpuTimings() {
+      return gpuTimer.report;
+    },
     getPassList() {
       passList.length = 0;
       if (enabled) {
@@ -2138,6 +2286,7 @@ export function createGardenPost(
       return enabled;
     },
     render(deltaTime) {
+      gpuTimer.poll();
       syncIdleProfile(deltaTime ?? 0);
       easePostAssets(deltaTime);
       syncCameraDerivedUniforms();
@@ -2151,7 +2300,12 @@ export function createGardenPost(
         return;
       }
       const renderedAO = n8aoPass.enabled;
-      composer.render(deltaTime);
+      gpuTimer.begin(5);
+      try {
+        composer.render(deltaTime);
+      } finally {
+        gpuTimer.end(5);
+      }
       if (renderedAO) aoTextureResourcesResident = true;
     },
     setAOTierWeight(weight) {

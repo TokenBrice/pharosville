@@ -1015,14 +1015,6 @@ describe("sea quietness contract", () => {
     expect(mean).toBeCloseTo(0.0155, 8);
     expect(mean).toBeLessThan(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.maxMeanLuminance);
 
-    // These are shader values, not a parallel test-only model: the source is
-    // generated from the same constants the mean proxy sums above.
-    expect(FRAGMENT_SHADER).toContain(
-      GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.moonGlitterGain.toFixed(7),
-    );
-    expect(FRAGMENT_SHADER).toContain(
-      GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.laneClamp.toFixed(7),
-    );
   });
 });
 

@@ -6,7 +6,7 @@ import {
   seaRegionIdForArea,
 } from "./garden-sea-regions";
 import { selectGardenObservatoryAreas } from "./observe-sequence";
-import { TILE_HEIGHT, tileToScreen, type IsoCamera, type ScreenPoint } from "./projection";
+import { TILE_HEIGHT, TILE_SCALE, worldToScreen, type IsoCamera, type ScreenPoint } from "./projection";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
 import { stableUnit } from "./stable-random";
 import {
@@ -386,12 +386,9 @@ export function gardenTileToScreen(
   tile: ScreenPoint,
   worldY: number,
   camera: IsoCamera,
+  viewport: ScreenPoint,
 ): ScreenPoint {
-  const point = tileToScreen(tile, camera);
-  return {
-    x: point.x,
-    y: point.y - worldY * TILE_HEIGHT * (Math.sqrt(3) / 2) * camera.zoom,
-  };
+  return worldToScreen({ x: tile.x * TILE_SCALE, y: worldY, z: tile.y * TILE_SCALE }, camera, viewport);
 }
 
 export function gardenIslandDisplayTile(tile: ScreenPoint): ScreenPoint {

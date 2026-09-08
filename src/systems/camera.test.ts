@@ -117,11 +117,13 @@ describe("camera", () => {
         lighthouseTile,
         GARDEN_LIGHTHOUSE_ROOT_OFFSET.y,
         camera,
+        viewport,
       );
       const towerTop = gardenTileToScreen(
         lighthouseTile,
         GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT,
         camera,
+        viewport,
       );
 
       // The crown-owned vertical seat keeps at least 32px of sky above the

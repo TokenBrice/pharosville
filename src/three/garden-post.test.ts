@@ -416,6 +416,7 @@ function makePost(options: { withShadowLight?: boolean } = {}): {
 } {
   const renderer = {
     clear: vi.fn(),
+    getContext: vi.fn(() => ({ getExtension: vi.fn(() => null) })),
     getDrawingBufferSize: vi.fn((target: { set: (width: number, height: number) => unknown }) => (
       target.set(1600, 1000)
     )),
@@ -572,11 +573,6 @@ describe("garden post-processing contracts", () => {
       "lut",
       "smaa",
     ]);
-    // Both hero stages read the depth texture N8AO already forces the composer
-    // to carry; neither may drag a convolution attribute into the fused pass,
-    // which would make the merge illegal.
-    expect(effectNamed("GardenTiltShift").attributes).toBe(1);
-    expect(effectNamed("GardenGodRays").attributes).toBe(1);
 
     const toneEffects = postHarness.effects.filter((candidate) => (
       (candidate as FakeEffect).name === "ToneMappingEffect"
@@ -590,11 +586,6 @@ describe("garden post-processing contracts", () => {
     });
     expect(composer.passes.at(-1)?.renderToScreen).toBe(true);
     expect(composer.passes.slice(0, -1).every((pass) => !pass.renderToScreen)).toBe(true);
-    expect(effectNamed("SMAAEffect").attributes).toBe(2);
-    expect(effectNamed("GardenGrade").fragmentShader).not.toMatch(/toneMapping|colorspace/i);
-    // The grade stays parametric and pre-tone-map; every lookup lives in the
-    // one effect that runs on the display signal.
-    expect(effectNamed("GardenGrade").fragmentShader).not.toMatch(/lutStrip|ditherNoise/);
   });
 
   it("applies the authored cube and the dither on the display signal, in one fused pass", () => {

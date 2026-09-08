@@ -130,7 +130,9 @@ export function socialCardForSelection(rawSelection: string | null): SocialCardC
 
   const copy = rawSelection.startsWith(SHIP_ID_PREFIX)
     ? shipCardCopy(rawSelection)
-    : LANDMARK_CARD_COPY[rawSelection] ?? null;
+    : Object.hasOwn(LANDMARK_CARD_COPY, rawSelection)
+      ? LANDMARK_CARD_COPY[rawSelection]
+      : null;
   if (!copy) return null;
 
   return { ...copy, url: permalinkFor(rawSelection) };

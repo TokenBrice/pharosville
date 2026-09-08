@@ -13,7 +13,8 @@ an alternative source of runtime truth.
 | Find the right lane and first check | `AGENT_ONBOARDING.md` |
 | Understand app/data/renderer boundaries | `ARCHITECTURE.md` |
 | Change Three.js, interaction, frame lifecycle, or GPU work | `THREEJS_AGENT_REFERENCE.md` |
-| Change world meaning, motion, or visual behavior | `VISUAL_INVARIANTS.md` |
+| Art direction, composition, light hierarchy, or visual restraint | `VISUAL_INVARIANTS.md` |
+| World meaning, fleet capacity, runtime, motion, access, security, or budgets | `CONTRACTS.md` |
 | Change model, texture, sail, or flag media | `ASSET_PIPELINE.md` |
 | Select and interpret validation | `TESTING.md` |
 | Read generated limits and inventories | `RUNTIME_FACTS.md` |

@@ -325,8 +325,10 @@ describe("Garden Observatory slice", () => {
 
     const camera = { offsetX: 700, offsetY: 400, zoom: 1 };
     const tile = { x: 12.5, y: 7.25 };
-    expect(gardenTileToScreen(tile, 0, camera)).toEqual(tileToScreen(tile, camera));
-    const projectedShip = gardenTileToScreen(tile, GARDEN_SHIP_ROOT_Y, camera);
+    // Projection-only coverage uses the desktop baseline viewport.
+    const viewport = { x: 1600, y: 1000 };
+    expect(gardenTileToScreen(tile, 0, camera, viewport)).toEqual(tileToScreen(tile, camera));
+    const projectedShip = gardenTileToScreen(tile, GARDEN_SHIP_ROOT_Y, camera, viewport);
     expect(projectedShip.x).toBe(784);
     expect(projectedShip.y).toBeCloseTo(572.8267650887822);
     expect(gardenCameraViewHeight(1_000, 1)).toBe(62.5);
