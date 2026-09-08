@@ -135,14 +135,26 @@ test(...visualLane("dom", "browser chrome keeps minimum targets and stable scene
   await page.goto("/");
 
   await expect(page.getByTestId("pharosville-world")).toBeVisible();
-  const controls = page.getByTestId("pharosville-world-controls");
-  await page.getByRole("button", { name: "Explore harbor controls" }).click();
-  await expect(controls).toHaveAttribute("data-expanded", "true");
-  for (const target of await controls.locator("button, summary").filter({ visible: true }).all()) {
-    const box = await target.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.width).toBeGreaterThanOrEqual(24);
-    expect(box!.height).toBeGreaterThanOrEqual(24);
+  // Scene chrome only exists when the renderer reached the world; a visitor
+  // without WebGL gets the static overview instead, and CI runs this lane
+  // WebGL-less. The scrim contract below is DOM-only and always checked.
+  // `rendererReachedWorld` reads the live status, so settle it first: right
+  // after `goto` it is still "loading", which reads as reached.
+  await expect(page.getByTestId("pharosville-canvas"))
+    .toHaveAttribute("data-renderer-status", /ready|failed/);
+  if (await rendererReachedWorld(page)) {
+    const controls = page.getByTestId("pharosville-world-controls");
+    await page.getByRole("button", { name: "Explore harbor controls" }).click();
+    await expect(controls).toHaveAttribute("data-expanded", "true");
+    for (const target of await controls.locator("button, summary").filter({ visible: true }).all()) {
+      const box = await target.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.width).toBeGreaterThanOrEqual(24);
+      expect(box!.height).toBeGreaterThanOrEqual(24);
+    }
+  } else {
+    await expect(page.getByTestId("pharosville-renderer-fallback")).toBeVisible();
+    await expect(page.getByTestId("pharosville-world-controls")).toHaveCount(0);
   }
   const contract = await page.evaluate(() => {
     const world = document.querySelector<HTMLElement>('[data-testid="pharosville-world"]');
@@ -169,7 +181,10 @@ test(...visualLane("dom", "browser chrome keeps minimum targets and stable scene
       const match = color.match(/rgba?\([^,]+,[^,]+,[^,]+(?:,\s*([\d.]+))?\)/);
       return match?.[1] ? Number.parseFloat(match[1]) : 1;
     };
-    const caption = getComputedStyle(document.querySelector<HTMLElement>('[data-testid="pharosville-now-caption"]')!);
+    // Probed by class, not by instance: the caption is scene chrome and this
+    // lane also runs without WebGL, where no caption is mounted. What the
+    // assertions below check is the CSS contract, which the probe carries.
+    const caption = probe("pharosville-now-caption", "div");
     const quickField = probe("pharosville-quick-find__field", "div");
     const notice = probe("pv-notice");
     return {
@@ -177,7 +192,7 @@ test(...visualLane("dom", "browser chrome keeps minimum targets and stable scene
       detailCopy: probe("pharosville-detail-panel__copy"),
       caption: {
         backgroundAlpha: alpha(caption.backgroundColor),
-        fontSize: Number.parseFloat(caption.fontSize),
+        fontSize: caption.fontSize,
       },
       glyph: probe("pv-glyph-button"),
       noticeDismiss: probe("pv-notice__dismiss"),
