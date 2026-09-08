@@ -1966,7 +1966,72 @@ export function createFleetBatchGeometry(
   const sails = mergeAtlasSails(sailParts);
   for (const part of sailParts) part.geometry.dispose();
 
-  return { hull, sails };
+  return { hull, sails, far: createFarFleetGeometry(silhouette) };
+}
+
+/** Six/seven-point plans keep each family's beam and the twin-hull water slot. */
+function createFarFleetGeometry(silhouette: GardenHullSilhouette): BufferGeometry {
+  const outlines: Record<GardenHullSilhouette, readonly (readonly [number, number])[]> = {
+    bezaisen: [[-3.48, -1.72], [-3.48, 1.72], [0.1, 2], [2.9, 1.5], [3.45, 0], [2.9, -1.5], [0.1, -2]],
+    kobaya: [[-4.28, -0.38], [-4.28, 0.38], [-0.8, 0.65], [3.45, 0.48], [5.32, 0], [3.45, -0.48], [-0.8, -0.65]],
+    twinhull: [[-4.5, 0], [-2.7, 0.44], [1.65, 0.46], [4.5, 0], [1.65, -0.46], [-2.7, -0.44]],
+    takasebune: [[-5.92, 0], [-4.2, 1.4], [4.3, 1.4], [5.95, 0], [4.3, -1.4], [-4.2, -1.4]],
+    junk: [[-3.12, -0.95], [-3.12, 0.95], [0.35, 1.3], [2.95, 0.72], [3.38, 0], [2.95, -0.72], [0.35, -1.3]],
+    scow: [[-2.58, 0], [-2.12, 1.55], [0.2, 2], [2.58, 0], [0.2, -2], [-2.12, -1.55]],
+  };
+  const shape = new Shape();
+  outlines[silhouette].forEach(([x, y], index) => {
+    if (index === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  });
+  shape.closePath();
+  const body = new ExtrudeGeometry(shape, { depth: 0.72, bevelEnabled: false, steps: 1 });
+  body.rotateX(-Math.PI / 2);
+  body.translate(0, -0.45, 0);
+  shapeHullVerticalForm(body, silhouette);
+  bakeHullVertexColors(body);
+  const parts: { geometry: BufferGeometry; tint?: Color; transform?: Matrix4 }[] = [];
+  for (const z of silhouette === "twinhull" ? [-1.02, 1.02] : [0]) {
+    parts.push({ geometry: body, transform: new Matrix4().makeTranslation(0, 0, z) });
+  }
+  const mast = GARDEN_SHIP_RIGS[silhouette].reduce((best, candidate) => (
+    candidate.sails[0]!.width * candidate.sails[0]!.height
+      > best.sails[0]!.width * best.sails[0]!.height ? candidate : best
+  ));
+  const spar = new CylinderGeometry(0.055, 0.08, mast.height, 4);
+  parts.push({
+    geometry: spar,
+    tint: FLEET_BATCH_TINTS.mast,
+    transform: new Matrix4().makeRotationZ(GARDEN_SHIP_MAST_RAKE[silhouette])
+      .setPosition(mast.x, 0.55 + mast.height / 2, mast.z ?? 0),
+  });
+  const hull = mergeTintedParts(parts);
+  body.dispose();
+  spar.dispose();
+  const plan = mast.sails[0]!;
+  const width = plan.width * 1.2;
+  const height = plan.height * 1.2;
+  const sailPlane = new PlaneGeometry(width, height);
+  const sail = sailPlane.toNonIndexed();
+  sailPlane.dispose();
+  sail.translate(mast.x + (plan.reverse ? -1 : 1) * (0.06 + width / 2), plan.centerY, (mast.z ?? 0) + 0.03);
+  // Both inputs carry only the established cloth attributes: no new location.
+  for (const geometry of [hull, sail]) {
+    for (const name of Object.keys(geometry.attributes)) {
+      if (!["position", "normal", "uv", "color"].includes(name)) geometry.deleteAttribute(name);
+    }
+    if (!geometry.getAttribute("color")) {
+      geometry.setAttribute("color", new Float32BufferAttribute(
+        new Float32Array(geometry.getAttribute("position").count * 3).fill(1), 3,
+      ));
+    }
+    markAtlasSail(geometry, geometry === sail);
+  }
+  const far = mergeGeometries([hull, sail], false);
+  hull.dispose();
+  sail.dispose();
+  if (!far) throw new Error("garden-ships: far hull merge failed");
+  return far;
 }
 
 type ShipFittingPart = {

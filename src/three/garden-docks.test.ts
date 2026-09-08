@@ -136,6 +136,26 @@ describe("garden station recipes", () => {
     }
   });
 
+  it("keeps low-amount, maximum-frontage approach heads inside the waterward envelope", () => {
+    for (const type of ARCHETYPES) {
+      const recipe = authorDock({
+        ...dock(type, 10, null, 1),
+        frontageShare: 10,
+        frontageMedianShare: 1,
+        station: { coveId: `approach.${type}`, shoreBearing: 0, type },
+      }, DISPLAY_TILE, ISLAND_TILE);
+      const declared = STATION_LOCAL_BOUNDS[type];
+      const lamps = recipe.props.filter((prop) => prop.kind === "lampHead");
+      expect(lamps.length, `${type} working quay lantern`).toBeGreaterThanOrEqual(1);
+      for (const lamp of lamps) {
+        expect(lamp.matrix.elements[12]! + 0.21, `${type} lamp X`).toBeLessThanOrEqual(declared.maxX + 0.011);
+        expect(Math.abs(lamp.matrix.elements[14]!) + 0.21, `${type} lamp Z`)
+          .toBeLessThanOrEqual(Math.max(-declared.minZ, declared.maxZ) + 0.011);
+        expect(lamp.fineDetail, `${type} visible at overview`).toBe(false);
+      }
+    }
+  });
+
   it("uses the incoming shore bearing and keeps local +X seaward", () => {
     const bearing = 1.17;
     const recipe = recipeWithStation("hatago-wharf", "inn", bearing);
@@ -354,13 +374,13 @@ describe("garden station recipes", () => {
     }
     expect(basinVertices).toBe(0);
     expect(longArmEnd).toBeCloseTo(17, 5);
-    expect(shortArmEnd).toBeCloseTo(10, 5);
-    expect(longArmEnd - (-5)).toBeCloseTo(22, 5);
-    expect(shortArmEnd - (-5)).toBeCloseTo(15, 5);
+    expect(shortArmEnd).toBeGreaterThanOrEqual(12.3);
+    expect(shortArmEnd).toBeLessThanOrEqual(STATION_LOCAL_BOUNDS["ethereum-mole"].components![2]!.maxX);
+    expect(longArmEnd - shortArmEnd).toBeGreaterThan(4);
 
     expect(mole.identity.signature).toBe("enclosed-basin");
     expect(mole.lampWorldPositions).toHaveLength(2);
-    expect(mole.props.filter((prop) => prop.kind === "lampHead")).toHaveLength(0);
+    expect(mole.props.filter((prop) => prop.kind === "lampHead")).toHaveLength(1);
     expect(mole.features.quayPlatform.litEdgeCount).toBe(1);
     expect(mole.features.warmWindowCount).toBeLessThanOrEqual(4);
     const emissive = mole.parts.find((part) => part.bucket === "window")!.geometry;
@@ -382,9 +402,9 @@ describe("garden station recipes", () => {
     });
     expect(triangles).toBeGreaterThanOrEqual(5_500);
     expect(triangles).toBeLessThanOrEqual(9_000);
-    // The fidelity pass spends the programme's permitted single added draw on
-    // the per-chain accent bucket: the old Mole ceiling was 8, the new is 9.
-    expect(draws).toBeLessThanOrEqual(9);
+    // A single-Mole batch now includes its approach lantern; full-harbor
+    // batching still shares the pre-existing lamp-head draw.
+    expect(draws).toBeLessThanOrEqual(10);
     batch.dispose();
   });
 
@@ -409,10 +429,9 @@ describe("garden station recipes", () => {
     }
   });
 
-  it("keeps industrial identity props out and permits one works prop at most", () => {
+  it("permits one archetype works prop at most", () => {
     for (const type of ARCHETYPES) {
       const recipe = recipeWithStation(type);
-      expect(recipe.props.some((prop) => ["crate", "barrel", "crane", "gantry", "derrick"].includes(prop.kind))).toBe(false);
       const works = recipe.props.filter((prop) => prop.kind === "netRack" || prop.kind === "reedClump");
       expect(works.length, type).toBeLessThanOrEqual(1);
     }

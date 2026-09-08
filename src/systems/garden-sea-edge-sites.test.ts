@@ -49,6 +49,11 @@ describe("garden sea-edge sites", () => {
       "timber-pile",
       "inlet-stone",
     ]));
+    const reedBanks = GARDEN_SEA_EDGE_SITES.filter((site) => site.form === "reed-lily");
+    expect(reedBanks).toHaveLength(7);
+    expect(new Set(reedBanks.map((site) => site.body))).toEqual(new Set(["calm", "ledger", "wreck"]));
+    expect(GARDEN_SEA_EDGE_SITES.some((site) => site.body === "danger" && site.form === "reed-lily"))
+      .toBe(false);
     expect(Object.keys(GARDEN_SEA_EDGE_SHED_LIST).sort()).toEqual([...bodies].sort());
     for (const displacement of Object.values(GARDEN_SEA_EDGE_SHED_LIST)) {
       expect(displacement).toMatch(/demote/i);

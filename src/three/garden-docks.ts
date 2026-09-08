@@ -328,6 +328,7 @@ export function authorDock(
   authorStoneQuay(stationContext, station.type);
   STATION_AUTHORS[station.type](stationContext);
   authorStationFidelity(stationContext, station.type);
+  authorStationApproach(stationContext, station.type);
 
   const parts: HarborBucketPart[] = [];
   pushMergedPart(parts, "timber", timber, HARBOR_PALETTE.timber_mid, false, true);
@@ -1381,6 +1382,53 @@ function authorStoneQuay(
   // One continuous ember edge survives the overview without creating a lamp
   // forest. It shares the station-window draw and registers no new water lane.
   featureBox(ctx, "quayLitEdge", ctx.windows, quayLength + 0.5, 0.24, 0.11, quayX, QUAY_TOP_Y - 0.11, quayWidth / 2 + 0.26);
+}
+
+/**
+ * A working threshold, not another pier: three short quay courses lead from
+ * the raised landward platform toward berth water. The Mole uses its short
+ * arm so the navigable basin stays empty. All fittings share the existing
+ * coarse post/lamp draws; tapered post instances also form the barrel stack.
+ */
+function authorStationApproach(ctx: StationAuthorContext, type: StationType): void {
+  const timber = type === "hatago-wharf" || type === "fishing-pier"
+    || type === "reed-boathouse" || type === "pigeonnier-islet";
+  const startX = type === "ethereum-mole" ? 10 : ctx.quayX + ctx.quayLength / 2 + 0.2;
+  const z = type === "ethereum-mole" ? 8.8 : 0;
+  const length = 2.4;
+  const width = 2.0;
+  const bucket = timber ? ctx.timber : ctx.stone;
+  const courses = timber ? 8 : 3;
+  for (let index = 0; index < courses; index += 1) {
+    pushBox(bucket, length / courses - 0.025, 0.28, width,
+      startX + (index + 0.5) * length / courses, QUAY_TOP_Y - 0.14, z);
+  }
+  const post = (x: number, y: number, localZ: number, radius: number, height: number, color: Color | null = null) => {
+    scratchMatrix.makeScale(radius, height, radius);
+    scratchMatrix.setPosition(x, y + height / 2, localZ);
+    ctx.props.push(harborProp("post", scratchMatrix, color, false));
+  };
+  // Four full-depth mooring piles anchor the apron and remain at overview LOD.
+  for (const x of [startX + 0.25, startX + length - 0.25]) {
+    for (const side of [-1, 1]) post(x, -0.6, z + side * 0.78, 0.12, QUAY_TOP_Y + 0.95);
+  }
+  const barrelColor = new Color(HARBOR_PALETTE.timber_mid);
+  const hoopColor = new Color(HARBOR_PALETTE.iron_dark);
+  for (const [x, y, localZ] of [
+    [startX + 0.4, QUAY_TOP_Y, z + 0.4],
+    [startX + 0.95, QUAY_TOP_Y, z + 0.4],
+    [startX + 0.67, QUAY_TOP_Y + 0.6, z + 0.4],
+  ] as const) {
+    post(x, y, localZ, 0.22, 0.6, barrelColor);
+    for (const hoopY of [0.12, 0.48]) {
+      post(x, y + hoopY, localZ, 0.24, 0.05, hoopColor);
+    }
+  }
+  const lampX = startX + length - 0.3;
+  const lampZ = z - 0.65;
+  post(lampX, QUAY_TOP_Y, lampZ, 0.085, 1.52);
+  scratchMatrix.makeTranslation(lampX, QUAY_TOP_Y + 1.58, lampZ);
+  ctx.props.push(harborProp("lampHead", scratchMatrix, null, false));
 }
 
 type XYZ = [number, number, number];

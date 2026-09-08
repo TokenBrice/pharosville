@@ -42,9 +42,9 @@ import { cachedShipGeometry } from "./garden-util";
  * 90% of the frame — because every ship contributed ~14 draw calls and cloned
  * its own materials, so nothing batched.
  *
- * Layout: two batches per silhouette (hull assembly + sails) plus one shared
- * pennant batch. Six silhouettes → 13 draw calls for the entire fleet,
- * regardless of whether it holds 20 ships or 320.
+ * Layout: near hull + sails and one combined far hull/identity quad per
+ * silhouette, plus the shared near pennants. Six silhouettes → at most 19
+ * draws, independent of ship count; each ship enters only one LOD per frame.
  *
  * The hull assembly merges keel, hull, gunwale, deck, masts, bowsprit and
  * cabin into ONE geometry with the per-part tonal split baked into vertex
@@ -98,12 +98,14 @@ export interface FleetBatchPart {
 export interface FleetSilhouetteBatch {
   hull: FleetBatchPart;
   sails: FleetBatchPart;
+  /** One draw for the distant hull, mast and identity-sail quad. */
+  far: FleetBatchPart;
 }
 
 export interface FleetBatches {
   /** Grow-only capacity; batches are never reallocated on world replace. */
   capacity: number;
-  /** Per-silhouette hull + sail batches. */
+  /** Per-silhouette near hull/sails and combined far batches. */
   bySilhouette: Map<GardenHullSilhouette, FleetSilhouetteBatch>;
   materials: MeshStandardMaterial[];
   pennant: FleetBatchPart;
@@ -280,6 +282,14 @@ export function gardenFleetMarkPresence(distancePresence: number): number {
 
 const MARK_MIN_PRESENCE = 0.45;
 const DISTANCE_HYSTERESIS_SECONDS = 0.35;
+/**
+ * Eye-space distance in scene units; the dead band is 0.5 units wide. At the
+ * rest shot the island sits ~120 u from the eye, so 150 keeps every hull in
+ * the inlet and the mid-ground clusters rigged (they are 30-60 px there) and
+ * swaps only the far-shore fleet, where a hull is a dozen pixels.
+ */
+export const FLEET_HULL_LOD_DISTANCE = 150;
+const FLEET_HULL_LOD_HALF_HYSTERESIS = 0.25;
 
 export interface FleetAerialPerspective {
   /** Scene fog near plane, already view-scaled by garden-sky. */
@@ -1049,6 +1059,7 @@ function createInstancedPart(
   capacity: number,
   withAtlasCell: boolean,
   withTrim = false,
+  withLivery = false,
 ): FleetBatchPart {
   const mesh = new InstancedMesh(geometry, material, capacity);
   mesh.instanceMatrix.setUsage(DynamicDrawUsage);
@@ -1056,6 +1067,14 @@ function createInstancedPart(
   scratchMatrix.makeScale(0, 0, 0);
   for (let index = 0; index < capacity; index += 1) mesh.setMatrixAt(index, scratchMatrix);
   mesh.instanceMatrix.needsUpdate = true;
+  // Livery parts are written with setColorAt; allocate the buffer now so the
+  // program compiles with USE_INSTANCING_COLOR from its first frame instead of
+  // once without it (an undeclared `instanceColor` in the far shader) and
+  // once with. Cloth never carries it: the sail program is at the 16-slot cap.
+  if (withLivery) {
+    mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3);
+    mesh.instanceColor.setUsage(DynamicDrawUsage);
+  }
   mesh.count = 0;
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -1125,6 +1144,7 @@ export interface FleetBatchGeometrySource {
   hull: BufferGeometry;
   /** Merged sail set, carrying the `aAtlasSail` selector. */
   sails: BufferGeometry;
+  far: BufferGeometry;
 }
 
 /**
@@ -1165,6 +1185,44 @@ export function createFleetBatches(input: {
   patchSailAtlasMaterial(sailMaterial);
   materials.push(sailMaterial);
 
+  // One material keeps the far hull and its single identity quad in one draw.
+  // Reuse the cloth's atlas/atmosphere, but do not flutter timber or dye the
+  // emblem with instanceColor. Existing attributes suffice (14 locations).
+  const farMaterial = sailMaterial.clone();
+  farMaterial.emissiveIntensity = 0;
+  patchSailAtlasMaterial(farMaterial);
+  const patchFarCloth = farMaterial.onBeforeCompile;
+  farMaterial.onBeforeCompile = (shader, renderer) => {
+    patchFarCloth(shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace(SAIL_LOCAL_DEFORM, "")
+      .replace("attribute float aSailFurl;", "")
+      .replace("attribute float aSailIndex;", "")
+      .replace("attribute vec3 aSailHead;", "")
+      .replace("vSailTint = aSailTint;", `
+        #ifdef USE_INSTANCING_COLOR
+          vSailTint = aAtlasSail > 0.5 ? aSailTint : instanceColor;
+        #else
+          vSailTint = aSailTint;
+        #endif`)
+      .replace("#include <color_vertex>", `#include <color_vertex>
+        #if defined( USE_INSTANCING_COLOR ) && defined( USE_COLOR )
+          // Undo three's instanceColor multiply: the far livery is applied via
+          // vSailTint on the hull, the vertex tone stays the authored split.
+          vColor.rgb = color.rgb;
+        #endif`)
+      .replace("varying vec2 vAtlasUv;", "varying vec2 vAtlasUv; varying float vFarCloth;")
+      .replace("vClothUv = uv;", "vClothUv = uv; vFarCloth = aAtlasSail;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("varying vec2 vAtlasUv;", "varying vec2 vAtlasUv; varying float vFarCloth;")
+      .replace("vec4 sailTexel = texture2D(map, vAtlasUv);",
+        "vec4 sailTexel = vFarCloth > 0.5 ? texture2D(map, vAtlasUv) : vec4(0.0);")
+      .replace("float weaveAmount = uClothWeave", "float weaveAmount = vFarCloth * uClothWeave")
+      .replace("outgoingLight += wrap", "outgoingLight += vFarCloth * wrap");
+  };
+  farMaterial.customProgramCacheKey = () => "garden-fleet-far-hull-identity-atlas";
+  materials.push(farMaterial);
+
   const pennantMaterial = new MeshStandardMaterial({
     color: "#ffffff",
     flatShading: true,
@@ -1176,7 +1234,7 @@ export function createFleetBatches(input: {
   const bySilhouette = new Map<GardenHullSilhouette, FleetSilhouetteBatch>();
   for (const silhouette of input.silhouettes) {
     const source = input.geometryFor(silhouette);
-    const hull = createInstancedPart(source.hull, hullMaterial, input.capacity, false, true);
+    const hull = createInstancedPart(source.hull, hullMaterial, input.capacity, false, true, true);
     hull.mesh.name = `fleet-hull-${silhouette}`;
     const sails = createInstancedPart(source.sails, sailMaterial, input.capacity, true);
     sails.mesh.name = `fleet-sails-${silhouette}`;
@@ -1186,8 +1244,13 @@ export function createFleetBatches(input: {
     // water-contact shadow. Four sail shadow submissions are also the measured
     // margin that keeps the dawn scene inside its unchanged draw-call budget.
     sails.mesh.castShadow = false;
-    root.add(hull.mesh, sails.mesh);
-    bySilhouette.set(silhouette, { hull, sails });
+    const far = createInstancedPart(source.far, farMaterial, input.capacity, true, false, true);
+    far.mesh.name = `fleet-far-${silhouette}`;
+    far.mesh.geometry.deleteAttribute("aSailFurl");
+    far.sailFurl = null;
+    far.mesh.castShadow = false;
+    root.add(hull.mesh, sails.mesh, far.mesh);
+    bySilhouette.set(silhouette, { hull, sails, far });
   }
 
   const pennant = createInstancedPart(
@@ -1195,6 +1258,8 @@ export function createFleetBatches(input: {
     pennantMaterial,
     input.capacity,
     false,
+    false,
+    true,
   );
   pennant.mesh.name = "fleet-pennants";
   pennant.mesh.castShadow = false;
@@ -1206,6 +1271,7 @@ export function createFleetBatches(input: {
 /** One ship's per-frame pose, written into every batch it participates in. */
 export interface FleetInstancePose {
   atlasCell: number;
+  shipId: string;
   /**
    * W3.7: eased attention, 0..1. Omit to let the batch resolve it from
    * `setFleetAttention`'s envelopes via this ship's atlas cell.
@@ -1257,8 +1323,15 @@ interface FleetDistanceState {
   eye: { x: number; y: number; z: number };
   time: number;
   blend: number;
-  initialized: boolean;
   distances: number[];
+  ships: Map<string, {
+    distance: number;
+    far: boolean;
+    presence: number | null;
+    part: FleetBatchPart;
+    slot: number;
+    seen: boolean;
+  }>;
 }
 
 const fleetDistanceStates = new WeakMap<FleetBatches, FleetDistanceState>();
@@ -1277,22 +1350,26 @@ export function beginFleetFrame(batches: FleetBatches, frame?: FleetDistanceFram
       previous.blend = 1 - Math.exp(-Math.max(0, frame.timeSeconds - previous.time) / DISTANCE_HYSTERESIS_SECONDS);
       previous.time = frame.timeSeconds;
       previous.distances.length = 0;
+      for (const ship of previous.ships.values()) ship.seen = false;
     } else {
       fleetDistanceStates.set(batches, {
-        eye, time: frame.timeSeconds, blend: 1, initialized: false, distances: [],
+        eye, time: frame.timeSeconds, blend: 1, distances: [], ships: new Map(),
       });
     }
+  } else {
+    fleetDistanceStates.delete(batches);
   }
   for (const batch of batches.bySilhouette.values()) {
     batch.hull.mesh.count = 0;
     batch.sails.mesh.count = 0;
+    batch.far.mesh.count = 0;
   }
   batches.pennant.mesh.count = 0;
 }
 
 /**
- * Writes one ship's pose into its silhouette batches. Allocation-free: all
- * math runs through module-scope scratch objects.
+ * Writes one ship's pose into its chosen LOD. Pose math is allocation-free;
+ * a distance record is allocated only when a ship first enters the fleet.
  */
 export function writeFleetInstance(
   batches: FleetBatches,
@@ -1300,8 +1377,36 @@ export function writeFleetInstance(
 ): void {
   const batch = batches.bySilhouette.get(pose.silhouette);
   if (!batch) return;
-  const slot = batch.hull.mesh.count;
-  if (slot >= batches.capacity) return;
+  if (batch.hull.mesh.count + batch.far.mesh.count >= batches.capacity) return;
+  const distanceState = fleetDistanceStates.get(batches);
+  let far = false;
+  let distance = 0;
+  if (distanceState) {
+    const eye = distanceState.eye;
+    distance = Math.hypot(pose.x - eye.x, pose.y - eye.y, pose.z - eye.z);
+    const previous = distanceState.ships.get(pose.shipId);
+    const threshold = FLEET_HULL_LOD_DISTANCE + (previous
+      ? previous.far ? -FLEET_HULL_LOD_HALF_HYSTERESIS : FLEET_HULL_LOD_HALF_HYSTERESIS
+      : 0);
+    far = distance > threshold;
+  }
+  const hull = far ? batch.far : batch.hull;
+  const sails = far ? batch.far : batch.sails;
+  const slot = hull.mesh.count;
+  if (distanceState) {
+    let ship = distanceState.ships.get(pose.shipId);
+    if (!ship) {
+      ship = { distance, far, presence: null, part: sails, slot, seen: true };
+      distanceState.ships.set(pose.shipId, ship);
+    } else {
+      ship.distance = distance;
+      ship.far = far;
+      ship.part = sails;
+      ship.slot = slot;
+      ship.seen = true;
+    }
+    distanceState.distances.push(distance);
+  }
 
   scratchPosition.set(pose.x, pose.y, pose.z);
   scratchQuaternion.setFromEuler(
@@ -1312,13 +1417,18 @@ export function writeFleetInstance(
   scratchScale.setScalar(pose.scale);
   scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
 
-  batch.hull.mesh.setMatrixAt(slot, scratchMatrix);
-  batch.hull.mesh.setColorAt(slot, pose.hullColor);
-  batch.hull.mesh.count = slot + 1;
-  if (batch.hull.trim) {
-    batch.hull.trim.setXYZ(slot, pose.trimColor.r, pose.trimColor.g, pose.trimColor.b);
+  hull.mesh.setMatrixAt(slot, scratchMatrix);
+  hull.mesh.setColorAt(slot, far
+    ? scratchColor.copy(pose.hullColor).multiplyScalar(MathUtils.clamp(
+      (pose.hullForm as FleetInstancePose["hullForm"] & { hullValue?: number }).hullValue ?? 1,
+      0.85, 1.15,
+    ))
+    : pose.hullColor);
+  hull.mesh.count = slot + 1;
+  if (hull.trim) {
+    hull.trim.setXYZ(slot, pose.trimColor.r, pose.trimColor.g, pose.trimColor.b);
   }
-  if (batch.hull.hullSurface) {
+  if (hull.hullSurface) {
     const surface = pose.hullForm as FleetInstancePose["hullForm"] & {
       agePatina?: number;
       fittingCode?: number;
@@ -1326,7 +1436,7 @@ export function writeFleetInstance(
       propRotation?: number;
       ropeSag?: number;
     };
-    batch.hull.hullSurface.setXYZW(
+    hull.hullSurface.setXYZW(
       slot,
       // 2026-09-07 T1.10: 0.9-1.1 -> 0.85-1.15, to pass the widened decorative
       // value spread `deriveShipWabiSurface` now produces (+-6-15%).
@@ -1341,31 +1451,33 @@ export function writeFleetInstance(
   // stepped into, and so does the trim.
   const { beam, height, length } = pose.hullForm;
   const waterline = pose.hullForm.waterline ?? 0;
-  batch.hull.hullForm.setXYZW(slot, length, beam, height, waterline);
-  batch.sails.hullForm.setXYZW(slot, length, beam, height, waterline);
-
-  batch.sails.mesh.setMatrixAt(slot, scratchMatrix);
-  batch.sails.mesh.count = slot + 1;
-  if (batch.sails.atlasCell) {
-    batch.sails.atlasCell.setX(slot, pose.atlasCell);
+  hull.hullForm.setXYZW(slot, length, beam, height, waterline);
+  if (!far) {
+    sails.hullForm.setXYZW(slot, length, beam, height, waterline);
+    sails.mesh.setMatrixAt(slot, scratchMatrix);
+    sails.mesh.count = slot + 1;
   }
-  if (batch.sails.sailTint) {
-    batch.sails.sailTint.setXYZ(slot, pose.sailColor.r, pose.sailColor.g, pose.sailColor.b);
+  if (sails.atlasCell) {
+    sails.atlasCell.setX(slot, pose.atlasCell);
   }
-  if (batch.sails.sailFurl) {
+  if (sails.sailTint) {
+    sails.sailTint.setXYZ(slot, pose.sailColor.r, pose.sailColor.g, pose.sailColor.b);
+  }
+  if (sails.sailFurl) {
     const sailScale = MathUtils.clamp(pose.sailScale ?? 1, GARDEN_SAIL_DIP_MIN_SCALE, 1);
-    batch.sails.sailFurl.setX(slot, pose.sailFurl + (1 - sailScale) * 0.99);
+    sails.sailFurl.setX(slot, pose.sailFurl + (1 - sailScale) * 0.99);
   }
-  if (batch.sails.sailAttention) {
+  if (sails.sailAttention) {
     // W3.7: the pose may name attention outright (tests, and any future caller
     // that already holds the ship's hover/selection state); otherwise it is
     // resolved from the module's eased envelopes by atlas cell.
-    batch.sails.sailAttention.setX(
+    sails.sailAttention.setX(
       slot,
       pose.attention ?? gardenFleetAttention(pose.atlasCell),
     );
   }
 
+  if (far) return;
   const pennantSlot = batches.pennant.mesh.count;
   if (pennantSlot < batches.capacity) {
     scratchPennantMatrix
@@ -1409,42 +1521,25 @@ export function writeFleetInstance(
 export function endFleetFrame(batches: FleetBatches): void {
   const distanceState = fleetDistanceStates.get(batches);
   if (distanceState) {
-    const { eye, distances } = distanceState;
-    for (const batch of batches.bySilhouette.values()) {
-      const matrices = batch.sails.mesh.instanceMatrix.array;
-      for (let slot = 0; slot < batch.sails.mesh.count; slot += 1) {
-        const offset = slot * 16;
-        distances.push(Math.hypot(
-          matrices[offset + 12]! - eye.x,
-          matrices[offset + 13]! - eye.y,
-          matrices[offset + 14]! - eye.z,
-        ));
-      }
-    }
+    const { distances } = distanceState;
     distances.sort((left, right) => left - right);
     const near = distances[Math.max(0, Math.ceil(distances.length / 3) - 1)] ?? 0;
     const far = distances[Math.min(distances.length - 1, Math.floor(distances.length * 2 / 3))] ?? near;
-    for (const batch of batches.bySilhouette.values()) {
-      const attribute = batch.sails.sailAttention;
-      if (!attribute) continue;
-      const matrices = batch.sails.mesh.instanceMatrix.array;
-      for (let slot = 0; slot < batch.sails.mesh.count; slot += 1) {
-        const offset = slot * 16;
-        const distance = Math.hypot(
-          matrices[offset + 12]! - eye.x,
-          matrices[offset + 13]! - eye.y,
-          matrices[offset + 14]! - eye.z,
-        );
-        const target = far > near ? MathUtils.clamp((distance - near) / (far - near), 0, 1) : 0;
-        const previous = distanceState.initialized ? attribute.getY(slot) : target;
-        attribute.setY(slot, previous + (target - previous) * distanceState.blend);
+    for (const [id, ship] of distanceState.ships) {
+      if (!ship.seen) {
+        distanceState.ships.delete(id);
+        continue;
       }
+      const target = far > near ? MathUtils.clamp((ship.distance - near) / (far - near), 0, 1) : 0;
+      const previous = ship.presence ?? target;
+      ship.presence = previous + (target - previous) * distanceState.blend;
+      ship.part.sailAttention!.setY(ship.slot, ship.presence);
     }
-    distanceState.initialized = true;
   }
   for (const batch of batches.bySilhouette.values()) {
     flushPart(batch.hull);
     flushPart(batch.sails);
+    flushPart(batch.far);
   }
   flushPart(batches.pennant);
 }
@@ -1464,7 +1559,7 @@ function flushPart(part: FleetBatchPart): void {
 /** Total live instances across the fleet — the metric the perf lane reads. */
 export function fleetInstanceCount(batches: FleetBatches): number {
   let count = 0;
-  for (const batch of batches.bySilhouette.values()) count += batch.hull.mesh.count;
+  for (const batch of batches.bySilhouette.values()) count += batch.hull.mesh.count + batch.far.mesh.count;
   return count;
 }
 
@@ -1474,6 +1569,7 @@ export function fleetDrawCallCount(batches: FleetBatches): number {
   for (const batch of batches.bySilhouette.values()) {
     if (batch.hull.mesh.count > 0) count += 1;
     if (batch.sails.mesh.count > 0) count += 1;
+    if (batch.far.mesh.count > 0) count += 1;
   }
   return count;
 }
@@ -1484,12 +1580,15 @@ export function disposeFleetBatches(batches: FleetBatches): void {
     batch.hull.mesh.dispose();
     batch.sails.mesh.geometry.dispose();
     batch.sails.mesh.dispose();
+    batch.far.mesh.geometry.dispose();
+    batch.far.mesh.dispose();
   }
   batches.pennant.mesh.geometry.dispose();
   batches.pennant.mesh.dispose();
   for (const material of batches.materials) material.dispose();
   batches.bySilhouette.clear();
   batches.root.clear();
+  fleetDistanceStates.delete(batches);
 }
 
 export const FLEET_BATCH_TINTS = {

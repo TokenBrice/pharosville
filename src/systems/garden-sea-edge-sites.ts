@@ -35,7 +35,6 @@ export type GardenSeaEdgeForm =
   | "slate-edge"
   | "stone-tongue"
   | "timber-pile"
-  | "watch-reed"
   | "warning-buoy";
 
 export type GardenSeaEdgeMaterial = "dark" | "natural" | "pale" | "slate" | "vegetation" | "wood";
@@ -131,18 +130,17 @@ interface EdgeGuide {
 }
 
 const GUIDES: readonly EdgeGuide[] = [
-  // Calm Anchorage: a loose, odd-numbered mouth near the torii, leaving the
-  // bay's centre untouched. Lily leaves are part of the reed instance shape.
-  { body: "calm", form: "reed-lily", guide: { x: 75, y: 97 }, height: 1.7, id: "calm-mouth-north", length: 2.4, material: "vegetation", target: "open", width: 1.8 },
-  { body: "calm", form: "reed-lily", guide: { x: 75, y: 99 }, height: 2.0, id: "calm-mouth-middle", length: 2.9, material: "vegetation", target: "open", width: 2.0 },
-  { body: "calm", form: "reed-lily", guide: { x: 75, y: 107 }, height: 1.5, id: "calm-mouth-south", length: 2.2, material: "vegetation", target: "open", width: 1.6 },
+  // Seven discrete reed banks stitch the quiet Calm, Ledger and Wreck shores
+  // without becoming a continuous wall. Each reed-lily site expands to one
+  // loose 21-stem ellipse in the renderer; Danger remains entirely reed-free.
+  { body: "calm", form: "reed-lily", guide: { x: 75, y: 97 }, height: 1.7, id: "calm-reed-bank-north", length: 2.4, material: "vegetation", target: "open", width: 1.8 },
+  { body: "calm", form: "reed-lily", guide: { x: 75, y: 101 }, height: 2.0, id: "calm-reed-bank-middle", length: 2.9, material: "vegetation", target: "open", width: 2.0 },
+  { body: "calm", form: "reed-lily", guide: { x: 75, y: 107 }, height: 1.5, id: "calm-reed-bank-south", length: 2.2, material: "vegetation", target: "open", width: 1.6 },
 
-  // Watch Reach: two low banks across the long open-water edge, with sparse
-  // reed punctuation rather than a continuous green wall.
+  // Watch Reach keeps its two low mineral banks; reeds belong only to the
+  // quieter named shores above and never drift toward the Danger gorge.
   { body: "watch", form: "low-bank", guide: { x: 100, y: 79 }, height: 0.75, id: "watch-bank-north", length: 6.8, material: "natural", target: "open", width: 1.8 },
-  { body: "watch", form: "watch-reed", guide: { x: 100, y: 88 }, height: 1.35, id: "watch-reed-north", length: 1.8, material: "vegetation", target: "open", width: 1.0 },
   { body: "watch", form: "low-bank", guide: { x: 101, y: 101 }, height: 0.68, id: "watch-bank-south", length: 7.4, material: "natural", target: "open", width: 2.0 },
-  { body: "watch", form: "watch-reed", guide: { x: 102, y: 110 }, height: 1.2, id: "watch-reed-south", length: 1.6, material: "vegetation", target: "open", width: 0.9 },
 
   // Alert Channel: opposing stone tongues read from the open and Warning
   // banks; the two low markers are one unmistakable buoy pair.
@@ -166,6 +164,8 @@ const GUIDES: readonly EdgeGuide[] = [
   // Ledger Mooring: a right-angled slate lip and an orderly run of piles.
   { body: "ledger", form: "slate-edge", guide: { x: 71, y: 13 }, height: 0.85, id: "ledger-slate-west", length: 4.2, material: "slate", target: "open", width: 1.4 },
   { body: "ledger", form: "slate-edge", guide: { x: 72, y: 14 }, height: 0.75, id: "ledger-slate-east", length: 4.0, material: "slate", target: "open", width: 1.4 },
+  { body: "ledger", form: "reed-lily", guide: { x: 56, y: 4 }, height: 1.45, id: "ledger-reed-bank-west", length: 2.5, material: "vegetation", target: "open", width: 1.7 },
+  { body: "ledger", form: "reed-lily", guide: { x: 82, y: 4 }, height: 1.75, id: "ledger-reed-bank-east", length: 2.8, material: "vegetation", target: "open", width: 1.9 },
   { body: "ledger", form: "timber-pile", guide: { x: 66, y: 3 }, height: 2.7, id: "ledger-pile-1", length: 0.55, material: "wood", target: "open", width: 0.55 },
   { body: "ledger", form: "timber-pile", guide: { x: 66, y: 6 }, height: 2.9, id: "ledger-pile-2", length: 0.55, material: "wood", target: "open", width: 0.55 },
   { body: "ledger", form: "timber-pile", guide: { x: 67, y: 9 }, height: 2.6, id: "ledger-pile-3", length: 0.55, material: "wood", target: "open", width: 0.55 },
@@ -175,6 +175,8 @@ const GUIDES: readonly EdgeGuide[] = [
   { body: "wreck", form: "inlet-stone", guide: { x: 37, y: 108 }, height: 1.2, id: "wreck-mouth-west", length: 2.2, material: "natural", target: "calm", width: 1.8 },
   { body: "wreck", form: "inlet-stone", guide: { x: 39, y: 110 }, height: 1.55, id: "wreck-mouth-middle", length: 2.6, material: "natural", target: "calm", width: 2.0 },
   { body: "wreck", form: "inlet-stone", guide: { x: 42, y: 112 }, height: 0.9, id: "wreck-mouth-east", length: 1.8, material: "natural", target: "calm", width: 1.5 },
+  { body: "wreck", form: "reed-lily", guide: { x: 27, y: 108 }, height: 1.3, id: "wreck-reed-bank-west", length: 2.3, material: "vegetation", target: "calm", width: 1.7 },
+  { body: "wreck", form: "reed-lily", guide: { x: 50, y: 114 }, height: 1.6, id: "wreck-reed-bank-east", length: 2.7, material: "vegetation", target: "calm", width: 1.9 },
 ] as const;
 
 const CARDINAL_NEIGHBOURS = [

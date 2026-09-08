@@ -103,6 +103,8 @@ export interface StationFootprintContract extends StationLocalBounds {
  * the civic-hall contract used for supply mass, visual differentiation and the
  * Mole's landmark lead; collapsing hall dimensions into whole-recipe extents
  * is what previously left every landward apron and hall unprotected.
+ * Short W3.9 approaches extend only the seaward edge: ordinary aprons reach
+ * x=5.278 at minimum amount / maximum frontage; the Mole short arm reaches 12.40.
  */
 export const STATION_LOCAL_BOUNDS: Record<StationType, StationFootprintContract> = {
   "ethereum-mole": {
@@ -113,17 +115,17 @@ export const STATION_LOCAL_BOUNDS: Record<StationType, StationFootprintContract>
     components: [
       { id: "ethereum-mole-landward", minX: -23.00, maxX: -3, minZ: -16.50, maxZ: 13.60 },
       { id: "ethereum-mole-long-arm", minX: -5, maxX: 17.00, minZ: -14.2, maxZ: -6.75 },
-      { id: "ethereum-mole-short-arm", minX: -5, maxX: 10, minZ: 6.75, maxZ: 13.60 },
+      { id: "ethereum-mole-short-arm", minX: -5, maxX: 12.40, minZ: 6.75, maxZ: 13.60 },
     ],
   },
   "hatago-wharf": { minX: -18.27, maxX: 6.44, minZ: -3.50, maxZ: 3.50 },
   "tea-house-quay": { minX: -18.21, maxX: 7.92, minZ: -3.88, maxZ: 3.88 },
   "fishing-pier": { minX: -18.16, maxX: 11.31, minZ: -3.45, maxZ: 3.60 },
-  uogashi: { minX: -17.75, maxX: 1.92, minZ: -4.20, maxZ: 4.05 },
-  "pigeonnier-islet": { minX: -17.73, maxX: 4.40, minZ: -3.23, maxZ: 3.25 },
+  uogashi: { minX: -17.75, maxX: 5.28, minZ: -4.20, maxZ: 4.05 },
+  "pigeonnier-islet": { minX: -17.73, maxX: 5.28, minZ: -3.23, maxZ: 3.25 },
   "stepped-inlet": { minX: -17.51, maxX: 6.91, minZ: -3.90, maxZ: 3.90 },
   "reed-boathouse": { minX: -17.38, maxX: 6.44, minZ: -3.26, maxZ: 3.26 },
-  "storm-mole": { minX: -17.26, maxX: 1.82, minZ: -5.51, maxZ: 5.43 },
+  "storm-mole": { minX: -17.26, maxX: 5.28, minZ: -5.51, maxZ: 5.43 },
 };
 
 /** Complete occupied precinct envelope at the station's cove-root origin. */

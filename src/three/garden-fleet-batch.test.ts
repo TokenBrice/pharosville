@@ -8,6 +8,7 @@ import {
 import {
   FLEET_SAIL_ATLAS_CELLS,
   FLEET_MAX_SAILS,
+  FLEET_HULL_LOD_DISTANCE,
   beginFleetFrame,
   createFleetBatches,
   deformFleetSailVertex,
@@ -51,6 +52,7 @@ function buildBatches(capacity: number) {
 function pose(overrides: Partial<FleetInstancePose> = {}): FleetInstancePose {
   return {
     atlasCell: 0,
+    shipId: `ship-${overrides.atlasCell ?? 0}-${overrides.x ?? 0}`,
     headingAngle: 0,
     heel: 0,
     hullColor: new Color("#884422"),
@@ -289,6 +291,63 @@ describe("fleet downwind convention", () => {
 });
 
 describe("fleet batches", () => {
+  it("moves a ship exactly once through each side of the half-unit LOD dead band", () => {
+    const batches = buildBatches(2);
+    const viewport = { x: 1200, y: 640 };
+    const camera = { offsetX: 600, offsetY: 320, zoom: 0.72 };
+    const eye = cameraEye(cameraPoseFromIso(camera, viewport));
+    const batch = batches.bySilhouette.get("bezaisen")!;
+    const offsets = [-1, 0.1, 0.24, 0.26, 0.1, -0.1, -0.24, -0.26];
+    const farCounts: number[] = [];
+    offsets.forEach((offset, index) => {
+      beginFleetFrame(batches, { camera, viewport, timeSeconds: index });
+      writeFleetInstance(batches, pose({
+        shipId: "crossing", atlasCell: 3,
+        x: eye.x + FLEET_HULL_LOD_DISTANCE + offset, y: eye.y, z: eye.z,
+      }));
+      endFleetFrame(batches);
+      expect(batch.hull.mesh.count + batch.far.mesh.count).toBe(1);
+      expect(batch.sails.mesh.count).toBe(batch.hull.mesh.count);
+      farCounts.push(batch.far.mesh.count);
+    });
+    expect(farCounts).toEqual([0, 0, 0, 1, 1, 1, 1, 0]);
+    disposeFleetBatches(batches);
+  });
+
+  it("adds only six draws and saves at least 25k fleet triangles at a 60% far share", () => {
+    const batches = buildBatches(40);
+    const viewport = { x: 1200, y: 640 };
+    const camera = { offsetX: 600, offsetY: 320, zoom: 0.72 };
+    const eye = cameraEye(cameraPoseFromIso(camera, viewport));
+    let nearTriangles = 0;
+    let farTriangles = 0;
+    const counts: number[][] = [];
+    beginFleetFrame(batches, { camera, viewport, timeSeconds: 0 });
+    for (const silhouette of SILHOUETTES) {
+      const batch = batches.bySilhouette.get(silhouette)!;
+      const near = (batch.hull.mesh.geometry.getAttribute("position").count
+        + batch.sails.mesh.geometry.getAttribute("position").count) / 3;
+      const far = batch.far.mesh.geometry.getAttribute("position").count / 3;
+      nearTriangles += near;
+      farTriangles += far;
+      counts.push([near, far]);
+      for (const distance of [20, 200]) {
+        writeFleetInstance(batches, pose({
+          shipId: `${silhouette}-${distance}`, silhouette,
+          x: eye.x + distance, y: eye.y, z: eye.z,
+        }));
+      }
+      // Matrix consumes four locations, instanceColor one, with no new attributes.
+      expect(Object.keys(batch.far.mesh.geometry.attributes).length + 5).toBeLessThanOrEqual(16);
+    }
+    endFleetFrame(batches);
+    expect(fleetInstanceCount(batches)).toBe(12);
+    expect(fleetDrawCallCount(batches)).toBe(19);
+    const savings = 140_000 * 0.6 * (1 - farTriangles / nearTriangles);
+    expect(savings).toBeGreaterThanOrEqual(25_000);
+    expect(counts).toEqual([[826, 42], [870, 42], [1116, 58], [1046, 38], [864, 42], [782, 38]]);
+    disposeFleetBatches(batches);
+  });
   it("fits every sail geometry within the vertex attribute limit", () => {
     const batches = buildBatches(1);
     for (const { sails } of batches.bySilhouette.values()) {
@@ -367,6 +426,7 @@ describe("fleet batches", () => {
     const geometryDisposals = [...batches.bySilhouette.values()].flatMap((batch) => [
       vi.spyOn(batch.hull.mesh.geometry, "dispose"),
       vi.spyOn(batch.sails.mesh.geometry, "dispose"),
+      vi.spyOn(batch.far.mesh.geometry, "dispose"),
     ]);
     const materialDisposals = batches.materials.map((material) => (
       vi.spyOn(material, "dispose")
@@ -696,7 +756,17 @@ describe("eye-distance fleet hierarchy", () => {
       endFleetFrame(batches);
     };
     frame(0);
-    const distance = batches.bySilhouette.get("bezaisen")!.sails.sailAttention!;
+    const distance = {
+      getY: (index: number) => {
+        const batch = batches.bySilhouette.get("bezaisen")!;
+        for (const part of [batch.sails, batch.far]) {
+          for (let slot = 0; slot < part.mesh.count; slot += 1) {
+            if (part.atlasCell!.getX(slot) === index + 1) return part.sailAttention!.getY(slot);
+          }
+        }
+        throw new Error(`missing ship ${index + 1}`);
+      },
+    };
     for (const index of [0, 1, 2]) {
       expect(gardenFleetFramingRestraint(distance.getY(index))).toBe(0);
       expect(gardenFleetMarkPresence(distance.getY(index))).toBe(1);
