@@ -26,6 +26,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   roomToSail: "v0.14.1",
   honestWaters: "v0.15.0",
   airAndLantern: "v0.16.0",
+  reborn: "v0.17.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.airAndLantern;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.reborn;

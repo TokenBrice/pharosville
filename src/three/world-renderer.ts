@@ -4161,6 +4161,7 @@ function updateSceneForFrame(
     activeEvent: frame.almanacEvent ?? null,
     deltaSeconds: beamElapsedSeconds,
     director: frame.gardenDirector,
+    directorTimeSeconds: frame.epochSeconds,
     hour: frame.wallClockHour,
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
@@ -4326,16 +4327,17 @@ function updateSceneForFrame(
   // request per dusk window; a refusal (silence, another beat) means no
   // flight that evening rather than a retry storm eating the cadence budget.
   const duskWindow = phase.dusk > 0.35;
+  const directorTime = frame.epochSeconds ?? frame.timeSeconds;
   if (!duskWindow) scene.heronDuskRequested = false;
   if (duskWindow && !scene.heronDuskRequested && frame.gardenDirector && !frame.reducedMotion && ambientAlive) {
     scene.heronDuskRequested = true;
-    requestGardenBeat(frame.gardenDirector, GARDEN_HERON_BEAT_REQUEST, frame.timeSeconds);
+    requestGardenBeat(frame.gardenDirector, GARDEN_HERON_BEAT_REQUEST, directorTime);
   }
   const activeBeat = frame.gardenDirector?.active ?? null;
   const heronBeat = activeBeat?.subject === GARDEN_HERON_BEAT_REQUEST.subject ? activeBeat : null;
   content.summitBirds.update({
     reducedMotion: frame.reducedMotion,
-    timeSeconds: heronBeat ? frame.timeSeconds - heronBeat.startSeconds : 0,
+    timeSeconds: heronBeat ? Math.max(0, directorTime - heronBeat.startSeconds) : 0,
     visible: ambientAlive,
     weatherBeatActive: heronBeat !== null,
   });

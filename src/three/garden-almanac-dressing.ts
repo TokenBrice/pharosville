@@ -37,6 +37,8 @@ export interface GardenAlmanacDressingUpdate {
   timeSeconds: number;
   hour?: number;
   director?: GardenDirectorState | undefined;
+  /** Wall-clock epoch seconds — the director's clock; defaults to `timeSeconds`. */
+  directorTimeSeconds?: number | undefined;
 }
 
 export interface GardenAlmanacDressing {
@@ -117,18 +119,19 @@ export function createGardenAlmanacDressing(options?: {
     const dawn = beats.dawn > previousDawn && previousDawn === 0;
     previousBlue = beats.blue;
     previousDawn = beats.dawn;
+    const directorTime = input.directorTimeSeconds ?? input.timeSeconds;
     if (!input.reducedMotion && input.director && (evening || dawn)) {
       keeperBeat = requestGardenBeat(input.director, {
         kind: "keeper", foreground: false, durationSeconds: 180, priority: 20,
         subject: dawn ? "dawn" : "evening",
-      }, input.timeSeconds);
+      }, directorTime);
       if (keeperBeat) keeperRitual.direction = dawn ? "dawn" : "evening";
     }
     keeperRitual.active = !input.reducedMotion && keeperBeat !== null
       && input.director?.active?.id === keeperBeat.id
-      && input.timeSeconds < keeperBeat.startSeconds + keeperBeat.durationSeconds;
+      && directorTime < keeperBeat.startSeconds + keeperBeat.durationSeconds;
     keeperRitual.progress = input.reducedMotion ? 0.5 : keeperBeat
-      ? Math.min(1, Math.max(0, (input.timeSeconds - keeperBeat.startSeconds) / keeperBeat.durationSeconds)) : 0;
+      ? Math.min(1, Math.max(0, (directorTime - keeperBeat.startSeconds) / keeperBeat.durationSeconds)) : 0;
     keeper.visible = path.length > 1 && (input.reducedMotion || keeperRitual.active);
     if (keeper.visible) {
       const progress = input.reducedMotion ? 0.5 : keeperRitual.direction === "dawn"

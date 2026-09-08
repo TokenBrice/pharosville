@@ -46,6 +46,8 @@ import {
 import { firstPointer, pinchSnapshot } from "./pointer-gesture";
 import { useLatestRef } from "./use-latest-ref";
 
+const wallClockSeconds = (): number => Date.now() / 1000;
+
 export {
   advanceCameraIntent,
   cameraModeCancelsFollow,
@@ -60,6 +62,12 @@ export type { CameraIntentMode } from "./camera-intent";
 
 export interface UseCanvasResizeAndCameraInput {
   gardenDirector?: GardenDirectorState;
+  /**
+   * The director keeps wall-clock epoch seconds; the camera step runs on the
+   * RAF clock. Tests drive a synthetic timeline through `stepCamera(now)`
+   * and supply `(now) => now / 1000`.
+   */
+  directorClock?: (rafNowMs: number) => number;
   hasSelection: () => boolean;
   hitTargetSnapshotRef: MutableRefObject<HitTargetSnapshot | null>;
   hitTargetsRef: MutableRefObject<readonly HitTarget[]>;
@@ -166,6 +174,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [attractState, setAttractState] = useState({ holding: false });
   const gardenDirectorRef = useLatestRef(input.gardenDirector);
+  const directorClockRef = useLatestRef(input.directorClock ?? wallClockSeconds);
   const dragRef = useRef<{ last: ScreenPoint; moved: boolean; pointerId: number } | null>(null);
   const activePointersRef = useRef<Map<number, ScreenPoint>>(new Map());
   const pinchRef = useRef<{ distance: number; midpoint: ScreenPoint; moved: boolean; pointerIds: [number, number] } | null>(null);
@@ -699,7 +708,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
             kind: "attract", foreground: false, priority: 1,
             durationSeconds: frame.travelSeconds ?? GARDEN_ATTRACT_TRAVEL_SECONDS,
             subject: "name" in frame ? String(frame.name) : `Postcard ${frame.beatIndex + 1}`,
-          }, now / 1000)) {
+          }, directorClockRef.current(now))) {
             setAttractState((state) => state.holding ? state : { holding: true });
             return { camera: displayCamera, cameraChanged: false, cameraIntentActive: true };
           }
@@ -835,7 +844,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       lastFrameTime: now,
     };
     return { camera: advanced.camera, cameraChanged, cameraIntentActive: true };
-  }, [cameraRef, canvasSizeRef, commitCameraState, finishSelectionCamera, framingViewport, gardenDirectorRef, queueCameraTarget, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, world.map]);
+  }, [cameraRef, canvasSizeRef, commitCameraState, directorClockRef, finishSelectionCamera, framingViewport, gardenDirectorRef, queueCameraTarget, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, world.map]);
 
   const handleFollowSelected = useCallback(() => {
     if (!selectedEntity) return;

@@ -51,7 +51,7 @@ import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoo
 import { worldRenderContentSignature } from "../systems/world-render-content-signature";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 import type { GardenAlmanacEvent } from "../systems/garden-almanac";
-import type { GardenDirectorState } from "../systems/garden-director";
+import type { GardenBeat, GardenDirectorState } from "../systems/garden-director";
 import { normalizeHour } from "../lib/pharosville-clock";
 import { reportClientError } from "../error-reporter";
 import { createHoverNameplateDwellState, hoverNameplateVisible } from "./hover-nameplate-dwell";
@@ -786,6 +786,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         renderMetrics = threeRenderer.render({
           almanacEvent: almanacEvent ?? null,
           gardenDirector: gardenDirectorRef.current,
+          epochSeconds: Date.now() / 1000,
           logos,
           camera: frameCamera,
           cameraBreath,
@@ -1013,6 +1014,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           camera: frameCamera,
           canvasSize: activeCanvasSize,
           reducedMotion,
+          gardenDirector: gardenDirectorRef.current,
           renderMetrics: lastRenderMetricsRef.current,
           shipsById: activeShipsById,
           compactSampleCache: compactShipMotionSampleCacheRef.current,
@@ -1192,6 +1194,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       frameCount: motionFrameCountRef.current,
       frameState,
       reducedMotion,
+      gardenDirector,
       renderMetrics: lastRenderMetricsRef.current,
       shipsById,
       world,
@@ -1243,6 +1246,9 @@ type PharosVilleDebugState = {
   camera: IsoCamera | null;
   cameraFrameSource: "world-render-loop";
   cameraWithinBounds: boolean;
+  /** G3/W6.6: the director's bounded beat log — the unattended watch's evidence. */
+  directorLog: readonly GardenBeat[];
+  directorActive: GardenBeat | null;
   surfaceBudget: ReturnType<typeof resolveRenderSurfaceBudget> | null;
   canvasSize: ScreenPoint;
   animationFramePending: boolean;
@@ -1464,6 +1470,7 @@ type DebugFramePatchInput = {
     wallClockHour: number;
   };
   reducedMotion: boolean;
+  gardenDirector: GardenDirectorState | undefined;
   renderMetrics: DebugRenderMetrics;
   shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;
   world: PharosVilleWorldModel;
@@ -1484,6 +1491,8 @@ function debugFramePatch(input: DebugFramePatchInput): DebugFramePatch {
     animationFramePending: input.animationFramePending,
     camera: input.camera,
     cameraFrameSource: "world-render-loop",
+    directorActive: input.gardenDirector?.active ?? null,
+    directorLog: input.gardenDirector?.log ?? [],
     cameraWithinBounds: isCameraWithinBounds(input.camera, input.world.map, input.canvasSize),
     motionClockSource: input.reducedMotion ? "reduced-motion-static-frame" : "requestAnimationFrame",
     motionFrameCount: input.frameCount,

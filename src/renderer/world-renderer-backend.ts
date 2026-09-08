@@ -45,6 +45,13 @@ export interface ThreeWorldRendererFrame {
    * copied.
    */
   gardenDirector?: GardenDirectorState | undefined;
+  /**
+   * Wall-clock epoch seconds for director requests and beat-relative motion.
+   * `timeSeconds` is the canvas clock (starts near zero); the director's log
+   * is on the wall clock so the watch is readable. Absent in unit harnesses,
+   * where the canvas clock stands in.
+   */
+  epochSeconds?: number | undefined;
   logos: ThreeLogoAssets;
   camera: IsoCamera;
   cameraBreath?: CameraBreath;

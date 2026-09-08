@@ -67,7 +67,11 @@ export const bundleBudgets = {
   css: {
     label: "entry CSS",
     pattern: /^index-[A-Za-z0-9_-]+\.css$/,
-    maxRawBytes: 36 * 1024,
+    // 2026-09-08 Reborn (W5.4-5.6): the derived day/night token variants, the
+    // woodblock record card and the caption/controls chrome measure 38.5 KiB
+    // raw / 7.0 KiB gzip with no dead selectors. Raw raised 36 -> 40; the
+    // gzip cap is unchanged and is the one that tracks real transfer.
+    maxRawBytes: 40 * 1024,
     maxGzipBytes: 8 * 1024,
     required: true,
   },

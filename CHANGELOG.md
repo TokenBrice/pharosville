@@ -2,6 +2,22 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.17.0 - 2026-09-08 - Reborn
+
+A stablecoin harbour you watch like a garden: the viewer stands on the near shore, the day has five lights, the fleet reads as boats, and the harbour keeps its own slow time.
+
+Collected from commits `6c18ff4` through `62cc640` after v0.16.0.
+
+- The viewer stands on the garden shore. The locked overhead view is replaced by a low perspective camera on the near shore: the Pharos rises on its headland across an empty inlet, its reflection broken in the water, pines lean over the frame's edge, borrowed headlands sit in the haze, and the fleet recedes into silhouette at believable scale. Every hull is still on screen; distance, not deletion, orders them.
+- The day has five lights. Dawn, day, golden hour, blue hour and night are five authored lighting rigs that crossfade on the wall clock: neutral whites and blue-green water at noon, an amber horizon under a violet zenith at golden hour, indigo at blue hour, and a real night — dark as negative space, the beacon the one light, lit windows and lanterns as embers on the water, a moon road, stars.
+- The beacon sweeps. A narrow bright core inside the soft cone flashes when it turns toward you; its road travels across the water; only the beacon, lantern cores and lit windows bloom.
+- The water is a body, not a plate. Depth, darkening, seabed, lap foam and the wet band all follow the true shoreline; calm and ledger water read as glass; ember reflections are wind-bent broken strokes.
+- The fleet reads as boats. Each coin's mark is printed into dyed cloth as a mon rather than a plate; hull families are spaced by value, not hue; hulls wear a wet collar and a varnished rail; sails glow from behind at dawn and golden hour; the cargo lighter is properly rigged; far hulls simplify so the near ones can carry rigging.
+- The garden is a garden. Black pine, maple, cherry, bamboo and clipped karikomi replace the shrub domes; every station has a quay apron, piles, barrels and a lantern post; reed banks gather on the calm shores; vegetation goes to silhouette after dark.
+- The harbour keeps its own time. A director admits at most one foreground beat at a time with six to twelve minutes of quiet between them: an arrival ceremony for the most significant arrival, the evening keeper walking the rim path lighting the fixtures while fireflies rise, a heron at dusk, gull pairs on slow loops, koi crossing the pond. One wind moves sails, flags, foliage, smoke and water; an eight-to-twelve-minute tide swings every moored hull; ships at open rest head into the wind.
+- Data arrives instead of blinking. Market stability sets the sky's clarity with slow hysteresis and freezes when its feed is stale; a stale feed arrives as a bounded fog bank over its own water with a caption naming the feed and its last good time; the sea-sign boards hide at rest and rise when a water body is inspected.
+- The chrome steps back. The default frame is the world, one sentence — "12:25 — a quiet noon · readings current" — and one quiet affordance; controls reveal on approach, focus or `/`; the detail panel is a woodblock record card; the attract mode holds six named postcards for minutes at a time; the gate and loading screens show a real still of the garden.
+
 ## v0.16.0 - 2026-09-07 - Air and Lantern
 
 The harbour gains air, light and planting: distance reads as distance, every window wakes after sunset, the fleet rides the swell, and the garden is finally planted.

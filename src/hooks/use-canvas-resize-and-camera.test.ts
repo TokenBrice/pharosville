@@ -79,7 +79,7 @@ describe("camera intent helpers", () => {
     const director = createGardenDirector("attract-test");
     const viewport = { x: 1200, y: 640 };
     const { result } = renderHook(() => {
-      const canvas = useCanvasResizeAndCamera(makeCanvasInput({ gardenDirector: director }));
+      const canvas = useCanvasResizeAndCamera(makeCanvasInput({ gardenDirector: director, directorClock: (now) => now / 1000 }));
       useLayoutEffect(() => { canvas.canvasSizeRef.current = viewport; });
       return canvas;
     });
