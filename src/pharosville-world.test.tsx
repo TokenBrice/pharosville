@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { HARBORMASTER_NOTE_STORAGE_KEY, PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
+import { PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
 import { overCapacityWorldFixture } from "./__fixtures__/over-capacity-world";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import type { HitTarget } from "./renderer/hit-testing";
@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => {
   const targets: HitTarget[] = [];
   return {
     cameraRef,
+    attractHolding: false,
     cancelCameraIntent: vi.fn(),
     canvasHandleKeyDown: vi.fn(),
     canvasSizeRef,
@@ -37,6 +38,10 @@ const mocks = vi.hoisted(() => {
     targets,
   };
 });
+function chromeAction(name: string): HTMLButtonElement {
+  return screen.getByText(name, { selector: ".pv-chrome-action span" }).closest("button") as HTMLButtonElement;
+}
+
 
 vi.mock("./components/accessibility-ledger", () => ({
   ACCESSIBILITY_LEDGER_HEADING_ID: "pharosville-accessibility-ledger-title",
@@ -85,6 +90,7 @@ vi.mock("./hooks/use-ship-logo-assets", () => ({
 vi.mock("./hooks/use-canvas-resize-and-camera", () => ({
   useCanvasResizeAndCamera: () => ({
     adaptiveDprStateRef: { current: { requestedDpr: 1 } },
+    attractState: { holding: mocks.attractHolding },
     camera: mocks.cameraRef.current,
     cameraRef: mocks.cameraRef,
     cameraZoomLabel: "100%",
@@ -197,15 +203,16 @@ beforeEach(() => {
   mocks.stopAttractTour.mockClear();
   mocks.stopObserveTour.mockClear();
   mocks.reducedMotion = true;
+  mocks.attractHolding = false;
   mocks.rendererWarmupReady = true;
   mocks.rendererStatus = "ready";
   mocks.requestPaint.mockClear();
   mocks.skipArrival.mockClear();
   mocks.startArrival.mockReset();
   mocks.startArrival.mockImplementation((onComplete) => onComplete());
-  window.localStorage.setItem(HARBORMASTER_NOTE_STORAGE_KEY, "1");
   mocks.targets.splice(0, mocks.targets.length, ...targetFixtures());
   delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
+  delete (window as typeof window & { __pharosVilleDebug?: unknown }).__pharosVilleDebug;
 });
 
 afterEach(() => {
@@ -213,6 +220,7 @@ afterEach(() => {
   cleanup();
   window.history.replaceState(null, "", "/");
   delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
+  delete (window as typeof window & { __pharosVilleDebug?: unknown }).__pharosVilleDebug;
 });
 
 describe("PharosVilleWorld UI accessibility controls", () => {
@@ -254,7 +262,8 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     vi.useFakeTimers();
     mocks.reducedMotion = false;
     render(<PharosVilleWorld world={worldFixture()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Find /" }));
+    fireEvent.click(screen.getByRole("button", { name: "Explore harbor controls" }));
+    fireEvent.click(chromeAction("Find"));
     act(() => vi.advanceTimersByTime(180_000));
     expect(mocks.startAttractTour).not.toHaveBeenCalled();
     fireEvent.keyDown(screen.getByRole("combobox"), { key: "Escape" });
@@ -275,63 +284,68 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.queryByTestId("pharosville-charting-veil")).toBeNull();
   });
 
-  it("uses a reduced-motion crossfade before revealing the one-time note", () => {
+  it("uses a reduced-motion crossfade before revealing the scene-first frame", () => {
     vi.useFakeTimers();
-    window.localStorage.removeItem(HARBORMASTER_NOTE_STORAGE_KEY);
     render(<PharosVilleWorld world={worldFixture()} />);
 
     expect(screen.getByTestId("pharosville-charting-veil").getAttribute("data-arrival")).toBe("crossfade");
     act(() => vi.advanceTimersByTime(320));
     expect(mocks.startArrival).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole("button", { name: "Read harbormaster's note" }));
-    expect(screen.getByText("Each sail is a stablecoin; the lighthouse gathers the stability reading. Select a ship or Find one by name.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Put away harbormaster's note" }));
-    expect(window.localStorage.getItem(HARBORMASTER_NOTE_STORAGE_KEY)).toBe("1");
-    expect(screen.queryByRole("button", { name: "Read harbormaster's note" })).toBeNull();
+    expect(screen.queryByTestId("pharosville-charting-veil")).toBeNull();
+    expect(screen.getByTestId("pharosville-now-caption")).toBeTruthy();
   });
 
-  // Interface revamp DU4/DU7/DU11 + W0.4: the footer carries five items and
-  // nothing else — mark, legend, changelog, harbor ledger, berth count. The
-  // frame rate is instrumentation and lives behind ?debug=1.
-  it("shows how much of the fleet has harbor ties in the footer", () => {
+  it("rests on the world, one now caption, and one quiet affordance", () => {
     const { container } = render(<PharosVilleWorld world={worldFixture()} />);
 
-    // "have harbor ties", not "docked": the figure counts ships with a home harbor
-    // among the charted chains, not ships moored at this instant.
-    expect(screen.getByTestId("pharosville-ship-counter").textContent).toBe("1 of 1 have harbor ties");
-    const footer = container.querySelector(".pharosville-footer");
-    expect(footer?.querySelector(".pharosville-footer__primary")).toBeTruthy();
-    expect(footer?.querySelector(".pharosville-footer__telemetry")).toBeTruthy();
-    // Separator spacing is CSS margin, so the DOM text runs them together.
-    // Derived, not a literal: a version bump is a release chore, not a reason
-    // for this test to fail.
-    expect(footer?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      `PharosVille ${PHAROSVILLE_LATEST_VERSION}·Legend·Find /·Harbor ledgerReadings current·1 of 1 have harbor ties`,
-    );
-    expect(footer?.textContent).not.toContain("Copy link");
-    expect(footer?.textContent).not.toContain("not financial advice");
+    expect(screen.getByTestId("pharosville-now-caption").textContent).toBeTruthy();
+    expect(container.querySelector(".pharosville-footer")).toBeNull();
+    expect(container.querySelectorAll(".pharosville-footer button")).toHaveLength(0);
+    expect(container.querySelectorAll(".pharosville-world-controls__affordance")).toHaveLength(1);
+    expect(screen.getByTestId("pharosville-world-controls").getAttribute("data-expanded")).toBe("false");
+    expect(screen.getByRole("button", { name: "Explore harbor controls" })).toBeTruthy();
   });
 
-  // W0.4: a permanent fps readout is developer telemetry on a screen selling
-  // serenity. It is not deleted — the perf lane needs it — only gated.
-  it("hides the frame-rate counter from a visitor with no debug flag", () => {
+  it("keeps version and renderer telemetry out of ordinary chrome", () => {
     const { container } = render(<PharosVilleWorld world={worldFixture()} />);
 
     expect(screen.queryByTestId("pharosville-fps-counter")).toBeNull();
-    expect(container.querySelector(".pharosville-footer__frame-rate")).toBeNull();
-    expect(container.querySelector(".pharosville-footer")?.textContent).not.toContain("Static");
+    expect(container.querySelector(".pharosville-debug-chrome")).toBeNull();
+    expect(container.textContent).not.toContain(PHAROSVILLE_LATEST_VERSION);
   });
 
-  it("shows the frame-rate counter behind the ?debug=1 flag the preview lane sets", () => {
+  it("shows version, FPS, draws, tris, textures, and p95 behind ?debug=1", () => {
     window.history.replaceState(null, "", "/?debug=1");
-    const { container } = render(<PharosVilleWorld world={worldFixture()} />);
+    (window as typeof window & {
+      __pharosVilleDebug?: {
+        renderMetrics: {
+          drawOwnerCensus: {
+            owners: { triangles: number }[];
+            rendererCalls: number;
+          };
+          gpuTimings: { frameP95Ms: number };
+          textureOwnerCensus: { rendererTextures: number };
+        };
+      };
+    }).__pharosVilleDebug = {
+      renderMetrics: {
+        drawOwnerCensus: {
+          owners: [{ triangles: 345 }],
+          rendererCalls: 12,
+        },
+        gpuTimings: { frameP95Ms: 8.25 },
+        textureOwnerCensus: { rendererTextures: 5 },
+      },
+    };
+    render(<PharosVilleWorld world={worldFixture()} />);
 
+    const diagnostics = screen.getByRole("complementary", { name: "Render diagnostics" });
+    expect(diagnostics.textContent).toContain(`PharosVille ${PHAROSVILLE_LATEST_VERSION}`);
     expect(screen.getByTestId("pharosville-fps-counter").textContent).toBe("Static");
-    expect(
-      container.querySelector(".pharosville-footer__frame-rate")
-        ?.contains(screen.getByTestId("pharosville-fps-counter")),
-    ).toBe(true);
+    expect(diagnostics.textContent).toContain("12 draws");
+    expect(diagnostics.textContent).toContain("345 tris");
+    expect(diagnostics.textContent).toContain("5 tex");
+    expect(diagnostics.textContent).toContain("8.3 ms p95");
   });
 
   it("accepts the debug flag from the hash half of the URL too", () => {
@@ -344,7 +358,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
   it("opens the commit-collected changelog from the beta footer", async () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    fireEvent.click(chromeAction("Legend"));
     await screen.findByTestId("pharosville-legend-panel");
     fireEvent.click(screen.getByText("Changelog", { selector: "button" }));
     const panel = await screen.findByTestId("pharosville-changelog-panel");
@@ -369,7 +383,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
 
     expect(screen.getByTestId("pharosville-accessibility-ledger").dataset.presentation).toBe("screen-reader");
 
-    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    fireEvent.click(chromeAction("Harbor ledger"));
     const panel = await screen.findByTestId("pharosville-harbor-ledger-panel");
     expect(panel.getAttribute("aria-modal")).toBe("true");
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Close harbor ledger")));
@@ -384,7 +398,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
   it("closes the harbor ledger on Escape", async () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    fireEvent.click(chromeAction("Harbor ledger"));
     await screen.findByTestId("pharosville-harbor-ledger-panel");
 
     fireEvent.keyDown(document, { key: "Escape" });
@@ -405,10 +419,10 @@ describe("PharosVilleWorld UI accessibility controls", () => {
 
     for (const [control, testId] of panels) {
       if (control === "Changelog") {
-        fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+        fireEvent.click(chromeAction("Legend"));
         await screen.findByTestId("pharosville-legend-panel");
         fireEvent.click(screen.getByText("Changelog", { selector: "button" }));
-      } else fireEvent.click(screen.getByRole("button", { name: control }));
+      } else fireEvent.click(chromeAction(control));
       const panel = await screen.findByTestId(testId);
       mocks.canvasHandleKeyDown.mockClear();
 
@@ -425,7 +439,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     fireEvent.keyDown(shell, { key: "Tab" });
     fireEvent.keyDown(shell, { key: "Enter" });
     expect(screen.getByTestId("pharosville-detail-panel")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    fireEvent.click(chromeAction("Legend"));
     const legend = await screen.findByTestId("pharosville-legend-panel");
     fireEvent.pointerDown(legend.querySelector("svg")!);
     expect(screen.getByTestId("pharosville-detail-panel")).toBeTruthy();
@@ -434,7 +448,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
   it("mounts exactly one ledger, so the world is never announced twice", async () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    fireEvent.click(chromeAction("Harbor ledger"));
     await screen.findByTestId("pharosville-harbor-ledger-panel");
 
     const ledgers = screen.getAllByTestId("pharosville-accessibility-ledger");
@@ -445,16 +459,16 @@ describe("PharosVilleWorld UI accessibility controls", () => {
   it("keeps at most one reference panel open", async () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    fireEvent.click(chromeAction("Harbor ledger"));
     await screen.findByTestId("pharosville-harbor-ledger-panel");
 
-    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    fireEvent.click(chromeAction("Legend"));
     await screen.findByTestId("pharosville-legend-panel");
     fireEvent.click(screen.getByText("Changelog", { selector: "button" }));
     await screen.findByTestId("pharosville-changelog-panel");
     expect(screen.queryByTestId("pharosville-harbor-ledger-panel")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    fireEvent.click(chromeAction("Harbor ledger"));
     await screen.findByTestId("pharosville-harbor-ledger-panel");
     expect(screen.queryByTestId("pharosville-changelog-panel")).toBeNull();
   });
@@ -713,7 +727,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
   it("opens the observe sequence from the legend's closing call to action", async () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    fireEvent.click(chromeAction("Legend"));
     fireEvent.click(await screen.findByRole("button", { name: "Watch the harbor" }));
 
     expect(screen.queryByTestId("pharosville-legend-panel")).toBeNull();
@@ -731,7 +745,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     const beats = buildObserveSequence(world);
     render(<PharosVilleWorld world={world} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    fireEvent.click(chromeAction("Legend"));
     fireEvent.click(await screen.findByRole("button", { name: "Watch the harbor" }));
 
     const observe = screen.getByRole("button", { name: "Observe harbor" });
@@ -857,7 +871,7 @@ describe("PharosVilleWorld quick find", () => {
 
   it("leaves the slash key alone while a reference panel is open", async () => {
     render(<PharosVilleWorld world={worldFixture()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    fireEvent.click(chromeAction("Legend"));
     await screen.findByTestId("pharosville-legend-panel");
 
     fireEvent.keyDown(document, { key: "/" });
@@ -933,7 +947,7 @@ describe("PharosVilleWorld time-of-day keys", () => {
 
   it("leaves the bracket keys alone while a reference panel is open", async () => {
     renderAtHalfPastSix();
-    fireEvent.click(screen.getByRole("button", { name: "Legend" }));
+    fireEvent.click(chromeAction("Legend"));
     await screen.findByTestId("pharosville-legend-panel");
 
     fireEvent.keyDown(document, { key: "]" });

@@ -26,6 +26,18 @@ type SectionId = "identity" | "position";
 type DetailMember = NonNullable<DetailModel["members"]>[number];
 type DetailLink = DetailModel["links"][number];
 
+type DetailRiskBand = "calm" | "watch" | "alert" | "warning" | "danger" | "ledger" | "wreck";
+
+const DETAIL_RISK_BAND_BY_LABEL: Readonly<Record<string, DetailRiskBand>> = {
+  "Calm Anchorage": "calm",
+  "Watch Breakwater": "watch",
+  "Alert Channel": "alert",
+  "Warning Shoals": "warning",
+  "Danger Strait": "danger",
+  "Ledger Mooring": "ledger",
+  "Wreck Shoal": "wreck",
+};
+
 /**
  * Whether the record disclosure is open, remembered for the session so someone
  * reading the figures keeps them as they move from ship to ship, and a fresh
@@ -107,34 +119,43 @@ export function DetailPanel({
       tabIndex={-1}
     >
       <div className="pharosville-detail-panel__inner">
-        <header className="pharosville-detail-panel__header">
-          <p className="pharosville-detail-panel__kind">{detail.kind}</p>
-          <h2 id={headingId}>{detail.title}</h2>
+        <header
+          className="pharosville-detail-panel__header"
+          data-risk-band={detail.status ? DETAIL_RISK_BAND_BY_LABEL[detail.status.label] ?? "watch" : undefined}
+        >
+          <div className="pharosville-detail-panel__heading">
+            <p className="pharosville-detail-panel__kind">{detail.kind}</p>
+            <h2 id={headingId}>{detail.title}</h2>
+            <div className="pharosville-detail-panel__prose">
+              {/* Heritage and placement read as one thought — what this hull is,
+                  then what it is doing here — rather than stacked fragments. */}
+              <p>
+                {heritage && (
+                  <span className="pharosville-detail-panel__heritage">{heritage} </span>
+                )}
+                {detail.summary}
+              </p>
+            </div>
+          </div>
+
           {detail.status && (
             <p className="pharosville-detail-panel__zone" data-testid="pharosville-detail-zone">
-              <span
-                className="pharosville-detail-panel__zone-swatch"
-                style={{ backgroundColor: detail.status.swatchColor }}
-                aria-hidden="true"
-              />
-              {detail.status.label}
+              <span className="pharosville-detail-panel__seal" aria-hidden="true" />
+              <span className="pharosville-detail-panel__zone-copy">
+                <span>{detail.status.label}</span>
+                {detail.status.figure && (
+                  <strong className="pharosville-detail-panel__zone-figure">{detail.status.figure}</strong>
+                )}
+              </span>
             </p>
           )}
         </header>
 
-        <div className="pharosville-detail-panel__prose">
-          {/* Heritage and placement read as one thought — what this hull is,
-              then what it is doing here — rather than stacked fragments. */}
-          <p>
-            {heritage && (
-              <span className="pharosville-detail-panel__heritage">{heritage} </span>
-            )}
-            {detail.summary}
-          </p>
-          {detail.paragraphs?.map((paragraph) => (
-            <p key={paragraph}>{paragraph}</p>
-          ))}
-        </div>
+        {detail.paragraphs && detail.paragraphs.length > 0 && (
+          <div className="pharosville-detail-panel__prose pharosville-detail-panel__prose--supplemental">
+            {detail.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+          </div>
+        )}
 
         {readingLine && (
           <p className="pharosville-detail-panel__reading" data-testid="pharosville-detail-reading">
@@ -214,6 +235,7 @@ export function DetailPanel({
     </aside>
   );
 }
+
 
 function restoreDialogFocus(previouslyFocused: HTMLElement | null): void {
   if (

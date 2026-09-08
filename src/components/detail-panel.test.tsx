@@ -23,7 +23,7 @@ const renderShipPanel = (shipId: string, depegId: string | null = null) => {
   return renderToStaticMarkup(<DetailPanel detail={detail} />);
 };
 
-describe("DetailPanel structure (old-school revamp)", () => {
+describe("DetailPanel woodblock record", () => {
   it("defers focus until a hidden selection becomes visible", () => {
     const opener = document.createElement("button");
     document.body.append(opener);
@@ -100,6 +100,7 @@ describe("DetailPanel structure (old-school revamp)", () => {
         swatchColor: "#125e7e",
         label: "Calm Anchorage",
         reading: "Steady peg evidence; the safe default berth",
+        figure: "-12 bps vs USD",
       },
       facts: [],
       links: [],
@@ -113,6 +114,9 @@ describe("DetailPanel structure (old-school revamp)", () => {
     const statusLine = screen.getByTestId("pharosville-detail-zone");
     expect(statusLine.textContent).toContain("Calm Anchorage");
     expect(statusLine.textContent).not.toContain("Steady peg evidence");
+    expect(statusLine.closest("[data-risk-band]")?.getAttribute("data-risk-band")).toBe("calm");
+    expect(statusLine.querySelector(".pharosville-detail-panel__seal")?.getAttribute("aria-hidden")).toBe("true");
+    expect(statusLine.textContent).toContain("-12 bps vs USD");
   });
 
   it("does not render dropped fields", () => {

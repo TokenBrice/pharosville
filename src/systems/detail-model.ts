@@ -2,6 +2,7 @@ import { CHAIN_META } from "@shared/lib/chains";
 import { CAUSE_META } from "@shared/lib/cause-of-death";
 import type { BluechipGrade, DimensionKey } from "@shared/types";
 import { formatCompactUsd } from "../lib/format-detail";
+import type { DayCycleBeats, DayCycleBeatName } from "./day-cycle-beats";
 import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode } from "./world-types";
 import { pigeonnierRoostLabel } from "./pigeonnier-watch";
 import { analyticalRouteHref } from "./route-links";
@@ -27,6 +28,88 @@ import { motionCadenceDetailLabel } from "./motion-config";
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
 const ELEVATED_DEWS_BANDS = new Set<DewsAreaBand>(["ALERT", "WARNING", "DANGER"]);
+
+export type NowCaptionFreshness = PharosVilleFreshness & {
+  /** Last trustworthy observation time; used only when a source is stale. */
+  observedAt?: number | null;
+};
+
+export interface NowCaptionTransition {
+  observedAt: number | null;
+  symbol: string;
+  toLabel: string;
+}
+
+export interface NowCaptionInput {
+  arrivalAnnotation: string | null;
+  beats: DayCycleBeats;
+  freshness: NowCaptionFreshness;
+  hour: number;
+  latestTransition: NowCaptionTransition | null;
+  psi: number | null;
+}
+
+const NOW_CAPTION_FRESHNESS_LABELS: ReadonlyArray<readonly [keyof PharosVilleFreshness, string]> = [
+  ["stablecoinsStale", "Stablecoins"],
+  ["chainsStale", "Chains"],
+  ["stabilityStale", "PSI"],
+  ["pegSummaryStale", "Peg summary"],
+  ["stressStale", "Stress signals"],
+  ["reportCardsStale", "Report cards"],
+  ["mintBurnStale", "Mint and burn"],
+];
+
+function clockLabel(hourInput: number): string {
+  const totalMinutes = Math.round((((Number.isFinite(hourInput) ? hourInput : 0) % 24) + 24) % 24 * 60) % (24 * 60);
+  const hour = Math.floor(totalMinutes / 60);
+  const minute = totalMinutes % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function observedTimeLabel(observedAt: number | null): string {
+  if (observedAt === null || !Number.isFinite(observedAt) || observedAt <= 0) return "an unknown time";
+  return new Date(observedAt).toISOString().slice(11, 16);
+}
+
+function dominantDayBeat(beats: DayCycleBeats): DayCycleBeatName {
+  const names: DayCycleBeatName[] = ["dawn", "day", "golden", "blue", "night"];
+  return names.reduce((dominant, candidate) => (
+    beats[candidate] > beats[dominant] ? candidate : dominant
+  ), names[0]!);
+}
+
+function phaseCaption(hour: number, beats: DayCycleBeats, psi: number | null): string {
+  const beat = dominantDayBeat(beats);
+  const watchful = psi !== null && Number.isFinite(psi) && psi < 50;
+  if (beat === "golden") return "the golden hour";
+  if (beat === "blue") return "the blue hour";
+  const tone = watchful ? "watchful" : "quiet";
+  if (beat === "dawn") return `a ${tone} dawn`;
+  if (beat === "night") return `a ${tone} night`;
+  if (hour >= 11 && hour < 13.5) return `a ${tone} noon`;
+  return hour < 11 ? `a ${tone} morning` : `a ${tone} afternoon`;
+}
+
+/**
+ * The single scene caption. Its precedence is deliberate: a ceremony is the
+ * present moment, then a market move, then a warning, then the ambient phase.
+ */
+export function nowCaption({
+  arrivalAnnotation,
+  beats,
+  freshness,
+  hour,
+  latestTransition,
+  psi,
+}: NowCaptionInput): string {
+  if (arrivalAnnotation) return arrivalAnnotation;
+  if (latestTransition) {
+    return `${latestTransition.symbol} moved to ${latestTransition.toLabel}, observed ${observedTimeLabel(latestTransition.observedAt)}`;
+  }
+  const staleFeed = NOW_CAPTION_FRESHNESS_LABELS.find(([key]) => freshness[key] === true);
+  if (staleFeed) return `${staleFeed[1]} stale since ${observedTimeLabel(freshness.observedAt ?? null)}`;
+  return `${clockLabel(hour)} — ${phaseCaption(hour, beats, psi)} · readings current`;
+}
 
 function marketCapLabel(value: number): string {
   return Number.isFinite(value) && value > 0 ? usd.format(value) : "Unavailable";
@@ -656,11 +739,13 @@ export function detailForLighthouse(
     kind: node.kind,
     title: node.label,
     summary: node.unavailable
-      ? "The Peg Stability Index is unavailable tonight, so the beacon stands unlit."
-      : `The fleet reads ${node.psiBand}. The beam's warmth tracks that one fleet-wide number — a storm in any single stretch of water shows in the sea and sky there, never in the beam.`,
+      ? "Market stability is unavailable; the sky holds its authored neutral clarity."
+      : `Market stability reads ${node.psiBand}. Sky clarity correlates with the observed PSI band; it is not a weather or market forecast.${freshness.stabilityStale ? " PSI is stale; clarity holds the last good reading." : ""}`,
     facts: [
-      { label: "Score", value: node.score == null ? "Unavailable" : formatPsiNumber(node.score) },
+      { label: "Score", value: node.score == null || node.unavailable ? "Unavailable" : String(node.score) },
       { label: "Band", value: node.psiBand ?? "Unavailable" },
+      { label: "Market stability", value: node.unavailable ? "Unavailable" : freshness.stabilityStale ? "Stale — last good clarity held" : "Current PSI observation" },
+      { label: "Snapshot as of", value: generatedAt != null && Number.isFinite(generatedAt) && generatedAt > 0 ? new Date(generatedAt).toISOString() : "Unavailable" },
       ...(trend ? [{ label: "Trend", value: trend }] : []),
       ...(composition ? [{ label: "Composition", value: composition }] : []),
       { label: "Beam warmth cue", value: lighthouseBeamWarmCueLabel() },

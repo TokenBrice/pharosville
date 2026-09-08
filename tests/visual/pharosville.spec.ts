@@ -54,6 +54,8 @@ test(...visualLane("static", "the world is nonblank, resize-safe, and honors red
   await expect(canvas).toHaveAttribute("data-renderer-status", "ready");
   await waitForRuntimeDebug(page, true);
   await expect(page.getByTestId("pharosville-renderer-fallback")).toHaveCount(0);
+  await page.getByRole("button", { name: "Explore harbor controls" }).click();
+  await expect(page.getByTestId("pharosville-world-controls")).toHaveAttribute("data-expanded", "true");
   await page.getByRole("button", { name: "Legend" }).click();
   await expect(page.getByRole("dialog", { name: "Legend" })).toBeVisible();
   await page.getByRole("button", { name: "Close legend" }).click();
@@ -133,6 +135,15 @@ test(...visualLane("dom", "browser chrome keeps minimum targets and stable scene
   await page.goto("/");
 
   await expect(page.getByTestId("pharosville-world")).toBeVisible();
+  const controls = page.getByTestId("pharosville-world-controls");
+  await page.getByRole("button", { name: "Explore harbor controls" }).click();
+  await expect(controls).toHaveAttribute("data-expanded", "true");
+  for (const target of await controls.locator("button, summary").filter({ visible: true }).all()) {
+    const box = await target.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(24);
+    expect(box!.height).toBeGreaterThanOrEqual(24);
+  }
   const contract = await page.evaluate(() => {
     const world = document.querySelector<HTMLElement>('[data-testid="pharosville-world"]');
     if (!world) throw new Error("World chrome did not mount.");
@@ -158,15 +169,15 @@ test(...visualLane("dom", "browser chrome keeps minimum targets and stable scene
       const match = color.match(/rgba?\([^,]+,[^,]+,[^,]+(?:,\s*([\d.]+))?\)/);
       return match?.[1] ? Number.parseFloat(match[1]) : 1;
     };
-    const footer = getComputedStyle(document.querySelector<HTMLElement>(".pharosville-footer")!);
+    const caption = getComputedStyle(document.querySelector<HTMLElement>('[data-testid="pharosville-now-caption"]')!);
     const quickField = probe("pharosville-quick-find__field", "div");
     const notice = probe("pv-notice");
     return {
       detailClose: probe("pharosville-detail-panel__close"),
       detailCopy: probe("pharosville-detail-panel__copy"),
-      footer: {
-        backgroundAlpha: alpha(footer.backgroundColor),
-        fontSize: Number.parseFloat(footer.fontSize),
+      caption: {
+        backgroundAlpha: alpha(caption.backgroundColor),
+        fontSize: Number.parseFloat(caption.fontSize),
       },
       glyph: probe("pv-glyph-button"),
       noticeDismiss: probe("pv-notice__dismiss"),
@@ -181,8 +192,8 @@ test(...visualLane("dom", "browser chrome keeps minimum targets and stable scene
   expect(contract.noticeDismiss.width).toBeGreaterThanOrEqual(24);
   expect(contract.noticeDismiss.height).toBeGreaterThanOrEqual(24);
   expect(contract.quickResult.minHeight).toBeGreaterThanOrEqual(36);
-  expect(contract.footer.fontSize).toBeGreaterThanOrEqual(13);
-  expect(contract.footer.backgroundAlpha).toBeGreaterThanOrEqual(0.75);
+  expect(contract.caption.fontSize).toBeGreaterThanOrEqual(13);
+  expect(contract.caption.backgroundAlpha).toBeGreaterThanOrEqual(0.75);
   expect(contract.noticeScrimAlpha).toBeGreaterThanOrEqual(0.85);
   expect(contract.quickFieldScrimAlpha).toBeGreaterThanOrEqual(0.9);
   expect(contract.glyph.opacity).toBeGreaterThanOrEqual(0.7);
@@ -247,6 +258,8 @@ test(...visualLane("accessibility", "a shared ship link selects and frames that 
   // lane below; this case owns the DOM contract — selection, panel, Escape.
 
   // Recentring leaves the selection intact, and Escape closes the panel.
+  await page.getByRole("button", { name: "Explore harbor controls" }).click();
+  await expect(page.getByTestId("pharosville-world-controls")).toHaveAttribute("data-expanded", "true");
   await page.getByRole("button", { name: "Reset view" }).click();
   await expect(page.getByTestId("pharosville-detail-panel")).toBeVisible();
 
@@ -558,11 +571,15 @@ test(...visualLane("interaction", "native reference dialogs preserve focus and l
   await waitForRuntimeDebug(page, false);
 
   const find = page.getByRole("button", { name: "Find /" });
+  const explore = page.getByRole("button", { name: "Explore harbor controls" });
   const skip = page.getByRole("button", { name: "Skip map to controls" });
   await page.keyboard.press("Tab");
   await expect(skip).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(find).toBeFocused();
+  await expect(explore).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(explore).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByTestId("pharosville-world-controls")).toHaveAttribute("data-expanded", "true");
   await find.click();
   await expect(page.getByRole("combobox")).toBeVisible();
   await page.keyboard.press("Escape");
