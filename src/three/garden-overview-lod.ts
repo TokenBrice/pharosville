@@ -70,13 +70,14 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   // The rim body remains at whole-map framing; its distributed furniture is
   // less than a few pixels there and fades only by visibility.
   //
-  // The understory's 490 shrub domes are sub-silhouette greebles and shed.
-  // Pines remain authored landscape massing at every zoom. Individual
-  // broadleaves hard-swap to the far-only opaque canopy mass below 0.53, so
-  // the mass remains without paying for every small crown.
-  "garden-rim-understory",
+  // Pines remain authored landscape massing at every zoom. G2/W3.8 species
+  // batches: clipped karikomi and bamboo clumps are sub-silhouette at whole-map
+  // and shed; individual momiji/cherry crowns hard-swap off below 0.53.
+  "garden-flora-karikomi",
+  "garden-flora-bamboo",
   "garden-rim-path",
-  "garden-rim-broadleaf",
+  "garden-flora-momiji",
+  "garden-flora-cherry",
   "garden-rim-stones",
   // Camera-near repoussoirs (warm-village A6): at whole-map they are the
   // same frame-edge mud as the rest of the skirt furniture.
@@ -184,7 +185,7 @@ export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
     }
     if (!names.has(object.name)) return;
     const shrinks = !wholeRing.has(object.name);
-    const canopyDetail = object.name === "garden-rim-broadleaf";
+    const canopyDetail = object.name === "garden-flora-momiji" || object.name === "garden-flora-cherry";
     if (shrinks) {
       new Box3().setFromObject(object).getCenter(scratchCentre);
       object.worldToLocal(scratchCentre);

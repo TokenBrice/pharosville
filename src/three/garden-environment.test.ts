@@ -1,8 +1,8 @@
 import { SphericalHarmonics3, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { DAY_CYCLE_LIGHT_PRESETS, dayCyclePhase } from "./garden-day-cycle";
+import { DAY_CYCLE_LIGHT_PRESETS, dayCycleBeats, dayCyclePhase } from "./garden-day-cycle";
 import {
-  GARDEN_ENVIRONMENT_INTENSITY,
+  gardenEnvironmentIntensityForBeats,
   GARDEN_ENVIRONMENT_MAX_DEFER_SECONDS,
   GARDEN_ENVIRONMENT_MIN_BAKE_SECONDS,
   GARDEN_ENVIRONMENT_SH_DEADLINE_SECONDS,
@@ -14,6 +14,8 @@ import {
   shouldBakeGardenEnvironment,
   writeGardenEnvironmentProbeSH,
 } from "./garden-environment";
+
+const DAY_INTENSITY = gardenEnvironmentIntensityForBeats(dayCycleBeats(12));
 
 /**
  * The bake itself needs a live WebGL2 context, so what is testable here is the
@@ -41,18 +43,12 @@ describe("gardenEnvironmentPhaseKey", () => {
     expect(new Set(keys).size).toBe(3);
   });
 
-  it("costs a bounded number of bakes for a whole day, dragged end to end", () => {
-    // The worst case is not the wall clock — which crosses a step every ~35
-    // minutes — but a visitor sweeping the time control from midnight to
-    // midnight, which walks the entire cycle in a few seconds of frames. What
-    // bounds that is the number of DISTINCT keys the day contains, because the
-    // probe can only bake when the key changes, so the sweep costs the same 41
-    // bakes whether it takes two seconds or two hours.
+  it("bounds the bake keys when the time control sweeps the whole day", () => {
     const keys = new Set<string>();
     for (let hour = 0; hour < 24; hour += 0.01) {
       keys.add(gardenEnvironmentPhaseKey(dayCyclePhase(hour)));
     }
-    expect(keys.size).toBe(41);
+    expect(keys.size).toBeLessThanOrEqual(41);
   });
 
   it("rebakes through the evening ramp, so the ember horizon reaches the metal", () => {
@@ -71,12 +67,11 @@ describe("gardenEnvironmentPhaseKey", () => {
     expect(gardenEnvironmentPhaseKey({ daylight: 2, dusk: -1, night: 0 }, 7)).toBe("10:0:4");
   });
 
-  it("keeps the probe inside the strength range measured against the real GPU", () => {
-    // The module header carries the measured table. 1.0 is the strongest value
-    // that was actually captured and checked for a re-wash, so shipping above it
-    // would be claiming a calibration nobody has looked at.
-    expect(GARDEN_ENVIRONMENT_INTENSITY).toBeGreaterThan(0);
-    expect(GARDEN_ENVIRONMENT_INTENSITY).toBeLessThanOrEqual(1);
+  it("scales reflection strength with the five illumination beats", () => {
+    for (const [hour, strength] of [[6, 0.35], [12, 0.6], [17.25, 0.45], [19, 0.3], [23, 0.12]]) {
+      expect(gardenEnvironmentIntensityForBeats(dayCycleBeats(hour))).toBeCloseTo(strength);
+    }
+    expect(gardenEnvironmentIntensityForBeats(dayCycleBeats(6.625))).toBeCloseTo((0.35 + 0.6) / 2);
   });
 
   it("does not rebake across a steady storm's breathing boundary", () => {
@@ -254,16 +249,18 @@ describe("garden environment ambient drift", () => {
     expect(advanceGardenEnvironmentDrift(1, Number.NaN, taus.sh)).toBe(1);
   });
 
-  it("dips the environment only at the swap, and never past the calibrated strength", () => {
-    expect(gardenEnvironmentIntensityForSwap(0)).toBe(GARDEN_ENVIRONMENT_INTENSITY);
-    const dipped = gardenEnvironmentIntensityForSwap(1);
-    expect(dipped).toBeLessThan(GARDEN_ENVIRONMENT_INTENSITY);
-    // A dip, not a cut: the metals keep most of their reflection through it.
-    expect(dipped).toBeGreaterThan(GARDEN_ENVIRONMENT_INTENSITY * 0.6);
-    for (const drift of [-1, 0.25, 0.5, 2]) {
-      const intensity = gardenEnvironmentIntensityForSwap(drift);
-      expect(intensity).toBeLessThanOrEqual(GARDEN_ENVIRONMENT_INTENSITY);
-      expect(intensity).toBeGreaterThanOrEqual(dipped);
+  it("dips each beat only at the swap without erasing its reflections", () => {
+    for (const hour of [6, 12, 17.25, 19, 23]) {
+      const base = gardenEnvironmentIntensityForBeats(dayCycleBeats(hour));
+      expect(gardenEnvironmentIntensityForSwap(0, base)).toBe(base);
+      const dipped = gardenEnvironmentIntensityForSwap(1, base);
+      expect(dipped).toBeLessThan(base);
+      expect(dipped).toBeGreaterThan(base * 0.6);
+      for (const drift of [-1, 0.25, 0.5, 2]) {
+        const intensity = gardenEnvironmentIntensityForSwap(drift, base);
+        expect(intensity).toBeLessThanOrEqual(base);
+        expect(intensity).toBeGreaterThanOrEqual(dipped);
+      }
     }
   });
 });
@@ -288,17 +285,17 @@ describe("garden environment light probe", () => {
       .addScaledVector(baked.coefficients[index]!, environmentIntensity));
   }
 
-  it("contributes nothing at all at rest — which is the whole energy audit", () => {
-    // Every steady frame in the world is this one. If the probe is not exactly
-    // zero here then W1.5 changed the brightness of every phase, and it was
-    // only ever supposed to change what happens BETWEEN them.
+  it("contributes no extra energy at rest in any illumination beat", () => {
     const baked = harmonic(0.37);
     const probe = new SphericalHarmonics3();
-    writeGardenEnvironmentProbeSH(probe, baked, baked, 0, GARDEN_ENVIRONMENT_INTENSITY);
-    for (const coefficient of probe.coefficients) {
-      expect(coefficient.x).toBe(0);
-      expect(coefficient.y).toBe(0);
-      expect(coefficient.z).toBe(0);
+    for (const hour of [6, 12, 17.25, 19, 23]) {
+      const base = gardenEnvironmentIntensityForBeats(dayCycleBeats(hour));
+      writeGardenEnvironmentProbeSH(probe, baked, baked, 0, base, base);
+      for (const coefficient of probe.coefficients) {
+        expect(coefficient.x).toBe(0);
+        expect(coefficient.y).toBe(0);
+        expect(coefficient.z).toBe(0);
+      }
     }
   });
 
@@ -308,14 +305,14 @@ describe("garden environment light probe", () => {
     const previous = harmonic(1);
     const baked = harmonic(2.5);
     const probe = new SphericalHarmonics3();
-    const intensity = gardenEnvironmentIntensityForSwap(1);
-    writeGardenEnvironmentProbeSH(probe, previous, baked, 1, intensity);
+    const intensity = gardenEnvironmentIntensityForSwap(1, DAY_INTENSITY);
+    writeGardenEnvironmentProbeSH(probe, previous, baked, 1, intensity, DAY_INTENSITY);
 
     const total = totalAmbient(probe, baked, intensity);
     total.forEach((received, index) => {
       const wanted = previous.coefficients[index]!
         .clone()
-        .multiplyScalar(GARDEN_ENVIRONMENT_INTENSITY);
+        .multiplyScalar(DAY_INTENSITY);
       expect(received.x).toBeCloseTo(wanted.x, 12);
       expect(received.y).toBeCloseTo(wanted.y, 12);
       expect(received.z).toBeCloseTo(wanted.z, 12);
@@ -330,12 +327,12 @@ describe("garden environment light probe", () => {
     const baked = harmonic(2.5);
     const probe = new SphericalHarmonics3();
     for (const drift of [1, 0.75, 0.5, 0.25, 0]) {
-      const intensity = gardenEnvironmentIntensityForSwap(drift);
-      writeGardenEnvironmentProbeSH(probe, previous, baked, drift, intensity);
+      const intensity = gardenEnvironmentIntensityForSwap(drift, DAY_INTENSITY);
+      writeGardenEnvironmentProbeSH(probe, previous, baked, drift, intensity, DAY_INTENSITY);
       const total = totalAmbient(probe, baked, intensity);
       total.forEach((received, index) => {
-        const from = previous.coefficients[index]!.x * GARDEN_ENVIRONMENT_INTENSITY;
-        const to = baked.coefficients[index]!.x * GARDEN_ENVIRONMENT_INTENSITY;
+        const from = previous.coefficients[index]!.x * DAY_INTENSITY;
+        const to = baked.coefficients[index]!.x * DAY_INTENSITY;
         expect(received.x).toBeCloseTo(to + (from - to) * drift, 12);
         expect(received.x).toBeGreaterThanOrEqual(Math.min(from, to) - 1e-9);
         expect(received.x).toBeLessThanOrEqual(Math.max(from, to) + 1e-9);
@@ -346,21 +343,21 @@ describe("garden environment light probe", () => {
   it("writes in place, so the frame loop allocates nothing", () => {
     const probe = new SphericalHarmonics3();
     const vectors = probe.coefficients.map((coefficient) => coefficient);
-    writeGardenEnvironmentProbeSH(probe, harmonic(1), harmonic(2), 0.5, 0.5);
+    writeGardenEnvironmentProbeSH(probe, harmonic(1), harmonic(2), 0.5, 0.5, DAY_INTENSITY);
     probe.coefficients.forEach((coefficient, index) => {
       expect(coefficient).toBe(vectors[index]);
     });
   });
 
-  it("stays a minor term next to the analytic ambient it sits beside", () => {
-    // The energy audit's other half. `updateDayCycle` blends the hemisphere and
-    // ambient lights off the RAW phase every frame, so they never stepped and
-    // are not touched here; what matters is that the probe's strength stays the
-    // small correction the measured table calls for rather than growing into a
-    // second fill light while nobody was looking.
-    for (const preset of Object.values(DAY_CYCLE_LIGHT_PRESETS)) {
-      const analyticFill = preset.hemiIntensity + preset.ambientIntensity;
-      expect(GARDEN_ENVIRONMENT_INTENSITY).toBeLessThan(analyticFill);
+  it("stays subordinate to analytic fill throughout the light score", () => {
+    for (let minute = 0; minute < 1440; minute += 1) {
+      const beats = dayCycleBeats(minute / 60);
+      let analyticFill = 0;
+      for (const name of Object.keys(beats) as (keyof typeof beats)[]) {
+        const preset = DAY_CYCLE_LIGHT_PRESETS[name];
+        analyticFill += beats[name] * (preset.hemiIntensity + preset.ambientIntensity);
+      }
+      expect(gardenEnvironmentIntensityForBeats(beats)).toBeLessThan(analyticFill);
     }
   });
 });

@@ -62,10 +62,10 @@ export const GARDEN_WATER_CREST_FOAM = Object.freeze({
   maxMix: 0.055,
 });
 export const GARDEN_WATER_SHORE_FOAM = Object.freeze({
-  /** Normalised SDF units; about 0.2 world units on the island's long axis. */
-  breathAmplitude: 0.009,
-  lineCore: 0.01,
-  lineFeather: 0.038,
+  /** Shore-field units: one unit is 24 tiles from any coast. */
+  breathAmplitude: 0.003,
+  lineCore: 0.003,
+  lineFeather: 0.012,
   maxMix: 0.18,
 });
 
@@ -84,11 +84,11 @@ export const GARDEN_WATER_SHORE_FOAM = Object.freeze({
  * without moving the explicit recorded ceiling at the same time.
  */
 export const GARDEN_WATER_NIGHT_EMISSIVE_BUDGET = Object.freeze({
-  moonRoadGain: 0.06,
+  moonRoadGain: 0.16,
   moonRoadOccupancy: 0.08,
   moonGlitterGain: 2.6,
-  moonGlitterOccupancy: 0.002,
-  laneClamp: 2.2,
+  moonGlitterOccupancy: 0.0004,
+  laneClamp: 0.75,
   laneOccupancy: 0.0025,
   maxMeanLuminance: 0.016,
 });

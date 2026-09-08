@@ -79,6 +79,7 @@ import { placeGardenFleet } from "../systems/garden-fleet-placement";
 import { HARBOR_PALETTE, zoneThemeForTerrain } from "../systems/palette";
 import { RIM_OPENINGS } from "../systems/garden-rim";
 import {
+  gardenShipHullReachWorld,
   gardenShipWaterMarginTiles,
   isGardenShipWater,
   nearestGardenShipWater,
@@ -158,7 +159,8 @@ import {
 import { createGardenModelLibrary } from "./garden-models";
 import { createGardenWater, type GardenWater } from "./garden-water";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
-import { dayCyclePhase, updateDayCycle, type DayCyclePhase } from "./garden-day-cycle";
+import { dayCycleBeats, dayCyclePhase, updateDayCycle, type DayCyclePhase } from "./garden-day-cycle";
+import { setGardenFloraNightValue } from "./garden-flora";
 import { gardenKeyLightPose, type GardenLightPose } from "./garden-sun";
 import { createGardenSky, type GardenSky } from "./garden-sky";
 import {
@@ -283,6 +285,7 @@ import {
   fleetDrawCallCount,
   GARDEN_FLEET_BATCH_CAPACITY,
   setFleetAerialPerspective,
+  setFleetLightHour,
   setFleetWeather,
   writeFleetInstance,
   type FleetBatches,
@@ -691,6 +694,19 @@ const scratchShadowPosition = new Vector3();
 const scratchShadowScale = new Vector3();
 const scratchShadowQuaternion = new Quaternion();
 const SHADOW_UP = new Vector3(0, 1, 0);
+/**
+ * G2/W2.9: the day cycle normalises ship lantern cores to a linear luminance
+ * (2.7) on `lantern_glow`; the winter swap to `lantern_warm` below must not
+ * drop them under the bloom threshold, so the intensity is rescaled by the
+ * two colours' luminance ratio. Computed once — both are palette constants.
+ */
+const WINTER_LANTERN_INTENSITY_SCALE = (() => {
+  const luma = (hex: string) => {
+    const c = new Color(hex);
+    return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  };
+  return luma(HARBOR_PALETTE.lantern_glow) / luma(HARBOR_PALETTE.lantern_warm);
+})();
 const scratchFleetPresenceScale = new Vector3();
 const scratchWakePose = { headingY: 0, hullScale: 1, x: 0, y: 0, z: 0 };
 const scratchArrivalBeat: GardenArrivalBeatEnvelope = { furl: 0, bowWave: 0, nameplate: false };
@@ -1207,6 +1223,7 @@ export function createThreeWorldRenderer(
       }
 
       const phase = dayCyclePhase(frame.wallClockHour);
+      const beats = dayCycleBeats(frame.wallClockHour);
       // Phase 2: the frame's weather plan — one pure function of the world
       // clock and the sea state's PSI stress / base wind, consumed below by
       // the sky, water, rain, fleet, gulls, post, and the shadow light. Under
@@ -1243,7 +1260,7 @@ export function createThreeWorldRenderer(
       // bounds its own wait, so a machine that never leaves `recovery` still
       // rebakes; this only decides WHICH frame pays when there is a choice.
       const environmentTier = seaQualityTier(frame.renderScheduler);
-      scene.environment.update(phase, scene.weather.stormLevel, {
+      scene.environment.update(phase, beats, scene.weather.stormLevel, {
         bakeAllowed: frame.renderScheduler.tier !== "interaction"
           && (environmentTier === "full" || environmentTier === "balanced"),
         deltaSeconds: environmentDeltaSeconds,
@@ -1380,8 +1397,7 @@ export function createThreeWorldRenderer(
       }
       post.setAOZoomDetail(aoFramingDetail);
       post.setGrade(
-        phase.daylight,
-        phase.dusk,
+        frame.wallClockHour,
         scene.weather.stormLevel,
         scene.weather.lightning,
         scene.season === "winter" ? 1 : 0,
@@ -1552,6 +1568,8 @@ export interface GardenScene {
   lighthouseModel: Group | null;
   root: Scene;
   selectedMarker: ReturnType<typeof createGardenCueMarker>;
+  /** Last night beat pushed to vegetation materials; the traverse runs only on change. */
+  floraNightValue: number;
   season: GardenSeason;
   seasonalDressing: GardenSeasonalDressing;
   shadowActiveSize: number;
@@ -2001,6 +2019,7 @@ function createGardenScene(
     lighthouseModel: null,
     root,
     selectedMarker,
+    floraNightValue: -1,
     season,
     seasonalDressing,
     shadowActiveSize: 0,
@@ -4053,6 +4072,12 @@ function updateSceneForFrame(
   scene.content?.seaEdges?.updateWind(weather, frame.reducedMotion);
   if (scene.content) updateGardenNiwakiWind(scene.content.decoration, weather, frame.reducedMotion);
   updateDayCycle(scene, frame, phase);
+  setFleetLightHour(frame.wallClockHour);
+  const floraNight = Math.round(dayCycleBeats(frame.wallClockHour).night * 256) / 256;
+  if (floraNight !== scene.floraNightValue) {
+    scene.floraNightValue = floraNight;
+    setGardenFloraNightValue(scene.root, floraNight);
+  }
   const epistemicHaze = deriveEpistemicHaze(frame.world.freshness);
   scene.water.setPegSummaryEpistemicHaze(epistemicHaze.riskWaters);
   setGardenQuayEpistemicHaze(epistemicHaze.quays);
@@ -4072,7 +4097,7 @@ function updateSceneForFrame(
   // Balanced+ beauty layers: the horizon re-anchors to the camera target the
   // same way the sky dome does; the islets are static (no reduced-motion
   // work) and only gate visibility on the tier.
-  scene.horizon.update(phase, {
+  scene.horizon.update(frame.wallClockHour, {
     targetX: cameraViewTarget.x,
     targetZ: cameraViewTarget.z,
     cameraPosition: camera.position,
@@ -4128,11 +4153,12 @@ function updateSceneForFrame(
   content.harborLanternMaterial.emissiveIntensity *= lanternBreathScale;
   content.shipLanternMaterial.emissiveIntensity *= lanternBreathScale;
   content.shipLanternGlowMaterial.opacity *= lanternBreathScale;
-  content.shipLanternMaterial.emissive.set(
-    scene.season === "winter"
-      ? HARBOR_PALETTE.lantern_warm
-      : HARBOR_PALETTE.lantern_glow,
-  );
+  if (scene.season === "winter") {
+    content.shipLanternMaterial.emissive.set(HARBOR_PALETTE.lantern_warm);
+    content.shipLanternMaterial.emissiveIntensity *= WINTER_LANTERN_INTENSITY_SCALE;
+  } else {
+    content.shipLanternMaterial.emissive.set(HARBOR_PALETTE.lantern_glow);
+  }
 
   const constrained = frame.renderScheduler.tier === "constrained";
   // R13: ambient life survives `recovery`.
@@ -4708,19 +4734,20 @@ function updateSceneForFrame(
     visual.fineDetail.visible = showShipDetail;
     visual.wakeDetail.visible = showShipDetail;
 
-    // R8 grounding: the shadow is THIS ship's shadow.
-    //
-    // It used to be an axis-aligned ellipse, so a hull pointing north-south
-    // cast an east-west shadow and every ship read as a sticker laid on the
-    // surface. It now rotates with the heading and takes the ship's own
-    // length and beam from `hullForm` (N5), so a long lean clipper throws a
-    // long lean shadow and a beamy bullion barge throws a wide one.
-    const shadowRadius = Math.max(1.15, visual.selectionRadius * 1.25);
-    const hullForm = visual.ship.visual.hullForm;
+    // R8 grounding: the shadow is THIS ship's shadow — the hull's rendered
+    // x/z footprint (family reach table × rendered scale × hull-form span),
+    // rotated with the heading, padded a little so the soft edge clears the
+    // waterline rather than the topsides. G2/W3.3: it was a selection-radius
+    // guess before, so every family threw the same elongated blob.
+    const hullReach = gardenShipHullReachWorld(
+      gardenShipVisualScale(visual.ship.visual.scale || 1),
+      visual.silhouette,
+      visual.ship.visual.hullForm,
+    );
     scratchShadowScale.set(
-      shadowRadius * 1.65 * (hullForm?.length ?? 1) * displayPresence,
+      Math.max(0.9, hullReach.x * 1.12) * displayPresence,
       displayPresence,
-      shadowRadius * 0.72 * (hullForm?.beam ?? 1) * displayPresence,
+      Math.max(0.6, hullReach.z * 1.35) * displayPresence,
     );
     scratchShadowQuaternion.setFromAxisAngle(
       SHADOW_UP,

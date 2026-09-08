@@ -31,8 +31,8 @@ import { type DayCyclePhase } from "./garden-day-cycle";
  * midday rather than to replace it. Noon must not move.
  */
 const NOON_BEARING = Math.atan2(-30, -35);
-/** `atan(48 / hypot(35, 30))` — the same 46.1° the fixed rig used. */
-const NOON_ELEVATION = Math.atan2(48, Math.hypot(35, 30));
+/** Lower apex keeps noon shadows legible without changing their bearing. */
+const NOON_ELEVATION = 0.62;
 
 /**
  * Half the azimuth swept between sunrise and sunset, in radians (~57°).
@@ -73,7 +73,7 @@ const MIN_KEY_ELEVATION = 0.06;
  * here, so they cannot drift apart the way the three sun opinions did.
  */
 export const GARDEN_MOON_AZIMUTH = Math.PI * 0.62;
-const MOON_ELEVATION = Math.PI * 0.29;
+export const GARDEN_MOON_ELEVATION = Math.PI * 0.29;
 
 export interface GardenLightPose {
   /** Unit vector from the world TOWARD the light. */
@@ -125,13 +125,16 @@ function angleDelta(from: number, to: number): number {
 
 /** The moon's fixed pose, the night half of the key light. */
 export function gardenMoonPose(target = emptyPose()): GardenLightPose {
-  return poseFrom(GARDEN_MOON_AZIMUTH, MOON_ELEVATION, target);
+  return poseFrom(GARDEN_MOON_AZIMUTH, GARDEN_MOON_ELEVATION, target);
 }
 
 /**
- * What actually lights the scene: the sun by day, the moon after dark, crossed
- * over on the day cycle's own night weight so there is never a moment with two
- * key lights or none.
+ * What actually lights the scene: the sun by day, the moon after dark.
+ *
+ * The evening handoff begins with blue hour rather than waiting for the final
+ * one-hour night beat. The sun and moon are nearly opposite by then, so fitting
+ * that angular distance into a single hour makes even angle interpolation race
+ * visibly. Dawn still follows the cycle's authored night weight.
  */
 export function gardenKeyLightPose(
   hour: number,
@@ -139,7 +142,9 @@ export function gardenKeyLightPose(
   target = emptyPose(),
 ): GardenLightPose {
   const sun = sunAngles(hour);
-  const night = MathUtils.clamp(phase.night, 0, 1);
+  const wrappedHour = ((hour % 24) + 24) % 24;
+  const eveningCrossover = MathUtils.smoothstep(wrappedHour, 18.25, 20);
+  const night = Math.max(MathUtils.clamp(phase.night, 0, 1), eveningCrossover);
   // Blend the ANGLES, not the vectors.
   //
   // Lerping two unit directions and re-normalising looks equivalent and is not:
@@ -150,7 +155,7 @@ export function gardenKeyLightPose(
   // single frame during the dusk crossover. Interpolating azimuth (by the
   // shortest way round) and elevation independently has no such singularity.
   const azimuth = sun.azimuth + angleDelta(sun.azimuth, GARDEN_MOON_AZIMUTH) * night;
-  const elevation = sun.elevation + (MOON_ELEVATION - sun.elevation) * night;
+  const elevation = sun.elevation + (GARDEN_MOON_ELEVATION - sun.elevation) * night;
   // Floor it so shadows stay describable at the ends of the day; see
   // MIN_KEY_ELEVATION.
   return poseFrom(azimuth, Math.max(elevation, MIN_KEY_ELEVATION), target);

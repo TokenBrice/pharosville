@@ -23,7 +23,6 @@ import {
 } from "../systems/garden-sea-edge-sites";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
-import { applyGardenHeightFog } from "./garden-height-fog";
 import { TILE_SCALE } from "./garden-util";
 import type { WeatherPlan } from "../systems/weather";
 import {
@@ -397,7 +396,6 @@ export function createGardenSeaEdges(): GardenSeaEdges {
   fixtureInstances.name = "garden-sea-edges-piles-buoys";
   root.add(fixtureInstances);
 
-  applyGardenHeightFog(root);
   const drawCallCount = buckets.meshes.size + 2;
   const triangleCount = buckets.triangles
     + trianglesIn(reedGeometry) * reedSites.length

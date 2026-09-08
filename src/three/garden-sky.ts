@@ -29,6 +29,8 @@ import type { GardenSeason } from "../systems/season";
 import { createGardenSkyBillboards } from "./garden-sky-billboards";
 import {
   blendDayCycleColor,
+  dayCycleBeats,
+  type DayCycleBeats,
   DAY_CYCLE_LIGHT_PRESETS,
   DAY_CYCLE_SKY_PRESETS,
   DUSK_EMBER_COLOR,
@@ -36,8 +38,32 @@ import {
   STAR_COLOR,
   type DayCyclePhase,
 } from "./garden-day-cycle";
-import { GARDEN_MOON_AZIMUTH, gardenSunPose } from "./garden-sun";
+import { GARDEN_MOON_AZIMUTH, GARDEN_MOON_ELEVATION, gardenSunPose } from "./garden-sun";
 
+// Five illumination beats: neutral noon air, not a warm full-frame grade.
+export const GARDEN_SKY_BEATS = {
+  dawn: { zenith: new Color(0x777d99), horizon: new Color(0xc9b6bd) },
+  day: { zenith: new Color(0x4c87c4), horizon: new Color(0xe0e4e9) },
+  golden: { zenith: new Color(0x74638e), horizon: new Color(0xdca76c) },
+  blue: { zenith: new Color(0x202c59), horizon: new Color(0x595773) },
+  night: { zenith: new Color(0x050918), horizon: new Color(0x11182c) },
+};
+const SKY_BEAT_NAMES = ["dawn", "day", "golden", "blue", "night"] as const;
+
+export function blendGardenSkyColor(
+  target: Color,
+  beats: DayCycleBeats,
+  channel: "zenith" | "horizon",
+): Color {
+  target.setRGB(0, 0, 0);
+  for (const beat of SKY_BEAT_NAMES) {
+    const color = GARDEN_SKY_BEATS[beat][channel];
+    target.r += color.r * beats[beat];
+    target.g += color.g * beats[beat];
+    target.b += color.b * beats[beat];
+  }
+  return target;
+}
 const DOME_RADIUS = CAMERA_FAR * 0.9;
 const STAR_COUNT = 720;
 // The fog ladder is authored from world landmarks, then measured from the
@@ -49,6 +75,9 @@ const FOG_ISLAND_Z = (70 + GARDEN_ISLAND_TILE_OFFSET.y - 12) * TILE_SCALE;
 const FOG_FAR_EDGE = 70 * TILE_SCALE;
 const FOG_NEAR = 200;
 const FOG_FAR = 400;
+// The far plate edge lands at ~35 % fog (the sky test's ≥30 % floor) rather
+// than 100 %, so far quays and headlands keep a silhouette.
+const FOG_FAR_BEYOND_EDGE = 1.35;
 
 function fogRangeAtViewHeight(
   fog: Fog,
@@ -65,7 +94,11 @@ function fogRangeAtViewHeight(
     Math.hypot(eye.x - FOG_FAR_EDGE, eye.y - GARDEN_WATER_Y, eye.z),
   );
   fog.near = (islandDistance + FOG_ISLAND_MARGIN) * (1 - storm * 0.32);
-  fog.far = farEdgeDistance * (1 - storm * 0.25);
+  // G2/W2.4: the far plate edge sits part-way up the ladder rather than at
+  // its top, so the farthest quays and the borrowed headlands beyond them
+  // still hold a silhouette against the sky instead of dissolving into one
+  // wall the colour of the horizon. Aerial perspective, not a curtain.
+  fog.far = farEdgeDistance * FOG_FAR_BEYOND_EDGE * (1 - storm * 0.25);
 }
 
 // --- Wave 1: bokashi bands on the visible sky seam --------------------------
@@ -169,7 +202,6 @@ export const GARDEN_CUMULUS_BILLBOARDS_ENABLED = false;
 // water glitter band to this azimuth. Re-exported from garden-sun, which owns
 // light geometry, so the dome and the water cannot disagree about the bearing.
 export { GARDEN_MOON_AZIMUTH };
-const MOON_ELEVATION = Math.PI * 0.34;
 
 // Phase 2 (item 2c) kept the dome's glow, the water's glitter and the cast
 // shadows agreeing on the sun's bearing by writing that bearing down in three
@@ -451,9 +483,9 @@ function createMoon(): { group: Group; halo: MeshBasicMaterial } {
   halo.renderOrder = -1;
   group.add(halo, disc);
   group.position.set(
-    Math.cos(MOON_ELEVATION) * Math.cos(GARDEN_MOON_AZIMUTH) * DOME_RADIUS * 0.82,
-    Math.sin(MOON_ELEVATION) * DOME_RADIUS * 0.82,
-    Math.cos(MOON_ELEVATION) * Math.sin(GARDEN_MOON_AZIMUTH) * DOME_RADIUS * 0.82,
+    Math.cos(GARDEN_MOON_ELEVATION) * Math.cos(GARDEN_MOON_AZIMUTH) * DOME_RADIUS * 0.82,
+    Math.sin(GARDEN_MOON_ELEVATION) * DOME_RADIUS * 0.82,
+    Math.cos(GARDEN_MOON_ELEVATION) * Math.sin(GARDEN_MOON_AZIMUTH) * DOME_RADIUS * 0.82,
   );
   group.renderOrder = -1;
   return { group, halo: haloMaterial };
@@ -521,27 +553,13 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   const applyPhase = (phase: DayCyclePhase, wallClockHour: number, stormLevel = 0): void => {
     const { daylight, dusk } = phase;
     const storm = Math.min(1, Math.max(0, stormLevel));
-    const skyPresets = DAY_CYCLE_SKY_PRESETS;
+    const beats = dayCycleBeats(wallClockHour);
     const zenith = dome.material.uniforms.uZenith.value as Color;
     const horizon = dome.material.uniforms.uHorizon.value as Color;
     const middle = dome.material.uniforms.uMiddle.value as Color;
-    blendDayCycleColor(
-      zenith,
-      skyPresets.night.zenith,
-      skyPresets.dusk.zenith,
-      skyPresets.day.zenith,
-      dusk,
-      daylight,
-    );
-    blendDayCycleColor(fog.color, skyPresets.night.fog, skyPresets.dusk.fog, skyPresets.day.fog, dusk, daylight);
-    blendDayCycleColor(
-      middle,
-      skyPresets.night.horizon,
-      skyPresets.dusk.horizon,
-      skyPresets.day.horizon,
-      dusk,
-      daylight,
-    );
+    blendGardenSkyColor(zenith, beats, "zenith");
+    blendGardenSkyColor(fog.color, beats, "horizon");
+    middle.copy(fog.color).lerp(zenith, 0.35);
     if (season === "winter") {
       // Kigo stays a small atmospheric bias: cooler air and a light value-
       // preserving desaturation, never a fourth grade or a semantic color.
@@ -555,7 +573,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     geeseColor.copy(fog.color).multiplyScalar(0.52);
     // Ember west band owns the dusk horizon; it stays out of day and night,
     // and a storm smothers it.
-    dome.material.uniforms.uEmberStrength.value = dusk * (1 - daylight) * 0.55
+    dome.material.uniforms.uEmberStrength.value = (beats.golden * 0.3 + beats.blue * 0.22)
       * (1 - storm * 0.7);
 
     // Phase 2 (2c): the scattering field's drivers — the sun's direction from
@@ -571,14 +589,13 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     // exactly what the old formula threw away.
     gardenSunPose(wallClockHour, scratchSunPose);
     sunDir.copy(scratchSunPose.direction);
-    blendDayCycleColor(
-      sunColor,
-      DAY_CYCLE_LIGHT_PRESETS.night.dirColor,
-      DAY_CYCLE_LIGHT_PRESETS.dusk.dirColor,
-      DAY_CYCLE_LIGHT_PRESETS.day.dirColor,
-      dusk,
-      daylight,
-    );
+    sunColor.setRGB(0, 0, 0);
+    for (const beat of SKY_BEAT_NAMES) {
+      const color = DAY_CYCLE_LIGHT_PRESETS[beat].dirColor;
+      sunColor.r += color.r * beats[beat];
+      sunColor.g += color.g * beats[beat];
+      sunColor.b += color.b * beats[beat];
+    }
     dome.material.uniforms.uScattering.value = Math.min(1, daylight + dusk * 0.7)
       * (1 - storm * 0.6);
     dome.material.uniforms.uSunIntensity.value = (daylight * 1.55 + dusk * 1.3)
@@ -660,17 +677,8 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       billboards.clouds.material.uniforms.uTime.value = billboardTime;
       billboards.clouds.material.uniforms.uWindSpeed.value = windSpeed;
 
-      // Mist banks: a dawn/dusk/night element, plus — since 2026-09-07 (T2.4) —
-      // a whisper at midday. The clear-sky term was `dusk * 0.55 + night * 0.48`,
-      // and because `dayCyclePhase` holds daylight = 1, dusk = 0 across roughly
-      // h 8 -> 16.5, that expression was EXACTLY zero for 8.5 hours: the nine
-      // depth-layered banks contributed literally nothing at the modal hour, and
-      // only a storm could bring them back. `+ daylight * 0.12` gives the noon
-      // frame the far shelves at 0.12 density -> ~0.066 uniform opacity, which
-      // the billboard shader then multiplies by its soft radial shape and the
-      // distance fade, so the banks land near 0.03 on screen, on the far anchors
-      // only. That is a haze on the pulled-in fog ladder's shelves, not a layer
-      // over the garden.
+      // Only authored far anchors carry mist. The billboard fragment shader
+      // excludes the first 60 u from the eye, fading in through 100 u.
       const mistDensity = Math.min(
         0.85,
         (dusk * 0.55 + night * 0.48 + daylight * 0.12) * (1 + storm * 0.8)
@@ -681,15 +689,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       const breathTime = frame.reducedMotion ? 0 : frame.timeSeconds;
       const mistBreath = gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.mist);
       const mistOpacity = mistDensity * 0.55 * (0.95 + mistBreath * 0.1);
-      blendDayCycleColor(
-        mistColor,
-        DAY_CYCLE_SKY_PRESETS.night.fog,
-        DAY_CYCLE_SKY_PRESETS.dusk.fog,
-        DAY_CYCLE_SKY_PRESETS.day.fog,
-        dusk,
-        daylight,
-      );
-      applyStorm(mistColor, storm);
+      mistColor.copy(fog.color);
       billboards.mist.material.uniforms.uOpacity.value = mistOpacity;
       billboards.mist.mesh.visible = showBillboards && mistOpacity > 0.008;
 

@@ -34,7 +34,6 @@ import { quayMasonryHealth } from "../systems/dock-health";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { DockNode } from "../systems/world-types";
 import { assignGardenChainFlagCell } from "./garden-chain-flag";
-import { applyGardenHeightFog } from "./garden-height-fog";
 import { setTilePosition, stableUnit } from "./garden-util";
 export type { StationType } from "../systems/dock-layout";
 
@@ -257,7 +256,6 @@ export function createHarborLanterns(
   bodies.instanceMatrix.needsUpdate = true;
   lights.instanceMatrix.needsUpdate = true;
   root.add(bodies, lights);
-  applyGardenHeightFog(root);
   return { lightMaterial, root };
 }
 

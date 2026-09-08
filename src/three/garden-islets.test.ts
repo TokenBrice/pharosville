@@ -29,10 +29,10 @@ describe("garden islets (Z5)", () => {
     expect(crag!.count).toBe(4);
     expect(reef!.count).toBe(7);
     expect(islets.stoneCount).toBe(11);
-    // 80-tri displaced icosahedra × 11 instances — same per-stone budget as
-    // the island shoreline boulders — plus 246 tris × 4 islet pines.
-    expect(islets.triangleCount).toBeGreaterThan(880);
-    expect(islets.triangleCount).toBeLessThan(2_600);
+    // G2 shared plate pines: 214 triangles each; whole islets 2,004,
+    // down 128 from the test-measured G1 count of 2,132.
+    expect(islets.triangleCount).toBeGreaterThan(2_000);
+    expect(islets.triangleCount).toBeLessThanOrEqual(2_100);
     const pines = islets.root.getObjectByName("garden-islets-pines") as InstancedMesh;
     expect(pines).toBeInstanceOf(InstancedMesh);
     // Solid, textureless, vertex-coloured geometry: N8AO is transparency

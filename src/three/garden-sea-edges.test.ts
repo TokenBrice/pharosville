@@ -19,14 +19,13 @@ describe("garden sea edges", () => {
     edges.dispose();
   });
 
-  it("keeps vertex colour, shared height fog and static-shadow readiness on every draw", () => {
+  it("keeps vertex colour and static-shadow readiness on every draw", () => {
     const edges = createGardenSeaEdges();
     edges.root.traverse((object) => {
       if (!(object instanceof Mesh)) return;
       expect(object.geometry.getAttribute("color"), object.name).toBeDefined();
       expect(object.material).toBeInstanceOf(MeshStandardMaterial);
       expect((object.material as MeshStandardMaterial).vertexColors, object.name).toBe(true);
-      expect((object.material as MeshStandardMaterial).userData.gardenHeightFog, object.name).toBe(true);
       expect(object.castShadow, object.name).toBe(true);
       expect(object.receiveShadow, object.name).toBe(true);
     });

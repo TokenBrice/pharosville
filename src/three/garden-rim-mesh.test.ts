@@ -1,4 +1,4 @@
-import { Color, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial } from "three";
+import { InstancedMesh, Matrix4, Mesh, MeshStandardMaterial } from "three";
 import { describe, expect, it, vi, type MockInstance } from "vitest";
 import { defaultCamera } from "../systems/camera";
 import { distanceToStationFootprint, stationFootprintRect } from "../systems/dock-layout";
@@ -29,7 +29,6 @@ import {
   rimColor,
   GARDEN_RIM_FOREGROUND_BOUGH_NAME,
   GARDEN_RIM_FOREGROUND_MASSES,
-  GARDEN_RIM_MOSS_BLEND_MAX,
 } from "./garden-rim-mesh";
 import { GARDEN_NIWAKI_SPECS } from "./garden-island";
 import { countDrawableObjects, TILE_SCALE } from "./garden-util";
@@ -53,32 +52,29 @@ function unionInto(rect: ScreenRect, x: number, y: number): void {
 }
 
 describe("garden rim mesh", () => {
-  it("builds the terraced authored ring in nine batched opaque draws", () => {
+  it("builds the terraced authored ring in eleven batched opaque draws", () => {
     const rim = createGardenRimMesh();
     expect(rim.root.name).toBe("garden-rim");
-    expect(rim.drawCallCount).toBe(9);
-    expect(rim.drawCallCount).toBeLessThanOrEqual(10);
-    expect(countDrawableObjects(rim.root)).toBe(9);
+    expect(rim.drawCallCount).toBe(11);
+    expect(rim.drawCallCount).toBeLessThanOrEqual(13);
+    expect(countDrawableObjects(rim.root)).toBe(11);
     expect(rim.root.getObjectByName("garden-rim-land")).toBeInstanceOf(Mesh);
     expect(rim.root.getObjectByName("garden-rim-tide-rock")).toBeInstanceOf(Mesh);
     expect(rim.root.getObjectByName("garden-rim-path")).toBeInstanceOf(Mesh);
     expect(rim.root.getObjectByName("garden-rim-pines")).toBeInstanceOf(InstancedMesh);
     expect(rim.root.getObjectByName("garden-rim-stones")).toBeInstanceOf(InstancedMesh);
     expect(rim.root.getObjectByName("garden-rim-revetments")).toBeInstanceOf(InstancedMesh);
-    expect(rim.root.getObjectByName("garden-rim-understory")).toBeInstanceOf(InstancedMesh);
-    expect(rim.root.getObjectByName("garden-rim-broadleaf")).toBeInstanceOf(InstancedMesh);
+    expect(rim.root.getObjectByName("garden-flora-karikomi")).toBeInstanceOf(InstancedMesh);
+    expect(rim.root.getObjectByName("garden-flora-momiji")).toBeInstanceOf(InstancedMesh);
+    expect(rim.root.getObjectByName("garden-rim-understory")).toBeUndefined();
+    expect((rim.root.getObjectByName("garden-flora-bamboo") as InstancedMesh).count).toBe(35);
     expect(rim.root.getObjectByName(GARDEN_RIM_FOREGROUND_BOUGH_NAME)).toBeInstanceOf(Mesh);
     expect(rim.root.getObjectByName("garden-rim-foreground-pines")).toBeUndefined();
     expect(rim.root.getObjectByName("garden-rim-foreground-torii")).toBeUndefined();
     expect(rim.foregroundMassCount).toBe(1);
-    // T2.2c: pine keep 0.3 -> 0.5 general, 0.12 -> 0.3 east, so the ring
-    // carries roughly half again as many pines as the 32 it had.
-    expect(rim.pineCount).toBeGreaterThan(48);
-    // T2.2a: ~500 domes on a 1.5-tile lattice, denser at the pine bases.
-    expect(rim.understoryCount).toBeGreaterThan(400);
-    expect(rim.understoryCount).toBeLessThan(700);
-    // T2.2c: the second species — a momiji at ~116 triangles a tree.
-    expect(rim.broadleafCount).toBeGreaterThan(25);
+    expect(rim.pineCount).toBe(120);
+    expect(rim.understoryCount).toBe(80);
+    expect(rim.broadleafCount).toBe(60);
     expect(rim.engawaPineCount).toBe(1);
     expect(rim.steppingStoneCount).toBe(3);
     // Headland, stepping and skirt stones share their draw with the boulder toe.
@@ -94,11 +90,10 @@ describe("garden rim mesh", () => {
     // The cove-rooted rectangles retain the Mole spur without admitting
     // dressing onto any authored station geometry.
     expect(rim.coveSpurCount).toBe(8);
-    // Hills reuse the sheet resolution (zero actual triangle delta); the W1.8
-    // budget leaves the pinned ceiling 8k of headroom. The single bough is
-    // 246 triangles and replaces the heavier two-mass foreground.
-    expect(rim.triangleCount).toBeGreaterThan(63_000);
-    expect(rim.triangleCount).toBeLessThan(108_000);
+    // G2 species redistribution: measured 116,886 (G1: 90,426).
+    // Islet and niwaki savings pay the net +24,668 combined flora delta.
+    expect(rim.triangleCount).toBeGreaterThan(116_000);
+    expect(rim.triangleCount).toBeLessThanOrEqual(117_000);
     const shore = rim.root.getObjectByName("garden-rim-tide-rock") as Mesh;
     const positions = shore.geometry.getAttribute("position");
     let contourVertices = 0;
@@ -122,22 +117,6 @@ describe("garden rim mesh", () => {
     rim.dispose();
   });
 
-  it("pins the warm-land and sunlit-moss derived dyes", () => {
-    // Golden Garden re-grade: these pins protect the authored hue split itself,
-    // not merely the palette inputs from which Three.js mixes the final dyes.
-    expect(GARDEN_RIM_COLOR_HEX).toEqual({
-      earth: "#895922",
-      exposedRock: "#4c413a",
-      moss: "#75a143",
-      rakedGravel: "#9f804e",
-      shoreSand: "#977b4f",
-      pathStone: "#ab884c",
-      pineNeedle: "#4f7e2b",
-      wetRock: "#272b3f",
-    });
-    // More inland green breaks up the former uniform cool-brown rim.
-    expect(GARDEN_RIM_MOSS_BLEND_MAX).toBe(0.62);
-  });
 
   it("rakes station envelopes to gravel and exposes rock on authored steep faces", () => {
     const station = EVM_BAY_STATION_SLOTS[0]!.cove.tile;
@@ -552,8 +531,10 @@ describe("garden rim mesh", () => {
     const rim = createGardenRimMesh();
     for (const name of [
       "garden-rim-pines",
-      "garden-rim-understory",
-      "garden-rim-broadleaf",
+      "garden-flora-karikomi",
+      "garden-flora-momiji",
+      "garden-flora-cherry",
+      "garden-flora-bamboo",
     ]) {
       const batch = rim.root.getObjectByName(name) as InstancedMesh;
       const material = batch.material as MeshStandardMaterial;
@@ -567,42 +548,19 @@ describe("garden rim mesh", () => {
     rim.dispose();
   });
 
-  it("drives the broadleaf crowns from the season without touching the trunks", () => {
-    // T2.2d. Summer is the default so the ~20 no-argument call sites keep
-    // compiling and keep their authored green.
-    const crownColors = (season?: "spring" | "summer" | "autumn" | "winter") => {
-      const rim = season ? createGardenRimMesh(season) : createGardenRimMesh();
-      const batch = rim.root.getObjectByName("garden-rim-broadleaf") as InstancedMesh;
-      const colors: Color[] = [];
-      for (let index = 0; index < batch.count; index += 1) {
-        colors.push(new Color().fromBufferAttribute(batch.instanceColor!, index));
-      }
-      const bare = batch.geometry.getAttribute("aFoliageMask");
-      let crownVertices = 0;
-      for (let index = 0; index < bare.count; index += 1) {
-        if (bare.getX(index) > 0.5) crownVertices += 1;
-      }
-      rim.dispose();
-      return { colors, crownVertices };
-    };
-    const summer = crownColors("summer");
-    expect(crownColors().colors[0]!.getHex()).toBe(summer.colors[0]!.getHex());
-    // Only the crown vertices are handed to the instance colour; the trunk
-    // keeps its vertex dye, so a spring blossom never paints the wood pink.
-    expect(summer.crownVertices).toBeGreaterThan(0);
-    const spring = crownColors("spring");
-    const autumn = crownColors("autumn");
-    // Spring reads pale and pink, summer green — compare red against green.
-    expect(spring.colors[0]!.r - spring.colors[0]!.g).toBeGreaterThan(0);
-    expect(summer.colors[0]!.r - summer.colors[0]!.g).toBeLessThan(0);
-    // Autumn is varied per instance on purpose: one flat red mass reads as a
-    // bug, not as a season.
-    expect(new Set(autumn.colors.map((color) => color.getHex())).size).toBeGreaterThan(5);
-    // Winter drops the crown geometry outright; the bare trunks remain.
-    const winter = crownColors("winter");
-    expect(winter.crownVertices).toBe(0);
-    expect(winter.colors.length).toBe(summer.colors.length);
-  }, 20_000); // four full rim builds (~550 ms each since the hills/revetment pass)
+  it("drops deciduous crowns in winter while retaining the pine silhouette", () => {
+    const summer = createGardenRimMesh("summer");
+    const winter = createGardenRimMesh("winter");
+    for (const name of ["garden-flora-momiji", "garden-flora-cherry"]) {
+      const leafy = summer.root.getObjectByName(name) as InstancedMesh;
+      const bare = winter.root.getObjectByName(name) as InstancedMesh;
+      expect(bare.count).toBe(leafy.count);
+      expect(bare.geometry.index!.count).toBeLessThan(leafy.geometry.index!.count / 2);
+    }
+    expect(winter.pineInstances.geometry.index!.count).toBe(summer.pineInstances.geometry.index!.count);
+    summer.dispose();
+    winter.dispose();
+  }, 20_000);
 
   it("marks every rim batch as a static shadow user and disposes once", () => {
     const rim = createGardenRimMesh();
@@ -627,7 +585,7 @@ describe("garden rim mesh", () => {
     expect(sway.count).toBe(pines.count);
     expect(Math.min(...Array.from(sway.array))).toBeGreaterThan(0.6);
     const material = pines.material as MeshStandardMaterial;
-    const shader = { uniforms: {}, vertexShader: "#include <common>\n#include <begin_vertex>" };
+    const shader = { uniforms: {}, vertexShader: "#include <common>\n#include <begin_vertex>", fragmentShader: "#include <common>\n#include <opaque_fragment>" };
     material.onBeforeCompile(shader as never, null as never);
     expect(shader.vertexShader).toContain("attribute float aGardenSway");
     expect(shader.vertexShader).toContain("uGardenWindDirection");

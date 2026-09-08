@@ -162,6 +162,7 @@ const VERTEX_SHADER = /* glsl */ `
   varying vec2 vUv;
   varying float vSeed;
   varying float vFade;
+  varying vec3 vWorldPosition;
   void main() {
     vUv = uv;
     vSeed = aSeed;
@@ -177,6 +178,7 @@ const VERTEX_SHADER = /* glsl */ `
     vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), facing));
     vec3 up = cross(facing, right);
     vec3 offset = right * (position.x * aScale.x) + up * (position.y * aScale.y);
+    vWorldPosition = worldCenter + offset;
     gl_Position = projectionMatrix * viewMatrix * vec4(worldCenter + offset, 1.0);
   }
 `;
@@ -202,6 +204,7 @@ const MIST_FRAGMENT_SHADER = /* glsl */ `
   varying vec2 vUv;
   varying float vSeed;
   varying float vFade;
+  varying vec3 vWorldPosition;
   ${NOISE_GLSL}
   void main() {
     vec2 p = vUv - 0.5;
@@ -209,7 +212,7 @@ const MIST_FRAGMENT_SHADER = /* glsl */ `
     float breakup = bbNoise(vUv * vec2(5.0, 3.0) + vSeed * 17.0) * 0.65
       + bbNoise(vUv * vec2(11.0, 7.0) + vSeed * 29.0) * 0.35;
     float alpha = radial * smoothstep(0.25, 0.75, breakup + radial * 0.4)
-      * uOpacity * vFade;
+      * uOpacity * vFade * smoothstep(60.0, 100.0, distance(cameraPosition, vWorldPosition));
     if (alpha < 0.004) discard;
     gl_FragColor = vec4(uColor, alpha);
   }

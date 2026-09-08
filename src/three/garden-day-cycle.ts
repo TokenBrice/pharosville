@@ -21,6 +21,14 @@ import { HARBOR_PALETTE } from "../systems/palette";
 const P = HARBOR_PALETTE;
 const paletteColor = (hex: string): Color => new Color(hex);
 
+// Emissive intensity is a multiplier, not linear luminance. Calibrate the
+// authored practical colours once so their night cores straddle the bloom knee.
+function colorLuminance(color: Color): number {
+  return color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+}
+const WARM_LANTERN_NIGHT_INTENSITY = 2.7 / colorLuminance(paletteColor(P.lantern_warm));
+const GLOW_LANTERN_NIGHT_INTENSITY = 2.7 / colorLuminance(paletteColor(P.lantern_glow));
+const BEACON_NIGHT_GAIN = 3.2 / (7.2 * colorLuminance(paletteColor(P.lantern_glow)));
 // --- C1: day-cycle contract (frozen in P0) ----------------------------------
 // Every time-of-day color in the scene derives from HARBOR_PALETTE via the
 // preset objects below; no module declares its own hex literals. Blend
@@ -28,6 +36,9 @@ const paletteColor = (hex: string): Color => new Color(hex);
 // weights (Lane W's water shader included) must import it from here rather
 // than keeping a local copy of the curve.
 export type DayCyclePhaseName = "day" | "dusk" | "night";
+export type DayCycleBeatName = "dawn" | "day" | "golden" | "blue" | "night";
+export type DayCycleBeats = Record<DayCycleBeatName, number>;
+const LIGHT_BEAT_NAMES: readonly DayCycleBeatName[] = ["dawn", "day", "golden", "blue", "night"];
 
 export interface DayCycleSkyPreset {
   fog: Color;
@@ -99,52 +110,52 @@ export const DUSK_EMBER_COLOR = paletteColor(P.lantern_warm).lerp(paletteColor(P
 export const MOON_COLOR = paletteColor(P.moonlight);
 export const STAR_COLOR = paletteColor(P.moonlight).lerp(paletteColor(P.foam_white), 0.4);
 
-// Golden Garden light rig (2026-09-07). The single largest change in the
-// re-grade: by day the hemisphere GROUND term was `shallow_teal_lit`, so every
-// upward-facing surface was lit from below by cyan — the reason ochre read as
-// mud and moss as olive. Ground bounce is now warm earth-and-moss, the sky
-// fill is the lighter cerulean lifted toward foam so it reveals form rather
-// than dyeing it, and the honey key owns the picture (key ≥ 3× fill, pinned).
-// Dusk keeps the raking ~4:1 ember key but its fill is violet, not navy-brown.
-// Night keeps the warm emissive hierarchy: the beacon remains the only HDR
-// key and the moon road the secondary; the fill here is violet-indigo and
-// reveals silhouettes without repainting them at the probe's cool average.
-export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCyclePhaseName, DayCycleLightPreset> = {
-  day: {
-    ambient: paletteColor(P.sky_day_horizon),
-    // T1.8 midday fill cut (2026-09-07): ambient 0.22 -> 0.20 and hemi
-    // 0.5 -> 0.42, taking the day key:fill ratio 4.58:1 -> 5.32:1. Midday was
-    // the flattest hour in the piece because the fill sat within one stop of
-    // the key; the honey key now owns two more stops of the value ladder.
-    // HARD FLOOR: ambient + hemi must stay ABOVE
-    // `GARDEN_ENVIRONMENT_INTENSITY` (0.6) — the PMREM probe is a correction
-    // on top of the analytic fill, not a second fill light, and
-    // garden-environment.test.ts asserts that ordering for every preset.
-    // 0.20 + 0.42 = 0.62 leaves 0.02 of headroom. Do not cut further without
-    // moving that constant first; the pin lives in garden-day-cycle.test.ts.
-    ambientIntensity: 0.2,
+// Five authored rigs. Key:fill is measured against ambient + hemisphere;
+// the environment is a separate, phase-scaled reflection correction.
+export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCycleBeatName, DayCycleLightPreset> = {
+  dawn: {
+    ambient: paletteColor(P.foam_white),
+    ambientIntensity: 0.14,
     dirColor: paletteColor(P.sun_day_warm),
-    dirIntensity: 3.3,
-    hemiGround: paletteColor(P.timber_warm).lerp(paletteColor(P.aurora_green), 0.45),
-    hemiIntensity: 0.42,
-    hemiSky: paletteColor(P.sky_day_zenith),
+    dirIntensity: 1.2,
+    hemiGround: paletteColor(P.timber_mid),
+    hemiIntensity: 0.26,
+    hemiSky: paletteColor(P.fog_blue),
   },
-  dusk: {
-    ambient: paletteColor(P.sky_horizon).lerp(paletteColor(P.lantern_warm), 0.3),
-    ambientIntensity: 0.24,
+  day: {
+    ambient: paletteColor(P.foam_white),
+    ambientIntensity: 0.2,
+    dirColor: new Color(1, 1, 1),
+    dirIntensity: 3.3,
+    hemiGround: paletteColor(P.timber_mid).lerp(paletteColor(P.foam_white), 0.65),
+    hemiIntensity: 0.42,
+    hemiSky: paletteColor(P.foam_white),
+  },
+  golden: {
+    ambient: paletteColor(P.sky_horizon),
+    ambientIntensity: 0.16,
     dirColor: paletteColor(P.lantern_warm).lerp(paletteColor(P.vermillion), 0.06),
-    dirIntensity: 2.8,
-    hemiGround: paletteColor(P.ember).lerp(paletteColor(P.timber_mid), 0.4),
-    hemiIntensity: 0.4,
-    hemiSky: paletteColor(P.sky_horizon).lerp(paletteColor(P.sky_day_zenith), 0.2),
+    dirIntensity: 3.84,
+    hemiGround: paletteColor(P.timber_mid),
+    hemiIntensity: 0.32,
+    hemiSky: paletteColor(P.sky_horizon).lerp(paletteColor(P.fog_blue), 0.3),
+  },
+  blue: {
+    ambient: paletteColor(P.fog_blue),
+    ambientIntensity: 0.12,
+    dirColor: paletteColor(P.moonlight),
+    dirIntensity: 0.96,
+    hemiGround: paletteColor(P.timber_dark),
+    hemiIntensity: 0.2,
+    hemiSky: paletteColor(P.sky_horizon),
   },
   night: {
     ambient: paletteColor(P.sky_night).lerp(paletteColor(P.fog_blue), 0.3),
-    ambientIntensity: 0.28,
-    dirColor: paletteColor(P.moonlight).lerp(paletteColor(P.lantern_cold), 0.15),
-    dirIntensity: 1.0,
+    ambientIntensity: 0.06,
+    dirColor: paletteColor(P.moonlight),
+    dirIntensity: 0.64,
     hemiGround: paletteColor(P.deep_sea_2).lerp(paletteColor(P.timber_dark), 0.46),
-    hemiIntensity: 0.36,
+    hemiIntensity: 0.1,
     hemiSky: paletteColor(P.sky_night).lerp(paletteColor(P.fog_blue), 0.25),
   },
 };
@@ -183,7 +194,7 @@ export const DAY_CYCLE_HEIGHT_FOG_PRESETS: Record<DayCyclePhaseName, DayCycleHei
     heightFalloff: 0.2,
     horizon: DAY_CYCLE_SKY_PRESETS.dusk.fog.clone(),
     phaseGain: 0.4,
-    sunTint: DAY_CYCLE_LIGHT_PRESETS.dusk.dirColor.clone(),
+    sunTint: DAY_CYCLE_LIGHT_PRESETS.golden.dirColor.clone(),
     zenith: DAY_CYCLE_SKY_PRESETS.dusk.zenith.clone(),
   },
   night: {
@@ -207,19 +218,42 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
   return t * t * (3 - 2 * t);
 }
 
-export function dayCyclePhase(hourInput: number): DayCyclePhase {
+/**
+ * Adjacent smooth crossfades, with a held golden peak until the blue-hour
+ * handoff at 18:15. Midnight is inside the night plateau, not a seam.
+ */
+export function dayCycleBeats(hourInput: number): DayCycleBeats {
   const hour = ((hourInput % 24) + 24) % 24;
-  // G4: daylight holds through the afternoon and sets 16:30–19:00, so the
-  // 17:00–20:00 window is a genuine ember-horizon dusk instead of collapsing
-  // straight to night (the old sine curve was already 0 by 18:30).
-  const daylight = smoothstep(5.5, 8, hour) * (1 - smoothstep(16.5, 19, hour));
-  const dawnGlow = smoothstep(4, 5.25, hour) * (1 - smoothstep(6.75, 8.25, hour));
-  const eveningGlow = smoothstep(15.75, 17.5, hour) * (1 - smoothstep(19, 21.25, hour));
-  const dusk = Math.max(dawnGlow, eveningGlow);
-  // Night yields to dusk instead of coexisting with it, so dusk-keyed systems
-  // (ember horizon, just-lit lanterns) own the evening frame.
-  const night = MathUtils.clamp(1 - daylight - dusk, 0, 1);
-  return { daylight, dusk, night };
+  const beats: DayCycleBeats = { dawn: 0, day: 0, golden: 0, blue: 0, night: 0 };
+  if (hour < 4.75 || hour >= 20) {
+    beats.night = 1;
+  } else if (hour < 6) {
+    beats.dawn = smoothstep(4.75, 6, hour);
+    beats.night = 1 - beats.dawn;
+  } else if (hour < 7.25) {
+    beats.day = smoothstep(6, 7.25, hour);
+    beats.dawn = 1 - beats.day;
+  } else if (hour < 16.25) {
+    beats.day = 1;
+  } else if (hour < 17.25) {
+    beats.golden = smoothstep(16.25, 17.25, hour);
+    beats.day = 1 - beats.golden;
+  } else if (hour < 18.25) {
+    beats.golden = 1;
+  } else if (hour < 19) {
+    beats.blue = smoothstep(18.25, 19, hour);
+    beats.golden = 1 - beats.blue;
+  } else {
+    beats.night = smoothstep(19, 20, hour);
+    beats.blue = 1 - beats.night;
+  }
+  return beats;
+}
+
+export function dayCyclePhase(hourInput: number): DayCyclePhase {
+  const beats = dayCycleBeats(hourInput);
+  const warm = 0.5 * (beats.dawn + beats.golden);
+  return { daylight: beats.day + warm, dusk: warm + beats.blue, night: beats.night };
 }
 
 /** Night base, lerp toward dusk then day — one blend law for the whole scene. */
@@ -275,6 +309,8 @@ interface DayCycleContent {
   harborBatch?: {
     bucketMeshes: { window: Mesh | null };
     fineDetailBucketMeshes: { window: Mesh | null };
+    propMeshes: { lampHead: Mesh | null };
+    fineDetailPropMeshes: { lampHead: Mesh | null };
   } | null;
   lighthouseLight: PointLight;
   /**
@@ -306,19 +342,34 @@ export function updateDayCycle(
   phase: DayCyclePhase,
 ): void {
   const { daylight, dusk, night } = phase;
-  const nightRig = DAY_CYCLE_LIGHT_PRESETS.night;
-  const duskRig = DAY_CYCLE_LIGHT_PRESETS.dusk;
-  const dayRig = DAY_CYCLE_LIGHT_PRESETS.day;
-
-  blendDayCycleColor(scene.hemisphereLight.color, nightRig.hemiSky, duskRig.hemiSky, dayRig.hemiSky, dusk, daylight);
-  blendDayCycleColor(scene.hemisphereLight.groundColor, nightRig.hemiGround, duskRig.hemiGround, dayRig.hemiGround, dusk, daylight);
-  scene.hemisphereLight.intensity = blendDayCycleScalar(nightRig.hemiIntensity, duskRig.hemiIntensity, dayRig.hemiIntensity, dusk, daylight);
-
-  blendDayCycleColor(scene.ambientLight.color, nightRig.ambient, duskRig.ambient, dayRig.ambient, dusk, daylight);
-  scene.ambientLight.intensity = blendDayCycleScalar(nightRig.ambientIntensity, duskRig.ambientIntensity, dayRig.ambientIntensity, dusk, daylight);
-
-  blendDayCycleColor(scene.directionalLight.color, nightRig.dirColor, duskRig.dirColor, dayRig.dirColor, dusk, daylight);
-  scene.directionalLight.intensity = blendDayCycleScalar(nightRig.dirIntensity, duskRig.dirIntensity, dayRig.dirIntensity, dusk, daylight);
+  const beats = dayCycleBeats(frame.wallClockHour);
+  scene.hemisphereLight.color.setRGB(0, 0, 0);
+  scene.hemisphereLight.groundColor.setRGB(0, 0, 0);
+  scene.ambientLight.color.setRGB(0, 0, 0);
+  scene.directionalLight.color.setRGB(0, 0, 0);
+  scene.hemisphereLight.intensity = 0;
+  scene.ambientLight.intensity = 0;
+  scene.directionalLight.intensity = 0;
+  for (const name of LIGHT_BEAT_NAMES) {
+    const weight = beats[name];
+    if (weight === 0) continue;
+    const rig = DAY_CYCLE_LIGHT_PRESETS[name];
+    scene.hemisphereLight.color.r += rig.hemiSky.r * weight;
+    scene.hemisphereLight.color.g += rig.hemiSky.g * weight;
+    scene.hemisphereLight.color.b += rig.hemiSky.b * weight;
+    scene.hemisphereLight.groundColor.r += rig.hemiGround.r * weight;
+    scene.hemisphereLight.groundColor.g += rig.hemiGround.g * weight;
+    scene.hemisphereLight.groundColor.b += rig.hemiGround.b * weight;
+    scene.ambientLight.color.r += rig.ambient.r * weight;
+    scene.ambientLight.color.g += rig.ambient.g * weight;
+    scene.ambientLight.color.b += rig.ambient.b * weight;
+    scene.directionalLight.color.r += rig.dirColor.r * weight;
+    scene.directionalLight.color.g += rig.dirColor.g * weight;
+    scene.directionalLight.color.b += rig.dirColor.b * weight;
+    scene.hemisphereLight.intensity += rig.hemiIntensity * weight;
+    scene.ambientLight.intensity += rig.ambientIntensity * weight;
+    scene.directionalLight.intensity += rig.dirIntensity * weight;
+  }
 
   if (!scene.content) return;
   // The beacon signal is unchanged (D5): the same PSI-modulated intensity
@@ -331,18 +382,20 @@ export function updateDayCycle(
     0,
     8,
   );
-  // The retired sphere lives on as the brazier's ember-glow core inside the
-  // flame — same signal, banked to coals.
-  scene.content.beacon.material.emissiveIntensity = beaconIntensity * 0.32;
+  // Preserve the PSI signal while keeping the night brazier above every
+  // lantern in linear HDR luminance; the daytime coals remain banked.
+  scene.content.beacon.material.emissiveIntensity = beaconIntensity
+    * (0.32 * (1 - night) + BEACON_NIGHT_GAIN * night);
   // D3: by day the flame banks low (the smoke column is the day signal);
   // at dusk it rises; by night it owns the sky.
   scene.content.beaconFire.uniforms.uIntensity.value = beaconIntensity
     * blendDayCycleScalar(1, 0.85, 0.26, dusk, daylight);
   // D3 smoke daymark: a proud grey-blue column by day, thinning through dusk
-  // to a thin backlit wisp at night.
+  // and gone by night — against the G2 near-black sky a "backlit wisp" reads
+  // as a grey blob beside the lantern, the one place nothing may compete.
   const smokeUniforms = scene.content.beaconFire.smokeMaterial.uniforms;
   smokeUniforms.uDayMix.value = daylight;
-  smokeUniforms.uOpacity.value = blendDayCycleScalar(0.1, 0.22, 0.62, dusk, daylight);
+  smokeUniforms.uOpacity.value = blendDayCycleScalar(0, 0.16, 0.62, dusk, daylight);
   // D4 mirror glint: a slow day-only emissive pulse (peak HDR ~2.2) so the
   // legendary bronze mirror flashes against the day sky. Deterministic in
   // timeSeconds; frozen at its t=0 glint under reduced motion.
@@ -361,19 +414,11 @@ export function updateDayCycle(
   for (const material of scene.content.statueGleamMaterials) {
     material.emissiveIntensity = statueGleam;
   }
-  // Cap warm emissives below the clip point so the tone mapper keeps them
-  // golden instead of rolling them off to white pinpricks.
-  scene.content.harborLanternMaterial.emissiveIntensity = 0.18 + dusk * 1.2 + night * 1.9;
-  // T0.2 (2026-09-07). VISUAL_INVARIANTS.md:115 has promised since W4.5 that
-  // "windows glow at dusk/night". Nothing implemented it: every aperture in
-  // the world was a frozen constant, so the harbour was exactly as lit at noon
-  // as at midnight and the one thing that says "inhabited" said nothing. The
-  // apertures now ride the same curve shape as the harbour lanterns above.
-  //
-  // Station windows and lit quay edges: constant 1.6 -> 0.35 day / 1.75 dusk /
-  // 2.10 night. A faint interior by day (they are in shade, not dark), the
-  // whole quay alight after dark. The bucket is `toneMapped: false`, so the
-  // 2.10 peak stays under the ~2.2 clip — see the ship-lantern note below.
+  // Lantern cores clear the 2.4 linear bloom knee; windows remain below it.
+  const harborLanternIntensity = 0.18 * (1 - night) + dusk * 1.2
+    + night * WARM_LANTERN_NIGHT_INTENSITY;
+  scene.content.harborLanternMaterial.emissiveIntensity = harborLanternIntensity;
+  // Station windows and lit quay edges remain dim interiors, not lamp cores.
   const stationWindowEmber = 0.35 + dusk * 1.4 + night * 1.75;
   const harborBatch = scene.content.harborBatch;
   if (harborBatch) {
@@ -381,6 +426,12 @@ export function updateDayCycle(
       const material = meshes.window?.material;
       if (material instanceof MeshStandardMaterial) {
         material.emissiveIntensity = stationWindowEmber;
+      }
+    }
+    for (const meshes of [harborBatch.propMeshes, harborBatch.fineDetailPropMeshes]) {
+      const material = meshes.lampHead?.material;
+      if (material instanceof MeshStandardMaterial) {
+        material.emissiveIntensity = harborLanternIntensity;
       }
     }
   }
@@ -392,22 +443,11 @@ export function updateDayCycle(
   for (const material of scene.content.lighthouseWindowMaterials ?? []) {
     material.emissiveIntensity = towerWindowGlow;
   }
-  // T0.2 remainder: the island's stone path lanterns, the last constant
-  // aperture in the world. Constant 1.15 -> 0.22 day / 1.37 dusk / 1.97 night.
-  //
-  // A path lantern is a small warm POINT, not a window, so it takes the
-  // harbour-lantern curve shape (`0.18 + dusk*1.2 + night*1.9` above) rather
-  // than the station-window one — but shifted a little on both ends for where
-  // it stands. The day base is 0.22 rather than 0.18: these two sit in the
-  // middle of a pale gravel sweep in full sun, and the harbour lanterns do
-  // not, so they need slightly more to stay visible as objects at noon while
-  // still reading as unlit. The night peak is 1.97 rather than 2.08 because
-  // they share the island with the beacon: island punctuation must never
-  // approach the one dominant light standing 34 units above it. Both ends stay
-  // under the ~2.2 tone-mapping clip — the material is `toneMapped: false`, so
-  // past it the lamps roll off to white pinpricks instead of gold.
+  // Island path lanterns share the warm core colour and night luminance;
+  // their slightly higher day base keeps the fixtures visible on pale gravel.
   if (scene.content.islandLanternMaterial) {
-    scene.content.islandLanternMaterial.emissiveIntensity = 0.22 + dusk * 1.15 + night * 1.75;
+    scene.content.islandLanternMaterial.emissiveIntensity = 0.22 * (1 - night) + dusk * 1.15
+      + night * WARM_LANTERN_NIGHT_INTENSITY;
   }
   scene.content.beam.visible = true;
   // Lane S grounded the fleet on a darker 0.28 base opacity (S7); the curve
@@ -415,10 +455,10 @@ export function updateDayCycle(
   // R8: a touch deeper so the contact reads at overview zoom, where a hull
   // is only a few pixels tall and its shadow is most of what grounds it.
   scene.content.shipShadows.material.opacity = 0.34 + daylight * 0.14;
-  // Ship lantern cores bloom warm at night; the additive glow halo and the
-  // sail backlight rise with them. Kept below the tone-mapping clip (~2.2) so
-  // they roll to gold, not white pinpricks.
-  scene.content.shipLanternMaterial.emissiveIntensity = 0.05 + dusk * 0.85 + night * 1.9;
+  // Ship lanterns use the paler glow colour, so the same luminance needs less
+  // intensity than the warm harbour cores.
+  scene.content.shipLanternMaterial.emissiveIntensity = 0.05 * (1 - night) + dusk * 0.85
+    + night * GLOW_LANTERN_NIGHT_INTENSITY;
   // Dimmer per-lantern halo to match the smaller quad (W1.10): the fleet's
   // warmth should come from MANY small lights, not from each one flaring.
   scene.content.shipLanternGlowMaterial.opacity = dusk * 0.12 + night * 0.24;

@@ -38,7 +38,6 @@ import {
   updateGardenNiwakiWind,
 } from "./garden-island";
 import { createGardenOverviewLod } from "./garden-overview-lod";
-import { applyGardenHeightFog } from "./garden-height-fog";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 import { GARDEN_MOON_AZIMUTH } from "./garden-sun";
 import { countDrawableObjects, TILE_SCALE } from "./garden-util";
@@ -156,7 +155,6 @@ describe("garden island rockwork", () => {
       layeredWarm,
       layeredCool,
     );
-    applyGardenHeightFog(root);
 
     const before = countDrawableObjects(root);
     const result = mergeIslandStatics(root);
@@ -169,7 +167,6 @@ describe("garden island rockwork", () => {
     expect(merged.castShadow).toBe(true);
     expect(merged.receiveShadow).toBe(true);
     expect((merged.material as MeshStandardMaterial).vertexColors).toBe(true);
-    expect((merged.material as MeshStandardMaterial).userData.gardenHeightFog).toBe(true);
     expect(root.getObjectByName("island-reflection-pond-skin")).toBe(pond);
     expect(root.getObjectByName("shadow-split-static")).toBe(shadowSplit);
     expect(root.getObjectByName("textured-static")).toBe(textured);
@@ -201,9 +198,10 @@ describe("garden island rockwork", () => {
     expect(after).toBeLessThan(77);
     // Wave 5 is subtractive: the prior island held 61 drawables after merge.
     expect(after).toBeLessThanOrEqual(55);
-    // The 48-draw merged island includes the new island-landing-torii and
-    // island-lee-plank-bridge in place of the former obelisk pair.
-    expect(after).toBe(48);
+    // 47 merged draws: the landing torii and lee plank bridge replaced the
+    // obelisk pair; G2/W2.7 deleted the unlit shoal ring, which the water's
+    // shore field now paints.
+    expect(after).toBe(47);
     for (const name of ["island-reflection-pond-skin", "island-path-sweep", "island-niwaki-pads", "island-danger-rock-face"]) {
       expect(island.root.getObjectByName(name), name).toBeDefined();
     }
@@ -576,6 +574,12 @@ describe("garden island rockwork", () => {
       "island-niwaki-pads",
     ]);
     expect(grove!.children.every((child) => child instanceof InstancedMesh)).toBe(true);
+    // Shared cone-section pads reduce the G1 grove's 4,168 triangles to 2,504.
+    const triangles = (grove!.children as InstancedMesh[]).reduce((sum, mesh) => (
+      sum + (mesh.geometry.index?.count ?? mesh.geometry.getAttribute("position").count) / 3 * mesh.count
+    ), 0);
+    expect(triangles).toBeGreaterThan(2_500);
+    expect(triangles).toBeLessThanOrEqual(2_600);
     expect((grove!.getObjectByName("island-niwaki-pads") as InstancedMesh).count)
       .toBe(GARDEN_NIWAKI_SPECS.reduce((sum, pine) => sum + pine.pads.length, 0));
     const pads = grove!.getObjectByName("island-niwaki-pads") as InstancedMesh<BufferGeometry, MeshStandardMaterial>;
@@ -671,8 +675,9 @@ describe("garden island rockwork", () => {
     expect(shader.vertexShader).toContain("vGardenPondPosition = position.xy");
     expect(shader.fragmentShader).toContain("float tm=");
     expect(shader.fragmentShader).toContain("float mm=");
-    // The existing shared atmosphere hooks still compose around the pond ink.
-    expect(shader.fragmentShader).toContain("gardenApplyHeightFog");
+    // The shared cloud hook still composes around the pond ink; height fog is
+    // far-bank opt-in only (G2/W2.4), so the island never carries it.
+    expect(shader.fragmentShader).not.toContain("gardenApplyHeightFog");
     expect(shader.fragmentShader).toContain("gardenCloudLight");
   });
 

@@ -9,10 +9,10 @@ import {
 } from "three";
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
 import {
-  blendDayCycleColor,
+  dayCycleBeats,
   DAY_CYCLE_SKY_PRESETS,
-  type DayCyclePhase,
 } from "./garden-day-cycle";
+import { blendGardenSkyColor } from "./garden-sky";
 
 export interface GardenHorizonFrame {
   targetX: number;
@@ -28,7 +28,7 @@ export interface GardenHorizon {
   silhouetteCount: number;
   triangleCount: number;
   dispose: () => void;
-  update: (phase: DayCyclePhase, frame: GardenHorizonFrame) => void;
+  update: (wallClockHour: number, frame: GardenHorizonFrame) => void;
 }
 
 /**
@@ -197,19 +197,12 @@ export function createGardenHorizon(): GardenHorizon {
       material.dispose();
       root.clear();
     },
-    update(phase, frame) {
+    update(wallClockHour, frame) {
       // Distant flat sea meets the horizontal plane through the current eye.
       root.position.set(frame.targetX, frame.cameraPosition.y, frame.targetZ);
       root.visible = frame.tier !== "constrained";
       fogColor.copy(frame.fogColor);
-      blendDayCycleColor(
-        skyColor,
-        DAY_CYCLE_SKY_PRESETS.night.zenith,
-        DAY_CYCLE_SKY_PRESETS.dusk.zenith,
-        DAY_CYCLE_SKY_PRESETS.day.zenith,
-        phase.dusk,
-        phase.daylight,
-      );
+      blendGardenSkyColor(skyColor, dayCycleBeats(wallClockHour), "zenith");
     },
   };
 }

@@ -39,10 +39,6 @@ import {
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { ShipNode } from "../systems/world-types";
 import { heroHullModelFor } from "../systems/unique-ships";
-import {
-  applyGardenHeightFog,
-  patchGardenHeightFogMaterial,
-} from "./garden-height-fog";
 import { gardenModelAnchor, type GardenModelId } from "./garden-models";
 import {
   advanceShipLanternAttention,
@@ -220,7 +216,7 @@ const GARDEN_SHIP_RIGS: Record<GardenHullSilhouette, readonly GardenMastPlan[]> 
   bezaisen: [
     {
       height: 5.4,
-      sails: [{ centerY: 3.15, height: 4.1, kind: "rectangle", width: 3.35 }],
+      sails: [{ centerY: 3.15, height: 3.0, kind: "rectangle", width: 4.3 }],
       x: 0.15,
     },
   ],
@@ -254,13 +250,12 @@ const GARDEN_SHIP_RIGS: Record<GardenHullSilhouette, readonly GardenMastPlan[]> 
       z: 1.02,
     },
   ],
-  // Takasebune: the cargo roofs, not the rig, own the silhouette. One low
-  // identity sail sits forward so four arched cargo covers remain readable behind it.
+  // Takasebune: an aft working rig above two banks of reed-covered cargo.
   takasebune: [
     {
-      height: 2.35,
-      sails: [{ centerY: 1.5, height: 1.55, kind: "rectangle", width: 1.45 }],
-      x: 3.35,
+      height: 4.4,
+      sails: [{ centerY: 3.05, height: 2.2, kind: "rectangle", width: 2.9 }],
+      x: -3.35,
     },
   ],
   // Junk: a short hull underneath a tall asymmetric battened fan. The small
@@ -393,23 +388,21 @@ function shipFleetTier(ship: ShipNode): ShipFleetTier {
 }
 
 /**
- * Titans and uniques (the monumental stablecoins) get a bespoke GLB hero hull:
- * titans the three-master, uniques the elegant heritage two-master. Everything
- * else keeps the procedural fleet hull.
+ * Named titans and uniques get their bespoke GLB hero hull. All other issuers
+ * keep the procedural fleet hull, including unnamed ships in those size tiers.
  */
 /**
  * W1: true when a ship keeps its own scene graph (bespoke hero GLB hull,
  * grade shield, per-ship identity sail) rather than joining the instanced
- * batches. Titans and uniques only — ~18 of the ~205-ship world.
+ * batches. Only issuers with an authored hero model qualify.
  */
 export function gardenShipUsesHeroModel(ship: ShipNode): boolean {
   return shipHeroModelId(ship) !== null;
 }
 
 function shipHeroModelId(ship: ShipNode): GardenModelId | null {
-  // W5 (D4/O11): ten distinct hero hulls, assigned deterministically per
-  // stablecoin so a coin never changes ship between refreshes. This used to
-  // hardcode two shared models for all 18 hero-tier ships.
+  // Named hero hulls stay bound to issuer identity across refreshes; there are
+  // no shared tier-based slots for unnamed issuers.
   if (ship.visual.sizeTier === "titan" || ship.visual.sizeTier === "unique") {
     return heroHullModelFor(ship.id);
   }
@@ -526,64 +519,49 @@ export function createBatchedShip(
  *
  * Since the warm-village resting frame (zoom 1.0, hulls 33–106 px) each of
  * the six families carries its own authored pair — timber + trim — derived
- * from HARBOR_PALETTE tokens only (no new hex; every value clears the palette
- * ceiling at C ≤ 0.094). Silhouette and colour now correlate: a bezaisen is
+ * from the harbour timber hues, re-spaced by value (C < 0.14).
+ * Silhouette and colour now correlate: a bezaisen is
  * dark kogecha, a kobaya is pale sand, and the fleet groups by hull the way
  * it already grouped by rig.
  *
- * The timbers are an OKLCH ladder, measured with the standard Ottosson
- * matrices on the authored sRGB (this file and its test use one consistent
- * measurement; it does not exactly reproduce the figures annotated in
- * palette.ts). The five warm families separate by LIGHTNESS — junk 0.41 →
- * bezaisen 0.50 → takasebune 0.58 → scow 0.69 → kobaya 0.79 — because every
- * weathered timber hue lives in one narrow OKLab band (H 77–98), while the
- * twinhull's grey-teal separates by hue (H 260, ≥ 162° from every warm
- * family). Every pair clears ΔL ≥ 0.083 or ΔH ≥ 160; garden-ships.test.ts
- * pins the ladder at ΔL 0.06 / ΔH 25° so it cannot silently close.
- *
- * Values are the material colour BEFORE the vertex ramp, which darkens
- * midships (×0.82) and lifts the gunwale (×1.0), so they sit deliberately
- * lighter than the final pixel.
+ * Value-first timber ladder in OKLCH: junk .28, bezaisen .41, cool
+ * twinhull .47, scow .60, takasebune .68, kobaya .82. Timber chroma is
+ * reduced by a quarter; the saturated identity stays in the strake and dye.
+ * Values are material colours before the vertex ramp and illumination.
  *
  * Treat the exported colours as constants: clone before use.
  */
 export const GARDEN_HULL_FAMILY_PAINT: Readonly<
   Record<GardenHullSilhouette, Readonly<{ timber: Color; trim: Color }>>
 > = {
-  // Dark kogecha timber / warm ochre (bengara) trim — the heavy carrier.
-  // timber #7B582F OKLCH L 0.499 C 0.069 H 91 · trim #AD6034 L 0.591 C 0.094 H 77
+  // Dark tea timber / bengara strake.
   bezaisen: {
-    timber: new Color(HARBOR_PALETTE.timber_warm).lerp(new Color(HARBOR_PALETTE.timber_mid), 0.35),
+    timber: new Color("#5d452a"),
     trim: new Color(HARBOR_PALETTE.roof_clay),
   },
-  // Pale sand timber / indigo trim — the light courier.
-  // timber #C3B79C OKLCH L 0.786 C 0.034 H 98 · trim #002A52 L 0.273 C 0.094 H 274
+  // Pale weathered timber / indigo strake.
   kobaya: {
-    timber: new Color(HARBOR_PALETTE.timber_warm).lerp(new Color(HARBOR_PALETTE.fog_day), 0.7),
+    timber: new Color("#ccc3b2"),
     trim: new Color(HARBOR_PALETTE.deep_sea_1),
   },
-  // Weathered grey-teal timber / white trim — the only cool hull afloat.
-  // timber #34535F OKLCH L 0.416 C 0.039 H 260 · trim #E8EEF0 L 0.944 C 0.016 H 283
+  // The only cool timber afloat.
   twinhull: {
-    timber: new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.shallow_teal), 0.5),
+    timber: new Color("#4a5e68"),
     trim: new Color(HARBOR_PALETTE.foam_white),
   },
-  // Warm rikyū tea timber / reed-green trim — the canal runner.
-  // timber #A66332 OKLCH L 0.584 C 0.093 H 82 · trim #4F844C L 0.554 C 0.078 H 138
+  // Sun-bleached reed carrier / green strake.
   takasebune: {
-    timber: new Color(HARBOR_PALETTE.timber_warm).lerp(new Color(HARBOR_PALETTE.roof_timber_shake), 0.8),
+    timber: new Color("#b7906a"),
     trim: new Color(HARBOR_PALETTE.aurora_green).lerp(new Color(HARBOR_PALETTE.stone_mid), 0.35),
   },
-  // Deep red-brown lacquer / black trim — the darkest hull afloat, bengara over soot.
-  // timber #663920 OKLCH L 0.408 C 0.060 H 77 · trim #1A1612 L 0.205 C 0.008 H 84
+  // Soot-dark lacquer / black strake.
   junk: {
-    timber: new Color(HARBOR_PALETTE.roof_clay).lerp(new Color(HARBOR_PALETTE.iron_dark), 0.7),
+    timber: new Color("#3a2312"),
     trim: new Color(HARBOR_PALETTE.iron_dark),
   },
-  // Light tan timber / tar-black trim — the working barge.
-  // timber #B0946D OKLCH L 0.690 C 0.060 H 94 · trim #2A1A0E L 0.241 C 0.029 H 83
+  // Mid-value timber / ember strake.
   scow: {
-    timber: new Color(HARBOR_PALETTE.timber_warm).lerp(new Color(HARBOR_PALETTE.sun_day_warm), 0.3),
+    timber: new Color("#907d62"),
     trim: new Color(HARBOR_PALETTE.ember),
   },
 };
@@ -1148,9 +1126,6 @@ export function createShip(
   const wake = createWake(cache);
   root.add(wake.root);
   applyShipPegTrim(root, ship, wake.root);
-  // W2.1: hero/procedural ships keep their object tree, so patch their lit
-  // materials here while the rank-and-file fleet takes the batch shader path.
-  applyGardenHeightFog(root);
   const motion = FLEET_TIER_MOTION[tier];
   // Subtle livery cast multiplied over the hero wood on attach (white base × a
   // mostly-white tint keeps the baked 3-tone shading readable).
@@ -1366,7 +1341,6 @@ function mergeGardenHeroStatics(visual: ShipVisual, model: Group): void {
       side: DoubleSide,
       vertexColors: true,
     });
-    patchGardenHeightFogMaterial(material);
     if (!canvas) {
       const previousCompile = material.onBeforeCompile;
       material.onBeforeCompile = (shader, renderer) => {
@@ -2064,28 +2038,44 @@ function addFamilySilhouetteParts(
   }
 
   if (silhouette === "takasebune") {
-    // Four rounded reed covers keep the long working-barge identity, with
-    // dark hoops breaking the former row of featureless rectangular boxes.
-    for (const [index, x] of [-3.15, -1.05, 1.05, 3.15].entries()) {
-      const cover = new CylinderGeometry(0.96, 0.96, 1.82, 8, 1, false, 0, Math.PI);
-      cover.rotateZ(Math.PI / 2);
-      cover.scale(1, 0.65, 1);
-      parts.push({
-        geometry: cover,
-        tint: index % 2 === 0 ? FLEET_BATCH_TINTS.deck : FLEET_BATCH_TINTS.gunwale,
-        transform: new Matrix4().setPosition(x, 0.64, 0),
-      });
-      for (const along of [-0.84, 0, 0.84]) {
-        const hoop = new CylinderGeometry(0.99, 0.99, 0.075, 8, 1, true, 0, Math.PI);
+    // Two cargo banks of three, with an open working well amidships.
+    for (const groupX of [-2.75, 2.75]) {
+      for (const offset of [-0.94, 0, 0.94]) {
+        const cover = new CylinderGeometry(0.96, 0.96, 0.86, 8, 1, false, 0, Math.PI);
+        cover.rotateZ(Math.PI / 2);
+        cover.scale(1, 0.65, 1);
+        parts.push({
+          geometry: cover,
+          tint: FLEET_BATCH_TINTS.matting,
+          transform: new Matrix4().setPosition(groupX + offset, 0.64, 0),
+        });
+        const hoop = new CylinderGeometry(0.99, 0.99, 0.06, 8, 1, true, 0, Math.PI);
         hoop.rotateZ(Math.PI / 2);
         hoop.scale(1, 0.65, 1);
         parts.push({
           geometry: hoop,
           tint: FLEET_BATCH_TINTS.mast,
-          transform: new Matrix4().setPosition(x + along, 0.64, 0),
+          transform: new Matrix4().setPosition(groupX + offset, 0.64, 0),
+        });
+      }
+      for (const angle of [-0.22, 0.22]) {
+        parts.push({
+          geometry: new BoxGeometry(2.9, 0.035, 0.045),
+          tint: FLEET_BATCH_TINTS.mast,
+          transform: new Matrix4().makeRotationY(angle).setPosition(groupX, 1.28, 0),
         });
       }
     }
+    // A shipping oar rests inboard, clear of the working well.
+    parts.push({
+      geometry: new BoxGeometry(3.4, 0.07, 0.07),
+      tint: FLEET_BATCH_TINTS.mast,
+      transform: new Matrix4().setPosition(-0.4, 0.78, 1.12),
+    }, {
+      geometry: new BoxGeometry(0.7, 0.08, 0.24),
+      tint: FLEET_BATCH_TINTS.mast,
+      transform: new Matrix4().setPosition(1.6, 0.78, 1.12),
+    });
   }
 }
 
@@ -2580,8 +2570,9 @@ function createSailGeometry(plan: GardenSailPlan): BufferGeometry {
   const yardYaw = plan.kind === "rectangle" ? direction * 0.1 : direction * 0.05;
 
   const vertexCount = (GARDEN_SAIL_SEGMENTS_U + 1) * (GARDEN_SAIL_SEGMENTS_V + 1);
-  const positions = new Float32Array(vertexCount * 3);
-  const uvs = new Float32Array(vertexCount * 2);
+  const hasSpars = plan.kind === "rectangle" || plan.kind === "fore-aft";
+  const positions = new Float32Array((vertexCount + (hasSpars ? 6 : 0)) * 3);
+  const uvs = new Float32Array((vertexCount + (hasSpars ? 6 : 0)) * 2);
   const indices: number[] = [];
   for (let row = 0; row <= GARDEN_SAIL_SEGMENTS_V; row += 1) {
     const v = row / GARDEN_SAIL_SEGMENTS_V;
@@ -2611,12 +2602,33 @@ function createSailGeometry(plan: GardenSailPlan): BufferGeometry {
       }
     }
   }
+  if (hasSpars) {
+    // Two tapered timber strips, one triangle each, share the cloth's motion.
+    // Edge UVs keep the mon off the spars; vertex value supplies dark wood.
+    for (let spar = 0; spar < 2; spar += 1) {
+      const head = spar === 0;
+      const yaw = head ? yardYaw : 0;
+      const y = head ? halfHeight : -halfHeight;
+      const span = direction * plan.width * 1.04;
+      const start = vertexCount + spar * 3;
+      positions.set([
+        -direction * 0.09, y - 0.055, 0,
+        -direction * 0.09, y + 0.055, 0,
+        span * Math.cos(yaw), y, -span * Math.sin(yaw),
+      ], start * 3);
+      indices.push(start, start + 1, start + 2);
+    }
+  }
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
   geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   bakeSailVertexColors(geometry, plan);
+  if (hasSpars) {
+    const colors = geometry.getAttribute("color");
+    for (let index = vertexCount; index < colors.count; index += 1) colors.setXYZ(index, 0.22, 0.2, 0.16);
+  }
   return geometry;
 }
 

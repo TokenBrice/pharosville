@@ -27,12 +27,10 @@ import {
   GARDEN_GUST_WORLD_SPEED,
   gardenGustAtWorldPosition,
 } from "../systems/weather";
+import { dayCycleBeats } from "./garden-day-cycle";
+import { gardenSunPose } from "./garden-sun";
 import type { GardenShipGeometryCache } from "./garden-util";
 import { cachedShipGeometry } from "./garden-util";
-import {
-  injectGardenHeightFog,
-  patchGardenHeightFogMaterial,
-} from "./garden-height-fog";
 
 /**
  * W1 (Grand Scale Revamp, decision D2): the fleet is drawn as a small fixed
@@ -61,6 +59,7 @@ const KEEL_TINT = new Color(0.3, 0.26, 0.25);
 const DECK_TINT = new Color(1.06, 0.99, 0.86);
 const GUNWALE_TINT = new Color(1.25, 1.2, 1.1);
 const MAST_TINT = new Color(0.52, 0.44, 0.36);
+const MATTING_TINT = new Color(0.86, 0.87, 0.75);
 
 /**
  * Atlas geometry (D3). A 16x16 grid of 128px cells in a 2048² canvas texture.
@@ -154,6 +153,21 @@ const fleetWindUniforms = {
   uWindTime: { value: 0 },
   uWindFlutter: { value: 0 },
 };
+
+const fleetLightUniforms = {
+  uBacklight: { value: 0 },
+  uSunDir: { value: new Vector3(0, 1, 0) },
+};
+const fleetSunPose = { direction: fleetLightUniforms.uSunDir.value, elevation: 0 };
+// Cloth never enters the practical-light bloom band.
+const FLEET_CLOTH_RADIANCE_CEILING = 2.2;
+
+/** Wall-clock illumination only; shared by every fleet sail material. */
+export function setFleetLightHour(hour: number): void {
+  const beats = dayCycleBeats(hour);
+  fleetLightUniforms.uBacklight.value = beats.dawn + beats.golden;
+  gardenSunPose(hour, fleetSunPose);
+}
 
 /**
  * Aerial perspective for the batched fleet — the "quiet the carpet" cue.
@@ -804,28 +818,12 @@ const HULL_SURFACE_COLOR = `
 #endif`;
 
 /**
- * 2026-09-07 T3.4: the hull's finish, not its colour.
- *
- * One matte roughness over every part is what makes a batched hull read as a
- * moulded toy: real timber has a varnished rail that catches the sun and a wet
- * band at the waterline that catches everything. Both are fragment-only, so
- * this costs no draw call, no attribute and no uniform — the rail reuses the
- * `aPartMasks.w` rim term already baked by `applySurfaceMasks` (the sail batch
- * is at 16/16 attribute slots and the hull at 15/16; there is no room for a
- * new one and this needs none).
- *
- * Two numbers are load-bearing:
- *   - the wet band is 0.11 ship-local units, UNDER the 0.12 ceiling. Wider and
- *     it stops reading as a waterline and starts reading as a painted stripe.
- *   - roughness floors at 0.45, never lower. The fleet is lit by one key and a
- *     PMREM probe; below ~0.45 the hulls pick up the probe's sun disc as a hard
- *     specular chip and 200 ships twinkle.
- *
- * The band is placed at the water plane (`GARDEN_SHIP_ROOT_Y - GARDEN_WATER_Y`
- * = 0.38 below the ship root), divided by the instance's scale because the
- * root offset is applied outside the instance matrix while `transformed` is
- * inside it. It deliberately does NOT track bob: it is paint on a hull, and a
- * band that slid up and down the planking every second would be worse.
+ * Wet timber is darker, less saturated and glossier; the painted gunwale
+ * carries full varnish. Interpolate height, not a vertex-sampled wet mask:
+ * coarse topside faces can cross the whole collar without a vertex inside it.
+ * World-space width keeps the 0.22 collar readable across the scale ladder.
+ * The authored waterline stays fixed on the planks instead of following bob.
+ * No new attributes: the rail uses the existing strake mask.
  */
 const HULL_SURFACE_GLOSS = `
 #ifdef USE_INSTANCING
@@ -833,11 +831,16 @@ const HULL_SURFACE_GLOSS = `
 #else
   float shipScale = 1.0;
 #endif
-  float wetBand = 1.0 - smoothstep(0.0, 0.11, abs(transformed.y + 0.38 / shipScale));
-  vHullGloss = clamp(max(aPartMasks.w * 0.55, wetBand), 0.0, 1.0);`;
+  vHullFinish = vec2(transformed.y * shipScale + 0.38, step(0.5, aStrakeMask));`;
+
+const HULL_WET_FRAGMENT = `
+  float wet = 1.0 - smoothstep(0.0, 0.22, abs(vHullFinish.x));
+  float wetLuma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(wetLuma), wet * 0.3);
+  diffuseColor.rgb *= mix(1.0, 0.62, wet);`;
 
 const HULL_GLOSS_FRAGMENT = `
-  roughnessFactor = mix(roughnessFactor, 0.45, vHullGloss);`;
+  roughnessFactor = mix(roughnessFactor, 0.45, clamp(max(vHullFinish.y, wet), 0.0, 1.0));`;
 
 export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
@@ -852,28 +855,29 @@ export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void
         attribute vec4 aHullSurface;
         attribute vec4 aVariationPivot;
         attribute vec4 aPartMasks;
-        varying float vHullGloss;`,
+        varying vec2 vHullFinish;`,
       )
       .replace("#include <color_vertex>", `#include <color_vertex>\n${STRAKE_PAINT}\n${HULL_SURFACE_COLOR}`)
       // After every deform: `transformed` has to be final before the waterline
       // band can know where on the planking it lands.
       .replace("#include <project_vertex>", `${HULL_SURFACE_GLOSS}\n#include <project_vertex>`);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying float vHullGloss;")
+      .replace("#include <common>", "#include <common>\nvarying vec2 vHullFinish;")
+      .replace("#include <color_fragment>", `#include <color_fragment>\n${HULL_WET_FRAGMENT}`)
       .replace(
         "#include <roughnessmap_fragment>",
         `#include <roughnessmap_fragment>\n${HULL_GLOSS_FRAGMENT}`,
       );
-    injectGardenHeightFog(shader);
   };
-  // Three caches compiled programs by this key. Without the `-gloss` suffix the
-  // old program is silently reused and none of the above reaches the GPU.
+  // The shader shape changed, so previously compiled fleet programs cannot be reused.
   material.customProgramCacheKey = () =>
-    "garden-fleet-hull-form-strake-trim-wabi-age-fittings-height-fog-gloss";
+    "garden-fleet-hull-form-strake-trim-wabi-age-fittings-wet-collar";
 }
 
 export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.uBacklight = fleetLightUniforms.uBacklight;
+    shader.uniforms.uSunDir = fleetLightUniforms.uSunDir;
     shader.uniforms.uWindTime = fleetWindUniforms.uWindTime;
     shader.uniforms.uWindFlutter = fleetWindUniforms.uWindFlutter;
     shader.uniforms.uWindBreath = fleetWindUniforms.uWindBreath;
@@ -944,6 +948,8 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         uniform float uAerialFar;
         uniform float uAerialStrength;
         uniform float uClothWeave;
+        uniform float uBacklight;
+        uniform vec3 uSunDir;
         varying vec2 vAtlasUv;
         varying vec2 vClothUv;
         varying vec3 vSailTint;
@@ -1018,15 +1024,23 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
                 * ${CLOTH_WEAVE_RELIEF}
           );
         }`,
+      )
+      .replace(
+        "#include <opaque_fragment>",
+        `{
+          // Three's face-oriented shading normal is view-space; transform the
+          // shared world-space sun before comparing the back face to the light.
+          vec3 clothSunDir = normalize(mat3(viewMatrix) * uSunDir);
+          float wrap = clamp(-dot(normal, clothSunDir), 0.0, 1.0);
+          outgoingLight += wrap * diffuseColor.rgb * uBacklight;
+          float clothPeak = max(max(outgoingLight.r, outgoingLight.g), outgoingLight.b);
+          outgoingLight *= min(1.0, ${FLEET_CLOTH_RADIANCE_CEILING.toFixed(1)} / max(clothPeak, 0.0001));
+        }
+        #include <opaque_fragment>`,
       );
-    // The aerial chroma restraint above settles the distant dye while
-    // preserving value; the shared fog term then places that restrained sail
-    // in the same directional air as hull, sea and land. Neither rewrites the
-    // other's arithmetic.
-    injectGardenHeightFog(shader);
   };
   material.customProgramCacheKey = () =>
-    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim-aerial-framing-weave-height-fog";
+    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim-aerial-framing-weave-backlight";
 }
 
 function createInstancedPart(
@@ -1157,7 +1171,6 @@ export function createFleetBatches(input: {
     roughness: 0.7,
     side: DoubleSide,
   });
-  patchGardenHeightFogMaterial(pennantMaterial);
   materials.push(pennantMaterial);
 
   const bySilhouette = new Map<GardenHullSilhouette, FleetSilhouetteBatch>();
@@ -1484,4 +1497,5 @@ export const FLEET_BATCH_TINTS = {
   gunwale: GUNWALE_TINT,
   keel: KEEL_TINT,
   mast: MAST_TINT,
+  matting: MATTING_TINT,
 } as const;

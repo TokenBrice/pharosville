@@ -270,28 +270,23 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
     crossedNormal: 1, shallowShelf: 0,
     boundaryWidthTiles: 0, boundaryFoam: 0, boundaryBank: 0,
   },
-  // S1 (2026-07-25): the DEPTH multiplier is the value ramp, and it was doing
-  // almost nothing — 0.78 to 1.18, +-20% around neutral. It matters more than
-  // it looks, because the shader luminance-matches each region's tint against
-  // the live water (which is what stops a tint reading as paint) and so throws
-  // most of the hue's own brightness away. Depth is what survives that, and
-  // widening it is what makes risk read as "the water gets darker" from across
-  // the map, hue-blind or not.
+  // Value multipliers survive the shader's tint luma match. Keep the ladder
+  // wide enough to read at rest without turning the bodies into painted regions.
   //
   // The protected inner harbour: near-still, the most mirror-like water in the
   // scene, and the region the concept render's reflection sells.
   // Calm mirror and reflection UP; generic crossed normals and crest foam DOWN.
   calm: {
     tint: "#4b927f",
-    swell: 0.34, chop: 0.34, foam: 0.015, reflectivity: 1.62, depth: 1.13,
-    tintStrength: 0.62, flowBearing: 1.29, flowHold: 0.22, normalDetail: 0.08,
+    swell: 0.34, chop: 0.34, foam: 0.015, reflectivity: 1.62, depth: 1.22,
+    tintStrength: 0.62, flowBearing: 1.29, flowHold: 0.22, normalDetail: 0.05,
     crossedNormal: 0.01, shallowShelf: 0,
     boundaryWidthTiles: 2.6, boundaryFoam: 0.025, boundaryBank: 0.13,
   },
   // Watch's long parallel ripples UP; generic isotropic ripple grain DOWN.
   watch: {
     tint: "#357f9a",
-    swell: 0.74, chop: 0.72, foam: 0.11, reflectivity: 1.18, depth: 1.01,
+    swell: 0.74, chop: 0.72, foam: 0.11, reflectivity: 1.18, depth: 1.04,
     tintStrength: 0.64, flowBearing: 1.41, flowHold: 0.86, normalDetail: 0.54,
     crossedNormal: 0.06, shallowShelf: 0,
     boundaryWidthTiles: 3, boundaryFoam: 0.05, boundaryBank: 0.1,
@@ -299,7 +294,7 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   // Alert's channel-axis current streaks UP; generic crossed chop DOWN.
   alert: {
     tint: "#73845b",
-    swell: 1.02, chop: 1.18, foam: 0.28, reflectivity: 0.86, depth: 0.9,
+    swell: 1.02, chop: 1.18, foam: 0.28, reflectivity: 0.86, depth: 0.86,
     tintStrength: 0.66, flowBearing: -1.48, flowHold: 0.98, normalDetail: 0.86,
     crossedNormal: 0.08, shallowShelf: 0,
     boundaryWidthTiles: 3.25, boundaryFoam: 0.07, boundaryBank: 0.13,
@@ -307,7 +302,7 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   // Warning's pale shelf and short broken ripples UP; long shared swell DOWN.
   warning: {
     tint: "#af9868",
-    swell: 1.26, chop: 1.62, foam: 0.62, reflectivity: 0.64, depth: 0.8,
+    swell: 1.26, chop: 1.62, foam: 0.62, reflectivity: 0.64, depth: 0.7,
     tintStrength: 0.68, flowBearing: -1.3, flowHold: 0.9, normalDetail: 0.84,
     crossedNormal: 0.14, shallowShelf: 0.94,
     boundaryWidthTiles: 3.6, boundaryFoam: 0.18, boundaryBank: 0.05,
@@ -315,7 +310,7 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   // Danger's steep diagonal waves and blown foam UP; generic crest foam DOWN.
   danger: {
     tint: "#30375d",
-    swell: 2.02, chop: 2.42, foam: 1.12, reflectivity: 0.38, depth: 0.58,
+    swell: 2.02, chop: 2.42, foam: 1.12, reflectivity: 0.38, depth: 0.44,
     tintStrength: 0.7, flowBearing: -0.78, flowHold: 0.96, normalDetail: 1.28,
     crossedNormal: 0.24, shallowShelf: 0,
     boundaryWidthTiles: 3.4, boundaryFoam: 0.24, boundaryBank: 0.16,
@@ -323,8 +318,8 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   // Ledger's flat horizontal striations UP; shared swell and crossed chop DOWN.
   ledger: {
     tint: "#4e5a70",
-    swell: 0.22, chop: 0.52, foam: 0.035, reflectivity: 1.12, depth: 1.16,
-    tintStrength: 0.64, flowBearing: -0.085, flowHold: 0.99, normalDetail: 0.22,
+    swell: 0.22, chop: 0.52, foam: 0.035, reflectivity: 1.42, depth: 1.38,
+    tintStrength: 0.64, flowBearing: -0.085, flowHold: 0.99, normalDetail: 0.08,
     crossedNormal: 0.01, shallowShelf: 0,
     boundaryWidthTiles: 2.8, boundaryFoam: 0.02, boundaryBank: 0.16,
   },
@@ -341,7 +336,7 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   // Wreck silt and held surface UP; generic ripple motion and white foam DOWN.
   wreck: {
     tint: "#756f5d",
-    swell: 0.12, chop: 0.24, foam: 0.008, reflectivity: 0.74, depth: 0.7,
+    swell: 0.12, chop: 0.24, foam: 0.008, reflectivity: 0.74, depth: 0.59,
     tintStrength: 0.68, flowBearing: 0.3, flowHold: 0.18, normalDetail: 0.04,
     crossedNormal: 0, shallowShelf: 0,
     boundaryWidthTiles: 3.1, boundaryFoam: 0.015, boundaryBank: 0.22,

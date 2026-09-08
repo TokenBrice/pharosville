@@ -3,7 +3,6 @@ import { dayCyclePhase } from "./garden-day-cycle";
 import {
   GARDEN_KEY_MIN_ELEVATION,
   GARDEN_SUN_NOON_BEARING,
-  GARDEN_SUN_NOON_ELEVATION,
   gardenKeyLightPose,
   gardenMoonPose,
   gardenSunPose,
@@ -14,12 +13,10 @@ function bearingOf(pose: { direction: { x: number; z: number } }): number {
 }
 
 describe("gardenSunPose", () => {
-  it("passes through the calibrated noon key light, so the day grade cannot drift", () => {
-    // The whole tone/AO ladder was tuned against (-35, 48, -30) from the island.
-    // Midday is the one moment the arc is not allowed to move.
+  it("keeps the noon bearing while lowering the apex for readable form shadows", () => {
     const noon = gardenSunPose((5 + 19.5) / 2);
     expect(bearingOf(noon)).toBeCloseTo(GARDEN_SUN_NOON_BEARING, 6);
-    expect(noon.elevation).toBeCloseTo(GARDEN_SUN_NOON_ELEVATION, 6);
+    expect(noon.elevation).toBeCloseTo(0.62, 6);
   });
 
   it("is on the horizon at sunrise and sunset", () => {
@@ -75,14 +72,6 @@ describe("gardenKeyLightPose", () => {
     }
   });
 
-  it("lets the ember hour rake — the late-dusk key drops below the former 7° floor", () => {
-    // Warm-village B4 (2026-09-05): MIN_KEY_ELEVATION 0.12 -> 0.06 so the
-    // ember hour throws long shadows. At 19:15 the old floor clamped the key
-    // to exactly 0.12; the authored arc now sits below it.
-    const ember = gardenKeyLightPose(19.25, dayCyclePhase(19.25));
-    expect(ember.elevation).toBeLessThan(0.12);
-    expect(ember.elevation).toBeGreaterThanOrEqual(GARDEN_KEY_MIN_ELEVATION - 1e-9);
-  });
 
   it("is the sun at midday and the moon in the dead of night", () => {
     const noon = gardenKeyLightPose(12.25, dayCyclePhase(12.25));

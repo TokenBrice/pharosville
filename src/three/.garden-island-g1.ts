@@ -40,6 +40,10 @@ import type { PharosVilleWorld } from "../systems/world-types";
 import type { WeatherPlan } from "../systems/weather";
 import { createLighthouse } from "./garden-lighthouse";
 import { createGardenPrecinct, precinctTerrainHeight } from "./garden-precinct";
+import {
+  applyGardenHeightFog,
+  patchGardenHeightFogMaterial,
+} from "./garden-height-fog";
 import { createGardenKoi } from "./garden-koi";
 import { MOON_COLOR, type DayCyclePhase } from "./garden-day-cycle";
 import { OVERVIEW_LOD_DETAIL_NAMES } from "./garden-overview-lod";
@@ -49,9 +53,7 @@ import type { GardenCloudShadowSource } from "./garden-water-contract";
 import {
   patchGardenInstancedWindSway,
   updateGardenInstancedWindSway,
-  createFloraPadGeometry,
-  patchGardenFloraNight,
-} from "./garden-flora";
+} from "./garden-rim-mesh";
 
 const scratchMatrix = new Matrix4();
 const scratchLeanAxis = new Vector3();
@@ -518,6 +520,10 @@ export function mergeIslandStatics(root: Group): { merged: number; kept: number 
     material.color.set("#ffffff");
     material.vertexColors = true;
     material.userData = { ...material.userData };
+    delete material.userData.gardenHeightFog;
+    if (bucket.meshes.some((mesh) => mesh.material.userData.gardenHeightFog)) {
+      patchGardenHeightFogMaterial(material);
+    }
     const mesh = new Mesh(geometry, material);
     mesh.name = `island-merged-${signatureIndex}`;
     mesh.castShadow = source.castShadow;
@@ -570,6 +576,20 @@ export function createTerracedIsland(
     roughnessMap: createMossRoughnessTexture(),
     vertexColors: true,
   });
+
+  const shoal = new Mesh(
+    createIrregularTerraceGeometry(19.6, 20.5, 0.16, 36, 0.8),
+    new MeshBasicMaterial({
+      color: "#5ca394",
+      depthWrite: false,
+      opacity: 0.28,
+      transparent: true,
+    }),
+  );
+  shoal.position.set(1.2, WATER_LEVEL + 0.055, 1.5);
+  shoal.scale.z = 0.72;
+  shoal.renderOrder = 1;
+  root.add(shoal);
 
   // The three lower shelves keep the garden coast's footprint; the former
   // small crown is replaced by the precinct's broad, clipped cliff plateau.
@@ -655,6 +675,7 @@ export function createTerracedIsland(
   );
   mergeIslandStatics(root);
   if (cloudShadows) applyGardenCloudShadows(root, cloudShadows);
+  applyGardenHeightFog(root);
 
   return {
     beacon: lighthouse.beacon,
@@ -747,6 +768,43 @@ export function applyGardenCloudShadows(
       };
     }
   });
+  // The same helper is used for asynchronously attached lighthouse geometry;
+  // keep that late material in the shared air as well as the shared cloud.
+  applyGardenHeightFog(root);
+}
+
+function createIrregularTerraceGeometry(
+  topRadius: number,
+  bottomRadius: number,
+  height: number,
+  segments: number,
+  seed: number,
+): CylinderGeometry {
+  const geometry = new CylinderGeometry(
+    topRadius,
+    bottomRadius,
+    height,
+    segments,
+    1,
+    false,
+  );
+  const positions = geometry.getAttribute("position");
+  for (let index = 0; index < positions.count; index += 1) {
+    const x = positions.getX(index);
+    const z = positions.getZ(index);
+    const radius = Math.hypot(x, z);
+    if (radius < 0.001) continue;
+    const angle = Math.atan2(z, x);
+    const variation = 1
+      + Math.sin(angle * 3 + seed) * 0.045
+      + Math.sin(angle * 7 - seed * 0.7) * 0.026
+      + Math.sin(angle * 11 + seed * 1.3) * 0.012;
+    positions.setX(index, x * variation);
+    positions.setZ(index, z * variation);
+  }
+  positions.needsUpdate = true;
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 function stoneRampColor(worldY: number, target: Color, tide?: SupplyTide): Color {
@@ -1330,9 +1388,7 @@ function createNiwakiGrove(season: GardenSeason): Group {
   const root = new Group();
   root.name = "island-niwaki";
   const trunkCount = GARDEN_NIWAKI_SPECS.reduce((sum, spec) => sum + 5 + spec.pads.length, 0);
-  const padCount = GARDEN_NIWAKI_SPECS.reduce((sum, spec, index) => (
-    sum + (season === "winter" && index === GARDEN_NIWAKI_SPECS.length - 1 ? 0 : spec.pads.length)
-  ), 0);
+  const padCount = GARDEN_NIWAKI_SPECS.reduce((sum, spec) => sum + spec.pads.length, 0);
   const matsuba = new Color(HARBOR_PALETTE.aurora_green)
     .lerp(new Color(HARBOR_PALETTE.timber_dark), 0.42);
   const matsubaLight = matsuba.clone().lerp(new Color(HARBOR_PALETTE.fog_day), 0.13);
@@ -1346,12 +1402,10 @@ function createNiwakiGrove(season: GardenSeason): Group {
     trunkCount,
   );
   trunks.name = "island-niwaki-trunks";
-  patchGardenFloraNight(trunks.material as MeshStandardMaterial);
   const foliageMaterial = new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.98 });
-  patchGardenFloraNight(foliageMaterial);
   patchGardenInstancedWindSway(foliageMaterial, 1, 0.76);
   const foliage = new InstancedMesh(
-    createFloraPadGeometry(),
+    new SphereGeometry(1, 10, 6),
     foliageMaterial,
     padCount,
   );
@@ -1376,8 +1430,6 @@ function createNiwakiGrove(season: GardenSeason): Group {
       const centre = niwakiPoint(spec, pad.t).add(new Vector3(pad.offsetX, 0, pad.offsetZ));
       setCylinderBetween(trunks, trunkIndex, stem, centre, 0.085);
       trunkIndex += 1;
-      // The maple sheds its umbrella, but keeps its exposed branch fork.
-      if (season === "winter" && pineIndex === GARDEN_NIWAKI_SPECS.length - 1) return;
       scratchQuaternion.setFromAxisAngle(UP_AXIS, pad.yaw);
       scratchScale.set(pad.scaleX, pad.scaleY, pad.scaleZ);
       scratchMatrix.compose(centre, scratchQuaternion, scratchScale);

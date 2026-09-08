@@ -71,7 +71,8 @@ import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { seaStateForWorld } from "../systems/sea-state";
 import { stableUnit } from "../systems/stable-random";
 import { gardenAlmanacEventForDate } from "../systems/garden-almanac";
-import { DAY_CYCLE_SKY_PRESETS, type DayCyclePhase } from "./garden-day-cycle";
+import { type DayCyclePhase } from "./garden-day-cycle";
+import { GARDEN_SKY_BEATS } from "./garden-sky";
 import {
   GARDEN_ROUTE_PULSE_ROTATION_SECONDS,
   MAX_GARDEN_LIGHT_LANES,
@@ -180,7 +181,7 @@ describe("station route pulse endpoints", () => {
     }
     expect(observed).toEqual(expected);
     renderer.dispose();
-  });
+  }, 60_000); // dense world plus eight route windows; exceeds the 5 s default under suite load
 });
 
 type TestWebGlRenderer = {
@@ -247,6 +248,7 @@ const environmentHarness = vi.hoisted(() => ({
 // assertions) and tracks the tier policy the renderer drives it with.
 vi.mock("./garden-post", () => ({
   GARDEN_TONE_MAPPING: "neutral",
+  GARDEN_BLOOM_PRACTICAL_THRESHOLD: 2.4,
   createGardenPost: vi.fn((renderer: {
     info: { memory: { textures: number } };
     render: (scene: unknown, camera: unknown) => void;
@@ -1385,12 +1387,12 @@ describe("W6.5 sky-probe environment", () => {
     renderer.render(rendererFrame(world, "full", { wallClockHour: 12 }));
     const environment = environmentHarness.instances.at(-1)!;
     expect(environment.bakeCount).toBe(1);
-    expect(environment.bakedZeniths[0]).toBe(DAY_CYCLE_SKY_PRESETS.day.zenith.getHex());
-    expect(environment.bakedZeniths[0]).not.toBe(DAY_CYCLE_SKY_PRESETS.night.zenith.getHex());
+    expect(environment.bakedZeniths[0]).toBe(GARDEN_SKY_BEATS.day.zenith.getHex());
+    expect(environment.bakedZeniths[0]).not.toBe(GARDEN_SKY_BEATS.night.zenith.getHex());
 
     // And every later rebake is the sky of its own frame, not the last one's.
     renderer.render(rendererFrame(world, "full", { wallClockHour: 0 }));
-    expect(environment.bakedZeniths[1]).toBe(DAY_CYCLE_SKY_PRESETS.night.zenith.getHex());
+    expect(environment.bakedZeniths[1]).toBe(GARDEN_SKY_BEATS.night.zenith.getHex());
 
     renderer.dispose();
   });
@@ -1405,7 +1407,7 @@ describe("W6.5 sky-probe environment", () => {
     renderer.render(rendererFrame(world, "full", { timeSeconds: 1, wallClockHour: 12 }));
     renderer.render(rendererFrame(world, "full", { timeSeconds: 1.1, wallClockHour: 12 }));
     const environment = environmentHarness.instances.at(-1)!;
-    const steady = environment.update.mock.calls.at(-1)![2];
+    const steady = environment.update.mock.calls.at(-1)![3];
     // The ambient crossfade between bakes is a real-time ease, so the probe
     // needs the same delta every other eased system in the frame runs on —
     // without it the module was left inventing one from `performance.now()`.
@@ -1417,11 +1419,11 @@ describe("W6.5 sky-probe environment", () => {
     // left alone, and an episodic PMREM bake is exactly the kind of work that
     // can wait for the gesture to end. The wait is bounded inside the probe.
     renderer.render(rendererFrame(world, "interaction", { timeSeconds: 1.2, wallClockHour: 12 }));
-    expect(environment.update.mock.calls.at(-1)![2].bakeAllowed).toBe(false);
+    expect(environment.update.mock.calls.at(-1)![3].bakeAllowed).toBe(false);
 
     // The still frame has no later frame to defer to, and says so.
     renderer.render(rendererFrame(world, "full", { reducedMotion: true, wallClockHour: 12 }));
-    expect(environment.update.mock.calls.at(-1)![2].reducedMotion).toBe(true);
+    expect(environment.update.mock.calls.at(-1)![3].reducedMotion).toBe(true);
 
     renderer.dispose();
   });

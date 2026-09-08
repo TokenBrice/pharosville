@@ -13,17 +13,9 @@ import {
 import { gardenSunPose } from "./garden-sun";
 
 /**
- * W2.1 shared analytic atmosphere.
- *
- * This is an extra term in the existing fog ladder, never a replacement for
- * the view-scaled linear fog owned by garden-sky. In particular it does not
- * move that ladder's `FOG_REFERENCE_VIEW_HEIGHT` pivot: the pivot must keep
- * tracking the real default view height (~62.5 wu at the 1.0 rest zoom and
- * 1000 px — it was ~77 when this comment said "~78", before the resting
- * camera was re-based in the 2026-09-05 warm-village pass), because the
- * upper-frame haze band — not the sky dome, which cannot enter the locked
- * ortho frame — is the visible sky. Bokashi bands and mist shelves remain
- * later near-field accents.
+ * Authored far-bank atmosphere, supplementary to the eye-distance linear fog
+ * owned by garden-sky. Hero, fleet and near-shore materials never opt in.
+ * Local epistemic haze remains independent of this illumination layer.
  */
 
 export const gardenHeightFogUniforms = {
@@ -224,7 +216,9 @@ const HEIGHT_FOG_DEPTH_CHUNK = "vGardenHeightFogDepth = -mvPosition.z;";
 export function injectGardenHeightFog(
   shader: GardenCompiledShader,
   epistemicHazeUniform?: { value: number },
+  farBank = false,
 ): void {
+  if (!farBank && !epistemicHazeUniform) return;
   Object.assign(shader.uniforms, gardenHeightFogUniforms);
   if (epistemicHazeUniform) shader.uniforms.uGardenEpistemicHaze = epistemicHazeUniform;
   shader.vertexShader = shader.vertexShader
@@ -251,13 +245,13 @@ export function injectGardenHeightFog(
     )
     .replace(
       "#include <fog_fragment>",
-      `#include <fog_fragment>
+      `#include <fog_fragment>${farBank ? `
       gl_FragColor.rgb = gardenApplyHeightFog(
         gl_FragColor.rgb,
         vGardenHeightFogWorldPosition,
         vGardenHeightFogDepth,
         normalize(vGardenHeightFogWorldPosition - cameraPosition)
-      );${epistemicHazeUniform ? `
+      );` : ""}${epistemicHazeUniform ? `
       gl_FragColor.rgb = gardenApplyLocalizedHeightFog(
         gl_FragColor.rgb,
         vGardenHeightFogWorldPosition,
@@ -271,8 +265,9 @@ export function injectGardenHeightFog(
 /** Composes with any existing material patch and is safe to call repeatedly. */
 export function patchGardenHeightFogMaterial(
   material: MeshStandardMaterial,
-  options: { epistemicHaze?: "quay" } = {},
+  options: { epistemicHaze?: "quay"; farBank?: boolean } = {},
 ): void {
+  if (!options.farBank && !options.epistemicHaze) return;
   if (material.userData.gardenHeightFog) return;
   material.userData.gardenHeightFog = true;
   const epistemicHazeUniform = options.epistemicHaze === "quay"
@@ -282,16 +277,16 @@ export function patchGardenHeightFogMaterial(
   const previousCacheKey = material.customProgramCacheKey();
   material.onBeforeCompile = (shader, renderer) => {
     previousCompile.call(material, shader, renderer);
-    injectGardenHeightFog(shader, epistemicHazeUniform);
+    injectGardenHeightFog(shader, epistemicHazeUniform, options.farBank);
   };
-  material.customProgramCacheKey = () => `${previousCacheKey}|garden-height-fog-v1${epistemicHazeUniform ? "|epistemic-quay" : ""}`;
+  material.customProgramCacheKey = () => `${previousCacheKey}|garden-height-fog-v2${options.farBank ? "|far-bank" : ""}${epistemicHazeUniform ? "|epistemic-quay" : ""}`;
   material.needsUpdate = true;
 }
 
-/** Applies W2.1 to every lit standard material below a scene root. */
+/** Applies only explicitly authored far-bank or localized epistemic atmosphere. */
 export function applyGardenHeightFog(
   root: Object3D,
-  options: { epistemicHaze?: "quay" } = {},
+  options: { epistemicHaze?: "quay"; farBank?: boolean } = {},
 ): void {
   root.traverse((object) => {
     if (!(object instanceof Mesh)) return;

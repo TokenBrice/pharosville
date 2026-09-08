@@ -16,7 +16,7 @@ import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import { stableUnit, TILE_SCALE } from "./garden-util";
 import { landWorldTile } from "../systems/map-scale";
 import { createGardenTorii } from "./garden-torii";
-import { createSpeciesBatch } from "./garden-flora";
+import { createPineGeometry } from "./.garden-rim-g1";
 
 /**
  * Z5 — Garden islets (Sakuteiki stone groupings in open water).
@@ -231,9 +231,25 @@ const ISLET_PINES: readonly {
 ];
 
 function createIsletPines(): { mesh: InstancedMesh; triangles: number } {
-  const mesh = createSpeciesBatch("pine", ISLET_PINES);
+  const geometry = createPineGeometry();
+  const mesh = new InstancedMesh(
+    geometry,
+    new MeshStandardMaterial({ flatShading: true, roughness: 0.94, vertexColors: true }),
+    ISLET_PINES.length,
+  );
   mesh.name = "garden-islets-pines";
-  const geometry = mesh.geometry;
+  for (const [index, pine] of ISLET_PINES.entries()) {
+    scratchPosition.set(...pine.position);
+    scratchQuaternion.setFromAxisAngle(Y_AXIS, pine.rotationY);
+    scratchScale.setScalar(pine.scale);
+    scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
+    scratchMatrix.multiply(new Matrix4().makeRotationX(pine.leanX));
+    scratchMatrix.multiply(new Matrix4().makeRotationZ(pine.leanZ));
+    mesh.setMatrixAt(index, scratchMatrix);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   const perPine = (geometry.getIndex()?.count ?? geometry.getAttribute("position").count) / 3;
   return { mesh, triangles: perPine * ISLET_PINES.length };
 }

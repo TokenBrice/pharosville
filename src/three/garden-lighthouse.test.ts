@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { Box3, Mesh, MeshStandardMaterial, Vector3 } from "three";
+import { AdditiveBlending, Box3, Mesh, MeshStandardMaterial, ShaderMaterial, Vector3 } from "three";
 import { GARDEN_LIGHTHOUSE_HEIGHT } from "../systems/garden-observatory-slice";
 import { lampStatusModulationForMix } from "../systems/lamp-status";
 import {
   GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS,
   GARDEN_LIGHTHOUSE_BEAM_LENGTH,
+  GARDEN_LIGHTHOUSE_BEAM_CORE_OPACITY_RATIO,
+  GARDEN_LIGHTHOUSE_BEAM_CORE_RADIUS,
   GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE,
   LIGHTHOUSE_RIM_UNIFORMS,
   LIGHTHOUSE_WINDOW_MATERIAL_NAME,
@@ -37,6 +39,25 @@ describe("garden lighthouse beam ownership", () => {
       "lighthouse-beam-dust",
       "lighthouse-beam",
     ]);
+    disposeThreeObjectTree(lighthouse.root);
+  });
+
+  it("nests a narrow 0.25 high-energy core in the soft cone", () => {
+    const lighthouse = createLighthouse();
+    const cone = lighthouse.beam.getObjectByName("lighthouse-beam-cone") as Mesh;
+    const core = cone.geometry.getAttribute("aBeamCore");
+    expect(Array.from(core.array)).toContain(0);
+    expect(Array.from(core.array)).toContain(1);
+    expect(
+      Math.atan(GARDEN_LIGHTHOUSE_BEAM_CORE_RADIUS / GARDEN_LIGHTHOUSE_BEAM_LENGTH)
+        * 180 / Math.PI,
+    ).toBeLessThanOrEqual(3);
+    expect(0.11 * GARDEN_LIGHTHOUSE_BEAM_CORE_OPACITY_RATIO).toBeCloseTo(0.25, 6);
+    expect((cone.material as ShaderMaterial).blending).toBe(AdditiveBlending);
+    expect(cone.castShadow).toBe(false);
+    expect(cone.receiveShadow).toBe(false);
+    // 20 extra triangles: well inside W2.9's +200-triangle ceiling.
+    expect(cone.geometry.index!.count / 3).toBe(48);
     disposeThreeObjectTree(lighthouse.root);
   });
 
@@ -84,7 +105,7 @@ describe("T1.7 rim light (2026-09-07)", () => {
       return LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimStrength.value;
     };
     expect(strengthAt(12)).toBeCloseTo(0.16, 6);
-    expect(strengthAt(18.5)).toBeCloseTo(0.22, 2);
+    expect(strengthAt(18.5)).toBeCloseTo(0.2, 2);
     expect(strengthAt(1)).toBeCloseTo(0.28, 6);
     // Still an accent, never a light: it is added straight to emissive.
     expect(strengthAt(1)).toBeLessThan(0.35);

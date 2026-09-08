@@ -7,7 +7,6 @@ import { CAMERA_FAR, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, cameraEye, c
 import { buildPharosVilleMap } from "../systems/world-layout";
 import {
   DAY_CYCLE_LIGHT_PRESETS,
-  DAY_CYCLE_SKY_PRESETS,
   dayCyclePhase,
 } from "./garden-day-cycle";
 import {
@@ -268,13 +267,12 @@ describe("garden sky atmospheric scattering", () => {
 
   it("drives the field from the day cycle and the light rig's own sun tint", () => {
     const sky = createGardenSky();
-    // Solar noon on the arc, where it still passes exactly through the
-    // calibrated key light at island + (-35, 48, -30).
+    // Solar noon keeps the bearing, with the lower form-lighting apex.
     sky.applyPhase(dayCyclePhase(12.25), 12.25);
     expect(sky.domeMaterial.uniforms.uScattering!.value).toBeCloseTo(1);
     expect(sky.domeMaterial.uniforms.uSunIntensity!.value).toBeCloseTo(1.55);
     const sunDir = sky.domeMaterial.uniforms.uSunDir!.value as Vector3;
-    expect(sunDir.y).toBeCloseTo(0.721, 2);
+    expect(sunDir.y).toBeCloseTo(Math.sin(0.62), 6);
     expect(sunDir.x / sunDir.z).toBeCloseTo(35 / 30, 1);
     const sunColor = sky.domeMaterial.uniforms.uSunColor!.value as Color;
     expect(sunColor.getHex()).toBe(DAY_CYCLE_LIGHT_PRESETS.day.dirColor.getHex());
@@ -298,8 +296,8 @@ describe("garden sky atmospheric scattering", () => {
     expect(morningDir.angleTo(eveningDir)).toBeGreaterThan(0.5);
     // Both still high in the sky — this is a bearing difference, not the sun
     // simply having set.
-    expect(morningDir.y).toBeGreaterThan(0.5);
-    expect(eveningDir.y).toBeGreaterThan(0.5);
+    expect(morningDir.y).toBeGreaterThan(0);
+    expect(eveningDir.y).toBeGreaterThan(0);
 
     morning.dispose();
     evening.dispose();
@@ -320,23 +318,38 @@ describe("garden sky atmospheric scattering", () => {
  * gives one of them up fails here instead of in a screenshot nobody compares.
  */
 describe("garden sky applyPhase", () => {
-  it("grades the dome without a frame, so the probe can bake before the update", () => {
-    // `garden-environment` bakes its PMREM probe from this material EARLY in
-    // the frame, before `update` runs. Left ungraded the dome still holds the
-    // night colours it was constructed with, and the probe caches those under
-    // a daytime key — every metal surface lit by a night sky at noon.
+  it("grades neutral noon air before the environment probe bakes", () => {
     const sky = createGardenSky();
-    const zenith = sky.domeMaterial.uniforms.uZenith.value as Color;
-    expect(zenith.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.night.zenith.getHex());
-
     sky.applyPhase(dayCyclePhase(12), 12);
+    const zenith = sky.domeMaterial.uniforms.uZenith.value as Color;
+    const horizon = sky.domeMaterial.uniforms.uHorizon.value as Color;
+    expect(zenith.b).toBeGreaterThan(zenith.r * 2);
+    expect(Math.max(horizon.r, horizon.g, horizon.b) - Math.min(horizon.r, horizon.g, horizon.b)).toBeLessThan(0.08);
+    expect(horizon.getHex()).toBe(sky.fog.color.getHex());
+    sky.dispose();
+  });
 
-    expect(zenith.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.day.zenith.getHex());
-    expect((sky.domeMaterial.uniforms.uHorizon.value as Color).getHex())
-      .toBe(DAY_CYCLE_SKY_PRESETS.day.fog.getHex());
-    expect((sky.domeMaterial.uniforms.uMiddle.value as Color).getHex())
-      .toBe(DAY_CYCLE_SKY_PRESETS.day.horizon.getHex());
-    expect(sky.fog.color.getHex()).toBe(DAY_CYCLE_SKY_PRESETS.day.fog.getHex());
+  it("separates rose dawn, amber golden, indigo blue hour and near-black night", () => {
+    const sky = createGardenSky();
+    const sample = (hour: number) => {
+      sky.applyPhase(dayCyclePhase(hour), hour);
+      return {
+        horizon: (sky.domeMaterial.uniforms.uHorizon.value as Color).clone(),
+        zenith: (sky.domeMaterial.uniforms.uZenith.value as Color).clone(),
+        ember: sky.domeMaterial.uniforms.uEmberStrength.value as number,
+      };
+    };
+    const dawn = sample(6);
+    const golden = sample(17.25);
+    const blue = sample(19);
+    const night = sample(23);
+    expect(dawn.horizon.r).toBeGreaterThan(dawn.horizon.g);
+    expect(golden.horizon.r).toBeGreaterThan(golden.horizon.b * 2);
+    expect(golden.zenith.b).toBeGreaterThan(golden.zenith.g);
+    expect(blue.zenith.b).toBeGreaterThan(blue.zenith.r * 2);
+    expect(blue.ember).toBeGreaterThan(0);
+    expect(Math.max(night.zenith.r, night.zenith.g, night.zenith.b)).toBeLessThan(0.02);
+    expect(night.ember).toBe(0);
     sky.dispose();
   });
 

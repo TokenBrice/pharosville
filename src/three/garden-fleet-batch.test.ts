@@ -20,7 +20,6 @@ import {
   gardenFleetFramingRestraint,
   gardenFleetMarkPresence,
   gardenFleetSailRestraint,
-  patchFleetHullFormMaterial,
   patchSailAtlasMaterial,
   setFleetAttention,
   setFleetWeather,
@@ -567,47 +566,6 @@ describe("W5.8/W7.3 instanced hull surface", () => {
     disposeFleetBatches(batches);
   });
 
-  it("keeps value/patina off sail cloth and verdigris off the identity strake", () => {
-    const hullMaterial = new MeshStandardMaterial();
-    patchFleetHullFormMaterial(hullMaterial);
-    const hullShader = {
-      fragmentShader: "#include <common>\n#include <roughnessmap_fragment>",
-      uniforms: {} as Record<string, unknown>,
-      vertexShader: "#include <common>\n#include <begin_vertex>\n#include <color_vertex>\n#include <project_vertex>",
-    };
-    hullMaterial.onBeforeCompile(hullShader as never, null as never);
-    expect(hullShader.vertexShader).toContain("vColor.xyz *= aHullSurface.x");
-    expect(hullShader.vertexShader).toContain("aPartMasks.z * age");
-    expect(hullShader.vertexShader).toContain("aPartMasks.x");
-    expect(hullShader.vertexShader).toContain("aPartMasks.y");
-
-    // 2026-09-07 T3.4: the hull's finish. The waterline band must stay under
-    // 0.12 ship-local units and roughness must never floor below 0.45 — both
-    // are pinned here because they are the two numbers that decide whether the
-    // fleet reads as varnished timber or as 200 twinkling plastic hulls.
-    expect(hullShader.vertexShader).toContain("smoothstep(0.0, 0.11,");
-    expect(hullShader.fragmentShader).toContain("mix(roughnessFactor, 0.45, vHullGloss)");
-    for (const stage of [hullShader.vertexShader, hullShader.fragmentShader]) {
-      expect(stage).toContain("varying float vHullGloss;");
-    }
-    // No new attribute: the rail gloss rides the rim term the masks already
-    // carry. The hull batch is at 15 of the 16 attribute slots.
-    expect(hullShader.vertexShader).toContain("aPartMasks.w * 0.55");
-    // A cache key that did not change means the OLD program is reused and none
-    // of the above ever reaches the GPU.
-    expect(hullMaterial.customProgramCacheKey()).toContain("gloss");
-
-    const sailMaterial = new MeshStandardMaterial();
-    patchSailAtlasMaterial(sailMaterial);
-    const sailShader = {
-      fragmentShader: "#include <common>\n#include <map_fragment>\n#include <normal_fragment_begin>",
-      uniforms: {} as Record<string, unknown>,
-      vertexShader: "#include <common>\n#include <begin_vertex>\n#include <project_vertex>\n#include <uv_vertex>",
-    };
-    sailMaterial.onBeforeCompile(sailShader as never, null as never);
-    expect(sailShader.vertexShader).not.toContain("aHullSurface");
-    expect(sailShader.fragmentShader).not.toContain("verdigris");
-  });
 });
 
 describe("F1 brand-dyed cloth", () => {
@@ -1029,33 +987,4 @@ describe("W3.7 woven cloth", () => {
   });
 
 
-  it("composes aerial chroma recession before the shared height fog", () => {
-    const material = new MeshStandardMaterial();
-    patchSailAtlasMaterial(material);
-    const shader = {
-      fragmentShader: [
-        "#include <common>",
-        "#include <map_fragment>",
-        "#include <normal_fragment_begin>",
-        "#include <fog_fragment>",
-      ].join("\n"),
-      uniforms: {} as Record<string, { value: unknown }>,
-      vertexShader: [
-        "#include <common>",
-        "#include <begin_vertex>",
-        "#include <project_vertex>",
-        "#include <uv_vertex>",
-        "#include <worldpos_vertex>",
-      ].join("\n"),
-    };
-    material.onBeforeCompile!(shader as never, null as never);
-
-    const restraintAt = shader.fragmentShader.indexOf("sailCloth = mix(sailCloth");
-    const fogAt = shader.fragmentShader.indexOf("gl_FragColor.rgb = gardenApplyHeightFog");
-    expect(restraintAt).toBeGreaterThan(-1);
-    expect(fogAt).toBeGreaterThan(restraintAt);
-    expect(shader.fragmentShader).toContain("pow(sunDot, 8.0)");
-    expect(shader.vertexShader).toContain("vGardenHeightFogWorldPosition");
-    expect(shader.uniforms.uGardenHeightFogDensity).toBeDefined();
-  });
 });

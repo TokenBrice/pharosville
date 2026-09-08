@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { defaultCamera } from "../systems/camera";
 import { CAMERA_FAR, CAMERA_FOV_DEG, CAMERA_NEAR, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, TILE_SCALE, cameraEye, cameraPoseFromIso, screenToGroundRay } from "../systems/projection";
 import { buildPharosVilleMap } from "../systems/world-layout";
-import { DAY_CYCLE_SKY_PRESETS, dayCyclePhase } from "./garden-day-cycle";
+import { DAY_CYCLE_SKY_PRESETS } from "./garden-day-cycle";
 import { countDrawableObjects } from "./garden-util";
 import { createGardenHorizon } from "./garden-horizon";
 
@@ -18,7 +18,7 @@ const FRAME = {
 describe("garden horizon", () => {
   it("keeps three partial headlands beyond the plate in one non-selectable draw under the triangle cap", () => {
     const horizon = createGardenHorizon();
-    horizon.update(dayCyclePhase(12), FRAME);
+    horizon.update(12, FRAME);
     expect(horizon.silhouetteCount).toBe(3);
     expect(horizon.triangleCount).toBeLessThanOrEqual(2_000);
     expect(countDrawableObjects(horizon.root)).toBe(1);
@@ -53,7 +53,7 @@ describe("garden horizon", () => {
         const eye = cameraEye(pose);
         const targetX = pose.targetTile.x * TILE_SCALE;
         const targetZ = pose.targetTile.y * TILE_SCALE;
-        horizon.update(dayCyclePhase(12), { ...FRAME, cameraPosition: eye, targetX, targetZ });
+        horizon.update(12, { ...FRAME, cameraPosition: eye, targetX, targetZ });
         const camera = new PerspectiveCamera(CAMERA_FOV_DEG, viewport.x / viewport.y, CAMERA_NEAR, CAMERA_FAR);
         camera.position.set(eye.x, eye.y, eye.z);
         camera.lookAt(targetX, pose.targetHeight, targetZ);
@@ -87,11 +87,11 @@ describe("garden horizon", () => {
     const horizon = createGardenHorizon();
     const material = (horizon.root.children[0] as Mesh).material as ShaderMaterial;
     for (const fogColor of [DAY_CYCLE_SKY_PRESETS.day.fog, DAY_CYCLE_SKY_PRESETS.night.fog, new Color(0x283644)]) {
-      horizon.update(dayCyclePhase(12), { ...FRAME, fogColor });
+      horizon.update(12, { ...FRAME, fogColor });
       expect((material.uniforms.uFogColor.value as Color).getHex()).toBe(fogColor.getHex());
       expect(horizon.root.visible).toBe(true);
     }
-    horizon.update(dayCyclePhase(12), { ...FRAME, tier: "constrained" });
+    horizon.update(12, { ...FRAME, tier: "constrained" });
     expect(horizon.root.visible).toBe(false);
     horizon.dispose();
   });

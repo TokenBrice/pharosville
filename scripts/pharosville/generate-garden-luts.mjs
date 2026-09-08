@@ -3,7 +3,7 @@
  * Deterministically generates the two post-chain lookup textures the fused
  * grade pass consumes (Garden of Light W1.1 / W1.2):
  *
- *   public/pharosville/textures/garden-grade-lut.png   1024x96 RGB
+ *   public/pharosville/textures/garden-grade-lut.png   1024x160 RGB
  *   public/pharosville/textures/garden-blue-noise.png  64x64 grey
  *
  * WHY A SCRIPT AND NOT A COLOURIST'S .cube: this repository has no Resolve and
@@ -16,10 +16,9 @@
  * agree.
  *
  * LAYOUT: one 32^3 LUT is a 32x32 grid of blue slices, written as a 1024x32
- * strip (x = red within a 32px slice, slice index = blue, y = green). The three
- * day-phase LUTs are STACKED into one 1024x96 image, night on top, then dusk,
- * then day, so the runtime carries a single texture and a single owner instead
- * of three. The shader samples each band with a manual trilinear lookup that
+ * strip (x = red within a 32px slice, slice index = blue, y = green). Five
+ * bands are stacked dawn/day/golden/blue/night into one 1024x160 image.
+ * One immutable texture owns all clock looks.
  * never crosses a slice or band boundary, so linear filtering is safe.
  *
  * DOMAIN: the LUT is applied POST-AgX, on the sRGB-ENCODED display signal (see
@@ -46,8 +45,8 @@ const checkOnly = process.argv.includes("--check");
 
 /** Cube edge. 32 is the ceiling a 2D strip can carry without a huge texture. */
 const LUT_SIZE = 32;
-/** Night, dusk, day — the same three phases the parametric grade table blends. */
-const LUT_BANDS = 3;
+/** Dawn, day, golden, blue, night — identical to the runtime beat order. */
+const LUT_BANDS = 5;
 const BLUE_NOISE_SIZE = 64;
 
 /**
@@ -61,104 +60,41 @@ const BLUE_NOISE_SIZE = 64;
  */
 const LUT_STRENGTH = 0.9;
 
-/**
- * The three phase grades.
- *
- * Every colour is a hex anchor rather than a raw vector: the shadow/highlight
- * pushes are derived from the anchor by subtracting its own mean, so what the
- * transform adds is the anchor's HUE, never its brightness. A push of 0.035
- * therefore means "at most ±9 output codes of hue lean in the deepest
- * shadows", which is the order of magnitude a refinement is allowed.
- *
- * Hue bands are raised-cosine windows in degrees. They are how a per-hue
- * saturation curve is written without a curve editor: name the family, say how
- * wide it is, and say what happens to it. Near-neutral colours are excluded
- * from every band (see `bandWeight`) so the cube can never twist greys.
- */
+// Display-domain refinement only. Direct-sun warmth is already applied above
+// the HDR luma knee in garden-post; never paint that warmth over diffuse whites.
+const BASE_GRADE = {
+  contrast: 0.12,
+  highlightAnchor: "#ffffff", highlightPush: 0, highlightRange: [0.85, 1],
+  hueBands: [],
+  lift: 0, liftTint: "#ffffff", saturation: 1,
+  shadowAnchor: "#31465b", shadowPush: 0, shadowRange: [0, 0.4],
+};
 const PHASES = [
   {
-    id: "night",
-    // The parametric grade now exposes broad night form, so the cube preserves
-    // that printed-black floor instead of bending its darkest step back toward
-    // absence. Golden Garden (2026-09-07): the night axis is violet-indigo,
-    // lantern gold is exempt from the cool rotation, and cyan water leans
-    // toward the indigo family so the moon road sits on its complement.
-    contrast: 0.06,
-    highlightAnchor: "#d3dcf7",
-    highlightPush: 0.02,
-    highlightRange: [0.55, 1.0],
-    hueBands: [
-      // Lantern and beacon warmth is the one thing night must not lose.
-      { center: 38, rotate: 0, saturation: 1.1, width: 46 },
-      // Foliage at night is a silhouette, not a colour.
-      { center: 115, rotate: 0, saturation: 0.9, width: 50 },
-      // Cyan-leaning water pulled toward the indigo-violet family.
-      { center: 195, rotate: 8, saturation: 1.02, width: 42 },
-    ],
-    lift: 0.02,
-    liftTint: "#6c6f8e",
-    // Expand around the measured night-water value instead of globally
-    // crushing blacks: lit island facets rise, shadowed rim/hulls fall, and
-    // the water pivot receives only the small neutral floor below.
-    midtoneContrast: 0.65,
-    midtoneLift: 0.025,
-    midtonePivot: 0.2,
-    saturation: 1.0,
-    shadowAnchor: "#2a2650",
-    shadowPush: 0.028,
-    shadowRange: [0.0, 0.55],
+    ...BASE_GRADE, id: "dawn", contrast: 0.1,
+    hueBands: [{ center: 195, rotate: 0, saturation: 1.025, width: 42 }],
   },
   {
-    id: "dusk",
-    // Dusk is the split: gold-amber highlights over VIOLET shadows. The retired
-    // cube pushed shadows to a teal (#164f58) and desaturated foliage to olive,
-    // which under an orange key read as brown smog. Ember is light only
-    // against its complement.
-    contrast: 0.24,
-    highlightAnchor: "#f5b565",
-    highlightPush: 0.064,
-    highlightRange: [0.5, 1.0],
+    ...BASE_GRADE, id: "day", contrast: 0.18,
     hueBands: [
-      { center: 40, rotate: -4, saturation: 1.08, width: 48 },
-      { center: 115, rotate: -6, saturation: 0.96, width: 48 },
-      { center: 210, rotate: 10, saturation: 1.06, width: 45 },
-    ],
-    lift: 0.01,
-    liftTint: "#6a5a9e",
-    saturation: 1.06,
-    shadowAnchor: "#3d2f6e",
-    shadowPush: 0.058,
-    shadowRange: [0.0, 0.58],
-  },
-  {
-    id: "day",
-    // Golden day: a gentle S-curve for structure, a warm ivory highlight, a
-    // shadow that leans violet-blue (not navy — navy on ochre is mud), and
-    // foliage that is ALLOWED to be green. The retired cube desaturated the
-    // greens to 0.86 and rotated them toward yellow; luxuriant land is the
-    // whole point of this grade, so the foliage band now lifts instead.
-    contrast: 0.5,
-    highlightAnchor: "#fbf0d8",
-    highlightPush: 0.05,
-    highlightRange: [0.45, 1.0],
-    hueBands: [
-      // Shu vermilion is the sacred accent; it survives untouched.
-      { center: 8, rotate: 0, saturation: 1.04, width: 28 },
-      // Ochre, terracotta and thatch: a little more dye under the honey key.
-      { center: 45, rotate: 0, saturation: 1.06, width: 40 },
-      // Foliage: sunlit moss, a touch more chroma, no yellow rotation.
-      { center: 120, rotate: 0, saturation: 1.1, width: 48 },
-      // The turquoise sea is most of the frame — a breath more dye, no re-hue.
+      { center: 120, rotate: 0, saturation: 1.04, width: 48 },
       { center: 190, rotate: 0, saturation: 1.04, width: 45 },
-      // Sky blue stays cerulean.
-      { center: 235, rotate: 0, saturation: 1.0, width: 45 },
     ],
-    lift: 0.014,
-    liftTint: "#6c7ab0",
-    saturation: 1.02,
-    shadowAnchor: "#3a4a8a",
-    shadowPush: 0.05,
-    shadowRange: [0.0, 0.6],
+  },
+  {
+    ...BASE_GRADE, id: "golden", contrast: 0.14,
+    hueBands: [{ center: 38, rotate: 0, saturation: 1.04, width: 46 }],
+  },
+  {
+    ...BASE_GRADE, id: "blue", contrast: 0.16,
+    hueBands: [{ center: 210, rotate: 0, saturation: 1.035, width: 45 }],
+  },
+  {
+    ...BASE_GRADE, id: "night", contrast: 0.2,
+    hueBands: [
+      { center: 38, rotate: 0, saturation: 1.04, width: 46 },
+      { center: 115, rotate: 0, saturation: 0.9, width: 50 },
+    ],
   },
 ];
 
@@ -246,7 +182,7 @@ function gradeTexel(input, phase) {
   const highlightDirection = phase.highlightDirection;
   const tint = phase.liftDirection;
 
-  // 1. Lift toward a tinted floor. Print blacks, never absence.
+  // Preserve zero: no clock beat invents light in an unlit surface.
   let color = input.map((channel, index) => (
     channel * (1 - phase.lift) + phase.lift * tint[index]
   ));
@@ -257,18 +193,6 @@ function gradeTexel(input, phase) {
     return channel + (shaped - channel) * phase.contrast;
   });
 
-  // 2b. Night-only local value separation. Unlike a blue shadow push this is
-  // channel-symmetric, so it preserves hue and expands existing material
-  // ratios around the moonlit water plane rather than repainting them.
-  if (phase.midtoneContrast) {
-    color = color.map((channel, index) => {
-      const expanded = phase.midtonePivot
-        + (channel - phase.midtonePivot) * (1 + phase.midtoneContrast)
-        + phase.midtoneLift;
-      const printedFloor = phase.lift * tint[index] * 0.65;
-      return clamp01(Math.max(printedFloor, expanded));
-    });
-  }
 
   // 3. Luma-keyed hue push: shadows one way, highlights the other.
   const l = luma(color);

@@ -1,7 +1,13 @@
-import { DataTexture, Mesh, Points, RGBAFormat } from "three";
+import { Color, DataTexture, InstancedMesh, Mesh, PlaneGeometry, Points, RGBAFormat, ShaderMaterial } from "three";
 import { describe, expect, it } from "vitest";
 import { lampStatusModulationForMix } from "../systems/lamp-status";
-import { createGardenBeaconFire } from "./garden-beacon-fire";
+import { HARBOR_PALETTE } from "../systems/palette";
+import {
+  GARDEN_BEACON_FLAME_CORE_LUMINANCE,
+  GARDEN_BEACON_SMOKE_QUAD_SIZE,
+  createGardenBeaconFire,
+} from "./garden-beacon-fire";
+import { GARDEN_BLOOM_PRACTICAL_THRESHOLD } from "./garden-post";
 import { createGardenSummitBirds } from "./garden-summit-birds";
 
 function mockNoiseTexture(): DataTexture {
@@ -15,6 +21,32 @@ describe("garden beacon fire (W4)", () => {
     expect(fire.root.getObjectByName("lighthouse-embers")).toBeInstanceOf(Points);
     expect(fire.root.getObjectByName("lighthouse-smoke")).toBeDefined();
     expect(fire.root.getObjectByName("lighthouse-mirror")).toBeInstanceOf(Mesh);
+    fire.dispose();
+  });
+
+  it("makes the daymark 1.6x larger and one stop darker", () => {
+    const fire = createGardenBeaconFire(mockNoiseTexture());
+    const smoke = fire.root.getObjectByName("lighthouse-smoke") as InstancedMesh;
+    const material = smoke.material as ShaderMaterial;
+    const geometry = smoke.geometry as PlaneGeometry;
+    expect(geometry.parameters.width).toBeCloseTo(GARDEN_BEACON_SMOKE_QUAD_SIZE, 6);
+    expect(GARDEN_BEACON_SMOKE_QUAD_SIZE).toBeCloseTo(1.6 * 1.6, 6);
+    const originalLight = new Color(HARBOR_PALETTE.fog_pale);
+    const originalDark = new Color(HARBOR_PALETTE.fog_blue);
+    expect(material.uniforms.uDayLight.value.r).toBeCloseTo(originalLight.r * 0.5, 6);
+    expect(material.uniforms.uDayDark.value.b).toBeCloseTo(originalDark.b * 0.5, 6);
+    expect(smoke.count).toBe(16);
+    fire.dispose();
+  });
+
+  it("reserves selective bloom for the raised night flame core", () => {
+    const fire = createGardenBeaconFire(mockNoiseTexture());
+    const flame = fire.root.getObjectByName("lighthouse-flame") as Mesh;
+    const material = flame.material as ShaderMaterial;
+    expect(material.uniforms.uBloomFloor.value)
+      .toBe(GARDEN_BEACON_FLAME_CORE_LUMINANCE);
+    expect(GARDEN_BEACON_FLAME_CORE_LUMINANCE)
+      .toBeGreaterThan(GARDEN_BLOOM_PRACTICAL_THRESHOLD);
     fire.dispose();
   });
 

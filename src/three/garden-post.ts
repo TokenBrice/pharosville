@@ -38,6 +38,10 @@ import {
 } from "three";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import type { PharosVilleRenderMetrics, TextureOwnerManifestEntry } from "../renderer/render-types";
+import { dayCycleBeats } from "./garden-day-cycle";
+
+/** Linear HDR luminance: cloth, stone and sky remain below this knee. */
+export const GARDEN_BLOOM_PRACTICAL_THRESHOLD = 2.4;
 
 /**
  * The world's ONE tone-mapping decision (warm-village B5, 2026-09-05).
@@ -55,94 +59,7 @@ import type { PharosVilleRenderMetrics, TextureOwnerManifestEntry } from "../ren
  */
 export const GARDEN_TONE_MAPPING: "agx" | "neutral" = "neutral";
 
-/**
- * Phase 1b (Breathtaking Rendering): one table owns every per-day-phase post
- * value — the grade preset, the bloom knee/strength, and the AO intensity.
- * The day cycle blends night → dusk → day over the whole record with the
- * same two scalars, so adding a phase-tuned post parameter is a table entry,
- * never a new runtime branch.
- *
- * Bloom knees: the V-plan knee (0.55) predates the Garden Sea: the bokashi
- * day sky/fog sits at ~0.7–0.8 linear luminance frame-wide and the full-tier
- * lantern pool ring overlaps to ~1.0 around the island, so a 0.55 knee lets
- * bloom flood the whole frame (the P1 full-tier whiteout). The knees below
- * keep only true HDR sources blooming, while sky, fog, water bands, and
- * reflection pools stay below.
- *
- * W1.3 (2026-08-13) re-derived the knees from what the frame ACTUALLY hands
- * the prefilter, because the older figures above conflated `emissiveIntensity`
- * with the relative luminance the LuminanceMaterial computes. The prefilter
- * sees the linear HDR frame BEFORE the grade and before tone mapping, so an
- * emissive surface reaches it at `emissiveIntensity * luminance(emissiveColorLinear)`,
- * and every warm emitter in this world is `lantern_warm` (#d49a3e), whose
- * linear relative luminance is 0.371 — not 1. Recomputed against the shipped
- * drivers, at night:
- *
- *   harbor lantern core   2.08 (garden-day-cycle) * 0.371  ≈ 0.77
- *   ship lantern core     1.95 * 0.371                     ≈ 0.72
- *   lantern pool ring     painted reflection disc          ≈ 1.0
- *   moon-road glitter     garden-water `* 2.6` on a pale road colour ≈ 1.7–2.1
- *   beacon fire core      uIntensity ~7.2, near-white       ≈ 4–6
- *   sun glitter (day)     garden-water `* 1.7`              ≈ 1.4–1.7
- *   day sky / haze band                                     ≈ 0.7–0.8
- *
- * Two things follow from that ordering, and the second one is the surprise.
- *
- * First: at the old 0.95 knee the LANTERNS WERE ALREADY BELOW IT. Every warm
- * halo visible around a lantern at night is painted geometry, not bloom. So
- * raising the night knee cannot cost lantern glow — and, symmetrically, no
- * knee that keeps the moon road (~1.7–2.1) quiet could ever have made lanterns
- * bloom. The night knee therefore moves above the lantern pool ring, to 1.55
- * with a wide 0.45 shoulder, which leaves the intended hierarchy: beacon
- * dominant, moon road a quiet secondary at ~25 % weight on its shoulder,
- * everything else ember.
- *
- * Second, and this is why W1.3 did NOT go on to add a SelectiveBloomEffect:
- * the night frame's milkiness is not bloom at all. A/B'd on the real GPU
- * (Apple M5 Pro, ANGLE Metal, tier full, `preview.mjs` at `#t=22&n=1`, one
- * commit, only this row changed), the old row against the new one moves the
- * whole frame's mean luminance by 0.17 codes of 255 — open water by 0.20, the
- * dock lantern cluster by 0.01, the beacon by -0.24, the moon road by +1.64.
- * Almost nothing in a night frame except the beacon and the tips of the moon
- * road crosses even the OLD knee. The wash the plan wanted removed is the
- * painted reflection discs and the water shader, which live in `garden-water`
- * and `garden-island`, not here. An emissive-luminance mask was therefore not
- * added: selectivity isolates emitters from a bloom that is drowning them, and
- * measurement says this bloom is not drowning anything. The escalation would
- * have bought a second luminance target and a mask pass to solve a problem in
- * a different file. What this retune does buy is structural and cheap: the
- * pool ring's marginal contribution leaves, the energy goes to the beacon
- * (strength 0.55 → 0.80), and the day knee stops sitting 19 % above a haze
- * band that other work is actively re-authoring.
- *
- * Day is the mirror case: the sky is the brightest thing in the frame by area,
- * and "crisp day" means bloom must not be able to reach it even if the bokashi
- * wipe drifts. The 0.95 knee left only a 19 % margin over the haze band; 1.20
- * leaves 50 %, and still sits under the sun glitter, which is the one thing by
- * day that is supposed to sparkle. Dusk splits the difference at 1.15 with a
- * wide shoulder, because warm pools ARE the dusk look.
- *
- * Bloom strength also follows the day cycle. Night's old 0.55 was a defensive
- * number set when the whole pool ring was blooming; with the wash gone, the
- * beacon is nearly alone above the knee and can be given back its presence
- * (0.80) without smearing the island. Day keeps its strength for the glitter.
- *
- * Smoothing and radius are per-phase for the same reason. The knee's shoulder
- * width is what turns a threshold into a hierarchy — a hard 0.01 knee makes
- * every source either fully in or fully out, which is precisely the flat look
- * W1.3 exists to fix — and the mipmap radius is what separates a tight day
- * sparkle (0.50) from a beacon that breathes at night (0.72). Both are plain
- * uniforms: `LuminanceMaterial.smoothing` writes `uniforms.smoothing` (its
- * `defines.THRESHOLD` write is a no-op here, since the threshold is never 0
- * and nothing sets `needsUpdate`), and `MipmapBlurPass.radius` is a uniform on
- * the upsample material. Neither recompiles a shader, so both are safe on the
- * per-frame day-cycle path — unlike N8AO's sample counts.
- *
- * AO intensity is N8AO's `pow(ao, intensity)` exponent — higher darkens
- * occluded areas more. Night is the hero (strongest grounding under the
- * emissives); day runs the softest curve because the bright diffuse already
- * shows contact shadowing.
- */
+/** Five clock beats own grade, contact contrast and practical-source glow. */
 interface PostPhaseConfig {
   aoIntensity: number;
   /** Mipmap-blur spread: tight by day for crispness, wide at night to breathe. */
@@ -197,114 +114,48 @@ interface GradePreset {
    */
   vignetteBias: number;
 }
+const GRADE_TRIPLES = ["gain", "gamma", "highlightTint", "lift", "shadowTint"] as const;
+const GRADE_SCALARS = ["saturation", "split", "vignette", "vignetteBias"] as const;
 
-// Golden Garden grades (2026-09-07). The rule across all three phases is that
-// the shadow side is the COMPLEMENT of the key, never merely "cooler": a honey
-// key over violet-leaning shadows, an ember over violet, moonlight over
-// indigo. The retired day grade pushed shadows to [0.84, 0.96, 1.10] — a cyan
-// that turned every unlit ochre to mud — and sat at 0.97 saturation, which
-// with the LUT's foliage desaturation left the land olive-grey.
-//
-// Night is the hero: shadows keep a violet printed floor, highlights stay
-// warm, and the softer vignette leaves the camera-side rim readable. The lift
-// is deliberately global: it raises unlit water as well as standard-material
-// hulls without inventing another light or spending the emissive-water budget.
+// Illumination carries colour. The grade never manufactures a black floor;
+// only HDR highlights above the sun knee receive warmth.
 const NIGHT_GRADE: GradePreset = {
-  gain: [1.04, 1.03, 1.05],
-  gamma: [0.95, 0.95, 0.96],
-  highlightTint: [1.08, 1.04, 0.92],
-  lift: [0.01, 0.01, 0.018],
-  saturation: 1.02,
-  shadowTint: [0.98, 0.95, 1.06],
-  split: 0.34,
-  // T1.1 (2026-09-07): 0.25 -> 0.28, bias 0.25 -> 0.15. Night takes the
-  // smallest step of the three phases on purpose. The proposed 0.32/0.12 puts
-  // ~22.6 % darkening on the bottom corners; the night grade's premise above is
-  // that the camera-side rim stays readable, and that rim is the darkest thing
-  // in the frame (global lift 0.01, no key). 0.28/0.15 lands at ~19.1 %, which
-  // keeps the near rim inside the ~20 % ceiling the soft-falloff note implies
-  // while still flipping the bias to the bottom of frame.
-  vignette: 0.28,
-  vignetteBias: 0.15,
-};
-const DUSK_GRADE: GradePreset = {
-  gain: [1.04, 0.98, 1.0],
-  gamma: [1.0, 1.0, 1.0],
-  highlightTint: [1.16, 1.0, 0.78],
-  lift: [0.006, 0.005, 0.01],
-  saturation: 1.12,
-  shadowTint: [0.94, 0.92, 1.1],
-  split: 0.55,
-  // T1.1 (2026-09-07): 0.26 -> 0.38, bias 0.35 -> 0.15. The old top-heavy bias
-  // double-darkened the ember horizon, which is the one thing dusk is for.
-  vignette: 0.38,
-  vignetteBias: 0.15,
+  gain: [1, 1, 1], gamma: [1, 1, 1], highlightTint: [1, 1, 1],
+  lift: [0, 0, 0], saturation: 1, shadowTint: [0.98, 0.99, 1.02],
+  split: 0.35, vignette: 0.28, vignetteBias: 0.15,
 };
 const DAY_GRADE: GradePreset = {
-  gain: [1.04, 1.0, 0.95],
-  gamma: [1.0, 1.0, 1.0],
-  highlightTint: [1.12, 1.03, 0.82],
-  lift: [0.004, 0.004, 0.007],
-  saturation: 1.12,
-  shadowTint: [0.94, 0.95, 1.06],
-  split: 0.45,
-  // T1.1 (2026-09-07): 0.26 -> 0.40, bias 0.4 -> 0.15. Day is the headline
-  // case: 0.26/0.4 left the bottom corners at ~12.5 % darkening, so the frame
-  // had no floor at the modal hour. 0.40/0.15 reads ~27 % there and ~36 % at
-  // the top, still graded rather than symmetric.
-  vignette: 0.4,
-  vignetteBias: 0.15,
+  gain: [1, 1, 1], gamma: [1, 1, 1], highlightTint: [1.025, 1.01, 0.99],
+  lift: [0, 0, 0], saturation: 1.04, shadowTint: [1, 1, 1],
+  split: 0.45, vignette: 0.4, vignetteBias: 0.15,
+};
+const DAWN_GRADE: GradePreset = {
+  ...DAY_GRADE, highlightTint: [1.06, 1.015, 0.96],
+  shadowTint: [0.98, 0.99, 1.025], split: 0.5, vignette: 0.34,
+};
+const GOLDEN_GRADE: GradePreset = {
+  ...DAY_GRADE, highlightTint: [1.12, 1.035, 0.9],
+  shadowTint: [0.98, 0.97, 1.035], split: 0.65, vignette: 0.38,
+};
+const BLUE_GRADE: GradePreset = {
+  ...NIGHT_GRADE, shadowTint: [0.98, 1, 1.035], saturation: 1.025, vignette: 0.32,
 };
 
 const POST_PHASE_NIGHT: PostPhaseConfig = {
-  aoIntensity: 5,
-  bloomRadius: 0.72,
-  bloomSmoothing: 0.45,
-  bloomStrength: 0.8,
-  bloomThreshold: 1.55,
+  aoIntensity: 5, bloomRadius: 0.82, bloomSmoothing: 0.35,
+  bloomStrength: 0.8, bloomThreshold: GARDEN_BLOOM_PRACTICAL_THRESHOLD,
   grade: NIGHT_GRADE,
-  stormBloomStrength: 0.22,
-  stormBloomThreshold: 0.3,
-  stormLift: [0.004, 0.008, 0.02],
+  stormBloomStrength: 0.22, stormBloomThreshold: 0, stormLift: [0, 0, 0],
 };
-const POST_PHASE_DUSK: PostPhaseConfig = {
-  aoIntensity: 4,
-  bloomRadius: 0.64,
-  bloomSmoothing: 0.3,
-  bloomStrength: 0.85,
-  bloomThreshold: 1.15,
-  grade: DUSK_GRADE,
-  stormBloomStrength: 0.26,
-  stormBloomThreshold: 0.25,
-  stormLift: [0.004, 0.008, 0.02],
-};
-const POST_PHASE_DAY: PostPhaseConfig = {
-  aoIntensity: 3,
-  bloomRadius: 0.5,
-  bloomSmoothing: 0.2,
-  bloomStrength: 0.92,
-  bloomThreshold: 1.2,
-  grade: DAY_GRADE,
-  stormBloomStrength: 0.3,
-  stormBloomThreshold: 0.28,
-  stormLift: [0.005, 0.009, 0.022],
-};
-
-// UnrealBloomPass was a fixed five-level mip pyramid; keep the same depth so
-// the glow spread stays the size the day-cycle grades were tuned against.
-const BLOOM_MIP_LEVELS = 5;
-/**
- * The floor a full storm may never open the knee past.
- *
- * The storm rows subtract from the phase knee to buy the wet-glow flare, and
- * their subtraction had to grow with the W1.3 knees (0.05 off a 0.95 knee was
- * 5 %; the same 0.05 off 1.55 would have been noise). This floor is what keeps
- * that growth honest: 0.85 still sits above the day haze band (~0.7–0.8), so
- * no storm, at any phase blend, can open bloom onto plain sky. With the W1.3
- * rows the worst case lands at 0.90 (dusk), so the floor is a backstop against
- * future retunes rather than a clamp anything currently reaches.
- */
-const BLOOM_STORM_THRESHOLD_FLOOR = 0.85;
+const POST_BEATS = [
+  { ...POST_PHASE_NIGHT, grade: DAWN_GRADE, aoIntensity: 4, bloomStrength: 0.65 },
+  { ...POST_PHASE_NIGHT, grade: DAY_GRADE, aoIntensity: 3, bloomStrength: 0.45 },
+  { ...POST_PHASE_NIGHT, grade: GOLDEN_GRADE, aoIntensity: 4, bloomStrength: 0.7 },
+  { ...POST_PHASE_NIGHT, grade: BLUE_GRADE, aoIntensity: 4.5, bloomStrength: 0.75 },
+  POST_PHASE_NIGHT,
+] as const;
+// The mip pyramid combines tight core and wide low-frequency beacon halo.
+const BLOOM_MIP_LEVELS = 6;
 
 /**
  * W0.3: how much bloom intensity a full lightning stroke adds.
@@ -420,7 +271,7 @@ const GRADE_FRAGMENT_SHADER = /* glsl */ `
     color = pow(max(color, vec3(0.0)), vec3(1.0) / gamma);
 
     float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
-    vec3 tone = mix(shadowTint, highlightTint, smoothstep(0.0, 0.9, luma));
+    vec3 tone = mix(shadowTint, highlightTint, smoothstep(1.1, 2.2, luma));
     color *= mix(vec3(1.0), tone, split);
 
     float gradedLuma = dot(color, vec3(0.2126, 0.7152, 0.0722));
@@ -475,7 +326,7 @@ class GardenGradeEffect extends Effect {
  * `world-renderer.ts` cannot see them; `getTextureManifest` below exposes them
  * alongside N8AO's blue noise, SMAA's search/area pair, and the bloom pyramid.
  */
-const LUT_TEXTURE_URL = "/pharosville/textures/garden-grade-lut.png?v=bff077b3f6d2";
+const LUT_TEXTURE_URL = "/pharosville/textures/garden-grade-lut.png?v=4b82542e159d";
 const DITHER_TEXTURE_URL = "/pharosville/textures/garden-blue-noise.png?v=fb2836c219c8";
 
 /**
@@ -549,13 +400,8 @@ function loadPostTexture(
  * steps land where the eye has its resolution, and one dither unit is exactly
  * one output code. The round trip is the honest cost of doing it right.
  *
- * WHY THREE LOOKUPS AND NOT ONE PRE-BLENDED CUBE. The three phase LUTs are
- * sampled per fragment and mixed by the same weights the parametric table
- * blends with. Pre-blending one cube on the CPU would halve the fetches, but
- * the day-cycle scalars move every frame, so it would mean re-uploading 128 KB
- * of texture at some quantized cadence — this renderer has a whole upload
- * scheduler precisely because texture uploads hitch, and a hitch is a far worse
- * defect than six cached fetches from one 1024x96 texture that never leaves L2.
+ * Five bands share one immutable 1024x160 strip. Only the two adjacent active
+ * beats are fetched; a moving clock never uploads a pre-blended cube.
  *
  * TIER INVARIANCE. Like the grade and the tone mapper, this stage is on at
  * every tier. Colour is not a fidelity knob (`VISUAL_INVARIANTS.md`): tiers may
@@ -564,14 +410,14 @@ function loadPostTexture(
 const LUT_FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D lutStrip;
   uniform sampler2D ditherNoise;
-  uniform vec3 lutWeights;
+  uniform float lutWeights[5];
   uniform float lutMix;
   uniform float ditherMix;
   uniform float grain;
 
   #define LUT_EDGE 32.0
   #define LUT_WIDTH 1024.0
-  #define LUT_HEIGHT 96.0
+  #define LUT_HEIGHT 160.0
   #define DITHER_TILE 64.0
 
   /**
@@ -613,9 +459,12 @@ const LUT_FRAGMENT_SHADER = /* glsl */ `
     vec3 display = gardenLinearToDisplay(clamp(inputColor.rgb, 0.0, 1.0));
 
     if (lutMix > 0.0) {
-      vec3 graded = lutWeights.x * sampleLutBand(display, 0.0)
-        + lutWeights.y * sampleLutBand(display, 1.0)
-        + lutWeights.z * sampleLutBand(display, 2.0);
+      vec3 graded = vec3(0.0);
+      for (int band = 0; band < 5; band++) {
+        if (lutWeights[band] > 0.0) {
+          graded += lutWeights[band] * sampleLutBand(display, float(band));
+        }
+      }
       display = mix(display, graded, lutMix);
     }
 
@@ -645,7 +494,7 @@ class GardenLutEffect extends Effect {
       uniforms: new Map<string, Uniform>([
         ["lutStrip", new Uniform(null)],
         ["ditherNoise", new Uniform(null)],
-        ["lutWeights", new Uniform(new Vector3(1, 0, 0))],
+        ["lutWeights", new Uniform(new Float32Array([0, 0, 0, 0, 1]))],
         ["lutMix", new Uniform(0)],
         ["ditherMix", new Uniform(0)],
         ["grain", new Uniform(PAPER_GRAIN_STRENGTH)],
@@ -985,7 +834,7 @@ const GODRAY_RESOLUTION_SCALE = 0.5;
  * shadow is a solid volume tens of units deep, and the interleaved-gradient
  * jitter below turns the residual banding into the dither the eye integrates.
  */
-const GODRAY_STEPS = 28;
+const GODRAY_STEPS = 36;
 /** The sea plane the medium sits on; mirrors `GARDEN_WATER_Y`. */
 const GODRAY_SEA_LEVEL = GARDEN_WATER_Y;
 /** Slab height above the sea, in world units — just over the 34-unit crown. */
@@ -1002,35 +851,7 @@ const GODRAY_HEIGHT_FALLOFF = 0.1;
  * under anything the eye can place.
  */
 const GODRAY_SHADOW_BIAS = 0.0016;
-/**
- * Where the low-sun window opens and closes, as key-light elevation in radians.
- *
- * Read from the light that actually casts the shadow map, which is
- * `gardenKeyLightPose` — the sun by day, crossed to the moon after dark. That
- * choice is deliberate: rays that agree with the shadow map must be gated by
- * the same pose the map was drawn for. Against the shipped arc it lands at
- * ~1.0 at dusk (t=19, 0.086 — the low-sun window is wide open there), ~0.83
- * at dawn (t=7, 0.34), ~0.92 through late afternoon (t=17), a thin ~0.015 at
- * noon (0.80), and 0 at night, where the pose has crossed to the high moon
- * (0.91) and the night fade below closes it anyway.
- *
- * T2.3 (2026-09-07): NONE 0.55 -> 0.85. At 0.55 the shafts were hard-off from
- * ~08:20 to ~16:20 — the whole modal stretch of the clock, which is the hour
- * the piece is most often looked at. 0.85 leaves noon a barely-there sliver
- * rather than a cliff and keeps the moon (0.91) outside the window entirely.
- * This is the one item in the pass with real GPU cost: the 28-step half-res
- * march now runs most of the day instead of ~5h.
- */
-const GODRAY_ELEVATION_FULL = 0.16;
-const GODRAY_ELEVATION_NONE = 0.85;
-/**
- * The night kill. Elevation alone cannot close the window after sunset: the
- * pose crosses to the moon through the evening and passes back down through
- * the low band on its way. Weighting by the day cycle's own night scalar shuts
- * the rays with the light that made them — ~0.32 of full at t=20 while the
- * ember horizon is still lit, ~0.03 by t=21, exactly 0 at night proper.
- */
-const GODRAY_NIGHT_FADE_POWER = 1;
+/** Beat gating is independent of elevation: blue hour and noon never march. */
 /**
  * The lit optical thickness of a full, unshadowed column, in world units — the
  * denominator that turns the march's integral into a 0..1 shaft term.
@@ -1154,20 +975,10 @@ const GODRAY_FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
-/**
- * How much of the low-sun window is open at a given key-light elevation.
- *
- * Exported because it is the whole gating contract and it is pure: a test can
- * lock the curve at every hour of the shipped arc without a GPU, a scene or a
- * light. `night` is the day cycle's own night weight — see
- * GODRAY_NIGHT_FADE_POWER for why elevation alone is not enough.
- */
-export function gardenGodRayLowSunGate(elevation: number, night: number): number {
-  if (!Number.isFinite(elevation)) return 0;
-  const span = GODRAY_ELEVATION_NONE - GODRAY_ELEVATION_FULL;
-  const t = clampUnit((GODRAY_ELEVATION_NONE - elevation) / span);
-  const eased = t * t * (3 - 2 * t);
-  return eased * Math.pow(1 - clampUnit(night), GODRAY_NIGHT_FADE_POWER);
+/** Clock gate, shared by the CPU pass skip and the visible ray contribution. */
+export function gardenGodRayLowSunGate(hour: number): number {
+  const beats = dayCycleBeats(hour);
+  return beats.dawn + beats.golden;
 }
 
 /**
@@ -1446,16 +1257,9 @@ export interface GardenPost {
    * pass-list change.
    */
   setFocusBandDistance: (distance: number | null) => void;
-  // No nightMix: night is the base of the blend (as in `blendScalar`), and the
-  // day cycle derives it as `1 - daylight - dusk` anyway, so it carries nothing.
-  // Phase 2: stormLevel applies the table's storm scalars (wet-glow bloom,
-  // cool lift) on top of the phase blend; flash is the lightning envelope.
-  // W0.3: flash drives BOTH the grade's direct cool-white add and a clamped
-  // lift on bloom intensity, which is the only way a stroke can reach bloom
-  // from here — the grade pass runs after the bloom pass.
+  /** Wall-clock hour; weather changes glow strength, never the black floor. */
   setGrade: (
-    dayMix: number,
-    duskMix: number,
+    hour: number,
     stormLevel?: number,
     flash?: number,
     winter?: number,
@@ -1505,19 +1309,6 @@ function findShadowCastingLight(scene: Scene): DirectionalLight | null {
   return found[0] ?? null;
 }
 
-/** applyGrade runs once per frame; the storm-lift blend reuses this scratch. */
-const scratchTriple: [number, number, number] = [0, 0, 0];
-
-function lerpTripleInto(
-  out: [number, number, number],
-  a: readonly [number, number, number],
-  b: readonly [number, number, number],
-  t: number,
-): void {
-  out[0] = lerp(a[0], b[0], t);
-  out[1] = lerp(a[1], b[1], t);
-  out[2] = lerp(a[2], b[2], t);
-}
 
 function uniform<T>(effect: Effect, name: string): Uniform<T> {
   const found = effect.uniforms.get(name) as Uniform<T> | undefined;
@@ -1862,7 +1653,7 @@ export function createGardenPost(
   const lutUniforms = {
     lutStrip: uniform<Texture | null>(lutEffect, "lutStrip"),
     ditherNoise: uniform<Texture | null>(lutEffect, "ditherNoise"),
-    lutWeights: uniform<Vector3>(lutEffect, "lutWeights"),
+    lutWeights: uniform<Float32Array>(lutEffect, "lutWeights"),
     lutMix: uniform<number>(lutEffect, "lutMix"),
     ditherMix: uniform<number>(lutEffect, "ditherMix"),
   };
@@ -1910,12 +1701,11 @@ export function createGardenPost(
    */
   const shadowLight = findShadowCastingLight(scene);
   const scratchForward = new Vector3();
-  const scratchLightDelta = new Vector3();
   const scratchInverseViewProjection = new Matrix4();
   /** W4.6 seam; null means "derive the band from the camera". */
   let focusBandOverride: number | null = null;
-  /** Night weight of the current phase blend — the god rays' sunset kill. */
-  let phaseNightWeight = 1;
+  /** Only dawn and golden may spend a shadow-map march. */
+  let phaseRayWeight = 0;
   /** Per-phase ray density; hue rides on the effect's own uniform. */
   let rayPhaseDensity = GODRAY_DUSK_DENSITY;
   /** Eased full-tier weight for the rays, on the AO fade's time constant. */
@@ -1953,112 +1743,57 @@ export function createGardenPost(
       : 0;
   }
 
-  function applyGrade(
-    dayMix: number,
-    duskMix: number,
-    stormLevel = 0,
-    flash = 0,
-    winter = 0,
-  ): void {
-    // Night is the base; lerp toward dusk then day, matching the day-cycle
-    // blend used across the renderer. Uniform values are mutated in place:
-    // this runs once per frame, so nothing here may allocate.
-    const storm = Math.min(1, Math.max(0, stormLevel));
-    lerpTripleInto(scratchTriple, POST_PHASE_NIGHT.stormLift, POST_PHASE_DUSK.stormLift, duskMix);
-    lerpTripleInto(scratchTriple, scratchTriple, POST_PHASE_DAY.stormLift, dayMix);
-    for (let i = 0; i < 3; i += 1) {
-      const axis = i === 0 ? "r" : i === 1 ? "g" : "b";
-      gradeUniforms.lift.value[axis] = lerp(lerp(NIGHT_GRADE.lift[i], DUSK_GRADE.lift[i], duskMix), DAY_GRADE.lift[i], dayMix)
-        + storm * scratchTriple[i]!;
-      gradeUniforms.gamma.value[axis] = lerp(lerp(NIGHT_GRADE.gamma[i], DUSK_GRADE.gamma[i], duskMix), DAY_GRADE.gamma[i], dayMix);
-      gradeUniforms.gain.value[axis] = lerp(lerp(NIGHT_GRADE.gain[i], DUSK_GRADE.gain[i], duskMix), DAY_GRADE.gain[i], dayMix);
-      gradeUniforms.shadowTint.value[axis] = lerp(lerp(NIGHT_GRADE.shadowTint[i], DUSK_GRADE.shadowTint[i], duskMix), DAY_GRADE.shadowTint[i], dayMix);
-      gradeUniforms.highlightTint.value[axis] = lerp(lerp(NIGHT_GRADE.highlightTint[i], DUSK_GRADE.highlightTint[i], duskMix), DAY_GRADE.highlightTint[i], dayMix);
+  function applyGrade(hour: number, stormLevel = 0, flash = 0, winter = 0): void {
+    const beats = dayCycleBeats(hour);
+    const weights = lutUniforms.lutWeights.value;
+    weights[0] = beats.dawn;
+    weights[1] = beats.day;
+    weights[2] = beats.golden;
+    weights[3] = beats.blue;
+    weights[4] = beats.night;
+    for (const key of GRADE_TRIPLES) {
+      const target = gradeUniforms[key].value;
+      target.setRGB(0, 0, 0);
+      for (let band = 0; band < POST_BEATS.length; band++) {
+        const value = POST_BEATS[band]!.grade[key];
+        const weight = weights[band]!;
+        target.r += value[0] * weight;
+        target.g += value[1] * weight;
+        target.b += value[2] * weight;
+      }
     }
-    gradeUniforms.saturation.value = lerp(
-      lerp(NIGHT_GRADE.saturation, DUSK_GRADE.saturation, duskMix),
-      DAY_GRADE.saturation,
-      dayMix,
-    ) * (1 - clampUnit(winter) * 0.08);
-    gradeUniforms.split.value = lerp(lerp(NIGHT_GRADE.split, DUSK_GRADE.split, duskMix), DAY_GRADE.split, dayMix);
-    gradeUniforms.vignette.value = lerp(lerp(NIGHT_GRADE.vignette, DUSK_GRADE.vignette, duskMix), DAY_GRADE.vignette, dayMix);
-    gradeUniforms.vignetteBias.value = lerp(lerp(NIGHT_GRADE.vignetteBias, DUSK_GRADE.vignetteBias, duskMix), DAY_GRADE.vignetteBias, dayMix);
+    for (const key of GRADE_SCALARS) {
+      let value = 0;
+      for (let band = 0; band < POST_BEATS.length; band++) {
+        value += POST_BEATS[band]!.grade[key] * weights[band]!;
+      }
+      gradeUniforms[key].value = value;
+    }
+    gradeUniforms.saturation.value *= 1 - clampUnit(winter) * 0.08;
     gradeUniforms.flash.value = flash;
-    // W1.1: the LUT bands blend by exactly the law the tables above use.
-    // Expanding `lerp(lerp(night, dusk, duskMix), day, dayMix)` gives these
-    // three weights, so the cube and the parametric grade can never disagree
-    // about what time it is. They sum to 1 by construction. The scalars are
-    // clamped here (the lerps above deliberately extrapolate, but a negative
-    // LUT weight would sample a phase in reverse, which is not a look).
-    const dayWeight = clampUnit(dayMix);
-    const duskWeight = clampUnit(duskMix) * (1 - dayWeight);
-    lutUniforms.lutWeights.value.set(1 - dayWeight - duskWeight, duskWeight, dayWeight);
-    // W2.4: the shafts inherit the hour from the same three weights. The night
-    // band is the rays' sunset kill (see GODRAY_NIGHT_FADE_POWER), and the day
-    // band is what separates the two low-sun windows — an evening at dusk=1 has
-    // daylight 0 where a dawn at dusk=1 is already climbing, so `dayWeight`
-    // reads dusk-gold at 0 and dawn-pale at 1 without a fourth scalar.
-    phaseNightWeight = 1 - dayWeight - duskWeight;
+    phaseRayWeight = beats.dawn + beats.golden;
+    const dawnShare = phaseRayWeight > 0 ? beats.dawn / phaseRayWeight : 0;
     godRaysEffect.setPhaseLook(
-      lerp(GODRAY_DUSK_COLOR[0], GODRAY_DAWN_COLOR[0], dayWeight),
-      lerp(GODRAY_DUSK_COLOR[1], GODRAY_DAWN_COLOR[1], dayWeight),
-      lerp(GODRAY_DUSK_COLOR[2], GODRAY_DAWN_COLOR[2], dayWeight),
+      lerp(GODRAY_DUSK_COLOR[0], GODRAY_DAWN_COLOR[0], dawnShare),
+      lerp(GODRAY_DUSK_COLOR[1], GODRAY_DAWN_COLOR[1], dawnShare),
+      lerp(GODRAY_DUSK_COLOR[2], GODRAY_DAWN_COLOR[2], dawnShare),
     );
-    rayPhaseDensity = lerp(GODRAY_DUSK_DENSITY, GODRAY_DAWN_DENSITY, dayWeight);
-    // The bloom knee follows the same blend so the bright day sky/fog never
-    // crosses it; night keeps the lowest knee for the Lantern Sea emissives.
-    // The storm rows then drop the knee and raise the strength for the
-    // wet-glow look — floored so a full storm can never open the knee onto
-    // the plain sky.
-    const stormThreshold = lerp(
-      lerp(POST_PHASE_NIGHT.stormBloomThreshold, POST_PHASE_DUSK.stormBloomThreshold, duskMix),
-      POST_PHASE_DAY.stormBloomThreshold,
-      dayMix,
-    );
-    bloomLuminance.threshold = Math.max(
-      BLOOM_STORM_THRESHOLD_FLOOR,
-      lerp(
-        lerp(POST_PHASE_NIGHT.bloomThreshold, POST_PHASE_DUSK.bloomThreshold, duskMix),
-        POST_PHASE_DAY.bloomThreshold,
-        dayMix,
-      ) - storm * stormThreshold,
-    );
-    // W1.3: the shoulder and the spread blend on the same law as the knee.
-    // Both are plain uniforms (no shader recompile), so they are safe here on
-    // the once-per-frame day-cycle path — see the phase-table comment.
-    bloomLuminance.smoothing = lerp(
-      lerp(POST_PHASE_NIGHT.bloomSmoothing, POST_PHASE_DUSK.bloomSmoothing, duskMix),
-      POST_PHASE_DAY.bloomSmoothing,
-      dayMix,
-    );
-    bloomEffect.mipmapBlurPass.radius = lerp(
-      lerp(POST_PHASE_NIGHT.bloomRadius, POST_PHASE_DUSK.bloomRadius, duskMix),
-      POST_PHASE_DAY.bloomRadius,
-      dayMix,
-    );
-    // W0.3: the strike's flare. The lightning envelope peaks above 1 (the
-    // double stroke sums two decays), so it is clamped before it reaches the
-    // bloom knee — a stroke may widen the glow, never blow the frame out.
-    // See BLOOM_FLASH_INTENSITY for why this rides on intensity rather than on
-    // the grade's flash add, which the bloom prefilter cannot see.
-    const strike = clampUnit(flash);
-    bloomEffect.intensity = lerp(
-      lerp(POST_PHASE_NIGHT.bloomStrength, POST_PHASE_DUSK.bloomStrength, duskMix),
-      POST_PHASE_DAY.bloomStrength,
-      dayMix,
-    ) + storm * lerp(
-      lerp(POST_PHASE_NIGHT.stormBloomStrength, POST_PHASE_DUSK.stormBloomStrength, duskMix),
-      POST_PHASE_DAY.stormBloomStrength,
-      dayMix,
-    ) + strike * BLOOM_FLASH_INTENSITY;
-    phaseAOIntensity = lerp(
-      lerp(POST_PHASE_NIGHT.aoIntensity, POST_PHASE_DUSK.aoIntensity, duskMix),
-      POST_PHASE_DAY.aoIntensity,
-      dayMix,
-    );
+    rayPhaseDensity = lerp(GODRAY_DUSK_DENSITY, GODRAY_DAWN_DENSITY, dawnShare);
+    bloomLuminance.threshold = GARDEN_BLOOM_PRACTICAL_THRESHOLD;
+    bloomLuminance.smoothing = POST_PHASE_NIGHT.bloomSmoothing;
+    bloomEffect.mipmapBlurPass.radius = POST_PHASE_NIGHT.bloomRadius;
+    let strength = 0;
+    phaseAOIntensity = 0;
+    for (let band = 0; band < POST_BEATS.length; band++) {
+      const config = POST_BEATS[band]!;
+      strength += config.bloomStrength * weights[band]!;
+      phaseAOIntensity += config.aoIntensity * weights[band]!;
+    }
+    bloomEffect.intensity = strength + clampUnit(stormLevel) * 0.22
+      + clampUnit(flash) * BLOOM_FLASH_INTENSITY;
     syncTierFidelity();
   }
-  applyGrade(0, 0);
+  applyGrade(0);
 
   function easePostAssets(deltaSeconds = 0): void {
     lutUniforms.lutMix.value = easeExponential(lutUniforms.lutMix.value, lutTarget, deltaSeconds, POST_ASSET_FADE_RATE);
@@ -2148,12 +1883,7 @@ export function createGardenPost(
       return;
     }
 
-    scratchLightDelta.copy(shadowLight.position).sub(shadowLight.target.position);
-    const distance = scratchLightDelta.length();
-    const elevation = distance > 1e-4
-      ? Math.asin(Math.min(1, Math.max(-1, scratchLightDelta.y / distance)))
-      : Math.PI / 2;
-    godRaysEffect.weight = gardenGodRayLowSunGate(elevation, phaseNightWeight)
+    godRaysEffect.weight = phaseRayWeight
       * rayTierWeight
       * rayPhaseDensity
       * GODRAY_INTENSITY;
@@ -2347,8 +2077,8 @@ export function createGardenPost(
     setFocusBandDistance(distance) {
       focusBandOverride = distance !== null && Number.isFinite(distance) ? distance : null;
     },
-    setGrade(dayMix, duskMix, stormLevel = 0, flash = 0, winter = 0) {
-      applyGrade(dayMix, duskMix, stormLevel, flash, winter);
+    setGrade(hour, stormLevel = 0, flash = 0, winter = 0) {
+      applyGrade(hour, stormLevel, flash, winter);
     },
     setSize(width, height, _dpr) {
       // pmndrs sizes its buffers from the renderer's drawing buffer size, so

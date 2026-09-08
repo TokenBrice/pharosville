@@ -10,8 +10,8 @@
  *   render scale.
  * - Runtime ship visuals use the tier, scale, and definition metadata to keep
  *   heritage vessels distinct from standard and titan ships.
- * - `three/garden-ships.ts` calls `heroHullModelFor` to pick which of the ten
- *   hero hull GLBs a titan or heritage ship sails.
+ * - `three/garden-ships.ts` calls `heroHullModelFor`; only the eight named
+ *   titans receive GLBs, while every other ship joins the procedural batch.
  *
  * Risk areas: scale must sit in the band ~1.20–1.32 (between standard and
  * titan); pushing higher visually competes with titans and starves layout,
@@ -52,23 +52,11 @@ export function uniqueDefinitionFor(asset: Pick<StablecoinData, "id">): UniqueSh
 }
 
 /**
- * Every hero hull GLB, in the authoring order of
- * `scripts/pharosville/generate-garden-heroes.mjs`: ten shared hulls, then the
- * seven bespoke titan hulls (N5(b)). Kept as bare string literals rather than
- * imported from `three/garden-models.ts` so the systems layer stays free of
- * renderer imports; `unique-ships.test.ts` asserts the two lists agree.
+ * The eight named-titan hull GLBs, kept as bare string literals so the systems
+ * layer stays free of renderer imports. `unique-ships.test.ts` asserts this
+ * list agrees with the model manifest.
  */
 export const HERO_HULL_MODEL_IDS = [
-  "garden-hero-titan",
-  "garden-hero-heritage",
-  "garden-hero-carrack",
-  "garden-hero-brigantine",
-  "garden-hero-dhow",
-  "garden-hero-junk",
-  "garden-hero-barquentine",
-  "garden-hero-cog",
-  "garden-hero-xebec",
-  "garden-hero-cutter",
   "garden-hero-tether",
   "garden-hero-circle",
   "garden-hero-maker",
@@ -99,14 +87,9 @@ export const BESPOKE_HULL_OWNER: Readonly<Record<string, string>> = {
 export type HeroHullModelId = typeof HERO_HULL_MODEL_IDS[number];
 
 /**
- * Coin -> hero hull. An explicit table, not a hash of market cap or rank, so a
- * stablecoin can never change ship between refreshes: rank moves, this does
- * not. Siblings of the same issuer share a hull on purpose — a staked variant
- * reading as the same vessel as its parent is information, not repetition.
- *
- * Covers the 24 largest stablecoins plus the heritage hulls that sit outside
- * that band. Anything else that reaches titan or heritage tier falls through
- * to `heroHullModelFor`'s deterministic hash, which is also stable per id.
+ * Coin -> named-titan hull. All non-named titans and heritage ships are
+ * intentionally absent: `heroHullModelFor` returns null for them so they use
+ * the procedural fleet family already assigned by the observatory slice.
  */
 export const HERO_HULL_BY_ASSET: Readonly<Record<string, HeroHullModelId>> = {
   // N5(b) bespoke titans: one hull, one coin, no sharing.
@@ -121,63 +104,12 @@ export const HERO_HULL_BY_ASSET: Readonly<Record<string, HeroHullModelId>> = {
   // galleon with BUIDL, which is why it was the one named titan a viewer could
   // not recognise — it was not its own ship.
   "xaut-tether": "garden-hero-bullion",
-  // Treasury galleon — the treasure fleet: reserves held, not strategies run.
-  "buidl-blackrock": "garden-hero-titan",
-  // War carrack — the regulated fortresses.
-  "usdg-paxos": "garden-hero-carrack",
-  "paxg-paxos": "garden-hero-carrack",
-  // Xebec — fast, lean, synthetic. susde stays on the shared xebec: the
-  // staked wrapper is a sibling of the basis runner, not a second bespoke.
-  "susde-ethena": "garden-hero-xebec",
-  "usdtb-ethena": "garden-hero-xebec",
-  "fxusd-f-x-protocol": "garden-hero-xebec",
-  // Barquentine — the rest of the Sky fleet trails the squadron flagship.
-  "susds-sky": "garden-hero-barquentine",
-  "stusds-sky": "garden-hero-barquentine",
-  // Cog — the elders, and the minimalists.
-  "sdai-sky": "garden-hero-cog",
-  "bold-liquity": "garden-hero-cog",
-  // Tea clipper — the fast institutional carriers.
-  "rlusd-ripple": "garden-hero-heritage",
-  // Junk — reserve-backed hulls outside the western issuance stack.
-  "usdd-tron-dao-reserve": "garden-hero-junk",
-  // Brigantine — the collateral engines.
-  "usdf-falcon": "garden-hero-brigantine",
-  "usd0-usual": "garden-hero-brigantine",
-  "u-united-stables": "garden-hero-brigantine",
-  "crvusd-curve": "garden-hero-brigantine",
-  // Dhow — the tokenised-yield trade routes.
-  "usyc-hashnote": "garden-hero-dhow",
-  "usdy-ondo-finance": "garden-hero-dhow",
-  // Cutter — small, sharp, single-purpose.
-  "m-m0": "garden-hero-cutter",
-  "usdai-usd-ai": "garden-hero-cutter",
-  "susdai-usd-ai": "garden-hero-cutter",
 };
 
 /**
- * Resolves the hero hull a titan or heritage ship sails. Pure and total: the
- * explicit table first, then a seeded FNV-1a hash of the asset id, so an
- * unlisted hero-tier coin still gets the same hull on every refresh and in
- * every session.
+ * Resolves a named titan's bespoke hull. A null result deliberately routes
+ * every ordinary hero-tier coin through the procedural fleet batch.
  */
-export function heroHullModelFor(assetId: string): HeroHullModelId {
-  const assigned = HERO_HULL_BY_ASSET[assetId];
-  if (assigned !== undefined) return assigned;
-
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < assetId.length; index += 1) {
-    hash ^= assetId.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return SHARED_HERO_HULL_IDS[hash % SHARED_HERO_HULL_IDS.length];
+export function heroHullModelFor(assetId: string): HeroHullModelId | null {
+  return HERO_HULL_BY_ASSET[assetId] ?? null;
 }
-
-/**
- * The fallback pool. Bespoke titan hulls are excluded on purpose: without this
- * filter an unlisted coin could hash onto `garden-hero-tether` and sail USDT's
- * one-of-a-kind vessel, which would quietly destroy the thing N5(b) exists to
- * create.
- */
-const SHARED_HERO_HULL_IDS: readonly HeroHullModelId[] = HERO_HULL_MODEL_IDS
-  .filter((id) => BESPOKE_HULL_OWNER[id] === undefined);
