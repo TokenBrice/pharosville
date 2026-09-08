@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { defaultCamera } from "../systems/camera";
 import { GARDEN_ISLAND_TILE_OFFSET, GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
-import { CAMERA_FAR, cameraEye, cameraPoseFromIso, TILE_SCALE } from "../systems/projection";
+import { CAMERA_FAR, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, cameraEye, cameraPoseFromIso, screenToGroundRay, TILE_SCALE } from "../systems/projection";
 import { buildPharosVilleMap } from "../systems/world-layout";
 import {
   DAY_CYCLE_LIGHT_PRESETS,
@@ -31,6 +31,7 @@ const FRAME = {
   reducedMotion: false,
   wallClockHour: 12,
   targetX: 47.6,
+  targetY: 0,
   targetZ: 38.9,
   cameraPosition: { x: 123, y: 23, z: 114 },
   timeSeconds: 0,
@@ -73,6 +74,28 @@ describe("perspective sky dome", () => {
       expect(eye.toArray()).toEqual([cameraPosition.x, cameraPosition.y, cameraPosition.z]);
       mistOf(sky).getWorldPosition(mistPosition);
       expect(mistPosition.toArray()).toEqual([FRAME.targetX, 0, FRAME.targetZ]);
+    }
+    sky.dispose();
+  });
+
+  it("spans the visible sky ladder to the top ray as the live pitch and target height change", () => {
+    const sky = createGardenSky();
+    for (const viewport of [{ x: 900, y: 720 }, { x: 1200, y: 640 }]) {
+      const rest = defaultCamera({ width: viewport.x, height: viewport.y, map: MAP });
+      for (const zoom of [rest.zoom, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, rest.zoom]) {
+        const camera = { ...rest, zoom };
+        const pose = cameraPoseFromIso(camera, viewport);
+        sky.update(dayCyclePhase(12), {
+          ...FRAME,
+          cameraPosition: cameraEye(pose),
+          targetX: pose.targetTile.x * TILE_SCALE,
+          targetY: pose.targetHeight,
+          targetZ: pose.targetTile.y * TILE_SCALE,
+        });
+        const topRay = screenToGroundRay({ x: viewport.x / 2, y: 0 }, camera, viewport);
+        const visibleHeight = sky.domeMaterial.uniforms.uSkyVisibleHeight.value as number;
+        expect(topRay.direction.y / visibleHeight).toBeCloseTo(1, 10);
+      }
     }
     sky.dispose();
   });
@@ -357,6 +380,7 @@ describe("garden sky aerial perspective", () => {
       ...FRAME,
       cameraPosition: eye,
       targetX: pose.targetTile.x * TILE_SCALE,
+      targetY: pose.targetHeight,
       targetZ: pose.targetTile.y * TILE_SCALE,
     });
     const range = { far: sky.fog.far, near: sky.fog.near, eye, pose };

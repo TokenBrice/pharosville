@@ -3,7 +3,6 @@ import { PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH } from "./world-layout";
 import {
   CAMERA_FAR,
   CAMERA_FOV_DEG,
-  CAMERA_PITCH_RAD,
   cameraDistanceForZoom,
   cameraEye,
   cameraPoseFromIso,
@@ -65,13 +64,14 @@ describe("projection", () => {
   const zooms = [0.28, 1, 2.4];
   const viewports = [{ x: 900, y: 720 }, { x: 1920, y: 1080 }];
 
-  it("projects the target tile to the viewport centre across cameras and viewports", () => {
+  it("projects the look-at point (target tile at the pose's target height) to the viewport centre", () => {
     for (const viewport of viewports) {
       for (const zoom of zooms) {
         for (const offset of [{ x: 137.25, y: -84.5 }, { x: -400, y: 681.75 }]) {
           const camera = { offsetX: offset.x, offsetY: offset.y, zoom };
-          const target = cameraPoseFromIso(camera, viewport).targetTile;
-          const screen = worldToScreen({ x: target.x * TILE_SCALE, y: 0, z: target.y * TILE_SCALE }, camera, viewport);
+          const pose = cameraPoseFromIso(camera, viewport);
+          const target = pose.targetTile;
+          const screen = worldToScreen({ x: target.x * TILE_SCALE, y: pose.targetHeight, z: target.y * TILE_SCALE }, camera, viewport);
           expect(screen.x).toBeCloseTo(viewport.x / 2, 9);
           expect(screen.y).toBeCloseTo(viewport.y / 2, 9);
         }
@@ -115,11 +115,12 @@ describe("projection", () => {
     for (const viewport of viewports) {
       for (const zoom of zooms) {
         const camera = { offsetX: 340, offsetY: -120, zoom };
-        const tile = cameraPoseFromIso(camera, viewport).targetTile;
-        const ground = worldToScreen({ x: tile.x * TILE_SCALE, y: 0, z: tile.y * TILE_SCALE }, camera, viewport);
-        const elevated = worldToScreen({ x: tile.x * TILE_SCALE, y: height, z: tile.y * TILE_SCALE }, camera, viewport);
+        const pose = cameraPoseFromIso(camera, viewport);
+        const tile = pose.targetTile;
+        const ground = worldToScreen({ x: tile.x * TILE_SCALE, y: pose.targetHeight, z: tile.y * TILE_SCALE }, camera, viewport);
+        const elevated = worldToScreen({ x: tile.x * TILE_SCALE, y: pose.targetHeight + height, z: tile.y * TILE_SCALE }, camera, viewport);
         const viewHeight = viewport.y / (TILE_HEIGHT * zoom);
-        const expectedOffset = height * (viewport.y / viewHeight) * Math.cos(CAMERA_PITCH_RAD);
+        const expectedOffset = height * (viewport.y / viewHeight) * Math.cos(pose.pitch);
         expect(elevated.x).toBeCloseTo(ground.x, 9);
         expect(Math.abs((ground.y - elevated.y) / expectedOffset - 1)).toBeLessThan(0.02);
         expect(cameraDistanceForZoom(viewport.y, zoom) * 2 * Math.tan(CAMERA_FOV_DEG * Math.PI / 360)).toBeCloseTo(viewHeight, 9);
@@ -127,7 +128,7 @@ describe("projection", () => {
     }
   });
 
-  it("places the zero-vertical-direction horizon at 12.9 percent of viewport height", () => {
+  it("places the zero-vertical-direction horizon where the pose pitch puts it: 12.9 percent at the far pitch, rising as the viewer approaches", () => {
     for (const viewport of viewports) {
       for (const zoom of zooms) {
         const camera = { offsetX: 140, offsetY: -23, zoom };
@@ -140,7 +141,10 @@ describe("projection", () => {
           else below = y;
         }
         const horizon = (above + below) / 2;
-        expect(Math.abs(horizon / viewport.y - 0.129)).toBeLessThan(0.005);
+        const pitch = cameraPoseFromIso(camera, viewport).pitch;
+        const expected = 0.5 - Math.tan(pitch) / (2 * Math.tan(CAMERA_FOV_DEG * Math.PI / 360));
+        expect(Math.abs(horizon / viewport.y - expected)).toBeLessThan(0.005);
+        if (zoom <= 0.45) expect(Math.abs(horizon / viewport.y - 0.129)).toBeLessThan(0.005);
         expect(screenToGroundRay({ x: viewport.x / 2, y: horizon }, camera, viewport).direction.y).toBeCloseTo(0, 12);
       }
     }

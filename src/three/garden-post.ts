@@ -686,14 +686,18 @@ const SEPARABLE_BLUR_FRAGMENT_SHADER = /* glsl */ `
   uniform vec2 blurDirection;
   varying vec2 vUv;
 
+  vec2 mirrorUv(vec2 uv) {
+    return 1.0 - abs(mod(uv, 2.0) - 1.0);
+  }
+
   void main() {
     vec2 near = blurDirection * 1.3846153846;
     vec2 far = blurDirection * 3.2307692308;
-    vec4 sum = texture2D(inputBuffer, vUv) * 0.2270270270;
-    sum += texture2D(inputBuffer, vUv + near) * 0.3162162162;
-    sum += texture2D(inputBuffer, vUv - near) * 0.3162162162;
-    sum += texture2D(inputBuffer, vUv + far) * 0.0702702703;
-    sum += texture2D(inputBuffer, vUv - far) * 0.0702702703;
+    vec4 sum = texture2D(inputBuffer, mirrorUv(vUv)) * 0.2270270270;
+    sum += texture2D(inputBuffer, mirrorUv(vUv + near)) * 0.3162162162;
+    sum += texture2D(inputBuffer, mirrorUv(vUv - near)) * 0.3162162162;
+    sum += texture2D(inputBuffer, mirrorUv(vUv + far)) * 0.0702702703;
+    sum += texture2D(inputBuffer, mirrorUv(vUv - far)) * 0.0702702703;
     gl_FragColor = sum;
   }
 `;
@@ -781,6 +785,8 @@ const DOF_GRADIENT_HIGH = 0.92;
  * under. A viewer should read "tender diorama", never "tilt-shift filter".
  */
 const DOF_STRENGTH = 0.6;
+/** Tilt-shift belongs only to authored close postcards, never the rest shot. */
+const DOF_POSTCARD_MIN_ZOOM = 1.2;
 
 const TILT_SHIFT_FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D softFieldBuffer;
@@ -1427,6 +1433,8 @@ export interface GardenPost {
   /** Eased overview-LOD detail (0 at whole-map zoom, 1 at detail zoom). */
   setAOZoomDetail: (detail: number) => void;
   setBloomEnabled: (enabled: boolean) => void;
+  /** Authored iso-camera zoom; enables tilt-shift only in close postcards. */
+  setCameraZoom: (zoom: number) => void;
   setEnabled: (enabled: boolean) => void;
   /** Set the unattended second-monitor post profile target. */
   setIdleProfile?: (idle: boolean, immediate?: boolean) => void;
@@ -1884,6 +1892,7 @@ export function createGardenPost(
   let idleProfileImmediate = false;
   let phaseAOIntensity = POST_PHASE_NIGHT.aoIntensity;
   const passList: string[] = [];
+  let cameraFramingZoom = 0;
 
   /** Focus-band width is measured at the perspective rig's target plane. */
   const perspectiveCamera = (camera as PerspectiveCamera).isPerspectiveCamera === true
@@ -1935,17 +1944,11 @@ export function createGardenPost(
     const radiusScale = Math.min(loadRadiusScale, idleRadiusScale);
     aoConfiguration.aoRadius = AO_RADIUS * radiusScale;
 
-    // W2.3 rides the SAME eased tier weight the AO does, because it is the same
-    // decision: `world-renderer.ts` drives that weight to 1 at full and
-    // balanced, to 0 below, over a 180 ms ease, and never by mutating the pass
-    // list mid-session. Depth of field is a fidelity, not a colour, so shedding
-    // it below balanced is inside the tier-invariance contract; the grade, the
-    // tone map and the cube stay on at every tier, exactly as before.
-    //
-    // Deliberately NOT scaled by `aoZoomDetail`: that scalar sheds AO with the
-    // small props it grounds, while the tilt-shift band is expressed in view
-    // heights and therefore says the same thing at every zoom.
-    tiltShiftEffect.strength = enabled && perspectiveCamera
+    // Tilt-shift is a close-postcard treatment, not part of the rest
+    // composition. The two helper draws and every soft-field fetch remain
+    // wholly dormant until the perspective pose resolves to zoom 1.2 or above.
+    tiltShiftEffect.strength = enabled
+      && cameraFramingZoom >= DOF_POSTCARD_MIN_ZOOM
       ? aoTierWeight * idleProfileWeight * DOF_STRENGTH
       : 0;
   }
@@ -2096,6 +2099,7 @@ export function createGardenPost(
       ? 2 * targetDistance * Math.tan(perspectiveCamera.fov * Math.PI / 360)
       : 0;
     tiltShiftEffect.setFocusBand(focusBandOverride ?? focusCenter, viewHeight);
+    syncTierFidelity();
     // World reconstruction for the raymarch: clip -> view -> world in one
     // matrix, so the march shader unprojects with a single multiply.
     scratchInverseViewProjection.multiplyMatrices(camera.matrixWorld, camera.projectionMatrixInverse);
@@ -2335,6 +2339,10 @@ export function createGardenPost(
         idleProfileWeight = idleProfileTarget;
         syncTierFidelity();
       }
+    },
+    setCameraZoom(zoom) {
+      cameraFramingZoom = Number.isFinite(zoom) ? zoom : 0;
+      syncTierFidelity();
     },
     setFocusBandDistance(distance) {
       focusBandOverride = distance !== null && Number.isFinite(distance) ? distance : null;

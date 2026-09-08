@@ -1,7 +1,8 @@
 import { Color, Mesh, PerspectiveCamera, Raycaster, ShaderMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { GARDEN_DEFAULT_CAMERA_ZOOM } from "../systems/camera";
-import { CAMERA_FAR, CAMERA_FOV_DEG, CAMERA_NEAR, CAMERA_PITCH_RAD, CAMERA_YAW, TILE_SCALE, cameraDistanceForZoom, cameraEye } from "../systems/projection";
+import { defaultCamera } from "../systems/camera";
+import { CAMERA_FAR, CAMERA_FOV_DEG, CAMERA_NEAR, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, TILE_SCALE, cameraEye, cameraPoseFromIso, screenToGroundRay } from "../systems/projection";
+import { buildPharosVilleMap } from "../systems/world-layout";
 import { DAY_CYCLE_SKY_PRESETS, dayCyclePhase } from "./garden-day-cycle";
 import { countDrawableObjects } from "./garden-util";
 import { createGardenHorizon } from "./garden-horizon";
@@ -9,6 +10,7 @@ import { createGardenHorizon } from "./garden-horizon";
 const FRAME = {
   targetX: 47.6,
   targetZ: 38.9,
+  cameraPosition: { x: 123, y: 23, z: 114 },
   fogColor: DAY_CYCLE_SKY_PRESETS.day.fog,
   tier: "full" as const,
 };
@@ -40,29 +42,42 @@ describe("garden horizon", () => {
     horizon.dispose();
   });
 
-  it("seats the softened profile endpoints on the sea horizon at reference rest", () => {
+  it("seats the softened profile endpoints on the live sea horizon at both viewport and zoom gates", () => {
     const horizon = createGardenHorizon();
-    horizon.update(dayCyclePhase(12), FRAME);
-    const eye = cameraEye({
-      targetTile: { x: FRAME.targetX / TILE_SCALE, y: FRAME.targetZ / TILE_SCALE },
-      distance: cameraDistanceForZoom(1000, GARDEN_DEFAULT_CAMERA_ZOOM),
-      pitch: CAMERA_PITCH_RAD,
-      yaw: CAMERA_YAW,
-    });
-    const camera = new PerspectiveCamera(CAMERA_FOV_DEG, 1.6, CAMERA_NEAR, CAMERA_FAR);
-    camera.position.set(eye.x, eye.y, eye.z);
-    camera.lookAt(FRAME.targetX, 0, FRAME.targetZ);
-    camera.updateMatrixWorld(true);
-    horizon.root.updateMatrixWorld(true);
-    const mesh = horizon.root.children[0] as Mesh;
-    const positions = mesh.geometry.getAttribute("position");
-    const horizonY = 0.5 - Math.tan(CAMERA_PITCH_RAD) / (2 * Math.tan(CAMERA_FOV_DEG * Math.PI / 360));
-    for (let layer = 0; layer < horizon.silhouetteCount; layer += 1) {
-      for (const endpoint of [layer * 22 + 1, layer * 22 + 21]) {
-        const projected = new Vector3().fromBufferAttribute(positions, endpoint)
-          .applyMatrix4(mesh.matrixWorld).project(camera);
-        expect((1 - projected.y) / 2).toBeCloseTo(horizonY, 5);
-        expect(projected.z).toBeLessThan(1);
+    const map = buildPharosVilleMap();
+    for (const viewport of [{ x: 900, y: 720 }, { x: 1200, y: 640 }]) {
+      const rest = defaultCamera({ width: viewport.x, height: viewport.y, map });
+      for (const zoom of [rest.zoom, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM]) {
+        const isoCamera = { ...rest, zoom };
+        const pose = cameraPoseFromIso(isoCamera, viewport);
+        const eye = cameraEye(pose);
+        const targetX = pose.targetTile.x * TILE_SCALE;
+        const targetZ = pose.targetTile.y * TILE_SCALE;
+        horizon.update(dayCyclePhase(12), { ...FRAME, cameraPosition: eye, targetX, targetZ });
+        const camera = new PerspectiveCamera(CAMERA_FOV_DEG, viewport.x / viewport.y, CAMERA_NEAR, CAMERA_FAR);
+        camera.position.set(eye.x, eye.y, eye.z);
+        camera.lookAt(targetX, pose.targetHeight, targetZ);
+        camera.updateMatrixWorld(true);
+        horizon.root.updateMatrixWorld(true);
+        const mesh = horizon.root.children[0] as Mesh;
+        const positions = mesh.geometry.getAttribute("position");
+        let top = 0;
+        let bottom = viewport.y;
+        for (let step = 0; step < 40; step += 1) {
+          const y = (top + bottom) / 2;
+          if (screenToGroundRay({ x: viewport.x / 2, y }, isoCamera, viewport).direction.y > 0) top = y;
+          else bottom = y;
+        }
+        const horizonY = (top + bottom) / 2;
+        expect(screenToGroundRay({ x: viewport.x / 2, y: horizonY }, isoCamera, viewport).direction.y).toBeCloseTo(0, 10);
+        for (let layer = 0; layer < horizon.silhouetteCount; layer += 1) {
+          for (const endpoint of [layer * 22 + 1, layer * 22 + 21]) {
+            const projected = new Vector3().fromBufferAttribute(positions, endpoint)
+              .applyMatrix4(mesh.matrixWorld).project(camera);
+            expect(Math.abs((1 - projected.y) * viewport.y / 2 - horizonY)).toBeLessThan(viewport.y * 0.005);
+            expect(projected.z).toBeLessThan(1);
+          }
+        }
       }
     }
     horizon.dispose();

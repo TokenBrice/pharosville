@@ -1364,6 +1364,7 @@ export function createThreeWorldRenderer(
       );
       post.setAOQuality(activeAOQuality);
       post.setAOTierWeight(aoTierWeight);
+      post.setCameraZoom(frame.camera.zoom);
       // N8AO is close-view grounding. The landing frame (0.648) and whole-map
       // frame both rely on the static sun shadows and release its seven private
       // textures; inspection restores it smoothly between 0.66 and 0.90.
@@ -4022,6 +4023,7 @@ function updateSceneForFrame(
     reducedMotion: frame.reducedMotion,
     wallClockHour: frame.wallClockHour,
     targetX: cameraViewTarget.x,
+    targetY: cameraViewTarget.y,
     targetZ: cameraViewTarget.z,
     cameraPosition: camera.position,
     timeSeconds: frame.timeSeconds,
@@ -4073,6 +4075,7 @@ function updateSceneForFrame(
   scene.horizon.update(phase, {
     targetX: cameraViewTarget.x,
     targetZ: cameraViewTarget.z,
+    cameraPosition: camera.position,
     fogColor: scene.sky.fog.color,
     tier: frame.renderScheduler.tier,
   });
@@ -4960,8 +4963,8 @@ function updateCamera(camera: PerspectiveCamera, frame: ThreeWorldRendererFrame)
   const eye = cameraEye(pose);
   camera.aspect = frame.width / Math.max(1, frame.height);
   camera.position.set(eye.x, eye.y, eye.z);
-  camera.lookAt(pose.targetTile.x * TILE_SCALE, 0, pose.targetTile.y * TILE_SCALE);
-  cameraViewTarget.set(pose.targetTile.x * TILE_SCALE, 0, pose.targetTile.y * TILE_SCALE);
+  camera.lookAt(pose.targetTile.x * TILE_SCALE, pose.targetHeight, pose.targetTile.y * TILE_SCALE);
+  cameraViewTarget.set(pose.targetTile.x * TILE_SCALE, pose.targetHeight, pose.targetTile.y * TILE_SCALE);
   cameraViewHeight = 2 * pose.distance * Math.tan(CAMERA_FOV_DEG * Math.PI / 360);
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();

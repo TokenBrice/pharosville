@@ -18,7 +18,6 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import {
   CAMERA_FAR,
   CAMERA_FOV_DEG,
-  CAMERA_PITCH_RAD,
   TILE_SCALE,
 } from "../systems/projection";
 import {
@@ -40,9 +39,6 @@ import {
 import { GARDEN_MOON_AZIMUTH, gardenSunPose } from "./garden-sun";
 
 const DOME_RADIUS = CAMERA_FAR * 0.9;
-// The long-lens rest view exposes only four degrees above the sea horizon.
-// Spend the full sky ladder there, not across an unseen ninety-degree dome.
-const SKY_VISIBLE_HEIGHT = Math.sin(CAMERA_FOV_DEG * Math.PI / 360 - CAMERA_PITCH_RAD);
 const STAR_COUNT = 720;
 // The fog ladder is authored from world landmarks, then measured from the
 // current perspective eye. Rest framing is solved per viewport, so neither end
@@ -201,6 +197,7 @@ export interface GardenSkyFrame {
   /** Drives the sun's place on the day's arc (garden-sun.ts). */
   wallClockHour: number;
   targetX: number;
+  targetY: number;
   targetZ: number;
   /** Actual world-space eye; celestial scenery has no translation parallax. */
   cameraPosition: { x: number; y: number; z: number };
@@ -284,6 +281,7 @@ function createDome(): {
       uMiddle: { value: DAY_CYCLE_SKY_PRESETS.night.horizon.clone() },
       uBokashiAmount: { value: 1 },
       uScattering: { value: 0 },
+      uSkyVisibleHeight: { value: Math.sin(CAMERA_FOV_DEG * Math.PI / 360) },
       uSunColor: { value: DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone() },
       uSunDir: { value: new Vector3(0, 1, 0) },
       uSunIntensity: { value: 0 },
@@ -307,6 +305,7 @@ function createDome(): {
       uniform vec3 uMiddle;
       uniform float uBokashiAmount;
       uniform float uScattering;
+      uniform float uSkyVisibleHeight;
       uniform vec3 uSunColor;
       uniform vec3 uSunDir;
       uniform float uSunIntensity;
@@ -316,7 +315,7 @@ function createDome(): {
       ${gardenBokashiBandGlsl()}
       void main() {
         vec3 dir = normalize(vDir);
-        float skyHeight = clamp(dir.y / ${SKY_VISIBLE_HEIGHT.toFixed(8)}, 0.0, 1.0);
+        float skyHeight = clamp(dir.y / uSkyVisibleHeight, 0.0, 1.0);
         vec3 color = mix(uHorizon, uMiddle, smoothstep(0.015, 0.28, skyHeight));
         color = mix(color, uZenith, smoothstep(0.3, 0.86, skyHeight));
         color *= gardenBokashiShade(skyHeight, uBokashiAmount);
@@ -624,6 +623,15 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
         frame.cameraPosition.y,
         frame.cameraPosition.z - frame.targetZ,
       );
+      const eyeHeight = frame.cameraPosition.y - frame.targetY;
+      const distance = Math.hypot(
+        frame.cameraPosition.x - frame.targetX,
+        eyeHeight,
+        frame.cameraPosition.z - frame.targetZ,
+      );
+      const pitch = Math.asin(eyeHeight / distance);
+      // Spend the full gradient ladder between the sea horizon and top row.
+      dome.material.uniforms.uSkyVisibleHeight.value = Math.sin(CAMERA_FOV_DEG * Math.PI / 360 - pitch);
       const storm = Math.min(1, Math.max(0, frame.stormLevel ?? 0));
       fogRangeAtViewHeight(fog, frame.cameraPosition, storm);
       applyPhase(phase, frame.wallClockHour, storm);

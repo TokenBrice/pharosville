@@ -232,13 +232,15 @@ describe("camera intent helpers", () => {
     const { result, rerender } = renderHook(({ selected }: { selected: boolean }) => {
       const camera = useCanvasResizeAndCamera({ ...input, selectedEntity: selected ? ship : null });
       const focusSelection = camera.focusSelection;
+      const canvasSizeRef = camera.canvasSizeRef;
       useLayoutEffect(() => {
+        // Supply the measured viewport after render refreshes the size ref.
+        canvasSizeRef.current = { x: 800, y: 600 };
         if (selected) focusSelection({ x: 48, y: 48 }, onRest);
-      }, [selected, focusSelection]);
+      }, [selected, focusSelection, canvasSizeRef]);
       return camera;
     }, { initialProps: { selected: false } });
     act(() => {
-      result.current.canvasSizeRef.current = { x: 800, y: 600 };
       result.current.setCamera(defaultCamera({ height: 600, map: world.map, width: 800 }));
     });
     const start = result.current.cameraRef.current;

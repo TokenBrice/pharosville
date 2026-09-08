@@ -15,6 +15,7 @@ import {
   Texture,
   TextureLoader,
   Vector3,
+  Vector4,
 } from "three";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -27,6 +28,7 @@ import {
 } from "../systems/weather";
 import {
   SEA_REGION_CHARACTER,
+  SEA_REGION_FALLBACK_TINT,
   SEA_REGION_ID,
 } from "../systems/garden-sea-regions";
 import type { GardenWaterFrame } from "./garden-water";
@@ -194,6 +196,27 @@ describe("createGardenWater", () => {
     expect(bounds.max.x).toBeCloseTo(mapSpan + margin);
     expect(bounds.min.y).toBeCloseTo(-mapSpan - margin);
     expect(bounds.max.y).toBeCloseTo(margin);
+  });
+
+  it("constructs the surrounding sea with the plate's open-water colour, depth, reflection and swell", () => {
+    const water = createGardenWater(GARDEN_WATER_Y);
+    const annulus = water.mesh.getObjectByName("garden-sea-annulus") as Mesh<RingGeometry, ShaderMaterial>;
+    const open = SEA_REGION_CHARACTER.open;
+    const openId = SEA_REGION_ID.open;
+    const expectedColor = new Color(SEA_REGION_FALLBACK_TINT.open);
+    const expectedParams = new Vector4(open.depth, open.foam, open.reflectivity, open.tintStrength);
+    const expectedSwell = new Vector4(open.swell, open.chop, open.crossedNormal, open.shallowShelf);
+
+    for (const material of [water.material, annulus.material]) {
+      expect(material.uniforms.uRegionColor!.value[openId]).toEqual(expectedColor);
+      expect(material.uniforms.uRegionParams!.value[openId]).toEqual(expectedParams);
+      expect(material.uniforms.uRegionSwell!.value[openId]).toEqual(expectedSwell);
+    }
+    expect(uniformNumber(annulus.material, "uWaveAmplitude"))
+      .toBe(uniformNumber(water.material, "uWaveAmplitude"));
+    expect(uniformNumber(annulus.material, "uTempo"))
+      .toBe(uniformNumber(water.material, "uTempo"));
+    water.dispose();
   });
 
   it("keeps sea beneath and beyond the plate while following the render camera", () => {
@@ -503,28 +526,6 @@ describe("createGardenWater", () => {
     const transform = water.material.uniforms.uRegionTransform!.value;
     expect(transform.z).toBeGreaterThan(0);
     expect(transform.w).toBeCloseTo(-transform.z);
-  });
-
-
-  it("alpha-dissolves all four plate skirts behind the camera-side land skirt", () => {
-    const water = createGardenWater(0);
-    const source = water.material.fragmentShader;
-    expect(GARDEN_WATER_PLATE_MARGIN_TILES).toBeGreaterThanOrEqual(6);
-    expect(GARDEN_WATER_PLATE_MARGIN_TILES).toBeLessThanOrEqual(10);
-    expect(water.material.transparent).toBe(true);
-    expect(source).toContain("min(vRegionUv.x, vRegionUv.y)");
-    expect(source).toContain("float eastSideFade");
-    expect(source).toContain("float southSideFade");
-    expect(source).toContain("float plateAlpha = farPairFade * eastSideFade * southSideFade");
-    expect(source).toContain("vec4(waterColor, plateAlpha)");
-    // Deliberate reversal of the former pin ("retaining the engawa edge"):
-    // the camera-near margins now carry the rim mesh's land skirt, so their
-    // water — cove notches and the Danger Strait channel — must dissolve
-    // into the haze like the far pair rather than stay opaque to the rim.
-    // Both camera-near fades start at the true boundary (uv 1.0); none may
-    // start one tile inside it, which would thin water in front of the land.
-    expect(source).not.toContain("PLATE_TILE_UV");
-    expect(source).not.toContain("max(vRegionUv.x, vRegionUv.y)");
   });
 
   it("samples the region field with nearest filtering", () => {

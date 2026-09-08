@@ -8,8 +8,6 @@ import {
   ShaderMaterial,
 } from "three";
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
-import { GARDEN_DEFAULT_CAMERA_ZOOM } from "../systems/camera";
-import { CAMERA_PITCH_RAD, cameraDistanceForZoom } from "../systems/projection";
 import {
   blendDayCycleColor,
   DAY_CYCLE_SKY_PRESETS,
@@ -19,6 +17,7 @@ import {
 export interface GardenHorizonFrame {
   targetX: number;
   targetZ: number;
+  cameraPosition: { x: number; y: number; z: number };
   fogColor: Color;
   tier: PharosVilleRenderSchedulerTier;
 }
@@ -48,10 +47,6 @@ const HORIZON_VALUE_SCALE_GLSL = `
           : (vLayer < 1.5 ? ${GARDEN_HORIZON_VALUE_SCALES[1].toFixed(2)} : ${GARDEN_HORIZON_VALUE_SCALES[2].toFixed(2)});
       `;
 
-// Borrowed scenery is a distant optical silhouette, not an elevated terrain
-// shelf. Its softened feet meet the sea horizon at the 1000px reference rest.
-const HEADLAND_SEAM_Y = cameraDistanceForZoom(1000, GARDEN_DEFAULT_CAMERA_ZOOM)
-  * Math.sin(CAMERA_PITCH_RAD);
 const RIDGES = [
   {
     depth: 390,
@@ -93,7 +88,7 @@ function createGeometry(): BufferGeometry {
       const lateral = (t - 0.5) * ridge.width + ridge.offset;
       const x = farX * ridge.depth + lateralX * lateral;
       const z = farZ * ridge.depth + lateralZ * lateral;
-      positions.push(x, HEADLAND_SEAM_Y - 6, z, x, HEADLAND_SEAM_Y + ridge.profile[point]! * ridge.height, z);
+      positions.push(x, -6, z, x, ridge.profile[point]! * ridge.height, z);
       layers.push(layer, layer);
       reliefs.push(ridge.profile[point]!, ridge.profile[point]!);
       verticals.push(0, 1);
@@ -203,7 +198,8 @@ export function createGardenHorizon(): GardenHorizon {
       root.clear();
     },
     update(phase, frame) {
-      root.position.set(frame.targetX, 0, frame.targetZ);
+      // Distant flat sea meets the horizontal plane through the current eye.
+      root.position.set(frame.targetX, frame.cameraPosition.y, frame.targetZ);
       root.visible = frame.tier !== "constrained";
       fogColor.copy(frame.fogColor);
       blendDayCycleColor(

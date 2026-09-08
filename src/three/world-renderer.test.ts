@@ -214,6 +214,7 @@ type TestGardenPost = {
   setAOTierWeight: ReturnType<typeof vi.fn>;
   setAOZoomDetail: ReturnType<typeof vi.fn>;
   setBloomEnabled: ReturnType<typeof vi.fn>;
+  setCameraZoom: ReturnType<typeof vi.fn>;
   setEnabled: ReturnType<typeof vi.fn>;
   setGrade: ReturnType<typeof vi.fn>;
   setSize: ReturnType<typeof vi.fn>;
@@ -304,6 +305,7 @@ vi.mock("./garden-post", () => ({
       setBloomEnabled: vi.fn((value: boolean) => {
         bloomEnabled = value;
       }),
+      setCameraZoom: vi.fn(),
       setEnabled: vi.fn((value: boolean) => {
         enabled = value;
       }),
@@ -939,25 +941,36 @@ describe("Three world renderer lifecycle", () => {
       pitch: Math.PI / 180,
       yaw: 2 * Math.PI / 180,
     };
+    const breathedPose = {
+      ...basePose,
+      distance: basePose.distance * breath.dolly,
+      pitch: basePose.pitch + breath.pitch,
+      yaw: basePose.yaw + breath.yaw,
+    };
+    const breathedEye = cameraEye(breathedPose);
     renderer.render({ ...zeroFrame, cameraBreath: breath });
+    expect(camera.position.toArray()).toEqual([
+      breathedEye.x,
+      breathedEye.y,
+      breathedEye.z,
+    ]);
     const target = new Vector3(
       basePose.targetTile.x * TILE_SCALE,
-      0,
+      basePose.targetHeight,
       basePose.targetTile.y * TILE_SCALE,
     );
     const targetToEye = camera.position.clone().sub(target);
-    expect(targetToEye.length()).toBeCloseTo(basePose.distance * breath.dolly, 10);
+    expect(targetToEye.length()).toBeCloseTo(breathedPose.distance, 10);
     expect(Math.asin(targetToEye.y / targetToEye.length())).toBeCloseTo(
-      basePose.pitch + breath.pitch,
+      breathedPose.pitch,
       10,
     );
     expect(Math.atan2(targetToEye.x, targetToEye.z)).toBeCloseTo(
-      basePose.yaw + breath.yaw,
+      breathedPose.yaw,
       10,
     );
     const viewDirection = camera.getWorldDirection(new Vector3());
-    const groundDistance = -camera.position.y / viewDirection.y;
-    expect(camera.position.clone().addScaledVector(viewDirection, groundDistance).distanceTo(target))
+    expect(camera.position.clone().addScaledVector(viewDirection, breathedPose.distance).distanceTo(target))
       .toBeLessThan(1e-10);
     renderer.dispose();
   });
@@ -1053,7 +1066,7 @@ describe("Three world renderer lifecycle", () => {
     expect(post.setAOZoomDetail).toHaveBeenLastCalledWith(0);
     expect(webgl.info.memory.textures).toBeLessThanOrEqual(freshWholeTextureCount);
     renderer.dispose();
-  });
+  }, 60_000); // two full scene builds plus 120 frames; exceeds the 5 s default under suite load
 
   it("reveals inspection detail only for Explore or the focused entity", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
@@ -1062,7 +1075,7 @@ describe("Three world renderer lifecycle", () => {
       onContextFailure: vi.fn(),
     });
 
-    renderer.render(rendererFrame(world, "balanced"));
+    renderer.render(rendererFrame(world, "balanced", { cameraZoom: 0.8 }));
     const scene = rendererHarness.instances.at(-1)!.lastScene!;
     const contentRoot = scene.children.at(-1)!;
     const shipDetails = namedGroups(contentRoot, "ship-fine-detail");
@@ -1082,6 +1095,7 @@ describe("Three world renderer lifecycle", () => {
 
     const selectedShip = selectGardenObservatorySlice(world, null).ships[0]!.ship;
     renderer.render(rendererFrame(world, "balanced", {
+      cameraZoom: 0.8,
       selectedDetailId: selectedShip.detailId,
     }));
     expect(shipDetails.filter((detail) => detail.visible)).toHaveLength(1);
@@ -1090,6 +1104,7 @@ describe("Three world renderer lifecycle", () => {
     expect(wakes.filter((wake) => wake.visible)).toHaveLength(1);
 
     renderer.render(rendererFrame(world, "balanced", {
+      cameraZoom: 0.8,
       hoveredDetailId: world.docks[0]!.detailId,
     }));
     expect(shipDetails.every((detail) => !detail.visible)).toBe(true);
