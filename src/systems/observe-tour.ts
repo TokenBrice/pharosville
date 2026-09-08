@@ -28,10 +28,10 @@ import {
  *   segment's travel leg IS the ease-in from the visitor's camera; leaving is
  *   the camera controller's ordinary damped glide back (it owns that blend).
  * - Each beat's 12 s splits into a 3.5 s travel leg (spline span, smootherstep
- *   eased) and an 8.5 s dwell: a slow push-in with a tangent drift. The sampled
+ *   eased) and an 8.5 s stationary dwell. The sampled
  *   beat index drives the DOM caption, so camera and copy share one clock.
  *
- * Everything stays inside the ortho rig: the output is the same
+ * Everything stays inside the fixed-yaw rig: the output is the same
  * {offsetX, offsetY, zoom} camera state the interactive pan/zoom uses, clamped
  * to the same map bounds. Reduced motion never starts the tour (the DOM steps
  * beats manually).
@@ -51,6 +51,8 @@ export interface ObserveTourKeyframe {
   isoY: number;
   /** Dolly zoom at this keyframe. */
   zoom: number;
+  holdSeconds?: number;
+  travelSeconds?: number;
 }
 
 export interface ObserveTourSample extends ObserveTourPose {
@@ -58,6 +60,7 @@ export interface ObserveTourSample extends ObserveTourPose {
   beatIndex: number;
   /** True once elapsed has run past the end of the tour. */
   done: boolean;
+  holding?: boolean;
 }
 
 /** Seconds per beat — the DOM caption cadence. */
@@ -65,10 +68,6 @@ export const OBSERVE_TOUR_SEGMENT_SECONDS = 12;
 /** Travel leg at the head of each segment; the rest is dwell. */
 export const OBSERVE_TOUR_TRAVEL_SECONDS = 3.5;
 
-/** Dwell push-in: a 5% zoom creep over the hold. */
-const DWELL_PUSH_ZOOM = 0.05;
-/** Dwell drift along the spline tangent, in iso units (~px at zoom 1). */
-const DWELL_TANGENT_DRIFT = 5;
 /** Precomputed spline span for one segment's travel leg. */
 interface SegmentGeometry {
   /** Catmull-Rom control points P0..P3; the span runs P1 -> P2. */
@@ -76,9 +75,6 @@ interface SegmentGeometry {
   p1: ObserveTourPose;
   p2: ObserveTourPose;
   p3: ObserveTourPose;
-  /** Unit spline tangent at the keyframe, scaled by the dwell drift. */
-  driftX: number;
-  driftY: number;
 }
 
 export interface ObserveTourSegment {
@@ -126,35 +122,29 @@ export function buildObserveTour(input: {
   const segmentSeconds = input.segmentSeconds ?? OBSERVE_TOUR_SEGMENT_SECONDS;
   const travelSeconds = Math.min(segmentSeconds, input.travelSeconds ?? OBSERVE_TOUR_TRAVEL_SECONDS);
   const points: readonly ObserveTourPose[] = [input.start, ...input.keyframes];
+  let cursor = 0;
   const segments = input.keyframes.map((keyframe, index): ObserveTourSegment => {
+    const legSeconds = keyframe.travelSeconds ?? travelSeconds;
+    const durationSeconds = keyframe.holdSeconds === undefined ? segmentSeconds : legSeconds + keyframe.holdSeconds;
+    const startSeconds = cursor;
+    cursor += durationSeconds;
     const geometry: SegmentGeometry = {
       p0: points[Math.max(0, index - 1)]!,
       p1: points[index]!,
       p2: points[index + 1]!,
       p3: points[Math.min(points.length - 1, index + 2)]!,
-      // Spline tangent at the keyframe (P2), scaled into the dwell drift.
-      ...(() => {
-        const tangentX = (points[Math.min(points.length - 1, index + 2)]!.isoX - points[Math.max(0, index - 1)]!.isoX) * 0.5;
-        const tangentY = (points[Math.min(points.length - 1, index + 2)]!.isoY - points[Math.max(0, index - 1)]!.isoY) * 0.5;
-        const length = Math.hypot(tangentX, tangentY) || 1;
-        return {
-          driftX: (tangentX / length) * DWELL_TANGENT_DRIFT,
-          driftY: (tangentY / length) * DWELL_TANGENT_DRIFT,
-        };
-      })(),
     };
     return {
       beatIndex: keyframe.beatIndex,
-      startSeconds: index * segmentSeconds,
-      durationSeconds: segmentSeconds,
+      startSeconds,
+      durationSeconds,
       enter: noop,
       scrub: noopScrub,
       update: (localSeconds, out) => writeSegmentPose(
         geometry,
         keyframe.beatIndex,
         localSeconds,
-        segmentSeconds,
-        travelSeconds,
+        legSeconds,
         out,
       ),
       teardown: noop,
@@ -166,7 +156,7 @@ export function buildObserveTour(input: {
     segmentSeconds,
     segments,
     start: input.start,
-    totalSeconds: input.keyframes.length * segmentSeconds,
+    totalSeconds: cursor,
     travelSeconds,
   };
 }
@@ -188,13 +178,10 @@ export function sampleObserveTour(
     out.zoom = last?.zoom ?? tour.start.zoom;
     out.beatIndex = last?.beatIndex ?? 0;
     out.done = true;
+    out.holding = true;
     return;
   }
-  const index = Math.min(
-    tour.segments.length - 1,
-    Math.floor(elapsed / tour.segmentSeconds),
-  );
-  const segment = tour.segments[index]!;
+  const segment = tour.segments.find((candidate) => elapsed < candidate.startSeconds + candidate.durationSeconds)!;
   const localSeconds = elapsed - segment.startSeconds;
   segment.enter();
   segment.scrub(localSeconds);
@@ -229,18 +216,17 @@ export function observeTourPoseToCamera(
 
 /**
  * One segment's pose: travel leg along the Catmull-Rom span for the first
- * OBSERVE_TOUR_TRAVEL_SECONDS, then the dwell — push-in and tangent drift.
+ * OBSERVE_TOUR_TRAVEL_SECONDS, then a stationary dwell.
  * Pure in (geometry, localSeconds).
  */
 function writeSegmentPose(
   geometry: SegmentGeometry,
   beatIndex: number,
   localSeconds: number,
-  segmentSeconds: number,
   travelSeconds: number,
   out: ObserveTourSample,
 ): void {
-  const travel = Math.min(1, Math.max(0, localSeconds / travelSeconds));
+  const travel = travelSeconds <= 0 ? 1 : Math.min(1, Math.max(0, localSeconds / travelSeconds));
   const easedTravel = smootherstep(travel);
   // Uniform Catmull-Rom through P1 -> P2, zoom riding the same eased scalar.
   const u = easedTravel;
@@ -250,16 +236,10 @@ function writeSegmentPose(
   const isoY = catmullRom(geometry.p0.isoY, geometry.p1.isoY, geometry.p2.isoY, geometry.p3.isoY, u, u2, u3);
   const zoom = geometry.p1.zoom + (geometry.p2.zoom - geometry.p1.zoom) * u;
 
-  const dwell = Math.max(0, Math.min(1,
-    (localSeconds - travelSeconds)
-      / Math.max(0.001, segmentSeconds - travelSeconds),
-  ));
-  const dwellEase = smootherstep(dwell);
-  out.isoX = isoX
-    + geometry.driftX * dwellEase;
-  out.isoY = isoY
-    + geometry.driftY * dwellEase;
-  out.zoom = zoom * (1 + DWELL_PUSH_ZOOM * dwellEase);
+  out.isoX = isoX;
+  out.isoY = isoY;
+  out.zoom = zoom;
+  out.holding = localSeconds >= travelSeconds;
   out.beatIndex = beatIndex;
   out.done = false;
 }

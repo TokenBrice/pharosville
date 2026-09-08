@@ -10,22 +10,18 @@
  * storm-peak lightning flash.
  *
  * Determinism contract (same as the motion plan):
- * - Everything below is a pure function of `timeSeconds` + the analytic
- *   inputs. No Math.random, no wall-clock reads, no hidden state.
- * - Under reduced motion the render loop pins `timeSeconds = 0`, so the whole
- *   plan freezes into one static composition — including lightning, whose
- *   schedule keeps the first 1.5 s of every slot dark (see below).
+ * - Everything below is a pure function of `timeSeconds`, `wallClockHour` and
+ *   analytic inputs. No Math.random, clock reads, or hidden state.
+ * - Reduced motion chooses the zero-phase frame regardless of either clock.
  * - Wind/storm are WORLD state (like the day cycle), never tier state: tiers
  *   may shed fidelity but the weather plan is identical at every tier.
  *
  * Parameter ranges:
- * - windAngle wanders ±~1.6 rad around WIND_BASE_ANGLE on three slow periods
- *   (241 s / 97 s / 41 s) — an Ornstein-Uhlenbeck-ish meander built from
- *   layered sines, so it never snaps and never wraps visibly.
- * - windSpeed 0.2..1: a floor so the world never reads as holding its breath,
- *   then base wind (DEWS threat), a slow breeze envelope, and storm on top.
- * - gust 0..1: one harbour-scale front every 24 s (2.5/min), with a 2 s
- *   attack and 6 s release. `gardenGustAtWorldPosition` delays that same
+ * - wind.x/y: one unit downwind direction in world XZ, with slow time wander
+ *   and a wall-clock bearing bias.
+ * - wind.speed 0.2..1: sustained breeze, with base wind and storm on top.
+ * - wind.gust 0..1: one harbour-scale front every ten minutes, with a 12 s
+ *   attack and 36 s release. `gardenGustAtWorldPosition` delays that same
  *   front downwind; objects do not invent their own gust clocks.
  * - breath 0..1: one shared 9 s resonant-breathing curve, rising for 40% and
  *   falling for 60%. Consumers may use the named 0.1-cycle offsets below,
@@ -44,14 +40,7 @@ export interface WeatherPlan {
    * Unit downwind direction in world XZ: the direction air, rain, mist,
    * surface foam, and other advected features move toward.
    */
-  windDirX: number;
-  windDirZ: number;
-  /** Downwind bearing in radians: atan2(windDirZ, windDirX). */
-  windAngle: number;
-  /** Sustained wind strength, 0..1. */
-  windSpeed: number;
-  /** Gust envelope, 0..1 — the flutter/rain-squall driver. */
-  gust: number;
+  wind: { x: number; y: number; speed: number; gust: number };
   /** Shared 9 s breath envelope, 0..1. */
   breath: number;
   /** Storm state, 0..1. */
@@ -63,6 +52,9 @@ export interface WeatherPlan {
 export interface WeatherInput {
   /** World-clock seconds — the render loop's `timeSeconds`. */
   timeSeconds: number;
+  /** Local wall-clock hour; reduced motion always uses the zero-phase frame. */
+  wallClockHour?: number;
+  reducedMotion?: boolean;
   /** PSI stress, 0..1 (`seaState.source.psiStress`). */
   psiStress: number;
   /** Sustained wind base, 0..1 (`seaState.wind`). */
@@ -74,12 +66,12 @@ const TAU = Math.PI * 2;
 /** One calm, shared breathing cycle: 3.6 s rise and 5.4 s fall. */
 export const GARDEN_BREATH_SECONDS = 9;
 export const GARDEN_BREATH_RISE_SHARE = 0.4;
-/** One gust every 24 s = 2.5 gusts/minute. */
-export const GARDEN_GUST_CYCLE_SECONDS = 24;
-export const GARDEN_GUST_ATTACK_SECONDS = 2;
-export const GARDEN_GUST_RELEASE_SECONDS = 6;
+/** A deliberate travelling front every ten minutes, with a long quiet tail. */
+export const GARDEN_GUST_CYCLE_SECONDS = 600;
+export const GARDEN_GUST_ATTACK_SECONDS = 12;
+export const GARDEN_GUST_RELEASE_SECONDS = 36;
 /** World units per second travelled by the gust front across the harbour. */
-export const GARDEN_GUST_WORLD_SPEED = 24;
+export const GARDEN_GUST_WORLD_SPEED = 6;
 
 /**
  * Named offsets keep systems out of lockstep without giving any of them a
@@ -117,11 +109,7 @@ const LIGHTNING_SLOT_SECONDS = 9;
 
 export function weatherForFrame(input: WeatherInput): WeatherPlan {
   const plan: WeatherPlan = {
-    windDirX: 0,
-    windDirZ: 0,
-    windAngle: 0,
-    windSpeed: 0,
-    gust: 0,
+    wind: { x: 0, y: 0, speed: 0, gust: 0 },
     breath: 0,
     stormLevel: 0,
     lightning: 0,
@@ -135,7 +123,8 @@ export function weatherForFrame(input: WeatherInput): WeatherPlan {
  * Pure — same inputs always produce the same writes.
  */
 export function writeWeatherPlan(input: WeatherInput, out: WeatherPlan): void {
-  const time = Math.max(0, Number.isFinite(input.timeSeconds) ? input.timeSeconds : 0);
+  const time = input.reducedMotion ? 0 : Math.max(0, Number.isFinite(input.timeSeconds) ? input.timeSeconds : 0);
+  const hour = input.reducedMotion ? 0 : (Number.isFinite(input.wallClockHour) ? input.wallClockHour! : 0);
   const psiStress = clamp01(input.psiStress);
   const baseWind = clamp01(input.baseWind);
 
@@ -145,7 +134,7 @@ export function writeWeatherPlan(input: WeatherInput, out: WeatherPlan): void {
   const windAngle = WIND_BASE_ANGLE
     + 0.85 * Math.sin((TAU * time) / 241)
     + 0.5 * Math.sin((TAU * time) / 97)
-    + 0.28 * Math.sin((TAU * time) / 41);
+    + 0.28 * Math.sin(TAU * hour / 24);
 
   const stormBase = smoothstep(STORM_START, STORM_FULL, psiStress);
   // Breathing scales WITH the storm so calm water never breathes into one.
@@ -156,16 +145,13 @@ export function writeWeatherPlan(input: WeatherInput, out: WeatherPlan): void {
   const breeze = 0.5 + 0.5 * Math.sin((TAU * time) / 83 + 1.2);
   const windSpeed = clamp01(0.2 + baseWind * 0.3 + breeze * 0.18 + stormLevel * 0.38);
 
-  // One gust front, 2.5 times/minute. It rises gently for two seconds, then
-  // takes six to settle. Positional consumers sample this exact shape through
-  // `gardenGustAtWorldPosition`; `gust` is the harbour-origin sample.
+  // Spatial consumers delay this same front along the shared downwind vector.
   const gust = gardenGustEnvelope(time) * (0.3 + windSpeed * 0.7);
 
-  out.windAngle = windAngle;
-  out.windDirX = Math.cos(windAngle);
-  out.windDirZ = Math.sin(windAngle);
-  out.windSpeed = windSpeed;
-  out.gust = gust;
+  out.wind.x = Math.cos(windAngle);
+  out.wind.y = Math.sin(windAngle);
+  out.wind.speed = windSpeed;
+  out.wind.gust = gust;
   out.breath = gardenBreathAt(time);
   out.stormLevel = stormLevel;
   out.lightning = lightningAt(time, stormLevel);
@@ -231,17 +217,17 @@ export function gardenGustAtWorldPosition(
   timeSeconds: number,
   worldX: number,
   worldZ: number,
-  weather: Pick<WeatherPlan, "windDirX" | "windDirZ" | "windSpeed">,
+  weather: Pick<WeatherPlan, "wind">,
   reducedMotion = false,
 ): number {
   if (reducedMotion) return 0;
   const delay = gardenGustDelaySeconds(
     worldX,
     worldZ,
-    weather.windDirX,
-    weather.windDirZ,
+    weather.wind.x,
+    weather.wind.y,
   );
-  return gardenGustEnvelope(timeSeconds - delay) * (0.3 + clamp01(weather.windSpeed) * 0.7);
+  return gardenGustEnvelope(timeSeconds - delay) * (0.3 + clamp01(weather.wind.speed) * 0.7);
 }
 
 /**

@@ -46,10 +46,12 @@ import { applySeaRoomSeparationPass } from "../systems/motion-sampling";
 import { resolveGardenShipDisplayTile, selectGardenObservatorySlice } from "../systems/garden-observatory-slice";
 import type { IsoCamera, ScreenPoint } from "../systems/projection";
 import { seaStateForWorld, type SeaState } from "../systems/sea-state";
+import { weatherForFrame, writeWeatherPlan, type WeatherPlan } from "../systems/weather";
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
 import { worldRenderContentSignature } from "../systems/world-render-content-signature";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 import type { GardenAlmanacEvent } from "../systems/garden-almanac";
+import type { GardenDirectorState } from "../systems/garden-director";
 import { normalizeHour } from "../lib/pharosville-clock";
 import { reportClientError } from "../error-reporter";
 import { createHoverNameplateDwellState, hoverNameplateVisible } from "./hover-nameplate-dwell";
@@ -72,6 +74,8 @@ type MotionPlan = ReturnType<typeof buildMotionPlan>;
 const CAMERA_BREATH_INPUT_FREEZE_MS = 2_500;
 const CAMERA_BREATH_TWO_PI = Math.PI * 2;
 const STILL_CAMERA_BREATH = { dolly: 1, pitch: 0, yaw: 0 } as const;
+/** Frame-local weather for the motion sampler; rewritten in place every sample pass. */
+const samplerWeather = weatherForFrame({ timeSeconds: 0, psiStress: 0, baseWind: 0, reducedMotion: true });
 
 /** Which of the three ways the 3D renderer can retire itself fired. */
 type RendererFailureCause = "webgl-context" | "module-load" | "render-loop";
@@ -109,6 +113,8 @@ interface DetailAnchor extends ScreenPoint {
 
 export interface UseWorldRenderLoopInput {
   almanacEvent?: GardenAlmanacEvent | null;
+  /** G3/W4.1: the shared director; read through a ref so expiry never restarts the loop. */
+  gardenDirector?: GardenDirectorState;
   /**
    * Called when the deterministic time bucket flips (every ~10 minutes of
    * wall clock). The hook mirrors the latest callback into a ref so RAF and
@@ -174,6 +180,7 @@ export interface WorldCameraStepResult {
 export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRenderLoopResult {
   const {
     almanacEvent,
+    gardenDirector,
     onBucketFlip,
     onShipMotionSamplesReady,
     adaptiveDprStateRef,
@@ -232,6 +239,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   useEffect(() => {
     onStationLabelFrameRef.current = onStationLabelFrame;
   }, [onStationLabelFrame]);
+
+  const gardenDirectorRef = useRef(gardenDirector);
+  useEffect(() => {
+    gardenDirectorRef.current = gardenDirector;
+  }, [gardenDirector]);
 
   const animationFramePendingRef = useRef(false);
   const paintRequestRef = useRef<() => void>(() => {});
@@ -582,6 +594,16 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       const frameWallClockHour = normalizeHour(wallClockHour);
       const sampleStartedAt = performance.now();
       const seaState = seaStateForWorld(activeWorld, { reducedMotion, wallClockHour: frameWallClockHour });
+      // G3/W4.4: one wind. The sampler reads the same plan the renderer writes
+      // from the same inputs, so bow-to-wind and the cross-current agree with
+      // the sails and flags to the frame.
+      writeWeatherPlan({
+        timeSeconds: motionTimeSeconds,
+        wallClockHour: frameWallClockHour,
+        reducedMotion,
+        psiStress: seaState.source.psiStress,
+        baseWind: seaState.wind,
+      }, samplerWeather);
       let semanticShipMotionSamples = semanticShipMotionSamplesRef.current;
       if (reducedMotion) {
         const nextSamplesSignature = `${motionPlanSignature(activeWorld)}|sea:${seaStateMotionSignature(seaState)}`;
@@ -591,6 +613,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
             reducedMotion,
             seaState,
             samples: semanticShipMotionSamples,
+            wind: samplerWeather.wind,
             timeSeconds: motionTimeSeconds,
             world: activeWorld,
           });
@@ -603,6 +626,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           reducedMotion,
           seaState,
           samples: semanticShipMotionSamples,
+          wind: samplerWeather.wind,
           timeSeconds: motionTimeSeconds,
           world: activeWorld,
         });
@@ -761,6 +785,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       try {
         renderMetrics = threeRenderer.render({
           almanacEvent: almanacEvent ?? null,
+          gardenDirector: gardenDirectorRef.current,
           logos,
           camera: frameCamera,
           cameraBreath,
@@ -1262,6 +1287,7 @@ function collectShipMotionSamples(input: {
   reducedMotion: boolean;
   seaState: SeaState;
   samples: ReadonlyMap<string, ShipMotionSample>;
+  wind: WeatherPlan["wind"];
   timeSeconds: number;
   world: PharosVilleWorldModel;
   trackShipHitState?: boolean;
@@ -1288,6 +1314,7 @@ function collectShipMotionSamples(input: {
         ship,
         timeSeconds: input.timeSeconds,
         flagshipSamples: samples,
+        wind: input.wind,
       }, sample);
     }
   }

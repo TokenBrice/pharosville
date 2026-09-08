@@ -6,7 +6,9 @@ import type { HitTargetSnapshot } from "../renderer/hit-testing";
 import { defaultCamera } from "../systems/camera";
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
-import { screenToIso, tileToIso } from "../systems/projection";
+import { screenToIso, tileToIso, TILE_SCALE, worldToScreen } from "../systems/projection";
+import { gardenAttractKeyframes } from "../systems/garden-attract";
+import { createGardenDirector, requestGardenBeat } from "../systems/garden-director";
 import {
   observeTourPoseFromCamera,
   observeTourPoseToCamera,
@@ -20,6 +22,7 @@ import {
   normalizeWheelDeltaY,
   selectionCameraTarget,
   useCanvasResizeAndCamera,
+  voyageCamera,
   type CameraStepResult,
   type UseCanvasResizeAndCameraInput,
   wheelZoomScaleFromDelta,
@@ -72,6 +75,52 @@ describe("wheel camera helpers", () => {
 });
 
 describe("camera intent helpers", () => {
+  it("keeps attract holds stationary and waits for director admission before relocation", () => {
+    const director = createGardenDirector("attract-test");
+    const viewport = { x: 1200, y: 640 };
+    const { result } = renderHook(() => {
+      const canvas = useCanvasResizeAndCamera(makeCanvasInput({ gardenDirector: director }));
+      useLayoutEffect(() => { canvas.canvasSizeRef.current = viewport; });
+      return canvas;
+    });
+    const book = gardenAttractKeyframes(world.lighthouse.tile);
+    act(() => {
+      result.current.canvasSizeRef.current = viewport;
+      result.current.setCamera(defaultCamera({ width: viewport.x, height: viewport.y, map: world.map }));
+      result.current.startAttractTour(book);
+      result.current.stepCamera(1000, new Map());
+      result.current.stepCamera(40_000, new Map());
+    });
+    const held = { ...result.current.cameraRef.current! };
+    expect(result.current.attractState.holding).toBe(true);
+    act(() => { result.current.stepCamera(170_000, new Map()); });
+    expect(result.current.cameraRef.current).toEqual(held);
+    expect(director.log.filter((beat) => beat.kind === "attract")).toHaveLength(1);
+    requestGardenBeat(director, { kind: "market", foreground: true, priority: 100, durationSeconds: 1000 }, 171);
+    act(() => {
+      result.current.stepCamera(500_000, new Map());
+      result.current.stepCamera(501_000, new Map());
+    });
+    expect(result.current.cameraRef.current).toEqual(held);
+    expect(result.current.attractState.holding).toBe(true);
+    act(() => {
+      result.current.stepCamera(1_200_000, new Map());
+      result.current.stepCamera(1_240_000, new Map());
+    });
+    expect(result.current.cameraRef.current).not.toEqual(held);
+    expect(director.log.filter((beat) => beat.kind === "attract")).toHaveLength(2);
+  });
+
+  it("places a voyage ship in the lower-left third at both viewport gates", () => {
+    const tile = { x: 70, y: 70 };
+    for (const viewport of [{ x: 900, y: 720 }, { x: 1200, y: 640 }]) {
+      const camera = voyageCamera(defaultCamera({ width: viewport.x, height: viewport.y, map: world.map }), tile, viewport, world.map);
+      const point = worldToScreen({ x: tile.x * TILE_SCALE, y: -1.07, z: tile.y * TILE_SCALE }, camera, viewport);
+      expect(point.x).toBeCloseTo(viewport.x / 3, 5);
+      expect(point.y).toBeCloseTo(viewport.y * 2 / 3, 5);
+    }
+  });
+
   it("holds the completed arrival destination through subsequent camera frames", () => {
     const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
     const viewport = { x: 1200, y: 640 };

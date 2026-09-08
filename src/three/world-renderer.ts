@@ -92,7 +92,13 @@ import {
   CAMERA_FAR,
   TILE_SCALE,
 } from "../systems/projection";
-import { deriveEpistemicHaze } from "../systems/epistemic-haze";
+import {
+  advanceEpistemicHaze,
+  deriveEpistemicHaze,
+  type EpistemicFogBank,
+  type EpistemicFogSource,
+} from "../systems/epistemic-haze";
+import { psiSkyClarity, type PsiSkyClarity } from "../systems/psi-sky";
 import { seasonFromDate, type GardenSeason } from "../systems/season";
 import { isDebugChromeEnabled } from "../lib/pharosville-debug";
 import { createGardenAlmanacDressing, type GardenAlmanacDressing } from "./garden-almanac-dressing";
@@ -214,9 +220,12 @@ import {
   type GardenTideLine,
 } from "./garden-tide-line";
 import {
+  createGardenKeeperFixtureLighting,
   createGardenLaneRegistry,
+  type GardenKeeperRitual,
   type GardenLaneRegistry,
 } from "./garden-lanterns";
+import { requestGardenBeat } from "../systems/garden-director";
 import {
   CEMETERY_CENTER,
   PHAROSVILLE_MAP_HEIGHT,
@@ -254,6 +263,7 @@ import { createGardenTideStain, type GardenTideStain } from "./garden-tide-stain
 import { beamBearingTo, beamDwellRateScale, beamStaticBearing } from "./garden-beam-dwell";
 import {
   createGardenSummitBirds,
+  GARDEN_HERON_BEAT_REQUEST,
   type GardenSummitBirds,
 } from "./garden-summit-birds";
 import {
@@ -688,6 +698,59 @@ const SESSION_TIER_QUALITY: Record<PharosVilleRenderSchedulerTier, number> = {
 };
 
 const scratchMatrix = new Matrix4();
+/**
+ * G3/W4.12: the two feeds that can go stale each own one bounded fog bank —
+ * the peg summary over the risk waters, the chains feed over the harbour
+ * ring. Centres are the centroids of what each feed paints; the bank never
+ * covers the island. Scratch objects: sources are rebuilt every frame.
+ */
+const scratchFogSources: [EpistemicFogSource, EpistemicFogSource] = [
+  { id: "peg-summary", feed: "Peg summary", stale: false, centre: { x: 0, z: 0 }, radius: 24, lastGood: null },
+  { id: "chains", feed: "Chains", stale: false, centre: { x: 0, z: 0 }, radius: 24, lastGood: null },
+];
+let asOfCacheKey: number | null | undefined;
+let asOfIso: string | null = null;
+let asOfClock: string | null = null;
+/** ISO / "HH:MM UTC" for the world snapshot, formatted once per snapshot. */
+function syncWorldAsOf(generatedAt: number | null): void {
+  if (generatedAt === asOfCacheKey) return;
+  asOfCacheKey = generatedAt;
+  asOfIso = generatedAt === null ? null : new Date(generatedAt).toISOString();
+  asOfClock = asOfIso === null ? null : `${asOfIso.slice(11, 16)} UTC`;
+}
+function epistemicFogSources(
+  world: PharosVilleWorld,
+  out: [EpistemicFogSource, EpistemicFogSource],
+): readonly EpistemicFogSource[] {
+  syncWorldAsOf(world.generatedAt);
+  const lastGood = asOfClock;
+  let riskX = 0;
+  let riskZ = 0;
+  let riskCount = 0;
+  for (const area of world.areas) {
+    if (!area.band) continue;
+    riskX += area.tile.x;
+    riskZ += area.tile.y;
+    riskCount += 1;
+  }
+  let dockX = 0;
+  let dockZ = 0;
+  for (const dock of world.docks) {
+    dockX += dock.tile.x;
+    dockZ += dock.tile.y;
+  }
+  const peg = out[0];
+  peg.stale = world.freshness.pegSummaryStale === true;
+  peg.centre.x = (riskCount ? riskX / riskCount : world.lighthouse.tile.x) * TILE_SCALE;
+  peg.centre.z = (riskCount ? riskZ / riskCount : world.lighthouse.tile.y) * TILE_SCALE;
+  peg.lastGood = lastGood;
+  const chains = out[1];
+  chains.stale = world.freshness.chainsStale === true;
+  chains.centre.x = (world.docks.length ? dockX / world.docks.length : world.lighthouse.tile.x) * TILE_SCALE;
+  chains.centre.z = (world.docks.length ? dockZ / world.docks.length : world.lighthouse.tile.y) * TILE_SCALE;
+  chains.lastGood = lastGood;
+  return out;
+}
 const scratchPosition = new Vector3();
 // R8: reused per-frame scratch for the oriented ship contact shadow.
 const scratchShadowPosition = new Vector3();
@@ -1231,9 +1294,30 @@ export function createThreeWorldRenderer(
       // included) freezes into the deterministic static frame.
       writeWeatherPlan({
         timeSeconds: frame.reducedMotion ? 0 : frame.timeSeconds,
+        wallClockHour: frame.wallClockHour,
+        reducedMotion: frame.reducedMotion,
         psiStress: frame.seaState.source.psiStress,
         baseWind: frame.seaState.wind,
       }, scene.weather);
+      // D15 channel treaty: PSI owns clarity aloft (cover and haze, never
+      // colour); stale sources own bounded local fog; the wall clock owns
+      // illumination. Both readings remember their previous value, so they
+      // live on the scene. Clarity lands before the phase grade so the probe
+      // bakes the sky the frame will actually show.
+      syncWorldAsOf(frame.world.generatedAt);
+      scene.psiSky = psiSkyClarity({
+        lighthouse: frame.world.lighthouse,
+        freshness: frame.world.freshness,
+        timeSeconds: frame.timeSeconds,
+        asOf: asOfIso,
+      }, scene.psiSky);
+      scene.sky.setClarity(scene.psiSky.clarity);
+      scene.epistemicBanks = advanceEpistemicHaze(
+        epistemicFogSources(frame.world, scratchFogSources),
+        scene.epistemicBanks,
+        frame.timeSeconds,
+        frame.reducedMotion,
+      );
       // Grade the dome for THIS phase before the probe reads it. The probe
       // renders `sky.domeMaterial` itself and caches the result under the phase
       // key, but the full sky update does not run until `updateSceneForFrame`
@@ -1241,7 +1325,7 @@ export function createThreeWorldRenderer(
       // colours the uniforms are constructed with, stored them under a daytime
       // key, and lit every metal surface in the world with a night probe for as
       // long as that key held. At midday the key never moves again.
-      scene.sky.applyPhase(phase, frame.wallClockHour, scene.weather.stormLevel);
+      scene.sky.applyPhase(phase, frame.wallClockHour);
       // A PMREM bake is episodic rather than recurring frame work. Measure it
       // in its own reset window so it remains visible without contaminating
       // either the scene subtotal or the recurring total.
@@ -1542,6 +1626,15 @@ export interface GardenScene {
   beamAngle: number;
   /** World-clock reading the beam angle was last integrated to. */
   beamClockSeconds: number;
+  /**
+   * G3/D15 data cues with memory. PSI clarity carries 60 s band hysteresis
+   * and freezes on stale; fog banks ramp over 45 s on a freshness edge. Both
+   * are renderer state because their previous reading is their input.
+   */
+  psiSky: PsiSkyClarity | null;
+  epistemicBanks: readonly EpistemicFogBank[];
+  /** W4.9: one heron request per dusk window. */
+  heronDuskRequested: boolean;
   content: GardenContent | null;
   directionalLight: DirectionalLight;
   /**
@@ -1751,6 +1844,8 @@ interface GardenContent {
   tideStain: GardenTideStain;
   summitBirds: GardenSummitBirds;
   summitBirdsRoot: Group;
+  /** G3/W4.8: per-fixture "lit by the keeper" factor on the two shared lantern materials; replaced when the part rebuilds. */
+  keeperFixtureLighting: { island: { update(ritual: GardenKeeperRitual): void } | null; harbor: { update(ritual: GardenKeeperRitual): void } | null };
   /** W4.1 reconciliation bookkeeping — one record per rebuildable part. */
   parts: Record<WorldContentPartName, GardenContentPartState>;
   /** Changed parts waiting for their amortized one-per-frame rebuild. */
@@ -2003,6 +2098,9 @@ function createGardenScene(
     ambientLight,
     beamAngle: 0,
     beamClockSeconds: 0,
+    psiSky: null,
+    epistemicBanks: [],
+    heronDuskRequested: false,
     content: null,
     directionalLight,
     fleetBatches,
@@ -2035,11 +2133,7 @@ function createGardenScene(
     waterAccents,
     wakes: createGardenWakes(renderer),
     weather: {
-      windDirX: -0.855,
-      windDirZ: 0.519,
-      windAngle: 2.592,
-      windSpeed: 0,
-      gust: 0,
+      wind: { x: -0.855, y: 0.519, speed: 0, gust: 0 },
       breath: 0,
       stormLevel: 0,
       lightning: 0,
@@ -2188,6 +2282,7 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     scalarTransitions: [],
     dockAccentTransitions: [],
     harborBatch: null,
+    keeperFixtureLighting: { island: null, harbor: null },
     seaEdges: null,
     lampStatusState: initialLampStatusState({}),
     sailAtlas: scene.sailAtlas,
@@ -3228,9 +3323,10 @@ function buildIslandPart(
   const beaconFire = createGardenBeaconFire(cloudShadows.texture);
   beaconFire.root.position.set(0, GARDEN_LIGHTHOUSE_BEACON_Y, 0);
   island.lighthouseRoot.add(beaconFire.root);
+  // W4.9: the heron perches on the camera-side island rock (its root carries
+  // the perch offset), not on the beacon.
   const summitBirds = createGardenSummitBirds();
-  summitBirds.root.position.set(0, GARDEN_LIGHTHOUSE_BEACON_Y, 0);
-  island.lighthouseRoot.add(summitBirds.root);
+  island.root.add(summitBirds.root);
   // W7 rim light, chained onto the I3 cloud-shadow hook (already applied
   // inside createTerracedIsland) — compose, never clobber.
   applyLighthouseRimLight(island.lighthouseRoot);
@@ -3289,6 +3385,9 @@ function buildIslandPart(
   content.signalMast = signalMast;
   content.lighthouseWindowMaterials = lighthouseWindowMaterials;
   content.islandLanternMaterial = gardenIslandLanternMaterial(island.decoration);
+  content.keeperFixtureLighting.island = content.islandLanternMaterial
+    ? createGardenKeeperFixtureLighting(content.islandLanternMaterial, scene.almanacDressing.keeperPath)
+    : null;
   content.statueGleamMaterials = statueGleamMaterials;
   content.summitBirds = summitBirds;
   content.summitBirdsRoot = summitBirds.root;
@@ -3370,6 +3469,10 @@ function buildRimPart(scene: GardenScene, content: GardenContent): void {
   const rim = createGardenRimMesh(scene.season);
   content.parts.rim.root.add(rim.root);
   content.rim = rim;
+  // W4.8: the keeper walks the rim path; the dressing is scene-scope, so the
+  // ribbon is handed over here where the rim is (re)built.
+  const pathMesh = rim.root.getObjectByName("garden-rim-path") as Mesh | undefined;
+  if (pathMesh) scene.almanacDressing.setKeeperPath(pathMesh.geometry, rim.pathSegmentCount);
   const waterfall = createGardenWaterfall();
   content.parts.rim.root.add(waterfall.mesh);
   content.waterfall = waterfall;
@@ -3429,6 +3532,8 @@ function buildDocksPart(scene: GardenScene, content: GardenContent, world: Pharo
   content.docks = batch.docks;
   content.harborBatch = batch;
   content.harborLanternMaterial = harborLanterns.lightMaterial;
+  content.keeperFixtureLighting.harbor =
+    createGardenKeeperFixtureLighting(harborLanterns.lightMaterial, scene.almanacDressing.keeperPath);
   content.stationSmoke = stationSmoke;
 }
 
@@ -4046,15 +4151,17 @@ function updateSceneForFrame(
     targetZ: cameraViewTarget.z,
     cameraPosition: camera.position,
     timeSeconds: frame.timeSeconds,
-    stormLevel: weather.stormLevel,
     // Phase 2 billboard atmosphere (mist banks + cumulus): full/balanced only,
     // resolved through the sea tier (S1) so a camera drag never blinks them.
     billboards: ["full", "balanced"].includes(seaQualityTier(frame.renderScheduler)),
-    wind: weather,
+    wind: weather.wind,
+    epistemicBanks: scene.epistemicBanks,
   });
   scene.almanacDressing.update({
     activeEvent: frame.almanacEvent ?? null,
     deltaSeconds: beamElapsedSeconds,
+    director: frame.gardenDirector,
+    hour: frame.wallClockHour,
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
   });
@@ -4175,11 +4282,14 @@ function updateSceneForFrame(
   scene.waterAccents.rotation.y = 0;
   content.gullFlock.update({
     constrained,
+    keeperRitual: scene.almanacDressing.keeperRitual,
     night: phase.night,
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
     weather,
   });
+  content.keeperFixtureLighting.island?.update(scene.almanacDressing.keeperRitual);
+  content.keeperFixtureLighting.harbor?.update(scene.almanacDressing.keeperRitual);
   content.fireflies.update({
     fullTier: frame.renderScheduler.tier === "full",
     night: phase.night,
@@ -4212,10 +4322,22 @@ function updateSceneForFrame(
     timeSeconds: frame.timeSeconds,
     tier: frame.renderScheduler.tier,
   });
+  // W4.9: the heron flies once per dusk, inside a director-admitted beat. One
+  // request per dusk window; a refusal (silence, another beat) means no
+  // flight that evening rather than a retry storm eating the cadence budget.
+  const duskWindow = phase.dusk > 0.35;
+  if (!duskWindow) scene.heronDuskRequested = false;
+  if (duskWindow && !scene.heronDuskRequested && frame.gardenDirector && !frame.reducedMotion && ambientAlive) {
+    scene.heronDuskRequested = true;
+    requestGardenBeat(frame.gardenDirector, GARDEN_HERON_BEAT_REQUEST, frame.timeSeconds);
+  }
+  const activeBeat = frame.gardenDirector?.active ?? null;
+  const heronBeat = activeBeat?.subject === GARDEN_HERON_BEAT_REQUEST.subject ? activeBeat : null;
   content.summitBirds.update({
     reducedMotion: frame.reducedMotion,
-    timeSeconds: frame.timeSeconds,
+    timeSeconds: heronBeat ? frame.timeSeconds - heronBeat.startSeconds : 0,
     visible: ambientAlive,
+    weatherBeatActive: heronBeat !== null,
   });
   // The hero gulls ride the same gate as the island's small life, and the same
   // clock. Placement needs nothing here: each flock is a child of the hull it
@@ -4344,13 +4466,16 @@ function updateSceneForFrame(
   const overviewDetail = content.overviewLod.detail;
   // W2a: steles keep true world scale and whisper until the body is hovered or
   // inspected. Stone place-name UP; camera-compensated board label DOWN.
+  // D9: boards are inspection-only — the selected body, else the hovered one.
+  content.seaSigns.setInspected(
+    seaSignBodyForDetail(frame.world, frame.selectedDetailId)
+      ?? seaSignBodyForDetail(frame.world, frame.hoveredDetailId),
+  );
   content.seaSigns.update({
     // W0.7 follow-up: the frame's own clock and motion policy, so the D6 rung
     // settle runs on the same delta as every other eased system instead of the
     // module keeping a second `performance.now()` and a second matchMedia
     // watcher of its own.
-    activeBody: seaSignBodyForDetail(frame.world, frame.selectedDetailId)
-      ?? seaSignBodyForDetail(frame.world, frame.hoveredDetailId),
     deltaSeconds: beamElapsedSeconds,
     night: phase.night,
     reducedMotion: frame.reducedMotion,
@@ -4373,7 +4498,7 @@ function updateSceneForFrame(
       chainId,
       frame.reducedMotion
         ? visual.recipe.flag.placement.yaw
-        : visual.recipe.flag.placement.yaw + Math.sin(weather.windAngle) * 0.28,
+        : visual.recipe.flag.placement.yaw + Math.sin(Math.atan2(weather.wind.y, weather.wind.x)) * 0.28,
       flagRoll,
     );
     visual.fineDetail.visible = showWorldDetail
@@ -4389,12 +4514,12 @@ function updateSceneForFrame(
   // Phase 2: one weather write moves every sail and pennant in the fleet.
   setFleetWeather({
     breath: gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.sails),
-    gust: weather.gust,
+    gust: weather.wind.gust,
     timeSeconds: frame.timeSeconds,
-    windAngle: weather.windAngle,
-    windDirX: weather.windDirX,
-    windDirZ: weather.windDirZ,
-    windSpeed: weather.windSpeed,
+    windAngle: Math.atan2(weather.wind.y, weather.wind.x),
+    windDirX: weather.wind.x,
+    windDirZ: weather.wind.y,
+    windSpeed: weather.wind.speed,
   });
   // ...and one aerial write gives the whole fleet its recession. Reads the fog
   // planes the sky already view-scaled above (scene.sky.update runs earlier in
@@ -4567,62 +4692,14 @@ function updateSceneForFrame(
     } else {
       visual.prevHeadingAngle = null;
     }
-    visual.root.rotation.z = heel;
-    // Arrival/departure sail and wake beats displace 30% of the old ambient
-    // moored bob oscillator; that sub-pixel motion no longer owns the same
-    // attention while a berth event is readable.
-    const bobBreath = gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.bob);
-    // 2026-09-07: the gust front is now visible ON the fleet, not just in the
-    // sails. `gardenGustEnvelope` is a 24 s front travelling at 24 u/s across
-    // the harbour and only the sail shader sampled it positionally, so the one
-    // discrete recurring EVENT in the world was invisible on 185 hulls. Held to
-    // 0.35 deliberately: any stronger and the fleet acquires a countable 24 s
-    // pulse, which is the failure mode VISUAL_INVARIANTS warns about.
-    const hullGust = frame.reducedMotion
-      ? 0
-      : gardenGustAtWorldPosition(
-        breathTime,
-        visual.root.position.x,
-        visual.root.position.z,
-        weather,
-      );
-    const bobAmplitude = frame.reducedMotion
-      ? 0
-      : (0.035 + frame.seaState.swell * 0.055) * 0.7
-        * visual.motionAmplitudeScale
-        * (0.92 + bobBreath * 0.16)
-        * (1 + hullGust * 0.35);
-    const bobT = frame.timeSeconds * (0.72 + frame.seaState.tempo * 0.25)
-      / visual.motionPeriodScale;
-    // Two incommensurate terms rather than one sine. A single frequency reads
-    // as a metronome once you stare, which is the exact failure mode for a
-    // scene designed to be stared at. 1.37 never repeats within a session.
-    visual.root.position.y += (
-      Math.sin(bobT + visual.bobPhase) * 0.78
-      + Math.sin(bobT * 1.37 + visual.bobPhase * 2.3) * 0.22
-    ) * bobAmplitude;
-    // 2026-09-07: roll and pitch. `pitch` was a DEAD CHANNEL — the batch reads
-    // `visual.root.rotation.x` and nothing ever assigned it — and `heel` is
-    // turn-only, so a resting hull had neither. Two thirds of the fleet is at
-    // rest at any instant, which is most of why 185 hulls read as decals on
-    // glass. Roll leads heave by ~90 degrees and pitch runs at 0.61x the heave
-    // rate; those incommensurate ratios are what make a hull look like it is ON
-    // water rather than bolted to it. Both channels were already plumbed CPU to
-    // GPU, so this costs two sines per hull and no draw calls.
-    //
-    // Explicitly zeroed under reduced motion rather than merely amplitude
-    // scaled, so the static composition stays bit-identical.
-    if (frame.reducedMotion) {
-      visual.root.rotation.x = 0;
-    } else {
-      const rollAmplitude = (0.020 + frame.seaState.swell * 0.045)
-        * visual.motionAmplitudeScale
-        * (1 + hullGust * 0.35);
-      visual.root.rotation.z = heel
-        + Math.sin(bobT + visual.bobPhase + 1.9) * rollAmplitude;
-      visual.root.rotation.x = Math.sin(bobT * 0.61 + visual.bobPhase * 1.7)
-        * rollAmplitude * 0.45;
-    }
+    // All hulls read the motion plan's master tide, including rafted pairs.
+    const tideSample = dependency
+      ? frame.shipMotionSamples.get(dependency.parentId) ?? sample
+      : sample;
+    const tideOffset = frame.reducedMotion ? 0 : tideSample?.tideOffset ?? 0;
+    visual.root.position.y += tideOffset;
+    visual.root.rotation.z = heel + tideOffset * 0.18;
+    visual.root.rotation.x = tideOffset * 0.08;
     const issuanceDraft = departing ? 0 : content.issuanceDraftById.get(visual.ship.id) ?? 0;
     // Hero hulls are their own scene graph, so their whole root takes draft.
     // Batched hulls take the same offset through aHullForm.w below.

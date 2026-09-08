@@ -2,6 +2,7 @@
 import {
   CanvasTexture,
   InstancedMesh,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
 } from "three";
@@ -47,7 +48,7 @@ function contrastRatio(left: string, right: string): number {
 }
 
 describe("garden sea steles", () => {
-  it("batches all stone and all carvings into two draws", () => {
+  it("has zero sign draws at rest and defers the shared ink atlas", () => {
     const signs = createGardenSeaSigns(specs);
     const drawables: Mesh[] = [];
     signs.root.traverse((object) => {
@@ -55,19 +56,22 @@ describe("garden sea steles", () => {
     });
 
     expect(signs.root.name).toBe("garden-sea-steles");
+    expect(signs.root.visible).toBe(false);
     expect(drawables).toHaveLength(2);
     const stones = signs.root.getObjectByName("garden-sea-steles-stone");
     const carvings = signs.root.getObjectByName("garden-sea-steles-carving") as Mesh;
     expect(stones).toBeInstanceOf(InstancedMesh);
     expect((stones as InstancedMesh).count).toBe(specs.length);
     expect(carvings.material).toBeInstanceOf(MeshBasicMaterial);
-    expect((carvings.material as MeshBasicMaterial).map).toBeInstanceOf(CanvasTexture);
+    expect((carvings.material as MeshBasicMaterial).map).toBeNull();
+    expect(fillText).not.toHaveBeenCalled();
     expect(signs.lampPositions).toEqual([]);
     signs.dispose();
   });
 
   it("paints mixed-case serif names into one shared atlas", () => {
     const signs = createGardenSeaSigns(specs);
+    signs.setInspected("calm");
     const carvings = signs.root.getObjectByName("garden-sea-steles-carving") as Mesh;
     expect((carvings.material as MeshBasicMaterial).map).toBeInstanceOf(CanvasTexture);
     expect(carvings.geometry.getAttribute("position").count).toBe(specs.length * 4);
@@ -79,7 +83,7 @@ describe("garden sea steles", () => {
     signs.dispose();
   });
 
-  it("keeps the default carving large and contrasting before hover", () => {
+  it("keeps the inspected carving large and contrasting", () => {
     expect(contrastRatio(
       GARDEN_SEA_STELE_DEFAULT_CARVING_COLOR,
       GARDEN_SEA_STELE_STONE_COLOR,
@@ -98,6 +102,7 @@ describe("garden sea steles", () => {
 
   it("keeps true world scale nearby and enlarges the face on the overview rung", () => {
     const signs = createGardenSeaSigns(specs);
+    signs.setInspected("calm");
     const carvings = signs.root.getObjectByName("garden-sea-steles-carving") as Mesh;
     signs.update({ night: 0, reducedMotion: true, visible: true, zoom: 1 });
     carvings.geometry.computeBoundingBox();
@@ -112,43 +117,58 @@ describe("garden sea steles", () => {
     signs.dispose();
   });
 
-  it("raises only the hovered body's carving to full weight", () => {
+  it("raises only the inspected body over 380ms and settles statically under reduced motion", () => {
     const signs = createGardenSeaSigns(specs);
-    const carvings = signs.root.getObjectByName("garden-sea-steles-carving") as Mesh;
-    signs.update({ activeBody: "warning", night: 0, visible: true, zoom: 1 });
-    const color = carvings.geometry.getAttribute("color");
-    const warningWeights = Array.from({ length: color.count }, (_, index) => (
-      color.getX(index) + color.getY(index) + color.getZ(index)
-    ));
-    expect(Math.max(...warningWeights)).toBeGreaterThan(Math.min(...warningWeights) * 2);
+    const stones = signs.root.getObjectByName("garden-sea-steles-stone") as InstancedMesh;
+    const matrix = new Matrix4();
 
-    signs.update({ activeBody: "danger", night: 0, visible: true, zoom: 1 });
-    const dangerWeights = Array.from({ length: color.count }, (_, index) => (
-      color.getX(index) + color.getY(index) + color.getZ(index)
-    ));
-    expect(dangerWeights).not.toEqual(warningWeights);
+    signs.setInspected("warning");
+    signs.update({ deltaSeconds: 0.19, night: 0, visible: true, zoom: 1 });
+    expect(signs.root.visible).toBe(true);
+    const scales = Array.from({ length: specs.length }, (_, index) => {
+      stones.getMatrixAt(index, matrix);
+      return matrix.getMaxScaleOnAxis();
+    });
+    expect(scales.filter((value) => value > 0)).toHaveLength(1);
+    expect(Math.max(...scales)).toBeGreaterThan(0.5);
+    expect(Math.max(...scales)).toBeLessThan(1);
+    signs.update({ deltaSeconds: 0.19, night: 0, visible: true, zoom: 1 });
+
+    stones.getMatrixAt(1, matrix);
+    expect(matrix.getMaxScaleOnAxis()).toBeCloseTo(1);
+
+    signs.setInspected("danger");
+    signs.update({ deltaSeconds: 0, night: 0, reducedMotion: true, visible: true, zoom: 1 });
+    stones.getMatrixAt(2, matrix);
+    expect(matrix.getMaxScaleOnAxis()).toBeCloseTo(1);
+    signs.setInspected(null);
+    signs.update({ deltaSeconds: 0, night: 0, reducedMotion: true, visible: true, zoom: 1 });
+    expect(signs.root.visible).toBe(false);
     signs.dispose();
   });
 
-  it("supports the signs=0 renderer gate without changing its resources", () => {
+  it("combines the renderer gate with inspection state", () => {
     const signs = createGardenSeaSigns(specs);
-    signs.update({ night: 0, visible: false, zoom: 1 });
+    signs.setInspected("calm");
+    signs.update({ night: 0, reducedMotion: true, visible: false, zoom: 1 });
     expect(signs.root.visible).toBe(false);
     expect(signs.root.getObjectByName("garden-sea-steles-stone")).toBeDefined();
-    signs.update({ night: 0, visible: true, zoom: 1 });
+    signs.update({ night: 0, reducedMotion: true, visible: true, zoom: 1 });
     expect(signs.root.visible).toBe(true);
     signs.dispose();
   });
 
-  it("reuses and disposes the shared atlas when names become active", () => {
+  it("creates, reuses, and disposes the shared atlas only after inspection", () => {
     const signs = createGardenSeaSigns(specs);
     const carvings = signs.root.getObjectByName("garden-sea-steles-carving") as Mesh;
-    expect((carvings.material as MeshBasicMaterial).map).toBeInstanceOf(CanvasTexture);
+    expect((carvings.material as MeshBasicMaterial).map).toBeNull();
+    signs.setInspected("calm");
     const atlas = (carvings.material as MeshBasicMaterial).map!;
+    expect(atlas).toBeInstanceOf(CanvasTexture);
     const dispose = vi.spyOn(atlas, "dispose");
-    signs.update({ activeBody: "calm", night: 1, visible: true, zoom: 0.28 });
+    signs.update({ night: 1, visible: true, zoom: 0.28 });
+    signs.setInspected("danger");
     expect((carvings.material as MeshBasicMaterial).map).toBe(atlas);
-    expect((carvings.material as MeshBasicMaterial).map).toBeInstanceOf(CanvasTexture);
     signs.dispose();
     expect(dispose).toHaveBeenCalledOnce();
   });

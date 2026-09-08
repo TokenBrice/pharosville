@@ -40,10 +40,11 @@ bare; neither lamps nor boats form an evenly spaced ring or carpet.
 
 The world offers three readings: the tower is market stability, water is risk
 band, and hero ships show who leads. Sail identity is a complete mon on cloth,
-not an identity plate. Sea names appear on inspection, not permanent boards.
-The DOM says what the market is doing in a sentence; details and the ledger
-hold exact readings, sources, freshness and caveats. Colour is never the only
-carrier of meaning.
+not an identity plate. Sea-sign boards are inspection-only: no board is drawn
+at rest; hover or focus raises only that water body's name over 380 ms, with
+one deterministic raised pose under reduced motion. The DOM ledger remains the
+canonical always-available list of named waters and their exact readings,
+sources, freshness and caveats. Colour is never the only carrier of meaning.
 
 ## Atmosphere before grade
 

@@ -376,7 +376,8 @@ describe("fleet batches", () => {
       endFleetFrame(batches);
       const packed = sails.mesh.geometry.getAttribute("aSailFurl").getX(0);
       if (secondsInto === 30) expect(packed).toBe(furlMask);
-      else expect(packed).toBeCloseTo(furlMask + 0.396, 5);
+      // Packed into a Float32 attribute beside the 21 mask: two decimals hold.
+      else expect(packed).toBeCloseTo(furlMask + beat.furl * (1 - GARDEN_SAIL_DIP_MIN_SCALE), 2);
     }
     disposeFleetBatches(batches);
   });

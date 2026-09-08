@@ -62,6 +62,7 @@ import {
 import {
   GARDEN_WATER_CREST_FOAM,
   GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN,
+  GARDEN_WATER_MAX_LIGHT_LANES,
   GARDEN_WATER_MAX_RIPPLE_RINGS,
   GARDEN_WATER_MAX_ZONE_TINTS,
   GARDEN_WATER_NIGHT_EMISSIVE_BUDGET,
@@ -1324,11 +1325,17 @@ ${gardenHeightFogGlsl()}
 
     vec2 fieldDelta = vWaterPosition - uLaneField.xy;
     if (dot(fieldDelta, fieldDelta) < uLaneField.z * uLaneField.z) {
-      vec2 streakDir = normalize(vec2(0.45, -1.0));
-      vec2 streakPerp = vec2(-streakDir.y, streakDir.x);
-      float tremble = surfaceNormal.x * (1.2 + uTempo * 1.6);
+      // Camera-vertical on the plate, bent downwind. Wind lengthens each
+      // reflection without changing the source ordering.
+      vec2 reflectionDir = normalize(mix(
+        normalize(vec2(0.45, -1.0)),
+        uWindDir,
+        uWindSpeed * 0.28
+      ));
+      vec2 reflectionPerp = vec2(-reflectionDir.y, reflectionDir.x);
+      float tremble = surfaceNormal.x * (0.7 + uTempo * 0.9);
       vec3 laneAccum = vec3(0.0);
-      for (int i = 0; i < ${MAX_GARDEN_LIGHT_LANES}; i += 1) {
+      for (int i = 0; i < ${GARDEN_WATER_MAX_LIGHT_LANES}; i += 1) {
         if (float(i) >= uLaneCount) break;
         float u = (float(i) + 0.5) / LANE_TEXELS;
         vec4 head = texture2D(uLaneTexture, vec2(u, 1.0 / 6.0));
@@ -1357,13 +1364,34 @@ ${gardenHeightFogGlsl()}
         if (distSq > 900.0) continue;
         vec4 body = texture2D(uLaneTexture, vec2(u, 0.5));
         float intensity = head.z;
-        float pool = exp(-distSq / 24.0);
-        float along = dot(d, streakDir) + tremble;
-        float across = dot(d, streakPerp) + tremble * 0.4;
-        float streak = exp(-(across * across) / 3.0)
-          * exp(-max(0.0, along) * max(0.0, along) / 120.0)
-          * aaStep(-2.0, along);
-        laneAccum += body.rgb * intensity * (pool * 0.55 + streak * 0.4);
+        // Point lights paint narrow, broken vertical strokes rather than
+        // circular pools. Kind is source stature in the packed header:
+        // lantern < raised buoy/window light < lighthouse beacon.
+        float sourceHeight = head.w > 1.5
+          ? 1.0
+          : (head.w > 0.5 ? 0.48 : 0.24);
+        float strokeLength = mix(5.0, 18.0, sourceHeight)
+          * mix(0.9, 1.28, uWindSpeed);
+        float along = dot(d, reflectionDir) + tremble;
+        float across = dot(d, reflectionPerp)
+          + surfaceNormal.y * mix(0.25, 0.72, uWindSpeed);
+        float strokeT = clamp(along / strokeLength, 0.0, 1.0);
+        float segmentCount = floor(mix(3.0, 6.0, sourceHeight) + 0.5);
+        float segmentPhase = fract(
+          strokeT * segmentCount
+          + surfaceNormal.x * 0.38
+          + surfaceNormal.y * 0.22
+        );
+        float broken = aaStep(0.16, segmentPhase)
+          * (1.0 - aaStep(0.78, segmentPhase));
+        float verticalStroke = exp(
+          -(across * across) / mix(0.24, 0.72, sourceHeight)
+        )
+          * aaStep(-0.45, along)
+          * (1.0 - aaStep(strokeLength, along))
+          * (1.0 - strokeT * 0.7)
+          * broken;
+        laneAccum += body.rgb * intensity * verticalStroke * 0.72;
       }
       waterColor += clamp(
         laneAccum,
@@ -2032,7 +2060,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
         reducedMotion: frame.reducedMotion,
         tier,
         timeSeconds: frame.timeSeconds,
-        ...(weather ? { wind: weather } : {}),
+        ...(weather ? { wind: weather.wind, stormLevel: weather.stormLevel } : {}),
       });
       cloudShadowsActive = balancedOrBetter;
 
@@ -2099,10 +2127,10 @@ export function createGardenWater(waterLevel: number): GardenWater {
       // displacement budget that keeps the crests below the zone-root plane.
       const stormLevel = MathUtils.clamp(weather?.stormLevel ?? 0, 0, 1);
       uniforms.uWindDir.value.set(
-        weather?.windDirX ?? GARDEN_DEFAULT_WIND_X,
-        -(weather?.windDirZ ?? GARDEN_DEFAULT_WIND_Z),
+        weather?.wind.x ?? GARDEN_DEFAULT_WIND_X,
+        -(weather?.wind.y ?? GARDEN_DEFAULT_WIND_Z),
       );
-      uniforms.uWindSpeed.value = MathUtils.clamp(weather?.windSpeed ?? 0, 0, 1);
+      uniforms.uWindSpeed.value = MathUtils.clamp(weather?.wind.speed ?? 0, 0, 1);
       uniforms.uBreath.value = gardenBreathAt(
         frame.reducedMotion ? 0 : frame.timeSeconds,
         GARDEN_BREATH_PHASE.water,
@@ -2157,7 +2185,7 @@ function createGardenCloudShadowSource(): GardenCloudShadowSource {
   return {
     texture,
     uniforms,
-    update({ reducedMotion, tier, timeSeconds, wind }) {
+    update({ reducedMotion, tier, timeSeconds, wind, stormLevel }) {
       // Reduced motion is one canonical time-zero composition, regardless of
       // whether the preference was active at mount or entered after animation.
       if (reducedMotion) {
@@ -2174,11 +2202,11 @@ function createGardenCloudShadowSource(): GardenCloudShadowSource {
         ? Math.min(now, 0.25)
         : MathUtils.clamp(now - lastSeconds, 0, 0.25);
       lastSeconds = now;
-      const dirX = wind?.windDirX ?? GARDEN_DEFAULT_WIND_X;
-      const dirZ = wind?.windDirZ ?? GARDEN_DEFAULT_WIND_Z;
+      const dirX = wind?.x ?? GARDEN_DEFAULT_WIND_X;
+      const dirZ = wind?.y ?? GARDEN_DEFAULT_WIND_Z;
       // World-units-per-second advection: a light breeze holds the historical
       // ~0.18 u/s; a full storm drives the scud at ~4x that.
-      const speed = 0.06 + (wind?.windSpeed ?? 0.4) * 0.3 + (wind?.stormLevel ?? 0) * 0.22;
+      const speed = 0.06 + (wind?.speed ?? 0.4) * 0.3 + (stormLevel ?? 0) * 0.22;
       offsetX -= dirX * speed * CLOUD_SHADOW_TEXEL_SCALE * deltaSeconds;
       offsetZ -= dirZ * speed * CLOUD_SHADOW_TEXEL_SCALE * deltaSeconds;
       transform[2] = offsetX;

@@ -9,7 +9,7 @@ import {
 describe("garden motion tokens", () => {
   it("publishes the named curves and whisper-to-weather duration ladder", () => {
     expect(Object.keys(GARDEN_MOTION_CURVES)).toEqual(["settle", "drift", "breathe"]);
-    expect(GARDEN_MOTION_DURATIONS.whisper.ms).toBe(300);
+    expect(GARDEN_MOTION_DURATIONS.whisper.ms).toBe(200);
     expect(GARDEN_MOTION_DURATIONS.breathe.ms).toBe(9_000);
     expect(GARDEN_MOTION_DURATIONS.weather.ms).toBeGreaterThanOrEqual(90_000);
     expect(Object.values(GARDEN_MOTION_CURVES).some((curve) => curve.css.includes("spring"))).toBe(false);

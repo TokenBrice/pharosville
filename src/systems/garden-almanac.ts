@@ -1,4 +1,6 @@
-export type GardenAlmanacEventId = "heron-dusk" | "lantern-round" | "deep-night-meteor";
+import { requestGardenBeat, type GardenBeat, type GardenDirectorState } from "./garden-director";
+
+export type GardenAlmanacEventId = "heron-dusk" | "deep-night-meteor";
 
 export interface GardenAlmanacEvent {
   dayKey: string;
@@ -7,6 +9,10 @@ export interface GardenAlmanacEvent {
   ledgerMessage: string;
   startsAtHour: number;
   timestampLabel: string;
+  foreground: boolean;
+  durationSeconds: number;
+  envelopeSeconds: number;
+  evidenceSeconds: number;
 }
 
 export interface GardenAlmanacLogEntry {
@@ -17,7 +23,10 @@ export interface GardenAlmanacLogEntry {
 
 interface AlmanacEventDefinition {
   baseHour: number;
-  durationHours: number;
+  durationSeconds: number;
+  envelopeSeconds: number;
+  evidenceSeconds: number;
+  foreground: boolean;
   id: GardenAlmanacEventId;
   jitterHours: number;
   ledgerMessage: string;
@@ -26,21 +35,20 @@ interface AlmanacEventDefinition {
 const EVENT_DEFINITIONS: readonly AlmanacEventDefinition[] = Object.freeze([
   {
     baseHour: 18,
-    durationHours: 0.4,
+    durationSeconds: 30,
+    envelopeSeconds: 45,
+    evidenceSeconds: 600,
+    foreground: false,
     id: "heron-dusk",
     jitterHours: 0.2,
     ledgerMessage: "A heron settled on the harbor piling at dusk.",
   },
   {
-    baseHour: 19,
-    durationHours: 0.4,
-    id: "lantern-round",
-    jitterHours: 0.2,
-    ledgerMessage: "The harbor keeper made the lantern-lighting round at nightfall.",
-  },
-  {
     baseHour: 1,
-    durationHours: 0.24,
+    durationSeconds: 10,
+    envelopeSeconds: 10,
+    evidenceSeconds: 0,
+    foreground: true,
     id: "deep-night-meteor",
     jitterHours: 0.3,
     ledgerMessage: "A single meteor crossed the deep-night harbor sky.",
@@ -65,7 +73,11 @@ export function gardenAlmanacEventForDate(date: Date = new Date()): GardenAlmana
   const startsAtHour = definition.baseHour + jitterUnit * definition.jitterHours;
   return {
     dayKey,
-    endsAtHour: startsAtHour + definition.durationHours,
+    endsAtHour: startsAtHour + definition.envelopeSeconds / 3600,
+    foreground: definition.foreground,
+    durationSeconds: definition.durationSeconds,
+    envelopeSeconds: definition.envelopeSeconds,
+    evidenceSeconds: definition.evidenceSeconds,
     id: definition.id,
     ledgerMessage: definition.ledgerMessage,
     startsAtHour,
@@ -85,6 +97,23 @@ export function gardenAlmanacEventAt(
     : ((wallClockHour % 24) + 24) % 24;
   const event = gardenAlmanacEventForDate(date);
   return hour >= event.startsAtHour && hour < event.endsAtHour ? event : null;
+}
+
+/** A daily occurrence asks for attention once; evidence never reserves it. */
+export function requestGardenAlmanac(
+  director: GardenDirectorState,
+  event: GardenAlmanacEvent,
+  timeSeconds: number,
+): GardenBeat | null {
+  return requestGardenBeat(director, {
+    kind: "almanac",
+    foreground: event.foreground,
+    durationSeconds: event.durationSeconds,
+    envelopeSeconds: event.envelopeSeconds,
+    evidenceSeconds: event.evidenceSeconds,
+    priority: 20,
+    subject: `${event.dayKey}:${event.id}`,
+  }, timeSeconds);
 }
 
 export function gardenAlmanacLogEntry(event: GardenAlmanacEvent): GardenAlmanacLogEntry {

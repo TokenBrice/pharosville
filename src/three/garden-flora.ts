@@ -205,10 +205,10 @@ export function updateGardenInstancedWindSway(
 ): void {
   const uniforms = material.userData.gardenWindSwayUniforms as GardenWindSwayUniforms | undefined;
   if (!uniforms) return;
-  uniforms.uGardenWindDirection.value.x = weather.windDirX;
-  uniforms.uGardenWindDirection.value.y = weather.windDirZ;
-  const gust = reducedMotion ? 0 : weather.gust;
+  uniforms.uGardenWindDirection.value.x = weather.wind.x;
+  uniforms.uGardenWindDirection.value.y = weather.wind.y;
+  const gust = reducedMotion ? 0 : weather.wind.gust;
   uniforms.uGardenWindStrength.value = (
-    0.035 + weather.windSpeed * 0.085 + gust * 0.14
+    0.035 + weather.wind.speed * 0.085 + gust * 0.14
   ) * (0.9 + weather.breath * 0.2);
 }

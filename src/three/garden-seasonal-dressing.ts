@@ -76,15 +76,15 @@ export function createGardenSeasonalDressing(season: GardenSeason): GardenSeason
       const anchorX = GARDEN_ENGAWA_KOI_WORLD.x + Math.cos(angle) * radius;
       const anchorZ = GARDEN_ENGAWA_KOI_WORLD.z + Math.sin(angle) * radius * 0.72;
       const gust = gardenGustAtWorldPosition(time, anchorX, anchorZ, weather, reducedMotion);
-      const speed = 0.28 + weather.windSpeed * 0.72 + gust * 0.45;
+      const speed = 0.28 + weather.wind.speed * 0.72 + gust * 0.45;
       const span = 5;
       const travel = ((stableUnit(`season.petal.travel.${index}`) * span + time * speed) % span)
         - span * 0.5;
       const cross = (stableUnit(`season.petal.cross.${index}`) - 0.5) * 1.4;
       dummy.position.set(
-        anchorX + weather.windDirX * travel - weather.windDirZ * cross,
+        anchorX + weather.wind.x * travel - weather.wind.y * cross,
         GARDEN_WATER_Y + 0.065,
-        anchorZ + weather.windDirZ * travel + weather.windDirX * cross,
+        anchorZ + weather.wind.y * travel + weather.wind.x * cross,
       );
       dummy.rotation.set(
         -Math.PI / 2,

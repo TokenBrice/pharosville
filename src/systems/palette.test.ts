@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { RISK_WATER_AREAS } from "./risk-water-areas";
-import { DEWS_AREA_LABEL_COLORS, HARBOR_PALETTE, ZONE_THEMES, zoneThemeForTerrain } from "./palette";
+import {
+  DEWS_AREA_LABEL_COLORS,
+  HARBOR_PALETTE,
+  HARBOR_UI_PALETTE,
+  LEDGER_INK_HEX,
+  ZONE_THEMES,
+  zoneThemeForTerrain,
+} from "./palette";
 import { SHIP_WATER_ZONES } from "./world-types";
 
 describe("HARBOR_PALETTE", () => {
@@ -69,6 +76,28 @@ describe("HARBOR_PALETTE", () => {
     for (const [a, b, label] of [[nav, yields, "nav/yield"], [yields, other, "yield/other"], [nav, other, "nav/other"]] as const) {
       expect(hueDistance(a, b), label).toBeGreaterThan(45);
     }
+  });
+});
+
+describe("HARBOR_UI_PALETTE", () => {
+  it("derives every DOM role from the shared harbor and risk palettes", () => {
+    expect(HARBOR_UI_PALETTE).toEqual({
+      ink: HARBOR_PALETTE.iron_dark,
+      mist: HARBOR_PALETTE.fog_day,
+      moss: HARBOR_PALETTE.aurora_green,
+      stone: HARBOR_PALETTE.stone_mid,
+      water: HARBOR_PALETTE.deep_sea_1,
+      lantern: HARBOR_PALETTE.lantern_warm,
+      risk: {
+        calm: DEWS_AREA_LABEL_COLORS.CALM,
+        watch: DEWS_AREA_LABEL_COLORS.WATCH,
+        alert: DEWS_AREA_LABEL_COLORS.ALERT,
+        warning: DEWS_AREA_LABEL_COLORS.WARNING,
+        danger: DEWS_AREA_LABEL_COLORS.DANGER,
+        ledger: LEDGER_INK_HEX,
+        wreck: HARBOR_PALETTE.vermillion,
+      },
+    });
   });
 });
 

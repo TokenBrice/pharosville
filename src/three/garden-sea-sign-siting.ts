@@ -94,6 +94,62 @@ export const SEA_SIGN_STEP_FADE_SECONDS = 0.45;
  */
 const SEA_SIGN_STALE_FRAME_SECONDS = 0.25;
 
+/** D9 inspection reveal: one deliberate settle, shared with the UI motion token. */
+export const SEA_SIGN_INSPECTION_SECONDS = 0.38;
+
+export interface SeaSignInspectionTrack {
+  /** The sole board allowed above the water while the track settles. */
+  readonly body: SeaBodyName | null;
+  /** Eased reveal height, from submerged/absent (0) to fully raised (1). */
+  readonly rise: number;
+  setInspected(body: SeaBodyName | null): void;
+  advance(deltaSeconds: number, reducedMotion?: boolean): number;
+}
+
+/**
+ * Stateful inspection reveal kept outside three.js so reduced-motion and
+ * interrupted lowering remain deterministic and directly testable.
+ */
+export function createSeaSignInspectionTrack(): SeaSignInspectionTrack {
+  let body: SeaBodyName | null = null;
+  let requested: SeaBodyName | null = null;
+  let linear = 0;
+  let rise = 0;
+  return {
+    get body() {
+      return body;
+    },
+    get rise() {
+      return rise;
+    },
+    setInspected(nextBody) {
+      if (nextBody === requested) return;
+      requested = nextBody;
+      if (nextBody !== null) {
+        body = nextBody;
+        linear = 0;
+        rise = 0;
+      }
+    },
+    advance(deltaSeconds, reducedMotion = false) {
+      const target = requested === null ? 0 : 1;
+      if (reducedMotion || !Number.isFinite(deltaSeconds)) {
+        linear = target;
+      } else if (deltaSeconds > 0) {
+        const distance = deltaSeconds / SEA_SIGN_INSPECTION_SECONDS;
+        linear = target > linear
+          ? Math.min(target, linear + distance)
+          : Math.max(target, linear - distance);
+      }
+      rise = target === 0
+        ? linear ** 3
+        : easeOutStep(linear);
+      if (requested === null && linear === 0) body = null;
+      return rise;
+    },
+  };
+}
+
 /** Which rung a zoom belongs to on its own, with no history. */
 export function seaSignStepForZoom(zoom: number): number {
   let step = 0;

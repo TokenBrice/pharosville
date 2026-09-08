@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createGardenLaneRegistry,
+  gardenKeeperFixtureFactor,
   GARDEN_EMBER_LANE_MIN_SEPARATION,
   GARDEN_LANE_EMBER_GAIN,
   GARDEN_ROUTE_PULSE_ROTATION_SECONDS,
@@ -31,6 +32,19 @@ function lane(overrides: Partial<GardenLightLane> & { id: string }): GardenLight
     ...overrides,
   };
 }
+
+describe("keeper fixture passage", () => {
+  it("lights in path order, then extinguishes in reverse order without replacing the phase base", () => {
+    const evening = { active: true, progress: 0.5, direction: "evening" as const };
+    expect(gardenKeeperFixtureFactor(0.2, evening)).toBe(1);
+    expect(gardenKeeperFixtureFactor(0.8, evening)).toBe(0);
+    const dawn = { ...evening, direction: "dawn" as const };
+    expect(gardenKeeperFixtureFactor(0.8, dawn)).toBe(0);
+    expect(gardenKeeperFixtureFactor(0.2, dawn)).toBe(1);
+    expect(gardenKeeperFixtureFactor(0.48, evening)).toBeCloseTo(0.5);
+    expect(gardenKeeperFixtureFactor(0.8, { ...evening, active: false })).toBe(1);
+  });
+});
 
 describe("createGardenLaneRegistry", () => {
   it("exposes its water-sampled DataTexture to the owner census", () => {

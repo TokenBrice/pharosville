@@ -120,10 +120,10 @@ describe("garden beacon fire (W4)", () => {
   });
 });
 
-describe("garden summit birds (W7)", () => {
-  it("builds one instanced flock that freezes at time zero", () => {
+describe("island heron (W4.9)", () => {
+  it("builds one perched heron that freezes at time zero", () => {
     const birds = createGardenSummitBirds();
-    const flock = birds.root.getObjectByName("lighthouse-birds");
+    const flock = birds.root.getObjectByName("island-heron");
     expect(flock).toBeDefined();
     birds.update({ reducedMotion: true, timeSeconds: 42, visible: true });
     expect(birds.root.visible).toBe(true);

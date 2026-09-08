@@ -12,7 +12,6 @@ import {
 import {
   createGardenSky,
   GARDEN_BOKASHI_BAND,
-  GARDEN_CUMULUS_BILLBOARDS_ENABLED,
   gardenBokashiAmount,
   gardenBokashiInk,
 } from "./garden-sky";
@@ -168,25 +167,17 @@ describe("garden sky billboard atmosphere", () => {
     sky.dispose();
   });
 
-  it("thickens mist with storms while the cumulus review baseline stays disabled", () => {
+  it("sheds billboard atmosphere below the quality gate", () => {
     const sky = createGardenSky();
     const mist = mistOf(sky);
     const clouds = cloudsOf(sky);
     const night = dayCyclePhase(23);
 
-    sky.update(night, FRAME);
-    const calm = uniformsOf(mist).uOpacity!.value as number;
-    sky.update(night, { ...FRAME, stormLevel: 1 });
-    expect(uniformsOf(mist).uOpacity!.value as number).toBeGreaterThan(calm);
-
-    // Tier gate: the caller resolves the quality tier; below balanced mist
-    // sheds. Cumulus stays disabled at every tier pending operator A/B review.
     sky.update(night, { ...FRAME, billboards: false });
     expect(mist.visible).toBe(false);
     expect(clouds.visible).toBe(false);
     sky.update(night, { ...FRAME, billboards: true });
     expect(mist.visible).toBe(true);
-    expect(GARDEN_CUMULUS_BILLBOARDS_ENABLED).toBe(false);
     expect(clouds.visible).toBe(false);
     sky.dispose();
   });
@@ -200,7 +191,7 @@ describe("garden sky billboard atmosphere", () => {
       ...FRAME,
       reducedMotion: true,
       timeSeconds: 240,
-      wind: { windDirX: 1, windDirZ: 0, windSpeed: 0.8 },
+      wind: { x: 1, y: 0, speed: 0.8, gust: 0 },
     });
     expect(uniformsOf(mist).uTime!.value).toBe(0);
     expect(uniformsOf(mist).uWindDir!.value).toMatchObject({ x: 1, y: 0 });
@@ -303,13 +294,6 @@ describe("garden sky atmospheric scattering", () => {
     evening.dispose();
   });
 
-  it("smothers the sun and the scattering in a storm", () => {
-    const sky = createGardenSky();
-    sky.applyPhase(dayCyclePhase(12), 12, 1);
-    expect(sky.domeMaterial.uniforms.uScattering!.value).toBeCloseTo(0.4);
-    expect(sky.domeMaterial.uniforms.uSunIntensity!.value).toBeCloseTo(1.55 * 0.15);
-    sky.dispose();
-  });
 });
 
 /**
@@ -471,4 +455,25 @@ describe("bokashi bands", () => {
     expect(Math.max(dusk, night)).toBeLessThanOrEqual(1);
   });
 
+});
+
+describe("market stability sky channel", () => {
+  it("changes cover, haze and drift bias without changing wall-clock colours", () => {
+    const sky = createGardenSky("summer");
+    sky.setClarity(1);
+    sky.update(dayCyclePhase(12), FRAME);
+    const zenith = (sky.domeMaterial.uniforms.uZenith.value as Color).clone();
+    const horizon = sky.fog.color.clone();
+    const clearHaze = sky.domeMaterial.uniforms.uHazeStrength.value as number;
+    const clearCover = uniformsOf(cloudsOf(sky)).uOpacity.value as number;
+    const clearWind = uniformsOf(cloudsOf(sky)).uWindSpeed.value as number;
+    sky.setClarity(0);
+    sky.update(dayCyclePhase(12), FRAME);
+    expect(sky.domeMaterial.uniforms.uZenith.value).toEqual(zenith);
+    expect(sky.fog.color).toEqual(horizon);
+    expect(sky.domeMaterial.uniforms.uHazeStrength.value).toBeGreaterThan(clearHaze);
+    expect(uniformsOf(cloudsOf(sky)).uOpacity.value).toBeGreaterThan(clearCover);
+    expect(uniformsOf(cloudsOf(sky)).uWindSpeed.value).toBeGreaterThan(clearWind);
+    sky.dispose();
+  });
 });

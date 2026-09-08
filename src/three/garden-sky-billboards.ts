@@ -6,6 +6,7 @@ import {
   PlaneGeometry,
   ShaderMaterial,
 } from "three";
+import type { EpistemicFogBank } from "../systems/epistemic-haze";
 
 /**
  * Phase 2 (Breathtaking Rendering, items 2d/6): drifting billboard mist banks
@@ -45,6 +46,8 @@ export interface GardenSkyBillboards {
   dispose: () => void;
   geese: GardenSkyBillboardLayer;
   mist: GardenSkyBillboardLayer;
+  localMist: GardenSkyBillboardLayer;
+  setFogBanks: (banks: readonly EpistemicFogBank[], targetX: number, targetZ: number) => void;
 }
 
 export const MIST_BANK_COUNT = 9;
@@ -201,6 +204,7 @@ const STATIC_VERTEX_SHADER = /* glsl */ `
 const MIST_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uColor;
   uniform float uOpacity;
+  uniform float uLocal;
   varying vec2 vUv;
   varying float vSeed;
   varying float vFade;
@@ -212,7 +216,7 @@ const MIST_FRAGMENT_SHADER = /* glsl */ `
     float breakup = bbNoise(vUv * vec2(5.0, 3.0) + vSeed * 17.0) * 0.65
       + bbNoise(vUv * vec2(11.0, 7.0) + vSeed * 29.0) * 0.35;
     float alpha = radial * smoothstep(0.25, 0.75, breakup + radial * 0.4)
-      * uOpacity * vFade * smoothstep(60.0, 100.0, distance(cameraPosition, vWorldPosition));
+      * uOpacity * vFade * mix(smoothstep(60.0, 100.0, distance(cameraPosition, vWorldPosition)), 1.0, uLocal);
     if (alpha < 0.004) discard;
     gl_FragColor = vec4(uColor, alpha);
   }
@@ -326,6 +330,7 @@ export function createGardenSkyBillboards(): GardenSkyBillboards {
     {
       uColor: { value: null },
       uOpacity: { value: 0 },
+      uLocal: { value: 0 },
     },
     AdditiveBlending,
     0.55,
@@ -360,10 +365,37 @@ export function createGardenSkyBillboards(): GardenSkyBillboards {
     1,
     STATIC_VERTEX_SHADER,
   );
+  // Bounded banks use world anchors, never the sky's camera-following anchors.
+  const localMist = createLayer(
+    "garden-source-fog",
+    Array.from({ length: 64 }, () => [0, 0.7, 0, 1, 1] as const),
+    MIST_FRAGMENT_SHADER,
+    { uColor: { value: null }, uOpacity: { value: 0.32 }, uLocal: { value: 1 } },
+    NormalBlending, 0, 1,
+    VERTEX_SHADER.replace("attribute float aSeed;", "attribute float aSeed;\nattribute float aStrength;")
+      .replace("vFade = sin(3.14159265 * (travel / uDriftSpan));", "vFade = aStrength;")
+      .replace("center.xz += uWindDir * (travel - uDriftSpan * 0.5);", ""),
+  );
+  localMist.mesh.geometry.setAttribute("aStrength", new InstancedBufferAttribute(new Float32Array(64), 1));
+  localMist.mesh.count = 0;
   return {
     clouds,
     geese,
     mist,
+    localMist,
+    setFogBanks(banks, targetX, targetZ) {
+      const anchors = localMist.mesh.geometry.getAttribute("aAnchor") as InstancedBufferAttribute;
+      const scales = localMist.mesh.geometry.getAttribute("aScale") as InstancedBufferAttribute;
+      const strengths = localMist.mesh.geometry.getAttribute("aStrength") as InstancedBufferAttribute;
+      localMist.mesh.count = Math.min(64, banks.length);
+      for (let i = 0; i < localMist.mesh.count; i += 1) {
+        const bank = banks[i]!;
+        anchors.setXYZ(i, bank.centre.x - targetX - bank.radius * (1 - bank.arrival), 0.7, bank.centre.z - targetZ);
+        scales.setXY(i, bank.radius * 2, bank.radius * 0.55);
+        strengths.setX(i, bank.strength);
+      }
+      anchors.needsUpdate = scales.needsUpdate = strengths.needsUpdate = true;
+    },
     dispose() {
       mist.mesh.geometry.dispose();
       mist.material.dispose();
@@ -371,6 +403,8 @@ export function createGardenSkyBillboards(): GardenSkyBillboards {
       clouds.material.dispose();
       geese.mesh.geometry.dispose();
       geese.material.dispose();
+      localMist.mesh.geometry.dispose();
+      localMist.material.dispose();
     },
   };
 }

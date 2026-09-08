@@ -72,7 +72,7 @@ describe("garden sea edges", () => {
       uGardenWindDirection: { value: { x: number; y: number } };
       uGardenWindStrength: { value: number };
     };
-    expect(uniforms.uGardenWindDirection.value.x).toBeCloseTo(weather.windDirX);
+    expect(uniforms.uGardenWindDirection.value.x).toBeCloseTo(weather.wind.x);
     expect(uniforms.uGardenWindStrength.value).toBeGreaterThan(0);
     expect(edges.drawCallCount).toBe(6);
     edges.dispose();

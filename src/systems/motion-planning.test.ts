@@ -22,10 +22,26 @@ import {
   disposePathCacheForMap,
   openWaterPatrolItineraryIndex,
   openWaterPatrolItineraryLength,
+  tidePhase,
+  berthTidePhase,
 } from "./motion-planning";
 import { resolveShipMotionSample } from "./motion-sampling";
 import { stableUnit } from "./stable-random";
 import type { PharosVilleWorld } from "./world-types";
+
+describe("harbour tide clock", () => {
+  it("repeats after ten minutes and keeps berth lag on that same clock", () => {
+    const berth = { x: 20, y: 30 };
+    expect(tidePhase(0)).toBe(0);
+    expect(tidePhase(300)).toBeCloseTo(Math.PI);
+    expect(tidePhase(723)).toBeCloseTo(tidePhase(123));
+    expect(berthTidePhase(723, berth)).toBeCloseTo(berthTidePhase(123, berth));
+    const lag = tidePhase(123) - berthTidePhase(123, berth);
+    expect(lag).toBeGreaterThanOrEqual(0);
+    expect(lag).toBeLessThanOrEqual(24 / 600 * Math.PI * 2);
+    expect(berthTidePhase(123, { x: 21, y: 30 })).not.toBe(berthTidePhase(123, berth));
+  });
+});
 
 describe("W4.23 calm patrol itineraries", () => {
   function worldForDocklessShip(): PharosVilleWorld {

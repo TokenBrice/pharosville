@@ -24,6 +24,7 @@ import {
   STELE_FACE_BASE_Y,
   STELE_FACE_HEIGHT,
   STELE_WIDTH,
+  createSeaSignInspectionTrack,
   createSeaSignScaleTrack,
   seaSignSites,
 } from "./garden-sea-sign-siting";
@@ -45,9 +46,10 @@ export interface GardenSeaSigns {
   readonly scale: number;
   /** Unlit boards contribute no light lanes. */
   lampPositions: readonly { x: number; y: number; z: number }[];
+  /** Selects the sole board allowed to rise; null lowers it back out of the scene. */
+  setInspected: (body: SeaBodyName | null) => void;
   dispose: () => void;
   update: (frame: {
-    activeBody?: SeaBodyName | null;
     deltaSeconds?: number;
     night: number;
     reducedMotion?: boolean;
@@ -69,6 +71,7 @@ const DEFAULT_CARVING = new Color(GARDEN_SEA_STELE_DEFAULT_CARVING_COLOR);
 const NIGHT_CARVING = new Color(GARDEN_SEA_STELE_NIGHT_CARVING_COLOR);
 const ACTIVE_CARVING = new Color(GARDEN_SEA_STELE_ACTIVE_CARVING_COLOR);
 export {
+  SEA_SIGN_INSPECTION_SECONDS,
   SEA_SIGN_SCALE_STEPS,
   SEA_SIGN_STELE,
   SEA_SIGN_STEP_FADE_SECONDS,
@@ -78,6 +81,7 @@ export {
   STELE_FACE_BASE_Y,
   STELE_FACE_HEIGHT,
   STELE_WIDTH,
+  createSeaSignInspectionTrack,
   createSeaSignScaleTrack,
   seaSignScaleForZoom,
   seaSignSites,
@@ -98,6 +102,7 @@ interface FaceRange {
 export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSigns {
   const root = new Group();
   root.name = "garden-sea-steles";
+  root.visible = false;
 
   const specByBody = new Map(specs.map((spec) => [spec.body, spec]));
   const entries = seaSignSites(specs.map((spec) => spec.body)).flatMap((site) => {
@@ -106,7 +111,8 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
   });
 
   const stoneGeometry = createSteleGeometry();
-  const nameAtlas = createNameAtlas(entries.map(({ spec }) => spec.label));
+  let nameAtlas: CanvasTexture | null = null;
+  const labels = entries.map(({ spec }) => spec.label);
   const stoneMaterial = new MeshStandardMaterial({
     color: GARDEN_SEA_STELE_STONE_COLOR,
     flatShading: true,
@@ -125,9 +131,9 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
   for (let index = 0; index < entries.length; index += 1) {
     const { site } = entries[index]!;
     matrix.compose(
-      new Vector3(site.x, GARDEN_WATER_Y + STELE_CENTER_Y, site.z),
+      new Vector3(site.x, GARDEN_WATER_Y, site.z),
       rotation,
-      new Vector3(1, 1, 1),
+      new Vector3(0, 0, 0),
     );
     stones.setMatrixAt(index, matrix);
 
@@ -169,7 +175,7 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
   const faceMaterial = new MeshBasicMaterial({
     color: "#ffffff",
     depthWrite: false,
-    map: nameAtlas,
+    map: null,
     transparent: true,
     vertexColors: true,
   });
@@ -182,8 +188,12 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
 
   let appliedBody: SeaBodyName | null | undefined;
   let appliedNight = Number.NaN;
-  let appliedScale = 0;
+  let appliedInkBody: SeaBodyName | null | undefined;
+  let appliedRise = Number.NaN;
+  let appliedScale = Number.NaN;
   const scaleTrack = createSeaSignScaleTrack();
+  const inspectionTrack = createSeaSignInspectionTrack();
+  const entryIndexByBody = new Map(entries.map(({ site }, index) => [site.body, index]));
   const baseFacePositions = faceGeometry
     ? new Float32Array(faceGeometry.getAttribute("position").array)
     : null;
@@ -195,6 +205,15 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
       return scaleTrack.scale;
     },
     lampPositions: [],
+    setInspected(body) {
+      const inspected = body !== null && entryIndexByBody.has(body) ? body : null;
+      inspectionTrack.setInspected(inspected);
+      if (inspected !== null && nameAtlas === null) {
+        nameAtlas = createNameAtlas(labels);
+        faceMaterial.map = nameAtlas;
+        faceMaterial.needsUpdate = true;
+      }
+    },
     dispose() {
       faceGeometry?.dispose();
       faceMaterial.dispose();
@@ -203,23 +222,27 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
       stoneMaterial.dispose();
     },
     update({
-      activeBody = null,
       deltaSeconds = Number.POSITIVE_INFINITY,
       night,
       reducedMotion = false,
       visible,
       zoom,
     }) {
-      root.visible = visible;
       const scale = scaleTrack.advance({ deltaSeconds, reducedMotion, zoom });
-      if (scale !== appliedScale) {
+      const rise = inspectionTrack.advance(deltaSeconds, reducedMotion);
+      const body = inspectionTrack.body;
+      root.visible = visible && body !== null && rise > 0;
+      if (scale !== appliedScale || rise !== appliedRise || body !== appliedBody) {
         appliedScale = scale;
+        appliedRise = rise;
+        appliedBody = body;
         for (let index = 0; index < entries.length; index += 1) {
           const { site } = entries[index]!;
+          const displayScale = site.body === body ? scale * rise : 0;
           matrix.compose(
-            new Vector3(site.x, GARDEN_WATER_Y + STELE_CENTER_Y * scale, site.z),
+            new Vector3(site.x, GARDEN_WATER_Y + STELE_CENTER_Y * displayScale, site.z),
             rotation,
-            new Vector3(scale, scale, scale),
+            new Vector3(displayScale, displayScale, displayScale),
           );
           stones.setMatrixAt(index, matrix);
         }
@@ -231,13 +254,14 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
           for (let faceIndex = 0; faceIndex < faceRanges.length; faceIndex += 1) {
             const range = faceRanges[faceIndex]!;
             const { site } = entries[faceIndex]!;
+            const displayScale = site.body === body ? scale * rise : 0;
             for (let vertex = range.start; vertex < range.start + range.count; vertex += 1) {
               const offset = vertex * 3;
               positions.setXYZ(
                 vertex,
-                site.x + (baseFacePositions[offset]! - site.x) * scale,
-                GARDEN_WATER_Y + (baseFacePositions[offset + 1]! - GARDEN_WATER_Y) * scale,
-                site.z + (baseFacePositions[offset + 2]! - site.z) * scale,
+                site.x + (baseFacePositions[offset]! - site.x) * displayScale,
+                GARDEN_WATER_Y + (baseFacePositions[offset + 1]! - GARDEN_WATER_Y) * displayScale,
+                site.z + (baseFacePositions[offset + 2]! - site.z) * displayScale,
               );
             }
           }
@@ -246,8 +270,8 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
           faces.geometry.computeBoundingSphere();
         }
       }
-      if (!faces || (activeBody === appliedBody && Math.abs(night - appliedNight) < 0.01)) return;
-      appliedBody = activeBody;
+      if (!faces || (body === appliedInkBody && Math.abs(night - appliedNight) < 0.01)) return;
+      appliedInkBody = body;
       appliedNight = night;
       const colors = faces.geometry.getAttribute("color");
       // Basic-material ink is not lit with the timber. Darkening it at night
@@ -256,7 +280,7 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
       const quiet = quietColor.copy(DEFAULT_CARVING).lerp(NIGHT_CARVING, night);
       const active = activeColor.copy(ACTIVE_CARVING).multiplyScalar(0.92 + night * 0.08);
       for (const range of faceRanges) {
-        const color = range.body === activeBody ? active : quiet;
+        const color = range.body === body ? active : quiet;
         for (let index = range.start; index < range.start + range.count; index += 1) {
           colors.setXYZ(index, color.r, color.g, color.b);
         }

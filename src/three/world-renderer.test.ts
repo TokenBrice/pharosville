@@ -622,7 +622,7 @@ describe("Three world renderer lifecycle", () => {
     renderer.render({ ...rendererFrame(world, "full", { timeSeconds: 9 }), almanacEvent: event });
     const scene = rendererHarness.instances.at(-1)!.lastScene!;
     expect(scene.getObjectByName(`garden-almanac-${event.id}`)!.visible).toBe(true);
-    for (const id of ["heron-dusk", "lantern-round", "deep-night-meteor"]) {
+    for (const id of ["heron-dusk", "deep-night-meteor"]) {
       if (id !== event.id) expect(scene.getObjectByName(`garden-almanac-${id}`)!.visible).toBe(false);
     }
 

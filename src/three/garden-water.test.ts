@@ -44,6 +44,7 @@ import {
 } from "./garden-water";
 import {
   GARDEN_WATER_MAX_RIPPLE_RINGS,
+  GARDEN_WATER_MAX_LIGHT_LANES,
   GARDEN_WATER_NIGHT_EMISSIVE_BUDGET,
   GARDEN_WATER_PLATE_MARGIN_TILES,
   gardenWaterOpenNightMeanEmissiveBudget,
@@ -623,7 +624,8 @@ describe("createGardenWater", () => {
         reducedMotion: false,
         tier: "full",
         timeSeconds: 0.25,
-        wind: { stormLevel: 0, windDirX, windDirZ, windSpeed: 0.4 },
+        wind: { x: windDirX, y: windDirZ, speed: 0.4, gust: 0 },
+        stormLevel: 0,
       });
       // A texture sampled at world*scale + offset moves opposite its offset.
       if (windDirX === 0) expect(transform[2]).toBeCloseTo(0);
@@ -803,11 +805,7 @@ describe("createGardenWater", () => {
     expect(dusk).toBeGreaterThan(night);
 
     water.update(frame({ wallClockHour: 12 }), {
-      windDirX: -0.855,
-      windDirZ: 0.519,
-      windAngle: 2.592,
-      windSpeed: 0.5,
-      gust: 0,
+      wind: { x: -0.855, y: 0.519, speed: 0.5, gust: 0 },
       breath: 0.5,
       stormLevel: 1,
       lightning: 0,
@@ -836,11 +834,7 @@ describe("createGardenWater", () => {
     expect(wind.y).toBeCloseTo(-GARDEN_DEFAULT_WIND_Z, 4);
 
     water.update(frame(), {
-      windDirX: 0,
-      windDirZ: -1,
-      windAngle: -Math.PI / 2,
-      windSpeed: 0.5,
-      gust: 0,
+      wind: { x: 0, y: -1, speed: 0.5, gust: 0 },
       breath: 0.5,
       stormLevel: 0,
       lightning: 0,
@@ -932,12 +926,28 @@ describe("createGardenWater", () => {
     expect(source).toContain("vec2(u, 1.0 / 6.0)");
     expect(source).toContain("vec2(u, 5.0 / 6.0)");
   });
+
+  it("renders at most sixteen ember reflections as wind-bent broken vertical strokes", () => {
+    const source = createGardenWater(0).material.fragmentShader;
+    expect(GARDEN_WATER_MAX_LIGHT_LANES).toBe(16);
+    expect(source).toContain("for (int i = 0; i < 16; i += 1)");
+    expect(source).toContain("float strokeLength = mix(5.0, 18.0, sourceHeight)");
+    expect(source).toContain("uWindSpeed * 0.28");
+    expect(source).toContain("float segmentCount = floor(mix(3.0, 6.0, sourceHeight) + 0.5)");
+    expect(source).toContain("surfaceNormal.x * 0.38");
+    expect(source).toContain("body.rgb * intensity * verticalStroke");
+    // Header, route metadata, route body and point body remain the only
+    // lane-texture samples: breaking the point strokes is analytic and adds
+    // no GPU texture fetch.
+    expect(source.match(/texture2D\(uLaneTexture/g)).toHaveLength(4);
+  });
 });
 
 describe("sea quietness contract", () => {
   it("keeps the authored open-night emissive mean below the recorded threshold", () => {
     const mean = gardenWaterOpenNightMeanEmissiveBudget();
     expect(mean).toBeCloseTo(0.015715, 8);
+    expect(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.maxMeanLuminance).toBe(0.016);
     expect(mean).toBeLessThan(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.maxMeanLuminance);
 
   });

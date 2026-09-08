@@ -17,6 +17,9 @@ import { initialAdaptiveDprState, resolveRenderSurfaceBudget, type AdaptiveDprSt
 import type { ShipMotionSample } from "../systems/motion";
 import {
   minZoomForViewport,
+  screenToGround,
+  tileToIso,
+  type MapLike,
   zoomCameraAt,
   type IsoCamera,
   type ScreenPoint,
@@ -28,14 +31,13 @@ import type {
 import { sameCamera, samePoint } from "../lib/camera-equality";
 import { isDialogEventTarget } from "./keyboard-event-target";
 import { gardenArrivalCamera, sampleGardenArrivalCamera } from "../systems/garden-arrival";
-import { GARDEN_ATTRACT_SEGMENT_SECONDS, GARDEN_ATTRACT_TRAVEL_SECONDS } from "../systems/garden-attract";
+import { GARDEN_ATTRACT_TRAVEL_SECONDS } from "../systems/garden-attract";
+import { requestGardenBeat, type GardenDirectorState } from "../systems/garden-director";
 import {
   FOLLOW_INITIAL_DELTA_SECONDS,
-  FOLLOW_LEAD_SECONDS,
   FOLLOW_MAX_DELTA_SECONDS,
   advanceCameraIntent,
   cameraModeCancelsFollow,
-  leadFollowTile,
   selectionCameraTarget,
   zoomCameraByWheelDelta,
   type CameraIntentMode,
@@ -57,6 +59,7 @@ export {
 export type { CameraIntentMode } from "./camera-intent";
 
 export interface UseCanvasResizeAndCameraInput {
+  gardenDirector?: GardenDirectorState;
   hasSelection: () => boolean;
   hitTargetSnapshotRef: MutableRefObject<HitTargetSnapshot | null>;
   hitTargetsRef: MutableRefObject<readonly HitTarget[]>;
@@ -84,6 +87,7 @@ export interface CameraStepResult {
 }
 
 export interface UseCanvasResizeAndCameraResult {
+  attractState: { holding: boolean };
   adaptiveDprStateRef: MutableRefObject<AdaptiveDprState>;
   camera: IsoCamera | null;
   cameraRef: MutableRefObject<IsoCamera | null>;
@@ -128,6 +132,18 @@ export interface UseCanvasResizeAndCameraResult {
   stepCamera: (now: number, shipMotionSamples: ReadonlyMap<string, ShipMotionSample>) => CameraStepResult;
 }
 
+/** Translate the perspective rig so the ship sits in the lower-left third. */
+export function voyageCamera(camera: IsoCamera, tile: ScreenPoint, viewport: ScreenPoint, map: MapLike): IsoCamera {
+  const centered = followTile({ camera, tile, viewport, map });
+  const anchor = screenToGround({ x: viewport.x / 3, y: viewport.y * 2 / 3 }, centered, viewport, -1.07);
+  const delta = tileToIso({ x: tile.x - anchor.x, y: tile.y - anchor.y });
+  return {
+    ...centered,
+    offsetX: centered.offsetX - delta.x * centered.zoom,
+    offsetY: centered.offsetY - delta.y * centered.zoom,
+  };
+}
+
 export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): UseCanvasResizeAndCameraResult {
   const {
     hasSelection,
@@ -148,6 +164,8 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   } = input;
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [attractState, setAttractState] = useState({ holding: false });
+  const gardenDirectorRef = useLatestRef(input.gardenDirector);
   const dragRef = useRef<{ last: ScreenPoint; moved: boolean; pointerId: number } | null>(null);
   const activePointersRef = useRef<Map<number, ScreenPoint>>(new Map());
   const pinchRef = useRef<{ distance: number; midpoint: ScreenPoint; moved: boolean; pointerIds: [number, number] } | null>(null);
@@ -161,8 +179,6 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const maximumRequestedDprRef = useRef(1);
   const surfaceBudgetRef = useRef<ReturnType<typeof resolveRenderSurfaceBudget> | null>(null);
   const followChaseDetailIdRef = useRef<string | null>(null);
-  const followChaseLastTileRef = useRef<ScreenPoint | null>(null);
-  const followChaseLastTimeRef = useRef<number | null>(null);
   const selectionCameraRestRef = useRef<(() => void) | null>(null);
   // Observe 2.0: the active tour and the framing to glide back to. The sample
   // scratch is reused every frame — no allocation in the camera path.
@@ -173,6 +189,8 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     startMs: number | null;
     tour: ObserveTour;
     loop?: boolean;
+    book?: readonly ObserveTourKeyframe[];
+    bookIndex?: number;
   } | null>(null);
   const observeSampleRef = useRef<ObserveTourSample>({
     beatIndex: 0,
@@ -237,12 +255,11 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
 
   const stopFollowChase = useCallback(() => {
     followChaseDetailIdRef.current = null;
-    followChaseLastTileRef.current = null;
-    followChaseLastTimeRef.current = null;
     // Any follow-canceling gesture (drag, wheel, keys, selection) also ends
     // the observe tour outright — the visitor took the camera back, so there
     // is no glide-back, just the tour releasing its hold.
     observeTourRef.current = null;
+    setAttractState((state) => state.holding ? { holding: false } : state);
     freezeDisplayedCamera();
   }, [freezeDisplayedCamera]);
 
@@ -674,22 +691,32 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     // function of the elapsed clock — no damping, no state to drift.
     const activeTour = observeTourRef.current;
     if (activeTour && !reducedMotion) {
-      if (activeTour.startMs === null) activeTour.startMs = now;
+      if (activeTour.startMs === null) {
+        const director = gardenDirectorRef.current;
+        if (activeTour.loop && director) {
+          const frame = activeTour.tour.keyframes[0]!;
+          if (!requestGardenBeat(director, {
+            kind: "attract", foreground: false, priority: 1,
+            durationSeconds: frame.travelSeconds ?? GARDEN_ATTRACT_TRAVEL_SECONDS,
+            subject: "name" in frame ? String(frame.name) : `Postcard ${frame.beatIndex + 1}`,
+          }, now / 1000)) {
+            setAttractState((state) => state.holding ? state : { holding: true });
+            return { camera: displayCamera, cameraChanged: false, cameraIntentActive: true };
+          }
+        }
+        activeTour.startMs = now;
+      }
       const elapsedSeconds = Math.max(0, (now - activeTour.startMs) / 1000);
       if (elapsedSeconds >= activeTour.tour.totalSeconds && activeTour.loop) {
+        const book = activeTour.book!;
+        activeTour.bookIndex = ((activeTour.bookIndex ?? 0) + 1) % book.length;
         activeTour.tour = buildObserveTour({
-          keyframes: activeTour.tour.keyframes,
-          segmentSeconds: GARDEN_ATTRACT_SEGMENT_SECONDS,
+          keyframes: [book[activeTour.bookIndex]!],
           start: observeTourPoseFromCamera(displayCamera, canvasSizeRef.current),
           travelSeconds: GARDEN_ATTRACT_TRAVEL_SECONDS,
         });
-        activeTour.startMs = now;
-        const pose = observeSampleRef.current;
-        sampleObserveTour(activeTour.tour, 0, pose);
-        const nextCamera = observeTourPoseToCamera(pose, canvasSizeRef.current, world.map);
-        const cameraChanged = !sameCamera(displayCamera, nextCamera);
-        commitCameraState(nextCamera);
-        return { camera: nextCamera, cameraChanged, cameraIntentActive: true };
+        activeTour.startMs = null;
+        return { camera: displayCamera, cameraChanged: false, cameraIntentActive: true };
       }
       if (elapsedSeconds >= activeTour.tour.totalSeconds) {
         // Natural end: glide back to the visitor's framing and fall through
@@ -704,6 +731,10 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       } else {
         const pose = observeSampleRef.current;
         sampleObserveTour(activeTour.tour, elapsedSeconds, pose);
+        if (activeTour.loop) {
+          const holding = pose.holding === true;
+          setAttractState((state) => state.holding === holding ? state : { holding });
+        }
         if (pose.beatIndex !== activeTour.lastBeatIndex) {
           activeTour.lastBeatIndex = pose.beatIndex;
           activeTour.onBeatChange?.(pose.beatIndex);
@@ -720,6 +751,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       // Reduced motion has no tour: the DOM steps beats by hand. Drop any
       // tour that was mid-flight when the preference flipped.
       observeTourRef.current = null;
+      setAttractState((state) => state.holding ? { holding: false } : state);
       const targetCamera = cameraIntentRef.current.targetCamera;
       if (!targetCamera) {
         cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: displayCamera };
@@ -752,25 +784,17 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       } else {
         const sampledTile = selectedFollowTile(entity, shipMotionSamples);
         const sample = shipMotionSamples.get(entity.id);
-        const previousTime = followChaseLastTimeRef.current;
-        const rawDeltaSeconds = previousTime === null ? FOLLOW_INITIAL_DELTA_SECONDS : (now - previousTime) / 1000;
-        const deltaSeconds = Math.max(0, Math.min(FOLLOW_MAX_DELTA_SECONDS, rawDeltaSeconds));
-        const leadTile = leadFollowTile(sampledTile, followChaseLastTileRef.current, deltaSeconds, FOLLOW_LEAD_SECONDS, sample);
-
-        followChaseLastTileRef.current = sampledTile;
-        followChaseLastTimeRef.current = now;
         cameraIntentRef.current = {
           lastFrameTime: cameraIntentRef.current.mode === "follow-selected"
             ? cameraIntentRef.current.lastFrameTime
             : null,
           mode: "follow-selected",
-          targetCamera: followTile({
-            camera: displayCamera,
-            map: world.map,
-            tile: leadTile,
-            viewport,
-          }),
+          targetCamera: voyageCamera(displayCamera, sampledTile, viewport, world.map),
         };
+        if (sample?.state === "moored" || sample?.state === "idle") {
+          // Keep the final berth target, letting ordinary damping ease out.
+          followChaseDetailIdRef.current = null;
+        }
       }
     }
 
@@ -811,7 +835,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       lastFrameTime: now,
     };
     return { camera: advanced.camera, cameraChanged, cameraIntentActive: true };
-  }, [cameraRef, canvasSizeRef, commitCameraState, finishSelectionCamera, framingViewport, queueCameraTarget, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, world.map]);
+  }, [cameraRef, canvasSizeRef, commitCameraState, finishSelectionCamera, framingViewport, gardenDirectorRef, queueCameraTarget, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, world.map]);
 
   const handleFollowSelected = useCallback(() => {
     if (!selectedEntity) return;
@@ -819,20 +843,15 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     const sampledTile = selectedFollowTile(selectedEntity, shipMotionSamplesRef.current);
     const start = currentCameraBase();
     if (!start) return;
-    const target = followTile({
-      camera: start,
-      map: world.map,
-      tile: sampledTile,
-      viewport: framingViewport(),
-    });
+    const target = selectedEntity.kind === "ship"
+      ? voyageCamera(start, sampledTile, framingViewport(), world.map)
+      : followTile({ camera: start, map: world.map, tile: sampledTile, viewport: framingViewport() });
     if (reducedMotion) {
       applyCameraImmediately(target);
       return;
     }
     if (selectedEntity.kind === "ship" && selectedDetailId) {
       followChaseDetailIdRef.current = selectedDetailId;
-      followChaseLastTileRef.current = sampledTile;
-      followChaseLastTimeRef.current = null;
       queueCameraTarget(target, "follow-selected");
       return;
     }
@@ -889,11 +908,12 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     observeTourRef.current = {
       lastBeatIndex: null,
       loop: true,
+      book: keyframes,
+      bookIndex: 0,
       returnPose,
       startMs: null,
       tour: buildObserveTour({
-        keyframes,
-        segmentSeconds: GARDEN_ATTRACT_SEGMENT_SECONDS,
+        keyframes: [keyframes[0]!],
         start: returnPose,
         travelSeconds: GARDEN_ATTRACT_TRAVEL_SECONDS,
       }),
@@ -904,6 +924,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const stopAttractTour = useCallback(() => {
     if (!observeTourRef.current?.loop) return;
     observeTourRef.current = null;
+    setAttractState((state) => state.holding ? { holding: false } : state);
     freezeDisplayedCamera();
   }, [freezeDisplayedCamera]);
 
@@ -936,6 +957,9 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   useEffect(() => {
     if (!reducedMotion) return;
     const targetCamera = cameraIntentRef.current.targetCamera;
+    // Reduced motion is an external preference: parking the tour (and its
+    // attract-hold flag) once is not a render-derived cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     stopFollowChase();
     if (targetCamera) {
       applyCameraImmediately(targetCamera);
@@ -984,6 +1008,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   }, [canvasSizeRef, currentCameraBase, handleToolbarZoomIn, handleToolbarZoomOut, onClearSelection, queueCameraTarget, stopFollowChase, world.map]);
 
   return {
+    attractState,
     adaptiveDprStateRef,
     camera,
     cameraRef,

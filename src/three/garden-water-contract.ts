@@ -27,6 +27,16 @@ export const GARDEN_WATER_MAX_ZONE_TINTS = 6;
 export const GARDEN_WATER_MAX_RIPPLE_RINGS = 12;
 
 /**
+ * W4.11 — maximum point/route reflections evaluated by the water shader.
+ *
+ * The lane texture remains wider so the registry can rotate candidates, but
+ * its full-quality pack is deliberately capped at sixteen. Keeping that same
+ * bound in the shader makes the authored quiet-night limit a compile-time GPU
+ * limit too.
+ */
+export const GARDEN_WATER_MAX_LIGHT_LANES = 16;
+
+/**
  * Wave 1 finite-plate contract.
  *
  * Water ends just beyond the outer tile centres. The margin gives displaced
@@ -89,6 +99,11 @@ export const GARDEN_WATER_NIGHT_EMISSIVE_BUDGET = Object.freeze({
   moonGlitterGain: 2.6,
   moonGlitterOccupancy: 0.0004,
   laneClamp: 0.75,
+  /**
+   * Sixteen narrow W4.11 strokes at rest. Their analytic wave breaks reduce
+   * coverage from the former discs, so retaining this conservative occupancy
+   * keeps the proxy at 0.015715 beneath the unchanged 0.016 ceiling.
+   */
   laneOccupancy: 0.0025,
   maxMeanLuminance: 0.016,
 });
@@ -176,7 +191,8 @@ export interface GardenCloudShadowSource {
     reducedMotion: boolean;
     tier: string;
     timeSeconds: number;
-    wind?: { windDirX: number; windDirZ: number; windSpeed: number; stormLevel: number };
+    wind?: { x: number; y: number; speed: number; gust: number };
+    stormLevel?: number;
   }) => void;
 }
 

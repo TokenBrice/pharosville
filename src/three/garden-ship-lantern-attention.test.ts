@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   advanceShipLanternAttention,
   createShipLanternAttentionState,
+  shipLanternCeremonyBow,
   shipLanternWarmth,
   SHIP_LANTERN_HOVER_DWELL_SECONDS,
 } from "./garden-ship-lantern-attention";
@@ -47,5 +48,15 @@ describe("ship lantern attention", () => {
       hoveredDetailId: null, reducedMotion: true, selectedDetailId: null, timeSeconds: 0.41,
     });
     expect(shipLanternWarmth(state, "ship.a")).toBe(0);
+  });
+
+  it("bows lanterns in convoy order and freezes the reduced-motion mid-pose", () => {
+    expect(shipLanternCeremonyBow(0, 3, 0.12)).toBeGreaterThan(0);
+    expect(shipLanternCeremonyBow(2, 3, 0.12)).toBe(0);
+    expect(shipLanternCeremonyBow(2, 3, 0.5)).toBeGreaterThan(0);
+    expect(shipLanternCeremonyBow(1, 3, 0, true)).toBe(
+      shipLanternCeremonyBow(1, 3, 0.5),
+    );
+    expect(shipLanternCeremonyBow(0, 3, 1)).toBe(0);
   });
 });

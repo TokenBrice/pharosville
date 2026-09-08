@@ -1,6 +1,7 @@
 import {
   BufferGeometry,
-  CircleGeometry,
+  PlaneGeometry,
+  Vector2,
   DoubleSide,
   Float32BufferAttribute,
   Group,
@@ -23,6 +24,8 @@ import {
   gardenBirdSortieOffset,
 } from "./garden-summit-birds";
 import { gardenLandingToriiPerch } from "./garden-island";
+import type { WeatherPlan } from "../systems/weather";
+import type { GardenKeeperRitual } from "./garden-lanterns";
 
 /** Gulls wheeling over the island itself. */
 export const GARDEN_GULL_COUNT = 9;
@@ -39,18 +42,14 @@ export interface GardenGullFlockUpdate {
   night?: number;
   reducedMotion: boolean;
   timeSeconds: number;
+  keeperRitual?: GardenKeeperRitual;
   /**
    * Phase 2 weather: a downwind drift on every orbit, and the storm scatter
    * beat — as the storm level crosses ~0.6 the flock climbs and disperses.
    * Both are pure functions of the plan, so the reduced-motion still frame
    * keeps them as composition.
    */
-  weather?: {
-    windDirX: number;
-    windDirZ: number;
-    windSpeed: number;
-    stormLevel: number;
-  };
+  weather?: Pick<WeatherPlan, "wind" | "stormLevel">;
 }
 
 export interface GardenGullFlock {
@@ -77,12 +76,7 @@ export interface GardenFirefliesUpdate {
    * swims back home on its own slow cycle — a pure function of the weather
    * plan and the clock, frozen flat under reduced motion.
    */
-  weather?: {
-    gust: number;
-    windDirX: number;
-    windDirZ: number;
-    windSpeed: number;
-  };
+  weather?: Pick<WeatherPlan, "wind">;
 }
 
 export interface GardenFireflies {
@@ -113,15 +107,28 @@ export function createGardenFireflies(
     transparent: true,
   });
   const motes = new InstancedMesh(
-    new CircleGeometry(0.075, 6),
+    new PlaneGeometry(0.15, 0.15),
     material,
     GARDEN_FIREFLY_COUNT,
   );
   motes.name = "garden-firefly-motes";
   motes.frustumCulled = false;
   motes.renderOrder = 9;
-  // Face the fixed isometric camera.
-  motes.rotation.set(-Math.PI / 5.1, Math.PI / 4, 0, "YXZ");
+  const viewport = { value: new Vector2(1, 1) };
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.keeperViewport = viewport;
+    shader.vertexShader = `uniform vec2 keeperViewport;\n${shader.vertexShader}`;
+    shader.vertexShader = shader.vertexShader.replace("#include <project_vertex>", `
+      vec4 centre = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+      vec4 mvPosition = modelViewMatrix * centre;
+      float pixelsPerUnit = keeperViewport.y * projectionMatrix[1][1] / (2.0 * max(0.001, -mvPosition.z));
+      float scale = max(length(instanceMatrix[0].xyz), 1.5 / (0.15 * pixelsPerUnit));
+      mvPosition.xy += position.xy * scale;
+      gl_Position = projectionMatrix * mvPosition;
+    `);
+  };
+  material.customProgramCacheKey = () => "garden-firefly-billboard-v1";
+  motes.onBeforeRender = (renderer) => { renderer.getSize(viewport.value); };
   root.add(motes);
 
   const dummy = new Object3D();
@@ -134,16 +141,18 @@ export function createGardenFireflies(
     // Phase 4: the gust envelope sets how far the swarm leaks downwind; each
     // mote fights back to its lantern on its own slow sine, so the swarm
     // breathes with the weather instead of translating as a sheet.
-    const push = (weather?.windSpeed ?? 0) * (0.5 + (weather?.gust ?? 0) * 0.9);
-    const windX = weather?.windDirX ?? 0;
-    const windZ = weather?.windDirZ ?? 0;
+    const push = reducedMotion ? 0 : (weather?.wind.speed ?? 0) * (0.5 + (weather?.wind.gust ?? 0) * 0.9);
+    const windX = weather?.wind.x ?? 0;
+    const windZ = weather?.wind.y ?? 0;
     for (let index = 0; index < GARDEN_FIREFLY_COUNT; index += 1) {
-      const anchor = lanternOffsets[index % lanternOffsets.length]!;
+      // One shaded arc, never a ring of competing lantern-adjacent sparks.
+      const anchor = lanternOffsets[0]!;
       const seed = index * 2.399;
       const drift = 0.55 + (index % 3) * 0.22;
       const leak = push * (1.4 + Math.sin(time * 0.07 + seed * 1.3));
       dummy.position.set(
-        anchor.x + Math.sin(time * 0.21 + seed) * drift + windX * leak,
+        anchor.x - 1.8 + Math.sin(seed / GARDEN_FIREFLY_COUNT * 0.9) * 2.4
+          + Math.sin(time * 0.21 + seed) * drift + windX * leak,
         anchor.y + 0.35 + Math.sin(time * 0.34 + seed * 1.7) * 0.3,
         anchor.z + Math.cos(time * 0.17 + seed * 0.6) * drift + windZ * leak,
       );
@@ -367,6 +376,7 @@ export function createGardenGullFlock(
     reducedMotion,
     timeSeconds,
     weather,
+    keeperRitual,
   }: GardenGullFlockUpdate): void => {
     // Gulls roost as night settles — the night sky belongs to the lanterns.
     const roosted = night > 0.72;
@@ -379,13 +389,15 @@ export function createGardenGullFlock(
     // and spreading off their stations.
     const scatterT = Math.max(0, Math.min(1, ((weather?.stormLevel ?? 0) - 0.55) / 0.23));
     const scatter = scatterT * scatterT * (3 - 2 * scatterT);
-    const driftX = (weather?.windDirX ?? 0) * (weather?.windSpeed ?? 0) * 2.2;
-    const driftZ = (weather?.windDirZ ?? 0) * (weather?.windSpeed ?? 0) * 2.2;
+    const driftX = (weather?.wind.x ?? 0) * (weather?.wind.speed ?? 0) * 2.2;
+    const driftZ = (weather?.wind.y ?? 0) * (weather?.wind.speed ?? 0) * 2.2;
 
     const time = reducedMotion ? 0 : timeSeconds;
     // W3.4: reduced motion resolves every bird to her perch and never consults
     // the clock — a still composition of the flock at rest, not a freeze frame.
-    const flight = reducedMotion ? 0 : 1;
+    const keeperSettling = keeperRitual?.active && keeperRitual.direction === "evening"
+      ? 1 - keeperRitual.progress : 1;
+    const flight = reducedMotion ? 0 : keeperSettling;
     // How readily a bird takes a turn. A building storm drives it to certain
     // (the flock startles and stays up), and gathering night lets it fall to
     // nothing well before the flock fades out to roost.

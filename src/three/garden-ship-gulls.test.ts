@@ -1,99 +1,63 @@
-import { BufferGeometry, Group, InstancedMesh, Object3D, ShaderMaterial } from "three";
+import { Group, InstancedMesh, Object3D, ShaderMaterial } from "three";
 import { describe, expect, it } from "vitest";
 import {
   createGardenShipGulls,
+  GARDEN_GULL_COUNT,
   GARDEN_GULL_FLOCK_NAME,
+  GARDEN_GULL_LOOP_COUNT,
+  GARDEN_GULL_LOOP_SECONDS,
+  GARDEN_GULL_WINGSPAN,
   type GardenGullShip,
 } from "./garden-ship-gulls";
+import { gardenBirdPixelSpan } from "./garden-summit-birds";
 
 function gullShip(id: string, mastheadHeight = 6): GardenGullShip {
   return { mastheadHeight, root: new Group(), ship: { id } };
 }
 
-function flockMeshes(ship: GardenGullShip): InstancedMesh<BufferGeometry, ShaderMaterial>[] {
-  const meshes: InstancedMesh<BufferGeometry, ShaderMaterial>[] = [];
+function meshes(ship: GardenGullShip): InstancedMesh[] {
+  const found: InstancedMesh[] = [];
   ship.root.traverse((object: Object3D) => {
-    if ((object as InstancedMesh).isInstancedMesh) {
-      meshes.push(object as InstancedMesh<BufferGeometry, ShaderMaterial>);
-    }
+    if ((object as InstancedMesh).isInstancedMesh) found.push(object as InstancedMesh);
   });
-  return meshes;
+  return found;
 }
 
-const RUNNING = { reducedMotion: false, timeSeconds: 9.5, visible: true };
-
-describe("createGardenShipGulls", () => {
-  it("parents a flock to each hull, so no per-frame placement is needed", () => {
+describe("garden ship gulls", () => {
+  it("consolidates three ship sorties into one five-bird draw", () => {
     const ships = [gullShip("usdt"), gullShip("usdc"), gullShip("usde")];
     createGardenShipGulls(ships);
-
-    for (const ship of ships) {
-      const flock = ship.root.getObjectByName(GARDEN_GULL_FLOCK_NAME);
-      expect(flock).toBeDefined();
-      expect(flockMeshes(ship)).toHaveLength(1);
-    }
+    expect(meshes(ships[0]!)).toHaveLength(1);
+    expect(meshes(ships[0]!)[0]!.count).toBe(GARDEN_GULL_COUNT);
+    expect(ships[0]!.root.getObjectByName(GARDEN_GULL_FLOCK_NAME)).toBeDefined();
+    expect(meshes(ships[1]!)).toHaveLength(0);
+    expect(meshes(ships[2]!)).toHaveLength(0);
+    expect(GARDEN_GULL_COUNT).toBe(5);
+    expect(GARDEN_GULL_LOOP_COUNT).toBe(4);
   });
 
-  it("re-tunes the turn's amplitude, not its count (warm-village D2, 2026-09-05)", () => {
+  it("authors two paired wide slow loops and one station", () => {
     const ship = gullShip("usdt");
     createGardenShipGulls([ship]);
-    // The loop band is baked into the vertex shader: 1.4 ± 0.7 → 2.4 ± 0.7 so
-    // the abeam sweep runs 4.8–6.2 out and a sortie reads at the zoom-1.0
-    // rest. Five gulls per hull, unchanged; the tangent property keeps the
-    // loop on the perch's own side of the rig at every width.
-    const shader = flockMeshes(ship)[0]!.material.vertexShader;
-    expect(shader).toContain("2.40 + aSeed * 0.70");
+    const mesh = meshes(ship)[0]!;
+    expect(Array.from(mesh.geometry.getAttribute("aPhase").array)).toEqual([
+      0, 0.5, expect.closeTo(0.12), expect.closeTo(0.62), 1,
+    ]);
+    expect((mesh.material as ShaderMaterial).vertexShader).toContain("mix(4.4, 5.2");
+    expect(GARDEN_GULL_LOOP_SECONDS).toBeGreaterThanOrEqual(180);
+    expect(gardenBirdPixelSpan(GARDEN_GULL_WINGSPAN, 120)).toBeGreaterThanOrEqual(8);
   });
 
-  it("seeds each ship's flock differently and identically across builds", () => {
-    const [first] = [gullShip("usdt")];
-    const second = gullShip("usdt");
-    const other = gullShip("usdc");
-    createGardenShipGulls([first!, second, other]);
-
-    const seedsOf = (ship: GardenGullShip) =>
-      [...(flockMeshes(ship)[0]!.geometry.getAttribute("aSeed").array as Float32Array)];
-
-    expect(seedsOf(second)).toEqual(seedsOf(first!));
-    expect(seedsOf(other)).not.toEqual(seedsOf(first!));
-  });
-
-  it("tracks the hull's live masthead, which a hero GLB replaces after load", () => {
+  it("tracks the live masthead and makes reduced motion a perched static frame", () => {
     const ship = gullShip("usdt", 3);
     const gulls = createGardenShipGulls([ship]);
-    const material = flockMeshes(ship)[0]!.material;
-
-    gulls.update(RUNNING);
-    const procedural = material.uniforms.uHeight!.value as number;
-
-    // The GLB resolves and the hull grows taller than the rig that stood in.
+    const material = meshes(ship)[0]!.material as ShaderMaterial;
+    gulls.update({ reducedMotion: false, timeSeconds: 9.5, visible: true });
+    expect(material.uniforms.uFlight!.value).toBe(1);
     ship.mastheadHeight = 7.5;
-    gulls.update(RUNNING);
-
-    expect(material.uniforms.uHeight!.value).toBeGreaterThan(procedural);
-  });
-
-  it("freezes at the composed time-zero pose under reduced motion", () => {
-    const ship = gullShip("usdt");
-    const gulls = createGardenShipGulls([ship]);
-    const material = flockMeshes(ship)[0]!.material;
-
-    gulls.update(RUNNING);
-    expect(material.uniforms.uTime!.value).toBe(9.5);
-
-    gulls.update({ reducedMotion: true, timeSeconds: 9.5, visible: true });
+    gulls.update({ reducedMotion: true, timeSeconds: 99, visible: true });
+    expect(material.uniforms.uHeight!.value).toBe(7.5);
+    expect(material.uniforms.uFlight!.value).toBe(0);
     expect(material.uniforms.uTime!.value).toBe(0);
-  });
-
-  it("stands down with the rest of the world's small life", () => {
-    const ship = gullShip("usdt");
-    const gulls = createGardenShipGulls([ship]);
-    const mesh = flockMeshes(ship)[0]!;
-
-    gulls.update({ reducedMotion: false, timeSeconds: 4, visible: false });
-    expect(mesh.visible).toBe(false);
-
-    gulls.update(RUNNING);
-    expect(mesh.visible).toBe(true);
   });
 });

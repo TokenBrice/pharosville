@@ -27,6 +27,8 @@ import {
 import { GARDEN_BREATH_PHASE, gardenBreathAt } from "../systems/weather";
 import type { GardenSeason } from "../systems/season";
 import { createGardenSkyBillboards } from "./garden-sky-billboards";
+import { NEUTRAL_SKY_CLARITY } from "../systems/psi-sky";
+import type { EpistemicFogBank } from "../systems/epistemic-haze";
 import {
   blendDayCycleColor,
   dayCycleBeats,
@@ -82,7 +84,7 @@ const FOG_FAR_BEYOND_EDGE = 1.35;
 function fogRangeAtViewHeight(
   fog: Fog,
   eye: { x: number; y: number; z: number },
-  storm: number,
+  cover: number,
 ): void {
   const islandDistance = Math.hypot(
     eye.x - FOG_ISLAND_X,
@@ -93,12 +95,12 @@ function fogRangeAtViewHeight(
     Math.hypot(eye.x, eye.y - GARDEN_WATER_Y, eye.z - FOG_FAR_EDGE),
     Math.hypot(eye.x - FOG_FAR_EDGE, eye.y - GARDEN_WATER_Y, eye.z),
   );
-  fog.near = (islandDistance + FOG_ISLAND_MARGIN) * (1 - storm * 0.32);
+  fog.near = (islandDistance + FOG_ISLAND_MARGIN) * (1 - cover * 0.32);
   // G2/W2.4: the far plate edge sits part-way up the ladder rather than at
   // its top, so the farthest quays and the borrowed headlands beyond them
   // still hold a silhouette against the sky instead of dissolving into one
   // wall the colour of the horizon. Aerial perspective, not a curtain.
-  fog.far = farEdgeDistance * FOG_FAR_BEYOND_EDGE * (1 - storm * 0.25);
+  fog.far = farEdgeDistance * FOG_FAR_BEYOND_EDGE * (1 - cover * 0.25);
 }
 
 // --- Wave 1: bokashi bands on the visible sky seam --------------------------
@@ -234,18 +236,18 @@ export interface GardenSkyFrame {
   /** Actual world-space eye; celestial scenery has no translation parallax. */
   cameraPosition: { x: number; y: number; z: number };
   timeSeconds: number;
-  /** Phase 2 weather: 0..1 storm state — darkens the palette, closes the fog. */
-  stormLevel?: number;
   /**
    * Phase 2 billboard gate (mist banks + cumulus layer): the caller resolves
    * the quality tier and passes false below `balanced`. Defaults to shown.
    */
   billboards?: boolean;
   /** Phase 2 weather wind; drives the billboard drift. */
-  wind?: { windDirX: number; windDirZ: number; windSpeed: number };
+  wind?: { x: number; y: number; speed: number; gust: number };
+  epistemicBanks?: readonly EpistemicFogBank[];
 }
 
 export interface GardenSky {
+  setClarity: (clarity: number) => void;
   /**
    * The phase-only half of `update`: the dome uniforms and the fog colour, which
    * are graded from the day-cycle blend and from nothing else.
@@ -265,13 +267,8 @@ export interface GardenSky {
    *
    * Idempotent, and `update` calls it, so grading once or twice a frame is the
    * same picture.
-   *
-   * `stormLevel` (Phase 2) multiplies over the day-cycle base: the storm
-   * darkens and cools the sky the day cycle painted, so the PMREM probe baked
-   * right after this call lights the world with the same storm the viewer
-   * sees. The day cycle remains the base; storm is a multiplier, never a hue.
    */
-  applyPhase: (phase: DayCyclePhase, wallClockHour: number, stormLevel?: number) => void;
+  applyPhase: (phase: DayCyclePhase, wallClockHour: number) => void;
   dispose: () => void;
   /**
    * W6.5: the dome's own shader material, shared with the environment baker.
@@ -503,11 +500,13 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   // Mist and clouds stay over the world; only the celestial group follows
   // the eye. Their radial falloff replaces the old hard-edged mist plane.
   const billboards = createGardenSkyBillboards();
+  let clarity = NEUTRAL_SKY_CLARITY;
   root.add(
     celestial,
     billboards.mist.mesh,
     billboards.clouds.mesh,
     billboards.geese.mesh,
+    billboards.localMist.mesh,
   );
 
   const fog = new Fog(DAY_CYCLE_SKY_PRESETS.night.fog.clone(), FOG_NEAR, FOG_FAR);
@@ -515,16 +514,6 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   // and the water half of the height fog cannot drift apart — one fog
   // colour, one contract.
   dome.material.uniforms.uHazeColor.value = fog.color;
-
-  // Phase 2 storm tone: a cool slate pull applied over the blended day-cycle
-  // colour. One scratch — applyPhase runs per frame and must not allocate.
-  const stormSlate = new Color();
-  const applyStorm = (color: Color, storm: number): void => {
-    if (storm <= 0) return;
-    const luma = color.r * 0.3 + color.g * 0.5 + color.b * 0.2;
-    stormSlate.setRGB(luma * 0.42, luma * 0.5, luma * 0.62);
-    color.lerp(stormSlate, Math.min(0.75, storm * 0.75));
-  };
 
   // Scratch objects for the per-frame billboard writes — the frame path must
   // not allocate, so the uniforms hold these instances and `update` mutates
@@ -540,6 +529,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   const scratchSunPose = { direction: new Vector3(0, 1, 0), elevation: Math.PI / 2 };
   const windDir = new Vector2(-0.855, 0.519);
   billboards.mist.material.uniforms.uColor.value = mistColor;
+  billboards.localMist.material.uniforms.uColor.value = mistColor;
   billboards.mist.material.uniforms.uWindDir.value = windDir;
   billboards.clouds.material.uniforms.uBodyColor.value = cloudBodyColor;
   billboards.clouds.material.uniforms.uShadeColor.value = cloudShadeColor;
@@ -550,9 +540,8 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   billboards.clouds.material.uniforms.uWindDir.value = windDir;
   billboards.geese.material.uniforms.uColor.value = geeseColor;
 
-  const applyPhase = (phase: DayCyclePhase, wallClockHour: number, stormLevel = 0): void => {
+  const applyPhase = (phase: DayCyclePhase, wallClockHour: number): void => {
     const { daylight, dusk } = phase;
-    const storm = Math.min(1, Math.max(0, stormLevel));
     const beats = dayCycleBeats(wallClockHour);
     const zenith = dome.material.uniforms.uZenith.value as Color;
     const horizon = dome.material.uniforms.uHorizon.value as Color;
@@ -571,14 +560,12 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     // seasonal grading so winter cannot open a seam at the horizon.
     horizon.copy(fog.color);
     geeseColor.copy(fog.color).multiplyScalar(0.52);
-    // Ember west band owns the dusk horizon; it stays out of day and night,
-    // and a storm smothers it.
-    dome.material.uniforms.uEmberStrength.value = (beats.golden * 0.3 + beats.blue * 0.22)
-      * (1 - storm * 0.7);
+    // Ember west band belongs exclusively to the wall-clock illumination.
+    dome.material.uniforms.uEmberStrength.value = beats.golden * 0.3 + beats.blue * 0.22;
 
     // Phase 2 (2c): the scattering field's drivers — the sun's direction from
     // the day cycle, the scattering strength (fading to zero at night), the
-    // disc's HDR intensity (just over the bloom knee, storm-smothered), and
+    // disc's HDR intensity (just over the bloom knee), and
     // the haze band's strength. The sun tint follows the light rig, the same
     // colour the water glitter uses. All of it is phase-derived, so the PMREM
     // bake right after this call sees the same sky the frame will grade.
@@ -596,26 +583,20 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       sunColor.g += color.g * beats[beat];
       sunColor.b += color.b * beats[beat];
     }
-    dome.material.uniforms.uScattering.value = Math.min(1, daylight + dusk * 0.7)
-      * (1 - storm * 0.6);
-    dome.material.uniforms.uSunIntensity.value = (daylight * 1.55 + dusk * 1.3)
-      * (1 - storm * 0.85);
+    dome.material.uniforms.uScattering.value = Math.min(1, daylight + dusk * 0.7);
+    dome.material.uniforms.uSunIntensity.value = daylight * 1.55 + dusk * 1.3;
     dome.material.uniforms.uHazeStrength.value = Math.min(
       0.8,
-      0.42 + storm * 0.3,
+      0.42 + (NEUTRAL_SKY_CLARITY - clarity) * 0.3,
     );
     dome.material.uniforms.uBokashiAmount.value = gardenBokashiAmount(phase);
-    if (storm > 0) {
-      applyStorm(zenith, storm);
-      applyStorm(horizon, storm);
-      applyStorm(middle, storm);
-      applyStorm(fog.color, storm);
-      applyStorm(sunColor, storm);
-    }
   };
 
   return {
     applyPhase,
+    setClarity(value) {
+      clarity = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : NEUTRAL_SKY_CLARITY;
+    },
     dispose() {
       dome.mesh.geometry.dispose();
       dome.mesh.material.dispose();
@@ -649,20 +630,20 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       const pitch = Math.asin(eyeHeight / distance);
       // Spend the full gradient ladder between the sea horizon and top row.
       dome.material.uniforms.uSkyVisibleHeight.value = Math.sin(CAMERA_FOV_DEG * Math.PI / 360 - pitch);
-      const storm = Math.min(1, Math.max(0, frame.stormLevel ?? 0));
-      fogRangeAtViewHeight(fog, frame.cameraPosition, storm);
-      applyPhase(phase, frame.wallClockHour, storm);
+      const cover = Math.max(0, NEUTRAL_SKY_CLARITY - clarity);
+      fogRangeAtViewHeight(fog, frame.cameraPosition, cover);
+      applyPhase(phase, frame.wallClockHour);
       const { daylight, dusk, night } = phase;
 
-      // Storm cloud hides the stars and the moon.
-      const starOpacity = Math.min(1, dusk * 0.35 + night) * (1 - storm * 0.85);
+      // PSI cover obscures celestial objects without recolouring them.
+      const starOpacity = Math.min(1, dusk * 0.35 + night) * (1 - cover * 0.85);
       stars.material.uniforms.uOpacity.value = starOpacity;
       stars.material.uniforms.uTime.value = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
       stars.points.visible = starOpacity > 0.01;
 
-      const moonPresence = Math.min(1, dusk * 0.5 + night) * (1 - storm * 0.8);
+      const moonPresence = Math.min(1, dusk * 0.5 + night) * (1 - cover * 0.8);
       moon.group.visible = moonPresence > 0.02;
-      moon.halo.opacity = (0.08 + night * 0.28) * (1 - storm * 0.7);
+      moon.halo.opacity = (0.08 + night * 0.28) * (1 - cover * 0.7);
 
       // Phase 2 billboard atmosphere (mist banks + cumulus): shared time and
       // wind for the vertex-shader drift, phase-blended palette colours, and
@@ -670,8 +651,8 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       // static composition is a complete one.
       const showBillboards = frame.billboards ?? true;
       const billboardTime = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
-      windDir.set(frame.wind?.windDirX ?? -0.855, frame.wind?.windDirZ ?? 0.519);
-      const windSpeed = frame.wind?.windSpeed ?? 0.3;
+      windDir.set(frame.wind?.x ?? -0.855, frame.wind?.y ?? 0.519);
+      const windSpeed = Math.min(1, (frame.wind?.speed ?? 0.3) * (1 + (NEUTRAL_SKY_CLARITY - clarity) * 0.5));
       billboards.mist.material.uniforms.uTime.value = billboardTime;
       billboards.mist.material.uniforms.uWindSpeed.value = windSpeed;
       billboards.clouds.material.uniforms.uTime.value = billboardTime;
@@ -681,8 +662,7 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       // excludes the first 60 u from the eye, fading in through 100 u.
       const mistDensity = Math.min(
         0.85,
-        (dusk * 0.55 + night * 0.48 + daylight * 0.12) * (1 + storm * 0.8)
-          + storm * 0.12 * (1 - daylight),
+        (dusk * 0.55 + night * 0.48 + daylight * 0.12) * (1 + cover * 0.8),
       );
       // W3.2: mist does not carry a private opacity oscillator. It takes the
       // mist phase of the shared 9 s breath, at a deliberately tiny ±5%.
@@ -692,16 +672,16 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       mistColor.copy(fog.color);
       billboards.mist.material.uniforms.uOpacity.value = mistOpacity;
       billboards.mist.mesh.visible = showBillboards && mistOpacity > 0.008;
+      billboards.setFogBanks(frame.epistemicBanks ?? [], frame.targetX, frame.targetZ);
+      billboards.localMist.mesh.visible = showBillboards && billboards.localMist.mesh.count > 0;
 
       // The rejected always-on cumulus baseline remains off. W6.1 reuses the
       // high anchors only in summer, at less than half the old opacity.
       blendDayCycleColor(cloudBodyColor, CLOUD_BODY_NIGHT, CLOUD_BODY_DUSK, CLOUD_BODY_DAY, dusk, daylight);
       blendDayCycleColor(cloudShadeColor, CLOUD_SHADE_NIGHT, CLOUD_SHADE_DUSK, CLOUD_SHADE_DAY, dusk, daylight);
-      applyStorm(cloudBodyColor, storm);
-      applyStorm(cloudShadeColor, storm);
       billboards.clouds.material.uniforms.uOpacity.value = Math.min(
         0.34,
-        0.28 - night * 0.06 + storm * 0.04,
+        (0.28 - night * 0.06) * (1 + (NEUTRAL_SKY_CLARITY - clarity)),
       );
       // The sun projected into the billboards' quad space (right = the 45°
       // azimuth axis, up = world Y): at noon it sits overhead so the top rims
@@ -710,9 +690,9 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       if (sunQuadDir.lengthSq() < 1e-6) sunQuadDir.set(0, 1);
       else sunQuadDir.normalize();
       billboards.clouds.mesh.visible = showBillboards
-        && (GARDEN_CUMULUS_BILLBOARDS_ENABLED || season === "summer");
+        && (GARDEN_CUMULUS_BILLBOARDS_ENABLED || season === "summer" || clarity < NEUTRAL_SKY_CLARITY);
       const geeseOpacity = season === "autumn"
-        ? Math.max(0.16, 0.42 - night * 0.2 - storm * 0.12)
+        ? Math.max(0.16, 0.42 - night * 0.2 - cover * 0.12)
         : 0;
       billboards.geese.material.uniforms.uOpacity.value = geeseOpacity;
       billboards.geese.mesh.visible = showBillboards && geeseOpacity > 0.01;

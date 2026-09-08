@@ -26,6 +26,16 @@ import type { DockNode, PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNod
 import { precomputeShipTempos } from "./ship-cycle-tempo";
 import { seaBodyAtTile } from "./sea-bodies";
 
+/** Harbour master tide: one ten-minute cycle, in radians. */
+export function tidePhase(timeSeconds: number): number {
+  return positiveModulo(Number.isFinite(timeSeconds) ? timeSeconds : 0, 600) / 600 * Math.PI * 2;
+}
+
+/** A berth lags the same tide by at most 24 seconds; raft mates use one berth. */
+export function berthTidePhase(timeSeconds: number, berth: { x: number; y: number }): number {
+  return tidePhase(timeSeconds - stableUnit(`tide.${berth.x}.${berth.y}`) * 24);
+}
+
 // World identity is stable across React re-renders for the same TanStack
 // payload, so memoizing the signature on the world reference turns ~1000
 // transient strings + sort comparisons per render into a single Map lookup.
@@ -648,12 +658,8 @@ function offsetWaterPath(
   );
 }
 
-// Direction the moored ship's bow should face: from the mooring tile toward
-// the dock entity's tile (the natural orientation — bow toward the wharf).
-// Falls back to pointing away from the nearest seawall barrier when the dock
-// can't be located, so docked ships never face into the wall. Returns `null`
-// only when the geometry is degenerate (mooring tile colocated with dock,
-// or no barrier within range).
+// Keep the hull parallel to its wharf. Open-water rest is aligned to wind at
+// sample time; only actual dock geometry supplies a fixed tangent here.
 function dockTangentForVisit(
   visit: ShipDockVisit,
   docks: readonly DockNode[],
@@ -663,9 +669,9 @@ function dockTangentForVisit(
     const dx = dock.tile.x - visit.mooringTile.x;
     const dy = dock.tile.y - visit.mooringTile.y;
     const length = Math.hypot(dx, dy);
-    if (length > 0) return { x: dx / length, y: dy / length };
+    if (length > 0) return { x: -dy / length, y: dx / length };
   }
-  // Fallback: vector pointing away from the nearest seawall barrier.
+  // Tangent parallel to the nearest seawall.
   let nearestBarrier: { x: number; y: number } | null = null;
   let nearestDistance = Number.POSITIVE_INFINITY;
   for (const barrier of SEAWALL_BARRIER_TILES) {
@@ -680,7 +686,7 @@ function dockTangentForVisit(
   const dy = visit.mooringTile.y - nearestBarrier.y;
   const length = Math.hypot(dx, dy);
   if (length === 0) return null;
-  return { x: dx / length, y: dy / length };
+  return { x: -dy / length, y: dx / length };
 }
 
 function primaryDockStop(ship: ShipNode, dockStops: readonly ShipMotionRoute["dockStops"][number][]) {

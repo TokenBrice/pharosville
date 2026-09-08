@@ -1498,9 +1498,7 @@ export function writeFleetInstance(
         pose.x,
         pose.z,
         {
-          windDirX: pennantWind.dirX,
-          windDirZ: pennantWind.dirZ,
-          windSpeed: pennantWind.speed,
+          wind: { x: pennantWind.dirX, y: pennantWind.dirZ, speed: pennantWind.speed, gust: pennantWind.gust },
         },
       );
       const yaw = propRotation + (pennantWind.active ? -pose.headingAngle - pennantWind.angle

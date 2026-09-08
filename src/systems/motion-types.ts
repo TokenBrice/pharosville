@@ -158,6 +158,8 @@ export type ShipMotionSegmentKind =
 export interface ShipMotionSample {
   /** Final water-safe presentation position, shared by render, hit testing and following. */
   displayTile?: { x: number; y: number } | null;
+  /** Shared tide heave in world units; renderer never owns a hull oscillator. */
+  tideOffset?: number;
   shipId: string;
   tile: { x: number; y: number };
   state: ShipMotionState;
