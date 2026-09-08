@@ -554,21 +554,27 @@ const noisePixels = buildBlueNoise(BLUE_NOISE_SIZE, 0x5eed10ad);
 const noisePng = encodePng(noisePixels, BLUE_NOISE_SIZE, BLUE_NOISE_SIZE, 1);
 
 const artifacts = [
-  { bytes: lutPng, channels: 3, name: "garden-grade-lut.png", path: lutPath, pixels: strip.pixels },
-  { bytes: noisePng, channels: 1, name: "garden-blue-noise.png", path: blueNoisePath, pixels: noisePixels },
+  {
+    bytes: lutPng, channels: 3, height: strip.height, name: "garden-grade-lut.png",
+    path: lutPath, pixels: strip.pixels, width: strip.width,
+  },
+  {
+    bytes: noisePng, channels: 1, height: BLUE_NOISE_SIZE, name: "garden-blue-noise.png",
+    path: blueNoisePath, pixels: noisePixels, width: BLUE_NOISE_SIZE,
+  },
 ];
 
-// The `?v=` cache-buster hashes the bytes that ship, i.e. the committed file.
-// In `--check` mode that is the file on disk, not this run's re-pack: the same
-// pixels deflate to different bytes across zlib versions, and a pin check on
-// the re-pack fails on CI for an image nobody changed.
-const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+// The `?v=` cache-buster identifies the IMAGE, not the file: dimensions,
+// channel count and pixels. Hashing the PNG bytes instead would move the pin
+// whenever a zlib upgrade re-packs the same picture — the exact re-pack this
+// file's `--check` already tolerates (see the decoder comment above), and the
+// one that failed CI while the image was untouched. A cache-buster exists to
+// bust caches when pixels change, so pixels are what it hashes.
 for (const artifact of artifacts) {
-  let shipped = artifact.bytes;
-  if (checkOnly) {
-    try { shipped = readFileSync(artifact.path); } catch { /* reported below */ }
-  }
-  artifact.sha256 = sha256(shipped);
+  artifact.sha256 = createHash("sha256")
+    .update(`${artifact.name}:${artifact.width}x${artifact.height}x${artifact.channels}:`)
+    .update(Buffer.from(artifact.pixels))
+    .digest("hex");
 }
 const lutSha = artifacts[0].sha256;
 const noiseSha = artifacts[1].sha256;

@@ -326,8 +326,8 @@ class GardenGradeEffect extends Effect {
  * `world-renderer.ts` cannot see them; `getTextureManifest` below exposes them
  * alongside N8AO's blue noise, SMAA's search/area pair, and the bloom pyramid.
  */
-const LUT_TEXTURE_URL = "/pharosville/textures/garden-grade-lut.png?v=4b82542e159d";
-const DITHER_TEXTURE_URL = "/pharosville/textures/garden-blue-noise.png?v=fb2836c219c8";
+const LUT_TEXTURE_URL = "/pharosville/textures/garden-grade-lut.png?v=8df19a55fc3f";
+const DITHER_TEXTURE_URL = "/pharosville/textures/garden-blue-noise.png?v=297ab910ef36";
 
 /**
  * W1.2 (optional half): static paper grain, as a fraction of luminance.
