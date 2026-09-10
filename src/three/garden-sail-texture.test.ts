@@ -177,19 +177,20 @@ describe("F1 brand-dyed cloth", () => {
     expect(ink.r * 0.2126 + ink.g * 0.7152 + ink.b * 0.0722).toBeGreaterThan(0.05);
   });
 
-  it("puts a pale issuer under black canvas so its white mark survives", () => {
+  it("deepens a pale issuer into a legible dye of its own hue instead of blackening it", () => {
     const base = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!.visual.livery;
-    // Blast yellow: the palest brand in the inventory, contrast 1.10 vs white.
+    // Blast yellow: the palest brand in the inventory. 2026-09-10: the mon ink
+    // picks dark or light against the cloth, so the cloth no longer has to go
+    // black for the mark to read — it stays yellow at a dye lightness.
     const cloth = gardenSailClothColor({ ...base, primary: "#ffff07" }, "usdb-blast");
     const luminance = cloth.r * 0.2126 + cloth.g * 0.7152 + cloth.b * 0.0722;
 
-    // Dark enough for a white emblem to read...
-    expect(luminance).toBeLessThan(0.05);
-    // ...but not #000: the brand HUE survives, so it is their black, not any
-    // black. Yellow sits near hue 1/6 and must still be there.
+    // Deep enough for a light ink, light enough to still be yellow cloth.
+    expect(luminance).toBeGreaterThan(0.1);
+    expect(luminance).toBeLessThan(0.45);
     const hsl = { h: 0, l: 0, s: 0 };
     cloth.getHSL(hsl, SRGBColorSpace);
-    expect(hsl.s).toBeGreaterThan(0.2);
+    expect(hsl.s).toBeGreaterThan(0.5);
     expect(hsl.h).toBeCloseTo(1 / 6, 1);
   });
 
@@ -234,22 +235,22 @@ describe("F1 brand-dyed cloth", () => {
     }
   });
 
-  it("leaves DAI's amber exactly where decision D5 put it", () => {
+  it("leaves DAI's amber where decision D5 put it", () => {
     const dai = resolveStablecoinShipBranding("dai-makerdao", {
       flags: { pegCurrency: "USD" },
     } as StablecoinMeta);
     const cloth = gardenSailClothColor(dai, "dai-makerdao");
 
-    // D5 kept the floor at 2.0 knowing DAI dyes to 2.09, because its amber is
-    // an operator-owned recognition cue. This pins the exact rendered cloth: if
-    // it moves, someone has changed a decision rather than a detail.
-    // 2026-09-07: hex moved daac69 -> cfae85 under CLOTH_CHROMA_RESTRAINT.
-    // The LUMINANCE assertion below did not move at all, which is the point:
-    // the restraint is chroma-only, so D5's amber recognition cue keeps its
-    // exact value and only its chroma is pulled toward the fleet's palette.
-    expect(cloth.getHexString()).toBe("cfae85");
-    // Not under black canvas — the pirate branch would drop this far below 0.1.
-    expect(cloth.r * 0.2126 + cloth.g * 0.7152 + cloth.b * 0.0722).toBeCloseTo(0.4528, 3);
+    // DAI's amber is an operator-owned recognition cue: never under dark
+    // canvas, always an amber (hue near 1/9) at full dye chroma. The hex pin
+    // is the tripwire: if it moves, someone changed the dye pipeline, not a
+    // detail. 2026-09-10: cfae85 -> cb9223 when the dye moved into OKLCH.
+    const hsl = { h: 0, l: 0, s: 0 };
+    cloth.getHSL(hsl, SRGBColorSpace);
+    expect(cloth.getHexString()).toBe("cb9223");
+    expect(cloth.r * 0.2126 + cloth.g * 0.7152 + cloth.b * 0.0722).toBeGreaterThan(0.2);
+    expect(hsl.h).toBeCloseTo(0.11, 1);
+    expect(hsl.s).toBeGreaterThan(0.6);
     expect(SAIL_DARK_CANVAS_ISSUERS.has("dai-makerdao")).toBe(false);
   });
 

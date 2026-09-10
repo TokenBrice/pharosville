@@ -12,6 +12,18 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-09-10-dyed-cloth",
+    version: PHAROSVILLE_RELEASE_VERSIONS.dyedCloth,
+    date: "2026-09-10",
+    title: "Dyed Cloth",
+    summary: "The fleet flies its own colours and the far water has a surface: sails are dyed in the issuer's hue instead of a grey wash of it, and every risk body reads as water rather than a colour plate.",
+    bullets: [
+      "Sails wear the coin's colour. The cloth dye was mixed in linear light, which drained the colour out of every dark brand — half the fleet flew grey-blue and thirty more issuers were forced under black canvas. The dye is now judged perceptually: the brand's hue is kept exactly, its lightness is settled into a cloth range, its chroma is kept under the palette's ceiling, and a genuinely grey brand reads as undyed canvas. Circle is blue, Tether green, PayPal cobalt, Sky and Dai amber; only the five named pale issuers still fly dark cloth. The far third of the fleet keeps half again as much colour under the haze.",
+      "The water has a surface everywhere. Calm and ledger bodies had their ripple flattened to a mirror of one sky tone, and the far bands lost their normal past a few hundred units, so whole risk waters rendered as flat fills with hard seams between them. Glassy water keeps a fine ripple, the far field keeps half its detail, the reflected sky grades from horizon to zenith with the viewing angle, and each named body carries a slow, mean-preserving value and depth variation so its risk colour reads as a volume of water. The harbour basin under the Pharos stays a still mirror.",
+    ],
+    source: "Collected from commit `2861d17` after v0.17.0.",
+  },
+  {
     id: "2026-09-08-reborn",
     version: PHAROSVILLE_RELEASE_VERSIONS.reborn,
     date: "2026-09-08",
