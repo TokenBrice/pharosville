@@ -212,8 +212,13 @@ const fleetAerialUniforms = {
   uClothWeave: { value: 0 },
 };
 
-/** Chroma-only loss across the middle eye-distance third. */
-const FLEET_FRAMING_RESTRAINT = 0.25;
+/**
+ * Chroma-only loss across the middle eye-distance third. 2026-09-10: 0.25 ->
+ * 0.12. Stacked on the old linear dye it left the far fleet one grey; the dye
+ * now carries the palette restraint itself (OKLCH chroma cap), so this step
+ * only has to suggest recession, and real haze (`uAerialStrength`) does the rest.
+ */
+const FLEET_FRAMING_RESTRAINT = 0.12;
 
 export function gardenFleetFramingRestraint(distancePresence: number): number {
   return FLEET_FRAMING_RESTRAINT * MathUtils.clamp(distancePresence, 0, 1);
