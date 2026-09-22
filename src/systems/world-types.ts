@@ -1,9 +1,8 @@
 import type { ChainHealthFactors, ChainSummary } from "@shared/types/chains";
 import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
-import type { ReportCard, StablecoinData, StablecoinMeta } from "@shared/types";
+import type { SafetyGradeEntry, StablecoinData, StablecoinMeta } from "@shared/types";
 import type { ConditionBand } from "@shared/lib/psi-colors";
 import type { NetFlowDirection24h } from "@shared/lib/mint-burn-signals";
-import type { DependencyType } from "@shared/types/dependency-types";
 import type { ShipAgeProfile } from "./ship-age";
 import type { SupplyTide } from "./supply-tide";
 import type { RimCoveId } from "./garden-rim";
@@ -153,8 +152,6 @@ export interface ShipHullForm {
   propRotation?: number;
   /** W5.8: deterministic signed rope sag. */
   ropeSag?: number;
-  /** W7.6 fitting state packed into the existing hull surface instance slot. */
-  fittingCode?: number;
 }
 
 export const SHIP_HULL_FORM_SPAN = 0.32;
@@ -529,7 +526,7 @@ export interface ShipNode {
   symbol: string;
   asset: StablecoinData;
   meta: StablecoinMeta;
-  reportCard: ReportCard | null;
+  safetyGrade: SafetyGradeEntry | null;
   logoSrc: string | null;
   tile: { x: number; y: number };
   riskTile: { x: number; y: number };
@@ -555,8 +552,6 @@ export interface ShipNode {
   flowIntensity?: number | null;
   /** W7.1: this coin's measured 24h issuance work, absent when unmeasured. */
   issuance?: ShipIssuance;
-  /** W7.6: physical seaworthiness fittings derived from report-card raw inputs. */
-  fittings?: ShipFittings;
   /** Live signed peg deviation from `pegSummary.coins[].currentDeviationBps`;
       null/absent when the coin has no peg row. Surfaced as the "Peg
       deviation" detail fact and matching ledger clause. */
@@ -576,12 +571,6 @@ export interface ShipNode {
   detailId: string;
   squadId?: "sky" | "maker" | "ethena";
   squadRole?: "flagship" | "consort";
-  /** W7.2 strongest report-card dependency, when its parent is in the fleet. */
-  dependencyFormation?: {
-    parentId: string;
-    type: DependencyType;
-    weight: number;
-  } | null;
 }
 
 export interface ShipIssuance {
@@ -595,12 +584,6 @@ export interface ShipIssuance {
   } | null;
 }
 
-export interface ShipFittings {
-  blacklistStatus: ReportCard["rawInputs"]["canBeBlacklisted"];
-  collateralCargo: "sealed" | "mixed";
-  collateralQuality: ReportCard["rawInputs"]["collateralQuality"];
-  redemptionCapacityRatio: number | null;
-}
 
 /**
  * Two instruments reading the same price, from `pegSummary.coins[].dexPriceCheck`.
@@ -747,7 +730,7 @@ export interface PharosVilleFreshness {
   stabilityStale?: boolean;
   pegSummaryStale?: boolean;
   stressStale?: boolean;
-  reportCardsStale?: boolean;
+  safetyGradesStale?: boolean;
   mintBurnStale?: boolean;
 }
 

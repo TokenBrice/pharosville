@@ -11,7 +11,7 @@ export const LAMP_FRESHNESS_KEYS = [
   "stabilityStale",
   "pegSummaryStale",
   "stressStale",
-  "reportCardsStale",
+  "safetyGradesStale",
   "mintBurnStale",
 ] as const satisfies readonly (keyof PharosVilleFreshness)[];
 

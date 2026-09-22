@@ -2,13 +2,13 @@ import type { Page } from "@playwright/test";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
-  denseFixtureReportCards,
+  denseFixtureSafetyGrades,
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureChains,
   fixtureMintBurn,
   fixturePegSummary,
-  fixtureReportCards,
+  fixtureSafetyGrades,
   fixtureStability,
   fixtureStablecoins,
   fixtureStress,
@@ -171,7 +171,7 @@ export async function mockPharosVilleData(page: Page, options: PharosVilleMockOp
     stability: fixtureStability,
     pegSummary: fixturePegSummary,
     stress: fixtureStress,
-    reportCards: fixtureReportCards,
+    safetyGrades: fixtureSafetyGrades,
     mintBurn: fixtureMintBurn,
   }, options);
 }
@@ -191,7 +191,7 @@ export async function mockDensePharosVilleData(page: Page, options: PharosVilleM
     },
     pegSummary: denseFixturePegSummary,
     stress: denseFixtureStress,
-    reportCards: denseFixtureReportCards,
+    safetyGrades: denseFixtureSafetyGrades,
     // There is no dense mint-burn fixture; the flow feed is a small per-coin
     // list, so the base one is a faithful stand-in for the dense world.
     mintBurn: fixtureMintBurn,

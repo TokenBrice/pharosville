@@ -1,4 +1,4 @@
-import type { PegSummaryCoin, ReportCard } from "@shared/types";
+import type { PegSummaryCoin, SafetyGradeEntry } from "@shared/types";
 
 export function buildPegSummaryCoinMap(
   coins: readonly PegSummaryCoin[] | null | undefined,
@@ -11,9 +11,9 @@ export function buildPegSummaryCoinMap(
   return map;
 }
 
-export function buildReportCardMap(
-  cards: readonly ReportCard[] | null | undefined,
-): Record<string, ReportCard> | undefined {
-  if (!cards) return undefined;
-  return Object.fromEntries(cards.map((card) => [card.id, card]));
+export function buildSafetyGradeMap(
+  grades: readonly SafetyGradeEntry[] | null | undefined,
+): Record<string, SafetyGradeEntry> | undefined {
+  if (!grades) return undefined;
+  return Object.fromEntries(grades.map((grade) => [grade.id, grade]));
 }

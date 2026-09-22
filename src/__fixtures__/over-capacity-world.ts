@@ -1,7 +1,7 @@
 import {
   denseFixtureChains,
   denseFixturePegSummary,
-  denseFixtureReportCards,
+  denseFixtureSafetyGrades,
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureStability,
@@ -26,7 +26,7 @@ export function overCapacityWorldFixture(): PharosVilleWorld {
     chains: denseFixtureChains,
     freshness: {},
     pegSummary: denseFixturePegSummary,
-    reportCards: denseFixtureReportCards,
+    safetyGrades: denseFixtureSafetyGrades,
     stability: fixtureStability,
     stablecoins: denseFixtureStablecoins,
     stress: denseFixtureStress,

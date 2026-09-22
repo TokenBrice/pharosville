@@ -28,7 +28,7 @@ export async function installPreviewFixture(page, name) {
     chains: data.denseFixtureChains,
     pegSummary: data.denseFixturePegSummary,
     stress: data.denseFixtureStress,
-    reportCards: data.denseFixtureReportCards,
+    safetyGrades: data.denseFixtureSafetyGrades,
     mintBurn: data.fixtureMintBurn,
     stability: {
       ...data.fixtureStability,

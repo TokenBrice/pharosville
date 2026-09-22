@@ -55,7 +55,7 @@ export function resolveGeneratedAt(inputs: PharosVilleInputs): number | null {
     inputs.stability?.methodology?.asOf,
     inputs.pegSummary?.methodology?.asOf,
     inputs.stress?.updatedAt,
-    inputs.reportCards?.updatedAt,
+    inputs.safetyGrades?.updatedAt,
   ]
     .map(toEpochMs)
     .filter((value): value is number => value !== null);

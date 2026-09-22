@@ -58,10 +58,10 @@ describe("buildVisualCueRegistry", () => {
       primaryChannels: ["motion", "position", "opacity"],
     });
     expect(cues.find((cue) => cue.id === "cue.ship.safety-watch")).toMatchObject({
-      failureState: "no watch overlay; detail row absent for NR or missing report cards",
+      failureState: "no watch overlay; detail row absent for NR or missing grades",
       target: { kind: "ship" },
       primaryChannels: ["shape", "color"],
-      sourceField: "reportCards.cards[].overallGrade (D/F), reportCards.cards[].dimensions",
+      sourceField: "safetyGrades.grades[].grade (D/F)",
     });
     expect(cues.every((cue) => cue.sourceField && cue.domEquivalent && cue.failureState && cue.reducedMotionEquivalent)).toBe(true);
   });
@@ -132,16 +132,6 @@ describe("buildVisualCueRegistry", () => {
       sourceField: expect.stringContaining("largestEvent24h"),
       failureState: expect.stringContaining("neutral issuance draft"),
       reducedMotionEquivalent: expect.stringContaining("static representative composition"),
-    });
-  });
-
-  it("registers static report-card fittings with complete parity", () => {
-    expect(buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.seaworthiness-fittings")).toMatchObject({
-      target: { kind: "ship" },
-      primaryChannels: ["shape", "position"],
-      sourceField: expect.stringContaining("redemptionImmediateCapacityRatio"),
-      failureState: expect.stringContaining("no corresponding fitting"),
-      reducedMotionEquivalent: expect.stringContaining("static fittings"),
     });
   });
 
@@ -268,7 +258,6 @@ describe("buildVisualCueRegistry", () => {
       "cue.ship.age-patina",
       "cue.ship.zone-weathering",
       "cue.ship.issuance-work",
-      "cue.ship.seaworthiness-fittings",
       "cue.dock.congestion",
       "cue.dock.cargo-tide",
       "cue.fleet.flight-to-quality",
@@ -279,7 +268,6 @@ describe("buildVisualCueRegistry", () => {
       "cue.lighthouse.lamp-status",
       "cue.ship.cross-bearing-buoy",
       "cue.ship.peg-trim",
-      "cue.ship.audit-shield",
       "cue.ship.nav-signal",
       "cue.ship.yield-signal",
     ]);
@@ -295,5 +283,4 @@ describe("buildVisualCueRegistry", () => {
     expect(cue?.visual).toContain("paired pilings");
     expect(cue?.visual).toContain("mixed-case serif lettering");
   });
-
 });

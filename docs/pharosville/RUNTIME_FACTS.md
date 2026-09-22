@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.17.1` (`dyedCloth`)
-- Latest changelog entry: `2026-09-10-dyed-cloth` / `v0.17.1` / 2026-09-10 / Dyed Cloth
+- Latest app version: `v0.18.0` (`safetyGrades`)
+- Latest changelog entry: `2026-09-22-safety-grades` / `v0.18.0` / 2026-09-22 / Safety Grades
 
 ## Viewport Gate
 
@@ -28,7 +28,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - `/api/stability-index?detail=true`
 - `/api/peg-summary`
 - `/api/stress-signals`
-- `/api/report-cards`
+- `/api/safety-grades`
 - `/api/mint-burn-flows`
 
 ## Runtime Media

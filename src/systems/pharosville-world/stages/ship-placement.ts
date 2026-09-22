@@ -1,7 +1,7 @@
 import { RUNTIME_ACTIVE_IDS, RUNTIME_ACTIVE_META_BY_ID } from "@shared/lib/stablecoins/runtime-registry";
 import { canonicalizeChainCirculating } from "@shared/lib/chain-circulating";
 import type { StablecoinData, StablecoinListResponse, StressSignalEntry } from "@shared/types";
-import { buildPegSummaryCoinMap, buildReportCardMap } from "@/lib/stablecoin-lookups";
+import { buildPegSummaryCoinMap, buildSafetyGradeMap } from "@/lib/stablecoin-lookups";
 import { logosById } from "@/lib/logos";
 import { getCirculatingRaw } from "@/lib/supply";
 import { getRecentChange } from "../../recent-change";
@@ -29,7 +29,6 @@ import type { SeaBodyName } from "../../sea-bodies";
 import { resolveShipVisual } from "../../ship-visuals";
 import { deriveShipAge, deriveShipWabiSurface } from "../../ship-age";
 import { buildShipIssuance } from "../../ship-issuance";
-import { deriveShipFittings, shipFittingsCode } from "../../ship-fittings";
 import { stableHash, stableOffset, stableUnit } from "../../stable-random";
 import { tileKey } from "../../tile-key";
 import {
@@ -338,7 +337,7 @@ export function shipStressBreakdown(
 
 function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): ShipNode[] {
   const pegById = buildPegSummaryCoinMap(inputs.pegSummary?.coins);
-  const reportCardById = buildReportCardMap(inputs.reportCards?.cards) ?? {};
+  const safetyGradeById = buildSafetyGradeMap(inputs.safetyGrades?.grades) ?? {};
   const stressById = inputs.stress?.signals ?? {};
   // W7.7 — keep the per-coin rate reading on the ship that motion planning,
   // detail, and the ledger already share. Missing rows remain null so the
@@ -393,7 +392,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
   const ships = assets.map((asset) => {
     const meta = RUNTIME_ACTIVE_META_BY_ID.get(asset.id);
     if (!meta) throw new Error(`Active asset ${asset.id} is missing metadata`);
-    const reportCard = reportCardById[asset.id] ?? null;
+    const safetyGrade = safetyGradeById[asset.id] ?? null;
     const pegCoin = pegById.get(asset.id);
     const stress = stressById[asset.id];
     const ownRisk = resolveShipRiskPlacement({
@@ -426,7 +425,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     const stressBreakdown = shipStressBreakdown(stress, risk.placement);
     const stamped = squad && flagshipRisk ? stampSquad(asset.id, squad) : null;
     const dexCrossCheck = shipDexCrossCheck(pegCoin, asset, pegCoin?.currentDeviationBps ?? null);
-    const shipVisual = resolveShipVisual(asset, meta, reportCard);
+    const shipVisual = resolveShipVisual(asset, meta, safetyGrade);
     const age = deriveShipAge({
       ageDays: ageDaysById.get(asset.id),
       asOfMs: ageAsOfMs,
@@ -442,7 +441,6 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       agePatina: age.patina ?? -1,
       ...deriveShipWabiSurface(asset.id),
     };
-    const fittings = deriveShipFittings(reportCard);
     const waterline = shipWaterlineTrim(
       pegCoin?.currentDeviationBps,
       inputs.freshness.pegSummaryStale === true,
@@ -455,7 +453,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       symbol: asset.symbol,
       asset,
       meta,
-      reportCard,
+      safetyGrade,
       logoSrc: logosById[asset.id] ?? null,
       tile: riskTile,
       riskTile,
@@ -477,11 +475,9 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
           ...shipVisual.hullForm,
           waterline,
           ...hullSurface,
-          fittingCode: shipFittingsCode(fittings),
         },
       },
       age,
-      ...(fittings ? { fittings } : {}),
       change24hUsd: recent.change24hUsd,
       change24hPct: recent.change24hPct,
       flowIntensity: flowIntensityById.get(asset.id) ?? null,

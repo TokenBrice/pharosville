@@ -59,7 +59,7 @@ export const API_PATHS = {
   safetyScoreHistoryProbe: (stablecoinId: string) =>
     buildQueryPath("/api/safety-score-history", { stablecoin: stablecoinId }),
   stabilityIndex: (detail = false) => buildQueryPath("/api/stability-index", detail ? { detail: true } : undefined),
-  reportCards: () => "/api/report-cards",
+  safetyGrades: () => "/api/safety-grades",
   redemptionBackstops: () => "/api/redemption-backstops",
   mintBurnFlowsBase: () => "/api/mint-burn-flows",
   mintBurnFlows: (params?: Record<string, QueryParamValue>) => buildQueryPath("/api/mint-burn-flows", params),

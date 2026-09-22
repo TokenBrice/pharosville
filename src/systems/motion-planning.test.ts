@@ -3,12 +3,12 @@ import { ACTIVE_META_BY_ID } from "@shared/lib/stablecoins";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
-  denseFixtureReportCards,
+  denseFixtureSafetyGrades,
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureChains,
   fixturePegSummary,
-  fixtureReportCards,
+  fixtureSafetyGrades,
   fixtureStability,
   fixtureStress,
   makeAsset,
@@ -67,7 +67,7 @@ describe("W4.23 calm patrol itineraries", () => {
         coins: [makePegCoin({ id: "usdc-circle", symbol: "USDC" })],
       },
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -82,7 +82,7 @@ describe("W4.23 calm patrol itineraries", () => {
       stability: fixtureStability,
       pegSummary: denseFixturePegSummary,
       stress: denseFixtureStress,
-      reportCards: denseFixtureReportCards,
+      safetyGrades: denseFixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -233,7 +233,7 @@ describe("W4.25 risk-transition tack-out", () => {
         coins: [makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: deviationBps })],
       },
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });

@@ -89,8 +89,8 @@ Watch for:
 - post-deploy smoke failure and failure of the scheduled canary;
 - warning annotations on an otherwise green canary run. `smoke:live` keeps two
   tiers: essential endpoint and contract violations fail the run, while an
-  unavailable report-card enrichment feed, stale data, and schema-legal payload
-  findings are reported as GitHub Actions annotations. Report cards shape ship
+  unavailable safety-grades enrichment feed, stale data, and schema-legal payload
+  findings are reported as GitHub Actions annotations. Safety grades shape ship
   hulls but are not required to open a useful harbour, so an upstream outage
   cannot falsely mark an otherwise successful Pages deployment as failed. Add
   `--strict-freshness` (or `SMOKE_STRICT_FRESHNESS=1`) when operator sign-off
@@ -134,7 +134,7 @@ the edge and reach upstream at most about twice an hour no matter how often the
 monitor runs. It is the cheapest read that still exercises the whole relay
 path.
 
-Do not point a monitor at `/api/stablecoins`, `/api/report-cards`, or
+Do not point a monitor at `/api/stablecoins`, `/api/safety-grades`, or
 `/api/stability-index?detail=true`. Those carry the largest payloads and the
 shortest freshness lanes, so frequent probes turn into real upstream load and
 real bandwidth for no extra signal.

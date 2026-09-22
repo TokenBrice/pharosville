@@ -149,31 +149,21 @@ describe("DetailPanel woodblock record", () => {
     expect(markup).toMatch(/<dt[^>]*>Class<\/dt>\s*<dd[^>]*>[\s\S]*? · [\s\S]*?<\/dd>/);
   });
 
-  it("keeps the expanded ship record bounded while exposing seaworthiness", () => {
+  it("keeps the expanded ship record bounded while exposing the safety grade", () => {
     const markup = renderShipPanel("susds-sky", "susds-sky");
     const dts = markup.match(/<dt[^>]*>/g) ?? [];
     expect(dts.length).toBeLessThanOrEqual(20);
-    for (const label of [
-      "In service since / tracked",
-      "Redemption fitting",
-      "Collateral cargo",
-      "Customs authority",
-      "Peg stability",
-      "Liquidity",
-      "Resilience",
-      "Decentralization",
-      "Dependency risk",
-    ]) {
-      expect(markup).toContain(label);
-    }
+    expect(markup).toContain("In service since / tracked");
+    // The safety grade folds into the composed Class row rather than its own dt.
+    expect(markup).toContain("Safety A (score 90)");
   });
 
   it("respects the 8-row cap when every gated ship signal fires at once", () => {
     // Worst-case ship: every fact detailForShip can emit toward the panel —
-    // squad formation, significant depeg record, supply momentum, degraded
-    // price signal, and the heritage Bluechip audit. The gated P3 signals
-    // must fold into existing rows (Class, Market cap, 24h change) rather
-    // than spend rows of their own.
+    // squad formation, significant depeg record, supply momentum, and a
+    // degraded price signal. The gated P3 signals must fold into existing
+    // rows (Class, Market cap, 24h change) rather than spend rows of their
+    // own.
     const detail: DetailModel = {
       id: "ship:test-worst-case",
       title: "Test Ship",
@@ -205,7 +195,6 @@ describe("DetailPanel woodblock record", () => {
     const dts = markup.match(/<dt[^>]*>/g) ?? [];
     expect(dts.length).toBeLessThanOrEqual(8);
     // The gated signals must fold into host rows, not silently drop.
-    expect(markup).toContain("Bluechip A");
     expect(markup).toContain("Low-confidence price feed");
     expect(markup).toContain("2 of 3 price sources agree");
     expect(markup).toContain("depeg history: 3 events on record");

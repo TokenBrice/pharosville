@@ -8,7 +8,6 @@ import {
 import { selectGardenObservatoryAreas } from "./observe-sequence";
 import { TILE_HEIGHT, TILE_SCALE, worldToScreen, type IsoCamera, type ScreenPoint } from "./projection";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
-import { stableUnit } from "./stable-random";
 import {
   gardenShipWaterMarginTiles,
   isGardenShipWater,
@@ -172,7 +171,6 @@ interface GardenShipDisplayTileCacheEntry {
 // the same frame. Ship nodes are replaced on a world rebuild, so a WeakMap
 // gives each live ship one last-result cache with automatic invalidation.
 const gardenShipDisplayTileCache = new WeakMap<ShipNode, GardenShipDisplayTileCacheEntry>();
-const gardenDependencyDisplayTileCache = new WeakMap<ShipNode, GardenShipDisplayTileCacheEntry>();
 
 /**
  * Composed display tiles that miss the water field need the radial
@@ -325,39 +323,6 @@ export function resolveGardenShipDisplayTile(input: {
   );
 }
 
-/**
- * W7 dependency formations are composed after ordinary motion, so they need
- * their own final water-field pass. Keeping that pass here lets drawing, hit
- * targets and detail anchors use the identical child tile instead of letting
- * the renderer add an unchecked offset after the shared resolver returned.
- */
-export function resolveGardenDependencyShipDisplayTile(input: {
-  parentTile: ScreenPoint;
-  ship: ShipNode;
-}): ScreenPoint {
-  const { parentTile, ship } = input;
-  const dependency = ship.dependencyFormation;
-  if (!dependency) return parentTile;
-  const side = stableUnit(`dependency-formation.${ship.id}`) < 0.5 ? -1 : 1;
-  const spacing = 1.6 + dependency.weight * 1.4;
-  const composed = {
-    x: parentTile.x + side * spacing,
-    y: parentTile.y + spacing * 0.55,
-  };
-  const margin = gardenShipWaterMarginTiles(
-    gardenShipVisualScale(ship.visual.scale || 1),
-    GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
-  );
-  return resolveCachedShipWaterTile(
-    gardenDependencyDisplayTileCache,
-    ship,
-    composed,
-    margin,
-    false,
-    false,
-    `dependency-display.${ship.id}`,
-  );
-}
 
 export function resolveGardenEntityDisplayTile(input: {
   entity: SelectableWorldEntity;
@@ -376,17 +341,7 @@ export function resolveGardenEntityDisplayTile(input: {
     ...placement,
     sample: shipMotionSamples?.get(entity.id),
   });
-  const dependency = placement.ship.dependencyFormation;
-  if (!dependency) return tile;
-  const parent = slice.ships.find(({ ship }) => ship.id === dependency.parentId);
-  if (!parent) return tile;
-  return resolveGardenDependencyShipDisplayTile({
-    parentTile: resolveGardenShipDisplayTile({
-      ...parent,
-      sample: shipMotionSamples?.get(parent.ship.id),
-    }),
-    ship: placement.ship,
-  });
+  return tile;
 }
 
 export function gardenTileToScreen(

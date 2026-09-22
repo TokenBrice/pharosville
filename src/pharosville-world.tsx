@@ -1322,7 +1322,7 @@ const FRESHNESS_LABELS: ReadonlyArray<readonly [FreshnessKey, string]> = [
   ["stabilityStale", "PSI"],
   ["pegSummaryStale", "peg summary"],
   ["stressStale", "stress signals"],
-  ["reportCardsStale", "report cards"],
+  ["safetyGradesStale", "safety grades"],
 ];
 
 /** True for anything the visitor could be typing into, where `/` is a slash. */

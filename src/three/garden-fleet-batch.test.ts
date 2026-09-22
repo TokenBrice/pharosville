@@ -345,7 +345,7 @@ describe("fleet batches", () => {
     expect(fleetDrawCallCount(batches)).toBe(19);
     const savings = 140_000 * 0.6 * (1 - farTriangles / nearTriangles);
     expect(savings).toBeGreaterThanOrEqual(25_000);
-    expect(counts).toEqual([[826, 42], [870, 42], [1116, 58], [1046, 38], [864, 42], [782, 38]]);
+    expect(counts).toEqual([[658, 42], [702, 42], [948, 58], [878, 38], [696, 42], [614, 38]]);
     disposeFleetBatches(batches);
   });
   it("fits every sail geometry within the vertex attribute limit", () => {
@@ -609,23 +609,6 @@ describe("W5.8/W7.3 instanced hull surface", () => {
     disposeFleetBatches(batches);
   });
 
-  it("packs the seaworthiness fitting code with rope sag without another attribute", () => {
-    const batches = buildBatches(4);
-    beginFleetFrame(batches);
-    writeFleetInstance(batches, pose({
-      hullForm: {
-        beam: 1,
-        fittingCode: 19,
-        height: 1,
-        length: 1,
-        ropeSag: -0.06,
-        waterline: 0,
-      } as FleetInstancePose["hullForm"],
-    }));
-    endFleetFrame(batches);
-    expect(batches.bySilhouette.get("bezaisen")?.hull.hullSurface?.getW(0)).toBeCloseTo(18.94);
-    disposeFleetBatches(batches);
-  });
 
 });
 

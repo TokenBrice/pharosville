@@ -100,7 +100,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: usdcMeta!,
       pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: 0 }),
       stress: { band: "DANGER", score: 90, signals: {}, computedAt: 1, methodologyVersion: "fixture" },
-      freshness: { reportCardsStale: true },
+      freshness: { safetyGradesStale: true },
     });
 
     expect(result.placement).toBe("storm-shelf");

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
-  denseFixtureReportCards,
+  denseFixtureSafetyGrades,
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureStability,
@@ -16,7 +16,6 @@ import { pathKey } from "./motion-utils";
 import {
   GARDEN_SILHOUETTE_FOR_HULL,
   gardenShipVisualScale,
-  resolveGardenDependencyShipDisplayTile,
   resolveGardenShipDisplayTile,
   selectGardenObservatorySlice,
 } from "./garden-observatory-slice";
@@ -85,7 +84,7 @@ function denseWorld() {
     chains: denseFixtureChains,
     freshness: {},
     pegSummary: denseFixturePegSummary,
-    reportCards: denseFixtureReportCards,
+    safetyGrades: denseFixtureSafetyGrades,
     stability: fixtureStability,
     stablecoins: denseFixtureStablecoins,
     stress: denseFixtureStress,
@@ -344,11 +343,7 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
         ]));
         for (const placement of slice.ships) {
           const ship = placement.ship;
-          const dependency = ship.dependencyFormation;
-          const parentTile = dependency ? baseTiles.get(dependency.parentId) : undefined;
-          const tile = dependency && parentTile
-            ? resolveGardenDependencyShipDisplayTile({ parentTile, ship })
-            : baseTiles.get(ship.id)!;
+          const tile = baseTiles.get(ship.id)!;
           const label = `${fixture} t=${second} ${ship.id} at ${tile.x.toFixed(2)},${tile.y.toFixed(2)}`;
           if (!gardenWaterPlateContainsTile(tile, world.map)) failures.push(`${label}: outside plate`);
           else if (rimLandAt(tile.x, tile.y)) failures.push(`${label}: rim land`);

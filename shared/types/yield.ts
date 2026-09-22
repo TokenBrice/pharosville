@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { MethodologyEnvelope, MethodologyEnvelopeSchema, YieldType, YieldTypeSchema } from "./core";
-import { ReportCardGrade, ReportCardGradeSchema } from "./report-cards";
+import { ReportCardGrade, ReportCardGradeSchema } from "./safety-grades";
 
 export type YieldBenchmarkKey = "USD" | "EUR" | "CHF";
 export type YieldBenchmarkSelectionMode = "native" | "fallback-usd" | "manual-override";
