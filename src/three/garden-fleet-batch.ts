@@ -450,8 +450,6 @@ export function setFleetWeather(weather: FleetWeather | null): void {
  */
 export function mergeTintedParts(
   parts: readonly {
-    /** W7.6 fitting selector, collapsed per instance when its raw input does not support it. */
-    fittingTag?: number;
     geometry: BufferGeometry;
     /**
      * W1/D2: marks this part as the sheer strake — the one band that takes the
@@ -478,7 +476,7 @@ export function mergeTintedParts(
     if (geometry !== source) source.dispose();
     if (part.transform) geometry.applyMatrix4(part.transform);
     applyVertexTint(geometry, part.tint);
-    applyStrakeMask(geometry, part.fittingTag ? -part.fittingTag : part.strake ? 1 : 0);
+    applyStrakeMask(geometry, part.strake ? 1 : 0);
     const smallPart = isSmallRepeatedPart(geometry);
     applySurfaceMasks(geometry, {
       fitting: cylinder && smallPart,
@@ -782,24 +780,6 @@ const STRAKE_PAINT = `
   vColor.xyz = mix(vColor.xyz, color.xyz * aTrim, step(0.5, aStrakeMask));
 #endif`;
 
-const HULL_FITTINGS_DEFORM = `
-{
-  float fittingTag = -aStrakeMask;
-  if (fittingTag > 0.5) {
-    float fittingCode = floor(aHullSurface.w + 0.5);
-    float redemptionLevel = mod(fittingCode, 4.0);
-    float collateralCargo = floor(mod(fittingCode, 12.0) / 4.0);
-    float customsBrand = floor(fittingCode / 12.0);
-    float showFitting = fittingTag < 3.5
-      ? step(fittingTag, redemptionLevel)
-      : fittingTag < 4.5
-        ? step(0.5, 1.0 - abs(collateralCargo - 1.0))
-        : fittingTag < 5.5
-          ? step(0.5, 1.0 - abs(collateralCargo - 2.0))
-          : step(0.5, customsBrand);
-    transformed = mix(aVariationPivot.xyz, transformed, showFitting);
-  }
-}`;
 
 const HULL_WABI_DEFORM = `
 {
@@ -814,7 +794,7 @@ const HULL_WABI_DEFORM = `
   if (aPartMasks.y > 0.5) {
     float along = clamp(abs(transformed.x - aVariationPivot.x) / aVariationPivot.w, 0.0, 1.0);
     float catenary = 1.0 - along * along;
-    float ropeSag = aHullSurface.w - floor(aHullSurface.w + 0.5);
+    float ropeSag = aHullSurface.w;
     transformed.y -= abs(ropeSag) * catenary;
     transformed.z += ropeSag * catenary * 0.35;
   }
@@ -861,7 +841,6 @@ export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = withHullForm(shader.vertexShader)
       .replace("#include <begin_vertex>", `#include <begin_vertex>\n${HULL_WABI_DEFORM}`)
-      .replace("#include <begin_vertex>", `#include <begin_vertex>\n${HULL_FITTINGS_DEFORM}`)
       .replace(
         "#include <common>",
         `#include <common>
@@ -886,7 +865,7 @@ export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void
   };
   // The shader shape changed, so previously compiled fleet programs cannot be reused.
   material.customProgramCacheKey = () =>
-    "garden-fleet-hull-form-strake-trim-wabi-age-fittings-wet-collar";
+    "garden-fleet-hull-form-strake-trim-wabi-age-wet-collar";
 }
 
 export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
@@ -1436,7 +1415,6 @@ export function writeFleetInstance(
   if (hull.hullSurface) {
     const surface = pose.hullForm as FleetInstancePose["hullForm"] & {
       agePatina?: number;
-      fittingCode?: number;
       hullValue?: number;
       propRotation?: number;
       ropeSag?: number;
@@ -1448,8 +1426,7 @@ export function writeFleetInstance(
       MathUtils.clamp(surface.hullValue ?? 1, 0.85, 1.15),
       surface.agePatina == null ? -1 : MathUtils.clamp(surface.agePatina, -1, 1),
       MathUtils.clamp(surface.propRotation ?? 0, -Math.PI / 18, Math.PI / 18),
-      Math.max(0, Math.floor(surface.fittingCode ?? 0))
-        + MathUtils.clamp(surface.ropeSag ?? 0, -0.1, 0.1),
+      MathUtils.clamp(surface.ropeSag ?? 0, -0.1, 0.1),
     );
   }
   // Same proportions on hull and sails: the rig has to follow the hull it is

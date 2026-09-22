@@ -1,6 +1,6 @@
 import { CHAIN_META } from "@shared/lib/chains";
 import { CAUSE_META } from "@shared/lib/cause-of-death";
-import type { BluechipGrade, DimensionKey } from "@shared/types";
+
 import { formatCompactUsd } from "../lib/format-detail";
 import type { DayCycleBeats, DayCycleBeatName } from "./day-cycle-beats";
 import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode } from "./world-types";
@@ -16,11 +16,6 @@ export { quayMasonryHealth, quayMasonryLabel } from "./dock-health";
 import { deriveLampStatus, lampStatusReading } from "./lamp-status";
 import { gardenMonthRecordLabel } from "./garden-month-record";
 import { shipIssuanceDetailLabel } from "./ship-issuance";
-import {
-  shipCollateralFittingLabel,
-  shipCustomsFittingLabel,
-  shipRedemptionFittingLabel,
-} from "./ship-fittings";
 import type { PharosVilleFreshness } from "./world-types";
 import { deriveEpistemicHaze, quayHazeLabel, riskWaterHazeLabel } from "./epistemic-haze";
 import { motionCadenceDetailLabel } from "./motion-config";
@@ -55,7 +50,7 @@ const NOW_CAPTION_FRESHNESS_LABELS: ReadonlyArray<readonly [keyof PharosVilleFre
   ["stabilityStale", "PSI"],
   ["pegSummaryStale", "Peg summary"],
   ["stressStale", "Stress signals"],
-  ["reportCardsStale", "Report cards"],
+  ["safetyGradesStale", "Safety grades"],
   ["mintBurnStale", "Mint and burn"],
 ];
 
@@ -482,64 +477,12 @@ export function sourceConsensusLabel(
   return `${consensus.agree} of ${consensus.total} price sources agree`;
 }
 
-/**
- * Audit shield for heritage-tier ships: non-null only for titan/unique hulls
- * whose report card carries a Bluechip grade. The `smartContractAudit`
- * boolean lives on `BluechipRating` (a separate bluechip-ratings payload not
- * wired into the world inputs), so the shield surfaces the grade alone. The
- * same state drives the audit-shield render cue and the Bluechip fold in the
- * Class detail row.
- */
-export function auditShieldState(
-  reportCard: ShipNode["reportCard"],
-  sizeTier: ShipNode["visual"]["sizeTier"],
-): { grade: BluechipGrade } | null {
-  if (sizeTier !== "titan" && sizeTier !== "unique") return null;
-  const grade = reportCard?.rawInputs.bluechipGrade ?? null;
-  return grade ? { grade } : null;
-}
-
-// "Bluechip A" — null outside the auditShieldState gate.
-export function auditShieldLabel(
-  reportCard: ShipNode["reportCard"],
-  sizeTier: ShipNode["visual"]["sizeTier"],
-): string | null {
-  const shield = auditShieldState(reportCard, sizeTier);
-  return shield ? `Bluechip ${shield.grade}` : null;
-}
-
-export const DIMENSION_KEY_LABELS: Record<DimensionKey, string> = {
-  pegStability: "Peg stability",
-  liquidity: "Liquidity",
-  resilience: "Resilience",
-  decentralization: "Decentralization",
-  dependencyRisk: "Dependency risk",
-};
-
-function dimensionDetailSummary(value: string): string {
-  const sentence = value.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim();
-  return sentence || value;
-}
-
-export function reportCardDimensionFacts(
-  reportCard: ShipNode["reportCard"],
-): Array<{ label: string; value: string }> {
-  if (!reportCard || reportCard.overallGrade === "NR") return [];
-  return (Object.entries(DIMENSION_KEY_LABELS) as Array<[DimensionKey, string]>).map(([key, label]) => {
-    const dimension = reportCard.dimensions[key];
-    const score = dimension.score == null || !Number.isFinite(dimension.score)
-      ? ""
-      : ` (${Math.round(dimension.score)}/100)`;
-    return { label, value: `${dimension.grade}${score} — ${dimensionDetailSummary(dimension.detail)}` };
-  });
-}
-
-export function reportCardSafetyLabel(reportCard: ShipNode["reportCard"]): string | null {
-  if (!reportCard || reportCard.overallGrade === "NR") return null;
-  if (reportCard.overallScore == null || !Number.isFinite(reportCard.overallScore)) {
-    return `Safety ${reportCard.overallGrade}`;
+export function safetyGradeLabel(safetyGrade: ShipNode["safetyGrade"]): string | null {
+  if (!safetyGrade || safetyGrade.grade === "NR") return null;
+  if (safetyGrade.score == null || !Number.isFinite(safetyGrade.score)) {
+    return `Safety ${safetyGrade.grade}`;
   }
-  return `Safety ${reportCard.overallGrade} (score ${Math.round(reportCard.overallScore)})`;
+  return `Safety ${safetyGrade.grade} (score ${Math.round(safetyGrade.score)})`;
 }
 
 function representativePositionLabel(node: ShipNode): string {
@@ -571,16 +514,6 @@ export function stressBreakdownLabel(node: Pick<ShipNode, "stressBreakdown">): s
   return `Driven by: ${parts.join("; ")}`;
 }
 
-export function dependencyFormationLabel(
-  node: Pick<ShipNode, "dependencyFormation">,
-  allShips: readonly Pick<ShipNode, "id" | "label" | "symbol">[],
-): string | null {
-  const dependency = node.dependencyFormation;
-  if (!dependency) return null;
-  const parent = allShips.find((ship) => ship.id === dependency.parentId);
-  if (!parent) return null;
-  return `${dependency.type} dependence on ${parent.label} (${parent.symbol}), ${Math.round(dependency.weight * 100)}% weight`;
-}
 
 function shipLiveryLabel(node: ShipNode): string {
   const livery = node.visual.livery;
@@ -1199,11 +1132,8 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   // <= 8 fact-row density contract holds even when every gate fires.
   const priceConfidence = priceConfidenceLabel(node.asset);
   const sourceConsensus = sourceConsensusLabel(node.asset);
-  const auditShield = auditShieldLabel(node.reportCard, node.visual.sizeTier);
-  const safetyGrade = reportCardSafetyLabel(node.reportCard);
-  const dimensionFacts = reportCardDimensionFacts(node.reportCard);
+  const safetyGrade = safetyGradeLabel(node.safetyGrade);
   const stressDriver = stressBreakdownLabel(node);
-  const dependencyFormation = dependencyFormationLabel(node, allShips);
   const riskDepth = riskAnchoringDepthLabel(node);
   // The header figure stays the bare reading — it is a headline number, not a
   // sentence — while the fact row carries the direction and the trim.
@@ -1235,13 +1165,8 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     ...(safetyGrade ? [{ label: "Safety grade", value: safetyGrade }] : []),
     { label: "Route cadence", value: motionCadenceDetailLabel() },
     { label: "Issuance work, 24h", value: shipIssuanceDetailLabel(node) },
-    { label: "Redemption fitting", value: shipRedemptionFittingLabel(node) },
-    { label: "Collateral cargo", value: shipCollateralFittingLabel(node) },
-    { label: "Customs authority", value: shipCustomsFittingLabel(node) },
-    ...dimensionFacts,
     { label: "Ship class", value: node.visual.classLabel },
     { label: "Size tier", value: node.visual.sizeLabel },
-    ...(auditShield ? [{ label: "Bluechip audit", value: auditShield }] : []),
     ...(mastSignal ? [{ label: "Mast signal", value: mastSignal }] : []),
     ...(node.visual.uniqueRationale
       ? [{ label: "Cultural significance", value: node.visual.uniqueRationale }]
@@ -1253,7 +1178,6 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     { label: "Risk placement key", value: node.riskPlacement },
     ...(riskDepth ? [{ label: "Within-zone anchoring", value: riskDepth }] : []),
     ...(stressDriver ? [{ label: "Stress driver", value: stressDriver }] : []),
-    ...(dependencyFormation ? [{ label: "Dependency formation", value: dependencyFormation }] : []),
     ...riskTransitionFact,
     { label: "Home dock", value: node.homeDockChainId ? chainLabel(node.homeDockChainId) : "No rendered dock" },
     { label: "Chains present", value: chainsPresentLabel(node) },

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
-  denseFixtureReportCards,
+  denseFixtureSafetyGrades,
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureStability,
@@ -22,7 +22,6 @@ import {
   gardenSemanticView,
   gardenShipVisualScale,
   gardenTileToScreen,
-  resolveGardenDependencyShipDisplayTile,
   resolveGardenEntityDisplayTile,
   resolveGardenShipDisplayTile,
   GARDEN_HOME_DRIFT_TILES,
@@ -140,23 +139,6 @@ describe("Garden Observatory slice", () => {
     const cleared = selectGardenObservatorySlice(world, null);
     expect(cleared.ships).toHaveLength(GARDEN_OVERVIEW_SHIP_LIMIT);
     expect(cleared.transientSelectedDetailId).toBeNull();
-  });
-
-  it("revalidates dependency formation after its renderer-visible offset", () => {
-    const world = denseWorld();
-    const ship = {
-      ...world.ships[0]!,
-      dependencyFormation: { parentId: "parent", type: "collateral" as const, weight: 1 },
-    };
-    const tile = resolveGardenDependencyShipDisplayTile({
-      parentTile: { x: 1, y: 1 },
-      ship,
-    });
-    const margin = gardenShipWaterMarginTiles(
-      gardenShipVisualScale(ship.visual.scale || 1),
-      GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
-    );
-    expect(isGardenShipWater(tile, margin)).toBe(true);
   });
 
   it("moors a representative hull at its dock, fading the berth offset over the voyage", () => {
@@ -423,7 +405,7 @@ function denseWorld() {
     chains: denseFixtureChains,
     freshness: {},
     pegSummary: denseFixturePegSummary,
-    reportCards: denseFixtureReportCards,
+    safetyGrades: denseFixtureSafetyGrades,
     stability: fixtureStability,
     stablecoins: denseFixtureStablecoins,
     stress: denseFixtureStress,

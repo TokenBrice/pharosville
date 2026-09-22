@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
-  denseFixtureReportCards,
+  denseFixtureSafetyGrades,
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureStability,
@@ -485,7 +485,7 @@ function denseWorld() {
     chains: denseFixtureChains,
     freshness: {},
     pegSummary: denseFixturePegSummary,
-    reportCards: denseFixtureReportCards,
+    safetyGrades: denseFixtureSafetyGrades,
     stability: fixtureStability,
     stablecoins: denseFixtureStablecoins,
     stress: denseFixtureStress,

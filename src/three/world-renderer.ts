@@ -58,7 +58,6 @@ import {
   gardenDockDisplayTile,
   gardenIslandDisplayTile,
   gardenSemanticView,
-  resolveGardenDependencyShipDisplayTile,
   resolveGardenShipDisplayTile,
   selectGardenDocks,
   selectGardenObservatorySlice,
@@ -785,7 +784,6 @@ const scratchBeamDirection = new Vector3();
 const scratchIssuanceHullForm = {
   agePatina: -1,
   beam: 1,
-  fittingCode: 0,
   height: 1,
   hullValue: 1,
   length: 1,
@@ -2185,7 +2183,7 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
     ship.dominantChainId,
     ship.id,
     ship.logoSrc,
-    ship.reportCard?.overallGrade ?? null,
+    ship.safetyGrade?.grade ?? null,
     ship.riskZone,
     ship.symbol,
     ship.visual,
@@ -4647,19 +4645,6 @@ function updateSceneForFrame(
         }
       }
     }
-    const dependency = !transition && !departing ? visual.ship.dependencyFormation : null;
-    if (dependency) {
-      const parent = content.ships.find((entry) => entry.ship.id === dependency.parentId);
-      if (parent) {
-        const parentTile = resolveGardenShipDisplayTile({
-          displayOffset: parent.displayOffset,
-          representative: parent.representative,
-          sample: frame.shipMotionSamples.get(parent.ship.id),
-          ship: parent.ship,
-        });
-        tile = resolveGardenDependencyShipDisplayTile({ parentTile, ship: visual.ship });
-      }
-    }
     visual.root.visible = displayPresence > 0;
     if (displayPresence >= 0.5) visibleShipCount += 1;
     visual.root.scale.setScalar(
@@ -4695,10 +4680,7 @@ function updateSceneForFrame(
       visual.prevHeadingAngle = null;
     }
     // All hulls read the motion plan's master tide, including rafted pairs.
-    const tideSample = dependency
-      ? frame.shipMotionSamples.get(dependency.parentId) ?? sample
-      : sample;
-    const tideOffset = frame.reducedMotion ? 0 : tideSample?.tideOffset ?? 0;
+    const tideOffset = frame.reducedMotion ? 0 : sample?.tideOffset ?? 0;
     visual.root.position.y += tideOffset;
     visual.root.rotation.z = heel + tideOffset * 0.18;
     visual.root.rotation.x = tideOffset * 0.08;
@@ -4848,7 +4830,6 @@ function updateSceneForFrame(
       const authoredHullForm = visual.ship.visual.hullForm;
       scratchIssuanceHullForm.beam = authoredHullForm.beam;
       scratchIssuanceHullForm.agePatina = authoredHullForm.agePatina ?? -1;
-      scratchIssuanceHullForm.fittingCode = authoredHullForm.fittingCode ?? 0;
       scratchIssuanceHullForm.height = authoredHullForm.height;
       scratchIssuanceHullForm.hullValue = authoredHullForm.hullValue ?? 1;
       scratchIssuanceHullForm.length = authoredHullForm.length;

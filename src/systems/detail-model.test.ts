@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  auditShieldLabel,
-  auditShieldState,
   cargoTideLabel,
   supplyTideLabel,
   backingDiversityLabel,
@@ -27,7 +25,7 @@ import {
   psiCompositionLabel,
   psiTrendLabel,
   priceConfidenceLabel,
-  reportCardSafetyLabel,
+  safetyGradeLabel,
   priceSignalSeverity,
   quayMasonryLabel,
   shareOfFleetLabel,
@@ -52,7 +50,6 @@ import {
   fixtureWithDepegOn,
   fixtureWithoutAsset,
   makePharosVilleWorldInput,
-  makeReportCard,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
 
@@ -455,7 +452,7 @@ describe("detail-model analytical links", () => {
       symbol: "USDT",
       asset: {} as ShipNode["asset"],
       meta: {} as ShipNode["meta"],
-      reportCard: null,
+      safetyGrade: null,
       logoSrc: null,
       tile: { x: 1, y: 1 },
       riskTile: { x: 2, y: 2 },
@@ -509,7 +506,7 @@ describe("detail-model analytical links", () => {
       symbol: "USDT",
       asset: {} as import("./world-types").ShipNode["asset"],
       meta: {} as import("./world-types").ShipNode["meta"],
-      reportCard: null,
+      safetyGrade: null,
       logoSrc: null,
       tile: { x: 1, y: 1 },
       riskTile: { x: 2, y: 2 },
@@ -588,7 +585,7 @@ describe("detail-model analytical links", () => {
       symbol: "BASE",
       asset: {} as import("./world-types").ShipNode["asset"],
       meta: {} as import("./world-types").ShipNode["meta"],
-      reportCard: null,
+      safetyGrade: null,
       logoSrc: null,
       tile: { x: 1, y: 1 },
       riskTile: { x: 2, y: 2 },
@@ -659,7 +656,7 @@ describe("detail-model analytical links", () => {
       symbol: "sUSDe",
       asset: {} as ShipNode["asset"],
       meta: {} as ShipNode["meta"],
-      reportCard: null,
+      safetyGrade: null,
       logoSrc: null,
       tile: { x: 1, y: 1 },
       riskTile: { x: 30, y: 52 },
@@ -728,7 +725,7 @@ describe("W6.4 — lighthouse lamp status parity", () => {
       stabilityStale: true,
       pegSummaryStale: true,
       stressStale: true,
-      reportCardsStale: true,
+      safetyGradesStale: true,
       mintBurnStale: true,
     }, Date.UTC(2026, 7, 13, 14, 32))).toBe(
       "dimmed — API unreachable; showing last-good data as of 14:32",
@@ -777,7 +774,7 @@ describe("detail-model unique tier surfacing", () => {
       symbol: "crvUSD",
       asset: {} as ShipNode["asset"],
       meta: {} as ShipNode["meta"],
-      reportCard: null,
+      safetyGrade: null,
       logoSrc: null,
       tile: { x: 1, y: 1 },
       riskTile: { x: 2, y: 2 },
@@ -940,7 +937,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       symbol: "USDC",
       asset: {} as ShipNode["asset"],
       meta: {} as ShipNode["meta"],
-      reportCard: null,
+      safetyGrade: null,
       logoSrc: null,
       tile: { x: 1, y: 1 },
       riskTile: { x: 2, y: 2 },
@@ -1342,7 +1339,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       symbol: "USDT",
       asset: {} as ShipNode["asset"],
       meta: {} as ShipNode["meta"],
-      reportCard: null,
+      safetyGrade: null,
       logoSrc: null,
       tile: { x: 1, y: 1 },
       riskTile: { x: 2, y: 2 },
@@ -1424,95 +1421,27 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       .toBe("2 of 3 price sources agree");
   });
 
-  it("auditShieldState gates on heritage tiers and a Bluechip grade", () => {
-    const card = makeReportCard({ id: "usdt-tether", symbol: "USDT" });
-    expect(auditShieldState(card, "titan")).toEqual({ grade: "A" });
-    expect(auditShieldState(card, "unique")).toEqual({ grade: "A" });
-    expect(auditShieldState(card, "major")).toBeNull();
-    expect(auditShieldState(null, "titan")).toBeNull();
-    expect(auditShieldState({ ...card, rawInputs: { ...card.rawInputs, bluechipGrade: null } }, "titan")).toBeNull();
-  });
 
-  it("auditShieldLabel mirrors the shield gate", () => {
-    const card = makeReportCard({ id: "usdt-tether", symbol: "USDT" });
-    expect(auditShieldLabel(card, "titan")).toBe("Bluechip A");
-    expect(auditShieldLabel(card, "major")).toBeNull();
-    expect(auditShieldLabel(null, "unique")).toBeNull();
-  });
 
-  it("reportCardSafetyLabel emits grade and rounded score but suppresses null and NR cards", () => {
-    expect(reportCardSafetyLabel(null)).toBeNull();
-    expect(reportCardSafetyLabel(makeReportCard({
-      id: "usdt-tether",
-      symbol: "USDT",
-      overallGrade: "B+",
-      overallScore: 78.4,
-    }))).toBe("Safety B+ (score 78)");
-    expect(reportCardSafetyLabel(makeReportCard({
-      id: "usdt-tether",
-      symbol: "USDT",
-      overallGrade: "C",
-      overallScore: null,
-    }))).toBe("Safety C");
-    expect(reportCardSafetyLabel(makeReportCard({
-      id: "usdt-tether",
-      symbol: "USDT",
-      overallGrade: "NR",
-      overallScore: null,
-    }))).toBeNull();
+  it("safetyGradeLabel emits grade and rounded score but suppresses null and NR grades", () => {
+    expect(safetyGradeLabel(null)).toBeNull();
+    expect(safetyGradeLabel({ id: "usdt-tether", score: 78.4, grade: "B+" })).toBe("Safety B+ (score 78)");
+    expect(safetyGradeLabel({ id: "usdt-tether", score: null, grade: "C" })).toBe("Safety C");
+    expect(safetyGradeLabel({ id: "usdt-tether", score: null, grade: "NR" })).toBeNull();
   });
 
   it("detailForShip inserts Safety grade immediately after Cycle tempo and suppresses NR", () => {
-    const card = makeReportCard({
-      id: "usdt-tether",
-      symbol: "USDT",
-      overallGrade: "D",
-      overallScore: 48,
-    });
-    const detail = detailForShip(signalShipNode({ reportCard: card }));
+    const detail = detailForShip(signalShipNode({ safetyGrade: { id: "usdt-tether", score: 48, grade: "D" } }));
     const cycleIndex = detail.facts.findIndex((fact) => fact.label === "Cycle tempo");
     expect(detail.facts[cycleIndex + 1]).toEqual({ label: "Safety grade", value: "Safety D (score 48)" });
 
     const nrDetail = detailForShip(signalShipNode({
-      reportCard: makeReportCard({
-        id: "usdt-tether",
-        symbol: "USDT",
-        overallGrade: "NR",
-        overallScore: null,
-      }),
+      safetyGrade: { id: "usdt-tether", score: null, grade: "NR" },
     }));
     expect(nrDetail.facts.find((fact) => fact.label === "Safety grade")).toBeUndefined();
   });
 
-  it("surfaces all five report-card seaworthiness dimensions as detail rows", () => {
-    const detail = detailForShip(signalShipNode({
-      reportCard: makeReportCard({ id: "usdt-tether", symbol: "USDT" }),
-    }));
 
-    expect(detail.facts).toEqual(expect.arrayContaining([
-      { label: "Peg stability", value: "A (95/100) — fixture" },
-      { label: "Liquidity", value: "A (90/100) — fixture" },
-      { label: "Resilience", value: "A (90/100) — fixture" },
-      { label: "Decentralization", value: "B (80/100) — fixture" },
-      { label: "Dependency risk", value: "A (90/100) — fixture" },
-    ]));
-  });
-
-  it("surfaces redemption, collateral, and customs fittings as report-card facts", () => {
-    const detail = detailForShip(signalShipNode({
-      fittings: {
-        blacklistStatus: true,
-        collateralCargo: "sealed",
-        collateralQuality: "rwa",
-        redemptionCapacityRatio: 0.8,
-      },
-    }));
-    expect(detail.facts).toEqual(expect.arrayContaining([
-      { label: "Redemption fitting", value: expect.stringContaining("lifeboats swung fully out") },
-      { label: "Collateral cargo", value: expect.stringContaining("sealed treasury chests") },
-      { label: "Customs authority", value: expect.stringContaining("customs brand at the plimsoll mark") },
-    ]));
-  });
 
   it("detailForShip surfaces price confidence and source consensus only when degraded", () => {
     const degraded = detailForShip(signalShipNode({
@@ -1536,17 +1465,6 @@ describe("detail-model P3 metaphor quick-win signals", () => {
     expect(healthy.facts.find((fact) => fact.label === "Source consensus")).toBeUndefined();
   });
 
-  it("detailForShip surfaces the Bluechip audit fact for heritage tiers only", () => {
-    const card = makeReportCard({ id: "usdt-tether", symbol: "USDT" });
-    const titan = detailForShip(signalShipNode({ reportCard: card }));
-    expect(titan.facts).toContainEqual({ label: "Bluechip audit", value: "Bluechip A" });
-
-    const major = detailForShip(signalShipNode({
-      reportCard: card,
-      visual: { ...signalShipNode().visual, sizeTier: "major", sizeLabel: "Major" },
-    }));
-    expect(major.facts.find((fact) => fact.label === "Bluechip audit")).toBeUndefined();
-  });
 
   it("backingDiversitySeverity is zero at or above the healthy floor and rises below it", () => {
     expect(backingDiversitySeverity(null)).toBe(0);
@@ -1991,7 +1909,7 @@ function crossBearingShip(): ShipNode {
     symbol: "USDX",
     asset: {} as ShipNode["asset"],
     meta: {} as ShipNode["meta"],
-    reportCard: null,
+    safetyGrade: null,
     logoSrc: null,
     tile: { x: 1, y: 1 },
     riskTile: { x: 2, y: 2 },

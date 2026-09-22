@@ -52,7 +52,7 @@ export function worldRenderContentSignature(world: PharosVilleWorld): string {
       id: ship.id,
       issuance: ship.issuance ?? null,
       logoSrc: ship.logoSrc,
-      overallGrade: ship.reportCard?.overallGrade ?? null,
+      safetyGrade: ship.safetyGrade?.grade ?? null,
       representative,
       riskZone: ship.riskZone,
       symbol: ship.symbol,

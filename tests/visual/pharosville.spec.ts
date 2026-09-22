@@ -508,7 +508,7 @@ test(...visualLane("dom", "every feed failing shows the error route with a retry
       chains: 502,
       mintBurn: 502,
       pegSummary: 502,
-      reportCards: 502,
+      safetyGrades: 502,
       stability: 502,
       stablecoins: 502,
       stress: 502,

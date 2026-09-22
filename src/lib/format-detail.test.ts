@@ -113,15 +113,14 @@ describe("buildDetailFactSections folds", () => {
       value: "Broken keel — the hull has split around exposed frames",
     }]);
   });
-  it("folds Bluechip audit into the Class row", () => {
+  it("folds the safety grade into the Class row", () => {
     const { identity } = buildDetailFactSections([
       { label: "Ship class", value: "CeFi" },
       { label: "Size tier", value: "Titan class" },
-      { label: "Bluechip audit", value: "Bluechip A" },
       { label: "Safety grade", value: "Safety B+ (score 78)" },
     ]);
     expect(identity).toEqual([
-      { key: "class", label: "Class", value: "Titan class · CeFi · Bluechip A · Safety B+ (score 78)" },
+      { key: "class", label: "Class", value: "Titan class · CeFi · Safety B+ (score 78)" },
     ]);
   });
 

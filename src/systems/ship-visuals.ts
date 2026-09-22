@@ -1,4 +1,4 @@
-import type { ReportCard, StablecoinData, StablecoinMeta } from "@shared/types";
+import type { SafetyGradeEntry, StablecoinData, StablecoinMeta } from "@shared/types";
 import { getCirculatingRaw } from "@/lib/supply";
 import { SHIP_HULL_FORM_SPAN, type ShipHull, type ShipHullForm, type ShipSizeTier, type ShipVisual } from "./world-types";
 import { stableFnv1aHash } from "./stable-random";
@@ -199,7 +199,7 @@ const PEG_GRADE_STIFFNESS: Record<string, number> = {
 function resolveShipHullForm(
   asset: StablecoinData,
   meta: StablecoinMeta,
-  reportCard: ReportCard | null,
+  safetyGrade: SafetyGradeEntry | null,
 ): ShipHullForm {
   const flags = meta.flags;
   const clamp = (value: number): number => Math.min(
@@ -225,7 +225,7 @@ function resolveShipHullForm(
   if (flags?.navToken) length += 0.14;
   if (flags?.backing === "crypto-backed") length -= 0.13;
 
-  let beam = 1 + (PEG_GRADE_STIFFNESS[reportCard?.overallGrade ?? ""] ?? 0);
+  let beam = 1 + (PEG_GRADE_STIFFNESS[safetyGrade?.grade ?? ""] ?? 0);
   if (flags?.backing === "rwa-backed") beam += 0.11;
 
   let height = 1;
@@ -245,7 +245,7 @@ function resolveShipHullForm(
   };
 }
 
-export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, reportCard: ReportCard | null): ShipVisual {
+export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, safetyGrade: SafetyGradeEntry | null): ShipVisual {
   const marketCap = getCirculatingRaw(asset);
   const shipClass = resolveShipClass(meta);
   const size = resolveShipSizeTier(marketCap);
@@ -260,10 +260,10 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, r
     classLabel: shipClass.label,
     livery: branding,
     sailColor: branding.sailColor,
-    overlay: meta.flags.navToken ? "nav" : meta.flags.yieldBearing ? "yield" : reportCard?.overallGrade === "D" || reportCard?.overallGrade === "F" ? "watch" : "none",
+    overlay: meta.flags.navToken ? "nav" : meta.flags.yieldBearing ? "yield" : safetyGrade?.grade === "D" || safetyGrade?.grade === "F" ? "watch" : "none",
     sizeTier: titan ? "titan" : uniqueDef ? "unique" : size.tier,
     sizeLabel: titan ? "Titan" : uniqueDef ? "Heritage hull" : size.label,
     scale: size.scale,
-    hullForm: resolveShipHullForm(asset, meta, reportCard),
+    hullForm: resolveShipHullForm(asset, meta, safetyGrade),
   };
 }

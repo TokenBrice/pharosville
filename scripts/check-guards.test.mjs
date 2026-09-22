@@ -940,8 +940,8 @@ assert.throws(
 );
 assert.equal(payloadWarningLog.some((line) => line.includes("payload FAILED (2)")), true);
 
-const reportCardsCheck = smokeEndpointChecks.find((check) => check.path === "/api/report-cards");
-assert.equal(reportCardsCheck?.warningOnly, true, "report cards stay probed as warning-tier enrichment");
+const safetyGradesCheck = smokeEndpointChecks.find((check) => check.path === "/api/safety-grades");
+assert.equal(safetyGradesCheck?.warningOnly, true, "safety grades stay probed as warning-tier enrichment");
 assert.equal(
   smokeEndpointChecks.find((check) => check.path === "/api/chains")?.warningOnly,
   false,
@@ -949,12 +949,12 @@ assert.equal(
 );
 const availabilityWarningLog = [];
 assert.equal(
-  reportAvailabilityWarnings(["/api/report-cards is unavailable"], false, (line) => availabilityWarningLog.push(line)),
+  reportAvailabilityWarnings(["/api/safety-grades is unavailable"], false, (line) => availabilityWarningLog.push(line)),
   "1 availability warning(s)",
 );
 assert.equal(availabilityWarningLog.some((line) => line.includes("enrichment availability WARNING (1)")), true);
 assert.throws(
-  () => reportAvailabilityWarnings(["/api/report-cards is unavailable"], true, (line) => availabilityWarningLog.push(line)),
+  () => reportAvailabilityWarnings(["/api/safety-grades is unavailable"], true, (line) => availabilityWarningLog.push(line)),
   /1 unavailable enrichment feed\(s\) under --strict-freshness/,
 );
 

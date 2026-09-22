@@ -4,7 +4,7 @@ export const PHAROSVILLE_API_ENDPOINT_KEYS = [
   "stability",
   "pegSummary",
   "stress",
-  "reportCards",
+  "safetyGrades",
   "mintBurn",
 ] as const;
 

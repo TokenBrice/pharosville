@@ -51,7 +51,7 @@ import {
   type GardenModelId,
   type Vector3Tuple,
 } from "./garden-models";
-import { disposeThreeObjectTree, type GardenShipGeometryCache } from "./garden-util";
+import { type GardenShipGeometryCache } from "./garden-util";
 
 function makeCache(): GardenShipGeometryCache {
   return {
@@ -98,38 +98,6 @@ describe("createShip vertex shading", () => {
     expect(keel).toBeDefined();
   });
 
-  it("shares one cached shield geometry across badge layers and ships, disposing it once", () => {
-    const cache = makeCache();
-    const root = new Group();
-    for (const id of ["shield-a", "shield-b"]) {
-      const node = ship(id, "treasury-galleon", "titan");
-      node.reportCard = { overallGrade: "A" } as NonNullable<ShipNode["reportCard"]>;
-      const visual = createShip(node, { x: 0, y: 0 }, true, cache);
-      root.add(visual.root);
-      const shield = visual.root.getObjectByName("ship-bluechip-shield") as Mesh;
-      const mark = visual.root.getObjectByName("ship-bluechip-shield-mark") as Mesh;
-      expect(shield.geometry).toBe(cache.geometries.get("bluechip-shield"));
-      expect(mark.geometry).toBe(shield.geometry);
-      expect(mark.material).not.toBe(shield.material);
-      expect(mark.scale.x).toBe(0.42);
-      expect(shield.scale.x).toBe(1);
-    }
-    const geometry = cache.geometries.get("bluechip-shield")!;
-    const dispose = vi.spyOn(geometry, "dispose");
-    disposeThreeObjectTree(root);
-    expect(dispose).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps report-card fittings on a hero when its model attaches", () => {
-    const node = ship("usdt-tether", "treasury-galleon", "titan");
-    node.visual.hullForm = { beam: 1, fittingCode: 19, height: 1, length: 1, waterline: 0 };
-    const visual = build(node);
-    const fittings = visual.root.getObjectByName("ship-seaworthiness-fittings");
-    expect(fittings).toBeInstanceOf(Mesh);
-    attachGardenHeroModel(visual, heroFixture(visual.heroModelId!));
-    expect(fittings?.visible).toBe(true);
-    expect(fittings?.parent).not.toBeNull();
-  });
 });
 
 describe("fleet tiers", () => {
@@ -466,14 +434,6 @@ describe("W5.3 batched silhouette form", () => {
     }
   });
 
-  it("authors all six conditional fitting tags into the shared hull geometry", () => {
-    const { hull, sails } = createFleetBatchGeometry("bezaisen");
-    const mask = hull.getAttribute("aStrakeMask");
-    const tags = new Set(Array.from({ length: mask.count }, (_, index) => mask.getX(index)));
-    for (let tag = 1; tag <= 6; tag += 1) expect(tags.has(-tag)).toBe(true);
-    hull.dispose();
-    sails.dispose();
-  });
 
   it("rakes the stern aft as the topsides rise", () => {
     const { hull } = createFleetBatchGeometry("kobaya");
@@ -507,22 +467,6 @@ describe("W5.3 batched silhouette form", () => {
     expect(unique.size).toBeGreaterThan(4);
   });
 
-  it("crowns the deck so the rails sit below the centerline", () => {
-    const { hull } = createFleetBatchGeometry("kobaya");
-    const position = hull.getAttribute("position");
-    let railY = Number.POSITIVE_INFINITY;
-    let centerY = Number.NEGATIVE_INFINITY;
-    for (let index = 0; index < position.count; index += 1) {
-      const y = position.getY(index);
-      if (y < 0.3) continue;
-      const absZ = Math.abs(position.getZ(index));
-      const absX = Math.abs(position.getX(index));
-      if (absX > 1.5) continue;
-      if (absZ > 0.6) railY = Math.min(railY, y);
-      if (absZ < 0.15) centerY = Math.max(centerY, y);
-    }
-    expect(railY).toBeLessThan(centerY);
-  });
 });
 
 describe("S2 bellied sails", () => {

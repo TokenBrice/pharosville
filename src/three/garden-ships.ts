@@ -393,7 +393,7 @@ function shipFleetTier(ship: ShipNode): ShipFleetTier {
  */
 /**
  * W1: true when a ship keeps its own scene graph (bespoke hero GLB hull,
- * grade shield, per-ship identity sail) rather than joining the instanced
+ * per-ship identity sail) rather than joining the instanced
  * batches. Only issuers with an authored hero model qualify.
  */
 export function gardenShipUsesHeroModel(ship: ShipNode): boolean {
@@ -1006,7 +1006,7 @@ export function createShip(
   fineDetail.add(flag);
   heroHideable.push(flag);
 
-  // The grade shield and the overlay signal are ~0.5-unit badges pinned to the
+  // The overlay signal is a ~0.5-unit badge pinned to the
   // rig — legible from default framing in, three pixels of noise from whole-map
   // framing out. They hang off their own group so `garden-overview-lod` can
   // shed both with one gate per hull rather than four.
@@ -1054,73 +1054,6 @@ export function createShip(
       );
       overviewDetail.add(watchQuarter);
     }
-  }
-
-  if (
-    (ship.visual.sizeTier === "titan" || ship.visual.sizeTier === "unique")
-    && ship.reportCard?.overallGrade
-    && ship.reportCard.overallGrade !== "NR"
-  ) {
-    // Both badge layers (and all ships) use the same silhouette. Keep one
-    // fleet-owned geometry so a moving badge entering view cannot register
-    // two identical GPU buffers on consecutive frames.
-    const shieldGeometry = cachedShipGeometry(cache, "bluechip-shield", () => {
-      const shieldShape = new Shape();
-      shieldShape.moveTo(0, 0.42);
-      shieldShape.lineTo(0.34, 0.18);
-      shieldShape.lineTo(0.25, -0.3);
-      shieldShape.lineTo(0, -0.5);
-      shieldShape.lineTo(-0.25, -0.3);
-      shieldShape.lineTo(-0.34, 0.18);
-      shieldShape.closePath();
-      return new ShapeGeometry(shieldShape);
-    });
-    const shield = new Mesh(
-      shieldGeometry,
-      new MeshStandardMaterial({
-        color: "#66717a",
-        metalness: 0.56,
-        roughness: 0.46,
-        side: DoubleSide,
-      }),
-    );
-    shield.name = "ship-bluechip-shield";
-    shield.position.set(1.35, 1.05, 0.82);
-    shield.rotation.x = -0.18;
-    overviewDetail.add(shield);
-    const shieldMark = new Mesh(
-      shieldGeometry,
-      new MeshBasicMaterial({
-        color: HARBOR_PALETTE.lantern_glow,
-        side: DoubleSide,
-      }),
-    );
-    shieldMark.name = "ship-bluechip-shield-mark";
-    shieldMark.scale.setScalar(0.42);
-    shieldMark.position.set(1.35, 1.05, 0.835);
-    shieldMark.rotation.x = -0.18;
-    overviewDetail.add(shieldMark);
-  }
-
-  const fittingCode = ship.visual.hullForm?.fittingCode ?? 0;
-  if (fittingCode > 0) {
-    const fittingGeometry = cachedShipGeometry(
-      cache,
-      `seaworthiness-fittings.${fittingCode}`,
-      () => {
-        const fittingParts: ShipFittingPart[] = [];
-        addSeaworthinessFittingParts(fittingParts, fittingCode);
-        const geometry = mergeTintedParts(fittingParts);
-        for (const part of fittingParts) part.geometry.dispose();
-        return geometry;
-      },
-    );
-    const fittingAge = MathUtils.clamp(ship.visual.hullForm?.agePatina ?? 0, 0, 1);
-    const fittingMaterial = deckMaterial.clone();
-    fittingMaterial.color.lerp(new Color("#597869"), fittingAge * 0.18);
-    const fittings = new Mesh(fittingGeometry, fittingMaterial);
-    fittings.name = "ship-seaworthiness-fittings";
-    fineDetail.add(fittings);
   }
 
   const wake = createWake(cache);
@@ -1760,7 +1693,6 @@ export function createFleetBatchGeometry(
   const mastRotation = GARDEN_SHIP_MAST_RAKE[silhouette];
 
   const parts: {
-    fittingTag?: number;
     geometry: BufferGeometry;
     strake?: boolean;
     tint?: Color;
@@ -1897,8 +1829,6 @@ export function createFleetBatchGeometry(
     }
   }
 
-  addSeaworthinessFittingParts(parts);
-
   const hull = mergeTintedParts(parts);
   for (const part of parts) {
     if (part.geometry !== hullGeometry) part.geometry.dispose();
@@ -2034,8 +1964,7 @@ function createFarFleetGeometry(silhouette: GardenHullSilhouette): BufferGeometr
   return far;
 }
 
-type ShipFittingPart = {
-  fittingTag?: number;
+type ShipPart = {
   geometry: BufferGeometry;
   tint?: Color;
   transform?: Matrix4;
@@ -2047,7 +1976,7 @@ type ShipFittingPart = {
  * named before its logo can be read.
  */
 function addFamilySilhouetteParts(
-  parts: ShipFittingPart[],
+  parts: ShipPart[],
   silhouette: GardenHullSilhouette,
 ): void {
   // A short deck lashing keeps the existing per-instance rope-sag surface
@@ -2140,76 +2069,6 @@ function addFamilySilhouetteParts(
       geometry: new BoxGeometry(0.7, 0.08, 0.24),
       tint: FLEET_BATCH_TINTS.mast,
       transform: new Matrix4().setPosition(1.6, 0.78, 1.12),
-    });
-  }
-}
-
-function fittingVisible(tag: number, code: number): boolean {
-  const redemption = code % 4;
-  const collateral = Math.floor((code % 12) / 4);
-  const customs = Math.floor(code / 12);
-  if (tag <= 3) return redemption >= tag;
-  if (tag === 4) return collateral === 1;
-  if (tag === 5) return collateral === 2;
-  return customs > 0;
-}
-
-/**
- * W7.6 fittings, authored once for both the shared fleet batch and hero hulls.
- * Tags 1–3 are successively deployed lifeboats, 4/5 are sealed/mixed cargo,
- * and 6 is the plimsoll customs brand. The batch collapses unsupported tags in
- * its existing hull shader; hero geometry filters the same list on the CPU.
- */
-function addSeaworthinessFittingParts(parts: ShipFittingPart[], fittingCode?: number): void {
-  const include = (tag: number): boolean => fittingCode === undefined || fittingVisible(tag, fittingCode);
-  for (let boat = 0; boat < 3; boat += 1) {
-    const tag = boat + 1;
-    if (!include(tag)) continue;
-    parts.push({
-      ...(fittingCode === undefined ? { fittingTag: tag } : {}),
-      geometry: new BoxGeometry(0.82, 0.18, 0.32),
-      tint: FLEET_BATCH_TINTS.gunwale,
-      transform: new Matrix4().makeRotationX(-0.1).setPosition(-0.8 + boat * 0.8, 0.72, 0.7),
-    });
-    parts.push({
-      ...(fittingCode === undefined ? { fittingTag: tag } : {}),
-      geometry: new BoxGeometry(0.68, 0.06, 0.2),
-      tint: FLEET_BATCH_TINTS.deck,
-      transform: new Matrix4().setPosition(-0.8 + boat * 0.8, 0.82, 0.7),
-    });
-  }
-  if (include(4)) {
-    for (const x of [-0.35, 0.35]) {
-      parts.push({
-        ...(fittingCode === undefined ? { fittingTag: 4 } : {}),
-        geometry: new BoxGeometry(0.56, 0.4, 0.46),
-        tint: FLEET_BATCH_TINTS.mast,
-        transform: new Matrix4().setPosition(x, 0.74, -0.24),
-      });
-      parts.push({
-        ...(fittingCode === undefined ? { fittingTag: 4 } : {}),
-        geometry: new BoxGeometry(0.62, 0.08, 0.5),
-        tint: FLEET_BATCH_TINTS.gunwale,
-        transform: new Matrix4().setPosition(x, 0.98, -0.24),
-      });
-    }
-  }
-  if (include(5)) {
-    for (const [index, x] of [-0.45, 0, 0.46].entries()) {
-      parts.push({
-        ...(fittingCode === undefined ? { fittingTag: 5 } : {}),
-        geometry: new BoxGeometry(0.4, 0.3 + index * 0.04, 0.36),
-        tint: index % 2 === 0 ? FLEET_BATCH_TINTS.mast : FLEET_BATCH_TINTS.gunwale,
-        transform: new Matrix4().makeRotationY((index - 1) * 0.14).setPosition(x, 0.7, -0.24),
-      });
-    }
-  }
-  if (include(6)) {
-    parts.push({
-      ...(fittingCode === undefined ? { fittingTag: 6 } : {}),
-      geometry: new BoxGeometry(0.42, 0.24, 0.035),
-      tint: new Color(HARBOR_PALETTE.vermillion),
-      transform: new Matrix4().makeRotationZ(-0.12).setPosition(1.18, 0.1, 0.62),
     });
   }
 }

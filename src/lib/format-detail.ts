@@ -54,7 +54,6 @@ export function composeCurrently(parts: CurrentlyParts): string {
 export type DetailFactKey =
   | "shipClass"
   | "sizeTier"
-  | "bluechipAudit"
   | "safetyGrade"
   | "marketCap"
   | "fleetRank"
@@ -122,7 +121,6 @@ export interface DetailFactSections {
 const DETAIL_FACT_LABELS = {
   "ship class": "shipClass",
   "size tier": "sizeTier",
-  "bluechip audit": "bluechipAudit",
   "safety grade": "safetyGrade",
   "market cap": "marketCap",
   "fleet rank": "fleetRank",
@@ -279,10 +277,10 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   const tier = lookup.get("sizeTier");
   const klass = lookup.get("shipClass");
   if (tier || klass) {
-    // The heritage-gated Bluechip audit and the nav/yield mast signal fold
-    // into the Class row (not their own rows) to respect the panel's <= 8
-    // fact-row density contract.
-    const composed = [tier, klass, lookup.get("bluechipAudit"), lookup.get("safetyGrade"), lookup.get("mastSignal")]
+    // The safety grade and the nav/yield mast signal fold into the Class row
+    // (not their own rows) to respect the panel's <= 8 fact-row density
+    // contract.
+    const composed = [tier, klass, lookup.get("safetyGrade"), lookup.get("mastSignal")]
       .filter(Boolean)
       .join(" · ");
     identity.push({ key: "class", label: "Class", value: composed });

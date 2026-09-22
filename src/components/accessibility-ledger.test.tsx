@@ -5,7 +5,6 @@ import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import {
   fixtureWithDepegOn,
   fixtureWithoutAsset,
-  makeReportCard,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
 import { UNAVAILABLE_SUPPLY_TIDE } from "../systems/supply-tide";
@@ -404,9 +403,6 @@ describe("AccessibilityLedger", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorldWithLedgerShip()} />);
     expect(markup).toContain("issuance work Unavailable — neutral draft; no per-coin mint/redeem row");
     expect(markup).toContain("rendered at garden tempo over 45 seconds, while this ledger states the latest truth immediately");
-    expect(markup).toContain("redemption fitting Unavailable");
-    expect(markup).toContain("collateral cargo Unavailable");
-    expect(markup).toContain("customs fitting Unavailable");
   });
 
   it("mirrors lighthouse trend, composition, and contributors in the ledger", () => {
@@ -649,53 +645,28 @@ describe("AccessibilityLedger", () => {
     expect(found).toBe(true);
   });
 
-  it("appends report-card safety grade and non-NR dimension rationales to ship rows", () => {
-    const baseCard = makeReportCard({
-      id: "susde-ethena",
-      symbol: "sUSDe",
-      overallGrade: "D",
-      overallScore: 48,
-    });
+  it("appends the safety grade reading to ship rows", () => {
     const world: PharosVilleWorld = {
       ...sampleWorldWithLedgerShip(),
       ships: [{
         ...sampleWorldWithLedgerShip().ships[0]!,
-        reportCard: {
-          ...baseCard,
-          dimensions: {
-            ...baseCard.dimensions,
-            pegStability: { grade: "D", score: 42, detail: "Peg drift active. Second sentence omitted." },
-            liquidity: { grade: "NR", score: null, detail: "Not rated." },
-            dependencyRisk: { grade: "F", score: 20, detail: "Bridge dependency dominates." },
-          },
-        },
+        safetyGrade: { id: "susde-ethena", score: 48, grade: "D" },
       }],
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
     expect(markup).toContain("safety grade D (score 48)");
-    expect(markup).toContain("Peg stability D — Peg drift active.");
-    expect(markup).toContain("Dependency risk F — Bridge dependency dominates.");
-    expect(markup).not.toContain("Liquidity NR");
-    expect(markup).not.toContain("Second sentence omitted");
   });
 
-  it("suppresses ship safety rows for NR report cards", () => {
-    const baseCard = makeReportCard({
-      id: "susde-ethena",
-      symbol: "sUSDe",
-      overallGrade: "NR",
-      overallScore: null,
-    });
+  it("suppresses ship safety rows for NR grades", () => {
     const world: PharosVilleWorld = {
       ...sampleWorldWithLedgerShip(),
-      ships: [{ ...sampleWorldWithLedgerShip().ships[0]!, reportCard: baseCard }],
+      ships: [{ ...sampleWorldWithLedgerShip().ships[0]!, safetyGrade: { id: "susde-ethena", score: null, grade: "NR" } }],
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
     const shipLine = markup.match(/<h3>Ships<\/h3><ol><li>(.*?)<\/li><\/ol>/s)?.[1] ?? "";
 
     expect(shipLine).not.toContain("safety grade");
-    expect(shipLine).not.toContain("Peg stability");
   });
 
   it("mirrors ship stress drivers in ledger rows", () => {
@@ -912,7 +883,7 @@ function sampleWorldWithUniqueShip(): PharosVilleWorld {
         symbol: "crvUSD",
         asset: {} as PharosVilleWorld["ships"][number]["asset"],
         meta: {} as PharosVilleWorld["ships"][number]["meta"],
-        reportCard: null,
+        safetyGrade: null,
         logoSrc: null,
         tile: { x: 1, y: 1 },
         riskTile: { x: 1, y: 1 },
@@ -969,7 +940,7 @@ function sampleWorldWithLedgerShip(): PharosVilleWorld {
         symbol: "sUSDe",
         asset: {} as PharosVilleWorld["ships"][number]["asset"],
         meta: {} as PharosVilleWorld["ships"][number]["meta"],
-        reportCard: null,
+        safetyGrade: null,
         logoSrc: null,
         tile: { x: 1, y: 1 },
         riskTile: { x: 1, y: 1 },

@@ -4,8 +4,8 @@ export function usePegSummary() {
   return usePharosVilleEndpointQuery("pegSummary");
 }
 
-export function useReportCards() {
-  return usePharosVilleEndpointQuery("reportCards");
+export function useSafetyGrades() {
+  return usePharosVilleEndpointQuery("safetyGrades");
 }
 
 export function useStabilityIndexDetail() {

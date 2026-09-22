@@ -4,7 +4,7 @@ import type {
 } from "@shared/types/chains";
 import type {
   PegSummaryResponse,
-  ReportCardsResponse,
+  SafetyGradesResponse,
   StablecoinData,
   StablecoinListResponse,
   StabilityIndexResponse,
@@ -16,7 +16,7 @@ import type { PharosVilleFreshness } from "../systems/world-types";
 import {
   fixtureChains,
   fixturePegSummary,
-  fixtureReportCards,
+  fixtureSafetyGrades,
   fixtureStability,
   fixtureStress,
   makeAsset,
@@ -41,7 +41,7 @@ import {
  *
  * Defaults: starts empty (no assets, no chains). Calls `withDefaultChains()`
  * to seed with `fixtureChains`. All other inputs (stability, pegSummary,
- * stress, reportCards) default to the existing fixture payloads from
+ * stress, safetyGrades) default to the existing fixture payloads from
  * `pharosville-world.ts`. Freshness flags all default to false (fresh data).
  */
 export class WorldBuilder {
@@ -50,7 +50,7 @@ export class WorldBuilder {
   private stability: StabilityIndexResponse | null | undefined = fixtureStability;
   private pegSummary: PegSummaryResponse | null | undefined = fixturePegSummary;
   private stress: StressSignalsAllResponse | null | undefined = fixtureStress;
-  private reportCards: ReportCardsResponse | null | undefined = fixtureReportCards;
+  private safetyGrades: SafetyGradesResponse | null | undefined = fixtureSafetyGrades;
   private cemeteryEntries: readonly CemeteryEntry[] | undefined = undefined;
   private routeMode: PharosVilleInputs["routeMode"] = "world";
   private generatedAt: number | undefined = undefined;
@@ -60,7 +60,7 @@ export class WorldBuilder {
     stabilityStale: false,
     pegSummaryStale: false,
     stressStale: false,
-    reportCardsStale: false,
+    safetyGradesStale: false,
   };
 
   /** Append a stablecoin asset (becomes a ship after build). */
@@ -109,8 +109,8 @@ export class WorldBuilder {
     return this;
   }
 
-  withReportCards(value: ReportCardsResponse | null | undefined): this {
-    this.reportCards = value;
+  withSafetyGrades(value: SafetyGradesResponse | null | undefined): this {
+    this.safetyGrades = value;
     return this;
   }
 
@@ -142,7 +142,7 @@ export class WorldBuilder {
       stability: this.stability,
       pegSummary: this.pegSummary,
       stress: this.stress,
-      reportCards: this.reportCards,
+      safetyGrades: this.safetyGrades,
       freshness: this.freshness,
       ...(this.routeMode !== undefined ? { routeMode: this.routeMode } : {}),
     };
