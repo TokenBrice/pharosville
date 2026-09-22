@@ -12,6 +12,18 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-09-22-safety-grades",
+    version: PHAROSVILLE_RELEASE_VERSIONS.safetyGrades,
+    date: "2026-09-22",
+    title: "Safety Grades",
+    summary: "The harbour reads the upstream Safety Score directly: every hull's grade comes from the free /api/safety-grades feed, and the cues that depended on the retired report-card inputs are gone rather than faked.",
+    bullets: [
+      "Safety grades come from the live feed again. Upstream retired /api/report-cards on 2026-09-05, so the canary had failed every half hour since and the world had been opening without any safety reading. The proxy, client contract, smoke matrix and world model now read /api/safety-grades — one overall grade and score per asset — so the Safety grade fact, its accessibility-ledger clause, the D/F watch overlay and the grade-driven beam stiffness are live once more.",
+      "Cues without a source are removed, not imitated. The Bluechip audit shield, the per-dimension rationale rows, the seaworthiness fittings (swung lifeboats, sealed chests, the customs brand) and dependency-formation placement all read fields the new feed does not carry. Each is deleted from the world model, the renderer, the detail panel, the ledger and the visual-cue registry, so no cue claims evidence the data no longer provides.",
+    ],
+    source: "Collected from commit `2e1e028` after v0.17.1.",
+  },
+  {
     id: "2026-09-10-dyed-cloth",
     version: PHAROSVILLE_RELEASE_VERSIONS.dyedCloth,
     date: "2026-09-10",

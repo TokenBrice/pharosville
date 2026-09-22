@@ -2,6 +2,15 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.18.0 - 2026-09-22 - Safety Grades
+
+The harbour reads the upstream Safety Score directly: every hull's grade comes from the free `/api/safety-grades` feed, and the cues that depended on the retired report-card inputs are gone rather than faked.
+
+Collected from commit `2e1e028` after v0.17.1.
+
+- Safety grades come from the live feed again. Upstream retired `/api/report-cards` on 2026-09-05, so the canary had failed every half hour since and the world had been opening without any safety reading. The proxy, client contract, smoke matrix and world model now read `/api/safety-grades` — one overall grade and score per asset — so the Safety grade fact, its accessibility-ledger clause, the D/F watch overlay and the grade-driven beam stiffness are live once more.
+- Cues without a source are removed, not imitated. The Bluechip audit shield, the per-dimension rationale rows, the seaworthiness fittings (swung lifeboats, sealed chests, the customs brand) and dependency-formation placement all read fields the new feed does not carry. Each is deleted from the world model, the renderer, the detail panel, the ledger and the visual-cue registry, so no cue claims evidence the data no longer provides.
+
 ## v0.17.1 - 2026-09-10 - Dyed Cloth
 
 The fleet flies its own colours and the far water has a surface: sails are dyed in the issuer's hue instead of a grey wash of it, and every risk body reads as water rather than a colour plate.
