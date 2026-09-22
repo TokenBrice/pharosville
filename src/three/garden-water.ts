@@ -759,10 +759,39 @@ ${gardenHeightFogGlsl()}
       blendedNormal, vec3(0.0, 0.0, 1.0),
       uAnnulus * gardenHorizonCalm(vWaterPosition) * 0.45
     ));
-    blendedNormal = normalize(mix(blendedNormal, vec3(0.0, 0.0, 1.0), mirrorZone * 0.9));
     // Perspective attenuation follows the actual eye-to-surface path.
     float camDistance = distance(cameraPosition, vWorldPosition);
-    float detailFalloff = max(1.0 - smoothstep(130.0, 460.0, camDistance), 0.32) * uDetail;
+    // Water fix (2026-09-10): was max(1 - smoothstep(130, 460, camDistance), 0.32),
+    // which flattened 68% of the normal by 460 units — past that the sea had no
+    // surface left and every far band rendered as a flat fill. The ramp now
+    // reaches its floor at 640 and the floor keeps half the detail: the far
+    // field's aliasing was already fixed at its source by the glint filter
+    // below, not by starving the normal.
+    float detailFalloff = max(1.0 - smoothstep(180.0, 640.0, camDistance), 0.45) * uDetail;
+    // A mirror body is a mirror by REFLECTIVITY, not by being featureless. This
+    // flattened 90% of the surface and Calm/Ledger author normalDetail 0.05/0.08
+    // on top of it, leaving ~99% of the normal dead: the body reflected one
+    // probe texel and rendered as a single flat colour. Cap the flatten and put
+    // a fine octave back — glassy water still has ripples in it. The harbour-
+    // calm basin under the Pharos is exempt: it keeps its 0.9 flatten and no
+    // octave, so the tower's reflection stays a still mirror (contract (b)).
+    blendedNormal = normalize(mix(
+      blendedNormal, vec3(0.0, 0.0, 1.0), max(mirrorBody * 0.62, harborCalm * 0.9)
+    ));
+    float mirrorRippleZone = mirrorBody * (1.0 - harborCalm);
+    if (mirrorRippleZone > 0.001) {
+      // Faded with distance so the far mirror cannot shimmer; the floor keeps a
+      // trace of it on the bodies that sit furthest back in the frame.
+      float mirrorFade = 1.0 - smoothstep(90.0, 560.0, camDistance) * 0.55;
+      vec3 mirrorRipple = sampleWaterNormal(
+        rotate2(vWaterPosition, 2.9) * vec2(0.13, 0.21) + vec2(scroll * 0.06, -scroll * 0.04)
+      );
+      blendedNormal = normalize(blendedNormal + vec3(
+        (bodyFlowDir * mirrorRipple.x + bodyAcrossDir * mirrorRipple.y)
+          * 0.36 * mirrorRippleZone * mirrorFade,
+        0.0
+      ));
+    }
     vec3 surfaceNormal = normalize(mix(vec3(0.0, 0.0, 1.0), blendedNormal, detailFalloff));
 
     surfaceNormal = normalize(
@@ -909,16 +938,24 @@ ${gardenHeightFogGlsl()}
     // T1.4 (2026-09-07): was harborCalm * 0.75 — the harbour ellipse was the
     // only stillness the sky sheen knew about. Now every mirror-grade body gets it.
     envMask = max(envMask, mirrorZone * 0.75);
-    vec3 scalarSkySample = mix(
-      uEnvHorizonColor,
-      uEnvZenithColor,
-      clamp(0.18 + envMask * 0.34 + surfaceNormal.x * 0.14, 0.0, 1.0)
-    );
     vec3 worldSurfaceNormal = normalize(vec3(
       surfaceNormal.x,
       surfaceNormal.z,
       -surfaceNormal.y
     ));
+    // Water fix (2026-09-10): the sky in the water was one scalar, so every
+    // body it covered was one flat tone. A reflection ray leaving the surface
+    // near the horizon reads the horizon band; a steep one reads the zenith —
+    // tying the mix to the reflected ray's elevation is what gives a flat body
+    // a gradient of its own, and it moves with the ripple rather than sitting
+    // under it.
+    vec3 reflectionDirection = reflect(-viewDirection, worldSurfaceNormal);
+    float skyElevation = clamp(0.5 + reflectionDirection.y * 0.62, 0.0, 1.0);
+    vec3 scalarSkySample = mix(
+      uEnvHorizonColor,
+      uEnvZenithColor,
+      clamp(mix(0.18 + envMask * 0.34 + surfaceNormal.x * 0.14, skyElevation, 0.5), 0.0, 1.0)
+    );
     vec3 skySample = gardenEnvironmentReflection(
       worldSurfaceNormal,
       viewDirection,
@@ -1060,6 +1097,36 @@ ${gardenHeightFogGlsl()}
       waterColor = mix(waterColor, uShallowColor, localShelf * (0.24 - uNight * 0.07));
 
       waterColor *= 1.0 + signatureTone * regionBlend * 0.035;
+      // Water fix (2026-09-10): a named body was one flat fill, so two adjacent
+      // risk waters met as two colour plates with a seam between them. A slow
+      // flow-aligned fbm plus a distance-faded fine octave gives each body its
+      // own value and depth gradient, so it reads as a volume of water. Both
+      // terms are signed and centred on zero (the fine one fades out with
+      // distance rather than aliasing), so the body's MEAN colour — the risk
+      // reading — does not move.
+      float bodyPatches = gardenFbm(
+        vec2(bodyAlong, bodyAcross) * vec2(0.024, 0.031) + float(regionId) * 11.3
+      ) - 0.5;
+      float bodyGrain = gardenFbm(
+        vec2(bodyAlong, bodyAcross) * vec2(0.23, 0.34) + float(regionId) * 5.7
+      ) - 0.5;
+      float bodyShape = clamp(
+        bodyPatches * 2.2
+          + bodyGrain * 0.9 * (1.0 - smoothstep(140.0, 620.0, camDistance) * 0.8),
+        -1.0,
+        1.0
+      );
+      waterColor *= 1.0 + bodyShape * 0.058 * regionBlend;
+      waterColor = mix(
+        waterColor,
+        uBandColor[3],
+        clamp(bodyShape, 0.0, 1.0) * 0.1 * regionBlend
+      );
+      waterColor = mix(
+        waterColor,
+        uBandColor[0],
+        clamp(-bodyShape, 0.0, 1.0) * 0.075 * regionBlend
+      );
       if (regionId == ${SEA_REGION_ID.wreck}) {
         float silt = gardenFbm(vWaterPosition * 0.052 + vec2(4.2, -7.8));
         waterColor *= mix(1.0, mix(0.84, 0.96, silt) * 0.94, regionBlend);

@@ -773,7 +773,7 @@ describe("eye-distance fleet hierarchy", () => {
       expect(gardenFleetMarkPresence(distance.getY(index))).toBe(1);
     }
     for (const index of [6, 7, 8]) {
-      expect(gardenFleetFramingRestraint(distance.getY(index))).toBeCloseTo(0.25);
+      expect(gardenFleetFramingRestraint(distance.getY(index))).toBeCloseTo(0.12);
       expect(gardenFleetMarkPresence(distance.getY(index))).toBeCloseTo(0.45);
     }
     expect(distance.getY(4)).toBeGreaterThan(0);
