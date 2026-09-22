@@ -1,12 +1,13 @@
 name: Canary smoke
 
-# Periodically pings the live PharosVille URL to surface regressions
-# between deploys. GitHub emails repo admins on failure by default.
-# Tune the cron cadence below to your traffic and budget tolerance.
+# Pings the live PharosVille URL once a day to surface regressions between
+# deploys. GitHub emails repo admins on failure by default. PharosVille is a
+# side project with no uptime commitment, so a daily check is the honest
+# cadence; the deploy workflow runs the same smoke on every push.
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "23 7 * * *"
   workflow_dispatch:
 
 jobs:
