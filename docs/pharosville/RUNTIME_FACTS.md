@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.17.0` (`reborn`)
-- Latest changelog entry: `2026-09-08-reborn` / `v0.17.0` / 2026-09-08 / Reborn
+- Latest app version: `v0.17.1` (`dyedCloth`)
+- Latest changelog entry: `2026-09-10-dyed-cloth` / `v0.17.1` / 2026-09-10 / Dyed Cloth
 
 ## Viewport Gate
 
