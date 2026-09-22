@@ -389,7 +389,9 @@ ceiling; do not raise that ceiling.
 
 ### The CI visual lane cannot render this world
 
-Reproduced in `mcr.microsoft.com/playwright:v1.59.1-noble`, the exact CI image:
+Reproduced in `mcr.microsoft.com/playwright:v1.59.1-noble`, the CI image at the
+time (`deploy-cloudflare.yml` has since moved to `v1.63.0-noble`; the finding
+has not been re-measured there):
 
 - **Firefox gets no WebGL context at all** — not with `webgl.force-enabled`,
   `webgl.disabled`, `webgl.forbid-software`, `LIBGL_ALWAYS_SOFTWARE`,
