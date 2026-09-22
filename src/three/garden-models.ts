@@ -109,24 +109,24 @@ export interface GardenModelMetadata {
   };
 }
 
-const LIGHTHOUSE_SHA256 = "683bcbcac8ccd18f9f6b6237931f5011600e1d87088507dab912aca1fd39b9c9";
+const LIGHTHOUSE_SHA256 = "4b163617fd5e75613b4a44d86de55f7f5fb6cb58d504cb89f25556f69b8d0d34";
 const lighthouseUrl = `/pharosville/models/garden-lighthouse-shell.glb?v=${LIGHTHOUSE_SHA256.slice(0, 12)}`;
 
-const HERO_TETHER_SHA256 = "fd98b1089c306898bf300a53169b4b1d3183f9038fce174dac5a2f4e37013e55";
+const HERO_TETHER_SHA256 = "d8b66430e8c05b5d66d6c83f443697691141d74fa3f2027b29139b6bc12245ef";
 const heroTetherUrl = `/pharosville/models/garden-hero-tether.glb?v=${HERO_TETHER_SHA256.slice(0, 12)}`;
-const HERO_CIRCLE_SHA256 = "4f1a9e6f4b2d8db04d4368ad2be3e2c6d114b686335b33ac2b58a35fa606842d";
+const HERO_CIRCLE_SHA256 = "2e5e50cdd5e1fb137abb2f6715ba0970ae8ae536313d6b23d3034e8577ed5851";
 const heroCircleUrl = `/pharosville/models/garden-hero-circle.glb?v=${HERO_CIRCLE_SHA256.slice(0, 12)}`;
-const HERO_MAKER_SHA256 = "fc0a62b0acc422aa713f18658af2d0d49dba3703bec8be97e30ab496cc52c52b";
+const HERO_MAKER_SHA256 = "4998bb3c019e629cbecab19946ae28b83aedbc087310f9f570a9a5388956f20f";
 const heroMakerUrl = `/pharosville/models/garden-hero-maker.glb?v=${HERO_MAKER_SHA256.slice(0, 12)}`;
-const HERO_SKY_SHA256 = "0301094e72b79623dbbbb26d22458dc0e9a629bb5a1c5ebcff9d27b830426823";
+const HERO_SKY_SHA256 = "1083ae6633e2a4789bf75a0d50f45d0c14fa8b11c2a3e95efb0de666b35ffd54";
 const heroSkyUrl = `/pharosville/models/garden-hero-sky.glb?v=${HERO_SKY_SHA256.slice(0, 12)}`;
-const HERO_ETHENA_SHA256 = "b4fcf32ac216e5a08b770ef04b31ad706c87c4b717a3ce95dfaef91e05f21d82";
+const HERO_ETHENA_SHA256 = "a6cf8aa95fb5d9ff6eef3dcf804592bbc6af55c0ae0780ca4ca3406cb8da383f";
 const heroEthenaUrl = `/pharosville/models/garden-hero-ethena.glb?v=${HERO_ETHENA_SHA256.slice(0, 12)}`;
-const HERO_LIBERTY_SHA256 = "db9783ef4d2114386e8c3d6b278bf49c3d6b3eeb4f3c8c7abbc1a52585da1972";
+const HERO_LIBERTY_SHA256 = "ec8e689b2ad6b0821fa85488be042f124af42b572f296546857084ddc4f77eef";
 const heroLibertyUrl = `/pharosville/models/garden-hero-liberty.glb?v=${HERO_LIBERTY_SHA256.slice(0, 12)}`;
-const HERO_PAYPAL_SHA256 = "764c6b2666b0b9c61316a49b62990c5fa9470e87c4dbf80313ddb54687905529";
+const HERO_PAYPAL_SHA256 = "6dd7594730e6f509d9da975846667cbcdf67241ae3b54a61ed73b799c597f79d";
 const heroPaypalUrl = `/pharosville/models/garden-hero-paypal.glb?v=${HERO_PAYPAL_SHA256.slice(0, 12)}`;
-const HERO_BULLION_SHA256 = "1ff959496ad568b00da78728f56cee9dc5c3232c288a1680eff4d873141cb3e3";
+const HERO_BULLION_SHA256 = "f0e70a7c80fe57b346115259269997d1e292b7d88233b00b4b1f3e41ccd24ed4";
 const heroBullionUrl = `/pharosville/models/garden-hero-bullion.glb?v=${HERO_BULLION_SHA256.slice(0, 12)}`;
 
 // Every named-titan hero hull shares all but identity, geometry, and budgets;
@@ -316,7 +316,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden Circle takasebune",
     sha256: HERO_CIRCLE_SHA256,
     url: heroCircleUrl,
-    bytes: 28_844,
+    bytes: 28_864,
     dimensions: {"x":12.68, "y":7.629, "z":2.5},
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-5.4, 2.1, 0] },
@@ -451,7 +451,7 @@ export const GARDEN_MODEL_MANIFEST = {
     label: "Garden PayPal packet takasebune",
     sha256: HERO_PAYPAL_SHA256,
     url: heroPaypalUrl,
-    bytes: 24_992,
+    bytes: 25_016,
     dimensions: {"x":12.68, "y":7.029, "z":2.5},
     anchors: {
       "lantern-stern": { node: "anchor-lantern-stern", position: [-5.3, 2, 0] },
