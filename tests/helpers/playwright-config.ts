@@ -66,6 +66,7 @@ export function hardwareGpuLaunchArgs(browser: string, platform: NodeJS.Platform
 
 /**
  * MEASURED, do not retry: Firefox in `mcr.microsoft.com/playwright:v1.59.1-noble`
+ * (the CI image at the time; CI now runs `v1.63.0-noble`, unmeasured for this)
  * cannot produce a WebGL context AT ALL. Reproduced in that exact image with
  * `webgl.force-enabled` / `webgl.disabled` / `webgl.forbid-software` prefs, and
  * with `LIBGL_ALWAYS_SOFTWARE`, `GALLIUM_DRIVER=llvmpipe` and
