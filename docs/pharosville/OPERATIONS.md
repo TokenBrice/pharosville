@@ -97,8 +97,8 @@ Watch for:
   should promote every warning-tier finding to a failure.
 
 The deploy workflow probes the immutable deployment and
-`.github/workflows/canary-smoke.yml` probes the canonical host every 30
-minutes. Both run on GitHub Actions, so an Actions outage or a skipped schedule
+`.github/workflows/canary-smoke.yml` probes the canonical host once a day
+(07:23 UTC). Both run on GitHub Actions, so an Actions outage or a skipped schedule
 removes the only alerting channel. See **External monitoring** below for the
 independent monitor that closes that gap.
 
@@ -181,8 +181,8 @@ detection, not as a replacement for Option A.
 
 ### Why these values
 
-- **Interval.** The Actions canary runs every 30 minutes, so today's worst-case
-  detection is 30 minutes plus queue latency. A 5-minute external probe with a
+- **Interval.** The Actions canary runs once a day, so today's worst-case
+  detection is a day plus queue latency. A 5-minute external probe with a
   3-failure threshold bounds detection to roughly 15 minutes; 60 seconds on
   Cloudflare bounds it to about 3. Going below 1 minute buys nothing —
   Pages deploys propagate in seconds, and sub-minute alerting mostly reports
@@ -283,8 +283,8 @@ never cost a visitor their response.
 
 ### The canary probe
 
-`.github/workflows/canary-smoke.yml` POSTs one synthetic report every 30
-minutes and fails the run unless `/_log` answers `204` with
+`.github/workflows/canary-smoke.yml` POSTs one synthetic report once a day
+and fails the run unless `/_log` answers `204` with
 `cache-control: no-store`. It also asserts that a `GET` is refused with `405`
 and a cross-origin POST with `403`. This is what distinguishes "the endpoint
 exists" from "the endpoint works": the real callers are browsers that have
