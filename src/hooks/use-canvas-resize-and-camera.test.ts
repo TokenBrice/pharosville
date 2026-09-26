@@ -111,6 +111,36 @@ describe("camera intent helpers", () => {
     expect(director.log.filter((beat) => beat.kind === "attract")).toHaveLength(2);
   });
 
+  it("lets the director's own beats breathe for 90 s before a waiting postcard asks, and holds still without intent", () => {
+    const director = createGardenDirector("attract-backoff");
+    const viewport = { x: 1200, y: 640 };
+    const { result } = renderHook(() => {
+      const canvas = useCanvasResizeAndCamera(makeCanvasInput({ gardenDirector: director, directorClock: (now) => now / 1000 }));
+      useLayoutEffect(() => { canvas.canvasSizeRef.current = viewport; });
+      return canvas;
+    });
+    // An arrival caption admitted at t=100 s, over by t=109 s.
+    requestGardenBeat(director, { kind: "arrival", foreground: true, priority: 20, durationSeconds: 9 }, 100);
+    const steps: CameraStepResult[] = [];
+    act(() => {
+      result.current.canvasSizeRef.current = viewport;
+      result.current.setCamera(defaultCamera({ width: viewport.x, height: viewport.y, map: world.map }));
+      result.current.startAttractTour(gardenAttractKeyframes(world.lighthouse.tile));
+      steps.push(result.current.stepCamera(150_000, new Map()));
+    });
+    const held = { ...result.current.cameraRef.current! };
+    expect(steps[0]!.cameraIntentActive).toBe(false);
+    expect(result.current.attractState.holding).toBe(true);
+    act(() => { result.current.stepCamera(189_000, new Map()); });
+    expect(director.log.filter((beat) => beat.kind === "attract")).toHaveLength(0);
+    act(() => {
+      result.current.stepCamera(190_000, new Map());
+      result.current.stepCamera(230_000, new Map());
+    });
+    expect(director.log.filter((beat) => beat.kind === "attract")).toHaveLength(1);
+    expect(result.current.cameraRef.current).not.toEqual(held);
+  });
+
   it("places a voyage ship in the lower-left third at both viewport gates", () => {
     const tile = { x: 70, y: 70 };
     for (const viewport of [{ x: 900, y: 720 }, { x: 1200, y: 640 }]) {

@@ -16,10 +16,16 @@ import { stableUnit } from "./garden-util";
  * 3a — the observatory's storm-signal mast.
  *
  * Every peg reading in the world before this was per-coin: a ship's berth, a
- * hull's weathering, the water it rides in. `pegSummary.summary` is the only
- * payload that speaks for the whole fleet at once, and it drove nothing. This
- * mast is where it lands, so "read the market's broad condition at a glance"
- * has one anchor to land on instead of asking the visitor to survey 200 hulls.
+ * hull's weathering, the water it rides in. The mast is the one place the
+ * fleet-wide peg condition lands, so "read the market's broad condition at a
+ * glance" has one anchor instead of asking the visitor to survey 200 hulls.
+ *
+ * O17b: what it reports is weighed by supply (`buildSignalMast`). A pennant
+ * flies for each of the largest coins by supply that is off peg, and the cone
+ * only when the coins off peg hold enough of tracked supply to be the
+ * market's weather rather than one small coin's bad day. This module draws
+ * whatever state it is given; the weighing lives in the world model so the
+ * DOM rows read the same numbers.
  *
  * It is a real practice, not a metaphor invented here: coastal signal
  * stations hoisted shapes and pennants on a mast, and mariners read the hoist

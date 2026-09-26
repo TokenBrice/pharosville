@@ -32,13 +32,13 @@ import {
   Vector3,
   WebGLRenderTarget,
   type Camera,
-  type PerspectiveCamera,
   type Scene,
   type WebGLRenderer,
 } from "three";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import type { PharosVilleRenderMetrics, TextureOwnerManifestEntry } from "../renderer/render-types";
 import { dayCycleBeats } from "./garden-day-cycle";
+import { isKnockedOut } from "../lib/pharosville-debug";
 
 /** Linear HDR luminance: cloth, stone and sky remain below this knee. */
 export const GARDEN_BLOOM_PRACTICAL_THRESHOLD = 2.4;
@@ -129,13 +129,16 @@ const DAY_GRADE: GradePreset = {
   lift: [0, 0, 0], saturation: 1.04, shadowTint: [1, 1, 1],
   split: 0.45, vignette: 0.4, vignetteBias: 0.15,
 };
+// Dawn and golden carry no split-tone of their own (Hour-Print W0.18): warmth
+// belongs to the key light and the air. A warm highlight tint laid over an
+// already warm sky is what turned the golden frame into a sepia filter.
 const DAWN_GRADE: GradePreset = {
-  ...DAY_GRADE, highlightTint: [1.06, 1.015, 0.96],
-  shadowTint: [0.98, 0.99, 1.025], split: 0.5, vignette: 0.34,
+  ...DAY_GRADE, highlightTint: [1, 1, 1],
+  shadowTint: [1, 1, 1], split: 0.35, vignette: 0.34,
 };
 const GOLDEN_GRADE: GradePreset = {
-  ...DAY_GRADE, highlightTint: [1.12, 1.035, 0.9],
-  shadowTint: [0.98, 0.97, 1.035], split: 0.65, vignette: 0.38,
+  ...DAY_GRADE, highlightTint: [1, 1, 1],
+  shadowTint: [1, 1, 1], split: 0.35, vignette: 0.38,
 };
 const BLUE_GRADE: GradePreset = {
   ...NIGHT_GRADE, shadowTint: [0.98, 1, 1.035], saturation: 1.025, vignette: 0.32,
@@ -321,25 +324,22 @@ class GardenGradeEffect extends Effect {
  * pixels or the hash below have drifted, so the checked-in PNGs can never
  * disagree with the parameters that authored them.
  *
- * Budget: 49 KB + 4 KB, against the plan's 150 KB ceiling. Two textures against
+ * Budget: 18 KB + 4 KB, against the plan's 150 KB ceiling. Two textures against
  * the 72-texture census. They belong to the post chain, so the scene walk in
  * `world-renderer.ts` cannot see them; `getTextureManifest` below exposes them
  * alongside N8AO's blue noise, SMAA's search/area pair, and the bloom pyramid.
  */
-const LUT_TEXTURE_URL = "/pharosville/textures/garden-grade-lut.png?v=8df19a55fc3f";
+const LUT_TEXTURE_URL = "/pharosville/textures/garden-grade-lut.png?v=a162362f2d22";
 const DITHER_TEXTURE_URL = "/pharosville/textures/garden-blue-noise.png?v=297ab910ef36";
 
 /**
  * W1.2 (optional half): static paper grain, as a fraction of luminance.
  *
- * 0 -> 0.035 (2026-09-07). The 2026-08-13 A/B kept this off at 0.015 because it
- * did not survive measurement, and because a flat grain strong enough to see
- * would have textured the empty sky the plan protects. Both halves of that are
- * now addressed: the strength is more than doubled, and the shader weights it
- * by `1 - |2*luma - 1|` so it peaks in the midtones and falls to nothing in the
- * sky and in T1.1's new corner darks — the two regions the A/B was defending.
+ * 0.035 -> 0 (Hour-Print W0.18). A fixed blue-noise tooth is a digital pattern
+ * posing as paper. The one-code dither stays: it removes banding rather than
+ * adding texture. At 0 the shader skips the grain term outright.
  */
-const PAPER_GRAIN_STRENGTH = 0.035;
+const PAPER_GRAIN_STRENGTH = 0;
 
 /**
  * How fast the LUT and dither fade in once their textures decode, as an
@@ -519,276 +519,6 @@ const FULLSCREEN_VERTEX_SHADER = /* glsl */ `
     gl_Position = vec4(position.xy, 1.0, 1.0);
   }
 `;
-
-/**
- * The 9-tap Gaussian, collapsed to 5 hardware-filtered fetches.
- *
- * The two off-centre taps sit at non-integer texel offsets so the bilinear unit
- * returns the weighted average of the two texels either side of them; that is
- * what buys a sigma-2 kernel for five samples instead of nine. Weights and
- * offsets are the standard pair for that sigma and sum to exactly 1, so the
- * blur is energy-preserving — a blurred HDR highlight keeps its brightness
- * rather than dimming as it spreads.
- */
-const SEPARABLE_BLUR_FRAGMENT_SHADER = /* glsl */ `
-  uniform sampler2D inputBuffer;
-  uniform vec2 blurDirection;
-  varying vec2 vUv;
-
-  vec2 mirrorUv(vec2 uv) {
-    return 1.0 - abs(mod(uv, 2.0) - 1.0);
-  }
-
-  void main() {
-    vec2 near = blurDirection * 1.3846153846;
-    vec2 far = blurDirection * 3.2307692308;
-    vec4 sum = texture2D(inputBuffer, mirrorUv(vUv)) * 0.2270270270;
-    sum += texture2D(inputBuffer, mirrorUv(vUv + near)) * 0.3162162162;
-    sum += texture2D(inputBuffer, mirrorUv(vUv - near)) * 0.3162162162;
-    sum += texture2D(inputBuffer, mirrorUv(vUv + far)) * 0.0702702703;
-    sum += texture2D(inputBuffer, mirrorUv(vUv - far)) * 0.0702702703;
-    gl_FragColor = sum;
-  }
-`;
-
-/**
- * W2.3 — the miniature-garden pass, in numbers.
- *
- * WHY A CUSTOM EFFECT AND NOT `DepthOfFieldEffect`. The stock effect models a
- * lens: a circle of confusion around a focus DISTANCE, scattered by a blur
- * kernel, with separate near/far fields, a CoC pass, a mask pass and four blur
- * passes — seven off-screen draws and five render targets. Under a locked
- * orthographic camera there is no lens and no perspective for a blur disc to
- * describe; what the frame wants is the tilt-shift READ: one horizontal band of
- * the world in focus, everything nearer and farther softening, which is a band
- * test on view-space distance plus a screen-vertical bias. That is one blur
- * chain (two half-res draws) and one composite fused into a pass that already
- * exists, and it reuses the depth texture N8AO already forces the composer to
- * carry (`needsDepthTexture`) rather than adding one.
- *
- * THE BAND, IN VIEW HEIGHTS RATHER THAN WORLD UNITS. The camera sits at a fixed
- * 179.6 units from the point it looks at and rakes down at 30°, so a point one
- * screen-height higher in the frame is `2 / cos(30°)` ≈ 1.73 view heights
- * farther away: the whole frame spans ±0.87 view heights of distance about its
- * centre, at every zoom. Expressing the band in view heights is therefore the
- * only way it can mean the same thing at overview and detail zoom — a band in
- * world units would put the entire overview map out of focus and the entire
- * detail framing in it. `focusRange` 0.45 keeps the middle ~52 % of the frame
- * perfectly sharp; the falloffs reach full softness a hair past each edge.
- *
- * WHY THE DEPTH BAND IS NOT REDUNDANT WITH THE GRADIENT. The tower is 34 units
- * tall, which under this rake projects ~0.47 view heights UP the frame while
- * moving it 0.31 view heights NEARER. A pure screen gradient would blur the
- * lighthouse crown and leave the water behind it sharp — precisely backwards.
- * So the gradient may only ever SCALE a softness the depth band already
- * granted (`bias` multiplies, it does not add): the crown stays exactly sharp
- * at the top of the frame while the open water at the same screen row softens.
- * That is also what keeps the fleet safe — a ship at the anchorage sits inside
- * the band and cannot be blurred by where it happens to sit on screen.
- */
-const DOF_RESOLUTION_SCALE = 0.5;
-/** Blur step in half-res texels; scales the shared 9-tap offsets. */
-const DOF_BLUR_SPREAD = 2;
-/** Half-width of the perfectly sharp band, in view heights (see above). */
-const DOF_FOCUS_RANGE = 0.55;
-/** How far past the band softness takes to reach full, in view heights. */
-const DOF_FAR_FALLOFF = 0.5;
-const DOF_NEAR_FALLOFF = 0.45;
-/**
- * How much the screen-vertical gradient may lean the softness up the frame.
- * At 0.26 the top of the frame carries 1.26x the far softness the depth band
- * granted it and the bottom 0.74x, with the near field mirrored — the classic
- * diorama lean, biasing what depth already decided. Lowered from 0.32 in the
- * 2026-09-05 warm-village pass so the closer rest framing keeps its far field.
- */
-const DOF_GRADIENT_BIAS = 0.26;
-const DOF_GRADIENT_LOW = 0.16;
-const DOF_GRADIENT_HIGH = 0.92;
-/**
- * The blur-scale equivalent, and the whole "is this a garnish" question.
- *
- * Measured on the real GPU against a controlled A/B — two settled reduced-motion
- * dusk frames identical but for this dial (`outputs/w24-dusk-rays-tuned.png`
- * against `outputs/w23-dusk-dof-off.png`) — by how much local gradient energy
- * each band of the frame retains. At the 0.62 that pair was captured with:
- *
- *                        deep field (haze/water)   objects (hulls, rigging)
- *   top 9 % of frame            0.92                       0.94
- *   middle 20-60 %              0.98                       1.00
- *   bottom 8 %                  0.83                       0.95
- *
- * Two things in that table are the design working. The middle of the frame is
- * untouched to three decimal places — the fleet where a viewer dwells is not
- * softened at all. And in the bands that DO soften, the deep field gives up
- * more than the objects standing in it, because a mast twelve units above the
- * water is six units NEARER than the water behind it and the depth band knows
- * that. A screen gradient alone would have had it exactly backwards.
- *
- * The shipped value ran 0.72 with the falloffs tightened alongside it —
- * ~1.5x the table above: a veil over the haze band and the nearest water,
- * the anchorage sharp. Stepped down to 0.6 in the 2026-09-05 warm-village
- * pass (with the gradient bias 0.32 -> 0.26) so the closer rest framing
- * reads its far field through the haze instead of behind a veil. The first
- * tuning pass ran a narrower band at a similar strength and softened fleet
- * detail a third of the way up the frame, which is the line this must stay
- * under. A viewer should read "tender diorama", never "tilt-shift filter".
- */
-const DOF_STRENGTH = 0.6;
-/** Tilt-shift belongs only to authored close postcards, never the rest shot. */
-const DOF_POSTCARD_MIN_ZOOM = 1.2;
-
-const TILT_SHIFT_FRAGMENT_SHADER = /* glsl */ `
-  uniform sampler2D softFieldBuffer;
-  uniform float focusCenter;
-  uniform float focusRange;
-  uniform float nearFalloff;
-  uniform float farFalloff;
-  uniform float gradientBias;
-  uniform float gradientLow;
-  uniform float gradientHigh;
-  uniform float strength;
-
-  void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
-    if (strength <= 0.0) {
-      outputColor = inputColor;
-      return;
-    }
-
-    float viewDistance = -getViewZ(depth);
-
-    float farCoc = smoothstep(
-      focusCenter + focusRange,
-      focusCenter + focusRange + farFalloff,
-      viewDistance
-    );
-    float nearCoc = 1.0 - smoothstep(
-      focusCenter - focusRange - nearFalloff,
-      focusCenter - focusRange,
-      viewDistance
-    );
-
-    float bias = mix(1.0 - gradientBias, 1.0 + gradientBias, smoothstep(gradientLow, gradientHigh, uv.y));
-    float coc = clamp(max(farCoc * bias, nearCoc * (2.0 - bias)), 0.0, 1.0);
-
-    vec3 softField = texture2D(softFieldBuffer, uv).rgb;
-    outputColor = vec4(mix(inputColor.rgb, softField, coc * strength), inputColor.a);
-  }
-`;
-
-/**
- * The tilt-shift effect: one half-res separable blur chain, composited by a
- * circle of confusion derived from the depth band and the vertical gradient.
- *
- * The blur runs in `update()`, which `EffectPass` calls with its own input
- * buffer before the fused fullscreen draw — so the softened copy is made from
- * exactly the pixels this effect's `mainImage` will be handed, and the whole
- * stage still costs the main chain no extra fullscreen pass.
- *
- * Disposal is inherited: `Effect.dispose()` walks this instance's own fields
- * and disposes every render target, material and pass it finds, which is all
- * three of the resources below.
- */
-class GardenTiltShiftEffect extends Effect {
-  private readonly blurTargetA: WebGLRenderTarget;
-  private readonly blurTargetB: WebGLRenderTarget;
-  private readonly horizontalPass: ShaderPass;
-  private readonly verticalPass: ShaderPass;
-
-  constructor() {
-    super("GardenTiltShift", TILT_SHIFT_FRAGMENT_SHADER, {
-      attributes: EffectAttribute.DEPTH,
-      blendFunction: BlendFunction.SRC,
-      uniforms: new Map<string, Uniform>([
-        ["softFieldBuffer", new Uniform(null)],
-        ["focusCenter", new Uniform(1)],
-        ["focusRange", new Uniform(1)],
-        ["nearFalloff", new Uniform(1)],
-        ["farFalloff", new Uniform(1)],
-        ["gradientBias", new Uniform(DOF_GRADIENT_BIAS)],
-        ["gradientLow", new Uniform(DOF_GRADIENT_LOW)],
-        ["gradientHigh", new Uniform(DOF_GRADIENT_HIGH)],
-        ["strength", new Uniform(0)],
-      ]),
-    });
-
-    // HalfFloat to match the composer's own buffer: the blurred copy is mixed
-    // back into a linear HDR frame that still has to survive tone mapping, so
-    // clipping the soft field to LDR here would darken every soft highlight.
-    this.blurTargetA = new WebGLRenderTarget(1, 1, {
-      depthBuffer: false,
-      magFilter: LinearFilter,
-      minFilter: LinearFilter,
-      stencilBuffer: false,
-      type: HalfFloatType,
-    });
-    this.blurTargetA.texture.name = "GardenTiltShift.BlurX";
-    this.blurTargetB = this.blurTargetA.clone();
-    this.blurTargetB.texture.name = "GardenTiltShift.BlurY";
-    this.uniforms.get("softFieldBuffer")!.value = this.blurTargetB.texture;
-
-    this.horizontalPass = new ShaderPass(createSeparableBlurMaterial());
-    this.verticalPass = new ShaderPass(createSeparableBlurMaterial());
-  }
-
-  /** 0 disables the stage outright — no blur draws, no texture fetch. */
-  get strength(): number {
-    return (this.uniforms.get("strength")!.value as number);
-  }
-
-  set strength(value: number) {
-    this.uniforms.get("strength")!.value = value;
-  }
-
-  /**
-   * The sharp band, in view-space distance. `focusCenter` is a plain uniform
-   * on purpose: W4.6 eases it toward a selected ship, and a uniform is the one
-   * thing that can be moved every frame without touching the pass list.
-   */
-  setFocusBand(center: number, viewHeight: number): void {
-    this.uniforms.get("focusCenter")!.value = center;
-    this.uniforms.get("focusRange")!.value = viewHeight * DOF_FOCUS_RANGE;
-    this.uniforms.get("farFalloff")!.value = viewHeight * DOF_FAR_FALLOFF;
-    this.uniforms.get("nearFalloff")!.value = viewHeight * DOF_NEAR_FALLOFF;
-  }
-
-  override setSize(width: number, height: number): void {
-    const blurWidth = Math.max(1, Math.round(width * DOF_RESOLUTION_SCALE));
-    const blurHeight = Math.max(1, Math.round(height * DOF_RESOLUTION_SCALE));
-    this.blurTargetA.setSize(blurWidth, blurHeight);
-    this.blurTargetB.setSize(blurWidth, blurHeight);
-    // The horizontal pass reads the FULL-res frame at the half-res raster, so
-    // one half-res texel of offset is two full-res texels: the downsample and
-    // the first blur axis are the same draw.
-    blurDirectionOf(this.horizontalPass).set(DOF_BLUR_SPREAD / blurWidth, 0);
-    blurDirectionOf(this.verticalPass).set(0, DOF_BLUR_SPREAD / blurHeight);
-  }
-
-  override update(renderer: WebGLRenderer, inputBuffer: WebGLRenderTarget): void {
-    if (this.strength <= 0) return;
-    this.horizontalPass.render(renderer, inputBuffer, this.blurTargetA);
-    this.verticalPass.render(renderer, this.blurTargetA, this.blurTargetB);
-  }
-}
-
-function createSeparableBlurMaterial(): ShaderMaterial {
-  return new ShaderMaterial({
-    blending: NoBlending,
-    depthTest: false,
-    depthWrite: false,
-    fragmentShader: SEPARABLE_BLUR_FRAGMENT_SHADER,
-    name: "GardenSeparableBlurMaterial",
-    uniforms: {
-      blurDirection: new Uniform(new Vector2()),
-      inputBuffer: new Uniform(null),
-    },
-    vertexShader: FULLSCREEN_VERTEX_SHADER,
-  });
-}
-
-function blurDirectionOf(pass: ShaderPass): Vector2 {
-  const material = pass.fullscreenMaterial as ShaderMaterial;
-  return material.uniforms.blurDirection!.value as Vector2;
-}
 
 /**
  * W2.4 — low-sun god rays through the tower, in numbers.
@@ -1244,19 +974,9 @@ export interface GardenPost {
   /** Eased overview-LOD detail (0 at whole-map zoom, 1 at detail zoom). */
   setAOZoomDetail: (detail: number) => void;
   setBloomEnabled: (enabled: boolean) => void;
-  /** Authored iso-camera zoom; enables tilt-shift only in close postcards. */
-  setCameraZoom: (zoom: number) => void;
   setEnabled: (enabled: boolean) => void;
   /** Set the unattended second-monitor post profile target. */
   setIdleProfile?: (idle: boolean, immediate?: boolean) => void;
-  /**
-   * W2.3 / W4.6 seam: where the tilt-shift's sharp band sits, as a view-space
-   * distance. `null` (the default) derives it from the camera — the point the
-   * locked vantage looks at on the sea. W4.6 eases a selected ship's distance
-   * in here; nothing else may touch it, and it is a uniform write, never a
-   * pass-list change.
-   */
-  setFocusBandDistance: (distance: number | null) => void;
   /** Wall-clock hour; weather changes glow strength, never the black floor. */
   setGrade: (
     hour: number,
@@ -1468,9 +1188,8 @@ function releaseN8AOTextureResources(pass: N8AOPostPass): void {
  * rendering plan — supersedes the three/examples EffectComposer stack):
  *
  *   RenderPass → N8AOPostPass (AO on scene color) → EffectPass(BloomEffect) →
- *   EffectPass(GardenTiltShift + GardenGodRays + GardenGrade + ToneMapping
- *   (Neutral or AgX, from GARDEN_TONE_MAPPING) + GardenLut, fused) →
- *   EffectPass(SMAA)
+ *   EffectPass(GardenGodRays + GardenGrade + ToneMapping (Neutral or AgX,
+ *   from GARDEN_TONE_MAPPING) + GardenLut, fused) → EffectPass(SMAA)
  *
  * drawn through a multisampled (4×) HalfFloat frame buffer so MSAA survives
  * the composite. Tone mapping and color-space output each happen exactly
@@ -1484,9 +1203,9 @@ function releaseN8AOTextureResources(pass: N8AOPostPass): void {
  *
  * The AO pass sets `needsDepthTexture`, which makes the composer carry depth
  * textures and blit the multisampled scene depth into a stable target once per
- * frame. W2.3 and W2.4 now read that SAME texture — the composer hands its
- * stable depth to every pass once any pass asks for it, so the depth band and
- * the raymarch's world reconstruction are free of a second depth prepass.
+ * frame. W2.4 reads that SAME texture — the composer hands its stable depth to
+ * every pass once any pass asks for it, so the raymarch's world reconstruction
+ * is free of a second depth prepass.
  */
 export function createGardenPost(
   renderer: WebGLRenderer,
@@ -1494,6 +1213,19 @@ export function createGardenPost(
   camera: Camera,
 ): GardenPost {
   const size = renderer.getDrawingBufferSize(new Vector2());
+  /**
+   * W0.1 knockout seam (visual debug only): passes the preview harness names
+   * in `window.__pharosVilleKnockout` are left out so their cost can be
+   * measured by difference. Read once — the harness installs the list before
+   * navigation, and the chain is never rebuilt mid-session.
+   */
+  const knockout = {
+    ao: isKnockedOut("ao"),
+    bloom: isKnockedOut("bloom"),
+    grade: isKnockedOut("grade"),
+    rays: isKnockedOut("rays"),
+    smaa: isKnockedOut("smaa"),
+  };
   /**
    * W0.2 anti-aliasing rationalization — DECIDED 2026-08-13, keep BOTH stages.
    *
@@ -1579,6 +1311,7 @@ export function createGardenPost(
     radius: POST_PHASE_NIGHT.bloomRadius,
   });
   const bloomPass = new EffectPass(camera, bloomEffect);
+  bloomPass.enabled = !knockout.bloom;
 
   const gradeEffect = new GardenGradeEffect();
   // ToneMappingEffect resolves `toneMapping()` to three's own shader chunk for
@@ -1589,54 +1322,51 @@ export function createGardenPost(
     mode: GARDEN_TONE_MAPPING === "neutral" ? ToneMappingMode.NEUTRAL : ToneMappingMode.AGX,
   });
   const lutEffect = new GardenLutEffect();
-  const tiltShiftEffect = new GardenTiltShiftEffect();
   const godRaysEffect = new GardenGodRaysEffect();
-  // Five effects, ONE full-screen draw. pmndrs chains the effects of a pass
+  // Four effects, ONE full-screen draw. pmndrs chains the effects of a pass
   // into a single fragment shader, feeding each `mainImage` the previous one's
-  // output, so W2.3 and W2.4 add no pass to the main chain — only their own
-  // half-res off-screen work, which runs in `update()` and is skipped outright
-  // when their weights are zero.
+  // output, so W2.4 adds no pass to the main chain — only its own half-res
+  // off-screen march, which runs in `update()` and is skipped outright when
+  // its weight is zero.
   //
-  // The order IS the contract, and both new stages are BEFORE the grade so the
-  // softened pixels and the shafts are graded, tone-mapped and looked up with
-  // everything else rather than painted over the finished picture:
+  // The order IS the contract, and the shafts are BEFORE the grade so they are
+  // graded, tone-mapped and looked up with everything else rather than painted
+  // over the finished picture:
   //
-  //   tilt-shift (depth band) → god rays (add) → parametric grade → tone map →
-  //   authored cube + dither
+  //   god rays (add) → parametric grade → tone map → authored cube + dither
   //
-  // Depth-of-field first because the shafts are light IN THE AIR between the
-  // camera and the water: softening them by the same band that softens the
-  // surface behind them would make the near air read as out of focus, which
-  // nothing in the frame is.
-  const gradePass = new EffectPass(
-    camera,
-    tiltShiftEffect,
-    godRaysEffect,
-    gradeEffect,
-    toneMappingEffect,
-    lutEffect,
-  );
+  // A `grade` knockout drops the parametric grade and the authored cube; the
+  // tone map stays so the frame is still display-referred.
+  const gradeEffects: Effect[] = knockout.grade
+    ? [godRaysEffect, toneMappingEffect]
+    : [godRaysEffect, gradeEffect, toneMappingEffect, lutEffect];
+  const gradePass = new EffectPass(camera, ...gradeEffects);
 
-  const smaaEffect = new SMAAEffect();
   // SMAAEffect requests a depth texture unconditionally, but it only reads
   // depth for predicated edge detection, which is disabled here. Dropping the
   // DEPTH attribute keeps the composer's depth machinery owned by the AO pass
-  // alone. (Not in the public type surface — the field is public at runtime
-  // and read once when the pass builds its material.)
-  (smaaEffect as unknown as { attributes: EffectAttribute }).attributes = EffectAttribute.CONVOLUTION;
-  const smaaPass = new EffectPass(camera, smaaEffect);
+  // alone. An `smaa` knockout never builds the pass, so the grade pass becomes
+  // the one that renders to screen.
+  const smaaEffect = knockout.smaa ? null : new SMAAEffect();
+  if (smaaEffect) {
+    // `attributes` is public at runtime (read once when the pass builds its
+    // material) but absent from the published type surface.
+    const smaaRuntime = smaaEffect as unknown as { attributes: EffectAttribute };
+    smaaRuntime.attributes = EffectAttribute.CONVOLUTION;
+  }
+  const smaaPass = smaaEffect ? new EffectPass(camera, smaaEffect) : null;
 
   composer.addPass(renderPass);
   composer.addPass(n8aoPass);
   composer.addPass(bloomPass);
   composer.addPass(gradePass);
-  composer.addPass(smaaPass);
+  if (smaaPass) composer.addPass(smaaPass);
   const gpuTimer = new GardenGpuTimer(renderer);
   gpuTimer.wrap(renderPass, 0);
   gpuTimer.wrap(n8aoPass, 1);
   gpuTimer.wrap(bloomPass, 2);
   gpuTimer.wrap(gradePass, 3);
-  gpuTimer.wrap(smaaPass, 4);
+  if (smaaPass) gpuTimer.wrap(smaaPass, 4);
 
   const gradeUniforms = {
     gain: uniform<Color>(gradeEffect, "gain"),
@@ -1660,12 +1390,16 @@ export function createGardenPost(
   // 0 until the texture decodes, then eased to 1 — see POST_ASSET_FADE_RATE.
   let lutTarget = 0;
   let ditherTarget = 0;
-  const lutTexture = loadPostTexture(LUT_TEXTURE_URL, LinearFilter, ClampToEdgeWrapping, () => {
-    lutTarget = 1;
-  });
-  const ditherTexture = loadPostTexture(DITHER_TEXTURE_URL, NearestFilter, RepeatWrapping, () => {
-    ditherTarget = 1;
-  });
+  const lutTexture = knockout.grade
+    ? null
+    : loadPostTexture(LUT_TEXTURE_URL, LinearFilter, ClampToEdgeWrapping, () => {
+      lutTarget = 1;
+    });
+  const ditherTexture = knockout.grade
+    ? null
+    : loadPostTexture(DITHER_TEXTURE_URL, NearestFilter, RepeatWrapping, () => {
+      ditherTarget = 1;
+    });
   lutUniforms.lutStrip.value = lutTexture;
   lutUniforms.ditherNoise.value = ditherTexture;
   const bloomLuminance = bloomEffect.luminanceMaterial;
@@ -1683,12 +1417,6 @@ export function createGardenPost(
   let idleProfileImmediate = false;
   let phaseAOIntensity = POST_PHASE_NIGHT.aoIntensity;
   const passList: string[] = [];
-  let cameraFramingZoom = 0;
-
-  /** Focus-band width is measured at the perspective rig's target plane. */
-  const perspectiveCamera = (camera as PerspectiveCamera).isPerspectiveCamera === true
-    ? camera as PerspectiveCamera
-    : null;
   /**
    * The world's shadow-casting key light, resolved ONCE.
    *
@@ -1700,10 +1428,7 @@ export function createGardenPost(
    * to learn the same answer.
    */
   const shadowLight = findShadowCastingLight(scene);
-  const scratchForward = new Vector3();
   const scratchInverseViewProjection = new Matrix4();
-  /** W4.6 seam; null means "derive the band from the camera". */
-  let focusBandOverride: number | null = null;
   /** Only dawn and golden may spend a shadow-map march. */
   let phaseRayWeight = 0;
   /** Per-phase ray density; hue rides on the effect's own uniform. */
@@ -1717,7 +1442,7 @@ export function createGardenPost(
     // and at zero the pass is skipped outright. AO is a grounding FIDELITY,
     // not a colour — the painted contact discs stay rendered at every tier
     // and zoom, so the grounding intent never leaves the frame.
-    n8aoPass.enabled = enabled && aoTierWeight > 0 && aoZoomDetail > 0;
+    n8aoPass.enabled = !knockout.ao && enabled && aoTierWeight > 0 && aoZoomDetail > 0;
     // Idle stays on the existing Performance shader quality. Only the uniform
     // scales move toward its smaller radius/softer contribution, so a full
     // load tier can enter and leave idle without a quality-mode recompile or a
@@ -1733,14 +1458,6 @@ export function createGardenPost(
     const idleRadiusScale = lerp(AO_BALANCED_RADIUS_SCALE, 1, idleProfileWeight);
     const radiusScale = Math.min(loadRadiusScale, idleRadiusScale);
     aoConfiguration.aoRadius = AO_RADIUS * radiusScale;
-
-    // Tilt-shift is a close-postcard treatment, not part of the rest
-    // composition. The two helper draws and every soft-field fetch remain
-    // wholly dormant until the perspective pose resolves to zoom 1.2 or above.
-    tiltShiftEffect.strength = enabled
-      && cameraFramingZoom >= DOF_POSTCARD_MIN_ZOOM
-      ? aoTierWeight * idleProfileWeight * DOF_STRENGTH
-      : 0;
   }
 
   function applyGrade(hour: number, stormLevel = 0, flash = 0, winter = 0): void {
@@ -1811,7 +1528,7 @@ export function createGardenPost(
   }
 
   /**
-   * Everything the two hero passes need from the camera, once per frame.
+   * The raymarch's world reconstruction for the current camera, once per frame.
    *
    * The camera's world matrix is refreshed here rather than trusted: the grade
    * is pushed from `world-renderer.ts` BEFORE the composer runs, and a stale
@@ -1821,22 +1538,8 @@ export function createGardenPost(
    */
   function syncCameraDerivedUniforms(): void {
     camera.updateMatrixWorld();
-    camera.getWorldDirection(scratchForward);
-    // The centre of the sharp band is where the locked vantage looks at the
-    // sea: the drop from the camera to the water plane, along the view ray.
-    // Derived rather than hard-coded so a re-framed camera cannot silently
-    // leave the band behind — and floored so a degenerate camera (a unit-test
-    // default, a horizontal rake) cannot divide the band to infinity.
-    const drop = camera.position.y - GODRAY_SEA_LEVEL;
-    const focusCenter = drop / Math.max(Math.abs(scratchForward.y), 0.05);
-    const targetDistance = camera.position.y / Math.max(Math.abs(scratchForward.y), 0.05);
-    const viewHeight = perspectiveCamera
-      ? 2 * targetDistance * Math.tan(perspectiveCamera.fov * Math.PI / 360)
-      : 0;
-    tiltShiftEffect.setFocusBand(focusBandOverride ?? focusCenter, viewHeight);
-    syncTierFidelity();
-    // World reconstruction for the raymarch: clip -> view -> world in one
-    // matrix, so the march shader unprojects with a single multiply.
+    // Clip -> view -> world in one matrix, so the march shader unprojects with
+    // a single multiply.
     scratchInverseViewProjection.multiplyMatrices(camera.matrixWorld, camera.projectionMatrixInverse);
     godRaysEffect.setInverseViewProjection(scratchInverseViewProjection);
   }
@@ -1870,7 +1573,7 @@ export function createGardenPost(
       );
     }
 
-    if (!shadowLight) {
+    if (!shadowLight || knockout.rays) {
       godRaysEffect.weight = 0;
       return;
     }
@@ -1952,20 +1655,20 @@ export function createGardenPost(
       });
     }
 
-    const tiltRuntime = tiltShiftEffect as unknown as Record<string, unknown>;
-    addManifestTextures(entries, seen, "post.tilt-shift.blur-x", tiltRuntime.blurTargetA);
-    addManifestTextures(entries, seen, "post.tilt-shift.blur-y", tiltRuntime.blurTargetB);
     const godRayRuntime = godRaysEffect as unknown as Record<string, unknown>;
     addManifestTextures(entries, seen, "post.god-rays.half-res", godRayRuntime.rayTarget);
     addManifestTextures(entries, seen, "post.lut.grade", lutTexture);
     addManifestTextures(entries, seen, "post.lut.dither", ditherTexture);
-    addManifestTextures(entries, seen, "post.smaa.edges", smaaEffect.edgesTexture);
-    addManifestTextures(entries, seen, "post.smaa.weights", smaaEffect.weightsTexture);
-    const weightsMaterial = (smaaEffect as unknown as {
-      weightsMaterial?: { searchTexture?: unknown; areaTexture?: unknown };
-    }).weightsMaterial;
-    addManifestTextures(entries, seen, "post.smaa.search", weightsMaterial?.searchTexture);
-    addManifestTextures(entries, seen, "post.smaa.area", weightsMaterial?.areaTexture);
+    if (smaaEffect) {
+      addManifestTextures(entries, seen, "post.smaa.edges", smaaEffect.edgesTexture);
+      addManifestTextures(entries, seen, "post.smaa.weights", smaaEffect.weightsTexture);
+      // SMAA's lookup pair hangs off a material the published types omit.
+      const smaaMaterials = smaaEffect as unknown as {
+        weightsMaterial?: { searchTexture?: unknown; areaTexture?: unknown };
+      };
+      addManifestTextures(entries, seen, "post.smaa.search", smaaMaterials.weightsMaterial?.searchTexture);
+      addManifestTextures(entries, seen, "post.smaa.area", smaaMaterials.weightsMaterial?.areaTexture);
+    }
 
     return entries;
   }
@@ -1977,6 +1680,12 @@ export function createGardenPost(
       // generic disposal does not reach its fullscreen-triangle wrappers.
       // The composer owns every other pass, both frame buffers, and copy pass.
       composer.dispose();
+      // A grade knockout leaves these two effects out of every pass, so the
+      // composer never reaches them.
+      if (knockout.grade) {
+        gradeEffect.dispose();
+        lutEffect.dispose();
+      }
       // The two LUT/dither textures are loaded here, so they are freed here;
       // the composer only owns what it created.
       lutTexture?.dispose();
@@ -1992,17 +1701,17 @@ export function createGardenPost(
         passList.push("render");
         if (n8aoPass.enabled) passList.push("n8ao");
         if (bloomPass.enabled) passList.push("bloom");
-        // "dof" (W2.3) and "godrays" (W2.4) are fused into the grade pass, like
-        // "output" and "lut" below, so none of the four adds a draw to the main
-        // chain. They are listed only while their weights are non-zero, which
-        // is what makes the list evidence: a day frame shows "dof" and no
-        // "godrays", a dusk frame at full tier shows both, and a night frame
-        // shows neither ray nor any change of colour.
-        if (tiltShiftEffect.strength > 0) passList.push("dof");
+        // "godrays" (W2.4) is fused into the grade pass, like "output" and
+        // "lut" below, so none of the three adds a draw to the main chain. It
+        // is listed only while its weight is non-zero, which is what makes the
+        // list evidence: a dusk frame at full tier shows it, a day or night
+        // frame does not.
         if (godRaysEffect.weight > 0) passList.push("godrays");
         // "output" is the tone-map/sRGB stage and "lut" the authored cube plus
         // dither, both fused into the grade pass rather than adding a draw.
-        passList.push("grade", "output", "lut", "smaa");
+        if (knockout.grade) passList.push("output");
+        else passList.push("grade", "output", "lut");
+        if (smaaPass) passList.push("smaa");
       }
       return passList;
     },
@@ -2056,7 +1765,7 @@ export function createGardenPost(
       // Pass-level toggle: the composer skips disabled passes outright, which
       // is cheaper than rebuilding the chain — and the grade/tone-map/SMAA
       // stages stay on at every tier (tier color invariance).
-      bloomPass.enabled = bloomEnabled;
+      bloomPass.enabled = bloomEnabled && !knockout.bloom;
     },
     setEnabled(nextEnabled) {
       enabled = nextEnabled;
@@ -2069,13 +1778,6 @@ export function createGardenPost(
         idleProfileWeight = idleProfileTarget;
         syncTierFidelity();
       }
-    },
-    setCameraZoom(zoom) {
-      cameraFramingZoom = Number.isFinite(zoom) ? zoom : 0;
-      syncTierFidelity();
-    },
-    setFocusBandDistance(distance) {
-      focusBandOverride = distance !== null && Number.isFinite(distance) ? distance : null;
     },
     setGrade(hour, stormLevel = 0, flash = 0, winter = 0) {
       applyGrade(hour, stormLevel, flash, winter);

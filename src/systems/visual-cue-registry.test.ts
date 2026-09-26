@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PharosVilleWorld, VisualCue, VisualCueChannel } from "./world-types";
+import { SIGNAL_MAST_LEADER_COUNT, SIGNAL_MAST_STORM_SUPPLY_SHARE } from "./world-types";
 import {
   buildVisualCueRegistry,
   DECORATIVE_VISUAL_NOTES,
@@ -66,14 +67,24 @@ describe("buildVisualCueRegistry", () => {
     expect(cues.every((cue) => cue.sourceField && cue.domEquivalent && cue.failureState && cue.reducedMotionEquivalent)).toBe(true);
   });
 
-  it("registers the observatory signal mast against the fleet-wide peg summary", () => {
+  it("registers the observatory signal mast against supply-weighted peg readings", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.lighthouse.signal-mast");
+    const legend = LEGEND_MARK_ROWS.find((row) => row.cueId === "cue.lighthouse.signal-mast");
 
     expect(cue).toMatchObject({
       target: { kind: "lighthouse" },
       primaryChannels: ["shape", "size"],
-      sourceField: "pegSummary.summary.activeDepegCount, pegSummary.summary.worstCurrent",
+      sourceField: "pegSummary.coins[].activeDepeg weighed by stablecoins.peggedAssets[].circulating",
     });
+    // O17b parity: the registry and the legend state the same gates the world
+    // model applies (`buildSignalMast`) and the Signal mast row prints.
+    expect(SIGNAL_MAST_LEADER_COUNT).toBe(20);
+    const gate = `${SIGNAL_MAST_STORM_SUPPLY_SHARE * 100}% of tracked supply`;
+    for (const text of [cue?.visual, legend?.text]) {
+      expect(text).toContain("twenty largest");
+      expect(text).toContain(gate);
+    }
+    expect(cue?.domEquivalent).toContain("Signal mast row");
     // Tone contract: the hoist reports, it does not alarm. No cue copy here
     // may reach for emergency language.
     expect(`${cue?.visual} ${cue?.questionAnswered}`).not.toMatch(/\b(alert|alarm|urgent|critical|emergency)\b/i);

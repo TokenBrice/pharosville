@@ -8,9 +8,12 @@ import {
   isGardenShipWater,
 } from "./garden-water-exclusion";
 import {
+  GARDEN_SHIP_ROOT_Y,
   GARDEN_SILHOUETTE_FOR_HULL,
   gardenShipVisualScale,
 } from "./garden-observatory-slice";
+import { defaultCamera } from "./camera";
+import { screenToGround } from "./projection";
 import type { ShipNode, ShipWaterZone, TerrainKind } from "./world-types";
 
 /**
@@ -78,8 +81,13 @@ const TERRAIN_FOR_ZONE: Record<ShipWaterZone, TerrainKind> = {
  * removed from the labels. Instead a candidate is REJECTED outright if it
  * lands within this gap of an already-placed ship, so the band uses all of its
  * own water before it doubles up anywhere.
+ *
+ * The gap is measured against the LARGER of the two hulls. Checking only the
+ * arriving hull's margin let a small boat berth inside a galleon's swing, and
+ * under reduced motion — where every hull sits on its berth at once, with no
+ * sea-room pass to part them — that read as sails through sails.
  */
-const MIN_HULL_GAP = 1.35;
+export const MIN_HULL_GAP = 1.35;
 
 /**
  * Candidate points considered per ship, per pass.
@@ -132,6 +140,58 @@ function inletDistance(x: number, y: number): number {
     nearest = Math.min(nearest, Math.hypot(x - start.x - t * dx, y - start.y - t * dy));
   }
   return nearest;
+}
+
+/**
+ * The bottom-right chrome (the Explore control) covers about
+ * 180×120 CSS px of a 1600×1000 frame. A hull berthed under it is a ship the
+ * visitor cannot see or click at rest, and under reduced motion it never
+ * leaves: three cut-off hulls piled beneath the chip in the reduced tableau.
+ *
+ * The rect is projected once through the authored rest camera onto the hull
+ * plane, giving a world-space keep-out that placement honours like any other
+ * obstacle. It follows the rest seat automatically if the seat is re-authored.
+ */
+const REST_CHROME_VIEWPORT = { x: 1600, y: 1000 } as const;
+const REST_CHROME_RECT = { width: 180, height: 120 } as const;
+
+let restChromeKeepoutCache: readonly { x: number; y: number }[] | null = null;
+
+/** Ground quad (tiles) under the bottom-right chrome at the rest camera. */
+function restChromeKeepoutPolygon(): readonly { x: number; y: number }[] {
+  if (restChromeKeepoutCache) return restChromeKeepoutCache;
+  const viewport = REST_CHROME_VIEWPORT;
+  const camera = defaultCamera({
+    height: viewport.y,
+    map: { height: PHAROSVILLE_MAP_HEIGHT, width: PHAROSVILLE_MAP_WIDTH },
+    width: viewport.x,
+  });
+  const left = viewport.x - REST_CHROME_RECT.width;
+  const top = viewport.y - REST_CHROME_RECT.height;
+  restChromeKeepoutCache = [
+    { x: left, y: top },
+    { x: viewport.x, y: top },
+    { x: viewport.x, y: viewport.y },
+    { x: left, y: viewport.y },
+  ].map((corner) => screenToGround(corner, camera, viewport, GARDEN_SHIP_ROOT_Y));
+  return restChromeKeepoutCache;
+}
+
+/** 0 inside the chrome keep-out, else the tile distance to its edge. */
+function restChromeKeepoutDistance(x: number, y: number): number {
+  const polygon = restChromeKeepoutPolygon();
+  let inside = false;
+  let nearest = Number.POSITIVE_INFINITY;
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index, index += 1) {
+    const a = polygon[index]!;
+    const b = polygon[previous]!;
+    if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / (dx * dx + dy * dy)));
+    nearest = Math.min(nearest, Math.hypot(x - a.x - t * dx, y - a.y - t * dy));
+  }
+  return inside ? 0 : nearest;
 }
 
 /**
@@ -277,6 +337,7 @@ function densityWeight(
   lighthouseTile: { x: number; y: number },
 ): number {
   if (inletDistance(x, y) <= GARDEN_EMPTY_INLET.halfWidth) return 0;
+  if (restChromeKeepoutDistance(x, y) <= 0) return 0;
   const lighthouseDistance = Math.hypot(x - lighthouseTile.x, y - lighthouseTile.y);
   if (lighthouseDistance < LIGHTHOUSE_CLEARANCE_TILES) return 0;
 
@@ -288,6 +349,27 @@ function densityWeight(
   );
   if (edgeDistance <= 0) return 0;
   return Math.min(1, edgeDistance / EDGE_FALLOFF_TILES);
+}
+
+interface PlacedHull {
+  x: number;
+  y: number;
+  margin: number;
+}
+
+/**
+ * Water a hull may rest on for its whole stay.
+ *
+ * Dock aprons and moles count as obstacles here: a hull resting at home is
+ * displayed with them as obstacles, and a berth that ignored them was shoved
+ * to the nearest clear water at draw time — blind to its neighbours, which is
+ * how settled hulls ended up stacked. The inlet and the chrome keep-out are
+ * widened by the hull so no part of it enters either.
+ */
+function isBerthWater(tile: { x: number; y: number }, margin: number): boolean {
+  return inletDistance(tile.x, tile.y) > GARDEN_EMPTY_INLET.halfWidth + margin
+    && restChromeKeepoutDistance(tile.x, tile.y) > margin
+    && isGardenShipWater(tile, margin, true);
 }
 
 interface Anchorage {
@@ -435,7 +517,7 @@ export function placeGardenFleet(
   }
 
   // Hull separation is shared across risk-band borders, not reset per band.
-  const placed: { x: number; y: number }[] = [];
+  const placed: PlacedHull[] = [];
   const retained = new Map<string, RetainedBerth>();
   const nextBerths = new Map<string, RetainedBerth>();
   if (berthCache?.lighthouseX === lighthouseTile.x && berthCache.lighthouseY === lighthouseTile.y) {
@@ -447,12 +529,19 @@ export function placeGardenFleet(
       );
       if (!previous || previous.mooring.riskBand !== ship.riskZone || previous.margin !== margin) continue;
       retained.set(ship.id, previous);
-      placed.push(previous.tile);
+      placed.push({ x: previous.tile.x, y: previous.tile.y, margin: previous.margin });
     }
   }
   for (const [zone, group] of [...byZone].sort(([left], [right]) => left.localeCompare(right))) {
-    // Stable tie-breaking for new ships competing for unreserved water.
-    const ordered = group.toSorted((left, right) => left.id.localeCompare(right.id));
+    // Largest hulls berth first: their gap is the widest, and a big hull left
+    // to last finds only gaps sized for small ones. Ids break ties stably.
+    const marginById = new Map(group.map((ship) => [ship.id, gardenShipWaterMarginTiles(
+      gardenShipVisualScale(ship.visual.scale || 1),
+      GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+    )]));
+    const ordered = group.toSorted((left, right) => (
+      marginById.get(right.id)! - marginById.get(left.id)! || left.id.localeCompare(right.id)
+    ));
     const region = regions.get(TERRAIN_FOR_ZONE[zone]);
     const candidates = region?.tiles ?? [];
     if (candidates.length === 0) {
@@ -528,7 +617,7 @@ export function placeGardenFleet(
       // and is shared by every ship in the fixtures — so it both stacks hulls
       // and drops them in the wrong band.
       let relaxedBest: { x: number; y: number } | null = null;
-      let relaxedScore = -1;
+      let relaxedScore = Number.NEGATIVE_INFINITY;
       let berth: { x: number; y: number } | null = null;
 
       const passes = anchorage ? (["anchorage", "region"] as const) : (["region"] as const);
@@ -549,22 +638,24 @@ export function placeGardenFleet(
           // near an edge would quietly leak ships into the neighbouring body
           // and break the one thing this file is not allowed to break.
           if (terrainKindAt(Math.round(tile.x), Math.round(tile.y)) !== terrain) continue;
-          if (!isGardenShipWater(tile, margin)) continue;
-          if (inletDistance(tile.x, tile.y) <= GARDEN_EMPTY_INLET.halfWidth + margin) continue;
+          if (!isBerthWater(tile, margin)) continue;
 
           let nearest = Number.POSITIVE_INFINITY;
+          let separation = Number.POSITIVE_INFINITY;
           for (const other of placed) {
             const distance = Math.hypot(tile.x - other.x, tile.y - other.y);
             if (distance < nearest) nearest = distance;
+            const ratio = distance / Math.max(margin, other.margin);
+            if (ratio < separation) separation = ratio;
           }
           if (nearest * weight > relaxedScore) {
             relaxedScore = nearest * weight;
             relaxedBest = tile;
           }
-          // R11: a hard floor on hull separation, kept exactly as it was. This
-          // is what stops an anchorage becoming the raft that blue noise was
-          // brought in to prevent.
-          if (nearest < margin * MIN_HULL_GAP) continue;
+          // R11: a hard floor on hull separation. This is what stops an
+          // anchorage becoming the raft that blue noise was brought in to
+          // prevent.
+          if (separation < MIN_HULL_GAP) continue;
 
           // Filling inward-out is what makes a cluster read as a harbour with a
           // middle, rather than as a disc of scattered points.
@@ -585,22 +676,33 @@ export function placeGardenFleet(
 
       // Random draws may exhaust a narrow anchorage; scan its legal water
       // rather than returning to an authored tile inside the empty channel.
+      // Any tile that still clears the hull gap wins; only a band with no such
+      // water left falls back to the most open spot it has.
       if (!berth) {
+        let scanNearest = -1;
         for (const tile of candidates) {
-          if (densityWeight(tile.x, tile.y, lighthouseTile) <= 0
-            || inletDistance(tile.x, tile.y) <= GARDEN_EMPTY_INLET.halfWidth + margin
-            || !isGardenShipWater(tile, margin)) continue;
+          if (densityWeight(tile.x, tile.y, lighthouseTile) <= 0 || !isBerthWater(tile, margin)) continue;
           let nearest = Number.POSITIVE_INFINITY;
-          for (const other of placed) nearest = Math.min(nearest, Math.hypot(tile.x - other.x, tile.y - other.y));
+          let separation = Number.POSITIVE_INFINITY;
+          for (const other of placed) {
+            const distance = Math.hypot(tile.x - other.x, tile.y - other.y);
+            if (distance < nearest) nearest = distance;
+            const ratio = distance / Math.max(margin, other.margin);
+            if (ratio < separation) separation = ratio;
+          }
+          if (separation >= MIN_HULL_GAP && nearest > scanNearest) {
+            berth = tile;
+            scanNearest = nearest;
+          }
           if (nearest > relaxedScore) {
             relaxedBest = tile;
             relaxedScore = nearest;
           }
         }
       }
-      const resolved = berth ?? relaxedBest;
-      if (!resolved) throw new Error(`No navigable berth outside the inlet for ${ship.id}`);
-      placed.push(resolved);
+      // Tier 1 is `relaxedBest`: apron-clear water, gap relaxed.
+      const resolved = berth ?? relaxedBest ?? fallbackBerth(candidates, margin, placed, lighthouseTile, ship.tile);
+      placed.push({ x: resolved.x, y: resolved.y, margin });
       tileByShipId.set(ship.id, resolved);
       nextBerths.set(ship.id, { tile: resolved, margin, mooring: mooringByShipId.get(ship.id)! });
     }
@@ -625,6 +727,52 @@ export function placeGardenFleet(
   berthCache = { lighthouseX: lighthouseTile.x, lighthouseY: lighthouseTile.y, byShipId: nextBerths };
 
   return { mooringByShipId, tileByShipId };
+}
+
+/**
+ * Last resorts for a band with no apron-clear water left, so a world always
+ * renders rather than failing placement.
+ *
+ * Tier 2 is the earlier rule: navigable water outside the inlet, dock aprons
+ * allowed (the display then eases the hull off the apron). Tier 3 is the
+ * least-bad navigable tile of the band: outside the inlet if any is, else the
+ * one farthest from it. Only a band with no navigable tile at all keeps the
+ * ship's data tile. Each tier prefers the spot farthest from placed hulls.
+ */
+function fallbackBerth(
+  candidates: readonly { x: number; y: number }[],
+  margin: number,
+  placed: readonly PlacedHull[],
+  lighthouseTile: { x: number; y: number },
+  dataTile: { x: number; y: number },
+): { x: number; y: number } {
+  let navigable: { x: number; y: number } | null = null;
+  let navigableScore = Number.NEGATIVE_INFINITY;
+  let previousRule: { x: number; y: number } | null = null;
+  let previousRuleNearest = Number.NEGATIVE_INFINITY;
+  for (const tile of candidates) {
+    if (!isGardenShipWater(tile, 0)) continue;
+    let nearest = Number.POSITIVE_INFINITY;
+    for (const other of placed) nearest = Math.min(nearest, Math.hypot(tile.x - other.x, tile.y - other.y));
+    const inlet = inletDistance(tile.x, tile.y);
+    if (densityWeight(tile.x, tile.y, lighthouseTile) > 0
+      && inlet > GARDEN_EMPTY_INLET.halfWidth + margin
+      && isGardenShipWater(tile, margin)
+      && nearest > previousRuleNearest) {
+      previousRule = tile;
+      previousRuleNearest = nearest;
+    }
+    // Outside the inlet ranks above inside it; then open water, then distance
+    // from the inlet.
+    const score = inlet > GARDEN_EMPTY_INLET.halfWidth
+      ? PHAROSVILLE_MAP_WIDTH + PHAROSVILLE_MAP_HEIGHT + Math.min(nearest, PHAROSVILLE_MAP_WIDTH)
+      : inlet;
+    if (score > navigableScore) {
+      navigable = tile;
+      navigableScore = score;
+    }
+  }
+  return previousRule ?? navigable ?? { x: dataTile.x, y: dataTile.y };
 }
 
 /** Choose a mooring by identity, never by a ship's ordinal in the roster. */

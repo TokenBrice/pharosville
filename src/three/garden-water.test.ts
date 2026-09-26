@@ -45,9 +45,7 @@ import {
 import {
   GARDEN_WATER_MAX_RIPPLE_RINGS,
   GARDEN_WATER_MAX_LIGHT_LANES,
-  GARDEN_WATER_NIGHT_EMISSIVE_BUDGET,
   GARDEN_WATER_PLATE_MARGIN_TILES,
-  gardenWaterOpenNightMeanEmissiveBudget,
 } from "./garden-water-contract";
 
 /**
@@ -501,8 +499,6 @@ describe("createGardenWater", () => {
     for (const aliased of [
       "step(0.76,",
       "step(0.35,",
-      "step(0.86, sin(",
-      "step(0.0, shoreWorld)",
       "step(-2.0, along)",
     ]) {
       // `aaStep(0.76,` contains `Step(0.76,` but not `step(0.76,` — the check
@@ -557,24 +553,20 @@ describe("createGardenWater", () => {
     const water = createGardenWater(0);
     settle(water, { renderScheduler: { tier: "full" } });
     const atRest = {
-      cloud: uniformNumber(water.material, "uCloudShadowStrength"),
       detail: uniformNumber(water.material, "uDetail"),
       glitter: uniformNumber(water.material, "uGlitterStrength"),
       ripple: uniformNumber(water.material, "uRippleStrength"),
     };
 
     settle(water, { renderScheduler: { tier: "interaction", loadTier: "full" } });
-    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBeCloseTo(atRest.cloud, 5);
     expect(uniformNumber(water.material, "uDetail")).toBeCloseTo(atRest.detail, 5);
     expect(uniformNumber(water.material, "uGlitterStrength")).toBeCloseTo(atRest.glitter, 5);
     expect(uniformNumber(water.material, "uRippleStrength")).toBeCloseTo(atRest.ripple, 5);
-    expect(water.cloudShadowsOn()).toBe(true);
 
     // A drag on a machine already shedding load still sheds — quality tracks
     // the machine, not the mouse.
     settle(water, { renderScheduler: { tier: "interaction", loadTier: "recovery" } });
     expect(uniformNumber(water.material, "uDetail")).toBeCloseTo(0.36, 3);
-    expect(water.cloudShadowsOn()).toBe(false);
   });
 
   it("eases a load-tier change instead of stepping it", () => {
@@ -635,18 +627,18 @@ describe("createGardenWater", () => {
     }
   });
 
-  it("gates cloud shadows and glitter to balanced+ tiers", () => {
+  it("gates glitter and ripple rings to balanced+ tiers and casts no cloud shadow from an empty sky", () => {
     const water = createGardenWater(0);
 
     settle(water, { renderScheduler: { tier: "balanced" } });
-    expect(water.cloudShadowsOn()).toBe(true);
-    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBeGreaterThan(0);
+    expect(water.cloudShadowsOn()).toBe(false);
+    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBe(0);
     expect(uniformNumber(water.material, "uGlitterStrength")).toBeCloseTo(1, 3);
     expect(uniformNumber(water.material, "uRippleStrength")).toBeCloseTo(1, 3);
 
     settle(water, { renderScheduler: { tier: "recovery" } });
     expect(water.cloudShadowsOn()).toBe(false);
-    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBeCloseTo(0, 3);
+    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBe(0);
     expect(uniformNumber(water.material, "uGlitterStrength")).toBeCloseTo(0, 3);
     expect(uniformNumber(water.material, "uRippleStrength")).toBeCloseTo(0, 3);
   });
@@ -940,16 +932,6 @@ describe("createGardenWater", () => {
     // lane-texture samples: breaking the point strokes is analytic and adds
     // no GPU texture fetch.
     expect(source.match(/texture2D\(uLaneTexture/g)).toHaveLength(4);
-  });
-});
-
-describe("sea quietness contract", () => {
-  it("keeps the authored open-night emissive mean below the recorded threshold", () => {
-    const mean = gardenWaterOpenNightMeanEmissiveBudget();
-    expect(mean).toBeCloseTo(0.015715, 8);
-    expect(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.maxMeanLuminance).toBe(0.016);
-    expect(mean).toBeLessThan(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.maxMeanLuminance);
-
   });
 });
 

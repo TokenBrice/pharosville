@@ -29,6 +29,7 @@ import type {
   WorldSelectableEntity,
 } from "../systems/world-types";
 import { sameCamera, samePoint } from "../lib/camera-equality";
+import { isStillCameraRequested } from "../lib/pharosville-debug";
 import { isDialogEventTarget } from "./keyboard-event-target";
 import { gardenArrivalCamera, sampleGardenArrivalCamera } from "../systems/garden-arrival";
 import { GARDEN_ATTRACT_TRAVEL_SECONDS } from "../systems/garden-attract";
@@ -47,6 +48,10 @@ import { firstPointer, pinchSnapshot } from "./pointer-gesture";
 import { useLatestRef } from "./use-latest-ref";
 
 const wallClockSeconds = (): number => Date.now() / 1000;
+/** W0.15: attract never asks for the slot within this long of any admitted beat. */
+const GARDEN_ATTRACT_BEAT_BACKOFF_SECONDS = 90;
+/** W0.15: after a refusal, a waiting attract move asks again no sooner than this. */
+const GARDEN_ATTRACT_RETRY_SECONDS = 30;
 
 export {
   advanceCameraIntent,
@@ -200,6 +205,8 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     loop?: boolean;
     book?: readonly ObserveTourKeyframe[];
     bookIndex?: number;
+    /** W0.15: director clock (s) before which a waiting attract move does not ask for the slot again. */
+    retryAtSeconds?: number;
   } | null>(null);
   const observeSampleRef = useRef<ObserveTourSample>({
     beatIndex: 0,
@@ -703,14 +710,27 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       if (activeTour.startMs === null) {
         const director = gardenDirectorRef.current;
         if (activeTour.loop && director) {
+          // W0.15 / K44: attract asks for the environment slot once per move,
+          // never every frame, and yields to the director's own beats — it
+          // does not ask within 90 s of any admitted beat, and a refusal
+          // waits `GARDEN_ATTRACT_RETRY_SECONDS` before asking again. The
+          // slot's own 6–10 min closure keeps it at ≤ 1 postcard move per
+          // environment window. While waiting the camera is simply still:
+          // no intent is reported, so the idle breath and cadence apply.
+          const directorNow = directorClockRef.current(now);
+          const lastAdmitted = director.log[director.log.length - 1];
+          const mayAsk = directorNow >= (activeTour.retryAtSeconds ?? Number.NEGATIVE_INFINITY)
+            && (!lastAdmitted || directorNow - lastAdmitted.startSeconds >= GARDEN_ATTRACT_BEAT_BACKOFF_SECONDS);
           const frame = activeTour.tour.keyframes[0]!;
-          if (!requestGardenBeat(director, {
+          const admitted = mayAsk && requestGardenBeat(director, {
             kind: "attract", foreground: false, priority: 1,
             durationSeconds: frame.travelSeconds ?? GARDEN_ATTRACT_TRAVEL_SECONDS,
             subject: "name" in frame ? String(frame.name) : `Postcard ${frame.beatIndex + 1}`,
-          }, directorClockRef.current(now))) {
+          }, directorNow) !== null;
+          if (!admitted) {
+            if (mayAsk) activeTour.retryAtSeconds = directorNow + GARDEN_ATTRACT_RETRY_SECONDS;
             setAttractState((state) => state.holding ? state : { holding: true });
-            return { camera: displayCamera, cameraChanged: false, cameraIntentActive: true };
+            return { camera: displayCamera, cameraChanged: false, cameraIntentActive: false };
           }
         }
         activeTour.startMs = now;
@@ -909,6 +929,8 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   }, [cameraRef, framingViewport, reducedMotion, requestWorldFrame, stopFollowChase]);
 
   const startAttractTour = useCallback((keyframes: readonly ObserveTourKeyframe[]) => {
+    // W0.2 `still=1`: the debug still camera never tours; the world moves alone.
+    if (isStillCameraRequested()) return;
     stopFollowChase();
     const startCamera = displayCameraRef.current ?? cameraRef.current;
     if (!startCamera || reducedMotion || keyframes.length === 0) return;

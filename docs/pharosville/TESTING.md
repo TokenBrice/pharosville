@@ -111,7 +111,8 @@ measurement of sail-pixel occlusion. `--pan-zoom` records six gesture frames;
 `--texture-census` includes logical storage estimates for reachable textures,
 unique live handles and known depth/MSAA renderbuffers, with unknown allocations
 listed separately. These are **not measured VRAM**. The GPU preflight reports
-timer-query support; it does not time individual GPU passes.
+timer-query support only. The `gpu` line's per-pass readings are not additive
+and are not pass costs (see "Instruments" below).
 
 For lower-tier visual inspection on the dev server, `--force-tier recovery` or
 `--force-tier constrained` uses a debug-only test global. It cannot activate in
@@ -314,6 +315,69 @@ npm run preview -- --refresh common
 `content roots` must remain stable and `content` should report
 `renderer-equivalent` for a sub-band supply refresh; a true authored change is
 still expected to replace content.
+
+### Instruments (plan W0.1–W0.3)
+
+Cost, motion and picture evidence comes from `preview.mjs` itself, on its own
+real-GPU frame path, after the renderer check and the populate/settle waits.
+Every instrument that reads an app debug field (`window.__pharosVilleDebug`
+`motionStats`, `directorLog`, `project`, `anchors`; the `still=1`, `d=` and
+`window.__pharosVilleKnockout` seams) needs visual debug — the dev server or a
+localhost build with `?debug=1` — and prints an `error` line naming the missing
+field, with exit 1, when the page does not publish it. The rest of the run still
+reports.
+
+| flag | what it does |
+| --- | --- |
+| `--uncapped` | launches Chrome with `--disable-gpu-vsync --disable-frame-rate-limit`, so frame p50 is throughput cost rather than the vsync interval |
+| `--knockout <list>` | sets `window.__pharosVilleKnockout` before load; names: `ao`, `bloom`, `smaa`, `rays`, `reflection`, `grade`, `water-lanes` |
+| `--knockout-compare <list>` | runs the baseline and each named knockout as whole serial previews, one Chrome per arm, alternating for 3 rounds; prints each arm and Δp50/Δp90 = knockout − baseline, averaged over same-round pairs, plus Σ Δp50. Arm captures and JSON land as `<out>-kc-rN-<arm>.{png,json}`; `--json` writes the summary |
+| `--still-camera` | appends `still=1`: no camera breath, no attract/postcard moves; director, fleet and water keep running |
+| `--clock <ISO>` | pins `Date` to that instant and lets it flow in real time (RAF, `performance.now` and timers stay native), and adds `d=YYYY-MM-DD` (the date as written) to the hash. A bare date is local midnight. Under `--fixture` the fixture's fixed `Date` is kept, so data freshness stays coherent, and only `d=` pins the calendar. Not combinable with `--refresh` |
+| `--burst N [--interval ms] [--clip x,y,w,h] [--burst-sheet]` | N ordered frames `<out>-burst-NN.png`, paced start to start (default 600 ms), of the canvas or of a viewport clip in CSS pixels; `--burst-sheet` also tiles them into `<out>-burst-sheet.png` |
+| `--stats [--watch-seconds S]` | prints `motionStats` (visible, underway, mean \|turn\|) and the latest director beats; with `--watch-seconds`, polls every 500 ms for S seconds and prints beats admitted, events/h, longest quiet gap, underway % of visible hulls and mean \|turn\| (°/s, °/min) |
+| `--metrics` | HUD-free capture (debug HUD and world chrome hidden): 3×3 ninths mean L\*, pixels L\* > 85, bottom-left ninth, saturated-orange share (HSV hue 15–50°, s·v > 0.35), left/right top-band hue Δ (chroma-weighted), bottom-third high-frequency energy \|L\* − gauss σ6\|, tower lit/shade face ratio and tower-vs-air Δ from projected `anchors`, and a 3-value notan at 16 px blur written to `<out>-notan.png` |
+| `--temporal` | mean frame-to-frame \|ΔL\*\| of the bottom third over an 11-frame, 1.5 s HUD-free burst |
+| `--value-plan [noon\|dusk\|night]` | MAE and Pearson r of the ninths against the value-plan table in `VISUAL_INVARIANTS.md`, parsed from the document on each run; the column comes from the `t=` hour (noon 9–16, dusk 16–20 or 5–7, night otherwise), else the page's wall-clock hour, unless named |
+| `--night-water` | mean, p95 and max L\* and the share above L\* 10 over the projected inlet water polygon (`anchors.inletPolygon`): the measured night-water probe |
+
+All readings print as text and, with `--json`, land under `instruments` in the
+JSON (`instrumentConfig` records clock, knockout, still camera and uncapped).
+L\* is CIE L\* from sRGB through Rec.709 Y, the same maths as the light lane's
+ninths. Blur radii are CSS pixels, scaled by DPR. High-frequency energy is
+measured at full CSS resolution, so re-baseline it with this tool instead of
+comparing it with lane figures taken from downsampled frames.
+
+```bash
+npm run preview -- --uncapped --knockout-compare ao,bloom,smaa,rays,reflection,grade,water-lanes
+npm run preview -- --still-camera --hash "#t=18.3" --burst 9 --interval 600 --clip 900,700,500,250 --burst-sheet
+npm run preview -- --still-camera --stats --watch-seconds 600
+npm run preview -- --fixture calm --clock 2026-09-26 --hash "#t=12.25" --metrics --value-plan --json noon.json
+npm run preview -- --clock 2026-09-26 --hash "#t=22" --metrics --temporal --night-water --out night.png
+```
+
+**Cost claims.** The `gpu` line prints non-additive per-pass timer readings.
+On ANGLE Metal they are overlapping command-buffer spans: they do not sum to the
+frame, and a pass's reading is not what removing it saves. `--max-gpu-ms` is
+therefore refused on Metal (exit 2). Pass costs come from `--uncapped
+--knockout-compare`. Run arms serially, never beside another GPU job: uncapped
+runs heat the GPU.
+
+**Serial DPR-2 baseline.** Every ms claim cites the baseline table taken on
+the operator's MacBook: run the default and each gate hash one after another,
+once at `--dpr 1` and once at `--dpr 2`, each `--uncapped` and each with its own
+`--knockout-compare` when pass costs are in question. For example:
+
+```bash
+npm run preview -- --uncapped --dpr 2 --hash "#t=12.25" --json dpr2-noon.json --out dpr2-noon.png
+npm run preview -- --uncapped --dpr 2 --hash "#t=22" --json dpr2-night.json --out dpr2-night.png
+```
+
+**Headed 120 Hz arm.** On a ProMotion display, `--headed` adds a `display`
+line: the raw `requestAnimationFrame` rate that panel delivers, beside the
+app's achieved fps. Read it at rest and during `--pan-zoom`, for example
+`npm run preview -- --headed --seconds 20 --pan-zoom`. Do not pass
+`--uncapped` here; the arm measures the display cadence.
 
 ### Historical WebGPU spike
 

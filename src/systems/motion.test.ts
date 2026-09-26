@@ -10,7 +10,17 @@ import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad"
 import { isSeawallBarrierTile, seawallBarrierDistance } from "./seawall";
 import { buildPharosVilleMap, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
 import { zoneWorldTile } from "./map-scale";
-import { isGardenObstacleTile } from "./garden-water-exclusion";
+import { gardenShipWaterMarginTiles, isGardenObstacleTile } from "./garden-water-exclusion";
+import { MIN_HULL_GAP, resetGardenFleetPlacementCache } from "./garden-fleet-placement";
+import {
+  GARDEN_SHIP_ROOT_Y,
+  GARDEN_SILHOUETTE_FOR_HULL,
+  gardenShipVisualScale,
+  resolveGardenShipDisplayTile,
+  selectGardenObservatorySlice,
+} from "./garden-observatory-slice";
+import { defaultCamera } from "./camera";
+import { TILE_SCALE, worldToScreen } from "./projection";
 import { patrolSpeedForZone } from "./motion-sampling/risk-drift";
 import type { PharosVilleMap, PharosVilleWorld, ShipWaterZone } from "./world-types";
 
@@ -878,6 +888,74 @@ describe("motion", () => {
     expect(sample.wakeIntensity).toBe(0);
     expect(sample.mapVisibilityAlpha).toBe(1);
     expect(terrainKindAt(Math.round(sample.tile.x), Math.round(sample.tile.y))).toBe("ledger-water");
+  });
+
+  it("rests the reduced-motion fleet on spaced berths in its own band water, clear of the chrome corner", () => {
+    // Calm keeps only a sliver of its water outside the authored inlet: room
+    // for about twenty hulls at the hull gap. Hold the band inside that (and
+    // keep every squad member, so consorts are covered); an overflowing band
+    // takes least-overlap berths instead.
+    const calmOverflow = new Set(denseWorldFixture.ships
+      .filter((ship) => ship.riskZone === "calm" && !ship.squadId)
+      .slice(14)
+      .map((ship) => ship.id));
+    const tableauWorld = {
+      ...denseWorldFixture,
+      ships: denseWorldFixture.ships.filter((ship) => !calmOverflow.has(ship.id)),
+    };
+    const terrainForZone: Record<ShipWaterZone, string> = {
+      alert: "alert-water",
+      calm: "calm-water",
+      danger: "storm-water",
+      ledger: "ledger-water",
+      warning: "warning-water",
+      watch: "watch-water",
+    };
+    const viewport = { x: 1600, y: 1000 };
+    const restCamera = defaultCamera({ height: viewport.y, map: tableauWorld.map, width: viewport.x });
+    const staticBerths = () => {
+      resetGardenFleetPlacementCache();
+      // A fresh world object, so the garden slice re-solves its berths.
+      const world = { ...tableauWorld };
+      const plan = buildMotionPlan(world, null);
+      return selectGardenObservatorySlice(world, null).ships
+        // Dependency children are composed beside their parent, not berthed.
+        .filter(({ ship }) => !ship.dependencyFormation)
+        .map((placement) => ({
+          id: placement.ship.id,
+          zone: placement.ship.riskZone,
+          tile: resolveGardenShipDisplayTile({
+            ...placement,
+            sample: resolveShipMotionSample({ plan, reducedMotion: true, ship: placement.ship, timeSeconds: 120 }),
+          }),
+          margin: gardenShipWaterMarginTiles(
+            gardenShipVisualScale(placement.ship.visual.scale || 1),
+            GARDEN_SILHOUETTE_FOR_HULL[placement.ship.visual.hull],
+          ),
+        }));
+    };
+
+    const berths = staticBerths();
+    expect(berths.some((berth) => berth.zone === "ledger")).toBe(true);
+    for (const [index, berth] of berths.entries()) {
+      expect(terrainKindAt(Math.round(berth.tile.x), Math.round(berth.tile.y)), berth.id)
+        .toBe(terrainForZone[berth.zone]);
+      const screen = worldToScreen(
+        { x: berth.tile.x * TILE_SCALE, y: GARDEN_SHIP_ROOT_Y, z: berth.tile.y * TILE_SCALE },
+        restCamera,
+        viewport,
+      );
+      const underChrome = screen.x >= viewport.x - 180 && screen.x <= viewport.x
+        && screen.y >= viewport.y - 120 && screen.y <= viewport.y;
+      expect(underChrome, `${berth.id} under the chrome`).toBe(false);
+      for (const other of berths.slice(index + 1)) {
+        expect(
+          Math.hypot(berth.tile.x - other.tile.x, berth.tile.y - other.tile.y),
+          `${berth.id} / ${other.id}`,
+        ).toBeGreaterThanOrEqual(Math.max(berth.margin, other.margin) * MIN_HULL_GAP - 1e-9);
+      }
+    }
+    expect(staticBerths().map((berth) => berth.tile)).toEqual(berths.map((berth) => berth.tile));
   });
 
   it("hides only non-titan, non-unique ships while they are moored", () => {

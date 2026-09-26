@@ -191,6 +191,36 @@ export function gardenBokashiBandGlsl(): string {
 `;
 }
 
+// W0.19 (critic D12): the ladder is spent between the sea horizon and the top
+// row, but at the whole-map pull-out the top row sits only ~4° above the sea,
+// which squeezed every band into a few dozen rows and read as a hard step. The
+// visible height is floored at 6°, so a low sky shows the lower part of the
+// ladder instead of all of it compressed, and the top eases into 1 through a
+// smoothstep knee instead of a hard clamp.
+export const GARDEN_SKY_VISIBLE_HEIGHT_FLOOR = Math.sin(6 * Math.PI / 180);
+/**
+ * Soft top of the ladder: linear up to the knee start, flat at 1 from start +
+ * width. The knee straddles 1 symmetrically, so the ramp lands exactly on 1.
+ */
+const SKY_HEIGHT_KNEE_START = 0.8;
+const SKY_HEIGHT_KNEE_WIDTH = 0.4;
+
+/** Sine of the top row's elevation for a pose pitch, floored at 6°. */
+export function gardenSkyVisibleHeight(pitch: number): number {
+  return Math.max(GARDEN_SKY_VISIBLE_HEIGHT_FLOOR, Math.sin(CAMERA_FOV_DEG * Math.PI / 360 - pitch));
+}
+
+/**
+ * Ladder height of a view ray. Its slope is `1 - smoothstep(knee)`: 1 up to
+ * the knee, easing to 0 at its end, where the value is exactly 1 — no kink
+ * anywhere. The dome shader inlines the same ramp from the same constants.
+ */
+export function gardenSkyHeight(dirY: number, visibleHeight: number): number {
+  const h = Math.max(0, dirY / visibleHeight);
+  const t = Math.min(1, Math.max(0, (h - SKY_HEIGHT_KNEE_START) / SKY_HEIGHT_KNEE_WIDTH));
+  return Math.min(h, SKY_HEIGHT_KNEE_START) + SKY_HEIGHT_KNEE_WIDTH * (t - t * t * t + 0.5 * t * t * t * t);
+}
+
 // The first follow-up baseline disables the detached cumulus sprites that read
 // as pale pills at whole-map zoom. Keep the implementation for controlled A/B
 // work; mist banks remain the active billboard atmosphere.
@@ -344,7 +374,10 @@ function createDome(): {
       ${gardenBokashiBandGlsl()}
       void main() {
         vec3 dir = normalize(vDir);
-        float skyHeight = clamp(dir.y / uSkyVisibleHeight, 0.0, 1.0);
+        float skyLift = max(dir.y / uSkyVisibleHeight, 0.0);
+        float skyKnee = clamp((skyLift - ${SKY_HEIGHT_KNEE_START.toFixed(2)}) / ${SKY_HEIGHT_KNEE_WIDTH.toFixed(2)}, 0.0, 1.0);
+        float skyHeight = min(skyLift, ${SKY_HEIGHT_KNEE_START.toFixed(2)})
+          + ${SKY_HEIGHT_KNEE_WIDTH.toFixed(2)} * (skyKnee - skyKnee * skyKnee * skyKnee + 0.5 * skyKnee * skyKnee * skyKnee * skyKnee);
         vec3 color = mix(uHorizon, uMiddle, smoothstep(0.015, 0.28, skyHeight));
         color = mix(color, uZenith, smoothstep(0.3, 0.86, skyHeight));
         color *= gardenBokashiShade(skyHeight, uBokashiAmount);
@@ -505,7 +538,6 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     celestial,
     billboards.mist.mesh,
     billboards.clouds.mesh,
-    billboards.geese.mesh,
     billboards.localMist.mesh,
   );
 
@@ -523,7 +555,6 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   const mistColor = new Color();
   const cloudBodyColor = new Color();
   const cloudShadeColor = new Color();
-  const geeseColor = new Color();
   const winterFog = new Color(HARBOR_PALETTE.fog_blue);
   const sunQuadDir = new Vector2(0, 1);
   const scratchSunPose = { direction: new Vector3(0, 1, 0), elevation: Math.PI / 2 };
@@ -538,7 +569,6 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   billboards.clouds.material.uniforms.uLitColor.value = sunColor;
   billboards.clouds.material.uniforms.uSunQuadDir.value = sunQuadDir;
   billboards.clouds.material.uniforms.uWindDir.value = windDir;
-  billboards.geese.material.uniforms.uColor.value = geeseColor;
 
   const applyPhase = (phase: DayCyclePhase, wallClockHour: number): void => {
     const { daylight, dusk } = phase;
@@ -559,7 +589,6 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     // The finite water plate dissolves against this exact colour. Copy after
     // seasonal grading so winter cannot open a seam at the horizon.
     horizon.copy(fog.color);
-    geeseColor.copy(fog.color).multiplyScalar(0.52);
     // Ember west band belongs exclusively to the wall-clock illumination.
     dome.material.uniforms.uEmberStrength.value = beats.golden * 0.3 + beats.blue * 0.22;
 
@@ -628,8 +657,9 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
         frame.cameraPosition.z - frame.targetZ,
       );
       const pitch = Math.asin(eyeHeight / distance);
-      // Spend the full gradient ladder between the sea horizon and top row.
-      dome.material.uniforms.uSkyVisibleHeight.value = Math.sin(CAMERA_FOV_DEG * Math.PI / 360 - pitch);
+      // Spend the gradient ladder between the sea horizon and the top row,
+      // never over less than 6° of sky (the whole-map step, critic D12).
+      dome.material.uniforms.uSkyVisibleHeight.value = gardenSkyVisibleHeight(pitch);
       const cover = Math.max(0, NEUTRAL_SKY_CLARITY - clarity);
       fogRangeAtViewHeight(fog, frame.cameraPosition, cover);
       applyPhase(phase, frame.wallClockHour);
@@ -691,11 +721,6 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       else sunQuadDir.normalize();
       billboards.clouds.mesh.visible = showBillboards
         && (GARDEN_CUMULUS_BILLBOARDS_ENABLED || season === "summer" || clarity < NEUTRAL_SKY_CLARITY);
-      const geeseOpacity = season === "autumn"
-        ? Math.max(0.16, 0.42 - night * 0.2 - cover * 0.12)
-        : 0;
-      billboards.geese.material.uniforms.uOpacity.value = geeseOpacity;
-      billboards.geese.mesh.visible = showBillboards && geeseOpacity > 0.01;
     },
   };
 }

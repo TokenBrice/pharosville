@@ -22,6 +22,7 @@ import {
   shipRedemptionFittingLabel,
 } from "./ship-fittings";
 import type { PharosVilleFreshness } from "./world-types";
+import { SIGNAL_MAST_STORM_SUPPLY_SHARE } from "./world-types";
 import { deriveEpistemicHaze, quayHazeLabel, riskWaterHazeLabel } from "./epistemic-haze";
 import { motionCadenceDetailLabel } from "./motion-config";
 
@@ -91,24 +92,42 @@ function phaseCaption(hour: number, beats: DayCycleBeats, psi: number | null): s
 }
 
 /**
- * The single scene caption. Its precedence is deliberate: a ceremony is the
- * present moment, then a market move, then a warning, then the ambient phase.
+ * The caption's words without the minute clock. Its precedence is
+ * deliberate: a stale feed is a truth warning and outranks everything, then a
+ * ceremony is the present moment, then a market move, then the ambient phase.
  */
-export function nowCaption({
+function nowCaptionPhrase({
   arrivalAnnotation,
   beats,
   freshness,
   hour,
   latestTransition,
   psi,
-}: NowCaptionInput): string {
-  if (arrivalAnnotation) return arrivalAnnotation;
-  if (latestTransition) {
-    return `${latestTransition.symbol} moved to ${latestTransition.toLabel}, observed ${observedTimeLabel(latestTransition.observedAt)}`;
-  }
+}: NowCaptionInput): { clocked: boolean; text: string } {
   const staleFeed = NOW_CAPTION_FRESHNESS_LABELS.find(([key]) => freshness[key] === true);
-  if (staleFeed) return `${staleFeed[1]} stale since ${observedTimeLabel(freshness.observedAt ?? null)}`;
-  return `${clockLabel(hour)} — ${phaseCaption(hour, beats, psi)} · readings current`;
+  if (staleFeed) return { clocked: false, text: `${staleFeed[1]} stale since ${observedTimeLabel(freshness.observedAt ?? null)}` };
+  if (arrivalAnnotation) return { clocked: false, text: arrivalAnnotation };
+  if (latestTransition) {
+    return {
+      clocked: false,
+      text: `${latestTransition.symbol} moved to ${latestTransition.toLabel}, observed ${observedTimeLabel(latestTransition.observedAt)}`,
+    };
+  }
+  return { clocked: true, text: `${phaseCaption(hour, beats, psi)} · readings current` };
+}
+
+/** The single visible scene caption; the ambient phase leads with the minute clock. */
+export function nowCaption(input: NowCaptionInput): string {
+  const phrase = nowCaptionPhrase(input);
+  return phrase.clocked ? `${clockLabel(input.hour)} — ${phrase.text}` : phrase.text;
+}
+
+/**
+ * What the caption's status region speaks: the same phrase without the minute
+ * clock, so a screen reader hears it only when the phrase itself changes.
+ */
+export function nowCaptionAnnouncement(input: NowCaptionInput): string {
+  return nowCaptionPhrase(input).text;
 }
 
 function marketCapLabel(value: number): string {
@@ -630,15 +649,34 @@ export function detailForPigeonnier(node: PigeonnierNode): DetailModel {
 
 /**
  * What the observatory hoist is showing, in words — the DOM parity for the
- * signal mast. Deliberately describes the CLOTH, not the market: a reader who
- * cannot see the mast should be able to picture it and then read the figures.
+ * signal mast. Describes the CLOTH first and then what it stands for: a reader
+ * who cannot see the mast should be able to picture it — pennants for the
+ * largest coins by supply that are off peg, a cone only when enough of the
+ * tracked supply is off peg — and then read the figures.
  */
 export function signalMastLabel(mast: LighthouseNode["signalMast"]): string {
   if (!mast || mast.unavailable) return "Bare — no peg summary tonight";
-  const cone = mast.stormCone ? "; storm cone hoisted" : "";
-  if (mast.pennantCount === 0) return `Bare — no coin off peg${cone}`;
-  const hoist = `${pluralize(mast.pennantCount, "pennant")} for ${pluralize(mast.activeDepegCount, "coin")} off peg`;
-  return `${hoist}${mast.capped ? " (hoist caps the count)" : ""}${cone}`;
+  if (mast.leaderCount === 0 || mast.offPegSupplyShare === null) {
+    return "Bare — no supply figures to weigh the peg readings against";
+  }
+  const leaders = `the ${mast.leaderCount} largest coins by supply`;
+  const hoist = mast.leadersOffPeg.length === 0
+    ? `none of ${leaders} off peg`
+    : `${pluralize(mast.pennantCount, "pennant")} for ${mast.leadersOffPeg.join(", ")} — ${mast.leadersOffPeg.length} of ${leaders} off peg${mast.capped ? " (hoist caps the count)" : ""}`;
+  const share = `${supplySharePercentLabel(mast.offPegSupplyShare)} of tracked supply off peg`;
+  const gate = supplySharePercentLabel(SIGNAL_MAST_STORM_SUPPLY_SHARE);
+  const cone = mast.stormCone
+    ? `storm cone hoisted — ${share}`
+    : `no storm cone — ${share}, under the ${gate} gate`;
+  return `${mast.pennantCount === 0 && !mast.stormCone ? "Bare — " : ""}${hoist}; ${cone}`;
+}
+
+/** A supply share as a percentage precise enough to sit either side of a 1% gate. */
+function supplySharePercentLabel(share: number): string {
+  if (share <= 0) return "0%";
+  if (share < 0.0001) return "under 0.01%";
+  const figure = (share * 100).toFixed(share < 0.1 ? 2 : 1).replace(/\.?0+$/, "");
+  return `${figure}%`;
 }
 
 /**

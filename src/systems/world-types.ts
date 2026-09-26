@@ -208,11 +208,9 @@ export interface LighthouseContributor {
 /**
  * How many pennants the observatory hoist carries before it stops counting.
  *
- * A pennant per depeg with no cap turns a bad afternoon into a ladder of cloth
- * nobody can count, which reads as alarm rather than as a reading. Five is what
- * a real signal hoist flies and what stays legible at overview zoom; past that
- * the mast says "more than five" and the exact figure is the DOM's job
- * (`detailForLighthouse`'s Signal mast row).
+ * Five is what a real signal hoist flies and what stays legible at overview
+ * zoom; past that the mast says "more than five" and the exact figure is the
+ * DOM's job (`detailForLighthouse`'s Signal mast row).
  *
  * Lives here rather than in the stage that derives it so the renderer can size
  * its hoist without importing a world-build stage.
@@ -220,21 +218,45 @@ export interface LighthouseContributor {
 export const SIGNAL_MAST_MAX_PENNANTS = 5;
 
 /**
- * The observatory's storm-signal hoist, derived from `pegSummary.summary`.
+ * O17b: the pennants speak only for the coins that carry the market — the
+ * largest tracked coins by circulating supply. A precious-metal dust coin
+ * trading 50% off par is real, and the Fleet peg row names it, but it is not
+ * the harbour's weather; counting every depeg kept the hoist saturated on a
+ * calm day, which made it decoration posing as a warning.
+ */
+export const SIGNAL_MAST_LEADER_COUNT = 20;
+
+/**
+ * O17b: the storm cone flies only when at least this share of tracked supply
+ * is off peg — a market-weighted storm, never one small coin's bad day.
+ */
+export const SIGNAL_MAST_STORM_SUPPLY_SHARE = 0.01;
+
+/**
+ * The observatory's storm-signal hoist, derived from `pegSummary` weighed by
+ * `stablecoins` circulating supply.
  *
  * One reading of fleet-wide peg condition, carried at one place. Everything
  * here is a plain number or flag: the world model stays serializable and the
  * renderer decides nothing the DOM cannot also say.
  */
 export interface SignalMastNode {
-  /** `pegSummary.summary.activeDepegCount` — coins currently off peg. */
+  /** `pegSummary.summary.activeDepegCount` — every tracked coin off peg. */
   activeDepegCount: number;
-  /** Pennants actually hoisted: `activeDepegCount` capped at the mast's hoist. */
+  /** How many coins were ranked as leaders: `SIGNAL_MAST_LEADER_COUNT`, or
+      fewer when fewer tracked coins carry a supply figure. Zero means the
+      peg readings could not be weighed and the mast stands bare. */
+  leaderCount: number;
+  /** Symbols of the leaders currently off peg, largest supply first. */
+  leadersOffPeg: string[];
+  /** Pennants actually hoisted: `leadersOffPeg.length` capped at the hoist. */
   pennantCount: number;
-  /** True when `activeDepegCount` exceeded the hoist and the mast is showing
-      fewer pennants than there are coins off peg. */
+  /** True when more leaders are off peg than the hoist can show. */
   capped: boolean;
-  /** True when the worst current deviation crosses the storm gate. */
+  /** Share (0..1) of tracked circulating supply held in coins currently off
+      peg; null when no supply figure could be joined. */
+  offPegSupplyShare: number | null;
+  /** True when `offPegSupplyShare` reaches `SIGNAL_MAST_STORM_SUPPLY_SHARE`. */
   stormCone: boolean;
   /** `pegSummary.summary.worstCurrent` — worst live deviation, signed bps. */
   worstBps: number | null;

@@ -2,7 +2,13 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { useGardenDirector } from "../hooks/use-garden-director";
-import { advanceGardenDirector, createGardenDirector, requestGardenBeat, type GardenBeatRequest } from "./garden-director";
+import {
+  advanceGardenDirector,
+  createGardenDirector,
+  GARDEN_DIRECTOR_INITIAL_SILENCE_SECONDS,
+  requestGardenBeat,
+  type GardenBeatRequest,
+} from "./garden-director";
 
 const foreground: GardenBeatRequest = { kind: "keeper", foreground: true, durationSeconds: 10, priority: 20 };
 
@@ -62,11 +68,31 @@ describe("garden director", () => {
     expect(requestGardenBeat(resumed, foreground, 3600)).not.toBeNull();
   });
 
+  it("keeps its first 90 s free of ordinary captions but lets the market and the environment speak", () => {
+    const createdAt = 1_000;
+    const state = createGardenDirector("harbor", createdAt);
+    const arrival: GardenBeatRequest = { kind: "arrival", foreground: true, durationSeconds: 9, priority: 20 };
+    expect(requestGardenBeat(state, arrival, createdAt + 1)).toBeNull();
+    expect(requestGardenBeat(state, arrival, createdAt + GARDEN_DIRECTOR_INITIAL_SILENCE_SECONDS - 1)).toBeNull();
+    expect(requestGardenBeat(state, { kind: "keeper", foreground: false, durationSeconds: 30, priority: 5 }, createdAt + 2))
+      .not.toBeNull();
+
+    const market = createGardenDirector("harbor", createdAt);
+    expect(requestGardenBeat(market, { ...arrival, kind: "market", priority: 100 }, createdAt + 1)).not.toBeNull();
+
+    const later = createGardenDirector("harbor", createdAt);
+    expect(requestGardenBeat(later, arrival, createdAt + GARDEN_DIRECTOR_INITIAL_SILENCE_SECONDS)).not.toBeNull();
+  });
+
   it("advances the route-owned hook without synthesizing missed beats and freezes reduced motion", () => {
     const view = renderHook(({ timeSeconds, reducedMotion }) => useGardenDirector({ seed: "harbor", timeSeconds, reducedMotion }), {
       initialProps: { timeSeconds: 0, reducedMotion: false },
     });
-    act(() => { requestGardenBeat(view.result.current, foreground, 0); });
+    act(() => {
+      // Created at t=0 on the route clock: the opening 90 s hold no ordinary caption.
+      expect(requestGardenBeat(view.result.current, foreground, 0)).toBeNull();
+      requestGardenBeat(view.result.current, foreground, GARDEN_DIRECTOR_INITIAL_SILENCE_SECONDS);
+    });
     view.rerender({ timeSeconds: 3600, reducedMotion: false });
     expect(view.result.current.active).toBeNull();
     expect(view.result.current.log).toHaveLength(1);

@@ -305,7 +305,7 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
     swell: 1.26, chop: 1.62, foam: 0.62, reflectivity: 0.64, depth: 0.7,
     tintStrength: 0.68, flowBearing: -1.3, flowHold: 0.9, normalDetail: 0.84,
     crossedNormal: 0.14, shallowShelf: 0.94,
-    boundaryWidthTiles: 3.6, boundaryFoam: 0.18, boundaryBank: 0.05,
+    boundaryWidthTiles: 3.6, boundaryFoam: 0.108, boundaryBank: 0.05,
   },
   // Danger's steep diagonal waves and blown foam UP; generic crest foam DOWN.
   danger: {
@@ -313,7 +313,7 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
     swell: 2.02, chop: 2.42, foam: 1.12, reflectivity: 0.38, depth: 0.44,
     tintStrength: 0.7, flowBearing: -0.78, flowHold: 0.96, normalDetail: 1.28,
     crossedNormal: 0.24, shallowShelf: 0,
-    boundaryWidthTiles: 3.4, boundaryFoam: 0.24, boundaryBank: 0.16,
+    boundaryWidthTiles: 3.4, boundaryFoam: 0.144, boundaryBank: 0.16,
   },
   // Ledger's flat horizontal striations UP; shared swell and crossed chop DOWN.
   ledger: {

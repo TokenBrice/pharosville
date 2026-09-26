@@ -6,12 +6,12 @@ const CHIP_GAP_PX = 6;
 const CHIP_COLLISION_GAP_PX = 2;
 const CHIP_FALLBACK_WIDTH_PX = 118;
 const CHIP_HEIGHT_PX = 18;
-const NO_TRANSIENT_SHIP_LABELS: readonly string[] = [];
 
 interface HarborLabelChipItem {
   detailId: string;
   initials: string;
   label: string;
+  retiring: boolean;
   state: string;
   supply: number;
 }
@@ -27,41 +27,47 @@ export interface HarborLabelChipLayoutInput extends GardenStationLabelFrame {
   exclusionRects?: readonly ScreenRect[];
 }
 
+/** The admitted arrival ceremony's one nameplate; `retiring` holds it mounted while it fades out. */
+export interface HarborNameplate {
+  detailId: string;
+  retiring: boolean;
+}
+
 export interface HarborLabelChipsProps {
-  /** Ships mid arrival/departure beat; they carry a brief nameplate and nothing else does. */
-  arrivalShipDetailIds?: readonly string[];
   containerRef: RefObject<HTMLDivElement | null>;
+  /** At most one ceremony nameplate at a time; nothing else in the harbour wears a chip. */
+  nameplate?: HarborNameplate | null;
   onSelectDetail: (detailId: string) => void;
   selectedShipDetailId?: string | null;
   world: PharosVilleWorld;
 }
 
-/** Selected and arriving/departing ship captions; station identity lives on rooftop flags. */
+/** The selected ship's caption and the single arrival-ceremony nameplate; station identity lives on rooftop flags. */
 export function HarborLabelChips({
-  arrivalShipDetailIds = NO_TRANSIENT_SHIP_LABELS,
   containerRef,
+  nameplate = null,
   onSelectDetail,
   selectedShipDetailId = null,
   world,
 }: HarborLabelChipsProps) {
   const items = useMemo(() => {
-    const stationItems: HarborLabelChipItem[] = [];
-
-    const transientIds = new Set(arrivalShipDetailIds);
-    if (selectedShipDetailId) transientIds.add(selectedShipDetailId);
-    for (const detailId of transientIds) {
+    const chipItems: HarborLabelChipItem[] = [];
+    const push = (detailId: string, retiring: boolean) => {
       const ship = world.entityById[detailId];
-      if (ship?.kind !== "ship") continue;
-      stationItems.push({
+      if (ship?.kind !== "ship") return;
+      chipItems.push({
         detailId,
         initials: paintedInitials(ship.label),
         label: ship.label,
+        retiring,
         state: ship.riskZone,
         supply: ship.marketCapUsd,
       });
-    }
-    return stationItems;
-  }, [arrivalShipDetailIds, selectedShipDetailId, world]);
+    };
+    if (selectedShipDetailId) push(selectedShipDetailId, false);
+    if (nameplate && nameplate.detailId !== selectedShipDetailId) push(nameplate.detailId, nameplate.retiring);
+    return chipItems;
+  }, [nameplate, selectedShipDetailId, world]);
 
   return (
     <div ref={containerRef} className="pharosville-harbor-labels" aria-hidden="true" data-testid="pharosville-harbor-labels">
@@ -74,6 +80,7 @@ export function HarborLabelChips({
           className="pharosville-harbor-label-chip"
           data-detail-id={item.detailId}
           data-supply={item.supply}
+          data-retiring={item.retiring ? "true" : undefined}
           data-visible="false"
           onClick={() => onSelectDetail(item.detailId)}
         >
@@ -101,7 +108,10 @@ export function updateHarborLabelChipLayout(
   for (const chip of ordered) {
     const detailId = chip.dataset.detailId;
     const anchor = detailId ? input.anchorsByDetailId.get(detailId) : null;
-    if (!anchor || anchor.x < 0 || anchor.y < 0 || anchor.x > input.viewport.width || anchor.y > input.viewport.height) {
+    if (
+      chip.dataset.retiring === "true"
+      || !anchor || anchor.x < 0 || anchor.y < 0 || anchor.x > input.viewport.width || anchor.y > input.viewport.height
+    ) {
       chip.dataset.visible = "false";
       continue;
     }

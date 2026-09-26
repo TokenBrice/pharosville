@@ -1,46 +1,25 @@
-import { Color, DataTexture, InstancedMesh, Mesh, PlaneGeometry, Points, RGBAFormat, ShaderMaterial } from "three";
+import { Mesh, Points, ShaderMaterial } from "three";
 import { describe, expect, it } from "vitest";
 import { lampStatusModulationForMix } from "../systems/lamp-status";
-import { HARBOR_PALETTE } from "../systems/palette";
 import {
   GARDEN_BEACON_FLAME_CORE_LUMINANCE,
-  GARDEN_BEACON_SMOKE_QUAD_SIZE,
   createGardenBeaconFire,
 } from "./garden-beacon-fire";
 import { GARDEN_BLOOM_PRACTICAL_THRESHOLD } from "./garden-post";
 import { createGardenSummitBirds } from "./garden-summit-birds";
 
-function mockNoiseTexture(): DataTexture {
-  return new DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1, RGBAFormat);
-}
-
 describe("garden beacon fire (W4)", () => {
-  it("mounts the flame, embers, smoke, and mirror with their contract names", () => {
-    const fire = createGardenBeaconFire(mockNoiseTexture());
+  it("mounts the flame, embers and mirror with no smoke at the crown", () => {
+    const fire = createGardenBeaconFire();
     expect(fire.root.getObjectByName("lighthouse-flame")).toBeInstanceOf(Mesh);
     expect(fire.root.getObjectByName("lighthouse-embers")).toBeInstanceOf(Points);
-    expect(fire.root.getObjectByName("lighthouse-smoke")).toBeDefined();
     expect(fire.root.getObjectByName("lighthouse-mirror")).toBeInstanceOf(Mesh);
-    fire.dispose();
-  });
-
-  it("makes the daymark 1.6x larger and one stop darker", () => {
-    const fire = createGardenBeaconFire(mockNoiseTexture());
-    const smoke = fire.root.getObjectByName("lighthouse-smoke") as InstancedMesh;
-    const material = smoke.material as ShaderMaterial;
-    const geometry = smoke.geometry as PlaneGeometry;
-    expect(geometry.parameters.width).toBeCloseTo(GARDEN_BEACON_SMOKE_QUAD_SIZE, 6);
-    expect(GARDEN_BEACON_SMOKE_QUAD_SIZE).toBeCloseTo(1.6 * 1.6, 6);
-    const originalLight = new Color(HARBOR_PALETTE.fog_pale);
-    const originalDark = new Color(HARBOR_PALETTE.fog_blue);
-    expect(material.uniforms.uDayLight.value.r).toBeCloseTo(originalLight.r * 0.5, 6);
-    expect(material.uniforms.uDayDark.value.b).toBeCloseTo(originalDark.b * 0.5, 6);
-    expect(smoke.count).toBe(16);
+    expect(fire.root.getObjectByName("lighthouse-smoke")).toBeUndefined();
     fire.dispose();
   });
 
   it("reserves selective bloom for the raised night flame core", () => {
-    const fire = createGardenBeaconFire(mockNoiseTexture());
+    const fire = createGardenBeaconFire();
     const flame = fire.root.getObjectByName("lighthouse-flame") as Mesh;
     const material = flame.material as ShaderMaterial;
     expect(material.uniforms.uBloomFloor.value)
@@ -50,34 +29,26 @@ describe("garden beacon fire (W4)", () => {
     fire.dispose();
   });
 
-  it("sheds embers and smoke per scheduler tier without reallocating", () => {
-    const fire = createGardenBeaconFire(mockNoiseTexture());
+  it("sheds embers per scheduler tier without reallocating", () => {
+    const fire = createGardenBeaconFire();
     const embers = fire.root.getObjectByName("lighthouse-embers") as Points;
-    const smoke = fire.root.getObjectByName("lighthouse-smoke") as {
-      count: number;
-      visible: boolean;
-    };
 
     fire.setTier("full");
     expect(embers.visible).toBe(true);
     expect(embers.geometry.drawRange.count).toBe(32);
-    expect(smoke.visible).toBe(true);
-    expect(smoke.count).toBe(16);
 
     fire.setTier("balanced");
     expect(embers.geometry.drawRange.count).toBe(12);
-    expect(smoke.count).toBe(8);
 
     for (const tier of ["interaction", "recovery", "constrained"] as const) {
       fire.setTier(tier);
       expect(embers.visible).toBe(false);
-      expect(smoke.visible).toBe(false);
     }
     fire.dispose();
   });
 
   it("computes a deterministic flicker and freezes time under reduced motion", () => {
-    const fire = createGardenBeaconFire(mockNoiseTexture());
+    const fire = createGardenBeaconFire();
     const first = fire.update({ psiStress: 0.4, reducedMotion: false, timeSeconds: 12.5 });
     const second = fire.update({ psiStress: 0.4, reducedMotion: false, timeSeconds: 12.5 });
     expect(first).toBe(second);
@@ -92,7 +63,7 @@ describe("garden beacon fire (W4)", () => {
   });
 
   it("widens the flicker amplitude with PSI stress (D5)", () => {
-    const fire = createGardenBeaconFire(mockNoiseTexture());
+    const fire = createGardenBeaconFire();
     const calm = fire.update({ psiStress: 0, reducedMotion: false, timeSeconds: 3.7 });
     const stressed = fire.update({ psiStress: 1, reducedMotion: false, timeSeconds: 3.7 });
     expect(stressed).not.toBe(calm);
@@ -100,7 +71,7 @@ describe("garden beacon fire (W4)", () => {
   });
 
   it("keeps PSI flame bands while applying cool and dim status modulation", () => {
-    const fire = createGardenBeaconFire(mockNoiseTexture());
+    const fire = createGardenBeaconFire();
     fire.update({
       lampModulation: lampStatusModulationForMix(1),
       psiStress: 0.4,

@@ -17,7 +17,7 @@ export function resolveShipMotionSampleInto(input: ResolveShipMotionSampleInput,
   const route = input.plan.shipRoutes.get(input.ship.id);
   resetSampleChoreography(out);
   if (input.reducedMotion || !route) {
-    reducedMotionSampleInto(input.plan, input.ship, route, input.seaState ?? null, out);
+    reducedMotionSampleInto(input.ship, route, input.seaState ?? null, out);
     if (!out.currentDockId) {
       out.heading.x = -GARDEN_DEFAULT_WIND_X;
       out.heading.y = -GARDEN_DEFAULT_WIND_Z;

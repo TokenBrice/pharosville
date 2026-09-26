@@ -81,6 +81,15 @@ body,
   --pv-shadow: #151030;
   --pv-white: #e8eef0;
   --pv-danger: #d54e3c;
+
+  /* Text roles, each AA (≥ 4.5:1) against its own surface in both phases;
+     the night block re-points them, never the shared tokens above. Card:
+     quiet titles and links on the record. Air: chrome text over the scene
+     (caption, controls) on its water backing. */
+  --pv-text-quiet: var(--stone);
+  --pv-link: var(--stone);
+  --pv-text-on-air: var(--mist);
+  --pv-text-on-air-quiet: color-mix(in srgb, var(--mist) 78%, var(--stone));
 }
 
 :root[data-phase="night"] {
@@ -98,6 +107,10 @@ body,
   --pv-surface-record-edge: #5a4a37;
   --pv-ink-text: #e8eef0;
   --pv-ink-soft: #e2d2b3;
+  --pv-text-quiet: color-mix(in srgb, var(--pv-parchment-warm) 78%, var(--stone));
+  --pv-link: var(--pv-parchment-warm);
+  --pv-text-on-air: var(--pv-parchment);
+  --pv-text-on-air-quiet: color-mix(in srgb, var(--pv-parchment) 72%, var(--mist));
 }
 
 body {
@@ -748,16 +761,13 @@ textarea {
   padding: 5px 9px;
   overflow: hidden;
   background: color-mix(in srgb, var(--water) 82%, transparent);
-  color: var(--mist);
+  color: var(--pv-text-on-air);
   font: var(--type-16)/1.35 var(--font-title);
   letter-spacing: 0.01em;
   text-overflow: ellipsis;
   text-shadow: 0 1px 3px color-mix(in srgb, var(--water) 72%, transparent);
   white-space: nowrap;
   user-select: none;
-}
-:root[data-phase="night"] .pharosville-now-caption {
-  color: var(--ink);
 }
 .pharosville-world-controls {
   position: absolute;
@@ -802,7 +812,7 @@ textarea {
   border: 0;
   border-radius: 4px;
   background: color-mix(in srgb, var(--water) 84%, transparent);
-  color: var(--mist);
+  color: var(--pv-text-on-air);
   cursor: pointer;
 }
 .pharosville-world-controls__affordance,
@@ -816,7 +826,7 @@ textarea {
   white-space: nowrap;
 }
 .pharosville-world-controls kbd {
-  color: color-mix(in srgb, var(--mist) 78%, var(--stone));
+  color: var(--pv-text-on-air-quiet);
   font: inherit;
 }
 .pv-glyph-button {
@@ -851,7 +861,7 @@ textarea {
   gap: 10px;
   padding: 5px 8px;
   background: color-mix(in srgb, var(--water) 88%, transparent);
-  color: var(--mist);
+  color: var(--pv-text-on-air);
   font: var(--type-12)/1.2 var(--font-ui);
   font-variant-numeric: tabular-nums;
   transition: opacity var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle);
@@ -879,7 +889,7 @@ textarea {
 
 .pv-section-title {
   margin: 0 0 8px;
-  color: var(--stone);
+  color: var(--pv-text-quiet);
   font: 600 var(--type-12) var(--font-ui);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -911,7 +921,7 @@ textarea {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--stone);
+  color: var(--pv-link);
   font: 600 var(--type-14) var(--font-ui);
   letter-spacing: 0.02em;
   text-decoration: none;
@@ -927,7 +937,7 @@ textarea {
   text-underline-offset: 3px;
 }
 .pv-panel-link:focus-visible {
-  outline: 2px solid var(--stone);
+  outline: 2px solid var(--pv-link);
   outline-offset: 3px;
 }
 
@@ -1378,10 +1388,10 @@ textarea {
   font: 0.86em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-/* Always-on station names displace hover-only naming. Their positions come
-   from the render-loop projection; the ledger remains the a11y channel.
-   Quieted 2026-09-06: a chip is a caption, not a signpost — small, half
-   transparent, no shadow, and it only comes forward under the pointer. */
+/* Ship chips: the selected ship's caption and the one arrival-ceremony
+   nameplate. Positions come from the render-loop projection; the caption's
+   status region and the ledger remain the a11y channel. A chip is a caption,
+   not a signpost: small, no shadow, fading in and out rather than popping. */
 .pharosville-harbor-labels {
   position: absolute;
   inset: 0;
@@ -1402,25 +1412,34 @@ textarea {
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--lantern) 22%, transparent);
   border-radius: 2px;
-  background: color-mix(in srgb, var(--pv-panel-deep) 55%, transparent);
+  background: color-mix(in srgb, var(--pv-panel-deep) 84%, transparent);
   color: var(--pv-parchment);
   font: var(--type-12)/1 var(--font-ui);
   white-space: nowrap;
-  opacity: 0.68;
+  /* Fades out over 900 ms, then hides (GARDEN_ARRIVAL_NAMEPLATE_FADE_OUT_SECONDS). */
+  opacity: 0;
   transition:
-    opacity var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle),
+    opacity 900ms var(--pv-motion-curve-settle),
+    visibility 0s linear 900ms,
     background-color var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle);
   pointer-events: auto;
   cursor: pointer;
   visibility: hidden;
 }
+/* Fades in over 600 ms. */
+.pharosville-harbor-label-chip[data-visible="true"] {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 600ms var(--pv-motion-curve-settle),
+    visibility 0s,
+    background-color var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle);
+}
 .pharosville-harbor-label-chip:hover,
 .pharosville-harbor-label-chip:focus-visible {
-  opacity: 1;
   background: color-mix(in srgb, var(--pv-panel-deep) 90%, transparent);
   border-color: color-mix(in srgb, var(--lantern) 60%, transparent);
 }
-.pharosville-harbor-label-chip[data-visible="true"] { visibility: visible; }
 .pharosville-harbor-label-chip__mark {
   position: relative;
   display: grid;
@@ -1440,13 +1459,13 @@ textarea {
 .pharosville-harbor-label-chip strong {
   overflow: hidden;
   color: var(--lantern);
-  font-size: 0.66rem;
+  font-size: var(--type-12);
   font-weight: 600;
   text-overflow: ellipsis;
 }
 .pharosville-harbor-label-chip__state {
   flex: none;
-  color: color-mix(in srgb, var(--pv-muted) 62%, transparent);
+  color: var(--pv-parchment-warm);
   text-transform: capitalize;
 }
 /* World hover tooltip: positioned by the render loop via style.transform
@@ -1493,6 +1512,8 @@ textarea {
   /* The camera steps instantly; this brief opacity crossfade is its quiet
      spatial equivalent and does not move the panel. */
   .pharosville-detail-dock { transition: none; }
+  .pharosville-harbor-label-chip,
+  .pharosville-harbor-label-chip[data-visible="true"] { transition: none; }
 }
 
 .pharosville-observe-caption {
@@ -1811,6 +1832,6 @@ dialog.pharosville-changelog-panel::backdrop { background: color-mix(in srgb, va
 .pharosville-light-control { position: relative; }
 .pharosville-light-control summary { list-style: none; cursor: pointer; }
 .pharosville-light-control summary::-webkit-details-marker { display: none; }
-.pharosville-light-control__panel { position: absolute; right: 0; bottom: 50px; width: 200px; display: grid; gap: 10px; padding: 16px; background: var(--water); color: var(--mist); border: 1px solid var(--stone); }
+.pharosville-light-control__panel { position: absolute; right: 0; bottom: 50px; width: 200px; display: grid; gap: 10px; padding: 16px; background: var(--water); color: var(--pv-text-on-air); border: 1px solid var(--stone); }
 .pharosville-light-control__panel input[type="time"] { display: block; width: 100%; }
 .pharosville-ledger summary { cursor: pointer; }

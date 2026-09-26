@@ -1004,7 +1004,7 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           float weave = warp * 0.5 + weft * 0.4 + warp * weft * 0.34;
           weave *= 0.86 + 0.14 * sin(vClothUv.x * 7.3 + vClothUv.y * 5.1);
           float threadPitch = max(fwidth(vClothUv.x), fwidth(vClothUv.y));
-          float clothDetail = 1.0 - smoothstep(0.02, 0.085, threadPitch);
+          float clothDetail = 1.0 - smoothstep(0.008, 0.03, threadPitch);
           float markCover = sailTexel.a * markVisibility;
           float weaveAmount = uClothWeave * clothDetail
             * (1.0 - markCover * ${CLOTH_WEAVE_MARK_RELIEF});
@@ -1076,7 +1076,12 @@ function createInstancedPart(
     mesh.instanceColor.setUsage(DynamicDrawUsage);
   }
   mesh.count = 0;
-  mesh.castShadow = true;
+  // Ship transforms move every frame while the harbour shadow map renders only
+  // on sun re-steers and camera moves, so any fleet caster would leave stale
+  // ghosts on docks and hulls and re-render the whole fleet's triangles into
+  // the map on every re-steer. Every ship is grounded by its live water-contact
+  // disc (`createShipShadows`) instead; the fleet only receives.
+  mesh.castShadow = false;
   mesh.receiveShadow = true;
   // Instance transforms are written every frame, so three's per-instance
   // bounding-sphere culling would be wrong; the fleet spans the whole sea and
@@ -1238,17 +1243,10 @@ export function createFleetBatches(input: {
     hull.mesh.name = `fleet-hull-${silhouette}`;
     const sails = createInstancedPart(source.sails, sailMaterial, input.capacity, true);
     sails.mesh.name = `fleet-sails-${silhouette}`;
-    // Ship transforms move every frame while the harbour shadow map is static
-    // between sun re-steers. Canvas shadows would therefore be stale ghosts;
-    // hulls retain the low-sun silhouette and every ship already owns a live
-    // water-contact shadow. Four sail shadow submissions are also the measured
-    // margin that keeps the dawn scene inside its unchanged draw-call budget.
-    sails.mesh.castShadow = false;
     const far = createInstancedPart(source.far, farMaterial, input.capacity, true, false, true);
     far.mesh.name = `fleet-far-${silhouette}`;
     far.mesh.geometry.deleteAttribute("aSailFurl");
     far.sailFurl = null;
-    far.mesh.castShadow = false;
     root.add(hull.mesh, sails.mesh, far.mesh);
     bySilhouette.set(silhouette, { hull, sails, far });
   }
@@ -1262,7 +1260,6 @@ export function createFleetBatches(input: {
     true,
   );
   pennant.mesh.name = "fleet-pennants";
-  pennant.mesh.castShadow = false;
   root.add(pennant.mesh);
 
   return { capacity: input.capacity, bySilhouette, materials, pennant, root };

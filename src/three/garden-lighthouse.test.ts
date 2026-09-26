@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { AdditiveBlending, Box3, Mesh, MeshStandardMaterial, ShaderMaterial, Vector3 } from "three";
+import { AdditiveBlending, Box3, BoxGeometry, Color, Group, Mesh, MeshStandardMaterial, Object3D, ShaderMaterial, Vector3 } from "three";
 import { GARDEN_LIGHTHOUSE_HEIGHT } from "../systems/garden-observatory-slice";
 import { lampStatusModulationForMix } from "../systems/lamp-status";
+import { HARBOR_PALETTE } from "../systems/palette";
 import {
   GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS,
   GARDEN_LIGHTHOUSE_BEAM_LENGTH,
@@ -10,6 +11,7 @@ import {
   GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE,
   LIGHTHOUSE_RIM_UNIFORMS,
   LIGHTHOUSE_WINDOW_MATERIAL_NAME,
+  attachGardenLighthouseModel,
   collectLighthouseGlowMaterials,
   createLighthouse,
   updateLighthouseLampStatus,
@@ -150,6 +152,64 @@ describe("T0.2 tower apertures (2026-09-07)", () => {
     const first = collected.length;
     collectLighthouseGlowMaterials(lighthouse.root, collected);
     expect(collected.length).toBe(first);
+    disposeThreeObjectTree(lighthouse.root);
+  });
+});
+
+describe("W0.7 night beacon discipline", () => {
+  it("keeps the beacon's PointLight on the lantern storey, clear of the tower foot", () => {
+    const lighthouse = createLighthouse();
+    expect(lighthouse.light.position.y).toBeGreaterThan(0);
+    expect(lighthouse.light.distance).toBeGreaterThan(0);
+    expect(lighthouse.light.distance).toBeLessThan(lighthouse.light.position.y);
+    disposeThreeObjectTree(lighthouse.root);
+  });
+
+  it("gives the loaded tower the shell's stone and bronze without mutating the model library", () => {
+    const lighthouse = createLighthouse();
+    // The shell's warm-bounce stones are its unnamed lantern_warm emitters;
+    // its god is the named bronze-gilt.
+    const warm = new Color(HARBOR_PALETTE.lantern_warm).getHex();
+    const shellStoneBounce = new Set<number>();
+    const shellGiltMetalness = new Set<number>();
+    lighthouse.shell.traverse((object) => {
+      if (!(object instanceof Mesh) || !(object.material instanceof MeshStandardMaterial)) return;
+      if (object.material.name === "" && object.material.emissive.getHex() === warm) {
+        shellStoneBounce.add(object.material.emissiveIntensity);
+      }
+      if (object.material.name === "bronze-gilt") shellGiltMetalness.add(object.material.metalness);
+    });
+    const libraryStone = new MeshStandardMaterial({ emissiveIntensity: 0.045, name: "weathered-limestone" });
+    const libraryGilt = new MeshStandardMaterial({ metalness: 0.85, name: "bronze-gilt" });
+    const model = new Group();
+    for (const name of ["anchor-beacon", "anchor-beam"]) {
+      const anchor = new Object3D();
+      anchor.name = name;
+      anchor.position.set(0, 30.2, 0);
+      model.add(anchor);
+    }
+    const stoneMesh = new Mesh(new BoxGeometry(), libraryStone);
+    const giltMesh = new Mesh(new BoxGeometry(), libraryGilt);
+    model.add(stoneMesh, giltMesh);
+    const statueGleamMaterials: MeshStandardMaterial[] = [];
+    attachGardenLighthouseModel(model, {
+      beacon: lighthouse.beacon,
+      beaconHalo: lighthouse.beaconHalo,
+      beam: lighthouse.beam,
+      lighthouseLight: lighthouse.light,
+      lighthouseRoot: lighthouse.root,
+      lighthouseShell: lighthouse.shell,
+      statueGleamMaterials,
+    });
+    const stone = stoneMesh.material as MeshStandardMaterial;
+    const gilt = giltMesh.material as MeshStandardMaterial;
+    expect(stone).not.toBe(libraryStone);
+    expect(gilt).not.toBe(libraryGilt);
+    expect(libraryStone.emissiveIntensity).toBe(0.045);
+    expect(libraryGilt.metalness).toBe(0.85);
+    expect([...shellStoneBounce]).toEqual([stone.emissiveIntensity]);
+    expect([...shellGiltMetalness]).toEqual([gilt.metalness]);
+    expect(statueGleamMaterials).toEqual([gilt]);
     disposeThreeObjectTree(lighthouse.root);
   });
 });

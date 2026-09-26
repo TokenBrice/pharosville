@@ -27,17 +27,59 @@ export function cameraPitchForZoom(zoom: number): number {
 }
 
 const CAMERA_TAN_HALF_FOV = Math.tan(CAMERA_FOV_DEG * Math.PI / 360);
-const CAMERA_RIGHT = { x: Math.cos(CAMERA_YAW), y: 0, z: -Math.sin(CAMERA_YAW) };
+
+/**
+ * W0.12 camera breath, as the projection sees it. The render loop is the only
+ * writer: it sets the exact breath it hands the renderer for the frame it
+ * draws, so hit rects, DOM anchors and picking rays built from
+ * `worldToScreen` / `screenToGroundRay` land where the eye saw the world.
+ * Identity (no breath) unless the loop sets it; reduced motion and the debug
+ * `still=1` camera keep it at identity. Superseded by the W1.0 pose model.
+ */
+export interface ProjectionCameraBreath {
+  /** Multiplicative eye-to-target distance scale. */
+  dolly: number;
+  /** Additive vertical angle in radians. */
+  pitch: number;
+  /** Additive orbit angle in radians. */
+  yaw: number;
+}
+
+export const PROJECTION_BREATH_IDENTITY: Readonly<ProjectionCameraBreath> = Object.freeze({ dolly: 1, pitch: 0, yaw: 0 });
+
+const projectionBreath: ProjectionCameraBreath = { dolly: 1, pitch: 0, yaw: 0 };
+
+/** Render-loop only: the breath applied to the frame being drawn. Copies fields; never retains `breath`. */
+export function setProjectionCameraBreath(breath: Readonly<ProjectionCameraBreath>): void {
+  projectionBreath.dolly = breath.dolly;
+  projectionBreath.pitch = breath.pitch;
+  projectionBreath.yaw = breath.yaw;
+}
+
+/** Back to identity: render-loop teardown and test cleanup. */
+export function resetProjectionCameraBreath(): void {
+  setProjectionCameraBreath(PROJECTION_BREATH_IDENTITY);
+}
+
+function breathedCameraPose(camera: IsoCamera, viewport: ScreenPoint): CameraPose {
+  const pose = cameraPoseFromIso(camera, viewport);
+  pose.yaw += projectionBreath.yaw;
+  pose.pitch += projectionBreath.pitch;
+  pose.distance *= projectionBreath.dolly;
+  return pose;
+}
 
 interface CameraBasis {
+  right: { x: number; y: number; z: number };
   up: { x: number; y: number; z: number };
   back: { x: number; y: number; z: number };
 }
 
-function cameraBasis(pitch: number): CameraBasis {
+function cameraBasis(pitch: number, yaw: number): CameraBasis {
   return {
-    up: { x: -Math.sin(pitch) * Math.sin(CAMERA_YAW), y: Math.cos(pitch), z: -Math.sin(pitch) * Math.cos(CAMERA_YAW) },
-    back: { x: Math.cos(pitch) * Math.sin(CAMERA_YAW), y: Math.sin(pitch), z: Math.cos(pitch) * Math.cos(CAMERA_YAW) },
+    right: { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) },
+    up: { x: -Math.sin(pitch) * Math.sin(yaw), y: Math.cos(pitch), z: -Math.sin(pitch) * Math.cos(yaw) },
+    back: { x: Math.cos(pitch) * Math.sin(yaw), y: Math.sin(pitch), z: Math.cos(pitch) * Math.cos(yaw) },
   };
 }
 
@@ -122,18 +164,18 @@ export function isoFromCameraPose(pose: CameraPose, viewport: ScreenPoint): IsoC
 
 // Row-major perspective projection * view matrix (OpenGL depth convention).
 function perspectiveMatrix(camera: IsoCamera, viewport: ScreenPoint): number[] {
-  const pose = cameraPoseFromIso(camera, viewport);
+  const pose = breathedCameraPose(camera, viewport);
   const eye = cameraEye(pose);
-  const { up, back } = cameraBasis(pose.pitch);
+  const { right, up, back } = cameraBasis(pose.pitch, pose.yaw);
   const sx = viewport.y / (viewport.x * CAMERA_TAN_HALF_FOV);
   const sy = 1 / CAMERA_TAN_HALF_FOV;
   const sz = -(CAMERA_FAR + CAMERA_NEAR) / (CAMERA_FAR - CAMERA_NEAR);
   const tz = -2 * CAMERA_FAR * CAMERA_NEAR / (CAMERA_FAR - CAMERA_NEAR);
-  const rightEye = CAMERA_RIGHT.x * eye.x + CAMERA_RIGHT.z * eye.z;
+  const rightEye = right.x * eye.x + right.z * eye.z;
   const upEye = up.x * eye.x + up.y * eye.y + up.z * eye.z;
   const backEye = back.x * eye.x + back.y * eye.y + back.z * eye.z;
   return [
-    sx * CAMERA_RIGHT.x, 0, sx * CAMERA_RIGHT.z, -sx * rightEye,
+    sx * right.x, 0, sx * right.z, -sx * rightEye,
     sy * up.x, sy * up.y, sy * up.z, -sy * upEye,
     sz * back.x, sz * back.y, sz * back.z, tz - sz * backEye,
     -back.x, -back.y, -back.z, backEye,
@@ -148,19 +190,25 @@ export function worldToScreen(world: WorldPoint, camera: IsoCamera, viewport: Sc
   return { x: (ndcX + 1) * viewport.x / 2, y: (1 - ndcY) * viewport.y / 2 };
 }
 
+/** View depth of a world point in front of the (breathed) eye; ≤ `CAMERA_NEAR` means behind or clipped. */
+export function worldViewDepth(world: WorldPoint, camera: IsoCamera, viewport: ScreenPoint): number {
+  const matrix = perspectiveMatrix(camera, viewport);
+  return matrix[12] * world.x + matrix[13] * world.y + matrix[14] * world.z + matrix[15];
+}
+
 /** Perspective rays share the eye and diverge through the viewport pixels. */
 export function screenToGroundRay(
   point: ScreenPoint,
   camera: IsoCamera,
   viewport: ScreenPoint,
 ): { origin: WorldPoint; direction: WorldPoint } {
-  const pose = cameraPoseFromIso(camera, viewport);
-  const { up, back } = cameraBasis(pose.pitch);
+  const pose = breathedCameraPose(camera, viewport);
+  const { right: rightAxis, up, back } = cameraBasis(pose.pitch, pose.yaw);
   const right = (2 * point.x / viewport.x - 1) * CAMERA_TAN_HALF_FOV * viewport.x / viewport.y;
   const upScale = (1 - 2 * point.y / viewport.y) * CAMERA_TAN_HALF_FOV;
-  const x = right * CAMERA_RIGHT.x + upScale * up.x - back.x;
+  const x = right * rightAxis.x + upScale * up.x - back.x;
   const y = upScale * up.y - back.y;
-  const z = right * CAMERA_RIGHT.z + upScale * up.z - back.z;
+  const z = right * rightAxis.z + upScale * up.z - back.z;
   const length = Math.hypot(x, y, z);
   return {
     origin: cameraEye(pose),

@@ -6,7 +6,6 @@ import {
   Color,
   Group,
   InstancedMesh,
-  LineBasicMaterial,
   LineSegments,
   Mesh,
   MeshBasicMaterial,
@@ -57,7 +56,6 @@ function makeCache(): GardenShipGeometryCache {
   return {
     geometries: new Map(),
     wakeFillMaterial: new MeshBasicMaterial(),
-    wakeMaterial: new LineBasicMaterial(),
   };
 }
 
@@ -635,8 +633,8 @@ describe("hero peg trim (Tier 3 #13)", () => {
 
   it("settles every drawable child of a hull trading below its peg", () => {
     const { level, trimmed: low } = trimmed(-0.16);
-    const levelHulls = level.root.children.filter((child) => child !== level.wake);
-    const lowHulls = low.root.children.filter((child) => child !== low.wake);
+    const levelHulls = level.root.children;
+    const lowHulls = low.root.children;
 
     expect(lowHulls).not.toHaveLength(0);
     expect(lowHulls).toHaveLength(levelHulls.length);
@@ -647,14 +645,9 @@ describe("hero peg trim (Tier 3 #13)", () => {
 
   it("lifts a hull trading above its peg", () => {
     const { level, trimmed: high } = trimmed(0.08);
-    const levelDeck = level.root.children.find((child) => child !== level.wake)!;
-    const highDeck = high.root.children.find((child) => child !== high.wake)!;
+    const levelDeck = level.root.children[0]!;
+    const highDeck = high.root.children[0]!;
     expect(highDeck.position.y).toBeCloseTo(levelDeck.position.y + 0.08);
-  });
-
-  it("leaves the wake on the sea surface however deep the hull rides", () => {
-    const { level, trimmed: low } = trimmed(-0.16);
-    expect(low.wake.position.y).toBeCloseTo(level.wake.position.y);
   });
 });
 
@@ -770,7 +763,7 @@ describe("warm-village C2: per-family hull paint", () => {
   }
 
   function batched(node: ShipNode): ShipVisual {
-    return createBatchedShip(node, { x: 0, y: 0 }, true, makeCache(), 0);
+    return createBatchedShip(node, { x: 0, y: 0 }, true, 0);
   }
 
   it("exports a paint pair for exactly the six families on a readable OKLCH ladder", () => {

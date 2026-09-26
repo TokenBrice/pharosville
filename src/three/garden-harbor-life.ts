@@ -10,13 +10,10 @@ import {
   Object3D,
 } from "three";
 import {
-  GARDEN_DOCK_ROOT_Y,
   GARDEN_LIGHTHOUSE_ROOT_OFFSET,
-  gardenDockDisplayTile,
   gardenIslandDisplayTile,
 } from "../systems/garden-observatory-slice";
 import type { ScreenPoint } from "../systems/projection";
-import type { DockNode } from "../systems/world-types";
 import {
   GARDEN_BIRD_SORTIE_CHANCE,
   GARDEN_BIRD_SORTIE_SHARE,
@@ -27,10 +24,8 @@ import { gardenLandingToriiPerch } from "./garden-island";
 import type { WeatherPlan } from "../systems/weather";
 import type { GardenKeeperRitual } from "./garden-lanterns";
 
-/** Gulls wheeling over the island itself. */
-export const GARDEN_GULL_COUNT = 9;
-/** Gulls working each rendered harbour — see `createGardenGullFlock`. */
-export const GARDEN_QUAY_GULL_COUNT = 2;
+/** Gulls resting on, and now and then wheeling over, the island itself. */
+export const GARDEN_GULL_COUNT = 6;
 
 export interface GardenHarborLifeOptions {
   tileScale?: number;
@@ -59,8 +54,6 @@ export interface GardenGullFlock {
 }
 
 export interface GardenGullFlockOptions {
-  /** Harbours the flock works, in the order the renderer draws them. */
-  docks?: readonly DockNode[];
   tileScale?: number;
 }
 
@@ -169,60 +162,23 @@ export function createGardenFireflies(
 
 const DEFAULT_TILE_SCALE = Math.SQRT2;
 
-// Harbour tempo. One scalar in -1..1 drives orbit rate, wheel radius and
-// height together, so the three read as one state rather than three cues.
-//
-// Full scale is 3% of held supply in 24h: chain supply moves in fractions of a
-// percent on a normal day, so a 3% swing is already a decisive one, and
-// clamping there stops a single outlier chain from flattening every other
-// harbour into the same tempo.
-const QUAY_TEMPO_FULL_SCALE_PCT = 3;
-// Deliberately narrow. At the extremes a filling quay's gulls circle roughly
-// half again as fast as a draining one's, half again as wide, and a unit
-// higher — enough to tell two harbours apart side by side, not enough to look
-// frantic.
-//
-// D2 (2026-09-05) widened the wheel 2.4 → 4 and raised it 4.2 → 5.5 so the
-// turns read at the zoom-1.0 rest (at the old numbers a quay gull crossed the
-// resting frame in ~3 px). That spends the old tight-separation argument —
-// harbours may sit as close as GARDEN_DOCK_SEPARATION_TILES (3.5 tiles, ~5
-// units) apart, and at the minimum two wheels can now meet over the water
-// between their piers — and keeps the reading instead by ownership: each wheel
-// is tangent to its own pier head and bulges seaward along its own pier line,
-// so the birds still belong to the quay they work, and the tempo channels
-// (rate, width, height, perch reach) still separate filling from draining.
-//
-// Height is above the QUAY, not the roof: `QUAY_GULL_HEIGHT` is absolute in
-// this flock's island-local space (y = 0 at the island root, water at −1.45,
-// the pier deck at −1.0), so the wheel tops out 6.5 over its own planking. The
-// station roofs raised on 2026-09-05 tower far above it — second levels top out
-// 13.3–17.9 above the dock root (≈12–16.6 here) — and no bird crosses them:
-// every hall, rack and tower in `garden-docks.ts` stands landward of the perch
-// (x ≤ quayX + 1.5, and the perch never comes inboard of +0.7), while the loop
-// is tangent to the perch and its seaward component is never negative — it owns
-// the seaward half-plane outright. The gulls ride in the pier's own air, under
-// the eaves, and stay below the island's own gulls at 7.2+.
-const QUAY_GULL_SPEED_SWING = 0.45;
-const QUAY_GULL_RADIUS = 4;
-const QUAY_GULL_RADIUS_SWING = 0.6;
-const QUAY_GULL_HEIGHT = 5.5;
-const QUAY_GULL_HEIGHT_SWING = 0.5;
-// D2: 0.42 → 0.55 — the W3.4 silhouette was ~3 px at rest; this keeps it a
-// small bird without making it unreadable.
-const QUAY_GULL_SCALE = 0.55;
+/**
+ * Wingspan of a gull at rest, as a share of her open span. A bird standing on a
+ * wall holds her wings along her body; drawing the open chevron on a perch made
+ * the reduced-motion still read as a frozen mid-wheel smear. The wings open as
+ * she lifts and fold again as she lands.
+ */
+const GULL_PERCHED_WING_SPAN = 0.3;
+/** How quickly the wings open with airborne-ness: fully spread by a quarter up. */
+const GULL_WING_OPEN_RATE = 4;
 
 /**
  * W3.4 — the harbour's birds rest.
  *
- * Both flocks here used to wheel forever: nine gulls on a permanent ellipse over
- * the island and two more over every quay, none of them ever landing. Together
- * with the summit flock and the hero-hull gulls that is ~40 birds in permanent
- * orbit, which reads as clockwork rather than as life. They now SIT — on the sea
- * wall, the lighthouse terrace, an obelisk, fortress parapets, the signal
- * yard, the pier decks — and lift only for deterministic sorties out of
- * `garden-summit-birds.ts`, the choreography the whole harbour shares. At any
- * instant roughly a third of them are up (D2, 2026-09-05 — the W3.4 quarter
- * became a third; amplitude, not count).
+ * The island's gulls SIT — on the sea wall, the lighthouse terrace, the torii,
+ * the gatehouse coping, the signal yard — and lift only for deterministic
+ * sorties out of `garden-summit-birds.ts`, the choreography the whole harbour
+ * shares.
  *
  * The periods are long enough that no beat is countable, and offset per bird, so
  * the flock has no shared phase. Weather still rides on top of it: a building
@@ -230,29 +186,26 @@ const QUAY_GULL_SCALE = 0.55;
  * spread (birds startle — that is what a flock does), and gathering night lets
  * the chance fall to nothing before the flock fades out to roost.
  *
- * D2 widened the island loops 3.5 ± 1.8 → 6 ± 1.2 to match, and swept the
- * clearances that the wider circles now cross — see the perch table.
+ * O17a (Hour-Print W0.17) retired the quay gulls and their harbour-tempo cue,
+ * and the bastion and stylobate perches that crowded the tower's shoulders; the
+ * dock '24h supply change' rows carry that reading outright.
  */
 const ISLAND_GULL_PERIOD = 74;
 const ISLAND_GULL_LOOP_RADIUS = 6;
 const ISLAND_GULL_LOOP_SPREAD = 1.2;
-const QUAY_GULL_TURN_SECONDS = 58;
 
 const TORII_GULL_PERCH = gardenLandingToriiPerch();
 
 /**
- * Where the island's nine gulls sit, island-local (which is flock-local: both
- * roots stand on the same tile at y = 0), with the height each bird's turn tops
- * out at — the heights the old permanent ring flew, so the airborne composition
- * is the one this world already had.
+ * Where the island's gulls sit, island-local (which is flock-local: both roots
+ * stand on the same tile at y = 0), with the height each bird's turn tops out
+ * at.
  *
- * Every perch sits on real masonry: the sea rim, the widened stylobate
- * (half-widths 6.2/5.7/5.2; tops 5.05 and 4.25), fortress bastion parapets
- * at 7.6, the gatehouse coping at 6.38 and the signal mast at 6.48.
- * The two terrace sorties launch away from the tower axis so their closest
- * point is their perch, clear of the battered 4.6-half-width square tier.
- * The cottage no longer exists: its bird rests on the gatehouse instead.
- * Unset `loop` uses the wide radial flight from the island's centre.
+ * Every perch sits on real masonry: the sea rim, the terrace (top 4.25), the
+ * landing torii, the gatehouse coping at 6.38 and the signal mast at 6.48.
+ * The terrace sortie launches away from the tower axis so its closest point is
+ * its perch, clear of the battered 4.6-half-width square tier. Unset `loop`
+ * uses the wide radial flight from the island's centre.
  */
 const ISLAND_GULL_PERCHES: readonly {
   loop?: "tower-away";
@@ -262,10 +215,7 @@ const ISLAND_GULL_PERCHES: readonly {
   apex: number;
 }[] = [
   { x: 15.22, y: 0.34, z: 7.94, apex: 7.9 },
-  { x: -13.92, y: 7.64, z: 9.11, apex: 10.2, loop: "tower-away" },
-  { x: -13.92, y: 7.64, z: -8.09, apex: 10.1, loop: "tower-away" },
   { x: 13.94, y: 0.34, z: -6.94, apex: 9.1 },
-  { x: -12.0, y: 5.09, z: 3.75, apex: 8.3, loop: "tower-away" },
   { x: -1.55, y: 4.29, z: -6.7, apex: 7.6, loop: "tower-away" },
   { x: TORII_GULL_PERCH.x, y: TORII_GULL_PERCH.y, z: TORII_GULL_PERCH.z, apex: 9.4 },
   { x: 1.6, y: 6.42, z: -1.25, apex: 8.0 },
@@ -284,52 +234,9 @@ const ISLAND_GULL_SEEDS = Array.from(
 );
 
 /**
- * The quay gulls' perch, in HARBOUR-local units: out along the pier deck, whose
- * top sits at a constant 0.21 above the dock root (`PIER_DECK_TOP_Y`,
- * `garden-docks.ts`) on every harbour however large. The dock root itself stands
- * at `GARDEN_DOCK_ROOT_Y`, which is what turns that into the flock's own space.
- *
- * Deliberately inboard of anything size-dependent: the shortest pier deck runs
- * to x ≈ 3.0 and the narrowest is ±1.0 wide, so these offsets sit on planking on
- * every harbour in the world without this module having to re-derive a single
- * one of `garden-docks.ts`'s scaling formulas.
- */
-const QUAY_PERCH_DECK_Y = 0.21 + 0.04 + GARDEN_DOCK_ROOT_Y;
-const QUAY_PERCH_OUT = 1.5;
-const QUAY_PERCH_OUT_SWING = 0.8;
-const QUAY_PERCH_SEATS: readonly [number, number][] = [[0, -0.45], [0.55, 0.52]];
-
-/**
- * 24h held-supply change -> tempo in -1..1. Chains with no reading sit at 0,
- * the same tempo as a chain that genuinely did not move, because an absent
- * number is not evidence of a busy quay.
- */
-function quayTempo(change24hPct: number | null | undefined): number {
-  if (typeof change24hPct !== "number" || !Number.isFinite(change24hPct)) return 0;
-  const unit = change24hPct / QUAY_TEMPO_FULL_SCALE_PCT;
-  return Math.max(-1, Math.min(1, unit));
-}
-
-/**
  * Creates one instanced flock. Reduced motion always resolves to the same
- * still composition; constrained mode removes the batch without rebuilding it.
- *
- * Tier 3 #13, harbour tempo: given `docks`, the flock also works the quays.
- * Each harbour gets its own small wheel of gulls whose orbit rate, radius and
- * height ride that chain's 24h HELD-SUPPLY change, so a viewer can see which
- * harbours are filling and which are draining. Gulls follow activity — a
- * working quay keeps them wheeling wide and high, a quiet one lets them tuck
- * in and settle. Deliberately no colour, count or jitter channel: a busy
- * harbour has to read as busy, never as distress.
- *
- * This does NOT duplicate the cargo-tide crates on the quay below. Those are
- * ISSUANCE, coins minted and burned at this harbour; this is the chain's total
- * held supply, which also moves when supply bridges in or out. A harbour can
- * be shipping crates out and still filling, and the two marks sit at different
- * heights precisely so that disagreement is readable rather than hidden.
- *
- * Every quay's gulls are extra INSTANCES of the flock's existing mesh, so the
- * whole layer stays the single draw call it already cost.
+ * still composition — every bird on her perch with her wings folded;
+ * constrained mode removes the batch without rebuilding it.
  */
 export function createGardenGullFlock(
   lighthouseTile: ScreenPoint,
@@ -341,18 +248,6 @@ export function createGardenGullFlock(
   root.name = "garden-harbor-gull-flock";
   root.position.set(islandTile.x * tileScale, 0, islandTile.y * tileScale);
 
-  // Quays are held island-relative so the flock keeps its single root.
-  const quays = (options.docks ?? []).map((dock) => {
-    const tile = gardenDockDisplayTile(dock.tile);
-    return {
-      seed: stableUnit(dock.chainId),
-      tempo: quayTempo(dock.change24hPct),
-      x: (tile.x - islandTile.x) * tileScale,
-      z: (tile.y - islandTile.y) * tileScale,
-    };
-  });
-  const gullCount = GARDEN_GULL_COUNT + quays.length * GARDEN_QUAY_GULL_COUNT;
-
   const gulls = new InstancedMesh(
     createGullGeometry(),
     new MeshBasicMaterial({
@@ -362,7 +257,7 @@ export function createGardenGullFlock(
       side: DoubleSide,
       transparent: true,
     }),
-    gullCount,
+    GARDEN_GULL_COUNT,
   );
   gulls.name = "garden-harbor-gulls";
   gulls.frustumCulled = false;
@@ -422,8 +317,8 @@ export function createGardenGullFlock(
       // How far into the air she is: zero on the perch at both ends of a turn.
       const air = Math.sin(Math.PI * sortie);
       const span = Math.hypot(perch.x, perch.z) || 1;
-      // Terrace and bastion launches point away from the tower so their
-      // outbound loops cannot cross its widened foot.
+      // The terrace launch points away from the tower so its outbound loop
+      // cannot cross the widened foot.
       let launchX = perch.x / span;
       let launchZ = perch.z / span;
       const loopRadius = ISLAND_GULL_LOOP_RADIUS + seed * ISLAND_GULL_LOOP_SPREAD;
@@ -447,59 +342,14 @@ export function createGardenGullFlock(
       dummy.position.set(gullX, perch.y + lift, gullZ);
       const flow = gullFlowAngle(gullX, gullZ, time);
       setGullHeading(dummy, heading + angleDelta(flow, heading) * 0.55 * air);
-      dummy.scale.setScalar(0.52 + (index % 3) * 0.09);
+      const size = 0.52 + (index % 3) * 0.09;
+      const wings = GULL_PERCHED_WING_SPAN
+        + (1 - GULL_PERCHED_WING_SPAN) * Math.min(1, air * GULL_WING_OPEN_RATE);
+      dummy.scale.set(size * wings, size, size);
       dummy.updateMatrix();
       gulls.setMatrixAt(index, dummy.matrix);
     }
 
-    quays.forEach((quay, quayIndex) => {
-      // Tempo, unchanged in derivation and in every channel it drives: a
-      // filling harbour's gulls take their turns more often and quicker, wheel
-      // wider, and climb higher — and, at rest, sit further out along the pier
-      // head, where the work is. A draining harbour's tuck in at its root.
-      const period = QUAY_GULL_TURN_SECONDS
-        / ((1 + quay.tempo * QUAY_GULL_SPEED_SWING) * (1 + scatter * 0.6));
-      const loop = (QUAY_GULL_RADIUS + quay.tempo * QUAY_GULL_RADIUS_SWING)
-        * (1 + scatter * 0.5);
-      const apex = QUAY_GULL_HEIGHT + quay.tempo * QUAY_GULL_HEIGHT_SWING + scatter * 1.6;
-      const out = QUAY_PERCH_OUT + quay.tempo * QUAY_PERCH_OUT_SWING;
-      // The harbour's own bearing: its root is turned so local +x runs seaward,
-      // straight out from the island (`garden-docks.ts` createDock).
-      const bearing = Math.hypot(quay.x, quay.z) || 1;
-      const seawardX = quay.x / bearing;
-      const seawardZ = quay.z / bearing;
-      for (let seat = 0; seat < GARDEN_QUAY_GULL_COUNT; seat += 1) {
-        const index = GARDEN_GULL_COUNT
-          + quayIndex * GARDEN_QUAY_GULL_COUNT
-          + seat;
-        const [alongPier, acrossPier] = QUAY_PERCH_SEATS[seat % QUAY_PERCH_SEATS.length]!;
-        const localX = out + alongPier;
-        const perchX = quay.x + localX * seawardX - acrossPier * seawardZ;
-        const perchZ = quay.z + localX * seawardZ + acrossPier * seawardX;
-        // Harbours take their turns out of step with each other, and the two
-        // seats of one quay out of step with each other again.
-        const seed = (quay.seed + seat * 0.37) % 1;
-        const sortie = flight * gardenBirdSortie(seed, time, period, chance, share);
-        const air = Math.sin(Math.PI * sortie);
-        const [offsetX, lift, offsetZ, heading] = gardenBirdSortieOffset(
-          sortie,
-          seawardX,
-          seawardZ,
-          loop,
-          apex - QUAY_PERCH_DECK_Y,
-        );
-        const gullX = perchX + offsetX + driftX * air;
-        const gullZ = perchZ + offsetZ + driftZ * air;
-        dummy.position.set(gullX, QUAY_PERCH_DECK_Y + lift, gullZ);
-        // Same flow steering as the island flock, gentler — the quay pair is a
-        // tempo reading first, a flock second.
-        const flow = gullFlowAngle(gullX, gullZ, time);
-        setGullHeading(dummy, heading + angleDelta(flow, heading) * 0.3 * air);
-        dummy.scale.setScalar(QUAY_GULL_SCALE + seat * 0.05);
-        dummy.updateMatrix();
-        gulls.setMatrixAt(index, dummy.matrix);
-      }
-    });
     gulls.instanceMatrix.needsUpdate = true;
   };
 
@@ -554,7 +404,7 @@ function angleDelta(to: number, from: number): number {
  * Points a gull along a heading given as `atan2(dirZ, dirX)`.
  *
  * The quarter turn is not a fudge: this flock's silhouette (unlike the summit
- * birds' and the hero gulls', whose nose is +x) flies toward -Z — its wingtips
+ * birds', whose nose is +x) flies toward -Z — its wingtips
  * at z = +0.22 are swept AFT of their roots at z = -0.16..-0.04, and the body
  * runs from a blunt head at z = -0.28 to a pointed tail at z = +0.42. Rotating
  * by the fleet's own `-atan2(vz, vx)` therefore put every gull's wings across

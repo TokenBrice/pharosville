@@ -1,4 +1,10 @@
-import { isDebugChromeEnabled } from "../lib/pharosville-debug";
+import {
+  debugDirectorLog,
+  isDebugChromeEnabled,
+  isStillCameraRequested,
+  isVisualDebugAllowed,
+  type DebugDirectorAdmission,
+} from "../lib/pharosville-debug";
 // Owns the requestAnimationFrame draw loop, per-frame timing/metrics refs,
 // hit-target snapshot maintenance during the frame, ship motion sample
 // collection, and visual debug telemetry. Shared cross-hook refs (camera,
@@ -43,8 +49,28 @@ import {
   type ShipMotionSample,
 } from "../systems/motion";
 import { applySeaRoomSeparationPass } from "../systems/motion-sampling";
-import { resolveGardenShipDisplayTile, selectGardenObservatorySlice } from "../systems/garden-observatory-slice";
-import type { IsoCamera, ScreenPoint } from "../systems/projection";
+import {
+  GARDEN_LIGHTHOUSE_HEIGHT,
+  GARDEN_LIGHTHOUSE_ROOT_OFFSET,
+  GARDEN_WATER_Y,
+  gardenIslandDisplayTile,
+  resolveGardenShipDisplayTile,
+  selectGardenObservatorySlice,
+} from "../systems/garden-observatory-slice";
+import { GARDEN_EMPTY_INLET } from "../systems/garden-fleet-placement";
+import {
+  CAMERA_NEAR,
+  CAMERA_YAW,
+  PROJECTION_BREATH_IDENTITY,
+  TILE_SCALE,
+  resetProjectionCameraBreath,
+  setProjectionCameraBreath,
+  worldToScreen,
+  worldViewDepth,
+  type IsoCamera,
+  type ProjectionCameraBreath,
+  type ScreenPoint,
+} from "../systems/projection";
 import { seaStateForWorld, type SeaState } from "../systems/sea-state";
 import { weatherForFrame, writeWeatherPlan, type WeatherPlan } from "../systems/weather";
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
@@ -71,9 +97,24 @@ import {
 
 type MotionPlan = ReturnType<typeof buildMotionPlan>;
 
-const CAMERA_BREATH_INPUT_FREEZE_MS = 2_500;
+/**
+ * W0.12 / K16 camera breath: idle-only and eased. The target weight is 1 only
+ * after 45 s with no pointer, wheel or key input, no hover, no selection and
+ * no camera intent — the same interaction clock the render scheduler's
+ * ambient cadence and 180 s idle read. It eases in over a 12 s smootherstep
+ * and out with τ 0.5 s (settled in ~1.5 s); the phase keeps running on the
+ * environment clock while suppressed, so a resumed breath grows from zero
+ * instead of jumping. Reduced motion and the debug still camera hold 0.
+ */
+const CAMERA_BREATH_IDLE_MS = 45_000;
+const CAMERA_BREATH_EASE_IN_SECONDS = 12;
+const CAMERA_BREATH_EASE_OUT_TAU_SECONDS = 0.5;
+const CAMERA_BREATH_YAW_RAD = 0.8 * Math.PI / 180;
+const CAMERA_BREATH_PITCH_RAD = 0.6 * Math.PI / 180;
+const CAMERA_BREATH_DOLLY = 0.012;
 const CAMERA_BREATH_TWO_PI = Math.PI * 2;
-const STILL_CAMERA_BREATH = { dolly: 1, pitch: 0, yaw: 0 } as const;
+/** Debug motion stats refresh at most twice a second. */
+const MOTION_STATS_REFRESH_MS = 500;
 /** Frame-local weather for the motion sampler; rewritten in place every sample pass. */
 const samplerWeather = weatherForFrame({ timeSeconds: 0, psiStress: 0, baseWind: 0, reducedMotion: true });
 
@@ -310,6 +351,23 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   // idle gap and is no more a load sample than the idle frames themselves.
   const lastInteractionAtMsRef = useRef<number | null>(null);
   const previousFrameIdleRef = useRef(false);
+  // W0.12 eased breath: `weight` is the applied amplitude share, `rise` the
+  // 0..1 progress of the 12 s smootherstep ease-in; `breath` is the one scratch
+  // object handed to the renderer and the projection seam while breathing.
+  const cameraBreathStateRef = useRef<{ breath: ProjectionCameraBreath; rise: number; weight: number }>({
+    breath: { dolly: 1, pitch: 0, yaw: 0 },
+    rise: 0,
+    weight: 0,
+  });
+  // W0.2 debug motion stats: one object, refreshed in place ≤ 2×/s from the
+  // per-frame heading deltas the debug telemetry already computes.
+  const motionStatsRef = useRef<DebugMotionStats>({
+    meanAbsTurnDegPerSec: 0,
+    sampledAtMs: 0,
+    underwayShips: 0,
+    visibleShips: 0,
+  });
+  const motionStatsAccRef = useRef({ lastRefreshAtMs: Number.NEGATIVE_INFINITY, turnCount: 0, turnSum: 0 });
   const lastInteractionInputRef = useRef<{ hoveredDetailId: string | null; selectedDetailId: string | null }>({
     hoveredDetailId: null,
     selectedDetailId: null,
@@ -531,11 +589,18 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         msSinceInteraction: time - lastInteractionAtMsRef.current,
         reducedMotion,
       });
-      // The RAF callback keeps arriving at display rate while idle — only the
-      // frame's WORK is skipped. That is what makes waking instant: the first
-      // callback after an input already sees a fresh interaction stamp and
-      // draws, so there is nothing to spin back up.
-      if (idleState.idle && lastWallRef.current !== null && time - lastWallRef.current < idleState.targetFrameMs) {
+      // The RAF callback keeps arriving at display rate — only the frame's
+      // WORK is skipped. That is what makes waking instant: the first callback
+      // after an input already sees a fresh interaction stamp and draws, so
+      // there is nothing to spin back up. W0.21: between interaction (full
+      // display rate, plus 500 ms) and idle (the 33 ms duty cycle) the garden
+      // draws at the ambient 60 Hz cadence, so a 120 Hz panel skips every
+      // second callback and a 60 Hz panel skips none.
+      if (
+        idleState.minFrameIntervalMs > 0
+        && lastWallRef.current !== null
+        && time - lastWallRef.current < idleState.minFrameIntervalMs
+      ) {
         scheduleNextAnimatedFrame();
         return;
       }
@@ -552,6 +617,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       // only after the camera step so camera-interaction frames can be
       // excluded too — see the push site below.
       let frameIntervalMs: number | null = null;
+      /** The world-clock step this frame; drives the breath weight's easing too. */
+      let frameDtSeconds = 0;
       if (reducedMotion) {
         timeSeconds = 0;
       } else {
@@ -584,6 +651,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
             : Math.min(rawDt, maxFrameDeltaSeconds);
         pendingResumeRef.current = false;
         accSecondsRef.current += dt;
+        frameDtSeconds = dt;
         lastWallRef.current = time;
         timeSeconds = accSecondsRef.current;
         advanceMotionBucket(Math.floor(accSecondsRef.current / MOTION_BUCKET_INTERVAL_SECONDS));
@@ -770,18 +838,20 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           previewSchedulerTier);
       }
       let renderMetrics: PharosVilleRenderMetrics;
-      const cameraBreathSuppressed = reducedMotion
-        || activeHoveredDetailId !== null
-        || activeSelectedDetailId !== null
-        || cameraStep.cameraIntentActive
-        || time - (lastInteractionAtMsRef.current ?? time) < CAMERA_BREATH_INPUT_FREEZE_MS;
-      const cameraBreath = cameraBreathSuppressed
-        ? STILL_CAMERA_BREATH
-        : {
-          dolly: 1 + 0.015 * Math.sin(CAMERA_BREATH_TWO_PI * motionTimeSeconds / 131 + 2.1),
-          pitch: Math.PI / 180 * Math.sin(CAMERA_BREATH_TWO_PI * motionTimeSeconds / 97 + 1.3),
-          yaw: 2 * Math.PI / 180 * Math.sin(CAMERA_BREATH_TWO_PI * motionTimeSeconds / 118),
-        };
+      // K16: breath is idle-only. Hover, selection, camera intent (a glide, a
+      // follow, a postcard move) or any input in the last 45 s target zero;
+      // the weight eases rather than snapping, and hit-tests read the same
+      // breathed pose through the projection seam set below.
+      const cameraBreath = stepCameraBreath(cameraBreathStateRef.current, {
+        dtSeconds: frameDtSeconds,
+        forcedStill: reducedMotion || isStillCameraRequested(),
+        idle: activeHoveredDetailId === null
+          && activeSelectedDetailId === null
+          && !cameraStep.cameraIntentActive
+          && time - (lastInteractionAtMsRef.current ?? time) >= CAMERA_BREATH_IDLE_MS,
+        phaseSeconds: timeSeconds,
+      });
+      setProjectionCameraBreath(cameraBreath);
       try {
         renderMetrics = threeRenderer.render({
           almanacEvent: almanacEvent ?? null,
@@ -961,12 +1031,17 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         let frameMaxHeadingDeg = 0;
         let frameMaxPosDelta = 0;
         const lastTilePos = lastTilePosRef.current;
+        const motionStatsAcc = motionStatsAccRef.current;
         for (const [id, sample] of nextFrameState.samples) {
           const prev = lastTilePos.get(id);
           if (prev) {
             if (isContinuousPositionDiagnosticSample(prev, sample)) {
               const headingDelta = headingDeltaDegreesPerSecond(prev, sample, nextFrameState.timeSeconds);
               if (headingDelta > frameMaxHeadingDeg) frameMaxHeadingDeg = headingDelta;
+              if (isUnderwayState(sample.state) && nextFrameState.timeSeconds > prev.timeSeconds) {
+                motionStatsAcc.turnSum += headingDelta;
+                motionStatsAcc.turnCount += 1;
+              }
               const tile = sample.displayTile ?? sample.tile;
               const d = Math.hypot(tile.x - prev.x, tile.y - prev.y);
               if (d > frameMaxPosDelta) frameMaxPosDelta = d;
@@ -978,6 +1053,27 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         }
         const shipMaxHeadingDeltaDeg = pushNumericMaxWindow(headingDeltaWindowRef.current, frameMaxHeadingDeg);
         const shipMaxPositionDeltaTile = pushNumericMaxWindow(positionDeltaWindowRef.current, frameMaxPosDelta);
+
+        // W0.2 motion stats: counted from this frame's samples at most twice
+        // a second, written into the one published object.
+        if (time - motionStatsAcc.lastRefreshAtMs >= MOTION_STATS_REFRESH_MS) {
+          let visibleShips = 0;
+          let underwayShips = 0;
+          for (const [id, sample] of nextFrameState.samples) {
+            const ship = activeShipsById.get(id);
+            if (ship && !isShipMapVisible(ship, sample)) continue;
+            visibleShips += 1;
+            if (isUnderwayState(sample.state)) underwayShips += 1;
+          }
+          const stats = motionStatsRef.current;
+          stats.visibleShips = visibleShips;
+          stats.underwayShips = underwayShips;
+          stats.meanAbsTurnDegPerSec = motionStatsAcc.turnCount > 0 ? motionStatsAcc.turnSum / motionStatsAcc.turnCount : 0;
+          stats.sampledAtMs = time;
+          motionStatsAcc.lastRefreshAtMs = time;
+          motionStatsAcc.turnSum = 0;
+          motionStatsAcc.turnCount = 0;
+        }
 
         // A3: route cache stats.
         let routeCacheStats: { hitRatio: number; evictionRate: number; size: number; capacity: number } | undefined;
@@ -1009,12 +1105,14 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         const debugPublishStartedAt = performance.now();
         updateDebugFrame({
           animationFramePending: animationFramePendingRef.current,
+          cameraBreathWeight: cameraBreathStateRef.current.weight,
           frameCount: motionFrameCountRef.current,
           frameState: nextFrameState,
           camera: frameCamera,
           canvasSize: activeCanvasSize,
           reducedMotion,
           gardenDirector: gardenDirectorRef.current,
+          motionStats: motionStatsRef.current,
           renderMetrics: lastRenderMetricsRef.current,
           shipsById: activeShipsById,
           compactSampleCache: compactShipMotionSampleCacheRef.current,
@@ -1107,6 +1205,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       paintRequestRef.current = () => {};
       animationFramePendingRef.current = false;
       lastWallRef.current = null;
+      // The projection seam holds the last drawn breath; with no loop drawing,
+      // picking and anchors return to the unbreathed pose.
+      resetProjectionCameraBreath();
       if (frameId) cancelAnimationFrame(frameId);
       if (observer) observer.disconnect();
       if (longtaskObserverRef.current) {
@@ -1189,23 +1290,44 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     const framePatch = debugFramePatch({
       animationFramePending: animationFramePendingRef.current,
       camera,
+      cameraBreathWeight: cameraBreathStateRef.current.weight,
       canvasSize,
       compactSampleCache: compactShipMotionSampleCacheRef.current,
       frameCount: motionFrameCountRef.current,
       frameState,
       reducedMotion,
       gardenDirector,
+      motionStats: motionStatsRef.current,
       renderMetrics: lastRenderMetricsRef.current,
       shipsById,
       world,
     });
     debugWindow.__pharosVilleDebug = {
       ...framePatch,
+      anchors: debugWorldAnchors(world),
       camera,
       surfaceBudget: surfaceBudgetRef.current,
       canvasSize,
+      // W0.3: world → CSS-pixel canvas coordinates with the pose last drawn
+      // (breath included, through the same projection seam hit-testing uses).
+      project: (points) => {
+        const activeCamera = cameraRef.current;
+        const viewport = canvasSizeRef.current;
+        return points.map((point) => {
+          if (!activeCamera || viewport.x <= 0 || viewport.y <= 0) return { x: Number.NaN, y: Number.NaN, visible: false };
+          const screen = worldToScreen(point, activeCamera, viewport);
+          return {
+            x: screen.x,
+            y: screen.y,
+            visible: worldViewDepth(point, activeCamera, viewport) > CAMERA_NEAR
+              && screen.x >= 0 && screen.x <= viewport.x
+              && screen.y >= 0 && screen.y <= viewport.y,
+          };
+        });
+      },
       selectedDetailAnchor,
       selectedDetailId,
+      stillCamera: isStillCameraRequested(),
     };
     return () => {
       delete debugWindow.__pharosVilleDebug;
@@ -1243,12 +1365,21 @@ type CompactShipMotionSampleCache = {
 type PharosVilleDebugState = {
   activeCameraLoopCount: number;
   activeMotionLoopCount: number;
+  /** W0.3 world-unit anchors for picture metrics. */
+  anchors: DebugWorldAnchors;
   camera: IsoCamera | null;
+  /** W0.12 eased breath weight applied to the frame last drawn (0 = no breath). */
+  cameraBreathWeight: number;
   cameraFrameSource: "world-render-loop";
   cameraWithinBounds: boolean;
-  /** G3/W6.6: the director's bounded beat log — the unattended watch's evidence. */
-  directorLog: readonly GardenBeat[];
+  /** W0.2: every beat the director admitted, oldest first, capped at 200. */
+  directorLog: readonly DebugDirectorAdmission[];
   directorActive: GardenBeat | null;
+  /** W0.2 fleet motion instruments, refreshed ≤ 2×/s. */
+  motionStats: DebugMotionStats;
+  project: (points: readonly DebugWorldPoint[]) => { x: number; y: number; visible: boolean }[];
+  /** W0.2 `still=1`: no breath, no attract. */
+  stillCamera: boolean;
   surfaceBudget: ReturnType<typeof resolveRenderSurfaceBudget> | null;
   canvasSize: ScreenPoint;
   animationFramePending: boolean;
@@ -1460,6 +1591,7 @@ function headingDeltaDegreesPerSecond(
 type DebugFramePatchInput = {
   animationFramePending: boolean;
   camera: IsoCamera | null;
+  cameraBreathWeight: number;
   canvasSize: ScreenPoint;
   compactSampleCache: CompactShipMotionSampleCache;
   frameCount: number;
@@ -1471,6 +1603,7 @@ type DebugFramePatchInput = {
   };
   reducedMotion: boolean;
   gardenDirector: GardenDirectorState | undefined;
+  motionStats: DebugMotionStats;
   renderMetrics: DebugRenderMetrics;
   shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;
   world: PharosVilleWorldModel;
@@ -1478,10 +1611,13 @@ type DebugFramePatchInput = {
 
 type DebugFramePatch = Omit<
   PharosVilleDebugState,
+  | "anchors"
   | "surfaceBudget"
   | "canvasSize"
+  | "project"
   | "selectedDetailAnchor"
   | "selectedDetailId"
+  | "stillCamera"
 >;
 
 function debugFramePatch(input: DebugFramePatchInput): DebugFramePatch {
@@ -1490,12 +1626,14 @@ function debugFramePatch(input: DebugFramePatchInput): DebugFramePatch {
     activeMotionLoopCount: input.reducedMotion || !input.animationFramePending ? 0 : 1,
     animationFramePending: input.animationFramePending,
     camera: input.camera,
+    cameraBreathWeight: input.cameraBreathWeight,
     cameraFrameSource: "world-render-loop",
     directorActive: input.gardenDirector?.active ?? null,
-    directorLog: input.gardenDirector?.log ?? [],
+    directorLog: debugDirectorLog,
     cameraWithinBounds: isCameraWithinBounds(input.camera, input.world.map, input.canvasSize),
     motionClockSource: input.reducedMotion ? "reduced-motion-static-frame" : "requestAnimationFrame",
     motionFrameCount: input.frameCount,
+    motionStats: input.motionStats,
     renderMetrics: input.renderMetrics,
     reducedMotion: input.reducedMotion,
     shipMotionSamples: compactShipMotionSamples(input.frameState.samples, input.shipsById, input.compactSampleCache),
@@ -1524,20 +1662,158 @@ function isCameraWithinBounds(camera: IsoCamera | null, map: PharosVilleWorldMod
   );
 }
 
-// Cached at module scope: PROD vs dev never changes inside a session, and
-// hostname doesn't change for a SPA. The lazy initialiser keeps SSR / module
-// load safe by deferring the window read until first call. Evaluating once
-// (not on every effect-rebind tick) makes the per-render guard cost trivial
-// even when the body short-circuits (HOOKS F3).
-let cachedDebugAllowed: boolean | null = null;
-function isVisualDebugAllowed(): boolean {
-  if (cachedDebugAllowed === null) {
-    cachedDebugAllowed = !import.meta.env.PROD
-      || (typeof window !== "undefined"
-        && (window.location.hostname === "localhost"
-          || window.location.hostname === "127.0.0.1"));
+type CameraBreathState = { breath: ProjectionCameraBreath; rise: number; weight: number };
+
+/**
+ * One frame of the W0.12 breath: advance the eased weight, then write the
+ * breathed offsets into the state's scratch object. Returns the identity
+ * constant (no allocation) whenever the weight is zero.
+ */
+export function stepCameraBreath(
+  state: CameraBreathState,
+  input: { dtSeconds: number; forcedStill: boolean; idle: boolean; phaseSeconds: number },
+): Readonly<ProjectionCameraBreath> {
+  if (input.forcedStill) {
+    state.rise = 0;
+    state.weight = 0;
+    return PROJECTION_BREATH_IDENTITY;
   }
-  return cachedDebugAllowed;
+  const dt = Math.max(0, input.dtSeconds);
+  if (input.idle) {
+    state.rise = Math.min(1, state.rise + dt / CAMERA_BREATH_EASE_IN_SECONDS);
+    const rise = state.rise;
+    // Quintic smootherstep: zero velocity and acceleration at both ends.
+    state.weight = Math.max(state.weight, rise * rise * rise * (rise * (rise * 6 - 15) + 10));
+  } else {
+    state.rise = 0;
+    state.weight *= Math.exp(-dt / CAMERA_BREATH_EASE_OUT_TAU_SECONDS);
+    if (state.weight < 1e-4) state.weight = 0;
+  }
+  const weight = state.weight;
+  if (weight === 0) return PROJECTION_BREATH_IDENTITY;
+  const phase = CAMERA_BREATH_TWO_PI * input.phaseSeconds;
+  state.breath.dolly = 1 + weight * CAMERA_BREATH_DOLLY * Math.sin(phase / 131 + 2.1);
+  state.breath.pitch = weight * CAMERA_BREATH_PITCH_RAD * Math.sin(phase / 97 + 1.3);
+  state.breath.yaw = weight * CAMERA_BREATH_YAW_RAD * Math.sin(phase / 118);
+  return state.breath;
+}
+
+type DebugWorldPoint = { x: number; y: number; z: number };
+
+type DebugMotionStats = {
+  meanAbsTurnDegPerSec: number;
+  sampledAtMs: number;
+  underwayShips: number;
+  visibleShips: number;
+};
+
+type DebugWorldAnchors = {
+  inletPolygon: DebugWorldPoint[];
+  towerCrown: DebugWorldPoint;
+  towerFaceLeft: DebugWorldPoint;
+  towerFaceRight: DebugWorldPoint;
+  towerFoot: DebugWorldPoint;
+};
+
+function isUnderwayState(state: ShipMotionSample["state"]): boolean {
+  return state === "departing" || state === "sailing" || state === "risk-drift" || state === "arriving";
+}
+
+// The Pharos's battered square tier (L1 silhouette contract, mirrored from
+// `garden-lighthouse.ts`): lighthouse-local y 2.5 → 20.5, half-width
+// 4.6 → 3.7, flat faces on the local ±X/±Z axes (the tower yaw is a quarter
+// turn, which keeps them axis-aligned in the world).
+const TOWER_SQUARE_BASE_Y = 2.5;
+const TOWER_SQUARE_TOP_Y = 20.5;
+const TOWER_SQUARE_BASE_HALF = 4.6;
+const TOWER_SQUARE_TOP_HALF = 3.7;
+const INLET_CAP_STEPS = 8;
+
+/**
+ * W0.3 world anchors for picture metrics, in world units: the tower foot and
+ * crown, the centres of the two square-tier faces the rest camera sees (at
+ * the tier's mid-height, split by the camera's right axis) and the
+ * `GARDEN_EMPTY_INLET` corridor outlined at water level.
+ */
+function debugWorldAnchors(world: PharosVilleWorldModel): DebugWorldAnchors {
+  const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
+  const footX = islandTile.x * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x;
+  const footY = GARDEN_LIGHTHOUSE_ROOT_OFFSET.y;
+  const footZ = islandTile.y * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z;
+  const midLocalY = (TOWER_SQUARE_BASE_Y + TOWER_SQUARE_TOP_Y) / 2;
+  const midHalf = (TOWER_SQUARE_BASE_HALF + TOWER_SQUARE_TOP_HALF) / 2;
+  // Faces whose outward normal points toward the eye; the one further along
+  // the camera's right axis is the right face.
+  const eyeX = Math.sin(CAMERA_YAW);
+  const eyeZ = Math.cos(CAMERA_YAW);
+  const rightX = Math.cos(CAMERA_YAW);
+  const rightZ = -Math.sin(CAMERA_YAW);
+  const faceX = { x: Math.sign(eyeX) || 1, z: 0 };
+  const faceZ = { x: 0, z: Math.sign(eyeZ) || 1 };
+  const [leftFace, rightFace] = faceX.x * rightX + faceX.z * rightZ < faceZ.x * rightX + faceZ.z * rightZ
+    ? [faceX, faceZ]
+    : [faceZ, faceX];
+  const facePoint = (face: { x: number; z: number }): DebugWorldPoint => ({
+    x: footX + face.x * midHalf,
+    y: footY + midLocalY,
+    z: footZ + face.z * midHalf,
+  });
+  return {
+    inletPolygon: inletCorridorPolygon(),
+    towerCrown: { x: footX, y: footY + GARDEN_LIGHTHOUSE_HEIGHT, z: footZ },
+    towerFaceLeft: facePoint(leftFace),
+    towerFaceRight: facePoint(rightFace),
+    towerFoot: { x: footX, y: footY, z: footZ },
+  };
+}
+
+/** The inlet's buffered polyline (mitred sides, round ends) as a closed outline at water level. */
+function inletCorridorPolygon(): DebugWorldPoint[] {
+  const line = GARDEN_EMPTY_INLET.polyline;
+  const radius = GARDEN_EMPTY_INLET.halfWidth;
+  const last = line.length - 1;
+  const direction = (from: number, to: number) => {
+    const dx = line[to]!.x - line[from]!.x;
+    const dy = line[to]!.y - line[from]!.y;
+    const length = Math.hypot(dx, dy) || 1;
+    return { x: dx / length, y: dy / length };
+  };
+  const toWorld = (x: number, y: number): DebugWorldPoint => ({ x: x * TILE_SCALE, y: GARDEN_WATER_Y, z: y * TILE_SCALE });
+  const left: DebugWorldPoint[] = [];
+  const right: DebugWorldPoint[] = [];
+  for (let index = 0; index <= last; index += 1) {
+    const incoming = direction(Math.max(0, index - 1), Math.max(1, index));
+    const outgoing = direction(Math.min(last - 1, index), Math.min(last, index + 1));
+    const normalX = -(incoming.y + outgoing.y);
+    const normalY = incoming.x + outgoing.x;
+    const normalLength = Math.hypot(normalX, normalY) || 1;
+    const nx = normalX / normalLength;
+    const ny = normalY / normalLength;
+    const miter = radius / Math.max(0.25, nx * -outgoing.y + ny * outgoing.x);
+    const point = line[index]!;
+    left.push(toWorld(point.x + nx * miter, point.y + ny * miter));
+    right.push(toWorld(point.x - nx * miter, point.y - ny * miter));
+  }
+  const cap = (index: number, forward: { x: number; y: number }, sign: 1 | -1): DebugWorldPoint[] => {
+    const point = line[index]!;
+    const nx = -forward.y * sign;
+    const ny = forward.x * sign;
+    const out: DebugWorldPoint[] = [];
+    for (let step = 1; step < INLET_CAP_STEPS; step += 1) {
+      const angle = step / INLET_CAP_STEPS * Math.PI;
+      out.push(toWorld(
+        point.x + radius * (nx * Math.cos(angle) + forward.x * sign * Math.sin(angle)),
+        point.y + radius * (ny * Math.cos(angle) + forward.y * sign * Math.sin(angle)),
+      ));
+    }
+    return out;
+  };
+  return [
+    ...left,
+    ...cap(last, direction(last - 1, last), 1),
+    ...right.reverse(),
+    ...cap(0, direction(0, 1), -1),
+  ];
 }
 
 // Installed before navigation by the real-GPU preview harness, never a shipped control.

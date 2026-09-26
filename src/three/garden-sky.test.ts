@@ -12,12 +12,13 @@ import {
 import {
   createGardenSky,
   GARDEN_BOKASHI_BAND,
+  GARDEN_SKY_VISIBLE_HEIGHT_FLOOR,
   gardenBokashiAmount,
   gardenBokashiInk,
+  gardenSkyHeight,
 } from "./garden-sky";
 import {
   CLOUD_COUNT,
-  GARDEN_AUTUMN_GEESE_COUNT,
   MIST_BANK_COUNT,
 } from "./garden-sky-billboards";
 
@@ -76,11 +77,12 @@ describe("perspective sky dome", () => {
     sky.dispose();
   });
 
-  it("spans the visible sky ladder to the top ray as the live pitch and target height change", () => {
+  it("spans the visible sky ladder to the top ray, never over less than 6° of sky", () => {
     const sky = createGardenSky();
+    let floored = 0;
     for (const viewport of [{ x: 900, y: 720 }, { x: 1200, y: 640 }]) {
       const rest = defaultCamera({ width: viewport.x, height: viewport.y, map: MAP });
-      for (const zoom of [rest.zoom, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, rest.zoom]) {
+      for (const zoom of [rest.zoom, 0.28, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, rest.zoom]) {
         const camera = { ...rest, zoom };
         const pose = cameraPoseFromIso(camera, viewport);
         sky.update(dayCyclePhase(12), {
@@ -92,10 +94,32 @@ describe("perspective sky dome", () => {
         });
         const topRay = screenToGroundRay({ x: viewport.x / 2, y: 0 }, camera, viewport);
         const visibleHeight = sky.domeMaterial.uniforms.uSkyVisibleHeight.value as number;
-        expect(topRay.direction.y / visibleHeight).toBeCloseTo(1, 10);
+        if (topRay.direction.y < GARDEN_SKY_VISIBLE_HEIGHT_FLOOR) floored += 1;
+        expect(visibleHeight).toBeCloseTo(Math.max(topRay.direction.y, GARDEN_SKY_VISIBLE_HEIGHT_FLOOR), 10);
       }
     }
+    // The whole-map pull-out is exactly where the floor has to engage.
+    expect(floored).toBeGreaterThan(0);
     sky.dispose();
+  });
+
+  it("eases the ladder into its top with no kink or overshoot", () => {
+    const step = 0.001;
+    let previous = gardenSkyHeight(0, 1);
+    let previousSlope = 1;
+    expect(previous).toBe(0);
+    expect(gardenSkyHeight(-0.2, 1)).toBe(0);
+    expect(gardenSkyHeight(0.5, 1)).toBeCloseTo(0.5, 12);
+    for (let lift = step; lift <= 1.6; lift += step) {
+      const height = gardenSkyHeight(lift, 1);
+      const slope = (height - previous) / step;
+      expect(slope).toBeGreaterThanOrEqual(0);
+      expect(height).toBeLessThanOrEqual(1 + 1e-12);
+      expect(Math.abs(slope - previousSlope)).toBeLessThan(0.01);
+      previous = height;
+      previousSlope = slope;
+    }
+    expect(previous).toBeCloseTo(1, 12);
   });
 });
 
@@ -199,22 +223,29 @@ describe("garden sky billboard atmosphere", () => {
     sky.dispose();
   });
 
-  it("shows only summer high clouds and the autumn geese line", () => {
+  it("shows only summer high clouds and no geese cards in any season", () => {
     const summer = createGardenSky("summer");
     const summerClouds = cloudsOf(summer);
     summer.update(dayCyclePhase(12), FRAME);
     expect(summerClouds.visible).toBe(true);
     expect(uniformsOf(summerClouds).uOpacity!.value as number).toBeLessThanOrEqual(0.34);
-    expect(summer.root.getObjectByName("garden-sky-autumn-geese")!.visible).toBe(false);
     summer.dispose();
 
-    const autumn = createGardenSky("autumn");
-    autumn.update(dayCyclePhase(12), FRAME);
-    const geese = autumn.root.getObjectByName("garden-sky-autumn-geese") as InstancedMesh;
-    expect(geese.count).toBe(GARDEN_AUTUMN_GEESE_COUNT);
-    expect(geese.visible).toBe(true);
-    expect(cloudsOf(autumn).visible).toBe(false);
-    autumn.dispose();
+    for (const season of ["spring", "summer", "autumn", "winter"] as const) {
+      const sky = createGardenSky(season);
+      for (const hour of [7, 12, 18, 22]) {
+        sky.update(dayCyclePhase(hour), { ...FRAME, wallClockHour: hour });
+        const visibleCards: string[] = [];
+        sky.root.traverseVisible((object) => {
+          if (object instanceof InstancedMesh) visibleCards.push(object.name);
+        });
+        const allowed = season === "summer"
+          ? ["garden-sky-mist-banks", "garden-sky-clouds"]
+          : ["garden-sky-mist-banks"];
+        for (const name of visibleCards) expect(allowed).toContain(name);
+      }
+      sky.dispose();
+    }
   });
 
   it("pulls winter fog slightly toward the cool harbor fog anchor", () => {

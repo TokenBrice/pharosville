@@ -434,8 +434,11 @@ describe("AccessibilityLedger", () => {
         ...sampleWorld().lighthouse,
         signalMast: {
           activeDepegCount: 2,
+          leaderCount: 20,
+          leadersOffPeg: ["USDE", "FDUSD"],
           pennantCount: 2,
           capped: false,
+          offPegSupplyShare: 0.0142,
           stormCone: true,
           worstBps: -640,
           worstSymbol: "XUSD",
@@ -449,7 +452,7 @@ describe("AccessibilityLedger", () => {
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("Signal mast: 2 pennants for 2 coins off peg; storm cone hoisted.");
+    expect(markup).toContain("Signal mast: 2 pennants for USDE, FDUSD — 2 of the 20 largest coins by supply off peg; storm cone hoisted — 1.42% of tracked supply off peg.");
     expect(markup).toContain("Fleet peg: Worst XUSD -6.4%; median +3 bps; 212 of 214 at peg; 1 event today.");
   });
 

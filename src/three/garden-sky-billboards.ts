@@ -44,7 +44,6 @@ export interface GardenSkyBillboardLayer {
 export interface GardenSkyBillboards {
   clouds: GardenSkyBillboardLayer;
   dispose: () => void;
-  geese: GardenSkyBillboardLayer;
   mist: GardenSkyBillboardLayer;
   localMist: GardenSkyBillboardLayer;
   setFogBanks: (banks: readonly EpistemicFogBank[], targetX: number, targetZ: number) => void;
@@ -52,7 +51,6 @@ export interface GardenSkyBillboards {
 
 export const MIST_BANK_COUNT = 9;
 export const CLOUD_COUNT = 5;
-export const GARDEN_AUTUMN_GEESE_COUNT = 7;
 
 /**
  * Anchors in sky-root local space (the root re-anchors to the camera target,
@@ -109,17 +107,6 @@ const CLOUDS: ReadonlyArray<readonly [number, number, number, number, number]> =
   [-55, 26, -135, 42, 14],
   [-160, 34, -100, 52, 17],
   [-95, 20, -150, 34, 11],
-];
-
-/** One asymmetrical travelling line, high in the borrowed sky. */
-const AUTUMN_GEESE: ReadonlyArray<readonly [number, number, number, number, number]> = [
-  [-86, 27.5, -116, 3.4, 1.3],
-  [-91, 29.0, -120, 3.1, 1.2],
-  [-96, 30.2, -124, 2.9, 1.15],
-  [-101, 31.1, -128, 2.7, 1.05],
-  [-106, 31.7, -132, 2.5, 1.0],
-  [-111, 32.0, -136, 2.3, 0.92],
-  [-116, 32.1, -140, 2.1, 0.86],
 ];
 
 /**
@@ -186,21 +173,6 @@ const VERTEX_SHADER = /* glsl */ `
   }
 `;
 
-const STATIC_VERTEX_SHADER = /* glsl */ `
-  attribute vec3 aAnchor;
-  attribute vec2 aScale;
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    vec3 worldCenter = (modelMatrix * vec4(aAnchor, 1.0)).xyz;
-    vec3 facing = normalize(cameraPosition - worldCenter);
-    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), facing));
-    vec3 up = cross(facing, right);
-    vec3 offset = right * (position.x * aScale.x) + up * (position.y * aScale.y);
-    gl_Position = projectionMatrix * viewMatrix * vec4(worldCenter + offset, 1.0);
-  }
-`;
-
 const MIST_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uColor;
   uniform float uOpacity;
@@ -251,21 +223,6 @@ const CLOUD_FRAGMENT_SHADER = /* glsl */ `
     float alpha = shape * uOpacity * vFade;
     if (alpha < 0.004) discard;
     gl_FragColor = vec4(color, alpha);
-  }
-`;
-
-const GEESE_FRAGMENT_SHADER = /* glsl */ `
-  uniform vec3 uColor;
-  uniform float uOpacity;
-  varying vec2 vUv;
-  void main() {
-    vec2 p = vUv * 2.0 - 1.0;
-    float wing = abs(abs(p.x) * 0.48 - (p.y + 0.12));
-    float span = 1.0 - smoothstep(0.78, 0.98, abs(p.x));
-    float stroke = 1.0 - smoothstep(0.07, 0.16, wing);
-    float alpha = stroke * span * uOpacity;
-    if (alpha < 0.01) discard;
-    gl_FragColor = vec4(uColor, alpha);
   }
 `;
 
@@ -352,19 +309,6 @@ export function createGardenSkyBillboards(): GardenSkyBillboards {
     0.9,
     64,
   );
-  const geese = createLayer(
-    "garden-sky-autumn-geese",
-    AUTUMN_GEESE,
-    GEESE_FRAGMENT_SHADER,
-    {
-      uColor: { value: null },
-      uOpacity: { value: 0 },
-    },
-    NormalBlending,
-    0,
-    1,
-    STATIC_VERTEX_SHADER,
-  );
   // Bounded banks use world anchors, never the sky's camera-following anchors.
   const localMist = createLayer(
     "garden-source-fog",
@@ -380,7 +324,6 @@ export function createGardenSkyBillboards(): GardenSkyBillboards {
   localMist.mesh.count = 0;
   return {
     clouds,
-    geese,
     mist,
     localMist,
     setFogBanks(banks, targetX, targetZ) {
@@ -401,8 +344,6 @@ export function createGardenSkyBillboards(): GardenSkyBillboards {
       mist.material.dispose();
       clouds.mesh.geometry.dispose();
       clouds.material.dispose();
-      geese.mesh.geometry.dispose();
-      geese.material.dispose();
       localMist.mesh.geometry.dispose();
       localMist.material.dispose();
     },

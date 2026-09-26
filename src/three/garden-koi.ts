@@ -11,7 +11,6 @@ import {
 } from "three";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
-import { GARDEN_POND_CENTER } from "./garden-island";
 import { TILE_SCALE } from "./garden-util";
 
 export const GARDEN_KOI_COUNT = 4;
@@ -69,9 +68,11 @@ function smoothstep01(value: number): number {
 }
 
 /**
- * The first pair traverses the pond's reflection path on one slow figure-eight.
- * The other two make tiny station loops away from the mirror. Reduced motion
- * samples the deliberate time-zero arrangement, with all four held static.
+ * Samples are pond-local: (0, 0) is the basin centre, and the mesh is parented
+ * under the already-centred, yawed basin group in garden-island. The first
+ * pair traverses the pond's reflection path on one slow figure-eight. The other
+ * two make tiny station loops away from the mirror. Reduced motion samples the
+ * deliberate time-zero arrangement, with all four held static.
  */
 export function sampleGardenKoi(
   index: number,
@@ -84,8 +85,8 @@ export function sampleGardenKoi(
   const a = time * primaryRate + plan.phase;
   if (index < 2) {
     const direction = index === 0 ? 1 : -1;
-    const x = GARDEN_POND_CENTER.x + Math.sin(a) * 2.35;
-    const z = GARDEN_POND_CENTER.z + Math.sin(a * 2) * 0.92 * direction;
+    const x = Math.sin(a) * 2.35;
+    const z = Math.sin(a * 2) * 0.92 * direction;
     const dx = Math.cos(a) * 2.35 * primaryRate;
     const dz = Math.cos(a * 2) * 1.84 * primaryRate * direction;
     return {
@@ -97,8 +98,8 @@ export function sampleGardenKoi(
     };
   }
   const radius = 0.18 + index * 0.02;
-  const x = GARDEN_POND_CENTER.x + plan.x + Math.sin(a) * radius;
-  const z = GARDEN_POND_CENTER.z + plan.z + Math.cos(a) * radius * 0.62;
+  const x = plan.x + Math.sin(a) * radius;
+  const z = plan.z + Math.cos(a) * radius * 0.62;
   return {
     depth: plan.depth,
     heading: Math.atan2(Math.sin(a), Math.cos(a)),
@@ -200,8 +201,8 @@ export function createGardenKoi(): GardenKoi {
   mesh.name = "island-koi";
   mesh.frustumCulled = false;
   mesh.renderOrder = 4;
-  // The mesh remains in island-local coordinates: samples use the canonical
-  // pond centre from garden-island, so the fish and reflection cannot drift.
+  // Basin-local coordinates: the parent basin group already sits at the pond
+  // centre with its yaw, so samples must not add the centre a second time.
 
   const colors = new Float32Array(GARDEN_KOI_COUNT * 3);
   const accent = new Float32Array(GARDEN_KOI_COUNT);

@@ -61,14 +61,19 @@ export interface GardenSeaEdges {
 
 const STONE_SIGNATURES: readonly StoneSignature[] = ["natural", "pale", "dark", "slate"];
 
+/** Warning shoal bars are awash wet stone: their crests clear the water by this much. */
+export const GARDEN_SHOAL_BAR_AWASH_HEIGHT = 0.15;
+const WET_STONE = new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.4);
+
 const SIGNATURE_COLORS: Record<StoneSignature, { low: Color; high: Color }> = {
   natural: {
     low: new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.fog_pale), 0.28),
     high: new Color(HARBOR_PALETTE.stone_pale).lerp(new Color(HARBOR_PALETTE.foam_white), 0.38),
   },
+  // The Warning shoal bars' signature: wet stone, darker where it is submerged.
   pale: {
-    low: new Color(HARBOR_PALETTE.stone_pale).lerp(new Color(HARBOR_PALETTE.foam_white), 0.3),
-    high: new Color(HARBOR_PALETTE.foam_white).lerp(new Color(HARBOR_PALETTE.sun_day_warm), 0.24),
+    low: WET_STONE.clone().multiplyScalar(0.78),
+    high: WET_STONE.clone(),
   },
   dark: {
     low: new Color(HARBOR_PALETTE.deep_sea_1).lerp(new Color(HARBOR_PALETTE.stone_mid), 0.5),
@@ -88,6 +93,35 @@ const Y_AXIS = new Vector3(0, 1, 0);
 
 function trianglesIn(geometry: BufferGeometry): number {
   return (geometry.getIndex()?.count ?? geometry.getAttribute("position").count) / 3;
+}
+
+/**
+ * Smooth-shaded normals for a non-indexed polyhedron: every corner takes the
+ * mean of the face normals sharing its position, so seams stay closed without
+ * re-indexing (the bucket merge keeps one attribute layout).
+ */
+function smoothNormalsByPosition(geometry: BufferGeometry): void {
+  geometry.computeVertexNormals();
+  const position = geometry.getAttribute("position");
+  const normal = geometry.getAttribute("normal");
+  const sums = new Map<string, Vector3>();
+  const keyAt = (index: number) => (
+    `${position.getX(index).toFixed(4)},${position.getY(index).toFixed(4)},${position.getZ(index).toFixed(4)}`
+  );
+  for (let index = 0; index < position.count; index += 1) {
+    const key = keyAt(index);
+    const sum = sums.get(key) ?? new Vector3();
+    sum.x += normal.getX(index);
+    sum.y += normal.getY(index);
+    sum.z += normal.getZ(index);
+    sums.set(key, sum);
+  }
+  for (const sum of sums.values()) sum.normalize();
+  for (let index = 0; index < position.count; index += 1) {
+    const sum = sums.get(keyAt(index))!;
+    normal.setXYZ(index, sum.x, sum.y, sum.z);
+  }
+  normal.needsUpdate = true;
 }
 
 function paintGeometry(
@@ -177,7 +211,8 @@ function stoneGeometry(site: GardenSeaEdgeSite, index: number): BufferGeometry {
         site.width * TILE_SCALE * (0.32 + (piece % 2) * 0.09),
       );
       rock.translate((piece - 1) * site.length * TILE_SCALE * 0.31, 0, (piece - 1) * 0.13);
-      rock.computeVertexNormals();
+      if (site.form === "shoal-bar") smoothNormalsByPosition(rock);
+      else rock.computeVertexNormals();
       pieces.push(rock);
     }
     const cluster = mergeGeometries(pieces, false);
@@ -207,11 +242,14 @@ function stoneGeometry(site: GardenSeaEdgeSite, index: number): BufferGeometry {
   const palette = SIGNATURE_COLORS[signature];
   paintGeometry(geometry, palette.low, palette.high, index * 0.73);
   geometry.rotateY(-site.bearing);
+  geometry.computeBoundingBox();
   const seat = site.form === "cliff"
     ? GARDEN_WATER_Y + site.height * 0.46
     : site.form === "slate-edge"
       ? GARDEN_WATER_Y - site.height * 0.12
-      : GARDEN_WATER_Y - site.height * 0.28;
+      : site.form === "shoal-bar"
+        ? GARDEN_WATER_Y + GARDEN_SHOAL_BAR_AWASH_HEIGHT - (geometry.boundingBox?.max.y ?? 0)
+        : GARDEN_WATER_Y - site.height * 0.28;
   geometry.translate(site.tile.x * TILE_SCALE, seat, site.tile.y * TILE_SCALE);
   return geometry;
 }
@@ -232,7 +270,8 @@ function createStoneBuckets(root: Group): {
     for (const geometry of geometries) geometry.dispose();
     if (!merged) throw new Error(`Could not merge sea-edge ${signature} geometry.`);
     const material = new MeshStandardMaterial({
-      flatShading: signature !== "slate",
+      // Slate and the awash shoal bars are smooth-shaded; rough rock stays faceted.
+      flatShading: signature !== "slate" && signature !== "pale",
       metalness: 0,
       roughness: signature === "slate" ? 0.88 : 0.98,
       vertexColors: true,

@@ -25,7 +25,7 @@ describe("garden signal mast (3a)", () => {
     mast.dispose();
   });
 
-  it("flies one pennant per active depeg and caps the hoist", () => {
+  it("flies one pennant per leading coin off peg and caps the hoist", () => {
     const mast = createGardenSignalMast();
 
     mast.setState({ pennantCount: 3, stormCone: false });
@@ -47,7 +47,7 @@ describe("garden signal mast (3a)", () => {
     const mast = createGardenSignalMast();
     const cone = mast.root.getObjectByName("signal-mast-storm-cone");
 
-    // One coin far enough off peg is a storm even though the hoist is short.
+    // Enough supply off peg is a storm even when few leaders are off peg.
     mast.setState({ pennantCount: 1, stormCone: true });
     expect(cone?.visible).toBe(true);
 

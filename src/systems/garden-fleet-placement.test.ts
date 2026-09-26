@@ -273,10 +273,12 @@ describe("real-fleet berth spacing", () => {
       nearestSum += nearest;
     }
 
-    // The forty-two-tile inlet reserves formerly occupied water. A 3.75-tile
-    // mean nearest-neighbour floor preserves readable hull separation in the
-    // remaining unequal anchorages without pinning the unconstrained solve.
-    expect(nearestSum / tiles.length).toBeGreaterThan(3.75);
+    // The forty-two-tile inlet reserves formerly occupied water, and berths
+    // now also keep off dock aprons (where a resting hull used to be shoved
+    // at draw time, into its neighbours). Every band here overflows its water,
+    // so a 3.5-tile mean nearest-neighbour floor preserves readable hull
+    // separation without pinning the unconstrained solve.
+    expect(nearestSum / tiles.length).toBeGreaterThan(3.5);
   });
 
   it("keeps every retained real-coin berth within half a tile through four-percent removals and additions", () => {

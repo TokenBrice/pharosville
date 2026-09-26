@@ -1,4 +1,4 @@
-import { Color, DataTexture, FloatType, RGBAFormat, MeshStandardMaterial, Vector3 } from "three";
+import { Box3, Color, DataTexture, FloatType, RGBAFormat, MeshStandardMaterial, Vector3 } from "three";
 import type {
   PharosVilleRenderSchedulerState,
   TextureOwnerManifestEntry,
@@ -83,6 +83,55 @@ export function createGardenKeeperFixtureLighting(
 }
 
 /**
+ * Linear luminance of the engawa tōrō's lit chamber at full night: an ember
+ * beside the viewer, below the harbour lantern cores (2.7) and far below the
+ * beacon, so the night keeps one dominant light.
+ */
+export const GARDEN_TORO_NIGHT_LUMINANCE = 1.8;
+
+/**
+ * W0.9: the engawa tōrō is a kindled fixture, not an always-lit box. Its fire
+ * chamber is merged into a shared static draw as a dark hollow; this patch
+ * adds `ember` emission only to fragments inside `chamber` (geometry space),
+ * scaled by the night beat. The beat arrives through the
+ * `userData.uNightValue` channel that `setGardenFloraNightValue` already
+ * feeds whenever the night beat changes — no draw, no attribute and no
+ * per-frame JS. Dark in full daylight and through dusk; lit at night.
+ */
+export function patchGardenToroKindling(material: MeshStandardMaterial, chamber: Box3, ember: Color): void {
+  const night = { value: 0 };
+  material.userData.uNightValue = night;
+  const luminance = ember.r * 0.2126 + ember.g * 0.7152 + ember.b * 0.0722;
+  const toroEmber = { value: ember.clone().multiplyScalar(GARDEN_TORO_NIGHT_LUMINANCE / luminance) };
+  // A hair of slack so the chamber's own faces, which lie exactly on the
+  // bounds, pass the containment test despite interpolation error.
+  const toroMin = { value: chamber.min.clone().subScalar(0.005) };
+  const toroMax = { value: chamber.max.clone().addScalar(0.005) };
+  const previousCompile = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    previousCompile.call(material, shader, renderer);
+    shader.uniforms.uNightValue = night;
+    shader.uniforms.uToroEmber = toroEmber;
+    shader.uniforms.uToroMin = toroMin;
+    shader.uniforms.uToroMax = toroMax;
+    shader.vertexShader = `varying vec3 vToroPosition;\n${shader.vertexShader}`
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvToroPosition = transformed;");
+    shader.fragmentShader = `uniform float uNightValue;\nuniform vec3 uToroEmber;\nuniform vec3 uToroMin;\nuniform vec3 uToroMax;\nvarying vec3 vToroPosition;\n${shader.fragmentShader}`
+      .replace("#include <emissivemap_fragment>", `
+      #include <emissivemap_fragment>
+      {
+        vec3 toroInside = step(uToroMin, vToroPosition) * step(vToroPosition, uToroMax);
+        totalEmissiveRadiance += uToroEmber
+          * (toroInside.x * toroInside.y * toroInside.z * clamp(uNightValue, 0.0, 1.0));
+      }
+    `);
+  };
+  material.customProgramCacheKey = () => `${previousKey}:toro-kindling`;
+  material.needsUpdate = true;
+}
+
+/**
  * Shared light-lane registry: every warm light that should lay a reflection
  * lane on the sea (beacon, ship lanterns, dock lamps, buoys, memorial
  * lanterns) registers here. The water shader samples the packed DataTexture;
@@ -107,6 +156,12 @@ export interface GardenLightLane {
   worldZ: number;
   /** Route lanes only: the segment's far endpoint in world XZ. */
   route?: { x: number; z: number };
+  /**
+   * A night-kindled fixture (the engawa tōrō): the pool is scaled by the
+   * clock's night beat, and stands down entirely while the lamp is dark, so
+   * no reflection ever outlives its lamp.
+   */
+  kindledAtNight?: boolean;
 }
 
 /**
@@ -184,9 +239,11 @@ export const GARDEN_ROUTE_PULSE_ROTATION_SECONDS = 90;
 /**
  * Clock for the route-pulse rotation. Absent (or reduced motion), the
  * selection holds at window 0 — a complete, deterministic, static composition,
- * identical on every reload.
+ * identical on every reload. `night` is the wall-clock night beat (0..1) that
+ * kindles `kindledAtNight` lanes; absent, those lanes count as lit.
  */
 export interface GardenLaneClock {
+  night?: number;
   reducedMotion?: boolean;
   timeSeconds: number;
 }
@@ -216,8 +273,9 @@ export interface GardenLaneRegistry {
    * `intensityScale` is the day-cycle gate: reflection pools are lantern
    * light, so the caller scales them down by day (near zero) and up at dusk/
    * night; without it the overlapping full-tier pools cross the bloom knee
-   * and flood the frame. `clock` drives the route-pulse rotation only, and is
-   * a pure input — the same clock always packs the same texture.
+   * and flood the frame. `clock` drives the route-pulse rotation and the
+   * night kindling of `kindledAtNight` lanes, and is a pure input — the same
+   * clock always packs the same texture.
    */
   sync(
     tier: PharosVilleRenderSchedulerState["tier"],
@@ -246,6 +304,7 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
   let lastCap = -1;
   let lastScale = -1;
   let lastRotation = -1;
+  let lastKindle = -1;
   // Bounding circle of the packed lanes (+ the shader's 30-unit cull reach);
   // recomputed inside sync whenever the pack changes.
   let fieldCenterX = 0;
@@ -285,6 +344,7 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
         || existing.kind !== lane.kind
         || existing.route?.x !== lane.route?.x
         || existing.route?.z !== lane.route?.z
+        || existing.kindledAtNight !== lane.kindledAtNight
       ) {
         dirty = true;
       }
@@ -292,17 +352,19 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
     sync(tier, intensityScale = 1, clock) {
       const cap = Math.min(GARDEN_LANE_BUDGET_FOR_TIER[tier], MAX_GARDEN_LIGHT_LANES);
       const rotation = routeRotationWindow(clock);
+      const kindle = Math.min(1, Math.max(0, clock?.night ?? 1));
       if (
         !dirty
         && cap === lastCap
         && intensityScale === lastScale
         && rotation === lastRotation
+        && kindle === lastKindle
       ) {
         return activeLaneCount;
       }
 
       const active = selectActiveLanes(
-        [...lanes.values()],
+        [...lanes.values()].filter((lane) => !lane.kindledAtNight || kindle > 0),
         tier,
         cap,
         rotation,
@@ -312,7 +374,8 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
         const header = index * 4;
         data[header] = lane.worldX;
         data[header + 1] = lane.worldZ;
-        data[header + 2] = lane.intensity * intensityScale * GARDEN_LANE_EMBER_GAIN[lane.kind];
+        data[header + 2] = lane.intensity * intensityScale * GARDEN_LANE_EMBER_GAIN[lane.kind]
+          * (lane.kindledAtNight ? kindle : 1);
         data[header + 3] = laneKindCode(lane.kind);
         scratchColor.set(lane.color);
         const body = (MAX_GARDEN_LIGHT_LANES + index) * 4;
@@ -336,6 +399,7 @@ export function createGardenLaneRegistry(): GardenLaneRegistry {
       lastCap = cap;
       lastScale = intensityScale;
       lastRotation = rotation;
+      lastKindle = kindle;
       // Centroid + max reach so the water can skip the lane loop wholesale for
       // fragments that no active lane can touch (the shader hard-culls at 30
       // world units, so this bound is output-identical). Route lanes pull the

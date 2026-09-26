@@ -4,8 +4,11 @@ import { createGardenDirector } from "./garden-director";
 import {
   createGardenArrivalCeremonyState,
   GARDEN_ARRIVAL_BEAT_CAP_FULL,
+  GARDEN_ARRIVAL_NAMEPLATE_GAP_SECONDS,
   GARDEN_SAIL_DIP_MIN_SCALE,
   gardenArrivalBeatEnvelope,
+  gardenArrivalBerthInFrame,
+  gardenArrivalSupplyTrend,
   requestGardenArrivalCeremony,
   selectGardenArrivalBeatShipDetailIds,
 } from "./garden-arrival-beats";
@@ -75,9 +78,9 @@ describe("gardenArrivalBeatEnvelope", () => {
     expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 10, 90)).nameplate).toBe(false);
   });
 
-  it("emits one decaying stern envelope in transit", () => {
-    expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 96.5, 3.5)).nameplate).toBe(false);
-    expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 97, 3)).nameplate).toBe(true);
+  it("emits one decaying stern envelope in transit and never nominates a departing ship", () => {
+    expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 97, 3)).nameplate).toBe(false);
+    expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 99.5, 0.5)).nameplate).toBe(false);
     expect(gardenArrivalBeatEnvelope(sample("departure-transit", 0, 120)).bowWave).toBe(1);
     expect(gardenArrivalBeatEnvelope(sample("departure-transit", 1, 119)).bowWave).toBeCloseTo(0.5);
     expect(gardenArrivalBeatEnvelope(sample("departure-transit", 2, 118)).bowWave).toBe(0);
@@ -126,7 +129,7 @@ describe("garden arrival ceremony", () => {
     expect(beat?.directorBeat.durationSeconds).toBeGreaterThanOrEqual(8);
     expect(beat?.directorBeat.durationSeconds).toBeLessThanOrEqual(12);
     expect(beat?.annotation?.text).toBe(
-      "Tether arrives at Ethereum Mole · supply increased in the window",
+      "Tether arrives at Ethereum Mole · supply increased over 24h",
     );
     expect(beat?.annotation?.durationSeconds).toBe(beat?.directorBeat.durationSeconds);
     expect(requestGardenArrivalCeremony(
@@ -135,6 +138,69 @@ describe("garden arrival ceremony", () => {
       arrivals,
       1_119,
     )).toBeNull();
+  });
+
+  it("claims a supply change only for measured minting or redeeming", () => {
+    expect(gardenArrivalSupplyTrend({ direction: "minting" })).toBe("increased");
+    expect(gardenArrivalSupplyTrend({ direction: "redeeming" })).toBe("decreased");
+    expect(gardenArrivalSupplyTrend({ direction: "flat" })).toBeNull();
+    expect(gardenArrivalSupplyTrend(undefined)).toBeNull();
+
+    const flat = {
+      ...arrivals[0]!,
+      supplyTrend: gardenArrivalSupplyTrend({ direction: "flat" }),
+    };
+    const beat = requestGardenArrivalCeremony(
+      createGardenArrivalCeremonyState(),
+      createGardenDirector("flat-arrival"),
+      [flat],
+      1_000,
+    );
+    expect(beat?.annotation?.text).toBe("Tether arrives at Ethereum Mole");
+    expect(beat?.annotation?.text).not.toMatch(/supply|increased|decreased/);
+  });
+
+  it("gives one nameplate to the admitted subject and keeps a 90 s quiet gap before the next", () => {
+    const state = createGardenArrivalCeremonyState();
+    const first = requestGardenArrivalCeremony(state, createGardenDirector("plate-a"), arrivals, 1_000);
+    expect(first?.nameplate).toEqual({
+      detailId: "ship.usdt",
+      startSeconds: 1_000,
+      endSeconds: 1_000 + first!.directorBeat.durationSeconds,
+    });
+    const firstEnd = first!.nameplate!.endSeconds;
+
+    // A shorter ceremony interval (or a second director slot) must still not
+    // put a nameplate on consecutive arrivals inside the quiet gap.
+    state.nextEligibleSeconds = Number.NEGATIVE_INFINITY;
+    const second = requestGardenArrivalCeremony(
+      state,
+      createGardenDirector("plate-b"),
+      [arrivals[1]!],
+      firstEnd + GARDEN_ARRIVAL_NAMEPLATE_GAP_SECONDS - 1,
+    );
+    expect(second?.annotation?.text).toBe("USD Coin arrives at Tron Quay · supply decreased over 24h");
+    expect(second?.nameplate).toBeNull();
+
+    state.nextEligibleSeconds = Number.NEGATIVE_INFINITY;
+    const third = requestGardenArrivalCeremony(
+      state,
+      createGardenDirector("plate-c"),
+      [arrivals[1]!],
+      firstEnd + 1 + GARDEN_ARRIVAL_NAMEPLATE_GAP_SECONDS,
+    );
+    expect(third?.nameplate?.detailId).toBe("ship.usdc");
+  });
+
+  it("announces only berths inside the inset frame", () => {
+    const viewport = { width: 1_600, height: 1_000 };
+    expect(gardenArrivalBerthInFrame({ x: 800, y: 500 }, viewport)).toBe(true);
+    expect(gardenArrivalBerthInFrame({ x: 160, y: 100 }, viewport)).toBe(true);
+    expect(gardenArrivalBerthInFrame({ x: 150, y: 500 }, viewport)).toBe(false);
+    expect(gardenArrivalBerthInFrame({ x: 800, y: 950 }, viewport)).toBe(false);
+    expect(gardenArrivalBerthInFrame({ x: -4e9, y: 3e9 }, viewport)).toBe(false);
+    expect(gardenArrivalBerthInFrame(undefined, viewport)).toBe(false);
+    expect(gardenArrivalBerthInFrame({ x: 800, y: 500 }, { width: 0, height: 0 })).toBe(false);
   });
 
   it("caps the legacy renderer subject to one stable, significant arrival", () => {

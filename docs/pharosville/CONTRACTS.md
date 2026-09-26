@@ -248,7 +248,23 @@ pins are not authority over the accepted picture.
   motion, selection, explicit Observe, hidden tabs or almanac events. Any pointer,
   wheel, touch or key input returns agency at the exact current pose, no snap.
   Reborn replaces continuous postcard drift with stationary windows and deliberate
-  transitions; named subjects remain framed at both gates.
+  transitions; named subjects remain framed at both gates. A waiting postcard asks
+  the director for the environment slot once per move (not every frame), never
+  within 90 s of any admitted beat, and retries a refusal after 30 s; while it
+  waits the camera is still and reports no intent. The director holds ordinary
+  foreground captions for its first 90 s (market pre-emption still speaks).
+  Coverage: `src/hooks/use-canvas-resize-and-camera.test.ts`,
+  `src/systems/garden-director.test.ts`.
+- Camera breath is idle-only: weight 1 only after 45 s with no pointer, wheel or
+  key input, hover, selection or camera intent; in over a 12 s smootherstep, out
+  with τ 0.5 s; phase keeps running; amplitude yaw ±0.8°, pitch ±0.6°, dolly
+  ±1.2 %. Hit targets, DOM anchors and picking rays use the breathed pose through
+  the projection seam. Reduced motion and the debug `still=1` camera hold 0.
+  Cadence: display rate while interacting and for 500 ms after, 60 Hz ambient
+  (a frame is drawn only ≥ 12.7 ms after the last), the 33 ms duty cycle after
+  180 s untouched; motion is one dt clock, so speed never changes with cadence.
+  Coverage: `src/hooks/use-world-render-loop.test.tsx`,
+  `src/renderer/render-scheduler.test.ts`, `src/systems/projection.test.ts`.
 - Arrival/departure dips, wake stamps and nameplates derive from segment time,
   never ship timers. Existing dwell envelope: first four seconds ease sails
   `1.0→0.6` over `1.2 s`, hold `1 s`, restore by second four; departure spans

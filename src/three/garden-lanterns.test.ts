@@ -46,6 +46,23 @@ describe("keeper fixture passage", () => {
   });
 });
 
+describe("night-kindled lanes", () => {
+  it("keeps a kindled fixture's pool dark until the night beat lights it", () => {
+    const registry = createGardenLaneRegistry();
+    registry.set(spacedLane(0, { id: "engawa-lantern", kindledAtNight: true }));
+    registry.set(spacedLane(1));
+    const packedIntensity = (slot: number) => (registry.texture.image.data as Float32Array)[slot * 4 + 2]!;
+    // Dark lamp: the pool stands down and yields its budget slot.
+    expect(registry.sync("full", 1, { night: 0, timeSeconds: 0 })).toBe(1);
+    const lit = registry.sync("full", 1, { night: 0.5, timeSeconds: 0 });
+    expect(lit).toBe(2);
+    const halfLit = packedIntensity(0);
+    registry.sync("full", 1, { night: 1, timeSeconds: 0 });
+    expect(packedIntensity(0)).toBeCloseTo(halfLit * 2, 6);
+    registry.dispose();
+  });
+});
+
 describe("createGardenLaneRegistry", () => {
   it("exposes its water-sampled DataTexture to the owner census", () => {
     const registry = createGardenLaneRegistry();

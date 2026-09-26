@@ -82,8 +82,9 @@ const PHASES = [
     ],
   },
   {
+    // No orange hue-band boost: warmth belongs to the key light and the air,
+    // never to a grade that turns the golden frame sepia.
     ...BASE_GRADE, id: "golden", contrast: 0.14,
-    hueBands: [{ center: 38, rotate: 0, saturation: 1.04, width: 46 }],
   },
   {
     ...BASE_GRADE, id: "blue", contrast: 0.16,
@@ -91,10 +92,7 @@ const PHASES = [
   },
   {
     ...BASE_GRADE, id: "night", contrast: 0.2,
-    hueBands: [
-      { center: 38, rotate: 0, saturation: 1.04, width: 46 },
-      { center: 115, rotate: 0, saturation: 0.9, width: 50 },
-    ],
+    hueBands: [{ center: 115, rotate: 0, saturation: 0.9, width: 50 }],
   },
 ];
 

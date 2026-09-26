@@ -15,6 +15,7 @@ import {
   type WebGLRenderer,
 } from "three";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
+import { isKnockedOut } from "../lib/pharosville-debug";
 
 /** Reserved for the island silhouette; fleet meshes retain their default layer. */
 export const GARDEN_HERO_REFLECTION_LAYER = 7;
@@ -89,10 +90,15 @@ export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
     uHeroReflectionMatrix: { value: matrix },
     uHeroReflectionStrength: { value: 0 },
   };
+  // W0.1 knockout seam (visual debug only): the pass never renders, so the
+  // water sees no hero reflection and the pass's cost can be measured by
+  // difference. Read once; the preview harness installs it before navigation.
+  const knockedOut = isKnockedOut("reflection");
   return {
     uniforms,
     getReflectionTexture: () => target.texture,
     render(scene: Scene, main: PerspectiveCamera, island: Object3D, tower: Object3D, reducedMotion: boolean) {
+      if (knockedOut) return;
       if (owner !== island) {
         owner = island;
         rendered = false;

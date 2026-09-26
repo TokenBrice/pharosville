@@ -11,7 +11,6 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   PointLight,
-  ShaderMaterial,
   SphereGeometry,
 } from "three";
 import {
@@ -228,15 +227,13 @@ function dayCycleRig() {
     new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: 1.5 }));
   const fineStationLantern = stationLantern.clone();
   fineStationLantern.material = stationLantern.material.clone();
+  const statue = new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_glow, emissiveIntensity: 0.08 });
   const scene = {
     ambientLight: new AmbientLight(),
     content: {
       beacon: new Mesh(new SphereGeometry(1, 3, 2), new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_glow })),
       beaconFire: {
-        mirrorMaterial: new MeshStandardMaterial(),
-        smokeMaterial: new ShaderMaterial({
-          uniforms: { uDayMix: { value: 0 }, uOpacity: { value: 0 } },
-        }),
+        mirrorMaterial: new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_glow }),
         uniforms: { uIntensity: { value: 0 } },
       },
       beaconHalo: new Mesh(new SphereGeometry(1, 3, 2), new MeshBasicMaterial()),
@@ -256,7 +253,7 @@ function dayCycleRig() {
       shipLanternMaterial: new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_glow }),
       shipShadows: new InstancedMesh(new CircleGeometry(1, 3), new MeshBasicMaterial(), 1),
       ships: [],
-      statueGleamMaterials: [],
+      statueGleamMaterials: [statue],
     },
     directionalLight: new DirectionalLight(),
     hemisphereLight: new HemisphereLight(),
@@ -275,9 +272,15 @@ function dayCycleRig() {
       tower: emittedLuminance(towerWindow),
       harborLantern: emittedLuminance(scene.content.harborLanternMaterial),
       shipLantern: emittedLuminance(scene.content.shipLanternMaterial),
+      shipLanternGlow: scene.content.shipLanternGlowMaterial.opacity,
       stationLantern: emittedLuminance(stationLantern.material),
       fineStationLantern: emittedLuminance(fineStationLantern.material),
+      statue: statue.emissiveIntensity,
       beacon: emittedLuminance(scene.content.beacon.material),
+      mirror: emittedLuminance(scene.content.beaconFire.mirrorMaterial),
+      pointLight: scene.content.lighthouseLight.intensity,
+      haloOpacity: scene.content.beaconHalo.material.opacity,
+      haloScale: scene.content.beaconHalo.scale.x,
     };
   };
   return { at, scene };
@@ -288,25 +291,70 @@ function emittedLuminance(material: MeshStandardMaterial): number {
   return (color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722) * material.emissiveIntensity;
 }
 
+const PRACTICALS = ["islandLantern", "station", "tower", "shipLantern",
+  "harborLantern", "stationLantern", "fineStationLantern"] as const;
+
 describe("practical light hierarchy", () => {
-  it("lights windows and lanterns progressively while keeping the tower dominant", () => {
+  it("lets nothing glow in full daylight except the beacon and its mirror glint", () => {
+    const { at } = dayCycleRig();
+    for (const hour of [9, 12, 15]) {
+      const lit = at(hour);
+      for (const key of [...PRACTICALS, "shipLanternGlow", "statue"] as const) {
+        expect(lit[key], `${key} at ${hour}h`).toBe(0);
+      }
+      expect(lit.mirror, `mirror glint at ${hour}h`).toBeGreaterThan(0);
+      expect(lit.beacon, `banked beacon at ${hour}h`).toBeGreaterThan(0);
+    }
+  });
+
+  it("kindles windows and lanterns through dusk into night, all below the beacon", () => {
     const { at } = dayCycleRig();
     const noon = at(12);
     const dusk = at(18.5);
     const midnight = at(1);
-    for (const key of ["islandLantern", "station", "tower", "shipLantern",
-      "harborLantern", "stationLantern", "fineStationLantern"] as const) {
-      expect(noon[key], `${key} must be dimmest at noon`).toBeLessThan(dusk[key]);
+    for (const key of PRACTICALS) {
+      expect(noon[key], `${key} must be dark at noon`).toBeLessThan(dusk[key]);
       expect(dusk[key], `${key} must peak at night`).toBeLessThan(midnight[key]);
     }
     expect(midnight.tower).toBeLessThan(midnight.station);
     expect(midnight.beacon).toBeGreaterThanOrEqual(3);
     for (const key of ["islandLantern", "shipLantern", "harborLantern",
       "stationLantern", "fineStationLantern"] as const) {
-      expect(midnight[key], key).toBeGreaterThanOrEqual(2.6);
-      expect(midnight[key], key).toBeLessThanOrEqual(2.8);
       expect(midnight[key], key).toBeGreaterThan(GARDEN_BLOOM_PRACTICAL_THRESHOLD);
       expect(midnight[key], key).toBeLessThan(midnight.beacon);
+    }
+  });
+
+  it("keeps the tower's window openings dark until dusk is well under way", () => {
+    const { at } = dayCycleRig();
+    // 16:45 is early golden light (dusk ≈ 0.25): the harbour starts to
+    // kindle, the tower's openings stay dark voids.
+    const earlyGolden = at(16.75);
+    expect(earlyGolden.harborLantern).toBeGreaterThan(0);
+    expect(earlyGolden.tower).toBe(0);
+  });
+
+  it("gives the bronze statue only a faint dusk catch, never a day or night glow", () => {
+    const { at } = dayCycleRig();
+    expect(at(12).statue).toBe(0);
+    expect(at(1).statue).toBe(0);
+    let duskPeak = 0;
+    for (let hour = 16; hour <= 20; hour += 0.125) duskPeak = Math.max(duskPeak, at(hour).statue);
+    expect(duskPeak).toBeGreaterThan(0);
+    expect(duskPeak).toBeLessThanOrEqual(0.4);
+  });
+
+  it("keeps the night beacon a tight corona instead of a floodlight", () => {
+    const { at } = dayCycleRig();
+    const noon = at(12);
+    const dusk = at(18.5);
+    const midnight = at(1);
+    expect(noon.pointLight).toBeLessThan(dusk.pointLight);
+    expect(dusk.pointLight).toBeLessThan(midnight.pointLight);
+    for (let hour = 0; hour < 24; hour += 0.25) {
+      const lit = at(hour);
+      expect(lit.haloScale, `halo scale at ${hour}h`).toBeLessThanOrEqual(1.25 + 1e-9);
+      expect(lit.haloOpacity, `halo opacity at ${hour}h`).toBeLessThanOrEqual(0.3 + 1e-9);
     }
   });
 

@@ -221,7 +221,6 @@ type TestGardenPost = {
   setAOTierWeight: ReturnType<typeof vi.fn>;
   setAOZoomDetail: ReturnType<typeof vi.fn>;
   setBloomEnabled: ReturnType<typeof vi.fn>;
-  setCameraZoom: ReturnType<typeof vi.fn>;
   setEnabled: ReturnType<typeof vi.fn>;
   setGrade: ReturnType<typeof vi.fn>;
   setSize: ReturnType<typeof vi.fn>;
@@ -313,7 +312,6 @@ vi.mock("./garden-post", () => ({
       setBloomEnabled: vi.fn((value: boolean) => {
         bloomEnabled = value;
       }),
-      setCameraZoom: vi.fn(),
       setEnabled: vi.fn((value: boolean) => {
         enabled = value;
       }),
@@ -660,8 +658,6 @@ describe("Three world renderer lifecycle", () => {
     autumn.render(rendererFrame(world, "full"));
     expect(rendererHarness.instances.at(-1)!.lastScene!
       .getObjectByName("garden-spring-water-petals")).toBeUndefined();
-    expect(rendererHarness.instances.at(-1)!.lastScene!
-      .getObjectByName("garden-sky-autumn-geese")!.visible).toBe(true);
     autumn.dispose();
 
     const winter = createThreeWorldRenderer({
@@ -799,7 +795,6 @@ describe("Three world renderer lifecycle", () => {
     const scene = webGlRenderer.lastScene!;
     const contentRoot = scene.children.at(-1)!;
     const waterAccents = scene.children[4]!;
-    const wakes = wakeGroups(contentRoot);
     const harborBatch = contentRoot.getObjectByName("harbor-batch");
     const gullFlock = contentRoot.getObjectByName("garden-harbor-gull-flock");
 
@@ -808,8 +803,7 @@ describe("Three world renderer lifecycle", () => {
     expect(harborBatch).toBeDefined();
     expect(gullFlock).toBeDefined();
     expect(gullFlock?.visible).toBe(true);
-    expect(wakes.length).toBeGreaterThan(0);
-    expect(wakes.some((wake) => wake.visible)).toBe(true);
+    expect(visibleWakeSlots(scene)).toBeGreaterThan(0);
 
     const recovery = renderer.render(rendererFrame(world, "recovery", {
       dpr: 1.5,
@@ -817,7 +811,7 @@ describe("Three world renderer lifecycle", () => {
     }));
     expect(webGlRenderer.setPixelRatio).toHaveBeenLastCalledWith(1.5);
     expect(waterAccents.visible).toBe(true);
-    expect(wakes.some((wake) => wake.visible)).toBe(true);
+    expect(visibleWakeSlots(scene)).toBeGreaterThan(0);
 
     const constrained = renderer.render(rendererFrame(world, "constrained", {
       dpr: 1.5,
@@ -825,7 +819,7 @@ describe("Three world renderer lifecycle", () => {
     }));
     expect(waterAccents.visible).toBe(true);
     expect(gullFlock?.visible).toBe(false);
-    expect(wakes.every((wake) => !wake.visible)).toBe(true);
+    expect(visibleWakeSlots(scene)).toBe(0);
 
     const reduced = renderer.render(rendererFrame(world, "full", {
       dpr: 1.5,
@@ -833,7 +827,7 @@ describe("Three world renderer lifecycle", () => {
     }));
     expect(waterAccents.visible).toBe(true);
     expect(gullFlock?.visible).toBe(true);
-    expect(wakes.every((wake) => !wake.visible)).toBe(true);
+    expect(visibleWakeSlots(scene)).toBe(0);
 
     expect([balanced, recovery, constrained, reduced].map((metrics) => metrics.schedulerTier))
       .toEqual(["balanced", "recovery", "constrained", "full"]);
@@ -1088,18 +1082,14 @@ describe("Three world renderer lifecycle", () => {
     const contentRoot = scene.children.at(-1)!;
     const shipDetails = namedGroups(contentRoot, "ship-fine-detail");
     const dockDetails = namedGroups(contentRoot, "dock-fine-detail");
-    const wakeDetails = namedGroups(contentRoot, "ship-wake-detail");
-    const wakes = wakeGroups(contentRoot);
     expect(shipDetails.length).toBe(selectGardenObservatorySlice(world, null).ships.length);
     expect(dockDetails.length).toBe(world.docks.length);
     expect(shipDetails.every((detail) => !detail.visible)).toBe(true);
     expect(dockDetails.every((detail) => !detail.visible)).toBe(true);
-    expect(wakeDetails.every((detail) => !detail.visible)).toBe(true);
 
     renderer.render(rendererFrame(world, "balanced", { cameraZoom: 1.05 }));
     expect(shipDetails.every((detail) => detail.visible)).toBe(true);
     expect(dockDetails.every((detail) => detail.visible)).toBe(true);
-    expect(wakeDetails.every((detail) => detail.visible)).toBe(true);
 
     const selectedShip = selectGardenObservatorySlice(world, null).ships[0]!.ship;
     renderer.render(rendererFrame(world, "balanced", {
@@ -1108,8 +1098,7 @@ describe("Three world renderer lifecycle", () => {
     }));
     expect(shipDetails.filter((detail) => detail.visible)).toHaveLength(1);
     expect(dockDetails.every((detail) => !detail.visible)).toBe(true);
-    expect(wakeDetails.filter((detail) => detail.visible)).toHaveLength(1);
-    expect(wakes.filter((wake) => wake.visible)).toHaveLength(1);
+    expect(visibleWakeSlots(scene)).toBe(1);
 
     renderer.render(rendererFrame(world, "balanced", {
       cameraZoom: 0.8,
@@ -1117,7 +1106,6 @@ describe("Three world renderer lifecycle", () => {
     }));
     expect(shipDetails.every((detail) => !detail.visible)).toBe(true);
     expect(dockDetails.filter((detail) => detail.visible)).toHaveLength(1);
-    expect(wakeDetails.every((detail) => !detail.visible)).toBe(true);
 
     renderer.dispose();
   });
@@ -2140,14 +2128,16 @@ function renderSettled(
   return metrics;
 }
 
-function wakeGroups(root: Object3D): Group[] {
-  const wakes: Group[] = [];
-  root.traverse((object) => {
-    if (object instanceof Group && object.name === "ship-wake") {
-      wakes.push(object);
-    }
-  });
-  return wakes;
+/** Ships whose batched wake trail is drawn: a hidden slot is collapsed to scale 0. */
+function visibleWakeSlots(root: Object3D): number {
+  const trails = root.getObjectByName("fleet-wake-trails") as InstancedMesh;
+  const matrix = new Matrix4();
+  let visible = 0;
+  for (let slot = 0; slot * WAKE_TRAIL_QUADS < trails.count; slot += 1) {
+    trails.getMatrixAt(slot * WAKE_TRAIL_QUADS, matrix);
+    if (matrixScaleEnergy(matrix) > 0) visible += 1;
+  }
+  return visible;
 }
 
 function namedObjects(root: Object3D, name: string): Object3D[] {

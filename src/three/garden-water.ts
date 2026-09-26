@@ -47,14 +47,14 @@ import {
   gardenHeightFogUniforms,
   updateGardenHeightFog,
 } from "./garden-height-fog";
-import { GARDEN_MOON_AZIMUTH, GARDEN_MOON_ELEVATION, gardenSunPose } from "./garden-sun";
+import { gardenSunPose } from "./garden-sun";
+import { isKnockedOut } from "../lib/pharosville-debug";
 import { MAX_GARDEN_LIGHT_LANES } from "./garden-lanterns";
 import {
   SEA_REGION_CHARACTER,
   SEA_REGION_COUNT,
   SEA_REGION_DISTANCE_FULL_SCALE_TILES,
   SEA_REGION_FALLBACK_TINT,
-  SEA_REGION_SHORE_FULL_SCALE_TILES,
   SEA_REGION_ID,
   SEA_REGION_ORDER,
   buildSeaRegionField,
@@ -62,10 +62,10 @@ import {
 import {
   GARDEN_WATER_CREST_FOAM,
   GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN,
+  GARDEN_WATER_LANE_CLAMP,
   GARDEN_WATER_MAX_LIGHT_LANES,
   GARDEN_WATER_MAX_RIPPLE_RINGS,
   GARDEN_WATER_MAX_ZONE_TINTS,
-  GARDEN_WATER_NIGHT_EMISSIVE_BUDGET,
   GARDEN_WATER_PLATE_MARGIN_TILES,
   GARDEN_WATER_PROBE_BLEND,
   GARDEN_WATER_PROBE_ROUGHNESS,
@@ -377,16 +377,8 @@ const NORMAL_MAP_URL = "/pharosville/textures/water-normals.png?v=3c09a2159c4f";
 // below encoded, and storm weather drives it faster.
 const CLOUD_SHADOW_TEXEL_SCALE = 1 / 170;
 
-// Moon-road azimuth carried over from the sky so the sea's glitter band lands
-// under the same moon the dome draws. The water plane's -90deg X rotation maps
-// world +Z to local -Y, so the horizontal moon direction negates its Z.
 /** Reused per frame so the water's update path allocates nothing. */
 const scratchSunPose = { direction: new Vector3(0, 1, 0), elevation: Math.PI / 2 };
-
-const MOON_DIR = new Vector2(
-  Math.cos(GARDEN_MOON_AZIMUTH),
-  -Math.sin(GARDEN_MOON_AZIMUTH),
-).normalize();
 
 // Palette-derived sea presets (no ad-hoc hex literals). Golden Garden
 // (2026-09-07): the day sea is a turquoise shelf warmed a breath by the sun,
@@ -426,7 +418,6 @@ const DUSK_HIGHLIGHT = pc("foam_white")
   .lerp(pc("lantern_warm"), 0.45);
 const NIGHT_HIGHLIGHT = pc("moonlight");
 const BEACON_HIGHLIGHT = pc("lantern_glow");
-const MOON_ROAD_COLOR = pc("moonlight");
 
 // W2 sky env tint endpoints come from the C1 sky presets; at night the sheen
 // becomes moonlight (W6), so the night variants are pre-mixed with the moon.
@@ -576,13 +567,11 @@ export const FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uLaneField;
   uniform sampler2D uLaneTexture;
   uniform float uPulseTime;
-  uniform vec2 uMoonDir;
   uniform vec2 uSunDir;
   uniform float uSunHeight;
   #define GARDEN_TOWER_HEIGHT 34.0
   #define GARDEN_TOWER_SHADOW_MAX_REACH 150.0
   #define GARDEN_TOWER_SHADOW_STRENGTH 0.34
-  uniform vec3 uMoonRoadColor;
   uniform float uNight;
   uniform sampler2D uNormalMap;
   uniform vec2 uPigeonnierCenter;
@@ -984,16 +973,6 @@ ${gardenHeightFogGlsl()}
     float wetBand = 1.0 - smoothstep(0.006, 0.035, shoreField);
     waterColor *= 1.0 - wetBand * 0.24;
 
-    float foamMotion = uTime * 0.55;
-    float bandA = sin(shoreField * 440.0 - foamMotion);
-    float bandB = sin(shoreField * 710.0 - foamMotion * 1.35);
-    float bandNoise = 0.6 + 0.4 * gardenValueNoise(vWaterPosition * 0.43);
-    float lapFoam = (
-      smoothstep(0.55, 0.98, bandA) * 0.7
-      + smoothstep(0.7, 0.99, bandB) * 0.5
-    ) * bandNoise;
-    lapFoam *= (1.0 - smoothstep(0.018, 0.085, shoreField))
-      * smoothstep(0.001, 0.012, shoreField);
     vec2 shoreAdvect = uWindDir * (uTime * 0.035 * (0.6 + uWindSpeed * 0.4));
     float shoreNoise = gardenValueNoise((vWaterPosition - shoreAdvect) * 0.31 + 9.7);
     float shoreBreath = sin(uTime * 0.38 + shoreNoise * 2.4)
@@ -1007,7 +986,7 @@ ${gardenHeightFogGlsl()}
     shoreEdge *= smoothstep(0.38, 0.76, shoreNoise);
     // Foam is a daylight read: after dark it keeps a faint moonlit trace, not
     // a cyan rim around every shore (the night has one light, the beacon).
-    float shoreFoam = (shoreEdge + lapFoam * 0.36) * (0.1 + uDetail * 0.12) * (0.18 + uDaylight * 0.82);
+    float shoreFoam = shoreEdge * (0.1 + uDetail * 0.12) * (0.18 + uDaylight * 0.82);
     waterColor = mix(
       waterColor,
       uHighlightColor,
@@ -1103,7 +1082,7 @@ ${gardenHeightFogGlsl()}
         boundaryCadence *= 0.62 + 0.38 * sin(bodyAcross * 0.58 - uTime * 0.3);
       } else if (regionId == ${SEA_REGION_ID.warning}) {
         boundaryCadence *= smoothstep(0.34, 0.69, gardenValueNoise(
-          vec2(floor(bodyAlong * 0.11), bodyAcross * 0.055) + 23.0
+          vec2(bodyAlong * 0.11, bodyAcross * 0.055) + 23.0
         ));
       } else if (regionId == ${SEA_REGION_ID.danger}) {
         boundaryCadence *= 0.64 + 0.36 * sin(bodyAcross * 0.72 - uTime * 0.48);
@@ -1167,37 +1146,6 @@ ${gardenHeightFogGlsl()}
       uHighlightColor,
       clamp(wakeFoam * uWakeStrength * (0.2 + uDaylight * 0.08), 0.0, 0.26)
     );
-
-    float nightRoad = clamp(uNight + uDusk * 0.5, 0.0, 1.0);
-    if (uAnnulus < 0.5 && nightRoad > 0.001) {
-      vec2 fromIsland = vWaterPosition - uIslandCenter;
-      float roadAlong = dot(fromIsland, uMoonDir);
-      float roadAcross = dot(fromIsland, vec2(-uMoonDir.y, uMoonDir.x));
-      float roadHalfWidth = 6.0;
-      float bandProfile = exp(-(roadAcross * roadAcross) / (roadHalfWidth * roadHalfWidth));
-      float roadReach = 1.0 - smoothstep(26.0, 140.0, abs(roadAlong));
-      float moonBand = bandProfile * roadReach;
-      waterColor = mix(
-        waterColor,
-        uMoonRoadColor,
-        moonBand * nightRoad * ${glslFloat(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.moonRoadGain)}
-      );
-
-      vec3 moonLight = vec3(uMoonDir * ${glslFloat(Math.cos(GARDEN_MOON_ELEVATION))},
-        ${glslFloat(Math.sin(GARDEN_MOON_ELEVATION))});
-      vec3 localView = vec3(viewDirection.x, -viewDirection.z, viewDirection.y);
-      vec3 halfMoon = normalize(moonLight + localView);
-      float specular = pow(max(0.0, dot(glintNormal, halfMoon)), 90.0);
-      float sparkleField =
-        sin(dot(vWaterPosition, vec2(2.3, 3.1)) + blendedNormal.x * 11.0)
-        * sin(dot(vWaterPosition, vec2(-3.7, 2.1)) + blendedNormal.y * 9.0);
-      float sparkleMask = aaStep(0.82, sparkleField);
-      float glitterGate = mix(0.8, 0.68, uSwell);
-      float glitter = smoothstep(glitterGate, glitterGate + 0.12, specular)
-        * sparkleMask * moonBand * nightRoad * (1.0 - mirrorZone);
-      waterColor += uMoonRoadColor * clamp(glitter, 0.0, 1.0)
-        * ${glslFloat(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.moonGlitterGain)};
-    }
 
     float dayRoad = clamp(uDaylight + uDusk * 0.85, 0.0, 1.0);
     if (uAnnulus < 0.5 && dayRoad > 0.001) {
@@ -1311,18 +1259,6 @@ ${gardenHeightFogGlsl()}
     }
     waterColor += uBeaconColor * clamp(beaconReflection, 0.0, 1.3);
 
-    if (uRippleStrength > 0.01) {
-      float shoreWorld = shoreField * ${glslFloat(SEA_REGION_SHORE_FULL_SCALE_TILES * TILE_SCALE_UNITS)};
-      float foamRings = aaStep(0.86, sin(shoreWorld * 3.2 - uTime * 0.5))
-        * (1.0 - smoothstep(3.0, 4.0, shoreWorld))
-        * aaStep(0.0, shoreWorld);
-      waterColor = mix(
-        waterColor,
-        uHighlightColor,
-        foamRings * 0.18 * uRippleStrength * (0.6 + uDaylight * 0.4)
-      );
-    }
-
     vec2 fieldDelta = vWaterPosition - uLaneField.xy;
     if (dot(fieldDelta, fieldDelta) < uLaneField.z * uLaneField.z) {
       // Camera-vertical on the plate, bent downwind. Wind lengthens each
@@ -1396,7 +1332,7 @@ ${gardenHeightFogGlsl()}
       waterColor += clamp(
         laneAccum,
         0.0,
-        ${glslFloat(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.laneClamp)}
+        ${glslFloat(GARDEN_WATER_LANE_CLAMP)}
       );
     }
     }
@@ -1484,7 +1420,7 @@ export interface GardenWater {
   regionTextures: { distance: DataTexture; field: DataTexture };
   /** C2(d): karesansui ripple-ring emitter registry (Lanes I/S/Z). */
   rippleRings: GardenRippleRingEmitter;
-  /** C4 evidence: whether cloud shadows are shading this frame's tier. */
+  /** C4 evidence: whether cloud shadows currently shade the garden (shared strength > 0). */
   cloudShadowsOn: () => boolean;
   /** Current displayed wake mix, used to defer wake-target clearing until invisible. */
   wakeStrength: () => number;
@@ -1652,7 +1588,6 @@ export function createGardenWater(waterLevel: number): GardenWater {
     // real bounds.
     uLaneField: { value: new Vector3(0, 0, 1e5) },
     uLaneTexture: { value: null as DataTexture | null },
-    uMoonDir: { value: MOON_DIR.clone() },
     // The sun's own bearing on the water, from the shared arc in garden-sun.
     // Before this the water's only notion of the sun was a hand-tuned constant
     // (`normalize(vec3(-0.46, 0.2, 0.86))`) that matched neither the key light
@@ -1661,7 +1596,6 @@ export function createGardenWater(waterLevel: number): GardenWater {
     uSunDir: { value: new Vector2(1, 0) },
     /** 0 at the horizon, 1 overhead — shapes the road from a pool to a path. */
     uSunHeight: { value: 0 },
-    uMoonRoadColor: { value: MOON_ROAD_COLOR.clone() },
     uNight: { value: 0 },
     uNormalMap: { value: normalMap },
     uPigeonnierCenter: { value: new Vector2(1e4, 1e4) },
@@ -1881,7 +1815,6 @@ export function createGardenWater(waterLevel: number): GardenWater {
   };
 
   let harborMaskOverridden = false;
-  let cloudShadowsActive = true;
   // S2: previous frame's clock, for the tier-uniform easing in `update`.
   let lastFrameSeconds: number | null = null;
   // Phase 4: the route-pulse clock. Accumulates (clamped deltas, like the
@@ -1921,7 +1854,7 @@ export function createGardenWater(waterLevel: number): GardenWater {
       rippleEmitters.clear();
     },
     cloudShadowsOn() {
-      return cloudShadowsActive;
+      return cloudShadows.uniforms.uCloudShadowStrength.value > 0.001;
     },
     wakeStrength() {
       return uniforms.uWakeStrength.value;
@@ -1967,7 +1900,9 @@ export function createGardenWater(waterLevel: number): GardenWater {
     },
     setLaneState(texture, activeLaneCount, fieldBounds) {
       uniforms.uLaneTexture.value = texture;
-      uniforms.uLaneCount.value = activeLaneCount;
+      // W0 knockout seam: `water-lanes` removes every light/ember reflection
+      // so the preview can measure the sea without them (debug builds only).
+      uniforms.uLaneCount.value = isKnockedOut("water-lanes") ? 0 : activeLaneCount;
       if (fieldBounds) {
         // The plane's -90 degree X rotation maps world Z to negative water Y.
         uniforms.uLaneField.value.set(
@@ -2054,22 +1989,23 @@ export function createGardenWater(waterLevel: number): GardenWater {
       // water's character. See `seaQualityTier`.
       const tier = seaQualityTier(frame.renderScheduler);
       const balancedOrBetter = tier === "full" || tier === "balanced";
-      // Guardrails: sun glitter and cloud shadows ship at balanced+; ripple
-      // rings at full/balanced. Lower tiers keep the graceful fallbacks.
+      // Guardrails: sun glitter ships at balanced+; ripple rings at
+      // full/balanced. Lower tiers keep the graceful fallbacks. The cloud
+      // drift keeps integrating so the shared transform stays continuous for
+      // every consumer, but nothing shades with it (see the source below).
       cloudShadows.update({
         reducedMotion: frame.reducedMotion,
         tier,
         timeSeconds: frame.timeSeconds,
         ...(weather ? { wind: weather.wind, stormLevel: weather.stormLevel } : {}),
       });
-      cloudShadowsActive = balancedOrBetter;
 
       // S2: ease the tier-driven uniforms instead of stepping them.
       //
       // Even with `interaction` neutralised, a load-tier change (balanced ->
       // recovery on a weaker machine, where the ladder's downshift streak is
-      // only 2 frames) still swings uDetail 1 -> 0.36 and switches glitter and
-      // cloud shadows off. Stepping that is a visible flash; the hysteresis
+      // only 2 frames) still swings uDetail 1 -> 0.36 and switches glitter
+      // off. Stepping that is a visible flash; the hysteresis
       // ladder suppresses flapping but cannot make a single crossing invisible.
       // A ~300 ms approach can, and it costs three scalars.
       //
@@ -2084,9 +2020,6 @@ export function createGardenWater(waterLevel: number): GardenWater {
       // on the same S2 curve so a tier crossing fades rather than pops.
       const targetWake = balancedOrBetter ? 1 : 0;
       const targetCaustic = tier === "full" ? 1 : 0;
-      const targetCloud = cloudShadowsActive
-        ? blendPhaseScalar(0.12, 0.2, 0.34, dusk, daylight)
-        : 0;
       const now = Math.max(0, frame.timeSeconds);
       // Clamped so a tab returning from background does not ease across a
       // multi-second gap, and so the first frame (no previous sample) snaps.
@@ -2112,8 +2045,6 @@ export function createGardenWater(waterLevel: number): GardenWater {
         += (targetWake - uniforms.uWakeStrength.value) * ease;
       uniforms.uCausticStrength.value
         += (targetCaustic - uniforms.uCausticStrength.value) * ease;
-      const cloudStrength = cloudShadows.uniforms.uCloudShadowStrength;
-      cloudStrength.value += (targetCloud - cloudStrength.value) * ease;
 
       uniforms.uDaylight.value = daylight;
       uniforms.uDusk.value = dusk;
@@ -2172,7 +2103,11 @@ function createGardenCloudShadowSource(): GardenCloudShadowSource {
   const uniforms: GardenCloudShadowSource["uniforms"] = {
     uCloudShadow: { value: texture },
     uCloudShadowTransform: { value: transform },
-    uCloudShadowStrength: { value: 0.34 },
+    // Cloud shadows fall only from clouds the sky draws overhead. The sky has
+    // no cloud field over the garden (only distant billboard cumulus), so the
+    // shared strength stays 0 and water, island and ships all read an
+    // unshadowed sky; a sky cover value is what raises it.
+    uCloudShadowStrength: { value: 0 },
   };
   // Phase 2: the drift integrates the weather system's wind instead of walking
   // a fixed diagonal. The offsets accumulate with the same clamped-delta

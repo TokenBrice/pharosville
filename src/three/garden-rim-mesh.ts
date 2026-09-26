@@ -1,4 +1,5 @@
 import {
+  Box3,
   BufferAttribute,
   BoxGeometry,
   BufferGeometry,
@@ -39,6 +40,7 @@ import {
 import type { WeatherPlan } from "../systems/weather";
 import { TILE_SCALE, disposeThreeObjectTree, stableUnit } from "./garden-util";
 import { createSpeciesBatch, createSpeciesGeometry, patchGardenFloraNight, updateGardenInstancedWindSway, type SpeciesPlacement } from "./garden-flora";
+import { patchGardenToroKindling } from "./garden-lanterns";
 export { patchGardenInstancedWindSway, updateGardenInstancedWindSway } from "./garden-flora";
 
 const MAP_SIZE = PHAROSVILLE_DESIGN_SPAN * PHAROSVILLE_MAP_SCALE;
@@ -112,7 +114,10 @@ export const GARDEN_RIM_COLOR_HEX = {
   shoreSand: `#${SHORE_SAND.getHexString()}`,
 } as const;
 export const GARDEN_RIM_MOSS_BLEND_MAX = 0.62;
+// The tōrō's fire chamber: a shadowed stone hollow by day; the kindled ember
+// is emission added at night (see patchGardenToroKindling).
 const LANTERN_EMBER = new Color(HARBOR_PALETTE.lantern_warm);
+const TORO_HOLLOW = new Color(HARBOR_PALETTE.stone_dark).multiplyScalar(0.32);
 const ENGAWA_TIMBER = new Color(HARBOR_PALETTE.timber_dark).multiplyScalar(0.54);
 const ENGAWA_TIMBER_LIT = ENGAWA_TIMBER.clone().lerp(
   new Color(HARBOR_PALETTE.stone_dark),
@@ -1010,7 +1015,13 @@ function addPathRibbon(
   return true;
 }
 
-function buildPathGeometry(): { coveSpurs: number; geometry: BufferGeometry; segments: number } {
+function buildPathGeometry(): {
+  coveSpurs: number;
+  geometry: BufferGeometry;
+  segments: number;
+  /** Geometry-space bounds of the engawa tōrō's fire chamber. */
+  toroChamber: Box3;
+} {
   const builder: GeometryBuilder = { colors: [], indices: [], positions: [] };
   const points: Array<{ x: number; y: number }> = [];
   // Clockwise perimeter route, three tiles inland. Gaps follow the two
@@ -1091,18 +1102,26 @@ function buildPathGeometry(): { coveSpurs: number; geometry: BufferGeometry; seg
     [19.4 * TILE_SCALE, 0.26, 0.62 * TILE_SCALE],
     WET_ROCK,
   );
-  // One tōrō at the camera-side engawa. Stone body and warm chamber are merged
-  // into the path draw; its water reflection is registered separately as the
-  // scene's `engawa-lantern` ember lane.
+  // One tōrō at the camera-side engawa. Stone body and chamber are merged
+  // into the path draw; the chamber is a dark hollow by day and kindles with
+  // the night beat (W0.9), and its water reflection is registered separately
+  // as the scene's `engawa-lantern` ember lane.
   const lanternX = GARDEN_ENGAWA_LANTERN_WORLD.x;
   const lanternZ = GARDEN_ENGAWA_LANTERN_WORLD.z;
   const lanternGround = deckTop;
+  const chamberCentre = [lanternX, lanternGround + 1.32, lanternZ] as const;
+  const chamberSize = [0.58, 0.42, 0.58] as const;
   addBox(builder, [lanternX, lanternGround + 0.14, lanternZ], [1.2, 0.28, 1.05], PATH_STONE);
   addBox(builder, [lanternX, lanternGround + 0.72, lanternZ], [0.34, 0.9, 0.34], PATH_STONE);
-  addBox(builder, [lanternX, lanternGround + 1.32, lanternZ], [0.58, 0.42, 0.58], LANTERN_EMBER);
+  addBox(builder, chamberCentre, chamberSize, TORO_HOLLOW);
   addBox(builder, [lanternX, lanternGround + 1.59, lanternZ], [1.05, 0.16, 0.95], PATH_STONE);
   addBox(builder, [lanternX, lanternGround + 1.75, lanternZ], [0.52, 0.18, 0.48], PATH_STONE);
-  return { coveSpurs, geometry: finishGeometry(builder), segments };
+  return {
+    coveSpurs,
+    geometry: finishGeometry(builder),
+    segments,
+    toroChamber: new Box3().setFromCenterAndSize(new Vector3(...chamberCentre), new Vector3(...chamberSize)),
+  };
 }
 
 /**
@@ -1131,10 +1150,9 @@ export function createGardenRimMesh(season: GardenSeason = "summer"): GardenRimM
   const foregroundBough = createForegroundBough();
   patchGardenFloraNight(foregroundBough.material as MeshStandardMaterial);
   const path = buildPathGeometry();
-  const pathMesh = new Mesh(
-    path.geometry,
-    new MeshStandardMaterial({ flatShading: true, roughness: 1, vertexColors: true }),
-  );
+  const pathMaterial = new MeshStandardMaterial({ flatShading: true, roughness: 1, vertexColors: true });
+  patchGardenToroKindling(pathMaterial, path.toroChamber, LANTERN_EMBER);
+  const pathMesh = new Mesh(path.geometry, pathMaterial);
   pathMesh.name = "garden-rim-path";
   const drawables = [
     top, face, pathMesh, pines, understory, broadleaf, cherry, bamboo, stones, revetments, foregroundBough,

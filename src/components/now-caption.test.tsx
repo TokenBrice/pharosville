@@ -7,20 +7,29 @@ import { NowCaption } from "./now-caption";
 afterEach(cleanup);
 
 describe("NowCaption", () => {
-  it("renders one polite live sentence", () => {
-    render(
-      <NowCaption
-        arrivalAnnotation={null}
-        beats={dayCycleBeats(12.25)}
-        freshness={{}}
-        hour={12.25}
-        latestTransition={null}
-        psi={82}
-      />,
-    );
+  it("shows the clocked sentence and speaks only the phrase, not the minute", () => {
+    const props = {
+      arrivalAnnotation: null,
+      beats: dayCycleBeats(12.25),
+      freshness: {},
+      latestTransition: null,
+      psi: 82,
+    };
+    const view = render(<NowCaption {...props} hour={12.25} />);
 
     const caption = screen.getByTestId("pharosville-now-caption");
-    expect(caption.getAttribute("aria-live")).toBe("polite");
+    const status = screen.getByRole("status");
+    expect(caption.getAttribute("aria-live")).toBeNull();
     expect(caption.textContent).toBe("12:15 — a quiet noon · readings current");
+    expect(status.textContent).toBe("a quiet noon · readings current");
+
+    const spokenNode = status.firstChild;
+    view.rerender(<NowCaption {...props} hour={12 + 16 / 60} />);
+    expect(caption.textContent).toBe("12:16 — a quiet noon · readings current");
+    expect(status.textContent).toBe("a quiet noon · readings current");
+    expect(status.firstChild).toBe(spokenNode);
+
+    view.rerender(<NowCaption {...props} hour={12 + 16 / 60} arrivalAnnotation="Tether arrives at Ethereum" />);
+    expect(status.textContent).toBe("Tether arrives at Ethereum");
   });
 });

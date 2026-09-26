@@ -30,11 +30,8 @@ import {
 import { gardenKeyLightPose } from "./garden-sun";
 import {
   CAMERA_FOV_DEG,
-  cameraDistanceForZoom,
   cameraEye,
-  cameraPitchForZoom,
   cameraPoseFromIso,
-  cameraTargetHeightForZoom,
 } from "../systems/projection";
 
 const postHarness = vi.hoisted(() => {
@@ -203,9 +200,9 @@ vi.mock("postprocessing", () => {
     }
   }
 
-  // W2.3/W2.4 own off-screen helper passes (the half-res blur chain and the
-  // shadow-map raymarch). They never enter the composer — the hero effects
-  // drive them from `update()` — so the harness only has to record them.
+  // W2.4 owns an off-screen helper pass (the shadow-map raymarch). It never
+  // enters the composer — the god-ray effect drives it from `update()` — so
+  // the harness only has to record it.
   class FakeShaderPass {
     dispose = vi.fn();
     render = vi.fn();
@@ -390,8 +387,7 @@ function latest<T>(entries: unknown[]): T {
 
 /**
  * The shipped perspective rig, reproduced from the abstract pose used by
- * `world-renderer.ts`. Keeping the target at the viewport centre makes this
- * fixture exercise the same 32° / 12° camera-derived focus path as production.
+ * `world-renderer.ts`, with the target at the viewport centre.
  */
 const VIEWPORT = { x: 1600, y: 1000 };
 const ISO_CAMERA = {
@@ -399,24 +395,17 @@ const ISO_CAMERA = {
   offsetY: VIEWPORT.y / 2,
   zoom: 1,
 };
-const CAMERA_DISTANCE = cameraDistanceForZoom(VIEWPORT.y, ISO_CAMERA.zoom);
-const CAMERA_PITCH = cameraPitchForZoom(ISO_CAMERA.zoom);
-const TARGET_DISTANCE = CAMERA_DISTANCE
-  + cameraTargetHeightForZoom(ISO_CAMERA.zoom) / Math.sin(CAMERA_PITCH);
-const TARGET_VIEW_HEIGHT = 2
-  * TARGET_DISTANCE
-  * Math.tan(CAMERA_FOV_DEG * Math.PI / 360);
 /** `gardenKeyLightPose` returns a unit direction; the rig stands this far off. */
 const LIGHT_DISTANCE = 120;
 
-function makeGardenCamera(zoom = 1): PerspectiveCamera {
+function makeGardenCamera(): PerspectiveCamera {
   const camera = new PerspectiveCamera(
     CAMERA_FOV_DEG,
     VIEWPORT.x / VIEWPORT.y,
     1,
     600,
   );
-  const pose = cameraPoseFromIso({ ...ISO_CAMERA, zoom }, VIEWPORT);
+  const pose = cameraPoseFromIso(ISO_CAMERA, VIEWPORT);
   const eye = cameraEye(pose);
   camera.position.set(eye.x, eye.y, eye.z);
   camera.lookAt(0, pose.targetHeight, 0);
@@ -424,7 +413,7 @@ function makeGardenCamera(zoom = 1): PerspectiveCamera {
   return camera;
 }
 
-function makePost(options: { withShadowLight?: boolean; zoom?: number } = {}): {
+function makePost(options: { withShadowLight?: boolean } = {}): {
   composer: FakeComposer;
   light: DirectionalLight | null;
   n8ao: FakeN8AOPass;
@@ -453,8 +442,7 @@ function makePost(options: { withShadowLight?: boolean; zoom?: number } = {}): {
       depthTexture: new ThreeTexture(),
     };
   }
-  const post = createGardenPost(renderer, scene, makeGardenCamera(options.zoom));
-  post.setCameraZoom(options.zoom ?? 1);
+  const post = createGardenPost(renderer, scene, makeGardenCamera());
   activePosts.push(post);
   return {
     composer: latest<FakeComposer>(postHarness.composers),
@@ -561,23 +549,21 @@ describe("garden post-processing contracts", () => {
     // W1.1: the authored cube is the LAST effect of the grade pass, not a
     // fourth pass. Its position after ToneMappingEffect is the contract — a LUT
     // ahead of the tone mapper would be graded on values it has no entries for.
-    // W2.3/W2.4: the two hero atmosphere stages join the SAME pass, ahead of
-    // the grade, so the softened pixels and the shafts are graded and
-    // tone-mapped with the rest of the frame instead of painted over it — and
-    // so neither adds a full-screen draw to the main chain.
+    // W2.4: the god rays join the SAME pass, ahead of the grade, so the shafts
+    // are graded and tone-mapped with the rest of the frame instead of painted
+    // over it — and so they add no full-screen draw to the main chain.
     expect(passEffects).toEqual([
       ["RenderPass"],
       [undefined],
       ["BloomEffect"],
-      ["GardenTiltShift", "GardenGodRays", "GardenGrade", "ToneMappingEffect", "GardenLut"],
+      ["GardenGodRays", "GardenGrade", "ToneMappingEffect", "GardenLut"],
       ["SMAAEffect"],
     ]);
     expect(post.getPassList()).toEqual([
       "render",
       "n8ao",
       "bloom",
-      // Rest is deliberately crisp: the postcard-only soft field is absent,
-      // and this harness has no shadow-casting light for god rays.
+      // This harness has no shadow-casting light, so no god rays.
       "grade",
       "output",
       "lut",
@@ -614,19 +600,6 @@ describe("garden post-processing contracts", () => {
     // Manual trilinear: the blue axis is lerped by hand between two slices so
     // hardware filtering never crosses a slice or a phase-band boundary.
     expect(lut.fragmentShader).toMatch(/mix\(nearSlice, farSlice, slice - low\)/);
-  });
-
-  it("mirrors every tilt-shift kernel sample at render-target edges", () => {
-    makePost();
-    const blur = postHarness.shaderPasses.find((candidate) => (
-      (candidate as FakeShaderPass).fullscreenMaterial.name === "GardenSeparableBlurMaterial"
-    )) as FakeShaderPass | undefined;
-    expect(blur?.fullscreenMaterial).toMatchObject({
-      name: "GardenSeparableBlurMaterial",
-    });
-    const shader = (blur?.fullscreenMaterial as unknown as { fragmentShader?: string }).fragmentShader;
-    expect(shader).toMatch(/1\.0 - abs\(mod\(uv, 2\.0\) - 1\.0\)/);
-    expect(shader?.match(/texture2D\(inputBuffer, mirrorUv\(/g)).toHaveLength(5);
   });
 
   it("loads the LUT and dither textures as raw, unfiltered look-up data", () => {
@@ -860,9 +833,8 @@ describe("garden post-processing contracts", () => {
     }
   });
 
-  it("eases the idle profile across AO, close-postcard DoF, and god rays without changing colour or passes", () => {
-    const { composer, light, n8ao, post } = makePost({ withShadowLight: true, zoom: 1.3 });
-    const tiltShift = effectNamed("GardenTiltShift");
+  it("eases the idle profile across AO and god rays without changing colour or passes", () => {
+    const { composer, light, n8ao, post } = makePost({ withShadowLight: true });
     const godRays = effectNamed("GardenGodRays");
     const grade = effectNamed("GardenGrade");
     if (!light) throw new Error("Expected a shadow-casting light");
@@ -889,17 +861,13 @@ describe("garden post-processing contracts", () => {
     expect(n8ao.configuration.intensity).toBeGreaterThan(performanceAOIntensity);
     expect(n8ao.configuration.aoRadius).toBeLessThan(2);
     expect(n8ao.configuration.aoRadius).toBeGreaterThan(1.4);
-    expect(numberUniform(tiltShift, "strength")).toBeLessThan(0.6);
-    expect(numberUniform(tiltShift, "strength")).toBeGreaterThan(0);
     expect(numberUniform(godRays, "rayWeight")).toBeLessThan(0.02);
     expect(numberUniform(godRays, "rayWeight")).toBeGreaterThan(0);
 
     for (let frame = 0; frame < 90; frame += 1) post.render(1 / 60);
     expect(n8ao.configuration.intensity).toBeCloseTo(performanceAOIntensity);
     expect(n8ao.configuration.aoRadius).toBeCloseTo(1.4);
-    expect(numberUniform(tiltShift, "strength")).toBe(0);
     expect(numberUniform(godRays, "rayWeight")).toBe(0);
-    expect(post.getPassList()).not.toContain("dof");
     expect(post.getPassList()).not.toContain("godrays");
     expect(composer.passes).toBe(passes);
     expect(composer.passes.map((pass) => pass.effects)).toEqual(effects);
@@ -912,14 +880,11 @@ describe("garden post-processing contracts", () => {
     post.render(1 / 60);
     expect(n8ao.configuration.intensity).toBeGreaterThan(performanceAOIntensity);
     expect(n8ao.configuration.intensity).toBeLessThan(awakeAOIntensity);
-    expect(numberUniform(tiltShift, "strength")).toBeGreaterThan(0);
-    expect(numberUniform(tiltShift, "strength")).toBeLessThan(0.6);
     expect(numberUniform(godRays, "rayWeight")).toBeGreaterThan(0);
     expect(numberUniform(godRays, "rayWeight")).toBeLessThan(0.02);
     for (let frame = 0; frame < 90; frame += 1) post.render(1 / 60);
     expect(n8ao.configuration.intensity).toBe(awakeAOIntensity);
     expect(n8ao.configuration.aoRadius).toBe(2);
-    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.6);
     expect(numberUniform(godRays, "rayWeight")).toBeCloseTo(0.02, 3);
 
     // A reduced-motion repaint is a complete static composition even if it
@@ -930,65 +895,18 @@ describe("garden post-processing contracts", () => {
     post.render(0);
     expect(n8ao.configuration.intensity).toBe(awakeAOIntensity);
     expect(n8ao.configuration.aoRadius).toBe(2);
-    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.6);
     expect(numberUniform(godRays, "rayWeight")).toBeCloseTo(0.02, 3);
   });
 
-  it("enables tilt-shift only for the authored close-postcard zoom band", () => {
-    for (const zoom of [0.8, 1]) {
-      const { post } = makePost({ zoom });
-      const tiltShift = effectNamed("GardenTiltShift");
-      post.render(1 / 60);
-      expect(numberUniform(tiltShift, "strength")).toBe(0);
-      expect(post.getPassList()).not.toContain("dof");
-    }
-
-    const { post } = makePost({ zoom: 1.3 });
-    const tiltShift = effectNamed("GardenTiltShift");
+  it("never changes colour with the load tier", () => {
+    const { post } = makePost();
     const grade = effectNamed("GardenGrade");
-    post.render(1 / 60);
-    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.6);
-    expect(post.getPassList()).toContain("dof");
-
-    post.setAOTierWeight(0.5);
-    expect(numberUniform(tiltShift, "strength")).toBeCloseTo(0.3);
-    post.setAOTierWeight(0);
-    expect(numberUniform(tiltShift, "strength")).toBe(0);
-
     const saturation = numberUniform(grade, "saturation");
     const vignette = numberUniform(grade, "vignette");
     post.setAOQuality("balanced");
+    post.setAOTierWeight(0);
     expect(numberUniform(grade, "saturation")).toBe(saturation);
     expect(numberUniform(grade, "vignette")).toBe(vignette);
-
-    post.setEnabled(false);
-    expect(numberUniform(tiltShift, "strength")).toBe(0);
-  });
-
-  it("derives the tilt-shift band from the camera and leaves its centre driveable", () => {
-    const { post } = makePost();
-    const tiltShift = effectNamed("GardenTiltShift");
-
-    post.render(1 / 60);
-    // The sharp band centres on the sea-plane intersection along the authored
-    // pose ray. At close zoom the rig raises its target and shallows its pitch.
-    const expectedFocusCenter = TARGET_DISTANCE + 1.45 / Math.sin(CAMERA_PITCH);
-    expect(numberUniform(tiltShift, "focusCenter")).toBeCloseTo(expectedFocusCenter);
-    // The widths follow the perspective target-plane view height rather than
-    // a hard-coded world-space span.
-    expect(numberUniform(tiltShift, "focusRange")).toBeCloseTo(TARGET_VIEW_HEIGHT * 0.55);
-    expect(numberUniform(tiltShift, "farFalloff")).toBeCloseTo(TARGET_VIEW_HEIGHT * 0.5);
-    expect(numberUniform(tiltShift, "nearFalloff")).toBeCloseTo(TARGET_VIEW_HEIGHT * 0.45);
-
-    // W4.6 seam: the centre is a plain uniform, so a focus pull toward a
-    // selected ship is an ease, never a pass-list change.
-    post.setFocusBandDistance(140);
-    post.render(1 / 60);
-    expect(numberUniform(tiltShift, "focusCenter")).toBe(140);
-    expect(numberUniform(tiltShift, "focusRange")).toBeCloseTo(TARGET_VIEW_HEIGHT * 0.55);
-    post.setFocusBandDistance(null);
-    post.render(1 / 60);
-    expect(numberUniform(tiltShift, "focusCenter")).toBeCloseTo(expectedFocusCenter);
   });
 
   it("opens rays only at dawn and golden hour, with smooth boundary fades", () => {
@@ -1076,7 +994,6 @@ describe("garden post-processing contracts", () => {
     // Still one pass, still the same effect chain — the shed is a uniform.
     const composer = latest<FakeComposer>(postHarness.composers);
     expect(composer.passes.at(-2)?.effects?.map((effect) => effect.name)).toEqual([
-      "GardenTiltShift",
       "GardenGodRays",
       "GardenGrade",
       "ToneMappingEffect",

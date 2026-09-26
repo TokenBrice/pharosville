@@ -1,7 +1,6 @@
 import {
   InstancedMesh,
   Line,
-  LineBasicMaterial,
   Mesh,
   MeshBasicMaterial,
   Object3D,
@@ -33,7 +32,6 @@ export const GARDEN_IDENTITY_ANISOTROPY = 16;
 export interface GardenShipGeometryCache {
   geometries: Map<string, ThreeBufferGeometry>;
   wakeFillMaterial: MeshBasicMaterial;
-  wakeMaterial: LineBasicMaterial;
 }
 
 export function setTilePosition(

@@ -80,9 +80,18 @@ const STONE_PALE_WARM = palette(P.foam_white).lerp(palette(P.lantern_glow), 0.22
 const STONE_MID = STONE_PALE_WARM.clone().lerp(palette(P.stone_pale), 0.45);
 const STONE_SHADOW = palette(P.stone_pale).lerp(palette(P.fog_blue), 0.25);
 const BRONZE = palette(P.timber_mid).lerp(palette(P.iron_dark), 0.4);
-// Bronze-gilt statue: the highest metalness in the shell, warm emissive
-// whisper so the god catches the dusk bloom (D2, statue gleam).
+// Bronze statue: metal that reads by its specular line, not by self-light.
+// The day-cycle lends it a faint dusk-only gleam (W0.7/W0.9); metalness 0.6
+// keeps the bronze from mirroring the sky into a cream doll.
 const GILT = palette(P.lantern_warm).lerp(palette(P.lantern_glow), 0.35);
+const GILT_METALNESS = 0.6;
+// Night beacon discipline (W0.7): the stone's warm-bounce whisper is an
+// emissive term, so it lights the masonry at every hour. 0.015 keeps the day
+// shade side warm without turning the night shaft into a lit wall.
+const STONE_WARM_BOUNCE = 0.015;
+// The beacon's PointLight grazes the lantern storey only; it no longer
+// floods 46 u of masonry.
+const LIGHTHOUSE_LIGHT_RANGE = 30;
 const STAIR_STONE = palette(P.foam_white).lerp(palette(P.lantern_glow), 0.3);
 const SHORE_STONE = palette(P.stone_mid).lerp(palette(P.fog_pale), 0.25);
 const LAMP_BASE_COLOR = palette(P.lantern_warm);
@@ -193,8 +202,9 @@ function prepareLighthouseModelMaterials(
     const clones = new Map<MeshStandardMaterial, MeshStandardMaterial>();
     // T0.2: the apertures join the gilt in the per-instance clone set — the
     // day cycle animates their emissive, and the model library's shared cache
-    // material must not be mutated.
-    const animated = new Set(["bronze-gilt", LIGHTHOUSE_WINDOW_MATERIAL_NAME]);
+    // material must not be mutated. The limestone is cloned too so the W0.7
+    // stone and bronze retune below applies to this tower alone.
+    const animated = new Set(["bronze-gilt", LIGHTHOUSE_WINDOW_MATERIAL_NAME, "weathered-limestone"]);
     model.traverse((object) => {
       if (!(object instanceof Mesh)) return;
       const materials = Array.isArray(object.material) ? object.material : [object.material];
@@ -206,6 +216,10 @@ function prepareLighthouseModelMaterials(
         if (!clone) {
           clone = material.clone();
           clone.name = material.name;
+          // The GLB authors the pre-W0.7 values; the shell and the loaded
+          // tower share one stone and one bronze.
+          if (clone.name === "weathered-limestone") clone.emissiveIntensity = STONE_WARM_BOUNCE;
+          if (clone.name === "bronze-gilt") clone.metalness = GILT_METALNESS;
           clones.set(material, clone);
         }
         return clone;
@@ -402,14 +416,14 @@ export function createLighthouse(): {
     // Matches the GLB's warm-bounce lift (L4): the camera sees the tower's
     // shade side, so albedo + this whisper of warmth carry the day read.
     emissive: HARBOR_PALETTE.lantern_warm,
-    emissiveIntensity: 0.05,
+    emissiveIntensity: STONE_WARM_BOUNCE,
     flatShading: true,
     roughness: 0.88,
   });
   const midStone = new MeshStandardMaterial({
     color: STONE_MID,
     emissive: HARBOR_PALETTE.lantern_warm,
-    emissiveIntensity: 0.05,
+    emissiveIntensity: STONE_WARM_BOUNCE,
     flatShading: true,
     roughness: 0.94,
   });
@@ -426,8 +440,9 @@ export function createLighthouse(): {
   const gilt = new MeshStandardMaterial({
     color: GILT,
     emissive: HARBOR_PALETTE.lantern_glow,
-    emissiveIntensity: 0.08,
-    metalness: 0.85,
+    // Dark by day; the day-cycle drives the dusk-only gleam.
+    emissiveIntensity: 0,
+    metalness: GILT_METALNESS,
     // Matches the GLB's material name so the W7 statue gleam finds the god in
     // both the procedural shell and the loaded model.
     name: "bronze-gilt",
@@ -799,7 +814,7 @@ export function createLighthouse(): {
   const light = new PointLight(
     HARBOR_PALETTE.lantern_warm,
     0.95,
-    46,
+    LIGHTHOUSE_LIGHT_RANGE,
     2,
   );
   light.position.copy(beacon.position);

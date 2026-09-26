@@ -1,3 +1,5 @@
+import { recordDebugDirectorAdmission } from "../lib/pharosville-debug";
+
 export type GardenBeatKind = "arrival" | "keeper" | "weather" | "fog" | "almanac" | "attract" | "market";
 
 export interface GardenBeatRequest {
@@ -27,7 +29,16 @@ interface SeededDirectorState extends GardenDirectorState {
   sequence: number;
   silenceSeconds: number;
   nextEnvironmentSeconds: number;
+  /** No ordinary foreground beat before this time (arrival silence, K17). */
+  quietUntilSeconds: number;
 }
+
+/**
+ * K17 / W0.11: a freshly created director owns no caption for its first 90 s,
+ * so the first sentence a visitor reads is the market's phase line, never a
+ * minor arrival. Market pre-emption (priority ≥ 100) still speaks.
+ */
+export const GARDEN_DIRECTOR_INITIAL_SILENCE_SECONDS = 90;
 
 function hash(text: string): number {
   let value = 0x811c9dc5;
@@ -35,7 +46,11 @@ function hash(text: string): number {
   return value >>> 0;
 }
 
-export function createGardenDirector(seed: string): GardenDirectorState {
+/**
+ * `createdAtSeconds` is the director clock at creation (wall epoch seconds in
+ * the app); when given, foreground beats wait out the initial silence.
+ */
+export function createGardenDirector(seed: string, createdAtSeconds?: number): GardenDirectorState {
   return {
     active: null,
     lastForegroundEndSeconds: Number.NEGATIVE_INFINITY,
@@ -44,6 +59,9 @@ export function createGardenDirector(seed: string): GardenDirectorState {
     sequence: 0,
     silenceSeconds: 360 + hash(`${seed}:silence:0`) % 361,
     nextEnvironmentSeconds: Number.NEGATIVE_INFINITY,
+    quietUntilSeconds: createdAtSeconds !== undefined && Number.isFinite(createdAtSeconds)
+      ? createdAtSeconds + GARDEN_DIRECTOR_INITIAL_SILENCE_SECONDS
+      : Number.NEGATIVE_INFINITY,
   } as SeededDirectorState;
 }
 
@@ -65,6 +83,7 @@ export function requestGardenBeat(
   if (!market) {
     if (owned.active && (owned.active.foreground || !request.foreground || request.priority <= owned.active.priority)) return null;
     if (request.foreground && timeSeconds < owned.lastForegroundEndSeconds + owned.silenceSeconds) return null;
+    if (request.foreground && timeSeconds < owned.quietUntilSeconds) return null;
     if (!request.foreground && timeSeconds < owned.nextEnvironmentSeconds) return null;
   }
   if (owned.active?.foreground) owned.lastForegroundEndSeconds = timeSeconds;
@@ -77,6 +96,7 @@ export function requestGardenBeat(
     // One admitted environmental cue every 6–10 minutes under continuous demand.
     owned.nextEnvironmentSeconds = timeSeconds + 360 + hash(`${owned.seed}:environment:${owned.sequence}`) % 241;
   }
+  recordDebugDirectorAdmission(beat);
   return beat;
 }
 

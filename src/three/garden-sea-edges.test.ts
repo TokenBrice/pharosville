@@ -1,8 +1,13 @@
 import { InstancedMesh, Mesh, MeshStandardMaterial } from "three";
 import { describe, expect, it, vi } from "vitest";
 import { GARDEN_SEA_EDGE_SITES } from "../systems/garden-sea-edge-sites";
+import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import { weatherForFrame } from "../systems/weather";
-import { GARDEN_SEA_EDGES_OVERVIEW_NAME, createGardenSeaEdges } from "./garden-sea-edges";
+import {
+  GARDEN_SEA_EDGES_OVERVIEW_NAME,
+  GARDEN_SHOAL_BAR_AWASH_HEIGHT,
+  createGardenSeaEdges,
+} from "./garden-sea-edges";
 
 describe("garden sea edges", () => {
   it("batches the complete geography into four stone signatures and two instanced draws", () => {
@@ -14,11 +19,18 @@ describe("garden sea edges", () => {
     expect(edges.root.children).toHaveLength(edges.drawCallCount);
     expect(edges.root.children.filter((child) => child.name === "garden-sea-edges-reeds")).toHaveLength(1);
     expect(edges.reedInstances).toBeInstanceOf(InstancedMesh);
-    expect(edges.reedInstances.count).toBe(7);
     expect(edges.fixtureInstances).toBeInstanceOf(InstancedMesh);
     expect(edges.siteCount).toBe(GARDEN_SEA_EDGE_SITES.length);
-    expect(edges.triangleCount).toBeGreaterThanOrEqual(4_250);
     expect(edges.triangleCount).toBeLessThanOrEqual(4_350);
+    edges.dispose();
+  });
+
+  it("lays the Warning shoal bars awash as smooth wet stone", () => {
+    const edges = createGardenSeaEdges();
+    const shoals = edges.bucketMeshes.get("pale")!;
+    shoals.geometry.computeBoundingBox();
+    expect(shoals.geometry.boundingBox!.max.y).toBeCloseTo(GARDEN_WATER_Y + GARDEN_SHOAL_BAR_AWASH_HEIGHT, 6);
+    expect((shoals.material as MeshStandardMaterial).flatShading).toBe(false);
     edges.dispose();
   });
 

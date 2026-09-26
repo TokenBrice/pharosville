@@ -11,7 +11,6 @@ import {
   Float32BufferAttribute,
   Group,
   InstancedMesh,
-  Line,
   LineBasicMaterial,
   LineSegments,
   MathUtils,
@@ -162,8 +161,6 @@ export interface ShipVisual {
   /** Deterministic phase offset for lantern pendulum sway. */
   swaySeed: number;
   tier: ShipFleetTier;
-  wake: Group;
-  wakeDetail: Group;
   /** World-wide wake-batch slot; -1 only until the ship is assigned one. */
   wakeSlot: number;
 }
@@ -438,13 +435,12 @@ const FLEET_TIER_LANE_INTENSITY: Record<ShipFleetTier, number> = {
  * `root` is a real `Group` and still receives the full per-frame transform, but
  * carries no drawable children, so it contributes zero draw calls. Keeping it
  * an `Object3D` (rather than a bare struct) is deliberate: `entityCues`,
- * follow-selected and the wake all attach to it exactly as before.
+ * follow-selected and the wake batch's pose all read from it exactly as before.
  */
 export function createBatchedShip(
   ship: ShipNode,
   displayOffset: { x: number; y: number },
   representative: boolean,
-  cache: GardenShipGeometryCache,
   atlasCell: number,
 ): ShipVisual {
   const root = new Group();
@@ -456,8 +452,6 @@ export function createBatchedShip(
 
   const tier = shipFleetTier(ship);
   const motion = FLEET_TIER_MOTION[tier];
-  const wake = createWake(cache);
-  root.add(wake.root);
 
   return {
     agePatina: MathUtils.clamp(ship.visual.hullForm?.agePatina ?? 0, 0, 1),
@@ -490,8 +484,6 @@ export function createBatchedShip(
     silhouette: SILHOUETTE_FOR_HULL[ship.visual.hull],
     swaySeed: stableUnit(`${ship.id}.sway`) * Math.PI * 2,
     tier,
-    wake: wake.root,
-    wakeDetail: wake.detail,
     wakeSlot: -1,
   };
 }
@@ -712,17 +704,11 @@ function batchedPennantColor(ship: ShipNode): Color {
  * every vertex in the vertex shader — but a hero ship IS meshes, so the offset
  * has to be applied to them. It goes on the ship's drawable children rather
  * than on `root`, whose Y the frame loop rewrites from the tile every frame.
- *
- * The wake is excluded on purpose: it is foam ON the sea surface, and it has to
- * stay there however deep the hull that made it is riding.
  */
-function applyShipPegTrim(root: Group, ship: ShipNode, wakeRoot: Object3D): void {
+function applyShipPegTrim(root: Group, ship: ShipNode): void {
   const waterline = ship.visual.hullForm?.waterline ?? 0;
   if (waterline === 0) return;
-  for (const child of root.children) {
-    if (child === wakeRoot) continue;
-    child.position.y += waterline;
-  }
+  for (const child of root.children) child.position.y += waterline;
 }
 
 /** W5.8/W7.3: value-only decorative drift plus even service-age patina. */
@@ -1123,9 +1109,7 @@ export function createShip(
     fineDetail.add(fittings);
   }
 
-  const wake = createWake(cache);
-  root.add(wake.root);
-  applyShipPegTrim(root, ship, wake.root);
+  applyShipPegTrim(root, ship);
   const motion = FLEET_TIER_MOTION[tier];
   // Subtle livery cast multiplied over the hero wood on attach (white base × a
   // mostly-white tint keeps the baked 3-tone shading readable).
@@ -1164,15 +1148,13 @@ export function createShip(
     silhouette,
     swaySeed: stableUnit(`${ship.id}.sway`) * Math.PI * 2,
     tier,
-    wake: wake.root,
-    wakeDetail: wake.detail,
     wakeSlot: -1,
   };
 }
 
 /**
  * Swaps a titan/unique ship's procedural hull for its loaded hero GLB: hides the
- * procedural hull/rig (the identity logo sail, data overlays, wake and lantern
+ * procedural hull/rig (the identity logo sail, data overlays and lantern
  * sprites stay), clones each GLB material so this instance can tint the wood by
  * livery without touching the shared model cache, and re-homes the identity sail
  * onto the GLB main mast. Geometry stays shared with the cache (kept flat for the
@@ -2833,31 +2815,6 @@ export function createPennantGeometry(): ShapeGeometry {
   shape.lineTo(0, -0.34);
   shape.closePath();
   return new ShapeGeometry(shape);
-}
-
-function createWake(cache: GardenShipGeometryCache): { detail: Group; root: Group } {
-  const root = new Group();
-  const detail = new Group();
-  root.name = "ship-wake";
-  detail.name = "ship-wake-detail";
-  root.add(detail);
-
-  // The nine foam quads now live in the world-wide GardenWakeBatch. Keep only
-  // the close-inspection line work below this per-ship anchor.
-  for (const z of [-0.5, 0.5]) {
-    const geometry = cachedShipGeometry(
-      cache,
-      `wake.${z}`,
-      () => new BufferGeometry().setFromPoints([
-        new Vector3(-2.25, -0.33, z * 0.36),
-        new Vector3(-3.8, -0.34, z * 1.35),
-        new Vector3(-5.8, -0.35, z * 2.48),
-      ]),
-    );
-    detail.add(new Line(geometry, cache.wakeMaterial));
-  }
-  root.visible = false;
-  return { detail, root };
 }
 
 export function createShipShadows(count: number): InstancedMesh<CircleGeometry, MeshBasicMaterial> {

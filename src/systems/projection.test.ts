@@ -16,6 +16,8 @@ import {
   TILE_SCALE,
   tileToIso,
   tileToScreen,
+  resetProjectionCameraBreath,
+  setProjectionCameraBreath,
   worldToScreen,
   zoomCameraAt,
 } from "./projection";
@@ -95,6 +97,37 @@ describe("projection", () => {
         }
       }
     }
+  });
+
+  it("picks through the breathed pose the renderer draws, and returns to the fixed rig on reset", () => {
+    const viewport = { x: 1600, y: 1000 };
+    const camera = { offsetX: -53.75, offsetY: 291.125, zoom: 1 };
+    const pose = cameraPoseFromIso(camera, viewport);
+    const target = { x: pose.targetTile.x * TILE_SCALE, y: pose.targetHeight, z: pose.targetTile.y * TILE_SCALE };
+    const probe = { x: target.x - 40, y: 0, z: target.z - 60 };
+    const still = worldToScreen(probe, camera, viewport);
+    const breath = { dolly: 1.012, pitch: -0.6 * Math.PI / 180, yaw: 0.8 * Math.PI / 180 };
+    try {
+      setProjectionCameraBreath(breath);
+      // The breath orbits the look-at point, exactly as the renderer applies it.
+      const centre = worldToScreen(target, camera, viewport);
+      expect(centre.x).toBeCloseTo(viewport.x / 2, 9);
+      expect(centre.y).toBeCloseTo(viewport.y / 2, 9);
+      expect(screenToGroundRay({ x: 10, y: 10 }, camera, viewport).origin).toEqual(cameraEye({
+        ...pose,
+        distance: pose.distance * breath.dolly,
+        pitch: pose.pitch + breath.pitch,
+        yaw: pose.yaw + breath.yaw,
+      }));
+      const breathed = worldToScreen(probe, camera, viewport);
+      expect(Math.hypot(breathed.x - still.x, breathed.y - still.y)).toBeGreaterThan(1);
+      const restored = screenToGround(breathed, camera, viewport, 0);
+      expect(restored.x * TILE_SCALE).toBeCloseTo(probe.x, 8);
+      expect(restored.y * TILE_SCALE).toBeCloseTo(probe.z, 8);
+    } finally {
+      resetProjectionCameraBreath();
+    }
+    expect(worldToScreen(probe, camera, viewport)).toEqual(still);
   });
 
   it("preserves the camera through its fixed-rig pose representation", () => {

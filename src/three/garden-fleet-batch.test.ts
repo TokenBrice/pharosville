@@ -40,7 +40,7 @@ const SILHOUETTES: GardenHullSilhouette[] = [
 
 function buildBatches(capacity: number) {
   return createFleetBatches({
-    cache: { geometries: new Map(), wakeFillMaterial: null as never, wakeMaterial: null as never },
+    cache: { geometries: new Map(), wakeFillMaterial: null as never },
     capacity,
     geometryFor: (silhouette) => createFleetBatchGeometry(silhouette),
     pennantGeometry: createFleetBatchGeometry("bezaisen").sails,
@@ -403,10 +403,11 @@ describe("fleet batches", () => {
     // 6 families x (hull + sails) + 1 pennant batch = 13, at any fleet size.
     expect(fleetDrawCallCount(batches)).toBe(drawsAt20);
     expect(fleetDrawCallCount(batches)).toBe(13);
+    // No fleet geometry enters the directional map: contact discs ground ships.
     for (const batch of batches.bySilhouette.values()) {
-      expect(batch.hull.mesh.castShadow).toBe(true);
-      expect(batch.sails.mesh.castShadow).toBe(false);
+      for (const part of [batch.hull, batch.sails, batch.far]) expect(part.mesh.castShadow).toBe(false);
     }
+    expect(batches.pennant.mesh.castShadow).toBe(false);
 
     disposeFleetBatches(batches);
   });

@@ -180,4 +180,20 @@ describe("useWorldTimeControls", () => {
     expect(vi.getTimerCount()).toBe(0);
     view.unmount();
   });
+
+  it("pins the calendar day from a debug d= link while the motion clock stays real", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-13T12:34:56Z"));
+    const previousHash = window.location.hash;
+    window.location.hash = "#t=6.5&d=2026-01-02";
+    try {
+      const view = renderHook(() => useWorldTimeControls({ requestPaint: vi.fn(), reducedMotion: true }));
+      expect(view.result.current.utcDayKey).toBe("2026-01-02");
+      expect(view.result.current.date.toISOString()).toBe("2026-01-02T12:34:56.000Z");
+      expect(view.result.current.timeSeconds).toBe(Date.now() / 1000);
+      view.unmount();
+    } finally {
+      window.location.hash = previousHash;
+    }
+  });
 });

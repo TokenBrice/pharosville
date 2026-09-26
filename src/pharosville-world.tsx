@@ -46,11 +46,15 @@ import {
 import { buildBaseMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
 import {
   createGardenArrivalCeremonyState,
-  gardenArrivalBeatEnvelope,
+  GARDEN_ARRIVAL_NAMEPLATE_FADE_OUT_SECONDS,
+  gardenArrivalBeatEnvelopeInto,
+  gardenArrivalBerthInFrame,
+  gardenArrivalSupplyTrend,
   requestGardenArrivalCeremony,
-  selectGardenArrivalBeatShipDetailIds,
   type GardenArrivalBeat,
+  type GardenArrivalBeatEnvelope,
   type GardenArrivalCandidate,
+  type GardenArrivalNameplate,
 } from "./systems/garden-arrival-beats";
 import { buildObserveSequence, type ObserveBeatKind } from "./systems/observe-sequence";
 import type { ObserveTourKeyframe } from "./systems/observe-tour";
@@ -76,6 +80,12 @@ const LazyHarborLedgerPanel = lazy(() => (
 ));
 
 const DATA_REFRESH_ANNOUNCEMENT_THROTTLE_MS = 30_000;
+/**
+ * The retiring nameplate stays mounted through its CSS fade-out. The world
+ * clock ticks once a second, so the hold covers the fade plus one whole tick.
+ */
+const ARRIVAL_NAMEPLATE_RETIRE_SECONDS = GARDEN_ARRIVAL_NAMEPLATE_FADE_OUT_SECONDS + 1;
+const arrivalCandidateEnvelope: GardenArrivalBeatEnvelope = { furl: 0, bowWave: 0, nameplate: false };
 /**
  * Observe 2.0 (Phase 4): dolly zoom per beat kind. The monument holds a wide
  * tableaux; individual hulls and quays push in close. All stay inside the
@@ -243,12 +253,18 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world, motionBucket * 600), [baseMotionPlanSignature, motionBucket]);
   const motionPlan = baseMotionPlan;
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
-  const [arrivalBeatShipDetailIds, setArrivalBeatShipDetailIds] = useState<readonly string[]>([]);
+  const docksById = useMemo(() => new Map(world.docks.map((dock) => [dock.id, dock])), [world.docks]);
+  const fleetSupplyUsd = useMemo(
+    () => world.ships.reduce((sum, ship) => sum + Math.max(0, ship.marketCapUsd), 0),
+    [world.ships],
+  );
+  const [arrivalNameplate, setArrivalNameplate] = useState<GardenArrivalNameplate | null>(null);
   const arrivalBeatSecondRef = useRef<number | null>(null);
-  // Ship chips are transient only (arrival/departure beats and the selected
-  // ship). Persistent anomaly chips on ships were removed 2026-09-06: a boat
-  // wearing a sign all day read as clutter, not as a signal; DEX disagreement
-  // and Danger water keep their in-world cues, detail rows and ledger parity.
+  // Ship chips are transient only (the admitted arrival ceremony's nameplate
+  // and the selected ship). Persistent anomaly chips on ships were removed
+  // 2026-09-06: a boat wearing a sign all day read as clutter, not as a
+  // signal; DEX disagreement and Danger water keep their in-world cues,
+  // detail rows and ledger parity.
   const recentFleetTrend = useMemo(() => recentFleetTrendSummary(world), [world]);
   // W5.01 — derive the live risk-band tack-out per ship from the motion plan
   // at world-refresh cadence. The detail panel and accessibility ledger both
@@ -533,10 +549,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     pendingFollowDetailIdRef.current = null;
     focusSelectedCamera(detailId, selectedEntity);
   }, [focusSelectedCamera, selectedEntity]);
-  // G3/W4.6: one arrival ceremony per director slot. The renderer keeps the
-  // sail dip and ensō on the same single highest-supply arrival; here that
-  // arrival is offered to the director and, if admitted, its annotation is
-  // published for the caption. Copy names supply, never transfer/mint/issuer.
+  // G3/W4.6: one arrival ceremony per director slot. Candidates are ships in
+  // their arrival window whose berth (the ship's current dock, never its home
+  // dock) projects inside the visible frame; the most significant one is
+  // offered to the director and, if admitted, its annotation is published for
+  // the caption (whose status region is the one screen-reader channel for it)
+  // and it alone may wear the nameplate. Copy names supply only when issuance
+  // was measured minting or redeeming, never transfer/mint/issuer.
   const arrivalCeremonyStateRef = useRef(createGardenArrivalCeremonyState());
   const [arrivalAnnotation, setArrivalAnnotation] = useState<GardenArrivalBeat["annotation"]>(null);
   const publishShipMotionSamples = useCallback((
@@ -544,51 +563,52 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     timeSeconds: number,
   ) => {
     followPendingSelectionFromSamples(samples);
+    if (reducedMotion) return;
     const second = Math.floor(timeSeconds);
     if (arrivalBeatSecondRef.current === second) return;
     arrivalBeatSecondRef.current = second;
-    const next = selectGardenArrivalBeatShipDetailIds(
-      world.ships,
-      samples,
-      reducedMotion,
-    ).filter((detailId) => {
-      const ship = world.entityById[detailId];
-      return ship?.kind === "ship"
-        && gardenArrivalBeatEnvelope(samples.get(ship.id), reducedMotion).nameplate;
-    });
-    setArrivalBeatShipDetailIds((current) => (
-      current.length === next.length && current.every((detailId, index) => detailId === next[index])
-        ? current
-        : next
-    ));
-    if (!reducedMotion && next.length > 0) {
-      const totalUsd = world.ships.reduce((sum, ship) => sum + Math.max(0, ship.marketCapUsd), 0);
-      const candidates: GardenArrivalCandidate[] = [];
-      for (const detailId of next) {
-        const ship = world.entityById[detailId];
-        if (ship?.kind !== "ship") continue;
-        const dock = world.docks.find((entry) => entry.chainId === ship.dockChainId);
-        candidates.push({
-          assetName: ship.label,
-          detailId,
-          harbourName: dock?.label ?? "the open anchorage",
-          id: ship.id,
-          supplyShare: totalUsd > 0 ? Math.max(0, ship.marketCapUsd) / totalUsd : 0,
-          supplyTrend: ship.issuance?.direction === "redeeming" ? "decreased" : "increased",
-        });
-      }
-      const beat = requestGardenArrivalCeremony(
-        arrivalCeremonyStateRef.current, gardenDirector, candidates, timeControls.timeSeconds,
-      );
-      if (beat?.annotation) {
-        setArrivalAnnotation(beat.annotation);
-        setAnnouncement(beat.annotation.text);
-      }
+    const snapshot = hitTargetSnapshotRef.current;
+    if (!snapshot) return;
+    const canvasSize = canvas.canvasSizeRef.current;
+    const viewport = { width: canvasSize.x, height: canvasSize.y };
+    const candidates: GardenArrivalCandidate[] = [];
+    for (const ship of world.ships) {
+      const sample = samples.get(ship.id);
+      if (!sample?.currentDockId) continue;
+      if (!gardenArrivalBeatEnvelopeInto(sample, false, arrivalCandidateEnvelope).nameplate) continue;
+      const dock = docksById.get(sample.currentDockId);
+      if (!dock) continue;
+      if (!gardenArrivalBerthInFrame(snapshot.targetsByDetailId.get(ship.detailId)?.anchor, viewport)) continue;
+      candidates.push({
+        assetName: ship.label,
+        detailId: ship.detailId,
+        harbourName: dock.label,
+        id: ship.id,
+        supplyShare: fleetSupplyUsd > 0 ? Math.max(0, ship.marketCapUsd) / fleetSupplyUsd : 0,
+        supplyTrend: gardenArrivalSupplyTrend(ship.issuance),
+      });
     }
-  }, [followPendingSelectionFromSamples, gardenDirector, reducedMotion, setAnnouncement, timeControls.timeSeconds, world.docks, world.entityById, world.ships]);
+    if (candidates.length === 0) return;
+    const beat = requestGardenArrivalCeremony(
+      arrivalCeremonyStateRef.current, gardenDirector, candidates, timeControls.timeSeconds,
+    );
+    if (!beat) return;
+    if (beat.annotation) setArrivalAnnotation(beat.annotation);
+    if (beat.nameplate) setArrivalNameplate(beat.nameplate);
+  }, [canvas.canvasSizeRef, docksById, fleetSupplyUsd, followPendingSelectionFromSamples, gardenDirector, reducedMotion, timeControls.timeSeconds, world.ships]);
   const arrivalAnnotationLive = arrivalAnnotation !== null
     && timeControls.timeSeconds < arrivalAnnotation.startSeconds + arrivalAnnotation.durationSeconds;
   const arrivalAnnotationText = arrivalAnnotationLive ? arrivalAnnotation.text : null;
+  const arrivalNameplateDetailId = !reducedMotion
+    && arrivalNameplate !== null
+    && timeControls.timeSeconds < arrivalNameplate.endSeconds + ARRIVAL_NAMEPLATE_RETIRE_SECONDS
+    ? arrivalNameplate.detailId
+    : null;
+  const arrivalNameplateRetiring = arrivalNameplate !== null
+    && timeControls.timeSeconds >= arrivalNameplate.endSeconds;
+  const harborNameplate = useMemo(() => (
+    arrivalNameplateDetailId ? { detailId: arrivalNameplateDetailId, retiring: arrivalNameplateRetiring } : null
+  ), [arrivalNameplateDetailId, arrivalNameplateRetiring]);
 
 
   const updateHarborLabelsForFrame = useCallback((
@@ -1161,8 +1181,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
         {!rendererFailed && (
           <HarborLabelChips
-            arrivalShipDetailIds={arrivalBeatShipDetailIds}
             containerRef={harborLabelChipsElRef}
+            nameplate={harborNameplate}
             onSelectDetail={(detailId) => selectDetail(detailId, null)}
             selectedShipDetailId={selectedEntity?.kind === "ship" ? selectedEntity.detailId : null}
             world={world}

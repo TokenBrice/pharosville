@@ -2,14 +2,19 @@ import { describe, expect, it } from "vitest";
 import { SEA_REGION_ID, seaRegionAtTile } from "./garden-sea-regions";
 import { RIM_COVES, rimLandAt } from "./garden-rim";
 import { SHIP_WATER_ANCHORS } from "./risk-water-areas";
+import { GARDEN_EMPTY_INLET } from "./garden-fleet-placement";
 import {
   GARDEN_EDGE_STONE_OBSTACLES,
   GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES,
+  GARDEN_SEA_EDGE_INLET,
   GARDEN_SEA_EDGE_ISLAND_WATERLINE,
+  GARDEN_SEA_EDGE_PILE_LIP_GAP_TILES,
   GARDEN_SEA_EDGE_SCALE_FACTOR,
   GARDEN_SEA_EDGE_SHED_LIST,
   GARDEN_SEA_EDGE_SITES,
   seaEdgeBoundaryAt,
+  seaEdgeGapToSlab,
+  seaEdgeInletDistance,
   seaEdgeTileInOpening,
 } from "./garden-sea-edge-sites";
 import {
@@ -49,25 +54,60 @@ describe("garden sea-edge sites", () => {
       "timber-pile",
       "inlet-stone",
     ]));
-    const reedBanks = GARDEN_SEA_EDGE_SITES.filter((site) => site.form === "reed-lily");
-    expect(reedBanks).toHaveLength(7);
-    expect(new Set(reedBanks.map((site) => site.body))).toEqual(new Set(["calm", "ledger", "wreck"]));
+    expect(Object.keys(GARDEN_SEA_EDGE_SHED_LIST).sort()).toEqual([...bodies].sort());
     expect(GARDEN_SEA_EDGE_SITES.some((site) => site.body === "danger" && site.form === "reed-lily"))
       .toBe(false);
-    expect(Object.keys(GARDEN_SEA_EDGE_SHED_LIST).sort()).toEqual([...bodies].sort());
     for (const displacement of Object.values(GARDEN_SEA_EDGE_SHED_LIST)) {
       expect(displacement).toMatch(/demote/i);
     }
   });
 
-  it("enlarges water-edge tongues, bars and piles by the authored scale factor", () => {
-    expect(GARDEN_SEA_EDGE_SCALE_FACTOR).toBe(1.5);
+  it("roots every reed bank within one tile of the land rim", () => {
+    const reedBanks = GARDEN_SEA_EDGE_SITES.filter((site) => site.form === "reed-lily");
+    expect(reedBanks.length).toBeGreaterThan(0);
+    for (const site of reedBanks) {
+      // Within one tile of the land rim: a cardinal neighbour is shore.
+      expect([
+        { x: 1, y: 0 },
+        { x: -1, y: 0 },
+        { x: 0, y: 1 },
+        { x: 0, y: -1 },
+      ].some((offset) => rimLandAt(site.tile.x + offset.x, site.tile.y + offset.y)), site.id).toBe(true);
+    }
+  });
+
+  it("keeps every footprint outside the camera-near empty inlet", () => {
+    // The mirrored corridor must stay the fleet placement's own ma.
+    expect(GARDEN_SEA_EDGE_INLET).toEqual(GARDEN_EMPTY_INLET);
+    for (const site of GARDEN_SEA_EDGE_SITES) {
+      expect(seaEdgeInletDistance(site.tile.x, site.tile.y), site.id)
+        .toBeGreaterThan(GARDEN_SEA_EDGE_INLET.halfWidth + site.footprintRadius);
+    }
+  });
+
+  it("stands every timber pile beside the Ledger slate lip", () => {
+    const piles = GARDEN_SEA_EDGE_SITES.filter((site) => site.form === "timber-pile");
+    const slabs = GARDEN_SEA_EDGE_SITES.filter((site) => site.form === "slate-edge");
+    expect(piles.length).toBeGreaterThan(0);
+    for (const pile of piles) {
+      const gap = Math.min(...slabs.map((slab) => (
+        seaEdgeGapToSlab(pile.tile, Math.max(pile.length, pile.width) / 2, slab)
+      )));
+      expect(gap, pile.id).toBeGreaterThanOrEqual(0);
+      expect(gap, pile.id).toBeLessThanOrEqual(GARDEN_SEA_EDGE_PILE_LIP_GAP_TILES);
+    }
+  });
+
+  it("enlarges mineral water-edge forms but keeps reeds and piles at authored size", () => {
+    expect(GARDEN_SEA_EDGE_SCALE_FACTOR).toBeGreaterThan(1);
     expect(GARDEN_SEA_EDGE_SITES.find((site) => site.id === "alert-tongue-west"))
-      .toMatchObject({ height: 1.25 * 1.5, length: 7.2 * 1.5, width: 2.2 * 1.5 });
+      .toMatchObject({ height: 1.25 * GARDEN_SEA_EDGE_SCALE_FACTOR, length: 7.2 * GARDEN_SEA_EDGE_SCALE_FACTOR, width: 2.2 * GARDEN_SEA_EDGE_SCALE_FACTOR });
     expect(GARDEN_SEA_EDGE_SITES.find((site) => site.id === "warning-bar-inner"))
-      .toMatchObject({ height: 0.48 * 1.5, length: 5.4 * 1.5, width: 2 * 1.5 });
+      .toMatchObject({ height: 0.48 * GARDEN_SEA_EDGE_SCALE_FACTOR, length: 5.4 * GARDEN_SEA_EDGE_SCALE_FACTOR, width: 2 * GARDEN_SEA_EDGE_SCALE_FACTOR });
     expect(GARDEN_SEA_EDGE_SITES.find((site) => site.id === "ledger-pile-1"))
-      .toMatchObject({ height: 2.7 * 1.5, length: 0.55 * 1.5, width: 0.55 * 1.5 });
+      .toMatchObject({ height: 1.35, length: 0.55, width: 0.55 });
+    expect(GARDEN_SEA_EDGE_SITES.find((site) => site.id === "calm-reed-bank-south"))
+      .toMatchObject({ height: 1.5, length: 2.2, width: 1.6 });
     // The displaced Danger wall keeps its reviewed, non-enlarged footprint.
     expect(GARDEN_SEA_EDGE_SITES.find((site) => site.id === "danger-rim-cliff"))
       .toMatchObject({ height: 5.2, length: 5.4, width: 1.2 });
@@ -93,7 +133,8 @@ describe("garden sea-edge sites", () => {
       expect(isWaterTileKind(terrainKindAt(site.tile.x, site.tile.y)), site.id).toBe(true);
       expect(rimLandAt(site.tile.x, site.tile.y), site.id).toBe(false);
       expect(seaRegionAtTile(site.tile.x, site.tile.y), site.id).toBe(SEA_REGION_ID[site.body]);
-      expect(seaEdgeBoundaryAt(site.tile, site.body), site.id).toBe(true);
+      // Piles are sited against the slate lip instead (asserted above).
+      if (site.form !== "timber-pile") expect(seaEdgeBoundaryAt(site.tile, site.body), site.id).toBe(true);
       expect(seaEdgeTileInOpening(site.tile), site.id).toBe(false);
     }
   });

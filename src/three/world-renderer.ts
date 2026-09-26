@@ -149,11 +149,6 @@ import {
   GARDEN_HERO_REFLECTION_LAYER,
 } from "./garden-hero-reflection-pass";
 import {
-  createGardenShipGulls,
-  GARDEN_GULL_SHIP_COUNT,
-  type GardenShipGulls,
-} from "./garden-ship-gulls";
-import {
   createGardenOverviewLod,
   type GardenOverviewLod,
 } from "./garden-overview-lod";
@@ -1106,7 +1101,6 @@ export function createThreeWorldRenderer(
       disposeFleetBatches(scene.fleetBatches);
       scene.sailAtlas.dispose();
       scene.fleetSharedCache.wakeFillMaterial.dispose();
-      scene.fleetSharedCache.wakeMaterial.dispose();
       for (const geometry of scene.fleetSharedCache.geometries.values()) geometry.dispose();
       // The harbour batch also owns the off-tree source geometries retained by
       // DockRecipe. Its disposer releases both those recipes and the mounted
@@ -1465,7 +1459,6 @@ export function createThreeWorldRenderer(
       );
       post.setAOQuality(activeAOQuality);
       post.setAOTierWeight(aoTierWeight);
-      post.setCameraZoom(frame.camera.zoom);
       // N8AO is close-view grounding. The landing frame (0.648) and whole-map
       // frame both rely on the static sun shadows and release its seven private
       // textures; inspection restores it smoothly between 0.66 and 0.90.
@@ -1786,8 +1779,6 @@ interface GardenContent {
   harborLanternMaterial: MeshStandardMaterial;
   fireflies: GardenFireflies;
   gullFlock: GardenGullFlock;
-  /** Gulls over the three largest hulls; parented to those hulls' own roots. */
-  shipGulls: GardenShipGulls;
   lighthouseLight: PointLight;
   lighthouseRoot: Group;
   lighthouseShell: Group;
@@ -2073,12 +2064,6 @@ function createGardenScene(
       side: DoubleSide,
       transparent: true,
     }),
-    wakeMaterial: new LineBasicMaterial({
-      color: HARBOR_PALETTE.foam_white,
-      depthWrite: false,
-      opacity: 0.38,
-      transparent: true,
-    }),
   };
   const sailAtlas = createGardenSailAtlas();
   const fleetBatches = createFleetBatches({
@@ -2151,8 +2136,8 @@ const worldContentPartKeysCache = new WeakMap<PharosVilleWorld, WorldContentPart
  * part that actually consumes each field, so a routine refresh dirties only the
  * families whose GPU resources genuinely changed:
  *
- * - a supply tick that moves `change24hPct` dirties `harborLife` (quay tempo,
- *   gull traffic — light instanced systems), never the dock masonry;
+ * - a supply tick that moves `change24hPct` dirties `harborLife` (the gull
+ *   flock and fireflies — light instanced systems), never the dock masonry;
  * - a berth or beam-dwell move lands in `shipsPose` and is applied in place;
  * - the flight gauge dirties `tenders`, never the whole fleet.
  */
@@ -2947,13 +2932,7 @@ function reconcileTransientSelection(
     return;
   }
   const cell = nextFreeSailAtlasCell(content.sailAtlas);
-  const visual = createBatchedShip(
-    ship,
-    { x: 0, y: 0 },
-    false,
-    content.shipsGeometryCache,
-    cell,
-  );
+  const visual = createBatchedShip(ship, { x: 0, y: 0 }, false, cell);
   visual.wakeSlot = content.wakeOutsiderSlot;
   if (cell !== 0) {
     content.sailAtlas.cellByShipId.set(ship.detailId, cell);
@@ -3137,6 +3116,7 @@ function registerLightLanes(
     id: "engawa-lantern",
     intensity: 0.48,
     kind: "lantern",
+    kindledAtNight: true,
     worldX: GARDEN_ENGAWA_LANTERN_WORLD.x,
     worldZ: GARDEN_ENGAWA_LANTERN_WORLD.z,
   });
@@ -3316,11 +3296,9 @@ function buildIslandPart(
     y: 0.12,
   });
 
-  // W4: the living fire at the brazier. The smoke samples the SAME cloud-noise
-  // texture object the water shader binds (C2(c) source), so one noise field
-  // serves sea, land, and sky. W7: the summit bird flock. Both roots anchor
-  // at the beacon and are re-anchored by attachGardenLighthouseModel.
-  const beaconFire = createGardenBeaconFire(cloudShadows.texture);
+  // W4: the living fire at the brazier. W7: the summit bird flock. Both roots
+  // anchor at the beacon and are re-anchored by attachGardenLighthouseModel.
+  const beaconFire = createGardenBeaconFire();
   beaconFire.root.position.set(0, GARDEN_LIGHTHOUSE_BEACON_Y, 0);
   island.lighthouseRoot.add(beaconFire.root);
   // W4.9: the heron perches on the camera-side island rock (its root carries
@@ -3469,6 +3447,9 @@ function buildRimPart(scene: GardenScene, content: GardenContent): void {
   const rim = createGardenRimMesh(scene.season);
   content.parts.rim.root.add(rim.root);
   content.rim = rim;
+  // The rim's night-beat materials (flora dimming, the engawa tōrō's
+  // kindling) are born at 0; re-push the current beat on the next frame.
+  scene.floraNightValue = -1;
   // W4.8: the keeper walks the rim path; the dressing is scene-scope, so the
   // ribbon is handed over here where the rim is (re)built.
   const pathMesh = rim.root.getObjectByName("garden-rim-path") as Mesh | undefined;
@@ -3539,18 +3520,13 @@ function buildDocksPart(scene: GardenScene, content: GardenContent, world: Pharo
 
 /**
  * The light instanced life around the harbour — the gull flock, fireflies.
- * Keyed on the FULL dock family (including `change24hPct`, which drives quay
- * tempo), so the routine supply tick rebuilds this cheap part and never the
- * masonry it decorates.
+ * Keyed on the dock family as well as the island tile, so a routine supply
+ * tick rebuilds this cheap part and never the masonry beside it.
  */
 function buildHarborLifePart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.harborLife;
   const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
-  // The flock works the quays as well as the island — the dock list is what
-  // carries harbour tempo.
-  const gullFlock = createGardenGullFlock(world.lighthouse.tile, {
-    docks: world.docks,
-  });
+  const gullFlock = createGardenGullFlock(world.lighthouse.tile);
   const fireflies = createGardenFireflies(
     gardenIslandLanternWorldOffsets(),
     islandTile,
@@ -3596,7 +3572,7 @@ function buildCargoTidePart(content: GardenContent, world: PharosVilleWorld): vo
 
 /**
  * The fleet: per-ship visuals, contact shadows, lanterns, cross-bearing
- * buoys, hero reflections and hero gulls. The instanced batches and the sail
+ * buoys and hero reflections. The instanced batches and the sail
  * atlas are scene-owned and NOT touched here beyond cell reassignment — a
  * rebuild restamps instances and repaints atlas cells through the upload lane.
  */
@@ -3622,12 +3598,6 @@ function buildShipsPart(
       depthWrite: false,
       opacity: 0.08,
       side: DoubleSide,
-      transparent: true,
-    }),
-    wakeMaterial: new LineBasicMaterial({
-      color: HARBOR_PALETTE.foam_white,
-      depthWrite: false,
-      opacity: 0.38,
       transparent: true,
     }),
   };
@@ -3657,13 +3627,7 @@ function buildShipsPart(
       assignGardenHeroSailAtlas(visual, sailAtlas.texture, atlasCell);
       return visual;
     }
-    return createBatchedShip(
-      ship,
-      displayOffset,
-      representative,
-      shipGeometryCache,
-      atlasCell,
-    );
+    return createBatchedShip(ship, displayOffset, representative, atlasCell);
   });
 
   // Departures are renderer ghosts, never world records. Recreate them from
@@ -3677,13 +3641,7 @@ function buildShipsPart(
   const departingShips = (staged?.reducedMotion ? [] : (staged?.departureSeeds ?? []))
     .map((seed, index) => {
       const visual = index < departureCapacity
-        ? createBatchedShip(
-            seed.ship,
-            seed.displayOffset,
-            seed.representative,
-            shipGeometryCache,
-            0,
-          )
+        ? createBatchedShip(seed.ship, seed.displayOffset, seed.representative, 0)
         : createShip(
             seed.ship,
             seed.displayOffset,
@@ -3691,7 +3649,6 @@ function buildShipsPart(
             {
               geometries: new Map(),
               wakeFillMaterial: shipGeometryCache.wakeFillMaterial.clone(),
-              wakeMaterial: shipGeometryCache.wakeMaterial.clone(),
             },
           );
       visual.root.position.set(
@@ -3750,15 +3707,6 @@ function buildShipsPart(
   const crossBearingBuoys = createGardenCrossBearingBuoys(buoySpecs);
   part.root.add(crossBearingBuoys.root);
 
-  // Gulls over the biggest hulls in the fleet. Ranked by the same market cap
-  // the hull scale already encodes, so the traffic agrees with the size.
-  // Heroes only — a gull per batched hull is 185 flocks, not traffic.
-  const shipGulls = createGardenShipGulls(
-    [...ships.filter((visual) => !visual.batched)]
-      .sort((left, right) => (right.ship.marketCapUsd ?? 0) - (left.ship.marketCapUsd ?? 0))
-      .slice(0, GARDEN_GULL_SHIP_COUNT),
-  );
-
   // 3d: the bearing the beam will settle on. Null when the index named no
   // contributor, or when the coin it named is not in the rendered fleet — the
   // sweep then keeps the even turn it has always had.
@@ -3772,7 +3720,6 @@ function buildShipsPart(
   content.fleetLanterns = fleetLanterns;
   content.wakeBatch = wakeBatch;
   content.wakeOutsiderSlot = wakeSlots.outsiderSlot;
-  content.shipGulls = shipGulls;
   content.shipLanternGlowMaterial = fleetLanterns.glowMaterial;
   content.shipLanternMaterial = fleetLanterns.coreMaterial;
   content.shipShadows = shipShadows;
@@ -4230,6 +4177,7 @@ function updateSceneForFrame(
   if (!content) {
     // No fleet lanes to add — pack the base (beacon/harbor/dock) lanes only.
     const laneCount = scene.laneRegistry.sync(frame.renderScheduler.tier, laneGlowScale, {
+      night: phase.night,
       reducedMotion: frame.reducedMotion,
       timeSeconds: frame.timeSeconds,
     });
@@ -4312,8 +4260,8 @@ function updateSceneForFrame(
   content.beaconHalo.scale.multiplyScalar(1 + (flicker - 0.5) * 0.1);
   content.beaconHalo.material.opacity *= 0.92 + flicker * 0.16;
   content.lighthouseLight.intensity *= 1 + (flicker - 0.5) * 0.3;
-  // D3: the station chimneys ride the same route clock and the same day-cycle
-  // ladder as the beacon's plume. Smoke is data-gated per harbour by the cargo
+  // D3: the station chimneys ride the same route clock and the shared
+  // day-cycle ladder. Smoke is data-gated per harbour by the cargo
   // tide (the crates' own reading), so this reads the live dock nodes rather
   // than waiting for a docks-part rebuild.
   content.stationSmoke?.update({
@@ -4341,13 +4289,11 @@ function updateSceneForFrame(
     visible: ambientAlive,
     weatherBeatActive: heronBeat !== null,
   });
-  // The hero gulls ride the same gate as the island's small life, and the same
-  // clock. Placement needs nothing here: each flock is a child of the hull it
-  // belongs to, so it already has that hull's pose.
+  // The hoist's shared ambient frame: the same gate as the island's small
+  // life, and the same clock.
   scratchAmbientFrame.reducedMotion = frame.reducedMotion;
   scratchAmbientFrame.timeSeconds = frame.timeSeconds;
   scratchAmbientFrame.visible = ambientAlive;
-  content.shipGulls.update(scratchAmbientFrame);
   // 3a: the hoist rides the same `ambientAlive` gate as the rest of the
   // island's small life — it survives `recovery` and is shed only at
   // `constrained`. What is flying was fixed at compose time; this call only
@@ -4448,7 +4394,10 @@ function updateSceneForFrame(
     scratchPosition.x,
     scratchPosition.z,
     beamBearing,
-    MathUtils.clamp(0.09 + (content.lighthouseLight.intensity - 0.45) / 7.6, 0, 1),
+    // Keyed to the W0.7 light curve (0.95 day → 3.35 night): the road keeps
+    // its faint day and full night ends now that the PointLight no longer
+    // floods the tower, and still dims with the lamp-status modulation.
+    MathUtils.clamp(0.156 + (content.lighthouseLight.intensity - 0.95) / 2.85, 0, 1),
     // W6: the water lane, caustic glow, and streaks breathe with the same
     // flame flicker driving the halo and PointLight above.
     flicker,
@@ -4738,10 +4687,6 @@ function updateSceneForFrame(
     const wakeScaleX = (0.7 + Math.min(1.5, wakeIntensity) * 0.85)
       * overviewDetail
       * displayPresence;
-    visual.wake.visible = wakeVisible;
-    // The close-range line detail stays under its ship-local anchor and keeps
-    // the same longitudinal intensity stretch as before the quad cutover.
-    visual.wake.scale.x = wakeScaleX;
     scratchWakePose.x = visual.root.position.x;
     scratchWakePose.y = visual.root.position.y;
     scratchWakePose.z = visual.root.position.z;
@@ -4811,7 +4756,6 @@ function updateSceneForFrame(
       visual.identitySail.userData.arrivalBeatScale = beatSailScale;
     }
     visual.fineDetail.visible = showShipDetail;
-    visual.wakeDetail.visible = showShipDetail;
 
     // R8 grounding: the shadow is THIS ship's shadow — the hull's rendered
     // x/z footprint (family reach table × rendered scale × hull-form span),
@@ -4980,6 +4924,7 @@ function updateSceneForFrame(
   content.fleetLanterns.cores.instanceMatrix.needsUpdate = true;
   content.fleetLanterns.glow.instanceMatrix.needsUpdate = true;
   const activeLaneCount = scene.laneRegistry.sync(frame.renderScheduler.tier, laneGlowScale, {
+    night: phase.night,
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
   });

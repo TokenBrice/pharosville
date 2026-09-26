@@ -13,6 +13,8 @@ import {
   Group,
   InstancedBufferAttribute,
   InstancedMesh,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -43,7 +45,7 @@ import { createGardenPrecinct, precinctTerrainHeight } from "./garden-precinct";
 import { createGardenKoi } from "./garden-koi";
 import { MOON_COLOR, type DayCyclePhase } from "./garden-day-cycle";
 import { OVERVIEW_LOD_DETAIL_NAMES } from "./garden-overview-lod";
-import { countDrawableObjects, setTilePosition, stableUnit } from "./garden-util";
+import { GARDEN_IDENTITY_ANISOTROPY, countDrawableObjects, setTilePosition, stableUnit } from "./garden-util";
 import { sampleTideLine } from "./garden-tide-line";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 import {
@@ -102,6 +104,12 @@ function gardenSurfaceTexture(
   const texture = new DataTexture(data, size, size, RGBAFormat, UnsignedByteType);
   texture.wrapS = RepeatWrapping;
   texture.wrapT = RepeatWrapping;
+  // The raked-gravel ridges and moss grain repeat several times across the
+  // terrace; without a mip chain they alias into moiré under camera drift.
+  texture.generateMipmaps = true;
+  texture.minFilter = LinearMipmapLinearFilter;
+  texture.magFilter = LinearFilter;
+  texture.anisotropy = GARDEN_IDENTITY_ANISOTROPY;
   texture.needsUpdate = true;
   return texture;
 }

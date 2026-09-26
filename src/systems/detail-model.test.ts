@@ -45,12 +45,16 @@ import {
   shipAgeLedgerClause,
 } from "./detail-model";
 import { UNAVAILABLE_SUPPLY_TIDE } from "./supply-tide";
+import type { PegSummaryResponse } from "@shared/types";
+import { buildSignalMast } from "./pharosville-world/stages/world-scaffold";
 import { buildDetailFactSections } from "../lib/format-detail";
 import type { AreaNode, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode } from "./world-types";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   fixtureWithDepegOn,
   fixtureWithoutAsset,
+  makeAsset,
+  makePegCoin,
   makePharosVilleWorldInput,
   makeReportCard,
   makerSquadFixtureInputs,
@@ -61,7 +65,7 @@ describe("W5.2 now caption grammar", () => {
   const beats = { dawn: 0, day: 1, golden: 0, blue: 0, night: 0 } as const;
   const observedAt = Date.UTC(2026, 8, 8, 18, 42);
 
-  it("uses ceremony, transition, stale, then phase precedence", () => {
+  it("uses stale, ceremony, transition, then phase precedence", () => {
     const common = {
       beats,
       freshness: { pegSummaryStale: true, observedAt },
@@ -70,12 +74,13 @@ describe("W5.2 now caption grammar", () => {
       psi: 82,
     };
     expect(nowCaption({ ...common, arrivalAnnotation: "USDC entered Ethereum harbour." }))
-      .toBe("USDC entered Ethereum harbour.");
-    expect(nowCaption({ ...common, arrivalAnnotation: null }))
-      .toBe("USDC moved to Watch water, observed 18:42");
-    expect(nowCaption({ ...common, arrivalAnnotation: null, latestTransition: null }))
       .toBe("Peg summary stale since 18:42");
-    expect(nowCaption({ ...common, arrivalAnnotation: null, latestTransition: null, freshness: {} }))
+    const fresh = { ...common, freshness: {} };
+    expect(nowCaption({ ...fresh, arrivalAnnotation: "USDC entered Ethereum harbour." }))
+      .toBe("USDC entered Ethereum harbour.");
+    expect(nowCaption({ ...fresh, arrivalAnnotation: null }))
+      .toBe("USDC moved to Watch water, observed 18:42");
+    expect(nowCaption({ ...fresh, arrivalAnnotation: null, latestTransition: null }))
       .toBe("12:25 — a quiet noon · readings current");
   });
 
@@ -153,8 +158,11 @@ describe("detail-model analytical links", () => {
       ...base,
       signalMast: {
         activeDepegCount: 12,
+        leaderCount: 20,
+        leadersOffPeg: ["USDA", "USDB", "USDC", "USDD", "USDE", "USDF"],
         pennantCount: 5,
         capped: true,
+        offPegSupplyShare: 0.0235,
         stormCone: true,
         worstBps: -620,
         worstSymbol: "XUSD",
@@ -168,31 +176,51 @@ describe("detail-model analytical links", () => {
 
     expect(flying.facts).toContainEqual({
       label: "Signal mast",
-      value: "5 pennants for 12 coins off peg (hoist caps the count); storm cone hoisted",
+      value: "5 pennants for USDA, USDB, USDC, USDD, USDE, USDF — 6 of the 20 largest coins by supply off peg (hoist caps the count); storm cone hoisted — 2.35% of tracked supply off peg",
     });
     expect(flying.facts).toContainEqual({
       label: "Fleet peg",
       value: "Worst XUSD -6.2%; median +4 bps; 202 of 214 at peg; 2 events today",
     });
 
-    const calm = detailForLighthouse({
-      ...base,
-      signalMast: {
-        activeDepegCount: 0,
-        pennantCount: 0,
-        capped: false,
-        stormCone: false,
-        worstBps: null,
-        worstSymbol: null,
-        medianDeviationBps: 1,
-        coinsAtPeg: 214,
-        totalTracked: 214,
-        eventsToday: 0,
-        unavailable: false,
+    // O17b acceptance: nineteen small coins off peg — one of them 53% off — are
+    // the Fleet peg row's business, not the mast's. No pennant, no cone, and
+    // the row says why in the same terms the world uses.
+    const dust = buildSignalMast(
+      {
+        coins: [
+          ...Array.from({ length: 20 }, (_, index) => makePegCoin({ id: `lead${index}`, symbol: `L${index}`, activeDepeg: false })),
+          ...Array.from({ length: 19 }, (_, index) => makePegCoin({ id: `dust${index}`, symbol: `D${index}`, activeDepeg: true })),
+        ],
+        summary: {
+          activeDepegCount: 19,
+          medianDeviationBps: 1,
+          worstCurrent: { id: "dust0", symbol: "PMUSD", bps: -5350 },
+          coinsAtPeg: 20,
+          totalTracked: 39,
+          depegEventsToday: 0,
+          depegEventsYesterday: 0,
+        },
+        methodology: { asOf: 0 } as PegSummaryResponse["methodology"],
       },
-    } satisfies LighthouseNode);
-
-    expect(calm.facts).toContainEqual({ label: "Signal mast", value: "Bare — no coin off peg" });
+      {
+        peggedAssets: [
+          ...Array.from({ length: 20 }, (_, index) => makeAsset({ id: `lead${index}`, symbol: `L${index}`, circulating: { peggedUSD: 5_000_000_000 } })),
+          ...Array.from({ length: 19 }, (_, index) => makeAsset({ id: `dust${index}`, symbol: `D${index}`, circulating: { peggedUSD: 2_000_000 } })),
+        ],
+      },
+    );
+    expect(dust.pennantCount).toBe(0);
+    expect(dust.stormCone).toBe(false);
+    const calm = detailForLighthouse({ ...base, signalMast: dust } satisfies LighthouseNode);
+    expect(calm.facts).toContainEqual({
+      label: "Signal mast",
+      value: "Bare — none of the 20 largest coins by supply off peg; no storm cone — 0.04% of tracked supply off peg, under the 1% gate",
+    });
+    expect(calm.facts).toContainEqual({
+      label: "Fleet peg",
+      value: "Worst PMUSD -53.5%; median +1 bps; 20 of 39 at peg; 0 events today",
+    });
 
     // No summary is not a calm fleet: the row says the mast has nothing to go
     // on, and the figures row is omitted rather than filled with zeroes.

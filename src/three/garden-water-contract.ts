@@ -15,9 +15,10 @@ import { GARDEN_PLATE_MARGIN_TILES } from "../systems/projection";
  * `HARBOR_PALETTE` in `src/systems/palette.ts`; no hex literals in
  * `garden-water.ts`.
  *
- * Tier policy (guardrails): cloud shadows + sun glitter ship at balanced+,
- * ripple rings at full/balanced; all motion freezes under reduced motion
- * (one static detailed frame, zero continuous RAF).
+ * Tier policy (guardrails): sun glitter ships at balanced+, ripple rings at
+ * full/balanced; cloud-shadow strength stays 0 until the sky draws clouds
+ * overhead; all motion freezes under reduced motion (one static detailed
+ * frame, zero continuous RAF).
  */
 
 /** Maximum simultaneous zone soft-tints the water shader supports. */
@@ -80,40 +81,11 @@ export const GARDEN_WATER_SHORE_FOAM = Object.freeze({
 });
 
 /**
- * Proxy for mean additive/mixed luminance over the representative OPEN-NIGHT
- * water mask. A true render assertion would be GPU/grade dependent, so this
- * deliberately tests the shader's authored light budget instead:
- *
- * - each gain is the exact GLSL constant used by the water material;
- * - each occupancy is the recorded fraction of the open-water mask that term
- *   is allowed to cover in the quiet composition;
- * - colours are conservatively treated as unit luminance.
- *
- * It does not claim to measure final post-AgX pixels. It prevents a future
- * one-line gain change from turning the open night sea into an emissive field
- * without moving the explicit recorded ceiling at the same time.
+ * Ceiling on the summed light/ember lane reflections one water fragment may
+ * add. Open-night water luminance is measured on the rendered frame (the
+ * preview's `--night-water` probe), not derived from authored gains.
  */
-export const GARDEN_WATER_NIGHT_EMISSIVE_BUDGET = Object.freeze({
-  moonRoadGain: 0.16,
-  moonRoadOccupancy: 0.08,
-  moonGlitterGain: 2.6,
-  moonGlitterOccupancy: 0.0004,
-  laneClamp: 0.75,
-  /**
-   * Sixteen narrow W4.11 strokes at rest. Their analytic wave breaks reduce
-   * coverage from the former discs, so retaining this conservative occupancy
-   * keeps the proxy at 0.015715 beneath the unchanged 0.016 ceiling.
-   */
-  laneOccupancy: 0.0025,
-  maxMeanLuminance: 0.016,
-});
-
-export function gardenWaterOpenNightMeanEmissiveBudget(): number {
-  const budget = GARDEN_WATER_NIGHT_EMISSIVE_BUDGET;
-  return budget.moonRoadGain * budget.moonRoadOccupancy
-    + budget.moonGlitterGain * budget.moonGlitterOccupancy
-    + budget.laneClamp * budget.laneOccupancy;
-}
+export const GARDEN_WATER_LANE_CLAMP = 0.75;
 
 /**
  * (a) Zone soft-tint uniform path — consumed by Lane Z's data.

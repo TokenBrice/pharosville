@@ -61,7 +61,7 @@ export const LEGEND_MARK_ROWS = [
   {
     cueId: "cue.lighthouse.signal-mast",
     label: "Observatory signal mast",
-    text: "Small pennants on the mast beside the observatory count the coins currently off peg (five is the top of the hoist); a dark cone joins them when the worst deviation is large. It reports today's readings, not a forecast.",
+    text: "Small pennants on the mast beside the observatory count how many of the twenty largest stablecoins by supply are off peg right now (five is the top of the hoist); a dark cone joins them only when coins holding at least 1% of tracked supply are off peg. Small coins off peg are named in the lighthouse Fleet peg row instead. It reports today's readings, not a forecast.",
   },
   {
     cueId: "cue.world.supply-tide",
@@ -171,11 +171,11 @@ export function buildVisualCueRegistry(): VisualCue[] {
       id: "cue.lighthouse.signal-mast",
       target: { kind: "lighthouse" },
       primaryChannels: ["shape", "size"],
-      visual: "signal mast on the observatory terrace flying one small pennant per coin currently off peg (hoist of five) with a dark storm cone at the yardarm when the worst live deviation crosses the shared price-materiality gate",
-      sourceField: "pegSummary.summary.activeDepegCount, pegSummary.summary.worstCurrent",
-      questionAnswered: "How many stablecoins are off peg across the whole fleet right now, and is any one of them far enough off to count as a storm?",
-      failureState: "bare mast; the lighthouse Signal mast row reads 'no peg summary tonight' and the Fleet peg row is absent",
-      domEquivalent: "lighthouse detail Signal mast and Fleet peg rows plus the accessibility ledger lighthouse signal-mast clause",
+      visual: "signal mast on the observatory terrace flying one small pennant for each of the twenty largest tracked stablecoins by circulating supply that is currently off peg (hoist of five), with a dark storm cone at the yardarm only when coins holding at least 1% of tracked supply are off peg; smaller coins off peg raise nothing on the mast",
+      sourceField: "pegSummary.coins[].activeDepeg weighed by stablecoins.peggedAssets[].circulating",
+      questionAnswered: "Are any of the stablecoins that carry the market off peg right now, and is enough of the market's supply off peg to count as a storm?",
+      failureState: "bare mast; the lighthouse Signal mast row reads 'no peg summary tonight' (and the Fleet peg row is absent) or 'no supply figures to weigh the peg readings against', never an unexplained calm",
+      domEquivalent: "lighthouse detail Signal mast row naming the largest coins off peg, the share of tracked supply off peg and the 1% cone gate, the Fleet peg row with the fleet-wide count and worst coin, plus the accessibility ledger lighthouse signal-mast clause carrying the same sentence",
       reducedMotionEquivalent: "same pennants and cone held at their composed time-zero pose",
     },
     {
@@ -473,24 +473,6 @@ export function buildVisualCueRegistry(): VisualCue[] {
       failureState: "empty water — nothing is drawn at all, which covers both 'the gauge reports no such rotation' and 'no issuance feed arrived'; the lighthouse 'Flight to quality' row separates the two, and is absent entirely when the gauge never landed",
       domEquivalent: "lighthouse detail 'Flight to quality' row naming the state and the intensity outright, plus the fleet-issuance accessibility-ledger line above the dock list",
       reducedMotionEquivalent: "the flotilla held static as it stands at any instant — the reported intensity's share of each hull's boats lying on station close under it, the rest waiting offshore, bows out. Deterministic, with no clock and no movement, and both halves of the reading (how many attend, how close in they lie) survive the freeze",
-    },
-    {
-      // The chain-level partner to the cargo tide, and deliberately NOT the
-      // same statement: the crates below are issuance measured at this quay,
-      // this is the chain's total held supply, which also moves when supply
-      // bridges in or out without a coin being minted. A harbour can be net
-      // burning and still filling. The two marks are kept at different heights
-      // and in different forms so that disagreement reads as the real thing it
-      // is rather than as one cue contradicting the other.
-      id: "cue.dock.harbour-tempo",
-      target: { kind: "dock" },
-      primaryChannels: ["motion", "position"],
-      visual: "gulls working a harbour: they rest on its pier deck between turns and lift off over the water every so often, and above a chain whose held stablecoin supply grew over 24 hours they take those turns more often, wheel wider and climb higher — above one whose supply drained, less often, tighter and lower. At rest they carry the same reading as position: a filling harbour's birds sit out at the pier head, a draining harbour's tuck in at its root. The swing is compressed against a 3% full scale and carries no colour, so a busy quay reads as busy and never as distress",
-      sourceField: "chains.chains[].change24hPct",
-      questionAnswered: "Is this harbour filling or draining — is the chain holding more stablecoin supply than it did yesterday?",
-      failureState: "the resting tempo, identical to a chain that genuinely did not move; the '24h supply change' row separates the two rather than letting a still quay mean either",
-      domEquivalent: "dock detail '24h supply change' and '7d' held-supply rows naming the direction outright, plus the matching dock accessibility-ledger clause, both sitting next to the Net flow 24h issuance row so the two readings can be compared",
-      reducedMotionEquivalent: "every gull stands on its harbour's pier deck — a composed still of birds at rest rather than a freeze in mid-wheel — and the tempo survives it as static geometry in the one channel a still frame can carry: a filling harbour's gulls stand further out along the pier head than a draining harbour's, which sit in at its root. The wheel's rate, width and height are motion channels and are simply absent here; the dock's '24h supply change' row carries the reading outright",
     },
     {
       id: "cue.ship.age-patina",
