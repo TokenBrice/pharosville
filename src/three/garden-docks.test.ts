@@ -3,11 +3,10 @@ import { describe, expect, it } from "vitest";
 import type { DockNode } from "../systems/world-types";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { EVM_BAY_STATION_SLOTS, OUTER_HARBOR_STATION_SLOTS } from "../systems/world-layout";
-import { stationScaleFor, STATION_LOCAL_BOUNDS } from "../systems/dock-layout";
+import { HARBOR_NOBORI_FACING_YAW, stationScaleFor, STATION_LOCAL_BOUNDS } from "../systems/dock-layout";
 import {
   authorDock,
   gardenHarborLanternWorldPositions,
-  HARBOR_FLAG_SCALE_MULTIPLIER,
   harborIdentity,
   stationWallColor,
   type DockRecipe,
@@ -93,10 +92,9 @@ describe("T1.6 station wall colour (2026-09-07)", () => {
 });
 
 describe("garden station recipes", () => {
-  it("authors one explicit roofline, flag shape, and signature per station type", () => {
+  it("authors one explicit roofline, second level, and signature per station type", () => {
     const identities = ARCHETYPES.map((type) => recipeWithStation(type).identity);
     expect(new Set(identities.map((identity) => identity.roofline)).size).toBe(ARCHETYPES.length);
-    expect(new Set(identities.map((identity) => identity.flagShape)).size).toBe(ARCHETYPES.length);
     expect(new Set(identities.map((identity) => identity.signature)).size).toBe(ARCHETYPES.length);
     expect(new Set(identities.map((identity) => identity.secondLevel)).size).toBe(ARCHETYPES.length);
     for (const type of ARCHETYPES) expect(recipeWithStation(type).station.type).toBe(type);
@@ -173,7 +171,7 @@ describe("garden station recipes", () => {
     }
   });
 
-  it("gives every station a distance-readable primary mass, named second level, lit stone quay, windows, and 4.2x flag", () => {
+  it("gives every station a distance-readable primary mass, named second level, lit stone quay and windows", () => {
     const secondLevels = new Set<string>();
     const roofColors = new Set<string>();
     // T1.6 (2026-09-07): the walls were ONE hex for all nine archetypes, so
@@ -200,8 +198,6 @@ describe("garden station recipes", () => {
       expect(recipe.features.quayPlatform.height, `${type} raised quay`).toBeGreaterThanOrEqual(1.45);
       expect(recipe.features.quayPlatform.litEdge, `${type} quay light`).toBe(true);
       expect(recipe.features.warmWindowCount, `${type} warm windows`).toBeGreaterThan(0);
-      expect(recipe.flag.scaleMultiplier, `${type} flag multiplier`).toBe(HARBOR_FLAG_SCALE_MULTIPLIER);
-      expect(recipe.flag.scaleMultiplier).toBe(4.2);
       secondLevels.add(recipe.features.secondLevel.name);
       roofColors.add(recipe.parts.find((part) => part.bucket === "roof")!.color.getHexString());
       const wall = recipe.parts.find((part) => part.bucket === "wall");
@@ -229,6 +225,26 @@ describe("garden station recipes", () => {
     const moleHeight = recipeWithStation("ethereum-mole").features.secondLevel.height;
     expect(moleHeight).toBeGreaterThan(Math.max(...ordinaryHeights));
     expect(moleHeight).toBeCloseTo(21.5, 5);
+  });
+
+  // Hour-Print §1.1 rule 2, "nothing glows by day": the day cycle zeroes the
+  // window emissive in daylight, so the albedo alone decides how a window
+  // reads at noon. Warm-gold glass read as lit windows (and the tea-house
+  // moon window as a yellow disc); openings must be dark voids instead.
+  it("authors every window and moon window as a dark opening by day", () => {
+    for (const type of ARCHETYPES) {
+      const recipe = recipeWithStation(type);
+      const window = recipe.parts.find((part) => part.bucket === "window")!;
+      const { r, g, b } = window.color;
+      const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      // Relative luminance 0.03 is CIE L* ≈ 20.
+      expect(luminance, `${type} window albedo`).toBeLessThan(0.03);
+    }
+    // The moon window's opening is dark infill, not a lit disc in the ember bucket.
+    const teaHouse = recipeWithStation("tea-house-quay");
+    const emissive = teaHouse.parts.find((part) => part.bucket === "window")!.geometry;
+    emissive.computeBoundingBox();
+    expect(emissive.boundingBox!.max.y).toBeLessThan(6.35);
   });
 
   it("separates every archetype on footprint area and second-level height with the mole clear ahead", () => {
@@ -502,20 +518,9 @@ describe("garden station recipes", () => {
   });
 
 
-  it("mounts every flag above its building with cloth clear of the roof", () => {
-    for (const type of ARCHETYPES) {
-      const recipe = recipeWithStation(type);
-      const { placement } = recipe.flag;
-      expect(placement.x).toBeLessThan(0);
-      const roofTop = stationScaleFor(type, recipe.dock.totalUsd).secondLevelTop;
-      expect(placement.y - placement.scale * 0.63).toBeGreaterThan(roofTop);
-    }
-    expect(recipeWithStation("ethereum-mole").flag.placement.z).toBe(-14);
-  });
-
-  it("flies camera-facing flags and restores reduced-motion pose", () => {
+  it("flies rest-facing nobori and restores reduced-motion pose", () => {
     const recipe = recipeWithStation("hatago-wharf", "base", Math.PI / 2);
-    expect(recipe.anchorRotationY + recipe.flag.placement.yaw).toBeCloseTo(Math.PI / 4, 6);
+    expect(recipe.anchorRotationY + recipe.flag.placement.yaw).toBeCloseTo(HARBOR_NOBORI_FACING_YAW, 6);
     const batch = createGardenHarborBatch([recipe]);
     const before = new Matrix4();
     const restored = new Matrix4();

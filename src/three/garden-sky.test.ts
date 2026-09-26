@@ -1,9 +1,9 @@
 import { Color, InstancedMesh, Mesh, ShaderMaterial, SphereGeometry, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { HARBOR_PALETTE } from "../systems/palette";
-import { defaultCamera } from "../systems/camera";
+import { defaultCamera, withoutRest } from "../systems/camera";
 import { GARDEN_ISLAND_TILE_OFFSET, GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
-import { CAMERA_FAR, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, cameraEye, cameraPoseFromIso, screenToGroundRay, TILE_SCALE } from "../systems/projection";
+import { CAMERA_FAR, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, cameraView, cameraViewAngles, screenToGroundRay, TILE_SCALE } from "../systems/projection";
 import { buildPharosVilleMap } from "../systems/world-layout";
 import {
   DAY_CYCLE_LIGHT_PRESETS,
@@ -82,15 +82,17 @@ describe("perspective sky dome", () => {
     let floored = 0;
     for (const viewport of [{ x: 900, y: 720 }, { x: 1200, y: 640 }]) {
       const rest = defaultCamera({ width: viewport.x, height: viewport.y, map: MAP });
-      for (const zoom of [rest.zoom, 0.28, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, rest.zoom]) {
-        const camera = { ...rest, zoom };
-        const pose = cameraPoseFromIso(camera, viewport);
+      // The rest ShotSpec, then rigs across the pose ramp and back.
+      const cameras = [rest, ...[rest.zoom, 0.28, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, rest.zoom]
+        .map((zoom) => ({ ...withoutRest(rest), zoom }))];
+      for (const camera of cameras) {
+        const view = cameraView(camera, viewport);
         sky.update(dayCyclePhase(12), {
           ...FRAME,
-          cameraPosition: cameraEye(pose),
-          targetX: pose.targetTile.x * TILE_SCALE,
-          targetY: pose.targetHeight,
-          targetZ: pose.targetTile.y * TILE_SCALE,
+          cameraPosition: view.eye,
+          targetX: view.target.x,
+          targetY: view.target.y,
+          targetZ: view.target.z,
         });
         const topRay = screenToGroundRay({ x: viewport.x / 2, y: 0 }, camera, viewport);
         const visibleHeight = sky.domeMaterial.uniforms.uSkyVisibleHeight.value as number;
@@ -289,13 +291,12 @@ describe("garden sky atmospheric scattering", () => {
 
   it("drives the field from the day cycle and the light rig's own sun tint", () => {
     const sky = createGardenSky();
-    // Solar noon keeps the bearing, with the lower form-lighting apex.
+    // Solar noon, at the lower form-lighting apex.
     sky.applyPhase(dayCyclePhase(12.25), 12.25);
     expect(sky.domeMaterial.uniforms.uScattering!.value).toBeCloseTo(1);
     expect(sky.domeMaterial.uniforms.uSunIntensity!.value).toBeCloseTo(1.55);
     const sunDir = sky.domeMaterial.uniforms.uSunDir!.value as Vector3;
     expect(sunDir.y).toBeCloseTo(Math.sin(0.62), 6);
-    expect(sunDir.x / sunDir.z).toBeCloseTo(35 / 30, 1);
     const sunColor = sky.domeMaterial.uniforms.uSunColor!.value as Color;
     expect(sunColor.getHex()).toBe(DAY_CYCLE_LIGHT_PRESETS.day.dirColor.getHex());
     // The haze band shares the fog's own Color instance — one fog colour.
@@ -344,7 +345,7 @@ describe("garden sky applyPhase", () => {
     sky.dispose();
   });
 
-  it("separates rose dawn, amber golden, indigo blue hour and near-black night", () => {
+  it("separates rose dawn, amber golden, indigo blue hour and an indigo night that deepens upward", () => {
     const sky = createGardenSky();
     const sample = (hour: number) => {
       sky.applyPhase(dayCyclePhase(hour), hour);
@@ -363,7 +364,11 @@ describe("garden sky applyPhase", () => {
     expect(golden.zenith.b).toBeGreaterThan(golden.zenith.g);
     expect(blue.zenith.b).toBeGreaterThan(blue.zenith.r * 2);
     expect(blue.ember).toBeGreaterThan(0);
-    expect(Math.max(night.zenith.r, night.zenith.g, night.zenith.b)).toBeLessThan(0.02);
+    // sky-6: the night is not black paper — a cool sky whose horizon is
+    // lighter than its zenith, so ridges, masts and the tower read as ink.
+    const luma = (color: Color) => 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+    expect(night.zenith.b).toBeGreaterThan(night.zenith.r * 1.5);
+    expect(luma(night.horizon)).toBeGreaterThan(luma(night.zenith));
     expect(night.ember).toBe(0);
     sky.dispose();
   });
@@ -401,15 +406,16 @@ describe("garden sky aerial perspective", () => {
     camera: typeof DEFAULT_CAMERA,
     viewport = DEFAULT_VIEWPORT,
   ) {
-    const pose = cameraPoseFromIso(camera, { x: viewport.width, y: viewport.height });
-    const eye = cameraEye(pose);
+    const view = cameraView(camera, { x: viewport.width, y: viewport.height });
+    const eye = view.eye;
+    const pose = cameraViewAngles(view);
     const sky = createGardenSky();
     sky.update(dayCyclePhase(12), {
       ...FRAME,
       cameraPosition: eye,
-      targetX: pose.targetTile.x * TILE_SCALE,
-      targetY: pose.targetHeight,
-      targetZ: pose.targetTile.y * TILE_SCALE,
+      targetX: view.target.x,
+      targetY: view.target.y,
+      targetZ: view.target.z,
     });
     const range = { far: sky.fog.far, near: sky.fog.near, eye, pose };
     sky.dispose();
@@ -417,7 +423,7 @@ describe("garden sky aerial perspective", () => {
   }
 
   function fogAtZoom(zoom: number) {
-    return fogAtCamera({ ...DEFAULT_CAMERA, zoom });
+    return fogAtCamera({ ...withoutRest(DEFAULT_CAMERA), zoom });
   }
 
   it("keeps the island below two percent fog while dissolving the far plate", () => {

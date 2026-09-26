@@ -11,7 +11,7 @@ shader/material work, or DOM.
 | Media | Owner | Failure behavior |
 | --- | --- | --- |
 | Stablecoin logo | `useShipLogoAssets` → sail atlas | painted symbol and livery |
-| Chain logo | `garden-chain-flag.ts` → flag atlas | painted chain initials and accent flag |
+| Chain logo | `garden-chain-flag.ts` → nobori atlas | painted maru mon and vertical initials on kinari cloth |
 | Lighthouse GLB | `garden-models.ts` | aligned procedural lighthouse |
 | 18 hero-hull GLBs | `garden-models.ts` | procedural tier hull |
 | Water normal | `garden-water.ts` | shader water without normal detail |

@@ -1,5 +1,6 @@
 import {
   BoxGeometry,
+  BufferAttribute,
   BufferGeometry,
   CatmullRomCurve3,
   CircleGeometry,
@@ -35,13 +36,15 @@ import {
   GARDEN_WATER_Y as WATER_LEVEL,
   gardenIslandDisplayTile,
 } from "../systems/garden-observatory-slice";
+import { GARDEN_ISLAND_OBSTACLE } from "../systems/garden-water-exclusion";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { TILE_SCALE } from "../systems/projection";
 import type { GardenSeason } from "../systems/season";
 import type { SupplyTide } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
 import type { WeatherPlan } from "../systems/weather";
 import { createLighthouse } from "./garden-lighthouse";
-import { createGardenPrecinct, precinctTerrainHeight } from "./garden-precinct";
+import { createGardenPrecinct, GARDEN_PRECINCT_GATE } from "./garden-precinct";
 import { createGardenKoi } from "./garden-koi";
 import { MOON_COLOR, type DayCyclePhase } from "./garden-day-cycle";
 import { OVERVIEW_LOD_DETAIL_NAMES } from "./garden-overview-lod";
@@ -75,12 +78,25 @@ const STONE_MID = new Color(HARBOR_PALETTE.stone_pale)
   .lerp(new Color(HARBOR_PALETTE.fog_day), 0.3);
 const STONE_PALE = new Color(HARBOR_PALETTE.fog_day)
   .lerp(new Color(HARBOR_PALETTE.sun_day_warm), 0.35);
-const TERRACE_WET = new Color(HARBOR_PALETTE.aurora_green)
-  .multiplyScalar(0.45)
-  .lerp(new Color(HARBOR_PALETTE.stone_dark), 0.3);
-const TERRACE_MOSS = new Color(HARBOR_PALETTE.aurora_green)
-  .multiplyScalar(0.88)
-  .lerp(new Color(HARBOR_PALETTE.sun_day_warm), 0.05);
+// W1.9 crag headland. The rock is kept dark (L* 20–30 at noon) so the tower
+// stays the brightest mass: cool dark stone low, a greyer limestone high,
+// moss held to a dark olive on the benches, a mid-value court, and the pale
+// pebble beach only on the lee where the pond and pavilion rest.
+const CRAG_ROCK_LOW = new Color(HARBOR_PALETTE.stone_mid)
+  .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.15);
+const CRAG_ROCK_HIGH = new Color(HARBOR_PALETTE.stone_pale)
+  .lerp(new Color(HARBOR_PALETTE.stone_mid), 0.25)
+  .lerp(new Color(HARBOR_PALETTE.fog_day), 0.12);
+const CRAG_MOSS = new Color(HARBOR_PALETTE.aurora_green)
+  .multiplyScalar(0.5)
+  .lerp(new Color(HARBOR_PALETTE.stone_dark), 0.45);
+const CRAG_COURT = new Color(HARBOR_PALETTE.fog_day)
+  .lerp(new Color(HARBOR_PALETTE.stone_pale), 0.5);
+const CRAG_PEBBLE = new Color(HARBOR_PALETTE.stone_pale)
+  .lerp(new Color(HARBOR_PALETTE.fog_day), 0.5);
+/** pharos-6: the wet foot and the pale barnacle line one hand above it. */
+const CRAG_WET_FOOT = STONE_WET.clone().multiplyScalar(0.55);
+const CRAG_BARNACLE = new Color(HARBOR_PALETTE.foam_white).multiplyScalar(0.7);
 const UP_AXIS = new Vector3(0, 1, 0);
 const scratchPosition = new Vector3();
 const scratchScale = new Vector3();
@@ -139,9 +155,10 @@ function createRakedGravelNormalTexture(): DataTexture {
 // Two stone lanterns punctuate the path rather than outlining it. The former
 // six-lamp run made the terrace read as a lit quay; these two retain the lane
 // contract while leaving the pale gravel itself as the route's large read.
+// W1.9: one at the garden landing, one where the path ends under the crag.
 const ISLAND_LANTERN_POSITIONS = [
-  [-4.55, -1.75],
-  [2.15, 2.15],
+  [15.0, -3.4],
+  [1.9, 1.7],
 ] as const;
 const LANTERN_LAMP_LOCAL_Y = 0.88;
 
@@ -168,45 +185,358 @@ export function gardenIslandLanternMaterial(decoration: Group): MeshStandardMate
     : null;
 }
 
+// ---------------------------------------------------------------------------
+// W1.9 — the crag headland (Hour-Print pharos-2 How 1/3/4, garden-master-6)
+//
+// One smooth-shaded height field replaces the three concentric tiers, the
+// three planted shelves and the precinct's 19.2 × 4.4 × 19.2 cliff box. The
+// Pharos stands on the crown (its court is the tower root, 8.55 world); the
+// rock is cut sheer to the Danger water and the open sea on the north and
+// west, and steps down toward the rest seat (south/south-east) in three
+// unequal benches to the lee bench, a pale pebble beach and a low tide-shelf
+// where the pond and the chaseki rest. The footprint is the shared island
+// waterline ellipse, so fleet placement and water exclusion stay valid.
+// Island-root-local: x east, z south (toward the rest seat), y world height.
+// ---------------------------------------------------------------------------
+
+/** The crown: the court the tower stands on is the tower root. */
+export const GARDEN_CRAG_CROWN_Y = GARDEN_LIGHTHOUSE_ROOT_OFFSET.y;
+const CRAG_BENCH_C_Y = 5.4;
+const CRAG_BENCH_B_Y = 3.1;
+/** The lee bench the pond, the chaseki and the signal mast stand on. */
+const CRAG_BENCH_A_Y = 1.05;
+/** The wave-cut platform at the foot of the seaward cliff. */
+const CRAG_PLATFORM_Y = WATER_LEVEL + 0.35;
 /**
- * The three surviving garden shelves below the square fortress plateau, as
- * `[topRadius, bottomRadius, height, segments, seed, x, y, z, scaleZ, rotation, topColor]`.
- * Hoisted from the build loop so `islandTerrainHeight()` seats the W4.9
- * additions (stair, talus, planting) against the same numbers the geometry is
- * cut from — a stair floating a hand-tuned distance above the rock was the
- * failure mode this avoids.
+ * The waterline: `GARDEN_ISLAND_OBSTACLE` in island-root-local units (its
+ * local centre is (0.6, 1.2), as the island tests measure it).
  */
-const ISLAND_TIERS = [
-  [16.8, 18.4, 1.45, 32, 0.3, 0.6, -0.74, 1.2, 0.75, 0.08, TERRACE_WET],
-  [13.7, 15.7, 1.72, 30, 1.25, -1.8, 0.05, 0.65, 0.7, -0.12, TERRACE_WET],
-  [10.1, 12.3, 1.55, 28, 2.2, -4.45, 1.22, 0.05, 0.64, 0.18, TERRACE_MOSS],
-] as const;
+const CRAG_SHORE = {
+  cx: 0.6,
+  cz: 1.2,
+  rx: GARDEN_ISLAND_OBSTACLE.rx * TILE_SCALE,
+  rz: GARDEN_ISLAND_OBSTACLE.ry * TILE_SCALE,
+} as const;
+
+interface CragPlateau {
+  cx: number;
+  cz: number;
+  east: number;
+  west: number;
+  south: number;
+  north: number;
+  /** Converts the superellipse overrun into approximate units of ground. */
+  scale: number;
+}
 
 /**
- * Height of the rock surface at a root-relative point: the highest tier whose
- * top cap covers it, or an interpolation down the battered face of whichever
- * tier it sits on. The tier meshes are also radially displaced and yawed a few
- * degrees, so this is an approximation — close enough to seat props on, which
- * is all it is used for.
+ * The crown is two flat plateaus: the court round the tower (its 6.2-half
+ * stylobate plus a narrow lip; deep on the north for the seaward parapet)
+ * and the gate spur east of it that the quay stair climbs to.
+ */
+const CRAG_COURT_PLATEAU: CragPlateau = {
+  cx: GARDEN_LIGHTHOUSE_ROOT_OFFSET.x,
+  cz: GARDEN_LIGHTHOUSE_ROOT_OFFSET.z,
+  east: 7.0,
+  west: 7.3,
+  south: 7.0,
+  north: 8.9,
+  scale: 7.5,
+};
+const CRAG_SPUR_PLATEAU: CragPlateau = {
+  cx: 2.2,
+  cz: GARDEN_PRECINCT_GATE.z - 0.4,
+  east: 2.6,
+  west: 2.6,
+  south: 2.1,
+  north: 2.1,
+  scale: 2.3,
+};
+
+/** Signed distance-like overrun past a plateau's rounded-square lip (< 0 inside). */
+function plateauOverrun(plateau: CragPlateau, x: number, z: number): number {
+  const dx = x - plateau.cx;
+  const dz = z - plateau.cz;
+  const ax = Math.abs(dx) / (dx >= 0 ? plateau.east : plateau.west);
+  const az = Math.abs(dz) / (dz >= 0 ? plateau.south : plateau.north);
+  // (ax⁸ + az⁸)^(1/8): square enough to seat the stylobate, round at the corners.
+  return (Math.hypot(ax ** 4, az ** 4) ** 0.25 - 1) * plateau.scale;
+}
+
+/**
+ * Which way the ground falls at a bearing from the tower seat (0° east, 90°
+ * south toward the seat, ±180° west, −90° north). `seaward` is 1 where the
+ * crag is cut sheer (north-east Danger water round to the west); `width`
+ * scales the benches — narrow ledges on the east flank above the pavilion,
+ * full benches toward the viewer, narrowing again under the south-west pines.
+ */
+function cragSector(x: number, z: number): { seaward: number; width: number } {
+  const theta = Math.atan2(z - CRAG_COURT_PLATEAU.cz, x - CRAG_COURT_PLATEAU.cx) * 180 / Math.PI;
+  const seaward = theta > 130
+    ? smoothstep01((theta - 130) / 20)
+    : theta < -10 ? smoothstep01((-10 - theta) / 20) : 0;
+  const width = theta <= 32
+    ? 0.3
+    : theta <= 95
+      ? 0.3 + 0.7 * smoothstep01((theta - 32) / 20)
+      : 1 - 0.6 * smoothstep01((theta - 95) / 17);
+  return { seaward, width };
+}
+
+/** Low-frequency warp for bench risers and the shoreline (±1). */
+function cragNoise(x: number, z: number): number {
+  return 0.6 * Math.sin(0.9 * x + 0.4 * z + 1.3) + 0.4 * Math.sin(-0.55 * x + 1.1 * z + 0.2);
+}
+
+function mix(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+const CRAG_LIP_Y = GARDEN_CRAG_CROWN_Y - 0.12;
+
+/**
+ * The lee fall at `ground` units past the lip: riser, bench C, riser, bench
+ * B, riser, then the lee bench A running out to the beach. `width` scales the
+ * breakpoints (1 = the full camera-side benches).
+ */
+function cragBenchProfile(ground: number, width: number): number {
+  const riser0 = 0.9 * width;
+  const benchC = 2.5 * width;
+  const riser1 = 3.1 * width;
+  const benchB = 4.7 * width;
+  const riser2 = 5.2 * width;
+  if (ground < riser0) return mix(CRAG_LIP_Y, CRAG_BENCH_C_Y + 0.15, smoothstep01(ground / riser0));
+  if (ground < benchC) return mix(CRAG_BENCH_C_Y + 0.15, CRAG_BENCH_C_Y - 0.15, (ground - riser0) / (benchC - riser0));
+  if (ground < riser1) return mix(CRAG_BENCH_C_Y - 0.15, CRAG_BENCH_B_Y + 0.15, smoothstep01((ground - benchC) / (riser1 - benchC)));
+  if (ground < benchB) return mix(CRAG_BENCH_B_Y + 0.15, CRAG_BENCH_B_Y - 0.15, (ground - riser1) / (benchB - riser1));
+  if (ground < riser2) return mix(CRAG_BENCH_B_Y - 0.15, CRAG_BENCH_A_Y + 0.05, smoothstep01((ground - benchB) / (riser2 - benchB)));
+  return CRAG_BENCH_A_Y + 0.05 - 0.15 * smoothstep01((ground - riser2) / 6);
+}
+
+/**
+ * The shore: on the lee the bench runs out to a pale pebble beach, a low
+ * tide-shelf and under the water; on the seaward side the cliff and its
+ * platform run to the rim and drop straight in.
+ */
+function cragShoreCap(x: number, z: number, seaward: number): number {
+  const reach = Math.hypot((x - CRAG_SHORE.cx) / CRAG_SHORE.rx, (z - CRAG_SHORE.cz) / CRAG_SHORE.rz)
+    + 0.012 * cragNoise(z * 1.7, x * 1.7);
+  const open = 99;
+  let lee = open;
+  if (reach >= 0.965) lee = mix(WATER_LEVEL + 0.12, WATER_LEVEL - 0.45, smoothstep01((reach - 0.965) / 0.035));
+  else if (reach >= 0.92) lee = mix(WATER_LEVEL + 0.28, WATER_LEVEL + 0.12, (reach - 0.92) / 0.045);
+  else if (reach >= 0.76) lee = mix(CRAG_BENCH_A_Y, WATER_LEVEL + 0.28, smoothstep01((reach - 0.76) / 0.16));
+  const sea = reach >= 0.955
+    ? mix(GARDEN_CRAG_CROWN_Y + 1, WATER_LEVEL - 0.45, smoothstep01((reach - 0.955) / 0.045))
+    : open;
+  return mix(lee, sea, seaward);
+}
+
+/**
+ * Height of the headland surface at a root-relative point. This IS the
+ * mesh's height function (the crag is sampled from it), so the stair,
+ * lanterns, stones, path, pond, pines and karikomi seat on the real rock.
  */
 export function islandTerrainHeight(x: number, z: number): number {
-  let height = precinctTerrainHeight(x, z);
-  for (const [topRadius, bottomRadius, tierHeight, , , cx, cy, cz, scaleZ] of ISLAND_TIERS) {
-    const top = cy + tierHeight / 2;
-    const base = cy - tierHeight / 2;
-    const inner = Math.hypot((x - cx) / topRadius, (z - cz) / (topRadius * scaleZ));
-    if (inner <= 1) {
-      height = Math.max(height, top);
-      continue;
-    }
-    const outer = Math.hypot((x - cx) / bottomRadius, (z - cz) / (bottomRadius * scaleZ));
-    if (outer > 1) continue;
-    // On the battered face: the tier's skirt runs from `bottomRadius` at its
-    // base up to `topRadius` at its cap.
-    const across = (1 - outer) / Math.max(1e-3, 1 - topRadius / bottomRadius);
-    height = Math.max(height, base + (top - base) * clamp01(across));
+  const { seaward, width } = cragSector(x, z);
+  const over = Math.min(
+    plateauOverrun(CRAG_COURT_PLATEAU, x, z),
+    plateauOverrun(CRAG_SPUR_PLATEAU, x, z),
+  );
+  let height: number;
+  if (over <= 0) {
+    // The court: the stylobate beds 0.02 into it; the last 0.2 u (clear of
+    // the stylobate's corners) rounds over to the lip.
+    height = mix(GARDEN_CRAG_CROWN_Y + 0.02, CRAG_LIP_Y, smoothstep01((over + 0.2) / 0.2));
+  } else {
+    const ground = over + 0.35 * cragNoise(x, z) * smoothstep01(over / 0.8);
+    const lee = cragBenchProfile(ground, width);
+    const cliff = mix(CRAG_LIP_Y, CRAG_PLATFORM_Y, smoothstep01(ground / 2.4));
+    height = mix(lee, cliff, seaward);
   }
-  return height;
+  height = quayStairBed(x, z, height);
+  return Math.min(height, cragShoreCap(x, z, seaward));
+}
+
+// The quay stair climbs from the east shore to the gate spur: one flight to
+// the garden landing on the lee bench (where the path leaves for the pond and
+// the chaseki), then one long flight up the flank to the stair head at the
+// precinct gate. The rock is raised into a causeway under it and cut down
+// where the flight enters the crown, so every tread beds on stone.
+const QUAY_STAIR_START = { x: 16.9, z: -5.79 } as const;
+const QUAY_STAIR_END = { x: 3.4, z: GARDEN_PRECINCT_GATE.z } as const;
+const QUAY_STAIR_TOP_Y = GARDEN_CRAG_CROWN_Y + 0.07;
+const QUAY_STAIR_RUN = Math.hypot(QUAY_STAIR_END.x - QUAY_STAIR_START.x, QUAY_STAIR_END.z - QUAY_STAIR_START.z);
+const QUAY_STAIR_DIR = {
+  x: (QUAY_STAIR_END.x - QUAY_STAIR_START.x) / QUAY_STAIR_RUN,
+  z: (QUAY_STAIR_END.z - QUAY_STAIR_START.z) / QUAY_STAIR_RUN,
+} as const;
+const QUAY_STAIR_LANDING_FROM = 3.6;
+const QUAY_STAIR_LANDING_TO = 5.0;
+const QUAY_STAIR_LANDING_Y = CRAG_BENCH_A_Y + 0.07;
+const QUAY_STAIR_LANDING = {
+  x: QUAY_STAIR_START.x + QUAY_STAIR_DIR.x * (QUAY_STAIR_LANDING_FROM + QUAY_STAIR_LANDING_TO) / 2,
+  z: QUAY_STAIR_START.z + QUAY_STAIR_DIR.z * (QUAY_STAIR_LANDING_FROM + QUAY_STAIR_LANDING_TO) / 2,
+} as const;
+// The stair head is the precinct threshold; the landing is where the garden
+// path and the torii begin.
+export {
+  QUAY_STAIR_END as GARDEN_QUAY_STAIR_HEAD,
+  QUAY_STAIR_LANDING as GARDEN_QUAY_STAIR_LANDING,
+};
+const QUAY_STAIR_WIDTH = 1.55;
+const QUAY_STAIR_TREAD = 0.44;
+
+/** Tread-top height at `along` units up the stair line. */
+function quayStairTreadY(along: number): number {
+  const foot = WATER_LEVEL + 0.06;
+  if (along <= QUAY_STAIR_LANDING_FROM) return mix(foot, QUAY_STAIR_LANDING_Y, along / QUAY_STAIR_LANDING_FROM);
+  if (along <= QUAY_STAIR_LANDING_TO) return QUAY_STAIR_LANDING_Y;
+  return mix(
+    QUAY_STAIR_LANDING_Y,
+    QUAY_STAIR_TOP_Y,
+    (along - QUAY_STAIR_LANDING_TO) / (QUAY_STAIR_RUN - QUAY_STAIR_LANDING_TO),
+  );
+}
+
+/** Raises a causeway under the stair and cuts its corridor into the crown. */
+function quayStairBed(x: number, z: number, height: number): number {
+  const px = x - QUAY_STAIR_START.x;
+  const pz = z - QUAY_STAIR_START.z;
+  const along = px * QUAY_STAIR_DIR.x + pz * QUAY_STAIR_DIR.z;
+  if (along < -0.6 || along > QUAY_STAIR_RUN + 0.4) return height;
+  const across = Math.abs(px * QUAY_STAIR_DIR.z - pz * QUAY_STAIR_DIR.x);
+  const rock = quayStairTreadY(Math.max(0, Math.min(QUAY_STAIR_RUN, along))) - 0.3;
+  // Buttress shoulders fall at ~77° either side of the treads and cheeks, so
+  // the causeway stays a narrow flank rib clear of the lee bench below it.
+  const raised = Math.max(height, rock - Math.max(0, across - 1.3) * 4.5);
+  return mix(raised, Math.min(raised, rock), 1 - smoothstep01((across - 1.0) / 0.6));
+}
+
+export const GARDEN_CRAG_HEADLAND_NAME = "island-crag-headland";
+/** Grid cells per side: ~0.49 × 0.37 u spacing, 12.8k triangles. */
+const CRAG_GRID = 80;
+const scratchCragRock = new Color();
+const scratchCragPlane = new Color();
+
+/**
+ * Paints one headland vertex by its authored plane: bedded rock on the steep
+ * faces (dark low, greyer high), dark moss on the benches, a mid-value court
+ * on the crown, pale pebbles on the lee beach and a wet platform at the
+ * seaward foot; then the wet foot and barnacle line at the waterline
+ * (pharos-6) and the supply tide.
+ */
+function cragColor(
+  x: number,
+  y: number,
+  z: number,
+  slope: number,
+  tide: SupplyTide | undefined,
+  target: Color,
+): Color {
+  const above = y - WATERLINE_Y;
+  const rock = scratchCragRock.copy(CRAG_ROCK_LOW)
+    .lerp(CRAG_ROCK_HIGH, clamp01(above / (GARDEN_CRAG_CROWN_Y - WATERLINE_Y)))
+    .multiplyScalar(strataShade(y));
+  const { seaward } = cragSector(x, z);
+  const reach = Math.hypot((x - CRAG_SHORE.cx) / CRAG_SHORE.rx, (z - CRAG_SHORE.cz) / CRAG_SHORE.rz);
+  // Two deterministic mottle scales keep the moss from reading as one band;
+  // bare patches let the rock break through; feet and roots wear it.
+  const coarse = stableUnit(`crag-coarse~${Math.round(x * 0.75)}~${Math.round(z * 0.75)}`);
+  const fine = stableUnit(`crag-fine~${Math.round(x * 3)}~${Math.round(z * 3)}`);
+  const bare = clamp01((stableUnit(`crag-bare~${Math.round(x * 1.1)}~${Math.round(z * 1.1)}`) - 0.62) * 2.2);
+  target.copy(CRAG_MOSS)
+    .multiplyScalar((0.82 + coarse * 0.2 + fine * 0.14) * (1 - gardenGroundWear(x, z) * 0.2))
+    .lerp(rock, bare * 0.6);
+  target.lerp(
+    scratchCragPlane.copy(CRAG_COURT).multiplyScalar(0.9 + fine * 0.14),
+    smoothstep01((y - (GARDEN_CRAG_CROWN_Y - 0.5)) / 0.4),
+  );
+  target.lerp(
+    scratchCragPlane.copy(STONE_WET).lerp(CRAG_ROCK_LOW, 0.35),
+    seaward * smoothstep01((0.9 - above) / 0.5),
+  );
+  const steep = smoothstep01((slope - 0.47) / 0.23);
+  target.lerp(rock, steep);
+  // The pebble beach runs only on the lee where the pond and the chaseki
+  // rest (east to east-south-east of the tower), from the bench edge down to
+  // the tide-shelf whatever the bank's pitch; elsewhere the bank stays rock
+  // and moss so the island never sits on a pale ring.
+  const bearing = Math.atan2(z - CRAG_COURT_PLATEAU.cz, x - CRAG_COURT_PLATEAU.cx) * 180 / Math.PI;
+  const beachSide = smoothstep01((bearing + 25) / 12) * (1 - smoothstep01((bearing - 38) / 12));
+  target.lerp(
+    scratchCragPlane.copy(CRAG_PEBBLE).multiplyScalar(0.9 + fine * 0.18),
+    beachSide * smoothstep01((reach - 0.75) / 0.05) * (1 - smoothstep01((above - 1.9) / 0.4)),
+  );
+  target.lerp(CRAG_WET_FOOT, 0.75 * (1 - smoothstep01((above - 0.35) / 0.2)));
+  target.lerp(CRAG_BARNACLE, steep * 0.45 * (1 - smoothstep01(Math.abs(above - 0.6) / 0.07)));
+  if (tide) {
+    const { datum, wet } = sampleTideLine(above, tide);
+    if (wet > 0) target.lerp(STONE_WET, wet * 0.6);
+    if (datum > 0) target.lerp(TIDE_DATUM_IRON, 0.7);
+  }
+  return target;
+}
+
+/**
+ * The headland mesh: an (n+1)² grid squeezed onto the waterline ellipse by
+ * the square→disc mapping (the rim ring is exact, the spacing stays even),
+ * displaced by `islandTerrainHeight` and painted by slope and height.
+ */
+function createCragHeadlandGeometry(tide?: SupplyTide): BufferGeometry {
+  const side = CRAG_GRID + 1;
+  const positions = new Float32Array(side * side * 3);
+  const colors = new Float32Array(side * side * 3);
+  const uvs = new Float32Array(side * side * 2);
+  const color = new Color();
+  const probe = 0.3;
+  for (let row = 0; row < side; row += 1) {
+    const v = -1 + (2 * row) / CRAG_GRID;
+    for (let column = 0; column < side; column += 1) {
+      const u = -1 + (2 * column) / CRAG_GRID;
+      const x = CRAG_SHORE.cx + CRAG_SHORE.rx * u * Math.sqrt(1 - (v * v) / 2);
+      const z = CRAG_SHORE.cz + CRAG_SHORE.rz * v * Math.sqrt(1 - (u * u) / 2);
+      const y = islandTerrainHeight(x, z);
+      const slope = Math.hypot(
+        islandTerrainHeight(x + probe, z) - islandTerrainHeight(x - probe, z),
+        islandTerrainHeight(x, z + probe) - islandTerrainHeight(x, z - probe),
+      ) / (2 * probe);
+      cragColor(x, y, z, slope, tide, color);
+      const vertex = row * side + column;
+      positions[vertex * 3] = x;
+      positions[vertex * 3 + 1] = y;
+      positions[vertex * 3 + 2] = z;
+      colors[vertex * 3] = color.r;
+      colors[vertex * 3 + 1] = color.g;
+      colors[vertex * 3 + 2] = color.b;
+      uvs[vertex * 2] = x / 6;
+      uvs[vertex * 2 + 1] = z / 6;
+    }
+  }
+  const indices = new Uint16Array(CRAG_GRID * CRAG_GRID * 6);
+  let cursor = 0;
+  for (let row = 0; row < CRAG_GRID; row += 1) {
+    for (let column = 0; column < CRAG_GRID; column += 1) {
+      const a = row * side + column;
+      const b = a + 1;
+      const c = a + side;
+      const d = c + 1;
+      // Counter-clockwise seen from above (+y), so the faces point up.
+      indices[cursor++] = a;
+      indices[cursor++] = c;
+      indices[cursor++] = b;
+      indices[cursor++] = b;
+      indices[cursor++] = c;
+      indices[cursor++] = d;
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(new BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 function clamp01(value: number): number {
@@ -572,67 +902,20 @@ export function createTerracedIsland(
   const root = new Group();
   setTilePosition(root, gardenIslandDisplayTile(world.lighthouse.tile), 0);
 
-  const rockMaterial = new MeshStandardMaterial({
-    flatShading: true,
-    roughness: 0.95,
-    roughnessMap: createMossRoughnessTexture(),
-    vertexColors: true,
-  });
-
-  // The three lower shelves keep the garden coast's footprint; the former
-  // small crown is replaced by the precinct's broad, clipped cliff plateau.
-  for (const [topRadius, bottomRadius, height, segments, seed, x, y, z, scaleZ, rotation, topColor] of ISLAND_TIERS) {
-    const tier = new Mesh(
-      createRockTerraceGeometry(
-        topRadius,
-        bottomRadius,
-        height,
-        segments,
-        seed,
-        y,
-        topColor,
-        0.11,
-        world.supplyTide,
-        { rotation, scaleZ, x, z },
-      ),
-      rockMaterial,
-    );
-    tier.position.set(x, y, z);
-    tier.scale.z = scaleZ;
-    tier.rotation.y = rotation;
-    tier.castShadow = true;
-    tier.receiveShadow = true;
-    root.add(tier);
-  }
-
-  for (const [shelfIndex, [radius, x, y, z, scaleZ, seed]] of ([
-    [4.55, 3.55, 0.92, 2.9, 0.48, 0.4],
-    [3.65, -6.0, 1.2, 10.3, 0.43, 1.8],
-    [3.9, 8.0, 0.8, 6.0, 0.75, 2.7],
-  ] as const).entries()) {
-    const plantedShelf = new Mesh(
-      createRockTerraceGeometry(
-        radius,
-        radius * 1.06,
-        0.2,
-        16,
-        seed,
-        y,
-        TERRACE_MOSS,
-        0.06,
-        undefined,
-        { rotation: x * 0.08, scaleZ, x, z },
-      ),
-      rockMaterial,
-    );
-    plantedShelf.position.set(x, y, z);
-    plantedShelf.name = `island-planted-shelf-${shelfIndex}`;
-    plantedShelf.scale.z = scaleZ;
-    plantedShelf.rotation.y = x * 0.08;
-    plantedShelf.castShadow = true;
-    plantedShelf.receiveShadow = true;
-    root.add(plantedShelf);
-  }
+  // W1.9 (the hand, §1.1): organic masses are smooth-shaded; the crag's value
+  // comes from its authored planes in vertex colour, not from facets.
+  const crag = new Mesh(
+    createCragHeadlandGeometry(world.supplyTide),
+    new MeshStandardMaterial({
+      roughness: 0.95,
+      roughnessMap: createMossRoughnessTexture(),
+      vertexColors: true,
+    }),
+  );
+  crag.name = GARDEN_CRAG_HEADLAND_NAME;
+  crag.castShadow = true;
+  crag.receiveShadow = true;
+  root.add(crag);
 
   root.add(createGardenPathSweep());
 
@@ -779,21 +1062,13 @@ function stoneRampColor(worldY: number, target: Color, tide?: SupplyTide): Color
   return target;
 }
 
-interface TerraceGroundTransform {
-  rotation: number;
-  scaleZ: number;
-  x: number;
-  z: number;
-}
-
 function ringWear(distance: number, radius: number, width: number): number {
   return 1 - smoothstep01(Math.abs(distance - radius) / width);
 }
 
-/** Wear gathered where feet, roots and pond wash meet the planted cap. */
+/** Wear gathered where feet, roots and pond wash meet the planted ground. */
 function gardenGroundWear(x: number, z: number): number {
   let wear = ringWear(Math.hypot(x - 4.4, z - 2.35), 2.28, 0.52); // pavilion sill
-  wear = Math.max(wear, ringWear(Math.hypot(x + 10, z + 1), 2.5, 0.48)); // cottage
   const pondRadius = Math.hypot(
     (x - GARDEN_POND_CENTER.x) / GARDEN_POND_RADIUS,
     (z - GARDEN_POND_CENTER.z) / (GARDEN_POND_RADIUS * 0.68),
@@ -826,7 +1101,6 @@ export function createRockTerraceGeometry(
   topColor: Color,
   amplitude = 0.11,
   tide?: SupplyTide,
-  groundTransform?: TerraceGroundTransform,
 ): CylinderGeometry {
   // W4.9: enough height rows to resolve a bedding step (~3 rows per bed at
   // STRATA_PERIOD). Three rows could carry a colour band but never an edge,
@@ -918,14 +1192,6 @@ export function createRockTerraceGeometry(
             `${seed}~moss-fine~${Math.round(vx * 3)}~${Math.round(vz * 3)}`,
           );
           color.multiplyScalar(0.82 + coarse * 0.2 + fine * 0.14);
-          if (groundTransform) {
-            const scaledZ = vz * groundTransform.scaleZ;
-            const cos = Math.cos(groundTransform.rotation);
-            const sin = Math.sin(groundTransform.rotation);
-            const rootX = groundTransform.x + vx * cos + scaledZ * sin;
-            const rootZ = groundTransform.z - vx * sin + scaledZ * cos;
-            color.multiplyScalar(1 - gardenGroundWear(rootX, rootZ) * 0.2);
-          }
         }
         colors[vertex * 3] = color.r;
         colors[vertex * 3 + 1] = color.g;
@@ -959,17 +1225,17 @@ export interface GardenIslandStoneSpec {
 }
 
 export const GARDEN_ISLAND_STONE_GROUPINGS: readonly (readonly GardenIslandStoneSpec[])[] = [
-  // West shore triad.
+  // West shore triad, on the wave-cut platform under the seaward cliff.
   [
-    { x: -13.9, y: -0.12, z: 2.7, scale: 1.15, dominant: true },
-    { x: -12.55, y: -0.18, z: 3.65, scale: 0.68 },
-    { x: -14.85, y: -0.2, z: 1.7, scale: 0.55 },
+    { x: -17.3, y: -1.1, z: 3.2, scale: 1.15, dominant: true },
+    { x: -16.4, y: -1.0, z: 4.4, scale: 0.68 },
+    { x: -18.1, y: -1.1, z: 2.0, scale: 0.55 },
   ],
-  // North-west shelf triad.
+  // South beach triad, at the feet of the camera-side pines.
   [
-    { x: -12.1, y: 0.28, z: -4.7, scale: 1.0, dominant: true },
-    { x: -10.95, y: 0.12, z: -5.6, scale: 0.62 },
-    { x: -13.05, y: 0.08, z: -3.6, scale: 0.5 },
+    { x: -8.3, y: 0.4, z: 11.2, scale: 1.0, dominant: true },
+    { x: -7.1, y: 0.2, z: 11.9, scale: 0.62 },
+    { x: -9.4, y: 0.1, z: 11.8, scale: 0.5 },
   ],
   // East point triad.
   [
@@ -983,11 +1249,11 @@ export const GARDEN_ISLAND_STONE_GROUPINGS: readonly (readonly GardenIslandStone
     { x: 1.1, y: -0.12, z: 8.25, scale: 0.6 },
     { x: 3.8, y: -0.3, z: 6.75, scale: 0.5 },
   ],
-  // Upper terrace triad, by the path bend below the lighthouse.
+  // Crown triad on the gate spur, north of the stair head.
   [
-    { x: -6.1, y: 1.52, z: -4.25, scale: 0.78, dominant: true },
-    { x: -5.0, y: 1.38, z: -3.55, scale: 0.5 },
-    { x: -7.15, y: 1.34, z: -5.0, scale: 0.44 },
+    { x: 3.0, y: 8.55, z: -5.1, scale: 0.78, dominant: true },
+    { x: 3.6, y: 8.55, z: -5.4, scale: 0.5 },
+    { x: 2.2, y: 8.55, z: -5.5, scale: 0.44 },
   ],
 ];
 
@@ -1021,6 +1287,10 @@ function createKarikomi(season: GardenSeason): InstancedMesh<SphereGeometry, Mes
     const offset = halfWidth + 0.16 + radius + row + stableUnit(`${seed}.o`) * 0.16;
     let x = point.x + (tangent.z / tangentLength) * offset;
     let z = point.z - (tangent.x / tangentLength) * offset;
+    // W1.9: the hedge beads the path's seaward flank only while that flank is
+    // the lee bench; where it runs out over the bank to the beach (by the
+    // garden landing) the path goes unhedged rather than planting the wash.
+    if (islandTerrainHeight(x, z) < CRAG_BENCH_A_Y - 0.3) continue;
     const footprintRadius = radius * Math.max(1, 0.82 + stableUnit(`${seed}.depth`) * 0.3);
     const requiredClearance = GARDEN_PATH_HALF_WIDTH + footprintRadius + 0.01;
     for (let correction = 0; correction < 6; correction += 1) {
@@ -1612,17 +1882,18 @@ function createIslandReflectionPond(): { reflection: GardenPondReflection; root:
 }
 
 /**
- * The stair head is the threshold and the final point carries the walk beyond
- * the chaseki. Intermediate bends make one broad S clear of the pond.
+ * The garden landing on the quay stair is the threshold; the path crosses
+ * the lee bench in one broad S clear of the pond, through the chaseki, and
+ * ends under the crag.
  */
 export const GARDEN_PATH_HALF_WIDTH = 2;
 export const GARDEN_PATH_SWEEP_POINTS: readonly { x: number; z: number }[] = [
-  { x: 3.4, z: -1.25 },
-  { x: 3.7, z: -0.4 },
-  { x: 5.4, z: 0.2 },
-  { x: 5.2, z: 1.4 },
+  { x: QUAY_STAIR_LANDING.x, z: QUAY_STAIR_LANDING.z },
+  { x: 12.6, z: -2.2 },
+  { x: 10.8, z: 0.2 },
+  { x: 7.8, z: 0.9 },
   { x: 4.4, z: 2.35 },
-  { x: 2.7, z: 3.15 },
+  { x: 3.6, z: 3.8 },
 ] as const;
 
 /**
@@ -1667,7 +1938,7 @@ function createGardenPathSweep(): Mesh<BufferGeometry, MeshStandardMaterial> {
       const rake = Math.cos(t * Math.PI * 42 + side * 0.35);
       let y = islandTerrainHeight(x, z) + 0.18 + rake * 0.025;
       if (t < 0.1) {
-        y = Math.max(y, QUAY_STAIR_TOP_Y + 0.06 - t * 1.4);
+        y = Math.max(y, QUAY_STAIR_LANDING_Y + 0.06 - t * 1.4);
       }
       positions.push(x, y, z);
       uvs.push((side + 1) / 2, t * 7);
@@ -1710,24 +1981,23 @@ function createGardenPathSweep(): Mesh<BufferGeometry, MeshStandardMaterial> {
 
 /** Island-local top of the landing torii's kasagi: the gull perch that replaced the obelisk. */
 export function gardenLandingToriiPerch(): { x: number; y: number; z: number } {
-  return { x: QUAY_STAIR_END.x, y: QUAY_STAIR_TOP_Y + 3.59, z: QUAY_STAIR_END.z };
+  return { x: QUAY_STAIR_LANDING.x, y: QUAY_STAIR_LANDING_Y + 3.59, z: QUAY_STAIR_LANDING.z };
 }
 
-/** A single timber torii marks the landing without competing with the tower. */
+/** A single timber torii marks the garden landing without competing with the tower. */
 function createLandingTorii(): Mesh<BufferGeometry, MeshStandardMaterial> {
-  const yaw = Math.atan2(
-    QUAY_STAIR_END.x - QUAY_STAIR_START.x,
-    QUAY_STAIR_END.z - QUAY_STAIR_START.z,
-  );
+  const yaw = Math.atan2(QUAY_STAIR_DIR.x, QUAY_STAIR_DIR.z);
   const parts: BufferGeometry[] = [];
   const place = (geometry: BufferGeometry, x: number, y: number, z: number) => {
     geometry.translate(x, y, z);
     geometry.rotateY(yaw);
-    geometry.translate(QUAY_STAIR_END.x, QUAY_STAIR_TOP_Y, QUAY_STAIR_END.z);
+    geometry.translate(QUAY_STAIR_LANDING.x, QUAY_STAIR_LANDING_Y, QUAY_STAIR_LANDING.z);
     parts.push(geometry);
   };
-  place(new BoxGeometry(0.34, 3.4, 0.34), -1.35, 1.7, 0);
-  place(new BoxGeometry(0.34, 3.4, 0.34), 1.35, 1.7, 0);
+  // The posts stand on the stair's shoulders, which fall away from the
+  // treads, so they are sunk 0.4 below the landing to bed in the rock.
+  place(new BoxGeometry(0.34, 3.8, 0.34), -1.35, 1.5, 0);
+  place(new BoxGeometry(0.34, 3.8, 0.34), 1.35, 1.5, 0);
   place(new BoxGeometry(3.7, 0.34, 0.48), 0, 3.42, 0);
   place(new BoxGeometry(2.8, 0.25, 0.3), 0, 2.62, 0);
   const torii = new Mesh(
@@ -1780,14 +2050,12 @@ function hypot2(x: number, z: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// W4.9 — the island under the Wonder (grand-scale revamp 2026-07-25)
+// W4.9 — the island under the Wonder (grand-scale revamp 2026-07-25),
+// re-seated on the W1.9 crag
 //
-// The concept render's rock is layered, eroded and tree-covered, with cut
-// stone stairs climbing to the tower; the tiers alone read as a smooth green
-// mass. Everything below is additive and instanced: sea cliffs at the rim,
-// scree gathered under them, a cut-stone stair from the quay head to the
-// lighthouse terrace, and a denser planting of shrubs and grass. The tier
-// silhouette, the Sakuteiki stone groupings and the garden path are untouched.
+// Instanced additions around the headland: the fractured sea plates standing
+// on the wave-cut platform under the Danger cliff, and the cut-stone quay
+// stair (its bed is carved into the crag above) from the quay to the gate.
 // ---------------------------------------------------------------------------
 
 const CLIFF_BASE_Y = WATER_LEVEL - 0.4;
@@ -1804,7 +2072,7 @@ const CLIFF_RIM_Z = 13.2;
 /**
  * Steep fractured rock plates standing along the island rim. Their outward
  * face is displaced and their inboard face is left flat so each plate beds
- * into the tier behind it; the wet→pale ramp and the bedding shade are baked
+ * into the cliff foot behind it; the wet→pale ramp and the bedding shade are baked
  * per vertex, and every instance shares one base height so the strata line up
  * across the whole face.
  */
@@ -1880,35 +2148,16 @@ function cliffSlabGeometry(): BoxGeometry {
   return geometry;
 }
 
-// The quay stair climbs from the lee shore to the east fortress gate. The
-// final stone landing joins the open arch, while the garden path turns south.
-const QUAY_STAIR_START = { x: 16.9, z: -5.79 } as const;
-const QUAY_STAIR_END = { x: 3.4, z: -1.25 } as const;
-// The stair head is the precinct threshold; the torii is derived from it.
-export {
-  QUAY_STAIR_END as GARDEN_QUAY_STAIR_HEAD,
-  QUAY_STAIR_TOP_Y as GARDEN_QUAY_STAIR_TOP_Y,
-};
-const QUAY_STAIR_WIDTH = 1.55;
-const QUAY_STAIR_TREAD = 0.44;
-const QUAY_STAIR_TOP_Y = 2.62;
-
 function quayStairTreads(): { x: number; y: number; z: number }[] {
-  const dx = QUAY_STAIR_END.x - QUAY_STAIR_START.x;
-  const dz = QUAY_STAIR_END.z - QUAY_STAIR_START.z;
-  const run = Math.hypot(dx, dz);
-  const count = Math.max(2, Math.round(run / QUAY_STAIR_TREAD));
+  const count = Math.max(2, Math.round(QUAY_STAIR_RUN / QUAY_STAIR_TREAD));
   const treads: { x: number; y: number; z: number }[] = [];
-  let y = WATER_LEVEL + 0.06;
-  // Constant nominal rise, raised to meet the rock wherever the tier face
-  // climbs faster: flights on the open slope, landings where it flattens.
-  const rise = (QUAY_STAIR_TOP_Y - y) / count;
   for (let index = 0; index < count; index += 1) {
-    const t = (index + 0.5) / count;
-    const x = QUAY_STAIR_START.x + dx * t;
-    const z = QUAY_STAIR_START.z + dz * t;
-    y = Math.max(y + rise, islandTerrainHeight(x, z) + 0.07);
-    treads.push({ x, y, z });
+    const along = QUAY_STAIR_RUN * (index + 0.5) / count;
+    const x = QUAY_STAIR_START.x + QUAY_STAIR_DIR.x * along;
+    const z = QUAY_STAIR_START.z + QUAY_STAIR_DIR.z * along;
+    // The bed is cut to the profile, so the rock guard only ever lifts a
+    // tread the shore cap would otherwise leave awash.
+    treads.push({ x, y: Math.max(quayStairTreadY(along), islandTerrainHeight(x, z) + 0.07), z });
   }
   return treads;
 }
@@ -1923,8 +2172,10 @@ function createQuayStair(): Group {
   );
   scratchQuaternion.setFromAxisAngle(UP_AXIS, yaw);
 
+  // Each block is deeper than the ~0.37 rise of the upper flight, so the
+  // steep flight reads as solid steps, never as floating slabs.
   const steps = new InstancedMesh(
-    new BoxGeometry(QUAY_STAIR_WIDTH, 0.26, QUAY_STAIR_TREAD * 1.12),
+    new BoxGeometry(QUAY_STAIR_WIDTH, 0.5, QUAY_STAIR_TREAD * 1.12),
     new MeshStandardMaterial({ color: "#a89e84", flatShading: true, roughness: 1 }),
     treads.length,
   );
@@ -1932,7 +2183,7 @@ function createQuayStair(): Group {
   steps.castShadow = true;
   steps.receiveShadow = true;
   treads.forEach((tread, index) => {
-    scratchPosition.set(tread.x, tread.y - 0.13, tread.z);
+    scratchPosition.set(tread.x, tread.y - 0.25, tread.z);
     // Worn treads: a little width jitter keeps the flight from reading as an
     // extruded ramp at overview zoom.
     scratchScale.set(0.92 + stableUnit(`stair.w.${index}`) * 0.16, 1, 1);
@@ -1944,7 +2195,7 @@ function createQuayStair(): Group {
   // Cheek walls: one low coping block per tread per side, riding the same
   // profile, so the flight reads as cut into the rock rather than laid on it.
   const cheeks = new InstancedMesh(
-    new BoxGeometry(0.3, 0.36, QUAY_STAIR_TREAD * 1.12),
+    new BoxGeometry(0.3, 0.52, QUAY_STAIR_TREAD * 1.12),
     new MeshStandardMaterial({ color: "#8e876f", flatShading: true, roughness: 1 }),
     treads.length * 2,
   );
@@ -1956,7 +2207,7 @@ function createQuayStair(): Group {
     for (const side of [-1, 1] as const) {
       scratchPosition.set(
         tread.x + side * across * Math.cos(yaw),
-        tread.y + 0.06,
+        tread.y - 0.02,
         tread.z - side * across * Math.sin(yaw),
       );
       scratchScale.set(1, 1, 1);

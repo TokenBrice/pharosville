@@ -219,7 +219,7 @@ export function transitSampleInto(input: {
   out.shipId = input.route.shipId;
   out.state = input.sampleState ?? input.state;
   out.zone = input.route.zone;
-  writeRouteContextInto(input.route, routePathKey, out);
+  writeRouteContextInto(input.route, routePathKey, out, input.path);
   const reportsDockTransition = out.state === "arriving" || out.state === "departing";
   out.currentDockId = reportsDockTransition ? input.routeStop?.dockId ?? null : null;
   out.currentRouteStopId = reportsDockTransition ? input.routeStop?.id ?? null : null;

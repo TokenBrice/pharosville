@@ -1,42 +1,94 @@
+import { REST_SEAT_YAW_RAD } from "./rest-seat";
+
 export const TILE_WIDTH = 32;
 export const TILE_HEIGHT = 16;
 export const TILE_SCALE = Math.SQRT2;
 export const CAMERA_FOV_DEG = 32;
-/**
- * Pitch is pose-dependent. Standing on the garden shore (close, zoom ≥ 0.9)
- * the eye is ~20 u up and the Pharos crown is 40 u up: a fixed 12° down-pitch
- * would always clip the crown (the top ray reaches only 4° above the horizon).
- * So the rig looks less far down the closer it stands: 12° at the whole-map
- * pull-out, easing to 4° at zoom 0.9 and beyond. The horizon rises from 12.9 %
- * to ~37.5 % of the frame as the viewer approaches — the sky band the bible
- * asks for is earned by proximity, not by a taller tower.
- */
-export const CAMERA_PITCH_FAR_RAD = 12 * Math.PI / 180;
-export const CAMERA_PITCH_NEAR_RAD = 4 * Math.PI / 180;
-export const CAMERA_PITCH_FAR_ZOOM = 0.45;
-export const CAMERA_PITCH_NEAR_ZOOM = 0.9;
-/** The whole-map pull-out pitch; per-frame consumers must use `cameraPoseFromIso(...).pitch`. */
-export const CAMERA_PITCH_RAD = CAMERA_PITCH_FAR_RAD;
-export const CAMERA_YAW = Math.PI / 4;
 export const CAMERA_NEAR = 1;
 export const CAMERA_FAR = 600;
 
-export function cameraPitchForZoom(zoom: number): number {
-  const t = Math.min(1, Math.max(0, (zoom - CAMERA_PITCH_FAR_ZOOM) / (CAMERA_PITCH_NEAR_ZOOM - CAMERA_PITCH_FAR_ZOOM)));
-  return CAMERA_PITCH_FAR_RAD + (CAMERA_PITCH_NEAR_RAD - CAMERA_PITCH_FAR_RAD) * t;
-}
+/**
+ * W1.0 pose model. The thing the renderer, picking and every DOM anchor use is
+ * a `CameraView` — an eye, a look-at target and a vertical FOV — not a zoom.
+ * Two sources produce one:
+ *
+ * - the **interactive rig** (`IsoCamera` offsets + zoom, pan/zoom/clamp in
+ *   iso pose space, `cameraPoseFromIso`), and
+ * - the **rest ShotSpec** (`camera.ts` `solveRestShot`, seat C in
+ *   `rest-seat.ts`), carried on the camera state as `IsoCamera.rest`.
+ *
+ * `cameraView` blends the two by the rest presence (1 = at rest, easing to 0
+ * over the hand-off when the visitor first wheels or drags) and applies the
+ * K16 breath on top, so hit rects, DOM anchors and picking rays built from
+ * `worldToScreen` / `screenToGroundRay` land exactly where the eye saw the
+ * world. Nothing here is module state: the view is a pure function of the
+ * camera state and the viewport.
+ *
+ * The rig's pose shape is keyed to a **reference zoom**: the zoom that would
+ * put the eye the same distance from its target on a 1000 px tall viewport.
+ * The same physical stand-off therefore gets the same pitch, look-at height and
+ * yaw at every viewport (engineering council finding 1: at 1200×640 the seat's
+ * distance used to read as zoom 0.45 — a 12° top-down pitch). Standing close
+ * (reference zoom ≥ 0.9; the rest hand-off rig sits at ≈ 1.48) the rig looks
+ * 4° down along the rest yaw with the look-at point on the tower's lower
+ * third; pulled back to the whole-map (reference zoom ≤ 0.44 at every gate
+ * profile, below 0.45) it looks 12° down at the ground along the iso 45°
+ * diagonal, exactly as before.
+ */
+export const CAMERA_REFERENCE_VIEWPORT_HEIGHT = 1000;
+export const CAMERA_PITCH_FAR_RAD = 12 * Math.PI / 180;
+export const CAMERA_PITCH_NEAR_RAD = 4 * Math.PI / 180;
+/** Reference zoom at and below which the rig holds its whole-map pose. */
+export const CAMERA_PITCH_FAR_ZOOM = 0.45;
+/** Reference zoom at and above which the rig holds its near (rest-seat) pose. */
+export const CAMERA_PITCH_NEAR_ZOOM = 0.9;
+/** The whole-map pull-out yaw: the iso diagonal the pan/clamp maths is written for. */
+export const CAMERA_YAW = Math.PI / 4;
+/** The near rig shares the rest seat's yaw, so the hand-off never swings the world. */
+export const CAMERA_NEAR_YAW = REST_SEAT_YAW_RAD;
+export const CAMERA_TARGET_HEIGHT_NEAR = 14;
 
 const CAMERA_TAN_HALF_FOV = Math.tan(CAMERA_FOV_DEG * Math.PI / 360);
 
+/** Eye-to-target distance a zoom-1 rig keeps on the reference viewport (≈ 108.98 u). */
+export const CAMERA_REFERENCE_DISTANCE = cameraDistanceForZoom(CAMERA_REFERENCE_VIEWPORT_HEIGHT, 1);
+
+/** Rig zoom → reference zoom: the same stand-off expressed on the 1000 px reference viewport. */
+export function cameraReferenceZoom(viewportHeight: number, zoom: number): number {
+  return zoom * CAMERA_REFERENCE_VIEWPORT_HEIGHT / Math.max(1, viewportHeight);
+}
+
+function nearPoseWeight(referenceZoom: number): number {
+  return Math.min(1, Math.max(0, (referenceZoom - CAMERA_PITCH_FAR_ZOOM) / (CAMERA_PITCH_NEAR_ZOOM - CAMERA_PITCH_FAR_ZOOM)));
+}
+
+/** Rig pitch for a reference zoom (`cameraReferenceZoom`). */
+export function cameraPitchForZoom(referenceZoom: number): number {
+  return CAMERA_PITCH_FAR_RAD + (CAMERA_PITCH_NEAR_RAD - CAMERA_PITCH_FAR_RAD) * nearPoseWeight(referenceZoom);
+}
+
+/** Rig yaw for a reference zoom: the iso diagonal far out, the rest yaw near. */
+export function cameraYawForZoom(referenceZoom: number): number {
+  return CAMERA_YAW + (CAMERA_NEAR_YAW - CAMERA_YAW) * nearPoseWeight(referenceZoom);
+}
+
 /**
- * W0.12 camera breath, as the projection sees it. The render loop is the only
- * writer: it sets the exact breath it hands the renderer for the frame it
- * draws, so hit rects, DOM anchors and picking rays built from
- * `worldToScreen` / `screenToGroundRay` land where the eye saw the world.
- * Identity (no breath) unless the loop sets it; reduced motion and the debug
- * `still=1` camera keep it at identity. Superseded by the W1.0 pose model.
+ * The look-at point rises as the viewer approaches: at the whole-map pull-out
+ * the rig looks at the ground; near the garden shore it looks at the tower's
+ * lower third, which is how a standing viewer keeps a 40 u crown in a 32°
+ * frame without craning. Eye height = targetHeight + distance·sin(pitch).
  */
-export interface ProjectionCameraBreath {
+export function cameraTargetHeightForZoom(referenceZoom: number): number {
+  return CAMERA_TARGET_HEIGHT_NEAR * nearPoseWeight(referenceZoom);
+}
+
+/**
+ * K16 camera breath: additive orbit angles and a multiplicative dolly about
+ * the view's target. The render loop puts the breath it draws on the frame's
+ * camera state (`IsoCamera.breath`); everything projected with that camera —
+ * the renderer's eye, hit rects, DOM anchors — sees the same breathed pose.
+ */
+export interface CameraBreath {
   /** Multiplicative eye-to-target distance scale. */
   dolly: number;
   /** Additive vertical angle in radians. */
@@ -45,43 +97,7 @@ export interface ProjectionCameraBreath {
   yaw: number;
 }
 
-export const PROJECTION_BREATH_IDENTITY: Readonly<ProjectionCameraBreath> = Object.freeze({ dolly: 1, pitch: 0, yaw: 0 });
-
-const projectionBreath: ProjectionCameraBreath = { dolly: 1, pitch: 0, yaw: 0 };
-
-/** Render-loop only: the breath applied to the frame being drawn. Copies fields; never retains `breath`. */
-export function setProjectionCameraBreath(breath: Readonly<ProjectionCameraBreath>): void {
-  projectionBreath.dolly = breath.dolly;
-  projectionBreath.pitch = breath.pitch;
-  projectionBreath.yaw = breath.yaw;
-}
-
-/** Back to identity: render-loop teardown and test cleanup. */
-export function resetProjectionCameraBreath(): void {
-  setProjectionCameraBreath(PROJECTION_BREATH_IDENTITY);
-}
-
-function breathedCameraPose(camera: IsoCamera, viewport: ScreenPoint): CameraPose {
-  const pose = cameraPoseFromIso(camera, viewport);
-  pose.yaw += projectionBreath.yaw;
-  pose.pitch += projectionBreath.pitch;
-  pose.distance *= projectionBreath.dolly;
-  return pose;
-}
-
-interface CameraBasis {
-  right: { x: number; y: number; z: number };
-  up: { x: number; y: number; z: number };
-  back: { x: number; y: number; z: number };
-}
-
-function cameraBasis(pitch: number, yaw: number): CameraBasis {
-  return {
-    right: { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) },
-    up: { x: -Math.sin(pitch) * Math.sin(yaw), y: Math.cos(pitch), z: -Math.sin(pitch) * Math.cos(yaw) },
-    back: { x: Math.cos(pitch) * Math.sin(yaw), y: Math.sin(pitch), z: Math.cos(pitch) * Math.cos(yaw) },
-  };
-}
+export const CAMERA_BREATH_IDENTITY: Readonly<CameraBreath> = Object.freeze({ dolly: 1, pitch: 0, yaw: 0 });
 
 export interface ScreenPoint {
   x: number;
@@ -93,10 +109,42 @@ export interface TilePoint {
   y: number;
 }
 
+export interface WorldPoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** A free perspective pose: what the eye actually sees. */
+export interface CameraView {
+  eye: WorldPoint;
+  /** Look-at point; also the breath orbit pivot and the sky/wake anchor. */
+  target: WorldPoint;
+  vFovDeg: number;
+}
+
+/** The authored rest pose a camera state blends toward (W1.0). */
+export interface CameraRestState {
+  /** The rest ShotSpec view for the viewport it was solved at (`solveRestShot`). */
+  view: Readonly<CameraView>;
+  /**
+   * Linear hand-off progress: 1 at rest, 0 on the rig. The view blends by its
+   * smootherstep, so both ends of the ease leave and arrive with zero velocity.
+   */
+  presence: number;
+}
+
+/**
+ * The camera state. Offsets + zoom are the interactive rig (pose-space pan,
+ * zoom and clamp, and the URL `cam` contract); `rest` blends the authored rest
+ * pose over it; `breath` is set only on the render loop's per-frame copy.
+ */
 export interface IsoCamera {
   offsetX: number;
   offsetY: number;
   zoom: number;
+  rest?: CameraRestState | undefined;
+  breath?: Readonly<CameraBreath> | undefined;
 }
 
 export interface CameraPose {
@@ -107,25 +155,6 @@ export interface CameraPose {
   distance: number;
   yaw: number;
   pitch: number;
-}
-
-/**
- * The look-at point rises as the viewer approaches: at the whole-map pull-out
- * the rig looks at the ground; on the garden shore it looks at the tower's
- * lower third, which is how a standing viewer keeps a 40 u crown in a 32°
- * frame without craning. Eye height = targetHeight + distance·sin(pitch).
- */
-export const CAMERA_TARGET_HEIGHT_NEAR = 14;
-
-export function cameraTargetHeightForZoom(zoom: number): number {
-  const t = Math.min(1, Math.max(0, (zoom - CAMERA_PITCH_FAR_ZOOM) / (CAMERA_PITCH_NEAR_ZOOM - CAMERA_PITCH_FAR_ZOOM)));
-  return CAMERA_TARGET_HEIGHT_NEAR * t;
-}
-
-interface WorldPoint {
-  x: number;
-  y: number;
-  z: number;
 }
 
 export function cameraDistanceForZoom(viewportHeight: number, zoom: number): number {
@@ -141,17 +170,19 @@ export function cameraEye(pose: CameraPose): WorldPoint {
   };
 }
 
+/** The rig's own pose (offsets + zoom only; ignores `rest` and `breath`). */
 export function cameraPoseFromIso(camera: IsoCamera, viewport: ScreenPoint): CameraPose {
+  const referenceZoom = cameraReferenceZoom(viewport.y, camera.zoom);
   return {
     targetTile: screenToTile({ x: viewport.x / 2, y: viewport.y / 2 }, camera),
-    targetHeight: cameraTargetHeightForZoom(camera.zoom),
+    targetHeight: cameraTargetHeightForZoom(referenceZoom),
     distance: cameraDistanceForZoom(viewport.y, camera.zoom),
-    yaw: CAMERA_YAW,
-    pitch: cameraPitchForZoom(camera.zoom),
+    yaw: cameraYawForZoom(referenceZoom),
+    pitch: cameraPitchForZoom(referenceZoom),
   };
 }
 
-/** Inverts a pose on the fixed-yaw rig; pitch is recomputed from zoom by `cameraPoseFromIso`. */
+/** Inverts a rig pose; pitch and yaw are recomputed from zoom by `cameraPoseFromIso`. */
 export function isoFromCameraPose(pose: CameraPose, viewport: ScreenPoint): IsoCamera {
   const zoom = cameraDistanceForZoom(viewport.y, 1) / pose.distance;
   const target = tileToIso(pose.targetTile);
@@ -162,24 +193,194 @@ export function isoFromCameraPose(pose: CameraPose, viewport: ScreenPoint): IsoC
   };
 }
 
+/** A rig pose as a free view. */
+export function cameraViewFromPose(pose: CameraPose): CameraView {
+  return {
+    eye: cameraEye(pose),
+    target: { x: pose.targetTile.x * TILE_SCALE, y: pose.targetHeight, z: pose.targetTile.y * TILE_SCALE },
+    vFovDeg: CAMERA_FOV_DEG,
+  };
+}
+
+/** A free view from an eye and look angles (the ShotSpec form); `distance` places the target. */
+export function cameraViewFromAngles(eye: WorldPoint, yaw: number, pitch: number, distance: number, vFovDeg: number): CameraView {
+  const horizontal = distance * Math.cos(pitch);
+  return {
+    eye: { x: eye.x, y: eye.y, z: eye.z },
+    target: {
+      x: eye.x - horizontal * Math.sin(yaw),
+      y: eye.y - distance * Math.sin(pitch),
+      z: eye.z - horizontal * Math.cos(yaw),
+    },
+    vFovDeg,
+  };
+}
+
+/** Yaw (about +y, eye = target + h·(sin yaw, cos yaw)), down-pitch and eye-to-target distance of a view. */
+export function cameraViewAngles(view: CameraView): { distance: number; pitch: number; yaw: number } {
+  const dx = view.eye.x - view.target.x;
+  const dy = view.eye.y - view.target.y;
+  const dz = view.eye.z - view.target.z;
+  const horizontal = Math.hypot(dx, dz);
+  return {
+    distance: Math.hypot(horizontal, dy),
+    pitch: Math.atan2(dy, horizontal),
+    yaw: Math.atan2(dx, dz),
+  };
+}
+
+/** Quintic smootherstep: the rest hand-off leaves and arrives with zero velocity and acceleration. */
+export function cameraRestBlend(presence: number): number {
+  const t = Math.min(1, Math.max(0, presence));
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+function lerpPoint(from: WorldPoint, to: WorldPoint, t: number): WorldPoint {
+  return {
+    x: from.x + (to.x - from.x) * t,
+    y: from.y + (to.y - from.y) * t,
+    z: from.z + (to.z - from.z) * t,
+  };
+}
+
+/** The unbreathed view: the rig, the rest ShotSpec, or the hand-off blend between them. */
+function cameraBaseView(camera: IsoCamera, viewport: ScreenPoint): CameraView {
+  const rig = cameraViewFromPose(cameraPoseFromIso(camera, viewport));
+  const rest = camera.rest;
+  if (!rest) return rig;
+  const t = cameraRestBlend(rest.presence);
+  if (t <= 0) return rig;
+  if (t >= 1) return { eye: { ...rest.view.eye }, target: { ...rest.view.target }, vFovDeg: rest.view.vFovDeg };
+  return {
+    eye: lerpPoint(rig.eye, rest.view.eye, t),
+    target: lerpPoint(rig.target, rest.view.target, t),
+    vFovDeg: rig.vFovDeg + (rest.view.vFovDeg - rig.vFovDeg) * t,
+  };
+}
+
+/**
+ * The view a camera state shows: the rig/rest blend with the breath orbit
+ * applied about the target. Pass `{ breath: false }` for the pose-physical
+ * detail measures, which must not flicker with the breath.
+ */
+export function cameraView(camera: IsoCamera, viewport: ScreenPoint, options?: { breath?: boolean }): CameraView {
+  const view = cameraBaseView(camera, viewport);
+  const breath = options?.breath === false ? undefined : camera.breath;
+  if (!breath || (breath.dolly === 1 && breath.pitch === 0 && breath.yaw === 0)) return view;
+  const angles = cameraViewAngles(view);
+  const yaw = angles.yaw + breath.yaw;
+  const pitch = angles.pitch + breath.pitch;
+  const distance = angles.distance * breath.dolly;
+  const horizontal = distance * Math.cos(pitch);
+  view.eye = {
+    x: view.target.x + horizontal * Math.sin(yaw),
+    y: view.target.y + distance * Math.sin(pitch),
+    z: view.target.z + horizontal * Math.cos(yaw),
+  };
+  return view;
+}
+
+/**
+ * The pose-physical detail measure (W1.0): the reference zoom of the view's
+ * eye-to-target stand-off, unbreathed. On the rig this is
+ * `cameraReferenceZoom(viewport.y, zoom)`; at rest the ShotSpec's target sits at
+ * its hand-off rig's stand-off, so the rest reads the same as that rig (≈ 1.48)
+ * at every viewport.
+ */
+export function cameraDetailZoom(camera: IsoCamera, viewport: ScreenPoint): number {
+  const view = cameraBaseView(camera, viewport);
+  const distance = Math.hypot(view.eye.x - view.target.x, view.eye.y - view.target.y, view.eye.z - view.target.z);
+  return CAMERA_REFERENCE_DISTANCE / Math.max(1e-6, distance);
+}
+
+/**
+ * Screen-scale companion of `cameraDetailZoom`: how many pixels an iso unit at
+ * the target covers on THIS viewport. Equals `camera.zoom` on the rig. Pixel
+ * properties (sub-pixel cloth weave, the sea-sign chart rung) key on this.
+ */
+export function cameraPixelZoom(camera: IsoCamera, viewport: ScreenPoint): number {
+  return cameraDetailZoom(camera, viewport) * Math.max(1, viewport.y) / CAMERA_REFERENCE_VIEWPORT_HEIGHT;
+}
+
+/** True while any of the rest ShotSpec shows (at rest or mid hand-off). */
+export function cameraAtRest(camera: IsoCamera | null | undefined): boolean {
+  return (camera?.rest?.presence ?? 0) > 0;
+}
+
+interface CameraBasis {
+  right: WorldPoint;
+  up: WorldPoint;
+  back: WorldPoint;
+}
+
+function cameraBasis(pitch: number, yaw: number): CameraBasis {
+  return {
+    right: { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) },
+    up: { x: -Math.sin(pitch) * Math.sin(yaw), y: Math.cos(pitch), z: -Math.sin(pitch) * Math.cos(yaw) },
+    back: { x: Math.cos(pitch) * Math.sin(yaw), y: Math.sin(pitch), z: Math.cos(pitch) * Math.cos(yaw) },
+  };
+}
+
+// One-entry memo: hit-testing projects hundreds of points per frame through
+// the same camera state. Keyed on values (callers may mutate a camera object
+// between calls), never on identity alone.
+const matrixMemo = {
+  offsetX: Number.NaN,
+  offsetY: Number.NaN,
+  zoom: Number.NaN,
+  rest: undefined as CameraRestState | undefined,
+  presence: Number.NaN,
+  breath: undefined as Readonly<CameraBreath> | undefined,
+  breathDolly: Number.NaN,
+  breathPitch: Number.NaN,
+  breathYaw: Number.NaN,
+  viewportX: Number.NaN,
+  viewportY: Number.NaN,
+  matrix: [] as number[],
+};
+
 // Row-major perspective projection * view matrix (OpenGL depth convention).
-function perspectiveMatrix(camera: IsoCamera, viewport: ScreenPoint): number[] {
-  const pose = breathedCameraPose(camera, viewport);
-  const eye = cameraEye(pose);
-  const { right, up, back } = cameraBasis(pose.pitch, pose.yaw);
-  const sx = viewport.y / (viewport.x * CAMERA_TAN_HALF_FOV);
-  const sy = 1 / CAMERA_TAN_HALF_FOV;
+function perspectiveMatrix(camera: IsoCamera, viewport: ScreenPoint): readonly number[] {
+  const memo = matrixMemo;
+  const breath = camera.breath;
+  if (
+    memo.offsetX === camera.offsetX && memo.offsetY === camera.offsetY && memo.zoom === camera.zoom
+    && memo.rest === camera.rest && memo.presence === (camera.rest?.presence ?? 0)
+    && memo.breath === breath
+    && memo.breathDolly === (breath?.dolly ?? 1) && memo.breathPitch === (breath?.pitch ?? 0) && memo.breathYaw === (breath?.yaw ?? 0)
+    && memo.viewportX === viewport.x && memo.viewportY === viewport.y
+  ) return memo.matrix;
+  const view = cameraView(camera, viewport);
+  const { pitch, yaw } = cameraViewAngles(view);
+  const eye = view.eye;
+  const { right, up, back } = cameraBasis(pitch, yaw);
+  const tanHalfFov = Math.tan(view.vFovDeg * Math.PI / 360);
+  const sx = viewport.y / (viewport.x * tanHalfFov);
+  const sy = 1 / tanHalfFov;
   const sz = -(CAMERA_FAR + CAMERA_NEAR) / (CAMERA_FAR - CAMERA_NEAR);
   const tz = -2 * CAMERA_FAR * CAMERA_NEAR / (CAMERA_FAR - CAMERA_NEAR);
   const rightEye = right.x * eye.x + right.z * eye.z;
   const upEye = up.x * eye.x + up.y * eye.y + up.z * eye.z;
   const backEye = back.x * eye.x + back.y * eye.y + back.z * eye.z;
-  return [
+  const matrix = [
     sx * right.x, 0, sx * right.z, -sx * rightEye,
     sy * up.x, sy * up.y, sy * up.z, -sy * upEye,
     sz * back.x, sz * back.y, sz * back.z, tz - sz * backEye,
     -back.x, -back.y, -back.z, backEye,
   ];
+  memo.offsetX = camera.offsetX;
+  memo.offsetY = camera.offsetY;
+  memo.zoom = camera.zoom;
+  memo.rest = camera.rest;
+  memo.presence = camera.rest?.presence ?? 0;
+  memo.breath = breath;
+  memo.breathDolly = breath?.dolly ?? 1;
+  memo.breathPitch = breath?.pitch ?? 0;
+  memo.breathYaw = breath?.yaw ?? 0;
+  memo.viewportX = viewport.x;
+  memo.viewportY = viewport.y;
+  memo.matrix = matrix;
+  return matrix;
 }
 
 export function worldToScreen(world: WorldPoint, camera: IsoCamera, viewport: ScreenPoint): ScreenPoint {
@@ -202,16 +403,18 @@ export function screenToGroundRay(
   camera: IsoCamera,
   viewport: ScreenPoint,
 ): { origin: WorldPoint; direction: WorldPoint } {
-  const pose = breathedCameraPose(camera, viewport);
-  const { right: rightAxis, up, back } = cameraBasis(pose.pitch, pose.yaw);
-  const right = (2 * point.x / viewport.x - 1) * CAMERA_TAN_HALF_FOV * viewport.x / viewport.y;
-  const upScale = (1 - 2 * point.y / viewport.y) * CAMERA_TAN_HALF_FOV;
+  const view = cameraView(camera, viewport);
+  const { pitch, yaw } = cameraViewAngles(view);
+  const { right: rightAxis, up, back } = cameraBasis(pitch, yaw);
+  const tanHalfFov = Math.tan(view.vFovDeg * Math.PI / 360);
+  const right = (2 * point.x / viewport.x - 1) * tanHalfFov * viewport.x / viewport.y;
+  const upScale = (1 - 2 * point.y / viewport.y) * tanHalfFov;
   const x = right * rightAxis.x + upScale * up.x - back.x;
   const y = upScale * up.y - back.y;
   const z = right * rightAxis.z + upScale * up.z - back.z;
   const length = Math.hypot(x, y, z);
   return {
-    origin: cameraEye(pose),
+    origin: view.eye,
     direction: { x: x / length, y: y / length, z: z / length },
   };
 }
@@ -335,8 +538,8 @@ export function fitCameraToMap(input: {
   const boundsHeight = Math.max(1, bounds.maxY - bounds.minY);
   const availableWidth = Math.max(320, input.width - padding.left - padding.right);
   const availableHeight = Math.max(320, input.height - padding.top - padding.bottom);
-  // Warm-village A1 (2026-09-05): the fit floor is the sailed-in 1.0 rest
-  // (see `defaultCamera`, which refines it to seat the landing interval).
+  // Warm-village A1 (2026-09-05): the fit floor is the sailed-in 1.0 rest.
+  // (The rest itself is now the W1.1 ShotSpec pose, `camera.ts` `defaultCamera`.)
   // The retired 0.60 plate kept two camera-side rim entries in the landing
   // frame; at 1.0 the rim and coves are reached by panning and by the
   // whole-map zoom-out, which stays owned by minZoomForViewport. Viewports
@@ -353,12 +556,10 @@ export function fitCameraToMap(input: {
 }
 
 /**
- * Authored resting composition floor (2026-09-06): 0.72. Warm-village A1 had
- * sailed the rest in to 1.0 and the world read as small; 0.72 shows roughly
- * twice the water without returning to the retired 0.612 plate. `defaultCamera`
- * may rest slightly below it to seat the Pharos→Mole landing interval on
- * compact gates, but never under its own rest floor; whole-map zoom-out uses
- * `minZoomForViewport`.
+ * `fitCameraToMap`'s framing floor (2026-09-06): 0.72 shows roughly twice the
+ * water of the sailed-in 1.0 without returning to the retired 0.612 plate.
+ * The rest is not a fit (W1.1 ShotSpec, `defaultCamera`); whole-map zoom-out
+ * uses `minZoomForViewport`.
  */
 export const GARDEN_FIT_CAMERA_MIN_ZOOM = 0.72;
 

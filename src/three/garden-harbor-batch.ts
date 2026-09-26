@@ -16,8 +16,15 @@ import {
   type BufferGeometry,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { HARBOR_PALETTE } from "../systems/palette";
-import { CHAIN_FLAG_ATLAS_COLUMNS, gardenChainFlagAtlas } from "./garden-chain-flag";
+import { NOBORI_CLOTH_ASPECT, type NoboriBanner } from "../systems/dock-layout";
+import { HARBOR_DERIVED_PALETTE, HARBOR_PALETTE } from "../systems/palette";
+import {
+  CHAIN_FLAG_ATLAS_COLUMNS,
+  CHAIN_FLAG_ATLAS_SIZE_PX,
+  CHAIN_FLAG_CELL_HEIGHT_PX,
+  CHAIN_FLAG_CELL_WIDTH_PX,
+  gardenChainFlagAtlas,
+} from "./garden-chain-flag";
 import {
   type DockRecipe,
   type DockVisual,
@@ -66,6 +73,11 @@ export interface GardenHarborBatch {
   flags: InstancedMesh;
   setFineDetailVisible(visible: boolean): void;
   setDockAccent(chainId: string, color: Color): void;
+  /**
+   * Turns every banner of a chain about its own pole (the crossbar swivels)
+   * and tilts it by `roll` at the pole head; `yaw` is station-local, as
+   * `recipe.flag.placement.yaw`, which restores the authored pose.
+   */
   setFlagPose(chainId: string, yaw: number, roll: number): void;
   dispose(): void;
 }
@@ -95,7 +107,7 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
     ...Object.values(fineDetailPropMeshes),
   ].filter((mesh): mesh is Mesh | InstancedMesh => mesh !== null);
   for (const mesh of fineDetailMeshes) mesh.visible = false;
-  const { flags, flagIndex } = createFlags(recipes);
+  const { flags, flagInstances } = createFlags(recipes);
   root.add(flags);
   applyGardenHeightFog(root, { epistemicHaze: "quay" });
 
@@ -144,9 +156,9 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
       for (const mesh of fineDetailMeshes) mesh.visible = visible;
     },
     setFlagPose(chainId, yaw, roll) {
-      const index = flagIndex.get(chainId);
-      if (index === undefined) return;
-      writeFlagMatrix(flags, recipes[index]!, index, yaw, roll);
+      const instances = flagInstances.get(chainId);
+      if (!instances) return;
+      for (const { banner, index, rootMatrix } of instances) writeFlagMatrix(flags, rootMatrix, banner, index, yaw, roll);
       flags.instanceMatrix.needsUpdate = true;
     },
   };
@@ -248,7 +260,7 @@ function bucketMaterial(bucket: HarborBucket): MeshStandardMaterial {
     case "accent":
     case "roof": return new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.86, side: DoubleSide, vertexColors: true });
     case "wall": return new MeshStandardMaterial({ color: "#ffffff", flatShading: true, roughness: 0.96, transparent: true, vertexColors: true });
-    case "window": return new MeshStandardMaterial({ color: "#ffffff", emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: HARBOR_WINDOW_EMBER_INTENSITY, roughness: 0.5, toneMapped: false, vertexColors: true });
+    case "window": return new MeshStandardMaterial({ color: "#ffffff", emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: HARBOR_WINDOW_EMBER_INTENSITY, envMapIntensity: 0.3, roughness: 0.9, toneMapped: false, vertexColors: true });
   }
 }
 
@@ -337,104 +349,142 @@ function reedClumpGeometry(): BufferGeometry {
   return mergeGeometries(parts, false)!;
 }
 
-function createFlags(recipes: readonly DockRecipe[]) {
-  const meanSag = recipes.reduce((sum, recipe) => sum + recipe.flag.sag, 0) / Math.max(1, recipes.length);
-  const meanPhase = recipes.reduce((sum, recipe) => sum + recipe.flag.wavePhase, 0) / Math.max(1, recipes.length);
-  const geometry = new PlaneGeometry(1.5, 1, 8, 3);
-  const position = geometry.getAttribute("position");
+/**
+ * Nobori cloth in unit-width space: hoist edge on the pole at x = 0, top edge
+ * on the crossbar at y = 0, hanging to y = −NOBORI_CLOTH_ASPECT. The baked
+ * curve is a gentle static belly, pinned along the hoist and eased toward the
+ * crossbar; wind motion is W4.H2's. The crossbar is merged into the same
+ * geometry with every UV inside the ink hoist band, so it prints as a dark
+ * rod and swivels with its cloth at zero extra draws.
+ */
+function noboriClothGeometry(): BufferGeometry {
+  const cloth = new PlaneGeometry(1, NOBORI_CLOTH_ASPECT, 4, 13);
+  cloth.translate(0.5, -NOBORI_CLOTH_ASPECT / 2, 0);
+  const position = cloth.getAttribute("position");
   for (let index = 0; index < position.count; index += 1) {
-    const along = (position.getX(index) + 0.75) / 1.5;
-    position.setZ(index, Math.sin(along * Math.PI * 1.7 + meanPhase) * 0.13 * along);
-    position.setY(index, position.getY(index) - along * along * meanSag);
-    position.setX(index, position.getX(index) + 0.75);
+    const along = position.getX(index);
+    const drop = -position.getY(index) / NOBORI_CLOTH_ASPECT;
+    const pinned = along ** 1.3 * (0.25 + 0.75 * drop);
+    position.setZ(index, 0.055 * pinned * Math.sin(3.4 * along + 2.6 * drop + 0.4));
   }
   position.needsUpdate = true;
-  geometry.computeVertexNormals();
-  const cells = new InstancedBufferAttribute(new Float32Array(recipes.length), 1);
-  const shapes = new InstancedBufferAttribute(new Float32Array(recipes.length), 1);
+  cloth.computeVertexNormals();
+  const crossbar = new BoxGeometry(1.08, 0.05, 0.05);
+  crossbar.translate(0.5, 0.025, 0);
+  const crossbarUv = crossbar.getAttribute("uv");
+  for (let index = 0; index < crossbarUv.count; index += 1) crossbarUv.setXY(index, 0.03, 0.5);
+  const geometry = mergeGeometries([cloth, crossbar], false)!;
+  cloth.dispose();
+  crossbar.dispose();
+  return geometry;
+}
+
+interface FlagInstance {
+  banner: NoboriBanner;
+  index: number;
+  rootMatrix: Matrix4;
+}
+
+function createFlags(recipes: readonly DockRecipe[]) {
+  const instances: Array<FlagInstance & { atlasCell: number; chainId: string; yaw: number }> = [];
+  for (const recipe of recipes) {
+    for (const banner of recipe.flag.placement.banners) {
+      instances.push({
+        atlasCell: recipe.flag.atlasCell,
+        banner,
+        chainId: recipe.dock.chainId,
+        index: instances.length,
+        rootMatrix: recipe.rootMatrix,
+        yaw: recipe.flag.placement.yaw,
+      });
+    }
+  }
+  const geometry = noboriClothGeometry();
+  const cells = new InstancedBufferAttribute(new Float32Array(instances.length), 1);
   geometry.setAttribute("aFlagCell", cells);
-  geometry.setAttribute("aFlagShape", shapes);
   const atlas = gardenChainFlagAtlas();
-  const material = new MeshStandardMaterial({ color: "#ffffff", map: atlas.texture, roughness: 0.82, side: DoubleSide });
+  const material = new MeshStandardMaterial({
+    color: "#ffffff",
+    envMapIntensity: 0.3,
+    map: atlas.texture,
+    roughness: 0.9,
+    side: DoubleSide,
+  });
   patchFlagAtlasMaterial(material);
-  const flags = new InstancedMesh(geometry, material, recipes.length);
+  const flags = new InstancedMesh(geometry, material, instances.length);
   flags.name = "dock-chain-flag";
   flags.instanceMatrix.setUsage(DynamicDrawUsage);
   flags.castShadow = false;
   flags.receiveShadow = true;
   flags.frustumCulled = false;
-  const flagIndex = new Map<string, number>();
-  recipes.forEach((recipe, index) => {
-    flagIndex.set(recipe.dock.chainId, index);
-    cells.setX(index, recipe.flag.atlasCell);
-    shapes.setX(index, flagShapeIndex(recipe.flag.shape));
-    flags.setColorAt(index, recipe.flag.atlasCell >= 0 && atlas.texture ? new Color("#ffffff") : recipe.flag.accent);
-    writeFlagMatrix(flags, recipe, index, recipe.flag.placement.yaw, 0);
-  });
+  const plainCloth = new Color(HARBOR_DERIVED_PALETTE.flag_kinari);
+  const white = new Color("#ffffff");
+  const flagInstances = new Map<string, FlagInstance[]>();
+  for (const instance of instances) {
+    const painted = instance.atlasCell >= 0 && atlas.texture !== null;
+    cells.setX(instance.index, painted ? instance.atlasCell : -1);
+    flags.setColorAt(instance.index, painted ? white : plainCloth);
+    writeFlagMatrix(flags, instance.rootMatrix, instance.banner, instance.index, instance.yaw, 0);
+    const chain = flagInstances.get(instance.chainId) ?? [];
+    chain.push(instance);
+    flagInstances.set(instance.chainId, chain);
+  }
   cells.needsUpdate = true;
-  shapes.needsUpdate = true;
   flags.instanceMatrix.needsUpdate = true;
   if (flags.instanceColor) flags.instanceColor.needsUpdate = true;
-  return { flagIndex, flags };
+  return { flagInstances, flags };
 }
 
-function flagShapeIndex(shape: DockRecipe["flag"]["shape"]): number {
-  switch (shape) {
-    case "square": return 0;
-    case "swallowtail": return 1;
-    case "nobori": return 2;
-    case "twin-tail": return 3;
-    case "chamfered": return 4;
-    case "forked": return 5;
-    case "stepped": return 6;
-    case "tapered": return 7;
-    case "storm-split": return 8;
-  }
-}
-
+/** The cloth hoists this far off the pole axis: the pole's radius. */
+const NOBORI_HOIST_OFFSET = 0.055;
 const flagScratchA = new Matrix4();
 const flagScratchB = new Matrix4();
 const flagScratchC = new Matrix4();
 function writeFlagMatrix(
   flags: InstancedMesh,
-  recipe: DockRecipe,
+  rootMatrix: Matrix4,
+  banner: NoboriBanner,
   index: number,
   yaw: number,
   roll: number,
 ): void {
-  const { placement } = recipe.flag;
-  flagScratchA.makeTranslation(placement.x, placement.y, placement.z);
+  flagScratchA.makeTranslation(banner.x, banner.clothTopY, banner.z);
   flagScratchA.multiply(flagScratchB.makeRotationY(yaw));
   flagScratchA.multiply(flagScratchB.makeRotationZ(roll));
-  flagScratchA.multiply(flagScratchB.makeTranslation(0.06, 0, 0));
-  // Shape the nobori cloth, not its UVs: clipping the right half erased its chain mark.
-  flagScratchA.multiply(flagScratchB.makeScale(placement.scale * (recipe.flag.shape === "nobori" ? 0.62 : 1), placement.scale, placement.scale));
-  flagScratchC.multiplyMatrices(recipe.rootMatrix, flagScratchA);
+  flagScratchA.multiply(flagScratchB.makeTranslation(NOBORI_HOIST_OFFSET, 0, 0));
+  flagScratchA.multiply(flagScratchB.makeScale(banner.clothWidth, banner.clothWidth, banner.clothWidth));
+  flagScratchC.multiplyMatrices(rootMatrix, flagScratchA);
   flags.setMatrixAt(index, flagScratchC);
 }
 
+/**
+ * Remaps each instance's UVs into its portrait atlas cell, and dims the cloth
+ * through the shared `userData.uNightValue` channel (`setGardenFloraNightValue`
+ * already feeds it from the wall-clock night beat): after dark the banners are
+ * pale moonlit cloth, never a lit sign (harbour defect 4).
+ */
 function patchFlagAtlasMaterial(material: MeshStandardMaterial): void {
+  const night = { value: 0 };
+  material.userData.uNightValue = night;
+  const cellScaleX = CHAIN_FLAG_CELL_WIDTH_PX / CHAIN_FLAG_ATLAS_SIZE_PX;
+  const cellScaleY = CHAIN_FLAG_CELL_HEIGHT_PX / CHAIN_FLAG_ATLAS_SIZE_PX;
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.uNightValue = night;
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nattribute float aFlagCell;\nattribute float aFlagShape;\nvarying float vFlagCell;\nvarying float vFlagShape;\nvarying vec2 vFlagUv;")
-      .replace("#include <uv_vertex>", `#include <uv_vertex>\nvFlagCell = aFlagCell;\nvFlagShape = aFlagShape;\nvFlagUv = uv;\n#ifdef USE_MAP\nif (aFlagCell >= 0.0) {\n  float flagColumns = ${CHAIN_FLAG_ATLAS_COLUMNS}.0;\n  float flagRow = flagColumns - 1.0 - floor(aFlagCell / flagColumns);\n  vMapUv = vec2(mod(aFlagCell, flagColumns), flagRow) / flagColumns + uv / flagColumns;\n}\n#endif`);
+      .replace("#include <common>", "#include <common>\nattribute float aFlagCell;\nvarying float vFlagCell;")
+      .replace("#include <uv_vertex>", `#include <uv_vertex>
+vFlagCell = aFlagCell;
+#ifdef USE_MAP
+if (aFlagCell >= 0.0) {
+  float flagColumn = mod(aFlagCell, ${CHAIN_FLAG_ATLAS_COLUMNS}.0);
+  float flagRow = floor(aFlagCell / ${CHAIN_FLAG_ATLAS_COLUMNS}.0);
+  vMapUv = vec2((flagColumn + uv.x) * ${cellScaleX.toFixed(6)}, 1.0 - (flagRow + 1.0 - uv.y) * ${cellScaleY.toFixed(6)});
+}
+#endif`);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying float vFlagCell;\nvarying float vFlagShape;\nvarying vec2 vFlagUv;")
-      .replace("#include <map_fragment>", `
-float flagX = vFlagUv.x;
-float flagY = abs(vFlagUv.y - 0.5) * 2.0;
-bool cutFlag = false;
-if (vFlagShape > 0.5 && vFlagShape < 1.5) cutFlag = flagX > 0.72 && flagY < (flagX - 0.72) * 2.2;
-else if (vFlagShape > 2.5 && vFlagShape < 3.5) cutFlag = flagX > 0.64 && flagY < (flagX - 0.64) * 1.85;
-else if (vFlagShape > 3.5 && vFlagShape < 4.5) cutFlag = flagX > 0.78 && flagY > 1.55 - flagX;
-else if (vFlagShape > 4.5 && vFlagShape < 5.5) cutFlag = flagX > 0.7 && flagY < (flagX - 0.7) * 1.65;
-else if (vFlagShape > 5.5 && vFlagShape < 6.5) cutFlag = (flagX > 0.82 && vFlagUv.y < 0.28) || (flagX > 0.66 && vFlagUv.y < 0.13);
-else if (vFlagShape > 6.5 && vFlagShape < 7.5) cutFlag = flagY > 1.0 - flagX * 0.48;
-else if (vFlagShape > 7.5 && vFlagShape < 8.5) cutFlag = flagX > 0.68 && flagY < (flagX - 0.68) * 1.15;
-if (cutFlag) discard;
-if (vFlagCell >= 0.0) {
-  #include <map_fragment>
-}`);
+      .replace("#include <common>", "#include <common>\nuniform float uNightValue;\nvarying float vFlagCell;")
+      .replace("#include <map_fragment>", "if (vFlagCell >= 0.0) {\n  #include <map_fragment>\n}")
+      .replace("#include <opaque_fragment>", "outgoingLight *= mix(1.0, 0.3, clamp(uNightValue, 0.0, 1.0));\n#include <opaque_fragment>");
   };
-  material.customProgramCacheKey = () => "garden-station-flag-v6";
+  material.customProgramCacheKey = () => "garden-station-nobori-v1";
 }

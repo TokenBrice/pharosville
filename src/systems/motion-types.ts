@@ -147,6 +147,25 @@ export interface ShipMotionRoute {
    * `previousRiskTile` is populated.
    */
   previousRiskLabel?: string;
+  /**
+   * W1.6 crossing tokens held by this ship: the arrival voyages (by route
+   * cycle index) that sail straight through the empty inlet instead of the
+   * inlet-honouring path. Absent for every ship that holds no token.
+   */
+  inletCrossings?: readonly ShipInletCrossing[];
+}
+
+export interface ShipInletCrossing {
+  /** Route cycle whose arrival transit carries the token. */
+  cycleIndex: number;
+  dockId: string;
+  /** Risk tile → mooring, routed through the inlet. */
+  path: ShipWaterPath;
+  /** The arrival transit's start and end on the motion clock. */
+  startSeconds: number;
+  endSeconds: number;
+  /** The attention slot that issued the token. */
+  slotIndex: number;
 }
 export type ShipMotionSegmentKind =
   | "dock-dwell"
@@ -166,6 +185,12 @@ export interface ShipMotionSample {
   zone: ShipWaterZone;
   routeKey?: string | null;
   routePathKey?: string | null;
+  /**
+   * The water path this sample's transit follows — for a W1.6 crossing-token
+   * arrival, the inlet crossing path. Undefined off-transit and for consorts,
+   * which ride their flagship's path at a formation offset.
+   */
+  routePath?: ShipWaterPath | undefined;
   currentDockId: string | null;
   currentRouteStopId: string | null;
   currentRouteStopKind: ShipMotionStopKind | null;

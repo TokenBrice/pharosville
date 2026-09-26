@@ -3,10 +3,10 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useLayoutEffect, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { HitTargetSnapshot } from "../renderer/hit-testing";
-import { defaultCamera } from "../systems/camera";
+import { defaultCamera, groundPointUnder, withoutRest } from "../systems/camera";
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
-import { screenToIso, tileToIso, TILE_SCALE, worldToScreen } from "../systems/projection";
+import { cameraAtRest, screenToIso, tileToIso, TILE_SCALE, worldToScreen } from "../systems/projection";
 import { gardenAttractKeyframes } from "../systems/garden-attract";
 import { createGardenDirector, requestGardenBeat } from "../systems/garden-director";
 import {
@@ -20,6 +20,7 @@ import {
   dampFollowCamera,
   leadFollowTile,
   normalizeWheelDeltaY,
+  resizeCamera,
   selectionCameraTarget,
   useCanvasResizeAndCamera,
   voyageCamera,
@@ -162,7 +163,8 @@ describe("camera intent helpers", () => {
       result.current.startArrival(onComplete);
       result.current.stepCamera(1_000, new Map());
     });
-    expect(result.current.cameraRef.current!.zoom).toBeLessThan(destination.zoom);
+    // W1.0: the arrival opens on the rest ShotSpec itself — no slide.
+    expect(result.current.cameraRef.current).toEqual(destination);
     act(() => { result.current.stepCamera(10_001, new Map()); });
     expect(result.current.cameraRef.current).toEqual(destination);
     expect(onComplete).toHaveBeenCalledTimes(1);
@@ -406,6 +408,43 @@ describe("camera intent helpers", () => {
     expect(result.current.cameraRef.current).toEqual(interrupted);
   });
 
+  it("holds a part-eased rest blend exactly when Observe is interrupted mid hand-off", () => {
+    const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
+    const viewport = { x: 1600, y: 1000 };
+    const rest = defaultCamera({ height: viewport.y, map: world.map, width: viewport.x });
+    const start = observeTourPoseFromCamera(rest, viewport);
+    act(() => {
+      result.current.canvasSizeRef.current = viewport;
+      result.current.setCamera(rest);
+      result.current.startObserveTour([{ beatIndex: 0, isoX: start.isoX + 120, isoY: start.isoY + 60, zoom: 1.35 }]);
+    });
+    for (let time = 1_000; time <= 1_120; time += 16.67) {
+      act(() => {
+        result.current.stepCamera(time, new Map());
+      });
+    }
+    const interrupted = result.current.cameraRef.current!;
+    const presence = interrupted.rest?.presence ?? 0;
+    expect(presence).toBeGreaterThan(0);
+    expect(presence).toBeLessThan(1);
+
+    for (const interrupt of [
+      () => result.current.stopObserveTour(),
+      () => result.current.cancelCameraIntent(),
+    ]) {
+      act(() => {
+        interrupt();
+      });
+      for (let time = 1_200; time <= 4_200; time += 16.67) {
+        act(() => {
+          const frame = result.current.stepCamera(time, new Map());
+          expect(frame.cameraChanged).toBe(false);
+        });
+      }
+      expect(result.current.cameraRef.current).toEqual(interrupted);
+    }
+  });
+
   it("publishes sampled Observe beats across clock jumps and completion", () => {
     const onBeatChange = vi.fn();
     const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
@@ -433,11 +472,11 @@ describe("camera intent helpers", () => {
     const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
     const initialViewport = { x: 800, y: 600 };
     const resizedViewport = { x: 1_100, y: 720 };
-    const startCamera = defaultCamera({
+    const startCamera = withoutRest(defaultCamera({
       height: initialViewport.y,
       map: world.map,
       width: initialViewport.x,
-    });
+    }));
     const returnPose = observeTourPoseFromCamera(startCamera, initialViewport);
     const expectedReturn = observeTourPoseToCamera(
       returnPose,
@@ -470,6 +509,83 @@ describe("camera intent helpers", () => {
     expect(returned.zoom).toBeCloseTo(expectedReturn.zoom, 6);
     expect(returned.offsetX).toBeCloseTo(expectedReturn.offsetX, 4);
     expect(returned.offsetY).toBeCloseTo(expectedReturn.offsetY, 4);
+  });
+
+  it("glides a tour that left the rest seat back onto the latest viewport's seat", () => {
+    const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
+    const initialViewport = { x: 800, y: 600 };
+    const resizedViewport = { x: 720, y: 900 };
+    const rest = defaultCamera({ height: initialViewport.y, map: world.map, width: initialViewport.x });
+    const returnPose = observeTourPoseFromCamera(rest, initialViewport);
+    act(() => {
+      result.current.canvasSizeRef.current = initialViewport;
+      result.current.setCamera(rest);
+      result.current.startObserveTour([{ beatIndex: 0, isoX: returnPose.isoX + 100, isoY: returnPose.isoY + 80, zoom: 1.3 }]);
+    });
+    for (let time = 1_000; time <= 3_000; time += 16.67) {
+      act(() => {
+        result.current.stepCamera(time, new Map());
+      });
+    }
+    // The tour eased off the seat like any hand-off.
+    expect(cameraAtRest(result.current.cameraRef.current)).toBe(false);
+    act(() => {
+      result.current.canvasSizeRef.current = resizedViewport;
+      result.current.stopObserveTour({ easeBack: true });
+    });
+    for (let frame = 0; frame < 240; frame += 1) {
+      act(() => {
+        result.current.stepCamera(3_000 + frame * 16.67, new Map());
+      });
+    }
+    expect(result.current.cameraRef.current).toEqual(
+      defaultCamera({ height: resizedViewport.y, map: world.map, width: resizedViewport.x }),
+    );
+  });
+
+  it("hands the rest off to the rig on the first wheel with no jump at the cursor", () => {
+    for (const viewport of [{ x: 1600, y: 1000 }, { x: 1200, y: 640 }, { x: 900, y: 720 }, { x: 720, y: 900 }]) {
+      for (const deltaY of [-120, 120]) {
+        const rest = defaultCamera({ height: viewport.y, map: world.map, width: viewport.x });
+        const cursor = { x: viewport.x * 0.55, y: viewport.y * 0.78 };
+        const water = groundPointUnder(rest, cursor, viewport)!;
+        expect(water).not.toBeNull();
+        const target = zoomCameraByWheelDelta({
+          camera: rest,
+          deltaMode: 0,
+          deltaY,
+          map: world.map,
+          point: cursor,
+          viewport,
+        });
+        expect(cameraAtRest(target)).toBe(false);
+        let display = rest;
+        let previous = worldToScreen(water, rest, viewport);
+        let settled = false;
+        for (let frame = 0; frame < 120 && !settled; frame += 1) {
+          const next = advanceCameraIntent(display, target, 1 / 60, "wheel");
+          const shown = worldToScreen(water, next.camera, viewport);
+          // Frame to frame, the water under the cursor never jumps a pixel.
+          expect(Math.hypot(shown.x - previous.x, shown.y - previous.y)).toBeLessThan(1);
+          previous = shown;
+          display = next.camera;
+          settled = next.settled;
+        }
+        expect(settled).toBe(true);
+        expect(cameraAtRest(display)).toBe(false);
+        // …and the rig it lands on holds that water under the cursor.
+        expect(Math.hypot(previous.x - cursor.x, previous.y - cursor.y)).toBeLessThan(0.01);
+      }
+    }
+  });
+
+  it("re-solves the rest for a resized viewport and keeps a rig's framing clamped", () => {
+    const rest = defaultCamera({ height: 1000, map: world.map, width: 1600 });
+    expect(resizeCamera(rest, { x: 720, y: 900 }, world.map)).toEqual(
+      defaultCamera({ height: 900, map: world.map, width: 720 }),
+    );
+    const rig = { offsetX: -1200, offsetY: -900, zoom: 1.2 };
+    expect(cameraAtRest(resizeCamera(rig, { x: 900, y: 720 }, world.map))).toBe(false);
   });
 });
 

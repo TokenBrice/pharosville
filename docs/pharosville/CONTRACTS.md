@@ -28,7 +28,7 @@ pins are not authority over the accepted picture.
   useful without inspecting WebGL pixels. Focused controls remain available.
 - DOM labels stay legible, clear of the lighthouse, controls and active detail
   panel, and hidden off-screen. Ship captions appear only on selection or an
-  arrival/departure beat and are aria-hidden; rooftop chain flags, not permanent
+  arrival/departure beat and are aria-hidden; chain nobori, not permanent
   chain/concentration captions, identify harbours. TON has no permanent caption.
   Concentration remains in details and the ledger.
   Coverage: `src/components/harbor-label-chips.test.tsx`.
@@ -148,9 +148,15 @@ pins are not authority over the accepted picture.
   units; the Ethereum Mole caps at `21.5` local (`≤21.7` above water), at least
   `1.20×` the tallest ordinary rung. Footprints, water exclusion and berthing
   remain coherent with these envelopes. Coverage: `src/systems/dock-layout.test.ts`.
-- Chain flags use `2.6×` original scale on raised, seaward rooftop staffs/racks,
-  stay clear of roofs and fleet, show complete marks and remain broadly
-  camera-facing while luffing. Roofs articulate ridge/cap, fascia, gable/gablet,
+- Chain nobori (K28) replace the rooftop flags: one narrow banner per station
+  (a pair at the Mole), `0.97–1.165 × 3.16–3.79` u cloth on an L-pole at the
+  seaward eave or landing, tip `≤13.7` above water (`HARBOR_NOBORI_ENVELOPE`),
+  facing the rest seat. Kinari cloth carries the complete chain mark (mon over
+  vertical initials) in a muted ink of the chain's hue (OKLCH `C ≤ 0.10`,
+  `L 0.38–0.62`, never above `vermillion`); every in-frame mark stays `≥18 px`
+  tall at the 1600×1000 rest. Coverage: `src/systems/dock-layout.test.ts`,
+  `src/three/garden-chain-flag.test.ts`, `src/three/garden-harbor-batch.test.ts`.
+  Roofs articulate ridge/cap, fascia, gable/gablet,
   brackets and a pent skirt or stepped course, with a named archetype signature.
 - Raised quays keep a warm lit edge and dusk/night windows; the Mole alone is
   the ring's civic monument. L2 stations are self-standing distant harbours.

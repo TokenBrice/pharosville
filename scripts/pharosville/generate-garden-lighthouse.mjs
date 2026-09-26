@@ -40,33 +40,52 @@ const OCT = Math.PI / 8;
 const OCT_FACE = Math.cos(Math.PI / 8);
 const OCT_HALF_CHORD = Math.sin(Math.PI / 8);
 
-// Wet, weathered stone ramp painted per-vertex up the tower (L2): wet-dark
-// base rock → pale-warm crown that catches the ukiyo-e day key sun (L4).
-// Constructed from hex so three's ColorManagement lands them in linear space,
-// matching how a material.color hex would render.
-const STONE_WET = new Color("#46524b");
-const STONE_LOW = new Color("#c4b494");
-const STONE_HIGH = new Color("#f7edca");
+// Weathered neutral limestone painted per-vertex up the tower (L2, pharos-5):
+// a warm-grey foot climbing to the pale grey crown, never the yellow cream
+// that read as putty. Constructed from hex so three's ColorManagement lands
+// them in linear space, matching how a material.color hex would render.
+const STONE_LOW = new Color("#b9ae98");
+const STONE_HIGH = new Color("#e4dfd2");
 // W4 (grand-scale revamp): the AO floor. Recesses never go fully black —
 // they land on a cool bounced-sky tint so the stone keeps its temperature
 // break between lit face and shadowed joint.
 const STONE_OCCLUDED = new Color("#3d4551");
+// pharos-5 weathering inks: the green-black biofilm and salt the sea spray
+// leaves on the lowest courses, and the verdigris that bleeds from bronze.
+const STONE_BIOFILM = new Color("#2c3a33");
+const VERDIGRIS = new Color("#7fa596");
+// pharos-7: the statue and the frieze ornament are dark bronze, never gilt;
+// the recesses carry the verdigris.
+const BRONZE_DARK = new Color("#5a3f26");
+
+// pharos-5(a): three stone lots, one picked per authored block (each stone
+// geometry is one block or moulding until the merge): ±6 % value and a few
+// degrees of hue toward warm or cool grey, so the coursing reads as quarried
+// stone rather than one poured putty.
+const STONE_LOTS = [
+  new Color(1.05, 1.03, 0.985),
+  new Color(1, 1, 1),
+  new Color(0.925, 0.94, 0.965),
+];
 
 // Monumental Pharos: battered square keep, octagonal drum, open lantern,
 // conical cap and Zeus Soter. Shared anchors match the procedural shell.
+// W1.9 (pharos-2): six units of keep were traded for the crag headland, so
+// everything above the square tier sits six lower than the 38-unit tower and
+// the root rises six in the world — beacon and crown stay where they were.
 const TERRACE_TOP_Y = 2.5;
-const SQUARE_TOP_Y = 20.5;
+const SQUARE_TOP_Y = 14.5;
 const SQUARE_BASE_HALF = 4.6;
 const SQUARE_TOP_HALF = 3.7;
 const OCT_BASE_Y = SQUARE_TOP_Y;
-const OCT_TOP_Y = 29.0;
+const OCT_TOP_Y = 23.0;
 const OCT_BASE_RADIUS = 2.75;
 const OCT_TOP_RADIUS = 2.5;
-const LANTERN_BASE_Y = 29.4;
-const LANTERN_TOP_Y = 32.8;
+const LANTERN_BASE_Y = 23.4;
+const LANTERN_TOP_Y = 26.8;
 const LANTERN_RADIUS = 1.9;
-const BEACON_Y = 30.2;
-const SCEPTRE_TIP_Y = 38;
+const BEACON_Y = 24.2;
+const SCEPTRE_TIP_Y = 32;
 // A 4-segment cylinder rotated π/4 reads as a square shaft with a flat face
 // fronting +Z (same convention as OCT for the drums).
 const SQ = Math.PI / 4;
@@ -87,6 +106,8 @@ const COURSE_JOINT = 0.035;
 const CREASES = [];
 const OVERHANGS = [];
 const COURSE_BANDS = [];
+// pharos-5(c): bronze fittings whose run-off greens the stone below them.
+const VERDIGRIS_SOURCES = [];
 
 installFileReader();
 
@@ -148,6 +169,10 @@ function registerOverhang(y, reach, drop = 1.1) {
   OVERHANGS.push({ drop, reach, y });
 }
 
+function registerVerdigris(x, z, y, radius) {
+  VERDIGRIS_SOURCES.push({ radius, x, y, z });
+}
+
 function createLighthouse() {
   const root = new Group();
   root.name = "garden-lighthouse-shell";
@@ -185,17 +210,20 @@ function createLighthouse() {
       name: "dark-bronze-frame",
       roughness: 0.5,
     })],
-    // Bronze-gilt for the crowning Zeus Soter and the dedication glyphs (D2):
-    // the highest metalness in the model with a warm emissive whisper, so the
-    // statue catches the dusk bloom as a golden god against the indigo sky.
+    // pharos-7: the crowning Zeus Soter and the frieze ornament are dark
+    // bronze that reads by its specular line, never by self-light. Vertex
+    // colour carries the verdigris in the recesses; the emissive is authored
+    // off and only the day cycle's dusk gleam (≤ 0.4) ever lifts it. The
+    // material keeps its "bronze-gilt" name: the runtime finds the statue by it.
     ["gilt", new MeshStandardMaterial({
-      color: "#d9a84e",
+      color: "#ffffff",
       emissive: "#f7d68a",
-      emissiveIntensity: 0.06,
+      emissiveIntensity: 0,
       flatShading: true,
-      metalness: 0.85,
+      metalness: 0.6,
       name: "bronze-gilt",
-      roughness: 0.3,
+      roughness: 0.22,
+      vertexColors: true,
     })],
     ["timber", new MeshStandardMaterial({
       color: "#43362b",
@@ -215,16 +243,27 @@ function createLighthouse() {
     // W4.5: every window aperture in the tower, in its own mesh group
     // ("window-shell") behind its own material name, so the runtime can drive
     // the interior glow across the day cycle without touching the brazier
-    // ember or adding a single light. Authored dim — dusk/night lift is the
-    // renderer's call, not the asset's.
+    // ember or adding a single light. pharos-5(e): authored as a dark void —
+    // no emissive until the day cycle kindles it at dusk.
     ["window", new MeshStandardMaterial({
-      color: "#2a2116",
+      color: "#15181b",
       emissive: "#ffbe6e",
-      emissiveIntensity: 0.55,
+      emissiveIntensity: 0,
       flatShading: true,
       name: "lighthouse-window-glow",
       roughness: 0.62,
       toneMapped: false,
+    })],
+    // pharos-1: a thin glass skin around the open lantern replaces the opaque
+    // glow drum, so the flame reads through the columns. The runtime swaps
+    // this for a fresnel skin shader by name (prepareLighthouseModelMaterials).
+    ["glass", new MeshStandardMaterial({
+      color: "#1a1612",
+      depthWrite: false,
+      name: "lighthouse-lantern-glass",
+      opacity: 0.2,
+      roughness: 0.08,
+      transparent: true,
     })],
   ]);
   const geometryByMaterial = new Map(
@@ -435,11 +474,12 @@ function createLighthouse() {
   }
   registerCrease(TERRACE_TOP_Y, SQUARE_BASE_HALF);
 
-  // Three disciplined window rows on every face make the lower keep read
-  // as an inhabited monumental building rather than a slender chimney.
+  // Two disciplined window rows on every face make the lower keep read as an
+  // inhabited monument rather than a slender chimney. W1.9 (pharos-2): the
+  // third register went with the six units of keep traded for the crag.
   const SQUARE_FACES = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
   const squareWindows = SQUARE_FACES.flatMap((_, face) =>
-    [6.5, 11.5, 16.5].flatMap((sill) =>
+    [6.5, 10.5].flatMap((sill) =>
       [-2.25, 0, 2.25].map((u) => ({
         face, height: 1.35, sill, u, width: 0.72,
       })),
@@ -478,7 +518,7 @@ function createLighthouse() {
   ashlarTier({
     apertures: squareApertures,
     blockWidth: 0.78,
-    courses: 34,
+    courses: 23,
     faceAngles: SQUARE_FACES,
     faceWidthAt: (y) => squareHalf(y) * 2,
     inradiusAt: squareHalf,
@@ -488,8 +528,8 @@ function createLighthouse() {
     y1: SQUARE_TOP_Y,
   });
 
-  // Projecting string courses divide the three window registers.
-  for (const [y, height, project] of [[2.72, 0.44, 0.17], [9.7, 0.24, 0.13], [14.7, 0.24, 0.13]]) {
+  // Projecting string courses divide the two window registers.
+  for (const [y, height, project] of [[2.72, 0.44, 0.17], [9.55, 0.24, 0.13]]) {
     const half = squareHalf(y);
     add("stone", new CylinderGeometry(
       (half + project) * SQRT2,
@@ -513,11 +553,11 @@ function createLighthouse() {
   dentilCourse({
     depth: 0.16,
     faceAngles: SQUARE_FACES,
-    faceWidth: squareHalf(20.05) * 2,
+    faceWidth: squareHalf(SQUARE_TOP_Y - 0.45) * 2,
     height: 0.14,
-    inradius: squareHalf(20.05),
+    inradius: squareHalf(SQUARE_TOP_Y - 0.45),
     width: 0.13,
-    y: 20.05,
+    y: SQUARE_TOP_Y - 0.45,
   });
 
   // --- W4.3 arched window reveals -------------------------------------------
@@ -665,7 +705,7 @@ function createLighthouse() {
   // bronze ground, separated by paired fillets. Every feature is >= 0.3 units,
   // which reads as carved relief at overview zoom and as detail up close, and
   // cannot be mistaken for text at either.
-  const BAND_Y = 19.55;
+  const BAND_Y = SQUARE_TOP_Y - 0.95;
   const bandFace = squareHalf(BAND_Y);
   add("stone", new BoxGeometry(5.1, 1.02, 0.14), {
     position: [0, BAND_Y, bandFace - 0.05],
@@ -832,10 +872,13 @@ function createLighthouse() {
     parts.push(mouth);
     const cluster = mergeGeometries(parts, false);
     if (cluster === null) throw new Error("Could not merge triton cluster.");
-    add("stone", cluster, {
+    // pharos-7: the finials are oxidized bronze, and their run-off greens
+    // the pier and the keep's corner below them (pharos-5c).
+    add("bronze", cluster, {
       position: [x, y, z],
       rotation: [0, Math.atan2(x, z), 0],
     });
+    registerVerdigris(x, z, y, 1.35);
   };
   // L6: the Tritons move out onto the gallery's corner piers. They used to
   // stand at +-2.55 against the drum's flare, which half-buried them; on the
@@ -850,7 +893,7 @@ function createLighthouse() {
   // Octagonal middle drum: one tall arched window on each flat face.
   const OCT_FACES = Array.from({ length: 8 }, (_, index) => index * Math.PI / 4);
   const octWindows = OCT_FACES.map((_, face) => ({
-    face, height: 2.15, sill: 24.25, u: 0, width: 0.82,
+    face, height: 2.15, sill: OCT_BASE_Y + 3.75, u: 0, width: 0.82,
   }));
   const octApertures = octWindows.map((window) => ({
     face: window.face,
@@ -923,9 +966,9 @@ function createLighthouse() {
   registerCrease(LANTERN_BASE_Y, LANTERN_RADIUS);
   for (let index = 0; index < 8; index += 1) {
     const angle = index * Math.PI / 4 + OCT;
-    place("stone", new CylinderGeometry(0.24, 0.27, 0.18, 8), angle, 0, 29.49, LANTERN_RADIUS);
-    place("stone", new CylinderGeometry(0.16, 0.18, 2.45, 12), angle, 0, 30.805, LANTERN_RADIUS);
-    place("stone", new BoxGeometry(0.45, 0.22, 0.45), angle, 0, 32.14, LANTERN_RADIUS);
+    place("stone", new CylinderGeometry(0.24, 0.27, 0.18, 8), angle, 0, LANTERN_BASE_Y + 0.09, LANTERN_RADIUS);
+    place("stone", new CylinderGeometry(0.16, 0.18, 2.45, 12), angle, 0, LANTERN_BASE_Y + 1.405, LANTERN_RADIUS);
+    place("stone", new BoxGeometry(0.45, 0.22, 0.45), angle, 0, LANTERN_TOP_Y - 0.66, LANTERN_RADIUS);
     // Real semicircular arch voussoirs bridge each neighbouring column pair.
     const faceAngle = angle + Math.PI / 8;
     const archRadius = LANTERN_RADIUS * Math.sin(Math.PI / 8);
@@ -933,32 +976,36 @@ function createLighthouse() {
       const theta = Math.PI * (stone + 0.5) / 9;
       place("stone", new BoxGeometry(0.27, 0.24, 0.36),
         faceAngle, Math.cos(theta) * archRadius,
-        32.03 + Math.sin(theta) * archRadius,
+        LANTERN_TOP_Y - 0.77 + Math.sin(theta) * archRadius,
         LANTERN_RADIUS * OCT_FACE, theta - Math.PI / 2);
     }
   }
-  // Emissive-only inner wall makes every lantern opening burn warm at dusk,
-  // with no additional lights or textures and an open top around the fire.
-  add("window", new CylinderGeometry(1.3, 1.3, 2.75, 32, 1, true), {
-    position: [0, 30.925, 0],
+  // pharos-1: the lantern is the only fire, seen through glass. The opaque
+  // glow drum that shared the window material (and hid the flame) is gone;
+  // a thin open glass skin sits just inside the columns, and the runtime
+  // shades it as a fresnel film around the living flame.
+  add("glass", new CylinderGeometry(1.78, 1.78, 2.45, 32, 1, true), {
+    position: [0, LANTERN_BASE_Y + 1.405, 0],
   });
   add("stone", new CylinderGeometry(2.18, 2.08, 0.4, 32), {
     position: [0, LANTERN_TOP_Y + 0.2, 0],
   });
   registerOverhang(LANTERN_TOP_Y, 2.18, 0.7);
   add("stone", new ConeGeometry(2.2, 1.2, 32), {
-    position: [0, 33.8, 0],
+    position: [0, LANTERN_TOP_Y + 1.0, 0],
   });
-  add("gilt", new CylinderGeometry(0.48, 0.48, 0.12, 16), {
-    position: [0, 34.4, 0],
+  add("gilt", withVerdigris(new CylinderGeometry(0.48, 0.48, 0.12, 16), 0.5), {
+    position: [0, LANTERN_TOP_Y + 1.6, 0],
   });
   add("stone", new CylinderGeometry(0.52, 0.65, 0.6, 8), {
-    position: [0, 34.7, 0],
+    position: [0, LANTERN_TOP_Y + 1.9, 0],
   });
+  // The bronze god's run-off greens the pedestal and the cap below it.
+  registerVerdigris(0, 0, LANTERN_TOP_Y + 2.2, 2.3);
 
-  // Bowl centred on the beacon, nestled inside the lantern's glowing drum.
+  // Bowl centred on the beacon, inside the open lantern.
   add("bronze", new CylinderGeometry(0.48, 0.65, 0.3, 12), {
-    position: [0, 29.72, 0],
+    position: [0, LANTERN_BASE_Y + 0.32, 0],
   });
   add("bronze", new CylinderGeometry(1.1, 0.48, 0.65, 16, 1, true), {
     position: [0, BEACON_Y, 0],
@@ -978,14 +1025,15 @@ function createLighthouse() {
   // W4.6: real modelled form. Moulded plinth, a draped robe built from six
   // lathed courses with vertical fold ribs, shoulders and a himation roll, a
   // radiate head, one arm outstretched to the sea (+Z) and one bearing the
-  // sceptre whose tip is exactly SCEPTRE_TIP_Y.
+  // sceptre whose tip is exactly SCEPTRE_TIP_Y. pharos-7: dark bronze; the
+  // cloth between the folds and the plinth mouldings hold the verdigris.
   const statueStart = geometryByMaterial.get("gilt").length;
   // Author the sculptural detail in its original local proportions, then
-  // seat its 29.9–34 range exactly on the summit's 35–38 range.
+  // seat its 29.9–34 range exactly on the summit's top three units.
   const statueTip = 34;
-  add("gilt", new CylinderGeometry(0.46, 0.52, 0.16, 8), { position: [0, 29.98, 0] });
-  add("gilt", new CylinderGeometry(0.38, 0.46, 0.18, 8), { position: [0, 30.15, 0] });
-  add("gilt", new CylinderGeometry(0.34, 0.38, 0.14, 8), { position: [0, 30.31, 0] });
+  add("gilt", withVerdigris(new CylinderGeometry(0.46, 0.52, 0.16, 8), 0.5), { position: [0, 29.98, 0] });
+  add("gilt", withVerdigris(new CylinderGeometry(0.38, 0.46, 0.18, 8), 0.45), { position: [0, 30.15, 0] });
+  add("gilt", withVerdigris(new CylinderGeometry(0.34, 0.38, 0.14, 8), 0.4), { position: [0, 30.31, 0] });
   const ROBE_BASE = 30.38;
   const ROBE_TOP = 32.4;
   const robeCourses = 6;
@@ -996,7 +1044,9 @@ function createLighthouse() {
     const y1 = ROBE_BASE + (ROBE_TOP - ROBE_BASE) * t1;
     const r0 = 0.5 - 0.2 * t0 - Math.sin(t0 * Math.PI) * 0.03;
     const r1 = 0.5 - 0.2 * t1 - Math.sin(t1 * Math.PI) * 0.03;
-    add("gilt", new CylinderGeometry(r1, r0, y1 - y0, 10, 1, true), {
+    // The cloth between the fold ribs is the statue's recess: greenest at
+    // the hem, where the run-off collects.
+    add("gilt", withVerdigris(new CylinderGeometry(r1, r0, y1 - y0, 10, 1, true), 0.6 - 0.25 * t0), {
       position: [0, (y0 + y1) / 2, 0],
     });
   }
@@ -1013,13 +1063,13 @@ function createLighthouse() {
     add("gilt", rib, { rotation: [0, angle, 0] });
   }
   // Himation roll across the chest, shoulders, neck, radiate head.
-  add("gilt", new CylinderGeometry(0.33, 0.3, 0.24, 10), { position: [0, 32.5, 0] });
+  add("gilt", withVerdigris(new CylinderGeometry(0.33, 0.3, 0.24, 10), 0.3), { position: [0, 32.5, 0] });
   add("gilt", new BoxGeometry(0.66, 0.14, 0.5), {
     position: [0.03, 32.42, 0.06],
     rotation: [0, 0, 0.22],
   });
   add("gilt", new CylinderGeometry(0.3, 0.34, 0.36, 10), { position: [0, 32.78, 0] });
-  add("gilt", new CylinderGeometry(0.11, 0.13, 0.12, 8), { position: [0, 33.0, 0] });
+  add("gilt", withVerdigris(new CylinderGeometry(0.11, 0.13, 0.12, 8), 0.35), { position: [0, 33.0, 0] });
   add("gilt", new SphereGeometry(0.21, 10, 7), { position: [0, 33.2, 0] });
   add("gilt", new BoxGeometry(0.24, 0.1, 0.24), { position: [0, 33.32, 0.02] });
   for (let index = 0; index < 7; index += 1) {
@@ -1061,8 +1111,10 @@ function createLighthouse() {
   }
 
   // Everything is authored; the occlusion registries are complete, so the
-  // stone can finally be painted (W4.2/W4.4 — geometry-aware baked AO).
+  // stone can finally be painted (W4.2/W4.4 — geometry-aware baked AO), and
+  // the bronze takes its verdigris (pharos-7).
   for (const geometry of geometryByMaterial.get("stone")) paintStone(geometry);
+  for (const geometry of geometryByMaterial.get("gilt")) paintBronze(geometry);
 
   let triangles = 0;
   let vertices = 0;
@@ -1193,8 +1245,8 @@ function envelopeReach(y) {
   }
   if (y <= LANTERN_BASE_Y) return 2.55;
   if (y <= LANTERN_TOP_Y) return LANTERN_RADIUS;
-  if (y <= 33.2) return 2.18;
-  if (y <= 34.4) return 2.2 * (34.4 - y) / 1.2;
+  if (y <= LANTERN_TOP_Y + 0.4) return 2.18;
+  if (y <= LANTERN_TOP_Y + 1.6) return 2.2 * (LANTERN_TOP_Y + 1.6 - y) / 1.2;
   return 0.52;
 }
 
@@ -1249,30 +1301,107 @@ function occlusion(x, y, z) {
   return clamp01(ao);
 }
 
+/**
+ * Seaward bias in the tower's local frame. The runtime yaws the model by π/2,
+ * so local +x/+z are the world's +x/−z faces, toward the Danger water.
+ */
+function seawardness(x, z) {
+  return smoothstep(0.1, 0.8, (x + z) / (Math.hypot(x, z) + 1e-3));
+}
+
+/** A thin vertical run under a ledge: one hashed column per ~0.8 u of arc. */
+function streakColumn(x, z, reach, seed, width) {
+  const arc = Math.atan2(x, z) * Math.max(reach, 0.5);
+  return smoothstep(0.55, 0.9, hashUnit(Math.floor(arc / width), seed));
+}
+
 function paintStone(geometry) {
   const position = geometry.getAttribute("position");
   const colors = new Float32Array(position.count * 3);
   const base = new Color();
+  geometry.computeBoundingBox();
+  const centre = geometry.boundingBox.getCenter(new Vector3());
+  const lot = STONE_LOTS[Math.floor(hashUnit(centre.x, centre.y, centre.z) * STONE_LOTS.length)];
   for (let index = 0; index < position.count; index += 1) {
     const x = position.getX(index);
     const y = position.getY(index);
     const z = position.getZ(index);
-    const climb = smoothstep(2.0, 30.0, y);
-    base.copy(STONE_LOW).lerp(STONE_HIGH, climb);
-    const wet = smoothstep(3.2, 0.0, y);
-    base.lerp(STONE_WET, wet * 0.75);
-    const jitter = (hash3(x, y, z) - 0.5) * 0.08;
+    const reach = surfaceReach(x, y, z);
+    const climb = smoothstep(2.0, 24.0, y);
+    base.copy(STONE_LOW).lerp(STONE_HIGH, climb).multiply(lot);
+    const jitter = (hash3(x, y, z) - 0.5) * 0.05;
     base.setRGB(
       clamp01(base.r + jitter),
       clamp01(base.g + jitter),
       clamp01(base.b + jitter),
     );
+    // (d) Sea spray: the seaward lower courses are salt-bleached, and a
+    // green-black biofilm band sits on the lowest courses of the foot.
+    const seaward = seawardness(x, z);
+    base.multiplyScalar(1 + 0.08 * seaward * smoothstep(8, 3, y));
+    const biofilm = smoothstep(0.0, 0.3, y) * smoothstep(1.7, 1.1, y);
+    base.lerp(STONE_BIOFILM, 0.4 * biofilm * (0.6 + 0.4 * seaward));
+    // (c) Verdigris bleeds pale green-blue from the bronze fittings above.
+    for (const source of VERDIGRIS_SOURCES) {
+      const below = source.y - y;
+      if (below <= 0 || below > 6) continue;
+      const near = 1 - smoothstep(0.4 * source.radius, source.radius, Math.hypot(x - source.x, z - source.z));
+      if (near <= 0) continue;
+      const run = streakColumn(x - source.x, z - source.z, source.radius, source.y, 0.35);
+      base.lerp(VERDIGRIS, 0.35 * Math.exp(-below / 2) * (0.35 + 0.65 * run) * near);
+    }
+    // (b) Rain streaks: thin dark runs drawn down from every sill, string
+    // course and cornice, 1–4 u long, held subtle so a 2-px block never
+    // becomes a tiger stripe at the rest distance.
+    let streak = 0;
+    for (const ledge of OVERHANGS) {
+      if (ledge.drop < 0.45) continue;
+      const below = ledge.y - y;
+      if (below <= 0 || below > 4) continue;
+      if (reach > ledge.reach + 0.06) continue;
+      streak = Math.max(
+        streak,
+        0.22 * Math.exp(-below / 2.8) * streakColumn(x, z, reach, ledge.y, 0.8),
+      );
+    }
+    base.lerp(STONE_OCCLUDED, streak);
     // AO never crushes to black: it lands on a cool bounced-sky tint, keeping
     // the temperature break between the lit face and the shadowed joint.
     base.lerp(STONE_OCCLUDED, (1 - occlusion(x, y, z)) * 0.86);
     colors[index * 3] = base.r;
     colors[index * 3 + 1] = base.g;
     colors[index * 3 + 2] = base.b;
+  }
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+}
+
+/** Tags a bronze part with how much verdigris its recesses hold (0–1). */
+function withVerdigris(geometry, amount) {
+  geometry.userData.verdigris = amount;
+  return geometry;
+}
+
+/**
+ * pharos-7: dark bronze with verdigris in the recesses. Untagged parts (arms,
+ * folds, head, sceptre, rosettes) keep a trace; the tagged recesses — the
+ * cloth between the folds, the plinth mouldings, the neck — carry the green.
+ */
+function paintBronze(geometry) {
+  const position = geometry.getAttribute("position");
+  const colors = new Float32Array(position.count * 3);
+  const amount = geometry.userData.verdigris ?? 0.12;
+  delete geometry.userData.verdigris;
+  const color = new Color();
+  for (let index = 0; index < position.count; index += 1) {
+    const mottle = 0.7 + 0.6 * hash3(
+      position.getX(index) * 3.1,
+      position.getY(index) * 3.1,
+      position.getZ(index) * 3.1,
+    );
+    color.copy(BRONZE_DARK).lerp(VERDIGRIS, clamp01(amount * mottle));
+    colors[index * 3] = color.r;
+    colors[index * 3 + 1] = color.g;
+    colors[index * 3 + 2] = color.b;
   }
   geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
 }

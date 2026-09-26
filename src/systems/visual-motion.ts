@@ -271,6 +271,7 @@ function copyTargetMetadata(target: ShipMotionSample, out: ShipMotionSample): vo
   out.zone = target.zone;
   out.routeKey = target.routeKey ?? null;
   out.routePathKey = target.routePathKey ?? null;
+  out.routePath = target.routePath;
   out.currentDockId = target.currentDockId;
   out.currentRouteStopId = target.currentRouteStopId;
   out.currentRouteStopKind = target.currentRouteStopKind;

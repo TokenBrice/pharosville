@@ -1,4 +1,5 @@
 import { MathUtils, Vector3 } from "three";
+import { REST_SEAT_YAW_RAD } from "../systems/rest-seat";
 import { type DayCyclePhase } from "./garden-day-cycle";
 
 /**
@@ -24,25 +25,34 @@ import { type DayCyclePhase } from "./garden-day-cycle";
  */
 
 /**
- * The bearing the calibrated noon key light sits on, preserved exactly.
+ * The noon key comes from the rest seat's right hand.
  *
- * The whole day grade, the AO exponent ladder and the reference gate frames
- * were tuned against this direction, so the arc is built to PASS THROUGH it at
- * midday rather than to replace it. Noon must not move.
+ * W1.8 (light-1): the old calibrated bearing, `atan2(-30, -35)`, sat 176° from
+ * the eye — behind the Pharos — so from dawn to dusk the visible faces got
+ * only fill, left and right faces read equal, and every cast shadow fell
+ * toward the camera behind its caster. The bearing is now the seat's right
+ * vector `(cos yaw, 0, -sin yaw)`, i.e. azimuth `-yaw` (−31° at the 31° rest
+ * yaw), so at noon the key is pure side light: from the landscape seat the
+ * tower's +X face takes the key at 46° (N·L 0.70), the broad +Z face sits in
+ * shade at 115° (N·L −0.42) and the drum's seaward face grazes at 79°.
+ * With the ±57° arc this gives dawn ~33° right of forward (soft contre-jour,
+ * just outside the frame edge), 17:36 at 132° (behind the viewer's right
+ * shoulder) and sunset at 147°. If the rest yaw moves, the light moves with
+ * it; the tests pin that relation, not a number.
  */
-const NOON_BEARING = Math.atan2(-30, -35);
+const NOON_BEARING = -REST_SEAT_YAW_RAD;
 /** Lower apex keeps noon shadows legible without changing their bearing. */
 const NOON_ELEVATION = 0.62;
 
 /**
  * Half the azimuth swept between sunrise and sunset, in radians (~57°).
  *
- * Not the ~180° a physical sun sweeps: under a LOCKED isometric camera a full
- * swing puts the sun behind the viewer for part of the day, which flattens the
- * island into silhouette and then into frontal light — two framings the
- * composition was never designed for. A ±57° arc keeps the monument modelled
- * from a consistent quarter while still moving shadows far enough that the hour
- * is legible at a glance.
+ * Not the ~180° a physical sun sweeps: a full swing would put the sun dead
+ * ahead at dawn (the monument a flat silhouette) and dead behind at dusk (flat
+ * frontal light). ±57° around the right-hand noon keeps the monument modelled
+ * from the right-hand quarter all day — front-right at dawn, side at noon,
+ * back-right at golden — while moving shadows far enough that the hour is
+ * legible at a glance.
  */
 const ARC_SWEEP = 1.0;
 
@@ -165,6 +175,5 @@ function emptyPose(): GardenLightPose {
   return { direction: new Vector3(0, 1, 0), elevation: Math.PI / 2 };
 }
 
-export const GARDEN_SUN_NOON_BEARING = NOON_BEARING;
 export const GARDEN_SUN_NOON_ELEVATION = NOON_ELEVATION;
 export const GARDEN_KEY_MIN_ELEVATION = MIN_KEY_ELEVATION;

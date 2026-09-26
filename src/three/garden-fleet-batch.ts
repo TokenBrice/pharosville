@@ -19,7 +19,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { GARDEN_SAIL_DIP_MIN_SCALE } from "../systems/garden-arrival-beats";
 import type { GardenHullSilhouette } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
-import { cameraEye, cameraPoseFromIso, type IsoCamera, type ScreenPoint } from "../systems/projection";
+import { cameraView, type IsoCamera, type ScreenPoint } from "../systems/projection";
 import {
   GARDEN_GUST_ATTACK_SECONDS,
   GARDEN_GUST_CYCLE_SECONDS,
@@ -1340,7 +1340,7 @@ const fleetDistanceStates = new WeakMap<FleetBatches, FleetDistanceState>();
  */
 export function beginFleetFrame(batches: FleetBatches, frame?: FleetDistanceFrame): void {
   if (frame) {
-    const eye = cameraEye(cameraPoseFromIso(frame.camera, frame.viewport));
+    const eye = cameraView(frame.camera, frame.viewport).eye;
     const previous = fleetDistanceStates.get(batches);
     if (previous) {
       previous.eye = eye;

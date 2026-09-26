@@ -48,7 +48,13 @@ export const GARDEN_SKY_BEATS = {
   day: { zenith: new Color(0x4c87c4), horizon: new Color(0xe0e4e9) },
   golden: { zenith: new Color(0x74638e), horizon: new Color(0xdca76c) },
   blue: { zenith: new Color(0x202c59), horizon: new Color(0x595773) },
-  night: { zenith: new Color(0x050918), horizon: new Color(0x11182c) },
+  // W1.8 (sky-6): authored to land AFTER the night chain (grade, Neutral tone
+  // map at 1.12, night LUT) on frame-top zenith #0e1530 (L* ≈ 7.5, under the
+  // 0.76 deep bokashi band) and horizon #1b2440 (L* ≈ 15): a luminous indigo
+  // horizon the ridges, masts and tower read against as ink. The inputs look
+  // grey because the tone map's toe subtracts the smallest channel; the old
+  // #050918 / #11182c rendered at L* 0.9 / 3.4 — black paper.
+  night: { zenith: new Color(0x35394c), horizon: new Color(0x393e50) },
 };
 const SKY_BEAT_NAMES = ["dawn", "day", "golden", "blue", "night"] as const;
 
@@ -77,9 +83,12 @@ const FOG_ISLAND_Z = (70 + GARDEN_ISLAND_TILE_OFFSET.y - 12) * TILE_SCALE;
 const FOG_FAR_EDGE = 70 * TILE_SCALE;
 const FOG_NEAR = 200;
 const FOG_FAR = 400;
-// The far plate edge lands at ~35 % fog (the sky test's ≥30 % floor) rather
-// than 100 %, so far quays and headlands keep a silhouette.
-const FOG_FAR_BEYOND_EDGE = 1.35;
+// The nearer far-plate edge lands at ~35 % fog (the sky test's ≥30 % floor)
+// rather than 100 %, so far quays and headlands keep a silhouette. The seat-C
+// rest eye stands off the south-east corner looking north-west, so the west
+// edge is ~40 u nearer than the north one; fitting the nearer edge keeps both
+// in haze, and the farther one reads deeper, as aerial perspective should.
+const FOG_FAR_BEYOND_EDGE = 1.26;
 
 function fogRangeAtViewHeight(
   fog: Fog,
@@ -91,7 +100,7 @@ function fogRangeAtViewHeight(
     eye.y - GARDEN_WATER_Y,
     eye.z - FOG_ISLAND_Z,
   );
-  const farEdgeDistance = Math.max(
+  const farEdgeDistance = Math.min(
     Math.hypot(eye.x, eye.y - GARDEN_WATER_Y, eye.z - FOG_FAR_EDGE),
     Math.hypot(eye.x - FOG_FAR_EDGE, eye.y - GARDEN_WATER_Y, eye.z),
   );
@@ -614,9 +623,12 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     }
     dome.material.uniforms.uScattering.value = Math.min(1, daylight + dusk * 0.7);
     dome.material.uniforms.uSunIntensity.value = daylight * 1.55 + dusk * 1.3;
+    // W1.8 (sky-2): the clear-sky floor is 0.12, not 0.42 — at 0.42 the band
+    // behind the tower was the brightest thing in the noon frame. Low clarity
+    // still thickens it.
     dome.material.uniforms.uHazeStrength.value = Math.min(
       0.8,
-      0.42 + (NEUTRAL_SKY_CLARITY - clarity) * 0.3,
+      0.12 + (NEUTRAL_SKY_CLARITY - clarity) * 0.3,
     );
     dome.material.uniforms.uBokashiAmount.value = gardenBokashiAmount(phase);
   };

@@ -61,7 +61,7 @@ import type { ObserveTourKeyframe } from "./systems/observe-tour";
 import { GARDEN_ATTRACT_IDLE_MS, gardenAttractKeyframes } from "./systems/garden-attract";
 import { buildQuickFindCandidates } from "./systems/quick-find-match";
 import { recentFleetTrendSummary } from "./systems/sea-state";
-import { tileToIso, type IsoCamera, type ScreenPoint } from "./systems/projection";
+import { CAMERA_BREATH_IDENTITY, tileToIso, type CameraBreath, type IsoCamera, type ScreenPoint } from "./systems/projection";
 import type { WorldSelectableEntity } from "./systems/world-types";
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
@@ -346,6 +346,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const hitTargetSnapshotRef = useRef<HitTargetSnapshot | null>(null);
   const hitTargetsRef = useRef<readonly HitTarget[]>([]);
   const seaSignScaleRef = useRef<number | null>(null);
+  // K16: the breath of the frame last drawn, so click-time hit snapshots pick
+  // against the breathed pose the eye saw.
+  const cameraBreathRef = useRef<Readonly<CameraBreath>>(CAMERA_BREATH_IDENTITY);
   const shipMotionSamplesRef = useRef<ReadonlyMap<string, ShipMotionSample>>(new Map());
 
   // `recomputeHitTargets` is a stable wrapper that reads through this ref so
@@ -512,8 +515,10 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // to event handlers (canvas isn't ready until after first commit anyway).
   useEffect(() => {
     recomputeHitTargetsRef.current = (): HitTargetSnapshot | null => {
-      const activeCamera = canvas.cameraRef.current;
-      if (!activeCamera) return hitTargetSnapshotRef.current;
+      const committedCamera = canvas.cameraRef.current;
+      if (!committedCamera) return hitTargetSnapshotRef.current;
+      const breath = cameraBreathRef.current;
+      const activeCamera = breath === CAMERA_BREATH_IDENTITY ? committedCamera : { ...committedCamera, breath };
       const activeCanvasSize = canvas.canvasSizeRef.current;
       const snapshot = createGardenObservatoryHitTargetSnapshot({
         camera: activeCamera,
@@ -666,6 +671,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectedDetailId,
     selectedDetailIdRef,
     seaSignScaleRef,
+    cameraBreathRef,
     shipMotionSamplesRef,
     shipsById,
     stepCamera: canvas.stepCamera,

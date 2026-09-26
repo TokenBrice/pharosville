@@ -7,6 +7,7 @@ import {
   sampleGardenArrivalCamera,
   sampleGardenArrivalCeremonyPose,
 } from "./garden-arrival";
+import { worldToScreen } from "./projection";
 import { buildPharosVilleMap } from "./world-layout";
 
 describe("garden arrival", () => {
@@ -16,27 +17,19 @@ describe("garden arrival", () => {
     expect(easeOutQuint(2)).toBe(1);
   });
 
-  it("settles exactly on the veranda camera after nine seconds", () => {
-    const target = { offsetX: 400, offsetY: 220, zoom: 1.2 };
-    const start = gardenArrivalCamera(target);
-    const halfway = sampleGardenArrivalCamera(start, target, GARDEN_ARRIVAL_DURATION_MS / 2);
-    const settled = sampleGardenArrivalCamera(start, target, GARDEN_ARRIVAL_DURATION_MS);
-
-    expect(start.zoom).toBeLessThan(target.zoom);
-    expect(halfway.done).toBe(false);
-    expect(halfway.camera.zoom).toBeGreaterThan(start.zoom);
-    expect(settled).toEqual({ camera: target, done: true });
-  });
-
-  it("opens at 0.82 of the resting frame and eases onto the new rest", () => {
-    // Arrival opens wider than rest by the authored 0.82 factor and settles
-    // on defaultCamera's framing over the same nine seconds.
+  it("starts on the rest ShotSpec with no slide and holds it until the arrival completes", () => {
     const map = buildPharosVilleMap();
-    const rest = defaultCamera({ height: 1004, map, width: 1568 });
+    const viewport = { x: 1568, y: 1004 };
+    const rest = defaultCamera({ height: viewport.y, map, width: viewport.x });
     const opening = gardenArrivalCamera(rest);
-    expect(opening.zoom).toBeCloseTo(rest.zoom * 0.82);
-    const settled = sampleGardenArrivalCamera(opening, rest, GARDEN_ARRIVAL_DURATION_MS);
-    expect(settled).toEqual({ camera: rest, done: true });
+    const tower = { x: 94.8, y: 20, z: 109 };
+    const seat = worldToScreen(tower, rest, viewport);
+    for (const elapsed of [0, GARDEN_ARRIVAL_DURATION_MS / 3, GARDEN_ARRIVAL_DURATION_MS * 0.9]) {
+      const sample = sampleGardenArrivalCamera(opening, rest, elapsed);
+      expect(sample.done).toBe(false);
+      expect(worldToScreen(tower, sample.camera, viewport)).toEqual(seat);
+    }
+    expect(sampleGardenArrivalCamera(opening, rest, GARDEN_ARRIVAL_DURATION_MS)).toEqual({ camera: rest, done: true });
   });
 
   it("authors an eight-to-twelve-second ceremony with a deterministic reduced-motion mid-pose", () => {

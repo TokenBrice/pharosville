@@ -186,6 +186,7 @@ export function consortShadowSampleInto(
   );
   out.routeKey = routeIdentityKey(route);
   out.routePathKey = flagshipSample.routePathKey ?? routePathIdentityKey(route, "consort", flagshipRoute.shipId);
+  out.routePath = undefined;
   copyVelocityInto(flagshipSample, out);
   writeMapVisibilityAlphaInto(out, flagshipSample.mapVisibilityAlpha);
   out.wakeIntensity = flagshipSample.wakeIntensity;

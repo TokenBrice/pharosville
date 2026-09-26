@@ -57,20 +57,18 @@ import {
   resolveGardenShipDisplayTile,
   selectGardenObservatorySlice,
 } from "../systems/garden-observatory-slice";
-import { GARDEN_EMPTY_INLET } from "../systems/garden-fleet-placement";
+import { GARDEN_EMPTY_INLET } from "../systems/garden-inlet";
 import {
+  CAMERA_BREATH_IDENTITY,
   CAMERA_NEAR,
-  CAMERA_YAW,
-  PROJECTION_BREATH_IDENTITY,
   TILE_SCALE,
-  resetProjectionCameraBreath,
-  setProjectionCameraBreath,
   worldToScreen,
   worldViewDepth,
+  type CameraBreath,
   type IsoCamera,
-  type ProjectionCameraBreath,
   type ScreenPoint,
 } from "../systems/projection";
+import { REST_SEAT_YAW_RAD } from "../systems/rest-seat";
 import { seaStateForWorld, type SeaState } from "../systems/sea-state";
 import { weatherForFrame, writeWeatherPlan, type WeatherPlan } from "../systems/weather";
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
@@ -197,6 +195,11 @@ export interface UseWorldRenderLoopInput {
   selectedDetailIdRef: MutableRefObject<string | null>;
   /** Last scale actually drawn by the renderer's stele track. */
   seaSignScaleRef?: MutableRefObject<number | null>;
+  /**
+   * K16 breath of the frame last drawn. Click-time hit snapshots built between
+   * frames put it on their camera, so picking always reads the breathed pose.
+   */
+  cameraBreathRef?: MutableRefObject<Readonly<CameraBreath>>;
   shipMotionSamplesRef: MutableRefObject<ReadonlyMap<string, ShipMotionSample>>;
   shipsById: ReadonlyMap<string, PharosVilleWorldModel["ships"][number]>;
   stepCamera: (now: number, shipMotionSamples: ReadonlyMap<string, ShipMotionSample>) => WorldCameraStepResult;
@@ -248,6 +251,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     selectedDetailId,
     selectedDetailIdRef,
     seaSignScaleRef: providedSeaSignScaleRef,
+    cameraBreathRef: providedCameraBreathRef,
     shipMotionSamplesRef,
     shipsById,
     stepCamera,
@@ -260,6 +264,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   useEffect(() => {
     seaSignScaleTargetRef.current = providedSeaSignScaleRef ?? fallbackSeaSignScaleRef;
   }, [providedSeaSignScaleRef, fallbackSeaSignScaleRef]);
+  const fallbackCameraBreathRef = useRef<Readonly<CameraBreath>>(CAMERA_BREATH_IDENTITY);
+  const cameraBreathTargetRef = useRef<MutableRefObject<Readonly<CameraBreath>>>(fallbackCameraBreathRef);
+  useEffect(() => {
+    cameraBreathTargetRef.current = providedCameraBreathRef ?? fallbackCameraBreathRef;
+  }, [providedCameraBreathRef]);
 
   const stepCameraRef = useRef(stepCamera);
   useEffect(() => {
@@ -353,8 +362,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   const previousFrameIdleRef = useRef(false);
   // W0.12 eased breath: `weight` is the applied amplitude share, `rise` the
   // 0..1 progress of the 12 s smootherstep ease-in; `breath` is the one scratch
-  // object handed to the renderer and the projection seam while breathing.
-  const cameraBreathStateRef = useRef<{ breath: ProjectionCameraBreath; rise: number; weight: number }>({
+  // object the frame's camera state carries while breathing.
+  const cameraBreathStateRef = useRef<{ breath: CameraBreath; rise: number; weight: number }>({
     breath: { dolly: 1, pitch: 0, yaw: 0 },
     rise: 0,
     weight: 0,
@@ -840,8 +849,9 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       let renderMetrics: PharosVilleRenderMetrics;
       // K16: breath is idle-only. Hover, selection, camera intent (a glide, a
       // follow, a postcard move) or any input in the last 45 s target zero;
-      // the weight eases rather than snapping, and hit-tests read the same
-      // breathed pose through the projection seam set below.
+      // the weight eases rather than snapping. The breath rides on this
+      // frame's camera state, so the renderer, the hit snapshot and the label
+      // anchors all project the same breathed pose.
       const cameraBreath = stepCameraBreath(cameraBreathStateRef.current, {
         dtSeconds: frameDtSeconds,
         forcedStill: reducedMotion || isStillCameraRequested(),
@@ -851,15 +861,17 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           && time - (lastInteractionAtMsRef.current ?? time) >= CAMERA_BREATH_IDLE_MS,
         phaseSeconds: timeSeconds,
       });
-      setProjectionCameraBreath(cameraBreath);
+      const drawnCamera: IsoCamera = cameraBreath === CAMERA_BREATH_IDENTITY
+        ? frameCamera
+        : { ...frameCamera, breath: cameraBreath };
+      cameraBreathTargetRef.current.current = cameraBreath;
       try {
         renderMetrics = threeRenderer.render({
           almanacEvent: almanacEvent ?? null,
           gardenDirector: gardenDirectorRef.current,
           epochSeconds: Date.now() / 1000,
           logos,
-          camera: frameCamera,
-          cameraBreath,
+          camera: drawnCamera,
           dpr,
           height: activeCanvasSize.y,
           hoveredDetailId: activeHoveredDetailId,
@@ -906,7 +918,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       seaSignScaleTargetRef.current.current = drawnSeaSignScale;
       const hitTargetStartedAt = performance.now();
       const nextSnapshot = createGardenObservatoryHitTargetSnapshot({
-        camera: frameCamera,
+        camera: drawnCamera,
         hoveredDetailId: activeHoveredDetailId,
         seaSignScale: drawnSeaSignScale,
         selectedDetailId: activeSelectedDetailId,
@@ -917,7 +929,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       hitTargetSnapshotRef.current = nextSnapshot;
       hitTargetsRef.current = nextSnapshot.targets;
       onStationLabelFrameRef.current?.(createGardenStationLabelFrame({
-        camera: frameCamera,
+        camera: drawnCamera,
         snapshot: nextSnapshot,
         viewport: { height: activeCanvasSize.y, width: activeCanvasSize.x },
         world: activeWorld,
@@ -1205,9 +1217,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       paintRequestRef.current = () => {};
       animationFramePendingRef.current = false;
       lastWallRef.current = null;
-      // The projection seam holds the last drawn breath; with no loop drawing,
-      // picking and anchors return to the unbreathed pose.
-      resetProjectionCameraBreath();
+      // With no loop drawing, click-time picking returns to the unbreathed pose.
+      cameraBreathTargetRef.current.current = CAMERA_BREATH_IDENTITY;
       if (frameId) cancelAnimationFrame(frameId);
       if (observer) observer.disconnect();
       if (longtaskObserverRef.current) {
@@ -1309,9 +1320,12 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       surfaceBudget: surfaceBudgetRef.current,
       canvasSize,
       // W0.3: world → CSS-pixel canvas coordinates with the pose last drawn
-      // (breath included, through the same projection seam hit-testing uses).
+      // (breath included, as the hit snapshot reads it).
       project: (points) => {
-        const activeCamera = cameraRef.current;
+        const breath = cameraBreathTargetRef.current.current;
+        const activeCamera = cameraRef.current && breath !== CAMERA_BREATH_IDENTITY
+          ? { ...cameraRef.current, breath }
+          : cameraRef.current;
         const viewport = canvasSizeRef.current;
         return points.map((point) => {
           if (!activeCamera || viewport.x <= 0 || viewport.y <= 0) return { x: Number.NaN, y: Number.NaN, visible: false };
@@ -1662,7 +1676,7 @@ function isCameraWithinBounds(camera: IsoCamera | null, map: PharosVilleWorldMod
   );
 }
 
-type CameraBreathState = { breath: ProjectionCameraBreath; rise: number; weight: number };
+type CameraBreathState = { breath: CameraBreath; rise: number; weight: number };
 
 /**
  * One frame of the W0.12 breath: advance the eased weight, then write the
@@ -1672,11 +1686,11 @@ type CameraBreathState = { breath: ProjectionCameraBreath; rise: number; weight:
 export function stepCameraBreath(
   state: CameraBreathState,
   input: { dtSeconds: number; forcedStill: boolean; idle: boolean; phaseSeconds: number },
-): Readonly<ProjectionCameraBreath> {
+): Readonly<CameraBreath> {
   if (input.forcedStill) {
     state.rise = 0;
     state.weight = 0;
-    return PROJECTION_BREATH_IDENTITY;
+    return CAMERA_BREATH_IDENTITY;
   }
   const dt = Math.max(0, input.dtSeconds);
   if (input.idle) {
@@ -1690,7 +1704,7 @@ export function stepCameraBreath(
     if (state.weight < 1e-4) state.weight = 0;
   }
   const weight = state.weight;
-  if (weight === 0) return PROJECTION_BREATH_IDENTITY;
+  if (weight === 0) return CAMERA_BREATH_IDENTITY;
   const phase = CAMERA_BREATH_TWO_PI * input.phaseSeconds;
   state.breath.dolly = 1 + weight * CAMERA_BREATH_DOLLY * Math.sin(phase / 131 + 2.1);
   state.breath.pitch = weight * CAMERA_BREATH_PITCH_RAD * Math.sin(phase / 97 + 1.3);
@@ -1744,10 +1758,10 @@ function debugWorldAnchors(world: PharosVilleWorldModel): DebugWorldAnchors {
   const midHalf = (TOWER_SQUARE_BASE_HALF + TOWER_SQUARE_TOP_HALF) / 2;
   // Faces whose outward normal points toward the eye; the one further along
   // the camera's right axis is the right face.
-  const eyeX = Math.sin(CAMERA_YAW);
-  const eyeZ = Math.cos(CAMERA_YAW);
-  const rightX = Math.cos(CAMERA_YAW);
-  const rightZ = -Math.sin(CAMERA_YAW);
+  const eyeX = Math.sin(REST_SEAT_YAW_RAD);
+  const eyeZ = Math.cos(REST_SEAT_YAW_RAD);
+  const rightX = Math.cos(REST_SEAT_YAW_RAD);
+  const rightZ = -Math.sin(REST_SEAT_YAW_RAD);
   const faceX = { x: Math.sign(eyeX) || 1, z: 0 };
   const faceZ = { x: 0, z: Math.sign(eyeZ) || 1 };
   const [leftFace, rightFace] = faceX.x * rightX + faceX.z * rightZ < faceZ.x * rightX + faceZ.z * rightZ

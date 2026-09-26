@@ -2,6 +2,7 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
+import { defaultCamera } from "../systems/camera";
 import { buildWorldUrlHref, useWorldUrlState } from "./use-world-url-state";
 
 afterEach(() => {
@@ -105,6 +106,14 @@ describe("useWorldUrlState", () => {
     expect(url.searchParams.get("t")).toBe("23.75");
     expect(url.searchParams.get("n")).toBe("0");
     expect(url.searchParams.get("cam")).toBe("1.23,5.68,1.235");
+  });
+
+  it("clears cam while the camera is on the rest ShotSpec", () => {
+    const rest = defaultCamera({ height: 900, map: { height: 140, width: 140 }, width: 720 });
+    const href = buildWorldUrlHref("https://example.test/#cam=1,2,3&sel=lighthouse", "hash", { camera: rest });
+    const params = new URLSearchParams(new URL(href).hash.slice(1));
+    expect(params.has("cam")).toBe(false);
+    expect(params.get("sel")).toBe("lighthouse");
   });
 
   it("keeps legacy time controls in the hash beside a moment query", () => {

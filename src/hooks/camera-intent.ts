@@ -1,8 +1,8 @@
-import { clampCameraToMap, followTile } from "../systems/camera";
+import { followTile, withoutRest, zoomCameraOnGround } from "../systems/camera";
 import {
   MAX_ZOOM,
-  minZoomForViewport,
   zoomCameraAt,
+  type CameraRestState,
   type IsoCamera,
   type MapLike,
   type ScreenPoint,
@@ -26,6 +26,14 @@ const WHEEL_DELTA_LINE_HEIGHT_PX = 16;
 const WHEEL_DELTA_DEFAULT_PAGE_PX = 800;
 const WHEEL_DELTA_CLAMP_PX = 240;
 const WHEEL_ZOOM_EXPONENT_PER_PIXEL = 0.00145;
+/**
+ * W1.0 hand-off: the first wheel, drag, pinch or key from rest eases the view
+ * from the seat's pitch and eye height into the rig over this long (quintic
+ * smootherstep of the linear presence, so it leaves the seat with zero speed).
+ */
+export const REST_HAND_OFF_SECONDS = 0.6;
+/** Reset, a selection return or a tour's end glide back onto the seat over this long. */
+export const REST_RETURN_SECONDS = 1.2;
 
 export type CameraIntentMode =
   | "idle"
@@ -61,6 +69,12 @@ export function wheelZoomScaleFromDelta(deltaY: number, deltaMode: number, pageS
   return Math.exp(-normalizeWheelDeltaY(deltaY, deltaMode, pageSize) * WHEEL_ZOOM_EXPONENT_PER_PIXEL);
 }
 
+/**
+ * One wheel step. The water point under the cursor in the view the camera
+ * state shows (the rest seat included) stays under the cursor on the rig the
+ * step returns; the rest hands off. N1: the zoom floor comes from the viewport,
+ * so the wheel can never pull the camera back past the world into empty ocean.
+ */
 export function zoomCameraByWheelDelta(input: {
   camera: IsoCamera;
   deltaMode: number;
@@ -69,15 +83,33 @@ export function zoomCameraByWheelDelta(input: {
   point: ScreenPoint;
   viewport: ScreenPoint;
 }): IsoCamera {
-  // N1: the zoom floor comes from the viewport, so the wheel can never pull
-  // the camera back past the world into empty ocean.
-  const next = zoomCameraAt(
-    input.camera,
-    input.point,
-    input.camera.zoom * wheelZoomScaleFromDelta(input.deltaY, input.deltaMode, input.viewport.y),
-    input.map ? minZoomForViewport(input.viewport, input.map) : undefined,
-  );
-  return input.map ? clampCameraToMap(next, { map: input.map, viewport: input.viewport }) : next;
+  const nextZoom = input.camera.zoom * wheelZoomScaleFromDelta(input.deltaY, input.deltaMode, input.viewport.y);
+  if (input.map) return zoomCameraOnGround(input.camera, input.point, nextZoom, { map: input.map, viewport: input.viewport });
+  return zoomCameraAt(withoutRest(input.camera), input.point, nextZoom);
+}
+
+/**
+ * The rest presence one frame on: linear toward the target's presence (a
+ * missing `rest` is presence 0), over `REST_HAND_OFF_SECONDS` going out and
+ * `REST_RETURN_SECONDS` coming back. The view keeps the rest pose it is
+ * leaving or the one it is returning to. `undefined` once fully on the rig.
+ */
+export function stepRestPresence(
+  current: IsoCamera,
+  target: IsoCamera,
+  deltaSeconds: number,
+): CameraRestState | undefined {
+  const view = target.rest?.view ?? current.rest?.view;
+  const from = current.rest?.presence ?? 0;
+  const to = target.rest?.presence ?? 0;
+  if (!view) return undefined;
+  const dt = Math.max(0, deltaSeconds);
+  const presence = to >= from
+    ? Math.min(to, from + dt / REST_RETURN_SECONDS)
+    : Math.max(to, from - dt / REST_HAND_OFF_SECONDS);
+  if (presence <= 0) return undefined;
+  if (target.rest && presence === to) return target.rest;
+  return { presence, view };
 }
 
 export function advanceCameraIntent(
@@ -87,7 +119,11 @@ export function advanceCameraIntent(
   mode: CameraIntentMode = "toolbar",
 ): { camera: IsoCamera; settled: boolean } {
   if (nearlySameCamera(current, target)) return { camera: target, settled: true };
-  const next = dampFollowCamera(current, target, deltaSeconds, cameraDampingForMode(mode));
+  const rig = dampFollowCamera(current, target, deltaSeconds, cameraDampingForMode(mode));
+  const rest = stepRestPresence(current, target, deltaSeconds);
+  const next: IsoCamera = rest
+    ? { offsetX: rig.offsetX, offsetY: rig.offsetY, zoom: rig.zoom, rest }
+    : { offsetX: rig.offsetX, offsetY: rig.offsetY, zoom: rig.zoom };
   if (nearlySameCamera(next, target)) return { camera: target, settled: true };
   return { camera: next, settled: false };
 }

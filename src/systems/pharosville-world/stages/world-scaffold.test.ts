@@ -17,6 +17,7 @@ import { buildGardenMonthRecord } from "../../garden-month-record";
 import { buildPharosVilleWorld } from "../../pharosville-world";
 import { RIM_COVES } from "../../garden-rim";
 import { assignGardenChainFlagCell, resetGardenChainFlagAtlas } from "../../../three/garden-chain-flag";
+import { noboriInkHex } from "../../palette";
 import {
   fixtureChains,
   makeAsset,
@@ -358,16 +359,16 @@ describe("dock supply change (Tier 3 #13)", () => {
 //
 // The chains payload is the one door raw upstream chain ids walk through, and
 // every downstream consumer keys on `chain.id`: slot binding and suppression
-// (`buildChainDocks`), the flag dye (`CHAIN_FLAG_FIELD` in garden-chain-flag),
+// (`buildChainDocks`), the flag ink (`CHAIN_BRAND_HEX` in garden-chain-flag),
 // ship moorings (`assignDockVisits`) and the mint-burn scope join
 // (`buildCargoTideStage`). These tests drive the real `buildPharosVilleWorld`
 // with feeds an upstream alias day can actually produce, and assert only what
 // the world observes — a berth, a painted colour, a moored ship.
 
-/** `CHAIN_FLAG_FIELD.hyperliquid` — the sanctioned brand dye the flag cloth wears. */
-const HYPERLIQUID_FLAG_DYE = "#97fce4";
+/** The ink Hyperliquid's mark is printed in: its brand mint `#97fce4` through the nobori clamp. */
+const HYPERLIQUID_FLAG_INK = noboriInkHex("#97fce4");
 
-/** A stand-in health accent, chosen to share no hex with any painted flag colour. */
+/** A stand-in health accent, chosen so its clamped ink shares no hex with any painted flag colour. */
 const FALLBACK_HEALTH_ACCENT = "#4d7fbe";
 
 function chainsFeed(chains: ChainSummary[]): ChainsResponse {
@@ -403,7 +404,7 @@ describe("chain id normalization boundary (D8)", () => {
     expect(hyperliquid.station.type).toBe("fishing-pier");
   });
 
-  it("flies the canonical chain's flag dye rather than the shared health accent (L6)", () => {
+  it("prints the canonical chain's flag ink rather than the shared health accent's (L6)", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput({
       chains: aliasedHyperliquidFeed(),
     }));
@@ -416,7 +417,10 @@ describe("chain id normalization boundary (D8)", () => {
     const paintedFillStyles: string[] = [];
     let lastFillStyle = "";
     const context = {
+      arc: () => {},
+      beginPath: () => {},
       clearRect: () => {},
+      fill: () => {},
       fillRect: () => {},
       fillText: () => {},
       restore: () => {},
@@ -442,8 +446,8 @@ describe("chain id normalization boundary (D8)", () => {
       vi.unstubAllGlobals();
     }
 
-    expect(paintedFillStyles).toContain(HYPERLIQUID_FLAG_DYE);
-    expect(paintedFillStyles).not.toContain(FALLBACK_HEALTH_ACCENT);
+    expect(paintedFillStyles).toContain(HYPERLIQUID_FLAG_INK);
+    expect(paintedFillStyles).not.toContain(noboriInkHex(FALLBACK_HEALTH_ACCENT));
   });
 
   it("keeps a chain id no alias table knows on a real mouth", () => {

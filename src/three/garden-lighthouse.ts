@@ -35,21 +35,26 @@ import {
 } from "./garden-day-cycle";
 import type { LampStatusModulation } from "../systems/lamp-status";
 import { gardenModelAnchor } from "./garden-models";
+import type { GardenLightPose } from "./garden-sun";
 import { stableUnit } from "./garden-util";
 
-// L1 silhouette contract (Epic Pharos 2026-09-05): shell and GLB share a
-// 12.4-wide stepped stylobate, battered square (2.5→20.5, half 4.6→3.7),
-// octagonal drum (20.5→29, radius 2.75→2.5), columned lantern (29.4→32.8),
-// conical cap (33.2→34.4), pedestal and Zeus (35→38, sceptre tip).
+// L1 silhouette contract (Epic Pharos 2026-09-05; W1.9 keep trade): shell and
+// GLB share a 12.4-wide stepped stylobate, battered square (2.5→14.5, half
+// 4.6→3.7), octagonal drum (14.5→23, radius 2.75→2.5), columned lantern
+// (23.4→26.8) with a glass skin, conical cap (27.2→28.4), pedestal and Zeus
+// (29→32, sceptre tip). The tower stands on the crag court six units higher
+// than the pre-W1.9 plinth, so its world beacon and crown are unchanged.
 // The lantern brazier/beam share GARDEN_LIGHTHOUSE_BEACON_Y; the crown
 // shares GARDEN_LIGHTHOUSE_HEIGHT, including on pre-load/failure frames.
 const TERRACE_TOP_Y = 2.5;
-const SQUARE_TOP_Y = 20.5;
+const SQUARE_TOP_Y = 14.5;
 const SQUARE_BASE_HALF = 4.6;
 const SQUARE_TOP_HALF = 3.7;
-const OCT_TOP_Y = 29;
+const OCT_TOP_Y = 23;
 const OCT_BASE_RADIUS = 2.75;
 const OCT_TOP_RADIUS = 2.5;
+const LANTERN_BASE_Y = OCT_TOP_Y + 0.4;
+const LANTERN_TOP_Y = LANTERN_BASE_Y + 3.4;
 const LANTERN_RADIUS = 1.9;
 /** Half-extent of the projecting gallery at the square tier's head. */
 const GALLERY_HALF = 4.7;
@@ -76,23 +81,27 @@ const octRadius = (y: number): number => OCT_BASE_RADIUS
 // C1: every colour derives from HARBOR_PALETTE — no local hex literals.
 const P = HARBOR_PALETTE;
 const palette = (hex: string): Color => new Color(hex);
-const STONE_PALE_WARM = palette(P.foam_white).lerp(palette(P.lantern_glow), 0.22);
-const STONE_MID = STONE_PALE_WARM.clone().lerp(palette(P.stone_pale), 0.45);
+// pharos-5: neutral weathered limestone (≈ #e4dfd2), not the yellow cream.
+const STONE_PALE_WARM = palette(P.foam_white).lerp(palette(P.fog_day), 0.45);
+const STONE_MID = STONE_PALE_WARM.clone().lerp(palette(P.stone_pale), 0.35);
 const STONE_SHADOW = palette(P.stone_pale).lerp(palette(P.fog_blue), 0.25);
 const BRONZE = palette(P.timber_mid).lerp(palette(P.iron_dark), 0.4);
-// Bronze statue: metal that reads by its specular line, not by self-light.
-// The day-cycle lends it a faint dusk-only gleam (W0.7/W0.9); metalness 0.6
-// keeps the bronze from mirroring the sky into a cream doll.
-const GILT = palette(P.lantern_warm).lerp(palette(P.lantern_glow), 0.35);
+// pharos-7: the statue is dark bronze that reads by its specular line, not
+// by self-light; the day cycle lends it only a dusk gleam (≤ 0.4, W0.9) and
+// the rim light does the separation. Metalness 0.6 keeps it from mirroring
+// the sky into a cream doll.
+const GILT = palette(P.timber_mid).lerp(palette(P.stone_dark), 0.45)
+  .lerp(palette(P.roof_weathered_copper), 0.12);
 const GILT_METALNESS = 0.6;
+const GILT_ROUGHNESS = 0.22;
 // Night beacon discipline (W0.7): the stone's warm-bounce whisper is an
 // emissive term, so it lights the masonry at every hour. 0.015 keeps the day
 // shade side warm without turning the night shaft into a lit wall.
 const STONE_WARM_BOUNCE = 0.015;
 // The beacon's PointLight grazes the lantern storey only; it no longer
-// floods 46 u of masonry.
-const LIGHTHOUSE_LIGHT_RANGE = 30;
-const STAIR_STONE = palette(P.foam_white).lerp(palette(P.lantern_glow), 0.3);
+// floods the masonry (22 < the 24.2-unit beacon, so it stops short of the foot).
+const LIGHTHOUSE_LIGHT_RANGE = 22;
+const STAIR_STONE = palette(P.foam_white).lerp(palette(P.fog_day), 0.5);
 const SHORE_STONE = palette(P.stone_mid).lerp(palette(P.fog_pale), 0.25);
 const LAMP_BASE_COLOR = palette(P.lantern_warm);
 const LAMP_BASE_EMISSIVE = palette(P.lantern_glow);
@@ -165,6 +174,100 @@ export function attachGardenLighthouseModel(
 export const LIGHTHOUSE_WINDOW_MATERIAL_NAME = "lighthouse-window-glow";
 
 /**
+ * pharos-1: the lantern glass. The opaque glow drum that shared the window
+ * material (and hid the flame) is gone; a thin open glass skin sits just
+ * inside the lantern columns in both the procedural shell and the GLB, which
+ * authors it under this name for the runtime to find.
+ */
+export const LIGHTHOUSE_LANTERN_GLASS_MATERIAL_NAME = "lighthouse-lantern-glass";
+
+const GLASS_SKY_NIGHT = DAY_CYCLE_SKY_PRESETS.night.horizon.clone()
+  .lerp(DAY_CYCLE_SKY_PRESETS.night.zenith, 0.5);
+const GLASS_SKY_DUSK = DAY_CYCLE_SKY_PRESETS.dusk.horizon.clone()
+  .lerp(DAY_CYCLE_SKY_PRESETS.dusk.zenith, 0.5);
+const GLASS_SKY_DAY = DAY_CYCLE_SKY_PRESETS.day.horizon.clone()
+  .lerp(DAY_CYCLE_SKY_PRESETS.day.zenith, 0.55);
+
+/**
+ * Shared by the shell's glass and every GLB clone's, so one day-cycle write
+ * (updateLighthouseLanternGlass) retunes whichever tower is standing. The
+ * defaults are the day read: dark glass with a sky glint, no warmth.
+ */
+export const LIGHTHOUSE_LANTERN_GLASS_UNIFORMS = {
+  uGlassDark: { value: palette(P.iron_dark) },
+  uGlassSky: { value: GLASS_SKY_DAY.clone() },
+  uGlassWarm: { value: 0 },
+  uGlassWarmColor: { value: palette(P.lantern_glow) },
+};
+
+/**
+ * A fresnel film: alpha 0.05 + 0.4·(1 − |N·V|)³, dark glass reflecting the
+ * sky of the hour at grazing angles, plus a warm inner reflection of the fire
+ * at night (lantern_glow × 0.35 × night). It never emits by day, writes no
+ * depth and draws after the flame (renderOrder 1), so the fire reads through.
+ */
+function createLanternGlassMaterial(): ShaderMaterial {
+  const material = new ShaderMaterial({
+    depthWrite: false,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uGlassDark;
+      uniform vec3 uGlassSky;
+      uniform float uGlassWarm;
+      uniform vec3 uGlassWarmColor;
+      varying vec3 vGlassNormal;
+      varying vec3 vGlassView;
+
+      void main() {
+        float facing = abs(dot(normalize(vGlassNormal), normalize(vGlassView)));
+        float fresnel = pow(1.0 - facing, 3.0);
+        vec3 color = mix(uGlassDark, uGlassSky, fresnel) + uGlassWarmColor * uGlassWarm;
+        gl_FragColor = vec4(color, 0.05 + 0.4 * fresnel);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }
+    `,
+    side: DoubleSide,
+    transparent: true,
+    uniforms: { ...LIGHTHOUSE_LANTERN_GLASS_UNIFORMS },
+    vertexShader: /* glsl */ `
+      varying vec3 vGlassNormal;
+      varying vec3 vGlassView;
+
+      void main() {
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        vGlassNormal = normalize(mat3(modelMatrix) * normal);
+        vGlassView = cameraPosition - world.xyz;
+        gl_Position = projectionMatrix * viewMatrix * world;
+      }
+    `,
+  });
+  material.name = LIGHTHOUSE_LANTERN_GLASS_MATERIAL_NAME;
+  return material;
+}
+
+function seatLanternGlass(mesh: Mesh): void {
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.renderOrder = 1;
+}
+
+/**
+ * Day-cycle driver for the shared lantern-glass uniforms (once per frame,
+ * beside updateLighthouseRimLight).
+ */
+export function updateLighthouseLanternGlass(phase: DayCyclePhase): void {
+  blendDayCycleColor(
+    LIGHTHOUSE_LANTERN_GLASS_UNIFORMS.uGlassSky.value,
+    GLASS_SKY_NIGHT,
+    GLASS_SKY_DUSK,
+    GLASS_SKY_DAY,
+    phase.dusk,
+    phase.daylight,
+  );
+  LIGHTHOUSE_LANTERN_GLASS_UNIFORMS.uGlassWarm.value = 0.35 * phase.night;
+}
+
+/**
  * T0.2 (2026-09-07): collects the day-cycle-driven materials out of a freshly
  * built island. Both arrays are per-build, so they cannot leak across
  * rebuilds; the window array is additive (deduped) because the GLB attach
@@ -205,10 +308,20 @@ function prepareLighthouseModelMaterials(
     // material must not be mutated. The limestone is cloned too so the W0.7
     // stone and bronze retune below applies to this tower alone.
     const animated = new Set(["bronze-gilt", LIGHTHOUSE_WINDOW_MATERIAL_NAME, "weathered-limestone"]);
+    let glass: ShaderMaterial | null = null;
     model.traverse((object) => {
       if (!(object instanceof Mesh)) return;
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       const next = materials.map((material) => {
+        if (material instanceof MeshStandardMaterial && material.name === LIGHTHOUSE_LANTERN_GLASS_MATERIAL_NAME) {
+          // pharos-1: the authored glass becomes the fresnel skin. The GLB
+          // drops normals (flat-shaded masonry), so the skin derives its own;
+          // the shared geometry gains them once for every clone.
+          if (!object.geometry.getAttribute("normal")) object.geometry.computeVertexNormals();
+          seatLanternGlass(object);
+          glass ??= createLanternGlassMaterial();
+          return glass;
+        }
         if (!(material instanceof MeshStandardMaterial) || !animated.has(material.name)) {
           return material;
         }
@@ -262,8 +375,9 @@ export const LIGHTHOUSE_RIM_UNIFORMS = {
   // the sky like an engraving, and at 0.1 it was doing that only where the
   // fresnel already peaked. See updateLighthouseRimLight for the phase curve.
   uLighthouseRimStrength: { value: 0.16 },
-  // Matches the world-renderer key sun at (-35, 48, -30) aimed at y≈3.
-  uLighthouseRimSunDir: { value: new Vector3(-35, 45, -30).normalize() },
+  // The live key light (sun by day, moon after dark), written every frame by
+  // updateLighthouseRimLight so the rim sits on the side the light is on.
+  uLighthouseRimSunDir: { value: new Vector3(0, 1, 0) },
 };
 const RIM_NIGHT_COLOR = palette(P.moonlight).lerp(palette(P.fog_blue), 0.4);
 const RIM_DUSK_COLOR = DAY_CYCLE_SKY_PRESETS.dusk.horizon.clone();
@@ -330,8 +444,13 @@ export function applyLighthouseRimLight(root: Object3D): void {
   });
 }
 
-/** Day-cycle driver for the shared rim uniforms (called once per frame). */
-export function updateLighthouseRimLight(phase: DayCyclePhase): void {
+/**
+ * Per-frame driver for the shared rim uniforms: colour and strength follow the
+ * day cycle, and the sky mask follows the live key light — `gardenKeyLightPose`,
+ * the sun by day and the moon after dark — rather than a frozen noon sun.
+ */
+export function updateLighthouseRimLight(phase: DayCyclePhase, keyLight: GardenLightPose): void {
+  LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimSunDir.value.copy(keyLight.direction);
   blendDayCycleColor(
     LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimColor.value,
     RIM_NIGHT_COLOR,
@@ -446,7 +565,7 @@ export function createLighthouse(): {
     // Matches the GLB's material name so the W7 statue gleam finds the god in
     // both the procedural shell and the loaded model.
     name: "bronze-gilt",
-    roughness: 0.3,
+    roughness: GILT_ROUGHNESS,
   });
   // Double-sided so the open brazier bowl reads solid from above.
   const brazierBronze = new MeshStandardMaterial({
@@ -518,9 +637,10 @@ export function createLighthouse(): {
   root.add(ramp);
 
   const windowMaterial = new MeshStandardMaterial({
-    color: palette(P.iron_dark).lerp(palette(P.lantern_cold), 0.35),
+    // pharos-5(e): a dark void by day; the day cycle kindles it at dusk.
+    color: palette(P.iron_dark),
     emissive: HARBOR_PALETTE.lantern_warm,
-    emissiveIntensity: 0.24,
+    emissiveIntensity: 0,
     // W4.5: matches the GLB's aperture material name, so a day-cycle driver
     // for the interior glow finds the windows in the fallback shell and the
     // loaded model alike (same contract as the "bronze-gilt" statue gleam).
@@ -528,12 +648,14 @@ export function createLighthouse(): {
     roughness: 0.38,
     toneMapped: false,
   });
-  // Three arched window rows on all four battered faces, emissive-only.
-  // A shallow box and semicircular head keep the fallback cheap.
-  for (const y of [6.3, 12, 17.4]) {
+  // Two arched window rows on all four battered faces, emissive-only (the
+  // door takes the lower centre bay of the +Z face). A shallow box and
+  // semicircular head keep the fallback cheap.
+  for (const y of [7.05, 11.05]) {
     for (let side = 0; side < 4; side += 1) {
       const face = new Group();
       for (const x of [-2.2, 0, 2.2]) {
+        if (side === 0 && x === 0 && y < 8) continue;
         const window = new Mesh(new BoxGeometry(0.48, 1.1, 0.12), windowMaterial);
         window.position.set(x, y, squareHalf(y) + 0.08);
         face.add(window);
@@ -552,8 +674,8 @@ export function createLighthouse(): {
   for (let side = 0; side < 8; side += 1) {
     const angle = side * Math.PI / 4;
     const window = new Mesh(new BoxGeometry(0.5, 2.1, 0.12), windowMaterial);
-    const reach = octRadius(25) * OCT_FACE + 0.06;
-    window.position.set(Math.sin(angle) * reach, 25, Math.cos(angle) * reach);
+    const reach = octRadius(SQUARE_TOP_Y + 4.5) * OCT_FACE + 0.06;
+    window.position.set(Math.sin(angle) * reach, SQUARE_TOP_Y + 4.5, Math.cos(angle) * reach);
     window.rotation.y = angle;
     root.add(window);
     const arch = new Mesh(
@@ -561,7 +683,7 @@ export function createLighthouse(): {
       windowMaterial,
     );
     arch.rotation.x = -Math.PI / 2;
-    arch.position.set(0, 26.05, reach);
+    arch.position.set(0, SQUARE_TOP_Y + 5.55, reach);
     const archRoot = new Group();
     archRoot.add(arch);
     archRoot.rotation.y = angle;
@@ -569,7 +691,7 @@ export function createLighthouse(): {
     const pilasterAngle = angle + Math.PI / 8;
     const pilaster = new Mesh(new CylinderGeometry(0.14, 0.18, 8.5, 6), midStone);
     pilaster.position.set(
-      Math.sin(pilasterAngle) * 2.625, 24.75, Math.cos(pilasterAngle) * 2.625,
+      Math.sin(pilasterAngle) * 2.625, SQUARE_TOP_Y + 4.25, Math.cos(pilasterAngle) * 2.625,
     );
     root.add(pilaster);
   }
@@ -674,15 +796,15 @@ export function createLighthouse(): {
 
   // Shared drum-head perch ledge, lantern floor and open colonnade.
   const drumBaseRing = new Mesh(new CylinderGeometry(2.55, 2.55, 0.4, 24), shadowStone);
-  drumBaseRing.position.y = 29.2;
+  drumBaseRing.position.y = OCT_TOP_Y + 0.2;
   root.add(drumBaseRing);
   for (let column = 0; column < 8; column += 1) {
     const angle = column * Math.PI / 4;
     const shaft = new Mesh(new CylinderGeometry(0.17, 0.17, 3.4, 8), paleStone);
-    shaft.position.set(Math.sin(angle) * LANTERN_RADIUS, 31.1, Math.cos(angle) * LANTERN_RADIUS);
+    shaft.position.set(Math.sin(angle) * LANTERN_RADIUS, LANTERN_BASE_Y + 1.7, Math.cos(angle) * LANTERN_RADIUS);
     root.add(shaft);
     const capital = new Mesh(new BoxGeometry(0.5, 0.22, 0.5), midStone);
-    capital.position.set(shaft.position.x, 32.69, shaft.position.z);
+    capital.position.set(shaft.position.x, LANTERN_TOP_Y - 0.11, shaft.position.z);
     root.add(capital);
     // Raised arch between neighbouring columns, open below its soffit.
     const arch = new Mesh(
@@ -691,22 +813,28 @@ export function createLighthouse(): {
     );
     const archRoot = new Group();
     arch.rotation.x = -Math.PI / 2;
-    arch.position.set(0, 32.05, LANTERN_RADIUS * Math.cos(Math.PI / 8));
+    arch.position.set(0, LANTERN_TOP_Y - 0.75, LANTERN_RADIUS * Math.cos(Math.PI / 8));
     archRoot.add(arch);
     archRoot.rotation.y = angle + Math.PI / 8;
     root.add(archRoot);
   }
-  const lanternGlow = new Mesh(new CylinderGeometry(1.3, 1.3, 2.8, 24), windowMaterial);
-  lanternGlow.position.y = 31.0;
-  root.add(lanternGlow);
+  // pharos-1: the same open glass skin the GLB authors, so the fallback's
+  // lantern is a flame seen through glass rather than a lit drum.
+  const lanternGlass = new Mesh(
+    new CylinderGeometry(1.78, 1.78, 2.45, 32, 1, true),
+    createLanternGlassMaterial(),
+  );
+  lanternGlass.name = "lighthouse-lantern-glass";
+  lanternGlass.position.y = LANTERN_BASE_Y + 1.405;
+  seatLanternGlass(lanternGlass);
   const entablature = new Mesh(new CylinderGeometry(2.17, 2.17, 0.4, 24), midStone);
-  entablature.position.y = 33;
+  entablature.position.y = LANTERN_TOP_Y + 0.2;
   root.add(entablature);
   const cap = new Mesh(new ConeGeometry(2.17, 1.2, 24), paleStone);
-  cap.position.y = 33.8;
+  cap.position.y = LANTERN_TOP_Y + 1.0;
   root.add(cap);
   const pedestal = new Mesh(new CylinderGeometry(0.55, 0.7, 0.6, 8), midStone);
-  pedestal.position.y = 34.7;
+  pedestal.position.y = GARDEN_LIGHTHOUSE_HEIGHT - 3.3;
   root.add(pedestal);
 
   // Bronze brazier inside the lantern, with coals pinned to the fire origin.
@@ -714,7 +842,7 @@ export function createLighthouse(): {
     new CylinderGeometry(0.55, 0.82, 0.3, 12),
     brazierBronze,
   );
-  brazierFoot.position.y = 29.55;
+  brazierFoot.position.y = LANTERN_BASE_Y + 0.15;
   root.add(brazierFoot);
   const brazierBowl = new Mesh(
     new CylinderGeometry(1.25, 0.55, 0.75, 12, 1, true),
@@ -737,16 +865,16 @@ export function createLighthouse(): {
   root.add(emberBed);
 
   // Crowning Zeus Soter: tapered robe, head, long vertical sceptre in one
-  // hand, the other arm outstretched toward the sea (+Z front). Bronze-gilt,
+  // hand, the other arm outstretched toward the sea (+Z front). Dark bronze,
   // oversized per the Roman-coin convention; sceptre tip = HEIGHT.
   const robe = new Mesh(new CylinderGeometry(0.3, 0.52, 1.6, 8), gilt);
-  robe.position.y = 35.8;
+  robe.position.y = GARDEN_LIGHTHOUSE_HEIGHT - 2.2;
   root.add(robe);
   const chest = new Mesh(new CylinderGeometry(0.34, 0.3, 0.55, 8), gilt);
-  chest.position.y = 36.875;
+  chest.position.y = GARDEN_LIGHTHOUSE_HEIGHT - 1.125;
   root.add(chest);
   const head = new Mesh(new SphereGeometry(0.23, 8, 6), gilt);
-  head.position.y = 37.42;
+  head.position.y = GARDEN_LIGHTHOUSE_HEIGHT - 0.58;
   root.add(head);
   const sceptre = new Mesh(new CylinderGeometry(0.05, 0.05, 2.3, 6), gilt);
   sceptre.position.set(-0.5, GARDEN_LIGHTHOUSE_HEIGHT - 1.15, 0.1);
@@ -755,10 +883,10 @@ export function createLighthouse(): {
   sceptreTip.position.set(-0.5, GARDEN_LIGHTHOUSE_HEIGHT - 0.1, 0.1);
   root.add(sceptreTip);
   const seaArm = new Mesh(new BoxGeometry(0.16, 0.16, 1.05), gilt);
-  seaArm.position.set(0.18, 36.98, 0.6);
+  seaArm.position.set(0.18, GARDEN_LIGHTHOUSE_HEIGHT - 1.02, 0.6);
   root.add(seaArm);
   const sceptreArm = new Mesh(new BoxGeometry(0.52, 0.14, 0.14), gilt);
-  sceptreArm.position.set(-0.32, 36.92, 0.08);
+  sceptreArm.position.set(-0.32, GARDEN_LIGHTHOUSE_HEIGHT - 1.08, 0.08);
   root.add(sceptreArm);
 
   const shell = new Group();
@@ -771,6 +899,10 @@ export function createLighthouse(): {
   // mesh per material group — visuals, materials (incl. the "bronze-gilt"
   // statue-gleam name), and shadows are identical, ~10 geometries instead.
   mergeStaticShellMeshes(shell);
+  // The glass skin is a shader film, not a merge candidate; it joins the
+  // shell after the merge so it hides with it when the GLB (and its own
+  // glass) stands.
+  shell.add(lanternGlass);
   shell.rotation.y = TOWER_YAW;
   root.add(shell);
 

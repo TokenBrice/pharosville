@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import type { IsoCamera, ScreenPoint } from "../systems/projection";
+import { cameraAtRest, type IsoCamera, type ScreenPoint } from "../systems/projection";
 import { clampCameraToMap } from "../systems/camera";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 
@@ -96,7 +96,8 @@ export function buildMomentUrlHref(currentHref: string, state: MomentUrlState): 
     url.searchParams.delete("ship");
   }
 
-  if (state.camera) {
+  // W1.0: `cam` carries the interactive rig; no `cam` means the rest ShotSpec.
+  if (state.camera && !cameraAtRest(state.camera)) {
     url.searchParams.set("cam", formatMomentCamera(state.camera));
   } else {
     url.searchParams.delete("cam");

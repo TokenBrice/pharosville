@@ -76,9 +76,15 @@ export function motionMemoryKey(shipId: string, routePathKey: string): string {
   return `${shipId}|${routePathKey}`;
 }
 
-export function writeRouteContextInto(route: ShipMotionRoute, routePathKey: string | null, out: ShipMotionSample): void {
+export function writeRouteContextInto(
+  route: ShipMotionRoute,
+  routePathKey: string | null,
+  out: ShipMotionSample,
+  routePath?: ShipWaterPath,
+): void {
   out.routeKey = routeIdentityKey(route);
   out.routePathKey = routePathKey;
+  out.routePath = routePath;
 }
 
 export function writeZeroVelocityInto(out: ShipMotionSample): void {

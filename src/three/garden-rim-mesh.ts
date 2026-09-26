@@ -1,5 +1,4 @@
 import {
-  Box3,
   BufferAttribute,
   BoxGeometry,
   BufferGeometry,
@@ -23,7 +22,6 @@ import {
   rimLandAt,
   rimShoreDistance,
 } from "../systems/garden-rim";
-import { defaultCamera } from "../systems/camera";
 import {
   EVM_BAY_STATION_SLOTS,
   OUTER_HARBOR_STATION_SLOTS,
@@ -32,15 +30,10 @@ import {
 import { PHAROSVILLE_DESIGN_SPAN, PHAROSVILLE_MAP_SCALE } from "../systems/map-scale";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { GardenSeason } from "../systems/season";
-import {
-  cameraEye,
-  cameraPoseFromIso,
-  GARDEN_PLATE_MARGIN_TILES,
-} from "../systems/projection";
+import { GARDEN_PLATE_MARGIN_TILES } from "../systems/projection";
 import type { WeatherPlan } from "../systems/weather";
 import { TILE_SCALE, disposeThreeObjectTree, stableUnit } from "./garden-util";
 import { createSpeciesBatch, createSpeciesGeometry, patchGardenFloraNight, updateGardenInstancedWindSway, type SpeciesPlacement } from "./garden-flora";
-import { patchGardenToroKindling } from "./garden-lanterns";
 export { patchGardenInstancedWindSway, updateGardenInstancedWindSway } from "./garden-flora";
 
 const MAP_SIZE = PHAROSVILLE_DESIGN_SPAN * PHAROSVILLE_MAP_SCALE;
@@ -114,38 +107,22 @@ export const GARDEN_RIM_COLOR_HEX = {
   shoreSand: `#${SHORE_SAND.getHexString()}`,
 } as const;
 export const GARDEN_RIM_MOSS_BLEND_MAX = 0.62;
-// The tōrō's fire chamber: a shadowed stone hollow by day; the kindled ember
-// is emission added at night (see patchGardenToroKindling).
-const LANTERN_EMBER = new Color(HARBOR_PALETTE.lantern_warm);
-const TORO_HOLLOW = new Color(HARBOR_PALETTE.stone_dark).multiplyScalar(0.32);
-const ENGAWA_TIMBER = new Color(HARBOR_PALETTE.timber_dark).multiplyScalar(0.54);
-const ENGAWA_TIMBER_LIT = ENGAWA_TIMBER.clone().lerp(
-  new Color(HARBOR_PALETTE.stone_dark),
-  0.16,
-);
-// The sole camera-near repoussoir uses darker values of the rim pine dyes,
-// never a new hue or an emissive accent.
-const FOREGROUND_PINE_TRUNK = PINE_TRUNK.clone().multiplyScalar(0.66);
-const FOREGROUND_PINE_NEEDLE = PINE_NEEDLE.clone().multiplyScalar(0.58);
-
-/** The veranda replaces the lower-left stroll-ribbon segment as foreground. */
-export const GARDEN_ENGAWA_DISPLACEMENT = "lower-left rim path and pine thicket";
-export const GARDEN_ENGAWA_PINE_HEIGHT = 14;
 /** These camera-side bays displace the former straight shoreline run. */
 export const GARDEN_NEAR_RIM_BAY_DEPTHS = [3.2, 4.8, 3.6] as const;
 export const GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT = 1.55;
 export const GARDEN_NEAR_RIM_DISPLACEMENT = "straight shoreline and ordinary headland pines";
 /**
  * The camera-side skirt displaces open water past the south/east plate
- * limits. Its one named foreground mass is authored eight world units in
- * front of the desktop rest eye and crosses the lower-left frame edge.
+ * limits. The viewer's own near garden is the threshold (garden-threshold.ts).
  */
-export const GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT = "the open water band beyond the camera-side plate limits, now carrying the pine bough at the rest corner";
-const ENGAWA_LANTERN_TILE = { x: 82, y: 134 } as const;
-export const GARDEN_ENGAWA_LANTERN_WORLD = {
-  x: ENGAWA_LANTERN_TILE.x * TILE_SCALE,
-  z: ENGAWA_LANTERN_TILE.y * TILE_SCALE,
-} as const;
+export const GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT = "the open water band beyond the camera-side plate limits";
+/**
+ * Where the rest sight line crosses the south rim (the eye→tower line meets
+ * row 134 near x 93): no pine stands in this near-shore clearing, so the
+ * approach reads as open water up to the tower foot. It is the old engawa
+ * pocket; the veranda, its pine and its tōrō now sit at the viewer's seat.
+ */
+const SIGHT_LINE_CLEARING = { x: 86, y: 134, radius: 11 } as const;
 
 interface GeometryBuilder {
   colors: number[];
@@ -159,9 +136,6 @@ export interface GardenRimMesh {
   coveSpurCount: number;
   coastFormCounts: Readonly<Record<CoastForm, number>>;
   drawCallCount: number;
-  engawaPineCount: number;
-  /** The single camera-near pine-bough silhouette. */
-  foregroundMassCount: number;
   pathSegmentCount: number;
   pineInstances: InstancedMesh;
   pineCount: number;
@@ -175,29 +149,6 @@ export interface GardenRimMesh {
   updateWind(weather: WeatherPlan, reducedMotion: boolean): void;
 }
 
-
-function addBox(
-  builder: GeometryBuilder,
-  center: readonly [number, number, number],
-  size: readonly [number, number, number],
-  color: Color,
-): void {
-  const [cx, cy, cz] = center;
-  const [sx, sy, sz] = size.map((value) => value * 0.5) as [number, number, number];
-  const x0 = cx - sx;
-  const x1 = cx + sx;
-  const y0 = cy - sy;
-  const y1 = cy + sy;
-  const z0 = cz - sz;
-  const z1 = cz + sz;
-  const colors = [color, color, color, color] as const;
-  addQuad(builder, [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], colors);
-  addQuad(builder, [x0, y0, z1], [x1, y0, z1], [x1, y0, z0], [x0, y0, z0], colors);
-  addQuad(builder, [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0], colors);
-  addQuad(builder, [x1, y0, z1], [x0, y0, z1], [x0, y1, z1], [x1, y1, z1], colors);
-  addQuad(builder, [x0, y0, z1], [x0, y0, z0], [x0, y1, z0], [x0, y1, z1], colors);
-  addQuad(builder, [x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0], colors);
-}
 
 function addVertex(builder: GeometryBuilder, x: number, y: number, z: number, color: Color): number {
   const index = builder.positions.length / 3;
@@ -634,16 +585,12 @@ interface PineSpec {
 function pineTiles(): PineSpec[] {
   const candidates: PineSpec[] = [];
   // A half-density lattice supplies the authored 120-tree selection without
-  // relaxing station, headland or foreground-pocket clearances.
+  // relaxing station, headland or sight-line clearances.
   for (let y = 3; y < MAP_LAST - 2; y += 1.5) {
     for (let x = 3; x < MAP_LAST - 2; x += 1.5) {
       if (!rimLandAt(x, y) || authoredDistance(x, y) > -2.2 || !clearOfStation(x, y, 3)) continue;
       if (HEADLANDS.some((headland) => Math.hypot(x - headland.x, y - headland.y) < 4.5)) continue;
-      // The engawa is one silhouette, not another grove: its hero tree
-      // explicitly displaces every ordinary pine in this near-corner pocket.
-      if (Math.hypot(x - 86, y - 134) < 11) continue;
-      // Same rule for the two foreground mass pockets (warm-village A6).
-      if (inForegroundMassPocket(x, y)) continue;
+      if (Math.hypot(x - SIGHT_LINE_CLEARING.x, y - SIGHT_LINE_CLEARING.y) < SIGHT_LINE_CLEARING.radius) continue;
       const lowerLeft = x < 48 && y > 72;
       const thinEast = x > 122;
       // T2.2c (2026-09-07): general keep 0.3 -> 0.5, east 0.12 -> 0.3. The
@@ -673,9 +620,6 @@ function pineTiles(): PineSpec[] {
       }
     }
   }
-  // Engawa foreground: a single larger niwaki leans seaward from the deep
-  // lower-left lobe. It remains in this one ring-wide pine instance batch.
-  candidates.push({ leanX: -0.14, leanZ: 0.08, scale: GARDEN_ENGAWA_PINE_HEIGHT / 4.5, x: 86, y: 134, yaw: 0.34 });
   // Camera-side skirt dressing: the same shore pines continue past the south
   // and east rim on the in-bounds three-tile lattice, thinned from roughly a
   // third to a half of the in-bounds keep odds at the boundary and trailing
@@ -690,10 +634,7 @@ function pineTiles(): PineSpec[] {
       if (beyond === 0) continue;
       if (!gardenRimDecorativeLandAt(x, y) || authoredDistance(x, y) > -2.2) continue;
       if (!clearOfStation(x, y, 3)) continue;
-      // The engawa hero keeps its pocket; no ordinary pine crowds it.
-      if (Math.hypot(x - 86, y - 134) < 11) continue;
-      // The foreground masses own their pockets too.
-      if (inForegroundMassPocket(x, y)) continue;
+      if (Math.hypot(x - SIGHT_LINE_CLEARING.x, y - SIGHT_LINE_CLEARING.y) < SIGHT_LINE_CLEARING.radius) continue;
       const keep = CAMERA_SIDE_SKIRT_PINE_KEEP
         * Math.max(0, 1 - beyond / CAMERA_SIDE_SKIRT_PINE_FADE_TILES);
       if (stableUnit(`rim-skirt-pine.${x}.${y}`) > keep) continue;
@@ -707,10 +648,8 @@ function pineTiles(): PineSpec[] {
       });
     }
   }
-  const hero = candidates.filter((spec) => spec.scale > 2);
-  const ordinary = candidates.filter((spec) => spec.scale <= 2);
-  const count = Math.min(120 - hero.length, ordinary.length);
-  return [...Array.from({ length: count }, (_, i) => ordinary[Math.floor(i * ordinary.length / count)]!), ...hero];
+  const count = Math.min(120, candidates.length);
+  return Array.from({ length: count }, (_, i) => candidates[Math.floor(i * candidates.length / count)]!);
 }
 
 function createPines(specs: readonly PineSpec[]): InstancedMesh {
@@ -729,7 +668,7 @@ function plantingTiles(count: number, seed: string): SpeciesPlacement[] {
     for (let x = 4.5; x < MAP_LAST - 2; x += 1.5) {
       if (!rimLandAt(x, y) || authoredDistance(x, y) > -2 || !clearOfStation(x, y, 3)) continue;
       if (HEADLANDS.some((headland) => Math.hypot(x - headland.x, y - headland.y) < 4.5)) continue;
-      if (Math.hypot(x - 86, y - 134) < 11 || inForegroundMassPocket(x, y)) continue;
+      if (Math.hypot(x - SIGHT_LINE_CLEARING.x, y - SIGHT_LINE_CLEARING.y) < SIGHT_LINE_CLEARING.radius) continue;
       spots.push({ position: [x * TILE_SCALE, rimHeight(x, y), y * TILE_SCALE], yaw: stableUnit(`${seed}.${x}.${y}`) * Math.PI * 2 });
     }
   }
@@ -894,103 +833,6 @@ function createRevetments(blocks: readonly RevetmentBlock[]): InstancedMesh {
   return mesh;
 }
 
-// ---------------------------------------------------------------------------
-// Spatial foundation W1.9: one camera-near pine bough. The ordinary pine
-// geometry already supplies a leaning trunk and four flattened needle pads;
-// this authored transform turns it into a single merged repoussoir draw.
-// ---------------------------------------------------------------------------
-
-export const GARDEN_RIM_FOREGROUND_BOUGH_NAME = "garden-rim-foreground-pine-bough";
-
-/** One authored foreground mass: what it is, where it stands, how tall. */
-export interface GardenRimForegroundMassSpec {
-  /** Ordinary rim-pine lattice candidates inside this radius are dropped. */
-  readonly clearRadiusTiles: number;
-  /** Crest height above the skirt surface, world units. */
-  readonly height: number;
-  /** The composed mesh name; registered in OVERVIEW_LOD_DETAIL_NAMES. */
-  readonly name: string;
-  /** Anchor tile. Past tile 139: outside the authoritative grid entirely. */
-  readonly tile: { readonly x: number; readonly y: number };
-}
-
-const FOREGROUND_BOUGH_VIEWPORT = { x: 1600, y: 1000 } as const;
-const FOREGROUND_BOUGH_POSE = cameraPoseFromIso(defaultCamera({
-  width: FOREGROUND_BOUGH_VIEWPORT.x,
-  height: FOREGROUND_BOUGH_VIEWPORT.y,
-  map: { width: MAP_SIZE, height: MAP_SIZE },
-}), FOREGROUND_BOUGH_VIEWPORT);
-const FOREGROUND_BOUGH_EYE = cameraEye(FOREGROUND_BOUGH_POSE);
-const FOREGROUND_BOUGH_FORWARD_WORLD = 8;
-const FOREGROUND_BOUGH_LEFT_WORLD = 12;
-const FOREGROUND_BOUGH = {
-  height: 28,
-  padCenterY: FOREGROUND_BOUGH_EYE.y - 6,
-  leanX: -0.18,
-  leanZ: 0.34,
-  tileX: (
-    FOREGROUND_BOUGH_EYE.x
-    - Math.sin(FOREGROUND_BOUGH_POSE.yaw) * FOREGROUND_BOUGH_FORWARD_WORLD
-    - Math.cos(FOREGROUND_BOUGH_POSE.yaw) * FOREGROUND_BOUGH_LEFT_WORLD
-  ) / TILE_SCALE,
-  tileY: (
-    FOREGROUND_BOUGH_EYE.z
-    - Math.cos(FOREGROUND_BOUGH_POSE.yaw) * FOREGROUND_BOUGH_FORWARD_WORLD
-    + Math.sin(FOREGROUND_BOUGH_POSE.yaw) * FOREGROUND_BOUGH_LEFT_WORLD
-  ) / TILE_SCALE,
-  yaw: 2.25,
-} as const;
-
-/** The sole authored foreground mass: one dark pine bough at the near corner. */
-export const GARDEN_RIM_FOREGROUND_MASSES: readonly GardenRimForegroundMassSpec[] = [
-  {
-    clearRadiusTiles: 4,
-    height: FOREGROUND_BOUGH.height,
-    name: GARDEN_RIM_FOREGROUND_BOUGH_NAME,
-    tile: { x: FOREGROUND_BOUGH.tileX, y: FOREGROUND_BOUGH.tileY },
-  },
-] as const;
-
-function inForegroundMassPocket(tileX: number, tileY: number): boolean {
-  return GARDEN_RIM_FOREGROUND_MASSES.some((mass) => (
-    Math.hypot(tileX - mass.tile.x, tileY - mass.tile.y) < mass.clearRadiusTiles
-  ));
-}
-function createForegroundBough(): Mesh {
-  const geometry = createSpeciesGeometry("pine", "summer", FOREGROUND_PINE_TRUNK, FOREGROUND_PINE_NEEDLE);
-  const scale = FOREGROUND_BOUGH.height / 4.5;
-  const rotation = new Quaternion().setFromEuler(new Euler(
-    FOREGROUND_BOUGH.leanX,
-    FOREGROUND_BOUGH.yaw,
-    FOREGROUND_BOUGH.leanZ,
-  ));
-  // Anchor the highest needle pad to the rest eye rather than to the terrain:
-  // zoom changes move the eye, and a terrain-relative crest can cross the
-  // view axis instead of hanging into the lower-left corner.
-  const topPadCenter = new Vector3(0.36 * scale * 1.3, 4.1 * scale, -0.08 * scale * 0.72)
-    .applyQuaternion(rotation);
-  const matrix = new Matrix4();
-  matrix.compose(
-    new Vector3(
-      FOREGROUND_BOUGH.tileX * TILE_SCALE,
-      FOREGROUND_BOUGH.padCenterY - topPadCenter.y,
-      FOREGROUND_BOUGH.tileY * TILE_SCALE,
-    ),
-    rotation,
-    new Vector3(scale * 1.3, scale, scale * 0.72),
-  );
-  geometry.applyMatrix4(matrix);
-  const mesh = new Mesh(
-    geometry,
-    new MeshStandardMaterial({ flatShading: true, roughness: 0.95, vertexColors: true }),
-  );
-  mesh.name = GARDEN_RIM_FOREGROUND_BOUGH_NAME;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  return mesh;
-}
-
-
 function addPathRibbon(
   builder: GeometryBuilder,
   a: { x: number; y: number },
@@ -1019,8 +861,6 @@ function buildPathGeometry(): {
   coveSpurs: number;
   geometry: BufferGeometry;
   segments: number;
-  /** Geometry-space bounds of the engawa tōrō's fire chamber. */
-  toroChamber: Box3;
 } {
   const builder: GeometryBuilder = { colors: [], indices: [], positions: [] };
   const points: Array<{ x: number; y: number }> = [];
@@ -1072,55 +912,10 @@ function buildPathGeometry(): {
       }
     }
   }
-  // Engawa repoussoir: broad black-brown planks and one stone sill, merged
-  // into the existing path draw. This is the viewer's place, and replaces the
-  // otherwise continuous pale stroll ribbon at the lower-left corner.
-  const deckCentreX = 84.5 * TILE_SCALE;
-  // Centre pulled to 136.35 so the deck's near lip (136.35 + 5.2/2) stays
-  // inside tile 139: the whole path draw — ribbon, cove spurs, and this
-  // veranda — remains on the authored plate.
-  const deckCentreZ = 136.35 * TILE_SCALE;
-  const deckTop = Math.max(1.9, rimHeight(84.5, 136.2) + 0.28);
-  addBox(
-    builder,
-    [deckCentreX, deckTop - 0.23, deckCentreZ],
-    [19 * TILE_SCALE, 0.46, 5.2 * TILE_SCALE],
-    ENGAWA_TIMBER,
-  );
-  for (let plank = 0; plank < 18; plank += 1) {
-    const x = (75.9 + plank * 0.99) * TILE_SCALE;
-    addBox(
-      builder,
-      [x, deckTop + 0.035, deckCentreZ],
-      [0.91 * TILE_SCALE, 0.07, 5.05 * TILE_SCALE],
-      plank % 3 === 0 ? ENGAWA_TIMBER_LIT : ENGAWA_TIMBER,
-    );
-  }
-  addBox(
-    builder,
-    [deckCentreX, deckTop - 0.05, 134.42 * TILE_SCALE],
-    [19.4 * TILE_SCALE, 0.26, 0.62 * TILE_SCALE],
-    WET_ROCK,
-  );
-  // One tōrō at the camera-side engawa. Stone body and chamber are merged
-  // into the path draw; the chamber is a dark hollow by day and kindles with
-  // the night beat (W0.9), and its water reflection is registered separately
-  // as the scene's `engawa-lantern` ember lane.
-  const lanternX = GARDEN_ENGAWA_LANTERN_WORLD.x;
-  const lanternZ = GARDEN_ENGAWA_LANTERN_WORLD.z;
-  const lanternGround = deckTop;
-  const chamberCentre = [lanternX, lanternGround + 1.32, lanternZ] as const;
-  const chamberSize = [0.58, 0.42, 0.58] as const;
-  addBox(builder, [lanternX, lanternGround + 0.14, lanternZ], [1.2, 0.28, 1.05], PATH_STONE);
-  addBox(builder, [lanternX, lanternGround + 0.72, lanternZ], [0.34, 0.9, 0.34], PATH_STONE);
-  addBox(builder, chamberCentre, chamberSize, TORO_HOLLOW);
-  addBox(builder, [lanternX, lanternGround + 1.59, lanternZ], [1.05, 0.16, 0.95], PATH_STONE);
-  addBox(builder, [lanternX, lanternGround + 1.75, lanternZ], [0.52, 0.18, 0.48], PATH_STONE);
   return {
     coveSpurs,
     geometry: finishGeometry(builder),
     segments,
-    toroChamber: new Box3().setFromCenterAndSize(new Vector3(...chamberCentre), new Vector3(...chamberSize)),
   };
 }
 
@@ -1147,15 +942,12 @@ export function createGardenRimMesh(season: GardenSeason = "summer"): GardenRimM
   const bamboo = createSpeciesBatch("bamboo", plantingTiles(35, "bamboo"));
   const stones = createStones(land.coastStones);
   const revetments = createRevetments(land.revetments);
-  const foregroundBough = createForegroundBough();
-  patchGardenFloraNight(foregroundBough.material as MeshStandardMaterial);
   const path = buildPathGeometry();
   const pathMaterial = new MeshStandardMaterial({ flatShading: true, roughness: 1, vertexColors: true });
-  patchGardenToroKindling(pathMaterial, path.toroChamber, LANTERN_EMBER);
   const pathMesh = new Mesh(path.geometry, pathMaterial);
   pathMesh.name = "garden-rim-path";
   const drawables = [
-    top, face, pathMesh, pines, understory, broadleaf, cherry, bamboo, stones, revetments, foregroundBough,
+    top, face, pathMesh, pines, understory, broadleaf, cherry, bamboo, stones, revetments,
   ];
   root.add(...drawables);
   for (const object of drawables) {
@@ -1168,8 +960,6 @@ export function createGardenRimMesh(season: GardenSeason = "summer"): GardenRimM
     coastFormCounts: land.coastFormCounts,
     coveSpurCount: path.coveSpurs,
     drawCallCount: drawables.length,
-    engawaPineCount: 1,
-    foregroundMassCount: 1,
     pathSegmentCount: path.segments,
     pineInstances: pines,
     pineCount: pines.count,

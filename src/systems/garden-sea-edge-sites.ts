@@ -1,6 +1,7 @@
 import { distanceToStationFootprint, stationFootprintRect } from "./dock-layout";
 import { SEA_REGION_ID, seaRegionAtTile } from "./garden-sea-regions";
 import { RIM_COVES, rimDepthAt, rimLandAt } from "./garden-rim";
+import { GARDEN_EMPTY_INLET, gardenInletDistance } from "./garden-inlet";
 import { SHIP_WATER_ANCHORS } from "./risk-water-areas";
 import type { SeaBodyId, SeaBodyName } from "./sea-bodies";
 import {
@@ -87,38 +88,6 @@ function guideScale(guide: EdgeGuide): number {
   return guide.form === "cliff" || guide.form === "reed-lily" || guide.form === "timber-pile"
     ? 1
     : GARDEN_SEA_EDGE_SCALE_FACTOR;
-}
-
-/**
- * The camera-near empty approach (the *ma*). Kept structurally equal to
- * `GARDEN_EMPTY_INLET` in `garden-fleet-placement.ts`; importing it would close
- * an import cycle through `garden-water-exclusion.ts`, so the focused site test
- * guards the shared contract instead. No edge geography stands inside it.
- */
-export const GARDEN_SEA_EDGE_INLET = {
-  polyline: [
-    { x: 72, y: 112 },
-    { x: 63, y: 86 },
-    { x: 43, y: 64 },
-    { x: 29, y: 45 },
-  ],
-  halfWidth: 21,
-} as const;
-
-/** Tile distance from the empty-inlet spine. */
-export function seaEdgeInletDistance(x: number, y: number): number {
-  let nearest = Number.POSITIVE_INFINITY;
-  for (let index = 1; index < GARDEN_SEA_EDGE_INLET.polyline.length; index += 1) {
-    const start = GARDEN_SEA_EDGE_INLET.polyline[index - 1]!;
-    const end = GARDEN_SEA_EDGE_INLET.polyline[index]!;
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const t = Math.max(0, Math.min(1,
-      ((x - start.x) * dx + (y - start.y) * dy) / (dx * dx + dy * dy),
-    ));
-    nearest = Math.min(nearest, Math.hypot(x - start.x - t * dx, y - start.y - t * dy));
-  }
-  return nearest;
 }
 
 /**
@@ -405,7 +374,7 @@ function resolveGuide(
         } else if (!meetsTarget(x, y, guide.target)) continue;
       }
       if (seaEdgeTileInOpening({ x, y })) continue;
-      if (seaEdgeInletDistance(x, y) <= GARDEN_SEA_EDGE_INLET.halfWidth + radius) continue;
+      if (gardenInletDistance(x, y) <= GARDEN_EMPTY_INLET.halfWidth + radius) continue;
       if (!candidateIsClear(x, y, radius)) continue;
       if (resolved.some((site) => site.form === guide.form
         && Math.hypot(x - site.tile.x, y - site.tile.y) < 1.5)) continue;

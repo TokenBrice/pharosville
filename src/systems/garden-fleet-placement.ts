@@ -14,6 +14,7 @@ import {
 } from "./garden-observatory-slice";
 import { defaultCamera } from "./camera";
 import { screenToGround } from "./projection";
+import { GARDEN_EMPTY_INLET, gardenInletDistance } from "./garden-inlet";
 import type { ShipNode, ShipWaterZone, TerrainKind } from "./world-types";
 
 /**
@@ -111,36 +112,6 @@ const CANDIDATES_PER_SHIP = 256;
  */
 const LIGHTHOUSE_CLEARANCE_TILES = 9;
 const EDGE_FALLOFF_TILES = 6;
-
-/**
- * Camera-near approach sweeping into the island's lee. The forty-two-tile
- * channel is authored water, not spare capacity: every placement pass excludes
- * it, including the relaxed-spacing pass.
- */
-export const GARDEN_EMPTY_INLET = {
-  polyline: [
-    { x: 72, y: 112 },
-    { x: 63, y: 86 },
-    { x: 43, y: 64 },
-    { x: 29, y: 45 },
-  ],
-  halfWidth: 21,
-} as const;
-
-function inletDistance(x: number, y: number): number {
-  let nearest = Number.POSITIVE_INFINITY;
-  for (let index = 1; index < GARDEN_EMPTY_INLET.polyline.length; index += 1) {
-    const start = GARDEN_EMPTY_INLET.polyline[index - 1]!;
-    const end = GARDEN_EMPTY_INLET.polyline[index]!;
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const t = Math.max(0, Math.min(1,
-      ((x - start.x) * dx + (y - start.y) * dy) / (dx * dx + dy * dy),
-    ));
-    nearest = Math.min(nearest, Math.hypot(x - start.x - t * dx, y - start.y - t * dy));
-  }
-  return nearest;
-}
 
 /**
  * The bottom-right chrome (the Explore control) covers about
@@ -327,16 +298,18 @@ export function resetGardenFleetPlacementCache(): void {
 /**
  * Density weight for a candidate tile: how much this spot wants a ship.
  *
- * Zero means "never place here". The lighthouse clearance keeps the monument's
- * approach open; the edge falloff thins the outer frame so the composition
- * stays asymmetric instead of filling to the borders.
+ * Zero means "never place here". The empty inlet (`garden-inlet.ts`) is
+ * authored water, not spare capacity: every pass excludes it, the relaxed
+ * one included. The lighthouse clearance keeps the monument's approach open;
+ * the edge falloff thins the outer frame so the composition stays asymmetric
+ * instead of filling to the borders.
  */
 function densityWeight(
   x: number,
   y: number,
   lighthouseTile: { x: number; y: number },
 ): number {
-  if (inletDistance(x, y) <= GARDEN_EMPTY_INLET.halfWidth) return 0;
+  if (gardenInletDistance(x, y) <= GARDEN_EMPTY_INLET.halfWidth) return 0;
   if (restChromeKeepoutDistance(x, y) <= 0) return 0;
   const lighthouseDistance = Math.hypot(x - lighthouseTile.x, y - lighthouseTile.y);
   if (lighthouseDistance < LIGHTHOUSE_CLEARANCE_TILES) return 0;
@@ -367,7 +340,7 @@ interface PlacedHull {
  * widened by the hull so no part of it enters either.
  */
 function isBerthWater(tile: { x: number; y: number }, margin: number): boolean {
-  return inletDistance(tile.x, tile.y) > GARDEN_EMPTY_INLET.halfWidth + margin
+  return gardenInletDistance(tile.x, tile.y) > GARDEN_EMPTY_INLET.halfWidth + margin
     && restChromeKeepoutDistance(tile.x, tile.y) > margin
     && isGardenShipWater(tile, margin, true);
 }
@@ -754,7 +727,7 @@ function fallbackBerth(
     if (!isGardenShipWater(tile, 0)) continue;
     let nearest = Number.POSITIVE_INFINITY;
     for (const other of placed) nearest = Math.min(nearest, Math.hypot(tile.x - other.x, tile.y - other.y));
-    const inlet = inletDistance(tile.x, tile.y);
+    const inlet = gardenInletDistance(tile.x, tile.y);
     if (densityWeight(tile.x, tile.y, lighthouseTile) > 0
       && inlet > GARDEN_EMPTY_INLET.halfWidth + margin
       && isGardenShipWater(tile, margin)

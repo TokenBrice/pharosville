@@ -1,4 +1,5 @@
 import { dockSeawardVector } from "../../dock-layout";
+import { GARDEN_EMPTY_INLET, gardenInletDistance } from "../../garden-inlet";
 import {
   GARDEN_MOLE_OBSTACLES,
   gardenShipWaterMarginTiles,
@@ -156,6 +157,9 @@ function isBerthTile(
     GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
   );
   if (!isGardenShipWater(tile, hullMargin)) return false;
+  // W1.6: a docked hull is drawn at its mooring, so no mooring may stand in
+  // the ma (the rest seat's approach water); the fan reflows around it.
+  if (gardenInletDistance(tile.x, tile.y) <= GARDEN_EMPTY_INLET.halfWidth + hullMargin) return false;
   // A low working apron may be approached; the mole's hall and stone arms
   // are solid. Test the oriented hull so the open basin remains usable.
   const footprint = berthFootprint(tile, ship, dock);

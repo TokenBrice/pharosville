@@ -1137,7 +1137,9 @@ ${gardenHeightFogGlsl()}
       if (heroClip.w > 0.0 && all(greaterThanEqual(heroUv, vec2(0.0)))
         && all(lessThanEqual(heroUv, vec2(1.0)))) {
         vec4 hero = texture2D(uHeroReflection, heroUv);
-        waterColor = mix(waterColor, hero.rgb, clamp(heroMask * hero.a, 0.0, 0.85));
+        // W1.8 (critic-7 step 1): capped at 0.6, not 0.85 — the reflection
+        // must stay quieter than the object it mirrors.
+        waterColor = mix(waterColor, hero.rgb, clamp(heroMask * hero.a, 0.0, 0.6));
       }
     }
 

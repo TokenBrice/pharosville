@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { AdditiveBlending, Box3, BoxGeometry, Color, Group, Mesh, MeshStandardMaterial, Object3D, ShaderMaterial, Vector3 } from "three";
-import { GARDEN_LIGHTHOUSE_HEIGHT } from "../systems/garden-observatory-slice";
+import { AdditiveBlending, Box3, BoxGeometry, BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Object3D, ShaderMaterial, Vector3 } from "three";
+import {
+  GARDEN_LIGHTHOUSE_BEACON_Y,
+  GARDEN_LIGHTHOUSE_HEIGHT,
+  GARDEN_LIGHTHOUSE_ROOT_OFFSET,
+  GARDEN_TOWER_BEACON_WORLD_Y,
+  GARDEN_TOWER_CROWN_WORLD_Y,
+} from "../systems/garden-observatory-slice";
 import { lampStatusModulationForMix } from "../systems/lamp-status";
 import { HARBOR_PALETTE } from "../systems/palette";
 import {
@@ -9,6 +15,7 @@ import {
   GARDEN_LIGHTHOUSE_BEAM_CORE_OPACITY_RATIO,
   GARDEN_LIGHTHOUSE_BEAM_CORE_RADIUS,
   GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE,
+  LIGHTHOUSE_LANTERN_GLASS_MATERIAL_NAME,
   LIGHTHOUSE_RIM_UNIFORMS,
   LIGHTHOUSE_WINDOW_MATERIAL_NAME,
   attachGardenLighthouseModel,
@@ -18,6 +25,8 @@ import {
   updateLighthouseRimLight,
 } from "./garden-lighthouse";
 import { dayCyclePhase } from "./garden-day-cycle";
+import { GARDEN_MODEL_MANIFEST } from "./garden-models";
+import { gardenKeyLightPose } from "./garden-sun";
 import { disposeThreeObjectTree } from "./garden-util";
 
 describe("garden lighthouse beam ownership", () => {
@@ -103,7 +112,8 @@ describe("T1.7 rim light (2026-09-07)", () => {
     // 0.1 it only registered where the fresnel already peaked. The shape was
     // right; it was built on too low a base.
     const strengthAt = (hour: number): number => {
-      updateLighthouseRimLight(dayCyclePhase(hour));
+      const phase = dayCyclePhase(hour);
+      updateLighthouseRimLight(phase, gardenKeyLightPose(hour, phase));
       return LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimStrength.value;
     };
     expect(strengthAt(12)).toBeCloseTo(0.16, 6);
@@ -130,9 +140,9 @@ describe("T0.2 tower apertures (2026-09-07)", () => {
       // curve peaks at 1.53 so they stay gold rather than clipping to white.
       expect(material.toneMapped).toBe(false);
     }
-    // The shell shares ONE aperture material across all three window rows,
-    // the lantern gallery and the lantern glass — and the shell merges by
-    // material group — so lighting the whole tower is a single write.
+    // The shell shares ONE aperture material across both window rows and the
+    // drum windows — and the shell merges by material group — so lighting
+    // the whole tower is a single write. The lantern is glass, not a window.
     expect(new Set(collected).size).toBe(collected.length);
     expect(collected.length).toBe(1);
     let windowMeshes = 0;
@@ -210,6 +220,58 @@ describe("W0.7 night beacon discipline", () => {
     expect([...shellStoneBounce]).toEqual([stone.emissiveIntensity]);
     expect([...shellGiltMetalness]).toEqual([gilt.metalness]);
     expect(statueGleamMaterials).toEqual([gilt]);
+    disposeThreeObjectTree(lighthouse.root);
+  });
+});
+
+describe("W1.9 keep traded for the crag", () => {
+  it("keeps the world beacon and crown where they stood before the headland", () => {
+    // The beam, water road, label, shadow frustum and the rest pose all hang
+    // off these two heights; six units of keep went to rock, not to the sky.
+    expect(GARDEN_TOWER_BEACON_WORLD_Y).toBeCloseTo(32.75, 9);
+    expect(GARDEN_TOWER_CROWN_WORLD_Y).toBeCloseTo(40.55, 9);
+    const lighthouse = createLighthouse();
+    const shell = new Box3().setFromObject(lighthouse.shell);
+    expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + shell.max.y).toBeCloseTo(GARDEN_TOWER_CROWN_WORLD_Y, 5);
+    expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + lighthouse.beacon.position.y).toBeCloseTo(GARDEN_TOWER_BEACON_WORLD_Y, 9);
+    const glb = GARDEN_MODEL_MANIFEST["garden-lighthouse-shell"];
+    expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + glb.dimensions.y).toBeCloseTo(GARDEN_TOWER_CROWN_WORLD_Y, 5);
+    expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + glb.anchors.beacon.position[1]).toBeCloseTo(GARDEN_TOWER_BEACON_WORLD_Y, 9);
+    disposeThreeObjectTree(lighthouse.root);
+  });
+
+  it("turns the GLB's authored lantern glass into a shadowless film drawn after the flame", () => {
+    // The GLB drops normals, so the swap must derive them or the fresnel
+    // skin has nothing to face; the library's shared material stays intact.
+    const lighthouse = createLighthouse();
+    const libraryGlass = new MeshStandardMaterial({ name: LIGHTHOUSE_LANTERN_GLASS_MATERIAL_NAME, transparent: true });
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    const glass: Mesh = new Mesh(geometry, libraryGlass);
+    const model = new Group();
+    for (const name of ["anchor-beacon", "anchor-beam"]) {
+      const anchor = new Object3D();
+      anchor.name = name;
+      anchor.position.set(0, GARDEN_LIGHTHOUSE_BEACON_Y, 0);
+      model.add(anchor);
+    }
+    model.add(glass);
+    attachGardenLighthouseModel(model, {
+      beacon: lighthouse.beacon,
+      beaconHalo: lighthouse.beaconHalo,
+      beam: lighthouse.beam,
+      lighthouseLight: lighthouse.light,
+      lighthouseRoot: lighthouse.root,
+      lighthouseShell: lighthouse.shell,
+    });
+    expect(glass.material).toBeInstanceOf(ShaderMaterial);
+    const film = glass.material as ShaderMaterial;
+    expect(film.transparent).toBe(true);
+    expect(film.depthWrite).toBe(false);
+    expect(glass.castShadow).toBe(false);
+    expect(glass.renderOrder).toBeGreaterThan(0);
+    expect(geometry.getAttribute("normal")).toBeDefined();
+    expect(libraryGlass.name).toBe(LIGHTHOUSE_LANTERN_GLASS_MATERIAL_NAME);
     disposeThreeObjectTree(lighthouse.root);
   });
 });

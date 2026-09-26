@@ -891,18 +891,9 @@ describe("motion", () => {
   });
 
   it("rests the reduced-motion fleet on spaced berths in its own band water, clear of the chrome corner", () => {
-    // Calm keeps only a sliver of its water outside the authored inlet: room
-    // for about twenty hulls at the hull gap. Hold the band inside that (and
-    // keep every squad member, so consorts are covered); an overflowing band
-    // takes least-overlap berths instead.
-    const calmOverflow = new Set(denseWorldFixture.ships
-      .filter((ship) => ship.riskZone === "calm" && !ship.squadId)
-      .slice(14)
-      .map((ship) => ship.id));
-    const tableauWorld = {
-      ...denseWorldFixture,
-      ships: denseWorldFixture.ships.filter((ship) => !calmOverflow.has(ship.id)),
-    };
+    // The seat-C inlet (W1.6) leaves Calm room for its whole fleet at the
+    // hull gap, so the full dense fixture must rest spaced.
+    const tableauWorld = denseWorldFixture;
     const terrainForZone: Record<ShipWaterZone, string> = {
       alert: "alert-water",
       calm: "calm-water",

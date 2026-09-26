@@ -25,6 +25,7 @@ export function reducedMotionSampleInto(
   out.zone = ship.riskZone;
   out.routeKey = route ? routeIdentityKey(route) : null;
   out.routePathKey = route ? routePathIdentityKey(route, "reduced") : null;
+  out.routePath = undefined;
   out.currentDockId = null;
   out.currentRouteStopId = null;
   out.currentRouteStopKind = null;

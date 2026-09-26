@@ -118,7 +118,9 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCycleBeatName, DayCycleLightPres
     ambientIntensity: 0.14,
     dirColor: paletteColor(P.sun_day_warm),
     dirIntensity: 1.2,
-    hemiGround: paletteColor(P.timber_mid),
+    // W1.8 (printmaker sub 3): a stone bounce, not orange timber. With the
+    // key now front-right the visible faces take shade fill from the ground.
+    hemiGround: paletteColor(P.stone_mid),
     hemiIntensity: 0.26,
     hemiSky: paletteColor(P.fog_blue),
   },
@@ -136,7 +138,12 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCycleBeatName, DayCycleLightPres
     ambientIntensity: 0.16,
     dirColor: paletteColor(P.lantern_warm).lerp(paletteColor(P.vermillion), 0.06),
     dirIntensity: 3.84,
-    hemiGround: paletteColor(P.timber_mid),
+    // W1.8 (printmaker sub 3, light defect 2): the orange timber bounce was
+    // what painted the faces the backlit key never reached. The key now
+    // lights them from behind the viewer's right shoulder, so the ground
+    // bounce takes the night's cool sea-and-timber value — the cool
+    // complement to the warm key.
+    hemiGround: paletteColor(P.deep_sea_2).lerp(paletteColor(P.timber_dark), 0.46),
     hemiIntensity: 0.32,
     hemiSky: paletteColor(P.sky_horizon).lerp(paletteColor(P.fog_blue), 0.3),
   },

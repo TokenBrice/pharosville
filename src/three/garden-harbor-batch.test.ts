@@ -1,11 +1,24 @@
 // @vitest-environment jsdom
-import { Color, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, type Group } from "three";
+import {
+  Color,
+  DoubleSide,
+  InstancedBufferAttribute,
+  InstancedMesh,
+  Matrix4,
+  Mesh,
+  MeshBasicMaterial,
+  Raycaster,
+  Vector3,
+  type Group,
+} from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { HARBOR_DERIVED_PALETTE } from "../systems/palette";
 import { authorDock, type StationType } from "./garden-docks";
 import { createGardenHarborBatch, HARBOR_WINDOW_EMBER_INTENSITY } from "./garden-harbor-batch";
 import { gardenChainFlagAtlas, resetGardenChainFlagAtlas } from "./garden-chain-flag";
 import { countDrawableObjects } from "./garden-util";
 import { dockFixture, DISPLAY_TILES, ISLAND_TILE } from "./__fixtures__/harbor";
+import { EVM_BAY_STATION_SLOTS, OUTER_HARBOR_STATION_SLOTS, PIGEONNIER_STATION_SLOT } from "../systems/world-layout";
 
 const CHAINS = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
 // The nine-dock set pairs each chain with its slot archetype (aptos stands
@@ -215,36 +228,85 @@ describe("createGardenHarborBatch", () => {
     layer.dispose();
   });
 
-  it("flies every station flag shape from one instanced cloth and turns one without turning the rest", () => {
+  it("flies every station's nobori from one instanced cloth and turns a chain's banners without turning the rest", () => {
     const batch = batchOfAllStationTypes();
-    expect(batch.flags.count).toBe(ALL_STATION_TYPES.length);
+    // The Mole flies a pair; every other station one banner.
+    expect(batch.flags.count).toBe(ALL_STATION_TYPES.length + 1);
     const matrix = new Matrix4();
-    batch.flags.getMatrixAt(1, matrix);
-    const beforeBase = matrix.clone();
+    const before = Array.from({ length: batch.flags.count }, (_, index) => {
+      batch.flags.getMatrixAt(index, matrix);
+      return matrix.clone();
+    });
     batch.setFlagPose("flag-ethereum-mole", 1.2, 0.08);
-    batch.flags.getMatrixAt(1, matrix);
-    expect(matrix.equals(beforeBase)).toBe(true);
-    const shapes = batch.flags.geometry.getAttribute("aFlagShape");
-    expect(new Set(Array.from(shapes.array)).size).toBe(ALL_STATION_TYPES.length);
+    const moved = before.map((previous, index) => {
+      batch.flags.getMatrixAt(index, matrix);
+      return !matrix.equals(previous);
+    });
+    expect(moved.filter(Boolean)).toHaveLength(2);
+    expect(moved.slice(0, 2)).toEqual([true, true]);
+    batch.dispose();
   });
 
-  it("keeps an unassigned atlas cell on a plain accent cloth", () => {
+  it("flies plain kinari cloth when a chain has no atlas cell", () => {
     const recipe = authorDock(dockFixture("unassigned", 5), DISPLAY_TILES[0]!, ISLAND_TILE);
     recipe.flag.atlasCell = -1;
     const batch = createGardenHarborBatch([recipe]);
-    const cell = batch.flags.geometry.getAttribute("aFlagCell");
-    expect(cell.getX(0)).toBe(-1);
-    const shader = {
-      fragmentShader: "#include <common>\n#include <map_fragment>",
-      uniforms: {},
-      vertexShader: "#include <common>\n#include <uv_vertex>",
-    };
-    (batch.flags.material as { onBeforeCompile(shader: unknown, renderer: unknown): void })
-      .onBeforeCompile(shader, null);
-    expect(shader.fragmentShader).toContain("vFlagCell >= 0.0");
-    expect(shader.fragmentShader).toContain("cutFlag");
-    expect(shader.fragmentShader).not.toContain("flagX > 0.42");
+    expect(batch.flags.geometry.getAttribute("aFlagCell").getX(0)).toBe(-1);
+    const cloth = new Color();
+    batch.flags.getColorAt(0, cloth);
+    expect(cloth.getHexString()).toBe(new Color(HARBOR_DERIVED_PALETTE.flag_kinari).getHexString());
     batch.dispose();
+  });
+
+  // The nobori sites are authored per station form, at the bearing of the one
+  // mouth that form stands at, against geometry that grows with supply (quays,
+  // approaches) and frontage (halls). A pole that lands in mid-air, or cloth
+  // that swings through a roof or tower in the wind, is the failure this
+  // guards, across the supply space a real feed produces.
+  it("stands every nobori on its station's eave or landing with pole and cloth clear", () => {
+    const bearingByType = new Map([...EVM_BAY_STATION_SLOTS, ...OUTER_HARBOR_STATION_SLOTS, PIGEONNIER_STATION_SLOT]
+      .map((slot) => [slot.type, slot.cove.seawardBearing]));
+    const material = new MeshBasicMaterial({ side: DoubleSide });
+    const ray = new Raycaster();
+    const down = new Vector3(0, -1, 0);
+    const supplies = [
+      { size: 2, totalUsd: 3e7 }, { size: 5, totalUsd: 3e7 },
+      { size: 5, totalUsd: 1.5e9 }, { size: 8, totalUsd: 1.5e9 },
+      { size: 10, totalUsd: 2e11 },
+    ];
+    for (const type of ALL_STATION_TYPES) for (const supply of supplies) for (const frontageShare of [0.01, 1, 100]) {
+      const recipe = authorDock({
+        ...dockFixture(`site-${type}`, supply.size, null, supply.totalUsd),
+        frontageMedianShare: 1,
+        frontageShare,
+        station: { coveId: `site-${type}`, shoreBearing: bearingByType.get(type)!, type },
+      }, DISPLAY_TILES[0]!, ISLAND_TILE);
+      const meshes = recipe.parts.map((part) => new Mesh(part.geometry, material));
+      const firstHit = (from: Vector3, far: number) => {
+        ray.set(from, down);
+        ray.far = far;
+        return ray.intersectObjects(meshes, false)[0] ?? null;
+      };
+      const { banners, yaw } = recipe.flag.placement;
+      const label = `${type} ${supply.totalUsd}/${supply.size}/${frontageShare}`;
+      for (const banner of banners) {
+        // The pole rises from structure at its foot (a sloped roof may stand
+        // above the foot, never above the hem), and nothing crosses the pole
+        // or the cloth above the hem.
+        const surface = firstHit(new Vector3(banner.x, 60, banner.z), 100)?.point.y ?? -Infinity;
+        expect(surface, `${label} foot`).toBeGreaterThan(banner.footY - 0.12);
+        expect(surface, `${label} foot`).toBeLessThan(banner.clothBottomY - 0.2);
+        for (const swing of [-0.28, 0, 0.28]) for (const u of [0, 0.1, 0.4, 0.7, 1]) {
+          const probe = new Vector3(
+            banner.x + Math.cos(yaw + swing) * banner.clothWidth * u,
+            banner.poleTopY,
+            banner.z - Math.sin(yaw + swing) * banner.clothWidth * u,
+          );
+          expect(firstHit(probe, banner.poleTopY - banner.clothBottomY), `${label} cloth u${u} swing ${swing}`).toBeNull();
+        }
+      }
+    }
+    material.dispose();
   });
 
   it("disposes its merged geometry, instance buffers, and materials but keeps the shared flag atlas", () => {
@@ -300,7 +362,10 @@ function triangleCount(mesh: Mesh | InstancedMesh): number {
 
 function fakeCanvasContext(): CanvasRenderingContext2D {
   return {
+    arc: vi.fn(),
+    beginPath: vi.fn(),
     clearRect: vi.fn(),
+    fill: vi.fn(),
     fillRect: vi.fn(),
     fillText: vi.fn(),
     restore: vi.fn(),

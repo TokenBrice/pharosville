@@ -2,11 +2,10 @@ import { describe, expect, it } from "vitest";
 import { SEA_REGION_ID, seaRegionAtTile } from "./garden-sea-regions";
 import { RIM_COVES, rimLandAt } from "./garden-rim";
 import { SHIP_WATER_ANCHORS } from "./risk-water-areas";
-import { GARDEN_EMPTY_INLET } from "./garden-fleet-placement";
+import { GARDEN_EMPTY_INLET, gardenInletDistance } from "./garden-inlet";
 import {
   GARDEN_EDGE_STONE_OBSTACLES,
   GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES,
-  GARDEN_SEA_EDGE_INLET,
   GARDEN_SEA_EDGE_ISLAND_WATERLINE,
   GARDEN_SEA_EDGE_PILE_LIP_GAP_TILES,
   GARDEN_SEA_EDGE_SCALE_FACTOR,
@@ -14,7 +13,6 @@ import {
   GARDEN_SEA_EDGE_SITES,
   seaEdgeBoundaryAt,
   seaEdgeGapToSlab,
-  seaEdgeInletDistance,
   seaEdgeTileInOpening,
 } from "./garden-sea-edge-sites";
 import {
@@ -77,11 +75,9 @@ describe("garden sea-edge sites", () => {
   });
 
   it("keeps every footprint outside the camera-near empty inlet", () => {
-    // The mirrored corridor must stay the fleet placement's own ma.
-    expect(GARDEN_SEA_EDGE_INLET).toEqual(GARDEN_EMPTY_INLET);
     for (const site of GARDEN_SEA_EDGE_SITES) {
-      expect(seaEdgeInletDistance(site.tile.x, site.tile.y), site.id)
-        .toBeGreaterThan(GARDEN_SEA_EDGE_INLET.halfWidth + site.footprintRadius);
+      expect(gardenInletDistance(site.tile.x, site.tile.y), site.id)
+        .toBeGreaterThan(GARDEN_EMPTY_INLET.halfWidth + site.footprintRadius);
     }
   });
 

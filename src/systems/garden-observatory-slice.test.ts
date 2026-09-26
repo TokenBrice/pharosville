@@ -313,6 +313,33 @@ describe("Garden Observatory slice", () => {
     expect(isGardenShipWater(transientDisplay, transientMargin)).toBe(true);
   });
 
+  it("re-resolves a hull whose display correction was pinned behind an obstacle", () => {
+    // A fresh node gets a fresh display cache. Sail its source straight
+    // through the island from the east shore to the west: the continued
+    // correction pins the hull on the east shore while the source crosses,
+    // and must let go once the pin drifts past the cap instead of dragging
+    // the hull ~30 tiles behind its route.
+    const world = denseWorld();
+    const ship = { ...world.ships[0]! };
+    const margin = gardenShipWaterMarginTiles(
+      gardenShipVisualScale(ship.visual.scale || 1),
+      GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull],
+    );
+    const start = { x: 92, y: 70 };
+    const end = { x: 52, y: 70 };
+    expect(isGardenShipWater(start, margin, true) && isGardenShipWater(end, margin, true)).toBe(true);
+    let display = start;
+    for (let x = start.x; x >= end.x; x -= 0.25) {
+      display = resolveGardenShipDisplayTile({
+        displayOffset: { x: 0, y: 0 },
+        representative: false,
+        sample: { state: "sailing", tile: { x, y: end.y } },
+        ship,
+      });
+    }
+    expect(Math.hypot(display.x - end.x, display.y - end.y)).toBeLessThanOrEqual(margin + 2);
+  });
+
   it("keeps roster offsets deterministic and projects the Three plane from the shared camera scale", () => {
     // W3: placement moved from authored rings to region-scoped blue-noise
     // scatter; the determinism contract is unchanged — the same world must

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { IsoCamera } from "../systems/projection";
+import { cameraAtRest, type IsoCamera } from "../systems/projection";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
 import { clampManualTimeOverrideHour } from "./use-world-time-controls";
 
@@ -238,7 +238,9 @@ function applyWorldUrlWriteState(params: URLSearchParams, state: WorldUrlWriteSt
   }
 
   if ("camera" in state) {
-    if (state.camera) {
+    // W1.0: `cam` round-trips the interactive rig only. The rest ShotSpec is
+    // the absence of `cam`, so a camera at (or easing onto) the seat clears it.
+    if (state.camera && !cameraAtRest(state.camera)) {
       params.set("cam", [
         formatCompactNumber(state.camera.offsetX, 2),
         formatCompactNumber(state.camera.offsetY, 2),

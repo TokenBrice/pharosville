@@ -1,5 +1,4 @@
 import type {
-  CameraBreath,
   PharosVilleRenderMetrics,
   PharosVilleRenderSchedulerState,
 } from "./render-types";
@@ -53,8 +52,8 @@ export interface ThreeWorldRendererFrame {
    */
   epochSeconds?: number | undefined;
   logos: ThreeLogoAssets;
+  /** Camera state: the rig, its rest blend and this frame's K16 breath (`cameraView`). */
   camera: IsoCamera;
-  cameraBreath?: CameraBreath;
   dpr: number;
   height: number;
   hoveredDetailId: string | null;

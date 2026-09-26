@@ -37,17 +37,50 @@ export const GARDEN_DOCK_ROOT_Y = GARDEN_WATER_Y + 0.2;
 export const GARDEN_SHIP_ROOT_Y = GARDEN_WATER_Y + 0.38;
 export const GARDEN_ZONE_ROOT_Y = GARDEN_WATER_Y + 0.04;
 export const GARDEN_ISLAND_TILE_OFFSET = { x: 12, y: 8 } as const;
-export const GARDEN_LIGHTHOUSE_ROOT_OFFSET = { x: -7, y: 2.55, z: -1.25 } as const;
+// W1.9 (Hour-Print, pharos-2): the Pharos stands on the crag headland's
+// crown. Six units of keep were traded for rock, so the root rose 2.55 → 8.55
+// while BEACON_Y (30.2 → 24.2) and HEIGHT (38 → 32) shrank by the same six:
+// the world beacon and crown heights below are unchanged.
+export const GARDEN_LIGHTHOUSE_ROOT_OFFSET = { x: -7, y: 8.55, z: -1.25 } as const;
 // Epic Pharos 2026-09-05 (D1): the broad battered square tier, octagonal
-// drum, columned lantern and Zeus Soter crown stand 38 units above the court.
-// BEACON_Y is the brazier centre inside the lantern (flame and beam origin);
-// HEIGHT is the sceptre tip. Both match the GLB and procedural shell.
-export const GARDEN_LIGHTHOUSE_BEACON_Y = 30.2;
-export const GARDEN_LIGHTHOUSE_HEIGHT = 38;
+// drum, columned lantern and Zeus Soter crown stand 32 units above the crag
+// court. BEACON_Y is the brazier centre inside the lantern (flame and beam
+// origin); HEIGHT is the sceptre tip. Both match the GLB and procedural shell.
+export const GARDEN_LIGHTHOUSE_BEACON_Y = 24.2;
+export const GARDEN_LIGHTHOUSE_HEIGHT = 32;
 // C3 (scale & anchor contract): these three constants are the integration
 // point for Epic Pharos 2026-09-05. Camera fit, shadow-frustum height, hit
 // rect and selection anchor follow the monument; selection radius, PSI
 // beacon semantics and DOM/ARIA contracts remain unchanged.
+
+/**
+ * W1.9 world-fixed tower anchors (world y, height above the datum the water
+ * sits under). The pose model frames these, not ROOT_OFFSET/HEIGHT sums: the
+ * foot is the crag court the tower stands on, the beacon is the brazier (flame
+ * and beam origin), the crown is the sceptre tip. Beacon and crown are the
+ * pre-W1.9 world heights by construction.
+ */
+export const GARDEN_TOWER_FOOT_WORLD_Y = GARDEN_LIGHTHOUSE_ROOT_OFFSET.y;
+export const GARDEN_TOWER_BEACON_WORLD_Y = GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_BEACON_Y;
+export const GARDEN_TOWER_CROWN_WORLD_Y = GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT;
+
+export interface GardenTowerWorldAnchors {
+  foot: { x: number; y: number; z: number };
+  beacon: { x: number; y: number; z: number };
+  crown: { x: number; y: number; z: number };
+}
+
+/** World-space tower anchors for a lighthouse tile (the tower axis is vertical). */
+export function gardenTowerWorldAnchors(lighthouseTile: ScreenPoint): GardenTowerWorldAnchors {
+  const island = gardenIslandDisplayTile(lighthouseTile);
+  const x = island.x * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x;
+  const z = island.y * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z;
+  return {
+    foot: { x, y: GARDEN_TOWER_FOOT_WORLD_Y, z },
+    beacon: { x, y: GARDEN_TOWER_BEACON_WORLD_Y, z },
+    crown: { x, y: GARDEN_TOWER_CROWN_WORLD_Y, z },
+  };
+}
 
 export type GardenHullSilhouette =
   | "bezaisen"
@@ -174,6 +207,9 @@ interface GardenShipDisplayTileCacheEntry {
 const gardenShipDisplayTileCache = new WeakMap<ShipNode, GardenShipDisplayTileCacheEntry>();
 const gardenDependencyDisplayTileCache = new WeakMap<ShipNode, GardenShipDisplayTileCacheEntry>();
 
+/** How far past its hull margin a continued display correction may reach. */
+const GARDEN_DISPLAY_CONTINUATION_SLACK_TILES = 2;
+
 /**
  * Composed display tiles that miss the water field need the radial
  * nearest-water search, which is hundreds of field lookups. Moored hulls bob
@@ -201,7 +237,10 @@ function resolveCachedShipWaterTile(
     const correctionRadius = Math.max(1, Math.hypot(
       cached.tile.x - cached.sourceX, cached.tile.y - cached.sourceY,
     ));
-    if (Math.hypot(source.x - cached.sourceX, source.y - cached.sourceY) <= correctionRadius) {
+    // Only a local correction is carried: a larger one would keep the hull
+    // displaced even after its source is back on open water.
+    if (correctionRadius <= margin + GARDEN_DISPLAY_CONTINUATION_SLACK_TILES
+      && Math.hypot(source.x - cached.sourceX, source.y - cached.sourceY) <= correctionRadius) {
       const shifted = {
         x: source.x + (cached.tile.x - cached.sourceX),
         y: source.y + (cached.tile.y - cached.sourceY),
@@ -221,10 +260,16 @@ function resolveCachedShipWaterTile(
         if (isGardenShipWater(midpoint, margin, includeDocks)) safe = midpoint;
         else blocked = midpoint;
       }
-      cached.sourceX = source.x;
-      cached.sourceY = source.y;
-      cached.tile = safe;
-      return safe;
+      // Continuation is only a local correction. Once the source has sailed
+      // on past an obstacle the hull cannot follow, the safe point would pin
+      // it and the growing correction would drag it tens of tiles off its
+      // route (across the empty inlet, W1.6); re-resolve from the source.
+      if (Math.hypot(safe.x - source.x, safe.y - source.y) <= margin + GARDEN_DISPLAY_CONTINUATION_SLACK_TILES) {
+        cached.sourceX = source.x;
+        cached.sourceY = source.y;
+        cached.tile = safe;
+        return safe;
+      }
     }
   }
   const resolved = isGardenShipWater(source, margin, includeDocks)
@@ -509,12 +554,22 @@ export function gardenCameraViewHeight(viewportHeight: number, zoom: number): nu
   return viewportHeight / (TILE_HEIGHT * zoom);
 }
 
+/**
+ * Explore framing starts at this pose-physical detail zoom
+ * (`cameraDetailZoom`: the view's stand-off on the 1000 px reference
+ * viewport). The rest ShotSpec reads ≈ 1.48, so the resting frame and its
+ * hand-off rig are explore-level at every viewport; the whole-map pull-out
+ * (≤ 0.44) is overview.
+ */
+export const GARDEN_EXPLORE_DETAIL_ZOOM = 1.05;
+
+/** `detailZoom` is `cameraDetailZoom(camera, viewport)`, never the raw rig zoom. */
 export function gardenSemanticView(
-  zoom: number,
+  detailZoom: number,
   selectedDetailId: string | null,
 ): GardenSemanticView {
   if (selectedDetailId) return "analyze";
-  return zoom >= 1.05 ? "explore" : "overview";
+  return detailZoom >= GARDEN_EXPLORE_DETAIL_ZOOM ? "explore" : "overview";
 }
 
 export function gardenShipSelectionRadius(ship: ShipNode): number {

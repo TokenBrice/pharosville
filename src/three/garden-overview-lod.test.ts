@@ -121,9 +121,6 @@ describe("createGardenOverviewLod", () => {
     expect(new Set(OVERVIEW_LOD_DETAIL_NAMES).size).toBe(OVERVIEW_LOD_DETAIL_NAMES.length);
     expect(OVERVIEW_LOD_DETAIL_NAMES).toEqual(expect.arrayContaining([
       "island-koi",
-      // Warm-village A6: both camera-near foreground masses shed with the
-      // rest of the skirt furniture below the band.
-      "garden-rim-foreground-pine-bough",
       // Warm-village D3: the station chimneys' whole-ring smoke group sheds
       // with the other sub-silhouette harbour furniture.
       "dock-station-smoke",
@@ -138,10 +135,6 @@ describe("createGardenOverviewLod", () => {
     // Fine station detail has its own hover/inspect gate and must not be
     // made visible by this overview policy.
     expect(OVERVIEW_LOD_DETAIL_NAMES.some((name) => name.startsWith("harbor-fine-"))).toBe(false);
-    // The foreground masses are localized props at their own world position,
-    // so they shrink in place rather than fading whole-ring like the origin
-    // groups whose instance matrices carry the ring's transform.
-    expect(OVERVIEW_LOD_WHOLE_RING_NAMES).not.toContain("garden-rim-foreground-pine-bough");
   });
 
   it("sheds only harbor greebles while retaining structural station breaks", () => {

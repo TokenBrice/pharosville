@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  HARBOR_NOBORI_ENVELOPE,
+  HARBOR_NOBORI_FACING_YAW,
   STATION_LOCAL_BOUNDS,
   STATION_SCALE_LADDER,
   distanceToStationFootprint,
   stationFootprint,
   stationFootprintRect,
+  stationNobori,
   stationScaleFor,
   type StationType,
 } from "./dock-layout";
+import { GARDEN_DOCK_ROOT_Y, GARDEN_WATER_Y } from "./garden-observatory-slice";
 
 describe("station footprint", () => {
   it("returns the Mole's measured cove-rooted precinct bounds", () => {
@@ -99,5 +103,55 @@ describe("station footprint", () => {
     expect(distanceToStationFootprint({ x: 40, y: 38 }, rect)).toBe(0);
     expect(distanceToStationFootprint({ x: 40, y: 54 }, rect)).toBe(0);
     expect(distanceToStationFootprint({ x: 40, y: 63 }, rect)).toBeGreaterThan(0);
+  });
+});
+
+describe("station nobori (plan K28)", () => {
+  const TYPES = Object.keys(STATION_SCALE_LADDER) as StationType[];
+  const docks = TYPES.flatMap((type) => [1, 6, 10].flatMap((size) => [3e7, 2e9, 2e11].flatMap((totalUsd) => (
+    [0.01, 1, 100].flatMap((frontageShare) => [0.3, 1.9, -2.6].map((shoreBearing) => ({
+      frontageMedianShare: 1,
+      frontageShare,
+      size,
+      station: { shoreBearing, type },
+      totalUsd,
+    })))
+  ))));
+
+  it("flies narrow banners whose tips stay under 13.7 u above the water, inside the exported envelope", () => {
+    expect(GARDEN_DOCK_ROOT_Y + HARBOR_NOBORI_ENVELOPE.tipLocalY - GARDEN_WATER_Y).toBeLessThanOrEqual(13.7);
+    for (const dock of docks) {
+      for (const banner of stationNobori(dock).banners) {
+        expect(banner.clothWidth).toBeGreaterThanOrEqual(0.95);
+        expect(banner.clothWidth).toBeLessThanOrEqual(1.2);
+        expect(banner.clothHeight).toBeGreaterThanOrEqual(3.0);
+        expect(banner.clothHeight).toBeLessThanOrEqual(3.8);
+        expect(banner.poleTopY).toBeLessThanOrEqual(HARBOR_NOBORI_ENVELOPE.tipLocalY);
+        expect(banner.clothBottomY).toBeGreaterThanOrEqual(HARBOR_NOBORI_ENVELOPE.clothBottomLocalY);
+        expect(Math.hypot(banner.x, banner.z) + banner.clothWidth).toBeLessThanOrEqual(HARBOR_NOBORI_ENVELOPE.reach);
+      }
+    }
+  });
+
+  it("gives the Mole a pair side by side and every other station one banner", () => {
+    for (const dock of docks) {
+      const { banners, yaw } = stationNobori(dock);
+      if (dock.station.type !== "ethereum-mole") {
+        expect(banners).toHaveLength(1);
+        continue;
+      }
+      expect(banners).toHaveLength(2);
+      const [first, second] = banners;
+      // The second pole stands along the cloth's flight, a gap beyond the first cloth's free edge.
+      const along = (second!.x - first!.x) * Math.cos(yaw) - (second!.z - first!.z) * Math.sin(yaw);
+      expect(along).toBeGreaterThan(first!.clothWidth);
+      expect(Math.hypot(second!.x - first!.x, second!.z - first!.z)).toBeCloseTo(along, 6);
+    }
+  });
+
+  it("faces every banner along the rest seat's yaw whatever the shore bearing", () => {
+    for (const dock of docks) {
+      expect(stationNobori(dock).yaw - dock.station.shoreBearing).toBeCloseTo(HARBOR_NOBORI_FACING_YAW, 9);
+    }
   });
 });

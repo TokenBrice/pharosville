@@ -1,7 +1,7 @@
 import { Color, Mesh, PerspectiveCamera, Raycaster, ShaderMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { defaultCamera } from "../systems/camera";
-import { CAMERA_FAR, CAMERA_FOV_DEG, CAMERA_NEAR, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, TILE_SCALE, cameraEye, cameraPoseFromIso, screenToGroundRay } from "../systems/projection";
+import { defaultCamera, withoutRest } from "../systems/camera";
+import { CAMERA_FAR, CAMERA_NEAR, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, cameraView, screenToGroundRay } from "../systems/projection";
 import { buildPharosVilleMap } from "../systems/world-layout";
 import { DAY_CYCLE_SKY_PRESETS } from "./garden-day-cycle";
 import { countDrawableObjects } from "./garden-util";
@@ -47,16 +47,17 @@ describe("garden horizon", () => {
     const map = buildPharosVilleMap();
     for (const viewport of [{ x: 900, y: 720 }, { x: 1200, y: 640 }]) {
       const rest = defaultCamera({ width: viewport.x, height: viewport.y, map });
-      for (const zoom of [rest.zoom, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM]) {
-        const isoCamera = { ...rest, zoom };
-        const pose = cameraPoseFromIso(isoCamera, viewport);
-        const eye = cameraEye(pose);
-        const targetX = pose.targetTile.x * TILE_SCALE;
-        const targetZ = pose.targetTile.y * TILE_SCALE;
+      const isoCameras = [rest, ...[rest.zoom, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM]
+        .map((zoom) => ({ ...withoutRest(rest), zoom }))];
+      for (const isoCamera of isoCameras) {
+        const view = cameraView(isoCamera, viewport);
+        const eye = view.eye;
+        const targetX = view.target.x;
+        const targetZ = view.target.z;
         horizon.update(12, { ...FRAME, cameraPosition: eye, targetX, targetZ });
-        const camera = new PerspectiveCamera(CAMERA_FOV_DEG, viewport.x / viewport.y, CAMERA_NEAR, CAMERA_FAR);
+        const camera = new PerspectiveCamera(view.vFovDeg, viewport.x / viewport.y, CAMERA_NEAR, CAMERA_FAR);
         camera.position.set(eye.x, eye.y, eye.z);
-        camera.lookAt(targetX, pose.targetHeight, targetZ);
+        camera.lookAt(targetX, view.target.y, targetZ);
         camera.updateMatrixWorld(true);
         horizon.root.updateMatrixWorld(true);
         const mesh = horizon.root.children[0] as Mesh;

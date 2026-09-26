@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { REST_SEAT_YAW_RAD } from "../systems/rest-seat";
 import { dayCyclePhase } from "./garden-day-cycle";
 import {
   GARDEN_KEY_MIN_ELEVATION,
-  GARDEN_SUN_NOON_BEARING,
   gardenKeyLightPose,
   gardenMoonPose,
   gardenSunPose,
@@ -12,11 +12,37 @@ function bearingOf(pose: { direction: { x: number; z: number } }): number {
   return Math.atan2(pose.direction.z, pose.direction.x);
 }
 
+/** Horizontal light direction in the rest seat's frame: +right, +forward (into the picture). */
+function seatRelative(pose: { direction: { x: number; z: number } }): { right: number; forward: number } {
+  const { x, z } = pose.direction;
+  const length = Math.hypot(x, z);
+  const yaw = REST_SEAT_YAW_RAD;
+  return {
+    right: (x * Math.cos(yaw) - z * Math.sin(yaw)) / length,
+    forward: (-x * Math.sin(yaw) - z * Math.cos(yaw)) / length,
+  };
+}
+
 describe("gardenSunPose", () => {
-  it("keeps the noon bearing while lowering the apex for readable form shadows", () => {
-    const noon = gardenSunPose((5 + 19.5) / 2);
-    expect(bearingOf(noon)).toBeCloseTo(GARDEN_SUN_NOON_BEARING, 6);
-    expect(noon.elevation).toBeCloseTo(0.62, 6);
+  it("puts the noon key at the rest seat's right hand, a pure side light", () => {
+    const noon = seatRelative(gardenSunPose((5 + 19.5) / 2));
+    expect(noon.right).toBeCloseTo(1, 6);
+    expect(noon.forward).toBeCloseTo(0, 6);
+    expect(gardenSunPose((5 + 19.5) / 2).elevation).toBeCloseTo(0.62, 6);
+  });
+
+  it("rises front-right of the seat and sets behind the viewer's right shoulder", () => {
+    // Dawn is soft contre-jour from ahead-right; golden hour lights the faces
+    // the seat sees from behind-right; the key never crosses to the left hand.
+    const dawn = seatRelative(gardenSunPose(5.5));
+    expect(dawn.forward).toBeGreaterThan(0.5);
+    expect(dawn.right).toBeGreaterThan(0.3);
+    const golden = seatRelative(gardenSunPose(17.6));
+    expect(golden.forward).toBeLessThan(-0.5);
+    expect(golden.right).toBeGreaterThan(0.5);
+    for (let hour = 5; hour <= 19.5; hour += 0.25) {
+      expect(seatRelative(gardenSunPose(hour)).right).toBeGreaterThan(0);
+    }
   });
 
   it("is on the horizon at sunrise and sunset", () => {
@@ -88,11 +114,13 @@ describe("gardenKeyLightPose", () => {
   });
 
   it("crosses over without a discontinuity — no hour where the key light jumps", () => {
-    // The property that matters is CONTINUITY, not slowness. The sun-to-moon
-    // handover is legitimately the fastest the key light ever moves (it peaks
-    // around 20:00 at ~0.094 rad per 0.05 h — about 5° per three real minutes,
-    // which no one can see), so a flat "must be slower than X" bound would
-    // either fail on honest motion or be too loose to catch a real snap.
+    // The property that matters is CONTINUITY, not slowness. The moon-to-sun
+    // handover at dawn is legitimately the fastest the key light ever moves:
+    // the dawn sun rises front-right of the seat while the moon sits behind
+    // the left shoulder, over 150° apart in bearing, so the key peaks around 05:30 at
+    // ~0.165 rad per 0.05 h — about 9° per three real minutes, which no one
+    // can see. A flat "must be slower than X" bound would either fail on
+    // honest motion or be too loose to catch a real snap.
     //
     // A discontinuity is a SPIKE: one step far larger than the steps either
     // side of it. That is what this asserts, plus a generous absolute ceiling.
@@ -104,7 +132,7 @@ describe("gardenKeyLightPose", () => {
       previous = next;
     }
 
-    expect(Math.max(...steps)).toBeLessThan(0.15);
+    expect(Math.max(...steps)).toBeLessThan(0.2);
     for (let index = 1; index < steps.length - 1; index += 1) {
       const neighbourMean = (steps[index - 1] + steps[index + 1]) / 2;
       // A smooth curve's middle step is close to the mean of its neighbours; an

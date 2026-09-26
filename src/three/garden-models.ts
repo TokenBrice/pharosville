@@ -109,7 +109,7 @@ export interface GardenModelMetadata {
   };
 }
 
-const LIGHTHOUSE_SHA256 = "683bcbcac8ccd18f9f6b6237931f5011600e1d87088507dab912aca1fd39b9c9";
+const LIGHTHOUSE_SHA256 = "4e606bac819fa6d9b950048211a881e41168409cbe857ecf0fd8006fc1faea0f";
 const lighthouseUrl = `/pharosville/models/garden-lighthouse-shell.glb?v=${LIGHTHOUSE_SHA256.slice(0, 12)}`;
 
 const HERO_TETHER_SHA256 = "fd98b1089c306898bf300a53169b4b1d3183f9038fce174dac5a2f4e37013e55";
@@ -199,7 +199,7 @@ export const GARDEN_MODEL_MANIFEST = {
     id: "garden-lighthouse-shell",
     label: "Garden Observatory lighthouse shell",
     artifact: {
-      bytes: 232_848,
+      bytes: 194_112,
       compression: "meshopt",
       gltfVersion: 2,
       sha256: LIGHTHOUSE_SHA256,
@@ -207,7 +207,7 @@ export const GARDEN_MODEL_MANIFEST = {
     },
     dimensions: {
       x: 12.43,
-      y: 38,
+      y: 32,
       z: 12.43,
     },
     scale: {
@@ -223,19 +223,19 @@ export const GARDEN_MODEL_MANIFEST = {
     anchors: {
       beacon: {
         node: "anchor-beacon",
-        position: [0, 30.2, 0],
+        position: [0, 24.2, 0],
       },
       beam: {
         node: "anchor-beam",
-        position: [0, 30.2, 0],
+        position: [0, 24.2, 0],
       },
       label: {
         node: "anchor-label",
-        position: [0, 38.9, 0],
+        position: [0, 32.9, 0],
       },
       selection: {
         node: "anchor-selection",
-        position: [0, 19, 0],
+        position: [0, 16, 0],
       },
     },
     lod: {
@@ -248,24 +248,26 @@ export const GARDEN_MODEL_MANIFEST = {
       }],
     },
     pickProxy: {
-      center: [0, 19, 0],
-      height: 38,
+      center: [0, 16, 0],
+      height: 32,
       radius: 6.6,
       shape: "cylinder",
     },
     geometry: {
-      drawCalls: 7,
-      materials: 7,
+      drawCalls: 8,
+      materials: 8,
       textures: 0,
-      triangles: 37_160,
-      vertices: 24_304,
+      triangles: 30_436,
+      vertices: 19_901,
     },
     budgets: {
-      // Monumental Pharos: 38-unit crown, broader battered keep, 36 lower
-      // windows, pilastered octagon and an eight-column glowing lantern.
-      // Seven material-merged draws; baked UBYTE vertex AO, no textures.
-      // Measured 232,848 bytes / 37,160 triangles / 24,304 vertices leaves
-      // deliberate headroom without approaching the precinct's frame budget.
+      // Monumental Pharos on the crag (W1.9): a 32-unit tower whose crown
+      // and beacon keep their world heights because the root rose six units
+      // onto the headland. Two window registers, pilastered octagon, an
+      // eight-column lantern with a glass skin around the open fire (pharos-1)
+      // and a weathering bake (pharos-5/7) in the UBYTE vertex colour; no
+      // textures. Eight material-merged draws. Measured 194,112 bytes /
+      // 30,436 triangles / 19,901 vertices.
       maxBytes: 280 * 1024,
       maxDrawCalls: 8,
       maxMaterials: 8,

@@ -1,15 +1,8 @@
 import { InstancedMesh, Matrix4, Mesh, MeshStandardMaterial } from "three";
 import { describe, expect, it, vi, type MockInstance } from "vitest";
-import { defaultCamera } from "../systems/camera";
 import { distanceToStationFootprint, stationFootprintRect } from "../systems/dock-layout";
 import { RIM_COVES, RIM_OPENINGS, rimLandAt } from "../systems/garden-rim";
 import {
-  cameraEye,
-  cameraPoseFromIso,
-  worldToScreen,
-} from "../systems/projection";
-import {
-  buildPharosVilleMap,
   EVM_BAY_STATION_SLOTS,
   OUTER_HARBOR_STATION_SLOTS,
   PIGEONNIER_STATION_SLOT,
@@ -18,46 +11,21 @@ import { weatherForFrame } from "../systems/weather";
 import {
   createGardenRimMesh,
   gardenRimBayExcursionAt,
-  GARDEN_ENGAWA_DISPLACEMENT,
-  GARDEN_ENGAWA_LANTERN_WORLD,
-  GARDEN_ENGAWA_PINE_HEIGHT,
   GARDEN_NEAR_RIM_BAY_DEPTHS,
   GARDEN_NEAR_RIM_DISPLACEMENT,
   GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT,
   GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT,
   GARDEN_RIM_COLOR_HEX,
   rimColor,
-  GARDEN_RIM_FOREGROUND_BOUGH_NAME,
-  GARDEN_RIM_FOREGROUND_MASSES,
 } from "./garden-rim-mesh";
-import { GARDEN_NIWAKI_SPECS } from "./garden-island";
 import { countDrawableObjects, TILE_SCALE } from "./garden-util";
 
-interface ScreenRect {
-  maxX: number;
-  maxY: number;
-  minX: number;
-  minY: number;
-}
-
-function rectsOverlap(a: ScreenRect, b: ScreenRect): boolean {
-  return a.minX <= b.maxX && b.minX <= a.maxX && a.minY <= b.maxY && b.minY <= a.maxY;
-}
-
-function unionInto(rect: ScreenRect, x: number, y: number): void {
-  rect.minX = Math.min(rect.minX, x);
-  rect.maxX = Math.max(rect.maxX, x);
-  rect.minY = Math.min(rect.minY, y);
-  rect.maxY = Math.max(rect.maxY, y);
-}
-
 describe("garden rim mesh", () => {
-  it("builds the terraced authored ring in eleven batched opaque draws", () => {
+  it("builds the terraced authored ring in ten batched opaque draws", () => {
     const rim = createGardenRimMesh();
     expect(rim.root.name).toBe("garden-rim");
-    expect(rim.drawCallCount).toBe(11);
-    expect(rim.drawCallCount).toBeLessThanOrEqual(13);
-    expect(countDrawableObjects(rim.root)).toBe(11);
+    expect(rim.drawCallCount).toBe(10);
+    expect(countDrawableObjects(rim.root)).toBe(10);
     expect(rim.root.getObjectByName("garden-rim-land")).toBeInstanceOf(Mesh);
     expect(rim.root.getObjectByName("garden-rim-tide-rock")).toBeInstanceOf(Mesh);
     expect(rim.root.getObjectByName("garden-rim-path")).toBeInstanceOf(Mesh);
@@ -68,14 +36,11 @@ describe("garden rim mesh", () => {
     expect(rim.root.getObjectByName("garden-flora-momiji")).toBeInstanceOf(InstancedMesh);
     expect(rim.root.getObjectByName("garden-rim-understory")).toBeUndefined();
     expect((rim.root.getObjectByName("garden-flora-bamboo") as InstancedMesh).count).toBe(35);
-    expect(rim.root.getObjectByName(GARDEN_RIM_FOREGROUND_BOUGH_NAME)).toBeInstanceOf(Mesh);
     expect(rim.root.getObjectByName("garden-rim-foreground-pines")).toBeUndefined();
     expect(rim.root.getObjectByName("garden-rim-foreground-torii")).toBeUndefined();
-    expect(rim.foregroundMassCount).toBe(1);
     expect(rim.pineCount).toBe(120);
     expect(rim.understoryCount).toBe(80);
     expect(rim.broadleafCount).toBe(60);
-    expect(rim.engawaPineCount).toBe(1);
     expect(rim.steppingStoneCount).toBe(3);
     // Headland, stepping and skirt stones share their draw with the boulder toe.
     expect(rim.stoneCount).toBe(120);
@@ -84,13 +49,12 @@ describe("garden rim mesh", () => {
     expect(rim.coastFormCounts.boulder).toBeGreaterThan(0);
     const revetments = rim.root.getObjectByName("garden-rim-revetments") as InstancedMesh;
     expect(revetments.count * 12).toBeLessThanOrEqual(2_000);
-    expect(GARDEN_ENGAWA_LANTERN_WORLD.x).toBeGreaterThan(0);
-    expect(GARDEN_ENGAWA_LANTERN_WORLD.z).toBeGreaterThan(GARDEN_ENGAWA_LANTERN_WORLD.x);
     expect(rim.pathSegmentCount).toBeGreaterThan(80);
     // The cove-rooted rectangles retain the Mole spur without admitting
     // dressing onto any authored station geometry.
     expect(rim.coveSpurCount).toBe(8);
-    // G2 species redistribution: measured 116,886 (G1: 90,426).
+    // G2 species redistribution: measured 116,886 (G1: 90,426); 116,372 once
+    // the bough and the old engawa left for the threshold (W1.5).
     // Islet and niwaki savings pay the net +24,668 combined flora delta.
     expect(rim.triangleCount).toBeGreaterThan(116_000);
     expect(rim.triangleCount).toBeLessThanOrEqual(117_000);
@@ -104,12 +68,6 @@ describe("garden rim mesh", () => {
         || Math.abs(gridZ - Math.round(gridZ)) > 0.01) contourVertices += 1;
     }
     expect(contourVertices).toBeGreaterThan(100);
-    expect(GARDEN_ENGAWA_DISPLACEMENT).toContain("pine thicket");
-    // A foreground tree still frames the garden, but no longer doubles the
-    // tallest island pine and puts its canopy through the fleet's sails.
-    const islandPineHeight = Math.max(...GARDEN_NIWAKI_SPECS.map((pine) => pine.height));
-    expect(GARDEN_ENGAWA_PINE_HEIGHT).toBeGreaterThan(islandPineHeight);
-    expect(GARDEN_ENGAWA_PINE_HEIGHT).toBeLessThan(islandPineHeight * 2);
     expect(Math.max(...GARDEN_NEAR_RIM_BAY_DEPTHS)).toBeGreaterThanOrEqual(4.5);
     expect(Math.min(...GARDEN_NEAR_RIM_BAY_DEPTHS)).toBeGreaterThanOrEqual(3);
     expect(GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT).toBeGreaterThanOrEqual(1.5);
@@ -391,8 +349,8 @@ describe("garden rim mesh", () => {
     expect(skirtPines.length / skirtArea).toBeLessThan(shoreBandCount(pines) / shoreBandArea);
     // …thinning to none before the plate limit at tile 147…
     expect(pines.concat(stones).every((tile) => rimBand(tile) <= 145)).toBe(true);
-    // …while the stroll stays an authored in-bounds route: no ribbon, cove
-    // spur, or engawa geometry of the path draw crosses tile 139…
+    // …while the stroll stays an authored in-bounds route: no ribbon or cove
+    // spur of the path draw crosses tile 139…
     const path = rim.root.getObjectByName("garden-rim-path") as Mesh;
     path.geometry.computeBoundingBox();
     expect(path.geometry.boundingBox!.max.x).toBeLessThanOrEqual(boundary * TILE_SCALE + 0.02);
@@ -416,109 +374,6 @@ describe("garden rim mesh", () => {
     }
     expect(skirtHeights.size).toBeGreaterThanOrEqual(40);
     expect(skirtTop).toBeLessThanOrEqual(3.1);
-    rim.dispose();
-  });
-
-  it("frames the rest corner with one dark pine bough", () => {
-    const rim = createGardenRimMesh();
-    const map = buildPharosVilleMap();
-    const projectionViewport = { x: 1600, y: 1000 };
-    const projectionCamera = defaultCamera({
-      height: projectionViewport.y,
-      map,
-      width: projectionViewport.x,
-    });
-    const projectionPose = cameraPoseFromIso(projectionCamera, projectionViewport);
-    const projectionEye = cameraEye(projectionPose);
-    for (const mass of GARDEN_RIM_FOREGROUND_MASSES) {
-      const mesh = rim.root.getObjectByName(mass.name) as Mesh;
-      expect(mesh, mass.name).toBeInstanceOf(Mesh);
-      // Dark, textureless silhouette participating in the static shadow pass.
-      const material = mesh.material as MeshStandardMaterial;
-      expect(material.vertexColors).toBe(true);
-      expect(material.emissive.getHex()).toBe(0);
-      expect(mesh.castShadow).toBe(true);
-      expect(mesh.receiveShadow).toBe(true);
-      mesh.geometry.computeBoundingBox();
-      const bb = mesh.geometry.boundingBox!;
-      // This is a camera-relative repoussoir, not planted rim dressing: its
-      // authored footing may sit beyond the finite plate. Its contract is the
-      // projected needle-pad silhouette at the rest-frame corner below.
-      const anchorWorld = {
-        x: mass.tile.x * TILE_SCALE,
-        z: mass.tile.y * TILE_SCALE,
-      };
-      const towardTarget = {
-        x: -Math.sin(projectionPose.yaw),
-        z: -Math.cos(projectionPose.yaw),
-      };
-      const eyeToAnchor = {
-        x: anchorWorld.x - projectionEye.x,
-        z: anchorWorld.z - projectionEye.z,
-      };
-      const forwardDistance = eyeToAnchor.x * towardTarget.x + eyeToAnchor.z * towardTarget.z;
-      expect(forwardDistance, `${mass.name} distance in front of the rest eye`).toBeGreaterThanOrEqual(6);
-      expect(forwardDistance, `${mass.name} distance in front of the rest eye`).toBeLessThanOrEqual(10);
-      // The reused pine builder contributes four flattened pads plus its
-      // leaning trunk in one merged geometry, comfortably under 1.5k tris.
-      const triangles = (mesh.geometry.index?.count
-        ?? mesh.geometry.getAttribute("position").count) / 3;
-      expect(triangles, `${mass.name} triangle budget`).toBeLessThanOrEqual(1500);
-      const crest = bb.max.y - Math.min(bb.min.y, 0.9);
-      expect(crest, `${mass.name} crest`).toBeGreaterThanOrEqual(mass.height * 0.85);
-      const viewAxisY = projectionEye.y - forwardDistance * Math.tan(projectionPose.pitch);
-      expect(bb.max.y, `${mass.name} stays below the rest view axis`).toBeLessThan(viewAxisY);
-    }
-    expect(rim.foregroundMassCount).toBe(1);
-
-    // Screen-space placement is authoritative for this camera-relative bough:
-    // its projected pads must cross the desktop rest frame's lower-left 15%.
-    for (const viewport of [
-      { height: 1000, width: 1600 },
-    ]) {
-      const camera = defaultCamera({ ...viewport, height: viewport.height, map, width: viewport.width });
-      for (const mass of GARDEN_RIM_FOREGROUND_MASSES) {
-        const mesh = rim.root.getObjectByName(mass.name) as Mesh;
-        mesh.geometry.computeBoundingBox();
-        const bb = mesh.geometry.boundingBox!;
-        const scaled: ScreenRect = {
-          maxX: Number.NEGATIVE_INFINITY,
-          maxY: Number.NEGATIVE_INFINITY,
-          minX: Number.POSITIVE_INFINITY,
-          minY: Number.POSITIVE_INFINITY,
-        };
-        for (const [x, y, z] of [
-          [bb.min.x, bb.min.y, bb.min.z],
-          [bb.max.x, bb.min.y, bb.min.z],
-          [bb.min.x, bb.max.y, bb.min.z],
-          [bb.max.x, bb.max.y, bb.min.z],
-          [bb.min.x, bb.min.y, bb.max.z],
-          [bb.max.x, bb.min.y, bb.max.z],
-          [bb.min.x, bb.max.y, bb.max.z],
-          [bb.max.x, bb.max.y, bb.max.z],
-        ] as const) {
-          const point = worldToScreen(
-            { x, y, z },
-            camera,
-            { x: viewport.width, y: viewport.height },
-          );
-          unionInto(scaled, point.x, point.y);
-        }
-        if (viewport.width === 1600) {
-          // The pads own and cross the lower-left 15% of the desktop rest frame.
-          const corner: ScreenRect = {
-            maxX: viewport.width * 0.15,
-            maxY: viewport.height,
-            minX: 0,
-            minY: viewport.height * 0.85,
-          };
-          expect(rectsOverlap(scaled, corner), `${mass.name} misses the rest corner`).toBe(true);
-          expect(scaled.minX, "pine bough is clipped by the left frame edge").toBeLessThan(0);
-          expect(scaled.maxY, "pine bough keeps its foot in the lower band")
-            .toBeGreaterThan(viewport.height * 0.85);
-        }
-      }
-    }
     rim.dispose();
   });
 

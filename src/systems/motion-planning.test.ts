@@ -18,13 +18,23 @@ import {
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   __resetPreviousRiskCache,
+  buildBaseMotionPlan,
   buildMotionPlan,
   disposePathCacheForMap,
+  inletCrossingTokensBetween,
+  type InletCrossingToken,
   openWaterPatrolItineraryIndex,
   openWaterPatrolItineraryLength,
   tidePhase,
   berthTidePhase,
 } from "./motion-planning";
+import { isGardenInletCoreTile } from "./garden-inlet";
+import {
+  GARDEN_CROSSING_MIN_GAP_SECONDS,
+  gardenAttentionSlotsBetween,
+  planGardenScoreGifts,
+} from "./garden-attention-scheduler";
+import type { ShipWaterPath } from "./motion-types";
 import { resolveShipMotionSample } from "./motion-sampling";
 import { stableUnit } from "./stable-random";
 import type { PharosVilleWorld } from "./world-types";
@@ -206,6 +216,108 @@ describe("W4.23 calm patrol itineraries", () => {
     // dense fixture's patrol itinerary still sits below the 512-entry floor;
     // the additional per-ship allowance is reserved for 96-tile station routes.
     expect(docklessShips * 6).toBeLessThan(512);
+  });
+});
+
+describe("W1.6 the empty inlet in motion", () => {
+  const world = buildPharosVilleWorld({
+    stablecoins: denseFixtureStablecoins,
+    chains: denseFixtureChains,
+    stability: fixtureStability,
+    pegSummary: denseFixturePegSummary,
+    stress: denseFixtureStress,
+    reportCards: denseFixtureReportCards,
+    cemeteryEntries: [],
+    freshness: {},
+  });
+  const plans = Array.from({ length: 12 }, (_, bucket) => buildBaseMotionPlan(world, bucket * 600));
+
+  /** Core tiles may appear only as the run that leaves (or enters) a leg endpoint lying in the core. */
+  function crossesCore(path: ShipWaterPath): boolean {
+    const inCore = path.points.map((point) => isGardenInletCoreTile(point.x, point.y));
+    let first = 0;
+    while (first < inCore.length && inCore[first]) first += 1;
+    let last = inCore.length - 1;
+    while (last >= first && inCore[last]) last -= 1;
+    return inCore.slice(first, last + 1).some(Boolean);
+  }
+
+  it("routes every voyage without a crossing token around the inlet core", () => {
+    let paths = 0;
+    for (const route of plans[0]!.shipRoutes.values()) {
+      const legs = [
+        ...route.waterPaths.values(),
+        ...(route.openWaterPatrol?.itinerary.flatMap((leg) => [leg.outbound, leg.inbound]) ?? []),
+      ];
+      for (const path of legs) {
+        paths += 1;
+        expect(crossesCore(path), `${route.shipId} ${JSON.stringify(path.from)}→${JSON.stringify(path.to)}`).toBe(false);
+      }
+    }
+    expect(paths).toBeGreaterThan(100);
+  });
+
+  it("lets only one ceremony subject at a time cross, fifteen minutes apart, and the same holder in every plan", () => {
+    const tokens = new Map<string, InletCrossingToken>();
+    for (const [bucket, plan] of plans.entries()) {
+      for (const token of inletCrossingTokensBetween(plan, bucket * 600, bucket * 600 + 600)) {
+        const key = `${token.slotIndex}`;
+        const seen = tokens.get(key);
+        if (seen) expect(`${token.shipId}:${token.cycleIndex}`).toBe(`${seen.shipId}:${seen.cycleIndex}`);
+        tokens.set(key, token);
+      }
+    }
+    const ordered = [...tokens.values()].toSorted((left, right) => left.startSeconds - right.startSeconds);
+    expect(ordered.length).toBeGreaterThan(0);
+    for (const token of ordered) {
+      // A token is only issued for a voyage that really crosses the ma.
+      expect(token.path.points.some((point) => isGardenInletCoreTile(point.x, point.y))).toBe(true);
+      const ship = world.ships.find((entry) => entry.id === token.shipId)!;
+      expect(["titan", "unique"]).toContain(ship.visual.sizeTier);
+      expect(ship.squadId).toBeUndefined();
+    }
+    for (let index = 1; index < ordered.length; index += 1) {
+      expect(ordered[index]!.startSeconds - ordered[index - 1]!.endSeconds).toBeGreaterThanOrEqual(GARDEN_CROSSING_MIN_GAP_SECONDS);
+    }
+  });
+
+  it("reports the crossing path on the token holder's sample, and the routed leg on its other arrivals", () => {
+    const bucket = plans.findIndex((entry, index) => inletCrossingTokensBetween(entry, index * 600, index * 600 + 600).length > 0);
+    expect(bucket).toBeGreaterThanOrEqual(0);
+    const plan = plans[bucket]!;
+    const [token] = inletCrossingTokensBetween(plan, bucket * 600, bucket * 600 + 600);
+    const ship = world.ships.find((entry) => entry.id === token!.shipId)!;
+    const route = plan.shipRoutes.get(ship.id)!;
+    const during = resolveShipMotionSample({
+      plan,
+      reducedMotion: false,
+      ship,
+      timeSeconds: (token!.startSeconds + token!.endSeconds) / 2,
+    });
+    // The selected-route line draws exactly this path.
+    expect(during.routePath).toBe(token!.path);
+    const nextCycle = resolveShipMotionSample({
+      plan,
+      reducedMotion: false,
+      ship,
+      timeSeconds: (token!.startSeconds + token!.endSeconds) / 2 + route.cycleSeconds,
+    });
+    expect(nextCycle.routePath).toBeDefined();
+    expect(nextCycle.routePath).not.toBe(token!.path);
+  });
+
+  it("leaves the attention slots a score gift claims without a crossing", () => {
+    const seed = "2026-09-26";
+    const crossingSlots = gardenAttentionSlotsBetween(seed, -1_800, 1_800);
+    const gifts = planGardenScoreGifts(seed, crossingSlots.map((slot) => ({
+      id: `gift-${slot.index}`,
+      earliestSeconds: slot.startSeconds,
+      latestSeconds: slot.startSeconds,
+      priority: 1,
+    })));
+    expect(gifts.length).toBe(crossingSlots.length);
+    const plan = buildBaseMotionPlan(world, 0, { seed, gifts });
+    expect(inletCrossingTokensBetween(plan, -1_800, 1_800)).toEqual([]);
   });
 });
 

@@ -20,13 +20,13 @@ import {
 import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   stationFootprint,
-  stationFlagPlacement,
-  HARBOR_FLAG_SCALE_MULTIPLIER,
+  stationNobori,
   harborAmountScale,
   HARBOR_QUAY_TOP_Y as QUAY_TOP_Y,
   stationScaleFor,
   type StationFootprint,
   type StationScale,
+  type StationNobori,
   type StationType,
 } from "../systems/dock-layout";
 import { GARDEN_DOCK_ROOT_Y, GARDEN_WATER_Y as WATER_LEVEL } from "../systems/garden-observatory-slice";
@@ -60,17 +60,6 @@ export type StationRoofline =
   | "thatch-gable"
   | "mole-tower-cap"
   | "pigeonnier-cone";
-export type StationFlagShape =
-  | "swallowtail"
-  | "nobori"
-  | "twin-tail"
-  | "chamfered"
-  | "forked"
-  | "stepped"
-  | "tapered"
-  | "storm-split"
-  | "square";
-
 export type StationSecondLevel =
   | "bell-tower"
   | "inn-gallery"
@@ -87,7 +76,6 @@ export interface HarborIdentity {
   roofline: StationRoofline;
   signature: StationSignature;
   secondLevel: StationSecondLevel;
-  flagShape: StationFlagShape;
 }
 export type HarborPlan = StationType;
 export type HarborSignature = StationSignature;
@@ -116,15 +104,15 @@ const STATION_TYPES: readonly StationType[] = [
   "pigeonnier-islet",
 ];
 const STATION_IDENTITY: Record<StationType, Omit<HarborIdentity, "stationType">> = {
-  "ethereum-mole": { flagShape: "swallowtail", roofline: "deep-hip", secondLevel: "bell-tower", signature: "enclosed-basin" },
-  "fishing-pier": { flagShape: "forked", roofline: "lean-to", secondLevel: "net-drying-rack", signature: "net-racks" },
-  "hatago-wharf": { flagShape: "nobori", roofline: "hatago-stacked", secondLevel: "inn-gallery", signature: "guest-lantern-row" },
-  "pigeonnier-islet": { flagShape: "square", roofline: "pigeonnier-cone", secondLevel: "pigeonnier-cote", signature: "pigeonnier" },
-  "reed-boathouse": { flagShape: "tapered", roofline: "thatch-gable", secondLevel: "thatched-dome", signature: "reed-clump" },
-  "stepped-inlet": { flagShape: "stepped", roofline: "stepped-canopy", secondLevel: "lantern-crown", signature: "top-lanterns" },
-  "storm-mole": { flagShape: "storm-split", roofline: "mole-tower-cap", secondLevel: "lantern-tower", signature: "lantern-tower" },
-  "tea-house-quay": { flagShape: "chamfered", roofline: "tea-hip", secondLevel: "moon-window-loft", signature: "engawa" },
-  uogashi: { flagShape: "twin-tail", roofline: "market-monopitch", secondLevel: "scale-beam", signature: "steelyard" },
+  "ethereum-mole": { roofline: "deep-hip", secondLevel: "bell-tower", signature: "enclosed-basin" },
+  "fishing-pier": { roofline: "lean-to", secondLevel: "net-drying-rack", signature: "net-racks" },
+  "hatago-wharf": { roofline: "hatago-stacked", secondLevel: "inn-gallery", signature: "guest-lantern-row" },
+  "pigeonnier-islet": { roofline: "pigeonnier-cone", secondLevel: "pigeonnier-cote", signature: "pigeonnier" },
+  "reed-boathouse": { roofline: "thatch-gable", secondLevel: "thatched-dome", signature: "reed-clump" },
+  "stepped-inlet": { roofline: "stepped-canopy", secondLevel: "lantern-crown", signature: "top-lanterns" },
+  "storm-mole": { roofline: "mole-tower-cap", secondLevel: "lantern-tower", signature: "lantern-tower" },
+  "tea-house-quay": { roofline: "tea-hip", secondLevel: "moon-window-loft", signature: "engawa" },
+  uogashi: { roofline: "market-monopitch", secondLevel: "scale-beam", signature: "steelyard" },
 };
 
 /** Standalone fallback until the systems branch supplies `dock.station`. */
@@ -167,12 +155,8 @@ export interface HarborPropInstance {
 export interface HarborFlagSpec {
   chainId: string;
   atlasCell: number;
-  accent: Color;
-  shape: StationFlagShape;
-  placement: { x: number; y: number; z: number; yaw: number; scale: number };
-  scaleMultiplier: number;
-  sag: number;
-  wavePhase: number;
+  /** The station's nobori (plan K28): one banner, or the Mole's pair, all facing `placement.yaw`. */
+  placement: StationNobori;
 }
 
 export const CARGO_TIDE_SLOTS = 6;
@@ -202,10 +186,9 @@ export interface DockRecipe {
   accentColor: Color;
 }
 
-const CAMERA_FACING_YAW = Math.PI / 4;
 const PIER_DECK_TOP_Y = 0.24;
-
-export { HARBOR_FLAG_SCALE_MULTIPLIER } from "../systems/dock-layout";
+/** Bamboo nobori pole (shared `post` instance). */
+const NOBORI_POLE_RADIUS = 0.055;
 
 /** Two approach lanterns rooted at each station mouth, just seaward of the quay. */
 export function gardenHarborLanternWorldPositions(
@@ -338,7 +321,9 @@ export function authorDock(
   pushMergedPart(parts, "wall", walls, stationWallColor(station.type), false, true);
   pushMergedPart(parts, "roof", roofs, STATION_ROOF_COLOR[station.type], false, true);
   pushMergedPart(parts, "roof", roofTrim, roofTrimColor(station.type), false, true);
-  pushMergedPart(parts, "window", windows, HARBOR_PALETTE.lantern_glow, false, false);
+  // Openings are dark voids by day (§1.1 rule 2, as the Pharos apertures):
+  // the bucket warms only through the day cycle's dusk/night emissive.
+  pushMergedPart(parts, "window", windows, HARBOR_PALETTE.iron_dark, false, false);
   pushMergedPart(parts, "accent", accents, STATION_ACCENT_COLOR[station.type], false, true);
   if (!ethereumMole && quayHealth < 0.5) {
     const cracks: BufferGeometry[] = [];
@@ -370,9 +355,21 @@ export function authorDock(
   }
 
   const lamps = stationLampLocals(station.type, length, width);
-  const staff = stationFlagPlacement(station.type, dock.totalUsd, dock.size);
+  const nobori = stationNobori({
+    frontageMedianShare: dock.frontageMedianShare,
+    frontageShare: dock.frontageShare,
+    size: dock.size,
+    station,
+    totalUsd: dock.totalUsd,
+  });
   const stationPosts = [
-    { height: staff.height + QUAY_TOP_Y - staff.baseY, baseY: staff.baseY, radius: 0.075, x: staff.x, z: staff.z },
+    ...nobori.banners.map((banner) => ({
+      baseY: banner.footY,
+      height: banner.poleTopY - banner.footY,
+      radius: NOBORI_POLE_RADIUS,
+      x: banner.x,
+      z: banner.z,
+    })),
     ...(ethereumMole ? [] : lamps.map((lamp) => ({ ...lamp, baseY: QUAY_TOP_Y, radius: 0.085 }))),
   ];
   for (const post of stationPosts) {
@@ -384,13 +381,11 @@ export function authorDock(
     scratchMatrix.makeTranslation(lamp.x, lamp.height + QUAY_TOP_Y + 0.06, lamp.z);
     props.push(harborProp("lampHead", scratchMatrix, null, false));
   }
-  const flag = authorChainFlag(dock, accent, identity.flagShape, {
-    height: staff.height,
-    scale: staff.scale,
-    x: staff.x,
-    yaw: CAMERA_FACING_YAW - root.rotation.y,
-    z: staff.z,
-  });
+  const flag: HarborFlagSpec = {
+    atlasCell: assignGardenChainFlagCell(dock, accent),
+    chainId: dock.chainId,
+    placement: nobori,
+  };
   attachRoofProfileTelemetry(parts, articulation);
 
   return {
@@ -573,16 +568,6 @@ function addFeatureGeometry(
 ): void {
   bucket.push(geometry);
   ctx.featureGeometry[feature].push(geometry);
-}
-
-function pushWarmWindow(
-  ctx: StationAuthorContext,
-  geometry: BufferGeometry,
-  x: number,
-  y: number,
-  z: number,
-): void {
-  pushFeatureGeometry(ctx, "warmWindows", ctx.windows, geometry, x, y, z);
 }
 
 /* ── Byte-budget authoring kit ──────────────────────────────────────────
@@ -1125,7 +1110,9 @@ function authorTeaHouseQuay(ctx: StationAuthorContext): void {
   // a compact hip keeps it in the tea-house family rather than reading tower.
   const loftEave = stationScale.secondLevelTop - 0.6 * stationScale.heightScale;
   secondBox(ctx, walls, 3.1, loftEave - primaryTop, 2.8, x, (loftEave + primaryTop) / 2, 0);
-  // Framed moon window with mullions: the tea-house's signature.
+  // Framed moon window with mullions: the tea-house's signature. The opening
+  // behind the ring is a dark void, never lit glass (harbour-3: a solid lit
+  // disc read as a clock face), so it joins the dark infill.
   const moonY = (loftEave + primaryTop) / 2;
   const moonZ = 1.46;
   pushFeatureGeometry(ctx, "secondLevel", timber, new TorusGeometry(0.95, 0.13, 6, 14), x, moonY, moonZ);
@@ -1133,9 +1120,9 @@ function authorTeaHouseQuay(ctx: StationAuthorContext): void {
     secondBox(ctx, timber, 0.08, 1.9, 0.08, x + barX, moonY, moonZ);
   }
   secondBox(ctx, timber, 1.9, 0.08, 0.08, x, moonY, moonZ);
-  const moonGlass = new CylinderGeometry(0.84, 0.84, 0.08, 12);
-  moonGlass.rotateX(Math.PI / 2);
-  pushWarmWindow(ctx, moonGlass, x, moonY, moonZ - 0.03);
+  const moonOpening = new CylinderGeometry(0.84, 0.84, 0.04, 12);
+  moonOpening.rotateX(Math.PI / 2);
+  pushGeometry(ctx.metal, moonOpening, x, moonY, 1.42);
   articulateIrimoya(ctx, x, loftEave, stationScale.secondLevelTop, 1.9, 1.75, { brackets: false }, "secondLevel");
   // One engawa shelf over the water, now with its railing.
   pushBox(timber, length * 0.56, 0.22, d * 1.05, length * 0.13, 0.12, 0);
@@ -1984,30 +1971,6 @@ function dockHealthAccent(healthBand: DockNode["healthBand"]): string {
 
 function dockFlagWavePhase(chainId: string): number {
   return (stableUnit(`dock-flag-wave.${chainId}`) - 0.5) * 0.7;
-}
-
-function authorChainFlag(
-  dock: DockNode,
-  accent: Color,
-  shape: StationFlagShape,
-  placement: { height: number; scale: number; x: number; yaw: number; z: number },
-): HarborFlagSpec {
-  return {
-    accent: accent.clone(),
-    atlasCell: assignGardenChainFlagCell(dock, accent),
-    chainId: dock.chainId,
-    placement: {
-      scale: placement.scale,
-      x: placement.x,
-      y: placement.height + QUAY_TOP_Y - placement.scale * 0.75,
-      yaw: placement.yaw,
-      z: placement.z,
-    },
-    scaleMultiplier: HARBOR_FLAG_SCALE_MULTIPLIER,
-    sag: 0.07 + stableUnit(`dock-flag-sag.${dock.chainId}`) * 0.06,
-    shape,
-    wavePhase: dockFlagWavePhase(dock.chainId),
-  };
 }
 
 function mergeBucket(parts: BufferGeometry[]): BufferGeometry {

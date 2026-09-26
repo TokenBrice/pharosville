@@ -106,9 +106,11 @@ export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number
     cursor -= riskSecondsEach;
 
     if (cursor < transitSecondsEach) {
+      // W1.6: a crossing-token voyage sails straight through the empty inlet.
+      const crossing = route.inletCrossings?.find((entry) => entry.cycleIndex === cycleIndex && entry.dockId === nextStop.dockId);
       transitSampleInto({
         route,
-        path: runtime.riskToStopPathByDockId.get(nextStop.dockId),
+        path: crossing?.path ?? runtime.riskToStopPathByDockId.get(nextStop.dockId),
         progress: cursor / Math.max(1, transitSecondsEach),
         transitSeconds: transitSecondsEach,
         state: "arriving",

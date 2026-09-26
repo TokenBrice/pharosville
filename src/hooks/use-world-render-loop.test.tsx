@@ -13,11 +13,11 @@ import {
   RENDER_SCHEDULER_IDLE_AFTER_MS,
   RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS,
 } from "../renderer/render-scheduler";
-import { defaultCamera } from "../systems/camera";
+import { defaultCamera, withoutRest } from "../systems/camera";
 import { initialAdaptiveDprState, resolveRenderSurfaceBudget } from "../systems/render-surface-budget";
 import { buildBaseMotionPlan, buildMotionPlan, type ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
-import { PROJECTION_BREATH_IDENTITY, resetProjectionCameraBreath, type IsoCamera } from "../systems/projection";
+import { CAMERA_BREATH_IDENTITY, type IsoCamera } from "../systems/projection";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
 import {
@@ -134,7 +134,6 @@ describe("useWorldRenderLoop", () => {
   afterEach(() => {
     rafSpy.mockRestore();
     cafSpy.mockRestore();
-    resetProjectionCameraBreath();
     delete (window as unknown as { IntersectionObserver?: typeof IntersectionObserver }).IntersectionObserver;
     delete (globalThis as unknown as { IntersectionObserver?: typeof IntersectionObserver }).IntersectionObserver;
   });
@@ -882,7 +881,8 @@ describe("useWorldRenderLoop", () => {
   });
 
   it("steps camera after ship samples and draws with the updated camera", async () => {
-    const nextCamera = { ...camera, offsetX: camera.offsetX + 48, offsetY: camera.offsetY - 12 };
+    // A panned rig: at rest the shown view is the ShotSpec whatever the offsets.
+    const nextCamera = { ...withoutRest(camera), offsetX: camera.offsetX + 48, offsetY: camera.offsetY - 12 };
     let internals: {
       hitTargetsRef: { current: readonly HitTarget[] };
       shipMotionSamplesRef: { current: ReadonlyMap<string, ShipMotionSample> };
@@ -1134,15 +1134,15 @@ describe("useWorldRenderLoop", () => {
       );
       fireFrame(16);
       fireFrame(44_000);
-      expect(lastDrawnFrame().cameraBreath).toEqual(PROJECTION_BREATH_IDENTITY);
+      expect(lastDrawnFrame().camera.breath ?? CAMERA_BREATH_IDENTITY).toEqual(CAMERA_BREATH_IDENTITY);
       expect(breathWeight()).toBe(0);
 
       // 45 s of solitude, then the 12 s ease-in (a ≥ 1 s test-clock step
       // carries its whole delta into the weight).
       fireFrame(70_000);
       expect(breathWeight()).toBe(1);
-      const breath = lastDrawnFrame().cameraBreath!;
-      expect(breath).not.toEqual(PROJECTION_BREATH_IDENTITY);
+      const breath = lastDrawnFrame().camera.breath!;
+      expect(breath).not.toEqual(CAMERA_BREATH_IDENTITY);
       expect(Math.abs(breath.yaw)).toBeLessThanOrEqual(0.8 * Math.PI / 180);
       expect(Math.abs(breath.pitch)).toBeLessThanOrEqual(0.6 * Math.PI / 180);
       expect(Math.abs(breath.dolly - 1)).toBeLessThanOrEqual(0.012);
@@ -1151,12 +1151,11 @@ describe("useWorldRenderLoop", () => {
       const lighthouseId = world.lighthouse.detailId;
       const drawnTarget = internals!.hitTargetsRef.current.find((target) => target.detailId === lighthouseId)!;
       const breathed = createGardenObservatoryHitTargetSnapshot({
-        camera,
+        camera: { ...camera, breath },
         viewport: { height: canvasSize.y, width: canvasSize.x },
         world,
       }).targetsByDetailId.get(lighthouseId)!;
       expect(drawnTarget.anchor).toEqual(breathed.anchor);
-      resetProjectionCameraBreath();
       const unbreathed = createGardenObservatoryHitTargetSnapshot({
         camera,
         viewport: { height: canvasSize.y, width: canvasSize.x },
@@ -1250,7 +1249,7 @@ describe("stepCameraBreath", () => {
     const subject = state();
     run(subject, 12, true);
     expect(stepCameraBreath(subject, { dtSeconds: 0.1, forcedStill: true, idle: true, phaseSeconds: 30 }))
-      .toBe(PROJECTION_BREATH_IDENTITY);
+      .toBe(CAMERA_BREATH_IDENTITY);
     expect(subject.weight).toBe(0);
   });
 });

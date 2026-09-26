@@ -41,14 +41,17 @@ export function easeOutQuint(progress: number): number {
   return 1 - ((1 - clamped) ** 5);
 }
 
-export function gardenArrivalCamera(target: IsoCamera): IsoCamera {
-  return {
-    offsetX: target.offsetX - 72,
-    offsetY: target.offsetY + 48,
-    zoom: target.zoom * 0.82,
-  };
+/**
+ * W1.0: the arrival starts on the rest ShotSpec itself — the start pose
+ * derives from the rest, and the retired −72/+48 px pose-space slide and 0.82
+ * zoom are gone. K17's eye rise through the thinning air veil (no lateral
+ * slide) is W6's; until then the world emerges under a still camera.
+ */
+export function gardenArrivalCamera(rest: IsoCamera): IsoCamera {
+  return rest;
 }
 
+/** The arrival's camera at `elapsedMs`: eased from `from` to `to`, carrying `to`'s rest pose. */
 export function sampleGardenArrivalCamera(
   from: IsoCamera,
   to: IsoCamera,
@@ -56,12 +59,13 @@ export function sampleGardenArrivalCamera(
 ): { camera: IsoCamera; done: boolean } {
   const progress = Math.max(0, Math.min(1, elapsedMs / GARDEN_ARRIVAL_DURATION_MS));
   const eased = easeOutQuint(progress);
-  return {
-    camera: {
-      offsetX: from.offsetX + (to.offsetX - from.offsetX) * eased,
-      offsetY: from.offsetY + (to.offsetY - from.offsetY) * eased,
-      zoom: from.zoom + (to.zoom - from.zoom) * eased,
-    },
-    done: progress >= 1,
+  const done = progress >= 1;
+  if (done || from === to) return { camera: to, done };
+  const camera: IsoCamera = {
+    offsetX: from.offsetX + (to.offsetX - from.offsetX) * eased,
+    offsetY: from.offsetY + (to.offsetY - from.offsetY) * eased,
+    zoom: from.zoom + (to.zoom - from.zoom) * eased,
   };
+  if (to.rest) camera.rest = to.rest;
+  return { camera, done };
 }

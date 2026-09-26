@@ -16,8 +16,12 @@ import {
   TILE_SCALE,
   tileToIso,
   tileToScreen,
-  resetProjectionCameraBreath,
-  setProjectionCameraBreath,
+  cameraDetailZoom,
+  cameraPixelZoom,
+  cameraRestBlend,
+  cameraView,
+  cameraViewAngles,
+  cameraViewFromAngles,
   worldToScreen,
   zoomCameraAt,
 } from "./projection";
@@ -99,7 +103,7 @@ describe("projection", () => {
     }
   });
 
-  it("picks through the breathed pose the renderer draws, and returns to the fixed rig on reset", () => {
+  it("picks through the breathed pose the camera state carries, orbiting the look-at point", () => {
     const viewport = { x: 1600, y: 1000 };
     const camera = { offsetX: -53.75, offsetY: 291.125, zoom: 1 };
     const pose = cameraPoseFromIso(camera, viewport);
@@ -107,27 +111,73 @@ describe("projection", () => {
     const probe = { x: target.x - 40, y: 0, z: target.z - 60 };
     const still = worldToScreen(probe, camera, viewport);
     const breath = { dolly: 1.012, pitch: -0.6 * Math.PI / 180, yaw: 0.8 * Math.PI / 180 };
-    try {
-      setProjectionCameraBreath(breath);
-      // The breath orbits the look-at point, exactly as the renderer applies it.
-      const centre = worldToScreen(target, camera, viewport);
-      expect(centre.x).toBeCloseTo(viewport.x / 2, 9);
-      expect(centre.y).toBeCloseTo(viewport.y / 2, 9);
-      expect(screenToGroundRay({ x: 10, y: 10 }, camera, viewport).origin).toEqual(cameraEye({
-        ...pose,
-        distance: pose.distance * breath.dolly,
-        pitch: pose.pitch + breath.pitch,
-        yaw: pose.yaw + breath.yaw,
-      }));
-      const breathed = worldToScreen(probe, camera, viewport);
-      expect(Math.hypot(breathed.x - still.x, breathed.y - still.y)).toBeGreaterThan(1);
-      const restored = screenToGround(breathed, camera, viewport, 0);
-      expect(restored.x * TILE_SCALE).toBeCloseTo(probe.x, 8);
-      expect(restored.y * TILE_SCALE).toBeCloseTo(probe.z, 8);
-    } finally {
-      resetProjectionCameraBreath();
-    }
+    const breathing = { ...camera, breath };
+    const centre = worldToScreen(target, breathing, viewport);
+    expect(centre.x).toBeCloseTo(viewport.x / 2, 9);
+    expect(centre.y).toBeCloseTo(viewport.y / 2, 9);
+    const expectedEye = cameraEye({
+      ...pose,
+      distance: pose.distance * breath.dolly,
+      pitch: pose.pitch + breath.pitch,
+      yaw: pose.yaw + breath.yaw,
+    });
+    const origin = screenToGroundRay({ x: 10, y: 10 }, breathing, viewport).origin;
+    expect(origin.x).toBeCloseTo(expectedEye.x, 9);
+    expect(origin.y).toBeCloseTo(expectedEye.y, 9);
+    expect(origin.z).toBeCloseTo(expectedEye.z, 9);
+    const breathed = worldToScreen(probe, breathing, viewport);
+    expect(Math.hypot(breathed.x - still.x, breathed.y - still.y)).toBeGreaterThan(1);
+    const restored = screenToGround(breathed, breathing, viewport, 0);
+    expect(restored.x * TILE_SCALE).toBeCloseTo(probe.x, 8);
+    expect(restored.y * TILE_SCALE).toBeCloseTo(probe.z, 8);
+    // Detail measures never read the breath, so thresholds cannot flicker with it.
+    expect(cameraDetailZoom(breathing, viewport)).toBe(cameraDetailZoom(camera, viewport));
     expect(worldToScreen(probe, camera, viewport)).toEqual(still);
+  });
+
+  it("shows the rest view at presence 1 and blends continuously to the rig as presence falls", () => {
+    const viewport = { x: 1200, y: 640 };
+    const rig = { offsetX: -53.75, offsetY: 291.125, zoom: 1.1 };
+    const rigView = cameraView(rig, viewport);
+    const restView = cameraViewFromAngles({ x: 160, y: 15, z: 250 }, 31 * Math.PI / 180, 2.6 * Math.PI / 180, 74, 32);
+    const at = (presence: number) => ({ ...rig, rest: { presence, view: restView } });
+    // A ground point both poses see (a probe behind either eye has no pixel).
+    const probe = rigView.target;
+    const rest = worldToScreen(restView.target, at(1), viewport);
+    expect(rest.x).toBeCloseTo(viewport.x / 2, 9);
+    expect(rest.y).toBeCloseTo(viewport.y / 2, 9);
+    expect(cameraViewAngles(cameraView(at(1), viewport)).pitch).toBeCloseTo(2.6 * Math.PI / 180, 12);
+    expect(worldToScreen(probe, at(0), viewport)).toEqual(worldToScreen(probe, rig, viewport));
+    expect(cameraView(at(0), viewport)).toEqual(rigView);
+    // The smootherstep leaves each end with zero speed: one frame of the 0.6 s
+    // hand-off (1/36 of presence) moves a ground point by under 2 % of an even
+    // step along the same journey (a linear blend is 100 %, a cubic ~8 %).
+    const first = worldToScreen(probe, at(1 - 1 / 36), viewport);
+    const seat = worldToScreen(probe, at(1), viewport);
+    const end = worldToScreen(probe, at(0), viewport);
+    const evenStep = Math.hypot(end.x - seat.x, end.y - seat.y) / 36;
+    expect(Math.hypot(first.x - seat.x, first.y - seat.y)).toBeLessThan(0.02 * evenStep);
+    expect(cameraRestBlend(0.5)).toBeCloseTo(0.5, 12);
+    // Continuous: no frame jumps by more than the smootherstep's peak speed
+    // (1.875× an even step) plus perspective slack for a 230 u eye journey.
+    let previous = seat;
+    for (let step = 1; step <= 36; step += 1) {
+      const next = worldToScreen(probe, at(1 - step / 36), viewport);
+      expect(Math.hypot(next.x - previous.x, next.y - previous.y)).toBeLessThan(3 * evenStep);
+      previous = next;
+    }
+  });
+
+  it("reads detail from the pose's stand-off, not the rig zoom: the same physical distance matches at every viewport", () => {
+    for (const viewport of viewports) {
+      const camera = { offsetX: 12, offsetY: -40, zoom: 0.8 };
+      expect(cameraDetailZoom(camera, viewport)).toBeCloseTo(0.8 * 1000 / viewport.y, 9);
+      expect(cameraPixelZoom(camera, viewport)).toBeCloseTo(0.8, 9);
+    }
+    const restView = cameraViewFromAngles({ x: 160, y: 15, z: 250 }, 0.5, 0.05, 73.7, 32);
+    const small = { offsetX: 0, offsetY: 0, zoom: 1, rest: { presence: 1, view: restView } };
+    expect(cameraDetailZoom(small, { x: 1200, y: 640 })).toBeCloseTo(cameraDetailZoom(small, { x: 1600, y: 1000 }), 12);
+    expect(cameraDetailZoom(small, { x: 1600, y: 1000 })).toBeCloseTo(cameraDistanceForZoom(1000, 1) / 73.7, 9);
   });
 
   it("preserves the camera through its fixed-rig pose representation", () => {
