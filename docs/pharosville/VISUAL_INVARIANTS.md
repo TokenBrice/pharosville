@@ -24,7 +24,7 @@ as a 3×3 composition, not a collection of individually attractive objects.
 | | Left | Centre | Right |
 | --- | --- | --- | --- |
 | Top | 60 / 35 / 9 — distant shore | 72 / 52 / 14 — air; beacon 92 at night | 68 / 43 / 11 — borrowed hills |
-| Middle | 27 / 20 / 5 — grove; tower 62 / 57 / 24 | 45 / 32 / 12 — clear inlet; reflection | 42 / 26 / 8 — receding fleet |
+| Middle | 27 / 20 / 5 — grove and Mole massing | 45 / 32 / 12 — clear inlet; reflection | 42 / 26 / 8 — receding fleet; tower 62 / 57 / 24 stands centre-right |
 | Bottom | 15 / 10 / 3 — clipped pine | 38 / 25 / 7 — open approach | 23 / 15 / 4 — partial quay |
 
 ## Hierarchy and emptiness
@@ -51,9 +51,10 @@ sources, freshness and caveats. Colour is never the only carrier of meaning.
 Build atmosphere from geometry and light before grade. Noon is neutral-white
 and blue-green, not honey; golden hour rakes; blue hour is gentle. Let real sky,
 borrowed hills, shadows and reflection establish depth before post-processing.
-Night is dark: one dominant light, the beacon; one secondary, the moon road;
-every other lamp, window and reflection is an ember. Nothing competes with the
-tower by glowing harder.
+Night is dark, not black: a deep indigo sky (L\* 7–15) over darker land, so the
+tower, ridges and masts read as ink silhouettes. One dominant light, the beacon;
+one secondary, the moon road; every other lamp, window and reflection is an
+ember. Nothing competes with the tower by glowing harder.
 
 Wall clock is the premise, never a flattering default hour. It owns illumination.
 Market stability owns clarity aloft; stale sources own bounded low fog in their
