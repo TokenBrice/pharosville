@@ -108,13 +108,16 @@ Captured at the four gate profiles — 1600×1000, 1200×640, 900×720 and **720
 | # | Name | Hash / clock | Needs |
 | --- | --- | --- | --- |
 | H1 | Noon clarity | `#t=12.25` | W1 First Print |
-| H2 | Evening glow at the Pharos | `#t=18.75` | W1, W2 sky/light, W3 water-1/2, far fleet W4.F3 |
+| H2 | Evening glow at the Pharos | `#t=18.5` golden / `#t=19.2` belt (solar clock, 2026-09-26) | W1, W2 sky/light, W3 water-1/2, far fleet W4.F3 |
 | H3 | Moon road | `#t=22`, `--clock 2026-09-26` (full moon) | W2 moon/night/beacon, W3 road + reflection |
-| H4 | Morning kasumi | `#t=5.75` | W2 air + ridge-foot kasumi (+ dawn band if K6 signed off) + alpenglow |
+| H4 | Morning kasumi | `#t=7.0` (dawn on the solar clock, 2026-09-26) | W2 air + ridge-foot kasumi (+ dawn band if K6 signed off) + alpenglow |
 | H5 | The crossing | arrival forced through the director seam | W1 inlet scheduler, W3 inlet calm, W5 ceremony |
 | H6 | The lamps are lit | motion sheet `#t=18.3`, crown + rim clip | W2 lantern, W5 kindling |
 
 ### 1.3 Measured targets
+
+Since W2.14 the beats follow the real solar clock (nominal 35°, hemisphere from the timezone). On the pinned capture day 2026-09-26 (UTC+2): sunrise 07:06, full golden ≈ 18:15–18:36, sunset 18:54, blue/belt peak ≈ 19:12, night from ≈ 20:00. Captures name the hour **and** `--clock`.
+
 
 The bible table is corrected first (G−1: tower in the middle-**right** cell, as the prose says). Measured with
 the W0.3 picture-metrics tool on the rest frame. Blur, "not toys" and blind-sort checks are **operator

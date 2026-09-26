@@ -20,7 +20,7 @@ import {
   gardenBirdSortie,
   gardenBirdSortieOffset,
 } from "./garden-summit-birds";
-import { gardenLandingToriiPerch } from "./garden-island";
+import { gardenLandingStonePerch } from "./garden-island";
 import type { WeatherPlan } from "../systems/weather";
 import type { GardenKeeperRitual } from "./garden-lanterns";
 
@@ -175,7 +175,7 @@ const GULL_WING_OPEN_RATE = 4;
 /**
  * W3.4 — the harbour's birds rest.
  *
- * The island's gulls SIT — on the sea wall, the lighthouse terrace, the torii,
+ * The island's gulls SIT — on the sea wall, the lighthouse terrace, the landing stone,
  * the gatehouse coping, the signal yard — and lift only for deterministic
  * sorties out of `garden-summit-birds.ts`, the choreography the whole harbour
  * shares.
@@ -194,7 +194,7 @@ const ISLAND_GULL_PERIOD = 74;
 const ISLAND_GULL_LOOP_RADIUS = 6;
 const ISLAND_GULL_LOOP_SPREAD = 1.2;
 
-const TORII_GULL_PERCH = gardenLandingToriiPerch();
+const LANDING_STONE_GULL_PERCH = gardenLandingStonePerch();
 
 /**
  * Where the island's gulls sit, island-local (which is flock-local: both roots
@@ -202,7 +202,7 @@ const TORII_GULL_PERCH = gardenLandingToriiPerch();
  * at.
  *
  * Every perch sits on real masonry: the sea rim, the terrace (top 4.25), the
- * landing torii, the gatehouse coping at 6.38 and the signal mast at 6.48.
+ * taller landing stone, the gatehouse coping at 6.38 and the signal mast at 6.48.
  * The terrace sortie launches away from the tower axis so its closest point is
  * its perch, clear of the battered 4.6-half-width square tier. Unset `loop`
  * uses the wide radial flight from the island's centre.
@@ -217,7 +217,7 @@ const ISLAND_GULL_PERCHES: readonly {
   { x: 15.22, y: 0.34, z: 7.94, apex: 7.9 },
   { x: 13.94, y: 0.34, z: -6.94, apex: 9.1 },
   { x: -1.55, y: 4.29, z: -6.7, apex: 7.6, loop: "tower-away" },
-  { x: TORII_GULL_PERCH.x, y: TORII_GULL_PERCH.y, z: TORII_GULL_PERCH.z, apex: 9.4 },
+  { x: LANDING_STONE_GULL_PERCH.x, y: LANDING_STONE_GULL_PERCH.y, z: LANDING_STONE_GULL_PERCH.z, apex: 9.4 },
   { x: 1.6, y: 6.42, z: -1.25, apex: 8.0 },
   { x: 6.35, y: 6.52, z: 4.05, apex: 9.6 },
 ];

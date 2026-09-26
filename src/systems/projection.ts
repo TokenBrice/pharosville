@@ -31,14 +31,27 @@ export const CAMERA_FAR = 600;
  * distance used to read as zoom 0.45 — a 12° top-down pitch). Standing close
  * (reference zoom ≥ 0.9; the rest hand-off rig sits at ≈ 1.48) the rig looks
  * 4° down along the rest yaw with the look-at point on the tower's lower
- * third; pulled back to the whole-map (reference zoom ≤ 0.44 at every gate
- * profile, below 0.45) it looks 12° down at the ground along the iso 45°
- * diagonal, exactly as before.
+ * third; pulled back it turns to the iso 45° diagonal and looks at the ground.
+ *
+ * W3.10 (camera-5, O14) — the whole-map is a kasumi chart, not a slab on the
+ * sea: pitch is a two-segment curve, 4° near → 12° at the 0.55 overview →
+ * 38° at the chart floor (reference zoom ≤ 0.34, where the 1600×1000,
+ * 1920×1080 and 1440p whole-map floors all sit). Looked at from 38° the plate
+ * foreshortens less than the iso fit assumes, so the far edge leaves the top of
+ * the frame; what edge remains dissolves in the Sky lane's plate-distance haze
+ * (`cameraPlateHaze`).
  */
 export const CAMERA_REFERENCE_VIEWPORT_HEIGHT = 1000;
+/** The chart view's pitch at the whole-map floor (W3.10). */
+export const CAMERA_PITCH_CHART_RAD = 38 * Math.PI / 180;
+/** The overview pitch, held at `CAMERA_PITCH_OVERVIEW_ZOOM`. */
 export const CAMERA_PITCH_FAR_RAD = 12 * Math.PI / 180;
 export const CAMERA_PITCH_NEAR_RAD = 4 * Math.PI / 180;
-/** Reference zoom at and below which the rig holds its whole-map pose. */
+/** Reference zoom at and below which the rig holds the chart pitch. */
+export const CAMERA_PITCH_CHART_ZOOM = 0.34;
+/** Reference zoom of the 12° overview pitch: the knee of the two-segment curve. */
+export const CAMERA_PITCH_OVERVIEW_ZOOM = 0.55;
+/** Reference zoom at and below which the rig holds the iso yaw and ground look-at. */
 export const CAMERA_PITCH_FAR_ZOOM = 0.45;
 /** Reference zoom at and above which the rig holds its near (rest-seat) pose. */
 export const CAMERA_PITCH_NEAR_ZOOM = 0.9;
@@ -62,9 +75,18 @@ function nearPoseWeight(referenceZoom: number): number {
   return Math.min(1, Math.max(0, (referenceZoom - CAMERA_PITCH_FAR_ZOOM) / (CAMERA_PITCH_NEAR_ZOOM - CAMERA_PITCH_FAR_ZOOM)));
 }
 
-/** Rig pitch for a reference zoom (`cameraReferenceZoom`). */
+/**
+ * Rig pitch for a reference zoom (`cameraReferenceZoom`): linear 4° → 12°
+ * from the near pose down to the overview, then a smoothstep up to the 38°
+ * chart, so the tilt eases into and out of its plateau at the chart floor.
+ */
 export function cameraPitchForZoom(referenceZoom: number): number {
-  return CAMERA_PITCH_FAR_RAD + (CAMERA_PITCH_NEAR_RAD - CAMERA_PITCH_FAR_RAD) * nearPoseWeight(referenceZoom);
+  if (referenceZoom >= CAMERA_PITCH_OVERVIEW_ZOOM) {
+    const near = Math.min(1, (referenceZoom - CAMERA_PITCH_OVERVIEW_ZOOM) / (CAMERA_PITCH_NEAR_ZOOM - CAMERA_PITCH_OVERVIEW_ZOOM));
+    return CAMERA_PITCH_FAR_RAD + (CAMERA_PITCH_NEAR_RAD - CAMERA_PITCH_FAR_RAD) * near;
+  }
+  const chart = Math.min(1, (CAMERA_PITCH_OVERVIEW_ZOOM - referenceZoom) / (CAMERA_PITCH_OVERVIEW_ZOOM - CAMERA_PITCH_CHART_ZOOM));
+  return CAMERA_PITCH_FAR_RAD + (CAMERA_PITCH_CHART_RAD - CAMERA_PITCH_FAR_RAD) * chart * chart * (3 - 2 * chart);
 }
 
 /** Rig yaw for a reference zoom: the iso diagonal far out, the rest yaw near. */
@@ -135,15 +157,31 @@ export interface CameraRestState {
 }
 
 /**
+ * A composed shot the camera state shows over the rig and rest (W1.7: the
+ * selection shot, the lighthouse look-up, and the glides between them). The
+ * rig under it stays the pan/zoom/URL contract; a gesture hands off from the
+ * shot the way it hands off from the rest (presence easing to 0).
+ */
+export interface CameraShotState {
+  view: Readonly<CameraView>;
+  /** Linear hand-off progress: 1 shows the shot, 0 the rig/rest view; blended by smootherstep. */
+  presence: number;
+  /** The world point the shot composes and its frame anchor; follow mode keeps the subject there. */
+  subject?: Readonly<{ world: WorldPoint; anchor: ScreenPoint }> | undefined;
+}
+
+/**
  * The camera state. Offsets + zoom are the interactive rig (pose-space pan,
  * zoom and clamp, and the URL `cam` contract); `rest` blends the authored rest
- * pose over it; `breath` is set only on the render loop's per-frame copy.
+ * pose over it; `shot` blends a composed shot over both; `breath` is set only
+ * on the render loop's per-frame copy.
  */
 export interface IsoCamera {
   offsetX: number;
   offsetY: number;
   zoom: number;
   rest?: CameraRestState | undefined;
+  shot?: CameraShotState | undefined;
   breath?: Readonly<CameraBreath> | undefined;
 }
 
@@ -243,19 +281,37 @@ function lerpPoint(from: WorldPoint, to: WorldPoint, t: number): WorldPoint {
   };
 }
 
-/** The unbreathed view: the rig, the rest ShotSpec, or the hand-off blend between them. */
-function cameraBaseView(camera: IsoCamera, viewport: ScreenPoint): CameraView {
+function copyView(view: Readonly<CameraView>): CameraView {
+  return { eye: { ...view.eye }, target: { ...view.target }, vFovDeg: view.vFovDeg };
+}
+
+/** Straight blend of two views (eye, look-at and FOV); the glides sample it on an eased clock. */
+export function lerpCameraView(from: Readonly<CameraView>, to: Readonly<CameraView>, t: number): CameraView {
+  return {
+    eye: lerpPoint(from.eye, to.eye, t),
+    target: lerpPoint(from.target, to.target, t),
+    vFovDeg: from.vFovDeg + (to.vFovDeg - from.vFovDeg) * t,
+  };
+}
+
+/** The rig, the rest ShotSpec, or the hand-off blend between them. */
+function cameraRigRestView(camera: IsoCamera, viewport: ScreenPoint): CameraView {
   const rig = cameraViewFromPose(cameraPoseFromIso(camera, viewport));
   const rest = camera.rest;
   if (!rest) return rig;
   const t = cameraRestBlend(rest.presence);
   if (t <= 0) return rig;
-  if (t >= 1) return { eye: { ...rest.view.eye }, target: { ...rest.view.target }, vFovDeg: rest.view.vFovDeg };
-  return {
-    eye: lerpPoint(rig.eye, rest.view.eye, t),
-    target: lerpPoint(rig.target, rest.view.target, t),
-    vFovDeg: rig.vFovDeg + (rest.view.vFovDeg - rig.vFovDeg) * t,
-  };
+  if (t >= 1) return copyView(rest.view);
+  return lerpCameraView(rig, rest.view, t);
+}
+
+/** The unbreathed view: the rig/rest view with any composed shot blended over it. */
+function cameraBaseView(camera: IsoCamera, viewport: ScreenPoint): CameraView {
+  const shot = camera.shot;
+  const t = shot ? cameraRestBlend(shot.presence) : 0;
+  if (shot && t >= 1) return copyView(shot.view);
+  const base = cameraRigRestView(camera, viewport);
+  return shot && t > 0 ? lerpCameraView(base, shot.view, t) : base;
 }
 
 /**
@@ -307,6 +363,18 @@ export function cameraAtRest(camera: IsoCamera | null | undefined): boolean {
   return (camera?.rest?.presence ?? 0) > 0;
 }
 
+/**
+ * W3.10 plate-distance haze weight (0..1) for the Sky lane's `gardenAerial`:
+ * 0 from the near rig up (the rest, selection shots, ordinary zoom), 1 from
+ * the 0.55 overview down through the chart, smootherstep between. Reads the
+ * shown, unbreathed view's stand-off, so a hand-off or glide eases it.
+ */
+export function cameraPlateHaze(camera: IsoCamera, viewport: ScreenPoint): number {
+  const referenceZoom = cameraDetailZoom(camera, viewport);
+  const near = (referenceZoom - CAMERA_PITCH_OVERVIEW_ZOOM) / (CAMERA_PITCH_NEAR_ZOOM - CAMERA_PITCH_OVERVIEW_ZOOM);
+  return 1 - cameraRestBlend(near);
+}
+
 interface CameraBasis {
   right: WorldPoint;
   up: WorldPoint;
@@ -330,6 +398,8 @@ const matrixMemo = {
   zoom: Number.NaN,
   rest: undefined as CameraRestState | undefined,
   presence: Number.NaN,
+  shot: undefined as CameraShotState | undefined,
+  shotPresence: Number.NaN,
   breath: undefined as Readonly<CameraBreath> | undefined,
   breathDolly: Number.NaN,
   breathPitch: Number.NaN,
@@ -346,6 +416,7 @@ function perspectiveMatrix(camera: IsoCamera, viewport: ScreenPoint): readonly n
   if (
     memo.offsetX === camera.offsetX && memo.offsetY === camera.offsetY && memo.zoom === camera.zoom
     && memo.rest === camera.rest && memo.presence === (camera.rest?.presence ?? 0)
+    && memo.shot === camera.shot && memo.shotPresence === (camera.shot?.presence ?? 0)
     && memo.breath === breath
     && memo.breathDolly === (breath?.dolly ?? 1) && memo.breathPitch === (breath?.pitch ?? 0) && memo.breathYaw === (breath?.yaw ?? 0)
     && memo.viewportX === viewport.x && memo.viewportY === viewport.y
@@ -373,6 +444,8 @@ function perspectiveMatrix(camera: IsoCamera, viewport: ScreenPoint): readonly n
   memo.zoom = camera.zoom;
   memo.rest = camera.rest;
   memo.presence = camera.rest?.presence ?? 0;
+  memo.shot = camera.shot;
+  memo.shotPresence = camera.shot?.presence ?? 0;
   memo.breath = breath;
   memo.breathDolly = breath?.dolly ?? 1;
   memo.breathPitch = breath?.pitch ?? 0;

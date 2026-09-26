@@ -8,7 +8,11 @@ import { createGardenRimMesh } from "./garden-rim-mesh";
 const rim = createGardenRimMesh();
 const pathGeometry = (rim.root.getObjectByName("garden-rim-path") as Mesh).geometry;
 const options = { pathGeometry, pathSegmentCount: rim.pathSegmentCount };
-const frame = { activeEvent: null, deltaSeconds: 1, reducedMotion: false, timeSeconds: 0, hour: 18.5 };
+// The pinned sky day (26 Sep 2026, 35° N): 19:00 is the golden→blue
+// crossfade, the first blue of the evening; 07:15 is the dawn plateau.
+const EVENING_HOUR = 19;
+const DAWN_HOUR = 7.25;
+const frame = { activeEvent: null, deltaSeconds: 1, reducedMotion: false, timeSeconds: 0, hour: EVENING_HOUR };
 
 describe("garden almanac dressing", () => {
   it("walks the actual uninterrupted ribbon for a three-minute admitted evening beat, then reverses at dawn", () => {
@@ -25,10 +29,10 @@ describe("garden almanac dressing", () => {
     dressing.update({ ...frame, director, timeSeconds: 180 });
     expect(dressing.keeper.visible).toBe(false);
     expect(director.log).toHaveLength(1);
-    dressing.update({ ...frame, director, hour: 5, timeSeconds: 1000 });
+    dressing.update({ ...frame, director, hour: DAWN_HOUR, timeSeconds: 1000 });
     expect(dressing.keeperRitual.direction).toBe("dawn");
     expect(dressing.keeper.position.distanceTo(dressing.keeperPath.at(-1)!)).toBeLessThan(0.001);
-    dressing.update({ ...frame, director, hour: 5, timeSeconds: 1090 });
+    dressing.update({ ...frame, director, hour: DAWN_HOUR, timeSeconds: 1090 });
     expect(dressing.keeper.position.distanceTo(middle)).toBeLessThan(0.001);
     const tris = dressing.keeper.geometry.index!.count / 3;
     expect(tris).toBeLessThanOrEqual(60);

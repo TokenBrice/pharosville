@@ -42,7 +42,7 @@ import { stableUnit } from "./garden-util";
  * embers).
  *
  * Frame discipline: zero per-frame allocation (all particles are GPU-driven
- * from seed attributes, like the existing beam dust). Ember counts shed per
+ * from seed attributes). Ember counts shed per
  * scheduler tier via draw range — never reallocated.
  */
 
@@ -65,6 +65,14 @@ const EMBER_COUNT = 32;
 /** Minimum night-core linear luminance; clears the selective-bloom threshold. */
 export const GARDEN_BEACON_FLAME_CORE_LUMINANCE =
   GARDEN_BLOOM_PRACTICAL_THRESHOLD * 1.01;
+/**
+ * W2.9 (pharos-1): the lantern is the only fire. At night the flame's core
+ * band is lifted ×1.6 — from ≈ 2.5 to ≈ 4 linear at a calm PSI — so it is the
+ * one element in the scene above 3 linear (harbour lantern cores stop at 2.7,
+ * the corona and the K9 glass swell at ≤ 2.0). A gain, not a floor, so the
+ * core still tracks the PSI-modulated intensity exactly.
+ */
+export const GARDEN_BEACON_FLAME_NIGHT_CORE_GAIN = 1.6;
 // The fire sits slightly toward the fixed camera (+X/+Z azimuth) so it reads
 // in front of the crowning statue, which shares the brazier's centre axis.
 const FIRE_FORWARD_X = 0.42;
@@ -204,6 +212,7 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
       uniform float uIntensity;
       uniform float uStatusCool;
       uniform float uBloomFloor;
+      uniform float uNightCoreGain;
       uniform float uStatusIntensity;
       uniform float uTime;
       varying vec2 vUv;
@@ -256,8 +265,9 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
         vec3 emission = color * (hdr * gain);
         // Only the raised night core clears selective bloom. Day remains the
         // deliberately banked 0.26× flame, while mid/outer bands stay ember.
-        float coreLuma = max(dot(emission, vec3(0.2126, 0.7152, 0.0722)), 0.0001);
         float nightCore = core * smoothstep(4.0, 6.0, uIntensity);
+        emission *= mix(1.0, uNightCoreGain, nightCore);
+        float coreLuma = max(dot(emission, vec3(0.2126, 0.7152, 0.0722)), 0.0001);
         emission *= mix(1.0, max(1.0, uBloomFloor / coreLuma), nightCore);
         gl_FragColor = vec4(emission, alpha);
       }
@@ -272,6 +282,7 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
       uColorOuter: { value: FLAME_OUTER },
       uStatusCoolColor: { value: LAMP_COOL },
       uBloomFloor: { value: GARDEN_BEACON_FLAME_CORE_LUMINANCE },
+      uNightCoreGain: { value: GARDEN_BEACON_FLAME_NIGHT_CORE_GAIN },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -319,7 +330,7 @@ function createCrossedQuadGeometry(width: number, height: number): BufferGeometr
  * Ember spiral: one THREE.Points, fully GPU-driven from per-point seeds —
  * age = fract(uTime·speed + seed), spiralling out and up while the point
  * shrinks; colour ramps white → lantern gold → vermillion by age, HDR only at
- * birth. Same zero-allocation contract as the beam dust.
+ * birth. Zero per-frame allocation.
  */
 function createEmbers(uniforms: BeaconFireUniforms): Points<BufferGeometry, ShaderMaterial> {
   const positions: number[] = [];

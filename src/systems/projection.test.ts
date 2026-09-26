@@ -211,10 +211,17 @@ describe("projection", () => {
     }
   });
 
-  it("places the zero-vertical-direction horizon where the pose pitch puts it: 12.9 percent at the far pitch, rising as the viewer approaches", () => {
+  it("places the zero-vertical-direction horizon where the pose pitch puts it, and lifts it out of the chart view", () => {
+    const halfFov = CAMERA_FOV_DEG * Math.PI / 360;
     for (const viewport of viewports) {
       for (const zoom of zooms) {
         const camera = { offsetX: 140, offsetY: -23, zoom };
+        const pitch = cameraPoseFromIso(camera, viewport).pitch;
+        if (pitch >= halfFov) {
+          // W3.10 chart: the top row still looks down — no horizon, no sea-slab edge line.
+          expect(screenToGroundRay({ x: viewport.x / 2, y: 0 }, camera, viewport).direction.y).toBeLessThan(0);
+          continue;
+        }
         let above = 0;
         let below = viewport.y;
         for (let iteration = 0; iteration < 50; iteration += 1) {
@@ -224,10 +231,8 @@ describe("projection", () => {
           else below = y;
         }
         const horizon = (above + below) / 2;
-        const pitch = cameraPoseFromIso(camera, viewport).pitch;
-        const expected = 0.5 - Math.tan(pitch) / (2 * Math.tan(CAMERA_FOV_DEG * Math.PI / 360));
+        const expected = 0.5 - Math.tan(pitch) / (2 * Math.tan(halfFov));
         expect(Math.abs(horizon / viewport.y - expected)).toBeLessThan(0.005);
-        if (zoom <= 0.45) expect(Math.abs(horizon / viewport.y - 0.129)).toBeLessThan(0.005);
         expect(screenToGroundRay({ x: viewport.x / 2, y: horizon }, camera, viewport).direction.y).toBeCloseTo(0, 12);
       }
     }

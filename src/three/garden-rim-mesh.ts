@@ -31,6 +31,7 @@ import { PHAROSVILLE_DESIGN_SPAN, PHAROSVILLE_MAP_SCALE } from "../systems/map-s
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { GardenSeason } from "../systems/season";
 import { GARDEN_PLATE_MARGIN_TILES } from "../systems/projection";
+import { REST_SEAT_YAW_RAD } from "../systems/rest-seat";
 import type { WeatherPlan } from "../systems/weather";
 import { TILE_SCALE, disposeThreeObjectTree, stableUnit } from "./garden-util";
 import { createSpeciesBatch, createSpeciesGeometry, patchGardenFloraNight, updateGardenInstancedWindSway, type SpeciesPlacement } from "./garden-flora";
@@ -79,10 +80,8 @@ const WET_ROCK = new Color(HARBOR_PALETTE.deep_sea_1).lerp(
 const TIDE_STAIN = new Color(HARBOR_PALETTE.stone_dark)
   .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.18)
   .multiplyScalar(0.72);
-const EARTH = new Color(HARBOR_PALETTE.stone_pale).lerp(new Color(HARBOR_PALETTE.roof_thatch), 0.22);
-const MOSS = new Color(HARBOR_PALETTE.aurora_green)
-  .lerp(new Color(HARBOR_PALETTE.stone_mid), 0.25)
-  .lerp(new Color(HARBOR_PALETTE.sun_day_warm), 0.04);
+/** Damp earth at the waterline only: the thin margin moss has not taken. */
+const DAMP_EARTH = new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.aurora_green), 0.18);
 const PATH_STONE = new Color(HARBOR_PALETTE.stone_pale).lerp(
   new Color(HARBOR_PALETTE.roof_thatch),
   0.36,
@@ -96,9 +95,23 @@ const RAKED_GRAVEL = PATH_STONE.clone().lerp(new Color(HARBOR_PALETTE.stone_pale
 const PINE_TRUNK = new Color(HARBOR_PALETTE.timber_dark);
 const PINE_NEEDLE = new Color(HARBOR_PALETTE.aurora_green)
   .multiplyScalar(0.58); // deep pine green
+/**
+ * garden-6 (W4.G3): sugi-goke in two greens. Yellow-green where the noon
+ * sun sits on the slope, cool blue-green in the lee; hummocks swing between
+ * them in vertex colour. `MOSS` stays the sunlit green for the ground decals.
+ */
+const MOSS = new Color(HARBOR_PALETTE.aurora_green)
+  .lerp(new Color(HARBOR_PALETTE.stone_mid), 0.3)
+  .lerp(PINE_NEEDLE, 0.2)
+  .lerp(new Color(HARBOR_PALETTE.sun_day_warm), 0.05);
+const SHADE_MOSS = new Color(HARBOR_PALETTE.aurora_green)
+  .lerp(PINE_NEEDLE, 0.5)
+  .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.35)
+  .multiplyScalar(0.8);
 export const GARDEN_RIM_COLOR_HEX = {
-  earth: `#${EARTH.getHexString()}`,
+  dampEarth: `#${DAMP_EARTH.getHexString()}`,
   moss: `#${MOSS.getHexString()}`,
+  shadeMoss: `#${SHADE_MOSS.getHexString()}`,
   pathStone: `#${PATH_STONE.getHexString()}`,
   pineNeedle: `#${PINE_NEEDLE.getHexString()}`,
   wetRock: `#${WET_ROCK.getHexString()}`,
@@ -106,7 +119,18 @@ export const GARDEN_RIM_COLOR_HEX = {
   rakedGravel: `#${RAKED_GRAVEL.getHexString()}`,
   shoreSand: `#${SHORE_SAND.getHexString()}`,
 } as const;
-export const GARDEN_RIM_MOSS_BLEND_MAX = 0.62;
+/**
+ * Horizontal bearing toward the noon sun (garden-sun's NOON_BEARING, the
+ * seat's side light), in tile x/y. Slopes that face it grow the sunlit moss.
+ */
+const NOON_SUN_TILE = { x: Math.cos(-REST_SEAT_YAW_RAD), y: Math.sin(-REST_SEAT_YAW_RAD) } as const;
+/**
+ * How far the near-shore band in view of the seat (tiles x 60–120, y 128–139,
+ * between the threshold brow and the water) is set down in value. W1 read
+ * that band as a sunlit fairway, the brightest land in the frame; the hero
+ * and the water it frames should own the light, not the foreground lawn.
+ */
+const NEAR_SHORE_MOSS_VALUE = 0.4;
 /** These camera-side bays displace the former straight shoreline run. */
 export const GARDEN_NEAR_RIM_BAY_DEPTHS = [3.2, 4.8, 3.6] as const;
 export const GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT = 1.55;
@@ -300,25 +324,62 @@ function rimHeight(tileX: number, tileY: number): number {
   return Math.max(levelHeight, levelHeight + (ridgeCrest - levelHeight) * ridgeEnvelope);
 }
 
+/** Integer-lattice hash in [0, 1) for the hummock noise (no texture, no state). */
+function latticeUnit(ix: number, iy: number, salt: number): number {
+  let hash = Math.imul(ix, 374_761_393) ^ Math.imul(iy, 668_265_263) ^ Math.imul(salt, 1_274_126_177);
+  hash = Math.imul(hash ^ (hash >>> 13), 1_103_515_245);
+  return ((hash ^ (hash >>> 16)) >>> 0) / 4_294_967_296;
+}
+
+function valueNoise(x: number, y: number, salt: number): number {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = x - ix;
+  const fy = y - iy;
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  const top = MathUtils.lerp(latticeUnit(ix, iy, salt), latticeUnit(ix + 1, iy, salt), sx);
+  const bottom = MathUtils.lerp(latticeUnit(ix, iy + 1, salt), latticeUnit(ix + 1, iy + 1, salt), sx);
+  return MathUtils.lerp(top, bottom, sy);
+}
+
+/** Two-octave moss hummocks, 0…1: broad cushions with a finer tuft grain. */
+function mossHummock(tileX: number, tileY: number): number {
+  return valueNoise(tileX / 2.7, tileY / 2.7, 11) * 0.68 + valueNoise(tileX / 0.95, tileY / 0.95, 29) * 0.32;
+}
+
+/**
+ * 1 everywhere except the near-shore band in view of the seat, feathered at
+ * its ends, where it falls to NEAR_SHORE_MOSS_VALUE.
+ */
+function nearShoreValue(tileX: number, tileY: number): number {
+  const along = MathUtils.smoothstep(tileX, 56, 64) * (1 - MathUtils.smoothstep(tileX, 116, 124));
+  const depth = MathUtils.smoothstep(tileY, 123, 129);
+  return 1 - (1 - NEAR_SHORE_MOSS_VALUE) * along * depth;
+}
+
 export function rimColor(tileX: number, tileY: number): Color {
-  const height = rimHeight(tileX, tileY);
   const epsilon = 0.35;
-  const slope = Math.hypot(
-    rimHeight(tileX + epsilon, tileY) - rimHeight(tileX - epsilon, tileY),
-    rimHeight(tileX, tileY + epsilon) - rimHeight(tileX, tileY - epsilon),
-  ) / (epsilon * 2 * TILE_SCALE);
-  if (stationMouthClearance(tileX, tileY) <= 2.4) return RAKED_GRAVEL.clone();
+  const gradientX = (rimHeight(tileX + epsilon, tileY) - rimHeight(tileX - epsilon, tileY)) / (epsilon * 2 * TILE_SCALE);
+  const gradientY = (rimHeight(tileX, tileY + epsilon) - rimHeight(tileX, tileY - epsilon)) / (epsilon * 2 * TILE_SCALE);
+  const slope = Math.hypot(gradientX, gradientY);
+  const value = nearShoreValue(tileX, tileY);
+  // Forecourt gravel stays the palest ground, but in the near band it steps
+  // down with the moss so a quay apron never outshines the water beyond it.
+  if (stationMouthClearance(tileX, tileY) <= 2.4) return RAKED_GRAVEL.clone().multiplyScalar(0.4 + value * 0.6);
   if (slope > 0.6) return EXPOSED_ROCK.clone();
-  if (slope < 0.15 && height < 1.2) return SHORE_SAND.clone();
   const inland = Math.max(0, -authoredDistance(tileX, tileY));
-  const moss = MathUtils.smoothstep(inland, 0.8, 6) * GARDEN_RIM_MOSS_BLEND_MAX;
-  const aspect = MathUtils.clamp(0.5 + (rimHeight(tileX - epsilon, tileY) - rimHeight(tileX + epsilon, tileY)) * 0.3, 0, 1);
-  const mossColor = MOSS.clone().lerp(new Color(HARBOR_PALETTE.fog_blue), (1 - aspect) * 0.2)
-    .lerp(new Color(HARBOR_PALETTE.sun_day_warm), aspect * 0.08);
-  const patch = Math.sin(tileX * 0.72 + Math.sin(tileY * 0.31)) * Math.cos(tileY * 0.61);
-  const color = EARTH.clone().lerp(mossColor, moss).lerp(RAKED_GRAVEL, Math.max(0, patch - 0.58) * 0.6);
-  color.multiplyScalar(0.94 + Math.sin(tileX * 0.24 - tileY * 0.18) * 0.055);
-  return color;
+  // Sand only in the beach coves, and only at their lip.
+  if (inland < 1.1 && coastFormAt(tileX, tileY) === "beach") return SHORE_SAND.clone().multiplyScalar(value);
+  const hummock = mossHummock(tileX, tileY);
+  // The slope's face toward the noon sun, plus the cushions' own lit crowns.
+  const sunward = -(gradientX * NOON_SUN_TILE.x + gradientY * NOON_SUN_TILE.y);
+  const sunlit = MathUtils.clamp(0.5 + sunward * 2.2 + (hummock - 0.5) * 1.3, 0, 1);
+  const color = DAMP_EARTH.clone().lerp(
+    SHADE_MOSS.clone().lerp(MOSS, sunlit),
+    MathUtils.smoothstep(inland, 0.15, 1.4),
+  );
+  return color.multiplyScalar((0.9 + hummock * 0.2) * value);
 }
 
 /**
@@ -416,7 +477,8 @@ function addShoreCourses(
   const stainY = Math.min(a[1], b[1], 0.34);
   const stainA = pointAtY(a, stainY);
   const stainB = pointAtY(b, stainY);
-  const dryColor = form === "beach" ? SHORE_SAND : topColor;
+  const sand = SHORE_SAND.clone().multiplyScalar(nearShoreValue(a[0] / TILE_SCALE, a[2] / TILE_SCALE));
+  const dryColor = form === "beach" ? sand : topColor;
   addQuad(builder, a, b, stainB, stainA, [dryColor, dryColor, TIDE_STAIN, TIDE_STAIN]);
   addQuad(builder, stainA, stainB, c, d, [TIDE_STAIN, TIDE_STAIN, WET_ROCK, WET_ROCK]);
   // Beaches run two to three tiles seaward; rock forms retain a tight wet toe.
@@ -437,7 +499,7 @@ function addShoreCourses(
     waterB[1] - 0.025,
     MathUtils.clamp(waterB[2] + outwardZ * shelf, 0, plateLimit),
   ];
-  const toeColor = form === "beach" ? SHORE_SAND : WET_ROCK;
+  const toeColor = form === "beach" ? sand : WET_ROCK;
   addQuad(builder, waterA, waterB, outerB, outerA, [TIDE_STAIN, TIDE_STAIN, toeColor, toeColor]);
 }
 
@@ -542,7 +604,11 @@ function buildLandGeometry(): {
   for (const [index, placement] of plantingTiles(90, "ground").entries()) {
     const decal = createSpeciesGeometry("ground", "summer", PINE_TRUNK, index % 3 === 0 ? RAKED_GRAVEL : MOSS);
     const positions = decal.getAttribute("position");
-    const color = index % 3 === 0 ? RAKED_GRAVEL : MOSS;
+    // In the near-shore band the decal takes the band's value, or it would
+    // read as a bright patch on the set-down moss.
+    const color = (index % 3 === 0 ? RAKED_GRAVEL : MOSS).clone().multiplyScalar(
+      nearShoreValue(placement.position[0] / TILE_SCALE, placement.position[2] / TILE_SCALE),
+    );
     const corners: [number, number, number][] = [];
     for (let i = 0; i < positions.count; i += 1) {
       const x = placement.position[0] + positions.getX(i), z = placement.position[2] + positions.getZ(i);

@@ -11,9 +11,9 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   PointLight,
-  Points,
   ShaderMaterial,
   SphereGeometry,
+  Vector3,
 } from "three";
 import type { ThreeWorldRendererFrame } from "../renderer/world-renderer-backend";
 import { HARBOR_PALETTE } from "../systems/palette";
@@ -37,8 +37,10 @@ const BEACON_NIGHT_GAIN = 3.2 / (7.2 * colorLuminance(paletteColor(P.lantern_glo
 // than keeping a local copy of the curve.
 export type DayCyclePhaseName = "day" | "dusk" | "night";
 export { dayCycleBeats, type DayCycleBeatName, type DayCycleBeats } from "../systems/day-cycle-beats";
-import { dayCycleBeats, type DayCycleBeatName } from "../systems/day-cycle-beats";
+import { dayCycleBeats, type DayCycleBeatName, type DayCycleBeats } from "../systems/day-cycle-beats";
+import { gardenMoonPose, type GardenLightPose } from "./garden-sun";
 const LIGHT_BEAT_NAMES: readonly DayCycleBeatName[] = ["dawn", "day", "golden", "blue", "night"];
+const scratchMoonPose: GardenLightPose = { direction: new Vector3(0, 1, 0), elevation: 0, moonLight: 0 };
 
 export interface DayCycleSkyPreset {
   fog: Color;
@@ -112,6 +114,13 @@ export const STAR_COLOR = paletteColor(P.moonlight).lerp(paletteColor(P.foam_whi
 
 // Five authored rigs. Key:fill is measured against ambient + hemisphere;
 // the environment is a separate, phase-scaled reflection correction.
+//
+// W2.1 (light-2): complementary rigs. Warmth lives in the key and nowhere
+// else; the fill is the sky's cool complement and the ground bounce is a
+// neutral-cool sea-and-stone value, so shade reads violet-blue against gold
+// rather than as a darker orange. The print inks (garden-print-inks) re-ink
+// the same indirect term per beat; the rigs set its energy.
+const GOLDEN_KEY = paletteColor(P.sun_day_warm).lerp(paletteColor(P.lantern_warm), 0.45);
 export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCycleBeatName, DayCycleLightPreset> = {
   dawn: {
     ambient: paletteColor(P.foam_white),
@@ -126,26 +135,28 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCycleBeatName, DayCycleLightPres
   },
   day: {
     ambient: paletteColor(P.foam_white),
-    ambientIntensity: 0.2,
+    // 0.2 → 0.15 (W2.1): the shade face was within 1.53× of the lit face at
+    // #t=12.25; less shapeless fill lets the side light draw the courses.
+    ambientIntensity: 0.15,
     dirColor: new Color(1, 1, 1),
     dirIntensity: 3.3,
     hemiGround: paletteColor(P.timber_mid).lerp(paletteColor(P.foam_white), 0.65),
     hemiIntensity: 0.42,
-    hemiSky: paletteColor(P.foam_white),
+    // A breath of cerulean in the sky fill so noon shade reads blue-green.
+    hemiSky: paletteColor(P.foam_white).lerp(paletteColor(P.sky_day_zenith), 0.25),
   },
   golden: {
     ambient: paletteColor(P.sky_horizon),
-    ambientIntensity: 0.16,
-    dirColor: paletteColor(P.lantern_warm).lerp(paletteColor(P.vermillion), 0.06),
-    dirIntensity: 3.84,
-    // W1.8 (printmaker sub 3, light defect 2): the orange timber bounce was
-    // what painted the faces the backlit key never reached. The key now
-    // lights them from behind the viewer's right shoulder, so the ground
-    // bounce takes the night's cool sea-and-timber value — the cool
-    // complement to the warm key.
-    hemiGround: paletteColor(P.deep_sea_2).lerp(paletteColor(P.timber_dark), 0.46),
-    hemiIntensity: 0.32,
-    hemiSky: paletteColor(P.sky_horizon).lerp(paletteColor(P.fog_blue), 0.3),
+    ambientIntensity: 0.08,
+    // Honey, not paint: the anchor `lantern_warm` diluted with the day's honey
+    // key cuts the key's chroma so the light reads as light, not as a filter.
+    dirColor: GOLDEN_KEY,
+    dirIntensity: 3.0,
+    // The cool complement: sky fill from the violet mist lifted toward the
+    // zenith, and a neutral-cool bounce off stone and sea.
+    hemiGround: paletteColor(P.stone_mid).lerp(paletteColor(P.deep_sea_1), 0.3),
+    hemiIntensity: 0.5,
+    hemiSky: paletteColor(P.fog_blue).lerp(paletteColor(P.sky_day_zenith), 0.45),
   },
   blue: {
     ambient: paletteColor(P.fog_blue),
@@ -159,13 +170,42 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCycleBeatName, DayCycleLightPres
   night: {
     ambient: paletteColor(P.sky_night).lerp(paletteColor(P.fog_blue), 0.3),
     ambientIntensity: 0.06,
-    dirColor: paletteColor(P.moonlight),
-    dirIntensity: 0.64,
+    // W2.8 (light-3): the moon now stands in the frame, so its key is a back
+    // rim — a thin silver edge on the moon side of every silhouette — scaled
+    // by the real moon's presence and phase in `updateDayCycle`.
+    dirColor: paletteColor(P.moonlight).lerp(paletteColor(P.fog_blue), 0.5),
+    dirIntensity: 0.4,
     hemiGround: paletteColor(P.deep_sea_2).lerp(paletteColor(P.timber_dark), 0.46),
     hemiIntensity: 0.1,
     hemiSky: paletteColor(P.sky_night).lerp(paletteColor(P.fog_blue), 0.25),
   },
 };
+
+/**
+ * W2.8: on a moonless night (or with the moon down) the key falls to this
+ * share of the full-moon rim, so the beacon is the only direct light.
+ */
+export const DAY_CYCLE_MOONLESS_KEY = 0.25;
+
+/**
+ * W2.1 authored eye adaptation (light-2): each beat sits at its own
+ * brightness. Deterministic per clock, blended by the beats — not
+ * auto-exposure. Bloom thresholds the linear HDR before tone mapping, so the
+ * 2.4 knee is unaffected; night's lift pairs with the dimmer practicals.
+ */
+export const DAY_CYCLE_EXPOSURE: Readonly<Record<DayCycleBeatName, number>> = {
+  dawn: 1.0,
+  day: 0.96,
+  golden: 0.84,
+  blue: 1.0,
+  night: 1.15,
+};
+
+export function dayCycleExposure(beats: DayCycleBeats): number {
+  let exposure = 0;
+  for (const name of LIGHT_BEAT_NAMES) exposure += DAY_CYCLE_EXPOSURE[name] * beats[name];
+  return exposure;
+}
 
 /**
  * Wave 6 sail value, separate from the cloth's issuer-owned colour policy.
@@ -319,6 +359,12 @@ export function updateDayCycle(
   scene.hemisphereLight.intensity = 0;
   scene.ambientLight.intensity = 0;
   scene.directionalLight.intensity = 0;
+  // W2.8: the night key is the real moon's rim; moon down or new, it falls to
+  // the moonless share and the beacon is the only direct light.
+  const moonKey = beats.night > 0
+    ? DAY_CYCLE_MOONLESS_KEY
+      + (1 - DAY_CYCLE_MOONLESS_KEY) * (gardenMoonPose(frame.wallClockHour, scratchMoonPose).moonLight ?? 0)
+    : 1;
   for (const name of LIGHT_BEAT_NAMES) {
     const weight = beats[name];
     if (weight === 0) continue;
@@ -337,7 +383,7 @@ export function updateDayCycle(
     scene.directionalLight.color.b += rig.dirColor.b * weight;
     scene.hemisphereLight.intensity += rig.hemiIntensity * weight;
     scene.ambientLight.intensity += rig.ambientIntensity * weight;
-    scene.directionalLight.intensity += rig.dirIntensity * weight;
+    scene.directionalLight.intensity += rig.dirIntensity * weight * (name === "night" ? moonKey : 1);
   }
 
   if (!scene.content) return;
@@ -368,8 +414,9 @@ export function updateDayCycle(
   scene.content.beaconFire.mirrorMaterial.emissiveIntensity = daylight * (0.3 + glint * 1.9);
   // W0.7 night beacon discipline: the halo stays a tight corona (night scale
   // ≤ 1.25, opacity ≤ 0.3) so an end-on beam never swells into a disc; the
-  // frame path adds the flicker modulation on top of this base.
-  scene.content.beaconHalo.material.opacity = 0.16 + dusk * 0.1 + night * 0.14;
+  // frame path adds the flicker modulation on top of this base. W2.9: nothing
+  // glows by day, so the corona has no daylight term.
+  scene.content.beaconHalo.material.opacity = dusk * 0.12 + night * 0.3;
   scene.content.beaconHalo.scale.setScalar(1.2 + (dusk + night) * 0.05);
   // The PointLight grazes the lantern storey only (range 30, see
   // createLighthouse); it no longer floodlights the masonry at night.
@@ -408,7 +455,7 @@ export function updateDayCycle(
   // 1.35 at night. Deliberately below the station curve and far below the
   // beacon: the Pharos' own windows read as embers on a lit stair, never as a
   // second signal competing with the fire at its head.
-  const towerWindowGlow = MathUtils.smoothstep(dusk, 0.35, 1) * 0.9 + night * 1.35;
+  const towerWindowGlow = MathUtils.smoothstep(dusk, 0.35, 1) * 0.9 + night * 1.0;
   for (const material of scene.content.lighthouseWindowMaterials ?? []) {
     material.emissiveIntensity = towerWindowGlow;
   }
@@ -446,25 +493,22 @@ export function updateDayCycle(
     if (!ship.identitySailMaterial) continue;
     ship.identitySailMaterial.emissiveIntensity = sailEmissive;
   }
-  // Beam intensity curves. One cone is the normal signal, the plane is its
-  // low-tier fallback, and dust is only a restrained full-tier accent.
+  // Beam intensity curves. One cone is the normal signal and the plane is its
+  // low-tier fallback.
   // World-renderer owns which piece is visible per tier; here we set opacity
   // and freeze uTime under reduced motion.
   const beamTime = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
   // Daylight suppresses the light-in-air pieces; the lit sea lane fades with
   // the lighthouse light instead.
   const coneOpacity = (dusk * 0.035 + night * 0.11) * (1 - daylight * 0.9);
-  const dustOpacity = (dusk * 0.09 + night * 0.24) * (1 - daylight);
   const planeOpacity = (0.008 + dusk * 0.025 + night * 0.06) * (1 - daylight * 0.9);
   for (const child of scene.content.beam.children) {
-    if (!(child instanceof Mesh) && !(child instanceof Points)) continue;
+    if (!(child instanceof Mesh)) continue;
     const material = child.material;
     if (!(material instanceof ShaderMaterial)) continue;
     if (material.uniforms.uTime) material.uniforms.uTime.value = beamTime;
     if (child.name === "lighthouse-beam-cone") {
       material.uniforms.uOpacity.value = coneOpacity;
-    } else if (child.name === "lighthouse-beam-dust") {
-      material.uniforms.uOpacity.value = dustOpacity;
     } else {
       material.uniforms.uOpacity.value = planeOpacity;
     }

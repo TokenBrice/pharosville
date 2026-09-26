@@ -68,10 +68,17 @@ describe("gardenEnvironmentPhaseKey", () => {
   });
 
   it("scales reflection strength with the five illumination beats", () => {
-    for (const [hour, strength] of [[6, 0.35], [12, 0.6], [17.25, 0.45], [19, 0.3], [23, 0.12]]) {
-      expect(gardenEnvironmentIntensityForBeats(dayCycleBeats(hour))).toBeCloseTo(strength);
-    }
-    expect(gardenEnvironmentIntensityForBeats(dayCycleBeats(6.625))).toBeCloseTo((0.35 + 0.6) / 2);
+    const beat = (name: "dawn" | "day" | "golden" | "blue" | "night") => ({
+      dawn: 0, day: 0, golden: 0, blue: 0, night: 0, [name]: 1,
+    });
+    // Reflection energy ranks with illumination: day, golden, dawn, blue, night.
+    const ranked = (["day", "golden", "dawn", "blue", "night"] as const)
+      .map((name) => gardenEnvironmentIntensityForBeats(beat(name)));
+    for (let index = 1; index < ranked.length; index += 1) expect(ranked[index]).toBeLessThan(ranked[index - 1]!);
+    expect(ranked.at(-1)).toBeGreaterThan(0);
+    // A crossfade blends the two beats' strengths, never overshooting either.
+    expect(gardenEnvironmentIntensityForBeats({ dawn: 0.5, day: 0.5, golden: 0, blue: 0, night: 0 }))
+      .toBeCloseTo((gardenEnvironmentIntensityForBeats(beat("dawn")) + ranked[0]!) / 2);
   });
 
   it("does not rebake across a steady storm's breathing boundary", () => {

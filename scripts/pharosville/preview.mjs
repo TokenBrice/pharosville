@@ -81,7 +81,7 @@
  *
  * Instrument flags:
  *   --uncapped                 launch with --disable-gpu-vsync --disable-frame-rate-limit
- *   --knockout <list>          comma list of ao|bloom|smaa|rays|reflection|grade|water-lanes
+ *   --knockout <list>          comma list of ao|bloom|smaa|rays|reflection|grade|keyline|water-lanes
  *   --knockout-compare <list>  baseline vs each pass, alternating, 3 serial rounds (one Chrome per arm)
  *   --still-camera             appends still=1: no camera breath, no attract/postcard moves
  *   --clock <ISO>              pins Date (flowing from that instant; RAF/timers untouched) and adds d=YYYY-MM-DD
@@ -157,7 +157,7 @@ const forcedTier = args["force-tier"] ?? null;
 if (forcedTier && !["constrained", "recovery"].includes(forcedTier)) throw new Error("--force-tier needs constrained or recovery (dev server only)");
 
 /** Post passes and water layers the app's debug knockout seam recognises (`window.__pharosVilleKnockout`). */
-const KNOCKOUT_PASSES = ["ao", "bloom", "smaa", "rays", "reflection", "grade", "water-lanes"];
+const KNOCKOUT_PASSES = ["ao", "bloom", "smaa", "rays", "reflection", "grade", "keyline", "water-lanes"];
 /** Launch switches for throughput readings: without them p50 is the vsync interval, not a cost. */
 const UNCAPPED_CHROME_ARGS = ["--disable-gpu-vsync", "--disable-frame-rate-limit"];
 /** Alternating serial rounds for --knockout-compare (headroom-4: three, so one hot run cannot decide). */

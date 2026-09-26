@@ -3,7 +3,7 @@ import { CAUSE_META } from "@shared/lib/cause-of-death";
 import type { BluechipGrade, DimensionKey } from "@shared/types";
 import { formatCompactUsd } from "../lib/format-detail";
 import type { DayCycleBeats, DayCycleBeatName } from "./day-cycle-beats";
-import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode } from "./world-types";
+import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode, ShipWaterZone } from "./world-types";
 import { pigeonnierRoostLabel } from "./pigeonnier-watch";
 import { analyticalRouteHref } from "./route-links";
 import { formationLabel, squadForMember, squadRole } from "./maker-squad";
@@ -13,6 +13,7 @@ import { cycleTempoDetailLabel, shipCycleTempo, type ShipCycleTempoResult } from
 import type { SupplyTide } from "./supply-tide";
 import { quayMasonryLabel } from "./dock-health";
 export { quayMasonryHealth, quayMasonryLabel } from "./dock-health";
+import { farShoreLabel } from "./psi-sky";
 import { deriveLampStatus, lampStatusReading } from "./lamp-status";
 import { gardenMonthRecordLabel } from "./garden-month-record";
 import { shipIssuanceDetailLabel } from "./ship-issuance";
@@ -25,6 +26,7 @@ import type { PharosVilleFreshness } from "./world-types";
 import { SIGNAL_MAST_STORM_SUPPLY_SHARE } from "./world-types";
 import { deriveEpistemicHaze, quayHazeLabel, riskWaterHazeLabel } from "./epistemic-haze";
 import { motionCadenceDetailLabel } from "./motion-config";
+import { gardenMoonPhrase } from "./sky-almanac";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
@@ -103,7 +105,7 @@ function nowCaptionPhrase({
   hour,
   latestTransition,
   psi,
-}: NowCaptionInput): { clocked: boolean; text: string } {
+}: NowCaptionInput, moon: string | null = null): { clocked: boolean; text: string } {
   const staleFeed = NOW_CAPTION_FRESHNESS_LABELS.find(([key]) => freshness[key] === true);
   if (staleFeed) return { clocked: false, text: `${staleFeed[1]} stale since ${observedTimeLabel(freshness.observedAt ?? null)}` };
   if (arrivalAnnotation) return { clocked: false, text: arrivalAnnotation };
@@ -113,12 +115,19 @@ function nowCaptionPhrase({
       text: `${latestTransition.symbol} moved to ${latestTransition.toLabel}, observed ${observedTimeLabel(latestTransition.observedAt)}`,
     };
   }
-  return { clocked: true, text: `${phaseCaption(hour, beats, psi)} · readings current` };
+  return { clocked: true, text: `${phaseCaption(hour, beats, psi)}${moon ? ` · ${moon}` : ""} · readings current` };
 }
 
-/** The single visible scene caption; the ambient phase leads with the minute clock. */
+/**
+ * The single visible scene caption; the ambient phase leads with the minute
+ * clock. After dusk the ambient slot also names the moon when it is up
+ * (W2.6: the text equivalent of the disc). It is decorative, so it lives only
+ * here and never in `nowCaptionAnnouncement` — the moon rising must not speak.
+ */
 export function nowCaption(input: NowCaptionInput): string {
-  const phrase = nowCaptionPhrase(input);
+  const beat = dominantDayBeat(input.beats);
+  const moon = beat === "night" || beat === "blue" ? gardenMoonPhrase(input.hour) : null;
+  const phrase = nowCaptionPhrase(input, moon);
   return phrase.clocked ? `${clockLabel(input.hour)} — ${phrase.text}` : phrase.text;
 }
 
@@ -290,6 +299,32 @@ const ATMOSPHERE_DESCRIPTORS: Record<DewsAreaBand, string> = {
 function atmosphereForArea(area: AreaNode): string {
   if (!area.band) return "Calm waters; no DEWS atmosphere modulation";
   return `${area.label} — ${area.band}, ${ATMOSPHERE_DESCRIPTORS[area.band]}`;
+}
+
+// K7 (Hour-Print W3.3): the water itself carries each body's reading as the
+// state of its surface — how much sky it holds and which engraved crest line
+// it prints — with hue a quiet second voice. These are the DOM words for it.
+const WATER_SURFACE_BY_ZONE: Record<ShipWaterZone, string> = {
+  calm: "Glass — a still mirror of sky and tower, no drawn lines",
+  watch: "Ripple — long, slowly bending crest lines",
+  alert: "Streaks — broken current lines along the channel",
+  warning: "Chop — short broken dashes over pale shoals",
+  danger: "Leaden — dense steady lines on dark, matte water that mirrors little, pocked by rain",
+  ledger: "Glass — a flat, faintly striated mirror, no drawn lines",
+};
+
+const WATER_ZONE_BY_BAND: Record<DewsAreaBand, ShipWaterZone> = {
+  CALM: "calm",
+  WATCH: "watch",
+  ALERT: "alert",
+  WARNING: "warning",
+  DANGER: "danger",
+};
+
+/** The named water's surface state, as the sea itself draws it; null for unbanded waters. */
+export function waterSurfaceForArea(area: Pick<AreaNode, "band" | "riskZone">): string | null {
+  const zone = area.band ? WATER_ZONE_BY_BAND[area.band] : area.riskZone;
+  return zone ? WATER_SURFACE_BY_ZONE[zone] : null;
 }
 
 function stationTypeLabel(type: DockNode["station"]["type"]): string {
@@ -783,6 +818,7 @@ export function detailForLighthouse(
       { label: "Score", value: node.score == null || node.unavailable ? "Unavailable" : String(node.score) },
       { label: "Band", value: node.psiBand ?? "Unavailable" },
       { label: "Market stability", value: node.unavailable ? "Unavailable" : freshness.stabilityStale ? "Stale — last good clarity held" : "Current PSI observation" },
+      { label: "Far shore", value: farShoreLabel(node.psiBand, node.unavailable) },
       { label: "Snapshot as of", value: generatedAt != null && Number.isFinite(generatedAt) && generatedAt > 0 ? new Date(generatedAt).toISOString() : "Unavailable" },
       ...(trend ? [{ label: "Trend", value: trend }] : []),
       ...(composition ? [{ label: "Composition", value: composition }] : []),
@@ -1354,6 +1390,7 @@ export function detailForGrave(node: GraveNode): DetailModel {
 
 export function detailForArea(node: AreaNode, freshness: PharosVilleFreshness = {}): DetailModel {
   const haze = deriveEpistemicHaze(freshness);
+  const waterSurface = waterSurfaceForArea(node);
   return {
     id: node.detailId,
     kind: node.kind,
@@ -1367,6 +1404,7 @@ export function detailForArea(node: AreaNode, freshness: PharosVilleFreshness = 
       ...(node.riskZone ? [{ label: "Risk water zone", value: node.riskZone }] : []),
       ...(node.riskPlacement ? [{ label: "Risk placement", value: node.riskPlacement }] : []),
       { label: "Atmosphere", value: atmosphereForArea(node) },
+      ...(waterSurface ? [{ label: "Water surface", value: waterSurface }] : []),
       ...(haze.riskWaters ? [{ label: "Risk-water haze", value: riskWaterHazeLabel(haze) }] : []),
       ...(node.facts ?? []),
       ...(node.sourceFields?.length ? [{ label: "Source fields", value: node.sourceFields.join(", ") }] : []),

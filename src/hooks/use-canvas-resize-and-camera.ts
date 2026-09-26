@@ -6,13 +6,18 @@ import { hitTest, hitTestSpatial, type HitTarget, type HitTargetSnapshot } from 
 import {
   cameraZoomLabel,
   defaultCamera,
+  followShotCamera,
   followTile,
+  lighthouseLookUpCamera,
   panCameraOnGround,
   clampCameraToMap,
+  selectionShot,
+  SELECTION_SHIP_ANCHOR,
   withoutRest,
   zoomCameraOnGround,
   zoomIn,
   zoomOut,
+  type SelectionShotSubject,
 } from "../systems/camera";
 import {
   buildObserveTour,
@@ -27,8 +32,11 @@ import { initialAdaptiveDprState, resolveRenderSurfaceBudget, type AdaptiveDprSt
 import type { ShipMotionSample } from "../systems/motion";
 import {
   cameraAtRest,
+  cameraView,
   screenToGround,
   tileToIso,
+  worldToScreen,
+  TILE_SCALE,
   type CameraRestState,
   type MapLike,
   type IsoCamera,
@@ -47,13 +55,21 @@ import { requestGardenBeat, type GardenDirectorState } from "../systems/garden-d
 import {
   FOLLOW_INITIAL_DELTA_SECONDS,
   FOLLOW_MAX_DELTA_SECONDS,
+  LIGHTHOUSE_LOOK_UP_SECONDS,
   REST_HAND_OFF_SECONDS,
+  SELECTION_GLIDE_HOLD_SECONDS,
+  SELECTION_PANEL_REVEAL_PROGRESS,
+  SELECTION_RETURN_GLIDE_SCALE,
   advanceCameraIntent,
   cameraModeCancelsFollow,
-  selectionCameraTarget,
+  createShotGlide,
+  glidePathPixels,
+  sampleShotGlide,
+  selectionGlideSeconds,
   zoomCameraByWheelDelta,
   type CameraIntentMode,
   type CameraIntentState,
+  type ShotGlide,
 } from "./camera-intent";
 import { firstPointer, pinchSnapshot } from "./pointer-gesture";
 import { useLatestRef } from "./use-latest-ref";
@@ -70,11 +86,13 @@ export {
   dampFollowCamera,
   leadFollowTile,
   normalizeWheelDeltaY,
-  selectionCameraTarget,
   wheelZoomScaleFromDelta,
   zoomCameraByWheelDelta,
 } from "./camera-intent";
 export type { CameraIntentMode } from "./camera-intent";
+
+/** What a selection frames (W1.7): a ship or dock shot, or the lighthouse look-up. */
+export type CameraSelectionSubject = SelectionShotSubject | { kind: "lighthouse" };
 
 export interface UseCanvasResizeAndCameraInput {
   gardenDirector?: GardenDirectorState;
@@ -135,7 +153,12 @@ export interface UseCanvasResizeAndCameraResult {
   handleToolbarZoomOut: () => void;
   maximumRequestedDprRef: MutableRefObject<number>;
   moveCameraTo: (camera: IsoCamera) => void;
-  focusSelection: (tile: ScreenPoint, onRest: () => void) => IsoCamera | null;
+  /**
+   * W1.7: glide to the subject's composed shot (a look-up for the lighthouse).
+   * `onReveal` fires at 70 % of the glide — at once under reduced motion or
+   * when there is nothing to move. Returns the camera the return glides back to.
+   */
+  focusSelection: (subject: CameraSelectionSubject, onReveal: () => void) => IsoCamera | null;
   returnFromSelection: (camera: IsoCamera) => void;
   startArrival: (onComplete: () => void) => void;
   skipArrival: () => void;
@@ -156,10 +179,30 @@ export interface UseCanvasResizeAndCameraResult {
   stepCamera: (now: number, shipMotionSamples: ReadonlyMap<string, ShipMotionSample>) => CameraStepResult;
 }
 
-/** Translate the perspective rig so the ship sits in the lower-left third. */
-export function voyageCamera(camera: IsoCamera, tile: ScreenPoint, viewport: ScreenPoint, map: MapLike): IsoCamera {
+/**
+ * Translate the perspective rig so the ship sits on the selection shot's
+ * anchor (W1.7: the lower-left third, mirrored when `heading` points left).
+ */
+export function voyageCamera(
+  camera: IsoCamera,
+  tile: ScreenPoint,
+  viewport: ScreenPoint,
+  map: MapLike,
+  heading?: ScreenPoint | null,
+): IsoCamera {
   const centered = followTile({ camera, tile, viewport, map });
-  const anchor = screenToGround({ x: viewport.x / 3, y: viewport.y * 2 / 3 }, centered, viewport, -1.07);
+  let anchorX = SELECTION_SHIP_ANCHOR.x;
+  const speed = heading ? Math.hypot(heading.x, heading.y) : 0;
+  if (heading && speed > 1e-6) {
+    const at = worldToScreen({ x: tile.x * TILE_SCALE, y: -1.07, z: tile.y * TILE_SCALE }, centered, viewport);
+    const ahead = worldToScreen({
+      x: (tile.x + (heading.x / speed) * 3) * TILE_SCALE,
+      y: -1.07,
+      z: (tile.y + (heading.y / speed) * 3) * TILE_SCALE,
+    }, centered, viewport);
+    if (ahead.x - at.x < -0.002 * viewport.x) anchorX = 1 - anchorX;
+  }
+  const anchor = screenToGround({ x: viewport.x * anchorX, y: viewport.y * SELECTION_SHIP_ANCHOR.y }, centered, viewport, -1.07);
   const delta = tileToIso({ x: tile.x - anchor.x, y: tile.y - anchor.y });
   return {
     ...centered,
@@ -169,14 +212,35 @@ export function voyageCamera(camera: IsoCamera, tile: ScreenPoint, viewport: Scr
 }
 
 /**
+ * A ship under way is composed where it will be when the glide lands (hold +
+ * the glide its unled shot would take), so it arrives on its third instead of
+ * sliding off it during the move. Moored ships and docks are unchanged.
+ */
+function leadSelectionSubject(subject: SelectionShotSubject, start: IsoCamera, viewport: ScreenPoint): SelectionShotSubject {
+  if (subject.kind !== "ship" || !subject.heading) return subject;
+  const heading = subject.heading;
+  if (!(Math.hypot(heading.x, heading.y) > 0)) return subject;
+  const unled = selectionShot(subject, viewport).camera;
+  const leadSeconds = SELECTION_GLIDE_HOLD_SECONDS + selectionGlideSeconds(glidePathPixels(
+    cameraView(start, viewport, { breath: false }),
+    cameraView(unled, viewport, { breath: false }),
+    viewport,
+  ));
+  return { ...subject, tile: { x: subject.tile.x + heading.x * leadSeconds, y: subject.tile.y + heading.y * leadSeconds } };
+}
+
+/**
  * The rest ShotSpec solved for `viewport`, or a clamped rig. A resize or a
  * selection return that catches a hand-off mid-ease lands on whichever end it
- * is nearer. (An interruption instead holds the blend exactly.)
+ * is nearer. (An interruption instead holds the blend exactly.) A composed
+ * shot is a free view, valid at any viewport, so it rides along unchanged.
  */
 export function settleCamera(camera: IsoCamera, viewport: ScreenPoint, map: MapLike): IsoCamera {
   const presence = camera.rest?.presence ?? 0;
-  if (presence >= 0.5) return defaultCamera({ height: viewport.y, map, width: viewport.x });
-  return clampCameraToMap(withoutRest(camera), { map, viewport });
+  const settled = presence >= 0.5
+    ? defaultCamera({ height: viewport.y, map, width: viewport.x })
+    : clampCameraToMap(withoutRest(camera), { map, viewport });
+  return camera.shot ? { ...settled, shot: camera.shot } : settled;
 }
 
 /**
@@ -229,7 +293,13 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   const maximumRequestedDprRef = useRef(1);
   const surfaceBudgetRef = useRef<ReturnType<typeof resolveRenderSurfaceBudget> | null>(null);
   const followChaseDetailIdRef = useRef<string | null>(null);
-  const selectionCameraRestRef = useRef<(() => void) | null>(null);
+  const selectionRevealRef = useRef<(() => void) | null>(null);
+  // W1.7: the selection/return glide in flight (sampled on the RAF clock), the
+  // last selection glide's length (the return walks at least that long), and
+  // the composed shot a ship follow translates with its subject.
+  const shotGlideRef = useRef<{ glide: ShotGlide; startMs: number | null } | null>(null);
+  const selectionGlideSecondsRef = useRef(0);
+  const followShotRef = useRef<IsoCamera | null>(null);
   // Observe 2.0: the active tour and the framing to glide back to. The sample
   // scratch is reused every frame — no allocation in the camera path.
   const observeTourRef = useRef<{
@@ -293,15 +363,17 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   }, [cameraRef]);
 
   const applyCameraImmediately = useCallback((next: IsoCamera | null) => {
+    shotGlideRef.current = null;
     cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: next };
     commitCameraState(next);
     requestWorldFrame();
   }, [commitCameraState, requestWorldFrame]);
 
-  const finishSelectionCamera = useCallback(() => {
-    const onRest = selectionCameraRestRef.current;
-    selectionCameraRestRef.current = null;
-    onRest?.();
+  /** Opens the selection's detail panel (W1.7: at 70 % of the glide). Idempotent. */
+  const revealSelection = useCallback(() => {
+    const onReveal = selectionRevealRef.current;
+    selectionRevealRef.current = null;
+    onReveal?.();
   }, []);
 
   // An interruption holds the whole displayed pose — offsets, zoom and any
@@ -309,6 +381,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
   // rest; the next gesture hands off from wherever the blend was held.
   const freezeDisplayedCamera = useCallback(() => {
     const displayedCamera = displayCameraRef.current ?? cameraRef.current;
+    shotGlideRef.current = null;
     cameraIntentRef.current = {
       lastFrameTime: null,
       mode: "idle",
@@ -318,6 +391,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
 
   const stopFollowChase = useCallback(() => {
     followChaseDetailIdRef.current = null;
+    followShotRef.current = null;
     // Any follow-canceling gesture (drag, wheel, keys, selection) also ends
     // the observe tour outright — the visitor took the camera back, so there
     // is no glide-back, just the tour releasing its hold.
@@ -328,8 +402,8 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
 
   const cancelCameraIntent = useCallback(() => {
     stopFollowChase();
-    finishSelectionCamera();
-  }, [finishSelectionCamera, stopFollowChase]);
+    revealSelection();
+  }, [revealSelection, stopFollowChase]);
 
   const currentCameraBase = useCallback(() => (
     cameraIntentRef.current.targetCamera ?? displayCameraRef.current ?? cameraRef.current
@@ -369,6 +443,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
 
   const queueCameraTarget = useCallback((targetCamera: IsoCamera, mode: CameraIntentMode) => {
     if (cameraModeCancelsFollow(mode)) stopFollowChase();
+    shotGlideRef.current = null;
     const displayCamera = displayCameraRef.current ?? cameraRef.current;
     if (!displayCamera || reducedMotion || sameCamera(displayCamera, targetCamera)) {
       applyCameraImmediately(targetCamera);
@@ -395,34 +470,6 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     queueCameraTarget(targetCamera, "external");
   }, [queueCameraTarget]);
 
-  const focusSelection = useCallback((tile: ScreenPoint, onRest: () => void): IsoCamera | null => {
-    stopFollowChase();
-    const start = displayCameraRef.current ?? cameraRef.current;
-    if (!start) {
-      onRest();
-      return null;
-    }
-    selectionCameraRestRef.current = onRest;
-    const target = selectionCameraTarget({
-      camera: start,
-      map: world.map,
-      tile,
-      viewport: framingViewport(),
-    });
-    queueCameraTarget(target, "selection");
-    if (reducedMotion || sameCamera(start, target)) finishSelectionCamera();
-    return start;
-  }, [cameraRef, finishSelectionCamera, framingViewport, queueCameraTarget, reducedMotion, stopFollowChase, world.map]);
-
-  const returnFromSelection = useCallback((targetCamera: IsoCamera) => {
-    // A selection made at (or leaving) the rest returns to the rest ShotSpec.
-    const viewport = framingViewport();
-    const target = cameraAtRest(targetCamera) && viewport.x > 0 && viewport.y > 0
-      ? settleCamera(targetCamera, viewport, world.map)
-      : targetCamera;
-    queueCameraTarget(target, "selection-return");
-  }, [framingViewport, queueCameraTarget, world.map]);
-
   const finishArrival = useCallback(() => {
     const arrival = arrivalRef.current;
     if (!arrival) return;
@@ -431,9 +478,90 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     arrival.onComplete();
   }, [applyCameraImmediately]);
 
+  /**
+   * W1.7: glide from the shown view onto `target` on the smootherstep clock.
+   * `seconds` fixes the length (the lighthouse look-up); otherwise it follows
+   * the screen travel (`selectionGlideSeconds`) times `scale`, and never runs
+   * shorter than `minimumSeconds`. Reduced motion, an unmeasured canvas or no
+   * travel cut straight to the target and open the panel.
+   */
+  const startShotGlide = useCallback((target: IsoCamera, mode: "selection" | "selection-return", options: {
+    seconds?: number;
+    scale?: number;
+    minimumSeconds?: number;
+  } = {}): number => {
+    const display = displayCameraRef.current ?? cameraRef.current;
+    const viewport = framingViewport();
+    if (!display || reducedMotion || viewport.x <= 0 || viewport.y <= 0 || sameCamera(display, target)) {
+      applyCameraImmediately(target);
+      revealSelection();
+      return 0;
+    }
+    const seconds = options.seconds ?? Math.max(
+      options.minimumSeconds ?? 0,
+      selectionGlideSeconds(glidePathPixels(
+        cameraView(display, viewport, { breath: false }),
+        cameraView(target, viewport, { breath: false }),
+        viewport,
+      )),
+    ) * (options.scale ?? 1);
+    shotGlideRef.current = {
+      glide: createShotGlide({ durationSeconds: seconds, from: display, to: target, viewport }),
+      startMs: null,
+    };
+    cameraIntentRef.current = { lastFrameTime: null, mode, targetCamera: target };
+    requestWorldFrame();
+    return seconds;
+  }, [applyCameraImmediately, cameraRef, framingViewport, reducedMotion, requestWorldFrame, revealSelection]);
+
+  const focusSelection = useCallback((subject: CameraSelectionSubject, onReveal: () => void): IsoCamera | null => {
+    stopFollowChase();
+    // The visitor acted: an arrival still holding the seat lands now.
+    finishArrival();
+    const start = displayCameraRef.current ?? cameraRef.current;
+    const viewport = framingViewport();
+    if (!start || viewport.x <= 0 || viewport.y <= 0) {
+      onReveal();
+      return start;
+    }
+    selectionRevealRef.current = onReveal;
+    const target = subject.kind === "lighthouse"
+      ? lighthouseLookUpCamera(start, viewport)
+      : selectionShot(leadSelectionSubject(subject, start, viewport), viewport).camera;
+    if (!target) {
+      revealSelection();
+      return start;
+    }
+    selectionGlideSecondsRef.current = startShotGlide(
+      target,
+      "selection",
+      subject.kind === "lighthouse" ? { seconds: LIGHTHOUSE_LOOK_UP_SECONDS } : {},
+    );
+    return start;
+  }, [cameraRef, finishArrival, framingViewport, revealSelection, startShotGlide, stopFollowChase]);
+
+  const returnFromSelection = useCallback((targetCamera: IsoCamera) => {
+    // The chase ends with the selection; drop it here, without freezing, so
+    // the selection-change effect finds nothing left to stop and keeps this glide.
+    followChaseDetailIdRef.current = null;
+    followShotRef.current = null;
+    // A selection made at (or leaving) the rest returns to the rest ShotSpec.
+    const viewport = framingViewport();
+    const target = cameraAtRest(targetCamera) && viewport.x > 0 && viewport.y > 0
+      ? settleCamera(targetCamera, viewport, world.map)
+      : targetCamera;
+    startShotGlide(target, "selection-return", {
+      minimumSeconds: selectionGlideSecondsRef.current,
+      scale: SELECTION_RETURN_GLIDE_SCALE,
+    });
+    selectionGlideSecondsRef.current = 0;
+  }, [framingViewport, startShotGlide, world.map]);
+
   const startArrival = useCallback((onComplete: () => void) => {
     const viewport = framingViewport();
-    if (viewport.x <= 0 || viewport.y <= 0) {
+    // A selection made before the ceremony began keeps its shot (W1.7).
+    const shown = displayCameraRef.current ?? cameraRef.current;
+    if (viewport.x <= 0 || viewport.y <= 0 || shotGlideRef.current || shown?.shot) {
       onComplete();
       return;
     }
@@ -448,7 +576,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     commitCameraState(from);
     arrivalRef.current = { from, onComplete, startMs: null, to: target };
     requestWorldFrame();
-  }, [applyCameraImmediately, commitCameraState, framingViewport, reducedMotion, requestWorldFrame, world.map]);
+  }, [applyCameraImmediately, cameraRef, commitCameraState, framingViewport, reducedMotion, requestWorldFrame, world.map]);
 
   const skipArrival = useCallback(() => {
     finishArrival();
@@ -484,12 +612,17 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       // bitmap immediately. The render loop syncs the backing store at the top
       // of the next draw so resize clears and repaint happen in one RAF.
       const nextCanvasSize = { x: cssWidth, y: cssHeight };
+      const glide = shotGlideRef.current;
+      // A same-size notification (the observer's first callback) must not cut a glide short.
+      if (glide && samePoint(canvasSizeRef.current, nextCanvasSize)) return;
       setCanvasSize((previous) => samePoint(previous, nextCanvasSize) ? previous : nextCanvasSize);
-      const previousCamera = displayCameraRef.current ?? cameraRef.current ?? currentCameraBase();
+      // A real resize lands a glide on its target, then re-settles that.
+      const previousCamera = glide?.glide.to ?? displayCameraRef.current ?? cameraRef.current ?? currentCameraBase();
       const nextCamera = previousCamera
         ? resizeCamera(previousCamera, nextCanvasSize, world.map)
         : defaultCamera({ width: cssWidth, height: cssHeight, map: world.map });
       applyCameraImmediately(nextCamera);
+      if (glide) revealSelection();
       if (followChaseDetailIdRef.current) requestWorldFrame();
     };
 
@@ -497,7 +630,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [applyCameraImmediately, cameraRef, currentCameraBase, requestWorldFrame, world.map]);
+  }, [applyCameraImmediately, cameraRef, canvasSizeRef, currentCameraBase, requestWorldFrame, revealSelection, world.map]);
 
   const canvasPoint = useCallback((event: Pick<MouseEvent, "clientX" | "clientY">) => {
     const canvas = canvasRef.current;
@@ -838,6 +971,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       // Reduced motion has no tour: the DOM steps beats by hand. Drop any
       // tour that was mid-flight when the preference flipped.
       observeTourRef.current = null;
+      shotGlideRef.current = null;
       setAttractState((state) => state.holding ? { holding: false } : state);
       const targetCamera = cameraIntentRef.current.targetCamera;
       if (!targetCamera) {
@@ -846,12 +980,27 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       }
       cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera };
       if (sameCamera(displayCamera, targetCamera)) {
-        finishSelectionCamera();
+        revealSelection();
         return { camera: displayCamera, cameraChanged: false, cameraIntentActive: false };
       }
       commitCameraState(targetCamera);
-      finishSelectionCamera();
+      revealSelection();
       return { camera: targetCamera, cameraChanged: true, cameraIntentActive: false };
+    }
+
+    // W1.7: a selection or return glide owns the camera until it lands; the
+    // panel opens at 70 % of it. Pure function of the elapsed clock.
+    const glideState = shotGlideRef.current;
+    if (glideState) {
+      if (glideState.startMs === null) glideState.startMs = now;
+      const sampled = sampleShotGlide(glideState.glide, (now - glideState.startMs) / 1000);
+      const cameraChanged = !sameCamera(displayCamera, sampled.camera);
+      commitCameraState(sampled.camera);
+      if (sampled.progress >= SELECTION_PANEL_REVEAL_PROGRESS) revealSelection();
+      if (!sampled.done) return { camera: sampled.camera, cameraChanged, cameraIntentActive: true };
+      shotGlideRef.current = null;
+      cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: sampled.camera };
+      return { camera: sampled.camera, cameraChanged, cameraIntentActive: false };
     }
 
     const activeDetailId = followChaseDetailIdRef.current;
@@ -876,7 +1025,10 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
             ? cameraIntentRef.current.lastFrameTime
             : null,
           mode: "follow-selected",
-          targetCamera: voyageCamera(displayCamera, sampledTile, viewport, world.map),
+          // Follow inherits the selection's composition: a composed shot
+          // translates with the ship; a rig keeps the ship on the same anchor.
+          targetCamera: (followShotRef.current && followShotCamera(followShotRef.current, sampledTile, viewport))
+            ?? voyageCamera(displayCamera, sampledTile, viewport, world.map, sample?.velocity),
         };
         if (sample?.state === "moored" || sample?.state === "idle") {
           // Keep the final berth target, letting ordinary damping ease out.
@@ -913,7 +1065,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
         mode: "idle",
         targetCamera: advanced.camera,
       };
-      finishSelectionCamera();
+      revealSelection();
       return { camera: advanced.camera, cameraChanged, cameraIntentActive: false };
     }
 
@@ -922,17 +1074,23 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       lastFrameTime: now,
     };
     return { camera: advanced.camera, cameraChanged, cameraIntentActive: true };
-  }, [cameraRef, canvasSizeRef, commitCameraState, directorClockRef, finishSelectionCamera, gardenDirectorRef, queueCameraTarget, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, tourReturnCamera, world.map]);
+  }, [cameraRef, canvasSizeRef, commitCameraState, directorClockRef, revealSelection, gardenDirectorRef, queueCameraTarget, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, tourReturnCamera, world.map]);
 
   const handleFollowSelected = useCallback(() => {
     if (!selectedEntity) return;
+    // A follow pressed mid-glide starts from the shot the glide was composing.
+    const glideTarget = shotGlideRef.current?.glide.to ?? null;
     stopFollowChase();
     const sampledTile = selectedFollowTile(selectedEntity, shipMotionSamplesRef.current);
-    const start = currentCameraBase();
+    const start = glideTarget ?? currentCameraBase();
     if (!start) return;
+    const viewport = framingViewport();
+    const shotReference = selectedEntity.kind === "ship" && start.shot?.subject && start.shot.presence >= 1 ? start : null;
+    followShotRef.current = shotReference;
     const target = selectedEntity.kind === "ship"
-      ? voyageCamera(start, sampledTile, framingViewport(), world.map)
-      : followTile({ camera: start, map: world.map, tile: sampledTile, viewport: framingViewport() });
+      ? (shotReference && followShotCamera(shotReference, sampledTile, viewport))
+        ?? voyageCamera(start, sampledTile, viewport, world.map, shipMotionSamplesRef.current.get(selectedEntity.id)?.velocity)
+      : followTile({ camera: start, map: world.map, tile: sampledTile, viewport });
     if (reducedMotion) {
       applyCameraImmediately(target);
       return;
@@ -1052,9 +1210,10 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     stopFollowChase();
     if (targetCamera) {
       applyCameraImmediately(targetCamera);
+      revealSelection();
       return;
     }
-  }, [applyCameraImmediately, reducedMotion, stopFollowChase]);
+  }, [applyCameraImmediately, reducedMotion, revealSelection, stopFollowChase]);
 
   useEffect(() => () => {
     stopFollowChase();

@@ -100,8 +100,16 @@ export const aggregateBudgets = {
   // Gzip raised to measured+8% (820 -> 886 KiB), matching the 2026-07-29
   // precedent above. Raw untouched at 2,581.1 of 3,200 used. The frame-time
   // gate is deliberately NOT relaxed alongside it.
+  // 2026-09-26 Hour-Print W0–W3 (plan agents/2026-09-26-opus-visual-leap):
+  // the pose model, one-air aerial perspective, the solar/lunar sky almanac,
+  // print inks, sky-contact keyline, the rebuilt water surface and the K8 wake
+  // field measured 2,767.5 KiB raw / 892.0 KiB gzip — 6 KiB over the cap after
+  // the tilt-shift, wake hairlines and geese were deleted. Gzip raised to
+  // measured+8% (886 -> 963 KiB) per the precedent above; the renderer chunk
+  // (173 of 454 KiB gzip) is still enforced independently and the frame-time
+  // gate is NOT relaxed.
   maxJsRawBytes: 3_200 * 1024,
-  maxJsGzipBytes: 886 * 1024,
+  maxJsGzipBytes: 963 * 1024,
 };
 
 export const forbiddenBundleChunks = [

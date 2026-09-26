@@ -379,7 +379,7 @@ const QUAY_STAIR_LANDING = {
   z: QUAY_STAIR_START.z + QUAY_STAIR_DIR.z * (QUAY_STAIR_LANDING_FROM + QUAY_STAIR_LANDING_TO) / 2,
 } as const;
 // The stair head is the precinct threshold; the landing is where the garden
-// path and the torii begin.
+// path begins, marked by two standing stones and a kutsunugi step.
 export {
   QUAY_STAIR_END as GARDEN_QUAY_STAIR_HEAD,
   QUAY_STAIR_LANDING as GARDEN_QUAY_STAIR_LANDING,
@@ -637,7 +637,6 @@ const ISLAND_DYNAMIC_NAMES = new Set([
   "island-reflection-pond-skin",
   "lighthouse-beam",
   "lighthouse-beam-cone",
-  "lighthouse-beam-dust",
 ]);
 
 // These groups are visibility/LOD transform boundaries. Their descendants
@@ -939,7 +938,7 @@ export function createTerracedIsland(
     reflectionPond.root,
   );
   root.add(
-    createLandingTorii(),
+    createLandingStones(),
     createLeeBridge(),
     createDangerRockFace(),
     createQuayStair(),
@@ -1979,40 +1978,130 @@ function createGardenPathSweep(): Mesh<BufferGeometry, MeshStandardMaterial> {
 // W7b — Pharos precinct dressing (2026-07-24 wonder plan, decision D8)
 // ---------------------------------------------------------------------------
 
-/** Island-local top of the landing torii's kasagi: the gull perch that replaced the obelisk. */
-export function gardenLandingToriiPerch(): { x: number; y: number; z: number } {
-  return { x: QUAY_STAIR_LANDING.x, y: QUAY_STAIR_LANDING_Y + 3.59, z: QUAY_STAIR_LANDING.z };
+/**
+ * Hour-Print O6 (garden-master-7): nothing at the landing quotes a shrine. Two
+ * unworked standing stones, unequal, flank the mouth of the garden path where
+ * it leaves the stair, and a broad kutsunugi step stone lies where the flight
+ * gives onto the gravel. Stair frame: `along` runs up the flight from the
+ * landing, `across` toward the lee bench the path crosses. The taller stone is
+ * the gull's perch.
+ */
+interface GardenLandingStone {
+  along: number;
+  across: number;
+  /** Half-extents applied to the unit dodecahedron after jitter. */
+  size: readonly [number, number, number];
+  /** Unit-space ceiling: a bedded, flat-ish top rather than a point. */
+  topCut: number;
+  /** Height of the top above the ground at the stone's centre. */
+  rise: number;
+  tiltX: number;
+  tiltZ: number;
+  yaw: number;
+  /** The step stone's top is set to the landing, not to the ground. */
+  step?: true;
 }
 
-/** A single timber torii marks the garden landing without competing with the tower. */
-function createLandingTorii(): Mesh<BufferGeometry, MeshStandardMaterial> {
-  const yaw = Math.atan2(QUAY_STAIR_DIR.x, QUAY_STAIR_DIR.z);
-  const parts: BufferGeometry[] = [];
-  const place = (geometry: BufferGeometry, x: number, y: number, z: number) => {
-    geometry.translate(x, y, z);
-    geometry.rotateY(yaw);
-    geometry.translate(QUAY_STAIR_LANDING.x, QUAY_STAIR_LANDING_Y, QUAY_STAIR_LANDING.z);
-    parts.push(geometry);
-  };
-  // The posts stand on the stair's shoulders, which fall away from the
-  // treads, so they are sunk 0.4 below the landing to bed in the rock.
-  place(new BoxGeometry(0.34, 3.8, 0.34), -1.35, 1.5, 0);
-  place(new BoxGeometry(0.34, 3.8, 0.34), 1.35, 1.5, 0);
-  place(new BoxGeometry(3.7, 0.34, 0.48), 0, 3.42, 0);
-  place(new BoxGeometry(2.8, 0.25, 0.3), 0, 2.62, 0);
-  const torii = new Mesh(
-    mergeGeometries(parts, false),
-    new MeshStandardMaterial({
-      color: HARBOR_PALETTE.vermillion,
-      flatShading: true,
-      roughness: 0.9,
-    }),
+const GARDEN_LANDING_STONES: readonly GardenLandingStone[] = [
+  // Seaward flank of the path mouth, on the brow of the bank: the taller.
+  { along: -2.2, across: 2.4, size: [0.6, 1.45, 0.5], topCut: 0.72, rise: 1.65, tiltX: 0.05, tiltZ: -0.08, yaw: 0.45 },
+  // Uphill flank, answering it lower and broader across the path.
+  { along: 2.5, across: 1.95, size: [0.62, 0.85, 0.56], topCut: 0.62, rise: 0.95, tiltX: -0.06, tiltZ: 0.05, yaw: 1.7 },
+  // Kutsunugi: the broad flat step off the flight.
+  { along: 0.15, across: 1.5, size: [0.82, 0.34, 0.6], topCut: 0.45, rise: 0, tiltX: 0, tiltZ: 0.02, yaw: 0.2, step: true },
+];
+
+const LANDING_STONE_FOOT = CRAG_ROCK_LOW.clone().lerp(STONE_WET, 0.35);
+const LANDING_STONE_WORN = CRAG_ROCK_HIGH.clone().lerp(CRAG_COURT, 0.25);
+
+function landingStoneGeometry(stone: GardenLandingStone, index: number): BufferGeometry {
+  const geometry = new DodecahedronGeometry(1, 0);
+  const position = geometry.getAttribute("position");
+  for (let vertex = 0; vertex < position.count; vertex += 1) {
+    const x = position.getX(vertex);
+    const y = position.getY(vertex);
+    const z = position.getZ(vertex);
+    // Keyed on the shared corner, so coincident face corners move together
+    // and the rough solid stays closed.
+    const swell = 0.86 + stableUnit(`landing-stone.${index}.${x.toFixed(3)}.${y.toFixed(3)}.${z.toFixed(3)}`) * 0.28;
+    position.setXYZ(
+      vertex,
+      x * swell * stone.size[0],
+      Math.min(y * swell, stone.topCut) * stone.size[1],
+      z * swell * stone.size[2],
+    );
+  }
+  geometry.rotateX(stone.tiltX);
+  geometry.rotateZ(stone.tiltZ);
+  geometry.rotateY(Math.atan2(QUAY_STAIR_DIR.x, QUAY_STAIR_DIR.z) + stone.yaw);
+  geometry.computeBoundingBox();
+  const bounds = geometry.boundingBox!;
+
+  const x = QUAY_STAIR_LANDING.x + QUAY_STAIR_DIR.x * stone.along + QUAY_STAIR_DIR.z * stone.across;
+  const z = QUAY_STAIR_LANDING.z + QUAY_STAIR_DIR.z * stone.along - QUAY_STAIR_DIR.x * stone.across;
+  const ground = islandTerrainHeight(x, z);
+  const reach = Math.max(stone.size[0], stone.size[2]);
+  let lowestGround = ground;
+  for (let sample = 0; sample < 8; sample += 1) {
+    const angle = (sample / 8) * Math.PI * 2;
+    lowestGround = Math.min(lowestGround, islandTerrainHeight(x + Math.cos(angle) * reach, z + Math.sin(angle) * reach));
+  }
+  const top = stone.step ? QUAY_STAIR_LANDING_Y + 0.04 : ground + stone.rise;
+  // Set, not placed: the foot always beds below the lowest ground it spans.
+  const lift = Math.min(top - bounds.max.y, lowestGround - 0.1 - bounds.min.y);
+  geometry.translate(x, lift, z);
+  geometry.computeVertexNormals();
+
+  const bottom = bounds.min.y + lift;
+  const height = bounds.max.y - bounds.min.y;
+  const normals = geometry.getAttribute("normal");
+  const colors = new Float32Array(position.count * 3);
+  const color = new Color();
+  for (let vertex = 0; vertex < position.count; vertex += 1) {
+    const t = clamp01((position.getY(vertex) - bottom) / height);
+    color.copy(LANDING_STONE_FOOT).lerp(stone.step ? LANDING_STONE_WORN : CRAG_ROCK_HIGH, smoothstep01((t - 0.2) / 0.75));
+    // Moss keeps to the upper faces of the standing stones; the step is worn clean.
+    if (!stone.step) color.lerp(CRAG_MOSS, smoothstep01((normals.getY(vertex) - 0.45) / 0.4) * 0.6);
+    colors[vertex * 3] = color.r;
+    colors[vertex * 3 + 1] = color.g;
+    colors[vertex * 3 + 2] = color.b;
+  }
+  geometry.setAttribute("color", new BufferAttribute(colors, 3));
+  return geometry;
+}
+
+/** Island-local top of the taller landing stone: the gull perch that replaced the torii's kasagi. */
+export function gardenLandingStonePerch(): { x: number; y: number; z: number } {
+  const geometry = landingStoneGeometry(GARDEN_LANDING_STONES[0]!, 0);
+  const position = geometry.getAttribute("position");
+  let top = -Infinity;
+  for (let vertex = 0; vertex < position.count; vertex += 1) top = Math.max(top, position.getY(vertex));
+  let x = 0;
+  let z = 0;
+  let count = 0;
+  for (let vertex = 0; vertex < position.count; vertex += 1) {
+    if (position.getY(vertex) < top - 0.06) continue;
+    x += position.getX(vertex);
+    z += position.getZ(vertex);
+    count += 1;
+  }
+  geometry.dispose();
+  return { x: x / count, y: top, z: z / count };
+}
+
+function createLandingStones(): Mesh<BufferGeometry, MeshStandardMaterial> {
+  const parts = GARDEN_LANDING_STONES.map((stone, index) => landingStoneGeometry(stone, index));
+  const geometry = mergeGeometries(parts, false);
+  for (const part of parts) part.dispose();
+  if (!geometry) throw new Error("Could not merge the garden landing stones.");
+  const stones = new Mesh(
+    geometry,
+    new MeshStandardMaterial({ flatShading: true, roughness: 0.96, vertexColors: true }),
   );
-  torii.name = "island-landing-torii";
-  torii.userData.gardenKeepSeparate = true;
-  torii.castShadow = true;
-  torii.receiveShadow = true;
-  return torii;
+  stones.name = "island-landing-stones";
+  stones.castShadow = true;
+  stones.receiveShadow = true;
+  return stones;
 }
 
 /** Five plank spans reach from the lee shore toward the satellite islet. */

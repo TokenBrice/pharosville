@@ -31,6 +31,7 @@ import {
   GARDEN_ISLAND_STONE_GROUPINGS,
   GARDEN_QUAY_STAIR_LANDING,
   gardenIslandLanternMaterial,
+  gardenLandingStonePerch,
   gardenIslandLanternWorldOffsets,
   ISLAND_LANTERN_DAY_EMBER,
   ISLAND_LANTERN_LAMP_NAME,
@@ -40,7 +41,6 @@ import {
 } from "./garden-island";
 import { createGardenOverviewLod } from "./garden-overview-lod";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
-import { GARDEN_MOON_AZIMUTH } from "./garden-sun";
 import { countDrawableObjects, TILE_SCALE } from "./garden-util";
 
 const world = {
@@ -431,13 +431,24 @@ describe("garden island rockwork", () => {
     expect(glowing.map((mesh) => mesh.name)).toEqual(["island-shoin-precinct-gatehouse-lit-window"]);
   });
 
-  it("replaces the obelisks with one torii and a five-span lee bridge", () => {
+  it("marks the landing with set stones, not a gate, beside a five-span lee bridge", () => {
     const island = createTerracedIsland(world);
     expect(island.root.getObjectByName("pharos-precinct-obelisks")).toBeUndefined();
     expect(island.root.getObjectByName("pharos-obelisk-stone")).toBeUndefined();
-    const torii = island.root.getObjectByName("island-landing-torii") as Mesh;
-    expect(torii).toBeInstanceOf(Mesh);
-    expect(torii.geometry.index!.count / 3).toBeLessThanOrEqual(300);
+    expect(island.root.getObjectByName("island-landing-torii")).toBeUndefined();
+    const stones = island.root.getObjectByName("island-landing-stones") as Mesh;
+    expect(stones).toBeInstanceOf(Mesh);
+    const positions = stones.geometry.getAttribute("position");
+    expect(positions.count / 3).toBeLessThanOrEqual(150);
+    // The gull sits on real stone: the perch is the top of the taller stone.
+    const perch = gardenLandingStonePerch();
+    let crown = -Infinity;
+    for (let index = 0; index < positions.count; index += 1) {
+      const reach = Math.hypot(positions.getX(index) - perch.x, positions.getZ(index) - perch.z);
+      if (reach < 0.6) crown = Math.max(crown, positions.getY(index));
+    }
+    expect(crown).toBeCloseTo(perch.y, 3);
+    expect(perch.y - islandTerrainHeight(perch.x, perch.z)).toBeGreaterThan(1.2);
     const bridge = island.root.getObjectByName("island-lee-plank-bridge") as InstancedMesh;
     expect(bridge).toBeInstanceOf(InstancedMesh);
     expect(bridge.count).toBe(5);
@@ -687,7 +698,7 @@ describe("garden island rockwork", () => {
     expect(shader.fragmentShader).toContain("gardenCloudLight");
   });
 
-  it("aims the pond image at the real tower and the canonical moon arc", () => {
+  it("aims the pond image at the real tower", () => {
     expect(GARDEN_POND_REFLECTION_AXES.tower.length()).toBeCloseTo(1);
     expect(GARDEN_POND_REFLECTION_AXES.moon.length()).toBeCloseTo(1);
     // The tower is west of the pond; its local reflection axis must point
@@ -697,12 +708,7 @@ describe("garden island rockwork", () => {
       GARDEN_LIGHTHOUSE_ROOT_OFFSET.x - GARDEN_POND_CENTER.x,
       GARDEN_LIGHTHOUSE_ROOT_OFFSET.z - GARDEN_POND_CENTER.z,
     );
-    const derivedMoon = testPondLocalAxis(
-      Math.cos(GARDEN_MOON_AZIMUTH),
-      Math.sin(GARDEN_MOON_AZIMUTH),
-    );
     expect(GARDEN_POND_REFLECTION_AXES.tower.distanceTo(derivedTower)).toBeLessThan(0.00001);
-    expect(GARDEN_POND_REFLECTION_AXES.moon.distanceTo(derivedMoon)).toBeLessThan(0.00001);
     const island = createTerracedIsland(world);
     const material = island.root.getObjectByName("island-reflection-pond-skin") as Mesh;
     const shader = {

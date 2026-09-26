@@ -7,6 +7,7 @@ import {
 } from "../systems/garden-arrival-beats";
 import {
   FLEET_SAIL_ATLAS_CELLS,
+  FLEET_HERO_BAND_NEAREST,
   FLEET_MAX_SAILS,
   FLEET_HULL_LOD_DISTANCE,
   beginFleetFrame,
@@ -20,6 +21,8 @@ import {
   gardenFleetClothWeave,
   gardenFleetFramingRestraint,
   gardenFleetMarkPresence,
+  gardenFleetShipIsHero,
+  gardenFleetUnpackSailDistance,
   gardenFleetSailRestraint,
   patchSailAtlasMaterial,
   setFleetAttention,
@@ -292,7 +295,7 @@ describe("fleet downwind convention", () => {
 
 describe("fleet batches", () => {
   it("moves a ship exactly once through each side of the half-unit LOD dead band", () => {
-    const batches = buildBatches(2);
+    const batches = buildBatches(FLEET_HERO_BAND_NEAREST + 1);
     const viewport = { x: 1200, y: 640 };
     const camera = { offsetX: 600, offsetY: 320, zoom: 0.72 };
     const eye = cameraEye(cameraPoseFromIso(camera, viewport));
@@ -301,6 +304,12 @@ describe("fleet batches", () => {
     const farCounts: number[] = [];
     offsets.forEach((offset, index) => {
       beginFleetFrame(batches, { camera, viewport, timeSeconds: index });
+      // A nearer hero band, so the crossing ship is rank and file.
+      for (let near = 0; near < FLEET_HERO_BAND_NEAREST; near += 1) {
+        writeFleetInstance(batches, pose({
+          shipId: `near-${near}`, silhouette: "kobaya", x: eye.x + 10 + near, y: eye.y, z: eye.z,
+        }));
+      }
       writeFleetInstance(batches, pose({
         shipId: "crossing", atlasCell: 3,
         x: eye.x + FLEET_HULL_LOD_DISTANCE + offset, y: eye.y, z: eye.z,
@@ -314,6 +323,69 @@ describe("fleet batches", () => {
     disposeFleetBatches(batches);
   });
 
+  it("keeps leaders, the nearest boats and an attended ship rigged at any distance", () => {
+    const batches = buildBatches(FLEET_HERO_BAND_NEAREST + 8);
+    const viewport = { x: 1200, y: 640 };
+    const camera = { offsetX: 600, offsetY: 320, zoom: 0.72 };
+    const eye = cameraEye(cameraPoseFromIso(camera, viewport));
+    const far = FLEET_HULL_LOD_DISTANCE * 2;
+    const packedFor = (silhouette: GardenHullSilhouette, cell: number) => {
+      const batch = batches.bySilhouette.get(silhouette)!;
+      for (const part of [batch.sails, batch.far]) {
+        for (let slot = 0; slot < part.mesh.count; slot += 1) {
+          if (part.atlasCell!.getX(slot) === cell) {
+            return { far: part === batch.far, ...gardenFleetUnpackSailDistance(part.sailAttention!.getY(slot)) };
+          }
+        }
+      }
+      throw new Error(`missing cell ${cell}`);
+    };
+    const frame = (timeSeconds: number, nearestOffset: number, attendedCell = 0) => {
+      beginFleetFrame(batches, { camera, viewport, timeSeconds });
+      for (let near = 0; near < FLEET_HERO_BAND_NEAREST; near += 1) {
+        writeFleetInstance(batches, pose({
+          atlasCell: 100 + near, shipId: `near-${near}`, silhouette: "kobaya",
+          x: eye.x + 10 + near, y: eye.y, z: eye.z,
+        }));
+      }
+      // Rank 17 this frame; `nearestOffset` pulls it inside the nearest 16.
+      writeFleetInstance(batches, pose({
+        atlasCell: 50, shipId: "drifter", silhouette: "junk",
+        x: eye.x + 10 + FLEET_HERO_BAND_NEAREST + nearestOffset, y: eye.y, z: eye.z,
+      }));
+      writeFleetInstance(batches, pose({
+        atlasCell: 1, leader: true, shipId: "leader", x: eye.x + far, y: eye.y, z: eye.z,
+      }));
+      writeFleetInstance(batches, pose({
+        atlasCell: 2, attention: attendedCell === 2 ? 1 : 0, shipId: "outsider",
+        x: eye.x + far + 5, y: eye.y, z: eye.z,
+      }));
+      endFleetFrame(batches);
+    };
+
+    frame(0, 0);
+    frame(1, 0);
+    expect(packedFor("bezaisen", 1)).toMatchObject({ far: false, hero: true });
+    expect(packedFor("bezaisen", 2)).toMatchObject({ far: true, hero: false });
+    expect(packedFor("kobaya", 100)).toMatchObject({ far: false, hero: true });
+    expect(packedFor("junk", 50).hero).toBe(false);
+    expect(gardenFleetShipIsHero(batches, "leader")).toBe(true);
+    expect(gardenFleetShipIsHero(batches, "outsider")).toBe(false);
+    // A ship the batch never ranked (a GLB hero hull) keeps its lights.
+    expect(gardenFleetShipIsHero(batches, "glb-titan")).toBe(true);
+
+    // Hovering the far silhouette brings its rig back in the same frame.
+    frame(2, 0, 2);
+    expect(packedFor("bezaisen", 2)).toMatchObject({ far: false, hero: true });
+
+    // Joining needs rank ≤ 16; once in, a ship stays until it falls past 20.
+    frame(3, -1.5);
+    expect(packedFor("junk", 50).hero).toBe(true);
+    frame(4, 0);
+    expect(packedFor("junk", 50).hero).toBe(true);
+    disposeFleetBatches(batches);
+  });
+
   it("adds only six draws and saves at least 25k fleet triangles at a 60% far share", () => {
     const batches = buildBatches(40);
     const viewport = { x: 1200, y: 640 };
@@ -321,7 +393,6 @@ describe("fleet batches", () => {
     const eye = cameraEye(cameraPoseFromIso(camera, viewport));
     let nearTriangles = 0;
     let farTriangles = 0;
-    const counts: number[][] = [];
     beginFleetFrame(batches, { camera, viewport, timeSeconds: 0 });
     for (const silhouette of SILHOUETTES) {
       const batch = batches.bySilhouette.get(silhouette)!;
@@ -330,22 +401,22 @@ describe("fleet batches", () => {
       const far = batch.far.mesh.geometry.getAttribute("position").count / 3;
       nearTriangles += near;
       farTriangles += far;
-      counts.push([near, far]);
+      // W4.F3 budget: the ink silhouette costs no more than the plank it replaced.
+      expect(far).toBeLessThanOrEqual(40);
       for (const distance of [20, 200]) {
         writeFleetInstance(batches, pose({
           shipId: `${silhouette}-${distance}`, silhouette,
           x: eye.x + distance, y: eye.y, z: eye.z,
         }));
       }
-      // Matrix consumes four locations, instanceColor one, with no new attributes.
-      expect(Object.keys(batch.far.mesh.geometry.attributes).length + 5).toBeLessThanOrEqual(16);
+      // Matrix consumes four locations; the ink silhouette carries no livery.
+      expect(Object.keys(batch.far.mesh.geometry.attributes).length + 4).toBeLessThanOrEqual(16);
     }
     endFleetFrame(batches);
     expect(fleetInstanceCount(batches)).toBe(12);
     expect(fleetDrawCallCount(batches)).toBe(19);
     const savings = 140_000 * 0.6 * (1 - farTriangles / nearTriangles);
     expect(savings).toBeGreaterThanOrEqual(25_000);
-    expect(counts).toEqual([[826, 42], [870, 42], [1116, 58], [1046, 38], [864, 42], [782, 38]]);
     disposeFleetBatches(batches);
   });
   it("fits every sail geometry within the vertex attribute limit", () => {
@@ -763,7 +834,9 @@ describe("eye-distance fleet hierarchy", () => {
         const batch = batches.bySilhouette.get("bezaisen")!;
         for (const part of [batch.sails, batch.far]) {
           for (let slot = 0; slot < part.mesh.count; slot += 1) {
-            if (part.atlasCell!.getX(slot) === index + 1) return part.sailAttention!.getY(slot);
+            if (part.atlasCell!.getX(slot) === index + 1) {
+              return gardenFleetUnpackSailDistance(part.sailAttention!.getY(slot)).presence;
+            }
           }
         }
         throw new Error(`missing ship ${index + 1}`);
@@ -775,7 +848,9 @@ describe("eye-distance fleet hierarchy", () => {
     }
     for (const index of [6, 7, 8]) {
       expect(gardenFleetFramingRestraint(distance.getY(index))).toBeCloseTo(0.25);
-      expect(gardenFleetMarkPresence(distance.getY(index))).toBeCloseTo(0.45);
+      expect(gardenFleetMarkPresence(distance.getY(index))).toBeCloseTo(0.3);
+      // ...unless the ship is in the hero band, which keeps its full mark.
+      expect(gardenFleetMarkPresence(distance.getY(index), true)).toBe(1);
     }
     expect(distance.getY(4)).toBeGreaterThan(0);
     expect(distance.getY(4)).toBeLessThan(1);

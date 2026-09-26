@@ -55,14 +55,25 @@ export const GARDEN_WATER_PLATE_MARGIN_TILES = GARDEN_PLATE_MARGIN_TILES;
  * records the corresponding night-emissive ceiling.
  */
 /**
- * T1.3 (2026-09-07): 0.4 -> 0.21. Both are EXACT mip breakpoints in three's
- * `roughnessToMip` (cubeUV_r4 = 0.4 -> mip 2, cubeUV_r6 = 0.21 -> mip 4), so
- * `mipF` is 0 either way and `textureCubeUV` takes the same single-fetch arm:
- * identical cost, four times the angular resolution. The probe dome draws a
- * real sun disc, so this is what turns the sea's sky sheen into a specular sun.
+ * W3.1 (water-1b): the sky may take at most this share of the water. Schlick
+ * with F0 0.02 is scaled only by the body's reflectivity; the cap keeps a
+ * breath of transmitted body even in a glass-calm grazing mirror.
  */
-export const GARDEN_WATER_PROBE_ROUGHNESS = 0.21;
-export const GARDEN_WATER_PROBE_BLEND = 0.82;
+export const GARDEN_WATER_FRESNEL_CAP = 0.92;
+/**
+ * W3.1 (water-1e): the hour's sky radiance in the water, per light beat. The
+ * probe is no longer dimmed by the scene's IBL intensity (0.3–0.6); the
+ * five-beat score doses it here. Below 1 by day so the mirrored pale horizon
+ * never outshines the tower that stands in it (value plan: inlet 45 under a
+ * tower of 62); night stays ≤ 0.5.
+ */
+export const GARDEN_WATER_SKY_RADIANCE = Object.freeze({
+  dawn: 0.82,
+  day: 0.72,
+  golden: 0.85,
+  blue: 0.8,
+  night: 0.45,
+});
 export const GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN = 18;
 export const GARDEN_WATER_CREST_FOAM = Object.freeze({
   /** `-J + bias` is positive only where the horizontal wave field folds. */
@@ -72,13 +83,25 @@ export const GARDEN_WATER_CREST_FOAM = Object.freeze({
   noiseGate: 0.56,
   maxMix: 0.055,
 });
+/**
+ * W3.7: the shore breathes once — one lap line on a ~10 s breath.
+ * Shore-field units: one unit is 24 tiles from any coast.
+ */
 export const GARDEN_WATER_SHORE_FOAM = Object.freeze({
-  /** Shore-field units: one unit is 24 tiles from any coast. */
-  breathAmplitude: 0.003,
+  breathSeconds: 10.5,
+  breathAmplitude: 0.008,
+  lineCentre: 0.012,
   lineCore: 0.003,
   lineFeather: 0.012,
   maxMix: 0.18,
 });
+/**
+ * K4: the moon road's gain over moonlight at full illumination, before the
+ * slat duty (~40 %) and the half-vector lobe. Measured on the real GPU at
+ * `#t=22 --clock 2026-09-26` (full moon): 0.32 peaked at L* 80, so this sits
+ * at the plan's L* 60 ceiling; the road is the only water feature above L* 10.
+ */
+export const GARDEN_WATER_MOON_ROAD_GAIN = 0.15;
 
 /**
  * Ceiling on the summed light/ember lane reflections one water fragment may

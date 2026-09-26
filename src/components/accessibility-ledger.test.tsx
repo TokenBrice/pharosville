@@ -11,6 +11,8 @@ import {
 import { UNAVAILABLE_SUPPLY_TIDE } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { AccessibilityLedger } from "./accessibility-ledger";
+import { farShoreLabel } from "../systems/psi-sky";
+import { detailForLighthouse } from "../systems/detail-model";
 
 describe("AccessibilityLedger", () => {
   it("names the localized stale-feed haze without calling it weather", () => {
@@ -21,6 +23,23 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("Instrument haze");
     expect(markup).toContain("Haze over the risk waters and quays");
     expect(markup).toContain("Peg summary and Chains feeds are stale");
+  });
+
+  it("names the visible far ranges in the ledger and the lighthouse detail alike", () => {
+    const seen = new Set<string>();
+    for (const band of ["BEDROCK", "TREMOR", "FRACTURE", "CRISIS"]) {
+      const world = sampleWorld();
+      world.lighthouse = { ...world.lighthouse, psiBand: band, unavailable: false };
+      const expected = farShoreLabel(band);
+      const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+      expect(markup).toContain("Far shore");
+      expect(markup).toContain(expected);
+      const detail = detailForLighthouse(world.lighthouse);
+      expect(detail.facts).toContainEqual({ label: "Far shore", value: expected });
+      seen.add(expected);
+    }
+    // Every band step the haze takes is a different sentence.
+    expect(seen.size).toBe(4);
   });
 
   it("names the pigeonnier roost comparison and today's watched ships", () => {

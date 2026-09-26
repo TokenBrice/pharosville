@@ -1,12 +1,12 @@
 import {
   AdditiveBlending,
+  BackSide,
   BoxGeometry,
   BufferGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
   DoubleSide,
-  Float32BufferAttribute,
   Group,
   IcosahedronGeometry,
   Mesh,
@@ -14,7 +14,6 @@ import {
   MeshStandardMaterial,
   Object3D,
   PlaneGeometry,
-  Points,
   PointLight,
   ShaderMaterial,
   SphereGeometry,
@@ -34,9 +33,9 @@ import {
   type DayCyclePhase,
 } from "./garden-day-cycle";
 import type { LampStatusModulation } from "../systems/lamp-status";
+import { setGardenAerialBeacon } from "./garden-aerial";
 import { gardenModelAnchor } from "./garden-models";
 import type { GardenLightPose } from "./garden-sun";
-import { stableUnit } from "./garden-util";
 
 // L1 silhouette contract (Epic Pharos 2026-09-05; W1.9 keep trade): shell and
 // GLB share a 12.4-wide stepped stylobate, battered square (2.5→14.5, half
@@ -189,6 +188,18 @@ const GLASS_SKY_DAY = DAY_CYCLE_SKY_PRESETS.day.horizon.clone()
   .lerp(DAY_CYCLE_SKY_PRESETS.day.zenith, 0.55);
 
 /**
+ * K9 lantern swell ceiling: the swollen glass's source luminance (linear HDR)
+ * stays ≤ 2.0 — a sub-knee swell, never a flare (restraint council 7). The
+ * swell colour carries all but 0.3 of it; the warm inner reflection (0.35 ×
+ * glow luminance ≈ 0.24) and the dark glass take the rest.
+ */
+export const LANTERN_SWELL_PEAK_HDR = 2.0;
+const GLASS_SWELL_COLOR = palette(P.lantern_glow);
+GLASS_SWELL_COLOR.multiplyScalar((LANTERN_SWELL_PEAK_HDR - 0.3) / (
+  0.2126 * GLASS_SWELL_COLOR.r + 0.7152 * GLASS_SWELL_COLOR.g + 0.0722 * GLASS_SWELL_COLOR.b
+));
+
+/**
  * Shared by the shell's glass and every GLB clone's, so one day-cycle write
  * (updateLighthouseLanternGlass) retunes whichever tower is standing. The
  * defaults are the day read: dark glass with a sky glint, no warmth.
@@ -196,6 +207,8 @@ const GLASS_SKY_DAY = DAY_CYCLE_SKY_PRESETS.day.horizon.clone()
 export const LIGHTHOUSE_LANTERN_GLASS_UNIFORMS = {
   uGlassDark: { value: palette(P.iron_dark) },
   uGlassSky: { value: GLASS_SKY_DAY.clone() },
+  uGlassSwell: { value: 0 },
+  uGlassSwellColor: { value: GLASS_SWELL_COLOR },
   uGlassWarm: { value: 0 },
   uGlassWarmColor: { value: palette(P.lantern_glow) },
 };
@@ -205,6 +218,8 @@ export const LIGHTHOUSE_LANTERN_GLASS_UNIFORMS = {
  * sky of the hour at grazing angles, plus a warm inner reflection of the fire
  * at night (lantern_glow × 0.35 × night). It never emits by day, writes no
  * depth and draws after the flame (renderOrder 1), so the fire reads through.
+ * The K9 swell (`uGlassSwell`, 0–1) fills the panes with the fire's light for
+ * a few seconds at most about once a minute (createLanternSwell).
  */
 function createLanternGlassMaterial(): ShaderMaterial {
   const material = new ShaderMaterial({
@@ -212,6 +227,8 @@ function createLanternGlassMaterial(): ShaderMaterial {
     fragmentShader: /* glsl */ `
       uniform vec3 uGlassDark;
       uniform vec3 uGlassSky;
+      uniform float uGlassSwell;
+      uniform vec3 uGlassSwellColor;
       uniform float uGlassWarm;
       uniform vec3 uGlassWarmColor;
       varying vec3 vGlassNormal;
@@ -220,8 +237,11 @@ function createLanternGlassMaterial(): ShaderMaterial {
       void main() {
         float facing = abs(dot(normalize(vGlassNormal), normalize(vGlassView)));
         float fresnel = pow(1.0 - facing, 3.0);
-        vec3 color = mix(uGlassDark, uGlassSky, fresnel) + uGlassWarmColor * uGlassWarm;
-        gl_FragColor = vec4(color, 0.05 + 0.4 * fresnel);
+        vec3 color = mix(uGlassDark, uGlassSky, fresnel * (1.0 - uGlassSwell))
+          + uGlassWarmColor * uGlassWarm
+          + uGlassSwellColor * uGlassSwell;
+        float alpha = mix(0.05 + 0.4 * fresnel, 0.82, uGlassSwell);
+        gl_FragColor = vec4(color, alpha);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }
@@ -267,6 +287,102 @@ export function updateLighthouseLanternGlass(phase: DayCyclePhase): void {
   LIGHTHOUSE_LANTERN_GLASS_UNIFORMS.uGlassWarm.value = 0.35 * phase.night;
 }
 
+/** K9: at most one lantern swell per minute, whatever the PSI-paced sweep rate. */
+export const LANTERN_SWELL_INTERVAL_SECONDS = 60;
+/** K9: the swell rises and falls over ≥ 1.5 s each — a breath, not a flash. */
+export const LANTERN_SWELL_RISE_SECONDS = 1.6;
+export const LANTERN_SWELL_FALL_SECONDS = 2.2;
+/** cos² of the beam axis against the view axis: the beam is swinging through the eye-line. */
+const LANTERN_SWELL_FACING = 0.8;
+
+export interface LanternSwellInput {
+  /** cos² of the beam axis against the camera's view axis (1 = pointing at the eye). */
+  beamFacing: number;
+  /** Night weight of the lamp, already scaled by its status (0 by day). */
+  glow: number;
+  reducedMotion: boolean;
+  timeSeconds: number;
+}
+
+export interface LanternSwell {
+  /** Advances the swell and writes the shared glass uniform; returns 0–1. */
+  update: (input: LanternSwellInput) => number;
+}
+
+const easeUnit = (value: number): number => {
+  const t = Math.min(1, Math.max(0, value));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * W2.10 (K9, art-director-5, restraint council 7): when the beam swings
+ * through the viewer's eye-line the lantern glass fills with the fire's light
+ * and lets it go again — at most once a minute, on a fixed 1.6 s rise and
+ * 2.2 s fall that the sweep rate (which carries PSI stress) never paces, and
+ * never above 2.0 HDR. Revolutions in between pass without it. Reduced motion
+ * has no swell at all; a clock that runs backwards (a new deep link) re-arms it.
+ */
+export function createLanternSwell(): LanternSwell {
+  let lastStart = Number.NEGATIVE_INFINITY;
+  let lastTime = Number.NEGATIVE_INFINITY;
+  return {
+    update({ beamFacing, glow, reducedMotion, timeSeconds }) {
+      let swell = 0;
+      if (reducedMotion || timeSeconds < lastTime) lastStart = Number.NEGATIVE_INFINITY;
+      if (!reducedMotion) {
+        if (
+          glow > 0.05
+          && beamFacing >= LANTERN_SWELL_FACING
+          && timeSeconds - lastStart >= LANTERN_SWELL_INTERVAL_SECONDS
+        ) {
+          lastStart = timeSeconds;
+        }
+        const age = timeSeconds - lastStart;
+        swell = age < LANTERN_SWELL_RISE_SECONDS
+          ? easeUnit(age / LANTERN_SWELL_RISE_SECONDS)
+          : 1 - easeUnit((age - LANTERN_SWELL_RISE_SECONDS) / LANTERN_SWELL_FALL_SECONDS);
+        swell *= Math.min(1, Math.max(0, glow));
+      }
+      lastTime = timeSeconds;
+      LIGHTHOUSE_LANTERN_GLASS_UNIFORMS.uGlassSwell.value = swell;
+      return swell;
+    },
+  };
+}
+
+const scratchBeaconWorld = new Vector3();
+const scratchBeamAxis = new Vector3();
+
+/**
+ * pharos-8 through the one air (C1, `gardenAerial`): the beacon lights its own
+ * mist. Publishes the lantern's world position, the in-scatter strength
+ * (night 0.12, dusk 0.04, breathing with the flame's flicker and dimmed with
+ * the lamp's status, 0 by day) and the beam's world XZ axis, so the air around
+ * the crown is faintly warmer and the fog the beam crosses brightens. Under
+ * reduced motion the beam is parked, so the term is static.
+ */
+export function updateLighthouseAir(
+  target: { beaconHalo: Object3D; beam: Object3D },
+  phase: DayCyclePhase,
+  flicker: number,
+  intensityScale: number,
+): void {
+  target.beaconHalo.getWorldPosition(scratchBeaconWorld);
+  scratchBeamAxis.set(1, 0, 0).transformDirection(target.beam.matrixWorld);
+  const horizontal = Math.hypot(scratchBeamAxis.x, scratchBeamAxis.z) || 1;
+  const air = (phase.night * 0.12 + phase.dusk * 0.04)
+    * (0.92 + flicker * 0.16)
+    * Math.max(0, intensityScale);
+  setGardenAerialBeacon(
+    scratchBeaconWorld.x,
+    scratchBeaconWorld.y,
+    scratchBeaconWorld.z,
+    air,
+    scratchBeamAxis.x / horizontal,
+    scratchBeamAxis.z / horizontal,
+  );
+}
+
 /**
  * T0.2 (2026-09-07): collects the day-cycle-driven materials out of a freshly
  * built island. Both arrays are per-build, so they cannot leak across
@@ -286,6 +402,61 @@ export function collectLighthouseGlowMaterials(
       if (!windowMaterials.includes(material)) windowMaterials.push(material);
     }
   });
+}
+
+/**
+ * W2.9 / pharos-4: at night the tower is dark stone with a few stair lights,
+ * not a lit grid. Of the 32 apertures (two registers of three bays on four
+ * faces, eight drum windows) three stay lit, switching back up the face the
+ * rest seat sees square-on (tower-local −90°; the seat sits at ≈ −65°, so the
+ * doorway face is too oblique for its reveals to show a light): register 1 at
+ * the far bay, register 2 at the near bay, then the drum window above them.
+ * Every other aperture keeps its dark `iron_dark` void. The mask reads the
+ * tower-local object position, which the GLB (one merged window mesh) and the
+ * procedural shell (merged in shell space) share; the precinct gatehouse owns
+ * its own material and stays unmasked. Chained before the rim light, so the
+ * mask scales the aperture emissive only. The lit three burn at
+ * STAIR_EMBER_GAIN of the shared aperture curve: the GLB's `#ffbe6e` at the
+ * day cycle's night 1.0 is ≈ 0.59 linear (L* ≈ 80, measured), an ember is
+ * ≈ 0.27 (L* ≈ 57) — far below the lantern, while the gatehouse keeps the
+ * full curve.
+ */
+const STAIR_EMBER_GAIN = 0.45;
+const STAIR_EMBER_VERTEX_PARS = /* glsl */ `
+  varying float vStairLit;
+  float lighthouseStairLight( vec3 p ) {
+    float az = atan( p.x, p.z );
+    if ( p.y < 14.0 ) {
+      float face = floor( az / PI_HALF + 0.5 );
+      float faceAngle = face * PI_HALF;
+      float bay = p.x * cos( faceAngle ) - p.z * sin( faceAngle );
+      if ( p.y < 9.5 ) return ( abs( face + 1.0 ) < 0.5 && bay < -1.1 ) ? 1.0 : 0.0;
+      return ( abs( face + 1.0 ) < 0.5 && bay > 1.1 ) ? 1.0 : 0.0;
+    }
+    return abs( floor( az / ( PI * 0.25 ) + 0.5 ) + 2.0 ) < 0.5 ? 1.0 : 0.0;
+  }
+`;
+
+export function applyLighthouseStairEmbers(material: MeshStandardMaterial): void {
+  if (material.userData.lighthouseStairEmbers) return;
+  material.userData.lighthouseStairEmbers = true;
+  const previous = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    previous.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", `#include <common>\n${STAIR_EMBER_VERTEX_PARS}`)
+      .replace(
+        "#include <begin_vertex>",
+        "#include <begin_vertex>\n  vStairLit = lighthouseStairLight( position );",
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying float vStairLit;")
+      .replace(
+        "#include <emissivemap_fragment>",
+        `totalEmissiveRadiance *= vStairLit * ${STAIR_EMBER_GAIN.toFixed(2)};\n#include <emissivemap_fragment>`,
+      );
+  };
+  material.customProgramCacheKey = () => "lighthouse-stair-embers";
 }
 
 /**
@@ -333,6 +504,7 @@ function prepareLighthouseModelMaterials(
           // tower share one stone and one bronze.
           if (clone.name === "weathered-limestone") clone.emissiveIntensity = STONE_WARM_BOUNCE;
           if (clone.name === "bronze-gilt") clone.metalness = GILT_METALNESS;
+          if (clone.name === LIGHTHOUSE_WINDOW_MATERIAL_NAME) applyLighthouseStairEmbers(clone);
           clones.set(material, clone);
         }
         return clone;
@@ -487,7 +659,7 @@ export function updateLighthouseLampStatus(
   target.lighthouseLight.intensity *= modulation.intensityScale;
 
   target.beam.traverse((object) => {
-    if (!(object instanceof Mesh) && !(object instanceof Points)) return;
+    if (!(object instanceof Mesh)) return;
     const material = object.material;
     if (!(material instanceof ShaderMaterial)) return;
     const color = material.uniforms.uColor?.value;
@@ -648,6 +820,7 @@ export function createLighthouse(): {
     roughness: 0.38,
     toneMapped: false,
   });
+  applyLighthouseStairEmbers(windowMaterial);
   // Two arched window rows on all four battered faces, emissive-only (the
   // door takes the lower centre bay of the +Z face). A shallow box and
   // semicircular head keep the fallback cheap.
@@ -929,18 +1102,8 @@ export function createLighthouse(): {
   beacon.position.y = GARDEN_LIGHTHOUSE_BEACON_Y;
   root.add(beacon);
 
-  const halo = new Mesh(
-    new SphereGeometry(1.15, 16, 10),
-    new MeshBasicMaterial({
-      blending: AdditiveBlending,
-      color: HARBOR_PALETTE.lantern_glow,
-      depthWrite: false,
-      opacity: 0.22,
-      transparent: true,
-    }),
-  );
+  const halo = createLanternCorona();
   halo.position.copy(beacon.position);
-  halo.name = "lighthouse-halo";
   root.add(halo);
 
   const light = new PointLight(
@@ -954,12 +1117,10 @@ export function createLighthouse(): {
 
   const beam = new Group();
   beam.position.copy(beacon.position);
-  // One authored beam at a time: the cone is the normal volumetric cue, dust
-  // is a restrained full-tier accent, and the plane is the low-tier fallback.
-  // The former outer cone and radial ray fan layered several translucent
-  // versions of the same signal and produced the large pale wedges that read
-  // as corrupt geometry across the harbor.
-  beam.add(createBeamCone(), createBeamDust(), createBeamPlane());
+  // One authored beam at a time: the cone is the normal volumetric cue and
+  // the plane is the low-tier fallback. The former outer cone, radial ray fan
+  // and dust motes layered several translucent versions of the same signal.
+  beam.add(createBeamCone(), createBeamPlane());
   root.add(beam);
 
   return { beacon, beaconHalo: halo, beam, light, root, shell };
@@ -1079,65 +1240,44 @@ function createKeeperShoreProps(): Group {
 // water shader derives its road and landing pool from these same dimensions.
 export const GARDEN_LIGHTHOUSE_BEAM_LENGTH = 92;
 export const GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS = 4.2;
-/** High-energy shaft nested inside the 2.6° soft beam envelope. */
-export const GARDEN_LIGHTHOUSE_BEAM_CORE_RADIUS = 1.55;
-/** Core/soft ratio: the 0.11 night envelope carries a 0.25 peak core. */
-export const GARDEN_LIGHTHOUSE_BEAM_CORE_OPACITY_RATIO = 0.25 / 0.11;
 export const GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE = 86;
-const BEAM_DUST_COUNT = 40;
+/**
+ * The breath shading normalises the chord to the local diameter (1 at a
+ * side-on pass through the axis), where the retired double-sided shell
+ * stacked two layers with a nested core; this gain keeps the night throat's
+ * integrated alpha at the day cycle's authored level.
+ */
+const BEAM_BREATH_GAIN = 1.9;
+/** Path-length ceiling: an end-on chord would otherwise stack into a disc. */
+const BEAM_PATH_CEILING = 2.4;
 // C1 palette-derived: warm lantern gold lifted toward foam white.
 const BEAM_COLOR = palette(P.lantern_glow).lerp(palette(P.foam_white), 0.22);
 const BEAM_COOL_COLOR = BEAM_COLOR.clone().lerp(LAMP_COOL_COLOR, 0.75);
 
 /**
- * The volumetric beam: an open additive cone (apex at the beacon, axis along
- * +X). Under the fixed ortho view an edge-attenuated profile lets front+back
- * additive overlap carry the shaft while its silhouette feathers into the
- * air; a longitudinal fade darkens it toward the far end and slow banding
- * drifts through it. `uTime` is frozen under reduced motion by the caller.
- *
- * Phase 2 god rays (Breathtaking Rendering, decision: analytic cone over a
- * screen-space radial pass — the one-beam-at-a-time law above forbids a
- * second fan layer, and a mask-based fan would ghost through the island and
- * hulls it sweeps behind without depth-aware ray masking). At full/balanced
- * (`uVolumetric` 1) the cone gains three volumetric terms: a world-locked
- * 2-octave mist noise scrolling through the beam (storm-thickened), a
- * per-frame forward-scattering factor (ortho collapses the scattering
- * geometry to one exact dot of beam axis vs fixed view axis — the beam
- * flares as it sweeps toward the camera), and an HDR storm lift that pushes
- * the core over the bloom knee. At recovery (`uVolumetric` 0) every enhancement
- * is gated off and the output is the plain analytic cone — same colour and
- * intent, one material, no tier-transition compile hitch.
+ * W2.10 (pharos-3, K9) — the beam as breath. One open cone, apex at the
+ * beacon and axis along +X, drawn back faces only so each pixel is shaded
+ * once. The fragment is shaded by the view ray's path through the volume,
+ * not by the mesh surface: each back-face fragment is one root of the ray–cone
+ * quadratic, so the entry is the other root (product of roots = c/a) or the
+ * open far end, and the chord between them carries the light. Silhouettes go
+ * to nothing on their own (the chord shrinks to zero), the density falls
+ * radially from the axis and fades to nothing over the beam's last third,
+ * and there is no end-cap. End-on, the chord is capped and the beam
+ * dissolves (per-fragment ray/axis alignment) into the lantern's corona
+ * rather than stacking into a disc. At full/balanced (`uVolumetric` 1) a
+ * world-locked two-octave mist drifts through it and a storm thickens it;
+ * recovery keeps the plain breath. `uTime` is frozen under reduced motion by
+ * the caller.
  */
-function createBeamCone(): Mesh<BufferGeometry, ShaderMaterial> {
-  const softGeometry = new ConeGeometry(
+function createBeamCone(): Mesh<ConeGeometry, ShaderMaterial> {
+  const geometry = new ConeGeometry(
     GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS,
     GARDEN_LIGHTHOUSE_BEAM_LENGTH,
-    28,
+    48,
     1,
     true,
   );
-  const coreGeometry = new ConeGeometry(
-    GARDEN_LIGHTHOUSE_BEAM_CORE_RADIUS,
-    GARDEN_LIGHTHOUSE_BEAM_LENGTH,
-    20,
-    1,
-    true,
-  );
-  softGeometry.setAttribute(
-    "aBeamCore",
-    new Float32BufferAttribute(new Float32Array(softGeometry.attributes.position.count), 1),
-  );
-  coreGeometry.setAttribute(
-    "aBeamCore",
-    new Float32BufferAttribute(
-      new Float32Array(coreGeometry.attributes.position.count).fill(1),
-      1,
-    ),
-  );
-  const geometry = mergeGeometries([softGeometry, coreGeometry], false)!;
-  softGeometry.dispose();
-  coreGeometry.dispose();
   // Apex to the group origin, axis rotated from +Y to +X.
   geometry.translate(0, -GARDEN_LIGHTHOUSE_BEAM_LENGTH / 2, 0);
   geometry.rotateZ(Math.PI / 2);
@@ -1146,14 +1286,14 @@ function createBeamCone(): Mesh<BufferGeometry, ShaderMaterial> {
     depthWrite: false,
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;
+      uniform float uLength;
       uniform float uOpacity;
+      uniform float uStorm;
+      uniform float uTan;
       uniform float uTime;
       uniform float uVolumetric;
-      uniform float uStorm;
-      uniform float uScatter;
-      varying float vAlong;
-      varying float vBeamCore;
-      varying vec3 vNormalView;
+      varying vec3 vCamLocal;
+      varying vec3 vLocal;
       varying vec3 vWorldPos;
 
       float beamHash(vec3 p) {
@@ -1181,58 +1321,75 @@ function createBeamCone(): Mesh<BufferGeometry, ShaderMaterial> {
       }
 
       void main() {
-        float fade = smoothstep(0.015, 0.07, vAlong)
-          * (1.0 - smoothstep(0.62, 1.0, vAlong));
-        float rim = 1.0 - abs(vNormalView.z);
-        float shaft = 0.78 - 0.48 * rim;
-        float bands = 0.86 + 0.14 * sin(vAlong * 30.0 - uTime * 1.3);
-        float nearCore = 1.0 + 0.55 * (1.0 - smoothstep(0.08, 0.34, vAlong));
-        float coreEnergy = mix(1.0, ${GARDEN_LIGHTHOUSE_BEAM_CORE_OPACITY_RATIO.toFixed(6)}, vBeamCore);
-        // Facing the eye, a lighthouse is a flash, not a dim disc: the whole
-        // cone gains with the view-axis alignment (uScatter = cos²), the core
-        // more. End-on over a near-black sky the old 1.85x read as a brown
-        // smudge beside the lantern.
-        float forwardCore = (1.0 + uScatter * 3.2) * mix(1.0, 1.0 + uScatter * 0.85, vBeamCore);
-        float alpha = uOpacity * fade * shaft * bands * nearCore * coreEnergy * forwardCore;
+        vec3 o = vCamLocal;
+        vec3 toExit = vLocal - o;
+        float sExit = length(toExit);
+        vec3 d = toExit / sExit;
+        float t2 = uTan * uTan;
+        float a = d.y * d.y + d.z * d.z - t2 * d.x * d.x;
+        float c = o.y * o.y + o.z * o.z - t2 * o.x * o.x;
+        // This fragment is one root; the entry is the other, if it lies on
+        // the forward nappe before the exit, else the open far end / apex.
+        float sOther = abs(a) > 1e-7 ? c / (a * sExit) : -1e9;
+        float coneEntry = (sOther < sExit && o.x + d.x * sOther >= 0.0) ? sOther : -1e9;
+        float slabEntry = abs(d.x) > 1e-6
+          ? ((d.x < 0.0 ? uLength : 0.0) - o.x) / d.x
+          : -1e9;
+        float sEntry = max(max(coneEntry, slabEntry), 0.0);
+        float chord = max(sExit - sEntry, 0.0);
+        float sMid = 0.5 * (sEntry + sExit);
+        vec3 mid = o + d * sMid;
+        float x = clamp(mid.x, 0.5, uLength);
+        float radius = x * uTan;
+        float along = x / uLength;
+        float radial = length(mid.yz) / radius;
+        float density = exp(-3.0 * radial * radial);
+        float path = min(chord / (2.0 * radius), ${BEAM_PATH_CEILING.toFixed(2)});
+        // Densest at the lantern's throat, nothing over the last third.
+        float fade = smoothstep(0.004, 0.04, along)
+          * (1.0 - smoothstep(0.64, 1.0, along))
+          / (1.0 + along * 1.6);
+        // Light travelling toward the eye scatters forward a little more;
+        // fully end-on the shaft gives way to the corona instead of a disc.
+        float toward = max(-d.x, 0.0);
+        float endOn = 1.0 - 0.85 * smoothstep(0.55, 0.95, d.x * d.x);
+        float forward = 1.0 + 0.8 * toward * toward;
+        float alpha = uOpacity * ${BEAM_BREATH_GAIN.toFixed(2)}
+          * path * density * fade * forward * endOn;
         if (uVolumetric > 0.5) {
-          vec3 mistPoint = vWorldPos * 0.22
+          vec3 worldMid = cameraPosition + (vWorldPos - cameraPosition) * (sMid / sExit);
+          vec3 mistPoint = worldMid * 0.22
             + vec3(uTime * 0.05, uTime * 0.013, -uTime * 0.031);
           float mist = beamNoise(mistPoint) * 0.65
             + beamNoise(mistPoint * 2.7 + 11.3) * 0.35;
-          float density = clamp(0.55 + uStorm * 0.9, 0.0, 1.0);
-          float volume = mix(1.0, 0.45 + 1.1 * mist, density);
-          float scatter = 1.0 + uScatter * (0.9 + uStorm * 0.6);
-          alpha *= volume * scatter * (1.0 + uStorm * 0.8);
+          float thickness = clamp(0.55 + uStorm * 0.9, 0.0, 1.0);
+          alpha *= mix(1.0, 0.45 + 1.1 * mist, thickness) * (1.0 + uStorm * 0.8);
         }
         gl_FragColor = vec4(uColor, alpha);
       }
     `,
-    side: DoubleSide,
+    side: BackSide,
     toneMapped: false,
     transparent: true,
     uniforms: {
       uColor: { value: BEAM_COLOR.clone() },
       uLength: { value: GARDEN_LIGHTHOUSE_BEAM_LENGTH },
       uOpacity: { value: 0 },
-      uScatter: { value: 0 },
       uStorm: { value: 0 },
+      uTan: { value: GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS / GARDEN_LIGHTHOUSE_BEAM_LENGTH },
       uTime: { value: 0 },
       uVolumetric: { value: 0 },
     },
     vertexShader: /* glsl */ `
-      attribute float aBeamCore;
-      uniform float uLength;
-      varying float vAlong;
-      varying float vBeamCore;
-      varying vec3 vNormalView;
+      varying vec3 vCamLocal;
+      varying vec3 vLocal;
       varying vec3 vWorldPos;
 
       void main() {
-        vAlong = position.x / uLength;
-        vBeamCore = aBeamCore;
-        vNormalView = normalize(normalMatrix * normal);
+        vLocal = position;
+        vCamLocal = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz;
         vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * viewMatrix * vec4(vWorldPos, 1.0);
       }
     `,
   });
@@ -1241,63 +1398,74 @@ function createBeamCone(): Mesh<BufferGeometry, ShaderMaterial> {
   return cone;
 }
 
-/** Faint motes suspended in the cone (full tier, motion only). */
-function createBeamDust(): Points<BufferGeometry, ShaderMaterial> {
-  const positions: number[] = [];
-  const seeds: number[] = [];
-  for (let index = 0; index < BEAM_DUST_COUNT; index += 1) {
-    const along = (0.14 + stableUnit(`beam-dust-a.${index}`) * 0.72)
-      * GARDEN_LIGHTHOUSE_BEAM_LENGTH;
-    const coneRadius = (along / GARDEN_LIGHTHOUSE_BEAM_LENGTH)
-      * GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS;
-    const radius = coneRadius * (0.15 + stableUnit(`beam-dust-r.${index}`) * 0.7);
-    const angle = stableUnit(`beam-dust-t.${index}`) * Math.PI * 2;
-    positions.push(along, Math.cos(angle) * radius, Math.sin(angle) * radius);
-    seeds.push(stableUnit(`beam-dust-s.${index}`));
-  }
-  const geometry = new BufferGeometry();
-  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
-  geometry.setAttribute("aSeed", new Float32BufferAttribute(seeds, 1));
-  const material = new ShaderMaterial({
-    blending: AdditiveBlending,
-    depthWrite: false,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uColor;
-      uniform float uOpacity;
-      varying float vTwinkle;
+/**
+ * pharos-1 air corona radius (world units) at the day cycle's night scale.
+ * The day cycle caps the halo's scale at 1.25 (W0.7), so the authored sphere
+ * is the corona ÷ 1.25.
+ */
+export const LIGHTHOUSE_CORONA_RADIUS = 6;
+const CORONA_BASE_RADIUS = LIGHTHOUSE_CORONA_RADIUS / 1.25;
 
-      void main() {
-        float soft = 1.0 - smoothstep(0.1, 0.5, length(gl_PointCoord - 0.5));
-        gl_FragColor = vec4(uColor, uOpacity * soft * vTwinkle);
-      }
-    `,
+const CORONA_VARYINGS = /* glsl */ `
+  varying vec3 vCoronaView;
+  varying vec3 vCoronaCentre;
+  varying float vCoronaRadius;
+`;
+
+/**
+ * W2.9 (pharos-1): the air around the lantern glows — a soft warm corona two
+ * to three lantern-widths across that fades into the night, replacing the
+ * tight halo ball. It is a sphere shaded as a camera-facing sprite: each
+ * pixel's distance from the lantern to its eye ray (world units) sets a
+ * `pow(1/(1+(r/1.2)²), 1.4)` core over a broad faint skirt, which reaches
+ * zero before the silhouette, so tessellation never shows. Additive,
+ * depth-tested (the front of the sphere stands in the air before the tower),
+ * untouched by fog and far below the bloom knee: at the night opacity (0.3)
+ * its peak is ≈ 0.3 linear (≈ 0.5 at the top of a K9 swell). The day cycle
+ * writes opacity/scale; the frame path adds the flame's flicker, the lamp
+ * status and the K9 swell.
+ */
+function createLanternCorona(): Mesh<SphereGeometry, MeshBasicMaterial> {
+  const material = new MeshBasicMaterial({
+    blending: AdditiveBlending,
+    color: HARBOR_PALETTE.lantern_glow,
+    depthWrite: false,
+    fog: false,
+    opacity: 0,
     toneMapped: false,
     transparent: true,
-    uniforms: {
-      uColor: { value: BEAM_COLOR.clone() },
-      uOpacity: { value: 0 },
-      uTime: { value: 0 },
-    },
-    vertexShader: /* glsl */ `
-      attribute float aSeed;
-      uniform float uTime;
-      varying float vTwinkle;
-
-      void main() {
-        vec3 p = position;
-        p.x += sin(uTime * 0.25 + aSeed * 6.28) * 0.6;
-        p.y += sin(uTime * 0.31 + aSeed * 12.0) * 0.25;
-        p.z += cos(uTime * 0.27 + aSeed * 9.0) * 0.25;
-        vTwinkle = 0.5 + 0.5 * sin(uTime * 0.9 + aSeed * 20.0);
-        gl_PointSize = 2.5;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-      }
-    `,
   });
-  const dust = new Points(geometry, material);
-  dust.name = "lighthouse-beam-dust";
-  dust.visible = false;
-  return dust;
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", `#include <common>\n${CORONA_VARYINGS}`)
+      .replace(
+        "#include <project_vertex>",
+        `#include <project_vertex>
+        vCoronaView = mvPosition.xyz;
+        vCoronaCentre = ( modelViewMatrix * vec4( 0.0, 0.0, 0.0, 1.0 ) ).xyz;
+        vCoronaRadius = length( ( modelViewMatrix * vec4( position, 0.0 ) ).xyz );`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `#include <common>\n${CORONA_VARYINGS}`)
+      .replace(
+        "#include <opaque_fragment>",
+        `{
+          float coronaR = length( cross( normalize( vCoronaView ), vCoronaCentre ) );
+          float coronaEdge = coronaR / max( vCoronaRadius, 1e-3 );
+          float coronaCore = pow( 1.0 / ( 1.0 + coronaR * coronaR / 1.44 ), 1.4 );
+          float coronaSkirt = 0.4 * ( 1.0 - coronaEdge ) * ( 1.0 - coronaEdge );
+          diffuseColor.a *= ( coronaCore + coronaSkirt )
+            * ( 1.0 - smoothstep( 0.72, 1.0, coronaEdge ) );
+        }
+        #include <opaque_fragment>`,
+      );
+  };
+  material.customProgramCacheKey = () => "lighthouse-corona";
+  const corona = new Mesh(new SphereGeometry(CORONA_BASE_RADIUS, 24, 16), material);
+  corona.name = "lighthouse-halo";
+  corona.castShadow = false;
+  corona.receiveShadow = false;
+  return corona;
 }
 
 /** Recovery/constrained fallback: the original flat additive beam plane. */

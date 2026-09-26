@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AdditiveBlending, Box3, BoxGeometry, BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Object3D, ShaderMaterial, Vector3 } from "three";
+import { Box3, BoxGeometry, BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Object3D, ShaderMaterial, Vector3 } from "three";
 import {
   GARDEN_LIGHTHOUSE_BEACON_Y,
   GARDEN_LIGHTHOUSE_HEIGHT,
@@ -12,16 +12,19 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import {
   GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS,
   GARDEN_LIGHTHOUSE_BEAM_LENGTH,
-  GARDEN_LIGHTHOUSE_BEAM_CORE_OPACITY_RATIO,
-  GARDEN_LIGHTHOUSE_BEAM_CORE_RADIUS,
   GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE,
+  LANTERN_SWELL_INTERVAL_SECONDS,
+  LANTERN_SWELL_PEAK_HDR,
   LIGHTHOUSE_LANTERN_GLASS_MATERIAL_NAME,
+  LIGHTHOUSE_LANTERN_GLASS_UNIFORMS,
   LIGHTHOUSE_RIM_UNIFORMS,
   LIGHTHOUSE_WINDOW_MATERIAL_NAME,
   attachGardenLighthouseModel,
   collectLighthouseGlowMaterials,
+  createLanternSwell,
   createLighthouse,
   updateLighthouseLampStatus,
+  updateLighthouseLanternGlass,
   updateLighthouseRimLight,
 } from "./garden-lighthouse";
 import { dayCyclePhase } from "./garden-day-cycle";
@@ -47,28 +50,8 @@ describe("garden lighthouse beam ownership", () => {
     expect(lighthouse.root.getObjectByName("lighthouse-beam-outer-cone")).toBeUndefined();
     expect(lighthouse.beam.children.map((child) => child.name)).toEqual([
       "lighthouse-beam-cone",
-      "lighthouse-beam-dust",
       "lighthouse-beam",
     ]);
-    disposeThreeObjectTree(lighthouse.root);
-  });
-
-  it("nests a narrow 0.25 high-energy core in the soft cone", () => {
-    const lighthouse = createLighthouse();
-    const cone = lighthouse.beam.getObjectByName("lighthouse-beam-cone") as Mesh;
-    const core = cone.geometry.getAttribute("aBeamCore");
-    expect(Array.from(core.array)).toContain(0);
-    expect(Array.from(core.array)).toContain(1);
-    expect(
-      Math.atan(GARDEN_LIGHTHOUSE_BEAM_CORE_RADIUS / GARDEN_LIGHTHOUSE_BEAM_LENGTH)
-        * 180 / Math.PI,
-    ).toBeLessThanOrEqual(3);
-    expect(0.11 * GARDEN_LIGHTHOUSE_BEAM_CORE_OPACITY_RATIO).toBeCloseTo(0.25, 6);
-    expect((cone.material as ShaderMaterial).blending).toBe(AdditiveBlending);
-    expect(cone.castShadow).toBe(false);
-    expect(cone.receiveShadow).toBe(false);
-    // 20 extra triangles: well inside W2.9's +200-triangle ceiling.
-    expect(cone.geometry.index!.count / 3).toBe(48);
     disposeThreeObjectTree(lighthouse.root);
   });
 
@@ -105,22 +88,74 @@ describe("garden lighthouse beam ownership", () => {
   });
 });
 
+describe("W2.10 lantern swell (K9)", () => {
+  const luminance = (color: Color): number => 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+
+  // A beam sweeping at the full-stress 0.42 rad/s passes the eye-line every
+  // ~15 s; the swell must still come at most once a minute.
+  const run = (reducedMotion: boolean, seconds: number, period = 15) => {
+    const swell = createLanternSwell();
+    const samples: number[] = [];
+    for (let frame = 0; frame <= seconds * 30; frame += 1) {
+      const time = frame / 30;
+      const beamFacing = Math.cos((time / period) * Math.PI * 2) ** 2;
+      samples.push(swell.update({ beamFacing, glow: 1, reducedMotion, timeSeconds: time }));
+    }
+    return samples;
+  };
+
+  it("swells at most once a minute whatever the sweep rate, over ≥ 1.5 s each way", () => {
+    const samples = run(false, 180);
+    const starts = samples.flatMap((value, index) => (
+      index > 0 && samples[index - 1] === 0 && value > 0 ? [index / 30] : []
+    ));
+    expect(starts.length).toBeGreaterThan(0);
+    expect(starts.length).toBeLessThanOrEqual(Math.floor(180 / LANTERN_SWELL_INTERVAL_SECONDS) + 1);
+    for (let index = 1; index < starts.length; index += 1) {
+      expect(starts[index]! - starts[index - 1]!).toBeGreaterThanOrEqual(LANTERN_SWELL_INTERVAL_SECONDS - 1e-6);
+    }
+    // Rise: from the first lit frame to the peak; fall: from the peak back to 0.
+    const first = Math.round(starts[0]! * 30);
+    let peak = first;
+    while (samples[peak + 1]! >= samples[peak]!) peak += 1;
+    let end = peak;
+    while (samples[end]! > 0) end += 1;
+    expect((peak - first) / 30).toBeGreaterThanOrEqual(1.5);
+    expect((end - peak) / 30).toBeGreaterThanOrEqual(1.5);
+  });
+
+  it("never swells under reduced motion and stays under 2.0 HDR at its peak", () => {
+    expect(Math.max(...run(true, 120))).toBe(0);
+    updateLighthouseLanternGlass(dayCyclePhase(0));
+    const peak = luminance(LIGHTHOUSE_LANTERN_GLASS_UNIFORMS.uGlassSwellColor.value)
+      + luminance(LIGHTHOUSE_LANTERN_GLASS_UNIFORMS.uGlassWarmColor.value)
+        * LIGHTHOUSE_LANTERN_GLASS_UNIFORMS.uGlassWarm.value
+      + luminance(LIGHTHOUSE_LANTERN_GLASS_UNIFORMS.uGlassDark.value);
+    expect(peak).toBeLessThanOrEqual(LANTERN_SWELL_PEAK_HDR);
+  });
+});
+
 describe("T1.7 rim light (2026-09-07)", () => {
   it("raises the whole rim curve, not just its dusk and night lifts", () => {
     // Base 0.1 -> 0.16, dusk lift 0.04 -> 0.06, night lift 0.08 -> 0.12. The
     // rim is what separates the tower from the sky like an engraving, and at
     // 0.1 it only registered where the fresnel already peaked. The shape was
     // right; it was built on too low a base.
-    const strengthAt = (hour: number): number => {
-      const phase = dayCyclePhase(hour);
-      updateLighthouseRimLight(phase, gardenKeyLightPose(hour, phase));
+    // Expressed in explicit phase weights: the curve is a function of the
+    // phase, and on the solar clock full dusk (the blue beat's peak) is a
+    // single instant that moves with the date.
+    const strengthAt = (phase: { daylight: number; dusk: number; night: number }): number => {
+      updateLighthouseRimLight(phase, gardenKeyLightPose(12, phase));
       return LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimStrength.value;
     };
-    expect(strengthAt(12)).toBeCloseTo(0.16, 6);
-    expect(strengthAt(18.5)).toBeCloseTo(0.2, 2);
-    expect(strengthAt(1)).toBeCloseTo(0.28, 6);
+    expect(strengthAt({ daylight: 1, dusk: 0, night: 0 })).toBeCloseTo(0.16, 6);
+    expect(strengthAt({ daylight: 0, dusk: 1, night: 0 })).toBeCloseTo(0.22, 6);
+    expect(strengthAt({ daylight: 0, dusk: 0, night: 1 })).toBeCloseTo(0.28, 6);
+    // The noon and midnight of the pinned day land on those ends of the curve.
+    expect(strengthAt(dayCyclePhase(12))).toBeCloseTo(0.16, 6);
+    expect(strengthAt(dayCyclePhase(1))).toBeCloseTo(0.28, 6);
     // Still an accent, never a light: it is added straight to emissive.
-    expect(strengthAt(1)).toBeLessThan(0.35);
+    expect(strengthAt(dayCyclePhase(1))).toBeLessThan(0.35);
   });
 });
 

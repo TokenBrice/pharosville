@@ -37,6 +37,7 @@ import {
   stressBreakdownLabel,
   supplyTideLabel,
   supplyMomentumLabel,
+  waterSurfaceForArea,
   wreckSilhouetteLabel,
 } from "../systems/detail-model";
 import { recentFleetTrendSummary, recentFleetTrendSummaryText, seaStateForWorld, seaStateSummary } from "../systems/sea-state";
@@ -44,6 +45,7 @@ import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
 import type { GardenAlmanacLogEntry } from "../systems/garden-almanac";
 import { pigeonnierRoostLabel } from "../systems/pigeonnier-watch";
 import { deriveEpistemicHaze, epistemicHazeLabel } from "../systems/epistemic-haze";
+import { farShoreLabel } from "../systems/psi-sky";
 import { motionCadenceDetailLabel } from "../systems/motion-config";
 
 // Dock health-band swatches mirror the Three dock signal colors. Robust and
@@ -203,6 +205,10 @@ function AccessibilityLedgerContent({
           <dd>{epistemicHazeLabel(epistemicHaze)}.</dd>
         </div>
         <div>
+          <dt>Far shore</dt>
+          <dd>{farShoreLabel(world.lighthouse.psiBand, world.lighthouse.unavailable)}</dd>
+        </div>
+        <div>
           <dt>Rare ambient events</dt>
           <dd>One shared daily sighting at most; decorative, never alerted, and absent in still or reduced-motion mode.</dd>
         </div>
@@ -265,6 +271,7 @@ function AccessibilityLedgerContent({
             {area.label}
             {`: ${area.riskPlacement ? `${area.band ? `DEWS ${area.band}, ${area.count ?? 0} stablecoins` : `risk water zone ${area.riskZone ?? "unavailable"}`}, placement ${area.riskPlacement}. ` : "No live-ship risk placement. "}${area.summary ?? ""} Facts: ${area.facts?.map((fact) => `${fact.label} ${fact.value}`).join("; ") ?? "unavailable"}. Source fields ${area.sourceFields?.join(", ") || "unavailable"}.`}
             {area.riskPlacement ? ` ${atmosphereLineForArea(area)}.` : ""}
+            {waterSurfaceForArea(area) ? ` Water surface: ${waterSurfaceForArea(area)}.` : ""}
           </li>
         ))}
       </ol>

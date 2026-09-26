@@ -51,7 +51,7 @@ export function isStillCameraRequested(): boolean {
   return stillCameraCached;
 }
 
-export type PharosVilleKnockoutPass = "ao" | "bloom" | "smaa" | "rays" | "reflection" | "grade" | "water-lanes";
+export type PharosVilleKnockoutPass = "ao" | "bloom" | "smaa" | "rays" | "reflection" | "grade" | "keyline" | "water-lanes";
 
 /**
  * W0.1 knockout seam: `window.__pharosVilleKnockout` is installed by the

@@ -21,6 +21,7 @@ import {
   DirectionalLight,
   Frustum,
   InstancedMesh,
+  MathUtils,
   Matrix4,
   Mesh,
   MeshStandardMaterial,
@@ -50,6 +51,9 @@ const GARDEN_SHADOW_INITIAL_RADIUS = 128;
 const SHADOW_LIGHT_DISTANCE = 260;
 /** Sun and camera orientation share the half-degree re-fit threshold. */
 const SHADOW_RESTEER_RADIANS = Math.PI / 360;
+/** PCF radius (texels) with the sun high, and with it on the horizon (light-7). */
+const GARDEN_SHADOW_NOON_RADIUS = 3;
+const GARDEN_SHADOW_LOW_SUN_RADIUS = 7;
 
 /** Reused across frames so the shadow rig allocates nothing in the hot path. */
 const scratchKeyPose: GardenLightPose = {
@@ -152,11 +156,10 @@ export function createGardenShadowRig(): GardenShadowRig {
   // the old world-space slop after extending the light for remote stations.
   directionalLight.shadow.bias = -0.00015;
   directionalLight.shadow.normalBias = 0.35;
-  // Vogel-disk PCF radius, in texels (see the shadowMap.type note above). 4
-  // texels ≈ 0.17 world units of penumbra at the full-tier fit: soft enough
-  // that a crane leg reads as light rather than as a decal, tight enough that
-  // a bollard still touches the deck it stands on.
-  directionalLight.shadow.radius = 4;
+  // Vogel-disk PCF radius, in texels (see the shadowMap.type note above). The
+  // bootstrap is the noon value; `updateGardenShadows` widens it at low sun.
+  // 3 texels at noon keeps a bollard touching the deck it stands on.
+  directionalLight.shadow.radius = GARDEN_SHADOW_NOON_RADIUS;
   const shadowCamera = directionalLight.shadow.camera;
   shadowCamera.left = -GARDEN_SHADOW_INITIAL_RADIUS;
   shadowCamera.right = GARDEN_SHADOW_INITIAL_RADIUS;
@@ -298,6 +301,11 @@ export function updateGardenShadows(
   const light = rig.directionalLight;
   const pose = gardenKeyLightPose(frame.wallClockHour, phase, scratchKeyPose);
   const direction = pose.direction;
+  // W2.13 (light-7): long low-sun shadows end in a brush-soft tip instead of
+  // an aliased one; noon stays crisp. The radius is a sampling uniform, so it
+  // costs no map redraw and no extra taps.
+  const lowSun = 1 - MathUtils.smoothstep(pose.elevation, 0.12, 0.5);
+  light.shadow.radius = MathUtils.lerp(GARDEN_SHADOW_NOON_RADIUS, GARDEN_SHADOW_LOW_SUN_RADIUS, lowSun);
   const viewChanged = camera.position.distanceToSquared(rig.shadowViewPosition) > 0.25
     || camera.quaternion.angleTo(rig.shadowViewRotation) > Math.PI / 360
     || camera.aspect !== rig.shadowViewAspect

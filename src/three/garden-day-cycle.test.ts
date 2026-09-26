@@ -16,15 +16,16 @@ import {
 import {
   DAY_CYCLE_HEIGHT_FOG_PRESETS,
   DAY_CYCLE_LIGHT_PRESETS,
+  DAY_CYCLE_MOONLESS_KEY,
   DAY_CYCLE_SKY_PRESETS,
   GARDEN_SAIL_EMISSIVE,
   dayCycleBeats,
   dayCyclePhase,
   updateDayCycle,
 } from "./garden-day-cycle";
-import { gardenEnvironmentIntensityForBeats } from "./garden-environment";
 import { GARDEN_BLOOM_PRACTICAL_THRESHOLD } from "./garden-post";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { gardenSkyDayFromParts, gardenSkyToday, gardenSolarElevationAt } from "../systems/sky-almanac";
 import { gardenHeightFogFactor } from "./garden-height-fog";
 import type { ThreeWorldRendererFrame } from "../renderer/world-renderer-backend";
 
@@ -54,47 +55,54 @@ describe("five-beat light score", () => {
     }
   });
 
-  it("hits the authored peaks and wraps midnight", () => {
-    expect(dayCycleBeats(4.75).night).toBe(1);
-    expect(dayCycleBeats(6).dawn).toBe(1);
-    expect(dayCycleBeats(7.25).day).toBe(1);
-    expect(dayCycleBeats(16.25).day).toBe(1);
-    expect(dayCycleBeats(17.25).golden).toBe(1);
-    expect(dayCycleBeats(18.25).golden).toBe(1);
-    expect(dayCycleBeats(19).blue).toBe(1);
+  it("keys the beats to the sun: golden ends at sunset, blue follows it, night by nautical dusk", () => {
+    // The suite's pinned sky day (test-setup): 26 Sep, 35° N, sunset ≈ 18:54.
+    const day = gardenSkyToday();
+    const elevationAt = (hour: number) => gardenSolarElevationAt(day, hour) * (180 / Math.PI);
+    expect(dayCycleBeats(12.25).day).toBe(1);
+    expect(dayCycleBeats(18.5).golden).toBe(1);
+    const goldenLeft = dayCycleBeats(day.sunsetHour);
+    expect(goldenLeft.golden).toBeGreaterThan(0.4);
+    expect(goldenLeft.blue).toBeGreaterThan(0.4);
+    expect(elevationAt(19.2)).toBeLessThan(0);
+    expect(dayCycleBeats(19.2).blue).toBeGreaterThan(0.95);
+    expect(elevationAt(20)).toBeLessThan(-12);
     expect(dayCycleBeats(20).night).toBe(1);
     expect(dayCycleBeats(-1)).toEqual(dayCycleBeats(23));
     expect(dayCycleBeats(36.5)).toEqual(dayCycleBeats(12.5));
   });
 
-  it("renders the five rigs with authored contrast and restrained night fill", () => {
+  it("follows the date and the hemisphere (O11)", () => {
+    const on = (month: number, dayOfMonth: number, dstHours: number, southern: boolean) => gardenSkyDayFromParts({
+      year: 2026,
+      month,
+      day: dayOfMonth,
+      utcOffsetHours: 1 + dstHours,
+      dstHours,
+      latitude: { latitudeRad: (southern ? -35 : 35) * (Math.PI / 180), southern },
+    });
+    // December darkens before five; June is still gold after eight.
+    expect(dayCycleBeats(17, on(12, 15, 0, false)).blue).toBeGreaterThan(0.8);
+    expect(dayCycleBeats(19.75, on(6, 21, 1, false)).golden).toBeGreaterThan(0.5);
+    // South of the equator the same December evening is a long summer day.
+    expect(dayCycleBeats(17, on(12, 15, 0, true)).day).toBe(1);
+  });
+
+  it("keeps the night rig a moon rim over restrained fill", () => {
     const scene = {
       ambientLight: new AmbientLight(),
       hemisphereLight: new HemisphereLight(),
       directionalLight: new DirectionalLight(),
       content: null,
     };
-    const samples = [
-      [6, 2.9, 3.1], [12, 5, 6], [17.25, 7, 9], [19, 2.5, 3.5], [23, 4, 5],
-    ];
-    const keys: number[] = [];
-    for (const [hour, minimum, maximum] of samples) {
-      const frame = { wallClockHour: hour } as ThreeWorldRendererFrame;
-      updateDayCycle(scene, frame, dayCyclePhase(hour));
-      const fill = scene.ambientLight.intensity + scene.hemisphereLight.intensity;
-      const ratio = scene.directionalLight.intensity / fill;
-      expect(ratio).toBeGreaterThanOrEqual(minimum);
-      expect(ratio).toBeLessThanOrEqual(maximum);
-      expect(fill).toBeGreaterThan(gardenEnvironmentIntensityForBeats(dayCycleBeats(hour)));
-      keys.push(scene.directionalLight.intensity);
-    }
-    expect(keys[2]).toBeGreaterThan(keys[1]);
-    expect(keys[1]).toBeGreaterThan(keys[0]);
-    expect(keys[0]).toBeGreaterThan(keys[3]);
-    expect(keys[3]).toBeGreaterThan(keys[4]);
+    const frame = { wallClockHour: 23 } as ThreeWorldRendererFrame;
+    updateDayCycle(scene, frame, dayCyclePhase(23));
+    const night = DAY_CYCLE_LIGHT_PRESETS.night;
     expect(scene.ambientLight.intensity).toBeLessThanOrEqual(0.06);
     expect(scene.hemisphereLight.intensity).toBeLessThanOrEqual(0.1);
-    expect(scene.directionalLight.intensity).toBeLessThanOrEqual(0.65);
+    // Moon down or new, the rim falls to the moonless share; never above full.
+    expect(scene.directionalLight.intensity).toBeGreaterThanOrEqual(night.dirIntensity * DAY_CYCLE_MOONLESS_KEY - 1e-9);
+    expect(scene.directionalLight.intensity).toBeLessThanOrEqual(night.dirIntensity + 1e-9);
     expect(scene.directionalLight.color.b).toBeGreaterThan(scene.directionalLight.color.r);
   });
 
@@ -112,12 +120,16 @@ describe("five-beat light score", () => {
         scene.hemisphereLight.intensity,
       ];
     };
-    const dawn = sample(6);
-    const day = sample(12);
+    // Pinned sky day (test-setup): dawn = 1 at 7.0, day = 1 at 12.25, and
+    // 8.0 is their crossfade.
+    const dawn = sample(7);
+    const day = sample(12.25);
+    const { dawn: dawnWeight, day: dayWeight } = dayCycleBeats(8);
+    expect(dawnWeight + dayWeight).toBeCloseTo(1, 12);
     for (let repeat = 0; repeat < 2; repeat += 1) {
       sample(23);
-      sample(6.625).forEach((value, index) => {
-        expect(value).toBeCloseTo((dawn[index]! + day[index]!) / 2, 12);
+      sample(8).forEach((value, index) => {
+        expect(value).toBeCloseTo(dawn[index]! * dawnWeight + day[index]! * dayWeight, 12);
       });
     }
   });
@@ -310,7 +322,7 @@ describe("practical light hierarchy", () => {
   it("kindles windows and lanterns through dusk into night, all below the beacon", () => {
     const { at } = dayCycleRig();
     const noon = at(12);
-    const dusk = at(18.5);
+    const dusk = at(19.2);
     const midnight = at(1);
     for (const key of PRACTICALS) {
       expect(noon[key], `${key} must be dark at noon`).toBeLessThan(dusk[key]);
@@ -327,9 +339,9 @@ describe("practical light hierarchy", () => {
 
   it("keeps the tower's window openings dark until dusk is well under way", () => {
     const { at } = dayCycleRig();
-    // 16:45 is early golden light (dusk ≈ 0.25): the harbour starts to
-    // kindle, the tower's openings stay dark voids.
-    const earlyGolden = at(16.75);
+    // 17:45 on the pinned sky day is early golden light: the harbour starts
+    // to kindle, the tower's openings stay dark voids.
+    const earlyGolden = at(17.75);
     expect(earlyGolden.harborLantern).toBeGreaterThan(0);
     expect(earlyGolden.tower).toBe(0);
   });

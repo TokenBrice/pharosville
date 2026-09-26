@@ -73,6 +73,7 @@ import {
 import {
   beginFleetFrame,
   endFleetFrame,
+  gardenFleetShipIsHero,
   setFleetAerialPerspective,
   setFleetWeather,
   writeFleetInstance,
@@ -357,6 +358,12 @@ export function updateGardenShipFrame(
     frame.shipMotionSamples,
     frame.reducedMotion,
   );
+  // K8: at full/balanced the wake field carries every wake, so the
+  // ship-locked trail/bow quads are only the low-tier fallback (−2 draws).
+  const seaTier = seaQualityTier(frame.renderScheduler);
+  const wakeFieldTier = seaTier === "full" || seaTier === "balanced";
+  const stampWakeField = wakeFieldTier && !frame.reducedMotion;
+  content.wakeBatch.root.visible = !wakeFieldTier;
   let visibleShipCount = 0;
   const issuanceAlpha = frame.reducedMotion
     ? 1
@@ -489,7 +496,9 @@ export function updateGardenShipFrame(
     scene.laneRegistry.set({
       color: HARBOR_PALETTE.lantern_glow,
       id: `ship-lantern.${visual.ship.id}`,
-      intensity: visual.laneIntensity * displayPresence,
+      // W4.F3: at night the far fleet is embers — only the hero band's lamps.
+      intensity: visual.laneIntensity * displayPresence
+        * (gardenFleetShipIsHero(content.fleetBatches, visual.ship.id) ? 1 : 0),
       kind: "lantern",
       worldX: visual.root.position.x,
       worldZ: visual.root.position.z,
@@ -522,52 +531,80 @@ export function updateGardenShipFrame(
       wakeVisible,
       wakeScaleX,
     );
-    // Phase 3 (item 2): stamp the persistent wake field for every hull making
-    // way. The pose is final for this frame and the heading already
-    // normalized — the field consumes these at the top of next frame.
-    if (heading && wakeIntensity * displayPresence > 0.12 && !frame.reducedMotion) {
-      scene.wakes.stamp(
+    // The hull's rendered x/z half-extents (family reach table × rendered
+    // scale × hull-form span), shared by the wake field and the shadow below.
+    const hullReach = gardenShipHullReachWorld(
+      gardenShipVisualScale(visual.ship.visual.scale || 1),
+      visual.silhouette,
+      visual.ship.visual.hullForm,
+    );
+    // K8 wake field (W3.8/W3.9). The pose is final for this frame; the field
+    // consumes these at the top of next frame. Every hull in the window
+    // writes its waterline footprint (B); a hull making way adds bow/stern
+    // foam (R) and lays its glassy lane (G) at the wake's intensity, which
+    // carries the risk zone and 24 h change as lane length.
+    const hullSizeScale = transitionVisibility * displayPresence;
+    const wakeHalfLength = hullReach.x * 0.9 * hullSizeScale;
+    const wakeHalfBeam = hullReach.z * hullSizeScale;
+    if (stampWakeField && hullSizeScale > 0.05) {
+      const rotationY = visual.root.rotation.y;
+      scene.wakes.stampContact(
         visual.root.position.x,
         visual.root.position.z,
-        heading.x,
-        heading.y,
-        Math.min(1, wakeIntensity * displayPresence),
-        visual.ship.visual.hullForm?.length ?? 1,
+        heading ? heading.x : Math.cos(rotationY),
+        heading ? heading.y : -Math.sin(rotationY),
+        wakeHalfLength,
+        wakeHalfBeam,
+        1,
       );
+      if (heading && wakeIntensity * displayPresence > 0.12) {
+        const wakeStrength = Math.min(1, wakeIntensity * displayPresence);
+        scene.wakes.stamp(
+          visual.root.position.x,
+          visual.root.position.z,
+          heading.x,
+          heading.y,
+          wakeStrength,
+          wakeHalfLength,
+          wakeHalfBeam,
+          wakeStrength,
+        );
+      }
     }
     if (
       heading
+      && stampWakeField
       && readableArrivalBeat
       && scratchArrivalBeat.bowWave > 0
       && displayPresence > 0
-      && !constrained
       && overviewDetail > 0
     ) {
-      const hullLength = visual.ship.visual.hullForm?.length ?? 1;
       const stampStrength = scratchArrivalBeat.bowWave * displayPresence;
       if (sample?.segment?.kind === "dock-dwell") {
-        // Three positions make one bow flourish in the existing eight-second
-        // field; no particles, geometry, draw, or independent decay clock.
+        // Three positions push one bow flourish ahead of the stem in the
+        // existing field (foam only); no particles, geometry, draw, or clock.
         for (let stampIndex = 1; stampIndex <= 3; stampIndex += 1) {
-          const bowOffset = hullLength * visual.root.scale.x * stampIndex * 0.16;
+          const bowOffset = wakeHalfLength * stampIndex * 0.16;
           scene.wakes.stamp(
             visual.root.position.x + heading.x * bowOffset,
             visual.root.position.z + heading.y * bowOffset,
             heading.x,
             heading.y,
             stampStrength * (1 - stampIndex * 0.12),
-            hullLength,
+            wakeHalfLength,
+            wakeHalfBeam,
           );
         }
       } else if (sample?.segment?.kind === "departure-transit") {
-        const sternOffset = hullLength * visual.root.scale.x * 0.35;
+        const sternOffset = wakeHalfLength * 0.35;
         scene.wakes.stamp(
           visual.root.position.x - heading.x * sternOffset,
           visual.root.position.z - heading.y * sternOffset,
           heading.x,
           heading.y,
           stampStrength,
-          hullLength,
+          wakeHalfLength,
+          wakeHalfBeam,
         );
       }
     }
@@ -586,11 +623,6 @@ export function updateGardenShipFrame(
     // rotated with the heading, padded a little so the soft edge clears the
     // waterline rather than the topsides. G2/W3.3: it was a selection-radius
     // guess before, so every family threw the same elongated blob.
-    const hullReach = gardenShipHullReachWorld(
-      gardenShipVisualScale(visual.ship.visual.scale || 1),
-      visual.silhouette,
-      visual.ship.visual.hullForm,
-    );
     scratchShadowScale.set(
       Math.max(0.9, hullReach.x * 1.12) * displayPresence,
       displayPresence,
@@ -625,6 +657,7 @@ export function updateGardenShipFrame(
       scratchIssuanceHullForm.waterline = (authoredHullForm.waterline ?? 0) + issuanceDraft;
       writeFleetInstance(content.fleetBatches, {
         atlasCell: visual.atlasCell,
+        leader: visual.ship.visual.sizeTier === "titan" || visual.ship.visual.sizeTier === "unique",
         shipId: visual.ship.id,
         headingAngle: visual.root.rotation.y,
         heel: visual.root.rotation.z,
@@ -735,7 +768,8 @@ export function updateGardenShipFrame(
   // the ordinary billboard update.
   for (let index = 0; index < content.fleetLanterns.entries.length; index += 1) {
     const entry = content.fleetLanterns.entries[index]!;
-    const presence = content.fleetDisplayPresenceByShipId.get(entry.visual.ship.id) ?? 1;
+    const presence = (content.fleetDisplayPresenceByShipId.get(entry.visual.ship.id) ?? 1)
+      * (gardenFleetShipIsHero(content.fleetBatches, entry.visual.ship.id) ? 1 : 0);
     if (presence >= 1) continue;
     scratchFleetPresenceScale.setScalar(presence);
     content.fleetLanterns.cores.getMatrixAt(index, scratchMatrix);

@@ -12,8 +12,7 @@ import {
   fixtureStability,
 } from "../__fixtures__/pharosville-world";
 import { overCapacityWorldFixture } from "../__fixtures__/over-capacity-world";
-import { selectionCameraTarget } from "../hooks/camera-intent";
-import { defaultCamera } from "../systems/camera";
+import { defaultCamera, selectionShot } from "../systems/camera";
 import {
   GARDEN_DOCK_ROOT_Y,
   GARDEN_LIGHTHOUSE_BEACON_Y,
@@ -22,6 +21,7 @@ import {
   GARDEN_SHIP_ROOT_Y,
   GARDEN_WATER_Y,
   gardenIslandDisplayTile,
+  gardenShipSelectionRadius,
   gardenTileToScreen,
   resolveGardenShipDisplayTile,
   selectGardenObservatorySlice,
@@ -294,24 +294,26 @@ describe("Garden Observatory hit targets", () => {
     );
   });
 
-  it("keeps every dense-fleet berth and shore station fully inside both follow viewports", () => {
+  it("frames every dense-fleet berth and shore station inside both viewports, clear of the detail panel", () => {
     const world = denseWorld();
     const slice = selectGardenObservatorySlice(world, null);
+    // The panel's corner at 1600×1000 (x 0.74–0.98, y 0.04–0.32): a selected subject never sits under it.
+    const underPanel = (rect: { x: number; y: number; width: number; height: number }, viewport: { width: number; height: number }) => (
+      rect.x + rect.width > viewport.width * 0.74 && rect.y < viewport.height * 0.32
+    );
 
     for (const viewport of [
       { width: 1600, height: 1000 },
       { width: 1200, height: 640 },
     ]) {
-      const start = defaultCamera({ ...viewport, map: world.map });
       const screenViewport = { x: viewport.width, y: viewport.height };
 
       for (const placement of slice.ships) {
-        const camera = selectionCameraTarget({
-          camera: start,
-          map: world.map,
+        const { camera } = selectionShot({
+          kind: "ship",
+          selectionRadius: gardenShipSelectionRadius(placement.ship),
           tile: resolveGardenShipDisplayTile({ ...placement, sample: undefined }),
-          viewport: screenViewport,
-        });
+        }, screenViewport);
         const target = createGardenObservatoryHitTargetSnapshot({
           camera,
           selectedDetailId: placement.ship.detailId,
@@ -319,17 +321,14 @@ describe("Garden Observatory hit targets", () => {
           world,
         }).targetsByDetailId.get(placement.ship.detailId);
 
-        expect(target, `${placement.ship.detailId} at ${viewport.width}x${viewport.height}`).toBeDefined();
-        expect(rectInsideViewport(target!.rect, viewport), `${placement.ship.detailId} at ${viewport.width}x${viewport.height}`).toBe(true);
+        const label = `${placement.ship.detailId} at ${viewport.width}x${viewport.height}`;
+        expect(target, label).toBeDefined();
+        expect(rectInsideViewport(target!.rect, viewport), label).toBe(true);
+        expect(underPanel(target!.rect, viewport), label).toBe(false);
       }
 
       for (const dock of world.docks) {
-        const camera = selectionCameraTarget({
-          camera: start,
-          map: world.map,
-          tile: dock.tile,
-          viewport: screenViewport,
-        });
+        const { camera } = selectionShot({ dock, kind: "dock" }, screenViewport);
         const target = createGardenObservatoryHitTargetSnapshot({
           camera,
           selectedDetailId: dock.detailId,
@@ -337,8 +336,10 @@ describe("Garden Observatory hit targets", () => {
           world,
         }).targetsByDetailId.get(dock.detailId);
 
-        expect(target, `${dock.detailId} at ${viewport.width}x${viewport.height}`).toBeDefined();
-        expect(rectInsideViewport(target!.rect, viewport), `${dock.detailId} at ${viewport.width}x${viewport.height}`).toBe(true);
+        const label = `${dock.detailId} at ${viewport.width}x${viewport.height}`;
+        expect(target, label).toBeDefined();
+        expect(rectInsideViewport(target!.rect, viewport), label).toBe(true);
+        expect(underPanel(target!.rect, viewport), label).toBe(false);
       }
     }
   });

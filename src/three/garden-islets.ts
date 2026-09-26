@@ -15,7 +15,6 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import { stableUnit, TILE_SCALE } from "./garden-util";
 import { landWorldTile } from "../systems/map-scale";
-import { createGardenTorii } from "./garden-torii";
 import { createSpeciesBatch } from "./garden-flora";
 
 /**
@@ -33,8 +32,8 @@ import { createSpeciesBatch } from "./garden-flora";
  * Rocks are clustered displaced icosahedra with a height-gradient vertex
  * color in the island rockwork style, but every color derives from
  * HARBOR_PALETTE (contract C1) — no hex literals. Three InstancedMesh batches
- * (stone crags, stone reefs and the T2.2b islet pines) plus the merged torii
- * = 4 draw calls. Purely decorative: no data semantics, no
+ * (stone crags, stone reefs and the T2.2b islet pines) = 3 draw calls; the
+ * anchorage torii was retired (Hour-Print O6). Purely decorative: no data semantics, no
  * labels, and hit-testing is DOM/projection-driven
  * (`src/renderer/hit-testing.ts`), so the islets are ignored by construction
  * (they register no hit targets and no entity cues).
@@ -60,7 +59,7 @@ export interface GardenIsletsFrame {
 }
 
 export interface GardenIslets {
-  /** C4 evidence: crag + reef + pine batches and the merged torii. */
+  /** C4 evidence: crag + reef + pine batches. */
   drawCallCount: number;
   /** Leaning pines rooted on the crag stones (T2.2b, 2026-09-07). */
   pineCount: number;
@@ -247,22 +246,20 @@ export function createGardenIslets(): GardenIslets {
   const reef = createStoneBatch(REEF_STONES, "islet-reef", 0.42);
   reef.mesh.name = "garden-islets-reef";
   const pines = createIsletPines();
-  const torii = createGardenTorii();
   // Crag and reef stay children[0] and [1]: the stone tests index them.
-  root.add(crag.mesh, reef.mesh, pines.mesh, torii.root);
+  root.add(crag.mesh, reef.mesh, pines.mesh);
 
   return {
-    drawCallCount: 3 + torii.drawCallCount,
+    drawCallCount: 3,
     islets: GARDEN_ISLETS,
     pineCount: ISLET_PINES.length,
     root,
     stoneCount: CRAG_STONES.length + REEF_STONES.length,
-    triangleCount: crag.triangles + reef.triangles + pines.triangles + torii.triangleCount,
+    triangleCount: crag.triangles + reef.triangles + pines.triangles,
     dispose() {
       crag.mesh.dispose();
       reef.mesh.dispose();
       pines.mesh.dispose();
-      torii.dispose();
     },
     registerRippleRings(emitter) {
       if (!emitter || typeof emitter.setRing !== "function") return;

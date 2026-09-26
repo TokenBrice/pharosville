@@ -16,7 +16,9 @@ import {
   type RestSeatEye,
 } from "./rest-seat";
 import {
+  buildPharosVilleMap,
   EVM_BAY_STATION_SLOTS,
+  isWaterTileKind,
   LIGHTHOUSE_TILE,
   OUTER_HARBOR_STATION_SLOTS,
   PHAROSVILLE_MAP_HEIGHT,
@@ -24,13 +26,18 @@ import {
   PIGEONNIER_STATION_SLOT,
 } from "./world-layout";
 import type { DockNode } from "./world-types";
-import type { CameraView, IsoCamera, MapLike, ScreenPoint, TilePoint, WorldPoint } from "./projection";
+import type { CameraShotState, CameraView, IsoCamera, MapLike, ScreenPoint, TilePoint, WorldPoint } from "./projection";
 import {
   ABSOLUTE_MIN_ZOOM,
+  CAMERA_FOV_DEG,
+  CAMERA_PITCH_NEAR_RAD,
   cameraDistanceForZoom,
+  cameraView,
+  cameraViewAngles,
   cameraViewFromAngles,
   gardenWaterPlateContainsTile,
   mapIsoBounds,
+  MAX_ZOOM,
   minZoomForViewport,
   screenToGround,
   screenToGroundRay,
@@ -504,7 +511,7 @@ export function defaultCamera(input: {
   return { ...shot.rig, rest: { presence: 1, view: shot.view } };
 }
 
-/** The rig alone: interactive gestures take the camera off the rest ShotSpec. */
+/** The rig alone: interactive gestures take the camera off the rest ShotSpec and any composed shot. */
 export function withoutRest(camera: IsoCamera): IsoCamera {
   return { offsetX: camera.offsetX, offsetY: camera.offsetY, zoom: camera.zoom };
 }
@@ -675,6 +682,490 @@ export function followTile(input: {
   };
   if (safe.x === screen.x && safe.y === screen.y) return clamped;
   return placeRigPoint(clamped, input.viewport, safe, subject, GARDEN_SHIP_ROOT_Y);
+}
+
+// ---------------------------------------------------------------------------
+// W1.7 — selection and return as composed shots (camera-3 ∪ ambient-journey-4
+// ∪ critic-8). A selection composes its subject on a third with lead space,
+// sized by the subject rather than a hard zoom, from the first pose whose
+// sight lines clear the land, station and tower probe: yaw within ±20° of the
+// rest yaw, then a raised pitch, then the same search looking outward from
+// the harbour interior (rim berths). Run once per selection, never per frame.
+// ---------------------------------------------------------------------------
+
+/** Ship subject on the lower-left third; x mirrors to 0.64 when the heading points left. */
+export const SELECTION_SHIP_ANCHOR: Readonly<ScreenPoint> = { x: 0.36, y: 0.62 };
+export const SELECTION_DOCK_ANCHOR: Readonly<ScreenPoint> = { x: 0.40, y: 0.55 };
+/** Waterline-to-masthead share of the frame height: the middle of camera-3's 9–12 % band. */
+export const SELECTION_SHIP_SPAN = 0.105;
+/** A station's quay-to-second-level massing share of the frame height. */
+const SELECTION_DOCK_SPAN = 0.2;
+/**
+ * The ship's silhouette height over `gardenShipSelectionRadius`: the hit
+ * rect's convention (`rectAboveAnchor`, 1.25 × the 2r diameter), which holds
+ * for low barges and tall-masted hulls alike better than any one mast height.
+ */
+export const SHIP_SILHOUETTE_PER_SELECTION_RADIUS = 2.5;
+const SELECTION_YAW_OFFSETS_DEG = [0, 5, -5, 10, -10, 15, -15, 20, -20] as const;
+const SELECTION_PITCH_RAISES_DEG = [0, 3, 6, 9] as const;
+const SELECTION_DISTANCE_MIN = 24;
+const SELECTION_DISTANCE_MAX = 180;
+const SELECTION_MIN_EYE_HEIGHT = 5;
+/** Rim banks read as solid to this height with their planting (bamboo, pines, precinct trees). */
+const OCCLUDER_RIM_HEIGHT = 8;
+/** The Pharos crag, Pigeon Island and the islets: headland rock plus pines. */
+const OCCLUDER_ISLAND_HEIGHT = 24;
+const OCCLUDER_SHORE_HEIGHT = 2;
+const OCCLUDER_TOWER_RADIUS = 4;
+/**
+ * The W1.9 crag headland reaches past the island's tiles: probed as a solid
+ * drum this wide about the tower axis, to `OCCLUDER_ISLAND_HEIGHT`.
+ */
+const OCCLUDER_CRAG_RADIUS = 22;
+/** The Pharos and its crag, as a foreground mass: nearer than this share of the subject's distance it crowds the shot. */
+const TOWER_FOREGROUND_RADIUS = 20;
+const TOWER_FOREGROUND_DEPTH_SHARE = 0.8;
+/** No land within this many tiles of the eye, so no bank sits against the lens. */
+const SELECTION_EYE_CLEARANCE_TILES = 4;
+/** Sight-line steps nearer the subject than this cross its own hull and water. */
+const SELECTION_SUBJECT_SELF_RADIUS = 2.5;
+const SELECTION_SIGHT_STEP = 0.7;
+/** Lighthouse selection: a slow look-up — tilt up 3°, dolly in 4 %, tower foot to x 0.40. */
+export const LIGHTHOUSE_LOOK_UP = { pitchRad: (3 * Math.PI) / 180, dolly: 0.96, towerX: 0.4 } as const;
+
+/** Another hull the subject must not hide behind: its display tile and selection radius. */
+export interface SelectionShotObstacle {
+  tile: TilePoint;
+  selectionRadius: number;
+}
+
+export type SelectionShotSubject = (
+  | { kind: "ship"; tile: TilePoint; selectionRadius: number; heading?: TilePoint | null | undefined }
+  | { kind: "dock"; dock: DockNode }
+) & {
+  /** The rest of the fleet (the subject excluded), probed as upright hull cylinders. */
+  obstacles?: readonly SelectionShotObstacle[] | undefined;
+};
+
+export interface SelectionShotReport {
+  /** The anchor the subject was composed on (after the lead flip). */
+  anchor: ScreenPoint;
+  yawOffsetDeg: number;
+  pitchRaiseDeg: number;
+  /** The search fell back to looking outward from the harbour interior. */
+  outward: boolean;
+  /** Subject probe points whose sight line land, the tower or a station crosses, of `samples`. */
+  blocked: number;
+  /** Probe points (of the rest) whose sight line crosses another hull. */
+  hullBlocked: number;
+  samples: number;
+  /** The eye sits over open map water, clear of land. */
+  eyeClear: boolean;
+  /** The Pharos does not stand in front of the subject inside the frame. */
+  foregroundClear: boolean;
+}
+
+/**
+ * Lexicographic cost; 0 is a clean shot: a land-bound eye, then each line
+ * hidden by land, tower or station, then a foreground tower, then each line
+ * crossing another hull (a sail in front is a lesser loss than the crag).
+ */
+function selectionCandidateCost(report: SelectionShotReport): number {
+  return (report.eyeClear ? 0 : 1000) + report.blocked * 20 + (report.foregroundClear ? 0 : 10) + report.hullBlocked * 2;
+}
+
+export interface SelectionShot {
+  /** The rig under the shot (URL `cam`, gesture hand-off) with the shot at presence 1. */
+  camera: IsoCamera;
+  report: SelectionShotReport;
+}
+
+interface WorldBox { min: WorldPoint; max: WorldPoint }
+
+function stationMassingBox(station: { type: StationType; tile: TilePoint; seawardBearing: number }): WorldBox {
+  const rect = stationFootprintRect(station.type, station.tile, station.seawardBearing);
+  const xs: number[] = [];
+  const zs: number[] = [];
+  for (const along of [rect.minAlong, rect.maxAlong]) {
+    for (const across of [rect.minAcross, rect.maxAcross]) {
+      xs.push((rect.origin.x + along * rect.seawardX - across * rect.seawardY) * TILE_SCALE);
+      zs.push((rect.origin.y + along * rect.seawardY + across * rect.seawardX) * TILE_SCALE);
+    }
+  }
+  return {
+    min: { x: Math.min(...xs), y: GARDEN_DOCK_ROOT_Y, z: Math.min(...zs) },
+    max: { x: Math.max(...xs), y: GARDEN_DOCK_ROOT_Y + STATION_SCALE_LADDER[station.type].secondLevelTop, z: Math.max(...zs) },
+  };
+}
+
+let stationBoxesMemo: ReadonlyArray<{ key: string; box: WorldBox }> | null = null;
+/** Station massing boxes keyed by their dock tile (`x,y`), so a dock subject can skip its own. */
+function stationBoxes(): ReadonlyArray<{ key: string; box: WorldBox }> {
+  stationBoxesMemo ??= REST_STATIONS.map((station) => ({ key: `${station.tile.x},${station.tile.y}`, box: stationMassingBox(station) }));
+  return stationBoxesMemo;
+}
+
+/** Slab test: does the segment `from`→`to` cross the box? */
+function segmentHitsBox(from: WorldPoint, to: WorldPoint, box: WorldBox): boolean {
+  let enter = 0;
+  let exit = 1;
+  for (const axis of ["x", "y", "z"] as const) {
+    const delta = to[axis] - from[axis];
+    if (Math.abs(delta) < 1e-9) {
+      if (from[axis] < box.min[axis] || from[axis] > box.max[axis]) return false;
+      continue;
+    }
+    const a = (box.min[axis] - from[axis]) / delta;
+    const b = (box.max[axis] - from[axis]) / delta;
+    enter = Math.max(enter, Math.min(a, b));
+    exit = Math.min(exit, Math.max(a, b));
+    if (enter > exit) return false;
+  }
+  return true;
+}
+
+/** Solid top of the map at a world point: planted land or a low shore; open water and off-map are -∞. */
+function occluderLandHeight(x: number, z: number): number {
+  const map = buildPharosVilleMap();
+  const tileX = Math.round(x / TILE_SCALE);
+  const tileY = Math.round(z / TILE_SCALE);
+  if (tileX < 0 || tileY < 0 || tileX >= map.width || tileY >= map.height) return Number.NEGATIVE_INFINITY;
+  const tile = map.tiles[tileY * map.width + tileX]!;
+  if (isWaterTileKind(tile.kind)) return Number.NEGATIVE_INFINITY;
+  if (tile.kind === "shore") return OCCLUDER_SHORE_HEIGHT;
+  return tile.terrain === "rim" ? OCCLUDER_RIM_HEIGHT : OCCLUDER_ISLAND_HEIGHT;
+}
+
+interface HullCylinder { x: number; z: number; radius: number; top: number }
+
+/** Where along the segment (0..1) it passes nearest a vertical axis, in plan. */
+function nearestPlanT(eye: WorldPoint, dx: number, dz: number, x: number, z: number, reach: number): number {
+  const lengthSquared = dx * dx + dz * dz;
+  if (lengthSquared < 1e-9) return 0;
+  return Math.min(reach, Math.max(0, ((x - eye.x) * dx + (z - eye.z) * dz) / lengthSquared));
+}
+
+/** What hides the sight line from the eye to a probe point, if anything. */
+function sightBlocker(eye: WorldPoint, point: WorldPoint, geometry: Pick<SelectionSubjectGeometry, "hulls" | "ownStation">): "land" | "hull" | null {
+  const dx = point.x - eye.x;
+  const dy = point.y - eye.y;
+  const dz = point.z - eye.z;
+  const length = Math.hypot(dx, dy, dz);
+  const reach = Math.max(0, length - SELECTION_SUBJECT_SELF_RADIUS) / Math.max(1e-6, length);
+  const tower = towerAnchors();
+  const steps = Math.ceil(length / SELECTION_SIGHT_STEP);
+  for (let step = 1; step < steps && step / steps <= reach; step += 1) {
+    const t = step / steps;
+    const x = eye.x + dx * t;
+    const y = eye.y + dy * t;
+    const z = eye.z + dz * t;
+    if (y < occluderLandHeight(x, z)) return "land";
+    if (y < tower.crown.y && Math.hypot(x - tower.foot.x, z - tower.foot.z) < OCCLUDER_TOWER_RADIUS) return "land";
+    if (y < OCCLUDER_ISLAND_HEIGHT && Math.hypot(x - tower.foot.x, z - tower.foot.z) < OCCLUDER_CRAG_RADIUS) return "land";
+  }
+  const end = { x: eye.x + dx * reach, y: eye.y + dy * reach, z: eye.z + dz * reach };
+  if (stationBoxes().some(({ key, box }) => key !== geometry.ownStation && segmentHitsBox(eye, end, box))) return "land";
+  for (const hull of geometry.hulls) {
+    const t = nearestPlanT(eye, dx, dz, hull.x, hull.z, reach);
+    const x = eye.x + dx * t;
+    const z = eye.z + dz * t;
+    if (Math.hypot(x - hull.x, z - hull.z) < hull.radius && eye.y + dy * t < hull.top) return "hull";
+  }
+  return null;
+}
+
+function eyeOverOpenWater(eye: WorldPoint): boolean {
+  if (eye.y < SELECTION_MIN_EYE_HEIGHT) return false;
+  const tileX = eye.x / TILE_SCALE;
+  const tileY = eye.z / TILE_SCALE;
+  // The map proper: the plate margin beyond it carries the camera-side skirt land.
+  if (tileX < 0 || tileY < 0 || tileX > PHAROSVILLE_MAP_WIDTH - 1 || tileY > PHAROSVILLE_MAP_HEIGHT - 1) return false;
+  const tower = towerAnchors();
+  if (Math.hypot(eye.x - tower.foot.x, eye.z - tower.foot.z) < OCCLUDER_CRAG_RADIUS + SELECTION_EYE_CLEARANCE_TILES * TILE_SCALE) return false;
+  for (let dy = -SELECTION_EYE_CLEARANCE_TILES; dy <= SELECTION_EYE_CLEARANCE_TILES; dy += 1) {
+    for (let dx = -SELECTION_EYE_CLEARANCE_TILES; dx <= SELECTION_EYE_CLEARANCE_TILES; dx += 1) {
+      if (occluderLandHeight(eye.x + dx * TILE_SCALE, eye.z + dy * TILE_SCALE) > Number.NEGATIVE_INFINITY) return false;
+    }
+  }
+  return true;
+}
+
+/** The camera state that shows `view` alone (for measuring a candidate shot). */
+function shotCameraFor(view: CameraView): IsoCamera {
+  return { offsetX: 0, offsetY: 0, zoom: 1, shot: { presence: 1, view } };
+}
+
+/**
+ * The view at (yaw, down-pitch) that puts `subject` on the frame `anchor`
+ * `distance` along its pixel ray; its look-at target sits the same distance
+ * down the axis, so breath pivots and the detail measure read the subject.
+ */
+function composedView(subject: WorldPoint, yaw: number, pitch: number, anchor: ScreenPoint, distance: number, viewport: ScreenPoint): CameraView {
+  const tanHalfFov = Math.tan((CAMERA_FOV_DEG * Math.PI) / 360);
+  const right = (2 * anchor.x - 1) * tanHalfFov * (viewport.x / viewport.y);
+  const up = (1 - 2 * anchor.y) * tanHalfFov;
+  const sinYaw = Math.sin(yaw);
+  const cosYaw = Math.cos(yaw);
+  const sinPitch = Math.sin(pitch);
+  const cosPitch = Math.cos(pitch);
+  // right·(cos, 0, −sin)yaw + up·(camera up) − back, as in projection's camera basis.
+  const x = right * cosYaw - up * sinPitch * sinYaw - cosPitch * sinYaw;
+  const y = up * cosPitch - sinPitch;
+  const z = -right * sinYaw - up * sinPitch * cosYaw - cosPitch * cosYaw;
+  const scale = distance / Math.hypot(x, y, z);
+  const eye = { x: subject.x - x * scale, y: subject.y - y * scale, z: subject.z - z * scale };
+  return cameraViewFromAngles(eye, yaw, pitch, distance, CAMERA_FOV_DEG);
+}
+
+interface SelectionSubjectGeometry {
+  /** The point composed on the anchor (the silhouette's centre). */
+  point: WorldPoint;
+  /** Probe points: the sight lines that must stay clear. */
+  samples: readonly WorldPoint[];
+  anchor: ScreenPoint;
+  distance: number;
+  heading: { x: number; z: number } | null;
+  /** The subject's own station (`x,y` dock tile), exempt from the probe. */
+  ownStation: string | null;
+  hulls: readonly HullCylinder[];
+}
+
+function hullCylinders(obstacles: readonly SelectionShotObstacle[] | undefined): HullCylinder[] {
+  return (obstacles ?? []).map((obstacle) => ({
+    radius: obstacle.selectionRadius * 0.9,
+    top: GARDEN_SHIP_ROOT_Y + obstacle.selectionRadius * SHIP_SILHOUETTE_PER_SELECTION_RADIUS,
+    x: obstacle.tile.x * TILE_SCALE,
+    z: obstacle.tile.y * TILE_SCALE,
+  }));
+}
+
+function selectionSubjectGeometry(subject: SelectionShotSubject): SelectionSubjectGeometry {
+  const frameHeightPerDistance = 2 * Math.tan((CAMERA_FOV_DEG * Math.PI) / 360);
+  const clampDistance = (distance: number) => Math.min(SELECTION_DISTANCE_MAX, Math.max(SELECTION_DISTANCE_MIN, distance));
+  if (subject.kind === "dock") {
+    const station = stationsForSubjects([subject.dock])[0]!;
+    const box = stationMassingBox(station);
+    const centre = { x: (box.min.x + box.max.x) / 2, z: (box.min.z + box.max.z) / 2 };
+    const height = box.max.y - box.min.y;
+    return {
+      point: { x: centre.x, y: box.min.y + height / 2, z: centre.z },
+      samples: [box.min.y + 0.4, box.min.y + height / 2, box.max.y].map((y) => ({ x: centre.x, y, z: centre.z })),
+      anchor: SELECTION_DOCK_ANCHOR,
+      distance: clampDistance(height / (SELECTION_DOCK_SPAN * frameHeightPerDistance)),
+      heading: null,
+      ownStation: `${station.tile.x},${station.tile.y}`,
+      hulls: hullCylinders(subject.obstacles),
+    };
+  }
+  const height = subject.selectionRadius * SHIP_SILHOUETTE_PER_SELECTION_RADIUS;
+  const x = subject.tile.x * TILE_SCALE;
+  const z = subject.tile.y * TILE_SCALE;
+  const speed = subject.heading ? Math.hypot(subject.heading.x, subject.heading.y) : 0;
+  const heading = speed > 1e-6 ? { x: subject.heading!.x / speed, z: subject.heading!.y / speed } : null;
+  const half = subject.selectionRadius * 0.9;
+  const samples: WorldPoint[] = [
+    { x, y: GARDEN_SHIP_ROOT_Y + 0.4, z },
+    { x, y: GARDEN_SHIP_ROOT_Y + height * 0.5, z },
+    { x, y: GARDEN_SHIP_ROOT_Y + height * 0.9, z },
+  ];
+  if (heading) {
+    for (const sign of [1, -1]) {
+      samples.push({ x: x + heading.x * half * sign, y: GARDEN_SHIP_ROOT_Y + height * 0.3, z: z + heading.z * half * sign });
+    }
+  }
+  return {
+    point: { x, y: GARDEN_SHIP_ROOT_Y + height * 0.5, z },
+    samples,
+    anchor: SELECTION_SHIP_ANCHOR,
+    distance: clampDistance(height / (SELECTION_SHIP_SPAN * frameHeightPerDistance)),
+    heading,
+    ownStation: null,
+    hulls: hullCylinders(subject.obstacles),
+  };
+}
+
+interface SelectionCandidate {
+  view: CameraView;
+  report: SelectionShotReport;
+}
+
+function measureSelectionCandidate(
+  geometry: SelectionSubjectGeometry,
+  yaw: number,
+  pitch: number,
+  viewport: ScreenPoint,
+  meta: Pick<SelectionShotReport, "yawOffsetDeg" | "pitchRaiseDeg" | "outward">,
+): SelectionCandidate {
+  let anchor = geometry.anchor;
+  let view = composedView(geometry.point, yaw, pitch, anchor, geometry.distance, viewport);
+  if (geometry.heading) {
+    // Lead space: the bow points into the open two thirds; mirror when it heads left.
+    const camera = shotCameraFor(view);
+    const at = worldToScreen(geometry.point, camera, viewport);
+    const ahead = worldToScreen({
+      x: geometry.point.x + geometry.heading.x * 6,
+      y: geometry.point.y,
+      z: geometry.point.z + geometry.heading.z * 6,
+    }, camera, viewport);
+    if (ahead.x - at.x < -0.002 * viewport.x) {
+      anchor = { x: 1 - anchor.x, y: anchor.y };
+      view = composedView(geometry.point, yaw, pitch, anchor, geometry.distance, viewport);
+    }
+  }
+  const blockers = geometry.samples.map((point) => sightBlocker(view.eye, point, geometry));
+  return {
+    view,
+    report: {
+      ...meta,
+      anchor,
+      blocked: blockers.filter((blocker) => blocker === "land").length,
+      hullBlocked: blockers.filter((blocker) => blocker === "hull").length,
+      samples: geometry.samples.length,
+      eyeClear: eyeOverOpenWater(view.eye),
+      foregroundClear: !towerInForeground(view, geometry.distance, viewport),
+    },
+  };
+}
+
+/** The Pharos stands between the eye and the subject, inside the frame: a wall, not a backdrop. */
+function towerInForeground(view: CameraView, subjectDistance: number, viewport: ScreenPoint): boolean {
+  const TOWER = towerAnchors();
+  const camera = shotCameraFor(view);
+  const depth = worldViewDepth(TOWER.foot, camera, viewport);
+  if (depth <= 1 || depth >= subjectDistance * TOWER_FOREGROUND_DEPTH_SHARE) return false;
+  const { yaw } = cameraViewAngles(view);
+  const right = { x: Math.cos(yaw), z: -Math.sin(yaw) };
+  const xs = [-1, 1].map((side) => worldToScreen({
+    x: TOWER.foot.x + right.x * TOWER_FOREGROUND_RADIUS * side,
+    y: TOWER.foot.y,
+    z: TOWER.foot.z + right.z * TOWER_FOREGROUND_RADIUS * side,
+  }, camera, viewport).x);
+  return Math.max(...xs) > 0 && Math.min(...xs) < viewport.x;
+}
+
+/** The rig under a shot: the subject on the same pixel at the shot's stand-off. */
+function selectionRig(point: WorldPoint, anchor: ScreenPoint, distance: number, viewport: ScreenPoint): IsoCamera {
+  const zoom = Math.min(MAX_ZOOM, cameraDistanceForZoom(viewport.y, 1) / distance);
+  const iso = tileToIso({ x: point.x / TILE_SCALE, y: point.z / TILE_SCALE });
+  const rig = { offsetX: viewport.x / 2 - iso.x * zoom, offsetY: viewport.y / 2 - iso.y * zoom, zoom };
+  return placeRigPoint(rig, viewport, { x: anchor.x * viewport.x, y: anchor.y * viewport.y }, point, point.y);
+}
+
+/**
+ * W1.7 `selectionShot`: the composed shot for a selected ship or dock at this
+ * viewport. Candidates run from the rest yaw (±20°, then raised pitches), to
+ * the harbour-interior look outward, to the rest of the compass in 40° steps;
+ * the first clean one wins, else the cheapest (`selectionCandidateCost`).
+ */
+export function selectionShot(subject: SelectionShotSubject, viewport: ScreenPoint): SelectionShot {
+  const geometry = selectionSubjectGeometry(subject);
+  const centre = { x: ((PHAROSVILLE_MAP_WIDTH - 1) / 2) * TILE_SCALE, z: ((PHAROSVILLE_MAP_HEIGHT - 1) / 2) * TILE_SCALE };
+  const families = [
+    { outward: false, yaw: REST_SEAT_YAW_RAD },
+    // Rim berths: stand in the harbour and look out at the berth.
+    { outward: true, yaw: Math.atan2(centre.x - geometry.point.x, centre.z - geometry.point.z) },
+    // Last resort (a subject walled in by the crag from every near-rest yaw).
+    ...[1, 2, 3, 4, 5, 6, 7, 8].map((step) => ({ outward: true, yaw: REST_SEAT_YAW_RAD + (step * 40 * Math.PI) / 180 })),
+  ];
+  let best: SelectionCandidate | null = null;
+  search: for (const family of families) {
+    for (const pitchRaiseDeg of SELECTION_PITCH_RAISES_DEG) {
+      for (const yawOffsetDeg of SELECTION_YAW_OFFSETS_DEG) {
+        const candidate = measureSelectionCandidate(
+          geometry,
+          family.yaw + (yawOffsetDeg * Math.PI) / 180,
+          CAMERA_PITCH_NEAR_RAD + (pitchRaiseDeg * Math.PI) / 180,
+          viewport,
+          { outward: family.outward, pitchRaiseDeg, yawOffsetDeg },
+        );
+        if (!best || selectionCandidateCost(candidate.report) < selectionCandidateCost(best.report)) best = candidate;
+        if (selectionCandidateCost(best.report) === 0) break search;
+      }
+    }
+  }
+  const { view, report } = best!;
+  const rig = selectionRig(geometry.point, report.anchor, geometry.distance, viewport);
+  const shot: CameraShotState = { presence: 1, subject: { anchor: report.anchor, world: geometry.point }, view };
+  return { camera: { ...rig, shot }, report };
+}
+
+/**
+ * Lighthouse selection (camera-3 How 4): from the view the camera shows, the
+ * eye dollies 4 % toward the tower and tilts up 3°, turning until the tower's
+ * waterline sits at x 0.40, left of the detail panel. The camera keeps its rig
+ * and rest under the shot, so the seat's threshold stays with the viewer.
+ * Null when the tower is not in front of the view.
+ */
+export function lighthouseLookUpCamera(camera: IsoCamera, viewport: ScreenPoint): IsoCamera | null {
+  const view = cameraView(camera, viewport, { breath: false });
+  const { distance, pitch, yaw } = cameraViewAngles(view);
+  const TOWER = towerAnchors();
+  const toTower = Math.hypot(TOWER.foot.x - view.eye.x, TOWER.foot.y - view.eye.y, TOWER.foot.z - view.eye.z);
+  const step = (1 - LIGHTHOUSE_LOOK_UP.dolly) * toTower;
+  const eye = {
+    x: view.eye.x - Math.cos(pitch) * Math.sin(yaw) * step,
+    y: view.eye.y - Math.sin(pitch) * step,
+    z: view.eye.z - Math.cos(pitch) * Math.cos(yaw) * step,
+  };
+  const lookPitch = pitch - LIGHTHOUSE_LOOK_UP.pitchRad;
+  const lookDistance = distance * LIGHTHOUSE_LOOK_UP.dolly;
+  const viewAt = (lookYaw: number) => cameraViewFromAngles(eye, lookYaw, lookPitch, lookDistance, view.vFovDeg);
+  const footX = (lookYaw: number) => {
+    const probe = shotCameraFor(viewAt(lookYaw));
+    if (worldViewDepth(TOWER.waterline, probe, viewport) <= 1) return Number.NaN;
+    return worldToScreen(TOWER.waterline, probe, viewport).x / viewport.x - LIGHTHOUSE_LOOK_UP.towerX;
+  };
+  let low = yaw - Math.PI / 4;
+  let high = yaw + Math.PI / 4;
+  const lowValue = footX(low);
+  const highValue = footX(high);
+  if (!(lowValue * highValue <= 0)) return null;
+  for (let iteration = 0; iteration < 40; iteration += 1) {
+    const mid = (low + high) / 2;
+    if (Math.sign(footX(mid)) === Math.sign(lowValue)) low = mid;
+    else high = mid;
+  }
+  const lookUp = viewAt((low + high) / 2);
+  const anchor = worldToScreen(TOWER.waterline, shotCameraFor(lookUp), viewport);
+  return {
+    offsetX: camera.offsetX,
+    offsetY: camera.offsetY,
+    zoom: camera.zoom,
+    rest: camera.rest,
+    shot: {
+      presence: 1,
+      subject: { anchor: { x: anchor.x / viewport.x, y: anchor.y / viewport.y }, world: TOWER.waterline },
+      view: lookUp,
+    },
+  };
+}
+
+/**
+ * Follow mode inherits the selection's composition: the shot translates with
+ * its subject so the ship stays on the shot's anchor at the shot's yaw and
+ * pitch; the rig under it moves the same way. Null without a composed shot.
+ */
+export function followShotCamera(camera: IsoCamera, tile: TilePoint, viewport: ScreenPoint): IsoCamera | null {
+  const shot = camera.shot;
+  const subject = shot?.subject;
+  if (!shot || !subject || shot.presence < 1) return null;
+  const world = { x: tile.x * TILE_SCALE, y: subject.world.y, z: tile.y * TILE_SCALE };
+  const dx = world.x - subject.world.x;
+  const dz = world.z - subject.world.z;
+  if (Math.abs(dx) < 1e-6 && Math.abs(dz) < 1e-6) return camera;
+  const view = {
+    eye: { x: shot.view.eye.x + dx, y: shot.view.eye.y, z: shot.view.eye.z + dz },
+    target: { x: shot.view.target.x + dx, y: shot.view.target.y, z: shot.view.target.z + dz },
+    vFovDeg: shot.view.vFovDeg,
+  };
+  const rig = placeRigPoint(
+    withoutRest(camera),
+    viewport,
+    { x: subject.anchor.x * viewport.x, y: subject.anchor.y * viewport.y },
+    world,
+    world.y,
+  );
+  return { ...rig, shot: { presence: 1, subject: { anchor: subject.anchor, world }, view } };
 }
 
 export function cameraZoomLabel(camera: IsoCamera): string {

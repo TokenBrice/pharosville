@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => {
     canvasHandleKeyDown: vi.fn(),
     canvasSizeRef,
     focusTile: vi.fn(),
-    focusSelection: undefined as undefined | ((tile: { x: number; y: number }, onRest: () => void) => null),
+    focusSelection: undefined as undefined | ((subject: unknown, onReveal: () => void) => null),
     reducedMotion: true,
     rendererWarmupReady: true,
     rendererStatus: "ready",
@@ -240,20 +240,20 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.queryByTestId("pharosville-charting-veil")).toBeNull();
   });
 
-  it("reveals a linked harbor only when its selection camera reports rest", async () => {
+  it("reveals a linked harbor only when its selection glide opens the panel", async () => {
     window.history.replaceState(null, "", "/#sel=dock.ethereum&t=6");
-    let onRest: () => void = () => { throw new Error("No harbor framing callback"); };
-    mocks.focusSelection = vi.fn((_tile, callback) => { onRest = callback; return null; });
+    let onReveal: () => void = () => { throw new Error("No harbor framing callback"); };
+    mocks.focusSelection = vi.fn((_subject, callback) => { onReveal = callback; return null; });
     const world = worldFixture();
     render(<PharosVilleWorld world={world} />);
-    await waitFor(() => expect(mocks.focusSelection).toHaveBeenCalledWith(resolveGardenEntityDisplayTile({
-      entity: world.entityById["dock.ethereum"]!,
-      slice: selectGardenObservatorySlice(world, "dock.ethereum"),
-    }), expect.any(Function)));
+    await waitFor(() => expect(mocks.focusSelection).toHaveBeenCalledWith(
+      { dock: world.entityById["dock.ethereum"], kind: "dock", obstacles: expect.any(Array) },
+      expect.any(Function),
+    ));
     const dock = screen.getByTestId("pharosville-detail-panel").parentElement!;
     expect(dock.hidden).toBe(true);
     expect(dock.hasAttribute("inert")).toBe(true);
-    act(() => onRest());
+    act(() => onReveal());
     expect(dock.hidden).toBe(false);
     expect(dock.hasAttribute("inert")).toBe(false);
   });

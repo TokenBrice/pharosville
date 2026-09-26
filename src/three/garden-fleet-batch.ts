@@ -42,7 +42,7 @@ import { cachedShipGeometry } from "./garden-util";
  * 90% of the frame — because every ship contributed ~14 draw calls and cloned
  * its own materials, so nothing batched.
  *
- * Layout: near hull + sails and one combined far hull/identity quad per
+ * Layout: near hull + sails and one combined far ink silhouette per
  * silhouette, plus the shared near pennants. Six silhouettes → at most 19
  * draws, independent of ship count; each ship enters only one LOD per frame.
  *
@@ -275,12 +275,18 @@ export function gardenFleetSailRestraint(input: {
   return 1 - (1 - input.aerial) * (1 - framing);
 }
 
-/** Distance presence is eased per instance before reaching either cue. */
-export function gardenFleetMarkPresence(distancePresence: number): number {
+/**
+ * Distance presence is eased per instance before reaching either cue. The
+ * hero band (leaders, the nearest boats and any attended ship) keeps the full
+ * mark at every distance.
+ */
+export function gardenFleetMarkPresence(distancePresence: number, hero = false): number {
+  if (hero) return 1;
   return 1 - (1 - MARK_MIN_PRESENCE) * MathUtils.clamp(distancePresence, 0, 1);
 }
 
-const MARK_MIN_PRESENCE = 0.45;
+/** W4.F3: the middle ground keeps the hull and a quiet mark. */
+const MARK_MIN_PRESENCE = 0.3;
 const DISTANCE_HYSTERESIS_SECONDS = 0.35;
 /**
  * Eye-space distance in scene units; the dead band is 0.5 units wide. At the
@@ -290,6 +296,44 @@ const DISTANCE_HYSTERESIS_SECONDS = 0.35;
  */
 export const FLEET_HULL_LOD_DISTANCE = 150;
 const FLEET_HULL_LOD_HALF_HYSTERESIS = 0.25;
+
+/**
+ * W4.F3 / K32: the hero band — the ships that keep full rig, mon and issuer
+ * hue at every beat and distance. It is the leaders (titan and heritage tiers,
+ * named by the caller), any hovered or selected ship, and the nearest boats by
+ * eye distance. Rank hysteresis keeps a ship drifting across the boundary from
+ * flickering: it joins inside the nearest 16 and leaves only past the 20th.
+ * Everyone else past `FLEET_HULL_LOD_DISTANCE` is an ink silhouette.
+ *
+ * The flag rides the existing `aSailAttention.y` as `presence + 2·hero`
+ * (presence is 0..1), because the sail program is at its 16-attribute cap.
+ */
+export const FLEET_HERO_BAND_NEAREST = 16;
+const FLEET_HERO_BAND_RANK_HYSTERESIS = 4;
+
+/** Packs the distance presence (0..1) and the hero flag into one float. */
+export function gardenFleetPackSailDistance(presence: number, hero: boolean): number {
+  return MathUtils.clamp(presence, 0, 1) + (hero ? 2 : 0);
+}
+
+/** GLSL mirror of `gardenFleetPackSailDistance`: `step(1.5, y)` is the hero flag. */
+export function gardenFleetUnpackSailDistance(packed: number): { hero: boolean; presence: number } {
+  const hero = packed >= 1.5;
+  return { hero, presence: packed - (hero ? 2 : 0) };
+}
+
+/**
+ * W4.F3 ink tones for the far silhouettes, as multiples of the air's own
+ * radiance along the ray (`gardenAirlight`, garden-aerial.ts): the hull is a
+ * dark sliver, the cloth a pale floor just under the air, and both thin toward
+ * the air across the fleet's aerial ramp before the scene's aerial term veils
+ * them again. No light, no mark, a whisper of the issuer's hue on the cloth.
+ */
+const FAR_HULL_INK = "0.08";
+const FAR_HULL_INK_THIN = "0.3";
+const FAR_CLOTH_INK = "0.74";
+const FAR_CLOTH_INK_THIN = "0.86";
+const FAR_CLOTH_HUE = "0.22";
 
 export interface FleetAerialPerspective {
   /** Scene fog near plane, already view-scaled by garden-sky. */
@@ -932,7 +976,8 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         varying vec2 vClothUv;
         varying vec3 vSailTint;
         varying float vAerialDepth;
-        varying float vSailAttention;`,
+        varying float vSailAttention;
+        varying float vSailHero;`,
       )
       .replace(
         "#include <uv_vertex>",
@@ -947,7 +992,10 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           vSailTint = aSailTint;
           vClothUv = uv;
           vSailAttention = aSailAttention.x;
-          vSailDistance = aSailAttention.y;
+          // W4.F3: presence + 2·hero, see gardenFleetPackSailDistance.
+          float sailHero = step(1.5, aSailAttention.y);
+          vSailHero = sailHero;
+          vSailDistance = aSailAttention.y - 2.0 * sailHero;
         }`,
       );
     shader.fragmentShader = shader.fragmentShader
@@ -966,6 +1014,7 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         varying float vAerialDepth;
         varying float vSailAttention;
         varying float vSailDistance;
+        varying float vSailHero;
         float gClothWarp = 0.0;
         float gClothWeft = 0.0;`,
       )
@@ -987,14 +1036,16 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
 
           float aerial = smoothstep(uAerialNear, uAerialFar, vAerialDepth);
 
-          float markPresence = mix(1.0, ${MARK_MIN_PRESENCE}, vSailDistance);
-          float markVisibility = markPresence * (1.0 - aerial * 0.8);
+          // The hero band keeps its mon and dye at every distance; the air in
+          // front (the scene's aerial term) still veils it.
+          float markPresence = mix(mix(1.0, ${MARK_MIN_PRESENCE}, vSailDistance), 1.0, vSailHero);
+          float markVisibility = markPresence * (1.0 - aerial * 0.8 * (1.0 - vSailHero));
           vec3 sailCloth = mix(vSailTint, sailTexel.rgb, sailTexel.a * markVisibility);
 
           float attention = clamp(vSailAttention, 0.0, 1.0);
           float clothLuma = dot(sailCloth, vec3(0.2126, 0.7152, 0.0722));
-          float framingStep = vSailDistance * ${FLEET_FRAMING_RESTRAINT} * (1.0 - attention);
-          float restraint = aerial * uAerialStrength;
+          float framingStep = vSailDistance * ${FLEET_FRAMING_RESTRAINT} * (1.0 - attention) * (1.0 - vSailHero);
+          float restraint = aerial * uAerialStrength * (1.0 - vSailHero);
           restraint = 1.0 - (1.0 - restraint) * (1.0 - framingStep);
           sailCloth = mix(sailCloth, vec3(clothLuma), restraint);
 
@@ -1050,7 +1101,7 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
       );
   };
   material.customProgramCacheKey = () =>
-    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim-aerial-framing-weave-backlight";
+    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim-aerial-framing-weave-backlight-hero-band";
 }
 
 function createInstancedPart(
@@ -1190,9 +1241,10 @@ export function createFleetBatches(input: {
   patchSailAtlasMaterial(sailMaterial);
   materials.push(sailMaterial);
 
-  // One material keeps the far hull and its single identity quad in one draw.
-  // Reuse the cloth's atlas/atmosphere, but do not flutter timber or dye the
-  // emblem with instanceColor. Existing attributes suffice (14 locations).
+  // W4.F3: one material draws the far silhouette — hull sliver and family
+  // sails — in one call. It reuses the cloth program for the hull form, the
+  // dye and the aerial depth, then replaces the lit result with airlight inks:
+  // no flutter, no mark, no livery (the program stays at 13 locations).
   const farMaterial = sailMaterial.clone();
   farMaterial.emissiveIntensity = 0;
   patchSailAtlasMaterial(farMaterial);
@@ -1204,28 +1256,38 @@ export function createFleetBatches(input: {
       .replace("attribute float aSailFurl;", "")
       .replace("attribute float aSailIndex;", "")
       .replace("attribute vec3 aSailHead;", "")
-      .replace("vSailTint = aSailTint;", `
-        #ifdef USE_INSTANCING_COLOR
-          vSailTint = aAtlasSail > 0.5 ? aSailTint : instanceColor;
-        #else
-          vSailTint = aSailTint;
-        #endif`)
-      .replace("#include <color_vertex>", `#include <color_vertex>
-        #if defined( USE_INSTANCING_COLOR ) && defined( USE_COLOR )
-          // Undo three's instanceColor multiply: the far livery is applied via
-          // vSailTint on the hull, the vertex tone stays the authored split.
-          vColor.rgb = color.rgb;
-        #endif`)
       .replace("varying vec2 vAtlasUv;", "varying vec2 vAtlasUv; varying float vFarCloth;")
       .replace("vClothUv = uv;", "vClothUv = uv; vFarCloth = aAtlasSail;");
     shader.fragmentShader = shader.fragmentShader
       .replace("varying vec2 vAtlasUv;", "varying vec2 vAtlasUv; varying float vFarCloth;")
-      .replace("vec4 sailTexel = texture2D(map, vAtlasUv);",
-        "vec4 sailTexel = vFarCloth > 0.5 ? texture2D(map, vAtlasUv) : vec4(0.0);")
-      .replace("float weaveAmount = uClothWeave", "float weaveAmount = vFarCloth * uClothWeave")
-      .replace("outgoingLight += wrap", "outgoingLight += vFarCloth * wrap");
+      .replace("vec4 sailTexel = texture2D(map, vAtlasUv);", "vec4 sailTexel = vec4(0.0);")
+      .replace(
+        "#include <opaque_fragment>",
+        `{
+          // Cut paper, not shading: both inks are fractions of the air's own
+          // radiance along this ray, so the far fleet takes the hour's colour
+          // (sumi against the noon haze, silhouettes against the golden glow,
+          // near-black under the night air) and thins into the air with depth.
+          // The cloth keeps a pale floor over the dark sliver: hull + sail.
+          vec3 farRay = inverseTransformDirection(normalize(-vViewPosition), viewMatrix);
+          #if defined( USE_FOG ) && defined( GARDEN_AERIAL_PARS )
+            vec3 farAir = gardenAirlight(farRay);
+          #elif defined( USE_FOG )
+            vec3 farAir = fogColor;
+          #else
+            vec3 farAir = vec3(0.55, 0.6, 0.66);
+          #endif
+          float farThin = smoothstep(uAerialNear, uAerialFar, vAerialDepth);
+          float dyeLuma = max(dot(vSailTint, vec3(0.2126, 0.7152, 0.0722)), 0.001);
+          vec3 dyeHue = mix(vec3(1.0), clamp(vSailTint / dyeLuma, 0.0, 2.0), ${FAR_CLOTH_HUE});
+          vec3 hullInk = vec3(mix(${FAR_HULL_INK}, ${FAR_HULL_INK_THIN}, farThin));
+          vec3 clothInk = dyeHue * mix(${FAR_CLOTH_INK}, ${FAR_CLOTH_INK_THIN}, farThin);
+          outgoingLight = farAir * mix(hullInk, clothInk, vFarCloth);
+        }
+        #include <opaque_fragment>`,
+      );
   };
-  farMaterial.customProgramCacheKey = () => "garden-fleet-far-hull-identity-atlas";
+  farMaterial.customProgramCacheKey = () => "garden-fleet-far-ink-silhouette";
   materials.push(farMaterial);
 
   const pennantMaterial = new MeshStandardMaterial({
@@ -1243,7 +1305,7 @@ export function createFleetBatches(input: {
     hull.mesh.name = `fleet-hull-${silhouette}`;
     const sails = createInstancedPart(source.sails, sailMaterial, input.capacity, true);
     sails.mesh.name = `fleet-sails-${silhouette}`;
-    const far = createInstancedPart(source.far, farMaterial, input.capacity, true, false, true);
+    const far = createInstancedPart(source.far, farMaterial, input.capacity, true);
     far.mesh.name = `fleet-far-${silhouette}`;
     far.mesh.geometry.deleteAttribute("aSailFurl");
     far.sailFurl = null;
@@ -1274,6 +1336,11 @@ export interface FleetInstancePose {
    * `setFleetAttention`'s envelopes via this ship's atlas cell.
    */
   attention?: number;
+  /**
+   * W4.F3 / K32: a leader (titan or heritage tier). Leaders are always in the
+   * hero band: full rig, mon and issuer hue at every beat and distance.
+   */
+  leader?: boolean;
   hullColor: Color;
   /** F1: the ship's cloth dye — its issuer's dominant brand colour. */
   sailColor: Color;
@@ -1324,6 +1391,10 @@ interface FleetDistanceState {
   ships: Map<string, {
     distance: number;
     far: boolean;
+    /** In the hero band: never an ink silhouette, full mark and dye. */
+    hero: boolean;
+    /** Leader or attended this frame: in the band regardless of rank. */
+    pinned: boolean;
     presence: number | null;
     part: FleetBatchPart;
     slot: number;
@@ -1376,16 +1447,25 @@ export function writeFleetInstance(
   if (!batch) return;
   if (batch.hull.mesh.count + batch.far.mesh.count >= batches.capacity) return;
   const distanceState = fleetDistanceStates.get(batches);
+  // W3.7: the pose may name attention outright (tests, and any future caller
+  // that already holds the ship's hover/selection state); otherwise it is
+  // resolved from the module's eased envelopes by atlas cell.
+  const attention = pose.attention ?? gardenFleetAttention(pose.atlasCell);
+  // Leaders and the attended ship join the hero band at once (hovering or
+  // selecting a far silhouette brings back its rig); rank joins at frame end.
+  const pinned = pose.leader === true || attention > 0;
+  let hero = pinned;
   let far = false;
   let distance = 0;
   if (distanceState) {
     const eye = distanceState.eye;
     distance = Math.hypot(pose.x - eye.x, pose.y - eye.y, pose.z - eye.z);
     const previous = distanceState.ships.get(pose.shipId);
+    hero ||= previous?.hero ?? false;
     const threshold = FLEET_HULL_LOD_DISTANCE + (previous
       ? previous.far ? -FLEET_HULL_LOD_HALF_HYSTERESIS : FLEET_HULL_LOD_HALF_HYSTERESIS
       : 0);
-    far = distance > threshold;
+    far = !hero && distance > threshold;
   }
   const hull = far ? batch.far : batch.hull;
   const sails = far ? batch.far : batch.sails;
@@ -1393,16 +1473,20 @@ export function writeFleetInstance(
   if (distanceState) {
     let ship = distanceState.ships.get(pose.shipId);
     if (!ship) {
-      ship = { distance, far, presence: null, part: sails, slot, seen: true };
+      ship = { distance, far, hero, pinned, presence: null, part: sails, slot, seen: true };
       distanceState.ships.set(pose.shipId, ship);
     } else {
       ship.distance = distance;
       ship.far = far;
+      ship.hero = hero;
+      ship.pinned = pinned;
       ship.part = sails;
       ship.slot = slot;
       ship.seen = true;
     }
-    distanceState.distances.push(distance);
+    // A thinned-out hull (scale 0) is not on screen: it neither sets the
+    // distance thirds nor takes a hero-band rank from a visible boat.
+    if (pose.scale > 0) distanceState.distances.push(distance);
   }
 
   scratchPosition.set(pose.x, pose.y, pose.z);
@@ -1415,12 +1499,8 @@ export function writeFleetInstance(
   scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
 
   hull.mesh.setMatrixAt(slot, scratchMatrix);
-  hull.mesh.setColorAt(slot, far
-    ? scratchColor.copy(pose.hullColor).multiplyScalar(MathUtils.clamp(
-      (pose.hullForm as FleetInstancePose["hullForm"] & { hullValue?: number }).hullValue ?? 1,
-      0.85, 1.15,
-    ))
-    : pose.hullColor);
+  // The far silhouette is ink: it carries no livery.
+  if (!far) hull.mesh.setColorAt(slot, pose.hullColor);
   hull.mesh.count = slot + 1;
   if (hull.trim) {
     hull.trim.setXYZ(slot, pose.trimColor.r, pose.trimColor.g, pose.trimColor.b);
@@ -1465,13 +1545,10 @@ export function writeFleetInstance(
     sails.sailFurl.setX(slot, pose.sailFurl + (1 - sailScale) * 0.99);
   }
   if (sails.sailAttention) {
-    // W3.7: the pose may name attention outright (tests, and any future caller
-    // that already holds the ship's hover/selection state); otherwise it is
-    // resolved from the module's eased envelopes by atlas cell.
-    sails.sailAttention.setX(
-      slot,
-      pose.attention ?? gardenFleetAttention(pose.atlasCell),
-    );
+    sails.sailAttention.setX(slot, attention);
+    // Without a distance frame there is no presence ramp; endFleetFrame
+    // rewrites this with the eased presence when there is.
+    if (!distanceState) sails.sailAttention.setY(slot, gardenFleetPackSailDistance(0, hero));
   }
 
   if (far) return;
@@ -1520,15 +1597,22 @@ export function endFleetFrame(batches: FleetBatches): void {
     distances.sort((left, right) => left - right);
     const near = distances[Math.max(0, Math.ceil(distances.length / 3) - 1)] ?? 0;
     const far = distances[Math.min(distances.length - 1, Math.floor(distances.length * 2 / 3))] ?? near;
+    // The same sorted distances rank the hero band: no second pass.
+    const lastRank = distances.length - 1;
+    const heroJoin = distances[Math.min(lastRank, FLEET_HERO_BAND_NEAREST - 1)] ?? 0;
+    const heroLeave = distances[
+      Math.min(lastRank, FLEET_HERO_BAND_NEAREST + FLEET_HERO_BAND_RANK_HYSTERESIS - 1)
+    ] ?? 0;
     for (const [id, ship] of distanceState.ships) {
       if (!ship.seen) {
         distanceState.ships.delete(id);
         continue;
       }
+      ship.hero = ship.pinned || ship.distance <= (ship.hero ? heroLeave : heroJoin);
       const target = far > near ? MathUtils.clamp((ship.distance - near) / (far - near), 0, 1) : 0;
       const previous = ship.presence ?? target;
       ship.presence = previous + (target - previous) * distanceState.blend;
-      ship.part.sailAttention!.setY(ship.slot, ship.presence);
+      ship.part.sailAttention!.setY(ship.slot, gardenFleetPackSailDistance(ship.presence, ship.hero));
     }
   }
   for (const batch of batches.bySilhouette.values()) {
@@ -1537,6 +1621,16 @@ export function endFleetFrame(batches: FleetBatches): void {
     flushPart(batch.far);
   }
   flushPart(batches.pennant);
+}
+
+/**
+ * W4.F3: whether a ship is in the hero band, for the lights that follow it
+ * (at night the far fleet is embers: only heroes keep their stern lanterns).
+ * A ship the batch does not rank — a GLB hero hull, a transient, or any ship
+ * when no distance frame is running — counts as a hero.
+ */
+export function gardenFleetShipIsHero(batches: FleetBatches, shipId: string): boolean {
+  return fleetDistanceStates.get(batches)?.ships.get(shipId)?.hero ?? true;
 }
 
 function flushPart(part: FleetBatchPart): void {

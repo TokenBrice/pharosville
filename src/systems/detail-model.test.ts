@@ -23,6 +23,7 @@ import {
   lighthouseBeamWarmCueLabel,
   lighthouseLampStatusLabel,
   nowCaption,
+  nowCaptionAnnouncement,
   PHAROS_WATCH_TELEGRAM_HREF,
   psiCompositionLabel,
   psiTrendLabel,
@@ -101,6 +102,20 @@ describe("W5.2 now caption grammar", () => {
       latestTransition: null,
       psi: 32,
     })).toBe("12:25 — a watchful noon · readings current");
+  });
+
+  it("names the moon in the visible night caption only, never in the announcement", () => {
+    // The suite's pinned sky day is the 26 Sep 2026 harvest full moon.
+    const night = {
+      arrivalAnnotation: null,
+      beats: { dawn: 0, day: 0, golden: 0, blue: 0, night: 1 },
+      freshness: {},
+      hour: 22,
+      latestTransition: null,
+      psi: 82,
+    };
+    expect(nowCaption(night)).toBe("22:00 — a quiet night · a full moon · readings current");
+    expect(nowCaptionAnnouncement(night)).toBe("a quiet night · readings current");
   });
 });
 
@@ -308,6 +323,26 @@ describe("detail-model analytical links", () => {
 
     expect(atmosphere?.value).toContain("lightning possible at the fleet storm peak");
     expect(atmosphere?.value).not.toContain("lightning active");
+  });
+
+  it("names each named water's surface state, and none for unbanded waters", () => {
+    const surface = (area: Partial<AreaNode>) => detailForArea({
+      id: "area.test",
+      kind: "area",
+      label: "Test Water",
+      tile: { x: 1, y: 1 },
+      detailId: "area.test",
+      ...area,
+    }).facts.find((fact) => fact.label === "Water surface")?.value;
+
+    expect(surface({ band: "CALM" })).toMatch(/^Glass/);
+    expect(surface({ band: "WATCH" })).toMatch(/^Ripple/);
+    expect(surface({ band: "ALERT" })).toMatch(/^Streaks/);
+    expect(surface({ band: "WARNING" })).toMatch(/^Chop/);
+    expect(surface({ band: "DANGER" })).toMatch(/^Leaden/);
+    // The NAV ledger water has a zone but no DEWS band.
+    expect(surface({ riskZone: "ledger" })).toMatch(/^Glass/);
+    expect(surface({})).toBeUndefined();
   });
 
   it("keeps dock members external-only unless an explicit in-world ship detail exists", () => {

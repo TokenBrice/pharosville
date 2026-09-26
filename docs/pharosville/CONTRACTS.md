@@ -160,8 +160,8 @@ pins are not authority over the accepted picture.
   brackets and a pent skirt or stepped course, with a named archetype signature.
 - Raised quays keep a warm lit edge and dusk/night windows; the Mole alone is
   the ring's civic monument. L2 stations are self-standing distant harbours.
-  Station landing torii stay retired; separate decorative islet torii retain
-  their own geometry. Enlargement adds no analytical meaning.
+  No torii stand anywhere in the garden (O6): the Pharos landing is marked by
+  two set stones and a kutsunugi step. Enlargement adds no analytical meaning.
 - The Pharos precinct is demilitarised: shoin court, engawa and dry-stone replace
   curtain walls, bastions and merlons. Tower remains primary; pavilion, pond and
   signal mast are the only secondary precinct reads. Another monument must

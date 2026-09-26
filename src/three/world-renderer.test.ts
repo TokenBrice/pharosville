@@ -1171,8 +1171,8 @@ describe("Three world renderer lifecycle", () => {
 
     renderer.render(rendererFrame(world, "full", { cameraZoom: 0.648, timeSeconds: 1 }));
     const contentRoot = rendererHarness.instances.at(-1)!.lastScene!.children.at(-1)!;
-    // The landing torii replaces the obelisks as a primary island silhouette,
-    // so it remains drawn at overview rather than joining the detail LOD.
+    // The obelisks are retired (the landing is marked by set stones), so the
+    // policy's obelisk name no longer composes.
     const composedOverviewNames = OVERVIEW_LOD_DETAIL_NAMES.filter(
       (name) => name !== "pharos-precinct-obelisks",
     );
@@ -1180,8 +1180,6 @@ describe("Three world renderer lifecycle", () => {
       name,
       namedObjects(contentRoot, name),
     ]));
-    const landingTorii = namedObjects(contentRoot, "island-landing-torii");
-    expect(landingTorii.length, "no composed landing torii").toBeGreaterThan(0);
 
     // Every name the policy claims must still exist in the composed world; a
     // rename upstream must fail here rather than silently un-cull the frame.
@@ -1200,7 +1198,6 @@ describe("Three world renderer lifecycle", () => {
     for (const [name, objects] of props) {
       expect(objects.every((object) => !object.visible), `${name} still drawn`).toBe(true);
     }
-    expect(landingTorii.every((object) => object.visible), "landing torii was shed").toBe(true);
 
     renderer.render(rendererFrame(world, "full", { cameraZoom: 0.648, timeSeconds: 21 }));
     for (const entry of authored) {

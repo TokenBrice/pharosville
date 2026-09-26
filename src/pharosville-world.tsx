@@ -15,7 +15,7 @@ import { isDebugChromeEnabled } from "./lib/pharosville-debug";
 import { useShipLogoAssets } from "./hooks/use-ship-logo-assets";
 import { useChangelogDialog } from "./hooks/use-changelog-dialog";
 import { useLegendDialog } from "./hooks/use-legend-dialog";
-import { useCanvasResizeAndCamera } from "./hooks/use-canvas-resize-and-camera";
+import { useCanvasResizeAndCamera, type CameraSelectionSubject } from "./hooks/use-canvas-resize-and-camera";
 import { useHarborLog } from "./hooks/use-harbor-log";
 import { useGardenAlmanac } from "./hooks/use-garden-almanac";
 import { useGardenDirector } from "./hooks/use-garden-director";
@@ -40,6 +40,7 @@ import { createGardenObservatoryHitTargetSnapshot } from "./renderer/garden-obse
 import type { HitTarget, HitTargetSnapshot } from "./renderer/hit-testing";
 import { clampCameraToMap } from "./systems/camera";
 import {
+  gardenShipSelectionRadius,
   resolveGardenEntityDisplayTile,
   selectGardenObservatorySlice,
 } from "./systems/garden-observatory-slice";
@@ -435,31 +436,52 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const lastCameraSelectionRef = useRef<string | null>(selectedDetailId);
   const focusSelectedCamera = useCallback((detailId: string, entity: WorldSelectableEntity) => {
     const markPanelReady = () => setPanelReadyDetailId(detailId);
-    const displayTile = resolveGardenEntityDisplayTile({
-      entity,
-      shipMotionSamples: shipMotionSamplesRef.current,
-      slice: selectGardenObservatorySlice(world, detailId),
-    });
-    if (!displayTile || (entity.kind !== "ship" && entity.kind !== "dock")) {
+    const slice = selectGardenObservatorySlice(world, detailId);
+    const shipMotionSamples = shipMotionSamplesRef.current;
+    const displayTile = resolveGardenEntityDisplayTile({ entity, shipMotionSamples, slice });
+    const framed = entity.kind === "ship" || entity.kind === "dock" || entity.kind === "lighthouse";
+    if (!displayTile || !framed) {
       queueMicrotask(markPanelReady);
       return;
     }
     // Older renderer test doubles predate the W4.6 seam. They still exercise
     // selection correctly through the established focusTile command.
     if (typeof focusCanvasSelection !== "function") {
-      focusCanvasTile(displayTile);
+      if (entity.kind !== "lighthouse") focusCanvasTile(displayTile);
       queueMicrotask(markPanelReady);
       return;
     }
-    const returnCamera = focusCanvasSelection(displayTile, markPanelReady);
+    // W1.7: every selection is a composed shot — a ship on the lower-left
+    // third with lead space along its heading, a dock on (0.40, 0.55), the
+    // lighthouse a slow look-up. Keyboard and deep-link selections land here too.
+    // The rest of the fleet, where it is drawn now: the shot's probe keeps the
+    // subject from hiding behind another hull.
+    const obstacles = entity.kind === "lighthouse" ? [] : world.ships.flatMap((ship) => {
+      if (ship.id === entity.id) return [];
+      const tile = resolveGardenEntityDisplayTile({ entity: ship, shipMotionSamples, slice });
+      return tile ? [{ selectionRadius: gardenShipSelectionRadius(ship), tile }] : [];
+    });
+    const subject: CameraSelectionSubject = entity.kind === "ship"
+      ? {
+        heading: shipMotionSamples.get(entity.id)?.velocity ?? null,
+        kind: "ship",
+        obstacles,
+        selectionRadius: gardenShipSelectionRadius(entity),
+        tile: displayTile,
+      }
+      : entity.kind === "dock"
+        ? { dock: entity, kind: "dock", obstacles }
+        : { kind: "lighthouse" };
+    const returnCamera = focusCanvasSelection(subject, markPanelReady);
     if (!selectionReturnCameraRef.current && returnCamera) {
       selectionReturnCameraRef.current = returnCamera;
     }
   }, [focusCanvasSelection, focusCanvasTile, shipMotionSamplesRef, world]);
 
-  // Selecting a ship or harbor is itself the camera command. The layout effect
-  // hides the panel before the browser paints the selection commit; its
-  // callback reveals the panel only after the exponential dolly settles.
+  // Selecting a ship, harbor or the lighthouse is itself the camera command.
+  // The layout effect hides the panel before the browser paints the selection
+  // commit; its callback reveals the panel at 70 % of the glide (W1.7), so it
+  // opens as the shot settles rather than after a creeping tail.
   useLayoutEffect(() => {
     const previous = lastCameraSelectionRef.current;
     if (previous === selectedDetailId) return;

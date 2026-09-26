@@ -224,10 +224,12 @@ function chamferDistance(distance: Float32Array, size: number): void {
 /**
  * W2 / D6: how each region's water BEHAVES, not just what colour it is.
  *
- * Colour is never the only encoding (accessibility contract): calm is glassy
- * and reflective, danger is dark, steep and foam-streaked, and the bands in
- * between escalate monotonically. A viewer who cannot separate the hues still
- * reads the sea state from its motion.
+ * Colour is never the only encoding (accessibility contract). K7 (Hour-Print
+ * W3.3): the band is carried first by the STATE of the surface — calm glass,
+ * watch ripple, alert streaks, warning chop, danger leaden — through probe
+ * roughness, reflectivity and the engraved crest lines, with hue a quiet
+ * second voice. A viewer who cannot separate the hues reads the sea state
+ * from how much sky it holds.
  */
 export interface SeaRegionCharacter {
   /** Authored hue destination; shader luminance matching keeps value with depth. */
@@ -242,8 +244,13 @@ export interface SeaRegionCharacter {
   reflectivity: number;
   /** Darkens (< 1) or lifts (> 1) the region against the base water colour. */
   depth: number;
-  /** Strength of the body's hue after partial luminance matching. */
+  /** Strength of the body's hue after luminance matching; K7 keeps it quiet (~0.25). */
   tintStrength: number;
+  /**
+   * K7: roughness of the sky-probe fetch — how sharply this body mirrors the
+   * sky, from calm glass (0.06) to danger's leaden matte (0.55).
+   */
+  probeRoughness: number;
   /** Direction the body's normal flow travels in world-tile radians. */
   flowBearing: number;
   /** 0 follows the shared wind; 1 holds the authored body direction. */
@@ -266,7 +273,7 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   none: {
     tint: "#ffffff",
     swell: 1, chop: 1, foam: 0, reflectivity: 1, depth: 1,
-    tintStrength: 0, flowBearing: 0, flowHold: 0, normalDetail: 1,
+    tintStrength: 0, probeRoughness: 0.12, flowBearing: 0, flowHold: 0, normalDetail: 1,
     crossedNormal: 1, shallowShelf: 0,
     boundaryWidthTiles: 0, boundaryFoam: 0, boundaryBank: 0,
   },
@@ -274,12 +281,12 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   // wide enough to read at rest without turning the bodies into painted regions.
   //
   // The protected inner harbour: near-still, the most mirror-like water in the
-  // scene, and the region the concept render's reflection sells.
+  // scene — glass that holds the sky and the tower, never a mint plate.
   // Calm mirror and reflection UP; generic crossed normals and crest foam DOWN.
   calm: {
     tint: "#4b927f",
-    swell: 0.34, chop: 0.34, foam: 0.015, reflectivity: 1.62, depth: 1.22,
-    tintStrength: 0.62, flowBearing: 1.29, flowHold: 0.22, normalDetail: 0.05,
+    swell: 0.34, chop: 0.34, foam: 0.015, reflectivity: 1.62, depth: 0.95,
+    tintStrength: 0.18, probeRoughness: 0.06, flowBearing: 1.29, flowHold: 0.22, normalDetail: 0.05,
     crossedNormal: 0.01, shallowShelf: 0,
     boundaryWidthTiles: 2.6, boundaryFoam: 0.025, boundaryBank: 0.13,
   },
@@ -287,7 +294,7 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   watch: {
     tint: "#357f9a",
     swell: 0.74, chop: 0.72, foam: 0.11, reflectivity: 1.18, depth: 1.04,
-    tintStrength: 0.64, flowBearing: 1.41, flowHold: 0.86, normalDetail: 0.54,
+    tintStrength: 0.22, probeRoughness: 0.16, flowBearing: 1.41, flowHold: 0.86, normalDetail: 0.54,
     crossedNormal: 0.06, shallowShelf: 0,
     boundaryWidthTiles: 3, boundaryFoam: 0.05, boundaryBank: 0.1,
   },
@@ -295,7 +302,7 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   alert: {
     tint: "#73845b",
     swell: 1.02, chop: 1.18, foam: 0.28, reflectivity: 0.86, depth: 0.86,
-    tintStrength: 0.66, flowBearing: -1.48, flowHold: 0.98, normalDetail: 0.86,
+    tintStrength: 0.24, probeRoughness: 0.26, flowBearing: -1.48, flowHold: 0.98, normalDetail: 0.86,
     crossedNormal: 0.08, shallowShelf: 0,
     boundaryWidthTiles: 3.25, boundaryFoam: 0.07, boundaryBank: 0.13,
   },
@@ -303,15 +310,17 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   warning: {
     tint: "#af9868",
     swell: 1.26, chop: 1.62, foam: 0.62, reflectivity: 0.64, depth: 0.7,
-    tintStrength: 0.68, flowBearing: -1.3, flowHold: 0.9, normalDetail: 0.84,
+    tintStrength: 0.25, probeRoughness: 0.34, flowBearing: -1.3, flowHold: 0.9, normalDetail: 0.84,
     crossedNormal: 0.14, shallowShelf: 0.94,
     boundaryWidthTiles: 3.6, boundaryFoam: 0.108, boundaryBank: 0.05,
   },
   // Danger's steep diagonal waves and blown foam UP; generic crest foam DOWN.
+  // Leaden: the roughest probe and the lowest reflectivity — it mirrors almost
+  // nothing.
   danger: {
     tint: "#30375d",
     swell: 2.02, chop: 2.42, foam: 1.12, reflectivity: 0.38, depth: 0.44,
-    tintStrength: 0.7, flowBearing: -0.78, flowHold: 0.96, normalDetail: 1.28,
+    tintStrength: 0.25, probeRoughness: 0.55, flowBearing: -0.78, flowHold: 0.96, normalDetail: 1.28,
     crossedNormal: 0.24, shallowShelf: 0,
     boundaryWidthTiles: 3.4, boundaryFoam: 0.144, boundaryBank: 0.16,
   },
@@ -319,14 +328,14 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   ledger: {
     tint: "#4e5a70",
     swell: 0.22, chop: 0.52, foam: 0.035, reflectivity: 1.42, depth: 1.38,
-    tintStrength: 0.64, flowBearing: -0.085, flowHold: 0.99, normalDetail: 0.08,
+    tintStrength: 0.2, probeRoughness: 0.08, flowBearing: -0.085, flowHold: 0.99, normalDetail: 0.08,
     crossedNormal: 0.01, shallowShelf: 0,
     boundaryWidthTiles: 2.8, boundaryFoam: 0.02, boundaryBank: 0.16,
   },
   open: {
     tint: "#ffffff",
     swell: 1, chop: 1, foam: 0.12, reflectivity: 1, depth: 0.97,
-    tintStrength: 0, flowBearing: 0, flowHold: 0, normalDetail: 1,
+    tintStrength: 0, probeRoughness: 0.12, flowBearing: 0, flowHold: 0, normalDetail: 1,
     crossedNormal: 1, shallowShelf: 0,
     boundaryWidthTiles: 0, boundaryFoam: 0, boundaryBank: 0,
   },
@@ -337,7 +346,7 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   wreck: {
     tint: "#756f5d",
     swell: 0.12, chop: 0.24, foam: 0.008, reflectivity: 0.74, depth: 0.59,
-    tintStrength: 0.68, flowBearing: 0.3, flowHold: 0.18, normalDetail: 0.04,
+    tintStrength: 0.24, probeRoughness: 0.3, flowBearing: 0.3, flowHold: 0.18, normalDetail: 0.04,
     crossedNormal: 0, shallowShelf: 0,
     boundaryWidthTiles: 3.1, boundaryFoam: 0.015, boundaryBank: 0.22,
   },

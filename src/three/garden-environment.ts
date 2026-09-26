@@ -130,9 +130,13 @@ import type { TextureOwnerManifestEntry } from "../renderer/render-types";
  * module touches.
  */
 
-/** Reflection energy follows illumination rather than lifting every night. */
+/**
+ * Reflection energy follows illumination rather than lifting every night.
+ * Each beat stays under its rig's ambient + hemisphere fill; day is 0.55
+ * against the 0.57 fill left after W2.1 cut the day ambient to 0.15.
+ */
 export function gardenEnvironmentIntensityForBeats(beats: DayCycleBeats): number {
-  return beats.dawn * 0.35 + beats.day * 0.6 + beats.golden * 0.45
+  return beats.dawn * 0.35 + beats.day * 0.55 + beats.golden * 0.45
     + beats.blue * 0.3 + beats.night * 0.12;
 }
 

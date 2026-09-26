@@ -665,7 +665,12 @@ test(...visualLane("interaction", "a cold reduced-motion selection link frames i
     const debug = await readVisualDebug(page);
     const target = debug.targets?.find((entry) => entry.detailId === "ship.usdt-tether");
     if (!target) return false;
-    const anchor = debug.selectedDetailAnchor ?? { x: target.rect.x + target.rect.width / 2, y: target.rect.y + target.rect.height / 2 };
-    return Math.abs(anchor.x - 800) < 160 && Math.abs(anchor.y - 500) < 100;
+    // W1.7 shot contract: reduced motion cuts straight to the composed shot, the
+    // hull on the lower-left third (mirrored to the right third when it heads left).
+    const anchor = target.anchor ?? { x: target.rect.x + target.rect.width / 2, y: target.rect.y + target.rect.height };
+    const x = anchor.x / 1600;
+    const y = anchor.y / 1000;
+    const onThird = (x >= 0.25 && x <= 0.47) || (x >= 0.53 && x <= 0.75);
+    return onThird && y >= 0.52 && y <= 0.72;
   }).toBe(true);
 });

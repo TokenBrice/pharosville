@@ -67,12 +67,14 @@ import {
   gardenShipWaterMarginTiles,
 } from "../systems/garden-water-exclusion";
 import {
+  cameraPlateHaze,
   cameraView,
   CAMERA_FOV_DEG,
   CAMERA_NEAR,
   CAMERA_FAR,
   TILE_SCALE,
 } from "../systems/projection";
+import { setGardenAerialPlateHaze } from "./garden-aerial";
 import {
   advanceEpistemicHaze,
   deriveEpistemicHaze,
@@ -142,7 +144,8 @@ import { createGardenThreshold, type GardenThreshold } from "./garden-threshold"
 import { createGardenModelLibrary } from "./garden-models";
 import { createGardenWater, type GardenWater } from "./garden-water";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
-import { dayCycleBeats, dayCyclePhase, updateDayCycle, type DayCyclePhase } from "./garden-day-cycle";
+import { dayCycleBeats, dayCycleExposure, dayCyclePhase, updateDayCycle, type DayCyclePhase } from "./garden-day-cycle";
+import { applyGardenPrintInksToTree, updateGardenPrintInks } from "./garden-print-inks";
 import { setGardenFloraNightValue } from "./garden-flora";
 import { createGardenSky, type GardenSky } from "./garden-sky";
 import {
@@ -207,6 +210,7 @@ import {
 } from "../systems/world-layout";
 import {
   createTerracedIsland,
+  GARDEN_CRAG_HEADLAND_NAME,
   createWaterAccents,
   gardenIslandLanternMaterial,
   gardenIslandLanternWorldOffsets,
@@ -218,6 +222,9 @@ import {
   applyLighthouseRimLight,
   attachGardenLighthouseModel,
   collectLighthouseGlowMaterials,
+  createLanternSwell,
+  type LanternSwell,
+  updateLighthouseAir,
   updateLighthouseLampStatus,
   updateLighthouseLanternGlass,
   updateLighthouseRimLight,
@@ -501,10 +508,9 @@ export function createThreeWorldRenderer(
   renderer.outputColorSpace = SRGBColorSpace;
   // Warm-village B5: the ONE tone-mapping decision lives in garden-post's
   // GARDEN_TONE_MAPPING; the renderer constant and the post ToneMappingEffect
-  // both derive from it, so flipping the string is the whole A/B. Exposure
-  // stays 1.12 for either curve.
+  // both derive from it, so flipping the string is the whole A/B. Exposure is
+  // authored per beat (W2.1 `dayCycleExposure`) and written every frame.
   renderer.toneMapping = GARDEN_TONE_MAPPING === "neutral" ? NeutralToneMapping : AgXToneMapping;
-  renderer.toneMappingExposure = 1.12;
   configureGardenShadowRenderer(renderer);
   // See the reset in `render` — the frame's totals are accumulated by hand
   // so the composer's passes do not clobber the scene's counts.
@@ -626,6 +632,7 @@ export function createThreeWorldRenderer(
       scene.lighthouseModel = model;
       attachGardenLighthouseModel(model, scene.content);
       model.traverse(enableHeroReflectionLayer);
+      applyGardenPrintInksToTree(model);
       drawCensusRequested = true;
       scheduleModelTextureUploads({
         isOwnerValid: () => !disposed && scene.lighthouseModel === model,
@@ -659,6 +666,7 @@ export function createThreeWorldRenderer(
         .then((model) => {
           if (disposed || scene.content !== content || part.epoch !== epoch) return;
           attachGardenHeroModel(visual, model);
+          applyGardenPrintInksToTree(model);
           drawCensusRequested = true;
           scheduleModelTextureUploads({
             isOwnerValid: () => !disposed && scene.content === content && part.epoch === epoch,
@@ -908,6 +916,8 @@ export function createThreeWorldRenderer(
 
       const phase = dayCyclePhase(frame.wallClockHour);
       const beats = dayCycleBeats(frame.wallClockHour);
+      renderer.toneMappingExposure = dayCycleExposure(beats);
+      updateGardenPrintInks(frame.wallClockHour, beats);
       // Phase 2: the frame's weather plan — one pure function of the world
       // clock and the sea state's PSI stress / base wind, consumed below by
       // the sky, water, rain, fleet, gulls, post, and the shadow light. Under
@@ -1308,6 +1318,8 @@ interface GardenContent {
   beaconFire: GardenBeaconFire;
   beaconFireRoot: Group;
   beaconHalo: Mesh<SphereGeometry, MeshBasicMaterial>;
+  /** W2.10 (K9): the lantern glass swell, at most once a minute. */
+  lanternSwell: LanternSwell;
   /** W6.4: stable data status and its slow render-side transition position. */
   lampStatusState: LampStatusHysteresisState;
   lampStatusMix: number;
@@ -1642,6 +1654,7 @@ function createGardenScene(
   const islets = createGardenIslets();
   islets.registerRippleRings(water.rippleRings);
   root.add(horizon.root, islets.root);
+  applyGardenPrintInksToTree(root);
 
   // W4.1: the instanced fleet's GPU buffers, the sail atlas texture and the
   // shared pennant geometry are allocated ONCE per renderer. World content
@@ -2095,6 +2108,8 @@ function refreshContentIndexes(
 ): void {
   mergeContentCues(content);
   content.objectCount = countDrawableObjects(content.root);
+  // W2.11: every rebuilt part is re-inked once here (idempotent per material).
+  applyGardenPrintInksToTree(content.root);
   // The scan must see AUTHORED transforms. Surviving parts may be mid-shed at
   // overview framing, so snap the outgoing policy back to full detail first,
   // rescan, then snap the new policy straight to the current framing's target
@@ -2535,6 +2550,7 @@ function reconcileTransientSelection(
   content.ships.push(visual);
   content.transientRoot.add(visual.root);
   content.entityCues.set(ship.detailId, cue);
+  applyGardenPrintInksToTree(visual.root);
   content.objectCount = countDrawableObjects(content.root);
 }
 
@@ -2775,6 +2791,8 @@ function buildIslandPart(
       || object.name === "island-niwaki"
       || object.name === "island-karikomi"
       || object.name.startsWith("island-planted-shelf-")
+      // W3.2 (water-2 f): the rock foot meets its own inverted foot.
+      || object.name === GARDEN_CRAG_HEADLAND_NAME
       || (object instanceof Mesh && object.parent === island.root
         && object.name === "" && object.material instanceof MeshStandardMaterial
         && object.material.vertexColors && object.material.roughnessMap !== null)
@@ -2847,6 +2865,7 @@ function buildIslandPart(
   content.beaconFire = beaconFire;
   content.beaconFireRoot = beaconFire.root;
   content.beaconHalo = island.beaconHalo;
+  content.lanternSwell = createLanternSwell();
   content.beam = island.beam;
   content.decoration = island.decoration;
   content.lighthouseLight = island.lighthouseLight;
@@ -3426,6 +3445,7 @@ function updateSceneForFrame(
     billboards: ["full", "balanced"].includes(seaQualityTier(frame.renderScheduler)),
     wind: weather.wind,
     epistemicBanks: scene.epistemicBanks,
+    viewAspect: camera.aspect,
   });
   scene.almanacDressing.update({
     activeEvent: frame.almanacEvent ?? null,
@@ -3478,10 +3498,8 @@ function updateSceneForFrame(
   // same way the sky dome does; the islets are static (no reduced-motion
   // work) and only gate visibility on the tier.
   scene.horizon.update(frame.wallClockHour, {
-    targetX: cameraViewTarget.x,
-    targetZ: cameraViewTarget.z,
     cameraPosition: camera.position,
-    fogColor: scene.sky.fog.color,
+    clarity: scene.sky.signedClarity,
     tier: frame.renderScheduler.tier,
   });
   scene.islets.update({
@@ -3631,21 +3649,19 @@ function updateSceneForFrame(
   // the call it costs. Its state changes only when the world does, in
   // `createWorldContent`. 3b's buoys are placed after the ship loop below,
   // where the hull transforms they ride on are final.
-  // Balanced through recovery use the single cone; full adds only dust and
-  // constrained swaps to the flat semantic fallback. Unlit additive pieces
-  // are culled instead of rasterizing zero-alpha geometry.
+  // Every tier above constrained draws the single breath cone; constrained
+  // swaps to the flat semantic fallback. Unlit additive pieces are culled
+  // instead of rasterizing zero-alpha geometry.
   const beamUsePlane = frame.renderScheduler.tier === "constrained";
   const beamPieceLit = (child: typeof content.beam.children[number]): boolean => {
     const material = (child as Mesh).material as ShaderMaterial;
     return (material.uniforms.uOpacity?.value ?? 1) > 0.0005;
   };
-  // Phase 2 god rays: the cone's volumetric terms are uniform-gated, so the
-  // recovery cone stays the pre-Phase-2 shader bit-exact (one material, no
-  // tier-transition compile). Full/balanced shade mist noise, a storm-driven
-  // density/lift, and a forward-scattering flare — which under the fixed
-  // ortho view collapses to one exact dot of beam axis vs view axis, so the
-  // beam blooms as it sweeps toward the camera. seaQualityTier keeps a
-  // camera drag (interaction) from blinking the volumetric look mid-gesture.
+  // The cone's mist and storm terms are uniform-gated, so the recovery cone
+  // is the plain breath (one material, no tier-transition compile).
+  // seaQualityTier keeps a camera drag (interaction) from blinking the mist
+  // mid-gesture. beamScatter (cos² of the beam axis against the view axis)
+  // tells the lantern swell when the beam swings through the eye-line.
   camera.getWorldDirection(scratchViewDirection);
   scratchBeamDirection.set(
     Math.cos(content.beam.rotation.y),
@@ -3665,13 +3681,19 @@ function updateSceneForFrame(
       const coneUniforms = ((child as Mesh).material as ShaderMaterial).uniforms;
       coneUniforms.uVolumetric.value = beamVolumetric;
       coneUniforms.uStorm.value = weather.stormLevel;
-      coneUniforms.uScatter.value = beamScatter;
     } else if (child.name === "lighthouse-beam") child.visible = beamUsePlane;
-    else if (child.name === "lighthouse-beam-dust") {
-      child.visible = frame.renderScheduler.tier === "full" && !frame.reducedMotion
-        && beamPieceLit(child);
-    }
   }
+  // W2.10 (K9): the lantern glass swells as the beam swings through the eye
+  // line — at most once a minute, never paced by the PSI sweep rate — and the
+  // corona breathes with it. pharos-8: the beacon lights its own mist.
+  const lanternSwell = content.lanternSwell.update({
+    beamFacing: beamScatter,
+    glow: phase.night * Math.min(1, lampModulation.intensityScale),
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+  });
+  content.beaconHalo.material.opacity *= 1 + lanternSwell * 0.8;
+  updateLighthouseAir(content, phase, flicker, lampModulation.intensityScale);
   // R14: the sweep RATE carries the fleet's PSI stress.
   //
   // The beam is the monument's one motion beat, and it was a constant rotation
@@ -3852,7 +3874,10 @@ function updateScalarTransitions(
 // the W1.0 pose (rig, rest ShotSpec or their hand-off blend) with the K16
 // breath the frame's camera state carries — the same view hit-testing reads.
 function updateCamera(camera: PerspectiveCamera, frame: ThreeWorldRendererFrame): void {
-  const view = cameraView(frame.camera, { x: frame.width, y: frame.height });
+  const viewport = { x: frame.width, y: frame.height };
+  const view = cameraView(frame.camera, viewport);
+  // W3.10: the whole-map chart's plate edge dissolves in the Sky lane's haze.
+  setGardenAerialPlateHaze(cameraPlateHaze(frame.camera, viewport));
   camera.aspect = frame.width / Math.max(1, frame.height);
   camera.fov = view.vFovDeg;
   camera.position.set(view.eye.x, view.eye.y, view.eye.z);

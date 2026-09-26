@@ -1,36 +1,51 @@
-import { Color, Mesh, PerspectiveCamera, Raycaster, ShaderMaterial, Vector3 } from "three";
+import { Mesh, Raycaster, ShaderMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { defaultCamera, withoutRest } from "../systems/camera";
-import { CAMERA_FAR, CAMERA_NEAR, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM, cameraView, screenToGroundRay } from "../systems/projection";
-import { buildPharosVilleMap } from "../systems/world-layout";
-import { DAY_CYCLE_SKY_PRESETS } from "./garden-day-cycle";
+import { REST_SEAT_EYE_LANDSCAPE, REST_SEAT_YAW_RAD } from "../systems/rest-seat";
 import { countDrawableObjects } from "./garden-util";
-import { createGardenHorizon } from "./garden-horizon";
+import { createGardenHorizon, GARDEN_HORIZON_RIDGES } from "./garden-horizon";
 
 const FRAME = {
-  targetX: 47.6,
-  targetZ: 38.9,
-  cameraPosition: { x: 123, y: 23, z: 114 },
-  fogColor: DAY_CYCLE_SKY_PRESETS.day.fog,
+  cameraPosition: REST_SEAT_EYE_LANDSCAPE.world,
+  clarity: 0.57,
   tier: "full" as const,
 };
 
-describe("garden horizon", () => {
-  it("keeps three partial headlands beyond the plate in one non-selectable draw under the triangle cap", () => {
+/** Crest vertices in the seat's frame: degrees right of the view axis, degrees up. */
+function crests(mesh: Mesh): Array<{ kind: number; angle: number; elevation: number }> {
+  const positions = mesh.geometry.getAttribute("position");
+  const kinds = mesh.geometry.getAttribute("aKind");
+  const verticals = mesh.geometry.getAttribute("aVertical");
+  const forward = { x: -Math.sin(REST_SEAT_YAW_RAD), z: -Math.cos(REST_SEAT_YAW_RAD) };
+  const right = { x: Math.cos(REST_SEAT_YAW_RAD), z: -Math.sin(REST_SEAT_YAW_RAD) };
+  const out = [];
+  for (let vertex = 0; vertex < positions.count; vertex += 1) {
+    const kind = kinds.getX(vertex);
+    if (verticals.getX(vertex) < 0.5 || kind >= GARDEN_HORIZON_RIDGES.length) continue;
+    const x = positions.getX(vertex);
+    const z = positions.getZ(vertex);
+    const along = x * forward.x + z * forward.z;
+    const across = x * right.x + z * right.z;
+    out.push({
+      kind,
+      angle: Math.atan2(across, along) * 180 / Math.PI,
+      elevation: Math.atan2(positions.getY(vertex), Math.hypot(along, across)) * 180 / Math.PI,
+    });
+  }
+  return out;
+}
+
+describe("garden horizon (shakkei)", () => {
+  it("keeps five borrowed ridges and their kasumi in one non-selectable draw under the triangle cap", () => {
     const horizon = createGardenHorizon();
     horizon.update(12, FRAME);
-    expect(horizon.silhouetteCount).toBe(3);
+    expect(horizon.silhouetteCount).toBe(5);
     expect(horizon.triangleCount).toBeLessThanOrEqual(2_000);
     expect(countDrawableObjects(horizon.root)).toBe(1);
     const mesh = horizon.root.children[0] as Mesh;
     expect(mesh.castShadow).toBe(false);
     expect(mesh.receiveShadow).toBe(false);
-    const positions = mesh.geometry.getAttribute("position");
-    for (let vertex = 0; vertex < positions.count; vertex += 1) {
-      expect(positions.getX(vertex)).toBeLessThan(-40);
-      expect(positions.getZ(vertex)).toBeLessThan(-40);
-    }
     horizon.root.updateMatrixWorld(true);
+    const positions = mesh.geometry.getAttribute("position");
     const faceCentre = new Vector3();
     for (let index = 0; index < 3; index += 1) {
       faceCentre.add(new Vector3().fromBufferAttribute(positions, mesh.geometry.index!.getX(index)));
@@ -42,56 +57,50 @@ describe("garden horizon", () => {
     horizon.dispose();
   });
 
-  it("seats the softened profile endpoints on the live sea horizon at both viewport and zoom gates", () => {
+  it("keeps the peak subordinate and the sky gap behind the tower open at the seat", () => {
     const horizon = createGardenHorizon();
-    const map = buildPharosVilleMap();
-    for (const viewport of [{ x: 900, y: 720 }, { x: 1200, y: 640 }]) {
-      const rest = defaultCamera({ width: viewport.x, height: viewport.y, map });
-      const isoCameras = [rest, ...[rest.zoom, CAMERA_PITCH_FAR_ZOOM, CAMERA_PITCH_NEAR_ZOOM]
-        .map((zoom) => ({ ...withoutRest(rest), zoom }))];
-      for (const isoCamera of isoCameras) {
-        const view = cameraView(isoCamera, viewport);
-        const eye = view.eye;
-        const targetX = view.target.x;
-        const targetZ = view.target.z;
-        horizon.update(12, { ...FRAME, cameraPosition: eye, targetX, targetZ });
-        const camera = new PerspectiveCamera(view.vFovDeg, viewport.x / viewport.y, CAMERA_NEAR, CAMERA_FAR);
-        camera.position.set(eye.x, eye.y, eye.z);
-        camera.lookAt(targetX, view.target.y, targetZ);
-        camera.updateMatrixWorld(true);
-        horizon.root.updateMatrixWorld(true);
-        const mesh = horizon.root.children[0] as Mesh;
-        const positions = mesh.geometry.getAttribute("position");
-        let top = 0;
-        let bottom = viewport.y;
-        for (let step = 0; step < 40; step += 1) {
-          const y = (top + bottom) / 2;
-          if (screenToGroundRay({ x: viewport.x / 2, y }, isoCamera, viewport).direction.y > 0) top = y;
-          else bottom = y;
-        }
-        const horizonY = (top + bottom) / 2;
-        expect(screenToGroundRay({ x: viewport.x / 2, y: horizonY }, isoCamera, viewport).direction.y).toBeCloseTo(0, 10);
-        for (let layer = 0; layer < horizon.silhouetteCount; layer += 1) {
-          for (const endpoint of [layer * 22 + 1, layer * 22 + 21]) {
-            const projected = new Vector3().fromBufferAttribute(positions, endpoint)
-              .applyMatrix4(mesh.matrixWorld).project(camera);
-            expect(Math.abs((1 - projected.y) * viewport.y / 2 - horizonY)).toBeLessThan(viewport.y * 0.005);
-            expect(projected.z).toBeLessThan(1);
-          }
-        }
-      }
-    }
+    const mesh = horizon.root.children[0] as Mesh;
+    const all = crests(mesh);
+    // No borrowed crest competes with the monument: everything under 4°.
+    expect(Math.max(...all.map((crest) => crest.elevation))).toBeLessThan(4);
+    // The tower stands ~6° right of the axis at the seat; the band around it
+    // and the centre stay low (ma).
+    const gap = all.filter((crest) => crest.angle > -3 && crest.angle < 8.5);
+    expect(Math.max(...gap.map((crest) => crest.elevation))).toBeLessThanOrEqual(1);
     horizon.dispose();
   });
 
-  it("follows the live fog through phase and storm changes and sheds only on the constrained tier", () => {
+  it("lets PSI move only the three named ranges, farthest first; the anchor peak and the headland hold", () => {
     const horizon = createGardenHorizon();
     const material = (horizon.root.children[0] as Mesh).material as ShaderMaterial;
-    for (const fogColor of [DAY_CYCLE_SKY_PRESETS.day.fog, DAY_CYCLE_SKY_PRESETS.night.fog, new Color(0x283644)]) {
-      horizon.update(12, { ...FRAME, fogColor });
-      expect((material.uniforms.uFogColor.value as Color).getHex()).toBe(fogColor.getHex());
-      expect(horizon.root.visible).toBe(true);
+    const k = () => [...(material.uniforms.uRidgeK.value as number[])];
+    horizon.update(12, { ...FRAME, clarity: 1 });
+    const clear = k();
+    horizon.update(12, { ...FRAME, clarity: 0 });
+    const tremor = k();
+    horizon.update(12, { ...FRAME, clarity: -1 });
+    const crisis = k();
+    for (const [index, ridge] of GARDEN_HORIZON_RIDGES.entries()) {
+      if (ridge.psi < 0) {
+        expect(clear[index]).toBe(ridge.k);
+        expect(crisis[index]).toBe(ridge.k);
+        continue;
+      }
+      // Hidden = dissolved into the air (k → 1), never a hole.
+      expect(crisis[index]).toBeGreaterThan(0.95);
+      expect(clear[index]).toBeLessThan(ridge.k + 1e-9);
     }
+    const farRange = GARDEN_HORIZON_RIDGES.findIndex((ridge) => ridge.psi === 0);
+    const eastern = GARDEN_HORIZON_RIDGES.findIndex((ridge) => ridge.psi === 2);
+    expect(tremor[farRange]).toBeGreaterThan(0.95);
+    expect(tremor[eastern]).toBeLessThan(0.8);
+    horizon.dispose();
+  });
+
+  it("sheds only on the constrained tier", () => {
+    const horizon = createGardenHorizon();
+    horizon.update(12, FRAME);
+    expect(horizon.root.visible).toBe(true);
     horizon.update(12, { ...FRAME, tier: "constrained" });
     expect(horizon.root.visible).toBe(false);
     horizon.dispose();

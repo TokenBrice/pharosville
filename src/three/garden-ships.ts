@@ -1951,67 +1951,133 @@ export function createFleetBatchGeometry(
   return { hull, sails, far: createFarFleetGeometry(silhouette) };
 }
 
-/** Six/seven-point plans keep each family's beam and the twin-hull water slot. */
-function createFarFleetGeometry(silhouette: GardenHullSilhouette): BufferGeometry {
-  const outlines: Record<GardenHullSilhouette, readonly (readonly [number, number])[]> = {
-    bezaisen: [[-3.48, -1.72], [-3.48, 1.72], [0.1, 2], [2.9, 1.5], [3.45, 0], [2.9, -1.5], [0.1, -2]],
-    kobaya: [[-4.28, -0.38], [-4.28, 0.38], [-0.8, 0.65], [3.45, 0.48], [5.32, 0], [3.45, -0.48], [-0.8, -0.65]],
-    twinhull: [[-4.5, 0], [-2.7, 0.44], [1.65, 0.46], [4.5, 0], [1.65, -0.46], [-2.7, -0.44]],
-    takasebune: [[-5.92, 0], [-4.2, 1.4], [4.3, 1.4], [5.95, 0], [4.3, -1.4], [-4.2, -1.4]],
-    junk: [[-3.12, -0.95], [-3.12, 0.95], [0.35, 1.3], [2.95, 0.72], [3.38, 0], [2.95, -0.72], [0.35, -1.3]],
-    scow: [[-2.58, 0], [-2.12, 1.55], [0.2, 2], [2.58, 0], [0.2, -2], [-2.12, -1.55]],
-  };
-  const shape = new Shape();
-  outlines[silhouette].forEach(([x, y], index) => {
-    if (index === 0) shape.moveTo(x, y);
-    else shape.lineTo(x, y);
-  });
-  shape.closePath();
-  const body = new ExtrudeGeometry(shape, { depth: 0.72, bevelEnabled: false, steps: 1 });
-  body.rotateX(-Math.PI / 2);
-  body.translate(0, -0.45, 0);
-  shapeHullVerticalForm(body, silhouette);
-  bakeHullVertexColors(body);
-  const parts: { geometry: BufferGeometry; tint?: Color; transform?: Matrix4 }[] = [];
-  for (const z of silhouette === "twinhull" ? [-1.02, 1.02] : [0]) {
-    parts.push({ geometry: body, transform: new Matrix4().makeTranslation(0, 0, z) });
+/**
+ * W4.F3 (fleet-craft-3 ∪ critic-5): the far fleet is an ink silhouette in the
+ * family's outline — a thin dark V-section hull sliver under the family's own
+ * sail shapes, one 3-5-vertex polygon per mast. There is no deck plate to catch
+ * the sun (the old extruded slab read as a plank) and no mast: at far distance
+ * a spar is a 1-px scratch, so each sail's foot is dropped onto the rail
+ * instead and the boat reads as one cut-paper shape.
+ *
+ * Square sails hang braced across the keel and fore-and-aft sails are sheeted
+ * out, so no sail is ever edge-on to the eye whatever the heading. The far
+ * material paints this in airlight inks (`garden-fleet-batch.ts`), so the
+ * geometry carries only position, normal, uv, color and the cloth selector.
+ */
+const FAR_HULL_OUTLINES: Record<GardenHullSilhouette, readonly (readonly [number, number])[]> = {
+  bezaisen: [[-3.48, -1.72], [-3.48, 1.72], [0.1, 2], [2.9, 1.5], [3.45, 0], [2.9, -1.5], [0.1, -2]],
+  kobaya: [[-4.28, -0.38], [-4.28, 0.38], [-0.8, 0.65], [3.45, 0.48], [5.32, 0], [3.45, -0.48], [-0.8, -0.65]],
+  twinhull: [[-4.5, 0], [-2.7, 0.44], [1.65, 0.46], [4.5, 0], [1.65, -0.46], [-2.7, -0.44]],
+  takasebune: [[-5.92, 0], [-4.2, 1.4], [4.3, 1.4], [5.95, 0], [4.3, -1.4], [-4.2, -1.4]],
+  junk: [[-3.12, -0.95], [-3.12, 0.95], [0.35, 1.3], [2.95, 0.72], [3.38, 0], [2.95, -0.72], [0.35, -1.3]],
+  scow: [[-2.58, 0], [-2.12, 1.55], [0.2, 2], [2.58, 0], [0.2, -2], [-2.12, -1.55]],
+};
+/** Rail height: a touch above the near hull's, so the sliver survives at a dozen pixels. */
+const FAR_HULL_RAIL_Y = 0.52;
+const FAR_HULL_KEEL_Y = -0.3;
+/** Keel half-beam as a share of the rail's: the V-section. */
+const FAR_HULL_KEEL_PINCH = 0.18;
+/** Every far sail's foot reaches down to the rail: no floating cloth. */
+const FAR_SAIL_FOOT_MAX_Y = 0.95;
+/** Square sails braced ~52° off the keel line. */
+const FAR_SQUARE_BRACE = 0.9;
+/** Fore-and-aft sails sheeted ~20° out, both to the same side. */
+const FAR_FORE_AFT_SHEET = 0.35;
+
+/** Sail outline as (along-yard, height) pairs from the mast, fan-triangulated from the first point. */
+function farSailOutline(
+  kind: GardenSailKind,
+  direction: number,
+  width: number,
+  top: number,
+  foot: number,
+): readonly (readonly [number, number])[] {
+  const height = top - foot;
+  switch (kind) {
+    case "rectangle":
+      // A braced square with a concave (sheeted) foot, centred on the mast.
+      return [
+        [-width / 2, top], [width / 2, top], [width * 0.44, foot],
+        [0, foot + height * 0.1], [-width * 0.44, foot],
+      ];
+    case "triangle":
+      return [[0, top], [direction * width, foot + height * 0.11], [0, foot]];
+    case "junk":
+      return [
+        [0, top], [direction * width * 0.72, top - height * 0.16], [direction * width, foot + height * 0.5],
+        [direction * width * 0.86, foot + height * 0.125], [0, foot],
+      ];
+    case "fore-aft":
+      // A lug: the yard peaks up away from the mast.
+      return [
+        [-direction * width * 0.12, top - height * 0.3], [direction * width, top],
+        [direction * width * 0.94, foot], [0, foot],
+      ];
   }
-  const mast = GARDEN_SHIP_RIGS[silhouette].reduce((best, candidate) => (
+}
+
+function createFarFleetGeometry(silhouette: GardenHullSilhouette): BufferGeometry {
+  const outline = FAR_HULL_OUTLINES[silhouette];
+  const count = outline.length;
+  const hullPositions: number[] = [];
+  const rail = outline.map(([x, z]) => [x, FAR_HULL_RAIL_Y, z] as const);
+  const keel = outline.map(([x, z]) => [x * 0.94, FAR_HULL_KEEL_Y, z * FAR_HULL_KEEL_PINCH] as const);
+  for (let index = 0; index < count; index += 1) {
+    const next = (index + 1) % count;
+    hullPositions.push(...rail[index]!, ...keel[index]!, ...rail[next]!);
+    hullPositions.push(...rail[next]!, ...keel[index]!, ...keel[next]!);
+  }
+  // The deck closes the silhouette for the whole-map view; the ink tone makes
+  // it the same dark as the topsides, so it can no longer read as a plank.
+  for (let index = 1; index < count - 1; index += 1) {
+    hullPositions.push(...rail[0]!, ...rail[index]!, ...rail[index + 1]!);
+  }
+  const demiHull = new BufferGeometry();
+  demiHull.setAttribute("position", new Float32BufferAttribute(hullPositions, 3));
+  shapeHullVerticalForm(demiHull, silhouette);
+  const hulls = (silhouette === "twinhull" ? [-1.02, 1.02] : [0]).map((z) => demiHull.clone().translate(0, 0, z));
+  demiHull.dispose();
+
+  const rig = GARDEN_SHIP_RIGS[silhouette];
+  const largest = rig.reduce((best, candidate) => (
     candidate.sails[0]!.width * candidate.sails[0]!.height
       > best.sails[0]!.width * best.sails[0]!.height ? candidate : best
   ));
-  const spar = new CylinderGeometry(0.055, 0.08, mast.height, 4);
-  parts.push({
-    geometry: spar,
-    tint: FLEET_BATCH_TINTS.mast,
-    transform: new Matrix4().makeRotationZ(GARDEN_SHIP_MAST_RAKE[silhouette])
-      .setPosition(mast.x, 0.55 + mast.height / 2, mast.z ?? 0),
-  });
-  const hull = mergeTintedParts(parts);
-  body.dispose();
-  spar.dispose();
-  const plan = mast.sails[0]!;
-  const width = plan.width * 1.2;
-  const height = plan.height * 1.2;
-  const sailPlane = new PlaneGeometry(width, height);
-  const sail = sailPlane.toNonIndexed();
-  sailPlane.dispose();
-  sail.translate(mast.x + (plan.reverse ? -1 : 1) * (0.06 + width / 2), plan.centerY, (mast.z ?? 0) + 0.03);
-  // Both inputs carry only the established cloth attributes: no new location.
-  for (const geometry of [hull, sail]) {
-    for (const name of Object.keys(geometry.attributes)) {
-      if (!["position", "normal", "uv", "color"].includes(name)) geometry.deleteAttribute(name);
+  const sailPositions: number[] = [];
+  for (const mast of rig) {
+    const plan = mast.sails[0]!;
+    const scale = mast === largest ? 1.2 : 1;
+    const width = plan.width * scale;
+    const halfHeight = plan.height * scale * 0.5;
+    const direction = plan.reverse ? -1 : 1;
+    const top = plan.centerY + halfHeight;
+    const foot = Math.min(plan.centerY - halfHeight, FAR_SAIL_FOOT_MAX_Y);
+    const angle = plan.kind === "rectangle" ? FAR_SQUARE_BRACE : direction * FAR_FORE_AFT_SHEET;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const points = farSailOutline(plan.kind, direction, width, top, foot).map(([along, y]) => [
+      mast.x + along * cos,
+      y,
+      (mast.z ?? 0) - along * sin,
+    ] as const);
+    for (let index = 1; index < points.length - 1; index += 1) {
+      sailPositions.push(...points[0]!, ...points[index]!, ...points[index + 1]!);
     }
-    if (!geometry.getAttribute("color")) {
-      geometry.setAttribute("color", new Float32BufferAttribute(
-        new Float32Array(geometry.getAttribute("position").count * 3).fill(1), 3,
-      ));
-    }
+  }
+  const sail = new BufferGeometry();
+  sail.setAttribute("position", new Float32BufferAttribute(sailPositions, 3));
+
+  const parts = [...hulls, sail];
+  // Only the established cloth attributes: no new location on the program.
+  for (const geometry of parts) {
+    const vertices = geometry.getAttribute("position").count;
+    geometry.computeVertexNormals();
+    geometry.setAttribute("uv", new Float32BufferAttribute(new Float32Array(vertices * 2), 2));
+    geometry.setAttribute("color", new Float32BufferAttribute(new Float32Array(vertices * 3).fill(1), 3));
     markAtlasSail(geometry, geometry === sail);
   }
-  const far = mergeGeometries([hull, sail], false);
-  hull.dispose();
-  sail.dispose();
+  const far = mergeGeometries(parts, false);
+  for (const geometry of parts) geometry.dispose();
   if (!far) throw new Error("garden-ships: far hull merge failed");
   return far;
 }

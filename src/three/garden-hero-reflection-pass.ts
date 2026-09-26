@@ -2,6 +2,8 @@ import {
   Color,
   HalfFloatType,
   Light,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   LinearSRGBColorSpace,
   Matrix4,
   PerspectiveCamera,
@@ -17,7 +19,10 @@ import {
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import { isKnockedOut } from "../lib/pharosville-debug";
 
-/** Reserved for the island silhouette; fleet meshes retain their default layer. */
+/**
+ * Reserved for the island silhouette (tower, precinct, niwaki, planted
+ * shelves, crag headland); fleet meshes retain their default layer.
+ */
 export const GARDEN_HERO_REFLECTION_LAYER = 7;
 
 const direction = new Vector3();
@@ -70,9 +75,19 @@ export function mirrorGardenHeroCamera(main: PerspectiveCamera, mirror: Perspect
 }
 
 export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
+  // W3.2 (water-2 a): mipmapped so the water can blur the reflection with
+  // distance below the contact line. The clear is transparent BLACK and the
+  // layer's materials write coverage in alpha (opaque 1, blended surfaces
+  // over the clear come out colour × alpha), so every texel is premultiplied
+  // before the mip chain is built: a silhouette averages with the clear into
+  // less coverage, never into a dark fringe. Consumers composite it as
+  // premultiplied (`water · (1 − w·a) + rgb · w`).
   const target = new WebGLRenderTarget(1, 1, {
     type: HalfFloatType,
     depthBuffer: true,
+    generateMipmaps: true,
+    magFilter: LinearFilter,
+    minFilter: LinearMipmapLinearFilter,
     stencilBuffer: false,
     samples: 0,
   });

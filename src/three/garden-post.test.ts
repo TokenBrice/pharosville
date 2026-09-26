@@ -7,6 +7,7 @@
 import {
   ClampToEdgeWrapping,
   DirectionalLight,
+  Fog,
   HalfFloatType,
   LinearFilter,
   NearestFilter,
@@ -19,7 +20,7 @@ import {
   type WebGLRenderer,
 } from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dayCyclePhase } from "./garden-day-cycle";
+import { dayCycleBeats, dayCyclePhase } from "./garden-day-cycle";
 import {
   createGardenPost,
   gardenGodRayLowSunGate,
@@ -33,6 +34,8 @@ import {
   cameraEye,
   cameraPoseFromIso,
 } from "../systems/projection";
+import { DAY_CYCLE_ELEVATION_EDGES } from "../systems/day-cycle-beats";
+import { gardenSkyToday, gardenSolarElevationAt } from "../systems/sky-almanac";
 
 const postHarness = vi.hoisted(() => {
   const makeDisposable = (name: string) => ({
@@ -419,6 +422,7 @@ function makePost(options: { withShadowLight?: boolean } = {}): {
   n8ao: FakeN8AOPass;
   post: GardenPost;
   renderer: WebGLRenderer;
+  scene: Scene;
 } {
   const renderer = {
     clear: vi.fn(),
@@ -450,8 +454,41 @@ function makePost(options: { withShadowLight?: boolean } = {}): {
     n8ao: latest<FakeN8AOPass>(postHarness.n8aoPasses),
     post,
     renderer,
+    scene,
   };
 }
+
+/**
+ * The beats follow the true sun of the pinned sky day (test-setup: 26 Sep 2026,
+ * 35° N, sunrise ≈ 07:06, sunset ≈ 18:54), so the hours below are read off that
+ * day: plateau hours inside a beat, and the blue beat's single peak where the
+ * sun sits at the golden→blue / blue→night seam.
+ */
+const DAWN_HOUR = 7.25;
+const NOON_HOUR = 12;
+const GOLDEN_HOUR = 18.5;
+const NIGHT_HOUR = 23;
+
+/** The first hour in (lo, hi] where `after` holds, by bisection. */
+function crossingHour(after: (hour: number) => boolean, lo: number, hi: number): number {
+  let low = lo;
+  let high = hi;
+  for (let step = 0; step < 60; step += 1) {
+    const mid = (low + high) / 2;
+    if (after(mid)) high = mid;
+    else low = mid;
+  }
+  return high;
+}
+
+const BLUE_HOUR = crossingHour(
+  (hour) => gardenSolarElevationAt(gardenSkyToday(), hour) * (180 / Math.PI)
+    <= DAY_CYCLE_ELEVATION_EDGES.evening.blueNight[0],
+  GOLDEN_HOUR,
+  21,
+);
+/** Mid-crossfade from day into golden: both beats at one half. */
+const DAY_GOLDEN_HOUR = crossingHour((hour) => dayCycleBeats(hour).golden >= 0.5, NOON_HOUR, GOLDEN_HOUR);
 
 /** Point the rig at the pose the shipped arc gives for a wall-clock hour. */
 function aimLightAtHour(light: DirectionalLight, hour: number): void {
@@ -552,17 +589,20 @@ describe("garden post-processing contracts", () => {
     // W2.4: the god rays join the SAME pass, ahead of the grade, so the shafts
     // are graded and tone-mapped with the rest of the frame instead of painted
     // over it — and so they add no full-screen draw to the main chain.
+    // W2.15: the sky-contact keyline leads that pass, so its ink is graded,
+    // tone-mapped and antialiased like any other paint.
     expect(passEffects).toEqual([
       ["RenderPass"],
       [undefined],
       ["BloomEffect"],
-      ["GardenGodRays", "GardenGrade", "ToneMappingEffect", "GardenLut"],
+      ["GardenKeyline", "GardenGodRays", "GardenGrade", "ToneMappingEffect", "GardenLut"],
       ["SMAAEffect"],
     ]);
     expect(post.getPassList()).toEqual([
       "render",
       "n8ao",
       "bloom",
+      "keyline",
       // This harness has no shadow-casting light, so no god rays.
       "grade",
       "output",
@@ -624,16 +664,18 @@ describe("garden post-processing contracts", () => {
 
   it("selects all five LUT bands and crossfades adjacent beats without changing exposure", () => {
     const { post } = makePost();
-    for (const [hour, band] of [[6, 0], [12, 1], [18, 2], [19, 3], [0, 4]]) {
-      post.setGrade(hour!);
-      expect(lutWeights()).toEqual(Array.from({ length: 5 }, (_, index) => Number(index === band)));
+    const expectWeights = (expected: readonly number[]): void => {
+      lutWeights().forEach((weight, band) => expect(weight, `band ${band}`).toBeCloseTo(expected[band]!, 6));
+    };
+    const bands: [number, number][] = [[DAWN_HOUR, 0], [NOON_HOUR, 1], [GOLDEN_HOUR, 2], [BLUE_HOUR, 3], [0, 4]];
+    for (const [hour, band] of bands) {
+      post.setGrade(hour);
+      expectWeights(Array.from({ length: 5 }, (_, index) => Number(index === band)));
     }
-    post.setGrade(16.75);
-    expect(lutWeights()).toEqual([0, 0.5, 0.5, 0, 0]);
-    post.setGrade(40.75);
-    expect(lutWeights()).toEqual([0, 0.5, 0.5, 0, 0]);
-    post.setGrade(-7.25);
-    expect(lutWeights()).toEqual([0, 0.5, 0.5, 0, 0]);
+    for (const hour of [DAY_GOLDEN_HOUR, DAY_GOLDEN_HOUR + 24, DAY_GOLDEN_HOUR - 24]) {
+      post.setGrade(hour);
+      expectWeights([0, 0.5, 0.5, 0, 0]);
+    }
   });
 
   it("keeps the LUT on at every tier and inert until its texture decodes", () => {
@@ -649,9 +691,40 @@ describe("garden post-processing contracts", () => {
     // reach still lists the grade/tone-map/LUT stage.
     post.setBloomEnabled(false);
     post.setAOTierWeight(0);
-    expect(post.getPassList()).toEqual(["render", "grade", "output", "lut", "smaa"]);
+    expect(post.getPassList()).toEqual(["render", "keyline", "grade", "output", "lut", "smaa"]);
     post.setAOZoomDetail(0);
     expect(post.getPassList()).toContain("lut");
+  });
+
+  it("inks the sky contact at every beat and keeps it off the fogged far field", () => {
+    const { post, scene } = makePost();
+    const keyline = effectNamed("GardenKeyline");
+    const ink = (hour: number): number => {
+      post.setGrade(hour);
+      return numberUniform(keyline, "keylineInk");
+    };
+
+    // O15 rung 3: a line at EVERY beat, heaviest where the sky is closest in
+    // value to the silhouettes (golden, blue) and lightest by day.
+    const noon = ink(NOON_HOUR);
+    expect(noon).toBeGreaterThan(0);
+    for (const hour of [DAWN_HOUR, GOLDEN_HOUR, BLUE_HOUR, NIGHT_HOUR]) expect(ink(hour)).toBeGreaterThan(noon);
+    // A crossfade between beats never drops the line out.
+    for (let hour = 0; hour < 24; hour += 0.25) expect(ink(hour)).toBeGreaterThan(0);
+
+    // The reach follows the fog the sky re-fits each frame, and ends well short
+    // of the fog's far edge, so the sea horizon and far fleet stay unlined.
+    scene.fog = new Fog(0x000000, 100, 300);
+    post.render(1 / 60);
+    const fade = keyline.uniforms.get("keylineFade")?.value as { x: number; y: number };
+    expect(fade.x).toBeGreaterThan(100);
+    expect(fade.y).toBeGreaterThan(fade.x);
+    expect(fade.y).toBeLessThan(300);
+    (scene.fog as Fog).near = 200;
+    (scene.fog as Fog).far = 400;
+    post.render(1 / 60);
+    expect(fade.x).toBeGreaterThan(200);
+    expect(fade.y).toBeLessThan(400);
   });
 
   it("fades the authored cube in rather than snapping the frame when it decodes", () => {
@@ -839,8 +912,8 @@ describe("garden post-processing contracts", () => {
     const grade = effectNamed("GardenGrade");
     if (!light) throw new Error("Expected a shadow-casting light");
 
-    aimLightAtHour(light, 18);
-    post.setGrade(18);
+    aimLightAtHour(light, GOLDEN_HOUR);
+    post.setGrade(GOLDEN_HOUR);
     post.render(1 / 60);
     const awakeAOIntensity = n8ao.configuration.intensity;
     const performanceAOIntensity = awakeAOIntensity * 0.85;
@@ -910,14 +983,21 @@ describe("garden post-processing contracts", () => {
   });
 
   it("opens rays only at dawn and golden hour, with smooth boundary fades", () => {
-    expect(gardenGodRayLowSunGate(6)).toBe(1);
-    expect(gardenGodRayLowSunGate(18)).toBe(1);
-    for (const hour of [0, 12, 19, 22]) {
+    expect(gardenGodRayLowSunGate(DAWN_HOUR)).toBe(1);
+    expect(gardenGodRayLowSunGate(GOLDEN_HOUR)).toBe(1);
+    for (const hour of [0, NOON_HOUR, BLUE_HOUR, 22]) {
       expect(gardenGodRayLowSunGate(hour)).toBe(0);
     }
-    expect(gardenGodRayLowSunGate(5.375)).toBeCloseTo(0.5);
-    expect(gardenGodRayLowSunGate(16.75)).toBeCloseTo(0.5);
-    expect(gardenGodRayLowSunGate(18.625)).toBeCloseTo(0.5);
+    // Four fades (night→dawn, dawn→day, day→golden, golden→blue), each a
+    // minute-by-minute ramp through one half rather than a step.
+    let halfCrossings = 0;
+    for (let minute = 0; minute < 24 * 60; minute += 1) {
+      const gate = gardenGodRayLowSunGate(minute / 60);
+      const next = gardenGodRayLowSunGate((minute + 1) / 60);
+      expect(Math.abs(next - gate)).toBeLessThan(0.05);
+      if ((gate - 0.5) * (next - 0.5) < 0) halfCrossings += 1;
+    }
+    expect(halfCrossings).toBe(4);
   });
 
   it("renders dawn and golden rays but skips day, blue hour and night", () => {
@@ -930,13 +1010,13 @@ describe("garden post-processing contracts", () => {
       post.render(1 / 60);
       return numberUniform(godRays, "rayWeight");
     };
-    const golden = rayWeightAt(18);
-    const dawn = rayWeightAt(6);
+    const golden = rayWeightAt(GOLDEN_HOUR);
+    const dawn = rayWeightAt(DAWN_HOUR);
     expect(golden).toBeGreaterThan(0);
     expect(dawn).toBeGreaterThan(0);
     expect(dawn).toBeLessThan(golden);
-    expect(rayWeightAt(16.75)).toBeCloseTo(golden * 0.5);
-    for (const hour of [12, 19, 22, 2]) {
+    expect(rayWeightAt(DAY_GOLDEN_HOUR)).toBeCloseTo(golden * 0.5);
+    for (const hour of [NOON_HOUR, BLUE_HOUR, 22, 2]) {
       expect(rayWeightAt(hour)).toBe(0);
       expect(post.getPassList()).not.toContain("godrays");
     }
@@ -948,11 +1028,11 @@ describe("garden post-processing contracts", () => {
     const march = marchUniforms();
 
     // Golden and dawn own distinct warm and pale shaft colours.
-    post.setGrade(18);
+    post.setGrade(GOLDEN_HOUR);
     const evening = [...(march.rayColor!.value as { toArray: () => number[] }).toArray()];
     expect(evening[0]).toBeCloseTo(1);
     expect(evening[2]).toBeCloseTo(0.3);
-    post.setGrade(6);
+    post.setGrade(DAWN_HOUR);
     const morning = [...(march.rayColor!.value as { toArray: () => number[] }).toArray()];
     expect(morning[2]).toBeGreaterThan(evening[2]!);
     expect(morning[0]).toBeLessThan(evening[0]!);
@@ -969,8 +1049,8 @@ describe("garden post-processing contracts", () => {
     const { light, post } = makePost({ withShadowLight: true });
     if (!light) throw new Error("Expected a shadow-casting light");
     const godRays = effectNamed("GardenGodRays");
-    aimLightAtHour(light, 18);
-    post.setGrade(18);
+    aimLightAtHour(light, GOLDEN_HOUR);
+    post.setGrade(GOLDEN_HOUR);
     post.render(1 / 60);
     expect(numberUniform(godRays, "rayWeight")).toBeCloseTo(0.02, 3);
     expect(post.getPassList()).toContain("godrays");
@@ -994,6 +1074,7 @@ describe("garden post-processing contracts", () => {
     // Still one pass, still the same effect chain — the shed is a uniform.
     const composer = latest<FakeComposer>(postHarness.composers);
     expect(composer.passes.at(-2)?.effects?.map((effect) => effect.name)).toEqual([
+      "GardenKeyline",
       "GardenGodRays",
       "GardenGrade",
       "ToneMappingEffect",

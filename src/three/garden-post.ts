@@ -17,6 +17,7 @@ import {
   ClampToEdgeWrapping,
   Color,
   DirectionalLight,
+  Fog,
   HalfFloatType,
   LinearFilter,
   Matrix4,
@@ -69,6 +70,11 @@ interface PostPhaseConfig {
   bloomStrength: number;
   bloomThreshold: number;
   grade: GradePreset;
+  /**
+   * W2.15 sky-contact keyline ink: the fraction of a silhouette pixel the
+   * key block darkens where geometry meets sky (O15 rung 3, every beat).
+   */
+  keylineInk: number;
   /**
    * Phase 2 storm coupling: scalars applied on top of the day-phase blend,
    * scaled by the weather system's stormLevel — the same table-driven blend
@@ -148,13 +154,14 @@ const POST_PHASE_NIGHT: PostPhaseConfig = {
   aoIntensity: 5, bloomRadius: 0.82, bloomSmoothing: 0.35,
   bloomStrength: 0.8, bloomThreshold: GARDEN_BLOOM_PRACTICAL_THRESHOLD,
   grade: NIGHT_GRADE,
+  keylineInk: 0.45,
   stormBloomStrength: 0.22, stormBloomThreshold: 0, stormLift: [0, 0, 0],
 };
 const POST_BEATS = [
-  { ...POST_PHASE_NIGHT, grade: DAWN_GRADE, aoIntensity: 4, bloomStrength: 0.65 },
-  { ...POST_PHASE_NIGHT, grade: DAY_GRADE, aoIntensity: 3, bloomStrength: 0.45 },
-  { ...POST_PHASE_NIGHT, grade: GOLDEN_GRADE, aoIntensity: 4, bloomStrength: 0.7 },
-  { ...POST_PHASE_NIGHT, grade: BLUE_GRADE, aoIntensity: 4.5, bloomStrength: 0.75 },
+  { ...POST_PHASE_NIGHT, grade: DAWN_GRADE, aoIntensity: 4, bloomStrength: 0.65, keylineInk: 0.35 },
+  { ...POST_PHASE_NIGHT, grade: DAY_GRADE, aoIntensity: 3, bloomStrength: 0.45, keylineInk: 0.25 },
+  { ...POST_PHASE_NIGHT, grade: GOLDEN_GRADE, aoIntensity: 4, bloomStrength: 0.7, keylineInk: 0.5 },
+  { ...POST_PHASE_NIGHT, grade: BLUE_GRADE, aoIntensity: 4.5, bloomStrength: 0.75, keylineInk: 0.5 },
   POST_PHASE_NIGHT,
 ] as const;
 // The mip pyramid combines tight core and wide low-frequency beacon halo.
@@ -498,6 +505,71 @@ class GardenLutEffect extends Effect {
         ["lutMix", new Uniform(0)],
         ["ditherMix", new Uniform(0)],
         ["grain", new Uniform(PAPER_GRAIN_STRENGTH)],
+      ]),
+    });
+  }
+}
+
+/**
+ * W2.15 (O15 rung 3) — the key block, cut only where form meets sky.
+ *
+ * A print's key block draws silhouettes, not creases. This effect finds the
+ * one tier of edge that is a silhouette by construction: a geometry pixel with
+ * a SKY neighbour, where sky means the cleared depth 1.0. The dome, the
+ * borrowed hills and the mist billboards write no depth, so they all read as
+ * sky here and never carry a line of their own; faces, sails and logos have
+ * geometry on every side and are never touched. Nothing like a Sobel or a
+ * normal outline — those draw every crease at one weight, which is the §6
+ * rejection this idea does not reopen.
+ *
+ * Width is `max(1, bufferHeight / 1000)` pixels, read from the pass's own
+ * `resolution`, so the line keeps its proportion at 2560×1440 and follows the
+ * buffer the pass actually draws into rather than a size pushed from outside.
+ * The line fades out between `fog.near + 0.15·range` and `fog.near + 0.5·range`
+ * of view depth (the axis three's fog uses), so the sea horizon, the far fleet
+ * and far quays stay pure bokashi. Ink per beat lives in `POST_BEATS`.
+ *
+ * It runs FIRST in the fused grade pass: the ink is then graded, tone-mapped,
+ * looked up and antialiased by SMAA with everything else. Four depth taps per
+ * geometry pixel inside the fade; sky pixels, far pixels and a zero ink spend
+ * none. DECORATIVE: no data moves it, no cue reads it.
+ */
+const KEYLINE_FRAGMENT_SHADER = /* glsl */ `
+  uniform float keylineInk;
+  uniform vec2 keylineFade;
+
+  float gardenKeylineSky(const in vec2 uv) {
+    return step(0.99999, readDepth(uv));
+  }
+
+  void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
+    outputColor = inputColor;
+    if (keylineInk <= 0.0 || depth >= 0.99999) return;
+    float reach = 1.0 - smoothstep(keylineFade.x, keylineFade.y, -getViewZ(depth));
+    if (reach <= 0.0) return;
+    vec2 o = texelSize * max(1.0, resolution.y / 1000.0);
+    float sky = max(
+      max(gardenKeylineSky(uv + vec2(o.x, 0.0)), gardenKeylineSky(uv - vec2(o.x, 0.0))),
+      max(gardenKeylineSky(uv + vec2(0.0, o.y)), gardenKeylineSky(uv - vec2(0.0, o.y)))
+    );
+    outputColor.rgb = inputColor.rgb * (1.0 - sky * reach * keylineInk);
+  }
+`;
+
+/** Where the keyline starts and finishes fading, as fractions of the fog range. */
+const KEYLINE_FADE_START = 0.15;
+const KEYLINE_FADE_END = 0.5;
+
+class GardenKeylineEffect extends Effect {
+  constructor() {
+    super("GardenKeyline", KEYLINE_FRAGMENT_SHADER, {
+      attributes: EffectAttribute.DEPTH,
+      blendFunction: BlendFunction.SRC,
+      uniforms: new Map<string, Uniform>([
+        ["keylineInk", new Uniform(0)],
+        // A one-unit fade at the camera (its near plane) reaches nothing: no
+        // line until the first frame has read the scene's fog.
+        ["keylineFade", new Uniform(new Vector2(0, 1))],
       ]),
     });
   }
@@ -1188,8 +1260,9 @@ function releaseN8AOTextureResources(pass: N8AOPostPass): void {
  * rendering plan — supersedes the three/examples EffectComposer stack):
  *
  *   RenderPass → N8AOPostPass (AO on scene color) → EffectPass(BloomEffect) →
- *   EffectPass(GardenGodRays + GardenGrade + ToneMapping (Neutral or AgX,
- *   from GARDEN_TONE_MAPPING) + GardenLut, fused) → EffectPass(SMAA)
+ *   EffectPass(GardenKeyline + GardenGodRays + GardenGrade + ToneMapping
+ *   (Neutral or AgX, from GARDEN_TONE_MAPPING) + GardenLut, fused) →
+ *   EffectPass(SMAA)
  *
  * drawn through a multisampled (4×) HalfFloat frame buffer so MSAA survives
  * the composite. Tone mapping and color-space output each happen exactly
@@ -1223,6 +1296,7 @@ export function createGardenPost(
     ao: isKnockedOut("ao"),
     bloom: isKnockedOut("bloom"),
     grade: isKnockedOut("grade"),
+    keyline: isKnockedOut("keyline"),
     rays: isKnockedOut("rays"),
     smaa: isKnockedOut("smaa"),
   };
@@ -1323,24 +1397,33 @@ export function createGardenPost(
   });
   const lutEffect = new GardenLutEffect();
   const godRaysEffect = new GardenGodRaysEffect();
-  // Four effects, ONE full-screen draw. pmndrs chains the effects of a pass
+  const keylineEffect = new GardenKeylineEffect();
+  // Five effects, ONE full-screen draw. pmndrs chains the effects of a pass
   // into a single fragment shader, feeding each `mainImage` the previous one's
   // output, so W2.4 adds no pass to the main chain — only its own half-res
   // off-screen march, which runs in `update()` and is skipped outright when
   // its weight is zero.
   //
-  // The order IS the contract, and the shafts are BEFORE the grade so they are
-  // graded, tone-mapped and looked up with everything else rather than painted
-  // over the finished picture:
+  // The order IS the contract. The keyline is FIRST so its ink is graded,
+  // tone-mapped, looked up and antialiased like any other paint; the shafts
+  // are BEFORE the grade so they are graded, tone-mapped and looked up with
+  // everything else rather than painted over the finished picture:
   //
-  //   god rays (add) → parametric grade → tone map → authored cube + dither
+  //   keyline (multiply) → god rays (add) → parametric grade → tone map
+  //     → authored cube + dither
   //
   // A `grade` knockout drops the parametric grade and the authored cube; the
-  // tone map stays so the frame is still display-referred.
+  // tone map stays so the frame is still display-referred. A `keyline`
+  // knockout drops the keyline alone.
   const gradeEffects: Effect[] = knockout.grade
     ? [godRaysEffect, toneMappingEffect]
     : [godRaysEffect, gradeEffect, toneMappingEffect, lutEffect];
+  if (!knockout.keyline) gradeEffects.unshift(keylineEffect);
   const gradePass = new EffectPass(camera, ...gradeEffects);
+  const keylineUniforms = {
+    ink: uniform<number>(keylineEffect, "keylineInk"),
+    fade: uniform<Vector2>(keylineEffect, "keylineFade"),
+  };
 
   // SMAAEffect requests a depth texture unconditionally, but it only reads
   // depth for predicated edge detection, which is disabled here. Dropping the
@@ -1488,6 +1571,11 @@ export function createGardenPost(
     }
     gradeUniforms.saturation.value *= 1 - clampUnit(winter) * 0.08;
     gradeUniforms.flash.value = flash;
+    let keylineInk = 0;
+    for (let band = 0; band < POST_BEATS.length; band++) {
+      keylineInk += POST_BEATS[band]!.keylineInk * weights[band]!;
+    }
+    keylineUniforms.ink.value = keylineInk;
     phaseRayWeight = beats.dawn + beats.golden;
     const dawnShare = phaseRayWeight > 0 ? beats.dawn / phaseRayWeight : 0;
     godRaysEffect.setPhaseLook(
@@ -1542,6 +1630,16 @@ export function createGardenPost(
     // a single multiply.
     scratchInverseViewProjection.multiplyMatrices(camera.matrixWorld, camera.projectionMatrixInverse);
     godRaysEffect.setInverseViewProjection(scratchInverseViewProjection);
+    // The fog range follows the eye (`garden-sky.ts` re-fits it every frame
+    // before the composer runs), so the keyline's reach is read here too.
+    const fog = scene.fog;
+    if (fog instanceof Fog) {
+      const range = fog.far - fog.near;
+      keylineUniforms.fade.value.set(
+        fog.near + KEYLINE_FADE_START * range,
+        fog.near + KEYLINE_FADE_END * range,
+      );
+    }
   }
 
   /**
@@ -1681,11 +1779,13 @@ export function createGardenPost(
       // The composer owns every other pass, both frame buffers, and copy pass.
       composer.dispose();
       // A grade knockout leaves these two effects out of every pass, so the
-      // composer never reaches them.
+      // composer never reaches them; a keyline knockout does the same to the
+      // keyline.
       if (knockout.grade) {
         gradeEffect.dispose();
         lutEffect.dispose();
       }
+      if (knockout.keyline) keylineEffect.dispose();
       // The two LUT/dither textures are loaded here, so they are freed here;
       // the composer only owns what it created.
       lutTexture?.dispose();
@@ -1701,6 +1801,9 @@ export function createGardenPost(
         passList.push("render");
         if (n8aoPass.enabled) passList.push("n8ao");
         if (bloomPass.enabled) passList.push("bloom");
+        // "keyline" (W2.15) is fused FIRST into the grade pass and runs at
+        // every beat, so it is listed whenever it is built.
+        if (!knockout.keyline) passList.push("keyline");
         // "godrays" (W2.4) is fused into the grade pass, like "output" and
         // "lut" below, so none of the three adds a draw to the main chain. It
         // is listed only while its weight is non-zero, which is what makes the
