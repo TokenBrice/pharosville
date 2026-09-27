@@ -44,14 +44,9 @@ export function isRenderableWorldPayload(key: PharosVilleApiEndpointKey, data: u
       return finite(data.updatedAt) && record(data.signals) && Object.values(data.signals).every((signal) => record(signal)
         && fields(signal, ["score", "computedAt"]) && typeof signal.band === "string" && record(signal.signals)
         && Object.values(signal.signals).every((detail) => record(detail) && finite(detail.value) && typeof detail.available === "boolean"));
-    case "reportCards":
-      return finite(data.updatedAt) && rows(data.cards, (card) => typeof card.id === "string"
-        && nullableFinite(card.overallScore) && typeof card.overallGrade === "string" && record(card.rawInputs)
-        && record(card.dimensions) && ["pegStability", "liquidity", "resilience", "decentralization", "dependencyRisk"].every((key) => {
-          const dimension = (card.dimensions as Record<string, unknown>)[key];
-          return record(dimension) && nullableFinite(dimension.score);
-        })) && record(data.dependencyGraph) && rows(data.dependencyGraph.edges, (edge) =>
-        typeof edge.from === "string" && typeof edge.to === "string" && finite(edge.weight));
+    case "safetyGrades":
+      return finite(data.updatedAt) && rows(data.grades, (grade) => typeof grade.id === "string"
+        && nullableFinite(grade.score) && typeof grade.grade === "string");
     case "mintBurn":
       return finite(data.updatedAt) && record(data.gauge) && nullableFinite(data.gauge.score)
         && fields(data.gauge, ["flightIntensity", "trackedCoins", "trackedMcapUsd"])

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureStability } from "../__fixtures__/pharosville-world";
+import { denseFixtureChains, denseFixturePegSummary, denseFixtureSafetyGrades, denseFixtureStablecoins, denseFixtureStress, fixtureStability } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { buildBaseMotionPlan, resolveShipMotionSample } from "./motion";
 import { __resetForcedInletCrossings, forceInletCrossing, inletCrossingTokensBetween } from "./motion-planning";
@@ -15,7 +15,7 @@ const world = buildPharosVilleWorld({
   stability: fixtureStability,
   pegSummary: denseFixturePegSummary,
   stress: denseFixtureStress,
-  reportCards: denseFixtureReportCards,
+  safetyGrades: denseFixtureSafetyGrades,
   cemeteryEntries: [],
   freshness: {},
 });

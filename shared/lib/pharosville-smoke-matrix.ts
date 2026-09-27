@@ -15,17 +15,17 @@ export const PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS = [
   "/api/stability-index?detail=true",
   "/api/peg-summary",
   "/api/stress-signals",
-  "/api/report-cards",
+  "/api/safety-grades",
   "/api/mint-burn-flows",
 ] as const;
 
-// The world can open without this enrichment feed: report cards shape hulls,
+// The world can open without this enrichment feed: safety grades shape hulls,
 // but stablecoins and chains are the only payloads required to render a useful
 // harbour. Keep probing it and annotate failures without turning an unrelated
 // upstream outage into a failed Pages deployment. `--strict-freshness` still
 // promotes the warning to a failure for operator sign-off.
 export const PHAROSVILLE_SMOKE_WARNING_ENDPOINTS = [
-  "/api/report-cards",
+  "/api/safety-grades",
 ] as const satisfies readonly (typeof PHAROSVILLE_SMOKE_ALLOWLIST_ENDPOINTS)[number][];
 
 const SHARED_BLOCKED_404_PATHS = [
@@ -40,13 +40,13 @@ const PROXY_ONLY_BLOCKED_404_PATHS = [
   "/api/chains?extra=1",
   "/api/peg-summary?extra=1",
   "/api/stress-signals?days=7",
-  "/api/report-cards?extra=1",
+  "/api/safety-grades?extra=1",
   "/api/mint-burn-flows?extra=1",
 ] as const;
 
 const SMOKE_LIVE_ONLY_BLOCKED_404_PATHS = [
   "/api/stablecoins?detail=true",
-  "/api/report-cards?foo=bar",
+  "/api/safety-grades?foo=bar",
 ] as const;
 
 function blocked404(path: string): PharosVilleSmokeBlockedVariant {

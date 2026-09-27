@@ -9,7 +9,7 @@ import {
   fixtureChains,
   fixtureMintBurn,
   fixturePegSummary,
-  fixtureReportCards,
+  fixtureSafetyGrades,
   fixtureStability,
   fixtureStablecoins,
   fixtureStress,
@@ -23,7 +23,7 @@ const mocks = vi.hoisted(() => ({
   useStabilityIndexDetail: vi.fn(),
   usePegSummary: vi.fn(),
   useStressSignals: vi.fn(),
-  useReportCards: vi.fn(),
+  useSafetyGrades: vi.fn(),
   useMintBurnFlows: vi.fn(),
 }));
 
@@ -33,13 +33,13 @@ vi.mock("@/hooks/api-hooks", () => ({
   useStabilityIndexDetail: mocks.useStabilityIndexDetail,
   usePegSummary: mocks.usePegSummary,
   useStressSignals: mocks.useStressSignals,
-  useReportCards: mocks.useReportCards,
+  useSafetyGrades: mocks.useSafetyGrades,
   useMintBurnFlows: mocks.useMintBurnFlows,
 }));
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ refetchQueries: vi.fn() }) }));
 vi.mock("../error-reporter", () => ({ reportClientError: vi.fn() }));
 
-type Feed = "chains" | "mintBurn" | "pegSummary" | "reportCards" | "stability" | "stablecoins" | "stress";
+type Feed = "chains" | "mintBurn" | "pegSummary" | "safetyGrades" | "stability" | "stablecoins" | "stress";
 
 interface FeedStub {
   data: unknown;
@@ -54,7 +54,7 @@ const hookByFeed: Record<Feed, { mockReturnValue: (value: FeedStub) => unknown }
   chains: mocks.useChains,
   mintBurn: mocks.useMintBurnFlows,
   pegSummary: mocks.usePegSummary,
-  reportCards: mocks.useReportCards,
+  safetyGrades: mocks.useSafetyGrades,
   stability: mocks.useStabilityIndexDetail,
   stablecoins: mocks.useStablecoins,
   stress: mocks.useStressSignals,
@@ -64,7 +64,7 @@ const payloadByFeed: Record<Feed, unknown> = {
   chains: fixtureChains,
   mintBurn: fixtureMintBurn,
   pegSummary: fixturePegSummary,
-  reportCards: fixtureReportCards,
+  safetyGrades: fixtureSafetyGrades,
   stability: fixtureStability,
   stablecoins: fixtureStablecoins,
   stress: fixtureStress,
@@ -106,7 +106,7 @@ describe("route mode", () => {
       chains: failed("chains: 502"),
       mintBurn: failed("mint-burn-flows: 502"),
       pegSummary: failed("peg-summary: 502"),
-      reportCards: failed("report-cards: 502"),
+      safetyGrades: failed("safety-grades: 502"),
       stability: failed("stability: 502"),
       stablecoins: failed("stablecoins: 502"),
       stress: failed("stress: 502"),

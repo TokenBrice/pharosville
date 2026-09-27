@@ -5,7 +5,7 @@ import type { PharosVilleApiEndpointKey } from "@shared/types/pharosville";
 import {
   useMintBurnFlows,
   usePegSummary,
-  useReportCards,
+  useSafetyGrades,
   useStabilityIndexDetail,
   useStressSignals,
 } from "./api-hooks";
@@ -52,9 +52,9 @@ describe("PharosVille API hooks", () => {
       queryKey: ["stress-signals"],
     },
     {
-      hook: useReportCards,
-      key: "reportCards",
-      queryKey: ["report-cards"],
+      hook: useSafetyGrades,
+      key: "safetyGrades",
+      queryKey: ["safety-grades"],
     },
     {
       hook: useMintBurnFlows,

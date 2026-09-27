@@ -32,7 +32,6 @@ import {
   GARDEN_SHIP_ROOT_Y,
   gardenShipVisualScale,
   GARDEN_WATER_Y as WATER_LEVEL,
-  resolveGardenDependencyShipDisplayTile,
   resolveGardenShipDisplayTile,
 } from "../systems/garden-observatory-slice";
 import type { GardenFleetThinningShip } from "../systems/garden-fleet-thinning";
@@ -131,7 +130,6 @@ const scratchSwellPose: GardenHullSwellPose = { heave: 0, pitch: 0, rollToPort: 
 const scratchIssuanceHullForm = {
   agePatina: -1,
   beam: 1,
-  fittingCode: 0,
   height: 1,
   hullValue: 1,
   length: 1,
@@ -451,19 +449,6 @@ export function updateGardenShipFrame(
         }
       }
     }
-    const dependency = !transition && !departing ? visual.ship.dependencyFormation : null;
-    if (dependency) {
-      const parent = content.ships.find((entry) => entry.ship.id === dependency.parentId);
-      if (parent) {
-        const parentTile = resolveGardenShipDisplayTile({
-          displayOffset: parent.displayOffset,
-          representative: parent.representative,
-          sample: frame.shipMotionSamples.get(parent.ship.id),
-          ship: parent.ship,
-        });
-        tile = resolveGardenDependencyShipDisplayTile({ parentTile, ship: visual.ship });
-      }
-    }
     visual.root.visible = displayPresence > 0;
     if (displayPresence >= 0.5) visibleShipCount += 1;
     visual.root.scale.setScalar(
@@ -682,7 +667,6 @@ export function updateGardenShipFrame(
       const authoredHullForm = visual.ship.visual.hullForm;
       scratchIssuanceHullForm.beam = authoredHullForm.beam;
       scratchIssuanceHullForm.agePatina = authoredHullForm.agePatina ?? -1;
-      scratchIssuanceHullForm.fittingCode = authoredHullForm.fittingCode ?? 0;
       scratchIssuanceHullForm.height = authoredHullForm.height;
       scratchIssuanceHullForm.hullValue = authoredHullForm.hullValue ?? 1;
       scratchIssuanceHullForm.length = authoredHullForm.length;

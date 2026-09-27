@@ -11,7 +11,7 @@ import { PHAROSVILLE_WORLD_QUERY_KEY_ROOTS } from "@shared/lib/pharosville-endpo
 import {
   useMintBurnFlows,
   usePegSummary,
-  useReportCards,
+  useSafetyGrades,
   useStabilityIndexDetail,
   useStressSignals,
 } from "@/hooks/api-hooks";
@@ -20,7 +20,7 @@ import { useStablecoins } from "@/hooks/use-stablecoins";
 import type { ApiMeta } from "@/lib/api";
 import type {
   PegSummaryResponse,
-  ReportCardsResponse,
+  SafetyGradesResponse,
   StablecoinListResponse,
   StabilityIndexResponse,
   StressSignalsAllResponse,
@@ -37,7 +37,7 @@ interface WorldInputData {
   stability: StabilityIndexResponse | null | undefined;
   pegSummary: PegSummaryResponse | null | undefined;
   stress: StressSignalsAllResponse | null | undefined;
-  reportCards: ReportCardsResponse | null | undefined;
+  safetyGrades: SafetyGradesResponse | null | undefined;
   mintBurn: MintBurnFlowsResponse | null | undefined;
 }
 
@@ -59,7 +59,7 @@ function hasCompleteData(input: WorldInputData): boolean {
       && input.stability
       && input.pegSummary
       && input.stress
-      && input.reportCards
+      && input.safetyGrades
       && input.mintBurn,
   );
 }
@@ -90,7 +90,7 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
   const stabilityQuery = useStabilityIndexDetail();
   const pegSummaryQuery = usePegSummary();
   const stressQuery = useStressSignals();
-  const reportCardsQuery = useReportCards();
+  const safetyGradesQuery = useSafetyGrades();
   const mintBurnQuery = useMintBurnFlows();
 
   const error = stablecoinsQuery.error
@@ -98,7 +98,7 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
     ?? stabilityQuery.error
     ?? pegSummaryQuery.error
     ?? stressQuery.error
-    ?? reportCardsQuery.error
+    ?? safetyGradesQuery.error
     ?? mintBurnQuery.error;
 
   // Query errors are swallowed by TanStack Query, so a feed that exhausts its
@@ -120,7 +120,7 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
       || stabilityQuery.data
       || pegSummaryQuery.data
       || stressQuery.data
-      || reportCardsQuery.data
+      || safetyGradesQuery.data
       || mintBurnQuery.data,
   );
 
@@ -129,7 +129,7 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
     || stabilityQuery.isLoading
     || pegSummaryQuery.isLoading
     || stressQuery.isLoading
-    || reportCardsQuery.isLoading
+    || safetyGradesQuery.isLoading
     || mintBurnQuery.isLoading;
 
   const currentHasCompleteData = hasCompleteData({
@@ -138,7 +138,7 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
     stability: stabilityQuery.data,
     pegSummary: pegSummaryQuery.data,
     stress: stressQuery.data,
-    reportCards: reportCardsQuery.data,
+    safetyGrades: safetyGradesQuery.data,
     mintBurn: mintBurnQuery.data,
   });
 
@@ -177,7 +177,7 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
     stability: canPublishCurrentPayloads ? stabilityQuery.data : undefined,
     pegSummary: canPublishCurrentPayloads ? pegSummaryQuery.data : undefined,
     stress: canPublishCurrentPayloads ? stressQuery.data : undefined,
-    reportCards: canPublishCurrentPayloads ? reportCardsQuery.data : undefined,
+    safetyGrades: canPublishCurrentPayloads ? safetyGradesQuery.data : undefined,
     mintBurn: canPublishCurrentPayloads ? mintBurnQuery.data : undefined,
   };
 
@@ -186,7 +186,7 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
   const stabilityStale = isMetaStale(stabilityQuery.meta);
   const pegSummaryStale = isMetaStale(pegSummaryQuery.meta);
   const stressStale = isMetaStale(stressQuery.meta);
-  const reportCardsStale = isMetaStale(reportCardsQuery.meta);
+  const safetyGradesStale = isMetaStale(safetyGradesQuery.meta);
   const mintBurnStale = isMetaStale(mintBurnQuery.meta);
 
   const completeWorldRef = useRef<PharosVilleWorldModel | null>(null);
@@ -202,7 +202,7 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
       stability: publishedData.stability,
       pegSummary: publishedData.pegSummary,
       stress: publishedData.stress,
-      reportCards: publishedData.reportCards,
+      safetyGrades: publishedData.safetyGrades,
       mintBurn: publishedData.mintBurn,
       routeMode,
       freshness: {
@@ -211,7 +211,7 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
         stabilityStale,
         pegSummaryStale,
         stressStale,
-        reportCardsStale,
+        safetyGradesStale,
         mintBurnStale,
       },
     });
@@ -222,8 +222,8 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
   }, [
     canPublishCurrentPayloads, currentHasCompleteData, routeMode,
     publishedData.stablecoins, publishedData.chains, publishedData.stability,
-    publishedData.pegSummary, publishedData.stress, publishedData.reportCards, publishedData.mintBurn,
-    stablecoinsStale, chainsStale, stabilityStale, pegSummaryStale, stressStale, reportCardsStale, mintBurnStale,
+    publishedData.pegSummary, publishedData.stress, publishedData.safetyGrades, publishedData.mintBurn,
+    stablecoinsStale, chainsStale, stabilityStale, pegSummaryStale, stressStale, safetyGradesStale, mintBurnStale,
   ]);
 
   const queryClient = useQueryClient();

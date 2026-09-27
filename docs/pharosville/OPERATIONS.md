@@ -89,16 +89,16 @@ Watch for:
 - post-deploy smoke failure and failure of the scheduled canary;
 - warning annotations on an otherwise green canary run. `smoke:live` keeps two
   tiers: essential endpoint and contract violations fail the run, while an
-  unavailable report-card enrichment feed, stale data, and schema-legal payload
-  findings are reported as GitHub Actions annotations. Report cards shape ship
+  unavailable safety-grades enrichment feed, stale data, and schema-legal payload
+  findings are reported as GitHub Actions annotations. Safety grades shape ship
   hulls but are not required to open a useful harbour, so an upstream outage
   cannot falsely mark an otherwise successful Pages deployment as failed. Add
   `--strict-freshness` (or `SMOKE_STRICT_FRESHNESS=1`) when operator sign-off
   should promote every warning-tier finding to a failure.
 
 The deploy workflow probes the immutable deployment and
-`.github/workflows/canary-smoke.yml` probes the canonical host every 30
-minutes. Both run on GitHub Actions, so an Actions outage or a skipped schedule
+`.github/workflows/canary-smoke.yml` probes the canonical host once a day
+(07:23 UTC). Both run on GitHub Actions, so an Actions outage or a skipped schedule
 removes the only alerting channel. See **External monitoring** below for the
 independent monitor that closes that gap.
 
@@ -134,7 +134,7 @@ the edge and reach upstream at most about twice an hour no matter how often the
 monitor runs. It is the cheapest read that still exercises the whole relay
 path.
 
-Do not point a monitor at `/api/stablecoins`, `/api/report-cards`, or
+Do not point a monitor at `/api/stablecoins`, `/api/safety-grades`, or
 `/api/stability-index?detail=true`. Those carry the largest payloads and the
 shortest freshness lanes, so frequent probes turn into real upstream load and
 real bandwidth for no extra signal.
@@ -181,8 +181,8 @@ detection, not as a replacement for Option A.
 
 ### Why these values
 
-- **Interval.** The Actions canary runs every 30 minutes, so today's worst-case
-  detection is 30 minutes plus queue latency. A 5-minute external probe with a
+- **Interval.** The Actions canary runs once a day, so today's worst-case
+  detection is a day plus queue latency. A 5-minute external probe with a
   3-failure threshold bounds detection to roughly 15 minutes; 60 seconds on
   Cloudflare bounds it to about 3. Going below 1 minute buys nothing —
   Pages deploys propagate in seconds, and sub-minute alerting mostly reports
@@ -283,8 +283,8 @@ never cost a visitor their response.
 
 ### The canary probe
 
-`.github/workflows/canary-smoke.yml` POSTs one synthetic report every 30
-minutes and fails the run unless `/_log` answers `204` with
+`.github/workflows/canary-smoke.yml` POSTs one synthetic report once a day
+and fails the run unless `/_log` answers `204` with
 `cache-control: no-store`. It also asserts that a `GET` is refused with `405`
 and a cross-origin POST with `403`. This is what distinguishes "the endpoint
 exists" from "the endpoint works": the real callers are browsers that have

@@ -6,18 +6,15 @@ import { SQUAD_DISTRESS_FLAG_HEX } from "../systems/maker-squad";
 import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
 import { cycleTempoReadingClause, precomputeShipTempos } from "../systems/ship-cycle-tempo";
 import { shipIssuanceLedgerClause } from "../systems/ship-issuance";
-import { shipFittingsLedgerClause } from "../systems/ship-fittings";
 import { gardenMonthRecordLedgerClause } from "../systems/garden-month-record";
 import {
   beamDwellLabel,
   depegHistoryLabel,
-  dependencyFormationLabel,
   dexCrossCheckLabel,
   highWaterMarkLabel,
   mastSignalLabel,
   pegDeviationFactLabel,
   cargoTideLabel,
-  DIMENSION_KEY_LABELS,
   dockConcentrationLabel,
   dockSupplyChangeLabel,
   dockSupplyMomentumLabel,
@@ -28,8 +25,8 @@ import {
   psiContributorLabel,
   psiTrendLabel,
   quayMasonryLabel,
-  reportCardSafetyLabel,
   riskAnchoringDepthLabel,
+  safetyGradeLabel,
   shareOfFleetLabel,
   shipAgeLedgerClause,
   signalMastLabel,
@@ -521,16 +518,8 @@ function shipLedgerLine(
   const fleetMarketContext = fleetRank > 0
     ? `, #${fleetRank} of ${allShips.length}${fleetShare ? `, ${fleetShare}` : ""}`
     : "";
-  const safetyGrade = reportCardSafetyLabel(ship.reportCard);
-  const safetyDimensionClauses = ship.reportCard && safetyGrade
-    ? (Object.entries(DIMENSION_KEY_LABELS) as Array<[keyof typeof DIMENSION_KEY_LABELS, string]>).flatMap(([key, label]) => {
-        const dimension = ship.reportCard?.dimensions[key];
-        if (!dimension || dimension.grade === "NR") return [];
-        return [`${label} ${dimension.grade} — ${firstSentence(dimension.detail)}`];
-      })
-    : [];
+  const safetyGrade = safetyGradeLabel(ship.safetyGrade);
   const stressDriver = stressBreakdownLabel(ship);
-  const dependencyFormation = dependencyFormationLabel(ship, allShips);
   const riskDepth = riskAnchoringDepthLabel(ship);
   return [
     `${ship.label} (${ship.symbol}): ${formatCompactUsd(ship.marketCapUsd)} market cap${fleetMarketContext}, placed at ${placement}`,
@@ -544,7 +533,6 @@ function shipLedgerLine(
     `cycle tempo ${tempoLabel}; ${cycleTempoReadingClause()}`,
     `route cadence ${motionCadenceDetailLabel()}`,
     shipIssuanceLedgerClause(ship),
-    shipFittingsLedgerClause(ship),
     shipAgeLedgerClause(ship),
     // Tier 3 #13: the ledger takes the fact-row form, which names the direction
     // and says whether the hull is trimmed for it — the peg-trim cue's parity.
@@ -558,9 +546,7 @@ function shipLedgerLine(
     // a fact a reader working from the ledger alone would otherwise never get.
     ...(dexCrossCheckLabel(ship.dexCrossCheck) ? [`DEX cross-check ${dexCrossCheckLabel(ship.dexCrossCheck)}`] : []),
     ...(stressDriver ? [`stress driver ${stressDriver}`] : []),
-    ...(dependencyFormation ? [`dependency formation ${dependencyFormation}`] : []),
     ...(safetyGrade ? [`safety grade ${safetyGrade.replace(/^Safety\s+/, "")}`] : []),
-    ...safetyDimensionClauses,
   ].join("; ") + `.${transitionClause}`;
 }
 
@@ -572,12 +558,6 @@ function graveLedgerLine(grave: PharosVilleWorld["graves"][number]): string {
   return `${grave.entry.name} (${grave.entry.symbol}): ${cause}, ${grave.entry.deathDate}${peak}; stone garden: ${gardenStoneLabel(grave.visual.family)}. ${grave.entry.obituary}`;
 }
 
-function firstSentence(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "No rationale provided.";
-  const match = trimmed.match(/^.+?(?:[.!?](?=\s|$)|$)/);
-  return match?.[0]?.trim() || trimmed;
-}
 
 function renderInlineSwatch(hex: string, testId?: string) {
   return (
@@ -621,6 +601,6 @@ function freshnessEntries(world: PharosVilleWorld) {
     { label: "PSI", stale: world.freshness.stabilityStale === true },
     { label: "Peg summary", stale: world.freshness.pegSummaryStale === true },
     { label: "Stress signals", stale: world.freshness.stressStale === true },
-    { label: "Report cards", stale: world.freshness.reportCardsStale === true },
+    { label: "Safety grades", stale: world.freshness.safetyGradesStale === true },
   ];
 }

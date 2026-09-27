@@ -1,6 +1,6 @@
 import type {
   PegSummaryResponse,
-  ReportCardsResponse,
+  SafetyGradesResponse,
   StablecoinListResponse,
   StabilityIndexResponse,
   StressSignalsAllResponse,
@@ -28,7 +28,7 @@ export interface PharosVilleInputs {
   stability: StabilityIndexResponse | null | undefined;
   pegSummary: PegSummaryResponse | null | undefined;
   stress: StressSignalsAllResponse | null | undefined;
-  reportCards: ReportCardsResponse | null | undefined;
+  safetyGrades: SafetyGradesResponse | null | undefined;
   // Optional, unlike the six above: mint/burn is an ENRICHER. A world built
   // without it is a real harbour whose quays simply report their issuance as
   // unmeasured, so a caller that has no flow payload passes nothing rather than

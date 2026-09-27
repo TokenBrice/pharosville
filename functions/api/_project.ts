@@ -5,23 +5,14 @@ import type { PharosVilleApiEndpointKey } from "../../shared/types/pharosville-e
  * Payload projection at the edge: forward the CONTRACT, not the upstream's
  * extras.
  *
- * `/api/report-cards` is 2.98 MB — more than half of the ~5 MB PharosVille
- * downloads and parses before it can draw anything, and the largest single item
- * on the critical path by a wide margin. Two thirds of it is never read:
- *
- * - `dimensions[*].detailItems` (0.59 MB) is not in `ReportCardDimensionSchema`
- *   at all. Zod strips it on arrival, so no consumer can see it even today; it
- *   is pure transfer and parse cost. It is also self-duplicating — each item
- *   repeats the same sentence as label, value and detail.
- * - 443 cards arrive for a world that renders 187 ships. `cards` has exactly
- *   one consumer, `buildReportCardMap`, and it is only ever indexed by the id
- *   of an asset that passed `RUNTIME_ACTIVE_IDS`. Cards outside that set cannot
- *   be reached. (The graveyard does not use them either — it is built from
- *   `RUNTIME_CEMETERY_ENTRIES`.)
- *
- * Projection happens once per edge-cache miss, not per request, and every other
- * key of the response — `_meta`, `updatedAt`, `safetyScoreIdentity`,
- * `methodology` — is forwarded untouched.
+ * `/api/safety-grades` carries one row per graded asset, but the world only
+ * ever reads grades for assets that passed `RUNTIME_ACTIVE_IDS` —
+ * `buildSafetyGradeMap` is indexed solely by the ids of rendered ships, and
+ * the graveyard is built from `RUNTIME_CEMETERY_ENTRIES`, not from grades.
+ * Rows outside that set cannot be reached, so they are dropped here instead
+ * of shipped and parsed. Every other key of the response — `model`,
+ * `methodologyVersion`, `asOfSec`, `publicationStatus` — is forwarded
+ * untouched. Projection happens once per edge-cache miss, not per request.
  */
 
 interface JsonRecord {
@@ -32,32 +23,19 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function projectReportCards(payload: unknown): unknown {
-  if (!isRecord(payload) || !Array.isArray(payload.cards)) return payload;
-  const cards: unknown[] = [];
-  for (const card of payload.cards) {
-    if (!isRecord(card) || typeof card.id !== "string") continue;
-    if (!RUNTIME_ACTIVE_IDS.has(card.id)) continue;
-    if (!isRecord(card.dimensions)) {
-      cards.push(card);
-      continue;
-    }
-    const dimensions: JsonRecord = {};
-    for (const [key, dimension] of Object.entries(card.dimensions)) {
-      if (!isRecord(dimension)) {
-        dimensions[key] = dimension;
-        continue;
-      }
-      const { detailItems: _detailItems, ...kept } = dimension;
-      dimensions[key] = kept;
-    }
-    cards.push({ ...card, dimensions });
+function projectSafetyGrades(payload: unknown): unknown {
+  if (!isRecord(payload) || !Array.isArray(payload.grades)) return payload;
+  const grades: unknown[] = [];
+  for (const grade of payload.grades) {
+    if (!isRecord(grade) || typeof grade.id !== "string") continue;
+    if (!RUNTIME_ACTIVE_IDS.has(grade.id)) continue;
+    grades.push(grade);
   }
-  return { ...payload, cards };
+  return { ...payload, grades };
 }
 
 const PROJECTORS: Partial<Record<PharosVilleApiEndpointKey, (payload: unknown) => unknown>> = {
-  reportCards: projectReportCards,
+  safetyGrades: projectSafetyGrades,
 };
 
 export function endpointProjector(

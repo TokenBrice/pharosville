@@ -52,11 +52,12 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stressSignals,
     producerIntervalSec: CRON_INTERVALS["compute-dews"],
   },
-  reportCards: {
-    key: "reportCards",
-    path: API_PATHS.reportCards(),
-    queryKey: ["report-cards"],
-    metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.reportCards,
+  safetyGrades: {
+    key: "safetyGrades",
+    path: API_PATHS.safetyGrades(),
+    queryKey: ["safety-grades"],
+    metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.safetyGrades,
+    // Host mirror: the `publish-report-card-cache` cron now publishes safety grades on this cadence.
     producerIntervalSec: CRON_INTERVALS["publish-report-card-cache"],
   },
   // The only FLOW endpoint in the set: every other feed reports a stock (how

@@ -1815,7 +1815,7 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
     ship.dominantChainId,
     ship.id,
     ship.logoSrc,
-    ship.reportCard?.overallGrade ?? null,
+    ship.safetyGrade?.grade ?? null,
     ship.riskZone,
     ship.symbol,
     ship.visual,

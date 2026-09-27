@@ -70,7 +70,7 @@ export function applySeaRoomSeparationPass(
   for (const ship of ships) {
     const sample = samples.get(ship.id);
     // Formation children are composed from their parent by the shared resolver.
-    if (!sample?.displayTile || ship.squadRole === "consort" || ship.dependencyFormation) continue;
+    if (!sample?.displayTile || ship.squadRole === "consort") continue;
     liveIds.add(ship.id);
     const scale = gardenShipVisualScale(ship.visual.scale || 1);
     const silhouette = GARDEN_SILHOUETTE_FOR_HULL[ship.visual.hull];

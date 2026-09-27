@@ -3,7 +3,7 @@ import { overCapacityWorldFixture } from "../../../__fixtures__/over-capacity-wo
 import {
   denseFixtureChains,
   denseFixturePegSummary,
-  denseFixtureReportCards,
+  denseFixtureSafetyGrades,
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureStability,
@@ -43,7 +43,7 @@ function denseWorldInputs(peggedAssets?: readonly StablecoinData[]): PharosVille
     stability: fixtureStability,
     pegSummary: denseFixturePegSummary,
     stress: denseFixtureStress,
-    reportCards: denseFixtureReportCards,
+    safetyGrades: denseFixtureSafetyGrades,
     cemeteryEntries: [],
     freshness: {},
   };

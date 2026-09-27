@@ -1,8 +1,7 @@
 import type {
   PegSummaryCoin,
   PegSummaryResponse,
-  ReportCard,
-  ReportCardsResponse,
+  SafetyGradesResponse,
   StablecoinData,
   StablecoinListResponse,
   StablecoinMeta,
@@ -117,55 +116,6 @@ export function makeChain(overrides: Partial<ChainSummary> & { id: string; name?
   };
 }
 
-export function makeReportCard(overrides: Partial<ReportCard> & { id: string; symbol: string }): ReportCard {
-  const { id, symbol, ...rest } = overrides;
-  return {
-    id,
-    name: symbol,
-    symbol,
-    overallGrade: "A",
-    overallScore: 90,
-    baseScore: 90,
-    dimensions: {
-      pegStability: { grade: "A", score: 95, detail: "fixture" },
-      liquidity: { grade: "A", score: 90, detail: "fixture" },
-      resilience: { grade: "A", score: 90, detail: "fixture" },
-      decentralization: { grade: "B", score: 80, detail: "fixture" },
-      dependencyRisk: { grade: "A", score: 90, detail: "fixture" },
-    },
-    ratedDimensions: 5,
-    rawInputs: {
-      pegScore: 100,
-      activeDepeg: false,
-      activeDepegBps: null,
-      depegEventCount: 0,
-      lastEventAt: null,
-      liquidityScore: 90,
-      effectiveExitScore: 90,
-      redemptionBackstopScore: 90,
-      redemptionRouteFamily: "offchain-issuer",
-      redemptionModelConfidence: "high",
-      redemptionUsedForLiquidity: true,
-      redemptionImmediateCapacityUsd: 1_000_000_000,
-      redemptionImmediateCapacityRatio: 1,
-      concentrationHhi: 0.2,
-      bluechipGrade: "A",
-      canBeBlacklisted: false,
-      chainTier: "ethereum",
-      deploymentModel: "native-multichain",
-      collateralQuality: "rwa",
-      custodyModel: "institutional-regulated",
-      governanceTier: "centralized",
-      governanceQuality: "regulated-entity",
-      dependencies: [],
-      variantParentId: null,
-      variantKind: null,
-      navToken: false,
-    },
-    isDefunct: false,
-    ...rest,
-  } as ReportCard;
-}
 
 export const fixtureStablecoins: StablecoinListResponse = {
   peggedAssets: [
@@ -216,20 +166,17 @@ export const fixtureStress = {
   methodology,
 } satisfies StressSignalsAllResponse;
 
-export const fixtureReportCards: ReportCardsResponse = {
-  cards: [
-    makeReportCard({ id: "usdc-circle", symbol: "USDC" }),
-    makeReportCard({ id: "usdt-tether", symbol: "USDT" }),
-  ],
-  methodology: {
-    version: "fixture",
-    weights: { pegStability: 1, liquidity: 1, resilience: 1, decentralization: 1, dependencyRisk: 1 },
-    pegMultiplierExponent: 1,
-    thresholds: [],
-  },
-  dependencyGraph: { edges: [] },
+export const fixtureSafetyGrades: SafetyGradesResponse = {
+  model: "fixture",
+  methodologyVersion: "fixture",
+  asOfSec: 1_700_000_000,
   updatedAt: 1_700_000_000,
-} as ReportCardsResponse;
+  publicationStatus: "current",
+  grades: [
+    { id: "usdc-circle", score: 90, grade: "A" },
+    { id: "usdt-tether", score: 90, grade: "A" },
+  ],
+};
 
 export const fixtureMintBurn = {
   gauge: {
@@ -292,7 +239,7 @@ export function makePharosVilleWorldInput(overrides: Partial<PharosVilleInputs> 
     stability: fixtureStability,
     pegSummary: fixturePegSummary,
     stress: fixtureStress,
-    reportCards: fixtureReportCards,
+    safetyGrades: fixtureSafetyGrades,
     mintBurn: fixtureMintBurn,
     cemeteryEntries: [],
     freshness: {},
@@ -555,9 +502,9 @@ export function makerSquadFixtureInputs(): PharosVilleInputs {
     stability: fixtureStability,
     pegSummary: { ...fixturePegSummary, coins: makerSquadFixturePegCoins() },
     stress: { ...fixtureStress, signals: {} },
-    reportCards: {
-      ...fixtureReportCards,
-      cards: makerSquadFixtureMetas().map((meta) => makeReportCard({ id: meta.id, symbol: meta.symbol })),
+    safetyGrades: {
+      ...fixtureSafetyGrades,
+      grades: makerSquadFixtureMetas().map((meta) => ({ id: meta.id, score: 90, grade: "A" as const })),
     },
     cemeteryEntries: [],
     freshness: {},
@@ -623,32 +570,16 @@ export function fixtureWithFlagshipPlacement(
   };
 }
 
-export const denseFixtureReportCards: ReportCardsResponse = {
-  ...fixtureReportCards,
-  cards: denseFixtureMetas.map((meta, index) => {
+export const denseFixtureSafetyGrades: SafetyGradesResponse = {
+  ...fixtureSafetyGrades,
+  grades: denseFixtureMetas.map((meta, index) => {
     const band = denseBandForIndex(index);
     const grade = band === "DANGER" ? "D" : band === "WARNING" ? "C" : band === "ALERT" ? "B" : "A";
-    return makeReportCard({
+    return {
       id: meta.id,
-      symbol: meta.symbol,
-      name: meta.name,
-      overallGrade: grade,
-      overallScore: grade === "D" ? 48 : grade === "C" ? 66 : grade === "B" ? 78 : 91,
-      rawInputs: {
-        ...makeReportCard({ id: meta.id, symbol: meta.symbol }).rawInputs,
-        activeDepeg: band === "DANGER" || band === "WARNING",
-        activeDepegBps: band === "DANGER" ? 780 : band === "WARNING" ? 320 : null,
-        pegScore: band === "DANGER" ? 18 : band === "WARNING" ? 48 : band === "ALERT" ? 74 : 98,
-        depegEventCount: band === "CALM" ? 0 : 1,
-        chainTier: index % 3 === 0 ? "stage1-l2" : "ethereum",
-        deploymentModel: index % 4 === 0 ? "third-party-bridge" : "native-multichain",
-        collateralQuality: meta.flags.backing === "rwa-backed" ? "rwa" : "native",
-        custodyModel: meta.flags.governance === "centralized" ? "institutional-regulated" : "onchain",
-        governanceTier: meta.flags.governance,
-        governanceQuality: meta.governanceQuality ?? (meta.flags.governance === "decentralized" ? "dao-governance" : "single-entity"),
-        navToken: meta.flags.navToken,
-      },
-    });
+      grade,
+      score: grade === "D" ? 48 : grade === "C" ? 66 : grade === "B" ? 78 : 91,
+    };
   }),
   updatedAt: 1_700_000_000,
-} as ReportCardsResponse;
+};

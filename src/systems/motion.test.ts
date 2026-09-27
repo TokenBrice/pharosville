@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { denseFixtureChains, denseFixturePegSummary, denseFixtureReportCards, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureReportCards, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
+import { denseFixtureChains, denseFixturePegSummary, denseFixtureSafetyGrades, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureSafetyGrades, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { __testPathCacheSize, buildBaseMotionPlan, buildMotionPlan, BoundedShipWaterRouteCache, buildShipWaterRoute, clearShipHeadingMemory, createShipMotionSample, disposePathCacheForMap, isShipMapVisible, motionPlanSignature, resolveShipMotionSample, resolveShipMotionSampleInto, sampleShipWaterPath, shipCycleTempo, shipMapVisibilityAlpha, shipWaterPathKey, SPEED_QUARTILE_SCALARS, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
 import { ARRIVING_DECEL_END, ARRIVING_FULL_TRANSIT_END, CAST_OFF_LINE_RELEASE_END, MOORING_QUIET_END, MOORING_WORKING_END, MOTION_CYCLE_MAX_SECONDS, MOTION_LEG_MAX_SECONDS, MOTION_LEG_MIN_SECONDS, MOTION_REST_MAX_SECONDS, MOTION_REST_MIN_SECONDS, MOTION_UNDERWAY_MAX_TILES_PER_SECOND, MOTION_UNDERWAY_MIN_TILES_PER_SECOND } from "./motion-config";
@@ -42,7 +42,7 @@ describe("motion", () => {
     stability: fixtureStability,
     pegSummary: fixturePegSummary,
     stress: fixtureStress,
-    reportCards: fixtureReportCards,
+    safetyGrades: fixtureSafetyGrades,
     cemeteryEntries: [],
     freshness: {},
   });
@@ -55,7 +55,7 @@ describe("motion", () => {
     stability: fixtureStability,
     pegSummary: denseFixturePegSummary,
     stress: denseFixtureStress,
-    reportCards: denseFixtureReportCards,
+    safetyGrades: denseFixtureSafetyGrades,
     cemeteryEntries: [],
     freshness: {},
   });
@@ -258,7 +258,7 @@ describe("motion", () => {
       stability: fixtureStability,
       pegSummary: fixturePegSummary,
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -274,7 +274,7 @@ describe("motion", () => {
       stability: fixtureStability,
       pegSummary: fixturePegSummary,
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: { stablecoinsStale: true, chainsStale: true },
     });
@@ -364,7 +364,7 @@ describe("motion", () => {
       stability: fixtureStability,
       pegSummary: fixturePegSummary,
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -857,8 +857,6 @@ describe("motion", () => {
       const world = { ...tableauWorld };
       const plan = buildMotionPlan(world, null);
       return selectGardenObservatorySlice(world, null).ships
-        // Dependency children are composed beside their parent, not berthed.
-        .filter(({ ship }) => !ship.dependencyFormation)
         .map((placement) => ({
           id: placement.ship.id,
           zone: placement.ship.riskZone,
@@ -1200,7 +1198,7 @@ describe("motion", () => {
       stability: fixtureStability,
       pegSummary: fixturePegSummary,
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -1230,7 +1228,7 @@ describe("motion", () => {
       stability: fixtureStability,
       pegSummary: fixturePegSummary,
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -2160,7 +2158,7 @@ describe("motion", () => {
         stability: fixtureStability,
         pegSummary: fixturePegSummary,
         stress: fixtureStress,
-        reportCards: fixtureReportCards,
+        safetyGrades: fixtureSafetyGrades,
         cemeteryEntries: [],
         freshness: {},
       });
@@ -2196,7 +2194,7 @@ describe("motion", () => {
         stability: fixtureStability,
         pegSummary: fixturePegSummary,
         stress: fixtureStress,
-        reportCards: fixtureReportCards,
+        safetyGrades: fixtureSafetyGrades,
         cemeteryEntries: [],
         freshness: {},
       });
@@ -2217,7 +2215,7 @@ describe("motion", () => {
         stability: fixtureStability,
         pegSummary: fixturePegSummary,
         stress: fixtureStress,
-        reportCards: fixtureReportCards,
+        safetyGrades: fixtureSafetyGrades,
         cemeteryEntries: [],
         freshness: {},
       });
@@ -2241,7 +2239,7 @@ describe("motion", () => {
         stability: fixtureStability,
         pegSummary: fixturePegSummary,
         stress: fixtureStress,
-        reportCards: fixtureReportCards,
+        safetyGrades: fixtureSafetyGrades,
         cemeteryEntries: [],
         freshness: {},
       });
@@ -2412,7 +2410,7 @@ describe("motion", () => {
         stability: fixtureStability,
         pegSummary: denseFixturePegSummary,
         stress: denseFixtureStress,
-        reportCards: denseFixtureReportCards,
+        safetyGrades: denseFixtureSafetyGrades,
         cemeteryEntries: [],
         freshness: {},
       });
@@ -2579,7 +2577,7 @@ describe("motion", () => {
         stability: fixtureStability,
         pegSummary: fixturePegSummary,
         stress: fixtureStress,
-        reportCards: fixtureReportCards,
+        safetyGrades: fixtureSafetyGrades,
         cemeteryEntries: [],
         freshness: {},
       });
@@ -2671,7 +2669,7 @@ describe("motion", () => {
         stability: fixtureStability,
         pegSummary: denseFixturePegSummary,
         stress: denseFixtureStress,
-        reportCards: denseFixtureReportCards,
+        safetyGrades: denseFixtureSafetyGrades,
         cemeteryEntries: [],
         freshness: {},
       }));
@@ -2878,7 +2876,7 @@ describe("motion", () => {
       stability: fixtureStability,
       pegSummary: denseFixturePegSummary,
       stress: denseFixtureStress,
-      reportCards: denseFixtureReportCards,
+      safetyGrades: denseFixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -2958,7 +2956,7 @@ function worldForShip(input: {
         },
       }
       : fixtureStress,
-    reportCards: fixtureReportCards,
+    safetyGrades: fixtureSafetyGrades,
     cemeteryEntries: [],
     freshness: input.freshness ?? {},
   });

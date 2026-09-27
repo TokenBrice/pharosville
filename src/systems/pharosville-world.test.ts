@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { CEMETERY_ENTRIES } from "@shared/lib/cemetery-merged";
 import { ACTIVE_IDS } from "@shared/lib/stablecoins";
-import type { ReportCardsResponse } from "@shared/types";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
-  denseFixtureReportCards,
+  denseFixtureSafetyGrades,
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureChains,
   fixturePegSummary,
-  fixtureReportCards,
+  fixtureSafetyGrades,
   fixtureStability,
   fixtureStablecoins,
   fixtureStress,
@@ -21,7 +20,6 @@ import {
   makeAsset,
   makeChain,
   makePegCoin,
-  makeReportCard,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
 import {
@@ -85,7 +83,7 @@ describe("buildPharosVilleWorld", () => {
       stability: null,
       pegSummary: null,
       stress: null,
-      reportCards: null,
+      safetyGrades: null,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -100,7 +98,7 @@ describe("buildPharosVilleWorld", () => {
       stability: fixtureStability,
       pegSummary: fixturePegSummary,
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: CEMETERY_ENTRIES.slice(0, 3),
       freshness: {},
     });
@@ -133,67 +131,24 @@ describe("buildPharosVilleWorld", () => {
     expect(world.visualCues.length).toBeGreaterThan(0);
   });
 
-  it("forms an independent ship beside its strongest in-fleet dependency", () => {
-    const reportCards = {
-      ...fixtureReportCards,
-      dependencyGraph: {
-        edges: [
-          { from: "usdc-circle", to: "usdt-tether", type: "collateral", weight: 0.42 },
-          { from: "usdc-circle", to: "missing-parent", type: "wrapper", weight: 0.9 },
-        ],
-      },
-    } as ReportCardsResponse;
-    const world = buildPharosVilleWorld({
-      stablecoins: fixtureStablecoins,
-      chains: fixtureChains,
-      stability: fixtureStability,
-      pegSummary: fixturePegSummary,
-      stress: fixtureStress,
-      reportCards,
-      cemeteryEntries: [],
-      freshness: {},
-    });
-
-    expect(world.ships.find((ship) => ship.id === "usdc-circle")?.dependencyFormation).toEqual({
-      parentId: "usdt-tether",
-      type: "collateral",
-      weight: 0.42,
-    });
-    expect(world.detailIndex["ship.usdc-circle"]?.facts).toContainEqual({
-      label: "Dependency formation",
-      value: "collateral dependence on Tether (USDT), 42% weight",
-    });
-    expect(world.ships.find((ship) => ship.id === "usdt-tether")?.dependencyFormation).toBeNull();
-  });
-
   it("omits removed data-building entities from the world model", () => {
-    const reportCards = {
-      ...fixtureReportCards,
-      cards: [
-        makeReportCard({ id: "usdc-circle", symbol: "USDC" }),
-        makeReportCard({ id: "usdt-tether", symbol: "USDT" }),
-        makeReportCard({ id: "pyusd-paypal", symbol: "PYUSD" }),
-        makeReportCard({ id: "usdp-paxos", symbol: "USDP" }),
-        makeReportCard({ id: "gusd-gemini", symbol: "GUSD" }),
-        makeReportCard({ id: "tusd-trueusd", symbol: "TUSD" }),
-      ],
-      dependencyGraph: {
-        edges: [
-          { from: "usdc-circle", to: "usdt-tether", type: "collateral", weight: 0.4 },
-          { from: "usdc-circle", to: "pyusd-paypal", type: "collateral", weight: 0.3 },
-          { from: "usdc-circle", to: "usdp-paxos", type: "wrapper", weight: 0.2 },
-          { from: "usdc-circle", to: "gusd-gemini", type: "mechanism", weight: 0.1 },
-          { from: "usdc-circle", to: "tusd-trueusd", type: "mechanism", weight: 0.1 },
-        ],
-      },
-    } as unknown as ReportCardsResponse;
     const world = buildPharosVilleWorld({
       stablecoins: fixtureStablecoins,
       chains: fixtureChains,
       stability: fixtureStability,
       pegSummary: fixturePegSummary,
       stress: fixtureStress,
-      reportCards,
+      safetyGrades: {
+        ...fixtureSafetyGrades,
+        grades: [
+          { id: "usdc-circle", score: 90, grade: "A" },
+          { id: "usdt-tether", score: 90, grade: "A" },
+          { id: "pyusd-paypal", score: 90, grade: "A" },
+          { id: "usdp-paxos", score: 90, grade: "A" },
+          { id: "gusd-gemini", score: 90, grade: "A" },
+          { id: "tusd-trueusd", score: 90, grade: "A" },
+        ],
+      },
       cemeteryEntries: [],
       freshness: {},
     });
@@ -219,7 +174,7 @@ describe("buildPharosVilleWorld", () => {
         coins: ids.map((id, index) => makePegCoin({ id, symbol: `S${index}` })),
       },
       stress: { ...fixtureStress, signals: {} },
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -267,7 +222,7 @@ describe("buildPharosVilleWorld", () => {
           },
         },
       },
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: { stressStale: true },
     });
@@ -298,7 +253,7 @@ describe("buildPharosVilleWorld", () => {
       stability: fixtureStability,
       pegSummary: fixturePegSummary,
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     };
@@ -358,7 +313,7 @@ describe("buildPharosVilleWorld", () => {
         coins: [makePegCoin({ id: "usdc-circle", symbol: "USDC" })],
       },
       stress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -452,7 +407,7 @@ describe("buildPharosVilleWorld", () => {
           },
         },
       },
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -520,7 +475,7 @@ describe("buildPharosVilleWorld", () => {
           },
         },
       },
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -576,7 +531,7 @@ describe("buildPharosVilleWorld", () => {
       stability: fixtureStability,
       pegSummary: fixturePegSummary,
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -605,7 +560,7 @@ describe("buildPharosVilleWorld", () => {
       stability: fixtureStability,
       pegSummary: fixturePegSummary,
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -620,7 +575,7 @@ describe("buildPharosVilleWorld", () => {
       stability: { ...fixtureStability, current: null },
       pegSummary: fixturePegSummary,
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: { stabilityStale: true },
     });
@@ -663,7 +618,7 @@ describe("buildPharosVilleWorld", () => {
       stability: fixtureStability,
       pegSummary: fixturePegSummary,
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -709,7 +664,7 @@ describe("buildPharosVilleWorld", () => {
         coins: [makePegCoin({ id: "usdc-circle", symbol: "USDC", activeDepeg: true })],
       },
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -752,7 +707,7 @@ describe("buildPharosVilleWorld", () => {
         coins: [makePegCoin({ id: "usdc-circle", symbol: "USDC", activeDepeg: true })],
       },
       stress: fixtureStress,
-      reportCards: fixtureReportCards,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
@@ -777,7 +732,7 @@ describe("buildPharosVilleWorld", () => {
       stability: fixtureStability,
       pegSummary: denseFixturePegSummary,
       stress: denseFixtureStress,
-      reportCards: denseFixtureReportCards,
+      safetyGrades: denseFixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });

@@ -744,23 +744,6 @@ describe("W5.8/W7.3 instanced hull surface", () => {
     disposeFleetBatches(batches);
   });
 
-  it("packs the seaworthiness fitting code with rope sag without another attribute", () => {
-    const batches = buildBatches(4);
-    beginFleetFrame(batches);
-    writeFleetInstance(batches, pose({
-      hullForm: {
-        beam: 1,
-        fittingCode: 19,
-        height: 1,
-        length: 1,
-        ropeSag: -0.06,
-        waterline: 0,
-      } as FleetInstancePose["hullForm"],
-    }));
-    endFleetFrame(batches);
-    expect(batches.bySilhouette.get("bezaisen")?.hull.hullSurface?.getW(0)).toBeCloseTo(18.94);
-    disposeFleetBatches(batches);
-  });
 
 });
 
@@ -899,7 +882,7 @@ describe("eye-distance fleet hierarchy", () => {
       expect(gardenFleetMarkPresence(distance.getY(index))).toBe(1);
     }
     for (const index of [6, 7, 8]) {
-      expect(gardenFleetFramingRestraint(distance.getY(index))).toBeCloseTo(0.25);
+      expect(gardenFleetFramingRestraint(distance.getY(index))).toBeCloseTo(0.12);
       expect(gardenFleetMarkPresence(distance.getY(index))).toBeCloseTo(0.3);
       // ...unless the ship is in the hero band, which keeps its full mark.
       expect(gardenFleetMarkPresence(distance.getY(index), 1)).toBe(1);

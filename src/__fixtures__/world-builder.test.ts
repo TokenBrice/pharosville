@@ -13,7 +13,7 @@ describe("WorldBuilder", () => {
       stabilityStale: false,
       pegSummaryStale: false,
       stressStale: false,
-      reportCardsStale: false,
+      safetyGradesStale: false,
     });
     const world = buildPharosVilleWorld(inputs);
     expect(world.routeMode).toBe("world");

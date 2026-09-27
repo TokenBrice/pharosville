@@ -189,11 +189,9 @@ const endpointValidatorsByPath = {
     assertNumber(json.updatedAt, "stress.updatedAt");
     assert(isRecord(json.methodology), "stress.methodology must be an object");
   },
-  "/api/report-cards": (json) => {
-    assertArray(json.cards, "reportCards.cards", { nonEmpty: true });
-    assert(isRecord(json.methodology), "reportCards.methodology must be an object");
-    assert(isRecord(json.dependencyGraph), "reportCards.dependencyGraph must be an object");
-    assertNumber(json.updatedAt, "reportCards.updatedAt");
+  "/api/safety-grades": (json) => {
+    assertArray(json.grades, "safetyGrades.grades", { nonEmpty: true });
+    assertNumber(json.updatedAt, "safetyGrades.updatedAt");
   },
   // `scope` is `.optional()` in MintBurnFlowsResponseSchema and `coins` carries
   // no minimum, so neither can be a hard gate: a contract-legal payload would
@@ -253,7 +251,7 @@ const freshnessSourcesByPath = {
   "/api/stability-index?detail=true": { key: "stability", readUpdatedAt: (json) => json.current?.computedAt },
   "/api/peg-summary": { key: "pegSummary", readUpdatedAt: (json) => json.methodology?.asOf },
   "/api/stress-signals": { key: "stress", readUpdatedAt: (json) => json.updatedAt },
-  "/api/report-cards": { key: "reportCards", readUpdatedAt: (json) => json.updatedAt },
+  "/api/safety-grades": { key: "safetyGrades", readUpdatedAt: (json) => json.updatedAt },
   "/api/mint-burn-flows": { key: "mintBurn", readUpdatedAt: (json) => json.updatedAt },
 };
 

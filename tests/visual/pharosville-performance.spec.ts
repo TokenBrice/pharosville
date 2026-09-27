@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
-  denseFixtureReportCards,
+  denseFixtureSafetyGrades,
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureMintBurn,
@@ -620,7 +620,7 @@ test("repeated world replacement returns GPU resources to a flat baseline", asyn
     [PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stability, () => fixtureStability],
     [PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.pegSummary, () => denseFixturePegSummary],
     [PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.stress, () => denseFixtureStress],
-    [PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.reportCards, () => denseFixtureReportCards],
+    [PHAROSVILLE_API_ENDPOINT_PATHS_BY_KEY.safetyGrades, () => denseFixtureSafetyGrades],
     // The seventh feed. Left unrouted it escapes to the local dev proxy and the
     // live API, which under `page.clock` fake timers is neither deterministic
     // nor offline-safe.

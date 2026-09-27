@@ -32,7 +32,7 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
     # The Playwright container runs as root while Actions injects a HOME owned
     # by uid 1000. Firefox refuses to launch until HOME points at a root-owned
     # directory.

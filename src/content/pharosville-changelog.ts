@@ -12,6 +12,30 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-09-22-safety-grades",
+    version: PHAROSVILLE_RELEASE_VERSIONS.safetyGrades,
+    date: "2026-09-22",
+    title: "Safety Grades",
+    summary: "The harbour reads the upstream Safety Score directly: every hull's grade comes from the free /api/safety-grades feed, and the cues that depended on the retired report-card inputs are gone rather than faked.",
+    bullets: [
+      "Safety grades come from the live feed again. Upstream retired /api/report-cards on 2026-09-05, so the canary had failed every half hour since and the world had been opening without any safety reading. The proxy, client contract, smoke matrix and world model now read /api/safety-grades — one overall grade and score per asset — so the Safety grade fact, its accessibility-ledger clause, the D/F watch overlay and the grade-driven beam stiffness are live once more.",
+      "Cues without a source are removed, not imitated. The Bluechip audit shield, the per-dimension rationale rows, the seaworthiness fittings (swung lifeboats, sealed chests, the customs brand) and dependency-formation placement all read fields the new feed does not carry. Each is deleted from the world model, the renderer, the detail panel, the ledger and the visual-cue registry, so no cue claims evidence the data no longer provides.",
+    ],
+    source: "Collected from commit `2e1e028` after v0.17.1.",
+  },
+  {
+    id: "2026-09-10-dyed-cloth",
+    version: PHAROSVILLE_RELEASE_VERSIONS.dyedCloth,
+    date: "2026-09-10",
+    title: "Dyed Cloth",
+    summary: "The fleet flies its own colours and the far water has a surface: sails are dyed in the issuer's hue instead of a grey wash of it, and every risk body reads as water rather than a colour plate.",
+    bullets: [
+      "Sails wear the coin's colour. The cloth dye was mixed in linear light, which drained the colour out of every dark brand — half the fleet flew grey-blue and thirty more issuers were forced under black canvas. The dye is now judged perceptually: the brand's hue is kept exactly, its lightness is settled into a cloth range, its chroma is kept under the palette's ceiling, and a genuinely grey brand reads as undyed canvas. Circle is blue, Tether green, PayPal cobalt, Sky and Dai amber; only the five named pale issuers still fly dark cloth. The far third of the fleet keeps half again as much colour under the haze.",
+      "The water has a surface everywhere. Calm and ledger bodies had their ripple flattened to a mirror of one sky tone, and the far bands lost their normal past a few hundred units, so whole risk waters rendered as flat fills with hard seams between them. Glassy water keeps a fine ripple, the far field keeps half its detail, the reflected sky grades from horizon to zenith with the viewing angle, and each named body carries a slow, mean-preserving value and depth variation so its risk colour reads as a volume of water. The harbour basin under the Pharos stays a still mirror.",
+    ],
+    source: "Collected from commit `2861d17` after v0.17.0.",
+  },
+  {
     id: "2026-09-08-reborn",
     version: PHAROSVILLE_RELEASE_VERSIONS.reborn,
     date: "2026-09-08",

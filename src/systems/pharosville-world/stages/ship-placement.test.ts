@@ -358,15 +358,4 @@ describe("shipWaterlineTrim", () => {
     const unavailable = buildPharosVilleWorld(makePharosVilleWorldInput({ mintBurn: null }));
     expect(unavailable.ships.every((ship) => ship.issuance === undefined)).toBe(true);
   });
-
-  it("derives report-card fittings and their compact batch code", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
-    const ship = world.ships.find((entry) => entry.id === "usdc-circle");
-    expect(ship?.fittings).toMatchObject({
-      blacklistStatus: false,
-      collateralCargo: "sealed",
-      redemptionCapacityRatio: 1,
-    });
-    expect(ship?.visual.hullForm.fittingCode).toBe(7);
-  });
 });

@@ -10,7 +10,7 @@ import {
   fixtureChains,
   fixturePegSummary,
   fixtureMintBurn,
-  fixtureReportCards,
+  fixtureSafetyGrades,
   fixtureStablecoins,
   fixtureStability,
   fixtureStress,
@@ -37,7 +37,7 @@ const mocks = vi.hoisted(() => {
     useStabilityIndexDetail: vi.fn(),
     usePegSummary: vi.fn(),
     useStressSignals: vi.fn(),
-    useReportCards: vi.fn(),
+    useSafetyGrades: vi.fn(),
     useMintBurnFlows: vi.fn(),
     buildPharosVilleWorld: vi.fn((input: {
       routeMode?: string;
@@ -97,7 +97,7 @@ vi.mock("@/hooks/api-hooks", () => ({
   useStabilityIndexDetail: mocks.useStabilityIndexDetail,
   usePegSummary: mocks.usePegSummary,
   useStressSignals: mocks.useStressSignals,
-  useReportCards: mocks.useReportCards,
+  useSafetyGrades: mocks.useSafetyGrades,
   useMintBurnFlows: mocks.useMintBurnFlows,
 }));
 vi.mock("./systems/pharosville-world", () => ({
@@ -161,7 +161,7 @@ let currentQueries: {
   stability: QueryState<typeof fixtureStability>;
   pegSummary: QueryState<typeof fixturePegSummary>;
   stress: QueryState<typeof fixtureStress>;
-  reportCards: QueryState<typeof fixtureReportCards>;
+  safetyGrades: QueryState<typeof fixtureSafetyGrades>;
   mintBurn: QueryState<typeof fixtureMintBurn>;
 };
 
@@ -191,7 +191,7 @@ function setCompleteQueries() {
     stability: queryState(fixtureStability),
     pegSummary: queryState(fixturePegSummary),
     stress: queryState(fixtureStress),
-    reportCards: queryState(fixtureReportCards),
+    safetyGrades: queryState(fixtureSafetyGrades),
     mintBurn: queryState(fixtureMintBurn),
   };
 }
@@ -237,7 +237,7 @@ describe("PharosVilleDesktopData", () => {
     mocks.useStabilityIndexDetail.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.stability));
     mocks.usePegSummary.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.pegSummary));
     mocks.useStressSignals.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.stress));
-    mocks.useReportCards.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.reportCards));
+    mocks.useSafetyGrades.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.safetyGrades));
     mocks.useMintBurnFlows.mockImplementation(() => useNotifierBackedQuery(() => currentQueries.mintBurn));
   });
 
@@ -283,7 +283,7 @@ describe("PharosVilleDesktopData", () => {
       stability: queryState<typeof fixtureStability>(undefined, true),
       pegSummary: queryState<typeof fixturePegSummary>(undefined, true),
       stress: queryState<typeof fixtureStress>(undefined, true),
-      reportCards: queryState<typeof fixtureReportCards>(undefined, true),
+      safetyGrades: queryState<typeof fixtureSafetyGrades>(undefined, true),
       mintBurn: queryState<typeof fixtureMintBurn>(undefined, true),
     };
     await renderData();
@@ -295,7 +295,7 @@ describe("PharosVilleDesktopData", () => {
     currentQueries.stability = queryState(fixtureStability);
     currentQueries.pegSummary = queryState(fixturePegSummary);
     currentQueries.stress = queryState(fixtureStress);
-    currentQueries.reportCards = queryState(fixtureReportCards);
+    currentQueries.safetyGrades = queryState(fixtureSafetyGrades);
     currentQueries.mintBurn = queryState(fixtureMintBurn);
     await notifyQueriesChanged();
 

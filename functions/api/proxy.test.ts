@@ -398,28 +398,19 @@ describe("PharosVille API proxy", () => {
     );
   });
 
-  it("projects report cards down to the contract the app actually reads", async () => {
+  it("projects safety grades down to the contract the app actually reads", async () => {
     const activeId = [...RUNTIME_ACTIVE_IDS][0]!;
     const upstream = {
+      model: "v9",
+      methodologyVersion: "9.8",
+      asOfSec: 1_700_000_000,
       updatedAt: 1_700_000_000,
-      safetyScoreIdentity: { model: "v8" },
+      publicationStatus: "current",
       _meta: { updatedAt: 1_700_000_000, ageSeconds: 5, status: "fresh" },
-      cards: [
-        {
-          id: activeId,
-          symbol: "ACTIVE",
-          overallGrade: "A",
-          dimensions: {
-            pegStability: {
-              grade: "A",
-              score: 90,
-              detail: "Peg score: 90/100",
-              detailItems: [{ label: "Peg score", value: "90/100", detail: "Peg score: 90/100" }],
-            },
-          },
-          rawInputs: { bluechipGrade: "B" },
-        },
-        { id: "not-a-tracked-stablecoin", symbol: "GONE", overallGrade: "F", dimensions: {} },
+      grades: [
+        { id: activeId, score: 80, grade: "A-" },
+        { id: "not-a-tracked-stablecoin", score: 12, grade: "F" },
+        { score: 55, grade: "C" },
       ],
     };
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
@@ -429,24 +420,19 @@ describe("PharosVille API proxy", () => {
       }),
     );
 
-    const response = await onRequest(makeContext("https://preview.example.com/api/report-cards"));
+    const response = await onRequest(makeContext("https://preview.example.com/api/safety-grades"));
     const body = await response.json() as typeof upstream;
 
-    // Cards outside the runtime active set can never be reached: `cards` has one
-    // consumer and it only ever indexes by an id that passed RUNTIME_ACTIVE_IDS.
-    expect(body.cards).toHaveLength(1);
-    expect(body.cards[0]?.id).toBe(activeId);
-    // `detailItems` is not in ReportCardDimensionSchema, so Zod already strips
-    // it client-side — sending it is pure transfer and parse cost.
-    expect(body.cards[0]?.dimensions.pegStability).toEqual({
-      grade: "A",
-      score: 90,
-      detail: "Peg score: 90/100",
-    });
+    // Grades outside the runtime active set can never be reached: `grades` has
+    // one consumer and it only ever indexes by an id that passed
+    // RUNTIME_ACTIVE_IDS. Malformed rows are dropped rather than forwarded.
+    expect(body.grades).toHaveLength(1);
+    expect(body.grades[0]?.id).toBe(activeId);
     // Everything the contract does model survives, `_meta` included.
-    expect(body.cards[0]?.rawInputs).toEqual({ bluechipGrade: "B" });
+    expect(body.grades[0]).toEqual({ id: activeId, score: 80, grade: "A-" });
     expect(body.updatedAt).toBe(1_700_000_000);
-    expect(body.safetyScoreIdentity).toEqual({ model: "v8" });
+    expect(body.model).toBe("v9");
+    expect(body.methodologyVersion).toBe("9.8");
     expect(body._meta).toEqual({ updatedAt: 1_700_000_000, ageSeconds: 5, status: "fresh" });
   });
 
@@ -455,14 +441,14 @@ describe("PharosVille API proxy", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const cache = new MemoryEdgeCache();
     installEdgeCache(cache);
-    const url = "https://pharosville.pharos.watch/api/report-cards";
-    await cache.put(new Request("https://pharosville.pharos.watch/api/__last-good/api/report-cards"), Response.json({ cards: [] }, {
+    const url = "https://pharosville.pharos.watch/api/safety-grades";
+    await cache.put(new Request("https://pharosville.pharos.watch/api/__last-good/api/safety-grades"), Response.json({ grades: [] }, {
       headers: { "x-pharosville-last-good-stored-at": String(Math.floor(Date.now() / 1000)), "x-data-age": "5" },
     }));
     const stream = new ReadableStream({ start(controller) {
       if (kind === "interrupted") controller.error(new Error("body interrupted"));
     } });
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(kind === "truncated" ? '{"cards":[' : stream, {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(kind === "truncated" ? '{"grades":[' : stream, {
       headers: { "content-type": "application/json" },
     }));
     const pending = onRequest(makeContext(url));
@@ -470,7 +456,7 @@ describe("PharosVille API proxy", () => {
     const response = await pending;
     expect(response.status).toBe(200);
     expect(response.headers.get("warning")).toContain("110");
-    await expect(response.json()).resolves.toEqual({ cards: [] });
+    await expect(response.json()).resolves.toEqual({ grades: [] });
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -699,7 +685,7 @@ describe("PharosVille API proxy", () => {
       }),
     );
 
-    const response = await onRequest(makeContext("https://preview.example.com/api/report-cards"));
+    const response = await onRequest(makeContext("https://preview.example.com/api/safety-grades"));
 
     expect(response.status).toBe(502);
   });

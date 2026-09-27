@@ -8,7 +8,7 @@ export type * from "./live-reserves";
 export type * from "./core";
 export type * from "./digest";
 export type * from "./market";
-export type * from "./report-cards";
+export type * from "./safety-grades";
 export type * from "./stability";
 export type * from "./status";
 export type * from "./yield";

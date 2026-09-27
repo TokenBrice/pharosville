@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
-  denseFixtureReportCards,
+  denseFixtureSafetyGrades,
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureStability,
@@ -34,7 +34,7 @@ function denseWorldInputs(peggedAssets?: readonly StablecoinData[]): PharosVille
     stability: fixtureStability,
     pegSummary: denseFixturePegSummary,
     stress: denseFixtureStress,
-    reportCards: denseFixtureReportCards,
+    safetyGrades: denseFixtureSafetyGrades,
     cemeteryEntries: [],
     freshness: {},
   };

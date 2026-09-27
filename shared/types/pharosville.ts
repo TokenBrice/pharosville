@@ -7,7 +7,7 @@ import {
 } from "./market";
 import { MintBurnFlowsResponseSchema } from "./mint-burn";
 import type { PharosVilleApiEndpointKey } from "./pharosville-endpoint-keys";
-import { ReportCardsResponseSchema } from "./report-cards";
+import { SafetyGradesResponseSchema } from "./safety-grades";
 import { StabilityIndexResponseSchema } from "./stability";
 
 export { PHAROSVILLE_API_ENDPOINT_KEYS } from "./pharosville-endpoint-keys";
@@ -21,7 +21,7 @@ export const PHAROSVILLE_API_PAYLOAD_SCHEMAS = {
   stability: StabilityIndexResponseSchema,
   pegSummary: PegSummaryResponseSchema,
   stress: StressSignalsAllResponseSchema,
-  reportCards: ReportCardsResponseSchema,
+  safetyGrades: SafetyGradesResponseSchema,
   mintBurn: MintBurnFlowsResponseSchema,
 } as const satisfies Record<PharosVilleApiEndpointKey, z.ZodType>;
 

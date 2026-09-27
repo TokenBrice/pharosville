@@ -27,6 +27,8 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   honestWaters: "v0.15.0",
   airAndLantern: "v0.16.0",
   reborn: "v0.17.0",
+  dyedCloth: "v0.17.1",
+  safetyGrades: "v0.18.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.reborn;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.safetyGrades;
