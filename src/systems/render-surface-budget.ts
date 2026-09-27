@@ -20,12 +20,22 @@ export const ADAPTIVE_DPR_PACING_MIN_SAMPLES = 30;
  *
  * Supersampling is the best anti-aliasing this renderer has measured (the
  * W0.2 A/B scored against a 2× supersample). A DPR-1 desk monitor starts at
- * its native density and earns up to 1.5× only through the governor's calm
- * streak (`ADAPTIVE_DPR_UPSHIFT_*`), and gives it back on the same downshift
- * rules. The 8 MP main-canvas cap still binds first on large panels (1440p
- * clamps near 1.47).
+ * its native density and may earn up to 1.5×, but only on MEASURED GPU
+ * headroom (`ADAPTIVE_DPR_SUPERSAMPLE_GPU_BUDGET_MS`). The JS-side draw time
+ * the rest of the governor reads cannot see fill cost: gated on it alone, the
+ * governor climbed to 1.5× on the M5 Pro, pacing collapsed to ~50 fps and the
+ * scheduler fell to `recovery`, then the pacing guard stepped it down and it
+ * climbed again. The 8 MP main-canvas cap still binds first on large panels.
  */
 export const ADAPTIVE_DPR_SUPERSAMPLE_CEILING = 1.5;
+/**
+ * Whole-frame GPU time (p95 of the post chain's timer queries) a supersampled
+ * frame may be projected to cost: 60 % of a 60 Hz frame. The projection scales
+ * the measured p95 by the pixel ratio, (next / current)². With no timer
+ * (extension missing, or a disjoint read) there is no supersampling at all.
+ * A supersampled frame measuring over 1.2× this budget steps back down.
+ */
+export const ADAPTIVE_DPR_SUPERSAMPLE_GPU_BUDGET_MS = 10;
 
 /** The highest DPR the governor may request on a display of `deviceDpr`. */
 export function resolveMaximumRequestedDpr(deviceDpr: number): number {
@@ -149,7 +159,14 @@ export function initialAdaptiveDprState(requestedDpr: number): AdaptiveDprState 
 }
 
 export function resolveAdaptiveDprState(input: {
+  /**
+   * The display's own DPR. Requests above it are supersampling and need GPU
+   * headroom (`gpuFrameP95Ms`); defaults to `maximumRequestedDpr`, i.e. none.
+   */
+  deviceDpr?: number;
   framePacing?: FramePacingSummary;
+  /** Whole-frame GPU timer p95 at the current DPR; null/absent when unmeasured. */
+  gpuFrameP95Ms?: number | null;
   maximumRequestedDpr: number;
   minimumRequestedDpr?: number;
   state: AdaptiveDprState;
@@ -175,8 +192,16 @@ export function resolveAdaptiveDprState(input: {
     && input.framePacing.sampleCount >= ADAPTIVE_DPR_PACING_MIN_SAMPLES
     && input.framePacing.p90Ms > ADAPTIVE_DPR_PACING_DOWNSHIFT_P90_MS;
   const rasterBound = framePacingDegraded && input.stats.p90Ms < ADAPTIVE_DPR_PACING_QUIET_DRAW_P90_MS;
+  const deviceDpr = Math.max(minimumRequestedDpr, Math.min(maximumRequestedDpr, input.deviceDpr ?? maximumRequestedDpr));
+  const gpuFrameP95Ms = typeof input.gpuFrameP95Ms === "number" && Number.isFinite(input.gpuFrameP95Ms)
+    ? input.gpuFrameP95Ms
+    : null;
+  // A supersampled frame that has lost its GPU measurement, or outgrown the
+  // budget, gives the extra pixels back.
+  const supersampleOverBudget = nextState.requestedDpr > deviceDpr
+    && (gpuFrameP95Ms === null || gpuFrameP95Ms > ADAPTIVE_DPR_SUPERSAMPLE_GPU_BUDGET_MS * 1.2);
 
-  if (rasterBound || input.stats.p90Ms > ADAPTIVE_DPR_DOWNSHIFT_P90_MS) {
+  if (rasterBound || supersampleOverBudget || input.stats.p90Ms > ADAPTIVE_DPR_DOWNSHIFT_P90_MS) {
     nextState.downshiftStreak += 1;
     nextState.upshiftStreak = 0;
     if (nextState.downshiftStreak >= ADAPTIVE_DPR_DOWNSHIFT_STREAK && nextState.requestedDpr > minimumRequestedDpr) {
@@ -193,11 +218,15 @@ export function resolveAdaptiveDprState(input: {
   if (!framePacingDegraded && input.stats.p90Ms < ADAPTIVE_DPR_UPSHIFT_P90_MS) {
     nextState.upshiftStreak += 1;
     nextState.downshiftStreak = 0;
-    if (nextState.upshiftStreak >= ADAPTIVE_DPR_UPSHIFT_STREAK && nextState.requestedDpr < maximumRequestedDpr) {
+    const target = quantizeDpr(Math.min(maximumRequestedDpr, nextState.requestedDpr + ADAPTIVE_DPR_STEP));
+    const pixelGrowth = (target / nextState.requestedDpr) ** 2;
+    const affordable = target <= deviceDpr
+      || (gpuFrameP95Ms !== null && gpuFrameP95Ms * pixelGrowth <= ADAPTIVE_DPR_SUPERSAMPLE_GPU_BUDGET_MS);
+    if (nextState.upshiftStreak >= ADAPTIVE_DPR_UPSHIFT_STREAK && target > nextState.requestedDpr && affordable) {
       return {
         cooldownFrames: ADAPTIVE_DPR_CHANGE_COOLDOWN_FRAMES,
         downshiftStreak: 0,
-        requestedDpr: quantizeDpr(Math.min(maximumRequestedDpr, nextState.requestedDpr + ADAPTIVE_DPR_STEP)),
+        requestedDpr: target,
         upshiftStreak: 0,
       };
     }

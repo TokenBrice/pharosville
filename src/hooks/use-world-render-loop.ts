@@ -1010,8 +1010,11 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         // see raster/compositor-bound frames where JS-side draw time stays
         // quiet while real frame pacing collapses (interaction frames are
         // already excluded from this window above).
+        const gpuTimings = renderMetrics.gpuTimings;
         const nextAdaptiveDprState = resolveAdaptiveDprState({
+          deviceDpr: Math.max(1, window.devicePixelRatio || 1),
           framePacing: framePacingStatsRef.current,
+          gpuFrameP95Ms: gpuTimings?.supported && !gpuTimings.disjoint ? gpuTimings.frameP95Ms : null,
           maximumRequestedDpr: maximumRequestedDprRef.current,
           state: adaptiveDprStateRef.current,
           stats: drawDurationStatsRef.current,

@@ -384,7 +384,8 @@ export function isGardenShipWater(
   includeDocks = false,
 ): boolean {
   const mapMargin = Math.max(0, marginTiles);
-  if (gardenWaterSafetyLookup(point, mapMargin, includeDocks)) return true;
+  const certified = gardenWaterSafetyLookup(point, mapMargin, includeDocks);
+  if (certified !== WATER_UNCERTAIN) return certified === WATER_SAFE;
   return isGardenShipWaterSlow(point, mapMargin, includeDocks);
 }
 
@@ -505,23 +506,113 @@ function getGardenWaterSafetyDistanceField(): GardenWaterSafetyDistanceField {
   return waterSafetyDistanceField;
 }
 
+const WATER_SAFE = 1;
+const WATER_BLOCKED = 0;
+const WATER_UNCERTAIN = -1;
+type GardenWaterCertainty = typeof WATER_SAFE | typeof WATER_BLOCKED | typeof WATER_UNCERTAIN;
+
+/**
+ * O(1) verdicts the exact predicate would reach anyway. Off the plate and on
+ * terrain land are BLOCKED outright — `isGardenShipWaterSlow` rejects both
+ * before any geometry, so answering here saves the rim-shore walk for every
+ * land cell a search probes. A cell whose whole area clears the margin is
+ * SAFE. Only shoreline cells stay UNCERTAIN and pay the exact predicate.
+ */
 function gardenWaterSafetyLookup(
   point: { x: number; y: number },
   marginTiles: number,
   includeDocks: boolean,
-): boolean {
-  if (
-    !Number.isFinite(point.x) || !Number.isFinite(point.y)
-    || point.x < 0 || point.y < 0 || point.x > MAX_TILE_X || point.y > MAX_TILE_Y
-  ) return false;
+): GardenWaterCertainty {
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return WATER_UNCERTAIN;
+  if (point.x < 0 || point.y < 0 || point.x > MAX_TILE_X || point.y > MAX_TILE_Y) return WATER_BLOCKED;
   if (
     terrainLandAt(point.x, point.y)
     || terrainLandAt(Math.round(point.x), Math.round(point.y))
-  ) return false;
+  ) return WATER_BLOCKED;
   const field = getGardenWaterSafetyDistanceField();
   const index = Math.floor(point.y) * field.width + Math.floor(point.x);
   return field.solid[index]! > marginTiles
-    && (!includeDocks || field.docks[index]! > marginTiles * DOCK_MARGIN_SHARE);
+    && (!includeDocks || field.docks[index]! > marginTiles * DOCK_MARGIN_SHARE)
+    ? WATER_SAFE
+    : WATER_UNCERTAIN;
+}
+
+/**
+ * The exact predicate at every integer cell, per (margin, docks) query. The
+ * nearest-water fallback used to rebuild this by scanning the whole plate on
+ * every call; hulls whose composed display tile lies off the plate reach that
+ * fallback EVERY frame (their correction is too large for the display cache
+ * to carry), which cost several full-plate scans per frame. Built once per
+ * distinct hull margin that ever needs it — margins come from the fixed
+ * silhouette/scale ladder, so the set stays small.
+ */
+const gardenShipWaterCellMasks = new Map<string, Uint8Array>();
+
+function gardenShipWaterCellMask(marginTiles: number, includeDocks: boolean): Uint8Array {
+  const key = `${marginTiles}|${includeDocks ? 1 : 0}`;
+  const cached = gardenShipWaterCellMasks.get(key);
+  if (cached) return cached;
+  const width = MAX_TILE_X + 1;
+  const mask = new Uint8Array(width * (MAX_TILE_Y + 1));
+  const cell = { x: 0, y: 0 };
+  for (let y = 0; y <= MAX_TILE_Y; y += 1) {
+    for (let x = 0; x <= MAX_TILE_X; x += 1) {
+      cell.x = x;
+      cell.y = y;
+      if (isGardenShipWater(cell, marginTiles, includeDocks)) mask[y * width + x] = 1;
+    }
+  }
+  gardenShipWaterCellMasks.set(key, mask);
+  return mask;
+}
+
+/**
+ * The nearest valid integer cell, ties to the lowest row then column — the
+ * exact answer (and tie order) of a row-major full-plate scan, found by
+ * walking square rings outward from the point and stopping once no further
+ * ring can hold a closer cell.
+ */
+function nearestGardenShipWaterCell(
+  point: { x: number; y: number },
+  marginTiles: number,
+  includeDocks: boolean,
+): { x: number; y: number } | null {
+  const mask = gardenShipWaterCellMask(marginTiles, includeDocks);
+  const width = MAX_TILE_X + 1;
+  const centerX = Math.max(0, Math.min(MAX_TILE_X, Math.round(point.x)));
+  const centerY = Math.max(0, Math.min(MAX_TILE_Y, Math.round(point.y)));
+  // Every cell of ring k is at least k − offset from the point.
+  const offset = Math.max(Math.abs(centerX - point.x), Math.abs(centerY - point.y));
+  const maxRing = Math.max(centerX, MAX_TILE_X - centerX, centerY, MAX_TILE_Y - centerY);
+  let bestX = -1;
+  let bestY = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  const consider = (x: number, y: number): void => {
+    if (x < 0 || y < 0 || x > MAX_TILE_X || y > MAX_TILE_Y || mask[y * width + x] !== 1) return;
+    const distance = (x - point.x) ** 2 + (y - point.y) ** 2;
+    if (distance < bestDistance || (distance === bestDistance && (y < bestY || (y === bestY && x < bestX)))) {
+      bestDistance = distance;
+      bestX = x;
+      bestY = y;
+    }
+  };
+  for (let ring = 0; ring <= maxRing; ring += 1) {
+    const floor = ring - offset;
+    if (floor > 0 && floor * floor > bestDistance) break;
+    if (ring === 0) {
+      consider(centerX, centerY);
+      continue;
+    }
+    for (let x = centerX - ring; x <= centerX + ring; x += 1) {
+      consider(x, centerY - ring);
+      consider(x, centerY + ring);
+    }
+    for (let y = centerY - ring + 1; y <= centerY + ring - 1; y += 1) {
+      consider(centerX - ring, y);
+      consider(centerX + ring, y);
+    }
+  }
+  return bestX < 0 ? null : { x: bestX, y: bestY };
 }
 
 /**
@@ -530,7 +621,9 @@ function gardenWaterSafetyLookup(
  * (several seeded angles per ring so a nearby valid arc beats a far random
  * one) and takes the first valid candidate. The map is mostly water, so the
  * search normally succeeds well within the attempt budget. The deterministic
- * full-grid fallback matters now that the authored rim makes the map edge land.
+ * nearest-cell fallback matters now that the authored rim makes the map edge
+ * land. A point off the plate skips the seeded rings: their candidates clamp
+ * onto the edge, which is rim land, so they could only spend the budget.
  */
 export function nearestGardenShipWater(
   point: { x: number; y: number },
@@ -539,35 +632,29 @@ export function nearestGardenShipWater(
   includeDocks = false,
 ): { x: number; y: number } {
   if (isGardenShipWater(point, marginTiles, includeDocks)) return point;
-  const ANGLES_PER_RING = 6;
-  // The display and data islands are offset from one another. Their combined
-  // exclusion footprint plus a titan hull can exceed the old 20-tile radial
-  // budget, which sent ordinary animation samples into the O(map) fallback.
-  // Forty tiles clears that union while still stopping well inside the plate.
-  for (let attempt = 0; attempt < 80 * ANGLES_PER_RING; attempt += 1) {
-    const radius = 0.75 + Math.floor(attempt / ANGLES_PER_RING) * 0.5;
-    // FNV-1a: sequential attempt suffixes avalanche into unrelated angles
-    // (the djb2-based stableUnit barely moves for ".N" suffixes).
-    const angle = (stableFnv1aHash(`${seed}.${attempt}`) / 0xffffffff) * Math.PI * 2;
-    const candidate = {
-      x: Math.max(0, Math.min(MAX_TILE_X, point.x + Math.cos(angle) * radius)),
-      y: Math.max(0, Math.min(MAX_TILE_Y, point.y + Math.sin(angle) * radius)),
-    };
-    if (isGardenShipWater(candidate, marginTiles, includeDocks)) return candidate;
-  }
-  let best: { x: number; y: number } | null = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (let y = 0; y <= MAX_TILE_Y; y += 1) {
-    for (let x = 0; x <= MAX_TILE_X; x += 1) {
-      const candidate = { x, y };
-      if (!isGardenShipWater(candidate, marginTiles, includeDocks)) continue;
-      const distance = (x - point.x) ** 2 + (y - point.y) ** 2;
-      if (distance >= bestDistance) continue;
-      bestDistance = distance;
-      best = candidate;
+  const onPlate = point.x >= 0 && point.y >= 0 && point.x <= MAX_TILE_X && point.y <= MAX_TILE_Y;
+  if (onPlate) {
+    const ANGLES_PER_RING = 6;
+    // The display and data islands are offset from one another. Their combined
+    // exclusion footprint plus a titan hull can exceed the old 20-tile radial
+    // budget, which sent ordinary animation samples into the fallback.
+    // Forty tiles clears that union while still stopping well inside the plate.
+    for (let attempt = 0; attempt < 80 * ANGLES_PER_RING; attempt += 1) {
+      const radius = 0.75 + Math.floor(attempt / ANGLES_PER_RING) * 0.5;
+      // FNV-1a: sequential attempt suffixes avalanche into unrelated angles
+      // (the djb2-based stableUnit barely moves for ".N" suffixes).
+      const angle = (stableFnv1aHash(`${seed}.${attempt}`) / 0xffffffff) * Math.PI * 2;
+      const candidate = {
+        x: Math.max(0, Math.min(MAX_TILE_X, point.x + Math.cos(angle) * radius)),
+        y: Math.max(0, Math.min(MAX_TILE_Y, point.y + Math.sin(angle) * radius)),
+      };
+      if (isGardenShipWater(candidate, marginTiles, includeDocks)) return candidate;
     }
   }
-  if (best) return best;
+  const nearest = Number.isFinite(point.x) && Number.isFinite(point.y)
+    ? nearestGardenShipWaterCell(point, marginTiles, includeDocks)
+    : null;
+  if (nearest) return nearest;
   return {
     x: Math.max(0, Math.min(MAX_TILE_X, point.x)),
     y: Math.max(0, Math.min(MAX_TILE_Y, point.y)),
