@@ -142,7 +142,7 @@ export function setGardenFloraNightValue(root: Object3D, nightValue: number): vo
  * triangles, no fragments). Snow whitens only up-facing foliage, so pad
  * bellies stay dark (garden-3). The snow amount is fixed at build.
  */
-export function patchGardenFoliage(material: MeshStandardMaterial, snow = 0): void {
+export function patchGardenFoliage(material: MeshStandardMaterial, snow = 0, letsGo?: GardenLetsGoCrown): void {
   const uniform = { value: snow };
   material.userData.uGardenSnow = uniform;
   const previousCompile = material.onBeforeCompile;
@@ -150,13 +150,15 @@ export function patchGardenFoliage(material: MeshStandardMaterial, snow = 0): vo
   material.onBeforeCompile = (shader, renderer) => {
     previousCompile.call(material, shader, renderer);
     shader.uniforms.uGardenSnow = uniform;
+    if (letsGo) shader.uniforms.uGardenLetsGoCrown = letsGo;
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
         `#include <common>
         attribute float aGardenFoliage;
         attribute float aGardenLeaf;
-        uniform float uGardenSnow;`,
+        uniform float uGardenSnow;
+        ${letsGo ? "#define GARDEN_LETS_GO\n        attribute vec3 aGardenPadCentre;\n        uniform float uGardenLetsGoCrown;" : ""}`,
       )
       .replace(
         "#include <color_vertex>",
@@ -171,6 +173,14 @@ export function patchGardenFoliage(material: MeshStandardMaterial, snow = 0): vo
         {
           float gardenFoliage = step( 0.001, aGardenFoliage );
           transformed *= 1.0 - gardenFoliage * step( aGardenLeaf + 0.0001, aGardenFoliage );
+          #ifdef GARDEN_LETS_GO
+            // X5 (garden-7): the letting-go tree's pads carry −rank; each pad
+            // shrinks into its own centre while the crown passes its rank.
+            float gardenLetsGoRank = -aGardenFoliage;
+            float gardenGone = step( 0.001, gardenLetsGoRank )
+              * clamp( ( gardenLetsGoRank - uGardenLetsGoCrown ) / ${GARDEN_LETS_GO_PAD_BAND.toFixed(3)}, 0.0, 1.0 );
+            transformed = mix( transformed, aGardenPadCentre, gardenGone );
+          #endif
           #ifdef USE_COLOR
             float gardenSnowTop = uGardenSnow * gardenFoliage * smoothstep( 0.55, 0.9, objectNormal.y );
             vColor.xyz = mix( vColor.xyz, vec3( ${SNOW.r.toFixed(4)}, ${SNOW.g.toFixed(4)}, ${SNOW.b.toFixed(4)} ), gardenSnowTop );
@@ -178,9 +188,20 @@ export function patchGardenFoliage(material: MeshStandardMaterial, snow = 0): vo
         }`,
       );
   };
-  material.customProgramCacheKey = () => `${previousKey}|garden-foliage`;
+  material.customProgramCacheKey = () => `${previousKey}|garden-foliage${letsGo ? "-lets-go" : ""}`;
   material.needsUpdate = true;
 }
+
+/** The letting-go tree's crown, 1 full … 0 bare: a shared uniform the ritual drives. */
+export interface GardenLetsGoCrown {
+  value: number;
+}
+
+/**
+ * Crown span over which one pad of the letting-go tree shrinks away; pad
+ * ranks lie in [band, 1], so a crown of 1 shows every pad and 0 none.
+ */
+export const GARDEN_LETS_GO_PAD_BAND = 0.1;
 
 /**
  * Writes `aGardenFoliage` from a niwaki pad map: bark 0, each pad a distinct

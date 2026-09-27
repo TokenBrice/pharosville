@@ -38,6 +38,7 @@ export const NowCaption = memo(function NowCaption({
   hour,
   latestTransition,
   psi,
+  psiBand = null,
   reducedMotion = false,
   visitorLine = null,
 }: NowCaptionProps) {
@@ -48,8 +49,9 @@ export const NowCaption = memo(function NowCaption({
     hour,
     latestTransition,
     psi,
+    psiBand,
     visitorLine,
-  }), [arrivalAnnotation, beats, freshness, hour, latestTransition, psi, visitorLine]);
+  }), [arrivalAnnotation, beats, freshness, hour, latestTransition, psi, psiBand, visitorLine]);
   const parts = useMemo(() => nowCaptionParts(input), [input]);
   const announcement = useMemo(() => nowCaptionAnnouncement(input), [input]);
   const partsRef = useLatestRef(parts);

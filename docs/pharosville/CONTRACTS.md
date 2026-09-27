@@ -129,7 +129,7 @@ pins are not authority over the accepted picture.
   Preserve a screen-space pick tolerance for `0.42`-scale hulls and perspective
   foreshortening; GLB scale, anchor and pick proxy must agree at camera extremes.
   Selection discloses DOM details immediately.
-  Coverage: `src/systems/camera.test.ts`, `src/systems/garden-attract.test.ts`.
+  Coverage: `src/systems/camera.test.ts`, `src/systems/postcards.test.ts`.
 
 ## Station siting and architectural identity
 
@@ -250,14 +250,13 @@ pins are not authority over the accepted picture.
   Final derivatives drive follow velocity; route-smoothed heading stays intact.
   This reduces underway crowding, not a guarantee of collision-free berths.
 - Hidden/offscreen surfaces pause and resume without catch-up teleport or replay.
-  Idle attract may begin after two uninterrupted minutes, never during reduced
-  motion, selection, explicit Observe, hidden tabs or almanac events. Any pointer,
-  wheel, touch or key input returns agency at the exact current pose, no snap.
-  Reborn replaces continuous postcard drift with stationary windows and deliberate
-  transitions; named subjects remain framed at both gates. A waiting postcard asks
-  the director for the environment slot once per move (not every frame), never
-  within 90 s of any admitted beat, and retries a refusal after 30 s; while it
-  waits the camera is still and reports no intent. The director holds ordinary
+  The idle state is the rest shot (K44): nothing tours on its own. The postcard
+  book is the explicit "Wander" action (the word or W): each press glides to the
+  next of six authored views from inside the world (`src/systems/postcards.ts`)
+  and holds; any other pointer, wheel or key input glides back to the rest seat
+  and is not also acted on by the world. Reduced motion cuts. Every card keeps
+  its subject on its anchor, clear sight lines and a clear eye at the four gate
+  profiles. The director holds ordinary
   foreground captions for its first 90 s (market pre-emption still speaks).
   Coverage: `src/hooks/use-canvas-resize-and-camera.test.ts`,
   `src/systems/garden-director.test.ts`.

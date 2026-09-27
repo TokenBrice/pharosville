@@ -111,6 +111,7 @@ describe("garden islets (Z5)", () => {
     const removed: string[] = [];
     const emitter: GardenRippleRingEmitter = {
       ringCount: () => rings.length,
+      pulseRing: () => {},
       removeRing: (id) => { removed.push(id); },
       setRing: (ring) => { rings.push(ring); },
     };

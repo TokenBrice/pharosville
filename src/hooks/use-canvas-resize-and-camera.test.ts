@@ -7,8 +7,7 @@ import { defaultCamera, groundPointUnder, SELECTION_SHIP_ANCHOR, withoutRest } f
 import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { cameraAtRest, cameraView, screenToIso, tileToIso, TILE_SCALE, worldToScreen, type IsoCamera } from "../systems/projection";
-import { gardenAttractKeyframes } from "../systems/garden-attract";
-import { createGardenDirector, requestGardenBeat } from "../systems/garden-director";
+import { GARDEN_POSTCARDS } from "../systems/postcards";
 import {
   observeTourPoseFromCamera,
   observeTourPoseToCamera,
@@ -78,70 +77,69 @@ describe("wheel camera helpers", () => {
 });
 
 describe("camera intent helpers", () => {
-  it("keeps attract holds stationary and waits for director admission before relocation", () => {
-    const director = createGardenDirector("attract-test");
+  it("wanders through the postcard book on request and returns to the seat on any other input", () => {
     const viewport = { x: 1200, y: 640 };
     const { result } = renderHook(() => {
-      const canvas = useCanvasResizeAndCamera(makeCanvasInput({ gardenDirector: director, directorClock: (now) => now / 1000 }));
+      const canvas = useCanvasResizeAndCamera(makeCanvasInput());
       useLayoutEffect(() => { canvas.canvasSizeRef.current = viewport; });
       return canvas;
     });
-    const book = gardenAttractKeyframes(world.lighthouse.tile);
+    const rest = defaultCamera({ width: viewport.x, height: viewport.y, map: world.map });
+    const settle = (from: number) => {
+      let landed = false;
+      act(() => {
+        for (let frame = 0; frame < 600 && !landed; frame += 1) {
+          landed = !result.current.stepCamera(from + frame * 16.67, new Map()).cameraIntentActive;
+        }
+      });
+      return landed;
+    };
     act(() => {
       result.current.canvasSizeRef.current = viewport;
-      result.current.setCamera(defaultCamera({ width: viewport.x, height: viewport.y, map: world.map }));
-      result.current.startAttractTour(book);
-      result.current.stepCamera(1000, new Map());
-      result.current.stepCamera(40_000, new Map());
+      result.current.setCamera(rest);
     });
-    const held = { ...result.current.cameraRef.current! };
-    expect(result.current.attractState.holding).toBe(true);
-    act(() => { result.current.stepCamera(170_000, new Map()); });
-    expect(result.current.cameraRef.current).toEqual(held);
-    expect(director.log.filter((beat) => beat.kind === "attract")).toHaveLength(1);
-    requestGardenBeat(director, { kind: "market", foreground: true, priority: 100, durationSeconds: 1000 }, 171);
+    // Nothing tours by itself (K44): minutes of frames leave the seat untouched.
+    act(() => { for (let t = 1_000; t < 600_000; t += 60_000) result.current.stepCamera(t, new Map()); });
+    expect(result.current.cameraRef.current).toEqual(rest);
+
+    let card: ReturnType<typeof result.current.wander> = null;
     act(() => {
-      result.current.stepCamera(500_000, new Map());
-      result.current.stepCamera(501_000, new Map());
+      result.current.canvasSizeRef.current = viewport;
+      card = result.current.wander();
     });
-    expect(result.current.cameraRef.current).toEqual(held);
-    expect(result.current.attractState.holding).toBe(true);
+    expect(card).toMatchObject({ index: 0, title: GARDEN_POSTCARDS[0]!.title });
+    expect(settle(10_000)).toBe(true);
+    const first = result.current.cameraRef.current!;
+    expect(first.shot?.view.eye).toEqual(GARDEN_POSTCARDS[0]!.eye);
+    expect(first.rest).toBeUndefined();
+    // It holds: later frames do not move it.
+    act(() => { result.current.stepCamera(200_000, new Map()); });
+    expect(result.current.cameraRef.current).toEqual(first);
+
     act(() => {
-      result.current.stepCamera(1_200_000, new Map());
-      result.current.stepCamera(1_240_000, new Map());
+      result.current.canvasSizeRef.current = viewport;
+      card = result.current.wander();
     });
-    expect(result.current.cameraRef.current).not.toEqual(held);
-    expect(director.log.filter((beat) => beat.kind === "attract")).toHaveLength(2);
+    expect(card).toMatchObject({ index: 1 });
+    expect(settle(300_000)).toBe(true);
+    expect(result.current.cameraRef.current!.shot?.view.eye).toEqual(GARDEN_POSTCARDS[1]!.eye);
+
+    // Any other input glides home and is not also acted on.
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" })); });
+    expect(result.current.wanderIndex).toBeNull();
+    expect(settle(400_000)).toBe(true);
+    expect(result.current.cameraRef.current).toEqual(rest);
   });
 
-  it("lets the director's own beats breathe for 90 s before a waiting postcard asks, and holds still without intent", () => {
-    const director = createGardenDirector("attract-backoff");
-    const viewport = { x: 1200, y: 640 };
-    const { result } = renderHook(() => {
-      const canvas = useCanvasResizeAndCamera(makeCanvasInput({ gardenDirector: director, directorClock: (now) => now / 1000 }));
-      useLayoutEffect(() => { canvas.canvasSizeRef.current = viewport; });
-      return canvas;
-    });
-    // An arrival caption admitted at t=100 s, over by t=109 s.
-    requestGardenBeat(director, { kind: "arrival", foreground: true, priority: 20, durationSeconds: 9 }, 100);
-    const steps: CameraStepResult[] = [];
+  it("cuts straight to a postcard under reduced motion", () => {
+    const viewport = { x: 1600, y: 1000 };
+    const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput({ reducedMotion: true })));
     act(() => {
       result.current.canvasSizeRef.current = viewport;
       result.current.setCamera(defaultCamera({ width: viewport.x, height: viewport.y, map: world.map }));
-      result.current.startAttractTour(gardenAttractKeyframes(world.lighthouse.tile));
-      steps.push(result.current.stepCamera(150_000, new Map()));
+      result.current.wander();
     });
-    const held = { ...result.current.cameraRef.current! };
-    expect(steps[0]!.cameraIntentActive).toBe(false);
-    expect(result.current.attractState.holding).toBe(true);
-    act(() => { result.current.stepCamera(189_000, new Map()); });
-    expect(director.log.filter((beat) => beat.kind === "attract")).toHaveLength(0);
-    act(() => {
-      result.current.stepCamera(190_000, new Map());
-      result.current.stepCamera(230_000, new Map());
-    });
-    expect(director.log.filter((beat) => beat.kind === "attract")).toHaveLength(1);
-    expect(result.current.cameraRef.current).not.toEqual(held);
+    expect(result.current.cameraRef.current!.shot?.view.eye).toEqual(GARDEN_POSTCARDS[0]!.eye);
   });
 
   it("places a voyage ship on the selection anchor, mirrored when it heads left", () => {

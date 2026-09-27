@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { LAST_VISIT_TIDE_MIN_DELTA, setGardenLastVisitTide } from "../systems/garden-last-visit";
 import { selectNotableMovers } from "../systems/notable-movers";
 import { psiBandSeverity, type PharosVilleWorld } from "../systems/world-types";
 
@@ -14,6 +15,12 @@ export interface VisitSnapshot {
   lastFleetDepegAt: number | null;
   generatedAt: number | null;
   notableMoverSymbols: string[];
+  /**
+   * X2: where the supply tide stood on the tidal flat (−1 ebb … +1 flood), or
+   * null with no chain data. Optional so a snapshot stored before X2 stays
+   * valid; it simply draws no wrack line.
+   */
+  supplyTideOffset?: number | null;
 }
 
 export interface VisitSnapshotDelta {
@@ -25,6 +32,8 @@ export interface VisitSnapshotDelta {
   } | null;
   lastFleetDepegAt: number | null;
   notableMoverSymbols: string[];
+  /** The flat's tide at the last visit and now, when it moved materially. */
+  supplyTideChange: { fromOffset: number; toOffset: number } | null;
   previousGeneratedAt: number | null;
   generatedAt: number | null;
 }
@@ -57,6 +66,8 @@ export function useVisitSnapshot(input: { world: PharosVilleWorld }) {
     const currentSnapshot = snapshotFromWorld(world);
     const stored = readStoredVisitSnapshot();
     if (!stored.storageAvailable) return;
+    // The tidal flat's wrack line: where the water stood last time.
+    setGardenLastVisitTide(stored.snapshot?.supplyTideOffset ?? null);
 
     if (!writeStoredVisitSnapshot(currentSnapshot)) return;
 
@@ -81,6 +92,7 @@ export function snapshotFromWorld(world: PharosVilleWorld): VisitSnapshot {
     lastFleetDepegAt: finiteNumberOrNull(world.lighthouse.lastFleetDepegAt ?? null),
     generatedAt: finiteNumberOrNull(world.generatedAt),
     notableMoverSymbols: selectNotableMovers(world).map((mover) => mover.symbol),
+    supplyTideOffset: world.supplyTide.state === "unavailable" ? null : finiteNumberOrNull(world.supplyTide.offset),
   };
 }
 
@@ -111,6 +123,11 @@ export function computeVisitSnapshotDelta(
       ? current.lastFleetDepegAt
       : null,
     notableMoverSymbols,
+    supplyTideChange: typeof previous.supplyTideOffset === "number"
+      && typeof current.supplyTideOffset === "number"
+      && Math.abs(current.supplyTideOffset - previous.supplyTideOffset) >= LAST_VISIT_TIDE_MIN_DELTA
+      ? { fromOffset: previous.supplyTideOffset, toOffset: current.supplyTideOffset }
+      : null,
     previousGeneratedAt: previous.generatedAt,
     generatedAt: current.generatedAt,
   };
@@ -119,7 +136,8 @@ export function computeVisitSnapshotDelta(
 export function hasMaterialVisitDelta(delta: VisitSnapshotDelta): boolean {
   return delta.psiBandChange !== null
     || delta.lastFleetDepegAt !== null
-    || delta.notableMoverSymbols.length > 0;
+    || delta.notableMoverSymbols.length > 0
+    || delta.supplyTideChange !== null;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -171,6 +189,13 @@ export function visitSnapshotDeltaSummary(delta: VisitSnapshotDelta): string {
   if (delta.notableMoverSymbols.length > 0) {
     parts.push(`${symbolList(delta.notableMoverSymbols)} ${delta.notableMoverSymbols.length === 1 ? "is" : "are"} among today's movers`);
   }
+  if (delta.supplyTideChange) {
+    const cameIn = delta.supplyTideChange.toOffset > delta.supplyTideChange.fromOffset;
+    const [from, to] = [delta.supplyTideChange.fromOffset, delta.supplyTideChange.toOffset]
+      .map((offset) => (offset > 0 ? "flood" : offset < 0 ? "ebb" : "slack"));
+    const how = from === to ? `within the ${to}` : `from ${from} to ${to}`;
+    parts.push(`the tide on the flat has ${cameIn ? "come in" : "gone out"}, ${how}`);
+  }
   if (parts.length === 0) return "";
   const when = visitWhenLabel(delta.previousGeneratedAt, delta.generatedAt);
   return `${when ? `Since you were here ${when}` : "Since your last visit"} — ${parts.join("; ")}.`;
@@ -220,7 +245,9 @@ function isVisitSnapshot(value: unknown): value is VisitSnapshot {
     && value.notableMoverSymbols.every((symbol) => typeof symbol === "string")
     && (value.psiScore === null || Number.isFinite(value.psiScore))
     && (value.lastFleetDepegAt === null || Number.isFinite(value.lastFleetDepegAt))
-    && (value.generatedAt === null || Number.isFinite(value.generatedAt));
+    && (value.generatedAt === null || Number.isFinite(value.generatedAt))
+    && (value.supplyTideOffset === undefined || value.supplyTideOffset === null
+      || (typeof value.supplyTideOffset === "number" && Number.isFinite(value.supplyTideOffset)));
 }
 
 function finiteNumberOrNull(value: number | null | undefined): number | null {

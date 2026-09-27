@@ -9,6 +9,7 @@ import {
   type WebGLRenderer,
 } from "three";
 import { HARBOR_PALETTE } from "../systems/palette";
+import { gardenSkyToday, gardenSolarHourAngle, type GardenSkyDay } from "../systems/sky-almanac";
 import type { DayCycleBeats, DayCyclePhase } from "./garden-day-cycle";
 
 /**
@@ -128,6 +129,19 @@ export const GARDEN_AIR_INK_AMOUNT = { golden: 0.45, dawn: 0.5 } as const;
 export const GARDEN_ICHIMONJI = { gain: 0.06, centre: -0.0015, halfWidth: 0.0035 } as const;
 /** K6 dawn band: peak added density (per unit, at sea level). */
 export const GARDEN_DAWN_BAND_DENSITY = 0.0025;
+/**
+ * X9 (light-6): time inside the day beat. Morning air is crisper — clearer,
+ * a little lower and cooler; afternoon air is softer — hazier and warmer.
+ * `span` is the share of the half-day over which morning turns to afternoon;
+ * the rest are the far-transmittance swing and luma-preserving tints.
+ */
+export const GARDEN_DAY_DRIFT = {
+  span: 0.7,
+  transmittance: 0.07,
+  morningDim: 0.06,
+  morningCool: 0.15,
+  afternoonWarm: 0.2,
+} as const;
 
 const n = (value: number): string => (Number.isInteger(value) ? value.toFixed(1) : String(value));
 const [EXT_R, EXT_G, EXT_B] = GARDEN_AIR_EXTINCTION_RGB;
@@ -432,6 +446,32 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
   return t * t * (3 - 2 * t);
 }
 
+/**
+ * X9: −1 through the morning, +1 through the afternoon, 0 at solar noon — from
+ * the sun's true hour angle over half the day's length, so it follows the date
+ * and the zone exactly as the beats do. Consumers weight it by the day beat.
+ */
+export function gardenDayDrift(hour: number, day: GardenSkyDay = gardenSkyToday()): number {
+  const halfDay = Math.max(1, (day.sunsetHour - day.sunriseHour) / 2);
+  const x = gardenSolarHourAngle(day, hour) / halfDay;
+  return 2 * smoothstep(-GARDEN_DAY_DRIFT.span, GARDEN_DAY_DRIFT.span, x) - 1;
+}
+
+/** Unit-luminance tint (luma-normalised pigment). */
+function unitTint(hex: string): Color {
+  const color = new Color(hex);
+  const luma = color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+  return color.multiplyScalar(1 / luma);
+}
+const AIR_MORNING_TINT = unitTint(HARBOR_PALETTE.foam_white).lerp(unitTint(HARBOR_PALETTE.sky_day_zenith), 0.35);
+const AIR_AFTERNOON_TINT = unitTint(HARBOR_PALETTE.fog_day);
+
+function tintAir(color: Color, tint: Color, amount: number): void {
+  color.r *= 1 + (tint.r - 1) * amount;
+  color.g *= 1 + (tint.g - 1) * amount;
+  color.b *= 1 + (tint.b - 1) * amount;
+}
+
 /** CPU twin of the shader's `gardenAirMean`. */
 export function gardenAirMean(a: number, b: number, k: number): number {
   const dh = b - a;
@@ -472,9 +512,12 @@ export function updateGardenAerial(frame: GardenAerialFrame): void {
   const { phase, beats } = frame;
   const clarity = Math.min(1, Math.max(-1, Number.isFinite(frame.clarity) ? frame.clarity : 0));
   const storm = Math.min(1, Math.max(0, frame.storm ?? 0));
+  // X9: the day beat drifts from crisp morning to soft afternoon air.
+  const drift = gardenDayDrift(frame.hour) * beats.day;
   // Clear air is earned (K39): positive clarity lifts the air, negative thickens it.
   const farT = Math.min(0.5, Math.max(0.04,
-    GARDEN_AIR_FAR_TRANSMITTANCE + 0.1 * Math.max(clarity, 0) - 0.13 * Math.max(-clarity, 0) - 0.08 * storm,
+    GARDEN_AIR_FAR_TRANSMITTANCE + 0.1 * Math.max(clarity, 0) - 0.13 * Math.max(-clarity, 0) - 0.08 * storm
+      - GARDEN_DAY_DRIFT.transmittance * drift,
   ));
   const start = Math.max(20, frame.near * GARDEN_AIR_START_FRACTION);
   const span = Math.max(30, frame.far - start);
@@ -493,9 +536,17 @@ export function updateGardenAerial(frame: GardenAerialFrame): void {
     + GARDEN_AIR_SEA_DIM.golden * phase.dusk
     + GARDEN_AIR_SEA_DIM.night * phase.night;
   const weight = phase.daylight + phase.dusk + phase.night;
-  const dim = weight > 1e-6 ? seaDim / weight : GARDEN_AIR_SEA_DIM.day;
+  const dim = (weight > 1e-6 ? seaDim / weight : GARDEN_AIR_SEA_DIM.day)
+    * (1 - GARDEN_DAY_DRIFT.morningDim * Math.max(-drift, 0));
   GARDEN_AIR.airSun.copy(frame.solarHorizon).multiplyScalar(dim);
   GARDEN_AIR.airAnti.copy(frame.antiHorizon).multiplyScalar(dim);
+  if (drift < 0) {
+    tintAir(GARDEN_AIR.airSun, AIR_MORNING_TINT, -drift * GARDEN_DAY_DRIFT.morningCool);
+    tintAir(GARDEN_AIR.airAnti, AIR_MORNING_TINT, -drift * GARDEN_DAY_DRIFT.morningCool);
+  } else if (drift > 0) {
+    tintAir(GARDEN_AIR.airSun, AIR_AFTERNOON_TINT, drift * GARDEN_DAY_DRIFT.afternoonWarm);
+    tintAir(GARDEN_AIR.airAnti, AIR_AFTERNOON_TINT, drift * GARDEN_DAY_DRIFT.afternoonWarm);
+  }
   GARDEN_AIR.airlight.copy(GARDEN_AIR.airSun).lerp(GARDEN_AIR.airAnti, 0.5);
 
   // printmaker-4 two inks: golden air is violet-grey under a gold sky; dawn air pale.

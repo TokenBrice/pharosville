@@ -214,6 +214,22 @@ export interface GardenRippleRingEmitter {
     strength: number;
   }) => void;
   removeRing: (id: string) => void;
+  /**
+   * X5 (life-6): one ring that rises once from `center` and is gone — a fish
+   * rising, a heron's strike. Starts at the water's current clock, expands to
+   * `radius` over `periodSeconds` (a faint second crest follows), then removes
+   * itself. One-shots outrank the standing trains for a uniform slot. A pulse
+   * with the id of a live one restarts it. No-op under reduced motion (the
+   * water clock is frozen at 0).
+   */
+  pulseRing: (ring: {
+    id: string;
+    center: { x: number; z: number };
+    radius: number;
+    periodSeconds: number;
+    /** 0–1 ring contrast. */
+    strength: number;
+  }) => void;
   /** Live emitter count; surfaced via `__pharosVilleDebug` (contract C4). */
   ringCount: () => number;
 }

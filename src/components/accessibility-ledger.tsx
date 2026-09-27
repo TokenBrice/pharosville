@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { CAUSE_HEX, CAUSE_META, type CauseOfDeath } from "@shared/lib/cause-of-death";
+import { CAUSE_META, type CauseOfDeath } from "@shared/lib/cause-of-death";
 import type { HealthBand } from "@shared/types/chains";
 import { formationLabel, squadRole, STABLECOIN_SQUADS, type StablecoinSquad } from "../systems/maker-squad";
 import { SQUAD_DISTRESS_FLAG_HEX } from "../systems/maker-squad";
@@ -38,7 +38,7 @@ import {
   supplyTideLabel,
   supplyMomentumLabel,
   waterSurfaceForArea,
-  wreckSilhouetteLabel,
+  gardenStoneLabel,
 } from "../systems/detail-model";
 import { recentFleetTrendSummary, recentFleetTrendSummaryText, seaStateForWorld, seaStateSummary } from "../systems/sea-state";
 import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
@@ -46,7 +46,7 @@ import type { GardenAlmanacDay, GardenAlmanacLogEntry } from "../systems/garden-
 import type { HarborLogEntry } from "../hooks/use-harbor-log";
 import { pigeonnierRoostLabel } from "../systems/pigeonnier-watch";
 import { deriveEpistemicHaze, epistemicHazeLabel } from "../systems/epistemic-haze";
-import { farShoreLabel } from "../systems/psi-sky";
+import { farShoreLabel, skyCoverLabel } from "../systems/psi-sky";
 import { motionCadenceDetailLabel } from "../systems/motion-config";
 
 // Dock health-band swatches mirror the Three dock signal colors. Robust and
@@ -64,19 +64,14 @@ const DOCK_HEALTH_BAND_LEGEND: ReadonlyArray<{
   { band: "concentrated", hex: "#c9675c", label: "Concentrated — extreme single-issuer dependence" },
 ];
 
-// Wreck cause-color swatches are sourced from the canonical `CAUSE_HEX` table
-// in `shared/lib/cause-of-death.ts`, which the renderer's `graves.ts` also
-// reads via `GRAVE_CAUSE_COLORS`. Single source of truth — adding a cause
-// upstream will require an entry here.
-const WRECK_CAUSE_LEGEND: ReadonlyArray<{
-  cause: CauseOfDeath;
-  hex: string;
-  label: string;
-}> = (Object.keys(CAUSE_HEX) as CauseOfDeath[]).map((cause) => ({
-  cause,
-  hex: CAUSE_HEX[cause],
-  label: CAUSE_META[cause]?.label ?? cause,
-}));
+// X1: the stone garden groups the fallen by cause family (world-layout's
+// `graveFamilyFor`); stone form and island place carry the family, colour
+// carries nothing, so this legend is words only.
+const STONE_GARDEN_FAMILY_LEGEND: ReadonlyArray<{ family: string; causes: readonly CauseOfDeath[]; reading: string }> = [
+  { family: "The peg broke", causes: ["algorithmic-failure", "liquidity-drain"], reading: "reclining stones in the west islands" },
+  { family: "A counterparty failed", causes: ["counterparty-failure"], reading: "arching stones in the centre island" },
+  { family: "Wound down", causes: ["abandoned", "regulatory"], reading: "flat stones in the east islands" },
+];
 
 // Mirrors the per-band atmosphere descriptor in `src/systems/detail-model.ts`
 // (Phase 2.6 DOM parity). When a banded area's renderer treatment escalates,
@@ -218,6 +213,10 @@ function AccessibilityLedgerContent({
         <div>
           <dt>Far shore</dt>
           <dd>{farShoreLabel(world.lighthouse.psiBand, world.lighthouse.unavailable)}</dd>
+        </div>
+        <div>
+          <dt>Sky cover</dt>
+          <dd>{skyCoverLabel(world.lighthouse.psiBand, world.lighthouse.unavailable)}</dd>
         </div>
         {almanac && <div>
           <dt>Almanac</dt>
@@ -413,13 +412,13 @@ function AccessibilityLedgerContent({
         </ul>
       </section>
 
-      <section data-testid="wreck-cause-color-legend">
-        <h3>Wreck cause-color swatch legend</h3>
+      <section data-testid="stone-garden-family-legend">
+        <h3>Stone garden families</h3>
+        <p>One stone for every coin that died, sized by peak market cap; the lantern is lit only on the first evening of a month in which coins fell.</p>
         <ul>
-          {WRECK_CAUSE_LEGEND.map((entry) => (
-            <li key={entry.cause}>
-              {renderInlineSwatch(entry.hex)}
-              {entry.cause}: {entry.label} ({entry.hex}).
+          {STONE_GARDEN_FAMILY_LEGEND.map((entry) => (
+            <li key={entry.family}>
+              {entry.family} ({entry.causes.map((cause) => CAUSE_META[cause]?.label ?? cause).join(", ")}): {entry.reading}.
             </li>
           ))}
         </ul>
@@ -570,7 +569,7 @@ function graveLedgerLine(grave: PharosVilleWorld["graves"][number]): string {
   const peak = grave.entry.peakMcap != null && Number.isFinite(grave.entry.peakMcap)
     ? `, peak market cap ${formatCompactUsd(grave.entry.peakMcap)}`
     : "";
-  return `${grave.entry.name} (${grave.entry.symbol}): ${cause}, ${grave.entry.deathDate}${peak}; wreck silhouette ${wreckSilhouetteLabel(grave.visual.marker)}. ${grave.entry.obituary}`;
+  return `${grave.entry.name} (${grave.entry.symbol}): ${cause}, ${grave.entry.deathDate}${peak}; stone garden: ${gardenStoneLabel(grave.visual.family)}. ${grave.entry.obituary}`;
 }
 
 function firstSentence(value: string): string {

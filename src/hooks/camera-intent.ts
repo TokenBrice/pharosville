@@ -231,6 +231,12 @@ export interface ShotGlide {
    */
   restPresence: readonly [number, number];
   restEyeOffset: readonly [WorldPoint, WorldPoint];
+  /**
+   * X6: how far the eye (and its look-at) rises at mid-glide, world units, so
+   * a long travel between postcards clears the island and rim rather than
+   * cutting through them. 0 for the short selection glides.
+   */
+  arcHeight: number;
 }
 
 function restEyeOffset(camera: IsoCamera, shownEye: WorldPoint): WorldPoint | null {
@@ -245,6 +251,7 @@ export function createShotGlide(input: {
   viewport: ScreenPoint;
   durationSeconds: number;
   holdSeconds?: number;
+  arcHeight?: number;
 }): ShotGlide {
   const from = cameraView(input.from, input.viewport, { breath: false });
   const toView = cameraView(input.to, input.viewport, { breath: false });
@@ -259,6 +266,7 @@ export function createShotGlide(input: {
     durationSeconds: Math.max(1e-3, input.durationSeconds),
     restPresence: [input.from.rest?.presence ?? 0, input.to.rest?.presence ?? 0],
     restEyeOffset: [fromOffset ?? toOffset ?? zero, toOffset ?? fromOffset ?? zero],
+    arcHeight: Math.max(0, input.arcHeight ?? 0),
   };
 }
 
@@ -274,6 +282,11 @@ export function sampleShotGlide(glide: ShotGlide, elapsedSeconds: number): { cam
   if (progress >= 1) return { camera: glide.to, progress, done: true };
   const eased = cameraRestBlend(progress);
   const view = lerpCameraView(glide.from, glide.toView, eased);
+  if (glide.arcHeight > 0) {
+    const lift = glide.arcHeight * 4 * eased * (1 - eased);
+    view.eye.y += lift;
+    view.target.y += lift;
+  }
   const camera: IsoCamera = {
     offsetX: glide.to.offsetX,
     offsetY: glide.to.offsetY,

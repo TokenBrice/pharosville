@@ -1,10 +1,17 @@
 /**
- * Music (O13, separate consent, off by default): a sparse line for a plucked
- * string or a breathy end-blown flute. Anhemitonic D major pentatonic in just
- * intonation — no semitones, so no overlap can sour — with no bends, tremolo
- * or vibrato (no costume). Onsets fall only on the breath's inhale start or
- * inhale peak; at most one phrase every 40–90 s; silent during director
- * rituals and in the 00:00–04:45 night plateau. It maps no data.
+ * Music (O13, separate consent, off by default): a sparse line for a soft felt
+ * mallet (a struck bar: modal partials 1 : 4 : 9.2) above a low, round plucked
+ * string. Anhemitonic D major pentatonic in just intonation — no semitones, so
+ * no overlap can sour. Onsets fall only on the breath's inhale start or inhale
+ * peak; at most one phrase every 40–90 s; silent during director rituals and in
+ * the 00:00–04:45 night plateau. It maps no data.
+ *
+ * G6 costume (X8 audit): no in scale, no koto idiom (no bright plectrum attack
+ * in the zither register, no oshide bends, no tremolo — the string sits an
+ * octave down with a twice-rounded pluck, a harp/guitar harmonic rather than a
+ * koto), no shakuhachi (the breathy end-blown flute was removed: breath noise
+ * over a pentatonic long tone is that costume however plain its pitch), no
+ * temple bell, shō or taiko.
  */
 import { GARDEN_BREATH_SECONDS } from "../../systems/weather";
 import { renderPluck, seededRandom } from "./dsp";
@@ -12,9 +19,12 @@ import { claimVoice, foldToMono, panPeakCompensation, type AudioGraph } from "./
 import { dbToGain, stemLevelDb } from "./mix";
 import type { StemTargetSink } from "./bed";
 
-/** D major pentatonic, just ratios over D; A3 … A5. */
+/** D major pentatonic, just ratios over D; A3 … A5 for the mallet, an octave lower for the string. */
 const D4 = 293.66;
 const SCALE_HZ = [0.75, 5 / 6, 1, 9 / 8, 5 / 4, 3 / 2, 5 / 3, 2, 9 / 4, 5 / 2, 3].map((ratio) => D4 * ratio);
+/** Felt-mallet bar partials: [ratio, amplitude, T60 seconds] (−18 dB and −30 dB overtones). */
+const MALLET_PARTIALS: readonly (readonly [number, number, number])[] = [[1, 1, 2.6], [4, 0.126, 0.3], [9.2, 0.032, 0.08]];
+const T60_TO_TAU = 1 / Math.log(1000);
 /** Indices of D and A: every phrase comes home to one of them. */
 const HOME_INDICES = [2, 5, 7, 10];
 /** Onset grid: inhale start (phase 0) and inhale peak (phase 0.4) of the shared breath. */
@@ -72,47 +82,46 @@ export function createGardenMusic(graph: AudioGraph, firstPhraseAt: number): Gar
     source.stop(when + 3.6);
   };
 
-  const playFlute = (when: number, frequency: number, peak: number, pan: number, hold: number) => {
-    const end = when + hold + 2.6;
+  const playMallet = (when: number, frequency: number, peak: number, pan: number) => {
+    const end = when + 3;
     if (!claimVoice(graph, when, end)) return;
-    const tone = ctx.createOscillator();
-    tone.frequency.value = frequency;
-    const overtone = ctx.createOscillator();
-    overtone.frequency.value = frequency * 2;
-    const overtoneGain = ctx.createGain();
-    overtoneGain.gain.value = 0.18;
-    const breath = ctx.createBufferSource();
-    breath.buffer = graph.noise;
-    const breathBand = ctx.createBiquadFilter();
-    breathBand.type = "bandpass";
-    breathBand.frequency.value = frequency * 2;
-    breathBand.Q.value = 1.6;
-    foldToMono(breathBand);
-    const breathGain = ctx.createGain();
-    breathGain.gain.value = (0.05 * Math.SQRT2) / graph.noisePassRms([{ type: "bandpass", frequency: frequency * 2, q: 1.6 }]);
-    const envelope = ctx.createGain();
-    const level = (peak * panPeakCompensation(pan)) / 1.18;
-    envelope.gain.setValueAtTime(0, when);
-    envelope.gain.linearRampToValueAtTime(level, when + 0.35);
-    envelope.gain.setValueAtTime(level, when + hold);
-    envelope.gain.setTargetAtTime(0, when + hold, 0.45);
+    const body = ctx.createGain();
+    // Partials start in phase at the strike; their sum crests ≈ 1.11 in the first milliseconds.
+    body.gain.value = (peak * panPeakCompensation(pan)) / 1.11;
+    for (const [ratio, amplitude, t60] of MALLET_PARTIALS) {
+      const partial = ctx.createOscillator();
+      partial.frequency.value = frequency * ratio;
+      const envelope = ctx.createGain();
+      envelope.gain.setValueAtTime(0, when);
+      envelope.gain.linearRampToValueAtTime(amplitude, when + 0.004);
+      envelope.gain.setTargetAtTime(0, when + 0.004, t60 * T60_TO_TAU);
+      partial.connect(envelope).connect(body);
+      partial.start(when);
+      partial.stop(end);
+    }
+    // The felt: a −30 dB lowpassed tick under the strike.
+    const felt = ctx.createBufferSource();
+    felt.buffer = graph.noise;
+    const feltTone = ctx.createBiquadFilter();
+    feltTone.type = "lowpass";
+    feltTone.frequency.value = 1800;
+    feltTone.Q.value = -3;
+    foldToMono(feltTone);
+    const feltGain = ctx.createGain();
+    feltGain.gain.setValueAtTime(0.0316 * Math.SQRT2 / graph.noisePassRms([{ type: "lowpass", frequency: 1800, q: -3 }]), when);
+    feltGain.gain.setTargetAtTime(0, when, 0.006);
+    felt.connect(feltTone).connect(feltGain).connect(body);
+    felt.start(when, (frequency % 7) + 0.1);
+    felt.stop(when + 0.1);
     const panner = ctx.createStereoPanner();
     panner.pan.value = pan;
-    tone.connect(envelope);
-    overtone.connect(overtoneGain).connect(envelope);
-    breath.connect(breathBand).connect(breathGain).connect(envelope);
-    envelope.connect(panner).connect(graph.stems.music);
-    tone.start(when);
-    overtone.start(when);
-    breath.start(when, (frequency % 7) + 0.1);
-    tone.stop(end);
-    overtone.stop(end);
-    breath.stop(end);
+    body.connect(panner).connect(graph.stems.music);
   };
 
   const schedulePhrase = (frame: MusicFrame, targets: StemTargetSink | null) => {
     const random = seededRandom(Math.imul(frame.minute, 2654435761) ^ Math.floor(frame.breathTime / GARDEN_BREATH_SECONDS));
-    const flute = random() < 0.3 + 0.35 * frame.beaconPresence;
+    // The low string more often under the beacon (night), the mallet by day.
+    const string = random() < 0.35 + 0.3 * frame.beaconPresence;
     const levelDb = stemLevelDb("music", frame.stormLevel > 0.5 ? (frame.stormLevel - 0.5) * 2 : 0);
     // First grid point at least half a second ahead.
     const cycleStart = (cycle: number) => (cycle - 0.2) * GARDEN_BREATH_SECONDS;
@@ -136,8 +145,8 @@ export function createGardenMusic(graph: AudioGraph, firstPhraseAt: number): Gar
       const when = frame.at + (onset - frame.breathTime);
       const peakDb = levelDb + 20 * Math.log10(0.7 + 0.3 * random());
       const pan = (random() * 2 - 1) * 0.25;
-      if (flute) playFlute(when, SCALE_HZ[degree]!, dbToGain(peakDb), pan, 1.8 + random() * 0.8);
-      else playPluck(when, SCALE_HZ[degree]!, dbToGain(peakDb), pan);
+      if (string) playPluck(when, SCALE_HZ[degree]! / 2, dbToGain(peakDb), pan);
+      else playMallet(when, SCALE_HZ[degree]!, dbToGain(peakDb), pan);
       targets?.("music", peakDb);
       lastWhen = when;
       // Mostly one note per breath (two grid steps), sometimes the next half, sometimes a breath and a half.

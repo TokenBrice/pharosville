@@ -3,7 +3,9 @@ import type { VisualCue } from "./world-types";
 /** Non-semantic scene additions audited beside, but excluded from, cue parity. */
 export const DECORATIVE_VISUAL_NOTES = {
   engawaForeground: "The engawa foreground, its framing timbers and near-bank planting carry no meaning; they compose the garden threshold without encoding world data.",
-  engawaKoi: "The four koi in the calm engawa shallows carry no meaning; they displace the former reflection-basin koi without adding a draw.",
+  engawaKoi: "The four koi carry no meaning: kohaku, gold, platinum and karasu, seen through the pond's water (fainter where it mirrors the sky at a grazing view), by daylight only; they displace the former reflection-basin koi without adding a draw. Reduced motion: the koi hold still.",
+  dawnSkein: "The dawn skein carries no meaning: on a few autumn and winter dawns (the migration kō) nine to fifteen geese in a loose V cross high and far over the left of the sky and fade into the haze, clear of the tower, silently, as the day score's dawn-skein ritual. Reduced motion: no skein flies.",
+  fishRings: "Fish rings carry no meaning: now and then, by daylight away from noon, a single ring rises on the still inlet and fades, and a heron's strike leaves one ring where her bill met the water; they are one-shot rings, never a standing ring train. Reduced motion: no rings.",
   heroWaterfall: "The engawa waterfall and its plunge foam carry no meaning; one authored fall displaces the broad random silver-water accents.",
   gardenHeron: "The grey heron carries no meaning: she comes down to the shallows at the island's foot in the morning, stands and fishes through the day and leaves at golden hour, as the day score's heron rituals; she displaces the former two-triangle summit heron and the almanac heron card. Reduced motion: she stands in the shallows through the day, never mid-flight, and is absent at night.",
   islandGulls: "The six island gulls carry no meaning: they perch on the island's masonry and now and then take a short flap-and-glide turn, below the lantern and clear of the crown, and roost at night; winged birds displace the former hairline chevrons. Reduced motion: every gull perched, wings folded.",
@@ -12,7 +14,10 @@ export const DECORATIVE_VISUAL_NOTES = {
   shakkeiSky: "The borrowed shakkei peak, the near headland, the kasumi bands at the ridge feet and the visible sky layers carry no meaning; only the three far ranges' visibility reads market stability, as part of the lighthouse PSI cue.",
   seasonalLandmarks: "Petals over the calm shallows and the evening keeper kindling the lamps (the chaseki and path lanterns, the tower's stair embers, the lantern, then the harbour outward and the engawa tōrō last) carry no meaning; without the walk the same lamps light with the sun, and they add no ember lanes.",
   dayScore: "The day score carries no meaning: a few clock-anchored rituals (the heron's arrival and departure, the kindling at sunset, the moonrise, a single meteor streak on half the dark-moon nights, and one kō-gated seasonal visitor) at most six a day and eight minutes apart, each writing one local-time line in the Harbor log and naming the kō and moon only in the ledger's Almanac row. They displace the daily heron-or-meteor coin flip. Reduced motion: no ritual starts; each owner holds its own static state for the hour and no meteor is drawn.",
+  wanderPostcards: "The Wander postcards carry no meaning: six authored views from inside the harbour (a deck in the north basin, the mole, the crane islet, the tea-house, the crag stair, the inlet mouth), shown only when the visitor asks and left on any other input; they displace the idle attract tour, so the idle view is always the resting shot. Reduced motion: the view cuts to each card.",
   seaEdgeGeography: "Named-water banks, reeds, bars, cliff, piles and inlet stones carry no meaning; the authoritative water field and existing DOM ledger remain the classification.",
+  treeLetsGo: "The island maple letting go carries no meaning: on one late-autumn afternoon a year (the day its thinning crown passes half, by the garden calendar) a gust takes its last leaves over about two and a half minutes, pad by pad, and they drift down to the water at the island's foot and lie there for the day; from the next day the maple stands bare until spring. It is the day score's tree-lets-go ritual and displaces that day's leaf-fall visitor. Reduced motion: no ritual starts; the maple keeps the day's crown and is bare from the next day.",
+  reedFireflies: "The fireflies carry no meaning: on early-summer nights (the firefly kō) nine slow blinking points rise over the reed bed at the foot of the west pine grove (the nearest shore the rest seat sees at water level), dimmer than any lantern, and stay out for the rest of the night; they displace the former sparks by the island path lantern. Reduced motion: they hold one static pose, some lit and some dark.",
 } as const;
 
 export const LEGEND_MARK_ROWS = [
@@ -68,13 +73,8 @@ export const LEGEND_MARK_ROWS = [
   },
   {
     cueId: "cue.world.supply-tide",
-    label: "Tide line on the shore rock",
-    text: "A dark band of wet stone on the island rock and the quay walls, measured against a fixed iron datum notch: a strandline above the notch means stablecoin supply shrank over the week, below it means supply grew. Bare stone with no notch at all means no chain data arrived.",
-  },
-  {
-    cueId: "cue.lighthouse.high-water-mark",
-    label: "Pale band on the lighthouse rocks",
-    text: "A pale salt line climbing the lighthouse terrace records the worst index band of the last 30 days — how high the water got, not how it stands now. Unstained rock can also mean there was no history to read.",
+    label: "The tidal flat",
+    text: "The sand flat beside the island's south-east beach shows the week's stablecoin supply: after a week of growth the water stands high and the flat is almost covered; after a week of contraction it draws back and the flat lies bare. Water at the foot of the standing tide-stone is a flat week. No stone at all means no chain data arrived. A broken line of dark weed marks where the water stood when you last visited, if it has moved since. It is a weekly state, not a clock.",
   },
   {
     cueId: "cue.lighthouse.garden-month-record",
@@ -151,13 +151,13 @@ export function buildVisualCueRegistry(): VisualCue[] {
     {
       id: "cue.lighthouse.psi",
       target: { kind: "lighthouse" },
-      primaryChannels: ["glow", "opacity"],
-      visual: "lighthouse beacon and beam state, and the far shore: how many of the three borrowed PSI ranges (the far range, the western ridge, the eastern ridge) stand clear of the air, with haze thinning on stable days and thickening under stress",
+      primaryChannels: ["glow", "opacity", "shape"],
+      visual: "lighthouse beacon and beam state; the far shore: how many of the three borrowed PSI ranges (the far range, the western ridge, the eastern ridge) stand clear of the air, with haze thinning on stable days and thickening under stress; and cloud aloft painted on the sky — a clear sky with two or three high strokes at BEDROCK, fair at STEADY, a high veil at TREMOR, a broken deck at FRACTURE, low cloud at CRISIS, overcast at MELTDOWN. The wall clock lights the clouds; cover never changes the hour's colours and is not weather or a forecast",
       sourceField: "stability.current.band",
       questionAnswered: "What is the overall Pharos Stability Index state?",
-      failureState: "unlit/fogged lighthouse",
-      domEquivalent: "lighthouse detail Score, Band, Far shore, Trend, Composition, and top-contributor rows plus accessibility ledger lighthouse and Far shore rows",
-      reducedMotionEquivalent: "static beacon state, the far ranges at their band's visibility with no crossfade, and lighthouse detail PSI rows",
+      failureState: "unlit/fogged lighthouse; with no current reading the sky holds a thin neutral veil and names no cover",
+      domEquivalent: "lighthouse detail Score, Band, Far shore, Sky cover, Trend, Composition, and top-contributor rows, the cover word in the now-line, plus accessibility ledger lighthouse, Far shore and Sky cover rows",
+      reducedMotionEquivalent: "static beacon state, the far ranges at their band's visibility and the cloud field at its band's cover with no crossfade and no drift, and lighthouse detail PSI rows",
     },
     {
       id: "cue.lighthouse.lamp-status",
@@ -180,17 +180,6 @@ export function buildVisualCueRegistry(): VisualCue[] {
       failureState: "bare mast; the lighthouse Signal mast row reads 'no peg summary tonight' (and the Fleet peg row is absent) or 'no supply figures to weigh the peg readings against', never an unexplained calm",
       domEquivalent: "lighthouse detail Signal mast row naming the largest coins off peg, the share of tracked supply off peg and the 1% cone gate, the Fleet peg row with the fleet-wide count and worst coin, plus the accessibility ledger lighthouse signal-mast clause carrying the same sentence",
       reducedMotionEquivalent: "same pennants and cone held at their composed time-zero pose",
-    },
-    {
-      id: "cue.lighthouse.high-water-mark",
-      target: { kind: "lighthouse" },
-      primaryChannels: ["size", "color"],
-      visual: "pale salt-crust courses banding the lighthouse terrace, one course per severity step of the worst Pharos Stability Index band reached in the trailing 30 days; bare stone when the worst reading never left the calmest band",
-      sourceField: "stability.history[].band",
-      questionAnswered: "Is this calm harbour one that has always been calm, or one that recovered from something recently?",
-      failureState: "bare stone; the lighthouse 'Worst band, 30d' row reads 'Unstained — no index history to read', which is not the same as never having risen",
-      domEquivalent: "lighthouse detail 'Worst band, 30d' row plus the accessibility ledger lighthouse high-water clause",
-      reducedMotionEquivalent: "identical — the mark is a static record and never animates at any setting",
     },
     {
       id: "cue.lighthouse.garden-month-record",
@@ -441,12 +430,12 @@ export function buildVisualCueRegistry(): VisualCue[] {
       id: "cue.world.supply-tide",
       target: { kind: "lighthouse" },
       primaryChannels: ["position", "color", "size"],
-      visual: "a band of dark wet stone on the island's shore rock and on every quay wall, its top edge — the strandline — standing above a fixed iron datum notch when the week's stablecoin supply fell and below it when supply rose; the excursion is compressed against a 2% full scale so an ordinary week still lifts clear of the datum",
+      visual: "a gently sloping tidal flat of wet sand beside the island's south-east beach (inside the island's non-attributed halo, outside the empty inlet): the week's stablecoin supply stands the water high over it when supply grew and draws it back to bare the flat when supply fell, measured against a standing tide-stone on the slack-water line; the excursion is compressed against a 2% full scale so an ordinary week still moves the waterline. A broken line of dark weed marks where the water stood at the visitor's last visit when it has moved at least 0.15 of full scale since. It displaces the quay-wall tide-line plates, the island-rock strandline and datum notch, and the lighthouse terrace's PSI salt courses",
       sourceField: "chains.globalChange7dPct",
       questionAnswered: "Did the whole stablecoin supply grow or shrink over the past week?",
-      failureState: "bare stone with no datum notch at all — distinct from every real tide state, because a cue that cannot say 'no data' eventually says something false instead",
-      domEquivalent: "lighthouse detail 'Supply tide 7d' row naming the direction outright, plus the matching accessibility ledger lighthouse clause",
-      reducedMotionEquivalent: "identical — a weekly figure carries no rate to animate, so the band is static at every setting",
+      failureState: "the flat at the datum with no tide-stone at all — distinct from every real tide state, because a cue that cannot say 'no data' eventually says something false instead; no stored visit (or no storage) draws no wrack line",
+      domEquivalent: "lighthouse detail 'Supply tide 7d' row naming the direction and how much of the flat is covered, the matching accessibility ledger lighthouse clause, and the 'Since your last visit' line naming how the flat's tide moved",
+      reducedMotionEquivalent: "the identical static flat: a changed reading snaps instead of easing out over twenty minutes, and the wrack line is the same static mark",
     },
     {
       // The world's only DAILY flow cue. Everything else here reports a stock.
@@ -513,13 +502,24 @@ export function buildVisualCueRegistry(): VisualCue[] {
     {
       id: "cue.grave.lifecycle",
       target: { kind: "grave" },
-      primaryChannels: ["shape", "size", "color"],
-      visual: "wrecks in Wreck Shoal whose representative silhouette carries cause family: substantial hull, broken keel, or bare remains; canonical cause colour remains a second visual channel",
+      primaryChannels: ["shape", "size", "position"],
+      visual: "the stone garden on Wreck Shoal's south shore: one unmarked set stone per dead coin in a raked gravel bed, sized by peak market cap (log), gathered by cause family into odd islands — reclining stones where the peg broke (west), arching where a counterparty failed (centre), flat where the coin was wound down (east); no cause colour",
       sourceField: "cemeteryEntries[].causeOfDeath, cemeteryEntries[].peakMcap",
-      questionAnswered: "Which assets are dead or frozen, and what cause record does each wreck represent?",
-      failureState: "no wreck without a cemetery entry; unavailable cemetery data leaves the shoal empty rather than inventing a cause",
-      domEquivalent: "grave detail Cause and Wreck silhouette rows plus cemetery ledger rows and the canonical wreck cause-colour swatch legend",
-      reducedMotionEquivalent: "the same static substantial-hull, broken-keel, or bare-remains silhouette with cause colour and DOM record",
+      questionAnswered: "Which assets are dead, how large were they, and how did each die?",
+      failureState: "no stone without a cemetery entry; unavailable cemetery data leaves the gravel bed empty rather than inventing a cause",
+      domEquivalent: "grave detail Cause and Stone garden rows plus cemetery ledger rows and the stone-garden family legend",
+      reducedMotionEquivalent: "the same static garden (it has no motion)",
+    },
+    {
+      id: "cue.grave.anniversary-lantern",
+      target: { kind: "grave" },
+      primaryChannels: ["glow"],
+      visual: "one stone lantern at the stone garden's water edge, dark every night but the first evening of a month in which coins fell, when it is kindled with the lamps and burns until dawn",
+      sourceField: "cemeteryEntries[].deathDate (month) against the world calendar date",
+      questionAnswered: "Is tonight the anniversary month of a fall?",
+      failureState: "the lantern stays dark; the ledger records no anniversary",
+      domEquivalent: "the almanac ritual ledger line naming the month and the coins remembered, and the stone-garden family legend's lantern sentence",
+      reducedMotionEquivalent: "the lantern simply stands lit through the anniversary night, with no catching",
     },
   ];
 }

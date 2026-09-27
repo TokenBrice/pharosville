@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   gardenMicroseason,
+  gardenTreeLetsGo,
   gardenPetalDrift,
   gardenSeasonalVisitor,
   gardenSnowCover,
@@ -79,5 +80,27 @@ describe("garden calendar", () => {
     expect(gardenSeasonalVisitor(day("2026-11-15"), NORTH)?.id).toBe("leaf-fall");
     // South of the equator the garden year is half a turn apart.
     expect(gardenSeasonalVisitor(day("2026-05-15"), SOUTH)?.id).toBe("leaf-fall");
+  });
+
+  it("lets the island maple go on exactly one day a year, bare from the next day until spring", () => {
+    for (const year of [2025, 2026, 2027]) {
+      const days: string[] = [];
+      let bareAfter = true;
+      let seenDay = false;
+      for (let offset = 0; offset < 365; offset += 1) {
+        const date = new Date(Date.UTC(year, 0, 1) + offset * 86_400_000 + 12 * 3_600_000);
+        const state = gardenTreeLetsGo(date, NORTH);
+        if (state.today) {
+          days.push(date.toISOString().slice(0, 10));
+          expect(state.crown).toBeGreaterThan(0);
+          expect(state.crown).toBeLessThan(0.5);
+          seenDay = true;
+        } else if (seenDay && date.getUTCMonth() === 11) {
+          bareAfter &&= state.crown === 0;
+        }
+      }
+      expect(days, String(year)).toHaveLength(1);
+      expect(bareAfter).toBe(true);
+    }
   });
 });

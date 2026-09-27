@@ -1312,6 +1312,7 @@ ${gardenHeightFogGlsl()}
 
     if (uAnnulus < 0.5 && uRippleStrength > 0.001) {
       float ripple = 0.0;
+      float shotRipple = 0.0;
       for (int ri = 0; ri < ${GARDEN_WATER_MAX_RIPPLE_RINGS}; ri += 1) {
         if (float(ri) >= uRippleCount) break;
         vec4 ring = uRipple[ri];
@@ -1319,16 +1320,28 @@ ${gardenHeightFogGlsl()}
         float ringDistance = distance(vWaterPosition, ring.xy);
         if (ringDistance > ring.z + 1.5) continue;
         float innerRadius = ring.z * rp.w;
+        // X5: a negative band count is a one-shot pulse started at ring.w.
+        float shot = step(rp.x, -0.5);
+        float bandCount = abs(rp.x);
         for (int rb = 0; rb < 3; rb += 1) {
-          if (float(rb) >= rp.x) break;
-          float t = fract(uTime / rp.y + ring.w + float(rb) / rp.x);
+          if (float(rb) >= bandCount) break;
+          float t = shot > 0.5
+            ? (uTime - ring.w) / rp.y - float(rb) * 0.3
+            : fract(uTime / rp.y + ring.w + float(rb) / bandCount);
+          if (t < 0.0 || t > 1.0) continue;
           float r = mix(innerRadius, ring.z, t);
-          float ringCrest = 1.0 - smoothstep(0.0, 0.5 + t * 0.9, abs(ringDistance - r));
-          ripple += ringCrest * ringCrest * (1.0 - t) * rp.z;
+          float ringCrest = 1.0 - smoothstep(0.0, mix(0.5 + t * 0.9, 0.45 + t * 0.7, shot), abs(ringDistance - r));
+          float crest = ringCrest * ringCrest * (1.0 - t) * rp.z;
+          ripple += crest * (1.0 - shot);
+          shotRipple += crest * shot * (1.0 - 0.6 * float(rb));
         }
       }
       ripple = clamp(ripple * uRippleStrength, 0.0, 1.0);
       waterColor = mix(waterColor, uHighlightColor, ripple * (0.1 + uDaylight * 0.06));
+      // A rise is one clean, thin ring of sky on still water: stronger than
+      // the standing karesansui trains, which are texture, not events.
+      shotRipple = clamp(shotRipple * uRippleStrength, 0.0, 1.0);
+      waterColor = mix(waterColor, uHighlightColor, shotRipple * (0.32 + uDaylight * 0.14));
     }
     if (uAnnulus < 0.5) {
     vec2 beamDirection = vec2(cos(uBeaconAngle), sin(uBeaconAngle));
@@ -1824,6 +1837,8 @@ export function createGardenWater(waterLevel: number): GardenWater {
   // pylons, moored ships, and garden islets through the same API.
   const rippleEmitters = new Map<string, {
     bands: 2 | 3;
+    /** X5: a pulse rises once from its start (`phase` holds the start clock). */
+    oneShot?: boolean;
     centerX: number;
     centerY: number;
     innerFraction: number;
@@ -1840,7 +1855,8 @@ export function createGardenWater(waterLevel: number): GardenWater {
     // Rank by authored contrast, id as the tie-break: the twelve that draw are
     // the twelve that read strongest, and they are the same twelve every time.
     const ranked = [...rippleEmitters.entries()]
-      .sort(([idA, a], [idB, b]) => b.strength - a.strength || idA.localeCompare(idB))
+      .sort(([idA, a], [idB, b]) => Number(b.oneShot === true) - Number(a.oneShot === true)
+        || b.strength - a.strength || idA.localeCompare(idB))
       .slice(0, GARDEN_WATER_MAX_RIPPLE_RINGS);
     let index = 0;
     for (const [, emitter] of ranked) {
@@ -1851,7 +1867,8 @@ export function createGardenWater(waterLevel: number): GardenWater {
         emitter.phase,
       );
       uniforms.uRippleParams.value[index]!.set(
-        emitter.bands,
+        // Negative band count marks a one-shot pulse for the shader.
+        emitter.oneShot ? -emitter.bands : emitter.bands,
         emitter.periodSeconds,
         emitter.strength,
         emitter.innerFraction,
@@ -1877,6 +1894,23 @@ export function createGardenWater(waterLevel: number): GardenWater {
     },
     removeRing(id) {
       if (rippleEmitters.delete(id)) syncRippleUniforms();
+    },
+    pulseRing(ring) {
+      const now = uniforms.uTime.value;
+      // Reduced motion freezes the clock at 0: no ring rises.
+      if (!(now > 0)) return;
+      rippleEmitters.set(ring.id, {
+        bands: 2,
+        centerX: ring.center.x,
+        centerY: -ring.center.z,
+        innerFraction: 0.02,
+        oneShot: true,
+        periodSeconds: Math.max(0.001, ring.periodSeconds),
+        phase: now,
+        radius: Math.max(0.001, ring.radius),
+        strength: MathUtils.clamp(ring.strength, 0, 1),
+      });
+      syncRippleUniforms();
     },
     ringCount() {
       return rippleEmitters.size;
@@ -2151,6 +2185,18 @@ export function createGardenWater(waterLevel: number): GardenWater {
       uniforms.uSwell.value = MathUtils.clamp(frame.seaState.swell, 0, 1);
       uniforms.uTempo.value = MathUtils.clamp(frame.seaState.tempo, 0, 1);
       uniforms.uTime.value = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
+      // X5: a one-shot ring leaves once its second crest has run out (or the
+      // clock went back past its start: reduced motion, a reset).
+      let expired = false;
+      for (const [id, emitter] of rippleEmitters) {
+        if (!emitter.oneShot) continue;
+        const age = uniforms.uTime.value - emitter.phase;
+        if (age < 0 || age > emitter.periodSeconds * 1.3) {
+          rippleEmitters.delete(id);
+          expired = true;
+        }
+      }
+      if (expired) syncRippleUniforms();
       // Phase 2 weather: the wind bearing rotates the swell field (world XZ →
       // water-local XY, where +Z world is -Y local), the sustained wind
       // steepens the chop, and the storm raises amplitude — capped at the

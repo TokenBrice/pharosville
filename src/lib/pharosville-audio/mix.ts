@@ -7,7 +7,7 @@
  * "Sea state": swell from DEWS threat + PSI stress); the wind stems key on the
  * frame's wind speed instead, which the same stress drives. `null` = silent.
  */
-export type AudioStemName = "sea" | "wash" | "lap" | "wind" | "whistle" | "air" | "music" | "beats";
+export type AudioStemName = "sea" | "wash" | "lap" | "wind" | "whistle" | "air" | "borrowed" | "music" | "beats";
 
 export interface AudioStemLevel {
   measure: "rms" | "peak";
@@ -15,7 +15,7 @@ export interface AudioStemLevel {
   storm: number;
 }
 
-export const AUDIO_STEMS: readonly AudioStemName[] = ["sea", "wash", "lap", "wind", "whistle", "air", "music", "beats"];
+export const AUDIO_STEMS: readonly AudioStemName[] = ["sea", "wash", "lap", "wind", "whistle", "air", "borrowed", "music", "beats"];
 
 export const AUDIO_MIX: Readonly<Record<AudioStemName, AudioStemLevel>> = Object.freeze({
   /** LP 380→900 Hz on the `water` breath; breath depth below. */
@@ -30,7 +30,13 @@ export const AUDIO_MIX: Readonly<Record<AudioStemName, AudioStemLevel>> = Object
   whistle: { measure: "rms", calm: null, storm: -34 },
   /** Night air under the beacon × beacon presence; each pass toward the eye lifts it. */
   air: { measure: "rms", calm: -42, storm: -42 },
-  /** Plucked string / breathy flute line (separate Music consent). Storm thins it. */
+  /**
+   * X8 borrowed sound (sound-5): far events from beyond the frame — a bell
+   * buoy rocking off the harbour mouth, a wash breaking on the outer rocks.
+   * Rare (≤ 1 per 10 min, through the director's environment slot), mostly reverb.
+   */
+  borrowed: { measure: "peak", calm: -38, storm: -34 },
+  /** Soft mallet above, low round string below (separate Music consent). Storm thins it. */
   music: { measure: "peak", calm: -30, storm: -39 },
   /** Named director beats (W7.3): identical for supply up and down. */
   beats: { measure: "peak", calm: -32, storm: -32 },
@@ -64,6 +70,13 @@ export const AUDIO_MASTER = Object.freeze({
   reverbReturnDb: -20,
   musicSendDb: -10,
   beatSendDb: -16,
+  /** Far sounds are mostly room: a strong send. */
+  borrowedSendDb: -4,
+  /**
+   * X8 listening pose (sound-7): idle in Stay with sound on, the near bed
+   * steps back and the far sounds come forward, slowly; any input returns it.
+   */
+  listen: { nearDb: -2, farDb: 2, idleSeconds: 8, inSeconds: 20, outSeconds: 4 },
   /** At most this many event voices (laps, beats) sound at once. */
   eventVoiceCap: 6,
 });

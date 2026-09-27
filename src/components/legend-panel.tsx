@@ -161,7 +161,7 @@ export function LegendPanel({ onClose, onChangelog, onObserve, onSelectDetail, r
           <h3 id="pharosville-legend-zones">The water</h3>
           <p>
             The water beneath a ship is its peg risk, from Calm Anchorage out to
-            Danger Strait. Wreck Shoal keeps the coins lost at sea.
+            Danger Strait. On Wreck Shoal's shore a stone garden keeps one stone for every coin that died.
           </p>
           <ul className="pharosville-legend-panel__zones">
             {LEGEND_ZONE_PLACEMENTS.map((placement) => {

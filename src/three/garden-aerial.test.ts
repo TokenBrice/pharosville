@@ -11,19 +11,23 @@ import {
 } from "./garden-aerial";
 import { dayCycleBeats, dayCyclePhase, DAY_CYCLE_HEIGHT_FOG_PRESETS } from "./garden-day-cycle";
 import { gardenHeightFogFactor } from "./garden-height-fog";
+import { gardenSkyToday } from "../systems/sky-almanac";
 
 const DEG = Math.PI / 180;
 const SEA = -1.45;
 
-function fit(eye: { x: number; y: number; z: number }, near: number, far: number, clarity = 0) {
+// Solar noon of the pinned sky day: the X9 day drift is zero there.
+const NOON = gardenSkyToday().solarNoonHour;
+
+function fit(eye: { x: number; y: number; z: number }, near: number, far: number, clarity = 0, hour = NOON) {
   updateGardenAerial({
-    phase: dayCyclePhase(12),
-    beats: dayCycleBeats(12),
+    phase: dayCyclePhase(hour),
+    beats: dayCycleBeats(hour),
     solarHorizon: new Color(0.8, 0.8, 0.8),
     antiHorizon: new Color(0.7, 0.7, 0.8),
     sunDir: new Vector3(0.3, 0.8, -0.5).normalize(),
     solarElevation: 50 * DEG,
-    hour: 12,
+    hour,
     eye,
     near,
     far,
@@ -66,6 +70,24 @@ describe("one air (W2.3)", () => {
     const veiled = gardenAerialTransmittance(fit(eye, 190, 280, -1), eye, point);
     expect(clear).toBeGreaterThan(neutral);
     expect(neutral).toBeGreaterThan(veiled);
+  });
+});
+
+describe("time inside the day beat (X9)", () => {
+  it("makes the morning air clearer and cooler than the afternoon's, and noon the authored air", () => {
+    const eye = { x: 0, y: 15.23, z: 0 };
+    const point = { x: 260, y: SEA, z: 0 };
+    const read = (hour: number) => {
+      const state = fit(eye, 190, 280, 0, hour);
+      return { T: gardenAerialTransmittance(state, eye, point), blueShare: state.airlight.b / state.airlight.r };
+    };
+    const noon = read(NOON);
+    const morning = read(9.5);
+    const afternoon = read(15.5);
+    expect(morning.T).toBeGreaterThan(noon.T);
+    expect(afternoon.T).toBeLessThan(noon.T);
+    expect(morning.blueShare).toBeGreaterThan(noon.blueShare);
+    expect(afternoon.blueShare).toBeLessThan(noon.blueShare);
   });
 });
 

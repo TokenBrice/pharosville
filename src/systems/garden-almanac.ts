@@ -24,6 +24,10 @@ const RITUAL_LEDGER_LINES: Record<GardenRitualKind, string> = {
   meteor: "A single meteor crossed the dark-moon sky.",
   "seasonal-visitor": "A seasonal visitor came to the garden.",
   crossing: "A ship crossed the mirror inlet.",
+  "dawn-skein": "A skein of geese crossed at first light.",
+  "fish-rings": "Fish were rising in the still water.",
+  "tree-lets-go": "A gust took the island maple's last leaves.",
+  "anniversary-lantern": "A lantern was lit in the stone garden for the fallen.",
 };
 
 /** One ledger line per ritual start, stamped with the local clock hour it began at. */

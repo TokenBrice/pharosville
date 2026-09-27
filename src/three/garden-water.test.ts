@@ -279,6 +279,34 @@ describe("createGardenWater", () => {
   });
 
 
+  it("rises a one-shot ring once, ahead of the standing trains, then clears it", () => {
+    const water = createGardenWater(0);
+    const pulse = { center: { x: 4, z: 6 }, id: "fish-rise", periodSeconds: 5, radius: 3, strength: 0.2 };
+    // A frozen (reduced-motion) clock refuses the pulse: no ring rises.
+    water.update(frame({ reducedMotion: true }));
+    water.rippleRings.pulseRing(pulse);
+    expect(water.rippleRings.ringCount()).toBe(0);
+
+    for (let index = 0; index < GARDEN_WATER_MAX_RIPPLE_RINGS + 2; index += 1) {
+      water.rippleRings.setRing({
+        bands: 2, center: { x: index, z: 0 }, id: `standing.${index}`, periodSeconds: 9, radius: 5, strength: 1,
+      });
+    }
+    water.update(frame({ timeSeconds: 100 }));
+    water.rippleRings.pulseRing(pulse);
+    const params = water.material.uniforms.uRippleParams!.value as { x: number; y: number }[];
+    const rings = water.material.uniforms.uRipple!.value as { w: number }[];
+    // Weaker than every standing train, still first: an event outranks texture.
+    expect(params[0]!.x).toBeLessThan(0);
+    expect(rings[0]!.w).toBe(100);
+
+    water.update(frame({ timeSeconds: 103 }));
+    expect(water.rippleRings.ringCount()).toBe(GARDEN_WATER_MAX_RIPPLE_RINGS + 3);
+    water.update(frame({ timeSeconds: 100 + 5 * 1.3 + 0.1 }));
+    expect(water.rippleRings.ringCount()).toBe(GARDEN_WATER_MAX_RIPPLE_RINGS + 2);
+    expect(params.slice(0, GARDEN_WATER_MAX_RIPPLE_RINGS).every((ring) => ring.x > 0)).toBe(true);
+  });
+
   it("keeps the twelve loudest ripple rings, deterministically, when oversubscribed", () => {
     // T0.7 (2026-09-07): claimants exceed GARDEN_WATER_MAX_RIPPLE_RINGS, and
     // the uniform slots used to be filled in Map insertion order — so which

@@ -10,7 +10,6 @@ import Sun from "lucide-react/dist/esm/icons/sun";
 
 export interface WorldControlsProps {
   headingId?: string;
-  onLightControlsOpen?: (open: boolean) => void;
   hour?: number;
   manualTime?: boolean;
   onChangeHour?: (hour: number) => void;
@@ -25,6 +24,10 @@ export interface WorldControlsProps {
   onOpenLedger?: () => void;
   onResetView?: () => void;
   onStay?: () => void;
+  /** X6: glide to the next postcard (the view holds there until any other input). */
+  onWander?: () => void;
+  /** X6: a postcard is showing. */
+  wandering?: boolean;
   onToggleNightMode?: () => void;
   onToggleObserve?: () => void;
   /**
@@ -48,9 +51,10 @@ export function WorldControls({
   onOpenLedger,
   onResetView,
   onStay,
+  onWander,
+  wandering = false,
   onToggleNightMode,
   onToggleObserve,
-  onLightControlsOpen,
   hour = 12,
   manualTime = false,
   onChangeHour,
@@ -96,6 +100,19 @@ export function WorldControls({
               <span>stay</span>
             </button>
           )}
+          {onWander && (
+            <button
+              type="button"
+              className="pv-chrome-action"
+              aria-keyshortcuts="W"
+              aria-pressed={wandering}
+              data-wander-control
+              title="Wander to a place in the harbour; any other key returns"
+              onClick={onWander}
+            >
+              <span>wander</span>
+            </button>
+          )}
         </div>
         <button
           type="button"
@@ -121,7 +138,7 @@ export function WorldControls({
             {observing ? <Pause aria-hidden="true" size={17} strokeWidth={1.5} /> : <Eye aria-hidden="true" size={17} strokeWidth={1.5} />}
           </button>
         )}
-        <details className="pv-drawer-control pharosville-light-control" onToggle={(event) => onLightControlsOpen?.(event.currentTarget.open)}>
+        <details className="pv-drawer-control pharosville-light-control">
           <summary className="pv-glyph-button" aria-label={`Light and motion: ${formatHourLabel(hour)}${manualTime ? " manual" : " local"}`} title="Light and motion">
             {hour < 6 || hour >= 20 ? <Moon aria-hidden="true" size={17} strokeWidth={1.5} /> : <Sun aria-hidden="true" size={17} strokeWidth={1.5} />}
           </summary>

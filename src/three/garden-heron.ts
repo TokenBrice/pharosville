@@ -16,6 +16,7 @@ import { dayCycleBeats } from "./garden-day-cycle";
 import { chainGardenMaterialPatch } from "./garden-aerial";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import type { GardenRitualHandler } from "../systems/garden-director";
+import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { REST_SEAT_YAW_RAD } from "../systems/rest-seat";
 
@@ -492,6 +493,8 @@ export interface GardenHeronOptions {
    * `registerRitual`); `dispose` releases them. Omit in tests.
    */
   registerRitual?: (kind: GardenHeronRitualKind, handler: GardenRitualHandler) => () => void;
+  /** X5: where a strike lands, one ring rises on the water (one-shot pulse). */
+  rippleRings?: Pick<GardenRippleRingEmitter, "pulseRing">;
 }
 
 /**
@@ -585,7 +588,21 @@ export function createGardenHeron(options: GardenHeronOptions = {}): GardenHeron
     uniforms.uPose.value = 0;
     uniforms.uFlapInner.value = 0;
     uniforms.uFlapOuter.value = 0;
-    uniforms.uStrike.value = reducedMotion ? 0 : strikeEnvelope(clock);
+    const strike = reducedMotion ? 0 : strikeEnvelope(clock);
+    // X5: the bill meets the water at the strike's onset — one ring there.
+    if (strike > 0 && uniforms.uStrike.value === 0 && options.rippleRings) {
+      options.rippleRings.pulseRing({
+        center: {
+          x: root.position.x + GARDEN_HERON_STATION.x + heading.x * 1.2 * GARDEN_HERON_HEIGHT / 2.45,
+          z: root.position.z + GARDEN_HERON_STATION.z + heading.z * 1.2 * GARDEN_HERON_HEIGHT / 2.45,
+        },
+        id: "heron-strike",
+        periodSeconds: 4,
+        radius: 1.8,
+        strength: 0.8,
+      });
+    }
+    uniforms.uStrike.value = strike;
   };
 
   const state = (): GardenHeronState => {

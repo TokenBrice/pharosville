@@ -169,7 +169,12 @@ const GUIDES: readonly EdgeGuide[] = [
   // ellipse in the renderer. Ledger has no rim shore clear of its station, and
   // Danger remains entirely reed-free.
   { body: "calm", form: "reed-lily", guide: { x: 52, y: 127 }, height: 1.5, id: "calm-reed-bank-south", length: 2.2, material: "vegetation", target: "rim", width: 1.6 },
-  { body: "calm", form: "reed-lily", guide: { x: 14, y: 75 }, height: 2.0, id: "calm-reed-bank-west", length: 2.9, material: "vegetation", target: "rim", width: 2.0 },
+  // X5 (life-7): the reed bed the rest seat sees, where the early-summer
+  // fireflies rise (GARDEN_FIREFLY_REED_BED). From the seat the near bank
+  // hides the whole camera-side shore at water level; the quiet Calm shore at
+  // the foot of the west pine grove is the nearest one in view (~190 u), its
+  // dark grove behind the points of light. A little fuller than the others.
+  { body: "calm", form: "reed-lily", guide: { x: 13, y: 82 }, height: 2.0, id: "calm-reed-bank-west", length: 3.6, material: "vegetation", target: "rim", width: 2.1 },
   { body: "calm", form: "reed-lily", guide: { x: 12, y: 61 }, height: 1.7, id: "calm-reed-bank-northwest", length: 2.4, material: "vegetation", target: "rim", width: 1.8 },
 
   // Watch Reach keeps its two low mineral banks; reeds belong only to the
@@ -408,6 +413,13 @@ export const GARDEN_SEA_EDGE_SITES: readonly GardenSeaEdgeSite[] = Object.freeze
     return sites;
   }, []),
 );
+
+/**
+ * X5: where the early-summer fireflies rise — the centre of the near reed bed
+ * the rest seat sees, in tiles.
+ */
+export const GARDEN_FIREFLY_REED_BED: GardenSeaEdgeSite = GARDEN_SEA_EDGE_SITES
+  .find((site) => site.id === "calm-reed-bank-west")!;
 
 /**
  * Ship-safety footprints for every physical edge feature placed on water. The

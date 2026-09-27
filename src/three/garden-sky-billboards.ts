@@ -8,27 +8,18 @@ import {
 import type { EpistemicFogBank } from "../systems/epistemic-haze";
 
 /**
- * Phase 2 (Breathtaking Rendering, items 2d/6): one layer of billboard cumulus
- * and the stale-source fog banks.
- *
- * Clouds occupy the visible sky, re-anchored to the camera target every frame
- * by garden-sky's root. Each quad faces the eye independently, so perspective
- * does not expose the far cards edge-on.
+ * Phase 2 (Breathtaking Rendering, items 2d/6): the stale-source fog banks.
  *
  * Contracts kept:
- * - ONE InstancedMesh and ONE draw call per system; per-instance state is
- *   attributes, drift is a pure function of the world clock in the vertex
- *   shader. No per-frame CPU writes, no per-frame allocation.
- * - Determinism: positions, sizes and seeds are authored constants below;
- *   drift wraps over a fixed span with a sine edge fade so a card never pops.
- *   Reduced motion pins uTime to 0 and the whole layer freezes into the
- *   static composition.
- * - Palette authority: these meshes carry NO colour constants. Body, shade,
- *   lit-edge and haze colours are all derived per frame from the day-cycle
- *   presets by garden-sky and handed in as uniforms.
+ * - ONE InstancedMesh and ONE draw call; per-instance state is attributes.
+ *   No per-frame allocation.
+ * - Palette authority: the mesh carries NO colour constants; the haze colour
+ *   is derived per frame by garden-sky and handed in as a uniform.
  * W2.3/W2.5 (sky-3, data-poetry-1): the nine far mist banks are deleted. By
  * day, low mist means a stale source, so the only mist here is the bounded
  * `localMist` bank of a stale feed; the scenic kasumi lives in garden-horizon.
+ * X3 (sky-4): the billboard cumulus is deleted too — the clouds are painted
+ * on the sky dome (garden-sky), one field lit by the real sun and moon.
  */
 
 export interface GardenSkyBillboardLayer {
@@ -37,25 +28,10 @@ export interface GardenSkyBillboardLayer {
 }
 
 export interface GardenSkyBillboards {
-  clouds: GardenSkyBillboardLayer;
   dispose: () => void;
   localMist: GardenSkyBillboardLayer;
   setFogBanks: (banks: readonly EpistemicFogBank[], targetX: number, targetZ: number) => void;
 }
-
-export const CLOUD_COUNT = 5;
-
-/**
- * Cloud anchors in sky-root local space (the root re-anchors to the camera
- * target, so these ride the frame's far edge under pan).
- */
-const CLOUDS: ReadonlyArray<readonly [number, number, number, number, number]> = [
-  [-85, 22, -85, 46, 16],
-  [-130, 30, -55, 38, 13],
-  [-55, 26, -135, 42, 14],
-  [-160, 34, -100, 52, 17],
-  [-95, 20, -150, 34, 11],
-];
 
 /**
  * Authored per-instance seeds (no RNG anywhere near the frame path).
@@ -142,38 +118,6 @@ const MIST_FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
-const CLOUD_FRAGMENT_SHADER = /* glsl */ `
-  uniform vec3 uBodyColor;
-  uniform vec3 uShadeColor;
-  uniform vec3 uLitColor;
-  uniform vec2 uSunQuadDir;
-  uniform float uOpacity;
-  varying vec2 vUv;
-  varying float vSeed;
-  varying float vFade;
-  ${NOISE_GLSL}
-  void main() {
-    vec2 p = vUv - 0.5;
-    float s1 = bbHash(vec2(vSeed, 1.0)) - 0.5;
-    float s2 = bbHash(vec2(vSeed, 2.0)) - 0.5;
-    float field = (1.0 - smoothstep(0.02, 0.30, length(p - vec2(s1 * 0.2, -0.04))))
-      + (1.0 - smoothstep(0.02, 0.24, length(p - vec2(0.18 + s2 * 0.1, 0.06))))
-      + (1.0 - smoothstep(0.02, 0.22, length(p - vec2(-0.2 + s1 * 0.1, 0.05))));
-    float breakup = bbNoise(vUv * 4.5 + vSeed * 13.0) * 0.6
-      + bbNoise(vUv * 9.0 + vSeed * 31.0) * 0.4;
-    float shape = smoothstep(0.42, 0.8, field * (0.7 + breakup * 0.6));
-    shape *= smoothstep(-0.16, -0.06, p.y + breakup * 0.05);
-    if (shape < 0.004) discard;
-    float lit = pow(max(dot(normalize(p + vec2(1e-4)), uSunQuadDir), 0.0), 2.0);
-    float rim = 1.0 - smoothstep(0.35, 0.9, field);
-    vec3 color = mix(uShadeColor, uBodyColor, smoothstep(-0.1, 0.25, p.y));
-    color += uLitColor * lit * rim * shape * 0.85;
-    float alpha = shape * uOpacity * vFade;
-    if (alpha < 0.004) discard;
-    gl_FragColor = vec4(color, alpha);
-  }
-`;
-
 function createLayer(
   name: string,
   anchors: ReadonlyArray<readonly [number, number, number, number, number]>,
@@ -227,22 +171,6 @@ function createLayer(
 }
 
 export function createGardenSkyBillboards(): GardenSkyBillboards {
-  // Clouds: alpha-blended and slower, lit per frame from the phase palette.
-  const clouds = createLayer(
-    "garden-sky-clouds",
-    CLOUDS,
-    CLOUD_FRAGMENT_SHADER,
-    {
-      uBodyColor: { value: null },
-      uShadeColor: { value: null },
-      uLitColor: { value: null },
-      uSunQuadDir: { value: { x: 0, y: 1 } },
-      uOpacity: { value: 0 },
-    },
-    NormalBlending,
-    0.9,
-    64,
-  );
   // Bounded banks use world anchors, never the sky's camera-following anchors.
   const localMist = createLayer(
     "garden-source-fog",
@@ -257,7 +185,6 @@ export function createGardenSkyBillboards(): GardenSkyBillboards {
   localMist.mesh.geometry.setAttribute("aStrength", new InstancedBufferAttribute(new Float32Array(64), 1));
   localMist.mesh.count = 0;
   return {
-    clouds,
     localMist,
     setFogBanks(banks, targetX, targetZ) {
       const anchors = localMist.mesh.geometry.getAttribute("aAnchor") as InstancedBufferAttribute;
@@ -273,8 +200,6 @@ export function createGardenSkyBillboards(): GardenSkyBillboards {
       anchors.needsUpdate = scales.needsUpdate = strengths.needsUpdate = true;
     },
     dispose() {
-      clouds.mesh.geometry.dispose();
-      clouds.material.dispose();
       localMist.mesh.geometry.dispose();
       localMist.material.dispose();
     },

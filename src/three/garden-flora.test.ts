@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { seasonalPhenology } from "../systems/garden-calendar";
 import { hexToOklch } from "../systems/palette";
 import type { PharosVilleWorld } from "../systems/world-types";
-import { createSpeciesBatch, createSpeciesGeometry, deciduousLeafColor, setGardenFloraNightValue } from "./garden-flora";
+import { createSpeciesBatch, createSpeciesGeometry, deciduousLeafColor, GARDEN_LETS_GO_PAD_BAND, setGardenFloraNightValue } from "./garden-flora";
 import { createGardenIslets } from "./garden-islets";
 import { createTerracedIsland } from "./garden-island";
 import { createGardenRimMesh } from "./garden-rim-mesh";
@@ -119,22 +119,36 @@ describe("garden species", () => {
     for (const mesh of [pine, cherry]) { mesh.geometry.dispose(); mesh.material.dispose(); mesh.dispose(); }
   });
 
-  it("sheds the island maple in winter while its branches and every pine pad stay put", () => {
-    const grove = (date: Date) => createTerracedIsland(world, undefined, date).root.getObjectByName("island-niwaki-grove") as InstancedMesh;
-    const summer = grove(new Date("2026-07-01T12:00:00Z")).geometry;
-    const winter = grove(new Date("2027-01-20T12:00:00Z")).geometry;
-    const foliage = summer.getAttribute("aGardenFoliage");
-    const summerPosition = summer.getAttribute("position");
-    const winterPosition = winter.getAttribute("position");
-    expect(winterPosition.count).toBe(summerPosition.count);
-    let collapsed = 0;
-    for (let vertex = 0; vertex < summerPosition.count; vertex += 1) {
-      const moved = summerPosition.getX(vertex) !== winterPosition.getX(vertex)
-        || summerPosition.getY(vertex) !== winterPosition.getY(vertex);
-      if (foliage.getX(vertex) > 0) expect(moved).toBe(false);
-      else if (moved) collapsed += 1;
+  it("bares the island maple by the calendar through its let-go crown, never the pines", () => {
+    const island = (iso: string) => createTerracedIsland(world, undefined, new Date(iso));
+    const summer = island("2026-07-01T12:00:00Z");
+    const winter = island("2027-01-20T12:00:00Z");
+    expect(summer.letsGoTree.crown.value).toBe(1);
+    expect(winter.letsGoTree.crown.value).toBe(0);
+    // Only the maple's pads answer the crown: they carry −rank in [band, 1]
+    // and their own centre; pine pads keep their positive month-record rank.
+    const grove = summer.root.getObjectByName("island-niwaki-grove") as InstancedMesh;
+    const foliage = grove.geometry.getAttribute("aGardenFoliage");
+    const centres = grove.geometry.getAttribute("aGardenPadCentre");
+    const position = grove.geometry.getAttribute("position");
+    let maplePads = 0;
+    let pinePads = 0;
+    for (let vertex = 0; vertex < foliage.count; vertex += 1) {
+      const rank = foliage.getX(vertex);
+      if (rank > 0) pinePads += 1;
+      if (rank >= 0) continue;
+      maplePads += 1;
+      expect(-rank).toBeGreaterThanOrEqual(GARDEN_LETS_GO_PAD_BAND);
+      expect(-rank).toBeLessThanOrEqual(1);
+      // A pad shrinks into a centre that sits inside it (within a pad's reach).
+      expect(Math.hypot(
+        position.getX(vertex) - centres.getX(vertex),
+        position.getY(vertex) - centres.getY(vertex),
+        position.getZ(vertex) - centres.getZ(vertex),
+      )).toBeLessThan(2);
     }
-    expect(collapsed).toBeGreaterThan(0);
+    expect(maplePads).toBeGreaterThan(0);
+    expect(pinePads).toBeGreaterThan(0);
   });
 
   it("keeps the replanted garden inside the W4 triangle ledger", () => {

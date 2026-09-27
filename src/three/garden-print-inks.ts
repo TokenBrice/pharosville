@@ -13,7 +13,7 @@ import {
 } from "three";
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { DayCycleBeatName, DayCycleBeats } from "../systems/day-cycle-beats";
-import { chainGardenMaterialPatch } from "./garden-aerial";
+import { chainGardenMaterialPatch, gardenDayDrift } from "./garden-aerial";
 import { gardenSunPose, type GardenLightPose } from "./garden-sun";
 
 /**
@@ -147,6 +147,9 @@ export function gardenFirstLight(sunElevation: number): { gate: number; lineY: n
   };
 }
 
+/** X9: the day shade ink's swing, ± this amount from morning to afternoon. */
+export const GARDEN_PRINT_DAY_INK_DRIFT = 0.1;
+
 /** One allocation-free write re-inks every patched material. */
 export function updateGardenPrintInks(hour: number, beats: DayCycleBeats): void {
   const ink = gardenPrintInkUniforms.uGardenAiInk.value.setRGB(0, 0, 0);
@@ -161,7 +164,12 @@ export function updateGardenPrintInks(hour: number, beats: DayCycleBeats): void 
     amount += beat.amount * weight;
   }
   lumaNormalised(ink);
-  gardenPrintInkUniforms.uGardenAiAmount.value = amount;
+  // X9 (light-6): morning shade takes a little more of the cool ink, the
+  // afternoon shade a little less, inside the day beat only.
+  gardenPrintInkUniforms.uGardenAiAmount.value = Math.max(
+    0,
+    amount - GARDEN_PRINT_DAY_INK_DRIFT * gardenDayDrift(hour) * beats.day,
+  );
   const { gate, lineY } = gardenFirstLight(gardenSunPose(hour, scratchSunPose).elevation);
   const firstLight = gardenPrintInkUniforms.uGardenFirstLight.value;
   firstLight.x = lineY;

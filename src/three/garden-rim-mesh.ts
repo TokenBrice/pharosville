@@ -422,6 +422,11 @@ export function rimColor(tileX: number, tileY: number): Color {
   return color.multiplyScalar((0.9 + hummock * 0.2) * value);
 }
 
+/** The rim surface height (world y) at a tile: what furniture beds on. */
+export function gardenRimHeightAt(tileX: number, tileY: number): number {
+  return rimHeight(tileX, tileY);
+}
+
 /**
  * Decorative surface land test, exported so tests and future skirt furniture
  * share the one predicate. In bounds this is the authored silhouette plus

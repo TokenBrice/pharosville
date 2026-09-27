@@ -114,10 +114,10 @@ import {
   worldRenderContentPartHashes,
 } from "../systems/world-render-content-signature";
 import {
-  createGardenCemetery,
   createGardenPigeonnier,
   type GardenPigeonnierLandmark,
 } from "./garden-landmarks";
+import { createGardenStoneGarden, type GardenStoneGarden } from "./garden-stone-garden";
 import {
   createGardenFireflies,
   type GardenFireflies,
@@ -192,10 +192,8 @@ import {
   type GardenShipIssuanceWorksets,
 } from "./garden-ship-issuance";
 import { shipIssuanceDraft } from "../systems/ship-issuance";
-import {
-  createGardenTideLine,
-  type GardenTideLine,
-} from "./garden-tide-line";
+import { createGardenTidalFlat, type GardenTidalFlat } from "./garden-tidal-flat";
+import { gardenLastVisitTide } from "../systems/garden-last-visit";
 import {
   createGardenLaneRegistry,
   patchGardenLanternKindling,
@@ -203,6 +201,7 @@ import {
   type GardenLaneRegistry,
 } from "./garden-lanterns";
 import { registerRitual } from "../systems/garden-director";
+import { GARDEN_FIREFLY_REED_BED } from "../systems/garden-sea-edge-sites";
 import { cancelGardenRituals, tickGardenScore } from "../systems/garden-score";
 import {
   CEMETERY_CENTER,
@@ -242,10 +241,11 @@ import {
   type CrossBearingBuoySpec,
   type GardenCrossBearingBuoys,
 } from "./garden-cross-bearing-buoys";
-import { createGardenTideStain, type GardenTideStain } from "./garden-tide-stain";
 import { beamBearingTo, beamDwellRateScale, beamStaticBearing } from "./garden-beam-dwell";
 import { createGardenGullFlock, type GardenGullFlock } from "./garden-summit-birds";
 import { createGardenHeron, type GardenHeron } from "./garden-heron";
+import { createGardenSkein, type GardenSkein } from "./garden-skein";
+import { createGardenFishRings, type GardenFishRings } from "./garden-fish-rings";
 import {
   assignGardenHeroSailAtlas,
   attachGardenHeroModel,
@@ -528,6 +528,8 @@ export function createThreeWorldRenderer(
   const unregisterMeteor = registerRitual("meteor", scene.almanacDressing.ritual);
   const visitorRitual = scene.seasonalDressing.ritual;
   const unregisterVisitor = visitorRitual ? registerRitual("seasonal-visitor", visitorRitual) : null;
+  // X5: the island maple's one scored afternoon of letting go.
+  const unregisterLetsGo = registerRitual("tree-lets-go", scene.seasonalDressing.letsGoRitual);
   // @types/three still narrows the r185 runtime's null scene/group arguments;
   // the recorder's structural target matches the implementation's actual calls.
   const drawRecorder = createDrawOwnerRecorder(renderer as unknown as DrawRecorderTarget, scene.root);
@@ -711,6 +713,8 @@ export function createThreeWorldRenderer(
       disposed = true;
       unregisterMeteor();
       unregisterVisitor?.();
+      unregisterLetsGo();
+      scene.content?.unregisterStoneGardenRitual?.();
       cancelGardenRituals();
       uploadScheduler.dispose();
       clearTimeout(contextRestoreTimeoutId);
@@ -747,6 +751,9 @@ export function createThreeWorldRenderer(
       scene.keeper.dispose();
       // Releases the heron's two ritual handlers.
       scene.heron.dispose();
+      // X5: releases the dawn-skein and fish-rings ritual handlers.
+      scene.skein.dispose();
+      scene.fishRings.dispose();
       disposeThreeObjectTree(scene.root);
       if (detachedModel) disposeThreeObjectTree(detachedModel);
       modelLibrary.clear();
@@ -952,7 +959,7 @@ export function createThreeWorldRenderer(
         timeSeconds: frame.timeSeconds,
         asOf: asOfIso,
       }, scene.psiSky);
-      scene.sky.setClarity(scene.psiSky.clarity);
+      scene.sky.setClarity(scene.psiSky.clarity, scene.psiSky.band !== "UNAVAILABLE");
       scene.epistemicBanks = advanceEpistemicHaze(
         epistemicFogSources(frame.world, scratchFogSources),
         scene.epistemicBanks,
@@ -1265,6 +1272,10 @@ export interface GardenScene extends GardenShadowRig {
   keeper: GardenKeeper;
   /** W5.2: the one heron and her two rituals (heron-arrives / heron-departs); seated at the island root. */
   heron: GardenHeron;
+  /** X5: the seasonal dawn skein (`dawn-skein` ritual); world-space, off the scene root. */
+  skein: GardenSkein;
+  /** X5: a fish rising on the inlet (`fish-rings` ritual), through the water's one-shot ring. */
+  fishRings: GardenFishRings;
   ambientLight: AmbientLight;
   /**
    * The beam's swept angle, integrated rather than derived from the clock.
@@ -1400,11 +1411,10 @@ interface GardenContent {
   issuanceDraftById: Map<string, number>;
   issuanceDraftTargetById: Map<string, number>;
   /**
-   * Task 14: the weekly supply tide, as one banded plate per quay in a single
-   * instanced draw. The strandline is baked into vertex colours; W4.2
-   * crossfades the old/new plates rather than inventing an intra-week rate.
+   * X2: the weekly supply tide as the tidal flat — how much of one sheltered
+   * shore lies bare — with the last visit's wrack line. Eases per frame.
    */
-  tideLine: GardenTideLine;
+  tidalFlat: GardenTidalFlat;
   decoration: Group;
   docks: DockVisual[];
   /** World-wide quay bucket, prop and flag batches; dock roots are anchors only. */
@@ -1449,6 +1459,9 @@ interface GardenContent {
   pigeonnier: GardenPigeonnierLandmark;
   pigeonnierMoverPositions: Array<{ x: number; y: number; z: number }>;
   pigeonnierMoverShips: Array<ShipVisual | null>;
+  /** X1: the stone garden of the fallen and its anniversary lantern (landmarks part). */
+  stoneGarden?: GardenStoneGarden;
+  unregisterStoneGardenRitual?: () => void;
   root: Group;
   routeLine: Line<BufferGeometry, LineBasicMaterial>;
   routeLineKey: string | null;
@@ -1490,7 +1503,6 @@ interface GardenContent {
    */
   islandLanternMaterial: MeshStandardMaterial | null;
   statueGleamMaterials: MeshStandardMaterial[];
-  tideStain: GardenTideStain;
   /** W4.1 reconciliation bookkeeping — one record per rebuildable part. */
   parts: Record<WorldContentPartName, GardenContentPartState>;
   /** Changed parts waiting for their amortized one-per-frame rebuild. */
@@ -1652,7 +1664,9 @@ function createGardenScene(
   root.add(waterAccents);
   const almanacDressing = createGardenAlmanacDressing();
   const keeper = createGardenKeeper();
-  const heron = createGardenHeron({ registerRitual });
+  const heron = createGardenHeron({ registerRitual, rippleRings: water.rippleRings });
+  const skein = createGardenSkein({ registerRitual });
+  const fishRings = createGardenFishRings({ emitter: water.rippleRings, registerRitual });
   const seasonalDressing = createGardenSeasonalDressing(calendarDate);
 
   const hoverMarker = createGardenCueMarker("#d8eee7", 0.4);
@@ -1683,6 +1697,7 @@ function createGardenScene(
   // W5.2: the heron likewise: one bird for the renderer's life, so a flight in
   // progress survives a content swap.
   root.add(heron.root);
+  root.add(skein.root);
   applyGardenPrintInksToTree(root);
 
   // W4.1: the instanced fleet's GPU buffers, the sail atlas texture and the
@@ -1716,6 +1731,8 @@ function createGardenScene(
     almanacDressing,
     keeper,
     heron,
+    skein,
+    fishRings,
     ambientLight,
     beamAngle: 0,
     beamClockSeconds: 0,
@@ -1813,7 +1830,6 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
   // the rock.
   const islandKey = JSON.stringify({
     detailId: world.lighthouse.detailId,
-    highWaterSeverity: world.lighthouse.highWaterMark?.severity ?? null,
     signalPennants: world.lighthouse.signalMast?.pennantCount ?? 0,
     stormCone: world.lighthouse.signalMast?.stormCone ?? false,
     tile: world.lighthouse.tile,
@@ -2719,14 +2735,6 @@ function registerLightLanes(
     });
   }
   registry.set({
-    color: HARBOR_PALETTE.lantern_warm,
-    id: "cemetery-lantern",
-    intensity: 0.4,
-    kind: "lantern",
-    worldX: CEMETERY_CENTER.x * TILE_SCALE,
-    worldZ: CEMETERY_CENTER.y * TILE_SCALE,
-  });
-  registry.set({
     color: HARBOR_PALETTE.lantern_glow,
     id: "pigeonnier-lamp",
     intensity: 0.42,
@@ -2784,7 +2792,7 @@ function enableHeroReflectionLayer(object: Object3D): void {
 
 /**
  * The island part: terraces, the lighthouse (procedural shell until the GLB
- * lands), beacon fire, summit birds, signal mast and tide stain. Rebuilds only
+ * lands), beacon fire, summit birds and signal mast. Rebuilds only
  * when the lighthouse family — minus the beam-dwell target, which is a cheap
  * bearing recompute on the pose path — changes.
  */
@@ -2799,6 +2807,7 @@ function buildIslandPart(
   const cloudShadows: GardenCloudShadowSource = scene.water.cloudShadows;
   const island = createTerracedIsland(world, cloudShadows, scene.calendarDate);
   applyGardenMonthRecord(island.root, world.lighthouse.gardenMonthRecord);
+  scene.seasonalDressing.setLetsGoTree(island.letsGoTree);
   part.root.add(island.root);
   scene.keeper.root.position.copy(island.root.position);
   scene.heron.root.position.copy(island.root.position);
@@ -2871,14 +2880,6 @@ function buildIslandPart(
   });
   island.root.add(signalMast.root);
 
-  // 3c: the high-water mark, banded onto the tower's own terrace steps. It
-  // rides `lighthouseRoot` rather than the island so it stays with the tower
-  // whether the procedural shell or the loaded GLB is standing — both are
-  // parented there and both were cut to `LIGHTHOUSE_TERRACE_STEPS`.
-  const tideStain = createGardenTideStain();
-  tideStain.setMark(world.lighthouse.highWaterMark?.severity ?? null);
-  island.lighthouseRoot.add(tideStain.root);
-
   content.beacon = island.beacon;
   content.beaconFire = beaconFire;
   content.beaconFireRoot = beaconFire.root;
@@ -2896,19 +2897,22 @@ function buildIslandPart(
   // H-A: the island's path lanterns kindle first, beside the beacon.
   if (content.islandLanternMaterial) patchGardenLanternKindling(content.islandLanternMaterial, "attribute");
   content.statueGleamMaterials = statueGleamMaterials;
-  content.tideStain = tideStain;
 }
 
-/** The cemetery and pigeonnier islets, keyed on their own world families. */
+/** The stone garden of the fallen and the pigeonnier islet, keyed on their own world families. */
 function buildLandmarksPart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.landmarks;
-  const cemetery = createGardenCemetery(world.graves);
+  const stoneGarden = createGardenStoneGarden(world.graves);
+  content.stoneGarden?.dispose();
+  content.unregisterStoneGardenRitual?.();
+  content.stoneGarden = stoneGarden;
+  content.unregisterStoneGardenRitual = registerRitual("anniversary-lantern", stoneGarden.ritual);
   const pigeonnier = createGardenPigeonnier(world.pigeonnier);
   content.pigeonnier = pigeonnier;
   content.pigeonnierMoverPositions = pigeonnier.moverDetailIds.map(() => ({ x: 0, y: 0, z: 0 }));
   syncPigeonnierMoverShips(content);
-  part.root.add(cemetery.root, pigeonnier.root);
-  for (const [detailId, anchor] of cemetery.anchors) {
+  part.root.add(stoneGarden.root, pigeonnier.root);
+  for (const [detailId, anchor] of stoneGarden.anchors) {
     part.cues.set(detailId, {
       radius: anchor.userData.selectionRadius,
       root: anchor,
@@ -3051,11 +3055,16 @@ function buildDocksPart(scene: GardenScene, content: GardenContent, world: Pharo
  */
 function buildHarborLifePart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.harborLife;
-  const islandTile = gardenIslandDisplayTile(world.lighthouse.tile);
   const gullFlock = createGardenGullFlock(world.lighthouse.tile);
+  // X5 (life-7): the fireflies rise over the reed bed the seat sees (the west grove shore).
+  const reedBed = GARDEN_FIREFLY_REED_BED;
   const fireflies = createGardenFireflies(
-    gardenIslandLanternWorldOffsets(),
-    islandTile,
+    { x: reedBed.tile.x * TILE_SCALE, y: WATER_LEVEL, z: reedBed.tile.y * TILE_SCALE },
+    {
+      alongX: Math.abs(Math.cos(reedBed.bearing)) >= Math.SQRT1_2,
+      halfLength: reedBed.length * 0.47,
+      halfWidth: reedBed.width * 0.42,
+    },
   );
   part.root.add(gullFlock.root, fireflies.root);
 
@@ -3064,9 +3073,9 @@ function buildHarborLifePart(content: GardenContent, world: PharosVilleWorld): v
 }
 
 /**
- * The mint/burn cargo run and the weekly supply-tide plates. Both read the
- * composed dock visuals, so this part sits after `docks` in the build order
- * and its key includes the dock structure.
+ * The mint/burn cargo run and the weekly supply tide's tidal flat. The cargo
+ * reads the composed dock visuals, so this part sits after `docks` in the
+ * build order and its key includes the dock structure.
  */
 function buildCargoTidePart(content: GardenContent, world: PharosVilleWorld): void {
   const part = content.parts.cargoTide;
@@ -3075,25 +3084,12 @@ function buildCargoTidePart(content: GardenContent, world: PharosVilleWorld): vo
   // harbour's own yaw and position — one mesh for the ring, not one per quay.
   const cargoTide = createGardenCargoTide(cargoTideSpecs(content.docks));
   part.root.add(cargoTide.root);
-  // The tide is one global reading, so every quay's plate is identical and the
-  // whole ring shares one geometry — see garden-tide-line.ts.
-  const tideLine = createGardenTideLine(
-    content.docks.map((visual) => ({
-      detailId: visual.recipe.dock.detailId,
-      width: visual.recipe.tideFace.width,
-      x: visual.root.position.x + visual.recipe.tideFace.x * Math.cos(visual.root.rotation.y)
-        + visual.recipe.tideFace.z * Math.sin(visual.root.rotation.y),
-      y: visual.root.position.y + visual.recipe.tideFace.y,
-      yaw: visual.root.rotation.y,
-      z: visual.root.position.z - visual.recipe.tideFace.x * Math.sin(visual.root.rotation.y)
-        + visual.recipe.tideFace.z * Math.cos(visual.root.rotation.y),
-    })),
-    world.supplyTide,
-  );
-  part.root.add(tideLine.root);
+  // X2: the one honest tide signal — see garden-tidal-flat.ts.
+  const tidalFlat = createGardenTidalFlat(world.supplyTide);
+  part.root.add(tidalFlat.root);
 
   content.cargoTide = cargoTide;
-  content.tideLine = tideLine;
+  content.tidalFlat = tidalFlat;
 }
 
 /**
@@ -3488,6 +3484,7 @@ function updateSceneForFrame(
   }
   scene.keeper.update({ deltaSeconds: beamElapsedSeconds, hour: frame.wallClockHour, reducedMotion: frame.reducedMotion });
   updateGardenLanternKindling(frame.wallClockHour, beamElapsedSeconds, frame.reducedMotion);
+  scene.content?.stoneGarden?.update({ deltaSeconds: beamElapsedSeconds, hour: frame.wallClockHour, reducedMotion: frame.reducedMotion });
   const epistemicHaze = deriveEpistemicHaze(frame.world.freshness);
   scene.water.setPegSummaryEpistemicHaze(epistemicHaze.riskWaters);
   setGardenQuayEpistemicHaze(epistemicHaze.quays);
@@ -3583,6 +3580,11 @@ function updateSceneForFrame(
   content.decoration.visible = true;
   scene.waterAccents.visible = true;
   scene.waterAccents.rotation.y = 0;
+  content.tidalFlat.update({
+    lastVisitOffset: gardenLastVisitTide(),
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+  });
   content.gullFlock.update({
     constrained,
     keeperRitual: scene.keeper.ritual,
@@ -3592,9 +3594,11 @@ function updateSceneForFrame(
     weather,
   });
   content.fireflies.update({
-    fullTier: frame.renderScheduler.tier === "full",
+    // Nine additive quads: kept on every decorative tier so a camera gesture
+    // or a busy GPU does not blink them out (garden-islets' rule).
+    beautyTier: ["full", "balanced", "interaction"].includes(frame.renderScheduler.tier),
     // W5.6 (K24): fireflies only in their early-summer kō, risen by the score.
-    night: phase.night * scene.seasonalDressing.fireflyPresence(),
+    night: phase.night * scene.seasonalDressing.fireflyPresence(frame.wallClockHour),
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
     weather,
@@ -3644,11 +3648,7 @@ function updateSceneForFrame(
   // lifts the cloth, so the tier decides whether the mast is drawn, never what
   // it reports.
   content.signalMast.update(scratchAmbientFrame);
-  // 3c has no call here on purpose: the tide stain is composed once, never
-  // moves, and is not tier gated — it is one draw call (zero when the mark is
-  // bare), and a reading that vanishes when the machine gets busy is worse than
-  // the call it costs. Its state changes only when the world does, in
-  // `createWorldContent`. 3b's buoys are placed after the ship loop below,
+  // 3b's buoys are placed after the ship loop below,
   // where the hull transforms they ride on are final.
   // Every tier above constrained draws the single breath cone; constrained
   // swaps to the flat semantic fallback. Unlit additive pieces are culled

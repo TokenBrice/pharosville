@@ -1,4 +1,4 @@
-import { Color, InstancedMesh, Mesh, ShaderMaterial, SphereGeometry, Vector3 } from "three";
+import { Color, InstancedMesh, Mesh, ShaderMaterial, SphereGeometry, Vector2, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { defaultCamera, withoutRest } from "../systems/camera";
@@ -16,8 +16,8 @@ import {
   gardenBokashiAmount,
   gardenBokashiInk,
   gardenSkyHeight,
+  type GardenSky,
 } from "./garden-sky";
-import { CLOUD_COUNT } from "./garden-sky-billboards";
 import { SKY_CLARITY_CROSSFADE_SECONDS } from "../systems/psi-sky";
 
 const DEFAULT_VIEWPORT = { height: 1000, width: 1600 };
@@ -34,14 +34,8 @@ const FRAME = {
   timeSeconds: 0,
 };
 
-function cloudsOf(sky: ReturnType<typeof createGardenSky>): InstancedMesh {
-  const clouds = sky.root.getObjectByName("garden-sky-clouds");
-  expect(clouds).toBeInstanceOf(InstancedMesh);
-  return clouds as InstancedMesh;
-}
-
-function uniformsOf(mesh: InstancedMesh): ShaderMaterial["uniforms"] {
-  return (mesh.material as ShaderMaterial).uniforms;
+function domeUniforms(sky: GardenSky): ShaderMaterial["uniforms"] {
+  return sky.domeMaterial.uniforms;
 }
 
 function colorDistance(left: Color, right: Color): number {
@@ -58,13 +52,11 @@ describe("perspective sky dome", () => {
     expect(dome.geometry.parameters.radius).toBeLessThan(CAMERA_FAR);
     expect(sky.root.getObjectByName("garden-sky-backdrop")).toBeUndefined();
     const eye = new Vector3();
-    const cloudPosition = new Vector3();
     for (const cameraPosition of [FRAME.cameraPosition, { x: 81, y: 45, z: 97 }]) {
       sky.update(dayCyclePhase(12), { ...FRAME, cameraPosition });
       dome.getWorldPosition(eye);
       expect(eye.toArray()).toEqual([cameraPosition.x, cameraPosition.y, cameraPosition.z]);
-      cloudsOf(sky).getWorldPosition(cloudPosition);
-      expect(cloudPosition.toArray()).toEqual([FRAME.targetX, 0, FRAME.targetZ]);
+      expect(sky.root.position.toArray()).toEqual([FRAME.targetX, 0, FRAME.targetZ]);
     }
     sky.dispose();
   });
@@ -120,22 +112,10 @@ describe("perspective sky dome", () => {
 /**
  * Phase 2 (items 2d/6): the billboard atmosphere. W2.3/W2.5 (data-poetry-1,
  * sky-3): the far mist banks are deleted — by day, low mist means a stale
- * source, so the only billboard mist is a stale feed's bounded bank.
+ * source, so the only billboard mist is a stale feed's bounded bank. X3: the
+ * cumulus cards are deleted too; clouds are painted on the dome.
  */
 describe("garden sky billboard atmosphere", () => {
-  it("packs the clouds into ONE instanced draw with authored far anchors", () => {
-    const sky = createGardenSky();
-    const clouds = cloudsOf(sky);
-    expect(clouds.count).toBe(CLOUD_COUNT);
-    const anchors = clouds.geometry.getAttribute("aAnchor");
-    for (let i = 0; i < anchors.count; i += 1) {
-      expect(anchors.getX(i)).toBeLessThanOrEqual(-40);
-      expect(anchors.getZ(i)).toBeLessThanOrEqual(-40);
-      expect(anchors.getY(i)).toBeGreaterThan(0);
-    }
-    sky.dispose();
-  });
-
   it("hangs no aesthetic mist at any hour: without a stale feed there is no mist card", () => {
     const sky = createGardenSky();
     const localMist = sky.root.getObjectByName("garden-source-fog") as InstancedMesh;
@@ -146,41 +126,7 @@ describe("garden sky billboard atmosphere", () => {
     sky.dispose();
   });
 
-  it("sheds billboard atmosphere below the quality gate", () => {
-    const sky = createGardenSky("summer");
-    const clouds = cloudsOf(sky);
-    sky.update(dayCyclePhase(12), { ...FRAME, billboards: false });
-    expect(clouds.visible).toBe(false);
-    sky.update(dayCyclePhase(12), { ...FRAME, billboards: true });
-    expect(clouds.visible).toBe(true);
-    sky.dispose();
-  });
-
-  it("freezes the drift under reduced motion and follows the weather wind", () => {
-    const sky = createGardenSky();
-    const clouds = cloudsOf(sky);
-    sky.update(dayCyclePhase(12), { ...FRAME, timeSeconds: 120 });
-    expect(uniformsOf(clouds).uTime!.value).toBe(120);
-    sky.update(dayCyclePhase(12), {
-      ...FRAME,
-      reducedMotion: true,
-      timeSeconds: 240,
-      wind: { x: 1, y: 0, speed: 0.8, gust: 0 },
-    });
-    expect(uniformsOf(clouds).uTime!.value).toBe(0);
-    expect(uniformsOf(clouds).uWindDir!.value).toMatchObject({ x: 1, y: 0 });
-    expect(uniformsOf(clouds).uWindSpeed!.value).toBe(0.8);
-    sky.dispose();
-  });
-
-  it("shows only summer high clouds and no geese cards in any season", () => {
-    const summer = createGardenSky("summer");
-    const summerClouds = cloudsOf(summer);
-    summer.update(dayCyclePhase(12), FRAME);
-    expect(summerClouds.visible).toBe(true);
-    expect(uniformsOf(summerClouds).uOpacity!.value as number).toBeLessThanOrEqual(0.34);
-    summer.dispose();
-
+  it("paints the clouds on the dome: no cloud or geese cards in any season", () => {
     for (const season of ["spring", "summer", "autumn", "winter"] as const) {
       const sky = createGardenSky(season);
       for (const hour of [7, 12, 18, 22]) {
@@ -189,11 +135,24 @@ describe("garden sky billboard atmosphere", () => {
         sky.root.traverseVisible((object) => {
           if (object instanceof InstancedMesh) visibleCards.push(object.name);
         });
-        const allowed: string[] = season === "summer" ? ["garden-sky-clouds"] : [];
-        for (const name of visibleCards) expect(allowed).toContain(name);
+        expect(visibleCards).toEqual([]);
       }
       sky.dispose();
     }
+  });
+
+  it("drifts the cloud field on the weather wind and holds it still under reduced motion", () => {
+    const sky = createGardenSky();
+    const offset = domeUniforms(sky).uCloudOffset!.value as Vector2;
+    const wind = { x: 1, y: 0, speed: 0.8, gust: 0 };
+    sky.update(dayCyclePhase(12), { ...FRAME, timeSeconds: 10, wind });
+    const start = offset.clone();
+    sky.update(dayCyclePhase(12), { ...FRAME, timeSeconds: 10.2, wind });
+    expect(offset.distanceTo(start)).toBeGreaterThan(0);
+    const moved = offset.clone();
+    sky.update(dayCyclePhase(12), { ...FRAME, reducedMotion: true, timeSeconds: 10.4, wind });
+    expect(offset.toArray()).toEqual(moved.toArray());
+    sky.dispose();
   });
 
   it("pulls winter fog slightly toward the cool harbor fog anchor", () => {
@@ -449,6 +408,24 @@ describe("bokashi bands", () => {
 });
 
 describe("market stability sky channel", () => {
+  it("draws the first real reading at once, then eases later band changes", () => {
+    const sky = createGardenSky();
+    // Before any PSI reading the sky holds the neutral veil.
+    sky.setClarity(0.65, false);
+    sky.update(dayCyclePhase(12), { ...FRAME, timeSeconds: 0 });
+    // The first accepted reading (CRISIS) lands whole: the words name it now.
+    sky.setClarity(0.2, true);
+    sky.update(dayCyclePhase(12), { ...FRAME, timeSeconds: 1 });
+    expect(sky.signedClarity).toBe(-1);
+    const crisisCover = domeUniforms(sky).uCloudCover.value as number;
+    // A later change eases.
+    sky.setClarity(1, true);
+    sky.update(dayCyclePhase(12), { ...FRAME, timeSeconds: 2 });
+    expect(sky.signedClarity).toBe(-1);
+    expect(domeUniforms(sky).uCloudCover.value).toBe(crisisCover);
+    sky.dispose();
+  });
+
   it("changes cover, haze and drift bias without changing wall-clock colours, easing over 90 s", () => {
     const sky = createGardenSky("summer");
     sky.setClarity(1);
@@ -457,8 +434,8 @@ describe("market stability sky channel", () => {
     const zenith = (sky.domeMaterial.uniforms.uZenith.value as Color).clone();
     const horizon = sky.fog.color.clone();
     const clearHaze = sky.domeMaterial.uniforms.uHazeStrength.value as number;
-    const clearCover = uniformsOf(cloudsOf(sky)).uOpacity.value as number;
-    const clearWind = uniformsOf(cloudsOf(sky)).uWindSpeed.value as number;
+    const clearCover = domeUniforms(sky).uCloudCover.value as number;
+    const clearDeck = domeUniforms(sky).uCloudDeck.value as number;
     const clearFar = sky.fog.far;
     sky.setClarity(0);
     sky.update(dayCyclePhase(12), { ...FRAME, timeSeconds: 1 });
@@ -470,8 +447,9 @@ describe("market stability sky channel", () => {
     expect(sky.fog.color).toEqual(horizon);
     expect(sky.domeMaterial.uniforms.uHazeStrength.value).toBeGreaterThan(clearHaze);
     expect(sky.fog.far).toBeLessThan(clearFar);
-    expect(uniformsOf(cloudsOf(sky)).uOpacity.value).toBeGreaterThan(clearCover);
-    expect(uniformsOf(cloudsOf(sky)).uWindSpeed.value).toBeGreaterThan(clearWind);
+    // X3/X4: cover rises from a clean sky to a heavy deck with the same ease.
+    expect(domeUniforms(sky).uCloudCover.value).toBeGreaterThan(clearCover + 0.5);
+    expect(domeUniforms(sky).uCloudDeck.value).toBeGreaterThan(clearDeck);
     sky.dispose();
   });
 });

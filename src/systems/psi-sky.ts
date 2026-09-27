@@ -96,6 +96,66 @@ export function farShoreLabel(band: string | null | undefined, unavailable = fal
   return `${ranges} — distance you can see follows market stability; it is not weather. Low mist means a stale feed.`;
 }
 
+/**
+ * X3 (sky-4): clouds aloft follow market stability. Cover is the fraction of
+ * the visible sky the painted cloud field takes, by band: BEDROCK a clean sky
+ * with two or three high strokes, STEADY fair, TREMOR a high veil, FRACTURE a
+ * broken deck, CRISIS low cloud, MELTDOWN overcast. Cover is data, never a
+ * forecast and never illumination: the wall clock still lights the clouds.
+ */
+export const SKY_CLOUD_COVER: Readonly<Record<string, number>> = {
+  BEDROCK: 0.05, STEADY: 0.15, TREMOR: 0.3, FRACTURE: 0.5, CRISIS: 0.72, MELTDOWN: 0.88,
+};
+
+/** The same cover in words (the now-line and the lighthouse Sky cover row). */
+export const SKY_COVER_WORDS: Readonly<Record<string, string>> = {
+  BEDROCK: "a clear sky",
+  STEADY: "a fair sky",
+  TREMOR: "a high veil",
+  FRACTURE: "a broken sky",
+  CRISIS: "low cloud",
+  MELTDOWN: "overcast",
+};
+
+const COVER_BY_CLARITY = (["MELTDOWN", "CRISIS", "FRACTURE", "TREMOR", "STEADY", "BEDROCK"] as const)
+  .map((band) => [CLARITY[band]!, SKY_CLOUD_COVER[band]!] as const);
+
+/**
+ * Cover for a (possibly easing) clarity 0..1: piecewise linear through the
+ * band points, so an accepted band change crossfades the sky between the two
+ * bands' covers and lands exactly on the new one.
+ */
+export function skyCloudCover(clarity: number): number {
+  const c = Number.isFinite(clarity) ? Math.min(1, Math.max(0, clarity)) : NEUTRAL_SKY_CLARITY;
+  for (let i = 1; i < COVER_BY_CLARITY.length; i += 1) {
+    const [c1, v1] = COVER_BY_CLARITY[i]!;
+    if (c <= c1) {
+      const [c0, v0] = COVER_BY_CLARITY[i - 1]!;
+      return v0 + ((c - c0) / (c1 - c0)) * (v1 - v0);
+    }
+  }
+  return COVER_BY_CLARITY[COVER_BY_CLARITY.length - 1]![1];
+}
+
+/** The clarity a band draws, or null for an unknown band (the debug seam's check). */
+export function psiBandClarity(band: string | null | undefined): number | null {
+  return CLARITY[band?.toUpperCase() ?? ""] ?? null;
+}
+
+/** The cover word for a band; null when unavailable (the sky holds its neutral veil unnamed). */
+export function skyCoverWord(band: string | null | undefined, unavailable = false): string | null {
+  if (unavailable) return null;
+  return SKY_COVER_WORDS[band?.toUpperCase() ?? ""] ?? null;
+}
+
+/** DOM twin of the cloud field (the lighthouse Sky cover row and the ledger). */
+export function skyCoverLabel(band: string | null | undefined, unavailable = false): string {
+  const word = skyCoverWord(band, unavailable);
+  if (!word) return "A thin neutral veil — no current stability reading to cover the sky with";
+  const capitalised = word.charAt(0).toUpperCase() + word.slice(1);
+  return `${capitalised} — cloud aloft follows market stability; it is not weather or a forecast.`;
+}
+
 export interface SkyClarityFade {
   from: number;
   to: number;

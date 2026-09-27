@@ -24,6 +24,7 @@ import {
   PHAROSVILLE_MAP_HEIGHT,
   PHAROSVILLE_MAP_WIDTH,
   PIGEONNIER_STATION_SLOT,
+  STONE_GARDEN_GROUND_Y,
 } from "./world-layout";
 import type { DockNode } from "./world-types";
 import type { CameraShotState, CameraView, IsoCamera, MapLike, ScreenPoint, TilePoint, WorldPoint } from "./projection";
@@ -700,6 +701,8 @@ export const SELECTION_DOCK_ANCHOR: Readonly<ScreenPoint> = { x: 0.40, y: 0.55 }
 export const SELECTION_SHIP_SPAN = 0.105;
 /** A station's quay-to-second-level massing share of the frame height. */
 const SELECTION_DOCK_SPAN = 0.2;
+/** A grave's shot stands back far enough to hold the whole stone garden bed (≈ 28 u) in frame. */
+const SELECTION_GRAVE_DISTANCE = 38;
 /**
  * The ship's silhouette height over `gardenShipSelectionRadius`: the hit
  * rect's convention (`rectAboveAnchor`, 1.25 × the 2r diameter), which holds
@@ -742,6 +745,8 @@ export interface SelectionShotObstacle {
 export type SelectionShotSubject = (
   | { kind: "ship"; tile: TilePoint; selectionRadius: number; heading?: TilePoint | null | undefined }
   | { kind: "dock"; dock: DockNode }
+  // X1 (K29): a fallen coin's stone, framed with the stone garden round it.
+  | { kind: "grave"; tile: TilePoint }
 ) & {
   /** The rest of the fleet (the subject excluded), probed as upright hull cylinders. */
   obstacles?: readonly SelectionShotObstacle[] | undefined;
@@ -846,7 +851,11 @@ function nearestPlanT(eye: WorldPoint, dx: number, dz: number, x: number, z: num
 }
 
 /** What hides the sight line from the eye to a probe point, if anything. */
-function sightBlocker(eye: WorldPoint, point: WorldPoint, geometry: Pick<SelectionSubjectGeometry, "hulls" | "ownStation">): "land" | "hull" | null {
+function sightBlocker(
+  eye: WorldPoint,
+  point: WorldPoint,
+  geometry: Pick<SelectionSubjectGeometry, "hulls" | "ownStation"> & { groundHeight?: ShotGroundHeight | undefined },
+): "land" | "hull" | null {
   const dx = point.x - eye.x;
   const dy = point.y - eye.y;
   const dz = point.z - eye.z;
@@ -859,9 +868,16 @@ function sightBlocker(eye: WorldPoint, point: WorldPoint, geometry: Pick<Selecti
     const x = eye.x + dx * t;
     const y = eye.y + dy * t;
     const z = eye.z + dz * t;
-    if (y < occluderLandHeight(x, z)) return "land";
+    // A caller holding the island's real terrain replaces the crude island
+    // block and crag drum with it (authored shots stand on the island).
+    const fine = geometry.groundHeight?.(x, z);
+    if (fine !== undefined && fine !== null) {
+      if (y < fine) return "land";
+    } else {
+      if (y < occluderLandHeight(x, z)) return "land";
+      if (y < OCCLUDER_ISLAND_HEIGHT && Math.hypot(x - tower.foot.x, z - tower.foot.z) < OCCLUDER_CRAG_RADIUS) return "land";
+    }
     if (y < tower.crown.y && Math.hypot(x - tower.foot.x, z - tower.foot.z) < OCCLUDER_TOWER_RADIUS) return "land";
-    if (y < OCCLUDER_ISLAND_HEIGHT && Math.hypot(x - tower.foot.x, z - tower.foot.z) < OCCLUDER_CRAG_RADIUS) return "land";
   }
   const end = { x: eye.x + dx * reach, y: eye.y + dy * reach, z: eye.z + dz * reach };
   if (stationBoxes().some(({ key, box }) => key !== geometry.ownStation && segmentHitsBox(eye, end, box))) return "land";
@@ -872,6 +888,31 @@ function sightBlocker(eye: WorldPoint, point: WorldPoint, geometry: Pick<Selecti
     if (Math.hypot(x - hull.x, z - hull.z) < hull.radius && eye.y + dy * t < hull.top) return "hull";
   }
   return null;
+}
+
+/**
+ * Terrain height at a world point where the caller knows it better than the
+ * map's tile classes (the island's crag, bench and stair), else null.
+ */
+export type ShotGroundHeight = (x: number, z: number) => number | null;
+
+/**
+ * X6 (postcards): the selection probe for an authored shot — land, the
+ * tower and every station but `ownStation` (an `x,y` dock tile) along the
+ * eye→point line. `groundHeight` supplies the island's real terrain.
+ */
+export function shotSightBlocked(
+  eye: WorldPoint,
+  point: WorldPoint,
+  options: { ownStation?: string | null | undefined; groundHeight?: ShotGroundHeight | undefined } = {},
+): boolean {
+  return sightBlocker(eye, point, { groundHeight: options.groundHeight, hulls: [], ownStation: options.ownStation ?? null }) !== null;
+}
+
+/** Whether an eye stands inside a station's massing (a postcard eye must not). */
+export function eyeInsideStation(eye: WorldPoint): boolean {
+  return stationBoxes().some(({ box }) => eye.x >= box.min.x && eye.x <= box.max.x
+    && eye.y >= box.min.y && eye.y <= box.max.y && eye.z >= box.min.z && eye.z <= box.max.z);
 }
 
 function eyeOverOpenWater(eye: WorldPoint): boolean {
@@ -954,6 +995,18 @@ function selectionSubjectGeometry(subject: SelectionShotSubject): SelectionSubje
       distance: clampDistance(height / (SELECTION_DOCK_SPAN * frameHeightPerDistance)),
       heading: null,
       ownStation: `${station.tile.x},${station.tile.y}`,
+      hulls: hullCylinders(subject.obstacles),
+    };
+  }
+  if (subject.kind === "grave") {
+    const point = { x: subject.tile.x * TILE_SCALE, y: STONE_GARDEN_GROUND_Y + 0.4, z: subject.tile.y * TILE_SCALE };
+    return {
+      point,
+      samples: [0.1, 0.4, 0.9].map((lift) => ({ ...point, y: STONE_GARDEN_GROUND_Y + lift })),
+      anchor: SELECTION_DOCK_ANCHOR,
+      distance: clampDistance(SELECTION_GRAVE_DISTANCE),
+      heading: null,
+      ownStation: null,
       hulls: hullCylinders(subject.obstacles),
     };
   }

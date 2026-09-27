@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { gardenLastVisitTide, setGardenLastVisitTide } from "../systems/garden-last-visit";
+import { UNAVAILABLE_SUPPLY_TIDE, type SupplyTide } from "../systems/supply-tide";
 import type { PharosVilleWorld, ShipNode } from "../systems/world-types";
 import {
   VISIT_SNAPSHOT_SCHEMA_VERSION,
@@ -153,6 +155,67 @@ describe("useVisitSnapshot", () => {
     expect(screen.queryByTestId("pharosville-visit-summary")).toBeNull();
   });
 
+  it("hands the last visit's tide to the flat and tells how far it moved", async () => {
+    setGardenLastVisitTide(null);
+    window.localStorage.setItem(VISIT_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshot({
+      generatedAt: 1,
+      lastFleetDepegAt: null,
+      notableMoverSymbols: [],
+      psiBand: "CALM",
+      psiScore: 10,
+      supplyTideOffset: -0.6,
+    })));
+    render(<HookHarness world={worldFixture({
+      generatedAt: 2,
+      psiBand: "CALM",
+      psiScore: 10,
+      supplyTide: { change7dPct: 0.83, offset: 0.64, state: "flood" },
+    })} />);
+
+    const summary = await screen.findByTestId("pharosville-visit-summary");
+    expect(summary.textContent).toBe("Since you were here earlier today — the tide on the flat has come in, from ebb to flood.");
+    expect(gardenLastVisitTide()).toBe(-0.6);
+    expect(readStoredSnapshot().supplyTideOffset).toBe(0.64);
+  });
+
+  it("keeps a tide that barely moved, or was never stored, out of the sentence", async () => {
+    window.localStorage.setItem(VISIT_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshot({
+      generatedAt: 1,
+      lastFleetDepegAt: null,
+      notableMoverSymbols: [],
+      psiBand: "CALM",
+      psiScore: 10,
+      supplyTideOffset: 0.5,
+    })));
+    const { unmount } = render(<HookHarness world={worldFixture({
+      generatedAt: 2,
+      psiBand: "CALM",
+      supplyTide: { change7dPct: 0.6, offset: 0.55, state: "flood" },
+    })} />);
+    await waitFor(() => expect(readStoredSnapshot().generatedAt).toBe(2));
+    expect(screen.queryByTestId("pharosville-visit-summary")).toBeNull();
+    unmount();
+
+    setGardenLastVisitTide(0.3);
+    window.localStorage.setItem(VISIT_SNAPSHOT_STORAGE_KEY, JSON.stringify({
+      generatedAt: 2,
+      lastFleetDepegAt: null,
+      notableMoverSymbols: [],
+      psiBand: "CALM",
+      psiScore: null,
+      schemaVersion: VISIT_SNAPSHOT_SCHEMA_VERSION,
+    }));
+    render(<HookHarness world={worldFixture({
+      generatedAt: 3,
+      psiBand: "CALM",
+      supplyTide: { change7dPct: -1.8, offset: -0.95, state: "ebb" },
+    })} />);
+    await waitFor(() => expect(readStoredSnapshot().generatedAt).toBe(3));
+    expect(screen.queryByTestId("pharosville-visit-summary")).toBeNull();
+    // A pre-X2 snapshot stored no tide: no wrack line.
+    expect(gardenLastVisitTide()).toBeNull();
+  });
+
   it("requires lastFleetDepegAt to be strictly newer", async () => {
     window.localStorage.setItem(VISIT_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshot({
       generatedAt: 1,
@@ -243,6 +306,7 @@ function worldFixture(input: {
   psiBand?: string | null;
   psiScore?: number | null;
   ships?: ShipNode[];
+  supplyTide?: SupplyTide;
 } = {}): PharosVilleWorld {
   return {
     areas: [],
@@ -270,6 +334,7 @@ function worldFixture(input: {
     },
     routeMode: "world",
     ships: input.ships ?? [],
+    supplyTide: input.supplyTide ?? UNAVAILABLE_SUPPLY_TIDE,
     visualCues: [],
   } as unknown as PharosVilleWorld;
 }
@@ -302,5 +367,6 @@ function materialDelta(): VisitSnapshotDelta {
       toBand: "DANGER",
       toScore: 82,
     },
+    supplyTideChange: null,
   };
 }

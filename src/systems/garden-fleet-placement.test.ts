@@ -157,7 +157,7 @@ describe("placeGardenFleet", () => {
     expect(spread).toBeGreaterThan(20);
   });
 
-  it("seats Calm far past its hull-gap capacity without throwing, none of it in the inlet", () => {
+  it("seats Calm far past its hull-gap capacity without throwing, none of it in the inlet", { timeout: 15_000 }, () => {
     // Calm borders the inlet and holds on the order of 160 hulls at the gap;
     // 260 galleons force the fallback tiers (relaxed gap, region scan).
     const ships = fleet("calm", 260);

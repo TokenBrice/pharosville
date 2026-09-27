@@ -2,10 +2,13 @@
  * The garden's one signal path, built identically on a live AudioContext and
  * on the OfflineAudioContext the recorder uses:
  *
- *   bed stems (sea, wash, lap, wind, whistle, air) → bed duck (meteor) ┐
- *   music stem → music gate (consent, rituals, night tacet) ────────────┤→ master fade → ceiling → out
- *   beats stem ──────────────────────────────────────────────────────────┤
- *   music / beats sends → one shared reverb → return ────────────────────┘
+ *   bed stems (sea, wash, lap, wind, whistle, air) → bed duck (meteor) → near lean ┐
+ *   borrowed stem → far lean ─────────────────────────────────────────────────────────┤
+ *   music stem → music gate (consent, rituals, night tacet) ─────────────────────────┤→ master fade → ceiling → out
+ *   beats stem ────────────────────────────────────────────────────────────────────────┤
+ *   music / beats / borrowed sends → one shared reverb → return ───────────────────────┘
+ *
+ * The two lean gains are the listening pose (X8): near steps back, far comes forward.
  *
  * Every stem bus is also the `?debug=1` mixer's fader (trim, mute, solo).
  */
@@ -17,6 +20,8 @@ export interface AudioGraph {
   noise: AudioBuffer;
   stems: Record<AudioStemName, GainNode>;
   bedDuck: GainNode;
+  nearLean: GainNode;
+  farLean: GainNode;
   musicGate: GainNode;
   reverbIn: GainNode;
   masterFade: GainNode;
@@ -32,13 +37,14 @@ export interface FilterStage {
   q: number;
 }
 
-const STEM_GROUP: Readonly<Record<AudioStemName, "bed" | "music" | "master">> = {
+const STEM_GROUP: Readonly<Record<AudioStemName, "bed" | "far" | "music" | "master">> = {
   sea: "bed",
   wash: "bed",
   lap: "bed",
   wind: "bed",
   whistle: "bed",
   air: "bed",
+  borrowed: "far",
   music: "music",
   beats: "master",
 };
@@ -52,8 +58,12 @@ export function createAudioGraph(ctx: BaseAudioContext): AudioGraph {
   ceiling.oversample = "4x";
   masterFade.connect(ceiling).connect(ctx.destination);
 
+  const nearLean = ctx.createGain();
+  nearLean.connect(masterFade);
+  const farLean = ctx.createGain();
+  farLean.connect(masterFade);
   const bedDuck = ctx.createGain();
-  bedDuck.connect(masterFade);
+  bedDuck.connect(nearLean);
   const musicGate = ctx.createGain();
   musicGate.gain.value = 0;
   musicGate.connect(masterFade);
@@ -70,7 +80,7 @@ export function createAudioGraph(ctx: BaseAudioContext): AudioGraph {
   for (const stem of AUDIO_STEMS) {
     const bus = ctx.createGain();
     const group = STEM_GROUP[stem];
-    bus.connect(group === "bed" ? bedDuck : group === "music" ? musicGate : masterFade);
+    bus.connect(group === "bed" ? bedDuck : group === "far" ? farLean : group === "music" ? musicGate : masterFade);
     stems[stem] = bus;
   }
   const musicSend = ctx.createGain();
@@ -79,12 +89,18 @@ export function createAudioGraph(ctx: BaseAudioContext): AudioGraph {
   const beatSend = ctx.createGain();
   beatSend.gain.value = dbToGain(AUDIO_MASTER.beatSendDb);
   stems.beats.connect(beatSend).connect(reverbIn);
+  const borrowedSend = ctx.createGain();
+  borrowedSend.gain.value = dbToGain(AUDIO_MASTER.borrowedSendDb);
+  // Taken after the lean, so the listening pose lifts the far sound's room too.
+  farLean.connect(borrowedSend).connect(reverbIn);
 
   return {
     ctx,
     noise,
     stems,
     bedDuck,
+    nearLean,
+    farLean,
     musicGate,
     reverbIn,
     masterFade,

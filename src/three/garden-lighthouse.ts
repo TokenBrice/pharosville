@@ -714,18 +714,14 @@ export function updateLighthouseLampStatus(
  * The three box steps of the grand square terrace, as `[width, height, centreY]`
  * in lighthouse-local units. The terrace runs from local y=0 to y=2.5.
  *
- * Exported because the 3c tide-stain (`garden-tide-stain.ts`) bands the same
- * stonework and must taper with it — two hand-copied tables would have drifted
- * the first time a step moved.
- *
  * Worth knowing: the loaded GLB shell replaces this procedural tower, and its
  * generator (`scripts/pharosville/generate-garden-lighthouse.mjs`, the
  * `terraceSteps` table) cuts the identical three steps — half-widths 6.2 / 5.7
  * / 5.2 over y 0-0.85 / 0.85-1.7 / 1.7-2.5. Verified, not enforced: nothing
  * links the two tables, so if the GLB's terrace is ever re-cut this moves with
- * it or the stain floats off the stonework.
+ * it.
  */
-export const LIGHTHOUSE_TERRACE_STEPS = [
+const LIGHTHOUSE_TERRACE_STEPS = [
   [12.4, 0.85, 0.425],
   [11.4, 0.85, 1.275],
   [10.4, 0.8, 2.1],

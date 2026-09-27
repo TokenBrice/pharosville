@@ -108,16 +108,15 @@ describe("five-beat light score", () => {
 
   it("blends light colours and intensity linearly without accumulating prior frames", () => {
     const { scene, at } = dayCycleRig();
+    // The rig terms the X9 day drift leaves alone: sky, bounce and ambient
+    // colours and the key's energy.
     const sample = (hour: number) => {
       at(hour);
       return [
-        ...scene.directionalLight.color.toArray(),
         ...scene.ambientLight.color.toArray(),
         ...scene.hemisphereLight.color.toArray(),
         ...scene.hemisphereLight.groundColor.toArray(),
         scene.directionalLight.intensity,
-        scene.ambientLight.intensity,
-        scene.hemisphereLight.intensity,
       ];
     };
     // Pinned sky day (test-setup): dawn = 1 at 7.0, day = 1 at 12.25, and
@@ -126,12 +125,37 @@ describe("five-beat light score", () => {
     const day = sample(12.25);
     const { dawn: dawnWeight, day: dayWeight } = dayCycleBeats(8);
     expect(dawnWeight + dayWeight).toBeCloseTo(1, 12);
+    const first = sample(8);
+    first.forEach((value, index) => {
+      expect(value).toBeCloseTo(dawn[index]! * dawnWeight + day[index]! * dayWeight, 12);
+    });
     for (let repeat = 0; repeat < 2; repeat += 1) {
       sample(23);
-      sample(8).forEach((value, index) => {
-        expect(value).toBeCloseTo(dawn[index]! * dawnWeight + day[index]! * dayWeight, 12);
-      });
+      sample(8).forEach((value, index) => expect(value).toBe(first[index]));
     }
+  });
+
+  it("keeps time inside the day beat: a crisp cool morning, a soft warm afternoon (X9)", () => {
+    const { scene, at } = dayCycleRig();
+    const read = (hour: number) => {
+      at(hour);
+      const key = scene.directionalLight.color;
+      return { blueShare: key.b / key.r, fill: scene.hemisphereLight.intensity + scene.ambientLight.intensity };
+    };
+    const day = gardenSkyToday();
+    const noon = read(day.solarNoonHour);
+    const morning = read(9.5);
+    const afternoon = read(15.5);
+    // Solar noon is the authored neutral rig.
+    expect(noon.blueShare).toBeCloseTo(1, 12);
+    expect(noon.fill).toBeCloseTo(DAY_CYCLE_LIGHT_PRESETS.day.hemiIntensity + DAY_CYCLE_LIGHT_PRESETS.day.ambientIntensity, 12);
+    expect(morning.blueShare).toBeGreaterThan(1);
+    expect(afternoon.blueShare).toBeLessThan(1);
+    expect(morning.fill).toBeLessThan(noon.fill);
+    expect(afternoon.fill).toBeGreaterThan(noon.fill);
+    // Outside the day beat nothing drifts: the golden rig is its preset.
+    at(18.5);
+    expect(scene.hemisphereLight.intensity).toBeCloseTo(DAY_CYCLE_LIGHT_PRESETS.golden.hemiIntensity, 12);
   });
 });
 

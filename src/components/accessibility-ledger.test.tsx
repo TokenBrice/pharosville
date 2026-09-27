@@ -1,3 +1,4 @@
+import { CAUSE_META, type CauseOfDeath } from "@shared/lib/cause-of-death";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { buildVisualCueRegistry } from "../systems/visual-cue-registry";
@@ -378,19 +379,14 @@ describe("AccessibilityLedger", () => {
     expect(markup).not.toContain("Fleet issuance 24h");
   });
 
-  it("renders a wreck cause-color swatch legend with each CAUSE_HEX entry", () => {
+  it("names every cause of death in the stone-garden family legend", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
 
-    expect(markup).toContain("Wreck cause-color swatch legend");
-    expect(markup).toContain("data-testid=\"wreck-cause-color-legend\"");
-    expect(markup).toContain("algorithmic-failure");
-    expect(markup).toContain("counterparty-failure");
-    expect(markup).toContain("liquidity-drain");
-    expect(markup).toContain("regulatory");
-    expect(markup).toContain("abandoned");
-    // Sample of CAUSE_HEX-canonical values.
-    expect(markup.toLowerCase()).toContain("#ef4444");
-    expect(markup.toLowerCase()).toContain("#71717a");
+    expect(markup).toContain("data-testid=\"stone-garden-family-legend\"");
+    // Colour carries nothing in the garden; every cause must still be read in words.
+    for (const cause of Object.keys(CAUSE_META) as CauseOfDeath[]) {
+      expect(markup).toContain(CAUSE_META[cause]!.label);
+    }
   });
 
   it("lists canonical Wreck Shoal as the seventh named area", () => {
@@ -522,7 +518,7 @@ describe("AccessibilityLedger", () => {
   it("says the rocks are unstained for want of history, not for want of stress", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
 
-    expect(markup).toContain("Worst band, 30d: Unstained — no index history to read.");
+    expect(markup).toContain("Worst band, 30d: Unavailable — no index history to read.");
     // No contributor, no bearing — the beam keeps its even sweep and the
     // ledger claims nothing about where it is pointing.
     expect(markup).not.toContain("Beam bearing:");
@@ -767,13 +763,13 @@ describe("AccessibilityLedger", () => {
           sourceLabel: "UST postmortem",
         },
         tile: { x: 1, y: 1 },
-        visual: { marker: "broken-keel", scale: 1 },
+        visual: { family: "lost-peg", scale: 1 },
         detailId: "grave.ust-terra",
       }],
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("TerraUSD (UST): Algorithmic Failure, 2022-05-12, peak market cap $18.8B; wreck silhouette Broken keel");
+    expect(markup).toContain("TerraUSD (UST): Algorithmic Failure, 2022-05-12, peak market cap $18.8B; stone garden: A reclining stone in the west islands");
     expect(markup).toContain("The largest stablecoin collapse in history.");
   });
 
@@ -797,14 +793,14 @@ describe("AccessibilityLedger", () => {
           sourceLabel: "NuBits writeup",
         },
         tile: { x: 1, y: 1 },
-        visual: { marker: "skeletal", scale: 1 },
+        visual: { family: "wound-down", scale: 1 },
         detailId: "grave.nbt-nubits",
       }],
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("NuBits (NBT): Abandoned, 2016-06-01; wreck silhouette Bare remains");
-    expect(markup).not.toContain("peak market cap");
+    expect(markup).toContain("NuBits (NBT): Abandoned, 2016-06-01; stone garden: A flat stone in the east islands");
+    expect(markup).not.toMatch(/NuBits \(NBT\)[^;]*peak market cap/);
   });
 
   it("hides the Sky squad section when its flagship is missing; Maker squad still renders", () => {

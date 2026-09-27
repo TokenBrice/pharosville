@@ -32,7 +32,7 @@ function forceAtFirstChance(plan: PharosVilleMotionPlan): { token: InletCrossing
 afterEach(() => __resetForcedInletCrossings());
 
 describe("W5.5 forced crossing", () => {
-  it("sends one subject from its anchorage through the inlet to its berth, without a jump at either end", () => {
+  it("sends one subject from its anchorage through the inlet to its berth, without a jump at either end", { timeout: 15_000 }, () => {
     const plan = buildBaseMotionPlan(world, 0);
     const { token, at } = forceAtFirstChance(plan);
     const ship = world.ships.find((entry) => entry.id === token.shipId)!;

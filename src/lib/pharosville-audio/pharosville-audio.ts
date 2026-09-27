@@ -6,6 +6,10 @@
  * Lifecycle: consent fade from silence; hidden tab → fade to silence in 0.6 s
  * and suspend; visible → resume and rise, dropping (never replaying) whatever
  * was missed; off → fade and close, so the audio thread returns to zero.
+ *
+ * X8 listening pose: while the harbour is left open in Stay and nothing has
+ * been touched for a few seconds, the mix leans in — the near bed a step back,
+ * the far sounds a step forward — and any input brings it straight back.
  */
 import { AUDIO_LOOKAHEAD_SECONDS, AUDIO_TICK_SECONDS, createGardenAudioEngine } from "./engine";
 import type { GardenSoundBeat } from "./beats";
@@ -18,6 +22,8 @@ export type { GardenSoundBeat } from "./beats";
 
 export interface GardenAudioHandle {
   setMusic: (on: boolean) => void;
+  /** The world is in Stay (the listening pose waits for idle inside it). */
+  setStay: (on: boolean) => void;
   /** W7.3: one named beat, now, panned −1…1. No sound while the tab is hidden. */
   playBeat: (beat: GardenSoundBeat, pan?: number) => void;
   close: () => void;
@@ -36,6 +42,8 @@ export function startGardenAudio(
     music: options.music,
     overrides,
     firstPhraseAt: ctx.currentTime + 12 + Math.random() * 8,
+    // The first far sound no sooner than three minutes in.
+    firstBorrowedAt: ctx.currentTime + 180 + Math.random() * 180,
     logTargets: false,
   });
   const fade = engine.graph.masterFade.gain;
@@ -50,6 +58,14 @@ export function startGardenAudio(
   let renderOffset = Number.NaN;
   let hiddenTimer = 0;
   let closed = false;
+  let stay = false;
+  let listening = false;
+  let lastInputMs = performance.now();
+  const onInput = () => {
+    lastInputMs = performance.now();
+  };
+  const inputEvents = ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"] as const;
+  for (const name of inputEvents) window.addEventListener(name, onInput, { capture: true, passive: true });
 
   const tick = () => {
     if (closed || ctx.state !== "running") return;
@@ -58,7 +74,12 @@ export function startGardenAudio(
     if (snapshot.frames > 0 && age < SNAPSHOT_FRESH_MS) renderOffset = snapshot.timeSeconds + age / 1000 - now;
     else if (!Number.isFinite(renderOffset)) renderOffset = snapshot.timeSeconds - now;
     const at = now + AUDIO_LOOKAHEAD_SECONDS;
-    engine.tick(at, at + renderOffset, Math.floor(Date.now() / 60000));
+    engine.tick(at, at + renderOffset, Math.floor(Date.now() / 60000), snapshot.directorSeconds + age / 1000);
+    const lean = stay && performance.now() - lastInputMs >= AUDIO_MASTER.listen.idleSeconds * 1000;
+    if (lean !== listening) {
+      listening = lean;
+      engine.setListening(lean, now);
+    }
   };
   tick();
   fadeTo(1, AUDIO_MASTER.fadeInSeconds);
@@ -90,6 +111,10 @@ export function startGardenAudio(
     setMusic(on) {
       engine.setMusic(on, ctx.currentTime);
     },
+    setStay(on) {
+      stay = on;
+      lastInputMs = performance.now();
+    },
     playBeat(beat, pan = 0) {
       if (closed || ctx.state !== "running") return;
       engine.playBeat(beat, ctx.currentTime + 0.05, pan);
@@ -100,6 +125,7 @@ export function startGardenAudio(
       window.clearInterval(interval);
       window.clearTimeout(hiddenTimer);
       document.removeEventListener("visibilitychange", onVisibility);
+      for (const name of inputEvents) window.removeEventListener(name, onInput, { capture: true });
       unmountMixer?.();
       if (ctx.state === "closed") return;
       fadeTo(0, AUDIO_MASTER.stopFadeSeconds);
@@ -116,12 +142,13 @@ export async function runAudioRecord(
   snapshot: Readonly<AudioSceneSnapshot>,
   seconds: number,
   overrides: Parameters<typeof recordGardenAudio>[2] = null,
+  listening = false,
 ): Promise<AudioRecordReport> {
   const deadline = performance.now() + 60_000;
   while (snapshot.frames < 30 && performance.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  const { report, wav } = await recordGardenAudio(snapshot, seconds, overrides);
+  const { report, wav } = await recordGardenAudio(snapshot, seconds, overrides, listening);
   deliverAudioRecord(report, wav);
   (window as { __pharosVilleAudioRecord?: AudioRecordReport }).__pharosVilleAudioRecord = report;
   return report;

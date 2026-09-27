@@ -5,7 +5,7 @@ import {
   gardenAttentionSlotsBetween,
   type GardenScoreGift,
 } from "./garden-attention-scheduler";
-import { gardenSeasonalVisitor } from "./garden-calendar";
+import { gardenSeasonalLongitudeDeg, gardenSeasonalVisitor, gardenTreeLetsGo } from "./garden-calendar";
 import {
   GARDEN_FOREGROUND_GAP_SECONDS,
   GARDEN_DISCRETE_EVENTS_PER_HOUR,
@@ -67,6 +67,12 @@ export interface GardenScoreEntry {
   /** The attention it holds once started. */
   holdSec: number;
   foreground: boolean;
+  /**
+   * A companion rides another ritual's attention beat instead of taking its
+   * own: it starts `startSec` after that ritual actually starts (scored or
+   * forced), costs no §5.0 event, and is skipped by the budget checker.
+   */
+  companionOf?: GardenRitualKind;
 }
 
 export interface GardenDayScoreInput {
@@ -79,7 +85,15 @@ export interface GardenDayScoreInput {
   gifts?: readonly GardenScoreEntry[];
   /** An explicit sky day (tests, pinned captures); defaults to the date's. */
   day?: GardenSkyDay;
+  /**
+   * X1: tonight is an anniversary evening (the world's graves say a stablecoin
+   * fell in this month). The stone-garden lantern then rides the kindling.
+   */
+  anniversaryEvening?: boolean;
 }
+
+/** X1: the anniversary lantern is lit this long after the kindling begins (the keeper's stagger). */
+const ANNIVERSARY_STAGGER_SECONDS = 60;
 
 const DAY_SECONDS = 86_400;
 const HOUR_SECONDS = 3_600;
@@ -96,6 +110,23 @@ const MOONRISE_MIN_ILLUMINATION = 0.2;
 const METEOR_MAX_ILLUMINATION = 0.25;
 /** Share of dark-moon nights that bring one meteor. */
 const METEOR_NIGHT_SHARE = 0.5;
+/** X5a: the skein flies in the migration kō (seasonal longitude, °) on this share of those dawns. */
+const SKEIN_SEASON_DEG = [195, 345] as const;
+const SKEIN_DAY_SHARE = 0.35;
+/**
+ * X5a fish rings: a separate §5.0 generator (≤ 4/h, ≤ 1 per 15 min), not a
+ * gift. Candidate slots every 20 min (a seeded 0–5 min in, so rings stay
+ * ≥ 15 min apart), half of them offered, at the ends of the day only: the
+ * midday water stands still (solar noon ± 2 h), which also keeps the noon
+ * hour's decorative beats at ≤ 1.
+ */
+const FISH_RING_SLOT_SECONDS = 1_200;
+const FISH_RING_MIN_GAP_SECONDS = 900;
+const FISH_RING_SHARE = 0.5;
+const FISH_RING_HOLD_SECONDS = 8;
+const FISH_RING_NOON_CALM_HOURS = 2;
+/** Kinds that are their own §5.0 generator rather than one of the day's ≤ 6 gifts. */
+const NON_GIFT_KINDS: readonly GardenRitualKind[] = ["crossing", "fish-rings"];
 
 interface Candidate {
   kind: GardenRitualKind;
@@ -216,7 +247,24 @@ function candidates(input: GardenDayScoreInput, day: GardenSkyDay, latitude: Gar
     }
   }
 
-  const visitor = gardenSeasonalVisitor(input.date, latitude);
+  // X5a (O16): a skein of geese at first light in the migration kō, on a third of those dawns.
+  const seasonalLongitude = gardenSeasonalLongitudeDeg(input.date, latitude);
+  if (Number.isFinite(day.sunriseHour) && seasonalLongitude >= SKEIN_SEASON_DEG[0]
+    && seasonalLongitude <= SKEIN_SEASON_DEG[1] && unit("skein-day") < SKEIN_DAY_SHARE) {
+    const earliest = day.sunriseHour - 20 / 60;
+    const latest = day.sunriseHour + 40 / 60 - 240 / HOUR_SECONDS;
+    push("dawn-skein", 1.5, earliest + unit("dawn-skein") * (latest - earliest), earliest, latest, 240, 45, true);
+  }
+
+  // X5b: on the one day a year the island maple lets go, an afternoon gust
+  // takes its leaves; it stands in for that day's leaf-fall visitor.
+  const letsGo = gardenTreeLetsGo(input.date, latitude).today;
+  if (letsGo) {
+    const from = day.solarNoonHour + 1.5;
+    push("tree-lets-go", 2.5, from + unit("tree-lets-go") * 2, from, day.solarNoonHour + 4, 600, 180, true);
+  }
+
+  const visitor = letsGo ? null : gardenSeasonalVisitor(input.date, latitude);
   if (visitor?.id === "fireflies") {
     // Early summer: they rise as the night beat takes the reeds.
     const dark = sunCrossingHour(day, -8, true);
@@ -259,11 +307,18 @@ function clashes(entries: readonly GardenScoreEntry[], candidate: GardenScoreEnt
  * Shared by the permanent test, the throwaway sim and debug tooling.
  */
 export function gardenScoreBudgetViolations(
-  score: readonly GardenScoreEntry[],
+  scoreIn: readonly GardenScoreEntry[],
   dusk: { startSec: number; endSec: number } | null = null,
 ): string[] {
   const violations: string[] = [];
-  const gifts = score.filter((entry) => entry.kind !== "crossing");
+  const score = scoreIn.filter((entry) => entry.companionOf === undefined);
+  const gifts = score.filter((entry) => !NON_GIFT_KINDS.includes(entry.kind));
+  const rings = score.filter((entry) => entry.kind === "fish-rings").toSorted((left, right) => left.startSec - right.startSec);
+  for (let index = 1; index < rings.length; index += 1) {
+    if (rings[index]!.startSec - rings[index - 1]!.startSec < FISH_RING_MIN_GAP_SECONDS) {
+      violations.push(`${rings[index - 1]!.id} → ${rings[index]!.id}: fish rings < 15 min apart`);
+    }
+  }
   if (gifts.length > GARDEN_SCORE_GIFT_DAILY_CEILING) violations.push(`${gifts.length} gifts in a day`);
   if (dusk) {
     const inDusk = gifts.filter((entry) => entry.startSec >= dusk.startSec && entry.startSec < dusk.endSec);
@@ -362,12 +417,61 @@ export function gardenDayScore(input: GardenDayScoreInput): GardenScoreEntry[] {
     if (crossing < 0) break;
     score.splice(crossing, 1);
   }
+  placeFishRings(input.seed, day, score);
+  if (input.anniversaryEvening && score.some((entry) => entry.kind === "kindling")) {
+    score.push({
+      id: `anniversary-lantern:${input.seed}`,
+      kind: "anniversary-lantern",
+      startSec: ANNIVERSARY_STAGGER_SECONDS,
+      windowSec: 0,
+      holdSec: 45,
+      foreground: false,
+      companionOf: "kindling",
+    });
+  }
   return score;
 }
 
+/**
+ * X5a: offer the day's fish rings into the finished score, keeping each only
+ * if every hour it touches still holds ≤ 6 events and a 12-minute quiet.
+ * `score` is sorted and stays sorted.
+ */
+function placeFishRings(seed: string, day: GardenSkyDay, score: GardenScoreEntry[]): void {
+  if (!Number.isFinite(day.sunriseHour) || !Number.isFinite(day.sunsetHour)) return;
+  const from = (day.sunriseHour + 0.5) * HOUR_SECONDS;
+  const to = (day.sunsetHour - 10 / 60) * HOUR_SECONDS - FISH_RING_HOLD_SECONDS;
+  const calmFrom = (day.solarNoonHour - FISH_RING_NOON_CALM_HOURS) * HOUR_SECONDS;
+  const calmTo = (day.solarNoonHour + FISH_RING_NOON_CALM_HOURS) * HOUR_SECONDS;
+  for (let slot = 0; from + slot * FISH_RING_SLOT_SECONDS < to; slot += 1) {
+    const key = `${seed}:score:fish-rings:${slot}`;
+    if (stableUnit(`${key}:offer`) >= FISH_RING_SHARE) continue;
+    const startSec = Math.round(from + slot * FISH_RING_SLOT_SECONDS + stableUnit(key) * 300);
+    if (startSec > to || (startSec + FISH_RING_HOLD_SECONDS > calmFrom && startSec < calmTo)) continue;
+    const entry: GardenScoreEntry = {
+      id: `fish-rings:${seed}:${slot}`,
+      kind: "fish-rings",
+      startSec,
+      windowSec: 0,
+      holdSec: FISH_RING_HOLD_SECONDS,
+      foreground: false,
+    };
+    if (clashes(score, entry)) continue;
+    const at = score.findIndex((other) => other.startSec > startSec);
+    const index = at < 0 ? score.length : at;
+    score.splice(index, 0, entry);
+    const lastWindow = Math.min(DAY_SECONDS - HOUR_SECONDS, startSec + FISH_RING_HOLD_SECONDS);
+    if (firstQuietBreach(score, Math.max(0, startSec - HOUR_SECONDS), lastWindow) !== null) score.splice(index, 1);
+  }
+}
+
 /** Window start (s) of the first hour lacking its quiet run or over its count, or null. */
-function firstQuietBreach(score: readonly GardenScoreEntry[]): number | null {
-  for (let windowStart = 0; windowStart + HOUR_SECONDS <= DAY_SECONDS; windowStart += MINUTE) {
+function firstQuietBreach(
+  score: readonly GardenScoreEntry[],
+  fromWindow = 0,
+  toWindow = DAY_SECONDS - HOUR_SECONDS,
+): number | null {
+  for (let windowStart = Math.floor(fromWindow / MINUTE) * MINUTE; windowStart <= toWindow; windowStart += MINUTE) {
     const windowEnd = windowStart + HOUR_SECONDS;
     let cursor = windowStart;
     let longest = 0;
@@ -432,6 +536,8 @@ interface RunningRitual {
 
 const driver = {
   score: [] as readonly GardenScoreEntry[],
+  /** Companions waiting for their stagger after the ritual they ride began. */
+  pendingCompanions: [] as { entry: GardenScoreEntry; dueSeconds: number }[],
   played: new Set<string>(),
   running: [] as RunningRitual[],
   listeners: new Set<RitualListener>(),
@@ -472,6 +578,11 @@ function beginRitual(id: string, kind: GardenRitualKind, t: number, forced: bool
   const event: GardenRitualEvent = { id, kind, clockHour: driver.clockHour, forced, directorSeconds: t };
   recordDebugRitual(event);
   for (const listener of driver.listeners) listener(event);
+  for (const entry of driver.score) {
+    if (entry.companionOf !== kind || driver.played.has(entry.id)) continue;
+    driver.played.add(entry.id);
+    driver.pendingCompanions.push({ entry, dueSeconds: t + entry.startSec });
+  }
   return handler !== null || kind === "moonrise";
 }
 
@@ -511,18 +622,28 @@ export function tickGardenScore(input: GardenScoreTickInput): void {
     // Reduced motion: one authored static state per ritual, owned by its handler.
     for (const ritual of driver.running) ritual.handler.cancel();
     driver.running.length = 0;
+    driver.pendingCompanions.length = 0;
     return;
   }
   for (let index = driver.running.length - 1; index >= 0; index -= 1) {
     if (driver.running[index]!.handler.update(t, dt)) driver.running.splice(index, 1);
+  }
+  for (let index = driver.pendingCompanions.length - 1; index >= 0; index -= 1) {
+    const pending = driver.pendingCompanions[index]!;
+    if (t < pending.dueSeconds) continue;
+    driver.pendingCompanions.splice(index, 1);
+    beginRitual(pending.entry.id, pending.entry.kind, t, false);
   }
   const director = input.director;
   if (!director) return;
   const clockSec = driver.clockHour * HOUR_SECONDS;
   let next: GardenScoreEntry | null = null;
   for (const entry of driver.score) {
-    if (entry.kind === "crossing" || driver.played.has(entry.id)) continue;
+    if (entry.kind === "crossing" || entry.companionOf !== undefined || driver.played.has(entry.id)) continue;
     if (clockSec >= entry.startSec + entry.windowSec) continue;
+    // Nothing would draw it, so nothing is logged: a kind plays only once its
+    // owner has registered (the moonrise alone is drawn continuously by the sky).
+    if (entry.kind !== "moonrise" && !gardenRitualHandler(entry.kind)) continue;
     if (clockSec >= entry.startSec) {
       // A forced run of the same ritual already covers this window: no double walk.
       if (thinnedByIdle(entry, t - driver.firstSeconds) || driver.running.some((ritual) => ritual.kind === entry.kind)) {
@@ -568,4 +689,5 @@ export function forceGardenRitual(kind: GardenRitualKind, directorSeconds?: numb
 export function cancelGardenRituals(): void {
   for (const ritual of driver.running) ritual.handler.cancel();
   driver.running.length = 0;
+  driver.pendingCompanions.length = 0;
 }

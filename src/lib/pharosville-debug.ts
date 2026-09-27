@@ -168,6 +168,26 @@ export function debugCalendarDayMs(): number | null {
   return ms;
 }
 
+/**
+ * X3 `sky=BAND` (hash or query, debug only): draw the sky's cloud cover and air
+ * as if PSI read that band, e.g. `#t=12.25&sky=CRISIS`, so captures can
+ * compare covers on live data. The DOM keeps the real reading. Cached per
+ * query/hash pair: the flag is read from the frame loop.
+ */
+let skyBandSearch: string | null = null;
+let skyBandHash: string | null = null;
+let skyBandCached: string | null = null;
+export function debugSkyBand(): string | null {
+  if (typeof window === "undefined" || !isVisualDebugAllowed()) return null;
+  const { hash, search } = window.location;
+  if (search !== skyBandSearch || hash !== skyBandHash) {
+    skyBandSearch = search;
+    skyBandHash = hash;
+    skyBandCached = readUrlFlag("sky")?.toUpperCase() ?? null;
+  }
+  return skyBandCached;
+}
+
 function readUrlFlag(key: string): string | null {
   const fromSearch = new URLSearchParams(window.location.search).get(key);
   if (fromSearch !== null) return fromSearch;

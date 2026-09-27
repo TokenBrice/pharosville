@@ -160,6 +160,15 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
           { kind: "keyboard", label: "Leave Stay", tokens: ["Escape"] },
         ],
       },
+      {
+        id: "wander",
+        label: "Wander",
+        summary: "Glides to one of six places inside the harbour — a deck in the north basin, the mole, the crane islet, the tea-house, the crag stair, the inlet mouth — and holds the view there. Press again for the next place; any other key, click or scroll glides back to the resting view.",
+        inputs: [
+          { kind: "toolbar", label: "wander" },
+          { kind: "keyboard", label: "W", tokens: ["W"] },
+        ],
+      },
     ],
   },
   {

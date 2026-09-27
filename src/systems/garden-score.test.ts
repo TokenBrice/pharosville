@@ -34,13 +34,36 @@ const hhmm = (seconds: number): string => `${String(Math.floor(seconds / 3600)).
 
 describe("garden day score (W5.1)", () => {
   it("never breaks the §5.0 ceilings over a year of seeds", () => {
+    const skeinMonths = new Set<number>();
+    let ringDays = 0;
     for (let dayOfYear = 0; dayOfYear < 365; dayOfYear += 1) {
       const { date, seed, day } = skyDayFor(dayOfYear);
       const score = gardenDayScore({ seed, date, latitude: NORTH, day });
       expect(gardenScoreBudgetViolations(score, gardenScoreDusk(day)), seed).toEqual([]);
       // The same day always scores the same.
       expect(gardenDayScore({ seed, date, latitude: NORTH, day })).toEqual(score);
+      const skein = score.find((entry) => entry.kind === "dawn-skein");
+      if (skein) {
+        skeinMonths.add(date.getUTCMonth() + 1);
+        // First light: within twenty minutes before to forty after sunrise.
+        expect(skein.startSec).toBeGreaterThanOrEqual((day.sunriseHour - 20 / 60) * 3600 - 1);
+        expect(skein.startSec + skein.windowSec).toBeLessThanOrEqual((day.sunriseHour + 40 / 60) * 3600 + 1);
+      }
+      const rings = score.filter((entry) => entry.kind === "fish-rings");
+      if (rings.length > 0) ringDays += 1;
+      // The midday water stands still.
+      for (const ring of rings) expect(Math.abs(ring.startSec / 3600 - day.solarNoonHour)).toBeGreaterThanOrEqual(2 - 1e-6);
     }
+    // Geese in the migration kō only (autumn into late winter), never in high summer.
+    expect(skeinMonths.has(10)).toBe(true);
+    for (const month of [5, 6, 7, 8]) expect(skeinMonths.has(month)).toBe(false);
+    expect(ringDays).toBeGreaterThan(300);
+    // The island maple lets go on exactly one day of the year, in the afternoon.
+    const letsGo = Array.from({ length: 365 }, (_, dayOfYear) => skyDayFor(dayOfYear))
+      .map(({ date, seed, day }) => ({ seed, day, entry: gardenDayScore({ seed, date, latitude: NORTH, day }).find((entry) => entry.kind === "tree-lets-go") }))
+      .filter((found) => found.entry);
+    expect(letsGo).toHaveLength(1);
+    expect(letsGo[0]!.entry!.startSec / 3600).toBeGreaterThanOrEqual(letsGo[0]!.day.solarNoonHour + 1.5 - 1e-6);
   });
 
   it("gives the pinned evening its heron and its kindling, 8+ minutes apart, around sunset", () => {
@@ -110,6 +133,7 @@ describe("garden score driver", () => {
   });
 
   it("keeps other foreground beats 8 minutes clear of the next scored ritual", () => {
+    const unregister = registerRitual("kindling", { start() {}, update: () => true, cancel() {} });
     setGardenDayScore([entry("kindling", 19 * 3600)]);
     const director = createGardenDirector("reserve");
     const t0 = 2_000_000;
@@ -118,6 +142,30 @@ describe("garden score driver", () => {
     const arrival = { kind: "arrival", foreground: true, durationSeconds: 540, priority: 20 } as const;
     expect(requestGardenBeat(director, arrival, t0)).toBeNull();
     expect(requestGardenBeat(director, { ...arrival, durationSeconds: 60 }, t0)).not.toBeNull();
+    unregister();
+    setGardenDayScore([]);
+  });
+
+  it("lights the anniversary lantern with the kindling, after its stagger, at no §5.0 cost", () => {
+    const score = gardenDayScore({ seed: PINNED.seed, date: PINNED.date, latitude: NORTH, day: PINNED.day, anniversaryEvening: true });
+    const lantern = score.find((entry) => entry.kind === "anniversary-lantern")!;
+    expect(lantern.companionOf).toBe("kindling");
+    expect(gardenScoreBudgetViolations(score, gardenScoreDusk(PINNED.day))).toEqual([]);
+    expect(gardenScoreBudgetViolations(score)).toEqual(gardenScoreBudgetViolations(score.filter((entry) => entry !== lantern)));
+    const started: string[] = [];
+    const offKindling = registerRitual("kindling", { start: () => started.push("kindling"), update: () => false, cancel() {} });
+    const offLantern = registerRitual("anniversary-lantern", { start: () => started.push("lantern"), update: () => true, cancel() {} });
+    setGardenDayScore(score);
+    const director = createGardenDirector("anniversary");
+    const t0 = 4_000_000;
+    tickGardenScore({ director, directorSeconds: t0, clockHour: 19, reducedMotion: false });
+    forceGardenRitual("kindling", t0);
+    tickGardenScore({ director, directorSeconds: t0 + 59, clockHour: 19, reducedMotion: false });
+    expect(started).toEqual(["kindling"]);
+    tickGardenScore({ director, directorSeconds: t0 + 60, clockHour: 19, reducedMotion: false });
+    expect(started).toEqual(["kindling", "lantern"]);
+    offKindling();
+    offLantern();
     setGardenDayScore([]);
   });
 

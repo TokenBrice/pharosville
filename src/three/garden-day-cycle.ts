@@ -39,6 +39,7 @@ export type DayCyclePhaseName = "day" | "dusk" | "night";
 export { dayCycleBeats, type DayCycleBeatName, type DayCycleBeats } from "../systems/day-cycle-beats";
 import { dayCycleBeats, type DayCycleBeatName, type DayCycleBeats } from "../systems/day-cycle-beats";
 import { gardenMoonPose, type GardenLightPose } from "./garden-sun";
+import { gardenDayDrift } from "./garden-aerial";
 import { GARDEN_KINDLE_ORDER, gardenLanternKindleFactor, gardenLanternKindleState } from "./garden-lanterns";
 
 /** How much of its night strength the brazier takes when the lantern catches at blue hour. */
@@ -199,6 +200,16 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCycleBeatName, DayCycleLightPres
  * share of the full-moon rim, so the beacon is the only direct light.
  */
 export const DAY_CYCLE_MOONLESS_KEY = 0.25;
+
+/**
+ * X9 (light-6): time inside the day beat, scaled by `gardenDayDrift` (−1
+ * morning … +1 afternoon) and the day weight. `fill` scales hemisphere and
+ * ambient (±15 %); the key takes a luma-preserving cool or honey tint.
+ */
+export const DAY_CYCLE_DAY_DRIFT = { fill: 0.15, keyCool: 0.1, keyWarm: 0.14 } as const;
+const unitLuma = (color: Color): Color => color.multiplyScalar(1 / colorLuminance(color));
+const DAY_KEY_MORNING_TINT = unitLuma(paletteColor(P.foam_white).lerp(paletteColor(P.sky_day_zenith), 0.3));
+const DAY_KEY_AFTERNOON_TINT = unitLuma(paletteColor(P.sun_day_warm));
 
 /**
  * W2.1 authored eye adaptation (light-2): each beat sits at its own
@@ -397,6 +408,20 @@ export function updateDayCycle(
     scene.hemisphereLight.intensity += rig.hemiIntensity * weight;
     scene.ambientLight.intensity += rig.ambientIntensity * weight;
     scene.directionalLight.intensity += rig.dirIntensity * weight * (name === "night" ? moonKey : 1);
+  }
+  // X9 (light-6): inside the day beat the morning key is a touch cooler with
+  // less shapeless fill (crisper shade), the afternoon key warmer with more.
+  const drift = gardenDayDrift(frame.wallClockHour) * beats.day;
+  if (drift !== 0) {
+    const tint = drift < 0 ? DAY_KEY_MORNING_TINT : DAY_KEY_AFTERNOON_TINT;
+    const amount = drift < 0 ? -drift * DAY_CYCLE_DAY_DRIFT.keyCool : drift * DAY_CYCLE_DAY_DRIFT.keyWarm;
+    const key = scene.directionalLight.color;
+    key.r *= 1 + (tint.r - 1) * amount;
+    key.g *= 1 + (tint.g - 1) * amount;
+    key.b *= 1 + (tint.b - 1) * amount;
+    const fill = 1 + DAY_CYCLE_DAY_DRIFT.fill * drift;
+    scene.hemisphereLight.intensity *= fill;
+    scene.ambientLight.intensity *= fill;
   }
 
   if (!scene.content) return;

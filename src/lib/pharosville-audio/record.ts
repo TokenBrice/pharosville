@@ -6,7 +6,8 @@
  */
 import { AUDIO_TICK_SECONDS, createGardenAudioEngine, type GardenAudioEngine } from "./engine";
 import { GARDEN_SOUND_BEATS } from "./beats";
-import { AUDIO_MIX, AUDIO_STEMS, createAudioMixOverrides, gainToDb, type AudioMixOverrides, type AudioStemName } from "./mix";
+import { BORROWED_SOUNDS } from "./borrowed";
+import { AUDIO_MASTER, AUDIO_MIX, AUDIO_STEMS, createAudioMixOverrides, dbToGain, gainToDb, type AudioMixOverrides, type AudioStemName } from "./mix";
 import type { AudioSceneSnapshot } from "./scene-snapshot";
 
 const RECORD_SAMPLE_RATE = 48000;
@@ -24,7 +25,7 @@ export interface AudioRecordReport {
   seconds: number;
   sampleRate: number;
   /** The scene the render was taken from. */
-  scene: { swell: number; psiStress: number; hour: number; eyeHeight: number; reducedMotion: boolean };
+  scene: { swell: number; psiStress: number; hour: number; eyeHeight: number; reducedMotion: boolean; listening: boolean };
   peakDbfs: number;
   /** 4× interpolated peak of the full mix (true-peak estimate). */
   truePeakDbtp: number;
@@ -36,13 +37,15 @@ export async function recordGardenAudio(
   live: Readonly<AudioSceneSnapshot>,
   seconds: number,
   liveOverrides: AudioMixOverrides | null,
+  listening = false,
 ): Promise<{ report: AudioRecordReport; wav: Blob }> {
-  const snapshot: AudioSceneSnapshot = { ...live };
+  // Never the live director: a render must not spend the world's environment slots.
+  const snapshot: AudioSceneSnapshot = { ...live, director: null };
   const minute = Math.floor(Date.now() / 60000);
-  const full = await renderScene(snapshot, seconds, minute, liveOverrides, null);
+  const full = await renderScene(snapshot, seconds, minute, liveOverrides, null, listening);
   const stems: AudioStemReport[] = [];
   for (const stem of AUDIO_STEMS) {
-    const solo = await renderScene(snapshot, seconds, minute, liveOverrides, stem);
+    const solo = await renderScene(snapshot, seconds, minute, liveOverrides, stem, listening);
     const measure = AUDIO_MIX[stem].measure;
     const targets = solo.engine.targets!;
     const targetDb = measure === "rms"
@@ -71,6 +74,7 @@ export async function recordGardenAudio(
         hour: snapshot.hour,
         eyeHeight: snapshot.eyeHeight,
         reducedMotion: snapshot.reducedMotion,
+        listening,
       },
       peakDbfs: gainToDb(samplePeak(full.buffer)),
       truePeakDbtp: gainToDb(interpolatedPeak(full.buffer)),
@@ -86,6 +90,7 @@ async function renderScene(
   minute: number,
   liveOverrides: AudioMixOverrides | null,
   solo: AudioStemName | null,
+  listening: boolean,
 ): Promise<{ buffer: AudioBuffer; engine: GardenAudioEngine }> {
   const ctx = new OfflineAudioContext(2, Math.round(seconds * RECORD_SAMPLE_RATE), RECORD_SAMPLE_RATE);
   const overrides = createAudioMixOverrides();
@@ -95,12 +100,27 @@ async function renderScene(
   }
   overrides.solo = solo;
   // The first phrase a second in, so a short render still hears the music stem.
-  const engine = createGardenAudioEngine(ctx, snapshot, { music: true, overrides, firstPhraseAt: 1, logTargets: true });
+  const engine = createGardenAudioEngine(ctx, snapshot, {
+    music: true,
+    overrides,
+    firstPhraseAt: 1,
+    firstBorrowedAt: Number.POSITIVE_INFINITY,
+    logTargets: true,
+  });
   // Levels as the mix sheet states them: no consent fade in the measurement.
   engine.graph.masterFade.gain.value = 1;
-  for (let at = 0; at <= seconds; at += AUDIO_TICK_SECONDS) {
-    engine.tick(at, snapshot.timeSeconds + at, minute);
+  // `record:N:listen`: the listening pose already leaned in, so the table shows its ±2 dB.
+  if (listening) {
+    engine.graph.nearLean.gain.value = dbToGain(AUDIO_MASTER.listen.nearDb);
+    engine.graph.farLean.gain.value = dbToGain(AUDIO_MASTER.listen.farDb);
   }
+  for (let at = 0; at <= seconds; at += AUDIO_TICK_SECONDS) {
+    engine.tick(at, snapshot.timeSeconds + at, minute, Number.NaN);
+  }
+  // Audition both far sounds (X8 costume review): the director is not asked offline.
+  BORROWED_SOUNDS.forEach((sound, index) => {
+    engine.playBorrowed(sound, seconds * (0.05 + 0.5 * index), index + 1);
+  });
   // Audition every named beat once, spread across the render (W7.3 costume review).
   GARDEN_SOUND_BEATS.forEach((beat, index) => {
     const at = seconds * (0.15 + 0.7 * (index / GARDEN_SOUND_BEATS.length));

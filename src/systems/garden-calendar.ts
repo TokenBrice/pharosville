@@ -302,3 +302,38 @@ export function gardenSeasonalVisitor(
   const gate = SEASONAL_VISITOR_GATES.find((entry) => microseason.index >= entry.from && microseason.index <= entry.to);
   return gate ? { id: gate.id, microseason } : null;
 }
+
+// --- One tree lets go (X5, garden-7) -------------------------------------------
+
+/** The one specimen whose last leaves go in a single scored afternoon: the island maple by the stair. */
+export const GARDEN_LETS_GO_TREE = { kind: "momiji", seed: "island-stair" } as const;
+/** Its crown thins with the calendar until less than this is left; that day it lets go of the rest. */
+const LETS_GO_CROWN = 0.5;
+
+export interface GardenTreeLetsGo {
+  /** The crown the tree shows today before any event: 1 full … 0 bare. */
+  crown: number;
+  /** Today is the day it lets go (≤ 1 a year). */
+  today: boolean;
+}
+
+/**
+ * garden-7: the island maple's leaf fall is its phenology until its crown
+ * first drops below half; that UTC day the tree lets go of everything left in
+ * one scored afternoon, and from the next day it stands bare until spring.
+ * Pure per UTC day, so the score, the renderer and the ledger agree.
+ */
+export function gardenTreeLetsGo(
+  date: Date,
+  latitude: GardenSkyLatitude = gardenSkyLatitude(),
+): GardenTreeLetsGo {
+  const ms = date.getTime();
+  if (!Number.isFinite(ms)) return { crown: 1, today: false };
+  const noonOf = (dayOffset: number) => new Date((Math.floor(ms / DAY_MS) + dayOffset) * DAY_MS + DAY_MS / 2);
+  const crownOn = (dayOffset: number) => seasonalPhenology(GARDEN_LETS_GO_TREE.seed, noonOf(dayOffset), GARDEN_LETS_GO_TREE.kind, latitude).leaf;
+  const crown = crownOn(0);
+  if (crown >= LETS_GO_CROWN || crown <= 0) return { crown, today: false };
+  // Past the threshold: today only if yesterday was still above it (the
+  // thinning crown is monotonic through the fall), otherwise already bare.
+  return crownOn(-1) >= LETS_GO_CROWN ? { crown, today: true } : { crown: 0, today: false };
+}

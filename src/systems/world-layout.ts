@@ -1,9 +1,8 @@
-import type { DockNode, GraveNode, PharosVilleMap, PharosVilleTile, TerrainKind, TileKind } from "./world-types";
+import type { DockNode, GraveFamily, GraveNode, PharosVilleMap, PharosVilleTile, TerrainKind, TileKind } from "./world-types";
 import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
-import { mulberry32 } from "./rng";
 import { seaTerrainAtTile } from "./sea-bodies";
 import { isSeawallBarrierTile } from "./seawall";
-import { stableHash, stableUnit } from "./stable-random";
+import { stableUnit } from "./stable-random";
 import { clamp } from "./motion-utils";
 import { RIM_COVES, rimLandAt, type RimCove } from "./garden-rim";
 import {
@@ -186,8 +185,6 @@ export const PIGEONNIER_STATION_SLOT: DockStationSlot = {
   type: "pigeonnier-islet",
 };
 PREFERRED_DOCK_STATIONS.ton = PIGEONNIER_STATION_SLOT;
-
-type GraveMarker = GraveNode["visual"]["marker"];
 
 function ellipseValue(x: number, y: number, cx: number, cy: number, rx: number, ry: number): number {
   return ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2;
@@ -548,20 +545,119 @@ export function buildPharosVilleMap(): PharosVilleMap {
   return cachedPharosVilleMap;
 }
 
-type PlacedGrave = { scale: number; x: number; y: number };
+/**
+ * X1 (O8, K29): the stone garden of the fallen. A raked gravel bed on the
+ * Wreck Shoal's south shore, outside the rest frame, holds one unmarked set
+ * stone for every stablecoin that died: sized by peak market cap (log), and
+ * gathered by how it died into odd groups — the peg broke (west), a
+ * counterparty failed (centre), wound down (east) — with open gravel between
+ * the families. Tiles; the bed is this ellipse.
+ */
+export const STONE_GARDEN_SITE = { x: 15, y: 136.8, rx: 10, ry: 2.5 } as const;
+/** The bed's ground height (world y ≈ 1.5–2.4 across it), for framing it. */
+export const STONE_GARDEN_GROUND_Y = 1.9;
 
-// Spatial grid cell size for cemetery scatter neighbor queries. The maximum
-// effective rejection distance is ~1.16 in `(dx*1.05, dy*1.45)` space, so a
-// 1.5-tile cell guarantees a 3x3 neighbor scan covers every potential conflict.
-const CEMETERY_GRID_CELL = 1.5;
+/** Each family's span along the bed's long axis (−1 west … 1 east). */
+const GRAVE_FAMILY_SPANS: Readonly<Record<GraveFamily, readonly [number, number]>> = {
+  "lost-peg": [-0.93, -0.3],
+  counterparty: [-0.17, 0.16],
+  "wound-down": [0.29, 0.93],
+};
+const GRAVE_FAMILY_ORDER: readonly GraveFamily[] = ["lost-peg", "counterparty", "wound-down"];
+/** Group sizes, cycled: a few islands of stone in open gravel, each an odd number. */
+const GRAVE_GROUP_SIZES = [21, 15] as const;
+/** A stone's footprint radius in tiles per unit of stone size. */
+const GRAVE_FOOTPRINT = 0.53;
+const GRAVE_GAP = 0.03;
 
-function cemeteryGridKey(x: number, y: number): number {
-  // Pack into a 32-bit integer to avoid string allocations per lookup.
-  // Add a generous offset (1024) to keep coordinates non-negative; the
-  // cemetery sits well within (0, 56).
-  const cx = Math.floor(x / CEMETERY_GRID_CELL) + 1024;
-  const cy = Math.floor(y / CEMETERY_GRID_CELL) + 1024;
-  return (cx << 16) | cy;
+export function graveFamilyFor(cause: CemeteryEntry["causeOfDeath"]): GraveFamily {
+  if (cause === "algorithmic-failure" || cause === "liquidity-drain") return "lost-peg";
+  if (cause === "counterparty-failure") return "counterparty";
+  return "wound-down";
+}
+
+/**
+ * Stone size in world units. The curve is steep on purpose: the dozen coins
+ * that held billions carry the composition, the small ones are pebbles that
+ * almost merge into the gravel, so 88 stones never read as a carpet.
+ */
+export function graveStoneSize(peakMcap: number | null | undefined): number {
+  const peak = Math.max(0, peakMcap ?? 0);
+  if (!(peak > 0)) return 0.18;
+  const t = clamp((Math.log10(peak) - 6) / 4.4, 0, 1);
+  return 0.18 + 1.05 * t ** 1.8;
+}
+
+/** Odd group sizes summing to `count` (a lone stone is an odd group too). */
+function oddGroupSizes(count: number): number[] {
+  const sizes: number[] = [];
+  for (let remaining = count, index = 0; remaining > 0; index += 1) {
+    let size = Math.min(remaining, GRAVE_GROUP_SIZES[index % GRAVE_GROUP_SIZES.length]!);
+    if (size % 2 === 0) size -= 1;
+    sizes.push(size);
+    remaining -= size;
+  }
+  return sizes;
+}
+
+interface PlacedStone { x: number; y: number; radius: number }
+
+function stoneFits(placed: readonly PlacedStone[], x: number, y: number, radius: number): boolean {
+  const { x: cx, y: cy, rx, ry } = STONE_GARDEN_SITE;
+  if (((x - cx) / (rx - radius)) ** 2 + ((y - cy) / (ry - radius)) ** 2 > 1) return false;
+  return placed.every((stone) => Math.hypot(stone.x - x, stone.y - y) >= stone.radius + radius + GRAVE_GAP);
+}
+
+/**
+ * Seats every grave's stone. Each family is split into odd groups; the
+ * family's largest stones lead the groups, the rest are dealt round them
+ * largest first, and each member takes the first free seat on a golden-angle
+ * spiral out from its group's lead. Deterministic in the ledger.
+ */
+function placeGardenStones(
+  graves: readonly { id: string; family: GraveFamily; size: number }[],
+): Map<string, { x: number; y: number }> {
+  const seats = new Map<string, { x: number; y: number }>();
+  const placed: PlacedStone[] = [];
+  const { x: cx, y: cy, rx, ry } = STONE_GARDEN_SITE;
+  for (const family of GRAVE_FAMILY_ORDER) {
+    const members = graves
+      .filter((grave) => grave.family === family)
+      .toSorted((a, b) => b.size - a.size || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (members.length === 0) continue;
+    const sizes = oddGroupSizes(members.length);
+    const groups: (typeof members)[] = sizes.map((_, index) => [members[index]!]);
+    let cursor = sizes.length;
+    for (let round = 1; cursor < members.length; round += 1) {
+      for (let group = 0; group < groups.length && cursor < members.length; group += 1) {
+        if (round < sizes[group]!) groups[group]!.push(members[cursor++]!);
+      }
+    }
+    const [from, to] = GRAVE_FAMILY_SPANS[family];
+    groups.forEach((group, groupIndex) => {
+      const key = `stone-garden.${family}.${groupIndex}`;
+      const along = from + (to - from) * ((groupIndex + 0.5 + (stableUnit(`${key}.u`) - 0.5) * 0.5) / groups.length);
+      const across = (groupIndex % 2 === 0 ? -1 : 1) * (0.15 + stableUnit(`${key}.v`) * 0.3);
+      const heartX = cx + along * rx;
+      const heartY = cy + across * ry;
+      const turn = stableUnit(`${key}.turn`) * Math.PI * 2;
+      for (const grave of group) {
+        const radius = grave.size * GRAVE_FOOTPRINT;
+        let seat: { x: number; y: number } | null = null;
+        for (let step = 0; step < 400 && !seat; step += 1) {
+          const reach = 0.2 * Math.sqrt(step);
+          const x = heartX + Math.cos(turn + step * 2.39996) * reach;
+          const y = heartY + Math.sin(turn + step * 2.39996) * reach * 0.75;
+          if (stoneFits(placed, x, y, radius)) seat = { x, y };
+        }
+        // A full bed still seats the stone (overlapping) rather than dropping a grave.
+        seat ??= { x: heartX, y: heartY };
+        placed.push({ ...seat, radius });
+        seats.set(grave.id, seat);
+      }
+    });
+  }
+  return seats;
 }
 
 // Memoize on the entries array reference. PharosVille's runtime cemetery
@@ -571,140 +667,31 @@ function cemeteryGridKey(x: number, y: number): number {
 const graveNodesCache = new WeakMap<readonly CemeteryEntry[], GraveNode[]>();
 
 /**
- * Scatters cemetery entries onto the cemetery islet, returning one `GraveNode`
- * per entry with deterministic position and visual based on entry id. Memoized
- * by `entries` reference so repeated world rebuilds reuse the layout.
+ * One `GraveNode` per cemetery entry: its set stone's seat in the stone
+ * garden, its cause family and its stone size. Deterministic in the entries
+ * (order-independent); memoized by `entries` reference.
  */
 export function graveNodesFromEntries(entries: readonly CemeteryEntry[]): GraveNode[] {
   const cached = graveNodesCache.get(entries);
   if (cached) return cached;
-
-  // Sort by id for deterministic layout regardless of upstream insertion order.
-  // Map back to the original index so visual variation that depends on
-  // position-in-array stays stable across data shuffles.
-  const ordered = entries
-    .map((entry, originalIndex) => ({ entry, originalIndex }))
-    .sort((a, b) => (a.entry.id < b.entry.id ? -1 : a.entry.id > b.entry.id ? 1 : 0));
-
-  const placedByGridCell = new Map<number, PlacedGrave[]>();
-  const result: GraveNode[] = new Array(ordered.length);
-
-  for (const { entry, originalIndex } of ordered) {
-    const visual = graveVisual(entry, originalIndex);
-    const tile = cemeteryScatterTile(entry, originalIndex, placedByGridCell, visual.scale);
-    const placed: PlacedGrave = { x: tile.x, y: tile.y, scale: visual.scale };
-    const key = cemeteryGridKey(tile.x, tile.y);
-    const bucket = placedByGridCell.get(key);
-    if (bucket) bucket.push(placed); else placedByGridCell.set(key, [placed]);
-
-    result[originalIndex] = {
-      id: `grave.${entry.id}`,
-      kind: "grave",
-      label: entry.symbol,
-      entry,
-      tile,
-      visual,
-      detailId: `grave.${entry.id}`,
-    };
-  }
-
+  const graves = entries.map((entry) => ({
+    entry,
+    family: graveFamilyFor(entry.causeOfDeath),
+    id: entry.id,
+    size: graveStoneSize(entry.peakMcap),
+  }));
+  const seats = placeGardenStones(graves);
+  const result = graves.map(({ entry, family, size }): GraveNode => ({
+    id: `grave.${entry.id}`,
+    kind: "grave",
+    label: entry.symbol,
+    entry,
+    tile: seats.get(entry.id)!,
+    visual: { family, scale: size },
+    detailId: `grave.${entry.id}`,
+  }));
   graveNodesCache.set(entries, result);
   return result;
-}
-
-function nearestPlacedDistance(
-  placedByGridCell: ReadonlyMap<number, PlacedGrave[]>,
-  candidateX: number,
-  candidateY: number,
-  scale: number,
-): number {
-  const cellX = Math.floor(candidateX / CEMETERY_GRID_CELL);
-  const cellY = Math.floor(candidateY / CEMETERY_GRID_CELL);
-  let nearest = Number.POSITIVE_INFINITY;
-  for (let dy = -1; dy <= 1; dy += 1) {
-    for (let dx = -1; dx <= 1; dx += 1) {
-      const key = ((cellX + dx + 1024) << 16) | (cellY + dy + 1024);
-      const bucket = placedByGridCell.get(key);
-      if (!bucket) continue;
-      for (const grave of bucket) {
-        const requiredSpace = 0.36 + (grave.scale + scale) * 0.2;
-        const ex = (candidateX - grave.x) * 1.05;
-        const ey = (candidateY - grave.y) * 1.45;
-        const distance = Math.sqrt(ex * ex + ey * ey) - requiredSpace;
-        if (distance < nearest) nearest = distance;
-      }
-    }
-  }
-  return nearest;
-}
-
-function cemeteryScatterTile(
-  entry: CemeteryEntry,
-  index: number,
-  placedByGridCell: ReadonlyMap<number, PlacedGrave[]>,
-  scale: number,
-): { x: number; y: number } {
-  // Single seeded RNG per entry: avoids ~240 string allocations + hashes
-  // (3 keys * 80 attempts) on the previous hot path.
-  const rng = mulberry32(stableHash(entry.id));
-  const drift = stableUnit(`${index}.grave.drift`) * 0.34 - 0.17;
-  let bestTile: { x: number; y: number } | null = null;
-  let bestScore = Number.NEGATIVE_INFINITY;
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    const angle = rng() * Math.PI * 2;
-    const radius = Math.sqrt(rng()) * 0.96;
-    const tile = {
-      x: CEMETERY_CENTER.x + Math.cos(angle + drift) * CEMETERY_RADIUS.x * radius,
-      y: CEMETERY_CENTER.y + Math.sin(angle - drift) * CEMETERY_RADIUS.y * radius,
-    };
-    if (cemeteryValue(tile.x, tile.y) > 0.97 || cemeteryReserved(tile)) continue;
-    // N2: wrecks settle on the wreck shoals, not on a headstone islet.
-    if (terrainKindAt(tile.x, tile.y) !== "wreck-water") continue;
-    const nearest = nearestPlacedDistance(placedByGridCell, tile.x, tile.y, scale);
-    const edgePenalty = Math.abs(0.58 - radius) * 0.18;
-    const score = nearest - edgePenalty - attempt * 0.001;
-    if (score > bestScore) {
-      bestScore = score;
-      bestTile = tile;
-    }
-    if (nearest > 0.62 && attempt > 16) return tile;
-  }
-  if (bestTile) return bestTile;
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    const angle = rng() * Math.PI * 2;
-    const radius = Math.sqrt(rng()) * 0.72;
-    const tile = {
-      x: CEMETERY_CENTER.x + Math.cos(angle) * CEMETERY_RADIUS.x * radius,
-      y: CEMETERY_CENTER.y + Math.sin(angle) * CEMETERY_RADIUS.y * radius,
-    };
-    if (terrainKindAt(tile.x, tile.y) === "wreck-water") return tile;
-  }
-  return { ...CEMETERY_CENTER };
-}
-
-function graveVisual(entry: CemeteryEntry, index: number): GraveNode["visual"] {
-  const peakMcap = Math.max(0, entry.peakMcap ?? 0);
-  const peakScale = peakMcap > 0 ? Math.min(1, Math.max(0, (Math.log10(peakMcap) - 6) / 4)) : 0;
-  const fullScale = 0.72 + peakScale * 0.48 + (stableUnit(`${entry.id}.grave.scale`) - 0.5) * 0.16;
-  const scale = clamp(fullScale * 0.36, 0.25, 0.45);
-  const marker = graveMarkerFor(entry, index, peakScale);
-  return { marker, scale };
-}
-
-function graveMarkerFor(entry: CemeteryEntry, _index: number, _peakScale: number): GraveMarker {
-  switch (entry.causeOfDeath) {
-    case "regulatory":
-      return "broken-keel";
-    case "liquidity-drain":
-      return "sinking-stern";
-    case "counterparty-failure":
-      return "grounded";
-    case "algorithmic-failure":
-      return "shattered";
-    case "abandoned":
-    default:
-      return "skeletal";
-  }
 }
 
 function cemeteryValue(x: number, y: number) {
@@ -712,14 +699,3 @@ function cemeteryValue(x: number, y: number) {
     + ((y - CEMETERY_CENTER.y) / CEMETERY_RADIUS.y) ** 2;
 }
 
-function cemeteryReserved(tile: { x: number; y: number }) {
-  const chapel = ellipseValue(tile.x, tile.y, CEMETERY_CENTER.x - 2.05, CEMETERY_CENTER.y - 1.28, 0.72, 0.54) < 1;
-  const memorial = ellipseValue(tile.x, tile.y, CEMETERY_CENTER.x, CEMETERY_CENTER.y, 0.67, 0.49) < 1;
-  const northPath = Math.abs(tile.x - (CEMETERY_CENTER.x + Math.sin((tile.y - CEMETERY_CENTER.y) * 1.12) * 0.16)) < 0.17
-    && tile.y > CEMETERY_CENTER.y - CEMETERY_RADIUS.y * 0.94
-    && tile.y < CEMETERY_CENTER.y + CEMETERY_RADIUS.y * 0.98;
-  const crossPath = Math.abs(tile.y - (CEMETERY_CENTER.y + Math.sin((tile.x - CEMETERY_CENTER.x) * 1.05) * 0.12)) < 0.14
-    && tile.x > CEMETERY_CENTER.x - CEMETERY_RADIUS.x * 0.92
-    && tile.x < CEMETERY_CENTER.x + CEMETERY_RADIUS.x * 0.92;
-  return chapel || memorial || northPath || crossPath;
-}

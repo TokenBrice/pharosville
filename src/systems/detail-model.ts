@@ -13,7 +13,7 @@ import { cycleTempoDetailLabel, shipCycleTempo, type ShipCycleTempoResult } from
 import type { SupplyTide } from "./supply-tide";
 import { quayMasonryLabel } from "./dock-health";
 export { quayMasonryHealth, quayMasonryLabel } from "./dock-health";
-import { farShoreLabel } from "./psi-sky";
+import { farShoreLabel, skyCoverLabel, skyCoverWord } from "./psi-sky";
 import { deriveLampStatus, lampStatusReading } from "./lamp-status";
 import { gardenMonthRecordLabel } from "./garden-month-record";
 import { shipIssuanceDetailLabel } from "./ship-issuance";
@@ -50,6 +50,11 @@ export interface NowCaptionInput {
   hour: number;
   latestTransition: NowCaptionTransition | null;
   psi: number | null;
+  /**
+   * X3: the PSI band, for the cover word ("a clear sky" … "overcast") the
+   * painted cloud field draws. Omitted or unavailable → no cover word.
+   */
+  psiBand?: string | null;
   /** A first-visit teaching or the return-visit sentence; outranked only by a stale feed. */
   visitorLine?: string | null;
 }
@@ -121,6 +126,7 @@ function nowCaptionPhrase({
   hour,
   latestTransition,
   psi,
+  psiBand,
   visitorLine,
 }: NowCaptionInput, moon: string | null = null): Omit<NowCaptionParts, "clock"> & { clocked: boolean } {
   const staleFeed = NOW_CAPTION_FRESHNESS_LABELS.find(([key]) => freshness[key] === true);
@@ -136,9 +142,12 @@ function nowCaptionPhrase({
     ? `${latestTransition.symbol} moved to ${latestTransition.toLabel}, observed ${observedTimeLabel(latestTransition.observedAt)}`
     : null);
   if (unclocked) return { clocked: false, phrase: unclocked, clause: null, warning: false };
+  // X3: the sky's cover is a reading (market stability), so it is spoken too;
+  // it changes only when an accepted PSI band does.
+  const cover = skyCoverWord(psiBand);
   return {
     clocked: true,
-    phrase: `${phaseCaption(hour, beats, psi)}${moon ? ` · ${moon}` : ""}`,
+    phrase: `${phaseCaption(hour, beats, psi)}${cover ? ` · ${cover}` : ""}${moon ? ` · ${moon}` : ""}`,
     clause: "readings current",
     warning: false,
   };
@@ -153,7 +162,9 @@ function nowCaptionPhrase({
  */
 export function nowCaptionParts(input: NowCaptionInput): NowCaptionParts {
   const beat = dominantDayBeat(input.beats);
-  const moon = beat === "night" || beat === "blue" ? gardenMoonPhrase(input.hour) : null;
+  // Low cloud and overcast hide the moon, so the line does not name it.
+  const hidden = ["CRISIS", "MELTDOWN"].includes(input.psiBand?.toUpperCase() ?? "");
+  const moon = (beat === "night" || beat === "blue") && !hidden ? gardenMoonPhrase(input.hour) : null;
   const { clocked, ...parts } = nowCaptionPhrase(input, moon);
   return { clock: clocked ? clockLabel(input.hour) : null, ...parts };
 }
@@ -177,10 +188,11 @@ function marketCapLabel(value: number): string {
   return Number.isFinite(value) && value > 0 ? usd.format(value) : "Unavailable";
 }
 
-export function wreckSilhouetteLabel(marker: GraveNode["visual"]["marker"]): string {
-  if (marker === "grounded" || marker === "sinking-stern") return "Substantial hull — much of the vessel remains";
-  if (marker === "broken-keel") return "Broken keel — the hull has split around exposed frames";
-  return "Bare remains — keel and ribs are exposed";
+/** X1: where the grave's stone lies in the stone garden, by cause family. */
+export function gardenStoneLabel(family: GraveNode["visual"]["family"]): string {
+  if (family === "lost-peg") return "A reclining stone in the west islands — the peg broke";
+  if (family === "counterparty") return "An arching stone in the centre island — a counterparty failed";
+  return "A flat stone in the east islands — wound down";
 }
 
 export interface ShipFleetRank {
@@ -772,17 +784,17 @@ export function fleetPegLabel(mast: LighthouseNode["signalMast"]): string | null
 }
 
 /**
- * The tide-stain, in words: how high the sea got and how much window there was
- * to get there.
+ * The worst PSI band of the trailing 30 days, in words: how far the index fell
+ * and how much window there was to fall in. A DOM record (X2 retired its salt
+ * courses on the terrace).
  *
- * Never says "calm". A BEDROCK mark says the sea never rose past the footing —
- * a claim about the RECORD — while an absent history says the rocks are
- * unstained because nothing was read, which is a claim about the evidence. The
- * two must not collapse into one sentence, because unstained rock looks
- * identical either way.
+ * Never says "calm". A BEDROCK record says the index never left its calmest
+ * band — a claim about the RECORD — while an absent history says nothing was
+ * read, which is a claim about the evidence. The two must not collapse into
+ * one sentence.
  */
 export function highWaterMarkLabel(mark: LighthouseNode["highWaterMark"]): string {
-  if (!mark || mark.unavailable) return "Unstained — no index history to read";
+  if (!mark || mark.unavailable) return "Unavailable — no index history to read";
   const window = mark.spanDays > 0
     ? `${pluralize(mark.spanDays, "day")} on record`
     : "a single reading on record";
@@ -790,7 +802,7 @@ export function highWaterMarkLabel(mark: LighthouseNode["highWaterMark"]): strin
   const dated = depegEventDateLabel(mark.at);
   const when = dated ? ` on ${dated}` : "";
   if (mark.severity === 0) {
-    return `${mark.band}${score}${when} — the sea never rose past the footing; ${window}`;
+    return `${mark.band}${score}${when} — the index never left its calmest band; ${window}`;
   }
   return `${mark.band}${score}${when}; ${window}`;
 }
@@ -853,6 +865,7 @@ export function detailForLighthouse(
       { label: "Band", value: node.psiBand ?? "Unavailable" },
       { label: "Market stability", value: node.unavailable ? "Unavailable" : freshness.stabilityStale ? "Stale — last good clarity held" : "Current PSI observation" },
       { label: "Far shore", value: farShoreLabel(node.psiBand, node.unavailable) },
+      { label: "Sky cover", value: skyCoverLabel(node.psiBand, node.unavailable) },
       { label: "Snapshot as of", value: generatedAt != null && Number.isFinite(generatedAt) && generatedAt > 0 ? new Date(generatedAt).toISOString() : "Unavailable" },
       ...(trend ? [{ label: "Trend", value: trend }] : []),
       ...(composition ? [{ label: "Composition", value: composition }] : []),
@@ -971,13 +984,16 @@ export function cargoTideLabel(tide: DockNode["cargoTide"]): string | null {
 export function supplyTideLabel(tide: SupplyTide | undefined): string | null {
   if (!tide || tide.state === "unavailable") return null;
   const figure = `${tide.change7dPct! > 0 ? "+" : ""}${tide.change7dPct!.toFixed(2)}%`;
+  // X2: the words for what the tidal flat shows (its offset is √-compressed
+  // against a 2% week, so "mostly" starts at a 0.5% move).
+  const extent = Math.abs(tide.offset) >= 0.5 ? "mostly" : "partly";
   switch (tide.state) {
     case "flood":
-      return `${figure} rising — supply grew this week`;
+      return `${figure} rising — supply grew this week; the tidal flat stands ${extent} covered`;
     case "ebb":
-      return `${figure} falling — supply shrank this week`;
+      return `${figure} falling — supply shrank this week; the tidal flat lies ${extent} bare`;
     default:
-      return `${figure} slack — supply held flat this week`;
+      return `${figure} slack — supply held flat this week; the water stands at the tide-stone`;
   }
 }
 
@@ -1411,7 +1427,7 @@ export function detailForGrave(node: GraveNode): DetailModel {
     facts: [
       { label: "Symbol", value: node.entry.symbol },
       { label: "Cause", value: causeLabel },
-      { label: "Wreck silhouette", value: wreckSilhouetteLabel(node.visual.marker) },
+      { label: "Stone garden", value: gardenStoneLabel(node.visual.family) },
       { label: "Date", value: node.entry.deathDate },
       ...(node.entry.peakMcap != null && Number.isFinite(node.entry.peakMcap)
         ? [{ label: "Peak market cap", value: usd.format(node.entry.peakMcap) }]

@@ -29,7 +29,7 @@ import {
   type StationNobori,
   type StationType,
 } from "../systems/dock-layout";
-import { GARDEN_DOCK_ROOT_Y, GARDEN_WATER_Y as WATER_LEVEL } from "../systems/garden-observatory-slice";
+import { GARDEN_DOCK_ROOT_Y } from "../systems/garden-observatory-slice";
 import { quayMasonryHealth } from "../systems/dock-health";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { REST_SEAT_EYE_LANDSCAPE } from "../systems/rest-seat";
@@ -177,7 +177,6 @@ export interface HarborNorenSpec {
 export const CARGO_TIDE_SLOTS = 6;
 export interface CargoTideSlot { x: number; y: number; z: number }
 export interface CargoTideLanes { aboard: CargoTideSlot[]; ashore: CargoTideSlot[] }
-export interface DockTideFace { x: number; y: number; z: number; width: number }
 export interface DockRecipe {
   dock: DockNode;
   station: DockStationContract;
@@ -191,7 +190,6 @@ export interface DockRecipe {
   /** Ridge chimney anchor for the three hearth archetypes; null elsewhere. */
   chimney: StationChimneyAnchor | null;
   cargoTideLanes: CargoTideLanes;
-  tideFace: DockTideFace;
   footprint: StationFootprint;
   features: HarborStationFeatures;
   identity: HarborIdentity;
@@ -465,7 +463,6 @@ export function authorDock(
     rootMatrix: root.matrix.clone(),
     signature: identity.signature,
     station,
-    tideFace: { width: quayLength, x: quayX, y: WATER_LEVEL - GARDEN_DOCK_ROOT_Y, z: quayWidth / 2 + 0.03 },
   };
 }
 

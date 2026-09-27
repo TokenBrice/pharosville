@@ -103,14 +103,14 @@ describe("buildDetailFactSections folds", () => {
     ]);
   });
 
-  it("renders the wreck silhouette in grave details", () => {
+  it("renders the stone garden row in grave details", () => {
     const { identity } = buildDetailFactSections([
-      { label: "Wreck silhouette", value: "Broken keel — the hull has split around exposed frames" },
+      { label: "Stone garden", value: "A reclining stone in the west islands — the peg broke" },
     ]);
     expect(identity).toEqual([{
-      key: "wreckSilhouette",
-      label: "Wreck silhouette",
-      value: "Broken keel — the hull has split around exposed frames",
+      key: "gardenStone",
+      label: "Stone garden",
+      value: "A reclining stone in the west islands — the peg broke",
     }]);
   });
   it("folds Bluechip audit into the Class row", () => {

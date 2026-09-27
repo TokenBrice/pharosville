@@ -209,10 +209,18 @@ export type GardenRitualKind =
   | "moonrise"
   | "meteor"
   | "seasonal-visitor"
-  | "crossing";
+  | "crossing"
+  // Ext (X5a): geese at first light in the migration kō; rings on still water by day.
+  | "dawn-skein"
+  | "fish-rings"
+  // Ext (X5b): the island maple lets go of its leaves in one afternoon gust.
+  | "tree-lets-go"
+  // Ext (X1): on an anniversary evening a lantern is lit in the stone garden, with the kindling.
+  | "anniversary-lantern";
 
 export const GARDEN_RITUAL_KINDS: readonly GardenRitualKind[] = [
   "heron-arrives", "heron-departs", "kindling", "moonrise", "meteor", "seasonal-visitor", "crossing",
+  "dawn-skein", "fish-rings", "tree-lets-go", "anniversary-lantern",
 ];
 
 /**

@@ -14,7 +14,7 @@ import { isDebugChromeEnabled, recordDebugDirectorAdmission } from "./lib/pharos
 import { useShipLogoAssets } from "./hooks/use-ship-logo-assets";
 import { useChangelogDialog } from "./hooks/use-changelog-dialog";
 import { useLegendDialog } from "./hooks/use-legend-dialog";
-import { useCanvasResizeAndCamera, type CameraSelectionSubject } from "./hooks/use-canvas-resize-and-camera";
+import { useCanvasResizeAndCamera, WANDER_KEY, type CameraSelectionSubject } from "./hooks/use-canvas-resize-and-camera";
 import { useHarborLog } from "./hooks/use-harbor-log";
 import { useGardenAlmanac } from "./hooks/use-garden-almanac";
 import { gardenScoreMotionGifts } from "./systems/garden-score";
@@ -66,7 +66,6 @@ import { playGardenSoundBeat } from "./hooks/use-garden-sound";
 import { registerRitual } from "./systems/garden-director";
 import { buildObserveSequence, type ObserveBeatKind } from "./systems/observe-sequence";
 import type { ObserveTourKeyframe } from "./systems/observe-tour";
-import { GARDEN_ATTRACT_IDLE_MS, gardenAttractKeyframes } from "./systems/garden-attract";
 import { buildQuickFindCandidates } from "./systems/quick-find-match";
 import { recentFleetTrendSummary } from "./systems/sea-state";
 import { CAMERA_BREATH_IDENTITY, tileToIso, type CameraBreath, type IsoCamera, type ScreenPoint } from "./systems/projection";
@@ -108,7 +107,6 @@ const OBSERVE_TOUR_KIND_ZOOM: Record<ObserveBeatKind, number> = {
 function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const [osReducedMotion, setReducedMotion] = useState(true);
   const [still, setStill] = useState(false);
-  const [lightControlsOpen, setLightControlsOpen] = useState(false);
   const reducedMotion = osReducedMotion || still;
   const [motionPreferenceResolved, setMotionPreferenceResolved] = useState(false);
   const shellRef = useRef<HTMLElement | null>(null);
@@ -200,21 +198,25 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     requestPaint: requestWorldFrame,
   });
   // G3/W4.1: one director owns every beat (almanac, arrivals, keeper, fog,
-  // attract). Seeded by the UTC day so a watch log is reproducible; frozen
+  // rituals). Seeded by the UTC day so a watch log is reproducible; frozen
   // under reduced motion.
   const gardenDirector = useGardenDirector({
     seed: timeControls.utcDayKey,
     timeSeconds: timeControls.timeSeconds,
     reducedMotion,
   });
-  // W7: sound is opt-in; nothing is created or fetched until the Sound switch.
-  const gardenSound = useGardenSound();
   // W5.1: the day score (seeded by the UTC day) and its ledger/sound side.
+  const cemeteryFalls = useMemo(() => world.graves.map(({ entry }) => ({
+    deathDate: entry.deathDate,
+    name: entry.name,
+    peakMcap: entry.peakMcap ?? null,
+  })), [world.graves]);
   const gardenAlmanac = useGardenAlmanac({
     date: timeControls.date,
     director: gardenDirector,
     utcDayKey: timeControls.utcDayKey,
     wallClockHour: timeControls.wallClockHour,
+    falls: cemeteryFalls,
   });
   useLiveTitle(world);
 
@@ -401,7 +403,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   }, [world]);
 
   const canvas = useCanvasResizeAndCamera({
-    gardenDirector,
     hasSelection,
     hitTargetSnapshotRef,
     hitTargetsRef,
@@ -441,7 +442,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     const slice = selectGardenObservatorySlice(world, detailId);
     const shipMotionSamples = shipMotionSamplesRef.current;
     const displayTile = resolveGardenEntityDisplayTile({ entity, shipMotionSamples, slice });
-    const framed = entity.kind === "ship" || entity.kind === "dock" || entity.kind === "lighthouse";
+    const framed = entity.kind === "ship" || entity.kind === "dock" || entity.kind === "grave" || entity.kind === "lighthouse";
     if (!displayTile || !framed) {
       queueMicrotask(markPanelReady);
       return;
@@ -473,7 +474,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       }
       : entity.kind === "dock"
         ? { dock: entity, kind: "dock", obstacles }
-        : { kind: "lighthouse" };
+        : entity.kind === "grave"
+          ? { kind: "grave", obstacles, tile: displayTile }
+          : { kind: "lighthouse" };
     const returnCamera = focusCanvasSelection(subject, markPanelReady);
     if (!selectionReturnCameraRef.current && returnCamera) {
       selectionReturnCameraRef.current = returnCamera;
@@ -760,12 +763,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const observingTour = observeIndex !== null && !reducedMotion && threeExperienceReady;
   const startObserveTour = canvas.startObserveTour;
   const stopObserveTour = canvas.stopObserveTour;
-  const startAttractTour = canvas.startAttractTour;
-  const stopAttractTour = canvas.stopAttractTour;
-  const attractKeyframes = useMemo(
-    () => gardenAttractKeyframes(world.lighthouse.tile),
-    [world.lighthouse.tile],
-  );
   // W6.9 Stay: entering clears the stage and glides home to the rest shot.
   const enterStayScene = useCallback(() => {
     if (legend.legendOpen) legend.closeLegend();
@@ -774,63 +771,28 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     setQuickFindOpen(false);
     setObserveIndex(null);
     clearSelection();
-    stopAttractTour();
     handleCanvasResetView();
-  }, [changelog, clearSelection, handleCanvasResetView, legend, stopAttractTour]);
+  }, [changelog, clearSelection, handleCanvasResetView, legend]);
   const { enterStay, stay } = useStayMode({ onEnter: enterStayScene, setAnnouncement, shellRef });
-  useEffect(() => {
-    const eligible = threeExperienceReady
-      && !reducedMotion
-      && observeIndex === null
-      && selectedDetailId === null
-      && !gardenAlmanac.attentionActive
-      && !legend.legendOpen && !changelog.changelogOpen && !harborLedgerOpen && !quickFindOpen && !lightControlsOpen
-      // K44: Stay holds the rest shot and runs no attract.
-      && !stay;
-    if (!eligible) {
-      stopAttractTour();
-      return;
+  // X6 / K44: the idle state is the rest shot; the postcard book is an action.
+  // "Wander" (the word, or W) glides to the next card and holds; any other
+  // input glides home. A selection closes without its own return glide.
+  const wanderCanvas = canvas.wander;
+  const handleWander = useCallback(() => {
+    if (stay) return;
+    if (selectedDetailIdRef.current !== null) {
+      selectionReturnCameraRef.current = null;
+      clearSelection();
     }
-    let timer = 0;
-    const schedule = () => {
-      window.clearTimeout(timer);
-      if (document.visibilityState === "hidden") return;
-      timer = window.setTimeout(() => startAttractTour(attractKeyframes), GARDEN_ATTRACT_IDLE_MS);
-    };
-    const takeAgency = () => {
-      stopAttractTour();
-      schedule();
-    };
-    const handleVisibility = () => {
-      stopAttractTour();
-      schedule();
-    };
-    const events = ["pointermove", "pointerdown", "wheel", "keydown", "touchstart"] as const;
-    for (const eventName of events) document.addEventListener(eventName, takeAgency, { passive: true });
-    document.addEventListener("visibilitychange", handleVisibility);
-    schedule();
-    return () => {
-      window.clearTimeout(timer);
-      stopAttractTour();
-      for (const eventName of events) document.removeEventListener(eventName, takeAgency);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [
-    attractKeyframes,
-    legend.legendOpen,
-    changelog.changelogOpen,
-    harborLedgerOpen,
-    quickFindOpen,
-    lightControlsOpen,
-    gardenAlmanac.attentionActive,
-    observeIndex,
-    reducedMotion,
-    selectedDetailId,
-    startAttractTour,
-    stopAttractTour,
-    stay,
-    threeExperienceReady,
-  ]);
+    setObserveIndex(null);
+    const card = wanderCanvas();
+    if (card) setAnnouncement(`Wandering: ${card.title}. Press any key to return to the harbour view.`);
+    // selectedDetailIdRef omitted: ref identity never changes (HOOKS F4).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clearSelection, setAnnouncement, stay, wanderCanvas]);
+  // W7: sound is opt-in; nothing is created or fetched until the Sound switch.
+  // X8: idle in Stay, the mix takes its listening pose.
+  const gardenSound = useGardenSound({ stay });
   useEffect(() => {
     if (!observingTour || observeSequence.length === 0) return;
     // Observe 2.0 (Phase 4): resolve every beat's display tile up front and
@@ -1058,6 +1020,19 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // entry point, so it must not steal the key from anything that takes typing.
   const quickFindCandidates = useMemo(() => buildQuickFindCandidates(world), [world]);
   const referencePanelOpen = changelog.changelogOpen || legend.legendOpen || harborLedgerOpen;
+  // X6: W wanders, under the same guards as `/`.
+  useEffect(() => {
+    if (rendererFailed || quickFindOpen || referencePanelOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== WANDER_KEY || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (isTextEntryTarget(event.target)) return;
+      event.preventDefault();
+      handleWander();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleWander, quickFindOpen, referencePanelOpen, rendererFailed]);
+
   useEffect(() => {
     if (rendererFailed || quickFindOpen || referencePanelOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1327,11 +1302,14 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
               hour={captionHour}
               latestTransition={harborLog.current}
               psi={world.lighthouse.score}
+              psiBand={world.lighthouse.unavailable ? null : world.lighthouse.psiBand}
               reducedMotion={reducedMotion}
             />
           </div>
           <WorldControls
             onStay={enterStay}
+            onWander={handleWander}
+            wandering={canvas.wanderIndex !== null}
             onOpenFind={openQuickFind}
             onOpenLegend={openLegendExclusive}
             onOpenLedger={openHarborLedgerExclusive}
@@ -1345,7 +1323,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             still={reducedMotion}
             osReducedMotion={osReducedMotion}
             onChangeStill={(next) => { if (next) cancelCameraIntent(); setStill(next); }}
-            onLightControlsOpen={setLightControlsOpen}
             {...(threeExperienceReady ? {
               observing: observeBeat !== null && !reducedMotion,
               onToggleObserve: handleToggleObserve,

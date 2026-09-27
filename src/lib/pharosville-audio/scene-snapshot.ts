@@ -9,6 +9,8 @@
  * renderer chunk (the writer), so it lives in the world chunk and the audio
  * chunk only ever receives it by reference.
  */
+import type { GardenDirectorState } from "../../systems/garden-director";
+
 export interface AudioSceneSnapshot {
   /** Frames written so far; 0 until the renderer has drawn once. */
   frames: number;
@@ -34,6 +36,13 @@ export interface AudioSceneSnapshot {
   baseWind: number;
   /** A director foreground beat (arrival, keeper, almanac…) owns the harbour. */
   ritual: boolean;
+  /**
+   * X8: the frame's director (a reference store, no copy) and its clock, so a
+   * borrowed far sound asks the one director for an environment slot like any
+   * other background cue. Null until the renderer has drawn with one.
+   */
+  director: GardenDirectorState | null;
+  directorSeconds: number;
   /** Eye height above the water: low at the rest seat, high over the chart. */
   eyeHeight: number;
   /** View target and the screen-right unit vector in world XZ, for gust travel. */
@@ -58,6 +67,8 @@ export const audioSceneSnapshot: AudioSceneSnapshot = {
   psiStress: 0,
   baseWind: 0,
   ritual: false,
+  director: null,
+  directorSeconds: 0,
   eyeHeight: 16,
   targetX: 0,
   targetZ: 0,
@@ -74,7 +85,8 @@ export function writeAudioSceneFrame(
     reducedMotion: boolean;
     wallClockHour: number;
     seaState: { swell: number; wind: number; source: { psiStress: number } };
-    gardenDirector?: { active: { foreground: boolean } | null } | undefined;
+    gardenDirector?: GardenDirectorState | undefined;
+    epochSeconds?: number | undefined;
   },
   beats: { night: number; blue: number },
 ): void {
@@ -89,6 +101,8 @@ export function writeAudioSceneFrame(
   out.psiStress = frame.seaState.source.psiStress;
   out.baseWind = frame.seaState.wind;
   out.ritual = frame.gardenDirector?.active?.foreground === true;
+  out.director = frame.gardenDirector ?? null;
+  out.directorSeconds = frame.epochSeconds ?? frame.timeSeconds;
 }
 
 /**

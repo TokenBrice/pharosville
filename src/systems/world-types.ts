@@ -307,25 +307,24 @@ export function psiBandSeverity(band: string | null | undefined): number | null 
   return index >= 0 ? index : null;
 }
 
-/** Trailing window the lighthouse tide-stain reads, in days. */
+/** Trailing window the lighthouse Worst band, 30d record reads, in days. */
 export const HIGH_WATER_MARK_WINDOW_DAYS = 30;
 
 /**
- * The worst PSI band the fleet reached in the trailing window, stained on the
- * lighthouse's terrace as a high-water mark.
+ * The worst PSI band the fleet reached in the trailing window — the lighthouse
+ * detail's "Worst band, 30d" record (its terrace salt courses retired in X2).
  *
  * `stability.history` has been arriving in the browser since the world was
  * built and nothing has ever read it — the world knew only `current`, so a
  * harbour that spent three weeks in FRACTURE and recovered yesterday looked
  * exactly like one that has never been anything but calm. This is the
  * difference between the two, and it is deliberately a RECORD rather than a
- * condition: the mark does not move, does not pulse, and never colours toward
- * the danger end of the palette. The sea rose this far; here is the line.
+ * condition.
  */
 export interface LighthouseHighWaterMark {
   /** Worst band in the window, or null when the history yielded nothing. */
   band: string | null;
-  /** `PSI_BAND_SEVERITY` rank of `band`; also the number of stain courses. */
+  /** `PSI_BAND_SEVERITY` rank of `band`. */
   severity: number | null;
   /** Score of the point that set the mark. */
   score: number | null;
@@ -388,7 +387,7 @@ export interface LighthouseNode {
   lastFleetDepegAt?: number | null;
   /** Fleet-wide peg condition, hoisted on the observatory signal mast. */
   signalMast?: SignalMastNode;
-  /** Worst PSI band of the trailing window, stained on the terrace rocks. */
+  /** Worst PSI band of the trailing window (the DOM Worst band, 30d record). */
   highWaterMark?: LighthouseHighWaterMark;
   /** Thirty-day PSI record expressed as slow garden growth and weathering. */
   gardenMonthRecord?: GardenMonthRecord;
@@ -669,14 +668,24 @@ export interface ShipDepegHistory {
   lastEventAt: number | null;
 }
 
+/**
+ * X1 (O8): the stone garden groups the fallen by how they died. The cemetery
+ * ledger's five causes fold into three families: the peg broke
+ * (algorithmic failure, liquidity drain), a counterparty failed, or the coin
+ * was wound down (abandoned, regulatory).
+ */
+export type GraveFamily = "lost-peg" | "counterparty" | "wound-down";
+
 export interface GraveNode {
   id: string;
   kind: "grave";
   label: string;
   entry: CemeteryEntry;
+  /** The grave's set stone in the stone garden on the Wreck Shoal shore. */
   tile: { x: number; y: number };
   visual: {
-    marker: "broken-keel" | "sinking-stern" | "grounded" | "shattered" | "skeletal";
+    family: GraveFamily;
+    /** Stone size in world units, by peak market cap (log). */
     scale: number;
   };
   detailId: string;

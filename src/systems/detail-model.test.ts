@@ -405,7 +405,7 @@ describe("detail-model analytical links", () => {
         sourceLabel: "UST postmortem",
       },
       tile: { x: 1, y: 1 },
-      visual: { marker: "broken-keel", scale: 1 },
+      visual: { family: "lost-peg", scale: 1 },
       detailId: "grave.ust-terra",
     } satisfies GraveNode);
 
@@ -413,7 +413,7 @@ describe("detail-model analytical links", () => {
     expect(detail.paragraphs).toEqual(["The largest stablecoin collapse in history."]);
     expect(detail.facts).toEqual(expect.arrayContaining([
       { label: "Cause", value: "Algorithmic Failure" },
-      { label: "Wreck silhouette", value: "Broken keel — the hull has split around exposed frames" },
+      { label: "Stone garden", value: "A reclining stone in the west islands — the peg broke" },
       { label: "Peak market cap", value: "$18,770,471,902" },
     ]));
     expect(detail.facts.find((fact) => fact.label === "Obituary")).toBeUndefined();
@@ -445,7 +445,7 @@ describe("detail-model analytical links", () => {
         sourceLabel: "NuBits writeup",
       },
       tile: { x: 1, y: 1 },
-      visual: { marker: "skeletal", scale: 1 },
+      visual: { family: "wound-down", scale: 1 },
       detailId: "grave.nbt-nubits",
     } satisfies GraveNode);
 
@@ -473,7 +473,7 @@ describe("detail-model analytical links", () => {
         sourceLabel: "Unsafe writeup",
       },
       tile: { x: 1, y: 1 },
-      visual: { marker: "skeletal", scale: 1 },
+      visual: { family: "wound-down", scale: 1 },
       detailId: "grave.unsafe",
     } satisfies GraveNode);
 
@@ -1710,11 +1710,11 @@ describe("detail-model P3 metaphor quick-win signals", () => {
     // Two decimals, not one: a ~$330B float moves in hundredths of a percent, and
     // one decimal would round most real weeks to a meaningless "0.0%".
     expect(supplyTideLabel({ change7dPct: 0.0187, offset: 0.1, state: "flood" }))
-      .toBe("+0.02% rising — supply grew this week");
+      .toBe("+0.02% rising — supply grew this week; the tidal flat stands partly covered");
     expect(supplyTideLabel({ change7dPct: -0.92, offset: -0.68, state: "ebb" }))
-      .toBe("-0.92% falling — supply shrank this week");
+      .toBe("-0.92% falling — supply shrank this week; the tidal flat lies mostly bare");
     expect(supplyTideLabel({ change7dPct: 0.004, offset: 0, state: "slack" }))
-      .toBe("+0.00% slack — supply held flat this week");
+      .toBe("+0.00% slack — supply held flat this week; the water stands at the tide-stone");
   });
 
   it("supplyTideLabel omits the row entirely rather than reporting a flat tide it never measured", () => {
@@ -1938,7 +1938,7 @@ describe("detail-model round-two metaphor signals", () => {
   });
 
   describe("3c — high-water mark", () => {
-    it("distinguishes an unstained rock from a rock nothing was read for", () => {
+    it("distinguishes a calm record from a record nothing was read for", () => {
       const bedrock = highWaterMarkLabel({
         band: "BEDROCK",
         severity: 0,
@@ -1948,14 +1948,13 @@ describe("detail-model round-two metaphor signals", () => {
         spanDays: 29,
         unavailable: false,
       });
-      expect(bedrock).toContain("never rose past the footing");
+      expect(bedrock).toContain("never left its calmest band");
       expect(bedrock).toContain("29 days on record");
 
       const missing = highWaterMarkLabel(undefined);
       expect(missing).toContain("no index history to read");
-      // The evidence claim and the record claim must never share a sentence:
-      // bare stone looks identical either way.
-      expect(missing).not.toContain("never rose");
+      // The evidence claim and the record claim must never share a sentence.
+      expect(missing).not.toContain("never left");
     });
 
     it("names the band, its score, its date, and how much window there was", () => {

@@ -1,9 +1,7 @@
 import { Color, type Material } from "three";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
-import type { SupplyTide } from "../systems/supply-tide";
 import { chainGardenMaterialPatch } from "./garden-aerial";
-import { TIDE_DATUM_RISE, TIDE_DATUM_THICKNESS, tideStrandlineRise } from "./garden-tide-line";
 
 /**
  * W4.P1 / X10 — the crag finish (pharos-2 strata and benches, pharos-6 wave-cut
@@ -18,14 +16,11 @@ import { TIDE_DATUM_RISE, TIDE_DATUM_THICKNESS, tideStrandlineRise } from "./gar
  *   alternating hard and soft stone with a shadow line under each proud bed,
  *   faded out once a course is smaller than a few pixels (no moiré, no 1-px
  *   line at whole-map distance).
- * - **Tide-wet skirt**: darker stone (wet sand on the beach) up to the supply
- *   tide's strandline, hard top edge, grading lighter upward — the same reading
- *   `sampleTideLine` paints on the quay plates, so the island carries the cue
- *   instead of hiding it. With no tide reading only a low splash foot is wet,
- *   which never lands on the datum and so never reads as a slack week.
- * - **Datum notch**: scored iron at the fixed datum height (distinct from salt).
+ * - **Wet foot**: darker stone (wet sand on the beach) up to a low splash
+ *   line, hard top edge, grading lighter upward. It is spray, not a reading:
+ *   the supply tide lives on the tidal flat alone (X2, K45), so the crag
+ *   carries no strandline, datum or salt line.
  * - **Wave-cut notch**: a shadowed undercut just above the water on the faces.
- * - **High-water salt line**: one pale band above the tide's widest excursion.
  *
  * Value only: nothing here touches roughness, metalness or the environment, so
  * the wet band is darker, never glazed.
@@ -33,10 +28,8 @@ import { TIDE_DATUM_RISE, TIDE_DATUM_THICKNESS, tideStrandlineRise } from "./gar
 
 /** Height of one bedding course, world units (≈ 11 px at the rest seat). */
 const STRATA_PERIOD = 0.9;
-/** Wet foot height when the tide has no reading: spray, below every strandline read. */
-const SPLASH_FOOT = 0.12;
-/** The pale salt band sits just above the tide's widest excursion (2 × datum). */
-const HIGH_WATER_RISE = TIDE_DATUM_RISE * 2 + 0.05;
+/** Wet foot height above still water: spray, not a reading. */
+const SPLASH_FOOT = 0.22;
 /**
  * Wet stone keeps its own hue but loses about half its value and cools toward
  * the submerged stone: a relative multiply (the wet hue normalised to its
@@ -44,8 +37,6 @@ const HIGH_WATER_RISE = TIDE_DATUM_RISE * 2 + 0.05;
  */
 const WET_HUE = new Color(HARBOR_PALETTE.stone_dark).lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.55);
 const WET_MULTIPLY = WET_HUE.clone().multiplyScalar(0.36 / Math.max(WET_HUE.r, WET_HUE.g, WET_HUE.b));
-const IRON = new Color(HARBOR_PALETTE.iron_dark);
-const SALT = new Color(HARBOR_PALETTE.foam_white).multiplyScalar(0.62);
 
 function vec3(color: Color): string {
   return `vec3( ${color.r.toFixed(4)}, ${color.g.toFixed(4)}, ${color.b.toFixed(4)} )`;
@@ -74,14 +65,12 @@ const VERTEX_BODY = /* glsl */ `
 `;
 
 const FRAGMENT_PARS = /* glsl */ `
-uniform float uCragStrandline;
 varying vec3 vCragLocal;
 varying float vCragUp;
 `;
 
-// Wet stone follows `sampleTideLine`'s weights (0.65 at the hard edge → 1 at
-// 0.38 below it) as a relative multiply, so pebble and rock keep their hue.
-// The datum is scored into rock faces only; on the beach it would be a stripe.
+// Wet stone is a relative multiply (0.65 at the hard edge → 1 at 0.38 below
+// it), so pebble and rock keep their hue.
 const FRAGMENT_BODY = /* glsl */ `
 {
   float cragAbove = vCragLocal.y - ${float(GARDEN_WATER_Y)};
@@ -97,47 +86,26 @@ const FRAGMENT_BODY = /* glsl */ `
   float cragStrata = mix( 0.86, 1.08, cragLot ) * ( 1.0 - 0.34 * cragLedge );
   diffuseColor.rgb *= mix( 1.0, cragStrata, cragSteep * cragResolve * step( 0.0, cragAbove ) );
 
-  bool cragReading = uCragStrandline >= 0.0;
-  float cragSkirt = cragReading ? uCragStrandline : ${float(SPLASH_FOOT)};
+  float cragSkirt = ${float(SPLASH_FOOT)};
   float cragWetEdge = 1.0 - smoothstep( cragSkirt - 0.015, cragSkirt + 0.015, cragAbove );
   float cragWet = cragWetEdge * ( 0.65 + 0.35 * clamp( ( cragSkirt - cragAbove ) / 0.38, 0.0, 1.0 ) );
   diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * ${vec3(WET_MULTIPLY)}, cragWet * 0.85 );
 
   float cragNotch = cragSteep * ( 1.0 - smoothstep( 0.05, 0.2, abs( cragAbove - 0.06 ) ) );
   diffuseColor.rgb *= 1.0 - 0.6 * cragNotch;
-
-  if ( cragReading ) {
-    float cragDatum = 1.0 - smoothstep(
-      ${float(TIDE_DATUM_THICKNESS / 2)}, ${float(TIDE_DATUM_THICKNESS / 2 + 0.015)},
-      abs( cragAbove - ${float(TIDE_DATUM_RISE)} )
-    );
-    diffuseColor.rgb = mix( diffuseColor.rgb, ${vec3(IRON)}, 0.7 * cragDatum * cragSteep );
-  }
-
-  float cragSalt = cragSteep * ( 1.0 - smoothstep( 0.035, 0.085, abs( cragAbove - ${float(HIGH_WATER_RISE)} ) ) );
-  float cragSaltResolve = 1.0 - smoothstep( 0.06, 0.14, fwidth( cragAbove ) );
-  diffuseColor.rgb = mix( diffuseColor.rgb, ${vec3(SALT)}, 0.42 * cragSalt * cragSaltResolve );
 }
 `;
 
 export const GARDEN_CRAG_FINISH_KEY = "garden-crag-finish";
 
-/** Strandline height above still water, or −1 when the tide has no reading. */
-export function gardenCragStrandline(tide: SupplyTide | undefined): number {
-  return tide && tide.state !== "unavailable" ? tideStrandlineRise(tide) : -1;
-}
-
 /**
  * Chains the crag finish onto a rock material through the shared patch chain
- * (K5). Works on plain meshes (root-local position) and instanced ones. The
- * tide is a uniform, so every island build shares one program.
+ * (K5). Works on plain meshes (root-local position) and instanced ones.
  */
-export function applyGardenCragFinish(material: Material, tide: SupplyTide | undefined): void {
-  const strandline = { value: gardenCragStrandline(tide) };
+export function applyGardenCragFinish(material: Material): void {
   chainGardenMaterialPatch(material, {
     key: GARDEN_CRAG_FINISH_KEY,
     compile: (shader) => {
-      shader.uniforms.uCragStrandline = strandline;
       shader.vertexShader = shader.vertexShader
         .replace("#include <common>", `#include <common>\n${VERTEX_PARS}`)
         .replace("#include <begin_vertex>", `#include <begin_vertex>\n${VERTEX_BODY}`);

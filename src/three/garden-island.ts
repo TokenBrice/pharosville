@@ -39,8 +39,7 @@ import {
 import { GARDEN_ISLAND_OBSTACLE } from "../systems/garden-water-exclusion";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { TILE_SCALE } from "../systems/projection";
-import { gardenSnowCover, seasonalPhenology } from "../systems/garden-calendar";
-import type { SupplyTide } from "../systems/supply-tide";
+import { GARDEN_LETS_GO_TREE, gardenSnowCover, gardenTreeLetsGo, seasonalPhenology } from "../systems/garden-calendar";
 import type { PharosVilleWorld } from "../systems/world-types";
 import type { WeatherPlan } from "../systems/weather";
 import { createLighthouse } from "./garden-lighthouse";
@@ -51,15 +50,15 @@ import { MOON_COLOR, type DayCyclePhase } from "./garden-day-cycle";
 import { gardenMoonPose, type GardenLightPose } from "./garden-sun";
 import { OVERVIEW_LOD_DETAIL_NAMES } from "./garden-overview-lod";
 import { GARDEN_IDENTITY_ANISOTROPY, countDrawableObjects, setTilePosition, stableUnit } from "./garden-util";
-import { sampleTideLine } from "./garden-tide-line";
 import { applyGardenCragFinish } from "./garden-crag-finish";
 import type { GardenCloudShadowSource } from "./garden-water-contract";
 import {
   createDeciduousSpecimen,
   createSpeciesBatch,
-  deciduousCrownMass,
   deciduousLeafColor,
   GARDEN_FLORA_COLORS,
+  GARDEN_LETS_GO_PAD_BAND,
+  type GardenLetsGoCrown,
   patchGardenFloraNight,
   patchGardenFoliage,
   patchGardenInstancedWindSway,
@@ -80,7 +79,6 @@ const scratchLeanQuaternion = new Quaternion();
 const WATERLINE_Y = WATER_LEVEL;
 
 /** The datum notch: scored iron, not the salt crust the PSI mark already uses. */
-const TIDE_DATUM_IRON = new Color(HARBOR_PALETTE.iron_dark);
 const CROWN_RAMP_Y = 3.4;
 const STONE_WET = new Color(HARBOR_PALETTE.stone_dark)
   .lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.3);
@@ -92,9 +90,8 @@ const STONE_PALE = new Color(HARBOR_PALETTE.fog_day)
 // so the tower's lit face stays the brightest land value: cool dark stone low,
 // a greyer stone high (never the tower's limestone), moss held to a dark olive
 // on the benches, a mid-value court, and a pebble beach on the lee that is
-// the island's pale note yet stays under the tower. Strata, the tide-wet
-// skirt, the notch and the salt line are drawn per fragment
-// (`garden-crag-finish.ts`).
+// the island's pale note yet stays under the tower. Strata, the wet foot and
+// the notch are drawn per fragment (`garden-crag-finish.ts`).
 const CRAG_ROCK_LOW = new Color(HARBOR_PALETTE.stone_dark)
   .lerp(new Color(HARBOR_PALETTE.stone_mid), 0.6)
   .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.15);
@@ -455,9 +452,9 @@ const scratchCragPlane = new Color();
  * Paints one headland vertex by its authored plane: rock on the steep faces
  * (dark low, greyer high), dark moss on the benches, a mid-value court on the
  * crown, pebbles on the lee beach and a wet platform at the seaward foot.
- * Everything at the waterline and finer than the grid — strata, the tide-wet
- * skirt, the notch, the datum and the salt line — is drawn per fragment by
- * `applyGardenCragFinish`; here only the stone under still water darkens.
+ * Everything at the waterline and finer than the grid — strata, the wet foot
+ * and the notch — is drawn per fragment by `applyGardenCragFinish`; here only
+ * the stone under still water darkens.
  */
 function cragColor(
   x: number,
@@ -919,6 +916,8 @@ export function createTerracedIsland(
   beaconHalo: Mesh<SphereGeometry, MeshBasicMaterial>;
   beam: Group;
   decoration: Group;
+  /** X5: the island maple, the one tree that lets go (world anchor under its crown). */
+  letsGoTree: GardenIslandLetsGoTree;
   lighthouseLight: PointLight;
   lighthouseRoot: Group;
   lighthouseShell: Group;
@@ -930,14 +929,14 @@ export function createTerracedIsland(
 
   // W1.9 (the hand, §1.1): organic masses are smooth-shaded; the crag's value
   // comes from its authored planes in vertex colour, not from facets, and its
-  // W4.P1 finish (strata, tide-wet skirt, notch, salt line) from value planes
-  // drawn per fragment.
+  // W4.P1 finish (strata, wet foot, notch) from value planes drawn per
+  // fragment.
   const cragMaterial = new MeshStandardMaterial({
     roughness: 0.95,
     roughnessMap: createMossRoughnessTexture(),
     vertexColors: true,
   });
-  applyGardenCragFinish(cragMaterial, world.supplyTide);
+  applyGardenCragFinish(cragMaterial);
   const crag = new Mesh(createCragHeadlandGeometry(), cragMaterial);
   crag.name = GARDEN_CRAG_HEADLAND_NAME;
   crag.castShadow = true;
@@ -957,8 +956,11 @@ export function createTerracedIsland(
   lighthouse.beacon.userData.gardenKeepSeparate = true;
   lighthouseRoot.add(lighthouse.root);
 
-  const decoration = createIslandDecoration(date);
+  const letsGoTree: GardenIslandLetsGoTree = { anchor: new Vector3(), crown: { value: 1 } };
+  const decoration = createIslandDecoration(date, letsGoTree);
   root.add(decoration);
+  // The maple's crown centre, in world units (the island root only translates).
+  letsGoTree.anchor.add(root.position);
   root.add(createRakedCourt());
   const reflectionPond = createIslandReflectionPond();
   root.add(
@@ -969,7 +971,7 @@ export function createTerracedIsland(
   root.add(
     createLandingStones(),
     createLeeBridge(),
-    createDangerRockFace(world.supplyTide),
+    createDangerRockFace(),
     createQuayStair(),
   );
   mergeIslandStatics(root);
@@ -980,6 +982,7 @@ export function createTerracedIsland(
     beaconHalo: lighthouse.beaconHalo,
     beam: lighthouse.beam,
     decoration,
+    letsGoTree,
     lighthouseLight: lighthouse.light,
     lighthouseRoot,
     lighthouseShell: lighthouse.shell,
@@ -1068,20 +1071,11 @@ export function applyGardenCloudShadows(
   });
 }
 
-function stoneRampColor(worldY: number, target: Color, tide?: SupplyTide): Color {
+function stoneRampColor(worldY: number, target: Color): Color {
   const t = clamp01((worldY - WATERLINE_Y) / (CROWN_RAMP_Y - WATERLINE_Y));
   if (t < 0.5) target.copy(STONE_WET).lerp(STONE_MID, t / 0.5);
   else target.copy(STONE_MID).lerp(STONE_PALE, (t - 0.5) / 0.5);
   target.multiplyScalar(strataShade(worldY));
-  // The tide line rides the ramp the shore rock already paints, so the band
-  // costs no geometry and no draw call. Wetting pulls the stone back toward its
-  // own submerged colour rather than toward some new ink, which is what keeps
-  // the band reading as water on rock instead of as a decal.
-  if (tide) {
-    const { datum, wet } = sampleTideLine(worldY - WATERLINE_Y, tide);
-    if (wet > 0) target.lerp(STONE_WET, wet * 0.6);
-    if (datum > 0) target.lerp(TIDE_DATUM_IRON, 0.7);
-  }
   // W5.3: salt-polished stone is darkest exactly where the water repeatedly
   // reaches it. This is vertex colour on the existing rock, not another band
   // mesh, so the waterline gains age without a draw call or data meaning.
@@ -1129,7 +1123,6 @@ export function createRockTerraceGeometry(
   baseElevation: number,
   topColor: Color,
   amplitude = 0.11,
-  tide?: SupplyTide,
 ): CylinderGeometry {
   // W4.9: enough height rows to resolve a bedding step (~3 rows per bed at
   // STRATA_PERIOD). Three rows could carry a colour band but never an edge,
@@ -1177,7 +1170,7 @@ export function createRockTerraceGeometry(
       positions.setY(index, oy + crag * vignette * height * 0.16);
     }
     const ao = 0.7 + 0.3 * v;
-    stoneRampColor(colorY, color, tide).multiplyScalar(ao);
+    stoneRampColor(colorY, color).multiplyScalar(ao);
     colors[index * 3] = color.r;
     colors[index * 3 + 1] = color.g;
     colors[index * 3 + 2] = color.b;
@@ -1209,7 +1202,7 @@ export function createRockTerraceGeometry(
             `${seed}~bare~${Math.round(vx * 2.2)}~${Math.round(vz * 2.2)}`,
           );
           const bare = clamp01(rim * 0.9 + (patch - 0.52) * 1.15);
-          stoneRampColor(baseElevation + vy, capColor, tide);
+          stoneRampColor(baseElevation + vy, capColor);
           color.copy(topColor).lerp(capColor, bare);
           // W5.3: two deterministic scales keep moss from reading as one
           // uniform green band. The coarse value drift reads at the default
@@ -1356,10 +1349,10 @@ function createKarikomi(date: Date | undefined): InstancedMesh<BufferGeometry, M
   return mesh;
 }
 
-function createIslandDecoration(date: Date | undefined): Group {
+function createIslandDecoration(date: Date | undefined, letsGo: GardenIslandLetsGoTree): Group {
   const root = new Group();
   // Five hero niwaki and one maple share one smooth-shaded draw.
-  root.add(createNiwakiGrove(date));
+  root.add(createNiwakiGrove(date, letsGo));
   // One draw of ō-karikomi waves edging the path.
   root.add(createKarikomi(date));
 
@@ -1485,8 +1478,14 @@ export const GARDEN_NIWAKI_SPECS: readonly NiwakiSpec[] = [
   { height: 5.8, kind: "momiji", leanX: -0.7, leanZ: 0.9, x: -1.8, z: 7.6 },
 ];
 
+/** The island maple as the one tree that lets go: its crown uniform and world crown centre. */
+export interface GardenIslandLetsGoTree {
+  anchor: Vector3;
+  crown: GardenLetsGoCrown;
+}
+
 /** The island maple's phenology seed (garden-calendar). */
-const GARDEN_ISLAND_MAPLE_SEED = "island-stair";
+const GARDEN_ISLAND_MAPLE_SEED = GARDEN_LETS_GO_TREE.seed;
 
 function niwakiPoint(spec: NiwakiSpec, t: number): Vector3 {
   const bend = t * t * (1.08 - t * 0.08);
@@ -1505,11 +1504,13 @@ function niwakiPoint(spec: NiwakiSpec, t: number): Vector3 {
  * pad with its own rank (bark and the maple 0), which the month record uses
  * to deepen and fill the evergreen pads, and the rare snow to find their tops.
  */
-function createNiwakiGrove(date: Date | undefined): Group {
+function createNiwakiGrove(date: Date | undefined, letsGo: GardenIslandLetsGoTree): Group {
   const root = new Group();
   root.name = "island-niwaki";
   const pieces: BufferGeometry[] = [];
   const padIds: Int32Array[] = [];
+  /** Per merged piece: the maple's pad ranks (−rank) and centres, or null. */
+  const mapleFoliage: ({ foliage: Float32Array; centres: Float32Array } | null)[] = [];
   let padTotal = 0;
   const maple = new Color();
   GARDEN_NIWAKI_SPECS.forEach((spec, index) => {
@@ -1520,23 +1521,30 @@ function createNiwakiGrove(date: Date | undefined): Group {
         ? seasonalPhenology(GARDEN_ISLAND_MAPLE_SEED, date, "momiji")
         : { turn: 0, leaf: 1, blossom: 0, flush: 0 };
       deciduousLeafColor("momiji", GARDEN_ISLAND_MAPLE_SEED, state, maple);
-      const crown = deciduousCrownMass("momiji", state);
+      // X5: the crown is a shared uniform (the calendar's day state, driven to
+      // bare by the tree-lets-go ritual); each pad carries −rank and its centre,
+      // so it shrinks into itself when the crown passes its rank.
+      letsGo.crown.value = date ? gardenTreeLetsGo(date).crown : 1;
       const position = tree.geometry.getAttribute("position");
       const color = tree.geometry.getAttribute("color");
+      const foliage = new Float32Array(position.count);
+      const centres = new Float32Array(position.count * 3);
       for (let vertex = 0; vertex < position.count; vertex += 1) {
         const pad = tree.padOfVertex[vertex]!;
         if (pad < 0) continue;
-        // Pads fall in a seeded order as the crown thins; a fallen pad folds
-        // to the root (zero-area, no fragments), the branches remain.
-        if (stableUnit(`${GARDEN_ISLAND_MAPLE_SEED}.fall.${pad}`) >= crown) {
-          position.setXYZ(vertex, 0, 0, 0);
-        }
+        foliage[vertex] = -(GARDEN_LETS_GO_PAD_BAND
+          + (1 - GARDEN_LETS_GO_PAD_BAND) * stableUnit(`${GARDEN_ISLAND_MAPLE_SEED}.fall.${pad}`));
+        const centre = tree.pads[pad]!.center;
+        centres.set([centre.x + base.x, centre.y + base.y, centre.z + base.z], vertex * 3);
         color.setXYZ(vertex, color.getX(vertex) * maple.r, color.getY(vertex) * maple.g, color.getZ(vertex) * maple.b);
       }
-      tree.geometry.computeVertexNormals();
       tree.geometry.translate(base.x, base.y, base.z);
+      tree.geometry.computeBoundingBox();
+      tree.geometry.boundingBox!.getCenter(letsGo.anchor);
+      letsGo.anchor.y = tree.geometry.boundingBox!.max.y - 1;
       pieces.push(tree.geometry);
       padIds.push(new Int32Array(position.count).fill(-1));
+      mapleFoliage.push({ foliage, centres });
       return;
     }
     const nodes = [0, 0.25, 0.5, 0.75, 1].map((t): [number, number, number] => {
@@ -1561,6 +1569,7 @@ function createNiwakiGrove(date: Date | undefined): Group {
     });
     pine.geometry.translate(base.x, base.y, base.z);
     pieces.push(pine.geometry);
+    mapleFoliage.push(null);
     const ids = new Int32Array(pine.padOfVertex.length);
     for (let vertex = 0; vertex < ids.length; vertex += 1) {
       const pad = pine.padOfVertex[vertex]!;
@@ -1572,20 +1581,28 @@ function createNiwakiGrove(date: Date | undefined): Group {
   const geometry = mergeGeometries(pieces, false)!;
   pieces.forEach((piece) => piece.dispose());
   const foliage = new Float32Array(geometry.getAttribute("position").count);
+  const padCentres = new Float32Array(foliage.length * 3);
   let cursor = 0;
-  for (const ids of padIds) {
-    for (let vertex = 0; vertex < ids.length; vertex += 1) {
-      foliage[cursor + vertex] = ids[vertex]! < 0 ? 0 : (ids[vertex]! + 1) / padTotal;
+  padIds.forEach((ids, piece) => {
+    const maplePiece = mapleFoliage[piece];
+    if (maplePiece) {
+      foliage.set(maplePiece.foliage, cursor);
+      padCentres.set(maplePiece.centres, cursor * 3);
+    } else {
+      for (let vertex = 0; vertex < ids.length; vertex += 1) {
+        foliage[cursor + vertex] = ids[vertex]! < 0 ? 0 : (ids[vertex]! + 1) / padTotal;
+      }
     }
     cursor += ids.length;
-  }
+  });
   geometry.setAttribute("aGardenFoliage", new Float32BufferAttribute(foliage, 1));
+  geometry.setAttribute("aGardenPadCentre", new Float32BufferAttribute(padCentres, 3));
   geometry.setAttribute("aGardenSway", new InstancedBufferAttribute(new Float32Array([1]), 1));
   geometry.setAttribute("aGardenLeaf", new InstancedBufferAttribute(new Float32Array([1]), 1));
   geometry.computeBoundingSphere();
   const material = new MeshStandardMaterial({ roughness: 0.96, vertexColors: true });
   patchGardenFloraNight(material);
-  patchGardenFoliage(material, date ? gardenSnowCover(date) : 0);
+  patchGardenFoliage(material, date ? gardenSnowCover(date) : 0, letsGo.crown);
   // Rooted near the island datum, so height above it is the flex: crowns
   // move, trunks barely.
   patchGardenInstancedWindSway(material, 10, 0);
@@ -2262,7 +2279,7 @@ const CLIFF_RIM_Z = 13.2;
  * and its fragment finish, and every instance shares one base height so the
  * strata line up across the whole face.
  */
-function createDangerRockFace(tide: SupplyTide | undefined): InstancedMesh {
+function createDangerRockFace(): InstancedMesh {
   const placements: { sx: number; sy: number; x: number; yaw: number; z: number }[] = [];
   SEA_CLIFF_RUNS.forEach(([start, end], runIndex) => {
     const steps = Math.max(1, Math.round((end - start) / 0.09));
@@ -2290,7 +2307,7 @@ function createDangerRockFace(tide: SupplyTide | undefined): InstancedMesh {
   const material = new MeshStandardMaterial({ flatShading: true, roughness: 0.97, vertexColors: true });
   // The plates are the crag's own seaward face: its ramp and its finish, so
   // their bedding lines up with the headland's strata course for course.
-  applyGardenCragFinish(material, tide);
+  applyGardenCragFinish(material);
   const cliffs = new InstancedMesh(cliffSlabGeometry(), material, placements.length);
   cliffs.name = "island-danger-rock-face";
   cliffs.castShadow = true;

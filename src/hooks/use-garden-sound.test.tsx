@@ -7,7 +7,7 @@ import { SOUND_STORAGE_KEY, useGardenSound } from "./use-garden-sound";
 
 const audio = vi.hoisted(() => ({
   chunkLoads: 0,
-  handle: { close: vi.fn(), playBeat: vi.fn(), setMusic: vi.fn() },
+  handle: { close: vi.fn(), playBeat: vi.fn(), setMusic: vi.fn(), setStay: vi.fn() },
   startGardenAudio: vi.fn(),
 }));
 

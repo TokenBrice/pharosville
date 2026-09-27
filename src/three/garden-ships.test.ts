@@ -677,6 +677,7 @@ describe("S7 ripple-ring grounding (contract C2)", () => {
       removeRing: (id) => {
         rings.delete(id);
       },
+      pulseRing: () => {},
       ringCount: () => rings.size,
     };
   }

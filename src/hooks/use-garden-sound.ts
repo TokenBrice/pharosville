@@ -33,12 +33,15 @@ function persistSoundPreference(preference: SoundPreference): void {
   }
 }
 
-/** `audio=record:N` (query or hash, with `debug=1`): seconds to render offline, or null. */
-function audioRecordSeconds(): number | null {
+/**
+ * `audio=record:N` (query or hash, with `debug=1`): seconds to render offline,
+ * or null; `record:N:listen` renders with the listening pose leaned in.
+ */
+function audioRecordRequest(): { seconds: number; listening: boolean } | null {
   const hash = window.location.hash.replace(/^#\??/, "");
   const value = new URLSearchParams(window.location.search).get("audio") ?? new URLSearchParams(hash).get("audio");
-  const match = value ? /^record:(\d+(?:\.\d+)?)$/.exec(value) : null;
-  return match ? Math.min(600, Math.max(1, Number(match[1]))) : null;
+  const match = value ? /^record:(\d+(?:\.\d+)?)(:listen)?$/.exec(value) : null;
+  return match ? { seconds: Math.min(600, Math.max(1, Number(match[1]))), listening: match[2] !== undefined } : null;
 }
 
 /** The live engine, for the director's beats; null whenever sound is off. */
@@ -71,8 +74,12 @@ export interface GardenSoundControls {
  * the lazy audio chunk fetched. Music is its own switch, off by default. Both
  * choices persist; a returning visitor who left sound on sees it "armed" and
  * still has to switch it on.
+ *
+ * `stay`: the world is in Stay; with sound on and the viewer idle there, the
+ * mix takes its listening pose (X8).
  */
-export function useGardenSound(): GardenSoundControls {
+export function useGardenSound(input: { stay?: boolean } = {}): GardenSoundControls {
+  const stay = input.stay === true;
   const [preference, setPreference] = useState(readSoundPreference);
   const [soundOn, setSoundOn] = useState(false);
   const [supported] = useState(() => typeof window !== "undefined" && typeof (window.AudioContext ?? window.webkitAudioContext) === "function");
@@ -80,6 +87,7 @@ export function useGardenSound(): GardenSoundControls {
   const contextRef = useRef<AudioContext | null>(null);
   const handleRef = useRef<GardenAudioHandle | null>(null);
   const preferenceRef = useRef(preference);
+  const stayRef = useRef(stay);
 
   const updatePreference = useCallback((patch: Partial<Omit<SoundPreference, "v">>) => {
     const next = { ...preferenceRef.current, ...patch };
@@ -118,6 +126,7 @@ export function useGardenSound(): GardenSoundControls {
       // Switched off (or unmounted) while the chunk loaded: `release` closed it.
       if (contextRef.current !== context) return;
       const handle = audio.startGardenAudio(context, audioSceneSnapshot, { music: preferenceRef.current.music, debug });
+      handle.setStay(stayRef.current);
       handleRef.current = handle;
       liveGardenAudio = handle;
     }).catch(() => {
@@ -135,10 +144,15 @@ export function useGardenSound(): GardenSoundControls {
   useEffect(() => release, [release]);
 
   useEffect(() => {
+    stayRef.current = stay;
+    handleRef.current?.setStay(stay);
+  }, [stay]);
+
+  useEffect(() => {
     if (!debug) return;
-    const seconds = audioRecordSeconds();
-    if (seconds === null) return;
-    void loadGardenAudio().then((audio) => audio.runAudioRecord(audioSceneSnapshot, seconds));
+    const request = audioRecordRequest();
+    if (request === null) return;
+    void loadGardenAudio().then((audio) => audio.runAudioRecord(audioSceneSnapshot, request.seconds, null, request.listening));
   }, [debug]);
 
   return {

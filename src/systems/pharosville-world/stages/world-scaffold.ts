@@ -174,7 +174,7 @@ function buildLighthouse(
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * The worst PSI band of the trailing window, for the lighthouse tide-stain.
+ * The worst PSI band of the trailing window, for the lighthouse Worst band, 30d row.
  *
  * The window is measured back from the NEWEST point in the history, not from
  * the wall clock. A producer that stopped writing a week ago should still show
@@ -402,7 +402,7 @@ function buildAreas(shipCountsByRiskPlacement: ReadonlyMap<ShipNode["riskPlaceme
       ],
       links: [{ label: "Cemetery", href: "/cemetery/" }],
       sourceFields: [...WRECK_SHOAL_AREA.sourceFields],
-      summary: `${WRECK_SHOAL_AREA.label} — ${WRECK_SHOAL_AREA.reading}. Wreck silhouettes and cause colour identify the records held here; the area itself is not a live-ship risk placement.`,
+      summary: `${WRECK_SHOAL_AREA.label} — ${WRECK_SHOAL_AREA.reading}. The stone garden on its south shore keeps one stone for every coin that died; the area itself is not a live-ship risk placement.`,
     },
   ];
 }

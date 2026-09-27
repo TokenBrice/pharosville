@@ -1,0 +1,10 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch({ executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true });
+const page = await browser.newPage();
+page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") console.log(m.type(), m.text().slice(0, 400)); });
+page.on("pageerror", (e) => console.log("pageerror", String(e).slice(0, 600)));
+await page.goto("http://localhost:5173?debug=1#t=18.5&d=2026-09-26");
+await page.waitForTimeout(25000);
+console.log("canvas", await page.getByTestId("pharosville-canvas").count());
+console.log((await page.locator("body").innerText()).slice(0, 600));
+await browser.close();
