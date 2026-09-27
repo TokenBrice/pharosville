@@ -7,8 +7,9 @@
  * single deep temple-bell hum.
  *
  * Rare by construction: each one asks the director for its background
- * environment slot (the same 6–10 min slot every ambient cue shares), and never
- * sooner than 10 minutes after the last. A frozen director (reduced motion,
+ * environment slot (the same 6–10 min slot every ambient cue shares), never
+ * within 90 s of the end of any admitted beat, and never sooner than 10
+ * minutes after the last far sound. A frozen director (reduced motion,
  * Still) refuses, so the still picture has no far events either. It maps no
  * data: the level follows the bed's sea-state ladder like every bed stem.
  */
@@ -26,11 +27,11 @@ export const BORROWED_SOUNDS: readonly BorrowedSound[] = ["bell-buoy", "outer-ro
 const BORROWED_SLOT_SECONDS = 6;
 const BORROWED_SPAN_SECONDS: Readonly<Record<BorrowedSound, number>> = { "bell-buoy": 6.5, "outer-rocks": 5 };
 /** Never two within ten minutes; a refusal asks again half a minute later. */
-const BORROWED_GAP_MIN_SECONDS = 600;
+export const BORROWED_GAP_MIN_SECONDS = 600;
 const BORROWED_GAP_SPAN_SECONDS = 360;
-const BORROWED_RETRY_SECONDS = 30;
-/** Like the attract move: no ask within 90 s of any admitted beat. */
-const BORROWED_BEAT_BACKOFF_SECONDS = 90;
+export const BORROWED_RETRY_SECONDS = 30;
+/** Like the attract move: no ask within 90 s of the end of any admitted beat. */
+export const BORROWED_BEAT_BACKOFF_SECONDS = 90;
 /** Off-frame: the buoy at the harbour mouth (right), the rocks beyond the left point. */
 const BORROWED_PAN: Readonly<Record<BorrowedSound, number>> = { "bell-buoy": 0.8, "outer-rocks": -0.75 };
 
@@ -49,26 +50,39 @@ export interface BorrowedFrame {
   directorSeconds: number;
 }
 
-export interface GardenBorrowed {
-  update: (frame: BorrowedFrame, targets: StemTargetSink | null) => void;
+export interface BorrowedAsk {
+  sound: BorrowedSound;
+  seed: number;
 }
 
-export function createGardenBorrowed(graph: AudioGraph, firstAskAt: number): GardenBorrowed {
+export interface BorrowedSchedule {
+  /**
+   * At context time `at` (director clock `directorSeconds`): the far sound the
+   * director just admitted, or null — not due yet, too close to another beat,
+   * no director, or refused (then it asks again `BORROWED_RETRY_SECONDS` later).
+   */
+  next: (at: number, director: GardenDirectorState | null, directorSeconds: number) => BorrowedAsk | null;
+}
+
+/**
+ * The far sounds' timing, free of audio. `request` is the director's admission
+ * (a test seam; the live path always uses `requestGardenBeat`).
+ */
+export function createBorrowedSchedule(firstAskAt: number, request: typeof requestGardenBeat = requestGardenBeat): BorrowedSchedule {
   let nextAskAt = firstAskAt;
   let count = 0;
   return {
-    update(frame, targets) {
-      if (frame.at < nextAskAt) return;
-      const director = frame.director;
-      const now = frame.directorSeconds;
-      const last = director?.log[director.log.length - 1];
-      if (!director || !Number.isFinite(now) || (last && now - last.startSeconds < BORROWED_BEAT_BACKOFF_SECONDS)) {
-        nextAskAt = frame.at + BORROWED_RETRY_SECONDS;
-        return;
+    next(at, director, now) {
+      if (at < nextAskAt) return null;
+      let quietSince = Number.NEGATIVE_INFINITY;
+      if (director) for (const beat of director.log) quietSince = Math.max(quietSince, beat.startSeconds + beat.durationSeconds);
+      if (!director || !Number.isFinite(now) || now - quietSince < BORROWED_BEAT_BACKOFF_SECONDS) {
+        nextAskAt = at + BORROWED_RETRY_SECONDS;
+        return null;
       }
       const seed = Math.floor(now / 60) + count * 7919;
       const sound: BorrowedSound = hash01(seed) < 0.55 ? "bell-buoy" : "outer-rocks";
-      const beat = requestGardenBeat(director, {
+      const beat = request(director, {
         kind: "weather",
         foreground: false,
         priority: 1,
@@ -76,12 +90,26 @@ export function createGardenBorrowed(graph: AudioGraph, firstAskAt: number): Gar
         subject: `borrowed:${sound}`,
       }, now);
       if (!beat) {
-        nextAskAt = frame.at + BORROWED_RETRY_SECONDS;
-        return;
+        nextAskAt = at + BORROWED_RETRY_SECONDS;
+        return null;
       }
       count += 1;
-      playBorrowedSound(graph, sound, frame.at, stemLevelDb("borrowed", frame.sea), seed, targets);
-      nextAskAt = frame.at + BORROWED_GAP_MIN_SECONDS + hash01(seed + 1) * BORROWED_GAP_SPAN_SECONDS;
+      nextAskAt = at + BORROWED_GAP_MIN_SECONDS + hash01(seed + 1) * BORROWED_GAP_SPAN_SECONDS;
+      return { sound, seed };
+    },
+  };
+}
+
+export interface GardenBorrowed {
+  update: (frame: BorrowedFrame, targets: StemTargetSink | null) => void;
+}
+
+export function createGardenBorrowed(graph: AudioGraph, firstAskAt: number): GardenBorrowed {
+  const schedule = createBorrowedSchedule(firstAskAt);
+  return {
+    update(frame, targets) {
+      const ask = schedule.next(frame.at, frame.director, frame.directorSeconds);
+      if (ask) playBorrowedSound(graph, ask.sound, frame.at, stemLevelDb("borrowed", frame.sea), ask.seed, targets);
     },
   };
 }

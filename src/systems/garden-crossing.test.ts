@@ -9,7 +9,7 @@ import { createGardenCrossingCeremonyState, stepGardenCrossingCeremony, type Gar
 import type { PharosVilleMotionPlan } from "./motion-types";
 import type { InletCrossingToken } from "./motion-planning";
 
-const world = buildPharosVilleWorld({
+const denseWorld = buildPharosVilleWorld({
   stablecoins: denseFixtureStablecoins,
   chains: denseFixtureChains,
   stability: fixtureStability,
@@ -19,6 +19,17 @@ const world = buildPharosVilleWorld({
   cemeteryEntries: [],
   freshness: {},
 });
+/**
+ * Only the ceremony subjects (unsquadded titan/heritage hulls with a harbour):
+ * the real map, docks and routes, without routing the whole fleet's A* legs,
+ * which no crossing contract reads.
+ */
+const world = {
+  ...denseWorld,
+  ships: denseWorld.ships.filter((ship) => (
+    !ship.squadId && ship.dockVisits.length > 0 && (ship.visual.sizeTier === "titan" || ship.visual.sizeTier === "unique")
+  )),
+};
 
 /** The first clock (from 0, in 10 s steps) at which a subject can be sent across. */
 function forceAtFirstChance(plan: PharosVilleMotionPlan): { token: InletCrossingToken; at: number } {
@@ -32,7 +43,7 @@ function forceAtFirstChance(plan: PharosVilleMotionPlan): { token: InletCrossing
 afterEach(() => __resetForcedInletCrossings());
 
 describe("W5.5 forced crossing", () => {
-  it("sends one subject from its anchorage through the inlet to its berth, without a jump at either end", { timeout: 15_000 }, () => {
+  it("sends one subject from its anchorage through the inlet to its berth, without a jump at either end", () => {
     const plan = buildBaseMotionPlan(world, 0);
     const { token, at } = forceAtFirstChance(plan);
     const ship = world.ships.find((entry) => entry.id === token.shipId)!;

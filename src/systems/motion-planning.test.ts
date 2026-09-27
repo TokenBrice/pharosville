@@ -7,6 +7,7 @@ import {
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureChains,
+  fixtureStablecoins,
   fixturePegSummary,
   fixtureSafetyGrades,
   fixtureStability,
@@ -28,6 +29,8 @@ import {
   openWaterPatrolItineraryLength,
 } from "./motion-planning";
 import { isGardenInletCoreTile } from "./garden-inlet";
+import { gardenRepresentativeBerth } from "./garden-observatory-slice";
+import { resetGardenFleetPlacementCache } from "./garden-fleet-placement";
 import {
   GARDEN_CROSSING_MIN_GAP_SECONDS,
   gardenAttentionSlotsBetween,
@@ -468,41 +471,43 @@ describe("W4.25 risk-transition tack-out", () => {
 });
 
 describe("motion plan signature", () => {
-  it("invalidates the plan when a cached-shape world and the fresh world place the fleet differently", { timeout: 20_000 }, () => {
+  it("invalidates the plan when a cached-shape world and the fresh world place the fleet differently", () => {
+    resetGardenFleetPlacementCache();
     const fresh = buildPharosVilleWorld({
-      stablecoins: denseFixtureStablecoins,
-      chains: denseFixtureChains,
+      stablecoins: fixtureStablecoins,
+      chains: fixtureChains,
       stability: fixtureStability,
-      pegSummary: denseFixturePegSummary,
-      stress: denseFixtureStress,
-      safetyGrades: denseFixtureSafetyGrades,
+      pegSummary: fixturePegSummary,
+      stress: fixtureStress,
+      safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
       freshness: {},
     });
-    // A cached world with schema drift carries the same routing fields but
-    // different placement inputs — here the leading docked hull is drawn at
-    // another scale (a stale supply ranking), so its hull margin, and with it
-    // the blue-noise berth its route anchors at, moves.
-    const lead = fresh.ships.find((ship) => ship.dockVisits.length > 0 && ship.visual.sizeTier === "titan")!;
-    const cached: PharosVilleWorld = {
-      ...fresh,
-      ships: fresh.ships.map((ship) => (ship.id === lead.id
-        ? { ...ship, visual: { ...ship.visual, scale: (ship.visual.scale || 1) * 0.4 } }
-        : ship)),
-    };
-    const freshPlan = buildBaseMotionPlan(fresh);
-    const cachedPlan = buildBaseMotionPlan(cached);
-    const moved = fresh.ships.filter((ship) => {
-      const a = freshPlan.shipRoutes.get(ship.id)!.riskTile;
-      const b = cachedPlan.shipRoutes.get(ship.id)!.riskTile;
-      return a.x !== b.x || a.y !== b.y;
-    });
-    // The drift really moves anchorages, so reusing the cached plan would
-    // leave the fleet where the stale world put it…
-    expect(moved.length).toBeGreaterThan(0);
-    // …which the signature forbids: the memoised plan is rebuilt.
-    expect(motionPlanSignature(cached)).not.toBe(motionPlanSignature(fresh));
-    // An identical-content refresh still reuses the plan (no A* rebuild).
+    // An identical-content refresh reuses the plan (no A* rebuild).
     expect(motionPlanSignature({ ...fresh, ships: fresh.ships.map((ship) => ({ ...ship })) })).toBe(motionPlanSignature(fresh));
+    // A cached world with schema drift carries the same routing fields but
+    // different placement inputs — here one docked hull drawn at twice its
+    // scale (a stale supply ranking), so its hull margin, and with it the
+    // blue-noise berth its route anchors at, moves by whole tiles.
+    const drifted = fresh.ships
+      .filter((ship) => ship.dockVisits.length > 0)
+      .map((ship) => {
+        const cached: PharosVilleWorld = {
+          ...fresh,
+          ships: fresh.ships.map((entry) => (entry.id === ship.id
+            ? { ...entry, visual: { ...entry.visual, scale: (entry.visual.scale || 1) * 2 } }
+            : entry)),
+        };
+        const before = gardenRepresentativeBerth(fresh, ship.id)!;
+        const after = gardenRepresentativeBerth(cached, ship.id)!;
+        return { cached, moved: Math.round(before.x) !== Math.round(after.x) || Math.round(before.y) !== Math.round(after.y) };
+      })
+      .find(({ moved }) => moved);
+    // The drift really moves an anchorage, so reusing the cached plan would
+    // leave the hull where the stale world put it…
+    expect(drifted).toBeDefined();
+    // …which the signature forbids: the memoised plan is rebuilt.
+    expect(motionPlanSignature(drifted!.cached)).not.toBe(motionPlanSignature(fresh));
   });
 });
+

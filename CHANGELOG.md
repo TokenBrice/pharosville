@@ -2,11 +2,11 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
-## Unreleased - Hour Print
+## v0.19.0 - 2026-09-27 - Hour Print
 
 PharosVille becomes an hour-print: one fixed view of the harbour, printed in the true light of every hour, with a small score of rare events and chrome that reads as paper and ink.
 
-Collected from commits `5309629` through `097fb34`.
+Collected from commits `5309629` through `8370409` after v0.18.0 (merged with v0.17.1 and v0.18.0).
 
 - You sit in one place. The resting view is an authored seat on the south shore — a shaded moss bank, the edge of an engawa, a pine seen from below and a stone lantern — looking across an empty mirror inlet at the Pharos, right of centre on a new crag headland. Left alone, the harbour holds this view; nothing tours on its own.
 - The sky keeps real time. One air carries distance from the near water back through five painted ridges. The sun and the moon follow a solar and lunar clock for your date and hemisphere, so December darkens before five and the full moon rises when it really does. Clouds are painted onto the sky from market stability — a clear sky at BEDROCK, a high veil, a broken deck, overcast in a meltdown — and the caption and ledger say the same word.
