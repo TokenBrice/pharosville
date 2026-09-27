@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PHAROSVILLE_API_CLIENT_ENDPOINTS } from "../../shared/lib/pharosville-api-client-contract";
 import { RUNTIME_ACTIVE_IDS } from "../../shared/lib/stablecoins/runtime-registry";
@@ -104,9 +106,12 @@ describe("PharosVille API proxy", () => {
     expect(response.headers.get("warning")).toBe("199 proxy fixture");
     expect(response.headers.get("x-data-age")).toBe("12");
     expect(response.headers.get("x-pharosville-proxy")).toBe("1");
-    expect(response.headers.get("permissions-policy")).toContain("display-capture=()");
-    expect(response.headers.get("permissions-policy")).toContain("screen-wake-lock=()");
-    expect(response.headers.get("permissions-policy")).toContain("serial=()");
+    // The deploy verifier checks API responses against the same policy as the
+    // static pages; a Function that drifts from `public/_headers` fails the deploy.
+    const staticPolicy = readFileSync(resolve(__dirname, "../../public/_headers"), "utf8")
+      .match(/^\s*Permissions-Policy:\s*(.+)$/m)?.[1]?.trim();
+    expect(staticPolicy).toBeTruthy();
+    expect(response.headers.get("permissions-policy")).toBe(staticPolicy);
     expect(fetchMock).toHaveBeenCalledWith(
       `https://api.pharos.watch${endpointPath}`,
       expect.objectContaining({
