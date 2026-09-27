@@ -1,6 +1,6 @@
 # PharosVille Operations
 
-Last updated: 2026-07-26
+Last updated: 2026-09-27
 
 This runbook covers the standalone Cloudflare Pages app at
 `https://pharosville.pharos.watch/`.
@@ -318,8 +318,11 @@ policy survived before trusting it:
 
 ```bash
 npm run check:security-headers
-curl -sI 'https://pharosville.pharos.watch/?sel=ship.usdc-circle' | grep -i 'content-security-policy\|x-frame-options'
+curl -sI 'https://pharosville.pharos.watch/?sel=ship.usdc-circle' | grep -i 'content-security-policy\|x-frame-options\|permissions-policy'
 ```
+
+The Permissions-Policy must show `fullscreen=(self)` and `screen-wake-lock=(self)`; Stay mode needs both
+(`SECURITY_HEADERS.md`).
 
 Then check that the rewrite actually fires:
 
@@ -327,14 +330,13 @@ Then check that the rewrite actually fires:
 curl -s 'https://pharosville.pharos.watch/?sel=ship.usdc-circle' | grep 'og:title'
 ```
 
-**The Copy link button does not yet produce a link this route can read.** It
-copies `window.location.href`, and the app writes its deep-link params into the
-URL *fragment* (`/#sel=ship.usdc-circle`). A fragment is never sent to a server, so no
-Function — this one or any other — can see it, and a copied link still unfurls
-as the homepage. The client already reads the query form
-(`parseInitialWorldUrlState` selects the search string when it owns the world
-params), so the fix is on the sharing side: emit `?sel=…` for copied links.
-Until that lands, this route only serves hand-built query links.
+**What the Copy link button produces.** The app keeps its deep-link params in
+the URL fragment (`/#sel=ship.usdc-circle`), which never reaches a server.
+Copy link therefore moves them into the query string
+(`buildShareableWorldUrlHref` in `src/hooks/use-world-url-state.ts`), so a copied
+selection unfurls through this route as `?sel=…`. A moment link, which
+already carries `?ship=…&cam=…`, is copied as it is. This route reads only
+`sel`, so a moment link still unfurls as the homepage.
 
 ## Rotate `PHAROS_API_KEY`
 

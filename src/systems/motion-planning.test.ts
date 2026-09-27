@@ -23,6 +23,7 @@ import {
   disposePathCacheForMap,
   inletCrossingTokensBetween,
   type InletCrossingToken,
+  motionPlanSignature,
   openWaterPatrolItineraryIndex,
   openWaterPatrolItineraryLength,
 } from "./motion-planning";
@@ -463,5 +464,45 @@ describe("W4.25 risk-transition tack-out", () => {
       }
     }
     expect(lateSampleSeen).toBe(true);
+  });
+});
+
+describe("motion plan signature", () => {
+  it("invalidates the plan when a cached-shape world and the fresh world place the fleet differently", { timeout: 20_000 }, () => {
+    const fresh = buildPharosVilleWorld({
+      stablecoins: denseFixtureStablecoins,
+      chains: denseFixtureChains,
+      stability: fixtureStability,
+      pegSummary: denseFixturePegSummary,
+      stress: denseFixtureStress,
+      reportCards: denseFixtureReportCards,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+    // A cached world with schema drift carries the same routing fields but
+    // different placement inputs — here the leading docked hull is drawn at
+    // another scale (a stale supply ranking), so its hull margin, and with it
+    // the blue-noise berth its route anchors at, moves.
+    const lead = fresh.ships.find((ship) => ship.dockVisits.length > 0 && ship.visual.sizeTier === "titan")!;
+    const cached: PharosVilleWorld = {
+      ...fresh,
+      ships: fresh.ships.map((ship) => (ship.id === lead.id
+        ? { ...ship, visual: { ...ship.visual, scale: (ship.visual.scale || 1) * 0.4 } }
+        : ship)),
+    };
+    const freshPlan = buildBaseMotionPlan(fresh);
+    const cachedPlan = buildBaseMotionPlan(cached);
+    const moved = fresh.ships.filter((ship) => {
+      const a = freshPlan.shipRoutes.get(ship.id)!.riskTile;
+      const b = cachedPlan.shipRoutes.get(ship.id)!.riskTile;
+      return a.x !== b.x || a.y !== b.y;
+    });
+    // The drift really moves anchorages, so reusing the cached plan would
+    // leave the fleet where the stale world put it…
+    expect(moved.length).toBeGreaterThan(0);
+    // …which the signature forbids: the memoised plan is rebuilt.
+    expect(motionPlanSignature(cached)).not.toBe(motionPlanSignature(fresh));
+    // An identical-content refresh still reuses the plan (no A* rebuild).
+    expect(motionPlanSignature({ ...fresh, ships: fresh.ships.map((ship) => ({ ...ship })) })).toBe(motionPlanSignature(fresh));
   });
 });

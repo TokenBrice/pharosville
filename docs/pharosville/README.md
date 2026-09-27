@@ -1,6 +1,6 @@
 # PharosVille Maintenance Guide
 
-Last updated: 2026-09-02
+Last updated: 2026-09-27
 
 Current code and route contracts win over historical plans. Use this directory
 for durable operational guidance; use `agents/` for plans and handoffs, not as
@@ -45,7 +45,7 @@ back to a DOM signal overview, never another graphics stack.
 - Keep the rim, seven-water field, station topology, conservative water-safety
   field, and leg samples authoritative across rendering, hit testing, and DOM
   parity. Use `garden-draw-census.ts` plus real-GPU `npm run preview` when
-  measuring the approximately 245-call/43-texture default budget.
+  measuring the default frame against the 700-call/72-texture ceilings.
 - Plans may be deleted once their durable outcome exists in code or these docs.
 - Do not commit generated output, test results, scratch captures, or local env
   files.

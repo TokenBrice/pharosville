@@ -1,10 +1,12 @@
 # PharosVille Runtime and Analytical Contracts
 
 Picture direction belongs in `VISUAL_INVARIANTS.md`; this file owns runtime,
-truth, access and resource limits. The accepted Reborn decisions D1–D17 in
-`agents/pharosville-reborn/01-implementation-plan.md` supersede conflicting old
-picture prescriptions. These are acceptance contracts, not a claim that later
-Reborn waves have shipped. The previous document is preserved verbatim in
+truth, access and resource limits. The Hour-Print plan
+(`agents/2026-09-26-opus-visual-leap/01-implementation-plan.md`, rulings §3
+and operator decisions §4.1) supersedes conflicting Reborn prescriptions. The
+accepted Reborn decisions D1–D17 in
+`agents/pharosville-reborn/01-implementation-plan.md` still stand where Hour-Print
+left them alone. The previous document is preserved verbatim in
 `agents/pharosville-reborn/visual-invariants-2026-09-08-archive.md`.
 Change a contract only with explicit intent and matching code, meaningful tests
 and route documentation. Test pointers below locate coverage; old implementation
@@ -27,11 +29,23 @@ pins are not authority over the accepted picture.
   selection, Escape clear, controls, detail anchors and hit testing must remain
   useful without inspecting WebGL pixels. Focused controls remain available.
 - DOM labels stay legible, clear of the lighthouse, controls and active detail
-  panel, and hidden off-screen. Ship captions appear only on selection or an
-  arrival/departure beat and are aria-hidden; chain nobori, not permanent
-  chain/concentration captions, identify harbours. TON has no permanent caption.
-  Concentration remains in details and the ledger.
+  panel, and hidden off-screen. Ship ink labels appear only on selection or for
+  the crossing subject (the one admitted arrival ceremony) and are aria-hidden;
+  their band word carries a glyph and a tone, never colour alone. Chain nobori,
+  not permanent chain/concentration captions, identify harbours. TON has no
+  permanent caption. Concentration remains in details and the ledger.
   Coverage: `src/components/harbor-label-chips.test.tsx`.
+- Chrome text roles (now-line, ink labels, record card, controls) come from the
+  light score, not a day/night switch: `src/systems/chrome-air.ts` mixes per-beat
+  anchors, `useChromeAir` writes them to `:root` once a minute, and every role
+  holds ≥ 4.5:1 on its own surface at the five beat anchors and through every
+  crossfade. The chrome follows the wall clock only, never market data.
+  Coverage: `src/systems/chrome-air.test.ts`.
+- A stale feed outranks every other now-line phrase: stale warning, then a
+  first-visit or return-visit line, then the crossing, then a market transition,
+  then the ambient phase. The status region speaks the phrase only, never the
+  minute; decorative words (moon, cloud cover, kō) never reach it.
+  Coverage: `src/components/now-caption.test.tsx`.
 
 ## Analytical authority and channels
 
@@ -39,9 +53,9 @@ pins are not authority over the accepted picture.
 | --- | --- | --- |
 | Lighthouse | PSI score and band | Beacon state, exact DOM record and ledger |
 | Ship | Stablecoin identity, cap scale, class and risk | Complete branded sail, family form/timber, DOM record |
-| Harbour | Chain supply and concentration | Supply-driven roof mass, named archetype, complete chain flag, DOM record |
+| Harbour | Chain supply and concentration | Supply-scaled hall frontage, named archetype, chain nobori, DOM record |
 | Water body | Existing risk/ledger category | Water character, boundary/buoy, inspection name and ledger |
-| Wreck | Lifecycle status and cause | Representative silhouette, cause colour and DOM record |
+| Fallen coin | Lifecycle status and cause | One unmarked set stone in the stone garden (size = peak cap, form = cause family), DOM record |
 
 - At rest the world carries three coarse readings: tower = PSI, water = risk band,
   hero ships = who leads. Exact information lives in the DOM, not more ornament.
@@ -54,12 +68,15 @@ pins are not authority over the accepted picture.
   lookup. The renderer never reclassifies a tile. Extra sea, headlands, rim skirts
   and hills are decorative and non-selectable; they cannot change berthing.
 - PSI owns clarity aloft: cloud cover, horizon visibility and wind calm follow
-  market stability with slow hysteresis. Stale sources own bounded low fog in
+  market stability with slow hysteresis. Cloud cover is a fixed ladder by band
+  (`SKY_CLOUD_COVER`, `src/systems/psi-sky.ts`), named by the same cover word in
+  the now-line and the ledger. Stale sources own bounded low fog in
   their own water; wall clock owns illumination; nothing else writes the sky.
   Stale PSI freezes the last good sky, never clears it. Details and ledger expose
   exact PSI, band, as-of and unavailable state; copy says “market stability”,
-  never a forecast or weather causation. Supply tide and moon record are optional
-  extensions after Core acceptance and may not both ship.
+  never a forecast or weather causation. The weekly supply tide is the one tide
+  signal: it is drawn only as the tidal flat's bare area and its wrack line
+  (`src/three/garden-tidal-flat.ts`), with ledger parity.
 
 ## Sea partition and geography
 
@@ -84,8 +101,9 @@ pins are not authority over the accepted picture.
   Danger Strait and both openings remain water. The real sky dome, sea annulus,
   far-rim hills and headlands replace the backdrop sheet and probe-only sky rule.
 - Stations occupy rim coves, never the island waterline. TON's pigeonnier is
-  spatially distinct; the dead/frozen fleet is a quiet sea wreckyard, not an
-  island or live-ship destination. Foreground masses stay clear of the lighthouse
+  spatially distinct. The fallen coins are a stone garden on the Wreck Shoal's
+  south shore, outside the rest frame (`src/three/garden-stone-garden.ts`), not
+  an island or live-ship destination. Foreground masses stay clear of the lighthouse
   and Mole and remain non-emissive silhouettes at night. Near-edge furniture
   sheds below zoom `0.62`; its field/navigation exclusion never changes.
   Coverage: `src/three/garden-rim-mesh.test.ts`,
@@ -120,9 +138,11 @@ pins are not authority over the accepted picture.
   Six DOM cap-tier labels survive. The accepted scale is
   `clamp(0.42 * (cap / 1e7)^0.10, 0.42, 1.15)`, replacing the `0.8` floor and
   old `2.6×` visual ladder. Coverage: `src/three/garden-ships.test.ts`.
-- Accepted camera direction is long-lens perspective, vertical FOV `32°`, pitch
-  about `12°`, existing yaw, with authored subject framing at both gates rather
-  than an obligatory rest zoom/gutter. The crown must read against real sky.
+- The rest view is an authored pose, not a zoom: seat C on the south shore
+  (`src/systems/rest-seat.ts`), yaw `31°`, pitch `2.6°`, eye `15.2` u,
+  long-lens perspective with a vertical FOV of `32°`, the tower foot in the
+  middle-right ninth at every gate profile (the tall `720×900` window takes its
+  own eye along the same orbit). The crown must read against real sky.
   An orthographic `24°` fallback requires explicit operator re-acceptance, not
   a silent swap. Whole-map framing remains an explicit zoom-out.
 - Projection, picking, DOM anchors, follow and camera motion share one contract.
@@ -142,12 +162,13 @@ pins are not authority over the accepted picture.
   feeds need not fill impossible arcs/extremes. Dense feeds render eight chain
   harbours plus TON's pigeonnier; TON renders only with non-zero supply.
   Coverage: `src/systems/chain-docks.test.ts`.
-- Stations retain a landward primary roof at least twice an ordinary hull's
-  length, contrasting clay/slate/thatch/timber, and a named upper silhouette
-  clear of sails. Ordinary upper silhouettes span roughly `13.3–17.9` world
-  units; the Ethereum Mole caps at `21.5` local (`≤21.7` above water), at least
-  `1.20×` the tallest ordinary rung. Footprints, water exclusion and berthing
-  remain coherent with these envelopes. Coverage: `src/systems/dock-layout.test.ts`.
+- Stations are one vernacular: low, roof-dominant houses (charred-cedar lower
+  walls, pale plaster, grey kawara under deep eaves) whose roof takes 40–60 % of
+  the elevation, and nothing rises past the rim hills. Hall length and span
+  carry supply frontage; heights are data-independent. The Ethereum Mole's open
+  fire-watch frame is the ring's one vertical at `13.5` u, about a third of the
+  Pharos. Identity lives at ground level and on the nobori.
+  Coverage: `src/systems/dock-layout.test.ts`.
 - Chain nobori (K28) replace the rooftop flags: one narrow banner per station
   (a pair at the Mole), `0.97–1.165 × 3.16–3.79` u cloth on an L-pole at the
   seaward eave or landing, tip `≤13.7` above water (`HARBOR_NOBORI_ENVELOPE`),
@@ -156,8 +177,7 @@ pins are not authority over the accepted picture.
   `L 0.38–0.62`, never above `vermillion`); every in-frame mark stays `≥18 px`
   tall at the 1600×1000 rest. Coverage: `src/systems/dock-layout.test.ts`,
   `src/three/garden-chain-flag.test.ts`, `src/three/garden-harbor-batch.test.ts`.
-  Roofs articulate ridge/cap, fascia, gable/gablet,
-  brackets and a pent skirt or stepped course, with a named archetype signature.
+  One stone lantern per station kindles at blue hour in distance order.
 - Raised quays keep a warm lit edge and dusk/night windows; the Mole alone is
   the ring's civic monument. L2 stations are self-standing distant harbours.
   No torii stand anywhere in the garden (O6): the Pharos landing is marked by
@@ -170,10 +190,12 @@ pins are not authority over the accepted picture.
 ## Light, palette, water and rendering budgets
 
 - One shared sun/moon arc owns key direction, dome glow, water road and glitter.
-  Wall clock is the default premise, never a flattering fixed hour. Accepted sun
-  elevation is `0.62` rad rather than `0.806`; re-key light, AO, probe and grade
-  together. Atmospheric depth must reach the actual default framing rather than
-  a stale fog-height pivot. Coverage: `src/three/garden-sky.test.ts`.
+  Wall clock is the default premise, never a flattering fixed hour. The beats
+  follow the solar clock (`src/systems/sky-almanac.ts`: nominal 35°, hemisphere
+  from the time zone); the key keeps a compressed ±57° arc around a noon side
+  light from the rest seat's right (azimuth `−yaw`), apex `0.62` rad. Re-key
+  light, AO, probe and grade together. Atmospheric depth must reach the actual
+  default framing. Coverage: `src/three/garden-sky.test.ts`, `src/three/garden-day-cycle.test.ts`.
 - Use one tone-mapping authority for renderer and post pass; LUTs may shape the
   look but cannot substitute for geometry/light. Neutral noon supersedes the
   honey-key prescription. Preserve differentiated dusk/blue-hour/night and
@@ -235,9 +257,11 @@ pins are not authority over the accepted picture.
 - One route-owned clock drives normal motion: no per-entity timers, independent
   CSS analytical animation or extra renderer loops. Shared final `displayTile`
   drives rendering, hit testing, follow and debug positions.
-- Voyages use bounded `90–180`-second legs and `240–480`-second rests, paired
-  arrivals/departures and risk-ordered restless rests; aggregate moored share
-  remains one third. All water-safety uses the authoritative conservative field.
+- Voyages use bounded `90–180`-second legs and `600–1500`-second rests
+  (`src/systems/motion-config.ts`); departures and homecomings gather in the
+  attention scheduler's shared windows and the harbour stands still between them.
+  Aggregate moored share remains one third. All water-safety uses the
+  authoritative conservative field.
 - Reduced motion is a complete deterministic static composition with **zero
   continuous RAF**. Ordinary ships settle at safe authored risk anchorages and
   rest headings; Ledger Mooring keeps its representative stop and consorts keep
@@ -271,13 +295,13 @@ pins are not authority over the accepted picture.
   Coverage: `src/hooks/use-world-render-loop.test.tsx`,
   `src/renderer/render-scheduler.test.ts`, `src/systems/projection.test.ts`.
 - Arrival/departure dips, wake stamps and nameplates derive from segment time,
-  never ship timers. Existing dwell envelope: first four seconds ease sails
-  `1.0→0.6` over `1.2 s`, hold `1 s`, restore by second four; departure spans
-  last four dwell seconds and first two transit seconds. Outside beats sails are
-  exactly `1.0`, including moored and hero identity sails. Reduced motion holds
-  fully set sails. Existing full-tier wake/nameplate cap is six by market cap;
-  every hull remains eligible for the dip. Reborn's director replaces this with
-  one significant ceremony, not simultaneous independent ceremonies.
+  never ship timers. Sails dip briefly to a `0.6` scale and never hold furled at
+  berth; outside a beat sails are exactly `1.0`, including moored and hero
+  identity sails. Reduced motion holds fully set sails. Only the crossing
+  (`src/systems/garden-crossing.ts`) is announced: one significant arrival,
+  admitted by the director as a foreground beat, crosses the mirror inlet with
+  the only caption and the only nameplate, at most twice an hour and at least
+  15 minutes apart. Every other arrival is silent.
   Coverage: `src/systems/garden-arrival-beats.test.ts`,
   `src/three/garden-fleet-batch.test.ts`.
 - Every addition records its displacement, including attention as well as GPU
@@ -288,17 +312,31 @@ pins are not authority over the accepted picture.
   Coverage: `src/three/garden-station-smoke.test.ts`.
 - Seasonal/almanac dressing follows paths and openings. Keep the ambient-life
   count ban; redistribute into fewer, larger readable fauna rather than adding
-  oscillators. Reborn may place koi in the reflection pond, replacing the old
-  empty-basin prescription. Foreground events have long quiet intervals and
-  market transitions pre-empt decorative beats.
-- Ambient audio is optional only after Core acceptance: explicit opt-in, default
-  muted, at most `5 MB` compressed, `24 MB` decoded and six voices; suspend on
-  hidden tabs. Motion preference is never audio consent. No market alarms.
+  oscillators. Koi live in the reflection pond. Foreground events have long quiet
+  intervals and market transitions pre-empt decorative beats.
+- The day score (`src/systems/garden-score.ts`) is the only source of rituals:
+  deterministic per UTC day, placed by the local sun and moon, each entry a
+  kind in the ritual registry (`GARDEN_RITUAL_KINDS`, `registerRitual` in
+  `src/systems/garden-director.ts`). One visual owner registers per kind; the
+  director admits a ritual only inside the §5.0 attention budget (at most six
+  discrete events an hour, one unbroken 12-minute quiet, ≥ 8 minutes between
+  foreground events, a 90 s back-off after any ritual, at most six gifts a day
+  and two in dusk). Seasonal gates come from the 72-kō calendar
+  (`src/systems/garden-calendar.ts`). Kō names and moon phase stay in the ledger
+  and ambient slot and never speak through the live region.
+  Coverage: `src/systems/garden-score.test.ts`, `src/systems/garden-director.test.ts`.
+- Sound is opt-in only (`src/hooks/use-garden-sound.ts`): off by default; the
+  AudioContext is created inside the Sound switch's own click and only then is
+  the lazy procedural audio chunk fetched. Music is a separate switch, also off
+  by default. A returning visitor who left sound on sees it armed and must
+  switch it on again. Hidden tabs fade to silence and suspend. Motion preference
+  is never audio consent; the DOM caption stays the truth for every sounded
+  beat, and there are no market alarms.
 
 ## Approval and delivery
 
-The design bible requires operator review before any W1 edits land. Its approval
-is separate from the integrated-picture acceptance gate. Reborn stays on one
-feature branch with one final PR and a changelog entry; no tag or release workflow
-without explicit operator permission. Validation routing lives in `TESTING.md`;
-this documentation split does not itself certify the future renderer changes.
+Picture changes pass the Hour-Print gates in the plan's §5, judged on real-GPU
+captures at the four gate profiles; the Print gate is an operator art review.
+The program stays on one feature branch (`feat/hour-print`) with one
+final PR and an unreleased changelog entry; no tag or release workflow without
+explicit operator permission. Validation routing lives in `TESTING.md`.

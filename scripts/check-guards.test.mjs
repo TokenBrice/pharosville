@@ -59,6 +59,7 @@ import {
 } from "./check-viewport-gate.mjs";
 import {
   REQUIRED_PERMISSIONS_POLICY_FEATURES,
+  SELF_ONLY_PERMISSIONS_POLICY_FEATURES,
   validateCsp,
   validatePermissionsPolicy,
   validateStaticHeadersText,
@@ -188,13 +189,13 @@ assert.equal(
 );
 
 const markdown = [
-  "Run `npm run typecheck`, then `npm run missing-command`.",
+  "Run `npm run typecheck`, then `npm run missing-command`, then `npm run -s typecheck`.",
   "See `src/App.tsx:12,18-20`, `agents/example-plan.md`, `src/missing.ts:12-18`, and [guide](./guide.md).",
 ].join("\n");
 
 assert.deepEqual(
   findDocumentedNpmRunCommands(markdown).map((command) => command.scriptName),
-  ["typecheck", "missing-command"],
+  ["typecheck", "missing-command", "typecheck"],
 );
 assert.deepEqual(
   findPathReferencesInMarkdown("docs/check.md", markdown).map((reference) => reference.target),
@@ -282,6 +283,25 @@ assert.deepEqual(validateCsp(apiCsp), ["img-src missing blob:", "script-src miss
 assert.deepEqual(validateCsp(apiCsp, { document: false }), []);
 assert.equal(validatePermissionsPolicy("autoplay=(), camera=()").some((finding) => finding.includes("display-capture")), true);
 assert.equal(REQUIRED_PERMISSIONS_POLICY_FEATURES.includes("screen-wake-lock"), true);
+// Stay mode's two features are self-only: denying them breaks Stay in production,
+// and opening them to other origins (`*`) is refused like any other widening.
+{
+  const denyAll = REQUIRED_PERMISSIONS_POLICY_FEATURES.map((feature) => `${feature}=()`).join(", ");
+  const stayPolicy = REQUIRED_PERMISSIONS_POLICY_FEATURES
+    .map((feature) => `${feature}=${SELF_ONLY_PERMISSIONS_POLICY_FEATURES.includes(feature) ? "(self)" : "()"}`)
+    .join(", ");
+  assert.deepEqual(validatePermissionsPolicy(stayPolicy), []);
+  assert.deepEqual(validatePermissionsPolicy(denyAll), [
+    "fullscreen must be self-only with (self)",
+    "screen-wake-lock must be self-only with (self)",
+  ]);
+  assert.deepEqual(validatePermissionsPolicy(stayPolicy.replace("fullscreen=(self)", "fullscreen=*")), [
+    "fullscreen must be self-only with (self)",
+  ]);
+  assert.deepEqual(validatePermissionsPolicy(stayPolicy.replace("camera=()", "camera=(self)")), [
+    "camera must be denied with ()",
+  ]);
+}
 assert.deepEqual(validateStaticHeadersText(readFileSync(resolve("public/_headers"), "utf8")), []);
 
 const viewportGateSource = [

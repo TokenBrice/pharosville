@@ -1,6 +1,6 @@
 # PharosVille Releases
 
-Last updated: 2026-07-25
+Last updated: 2026-09-27
 
 This is the canonical runbook for versioned releases. A PharosVille version is
 released only when all three records exist and agree:
@@ -12,6 +12,13 @@ released only when all three records exist and agree:
 
 A changelog entry, merge to `main`, Cloudflare deployment, or local tag by
 itself is not a versioned release.
+
+A feature branch that collects notes before a version exists writes them under
+a non-version heading such as `## Unreleased - Hour Print`. The release
+contract reads only `## vX.Y.Z - YYYY-MM-DD - Title` headings
+(`scripts/pharosville/release-contract.mjs`), so an unreleased section is
+ignored until the release PR renames it and mirrors it into the in-app
+changelog and version files.
 
 ## Non-Bypass Rules
 

@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { denseFixtureStablecoins } from "../../src/__fixtures__/pharosville-world";
 import {
   denyPharosVilleViewportGatedRequests,
+  type DebugCamera,
   installWallClockOverride,
   mockDensePharosVilleData,
   mockPharosVilleData,
@@ -316,6 +317,8 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
     return settled;
   }).toBe(true);
   const onScreenDetailIds = new Set(await shipTargetIds(page));
+  const firstPhaseCamera = restFraming((await readVisualDebug(page)).camera);
+  expect(firstPhaseCamera.restPresence).toBe(1);
   // Every hull now resolves onto the water plate and moored hulls sit at
   // their stations, so the old `index % 5` stride no longer lands on an
   // off-screen ship. The candidate is pinned rather than "first culled":
@@ -398,11 +401,16 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
   await expect(detailPanel).toHaveCount(0);
   await expect(page.getByTestId("pharosville-world")).toBeFocused();
 
-  // Reset view restores the exact framing the first phase measured, so the
-  // off-screen ship goes back off screen. Targets are viewport-culled, so this
-  // is the one comparison between the two cameras that is meaningful.
+  // Reset view restores the exact framing the first phase measured — the rest
+  // ShotSpec on the same hand-off rig — so the off-screen ship goes back off
+  // screen. The camera is compared directly: the on-screen ship SET is not a
+  // proxy for it, because the first navigation builds the fleet from a cold
+  // world cache and the later ones from the cached world, and idle hulls do
+  // not land on identical water across those two paths (a few swap places at
+  // the frame edge even though the camera is identical).
   await page.getByRole("button", { name: "Reset view" }).click();
-  await expect.poll(async () => shipTargetIds(page)).toEqual([...onScreenDetailIds]);
+  await expect.poll(async () => restFraming((await readVisualDebug(page)).camera)).toEqual(firstPhaseCamera);
+  expect(await shipTargetIds(page)).not.toContain(outsiderDetailId);
 
   const renderedDetailIds = new Set(
     (await readVisualDebug(page)).targets?.map(({ detailId }) => detailId),
@@ -557,6 +565,18 @@ test(...visualLane("dom", "stale peg and stress evidence reads as a caveat, not 
     await expect(ledger).not.toContainText(`risk anchor ${anchor}`);
   }
 });
+
+/** The framing a camera state shows: the rig, the rest's presence and eye, and whether a shot overrides it. */
+function restFraming(camera: DebugCamera | null | undefined) {
+  return {
+    offsetX: camera?.offsetX ?? null,
+    offsetY: camera?.offsetY ?? null,
+    restEye: camera?.rest?.view.eye ?? null,
+    restPresence: camera?.rest?.presence ?? 0,
+    shot: Boolean(camera?.shot && camera.shot.presence > 0),
+    zoom: camera?.zoom ?? null,
+  };
+}
 
 async function shipTargetIds(page: Page): Promise<string[]> {
   const debug = await readVisualDebug(page);

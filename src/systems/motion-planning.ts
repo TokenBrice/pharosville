@@ -208,6 +208,12 @@ export function motionPlanSignature(world: PharosVilleWorld): string {
     for (const visit of [...ship.dockVisits].sort((a, b) => a.dockId.localeCompare(b.dockId))) {
       dockParts.push(`${visit.dockId}:${visit.chainId}:${visit.weight}:${visit.mooringTile.x},${visit.mooringTile.y}`);
     }
+    // The representative berth the route anchors at (W5.5): it depends on
+    // the whole fleet's selection and blue-noise placement (supply, 7d/24h
+    // change, hull, scale, zone), so a world with the same routing fields but
+    // different placement inputs — a cached world with schema drift, then the
+    // fresh one — must not reuse the plan. Whole tiles, as the route rounds.
+    const berth = ship.dockVisits.length > 0 ? gardenRepresentativeBerth(world, ship.id) : null;
     shipParts.push([
       ship.id,
       ship.marketCapUsd,
@@ -217,8 +223,12 @@ export function motionPlanSignature(world: PharosVilleWorld): string {
       // is derived from this field.
       (ship as ShipNode & { flowIntensity?: number | null }).flowIntensity ?? "",
       `${ship.riskTile.x},${ship.riskTile.y}`,
+      berth ? `${Math.round(berth.x)},${Math.round(berth.y)}` : "",
       ship.riskPlacement,
       ship.riskZone,
+      ship.riskWaterLabel,
+      ship.visual.sizeTier,
+      ship.placementEvidence.stale ? 1 : 0,
       ship.squadId ?? "",
       ship.squadRole ?? "",
       ship.homeDockChainId ?? "",

@@ -1,6 +1,6 @@
 # PharosVille GitHub Media
 
-Last updated: 2026-07-25
+Last updated: 2026-09-27
 
 Use this file to keep GitHub, README, and social-preview media consistent.
 
@@ -27,18 +27,20 @@ There is no stable public REST API for setting the repository social preview.
 
 ## README Product Screenshot
 
-The product screenshot is the current Three.js day overview captured at
-`1440x960`, with the full Garden Observatory, ships, analytical zones, and
-shell controls visible. Promote the current visual-audit capture with:
+`docs/pharosville/media/pharosville-desktop-shell.png` predates the Hour-Print
+look (the old landing camera and chrome). Recapture it from the rest seat on the
+real GPU before the Hour-Print release, never from a Playwright browser, which
+renders through SwiftShader (`TESTING.md`):
 
 ```bash
-magick outputs/visual-audit/day.png \
-  -resize 1200x \
-  -strip \
+npm run preview -- --clock 2026-09-26 --hash "#t=12.25" --still-camera --seconds 14 \
+  --width 1440 --height 960 --out media/day.png
+magick outputs/media/day.png -resize 1200x -strip \
   docs/pharosville/media/pharosville-desktop-shell.png
 ```
 
-Use `outputs/` for scratch captures before promoting anything into docs.
+Keep the world chrome in the shot; it is a product screenshot. Use `outputs/`
+for scratch captures before promoting anything into docs.
 
 ## Provenance Rules
 

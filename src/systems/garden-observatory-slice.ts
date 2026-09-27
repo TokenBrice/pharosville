@@ -709,11 +709,21 @@ function gardenObservatoryBaseSlice(world: PharosVilleWorld): GardenObservatoryB
  * hull is drawn and no display offset has to be faded out under way.
  */
 export function gardenRepresentativeBerth(world: PharosVilleWorld, shipId: string): ScreenPoint | null {
-  const placement = gardenObservatoryBaseSlice(world).ships.find((entry) => entry.ship.id === shipId);
-  return placement
-    ? { x: placement.ship.tile.x + placement.displayOffset.x, y: placement.ship.tile.y + placement.displayOffset.y }
-    : null;
+  let berths = representativeBerthsByWorld.get(world);
+  if (!berths) {
+    berths = new Map();
+    for (const placement of gardenObservatoryBaseSlice(world).ships) {
+      berths.set(placement.ship.id, {
+        x: placement.ship.tile.x + placement.displayOffset.x,
+        y: placement.ship.tile.y + placement.displayOffset.y,
+      });
+    }
+    representativeBerthsByWorld.set(world, berths);
+  }
+  return berths.get(shipId) ?? null;
 }
+
+const representativeBerthsByWorld = new WeakMap<PharosVilleWorld, Map<string, ScreenPoint>>();
 
 function compareRepresentativeShips(left: ShipNode, right: ShipNode): number {
   return riskRank(right.riskZone) - riskRank(left.riskZone)

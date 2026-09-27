@@ -47,6 +47,10 @@ export type DebugCamera = {
   offsetX: number;
   offsetY: number;
   zoom: number;
+  /** The rest ShotSpec blended over the rig (W1.0): presence and its view's eye. */
+  rest?: { presence: number; view: { eye: { x: number; y: number; z: number } } } | null;
+  /** A composed shot (selection, look-up, Wander postcard) over the rig. */
+  shot?: { presence: number } | null;
 };
 
 export type DebugFramePacing = {

@@ -16,6 +16,14 @@ recession and the tower crown air. Make the precinct a shoin court, engawa and
 dry-stone garden, not a fort. The pavilion, pond and signal mast remain subordinate
 to the tower; do not add another monument.
 
+The picture is taken from one authored seat, not a zoom level: seat C on the
+south shore (`src/systems/rest-seat.ts`), looking at the Pharos at yaw 31°,
+pitch 2.6°, eye 15.2 u, 32° vertical field. Idle is this rest shot; nothing
+tours on its own. The tower foot lands in the middle-right ninth at every gate
+profile (the tall 720×900 window takes its own eye along the same orbit). The
+near threshold — moss bank, engawa edge, a niwaki pine seen from below and a
+stone lantern — frames the bottom-left corner in shade.
+
 ## Value plan
 
 Perceptual grey, 0–100; entries read noon / dusk / night. Judge the resting frame
@@ -60,6 +68,20 @@ Wall clock is the premise, never a flattering default hour. It owns illumination
 Market stability owns clarity aloft; stale sources own bounded low fog in their
 own water. Neither market data nor grade may counterfeit the time of day.
 
+The clock is solar (`src/systems/sky-almanac.ts`): a nominal 35° latitude with
+the hemisphere taken from the visitor's time zone. The five beats follow the
+sun's true elevation for the date, not fixed hours — golden while the sun
+drops through 16–8°, blue centred on sunset, night by −12°, dawn mirrored. The
+real moon keeps its true timing, phase and elevation; only its displayed arc is
+compressed into the rest view's sky window.
+
+Cloud aloft is market data on a fixed ladder, never weather and never a
+forecast (`SKY_CLOUD_COVER`, `src/systems/psi-sky.ts`): BEDROCK a clear sky
+with two or three high strokes, STEADY fair, TREMOR a high veil, FRACTURE a
+broken deck, CRISIS low cloud, MELTDOWN overcast. The same word appears in the
+now-line and the ledger. A band change eases over 90 s; the wall clock lights
+the clouds.
+
 ## Motion and restraint
 
 Motion has long rests. Let an arrival, kindling lamps or a heron become an event,
@@ -68,9 +90,21 @@ figures, never add counts to manufacture life. Every addition names what it
 displaces: a light demotes a light, a prop removes a prop, a motion stills another.
 Cheap rendering does not make attention free.
 
+The attention budget is a gate, enforced when the director admits an event
+(`src/systems/garden-director.ts`) and proved for the day score
+(`gardenScoreBudgetViolations`, `src/systems/garden-score.ts`). In any idle
+hour: at most six discrete events, one unbroken 12-minute quiet, at least
+8 minutes between foreground events and a 90 s back-off after any ritual. Over
+a day: at most six gifts, no more than two between golden 0.5 and night 0.5.
+Only the crossing subject crosses the inlet, and it wears the only nameplate.
+Continuous ambient motion (wind, swell, water) is outside the count.
+
 ## Immutable colour anchors
 
 Keep `lantern_warm`, `vermillion`, `sail_teal` and `sail_red` unchanged.
 Vermillion retains chroma primacy; sail anchors retain issuer identity.
+Only `vermillion` and `lantern_warm` exceed OKLCH C 0.12 in the world, and
+vermillion is spent on two things only: the beacon flame and Danger water. No
+torii, no vermillion flora; koi and maples take derived tones.
 Derive supporting colours from the shared palette, never redefine these tokens
 or use arbitrary colour and grading to repair a weak composition.

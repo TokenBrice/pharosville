@@ -1,6 +1,6 @@
 # PharosVille Runtime Media
 
-Last updated: 2026-07-25
+Last updated: 2026-09-27
 
 Runtime media is deliberately narrow, same-origin, and owned by the code that
 uses it. Everything else in the Garden Observatory is procedural geometry,
@@ -13,7 +13,7 @@ shader/material work, or DOM.
 | Stablecoin logo | `useShipLogoAssets` → sail atlas | painted symbol and livery |
 | Chain logo | `garden-chain-flag.ts` → nobori atlas | painted maru mon and vertical initials on kinari cloth |
 | Lighthouse GLB | `garden-models.ts` | aligned procedural lighthouse |
-| 18 hero-hull GLBs | `garden-models.ts` | procedural tier hull |
+| 8 named-titan hull GLBs | `garden-models.ts` | procedural tier hull |
 | Water normal | `garden-water.ts` | shader water without normal detail |
 | Sail/flag atlases | renderer memory | fallback cloth/mark remains |
 
@@ -25,7 +25,7 @@ to browser code.
 ## Checked models
 
 The model manifest in `src/three/garden-models.ts` is the contract for one
-lighthouse and eighteen hero hulls. It records content-hashed URL, bytes,
+lighthouse and the eight named-titan hulls. It records content-hashed URL, bytes,
 hash, dimensions, origin, anchors, pick proxy, geometry budgets, provenance,
 and license. `RUNTIME_FACTS.md` is generated from that manifest.
 
@@ -72,9 +72,9 @@ texture. Read A with `texelFetch`; its angles wrap.
 - The fleet uses one shared 16×16 sail atlas. It stores marks while instance
   attributes supply cloth/livery, so a large fleet does not acquire a texture
   per ship.
-- Harbor flags use their own shared atlas. A real chain logo can upgrade a
-  cell, but the painted flag is the product contract and a failed image is not
-  an error state.
+- Harbor nobori use their own shared atlas. A real chain logo can upgrade a
+  cell, but the painted mon and initials on kinari cloth are the product
+  contract and a failed image is not an error state.
 - A logo change needs focused atlas/sail tests and browser review at overview
   and inspection scale.
 

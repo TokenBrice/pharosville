@@ -1,6 +1,6 @@
 # PharosVille Change Checklist
 
-Last updated: 2026-07-25
+Last updated: 2026-09-27
 
 ## Before editing
 
@@ -25,6 +25,12 @@ Last updated: 2026-07-25
   restoring the retired 20-ship cap.
 - Same-origin media with deterministic fallbacks. Checked models change through
   generators, not binary edits.
+- Hour-Print budgets: no new textures (the whole-map census is at 72/72; sample
+  the noise pack), no new fleet sail-program vertex attributes (16/16), and
+  every discrete event admitted through the director's attention budget.
+- Chrome colours come from the light score (`src/systems/chrome-air.ts`), never
+  a day/night switch, and every text role stays AA
+  (`src/systems/chrome-air.test.ts`).
 
 ## Validate proportionately
 

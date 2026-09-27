@@ -1,6 +1,6 @@
 # PharosVille Testing and Visual Review
 
-Last updated: 2026-07-30
+Last updated: 2026-09-27
 
 Use the smallest check that proves the contract you changed. The production
 world has one Three.js renderer and a DOM `WorldStaticOverview` for renderer or
@@ -290,9 +290,9 @@ settles, `--assert` exits **78 (SKIP)**, not 0 — an in-flight frame is missing
 resources that are still arriving, and scoring it green would be the precise
 error V-07 named.
 
-The current settled reference is approximately 316k triangles and 214–216
-calls, depending on phase and selection; it remains comfortably within the
-same ceilings.
+The last recorded settled reference (before the Hour-Print program) is about 316k
+triangles and 214–216 calls, depending on phase and selection. Re-measure it
+before quoting it for the current rest seat; the ceilings are what gate.
 
 For fault-like flicker, run the bounded real-GPU artifact probe:
 
@@ -321,8 +321,8 @@ still expected to replace content.
 Cost, motion and picture evidence comes from `preview.mjs` itself, on its own
 real-GPU frame path, after the renderer check and the populate/settle waits.
 Every instrument that reads an app debug field (`window.__pharosVilleDebug`
-`motionStats`, `directorLog`, `project`, `anchors`; the `still=1`, `d=` and
-`window.__pharosVilleKnockout` seams) needs visual debug — the dev server or a
+`motionStats`, `directorLog`, `project`, `anchors`, `forceRitual`; the
+`still=1`, `d=` and `window.__pharosVilleKnockout` seams) needs visual debug — the dev server or a
 localhost build with `?debug=1` — and prints an `error` line naming the missing
 field, with exit 1, when the page does not publish it. The rest of the run still
 reports.
@@ -330,9 +330,9 @@ reports.
 | flag | what it does |
 | --- | --- |
 | `--uncapped` | launches Chrome with `--disable-gpu-vsync --disable-frame-rate-limit`, so frame p50 is throughput cost rather than the vsync interval |
-| `--knockout <list>` | sets `window.__pharosVilleKnockout` before load; names: `ao`, `bloom`, `smaa`, `rays`, `reflection`, `grade`, `water-lanes` |
+| `--knockout <list>` | sets `window.__pharosVilleKnockout` before load; names: `ao`, `bloom`, `smaa`, `rays`, `reflection`, `grade`, `keyline`, `water-lanes` |
 | `--knockout-compare <list>` | runs the baseline and each named knockout as whole serial previews, one Chrome per arm, alternating for 3 rounds; prints each arm and Δp50/Δp90 = knockout − baseline, averaged over same-round pairs, plus Σ Δp50. Arm captures and JSON land as `<out>-kc-rN-<arm>.{png,json}`; `--json` writes the summary |
-| `--still-camera` | appends `still=1`: no camera breath, no attract/postcard moves; director, fleet and water keep running |
+| `--still-camera` | appends `still=1`: no camera breath and no eased moves (idle already holds the rest shot; Wander postcards move only when asked); director, fleet and water keep running |
 | `--clock <ISO>` | pins `Date` to that instant and lets it flow in real time (RAF, `performance.now` and timers stay native), and adds `d=YYYY-MM-DD` (the date as written) to the hash. A bare date is local midnight. Under `--fixture` the fixture's fixed `Date` is kept, so data freshness stays coherent, and only `d=` pins the calendar. Not combinable with `--refresh` |
 | `--burst N [--interval ms] [--clip x,y,w,h] [--burst-sheet]` | N ordered frames `<out>-burst-NN.png`, paced start to start (default 600 ms), of the canvas or of a viewport clip in CSS pixels; `--burst-sheet` also tiles them into `<out>-burst-sheet.png` |
 | `--stats [--watch-seconds S]` | prints `motionStats` (visible, underway, mean \|turn\|) and the latest director beats; with `--watch-seconds`, polls every 500 ms for S seconds and prints beats admitted, events/h, longest quiet gap, underway % of visible hulls and mean \|turn\| (°/s, °/min) |
@@ -341,6 +341,8 @@ reports.
 | `--value-plan [noon\|dusk\|night]` | MAE and Pearson r of the ninths against the value-plan table in `VISUAL_INVARIANTS.md`, parsed from the document on each run; the column comes from the `t=` hour (noon 9–16, dusk 16–20 or 5–7, night otherwise), else the page's wall-clock hour, unless named |
 | `--night-water` | mean, p95 and max L\* and the share above L\* 10 over the projected inlet water polygon (`anchors.inletPolygon`): the measured night-water probe |
 | `--clean` | the main shot is the canvas alone, with the debug HUD, world chrome and overlay (chips, nameplates) hidden: the source for the gate's hour stills |
+| `--ritual <kind> [--ritual-wait ms]` | calls `__pharosVilleDebug.forceRitual(kind)` just before the shot (and any burst), outside the day score; kinds are the ritual registry (`GARDEN_RITUAL_KINDS`, `src/systems/garden-director.ts`): `heron-arrives`, `heron-departs`, `kindling`, `moonrise`, `meteor`, `seasonal-visitor`, `crossing`, `dawn-skein`, `fish-rings`, `tree-lets-go`, `anniversary-lantern`. A kind with no registered handler is logged only |
+| `--first-visit` | keeps the three first-visit teachings; by default the preview seeds them as read so they do not cover the ordinary now-line |
 
 All readings print as text and, with `--json`, land under `instruments` in the
 JSON (`instrumentConfig` records clock, knockout, still camera and uncapped).
@@ -355,6 +357,7 @@ npm run preview -- --still-camera --hash "#t=18.3" --burst 9 --interval 600 --cl
 npm run preview -- --still-camera --stats --watch-seconds 600
 npm run preview -- --fixture calm --clock 2026-09-26 --hash "#t=12.25" --metrics --value-plan --json noon.json
 npm run preview -- --clock 2026-09-26 --hash "#t=22" --metrics --temporal --night-water --out night.png
+npm run preview -- --clock 2026-09-26 --hash "#t=19.2" --ritual kindling --ritual-wait 20000 --out kindling.png
 ```
 
 **Cost claims.** The `gpu` line prints non-additive per-pass timer readings.
@@ -402,10 +405,13 @@ isolated from the production entry and keep the normal build byte budget
 unchanged.
 
 The hard ceilings remain 700 draw calls, 500 geometries, 500,000 triangles, and
-72 textures. On the reference Apple M5 Pro at 1600×1000, the completed garden
-default is approximately 245 recurring calls, 43 textures, and 16.8 ms worst
-window p95 at tier `full`. Phase and visibility variation is expected; the
-ceiling is not a tuning target.
+72 textures. The texture budget is fully spent at whole-map (72/72), so new
+work reuses the packed noise texture rather than adding one. At the Hour-Print
+rest seat (seat C; 2026-09-27, Apple M5 Pro, 1600×1000, live data, a ship
+selected) the HUD reads about 105 recurring scene calls and 50 textures at
+noon and about 160 calls at night, well inside the ceilings. The dated tables
+below are the pre-Hour-Print references. Phase and visibility variation is
+expected; the ceiling is not a tuning target.
 
 **Completed garden (2026-09-02, Apple M5 Pro, 1600×1000, 185 ships).** The
 default reference is approximately **245 recurring calls**, 321k–337k
@@ -426,13 +432,12 @@ the completed garden measures about 215–227 recurring calls and 42–43 textur
 on the same hardware. URL values below 0.28 are not visitor-reachable and are
 not valid budget evidence.
 
-**Wave 1 frame remeasurement (2026-09-02, Apple M5 Pro, 1600×1000).** The
-finite 140×140 plate remains complete at the retained 0.28 absolute floor; its
-projected rim spans about 1,250×625 px, leaving visible sky on every side. The
-landing camera is now 0.648 (0.60 authored fit × 1.08 desktop tightening), with
-the Pharos near the left thirds line and the camera-side rim entering the lower
-corners. `gardenCameraViewHeight` therefore measures 96.45 world units at this
-viewport, now the scale-one fog reference.
+**Wave 1 frame remeasurement (2026-09-02, Apple M5 Pro, 1600×1000;
+superseded).** The finite 140×140 plate remains complete at the retained 0.28
+absolute floor; its projected rim spans about 1,250×625 px, leaving visible sky
+on every side. The zoom-0.648 landing camera this paragraph measured has since
+been replaced by the authored rest seat (`src/systems/rest-seat.ts`; seat C,
+yaw 31°, tower in the middle-right ninth). Rest is a pose, not a zoom level.
 
 **Texture gate diagnosis and closure (2026-09-02):** the inherited whole-map
 failure was a first-use ordering issue, not seven whole-map scene assets. The
