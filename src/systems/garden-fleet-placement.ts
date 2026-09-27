@@ -331,6 +331,79 @@ interface PlacedHull {
 }
 
 /**
+ * Placed hulls, bucketed by a coarse grid so a candidate meets its closest
+ * neighbours first. Only the ORDER of the clearance sweep uses it: minima do
+ * not depend on order, so every result equals the plain sweep over `list`.
+ */
+interface PlacedHullIndex {
+  cells: Map<number, PlacedHull[]>;
+  list: PlacedHull[];
+}
+
+const HULL_GRID_CELL_TILES = 8;
+/** Row stride of the packed cell key; far wider than the map in cells. */
+const HULL_GRID_KEY_STRIDE = 4096;
+
+function addPlacedHull(index: PlacedHullIndex, hull: PlacedHull): void {
+  index.list.push(hull);
+  const key = Math.floor(hull.y / HULL_GRID_CELL_TILES) * HULL_GRID_KEY_STRIDE
+    + Math.floor(hull.x / HULL_GRID_CELL_TILES);
+  const cell = index.cells.get(key);
+  if (cell) cell.push(hull);
+  else index.cells.set(key, [hull]);
+}
+
+/** Written by `measureHullClearance`; read immediately by its caller. */
+let clearanceNearest = Number.POSITIVE_INFINITY;
+let clearanceSeparation = Number.POSITIVE_INFINITY;
+
+/**
+ * Nearest placed hull and minimum gap ratio (distance over the larger of the
+ * two margins) from `(x, y)`. The sweep stops as soon as the candidate can
+ * neither beat `relaxedScore` (by `nearest · weight`) nor become a berth
+ * (gap ratio under `MIN_HULL_GAP`, or `nearest ≤ nearestFloor`): both minima
+ * only fall, so an early stop decides exactly as the full sweep would, and
+ * the partial values it leaves are never used for a choice.
+ */
+function measureHullClearance(
+  index: PlacedHullIndex,
+  x: number,
+  y: number,
+  margin: number,
+  weight: number,
+  relaxedScore: number,
+  nearestFloor: number,
+): void {
+  let nearest = Number.POSITIVE_INFINITY;
+  let separation = Number.POSITIVE_INFINITY;
+  const cellX = Math.floor(x / HULL_GRID_CELL_TILES);
+  const cellY = Math.floor(y / HULL_GRID_CELL_TILES);
+  for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      const cell = index.cells.get((cellY + dy) * HULL_GRID_KEY_STRIDE + cellX + dx);
+      if (!cell) continue;
+      for (const other of cell) {
+        const distance = Math.hypot(x - other.x, y - other.y);
+        if (distance < nearest) nearest = distance;
+        const ratio = distance / Math.max(margin, other.margin);
+        if (ratio < separation) separation = ratio;
+      }
+    }
+  }
+  if (!(nearest * weight <= relaxedScore && (separation < MIN_HULL_GAP || nearest <= nearestFloor))) {
+    for (const other of index.list) {
+      const distance = Math.hypot(x - other.x, y - other.y);
+      if (distance < nearest) nearest = distance;
+      const ratio = distance / Math.max(margin, other.margin);
+      if (ratio < separation) separation = ratio;
+      if (nearest * weight <= relaxedScore && (separation < MIN_HULL_GAP || nearest <= nearestFloor)) break;
+    }
+  }
+  clearanceNearest = nearest;
+  clearanceSeparation = separation;
+}
+
+/**
  * Water a hull may rest on for its whole stay.
  *
  * Dock aprons and moles count as obstacles here: a hull resting at home is
@@ -490,7 +563,7 @@ export function placeGardenFleet(
   }
 
   // Hull separation is shared across risk-band borders, not reset per band.
-  const placed: PlacedHull[] = [];
+  const placed: PlacedHullIndex = { cells: new Map(), list: [] };
   const retained = new Map<string, RetainedBerth>();
   const nextBerths = new Map<string, RetainedBerth>();
   if (berthCache?.lighthouseX === lighthouseTile.x && berthCache.lighthouseY === lighthouseTile.y) {
@@ -502,7 +575,7 @@ export function placeGardenFleet(
       );
       if (!previous || previous.mooring.riskBand !== ship.riskZone || previous.margin !== margin) continue;
       retained.set(ship.id, previous);
-      placed.push({ x: previous.tile.x, y: previous.tile.y, margin: previous.margin });
+      addPlacedHull(placed, { x: previous.tile.x, y: previous.tile.y, margin: previous.margin });
     }
   }
   for (const [zone, group] of [...byZone].sort(([left], [right]) => left.localeCompare(right))) {
@@ -545,6 +618,10 @@ export function placeGardenFleet(
     ) / Math.max(1, ordered.length)) * MIN_HULL_GAP;
     const anchorages = seedAnchorages(zone, candidates, ordered.length, meanHullGap, lighthouseTile);
     const nextRankByAnchorage = new Map<Anchorage, number>();
+    // Legal berth water of this band per hull margin, for the exhaustive scan
+    // below. Legality does not depend on the placed hulls, and every exhausted
+    // ship of the same hull re-tests the same tiles, so it is computed once.
+    const legalTilesByMargin = new Map<number, { x: number; y: number }[]>();
 
     for (const [shipIndex, ship] of ordered.entries()) {
       const margin = gardenShipWaterMarginTiles(
@@ -613,14 +690,18 @@ export function placeGardenFleet(
           if (terrainKindAt(Math.round(tile.x), Math.round(tile.y)) !== terrain) continue;
           if (!isBerthWater(tile, margin)) continue;
 
-          let nearest = Number.POSITIVE_INFINITY;
-          let separation = Number.POSITIVE_INFINITY;
-          for (const other of placed) {
-            const distance = Math.hypot(tile.x - other.x, tile.y - other.y);
-            if (distance < nearest) nearest = distance;
-            const ratio = distance / Math.max(margin, other.margin);
-            if (ratio < separation) separation = ratio;
-          }
+          // The berth test needs rank < bestRank: by distance from the
+          // mooring's heart (fixed per tile) or, in the region pass, by
+          // separation (`-nearest`), i.e. `nearest > -bestRank`.
+          const anchorageRank = pass === "anchorage" && anchorage
+            ? Math.hypot(tile.x - anchorage.x, tile.y - anchorage.y)
+            : Number.NaN;
+          const nearestFloor = Number.isNaN(anchorageRank)
+            ? -bestRank
+            : anchorageRank >= bestRank ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+          measureHullClearance(placed, tile.x, tile.y, margin, weight, relaxedScore, nearestFloor);
+          const nearest = clearanceNearest;
+          const separation = clearanceSeparation;
           if (nearest * weight > relaxedScore) {
             relaxedScore = nearest * weight;
             relaxedBest = tile;
@@ -632,9 +713,7 @@ export function placeGardenFleet(
 
           // Filling inward-out is what makes a cluster read as a harbour with a
           // middle, rather than as a disc of scattered points.
-          const rank = pass === "anchorage" && anchorage
-            ? Math.hypot(tile.x - anchorage.x, tile.y - anchorage.y)
-            : -nearest;
+          const rank = Number.isNaN(anchorageRank) ? -nearest : anchorageRank;
           if (rank < bestRank) {
             bestRank = rank;
             best = tile;
@@ -652,17 +731,18 @@ export function placeGardenFleet(
       // Any tile that still clears the hull gap wins; only a band with no such
       // water left falls back to the most open spot it has.
       if (!berth) {
+        let legalTiles = legalTilesByMargin.get(margin);
+        if (!legalTiles) {
+          legalTiles = candidates.filter((tile) => (
+            densityWeight(tile.x, tile.y, lighthouseTile) > 0 && isBerthWater(tile, margin)
+          ));
+          legalTilesByMargin.set(margin, legalTiles);
+        }
         let scanNearest = -1;
-        for (const tile of candidates) {
-          if (densityWeight(tile.x, tile.y, lighthouseTile) <= 0 || !isBerthWater(tile, margin)) continue;
-          let nearest = Number.POSITIVE_INFINITY;
-          let separation = Number.POSITIVE_INFINITY;
-          for (const other of placed) {
-            const distance = Math.hypot(tile.x - other.x, tile.y - other.y);
-            if (distance < nearest) nearest = distance;
-            const ratio = distance / Math.max(margin, other.margin);
-            if (ratio < separation) separation = ratio;
-          }
+        for (const tile of legalTiles) {
+          measureHullClearance(placed, tile.x, tile.y, margin, 1, relaxedScore, scanNearest);
+          const nearest = clearanceNearest;
+          const separation = clearanceSeparation;
           if (separation >= MIN_HULL_GAP && nearest > scanNearest) {
             berth = tile;
             scanNearest = nearest;
@@ -674,8 +754,8 @@ export function placeGardenFleet(
         }
       }
       // Tier 1 is `relaxedBest`: apron-clear water, gap relaxed.
-      const resolved = berth ?? relaxedBest ?? fallbackBerth(candidates, margin, placed, lighthouseTile, ship.tile);
-      placed.push({ x: resolved.x, y: resolved.y, margin });
+      const resolved = berth ?? relaxedBest ?? fallbackBerth(candidates, margin, placed.list, lighthouseTile, ship.tile);
+      addPlacedHull(placed, { x: resolved.x, y: resolved.y, margin });
       tileByShipId.set(ship.id, resolved);
       nextBerths.set(ship.id, { tile: resolved, margin, mooring: mooringByShipId.get(ship.id)! });
     }

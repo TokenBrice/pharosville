@@ -107,7 +107,7 @@ describe("Garden Observatory slice", () => {
     )).toBeNull();
   });
 
-  it("keeps 320 ordinary ships and adds only the selected transient outsider", { timeout: 15_000 }, () => {
+  it("keeps 320 ordinary ships and adds only the selected transient outsider", () => {
     const world = overCapacityWorldFixture();
     const ordinary = selectGardenObservatorySlice(world, null);
     const outsider = world.ships.find((ship) => (

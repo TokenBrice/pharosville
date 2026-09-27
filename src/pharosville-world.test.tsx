@@ -508,7 +508,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.queryByTestId("pharosville-selection-strip")).toBeNull();
   });
 
-  it("opens the DOM detail record for a selected transient outsider beyond capacity", { timeout: 15_000 }, async () => {
+  it("opens the DOM detail record for a selected transient outsider beyond capacity", async () => {
     const world = overCapacityWorldFixture();
     const ordinary = selectGardenObservatorySlice(world, null);
     const outsider = world.ships.find((ship) => (
