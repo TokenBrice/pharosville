@@ -2,16 +2,27 @@ import { describe, expect, it, vi } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureSafetyGrades, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureSafetyGrades, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { __testPathCacheSize, buildBaseMotionPlan, buildMotionPlan, BoundedShipWaterRouteCache, buildShipWaterRoute, clearShipHeadingMemory, createShipMotionSample, disposePathCacheForMap, isShipMapVisible, motionPlanSignature, resolveShipMotionSample, resolveShipMotionSampleInto, sampleShipWaterPath, shipCycleTempo, shipMapVisibilityAlpha, shipWaterPathKey, SPEED_QUARTILE_SCALARS, type ShipDockMotionStop, type ShipMotionSample } from "./motion";
-import { ARRIVING_DECEL_END, ARRIVING_FULL_TRANSIT_END, CAST_OFF_LINE_RELEASE_END, MOORING_QUIET_END, MOORING_WORKING_END, MOTION_CYCLE_MAX_SECONDS, MOTION_LEG_MAX_SECONDS, MOTION_LEG_MIN_SECONDS, MOTION_PAIR_WINDOW_SECONDS, MOTION_REST_MAX_SECONDS, MOTION_REST_MIN_SECONDS, MOTION_TRANSITION_SHARE, MOTION_UNDERWAY_MAX_TILES_PER_SECOND, MOTION_UNDERWAY_MIN_TILES_PER_SECOND } from "./motion-config";
+import { ARRIVING_DECEL_END, ARRIVING_FULL_TRANSIT_END, CAST_OFF_LINE_RELEASE_END, MOORING_QUIET_END, MOORING_WORKING_END, MOTION_CYCLE_MAX_SECONDS, MOTION_LEG_MAX_SECONDS, MOTION_LEG_MIN_SECONDS, MOTION_REST_MAX_SECONDS, MOTION_REST_MIN_SECONDS, MOTION_UNDERWAY_MAX_TILES_PER_SECOND, MOTION_UNDERWAY_MIN_TILES_PER_SECOND } from "./motion-config";
 import { getShipHeadingDelta } from "./motion-sampling";
 import { __resetPreviousRiskCache } from "./motion-planning";
 import { chaikinSmoothPath, ensureShoreDistanceMask, shoreDistance, warmAllWaterPaths } from "./motion-water";
+import { positiveModulo } from "./motion-utils";
+import { GARDEN_VOYAGE_LATTICE_OFFSET_AT_ZERO_SECONDS, GARDEN_VOYAGE_PERIOD_SECONDS, gardenVoyageWindowAt } from "./garden-attention-scheduler";
 import { squadForMember, squadFormationOffsetForPlacement } from "./maker-squad";
 import { isSeawallBarrierTile, seawallBarrierDistance } from "./seawall";
 import { buildPharosVilleMap, isWaterTileKind, terrainKindAt, tileKindAt } from "./world-layout";
 import { zoneWorldTile } from "./map-scale";
-import { isGardenObstacleTile } from "./garden-water-exclusion";
-import { patrolSpeedForZone } from "./motion-sampling/risk-drift";
+import { gardenShipWaterMarginTiles, isGardenObstacleTile } from "./garden-water-exclusion";
+import { MIN_HULL_GAP, resetGardenFleetPlacementCache } from "./garden-fleet-placement";
+import {
+  GARDEN_SHIP_ROOT_Y,
+  GARDEN_SILHOUETTE_FOR_HULL,
+  gardenShipVisualScale,
+  resolveGardenShipDisplayTile,
+  selectGardenObservatorySlice,
+} from "./garden-observatory-slice";
+import { defaultCamera } from "./camera";
+import { TILE_SCALE, worldToScreen } from "./projection";
 import type { PharosVilleMap, PharosVilleWorld, ShipWaterZone } from "./world-types";
 
 // The dense-fixture tests below each sample a full motion cycle over ~130
@@ -158,9 +169,7 @@ describe("motion", () => {
     expect(warning.maxSailingWake).toBeLessThan(danger.maxSailingWake);
   });
 
-  it("orders bounded risk-rest displacement by turbulence", () => {
-    expect((["calm", "watch", "alert", "warning", "danger"] as const).map(patrolSpeedForZone))
-      .toEqual([0.04, 0.052, 0.095, 0.15, 0.26]);
+  it("rides every anchored hull to its anchor and orders its sheer by risk", () => {
     const bandWorlds = [
       worldForShip({ chainCirculating: {}, chains: ["ethereum"] }),
       worldForShip({ chainCirculating: {}, chains: ["ethereum"], stressBand: "WATCH" }),
@@ -180,33 +189,39 @@ describe("motion", () => {
         pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", activeDepeg: true }),
       }),
     ];
-    const means = bandWorlds.map((bandWorld) => {
+    const meanYawRates = bandWorlds.map((bandWorld) => {
       __resetPreviousRiskCache();
       const ship = bandWorld.ships[0]!;
       const plan = buildMotionPlan(bandWorld, ship.detailId);
       const route = plan.shipRoutes.get(ship.id)!;
-      let displacementSum = 0;
-      const sampleCount = 80;
-      for (let index = 0; index < sampleCount; index += 1) {
-        const sample = resolveShipMotionSample({
-          plan,
-          reducedMotion: false,
-          ship,
-          timeSeconds: route.restDurationSeconds * ((index + 0.5) / sampleCount) - route.phaseSeconds,
-        });
-        const displacement = distance(sample.tile, route.riskTile);
-        displacementSum += displacement;
-        expect(displacement).toBeLessThanOrEqual(0.6 + 1e-9);
+      let yawSum = 0;
+      let previousAngle: number | null = null;
+      let count = 0;
+      // The settled middle of the first rest, clear of round-up and weighing.
+      for (let seconds = 40; seconds < route.restDurationSeconds - 40; seconds += 1) {
+        const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: seconds - route.phaseSeconds });
+        expect(sample.state).toBe("risk-drift");
+        expect(distance(sample.tile, route.riskTile)).toBeLessThanOrEqual(0.5);
         expect(isWaterTileKind(tileKindForSample(sample.tile))).toBe(true);
         expect(isGardenObstacleTile(sample.tile.x, sample.tile.y)).toBe(false);
         expect(isSeawallBarrierTile(sample.tile)).toBe(false);
+        const angle = Math.atan2(sample.heading.y, sample.heading.x);
+        if (previousAngle !== null) {
+          yawSum += Math.abs(Math.atan2(Math.sin(angle - previousAngle), Math.cos(angle - previousAngle)));
+          count += 1;
+        }
+        previousAngle = angle;
       }
-      return displacementSum / sampleCount;
+      return yawSum / count * 180 / Math.PI;
     });
 
-    for (let index = 1; index < means.length; index += 1) {
-      expect(means[index - 1]).toBeLessThan(means[index]!);
+    // Calm lies almost still: under a tenth of a turn a minute (0.6 °/s).
+    expect(meanYawRates[0]!).toBeLessThan(0.6);
+    for (let index = 1; index < meanYawRates.length; index += 1) {
+      expect(meanYawRates[index - 1]).toBeLessThan(meanYawRates[index]!);
     }
+    // Even danger sheers, never spins.
+    expect(meanYawRates.at(-1)!).toBeLessThan(4);
   });
 
   it("builds deterministic routes for every visible ship", () => {
@@ -219,7 +234,7 @@ describe("motion", () => {
       const repeatedRoute = secondPlan.shipRoutes.get(ship.id);
 
       expect(route).toBeDefined();
-      expect(route?.riskTile).toEqual(ship.riskTile);
+      expect(route?.riskTile).toEqual(repeatedRoute?.riskTile);
       expect(route?.cycleSeconds).toBe(repeatedRoute?.cycleSeconds);
       expect(route?.phaseSeconds).toBe(repeatedRoute?.phaseSeconds);
       expect(route?.dockStopSchedule).toEqual(repeatedRoute?.dockStopSchedule);
@@ -318,53 +333,28 @@ describe("motion", () => {
     expect(sample.tile.x === firstX && sample.tile.y === firstY).toBe(false);
   });
 
-  it("derives consort samples from a precomputed flagship sample without re-sampling", () => {
-    // Phase 4.2: when the per-frame map already carries the flagship's sample
-    // (flagships are written first by `collectShipMotionSamples`), the consort
-    // branch must reuse it instead of re-running `sampleRouteCycleInto` on the
-    // flagship route. We assert this by passing a hand-crafted flagship sample
-    // through `flagshipSamples` and verifying the consort tile equals
-    // flagship-tile + cached formation offset (within breathing tolerance).
+  it("sails each consort in its flagship's wake: the flagship's own track, one rank delay later", () => {
     const squadWorld = buildPharosVilleWorld(makerSquadFixtureInputs());
     const plan = buildMotionPlan(squadWorld, null);
     const flagshipShip = squadWorld.ships.find((ship) => ship.id === "usds-sky")!;
     const consortShip = squadWorld.ships.find((ship) => ship.id === "susds-sky")!;
-    const consortRoute = plan.shipRoutes.get(consortShip.id)!;
+    const flagshipRoute = plan.shipRoutes.get(flagshipShip.id)!;
+    const rank = squadForMember(consortShip.id)!.memberIds.indexOf(consortShip.id);
+    const delay = rank * 6;
 
-    expect(consortRoute.formationOffset).not.toBeNull();
-    const offset = consortRoute.formationOffset!;
-
-    // Synthesize a moored flagship sample so breathing perturbation is skipped
-    // (deterministic comparison). Pin it well clear of the map edges so the
-    // consort offset doesn't get clamped by `clampMotionTileInto`.
-    const flagshipSample = createShipMotionSample();
-    flagshipSample.shipId = flagshipShip.id;
-    flagshipSample.tile.x = 30;
-    flagshipSample.tile.y = 30;
-    flagshipSample.state = "moored";
-    flagshipSample.zone = flagshipShip.riskZone;
-    flagshipSample.heading.x = 1;
-    flagshipSample.heading.y = 0;
-
-    const flagshipSamples = new Map<string, ShipMotionSample>([[flagshipShip.id, flagshipSample]]);
-
-    const consortSample = createShipMotionSample();
-    resolveShipMotionSampleInto({
-      plan,
-      reducedMotion: false,
-      ship: consortShip,
-      timeSeconds: 0,
-      flagshipSamples,
-    }, consortSample);
-
-    // Consort tile is purely flagship + cached offset (moored => no breathing).
-    expect(consortSample.tile.x).toBeCloseTo(flagshipSample.tile.x + offset.dx, 5);
-    expect(consortSample.tile.y).toBeCloseTo(flagshipSample.tile.y + offset.dy, 5);
-    // Consort inherits flagship heading + state, but never claims the dock.
-    expect(consortSample.heading.x).toBe(flagshipSample.heading.x);
-    expect(consortSample.heading.y).toBe(flagshipSample.heading.y);
-    expect(consortSample.state).toBe("moored");
-    expect(consortSample.currentDockId).toBeNull();
+    let compared = 0;
+    for (let index = 0; index < 600; index += 1) {
+      const timeSeconds = flagshipRoute.cycleSeconds * index / 600 - flagshipRoute.phaseSeconds;
+      const flagship = resolveShipMotionSample({ plan, reducedMotion: false, ship: flagshipShip, timeSeconds });
+      if (flagship.state !== "sailing") continue;
+      const consort = resolveShipMotionSample({ plan, reducedMotion: false, ship: consortShip, timeSeconds: timeSeconds + delay });
+      if (consort.state !== "sailing") continue;
+      expect(consort.tile.x).toBeCloseTo(flagship.tile.x, 6);
+      expect(consort.tile.y).toBeCloseTo(flagship.tile.y, 6);
+      expect(consort.currentDockId).toBeNull();
+      compared += 1;
+    }
+    expect(compared).toBeGreaterThan(10);
   });
 
   it("reuses cached water paths across plan rebuilds when the map identity is stable", () => {
@@ -456,7 +446,7 @@ describe("motion", () => {
     expect(Math.hypot(tangent!.x, tangent!.y)).toBeCloseTo(1, 5);
   });
 
-  it("keeps leg timing independent of chain breadth while preserving weighted dock variety", () => {
+  it("keeps the voyage-window lattice independent of chain breadth while preserving weighted dock variety", () => {
     const singleChainWorld = worldForShip({
       chainCirculating: chainCirculating(["Ethereum"]),
       chains: ["ethereum"],
@@ -468,28 +458,18 @@ describe("motion", () => {
     const singleRoute = onlyRoute(singleChainWorld);
     const multiRoute = onlyRoute(multiChainWorld);
 
-    expect(singleRoute.cycleSeconds).toBeGreaterThanOrEqual(SHIP_CYCLE_MIN_SECONDS);
-    expect(multiRoute.cycleSeconds).toBeGreaterThanOrEqual(SHIP_CYCLE_MIN_SECONDS);
-    // Exact cycle equality across chain breadths is not a property of this
-    // system: every stop on a route shares one voyage duration, and that
-    // duration is floored by the FARTHEST berth at the 0.8 tiles/s underway
-    // cap (cadenceLegDurationForGeometry). The 2026-09 harbour re-siting put
-    // solana's south-reed boathouse 127.7 direct water tiles from this ship's
-    // risk tile — a 159.6 s floor, past the ~119.5 s identity leg budget the
-    // retired x=14 cove column never exceeded (which is what the old toBe
-    // leaned on). The stretch is bounded and one-directional: the cycle may
-    // only grow, by three times the farthest berth's overshoot past the
-    // identity budget carried into the rest (measured: 1029.05 s vs
-    // 908.60 s, +13.3%; floor-pinned routes must also sail at the shared
-    // voyage pace, so the bound holds while the underway speed cap does).
-    expect(multiRoute.cycleSeconds).toBeGreaterThanOrEqual(singleRoute.cycleSeconds);
-    expect(multiRoute.cycleSeconds).toBeLessThanOrEqual(singleRoute.cycleSeconds * 1.15);
-    // The breadth-independent timing anchor is the identity cadence term:
-    // riskRest resolves to 2·(identityRest − identityLeg) once the voyage
-    // stretch is carried into the dock rest, so it must survive added chain
-    // breadth unchanged (to float-associativity precision).
-    expect(singleRoute.riskRestDurationSeconds).toBeDefined();
-    expect(multiRoute.riskRestDurationSeconds).toBeCloseTo(singleRoute.riskRestDurationSeconds!, 9);
+    // The farthest berth may lengthen the voyage (and so the anchorage rest),
+    // but the identity's cast-off keeps its place on the voyage lattice and
+    // every cycle is a whole number of lattice periods, so each later cycle
+    // casts off at the same offset.
+    const castOffOffset = (route: typeof singleRoute) => positiveModulo(
+      route.restDurationSeconds - route.phaseSeconds + GARDEN_VOYAGE_LATTICE_OFFSET_AT_ZERO_SECONDS,
+      GARDEN_VOYAGE_PERIOD_SECONDS,
+    );
+    for (const route of [singleRoute, multiRoute]) {
+      expect(route.cycleSeconds / GARDEN_VOYAGE_PERIOD_SECONDS).toBeCloseTo(Math.round(route.cycleSeconds / GARDEN_VOYAGE_PERIOD_SECONDS), 9);
+    }
+    expect(castOffOffset(multiRoute)).toBeCloseTo(castOffOffset(singleRoute), 6);
     expect(singleRoute.dockStopSchedule.slice(0, 1)).toHaveLength(1);
     expect(multiRoute.dockStopSchedule.slice(0, 3)).toHaveLength(3);
     expect(new Set(multiRoute.dockStopSchedule).size).toBeGreaterThan(new Set(singleRoute.dockStopSchedule).size);
@@ -551,7 +531,7 @@ describe("motion", () => {
     expect(transitSample!.routePathKey).toContain(transitSample!.state);
   });
 
-  it("docks routed ships for one third of their motion cycle", () => {
+  it("moors routed ships for exactly their berth rest", () => {
     const sampleWorld = worldForShip({
       chainCirculating: chainCirculating(["Ethereum", "Tron", "Solana"]),
       chains: ["ethereum", "tron", "solana"],
@@ -560,20 +540,19 @@ describe("motion", () => {
     const plan = buildMotionPlan(sampleWorld, ship.detailId);
     const route = plan.shipRoutes.get(ship.id)!;
     let mooredSamples = 0;
-    const sampleCount = 300;
+    const sampleCount = 600;
 
     for (let index = 0; index < sampleCount; index += 1) {
       const sample = resolveShipMotionSample({
         plan,
         reducedMotion: false,
         ship,
-        timeSeconds: route.cycleSeconds * (index / sampleCount) - route.phaseSeconds,
+        timeSeconds: route.cycleSeconds * ((index + 0.5) / sampleCount) - route.phaseSeconds,
       });
       if (sample.state === "moored") mooredSamples += 1;
     }
 
-    expect(mooredSamples / sampleCount).toBeGreaterThan(0.31);
-    expect(mooredSamples / sampleCount).toBeLessThan(0.35);
+    expect(mooredSamples / sampleCount).toBeCloseTo(route.restDurationSeconds / route.cycleSeconds, 2);
   });
 
   it("keeps dense-fleet legs perceptible, staggered, and water-safe at 50 deterministic clock samples", () => {
@@ -645,11 +624,11 @@ describe("motion", () => {
       underwayShareSum += underway / denseWorld.ships.length;
       transitionShareSum += transitions / denseWorld.ships.length;
     }
-    // Keep the perceptibility floor, measured over complete route cycles.
-    expect(underwayShareSum / 50).toBeGreaterThanOrEqual(0.179);
-    expect(underwayShareSum / 50).toBeLessThanOrEqual(0.25);
-    expect(transitionShareSum / 50).toBeGreaterThanOrEqual(0.08);
-    expect(transitionShareSum / 50).toBeLessThanOrEqual(0.12);
+    // W4.F11: long rests — the fleet is under way a small share of its cycle,
+    // yet every voyage stays perceptible.
+    expect(underwayShareSum / 50).toBeGreaterThanOrEqual(0.05);
+    expect((underwayShareSum + transitionShareSum) / 50).toBeLessThanOrEqual(0.16);
+    expect(transitionShareSum / 50).toBeGreaterThanOrEqual(0.03);
   }, 15_000);
 
   it("keeps identity timing distinct when every ship shares an extreme flow pace", () => {
@@ -674,7 +653,7 @@ describe("motion", () => {
     }
   }, 15_000);
 
-  it("keeps identity phases stable across roster changes and pairs harbour boundary events", () => {
+  it("keeps identity phases stable across roster changes and gathers voyages in the scheduler's windows", () => {
     const denseWorld = denseWorldFixture;
     const fullPlan = densePlanFixture;
     const removedId = denseWorld.ships.find((ship) => !ship.squadId)?.id ?? denseWorld.ships[0]!.id;
@@ -685,32 +664,28 @@ describe("motion", () => {
       expect(reducedPlan.shipRoutes.get(ship.id)!.phaseSeconds).toBe(fullPlan.shipRoutes.get(ship.id)!.phaseSeconds);
     }
 
-    const windows = Array.from({ length: 40 }, () => ({ arrival: false, departure: false }));
-    for (const route of fullPlan.shipRoutes.values()) {
+    let castOffsInWindow = 0;
+    let landfallsInWindow = 0;
+    const routes = [...fullPlan.shipRoutes.values()];
+    for (const route of routes) {
+      const voyage = route.voyageDurationSeconds ?? route.legDurationSeconds;
       const riskRest = route.riskRestDurationSeconds ?? route.restDurationSeconds;
-      const boundaries = [
-        { kind: "departure" as const, offset: route.restDurationSeconds },
-        {
-          kind: "arrival" as const,
-          offset: route.restDurationSeconds
-            + (route.voyageDurationSeconds ?? route.legDurationSeconds)
-            + riskRest
-            + (route.voyageDurationSeconds ?? route.legDurationSeconds) * (1 - MOTION_TRANSITION_SHARE),
-        },
-      ];
-      for (const boundary of boundaries) {
-        for (let cycleIndex = -2; cycleIndex <= 2; cycleIndex += 1) {
-          const seconds = boundary.offset - route.phaseSeconds + cycleIndex * route.cycleSeconds;
-          if (seconds < 0 || seconds >= 600) continue;
-          windows[Math.floor(seconds / MOTION_PAIR_WINDOW_SECONDS)]![boundary.kind] = true;
-        }
-      }
+      const castOff = route.restDurationSeconds - route.phaseSeconds;
+      const landfall = castOff + 2 * voyage + riskRest;
+      if (gardenVoyageWindowAt(castOff + 1e-6) === "departures") castOffsInWindow += 1;
+      if (gardenVoyageWindowAt(landfall - 1e-6) === "homecomings") landfallsInWindow += 1;
+      // Whole lattice periods: the next cycle casts off in the same window.
+      expect(gardenVoyageWindowAt(castOff + route.cycleSeconds + 1e-6)).toBe(gardenVoyageWindowAt(castOff + 1e-6));
     }
-    expect(windows.filter((window) => window.arrival && window.departure).length / windows.length)
-      .toBeGreaterThanOrEqual(0.75);
+    // Most voyages gather (GARDEN_VOYAGE_WINDOW_SHARE); some stray, so the
+    // stand between windows is quiet but never frozen.
+    expect(castOffsInWindow / routes.length).toBeGreaterThan(0.6);
+    expect(castOffsInWindow / routes.length).toBeLessThan(0.95);
+    expect(landfallsInWindow / routes.length).toBeGreaterThan(0.6);
+    expect(landfallsInWindow / routes.length).toBeLessThan(0.95);
   }, 15_000);
 
-  it("keeps squad consorts in formation with the flagship through the entire dock cycle", () => {
+  it("keeps squad consorts in a raft beside the flagship at every settled rest", () => {
     const world = buildPharosVilleWorld(makerSquadFixtureInputs());
     const plan = buildMotionPlan(world, null);
     const flagship = world.ships.find((ship) => ship.id === "usds-sky")!;
@@ -723,51 +698,32 @@ describe("motion", () => {
       const consort = world.ships.find((ship) => ship.id === consortId)!;
       const squad = squadForMember(consortId)!;
       const offset = squadFormationOffsetForPlacement(consortId, squad, flagship.riskPlacement)!;
-      const flagshipStates = new Set<string>();
-      const sampleCount = 60;
+      const reach = Math.hypot(offset.dx, offset.dy);
+      let settledRests = 0;
+      const sampleCount = 240;
 
       for (let index = 0; index < sampleCount; index += 1) {
         const timeSeconds = flagshipRoute.cycleSeconds * (index / sampleCount) - flagshipRoute.phaseSeconds;
         const flagshipSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: flagship, timeSeconds });
         const consortSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: consort, timeSeconds });
-        flagshipStates.add(flagshipSample.state);
-
-        if (flagshipSample.state === "moored" || flagshipSample.state === "idle") {
-          // Moored/idle: consort holds an exact integer offset (no breathing).
-          // W4.24 formation gain is 1.0 in moored/idle, so offset is unchanged.
-          expect(consortSample.tile.x - flagshipSample.tile.x).toBeCloseTo(offset.dx, 5);
-          expect(consortSample.tile.y - flagshipSample.tile.y).toBeCloseTo(offset.dy, 5);
-        } else {
-          // Transit: sub-tile breathing perturbation may be added, and W4.24
-          // formation gain scales the offset (×1.4 for calm cruising, ×0.55
-          // for arriving, ×1.0 otherwise). Tolerate the gained offset + breath.
-          const dx = consortSample.tile.x - flagshipSample.tile.x;
-          const dy = consortSample.tile.y - flagshipSample.tile.y;
-          // Tight water may collapse a gained formation onto the flagship;
-          // water safety takes precedence over preserving the offset sign.
-          if (Math.hypot(dx, dy) < 1e-6) continue;
-          // |dx| ≤ |offset.dx * 1.4| + 1 (breathing budget); same for dy.
-          // Sign is preserved by the gain since gain > 0.
-          if (offset.dx !== 0) {
-            expect(Math.sign(dx)).toBe(Math.sign(offset.dx));
-            expect(Math.abs(dx)).toBeLessThanOrEqual(Math.abs(offset.dx) * 1.4 + 1);
-            expect(Math.abs(dx)).toBeGreaterThanOrEqual(Math.abs(offset.dx) * 0.55 - 1);
-          }
-          if (offset.dy !== 0) {
-            expect(Math.sign(dy)).toBe(Math.sign(offset.dy));
-            expect(Math.abs(dy)).toBeLessThanOrEqual(Math.abs(offset.dy) * 1.4 + 1);
-            expect(Math.abs(dy)).toBeGreaterThanOrEqual(Math.abs(offset.dy) * 0.55 - 1);
-          }
-        }
-        // Consort doesn't actually visit chain docks even when shadowing a moored flagship.
+        expect(isWaterTileKind(tileKindForSample(consortSample.tile))).toBe(true);
+        // Consorts never claim a chain dock, even rafted beside a moored flagship.
         expect(consortSample.currentDockId).toBeNull();
         expect(consortSample.currentRouteStopId).toBeNull();
-        expect(consortSample.currentRouteStopKind).toBeNull();
+        const segment = consortSample.segment;
+        const settled = (consortSample.state === "moored" || consortSample.state === "risk-drift")
+          && flagshipSample.state === consortSample.state
+          && segment !== null && segment !== undefined
+          && segment.secondsInto > 30 && segment.secondsRemaining > 30;
+        if (!settled) continue;
+        const apart = distance(consortSample.tile, flagshipSample.tile);
+        // A shoreline may halve or fold the raft onto the flagship's water.
+        if (apart < reach * 0.25) continue;
+        expect(apart).toBeGreaterThan(reach * 0.5 - 0.3);
+        expect(apart).toBeLessThan(reach + 0.3);
+        settledRests += 1;
       }
-
-      // Sanity: the cycle must traverse multiple states or the formation
-      // assertion is meaningless (we'd only be testing one phase).
-      expect(flagshipStates.size).toBeGreaterThanOrEqual(2);
+      expect(settledRests).toBeGreaterThan(20);
     }
   });
 
@@ -869,7 +825,8 @@ describe("motion", () => {
     const plan = buildMotionPlan(sampleWorld, ship.detailId);
     const sample = resolveShipMotionSample({ plan, reducedMotion: true, ship, timeSeconds: 120 });
 
-    expect(sample.tile).toEqual(ship.riskTile);
+    // Its anchorage is the Ledger berth it is drawn at (W5.5).
+    expect(sample.tile).toEqual(plan.shipRoutes.get(ship.id)!.riskTile);
     expect(sample.state).toBe("idle");
     expect(sample.zone).toBe("ledger");
     expect(sample.currentDockId).toBeNull();
@@ -878,6 +835,63 @@ describe("motion", () => {
     expect(sample.wakeIntensity).toBe(0);
     expect(sample.mapVisibilityAlpha).toBe(1);
     expect(terrainKindAt(Math.round(sample.tile.x), Math.round(sample.tile.y))).toBe("ledger-water");
+  });
+
+  it("rests the reduced-motion fleet on spaced berths in its own band water, clear of the chrome corner", () => {
+    // The seat-C inlet (W1.6) leaves Calm room for its whole fleet at the
+    // hull gap, so the full dense fixture must rest spaced.
+    const tableauWorld = denseWorldFixture;
+    const terrainForZone: Record<ShipWaterZone, string> = {
+      alert: "alert-water",
+      calm: "calm-water",
+      danger: "storm-water",
+      ledger: "ledger-water",
+      warning: "warning-water",
+      watch: "watch-water",
+    };
+    const viewport = { x: 1600, y: 1000 };
+    const restCamera = defaultCamera({ height: viewport.y, map: tableauWorld.map, width: viewport.x });
+    const staticBerths = () => {
+      resetGardenFleetPlacementCache();
+      // A fresh world object, so the garden slice re-solves its berths.
+      const world = { ...tableauWorld };
+      const plan = buildMotionPlan(world, null);
+      return selectGardenObservatorySlice(world, null).ships
+        .map((placement) => ({
+          id: placement.ship.id,
+          zone: placement.ship.riskZone,
+          tile: resolveGardenShipDisplayTile({
+            ...placement,
+            sample: resolveShipMotionSample({ plan, reducedMotion: true, ship: placement.ship, timeSeconds: 120 }),
+          }),
+          margin: gardenShipWaterMarginTiles(
+            gardenShipVisualScale(placement.ship.visual.scale || 1),
+            GARDEN_SILHOUETTE_FOR_HULL[placement.ship.visual.hull],
+          ),
+        }));
+    };
+
+    const berths = staticBerths();
+    expect(berths.some((berth) => berth.zone === "ledger")).toBe(true);
+    for (const [index, berth] of berths.entries()) {
+      expect(terrainKindAt(Math.round(berth.tile.x), Math.round(berth.tile.y)), berth.id)
+        .toBe(terrainForZone[berth.zone]);
+      const screen = worldToScreen(
+        { x: berth.tile.x * TILE_SCALE, y: GARDEN_SHIP_ROOT_Y, z: berth.tile.y * TILE_SCALE },
+        restCamera,
+        viewport,
+      );
+      const underChrome = screen.x >= viewport.x - 180 && screen.x <= viewport.x
+        && screen.y >= viewport.y - 120 && screen.y <= viewport.y;
+      expect(underChrome, `${berth.id} under the chrome`).toBe(false);
+      for (const other of berths.slice(index + 1)) {
+        expect(
+          Math.hypot(berth.tile.x - other.tile.x, berth.tile.y - other.tile.y),
+          `${berth.id} / ${other.id}`,
+        ).toBeGreaterThanOrEqual(Math.max(berth.margin, other.margin) * MIN_HULL_GAP - 1e-9);
+      }
+    }
+    expect(staticBerths().map((berth) => berth.tile)).toEqual(berths.map((berth) => berth.tile));
   });
 
   it("hides only non-titan, non-unique ships while they are moored", () => {
@@ -968,16 +982,6 @@ describe("motion", () => {
     expect(departingFade?.mapVisibilityAlpha).toBeLessThan(1);
     expect(arrivingFade?.mapVisibilityAlpha).toBeGreaterThan(0);
     expect(arrivingFade?.mapVisibilityAlpha).toBeLessThan(1);
-  });
-
-  it("reserves about one tenth of a routed cycle for arrival and cast-off", () => {
-    const sampleWorld = worldForShip({
-      chainCirculating: chainCirculating(["Ethereum", "Tron", "Solana"]),
-      chains: ["ethereum", "tron", "solana"],
-    });
-
-    expect(stateCountsOverCycle(sampleWorld).transitSamples).toBeGreaterThanOrEqual(8);
-    expect(stateCountsOverCycle(sampleWorld).transitSamples).toBeLessThanOrEqual(12);
   });
 
   it("routes dockless ships through open-water patrols instead of parking at the risk tile", () => {
@@ -1639,68 +1643,6 @@ describe("motion", () => {
       expect(getShipHeadingDelta("nonexistent-ship-id")).toBe(0);
     });
 
-    it("keeps formation glued (no breathing) while flagship is moored", () => {
-      const squadWorld = buildPharosVilleWorld(makerSquadFixtureInputs());
-      const plan = buildMotionPlan(squadWorld, null);
-      const flagship = squadWorld.ships.find((ship) => ship.id === "usds-sky")!;
-      const consort = squadWorld.ships.find((ship) => ship.id === "susds-sky")!;
-      const flagshipRoute = plan.shipRoutes.get(flagship.id)!;
-      const squad = squadForMember(consort.id)!;
-      const offset = squadFormationOffsetForPlacement(consort.id, squad, flagship.riskPlacement)!;
-
-      let inspectedMoored = 0;
-      const samples = 240;
-      for (let index = 0; index < samples; index += 1) {
-        const timeSeconds = flagshipRoute.cycleSeconds * (index / samples) - flagshipRoute.phaseSeconds;
-        const flagshipSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: flagship, timeSeconds });
-        if (flagshipSample.state !== "moored") continue;
-        const consortSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: consort, timeSeconds });
-        // Moored: consort tile must equal flagship tile + integer offset exactly.
-        expect(consortSample.tile.x - flagshipSample.tile.x).toBeCloseTo(offset.dx, 5);
-        expect(consortSample.tile.y - flagshipSample.tile.y).toBeCloseTo(offset.dy, 5);
-        inspectedMoored += 1;
-      }
-      expect(inspectedMoored).toBeGreaterThan(0);
-    });
-
-    it("breathes consort sub-tile offsets while flagship is in transit", () => {
-      const squadWorld = buildPharosVilleWorld(makerSquadFixtureInputs());
-      const plan = buildMotionPlan(squadWorld, null);
-      const flagship = squadWorld.ships.find((ship) => ship.id === "usds-sky")!;
-      const consort = squadWorld.ships.find((ship) => ship.id === "susds-sky")!;
-      const flagshipRoute = plan.shipRoutes.get(flagship.id)!;
-      const squad = squadForMember(consort.id)!;
-      const offset = squadFormationOffsetForPlacement(consort.id, squad, flagship.riskPlacement)!;
-
-      let observedBreathing = false;
-      const samples = 480;
-      // W4.24 formation gain scales the base offset by 0.55..1.4 depending on
-      // the flagship state/zone. The breathing signal is the residual after
-      // subtracting the gained offset, so we recover the per-state gain from
-      // the consort sample directly via cue priority on flagshipState.
-      for (let index = 0; index < samples; index += 1) {
-        const timeSeconds = flagshipRoute.cycleSeconds * (index / samples) - flagshipRoute.phaseSeconds;
-        const flagshipSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: flagship, timeSeconds });
-        if (flagshipSample.state === "moored" || flagshipSample.state === "idle") continue;
-        const consortSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: consort, timeSeconds });
-        const gain = flagshipSample.state === "arriving"
-          ? 0.55
-          : (flagshipSample.zone === "calm" && flagshipSample.state === "sailing" ? 1.4 : 1.0);
-        const actualDx = consortSample.tile.x - flagshipSample.tile.x;
-        const actualDy = consortSample.tile.y - flagshipSample.tile.y;
-        if (Math.hypot(actualDx, actualDy) < 1e-6) continue;
-        const breathDx = actualDx - offset.dx * gain;
-        const breathDy = actualDy - offset.dy * gain;
-        if (Math.hypot(breathDx, breathDy) > 0.02) {
-          observedBreathing = true;
-          // Breathing must stay sub-tile (well below 1 tile).
-          expect(Math.abs(breathDx)).toBeLessThan(0.5);
-          expect(Math.abs(breathDy)).toBeLessThan(0.5);
-        }
-      }
-      expect(observedBreathing).toBe(true);
-    });
-
     // Plan item 1.5: docked ships in busy harbors must not depart/arrive in
     // lockstep. With a stable-hash phase per ship the moored windows fall on
     // distinct cycle offsets, so picking a single wallclock instant should
@@ -2042,13 +1984,15 @@ describe("motion", () => {
           expect(consortRoute.phaseSeconds).toBe(flagshipRoute.phaseSeconds);
           expect(consortRoute.zone).toBe(flagshipRoute.zone);
 
+          const rank = squadForMember(consortId)!.memberIds.indexOf(consortId);
           for (let step = 0; step < 8; step += 1) {
             const timeSeconds = (flagshipRoute.cycleSeconds / 8) * step;
             const flagSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: flagshipShip, timeSeconds });
             const consortSample = resolveShipMotionSample({ plan, reducedMotion: false, ship: consortShip, timeSeconds });
             const dx = consortSample.tile.x - flagSample.tile.x;
             const dy = consortSample.tile.y - flagSample.tile.y;
-            expect(Math.hypot(dx, dy)).toBeLessThan(4.5);
+            // At most its rank's follow delay astern (a cast-off surges to 1.5× cruise pace), plus its raft reach.
+            expect(Math.hypot(dx, dy)).toBeLessThan(rank * 6 * 1.5 * MOTION_UNDERWAY_MAX_TILES_PER_SECOND + 4.5);
           }
         }
       }
@@ -2763,7 +2707,8 @@ describe("motion", () => {
         expect(route.cycleSeconds).toBeLessThanOrEqual(SHIP_CYCLE_MAX_SECONDS);
       }
       expect(shipCycleTempo(ships[3]!, ships).scalar).toBeGreaterThan(shipCycleTempo(ships[0]!, ships).scalar);
-      expect(activeRoute.cycleSeconds).toBeLessThanOrEqual(languidRoute.cycleSeconds);
+      // Flow paces the voyage; the rests are fitted to the voyage windows.
+      expect(activeRoute.voyageDurationSeconds!).toBeLessThanOrEqual(languidRoute.voyageDurationSeconds!);
     });
 
     it("uses flow-scaled leg time for physical progress over the same 60 seconds", () => {
@@ -3122,25 +3067,6 @@ function riskVsDockDwell(sampleWorld: PharosVilleWorld): { dockSamples: number; 
   }
 
   return { dockSamples, riskSamples };
-}
-
-function stateCountsOverCycle(sampleWorld: PharosVilleWorld): { transitSamples: number } {
-  const ship = sampleWorld.ships[0]!;
-  const plan = buildMotionPlan(sampleWorld, ship.detailId);
-  const route = plan.shipRoutes.get(ship.id)!;
-  let transitSamples = 0;
-
-  for (let index = 0; index < 100; index += 1) {
-    const sample = resolveShipMotionSample({
-      plan,
-      reducedMotion: false,
-      ship,
-      timeSeconds: route.cycleSeconds * (index / 100) - route.phaseSeconds,
-    });
-    if (sample.state === "departing" || sample.state === "arriving") transitSamples += 1;
-  }
-
-  return { transitSamples };
 }
 
 function cycleStats(sampleWorld: PharosVilleWorld): {

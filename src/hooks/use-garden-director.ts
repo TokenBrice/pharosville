@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { advanceGardenDirector, createGardenDirector, type GardenDirectorState } from "../systems/garden-director";
 
-function initialDirector(seed: string, reducedMotion: boolean): GardenDirectorState {
-  const state = createGardenDirector(seed);
+function initialDirector(seed: string, reducedMotion: boolean, timeSeconds: number): GardenDirectorState {
+  // Created on the director's own wall clock so its first 90 s stay silent
+  // (K17): the opening caption is the phase line, not a minor arrival.
+  const state = createGardenDirector(seed, timeSeconds);
   // A frozen director refuses every request, so reduced motion can never
   // animate a beat by accident.
   return reducedMotion ? Object.freeze(state) : state;
@@ -22,10 +24,10 @@ export function useGardenDirector(input: {
   timeSeconds: number;
   reducedMotion: boolean;
 }): GardenDirectorState {
-  const [state, setState] = useState(() => initialDirector(input.seed, input.reducedMotion));
+  const [state, setState] = useState(() => initialDirector(input.seed, input.reducedMotion, input.timeSeconds));
   const [seen, setSeen] = useState({ reducedMotion: input.reducedMotion, seed: input.seed });
   if (seen.seed !== input.seed || seen.reducedMotion !== input.reducedMotion) {
-    const next = initialDirector(input.seed, input.reducedMotion);
+    const next = initialDirector(input.seed, input.reducedMotion, input.timeSeconds);
     setSeen({ reducedMotion: input.reducedMotion, seed: input.seed });
     setState(next);
     return next;

@@ -25,6 +25,8 @@ import { writeMooringOffsetInto } from "./mooring";
 import type { RouteSamplingRuntime } from "./route-runtime";
 
 const mooringOffsetScratch = { x: 0, y: 0 };
+/** Seconds over which a voyage's sails are set, and later handed. */
+const SAIL_SET_EASE_SECONDS = 6;
 
 export function transitMapVisibilityAlpha(
   state: Extract<ShipMotionState, "arriving" | "departing" | "sailing">,
@@ -219,7 +221,7 @@ export function transitSampleInto(input: {
   out.shipId = input.route.shipId;
   out.state = input.sampleState ?? input.state;
   out.zone = input.route.zone;
-  writeRouteContextInto(input.route, routePathKey, out);
+  writeRouteContextInto(input.route, routePathKey, out, input.path);
   const reportsDockTransition = out.state === "arriving" || out.state === "departing";
   out.currentDockId = reportsDockTransition ? input.routeStop?.dockId ?? null : null;
   out.currentRouteStopId = reportsDockTransition ? input.routeStop?.id ?? null : null;
@@ -269,6 +271,11 @@ export function transitSampleInto(input: {
     alignmentT,
   );
   writeVelocityInto(out, out.heading.x * speed, out.heading.y * speed);
+  // Sails come to the wind over the first seconds of a voyage and are handed
+  // back over its last: clock-pure, so cloth and heel ease without memory.
+  const voyageSeconds = input.transitSeconds && input.transitSeconds > 0 ? input.transitSeconds : input.route.legDurationSeconds;
+  out.sailSet = smoothstepRange(0, SAIL_SET_EASE_SECONDS, linearProgress * voyageSeconds)
+    * smoothstepRange(0, SAIL_SET_EASE_SECONDS, (1 - linearProgress) * voyageSeconds);
 }
 
 function clampToNearestTerrainWaterInto(tile: { x: number; y: number }): void {

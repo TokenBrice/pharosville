@@ -6,8 +6,10 @@ import {
   Color,
   Fog,
   Group,
+  MathUtils,
+  Matrix3,
+  Matrix4,
   Mesh,
-  MeshBasicMaterial,
   Points,
   ShaderMaterial,
   SphereGeometry,
@@ -24,50 +26,165 @@ import {
   GARDEN_ISLAND_TILE_OFFSET,
   GARDEN_WATER_Y,
 } from "../systems/garden-observatory-slice";
-import { GARDEN_BREATH_PHASE, gardenBreathAt } from "../systems/weather";
 import type { GardenSeason } from "../systems/season";
 import { createGardenSkyBillboards } from "./garden-sky-billboards";
-import { NEUTRAL_SKY_CLARITY } from "../systems/psi-sky";
+import {
+  advanceSkyClarityFade,
+  createSkyClarityFade,
+  NEUTRAL_SKY_CLARITY,
+  psiBandClarity,
+  signedSkyClarity,
+  skyCloudCover,
+} from "../systems/psi-sky";
+import { debugSkyBand } from "../lib/pharosville-debug";
+import { acquireGardenNoisePack } from "./garden-noise-pack";
+import { GARDEN_AIR, updateGardenAerial } from "./garden-aerial";
 import type { EpistemicFogBank } from "../systems/epistemic-haze";
 import {
-  blendDayCycleColor,
   dayCycleBeats,
   type DayCycleBeats,
   DAY_CYCLE_LIGHT_PRESETS,
   DAY_CYCLE_SKY_PRESETS,
-  DUSK_EMBER_COLOR,
   MOON_COLOR,
   STAR_COLOR,
   type DayCyclePhase,
 } from "./garden-day-cycle";
-import { GARDEN_MOON_AZIMUTH, GARDEN_MOON_ELEVATION, gardenSunPose } from "./garden-sun";
+import { gardenSunPose } from "./garden-sun";
+import {
+  GARDEN_REST_VIEW_AZIMUTH,
+  gardenMoonStateAt,
+  gardenSkyToday,
+  gardenSkyViewAspect,
+  gardenSolarElevationAt,
+  setGardenSkyViewAspect,
+  type GardenMoonState,
+  type GardenSkyDay,
+} from "../systems/sky-almanac";
 
 // Five illumination beats: neutral noon air, not a warm full-frame grade.
+//
+// W2.2 (sky-1): the horizon has a side. `solar` is the horizon under the sun's
+// azimuth, `anti` the horizon opposite it; the dome blends them by the view
+// ray's horizontal alignment with the sun, and the air (fog, airlight) takes
+// the same pair, so the sea under each part of the sky agrees with it. One
+// glance tells you where the sun is even though it is always off-frame. Night
+// has no side.
 export const GARDEN_SKY_BEATS = {
-  dawn: { zenith: new Color(0x777d99), horizon: new Color(0xc9b6bd) },
-  day: { zenith: new Color(0x4c87c4), horizon: new Color(0xe0e4e9) },
-  golden: { zenith: new Color(0x74638e), horizon: new Color(0xdca76c) },
-  blue: { zenith: new Color(0x202c59), horizon: new Color(0x595773) },
-  night: { zenith: new Color(0x050918), horizon: new Color(0x11182c) },
+  dawn: { zenith: new Color(0x777d99), solar: new Color(0xe0bca6), anti: new Color(0xaaa7c2) },
+  // Print-gate tune: noon air is MIDDLE-value blue (horizon L* ≈ 71 / 54 in,
+  // was 95 / 84), so the side-lit limestone stands brighter than its air; the
+  // zenith is lifted (L* 55 → 65) so the top row keeps its cerulean.
+  day: { zenith: new Color(0x70a3d4), solar: new Color(0x9cb1ca), anti: new Color(0x6a82a8) },
+  // Golden faces away from the sun at the rest seat (the key is behind the
+  // viewer's right shoulder), so the frame's sky is the anti side: a cool
+  // violet-BLUE (hue ≈ 235°, was a 260° lavender) that the warm lit planes
+  // read against. The warmth stays on the solar horizon and the lit stone.
+  golden: { zenith: new Color(0x6e70a2), solar: new Color(0xf0a45c), anti: new Color(0x8f95bf) },
+  blue: { zenith: new Color(0x202c59), solar: new Color(0xb98a6e), anti: new Color(0x58648a) },
+  // W1.8 (sky-6): authored to land AFTER the night chain (grade, Neutral tone
+  // map at 1.12, night LUT) on frame-top zenith #0e1530 (L* ≈ 7.5, under the
+  // 0.76 deep bokashi band) and horizon #1b2440 (L* ≈ 15): a luminous indigo
+  // horizon the ridges, masts and tower read against as ink. The inputs look
+  // grey because the tone map's toe subtracts the smallest channel; the old
+  // #050918 / #11182c rendered at L* 0.9 / 3.4 — black paper.
+  night: { zenith: new Color(0x35394c), solar: new Color(0x393e50), anti: new Color(0x393e50) },
+};
+/**
+ * Between sunset and nautical dusk (and mirrored at dawn) the anti-solar sky
+ * carries the Belt of Venus, a dusty-rose band, over the Earth's shadow, a
+ * blue-grey slate band on the horizon.
+ */
+export const GARDEN_SKY_BELT = {
+  rose: new Color(0x9a7486),
+  earthShadow: new Color(0x3e4666),
 };
 const SKY_BEAT_NAMES = ["dawn", "day", "golden", "blue", "night"] as const;
 
+/** "horizon" is the side-less mean of the solar and anti-solar horizons. */
 export function blendGardenSkyColor(
   target: Color,
   beats: DayCycleBeats,
-  channel: "zenith" | "horizon",
+  channel: "zenith" | "solar" | "anti" | "horizon",
 ): Color {
   target.setRGB(0, 0, 0);
   for (const beat of SKY_BEAT_NAMES) {
-    const color = GARDEN_SKY_BEATS[beat][channel];
-    target.r += color.r * beats[beat];
-    target.g += color.g * beats[beat];
-    target.b += color.b * beats[beat];
+    const colors = GARDEN_SKY_BEATS[beat];
+    const weight = beats[beat];
+    if (channel === "horizon") {
+      target.r += (colors.solar.r + colors.anti.r) * 0.5 * weight;
+      target.g += (colors.solar.g + colors.anti.g) * 0.5 * weight;
+      target.b += (colors.solar.b + colors.anti.b) * 0.5 * weight;
+    } else {
+      const color = colors[channel];
+      target.r += color.r * weight;
+      target.g += color.g * weight;
+      target.b += color.b * weight;
+    }
   }
   return target;
 }
 const DOME_RADIUS = CAMERA_FAR * 0.9;
-const STAR_COUNT = 720;
+const STAR_COUNT = 1200;
+const DEG = Math.PI / 180;
+
+// --- W2.6 / W2.7: the real moon and a night sky with depth ------------------
+//
+// The moon is drawn IN the dome (sky-5): a 1.1° disc lit by its phase, with
+// earthshine on the dark limb, three soft maria, warmth when it is low and a
+// two-scale halo scaled by how much of it is lit. Its pose is the displayed
+// pose from `sky-almanac.ts`, the same answer the water's road and the night
+// key read. It never outshines the beacon: the disc's linear peak is set so
+// it lands at or under L* 80 after the night grade.
+const MOON_DISC_RADIUS = Math.sin(0.55 * DEG);
+const MOON_DISC_LINEAR = 0.5;
+const MOON_DISC_BASE = MOON_COLOR.clone().lerp(new Color(HARBOR_PALETTE.foam_white), 0.55);
+const MOON_LOW_WARMTH = new Color(HARBOR_PALETTE.lantern_warm);
+/** A daytime moon is a pale ghost on the blue, never a lamp. */
+const MOON_DAY_STRENGTH = 0.12;
+/**
+ * The heavens turn about a pole over the seat's left hand, 35° up (the sun's
+ * noon is the right hand, so the left is the pole side in either hemisphere).
+ * The star field and the Milky Way are authored as they stand at 22:00 on
+ * 26 September; any other hour and date rotates them by sidereal time.
+ */
+const CELESTIAL_POLE = new Vector3(
+  Math.cos(GARDEN_REST_VIEW_AZIMUTH - Math.PI / 2) * Math.cos(35 * DEG),
+  Math.sin(35 * DEG),
+  Math.sin(GARDEN_REST_VIEW_AZIMUTH - Math.PI / 2) * Math.cos(35 * DEG),
+);
+const STAR_REFERENCE_JD = Date.UTC(2026, 8, 26) / 86_400_000 + 2440587.5;
+const STAR_REFERENCE_HOUR = 22;
+const SIDEREAL_HOURS_PER_DAY = 24 / 365.2422;
+/**
+ * Stars are scattered over the declinations that rise through the rest view
+ * (the pole is on the left, so the view looks along the rising side): every
+ * hour a fresh stretch of the band crosses the frame instead of 98% of the
+ * field waiting behind the camera.
+ */
+const STAR_DECLINATION_RANGE = [-25 * DEG, 38 * DEG] as const;
+/**
+ * The Milky Way (O20): a great circle leaning across the right third of the
+ * reference sky, ≈ 17° right of the view axis at 10° up, tilted 60°.
+ */
+const MILKY_WAY_NORMAL = (() => {
+  const azimuth = GARDEN_REST_VIEW_AZIMUTH + 0.3;
+  const elevation = 10 * DEG;
+  const point = new Vector3(
+    Math.cos(azimuth) * Math.cos(elevation),
+    Math.sin(elevation),
+    Math.sin(azimuth) * Math.cos(elevation),
+  );
+  const alongHorizon = new Vector3(-Math.sin(azimuth), 0, Math.cos(azimuth));
+  const upSky = new Vector3(
+    -Math.cos(azimuth) * Math.sin(elevation),
+    Math.cos(elevation),
+    -Math.sin(azimuth) * Math.sin(elevation),
+  );
+  const tangent = alongHorizon.multiplyScalar(Math.cos(60 * DEG)).addScaledVector(upSky, Math.sin(60 * DEG));
+  return point.cross(tangent).normalize();
+})();
+/** Linear peak of the band: a few L* at most, far under the beacon and the moon. */
+const MILKY_WAY_PEAK = 0.0045;
 // The fog ladder is authored from world landmarks, then measured from the
 // current perspective eye. Rest framing is solved per viewport, so neither end
 // may be derived from an assumed zoom.
@@ -77,30 +194,38 @@ const FOG_ISLAND_Z = (70 + GARDEN_ISLAND_TILE_OFFSET.y - 12) * TILE_SCALE;
 const FOG_FAR_EDGE = 70 * TILE_SCALE;
 const FOG_NEAR = 200;
 const FOG_FAR = 400;
-// The far plate edge lands at ~35 % fog (the sky test's ≥30 % floor) rather
-// than 100 %, so far quays and headlands keep a silhouette.
-const FOG_FAR_BEYOND_EDGE = 1.35;
+// The nearer far-plate edge lands at ~35 % fog (the sky test's ≥30 % floor)
+// rather than 100 %, so far quays and headlands keep a silhouette. The seat-C
+// rest eye stands off the south-east corner looking north-west, so the west
+// edge is ~40 u nearer than the north one; fitting the nearer edge keeps both
+// in haze, and the farther one reads deeper, as aerial perspective should.
+const FOG_FAR_BEYOND_EDGE = 1.26;
 
+/**
+ * The air ladder, fitted to the eye: `near` is where the island's far rim reads
+ * and `far` is the plate edge's place on the ladder. garden-aerial fits its
+ * extinction to these two distances; the keyline and the fleet's chroma
+ * restraint read them too. K39: clear air is earned — positive signed clarity
+ * pushes the ladder out, negative clarity pulls it in.
+ */
 function fogRangeAtViewHeight(
   fog: Fog,
   eye: { x: number; y: number; z: number },
-  cover: number,
+  signedClarity: number,
 ): void {
   const islandDistance = Math.hypot(
     eye.x - FOG_ISLAND_X,
     eye.y - GARDEN_WATER_Y,
     eye.z - FOG_ISLAND_Z,
   );
-  const farEdgeDistance = Math.max(
+  const farEdgeDistance = Math.min(
     Math.hypot(eye.x, eye.y - GARDEN_WATER_Y, eye.z - FOG_FAR_EDGE),
     Math.hypot(eye.x - FOG_FAR_EDGE, eye.y - GARDEN_WATER_Y, eye.z),
   );
-  fog.near = (islandDistance + FOG_ISLAND_MARGIN) * (1 - cover * 0.32);
-  // G2/W2.4: the far plate edge sits part-way up the ladder rather than at
-  // its top, so the farthest quays and the borrowed headlands beyond them
-  // still hold a silhouette against the sky instead of dissolving into one
-  // wall the colour of the horizon. Aerial perspective, not a curtain.
-  fog.far = farEdgeDistance * FOG_FAR_BEYOND_EDGE * (1 - cover * 0.25);
+  const clear = Math.max(signedClarity, 0);
+  const veiled = Math.max(-signedClarity, 0);
+  fog.near = (islandDistance + FOG_ISLAND_MARGIN) * (1 + clear * 0.15 - veiled * 0.2);
+  fog.far = farEdgeDistance * FOG_FAR_BEYOND_EDGE * (1 + clear * 0.15 - veiled * 0.16);
 }
 
 // --- Wave 1: bokashi bands on the visible sky seam --------------------------
@@ -191,19 +316,45 @@ export function gardenBokashiBandGlsl(): string {
 `;
 }
 
-// The first follow-up baseline disables the detached cumulus sprites that read
-// as pale pills at whole-map zoom. Keep the implementation for controlled A/B
-// work; mist banks remain the active billboard atmosphere.
-export const GARDEN_CUMULUS_BILLBOARDS_ENABLED = false;
+// W0.19 (critic D12): the ladder is spent between the sea horizon and the top
+// row, but at the whole-map pull-out the top row sits only ~4° above the sea,
+// which squeezed every band into a few dozen rows and read as a hard step. The
+// visible height is floored at 6°, so a low sky shows the lower part of the
+// ladder instead of all of it compressed, and the top eases into 1 through a
+// smoothstep knee instead of a hard clamp.
+export const GARDEN_SKY_VISIBLE_HEIGHT_FLOOR = Math.sin(6 * Math.PI / 180);
+/**
+ * Soft top of the ladder: linear up to the knee start, flat at 1 from start +
+ * width. The knee straddles 1 symmetrically, so the ramp lands exactly on 1.
+ */
+const SKY_HEIGHT_KNEE_START = 0.8;
+const SKY_HEIGHT_KNEE_WIDTH = 0.4;
+
+/** Sine of the top row's elevation for a pose pitch, floored at 6°. */
+export function gardenSkyVisibleHeight(pitch: number): number {
+  return Math.max(GARDEN_SKY_VISIBLE_HEIGHT_FLOOR, Math.sin(CAMERA_FOV_DEG * Math.PI / 360 - pitch));
+}
+
+/**
+ * Ladder height of a view ray. Its slope is `1 - smoothstep(knee)`: 1 up to
+ * the knee, easing to 0 at its end, where the value is exactly 1 — no kink
+ * anywhere. The dome shader inlines the same ramp from the same constants.
+ */
+export function gardenSkyHeight(dirY: number, visibleHeight: number): number {
+  const h = Math.max(0, dirY / visibleHeight);
+  const t = Math.min(1, Math.max(0, (h - SKY_HEIGHT_KNEE_START) / SKY_HEIGHT_KNEE_WIDTH));
+  return Math.min(h, SKY_HEIGHT_KNEE_START) + SKY_HEIGHT_KNEE_WIDTH * (t - t * t * t + 0.5 * t * t * t * t);
+}
+
+// W2.3/W2.5: the far mist banks are gone — by day, mist means a stale source;
+// the ridge-foot kasumi lives in garden-horizon. X3 (sky-4): the billboard
+// cumulus is gone too — its pale pills are replaced by the cloud field painted
+// on this dome below.
 // W5.7 borrowed scenery stays below the live fog value at every phase —
 // palette derivation, not a new swatch. 2026-09-05 (warm-village B3): the
 // binding 2–4% whisper became three deliberate planes (10/20/30% below the
 // fog, far→near) so the ridges layer instead of grading into one strip; see
 // GARDEN_HORIZON_VALUE_SCALES in garden-horizon.ts.
-// The moon sits upper-left of the standard framing; V2's moon road aligns its
-// water glitter band to this azimuth. Re-exported from garden-sun, which owns
-// light geometry, so the dome and the water cannot disagree about the bearing.
-export { GARDEN_MOON_AZIMUTH };
 
 // Phase 2 (item 2c) kept the dome's glow, the water's glitter and the cast
 // shadows agreeing on the sun's bearing by writing that bearing down in three
@@ -214,17 +365,59 @@ export { GARDEN_MOON_AZIMUTH };
 // and the stars.
 
 
-// Phase-lit cloud palette — every swatch derived from the authored day-cycle
-// presets and HARBOR_PALETTE, blended per frame with the one scene blend law.
-const CLOUD_BODY_DAY = new Color(HARBOR_PALETTE.foam_white)
-  .lerp(DAY_CYCLE_SKY_PRESETS.day.horizon, 0.18);
-const CLOUD_BODY_DUSK = DAY_CYCLE_SKY_PRESETS.dusk.horizon.clone();
-const CLOUD_BODY_NIGHT = DAY_CYCLE_SKY_PRESETS.night.zenith.clone()
-  .lerp(MOON_COLOR, 0.3);
-const CLOUD_SHADE_DAY = DAY_CYCLE_SKY_PRESETS.day.zenith.clone()
-  .lerp(new Color(HARBOR_PALETTE.foam_white), 0.3);
-const CLOUD_SHADE_DUSK = DAY_CYCLE_SKY_PRESETS.night.horizon.clone();
-const CLOUD_SHADE_NIGHT = DAY_CYCLE_SKY_PRESETS.night.zenith.clone();
+// --- X3 / X4: painted clouds aloft, cover owned by market stability ----------
+//
+// One cloud field, painted on the dome — no cards, no draw of its own. Each
+// view ray meets a gently curved cloud layer (1 / (y + lift), which is what the
+// Earth's curvature does to a real deck), and the shared noise pack (G fbm, B
+// Worley) gives the shapes. Two layers: long high brushstrokes, and low bands
+// that grow from a few small shapes into a broken deck as cover rises. The
+// field is lit by the real sun or the displayed moon: tops lit at noon, warm
+// undersides when the sun is low, silver edges near the moon; the light term is
+// posterised in three tones like a woodblock plate. Cover follows the PSI
+// band (`skyCloudCover`, eased with the air over 90 s); the wall clock lights it.
+//
+// Cloud-space axes: A is the rest view's lateral axis (also the prevailing
+// wind), B the rest view's forward axis, so the bands run across the picture.
+const CLOUD_AXIS_A = new Vector2(-0.855, 0.519).normalize();
+const CLOUD_AXIS_B = new Vector2(-CLOUD_AXIS_A.y, CLOUD_AXIS_A.x);
+/** Curvature lift: the layer meets the horizon at a finite distance. */
+const CLOUD_LIFT = 0.05;
+/** Noise-pack uv per cloud-space unit, [along, across]. */
+const CLOUD_LOW_SCALE = [0.064, 0.08] as const;
+/** Long and thin: at the rest view a clear sky shows at most two or three strokes. */
+const CLOUD_HIGH_SCALE = [0.008, 0.05] as const;
+/**
+ * High-stroke threshold on the fbm channel by cover, measured over the rest
+ * view's sky window: BEDROCK ≈ 0.3 % of the sky (one or two strokes), STEADY
+ * ≈ 0.5 %, TREMOR and up ≈ 1.5 % plus the veil.
+ */
+const CLOUD_HIGH_THRESHOLD = { clear: 0.655, frayed: 0.58 } as const;
+/** The drift wraps on a common period of both layers' tiles, so it never jumps. */
+const CLOUD_WRAP = [62.5, 25] as const;
+/** Drift, cloud-space units per second per unit of wind speed. */
+const CLOUD_DRIFT = 0.07;
+/**
+ * Noise-pack calibration: the fraction of the field above a threshold of
+ * `0.75·G + 0.35·(1 − B)` is ≈ cover when threshold = 0.80 − 0.47·cover
+ * (measured over the pack: 5 % → 0.79, 50 % → 0.57, 90 % → 0.40).
+ */
+const CLOUD_THRESHOLD = [0.8, 0.47] as const;
+/** X4: crepuscular ladders add at most 6 % of the lit colour. */
+const CLOUD_RAYS_GAIN = 0.06;
+const CLOUD_WHITE = new Color(HARBOR_PALETTE.foam_white);
+/** World half-height of the crown (lantern and statue) the clouds keep clear of. */
+const CLOUD_CROWN_CLEAR_UNITS = 4.5;
+
+/** Pulls a linear colour toward its own luminance by `amount` (0 = unchanged, 1 = grey). */
+function desaturate(color: Color, amount: number): Color {
+  const luma = 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+  return color.setRGB(
+    color.r + (luma - color.r) * amount,
+    color.g + (luma - color.g) * amount,
+    color.b + (luma - color.b) * amount,
+  );
+}
 
 export interface GardenSkyFrame {
   reducedMotion: boolean;
@@ -244,10 +437,19 @@ export interface GardenSkyFrame {
   /** Phase 2 weather wind; drives the billboard drift. */
   wind?: { x: number; y: number; speed: number; gust: number };
   epistemicBanks?: readonly EpistemicFogBank[];
+  /** Viewport aspect; the displayed moon's arc is scaled to the rest view's width (K3). */
+  viewAspect?: number;
 }
 
 export interface GardenSky {
-  setClarity: (clarity: number) => void;
+  /**
+   * Target PSI clarity (0..1, psi-sky); the air and the clouds ease toward it
+   * over 90 s. `reading` is false while there is no accepted PSI reading (the
+   * neutral pre-data veil); the first real reading snaps instead of easing.
+   */
+  setClarity: (clarity: number, reading?: boolean) => void;
+  /** The displayed signed clarity (−1…+1) the air and the far ridges draw. */
+  readonly signedClarity: number;
   /**
    * The phase-only half of `update`: the dome uniforms and the fog colour, which
    * are graded from the day-cycle blend and from nothing else.
@@ -285,7 +487,6 @@ export interface GardenSky {
    */
   domeMaterial: ShaderMaterial;
   fog: Fog;
-  moonAzimuth: number;
   root: Group;
   update: (phase: DayCyclePhase, frame: GardenSkyFrame) => void;
 }
@@ -294,66 +495,172 @@ function createDome(): {
   material: ShaderMaterial;
   mesh: Mesh<SphereGeometry, ShaderMaterial>;
 } {
-  const zenith = DAY_CYCLE_SKY_PRESETS.night.zenith.clone();
-  const horizon = DAY_CYCLE_SKY_PRESETS.night.horizon.clone();
+  const glslVec3 = (v: Vector3): string => `vec3(${v.x.toFixed(6)}, ${v.y.toFixed(6)}, ${v.z.toFixed(6)})`;
   const material = new ShaderMaterial({
     depthTest: false,
     depthWrite: false,
     fog: false,
     side: BackSide,
     uniforms: {
-      uEmberColor: { value: DUSK_EMBER_COLOR.clone() },
-      uEmberStrength: { value: 0 },
+      uAirAnti: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
+      uAirSun: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
+      uAntiHorizon: { value: GARDEN_SKY_BEATS.night.anti.clone() },
+      uBeltColor: { value: GARDEN_SKY_BELT.rose.clone() },
+      uBeltStrength: { value: 0 },
+      uBokashiAmount: { value: 1 },
+      uCelestialFrame: { value: new Matrix3() },
+      uEarthShadowColor: { value: GARDEN_SKY_BELT.earthShadow.clone() },
+      uGlow: { value: 0 },
       uHazeColor: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
       uHazeStrength: { value: 0 },
-      uHorizon: { value: horizon },
-      uMiddle: { value: DAY_CYCLE_SKY_PRESETS.night.horizon.clone() },
-      uBokashiAmount: { value: 1 },
+      uMilkyWay: { value: 0 },
+      uMilkyWayColor: { value: STAR_COLOR.clone() },
+      uMoonColor: { value: MOON_DISC_BASE.clone() },
+      uMoonDay: { value: 0 },
+      uMoonDir: { value: new Vector3(0, 1, 0) },
+      uMoonIllumination: { value: 0 },
+      uMoonPhaseLight: { value: new Vector3(0, 0, 1) },
+      uMoonVisible: { value: 0 },
       uScattering: { value: 0 },
       uSkyVisibleHeight: { value: Math.sin(CAMERA_FOV_DEG * Math.PI / 360) },
+      uSolarHorizon: { value: GARDEN_SKY_BEATS.night.solar.clone() },
       uSunColor: { value: DAY_CYCLE_LIGHT_PRESETS.day.dirColor.clone() },
       uSunDir: { value: new Vector3(0, 1, 0) },
       uSunIntensity: { value: 0 },
-      uZenith: { value: zenith },
+      uZenith: { value: DAY_CYCLE_SKY_PRESETS.night.zenith.clone() },
+      uNoisePack: { value: null },
+      uCloudReady: { value: 0 },
+      uCloudCover: { value: 0 },
+      uCloudHighThreshold: { value: CLOUD_HIGH_THRESHOLD.clear },
+      uCloudHighAlpha: { value: 0.3 },
+      uCloudLitCool: { value: new Color() },
+      uCloudCrownDir: { value: new Vector3(0, 1, 0) },
+      uCloudCrownRadius: { value: 0 },
+      uCloudVeil: { value: 0 },
+      uCloudDeck: { value: 0 },
+      uCloudOffset: { value: new Vector2() },
+      uCloudLit: { value: new Color() },
+      uCloudShade: { value: new Color() },
+      uCloudLightDir: { value: new Vector3(0, 1, 0) },
+      uCloudRim: { value: 0 },
+      uCloudRays: { value: 0 },
+      uCloudRaysTime: { value: 0 },
     },
+    // The dome is centred on the eye, so the interpolated vertex position IS
+    // the view ray; normalising per vertex would bend it across each facet,
+    // which a 1° moon and the sun's disc would show.
     vertexShader: /* glsl */ `
-      varying vec3 vDir;
-      varying float vHeight;
+      varying vec3 vRay;
       void main() {
-        vDir = normalize(position);
-        vHeight = vDir.y;
+        vRay = position;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
-      uniform vec3 uEmberColor;
-      uniform float uEmberStrength;
+      uniform vec3 uAirAnti;
+      uniform vec3 uAirSun;
+      uniform vec3 uAntiHorizon;
+      uniform vec3 uBeltColor;
+      uniform float uBeltStrength;
+      uniform float uBokashiAmount;
+      uniform mat3 uCelestialFrame;
+      uniform vec3 uEarthShadowColor;
+      uniform float uGlow;
       uniform vec3 uHazeColor;
       uniform float uHazeStrength;
-      uniform vec3 uHorizon;
-      uniform vec3 uMiddle;
-      uniform float uBokashiAmount;
+      uniform float uMilkyWay;
+      uniform vec3 uMilkyWayColor;
+      uniform vec3 uMoonColor;
+      uniform float uMoonDay;
+      uniform vec3 uMoonDir;
+      uniform float uMoonIllumination;
+      uniform vec3 uMoonPhaseLight;
+      uniform float uMoonVisible;
       uniform float uScattering;
       uniform float uSkyVisibleHeight;
+      uniform vec3 uSolarHorizon;
       uniform vec3 uSunColor;
       uniform vec3 uSunDir;
       uniform float uSunIntensity;
       uniform vec3 uZenith;
-      varying vec3 vDir;
-      varying float vHeight;
+      uniform sampler2D uNoisePack;
+      uniform float uCloudReady;
+      uniform float uCloudCover;
+      uniform float uCloudHighThreshold;
+      uniform float uCloudHighAlpha;
+      uniform vec3 uCloudLitCool;
+      uniform vec3 uCloudCrownDir;
+      uniform float uCloudCrownRadius;
+      uniform float uCloudVeil;
+      uniform float uCloudDeck;
+      uniform vec2 uCloudOffset;
+      uniform vec3 uCloudLit;
+      uniform vec3 uCloudShade;
+      uniform vec3 uCloudLightDir;
+      uniform float uCloudRim;
+      uniform float uCloudRays;
+      uniform float uCloudRaysTime;
+      varying vec3 vRay;
       ${gardenBokashiBandGlsl()}
+      float gardenSkyHash(vec3 p) {
+        p = fract(p * 0.3183099 + 0.1);
+        p *= 17.0;
+        return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+      }
+      float gardenSkyNoise(vec3 x) {
+        vec3 i = floor(x);
+        vec3 f = fract(x);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(mix(gardenSkyHash(i), gardenSkyHash(i + vec3(1.0, 0.0, 0.0)), f.x),
+              mix(gardenSkyHash(i + vec3(0.0, 1.0, 0.0)), gardenSkyHash(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+          mix(mix(gardenSkyHash(i + vec3(0.0, 0.0, 1.0)), gardenSkyHash(i + vec3(1.0, 0.0, 1.0)), f.x),
+              mix(gardenSkyHash(i + vec3(0.0, 1.0, 1.0)), gardenSkyHash(i + vec3(1.0, 1.0, 1.0)), f.x), f.y),
+          f.z
+        );
+      }
+      float gardenMoonMare(vec2 p, vec2 centre, float radius) {
+        return 1.0 - smoothstep(radius * 0.35, radius, length(p - centre));
+      }
       void main() {
-        vec3 dir = normalize(vDir);
-        float skyHeight = clamp(dir.y / uSkyVisibleHeight, 0.0, 1.0);
-        vec3 color = mix(uHorizon, uMiddle, smoothstep(0.015, 0.28, skyHeight));
+        vec3 dir = normalize(vRay);
+        float skyLift = max(dir.y / uSkyVisibleHeight, 0.0);
+        float skyKnee = clamp((skyLift - ${SKY_HEIGHT_KNEE_START.toFixed(2)}) / ${SKY_HEIGHT_KNEE_WIDTH.toFixed(2)}, 0.0, 1.0);
+        float skyHeight = min(skyLift, ${SKY_HEIGHT_KNEE_START.toFixed(2)})
+          + ${SKY_HEIGHT_KNEE_WIDTH.toFixed(2)} * (skyKnee - skyKnee * skyKnee * skyKnee + 0.5 * skyKnee * skyKnee * skyKnee * skyKnee);
+
+        // W2.2 (sky-1): the horizon has a side. The same law feeds the air
+        // (garden-aerial), so the sea under each part of the sky agrees.
+        vec2 viewXZ = dir.xz / max(length(dir.xz), 1e-4);
+        vec2 sunXZ = uSunDir.xz / max(length(uSunDir.xz), 1e-4);
+        float sunAlign = dot(viewXZ, sunXZ);
+        float sunSide = pow(smoothstep(-0.3, 1.0, sunAlign), 1.5);
+        vec3 horizon = mix(uAntiHorizon, uSolarHorizon, sunSide);
+        vec3 middle = mix(horizon, uZenith, 0.35);
+        vec3 color = mix(horizon, middle, smoothstep(0.015, 0.28, skyHeight));
         color = mix(color, uZenith, smoothstep(0.3, 0.86, skyHeight));
         color *= gardenBokashiShade(skyHeight, uBokashiAmount);
-        float glow = (1.0 - smoothstep(-0.04, 0.16, abs(vHeight))) * 0.12;
-        color += uHorizon * glow;
+        color += horizon * (1.0 - smoothstep(-0.04, 0.16, abs(dir.y))) * 0.12;
+        // A broad glow low on the sun's side: it is what says "the sun is
+        // over there" while the sun itself is always off-frame.
+        color += uSolarHorizon * pow(max(sunAlign, 0.0), 3.0) * (1.0 - smoothstep(0.0, 0.25, dir.y)) * uGlow;
+        // The same warmth, wide and low: at golden the sun stands behind the
+        // viewer's right shoulder (~110° off the frame's right edge), where
+        // the lobe above never reaches, so the sky on the sun side carries a
+        // broad warm band that fades out toward the far side. It reaches to
+        // ~10° so it shows above the borrowed ridge crests (≤ 4°), not only
+        // behind them.
+        color += uSolarHorizon * smoothstep(-0.8, 0.2, sunAlign) * (1.0 - smoothstep(0.08, 0.18, dir.y)) * uGlow * 0.5;
+        // Between sunset and nautical dusk: the Earth's shadow, a slate band on
+        // the anti-solar horizon, under the Belt of Venus, a dusty rose.
+        float antiSide = (1.0 - smoothstep(-0.8, 0.0, sunAlign)) * uBeltStrength;
+        // Heights: slate to ≈ 3° (clear of the ridge feet), rose ≈ 3–8°.
+        color = mix(color, uEarthShadowColor, (1.0 - smoothstep(0.03, 0.055, dir.y)) * antiSide);
+        color = mix(color, uBeltColor, smoothstep(0.045, 0.07, dir.y) * (1.0 - smoothstep(0.1, 0.16, dir.y)) * antiSide);
 
         float mu = dot(dir, uSunDir);
         float up = max(dir.y, 0.0);
-        float visibleHemisphere = 1.0 - step(0.0, vHeight);
+        float visibleHemisphere = 1.0 - step(0.0, dir.y);
         float visibleSeam = 1.0 - smoothstep(0.035, 0.38, skyHeight);
         float airMass = mix(exp(-up * 3.0), visibleSeam, visibleHemisphere);
         float rayPhase = 0.75 * (1.0 + mu * mu);
@@ -361,9 +668,7 @@ function createDome(): {
         color *= mix(1.0, rayleigh, uScattering);
         float luma = dot(color, vec3(0.299, 0.587, 0.114));
         color = mix(vec3(luma), color, 1.0 + uScattering * 0.3 * (1.0 - airMass));
-        color = mix(color, uHazeColor, uScattering * airMass * airMass * 0.3);
-        float mie = pow(max(mu, 0.0), 12.0) * (0.25 + airMass * 0.75);
-        color += uSunColor * mie * uScattering * 0.14;
+        color = mix(color, horizon, uScattering * airMass * airMass * 0.3);
         float corona = pow(max(mu, 0.0), 220.0);
         float disc = smoothstep(0.99955, 0.99985, mu);
         color += uSunColor * (corona * 0.5 + disc) * uSunIntensity;
@@ -375,11 +680,123 @@ function createDome(): {
         );
         color = mix(color, uHazeColor, hazeBand * uHazeStrength);
 
-        float west = pow(max(0.0, dot(normalize(vec3(dir.x, 0.0, dir.z)), vec3(-0.7071, 0.0, -0.7071))), 2.5);
-        float band = (1.0 - smoothstep(0.02, 0.42, abs(vHeight - 0.06)));
-        color += uEmberColor * west * band * uEmberStrength;
-        // The sea horizon and lower hemisphere share the live fog exactly.
-        color = mix(uHazeColor, color, smoothstep(0.0, 0.12, skyHeight));
+        // W2.7 (O20): the Milky Way on moonless clear nights, turning with the stars.
+        if (uMilkyWay > 0.0) {
+          vec3 skyDir = uCelestialFrame * dir;
+          float plane = dot(skyDir, ${glslVec3(MILKY_WAY_NORMAL)});
+          float band = exp(-plane * plane / 0.022);
+          float cloud = gardenSkyNoise(skyDir * 7.0) * 0.5
+            + gardenSkyNoise(skyDir * 15.0) * 0.3
+            + gardenSkyNoise(skyDir * 33.0) * 0.2;
+          float rift = 1.0 - 0.6 * exp(-plane * plane / 0.0012) * smoothstep(0.4, 0.7, gardenSkyNoise(skyDir * 5.0 + 3.1));
+          color += uMilkyWayColor * band * smoothstep(0.3, 0.75, cloud) * rift
+            * smoothstep(0.02, 0.12, dir.y) * uMilkyWay;
+        }
+
+        // W2.6 (sky-5): the real moon, in the window.
+        float moonAboveSea = smoothstep(0.0, 0.003, dir.y);
+        if (uMoonVisible + uMoonDay > 0.0) {
+          float cosTheta = dot(dir, uMoonDir);
+          vec3 moonRight = normalize(cross(uMoonDir, vec3(0.0, 1.0, 0.0)));
+          vec3 moonUp = cross(moonRight, uMoonDir);
+          vec2 mp = vec2(dot(dir, moonRight), dot(dir, moonUp)) / ${MOON_DISC_RADIUS.toFixed(6)};
+          float mr = length(mp);
+          float discMask = (1.0 - smoothstep(0.9, 1.0, mr)) * step(0.0, cosTheta) * moonAboveSea;
+          vec3 moonNormal = vec3(mp, sqrt(max(0.0, 1.0 - mr * mr)));
+          float lit = smoothstep(-0.04, 0.04, dot(moonNormal, uMoonPhaseLight));
+          float maria = 1.0 - 0.08 * (
+            gardenMoonMare(mp, vec2(-0.28, 0.3), 0.36)
+            + gardenMoonMare(mp, vec2(0.2, 0.12), 0.3)
+            + gardenMoonMare(mp, vec2(-0.06, -0.34), 0.26)
+          );
+          vec3 face = uMoonColor * maria * mix(0.9, 1.0, moonNormal.z);
+          // Earthshine keeps the dark limb at 5 %; never darker than the sky it covers.
+          vec3 night = max(color, face * mix(0.05, 1.0, lit));
+          color = mix(color, night, discMask * uMoonVisible);
+          color += face * lit * discMask * uMoonDay;
+          float theta = acos(clamp(cosTheta, -1.0, 1.0));
+          float halo = exp(-theta / ${(0.6 * DEG).toFixed(6)}) * 0.25 + exp(-theta / ${(5 * DEG).toFixed(6)}) * 0.06;
+          color += uMoonColor * halo * uMoonIllumination * uMoonVisible * moonAboveSea;
+        }
+
+        // X3/X4: the painted cloud field (see CLOUD_* above).
+        if (uCloudReady > 0.5 && dir.y > 0.0) {
+          // A broken deck takes a little light out of the whole sky under it.
+          color *= 1.0 - 0.1 * uCloudDeck;
+          vec2 axisA = vec2(${CLOUD_AXIS_A.x.toFixed(6)}, ${CLOUD_AXIS_A.y.toFixed(6)});
+          vec2 axisB = vec2(${CLOUD_AXIS_B.x.toFixed(6)}, ${CLOUD_AXIS_B.y.toFixed(6)});
+          vec2 cp = vec2(dot(dir.xz, axisA), dot(dir.xz, axisB)) / (dir.y + ${CLOUD_LIFT.toFixed(3)}) + uCloudOffset;
+          float lowAir = 1.0 - smoothstep(0.0, 0.1, dir.y);
+          // No cloud crosses behind the lantern: the crown keeps its own sky.
+          // Under a heavy deck the clearing only thins the cloud, so it never
+          // reads as a spotlit hole.
+          float crownClear = uCloudCrownRadius > 0.0
+            ? 1.0 - (1.0 - 0.5 * uCloudDeck)
+              * (1.0 - smoothstep(uCloudCrownRadius, uCloudCrownRadius * 1.8, acos(clamp(dot(dir, uCloudCrownDir), -1.0, 1.0))))
+            : 1.0;
+          // The lit colour is warm only low on the sun's side; elsewhere the
+          // same light arrives as a cool, value-led grey (woodblock golden).
+          float warmSide = mix(0.25, 1.0, sunSide) * (1.0 - 0.7 * smoothstep(0.05, 0.25, dir.y));
+          vec3 litHere = mix(uCloudLitCool, uCloudLit, warmSide);
+
+          // High layer: two or three long thin strokes on a clear day, a thin
+          // veil across the upper sky as stability frays. Kept off the
+          // horizon, where the layer's foreshortening would stack them.
+          float sHigh = texture2D(uNoisePack, cp * vec2(${CLOUD_HIGH_SCALE[0]}, ${CLOUD_HIGH_SCALE[1]}) + vec2(0.37, 0.61)).g;
+          float dHigh = smoothstep(uCloudHighThreshold, uCloudHighThreshold + 0.06, sHigh) * uCloudHighAlpha
+            + uCloudVeil * 0.32 * smoothstep(0.25, 0.7, sHigh);
+          dHigh *= smoothstep(0.04, 0.12, dir.y);
+          color = mix(color, mix(uCloudShade, litHere, 0.7), dHigh * crownClear);
+
+          // Low layer: printed shapes with a crisp edge.
+          vec2 lightXZ = vec2(dot(uCloudLightDir.xz, axisA), dot(uCloudLightDir.xz, axisB));
+          float lightFlat = length(lightXZ);
+          // Tops lit when the light is high, undersides (screen-down, +B) when it is low.
+          vec2 lightStep = (lightXZ / max(lightFlat, 1e-4)) * vec2(0.012, 0.0)
+            + vec2(0.0, mix(0.02, -0.02, smoothstep(0.08, 0.6, uCloudLightDir.y)));
+          vec2 uvLow = cp * vec2(${CLOUD_LOW_SCALE[0]}, ${CLOUD_LOW_SCALE[1]});
+          vec4 nLow = texture2D(uNoisePack, uvLow);
+          vec4 nLit = texture2D(uNoisePack, uvLow + lightStep);
+          float sLow = nLow.g * 0.75 + (1.0 - nLow.b) * 0.35;
+          float sLit = nLit.g * 0.75 + (1.0 - nLit.b) * 0.35;
+          float thrLow = ${CLOUD_THRESHOLD[0]} - ${CLOUD_THRESHOLD[1]} * uCloudCover;
+          float dLow = smoothstep(thrLow, thrLow + 0.045, sLow) * step(0.001, uCloudCover);
+          float lit = clamp((sLow - sLit) * 7.0 + 0.5, 0.0, 1.0);
+          // Woodblock: three flat tones, blended 30 % with the soft ramp.
+          lit = mix(lit, floor(lit * 2.999) * 0.5, 0.3);
+          vec3 cloudColor = mix(uCloudShade, litHere, lit);
+          // Silver edges only within ~12° of the moon; nowhere else.
+          float edge = dLow * (1.0 - smoothstep(thrLow + 0.045, thrLow + 0.11, sLow));
+          float nearMoon = 1.0 - smoothstep(0.06, 0.21, acos(clamp(dot(dir, uMoonDir), -1.0, 1.0)));
+          cloudColor += uMoonColor * edge * nearMoon * uCloudRim;
+          cloudColor = mix(cloudColor, horizon, lowAir * 0.45);
+          color = mix(color, cloudColor, dLow * mix(0.84, 0.95, uCloudDeck) * smoothstep(0.008, 0.05, dir.y) * crownClear);
+          float horizonFade = smoothstep(0.004, 0.035, dir.y);
+
+          // X4: at low sun under a broken deck, ladders of light through the
+          // gaps, fanning about the sun–anti-sun axis. No glow, no flash.
+          if (uCloudRays > 0.0) {
+            vec3 rayX = normalize(cross(uSunDir, vec3(0.0, 1.0, 0.0)));
+            vec3 rayY = cross(rayX, uSunDir);
+            vec3 w = dir - uSunDir * mu;
+            float fan = atan(dot(w, rayY), dot(w, rayX));
+            // 3 stripes' worth of noise per turn: an integer, so the atan seam tiles.
+            float stripe = texture2D(uNoisePack, vec2(fan * 0.4774648, 0.37 + uCloudRaysTime)).g;
+            float ray = smoothstep(0.5, 0.7, stripe) * (1.0 - dLow)
+              * (1.0 - smoothstep(0.03, 0.2, dir.y)) * (0.4 + 0.6 * max(sunAlign, 0.0));
+            color += uCloudLit * ray * uCloudRays * ${CLOUD_RAYS_GAIN.toFixed(3)} * horizonFade;
+          }
+        }
+
+        // The sea below the horizon and the seam draw the air the world fades
+        // to (garden-aerial), by the same side law, with the ichimonji: a
+        // 2–3 px darker line where sky meets sea. Only near the rest/near-rig
+        // pitch: pulled out to the chart the horizon is a curve high in the
+        // frame, and a line there reads as a scratch.
+        float ichimonjiGain = 0.06 * smoothstep(0.11, 0.18, uSkyVisibleHeight);
+        float ichimonji = 1.0 - ichimonjiGain * (1.0 - smoothstep(0.0, 0.0035, abs(dir.y + 0.0015)));
+        vec3 air = mix(uAirAnti, uAirSun, sunSide) * ichimonji;
+        color = mix(air, color, smoothstep(0.0, 0.12, skyHeight));
         gl_FragColor = vec4(color, 1.0);
       }
     `,
@@ -392,31 +809,49 @@ function createDome(): {
   return { material, mesh };
 }
 
-
+/**
+ * W2.7 (sky-6): 1,200 stars with magnitudes — 80 % faint 1 px, 18 % 1.5 px,
+ * 2 % bright 2.2 px — that only shimmer, ±12 % on their own 6–11 s rhythm and
+ * only near the horizon where the air is thick; they never blink. The field
+ * turns with sidereal time (`uCelestialFrame`'s inverse is the points'
+ * rotation), so 22:00 and 02:30 show different skies. Extinction fades them
+ * into the horizon.
+ */
 function createStars(): { material: ShaderMaterial; points: Points } {
   const positions = new Float32Array(STAR_COUNT * 3);
   const phases = new Float32Array(STAR_COUNT);
-  // Deterministic scatter across the upper hemisphere so the field is stable
-  // across reloads.
+  const rates = new Float32Array(STAR_COUNT);
+  const magnitudes = new Float32Array(STAR_COUNT);
+  // Deterministic scatter so the field is stable across reloads.
   let seed = 0x9e3779b9;
   const rand = () => {
     seed = (seed * 1_664_525 + 1_013_904_223) >>> 0;
     return seed / 0xffffffff;
   };
+  const pole = CELESTIAL_POLE;
+  const east = new Vector3(0, 1, 0).cross(pole).normalize();
+  const north = pole.clone().cross(east);
+  const [minDec, maxDec] = STAR_DECLINATION_RANGE;
+  const sinMin = Math.sin(minDec);
+  const sinMax = Math.sin(maxDec);
+  const r = DOME_RADIUS * 0.94;
   for (let i = 0; i < STAR_COUNT; i += 1) {
-    const u = rand();
-    const v = rand() * 0.82 + 0.06; // bias above the horizon
-    const theta = u * Math.PI * 2;
-    const phi = Math.acos(v);
-    const r = DOME_RADIUS * 0.94;
-    positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-    positions[i * 3 + 1] = r * Math.cos(phi);
-    positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+    const ra = rand() * Math.PI * 2;
+    const sinDec = sinMin + rand() * (sinMax - sinMin);
+    const cosDec = Math.sqrt(1 - sinDec * sinDec);
+    positions[i * 3] = r * (pole.x * sinDec + (east.x * Math.cos(ra) + north.x * Math.sin(ra)) * cosDec);
+    positions[i * 3 + 1] = r * (pole.y * sinDec + (east.y * Math.cos(ra) + north.y * Math.sin(ra)) * cosDec);
+    positions[i * 3 + 2] = r * (pole.z * sinDec + (east.z * Math.cos(ra) + north.z * Math.sin(ra)) * cosDec);
     phases[i] = rand();
+    rates[i] = 6 + rand() * 5;
+    const class_ = rand();
+    magnitudes[i] = class_ < 0.8 ? 0 : class_ < 0.98 ? 1 : 2;
   }
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(positions, 3));
   geometry.setAttribute("aPhase", new BufferAttribute(phases, 1));
+  geometry.setAttribute("aRate", new BufferAttribute(rates, 1));
+  geometry.setAttribute("aMag", new BufferAttribute(magnitudes, 1));
   const material = new ShaderMaterial({
     blending: AdditiveBlending,
     depthTest: false,
@@ -426,28 +861,36 @@ function createStars(): { material: ShaderMaterial; points: Points } {
     uniforms: {
       uColor: { value: STAR_COLOR.clone() },
       uOpacity: { value: 0 },
-      uSize: { value: 2.2 },
+      uScintillation: { value: 1 },
       uTime: { value: 0 },
     },
     vertexShader: /* glsl */ `
+      attribute float aMag;
       attribute float aPhase;
-      uniform float uSize;
+      attribute float aRate;
+      uniform float uOpacity;
+      uniform float uScintillation;
       uniform float uTime;
-      varying float vTwinkle;
+      varying float vAlpha;
       void main() {
-        vTwinkle = 0.55 + 0.45 * sin(uTime * 1.4 + aPhase * 6.2831853);
-        gl_PointSize = uSize * (0.7 + vTwinkle * 0.6);
+        float y = normalize(mat3(modelMatrix) * position).y;
+        float size = aMag > 1.5 ? 2.2 : (aMag > 0.5 ? 1.5 : 1.0);
+        float alpha = aMag > 1.5 ? 1.0 : (aMag > 0.5 ? 0.6 : 0.3);
+        float lowAir = 1.0 - smoothstep(0.05, 0.25, y);
+        float shimmer = 1.0 + 0.12 * lowAir * uScintillation
+          * sin(uTime * 6.2831853 / aRate + aPhase * 6.2831853);
+        vAlpha = alpha * shimmer * smoothstep(0.005, 0.05, y) * uOpacity;
+        gl_PointSize = size;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;
-      uniform float uOpacity;
-      varying float vTwinkle;
+      varying float vAlpha;
       void main() {
         float d = length(gl_PointCoord - vec2(0.5));
-        float alpha = (1.0 - smoothstep(0.0, 0.5, d)) * vTwinkle * uOpacity;
-        if (alpha < 0.01) discard;
+        float alpha = (1.0 - smoothstep(0.3, 0.5, d)) * vAlpha;
+        if (alpha < 0.004) discard;
         gl_FragColor = vec4(uColor, alpha);
       }
     `,
@@ -459,109 +902,133 @@ function createStars(): { material: ShaderMaterial; points: Points } {
   return { material, points };
 }
 
-function createMoon(): { group: Group; halo: MeshBasicMaterial } {
-  const group = new Group();
-  group.name = "garden-sky-moon";
-  const disc = new Mesh(
-    new SphereGeometry(7, 20, 14),
-    new MeshBasicMaterial({ color: MOON_COLOR.clone(), fog: false, toneMapped: false }),
-  );
-  disc.renderOrder = -1;
-  const haloMaterial = new MeshBasicMaterial({
-    blending: AdditiveBlending,
-    color: MOON_COLOR.clone(),
-    depthWrite: false,
-    fog: false,
-    opacity: 0.2,
-    toneMapped: false,
-    transparent: true,
-  });
-  const halo = new Mesh(new SphereGeometry(16, 20, 14), haloMaterial);
-  halo.renderOrder = -1;
-  group.add(halo, disc);
-  group.position.set(
-    Math.cos(GARDEN_MOON_ELEVATION) * Math.cos(GARDEN_MOON_AZIMUTH) * DOME_RADIUS * 0.82,
-    Math.sin(GARDEN_MOON_ELEVATION) * DOME_RADIUS * 0.82,
-    Math.cos(GARDEN_MOON_ELEVATION) * Math.sin(GARDEN_MOON_AZIMUTH) * DOME_RADIUS * 0.82,
-  );
-  group.renderOrder = -1;
-  return { group, halo: haloMaterial };
-}
 
 export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   const root = new Group();
   root.name = "garden-sky";
   const dome = createDome();
   const stars = createStars();
-  const moon = createMoon();
   const celestial = new Group();
   celestial.name = "garden-sky-celestial";
-  celestial.add(dome.mesh, stars.points, moon.group);
-  // Mist and clouds stay over the world; only the celestial group follows
-  // the eye. Their radial falloff replaces the old hard-edged mist plane.
+  celestial.add(dome.mesh, stars.points);
+  // Only the celestial group follows the eye; the stale-source banks are
+  // world-anchored.
   const billboards = createGardenSkyBillboards();
   let clarity = NEUTRAL_SKY_CLARITY;
+  const clarityFade = createSkyClarityFade();
+  let displayedClarity = signedSkyClarity(NEUTRAL_SKY_CLARITY);
+  // X3: the cloud cover eases with the air; the noise pack is leased once.
+  const coverFade = createSkyClarityFade();
+  let cloudCover = skyCloudCover(NEUTRAL_SKY_CLARITY);
+  let cloudVeil = 0;
+  let lastCloudSeconds = 0;
+  let hadReading = false;
+  let snapToReading = false;
+  const noiseLease = acquireGardenNoisePack(() => {
+    dome.material.uniforms.uCloudReady.value = 1;
+  });
+  dome.material.uniforms.uNoisePack.value = noiseLease?.texture ?? null;
   root.add(
     celestial,
-    billboards.mist.mesh,
-    billboards.clouds.mesh,
-    billboards.geese.mesh,
     billboards.localMist.mesh,
   );
 
+  // scene.fog keeps the USE_FOG define and the fitted air ladder (near/far);
+  // garden-aerial owns the colour law. Its colour is the view-averaged horizon,
+  // shared with the dome's haze band and the stale-bank billboards.
   const fog = new Fog(DAY_CYCLE_SKY_PRESETS.night.fog.clone(), FOG_NEAR, FOG_FAR);
-  // The dome's haze band shares the fog's own Color instance, so the sky half
-  // and the water half of the height fog cannot drift apart — one fog
-  // colour, one contract.
   dome.material.uniforms.uHazeColor.value = fog.color;
+  // The dome's lower hemisphere and seam draw the SAME air the world fades to.
+  if (dome.material.uniforms.uAirSun) dome.material.uniforms.uAirSun.value = GARDEN_AIR.airSun;
+  if (dome.material.uniforms.uAirAnti) dome.material.uniforms.uAirAnti.value = GARDEN_AIR.airAnti;
+  const airSunPose = { direction: new Vector3(0, 1, 0), elevation: Math.PI / 2 };
 
   // Scratch objects for the per-frame billboard writes — the frame path must
   // not allocate, so the uniforms hold these instances and `update` mutates
   // them in place.
   const sunColor = dome.material.uniforms.uSunColor.value as Color;
   const sunDir = dome.material.uniforms.uSunDir.value as Vector3;
-  const mistColor = new Color();
-  const cloudBodyColor = new Color();
-  const cloudShadeColor = new Color();
-  const geeseColor = new Color();
-  const winterFog = new Color(HARBOR_PALETTE.fog_blue);
-  const sunQuadDir = new Vector2(0, 1);
   const scratchSunPose = { direction: new Vector3(0, 1, 0), elevation: Math.PI / 2 };
+  const mistColor = new Color();
+  const winterFog = new Color(HARBOR_PALETTE.fog_blue);
+  const scratchCloudMoon = new Color();
+  const scratchCloudNight = new Color();
+  const solarHorizon = dome.material.uniforms.uSolarHorizon.value as Color;
+  const antiHorizon = dome.material.uniforms.uAntiHorizon.value as Color;
+  const moonDir = dome.material.uniforms.uMoonDir.value as Vector3;
+  const moonColor = dome.material.uniforms.uMoonColor.value as Color;
+  const moonPhaseLight = dome.material.uniforms.uMoonPhaseLight.value as Vector3;
+  const celestialFrame = dome.material.uniforms.uCelestialFrame.value as Matrix3;
+  const celestialRotation = new Matrix4();
+  const scratchMoon: GardenMoonState = {
+    up: false,
+    azimuthRad: 0,
+    elevationRad: 0,
+    illumination: 0,
+    waxing: true,
+    presence: 0,
+    ageDays: 0,
+  };
+  let skyDay: GardenSkyDay = gardenSkyToday();
   const windDir = new Vector2(-0.855, 0.519);
-  billboards.mist.material.uniforms.uColor.value = mistColor;
+  const cloudOffset = dome.material.uniforms.uCloudOffset.value as Vector2;
+  const cloudLit = dome.material.uniforms.uCloudLit.value as Color;
+  const cloudShade = dome.material.uniforms.uCloudShade.value as Color;
+  const cloudLightDir = dome.material.uniforms.uCloudLightDir.value as Vector3;
+  const cloudLitCool = dome.material.uniforms.uCloudLitCool.value as Color;
+  const cloudCrownDir = dome.material.uniforms.uCloudCrownDir.value as Vector3;
   billboards.localMist.material.uniforms.uColor.value = mistColor;
-  billboards.mist.material.uniforms.uWindDir.value = windDir;
-  billboards.clouds.material.uniforms.uBodyColor.value = cloudBodyColor;
-  billboards.clouds.material.uniforms.uShadeColor.value = cloudShadeColor;
-  // The cumulus lit edge shares the dome's own sun colour, so the clouds, the
-  // dome's Mie glow and the water's glitter all take the light rig's tint.
-  billboards.clouds.material.uniforms.uLitColor.value = sunColor;
-  billboards.clouds.material.uniforms.uSunQuadDir.value = sunQuadDir;
-  billboards.clouds.material.uniforms.uWindDir.value = windDir;
-  billboards.geese.material.uniforms.uColor.value = geeseColor;
 
   const applyPhase = (phase: DayCyclePhase, wallClockHour: number): void => {
     const { daylight, dusk } = phase;
-    const beats = dayCycleBeats(wallClockHour);
+    skyDay = gardenSkyToday();
+    const beats = dayCycleBeats(wallClockHour, skyDay);
     const zenith = dome.material.uniforms.uZenith.value as Color;
-    const horizon = dome.material.uniforms.uHorizon.value as Color;
-    const middle = dome.material.uniforms.uMiddle.value as Color;
     blendGardenSkyColor(zenith, beats, "zenith");
+    blendGardenSkyColor(solarHorizon, beats, "solar");
+    blendGardenSkyColor(antiHorizon, beats, "anti");
     blendGardenSkyColor(fog.color, beats, "horizon");
-    middle.copy(fog.color).lerp(zenith, 0.35);
     if (season === "winter") {
       // Kigo stays a small atmospheric bias: cooler air and a light value-
       // preserving desaturation, never a fourth grade or a semantic color.
       fog.color.lerp(winterFog, 0.1);
       zenith.lerp(winterFog, 0.04);
-      middle.lerp(winterFog, 0.04);
+      solarHorizon.lerp(winterFog, 0.1);
+      antiHorizon.lerp(winterFog, 0.1);
     }
-    // The finite water plate dissolves against this exact colour. Copy after
-    // seasonal grading so winter cannot open a seam at the horizon.
-    horizon.copy(fog.color);
-    geeseColor.copy(fog.color).multiplyScalar(0.52);
-    // Ember west band belongs exclusively to the wall-clock illumination.
-    dome.material.uniforms.uEmberStrength.value = beats.golden * 0.3 + beats.blue * 0.22;
+    // W2.2 (sky-1): the anti-solar belt, only between sunset and nautical
+    // dusk (and the mirrored dawn span), keyed to the true solar elevation.
+    // The Earth's shadow also darkens the anti-solar horizon itself, so the
+    // air and the sea under that side of the sky go slate with it.
+    const solarElevation = gardenSolarElevationAt(skyDay, wallClockHour);
+    const belt = (1 - MathUtils.smoothstep(solarElevation, -0.02, 0.04))
+      * MathUtils.smoothstep(solarElevation, -0.16, -0.06);
+    dome.material.uniforms.uBeltStrength.value = belt;
+    antiHorizon.lerp(GARDEN_SKY_BELT.earthShadow, belt * 0.6);
+    // The broad solar glow lives from just before sunrise to just after sunset;
+    // a high veil (X4) dims it.
+    dome.material.uniforms.uGlow.value = MathUtils.smoothstep(solarElevation, -0.12, 0.05)
+      * (0.08 + 0.5 * beats.golden + 0.32 * beats.dawn + 0.18 * beats.blue)
+      * (1 - 0.6 * cloudVeil);
+
+    // W2.7: the heavens turn by sidereal time about the celestial pole. The
+    // star points carry the rotation; the dome's Milky Way reads the inverse.
+    const siderealHours = wallClockHour - STAR_REFERENCE_HOUR
+      + (skyDay.julianDayAtLocalMidnight - STAR_REFERENCE_JD) * SIDEREAL_HOURS_PER_DAY;
+    // Negative about the pole on the viewer's left: stars rise ahead and climb
+    // to the right. South of the equator the turn runs the other way.
+    const turn = -siderealHours * 15 * DEG * (skyDay.southern ? -1 : 1);
+    stars.points.quaternion.setFromAxisAngle(CELESTIAL_POLE, turn);
+    celestialRotation.makeRotationFromQuaternion(stars.points.quaternion);
+    celestialFrame.setFromMatrix4(celestialRotation).transpose();
+    // The environment probe bakes from this material between here and
+    // `update`. It must not hold a moon: the water's drawn road (K4) is the
+    // only moon reflection, and a baked disc would smear a second one across
+    // every glossy surface. `update` draws the moon and the Milky Way again
+    // for the frame itself.
+    dome.material.uniforms.uMoonVisible.value = 0;
+    dome.material.uniforms.uMoonDay.value = 0;
+    dome.material.uniforms.uMilkyWay.value = 0;
 
     // Phase 2 (2c): the scattering field's drivers — the sun's direction from
     // the day cycle, the scattering strength (fading to zero at night), the
@@ -585,17 +1052,22 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
     }
     dome.material.uniforms.uScattering.value = Math.min(1, daylight + dusk * 0.7);
     dome.material.uniforms.uSunIntensity.value = daylight * 1.55 + dusk * 1.3;
+    // W1.8/W2.5 (sky-2, data-poetry-1): the clear-sky floor is 0.12, and the
+    // signed clarity moves it both ways — good markets thin it, bad ones thicken it.
     dome.material.uniforms.uHazeStrength.value = Math.min(
       0.8,
-      0.42 + (NEUTRAL_SKY_CLARITY - clarity) * 0.3,
+      0.12 - Math.max(displayedClarity, 0) * 0.06 + Math.max(-displayedClarity, 0) * 0.3,
     );
     dome.material.uniforms.uBokashiAmount.value = gardenBokashiAmount(phase);
   };
 
   return {
     applyPhase,
-    setClarity(value) {
+    setClarity(value, reading = true) {
       clarity = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : NEUTRAL_SKY_CLARITY;
+      // Only the session's first reading snaps; a later outage and recovery ease.
+      if (reading && !hadReading) snapToReading = true;
+      hadReading ||= reading;
     },
     dispose() {
       dome.mesh.geometry.dispose();
@@ -603,18 +1075,16 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       stars.points.geometry.dispose();
       stars.material.dispose();
       billboards.dispose();
-      moon.group.traverse((object) => {
-        if (object instanceof Mesh) {
-          object.geometry.dispose();
-          (object.material as MeshBasicMaterial).dispose();
-        }
-      });
+      noiseLease?.release();
     },
     domeMaterial: dome.material,
     fog,
-    moonAzimuth: GARDEN_MOON_AZIMUTH,
+    get signedClarity() {
+      return displayedClarity;
+    },
     root,
     update(phase, frame) {
+      if (frame.viewAspect !== undefined) setGardenSkyViewAspect(frame.viewAspect);
       root.position.set(frame.targetX, 0, frame.targetZ);
       celestial.position.set(
         frame.cameraPosition.x - frame.targetX,
@@ -628,74 +1098,155 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
         frame.cameraPosition.z - frame.targetZ,
       );
       const pitch = Math.asin(eyeHeight / distance);
-      // Spend the full gradient ladder between the sea horizon and top row.
-      dome.material.uniforms.uSkyVisibleHeight.value = Math.sin(CAMERA_FOV_DEG * Math.PI / 360 - pitch);
-      const cover = Math.max(0, NEUTRAL_SKY_CLARITY - clarity);
-      fogRangeAtViewHeight(fog, frame.cameraPosition, cover);
+      // Spend the gradient ladder between the sea horizon and the top row,
+      // never over less than 6° of sky (the whole-map step, critic D12).
+      dome.material.uniforms.uSkyVisibleHeight.value = gardenSkyVisibleHeight(pitch);
+      // X3 debug seam: `sky=BAND` draws that band's cover and air, snapped.
+      const forcedClarity = psiBandClarity(debugSkyBand());
+      const skyClarity = forcedClarity ?? clarity;
+      // A band change eases over 90 s, but the first real reading (and a debug
+      // pin) snaps: the sky must not spend its first minute and a half drifting
+      // away from the neutral pre-data veil while the words already name the band.
+      const snap = frame.reducedMotion || forcedClarity !== null || snapToReading;
+      snapToReading = false;
+      displayedClarity = advanceSkyClarityFade(
+        clarityFade,
+        signedSkyClarity(skyClarity),
+        Math.max(0, frame.timeSeconds),
+        snap,
+      );
+      cloudCover = advanceSkyClarityFade(coverFade, skyCloudCover(skyClarity), Math.max(0, frame.timeSeconds), snap);
+      const cover = cloudCover;
+      // X3/X4 cover ladder, matched to the words: a clear or fair sky is high
+      // strokes only; a high veil (TREMOR) adds the veil, still no low bodies;
+      // low bands start above it and close to a broken deck (FRACTURE), low
+      // cloud (CRISIS) and overcast (MELTDOWN).
+      const lowCover = cover <= 0.3 ? 0 : 1 - Math.max(0, 1 - (cover - 0.3) / 0.62) ** 1.6;
+      cloudVeil = MathUtils.smoothstep(cover, 0.2, 0.45);
+      const deck = MathUtils.smoothstep(cover, 0.4, 0.75);
+      dome.material.uniforms.uCloudCover.value = lowCover;
+      dome.material.uniforms.uCloudHighThreshold.value = CLOUD_HIGH_THRESHOLD.clear
+        - (CLOUD_HIGH_THRESHOLD.clear - CLOUD_HIGH_THRESHOLD.frayed) * MathUtils.smoothstep(cover, 0.05, 0.3);
+      dome.material.uniforms.uCloudVeil.value = cloudVeil;
+      dome.material.uniforms.uCloudDeck.value = deck;
+      fogRangeAtViewHeight(fog, frame.cameraPosition, displayedClarity);
       applyPhase(phase, frame.wallClockHour);
+      gardenSunPose(frame.wallClockHour, airSunPose);
+      const uniforms = dome.material.uniforms;
+      updateGardenAerial({
+        phase,
+        beats: dayCycleBeats(frame.wallClockHour),
+        solarHorizon: (uniforms.uSolarHorizon?.value as Color | undefined) ?? fog.color,
+        antiHorizon: (uniforms.uAntiHorizon?.value as Color | undefined) ?? fog.color,
+        sunDir: airSunPose.direction,
+        solarElevation: airSunPose.elevation,
+        hour: frame.wallClockHour,
+        eye: frame.cameraPosition,
+        near: fog.near,
+        far: fog.far,
+        seaLevel: GARDEN_WATER_Y,
+        clarity: displayedClarity,
+        skyVisibleHeight: dome.material.uniforms.uSkyVisibleHeight.value as number,
+      });
+      // X4: under a broken deck the air loses a little light — value, not milk.
+      const deckShade = 1 - 0.1 * deck;
+      GARDEN_AIR.airSun.multiplyScalar(deckShade);
+      GARDEN_AIR.airAnti.multiplyScalar(deckShade);
+      GARDEN_AIR.airlight.multiplyScalar(deckShade);
       const { daylight, dusk, night } = phase;
 
-      // PSI cover obscures celestial objects without recolouring them.
-      const starOpacity = Math.min(1, dusk * 0.35 + night) * (1 - cover * 0.85);
+      // W2.6 (sky-5): the real moon, drawn in the dome at the displayed pose
+      // every other consumer reads (garden-sun `gardenMoonPose`).
+      const moon = gardenMoonStateAt(skyDay, frame.wallClockHour, gardenSkyViewAspect(), scratchMoon);
+      const moonCosEl = Math.cos(moon.elevationRad);
+      moonDir.set(
+        Math.cos(moon.azimuthRad) * moonCosEl,
+        Math.sin(moon.elevationRad),
+        Math.sin(moon.azimuthRad) * moonCosEl,
+      );
+      // Phase angle: 0 at full (lit from behind the viewer), π at new. The lit
+      // limb faces the sun's side — right while waxing, left while waning,
+      // mirrored south of the equator — tipped a little toward the set sun.
+      const phaseAngle = Math.PI * Math.abs(1 - (2 * moon.ageDays) / 29.530589);
+      const litSide = (moon.waxing ? 1 : -1) * (skyDay.southern ? -1 : 1);
+      moonPhaseLight.set(
+        litSide * Math.sin(phaseAngle),
+        -0.25 * Math.sin(phaseAngle),
+        Math.cos(phaseAngle),
+      ).normalize();
+      // Low-moon warmth: it rises amber through the thick air.
+      const lowMoon = 1 - MathUtils.smoothstep(moon.elevationRad, 0.5 * DEG, 6 * DEG);
+      moonColor.copy(MOON_DISC_BASE).lerp(MOON_LOW_WARMTH, 0.35 * lowMoon).multiplyScalar(MOON_DISC_LINEAR);
+      // The painted clouds veil the disc themselves (they are drawn over it).
+      const moonClear = moon.presence;
+      dome.material.uniforms.uMoonVisible.value = moonClear * Math.min(1, night + dusk * 0.6);
+      dome.material.uniforms.uMoonDay.value = moonClear * daylight * MOON_DAY_STRENGTH;
+      dome.material.uniforms.uMoonIllumination.value = moon.illumination;
+      const moonLight = moon.presence * moon.illumination;
+
+      // W2.7 (sky-6): cloud cover veils the stars without recolouring them,
+      // and a bright moon washes the faint ones out.
+      const starOpacity = Math.min(1, dusk * 0.35 + night)
+        * (1 - 0.85 * MathUtils.smoothstep(cover, 0.2, 0.9)) * (1 - 0.55 * moonLight);
       stars.material.uniforms.uOpacity.value = starOpacity;
       stars.material.uniforms.uTime.value = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
+      stars.material.uniforms.uScintillation.value = frame.reducedMotion ? 0 : 1;
       stars.points.visible = starOpacity > 0.01;
+      // O20: the Milky Way only on moonless, clear nights.
+      dome.material.uniforms.uMilkyWay.value = night * (1 - moonLight)
+        * (1 - MathUtils.smoothstep(cover, 0.1, 0.5)) * MILKY_WAY_PEAK;
 
-      const moonPresence = Math.min(1, dusk * 0.5 + night) * (1 - cover * 0.8);
-      moon.group.visible = moonPresence > 0.02;
-      moon.halo.opacity = (0.08 + night * 0.28) * (1 - cover * 0.7);
-
-      // Phase 2 billboard atmosphere (mist banks + cumulus): shared time and
-      // wind for the vertex-shader drift, phase-blended palette colours, and
-      // the caller's tier gate. Reduced motion pins the drift at t = 0 — the
-      // static composition is a complete one.
-      const showBillboards = frame.billboards ?? true;
-      const billboardTime = frame.reducedMotion ? 0 : Math.max(0, frame.timeSeconds);
+      // X3: the cloud field's light, value-led and low in chroma, like a
+      // woodblock plate. By day and dusk the sun: tops lit at noon, warm light
+      // on the undersides low on the sun's side at golden (the shader keeps it
+      // there), grading into cool violet-grey bodies. After dark the bodies
+      // are indigo a step above and below the sky itself — never lit by the
+      // moon's cyan, which only silvers edges within ~12° of the disc.
+      cloudLightDir.copy(night > 0.5 && moonLight > 0.02 ? moonDir : sunDir);
+      const trueSolarElevation = gardenSolarElevationAt(skyDay, frame.wallClockHour);
+      const lowSun = MathUtils.smoothstep(trueSolarElevation, -0.05, 0.02)
+        * (1 - MathUtils.smoothstep(trueSolarElevation, 0.08, 0.3));
+      const zenithNow = dome.material.uniforms.uZenith.value as Color;
+      cloudLit.copy(solarHorizon).lerp(CLOUD_WHITE, 0.25 * daylight).multiplyScalar(0.86);
+      desaturate(cloudLit, 0.5 * lowSun);
+      cloudLitCool.copy(cloudLit);
+      desaturate(cloudLitCool, 1).lerp(antiHorizon, 0.35);
+      cloudShade.copy(antiHorizon).lerp(zenithNow, 0.35).multiplyScalar(0.8 * (1 - 0.22 * deck));
+      desaturate(cloudShade, 0.25);
+      scratchCloudNight.copy(solarHorizon).lerp(zenithNow, 0.5).multiplyScalar(1.12);
+      cloudLit.lerp(scratchCloudNight, night);
+      cloudLitCool.lerp(scratchCloudNight, night);
+      cloudShade.lerp(scratchCloudMoon.copy(zenithNow).multiplyScalar(0.82 * (1 - 0.15 * deck)), night);
+      dome.material.uniforms.uCloudRim.value = night * moonLight * 0.35;
+      // Aim the crown clearing at the lantern (published by the lighthouse).
+      const crown = GARDEN_AIR.beaconWorld;
+      if (crown.lengthSq() > 0) {
+        cloudCrownDir.set(
+          crown.x - frame.cameraPosition.x,
+          crown.y - frame.cameraPosition.y,
+          crown.z - frame.cameraPosition.z,
+        );
+        const crownDistance = cloudCrownDir.length();
+        cloudCrownDir.divideScalar(Math.max(crownDistance, 1e-3));
+        dome.material.uniforms.uCloudCrownRadius.value = Math.max(1.2 * DEG, Math.atan(CLOUD_CROWN_CLEAR_UNITS / crownDistance));
+      }
+      dome.material.uniforms.uCloudRays.value = deck
+        * MathUtils.smoothstep(trueSolarElevation, -0.03, 0.03)
+        * (1 - MathUtils.smoothstep(trueSolarElevation, 0.05, 0.35));
+      // The field drifts on the shared wind; reduced motion holds it still.
+      const seconds = Math.max(0, frame.timeSeconds);
+      const dt = frame.reducedMotion ? 0 : Math.min(0.25, Math.max(0, seconds - lastCloudSeconds));
+      lastCloudSeconds = seconds;
       windDir.set(frame.wind?.x ?? -0.855, frame.wind?.y ?? 0.519);
-      const windSpeed = Math.min(1, (frame.wind?.speed ?? 0.3) * (1 + (NEUTRAL_SKY_CLARITY - clarity) * 0.5));
-      billboards.mist.material.uniforms.uTime.value = billboardTime;
-      billboards.mist.material.uniforms.uWindSpeed.value = windSpeed;
-      billboards.clouds.material.uniforms.uTime.value = billboardTime;
-      billboards.clouds.material.uniforms.uWindSpeed.value = windSpeed;
+      const drift = CLOUD_DRIFT * Math.min(1, frame.wind?.speed ?? 0.3) * dt;
+      cloudOffset.x = (cloudOffset.x + (windDir.x * CLOUD_AXIS_A.x + windDir.y * CLOUD_AXIS_A.y) * drift) % CLOUD_WRAP[0];
+      cloudOffset.y = (cloudOffset.y + (windDir.x * CLOUD_AXIS_B.x + windDir.y * CLOUD_AXIS_B.y) * drift) % CLOUD_WRAP[1];
+      dome.material.uniforms.uCloudRaysTime.value = (seconds * 0.0004) % 1;
 
-      // Only authored far anchors carry mist. The billboard fragment shader
-      // excludes the first 60 u from the eye, fading in through 100 u.
-      const mistDensity = Math.min(
-        0.85,
-        (dusk * 0.55 + night * 0.48 + daylight * 0.12) * (1 + cover * 0.8),
-      );
-      // W3.2: mist does not carry a private opacity oscillator. It takes the
-      // mist phase of the shared 9 s breath, at a deliberately tiny ±5%.
-      const breathTime = frame.reducedMotion ? 0 : frame.timeSeconds;
-      const mistBreath = gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.mist);
-      const mistOpacity = mistDensity * 0.55 * (0.95 + mistBreath * 0.1);
+      // W2.5: the only low mist is a stale source's own bounded bank.
       mistColor.copy(fog.color);
-      billboards.mist.material.uniforms.uOpacity.value = mistOpacity;
-      billboards.mist.mesh.visible = showBillboards && mistOpacity > 0.008;
       billboards.setFogBanks(frame.epistemicBanks ?? [], frame.targetX, frame.targetZ);
-      billboards.localMist.mesh.visible = showBillboards && billboards.localMist.mesh.count > 0;
-
-      // The rejected always-on cumulus baseline remains off. W6.1 reuses the
-      // high anchors only in summer, at less than half the old opacity.
-      blendDayCycleColor(cloudBodyColor, CLOUD_BODY_NIGHT, CLOUD_BODY_DUSK, CLOUD_BODY_DAY, dusk, daylight);
-      blendDayCycleColor(cloudShadeColor, CLOUD_SHADE_NIGHT, CLOUD_SHADE_DUSK, CLOUD_SHADE_DAY, dusk, daylight);
-      billboards.clouds.material.uniforms.uOpacity.value = Math.min(
-        0.34,
-        (0.28 - night * 0.06) * (1 + (NEUTRAL_SKY_CLARITY - clarity)),
-      );
-      // The sun projected into the billboards' quad space (right = the 45°
-      // azimuth axis, up = world Y): at noon it sits overhead so the top rims
-      // light; at dusk it drops low so the edges catch the ember.
-      sunQuadDir.set(0.7071 * (sunDir.x - sunDir.z), sunDir.y);
-      if (sunQuadDir.lengthSq() < 1e-6) sunQuadDir.set(0, 1);
-      else sunQuadDir.normalize();
-      billboards.clouds.mesh.visible = showBillboards
-        && (GARDEN_CUMULUS_BILLBOARDS_ENABLED || season === "summer" || clarity < NEUTRAL_SKY_CLARITY);
-      const geeseOpacity = season === "autumn"
-        ? Math.max(0.16, 0.42 - night * 0.2 - cover * 0.12)
-        : 0;
-      billboards.geese.material.uniforms.uOpacity.value = geeseOpacity;
-      billboards.geese.mesh.visible = showBillboards && geeseOpacity > 0.01;
+      billboards.localMist.mesh.visible = (frame.billboards ?? true) && billboards.localMist.mesh.count > 0;
     },
   };
 }

@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   createRenderSchedulerHysteresisState,
   applyPreviewSchedulerTier,
+  RENDER_SCHEDULER_AMBIENT_MIN_FRAME_MS,
   RENDER_SCHEDULER_DOWNSHIFT_STREAK,
   RENDER_SCHEDULER_IDLE_AFTER_MS,
   RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS,
+  RENDER_SCHEDULER_INTERACTION_HOLD_MS,
   RENDER_SCHEDULER_UPSHIFT_STREAK,
   isRenderSchedulerIdle,
   resolveRenderSchedulerIdleState,
@@ -131,6 +133,27 @@ describe("render scheduler", () => {
       idleActive: false,
       reducedMotion: false,
     }))).toBe(false);
+  });
+
+  it("draws at display rate under a hand, caps the ambient garden at 60 Hz, and gates idle at the duty cycle", () => {
+    const touched = resolveRenderSchedulerIdleState({ msSinceInteraction: RENDER_SCHEDULER_INTERACTION_HOLD_MS - 1, reducedMotion: false });
+    expect(touched.interacting).toBe(true);
+    expect(touched.minFrameIntervalMs).toBe(0);
+
+    const ambient = resolveRenderSchedulerIdleState({ msSinceInteraction: RENDER_SCHEDULER_INTERACTION_HOLD_MS, reducedMotion: false });
+    expect(ambient.interacting).toBe(false);
+    expect(ambient.idle).toBe(false);
+    // Every second 120 Hz vsync (8.33 ms apart) passes; the one between does not,
+    // and a 60 Hz vsync always passes.
+    expect(ambient.minFrameIntervalMs).toBeGreaterThan(1000 / 120);
+    expect(ambient.minFrameIntervalMs).toBeLessThan(2 * 1000 / 120);
+    expect(ambient.minFrameIntervalMs).toBe(RENDER_SCHEDULER_AMBIENT_MIN_FRAME_MS);
+
+    const idle = resolveRenderSchedulerIdleState({ msSinceInteraction: RENDER_SCHEDULER_IDLE_AFTER_MS, reducedMotion: false });
+    expect(idle.minFrameIntervalMs).toBe(RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS);
+
+    const reduced = resolveRenderSchedulerIdleState({ msSinceInteraction: RENDER_SCHEDULER_IDLE_AFTER_MS, reducedMotion: true });
+    expect(reduced.minFrameIntervalMs).toBe(0);
   });
 
   it("passes a two-frame interval on a 60Hz display, so idle is 30fps not 20", () => {

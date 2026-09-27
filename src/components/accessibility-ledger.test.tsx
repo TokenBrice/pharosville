@@ -1,3 +1,4 @@
+import { CAUSE_META, type CauseOfDeath } from "@shared/lib/cause-of-death";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { buildVisualCueRegistry } from "../systems/visual-cue-registry";
@@ -10,6 +11,8 @@ import {
 import { UNAVAILABLE_SUPPLY_TIDE } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { AccessibilityLedger } from "./accessibility-ledger";
+import { farShoreLabel } from "../systems/psi-sky";
+import { detailForLighthouse } from "../systems/detail-model";
 
 describe("AccessibilityLedger", () => {
   it("names the localized stale-feed haze without calling it weather", () => {
@@ -20,6 +23,23 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("Instrument haze");
     expect(markup).toContain("Haze over the risk waters and quays");
     expect(markup).toContain("Peg summary and Chains feeds are stale");
+  });
+
+  it("names the visible far ranges in the ledger and the lighthouse detail alike", () => {
+    const seen = new Set<string>();
+    for (const band of ["BEDROCK", "TREMOR", "FRACTURE", "CRISIS"]) {
+      const world = sampleWorld();
+      world.lighthouse = { ...world.lighthouse, psiBand: band, unavailable: false };
+      const expected = farShoreLabel(band);
+      const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+      expect(markup).toContain("Far shore");
+      expect(markup).toContain(expected);
+      const detail = detailForLighthouse(world.lighthouse);
+      expect(detail.facts).toContainEqual({ label: "Far shore", value: expected });
+      seen.add(expected);
+    }
+    // Every band step the haze takes is a different sentence.
+    expect(seen.size).toBe(4);
   });
 
   it("names the pigeonnier roost comparison and today's watched ships", () => {
@@ -47,7 +67,7 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("Today&#x27;s notable movers: ALPHA");
   });
 
-  it("renders the timestamped rare-event harbor log and its stillness contract", () => {
+  it("collects the session's harbor log: return sentence, risk-band changes and rare sightings", () => {
     const markup = renderToStaticMarkup(
       <AccessibilityLedger
         almanacEntries={[{
@@ -55,10 +75,23 @@ describe("AccessibilityLedger", () => {
           message: "A heron settled on the harbor piling at dusk.",
           timestampLabel: "18:07",
         }]}
+        harborLogEntries={[{
+          detailId: "ship.usdx",
+          fromLabel: "Calm Anchorage",
+          id: "usdx:Calm Anchorage->Danger Strait",
+          message: "USDX left Calm Anchorage for Danger Strait",
+          observedAt: Date.UTC(2026, 8, 26, 16, 42),
+          symbol: "USDX",
+          toLabel: "Danger Strait",
+        }]}
+        visitSummary="Since you were here yesterday — stability fell from Steady to Tremor."
         world={sampleWorld()}
       />,
     );
     expect(markup).toContain("Harbor log");
+    expect(markup).toContain("Since you were here yesterday — stability fell from Steady to Tremor.");
+    expect(markup).toContain("16:42");
+    expect(markup).toContain("USDX left Calm Anchorage for Danger Strait.");
     expect(markup).toContain("18:07");
     expect(markup).toContain("A heron settled on the harbor piling at dusk.");
     expect(markup).toContain("absent in still or reduced-motion mode");
@@ -345,19 +378,14 @@ describe("AccessibilityLedger", () => {
     expect(markup).not.toContain("Fleet issuance 24h");
   });
 
-  it("renders a wreck cause-color swatch legend with each CAUSE_HEX entry", () => {
+  it("names every cause of death in the stone-garden family legend", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
 
-    expect(markup).toContain("Wreck cause-color swatch legend");
-    expect(markup).toContain("data-testid=\"wreck-cause-color-legend\"");
-    expect(markup).toContain("algorithmic-failure");
-    expect(markup).toContain("counterparty-failure");
-    expect(markup).toContain("liquidity-drain");
-    expect(markup).toContain("regulatory");
-    expect(markup).toContain("abandoned");
-    // Sample of CAUSE_HEX-canonical values.
-    expect(markup.toLowerCase()).toContain("#ef4444");
-    expect(markup.toLowerCase()).toContain("#71717a");
+    expect(markup).toContain("data-testid=\"stone-garden-family-legend\"");
+    // Colour carries nothing in the garden; every cause must still be read in words.
+    for (const cause of Object.keys(CAUSE_META) as CauseOfDeath[]) {
+      expect(markup).toContain(CAUSE_META[cause]!.label);
+    }
   });
 
   it("lists canonical Wreck Shoal as the seventh named area", () => {
@@ -395,7 +423,7 @@ describe("AccessibilityLedger", () => {
     // No mint/burn row → neutral pace with an explicit missing-data reading.
     expect(markup).toContain("cycle tempo Unmeasured");
     expect(markup).toContain("underway leg pace tracks 24h mint/redeem flow intensity by magnitude, not market-cap tier");
-    expect(markup).toContain("route cadence 90–180 s legs; 240–480 s rests; arrivals and departures are paired");
+    expect(markup).toContain("route cadence 90–180 s legs; 600–1500 s rests; departures and homecomings gather in shared windows");
     expect(markup).toContain("Routes show rendered-chain and risk-water presence only");
   });
 
@@ -430,8 +458,11 @@ describe("AccessibilityLedger", () => {
         ...sampleWorld().lighthouse,
         signalMast: {
           activeDepegCount: 2,
+          leaderCount: 20,
+          leadersOffPeg: ["USDE", "FDUSD"],
           pennantCount: 2,
           capped: false,
+          offPegSupplyShare: 0.0142,
           stormCone: true,
           worstBps: -640,
           worstSymbol: "XUSD",
@@ -445,7 +476,7 @@ describe("AccessibilityLedger", () => {
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("Signal mast: 2 pennants for 2 coins off peg; storm cone hoisted.");
+    expect(markup).toContain("Signal mast: 2 pennants for USDE, FDUSD — 2 of the 20 largest coins by supply off peg; storm cone hoisted — 1.42% of tracked supply off peg.");
     expect(markup).toContain("Fleet peg: Worst XUSD -6.4%; median +3 bps; 212 of 214 at peg; 1 event today.");
   });
 
@@ -483,7 +514,7 @@ describe("AccessibilityLedger", () => {
   it("says the rocks are unstained for want of history, not for want of stress", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
 
-    expect(markup).toContain("Worst band, 30d: Unstained — no index history to read.");
+    expect(markup).toContain("Worst band, 30d: Unavailable — no index history to read.");
     // No contributor, no bearing — the beam keeps its even sweep and the
     // ledger claims nothing about where it is pointing.
     expect(markup).not.toContain("Beam bearing:");
@@ -703,13 +734,13 @@ describe("AccessibilityLedger", () => {
           sourceLabel: "UST postmortem",
         },
         tile: { x: 1, y: 1 },
-        visual: { marker: "broken-keel", scale: 1 },
+        visual: { family: "lost-peg", scale: 1 },
         detailId: "grave.ust-terra",
       }],
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("TerraUSD (UST): Algorithmic Failure, 2022-05-12, peak market cap $18.8B; wreck silhouette Broken keel");
+    expect(markup).toContain("TerraUSD (UST): Algorithmic Failure, 2022-05-12, peak market cap $18.8B; stone garden: A reclining stone in the west islands");
     expect(markup).toContain("The largest stablecoin collapse in history.");
   });
 
@@ -733,14 +764,14 @@ describe("AccessibilityLedger", () => {
           sourceLabel: "NuBits writeup",
         },
         tile: { x: 1, y: 1 },
-        visual: { marker: "skeletal", scale: 1 },
+        visual: { family: "wound-down", scale: 1 },
         detailId: "grave.nbt-nubits",
       }],
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("NuBits (NBT): Abandoned, 2016-06-01; wreck silhouette Bare remains");
-    expect(markup).not.toContain("peak market cap");
+    expect(markup).toContain("NuBits (NBT): Abandoned, 2016-06-01; stone garden: A flat stone in the east islands");
+    expect(markup).not.toMatch(/NuBits \(NBT\)[^;]*peak market cap/);
   });
 
   it("hides the Sky squad section when its flagship is missing; Maker squad still renders", () => {

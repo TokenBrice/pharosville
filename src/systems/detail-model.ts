@@ -3,7 +3,7 @@ import { CAUSE_META } from "@shared/lib/cause-of-death";
 
 import { formatCompactUsd } from "../lib/format-detail";
 import type { DayCycleBeats, DayCycleBeatName } from "./day-cycle-beats";
-import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode } from "./world-types";
+import type { AreaNode, DetailModel, DewsAreaBand, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode, ShipWaterZone } from "./world-types";
 import { pigeonnierRoostLabel } from "./pigeonnier-watch";
 import { analyticalRouteHref } from "./route-links";
 import { formationLabel, squadForMember, squadRole } from "./maker-squad";
@@ -13,12 +13,15 @@ import { cycleTempoDetailLabel, shipCycleTempo, type ShipCycleTempoResult } from
 import type { SupplyTide } from "./supply-tide";
 import { quayMasonryLabel } from "./dock-health";
 export { quayMasonryHealth, quayMasonryLabel } from "./dock-health";
+import { farShoreLabel, skyCoverLabel, skyCoverWord } from "./psi-sky";
 import { deriveLampStatus, lampStatusReading } from "./lamp-status";
 import { gardenMonthRecordLabel } from "./garden-month-record";
 import { shipIssuanceDetailLabel } from "./ship-issuance";
 import type { PharosVilleFreshness } from "./world-types";
+import { SIGNAL_MAST_STORM_SUPPLY_SHARE } from "./world-types";
 import { deriveEpistemicHaze, quayHazeLabel, riskWaterHazeLabel } from "./epistemic-haze";
 import { motionCadenceDetailLabel } from "./motion-config";
+import { gardenMoonPhrase } from "./sky-almanac";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
@@ -42,6 +45,26 @@ export interface NowCaptionInput {
   hour: number;
   latestTransition: NowCaptionTransition | null;
   psi: number | null;
+  /**
+   * X3: the PSI band, for the cover word ("a clear sky" … "overcast") the
+   * painted cloud field draws. Omitted or unavailable → no cover word.
+   */
+  psiBand?: string | null;
+  /** A first-visit teaching or the return-visit sentence; outranked only by a stale feed. */
+  visitorLine?: string | null;
+}
+
+/**
+ * The now-line as one sentence in three voices (W6.2): the minute clock (only
+ * for the ambient phase), the phrase, and a quieter provenance clause. A
+ * `warning` phrase is a truth warning (a stale feed): the line sets it roman
+ * with a glyph so it never reads as poetry or relies on colour alone.
+ */
+export interface NowCaptionParts {
+  clock: string | null;
+  phrase: string;
+  clause: string | null;
+  warning: boolean;
 }
 
 const NOW_CAPTION_FRESHNESS_LABELS: ReadonlyArray<readonly [keyof PharosVilleFreshness, string]> = [
@@ -86,34 +109,85 @@ function phaseCaption(hour: number, beats: DayCycleBeats, psi: number | null): s
 }
 
 /**
- * The single scene caption. Its precedence is deliberate: a ceremony is the
- * present moment, then a market move, then a warning, then the ambient phase.
+ * The caption's words without the minute clock. Its precedence is
+ * deliberate: a stale feed is a truth warning and outranks everything, then a
+ * visitor's teaching, then a ceremony is the present moment, then a market
+ * move, then the ambient phase.
  */
-export function nowCaption({
+function nowCaptionPhrase({
   arrivalAnnotation,
   beats,
   freshness,
   hour,
   latestTransition,
   psi,
-}: NowCaptionInput): string {
-  if (arrivalAnnotation) return arrivalAnnotation;
-  if (latestTransition) {
-    return `${latestTransition.symbol} moved to ${latestTransition.toLabel}, observed ${observedTimeLabel(latestTransition.observedAt)}`;
-  }
+  psiBand,
+  visitorLine,
+}: NowCaptionInput, moon: string | null = null): Omit<NowCaptionParts, "clock"> & { clocked: boolean } {
   const staleFeed = NOW_CAPTION_FRESHNESS_LABELS.find(([key]) => freshness[key] === true);
-  if (staleFeed) return `${staleFeed[1]} stale since ${observedTimeLabel(freshness.observedAt ?? null)}`;
-  return `${clockLabel(hour)} — ${phaseCaption(hour, beats, psi)} · readings current`;
+  if (staleFeed) {
+    return {
+      clocked: false,
+      phrase: `${staleFeed[1]} stale since ${observedTimeLabel(freshness.observedAt ?? null)}`,
+      clause: null,
+      warning: true,
+    };
+  }
+  const unclocked = visitorLine || arrivalAnnotation || (latestTransition
+    ? `${latestTransition.symbol} moved to ${latestTransition.toLabel}, observed ${observedTimeLabel(latestTransition.observedAt)}`
+    : null);
+  if (unclocked) return { clocked: false, phrase: unclocked, clause: null, warning: false };
+  // X3: the sky's cover is a reading (market stability), so it is spoken too;
+  // it changes only when an accepted PSI band does.
+  const cover = skyCoverWord(psiBand);
+  return {
+    clocked: true,
+    phrase: `${phaseCaption(hour, beats, psi)}${cover ? ` · ${cover}` : ""}${moon ? ` · ${moon}` : ""}`,
+    clause: "readings current",
+    warning: false,
+  };
+}
+
+/**
+ * The visible scene caption in its three voices; the ambient phase leads with
+ * the minute clock. After dusk the ambient slot also names the moon when it is
+ * up (W2.6: the text equivalent of the disc). It is decorative, so it lives
+ * only here and never in `nowCaptionAnnouncement` — the moon rising must not
+ * speak.
+ */
+export function nowCaptionParts(input: NowCaptionInput): NowCaptionParts {
+  const beat = dominantDayBeat(input.beats);
+  // Low cloud and overcast hide the moon, so the line does not name it.
+  const hidden = ["CRISIS", "MELTDOWN"].includes(input.psiBand?.toUpperCase() ?? "");
+  const moon = (beat === "night" || beat === "blue") && !hidden ? gardenMoonPhrase(input.hour) : null;
+  const { clocked, ...parts } = nowCaptionPhrase(input, moon);
+  return { clock: clocked ? clockLabel(input.hour) : null, ...parts };
+}
+
+/** The now-line as one plain sentence: the text form of `nowCaptionParts`. */
+export function nowCaption(input: NowCaptionInput): string {
+  const { clock, phrase, clause } = nowCaptionParts(input);
+  return `${clock ? `${clock} — ` : ""}${phrase}${clause ? ` · ${clause}` : ""}`;
+}
+
+/**
+ * What the caption's status region speaks: the same phrase without the minute
+ * clock, so a screen reader hears it only when the phrase itself changes.
+ */
+export function nowCaptionAnnouncement(input: NowCaptionInput): string {
+  const { phrase, clause } = nowCaptionPhrase(input);
+  return clause ? `${phrase} · ${clause}` : phrase;
 }
 
 function marketCapLabel(value: number): string {
   return Number.isFinite(value) && value > 0 ? usd.format(value) : "Unavailable";
 }
 
-export function wreckSilhouetteLabel(marker: GraveNode["visual"]["marker"]): string {
-  if (marker === "grounded" || marker === "sinking-stern") return "Substantial hull — much of the vessel remains";
-  if (marker === "broken-keel") return "Broken keel — the hull has split around exposed frames";
-  return "Bare remains — keel and ribs are exposed";
+/** X1: where the grave's stone lies in the stone garden, by cause family. */
+export function gardenStoneLabel(family: GraveNode["visual"]["family"]): string {
+  if (family === "lost-peg") return "A reclining stone in the west islands — the peg broke";
+  if (family === "counterparty") return "An arching stone in the centre island — a counterparty failed";
+  return "A flat stone in the east islands — wound down";
 }
 
 export interface ShipFleetRank {
@@ -266,6 +340,32 @@ const ATMOSPHERE_DESCRIPTORS: Record<DewsAreaBand, string> = {
 function atmosphereForArea(area: AreaNode): string {
   if (!area.band) return "Calm waters; no DEWS atmosphere modulation";
   return `${area.label} — ${area.band}, ${ATMOSPHERE_DESCRIPTORS[area.band]}`;
+}
+
+// K7 (Hour-Print W3.3): the water itself carries each body's reading as the
+// state of its surface — how much sky it holds and which engraved crest line
+// it prints — with hue a quiet second voice. These are the DOM words for it.
+const WATER_SURFACE_BY_ZONE: Record<ShipWaterZone, string> = {
+  calm: "Glass — a still mirror of sky and tower, no drawn lines",
+  watch: "Ripple — long, slowly bending crest lines",
+  alert: "Streaks — broken current lines along the channel",
+  warning: "Chop — short broken dashes over pale shoals",
+  danger: "Leaden — dense steady lines on dark, matte water that mirrors little, pocked by rain",
+  ledger: "Glass — a flat, faintly striated mirror, no drawn lines",
+};
+
+const WATER_ZONE_BY_BAND: Record<DewsAreaBand, ShipWaterZone> = {
+  CALM: "calm",
+  WATCH: "watch",
+  ALERT: "alert",
+  WARNING: "warning",
+  DANGER: "danger",
+};
+
+/** The named water's surface state, as the sea itself draws it; null for unbanded waters. */
+export function waterSurfaceForArea(area: Pick<AreaNode, "band" | "riskZone">): string | null {
+  const zone = area.band ? WATER_ZONE_BY_BAND[area.band] : area.riskZone;
+  return zone ? WATER_SURFACE_BY_ZONE[zone] : null;
 }
 
 function stationTypeLabel(type: DockNode["station"]["type"]): string {
@@ -563,15 +663,34 @@ export function detailForPigeonnier(node: PigeonnierNode): DetailModel {
 
 /**
  * What the observatory hoist is showing, in words — the DOM parity for the
- * signal mast. Deliberately describes the CLOTH, not the market: a reader who
- * cannot see the mast should be able to picture it and then read the figures.
+ * signal mast. Describes the CLOTH first and then what it stands for: a reader
+ * who cannot see the mast should be able to picture it — pennants for the
+ * largest coins by supply that are off peg, a cone only when enough of the
+ * tracked supply is off peg — and then read the figures.
  */
 export function signalMastLabel(mast: LighthouseNode["signalMast"]): string {
   if (!mast || mast.unavailable) return "Bare — no peg summary tonight";
-  const cone = mast.stormCone ? "; storm cone hoisted" : "";
-  if (mast.pennantCount === 0) return `Bare — no coin off peg${cone}`;
-  const hoist = `${pluralize(mast.pennantCount, "pennant")} for ${pluralize(mast.activeDepegCount, "coin")} off peg`;
-  return `${hoist}${mast.capped ? " (hoist caps the count)" : ""}${cone}`;
+  if (mast.leaderCount === 0 || mast.offPegSupplyShare === null) {
+    return "Bare — no supply figures to weigh the peg readings against";
+  }
+  const leaders = `the ${mast.leaderCount} largest coins by supply`;
+  const hoist = mast.leadersOffPeg.length === 0
+    ? `none of ${leaders} off peg`
+    : `${pluralize(mast.pennantCount, "pennant")} for ${mast.leadersOffPeg.join(", ")} — ${mast.leadersOffPeg.length} of ${leaders} off peg${mast.capped ? " (hoist caps the count)" : ""}`;
+  const share = `${supplySharePercentLabel(mast.offPegSupplyShare)} of tracked supply off peg`;
+  const gate = supplySharePercentLabel(SIGNAL_MAST_STORM_SUPPLY_SHARE);
+  const cone = mast.stormCone
+    ? `storm cone hoisted — ${share}`
+    : `no storm cone — ${share}, under the ${gate} gate`;
+  return `${mast.pennantCount === 0 && !mast.stormCone ? "Bare — " : ""}${hoist}; ${cone}`;
+}
+
+/** A supply share as a percentage precise enough to sit either side of a 1% gate. */
+function supplySharePercentLabel(share: number): string {
+  if (share <= 0) return "0%";
+  if (share < 0.0001) return "under 0.01%";
+  const figure = (share * 100).toFixed(share < 0.1 ? 2 : 1).replace(/\.?0+$/, "");
+  return `${figure}%`;
 }
 
 /**
@@ -598,17 +717,17 @@ export function fleetPegLabel(mast: LighthouseNode["signalMast"]): string | null
 }
 
 /**
- * The tide-stain, in words: how high the sea got and how much window there was
- * to get there.
+ * The worst PSI band of the trailing 30 days, in words: how far the index fell
+ * and how much window there was to fall in. A DOM record (X2 retired its salt
+ * courses on the terrace).
  *
- * Never says "calm". A BEDROCK mark says the sea never rose past the footing —
- * a claim about the RECORD — while an absent history says the rocks are
- * unstained because nothing was read, which is a claim about the evidence. The
- * two must not collapse into one sentence, because unstained rock looks
- * identical either way.
+ * Never says "calm". A BEDROCK record says the index never left its calmest
+ * band — a claim about the RECORD — while an absent history says nothing was
+ * read, which is a claim about the evidence. The two must not collapse into
+ * one sentence.
  */
 export function highWaterMarkLabel(mark: LighthouseNode["highWaterMark"]): string {
-  if (!mark || mark.unavailable) return "Unstained — no index history to read";
+  if (!mark || mark.unavailable) return "Unavailable — no index history to read";
   const window = mark.spanDays > 0
     ? `${pluralize(mark.spanDays, "day")} on record`
     : "a single reading on record";
@@ -616,7 +735,7 @@ export function highWaterMarkLabel(mark: LighthouseNode["highWaterMark"]): strin
   const dated = depegEventDateLabel(mark.at);
   const when = dated ? ` on ${dated}` : "";
   if (mark.severity === 0) {
-    return `${mark.band}${score}${when} — the sea never rose past the footing; ${window}`;
+    return `${mark.band}${score}${when} — the index never left its calmest band; ${window}`;
   }
   return `${mark.band}${score}${when}; ${window}`;
 }
@@ -678,6 +797,8 @@ export function detailForLighthouse(
       { label: "Score", value: node.score == null || node.unavailable ? "Unavailable" : String(node.score) },
       { label: "Band", value: node.psiBand ?? "Unavailable" },
       { label: "Market stability", value: node.unavailable ? "Unavailable" : freshness.stabilityStale ? "Stale — last good clarity held" : "Current PSI observation" },
+      { label: "Far shore", value: farShoreLabel(node.psiBand, node.unavailable) },
+      { label: "Sky cover", value: skyCoverLabel(node.psiBand, node.unavailable) },
       { label: "Snapshot as of", value: generatedAt != null && Number.isFinite(generatedAt) && generatedAt > 0 ? new Date(generatedAt).toISOString() : "Unavailable" },
       ...(trend ? [{ label: "Trend", value: trend }] : []),
       ...(composition ? [{ label: "Composition", value: composition }] : []),
@@ -707,6 +828,7 @@ export function detailForLighthouse(
           })),
         }
       : {}),
+    ...(node.longRecord ? { longRecord: node.longRecord } : {}),
   };
 }
 
@@ -795,13 +917,16 @@ export function cargoTideLabel(tide: DockNode["cargoTide"]): string | null {
 export function supplyTideLabel(tide: SupplyTide | undefined): string | null {
   if (!tide || tide.state === "unavailable") return null;
   const figure = `${tide.change7dPct! > 0 ? "+" : ""}${tide.change7dPct!.toFixed(2)}%`;
+  // X2: the words for what the tidal flat shows (its offset is √-compressed
+  // against a 2% week, so "mostly" starts at a 0.5% move).
+  const extent = Math.abs(tide.offset) >= 0.5 ? "mostly" : "partly";
   switch (tide.state) {
     case "flood":
-      return `${figure} rising — supply grew this week`;
+      return `${figure} rising — supply grew this week; the tidal flat stands ${extent} covered`;
     case "ebb":
-      return `${figure} falling — supply shrank this week`;
+      return `${figure} falling — supply shrank this week; the tidal flat lies ${extent} bare`;
     default:
-      return `${figure} slack — supply held flat this week`;
+      return `${figure} slack — supply held flat this week; the water stands at the tide-stone`;
   }
 }
 
@@ -1045,9 +1170,10 @@ export function pegDeviationLabel(node: Pick<ShipNode, "pegDeviationBps" | "pegC
   const bps = node.pegDeviationBps;
   if (typeof bps !== "number" || !Number.isFinite(bps)) return null;
   const rounded = Math.round(bps);
-  const sign = rounded > 0 ? "+" : "";
+  // A typographic minus (U+2212), not a hyphen: it reads as a sign, not a dash.
+  const sign = rounded > 0 ? "+" : rounded < 0 ? "\u2212" : "";
   const currency = node.pegCurrency || "peg";
-  return `${sign}${rounded} bps vs ${currency}`;
+  return `${sign}${Math.abs(rounded)} bps vs ${currency}`;
 }
 
 /**
@@ -1225,7 +1351,7 @@ export function detailForGrave(node: GraveNode): DetailModel {
     facts: [
       { label: "Symbol", value: node.entry.symbol },
       { label: "Cause", value: causeLabel },
-      { label: "Wreck silhouette", value: wreckSilhouetteLabel(node.visual.marker) },
+      { label: "Stone garden", value: gardenStoneLabel(node.visual.family) },
       { label: "Date", value: node.entry.deathDate },
       ...(node.entry.peakMcap != null && Number.isFinite(node.entry.peakMcap)
         ? [{ label: "Peak market cap", value: usd.format(node.entry.peakMcap) }]
@@ -1240,6 +1366,7 @@ export function detailForGrave(node: GraveNode): DetailModel {
 
 export function detailForArea(node: AreaNode, freshness: PharosVilleFreshness = {}): DetailModel {
   const haze = deriveEpistemicHaze(freshness);
+  const waterSurface = waterSurfaceForArea(node);
   return {
     id: node.detailId,
     kind: node.kind,
@@ -1253,6 +1380,7 @@ export function detailForArea(node: AreaNode, freshness: PharosVilleFreshness = 
       ...(node.riskZone ? [{ label: "Risk water zone", value: node.riskZone }] : []),
       ...(node.riskPlacement ? [{ label: "Risk placement", value: node.riskPlacement }] : []),
       { label: "Atmosphere", value: atmosphereForArea(node) },
+      ...(waterSurface ? [{ label: "Water surface", value: waterSurface }] : []),
       ...(haze.riskWaters ? [{ label: "Risk-water haze", value: riskWaterHazeLabel(haze) }] : []),
       ...(node.facts ?? []),
       ...(node.sourceFields?.length ? [{ label: "Source fields", value: node.sourceFields.join(", ") }] : []),

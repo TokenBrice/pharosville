@@ -96,7 +96,6 @@ export function worldRenderContentSignature(world: PharosVilleWorld): string {
     lighthouse: {
       beamDwellShipId: world.lighthouse.beamDwell?.shipId ?? null,
       detailId: world.lighthouse.detailId,
-      highWaterSeverity: world.lighthouse.highWaterMark?.severity ?? null,
       signalPennants: world.lighthouse.signalMast?.pennantCount ?? 0,
       stormCone: world.lighthouse.signalMast?.stormCone ?? false,
       tile: world.lighthouse.tile,

@@ -1,6 +1,6 @@
 # PharosVille Runtime Media
 
-Last updated: 2026-07-25
+Last updated: 2026-09-27
 
 Runtime media is deliberately narrow, same-origin, and owned by the code that
 uses it. Everything else in the Garden Observatory is procedural geometry,
@@ -11,9 +11,9 @@ shader/material work, or DOM.
 | Media | Owner | Failure behavior |
 | --- | --- | --- |
 | Stablecoin logo | `useShipLogoAssets` → sail atlas | painted symbol and livery |
-| Chain logo | `garden-chain-flag.ts` → flag atlas | painted chain initials and accent flag |
+| Chain logo | `garden-chain-flag.ts` → nobori atlas | painted maru mon and vertical initials on kinari cloth |
 | Lighthouse GLB | `garden-models.ts` | aligned procedural lighthouse |
-| 18 hero-hull GLBs | `garden-models.ts` | procedural tier hull |
+| 8 named-titan hull GLBs | `garden-models.ts` | procedural tier hull |
 | Water normal | `garden-water.ts` | shader water without normal detail |
 | Sail/flag atlases | renderer memory | fallback cloth/mark remains |
 
@@ -25,7 +25,7 @@ to browser code.
 ## Checked models
 
 The model manifest in `src/three/garden-models.ts` is the contract for one
-lighthouse and eighteen hero hulls. It records content-hashed URL, bytes,
+lighthouse and the eight named-titan hulls. It records content-hashed URL, bytes,
 hash, dimensions, origin, anchors, pick proxy, geometry budgets, provenance,
 and license. `RUNTIME_FACTS.md` is generated from that manifest.
 
@@ -45,10 +45,12 @@ npm run check:garden-models
 Do not hand-edit a checked GLB. Preserve model origin, scale, anchors, pick
 proxy, asset metadata, and fallback together.
 
-The post chain's grade LUT strip and blue-noise dither mask follow the same
-rule: `public/pharosville/textures/garden-grade-lut.png` (three 32³ phase
-cubes in one strip) and `garden-blue-noise.png` (void-and-cluster mask) are
-regenerated bit-exact by their generator, and `--check` guards drift:
+The post chain's grade LUT strip and the shared garden-noise pack follow the
+same rule: `public/pharosville/textures/garden-grade-lut.png` (the phase cubes
+in one strip) and `garden-noise-pack.png` (256² RGBA: R the 64² void-and-cluster
+dither tiled 4×4, G fbm, B Worley F1, A curl direction as angle/2π; every
+channel tiles at 256) are regenerated bit-exact by their generator, and
+`--check` guards drift:
 
 ```bash
 node scripts/pharosville/generate-garden-luts.mjs
@@ -58,6 +60,11 @@ npm run check:garden-luts
 Do not hand-edit either PNG; retune the parametric transforms in the
 generator and regenerate.
 
+The noise pack is the only noise texture in the scene (the whole-map census is
+at 72/72): new sky, water, air or particle noise samples a channel of it through
+`acquireGardenNoisePack` (`src/three/garden-noise-pack.ts`) instead of adding a
+texture. Read A with `texelFetch`; its angles wrap.
+
 ## Logos and atlases
 
 - Stablecoin images are abortable, cached, and decoded only after the desktop
@@ -65,9 +72,9 @@ generator and regenerate.
 - The fleet uses one shared 16×16 sail atlas. It stores marks while instance
   attributes supply cloth/livery, so a large fleet does not acquire a texture
   per ship.
-- Harbor flags use their own shared atlas. A real chain logo can upgrade a
-  cell, but the painted flag is the product contract and a failed image is not
-  an error state.
+- Harbor nobori use their own shared atlas. A real chain logo can upgrade a
+  cell, but the painted mon and initials on kinari cloth are the product
+  contract and a failed image is not an error state.
 - A logo change needs focused atlas/sail tests and browser review at overview
   and inspection scale.
 

@@ -3,6 +3,7 @@ import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
 import type { SafetyGradeEntry, StablecoinData, StablecoinMeta } from "@shared/types";
 import type { ConditionBand } from "@shared/lib/psi-colors";
 import type { NetFlowDirection24h } from "@shared/lib/mint-burn-signals";
+import type { LongRecordModel } from "./long-record";
 import type { ShipAgeProfile } from "./ship-age";
 import type { SupplyTide } from "./supply-tide";
 import type { RimCoveId } from "./garden-rim";
@@ -205,11 +206,9 @@ export interface LighthouseContributor {
 /**
  * How many pennants the observatory hoist carries before it stops counting.
  *
- * A pennant per depeg with no cap turns a bad afternoon into a ladder of cloth
- * nobody can count, which reads as alarm rather than as a reading. Five is what
- * a real signal hoist flies and what stays legible at overview zoom; past that
- * the mast says "more than five" and the exact figure is the DOM's job
- * (`detailForLighthouse`'s Signal mast row).
+ * Five is what a real signal hoist flies and what stays legible at overview
+ * zoom; past that the mast says "more than five" and the exact figure is the
+ * DOM's job (`detailForLighthouse`'s Signal mast row).
  *
  * Lives here rather than in the stage that derives it so the renderer can size
  * its hoist without importing a world-build stage.
@@ -217,21 +216,45 @@ export interface LighthouseContributor {
 export const SIGNAL_MAST_MAX_PENNANTS = 5;
 
 /**
- * The observatory's storm-signal hoist, derived from `pegSummary.summary`.
+ * O17b: the pennants speak only for the coins that carry the market — the
+ * largest tracked coins by circulating supply. A precious-metal dust coin
+ * trading 50% off par is real, and the Fleet peg row names it, but it is not
+ * the harbour's weather; counting every depeg kept the hoist saturated on a
+ * calm day, which made it decoration posing as a warning.
+ */
+export const SIGNAL_MAST_LEADER_COUNT = 20;
+
+/**
+ * O17b: the storm cone flies only when at least this share of tracked supply
+ * is off peg — a market-weighted storm, never one small coin's bad day.
+ */
+export const SIGNAL_MAST_STORM_SUPPLY_SHARE = 0.01;
+
+/**
+ * The observatory's storm-signal hoist, derived from `pegSummary` weighed by
+ * `stablecoins` circulating supply.
  *
  * One reading of fleet-wide peg condition, carried at one place. Everything
  * here is a plain number or flag: the world model stays serializable and the
  * renderer decides nothing the DOM cannot also say.
  */
 export interface SignalMastNode {
-  /** `pegSummary.summary.activeDepegCount` — coins currently off peg. */
+  /** `pegSummary.summary.activeDepegCount` — every tracked coin off peg. */
   activeDepegCount: number;
-  /** Pennants actually hoisted: `activeDepegCount` capped at the mast's hoist. */
+  /** How many coins were ranked as leaders: `SIGNAL_MAST_LEADER_COUNT`, or
+      fewer when fewer tracked coins carry a supply figure. Zero means the
+      peg readings could not be weighed and the mast stands bare. */
+  leaderCount: number;
+  /** Symbols of the leaders currently off peg, largest supply first. */
+  leadersOffPeg: string[];
+  /** Pennants actually hoisted: `leadersOffPeg.length` capped at the hoist. */
   pennantCount: number;
-  /** True when `activeDepegCount` exceeded the hoist and the mast is showing
-      fewer pennants than there are coins off peg. */
+  /** True when more leaders are off peg than the hoist can show. */
   capped: boolean;
-  /** True when the worst current deviation crosses the storm gate. */
+  /** Share (0..1) of tracked circulating supply held in coins currently off
+      peg; null when no supply figure could be joined. */
+  offPegSupplyShare: number | null;
+  /** True when `offPegSupplyShare` reaches `SIGNAL_MAST_STORM_SUPPLY_SHARE`. */
   stormCone: boolean;
   /** `pegSummary.summary.worstCurrent` — worst live deviation, signed bps. */
   worstBps: number | null;
@@ -281,25 +304,24 @@ export function psiBandSeverity(band: string | null | undefined): number | null 
   return index >= 0 ? index : null;
 }
 
-/** Trailing window the lighthouse tide-stain reads, in days. */
+/** Trailing window the lighthouse Worst band, 30d record reads, in days. */
 export const HIGH_WATER_MARK_WINDOW_DAYS = 30;
 
 /**
- * The worst PSI band the fleet reached in the trailing window, stained on the
- * lighthouse's terrace as a high-water mark.
+ * The worst PSI band the fleet reached in the trailing window — the lighthouse
+ * detail's "Worst band, 30d" record (its terrace salt courses retired in X2).
  *
  * `stability.history` has been arriving in the browser since the world was
  * built and nothing has ever read it — the world knew only `current`, so a
  * harbour that spent three weeks in FRACTURE and recovered yesterday looked
  * exactly like one that has never been anything but calm. This is the
  * difference between the two, and it is deliberately a RECORD rather than a
- * condition: the mark does not move, does not pulse, and never colours toward
- * the danger end of the palette. The sea rose this far; here is the line.
+ * condition.
  */
 export interface LighthouseHighWaterMark {
   /** Worst band in the window, or null when the history yielded nothing. */
   band: string | null;
-  /** `PSI_BAND_SEVERITY` rank of `band`; also the number of stain courses. */
+  /** `PSI_BAND_SEVERITY` rank of `band`. */
   severity: number | null;
   /** Score of the point that set the mark. */
   score: number | null;
@@ -362,10 +384,13 @@ export interface LighthouseNode {
   lastFleetDepegAt?: number | null;
   /** Fleet-wide peg condition, hoisted on the observatory signal mast. */
   signalMast?: SignalMastNode;
-  /** Worst PSI band of the trailing window, stained on the terrace rocks. */
+  /** Worst PSI band of the trailing window (the DOM Worst band, 30d record). */
   highWaterMark?: LighthouseHighWaterMark;
   /** Thirty-day PSI record expressed as slow garden growth and weathering. */
   gardenMonthRecord?: GardenMonthRecord;
+  /** X7: the whole daily PSI history, decimated for the card's scroll; null
+      when there is not enough history to draw a line. */
+  longRecord?: LongRecordModel | null;
   /** Ship the beam's sweep settles toward, or absent when there is no
       contributor to point at. */
   beamDwell?: LighthouseBeamDwell;
@@ -626,14 +651,24 @@ export interface ShipDepegHistory {
   lastEventAt: number | null;
 }
 
+/**
+ * X1 (O8): the stone garden groups the fallen by how they died. The cemetery
+ * ledger's five causes fold into three families: the peg broke
+ * (algorithmic failure, liquidity drain), a counterparty failed, or the coin
+ * was wound down (abandoned, regulatory).
+ */
+export type GraveFamily = "lost-peg" | "counterparty" | "wound-down";
+
 export interface GraveNode {
   id: string;
   kind: "grave";
   label: string;
   entry: CemeteryEntry;
+  /** The grave's set stone in the stone garden on the Wreck Shoal shore. */
   tile: { x: number; y: number };
   visual: {
-    marker: "broken-keel" | "sinking-stern" | "grounded" | "shattered" | "skeletal";
+    family: GraveFamily;
+    /** Stone size in world units, by peak market cap (log). */
     scale: number;
   };
   detailId: string;
@@ -693,6 +728,8 @@ export interface DetailModel {
   links: DetailModelLink[];
   membersHeading?: string;
   members?: DetailModelMember[];
+  /** X7: the lighthouse card's whole-history PSI scroll. */
+  longRecord?: LongRecordModel;
 }
 
 export type VisualCueTarget =

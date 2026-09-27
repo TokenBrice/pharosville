@@ -4,32 +4,65 @@ import {
   Color,
   SRGBColorSpace,
 } from "three";
+import { NOBORI_CLOTH_ASPECT } from "../systems/dock-layout";
+import { HARBOR_DERIVED_PALETTE, noboriInkHex } from "../systems/palette";
 import type { DockNode } from "../systems/world-types";
 import { GARDEN_IDENTITY_ANISOTROPY } from "./garden-util";
 
 /**
- * N4: every harbour flies its chain's colours from the pier head.
+ * Every harbour names itself with a nobori (plan K28): undyed kinari cloth
+ * printed with the chain's mark in a muted ink of the chain's own hue.
  *
- * One 512² atlas carries every harbour's flag, mirroring the fleet's sail
- * atlas (D3): a texture per harbour would be ten uploads for ten quads, and
- * the fleet already proved the atlas pattern. Ten rendered harbours fit inside
- * sixteen cells with headroom.
+ * One 512² atlas carries every harbour's banner, mirroring the fleet's sail
+ * atlas (D3). Cells are portrait, the cloth's own proportion, so the mark is
+ * painted undistorted: 8 × 2 cells of 64 × 208 px, sixteen banners for the
+ * ten a rendered harbour ring can fly.
  *
  * Each cell is painted in two stages:
  *
- *  1. Immediately, a deterministic **chain mark** — the chain's accent field,
- *     a hoist band, and its initials on a contrasting disc. This is the same
+ *  1. Immediately, a deterministic **chain mark** — the kinari field, the
+ *     chichi hoist band and top sleeve in the chain's ink, a plain maru (disc)
+ *     mon and the chain's initials written down the cloth. This is the same
  *     discipline the sails use (`VISUAL_INVARIANTS.md:89`): identity never
  *     depends on an image resolving.
- *  2. Asynchronously, the chain's real logo drawn over the mark when
+ *  2. Asynchronously, the chain's real logo takes the mon's place when
  *     `dock.logoPath` resolves. The checked `public/chains/` set supplies the
  *     eleven marks a rendered harbor can fly. An unsupported or failed path
  *     keeps the painted mark; it is a designed fallback, not an error state.
+ *
+ * The mark is the mon over the vertical initials, one tall lockup that spans
+ * most of the cloth: the far west stations sit ~230 u from the rest seat, so a
+ * square mark on a 1 u cloth would be a few pixels, while the lockup keeps
+ * every in-frame mark at or above the 18 px K28 gate without growing the cloth.
  */
-export const CHAIN_FLAG_ATLAS_COLUMNS = 4;
-export const CHAIN_FLAG_ATLAS_CELLS = 16;
-export const CHAIN_FLAG_CELL_PX = 128;
-export const CHAIN_FLAG_ATLAS_SIZE_PX = CHAIN_FLAG_ATLAS_COLUMNS * CHAIN_FLAG_CELL_PX;
+export const CHAIN_FLAG_ATLAS_COLUMNS = 8;
+export const CHAIN_FLAG_ATLAS_ROWS = 2;
+export const CHAIN_FLAG_ATLAS_CELLS = CHAIN_FLAG_ATLAS_COLUMNS * CHAIN_FLAG_ATLAS_ROWS;
+export const CHAIN_FLAG_ATLAS_SIZE_PX = 512;
+export const CHAIN_FLAG_CELL_WIDTH_PX = CHAIN_FLAG_ATLAS_SIZE_PX / CHAIN_FLAG_ATLAS_COLUMNS;
+export const CHAIN_FLAG_CELL_HEIGHT_PX = CHAIN_FLAG_CELL_WIDTH_PX * NOBORI_CLOTH_ASPECT;
+
+/** Chichi: the band of loops lacing the cloth to its pole. */
+const HOIST_PX = 6;
+/** The sleeve the crossbar runs through. */
+const SLEEVE_PX = 6;
+const MARK_CENTRE_X = HOIST_PX + (CHAIN_FLAG_CELL_WIDTH_PX - HOIST_PX) / 2;
+const MON_SIZE_PX = 50;
+const MON_TOP_PX = 14;
+const LETTER_FONT_PX = 58;
+const LETTER_PITCH_PX = 62;
+const FIRST_LETTER_CENTRE_PX = MON_TOP_PX + MON_SIZE_PX + 8 + LETTER_PITCH_PX / 2;
+/** Bold sans capitals stand about 0.72 of their font size. */
+const CAP_HEIGHT_RATIO = 0.72;
+
+/**
+ * The share of the cloth's height the painted mark spans, from the mon's top
+ * to the foot of the second initial. The K28 gate (every mark ≥ 18 px tall at
+ * the 1600×1000 rest) is measured on this span.
+ */
+export const NOBORI_MARK_HEIGHT_FRACTION = (
+  FIRST_LETTER_CENTRE_PX + LETTER_PITCH_PX + (LETTER_FONT_PX * CAP_HEIGHT_RATIO) / 2 - MON_TOP_PX
+) / CHAIN_FLAG_CELL_HEIGHT_PX;
 
 export interface GardenChainFlagAtlas {
   /** chainId → atlas cell index. */
@@ -97,39 +130,43 @@ function createAtlas(): MutableAtlas {
 
 export function gardenChainFlagCellOrigin(cell: number): { x: number; y: number } {
   return {
-    x: (cell % CHAIN_FLAG_ATLAS_COLUMNS) * CHAIN_FLAG_CELL_PX,
-    y: Math.floor(cell / CHAIN_FLAG_ATLAS_COLUMNS) * CHAIN_FLAG_CELL_PX,
+    x: (cell % CHAIN_FLAG_ATLAS_COLUMNS) * CHAIN_FLAG_CELL_WIDTH_PX,
+    y: Math.floor(cell / CHAIN_FLAG_ATLAS_COLUMNS) * CHAIN_FLAG_CELL_HEIGHT_PX,
   };
 }
 
 /**
- * UV transform for a cell, ready for `texture.repeat`/`texture.offset`-style
- * use on a cloned material or a remapped plane. Y is flipped because canvas
- * rows run downward while UV rows run upward.
+ * UV rect of a cell, the same transform the banner shader applies. Y is
+ * flipped because canvas rows run downward while UV rows run upward.
  */
 export function gardenChainFlagCellUv(cell: number): {
   offsetX: number;
   offsetY: number;
-  scale: number;
+  scaleX: number;
+  scaleY: number;
 } {
-  const scale = 1 / CHAIN_FLAG_ATLAS_COLUMNS;
+  const scaleX = CHAIN_FLAG_CELL_WIDTH_PX / CHAIN_FLAG_ATLAS_SIZE_PX;
+  const scaleY = CHAIN_FLAG_CELL_HEIGHT_PX / CHAIN_FLAG_ATLAS_SIZE_PX;
   const column = cell % CHAIN_FLAG_ATLAS_COLUMNS;
   const row = Math.floor(cell / CHAIN_FLAG_ATLAS_COLUMNS);
   return {
-    offsetX: column * scale,
-    offsetY: 1 - (row + 1) * scale,
-    scale,
+    offsetX: column * scaleX,
+    offsetY: 1 - (row + 1) * scaleY,
+    scaleX,
+    scaleY,
   };
 }
 
 /**
- * Reserves and paints this chain's flag cell, returning its index (or -1 when
- * no canvas is available, e.g. the node test environment — the caller then
- * flies a plain accent flag). Idempotent: a chain keeps its cell and is only
- * painted once.
+ * Reserves and paints this chain's banner cell, returning its index (or -1
+ * when no canvas is available, e.g. the node test environment — the caller
+ * then flies plain kinari cloth). Idempotent: a chain keeps its cell and is
+ * only painted once.
  */
 export function assignGardenChainFlagCell(dock: DockNode, accent: Color): number {
   const store = gardenChainFlagAtlas() as MutableAtlas;
+  const ink = chainFlagInk(dock.chainId, accent);
+  const initials = chainInitials(dock.label || dock.chainId);
   const existing = store.cellByChainId.get(dock.chainId);
   if (existing !== undefined) {
     // The cache holds the PAINT, not the fetch. A cell first assigned while
@@ -137,12 +174,7 @@ export function assignGardenChainFlagCell(dock: DockNode, accent: Color): number
     // resolved — must be able to pick the logo up on a later composition, or
     // the harbour is stuck on its painted mark for the life of the document.
     // `store.upgraded` keeps this from re-fetching a cell that already tried.
-    upgradeCellWithChainLogo(
-      store,
-      existing,
-      dock.logoPath ?? null,
-      chainFlagField(dock.chainId, accent),
-    );
+    upgradeCellWithChainLogo(store, existing, dock.logoPath ?? null, ink, initials);
     return existing;
   }
   if (!store.texture) return -1;
@@ -154,40 +186,30 @@ export function assignGardenChainFlagCell(dock: DockNode, accent: Color): number
   const canvas = store.texture.image as HTMLCanvasElement;
   const context = canvas.getContext("2d");
   if (!context) return -1;
-  paintChainMark(context, cell, dock, accent);
+  paintBanner(context, cell, ink, initials, null);
   store.texture.needsUpdate = true;
-  upgradeCellWithChainLogo(
-    store,
-    cell,
-    dock.logoPath ?? null,
-    chainFlagField(dock.chainId, accent),
-  );
+  upgradeCellWithChainLogo(store, cell, dock.logoPath ?? null, ink, initials);
   return cell;
 }
 
-const FLAG_HOIST_PX = 14;
-
 /**
- * The cloth is dyed in the CHAIN's own colour, so a harbour is named by its
- * flag the way a ship is named by its sail (F1).
+ * Brand colours, the SOURCE of each chain's ink hue — never painted as they
+ * are. Tron's #ff060a measures OKLCH C 0.256 against vermillion's 0.177; the
+ * banner prints every one through `noboriInkHex` (C ≤ 0.10, L 0.38–0.62), so
+ * Tron becomes a dusky iron-oxide red and Aptos' near-black a sumi grey.
  *
- * Before this, the field was `dockAccentColor` — the health-band accent
- * (green/amber/orange/red) hue-shifted per chain. That made every healthy
- * harbour green and told you nothing about which chain you were looking at.
- * The health reading is NOT lost: the same accent still paints the district's
- * warehouse roofs (`garden-docks.ts:255`), which is the larger, closer surface
- * and the better carrier for a four-state band.
+ * Before the nobori, the cloth itself was dyed in these hexes at ×4.2 scale.
+ * The health reading is NOT carried here: the per-chain health accent paints
+ * the district's warehouse roofs (`garden-docks.ts`), the larger, closer
+ * surface and the better carrier for a four-state band.
  *
  * Keys are the canonical chain ids the world scaffold normalizes every feed
  * to (`hyperliquid`, never the upstream `hyperliquid-l1` spelling) — unlike
  * `VENDORED_CHAIN_MARKS` in `chain-docks.ts`, which keys logo filename slugs
- * and legitimately keeps the alias.
- *
- * Only the chains a harbour can actually be built for are listed. Anything
- * else falls back to the health accent, which is the previous behaviour and
- * still gives the ~90 other chains the API can report a distinct flag.
+ * and legitimately keeps the alias. Chains outside this list take their ink
+ * hue from the health accent, through the same clamp.
  */
-const CHAIN_FLAG_FIELD: Record<string, string> = {
+const CHAIN_BRAND_HEX: Record<string, string> = {
   aptos: "#1a1a1a",
   arbitrum: "#12aaff",
   avalanche: "#e84142",
@@ -201,79 +223,58 @@ const CHAIN_FLAG_FIELD: Record<string, string> = {
   tron: "#ff060a",
 };
 
-function chainFlagField(chainId: string, fallback: Color): Color {
-  const brand = CHAIN_FLAG_FIELD[chainId];
-  return brand ? new Color(brand) : fallback;
-}
-
-/** White on a dark field, near-black on a light one (BSC yellow, Hyperliquid mint). */
-function flagInk(field: Color): string {
-  const luminance = field.r * 0.2126 + field.g * 0.7152 + field.b * 0.0722;
-  return luminance > 0.55 ? "#15191e" : "#ffffff";
+/** The muted ink a chain's mark, hoist band and sleeve are printed in. */
+export function chainFlagInk(chainId: string, fallback: Color): string {
+  return noboriInkHex(CHAIN_BRAND_HEX[chainId] ?? `#${fallback.getHexString()}`);
 }
 
 /**
- * Stage 1: the deterministic chain mark. A logo that never loads must still
- * leave a flag that names its harbour, so the initials are the contract and
- * the logo is the upgrade.
+ * Paints one banner: kinari field, ink chichi band and sleeve, then the mark —
+ * the mon (the chain's knocked-out logo, or a plain maru before it loads) over
+ * the initials written down the cloth, tategaki-fashion.
  */
-function paintChainMark(
+function paintBanner(
   context: CanvasRenderingContext2D,
   cell: number,
-  dock: DockNode,
-  accent: Color,
+  ink: string,
+  initials: string,
+  logo: HTMLCanvasElement | null,
 ): void {
-  const field = chainFlagField(dock.chainId, accent);
-  const size = CHAIN_FLAG_CELL_PX;
-  paintChainField(context, cell, field);
-
   const { x, y } = gardenChainFlagCellOrigin(cell);
+  const width = CHAIN_FLAG_CELL_WIDTH_PX;
+  const height = CHAIN_FLAG_CELL_HEIGHT_PX;
   context.save();
   context.translate(x, y);
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = HARBOR_DERIVED_PALETTE.flag_kinari;
+  context.fillRect(0, 0, width, height);
+  context.fillStyle = ink;
+  context.fillRect(0, 0, HOIST_PX, height);
+  context.fillRect(0, 0, width, SLEEVE_PX);
 
-  // Initials straight onto the cloth in the contrast ink — no disc. The field
-  // is now the chain's own colour, so a matte behind the mark would hide the
-  // very thing the flag exists to show.
-  context.fillStyle = flagInk(field);
-  context.font = "700 44px system-ui, sans-serif";
+  if (logo) {
+    context.drawImage(
+      logo,
+      MARK_CENTRE_X - logo.width / 2,
+      MON_TOP_PX + (MON_SIZE_PX - logo.height) / 2,
+    );
+  } else {
+    context.beginPath();
+    context.arc(MARK_CENTRE_X, MON_TOP_PX + MON_SIZE_PX / 2, MON_SIZE_PX * 0.42, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  context.font = `700 ${LETTER_FONT_PX}px system-ui, sans-serif`;
   context.textAlign = "center";
   context.textBaseline = "middle";
-  const box = size - FLAG_HOIST_PX;
-  context.fillText(
-    chainInitials(dock.label || dock.chainId),
-    FLAG_HOIST_PX + box / 2,
-    size / 2 + 2,
-    box * 0.8,
-  );
-
-  context.restore();
-}
-
-/**
- * The bare cloth: chain field plus its darker hoist band at the mast edge, so
- * the flag reads as fabric rather than a floating square.
- *
- * Separate from the mark because the logo upgrade (stage 2) has to repaint the
- * cloth before drawing — otherwise the stage 1 initials stay visible underneath
- * a transparent logo.
- */
-function paintChainField(
-  context: CanvasRenderingContext2D,
-  cell: number,
-  field: Color,
-): void {
-  const { x, y } = gardenChainFlagCellOrigin(cell);
-  const size = CHAIN_FLAG_CELL_PX;
-  context.save();
-  context.translate(x, y);
-  context.clearRect(0, 0, size, size);
-
-  context.fillStyle = `#${field.getHexString()}`;
-  context.fillRect(0, 0, size, size);
-
-  const hoist = field.clone().multiplyScalar(0.62);
-  context.fillStyle = `#${hoist.getHexString()}`;
-  context.fillRect(0, 0, FLAG_HOIST_PX, size);
+  for (const [index, letter] of [...initials].entries()) {
+    context.fillText(
+      letter,
+      MARK_CENTRE_X,
+      FIRST_LETTER_CENTRE_PX + index * LETTER_PITCH_PX,
+      width - HOIST_PX - 6,
+    );
+  }
   context.restore();
 }
 
@@ -286,16 +287,17 @@ export function chainInitials(name: string): string {
 }
 
 /**
- * Stage 2: draw the chain's real logo over its mark. Same-origin paths only —
+ * Stage 2: the chain's real logo becomes the mon. Same-origin paths only —
  * the runtime media contract forbids remote asset URLs in browser code. A
  * failed load is not an error: the painted mark is the contract, the logo is
- * the upgrade, so failures keep the flag exactly as it is.
+ * the upgrade, so failures keep the banner exactly as it is.
  */
 function upgradeCellWithChainLogo(
   store: MutableAtlas,
   cell: number,
   logoPath: string | null,
-  field: Color,
+  ink: string,
+  initials: string,
 ): void {
   // Enabled 2026-07-25 by operator decision, with the assets shipped.
   //
@@ -321,25 +323,14 @@ function upgradeCellWithChainLogo(
     const canvas = texture.image as HTMLCanvasElement;
     const context = canvas.getContext("2d");
     if (!context) return;
-    const { x, y } = gardenChainFlagCellOrigin(cell);
-    const size = CHAIN_FLAG_CELL_PX;
-    const box = size - FLAG_HOIST_PX;
     const natural = Math.max(1, Math.max(image.naturalWidth, image.naturalHeight));
-    const drawn = box * 0.82;
-    const width = (image.naturalWidth / natural) * drawn;
-    const height = (image.naturalHeight / natural) * drawn;
-
-    // Repaint the cloth first: stage 1 left the chain's initials on it, and a
+    const width = (image.naturalWidth / natural) * MON_SIZE_PX;
+    const height = (image.naturalHeight / natural) * MON_SIZE_PX;
+    const mon = knockOutMark(image, width, height, ink);
+    if (!mon) return;
+    // Repaint the whole banner: stage 1's maru sits where the mon goes, and a
     // knocked-out mark is transparent everywhere the glyph is not.
-    paintChainField(context, cell, field);
-
-    const knockout = knockOutMark(image, width, height, flagInk(field));
-    if (!knockout) return;
-    context.drawImage(
-      knockout,
-      x + FLAG_HOIST_PX + (box - width) / 2,
-      y + (size - height) / 2,
-    );
+    paintBanner(context, cell, ink, initials, mon);
     texture.needsUpdate = true;
   });
   image.addEventListener("error", () => {

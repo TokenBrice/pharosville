@@ -4,9 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeChain } from "../__fixtures__/pharosville-world";
 import { buildChainDocks } from "../systems/chain-docks";
 import type { DockNode } from "../systems/world-types";
+import { HARBOR_DERIVED_PALETTE, HARBOR_PALETTE, hexToOklch, NOBORI_INK_LIMITS } from "../systems/palette";
 import {
   CHAIN_FLAG_ATLAS_CELLS,
-  CHAIN_FLAG_ATLAS_COLUMNS,
+  CHAIN_FLAG_ATLAS_SIZE_PX,
+  CHAIN_FLAG_CELL_HEIGHT_PX,
+  CHAIN_FLAG_CELL_WIDTH_PX,
+  chainFlagInk,
   chainInitials,
   assignGardenChainFlagCell,
   gardenChainFlagAtlas,
@@ -61,16 +65,17 @@ describe("garden chain flag atlas", () => {
     expect(gardenChainFlagAtlas().cellByChainId.size).toBe(2);
   });
 
-  it("maps cells to non-overlapping atlas rects", () => {
+  it("maps cells to non-overlapping portrait atlas rects", () => {
     const seen = new Set<string>();
     for (let cell = 0; cell < CHAIN_FLAG_ATLAS_CELLS; cell += 1) {
       const origin = gardenChainFlagCellOrigin(cell);
       const uv = gardenChainFlagCellUv(cell);
-      expect(uv.scale).toBeCloseTo(1 / CHAIN_FLAG_ATLAS_COLUMNS, 6);
-      expect(uv.offsetX).toBeGreaterThanOrEqual(0);
+      expect(origin.x + CHAIN_FLAG_CELL_WIDTH_PX).toBeLessThanOrEqual(CHAIN_FLAG_ATLAS_SIZE_PX);
+      expect(origin.y + CHAIN_FLAG_CELL_HEIGHT_PX).toBeLessThanOrEqual(CHAIN_FLAG_ATLAS_SIZE_PX);
+      // The UV rect is the same canvas rect, flipped to UV rows.
+      expect(uv.offsetX).toBeCloseTo(origin.x / CHAIN_FLAG_ATLAS_SIZE_PX, 6);
+      expect(uv.offsetY + uv.scaleY).toBeCloseTo(1 - origin.y / CHAIN_FLAG_ATLAS_SIZE_PX, 6);
       expect(uv.offsetY).toBeGreaterThanOrEqual(0);
-      expect(uv.offsetX + uv.scale).toBeLessThanOrEqual(1 + 1e-6);
-      expect(uv.offsetY + uv.scale).toBeLessThanOrEqual(1 + 1e-6);
       const key = `${origin.x}.${origin.y}`;
       expect(seen.has(key)).toBe(false);
       seen.add(key);
@@ -79,11 +84,47 @@ describe("garden chain flag atlas", () => {
 
   it("paints a chain mark so a harbour is named even with no logo asset", () => {
     assignGardenChainFlagCell(dock("hyperliquid", "Hyperliquid L1"), ACCENT);
-    // Field + hoist band, then the chain's initials on their disc.
+    // Cloth, hoist band and sleeve, then the initials written down the banner.
     expect(fillRect).toHaveBeenCalled();
-    expect(fillText).toHaveBeenCalledWith("HL", expect.any(Number), expect.any(Number), expect.any(Number));
+    expect(fillText).toHaveBeenCalledWith("H", expect.any(Number), expect.any(Number), expect.any(Number));
+    expect(fillText).toHaveBeenCalledWith("L", expect.any(Number), expect.any(Number), expect.any(Number));
+    const [first, second] = fillText.mock.calls;
+    expect(second![2]).toBeGreaterThan(first![2]);
     // The logo is a later upgrade, never part of the first paint.
     expect(drawImage).not.toHaveBeenCalled();
+  });
+
+  // Plan K28 / harbour-2: the flags used to be dyed in raw brand hex (Tron
+  // #ff060a measured C 0.256 against vermillion's 0.177). The cloth is now
+  // kinari and every ink passes the nobori clamp, including the health-accent
+  // fallback for chains without a brand entry.
+  it("prints every mark in a muted ink of its chain's hue on kinari cloth", () => {
+    const fills: string[] = [];
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+      configurable: true,
+      value: vi.fn(() => recordingContext(fills)),
+    });
+    resetGardenChainFlagAtlas();
+    const loudAccent = new Color("#ff0000");
+    for (const [chainId, label] of [
+      ["tron", "Tron"], ["aptos", "Aptos"], ["bsc", "BSC"], ["hyperliquid", "Hyperliquid"],
+      ["base", "Base"], ["solana", "Solana"], ["x-layer", "X Layer"],
+    ] as const) {
+      assignGardenChainFlagCell(dock(chainId, label), loudAccent);
+    }
+    expect(fills).toContain(HARBOR_DERIVED_PALETTE.flag_kinari);
+    expect(fills).not.toContain("#ff060a");
+    const vermillion = hexToOklch(HARBOR_PALETTE.vermillion).c;
+    for (const fill of fills.filter((value) => value !== HARBOR_DERIVED_PALETTE.flag_kinari)) {
+      const ink = hexToOklch(fill);
+      expect(ink.c, fill).toBeLessThanOrEqual(NOBORI_INK_LIMITS.maxChroma + 0.005);
+      expect(ink.c, fill).toBeLessThan(vermillion);
+      expect(ink.l, fill).toBeGreaterThanOrEqual(NOBORI_INK_LIMITS.minLightness - 0.005);
+      expect(ink.l, fill).toBeLessThanOrEqual(NOBORI_INK_LIMITS.maxLightness + 0.005);
+    }
+    // Hue survives the clamp: Tron stays in the red family, Base in the blue.
+    expect(hueDistance(hexToOklch(chainFlagInk("tron", loudAccent)).h, hexToOklch("#ff060a").h)).toBeLessThan(8);
+    expect(hueDistance(hexToOklch(chainFlagInk("base", loudAccent)).h, hexToOklch("#0052ff").h)).toBeLessThan(8);
   });
 
   it("refuses remote logo paths so browser code stays same-origin", () => {
@@ -100,14 +141,6 @@ describe("garden chain flag atlas", () => {
     const material = batch.flags.material as MeshStandardMaterial;
     expect(material.map).toBe(gardenChainFlagAtlas().texture);
     expect(batch.flags.geometry.getAttribute("aFlagCell").getX(0)).toBe(0);
-    const shader = {
-      uniforms: {},
-      vertexShader: "#include <common>\n#include <uv_vertex>",
-      fragmentShader: "#include <common>\n#include <map_fragment>",
-    };
-    material.onBeforeCompile(shader as never, null as never);
-    expect(shader.vertexShader).toContain("attribute float aFlagCell;");
-    expect(shader.vertexShader).toContain("vMapUv =");
     batch.dispose();
   });
 
@@ -239,4 +272,19 @@ function fakeContext(): CanvasRenderingContext2D {
     stroke: vi.fn(),
     translate: vi.fn(),
   } as unknown as CanvasRenderingContext2D;
+}
+
+/** A 2D context that records every `fillStyle` the painter sets. */
+function recordingContext(fills: string[]): CanvasRenderingContext2D {
+  const context = fakeContext() as unknown as Record<string, unknown>;
+  Object.defineProperty(context, "fillStyle", {
+    get: () => fills.at(-1) ?? "",
+    set: (value: string) => fills.push(value),
+  });
+  return context as unknown as CanvasRenderingContext2D;
+}
+
+function hueDistance(a: number, b: number): number {
+  const raw = Math.abs(a - b) % 360;
+  return raw > 180 ? 360 - raw : raw;
 }

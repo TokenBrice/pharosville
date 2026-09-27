@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PharosVilleWorld, VisualCue, VisualCueChannel } from "./world-types";
+import { SIGNAL_MAST_LEADER_COUNT, SIGNAL_MAST_STORM_SUPPLY_SHARE } from "./world-types";
 import {
   buildVisualCueRegistry,
   DECORATIVE_VISUAL_NOTES,
@@ -30,7 +31,6 @@ describe("buildVisualCueRegistry", () => {
     expect(DECORATIVE_VISUAL_NOTES.sharedGardenWind).toContain("carry no meaning");
     expect(DECORATIVE_VISUAL_NOTES.sharedGardenWind).toContain("no new oscillator");
     expect(DECORATIVE_VISUAL_NOTES.seasonalLandmarks).toContain("carry no meaning");
-    expect(DECORATIVE_VISUAL_NOTES.seasonalLandmarks).toContain("displace");
     expect(DECORATIVE_VISUAL_NOTES.landRim).toContain("carry no meaning");
     expect(DECORATIVE_VISUAL_NOTES.shakkeiSky).toContain("carry no meaning");
     expect(DECORATIVE_VISUAL_NOTES.engawaForeground).toContain("carry no meaning");
@@ -66,14 +66,24 @@ describe("buildVisualCueRegistry", () => {
     expect(cues.every((cue) => cue.sourceField && cue.domEquivalent && cue.failureState && cue.reducedMotionEquivalent)).toBe(true);
   });
 
-  it("registers the observatory signal mast against the fleet-wide peg summary", () => {
+  it("registers the observatory signal mast against supply-weighted peg readings", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.lighthouse.signal-mast");
+    const legend = LEGEND_MARK_ROWS.find((row) => row.cueId === "cue.lighthouse.signal-mast");
 
     expect(cue).toMatchObject({
       target: { kind: "lighthouse" },
       primaryChannels: ["shape", "size"],
-      sourceField: "pegSummary.summary.activeDepegCount, pegSummary.summary.worstCurrent",
+      sourceField: "pegSummary.coins[].activeDepeg weighed by stablecoins.peggedAssets[].circulating",
     });
+    // O17b parity: the registry and the legend state the same gates the world
+    // model applies (`buildSignalMast`) and the Signal mast row prints.
+    expect(SIGNAL_MAST_LEADER_COUNT).toBe(20);
+    const gate = `${SIGNAL_MAST_STORM_SUPPLY_SHARE * 100}% of tracked supply`;
+    for (const text of [cue?.visual, legend?.text]) {
+      expect(text).toContain("twenty largest");
+      expect(text).toContain(gate);
+    }
+    expect(cue?.domEquivalent).toContain("Signal mast row");
     // Tone contract: the hoist reports, it does not alarm. No cue copy here
     // may reach for emergency language.
     expect(`${cue?.visual} ${cue?.questionAnswered}`).not.toMatch(/\b(alert|alarm|urgent|critical|emergency)\b/i);
@@ -83,10 +93,11 @@ describe("buildVisualCueRegistry", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.motion");
 
     expect(cue?.visual).toContain("90–180 second logical legs");
-    expect(cue?.visual).toContain("240–480 second rests");
-    expect(cue?.visual).toContain("paired arrivals and departures");
+    expect(cue?.visual).toContain("600–1500 second rests");
     expect(cue?.visual).toContain("risk order");
     expect(cue?.domEquivalent).toContain("rendered-chain/risk presence only");
+    // K45a: the anchorage swings to the wind; the tide has one meaning elsewhere.
+    expect(`${cue?.visual} ${cue?.domEquivalent}`).not.toMatch(/\b(tide|tidal|ebb|flood)\b/i);
     expect(`${cue?.visual} ${cue?.domEquivalent}`).not.toMatch(/mooring orbit|chain-breadth dwell|extended dwell/i);
   });
 
@@ -99,17 +110,6 @@ describe("buildVisualCueRegistry", () => {
     expect(cue?.failureState).toContain("authoritative water field retains classification");
     expect(cue?.domEquivalent).toContain("ledger is the redundant channel");
     expect(`${cue?.visual} ${cue?.reducedMotionEquivalent}`).not.toContain("printed");
-  });
-
-  it("registers wreck silhouette-to-cause lifecycle semantics", () => {
-    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.grave.lifecycle");
-
-    expect(cue?.visual).toContain("substantial hull");
-    expect(cue?.visual).toContain("broken keel");
-    expect(cue?.visual).toContain("bare remains");
-    expect(cue?.visual).toContain("cause colour");
-    expect(cue?.domEquivalent).toContain("Wreck silhouette");
-    expect(cue?.domEquivalent).toContain("cause-colour swatch legend");
   });
 
   it("documents all six hull-family silhouettes and their complete classification source", () => {
@@ -183,7 +183,7 @@ describe("buildVisualCueRegistry", () => {
       primaryChannels: ["shape", "size", "position"],
     });
     expect(monument?.visual).toContain("stone mole");
-    expect(monument?.visual).toContain("offset campanile");
+    expect(monument?.visual).toContain("fire-watch frame");
     expect(monument?.visual).toContain("stands alone");
     // The monument is authored, never inherited: a feed without ethereum
     // leaves the cove empty instead of promoting another harbor.
@@ -263,7 +263,6 @@ describe("buildVisualCueRegistry", () => {
       "cue.fleet.flight-to-quality",
       "cue.lighthouse.signal-mast",
       "cue.world.supply-tide",
-      "cue.lighthouse.high-water-mark",
       "cue.lighthouse.garden-month-record",
       "cue.lighthouse.lamp-status",
       "cue.ship.cross-bearing-buoy",

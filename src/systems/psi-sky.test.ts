@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { NEUTRAL_SKY_CLARITY, psiSkyClarity, type PsiSkyInput } from "./psi-sky";
+import {
+  advanceSkyClarityFade,
+  createSkyClarityFade,
+  FAR_SHORE_RANGES,
+  farShoreRangeVisibility,
+  NEUTRAL_SKY_CLARITY,
+  psiSkyClarity,
+  signedSkyClarity,
+  SKY_CLARITY_CROSSFADE_SECONDS,
+  type PsiSkyInput,
+} from "./psi-sky";
 
 const input = (band: string, timeSeconds: number, stale = false): PsiSkyInput => ({
   lighthouse: { psiBand: band, score: 80, unavailable: false },
@@ -33,5 +43,37 @@ describe("PSI sky clarity", () => {
   it("uses neutral authored clarity when unavailable or initially stale", () => {
     expect(psiSkyClarity(input("unknown", 0)).clarity).toBe(NEUTRAL_SKY_CLARITY);
     expect(psiSkyClarity(input("CRISIS", 0, true)).clarity).toBe(NEUTRAL_SKY_CLARITY);
+  });
+});
+
+describe("clear air is earned (K39)", () => {
+  const visibleRanges = (band: string) => {
+    const signed = signedSkyClarity(psiSkyClarity(input(band, 0)).clarity);
+    return FAR_SHORE_RANGES.filter((_, index) => farShoreRangeVisibility(signed, index) >= 0.5).length;
+  };
+
+  it("shows good news: the healthy bands differ, and the haze takes the far range first", () => {
+    expect(signedSkyClarity(NEUTRAL_SKY_CLARITY)).toBe(0);
+    expect(visibleRanges("BEDROCK")).toBe(3);
+    expect(visibleRanges("STEADY")).toBe(3);
+    expect(visibleRanges("TREMOR")).toBe(2);
+    expect(visibleRanges("FRACTURE")).toBe(1);
+    expect(visibleRanges("CRISIS")).toBe(0);
+    // As clarity falls, a nearer range never vanishes before a farther one.
+    for (let signed = -1; signed <= 1; signed += 0.05) {
+      const visibility = FAR_SHORE_RANGES.map((_, index) => farShoreRangeVisibility(signed, index));
+      expect(visibility[0]!).toBeLessThanOrEqual(visibility[1]! + 1e-9);
+      expect(visibility[1]!).toBeLessThanOrEqual(visibility[2]! + 1e-9);
+    }
+  });
+
+  it("crossfades an accepted band over 90 s, and applies it at once under reduced motion", () => {
+    const fade = createSkyClarityFade();
+    expect(advanceSkyClarityFade(fade, 1, 0, false)).toBe(1);
+    expect(advanceSkyClarityFade(fade, -1, 10, false)).toBe(1);
+    const midway = advanceSkyClarityFade(fade, -1, 10 + SKY_CLARITY_CROSSFADE_SECONDS / 2, false);
+    expect(midway).toBeCloseTo(0, 5);
+    expect(advanceSkyClarityFade(fade, -1, 10 + SKY_CLARITY_CROSSFADE_SECONDS, false)).toBe(-1);
+    expect(advanceSkyClarityFade(fade, 1, 200, true)).toBe(1);
   });
 });

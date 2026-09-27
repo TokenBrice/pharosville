@@ -1,21 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { AdditiveBlending, Box3, Mesh, MeshStandardMaterial, ShaderMaterial, Vector3 } from "three";
-import { GARDEN_LIGHTHOUSE_HEIGHT } from "../systems/garden-observatory-slice";
+import { Box3, BoxGeometry, BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Object3D, ShaderMaterial, Vector3 } from "three";
+import {
+  GARDEN_LIGHTHOUSE_BEACON_Y,
+  GARDEN_LIGHTHOUSE_HEIGHT,
+  GARDEN_LIGHTHOUSE_ROOT_OFFSET,
+  GARDEN_TOWER_BEACON_WORLD_Y,
+  GARDEN_TOWER_CROWN_WORLD_Y,
+} from "../systems/garden-observatory-slice";
 import { lampStatusModulationForMix } from "../systems/lamp-status";
+import { HARBOR_PALETTE } from "../systems/palette";
 import {
   GARDEN_LIGHTHOUSE_BEAM_BASE_RADIUS,
   GARDEN_LIGHTHOUSE_BEAM_LENGTH,
-  GARDEN_LIGHTHOUSE_BEAM_CORE_OPACITY_RATIO,
-  GARDEN_LIGHTHOUSE_BEAM_CORE_RADIUS,
   GARDEN_LIGHTHOUSE_BEAM_POOL_DISTANCE,
+  LANTERN_SWELL_INTERVAL_SECONDS,
+  LANTERN_SWELL_PEAK_HDR,
+  LIGHTHOUSE_LANTERN_GLASS_MATERIAL_NAME,
+  LIGHTHOUSE_LANTERN_GLASS_UNIFORMS,
   LIGHTHOUSE_RIM_UNIFORMS,
   LIGHTHOUSE_WINDOW_MATERIAL_NAME,
+  attachGardenLighthouseModel,
   collectLighthouseGlowMaterials,
+  createLanternSwell,
   createLighthouse,
   updateLighthouseLampStatus,
+  updateLighthouseLanternGlass,
   updateLighthouseRimLight,
 } from "./garden-lighthouse";
 import { dayCyclePhase } from "./garden-day-cycle";
+import { GARDEN_MODEL_MANIFEST } from "./garden-models";
+import { gardenKeyLightPose } from "./garden-sun";
 import { disposeThreeObjectTree } from "./garden-util";
 
 describe("garden lighthouse beam ownership", () => {
@@ -36,28 +50,8 @@ describe("garden lighthouse beam ownership", () => {
     expect(lighthouse.root.getObjectByName("lighthouse-beam-outer-cone")).toBeUndefined();
     expect(lighthouse.beam.children.map((child) => child.name)).toEqual([
       "lighthouse-beam-cone",
-      "lighthouse-beam-dust",
       "lighthouse-beam",
     ]);
-    disposeThreeObjectTree(lighthouse.root);
-  });
-
-  it("nests a narrow 0.25 high-energy core in the soft cone", () => {
-    const lighthouse = createLighthouse();
-    const cone = lighthouse.beam.getObjectByName("lighthouse-beam-cone") as Mesh;
-    const core = cone.geometry.getAttribute("aBeamCore");
-    expect(Array.from(core.array)).toContain(0);
-    expect(Array.from(core.array)).toContain(1);
-    expect(
-      Math.atan(GARDEN_LIGHTHOUSE_BEAM_CORE_RADIUS / GARDEN_LIGHTHOUSE_BEAM_LENGTH)
-        * 180 / Math.PI,
-    ).toBeLessThanOrEqual(3);
-    expect(0.11 * GARDEN_LIGHTHOUSE_BEAM_CORE_OPACITY_RATIO).toBeCloseTo(0.25, 6);
-    expect((cone.material as ShaderMaterial).blending).toBe(AdditiveBlending);
-    expect(cone.castShadow).toBe(false);
-    expect(cone.receiveShadow).toBe(false);
-    // 20 extra triangles: well inside W2.9's +200-triangle ceiling.
-    expect(cone.geometry.index!.count / 3).toBe(48);
     disposeThreeObjectTree(lighthouse.root);
   });
 
@@ -94,21 +88,74 @@ describe("garden lighthouse beam ownership", () => {
   });
 });
 
+describe("W2.10 lantern swell (K9)", () => {
+  const luminance = (color: Color): number => 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+
+  // A beam sweeping at the full-stress 0.42 rad/s passes the eye-line every
+  // ~15 s; the swell must still come at most once a minute.
+  const run = (reducedMotion: boolean, seconds: number, period = 15) => {
+    const swell = createLanternSwell();
+    const samples: number[] = [];
+    for (let frame = 0; frame <= seconds * 30; frame += 1) {
+      const time = frame / 30;
+      const beamFacing = Math.cos((time / period) * Math.PI * 2) ** 2;
+      samples.push(swell.update({ beamFacing, glow: 1, reducedMotion, timeSeconds: time }));
+    }
+    return samples;
+  };
+
+  it("swells at most once a minute whatever the sweep rate, over ≥ 1.5 s each way", () => {
+    const samples = run(false, 180);
+    const starts = samples.flatMap((value, index) => (
+      index > 0 && samples[index - 1] === 0 && value > 0 ? [index / 30] : []
+    ));
+    expect(starts.length).toBeGreaterThan(0);
+    expect(starts.length).toBeLessThanOrEqual(Math.floor(180 / LANTERN_SWELL_INTERVAL_SECONDS) + 1);
+    for (let index = 1; index < starts.length; index += 1) {
+      expect(starts[index]! - starts[index - 1]!).toBeGreaterThanOrEqual(LANTERN_SWELL_INTERVAL_SECONDS - 1e-6);
+    }
+    // Rise: from the first lit frame to the peak; fall: from the peak back to 0.
+    const first = Math.round(starts[0]! * 30);
+    let peak = first;
+    while (samples[peak + 1]! >= samples[peak]!) peak += 1;
+    let end = peak;
+    while (samples[end]! > 0) end += 1;
+    expect((peak - first) / 30).toBeGreaterThanOrEqual(1.5);
+    expect((end - peak) / 30).toBeGreaterThanOrEqual(1.5);
+  });
+
+  it("never swells under reduced motion and stays under 2.0 HDR at its peak", () => {
+    expect(Math.max(...run(true, 120))).toBe(0);
+    updateLighthouseLanternGlass(dayCyclePhase(0));
+    const peak = luminance(LIGHTHOUSE_LANTERN_GLASS_UNIFORMS.uGlassSwellColor.value)
+      + luminance(LIGHTHOUSE_LANTERN_GLASS_UNIFORMS.uGlassWarmColor.value)
+        * LIGHTHOUSE_LANTERN_GLASS_UNIFORMS.uGlassWarm.value
+      + luminance(LIGHTHOUSE_LANTERN_GLASS_UNIFORMS.uGlassDark.value);
+    expect(peak).toBeLessThanOrEqual(LANTERN_SWELL_PEAK_HDR);
+  });
+});
+
 describe("T1.7 rim light (2026-09-07)", () => {
   it("raises the whole rim curve, not just its dusk and night lifts", () => {
     // Base 0.1 -> 0.16, dusk lift 0.04 -> 0.06, night lift 0.08 -> 0.12. The
     // rim is what separates the tower from the sky like an engraving, and at
     // 0.1 it only registered where the fresnel already peaked. The shape was
     // right; it was built on too low a base.
-    const strengthAt = (hour: number): number => {
-      updateLighthouseRimLight(dayCyclePhase(hour));
+    // Expressed in explicit phase weights: the curve is a function of the
+    // phase, and on the solar clock full dusk (the blue beat's peak) is a
+    // single instant that moves with the date.
+    const strengthAt = (phase: { daylight: number; dusk: number; night: number }): number => {
+      updateLighthouseRimLight(phase, gardenKeyLightPose(12, phase));
       return LIGHTHOUSE_RIM_UNIFORMS.uLighthouseRimStrength.value;
     };
-    expect(strengthAt(12)).toBeCloseTo(0.16, 6);
-    expect(strengthAt(18.5)).toBeCloseTo(0.2, 2);
-    expect(strengthAt(1)).toBeCloseTo(0.28, 6);
+    expect(strengthAt({ daylight: 1, dusk: 0, night: 0 })).toBeCloseTo(0.16, 6);
+    expect(strengthAt({ daylight: 0, dusk: 1, night: 0 })).toBeCloseTo(0.22, 6);
+    expect(strengthAt({ daylight: 0, dusk: 0, night: 1 })).toBeCloseTo(0.28, 6);
+    // The noon and midnight of the pinned day land on those ends of the curve.
+    expect(strengthAt(dayCyclePhase(12))).toBeCloseTo(0.16, 6);
+    expect(strengthAt(dayCyclePhase(1))).toBeCloseTo(0.28, 6);
     // Still an accent, never a light: it is added straight to emissive.
-    expect(strengthAt(1)).toBeLessThan(0.35);
+    expect(strengthAt(dayCyclePhase(1))).toBeLessThan(0.35);
   });
 });
 
@@ -128,9 +175,9 @@ describe("T0.2 tower apertures (2026-09-07)", () => {
       // curve peaks at 1.53 so they stay gold rather than clipping to white.
       expect(material.toneMapped).toBe(false);
     }
-    // The shell shares ONE aperture material across all three window rows,
-    // the lantern gallery and the lantern glass — and the shell merges by
-    // material group — so lighting the whole tower is a single write.
+    // The shell shares ONE aperture material across both window rows and the
+    // drum windows — and the shell merges by material group — so lighting
+    // the whole tower is a single write. The lantern is glass, not a window.
     expect(new Set(collected).size).toBe(collected.length);
     expect(collected.length).toBe(1);
     let windowMeshes = 0;
@@ -150,6 +197,116 @@ describe("T0.2 tower apertures (2026-09-07)", () => {
     const first = collected.length;
     collectLighthouseGlowMaterials(lighthouse.root, collected);
     expect(collected.length).toBe(first);
+    disposeThreeObjectTree(lighthouse.root);
+  });
+});
+
+describe("W0.7 night beacon discipline", () => {
+  it("keeps the beacon's PointLight on the lantern storey, clear of the tower foot", () => {
+    const lighthouse = createLighthouse();
+    expect(lighthouse.light.position.y).toBeGreaterThan(0);
+    expect(lighthouse.light.distance).toBeGreaterThan(0);
+    expect(lighthouse.light.distance).toBeLessThan(lighthouse.light.position.y);
+    disposeThreeObjectTree(lighthouse.root);
+  });
+
+  it("gives the loaded tower the shell's stone and bronze without mutating the model library", () => {
+    const lighthouse = createLighthouse();
+    // The shell's warm-bounce stones are its unnamed lantern_warm emitters;
+    // its god is the named bronze-gilt.
+    const warm = new Color(HARBOR_PALETTE.lantern_warm).getHex();
+    const shellStoneBounce = new Set<number>();
+    const shellGiltMetalness = new Set<number>();
+    lighthouse.shell.traverse((object) => {
+      if (!(object instanceof Mesh) || !(object.material instanceof MeshStandardMaterial)) return;
+      if (object.material.name === "" && object.material.emissive.getHex() === warm) {
+        shellStoneBounce.add(object.material.emissiveIntensity);
+      }
+      if (object.material.name === "bronze-gilt") shellGiltMetalness.add(object.material.metalness);
+    });
+    const libraryStone = new MeshStandardMaterial({ emissiveIntensity: 0.045, name: "weathered-limestone" });
+    const libraryGilt = new MeshStandardMaterial({ metalness: 0.85, name: "bronze-gilt" });
+    const model = new Group();
+    for (const name of ["anchor-beacon", "anchor-beam"]) {
+      const anchor = new Object3D();
+      anchor.name = name;
+      anchor.position.set(0, 30.2, 0);
+      model.add(anchor);
+    }
+    const stoneMesh = new Mesh(new BoxGeometry(), libraryStone);
+    const giltMesh = new Mesh(new BoxGeometry(), libraryGilt);
+    model.add(stoneMesh, giltMesh);
+    const statueGleamMaterials: MeshStandardMaterial[] = [];
+    attachGardenLighthouseModel(model, {
+      beacon: lighthouse.beacon,
+      beaconHalo: lighthouse.beaconHalo,
+      beam: lighthouse.beam,
+      lighthouseLight: lighthouse.light,
+      lighthouseRoot: lighthouse.root,
+      lighthouseShell: lighthouse.shell,
+      statueGleamMaterials,
+    });
+    const stone = stoneMesh.material as MeshStandardMaterial;
+    const gilt = giltMesh.material as MeshStandardMaterial;
+    expect(stone).not.toBe(libraryStone);
+    expect(gilt).not.toBe(libraryGilt);
+    expect(libraryStone.emissiveIntensity).toBe(0.045);
+    expect(libraryGilt.metalness).toBe(0.85);
+    expect([...shellStoneBounce]).toEqual([stone.emissiveIntensity]);
+    expect([...shellGiltMetalness]).toEqual([gilt.metalness]);
+    expect(statueGleamMaterials).toEqual([gilt]);
+    disposeThreeObjectTree(lighthouse.root);
+  });
+});
+
+describe("W1.9 keep traded for the crag", () => {
+  it("keeps the world beacon and crown where they stood before the headland", () => {
+    // The beam, water road, label, shadow frustum and the rest pose all hang
+    // off these two heights; six units of keep went to rock, not to the sky.
+    expect(GARDEN_TOWER_BEACON_WORLD_Y).toBeCloseTo(32.75, 9);
+    expect(GARDEN_TOWER_CROWN_WORLD_Y).toBeCloseTo(40.55, 9);
+    const lighthouse = createLighthouse();
+    const shell = new Box3().setFromObject(lighthouse.shell);
+    expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + shell.max.y).toBeCloseTo(GARDEN_TOWER_CROWN_WORLD_Y, 5);
+    expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + lighthouse.beacon.position.y).toBeCloseTo(GARDEN_TOWER_BEACON_WORLD_Y, 9);
+    const glb = GARDEN_MODEL_MANIFEST["garden-lighthouse-shell"];
+    expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + glb.dimensions.y).toBeCloseTo(GARDEN_TOWER_CROWN_WORLD_Y, 5);
+    expect(GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + glb.anchors.beacon.position[1]).toBeCloseTo(GARDEN_TOWER_BEACON_WORLD_Y, 9);
+    disposeThreeObjectTree(lighthouse.root);
+  });
+
+  it("turns the GLB's authored lantern glass into a shadowless film drawn after the flame", () => {
+    // The GLB drops normals, so the swap must derive them or the fresnel
+    // skin has nothing to face; the library's shared material stays intact.
+    const lighthouse = createLighthouse();
+    const libraryGlass = new MeshStandardMaterial({ name: LIGHTHOUSE_LANTERN_GLASS_MATERIAL_NAME, transparent: true });
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    const glass: Mesh = new Mesh(geometry, libraryGlass);
+    const model = new Group();
+    for (const name of ["anchor-beacon", "anchor-beam"]) {
+      const anchor = new Object3D();
+      anchor.name = name;
+      anchor.position.set(0, GARDEN_LIGHTHOUSE_BEACON_Y, 0);
+      model.add(anchor);
+    }
+    model.add(glass);
+    attachGardenLighthouseModel(model, {
+      beacon: lighthouse.beacon,
+      beaconHalo: lighthouse.beaconHalo,
+      beam: lighthouse.beam,
+      lighthouseLight: lighthouse.light,
+      lighthouseRoot: lighthouse.root,
+      lighthouseShell: lighthouse.shell,
+    });
+    expect(glass.material).toBeInstanceOf(ShaderMaterial);
+    const film = glass.material as ShaderMaterial;
+    expect(film.transparent).toBe(true);
+    expect(film.depthWrite).toBe(false);
+    expect(glass.castShadow).toBe(false);
+    expect(glass.renderOrder).toBeGreaterThan(0);
+    expect(geometry.getAttribute("normal")).toBeDefined();
+    expect(libraryGlass.name).toBe(LIGHTHOUSE_LANTERN_GLASS_MATERIAL_NAME);
     disposeThreeObjectTree(lighthouse.root);
   });
 });

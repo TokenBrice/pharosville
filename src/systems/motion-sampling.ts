@@ -16,7 +16,6 @@
 export { createShipMotionSample } from "./motion-sampling/shared";
 export { resolveShipMotionSample, resolveShipMotionSampleInto } from "./motion-sampling/resolve";
 export { clearShipHeadingMemory, getShipHeadingDelta, getShipWakeIntensityMemory } from "./motion-sampling/memory";
-export { __resetConsortHeadingLagMemory } from "./motion-sampling/consort";
 export { RISK_TRANSITION_HEADING_EASE_SECONDS, RISK_TRANSITION_TACK_OUT_SECONDS } from "./motion-sampling/risk-drift";
 export {
   applySeaRoomSeparationPass,

@@ -41,6 +41,8 @@ import {
   DOCK_TILES,
   EVM_BAY_STATION_SLOTS,
   isWaterTileKind,
+  MAX_TILE_X,
+  MAX_TILE_Y,
   OUTER_HARBOR_STATION_SLOTS,
   PIGEONNIER_HARBOR_DOCK_TILE,
   terrainKindAt,
@@ -268,6 +270,36 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
     expect(nearestGardenShipWater(valid, 3, "test.seed", true)).toEqual(valid);
   });
 
+  it("resolves an off-plate hull to the exact nearest valid cell", () => {
+    // Composed display tiles of drifting patrols can leave the plate. They
+    // must land on the true nearest valid cell (ties: lowest row, then
+    // column) — the answer of a full row-major scan of the exact predicate.
+    const bruteForce = (point: { x: number; y: number }, margin: number, includeDocks: boolean) => {
+      let best: { x: number; y: number } | null = null;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      for (let y = 0; y <= MAX_TILE_Y; y += 1) {
+        for (let x = 0; x <= MAX_TILE_X; x += 1) {
+          if (!isGardenShipWaterSlow({ x, y }, margin, includeDocks)) continue;
+          const distance = (x - point.x) ** 2 + (y - point.y) ** 2;
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            best = { x, y };
+          }
+        }
+      }
+      return best;
+    };
+    const cases: Array<[{ x: number; y: number }, number, boolean]> = [
+      [{ x: -30, y: -30.73 }, 1.92, true],
+      [{ x: 107.39, y: -17.37 }, 1.83, true],
+      [{ x: MAX_TILE_X + 12.1, y: 27.97 }, 5.27, true],
+      [{ x: 32.69, y: MAX_TILE_Y + 17 }, 4.46, false],
+    ];
+    for (const [point, margin, includeDocks] of cases) {
+      expect(nearestGardenShipWater(point, margin, "off-plate", includeDocks)).toEqual(bruteForce(point, margin, includeDocks));
+    }
+  });
+
   it("keeps every representative display position on valid water with hull clearance", () => {
     const world = denseWorld();
     const slice = selectGardenObservatorySlice(world, null);
@@ -330,7 +362,6 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
         const samples = new Map<string, ShipMotionSample>();
         for (const ship of world.ships) {
           samples.set(ship.id, resolveShipMotionSample({
-            flagshipSamples: samples,
             plan,
             reducedMotion: false,
             ship,

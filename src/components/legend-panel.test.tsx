@@ -10,11 +10,14 @@ afterEach(() => {
 });
 
 describe("LegendPanel", () => {
-  it("explains rim-cove stations and the standalone Ethereum mole", () => {
+  it("reads as a field guide of three stanzas: ships, water and lighthouse", () => {
     render(<LegendPanel onClose={() => undefined} />);
-    expect(screen.getByRole("heading", { name: "Shore stations & landmarks" })).toBeTruthy();
-    expect(screen.getByText(/monumental stone mole/)).toBeTruthy();
-    expect(screen.getByText(/self-standing harbors of their own/)).toBeTruthy();
+    for (const heading of ["The ships", "The water", "The lighthouse"]) {
+      expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
+    }
+    expect(screen.getByText(/Each sail is a stablecoin/)).toBeTruthy();
+    expect(screen.getByText(/The water beneath a ship is its peg risk/)).toBeTruthy();
+    expect(screen.getByText(/The Pharos keeps the whole fleet's stability/)).toBeTruthy();
   });
   it("names all six East-Asian hull families", () => {
     const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
@@ -40,25 +43,6 @@ describe("LegendPanel", () => {
     for (const area of ["Calm Anchorage", "Watch Breakwater", "Alert Channel", "Warning Shoals", "Danger Strait", "Ledger Mooring", "Wreck Shoal"]) {
       expect(markup).toContain(area);
     }
-  });
-
-  it("explains the leg/rest route cadence and its meaning caveat", () => {
-    const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
-
-    expect(markup).toContain("90–180 s legs");
-    expect(markup).toContain("240–480 s rests");
-    expect(markup).toContain("arrivals and departures are paired");
-    expect(markup).toContain("Routes show rendered-chain and risk-water presence only");
-    expect(markup).not.toMatch(/bigger coins cycle|extended dwell/i);
-  });
-
-  it("explains the wreck silhouette-to-cause channel", () => {
-    const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
-
-    expect(markup).toContain("substantial hull, broken keel, or bare remains");
-    expect(markup).toContain("silhouette-to-cause reading");
-    expect(markup).toContain("cause colour");
-    expect(markup).not.toContain("cemetery islet");
   });
 
   it("uses modal dialog semantics and focuses/restores the close control", () => {
@@ -90,8 +74,6 @@ describe("LegendPanel", () => {
     const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
 
     expect(markup).toContain("Marks to look for");
-    expect(markup).toContain("beam warmth tracks fleet-wide PSI");
-    expect(markup).toContain("they are separate signals");
     for (const row of LEGEND_MARK_ROWS) {
       expect(markup).toContain(`data-cue-id="${row.cueId}"`);
       expect(markup).toContain(row.label);
@@ -112,7 +94,6 @@ describe("LegendPanel", () => {
       />,
     );
 
-    expect(markup).toContain("Click a ship and read the water it sails in first");
     expect(markup).toContain("Recent movers");
     expect(markup).toContain("USDe supply +18% (7d)");
     expect(markup).toContain("DAI supply -8% (7d)");

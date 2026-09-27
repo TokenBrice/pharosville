@@ -10,12 +10,14 @@ import {
   DAY_CYCLE_HEIGHT_FOG_PRESETS,
   type DayCyclePhase,
 } from "./garden-day-cycle";
+import { chainGardenMaterialPatch } from "./garden-aerial";
 import { gardenSunPose } from "./garden-sun";
 
 /**
- * Authored far-bank atmosphere, supplementary to the eye-distance linear fog
- * owned by garden-sky. Hero, fleet and near-shore materials never opt in.
- * Local epistemic haze remains independent of this illumination layer.
+ * The stale-source local fog shelf (W7.4 epistemic haze): bounded low fog that
+ * belongs only to the waters and quays whose feed is stale. The global air is
+ * garden-aerial.ts (W2.3); this shelf stays separate so mist keeps one meaning —
+ * by day, low fog means a stale source.
  */
 
 export const gardenHeightFogUniforms = {
@@ -120,10 +122,10 @@ export function gardenHeightFogFactor(input: {
 }
 
 /**
- * The GLSL definition is exported once and injected everywhere, following the
- * same pattern as gardenBokashiBandGlsl(). Directional in-scatter is compared
- * in the sea plane: the sun's elevation still comes from the shared arc, but
- * it cannot cancel its own azimuth against the locked camera's downward ray.
+ * The GLSL definition is exported once and injected everywhere the stale shelf
+ * applies (quays here, risk waters in garden-water). Directional in-scatter is
+ * compared in the sea plane: the sun's elevation still comes from the shared arc,
+ * but it cannot cancel its own azimuth against the eye's downward ray.
  */
 export function gardenHeightFogGlsl(): string {
   return /* glsl */ `
@@ -139,28 +141,6 @@ uniform vec3 uGardenHeightFogZenith;
 vec3 gardenHeightFogHorizonRamp(vec3 viewDir) {
   float skyward = smoothstep(0.18, 0.92, abs(viewDir.y));
   return mix(uGardenHeightFogHorizon, uGardenHeightFogZenith, skyward * 0.46);
-}
-
-vec3 gardenApplyHeightFog(
-  vec3 sceneColor,
-  vec3 worldPosition,
-  float dist,
-  vec3 viewDir
-) {
-  float localDensity = uGardenHeightFogDensity
-    * exp(-(worldPosition.y - uGardenHeightFogSeaLevel) * uGardenHeightFogFalloff);
-  float factor = 1.0 - exp(-localDensity * max(dist, 0.0));
-
-  vec2 viewAzimuth = viewDir.xz / max(length(viewDir.xz), 1e-4);
-  vec2 sunAzimuth = uGardenHeightFogSunDir.xz
-    / max(length(uGardenHeightFogSunDir.xz), 1e-4);
-  float sunDot = max(dot(viewAzimuth, sunAzimuth), 0.0);
-  vec3 fogCol = mix(
-    gardenHeightFogHorizonRamp(viewDir),
-    uGardenHeightFogSunTint,
-    pow(sunDot, 8.0) * uGardenHeightFogPhaseGain
-  );
-  return mix(sceneColor, fogCol, clamp(factor, 0.0, 1.0));
 }
 
 vec3 gardenApplyLocalizedHeightFog(
@@ -212,15 +192,13 @@ const HEIGHT_FOG_VERTEX_CHUNK = /* glsl */ `
 `;
 const HEIGHT_FOG_DEPTH_CHUNK = "vGardenHeightFogDepth = -mvPosition.z;";
 
-/** Injects the shared term after Three's existing fog chunk. */
+/** Injects the stale shelf after Three's fog chunk (the global air). */
 export function injectGardenHeightFog(
   shader: GardenCompiledShader,
-  epistemicHazeUniform?: { value: number },
-  farBank = false,
+  epistemicHazeUniform: { value: number },
 ): void {
-  if (!farBank && !epistemicHazeUniform) return;
   Object.assign(shader.uniforms, gardenHeightFogUniforms);
-  if (epistemicHazeUniform) shader.uniforms.uGardenEpistemicHaze = epistemicHazeUniform;
+  shader.uniforms.uGardenEpistemicHaze = epistemicHazeUniform;
   shader.vertexShader = shader.vertexShader
     .replace(
       "#include <common>",
@@ -240,54 +218,41 @@ export function injectGardenHeightFog(
       `#include <common>
       varying float vGardenHeightFogDepth;
       varying vec3 vGardenHeightFogWorldPosition;
-      ${epistemicHazeUniform ? "uniform float uGardenEpistemicHaze;" : ""}
+      uniform float uGardenEpistemicHaze;
       ${gardenHeightFogGlsl()}`,
     )
     .replace(
       "#include <fog_fragment>",
-      `#include <fog_fragment>${farBank ? `
-      gl_FragColor.rgb = gardenApplyHeightFog(
-        gl_FragColor.rgb,
-        vGardenHeightFogWorldPosition,
-        vGardenHeightFogDepth,
-        normalize(vGardenHeightFogWorldPosition - cameraPosition)
-      );` : ""}${epistemicHazeUniform ? `
+      `#include <fog_fragment>
       gl_FragColor.rgb = gardenApplyLocalizedHeightFog(
         gl_FragColor.rgb,
         vGardenHeightFogWorldPosition,
         vGardenHeightFogDepth,
         normalize(vGardenHeightFogWorldPosition - cameraPosition),
         uGardenEpistemicHaze
-      );` : ""}`,
+      );`,
     );
 }
 
-/** Composes with any existing material patch and is safe to call repeatedly. */
+/** Composes through the shared patch chain (K5) and is safe to call repeatedly. */
 export function patchGardenHeightFogMaterial(
   material: MeshStandardMaterial,
-  options: { epistemicHaze?: "quay"; farBank?: boolean } = {},
+  options: { epistemicHaze?: "quay" } = {},
 ): void {
-  if (!options.farBank && !options.epistemicHaze) return;
-  if (material.userData.gardenHeightFog) return;
+  if (options.epistemicHaze !== "quay") return;
   material.userData.gardenHeightFog = true;
-  const epistemicHazeUniform = options.epistemicHaze === "quay"
-    ? gardenQuayEpistemicHazeUniform
-    : undefined;
-  const previousCompile = material.onBeforeCompile;
-  const previousCacheKey = material.customProgramCacheKey();
-  material.onBeforeCompile = (shader, renderer) => {
-    previousCompile.call(material, shader, renderer);
-    injectGardenHeightFog(shader, epistemicHazeUniform, options.farBank);
-  };
-  material.customProgramCacheKey = () => `${previousCacheKey}|garden-height-fog-v2${options.farBank ? "|far-bank" : ""}${epistemicHazeUniform ? "|epistemic-quay" : ""}`;
-  material.needsUpdate = true;
+  chainGardenMaterialPatch(material, {
+    key: "garden-height-fog-v3|epistemic-quay",
+    compile: (shader) => injectGardenHeightFog(shader, gardenQuayEpistemicHazeUniform),
+  });
 }
 
-/** Applies only explicitly authored far-bank or localized epistemic atmosphere. */
+/** Applies the localized stale-source shelf; the global air needs no opt-in. */
 export function applyGardenHeightFog(
   root: Object3D,
-  options: { epistemicHaze?: "quay"; farBank?: boolean } = {},
+  options: { epistemicHaze?: "quay" } = {},
 ): void {
+  if (options.epistemicHaze !== "quay") return;
   root.traverse((object) => {
     if (!(object instanceof Mesh)) return;
     const materials = Array.isArray(object.material) ? object.material : [object.material];

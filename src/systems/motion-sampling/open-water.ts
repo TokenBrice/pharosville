@@ -7,6 +7,7 @@ import { routeSamplingRuntime } from "./route-runtime";
 import { transitSampleInto } from "./transit";
 import { riskWaterSampleInto } from "./risk-water";
 import { riskDriftSampleInto } from "./risk-drift";
+import { ANCHOR_SETTLE_SECONDS } from "./anchor-ride";
 
 export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: number, out: ShipMotionSample): void {
   if (!route.openWaterPatrol) {
@@ -28,7 +29,9 @@ export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: n
   let cursor = elapsedSeconds;
 
   if (cursor < riskSeconds) {
-    riskWaterSampleInto(route, timeSeconds, cursor / Math.max(1, riskSeconds), riskSeconds, out);
+    // The previous cycle's homecoming leg matters only while the hull settles.
+    const entryPath = cursor < ANCHOR_SETTLE_SECONDS ? openWaterPatrolLegForCycle(route, cycleIndex - 1).inbound : undefined;
+    riskWaterSampleInto(route, timeSeconds, cursor / Math.max(1, riskSeconds), riskSeconds, out, entryPath, leg.outbound);
     return;
   }
   cursor -= riskSeconds;
@@ -58,7 +61,7 @@ export function openWaterPatrolSampleInto(route: ShipMotionRoute, timeSeconds: n
       timeSeconds,
       cursor / Math.max(1, waypointSeconds),
       waypointSeconds,
-      leg.waypoint,
+      leg,
       out,
     );
     return;
@@ -97,7 +100,8 @@ function openWaterPatrolLegForCycle(route: ShipMotionRoute, cycleIndex: number):
   if (itinerary.length === 0) {
     return { waypoint: patrol.waypoint, outbound: patrol.outbound, inbound: patrol.inbound };
   }
-  const index = stableHash(`${route.shipId}.itinerary-cycle.${cycleIndex}`) % itinerary.length;
+  // A consort's follower route sails its flagship's itinerary, leg for leg.
+  const index = stableHash(`${route.followsShipId ?? route.shipId}.itinerary-cycle.${cycleIndex}`) % itinerary.length;
   return itinerary[index]!;
 }
 
@@ -106,26 +110,20 @@ function openWaterWaypointRestSampleInto(
   timeSeconds: number,
   progress: number,
   riskWindowSeconds: number,
-  waypoint: { x: number; y: number } | null,
+  leg: { waypoint: { x: number; y: number }; outbound: ShipWaterPath; inbound: ShipWaterPath },
   out: ShipMotionSample,
 ): void {
-  const patrol = route.openWaterPatrol;
-  if (!patrol) {
-    // Defensive fallback (the caller always resolves a patrol leg first);
-    // preserve the raw zone-share window for the drift sampler.
-    riskDriftSampleInto(route, timeSeconds, 1, route.restDurationSeconds, out);
-    return;
-  }
-  const driftWaypoint = waypoint ?? patrol.waypoint;
-  const routePathKey = routePathIdentityKey(route, "waypoint", pathKey(driftWaypoint, driftWaypoint));
+  const routePathKey = routePathIdentityKey(route, "waypoint", pathKey(leg.waypoint, leg.waypoint));
   riskDriftSampleInto(
     route,
     timeSeconds,
     progress,
     riskWindowSeconds,
     out,
-    driftWaypoint,
+    leg.waypoint,
     routePathKey,
     false,
+    leg.outbound,
+    leg.inbound,
   );
 }

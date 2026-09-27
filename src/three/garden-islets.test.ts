@@ -13,14 +13,13 @@ function instancePosition(mesh: InstancedMesh, index: number): Vector3 {
 }
 
 describe("garden islets (Z5)", () => {
-  it("batches stones, islet pines and the torii into four instanced calls", () => {
+  it("batches stones and islet pines into three instanced calls", () => {
     const islets = createGardenIslets();
     expect(islets.root.name).toBe("garden-islets");
-    // T2.2b (2026-09-07): 3 -> 4. The crag stones gained one instanced batch
-    // of four leaning pines — bare rock in still water was the one reference
-    // shot the islets were not making.
-    expect(islets.drawCallCount).toBe(4);
-    expect(countDrawableObjects(islets.root)).toBe(4);
+    // Hour-Print O6: the anchorage torii is retired; the islets keep their
+    // stones and pines.
+    expect(islets.drawCallCount).toBe(3);
+    expect(countDrawableObjects(islets.root)).toBe(3);
     expect(islets.pineCount).toBe(4);
     const [crag, reef] = islets.root.children as InstancedMesh[];
     expect(crag).toBeInstanceOf(InstancedMesh);
@@ -29,10 +28,10 @@ describe("garden islets (Z5)", () => {
     expect(crag!.count).toBe(4);
     expect(reef!.count).toBe(7);
     expect(islets.stoneCount).toBe(11);
-    // G2 shared plate pines: 214 triangles each; whole islets 2,004,
-    // down 128 from the test-measured G1 count of 2,132.
-    expect(islets.triangleCount).toBeGreaterThan(2_000);
-    expect(islets.triangleCount).toBeLessThanOrEqual(2_100);
+    // W4.G1: the rim niwaki (~0.95k triangles) on four stones; the whole
+    // islet set stays under 5k.
+    expect(islets.triangleCount).toBeLessThanOrEqual(5_000);
+    expect(islets.root.getObjectByName("garden-torii")).toBeUndefined();
     const pines = islets.root.getObjectByName("garden-islets-pines") as InstancedMesh;
     expect(pines).toBeInstanceOf(InstancedMesh);
     // Solid, textureless, vertex-coloured geometry: N8AO is transparency
@@ -70,7 +69,7 @@ describe("garden islets (Z5)", () => {
         new Vector3(satellite!.center.x, instancePosition(reef, index).y, satellite!.center.z),
       )).toBeLessThan(2.1);
     }
-    expect(islets.drawCallCount).toBe(4);
+    expect(islets.drawCallCount).toBe(3);
     islets.dispose();
   });
 
@@ -112,6 +111,7 @@ describe("garden islets (Z5)", () => {
     const removed: string[] = [];
     const emitter: GardenRippleRingEmitter = {
       ringCount: () => rings.length,
+      pulseRing: () => {},
       removeRing: (id) => { removed.push(id); },
       setRing: (ring) => { rings.push(ring); },
     };

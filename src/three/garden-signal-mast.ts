@@ -16,10 +16,16 @@ import { stableUnit } from "./garden-util";
  * 3a — the observatory's storm-signal mast.
  *
  * Every peg reading in the world before this was per-coin: a ship's berth, a
- * hull's weathering, the water it rides in. `pegSummary.summary` is the only
- * payload that speaks for the whole fleet at once, and it drove nothing. This
- * mast is where it lands, so "read the market's broad condition at a glance"
- * has one anchor to land on instead of asking the visitor to survey 200 hulls.
+ * hull's weathering, the water it rides in. The mast is the one place the
+ * fleet-wide peg condition lands, so "read the market's broad condition at a
+ * glance" has one anchor instead of asking the visitor to survey 200 hulls.
+ *
+ * O17b: what it reports is weighed by supply (`buildSignalMast`). A pennant
+ * flies for each of the largest coins by supply that is off peg, and the cone
+ * only when the coins off peg hold enough of tracked supply to be the
+ * market's weather rather than one small coin's bad day. This module draws
+ * whatever state it is given; the weighing lives in the world model so the
+ * DOM rows read the same numbers.
  *
  * It is a real practice, not a metaphor invented here: coastal signal
  * stations hoisted shapes and pennants on a mast, and mariners read the hoist
@@ -44,6 +50,9 @@ const MAST_HEIGHT = 7.2;
 /** Yard (crosstree) height; the hoist and the cone hang from its two arms. */
 const YARD_Y = 5.5;
 const YARD_HALF_SPAN = 1.2;
+/** Struck: the yard lowered on the halyard and raked almost up and down the pole. */
+const YARD_STRUCK_Y = 4.4;
+const YARD_STRUCK_RAKE = 1.32;
 
 /**
  * Cloth size. The silhouette law says a feature under ~0.7 units of clearance
@@ -187,6 +196,12 @@ export function createGardenSignalMast(): GardenSignalMast {
         pennant.pivot.visible = index < flying;
       }
       stormCone.visible = state.stormCone;
+      // W5 (costume audit item 1): with nothing to fly, the yard is struck —
+      // cockbilled down along the pole — so the bare hoist never reads as a
+      // cross beside the chaseki. It is swayed back up the moment a signal flies.
+      const struck = flying === 0 && !state.stormCone;
+      yard.rotation.z = struck ? YARD_STRUCK_RAKE : 0;
+      yard.position.y = struck ? YARD_STRUCK_Y : YARD_Y;
     },
     update({ reducedMotion, timeSeconds, visible }) {
       root.visible = visible;

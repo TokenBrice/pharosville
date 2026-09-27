@@ -45,6 +45,7 @@ Within `src/three/`, keep ownership local:
 | `garden-island`, `garden-lighthouse`, `garden-landmarks`, `garden-islets` | island, Pharos (volumetric beam), wreckyard, pigeonnier, scenic anchors |
 | `garden-sky`, `garden-horizon`, `garden-day-cycle`, `garden-post` | graded sky, fog seam/shakkei, time-of-day composition, pmndrs post |
 | `garden-models`, generators | model manifest, cached GLBs, deterministic artifacts |
+| `renderer-semantic-view`, `renderer-ship-frame`, `renderer-shadow-rig`, `renderer-transitions` | seams of `world-renderer.ts`: the one camera-keyed detail policy (`resolveRendererDetailPolicy`), the per-frame fleet pass, the static key-light shadow rig and caster flags, and clock-pure refresh-transition timing/journeys |
 
 Two cross-module systems own their own contracts:
 
@@ -59,13 +60,17 @@ Two cross-module systems own their own contracts:
 - **Post** (`garden-post.ts`): pmndrs `postprocessing`, not the three/examples
   EffectComposer stack. Chain: RenderPass → N8AOPostPass (half-res,
   full/balanced only, zoom-faded) → Bloom → fused grade+AgX (one custom
-  Effect) → SMAA. Per-day-phase values live in one config table that also
+  Effect) → SMAA (only below effective DPR 1.75). AO, bloom, god rays and the
+  hero reflection are sized from CSS pixels; the scene, keyline and grade run
+  at device resolution. Per-day-phase values live in one config table that also
   carries the storm scalars; add phase/storm tuning as table entries, never
   runtime branches. The grade's `flash` uniform is the lightning channel.
   `n8ao` and `postprocessing` are exact-pinned. N8AO 2.0.0 publishes no
   TypeScript declarations, so `src/types/n8ao.d.ts` documents only the pass
   surface this app consumes and must be checked against the installed source
-  before either dependency changes.
+  before either dependency changes. The CSS-pixel AO sizing also patches
+  n8ao's `computeNormal` in two shaders (`readN8AONormalsAtDepthResolution`);
+  it throws at boot if an upgrade changes that source.
 
 ## Frame contract
 

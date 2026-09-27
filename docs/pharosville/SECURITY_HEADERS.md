@@ -1,6 +1,6 @@
 # PharosVille Security Headers Policy
 
-Last updated: 2026-07-25
+Last updated: 2026-09-27
 
 ## Scope
 
@@ -20,12 +20,18 @@ The following headers are required for production responses:
 - `x-content-type-options: nosniff`
 - `x-frame-options: DENY`
 - `referrer-policy: strict-origin-when-cross-origin`
-- `permissions-policy: accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), clipboard-read=(), display-capture=(), document-domain=(), encrypted-media=(), fullscreen=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), sync-xhr=(), usb=(), web-share=(), xr-spatial-tracking=()`
+- `permissions-policy: accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), clipboard-read=(), display-capture=(), document-domain=(), encrypted-media=(), fullscreen=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(self), serial=(), sync-xhr=(), usb=(), web-share=(), xr-spatial-tracking=()`
 - `cross-origin-opener-policy: same-origin`
 - `cross-origin-resource-policy: same-origin`
-- `content-security-policy: default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data: blob: https://www.google-analytics.com; style-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://www.googletagmanager.com https://static.cloudflareinsights.com; connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://static.cloudflareinsights.com; frame-ancestors 'none'; form-action 'self'`
+- `content-security-policy: default-src 'self'; base-uri 'self'; object-src 'none'; img-src 'self' data: blob: https://www.google-analytics.com; style-src 'self'; script-src 'self' 'sha256-jI91hcY6FoTFwfe5fIfF2UqluYKAudrwNFHT6ExAB6k=' 'wasm-unsafe-eval' https://www.googletagmanager.com https://static.cloudflareinsights.com; connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://static.cloudflareinsights.com; frame-ancestors 'none'; form-action 'self'`
 
-`img-src blob:` and `script-src 'wasm-unsafe-eval'` are required by the world, not optional slack. SVG fleet logos are decoded through `URL.createObjectURL`, and every runtime GLB (the lighthouse and the eighteen hero hulls) is meshopt-compressed, so the decoder must instantiate WebAssembly. Without them the deployed site silently renders the procedural fallback lighthouse, fallback hulls and blank sails while the dev server — which sends no CSP — looks correct. `'wasm-unsafe-eval'` permits only WebAssembly compilation; JavaScript `eval` stays blocked. The static validator requires both sources.
+`img-src blob:` and `script-src 'wasm-unsafe-eval'` are required by the world, not optional slack. SVG fleet logos are decoded through `URL.createObjectURL`, and every runtime GLB (the lighthouse shell and the eight named-titan hulls) is meshopt-compressed, so the decoder must instantiate WebAssembly. Without them the deployed site silently renders the procedural fallback lighthouse, fallback hulls and blank sails while the dev server — which sends no CSP — looks correct. `'wasm-unsafe-eval'` permits only WebAssembly compilation; JavaScript `eval` stays blocked. The static validator requires both sources.
+
+The one `'sha256-…'` source is the inline hour-veil script in `index.html` (K17): it must run before any module loads so the first paint is already the visitor's hour, and it only writes the root element's background and veil custom properties through the CSSOM (which `style-src 'self'` permits). Any edit to that script changes its hash; `src/systems/garden-arrival.test.ts` fails until `public/_headers` carries the new one.
+
+Every Permissions-Policy feature is denied with `()` except two, which are same-origin only with `(self)`: `fullscreen` and `screen-wake-lock`. Stay mode (W6.9, `src/hooks/use-stay-mode.ts`) takes the window fullscreen and keeps the screen awake while the harbour is left open. Under `()` the deployed site refused both requests; the dev server sends no headers, so Stay only worked locally. No other origin may use either feature. The static validator (`SELF_ONLY_PERMISSIONS_POLICY_FEATURES` in `scripts/pharosville/check-security-headers.mjs`) requires `(self)` for these two and `()` for everything else. The JSON API and `/_log` responses (`functions/_shared.ts`) serve no document and keep denying all features.
+
+Opt-in sound adds no header source. Its `AudioContext` is created inside the Sound switch's own click (user activation), and its lazy procedural chunk is same-origin script. Verify sound on the deployed site after any `autoplay` policy change; that path has not been measured under production headers.
 
 The optional `VITE_GA_ID` flow still requires `www.googletagmanager.com` for the loader and exact Google Analytics hosts for beacon traffic, but the static policy should not use `*.google-analytics.com`, `*.analytics.google.com`, or `*.googletagmanager.com` wildcards while analytics is inactive by default. Cloudflare Pages `_headers` is a static file, so the pragmatic closure for repo-review item #35 is to keep analytics runtime-gated by `VITE_GA_ID`, allow only the exact hosts required by that optional path, and reject wildcard CSP sources in static validation.
 
@@ -45,9 +51,9 @@ The optional `VITE_GA_ID` flow still requires `www.googletagmanager.com` for the
 
 ## Implementation locations
 
-- Browser/static header policy: [public/_headers](/home/ahirice/Documents/git/pharosville/public/_headers)
-- API response hardening: [functions/api/[[path]].ts](/home/ahirice/Documents/git/pharosville/functions/api/[[path]].ts)
-- Client error log hardening: [client error log function](/home/ahirice/Documents/git/pharosville/functions/_log.ts)
+- Browser/static header policy: [public/_headers](../../public/_headers)
+- API response hardening: `functions/api/[[path]].ts`
+- Client error log hardening: `functions/_log.ts`
 - Live verification command: `npm run check:security-headers`
 - Static pre-deploy parser: `npm run check:security-headers:static`
 - Live verification with endpoint payload guards: `npm run smoke:live -- --url https://pharosville.pharos.watch`

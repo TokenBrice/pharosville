@@ -7,6 +7,7 @@ import {
   restoreTestWallClockOverrideHour,
   writeTestWallClockOverrideHour,
 } from "../lib/pharosville-clock";
+import { worldCalendarDate } from "../systems/season";
 
 export const WORLD_TIME_STEP_HOUR = 0.25;
 export const WORLD_TIME_MAX_HOUR = 23.75;
@@ -122,9 +123,13 @@ export function useWorldTimeControls(input: {
     return next;
   }, [wallClockHour]);
 
+  // Season, almanac and the director's day seed read the world calendar (a
+  // debug `d=` pin, else the wall clock); motion time stays on the real clock.
+  const calendarDate = useMemo(() => worldCalendarDate(date), [date]);
+
   return {
-    date,
-    utcDayKey: date.toISOString().slice(0, 10),
+    date: calendarDate,
+    utcDayKey: calendarDate.toISOString().slice(0, 10),
     timeSeconds: date.getTime() / 1000,
     setSessionHour: (hour: number) => setManualTimeOverrideHourState(clampManualTimeOverrideHour(hour)),
     resetLocalTime: () => { restoreManualWallClockOverride(); setManualTimeOverrideHourState(null); setNightMode(false); requestPaint(); },

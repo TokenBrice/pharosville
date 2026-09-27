@@ -6,7 +6,13 @@ import {
   GARDEN_KOI_SWIM_RATE_RANGE,
   sampleGardenKoi,
 } from "./garden-koi";
-import { GARDEN_POND_CENTER } from "./garden-island";
+import { GARDEN_POND_RADIUS } from "./garden-island";
+
+// The basin skin is a circle of GARDEN_POND_RADIUS squashed to 0.68 across z.
+const POND_HALF_X = GARDEN_POND_RADIUS;
+const POND_HALF_Z = GARDEN_POND_RADIUS * 0.68;
+// Nose-to-fork, the koi body spans 0.76 local units either side of its origin.
+const KOI_HALF_LENGTH = 0.76;
 
 function positions(mesh: InstancedMesh): Vector3[] {
   const matrix = new Matrix4();
@@ -27,16 +33,33 @@ describe("garden koi", () => {
     expect(koi.mesh.matrixWorldAutoUpdate).toBe(true);
   });
 
-  it("sends two fish through the canonical reflection centre on a slow figure-eight", () => {
+  it("sends two fish through the basin-local reflection centre on a slow figure-eight", () => {
     for (const index of [0, 1]) {
       const sample = sampleGardenKoi(index, 0);
-      expect(sample.x).toBeCloseTo(GARDEN_POND_CENTER.x, 8);
-      expect(sample.z).toBeCloseTo(GARDEN_POND_CENTER.z, 8);
+      expect(sample.x).toBeCloseTo(0, 8);
+      expect(sample.z).toBeCloseTo(0, 8);
     }
     const lobe = sampleGardenKoi(0, Math.PI / (2 * GARDEN_KOI_SWIM_RATE_RANGE[0]));
-    expect(lobe.x).toBeGreaterThan(GARDEN_POND_CENTER.x + 2);
-    expect(lobe.z).toBeCloseTo(GARDEN_POND_CENTER.z, 8);
+    expect(lobe.x).toBeGreaterThan(2);
+    expect(lobe.z).toBeCloseTo(0, 8);
     expect(Math.max(...GARDEN_KOI_SWIM_RATE_RANGE)).toBeLessThanOrEqual(0.032);
+  });
+
+  it("keeps every whole fish inside the pond skin through a full swim cycle", () => {
+    const period = (2 * Math.PI) / GARDEN_KOI_SWIM_RATE_RANGE[0];
+    for (let index = 0; index < GARDEN_KOI_COUNT; index += 1) {
+      for (let step = 0; step <= 96; step += 1) {
+        const sample = sampleGardenKoi(index, (period * step) / 96);
+        const reach = KOI_HALF_LENGTH * sample.scale;
+        const extent = ((Math.abs(sample.x) + reach) / POND_HALF_X) ** 2
+          + ((Math.abs(sample.z) + reach) / POND_HALF_Z) ** 2;
+        expect(extent, `koi ${index} step ${step}`).toBeLessThan(1);
+      }
+    }
+    const koi = createGardenKoi();
+    for (const position of positions(koi.mesh)) {
+      expect((position.x / POND_HALF_X) ** 2 + (position.z / POND_HALF_Z) ** 2).toBeLessThan(1);
+    }
   });
 
   it("is deterministic and holds every fish at its composed static pose for reduced motion", () => {

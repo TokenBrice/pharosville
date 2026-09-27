@@ -43,8 +43,13 @@ The `systems/` directory owns the pure data-to-world layer for the standalone Ph
 - Keep route-specific visual semantics here; shared scoring/methodology logic belongs in `shared/lib/` only when it is a real cross-route contract.
 - Use `stable-random.ts` for deterministic scatter and seeded placement, not `Math.random()`.
 - Reduced-motion samples settle directly at authored risk anchorages (Ledger
-  Mooring retains its representative stop); squad offsets remain relative to
-  the flagship. Renderer, hit targets and details use the same display sample.
+  Mooring retains its representative stop); consorts hold their own risk tile,
+  which ship placement already sets at the flagship's formation slot. The
+  garden display of that still is exactly each hull's berth from
+  `placeGardenFleet`, which keeps `MIN_HULL_GAP` × the larger hull's margin
+  wherever the band's water can hold its fleet, keeps berths off dock aprons,
+  and keeps hull centroids out of the bottom-right chrome at the rest camera.
+  Renderer, hit targets and details use the same display sample.
 
 The render-loop sea-room pass runs after route smoothing and garden placement.
 It writes the final `ShipMotionSample.displayTile` shared by rendering, hit tests,

@@ -6,7 +6,6 @@ import {
   Color,
   Group,
   InstancedMesh,
-  LineBasicMaterial,
   LineSegments,
   Mesh,
   MeshBasicMaterial,
@@ -30,6 +29,7 @@ import {
   createFleetBatchGeometry,
   createFleetLanterns,
   createShip,
+  gardenShipSternLantern,
   gardenShipVisualScale,
   GARDEN_HULL_FAMILY_PAINT,
   GARDEN_SHIP_VISUAL_SCALE_MAX,
@@ -57,7 +57,6 @@ function makeCache(): GardenShipGeometryCache {
   return {
     geometries: new Map(),
     wakeFillMaterial: new MeshBasicMaterial(),
-    wakeMaterial: new LineBasicMaterial(),
   };
 }
 
@@ -101,19 +100,17 @@ describe("createShip vertex shading", () => {
 });
 
 describe("fleet tiers", () => {
-  it("assigns lantern strings and slower motion to titans", () => {
+  it("gives titans slower motion and the strongest lane", () => {
     const titan = build(ship("t", "treasury-galleon", "titan"));
     expect(titan.tier).toBe("titan");
-    expect(titan.lanternPoints).toHaveLength(3);
     expect(titan.laneIntensity).toBeCloseTo(0.55);
     expect(titan.motionPeriodScale).toBeGreaterThan(1);
     expect(titan.motionAmplitudeScale).toBeLessThan(1);
   });
 
-  it("gives heritage hulls a bow+stern pair", () => {
+  it("ranks flagship and major hulls as heritage", () => {
     const heritage = build(ship("h", "treasury-galleon", "major"));
     expect(heritage.tier).toBe("heritage");
-    expect(heritage.lanternPoints).toHaveLength(2);
     expect(heritage.laneIntensity).toBeCloseTo(0.45);
   });
 
@@ -122,10 +119,9 @@ describe("fleet tiers", () => {
     expect(scaled.tier).toBe("heritage");
   });
 
-  it("keeps a plain skiff at a single stern lantern, standard cadence", () => {
+  it("keeps a plain skiff at the standard cadence", () => {
     const standard = build(ship("s", "treasury-galleon", "skiff"));
     expect(standard.tier).toBe("standard");
-    expect(standard.lanternPoints).toHaveLength(1);
     expect(standard.laneIntensity).toBeCloseTo(0.3);
     expect(standard.motionPeriodScale).toBe(1);
   });
@@ -322,32 +318,103 @@ describe("attachGardenHeroModel", () => {
 });
 
 describe("createFleetLanterns", () => {
-  it("packs every ship's lanterns into two shared instanced meshes", () => {
+  function batchedAt(id: string, hull: ShipHull, x: number): ShipVisual {
+    const visual = createBatchedShip(ship(id, hull, "major"), { x: 0, y: 0 }, true, 0);
+    visual.root.position.set(x, 0, 0);
+    visual.root.scale.setScalar(1);
+    return visual;
+  }
+
+  it("gives every ship one stern lamp, hung over its own family's stern", () => {
     const ships = [
-      build(ship("a", "treasury-galleon", "titan")), // 3
-      build(ship("b", "treasury-galleon", "major")), // 2
-      build(ship("c", "treasury-galleon", "skiff")), // 1
+      build(ship("a", "treasury-galleon", "titan")),
+      build(ship("b", "treasury-galleon", "major")),
+      build(ship("c", "treasury-galleon", "skiff")),
     ];
     const lanterns = createFleetLanterns(ships, makeCache());
-    expect(lanterns.entries).toHaveLength(6);
+    expect(lanterns.entries).toHaveLength(3);
     expect(lanterns.cores).toBeInstanceOf(InstancedMesh);
     expect(lanterns.glow).toBeInstanceOf(InstancedMesh);
-    expect(lanterns.cores.count).toBe(6);
-    expect(lanterns.glow.count).toBe(6);
     // Cores bloom (toneMapped off); glow is additive and starts dark.
     expect(lanterns.coreMaterial.toneMapped).toBe(false);
     expect(lanterns.glowMaterial.opacity).toBe(0);
+    // The shared stern point left the scow's lamp hanging in the air and sank
+    // the bezaisen's inside its castle: each lamp now hangs within its own
+    // hull's length, in the aft part of it.
+    for (const silhouette of GARDEN_HULL_SILHOUETTES) {
+      const { hull, sails } = createFleetBatchGeometry(silhouette);
+      hull.computeBoundingBox();
+      const box = hull.boundingBox!;
+      const lamp = gardenShipSternLantern(silhouette).lamp;
+      expect(lamp.x, silhouette).toBeGreaterThanOrEqual(box.min.x);
+      expect(lamp.x, silhouette).toBeLessThan(box.min.x + (box.max.x - box.min.x) * 0.2);
+      hull.dispose();
+      sails.dispose();
+    }
   });
 
-  it("restamps instance matrices without throwing under motion and reduced motion", () => {
-    const ships = [build(ship("a", "treasury-galleon", "titan"))];
+  it("re-homes a hero's lamp onto its GLB stern anchor and drops the pole", () => {
+    const visual = build(ship("usdt-tether", "treasury-galleon", "titan"));
+    expect(visual.sternLanternOnPole).toBe(true);
+    attachGardenHeroModel(visual, heroFixture(visual.heroModelId!));
+    const anchor = (GARDEN_MODEL_MANIFEST[visual.heroModelId!].anchors as Partial<
+      Record<GardenModelAnchorId, { readonly position: Vector3Tuple }>
+    >)["lantern-stern"]!.position;
+    expect(visual.sternLantern.toArray()).toEqual([...anchor]);
+    expect(visual.sternLanternOnPole).toBe(false);
+  });
+
+  it("draws only present ships, compacting lamps and rig to them", () => {
+    const ships = [
+      batchedAt("near", "treasury-galleon", 0),
+      batchedAt("away", "treasury-galleon", 10),
+      batchedAt("also", "commodity-peg-hoy", 20),
+    ];
     const lanterns = createFleetLanterns(ships, makeCache());
-    const quaternion = new Quaternion();
-    expect(() => updateFleetLanterns(lanterns, quaternion, 4.2, false)).not.toThrow();
-    expect(() => updateFleetLanterns(lanterns, quaternion, 4.2, true)).not.toThrow();
-    // The first core instance is no longer the zero-scale placeholder.
-    const core = lanterns.cores.instanceMatrix.array;
-    expect(core.slice(0, 16).some((value) => value !== 0)).toBe(true);
+    updateFleetLanterns(lanterns, {
+      cameraQuaternion: new Quaternion(),
+      eye: { x: 0, y: 2, z: 30 },
+      pixelsPerUnitAtUnitDistance: 1200,
+      presence: (visual) => (visual.ship.id === "away" ? 0 : 1),
+      reducedMotion: true,
+      timeSeconds: 0,
+    });
+    expect(lanterns.cores.count).toBe(2);
+    expect(lanterns.glow.count).toBe(2);
+    // Bezaisen: one mast × four stays, plus pole and arm; scow likewise.
+    expect(lanterns.rig.geometry.drawRange.count).toBe((6 + 6) * 2);
+  });
+
+  it("writes rope alpha as projected coverage and drops sub-pixel rigs", () => {
+    const ships = [batchedAt("s", "treasury-galleon", 0)];
+    const lanterns = createFleetLanterns(ships, makeCache());
+    const alphaAt = (distance: number): number[] => {
+      updateFleetLanterns(lanterns, {
+        cameraQuaternion: new Quaternion(),
+        eye: { x: 0, y: 0, z: distance },
+        pixelsPerUnitAtUnitDistance: 1000,
+        reducedMotion: true,
+        timeSeconds: 0,
+      });
+      const colors = lanterns.rig.geometry.getAttribute("color");
+      const count = lanterns.rig.geometry.drawRange.count;
+      return Array.from({ length: count }, (_, index) => colors.getW(index));
+    };
+    // At 40 u a 0.05-u stay covers 1.25 px: opaque. At 80 u it covers 0.625 px
+    // and is drawn at no more than that coverage, never as a solid 1-px line.
+    expect(Math.max(...alphaAt(40))).toBe(1);
+    const mid = alphaAt(80);
+    expect(Math.min(...mid)).toBeGreaterThan(0);
+    // Stays (0.625 px) and shrouds (0.5 px) are drawn translucent; only the
+    // 0.09-u pole (1.1 px) reaches full alpha.
+    expect(mid.filter((alpha) => alpha < 1).length).toBeGreaterThanOrEqual(mid.length - 4);
+    expect(Math.min(...mid)).toBeLessThanOrEqual(0.04 * 1000 / 80 + 1e-6);
+    // Once even the pole is under a fifth of a pixel the ship draws no rig.
+    expect(alphaAt(500)).toHaveLength(0);
+    // Without a projection there is no rig at all.
+    updateFleetLanterns(lanterns, { cameraQuaternion: new Quaternion(), reducedMotion: true, timeSeconds: 0 });
+    expect(lanterns.rig.geometry.drawRange.count).toBe(0);
+    expect(lanterns.cores.count).toBe(1);
   });
 
   it("feeds per-instance warmth into the lantern emissive term", () => {
@@ -363,9 +430,12 @@ describe("createFleetLanterns", () => {
 
     const ships = [build(ship("a", "treasury-galleon", "titan"))];
     const lanterns = createFleetLanterns(ships, makeCache());
-    updateFleetLanterns(lanterns, new Quaternion(), 0, true, {
+    updateFleetLanterns(lanterns, {
+      cameraQuaternion: new Quaternion(),
       hoveredDetailId: "a",
+      reducedMotion: true,
       selectedDetailId: null,
+      timeSeconds: 0,
     });
     expect(lanterns.cores.instanceColor?.getX(0)).toBeGreaterThan(1);
   });
@@ -469,18 +539,41 @@ describe("W5.3 batched silhouette form", () => {
 
 });
 
-describe("S2 bellied sails", () => {
-  it("displaces the cloth center so sails read wind-filled", () => {
+describe("W4.F1 square sails hang on a yard", () => {
+  it("centres the cloth on the mast, bellies it forward and curves its foot", () => {
     const visual = build(ship("s2", "treasury-galleon", "major"));
     const sail = visual.identitySail!;
     const position = sail.geometry.getAttribute("position");
-    let maxBelly = 0;
+    const uv = sail.geometry.getAttribute("uv");
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    let clewY = -Infinity;
+    let midFootY = Infinity;
+    let leechX = Infinity;
+    let bellyX = -Infinity;
     for (let index = 0; index < position.count; index += 1) {
-      maxBelly = Math.max(maxBelly, Math.abs(position.getZ(index)));
+      const u = uv.getX(index);
+      const v = uv.getY(index);
+      minZ = Math.min(minZ, position.getZ(index));
+      maxZ = Math.max(maxZ, position.getZ(index));
+      if (u === 0 || u === 1) leechX = Math.min(leechX, position.getX(index));
+      else bellyX = Math.max(bellyX, position.getX(index));
+      if (v === 0 && (u === 0 || u === 1)) clewY = Math.max(clewY, position.getY(index));
+      if (v === 0 && Math.abs(u - 0.5) < 1e-6) midFootY = position.getY(index);
     }
-    expect(maxBelly).toBeGreaterThan(0.15);
-    // Grid tessellation: interior vertices exist (a flat shape has ~5).
-    expect(position.count).toBeGreaterThan(30);
+    // Athwartships and centred: the mast is the brace pivot.
+    expect(minZ).toBeCloseTo(-maxZ, 6);
+    // Wind-filled forward of the bolt-roped leeches.
+    expect(bellyX - leechX).toBeGreaterThan(0.3);
+    // A catenary foot between the sheeted clews, not a ruler line on a boom.
+    expect(midFootY - clewY).toBeGreaterThan(0.2);
+    // One yard at the head, no foot spar.
+    const [yard] = sail.children as Mesh[];
+    expect(sail.children).toHaveLength(1);
+    yard!.geometry.computeBoundingBox();
+    expect(yard!.geometry.boundingBox!.min.y).toBeGreaterThan(0);
+    expect(yard!.geometry.boundingBox!.max.z - yard!.geometry.boundingBox!.min.z)
+      .toBeGreaterThan(maxZ - minZ);
   });
 });
 
@@ -490,10 +583,10 @@ describe("S3 sparse rigging", () => {
     const rigging = visual.root.children.find(
       (child): child is LineSegments => child instanceof LineSegments,
     )!;
-    // One bezaisen mast × 4 standing-rigging lines, plus two halyard segments
-    // for its one enormous identity sail. All × 2 endpoints.
+    // One bezaisen mast × 4 standing-rigging lines, plus the one halyard that
+    // hoists its square yard at the mast. All × 2 endpoints.
     const standing = 4;
-    const halyards = 2;
+    const halyards = 1;
     expect(rigging.geometry.getAttribute("position").count).toBe((standing + halyards) * 2);
     // The whole rig must stay one draw call however many lines it carries.
     expect(
@@ -528,6 +621,7 @@ describe("S7 ripple-ring grounding (contract C2)", () => {
       removeRing: (id) => {
         rings.delete(id);
       },
+      pulseRing: () => {},
       ringCount: () => rings.size,
     };
   }
@@ -579,8 +673,8 @@ describe("hero peg trim (Tier 3 #13)", () => {
 
   it("settles every drawable child of a hull trading below its peg", () => {
     const { level, trimmed: low } = trimmed(-0.16);
-    const levelHulls = level.root.children.filter((child) => child !== level.wake);
-    const lowHulls = low.root.children.filter((child) => child !== low.wake);
+    const levelHulls = level.root.children;
+    const lowHulls = low.root.children;
 
     expect(lowHulls).not.toHaveLength(0);
     expect(lowHulls).toHaveLength(levelHulls.length);
@@ -591,14 +685,9 @@ describe("hero peg trim (Tier 3 #13)", () => {
 
   it("lifts a hull trading above its peg", () => {
     const { level, trimmed: high } = trimmed(0.08);
-    const levelDeck = level.root.children.find((child) => child !== level.wake)!;
-    const highDeck = high.root.children.find((child) => child !== high.wake)!;
+    const levelDeck = level.root.children[0]!;
+    const highDeck = high.root.children[0]!;
     expect(highDeck.position.y).toBeCloseTo(levelDeck.position.y + 0.08);
-  });
-
-  it("leaves the wake on the sea surface however deep the hull rides", () => {
-    const { level, trimmed: low } = trimmed(-0.16);
-    expect(low.wake.position.y).toBeCloseTo(level.wake.position.y);
   });
 });
 
@@ -714,7 +803,7 @@ describe("warm-village C2: per-family hull paint", () => {
   }
 
   function batched(node: ShipNode): ShipVisual {
-    return createBatchedShip(node, { x: 0, y: 0 }, true, makeCache(), 0);
+    return createBatchedShip(node, { x: 0, y: 0 }, true, 0);
   }
 
   it("exports a paint pair for exactly the six families on a readable OKLCH ladder", () => {
@@ -767,26 +856,36 @@ describe("warm-village C2: per-family hull paint", () => {
     expect(hexes.size).toBe(GARDEN_HULL_SILHOUETTES.length);
   });
 
-  it("keeps the sheer strake carrying the issuer's colour, not the family's", () => {
+  it("keeps the sheer strake carrying the issuer's hue, not the family's", () => {
     const primary = "#2775ca";
     const kobaya = batched(branded("usdt-tether", HULL_FOR_FAMILY.kobaya, primary));
     const junk = batched(branded("eth-issuer", HULL_FOR_FAMILY.junk, primary));
-    expect(kobaya.trimColor.getHexString()).toBe(new Color(primary).getHexString());
+    const hueGap = (from: number, to: number) => Math.abs(((to - from + 540) % 360) - 180);
+    expect(hueGap(oklchOf(kobaya.trimColor).H, oklchOf(new Color(primary)).H)).toBeLessThan(4);
     // Same issuer, different family: same rail, different timber.
     expect(junk.trimColor.getHexString()).toBe(kobaya.trimColor.getHexString());
     expect(junk.hullColor.getHexString()).not.toBe(kobaya.hullColor.getHexString());
     // A different issuer repaints the rail.
     const otherYard = batched(branded("usdt-tether", HULL_FOR_FAMILY.kobaya, "#d8b04a"));
-    expect(otherYard.trimColor.getHexString()).toBe(new Color("#d8b04a").getHexString());
+    expect(otherYard.trimColor.getHexString()).not.toBe(kobaya.trimColor.getHexString());
+  });
+
+  it("clamps the strake into a thin line of issuer colour, never a neon ring", () => {
+    // W4.F13: the loudest brands (violet, electric blue, Tron red) all land
+    // at or under OKLCH C 0.08 and darker than the brand itself.
+    for (const primary of ["#8247e5", "#0098ea", "#ff060a"]) {
+      const trim = batched(branded("loud", HULL_FOR_FAMILY.kobaya, primary)).trimColor;
+      expect(oklchOf(trim).C, primary).toBeLessThan(0.09);
+      expect(oklchOf(trim).L, primary).toBeLessThan(oklchOf(new Color(primary)).L);
+    }
   });
 
   it("paints an unbranded ship's strake in her family's trim", () => {
     const kobaya = batched(ship("ghost", HULL_FOR_FAMILY.kobaya, "major"));
     const junk = batched(ship("wraith", HULL_FOR_FAMILY.junk, "major"));
-    expect(kobaya.trimColor.getHexString())
-      .toBe(GARDEN_HULL_FAMILY_PAINT.kobaya.trim.getHexString());
-    expect(junk.trimColor.getHexString())
-      .toBe(GARDEN_HULL_FAMILY_PAINT.junk.trim.getHexString());
+    const hueGap = (from: number, to: number) => Math.abs(((to - from + 540) % 360) - 180);
+    expect(hueGap(oklchOf(kobaya.trimColor).H, oklchOf(GARDEN_HULL_FAMILY_PAINT.kobaya.trim).H)).toBeLessThan(6);
+    expect(hueGap(oklchOf(junk.trimColor).H, oklchOf(GARDEN_HULL_FAMILY_PAINT.junk.trim).H)).toBeLessThan(6);
     expect(kobaya.trimColor.getHexString()).not.toBe(junk.trimColor.getHexString());
   });
 });

@@ -36,6 +36,7 @@ export type DebugShipMotionSample = {
 };
 
 export type DebugTarget = {
+  anchor?: { x: number; y: number };
   detailId: string;
   kind: string;
   priority: number;
@@ -46,6 +47,10 @@ export type DebugCamera = {
   offsetX: number;
   offsetY: number;
   zoom: number;
+  /** The rest ShotSpec blended over the rig (W1.0): presence and its view's eye. */
+  rest?: { presence: number; view: { eye: { x: number; y: number; z: number } } } | null;
+  /** A composed shot (selection, look-up, Wander postcard) over the rig. */
+  shot?: { presence: number } | null;
 };
 
 export type DebugFramePacing = {
@@ -147,10 +152,11 @@ export async function installWallClockOverride(page: Page, hour: number): Promis
   await page.addInitScript(({ h, m, frac }) => {
     // Every visual/perf lane funnels through this helper before page.goto, so
     // it doubles as the place to seed first-visit flags: baselines capture
-    // the steady-state world, not the one-time legend onboarding overlay.
-    // Legend-specific tests clear the key to exercise the auto-open path.
+    // the steady-state world, not the one-time legend onboarding overlay or
+    // the three first-visit teachings on the now-line.
     try {
       window.localStorage.setItem("pharosville.legend.dismissed", "1");
+      window.localStorage.setItem("pharosville.orientation.seen", "1");
     } catch {
       // Storage unavailable: the app treats that as dismissed anyway.
     }

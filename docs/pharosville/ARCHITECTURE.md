@@ -1,6 +1,6 @@
 # PharosVille Architecture
 
-Last updated: 2026-09-03
+Last updated: 2026-09-27
 
 PharosVille is a desktop-gated React app with a pure data-to-world layer and
 one imperative Three.js/WebGL renderer. The DOM remains the analytical and
@@ -57,6 +57,29 @@ testing. `src/three/` owns scene construction, GPU resources, and disposal.
 The fleet uses six batched hull families and a shared sail atlas. The lighthouse
 and selected heroes use checked GLBs over aligned procedural fallbacks.
 
+Hour-Print seams (branch `feat/hour-print`):
+
+- `src/systems/rest-seat.ts` is the authored rest pose (seat C, yaw 31°); the
+  camera, the light's noon bearing and the threshold landform read it.
+- `src/systems/sky-almanac.ts` is the solar/lunar clock and
+  `src/systems/day-cycle-beats.ts` the five-beat score from it. Both are pure,
+  so the DOM now-line, the chrome tokens (`src/systems/chrome-air.ts`) and the
+  renderer agree on one date.
+- `garden-aerial.ts` is the one air shared by every scene material;
+  `garden-print-inks.ts` the shade inks; the sky-contact keyline is a
+  `garden-post.ts` pass. `garden-noise-pack.ts` is the only noise texture.
+- `garden-wakes.ts` is the K8 wake field (a HalfFloat ping-pong the water
+  samples); `garden-wake-batch.ts` still draws the trail and bow batches.
+- `src/systems/garden-score.ts` places the day's rituals, and
+  `src/systems/garden-director.ts` admits them inside the attention budget and
+  holds the ritual registry. Visual owners (`garden-keeper.ts` for the
+  kindling, `garden-stone-garden.ts` for the anniversary lantern, the almanac
+  dressing, `src/systems/garden-crossing.ts`, …) register one handler per kind
+  with `registerRitual`. `src/systems/garden-calendar.ts` supplies the 72 kō and continuous
+  phenology.
+- Opt-in sound is a lazy chunk (`src/lib/pharosville-audio/`) behind
+  `src/hooks/use-garden-sound.ts`.
+
 ## Contracts and budgets
 
 The finite plate, rim field, sea-body partition, station topology, display
@@ -65,8 +88,9 @@ targets, following, detail anchors, and telemetry. Shader edge smoothing is
 presentation only. Reduced motion is a complete deterministic static frame.
 
 Hard ceilings are 700 calls, 500 geometries, 500,000 triangles, and 72
-textures. The reference default is approximately 256 calls and 43 textures;
-whole-map N8AO is released so its animated overview remains at or below 72.
+textures. At the Hour-Print rest seat the default reads about 105 scene calls
+and 50 textures at noon (see `TESTING.md` for dated references); whole-map
+N8AO is released so its animated overview remains at or below 72.
 Repeated structures are batched or instanced and renderer-owned resources are
 disposed with their content subtree.
 

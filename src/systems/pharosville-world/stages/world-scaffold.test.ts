@@ -1,30 +1,37 @@
-import { STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT } from "@shared/lib/status-thresholds";
-import type { PegSummaryResponse, PegSummaryStats, StabilityIndexResponse } from "@shared/types";
+import type { PegSummaryResponse, PegSummaryStats, StabilityIndexResponse, StablecoinListResponse } from "@shared/types";
 import type { ChainsResponse, ChainSummary } from "@shared/types/chains";
 import { Color } from "three";
 import { describe, expect, it, vi } from "vitest";
-import { psiBandSeverity, SIGNAL_MAST_MAX_PENNANTS } from "../../world-types";
+import {
+  psiBandSeverity,
+  SIGNAL_MAST_LEADER_COUNT,
+  SIGNAL_MAST_MAX_PENNANTS,
+} from "../../world-types";
 import type { PharosVilleWorld } from "../../world-types";
 import {
   buildBeamDwell,
   buildHighWaterMark,
   buildSignalMast,
-  SIGNAL_MAST_STORM_CONE_BPS,
 } from "./world-scaffold";
 import { buildGardenMonthRecord } from "../../garden-month-record";
 import { buildPharosVilleWorld } from "../../pharosville-world";
 import { RIM_COVES } from "../../garden-rim";
 import { assignGardenChainFlagCell, resetGardenChainFlagAtlas } from "../../../three/garden-chain-flag";
+import { noboriInkHex } from "../../palette";
 import {
   fixtureChains,
   makeAsset,
   makeChain,
+  makePegCoin,
   makePharosVilleWorldInput,
 } from "../../../__fixtures__/pharosville-world";
 
-function pegSummary(summary: Partial<PegSummaryStats> | null): PegSummaryResponse {
+function pegSummary(
+  summary: Partial<PegSummaryStats> | null,
+  coins: PegSummaryResponse["coins"] = [],
+): PegSummaryResponse {
   return {
-    coins: [],
+    coins,
     summary: summary === null
       ? null
       : {
@@ -41,52 +48,111 @@ function pegSummary(summary: Partial<PegSummaryStats> | null): PegSummaryRespons
   };
 }
 
-describe("buildSignalMast (3a)", () => {
-  it("takes the storm gate from the shared price-materiality threshold", () => {
-    expect(SIGNAL_MAST_STORM_CONE_BPS).toBe(STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT * 100);
-  });
+interface MastCoin {
+  id: string;
+  supply: number;
+  offPeg: boolean;
+}
 
-  it("flies one pennant per coin off peg", () => {
-    const mast = buildSignalMast(pegSummary({ activeDepegCount: 3 }));
+/** A tracked fleet: each coin in both the peg summary and the supply list. */
+function fleet(coins: readonly MastCoin[], summary: Partial<PegSummaryStats> = {}) {
+  const peg = pegSummary(
+    { activeDepegCount: coins.filter((coin) => coin.offPeg).length, ...summary },
+    coins.map((coin) => makePegCoin({ id: coin.id, symbol: coin.id.toUpperCase(), activeDepeg: coin.offPeg })),
+  );
+  const stablecoins: StablecoinListResponse = {
+    peggedAssets: coins.map((coin) => makeAsset({
+      id: coin.id,
+      symbol: coin.id.toUpperCase(),
+      circulating: { peggedUSD: coin.supply },
+    })),
+  };
+  return [peg, stablecoins] as const;
+}
 
-    expect(mast.activeDepegCount).toBe(3);
-    expect(mast.pennantCount).toBe(3);
-    expect(mast.capped).toBe(false);
+/** Twenty big coins at peg plus `extra` coins after them. */
+function leadersAtPeg(extra: readonly MastCoin[] = []): MastCoin[] {
+  return [
+    ...Array.from({ length: SIGNAL_MAST_LEADER_COUNT }, (_, index) => ({
+      id: `lead${String(index).padStart(2, "0")}`,
+      supply: 10_000_000_000 - index * 100_000_000,
+      offPeg: false,
+    })),
+    ...extra,
+  ];
+}
+
+describe("buildSignalMast (O17b)", () => {
+  it("flies no pennant and no cone for nineteen small depegs outside the leaders", () => {
+    const dust = Array.from({ length: 19 }, (_, index) => ({
+      id: `dust${String(index).padStart(2, "0")}`,
+      supply: 1_000_000,
+      offPeg: true,
+    }));
+    const mast = buildSignalMast(...fleet(leadersAtPeg(dust), {
+      worstCurrent: { id: "dust00", symbol: "PMUSD", bps: -5350 },
+    }));
+
+    expect(mast.activeDepegCount).toBe(19);
+    expect(mast.leaderCount).toBe(SIGNAL_MAST_LEADER_COUNT);
+    expect(mast.leadersOffPeg).toEqual([]);
+    expect(mast.pennantCount).toBe(0);
+    // 19M off peg against ~181B tracked: nowhere near the 1% gate.
+    expect(mast.offPegSupplyShare).toBeLessThan(0.01);
+    expect(mast.stormCone).toBe(false);
+    // The worst coin is still reported, in the Fleet peg figures.
+    expect(mast.worstBps).toBe(-5350);
     expect(mast.unavailable).toBe(false);
   });
 
+  it("counts only the largest coins by supply, largest first", () => {
+    const coins = leadersAtPeg([{ id: "tail", supply: 1_000, offPeg: true }]);
+    coins[3] = { ...coins[3]!, offPeg: true };
+    coins[0] = { ...coins[0]!, offPeg: true };
+    const mast = buildSignalMast(...fleet(coins));
+
+    expect(mast.leadersOffPeg).toEqual(["LEAD00", "LEAD03"]);
+    expect(mast.pennantCount).toBe(2);
+    expect(mast.capped).toBe(false);
+  });
+
   it("caps the hoist and records that it did, so the DOM can carry the count", () => {
-    const mast = buildSignalMast(pegSummary({ activeDepegCount: 17 }));
+    const coins = leadersAtPeg().map((coin, index) => ({ ...coin, offPeg: index < 7 }));
+    const mast = buildSignalMast(...fleet(coins));
 
     expect(mast.pennantCount).toBe(SIGNAL_MAST_MAX_PENNANTS);
     expect(mast.capped).toBe(true);
     // The exact figure survives the cap — the mast rounds, the model does not.
-    expect(mast.activeDepegCount).toBe(17);
+    expect(mast.leadersOffPeg).toHaveLength(7);
   });
 
-  it("hoists the cone on magnitude, so a coin above par counts as much as one below", () => {
-    const below = buildSignalMast(pegSummary({
-      activeDepegCount: 1,
-      worstCurrent: { id: "x", symbol: "XUSD", bps: -SIGNAL_MAST_STORM_CONE_BPS },
-    }));
-    const above = buildSignalMast(pegSummary({
-      activeDepegCount: 1,
-      worstCurrent: { id: "x", symbol: "XUSD", bps: SIGNAL_MAST_STORM_CONE_BPS },
-    }));
-    const under = buildSignalMast(pegSummary({
-      activeDepegCount: 1,
-      worstCurrent: { id: "x", symbol: "XUSD", bps: -(SIGNAL_MAST_STORM_CONE_BPS - 1) },
-    }));
+  it("hoists the cone at one percent of tracked supply off peg", () => {
+    const coins = (offPegSupply: number): MastCoin[] => [
+      { id: "big", supply: 100_000 - offPegSupply, offPeg: false },
+      { id: "off", supply: offPegSupply, offPeg: true },
+    ];
+    const at = buildSignalMast(...fleet(coins(1_000)));
+    const under = buildSignalMast(...fleet(coins(999)));
 
-    expect(below.stormCone).toBe(true);
-    expect(above.stormCone).toBe(true);
+    expect(at.offPegSupplyShare).toBeCloseTo(0.01, 10);
+    expect(at.stormCone).toBe(true);
     expect(under.stormCone).toBe(false);
-    expect(under.worstSymbol).toBe("XUSD");
+  });
+
+  it("weighs only coins that carry a supply figure", () => {
+    const [peg] = fleet([{ id: "orphan", supply: 5, offPeg: true }]);
+    const unweighed = buildSignalMast(peg, { peggedAssets: [] });
+
+    expect(unweighed.unavailable).toBe(false);
+    expect(unweighed.leaderCount).toBe(0);
+    expect(unweighed.pennantCount).toBe(0);
+    expect(unweighed.offPegSupplyShare).toBeNull();
+    expect(unweighed.stormCone).toBe(false);
   });
 
   it("stands bare and says so when no peg summary arrived", () => {
     for (const input of [pegSummary(null), null, undefined]) {
-      const mast = buildSignalMast(input);
+      const mast = buildSignalMast(input, undefined);
 
       expect(mast.unavailable).toBe(true);
       expect(mast.pennantCount).toBe(0);
@@ -102,7 +168,7 @@ describe("buildSignalMast (3a)", () => {
       activeDepegCount: Number.NaN,
       medianDeviationBps: Number.NaN,
       worstCurrent: { id: "x", symbol: "XUSD", bps: Number.NaN },
-    }));
+    }), undefined);
 
     expect(mast.activeDepegCount).toBe(0);
     expect(mast.pennantCount).toBe(0);
@@ -293,16 +359,16 @@ describe("dock supply change (Tier 3 #13)", () => {
 //
 // The chains payload is the one door raw upstream chain ids walk through, and
 // every downstream consumer keys on `chain.id`: slot binding and suppression
-// (`buildChainDocks`), the flag dye (`CHAIN_FLAG_FIELD` in garden-chain-flag),
+// (`buildChainDocks`), the flag ink (`CHAIN_BRAND_HEX` in garden-chain-flag),
 // ship moorings (`assignDockVisits`) and the mint-burn scope join
 // (`buildCargoTideStage`). These tests drive the real `buildPharosVilleWorld`
 // with feeds an upstream alias day can actually produce, and assert only what
 // the world observes — a berth, a painted colour, a moored ship.
 
-/** `CHAIN_FLAG_FIELD.hyperliquid` — the sanctioned brand dye the flag cloth wears. */
-const HYPERLIQUID_FLAG_DYE = "#97fce4";
+/** The ink Hyperliquid's mark is printed in: its brand mint `#97fce4` through the nobori clamp. */
+const HYPERLIQUID_FLAG_INK = noboriInkHex("#97fce4");
 
-/** A stand-in health accent, chosen to share no hex with any painted flag colour. */
+/** A stand-in health accent, chosen so its clamped ink shares no hex with any painted flag colour. */
 const FALLBACK_HEALTH_ACCENT = "#4d7fbe";
 
 function chainsFeed(chains: ChainSummary[]): ChainsResponse {
@@ -338,7 +404,7 @@ describe("chain id normalization boundary (D8)", () => {
     expect(hyperliquid.station.type).toBe("fishing-pier");
   });
 
-  it("flies the canonical chain's flag dye rather than the shared health accent (L6)", () => {
+  it("prints the canonical chain's flag ink rather than the shared health accent's (L6)", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput({
       chains: aliasedHyperliquidFeed(),
     }));
@@ -351,7 +417,10 @@ describe("chain id normalization boundary (D8)", () => {
     const paintedFillStyles: string[] = [];
     let lastFillStyle = "";
     const context = {
+      arc: () => {},
+      beginPath: () => {},
       clearRect: () => {},
+      fill: () => {},
       fillRect: () => {},
       fillText: () => {},
       restore: () => {},
@@ -377,8 +446,8 @@ describe("chain id normalization boundary (D8)", () => {
       vi.unstubAllGlobals();
     }
 
-    expect(paintedFillStyles).toContain(HYPERLIQUID_FLAG_DYE);
-    expect(paintedFillStyles).not.toContain(FALLBACK_HEALTH_ACCENT);
+    expect(paintedFillStyles).toContain(HYPERLIQUID_FLAG_INK);
+    expect(paintedFillStyles).not.toContain(noboriInkHex(FALLBACK_HEALTH_ACCENT));
   });
 
   it("keeps a chain id no alias table knows on a real mouth", () => {

@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { denseFixtureStablecoins } from "../../src/__fixtures__/pharosville-world";
 import {
   denyPharosVilleViewportGatedRequests,
+  type DebugCamera,
   installWallClockOverride,
   mockDensePharosVilleData,
   mockPharosVilleData,
@@ -186,17 +187,11 @@ test(...visualLane("dom", "browser chrome keeps minimum targets and stable scene
     // assertions below check is the CSS contract, which the probe carries.
     const caption = probe("pharosville-now-caption", "div");
     const quickField = probe("pharosville-quick-find__field", "div");
-    const notice = probe("pv-notice");
     return {
       detailClose: probe("pharosville-detail-panel__close"),
       detailCopy: probe("pharosville-detail-panel__copy"),
-      caption: {
-        backgroundAlpha: alpha(caption.backgroundColor),
-        fontSize: caption.fontSize,
-      },
+      caption: { fontSize: caption.fontSize },
       glyph: probe("pv-glyph-button"),
-      noticeDismiss: probe("pv-notice__dismiss"),
-      noticeScrimAlpha: alpha(notice.backgroundColor),
       quickFieldScrimAlpha: alpha(quickField.backgroundColor),
       quickResult: probe("pharosville-quick-find__result", "li"),
     };
@@ -204,12 +199,8 @@ test(...visualLane("dom", "browser chrome keeps minimum targets and stable scene
 
   expect(contract.detailClose.minHeight).toBeGreaterThanOrEqual(24);
   expect(contract.detailCopy.minHeight).toBeGreaterThanOrEqual(24);
-  expect(contract.noticeDismiss.width).toBeGreaterThanOrEqual(24);
-  expect(contract.noticeDismiss.height).toBeGreaterThanOrEqual(24);
   expect(contract.quickResult.minHeight).toBeGreaterThanOrEqual(36);
   expect(contract.caption.fontSize).toBeGreaterThanOrEqual(13);
-  expect(contract.caption.backgroundAlpha).toBeGreaterThanOrEqual(0.75);
-  expect(contract.noticeScrimAlpha).toBeGreaterThanOrEqual(0.85);
   expect(contract.quickFieldScrimAlpha).toBeGreaterThanOrEqual(0.9);
   expect(contract.glyph.opacity).toBeGreaterThanOrEqual(0.7);
 });
@@ -237,11 +228,16 @@ test.describe("touch chrome", () => {
         button.remove();
         return { height: rect.height, width: rect.width };
       };
+      // The notice toast and harbor-log panel are gone (W6.10/W6.11); the
+      // standalone targets now are the explore word, the revealed words, the
+      // glyphs and the drawer buttons.
       return {
+        affordance: size("pharosville-world-controls__affordance"),
+        chromeAction: size("pv-chrome-action"),
         detailClose: size("pharosville-detail-panel__close"),
+        drawerButton: size("pv-drawer__button"),
         glyph: size("pv-glyph-button"),
         hoverless: matchMedia("(hover: none)").matches,
-        noticeDismiss: size("pv-notice__dismiss"),
       };
     });
 
@@ -249,8 +245,10 @@ test.describe("touch chrome", () => {
     expect(sizes.detailClose.height).toBeGreaterThanOrEqual(44);
     expect(sizes.glyph.height).toBeGreaterThanOrEqual(44);
     expect(sizes.glyph.width).toBeGreaterThanOrEqual(44);
-    expect(sizes.noticeDismiss.height).toBeGreaterThanOrEqual(44);
-    expect(sizes.noticeDismiss.width).toBeGreaterThanOrEqual(44);
+    for (const target of [sizes.affordance, sizes.chromeAction, sizes.drawerButton]) {
+      expect(target.height).toBeGreaterThanOrEqual(44);
+      expect(target.width).toBeGreaterThanOrEqual(44);
+    }
   });
 });
 
@@ -319,6 +317,8 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
     return settled;
   }).toBe(true);
   const onScreenDetailIds = new Set(await shipTargetIds(page));
+  const firstPhaseCamera = restFraming((await readVisualDebug(page)).camera);
+  expect(firstPhaseCamera.restPresence).toBe(1);
   // Every hull now resolves onto the water plate and moored hulls sit at
   // their stations, so the old `index % 5` stride no longer lands on an
   // off-screen ship. The candidate is pinned rather than "first culled":
@@ -349,11 +349,12 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
 
   const detailPanel = page.getByTestId("pharosville-detail-panel");
   await expect(detailPanel).toContainText(outsider.name);
-  // Opening a detail moves focus INTO the panel — assert that before the
-  // disclosure click, not after. Clicking a `<summary>` focuses the summary,
-  // which is the browser doing the right thing, so asserting Close still holds
-  // focus afterwards was asserting that the click did not land.
-  await expect(closeDetails).toBeFocused();
+  // Opening a detail moves focus INTO the panel, onto its title (W6.3) —
+  // assert that before the disclosure click, not after. Clicking a `<summary>`
+  // focuses the summary, which is the browser doing the right thing, so
+  // asserting the title still holds focus afterwards was asserting that the
+  // click did not land.
+  await expect(detailPanel.getByRole("heading", { level: 2 })).toBeFocused();
   // Density now waits inside the record disclosure (interface revamp DU5);
   // open it explicitly rather than relying on collapsed text matching.
   await page.getByTestId("pharosville-detail-record").getByText("Read the record").click();
@@ -400,11 +401,16 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
   await expect(detailPanel).toHaveCount(0);
   await expect(page.getByTestId("pharosville-world")).toBeFocused();
 
-  // Reset view restores the exact framing the first phase measured, so the
-  // off-screen ship goes back off screen. Targets are viewport-culled, so this
-  // is the one comparison between the two cameras that is meaningful.
+  // Reset view restores the exact framing the first phase measured — the rest
+  // ShotSpec on the same hand-off rig — so the off-screen ship goes back off
+  // screen. The camera is compared directly: the on-screen ship SET is not a
+  // proxy for it, because the first navigation builds the fleet from a cold
+  // world cache and the later ones from the cached world, and idle hulls do
+  // not land on identical water across those two paths (a few swap places at
+  // the frame edge even though the camera is identical).
   await page.getByRole("button", { name: "Reset view" }).click();
-  await expect.poll(async () => shipTargetIds(page)).toEqual([...onScreenDetailIds]);
+  await expect.poll(async () => restFraming((await readVisualDebug(page)).camera)).toEqual(firstPhaseCamera);
+  expect(await shipTargetIds(page)).not.toContain(outsiderDetailId);
 
   const renderedDetailIds = new Set(
     (await readVisualDebug(page)).targets?.map(({ detailId }) => detailId),
@@ -560,6 +566,18 @@ test(...visualLane("dom", "stale peg and stress evidence reads as a caveat, not 
   }
 });
 
+/** The framing a camera state shows: the rig, the rest's presence and eye, and whether a shot overrides it. */
+function restFraming(camera: DebugCamera | null | undefined) {
+  return {
+    offsetX: camera?.offsetX ?? null,
+    offsetY: camera?.offsetY ?? null,
+    restEye: camera?.rest?.view.eye ?? null,
+    restPresence: camera?.rest?.presence ?? 0,
+    shot: Boolean(camera?.shot && camera.shot.presence > 0),
+    zoom: camera?.zoom ?? null,
+  };
+}
+
 async function shipTargetIds(page: Page): Promise<string[]> {
   const debug = await readVisualDebug(page);
   return debug.targets?.filter(({ kind }) => kind === "ship").map(({ detailId }) => detailId) ?? [];
@@ -585,7 +603,7 @@ test(...visualLane("interaction", "native reference dialogs preserve focus and l
   await page.goto("/?debug=1#t=12");
   await waitForRuntimeDebug(page, false);
 
-  const find = page.getByRole("button", { name: "Find /" });
+  const find = page.getByRole("button", { name: "find", exact: true });
   const explore = page.getByRole("button", { name: "Explore harbor controls" });
   const skip = page.getByRole("button", { name: "Skip map to controls" });
   await page.keyboard.press("Tab");
@@ -599,7 +617,7 @@ test(...visualLane("interaction", "native reference dialogs preserve focus and l
   await expect(page.getByRole("combobox")).toBeVisible();
   await page.keyboard.press("Escape");
 
-  const legendTrigger = page.getByRole("button", { name: "Legend", exact: true });
+  const legendTrigger = page.getByRole("button", { name: "legend", exact: true });
   await legendTrigger.click();
   const legend = page.getByRole("dialog", { name: "Legend", exact: true });
   await expect(legend).toBeVisible();
@@ -639,7 +657,7 @@ test(...visualLane("interaction", "native reference dialogs preserve focus and l
   await expect(ledger).toHaveCount(0);
   const detail = page.getByTestId("pharosville-detail-panel");
   await expect(detail).toBeVisible();
-  await expect(detail.getByRole("button", { name: "Close details" })).toBeFocused();
+  await expect(detail.getByRole("heading", { level: 2 })).toBeFocused();
 
   await page.getByLabel(/Light and motion:/).click();
   await page.getByLabel("Time of day").fill("18:15");
@@ -660,12 +678,17 @@ test(...visualLane("interaction", "a cold reduced-motion selection link frames i
   await page.goto("/?debug=1#sel=ship.usdt-tether&t=18");
   await waitForRuntimeDebug(page, true);
   await expect(page.getByTestId("pharosville-detail-panel")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Close details" })).toBeFocused();
+  await expect(page.getByTestId("pharosville-detail-panel").getByRole("heading", { level: 2 })).toBeFocused();
   await expect.poll(async () => {
     const debug = await readVisualDebug(page);
     const target = debug.targets?.find((entry) => entry.detailId === "ship.usdt-tether");
     if (!target) return false;
-    const anchor = debug.selectedDetailAnchor ?? { x: target.rect.x + target.rect.width / 2, y: target.rect.y + target.rect.height / 2 };
-    return Math.abs(anchor.x - 800) < 160 && Math.abs(anchor.y - 500) < 100;
+    // W1.7 shot contract: reduced motion cuts straight to the composed shot, the
+    // hull on the lower-left third (mirrored to the right third when it heads left).
+    const anchor = target.anchor ?? { x: target.rect.x + target.rect.width / 2, y: target.rect.y + target.rect.height };
+    const x = anchor.x / 1600;
+    const y = anchor.y / 1000;
+    const onThird = (x >= 0.25 && x <= 0.47) || (x >= 0.53 && x <= 0.75);
+    return onThird && y >= 0.52 && y <= 0.72;
   }).toBe(true);
 });

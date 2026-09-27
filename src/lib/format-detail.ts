@@ -100,7 +100,7 @@ export type DetailFactKey =
   | "waterStyle"
   | "atmosphere"
   | "sourceFields"
-  | "wreckSilhouette";
+  | "gardenStone";
 
 export interface DetailFactLike {
   label: string;
@@ -169,7 +169,7 @@ const DETAIL_FACT_LABELS = {
   "atmosphere": "atmosphere",
   "source": "sourceFields",
   "source fields": "sourceFields",
-  "wreck silhouette": "wreckSilhouette",
+  "stone garden": "gardenStone",
 } as const satisfies Record<string, DetailFactKey>;
 
 export function classifyDetailFactLabel(label: string): DetailFactKey | null {
@@ -184,47 +184,55 @@ export function detailFactValue(facts: readonly DetailFactLike[], key: DetailFac
   return null;
 }
 
-// The first screen quotes at most three figures — the panel's "reading line".
-// Everything else waits inside the record disclosure, so a first look stays a
-// plaque rather than a table (interface revamp DU5/DU12).
+// The first screen quotes at most three figures — the panel's "reading line",
+// set as three labelled cells like a print's colophon (W6.3). Everything else
+// waits inside the record disclosure, so a first look stays a plaque rather
+// than a table (interface revamp DU5/DU12).
 const READING_LINE_MAX_FIGURES = 3;
 
 interface ReadingLineFigure {
   /** Raw fact label, as authored in `systems/detail-model.ts`. */
   label: string;
+  /** The cell's lowercase caption above the figure. */
+  cell: string;
   format?: (value: string) => string;
+}
+
+export interface DetailReadingCell {
+  label: string;
+  value: string;
 }
 
 const compactFigure = (value: string) => formatCompactUsd(value);
 
 const READING_LINE_FIGURES: Record<string, readonly ReadingLineFigure[]> = {
   area: [
-    { label: "DEWS band" },
-    { label: "Stablecoins", format: (value) => `${value} ${value === "1" ? "ship" : "ships"}` },
+    { label: "DEWS band", cell: "band" },
+    { label: "Stablecoins", cell: "ships" },
   ],
   dock: [
-    { label: "Stablecoin supply", format: compactFigure },
-    { label: "Stablecoin count", format: (value) => `${value} ${value === "1" ? "stablecoin" : "stablecoins"}` },
-    { label: "Health", format: (value) => `${value} health` },
+    { label: "Stablecoin supply", cell: "supply", format: compactFigure },
+    { label: "Stablecoin count", cell: "stablecoins" },
+    { label: "Health", cell: "health" },
   ],
   grave: [
-    { label: "Cause" },
-    { label: "Date" },
-    { label: "Peak market cap", format: compactFigure },
+    { label: "Cause", cell: "cause" },
+    { label: "Date", cell: "fell" },
+    { label: "Peak market cap", cell: "peak", format: compactFigure },
   ],
   lighthouse: [
-    { label: "Score", format: (value) => `PSI ${value}` },
-    { label: "Band" },
+    { label: "Score", cell: "psi" },
+    { label: "Band", cell: "band" },
   ],
   ship: [
-    { label: "Market cap", format: compactFigure },
-    { label: "Fleet rank" },
-    { label: "24h supply change", format: (value) => `${value} 24h` },
+    { label: "Market cap", cell: "supply", format: compactFigure },
+    { label: "Fleet rank", cell: "rank" },
+    { label: "24h supply change", cell: "24h" },
     // The fact row spells the direction out ("+42 bps vs USD — above peg; hull
     // rides high"); the reading line quotes figures, so it takes the figure and
     // leaves the sentence to the row below it.
-    { label: "Peg deviation", format: (value) => value.split(" — ")[0]!.trim() },
-    { label: "Cycle tempo" },
+    { label: "Peg deviation", cell: "peg", format: (value) => value.split(" — ")[0]!.trim() },
+    { label: "Cycle tempo", cell: "tempo" },
   ],
 };
 
@@ -235,18 +243,19 @@ function normalizeFactLabel(label: string): string {
 }
 
 /**
- * Up to three figures for the panel's first screen — the "reading line". The
- * order is fixed per kind and never reshuffled by how the entity is doing, so
- * the line reads the same way every time (interface revamp DU12). Returns null
- * when nothing is worth quoting (an unlit lighthouse, the pigeonnier); the
- * panel then omits the line rather than padding it with "None on record".
+ * Up to three labelled figures for the panel's first screen — the "reading
+ * line". The order is fixed per kind and never reshuffled by how the entity is
+ * doing, so the line reads the same way every time (interface revamp DU12).
+ * Returns an empty list when nothing is worth quoting (an unlit lighthouse,
+ * the pigeonnier); the panel then omits the line rather than padding it with
+ * "None on record".
  */
-export function buildDetailReadingLine(
+export function buildDetailReadingCells(
   kind: string,
   facts: readonly DetailFactLike[],
-): string | null {
+): DetailReadingCell[] {
   const wanted = READING_LINE_FIGURES[normalizeFactLabel(kind)];
-  if (!wanted) return null;
+  if (!wanted) return [];
 
   const byLabel = new Map<string, string>();
   for (const fact of facts) {
@@ -254,14 +263,16 @@ export function buildDetailReadingLine(
     if (!byLabel.has(key)) byLabel.set(key, fact.value);
   }
 
-  const figures: string[] = [];
+  const cells: DetailReadingCell[] = [];
   for (const figure of wanted) {
-    if (figures.length >= READING_LINE_MAX_FIGURES) break;
+    if (cells.length >= READING_LINE_MAX_FIGURES) break;
     const value = byLabel.get(normalizeFactLabel(figure.label))?.trim();
     if (!value || EMPTY_FIGURE.test(value)) continue;
-    figures.push(figure.format ? figure.format(value) : value);
+    // Figures set as print: a leading hyphen-minus becomes a true minus (U+2212).
+    const formatted = (figure.format ? figure.format(value) : value).replace(/^-(?=\d)/, "\u2212");
+    cells.push({ label: figure.cell, value: formatted });
   }
-  return figures.length > 0 ? figures.join(" · ") : null;
+  return cells;
 }
 
 export function buildDetailFactSections(facts: readonly DetailFactLike[]): DetailFactSections {
@@ -400,8 +411,8 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   if (atmosphere) identity.push({ key: "atmosphere", label: "Atmosphere", value: atmosphere });
   const sourceFields = lookup.get("sourceFields");
   if (sourceFields) identity.push({ key: "sourceFields", label: "Source fields", value: sourceFields });
-  const wreckSilhouette = lookup.get("wreckSilhouette");
-  if (wreckSilhouette) identity.push({ key: "wreckSilhouette", label: "Wreck silhouette", value: wreckSilhouette });
+  const gardenStone = lookup.get("gardenStone");
+  if (gardenStone) identity.push({ key: "gardenStone", label: "Stone garden", value: gardenStone });
 
   const position: DetailDisplayRow[] = [];
   const position_ = lookup.get("representativePosition");

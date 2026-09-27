@@ -32,12 +32,12 @@ describe("DetailPanel woodblock record", () => {
     const view = render(<DetailPanel onClose={() => undefined} detail={detail} visible={false} />);
     expect(document.activeElement).toBe(opener);
     view.rerender(<DetailPanel onClose={() => undefined} detail={detail} visible />);
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close details" }));
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 2, name: "Test" }));
     view.rerender(<DetailPanel onClose={() => undefined} detail={detail} visible={false} />);
     expect(document.activeElement).toBe(opener);
     opener.remove();
   });
-  it("uses non-modal landmark semantics and focuses/restores the close control", () => {
+  it("uses non-modal landmark semantics and focuses the title, then restores focus", () => {
     const opener = document.createElement("button");
     opener.type = "button";
     opener.textContent = "Open details";
@@ -59,10 +59,10 @@ describe("DetailPanel woodblock record", () => {
     // interactive, so it must NOT be aria-modal: that would mark the
     // accessibility ledger and live region outside it inert.
     const panel = screen.getByRole("complementary", { name: "Test Ship" });
-    const closeButton = screen.getByRole("button", { name: "Close details" });
     expect(panel.getAttribute("aria-modal")).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.activeElement).toBe(closeButton);
+    // W6.3: the title takes focus, so a screen reader reads what opened first.
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 2, name: "Test Ship" }));
 
     view.unmount();
     expect(document.activeElement).toBe(opener);
@@ -81,12 +81,12 @@ describe("DetailPanel woodblock record", () => {
 
     render(<DetailPanel detail={detail} onClose={() => undefined} />);
 
-    const closeButton = screen.getByRole("button", { name: "Close details" });
-    expect(document.activeElement).toBe(closeButton);
+    const heading = screen.getByRole("heading", { level: 2, name: "Test Ship" });
+    expect(document.activeElement).toBe(heading);
 
     // Tab is left to the browser's normal focus order (no preventDefault),
     // so focus can leave the panel toward the rest of the page chrome.
-    const tabEvent = fireEvent.keyDown(closeButton, { key: "Tab" });
+    const tabEvent = fireEvent.keyDown(heading, { key: "Tab" });
     expect(tabEvent).toBe(true);
   });
 
@@ -115,7 +115,7 @@ describe("DetailPanel woodblock record", () => {
     expect(statusLine.textContent).toContain("Calm Anchorage");
     expect(statusLine.textContent).not.toContain("Steady peg evidence");
     expect(statusLine.closest("[data-risk-band]")?.getAttribute("data-risk-band")).toBe("calm");
-    expect(statusLine.querySelector(".pharosville-detail-panel__seal")?.getAttribute("aria-hidden")).toBe("true");
+    expect(statusLine.closest("header")?.querySelector(".pharosville-detail-panel__seal")?.getAttribute("aria-hidden")).toBe("true");
     expect(statusLine.textContent).toContain("-12 bps vs USD");
   });
 
@@ -151,7 +151,7 @@ describe("DetailPanel woodblock record", () => {
 
   it("keeps the expanded ship record bounded while exposing the safety grade", () => {
     const markup = renderShipPanel("susds-sky", "susds-sky");
-    const dts = markup.match(/<dt[^>]*>/g) ?? [];
+    const dts = markup.match(/<div class="pv-fact-row"/g) ?? [];
     expect(dts.length).toBeLessThanOrEqual(20);
     expect(markup).toContain("In service since / tracked");
     // The safety grade folds into the composed Class row rather than its own dt.
@@ -192,7 +192,7 @@ describe("DetailPanel woodblock record", () => {
       links: [],
     };
     const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
-    const dts = markup.match(/<dt[^>]*>/g) ?? [];
+    const dts = markup.match(/<div class="pv-fact-row"/g) ?? [];
     expect(dts.length).toBeLessThanOrEqual(8);
     // The gated signals must fold into host rows, not silently drop.
     expect(markup).toContain("Low-confidence price feed");

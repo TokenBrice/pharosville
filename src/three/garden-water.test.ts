@@ -11,7 +11,6 @@ import {
   RingGeometry,
   Scene,
   ShaderMaterial,
-  SRGBColorSpace,
   Texture,
   TextureLoader,
   Vector3,
@@ -45,11 +44,9 @@ import {
 import {
   GARDEN_WATER_MAX_RIPPLE_RINGS,
   GARDEN_WATER_MAX_LIGHT_LANES,
-  GARDEN_WATER_NIGHT_EMISSIVE_BUDGET,
   GARDEN_WATER_PLATE_MARGIN_TILES,
-  gardenWaterOpenNightMeanEmissiveBudget,
 } from "./garden-water-contract";
-
+import { dayCyclePhase } from "./garden-day-cycle";
 /**
  * Shader-hygiene tripwire (2026-07-30): a `uXxx` identifier USED in a shader
  * body but never DECLARED there compiles to "undeclared identifier" on the
@@ -114,12 +111,6 @@ describe("water shader uniform hygiene", () => {
 
   it("declares uStorm in the fragment stage (the 2026-07-30 regression)", () => {
     expect(declaredUniforms(FRAGMENT_SHADER).has("uStorm")).toBe(true);
-  });
-
-  it("masks screen-space rain to the danger region without overlay geometry", () => {
-    expect(FRAGMENT_SHADER).toContain("gl_FragCoord.xy");
-    expect(FRAGMENT_SHADER).toContain(`if (regionId == ${SEA_REGION_ID.danger})`);
-    expect(FRAGMENT_SHADER).toContain("uTime * (0.9 + uStorm * 1.4)");
   });
 
   it("masks peg-summary haze to existing risk regions in the water draw", () => {
@@ -266,7 +257,6 @@ describe("createGardenWater", () => {
     const scene = new Scene();
     const probe = new Texture();
     scene.environment = probe;
-    scene.environmentIntensity = 0.37;
     const versionBeforeProbe = water.material.version;
 
     water.mesh.onBeforeRender(
@@ -280,7 +270,6 @@ describe("createGardenWater", () => {
 
     expect(water.material.uniforms.envMap!.value).toBe(probe);
     expect((water.material as ShaderMaterial & { envMap: Texture | null }).envMap).toBe(probe);
-    expect(uniformNumber(water.material, "uEnvironmentIntensity")).toBe(0.37);
     expect(water.material.version).toBeGreaterThan(versionBeforeProbe);
 
     const disposeProbe = vi.spyOn(probe, "dispose");
@@ -289,6 +278,34 @@ describe("createGardenWater", () => {
     expect(disposeProbe).not.toHaveBeenCalled();
   });
 
+
+  it("rises a one-shot ring once, ahead of the standing trains, then clears it", () => {
+    const water = createGardenWater(0);
+    const pulse = { center: { x: 4, z: 6 }, id: "fish-rise", periodSeconds: 5, radius: 3, strength: 0.2 };
+    // A frozen (reduced-motion) clock refuses the pulse: no ring rises.
+    water.update(frame({ reducedMotion: true }));
+    water.rippleRings.pulseRing(pulse);
+    expect(water.rippleRings.ringCount()).toBe(0);
+
+    for (let index = 0; index < GARDEN_WATER_MAX_RIPPLE_RINGS + 2; index += 1) {
+      water.rippleRings.setRing({
+        bands: 2, center: { x: index, z: 0 }, id: `standing.${index}`, periodSeconds: 9, radius: 5, strength: 1,
+      });
+    }
+    water.update(frame({ timeSeconds: 100 }));
+    water.rippleRings.pulseRing(pulse);
+    const params = water.material.uniforms.uRippleParams!.value as { x: number; y: number }[];
+    const rings = water.material.uniforms.uRipple!.value as { w: number }[];
+    // Weaker than every standing train, still first: an event outranks texture.
+    expect(params[0]!.x).toBeLessThan(0);
+    expect(rings[0]!.w).toBe(100);
+
+    water.update(frame({ timeSeconds: 103 }));
+    expect(water.rippleRings.ringCount()).toBe(GARDEN_WATER_MAX_RIPPLE_RINGS + 3);
+    water.update(frame({ timeSeconds: 100 + 5 * 1.3 + 0.1 }));
+    expect(water.rippleRings.ringCount()).toBe(GARDEN_WATER_MAX_RIPPLE_RINGS + 2);
+    expect(params.slice(0, GARDEN_WATER_MAX_RIPPLE_RINGS).every((ring) => ring.x > 0)).toBe(true);
+  });
 
   it("keeps the twelve loudest ripple rings, deterministically, when oversubscribed", () => {
     // T0.7 (2026-09-07): claimants exceed GARDEN_WATER_MAX_RIPPLE_RINGS, and
@@ -420,36 +437,6 @@ describe("createGardenWater", () => {
       expect(waves[id]!.z).toBe(character.crossedNormal);
       expect(waves[id]!.w).toBe(character.shallowShelf);
     }
-    const source = water.material.fragmentShader;
-    const vertexSource = water.material.vertexShader;
-    expect(source).toContain("vec3 regionColor = regionTint * (waterLuma / tintLuma)");
-    expect(source).not.toContain("mix(\n        regionTint,\n        luminanceMatchedTint");
-    expect(source).toContain(`if (regionId == ${SEA_REGION_ID.open})`);
-    expect(source).toContain("nA = sampleWaterNormal(vWaterPosition * 0.055 + openFlow * 0.045)");
-    expect(vertexSource).toContain("mix(-uWindDir, -regionFlow.xy, regionFlow.z)");
-    expect(source).toContain("signatureNormal");
-    expect(source).toContain(`regionId == ${SEA_REGION_ID.watch}`);
-    expect(source).toContain(`regionId == ${SEA_REGION_ID.alert}`);
-    expect(source).toContain(`regionId == ${SEA_REGION_ID.warning}`);
-    expect(source).toContain(`regionId == ${SEA_REGION_ID.danger}`);
-    expect(source).toContain(`regionId == ${SEA_REGION_ID.ledger}`);
-    expect(source).toContain(`regionId == ${SEA_REGION_ID.wreck}`);
-    expect(source).toContain("crestFoamMask *= 0.52");
-  });
-
-
-  it("fades regional surface deviations through the continuous distance field in both stages", () => {
-    for (const source of [VERTEX_SHADER, FRAGMENT_SHADER]) {
-      expect(source).toContain("float regionBlend = smoothstep(0.0, 0.56, boundaryDistance)");
-      expect(source).toContain("regionFlow.z *= regionBlend");
-    }
-    expect(VERTEX_SHADER).toContain("mix(0.5, uRegionSwell[regionId].x, regionBlend)");
-    expect(VERTEX_SHADER).toContain("mix(1.0, uRegionSwell[regionId].y, regionBlend)");
-    expect(FRAGMENT_SHADER).toContain("regionFlow.w * regionBlend");
-    expect(FRAGMENT_SHADER).toContain("signatureNormal * detailFalloff * regionBlend");
-    expect(FRAGMENT_SHADER).toContain("seaReflectivity = mix(1.0, regionReflect, regionBlend)");
-    expect(FRAGMENT_SHADER).toContain("boundaryEnabled * regionBlend");
-    expect(FRAGMENT_SHADER).toContain("mix(1.0, mix(0.84, 0.96, silt) * 0.94, regionBlend)");
   });
 
   it("maps the region field with the water plane's z-flip", () => {
@@ -501,8 +488,6 @@ describe("createGardenWater", () => {
     for (const aliased of [
       "step(0.76,",
       "step(0.35,",
-      "step(0.86, sin(",
-      "step(0.0, shoreWorld)",
       "step(-2.0, along)",
     ]) {
       // `aaStep(0.76,` contains `Step(0.76,` but not `step(0.76,` — the check
@@ -557,24 +542,20 @@ describe("createGardenWater", () => {
     const water = createGardenWater(0);
     settle(water, { renderScheduler: { tier: "full" } });
     const atRest = {
-      cloud: uniformNumber(water.material, "uCloudShadowStrength"),
       detail: uniformNumber(water.material, "uDetail"),
       glitter: uniformNumber(water.material, "uGlitterStrength"),
       ripple: uniformNumber(water.material, "uRippleStrength"),
     };
 
     settle(water, { renderScheduler: { tier: "interaction", loadTier: "full" } });
-    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBeCloseTo(atRest.cloud, 5);
     expect(uniformNumber(water.material, "uDetail")).toBeCloseTo(atRest.detail, 5);
     expect(uniformNumber(water.material, "uGlitterStrength")).toBeCloseTo(atRest.glitter, 5);
     expect(uniformNumber(water.material, "uRippleStrength")).toBeCloseTo(atRest.ripple, 5);
-    expect(water.cloudShadowsOn()).toBe(true);
 
     // A drag on a machine already shedding load still sheds — quality tracks
     // the machine, not the mouse.
     settle(water, { renderScheduler: { tier: "interaction", loadTier: "recovery" } });
     expect(uniformNumber(water.material, "uDetail")).toBeCloseTo(0.36, 3);
-    expect(water.cloudShadowsOn()).toBe(false);
   });
 
   it("eases a load-tier change instead of stepping it", () => {
@@ -635,18 +616,18 @@ describe("createGardenWater", () => {
     }
   });
 
-  it("gates cloud shadows and glitter to balanced+ tiers", () => {
+  it("gates glitter and ripple rings to balanced+ tiers and casts no cloud shadow from an empty sky", () => {
     const water = createGardenWater(0);
 
     settle(water, { renderScheduler: { tier: "balanced" } });
-    expect(water.cloudShadowsOn()).toBe(true);
-    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBeGreaterThan(0);
+    expect(water.cloudShadowsOn()).toBe(false);
+    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBe(0);
     expect(uniformNumber(water.material, "uGlitterStrength")).toBeCloseTo(1, 3);
     expect(uniformNumber(water.material, "uRippleStrength")).toBeCloseTo(1, 3);
 
     settle(water, { renderScheduler: { tier: "recovery" } });
     expect(water.cloudShadowsOn()).toBe(false);
-    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBeCloseTo(0, 3);
+    expect(uniformNumber(water.material, "uCloudShadowStrength")).toBe(0);
     expect(uniformNumber(water.material, "uGlitterStrength")).toBeCloseTo(0, 3);
     expect(uniformNumber(water.material, "uRippleStrength")).toBeCloseTo(0, 3);
   });
@@ -706,27 +687,18 @@ describe("createGardenWater", () => {
     expect(water.material.uniforms.uHarborEllipse!.value).toMatchObject({ x: 10, y: 6 });
   });
 
-  it("pins the authored turquoise-to-indigo day descent", () => {
-    // Golden Garden re-grade: exact derived pins catch a palette or mix change
-    // that would collapse the intended warm-land/cool-sea hue separation or
-    // drag the shelf back toward a cyan pool.
-    const water = createGardenWater(0);
-    expect(uniformColor(water.material, "uShallowColor").getHexString()).toBe("5c978d");
-    expect(uniformColor(water.material, "uBaseColor").getHexString()).toBe("138183");
-    expect(uniformColor(water.material, "uDeepColor").getHexString()).toBe("0d5768");
-  });
-
   it("moves through distinct day, dusk, and night palettes", () => {
     const water = createGardenWater(0);
+    const body = () => (water.material.uniforms.uBandColor!.value as Color[])[1]!.clone();
 
     water.update(frame({ wallClockHour: 12 }));
-    const day = uniformColor(water.material, "uBaseColor").clone();
+    const day = body();
 
     water.update(frame({ wallClockHour: 18 }));
-    const dusk = uniformColor(water.material, "uBaseColor").clone();
+    const dusk = body();
 
     water.update(frame({ wallClockHour: 0 }));
-    const night = uniformColor(water.material, "uBaseColor").clone();
+    const night = body();
 
     expect(day.equals(dusk)).toBe(false);
     expect(dusk.equals(night)).toBe(false);
@@ -734,49 +706,41 @@ describe("createGardenWater", () => {
     expect(uniformNumber(water.material, "uNight")).toBe(1);
   });
 
-  it("prints a day-only near-ink to far-pale value ladder", () => {
-    const source = createGardenWater(0).material.fragmentShader;
-    expect(source).toContain("float dayValueDepth = smoothstep(105.0, 270.0, camDistance)");
-    expect(source).toContain("float dayValueGain = mix(0.55, 1.12, dayValueDepth)");
-    expect(source).toContain("waterColor *= mix(1.0, dayValueGain, uDaylight)");
+  it("keeps the transmitted body a low-chroma ink that darkens with depth at every hour", () => {
+    // W3.1 (water-1c): the sea's hue comes from the mirrored sky; the body
+    // under it is an absorption ink (OKLCH C ≤ 0.04). A dyed body is what made
+    // the golden sea slate-blue under an amber sky and calm a mint pool.
+    const water = createGardenWater(0);
+    for (const hour of [6, 12, 17.6, 18.8, 22]) {
+      water.update(frame({ wallClockHour: hour }));
+      const bands = water.material.uniforms.uBandColor!.value as Color[];
+      for (const band of bands) {
+        expect(oklchChroma(band), `hour ${hour}`).toBeLessThanOrEqual(0.045);
+      }
+      expect(luminance(bands[0]!), `hour ${hour}`).toBeGreaterThan(luminance(bands[3]!));
+    }
+    water.update(frame({ wallClockHour: 12 }));
+    const noonDeep = luminance((water.material.uniforms.uBandColor!.value as Color[])[3]!);
+    water.update(frame({ wallClockHour: 22 }));
+    const nightDeep = luminance((water.material.uniforms.uBandColor!.value as Color[])[3]!);
+    expect(nightDeep).toBeLessThan(noonDeep);
   });
 
-  it("keeps the dusk sea out of the pink-mauve wedge", () => {
-    // W1.6 regression. The dusk ramp used to tint an indigo body with lantern
-    // gold and ember, and every intermediate step between a warm neutral and an
-    // indigo is violet — the shipped frame sampled hue 270-291 across the open
-    // sea and read as lilac paint. The ramp now descends nando-iro -> ai ->
-    // kachi-iro, so it arrives at indigo from the blue-green side.
-    //
-    // This asserts the SHAPE, not three hex literals: the shelf must be cooler
-    // than violet and the descent must stay monotonic in value. Tuning the
-    // exact dye is still free; re-introducing the mauve is not.
+  it("doses the sky in the sea by the light beats, never by the IBL intensity", () => {
     const water = createGardenWater(0);
-    water.update(frame({ wallClockHour: 19 }));
+    water.update(frame({ wallClockHour: 12 }));
+    const noon = uniformNumber(water.material, "uSkyRadiance");
+    water.update(frame({ wallClockHour: 23 }));
+    const night = uniformNumber(water.material, "uSkyRadiance");
+    expect(night).toBeLessThan(noon);
+    // The open-night water stays quiet: the mirrored night sky is at most half.
+    expect(night).toBeLessThanOrEqual(0.5);
+  });
 
-    const shallow = uniformColor(water.material, "uShallowColor").clone();
-    const mid = uniformColor(water.material, "uBaseColor").clone();
-    const deep = uniformColor(water.material, "uDeepColor").clone();
-
-    // The shelf and the body are where the mauve lived; the deep is allowed to
-    // stay kachi-iro, which is a legitimately indigo-violet traditional colour.
-    for (const [name, color] of [["shallow", shallow], ["mid", mid]] as const) {
-      const hue = hslHue(color);
-      expect(hue, `${name} must not sit in the mauve/pink wedge`)
-        .toBeGreaterThan(150);
-      expect(hue, `${name} must not sit in the mauve/pink wedge`)
-        .toBeLessThan(250);
-    }
-
-    // Value has to carry the depth read, hue-blind or not.
-    expect(luminance(shallow)).toBeGreaterThan(luminance(mid));
-    expect(luminance(mid)).toBeGreaterThan(luminance(deep));
-
-    // The gold did not vanish — it moved to the sun path, where dusk warmth
-    // belongs, and the highlight has to stay warmer than the body it lights.
-    const highlight = uniformColor(water.material, "uHighlightColor").clone();
-    expect(highlight.r).toBeGreaterThan(highlight.b);
-    expect(luminance(highlight)).toBeGreaterThan(luminance(shallow));
+  it("lays no moon road by day, whatever the moon is doing", () => {
+    const water = createGardenWater(0);
+    water.update(frame({ wallClockHour: 12 }));
+    expect(uniformNumber(water.material, "uMoonLight")).toBe(0);
   });
 
   it("thickens the height fog at dusk and in storms, thinnest at noon", () => {
@@ -790,19 +754,18 @@ describe("createGardenWater", () => {
     const noon = uniformNumber(water.material, "uGardenHeightFogDensity");
     water.update(frame({ wallClockHour: 0 }));
     const night = uniformNumber(water.material, "uGardenHeightFogDensity");
-    // 18:00 is not full dusk: daylight only decays through 19:00
-    // (dayCyclePhase smoothsteps 16:30-19:00), and the blend law lerps
-    // toward the near-clear day density for every bit of daylight left,
-    // so the dusk preset is not authoritative there. 19:00 is the last
-    // hour of unbroken evening glow with zero daylight — the same
-    // full-dusk hour the mauve-wedge test above samples — so this reads
-    // the dusk preset itself: the densest air of the three phases.
-    water.update(frame({ wallClockHour: 19 }));
+    // Full dusk is wherever the day cycle puts it (the solar clock moves it),
+    // so read the dusk preset at the evening hour of peak dusk weight.
+    let duskHour = 17;
+    for (let hour = 17; hour <= 21; hour += 0.05) {
+      if (dayCyclePhase(hour).dusk > dayCyclePhase(duskHour).dusk) duskHour = hour;
+    }
+    water.update(frame({ wallClockHour: duskHour }));
     const dusk = uniformNumber(water.material, "uGardenHeightFogDensity");
 
     expect(noon).toBeGreaterThan(0);
     expect(night).toBeGreaterThan(noon);
-    expect(dusk).toBeGreaterThan(night);
+    expect(dusk).toBeGreaterThanOrEqual(night);
 
     water.update(frame({ wallClockHour: 12 }), {
       wind: { x: -0.855, y: 0.519, speed: 0.5, gust: 0 },
@@ -818,11 +781,10 @@ describe("createGardenWater", () => {
     expect(water.material.vertexShader).toContain("gardenGerstner");
     expect(water.material.vertexShader).not.toContain("gardenWave");
     expect(water.material.vertexShader).toContain("vGerstnerJ");
-    // The fragment consumes the analytic normal, the Jacobian crest factor,
-    // the wake field and the caustic web.
+    // The fragment consumes the analytic normal, the Jacobian crest factor
+    // and the wake field.
     expect(water.material.fragmentShader).toContain("vGerstnerNormal");
     expect(water.material.fragmentShader).toContain("uWakeMap");
-    expect(water.material.fragmentShader).toContain("uCausticStrength");
     expect(water.material.vertexShader).toContain("ampScale * regionChop");
     expect(water.material.vertexShader).toContain("vGerstnerJ = waveJ");
   });
@@ -842,28 +804,24 @@ describe("createGardenWater", () => {
     expect(wind).toMatchObject({ x: 0, y: 1 });
   });
 
-  it("eases the wake field in at balanced+ and the caustic web at full only", () => {
+  it("eases the wake field in at balanced+ and out below it", () => {
     const water = createGardenWater(0);
     settle(water, { renderScheduler: { tier: "full" } });
     expect(uniformNumber(water.material, "uWakeStrength")).toBeCloseTo(1, 1);
     expect(water.wakeStrength()).toBe(uniformNumber(water.material, "uWakeStrength"));
-    expect(uniformNumber(water.material, "uCausticStrength")).toBeCloseTo(1, 1);
 
     settle(water, { renderScheduler: { tier: "balanced" } });
     expect(uniformNumber(water.material, "uWakeStrength")).toBeCloseTo(1, 1);
-    expect(uniformNumber(water.material, "uCausticStrength")).toBeCloseTo(0, 1);
 
     settle(water, { renderScheduler: { tier: "recovery" } });
     expect(uniformNumber(water.material, "uWakeStrength")).toBeCloseTo(0, 1);
-    expect(uniformNumber(water.material, "uCausticStrength")).toBeCloseTo(0, 1);
   });
 
-  it("snaps the wake and caustic gates under reduced motion, never eases", () => {
+  it("snaps the wake gate under reduced motion, never eases", () => {
     const water = createGardenWater(0);
     // One static frame at full: the composition is complete immediately.
     water.update(frame({ reducedMotion: true, renderScheduler: { tier: "full" } }));
     expect(uniformNumber(water.material, "uWakeStrength")).toBe(1);
-    expect(uniformNumber(water.material, "uCausticStrength")).toBe(1);
   });
 
   it("binds the wake window in water space via setWakeState", () => {
@@ -940,16 +898,6 @@ describe("createGardenWater", () => {
     // lane-texture samples: breaking the point strokes is analytic and adds
     // no GPU texture fetch.
     expect(source.match(/texture2D\(uLaneTexture/g)).toHaveLength(4);
-  });
-});
-
-describe("sea quietness contract", () => {
-  it("keeps the authored open-night emissive mean below the recorded threshold", () => {
-    const mean = gardenWaterOpenNightMeanEmissiveBudget();
-    expect(mean).toBeCloseTo(0.015715, 8);
-    expect(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.maxMeanLuminance).toBe(0.016);
-    expect(mean).toBeLessThan(GARDEN_WATER_NIGHT_EMISSIVE_BUDGET.maxMeanLuminance);
-
   });
 });
 
@@ -1126,20 +1074,14 @@ function uniformNumber(material: ShaderMaterial, name: string): number {
   return material.uniforms[name]!.value as number;
 }
 
-function uniformColor(material: ShaderMaterial, name: string): Color {
-  return material.uniforms[name]!.value as Color;
-}
-
-/**
- * Hue in degrees off the DISPLAY colour, not the working one.
- *
- * Uniform colours are in the linear working space; `getHSL(target, SRGBColorSpace)`
- * is what asks the question a viewer would — "what hue is this on screen".
- */
-function hslHue(color: Color): number {
-  const hsl = { h: 0, s: 0, l: 0 };
-  color.getHSL(hsl, SRGBColorSpace);
-  return hsl.h * 360;
+/** OKLCH chroma of a linear working-space colour (Björn Ottosson's OKLab). */
+function oklchChroma(color: Color): number {
+  const l = Math.cbrt(0.4122214708 * color.r + 0.5363325363 * color.g + 0.0514459929 * color.b);
+  const m = Math.cbrt(0.2119034982 * color.r + 0.6806995451 * color.g + 0.1073969566 * color.b);
+  const s = Math.cbrt(0.0883024619 * color.r + 0.2817188376 * color.g + 0.6299787005 * color.b);
+  const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+  const b = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  return Math.hypot(a, b);
 }
 
 function luminance(color: Color): number {

@@ -1,10 +1,11 @@
 import { RUNTIME_CEMETERY_ENTRIES } from "@shared/lib/cemetery-runtime";
 import { resolveChainId } from "@shared/lib/chains";
 import { PSI_HEX_COLORS } from "@shared/lib/psi-colors";
-import { STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT } from "@shared/lib/status-thresholds";
 import type { StabilityIndexResponse } from "@shared/types";
+import { getCirculatingRaw } from "@/lib/supply";
 import type { ChainSummary } from "@shared/types/chains";
 import { buildGardenMonthRecord } from "../../garden-month-record";
+import { buildLongRecord, type LongRecordDeath } from "../../long-record";
 import { buildChainDocks } from "../../chain-docks";
 import { buildSupplyTide } from "../../supply-tide";
 import {
@@ -33,7 +34,9 @@ import type {
 import {
   HIGH_WATER_MARK_WINDOW_DAYS,
   psiBandSeverity,
+  SIGNAL_MAST_LEADER_COUNT,
   SIGNAL_MAST_MAX_PENNANTS,
+  SIGNAL_MAST_STORM_SUPPLY_SHARE,
 } from "../../world-types";
 import type {
   BuildWorldScaffoldStage,
@@ -135,6 +138,8 @@ function buildPigeonnier(): PigeonnierNode {
 function buildLighthouse(
   stability: StabilityIndexResponse | null | undefined,
   pegSummary: PharosVilleInputs["pegSummary"],
+  stablecoins: PharosVilleInputs["stablecoins"],
+  deaths: readonly LongRecordDeath[],
 ): LighthouseNode {
   const current = stability?.current ?? null;
   const band = current?.band ?? null;
@@ -158,9 +163,10 @@ function buildLighthouse(
     unavailable: !current || !isConditionBand(band),
     detailId: "lighthouse",
     lastFleetDepegAt: lastFleetDepegAt(pegSummary),
-    signalMast: buildSignalMast(pegSummary),
+    signalMast: buildSignalMast(pegSummary, stablecoins),
     highWaterMark: buildHighWaterMark(stability),
     gardenMonthRecord: buildGardenMonthRecord(stability),
+    longRecord: buildLongRecord(stability, deaths),
     ...(beamDwell ? { beamDwell } : {}),
   };
 }
@@ -168,7 +174,7 @@ function buildLighthouse(
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * The worst PSI band of the trailing window, for the lighthouse tide-stain.
+ * The worst PSI band of the trailing window, for the lighthouse Worst band, 30d row.
  *
  * The window is measured back from the NEWEST point in the history, not from
  * the wall clock. A producer that stopped writing a week ago should still show
@@ -242,32 +248,36 @@ export function buildBeamDwell(
 }
 
 /**
- * Deviation, in basis points, at which the mast hoists its storm cone.
+ * Fleet-wide peg condition for the observatory hoist (O17b).
  *
- * Derived rather than invented: `STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT` is
- * the pipeline's existing shared answer to "how far apart do two readings of
- * the same price have to be before we treat the gap as real and not noise",
- * and a peg deviation is exactly that question asked against par. Reusing it
- * means the cone moves when that gate moves, instead of drifting from it.
- */
-export const SIGNAL_MAST_STORM_CONE_BPS = STATUS_COINGECKO_PRICE_DIFF_THRESHOLD_PCT * 100;
-
-/**
- * Fleet-wide peg condition for the observatory hoist.
+ * The peg readings are WEIGHED by circulating supply before they reach the
+ * cloth: the pennants count the `SIGNAL_MAST_LEADER_COUNT` largest tracked
+ * coins that are off peg, and the storm cone flies only when the coins off peg
+ * hold at least `SIGNAL_MAST_STORM_SUPPLY_SHARE` of tracked supply. Counting
+ * every depeg, and hoisting the cone on the single worst deviation, kept the
+ * mast saturated on calm days — nineteen dust coins and one tiny
+ * precious-metal coin read as a storm over a BEDROCK harbour.
  *
- * `pegSummary.summary` is the only payload that speaks for the whole fleet at
- * once; every other peg reading in the world is per-coin. Absent summary is
- * NOT calm — a mast with nothing to go on stands bare and says so, because a
- * bare mast that means "all clear" and a bare mast that means "no dispatches
- * arrived" cannot be told apart by looking.
+ * "Tracked" is the peg summary's own coin list; supply comes from the
+ * stablecoin list by id. Absent summary is NOT calm — a mast with nothing to go
+ * on stands bare and says so, because a bare mast that means "all clear" and a
+ * bare mast that means "no dispatches arrived" cannot be told apart by looking.
+ * A summary with no supply to weigh it against stands bare the same way
+ * (`leaderCount` 0), and the Signal mast row says which.
  */
-export function buildSignalMast(pegSummary: PharosVilleInputs["pegSummary"]): SignalMastNode {
+export function buildSignalMast(
+  pegSummary: PharosVilleInputs["pegSummary"],
+  stablecoins: PharosVilleInputs["stablecoins"],
+): SignalMastNode {
   const summary = pegSummary?.summary ?? null;
   if (!summary) {
     return {
       activeDepegCount: 0,
+      leaderCount: 0,
+      leadersOffPeg: [],
       pennantCount: 0,
       capped: false,
+      offPegSupplyShare: null,
       stormCone: false,
       worstBps: null,
       worstSymbol: null,
@@ -279,16 +289,39 @@ export function buildSignalMast(pegSummary: PharosVilleInputs["pegSummary"]): Si
     };
   }
 
-  const activeDepegCount = Math.max(0, Math.trunc(finiteNumber(summary.activeDepegCount) ?? 0));
-  const worstBps = finiteNumber(summary.worstCurrent?.bps);
+  const supplyById = new Map<string, number>();
+  for (const asset of stablecoins?.peggedAssets ?? []) {
+    const supply = getCirculatingRaw(asset);
+    if (Number.isFinite(supply) && supply > 0) supplyById.set(asset.id, supply);
+  }
+  const weighed = (pegSummary?.coins ?? []).flatMap((coin) => {
+    const supply = supplyById.get(coin.id);
+    return supply === undefined ? [] : [{ coin, supply }];
+  });
+  // Largest first; ties by id so a refresh cannot reshuffle the hoist.
+  weighed.sort((left, right) => right.supply - left.supply || left.coin.id.localeCompare(right.coin.id));
+
+  let trackedSupply = 0;
+  let offPegSupply = 0;
+  for (const { coin, supply } of weighed) {
+    trackedSupply += supply;
+    if (coin.activeDepeg) offPegSupply += supply;
+  }
+  const leaders = weighed.slice(0, SIGNAL_MAST_LEADER_COUNT);
+  const leadersOffPeg = leaders
+    .filter(({ coin }) => coin.activeDepeg)
+    .map(({ coin }) => nonEmptyString(coin.symbol) ?? coin.id);
+  const offPegSupplyShare = trackedSupply > 0 ? offPegSupply / trackedSupply : null;
+
   return {
-    activeDepegCount,
-    pennantCount: Math.min(activeDepegCount, SIGNAL_MAST_MAX_PENNANTS),
-    capped: activeDepegCount > SIGNAL_MAST_MAX_PENNANTS,
-    // The gate is on MAGNITUDE: a coin trading above par as far as this is as
-    // much a broken peg as one trading below it.
-    stormCone: worstBps !== null && Math.abs(worstBps) >= SIGNAL_MAST_STORM_CONE_BPS,
-    worstBps,
+    activeDepegCount: Math.max(0, Math.trunc(finiteNumber(summary.activeDepegCount) ?? 0)),
+    leaderCount: leaders.length,
+    leadersOffPeg,
+    pennantCount: Math.min(leadersOffPeg.length, SIGNAL_MAST_MAX_PENNANTS),
+    capped: leadersOffPeg.length > SIGNAL_MAST_MAX_PENNANTS,
+    offPegSupplyShare,
+    stormCone: offPegSupplyShare !== null && offPegSupplyShare >= SIGNAL_MAST_STORM_SUPPLY_SHARE,
+    worstBps: finiteNumber(summary.worstCurrent?.bps),
     worstSymbol: nonEmptyString(summary.worstCurrent?.symbol),
     medianDeviationBps: finiteNumber(summary.medianDeviationBps),
     coinsAtPeg: finiteNumber(summary.coinsAtPeg),
@@ -369,7 +402,7 @@ function buildAreas(shipCountsByRiskPlacement: ReadonlyMap<ShipNode["riskPlaceme
       ],
       links: [{ label: "Cemetery", href: "/cemetery/" }],
       sourceFields: [...WRECK_SHOAL_AREA.sourceFields],
-      summary: `${WRECK_SHOAL_AREA.label} — ${WRECK_SHOAL_AREA.reading}. Wreck silhouettes and cause colour identify the records held here; the area itself is not a live-ship risk placement.`,
+      summary: `${WRECK_SHOAL_AREA.label} — ${WRECK_SHOAL_AREA.reading}. The stone garden on its south shore keeps one stone for every coin that died; the area itself is not a live-ship risk placement.`,
     },
   ];
 }
@@ -481,13 +514,14 @@ const warnedAliasCollapses = new Set<string>();
 export function buildWorldScaffoldStage(inputs: PharosVilleInputs): BuildWorldScaffoldStage {
   const chains = normalizeChainsResponse(inputs.chains);
   const docks = withChainSignals(buildChainDocks(chains), chains);
+  const cemetery = inputs.cemeteryEntries ?? RUNTIME_CEMETERY_ENTRIES;
   return {
     supplyTide: buildSupplyTide(chains),
     map: buildPharosVilleMap(),
-    lighthouse: buildLighthouse(inputs.stability, inputs.pegSummary),
+    lighthouse: buildLighthouse(inputs.stability, inputs.pegSummary, inputs.stablecoins, cemetery),
     pigeonnier: buildPigeonnier(),
     docks,
     areas: buildAreas(countShipsByRiskPlacement(inputs, docks)),
-    graves: graveNodesFromEntries(inputs.cemeteryEntries ?? RUNTIME_CEMETERY_ENTRIES),
+    graves: graveNodesFromEntries(cemetery),
   };
 }

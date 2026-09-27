@@ -71,8 +71,23 @@ export const bundleBudgets = {
     // woodblock record card and the caption/controls chrome measure 38.5 KiB
     // raw / 7.0 KiB gzip with no dead selectors. Raw raised 36 -> 40; the
     // gzip cap is unchanged and is the one that tracks real transfer.
-    maxRawBytes: 40 * 1024,
+    // 2026-09-26 Hour-Print W6: washi paper, ink labels, quiet controls with the
+    // shared .pv-drawer, Stay mode and the hour veil measure 40.1 KiB raw /
+    // 7.8 KiB gzip after ChromeInk's net −0.4 KiB. Raw raised 40 -> 44; gzip
+    // unchanged.
+    maxRawBytes: 44 * 1024,
     maxGzipBytes: 8 * 1024,
+    required: true,
+  },
+  audio: {
+    label: "audio lazy chunk",
+    pattern: /^pharosville-audio-[A-Za-z0-9_-]+\.js$/,
+    // 2026-09-26 Hour-Print W7 (sound-2): the opt-in sound engine — procedural
+    // bed, music, beats, offline recorder and debug mixer, 0 asset bytes. It is
+    // fetched only after the Sound switch (or a `?debug=1&audio=record:N` run),
+    // never on the initial load. Cap per the W7.1 plan row: 16 KiB gzip.
+    maxRawBytes: 48 * 1024,
+    maxGzipBytes: 16 * 1024,
     required: true,
   },
 };
@@ -100,8 +115,16 @@ export const aggregateBudgets = {
   // Gzip raised to measured+8% (820 -> 886 KiB), matching the 2026-07-29
   // precedent above. Raw untouched at 2,581.1 of 3,200 used. The frame-time
   // gate is deliberately NOT relaxed alongside it.
+  // 2026-09-26 Hour-Print W0–W3 (plan agents/2026-09-26-opus-visual-leap):
+  // the pose model, one-air aerial perspective, the solar/lunar sky almanac,
+  // print inks, sky-contact keyline, the rebuilt water surface and the K8 wake
+  // field measured 2,767.5 KiB raw / 892.0 KiB gzip — 6 KiB over the cap after
+  // the tilt-shift, wake hairlines and geese were deleted. Gzip raised to
+  // measured+8% (886 -> 963 KiB) per the precedent above; the renderer chunk
+  // (173 of 454 KiB gzip) is still enforced independently and the frame-time
+  // gate is NOT relaxed.
   maxJsRawBytes: 3_200 * 1024,
-  maxJsGzipBytes: 886 * 1024,
+  maxJsGzipBytes: 963 * 1024,
 };
 
 export const forbiddenBundleChunks = [

@@ -1,7 +1,7 @@
 import {
-  AdditiveBlending,
   Color,
   InstancedMesh,
+  MaxEquation,
   Mesh,
   type Scene,
   type ShaderMaterial,
@@ -9,9 +9,13 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import {
   createGardenWakes,
+  planWakeDecayPass,
   planWakeWindow,
+  WAKE_FOAM_HORIZON_SECONDS,
   WAKE_MAX_STAMPS,
+  WAKE_SLICK_VISIBLE,
   type GardenWakesFrame,
+  type WakeDecayPass,
 } from "./garden-wakes";
 
 const FRAME: GardenWakesFrame = {
@@ -126,7 +130,7 @@ describe("garden wakes passes", () => {
     const passes: {
       autoClear: boolean;
       feedbackVisible: boolean;
-      stampBlending: number;
+      stampEquation: number;
       stampCount: number;
       stampEnergy: number;
       stampVisible: boolean;
@@ -148,7 +152,7 @@ describe("garden wakes passes", () => {
       passes.push({
         autoClear,
         feedbackVisible: feedback.visible,
-        stampBlending: (stamp.material as ShaderMaterial).blending,
+        stampEquation: (stamp.material as ShaderMaterial).blendEquation,
         stampCount: stamp.count,
         stampEnergy,
         stampVisible: stamp.visible,
@@ -167,7 +171,7 @@ describe("garden wakes passes", () => {
       {
         autoClear: true,
         feedbackVisible: true,
-        stampBlending: AdditiveBlending,
+        stampEquation: MaxEquation,
         stampCount: 1,
         stampEnergy: 0,
         stampVisible: false,
@@ -175,14 +179,14 @@ describe("garden wakes passes", () => {
       {
         autoClear: false,
         feedbackVisible: false,
-        stampBlending: AdditiveBlending,
+        stampEquation: MaxEquation,
         stampCount: 1,
         stampEnergy: expect.closeTo(0.9, 6),
         stampVisible: true,
       },
     ]);
     // CPU pass composition sentinel: one queued stamp contributes its energy
-    // once, never once in feedback plus once in the additive pass.
+    // once, never once in feedback plus once in the blended pass.
     expect(passes.reduce((sum, pass) => sum + pass.stampEnergy, 0)).toBeCloseTo(0.9);
     expect(wakes.active).toBe(true);
     // The ping-pong swapped the front texture the water samples.
@@ -229,6 +233,41 @@ describe("garden wakes passes", () => {
     expect(renderer.clear).toHaveBeenCalledTimes(0);
     wakes.dispose();
     fresh.dispose();
+  });
+
+  it("draws reduced-motion hull contact statically, redrawing only when a footprint moves", () => {
+    // Whether the feedback (decay) quad was drawn in each offscreen render.
+    const feedbackDrawn: boolean[] = [];
+    const renderer = rendererStub((scene) => feedbackDrawn.push(scene.children.some(
+      (child) => child instanceof Mesh && !(child instanceof InstancedMesh) && child.visible,
+    )));
+    const wakes = createGardenWakes(renderer as never);
+    const frameWithContact = (x = 47.6) => {
+      advance(wakes, 1, { reducedMotion: true });
+      wakes.stampContact(x, 38.9, 1, 0, 3, 1, 1);
+      wakes.renderStaticContact();
+    };
+    frameWithContact();
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+    // Stamps only: the feedback quad (decay) never runs under reduced motion.
+    expect(feedbackDrawn).toEqual([false]);
+    expect(wakes.stampCount).toBe(0);
+    // A still fleet: the field already holds this footprint, so nothing runs.
+    renderer.clear.mockClear();
+    frameWithContact();
+    expect(renderer.clear).toHaveBeenCalledTimes(0);
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+    expect(wakes.stampCount).toBe(0);
+    // A moved hull: cleared once and redrawn.
+    frameWithContact(49);
+    expect(renderer.clear).toHaveBeenCalledTimes(2);
+    expect(renderer.render).toHaveBeenCalledTimes(2);
+    // Outside reduced motion the static path does nothing.
+    advance(wakes, 1);
+    wakes.stampContact(47.6, 38.9, 1, 0, 3, 1, 1);
+    wakes.renderStaticContact();
+    expect(renderer.render).toHaveBeenCalledTimes(2);
+    wakes.dispose();
   });
 
   it("retains the target through the tier fade, then clears once while invisible", () => {
@@ -340,17 +379,103 @@ describe("garden wakes passes", () => {
     wakes.dispose();
   });
 
-  it("clears and sleeps after the idle timeout with no ships moving", () => {
+  it("keeps the slick until its horizon, then clears and sleeps with no hulls in the window", () => {
     const renderer = rendererStub();
     const wakes = createGardenWakes(renderer as never);
     advance(wakes, 1);
-    wakes.stamp(47.6, 38.9, 1, 0, 0.9, 1);
+    wakes.stamp(47.6, 38.9, 1, 0, 0.9, 4, 1.4, 0.9);
     advance(wakes, 1);
     renderer.clear.mockClear();
-    // 15 idle seconds at 1s deltas: past the 14s timeout.
-    advance(wakes, 15, { deltaSeconds: 1 });
+    // 59 s of field time (deltas clamp to 0.25 s): G may still hold a lane.
+    advance(wakes, 236, { deltaSeconds: 0.25 });
+    expect(wakes.active).toBe(true);
+    expect(renderer.clear).toHaveBeenCalledTimes(0);
+    // Past the 60 s horizon the field is provably empty.
+    advance(wakes, 8, { deltaSeconds: 0.25 });
     expect(wakes.active).toBe(false);
     expect(renderer.clear).toHaveBeenCalledTimes(2);
     wakes.dispose();
+  });
+
+  it("stays awake on contact stamps alone and sleeps the frame they stop", () => {
+    const renderer = rendererStub();
+    const wakes = createGardenWakes(renderer as never);
+    advance(wakes, 1);
+    wakes.stamp(47.6, 38.9, 1, 0, 0.9, 4, 1.4, 0.9);
+    advance(wakes, 1);
+    // Moored hulls keep writing B every frame long after the last wake.
+    for (let frame = 0; frame < 280; frame += 1) {
+      wakes.stampContact(47.6, 38.9, 0, 1, 4, 1.4, 1);
+      advance(wakes, 1, { deltaSeconds: 0.25 });
+    }
+    expect(wakes.active).toBe(true);
+    renderer.render.mockClear();
+    renderer.clear.mockClear();
+    // Last frame's B is the only content left; clearing it is exact.
+    advance(wakes, 1, { deltaSeconds: 0.25 });
+    expect(wakes.active).toBe(false);
+    expect(renderer.clear).toHaveBeenCalledTimes(2);
+    expect(renderer.render).toHaveBeenCalledTimes(0);
+    wakes.dispose();
+  });
+});
+
+describe("wake field decay and residue (K8)", () => {
+  /** Rounds a non-negative value to IEEE half precision. */
+  function toHalf(value: number, mode: "nearest" | "truncate"): number {
+    if (value <= 0) return 0;
+    const ulp = 2 ** (Math.max(-14, Math.floor(Math.log2(value))) - 10);
+    const units = value / ulp;
+    return (mode === "nearest" ? Math.round(units) : Math.floor(units)) * ulp;
+  }
+
+  /**
+   * Runs one uniform texel of the feedback pass through `seconds` at `hz`,
+   * storing to half precision each frame as the GPU does, and samples it.
+   */
+  function simulate(
+    channel: "x" | "y" | "z",
+    hz: number,
+    seconds: number,
+    rounding: "nearest" | "truncate" | "exact",
+  ): number {
+    const pass: WakeDecayPass = {
+      decay: { x: 0, y: 0, z: 0, w: 0 },
+      diffuse: { x: 0, y: 0, z: 0, w: 0 },
+      floor: { x: 0, y: 0, z: 0, w: 0 },
+    };
+    const clock = { slickPendingSeconds: 0 };
+    let value = 1;
+    const frames = Math.round(seconds * hz);
+    for (let frame = 0; frame < frames; frame += 1) {
+      planWakeDecayPass(clock, 1 / hz, pass);
+      const next = Math.max(Math.min(value, 1) * pass.decay[channel] - pass.floor[channel], 0);
+      value = rounding === "exact" ? next : toHalf(next, rounding);
+    }
+    return value;
+  }
+
+  for (const hz of [60, 120]) {
+    for (const rounding of ["nearest", "truncate"] as const) {
+      it(`keeps a slick visible for 25 s and leaves ≤ 1 % at 60 s (${hz} Hz, HalfFloat ${rounding})`, () => {
+        expect(simulate("y", hz, 25, rounding)).toBeGreaterThanOrEqual(WAKE_SLICK_VISIBLE * 2);
+        expect(simulate("y", hz, 60, rounding)).toBeLessThanOrEqual(0.01);
+        expect(simulate("y", hz, 61, rounding)).toBe(0);
+      });
+    }
+  }
+
+  it("decays the slick identically at 60 and 120 Hz", () => {
+    for (const seconds of [5, 12.5, 25, 40]) {
+      expect(simulate("y", 120, seconds, "exact")).toBeCloseTo(simulate("y", 60, seconds, "exact"), 2);
+    }
+  });
+
+  it("clears foam by its horizon and holds hull contact for one pass only", () => {
+    for (const hz of [60, 120]) {
+      expect(simulate("x", hz, 3, "nearest")).toBeGreaterThan(0.2);
+      expect(simulate("x", hz, WAKE_FOAM_HORIZON_SECONDS + 0.1, "nearest")).toBe(0);
+      expect(simulate("z", hz, 1 / hz, "nearest")).toBe(0);
+    }
   });
 });

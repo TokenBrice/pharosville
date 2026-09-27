@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { useState } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SinceLastVisitBanner } from "../components/since-last-visit";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { gardenLastVisitTide, setGardenLastVisitTide } from "../systems/garden-last-visit";
+import { UNAVAILABLE_SUPPLY_TIDE, type SupplyTide } from "../systems/supply-tide";
 import type { PharosVilleWorld, ShipNode } from "../systems/world-types";
 import {
   VISIT_SNAPSHOT_SCHEMA_VERSION,
@@ -10,17 +10,12 @@ import {
   type VisitSnapshot,
   type VisitSnapshotDelta,
   useVisitSnapshot,
+  visitSnapshotDeltaSummary,
 } from "./use-visit-snapshot";
 
-function HookHarness({
-  setAnnouncement,
-  world,
-}: {
-  setAnnouncement: (message: string) => void;
-  world: PharosVilleWorld;
-}) {
-  const visitSnapshot = useVisitSnapshot({ world, setAnnouncement });
-  return <SinceLastVisitBanner delta={visitSnapshot.delta} onDismiss={visitSnapshot.dismiss} />;
+function HookHarness({ world }: { world: PharosVilleWorld }) {
+  const { summary } = useVisitSnapshot({ world });
+  return summary ? <p data-testid="pharosville-visit-summary">{summary}</p> : null;
 }
 
 describe("useVisitSnapshot", () => {
@@ -41,7 +36,6 @@ describe("useVisitSnapshot", () => {
       psiBand: "WATCH",
       psiScore: 20,
     })));
-    const setAnnouncement = vi.fn();
     const initialWorld = worldFixture({
       generatedAt: 2,
       lastFleetDepegAt: 101,
@@ -54,14 +48,12 @@ describe("useVisitSnapshot", () => {
       ],
     });
 
-    const { rerender } = render(<HookHarness world={initialWorld} setAnnouncement={setAnnouncement} />);
+    const { rerender } = render(<HookHarness world={initialWorld} />);
 
-    const banner = await screen.findByTestId("pharosville-since-last-visit");
-    expect(banner.textContent).toContain("PSI WATCH -> DANGER");
-    expect(banner.textContent).toContain("new fleet depeg recorded");
-    expect(banner.textContent).toContain("new notable movers: DAI");
-    expect(banner.textContent).not.toContain("QUIET");
-    expect(setAnnouncement).toHaveBeenCalledWith(expect.stringContaining("Since last visit:"));
+    const summary = await screen.findByTestId("pharosville-visit-summary");
+    expect(summary.textContent).toBe(
+      "Since you were here earlier today — stability moved from Watch to Danger; a new fleet depeg was recorded; DAI is among today's movers.",
+    );
 
     const storedAfterFirstWorld = readStoredSnapshot();
     expect(storedAfterFirstWorld.psiBand).toBe("DANGER");
@@ -75,20 +67,17 @@ describe("useVisitSnapshot", () => {
         psiScore: 55,
         ships: [shipFixture({ change24hUsd: 5_000_000, symbol: "FRAX" })],
       })}
-      setAnnouncement={setAnnouncement}
     />);
 
     expect(readStoredSnapshot().psiBand).toBe("DANGER");
-    expect(screen.getByTestId("pharosville-since-last-visit").textContent).toContain("PSI WATCH -> DANGER");
+    expect(screen.getByTestId("pharosville-visit-summary").textContent).toContain("stability moved from Watch to Danger");
   });
 
   it("records first-visit baseline silently", async () => {
-    const setAnnouncement = vi.fn();
-    render(<HookHarness world={worldFixture({ generatedAt: 10, psiBand: "CALM" })} setAnnouncement={setAnnouncement} />);
+    render(<HookHarness world={worldFixture({ generatedAt: 10, psiBand: "CALM" })} />);
 
     await waitFor(() => expect(readStoredSnapshot().generatedAt).toBe(10));
-    expect(screen.queryByTestId("pharosville-since-last-visit")).toBeNull();
-    expect(setAnnouncement).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("pharosville-visit-summary")).toBeNull();
   });
 
   it("waits for the settled world instead of baselining the loading world", async () => {
@@ -99,35 +88,30 @@ describe("useVisitSnapshot", () => {
       psiBand: "WATCH",
       psiScore: 20,
     })));
-    const setAnnouncement = vi.fn();
     const loadingWorld = {
       ...worldFixture({ psiBand: null, psiScore: null }),
       generatedAt: null,
       routeMode: "loading",
     } as PharosVilleWorld;
 
-    const { rerender } = render(<HookHarness world={loadingWorld} setAnnouncement={setAnnouncement} />);
+    const { rerender } = render(<HookHarness world={loadingWorld} />);
 
     expect(readStoredSnapshot().psiBand).toBe("WATCH");
-    expect(screen.queryByTestId("pharosville-since-last-visit")).toBeNull();
+    expect(screen.queryByTestId("pharosville-visit-summary")).toBeNull();
 
-    rerender(<HookHarness
-      world={worldFixture({ generatedAt: 2, psiBand: "DANGER", psiScore: 82 })}
-      setAnnouncement={setAnnouncement}
-    />);
+    rerender(<HookHarness world={worldFixture({ generatedAt: 2, psiBand: "DANGER", psiScore: 82 })} />);
 
-    const banner = await screen.findByTestId("pharosville-since-last-visit");
-    expect(banner.textContent).toContain("PSI WATCH -> DANGER");
+    const summary = await screen.findByTestId("pharosville-visit-summary");
+    expect(summary.textContent).toContain("stability moved from Watch to Danger");
     expect(readStoredSnapshot().psiBand).toBe("DANGER");
   });
 
   it("treats garbage and old-shape storage as baseline-only", async () => {
     window.localStorage.setItem(VISIT_SNAPSHOT_STORAGE_KEY, "{not-json");
-    const setAnnouncement = vi.fn();
-    const { unmount } = render(<HookHarness world={worldFixture({ generatedAt: 20, psiBand: "CALM" })} setAnnouncement={setAnnouncement} />);
+    const { unmount } = render(<HookHarness world={worldFixture({ generatedAt: 20, psiBand: "CALM" })} />);
 
     await waitFor(() => expect(readStoredSnapshot().generatedAt).toBe(20));
-    expect(screen.queryByTestId("pharosville-since-last-visit")).toBeNull();
+    expect(screen.queryByTestId("pharosville-visit-summary")).toBeNull();
     unmount();
 
     window.localStorage.setItem(VISIT_SNAPSHOT_STORAGE_KEY, JSON.stringify({
@@ -137,24 +121,21 @@ describe("useVisitSnapshot", () => {
       psiBand: "CALM",
       psiScore: null,
     }));
-    render(<HookHarness world={worldFixture({ generatedAt: 21, psiBand: "DANGER" })} setAnnouncement={setAnnouncement} />);
+    render(<HookHarness world={worldFixture({ generatedAt: 21, psiBand: "DANGER" })} />);
 
     await waitFor(() => expect(readStoredSnapshot().generatedAt).toBe(21));
-    expect(screen.queryByTestId("pharosville-since-last-visit")).toBeNull();
-    expect(setAnnouncement).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("pharosville-visit-summary")).toBeNull();
   });
 
   it("stays silent when storage access throws", () => {
     installThrowingLocalStorage("getItem");
-    const setAnnouncement = vi.fn();
 
     render(<HookHarness
       world={worldFixture({ generatedAt: 30, psiBand: "DANGER" })}
-      setAnnouncement={setAnnouncement}
+     
     />);
 
-    expect(screen.queryByTestId("pharosville-since-last-visit")).toBeNull();
-    expect(setAnnouncement).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("pharosville-visit-summary")).toBeNull();
   });
 
   it("stays silent when snapshot persistence throws", () => {
@@ -165,15 +146,74 @@ describe("useVisitSnapshot", () => {
       psiBand: "CALM",
       psiScore: null,
     })));
-    const setAnnouncement = vi.fn();
 
     render(<HookHarness
       world={worldFixture({ generatedAt: 31, psiBand: "DANGER" })}
-      setAnnouncement={setAnnouncement}
+     
     />);
 
-    expect(screen.queryByTestId("pharosville-since-last-visit")).toBeNull();
-    expect(setAnnouncement).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("pharosville-visit-summary")).toBeNull();
+  });
+
+  it("hands the last visit's tide to the flat and tells how far it moved", async () => {
+    setGardenLastVisitTide(null);
+    window.localStorage.setItem(VISIT_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshot({
+      generatedAt: 1,
+      lastFleetDepegAt: null,
+      notableMoverSymbols: [],
+      psiBand: "CALM",
+      psiScore: 10,
+      supplyTideOffset: -0.6,
+    })));
+    render(<HookHarness world={worldFixture({
+      generatedAt: 2,
+      psiBand: "CALM",
+      psiScore: 10,
+      supplyTide: { change7dPct: 0.83, offset: 0.64, state: "flood" },
+    })} />);
+
+    const summary = await screen.findByTestId("pharosville-visit-summary");
+    expect(summary.textContent).toBe("Since you were here earlier today — the tide on the flat has come in, from ebb to flood.");
+    expect(gardenLastVisitTide()).toBe(-0.6);
+    expect(readStoredSnapshot().supplyTideOffset).toBe(0.64);
+  });
+
+  it("keeps a tide that barely moved, or was never stored, out of the sentence", async () => {
+    window.localStorage.setItem(VISIT_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshot({
+      generatedAt: 1,
+      lastFleetDepegAt: null,
+      notableMoverSymbols: [],
+      psiBand: "CALM",
+      psiScore: 10,
+      supplyTideOffset: 0.5,
+    })));
+    const { unmount } = render(<HookHarness world={worldFixture({
+      generatedAt: 2,
+      psiBand: "CALM",
+      supplyTide: { change7dPct: 0.6, offset: 0.55, state: "flood" },
+    })} />);
+    await waitFor(() => expect(readStoredSnapshot().generatedAt).toBe(2));
+    expect(screen.queryByTestId("pharosville-visit-summary")).toBeNull();
+    unmount();
+
+    setGardenLastVisitTide(0.3);
+    window.localStorage.setItem(VISIT_SNAPSHOT_STORAGE_KEY, JSON.stringify({
+      generatedAt: 2,
+      lastFleetDepegAt: null,
+      notableMoverSymbols: [],
+      psiBand: "CALM",
+      psiScore: null,
+      schemaVersion: VISIT_SNAPSHOT_SCHEMA_VERSION,
+    }));
+    render(<HookHarness world={worldFixture({
+      generatedAt: 3,
+      psiBand: "CALM",
+      supplyTide: { change7dPct: -1.8, offset: -0.95, state: "ebb" },
+    })} />);
+    await waitFor(() => expect(readStoredSnapshot().generatedAt).toBe(3));
+    expect(screen.queryByTestId("pharosville-visit-summary")).toBeNull();
+    // A pre-X2 snapshot stored no tide: no wrack line.
+    expect(gardenLastVisitTide()).toBeNull();
   });
 
   it("requires lastFleetDepegAt to be strictly newer", async () => {
@@ -184,7 +224,6 @@ describe("useVisitSnapshot", () => {
       psiBand: "CALM",
       psiScore: null,
     })));
-    const setAnnouncement = vi.fn();
 
     render(<HookHarness
       world={worldFixture({
@@ -192,41 +231,29 @@ describe("useVisitSnapshot", () => {
         lastFleetDepegAt: 100,
         psiBand: "CALM",
       })}
-      setAnnouncement={setAnnouncement}
+     
     />);
 
     await waitFor(() => expect(readStoredSnapshot().generatedAt).toBe(40));
-    expect(screen.queryByTestId("pharosville-since-last-visit")).toBeNull();
-    expect(setAnnouncement).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("pharosville-visit-summary")).toBeNull();
   });
 });
 
-describe("SinceLastVisitBanner", () => {
-  afterEach(() => {
-    cleanup();
-  });
-
-  it("dismisses without removing surrounding detail content", () => {
-    function DismissHarness() {
-      const [delta, setDelta] = useState<VisitSnapshotDelta | null>(materialDelta());
-      return (
-        <div>
-          <section data-testid="pharosville-detail-panel">Detail panel stays mounted</section>
-          <SinceLastVisitBanner delta={delta} onDismiss={() => setDelta(null)} />
-        </div>
-      );
-    }
-
-    render(<DismissHarness />);
-
-    const banner = screen.getByRole("status", { name: "Since last visit" });
-    expect(banner.getAttribute("aria-live")).toBe("polite");
-    expect(banner.getAttribute("aria-atomic")).toBe("true");
-
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss since last visit update" }));
-
-    expect(screen.queryByTestId("pharosville-since-last-visit")).toBeNull();
-    expect(screen.getByTestId("pharosville-detail-panel").textContent).toBe("Detail panel stays mounted");
+describe("visitSnapshotDeltaSummary", () => {
+  it("tells the return in one sentence: when, which way stability moved, and who moved", () => {
+    expect(visitSnapshotDeltaSummary({
+      ...materialDelta(),
+      generatedAt: new Date(2026, 8, 26, 9).getTime(),
+      notableMoverSymbols: ["USDC", "DAI", "FRAX"],
+      previousGeneratedAt: new Date(2026, 8, 22, 21).getTime(),
+      psiBandChange: { fromBand: "STEADY", fromScore: 80, toBand: "TREMOR", toScore: 61 },
+    })).toBe("Since you were here on Tuesday — stability fell from Steady to Tremor; USDC, DAI and 1 more are among today's movers.");
+    expect(visitSnapshotDeltaSummary({
+      ...materialDelta(),
+      generatedAt: new Date(2026, 8, 26, 9).getTime(),
+      previousGeneratedAt: new Date(2026, 8, 12, 9).getTime(),
+      psiBandChange: { fromBand: "TREMOR", fromScore: 61, toBand: "BEDROCK", toScore: 95 },
+    })).toBe("Since you were here 14 days ago — stability rose from Tremor to Bedrock; DAI is among today's movers.");
   });
 });
 
@@ -279,6 +306,7 @@ function worldFixture(input: {
   psiBand?: string | null;
   psiScore?: number | null;
   ships?: ShipNode[];
+  supplyTide?: SupplyTide;
 } = {}): PharosVilleWorld {
   return {
     areas: [],
@@ -306,6 +334,7 @@ function worldFixture(input: {
     },
     routeMode: "world",
     ships: input.ships ?? [],
+    supplyTide: input.supplyTide ?? UNAVAILABLE_SUPPLY_TIDE,
     visualCues: [],
   } as unknown as PharosVilleWorld;
 }
@@ -338,5 +367,6 @@ function materialDelta(): VisitSnapshotDelta {
       toBand: "DANGER",
       toScore: 82,
     },
+    supplyTideChange: null,
   };
 }

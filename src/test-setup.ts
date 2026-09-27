@@ -3,6 +3,7 @@
 import { beforeEach } from "vitest";
 import { resetHeldMoorings } from "./systems/pharosville-world/stages/dock-assignment";
 import { resetHeldShipPlacements } from "./systems/pharosville-world/stages/ship-placement";
+import { gardenSkyDayFromParts, pinGardenSkyDay } from "./systems/sky-almanac";
 
 declare global {
   /**
@@ -53,10 +54,24 @@ if (typeof HTMLCanvasElement !== "undefined") {
   });
 }
 
-// Seed the legend first-visit dismissal so component tests exercise the
-// steady-state world instead of the one-time onboarding overlay. Tests that
-// cover the auto-open path clear this key explicitly.
+// Seed the first-visit flags so component tests exercise the steady-state
+// world instead of the one-time onboarding (legend, and the three teachings
+// on the now-line). Tests that cover those paths clear the keys explicitly.
 testStorage.setItem("pharosville.legend.dismissed", "1");
+testStorage.setItem("pharosville.orientation.seen", "1");
+
+// The sky clock (W2.14) reads the date, the zone's daylight saving and the
+// hemisphere. Suites share one pinned sky day — 26 September 2026 at 35° N in
+// a CEST-like zone (solar noon 13:00, sunset ≈ 18:54) — so no result depends
+// on when or where the tests run. Suites about another date pin their own.
+pinGardenSkyDay(gardenSkyDayFromParts({
+  year: 2026,
+  month: 9,
+  day: 26,
+  utcOffsetHours: 2,
+  dstHours: 1,
+  latitude: { latitudeRad: (35 * Math.PI) / 180, southern: false },
+}));
 
 /**
  * Sticky placement and sticky berths are module-level memories of the PREVIOUS

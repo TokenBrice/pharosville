@@ -1,10 +1,15 @@
-import { Group, InstancedMesh, Mesh, MeshStandardMaterial, Vector3 } from "three";
+import { Color, Group, InstancedMesh, Mesh, MeshStandardMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { createSpeciesBatch, createSpeciesGeometry, setGardenFloraNightValue } from "./garden-flora";
-import { createGardenRimMesh } from "./garden-rim-mesh";
+import { seasonalPhenology } from "../systems/garden-calendar";
+import { hexToOklch } from "../systems/palette";
+import type { PharosVilleWorld } from "../systems/world-types";
+import { createSpeciesBatch, createSpeciesGeometry, deciduousLeafColor, GARDEN_LETS_GO_PAD_BAND, setGardenFloraNightValue } from "./garden-flora";
 import { createGardenIslets } from "./garden-islets";
 import { createTerracedIsland } from "./garden-island";
-import type { PharosVilleWorld } from "../systems/world-types";
+import { createGardenRimMesh } from "./garden-rim-mesh";
+
+const NORTH = { latitudeRad: (35 * Math.PI) / 180, southern: false };
+const world = { lighthouse: { tile: { x: 40, y: 40 }, detailId: "lighthouse" } } as unknown as PharosVilleWorld;
 
 function triangles(root: Group): number {
   let count = 0;
@@ -14,41 +19,83 @@ function triangles(root: Group): number {
   return count;
 }
 
+function size(species: Parameters<typeof createSpeciesGeometry>[0]): Vector3 {
+  const geometry = createSpeciesGeometry(species);
+  geometry.computeBoundingBox();
+  const extent = geometry.boundingBox!.getSize(new Vector3());
+  geometry.dispose();
+  return extent;
+}
+
 describe("garden species", () => {
-  it("keeps bamboo vertical, cherry broad and flat, and moss on the ground", () => {
-    const dimensions = Object.fromEntries((["pine", "momiji", "cherry", "bamboo", "karikomi", "ground"] as const).map((species) => {
-      const geometry = createSpeciesGeometry(species);
-      geometry.computeBoundingBox();
-      const size = geometry.boundingBox!.getSize(new Vector3());
-      geometry.dispose();
-      return [species, size];
-    }));
-    expect(dimensions.bamboo!.y).toBeGreaterThan(dimensions.pine!.y);
-    expect(dimensions.bamboo!.y / dimensions.bamboo!.x).toBeGreaterThan(3);
-    expect(dimensions.cherry!.x).toBeGreaterThan(dimensions.momiji!.x);
-    expect(dimensions.cherry!.y).toBeLessThan(dimensions.momiji!.y);
-    expect(dimensions.karikomi!.y).toBeGreaterThanOrEqual(1.2);
-    expect(dimensions.karikomi!.y).toBeLessThanOrEqual(2.2);
-    expect(dimensions.ground!.y).toBe(0);
+  it("keeps bamboo the one vertical, cherry broad and low, and karikomi a low wave", () => {
+    const bamboo = size("bamboo");
+    const pine = size("pine");
+    const momiji = size("momiji");
+    const cherry = size("cherry");
+    const karikomi = size("karikomi");
+    expect(bamboo.y).toBeGreaterThan(pine.y);
+    expect(bamboo.y / bamboo.x).toBeGreaterThan(2.5);
+    // Cloud-pruned: the pine is at least as wide as it is tall.
+    expect(Math.max(pine.x, pine.z)).toBeGreaterThanOrEqual(pine.y);
+    expect(Math.max(cherry.x, cherry.z)).toBeGreaterThan(Math.max(momiji.x, momiji.z));
+    expect(cherry.y).toBeLessThan(momiji.y);
+    expect(karikomi.y).toBeLessThan(karikomi.x * 0.25);
   });
 
-  it("drops deciduous umbrellas in winter and retains evergreen crowns", () => {
-    for (const species of ["pine", "momiji", "cherry", "bamboo", "karikomi", "ground"] as const) {
-      const summer = createSpeciesGeometry(species, "summer");
-      const winter = createSpeciesGeometry(species, "winter");
-      if (species === "momiji" || species === "cherry") expect(winter.index!.count).toBeLessThan(summer.index!.count / 2);
-      else expect(winter.index!.count).toBe(summer.index!.count);
-      summer.dispose();
-      winter.dispose();
+  it("gives every pad a dark belly under a lit crown, and bark no foliage rank", () => {
+    for (const species of ["pine", "momiji", "cherry", "karikomi"] as const) {
+      const geometry = createSpeciesGeometry(species);
+      const foliage = geometry.getAttribute("aGardenFoliage");
+      const normal = geometry.getAttribute("normal");
+      const color = geometry.getAttribute("color");
+      let crown = 0;
+      let crownCount = 0;
+      let belly = 0;
+      let bellyCount = 0;
+      for (let vertex = 0; vertex < foliage.count; vertex += 1) {
+        if (foliage.getX(vertex) <= 0) continue;
+        expect(foliage.getX(vertex)).toBeLessThanOrEqual(1);
+        const value = color.getX(vertex) + color.getY(vertex) + color.getZ(vertex);
+        if (normal.getY(vertex) > 0.6) { crown += value; crownCount += 1; }
+        if (normal.getY(vertex) < -0.3) { belly += value; bellyCount += 1; }
+      }
+      expect(crownCount, species).toBeGreaterThan(0);
+      if (bellyCount > 0) expect(belly / bellyCount, species).toBeLessThan(crown / crownCount);
+      geometry.dispose();
     }
-    const spring = createSpeciesGeometry("cherry", "spring");
-    const summer = createSpeciesGeometry("cherry", "summer");
-    const autumn = createSpeciesGeometry("momiji", "autumn");
-    const green = createSpeciesGeometry("momiji", "summer");
-    const brightest = (geometry: typeof spring, channel: number) => Math.max(...Array.from(geometry.getAttribute("color").array).filter((_, i) => i % 3 === channel));
-    expect(brightest(spring, 0)).toBeGreaterThan(brightest(summer, 0));
-    expect(brightest(autumn, 0)).toBeGreaterThan(brightest(green, 0));
-    for (const geometry of [spring, summer, autumn, green]) geometry.dispose();
+  });
+
+  it("dresses deciduous specimens from the calendar, one by one, and leaves pines alone", () => {
+    const placements = [0, 1, 2, 3, 4].map((index) => ({ position: [index * 4, 0, 0] as [number, number, number], seed: `test.${index}` }));
+    const leafOf = (mesh: InstancedMesh) => Array.from(mesh.geometry.getAttribute("aGardenLeaf").array as Float32Array);
+    const summer = createSpeciesBatch("momiji", placements, { date: new Date("2026-07-01T12:00:00Z") });
+    const winter = createSpeciesBatch("momiji", placements, { date: new Date("2027-01-20T12:00:00Z") });
+    expect(leafOf(summer).every((leaf) => leaf === 1)).toBe(true);
+    expect(leafOf(winter).every((leaf) => leaf === 0)).toBe(true);
+    const pineSummer = createSpeciesBatch("pine", placements, { date: new Date("2026-07-01T12:00:00Z") });
+    const pineWinter = createSpeciesBatch("pine", placements, { date: new Date("2027-01-20T12:00:00Z") });
+    expect(leafOf(pineWinter)).toEqual(leafOf(pineSummer));
+    expect(pineWinter.getColorAt(0, new Color()).getHex()).toBe(pineSummer.getColorAt(0, new Color()).getHex());
+  });
+
+  it("turns maples through derived tones, never vermillion or above the chroma ceiling", () => {
+    const color = new Color();
+    const finals = new Set<string>();
+    for (let day = 0; day < 365; day += 3) {
+      const date = new Date(Date.UTC(2026, 0, 1) + day * 86_400_000);
+      for (let specimen = 0; specimen < 12; specimen += 1) {
+        for (const kind of ["momiji", "cherry"] as const) {
+          const state = seasonalPhenology(`chroma.${specimen}`, date, kind, NORTH);
+          const { c } = hexToOklch(`#${deciduousLeafColor(kind, `chroma.${specimen}`, state, color).getHexString()}`);
+          // §1.1 rule 5: only vermillion and lantern_warm exceed C 0.12.
+          expect(c).toBeLessThanOrEqual(0.12);
+          if (kind === "momiji" && state.turn === 1) finals.add(color.getHexString());
+        }
+      }
+    }
+    // Neighbouring maples finish on different tones.
+    expect(finals.size).toBeGreaterThan(1);
   });
 
   it("updates already compiled and not-yet-compiled vegetation through night and dawn", () => {
@@ -57,7 +104,7 @@ describe("garden species", () => {
     const cherry = createSpeciesBatch("cherry", [{ position: [3, 0, 0] }]);
     root.add(pine, cherry);
     const compile = (material: MeshStandardMaterial) => {
-      const shader = { uniforms: {} as Record<string, { value: number }>, vertexShader: "#include <common>\n#include <begin_vertex>", fragmentShader: "#include <common>\n#include <opaque_fragment>" };
+      const shader = { uniforms: {} as Record<string, { value: number }>, vertexShader: "#include <common>\n#include <color_vertex>\n#include <begin_vertex>", fragmentShader: "#include <common>\n#include <opaque_fragment>" };
       material.onBeforeCompile(shader as never, null as never);
       return shader.uniforms;
     };
@@ -72,29 +119,47 @@ describe("garden species", () => {
     for (const mesh of [pine, cherry]) { mesh.geometry.dispose(); mesh.material.dispose(); mesh.dispose(); }
   });
 
-  it("sheds the island maple without removing its winter branches or evergreen neighbours", () => {
-    const world = { lighthouse: { tile: { x: 40, y: 40 }, detailId: "lighthouse" } } as unknown as PharosVilleWorld;
-    const summer = createTerracedIsland(world, undefined, "summer").root;
-    const winter = createTerracedIsland(world, undefined, "winter").root;
-    const summerPads = summer.getObjectByName("island-niwaki-pads") as InstancedMesh;
-    const winterPads = winter.getObjectByName("island-niwaki-pads") as InstancedMesh;
-    expect(winterPads.count).toBe(summerPads.count - 5);
-    expect((winter.getObjectByName("island-niwaki-trunks") as InstancedMesh).count)
-      .toBe((summer.getObjectByName("island-niwaki-trunks") as InstancedMesh).count);
+  it("bares the island maple by the calendar through its let-go crown, never the pines", () => {
+    const island = (iso: string) => createTerracedIsland(world, undefined, new Date(iso));
+    const summer = island("2026-07-01T12:00:00Z");
+    const winter = island("2027-01-20T12:00:00Z");
+    expect(summer.letsGoTree.crown.value).toBe(1);
+    expect(winter.letsGoTree.crown.value).toBe(0);
+    // Only the maple's pads answer the crown: they carry −rank in [band, 1]
+    // and their own centre; pine pads keep their positive month-record rank.
+    const grove = summer.root.getObjectByName("island-niwaki-grove") as InstancedMesh;
+    const foliage = grove.geometry.getAttribute("aGardenFoliage");
+    const centres = grove.geometry.getAttribute("aGardenPadCentre");
+    const position = grove.geometry.getAttribute("position");
+    let maplePads = 0;
+    let pinePads = 0;
+    for (let vertex = 0; vertex < foliage.count; vertex += 1) {
+      const rank = foliage.getX(vertex);
+      if (rank > 0) pinePads += 1;
+      if (rank >= 0) continue;
+      maplePads += 1;
+      expect(-rank).toBeGreaterThanOrEqual(GARDEN_LETS_GO_PAD_BAND);
+      expect(-rank).toBeLessThanOrEqual(1);
+      // A pad shrinks into a centre that sits inside it (within a pad's reach).
+      expect(Math.hypot(
+        position.getX(vertex) - centres.getX(vertex),
+        position.getY(vertex) - centres.getY(vertex),
+        position.getZ(vertex) - centres.getZ(vertex),
+      )).toBeLessThan(2);
+    }
+    expect(maplePads).toBeGreaterThan(0);
+    expect(pinePads).toBeGreaterThan(0);
   });
 
-  it("measures the species triangle delta against G1", () => {
-    const world = { lighthouse: { tile: { x: 40, y: 40 }, detailId: "lighthouse" } } as unknown as PharosVilleWorld;
-    const afterRim = createGardenRimMesh();
-    const afterIslets = createGardenIslets();
-    const afterIsland = createTerracedIsland(world);
-    const afterNiwaki = triangles(afterIsland.root.getObjectByName("island-niwaki") as Group);
-    // Measured from committed G1 builders in the same focused test run:
-    // rim 90,426 + islets 2,132 + niwaki 4,168 = 96,726 triangles.
-    // G2: 116,886 + 2,004 + 2,504 = 121,394; delta +24,668.
-    const before = 96_726;
-    const after = afterRim.triangleCount + afterIslets.triangleCount + afterNiwaki;
-    expect(after - before).toBeLessThanOrEqual(25_000);
-    afterRim.dispose(); afterIslets.dispose();
+  it("keeps the replanted garden inside the W4 triangle ledger", () => {
+    const rim = createGardenRimMesh();
+    const islets = createGardenIslets();
+    const island = createTerracedIsland(world);
+    const niwaki = triangles(island.root.getObjectByName("island-niwaki") as Group);
+    // G2 flora (rim + islets + island niwaki) was 121,394 triangles; the W4
+    // ledger allows −10k … +20k for the craft wave. Land decimation (W8.2)
+    // pays for the niwaki grammar everywhere.
+    expect(rim.triangleCount + islets.triangleCount + niwaki).toBeLessThanOrEqual(141_394);
+    rim.dispose(); islets.dispose();
   });
 });

@@ -1,6 +1,7 @@
 import { distanceToStationFootprint, stationFootprintRect } from "./dock-layout";
 import { SEA_REGION_ID, seaRegionAtTile } from "./garden-sea-regions";
 import { RIM_COVES, rimDepthAt, rimLandAt } from "./garden-rim";
+import { GARDEN_EMPTY_INLET, gardenInletDistance } from "./garden-inlet";
 import { SHIP_WATER_ANCHORS } from "./risk-water-areas";
 import type { SeaBodyId, SeaBodyName } from "./sea-bodies";
 import {
@@ -79,11 +80,39 @@ export const GARDEN_SEA_EDGE_HULL_CLEARANCE_TILES = 4;
 export const GARDEN_SEA_EDGE_SCALE_FACTOR = 1.5;
 
 function guideScale(guide: EdgeGuide): number {
-  // The Danger cliff is already a rim-land wall, and no 1.5x candidate keeps
-  // the existing cove/mooring apron. The requested tongues, bars and piles —
-  // plus the other water-edge forms — take the full enlargement; the gorge
-  // keeps its reviewed land footprint rather than narrowing the strait.
-  return guide.form === "cliff" ? 1 : GARDEN_SEA_EDGE_SCALE_FACTOR;
+  // Only the mineral water-edge forms (tongues, banks, bars, slate, mouth
+  // stones, buoys) take the enlargement. Under the perspective camera an
+  // enlarged reed bank or timber pile reads boat-sized, so both keep their
+  // authored size; the Danger cliff keeps its reviewed land footprint rather
+  // than narrowing the strait.
+  return guide.form === "cliff" || guide.form === "reed-lily" || guide.form === "timber-pile"
+    ? 1
+    : GARDEN_SEA_EDGE_SCALE_FACTOR;
+}
+
+/**
+ * Largest edge-to-edge gap, in tiles, between a timber pile and the slate lip
+ * it stands beside. Piles are the lip's mooring posts, never free-standing
+ * markers in open water.
+ */
+export const GARDEN_SEA_EDGE_PILE_LIP_GAP_TILES = 1;
+
+/** Edge-to-edge tile gap between a small footprint and a resolved slab site. */
+export function seaEdgeGapToSlab(
+  point: { x: number; y: number },
+  halfExtent: number,
+  slab: Pick<GardenSeaEdgeSite, "bearing" | "length" | "tile" | "width">,
+): number {
+  const dx = point.x - slab.tile.x;
+  const dy = point.y - slab.tile.y;
+  // Matches the renderer: the slab's local length axis is rotated by
+  // `-bearing` about +Y, i.e. it runs along (cos bearing, sin bearing) in tiles.
+  const along = dx * Math.cos(slab.bearing) + dy * Math.sin(slab.bearing);
+  const across = -dx * Math.sin(slab.bearing) + dy * Math.cos(slab.bearing);
+  return Math.hypot(
+    Math.max(Math.abs(along) - slab.length / 2, 0),
+    Math.max(Math.abs(across) - slab.width / 2, 0),
+  ) - halfExtent;
 }
 
 /**
@@ -104,16 +133,20 @@ export const GARDEN_SEA_EDGE_ISLAND_WATERLINE = {
  * the integrator to demote without editing that shader concurrently.
  */
 export const GARDEN_SEA_EDGE_SHED_LIST: Readonly<Record<SeaBodyId, string>> = {
-  calm: "Demote the Calm/open mouth boundary seam and edge-fade where reed/lily islets now carry the enclosure.",
+  calm: "Demote the Calm rim edge-fade where shore-rooted reed/lily banks now carry the margin.",
   watch: "Demote the Watch/open boundary seam and continuous edge foam where low banks now carry the margin.",
   alert: "Demote generic Alert boundary-buoy repetition and the seam at the stone constriction; retain only the authored pair.",
-  warning: "Demote the continuous Warning boundary foam band where pale broken bars now carry the shoal edge.",
+  warning: "Demote the continuous Warning boundary foam band where awash broken bars now carry the shoal edge.",
   danger: "Demote the Danger/rim edge-fade and shore-foam emphasis where the dark cliff now carries the gorge wall.",
   ledger: "Demote the Ledger/open shader seam where the slate lip and aligned piles now carry the basin edge.",
   wreck: "Demote the Wreck/Calm inlet seam where the three mouth stones now carry the threshold.",
 };
 
-type BoundaryTarget = SeaBodyName | "rim";
+/**
+ * `rim`: a water tile with a cardinal rim-land neighbour, i.e. within one tile
+ * of real shoreline. `slate-lip`: beside an already-resolved slate edge.
+ */
+type BoundaryTarget = SeaBodyName | "rim" | "slate-lip";
 
 interface EdgeGuide {
   readonly body: SeaBodyId;
@@ -130,12 +163,19 @@ interface EdgeGuide {
 }
 
 const GUIDES: readonly EdgeGuide[] = [
-  // Seven discrete reed banks stitch the quiet Calm, Ledger and Wreck shores
-  // without becoming a continuous wall. Each reed-lily site expands to one
-  // loose 21-stem ellipse in the renderer; Danger remains entirely reed-free.
-  { body: "calm", form: "reed-lily", guide: { x: 75, y: 97 }, height: 1.7, id: "calm-reed-bank-north", length: 2.4, material: "vegetation", target: "open", width: 1.8 },
-  { body: "calm", form: "reed-lily", guide: { x: 75, y: 101 }, height: 2.0, id: "calm-reed-bank-middle", length: 2.9, material: "vegetation", target: "open", width: 2.0 },
-  { body: "calm", form: "reed-lily", guide: { x: 75, y: 107 }, height: 1.5, id: "calm-reed-bank-south", length: 2.2, material: "vegetation", target: "open", width: 1.6 },
+  // Five discrete reed banks grow only where there is shore: each is rooted
+  // within one tile of the land rim, outside the empty inlet, on the quiet
+  // Calm and Wreck margins. Each reed-lily site expands to one loose 21-stem
+  // ellipse in the renderer. Ledger has no rim shore clear of its station, and
+  // Danger remains entirely reed-free.
+  { body: "calm", form: "reed-lily", guide: { x: 52, y: 127 }, height: 1.5, id: "calm-reed-bank-south", length: 2.2, material: "vegetation", target: "rim", width: 1.6 },
+  // X5 (life-7): the reed bed the rest seat sees, where the early-summer
+  // fireflies rise (GARDEN_FIREFLY_REED_BED). From the seat the near bank
+  // hides the whole camera-side shore at water level; the quiet Calm shore at
+  // the foot of the west pine grove is the nearest one in view (~190 u), its
+  // dark grove behind the points of light. A little fuller than the others.
+  { body: "calm", form: "reed-lily", guide: { x: 13, y: 82 }, height: 2.0, id: "calm-reed-bank-west", length: 3.6, material: "vegetation", target: "rim", width: 2.1 },
+  { body: "calm", form: "reed-lily", guide: { x: 12, y: 61 }, height: 1.7, id: "calm-reed-bank-northwest", length: 2.4, material: "vegetation", target: "rim", width: 1.8 },
 
   // Watch Reach keeps its two low mineral banks; reeds belong only to the
   // quieter named shores above and never drift toward the Danger gorge.
@@ -149,7 +189,8 @@ const GUIDES: readonly EdgeGuide[] = [
   { body: "alert", form: "warning-buoy", guide: { x: 107, y: 34 }, height: 2.1, id: "alert-buoy-north", length: 0.7, material: "wood", target: "warning", width: 0.7 },
   { body: "alert", form: "warning-buoy", guide: { x: 109, y: 47 }, height: 2.1, id: "alert-buoy-south", length: 0.7, material: "wood", target: "warning", width: 0.7 },
 
-  // Warning Shoals: three pale broken bars, never a continuous breakwater.
+  // Warning Shoals: three broken bars of awash wet stone, never a continuous
+  // breakwater. (`pale` is the bars' stone signature, painted wet in the renderer.)
   { body: "warning", form: "shoal-bar", guide: { x: 114, y: 18 }, height: 0.48, id: "warning-bar-inner", length: 5.4, material: "pale", target: "alert", width: 2.0 },
   { body: "warning", form: "shoal-bar", guide: { x: 119, y: 27 }, height: 0.6, id: "warning-bar-middle", length: 6.4, material: "pale", target: "alert", width: 1.8 },
   { body: "warning", form: "shoal-bar", guide: { x: 121, y: 35 }, height: 0.42, id: "warning-bar-outer", length: 5.0, material: "pale", target: "danger", width: 2.2 },
@@ -161,22 +202,21 @@ const GUIDES: readonly EdgeGuide[] = [
   // in world-layout.test.ts pins watch|danger = 0), and Alert is the buffer.
   { body: "danger", form: "cliff", guide: { x: 121, y: 50 }, height: 5.2, id: "danger-rim-cliff", length: 5.4, material: "dark", target: "alert", width: 1.2 },
 
-  // Ledger Mooring: a right-angled slate lip and an orderly run of piles.
+  // Ledger Mooring: a right-angled slate lip and an orderly run of piles
+  // standing one tile inside it, as the lip's mooring posts.
   { body: "ledger", form: "slate-edge", guide: { x: 71, y: 13 }, height: 0.85, id: "ledger-slate-west", length: 4.2, material: "slate", target: "open", width: 1.4 },
   { body: "ledger", form: "slate-edge", guide: { x: 72, y: 14 }, height: 0.75, id: "ledger-slate-east", length: 4.0, material: "slate", target: "open", width: 1.4 },
-  { body: "ledger", form: "reed-lily", guide: { x: 56, y: 4 }, height: 1.45, id: "ledger-reed-bank-west", length: 2.5, material: "vegetation", target: "open", width: 1.7 },
-  { body: "ledger", form: "reed-lily", guide: { x: 82, y: 4 }, height: 1.75, id: "ledger-reed-bank-east", length: 2.8, material: "vegetation", target: "open", width: 1.9 },
-  { body: "ledger", form: "timber-pile", guide: { x: 66, y: 3 }, height: 2.7, id: "ledger-pile-1", length: 0.55, material: "wood", target: "open", width: 0.55 },
-  { body: "ledger", form: "timber-pile", guide: { x: 66, y: 6 }, height: 2.9, id: "ledger-pile-2", length: 0.55, material: "wood", target: "open", width: 0.55 },
-  { body: "ledger", form: "timber-pile", guide: { x: 67, y: 9 }, height: 2.6, id: "ledger-pile-3", length: 0.55, material: "wood", target: "open", width: 0.55 },
-  { body: "ledger", form: "timber-pile", guide: { x: 70, y: 12 }, height: 2.8, id: "ledger-pile-4", length: 0.55, material: "wood", target: "open", width: 0.55 },
+  { body: "ledger", form: "timber-pile", guide: { x: 68, y: 16 }, height: 1.35, id: "ledger-pile-1", length: 0.55, material: "wood", target: "slate-lip", width: 0.55 },
+  { body: "ledger", form: "timber-pile", guide: { x: 70, y: 16 }, height: 1.45, id: "ledger-pile-2", length: 0.55, material: "wood", target: "slate-lip", width: 0.55 },
+  { body: "ledger", form: "timber-pile", guide: { x: 72, y: 16 }, height: 1.3, id: "ledger-pile-3", length: 0.55, material: "wood", target: "slate-lip", width: 0.55 },
+  { body: "ledger", form: "timber-pile", guide: { x: 74, y: 16 }, height: 1.4, id: "ledger-pile-4", length: 0.55, material: "wood", target: "slate-lip", width: 0.55 },
 
   // Wreck Shoal: an uneven three-stone mouth where Wreck water meets Calm.
   { body: "wreck", form: "inlet-stone", guide: { x: 37, y: 108 }, height: 1.2, id: "wreck-mouth-west", length: 2.2, material: "natural", target: "calm", width: 1.8 },
   { body: "wreck", form: "inlet-stone", guide: { x: 39, y: 110 }, height: 1.55, id: "wreck-mouth-middle", length: 2.6, material: "natural", target: "calm", width: 2.0 },
   { body: "wreck", form: "inlet-stone", guide: { x: 42, y: 112 }, height: 0.9, id: "wreck-mouth-east", length: 1.8, material: "natural", target: "calm", width: 1.5 },
-  { body: "wreck", form: "reed-lily", guide: { x: 27, y: 108 }, height: 1.3, id: "wreck-reed-bank-west", length: 2.3, material: "vegetation", target: "calm", width: 1.7 },
-  { body: "wreck", form: "reed-lily", guide: { x: 50, y: 114 }, height: 1.6, id: "wreck-reed-bank-east", length: 2.7, material: "vegetation", target: "calm", width: 1.9 },
+  { body: "wreck", form: "reed-lily", guide: { x: 14, y: 109 }, height: 1.3, id: "wreck-reed-bank-west", length: 2.3, material: "vegetation", target: "rim", width: 1.7 },
+  { body: "wreck", form: "reed-lily", guide: { x: 42, y: 127 }, height: 1.6, id: "wreck-reed-bank-south", length: 2.7, material: "vegetation", target: "rim", width: 1.9 },
 ] as const;
 
 const CARDINAL_NEIGHBOURS = [
@@ -235,7 +275,7 @@ export function seaEdgeBoundaryAt(tile: { x: number; y: number }, body: SeaBodyI
   ));
 }
 
-function meetsTarget(x: number, y: number, target: BoundaryTarget): boolean {
+function meetsTarget(x: number, y: number, target: SeaBodyName | "rim"): boolean {
   return CARDINAL_NEIGHBOURS.some((offset) => {
     const neighbourX = x + offset.x;
     const neighbourY = y + offset.y;
@@ -244,6 +284,22 @@ function meetsTarget(x: number, y: number, target: BoundaryTarget): boolean {
     return isWaterTileKind(terrainKindAt(neighbourX, neighbourY))
       && seaRegionAtTile(neighbourX, neighbourY) === regionId(target);
   });
+}
+
+/** A pile stands beside, never inside or away from, a resolved slate lip. */
+function besideSlateLip(
+  x: number,
+  y: number,
+  guide: EdgeGuide,
+  resolved: readonly GardenSeaEdgeSite[],
+): boolean {
+  const halfExtent = Math.max(guide.length, guide.width) * guideScale(guide) * 0.5;
+  let nearestGap = Number.POSITIVE_INFINITY;
+  for (const site of resolved) {
+    if (site.form !== "slate-edge" || site.body !== guide.body) continue;
+    nearestGap = Math.min(nearestGap, seaEdgeGapToSlab({ x, y }, halfExtent, site));
+  }
+  return nearestGap >= 0 && nearestGap <= GARDEN_SEA_EDGE_PILE_LIP_GAP_TILES;
 }
 
 /** The openings are empty at the map edge; interior water sharing their bearing is not an opening. */
@@ -318,9 +374,12 @@ function resolveGuide(
       } else {
         if (seaRegionAtTile(x, y) !== regionId(guide.body)) continue;
         if (!isWaterTileKind(terrainKindAt(x, y)) || rimLandAt(x, y)) continue;
-        if (!meetsTarget(x, y, guide.target)) continue;
+        if (guide.target === "slate-lip") {
+          if (!besideSlateLip(x, y, guide, resolved)) continue;
+        } else if (!meetsTarget(x, y, guide.target)) continue;
       }
       if (seaEdgeTileInOpening({ x, y })) continue;
+      if (gardenInletDistance(x, y) <= GARDEN_EMPTY_INLET.halfWidth + radius) continue;
       if (!candidateIsClear(x, y, radius)) continue;
       if (resolved.some((site) => site.form === guide.form
         && Math.hypot(x - site.tile.x, y - site.tile.y) < 1.5)) continue;
@@ -354,6 +413,13 @@ export const GARDEN_SEA_EDGE_SITES: readonly GardenSeaEdgeSite[] = Object.freeze
     return sites;
   }, []),
 );
+
+/**
+ * X5: where the early-summer fireflies rise — the centre of the near reed bed
+ * the rest seat sees, in tiles.
+ */
+export const GARDEN_FIREFLY_REED_BED: GardenSeaEdgeSite = GARDEN_SEA_EDGE_SITES
+  .find((site) => site.id === "calm-reed-bank-west")!;
 
 /**
  * Ship-safety footprints for every physical edge feature placed on water. The

@@ -2,6 +2,8 @@ import {
   Color,
   HalfFloatType,
   Light,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   LinearSRGBColorSpace,
   Matrix4,
   PerspectiveCamera,
@@ -15,8 +17,12 @@ import {
   type WebGLRenderer,
 } from "three";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
+import { isKnockedOut } from "../lib/pharosville-debug";
 
-/** Reserved for the island silhouette; fleet meshes retain their default layer. */
+/**
+ * Reserved for the island silhouette (tower, precinct, niwaki, planted
+ * shelves, crag headland); fleet meshes retain their default layer.
+ */
 export const GARDEN_HERO_REFLECTION_LAYER = 7;
 
 const direction = new Vector3();
@@ -69,9 +75,19 @@ export function mirrorGardenHeroCamera(main: PerspectiveCamera, mirror: Perspect
 }
 
 export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
+  // W3.2 (water-2 a): mipmapped so the water can blur the reflection with
+  // distance below the contact line. The clear is transparent BLACK and the
+  // layer's materials write coverage in alpha (opaque 1, blended surfaces
+  // over the clear come out colour × alpha), so every texel is premultiplied
+  // before the mip chain is built: a silhouette averages with the clear into
+  // less coverage, never into a dark fringe. Consumers composite it as
+  // premultiplied (`water · (1 − w·a) + rgb · w`).
   const target = new WebGLRenderTarget(1, 1, {
     type: HalfFloatType,
     depthBuffer: true,
+    generateMipmaps: true,
+    magFilter: LinearFilter,
+    minFilter: LinearMipmapLinearFilter,
     stencilBuffer: false,
     samples: 0,
   });
@@ -89,10 +105,15 @@ export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
     uHeroReflectionMatrix: { value: matrix },
     uHeroReflectionStrength: { value: 0 },
   };
+  // W0.1 knockout seam (visual debug only): the pass never renders, so the
+  // water sees no hero reflection and the pass's cost can be measured by
+  // difference. Read once; the preview harness installs it before navigation.
+  const knockedOut = isKnockedOut("reflection");
   return {
     uniforms,
     getReflectionTexture: () => target.texture,
     render(scene: Scene, main: PerspectiveCamera, island: Object3D, tower: Object3D, reducedMotion: boolean) {
+      if (knockedOut) return;
       if (owner !== island) {
         owner = island;
         rendered = false;
@@ -105,8 +126,12 @@ export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
         uniforms.uHeroReflectionStrength.value = 0;
         return;
       }
+      // W8.1 (headroom-1): half the CSS size, whatever the DPR. The water
+      // blurs this below the contact line and bends it by its normals, so a
+      // retina panel gains nothing from a 4× larger target but its cost.
       renderer.getDrawingBufferSize(size);
-      target.setSize(Math.max(1, Math.floor(size.x / 2)), Math.max(1, Math.floor(size.y / 2)));
+      const cssPixelScale = 1 / (2 * Math.max(1, renderer.getPixelRatio()));
+      target.setSize(Math.max(1, Math.floor(size.x * cssPixelScale)), Math.max(1, Math.floor(size.y * cssPixelScale)));
       mirrorGardenHeroCamera(main, camera);
       matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       const previousTarget = renderer.getRenderTarget();

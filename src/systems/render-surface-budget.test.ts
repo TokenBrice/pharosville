@@ -7,6 +7,7 @@ import {
   MAX_MAIN_CANVAS_PIXELS,
   pushDrawDurationSample,
   resolveAdaptiveDprState,
+  resolveMaximumRequestedDpr,
   resolveRenderSurfaceBudget,
 } from "./render-surface-budget";
 
@@ -30,6 +31,38 @@ describe("render surface budget", () => {
     });
 
     expect(budget.effectiveDpr).toBe(1);
+  });
+
+  it("supersamples a DPR-1 display only as far as measured GPU headroom allows", () => {
+    // Retina panels keep their own density as the ceiling.
+    expect(resolveMaximumRequestedDpr(2)).toBe(2);
+
+    const maximumRequestedDpr = resolveMaximumRequestedDpr(1);
+    const calm = { averageMs: 5, count: 48, p90Ms: 5 };
+    // GPU time grows with pixels: `baseMs` at DPR 1, times DPR².
+    const settle = (gpuAt: (dpr: number) => number | null, start = 1) => {
+      let state = initialAdaptiveDprState(start);
+      for (let frame = 0; frame < 2_000; frame += 1) {
+        state = resolveAdaptiveDprState({
+          deviceDpr: 1,
+          gpuFrameP95Ms: gpuAt(state.requestedDpr),
+          maximumRequestedDpr,
+          state,
+          stats: calm,
+        });
+      }
+      return state.requestedDpr;
+    };
+
+    // A light frame earns the whole 1.5× ceiling, and never more.
+    expect(settle((dpr) => 4 * dpr * dpr)).toBe(1.5);
+    // A frame whose first step would already overrun the GPU budget stays
+    // native however quiet the JS-side draw time is (the M5 Pro rest frame).
+    expect(settle((dpr) => 9 * dpr * dpr)).toBe(1);
+    // No timer, no supersampling: the draw time cannot see fill cost.
+    expect(settle(() => null)).toBe(1);
+    // A supersampled frame that turns heavy gives the pixels back, down to native.
+    expect(settle(() => 14, 1.5)).toBe(1);
   });
 
   it("tracks rolling draw-duration stats across a bounded window", () => {

@@ -2,6 +2,7 @@ import {
   Color,
   Group,
   InstancedBufferAttribute,
+  Vector2,
   Vector3,
   type DataTexture,
 } from "three";
@@ -31,10 +32,11 @@ import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
  *
  * **Clock discipline:** one mesh, one draw, zero per-frame allocation. Puff age
  * is a pure function of the shared route `timeSeconds` and per-instance seeds
- * inside the beacon's own `createSmokePlume` shader; drift rides the same
- * ambient sky-mist wind diagonal the beacon plume and the flags' wind share —
- * no new oscillator. Under reduced motion `uTime` pins to 0 and the puffs park
- * in their deterministic composed pose, exactly like the beacon's.
+ * inside the beacon's own `createSmokePlume` shader. Drift follows the
+ * harbour's one weather wind (harbour-6) — the same downwind vector the
+ * nobori lean to and the gust front travels along — so smoke and banners
+ * always agree. Under reduced motion `uTime` pins to 0 and the puffs park in
+ * their deterministic composed pose, exactly like the beacon's.
  */
 
 /** The three archetypes whose hearths smoke, in deterministic chimney order. */
@@ -149,6 +151,8 @@ export interface GardenStationSmokeUpdate {
   reducedMotion: boolean;
   timeSeconds: number;
   tier: PharosVilleRenderSchedulerTier;
+  /** The frame's unit downwind vector in world XZ (`WeatherPlan.wind`). */
+  wind: { x: number; y: number };
 }
 
 export interface GardenStationSmoke {
@@ -197,11 +201,12 @@ export function createGardenStationSmoke(
     root,
     chimneyCount,
     instanceCapacity,
-    update({ docks, phase, reducedMotion, timeSeconds, tier }) {
+    update({ docks, phase, reducedMotion, timeSeconds, tier, wind }) {
       if (!mesh || !material || !gates) return;
       // One route-owned clock; frozen at the deterministic t=0 pose under
       // reduced motion, like the beacon's own parked puffs.
       uniforms.uTime.value = reducedMotion ? 0 : Math.max(0, timeSeconds);
+      (material.uniforms.uWind!.value as Vector2).set(wind.x, wind.y);
       material.uniforms.uDayMix!.value = phase.daylight;
       material.uniforms.uOpacity!.value = stationSmokeOpacity(phase);
       // Data gate: smoke while this harbour's cargo tide stands crates.

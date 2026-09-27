@@ -2,6 +2,22 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.19.0 - 2026-09-27 - Hour Print
+
+PharosVille becomes an hour-print: one fixed view of the harbour, printed in the true light of every hour, with a small score of rare events and chrome that reads as paper and ink.
+
+Collected from commits `5309629` through `8370409` after v0.18.0 (merged with v0.17.1 and v0.18.0).
+
+- You sit in one place. The resting view is an authored seat on the south shore — a shaded moss bank, the edge of an engawa, a pine seen from below and a stone lantern — looking across an empty mirror inlet at the Pharos, right of centre on a new crag headland. Left alone, the harbour holds this view; nothing tours on its own.
+- The sky keeps real time. One air carries distance from the near water back through five painted ridges. The sun and the moon follow a solar and lunar clock for your date and hemisphere, so December darkens before five and the full moon rises when it really does. Clouds are painted onto the sky from market stability — a clear sky at BEDROCK, a high veil, a broken deck, overcast in a meltdown — and the caption and ledger say the same word.
+- Light prints rather than glows. Side light from the seat's right models the tower; shade takes a cool ink; a fine keyline finds edges against the sky at every hour; nothing glows by day. The lantern is the one fire and its beam breathes. Night is deep indigo, with the tower and ridges drawn in ink.
+- The sea carries the sky and the risk. The water holds the hour's sky and breaks the tower's reflection into vertical strokes. Risk reads as the state of the surface — engraved lines on rough water, glass on calm and ledger water. Hulls leave real wakes and slicks, and a moon road runs toward you at night. A tidal flat bares or floods with the week's stablecoin supply, and a wrack line marks where the water stood at your last visit.
+- The fleet is crafted. Square sails hang on braced yards with belly and a curved foot, dyed from one colour book and lit from behind like shoji. Bezaisen hulls run long and low under paper stern lanterns. Anchored boats ride bow to the wind, nod to the swell and heel in the gusts; sailing boats trim to the wind they feel. The far fleet recedes into ink. Station towers gave way to one low harbour vernacular with chain nobori, and both torii are gone.
+- The garden is a garden. Cloud-pruned pines stand in odd groups beside clipped karikomi waves and a raked court with set stones, and a calendar of the seventy-two kō turns each maple on its own schedule for your hemisphere. The 88 stablecoins that died rest as unmarked stones in a raked garden on the Wreck Shoal shore, grouped by how they fell, and a lantern is lit there on their anniversaries.
+- The day has a score. At most six events an hour, each followed by a long quiet. A grey heron arrives and leaves; gulls fly and settle on the crag; at blue hour the keeper walks the island path and lights the lamps — embers up the stair, the lantern, then the stations outward, the engawa lantern last. One significant arrival crosses the mirror inlet with the only nameplate. Rarer still: geese at first light in their season, rings where a fish rose, the maple letting go of its leaves in one afternoon gust, a meteor on a dark-moon night.
+- The chrome is paper and ink. The page opens on the hour's own sky before any code loads. The caption is one sentence in three voices; the record card is washi by day and indigo at night and readable at every hour. Ship names are ink labels on a hairline, and the controls are one italic word, *explore*, with drawers on the same paper. Stay holds the view full-screen and keeps the screen awake; Wander (W) visits six postcards from inside the world; the lighthouse card unrolls the long record of the stability index; risk changes arrive one line at a time instead of in a panel.
+- Sound, if you want it. An opt-in procedural sea bound to the harbour's clocks, with far bell buoys and a separate music switch. Nothing plays until you switch it on.
+
 ## v0.18.0 - 2026-09-22 - Safety Grades
 
 The harbour reads the upstream Safety Score directly: every hull's grade comes from the free `/api/safety-grades` feed, and the cues that depended on the retired report-card inputs are gone rather than faked.

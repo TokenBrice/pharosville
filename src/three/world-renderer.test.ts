@@ -5,6 +5,7 @@ import {
   DataTexture,
   DirectionalLight,
   Color,
+  Frustum,
   Group,
   InstancedMesh,
   Matrix4,
@@ -37,14 +38,14 @@ import type {
   ThreeLogoAssets,
   ThreeWorldRendererFrame,
 } from "../renderer/world-renderer-backend";
-import type { CameraBreath, PharosVilleRenderSchedulerTier } from "../renderer/render-types";
-import { defaultCamera } from "../systems/camera";
+import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
+import { defaultCamera, withoutRest } from "../systems/camera";
 import {
-  cameraEye,
-  cameraPoseFromIso,
+  cameraView,
+  cameraViewAngles,
   gardenWaterPlateContainsTile,
+  type IsoCamera,
   screenToGround,
-  TILE_SCALE,
 } from "../systems/projection";
 import { HARBOR_PALETTE } from "../systems/palette";
 import {
@@ -70,7 +71,7 @@ import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { seaStateForWorld } from "../systems/sea-state";
 import { stableUnit } from "../systems/stable-random";
-import { gardenAlmanacEventForDate } from "../systems/garden-almanac";
+import { forceGardenRitual } from "../systems/garden-score";
 import { type DayCyclePhase } from "./garden-day-cycle";
 import { GARDEN_SKY_BEATS } from "./garden-sky";
 import {
@@ -85,34 +86,28 @@ import {
   FLIGHT_TENDER_TITAN_COUNT,
 } from "./garden-flight-tenders";
 import { OVERVIEW_LOD_DETAIL_NAMES } from "./garden-overview-lod";
+import { GARDEN_THRESHOLD_NAME } from "./garden-threshold";
 import { WAKE_TRAIL_QUADS } from "./garden-wake-batch";
 import {
   createThreeWorldRenderer,
   disposeThreeObjectTree,
-  gardenHarborLanternLaneId,
   gardenStationRouteEndpoints,
+} from "./world-renderer";
+import { gardenShipHeelFromTurn } from "./renderer-ship-frame";
+import {
   gardenMistBoundaryTile,
-  gardenShipHeelFromTurn,
   gardenTransitionWaveReady,
   GARDEN_SHIP_TRANSITION_MIN_SECONDS,
   GARDEN_TRANSITION_WAVE_SECONDS,
   sampleGardenShipTransition,
   type GardenShipTransitionSpec,
-} from "./world-renderer";
+} from "./renderer-transitions";
 
 // Nearly every test here builds a dense world and renders real frames: 2-4 s
 // each on a desktop, 17 s for the two-scene AO test, and several times that on
 // a shared CI runner. One file-level ceiling instead of per-test overrides; it
 // costs nothing when the tests pass.
 vi.setConfig({ testTimeout: 120_000 });
-
-describe("engawa lantern lane", () => {
-  it("displaces harbor-lantern.11 without removing its shore mesh", () => {
-    expect(gardenHarborLanternLaneId(10)).toBe("harbor-lantern.10");
-    expect(gardenHarborLanternLaneId(11)).toBeNull();
-    expect(gardenHarborLanternLaneId(12)).toBe("harbor-lantern.12");
-  });
-});
 
 describe("station route pulse endpoints", () => {
   it("follows the station's authored seaward bearing instead of the island radial", () => {
@@ -221,7 +216,6 @@ type TestGardenPost = {
   setAOTierWeight: ReturnType<typeof vi.fn>;
   setAOZoomDetail: ReturnType<typeof vi.fn>;
   setBloomEnabled: ReturnType<typeof vi.fn>;
-  setCameraZoom: ReturnType<typeof vi.fn>;
   setEnabled: ReturnType<typeof vi.fn>;
   setGrade: ReturnType<typeof vi.fn>;
   setSize: ReturnType<typeof vi.fn>;
@@ -313,7 +307,6 @@ vi.mock("./garden-post", () => ({
       setBloomEnabled: vi.fn((value: boolean) => {
         bloomEnabled = value;
       }),
-      setCameraZoom: vi.fn(),
       setEnabled: vi.fn((value: boolean) => {
         enabled = value;
       }),
@@ -414,7 +407,11 @@ vi.mock("three", async (importOriginal) => {
     });
     renderLists = { dispose: vi.fn() };
     setClearColor = vi.fn();
-    setPixelRatio = vi.fn();
+    pixelRatio = 1;
+    getPixelRatio = vi.fn(() => this.pixelRatio);
+    setPixelRatio = vi.fn((ratio: number) => {
+      this.pixelRatio = ratio;
+    });
     setRenderTarget = vi.fn();
     setSize = vi.fn();
     shadowMap = { autoUpdate: true, enabled: false, type: 0 };
@@ -565,7 +562,7 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
 
-  it("luffs chain flags in gusts and restores zero roll for reduced motion", () => {
+  it("gives chain flags the harbour's gust and rests them on one pose for reduced motion", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
@@ -578,13 +575,12 @@ describe("Three world renderer lifecycle", () => {
     flags.getMatrixAt(0, matrix);
     const clothNormal = new Vector3(0, 0, 1).transformDirection(matrix);
     expect(clothNormal.dot(new Vector3(Math.SQRT1_2, 0, Math.SQRT1_2))).toBeGreaterThan(0.95);
-    const luffingUp = new Vector3(0, 1, 0).transformDirection(matrix);
-    expect(Math.hypot(luffingUp.x, luffingUp.z)).toBeGreaterThan(0);
+    const gusts = flags.geometry.getAttribute("aGust");
+    const resting = (index: number) => Math.abs(gusts.getX(index) - 0.35) < 1e-6;
+    expect(Array.from({ length: gusts.count }, (_, index) => resting(index)).every(Boolean)).toBe(false);
 
     renderer.render(rendererFrame(world, "full", { reducedMotion: true }));
-    flags.getMatrixAt(0, matrix);
-    const stillUp = new Vector3(0, 1, 0).transformDirection(matrix);
-    expect(Math.hypot(stillUp.x, stillUp.z)).toBeCloseTo(0, 8);
+    expect(Array.from({ length: gusts.count }, (_, index) => resting(index)).every(Boolean)).toBe(true);
     renderer.dispose();
   });
 
@@ -617,27 +613,24 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
 
-  it("renders only the frame-selected almanac event and holds its reduced-motion tableau", () => {
+  it("draws the scored meteor only while its ritual runs", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
     });
-    const event = gardenAlmanacEventForDate(new Date("2026-08-13T00:00:00Z"));
-    renderer.render({ ...rendererFrame(world, "full", { timeSeconds: 0 }), almanacEvent: event });
-    renderer.render({ ...rendererFrame(world, "full", { timeSeconds: 9 }), almanacEvent: event });
+    renderer.render({ ...rendererFrame(world, "full", { timeSeconds: 0 }), epochSeconds: 1_000 });
     const scene = rendererHarness.instances.at(-1)!.lastScene!;
-    expect(scene.getObjectByName(`garden-almanac-${event.id}`)!.visible).toBe(true);
-    for (const id of ["heron-dusk", "deep-night-meteor"]) {
-      if (id !== event.id) expect(scene.getObjectByName(`garden-almanac-${id}`)!.visible).toBe(false);
-    }
-
-    renderer.render({
-      ...rendererFrame(world, "full", { reducedMotion: true }),
-      almanacEvent: event,
-    });
-    expect(scene.getObjectByName(`garden-almanac-${event.id}`)!.visible).toBe(true);
+    expect(scene.getObjectByName("garden-almanac-meteor")!.visible).toBe(false);
+    expect(forceGardenRitual("meteor", 1_000)).toBe(true);
+    renderer.render({ ...rendererFrame(world, "full", { timeSeconds: 0.3 }), epochSeconds: 1_000.3 });
+    expect(scene.getObjectByName("garden-almanac-meteor")!.visible).toBe(true);
+    // Reduced motion: no ritual runs and the sky holds no streak.
+    renderer.render({ ...rendererFrame(world, "full", { reducedMotion: true }), epochSeconds: 1_000.4 });
+    expect(scene.getObjectByName("garden-almanac-meteor")!.visible).toBe(false);
     renderer.dispose();
+    // A disposed renderer leaves no handler behind.
+    expect(forceGardenRitual("meteor", 1_001)).toBe(false);
   });
 
   it("selects seasonal dressing once from the injected calendar date", () => {
@@ -660,8 +653,6 @@ describe("Three world renderer lifecycle", () => {
     autumn.render(rendererFrame(world, "full"));
     expect(rendererHarness.instances.at(-1)!.lastScene!
       .getObjectByName("garden-spring-water-petals")).toBeUndefined();
-    expect(rendererHarness.instances.at(-1)!.lastScene!
-      .getObjectByName("garden-sky-autumn-geese")!.visible).toBe(true);
     autumn.dispose();
 
     const winter = createThreeWorldRenderer({
@@ -769,17 +760,22 @@ describe("Three world renderer lifecycle", () => {
     // frame draws one reflection and one scene, while the stale update only
     // redraws the scene. The unchanged water and quay uniforms above are the
     // observable staleness routes; they do not require synthetic extra draws.
-    expect(freshRenderCalls.filter(([, renderCamera]) => (
-      (renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    // Offscreen field passes (the static hull contact, an orthographic
+    // camera) are not scene renders.
+    const perspective = (calls: unknown[][]) => calls
+      .map(([, renderCamera]) => renderCamera as PerspectiveCamera)
+      .filter((renderCamera) => renderCamera.isPerspectiveCamera === true);
+    expect(perspective(freshRenderCalls).filter((renderCamera) => (
+      renderCamera.layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
     ))).toHaveLength(1);
-    expect(freshRenderCalls.filter(([, renderCamera]) => (
-      !(renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    expect(perspective(freshRenderCalls).filter((renderCamera) => (
+      !renderCamera.layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
     ))).toHaveLength(1);
-    expect(staleRenderCalls.filter(([, renderCamera]) => (
-      (renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    expect(perspective(staleRenderCalls).filter((renderCamera) => (
+      renderCamera.layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
     ))).toHaveLength(0);
-    expect(staleRenderCalls.filter(([, renderCamera]) => (
-      !(renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    expect(perspective(staleRenderCalls).filter((renderCamera) => (
+      !renderCamera.layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
     ))).toHaveLength(1);
     renderer.dispose();
   });
@@ -799,7 +795,6 @@ describe("Three world renderer lifecycle", () => {
     const scene = webGlRenderer.lastScene!;
     const contentRoot = scene.children.at(-1)!;
     const waterAccents = scene.children[4]!;
-    const wakes = wakeGroups(contentRoot);
     const harborBatch = contentRoot.getObjectByName("harbor-batch");
     const gullFlock = contentRoot.getObjectByName("garden-harbor-gull-flock");
 
@@ -808,8 +803,7 @@ describe("Three world renderer lifecycle", () => {
     expect(harborBatch).toBeDefined();
     expect(gullFlock).toBeDefined();
     expect(gullFlock?.visible).toBe(true);
-    expect(wakes.length).toBeGreaterThan(0);
-    expect(wakes.some((wake) => wake.visible)).toBe(true);
+    expect(visibleWakeSlots(scene)).toBeGreaterThan(0);
 
     const recovery = renderer.render(rendererFrame(world, "recovery", {
       dpr: 1.5,
@@ -817,7 +811,7 @@ describe("Three world renderer lifecycle", () => {
     }));
     expect(webGlRenderer.setPixelRatio).toHaveBeenLastCalledWith(1.5);
     expect(waterAccents.visible).toBe(true);
-    expect(wakes.some((wake) => wake.visible)).toBe(true);
+    expect(visibleWakeSlots(scene)).toBeGreaterThan(0);
 
     const constrained = renderer.render(rendererFrame(world, "constrained", {
       dpr: 1.5,
@@ -825,7 +819,7 @@ describe("Three world renderer lifecycle", () => {
     }));
     expect(waterAccents.visible).toBe(true);
     expect(gullFlock?.visible).toBe(false);
-    expect(wakes.every((wake) => !wake.visible)).toBe(true);
+    expect(visibleWakeSlots(scene)).toBe(0);
 
     const reduced = renderer.render(rendererFrame(world, "full", {
       dpr: 1.5,
@@ -833,7 +827,7 @@ describe("Three world renderer lifecycle", () => {
     }));
     expect(waterAccents.visible).toBe(true);
     expect(gullFlock?.visible).toBe(true);
-    expect(wakes.every((wake) => !wake.visible)).toBe(true);
+    expect(visibleWakeSlots(scene)).toBe(0);
 
     expect([balanced, recovery, constrained, reduced].map((metrics) => metrics.schedulerTier))
       .toEqual(["balanced", "recovery", "constrained", "full"]);
@@ -921,65 +915,105 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
 
-  it("applies camera breath around a fixed target and treats zero breath as the base eye", () => {
+  it("shows the seat threshold only at rest, riding the breathed eye inside the fitted shadow box", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
     });
-    const zeroFrame = rendererFrame(world, "full", {
-      cameraBreath: { dolly: 1, pitch: 0, yaw: 0 },
+    const rest = rendererFrame(world, "full");
+    renderer.render(rest);
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    const threshold = scene.getObjectByName(GARDEN_THRESHOLD_NAME)!;
+    const light = scene.children.find((object) => object instanceof DirectionalLight) as DirectionalLight;
+    expect(threshold.visible).toBe(true);
+    const seat = threshold.position.clone();
+    // The visible threshold lies inside the light's XY fit, and every one of
+    // its casters (the tea-house behind the eye, cedars to y 44) inside its
+    // depth range, or the bank loses its shade.
+    const shadowCamera = light.shadow.camera;
+    const view = rendererHarness.instances.at(-1)!.lastCamera!;
+    const frustum = new Frustum().setFromProjectionMatrix(
+      new Matrix4().multiplyMatrices(view.projectionMatrix, view.matrixWorldInverse),
+    );
+    let visibleVertices = 0;
+    threshold.updateMatrixWorld(true);
+    threshold.traverse((object) => {
+      if (!(object instanceof Mesh)) return;
+      const toWorld = object.matrixWorld.clone();
+      if (object instanceof InstancedMesh) {
+        const instance = new Matrix4();
+        object.getMatrixAt(0, instance);
+        toWorld.multiply(instance);
+      }
+      const positions = (object.geometry as BufferGeometry).getAttribute("position");
+      const point = new Vector3();
+      for (let index = 0; index < positions.count; index += 1) {
+        point.fromBufferAttribute(positions, index).applyMatrix4(toWorld);
+        const visible = frustum.containsPoint(point);
+        const light = point.clone().applyMatrix4(shadowCamera.matrixWorldInverse);
+        expect(-light.z).toBeGreaterThanOrEqual(shadowCamera.near);
+        expect(-light.z).toBeLessThanOrEqual(shadowCamera.far);
+        if (!visible) continue;
+        visibleVertices += 1;
+        expect(light.x).toBeGreaterThanOrEqual(shadowCamera.left);
+        expect(light.x).toBeLessThanOrEqual(shadowCamera.right);
+        expect(light.y).toBeGreaterThanOrEqual(shadowCamera.bottom);
+        expect(light.y).toBeLessThanOrEqual(shadowCamera.top);
+      }
     });
-    const basePose = cameraPoseFromIso(zeroFrame.camera, {
-      x: zeroFrame.width,
-      y: zeroFrame.height,
+    expect(visibleVertices).toBeGreaterThan(0);
+
+    const breathed = { ...rest, camera: { ...rest.camera, breath: { dolly: 1.012, pitch: 0.01, yaw: 0.014 } } };
+    renderer.render(breathed);
+    const eye = rendererHarness.instances.at(-1)!.lastCamera!.position;
+    const restEye = rest.camera.rest!.view.eye;
+    expect(threshold.position.x - seat.x).toBeCloseTo(eye.x - restEye.x, 9);
+    expect(threshold.position.y - seat.y).toBeCloseTo(eye.y - restEye.y, 9);
+    expect(threshold.position.z - seat.z).toBeCloseTo(eye.z - restEye.z, 9);
+
+    renderer.render(rendererFrame(world, "full", { cameraZoom: 0.8 }));
+    expect(threshold.visible).toBe(false);
+    renderer.dispose();
+  });
+
+  it("applies the camera state's breath around the view target and treats zero breath as the base eye", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"),
+      onContextFailure: vi.fn(),
     });
-    const baseEye = cameraEye(basePose);
+    const baseFrame = rendererFrame(world, "full");
+    const zeroFrame = { ...baseFrame, camera: { ...baseFrame.camera, breath: { dolly: 1, pitch: 0, yaw: 0 } } };
+    const base = cameraView(baseFrame.camera, { x: baseFrame.width, y: baseFrame.height });
+    const baseAngles = cameraViewAngles(base);
 
     renderer.render(zeroFrame);
     const camera = rendererHarness.instances.at(-1)!.lastCamera!;
-    expect(camera.position.toArray()).toEqual([
-      baseEye.x,
-      baseEye.y,
-      baseEye.z,
-    ]);
+    expect(camera.position.x).toBeCloseTo(base.eye.x, 10);
+    expect(camera.position.y).toBeCloseTo(base.eye.y, 10);
+    expect(camera.position.z).toBeCloseTo(base.eye.z, 10);
 
     const breath = {
       dolly: 1.015,
       pitch: Math.PI / 180,
       yaw: 2 * Math.PI / 180,
     };
-    const breathedPose = {
-      ...basePose,
-      distance: basePose.distance * breath.dolly,
-      pitch: basePose.pitch + breath.pitch,
-      yaw: basePose.yaw + breath.yaw,
-    };
-    const breathedEye = cameraEye(breathedPose);
-    renderer.render({ ...zeroFrame, cameraBreath: breath });
-    expect(camera.position.toArray()).toEqual([
-      breathedEye.x,
-      breathedEye.y,
-      breathedEye.z,
-    ]);
-    const target = new Vector3(
-      basePose.targetTile.x * TILE_SCALE,
-      basePose.targetHeight,
-      basePose.targetTile.y * TILE_SCALE,
-    );
+    renderer.render({ ...baseFrame, camera: { ...baseFrame.camera, breath } });
+    const target = new Vector3(base.target.x, base.target.y, base.target.z);
     const targetToEye = camera.position.clone().sub(target);
-    expect(targetToEye.length()).toBeCloseTo(breathedPose.distance, 10);
+    expect(targetToEye.length()).toBeCloseTo(baseAngles.distance * breath.dolly, 10);
     expect(Math.asin(targetToEye.y / targetToEye.length())).toBeCloseTo(
-      breathedPose.pitch,
+      baseAngles.pitch + breath.pitch,
       10,
     );
     expect(Math.atan2(targetToEye.x, targetToEye.z)).toBeCloseTo(
-      breathedPose.yaw,
+      baseAngles.yaw + breath.yaw,
       10,
     );
     const viewDirection = camera.getWorldDirection(new Vector3());
-    expect(camera.position.clone().addScaledVector(viewDirection, breathedPose.distance).distanceTo(target))
-      .toBeLessThan(1e-10);
+    expect(camera.position.clone().addScaledVector(viewDirection, baseAngles.distance * breath.dolly).distanceTo(target))
+      .toBeLessThan(1e-9);
     renderer.dispose();
   });
 
@@ -1088,18 +1122,14 @@ describe("Three world renderer lifecycle", () => {
     const contentRoot = scene.children.at(-1)!;
     const shipDetails = namedGroups(contentRoot, "ship-fine-detail");
     const dockDetails = namedGroups(contentRoot, "dock-fine-detail");
-    const wakeDetails = namedGroups(contentRoot, "ship-wake-detail");
-    const wakes = wakeGroups(contentRoot);
     expect(shipDetails.length).toBe(selectGardenObservatorySlice(world, null).ships.length);
     expect(dockDetails.length).toBe(world.docks.length);
     expect(shipDetails.every((detail) => !detail.visible)).toBe(true);
     expect(dockDetails.every((detail) => !detail.visible)).toBe(true);
-    expect(wakeDetails.every((detail) => !detail.visible)).toBe(true);
 
     renderer.render(rendererFrame(world, "balanced", { cameraZoom: 1.05 }));
     expect(shipDetails.every((detail) => detail.visible)).toBe(true);
     expect(dockDetails.every((detail) => detail.visible)).toBe(true);
-    expect(wakeDetails.every((detail) => detail.visible)).toBe(true);
 
     const selectedShip = selectGardenObservatorySlice(world, null).ships[0]!.ship;
     renderer.render(rendererFrame(world, "balanced", {
@@ -1108,8 +1138,7 @@ describe("Three world renderer lifecycle", () => {
     }));
     expect(shipDetails.filter((detail) => detail.visible)).toHaveLength(1);
     expect(dockDetails.every((detail) => !detail.visible)).toBe(true);
-    expect(wakeDetails.filter((detail) => detail.visible)).toHaveLength(1);
-    expect(wakes.filter((wake) => wake.visible)).toHaveLength(1);
+    expect(visibleWakeSlots(scene)).toBe(1);
 
     renderer.render(rendererFrame(world, "balanced", {
       cameraZoom: 0.8,
@@ -1117,7 +1146,6 @@ describe("Three world renderer lifecycle", () => {
     }));
     expect(shipDetails.every((detail) => !detail.visible)).toBe(true);
     expect(dockDetails.filter((detail) => detail.visible)).toHaveLength(1);
-    expect(wakeDetails.every((detail) => !detail.visible)).toBe(true);
 
     renderer.dispose();
   });
@@ -1148,8 +1176,8 @@ describe("Three world renderer lifecycle", () => {
 
     renderer.render(rendererFrame(world, "full", { cameraZoom: 0.648, timeSeconds: 1 }));
     const contentRoot = rendererHarness.instances.at(-1)!.lastScene!.children.at(-1)!;
-    // The landing torii replaces the obelisks as a primary island silhouette,
-    // so it remains drawn at overview rather than joining the detail LOD.
+    // The obelisks are retired (the landing is marked by set stones), so the
+    // policy's obelisk name no longer composes.
     const composedOverviewNames = OVERVIEW_LOD_DETAIL_NAMES.filter(
       (name) => name !== "pharos-precinct-obelisks",
     );
@@ -1157,8 +1185,6 @@ describe("Three world renderer lifecycle", () => {
       name,
       namedObjects(contentRoot, name),
     ]));
-    const landingTorii = namedObjects(contentRoot, "island-landing-torii");
-    expect(landingTorii.length, "no composed landing torii").toBeGreaterThan(0);
 
     // Every name the policy claims must still exist in the composed world; a
     // rename upstream must fail here rather than silently un-cull the frame.
@@ -1177,7 +1203,6 @@ describe("Three world renderer lifecycle", () => {
     for (const [name, objects] of props) {
       expect(objects.every((object) => !object.visible), `${name} still drawn`).toBe(true);
     }
-    expect(landingTorii.every((object) => object.visible), "landing torii was shed").toBe(true);
 
     renderer.render(rendererFrame(world, "full", { cameraZoom: 0.648, timeSeconds: 21 }));
     for (const entry of authored) {
@@ -2028,8 +2053,8 @@ function rendererFrame(
   world: PharosVilleWorld,
   tier: PharosVilleRenderSchedulerTier,
   options: {
+    /** A rig at this zoom instead of the rest ShotSpec. */
     cameraZoom?: number;
-    cameraBreath?: CameraBreath;
     dpr?: number;
     hoveredDetailId?: string | null;
     reducedMotion?: boolean;
@@ -2040,8 +2065,8 @@ function rendererFrame(
   } = {},
 ): ThreeWorldRendererFrame {
   const reducedMotion = options.reducedMotion ?? false;
-  const camera = defaultCamera({ height: 1000, map: world.map, width: 1440 });
-  if (options.cameraZoom != null) camera.zoom = options.cameraZoom;
+  const rest = defaultCamera({ height: 1000, map: world.map, width: 1440 });
+  const camera: IsoCamera = options.cameraZoom != null ? { ...withoutRest(rest), zoom: options.cameraZoom } : rest;
   const samples = new Map<string, ShipMotionSample>(options.shipMotionSamples);
   const representative = selectGardenObservatorySlice(world, null).ships[0]?.ship;
   if (representative) {
@@ -2056,7 +2081,6 @@ function rendererFrame(
   return {
     logos: emptyLogoAssets,
     camera,
-    ...(options.cameraBreath ? { cameraBreath: options.cameraBreath } : {}),
     dpr: options.dpr ?? 1,
     height: 1000,
     hoveredDetailId: options.hoveredDetailId ?? null,
@@ -2140,14 +2164,16 @@ function renderSettled(
   return metrics;
 }
 
-function wakeGroups(root: Object3D): Group[] {
-  const wakes: Group[] = [];
-  root.traverse((object) => {
-    if (object instanceof Group && object.name === "ship-wake") {
-      wakes.push(object);
-    }
-  });
-  return wakes;
+/** Ships whose batched wake trail is drawn: a hidden slot is collapsed to scale 0. */
+function visibleWakeSlots(root: Object3D): number {
+  const trails = root.getObjectByName("fleet-wake-trails") as InstancedMesh;
+  const matrix = new Matrix4();
+  let visible = 0;
+  for (let slot = 0; slot * WAKE_TRAIL_QUADS < trails.count; slot += 1) {
+    trails.getMatrixAt(slot * WAKE_TRAIL_QUADS, matrix);
+    if (matrixScaleEnergy(matrix) > 0) visible += 1;
+  }
+  return visible;
 }
 
 function namedObjects(root: Object3D, name: string): Object3D[] {
@@ -2226,9 +2252,9 @@ describe("gardenShipHeelFromTurn", () => {
     expect(gardenShipHeelFromTurn(delta, 1 / 60)).toBeCloseTo(delta * 2.4, 12);
   });
 
-  it("clamps a hitched frame instead of spiking", () => {
-    expect(gardenShipHeelFromTurn(3, 1 / 10000)).toBe(0.16);
-    expect(gardenShipHeelFromTurn(-3, 1 / 10000)).toBe(-0.16);
+  it("clamps a hitched frame to a whisper of roll instead of spiking", () => {
+    expect(gardenShipHeelFromTurn(3, 1 / 10000)).toBe(0.05);
+    expect(gardenShipHeelFromTurn(-3, 1 / 10000)).toBe(-0.05);
   });
 
   it("is inert on non-finite input", () => {

@@ -6,7 +6,8 @@ import { pathToFileURL } from "node:url";
 
 const markdownLinkPattern = /!?\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const codeSpanPattern = /`([^`\n]+)`/g;
-const npmRunPattern = /\bnpm\s+run\s+([A-Za-z0-9:_-]+)/g;
+// npm flags before the script name (`npm run -s typecheck`) are not the script.
+const npmRunPattern = /\bnpm\s+run\s+(?:-{1,2}[A-Za-z-]+\s+)*([A-Za-z0-9:_][A-Za-z0-9:_-]*)/g;
 
 const onboardingScopePrefixes = [
   "AGENTS.md",

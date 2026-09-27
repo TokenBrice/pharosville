@@ -2,20 +2,52 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { useGardenDirector } from "../hooks/use-garden-director";
-import { advanceGardenDirector, createGardenDirector, requestGardenBeat, type GardenBeatRequest } from "./garden-director";
+import {
+  advanceGardenDirector,
+  createGardenDirector,
+  GARDEN_DIRECTOR_INITIAL_SILENCE_SECONDS,
+  requestGardenBeat,
+  type GardenBeatRequest,
+} from "./garden-director";
 
 const foreground: GardenBeatRequest = { kind: "keeper", foreground: true, durationSeconds: 10, priority: 20 };
 
 afterEach(cleanup);
 
 describe("garden director", () => {
-  it("reserves one foreground and enforces a seeded six-to-twelve minute silence", () => {
+  it("reserves one foreground and enforces a seeded eight-to-twelve minute silence", () => {
     let state = createGardenDirector("harbor");
     expect(requestGardenBeat(state, foreground, 0)).not.toBeNull();
     expect(requestGardenBeat(state, { ...foreground, priority: 99 }, 5)).toBeNull();
-    expect(requestGardenBeat(state, foreground, 369)).toBeNull();
+    expect(requestGardenBeat(state, foreground, 10 + 479)).toBeNull();
     state = advanceGardenDirector(state, 730);
     expect(requestGardenBeat(state, foreground, 730)).not.toBeNull();
+  });
+
+  it("holds any hour to six discrete events with one unbroken 12-minute quiet (§5.0)", () => {
+    const state = createGardenDirector("budget");
+    const starts: number[] = [];
+    for (let second = 0; second < 4 * 3600; second += 1) {
+      const beat = requestGardenBeat(state, { kind: "arrival", foreground: true, durationSeconds: 9, priority: 20 }, second);
+      if (beat) starts.push(second);
+    }
+    for (let windowStart = 0; windowStart + 3600 <= 4 * 3600; windowStart += 60) {
+      const inside = starts.filter((start) => start + 9 > windowStart && start < windowStart + 3600);
+      expect(inside.filter((start) => start >= windowStart).length).toBeLessThanOrEqual(6);
+      let cursor = windowStart;
+      let longest = 0;
+      for (const start of inside) { longest = Math.max(longest, start - cursor); cursor = start + 9; }
+      expect(Math.max(longest, windowStart + 3600 - cursor)).toBeGreaterThanOrEqual(720);
+    }
+    for (let index = 1; index < starts.length; index += 1) expect(starts[index]! - starts[index - 1]! - 9).toBeGreaterThanOrEqual(480);
+  });
+
+  it("backs every discrete event off 90 s after a ritual", () => {
+    const state = createGardenDirector("backoff");
+    expect(requestGardenBeat(state, { kind: "ritual", foreground: false, durationSeconds: 60, priority: 30 }, 0)).not.toBeNull();
+    const arrival = { kind: "arrival", foreground: true, durationSeconds: 9, priority: 20 } as const;
+    expect(requestGardenBeat(state, arrival, 60 + 89)).toBeNull();
+    expect(requestGardenBeat(state, arrival, 60 + 90)).not.toBeNull();
   });
 
   it("market pre-empts foreground and silence while ordinary priority cannot", () => {
@@ -62,11 +94,31 @@ describe("garden director", () => {
     expect(requestGardenBeat(resumed, foreground, 3600)).not.toBeNull();
   });
 
+  it("keeps its first 90 s free of ordinary captions but lets the market and the environment speak", () => {
+    const createdAt = 1_000;
+    const state = createGardenDirector("harbor", createdAt);
+    const arrival: GardenBeatRequest = { kind: "arrival", foreground: true, durationSeconds: 9, priority: 20 };
+    expect(requestGardenBeat(state, arrival, createdAt + 1)).toBeNull();
+    expect(requestGardenBeat(state, arrival, createdAt + GARDEN_DIRECTOR_INITIAL_SILENCE_SECONDS - 1)).toBeNull();
+    expect(requestGardenBeat(state, { kind: "keeper", foreground: false, durationSeconds: 30, priority: 5 }, createdAt + 2))
+      .not.toBeNull();
+
+    const market = createGardenDirector("harbor", createdAt);
+    expect(requestGardenBeat(market, { ...arrival, kind: "market", priority: 100 }, createdAt + 1)).not.toBeNull();
+
+    const later = createGardenDirector("harbor", createdAt);
+    expect(requestGardenBeat(later, arrival, createdAt + GARDEN_DIRECTOR_INITIAL_SILENCE_SECONDS)).not.toBeNull();
+  });
+
   it("advances the route-owned hook without synthesizing missed beats and freezes reduced motion", () => {
     const view = renderHook(({ timeSeconds, reducedMotion }) => useGardenDirector({ seed: "harbor", timeSeconds, reducedMotion }), {
       initialProps: { timeSeconds: 0, reducedMotion: false },
     });
-    act(() => { requestGardenBeat(view.result.current, foreground, 0); });
+    act(() => {
+      // Created at t=0 on the route clock: the opening 90 s hold no ordinary caption.
+      expect(requestGardenBeat(view.result.current, foreground, 0)).toBeNull();
+      requestGardenBeat(view.result.current, foreground, GARDEN_DIRECTOR_INITIAL_SILENCE_SECONDS);
+    });
     view.rerender({ timeSeconds: 3600, reducedMotion: false });
     expect(view.result.current.active).toBeNull();
     expect(view.result.current.log).toHaveLength(1);

@@ -245,6 +245,26 @@ function resolveShipHullForm(
   };
 }
 
+/**
+ * W4.F1 / contract F-A: the brace a square sail rests at when no apparent
+ * wind drives it (moored, anchored, reduced motion).
+ *
+ * Radians about the mast relative to the hull's athwartships line — 0 is the
+ * yard square across the keel, + swings the starboard yardarm forward — the
+ * same convention as `ShipMotionSample.sailTrimRad`. A square sail braced
+ * 29–43° off the square never goes fully edge-on to the eye, whatever the
+ * heading, so every hull reads in three-quarter view. Decorative only: the
+ * angle is a pure hash of the id and carries no data.
+ */
+export const SHIP_REST_SAIL_BRACE_RAD = { max: 0.75, min: 0.5 } as const;
+
+export function shipRestSailBraceRad(shipId: string): number {
+  const hash = stableFnv1aHash(`${shipId}.brace`);
+  const magnitude = SHIP_REST_SAIL_BRACE_RAD.min
+    + ((hash >>> 1) / 0x7fffffff) * (SHIP_REST_SAIL_BRACE_RAD.max - SHIP_REST_SAIL_BRACE_RAD.min);
+  return (hash & 1) === 0 ? magnitude : -magnitude;
+}
+
 export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, safetyGrade: SafetyGradeEntry | null): ShipVisual {
   const marketCap = getCirculatingRaw(asset);
   const shipClass = resolveShipClass(meta);

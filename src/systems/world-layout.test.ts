@@ -10,10 +10,10 @@ import { seaBodyAnchors, seaBodyCentroidTile, seaBodyTiles } from "./sea-body-an
 import {
   buildPharosVilleMap,
   CEMETERY_CENTER,
-  CEMETERY_RADIUS,
   DOCK_TILES,
   EVM_BAY_STATION_SLOTS,
   graveNodesFromEntries,
+  graveStoneSize,
   isNavigableWaterTile,
   isWaterTileKind,
   LIGHTHOUSE_TILE,
@@ -22,6 +22,7 @@ import {
   PHAROSVILLE_MAP_WIDTH,
   PIGEON_ISLAND_CENTER,
   PIGEONNIER_HARBOR_DOCK_TILE,
+  STONE_GARDEN_SITE,
   nearestAvailableWaterTile,
   nearestWaterTile,
   terrainKindAt,
@@ -406,60 +407,54 @@ describe("buildPharosVilleMap", () => {
     expect(isNavigableWaterTile(landWorldTile({ x: 39, y: 17 }))).toBe(true);
   });
 
-  it("strews wrecks across the south-west shoals with varied markers", () => {
-    // N2: the memorial islet is gone. Dead and frozen stablecoins are an
-    // accumulation of wrecks lying on the wreck shoals — open, slack sea in the
-    // south-west corner — so every assertion here is about WATER, not land.
+  it("seats one stone per fallen coin in the stone garden on the Wreck Shoal shore", () => {
+    // X1 (O8, K29): the graves are set stones on land at the shoal's south
+    // shore; the shoal itself stays one body of quiet wreck water.
     const graves = graveNodesFromEntries(CEMETERY_ENTRIES);
-    const shoals = connectedTerrainTileKeys(
-      { x: Math.round(CEMETERY_CENTER.x), y: Math.round(CEMETERY_CENTER.y) },
-      "wreck-water",
-    );
-    const xs = graves.map((grave) => grave.tile.x);
-    const ys = graves.map((grave) => grave.tile.y);
-
     expect(graves).toHaveLength(CEMETERY_ENTRIES.length);
-    // The scatter region is authored in ZONE space (it is a body of water now),
-    // and widened so wrecks spread over the shoals instead of a churchyard plot.
-    expect(CEMETERY_CENTER).toEqual(zoneWorldTile({ x: 6.0, y: 49.0 }));
-    expect(CEMETERY_RADIUS).toEqual({ x: 12.0, y: 9.0 });
-    expect(CEMETERY_CENTER.x).toBeLessThan(CIVIC_CORE_CENTER.x);
-    expect(CEMETERY_CENTER.y).toBeGreaterThan(CIVIC_CORE_CENTER.y);
-    expect(CEMETERY_CENTER.x).toBeLessThan(LIGHTHOUSE_TILE.x);
-    expect(tileKindAt(Math.round(CEMETERY_CENTER.x), Math.round(CEMETERY_CENTER.y))).toBe("water");
     expect(terrainKindAt(Math.round(CEMETERY_CENTER.x), Math.round(CEMETERY_CENTER.y))).toBe("wreck-water");
-    // Every wreck lies on the shoals, and the shoals are ONE body of water —
-    // the whole graveyard is sailable, with no marooned pockets.
-    expect(graves.every((grave) => terrainKindAt(grave.tile.x, grave.tile.y) === "wreck-water")).toBe(true);
-    expect(graves.every((grave) => isNearConnectedTile(grave.tile, shoals))).toBe(true);
-    expect(shoals.size).toBe(terrainCounts(buildPharosVilleMap().tiles).get("wreck-water"));
-    // The graveyard keeps its distance from the living harbor.
-    expect(graves.every((grave) => Math.hypot(grave.tile.x - LIGHTHOUSE_TILE.x, grave.tile.y - LIGHTHOUSE_TILE.y) > 10)).toBe(true);
-    expect(graves.every((grave) => DOCK_TILES.every((dock) => Math.hypot(grave.tile.x - dock.x, grave.tile.y - dock.y) > 3.25))).toBe(true);
-    // THRESHOLD CHANGE: the old floors (4.5 x 3.5) were sized for the 3.3x2.1
-    // churchyard plot. Derive them from the widened scatter radius instead —
-    // wrecks must span more than one half-axis on each side. Measured spread is
-    // 21.35 x 15.85 against radii of 12 x 9.
-    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(CEMETERY_RADIUS.x);
-    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(CEMETERY_RADIUS.y);
-    expect(new Set(graves.map((grave) => grave.visual.marker)).size).toBeGreaterThan(2);
-    expect(graves.filter((grave) => grave.entry.causeOfDeath === "regulatory").every((grave) => grave.visual.marker === "broken-keel")).toBe(true);
-    expect(graves.filter((grave) => grave.entry.causeOfDeath === "liquidity-drain").every((grave) => grave.visual.marker === "sinking-stern")).toBe(true);
-    expect(Math.max(...graves.map((grave) => grave.visual.scale))).toBeGreaterThan(0.42);
-    expect(Math.min(...graves.map((grave) => grave.visual.scale))).toBeLessThan(0.27);
-    expect(graves.reduce((sum, grave) => sum + grave.visual.scale, 0) / graves.length).toBeLessThan(0.38);
+    const { x: cx, y: cy, rx, ry } = STONE_GARDEN_SITE;
+    for (const grave of graves) {
+      expect(rimLandAt(grave.tile.x, grave.tile.y), grave.id).toBe(true);
+      expect(((grave.tile.x - cx) / rx) ** 2 + ((grave.tile.y - cy) / ry) ** 2, grave.id).toBeLessThanOrEqual(1);
+      expect(DOCK_TILES.every((dock) => Math.hypot(grave.tile.x - dock.x, grave.tile.y - dock.y) > 6), grave.id).toBe(true);
+    }
+    // No stone sits on another: footprints (0.53 tile per unit of size) stay apart.
+    for (let a = 0; a < graves.length; a += 1) {
+      for (let b = a + 1; b < graves.length; b += 1) {
+        const [left, right] = [graves[a]!, graves[b]!];
+        const gap = Math.hypot(left.tile.x - right.tile.x, left.tile.y - right.tile.y);
+        expect(gap, `${left.id} / ${right.id}`).toBeGreaterThanOrEqual((left.visual.scale + right.visual.scale) * 0.53);
+      }
+    }
+  });
+
+  it("gathers the stones by cause family, west to east, and sizes them by peak market cap", () => {
+    const graves = graveNodesFromEntries(CEMETERY_ENTRIES);
+    const family = (cause: string) => graves.filter((grave) => grave.entry.causeOfDeath === cause).map((grave) => grave.visual.family);
+    expect(new Set(family("algorithmic-failure"))).toEqual(new Set(["lost-peg"]));
+    expect(new Set(family("liquidity-drain"))).toEqual(new Set(["lost-peg"]));
+    expect(new Set(family("counterparty-failure"))).toEqual(new Set(["counterparty"]));
+    expect(new Set([...family("abandoned"), ...family("regulatory")])).toEqual(new Set(["wound-down"]));
+    const span = (name: string) => {
+      const xs = graves.filter((grave) => grave.visual.family === name).map((grave) => grave.tile.x);
+      return [Math.min(...xs), Math.max(...xs)] as const;
+    };
+    // Open gravel between the families: each lies wholly west of the next.
+    expect(span("lost-peg")[1]).toBeLessThan(span("counterparty")[0]);
+    expect(span("counterparty")[1]).toBeLessThan(span("wound-down")[0]);
+    expect(graveStoneSize(1.88e10)).toBeGreaterThan(graveStoneSize(3e8));
+    expect(graveStoneSize(3e8)).toBeGreaterThan(graveStoneSize(2e6));
+    expect(graveStoneSize(undefined)).toBe(graveStoneSize(0));
+  });
+
+  it("seats the same stones whatever order the ledger arrives in", () => {
+    const forward = graveNodesFromEntries([...CEMETERY_ENTRIES]);
+    const reversed = graveNodesFromEntries([...CEMETERY_ENTRIES].reverse());
+    const seat = (graves: typeof forward) => new Map(graves.map((grave) => [grave.id, grave.tile]));
+    expect(seat(reversed)).toEqual(seat(forward));
   });
 });
-
-function nearbyTiles(center: { x: number; y: number }, radius: number): { x: number; y: number }[] {
-  const tiles: { x: number; y: number }[] = [];
-  for (let y = center.y - radius; y <= center.y + radius; y += 1) {
-    for (let x = center.x - radius; x <= center.x + radius; x += 1) {
-      tiles.push({ x, y });
-    }
-  }
-  return tiles;
-}
 
 function landBoundsExcludingIslets(tiles: PharosVilleTile[]) {
   const landTiles = landTilesExcludingIslets(tiles);
@@ -484,57 +479,6 @@ function landTilesExcludingIslets(tiles: PharosVilleTile[]) {
     const dPigeon = Math.hypot(tile.x - PIGEON_ISLAND_CENTER.x, tile.y - PIGEON_ISLAND_CENTER.y);
     return dPigeon > pigeonRadius;
   });
-}
-
-function cardinalNeighbors(tile: { x: number; y: number }): { x: number; y: number }[] {
-  return cardinalDirections().map((direction) => ({
-    x: tile.x + direction.x,
-    y: tile.y + direction.y,
-  }));
-}
-
-function cardinalDirections(): { x: number; y: number }[] {
-  return [
-    { x: 1, y: 0 },
-    { x: -1, y: 0 },
-    { x: 0, y: 1 },
-    { x: 0, y: -1 },
-  ];
-}
-
-
-/** Flood-fills the contiguous run of `terrain` tiles reachable from `start`. */
-function connectedTerrainTileKeys(
-  start: { x: number; y: number },
-  terrain: ReturnType<typeof terrainKindAt>,
-): Set<string> {
-  const visited = new Set<string>();
-  const queue = [start];
-
-  while (queue.length > 0) {
-    const tile = queue.shift();
-    if (!tile) continue;
-    if (tile.x < 0 || tile.x >= PHAROSVILLE_MAP_WIDTH || tile.y < 0 || tile.y >= PHAROSVILLE_MAP_HEIGHT) continue;
-    if (terrainKindAt(tile.x, tile.y) !== terrain) continue;
-    const key = tileKey(tile);
-    if (visited.has(key)) continue;
-
-    visited.add(key);
-    queue.push(...cardinalNeighbors(tile));
-  }
-
-  return visited;
-}
-
-function isNearConnectedTile(tile: { x: number; y: number }, connected: ReadonlySet<string>): boolean {
-  return nearbyTiles({ x: Math.round(tile.x), y: Math.round(tile.y) }, 1).some((candidate) => (
-    connected.has(tileKey(candidate))
-    && Math.hypot(candidate.x - tile.x, candidate.y - tile.y) < 1.25
-  ));
-}
-
-function tileKey(tile: { x: number; y: number }): string {
-  return `${tile.x}.${tile.y}`;
 }
 
 function terrainCounts(tiles: Array<{ terrain?: string }>): Map<string, number> {

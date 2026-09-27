@@ -485,8 +485,7 @@ test(...visualLane("dom", "a browser that cannot render the world still gets the
   await fallback.getByRole("button", { name: "Open Lighthouse details" }).click();
   const detailPanel = page.getByTestId("pharosville-detail-panel");
   await expect(detailPanel).toContainText(/Pharos lighthouse/i);
-  const closeDetails = page.getByRole("button", { name: "Close details" });
-  await expect(closeDetails).toBeFocused();
+  await expect(detailPanel.getByRole("heading", { level: 2 })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(detailPanel).toHaveCount(0);
 

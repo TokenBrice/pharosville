@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.18.0` (`safetyGrades`)
-- Latest changelog entry: `2026-09-22-safety-grades` / `v0.18.0` / 2026-09-22 / Safety Grades
+- Latest app version: `v0.19.0` (`hourPrint`)
+- Latest changelog entry: `2026-09-27-hour-print` / `v0.19.0` / 2026-09-27 / Hour Print
 
 ## Viewport Gate
 
@@ -39,7 +39,7 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 
 | Model | URL | Bytes | Geometry | SHA-256 |
 | --- | --- | --- | --- | --- |
-| `garden-lighthouse-shell` | `/pharosville/models/garden-lighthouse-shell.glb` | 227 KiB | 7 draws / 37,160 tris / 24,304 verts / 0 textures | `4b163617fd5e75613b4a44d86de55f7f5fb6cb58d504cb89f25556f69b8d0d34` |
+| `garden-lighthouse-shell` | `/pharosville/models/garden-lighthouse-shell.glb` | 190 KiB | 8 draws / 30,436 tris / 19,901 verts / 0 textures | `f57ccc4f936e03d155fc8df2df1d049e65f7e7c3b70ed041ec8d770f23b97f78` |
 | `garden-hero-tether` | `/pharosville/models/garden-hero-tether.glb` | 20 KiB | 4 draws / 930 tris / 842 verts / 0 textures | `d8b66430e8c05b5d66d6c83f443697691141d74fa3f2027b29139b6bc12245ef` |
 | `garden-hero-circle` | `/pharosville/models/garden-hero-circle.glb` | 28 KiB | 5 draws / 1,258 tris / 1,392 verts / 0 textures | `2e5e50cdd5e1fb137abb2f6715ba0970ae8ae536313d6b23d3034e8577ed5851` |
 | `garden-hero-maker` | `/pharosville/models/garden-hero-maker.glb` | 31 KiB | 5 draws / 1,764 tris / 1,451 verts / 0 textures | `4998bb3c019e629cbecab19946ae28b83aedbc087310f9f570a9a5388956f20f` |
@@ -57,8 +57,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - desktop lazy chunk: raw <= 1,024 KiB, gzip <= 290 KiB
 - world lazy chunk: raw <= 440 KiB, gzip <= 145 KiB
 - Three.js renderer chunk: raw <= 1,600 KiB, gzip <= 454 KiB
-- entry CSS: raw <= 40 KiB, gzip <= 8 KiB
-- Total JS: raw <= 3,200 KiB, gzip <= 886 KiB
+- entry CSS: raw <= 44 KiB, gzip <= 8 KiB
+- Total JS: raw <= 3,200 KiB, gzip <= 963 KiB
 
 ## Squads
 

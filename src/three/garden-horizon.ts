@@ -6,19 +6,19 @@ import {
   Group,
   Mesh,
   ShaderMaterial,
+  Vector2,
 } from "three";
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
-import {
-  dayCycleBeats,
-  DAY_CYCLE_SKY_PRESETS,
-} from "./garden-day-cycle";
-import { blendGardenSkyColor } from "./garden-sky";
+import { HARBOR_PALETTE } from "../systems/palette";
+import { farShoreRangeVisibility } from "../systems/psi-sky";
+import { REST_SEAT_YAW_RAD } from "../systems/rest-seat";
+import { dayCycleBeats, DAY_CYCLE_LIGHT_PRESETS } from "./garden-day-cycle";
+import { GARDEN_AERIAL_GLSL_PARS, GARDEN_AIR, gardenAerialUniforms } from "./garden-aerial";
 
 export interface GardenHorizonFrame {
-  targetX: number;
-  targetZ: number;
   cameraPosition: { x: number; y: number; z: number };
-  fogColor: Color;
+  /** Displayed signed PSI clarity −1…+1 (garden-sky `signedClarity`). */
+  clarity: number;
   tier: PharosVilleRenderSchedulerTier;
 }
 
@@ -32,141 +32,295 @@ export interface GardenHorizon {
 }
 
 /**
- * Warm-village B3 (2026-09-05): the ridges read as THREE PLANES, not one fog
- * band. The old 0.98/0.97/0.96 kept every layer within 2–4% of the fog colour,
- * which graded into a single flat strip. Each ridge now steps a further ~10%
- * down in value from far to near (fog-close far ridge, silhouette near ridge),
- * ordered the way aerial perspective actually works.
+ * W2.4 (sky-3, garden-master-1 step 5): shakkei — five painted ridges borrowed
+ * from beyond the harbour, like a folding screen behind the Pharos.
+ *
+ * Authored in the rest seat's own frame: `left`/`right` are degrees from the
+ * seat's view axis (positive right), `height` degrees above the horizon at
+ * `depth` world units. The root follows the eye, so the ridges stand on the
+ * true sea horizon with no parallax, like the dome.
+ *
+ * - The peak (right, pale, asymmetric, under 4°) is the composition's anchor
+ *   beside the crown; it and the near headland NEVER depend on PSI (K39).
+ * - The far range, the western ridge and the eastern ridge carry market
+ *   stability: the haze takes the far range first (psi-sky `FAR_SHORE_RANGES`).
+ * - Opaque. Value = mix(ink, airlight, k) with the airlight ladder below, so
+ *   each plane steps paler and cooler with distance; the feet dissolve into
+ *   the same airlight the dome's lower hemisphere draws.
+ * - The centre stays low (nothing above 1° inside ±9°): the sky gap behind the
+ *   tower stays open at the seat.
  */
-export const GARDEN_HORIZON_VALUE_SCALES = [0.9, 0.8, 0.7] as const;
-
-// The GLSL reads the exported scales so the shader and the contract constant
-// cannot drift apart (they did once: the shader hardcoded 0.98/0.97/0.96).
-const HORIZON_VALUE_SCALE_GLSL = `
-        float valueScale = vLayer < 0.5 ? ${GARDEN_HORIZON_VALUE_SCALES[0].toFixed(2)}
-          : (vLayer < 1.5 ? ${GARDEN_HORIZON_VALUE_SCALES[1].toFixed(2)} : ${GARDEN_HORIZON_VALUE_SCALES[2].toFixed(2)});
-      `;
-
-const RIDGES = [
+export const GARDEN_HORIZON_RIDGES = [
+  // Peak: far right of the tower, pale; a steep inner flank, a long shoulder out.
   {
-    depth: 390,
-    height: 22,
-    offset: -172,
-    profile: [0, 0.22, 0.16, 0.42, 0.35, 0.58, 0.91, 0.64, 0.31, 0.14, 0],
-    width: 160,
+    name: "peak", depth: 500, left: 8.5, right: 27, height: 3.5, k: 0.88, psi: -1, roughness: 0.005,
+    knots: [0, 0.08, 0.3, 0.64, 0.95, 1, 0.86, 0.66, 0.53, 0.47, 0.3, 0.12, 0],
   },
+  // The far range: long and low on the left, the first to go when the market wavers.
   {
-    depth: 350,
-    height: 28,
-    offset: 170,
-    profile: [0, 0.11, 0.3, 0.2, 0.48, 0.82, 0.52, 0.38, 0.16, 0.22, 0],
-    width: 172,
+    name: "far-range", depth: 470, left: -28, right: -4, height: 1.6, k: 0.82, psi: 0, roughness: 0.01,
+    knots: [0, 0.32, 0.55, 0.5, 0.72, 0.62, 0.84, 0.68, 0.5, 0.58, 0.3, 0.1, 0],
   },
+  // The eastern ridge: overlaps the peak's outer foot, a step darker.
   {
-    depth: 320,
-    height: 18,
-    offset: -104,
-    profile: [0, 0.18, 0.12, 0.38, 0.29, 0.62, 0.43, 0.24, 0.34, 0.12, 0],
-    width: 104,
+    name: "eastern-ridge", depth: 380, left: 17, right: 33, height: 1.9, k: 0.68, psi: 2, roughness: 0.02,
+    knots: [0, 0.35, 0.68, 0.6, 0.86, 1, 0.74, 0.52, 0.26, 0],
+  },
+  // The western ridge: over the far range's feet on the left.
+  {
+    name: "western-ridge", depth: 360, left: -27, right: -10, height: 2.4, k: 0.62, psi: 1, roughness: 0.025,
+    knots: [0, 0.28, 0.6, 0.86, 1, 0.8, 0.56, 0.62, 0.38, 0.14, 0],
+  },
+  // The near headland at the right edge, dark, with a crest of small pines.
+  {
+    name: "near-headland", depth: 260, left: 22, right: 36, height: 1.5, k: 0.4, psi: -1, roughness: 0.05,
+    knots: [0, 0.46, 0.82, 1, 0.94, 0.9, 0.74, 0.52, 0.3],
   },
 ] as const;
 
+/** The airlight value ladder, far → near (the k of `mix(ink, air, k)`). */
+export const GARDEN_HORIZON_VALUE_SCALES = GARDEN_HORIZON_RIDGES.map((ridge) => ridge.k);
+
+/**
+ * Three kasumi bands at the ridge feet (art-director-3, sky-3): scenery, high on
+ * the horizon and below every crest — never low sea mist (K6).
+ */
+export const GARDEN_HORIZON_KASUMI = [
+  { depth: 480, left: -30, right: -2, bottom: 0.12, top: 0.5 },
+  { depth: 490, left: 5, right: 31, bottom: 0.18, top: 0.72 },
+  { depth: 350, left: -29, right: -8, bottom: 0.08, top: 0.42 },
+] as const;
+const KASUMI_ALPHA = 0.55;
+const KASUMI_SEGMENTS = 16;
+
+const RIDGE_SAMPLES = 64;
+const HEADLAND_SAMPLES = 110;
+/**
+ * Feet sink this far below the horizon (still above the sea annulus's rim at the
+ * seat); below −0.35° they are pure airlight, the same colour the dome's lower
+ * hemisphere draws, so no ridge has a cut edge.
+ */
+const FOOT_DEPTH_DEG = 1.6;
+const DEG = Math.PI / 180;
+
+function catmullRom(knots: readonly number[], t: number): number {
+  const scaled = t * (knots.length - 1);
+  const i = Math.min(knots.length - 2, Math.floor(scaled));
+  const f = scaled - i;
+  const p0 = knots[Math.max(0, i - 1)]!;
+  const p1 = knots[i]!;
+  const p2 = knots[i + 1]!;
+  const p3 = knots[Math.min(knots.length - 1, i + 2)]!;
+  return 0.5 * (
+    2 * p1
+    + (-p0 + p2) * f
+    + (2 * p0 - 5 * p1 + 4 * p2 - p3) * f * f
+    + (-p0 + 3 * p1 - 3 * p2 + p3) * f * f * f
+  );
+}
+
+/** Deterministic 1-D value noise, −1…1. */
+function valueNoise(x: number, seed: number): number {
+  const hash = (n: number) => {
+    const s = Math.sin(n * 127.1 + seed * 311.7) * 43758.5453;
+    return (s - Math.floor(s)) * 2 - 1;
+  };
+  const i = Math.floor(x);
+  const f = x - i;
+  const u = f * f * (3 - 2 * f);
+  return hash(i) * (1 - u) + hash(i + 1) * u;
+}
+
 function createGeometry(): BufferGeometry {
   const positions: number[] = [];
-  const layers: number[] = [];
-  const reliefs: number[] = [];
+  const kinds: number[] = [];
   const verticals: number[] = [];
+  const normals: number[] = [];
+  const alongs: number[] = [];
   const indices: number[] = [];
-  const lateralX = Math.SQRT1_2;
-  const lateralZ = -Math.SQRT1_2;
-  const farX = -Math.SQRT1_2;
-  const farZ = -Math.SQRT1_2;
-  for (const [layer, ridge] of RIDGES.entries()) {
-    const base = positions.length / 3;
-    for (let point = 0; point < ridge.profile.length; point += 1) {
-      const t = point / (ridge.profile.length - 1);
-      const lateral = (t - 0.5) * ridge.width + ridge.offset;
-      const x = farX * ridge.depth + lateralX * lateral;
-      const z = farZ * ridge.depth + lateralZ * lateral;
-      positions.push(x, -6, z, x, ridge.profile[point]! * ridge.height, z);
-      layers.push(layer, layer);
-      reliefs.push(ridge.profile[point]!, ridge.profile[point]!);
+  const forwardX = -Math.sin(REST_SEAT_YAW_RAD);
+  const forwardZ = -Math.cos(REST_SEAT_YAW_RAD);
+  const rightX = Math.cos(REST_SEAT_YAW_RAD);
+  const rightZ = -Math.sin(REST_SEAT_YAW_RAD);
+  const place = (depth: number, angleDeg: number, elevationDeg: number) => {
+    const a = angleDeg * DEG;
+    const x = depth * (forwardX * Math.cos(a) + rightX * Math.sin(a));
+    const z = depth * (forwardZ * Math.cos(a) + rightZ * Math.sin(a));
+    positions.push(x, depth * Math.tan(elevationDeg * DEG), z);
+  };
+
+  // Ridges, far to near, so the painter's order inside the one draw agrees
+  // with depth.
+  for (const [index, ridge] of GARDEN_HORIZON_RIDGES.entries()) {
+    const samples = ridge.name === "near-headland" ? HEADLAND_SAMPLES : RIDGE_SAMPLES;
+    const heights: number[] = [];
+    const spanDeg = ridge.right - ridge.left;
+    for (let s = 0; s <= samples; s += 1) {
+      const t = s / samples;
+      const base = Math.max(0, catmullRom(ridge.knots, t));
+      const lateralUnits = t * spanDeg * DEG * ridge.depth;
+      // Two octaves of 1-D noise × roughness, in degrees: far ridges smooth,
+      // near ridges textured (detail as aerial perspective).
+      const noise = valueNoise(lateralUnits / 9, index) + 0.5 * valueNoise(lateralUnits / 3.5, index + 7);
+      let height = base * ridge.height + (base > 0.05 ? noise * ridge.roughness * 4 * ridge.height : 0);
+      if (ridge.name === "near-headland" && base > 0.3) {
+        // Pine crest: small crowns of 0.6–1.4 u every 2–3 u (sky-3).
+        const spacing = 2 + (valueNoise(lateralUnits / 11, 21) + 1) * 0.5;
+        const phase = (lateralUnits / spacing) % 1;
+        const crown = 0.6 + (valueNoise(Math.floor(lateralUnits / spacing), 33) + 1) * 0.4;
+        height += (1 - Math.abs(phase * 2 - 1)) * crown / ridge.depth / DEG;
+      }
+      heights.push(Math.max(0, height));
+    }
+    for (let s = 0; s <= samples; s += 1) {
+      const angle = ridge.left + (s / samples) * spanDeg;
+      const previous = heights[Math.max(0, s - 1)]!;
+      const next = heights[Math.min(samples, s + 1)]!;
+      // Outward normal of the crest in (lateral, up), both in degrees.
+      const dLateral = (Math.min(samples, s + 1) - Math.max(0, s - 1)) / samples * spanDeg;
+      const dUp = next - previous;
+      const length = Math.hypot(dUp, dLateral) || 1;
+      const nx = -dUp / length;
+      const ny = dLateral / length;
+      place(ridge.depth, angle, -FOOT_DEPTH_DEG);
+      place(ridge.depth, angle, heights[s]!);
+      kinds.push(index, index);
       verticals.push(0, 1);
-      if (point === 0) continue;
-      const a = base + (point - 1) * 2;
-      const b = a + 1;
-      const c = base + point * 2 + 1;
-      const d = c - 1;
-      indices.push(a, c, b, a, d, c);
+      normals.push(nx, ny, nx, ny);
+      alongs.push(s / samples, s / samples);
+      if (s === 0) continue;
+      const a = positions.length / 3 - 4;
+      indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
     }
   }
+
+  // Kasumi last: blended over the ridges already drawn in this same call.
+  for (const [band, kasumi] of GARDEN_HORIZON_KASUMI.entries()) {
+    for (let s = 0; s <= KASUMI_SEGMENTS; s += 1) {
+      const t = s / KASUMI_SEGMENTS;
+      const angle = kasumi.left + t * (kasumi.right - kasumi.left);
+      place(kasumi.depth, angle, kasumi.bottom);
+      place(kasumi.depth, angle, kasumi.top);
+      kinds.push(GARDEN_HORIZON_RIDGES.length + band, GARDEN_HORIZON_RIDGES.length + band);
+      verticals.push(0, 1);
+      normals.push(0, 1, 0, 1);
+      alongs.push(t, t);
+      if (s === 0) continue;
+      const a = positions.length / 3 - 4;
+      indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    }
+  }
+
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(new Float32Array(positions), 3));
-  geometry.setAttribute("aLayer", new BufferAttribute(new Float32Array(layers), 1));
-  geometry.setAttribute("aRelief", new BufferAttribute(new Float32Array(reliefs), 1));
+  geometry.setAttribute("aKind", new BufferAttribute(new Float32Array(kinds), 1));
   geometry.setAttribute("aVertical", new BufferAttribute(new Float32Array(verticals), 1));
+  geometry.setAttribute("aNormal2", new BufferAttribute(new Float32Array(normals), 2));
+  geometry.setAttribute("aAlong", new BufferAttribute(new Float32Array(alongs), 1));
   geometry.setIndex(indices);
   geometry.computeBoundingSphere();
   return geometry;
 }
 
+const RIDGE_COUNT = GARDEN_HORIZON_RIDGES.length;
+
 function createMaterial(): ShaderMaterial {
   return new ShaderMaterial({
-    // The transparent draw sorts after the opaque garden, so the depth buffer
-    // is what keeps borrowed scenery behind every rim, ship and building.
+    // Opaque ridges and feathered kasumi share one draw: the kasumi triangles
+    // come last in the index buffer, so they blend over the ridges already
+    // written. Depth-tested so every rim, ship and building stays in front.
     depthTest: true,
-    depthWrite: false,
+    depthWrite: true,
     fog: false,
     side: DoubleSide,
     transparent: true,
     uniforms: {
-      uFogColor: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
-      uSkyColor: { value: DAY_CYCLE_SKY_PRESETS.night.zenith.clone() },
+      ...gardenAerialUniforms,
+      uRidgeK: { value: GARDEN_HORIZON_RIDGES.map((ridge) => ridge.k) },
+      uInk: { value: new Color() },
+      uSunColor: { value: new Color() },
+      uSunScreen: { value: new Vector2(0, 1) },
+      uRim: { value: 0 },
+      uKasumi: { value: KASUMI_ALPHA },
     },
     vertexShader: /* glsl */ `
-      attribute float aLayer;
-      attribute float aRelief;
+      attribute float aKind;
       attribute float aVertical;
-      varying float vLayer;
-      varying float vRelief;
-      varying float vDepth;
+      attribute vec2 aNormal2;
+      attribute float aAlong;
+      varying float vKind;
       varying float vVertical;
+      varying vec2 vNormal2;
+      varying float vAlong;
+      varying vec3 vWorld;
       void main() {
-        vLayer = aLayer;
-        vRelief = aRelief;
+        vKind = aKind;
         vVertical = aVertical;
-        vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
-        vDepth = -viewPosition.z;
-        gl_Position = projectionMatrix * viewPosition;
+        vNormal2 = aNormal2;
+        vAlong = aAlong;
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        vWorld = world.xyz;
+        gl_Position = projectionMatrix * viewMatrix * world;
       }
     `,
     fragmentShader: /* glsl */ `
-      uniform vec3 uFogColor;
-      uniform vec3 uSkyColor;
-      varying float vLayer;
-      varying float vRelief;
-      varying float vDepth;
+      ${GARDEN_AERIAL_GLSL_PARS}
+      uniform float uRidgeK[${RIDGE_COUNT}];
+      uniform vec3 uInk;
+      uniform vec3 uSunColor;
+      uniform vec2 uSunScreen;
+      uniform float uRim;
+      uniform float uKasumi;
+      varying float vKind;
       varying float vVertical;
+      varying vec2 vNormal2;
+      varying float vAlong;
+      varying vec3 vWorld;
+
+      float gardenKasumiNoise(float x) {
+        float i = floor(x);
+        float f = fract(x);
+        float a = fract(sin(i * 127.1) * 43758.5453);
+        float b = fract(sin((i + 1.0) * 127.1) * 43758.5453);
+        return mix(a, b, f * f * (3.0 - 2.0 * f));
+      }
+
       void main() {
-        ${HORIZON_VALUE_SCALE_GLSL.trim()}
-        float profile = smoothstep(0.035, 0.48, vRelief);
-        float baseFade = smoothstep(0.0, 0.5, vVertical);
-        float distanceCool = (2.0 - vLayer) * 0.08;
-        float skyMix = 0.08 + smoothstep(0.12, 0.82, vRelief) * 0.16 + distanceCool;
-        float alpha = profile * baseFade * (0.34 + vLayer * 0.035);
-        if (alpha < 0.004) discard;
-        vec3 silhouette = mix(uFogColor, uSkyColor, skyMix) * valueScale;
-        float distanceFade = smoothstep(280.0, 580.0, vDepth);
-        gl_FragColor = vec4(mix(silhouette, uFogColor, distanceFade * 0.7), alpha);
+        vec3 dir = normalize(vWorld - cameraPosition);
+        vec3 air = gardenAirlightBase(dir);
+        if (vKind > ${RIDGE_COUNT}.0 - 0.5) {
+          float ends = smoothstep(0.0, 0.2, vAlong) * (1.0 - smoothstep(0.8, 1.0, vAlong));
+          float broken = 0.6 + 0.4 * gardenKasumiNoise(vAlong * 7.0 + vKind * 3.7);
+          float feather = sin(3.14159265 * clamp(vVertical, 0.0, 1.0));
+          float alpha = uKasumi * ends * broken * feather * feather;
+          if (alpha < 0.004) discard;
+          gl_FragColor = vec4(air * 1.06, alpha);
+          return;
+        }
+        float k = uRidgeK[int(vKind + 0.5)];
+        // The feet dissolve into the same air as the dome below the horizon.
+        k = mix(1.0, k, smoothstep(-0.006, 0.008, dir.y));
+        vec3 color = mix(uInk, air, k);
+        // Crest a shade darker than the foot.
+        color *= 1.0 - 0.05 * smoothstep(0.88, 1.0, vVertical);
+        // Low sun: a hair of sun colour on the slopes that face it.
+        float rim = max(dot(normalize(vNormal2), uSunScreen), 0.0)
+          * smoothstep(0.82, 1.0, vVertical) * uRim;
+        color += uSunColor * rim;
+        gl_FragColor = vec4(color, 1.0);
       }
     `,
   });
 }
 
+// Per-beat ink: the palette's violet-grey mist at the value each hour prints.
+const INK_BASE = new Color(HARBOR_PALETTE.fog_blue);
+const INK_SCALE = { dawn: 0.8, day: 0.55, golden: 0.7, blue: 0.45, night: 0.22 } as const;
+const BEAT_NAMES = ["dawn", "day", "golden", "blue", "night"] as const;
+
 /**
- * Three partial headlands beyond the north/west plate, with open sky between
- * their unequal profiles. A single depth-tested draw softens their feet into
- * the sea haze; there is no full-width curtain or extra mist strip.
+ * Five borrowed ridges and three kasumi bands beyond the plate, one depth-tested
+ * draw. Hidden on the constrained tier.
  */
 export function createGardenHorizon(): GardenHorizon {
   const root = new Group();
@@ -174,21 +328,25 @@ export function createGardenHorizon(): GardenHorizon {
   const geometry = createGeometry();
   const material = createMaterial();
   const mesh = new Mesh(geometry, material);
-  mesh.name = "garden-horizon-headlands";
+  mesh.name = "garden-horizon-shakkei";
   mesh.frustumCulled = false;
   mesh.renderOrder = -1;
   mesh.castShadow = false;
   mesh.receiveShadow = false;
   mesh.raycast = () => {};
   root.add(mesh);
-  const fogColor = material.uniforms.uFogColor.value as Color;
-  const skyColor = material.uniforms.uSkyColor.value as Color;
+  const ridgeK = material.uniforms.uRidgeK.value as number[];
+  const ink = material.uniforms.uInk.value as Color;
+  const sunColor = material.uniforms.uSunColor.value as Color;
+  const sunScreen = material.uniforms.uSunScreen.value as Vector2;
+  const rightX = Math.cos(REST_SEAT_YAW_RAD);
+  const rightZ = -Math.sin(REST_SEAT_YAW_RAD);
   let disposed = false;
 
   return {
     drawCallCount: 1,
     root,
-    silhouetteCount: RIDGES.length,
+    silhouetteCount: GARDEN_HORIZON_RIDGES.length,
     triangleCount: geometry.index!.count / 3,
     dispose() {
       if (disposed) return;
@@ -198,11 +356,39 @@ export function createGardenHorizon(): GardenHorizon {
       root.clear();
     },
     update(wallClockHour, frame) {
-      // Distant flat sea meets the horizontal plane through the current eye.
-      root.position.set(frame.targetX, frame.cameraPosition.y, frame.targetZ);
+      root.position.set(frame.cameraPosition.x, frame.cameraPosition.y, frame.cameraPosition.z);
       root.visible = frame.tier !== "constrained";
-      fogColor.copy(frame.fogColor);
-      blendGardenSkyColor(skyColor, dayCycleBeats(wallClockHour), "zenith");
+      const beats = dayCycleBeats(wallClockHour);
+      let inkScale = 0;
+      sunColor.setRGB(0, 0, 0);
+      for (const beat of BEAT_NAMES) {
+        inkScale += INK_SCALE[beat] * beats[beat];
+        const key = DAY_CYCLE_LIGHT_PRESETS[beat].dirColor;
+        sunColor.r += key.r * beats[beat];
+        sunColor.g += key.g * beats[beat];
+        sunColor.b += key.b * beats[beat];
+      }
+      ink.copy(INK_BASE).multiplyScalar(inkScale);
+      // K39: the three PSI ranges fade into the air as clarity falls; clear air
+      // also steps them a little nearer in value. The peak and the headland hold.
+      const clear = Math.max(frame.clarity, 0);
+      for (const [index, ridge] of GARDEN_HORIZON_RIDGES.entries()) {
+        if (ridge.psi < 0) {
+          ridgeK[index] = ridge.k;
+          continue;
+        }
+        const visibility = farShoreRangeVisibility(frame.clarity, ridge.psi);
+        ridgeK[index] = 0.985 + (ridge.k - 0.06 * clear - 0.985) * visibility;
+      }
+      // Sun rim at low sun only (sky-3): the sun's side in the seat's frame.
+      const sun = GARDEN_AIR.sunDir;
+      sunScreen.set(sun.x * rightX + sun.z * rightZ, Math.max(sun.y, 0));
+      if (sunScreen.lengthSq() < 1e-8) sunScreen.set(0, 1);
+      else sunScreen.normalize();
+      const elevation = Math.asin(Math.min(1, Math.max(-1, sun.y)));
+      const low = 1 - Math.min(1, Math.max(0, (elevation - 0.05) / 0.25));
+      const up = Math.min(1, Math.max(0, (elevation + 0.03) / 0.05));
+      material.uniforms.uRim.value = 0.12 * low * low * (3 - 2 * low) * up;
     },
   };
 }

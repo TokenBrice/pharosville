@@ -1,5 +1,11 @@
 import { isWaterTileKind } from "./world-layout";
 import { isGardenObstacleTile } from "./garden-water-exclusion";
+import {
+  GARDEN_EMPTY_INLET,
+  GARDEN_INLET_CORE_EXIT_COST,
+  gardenInletDistance,
+  gardenInletRouteCostField,
+} from "./garden-inlet";
 import { isSeawallBarrierTile, isSeawallBarrierTileXY } from "./seawall";
 import { stableHash, stableOffset, stableUnit } from "./stable-random";
 import { clamp, normalizeHeadingInto, pathKey, sameTile } from "./motion-utils";
@@ -15,6 +21,8 @@ export function buildShipWaterRoute(input: {
   // Accepted for caller compatibility; path geometry is bucket-independent so
   // 600s plan rebuilds reproduce identical routes (no mid-transit jumps).
   bucket?: number;
+  /** W1.6: only the holder of an inlet crossing token may route through the ma. */
+  inletCrossing?: boolean;
 }): ShipWaterPath {
   const from = nearestMapWaterTile(input.from, input.map);
   const to = nearestMapWaterTile(input.to, input.map);
@@ -24,6 +32,7 @@ export function buildShipWaterRoute(input: {
     map: input.map,
     ...(input.zone !== undefined ? { zone: input.zone } : {}),
     ...(input.shipId !== undefined ? { shipId: input.shipId } : {}),
+    ...(input.inletCrossing !== undefined ? { inletCrossing: input.inletCrossing } : {}),
   });
 }
 
@@ -36,6 +45,8 @@ export function buildCachedShipWaterRoute(input: {
   bucket: number;
   /** Skip legacy decorative wander when cadence planning owns leg length. */
   preferDirect?: boolean;
+  /** W1.6: only the holder of an inlet crossing token may route through the ma. */
+  inletCrossing?: boolean;
 }, cache: ShipWaterRouteCache): ShipWaterPath {
   const from = nearestMapWaterTile(input.from, input.map);
   const to = nearestMapWaterTile(input.to, input.map);
@@ -46,7 +57,7 @@ export function buildCachedShipWaterRoute(input: {
   // route-variation flip invalidated every cached path and re-ran the whole
   // A* set to reproduce identical geometry: ~300ms of plan rebuild plus
   // ~700ms of lazy path solving, every ten minutes, forever.
-  const key = `${input.zone}:${input.shipId}:${input.preferDirect ? "direct" : "wander"}:${pathKey(from, to)}`;
+  const key = `${input.zone}:${input.shipId}:${input.preferDirect ? "direct" : "wander"}${input.inletCrossing ? ":crossing" : ""}:${pathKey(from, to)}`;
   const cached = cache.get(key);
   if (cached) return cached;
 
@@ -57,6 +68,7 @@ export function buildCachedShipWaterRoute(input: {
     shipId: input.shipId,
     ...(input.preferDirect ? {} : { zone: input.zone }),
     ...(input.preferDirect !== undefined ? { preferDirect: input.preferDirect } : {}),
+    ...(input.inletCrossing !== undefined ? { inletCrossing: input.inletCrossing } : {}),
   });
   cache.set(key, route);
   return route;
@@ -209,25 +221,32 @@ function buildShipWaterRouteFromWaterTiles(input: {
   zone?: ShipWaterZone;
   shipId?: string;
   preferDirect?: boolean;
+  inletCrossing?: boolean;
 }): ShipWaterPath {
   const { from, to } = input;
   if (sameTile(from, to)) return waterPathFromPoints(from, to, [from]);
 
+  // W1.6: every hull without a crossing token keeps out of the ma.
+  const inlet = input.inletCrossing ? null : gardenInletRouteCostField(input.map.width, input.map.height);
   const detouredPoints = input.preferDirect
     ? []
-    : findDetouredWaterPath(from, to, input.map, input.zone, input.shipId);
+    : findDetouredWaterPath(from, to, input.map, inlet, input.zone, input.shipId);
   // Leg cadence samples substantially farther per frame than the old drift
   // cycle. Keep the A* tile chain authoritative: corner-cut-safe adjacent
   // water tiles guarantee every interpolated point remains water, whereas
   // Chaikin's off-chain control points can bow briefly across a shore tile.
   if (detouredPoints.length > 0) return waterPathFromPoints(from, to, detouredPoints);
 
-  const points = findWaterPath(from, to, input.map, input.zone);
+  const points = findWaterPath(from, to, input.map, inlet, input.zone);
   if (points.length > 0) return waterPathFromPoints(from, to, points);
+  // Water reachable only through the core still sails, at the core's exit
+  // cost, rather than freezing the hull at its berth.
+  const throughCore = inlet ? findWaterPath(from, to, input.map, inlet, input.zone, true) : [];
+  if (throughCore.length > 0) return waterPathFromPoints(from, to, throughCore);
 
   const waypoint = fallbackWaterWaypoint(from, to, input.map);
-  const firstLeg = findWaterPath(from, waypoint, input.map, input.zone);
-  const secondLeg = findWaterPath(waypoint, to, input.map, input.zone);
+  const firstLeg = findWaterPath(from, waypoint, input.map, inlet, input.zone, true);
+  const secondLeg = findWaterPath(waypoint, to, input.map, inlet, input.zone, true);
   if (firstLeg.length > 0 && secondLeg.length > 0) {
     return waterPathFromPoints(from, to, [...firstLeg, ...secondLeg.slice(1)]);
   }
@@ -315,23 +334,33 @@ export function chaikinSmoothPath(points: ReadonlyArray<{ x: number; y: number }
   return result;
 }
 
-function findDetouredWaterPath(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, zone?: ShipWaterZone, shipId = ""): Array<{ x: number; y: number }> {
-  const waypoints = detourWaterWaypoints(from, to, map, shipId);
+function findDetouredWaterPath(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  map: PharosVilleMap,
+  inlet: Float32Array | null,
+  zone?: ShipWaterZone,
+  shipId = "",
+): Array<{ x: number; y: number }> {
+  const waypoints = detourWaterWaypoints(from, to, map, inlet !== null, shipId);
   if (waypoints.length === 0) return [];
-  return findWaterPathThroughPoints([from, ...waypoints, to], map, zone);
-}
-
-function findWaterPathThroughPoints(points: Array<{ x: number; y: number }>, map: PharosVilleMap, zone?: ShipWaterZone): Array<{ x: number; y: number }> {
   const route: Array<{ x: number; y: number }> = [];
+  const points = [from, ...waypoints, to];
   for (let index = 1; index < points.length; index += 1) {
-    const leg = findWaterPath(points[index - 1]!, points[index]!, map, zone);
+    const leg = findWaterPath(points[index - 1]!, points[index]!, map, inlet, zone);
     if (leg.length === 0) return [];
     route.push(...(route.length === 0 ? leg : leg.slice(1)));
   }
   return route;
 }
 
-function detourWaterWaypoints(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, shipId = ""): Array<{ x: number; y: number }> {
+function detourWaterWaypoints(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  map: PharosVilleMap,
+  honourInlet: boolean,
+  shipId = "",
+): Array<{ x: number; y: number }> {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const distance = Math.hypot(dx, dy);
@@ -361,6 +390,8 @@ function detourWaterWaypoints(from: { x: number; y: number }, to: { x: number; y
 
     if (sameTile(candidate, from) || sameTile(candidate, to)) continue;
     if (waypoints.some((waypoint) => sameTile(waypoint, candidate))) continue;
+    // A wander mark inside the ma would pull the leg into the approach.
+    if (honourInlet && gardenInletDistance(candidate.x, candidate.y) <= GARDEN_EMPTY_INLET.halfWidth) continue;
     waypoints.push(candidate);
   }
 
@@ -442,10 +473,28 @@ function heapPopIndex(): number {
   return top;
 }
 
-function findWaterPath(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, zone?: ShipWaterZone): Array<{ x: number; y: number }> {
+/**
+ * `inlet` is the W1.6 step-multiplier field (`gardenInletRouteCostField`), or
+ * null for a crossing-token holder. Its core is impassable unless a leg
+ * endpoint lies inside it (the leg then leaves by the shortest way out) or
+ * `relaxCore` admits it as a last resort.
+ */
+function findWaterPath(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  map: PharosVilleMap,
+  inlet: Float32Array | null,
+  zone?: ShipWaterZone,
+  relaxCore = false,
+): Array<{ x: number; y: number }> {
   const startIndex = tileIndex(from.x, from.y, map);
   const endIndex = tileIndex(to.x, to.y, map);
   if (startIndex < 0 || endIndex < 0) return [];
+  const coreStepCost = relaxCore
+    || inlet?.[startIndex] === Number.POSITIVE_INFINITY
+    || inlet?.[endIndex] === Number.POSITIVE_INFINITY
+    ? GARDEN_INLET_CORE_EXIT_COST
+    : Number.POSITIVE_INFINITY;
 
   const mapSize = map.width * map.height;
   ensurePathBuffers(mapSize);
@@ -503,7 +552,10 @@ function findWaterPath(from: { x: number; y: number }, to: { x: number; y: numbe
       // on top of zone cost so the octile heuristic stays admissible.
       const shoreD = shoreMask[neighborIndex]!;
       const shorePenalty = shoreD < 1.5 ? 0.08 : shoreD < 2.5 ? 0.03 : 0;
-      const cost = (dx !== 0 && dy !== 0 ? (stepCost + shorePenalty) * Math.SQRT2 : stepCost + shorePenalty);
+      let inletMultiplier = inlet ? inlet[neighborIndex]! : 1;
+      if (inletMultiplier === Number.POSITIVE_INFINITY) inletMultiplier = coreStepCost;
+      if (inletMultiplier === Number.POSITIVE_INFINITY) continue;
+      const cost = (dx !== 0 && dy !== 0 ? (stepCost + shorePenalty) * Math.SQRT2 : stepCost + shorePenalty) * inletMultiplier;
       const nextDistance = distances[currentIndex]! + cost;
       if (nextDistance >= distances[neighborIndex]!) continue;
       previous[neighborIndex] = currentIndex;

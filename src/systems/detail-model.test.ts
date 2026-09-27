@@ -21,6 +21,7 @@ import {
   lighthouseBeamWarmCueLabel,
   lighthouseLampStatusLabel,
   nowCaption,
+  nowCaptionAnnouncement,
   PHAROS_WATCH_TELEGRAM_HREF,
   psiCompositionLabel,
   psiTrendLabel,
@@ -43,12 +44,16 @@ import {
   shipAgeLedgerClause,
 } from "./detail-model";
 import { UNAVAILABLE_SUPPLY_TIDE } from "./supply-tide";
+import type { PegSummaryResponse } from "@shared/types";
+import { buildSignalMast } from "./pharosville-world/stages/world-scaffold";
 import { buildDetailFactSections } from "../lib/format-detail";
 import type { AreaNode, DockNode, GraveNode, LighthouseNode, PharosVilleWorld, PigeonnierNode, ShipNode } from "./world-types";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   fixtureWithDepegOn,
   fixtureWithoutAsset,
+  makeAsset,
+  makePegCoin,
   makePharosVilleWorldInput,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
@@ -58,7 +63,7 @@ describe("W5.2 now caption grammar", () => {
   const beats = { dawn: 0, day: 1, golden: 0, blue: 0, night: 0 } as const;
   const observedAt = Date.UTC(2026, 8, 8, 18, 42);
 
-  it("uses ceremony, transition, stale, then phase precedence", () => {
+  it("uses stale, ceremony, transition, then phase precedence", () => {
     const common = {
       beats,
       freshness: { pegSummaryStale: true, observedAt },
@@ -67,12 +72,13 @@ describe("W5.2 now caption grammar", () => {
       psi: 82,
     };
     expect(nowCaption({ ...common, arrivalAnnotation: "USDC entered Ethereum harbour." }))
-      .toBe("USDC entered Ethereum harbour.");
-    expect(nowCaption({ ...common, arrivalAnnotation: null }))
-      .toBe("USDC moved to Watch water, observed 18:42");
-    expect(nowCaption({ ...common, arrivalAnnotation: null, latestTransition: null }))
       .toBe("Peg summary stale since 18:42");
-    expect(nowCaption({ ...common, arrivalAnnotation: null, latestTransition: null, freshness: {} }))
+    const fresh = { ...common, freshness: {} };
+    expect(nowCaption({ ...fresh, arrivalAnnotation: "USDC entered Ethereum harbour." }))
+      .toBe("USDC entered Ethereum harbour.");
+    expect(nowCaption({ ...fresh, arrivalAnnotation: null }))
+      .toBe("USDC moved to Watch water, observed 18:42");
+    expect(nowCaption({ ...fresh, arrivalAnnotation: null, latestTransition: null }))
       .toBe("12:25 — a quiet noon · readings current");
   });
 
@@ -93,6 +99,20 @@ describe("W5.2 now caption grammar", () => {
       latestTransition: null,
       psi: 32,
     })).toBe("12:25 — a watchful noon · readings current");
+  });
+
+  it("names the moon in the visible night caption only, never in the announcement", () => {
+    // The suite's pinned sky day is the 26 Sep 2026 harvest full moon.
+    const night = {
+      arrivalAnnotation: null,
+      beats: { dawn: 0, day: 0, golden: 0, blue: 0, night: 1 },
+      freshness: {},
+      hour: 22,
+      latestTransition: null,
+      psi: 82,
+    };
+    expect(nowCaption(night)).toBe("22:00 — a quiet night · a full moon · readings current");
+    expect(nowCaptionAnnouncement(night)).toBe("a quiet night · readings current");
   });
 });
 
@@ -150,8 +170,11 @@ describe("detail-model analytical links", () => {
       ...base,
       signalMast: {
         activeDepegCount: 12,
+        leaderCount: 20,
+        leadersOffPeg: ["USDA", "USDB", "USDC", "USDD", "USDE", "USDF"],
         pennantCount: 5,
         capped: true,
+        offPegSupplyShare: 0.0235,
         stormCone: true,
         worstBps: -620,
         worstSymbol: "XUSD",
@@ -165,31 +188,51 @@ describe("detail-model analytical links", () => {
 
     expect(flying.facts).toContainEqual({
       label: "Signal mast",
-      value: "5 pennants for 12 coins off peg (hoist caps the count); storm cone hoisted",
+      value: "5 pennants for USDA, USDB, USDC, USDD, USDE, USDF — 6 of the 20 largest coins by supply off peg (hoist caps the count); storm cone hoisted — 2.35% of tracked supply off peg",
     });
     expect(flying.facts).toContainEqual({
       label: "Fleet peg",
       value: "Worst XUSD -6.2%; median +4 bps; 202 of 214 at peg; 2 events today",
     });
 
-    const calm = detailForLighthouse({
-      ...base,
-      signalMast: {
-        activeDepegCount: 0,
-        pennantCount: 0,
-        capped: false,
-        stormCone: false,
-        worstBps: null,
-        worstSymbol: null,
-        medianDeviationBps: 1,
-        coinsAtPeg: 214,
-        totalTracked: 214,
-        eventsToday: 0,
-        unavailable: false,
+    // O17b acceptance: nineteen small coins off peg — one of them 53% off — are
+    // the Fleet peg row's business, not the mast's. No pennant, no cone, and
+    // the row says why in the same terms the world uses.
+    const dust = buildSignalMast(
+      {
+        coins: [
+          ...Array.from({ length: 20 }, (_, index) => makePegCoin({ id: `lead${index}`, symbol: `L${index}`, activeDepeg: false })),
+          ...Array.from({ length: 19 }, (_, index) => makePegCoin({ id: `dust${index}`, symbol: `D${index}`, activeDepeg: true })),
+        ],
+        summary: {
+          activeDepegCount: 19,
+          medianDeviationBps: 1,
+          worstCurrent: { id: "dust0", symbol: "PMUSD", bps: -5350 },
+          coinsAtPeg: 20,
+          totalTracked: 39,
+          depegEventsToday: 0,
+          depegEventsYesterday: 0,
+        },
+        methodology: { asOf: 0 } as PegSummaryResponse["methodology"],
       },
-    } satisfies LighthouseNode);
-
-    expect(calm.facts).toContainEqual({ label: "Signal mast", value: "Bare — no coin off peg" });
+      {
+        peggedAssets: [
+          ...Array.from({ length: 20 }, (_, index) => makeAsset({ id: `lead${index}`, symbol: `L${index}`, circulating: { peggedUSD: 5_000_000_000 } })),
+          ...Array.from({ length: 19 }, (_, index) => makeAsset({ id: `dust${index}`, symbol: `D${index}`, circulating: { peggedUSD: 2_000_000 } })),
+        ],
+      },
+    );
+    expect(dust.pennantCount).toBe(0);
+    expect(dust.stormCone).toBe(false);
+    const calm = detailForLighthouse({ ...base, signalMast: dust } satisfies LighthouseNode);
+    expect(calm.facts).toContainEqual({
+      label: "Signal mast",
+      value: "Bare — none of the 20 largest coins by supply off peg; no storm cone — 0.04% of tracked supply off peg, under the 1% gate",
+    });
+    expect(calm.facts).toContainEqual({
+      label: "Fleet peg",
+      value: "Worst PMUSD -53.5%; median +1 bps; 20 of 39 at peg; 0 events today",
+    });
 
     // No summary is not a calm fleet: the row says the mast has nothing to go
     // on, and the figures row is omitted rather than filled with zeroes.
@@ -279,6 +322,26 @@ describe("detail-model analytical links", () => {
     expect(atmosphere?.value).not.toContain("lightning active");
   });
 
+  it("names each named water's surface state, and none for unbanded waters", () => {
+    const surface = (area: Partial<AreaNode>) => detailForArea({
+      id: "area.test",
+      kind: "area",
+      label: "Test Water",
+      tile: { x: 1, y: 1 },
+      detailId: "area.test",
+      ...area,
+    }).facts.find((fact) => fact.label === "Water surface")?.value;
+
+    expect(surface({ band: "CALM" })).toMatch(/^Glass/);
+    expect(surface({ band: "WATCH" })).toMatch(/^Ripple/);
+    expect(surface({ band: "ALERT" })).toMatch(/^Streaks/);
+    expect(surface({ band: "WARNING" })).toMatch(/^Chop/);
+    expect(surface({ band: "DANGER" })).toMatch(/^Leaden/);
+    // The NAV ledger water has a zone but no DEWS band.
+    expect(surface({ riskZone: "ledger" })).toMatch(/^Glass/);
+    expect(surface({})).toBeUndefined();
+  });
+
   it("keeps dock members external-only unless an explicit in-world ship detail exists", () => {
     const dock = {
       id: "dock.ethereum",
@@ -339,7 +402,7 @@ describe("detail-model analytical links", () => {
         sourceLabel: "UST postmortem",
       },
       tile: { x: 1, y: 1 },
-      visual: { marker: "broken-keel", scale: 1 },
+      visual: { family: "lost-peg", scale: 1 },
       detailId: "grave.ust-terra",
     } satisfies GraveNode);
 
@@ -347,7 +410,7 @@ describe("detail-model analytical links", () => {
     expect(detail.paragraphs).toEqual(["The largest stablecoin collapse in history."]);
     expect(detail.facts).toEqual(expect.arrayContaining([
       { label: "Cause", value: "Algorithmic Failure" },
-      { label: "Wreck silhouette", value: "Broken keel — the hull has split around exposed frames" },
+      { label: "Stone garden", value: "A reclining stone in the west islands — the peg broke" },
       { label: "Peak market cap", value: "$18,770,471,902" },
     ]));
     expect(detail.facts.find((fact) => fact.label === "Obituary")).toBeUndefined();
@@ -379,7 +442,7 @@ describe("detail-model analytical links", () => {
         sourceLabel: "NuBits writeup",
       },
       tile: { x: 1, y: 1 },
-      visual: { marker: "skeletal", scale: 1 },
+      visual: { family: "wound-down", scale: 1 },
       detailId: "grave.nbt-nubits",
     } satisfies GraveNode);
 
@@ -407,7 +470,7 @@ describe("detail-model analytical links", () => {
         sourceLabel: "Unsafe writeup",
       },
       tile: { x: 1, y: 1 },
-      visual: { marker: "skeletal", scale: 1 },
+      visual: { family: "wound-down", scale: 1 },
       detailId: "grave.unsafe",
     } satisfies GraveNode);
 
@@ -1031,7 +1094,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       expect(fact!.value).not.toContain("(extended dwell)");
       const cadence = detail.facts.find((f) => f.label === "Route cadence")?.value;
       expect(cadence).toContain("90–180 s legs");
-      expect(cadence).toContain("240–480 s rests");
+      expect(cadence).toContain("600–1500 s rests");
       expect(cadence).toContain("rendered-chain and risk-water presence only");
     });
   });
@@ -1066,7 +1129,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
 
   describe("v0.3.0 — peg deviation, mast signals, observatory voice", () => {
     it("formats the live signed peg deviation against its peg currency", () => {
-      expect(pegDeviationLabel({ pegDeviationBps: -12.4, pegCurrency: "USD" })).toBe("-12 bps vs USD");
+      expect(pegDeviationLabel({ pegDeviationBps: -12.4, pegCurrency: "USD" })).toBe("\u221212 bps vs USD");
       expect(pegDeviationLabel({ pegDeviationBps: 3, pegCurrency: null })).toBe("+3 bps vs peg");
       expect(pegDeviationLabel({ pegDeviationBps: 0, pegCurrency: "USD" })).toBe("0 bps vs USD");
       expect(pegDeviationLabel({ pegDeviationBps: null, pegCurrency: "USD" })).toBeNull();
@@ -1077,7 +1140,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       expect(pegDeviationFactLabel({ pegDeviationBps: 12, pegCurrency: "USD", visual: level }))
         .toBe("+12 bps vs USD — above peg");
       expect(pegDeviationFactLabel({ pegDeviationBps: -12, pegCurrency: "USD", visual: level }))
-        .toBe("-12 bps vs USD — below peg");
+        .toBe("\u221212 bps vs USD — below peg");
       expect(pegDeviationFactLabel({ pegDeviationBps: 0, pegCurrency: "USD", visual: level }))
         .toBe("0 bps vs USD — at peg");
       expect(pegDeviationFactLabel({ pegDeviationBps: null, pegCurrency: "USD", visual: level }))
@@ -1091,11 +1154,11 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       expect(pegDeviationFactLabel({ pegDeviationBps: 260, pegCurrency: "USD", visual: withTrim(0.16) }))
         .toBe("+260 bps vs USD — above peg; hull rides high");
       expect(pegDeviationFactLabel({ pegDeviationBps: -260, pegCurrency: "USD", visual: withTrim(-0.16) }))
-        .toBe("-260 bps vs USD — below peg; hull rides low");
+        .toBe("\u2212260 bps vs USD — below peg; hull rides low");
       // A stale peg row leaves the hull level; the row must then report the
       // reading without claiming a trim the canvas is not drawing.
       expect(pegDeviationFactLabel({ pegDeviationBps: -260, pegCurrency: "USD", visual: withTrim(0) }))
-        .toBe("-260 bps vs USD — below peg");
+        .toBe("\u2212260 bps vs USD — below peg");
     });
 
     it("explains nav and yield mast signals, exclusive with none", () => {
@@ -1565,11 +1628,11 @@ describe("detail-model P3 metaphor quick-win signals", () => {
     // Two decimals, not one: a ~$330B float moves in hundredths of a percent, and
     // one decimal would round most real weeks to a meaningless "0.0%".
     expect(supplyTideLabel({ change7dPct: 0.0187, offset: 0.1, state: "flood" }))
-      .toBe("+0.02% rising — supply grew this week");
+      .toBe("+0.02% rising — supply grew this week; the tidal flat stands partly covered");
     expect(supplyTideLabel({ change7dPct: -0.92, offset: -0.68, state: "ebb" }))
-      .toBe("-0.92% falling — supply shrank this week");
+      .toBe("-0.92% falling — supply shrank this week; the tidal flat lies mostly bare");
     expect(supplyTideLabel({ change7dPct: 0.004, offset: 0, state: "slack" }))
-      .toBe("+0.00% slack — supply held flat this week");
+      .toBe("+0.00% slack — supply held flat this week; the water stands at the tide-stone");
   });
 
   it("supplyTideLabel omits the row entirely rather than reporting a flat tide it never measured", () => {
@@ -1793,7 +1856,7 @@ describe("detail-model round-two metaphor signals", () => {
   });
 
   describe("3c — high-water mark", () => {
-    it("distinguishes an unstained rock from a rock nothing was read for", () => {
+    it("distinguishes a calm record from a record nothing was read for", () => {
       const bedrock = highWaterMarkLabel({
         band: "BEDROCK",
         severity: 0,
@@ -1803,14 +1866,13 @@ describe("detail-model round-two metaphor signals", () => {
         spanDays: 29,
         unavailable: false,
       });
-      expect(bedrock).toContain("never rose past the footing");
+      expect(bedrock).toContain("never left its calmest band");
       expect(bedrock).toContain("29 days on record");
 
       const missing = highWaterMarkLabel(undefined);
       expect(missing).toContain("no index history to read");
-      // The evidence claim and the record claim must never share a sentence:
-      // bare stone looks identical either way.
-      expect(missing).not.toContain("never rose");
+      // The evidence claim and the record claim must never share a sentence.
+      expect(missing).not.toContain("never left");
     });
 
     it("names the band, its score, its date, and how much window there was", () => {
@@ -1863,7 +1925,7 @@ describe("detail-model round-two metaphor signals", () => {
       });
       expect(detail.facts).toContainEqual({
         label: "Garden record, 30d",
-        value: "Flourishing — blossoms open and moss greens; average PSI 84.5; 29 days on record",
+        value: "Flourishing — the island pines stand full and deep green; average PSI 84.5; 29 days on record",
       });
     });
   });

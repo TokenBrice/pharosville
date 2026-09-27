@@ -2,11 +2,10 @@ import {
   CanvasTexture,
   ClampToEdgeWrapping,
   Color,
-  MathUtils,
   SRGBColorSpace,
 } from "three";
 import type { ThreeLogoAsset } from "../renderer/world-renderer-backend";
-import { SAIL_DARK_CANVAS_ISSUERS } from "./garden-sail-overrides";
+import { hexToOklch, oklchToHex } from "../systems/palette";
 import { GARDEN_IDENTITY_ANISOTROPY, safeCssColor, stableUnit } from "./garden-util";
 import type { ShipLivery, ShipNode } from "../systems/world-types";
 
@@ -15,110 +14,89 @@ const TEXTURE_SIZE = 128;
 export const GARDEN_SAIL_TEXTURE_SIZE = TEXTURE_SIZE;
 
 /**
- * F1 (2026-07-25): the colour a ship's canvas is DYED — its issuer's dominant
- * brand colour, near enough to be named on sight.
+ * W4.F2 (fleet-craft-2, O20): one dye book for the whole fleet.
  *
- * 2026-09-10: the dye is now judged in OKLCH. The previous pipeline lifted the
- * brand toward cream and then toward its own luminance, both as LINEAR lerps.
- * A linear lerp toward a bright colour is a chroma sink for anything dark: 17%
- * cream added to Circle navy (#274a81) lands on #767b8e, Tether green on
- * #7c8e82, sUSD indigo on #6e6b6e — half the fleet (127 of 256 primaries)
- * measured sRGB saturation under 0.2 and read as one grey-blue fleet.
+ * F1 made the cloth the issuer's own colour so a ship is named on sight. The
+ * old recipe then lifted it toward cream in LINEAR RGB and pulled it toward its
+ * own luminance, which rotated blue issuers ~13° toward violet (the lilac
+ * fleet), left a third of the cloth effectively grey and compressed the fleet's
+ * values into L 0.54–0.73; a pirate branch on top flew 13 % of issuers under
+ * unrelated near-black canvas.
  *
- * Now lightness, chroma and hue are moved independently:
- *  - hue is the brand's, untouched;
- *  - lightness is compressed into a dyed-cloth window so a near-black brand is
- *    dark cloth rather than a hole and a pale brand is a mid dye its ink can
- *    sit on (the mon ink picks dark or light against the cloth, see
- *    `paintSailIdentity`, so no cloth needs blackening for legibility);
- *  - chroma is kept, capped at `CLOTH_CHROMA_CAP` so the fleet stays under the
- *    palette's ceiling and vermillion keeps chroma primacy;
- *  - a neutral brand (Frax, Ethena, BUSD grey) is pulled toward the canvas
- *    hue plane so it reads as undyed cloth rather than a printer grey; the pull
- *    fades out by `CLOTH_NEUTRAL_CHROMA` so a coloured brand keeps its hue.
- */
-const CLOTH_LIGHTNESS_MIN = 0.38;
-/**
- * Not a legibility bound (the mon ink adapts). It is the value plan: the fleet
- * sits under foam and the lit shelf, so cloth stops short of the water's
- * highlights and a bright brand reads as bright cloth, not a white patch.
- */
-const CLOTH_LIGHTNESS_MAX = 0.74;
-const CLOTH_LIGHTNESS_SCALE = 0.55;
-const CLOTH_LIGHTNESS_BIAS = 0.3;
-/** Under the 0.16 palette ceiling and vermillion's 0.177. */
-const CLOTH_CHROMA_CAP = 0.15;
-const CLOTH_NEUTRAL_CHROMA = 0.04;
-const CLOTH_CANVAS_PULL = 0.35;
-const CLOTH_CANVAS = "#f4ecd8";
-
-/**
- * Named pale issuers fly dark canvas. The former contrast-floor rule that put
- * 38 issuers under black cloth is gone: the mon ink already picks a dark or
- * light value against the cloth, so a pale dye is legible on its own. The
- * override table is an operator decision and stays.
+ * The ladder works in OKLCH instead, as if every sail came out of one dyer's
+ * workshop:
+ * - **Hue** is the issuer's, exactly. Identity is never rotated.
+ * - **Lightness** maps monotonically onto L 0.30–0.86, so issuer order is kept
+ *   and the fleet spans ~0.37–0.82 between its 10th and 90th percentiles:
+ *   darks stay dark, pales stay pale.
+ * - **Chroma** keeps 80 % of the issuer's, capped per natural-dye family (beni
+ *   and kaki 0.118, kariyasu ochre 0.10, green 0.085, asagi teal 0.08, ai
+ *   indigo 0.11, murasaki 0.09). Every ceiling stays under 0.12 after 8-bit
+ *   rounding, so only
+ *   `vermillion` and `lantern_warm` exceed it (the hand, rule 5) and neither
+ *   `sail_teal` nor `sail_red` is touched.
+ * - **Neutral brands** (C < 0.035) dye as unbleached kinari when pale and as
+ *   sumi when dark.
  *
- * Not #000 — the brand's HUE survives at very low lightness, so Lybra reads
- * as a dark blue-black. Invisible at overview zoom, still theirs up close.
+ * There is no contrast floor any more: the mon's ink is chosen against the
+ * cloth (`paintSailIdentity`), so a pale sail simply takes dark ink. The cloth
+ * is a pure function of the livery, so a ship never flashes when its logo
+ * resolves. Distance restraint stays a viewing condition in the fleet shader.
  */
-const PIRATE_SATURATION = 0.4;
-const PIRATE_LIGHTNESS = 0.07;
+const DYE_LIGHTNESS = { floor: 0.3, ceiling: 0.86, sourceLow: 0.2, sourceSpan: 0.6 } as const;
+const DYE_CHROMA_KEEP = 0.8;
+const DYE_NEUTRAL_CHROMA = 0.035;
+const DYE_KINARI = { c: 0.012, h: 80, minLightness: 0.55 } as const;
+const DYE_SUMI_CHROMA = 0.008;
+/** Natural-dye chroma ceilings by OKLCH hue, interpolated around the wheel. */
+const DYE_CHROMA_CEILINGS: readonly (readonly [hue: number, chroma: number])[] = [
+  [25, 0.118], // beni / madder
+  [55, 0.118], // kaki persimmon
+  [90, 0.1], // kariyasu ochre
+  [140, 0.085], // green
+  [195, 0.08], // asagi teal
+  [255, 0.11], // ai indigo
+  [305, 0.09], // murasaki
+  [345, 0.105], // between murasaki and beni
+];
+const CLOTH_FALLBACK = "#f4ecd8";
 
-const CANVAS_LAB = toOklab(new Color(CLOTH_CANVAS));
-
-export function gardenSailClothColor(
-  livery: ShipLivery | null | undefined,
-  shipId: string,
-): Color {
-  const cloth = new Color(safeCssColor(livery?.primary, CLOTH_CANVAS));
-  if (SAIL_DARK_CANVAS_ISSUERS.has(shipId)) {
-    // Both conversions are pinned to sRGB. three.js works in LINEAR space, and
-    // a lightness of 0.07 read as linear is a mid-dark grey rather than the
-    // near-black this rule exists to produce.
-    const hsl = { h: 0, l: 0, s: 0 };
-    cloth.getHSL(hsl, SRGBColorSpace);
-    return cloth.setHSL(hsl.h, PIRATE_SATURATION, PIRATE_LIGHTNESS, SRGBColorSpace);
+export function gardenSailDyeChromaCeiling(hue: number): number {
+  const wrapped = ((hue % 360) + 360) % 360;
+  const count = DYE_CHROMA_CEILINGS.length;
+  for (let index = 0; index < count; index += 1) {
+    const [fromHue, fromChroma] = DYE_CHROMA_CEILINGS[index]!;
+    const [nextHue, toChroma] = DYE_CHROMA_CEILINGS[(index + 1) % count]!;
+    const toHue = nextHue <= fromHue ? nextHue + 360 : nextHue;
+    const probe = wrapped < fromHue ? wrapped + 360 : wrapped;
+    if (probe >= fromHue && probe <= toHue) {
+      return fromChroma + (toChroma - fromChroma) * ((probe - fromHue) / (toHue - fromHue));
+    }
   }
-  const lab = toOklab(cloth);
-  const lightness = MathUtils.clamp(
-    CLOTH_LIGHTNESS_BIAS + lab.L * CLOTH_LIGHTNESS_SCALE,
-    CLOTH_LIGHTNESS_MIN,
-    CLOTH_LIGHTNESS_MAX,
-  );
-  const brandChroma = Math.hypot(lab.a, lab.b);
-  const pull = CLOTH_CANVAS_PULL * Math.max(0, 1 - brandChroma / CLOTH_NEUTRAL_CHROMA);
-  let a = lab.a + (CANVAS_LAB.a - lab.a) * pull;
-  let b = lab.b + (CANVAS_LAB.b - lab.b) * pull;
-  const chroma = Math.hypot(a, b);
-  if (chroma > CLOTH_CHROMA_CAP) {
-    a *= CLOTH_CHROMA_CAP / chroma;
-    b *= CLOTH_CHROMA_CAP / chroma;
-  }
-  return fromOklab(lightness, a, b, cloth);
+  return DYE_CHROMA_CEILINGS[0]![1];
 }
 
-/** Ottosson OKLab from three.js LINEAR components. */
-function toOklab(color: Color): { L: number; a: number; b: number } {
-  const l = Math.cbrt(0.4122214708 * color.r + 0.5363325363 * color.g + 0.0514459929 * color.b);
-  const m = Math.cbrt(0.2119034982 * color.r + 0.6806995451 * color.g + 0.1073969566 * color.b);
-  const s = Math.cbrt(0.0883024619 * color.r + 0.2817188376 * color.g + 0.6299787005 * color.b);
-  return {
-    L: 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
-    a: 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
-    b: 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
-  };
-}
-
-/** OKLab back to LINEAR components, written into `target`; out-of-gamut channels clamp. */
-function fromOklab(L: number, a: number, b: number, target: Color): Color {
-  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
-  return target.setRGB(
-    MathUtils.clamp(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, 0, 1),
-    MathUtils.clamp(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, 0, 1),
-    MathUtils.clamp(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s, 0, 1),
-  );
+export function gardenSailClothColor(livery: ShipLivery | null | undefined): Color {
+  const source = `#${new Color(safeCssColor(livery?.primary, CLOTH_FALLBACK)).getHexString()}`;
+  const { c, h, l } = hexToOklch(source);
+  const lightness = Math.min(DYE_LIGHTNESS.ceiling, Math.max(
+    DYE_LIGHTNESS.floor,
+    DYE_LIGHTNESS.floor
+      + ((l - DYE_LIGHTNESS.sourceLow) / DYE_LIGHTNESS.sourceSpan) * (DYE_LIGHTNESS.ceiling - DYE_LIGHTNESS.floor),
+  ));
+  if (c < DYE_NEUTRAL_CHROMA) {
+    const kinari = lightness >= DYE_KINARI.minLightness;
+    return new Color(oklchToHex({
+      c: kinari ? DYE_KINARI.c : DYE_SUMI_CHROMA,
+      h: kinari ? DYE_KINARI.h : h,
+      l: lightness,
+    }));
+  }
+  return new Color(oklchToHex({
+    c: Math.min(c * DYE_CHROMA_KEEP, gardenSailDyeChromaCeiling(h)),
+    h,
+    l: lightness,
+  }));
 }
 
 /**
@@ -150,11 +128,10 @@ export function createGardenSailCanvas(
     context.fillStyle = clothFill;
     context.fillRect(0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
   }
+  // W4.F5: no painted weave. The cloth reads as cloth from the batch shader's
+  // momen-ho panel strips at rest (the thread weave only on inspection), so
+  // the cell carries the mon alone.
   paintSailIdentity(context, ship, logo);
-  context.save();
-  context.globalCompositeOperation = "multiply";
-  paintSailField(context, ship.visual.livery);
-  context.restore();
   return canvas;
 }
 
@@ -165,7 +142,7 @@ export function createGardenSailTexture(
   const canvas = createGardenSailCanvas(
     ship,
     logo,
-    `#${gardenSailClothColor(ship.visual.livery, ship.id).getHexString()}`,
+    `#${gardenSailClothColor(ship.visual.livery).getHexString()}`,
   );
   if (!canvas) return null;
 
@@ -179,42 +156,9 @@ export function createGardenSailTexture(
   return texture;
 }
 
-function paintSailField(
-  context: CanvasRenderingContext2D,
-  livery: ShipLivery,
-): void {
-  // F1: no base fill. The cloth is the ship's brand colour, delivered by the
-  // material (per-instance for the batched fleet, per-material for heroes), and
-  // everything painted here is a MARK on top of it.
-  //
-  // H1/D2: no panel, no stripe pattern, no bolt-rope border.
-  //
-  // This canvas is ONLY ever the identity sail — plain sails take a flat dye
-  // from the shader (batched) or their own material (hero) and are never
-  // textured. So every mark painted here shared the cloth with the emblem, and
-  // a quartered panel or a cross stripe running under a coin's mark is exactly
-  // what made the sail read as a sticker rather than painted canvas.
-  //
-  // What survives is the weave: slack curves down the cloth, which say "fabric"
-  // without competing with the emblem for the eye.
-  context.save();
-  context.globalAlpha = 0.1;
-  context.strokeStyle = livery.secondary;
-  context.lineWidth = 1;
-  for (let x = 7; x < TEXTURE_SIZE; x += 10) {
-    context.beginPath();
-    context.moveTo(x, 0);
-    context.bezierCurveTo(x - 3, 37, x + 4, 86, x, TEXTURE_SIZE);
-    context.stroke();
-  }
-  context.restore();
-}
-
 /**
  * A complete mon, printed in one value-contrasting ink in the upper third.
  * Wear is cut from a separate ink layer, never from the cloth underneath.
- * The weave is multiplied over the finished print by createGardenSailCanvas;
- * multiplying pale ink into dark dye would make that ink physically invisible.
  */
 const IDENTITY_LOGO_SPAN = 0.52;
 
@@ -252,7 +196,7 @@ function paintSailIdentity(
     ink.textBaseline = "middle";
     ink.fillText(ship.symbol.slice(0, 3).toUpperCase(), centerX, centerY, box);
   }
-  const cloth = gardenSailClothColor(ship.visual.livery, ship.id);
+  const cloth = gardenSailClothColor(ship.visual.livery);
   const luminance = 0.2126 * cloth.r + 0.7152 * cloth.g + 0.0722 * cloth.b;
   // Neutral OKLab ink L=.25 / .88 corresponds to linear luminance L³.
   const dark = 0.25 ** 3;

@@ -46,11 +46,12 @@ export function gardenMonthRecordLabel(record?: GardenMonthRecord): string {
   if (!record || record.unavailable || record.averagePsi === null) {
     return "Neutral garden — no index history to grow from";
   }
+  // W4.G5: the island's evergreens carry the record as depth, not chroma.
   const state = record.growth >= 0.7
-    ? "Flourishing — blossoms open and moss greens"
+    ? "Flourishing — the island pines stand full and deep green"
     : record.growth >= 0.4
-      ? "Settled — modest growth held"
-      : "Weathered — planting sheds and browns";
+      ? "Settled — the island pines hold their green"
+      : "Weathered — the island pines thin and brown toward straw";
   return `${state}; average PSI ${record.averagePsi.toFixed(1)}; ${record.spanDays} days on record`;
 }
 

@@ -33,6 +33,13 @@ export const REQUIRED_PERMISSIONS_POLICY_FEATURES = [
   "xr-spatial-tracking",
 ];
 
+/**
+ * Features the page itself may use, and no other origin: Stay mode (W6.9,
+ * `src/hooks/use-stay-mode.ts`) takes the window fullscreen and keeps the
+ * screen awake. Every other required feature stays denied with `()`.
+ */
+export const SELF_ONLY_PERMISSIONS_POLICY_FEATURES = ["fullscreen", "screen-wake-lock"];
+
 const REQUIRED_CSP_DIRECTIVES = {
   "base-uri": ["'self'"],
   "connect-src": ["'self'"],
@@ -120,8 +127,9 @@ export function validatePermissionsPolicy(value) {
       findings.push(`missing ${feature}=()`);
       continue;
     }
-    if (allowlist !== "()") {
-      findings.push(`${feature} must be denied with ()`);
+    const expected = SELF_ONLY_PERMISSIONS_POLICY_FEATURES.includes(feature) ? "(self)" : "()";
+    if (allowlist !== expected) {
+      findings.push(expected === "()" ? `${feature} must be denied with ()` : `${feature} must be self-only with (self)`);
     }
   }
 
@@ -167,7 +175,7 @@ export const SECURITY_HEADER_DEFINITIONS = {
   "permissions-policy": {
     label: "Permissions-Policy",
     findings: validatePermissionsPolicy,
-    message: "must be explicitly deny-by-default",
+    message: "must be explicitly deny-by-default (fullscreen and screen-wake-lock self-only)",
   },
 };
 

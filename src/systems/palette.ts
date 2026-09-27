@@ -194,3 +194,100 @@ export const ZONE_THEMES = {
 export function zoneThemeForTerrain(kind: string): ZoneVisualTheme {
   return ZONE_THEMES[kind as keyof typeof ZONE_THEMES] ?? ZONE_THEMES.water;
 }
+
+/** A colour in OKLCH: perceptual lightness 0–1, chroma, hue in degrees. */
+export interface Oklch {
+  l: number;
+  c: number;
+  h: number;
+}
+
+export function hexToOklch(hex: string): Oklch {
+  const value = Number.parseInt(hex.replace("#", ""), 16);
+  const toLinear = (channel: number) => {
+    const scaled = channel / 255;
+    return scaled <= 0.04045 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+  };
+  const red = toLinear((value >> 16) & 255);
+  const green = toLinear((value >> 8) & 255);
+  const blue = toLinear(value & 255);
+  const long = Math.cbrt(0.4122214708 * red + 0.5363325363 * green + 0.0514459929 * blue);
+  const medium = Math.cbrt(0.2119034982 * red + 0.6806995451 * green + 0.1073969566 * blue);
+  const short = Math.cbrt(0.0883024619 * red + 0.2817188376 * green + 0.6299787005 * blue);
+  const l = 0.2104542553 * long + 0.793617785 * medium - 0.0040720468 * short;
+  const a = 1.9779984951 * long - 2.428592205 * medium + 0.4505937099 * short;
+  const b = 0.0259040371 * long + 0.7827717662 * medium - 0.808675766 * short;
+  const degrees = (Math.atan2(b, a) * 180) / Math.PI;
+  return { l, c: Math.hypot(a, b), h: degrees < 0 ? degrees + 360 : degrees };
+}
+
+/** Linear sRGB of an OKLCH colour; channels may fall outside 0–1 when out of gamut. */
+function oklchToLinearSrgb({ l, c, h }: Oklch): [number, number, number] {
+  const a = c * Math.cos((h * Math.PI) / 180);
+  const b = c * Math.sin((h * Math.PI) / 180);
+  const long = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const medium = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const short = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  return [
+    4.0767416621 * long - 3.3077115913 * medium + 0.2309699292 * short,
+    -1.2684380046 * long + 2.6097574011 * medium - 0.3413193965 * short,
+    -0.0041960863 * long - 0.7034186147 * medium + 1.707614701 * short,
+  ];
+}
+
+/**
+ * OKLCH → sRGB hex. An out-of-gamut colour keeps its lightness and hue and
+ * gives up chroma until it fits, so a clamp never comes back louder or in a
+ * different hue family than it was asked for.
+ */
+export function oklchToHex(colour: Oklch): string {
+  const inGamut = (rgb: readonly number[]) => rgb.every((channel) => channel >= -1e-4 && channel <= 1 + 1e-4);
+  let linear = oklchToLinearSrgb(colour);
+  if (!inGamut(linear)) {
+    let low = 0;
+    let high = colour.c;
+    for (let step = 0; step < 24; step += 1) {
+      const mid = (low + high) / 2;
+      if (inGamut(oklchToLinearSrgb({ ...colour, c: mid }))) low = mid;
+      else high = mid;
+    }
+    linear = oklchToLinearSrgb({ ...colour, c: low });
+  }
+  const encode = (channel: number) => {
+    const clamped = Math.min(1, Math.max(0, channel));
+    const srgb = clamped <= 0.0031308 ? clamped * 12.92 : 1.055 * clamped ** (1 / 2.4) - 0.055;
+    return Math.round(srgb * 255).toString(16).padStart(2, "0");
+  };
+  return `#${linear.map(encode).join("")}`;
+}
+
+/**
+ * The nobori dye rule (plan K28, harbour-2): a chain's mark is printed in its
+ * own hue family at a muted strength, never louder than `vermillion` (C 0.177)
+ * and never at a lightness that loses the mark on kinari cloth. Dark brands
+ * are lifted to the floor, so Aptos' near-black reads as sumi grey.
+ */
+export const NOBORI_INK_LIMITS = {
+  maxChroma: 0.1,
+  minLightness: 0.38,
+  maxLightness: 0.62,
+} as const;
+
+/** Clamps any source colour (a brand hex, a health accent) into the nobori ink range, keeping its hue. */
+export function noboriInkHex(sourceHex: string): string {
+  const { l, c, h } = hexToOklch(sourceHex);
+  return oklchToHex({
+    c: Math.min(c, NOBORI_INK_LIMITS.maxChroma),
+    h,
+    l: Math.min(NOBORI_INK_LIMITS.maxLightness, Math.max(NOBORI_INK_LIMITS.minLightness, l)),
+  });
+}
+
+/**
+ * Derived harbour tones. `flag_kinari` is undyed banner cloth: the warm
+ * off-white of raw cotton, taken at `stone_pale`'s hue (H ≈ 75) so it belongs
+ * to the quay stone rather than to paper or foam — OKLCH L 0.86, C 0.03.
+ */
+export const HARBOR_DERIVED_PALETTE = {
+  flag_kinari: oklchToHex({ c: 0.03, h: hexToOklch(HARBOR_PALETTE.stone_pale).h, l: 0.86 }),
+} as const;

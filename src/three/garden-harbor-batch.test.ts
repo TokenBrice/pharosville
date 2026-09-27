@@ -1,11 +1,24 @@
 // @vitest-environment jsdom
-import { Color, InstancedBufferAttribute, InstancedMesh, Matrix4, Mesh, type Group } from "three";
+import {
+  Color,
+  DoubleSide,
+  InstancedBufferAttribute,
+  InstancedMesh,
+  Matrix4,
+  Mesh,
+  MeshBasicMaterial,
+  Raycaster,
+  Vector3,
+  type Group,
+} from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { HARBOR_DERIVED_PALETTE } from "../systems/palette";
 import { authorDock, type StationType } from "./garden-docks";
 import { createGardenHarborBatch, HARBOR_WINDOW_EMBER_INTENSITY } from "./garden-harbor-batch";
 import { gardenChainFlagAtlas, resetGardenChainFlagAtlas } from "./garden-chain-flag";
 import { countDrawableObjects } from "./garden-util";
 import { dockFixture, DISPLAY_TILES, ISLAND_TILE } from "./__fixtures__/harbor";
+import { EVM_BAY_STATION_SLOTS, OUTER_HARBOR_STATION_SLOTS, PIGEONNIER_STATION_SLOT } from "../systems/world-layout";
 
 const CHAINS = ["ethereum", "base", "arbitrum", "polygon", "bsc", "tron", "solana", "hyperliquid", "aptos"];
 // The nine-dock set pairs each chain with its slot archetype (aptos stands
@@ -22,7 +35,6 @@ const ALL_STATION_TYPES: readonly StationType[] = [
 
 const EXPECTED_HARBOR_DRAWABLE_NAMES = [
   "dock-chain-flag",
-  "dock-lamp-heads",
   "dock-posts",
   "harbor-accent",
   "harbor-fine-bollard",
@@ -79,12 +91,12 @@ function batchOfAllStationTypes() {
 }
 
 describe("createGardenHarborBatch", () => {
-  it("pins the complete 9-type harbor ring to its 16 shared drawables", () => {
+  it("pins the complete 9-type harbor ring to its 15 shared drawables", () => {
     const batch = batchOfNine();
     const drawableNames = namedDrawables(batch.root);
     expect(drawableNames).toEqual(EXPECTED_HARBOR_DRAWABLE_NAMES);
-    expect(drawableNames).toHaveLength(16);
-    expect(countDrawableObjects(batch.root)).toBe(16);
+    expect(drawableNames).toHaveLength(15);
+    expect(countDrawableObjects(batch.root)).toBe(15);
     expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(20);
     for (const dock of batch.docks) {
       expect(countDrawableObjects(dock.root)).toBe(0);
@@ -93,8 +105,8 @@ describe("createGardenHarborBatch", () => {
     const completeTypeBatch = batchOfAllStationTypes();
     const completeTypeDrawableNames = namedDrawables(completeTypeBatch.root);
     expect(completeTypeDrawableNames).toEqual(EXPECTED_HARBOR_DRAWABLE_NAMES);
-    expect(completeTypeDrawableNames).toHaveLength(16);
-    expect(countDrawableObjects(completeTypeBatch.root)).toBe(16);
+    expect(completeTypeDrawableNames).toHaveLength(15);
+    expect(countDrawableObjects(completeTypeBatch.root)).toBe(15);
     expect(countDrawableObjects(completeTypeBatch.root)).toBeLessThanOrEqual(20);
     completeTypeBatch.dispose();
   });
@@ -161,13 +173,11 @@ describe("createGardenHarborBatch", () => {
     }
   });
 
-  it("keeps every station window and lit quay edge in one day-cycle-driven ember draw", () => {
-    // T0.2 (2026-09-07): HARBOR_WINDOW_EMBER_INTENSITY is now only the value
-    // the bucket is BORN with — `updateDayCycle` overwrites it every frame
-    // (0.35 day / 1.75 dusk / 2.10 night) via `content.harborBatch`. Before
-    // that fix it was a constant, so the harbour was as lit at noon as at
-    // midnight. What this test pins is the SHARE: one material, one draw, so
-    // the whole quay lights on a single write.
+  it("keeps every station shoji in one day-cycle-driven, kindled ember draw", () => {
+    // HARBOR_WINDOW_EMBER_INTENSITY is only the value the bucket is BORN with;
+    // `updateDayCycle` overwrites it every frame. What this pins is the SHARE
+    // (one material, one draw) and that every vertex carries its station's
+    // kindle order, so the ring lights in the evening's order (H-A).
     const batch = batchOfAllStationTypes();
     const windows = batch.bucketMeshes.window as Mesh;
     expect(windows.name).toBe("station-lit-screens");
@@ -176,8 +186,12 @@ describe("createGardenHarborBatch", () => {
       toneMapped: false,
       vertexColors: true,
     });
+    const orders = windows.geometry.getAttribute("aKindleOrder");
+    expect(orders.count).toBe(windows.geometry.getAttribute("position").count);
+    const expected = new Set(batch.docks.map((dock) => dock.recipe.kindleOrder.shoji.toFixed(5)));
+    const seen = new Set(Array.from({ length: orders.count }, (_, index) => orders.getX(index).toFixed(5)));
+    expect(seen).toEqual(expected);
     expect(batch.docks.every((dock) => dock.recipe.features.warmWindowCount > 0)).toBe(true);
-    expect(batch.docks.every((dock) => dock.recipe.features.quayPlatform.litEdge)).toBe(true);
     batch.dispose();
   });
 
@@ -215,36 +229,96 @@ describe("createGardenHarborBatch", () => {
     layer.dispose();
   });
 
-  it("flies every station flag shape from one instanced cloth and turns one without turning the rest", () => {
+  it("flies every station's nobori and noren from one instanced cloth in one wind", () => {
     const batch = batchOfAllStationTypes();
-    expect(batch.flags.count).toBe(ALL_STATION_TYPES.length);
+    // The Mole flies a pair; every other station one banner; the inn hangs two noren.
+    expect(batch.flags.count).toBe(ALL_STATION_TYPES.length + 1 + 2);
+    const gusts = batch.flags.geometry.getAttribute("aGust");
     const matrix = new Matrix4();
-    batch.flags.getMatrixAt(1, matrix);
-    const beforeBase = matrix.clone();
-    batch.setFlagPose("flag-ethereum-mole", 1.2, 0.08);
-    batch.flags.getMatrixAt(1, matrix);
-    expect(matrix.equals(beforeBase)).toBe(true);
-    const shapes = batch.flags.geometry.getAttribute("aFlagShape");
-    expect(new Set(Array.from(shapes.array)).size).toBe(ALL_STATION_TYPES.length);
+    const before = Array.from({ length: batch.flags.count }, (_, index) => {
+      batch.flags.getMatrixAt(index, matrix);
+      return matrix.clone();
+    });
+    const wind = { wind: { gust: 0, speed: 0.6, x: 0.6, y: 0.8 } };
+    // A gust front crosses the harbour: cloth takes it pole by pole.
+    let staggered = false;
+    for (let time = 0; time < 60 && !staggered; time += 0.5) {
+      batch.updateFlagWind(time, wind, false);
+      const moving = Array.from({ length: gusts.count }, (_, index) => gusts.getX(index).toFixed(4));
+      staggered = new Set(moving).size > 1;
+    }
+    expect(staggered).toBe(true);
+    // Reduced motion rests every cloth on the one composed pose.
+    batch.updateFlagWind(1.2, wind, true);
+    for (let index = 0; index < gusts.count; index += 1) expect(gusts.getX(index)).toBeCloseTo(0.35, 6);
+    // The wind moves cloth in the vertex program only; banners never re-pose.
+    for (const [index, previous] of before.entries()) {
+      batch.flags.getMatrixAt(index, matrix);
+      expect(matrix.equals(previous)).toBe(true);
+    }
+    batch.dispose();
   });
 
-  it("keeps an unassigned atlas cell on a plain accent cloth", () => {
+  it("flies plain kinari cloth when a chain has no atlas cell", () => {
     const recipe = authorDock(dockFixture("unassigned", 5), DISPLAY_TILES[0]!, ISLAND_TILE);
     recipe.flag.atlasCell = -1;
     const batch = createGardenHarborBatch([recipe]);
-    const cell = batch.flags.geometry.getAttribute("aFlagCell");
-    expect(cell.getX(0)).toBe(-1);
-    const shader = {
-      fragmentShader: "#include <common>\n#include <map_fragment>",
-      uniforms: {},
-      vertexShader: "#include <common>\n#include <uv_vertex>",
-    };
-    (batch.flags.material as { onBeforeCompile(shader: unknown, renderer: unknown): void })
-      .onBeforeCompile(shader, null);
-    expect(shader.fragmentShader).toContain("vFlagCell >= 0.0");
-    expect(shader.fragmentShader).toContain("cutFlag");
-    expect(shader.fragmentShader).not.toContain("flagX > 0.42");
+    expect(batch.flags.geometry.getAttribute("aFlagCell").getX(0)).toBe(-1);
+    const cloth = new Color();
+    batch.flags.getColorAt(0, cloth);
+    expect(cloth.getHexString()).toBe(new Color(HARBOR_DERIVED_PALETTE.flag_kinari).getHexString());
     batch.dispose();
+  });
+
+  // The nobori sites are authored per station form, at the bearing of the one
+  // mouth that form stands at, against geometry that grows with supply (quays,
+  // approaches) and frontage (halls). A pole that lands in mid-air, or cloth
+  // that swings through a roof or tower in the wind, is the failure this
+  // guards, across the supply space a real feed produces.
+  it("stands every nobori on its station's eave or landing with pole and cloth clear", () => {
+    const bearingByType = new Map([...EVM_BAY_STATION_SLOTS, ...OUTER_HARBOR_STATION_SLOTS, PIGEONNIER_STATION_SLOT]
+      .map((slot) => [slot.type, slot.cove.seawardBearing]));
+    const material = new MeshBasicMaterial({ side: DoubleSide });
+    const ray = new Raycaster();
+    const down = new Vector3(0, -1, 0);
+    const supplies = [
+      { size: 2, totalUsd: 3e7 }, { size: 5, totalUsd: 3e7 },
+      { size: 5, totalUsd: 1.5e9 }, { size: 8, totalUsd: 1.5e9 },
+      { size: 10, totalUsd: 2e11 },
+    ];
+    for (const type of ALL_STATION_TYPES) for (const supply of supplies) for (const frontageShare of [0.01, 1, 100]) {
+      const recipe = authorDock({
+        ...dockFixture(`site-${type}`, supply.size, null, supply.totalUsd),
+        frontageMedianShare: 1,
+        frontageShare,
+        station: { coveId: `site-${type}`, shoreBearing: bearingByType.get(type)!, type },
+      }, DISPLAY_TILES[0]!, ISLAND_TILE);
+      const meshes = recipe.parts.map((part) => new Mesh(part.geometry, material));
+      const firstHit = (from: Vector3, far: number) => {
+        ray.set(from, down);
+        ray.far = far;
+        return ray.intersectObjects(meshes, false)[0] ?? null;
+      };
+      const { banners, yaw } = recipe.flag.placement;
+      const label = `${type} ${supply.totalUsd}/${supply.size}/${frontageShare}`;
+      for (const banner of banners) {
+        // The pole rises from structure at its foot (a sloped roof may stand
+        // above the foot, never above the hem), and nothing crosses the pole
+        // or the cloth above the hem.
+        const surface = firstHit(new Vector3(banner.x, 60, banner.z), 100)?.point.y ?? -Infinity;
+        expect(surface, `${label} foot`).toBeGreaterThan(banner.footY - 0.12);
+        expect(surface, `${label} foot`).toBeLessThan(banner.clothBottomY - 0.2);
+        for (const swing of [-0.28, 0, 0.28]) for (const u of [0, 0.1, 0.4, 0.7, 1]) {
+          const probe = new Vector3(
+            banner.x + Math.cos(yaw + swing) * banner.clothWidth * u,
+            banner.poleTopY,
+            banner.z - Math.sin(yaw + swing) * banner.clothWidth * u,
+          );
+          expect(firstHit(probe, banner.poleTopY - banner.clothBottomY), `${label} cloth u${u} swing ${swing}`).toBeNull();
+        }
+      }
+    }
+    material.dispose();
   });
 
   it("disposes its merged geometry, instance buffers, and materials but keeps the shared flag atlas", () => {
@@ -300,7 +374,10 @@ function triangleCount(mesh: Mesh | InstancedMesh): number {
 
 function fakeCanvasContext(): CanvasRenderingContext2D {
   return {
+    arc: vi.fn(),
+    beginPath: vi.fn(),
     clearRect: vi.fn(),
+    fill: vi.fn(),
     fillRect: vi.fn(),
     fillText: vi.fn(),
     restore: vi.fn(),

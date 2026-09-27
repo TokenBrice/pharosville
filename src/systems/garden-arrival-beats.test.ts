@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ShipMotionSegmentKind } from "./motion-types";
-import { createGardenDirector } from "./garden-director";
 import {
-  createGardenArrivalCeremonyState,
   GARDEN_ARRIVAL_BEAT_CAP_FULL,
   GARDEN_SAIL_DIP_MIN_SCALE,
   gardenArrivalBeatEnvelope,
-  requestGardenArrivalCeremony,
+  gardenArrivalBerthInFrame,
+  gardenArrivalSupplyTrend,
   selectGardenArrivalBeatShipDetailIds,
 } from "./garden-arrival-beats";
 
@@ -75,9 +74,9 @@ describe("gardenArrivalBeatEnvelope", () => {
     expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 10, 90)).nameplate).toBe(false);
   });
 
-  it("emits one decaying stern envelope in transit", () => {
-    expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 96.5, 3.5)).nameplate).toBe(false);
-    expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 97, 3)).nameplate).toBe(true);
+  it("emits one decaying stern envelope in transit and never nominates a departing ship", () => {
+    expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 97, 3)).nameplate).toBe(false);
+    expect(gardenArrivalBeatEnvelope(sample("dock-dwell", 99.5, 0.5)).nameplate).toBe(false);
     expect(gardenArrivalBeatEnvelope(sample("departure-transit", 0, 120)).bowWave).toBe(1);
     expect(gardenArrivalBeatEnvelope(sample("departure-transit", 1, 119)).bowWave).toBeCloseTo(0.5);
     expect(gardenArrivalBeatEnvelope(sample("departure-transit", 2, 118)).bowWave).toBe(0);
@@ -93,48 +92,23 @@ describe("gardenArrivalBeatEnvelope", () => {
   });
 });
 
-describe("garden arrival ceremony", () => {
-  const arrivals = [
-    {
-      assetName: "Tether",
-      detailId: "ship.usdt",
-      harbourName: "Ethereum Mole",
-      id: "usdt",
-      supplyShare: 0.68,
-      supplyTrend: "increased" as const,
-    },
-    {
-      assetName: "USD Coin",
-      detailId: "ship.usdc",
-      harbourName: "Tron Quay",
-      id: "usdc",
-      supplyShare: 0.24,
-      supplyTrend: "decreased" as const,
-    },
-  ];
+describe("garden arrival facts", () => {
+  it("claims a supply change only for measured minting or redeeming", () => {
+    expect(gardenArrivalSupplyTrend({ direction: "minting" })).toBe("increased");
+    expect(gardenArrivalSupplyTrend({ direction: "redeeming" })).toBe("decreased");
+    expect(gardenArrivalSupplyTrend({ direction: "flat" })).toBeNull();
+    expect(gardenArrivalSupplyTrend(undefined)).toBeNull();
+  });
 
-  it("admits only the highest-supply arrival and emits plain-language annotation", () => {
-    const state = createGardenArrivalCeremonyState();
-    const beat = requestGardenArrivalCeremony(state, createGardenDirector("arrival"), arrivals, 1_000);
-    expect(beat?.arrival.detailId).toBe("ship.usdt");
-    expect(beat?.directorBeat).toMatchObject({
-      foreground: true,
-      kind: "arrival",
-      priority: 67,
-      subject: "ship.usdt",
-    });
-    expect(beat?.directorBeat.durationSeconds).toBeGreaterThanOrEqual(8);
-    expect(beat?.directorBeat.durationSeconds).toBeLessThanOrEqual(12);
-    expect(beat?.annotation?.text).toBe(
-      "Tether arrives at Ethereum Mole · supply increased in the window",
-    );
-    expect(beat?.annotation?.durationSeconds).toBe(beat?.directorBeat.durationSeconds);
-    expect(requestGardenArrivalCeremony(
-      state,
-      createGardenDirector("another-slot"),
-      arrivals,
-      1_119,
-    )).toBeNull();
+  it("announces only berths inside the inset frame", () => {
+    const viewport = { width: 1_600, height: 1_000 };
+    expect(gardenArrivalBerthInFrame({ x: 800, y: 500 }, viewport)).toBe(true);
+    expect(gardenArrivalBerthInFrame({ x: 160, y: 100 }, viewport)).toBe(true);
+    expect(gardenArrivalBerthInFrame({ x: 150, y: 500 }, viewport)).toBe(false);
+    expect(gardenArrivalBerthInFrame({ x: 800, y: 950 }, viewport)).toBe(false);
+    expect(gardenArrivalBerthInFrame({ x: -4e9, y: 3e9 }, viewport)).toBe(false);
+    expect(gardenArrivalBerthInFrame(undefined, viewport)).toBe(false);
+    expect(gardenArrivalBerthInFrame({ x: 800, y: 500 }, { width: 0, height: 0 })).toBe(false);
   });
 
   it("caps the legacy renderer subject to one stable, significant arrival", () => {

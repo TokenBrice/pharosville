@@ -28,6 +28,12 @@ import { Box3, MathUtils, Object3D, Vector3 } from "three";
  * exactly this framing) and the monument all stay.
  */
 
+/*
+ * "Zoom" here is the detail policy's screen-scale zoom (`cameraPixelZoom`,
+ * the rig zoom on the rig), floored at FULL while the rest ShotSpec shows
+ * (`resolveRendererDetailPolicy`, W1.0): the resting frame never sheds props.
+ */
+
 /** At or above this zoom every shed prop is at its authored transform. */
 export const OVERVIEW_LOD_FULL_ZOOM = 0.62;
 /** At or below this zoom every shed prop is gone, costing nothing. */
@@ -53,11 +59,9 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   // structural and never tier out; inspection-only planks, bollards and metal
   // greebles keep their own harbor-fine-* gate.
   "dock-cargo-tide",
-  "dock-tide-line",
   // Warm-village D3: the station chimneys' instanced smoke, one whole-ring
   // group like the crates — sub-silhouette puffs, shed whole below the band.
   "dock-station-smoke",
-  "dock-lamp-heads",
   "dock-posts",
   "harbor-netRack",
   "station-lit-screens",
@@ -79,11 +83,7 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   "garden-flora-momiji",
   "garden-flora-cherry",
   "garden-rim-stones",
-  // Camera-near repoussoirs (warm-village A6): at whole-map they are the
-  // same frame-edge mud as the rest of the skirt furniture.
-  "garden-rim-foreground-pine-bough",
-  // Per-hero badges, ×~29 hulls, and the three hero gull flocks.
-  "ship-gull-flock",
+  // Per-hero badges, ×~29 hulls.
   "ship-overview-detail",
 ];
 
@@ -108,10 +108,8 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
 export const OVERVIEW_LOD_WHOLE_RING_NAMES: readonly string[] = [
   "garden-sea-edges-overview",
   "dock-cargo-tide",
-  "dock-lamp-heads",
   "dock-posts",
   "dock-station-smoke",
-  "dock-tide-line",
   "harbor-netRack",
   "station-lit-screens",
   "garden-rim-path",

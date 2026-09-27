@@ -1,19 +1,14 @@
-import { requestGardenBeat, type GardenBeat, type GardenDirectorState } from "./garden-director";
+import { gardenMicroseason } from "./garden-calendar";
+import type { GardenRitualKind } from "./garden-director";
+import { gardenMoonPhrase, gardenSkyLatitude, type GardenSkyDay, type GardenSkyLatitude } from "./sky-almanac";
 
-export type GardenAlmanacEventId = "heron-dusk" | "deep-night-meteor";
-
-export interface GardenAlmanacEvent {
-  dayKey: string;
-  endsAtHour: number;
-  id: GardenAlmanacEventId;
-  ledgerMessage: string;
-  startsAtHour: number;
-  timestampLabel: string;
-  foreground: boolean;
-  durationSeconds: number;
-  envelopeSeconds: number;
-  evidenceSeconds: number;
-}
+/**
+ * The Almanac (W5.1, W5.6, K18): the ledger's words for the day score's
+ * rituals and the day's place in the year. The rituals themselves are chosen
+ * and timed by `garden-score.ts`; this module only says what happened, in
+ * plain language with the local time. Kō names live here and in the ledger
+ * only — never in the now-line.
+ */
 
 export interface GardenAlmanacLogEntry {
   id: string;
@@ -21,126 +16,57 @@ export interface GardenAlmanacLogEntry {
   timestampLabel: string;
 }
 
-interface AlmanacEventDefinition {
-  baseHour: number;
-  durationSeconds: number;
-  envelopeSeconds: number;
-  evidenceSeconds: number;
-  foreground: boolean;
-  id: GardenAlmanacEventId;
-  jitterHours: number;
-  ledgerMessage: string;
-}
+const RITUAL_LEDGER_LINES: Record<GardenRitualKind, string> = {
+  "heron-arrives": "A heron came down into the reed shallows.",
+  "heron-departs": "The heron lifted in the last gold light and flew low over the island.",
+  kindling: "The keeper lit the island lamps; the harbour lanterns followed.",
+  moonrise: "The moon cleared the borrowed hills.",
+  meteor: "A single meteor crossed the dark-moon sky.",
+  "seasonal-visitor": "A seasonal visitor came to the garden.",
+  crossing: "A ship crossed the mirror inlet.",
+  "dawn-skein": "A skein of geese crossed at first light.",
+  "fish-rings": "Fish were rising in the still water.",
+  "tree-lets-go": "A gust took the island maple's last leaves.",
+  "anniversary-lantern": "A lantern was lit in the stone garden for the fallen.",
+};
 
-const EVENT_DEFINITIONS: readonly AlmanacEventDefinition[] = Object.freeze([
-  {
-    baseHour: 18,
-    durationSeconds: 30,
-    envelopeSeconds: 45,
-    evidenceSeconds: 600,
-    foreground: false,
-    id: "heron-dusk",
-    jitterHours: 0.2,
-    ledgerMessage: "A heron settled on the harbor piling at dusk.",
-  },
-  {
-    baseHour: 1,
-    durationSeconds: 10,
-    envelopeSeconds: 10,
-    evidenceSeconds: 0,
-    foreground: true,
-    id: "deep-night-meteor",
-    jitterHours: 0.3,
-    ledgerMessage: "A single meteor crossed the deep-night harbor sky.",
-  },
-]);
-
-/**
- * W6.3's shared daily sighting. UTC owns the seed so viewers get the same
- * event choice worldwide; the event itself remains tied to the harbor clock's
- * dusk/night phase. Exactly one definition is selected for each day.
- *
- * Moonbow is deliberately absent. The current render payload exposes the
- * present PSI stress, but no trustworthy previous stressed -> resolved edge;
- * inferring one from a calm frame would make a decorative event claim data
- * history the app does not have.
- */
-export function gardenAlmanacEventForDate(date: Date = new Date()): GardenAlmanacEvent {
-  const dayKey = utcDayKey(date);
-  const seed = hashText(dayKey);
-  const definition = EVENT_DEFINITIONS[seed % EVENT_DEFINITIONS.length]!;
-  const jitterUnit = hashText(`${dayKey}:${definition.id}:hour`) / 0xffff_ffff;
-  const startsAtHour = definition.baseHour + jitterUnit * definition.jitterHours;
+/** One ledger line per ritual start, stamped with the local clock hour it began at. */
+export function gardenRitualLedgerEntry(event: {
+  id: string;
+  kind: GardenRitualKind;
+  clockHour: number;
+  directorSeconds: number;
+}, dayKey: string): GardenAlmanacLogEntry {
   return {
-    dayKey,
-    endsAtHour: startsAtHour + definition.envelopeSeconds / 3600,
-    foreground: definition.foreground,
-    durationSeconds: definition.durationSeconds,
-    envelopeSeconds: definition.envelopeSeconds,
-    evidenceSeconds: definition.evidenceSeconds,
-    id: definition.id,
-    ledgerMessage: definition.ledgerMessage,
-    startsAtHour,
-    timestampLabel: formatHarborHour(startsAtHour),
+    id: `${dayKey}:${event.id}:${Math.round(event.directorSeconds)}`,
+    message: RITUAL_LEDGER_LINES[event.kind],
+    timestampLabel: formatHarborHour(event.clockHour),
   };
 }
 
-/** One event at most; stillness/reduced-motion deliberately has no event. */
-export function gardenAlmanacEventAt(
+export interface GardenAlmanacDay {
+  /** English kō name, e.g. "Thunder ceases". */
+  microseason: string;
+  /** English sekki name holding it. */
+  sekki: string;
+  /** The moon in words, or null while it is down or new. */
+  moon: string | null;
+}
+
+/** The Almanac section's words for a date and hour. */
+export function gardenAlmanacDay(
   date: Date,
-  wallClockHour: number,
-  reducedMotion = false,
-): GardenAlmanacEvent | null {
-  if (reducedMotion || !Number.isFinite(wallClockHour)) return null;
-  const hour = wallClockHour >= 0 && wallClockHour < 24
-    ? wallClockHour
-    : ((wallClockHour % 24) + 24) % 24;
-  const event = gardenAlmanacEventForDate(date);
-  return hour >= event.startsAtHour && hour < event.endsAtHour ? event : null;
-}
-
-/** A daily occurrence asks for attention once; evidence never reserves it. */
-export function requestGardenAlmanac(
-  director: GardenDirectorState,
-  event: GardenAlmanacEvent,
-  timeSeconds: number,
-): GardenBeat | null {
-  return requestGardenBeat(director, {
-    kind: "almanac",
-    foreground: event.foreground,
-    durationSeconds: event.durationSeconds,
-    envelopeSeconds: event.envelopeSeconds,
-    evidenceSeconds: event.evidenceSeconds,
-    priority: 20,
-    subject: `${event.dayKey}:${event.id}`,
-  }, timeSeconds);
-}
-
-export function gardenAlmanacLogEntry(event: GardenAlmanacEvent): GardenAlmanacLogEntry {
-  return {
-    id: `${event.dayKey}:${event.id}`,
-    message: event.ledgerMessage,
-    timestampLabel: event.timestampLabel,
-  };
-}
-
-function utcDayKey(date: Date): string {
-  if (!Number.isFinite(date.getTime())) return "1970-01-01";
-  return date.toISOString().slice(0, 10);
+  hour: number,
+  day: GardenSkyDay,
+  latitude: GardenSkyLatitude = gardenSkyLatitude(),
+): GardenAlmanacDay {
+  const { name, sekki } = gardenMicroseason(date, latitude);
+  return { microseason: name, sekki, moon: gardenMoonPhrase(hour, day) };
 }
 
 function formatHarborHour(hour: number): string {
-  const totalMinutes = Math.round(hour * 60) % (24 * 60);
+  const totalMinutes = Math.round((((hour % 24) + 24) % 24) * 60) % (24 * 60);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-}
-
-function hashText(value: string): number {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash >>> 0;
 }

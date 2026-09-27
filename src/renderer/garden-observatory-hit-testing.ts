@@ -19,12 +19,27 @@ import { placeGardenFleet } from "../systems/garden-fleet-placement";
 import {
   gardenFleetDisplayPresence,
   gardenFleetThinningShips,
+  gardenFleetThinningZoom,
   type GardenFleetThinningShip,
 } from "../systems/garden-fleet-thinning";
-import { HARBOR_QUAY_TOP_Y, stationFlagPlacement, stationScaleFor } from "../systems/dock-layout";
+import {
+  HARBOR_NOBORI_FACING_YAW,
+  NOBORI_CLOTH_ASPECT,
+  stationNobori,
+  stationScaleFor,
+} from "../systems/dock-layout";
 import type { DockNode } from "../systems/world-types";
 import type { ShipMotionSample } from "../systems/motion";
-import { CAMERA_YAW, worldToScreen, type IsoCamera, type ScreenPoint, type TilePoint } from "../systems/projection";
+import {
+  cameraDetailZoom,
+  cameraPixelZoom,
+  cameraView,
+  cameraViewAngles,
+  worldToScreen,
+  type IsoCamera,
+  type ScreenPoint,
+  type TilePoint,
+} from "../systems/projection";
 import type { PharosVilleWorld } from "../systems/world-types";
 // The sea signs are the one piece of scenery whose hit target cannot be derived
 // from the world model alone: where a stele stands is decided by the sign
@@ -87,7 +102,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
     hoveredShipId,
     selectedShipId,
     ships: thinningShips,
-    zoom: input.camera.zoom,
+    zoom: gardenFleetThinningZoom(input.camera, projectionViewport),
   });
   const targets: HitTarget[] = [];
 
@@ -200,7 +215,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
   // The duplicate stele targets stand down when a detail panel owns the frame;
   // the steles themselves remain visible and the zone target still carries the
   // body in that state.
-  if (gardenSemanticView(input.camera.zoom, selectedDetailId) !== "analyze") {
+  if (gardenSemanticView(cameraDetailZoom(input.camera, projectionViewport), selectedDetailId) !== "analyze") {
     // Live callers pass the renderer track's exact last-drawn value. The pure
     // scale is only a construction-time/test fallback before a stele frame
     // exists; it must never overwrite a live hysteresis or eased settle.
@@ -208,7 +223,7 @@ export function createGardenObservatoryHitTargetSnapshot(input: {
       && Number.isFinite(input.seaSignScale)
       && input.seaSignScale > 0
       ? input.seaSignScale
-      : seaSignScaleForZoom(input.camera.zoom);
+      : seaSignScaleForZoom(cameraPixelZoom(input.camera, projectionViewport));
     for (const stele of seaSignSteles(input.world.areas)) {
       if (!stele.detailId) continue;
       const rect = seaSignSteleRect(stele, signScale, input.camera, projectionViewport);
@@ -341,7 +356,7 @@ export function createGardenStationLabelFrame(input: {
   for (const dock of input.world.docks) {
     anchorsByDetailId.set(dock.detailId, gardenTileToScreen(
       gardenDockDisplayTile(dock.tile),
-      GARDEN_DOCK_ROOT_Y + stationScaleFor(dock.station.type, dock.totalUsd).secondLevelTop,
+      GARDEN_DOCK_ROOT_Y + stationScaleFor(dock.station.type, dock.totalUsd).silhouetteTop,
       input.camera,
       { x: input.viewport.width, y: input.viewport.height },
     ));
@@ -391,8 +406,10 @@ function projectedWorldSize(
 ): { width: number; height: number } {
   const x = tile.x * TILE_SCALE;
   const z = tile.y * TILE_SCALE;
-  const dx = Math.cos(CAMERA_YAW) * width / 2;
-  const dz = -Math.sin(CAMERA_YAW) * width / 2;
+  // Billboards face the shown view: their width runs along its right axis.
+  const { yaw } = cameraViewAngles(cameraView(camera, viewport));
+  const dx = Math.cos(yaw) * width / 2;
+  const dz = -Math.sin(yaw) * width / 2;
   const left = worldToScreen({ x: x - dx, y: worldY, z: z - dz }, camera, viewport);
   const right = worldToScreen({ x: x + dx, y: worldY, z: z + dz }, camera, viewport);
   const top = worldToScreen({ x, y: worldY + height / 2, z }, camera, viewport);
@@ -543,32 +560,39 @@ export function gardenDockFlagHitRect(
   };
 }
 
+/**
+ * Screen bounds of a station's nobori cloth over the renderer's full pose
+ * range: the shared wind swings each banner up to ±0.28 rad about its pole
+ * and the travelling folds displace the cloth up to ±0.21 of its width off
+ * its plane (`garden-harbor-batch.ts` cloth program).
+ */
 function authoredDockFlagBounds(
   dock: DockNode,
   camera: IsoCamera,
   viewport: ScreenPoint,
 ): HitTarget["rect"] {
-  const staff = stationFlagPlacement(dock.station.type, dock.totalUsd, dock.size);
+  const { banners } = stationNobori(dock);
   const bearing = -dock.station.shoreBearing;
   const cos = Math.cos(bearing);
   const sin = Math.sin(bearing);
   const tile = gardenDockDisplayTile(dock.tile);
-  const centre = {
-    x: tile.x + (staff.x * cos + staff.z * sin) / TILE_SCALE,
-    y: tile.y + (-staff.x * sin + staff.z * cos) / TILE_SCALE,
-  };
-  const height = GARDEN_DOCK_ROOT_Y + staff.height + HARBOR_QUAY_TOP_Y - staff.scale * 0.75;
   const points: ScreenPoint[] = [];
-  for (const yawOffset of [-0.28, 0, 0.28]) for (const roll of [-0.075, 0, 0.075]) {
-    const yaw = Math.PI / 4 + yawOffset;
-    for (const x of [0.06, 0.06 + staff.scale * 1.5]) {
-      for (const y of [-0.63 * staff.scale, 0.5 * staff.scale]) for (const z of [-0.13 * staff.scale, 0.13 * staff.scale]) {
-        const rx = x * Math.cos(roll) - y * Math.sin(roll);
-        const ry = x * Math.sin(roll) + y * Math.cos(roll);
-        points.push(gardenTileToScreen({
-          x: centre.x + (rx * Math.cos(yaw) + z * Math.sin(yaw)) / TILE_SCALE,
-          y: centre.y + (-rx * Math.sin(yaw) + z * Math.cos(yaw)) / TILE_SCALE,
-        }, height + ry, camera, viewport));
+  for (const banner of banners) {
+    const pole = {
+      x: tile.x + (banner.x * cos + banner.z * sin) / TILE_SCALE,
+      y: tile.y + (-banner.x * sin + banner.z * cos) / TILE_SCALE,
+    };
+    const top = GARDEN_DOCK_ROOT_Y + banner.clothTopY;
+    const width = banner.clothWidth;
+    for (const yawOffset of [-0.28, 0, 0.28]) {
+      const yaw = HARBOR_NOBORI_FACING_YAW + yawOffset;
+      for (const x of [0.055, 0.055 + width]) {
+        for (const y of [-NOBORI_CLOTH_ASPECT * width, 0.05 * width]) for (const z of [-0.21 * width, 0.21 * width]) {
+          points.push(gardenTileToScreen({
+            x: pole.x + (x * Math.cos(yaw) + z * Math.sin(yaw)) / TILE_SCALE,
+            y: pole.y + (-x * Math.sin(yaw) + z * Math.cos(yaw)) / TILE_SCALE,
+          }, top + y, camera, viewport));
+        }
       }
     }
   }

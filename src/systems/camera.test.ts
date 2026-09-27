@@ -5,35 +5,33 @@ import {
   defaultCamera,
   followTile,
   panCamera,
+  REST_SHOT_RECTS,
+  restHandOffRig,
+  solveRestShot,
   zoomIn,
   zoomOut,
 } from "./camera";
 import {
   ABSOLUTE_MIN_ZOOM,
-  cameraEye,
-  cameraPoseFromIso,
-  GARDEN_PLATE_MARGIN_TILES,
+  cameraView,
+  cameraViewAngles,
   mapIsoBounds,
   minZoomForViewport,
   TILE_SCALE,
   worldToScreen,
 } from "./projection";
 import {
-  GARDEN_LIGHTHOUSE_HEIGHT,
-  GARDEN_LIGHTHOUSE_ROOT_OFFSET,
   GARDEN_SHIP_ROOT_Y,
-  gardenIslandDisplayTile,
+  GARDEN_WATER_Y,
+  gardenTowerWorldAnchors,
 } from "./garden-observatory-slice";
 import {
   buildPharosVilleMap,
-  EVM_BAY_STATION_SLOTS,
   LIGHTHOUSE_TILE,
-  OUTER_HARBOR_STATION_SLOTS,
   PHAROSVILLE_MAP_HEIGHT,
   PHAROSVILLE_MAP_WIDTH,
 } from "./world-layout";
-import { denseFixtureChains } from "../__fixtures__/pharosville-world";
-import { buildChainDocks } from "./chain-docks";
+import type { DockNode } from "./world-types";
 
 describe("camera", () => {
   it("pans by screen-space deltas", () => {
@@ -56,110 +54,6 @@ describe("camera", () => {
 
     expect(zoomOut(zoomIn(camera, { x: 1000, y: 800 }), { x: 1000, y: 800 }).zoom).toBeCloseTo(1);
   });
-  // G1 0.5-tile / 0.01-zoom feasibility scan: 900×720 has 150 candidates
-  // at 60%; 1200×640 has zero at 50% (best violation 0.0129), 31 at 44%.
-  it.each([{ x: 900, y: 720, band: 0.60 }, { x: 1200, y: 640, band: 0.44 }])(
-    "seats the eye on the near plate with crown air and an open inlet at $x × $y",
-    (viewport) => {
-      const map = buildPharosVilleMap();
-      const docks = buildChainDocks(denseFixtureChains);
-      const island = gardenIslandDisplayTile(LIGHTHOUSE_TILE);
-      const baseWorld = {
-        x: island.x * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x,
-        y: GARDEN_LIGHTHOUSE_ROOT_OFFSET.y,
-        z: island.y * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z,
-      };
-      for (const subjects of [undefined, docks]) {
-        const camera = defaultCamera({ height: viewport.y, map, width: viewport.x, ...(subjects ? { subjects } : {}) });
-        const eye = cameraEye(cameraPoseFromIso(camera, viewport));
-        const eyeTile = { x: eye.x / TILE_SCALE, y: eye.z / TILE_SCALE };
-        const base = worldToScreen(baseWorld, camera, viewport);
-        const crown = worldToScreen(
-          { ...baseWorld, y: baseWorld.y + GARDEN_LIGHTHOUSE_HEIGHT }, camera, viewport,
-        );
-        const diagnostic = JSON.stringify({ viewport, camera, eyeTile, base, crown, withDocks: !!subjects });
-        expect(camera.zoom, diagnostic).toBeGreaterThanOrEqual(0.8);
-        expect.soft(camera.zoom, diagnostic).toBeLessThanOrEqual(1.15);
-        expect(eyeTile.x, diagnostic).toBeGreaterThanOrEqual(8);
-        expect(eyeTile.y, diagnostic).toBeGreaterThanOrEqual(8);
-        expect(eyeTile.x, diagnostic).toBeLessThanOrEqual(map.width + GARDEN_PLATE_MARGIN_TILES - 4);
-        expect(eyeTile.y, diagnostic).toBeLessThanOrEqual(map.height + GARDEN_PLATE_MARGIN_TILES - 4);
-        expect(eyeTile.x + eyeTile.y, diagnostic).toBeGreaterThanOrEqual(200);
-        for (const point of [base, crown]) {
-          expect(point.x / viewport.x, diagnostic).toBeGreaterThanOrEqual(0.50);
-          expect(point.x / viewport.x, diagnostic).toBeLessThanOrEqual(0.72);
-        }
-        expect(crown.y / viewport.y, diagnostic).toBeGreaterThanOrEqual(0.04);
-        expect(base.y / viewport.y, diagnostic).toBeGreaterThanOrEqual(0.35);
-        expect(base.y / viewport.y, diagnostic).toBeLessThanOrEqual(0.65);
-        const stationTiles = subjects?.map((dock) => dock.tile)
-          ?? [...EVM_BAY_STATION_SLOTS, ...OUTER_HARBOR_STATION_SLOTS].map((slot) => slot.cove.tile);
-        const segmentX = baseWorld.x - eye.x;
-        const segmentZ = baseWorld.z - eye.z;
-        const segmentLengthSquared = segmentX ** 2 + segmentZ ** 2;
-        for (const tile of stationTiles) {
-          const stationDiagnostic = `${diagnostic}, station=${JSON.stringify(tile)}`;
-          expect.soft(Math.hypot(tile.x - eyeTile.x, tile.y - eyeTile.y), stationDiagnostic)
-            .toBeGreaterThanOrEqual(14);
-          const flag = worldToScreen(
-            { x: tile.x * TILE_SCALE, y: 26, z: tile.y * TILE_SCALE }, camera, viewport,
-          );
-          if (Math.hypot(tile.x - eyeTile.x, tile.y - eyeTile.y) <= 40) {
-            const vertices = [
-              worldToScreen({ x: tile.x * TILE_SCALE, y: 0, z: tile.y * TILE_SCALE }, camera, viewport),
-              flag,
-            ];
-            for (const reach of [-6, 6]) {
-              for (const y of [16, 26]) {
-                vertices.push(worldToScreen({
-                  x: tile.x * TILE_SCALE + reach / Math.SQRT2,
-                  y,
-                  z: tile.y * TILE_SCALE - reach / Math.SQRT2,
-                }, camera, viewport));
-              }
-            }
-            const left = Math.min(...vertices.map((point) => point.x / viewport.x));
-            const right = Math.max(...vertices.map((point) => point.x / viewport.x));
-            const top = Math.min(...vertices.map((point) => point.y / viewport.y));
-            const bottom = Math.max(...vertices.map((point) => point.y / viewport.y));
-            expect.soft(
-              right <= (1 - viewport.band) / 2 || left >= (1 + viewport.band) / 2
-                || bottom <= 0 || top >= 1,
-              stationDiagnostic,
-            ).toBe(true);
-          } else {
-            const flagX = flag.x / viewport.x;
-            expect.soft(
-              flagX >= Math.min(base.x, crown.x) / viewport.x - 0.12
-                && flagX <= Math.max(base.x, crown.x) / viewport.x + 0.12,
-              stationDiagnostic,
-            ).toBe(false);
-          }
-          const stationX = tile.x * TILE_SCALE - eye.x;
-          const stationZ = tile.y * TILE_SCALE - eye.z;
-          const along = Math.max(0, Math.min(1,
-            (stationX * segmentX + stationZ * segmentZ) / segmentLengthSquared,
-          ));
-          expect.soft(Math.hypot(stationX - along * segmentX, stationZ - along * segmentZ), stationDiagnostic)
-            .toBeGreaterThanOrEqual(4);
-        }
-        const tiles = subjects?.map((dock) => dock.tile) ?? [EVM_BAY_STATION_SLOTS[0]!.cove.tile];
-        const points = tiles.map((tile) => {
-          const point = worldToScreen(
-            { x: tile.x * TILE_SCALE, y: 0, z: tile.y * TILE_SCALE }, camera, viewport,
-          );
-          return { x: point.x / viewport.x, y: point.y / viewport.y };
-        });
-        // Without supplied harbours, the western Mole is a preference: its
-        // visibility must not pull the observer off the garden shore.
-        if (subjects) {
-          expect(points.some(({ x, y }) => x >= 0.04 && x <= 0.96 && y >= 0.04 && y <= 0.96), diagnostic).toBe(true);
-        }
-        expect(points.some(({ x, y }) => x >= 0.35 && x <= 0.65 && y >= 0.6 && y <= 0.95), diagnostic).toBe(false);
-      }
-    },
-  );
-
   it("keeps bounded zooms inside the biased composition frame", () => {
     const map = buildPharosVilleMap();
     const viewport = { x: 1440, y: 1000 };
@@ -206,6 +100,77 @@ describe("camera", () => {
   });
 });
 
+
+describe("rest ShotSpec (W1.1)", () => {
+  const map = { height: PHAROSVILLE_MAP_HEIGHT, width: PHAROSVILLE_MAP_WIDTH };
+  const tower = gardenTowerWorldAnchors(LIGHTHOUSE_TILE);
+  const gates = [{ x: 1600, y: 1000 }, { x: 1200, y: 640 }, { x: 900, y: 720 }, { x: 720, y: 900 }];
+  const within = (value: number, [low, high]: readonly [number, number]) => {
+    expect(value).toBeGreaterThanOrEqual(low);
+    expect(value).toBeLessThanOrEqual(high);
+  };
+
+  it.each(gates)("seats the rest on the K1 rects, corridor and panel at $x × $y", (viewport) => {
+    const camera = defaultCamera({ height: viewport.y, map, width: viewport.x });
+    const rects = viewport.x / viewport.y >= 1 ? REST_SHOT_RECTS.landscape : REST_SHOT_RECTS.tall;
+    const project = (point: { x: number; y: number; z: number }) => {
+      const screen = worldToScreen(point, camera, viewport);
+      return { x: screen.x / viewport.x, y: screen.y / viewport.y };
+    };
+    // World-fixed points: the crown and the waterline under the tower axis.
+    const foot = project({ ...tower.foot, y: GARDEN_WATER_Y });
+    const crown = project(tower.crown);
+    within(foot.x, rects.footX);
+    within(crown.y, rects.crownY);
+    within(foot.y - crown.y, rects.span);
+
+    const shot = solveRestShot(viewport);
+    expect(shot.spec.id).toBe(viewport.x / viewport.y >= 1 ? "seat-c-landscape" : "seat-c-tall");
+    expect(shot.report.inletIntrusions).toEqual([]);
+    expect(shot.report.panelIntrusions).toEqual([]);
+    expect(shot.report.violation).toBe(0);
+
+    // K1 eye, pitch and lens: a pose, not a zoom.
+    const view = cameraView(camera, viewport);
+    const angles = cameraViewAngles(view);
+    within(view.eye.y, [14, 16]);
+    within(angles.pitch * 180 / Math.PI, [2.5, 3.5]);
+    expect(view.vFovDeg).toBe(32);
+  });
+
+  it("has no zoom term: the seat is the same pose at any pixel size of one aspect", () => {
+    const large = cameraView(defaultCamera({ height: 1000, map, width: 1600 }), { x: 1600, y: 1000 });
+    const small = cameraView(defaultCamera({ height: 500, map, width: 800 }), { x: 800, y: 500 });
+    expect(small.eye).toEqual(large.eye);
+    expect(small.target.x).toBeCloseTo(large.target.x, 6);
+    expect(small.target.z).toBeCloseTo(large.target.z, 6);
+  });
+
+  it.each(gates)("hands off at $x × $y to an in-bounds rig on the same yaw that keeps the tower's foot pixel and crown row", (viewport) => {
+    const shot = solveRestShot(viewport);
+    const rig = restHandOffRig(shot.view, viewport);
+    const rest = defaultCamera({ height: viewport.y, map, width: viewport.x });
+    for (const point of [tower.foot, tower.crown]) {
+      const seat = worldToScreen(point, rest, viewport);
+      const handOff = worldToScreen(point, rig, viewport);
+      expect(Math.abs(handOff.y - seat.y)).toBeLessThan(1);
+      if (point === tower.foot) expect(Math.abs(handOff.x - seat.x)).toBeLessThan(1);
+    }
+    expect(cameraViewAngles(cameraView(rig, viewport)).yaw).toBeCloseTo(cameraViewAngles(shot.view).yaw, 9);
+    expect(clampCameraToMap(rig, { map, viewport })).toEqual(rig);
+  });
+
+  it("reports a station whose massing or nobori stands in the inlet core", () => {
+    const intruder = {
+      id: "inlet-intruder",
+      station: { shoreBearing: 0, type: "fishing-pier" },
+      tile: { x: 86, y: 116 },
+    } as unknown as DockNode;
+    const shot = solveRestShot({ x: 1600, y: 1000 }, [intruder]);
+    expect(shot.report.inletIntrusions).toContain("inlet-intruder");
+    expect(shot.report.violation).toBeGreaterThanOrEqual(1);
+  });
+});
 
 describe("N1 zoom floor", () => {
   const map = { height: 112, width: 112 };

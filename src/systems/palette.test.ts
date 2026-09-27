@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import { RISK_WATER_AREAS } from "./risk-water-areas";
 import {
   DEWS_AREA_LABEL_COLORS,
+  HARBOR_DERIVED_PALETTE,
   HARBOR_PALETTE,
   HARBOR_UI_PALETTE,
+  hexToOklch,
   LEDGER_INK_HEX,
+  NOBORI_INK_LIMITS,
+  noboriInkHex,
   ZONE_THEMES,
   zoneThemeForTerrain,
 } from "./palette";
@@ -204,6 +208,44 @@ describe("DEWS_AREA_LABEL_COLORS", () => {
       expect(contrastRatio(DEWS_AREA_LABEL_COLORS[band], SHELL_BACKGROUND), band)
         .toBeGreaterThanOrEqual(4.5);
     }
+  });
+});
+
+// Plan K28: nobori marks are printed in each chain's own hue at a muted
+// strength. The clamp is judged here with this file's independent OKLab.
+describe("noboriInkHex", () => {
+  const vermillion = oklchChroma(HARBOR_PALETTE.vermillion);
+
+  it("mutes saturated brand colours below vermillion while keeping their hue", () => {
+    for (const brand of ["#ff060a", "#0052ff", "#8247e5", "#9945ff", "#f0b90b", "#12aaff", "#e84142"]) {
+      const ink = noboriInkHex(brand);
+      expect(oklchChroma(ink), `${brand} → ${ink}`).toBeLessThanOrEqual(NOBORI_INK_LIMITS.maxChroma + 0.002);
+      expect(oklchChroma(ink), `${brand} → ${ink}`).toBeLessThan(vermillion);
+      expect(hueDistance(oklchHue(ink), oklchHue(brand)), `${brand} → ${ink}`).toBeLessThan(6);
+    }
+  });
+
+  it("lifts dark brands to the lightness floor and caps pale ones at the ceiling", () => {
+    expect(hexToOklch(noboriInkHex("#1a1a1a")).l).toBeCloseTo(NOBORI_INK_LIMITS.minLightness, 2);
+    expect(hexToOklch(noboriInkHex("#000000")).l).toBeCloseTo(NOBORI_INK_LIMITS.minLightness, 2);
+    expect(hexToOklch(noboriInkHex("#97fce4")).l).toBeCloseTo(NOBORI_INK_LIMITS.maxLightness, 2);
+    expect(hexToOklch(noboriInkHex("#ffffff")).l).toBeCloseTo(NOBORI_INK_LIMITS.maxLightness, 2);
+  });
+
+  it("leaves a colour already inside the ink range where it is", () => {
+    const { r, g, b } = channels(noboriInkHex(HARBOR_PALETTE.stone_pale));
+    const source = channels(HARBOR_PALETTE.stone_pale);
+    expect(Math.abs(r - source.r)).toBeLessThanOrEqual(1);
+    expect(Math.abs(g - source.g)).toBeLessThanOrEqual(1);
+    expect(Math.abs(b - source.b)).toBeLessThanOrEqual(1);
+  });
+
+  it("derives kinari banner cloth as a quiet, light, warm off-white", () => {
+    const kinari = HARBOR_DERIVED_PALETTE.flag_kinari;
+    expect(kinari).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(oklchChroma(kinari)).toBeLessThan(0.04);
+    expect(hexToOklch(kinari).l).toBeGreaterThan(0.84);
+    expect(hueDistance(oklchHue(kinari), oklchHue(HARBOR_PALETTE.stone_pale))).toBeLessThan(6);
   });
 });
 

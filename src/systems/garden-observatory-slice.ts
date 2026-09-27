@@ -36,17 +36,50 @@ export const GARDEN_DOCK_ROOT_Y = GARDEN_WATER_Y + 0.2;
 export const GARDEN_SHIP_ROOT_Y = GARDEN_WATER_Y + 0.38;
 export const GARDEN_ZONE_ROOT_Y = GARDEN_WATER_Y + 0.04;
 export const GARDEN_ISLAND_TILE_OFFSET = { x: 12, y: 8 } as const;
-export const GARDEN_LIGHTHOUSE_ROOT_OFFSET = { x: -7, y: 2.55, z: -1.25 } as const;
+// W1.9 (Hour-Print, pharos-2): the Pharos stands on the crag headland's
+// crown. Six units of keep were traded for rock, so the root rose 2.55 → 8.55
+// while BEACON_Y (30.2 → 24.2) and HEIGHT (38 → 32) shrank by the same six:
+// the world beacon and crown heights below are unchanged.
+export const GARDEN_LIGHTHOUSE_ROOT_OFFSET = { x: -7, y: 8.55, z: -1.25 } as const;
 // Epic Pharos 2026-09-05 (D1): the broad battered square tier, octagonal
-// drum, columned lantern and Zeus Soter crown stand 38 units above the court.
-// BEACON_Y is the brazier centre inside the lantern (flame and beam origin);
-// HEIGHT is the sceptre tip. Both match the GLB and procedural shell.
-export const GARDEN_LIGHTHOUSE_BEACON_Y = 30.2;
-export const GARDEN_LIGHTHOUSE_HEIGHT = 38;
+// drum, columned lantern and Zeus Soter crown stand 32 units above the crag
+// court. BEACON_Y is the brazier centre inside the lantern (flame and beam
+// origin); HEIGHT is the sceptre tip. Both match the GLB and procedural shell.
+export const GARDEN_LIGHTHOUSE_BEACON_Y = 24.2;
+export const GARDEN_LIGHTHOUSE_HEIGHT = 32;
 // C3 (scale & anchor contract): these three constants are the integration
 // point for Epic Pharos 2026-09-05. Camera fit, shadow-frustum height, hit
 // rect and selection anchor follow the monument; selection radius, PSI
 // beacon semantics and DOM/ARIA contracts remain unchanged.
+
+/**
+ * W1.9 world-fixed tower anchors (world y, height above the datum the water
+ * sits under). The pose model frames these, not ROOT_OFFSET/HEIGHT sums: the
+ * foot is the crag court the tower stands on, the beacon is the brazier (flame
+ * and beam origin), the crown is the sceptre tip. Beacon and crown are the
+ * pre-W1.9 world heights by construction.
+ */
+export const GARDEN_TOWER_FOOT_WORLD_Y = GARDEN_LIGHTHOUSE_ROOT_OFFSET.y;
+export const GARDEN_TOWER_BEACON_WORLD_Y = GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_BEACON_Y;
+export const GARDEN_TOWER_CROWN_WORLD_Y = GARDEN_LIGHTHOUSE_ROOT_OFFSET.y + GARDEN_LIGHTHOUSE_HEIGHT;
+
+export interface GardenTowerWorldAnchors {
+  foot: { x: number; y: number; z: number };
+  beacon: { x: number; y: number; z: number };
+  crown: { x: number; y: number; z: number };
+}
+
+/** World-space tower anchors for a lighthouse tile (the tower axis is vertical). */
+export function gardenTowerWorldAnchors(lighthouseTile: ScreenPoint): GardenTowerWorldAnchors {
+  const island = gardenIslandDisplayTile(lighthouseTile);
+  const x = island.x * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x;
+  const z = island.y * TILE_SCALE + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z;
+  return {
+    foot: { x, y: GARDEN_TOWER_FOOT_WORLD_Y, z },
+    beacon: { x, y: GARDEN_TOWER_BEACON_WORLD_Y, z },
+    crown: { x, y: GARDEN_TOWER_CROWN_WORLD_Y, z },
+  };
+}
 
 export type GardenHullSilhouette =
   | "bezaisen"
@@ -172,6 +205,9 @@ interface GardenShipDisplayTileCacheEntry {
 // gives each live ship one last-result cache with automatic invalidation.
 const gardenShipDisplayTileCache = new WeakMap<ShipNode, GardenShipDisplayTileCacheEntry>();
 
+/** How far past its hull margin a continued display correction may reach. */
+const GARDEN_DISPLAY_CONTINUATION_SLACK_TILES = 2;
+
 /**
  * Composed display tiles that miss the water field need the radial
  * nearest-water search, which is hundreds of field lookups. Moored hulls bob
@@ -199,7 +235,10 @@ function resolveCachedShipWaterTile(
     const correctionRadius = Math.max(1, Math.hypot(
       cached.tile.x - cached.sourceX, cached.tile.y - cached.sourceY,
     ));
-    if (Math.hypot(source.x - cached.sourceX, source.y - cached.sourceY) <= correctionRadius) {
+    // Only a local correction is carried: a larger one would keep the hull
+    // displaced even after its source is back on open water.
+    if (correctionRadius <= margin + GARDEN_DISPLAY_CONTINUATION_SLACK_TILES
+      && Math.hypot(source.x - cached.sourceX, source.y - cached.sourceY) <= correctionRadius) {
       const shifted = {
         x: source.x + (cached.tile.x - cached.sourceX),
         y: source.y + (cached.tile.y - cached.sourceY),
@@ -219,10 +258,16 @@ function resolveCachedShipWaterTile(
         if (isGardenShipWater(midpoint, margin, includeDocks)) safe = midpoint;
         else blocked = midpoint;
       }
-      cached.sourceX = source.x;
-      cached.sourceY = source.y;
-      cached.tile = safe;
-      return safe;
+      // Continuation is only a local correction. Once the source has sailed
+      // on past an obstacle the hull cannot follow, the safe point would pin
+      // it and the growing correction would drag it tens of tiles off its
+      // route (across the empty inlet, W1.6); re-resolve from the source.
+      if (Math.hypot(safe.x - source.x, safe.y - source.y) <= margin + GARDEN_DISPLAY_CONTINUATION_SLACK_TILES) {
+        cached.sourceX = source.x;
+        cached.sourceY = source.y;
+        cached.tile = safe;
+        return safe;
+      }
     }
   }
   const resolved = isGardenShipWater(source, margin, includeDocks)
@@ -272,31 +317,34 @@ export function resolveGardenShipDisplayTile(input: {
   const { displayOffset, representative, sample, ship } = input;
   if (sample?.displayTile) return sample.displayTile;
   const tile = sample?.tile ?? ship.tile;
-  // A sailing leg belongs to the same harbor approach as its arriving and
-  // departing phases. Changing the apron policy at a phase boundary used to
-  // teleport the displayed hull several tiles while its motion sample was continuous.
+  // A docked ship keeps one apron policy through its whole route cycle —
+  // berth, voyages and anchorage. Changing the policy at a phase boundary
+  // discarded the carried shoreline correction and teleported the displayed
+  // hull several tiles while its motion sample was continuous (sailing ↔
+  // arriving before; voyage ↔ anchorage in W5.5). Anchorages sit on open
+  // water, so the looser policy does not move them.
   const berthBound = sample?.state === "moored"
     || sample?.state === "arriving"
     || sample?.state === "departing"
-    || (sample?.state === "sailing" && ship.dockVisits.length > 0);
+    || ((sample?.state === "sailing" || sample?.state === "risk-drift") && ship.dockVisits.length > 0);
   let display: ScreenPoint;
   if (!representative) {
     display = tile;
+  } else if (ship.dockVisits.length > 0) {
+    // W5.5: a docked representative's route is planned from its displayed
+    // berth (`gardenRepresentativeBerth`), so a live sample already carries
+    // it and no offset is added — or faded out under way, which swept a hull
+    // tens of tiles in seconds when the offset outweighed the voyage. With no
+    // sample, and in reduced motion's still tableau (`idle`), the hull lies
+    // exactly on the berth.
+    display = sample && sample.state !== "idle"
+      ? tile
+      : { x: ship.tile.x + displayOffset.x, y: ship.tile.y + displayOffset.y };
   } else {
+    // Dockless patrols keep their whole home offset: they never leave home water.
     const motionX = tile.x - ship.tile.x;
     const motionY = tile.y - ship.tile.y;
-    const motionDistance = Math.hypot(motionX, motionY);
-    // The route already bounds its patrol and voyage. A second display-only
-    // radius clipped long voyages, then jumped to the berth on arrival.
-    // The blue-noise offset belongs to the HOME berth only. Data motion runs
-    // from the ship's data tile to a dock mooring, and stations render at
-    // their data tile, so a moored hull must sit AT the mooring: carrying the
-    // offset along put it `mooring + offset` — up to a hundred tiles from the
-    // quay and, for rim coves, off the plate onto the paper. The offset fades
-    // over the voyage instead: whole inside the home patrol radius, gone by
-    // the time the hull reaches its nearest mooring, continuous in between so
-    // the sail out reads as one line rather than a jump.
-    const offsetWeight = gardenHomeOffsetWeight(ship, motionDistance);
+    const offsetWeight = gardenHomeOffsetWeight(ship, Math.hypot(motionX, motionY));
     display = {
       x: ship.tile.x + displayOffset.x * offsetWeight + motionX,
       y: ship.tile.y + displayOffset.y * offsetWeight + motionY,
@@ -464,12 +512,22 @@ export function gardenCameraViewHeight(viewportHeight: number, zoom: number): nu
   return viewportHeight / (TILE_HEIGHT * zoom);
 }
 
+/**
+ * Explore framing starts at this pose-physical detail zoom
+ * (`cameraDetailZoom`: the view's stand-off on the 1000 px reference
+ * viewport). The rest ShotSpec reads ≈ 1.48, so the resting frame and its
+ * hand-off rig are explore-level at every viewport; the whole-map pull-out
+ * (≤ 0.44) is overview.
+ */
+export const GARDEN_EXPLORE_DETAIL_ZOOM = 1.05;
+
+/** `detailZoom` is `cameraDetailZoom(camera, viewport)`, never the raw rig zoom. */
 export function gardenSemanticView(
-  zoom: number,
+  detailZoom: number,
   selectedDetailId: string | null,
 ): GardenSemanticView {
   if (selectedDetailId) return "analyze";
-  return zoom >= 1.05 ? "explore" : "overview";
+  return detailZoom >= GARDEN_EXPLORE_DETAIL_ZOOM ? "explore" : "overview";
 }
 
 export function gardenShipSelectionRadius(ship: ShipNode): number {
@@ -598,6 +656,29 @@ function gardenObservatoryBaseSlice(world: PharosVilleWorld): GardenObservatoryB
   baseSliceByWorld.set(world, slice);
   return slice;
 }
+
+/**
+ * The displayed home berth of a representative ship (its blue-noise fleet
+ * placement), or null for a transient. Motion planning anchors a docked
+ * representative's route here (W5.5), so its voyages start and end where the
+ * hull is drawn and no display offset has to be faded out under way.
+ */
+export function gardenRepresentativeBerth(world: PharosVilleWorld, shipId: string): ScreenPoint | null {
+  let berths = representativeBerthsByWorld.get(world);
+  if (!berths) {
+    berths = new Map();
+    for (const placement of gardenObservatoryBaseSlice(world).ships) {
+      berths.set(placement.ship.id, {
+        x: placement.ship.tile.x + placement.displayOffset.x,
+        y: placement.ship.tile.y + placement.displayOffset.y,
+      });
+    }
+    representativeBerthsByWorld.set(world, berths);
+  }
+  return berths.get(shipId) ?? null;
+}
+
+const representativeBerthsByWorld = new WeakMap<PharosVilleWorld, Map<string, ScreenPoint>>();
 
 function compareRepresentativeShips(left: ShipNode, right: ShipNode): number {
   return riskRank(right.riskZone) - riskRank(left.riskZone)

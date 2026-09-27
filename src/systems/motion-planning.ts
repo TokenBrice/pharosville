@@ -1,13 +1,9 @@
 import { clampMapTile, isWaterTileKind, nearestWaterTile } from "./world-layout";
 import { stableHash, stableUnit } from "./stable-random";
 import {
-  MOTION_CYCLE_MAX_SECONDS,
   MOTION_LEG_MAX_SECONDS,
   MOTION_LEG_MIN_SECONDS,
-  MOTION_PAIR_HORIZON_SECONDS,
-  MOTION_PAIR_SLOT_SECONDS,
   MOTION_REST_MIN_SECONDS,
-  MOTION_TRANSITION_SHARE,
   MOTION_UNDERWAY_MAX_TILES_PER_SECOND,
   MOTION_UNDERWAY_MIN_TILES_PER_SECOND,
   OPEN_WATER_PATROL_WAYPOINTS,
@@ -21,20 +17,43 @@ import {
 } from "./maker-squad";
 import { nearestRiskPlacementWaterTile } from "./risk-water-placement";
 import { SEAWALL_BARRIER_TILES } from "./seawall";
-import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipDockMotionStop, ShipMotionRoute, ShipMotionRouteStop, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
+import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipDockMotionStop, ShipInletCrossing, ShipMotionRoute, ShipMotionRouteStop, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
 import type { DockNode, PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode } from "./world-types";
 import { precomputeShipTempos } from "./ship-cycle-tempo";
 import { seaBodyAtTile } from "./sea-bodies";
+import {
+  GARDEN_ATTENTION_DEFAULT_SEED,
+  GARDEN_VOYAGE_DEPARTURE_START_SECONDS,
+  GARDEN_VOYAGE_HOMECOMING_START_SECONDS,
+  GARDEN_VOYAGE_LATTICE_OFFSET_AT_ZERO_SECONDS,
+  GARDEN_VOYAGE_PERIOD_SECONDS,
+  GARDEN_VOYAGE_WINDOW_SECONDS,
+  GARDEN_VOYAGE_WINDOW_SHARE,
+  gardenAttentionSlotsBetween,
+  gardenWindShiftsBetween,
+  type GardenScoreGift,
+} from "./garden-attention-scheduler";
+import { GARDEN_EMPTY_INLET, gardenInletDistance, isGardenInletCoreTile } from "./garden-inlet";
+import { gardenRepresentativeBerth } from "./garden-observatory-slice";
 
-/** Harbour master tide: one ten-minute cycle, in radians. */
-export function tidePhase(timeSeconds: number): number {
-  return positiveModulo(Number.isFinite(timeSeconds) ? timeSeconds : 0, 600) / 600 * Math.PI * 2;
+/** One slow berth sway at the quays: a ten-minute cycle, in radians. */
+const BERTH_SWAY_PERIOD_SECONDS = 600;
+
+/**
+ * A berth's slow sway phase: every quay shares one ten-minute cycle, lagged by
+ * at most 24 seconds per berth so neighbours never move in lockstep; raft mates
+ * share one berth. Scenery, not data, and never a tide (K45a).
+ */
+export function berthSwayPhase(timeSeconds: number, berth: { x: number; y: number }): number {
+  const time = (Number.isFinite(timeSeconds) ? timeSeconds : 0) - stableUnit(`tide.${berth.x}.${berth.y}`) * 24;
+  return positiveModulo(time, BERTH_SWAY_PERIOD_SECONDS) / BERTH_SWAY_PERIOD_SECONDS * Math.PI * 2;
 }
 
-/** A berth lags the same tide by at most 24 seconds; raft mates use one berth. */
-export function berthTidePhase(timeSeconds: number, berth: { x: number; y: number }): number {
-  return tidePhase(timeSeconds - stableUnit(`tide.${berth.x}.${berth.y}`) * 24);
-}
+/**
+ * Wind shifts are issued this far either side of the plan clock: past the
+ * 600 s rebuild interval, so a swing in progress at a rebuild continues.
+ */
+const WIND_SHIFT_HORIZON_SECONDS = 1_800;
 
 // World identity is stable across React re-renders for the same TanStack
 // payload, so memoizing the signature on the world reference turns ~1000
@@ -189,6 +208,12 @@ export function motionPlanSignature(world: PharosVilleWorld): string {
     for (const visit of [...ship.dockVisits].sort((a, b) => a.dockId.localeCompare(b.dockId))) {
       dockParts.push(`${visit.dockId}:${visit.chainId}:${visit.weight}:${visit.mooringTile.x},${visit.mooringTile.y}`);
     }
+    // The representative berth the route anchors at (W5.5): it depends on
+    // the whole fleet's selection and blue-noise placement (supply, 7d/24h
+    // change, hull, scale, zone), so a world with the same routing fields but
+    // different placement inputs — a cached world with schema drift, then the
+    // fresh one — must not reuse the plan. Whole tiles, as the route rounds.
+    const berth = ship.dockVisits.length > 0 ? gardenRepresentativeBerth(world, ship.id) : null;
     shipParts.push([
       ship.id,
       ship.marketCapUsd,
@@ -198,8 +223,12 @@ export function motionPlanSignature(world: PharosVilleWorld): string {
       // is derived from this field.
       (ship as ShipNode & { flowIntensity?: number | null }).flowIntensity ?? "",
       `${ship.riskTile.x},${ship.riskTile.y}`,
+      berth ? `${Math.round(berth.x)},${Math.round(berth.y)}` : "",
       ship.riskPlacement,
       ship.riskZone,
+      ship.riskWaterLabel,
+      ship.visual.sizeTier,
+      ship.placementEvidence.stale ? 1 : 0,
       ship.squadId ?? "",
       ship.squadRole ?? "",
       ship.homeDockChainId ?? "",
@@ -217,7 +246,17 @@ export function motionPlanSignature(world: PharosVilleWorld): string {
   return signature;
 }
 
-export function buildBaseMotionPlan(world: PharosVilleWorld, timeSeconds = 0): PharosVilleBaseMotionPlan {
+/**
+ * `attention` feeds the W1.6 scheduler: its seed, and the score gifts that
+ * claim attention slots (W5 passes `planGardenScoreGifts` output; until then
+ * every slot is a crossing or wind-shift slot). The same seed's wind shifts
+ * ride on every route, so the whole anchorage lies to one settled bearing.
+ */
+export function buildBaseMotionPlan(
+  world: PharosVilleWorld,
+  timeSeconds = 0,
+  attention: { seed?: string; gifts?: readonly GardenScoreGift[] } = {},
+): PharosVilleBaseMotionPlan {
   const bucket = Math.floor(timeSeconds / 600);
   const waterRouteCache = getMapPathCache(world.map, world.ships.length);
 
@@ -241,7 +280,7 @@ export function buildBaseMotionPlan(world: PharosVilleWorld, timeSeconds = 0): P
     ));
     if (!flagship) continue;
     flagshipShipBySquad.set(squad.id, flagship);
-    flagshipRouteBySquad.set(squad.id, buildShipMotionRoute(flagship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(flagship.id) ?? 1));
+    flagshipRouteBySquad.set(squad.id, buildShipMotionRoute(flagship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(flagship.id) ?? 1, gardenRepresentativeBerth(world, flagship.id)));
   }
 
   const shipRoutes = new Map<string, ShipMotionRoute>();
@@ -261,12 +300,246 @@ export function buildBaseMotionPlan(world: PharosVilleWorld, timeSeconds = 0): P
         continue;
       }
     }
-    shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(ship.id) ?? 1));
+    shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(ship.id) ?? 1, gardenRepresentativeBerth(world, ship.id)));
   }
+
+  const seed = attention.seed ?? GARDEN_ATTENTION_DEFAULT_SEED;
+  assignInletCrossingTokens({
+    bucket,
+    gifts: attention.gifts ?? [],
+    seed,
+    shipRoutes,
+    timeSeconds,
+    waterRouteCache,
+    world,
+  });
+  const windShifts = gardenWindShiftsBetween(
+    seed,
+    timeSeconds - WIND_SHIFT_HORIZON_SECONDS,
+    timeSeconds + WIND_SHIFT_HORIZON_SECONDS,
+  );
+  for (const route of shipRoutes.values()) route.windShifts = windShifts;
 
   return {
     shipRoutes,
   };
+}
+
+/**
+ * W1.6 ceremony subjects: the only hulls that may hold an inlet crossing
+ * token. The hero band's titan and heritage ("unique") tiers with a harbour to
+ * come home to; squads sail in formation and never cross alone.
+ */
+const INLET_CROSSING_SUBJECT_TIERS: Partial<Record<ShipNode["visual"]["sizeTier"], true>> = { titan: true, unique: true };
+/**
+ * Tokens are issued for attention slots within this span either side of the
+ * plan clock, which covers any voyage in progress at a 600 s plan rebuild
+ * and every voyage starting before the next one. Assignment is a pure
+ * function of the slot, so successive plans agree on every holder.
+ */
+const INLET_CROSSING_HORIZON_SECONDS = 1_800;
+
+/**
+ * Hands each crossing slot's token to the most significant ceremony subject
+ * whose arrival voyage starts inside the slot's admit window, finishes inside
+ * its hold, and whose straight route home runs through the inlet core within
+ * the voyage's cadence envelope. Every other voyage keeps its inlet-honouring
+ * path; a slot with no such arrival passes quietly.
+ */
+function assignInletCrossingTokens(input: {
+  bucket: number;
+  gifts: readonly GardenScoreGift[];
+  seed: string;
+  shipRoutes: Map<string, ShipMotionRoute>;
+  timeSeconds: number;
+  waterRouteCache: ShipWaterRouteCache;
+  world: PharosVilleWorld;
+}): void {
+  const subjects = input.world.ships
+    .filter((ship) => !ship.squadId && ship.dockVisits.length > 0 && INLET_CROSSING_SUBJECT_TIERS[ship.visual.sizeTier])
+    .toSorted((left, right) => right.marketCapUsd - left.marketCapUsd || left.id.localeCompare(right.id));
+  if (subjects.length === 0) return;
+  const slots = gardenAttentionSlotsBetween(
+    input.seed,
+    input.timeSeconds - INLET_CROSSING_HORIZON_SECONDS,
+    input.timeSeconds + INLET_CROSSING_HORIZON_SECONDS,
+    input.gifts,
+  ).filter((slot) => slot.kind === "crossing");
+  const crossingPathByKey = new Map<string, ShipWaterPath | null>();
+  const crossingsByShipId = new Map<string, ShipInletCrossing[]>();
+  for (const slot of slots) {
+    for (const ship of subjects) {
+      const route = input.shipRoutes.get(ship.id);
+      if (!route || route.dockStopSchedule.length === 0) continue;
+      const voyageSeconds = route.voyageDurationSeconds ?? route.legDurationSeconds;
+      // Cycle order (route-cycle.ts): dock dwell, departure, risk rest, arrival.
+      const arrivalOffsetSeconds = route.restDurationSeconds + voyageSeconds
+        + (route.riskRestDurationSeconds ?? route.restDurationSeconds);
+      const cycleIndex = Math.ceil((slot.startSeconds + route.phaseSeconds - arrivalOffsetSeconds) / route.cycleSeconds);
+      const startSeconds = cycleIndex * route.cycleSeconds - route.phaseSeconds + arrivalOffsetSeconds;
+      if (startSeconds >= slot.admitEndSeconds || startSeconds + voyageSeconds > slot.endSeconds) continue;
+      const dockId = route.dockStopSchedule[positiveModulo(cycleIndex + 1, route.dockStopSchedule.length)];
+      const stop = route.dockStops.find((entry) => entry.dockId === dockId);
+      if (!stop) continue;
+      const key = `${ship.id}:${stop.dockId}`;
+      let path = crossingPathByKey.get(key);
+      if (path === undefined) {
+        const candidate = buildCachedShipWaterRoute({
+          from: route.riskTile,
+          to: stop.mooringTile,
+          map: input.world.map,
+          zone: ship.riskZone,
+          shipId: ship.id,
+          bucket: input.bucket,
+          preferDirect: true,
+          inletCrossing: true,
+        }, input.waterRouteCache);
+        const fitsVoyage = lengthInsideCadenceEnvelope(
+          candidate.totalLength,
+          MOTION_UNDERWAY_MIN_TILES_PER_SECOND * voyageSeconds,
+          MOTION_UNDERWAY_MAX_TILES_PER_SECOND * voyageSeconds,
+        );
+        path = fitsVoyage && candidate.points.some((point) => isGardenInletCoreTile(point.x, point.y)) ? candidate : null;
+        crossingPathByKey.set(key, path);
+      }
+      if (!path) continue;
+      const crossings = crossingsByShipId.get(ship.id) ?? [];
+      crossings.push({
+        cycleIndex,
+        dockId: stop.dockId,
+        endSeconds: startSeconds + voyageSeconds,
+        path,
+        slotIndex: slot.index,
+        startSeconds,
+      });
+      crossingsByShipId.set(ship.id, crossings);
+      break;
+    }
+  }
+  for (const [shipId, inletCrossings] of crossingsByShipId) {
+    input.shipRoutes.set(shipId, { ...input.shipRoutes.get(shipId)!, inletCrossings });
+  }
+  // A forced crossing (the director's `crossing` ritual, W5.5) outlives plan
+  // rebuilds until its subject is home by its own route.
+  for (const [shipId, forced] of forcedInletCrossings) {
+    const route = input.shipRoutes.get(shipId);
+    // A world rebuild that moved the anchorage invalidates the voyage.
+    const sameAnchorage = route && forced.path.from.x === route.riskTile.x && forced.path.from.y === route.riskTile.y;
+    if (!route || !sameAnchorage || forced.holdUntilSeconds <= input.timeSeconds - INLET_CROSSING_HORIZON_SECONDS) {
+      forcedInletCrossings.delete(shipId);
+      continue;
+    }
+    input.shipRoutes.set(shipId, { ...route, inletCrossings: [...(route.inletCrossings ?? []), forced] });
+  }
+}
+
+/** Forced crossings by subject id; module state so plan rebuilds keep them. */
+const forcedInletCrossings = new Map<string, ShipInletCrossing & { holdUntilSeconds: number }>();
+
+/** Test seam: forget every forced crossing. */
+export function __resetForcedInletCrossings(): void {
+  forcedInletCrossings.clear();
+}
+
+/**
+ * W5.5: start a crossing now (the director's forced `crossing` ritual). A
+ * ceremony subject (titan or heritage) lying at its anchorage — settled, and
+ * with time for the whole voyage before its own homecoming would have ended,
+ * the soonest home of them — sails
+ * through the inlet at once and then lies at its berth until its route
+ * brings it there anyway, so nothing jumps. Mutates `plan` in place (the
+ * render loop reads it every frame). Returns the token, or null when no
+ * subject can cross now.
+ */
+export function forceInletCrossing(
+  plan: PharosVilleMotionPlan,
+  world: PharosVilleWorld,
+  timeSeconds: number,
+): InletCrossingToken | null {
+  if (!Number.isFinite(timeSeconds)) return null;
+  const waterRouteCache = getMapPathCache(world.map, world.ships.length);
+  const subjects = world.ships
+    .filter((ship) => !ship.squadId && ship.dockVisits.length > 0 && INLET_CROSSING_SUBJECT_TIERS[ship.visual.sizeTier])
+    .toSorted((left, right) => right.marketCapUsd - left.marketCapUsd || left.id.localeCompare(right.id));
+  const routes = plan.shipRoutes as Map<string, ShipMotionRoute>;
+  // Of the subjects that can cross now, the one home soonest: a forced
+  // crossing is watched from the rest seat, so it should not keep the viewer
+  // waiting minutes for its landfall. Ties go to the larger supply.
+  let best: { route: ShipMotionRoute; crossing: ShipInletCrossing & { holdUntilSeconds: number } } | null = null;
+  for (const ship of subjects) {
+    const route = routes.get(ship.id);
+    if (!route || route.dockStopSchedule.length === 0 || forcedInletCrossings.has(ship.id)) continue;
+    const voyageSeconds = route.voyageDurationSeconds ?? route.legDurationSeconds;
+    const riskRestSeconds = route.riskRestDurationSeconds ?? route.restDurationSeconds;
+    const cyclePosition = timeSeconds + route.phaseSeconds;
+    const cycleIndex = Math.floor(cyclePosition / route.cycleSeconds);
+    const intoCycle = cyclePosition - cycleIndex * route.cycleSeconds;
+    const riskRestStart = route.restDurationSeconds + voyageSeconds;
+    // Settled on the rode (past the round-up) and not yet weighing anchor.
+    if (intoCycle < riskRestStart + 40 || intoCycle >= riskRestStart + riskRestSeconds - 40) continue;
+    const dockId = route.dockStopSchedule[positiveModulo(cycleIndex + 1, route.dockStopSchedule.length)];
+    const stop = route.dockStops.find((entry) => entry.dockId === dockId);
+    if (!stop) continue;
+    const path = buildCachedShipWaterRoute({
+      from: route.riskTile,
+      to: stop.mooringTile,
+      map: world.map,
+      zone: ship.riskZone,
+      shipId: ship.id,
+      bucket: route.routeEpoch ?? 0,
+      preferDirect: true,
+      inletCrossing: true,
+    }, waterRouteCache);
+    if (!path.points.some((point) => isGardenInletCoreTile(point.x, point.y))) continue;
+    const crossingSeconds = clamp(
+      path.totalLength / route.underwaySpeedTilesPerSecond,
+      path.totalLength / MOTION_UNDERWAY_MAX_TILES_PER_SECOND,
+      path.totalLength / MOTION_UNDERWAY_MIN_TILES_PER_SECOND,
+    );
+    const naturalHomecomingEnd = timeSeconds - intoCycle + riskRestStart + riskRestSeconds + voyageSeconds;
+    if (timeSeconds + crossingSeconds > naturalHomecomingEnd) continue;
+    if (best && best.crossing.endSeconds <= timeSeconds + crossingSeconds) continue;
+    best = {
+      route,
+      crossing: {
+        cycleIndex,
+        dockId: stop.dockId,
+        endSeconds: timeSeconds + crossingSeconds,
+        holdUntilSeconds: naturalHomecomingEnd,
+        path,
+        slotIndex: -1,
+        startSeconds: timeSeconds,
+      },
+    };
+  }
+  if (!best) return null;
+  const { route, crossing } = best;
+  forcedInletCrossings.set(route.shipId, crossing);
+  routes.set(route.shipId, { ...route, inletCrossings: [...(route.inletCrossings ?? []), crossing] });
+  return { ...crossing, shipId: route.shipId };
+}
+
+export interface InletCrossingToken extends ShipInletCrossing {
+  shipId: string;
+}
+
+/**
+ * The crossing tokens a plan issued whose voyage overlaps `[from, to)` on the
+ * motion clock, in time order. The director (W5) names the holder as the
+ * arrival ceremony's subject; no other hull crosses the inlet meanwhile.
+ */
+export function inletCrossingTokensBetween(
+  plan: PharosVilleMotionPlan,
+  fromSeconds: number,
+  toSeconds: number,
+): InletCrossingToken[] {
+  const tokens: InletCrossingToken[] = [];
+  for (const route of plan.shipRoutes.values()) {
+    for (const crossing of route.inletCrossings ?? []) {
+      if (crossing.endSeconds > fromSeconds && crossing.startSeconds < toSeconds) tokens.push({ ...crossing, shipId: route.shipId });
+    }
+  }
+  return tokens.toSorted((left, right) => left.startSeconds - right.startSeconds);
 }
 
 export function buildMotionPlan(
@@ -284,8 +557,13 @@ function buildShipMotionRoute(
   waterRouteCache: ShipWaterRouteCache = new Map(),
   bucket = 0,
   speedScalar = 1,
+  anchorage: { x: number; y: number } | null = null,
 ): ShipMotionRoute {
-  const riskTile = nearestWaterTile(ship.riskTile);
+  // W5.5: a docked representative anchors at the berth it is drawn at, so
+  // its voyages start and end there; others anchor at their data tile.
+  const riskTile = nearestWaterTile(anchorage && ship.dockVisits.length > 0
+    ? { x: Math.round(anchorage.x), y: Math.round(anchorage.y) }
+    : ship.riskTile);
   const dockStops: ShipDockMotionStop[] = ship.dockVisits.map((visit) => ({
     id: visit.dockId,
     kind: "dock" as const,
@@ -322,19 +600,12 @@ function buildShipMotionRoute(
   const legDurationSeconds = cadenceGeometry.legDurationSeconds;
   const voyageDurationSeconds = cadenceGeometry.voyageDurationSeconds;
   const voyageLegCount = cadenceGeometry.voyageLegCount;
-  // A long voyage may need a second logical leg. Carry its extension into the
-  // dock rest to preserve the identity cadence spread, bounded by the existing
-  // 22-minute cycle contract; also keep the opposite rest at its 240 s floor.
-  const identityRestDurationSeconds = shipRestDurationSeconds(cadenceUnit, speedScalar);
-  const restDurationSeconds = Math.max(
-    Math.min(
-      identityRestDurationSeconds + (voyageDurationSeconds - identityLegDurationSeconds),
-      MOTION_CYCLE_MAX_SECONDS / 3,
-    ),
-    voyageDurationSeconds + MOTION_REST_MIN_SECONDS / 2,
-  );
-  const riskRestDurationSeconds = 2 * restDurationSeconds - 2 * voyageDurationSeconds;
-  const cycleSeconds = restDurationSeconds + riskRestDurationSeconds + 2 * voyageDurationSeconds;
+  // W4.F11: rests are fitted to the scheduler's voyage windows, so the
+  // voyage length decides how many lattice steps the anchorage rest spans.
+  const windowedCadence = windowedShipCadence(cadenceIdentity, voyageDurationSeconds);
+  const restDurationSeconds = windowedCadence.dockRestSeconds;
+  const riskRestDurationSeconds = windowedCadence.riskRestSeconds;
+  const cycleSeconds = windowedCadence.cycleSeconds;
   const underwaySpeedTilesPerSecond = shipUnderwaySpeed(ship.riskZone, speedScalar);
   const waterPaths = new Map<string, ShipWaterPath>();
   const openWaterPatrol = dockStops.length === 0
@@ -409,14 +680,7 @@ function buildShipMotionRoute(
     restDurationSeconds,
     riskRestDurationSeconds,
     underwaySpeedTilesPerSecond,
-    phaseSeconds: pairedShipPhaseSeconds({
-      cadenceIdentity,
-      cycleSeconds,
-      voyageDurationSeconds,
-      restDurationSeconds,
-      riskRestDurationSeconds,
-      zone: ship.riskZone,
-    }),
+    phaseSeconds: windowedCadence.phaseSeconds,
     riskTile,
     dockStops,
     riskStop,
@@ -710,14 +974,6 @@ function shipLegDurationSeconds(identityUnit: number, speedScalar: number): numb
   return lowerBound + identityUnit * 75;
 }
 
-function shipRestDurationSeconds(identityUnit: number, speedScalar: number): number {
-  // The independent 155-second rest band shifts with the same pace without a
-  // clamp plateau: 265..420 s at measured-zero flow and 250..405 s at max.
-  const pace = clamp(speedScalar, 0.85, 1.15);
-  const lowerBound = 257.5 + (1 - pace) * 50;
-  return lowerBound + identityUnit * 155;
-}
-
 function cadenceLegDurationForGeometry(input: {
   ship: ShipNode;
   riskTile: { x: number; y: number };
@@ -755,37 +1011,50 @@ function cadenceLegDurationForGeometry(input: {
   return { legDurationSeconds, voyageDurationSeconds, voyageLegCount };
 }
 
-function pairedShipPhaseSeconds(input: {
-  cadenceIdentity: string;
+/**
+ * W4.F11 windowed cadence. The cycle opens with the dock (or first patrol)
+ * rest, then the departure voyage, the anchorage rest and the homecoming
+ * voyage. Identity chooses where in the voyage lattice the ship casts off and
+ * where it lands: most identities (`GARDEN_VOYAGE_WINDOW_SHARE`) inside the
+ * departure and homecoming windows, the rest anywhere else in the period, so
+ * the harbour gathers its voyages without a regatta and is never frozen.
+ * Each rest takes the smallest whole number of lattice periods that keeps it
+ * ≥ 600 s — so it stays under 1500 s — and the cycle is then a whole number
+ * of periods: every later cycle lands at the same lattice offsets. Nothing
+ * reads roster rank, so adding a ship never re-deals another ship's clock.
+ */
+function windowedShipCadence(cadenceIdentity: string, voyageDurationSeconds: number): {
   cycleSeconds: number;
-  voyageDurationSeconds: number;
-  restDurationSeconds: number;
-  riskRestDurationSeconds: number;
-  zone: ShipNode["riskZone"];
-}): number {
-  // Each identity claims one side of a stable 10 s assignment slot; paired
-  // arrival/departure boundaries are assessed in the harbour's 15 s windows.
-  // Both sides breathe against the same immutable table without consulting
-  // roster rank, so adding a ship cannot shift another ship's clock.
-  const slotCount = MOTION_PAIR_HORIZON_SECONDS / MOTION_PAIR_SLOT_SECONDS;
-  const pairKey = `${input.zone}:${stableHash(input.cadenceIdentity)}`;
-  // Salt 198 covers 32/40 paired 15 s windows on the dense fixture after the
-  // 2026-09-07 sea re-cut moved the east-shelf routes (salt 148 fell to
-  // 31/40); 148 covered 33/40 after the 0.8 visual floor lengthened hulls
-  // (2026-09-05), and 114 covered 32/40 on the pre-floor geometry. Re-scan
-  // salts 100-260 after any water-body change. The salt is fixed globally,
-  // so roster changes never re-deal surviving identities. Duty-cycle shares
-  // depend on leg/rest durations and are checked over complete cycles.
-  const slot = stableHash(`${pairKey}.slot.198`) % slotCount;
-  const anchorsArrival = (stableHash(`${pairKey}.side.1`) & 1) === 1;
-  const departureBoundary = input.restDurationSeconds;
-  const arrivalBoundary = input.restDurationSeconds
-    + input.voyageDurationSeconds
-    + input.riskRestDurationSeconds
-    + input.voyageDurationSeconds * (1 - MOTION_TRANSITION_SHARE);
-  const boundary = anchorsArrival ? arrivalBoundary : departureBoundary;
-  const slotTime = (slot + 0.5) * MOTION_PAIR_SLOT_SECONDS;
-  return positiveModulo(boundary - slotTime, input.cycleSeconds);
+  dockRestSeconds: number;
+  phaseSeconds: number;
+  riskRestSeconds: number;
+} {
+  const period = GARDEN_VOYAGE_PERIOD_SECONDS;
+  const window = GARDEN_VOYAGE_WINDOW_SECONDS;
+  const latticeOffset = (salt: string, windowStart: number): number => {
+    const unit = stableUnit(`${cadenceIdentity}.${salt}-offset`);
+    return stableUnit(`${cadenceIdentity}.${salt}-windowed`) < GARDEN_VOYAGE_WINDOW_SHARE
+      ? windowStart + unit * window
+      : windowStart + window + unit * (period - window);
+  };
+  const departOffset = latticeOffset("departure", GARDEN_VOYAGE_DEPARTURE_START_SECONDS);
+  const homeOffset = latticeOffset("homecoming", GARDEN_VOYAGE_HOMECOMING_START_SECONDS);
+  let riskRestSeconds = positiveModulo(homeOffset - departOffset - 2 * voyageDurationSeconds, period);
+  while (riskRestSeconds < MOTION_REST_MIN_SECONDS) riskRestSeconds += period;
+  let dockRestSeconds = positiveModulo(departOffset - homeOffset, period);
+  while (dockRestSeconds < MOTION_REST_MIN_SECONDS) dockRestSeconds += period;
+  const cycleSeconds = dockRestSeconds + riskRestSeconds + 2 * voyageDurationSeconds;
+  const laps = Math.max(1, Math.round(cycleSeconds / period));
+  const lap = stableHash(`${cadenceIdentity}.voyage-lap`) % laps;
+  // Motion time of one cast-off: its lattice offset shifted onto the motion
+  // clock, on this identity's lap.
+  const departureTime = departOffset - GARDEN_VOYAGE_LATTICE_OFFSET_AT_ZERO_SECONDS + lap * period;
+  return {
+    cycleSeconds,
+    dockRestSeconds,
+    phaseSeconds: positiveModulo(dockRestSeconds - departureTime, cycleSeconds),
+    riskRestSeconds,
+  };
 }
 
 function shipUnderwaySpeed(zone: ShipNode["riskZone"], speedScalar: number): number {
@@ -897,10 +1166,13 @@ function buildCadenceWaterRoute(input: {
     return truncated;
   }
 
+  // W1.6: a lengthening mark inside the ma would pull the leg into the approach.
+  const outsideInlet = (tile: { x: number; y: number }) => gardenInletDistance(tile.x, tile.y) > GARDEN_EMPTY_INLET.halfWidth;
   for (const authored of OPEN_WATER_PATROL_WAYPOINTS[input.zone]) {
     const waypoint = nearestMapWaterTile(authored, input.map);
     if ((waypoint.x === input.from.x && waypoint.y === input.from.y)
-      || (waypoint.x === input.to.x && waypoint.y === input.to.y)) continue;
+      || (waypoint.x === input.to.x && waypoint.y === input.to.y)
+      || !outsideInlet(waypoint)) continue;
     const first = buildCachedShipWaterRoute({ ...input, to: waypoint }, cache);
     const second = buildCachedShipWaterRoute({ ...input, from: waypoint }, cache);
     if (first.totalLength <= 0 || second.totalLength <= 0) continue;
@@ -915,7 +1187,8 @@ function buildCadenceWaterRoute(input: {
   }
   const candidates = input.map.tiles
     .filter((tile) => isWaterTileKind(tile.terrain ?? tile.kind)
-      && seaBodyAtTile(tile.x, tile.y) === input.zone)
+      && seaBodyAtTile(tile.x, tile.y) === input.zone
+      && outsideInlet(tile))
     .map((tile) => ({
       tile,
       score: Math.abs(

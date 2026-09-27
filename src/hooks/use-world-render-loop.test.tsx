@@ -13,14 +13,15 @@ import {
   RENDER_SCHEDULER_IDLE_AFTER_MS,
   RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS,
 } from "../renderer/render-scheduler";
-import { defaultCamera } from "../systems/camera";
+import { defaultCamera, withoutRest } from "../systems/camera";
 import { initialAdaptiveDprState, resolveRenderSurfaceBudget } from "../systems/render-surface-budget";
 import { buildBaseMotionPlan, buildMotionPlan, type ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
-import type { IsoCamera } from "../systems/projection";
+import { CAMERA_BREATH_IDENTITY, type IsoCamera } from "../systems/projection";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
 import {
+  stepCameraBreath,
   useWorldRenderLoop,
   type UseWorldRenderLoopResult,
   type WorldCameraStepResult,
@@ -880,7 +881,8 @@ describe("useWorldRenderLoop", () => {
   });
 
   it("steps camera after ship samples and draws with the updated camera", async () => {
-    const nextCamera = { ...camera, offsetX: camera.offsetX + 48, offsetY: camera.offsetY - 12 };
+    // A panned rig: at rest the shown view is the ShotSpec whatever the offsets.
+    const nextCamera = { ...withoutRest(camera), offsetX: camera.offsetX + 48, offsetY: camera.offsetY - 12 };
     let internals: {
       hitTargetsRef: { current: readonly HitTarget[] };
       shipMotionSamplesRef: { current: ReadonlyMap<string, ShipMotionSample> };
@@ -1065,17 +1067,189 @@ describe("useWorldRenderLoop", () => {
     expect(frame.timeSeconds).toBe(0);
   });
 
-  it("publishes camera loop proof fields", async () => {
+  it("draws the ambient garden at 60 Hz on a 120 Hz display without changing motion speed, and at display rate under a hand", async () => {
+    let fakeNow = 0;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => fakeNow);
+    const fireFrame = (time: number) => {
+      fakeNow = time;
+      fireLatestRaf(time);
+    };
+    const vsync = 1000 / 120;
+
+    try {
+      await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={() => {}} reducedMotion={false} />);
+      // Past the 500 ms interaction hold: every second 120 Hz vsync draws.
+      const start = 600;
+      fireFrame(start);
+      const drawsAtStart = renderThreeWorldMock.mock.calls.length;
+      const timeAtStart = lastDrawnFrame().timeSeconds;
+      for (let tick = 1; tick <= 8; tick += 1) fireFrame(start + tick * vsync);
+      expect(renderThreeWorldMock.mock.calls.length).toBe(drawsAtStart + 4);
+      // One dt clock: the world advanced by the wall time that passed.
+      expect(lastDrawnFrame().timeSeconds - timeAtStart).toBeCloseTo((8 * vsync) / 1000, 6);
+
+      // A hand on the world restores every vsync.
+      const touchedAt = start + 8 * vsync + 1;
+      fakeNow = touchedAt;
+      act(() => {
+        window.dispatchEvent(new Event("pointermove"));
+      });
+      const drawsAtTouch = renderThreeWorldMock.mock.calls.length;
+      for (let tick = 1; tick <= 4; tick += 1) fireFrame(touchedAt + tick * vsync);
+      expect(renderThreeWorldMock.mock.calls.length).toBe(drawsAtTouch + 4);
+
+      // Half a second after it lets go, the cadence steps back down.
+      const calm = touchedAt + 4 * vsync + 520;
+      fireFrame(calm);
+      const drawsAtCalm = renderThreeWorldMock.mock.calls.length;
+      fireFrame(calm + vsync);
+      expect(renderThreeWorldMock.mock.calls.length).toBe(drawsAtCalm);
+      fireFrame(calm + 2 * vsync);
+      expect(renderThreeWorldMock.mock.calls.length).toBe(drawsAtCalm + 1);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("breathes only after 45 s untouched, eases out under a hand, and hit-tests the breathed pose", async () => {
+    let fakeNow = 0;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => fakeNow);
+    const fireFrame = (time: number) => {
+      fakeNow = time;
+      fireLatestRaf(time);
+    };
+    const breathWeight = () => (window as typeof window & {
+      __pharosVilleDebug?: { cameraBreathWeight?: number };
+    }).__pharosVilleDebug?.cameraBreathWeight ?? -1;
+    let internals: { hitTargetsRef: { current: readonly HitTarget[] } } | null = null;
+
+    try {
+      await renderWithReadyRenderer(
+        <Harness
+          hoveredDetailId={null}
+          onInternals={(value) => { internals = value; }}
+          onResult={() => {}}
+          reducedMotion={false}
+        />,
+      );
+      fireFrame(16);
+      fireFrame(44_000);
+      expect(lastDrawnFrame().camera.breath ?? CAMERA_BREATH_IDENTITY).toEqual(CAMERA_BREATH_IDENTITY);
+      expect(breathWeight()).toBe(0);
+
+      // 45 s of solitude, then the 12 s ease-in (a ≥ 1 s test-clock step
+      // carries its whole delta into the weight).
+      fireFrame(70_000);
+      expect(breathWeight()).toBe(1);
+      const breath = lastDrawnFrame().camera.breath!;
+      expect(breath).not.toEqual(CAMERA_BREATH_IDENTITY);
+      expect(Math.abs(breath.yaw)).toBeLessThanOrEqual(0.8 * Math.PI / 180);
+      expect(Math.abs(breath.pitch)).toBeLessThanOrEqual(0.6 * Math.PI / 180);
+      expect(Math.abs(breath.dolly - 1)).toBeLessThanOrEqual(0.012);
+
+      // Hit targets were built on the pose the renderer drew.
+      const lighthouseId = world.lighthouse.detailId;
+      const drawnTarget = internals!.hitTargetsRef.current.find((target) => target.detailId === lighthouseId)!;
+      const breathed = createGardenObservatoryHitTargetSnapshot({
+        camera: { ...camera, breath },
+        viewport: { height: canvasSize.y, width: canvasSize.x },
+        world,
+      }).targetsByDetailId.get(lighthouseId)!;
+      expect(drawnTarget.anchor).toEqual(breathed.anchor);
+      const unbreathed = createGardenObservatoryHitTargetSnapshot({
+        camera,
+        viewport: { height: canvasSize.y, width: canvasSize.x },
+        world,
+      }).targetsByDetailId.get(lighthouseId)!;
+      expect(unbreathed.anchor).not.toEqual(breathed.anchor);
+
+      // A pointer move glides the breath out instead of snapping it to zero.
+      fakeNow = 70_004;
+      act(() => {
+        window.dispatchEvent(new Event("pointermove"));
+      });
+      fireFrame(70_020);
+      expect(breathWeight()).toBeGreaterThan(0.9);
+      expect(breathWeight()).toBeLessThan(1);
+      fireFrame(71_600);
+      expect(breathWeight()).toBeLessThan(0.05);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("publishes camera loop proof fields and the preview instrument contract", async () => {
     await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={() => {}} reducedMotion={false} />);
 
     const debug = (window as typeof window & {
       __pharosVilleDebug?: {
         activeCameraLoopCount?: number;
+        anchors?: {
+          inletPolygon: { x: number; y: number; z: number }[];
+          towerCrown: { x: number; y: number; z: number };
+          towerFaceLeft: { x: number; y: number; z: number };
+          towerFaceRight: { x: number; y: number; z: number };
+          towerFoot: { x: number; y: number; z: number };
+        };
         cameraFrameSource?: string;
+        directorLog?: unknown[];
+        motionStats?: { meanAbsTurnDegPerSec: number; sampledAtMs: number; underwayShips: number; visibleShips: number };
+        project?: (points: { x: number; y: number; z: number }[]) => { x: number; y: number; visible: boolean }[];
       };
     }).__pharosVilleDebug;
 
     expect(debug?.activeCameraLoopCount).toBe(0);
     expect(debug?.cameraFrameSource).toBe("world-render-loop");
+    expect(Array.isArray(debug?.directorLog)).toBe(true);
+    expect(debug?.motionStats).toEqual(expect.objectContaining({
+      meanAbsTurnDegPerSec: expect.any(Number),
+      underwayShips: expect.any(Number),
+      visibleShips: expect.any(Number),
+    }));
+    const anchors = debug!.anchors!;
+    expect(anchors.towerCrown.y).toBeGreaterThan(anchors.towerFoot.y);
+    expect(anchors.inletPolygon.length).toBeGreaterThan(8);
+    const [foot, crown, left, right] = debug!.project!([anchors.towerFoot, anchors.towerCrown, anchors.towerFaceLeft, anchors.towerFaceRight]);
+    // The crown projects above the foot and the left face left of the right one.
+    expect(crown!.y).toBeLessThan(foot!.y);
+    expect(left!.x).toBeLessThan(right!.x);
+  });
+});
+
+describe("stepCameraBreath", () => {
+  type BreathState = { breath: { dolly: number; pitch: number; yaw: number }; rise: number; weight: number };
+  const state = (): BreathState => ({ breath: { dolly: 1, pitch: 0, yaw: 0 }, rise: 0, weight: 0 });
+  const run = (subject: BreathState, seconds: number, idle: boolean) => {
+    let breath = stepCameraBreath(subject, { dtSeconds: 0, forcedStill: false, idle, phaseSeconds: 0 });
+    for (let step = 0; step < Math.round(seconds / 0.1); step += 1) {
+      breath = stepCameraBreath(subject, { dtSeconds: 0.1, forcedStill: false, idle, phaseSeconds: 30 });
+    }
+    return breath;
+  };
+
+  it("eases in over a 12 s smootherstep, never overshooting the reduced amplitude", () => {
+    const subject = state();
+    run(subject, 6, true);
+    expect(subject.weight).toBeCloseTo(0.5, 2);
+    const breath = run(subject, 6, true);
+    expect(subject.weight).toBeCloseTo(1, 6);
+    expect(Math.abs(breath.yaw)).toBeLessThanOrEqual(0.8 * Math.PI / 180);
+  });
+
+  it("glides out with τ 0.5 s, settling within about 1.5 s", () => {
+    const subject = state();
+    run(subject, 12, true);
+    run(subject, 0.5, false);
+    expect(subject.weight).toBeCloseTo(Math.exp(-1), 2);
+    run(subject, 1, false);
+    expect(subject.weight).toBeLessThan(0.05);
+  });
+
+  it("holds the identity pose for reduced motion and the still camera", () => {
+    const subject = state();
+    run(subject, 12, true);
+    expect(stepCameraBreath(subject, { dtSeconds: 0.1, forcedStill: true, idle: true, phaseSeconds: 30 }))
+      .toBe(CAMERA_BREATH_IDENTITY);
+    expect(subject.weight).toBe(0);
   });
 });

@@ -1,6 +1,6 @@
 # PharosVille Agent Onboarding
 
-Last updated: 2026-07-24
+Last updated: 2026-09-27
 
 Use this after `AGENTS.md` to route the current task. Keep startup small:
 read only the docs needed for the change in front of you.
@@ -42,7 +42,10 @@ read only the docs needed for the change in front of you.
 | --- | --- | --- |
 | App shell, API proxy, metadata, viewport gate | `docs/pharosville/CONTRACTS.md`, `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville-page.md` | `npm run validate:changed` |
 | World model, data semantics, layout, motion | `docs/pharosville/CONTRACTS.md`, `src/systems/README.md` | `npm test -- src/systems` |
-| Art direction, composition, light hierarchy, visual restraint | `docs/pharosville/VISUAL_INVARIANTS.md` | operator review of the picture rules, then real-GPU `npm run preview` evidence |
+| Art direction, composition, light hierarchy, visual restraint | `docs/pharosville/VISUAL_INVARIANTS.md`, the active Hour-Print plan `agents/2026-09-26-opus-visual-leap/01-implementation-plan.md` (§1.1 "The hand", §3 rulings, §5.0 attention budget) | operator review of the picture rules, then real-GPU `npm run preview` evidence (`--clock`, `--metrics --value-plan`) |
+| Day score, rituals, director, attention budget | `docs/pharosville/CONTRACTS.md` ("Media and motion"), `docs/pharosville/VISUAL_INVARIANTS.md` | `npm test -- src/systems/garden-score.test.ts src/systems/garden-director.test.ts`, then `npm run preview -- --ritual <kind>` |
+| Chrome, now-line, record card, ink labels | `docs/pharosville/CONTRACTS.md` ("Runtime, security and access") | `npm test -- src/systems/chrome-air.test.ts src/components` |
+| Sound (opt-in) | `docs/pharosville/CONTRACTS.md` ("Media and motion") | `npm test -- src/hooks/use-garden-sound.test.tsx` |
 | Three.js renderer, hit testing, interaction | `docs/pharosville/CONTRACTS.md`, `docs/pharosville/THREEJS_AGENT_REFERENCE.md`, `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville/TESTING.md` | focused unit test (`npm test -- src/three src/renderer`), then `npm run test:visual` |
 | Lighthouse model or ship logos | `docs/pharosville/ASSET_PIPELINE.md` | `npm run check:garden-models` or focused sail tests |
 | Reference generation | `docs/pharosville/ASSET_PIPELINE.md` | operator review; keep scratch in `outputs/` |

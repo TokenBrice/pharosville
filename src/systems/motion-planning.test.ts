@@ -7,6 +7,7 @@ import {
   denseFixtureStablecoins,
   denseFixtureStress,
   fixtureChains,
+  fixtureStablecoins,
   fixturePegSummary,
   fixtureSafetyGrades,
   fixtureStability,
@@ -18,30 +19,27 @@ import {
 import { buildPharosVilleWorld } from "./pharosville-world";
 import {
   __resetPreviousRiskCache,
+  buildBaseMotionPlan,
   buildMotionPlan,
   disposePathCacheForMap,
+  inletCrossingTokensBetween,
+  type InletCrossingToken,
+  motionPlanSignature,
   openWaterPatrolItineraryIndex,
   openWaterPatrolItineraryLength,
-  tidePhase,
-  berthTidePhase,
 } from "./motion-planning";
+import { isGardenInletCoreTile } from "./garden-inlet";
+import { gardenRepresentativeBerth } from "./garden-observatory-slice";
+import { resetGardenFleetPlacementCache } from "./garden-fleet-placement";
+import {
+  GARDEN_CROSSING_MIN_GAP_SECONDS,
+  gardenAttentionSlotsBetween,
+  planGardenScoreGifts,
+} from "./garden-attention-scheduler";
+import type { ShipWaterPath } from "./motion-types";
 import { resolveShipMotionSample } from "./motion-sampling";
 import { stableUnit } from "./stable-random";
 import type { PharosVilleWorld } from "./world-types";
-
-describe("harbour tide clock", () => {
-  it("repeats after ten minutes and keeps berth lag on that same clock", () => {
-    const berth = { x: 20, y: 30 };
-    expect(tidePhase(0)).toBe(0);
-    expect(tidePhase(300)).toBeCloseTo(Math.PI);
-    expect(tidePhase(723)).toBeCloseTo(tidePhase(123));
-    expect(berthTidePhase(723, berth)).toBeCloseTo(berthTidePhase(123, berth));
-    const lag = tidePhase(123) - berthTidePhase(123, berth);
-    expect(lag).toBeGreaterThanOrEqual(0);
-    expect(lag).toBeLessThanOrEqual(24 / 600 * Math.PI * 2);
-    expect(berthTidePhase(123, { x: 21, y: 30 })).not.toBe(berthTidePhase(123, berth));
-  });
-});
 
 describe("W4.23 calm patrol itineraries", () => {
   function worldForDocklessShip(): PharosVilleWorld {
@@ -209,6 +207,108 @@ describe("W4.23 calm patrol itineraries", () => {
   });
 });
 
+describe("W1.6 the empty inlet in motion", () => {
+  const world = buildPharosVilleWorld({
+    stablecoins: denseFixtureStablecoins,
+    chains: denseFixtureChains,
+    stability: fixtureStability,
+    pegSummary: denseFixturePegSummary,
+    stress: denseFixtureStress,
+    safetyGrades: denseFixtureSafetyGrades,
+    cemeteryEntries: [],
+    freshness: {},
+  });
+  const plans = Array.from({ length: 12 }, (_, bucket) => buildBaseMotionPlan(world, bucket * 600));
+
+  /** Core tiles may appear only as the run that leaves (or enters) a leg endpoint lying in the core. */
+  function crossesCore(path: ShipWaterPath): boolean {
+    const inCore = path.points.map((point) => isGardenInletCoreTile(point.x, point.y));
+    let first = 0;
+    while (first < inCore.length && inCore[first]) first += 1;
+    let last = inCore.length - 1;
+    while (last >= first && inCore[last]) last -= 1;
+    return inCore.slice(first, last + 1).some(Boolean);
+  }
+
+  it("routes every voyage without a crossing token around the inlet core", () => {
+    let paths = 0;
+    for (const route of plans[0]!.shipRoutes.values()) {
+      const legs = [
+        ...route.waterPaths.values(),
+        ...(route.openWaterPatrol?.itinerary.flatMap((leg) => [leg.outbound, leg.inbound]) ?? []),
+      ];
+      for (const path of legs) {
+        paths += 1;
+        expect(crossesCore(path), `${route.shipId} ${JSON.stringify(path.from)}→${JSON.stringify(path.to)}`).toBe(false);
+      }
+    }
+    expect(paths).toBeGreaterThan(100);
+  });
+
+  it("lets only one ceremony subject at a time cross, fifteen minutes apart, and the same holder in every plan", () => {
+    const tokens = new Map<string, InletCrossingToken>();
+    for (const [bucket, plan] of plans.entries()) {
+      for (const token of inletCrossingTokensBetween(plan, bucket * 600, bucket * 600 + 600)) {
+        const key = `${token.slotIndex}`;
+        const seen = tokens.get(key);
+        if (seen) expect(`${token.shipId}:${token.cycleIndex}`).toBe(`${seen.shipId}:${seen.cycleIndex}`);
+        tokens.set(key, token);
+      }
+    }
+    const ordered = [...tokens.values()].toSorted((left, right) => left.startSeconds - right.startSeconds);
+    expect(ordered.length).toBeGreaterThan(0);
+    for (const token of ordered) {
+      // A token is only issued for a voyage that really crosses the ma.
+      expect(token.path.points.some((point) => isGardenInletCoreTile(point.x, point.y))).toBe(true);
+      const ship = world.ships.find((entry) => entry.id === token.shipId)!;
+      expect(["titan", "unique"]).toContain(ship.visual.sizeTier);
+      expect(ship.squadId).toBeUndefined();
+    }
+    for (let index = 1; index < ordered.length; index += 1) {
+      expect(ordered[index]!.startSeconds - ordered[index - 1]!.endSeconds).toBeGreaterThanOrEqual(GARDEN_CROSSING_MIN_GAP_SECONDS);
+    }
+  });
+
+  it("reports the crossing path on the token holder's sample, and the routed leg on its other arrivals", () => {
+    const bucket = plans.findIndex((entry, index) => inletCrossingTokensBetween(entry, index * 600, index * 600 + 600).length > 0);
+    expect(bucket).toBeGreaterThanOrEqual(0);
+    const plan = plans[bucket]!;
+    const [token] = inletCrossingTokensBetween(plan, bucket * 600, bucket * 600 + 600);
+    const ship = world.ships.find((entry) => entry.id === token!.shipId)!;
+    const route = plan.shipRoutes.get(ship.id)!;
+    const during = resolveShipMotionSample({
+      plan,
+      reducedMotion: false,
+      ship,
+      timeSeconds: (token!.startSeconds + token!.endSeconds) / 2,
+    });
+    // The selected-route line draws exactly this path.
+    expect(during.routePath).toBe(token!.path);
+    const nextCycle = resolveShipMotionSample({
+      plan,
+      reducedMotion: false,
+      ship,
+      timeSeconds: (token!.startSeconds + token!.endSeconds) / 2 + route.cycleSeconds,
+    });
+    expect(nextCycle.routePath).toBeDefined();
+    expect(nextCycle.routePath).not.toBe(token!.path);
+  });
+
+  it("leaves the attention slots a score gift claims without a crossing", () => {
+    const seed = "2026-09-26";
+    const crossingSlots = gardenAttentionSlotsBetween(seed, -1_800, 1_800);
+    const gifts = planGardenScoreGifts(seed, crossingSlots.map((slot) => ({
+      id: `gift-${slot.index}`,
+      earliestSeconds: slot.startSeconds,
+      latestSeconds: slot.startSeconds,
+      priority: 1,
+    })));
+    expect(gifts.length).toBe(crossingSlots.length);
+    const plan = buildBaseMotionPlan(world, 0, { seed, gifts });
+    expect(inletCrossingTokensBetween(plan, -1_800, 1_800)).toEqual([]);
+  });
+});
+
 describe("W4.25 risk-transition tack-out", () => {
   // Build the same usdc-circle ship at two different DEWS placements to
   // exercise the previousRiskTile cache.
@@ -369,3 +469,45 @@ describe("W4.25 risk-transition tack-out", () => {
     expect(lateSampleSeen).toBe(true);
   });
 });
+
+describe("motion plan signature", () => {
+  it("invalidates the plan when a cached-shape world and the fresh world place the fleet differently", () => {
+    resetGardenFleetPlacementCache();
+    const fresh = buildPharosVilleWorld({
+      stablecoins: fixtureStablecoins,
+      chains: fixtureChains,
+      stability: fixtureStability,
+      pegSummary: fixturePegSummary,
+      stress: fixtureStress,
+      safetyGrades: fixtureSafetyGrades,
+      cemeteryEntries: [],
+      freshness: {},
+    });
+    // An identical-content refresh reuses the plan (no A* rebuild).
+    expect(motionPlanSignature({ ...fresh, ships: fresh.ships.map((ship) => ({ ...ship })) })).toBe(motionPlanSignature(fresh));
+    // A cached world with schema drift carries the same routing fields but
+    // different placement inputs — here one docked hull drawn at twice its
+    // scale (a stale supply ranking), so its hull margin, and with it the
+    // blue-noise berth its route anchors at, moves by whole tiles.
+    const drifted = fresh.ships
+      .filter((ship) => ship.dockVisits.length > 0)
+      .map((ship) => {
+        const cached: PharosVilleWorld = {
+          ...fresh,
+          ships: fresh.ships.map((entry) => (entry.id === ship.id
+            ? { ...entry, visual: { ...entry.visual, scale: (entry.visual.scale || 1) * 2 } }
+            : entry)),
+        };
+        const before = gardenRepresentativeBerth(fresh, ship.id)!;
+        const after = gardenRepresentativeBerth(cached, ship.id)!;
+        return { cached, moved: Math.round(before.x) !== Math.round(after.x) || Math.round(before.y) !== Math.round(after.y) };
+      })
+      .find(({ moved }) => moved);
+    // The drift really moves an anchorage, so reusing the cached plan would
+    // leave the hull where the stale world put it…
+    expect(drifted).toBeDefined();
+    // …which the signature forbids: the memoised plan is rebuilt.
+    expect(motionPlanSignature(drifted!.cached)).not.toBe(motionPlanSignature(fresh));
+  });
+});
+

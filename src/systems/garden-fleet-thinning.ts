@@ -1,12 +1,26 @@
 import type { GardenFleetMooringPlacement } from "./garden-fleet-placement";
+import { cameraAtRest, cameraPixelZoom, type IsoCamera, type ScreenPoint } from "./projection";
 import type { ShipNode, ShipSizeTier } from "./world-types";
 
-// 0.5 (was 0.7, 2026-09-06): the rest opened out to 0.72 and the fleet must
-// stay whole there and through the first zoom-out steps; thinning is for the
-// approach to whole-map, not for the resting frame.
+// Screen-scale zoom (`cameraPixelZoom`; the rig zoom on the rig). Thinning is
+// for the approach to whole-map, never the resting frame: the W1.0 rest state
+// holds every hull at every viewport (`resolveRendererDetailPolicy` and the
+// hit snapshot floor the rest at this start), and the rest's hand-off rig reads
+// ≥ 0.94 at every gate profile, well above it.
 export const GARDEN_FLEET_THINNING_START_ZOOM = 0.5;
 export const GARDEN_FLEET_THINNING_FADE_WIDTH = 0.05;
 export const GARDEN_FLEET_WHOLE_MAP_ZOOM = 0.3;
+
+/**
+ * The zoom the thinning reads for a camera state: its screen scale, floored at
+ * the thinning start while the rest ShotSpec shows (W1.0 rest detail policy).
+ * The renderer and the hit snapshot both read this, so the eye and the hand
+ * agree on which hulls are present.
+ */
+export function gardenFleetThinningZoom(camera: IsoCamera, viewport: ScreenPoint): number {
+  const pixelZoom = cameraPixelZoom(camera, viewport);
+  return cameraAtRest(camera) ? Math.max(pixelZoom, GARDEN_FLEET_THINNING_START_ZOOM) : pixelZoom;
+}
 
 export interface GardenFleetThinningShip extends GardenFleetMooringPlacement {
   formationFlagship: boolean;

@@ -7,11 +7,13 @@ import {
   Color,
   CylinderGeometry,
   DoubleSide,
+  DynamicDrawUsage,
+  Euler,
   ExtrudeGeometry,
   Float32BufferAttribute,
   Group,
   InstancedMesh,
-  Line,
+  LatheGeometry,
   LineBasicMaterial,
   LineSegments,
   MathUtils,
@@ -25,6 +27,7 @@ import {
   Shape,
   ShapeGeometry,
   Uint8BufferAttribute,
+  Vector2,
   Vector3,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -36,7 +39,8 @@ import {
   gardenShipVisualScale,
   type GardenHullSilhouette,
 } from "../systems/garden-observatory-slice";
-import { HARBOR_PALETTE } from "../systems/palette";
+import { HARBOR_PALETTE, hexToOklch, oklchToHex } from "../systems/palette";
+import { shipRestSailBraceRad } from "../systems/ship-visuals";
 import type { ShipNode } from "../systems/world-types";
 import { heroHullModelFor } from "../systems/unique-ships";
 import { gardenModelAnchor, type GardenModelId } from "./garden-models";
@@ -81,7 +85,7 @@ const GARDEN_COLORS = {
   vegetationLight: "#71805a",
 } as const;
 
-/** Motion + lantern tier: titans/uniques bob slowest and carry a lantern string. */
+/** Motion tier: titans/uniques bob slowest; also sets the lane intensity. */
 export type ShipFleetTier = "titan" | "heritage" | "standard";
 
 // S5 / decision D-S5: the visual-scale mapping (~2.6× spread since the
@@ -117,6 +121,12 @@ export interface ShipVisual {
   trimColor: Color;
   /** F1: the cloth dye handed to the batched sail material. */
   sailColor: Color;
+  /**
+   * W4.F1: the square sail's brace at rest (`shipRestSailBraceRad`), cached so
+   * the frame loop never re-hashes the id. Under way contract F-A's
+   * `sailTrimRad` replaces it.
+   */
+  sailRestBraceRad: number;
   /** Hero GLB hull to attach for titans/uniques (null for the procedural fleet). */
   heroModelId: GardenModelId | null;
   /** Procedural hull/rig parts hidden once a hero GLB attaches (identity sail stays). */
@@ -127,8 +137,18 @@ export interface ShipVisual {
   identitySail: Mesh | null;
   /** Null for batched ships — their sail shades from the shared atlas material. */
   identitySailMaterial: MeshStandardMaterial | null;
-  /** Lantern hang points in ship-local space (stern / bow+stern / a string). */
-  lanternPoints: readonly Vector3[];
+  /**
+   * W4.F7: where the ship's one stern chōchin hangs, ship-local and before the
+   * peg trim and the batch's hull form (`updateFleetLanterns` applies both).
+   * Mutable: a hero GLB re-homes it onto its own `lantern-stern` anchor when
+   * it attaches.
+   */
+  sternLantern: Vector3;
+  /**
+   * True while the lamp hangs from the procedural stern pole the fleet rig
+   * draws; false once a hero GLB carries it on its own structure.
+   */
+  sternLanternOnPole: boolean;
   /** Warm-lane intensity this ship lays on the sea (by fleet tier). */
   laneIntensity: number;
   /**
@@ -162,22 +182,26 @@ export interface ShipVisual {
   /** Deterministic phase offset for lantern pendulum sway. */
   swaySeed: number;
   tier: ShipFleetTier;
-  wake: Group;
-  wakeDetail: Group;
   /** World-wide wake-batch slot; -1 only until the ship is assigned one. */
   wakeSlot: number;
 }
 
-/** Fleet-wide lantern instances: two shared draw calls for the whole fleet. */
+/**
+ * Fleet-wide stern lanterns and the hero band's standing rig: three shared
+ * draw calls for the whole fleet (paper lamp bodies, additive halos, and one
+ * LineSegments for stays, shrouds and lantern poles).
+ */
 export interface FleetLanterns {
   attention: ShipLanternAttentionState;
-  cores: InstancedMesh<CircleGeometry, MeshStandardMaterial>;
+  cores: InstancedMesh<BufferGeometry, MeshStandardMaterial>;
   glow: InstancedMesh<PlaneGeometry, MeshBasicMaterial>;
   coreMaterial: MeshStandardMaterial;
   glowMaterial: MeshBasicMaterial;
+  /** W4.F8: hero-band standing rigging + stern poles, rewritten each frame. */
+  rig: LineSegments<BufferGeometry, LineBasicMaterial>;
   root: Group;
-  /** One entry per lantern, flattened across the fleet. */
-  entries: readonly { local: Vector3; swayPhase: number; visual: ShipVisual }[];
+  /** One entry per ship: its stern lantern. */
+  entries: readonly { swayPhase: number; visual: ShipVisual }[];
 }
 
 type GardenSailKind = "fore-aft" | "triangle" | "rectangle" | "junk";
@@ -186,6 +210,8 @@ interface GardenSailPlan {
   centerY: number;
   height: number;
   kind: GardenSailKind;
+  /** W4.F5: momen-ho cotton strips across a square sail (6–9); omitted on other rigs. */
+  panels?: number;
   reverse?: boolean;
   width: number;
 }
@@ -216,7 +242,7 @@ const GARDEN_SHIP_RIGS: Record<GardenHullSilhouette, readonly GardenMastPlan[]> 
   bezaisen: [
     {
       height: 5.4,
-      sails: [{ centerY: 3.15, height: 3.0, kind: "rectangle", width: 4.3 }],
+      sails: [{ centerY: 3.15, height: 3.0, kind: "rectangle", panels: 9, width: 4.3 }],
       x: 0.15,
     },
   ],
@@ -254,7 +280,7 @@ const GARDEN_SHIP_RIGS: Record<GardenHullSilhouette, readonly GardenMastPlan[]> 
   takasebune: [
     {
       height: 4.4,
-      sails: [{ centerY: 3.05, height: 2.2, kind: "rectangle", width: 2.9 }],
+      sails: [{ centerY: 3.05, height: 2.2, kind: "rectangle", panels: 6, width: 2.9 }],
       x: -3.35,
     },
   ],
@@ -289,12 +315,14 @@ const GARDEN_SHIP_CABINS: Partial<Record<
   GardenHullSilhouette,
   { height: number; width: number; x: number; z: number }
 >> = {
-  // 2026-09-07 T3.3: height 1.72 -> 2.4. This is the bezaisen's stern castle,
-  // the feature that names the family, and at 1.72 it read as a shed. Its whole
-  // assembly (box + eaves + roof, `addFamilySilhouetteParts`) is capped under
-  // the identity sail's centerY of 3.15 so the castle can never rise into the
-  // mark field along the fixed camera azimuth.
-  bezaisen: { height: 2.4, width: 2.2, x: -2.35, z: 2.75 },
+  // W4.F6 (fleet-craft-6): the bezaisen's yagura — a long LOW deckhouse on the
+  // raised stern, under a gentle roof (`addFamilySilhouetteParts`). It was a
+  // 2.4-tall cube (T3.3) that turned the whole family into a tub with a phone
+  // box. The forward face stops at x −1.25, clear of the fitting boats and of
+  // the braced yard's sweep (|z| ≤ 0.8 only meets the yard within ~0.75 of the
+  // mast), and the roof crown sits at ≈1.64, far below the identity mark. At
+  // 1.6 across it leaves the gunwale showing either side from astern.
+  bezaisen: { height: 0.9, width: 1.75, x: -2.125, z: 1.6 },
   junk: { height: 0.72, width: 1.4, x: -2, z: 1.45 },
   scow: { height: 0.48, width: 1.5, x: -0.9, z: 2.35 },
 };
@@ -372,11 +400,52 @@ const GARDEN_SHIP_BOWSPRITS: Partial<Record<
   kobaya: { length: 2.2, x: 5.6 },
 };
 
-// Per-tier lantern layout in ship-local space (stern, then bow, then a
-// mid-string point for the biggest hulls). Warm gold points that bloom.
-const STERN_LANTERN = new Vector3(-3.05, 1.28, 0);
-const BOW_LANTERN = new Vector3(3.2, 1.18, 0);
-const MID_LANTERN = new Vector3(0.1, 1.62, 0);
+/**
+ * W4.F7 (fleet-craft-7): one paper chōchin per boat, hung from a short stern
+ * pole. It used to be one shared point (x −3.05, y 1.28) for every family, so
+ * on the scow the lamp hung in the air past the transom, on the bezaisen it sat
+ * inside the stern castle, and titans floated two more over the deck. Now the
+ * pole steps just inboard of each family's own stern, leans a touch aft, and a
+ * short arm carries the lamp clear of the taffrail. Ship-local, before the
+ * per-instance hull form; `pole` is the height above the stern rail.
+ */
+const GARDEN_SHIP_STERN_LANTERNS: Record<
+  GardenHullSilhouette,
+  { pole: number; x: number; z: number }
+> = {
+  // Tall enough to hang the lamp aft of the yagura roof.
+  bezaisen: { pole: 1.2, x: -3.2, z: 0 },
+  kobaya: { pole: 0.8, x: -4.05, z: 0 },
+  // On the starboard demi-hull: there is no deck on the centreline aft.
+  twinhull: { pole: 0.8, x: -4.25, z: 1.02 },
+  takasebune: { pole: 0.8, x: -5.7, z: 0 },
+  junk: { pole: 0.85, x: -2.92, z: 0 },
+  scow: { pole: 0.75, x: -2.38, z: 0 },
+};
+/** The stern rail the pole steps on: rim plate 0.47 + its end sheer 0.34. */
+const STERN_POLE_FOOT_Y = 0.8;
+const STERN_POLE_LEAN = 0.12;
+const STERN_LANTERN_ARM = 0.18;
+/** Arm end to lamp centre. */
+const STERN_LANTERN_DROP = 0.26;
+
+/** Stern pole foot, head, arm end and hanging lamp centre, ship-local. */
+export function gardenShipSternLantern(silhouette: GardenHullSilhouette): {
+  arm: Vector3;
+  foot: Vector3;
+  head: Vector3;
+  lamp: Vector3;
+} {
+  const plan = GARDEN_SHIP_STERN_LANTERNS[silhouette];
+  const head = new Vector3(plan.x - STERN_POLE_LEAN, STERN_POLE_FOOT_Y + plan.pole, plan.z);
+  const arm = new Vector3(head.x - STERN_LANTERN_ARM, head.y, plan.z);
+  return {
+    arm,
+    foot: new Vector3(plan.x, STERN_POLE_FOOT_Y, plan.z),
+    head,
+    lamp: new Vector3(arm.x, arm.y - STERN_LANTERN_DROP, plan.z),
+  };
+}
 
 function shipFleetTier(ship: ShipNode): ShipFleetTier {
   const sizeTier = ship.visual.sizeTier;
@@ -409,12 +478,6 @@ function shipHeroModelId(ship: ShipNode): GardenModelId | null {
   return null;
 }
 
-function lanternPointsForTier(tier: ShipFleetTier): readonly Vector3[] {
-  if (tier === "titan") return [STERN_LANTERN, MID_LANTERN, BOW_LANTERN];
-  if (tier === "heritage") return [STERN_LANTERN, BOW_LANTERN];
-  return [STERN_LANTERN];
-}
-
 const FLEET_TIER_MOTION: Record<ShipFleetTier, { amplitude: number; period: number }> = {
   titan: { amplitude: 0.7, period: 1.8 },
   heritage: { amplitude: 1, period: 1.3 },
@@ -438,13 +501,12 @@ const FLEET_TIER_LANE_INTENSITY: Record<ShipFleetTier, number> = {
  * `root` is a real `Group` and still receives the full per-frame transform, but
  * carries no drawable children, so it contributes zero draw calls. Keeping it
  * an `Object3D` (rather than a bare struct) is deliberate: `entityCues`,
- * follow-selected and the wake all attach to it exactly as before.
+ * follow-selected and the wake batch's pose all read from it exactly as before.
  */
 export function createBatchedShip(
   ship: ShipNode,
   displayOffset: { x: number; y: number },
   representative: boolean,
-  cache: GardenShipGeometryCache,
   atlasCell: number,
 ): ShipVisual {
   const root = new Group();
@@ -456,8 +518,6 @@ export function createBatchedShip(
 
   const tier = shipFleetTier(ship);
   const motion = FLEET_TIER_MOTION[tier];
-  const wake = createWake(cache);
-  root.add(wake.root);
 
   return {
     agePatina: MathUtils.clamp(ship.visual.hullForm?.agePatina ?? 0, 0, 1),
@@ -472,9 +532,11 @@ export function createBatchedShip(
     hullColor: batchedHullColor(ship),
     trimColor: batchedTrimColor(ship),
     sailColor: weatheredSailColor(ship),
+    sailRestBraceRad: shipRestSailBraceRad(ship.id),
     identitySail: null,
     identitySailMaterial: null,
-    lanternPoints: lanternPointsForTier(tier),
+    sternLantern: gardenShipSternLantern(SILHOUETTE_FOR_HULL[ship.visual.hull]).lamp,
+    sternLanternOnPole: true,
     laneIntensity: FLEET_TIER_LANE_INTENSITY[tier],
     mastheadHeight: gardenShipMastheadOffset(SILHOUETTE_FOR_HULL[ship.visual.hull]).y,
     motionAmplitudeScale: motion.amplitude,
@@ -490,8 +552,6 @@ export function createBatchedShip(
     silhouette: SILHOUETTE_FOR_HULL[ship.visual.hull],
     swaySeed: stableUnit(`${ship.id}.sway`) * Math.PI * 2,
     tier,
-    wake: wake.root,
-    wakeDetail: wake.detail,
     wakeSlot: -1,
   };
 }
@@ -637,17 +697,27 @@ const FURL_ALL_UPPERS = (2 ** FLEET_MAX_SAILS - 1) - (2 ** FURL_UPPER_FIRST - 1)
  *
  * Historically where an owner's colours went, and the only band on the hull
  * high enough to survive the isometric camera's occlusion (see the silhouette
- * findings in agents/2026-07-25-fleet-hulls-and-titans-plan.md). The gunwale's
- * own baked highlight tint rides on top of this in the shader, so the painted
- * rail stays the brightest band even under a dark brand.
+ * findings in agents/2026-07-25-fleet-hulls-and-titans-plan.md).
+ *
+ * W4.F13 (critic-3 step 3): the paint is the issuer's HUE at no more than
+ * OKLCH C 0.08, then ×0.8 in linear light. At full brand chroma the ring was
+ * the brightest, loudest band on the hull — a violet neon rim on blue-violet
+ * issuers that bloomed at dusk. Clamped, it is a thin line of issuer colour
+ * under the dyed cloth, which stays the identity channel.
  *
  * Warm-village C2: an unbranded ship's fallback is no longer the shared
  * timber_warm but her FAMILY's trim, so a hull with no livery still names its
- * family twice. Branded ships are unchanged — the strake carries the issuer.
+ * family twice. Branded ships carry the issuer.
  */
+const STRAKE_MAX_CHROMA = 0.08;
+const STRAKE_VALUE = 0.8;
+
 function batchedTrimColor(ship: ShipNode): Color {
   const paint = GARDEN_HULL_FAMILY_PAINT[SILHOUETTE_FOR_HULL[ship.visual.hull]];
-  return new Color(safeCssColor(ship.visual.livery?.primary, paint.trim.getStyle()));
+  const source = new Color(safeCssColor(ship.visual.livery?.primary, paint.trim.getStyle()));
+  const { c, h, l } = hexToOklch(`#${source.getHexString()}`);
+  return new Color(oklchToHex({ c: Math.min(c, STRAKE_MAX_CHROMA), h, l }))
+    .multiplyScalar(STRAKE_VALUE);
 }
 
 /**
@@ -659,11 +729,11 @@ function batchedTrimColor(ship: ShipNode): Color {
  * years of sun. A stable per-ship brightness of ±6% is enough to break the
  * flatness and reads as age rather than as a different colour.
  *
- * Deliberately a scalar, not a hue shift: the dye is the issuer's identity and
- * the D5 contrast floor is computed from it, so the hue must survive untouched.
+ * Deliberately a scalar, not a hue shift: the dye is the issuer's identity, so
+ * the hue must survive untouched.
  */
 function weatheredSailColor(ship: ShipNode): Color {
-  const cloth = gardenSailClothColor(ship.visual.livery, ship.id);
+  const cloth = gardenSailClothColor(ship.visual.livery);
   return cloth.multiplyScalar(0.94 + stableUnit(`${ship.id}.weather`) * 0.12);
 }
 
@@ -712,17 +782,11 @@ function batchedPennantColor(ship: ShipNode): Color {
  * every vertex in the vertex shader — but a hero ship IS meshes, so the offset
  * has to be applied to them. It goes on the ship's drawable children rather
  * than on `root`, whose Y the frame loop rewrites from the tile every frame.
- *
- * The wake is excluded on purpose: it is foam ON the sea surface, and it has to
- * stay there however deep the hull that made it is riding.
  */
-function applyShipPegTrim(root: Group, ship: ShipNode, wakeRoot: Object3D): void {
+function applyShipPegTrim(root: Group, ship: ShipNode): void {
   const waterline = ship.visual.hullForm?.waterline ?? 0;
   if (waterline === 0) return;
-  for (const child of root.children) {
-    if (child === wakeRoot) continue;
-    child.position.y += waterline;
-  }
+  for (const child of root.children) child.position.y += waterline;
 }
 
 /** W5.8/W7.3: value-only decorative drift plus even service-age patina. */
@@ -850,6 +914,7 @@ export function createShip(
   // be the livery's cream-mixed sail colour lifted a further 45% toward canvas,
   // which is how the whole fleet ended up in one band of oatmeal.
   const readableSailColor = weatheredSailColor(ship);
+  const sailRestBraceRad = shipRestSailBraceRad(ship.id);
   // Warm the emissive toward lantern gold so the night curve backlights the
   // canvas as if a lantern hung beneath it (D4).
   const plainSailMaterial = new MeshStandardMaterial({
@@ -887,32 +952,45 @@ export function createShip(
     masts.setMatrixAt(mastIndex, scratchMatrix);
     for (const [sailIndex, sailPlan] of mastPlan.sails.entries()) {
       const reverse = sailPlan.reverse ?? false;
+      const square = sailPlan.kind === "rectangle";
       const isIdentitySail = identitySail?.mastIndex === mastIndex
         && identitySail.sailIndex === sailIndex;
+      const sailKey = [
+        "sail",
+        silhouette,
+        mastIndex,
+        sailIndex,
+        sailPlan.kind,
+        sailPlan.width,
+        sailPlan.height,
+        reverse ? "reverse" : "forward",
+      ].join(".");
       const sail = new Mesh(
-        cachedShipGeometry(
-          cache,
-          [
-            "sail",
-            silhouette,
-            mastIndex,
-            sailIndex,
-            sailPlan.kind,
-            sailPlan.width,
-            sailPlan.height,
-            reverse ? "reverse" : "forward",
-          ].join("."),
-          () => createSailGeometry(sailPlan),
-        ),
+        cachedShipGeometry(cache, `${sailKey}.cloth`, () => createSailClothGeometry(sailPlan)),
         isIdentitySail ? identitySailMaterial : plainSailMaterial,
       );
+      // W4.F1: the yard is timber on the mast material, a child of its cloth
+      // so the dip and the brace carry both.
+      if (square || sailPlan.kind === "fore-aft") {
+        sail.add(new Mesh(
+          cachedShipGeometry(cache, `${sailKey}.spars`, () => createSailSparGeometry(sailPlan)!),
+          mastMaterial,
+        ));
+      }
+      // A square sail hangs about its mast and braces there; the others run
+      // from a point just off the mast along the keel.
       sail.position.set(
-        mastPlan.x + (reverse ? -0.06 : 0.06),
+        mastPlan.x + (square ? 0 : reverse ? -0.06 : 0.06),
         sailPlan.centerY,
-        (mastPlan.z ?? 0) + 0.03,
+        (mastPlan.z ?? 0) + (square ? 0 : 0.03),
       );
+      if (square) {
+        sail.rotation.y = sailRestBraceRad;
+        sail.userData.gardenSquareSail = true;
+      }
       if (isIdentitySail) {
-        sail.scale.set(1.22, 1.22, 1);
+        if (square) sail.scale.setScalar(IDENTITY_SQUARE_SAIL_SCALE);
+        else sail.scale.set(1.22, 1.22, 1);
         identitySailMesh = sail;
       } else {
         heroHideable.push(sail);
@@ -1056,9 +1134,7 @@ export function createShip(
     }
   }
 
-  const wake = createWake(cache);
-  root.add(wake.root);
-  applyShipPegTrim(root, ship, wake.root);
+  applyShipPegTrim(root, ship);
   const motion = FLEET_TIER_MOTION[tier];
   // Subtle livery cast multiplied over the hero wood on attach (white base × a
   // mostly-white tint keeps the baked 3-tone shading readable).
@@ -1071,6 +1147,7 @@ export function createShip(
     atlasCell: 0,
     batched: false,
     sailColor: readableSailColor,
+    sailRestBraceRad,
     bobPhase: stableUnit(ship.id) * Math.PI * 2,
     displayOffset,
     fineDetail,
@@ -1081,7 +1158,8 @@ export function createShip(
     trimColor,
     identitySail: identitySailMesh,
     identitySailMaterial,
-    lanternPoints: lanternPointsForTier(tier),
+    sternLantern: gardenShipSternLantern(silhouette).lamp,
+    sternLanternOnPole: true,
     laneIntensity: FLEET_TIER_LANE_INTENSITY[tier],
     mastheadHeight: gardenShipMastheadOffset(silhouette).y,
     motionAmplitudeScale: motion.amplitude,
@@ -1097,15 +1175,13 @@ export function createShip(
     silhouette,
     swaySeed: stableUnit(`${ship.id}.sway`) * Math.PI * 2,
     tier,
-    wake: wake.root,
-    wakeDetail: wake.detail,
     wakeSlot: -1,
   };
 }
 
 /**
  * Swaps a titan/unique ship's procedural hull for its loaded hero GLB: hides the
- * procedural hull/rig (the identity logo sail, data overlays, wake and lantern
+ * procedural hull/rig (the identity logo sail, data overlays and lantern
  * sprites stay), clones each GLB material so this instance can tint the wood by
  * livery without touching the shared model cache, and re-homes the identity sail
  * onto the GLB main mast. Geometry stays shared with the cache (kept flat for the
@@ -1122,6 +1198,7 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
   for (const part of visual.heroHideable) part.visible = false;
 
   const masthead = gardenModelAnchor(model, heroId, "masthead").position.clone();
+  const sternLantern = gardenModelAnchor(model, heroId, "lantern-stern").position.clone();
   mergeGardenHeroStatics(visual, model);
   model.name = `hero-${heroId}`;
   // The GLB arrives after `createShip` has already trimmed the procedural
@@ -1134,6 +1211,11 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
   // W6.4: the GLB's own masthead, so the mirror column is cut to the hull that
   // is actually standing there rather than to the procedural stand-in.
   visual.mastheadHeight = masthead.y + waterline;
+  // W4.F7: the stern chōchin hangs where the GLB's own stern lamp is authored
+  // (pre-trim, like every `sternLantern`); the procedural pole went with the
+  // procedural hull.
+  visual.sternLantern.copy(sternLantern);
+  visual.sternLanternOnPole = false;
 
   if (visual.identitySail) {
     // Hang the logo sail as the main course, just below the furled topsail yard.
@@ -1143,9 +1225,14 @@ export function attachGardenHeroModel(visual: ShipVisual, model: Group): void {
     // to a ship rather than a sail bent to its yard. Keeping the rig's own slight
     // yaw and easing the scale back lets the curved patch geometry read as cloth
     // catching wind, which is what the sail already is underneath.
-    visual.identitySail.position.set(masthead.x, masthead.y * 0.64 + waterline, 0.24);
-    visual.identitySail.scale.set(1.28, 1.42, 1);
-    visual.identitySail.rotation.set(0, HERO_IDENTITY_SAIL_YAW, 0);
+    //
+    // W4.F1: a square identity sail hangs across the GLB's main mast and braces
+    // about it (the frame loop keeps the brace on contract F-A's trim).
+    const square = visual.identitySail.userData.gardenSquareSail === true;
+    visual.identitySail.position.set(masthead.x, masthead.y * 0.64 + waterline, square ? 0 : 0.24);
+    if (square) visual.identitySail.scale.set(1.28, 1.42, 1.28);
+    else visual.identitySail.scale.set(1.28, 1.42, 1);
+    visual.identitySail.rotation.set(0, square ? visual.sailRestBraceRad : HERO_IDENTITY_SAIL_YAW, 0);
   }
 }
 
@@ -1412,15 +1499,25 @@ export function syncShipSailTextures(
   }
 }
 
-const LANTERN_CORE_SIZE = 0.24;
+/**
+ * W4.F7: the chōchin body, ship-local, before the ship's scale: a paper barrel
+ * 0.3 across and 0.42 tall. It scales with its hull (it was a fixed 0.24-unit
+ * disc on every boat from skiff to titan).
+ */
+const LANTERN_BODY_WIDTH = 0.3;
+const LANTERN_BODY_HEIGHT = 0.42;
 // W1.10: a 3-unit additive halo per lantern was authored when 20 ships were on
 // screen. At 187 ships (and up to 3 lanterns each) the halos overlap into a
 // warm wash that flattens the whole frame — the opposite of the deep,
 // selective night the brief asks for. A sub-unit halo keeps each lantern a
 // point of light with a small bloom instead of a fleet-wide field of blobs.
 const LANTERN_GLOW_SIZE = 0.95;
-const LANTERN_SWAY = 0.09;
-const zeroScaleMatrix = new Matrix4().makeScale(0, 0, 0);
+/** Pendulum swing at the lamp, ship-local: ~8° on its 0.26 drop. */
+const LANTERN_SWAY = 0.035;
+/** Day paper: unbleached washi, lit like any other surface. */
+const LANTERN_PAPER = "#d9c9a8";
+/** Lacquered top and bottom rims: dark by day, and they never kindle. */
+const LANTERN_RIM_VALUE = 0.18;
 
 export function patchShipLanternEmissiveMaterial(material: MeshStandardMaterial): void {
   material.vertexColors = true;
@@ -1437,45 +1534,125 @@ export function patchShipLanternEmissiveMaterial(material: MeshStandardMaterial)
 }
 
 /**
- * One shared pair of InstancedMeshes carries every ship lantern in the fleet:
- * an emissive core sphere (blooms) and an additive camera-facing glow quad.
- * Two draw calls for the whole fleet, updated each frame by updateFleetLanterns.
+ * The chōchin: a six-sided lathe barrel with lacquered rims (36 triangles).
+ * Vertex colour is white on the paper and dark on the rims, so the shared
+ * warmth patch lights the paper and leaves the rims unlit. It hangs plumb, so
+ * its matrix needs no billboard and no hull heel.
+ */
+function createChochinGeometry(): BufferGeometry {
+  const geometry = new LatheGeometry([
+    new Vector2(0.3, -0.5),
+    new Vector2(0.47, -0.3),
+    new Vector2(0.47, 0.3),
+    new Vector2(0.3, 0.5),
+  ], 6);
+  const position = geometry.getAttribute("position");
+  const colors = new Float32Array(position.count * 3);
+  for (let index = 0; index < position.count; index += 1) {
+    const value = Math.abs(position.getY(index)) > 0.45 ? LANTERN_RIM_VALUE : 1;
+    colors.fill(value, index * 3, index * 3 + 3);
+  }
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  return geometry;
+}
+
+function createLanternGlowGeometry(): PlaneGeometry {
+  const geometry = new PlaneGeometry(1, 1);
+  const count = geometry.getAttribute("position").count;
+  geometry.setAttribute("color", new Float32BufferAttribute(new Float32Array(count * 3).fill(1), 3));
+  return geometry;
+}
+
+/**
+ * W4.F8 (fleet-craft-8): the hero band's standing rig as line segments in
+ * ship-local space — per mast a forestay, a backstay and two shrouds (the
+ * standing part of `riggingPoints`) — plus the W4.F7 stern pole and its lamp
+ * arm. `widths` is each line's modelled thickness in ship-local units: the
+ * frame pass turns it into projected pixels and writes alpha = coverage, so a
+ * rope is drawn as faint as it is thin instead of as a 1-px scratch.
+ */
+interface FleetHeroRigLines {
+  /** Six floats per segment (two endpoints). */
+  points: Float32Array;
+  widths: Float32Array;
+}
+
+const FLEET_RIG_STAY_WIDTH = 0.05;
+const FLEET_RIG_SHROUD_WIDTH = 0.04;
+const FLEET_RIG_POLE_WIDTH = 0.09;
+const FLEET_RIG_ARM_WIDTH = 0.05;
+/** Coverage below which a line fades out entirely (it would only shimmer). */
+const FLEET_RIG_FADE_START = 0.18;
+const FLEET_RIG_FADE_FULL = 0.5;
+/** Rope and pole: dark timber, a shade under the batched mast. */
+const FLEET_RIG_COLOR = new Color(HARBOR_PALETTE.timber_dark).multiplyScalar(0.8);
+
+const fleetHeroRigCache = new Map<string, FleetHeroRigLines>();
+
+function fleetHeroRigLines(silhouette: GardenHullSilhouette, standing: boolean): FleetHeroRigLines {
+  const key = `${silhouette}.${standing ? "rig" : "pole"}`;
+  const cached = fleetHeroRigCache.get(key);
+  if (cached) return cached;
+  const points: number[] = [];
+  const widths: number[] = [];
+  if (standing) {
+    const stays = standingRiggingPoints(silhouette, GARDEN_SHIP_RIGS[silhouette]);
+    for (let index = 0; index + 1 < stays.length; index += 2) {
+      const from = stays[index]!;
+      const to = stays[index + 1]!;
+      points.push(from.x, from.y, from.z, to.x, to.y, to.z);
+      // Pairs arrive forestay, backstay, shroud, shroud per mast.
+      widths.push((index / 2) % 4 < 2 ? FLEET_RIG_STAY_WIDTH : FLEET_RIG_SHROUD_WIDTH);
+    }
+  }
+  const lantern = gardenShipSternLantern(silhouette);
+  points.push(
+    lantern.foot.x, lantern.foot.y, lantern.foot.z, lantern.head.x, lantern.head.y, lantern.head.z,
+    lantern.head.x, lantern.head.y, lantern.head.z, lantern.arm.x, lantern.arm.y, lantern.arm.z,
+  );
+  widths.push(FLEET_RIG_POLE_WIDTH, FLEET_RIG_ARM_WIDTH);
+  const lines = { points: new Float32Array(points), widths: new Float32Array(widths) };
+  fleetHeroRigCache.set(key, lines);
+  return lines;
+}
+
+/** Lines a ship can draw: batched hulls carry the whole rig, heroes only a pole. */
+function fleetHeroRigFor(visual: ShipVisual): FleetHeroRigLines | null {
+  if (visual.batched) return fleetHeroRigLines(visual.silhouette, true);
+  return visual.sternLanternOnPole ? fleetHeroRigLines(visual.silhouette, false) : null;
+}
+
+/**
+ * Fleet-wide stern lanterns and the hero band's rig: an instanced chōchin body
+ * (lit paper by day, kindled by the day cycle's dusk/night emissive), an
+ * additive halo quad (opacity 0 by day), and one LineSegments for stays,
+ * shrouds and stern poles. Three draw calls for the whole fleet; only ships
+ * the frame pass reports present (the hero band) are written each frame.
  */
 export function createFleetLanterns(
   ships: readonly ShipVisual[],
   cache: GardenShipGeometryCache,
 ): FleetLanterns {
-  const entries: { local: Vector3; swayPhase: number; visual: ShipVisual }[] = [];
-  for (const visual of ships) {
-    for (const [pointIndex, local] of visual.lanternPoints.entries()) {
-      entries.push({
-        local: local.clone(),
-        swayPhase: visual.swaySeed + pointIndex * 0.8,
-        visual,
-      });
-    }
-  }
+  const entries = ships.map((visual) => ({ swayPhase: visual.swaySeed, visual }));
   const count = Math.max(1, entries.length);
 
   const coreMaterial = new MeshStandardMaterial({
-    color: "#000000",
+    color: LANTERN_PAPER,
     emissive: HARBOR_PALETTE.lantern_glow,
     emissiveIntensity: 0,
+    roughness: 0.9,
     toneMapped: false,
   });
   patchShipLanternEmissiveMaterial(coreMaterial);
   const cores = new InstancedMesh(
-    // A round core, not a quad. The glow quad above carries a radial texture,
-    // but the core was a bare PlaneGeometry with no map — so at explore zoom
-    // the island and piers were speckled with literal cream SQUARES. Twelve
-    // segments is plenty at this size and costs no texture fetch.
-    cachedShipGeometry(cache, "lantern.core", () => new CircleGeometry(0.5, 12)),
+    cachedShipGeometry(cache, "lantern.chochin", createChochinGeometry),
     coreMaterial,
     count,
   );
   cores.name = "ship-lantern-cores";
   cores.frustumCulled = false;
   cores.renderOrder = 3;
+  cores.count = 0;
 
   const glowMaterial = new MeshBasicMaterial({
     blending: AdditiveBlending,
@@ -1488,26 +1665,46 @@ export function createFleetLanterns(
     vertexColors: true,
   });
   const glow = new InstancedMesh(
-    cachedShipGeometry(cache, "lantern.glow", () => new PlaneGeometry(1, 1)),
+    cachedShipGeometry(cache, "lantern.glow", createLanternGlowGeometry),
     glowMaterial,
     count,
   );
   glow.name = "ship-lantern-glow";
   glow.frustumCulled = false;
   glow.renderOrder = 3;
+  glow.count = 0;
 
-  // Hide any padding instance up front; updateFleetLanterns overwrites the
-  // active ones each frame.
-  for (let index = 0; index < count; index += 1) {
-    cores.setMatrixAt(index, zeroScaleMatrix);
-    glow.setMatrixAt(index, zeroScaleMatrix);
+  let rigSegments = 0;
+  for (const visual of ships) {
+    // A hero GLB drops its pole on attach, never gains one: size for the most.
+    rigSegments += visual.batched
+      ? fleetHeroRigLines(visual.silhouette, true).widths.length
+      : fleetHeroRigLines(visual.silhouette, false).widths.length;
   }
-  cores.instanceMatrix.needsUpdate = true;
-  glow.instanceMatrix.needsUpdate = true;
+  const rigGeometry = new BufferGeometry();
+  const rigPosition = new Float32BufferAttribute(new Float32Array(Math.max(1, rigSegments) * 6), 3);
+  rigPosition.setUsage(DynamicDrawUsage);
+  // RGBA: the alpha channel carries each line's projected coverage.
+  const rigColor = new Float32BufferAttribute(new Float32Array(Math.max(1, rigSegments) * 8).fill(1), 4);
+  rigColor.setUsage(DynamicDrawUsage);
+  rigGeometry.setAttribute("position", rigPosition);
+  rigGeometry.setAttribute("color", rigColor);
+  rigGeometry.setDrawRange(0, 0);
+  const rig = new LineSegments(
+    rigGeometry,
+    new LineBasicMaterial({
+      color: FLEET_RIG_COLOR,
+      depthWrite: false,
+      transparent: true,
+      vertexColors: true,
+    }),
+  );
+  rig.name = "ship-hero-rig";
+  rig.frustumCulled = false;
 
   const root = new Group();
   root.name = "ship-lanterns";
-  root.add(cores, glow);
+  root.add(cores, glow, rig);
   return {
     attention: createShipLanternAttentionState(),
     coreMaterial,
@@ -1515,6 +1712,7 @@ export function createFleetLanterns(
     entries,
     glow,
     glowMaterial,
+    rig,
     root,
   };
 }
@@ -1538,62 +1736,200 @@ function createLanternGlowTexture(): CanvasTexture | null {
   return texture;
 }
 
-const lanternScratchMatrix = new Matrix4();
-const lanternScratchPosition = new Vector3();
-const lanternScratchScale = new Vector3();
+/** One frame of the fleet lanterns and hero rig. */
+export interface FleetLanternFrame {
+  cameraQuaternion: Quaternion;
+  /** World eye position, for each hero's projected line width. */
+  eye?: { x: number; y: number; z: number };
+  hoveredDetailId?: string | null;
+  /**
+   * Drawing-buffer pixels per world unit at unit distance
+   * (`bufferHeight / (2 tan(fovY / 2))`). Zero or absent hides the rig: with no
+   * projection there is no way to keep a line from reading as a scratch.
+   */
+  pixelsPerUnitAtUnitDistance?: number;
+  /**
+   * 0..1 per ship: 0 hides its lamp and rig (outside the hero band, thinned
+   * out), fractions shrink the lamp and fade the rig. Absent = every ship at 1.
+   */
+  presence?: (visual: ShipVisual) => number;
+  /** Batched hulls' transient draft on top of the authored waterline. */
+  draft?: (visual: ShipVisual) => number;
+  reducedMotion: boolean;
+  selectedDetailId?: string | null;
+  timeSeconds: number;
+}
+
+const lanternMatrix = new Matrix4();
 const lanternRootMatrix = new Matrix4();
+const lanternRootQuaternion = new Quaternion();
+const lanternRootEuler = new Euler(0, 0, 0, "YXZ");
+const lanternPlumb = new Quaternion();
+const lanternPosition = new Vector3();
+const lanternScale = new Vector3();
 const lanternCoreWarmth = new Color();
 const lanternGlowWarmth = new Color();
 
 /**
- * Rewrites the fleet lantern instance matrices from each ship's current world
- * transform, with a slow pendulum sway (frozen under reduced motion). Both the
- * bright core and the soft glow are camera-facing quads (2 tris each) sharing
- * the frame's billboard orientation — the core just sits smaller and brighter.
+ * The batch's per-instance hull form (`garden-fleet-batch.ts` HULL_FORM_DEFORM)
+ * on the CPU, so the lamp, its pole and the stays land on the deformed hull.
+ * Hero scene graphs take only the peg trim.
  */
-export function updateFleetLanterns(
-  lanterns: FleetLanterns,
-  cameraQuaternion: Quaternion,
-  timeSeconds: number,
-  reducedMotion: boolean,
-  attention?: { hoveredDetailId: string | null; selectedDetailId: string | null },
-): void {
+function fleetLocalToShip(
+  visual: ShipVisual,
+  draft: number,
+  x: number,
+  y: number,
+  z: number,
+  target: Vector3,
+): Vector3 {
+  const form = visual.ship.visual.hullForm;
+  const waterline = form?.waterline ?? 0;
+  if (!visual.batched) return target.set(x, y + waterline, z);
+  const t = MathUtils.clamp(y / 0.45, 0, 1);
+  const topsides = t * t * (3 - 2 * t);
+  return target.set(
+    x * (form?.length ?? 1),
+    y * (1 + ((form?.height ?? 1) - 1) * topsides) + waterline + draft,
+    z * (form?.beam ?? 1),
+  );
+}
+
+function fleetRigAlpha(coverage: number): number {
+  return Math.min(1, coverage) * MathUtils.smoothstep(coverage, FLEET_RIG_FADE_START, FLEET_RIG_FADE_FULL);
+}
+
+/**
+ * Rewrites the stern lanterns and the hero rig from each present ship's world
+ * transform. Absent ships are skipped, not zero-scaled: both instance sets and
+ * the line buffer are compacted to the ships actually shown, so the fleet pays
+ * for ~20 lamps, not ~190. The lamp swings a little on its arm (frozen under
+ * reduced motion); the rig rides the frozen pose.
+ */
+export function updateFleetLanterns(lanterns: FleetLanterns, frame: FleetLanternFrame): void {
   advanceShipLanternAttention(lanterns.attention, {
-    hoveredDetailId: attention?.hoveredDetailId ?? null,
-    reducedMotion,
-    selectedDetailId: attention?.selectedDetailId ?? null,
-    timeSeconds,
+    hoveredDetailId: frame.hoveredDetailId ?? null,
+    reducedMotion: frame.reducedMotion,
+    selectedDetailId: frame.selectedDetailId ?? null,
+    timeSeconds: frame.timeSeconds,
   });
-  for (const [index, entry] of lanterns.entries.entries()) {
-    const root = entry.visual.root;
-    lanternRootMatrix.compose(root.position, root.quaternion, root.scale);
-    const swing = reducedMotion
+  const pixelsPerUnit = frame.eye ? frame.pixelsPerUnitAtUnitDistance ?? 0 : 0;
+  const rigPosition = lanterns.rig.geometry.getAttribute("position") as Float32BufferAttribute;
+  const rigColor = lanterns.rig.geometry.getAttribute("color") as Float32BufferAttribute;
+  const rigPositions = rigPosition.array as Float32Array;
+  const rigColors = rigColor.array as Float32Array;
+  const rigCapacity = rigPosition.count / 2;
+  // A lamp is on only because it was kindled (§1.1 rule 2): the day cycle's
+  // dusk/night emissive on the shared material is that kindling.
+  const kindled = MathUtils.smoothstep(lanterns.coreMaterial.emissiveIntensity, 0.05, 0.3);
+  let slot = 0;
+  let segment = 0;
+  for (let index = 0; index < lanterns.entries.length; index += 1) {
+    const entry = lanterns.entries[index]!;
+    const visual = entry.visual;
+    const presence = frame.presence ? frame.presence(visual) : 1;
+    if (!(presence > 0)) continue;
+    const draft = frame.draft ? frame.draft(visual) : 0;
+    const root = visual.root;
+    // Same rotation order as the batch's instance matrix (heading, pitch, heel).
+    lanternRootEuler.set(root.rotation.x, root.rotation.y, root.rotation.z, "YXZ");
+    lanternRootQuaternion.setFromEuler(lanternRootEuler);
+    lanternRootMatrix.compose(root.position, lanternRootQuaternion, root.scale);
+    const shipScale = root.scale.x;
+    const lines = pixelsPerUnit > 0 ? fleetHeroRigFor(visual) : null;
+    // Device pixels per ship-local unit at this hull.
+    const pixelsPerLocal = lines
+      ? pixelsPerUnit * shipScale / Math.max(
+        1e-3,
+        Math.hypot(root.position.x - frame.eye!.x, root.position.y - frame.eye!.y, root.position.z - frame.eye!.z),
+      )
+      : 0;
+    // By day an unlit paper lamp is only a lamp if its pole reads too; past
+    // that distance it would be a cream speck floating off the stern.
+    const poleVisible = lines && visual.sternLanternOnPole
+      ? MathUtils.smoothstep(FLEET_RIG_POLE_WIDTH * pixelsPerLocal, 0.35, 0.8)
+      : 1;
+    const lampPresence = presence * Math.max(kindled, poleVisible);
+
+    const swing = frame.reducedMotion
       ? 0
-      : Math.sin(timeSeconds * 0.9 + entry.swayPhase) * LANTERN_SWAY;
-    lanternScratchPosition
-      .set(entry.local.x + swing, entry.local.y, entry.local.z)
+      : Math.sin(frame.timeSeconds * 0.9 + entry.swayPhase) * LANTERN_SWAY;
+    const lamp = visual.sternLantern;
+    fleetLocalToShip(visual, draft, lamp.x + swing, lamp.y, lamp.z, lanternPosition)
       .applyMatrix4(lanternRootMatrix);
+    const bodyScale = shipScale * lampPresence;
+    lanternScale.set(
+      LANTERN_BODY_WIDTH * bodyScale,
+      LANTERN_BODY_HEIGHT * bodyScale,
+      LANTERN_BODY_WIDTH * bodyScale,
+    );
+    lanternMatrix.compose(lanternPosition, lanternPlumb, lanternScale);
+    lanterns.cores.setMatrixAt(slot, lanternMatrix);
+    lanternScale.setScalar(LANTERN_GLOW_SIZE * lampPresence);
+    lanternMatrix.compose(lanternPosition, frame.cameraQuaternion, lanternScale);
+    lanterns.glow.setMatrixAt(slot, lanternMatrix);
 
-    lanternScratchScale.setScalar(LANTERN_CORE_SIZE);
-    lanternScratchMatrix.compose(lanternScratchPosition, cameraQuaternion, lanternScratchScale);
-    lanterns.cores.setMatrixAt(index, lanternScratchMatrix);
-
-    lanternScratchScale.setScalar(LANTERN_GLOW_SIZE);
-    lanternScratchMatrix.compose(lanternScratchPosition, cameraQuaternion, lanternScratchScale);
-    lanterns.glow.setMatrixAt(index, lanternScratchMatrix);
-
-    const warmth = shipLanternWarmth(lanterns.attention, entry.visual.ship.detailId);
+    const warmth = shipLanternWarmth(lanterns.attention, visual.ship.detailId);
     // Instance colour is the per-lantern emissive gain: no extra mesh or pass,
-    // and the same envelope warms both the blooming core and painted halo.
+    // and the same envelope warms both the kindled paper and painted halo.
     lanternCoreWarmth.setRGB(1 + warmth * 0.62, 1 + warmth * 0.28, 1 + warmth * 0.06);
     lanternGlowWarmth.setRGB(1 + warmth * 0.32, 1 + warmth * 0.16, 1 + warmth * 0.04);
-    lanterns.cores.setColorAt(index, lanternCoreWarmth);
-    lanterns.glow.setColorAt(index, lanternGlowWarmth);
+    lanterns.cores.setColorAt(slot, lanternCoreWarmth);
+    lanterns.glow.setColorAt(slot, lanternGlowWarmth);
+    if (lampPresence > 0) slot += 1;
+
+    if (!lines) continue;
+    const count = lines.widths.length;
+    if (segment + count > rigCapacity) continue;
+    if (!(fleetRigAlpha(FLEET_RIG_POLE_WIDTH * pixelsPerLocal) > 0)) continue;
+    for (let line = 0; line < count; line += 1) {
+      const source = line * 6;
+      const target = (segment + line) * 6;
+      for (let end = 0; end < 2; end += 1) {
+        const offset = source + end * 3;
+        fleetLocalToShip(
+          visual,
+          draft,
+          lines.points[offset]!,
+          lines.points[offset + 1]!,
+          lines.points[offset + 2]!,
+          lanternPosition,
+        ).applyMatrix4(lanternRootMatrix);
+        rigPositions[target + end * 3] = lanternPosition.x;
+        rigPositions[target + end * 3 + 1] = lanternPosition.y;
+        rigPositions[target + end * 3 + 2] = lanternPosition.z;
+      }
+      const alpha = fleetRigAlpha(lines.widths[line]! * pixelsPerLocal) * presence;
+      rigColors[(segment + line) * 8 + 3] = alpha;
+      rigColors[(segment + line) * 8 + 7] = alpha;
+    }
+    segment += count;
   }
-  lanterns.cores.instanceMatrix.needsUpdate = true;
-  lanterns.glow.instanceMatrix.needsUpdate = true;
-  if (lanterns.cores.instanceColor) lanterns.cores.instanceColor.needsUpdate = true;
-  if (lanterns.glow.instanceColor) lanterns.glow.instanceColor.needsUpdate = true;
+  flushLanternInstances(lanterns.cores, slot);
+  flushLanternInstances(lanterns.glow, slot);
+  lanterns.rig.geometry.setDrawRange(0, segment * 2);
+  if (segment > 0) {
+    rigPosition.clearUpdateRanges();
+    rigPosition.addUpdateRange(0, segment * 6);
+    rigPosition.needsUpdate = true;
+    rigColor.clearUpdateRanges();
+    rigColor.addUpdateRange(0, segment * 8);
+    rigColor.needsUpdate = true;
+  }
+}
+
+/** Draws the first `count` instances and uploads only those. */
+function flushLanternInstances(mesh: InstancedMesh, count: number): void {
+  mesh.count = count;
+  if (count === 0) return;
+  mesh.instanceMatrix.clearUpdateRanges();
+  mesh.instanceMatrix.addUpdateRange(0, count * 16);
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) {
+    mesh.instanceColor.clearUpdateRanges();
+    mesh.instanceColor.addUpdateRange(0, count * 3);
+    mesh.instanceColor.needsUpdate = true;
+  }
 }
 
 /**
@@ -1845,7 +2181,11 @@ export function createFleetBatchGeometry(
     })))
     .toSorted((left, right) => right.area - left.area)[0];
 
-  const sailParts: { geometry: BufferGeometry; transform?: Matrix4 }[] = [];
+  const sailParts: {
+    geometry: BufferGeometry;
+    pivot?: { x: number; z: number } | undefined;
+    transform?: Matrix4;
+  }[] = [];
   // W2.3/W4: each sail gets an index so a per-instance bitmask can furl it.
   //
   // The index BANDS are load-bearing, not just identifiers:
@@ -1876,6 +2216,7 @@ export function createFleetBatchGeometry(
         upperIndex += 1;
       }
       const matrix = transform();
+      const square = sailPlan.kind === "rectangle";
       // F1: the mark lives on this sail alone, so the sail is deliberately
       // oversized against the rest of the rig — a ship's device has to be
       // readable at the zoom the fleet is scanned at, not just when one ship is
@@ -1883,14 +2224,24 @@ export function createFleetBatchGeometry(
       //
       // W3: 1.42 -> 1.2. The whole rig grew, so the emblem sail is larger in
       // absolute terms than it was at 1.42; keeping the old multiplier on the
-      // new course made it wider than the gap to the next mast.
-      if (isIdentitySail) matrix.makeScale(1.2, 1.2, 1);
+      // new course made it wider than the gap to the next mast. W4.F1: a
+      // square sail spans athwartships, so it scales uniformly (1.1).
+      if (isIdentitySail) {
+        if (square) matrix.makeScale(IDENTITY_SQUARE_SAIL_SCALE, IDENTITY_SQUARE_SAIL_SCALE, IDENTITY_SQUARE_SAIL_SCALE);
+        else matrix.makeScale(1.2, 1.2, 1);
+      }
+      // A square sail is authored about its mast (the brace pivot); the others
+      // run from a point just off the mast along the keel.
       matrix.setPosition(
-        mastPlan.x + (reverse ? -0.06 : 0.06),
+        mastPlan.x + (square ? 0 : reverse ? -0.06 : 0.06),
         sailPlan.centerY,
-        (mastPlan.z ?? 0) + 0.03,
+        (mastPlan.z ?? 0) + (square ? 0 : 0.03),
       );
-      sailParts.push({ geometry, transform: matrix });
+      sailParts.push({
+        geometry,
+        pivot: square ? { x: mastPlan.x, z: mastPlan.z ?? 0 } : undefined,
+        transform: matrix,
+      });
     }
   }
   const sails = mergeAtlasSails(sailParts);
@@ -1899,67 +2250,133 @@ export function createFleetBatchGeometry(
   return { hull, sails, far: createFarFleetGeometry(silhouette) };
 }
 
-/** Six/seven-point plans keep each family's beam and the twin-hull water slot. */
-function createFarFleetGeometry(silhouette: GardenHullSilhouette): BufferGeometry {
-  const outlines: Record<GardenHullSilhouette, readonly (readonly [number, number])[]> = {
-    bezaisen: [[-3.48, -1.72], [-3.48, 1.72], [0.1, 2], [2.9, 1.5], [3.45, 0], [2.9, -1.5], [0.1, -2]],
-    kobaya: [[-4.28, -0.38], [-4.28, 0.38], [-0.8, 0.65], [3.45, 0.48], [5.32, 0], [3.45, -0.48], [-0.8, -0.65]],
-    twinhull: [[-4.5, 0], [-2.7, 0.44], [1.65, 0.46], [4.5, 0], [1.65, -0.46], [-2.7, -0.44]],
-    takasebune: [[-5.92, 0], [-4.2, 1.4], [4.3, 1.4], [5.95, 0], [4.3, -1.4], [-4.2, -1.4]],
-    junk: [[-3.12, -0.95], [-3.12, 0.95], [0.35, 1.3], [2.95, 0.72], [3.38, 0], [2.95, -0.72], [0.35, -1.3]],
-    scow: [[-2.58, 0], [-2.12, 1.55], [0.2, 2], [2.58, 0], [0.2, -2], [-2.12, -1.55]],
-  };
-  const shape = new Shape();
-  outlines[silhouette].forEach(([x, y], index) => {
-    if (index === 0) shape.moveTo(x, y);
-    else shape.lineTo(x, y);
-  });
-  shape.closePath();
-  const body = new ExtrudeGeometry(shape, { depth: 0.72, bevelEnabled: false, steps: 1 });
-  body.rotateX(-Math.PI / 2);
-  body.translate(0, -0.45, 0);
-  shapeHullVerticalForm(body, silhouette);
-  bakeHullVertexColors(body);
-  const parts: { geometry: BufferGeometry; tint?: Color; transform?: Matrix4 }[] = [];
-  for (const z of silhouette === "twinhull" ? [-1.02, 1.02] : [0]) {
-    parts.push({ geometry: body, transform: new Matrix4().makeTranslation(0, 0, z) });
+/**
+ * W4.F3 (fleet-craft-3 ∪ critic-5): the far fleet is an ink silhouette in the
+ * family's outline — a thin dark V-section hull sliver under the family's own
+ * sail shapes, one 3-5-vertex polygon per mast. There is no deck plate to catch
+ * the sun (the old extruded slab read as a plank) and no mast: at far distance
+ * a spar is a 1-px scratch, so each sail's foot is dropped onto the rail
+ * instead and the boat reads as one cut-paper shape.
+ *
+ * Square sails hang braced across the keel and fore-and-aft sails are sheeted
+ * out, so no sail is ever edge-on to the eye whatever the heading. The far
+ * material paints this in airlight inks (`garden-fleet-batch.ts`), so the
+ * geometry carries only position, normal, uv, color and the cloth selector.
+ */
+const FAR_HULL_OUTLINES: Record<GardenHullSilhouette, readonly (readonly [number, number])[]> = {
+  bezaisen: [[-3.4, -1], [-3.4, 1], [0, 1.28], [2.6, 0.84], [3.4, 0], [2.6, -0.84], [0, -1.28]],
+  kobaya: [[-4.28, -0.38], [-4.28, 0.38], [-0.8, 0.65], [3.45, 0.48], [5.32, 0], [3.45, -0.48], [-0.8, -0.65]],
+  twinhull: [[-4.5, 0], [-2.7, 0.44], [1.65, 0.46], [4.5, 0], [1.65, -0.46], [-2.7, -0.44]],
+  takasebune: [[-5.92, 0], [-4.2, 1.4], [4.3, 1.4], [5.95, 0], [4.3, -1.4], [-4.2, -1.4]],
+  junk: [[-3.12, -0.95], [-3.12, 0.95], [0.35, 1.3], [2.95, 0.72], [3.38, 0], [2.95, -0.72], [0.35, -1.3]],
+  scow: [[-2.58, 0], [-2.12, 1.55], [0.2, 2], [2.58, 0], [0.2, -2], [-2.12, -1.55]],
+};
+/** Rail height: a touch above the near hull's, so the sliver survives at a dozen pixels. */
+const FAR_HULL_RAIL_Y = 0.52;
+const FAR_HULL_KEEL_Y = -0.3;
+/** Keel half-beam as a share of the rail's: the V-section. */
+const FAR_HULL_KEEL_PINCH = 0.18;
+/** Every far sail's foot reaches down to the rail: no floating cloth. */
+const FAR_SAIL_FOOT_MAX_Y = 0.95;
+/** Square sails braced ~52° off the keel line. */
+const FAR_SQUARE_BRACE = 0.9;
+/** Fore-and-aft sails sheeted ~20° out, both to the same side. */
+const FAR_FORE_AFT_SHEET = 0.35;
+
+/** Sail outline as (along-yard, height) pairs from the mast, fan-triangulated from the first point. */
+function farSailOutline(
+  kind: GardenSailKind,
+  direction: number,
+  width: number,
+  top: number,
+  foot: number,
+): readonly (readonly [number, number])[] {
+  const height = top - foot;
+  switch (kind) {
+    case "rectangle":
+      // A braced square with a concave (sheeted) foot, centred on the mast.
+      return [
+        [-width / 2, top], [width / 2, top], [width * 0.44, foot],
+        [0, foot + height * 0.1], [-width * 0.44, foot],
+      ];
+    case "triangle":
+      return [[0, top], [direction * width, foot + height * 0.11], [0, foot]];
+    case "junk":
+      return [
+        [0, top], [direction * width * 0.72, top - height * 0.16], [direction * width, foot + height * 0.5],
+        [direction * width * 0.86, foot + height * 0.125], [0, foot],
+      ];
+    case "fore-aft":
+      // A lug: the yard peaks up away from the mast.
+      return [
+        [-direction * width * 0.12, top - height * 0.3], [direction * width, top],
+        [direction * width * 0.94, foot], [0, foot],
+      ];
   }
-  const mast = GARDEN_SHIP_RIGS[silhouette].reduce((best, candidate) => (
+}
+
+function createFarFleetGeometry(silhouette: GardenHullSilhouette): BufferGeometry {
+  const outline = FAR_HULL_OUTLINES[silhouette];
+  const count = outline.length;
+  const hullPositions: number[] = [];
+  const rail = outline.map(([x, z]) => [x, FAR_HULL_RAIL_Y, z] as const);
+  const keel = outline.map(([x, z]) => [x * 0.94, FAR_HULL_KEEL_Y, z * FAR_HULL_KEEL_PINCH] as const);
+  for (let index = 0; index < count; index += 1) {
+    const next = (index + 1) % count;
+    hullPositions.push(...rail[index]!, ...keel[index]!, ...rail[next]!);
+    hullPositions.push(...rail[next]!, ...keel[index]!, ...keel[next]!);
+  }
+  // The deck closes the silhouette for the whole-map view; the ink tone makes
+  // it the same dark as the topsides, so it can no longer read as a plank.
+  for (let index = 1; index < count - 1; index += 1) {
+    hullPositions.push(...rail[0]!, ...rail[index]!, ...rail[index + 1]!);
+  }
+  const demiHull = new BufferGeometry();
+  demiHull.setAttribute("position", new Float32BufferAttribute(hullPositions, 3));
+  shapeHullVerticalForm(demiHull, silhouette);
+  const hulls = (silhouette === "twinhull" ? [-1.02, 1.02] : [0]).map((z) => demiHull.clone().translate(0, 0, z));
+  demiHull.dispose();
+
+  const rig = GARDEN_SHIP_RIGS[silhouette];
+  const largest = rig.reduce((best, candidate) => (
     candidate.sails[0]!.width * candidate.sails[0]!.height
       > best.sails[0]!.width * best.sails[0]!.height ? candidate : best
   ));
-  const spar = new CylinderGeometry(0.055, 0.08, mast.height, 4);
-  parts.push({
-    geometry: spar,
-    tint: FLEET_BATCH_TINTS.mast,
-    transform: new Matrix4().makeRotationZ(GARDEN_SHIP_MAST_RAKE[silhouette])
-      .setPosition(mast.x, 0.55 + mast.height / 2, mast.z ?? 0),
-  });
-  const hull = mergeTintedParts(parts);
-  body.dispose();
-  spar.dispose();
-  const plan = mast.sails[0]!;
-  const width = plan.width * 1.2;
-  const height = plan.height * 1.2;
-  const sailPlane = new PlaneGeometry(width, height);
-  const sail = sailPlane.toNonIndexed();
-  sailPlane.dispose();
-  sail.translate(mast.x + (plan.reverse ? -1 : 1) * (0.06 + width / 2), plan.centerY, (mast.z ?? 0) + 0.03);
-  // Both inputs carry only the established cloth attributes: no new location.
-  for (const geometry of [hull, sail]) {
-    for (const name of Object.keys(geometry.attributes)) {
-      if (!["position", "normal", "uv", "color"].includes(name)) geometry.deleteAttribute(name);
+  const sailPositions: number[] = [];
+  for (const mast of rig) {
+    const plan = mast.sails[0]!;
+    const scale = mast === largest ? 1.2 : 1;
+    const width = plan.width * scale;
+    const halfHeight = plan.height * scale * 0.5;
+    const direction = plan.reverse ? -1 : 1;
+    const top = plan.centerY + halfHeight;
+    const foot = Math.min(plan.centerY - halfHeight, FAR_SAIL_FOOT_MAX_Y);
+    const angle = plan.kind === "rectangle" ? FAR_SQUARE_BRACE : direction * FAR_FORE_AFT_SHEET;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const points = farSailOutline(plan.kind, direction, width, top, foot).map(([along, y]) => [
+      mast.x + along * cos,
+      y,
+      (mast.z ?? 0) - along * sin,
+    ] as const);
+    for (let index = 1; index < points.length - 1; index += 1) {
+      sailPositions.push(...points[0]!, ...points[index]!, ...points[index + 1]!);
     }
-    if (!geometry.getAttribute("color")) {
-      geometry.setAttribute("color", new Float32BufferAttribute(
-        new Float32Array(geometry.getAttribute("position").count * 3).fill(1), 3,
-      ));
-    }
+  }
+  const sail = new BufferGeometry();
+  sail.setAttribute("position", new Float32BufferAttribute(sailPositions, 3));
+
+  const parts = [...hulls, sail];
+  // Only the established cloth attributes: no new location on the program.
+  for (const geometry of parts) {
+    const vertices = geometry.getAttribute("position").count;
+    geometry.computeVertexNormals();
+    geometry.setAttribute("uv", new Float32BufferAttribute(new Float32Array(vertices * 2), 2));
+    geometry.setAttribute("color", new Float32BufferAttribute(new Float32Array(vertices * 3).fill(1), 3));
     markAtlasSail(geometry, geometry === sail);
   }
-  const far = mergeGeometries([hull, sail], false);
-  hull.dispose();
-  sail.dispose();
+  const far = mergeGeometries(parts, false);
+  for (const geometry of parts) geometry.dispose();
   if (!far) throw new Error("garden-ships: far hull merge failed");
   return far;
 }
@@ -2005,29 +2422,38 @@ function addFamilySilhouetteParts(
   }
 
   if (silhouette === "bezaisen") {
-    // 2026-09-07 T3.3: the stern castle's eaves and roof. Same treatment as the
-    // takasebune covers below — a squashed half-cylinder over a dark trim band
-    // — because that is the shape language the fleet already speaks, and it is
-    // what stops a taller box from reading as a taller box.
-    //
-    // Every number here answers to one ceiling: the roof crown must stay under
-    // the identity sail's centerY (3.15) so the castle crops, at worst, the
-    // sail's lower corner and never the mark. Deck 0.52 + cabin 2.4 = 2.92 box
-    // top; the roof seats 0.02 into it and rises 1.595 * 0.15 = 0.239, crown
-    // 3.139. `garden-ships.test.ts` pins that margin.
-    const CASTLE_X = -2.35;
+    // W4.F6 (fleet-craft-6): the yagura's eave band and gentle roof — a
+    // squashed half-cylinder over a dark trim band, the takasebune covers'
+    // shape language — sized from the cabin table so the two cannot drift.
+    // Deck 0.52 + house 0.9 = 1.42; the roof rises 1.10 * 0.22 ≈ 0.24 to a
+    // crown of ≈1.68, below the braced yard's foot.
+    const house = GARDEN_SHIP_CABINS.bezaisen!;
+    const eaveY = 0.52 + house.height + 0.02;
     parts.push({
-      geometry: new BoxGeometry(2.464, 0.1, 3.19),
+      geometry: new BoxGeometry(house.width * 1.12, 0.08, house.z * 1.12),
       tint: FLEET_BATCH_TINTS.mast,
-      transform: new Matrix4().setPosition(CASTLE_X, 2.92, 0),
+      transform: new Matrix4().setPosition(house.x, eaveY, 0),
     });
-    const roof = new CylinderGeometry(1.595, 1.595, 2.464, 8, 1, false, 0, Math.PI);
+    const roofRadius = house.z * 0.58;
+    const roof = new CylinderGeometry(roofRadius, roofRadius, house.width * 1.14, 8, 1, false, 0, Math.PI);
     roof.rotateZ(Math.PI / 2);
-    roof.scale(1, 0.15, 1);
+    roof.scale(1, 0.22, 1);
     parts.push({
       geometry: roof,
       tint: FLEET_BATCH_TINTS.deck,
-      transform: new Matrix4().setPosition(CASTLE_X, 2.90, 0),
+      transform: new Matrix4().setPosition(house.x, eaveY, 0),
+    });
+    // The misaki: a stem post rising from the forefoot, raked forward, its
+    // head recurving aft — the prow that names the family at a distance.
+    // Front corners stay inside x 3.65 (the 3.7 clearance reach).
+    parts.push({
+      geometry: new BoxGeometry(0.16, 1.16, 0.1),
+      tint: FLEET_BATCH_TINTS.mast,
+      transform: new Matrix4().makeRotationZ(-0.138).setPosition(3.48, 0.775, 0),
+    }, {
+      geometry: new BoxGeometry(0.14, 0.27, 0.1),
+      tint: FLEET_BATCH_TINTS.mast,
+      transform: new Matrix4().makeRotationZ(0.235).setPosition(3.53, 1.475, 0),
     });
   }
 
@@ -2085,15 +2511,16 @@ function markFurlableSail(geometry: BufferGeometry, index: number): void {
 /**
  * W2.3/W4: the yard a furled sail bundles onto — the top edge of this sail,
  * in ship space. Every vertex of one sail carries the same head, so the shader
- * can collapse the cloth onto it without knowing the rig plan.
+ * can collapse the cloth onto it without knowing the rig plan. W4.F1: a
+ * square sail's head x/z is its mast, the pivot the shader braces it about.
  */
-function bakeSailHead(geometry: BufferGeometry): void {
+function bakeSailHead(geometry: BufferGeometry, pivot?: { x: number; z: number }): void {
   const position = geometry.getAttribute("position");
   geometry.computeBoundingBox();
   const box = geometry.boundingBox!;
   const head = new Float32Array(position.count * 3);
-  const centerX = (box.min.x + box.max.x) / 2;
-  const centerZ = (box.min.z + box.max.z) / 2;
+  const centerX = pivot?.x ?? (box.min.x + box.max.x) / 2;
+  const centerZ = pivot?.z ?? (box.min.z + box.max.z) / 2;
   for (let index = 0; index < position.count; index += 1) {
     head[index * 3] = centerX;
     head[index * 3 + 1] = box.max.y;
@@ -2108,7 +2535,11 @@ function bakeSailHead(geometry: BufferGeometry): void {
  * uniform.
  */
 function mergeAtlasSails(
-  parts: readonly { geometry: BufferGeometry; transform?: Matrix4 }[],
+  parts: readonly {
+    geometry: BufferGeometry;
+    pivot?: { x: number; z: number } | undefined;
+    transform?: Matrix4;
+  }[],
 ): BufferGeometry {
   const prepared: BufferGeometry[] = [];
   for (const part of parts) {
@@ -2118,13 +2549,15 @@ function mergeAtlasSails(
     if (part.transform) geometry.applyMatrix4(part.transform);
     if (!geometry.getAttribute("normal")) geometry.computeVertexNormals();
     if (!geometry.getAttribute("color")) {
+      // Plain cloth: full shade, cloth flag, no panels (so never braced).
       const count = geometry.getAttribute("position").count;
-      const colors = new Float32Array(count * 3).fill(1);
+      const colors = new Float32Array(count * 3);
+      for (let index = 0; index < count; index += 1) colors.set([1, 1, 0], index * 3);
       geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
     }
     // The yard is only known once the sail sits in ship space, so `aSailHead`
     // is written after the transform rather than at authoring time.
-    bakeSailHead(geometry);
+    bakeSailHead(geometry, part.pivot);
     prepared.push(geometry);
   }
   const merged = mergeGeometries(prepared, false);
@@ -2292,11 +2725,15 @@ function createHullShape(silhouette: GardenHullSilhouette, scale: number): Shape
   // createHullGeometry via GARDEN_HULL_FORM. Points run stern → starboard →
   // bow → port, x along the keel (bow at +x), y = half-beam.
   const points: Record<GardenHullSilhouette, ReadonlyArray<readonly [number, number]>> = {
-    // Bezaisen: broad plank carrier with a square transom and bluff entry.
+    // Bezaisen (W4.F6, fleet-craft-6): the long, low coastal trader. Half-beam
+    // 2.0 -> 1.28 (plan L/B 1.73 -> 2.65), a fine entry and a narrower transom,
+    // on the same 14 points (no triangle cost). The overall reach stays inside
+    // the 3.7 clearance table, so no berth moves; the stem post is a family
+    // part (`addFamilySilhouetteParts`).
     bezaisen: [
-      [-3.25, -1.72], [-3.45, -1.05], [-3.48, 0], [-3.45, 1.05], [-3.25, 1.72],
-      [-1.8, 1.98], [0.1, 2], [1.75, 1.9], [2.9, 1.5], [3.45, 0],
-      [2.9, -1.5], [1.75, -1.9], [0.1, -2], [-1.8, -1.98],
+      [-3.25, -1], [-3.4, 0], [-3.25, 1],
+      [-1.8, 1.24], [0, 1.28], [1.6, 1.18], [2.6, 0.84], [3.12, 0.42], [3.4, 0],
+      [3.12, -0.42], [2.6, -0.84], [1.6, -1.18], [0, -1.28], [-1.8, -1.24],
     ],
     // Kobaya: intentionally needle-thin, with a long fine run into the stem.
     kobaya: [
@@ -2357,8 +2794,11 @@ const GARDEN_HULL_FORM: Record<
   // family; the kobaya needs a slight overhang, while the junk's near-vertical
   // transom is a deliberate contrast rather than the
   // only option available.
+  // W4.F6: the bow sweeps up into the stem post (sheerBow 0.18 -> 0.42) and the
+  // stern rises under the yagura (0.38 -> 0.44); bowRake stays low so the stem
+  // head keeps inside the 3.7 reach.
   bezaisen: {
-    bowFlare: 0.06, bowRake: 0.06, sheerBow: 0.18, sheerStern: 0.38, sternRake: 0.04, tumblehome: 0.08,
+    bowFlare: 0.06, bowRake: 0.06, sheerBow: 0.42, sheerStern: 0.44, sternRake: 0.04, tumblehome: 0.08,
   },
   kobaya: {
     bowFlare: 0.08, bowRake: 0.32, sheerBow: 0.16, sheerStern: 0.08, sternRake: 0.14, tumblehome: 0.08,
@@ -2445,37 +2885,53 @@ export const GARDEN_SAIL_BATTEN_V: readonly number[] = [1, 2, 3, 4, 5]
 export const GARDEN_SAIL_BAND_FALLOFF = 0.08;
 
 /**
- * Sail cloth as a tessellated grid (S2) instead of a flat shape: the center
- * belly is displaced so sails read wind-filled, and the head (yard) is yawed
- * a few degrees versus the foot. UVs map 0–1 across the cloth so the identity
- * logo texture lands exactly as before.
+ * W4.F1 (fleet-craft-1): the square sail is cloth on a yard, not a banner on a
+ * pole. It hangs ATHWARTSHIPS, centred on the mast, from a dark yard that
+ * crosses the mast (1.08× the cloth), and the batch shader braces cloth and
+ * yard together about the mast (contract F-A). There is no foot spar: the
+ * foot rises in a catenary between the two sheeted clews, and the cloth
+ * bellies forward, fullest a little below the middle, with the troughs baked
+ * a shade darker. The mon rides the curved cloth.
  */
-function createSailGeometry(plan: GardenSailPlan): BufferGeometry {
+const SQUARE_SAIL_BELLY = 0.2;
+const SQUARE_SAIL_FOOT_RISE = 0.12;
+const SQUARE_SAIL_FOOT_RISE_ABOVE = 0.05;
+/** The cloth hangs just forward of the mast; the yard sits between them. */
+const SQUARE_SAIL_FORWARD = 0.14;
+const SQUARE_SAIL_YARD_X = 0.08;
+const SQUARE_SAIL_YARD_SPAN = 1.08;
+const SQUARE_SAIL_TROUGH = 0.12;
+/** Braced, centred cloth shows more of itself than the old one-sided card: 1.2 → 1.1. */
+const IDENTITY_SQUARE_SAIL_SCALE = 1.1;
+
+/** Belly profile of a square sail: 0 at the leeches and the yard, fullest near v 0.43. */
+function squareSailBelly(u: number, v: number): number {
+  return Math.sin(Math.PI * u) * Math.sin(Math.PI * (0.12 + 0.88 * v));
+}
+
+/**
+ * Sail cloth as a tessellated grid (S2) instead of a flat shape. Square sails
+ * are described above. The other rigs run from the mast (x = 0) out along the
+ * keel to their leech, belly athwartships, and twist their head a few degrees
+ * about the mast. UVs map 0–1 across the cloth so the identity logo lands on
+ * the atlas cell.
+ */
+function createSailClothGeometry(plan: GardenSailPlan): BufferGeometry {
+  const square = plan.kind === "rectangle";
   const direction = plan.reverse ? -1 : 1;
   const halfHeight = plan.height * 0.5;
   // Leech/roach outline from head (top) back to foot, y descending — used to
   // find the right-edge x for any grid row. Mast edge stays at x = 0; the
   // final point walks the foot edge back to the mast so low rows keep width.
-  const leech: Array<readonly [number, number]> = plan.kind === "fore-aft"
+  const leech: Array<readonly [number, number]> = plan.kind === "fore-aft" || plan.kind === "triangle"
     ? [[halfHeight, 0], [-halfHeight * 0.78, direction * plan.width], [-halfHeight, 0]]
-    : plan.kind === "triangle"
-      ? [
-        [halfHeight, 0],
-        [-halfHeight * 0.78, direction * plan.width],
-        [-halfHeight, 0],
-      ]
-      : plan.kind === "rectangle"
-        ? [
-          [halfHeight, direction * plan.width],
-          [-halfHeight, direction * plan.width],
-        ]
-        : [
-          [halfHeight, 0],
-          [halfHeight * 0.68, direction * plan.width * 0.72],
-          [0, direction * plan.width],
-          [-halfHeight * 0.75, direction * plan.width * 0.86],
-          [-halfHeight, 0],
-        ];
+    : [
+      [halfHeight, 0],
+      [halfHeight * 0.68, direction * plan.width * 0.72],
+      [0, direction * plan.width],
+      [-halfHeight * 0.75, direction * plan.width * 0.86],
+      [-halfHeight, 0],
+    ];
   const edgeXAt = (y: number): number => {
     for (let index = 0; index < leech.length - 1; index += 1) {
       const [y0, x0] = leech[index]!;
@@ -2487,34 +2943,37 @@ function createSailGeometry(plan: GardenSailPlan): BufferGeometry {
     }
     return 0;
   };
-
-  // Belly depth scales with sail width; the yard yaw twists the head a few
-  // degrees around the mast axis so square sails never read as paper.
-  const belly = plan.width * (plan.kind === "rectangle" ? 0.18 : 0.14);
-  const yardYaw = plan.kind === "rectangle" ? direction * 0.1 : direction * 0.05;
+  const belly = plan.width * 0.14;
+  const yardYaw = direction * 0.05;
 
   const vertexCount = (GARDEN_SAIL_SEGMENTS_U + 1) * (GARDEN_SAIL_SEGMENTS_V + 1);
-  const hasSpars = plan.kind === "rectangle" || plan.kind === "fore-aft";
-  const positions = new Float32Array((vertexCount + (hasSpars ? 6 : 0)) * 3);
-  const uvs = new Float32Array((vertexCount + (hasSpars ? 6 : 0)) * 2);
+  const positions = new Float32Array(vertexCount * 3);
+  const uvs = new Float32Array(vertexCount * 2);
   const indices: number[] = [];
   for (let row = 0; row <= GARDEN_SAIL_SEGMENTS_V; row += 1) {
     const v = row / GARDEN_SAIL_SEGMENTS_V;
     const y = -halfHeight + v * plan.height;
-    const edgeX = edgeXAt(y);
+    const edgeX = square ? 0 : edgeXAt(y);
     for (let column = 0; column <= GARDEN_SAIL_SEGMENTS_U; column += 1) {
       const u = column / GARDEN_SAIL_SEGMENTS_U;
-      const baseX = edgeX * u;
-      // Yard yaw: rotate the row about the mast line, most at the head.
-      const yaw = yardYaw * v * v;
-      const x = baseX * Math.cos(yaw);
-      let z = -baseX * Math.sin(yaw);
-      // Belly: fullest mid-panel, pinned flat at mast, head, and foot.
-      z += Math.sin(u * Math.PI) * Math.sin(v * Math.PI) * belly;
       const vertex = row * (GARDEN_SAIL_SEGMENTS_U + 1) + column;
-      positions[vertex * 3] = x;
-      positions[vertex * 3 + 1] = y;
-      positions[vertex * 3 + 2] = z;
+      if (square) {
+        const footRise = row === 0 ? SQUARE_SAIL_FOOT_RISE : row === 1 ? SQUARE_SAIL_FOOT_RISE_ABOVE : 0;
+        positions[vertex * 3] = SQUARE_SAIL_FORWARD + SQUARE_SAIL_BELLY * plan.width * squareSailBelly(u, v);
+        positions[vertex * 3 + 1] = y + footRise * plan.height * Math.sin(Math.PI * u);
+        // u runs to starboard, so the mon reads true from astern — the face
+        // the rest seat sees on hulls lying at their moorings.
+        positions[vertex * 3 + 2] = (u - 0.5) * plan.width;
+      } else {
+        const baseX = edgeX * u;
+        // Yard yaw: rotate the row about the mast line, most at the head.
+        const yaw = yardYaw * v * v;
+        positions[vertex * 3] = baseX * Math.cos(yaw);
+        positions[vertex * 3 + 1] = y;
+        // Belly: fullest mid-panel, pinned flat at mast, head, and foot.
+        positions[vertex * 3 + 2] = -baseX * Math.sin(yaw)
+          + Math.sin(u * Math.PI) * Math.sin(v * Math.PI) * belly;
+      }
       uvs[vertex * 2] = u;
       uvs[vertex * 2 + 1] = v;
       if (row < GARDEN_SAIL_SEGMENTS_V && column < GARDEN_SAIL_SEGMENTS_U) {
@@ -2526,100 +2985,160 @@ function createSailGeometry(plan: GardenSailPlan): BufferGeometry {
       }
     }
   }
-  if (hasSpars) {
-    // Two tapered timber strips, one triangle each, share the cloth's motion.
-    // Edge UVs keep the mon off the spars; vertex value supplies dark wood.
-    for (let spar = 0; spar < 2; spar += 1) {
-      const head = spar === 0;
-      const yaw = head ? yardYaw : 0;
-      const y = head ? halfHeight : -halfHeight;
-      const span = direction * plan.width * 1.04;
-      const start = vertexCount + spar * 3;
-      positions.set([
-        -direction * 0.09, y - 0.055, 0,
-        -direction * 0.09, y + 0.055, 0,
-        span * Math.cos(yaw), y, -span * Math.sin(yaw),
-      ], start * 3);
-      indices.push(start, start + 1, start + 2);
-    }
-  }
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
   geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   bakeSailVertexColors(geometry, plan);
-  if (hasSpars) {
-    const colors = geometry.getAttribute("color");
-    for (let index = vertexCount; index < colors.count; index += 1) colors.setXYZ(index, 0.22, 0.2, 0.16);
-  }
   return geometry;
 }
 
 /**
- * W5.4 cloth detail: vertical panel seams and the junk's battens baked into the
- * sail's vertex color, plus a slight shading of the belly so the cloth reads
- * as fabric under tension rather than a printed card.
+ * The timber a sail is bent to. Square sails: one yard across the mast,
+ * tapering to its yardarms, as two crossed strips so it never goes edge-on.
+ * Fore-and-aft: the head yard and the foot boom it keeps. Other rigs: none.
+ * Vertex colour is (1, 0, panels/16): green 0 marks timber (dark, undyed, no
+ * belly) and blue lets the yard brace with its cloth.
+ */
+function createSailSparGeometry(plan: GardenSailPlan): BufferGeometry | null {
+  const halfHeight = plan.height * 0.5;
+  const positions: number[] = [];
+  if (plan.kind === "rectangle") {
+    const reach = plan.width * SQUARE_SAIL_YARD_SPAN * 0.5;
+    const y = halfHeight + 0.05;
+    const stations = [-reach, 0, reach];
+    const thickness = (z: number): number => (z === 0 ? 0.07 : 0.035);
+    for (let index = 0; index < stations.length - 1; index += 1) {
+      const z0 = stations[index]!;
+      const z1 = stations[index + 1]!;
+      const t0 = thickness(z0);
+      const t1 = thickness(z1);
+      positions.push(
+        // Vertical strip (faces fore and aft).
+        SQUARE_SAIL_YARD_X, y - t0, z0, SQUARE_SAIL_YARD_X, y + t0, z0, SQUARE_SAIL_YARD_X, y - t1, z1,
+        SQUARE_SAIL_YARD_X, y - t1, z1, SQUARE_SAIL_YARD_X, y + t0, z0, SQUARE_SAIL_YARD_X, y + t1, z1,
+        // Horizontal strip (faces up and down).
+        SQUARE_SAIL_YARD_X - t0, y, z0, SQUARE_SAIL_YARD_X + t0, y, z0, SQUARE_SAIL_YARD_X - t1, y, z1,
+        SQUARE_SAIL_YARD_X - t1, y, z1, SQUARE_SAIL_YARD_X + t0, y, z0, SQUARE_SAIL_YARD_X + t1, y, z1,
+      );
+    }
+  } else if (plan.kind === "fore-aft") {
+    const direction = plan.reverse ? -1 : 1;
+    const span = direction * plan.width * 1.04;
+    for (const [y, yaw] of [[halfHeight, direction * 0.05], [-halfHeight, 0]] as const) {
+      positions.push(
+        -direction * 0.09, y - 0.055, 0,
+        -direction * 0.09, y + 0.055, 0,
+        span * Math.cos(yaw), y, -span * Math.sin(yaw),
+      );
+    }
+  } else {
+    return null;
+  }
+  const count = positions.length / 3;
+  const colors = new Float32Array(count * 3);
+  for (let index = 0; index < count; index += 1) {
+    colors[index * 3] = 1;
+    colors[index * 3 + 2] = (plan.panels ?? 0) / 16;
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new Float32BufferAttribute(new Float32Array(count * 2), 2));
+  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  geometry.setIndex([...Array(count).keys()]);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** Cloth and its spars as one geometry, for the batch: they share dip, furl and brace. */
+function createSailGeometry(plan: GardenSailPlan): BufferGeometry {
+  const cloth = createSailClothGeometry(plan);
+  const spars = createSailSparGeometry(plan);
+  if (!spars) return cloth;
+  const merged = mergeGeometries([cloth, spars], false);
+  cloth.dispose();
+  spars.dispose();
+  if (!merged) throw new Error("garden-ships: sail spar merge failed");
+  return merged;
+}
+
+/**
+ * Cloth detail baked into the sail's vertex colour, as three channels:
+ * - red: the cloth's shade — the junk's battens, and a gentle darkening where
+ *   the cloth curves away (the leech of a fore-and-aft sail, the troughs of a
+ *   square sail's belly). Deliberately shallow: on the identity sail it
+ *   multiplies the mark.
+ * - green: 1 on cloth, 0 on timber (`createSailSparGeometry`).
+ * - blue: W4.F5 panel count / 16 — the batch shader draws the momen-ho strips
+ *   from it, and it marks the square sails the shader braces. The old
+ *   three-panel vertex seam is gone; seams at vertex resolution were too
+ *   coarse to read.
  *
- * Deliberately greyscale and shallow. On the identity sail this multiplies the
- * logo atlas read, so anything strong here would eat the mark it exists to
- * show. `mergeAtlasSails` fills color with 1 when a sail has none, so producing
- * the attribute here keeps every sail on the same merge path.
+ * `mergeAtlasSails` fills colour with 1 when a sail has none, so every sail
+ * writes all three channels here.
  *
  * 2026-09-07 T1.9 (Nyquist): the cloth is a `GARDEN_SAIL_SEGMENTS_V`-row grid,
  * so a band only exists at all if it lands ON a row — vertex color cannot
- * represent anything between two rows. The old battens (0.16/0.32/0.48/0.64/
- * 0.8, falloff 0.025) put three of five between rows, where they rendered as
- * exactly zero, and the two reef bands (0.14/0.27) missed every row on every
- * sail in the fleet — they have never rendered once. Battens now sit on
+ * represent anything between two rows. Battens sit on
  * `n / GARDEN_SAIL_SEGMENTS_V` and the falloff is half the row pitch, so each
- * band is sampled by exactly its own row. The reef bands are deleted rather
- * than re-sited: every free row is a batten row on the junk, and re-siting them
- * would newly darken every sail in the fleet, which is a look change nobody
- * asked for and not what T1.9 is (restoring 24% of the fleet's defining form).
+ * band is sampled by exactly its own row.
  */
 function bakeSailVertexColors(geometry: BufferGeometry, plan: GardenSailPlan): void {
   const position = geometry.getAttribute("position");
   const uv = geometry.getAttribute("uv");
   const colors = new Float32Array(position.count * 3);
-  // 2026-09-07 T1.9: rectangle panels 5 -> 3. `u` is also on a
-  // `GARDEN_SAIL_SEGMENTS_U` (6) grid, and 5 panels put every seam between two
-  // columns; 3 divides 6, so the seams land on columns 1, 3 and 5.
-  const panels = 3;
+  const panels = (plan.panels ?? 0) / 16;
   for (let index = 0; index < position.count; index += 1) {
     const u = uv.getX(index);
     const v = uv.getY(index);
-    // Panel seams: narrow darker lines where the cloths are sewn together.
-    const seam = Math.abs((u * panels - Math.floor(u * panels)) - 0.5) * 2;
-    let shade = 1 - 0.07 * (1 - MathUtils.smoothstep(seam, 0, 0.35));
-    if (plan.kind === "junk") {
-      // Five high-contrast battens make the sail an asymmetric fan at default
-      // zoom; they are cloth shading, so they stay inside the one sail draw.
-      for (const batten of GARDEN_SAIL_BATTEN_V) {
-        shade -= 0.18 * (1 - MathUtils.smoothstep(
-          Math.abs(v - batten),
-          0,
-          GARDEN_SAIL_BAND_FALLOFF,
-        ));
+    let shade = 1;
+    if (plan.kind === "rectangle") {
+      shade -= SQUARE_SAIL_TROUGH * (1 - squareSailBelly(u, v));
+    } else {
+      if (plan.kind === "junk") {
+        // Five high-contrast battens make the sail an asymmetric fan at default
+        // zoom; they are cloth shading, so they stay inside the one sail draw.
+        for (const batten of GARDEN_SAIL_BATTEN_V) {
+          shade -= 0.18 * (1 - MathUtils.smoothstep(
+            Math.abs(v - batten),
+            0,
+            GARDEN_SAIL_BAND_FALLOFF,
+          ));
+        }
       }
+      // The belly catches less light toward the leech as it curves away.
+      shade *= 1 - 0.06 * u * u;
     }
-    // The belly catches less light toward the leech as it curves away.
-    shade *= 1 - 0.06 * u * u;
     colors[index * 3] = shade;
-    colors[index * 3 + 1] = shade;
-    colors[index * 3 + 2] = shade;
+    colors[index * 3 + 1] = 1;
+    colors[index * 3 + 2] = panels;
   }
   geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
 }
 
 /**
- * S3: sparse real rigging — per mast a forestay (to the next mast toward the
- * bow, or to the bow tip for the foremast), a backstay to the stern deck, and
- * two shrouds to the rails; junks additionally keep their horizontal sail
- * battens. Everything merges into one cached LineSegments point list per
- * silhouette so the whole rig stays a single draw call.
+ * The masthead the stays hang from: 0.34 above the deck-stepped mast's
+ * nominal height, moved along the mast's rake so the lines meet the spar the
+ * batch actually draws (the rake pivots the mast about its mid-height).
  */
-function riggingPoints(
+function riggingMastHead(silhouette: GardenHullSilhouette, mastPlan: GardenMastPlan): Vector3 {
+  const y = mastPlan.height + 0.34;
+  const rake = GARDEN_SHIP_MAST_RAKE[silhouette];
+  return new Vector3(
+    mastPlan.x - Math.sin(rake) * (y - (0.55 + mastPlan.height / 2)),
+    y,
+    mastPlan.z ?? 0,
+  );
+}
+
+/**
+ * S3 standing rigging, as endpoint pairs: per mast (bow-most first) a
+ * forestay (to the next mast toward the bow, or to the stem for the foremast),
+ * a backstay to the stern deck and two shrouds to the rails — always in that
+ * order. The batched hero band draws exactly these (W4.F8, `fleetHeroRigLines`).
+ */
+function standingRiggingPoints(
   silhouette: GardenHullSilhouette,
   rig: readonly GardenMastPlan[],
 ): Vector3[] {
@@ -2633,7 +3152,7 @@ function riggingPoints(
   const sternX = Math.min(...hullPoints.map((point) => point.x));
   for (const [index, mastPlan] of bowFirst.entries()) {
     const mastZ = mastPlan.z ?? 0;
-    const head = new Vector3(mastPlan.x, mastPlan.height + 0.34, mastZ);
+    const head = riggingMastHead(silhouette, mastPlan);
     const ahead = bowFirst[index - 1];
     // Forestay: to the mast ahead at ~2/3 height, or to the stem/bowsprit.
     points.push(
@@ -2647,12 +3166,36 @@ function riggingPoints(
     // Two shrouds to the rails, a touch aft of the mast.
     points.push(head, new Vector3(mastPlan.x - 0.32, 0.6, mastZ + halfBeam * 0.82));
     points.push(head, new Vector3(mastPlan.x - 0.32, 0.6, mastZ - halfBeam * 0.82));
+  }
+  return points;
+}
+
+/**
+ * S3: sparse real rigging for the scene-graph hulls — the standing rig above,
+ * the W5.4 halyards, and the junk's horizontal sail battens. Everything merges
+ * into one cached LineSegments point list per silhouette so the whole rig
+ * stays a single draw call.
+ */
+function riggingPoints(
+  silhouette: GardenHullSilhouette,
+  rig: readonly GardenMastPlan[],
+): Vector3[] {
+  const points = standingRiggingPoints(silhouette, rig);
+  for (const mastPlan of rig) {
+    const mastZ = mastPlan.z ?? 0;
+    const head = riggingMastHead(silhouette, mastPlan);
     // W5.4 halyards: the lines that actually hoist each yard, running from the
     // masthead down to the head of every sail on this mast. Two segments per
     // sail, so the rig reads as worked rather than decorative.
     for (const sailPlan of mastPlan.sails) {
       const direction = sailPlan.reverse ? -1 : 1;
       const headY = sailPlan.centerY + sailPlan.height * 0.5;
+      // W4.F1: a square sail's halyard hoists the yard's slings at the mast;
+      // the yard itself is timber on the sail, braced with it.
+      if (sailPlan.kind === "rectangle") {
+        points.push(head, new Vector3(mastPlan.x + SQUARE_SAIL_YARD_X, headY + 0.05, mastZ));
+        continue;
+      }
       points.push(head, new Vector3(mastPlan.x + direction * 0.05, headY, mastZ + 0.05));
       points.push(
         new Vector3(mastPlan.x + direction * 0.05, headY, mastZ + 0.05),
@@ -2692,31 +3235,6 @@ export function createPennantGeometry(): ShapeGeometry {
   shape.lineTo(0, -0.34);
   shape.closePath();
   return new ShapeGeometry(shape);
-}
-
-function createWake(cache: GardenShipGeometryCache): { detail: Group; root: Group } {
-  const root = new Group();
-  const detail = new Group();
-  root.name = "ship-wake";
-  detail.name = "ship-wake-detail";
-  root.add(detail);
-
-  // The nine foam quads now live in the world-wide GardenWakeBatch. Keep only
-  // the close-inspection line work below this per-ship anchor.
-  for (const z of [-0.5, 0.5]) {
-    const geometry = cachedShipGeometry(
-      cache,
-      `wake.${z}`,
-      () => new BufferGeometry().setFromPoints([
-        new Vector3(-2.25, -0.33, z * 0.36),
-        new Vector3(-3.8, -0.34, z * 1.35),
-        new Vector3(-5.8, -0.35, z * 2.48),
-      ]),
-    );
-    detail.add(new Line(geometry, cache.wakeMaterial));
-  }
-  root.visible = false;
-  return { detail, root };
 }
 
 export function createShipShadows(count: number): InstancedMesh<CircleGeometry, MeshBasicMaterial> {

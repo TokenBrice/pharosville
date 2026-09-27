@@ -2,6 +2,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
+import { defaultCamera } from "../systems/camera";
 import {
   buildMomentUrlHref,
   MOMENT_URL_SETTLE_DELAY_MS,
@@ -35,6 +36,18 @@ describe("moment URL", () => {
     expect(url.searchParams.get("debug")).toBe("1");
     expect(url.hash).toBe("#t=22&n=1");
     expect(url.searchParams.has("t")).toBe(false);
+  });
+
+  it("round-trips the interactive rig through cam and writes the rest ShotSpec as no cam", () => {
+    const rig = { offsetX: 12.3, offsetY: -5.7, zoom: 1.3 };
+    const withRig = buildMomentUrlHref("https://example.test/?cam=1,2@1", { camera: rig, shipId: null });
+    expect(parseMomentUrl(withRig).camera).toEqual(rig);
+
+    const rest = defaultCamera({ height: 1000, map: { height: 140, width: 140 }, width: 1600 });
+    const atRest = buildMomentUrlHref(withRig, { camera: rest, shipId: null });
+    expect(new URL(atRest).searchParams.has("cam")).toBe(false);
+    // No cam restores nothing: the world opens on its rest ShotSpec.
+    expect(parseMomentUrl(atRest).camera).toBeNull();
   });
 
   it("parses only the query moment contract and ignores hash controls", () => {

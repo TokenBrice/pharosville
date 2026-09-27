@@ -27,13 +27,36 @@ export const RENDER_SCHEDULER_IDLE_AFTER_MS = 180_000;
  */
 export const RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS = 33;
 
+/**
+ * W0.21: how long after the last touch the loop keeps the display's full rate.
+ * A hand on the world (pointer, wheel, key, camera intent, a selection glide)
+ * gets every vsync; half a second after it lets go the loop eases back to the
+ * ambient cadence below.
+ */
+export const RENDER_SCHEDULER_INTERACTION_HOLD_MS = 500;
+
+/**
+ * W0.21 ambient cadence: a frame is drawn only once this long has passed since
+ * the last drawn frame, so a 120 Hz panel draws the unattended garden at 60 Hz
+ * (every second vsync) and a 60 Hz panel is untouched. 4 ms under the 60 Hz
+ * interval so vsync jitter cannot beat 120 against 60 and drop to 40.
+ * Motion is one dt clock accumulated from drawn frames, so a longer interval
+ * samples the same motion less often and never changes its speed.
+ */
+export const RENDER_SCHEDULER_AMBIENT_MIN_FRAME_MS = RENDER_SCHEDULER_TARGET_FRAME_MS - 4;
+
 export interface RenderSchedulerIdleState {
   idle: boolean;
+  /** A hand is on the world (or was, within `RENDER_SCHEDULER_INTERACTION_HOLD_MS`). */
+  interacting: boolean;
+  /** The loop skips any callback that arrives sooner than this after the last drawn frame. */
+  minFrameIntervalMs: number;
   targetFrameMs: number;
 }
 
 /**
- * Whether the world should be sampling itself at the idle duty cycle.
+ * Whether the world should be sampling itself at the idle duty cycle, and at
+ * which cadence the loop draws.
  *
  * Idle is orthogonal to the load tier: it says nobody is interacting, not that
  * the machine is struggling. Motion is a pure function of the world clock (see
@@ -41,16 +64,28 @@ export interface RenderSchedulerIdleState {
  * smoothing, both keyed on elapsed seconds), so a longer target samples the
  * same motion less often rather than slowing it down.
  *
+ * Three cadences share one interaction clock: display rate while interacting,
+ * the ambient 60 Hz cap between, and the idle duty cycle after
+ * `RENDER_SCHEDULER_IDLE_AFTER_MS`.
+ *
  * Reduced motion has no continuous clock to throttle — it draws one
- * deterministic static frame — so it is never idle.
+ * deterministic static frame — so it is never idle and never gated.
  */
 export function resolveRenderSchedulerIdleState(input: {
   msSinceInteraction: number;
   reducedMotion: boolean;
 }): RenderSchedulerIdleState {
-  const idle = !input.reducedMotion && input.msSinceInteraction >= RENDER_SCHEDULER_IDLE_AFTER_MS;
+  if (input.reducedMotion) {
+    return { idle: false, interacting: false, minFrameIntervalMs: 0, targetFrameMs: RENDER_SCHEDULER_TARGET_FRAME_MS };
+  }
+  const idle = input.msSinceInteraction >= RENDER_SCHEDULER_IDLE_AFTER_MS;
+  const interacting = input.msSinceInteraction < RENDER_SCHEDULER_INTERACTION_HOLD_MS;
   return {
     idle,
+    interacting,
+    minFrameIntervalMs: idle
+      ? RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS
+      : interacting ? 0 : RENDER_SCHEDULER_AMBIENT_MIN_FRAME_MS,
     targetFrameMs: idle ? RENDER_SCHEDULER_IDLE_TARGET_FRAME_MS : RENDER_SCHEDULER_TARGET_FRAME_MS,
   };
 }

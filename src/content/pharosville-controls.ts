@@ -2,7 +2,6 @@ export type PharosVilleControlGroupId = "inspect" | "camera" | "time" | "panels"
 
 export type PharosVilleControlInputKind =
   | "field"
-  | "footer"
   | "keyboard"
   | "mouse"
   | "panel"
@@ -61,7 +60,10 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
         id: "quick-find",
         label: "Find a ship or harbor by name",
         summary: "Opens a search field, top left. Type a ticker or name, use the arrow keys to move through matches, and press Enter to select one and centre the view on it.",
-        inputs: [{ kind: "keyboard", label: "/", tokens: ["/"] }],
+        inputs: [
+          { kind: "keyboard", label: "/", tokens: ["/"] },
+          { kind: "toolbar", label: "find" },
+        ],
       },
       {
         id: "select-pointer-target",
@@ -108,14 +110,15 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
       {
         id: "reset-view",
         label: "Recenter the view",
-        summary: "Returns the camera to the default harbor view. The control sits with the world controls, bottom right; it brightens on hover or keyboard focus.",
+        summary: "Returns the camera to the resting harbor view. The circular-arrow glyph sits in the row behind explore, bottom right.",
         inputs: [{ kind: "toolbar", label: "Reset view control" }],
       },
       {
         id: "reveal-world-controls",
         label: "Reveal the world controls",
-        summary: "The three world controls idle faint, bottom right. They come up to full after any camera input, on hover, and whenever one of them takes keyboard focus.",
+        summary: "One word, explore, rests bottom right beside its / key. It unfolds a row of words — find, legend, ledger, stay — and three hairline glyphs: reset, observe and light. The row also comes up after any camera input, on hover, and whenever one of its controls takes keyboard focus.",
         inputs: [
+          { kind: "toolbar", label: "explore" },
           { kind: "keyboard", label: "Tab to a control", tokens: ["Tab"] },
           { kind: "mouse", label: "Hover the bottom-right controls" },
         ],
@@ -128,10 +131,16 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
     description: "Choose the session lighting without changing live data.",
     actions: [
       {
+        id: "set-time-of-day",
+        label: "Choose the light",
+        summary: "The sun or moon glyph opens the light drawer: set a time of day, return to local time, or hold the world still.",
+        inputs: [{ kind: "toolbar", label: "Light and motion drawer" }],
+      },
+      {
         id: "toggle-day-night",
         label: "Switch day or night",
         summary: "Switches between the day and night presentation, and clears any hour carried in the link.",
-        inputs: [{ kind: "toolbar", label: "Day-night control" }],
+        inputs: [{ kind: "toolbar", label: "Night preset in the light drawer" }],
       },
       {
         id: "nudge-session-hour",
@@ -140,6 +149,24 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
         inputs: [
           { kind: "keyboard", label: "Half an hour earlier", tokens: ["["] },
           { kind: "keyboard", label: "Half an hour later", tokens: ["]"] },
+        ],
+      },
+      {
+        id: "stay",
+        label: "Stay",
+        summary: "Leaves the harbour open as a window: full screen where the browser allows, the screen kept awake, the controls and then the cursor fading, and the view held at its resting shot. The caption returns when something happens and when the hour strikes. Escape or a click leaves.",
+        inputs: [
+          { kind: "toolbar", label: "stay" },
+          { kind: "keyboard", label: "Leave Stay", tokens: ["Escape"] },
+        ],
+      },
+      {
+        id: "wander",
+        label: "Wander",
+        summary: "Glides to one of six places inside the harbour — a deck in the north basin, the mole, the crane islet, the tea-house, the crag stair, the inlet mouth — and holds the view there. Press again for the next place; any other key, click or scroll glides back to the resting view.",
+        inputs: [
+          { kind: "toolbar", label: "wander" },
+          { kind: "keyboard", label: "W", tokens: ["W"] },
         ],
       },
     ],
@@ -151,20 +178,26 @@ export const PHAROSVILLE_CONTROL_GROUPS: readonly PharosVilleControlGroup[] = [
     actions: [
       {
         id: "open-legend",
-        label: "Open legend",
-        summary: "Reopens the visual legend from the footer.",
-        inputs: [{ kind: "footer", label: "Legend button" }],
+        label: "Open the field guide",
+        summary: "The legend word behind explore opens a short field guide to the sails, the water and the lighthouse.",
+        inputs: [{ kind: "toolbar", label: "legend" }],
+      },
+      {
+        id: "open-ledger",
+        label: "Open the harbor ledger",
+        summary: "The ledger word opens every reading and its source, the session's harbor log of risk-band changes and sightings, and any change since your last visit.",
+        inputs: [{ kind: "toolbar", label: "ledger" }],
       },
       {
         id: "open-changelog",
         label: "Open changelog",
-        summary: "Reopens the commit-collected changelog from the footer.",
-        inputs: [{ kind: "footer", label: "Changelog button" }],
+        summary: "Opens the commit-collected changelog from the foot of the field guide.",
+        inputs: [{ kind: "panel", label: "Changelog button in the field guide" }],
       },
       {
         id: "close-reference-panel",
         label: "Close open reference panel",
-        summary: "Closes an open legend or changelog panel.",
+        summary: "Closes the open field guide, ledger or changelog.",
         inputs: [
           { kind: "keyboard", label: "Escape", tokens: ["Escape"] },
           { kind: "panel", label: "Panel close button" },

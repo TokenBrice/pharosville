@@ -110,9 +110,9 @@ describe("sea region field", () => {
   });
 
   it("escalates water character monotonically with risk", () => {
-    // D6: colour is never the only encoding. Roughness must climb and
-    // reflectivity must fall as the band worsens, so the sea state is legible
-    // without reading hue.
+    // D6 / K7: colour is never the only encoding. Roughness must climb and
+    // reflectivity must fall as the band worsens, so the sea state — glass to
+    // leaden — is legible without reading hue.
     const bands = ["calm", "watch", "alert", "warning", "danger"] as const;
     for (let index = 1; index < bands.length; index += 1) {
       const previous = SEA_REGION_CHARACTER[bands[index - 1]!];
@@ -121,6 +121,7 @@ describe("sea region field", () => {
       expect(current.chop).toBeGreaterThan(previous.chop);
       expect(current.foam).toBeGreaterThan(previous.foam);
       expect(current.reflectivity).toBeLessThan(previous.reflectivity);
+      expect(current.probeRoughness).toBeGreaterThan(previous.probeRoughness);
     }
   });
 
@@ -132,12 +133,15 @@ describe("sea region field", () => {
     }
   });
 
-  it("gives every named body an amplified, directional character", () => {
+  it("gives every named body a directional character with hue as a quiet second voice", () => {
     const bodies = ["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"] as const;
     for (const body of bodies) {
       const character = SEA_REGION_CHARACTER[body];
-      expect(character.tintStrength).toBeGreaterThanOrEqual(0.6);
-      expect(character.tintStrength).toBeLessThanOrEqual(0.72);
+      // K7: surface state is primary; the dye never paints a plate.
+      expect(character.tintStrength).toBeGreaterThanOrEqual(0.15);
+      expect(character.tintStrength).toBeLessThanOrEqual(0.3);
+      expect(character.probeRoughness).toBeGreaterThan(0);
+      expect(character.probeRoughness).toBeLessThan(1);
       expect(Number.isFinite(character.flowBearing)).toBe(true);
       expect(character.flowHold).toBeGreaterThanOrEqual(0);
       expect(character.flowHold).toBeLessThanOrEqual(1);
@@ -166,6 +170,7 @@ describe("sea region field", () => {
         character.swell / 2.1,
         character.chop / 2.5,
         character.reflectivity / 1.65,
+        character.probeRoughness / 0.55,
         character.shallowShelf,
         character.boundaryFoam / 0.24,
         character.boundaryBank / 0.22,

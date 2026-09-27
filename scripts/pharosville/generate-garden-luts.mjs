@@ -1,10 +1,22 @@
 #!/usr/bin/env node
 /**
- * Deterministically generates the two post-chain lookup textures the fused
- * grade pass consumes (Garden of Light W1.1 / W1.2):
+ * Deterministically generates the two post-chain lookup textures:
  *
  *   public/pharosville/textures/garden-grade-lut.png   1024x160 RGB
- *   public/pharosville/textures/garden-blue-noise.png  64x64 grey
+ *   public/pharosville/textures/garden-noise-pack.png  256x256 RGBA
+ *
+ * The noise pack (Hour-Print W8.4, K41) is the ONE shared noise texture every
+ * lane samples instead of shipping its own (the whole-map census is 72/72):
+ *
+ *   R  blue-noise dither: the 64x64 void-and-cluster mask (Garden of Light
+ *      W1.2) repeated 4x4, so the dither keeps its 64-pixel period and is
+ *      bit-identical to the retired standalone mask when addressed 1:1
+ *   G  fbm: five octaves of periodic gradient noise (periods 8..128 cells)
+ *   B  Worley F1: distance to the nearest of one seeded feature per 16x16 cell
+ *   A  curl: direction of the divergence-free curl of a periodic potential,
+ *      stored as angle/2pi (so it wraps: sample it unfiltered)
+ *
+ * Every channel tiles seamlessly at 256.
  *
  * WHY A SCRIPT AND NOT A COLOURIST'S .cube: this repository has no Resolve and
  * no Photoshop, and a hand-dragged curve nobody can regenerate is exactly the
@@ -31,7 +43,7 @@
  *   node scripts/pharosville/generate-garden-luts.mjs --check
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { deflateSync, inflateSync } from "node:zlib";
@@ -39,8 +51,10 @@ import { deflateSync, inflateSync } from "node:zlib";
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
 const outputDirectory = path.join(repoRoot, "public", "pharosville", "textures");
 const lutPath = path.join(outputDirectory, "garden-grade-lut.png");
-const blueNoisePath = path.join(outputDirectory, "garden-blue-noise.png");
-const consumerPath = path.join(repoRoot, "src", "three", "garden-post.ts");
+const noisePackPath = path.join(outputDirectory, "garden-noise-pack.png");
+const retiredBlueNoisePath = path.join(outputDirectory, "garden-blue-noise.png");
+const lutConsumerPath = path.join(repoRoot, "src", "three", "garden-post.ts");
+const noisePackConsumerPath = path.join(repoRoot, "src", "three", "garden-noise-pack.ts");
 const checkOnly = process.argv.includes("--check");
 
 /** Cube edge. 32 is the ceiling a 2D strip can carry without a huge texture. */
@@ -48,6 +62,7 @@ const LUT_SIZE = 32;
 /** Dawn, day, golden, blue, night — identical to the runtime beat order. */
 const LUT_BANDS = 5;
 const BLUE_NOISE_SIZE = 64;
+const NOISE_PACK_SIZE = 256;
 
 /**
  * How much of each authored transform survives into the baked cube.
@@ -82,8 +97,9 @@ const PHASES = [
     ],
   },
   {
+    // No orange hue-band boost: warmth belongs to the key light and the air,
+    // never to a grade that turns the golden frame sepia.
     ...BASE_GRADE, id: "golden", contrast: 0.14,
-    hueBands: [{ center: 38, rotate: 0, saturation: 1.04, width: 46 }],
   },
   {
     ...BASE_GRADE, id: "blue", contrast: 0.16,
@@ -91,10 +107,7 @@ const PHASES = [
   },
   {
     ...BASE_GRADE, id: "night", contrast: 0.2,
-    hueBands: [
-      { center: 38, rotate: 0, saturation: 1.04, width: 46 },
-      { center: 115, rotate: 0, saturation: 0.9, width: 50 },
-    ],
+    hueBands: [{ center: 115, rotate: 0, saturation: 0.9, width: 50 }],
   },
 ];
 
@@ -399,6 +412,143 @@ function mulberry32(seed) {
   };
 }
 
+// --- the packed garden noise (R dither, G fbm, B Worley, A curl) -----------
+
+/** One seeded unit gradient per lattice corner, periodic in `period` cells. */
+function periodicGradients(period, seed) {
+  const random = mulberry32(seed);
+  const gradients = new Float64Array(period * period * 2);
+  for (let index = 0; index < period * period; index += 1) {
+    const angle = random() * Math.PI * 2;
+    gradients[index * 2] = Math.cos(angle);
+    gradients[index * 2 + 1] = Math.sin(angle);
+  }
+  return gradients;
+}
+
+/** Perlin gradient noise at (u, v) in cell units, wrapping every `period` cells. Range ≈ ±0.7. */
+function periodicGradientNoise(gradients, period, u, v) {
+  const x0 = Math.floor(u);
+  const y0 = Math.floor(v);
+  const fx = u - x0;
+  const fy = v - y0;
+  const corner = (cx, cy, dx, dy) => {
+    const index = ((((cy % period) + period) % period) * period + (((cx % period) + period) % period)) * 2;
+    return gradients[index] * dx + gradients[index + 1] * dy;
+  };
+  const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+  const sx = fade(fx);
+  const sy = fade(fy);
+  const bottom = corner(x0, y0, fx, fy) + (corner(x0 + 1, y0, fx - 1, fy) - corner(x0, y0, fx, fy)) * sx;
+  const top = corner(x0, y0 + 1, fx, fy - 1)
+    + (corner(x0 + 1, y0 + 1, fx - 1, fy - 1) - corner(x0, y0 + 1, fx, fy - 1)) * sx;
+  return bottom + (top - bottom) * sy;
+}
+
+/** Octave sum over periods `basePeriod·2^k` across the tile, gain 0.5 per octave. */
+function periodicFbm(size, basePeriod, octaves, seed) {
+  const field = new Float64Array(size * size);
+  let amplitude = 1;
+  for (let octave = 0; octave < octaves; octave += 1) {
+    const period = basePeriod << octave;
+    const gradients = periodicGradients(period, seed + octave * 0x9e37);
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) {
+        field[y * size + x] += amplitude * periodicGradientNoise(gradients, period, (x + 0.5) * period / size, (y + 0.5) * period / size);
+      }
+    }
+    amplitude *= 0.5;
+  }
+  return field;
+}
+
+function normalizeToBytes(field) {
+  let low = Infinity;
+  let high = -Infinity;
+  for (const value of field) {
+    low = Math.min(low, value);
+    high = Math.max(high, value);
+  }
+  const bytes = new Uint8Array(field.length);
+  for (let index = 0; index < field.length; index += 1) {
+    bytes[index] = Math.round((field[index] - low) / (high - low) * 255);
+  }
+  return bytes;
+}
+
+/** Worley F1 with one seeded feature point per cell, wrapped at the tile edge. */
+function periodicWorley(size, cells, seed) {
+  const random = mulberry32(seed);
+  const cellSize = size / cells;
+  const features = new Float64Array(cells * cells * 2);
+  for (let index = 0; index < cells * cells; index += 1) {
+    features[index * 2] = ((index % cells) + random()) * cellSize;
+    features[index * 2 + 1] = (Math.floor(index / cells) + random()) * cellSize;
+  }
+  const field = new Float64Array(size * size);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const px = x + 0.5;
+      const py = y + 0.5;
+      const cx = Math.floor(px / cellSize);
+      const cy = Math.floor(py / cellSize);
+      let nearest = Infinity;
+      for (let oy = -1; oy <= 1; oy += 1) {
+        for (let ox = -1; ox <= 1; ox += 1) {
+          const nx = cx + ox;
+          const ny = cy + oy;
+          const index = (((ny % cells) + cells) % cells) * cells + (((nx % cells) + cells) % cells);
+          // Unwrap the neighbour's feature into this pixel's frame of reference.
+          const fx = features[index * 2] + (nx - (((nx % cells) + cells) % cells)) * cellSize;
+          const fy = features[index * 2 + 1] + (ny - (((ny % cells) + cells) % cells)) * cellSize;
+          nearest = Math.min(nearest, Math.hypot(fx - px, fy - py));
+        }
+      }
+      field[y * size + x] = nearest;
+    }
+  }
+  return field;
+}
+
+/**
+ * Direction of curl ψ = (∂ψ/∂y, −∂ψ/∂x) for a smooth periodic potential ψ,
+ * as angle/2π. Central differences on the float field, wrapped, so the
+ * direction is exact to the byte and the flow is divergence-free by
+ * construction.
+ */
+function periodicCurlAngle(size, seed) {
+  const potential = periodicFbm(size, 4, 3, seed);
+  const bytes = new Uint8Array(size * size);
+  const at = (x, y) => potential[(((y % size) + size) % size) * size + (((x % size) + size) % size)];
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const dx = at(x + 1, y) - at(x - 1, y);
+      const dy = at(x, y + 1) - at(x, y - 1);
+      const turn = Math.atan2(-dx, dy) / (Math.PI * 2);
+      bytes[y * size + x] = Math.round((turn - Math.floor(turn)) * 256) & 255;
+    }
+  }
+  return bytes;
+}
+
+function buildNoisePack(size, ditherTile) {
+  const tile = Math.sqrt(ditherTile.length);
+  const fbm = normalizeToBytes(periodicFbm(size, 8, 5, 0xf8b0a1));
+  const worley = normalizeToBytes(periodicWorley(size, 16, 0x3a0e1e));
+  const curl = periodicCurlAngle(size, 0xc0a1f1);
+  const pixels = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const index = y * size + x;
+      pixels[index * 4] = ditherTile[(y % tile) * tile + (x % tile)];
+      pixels[index * 4 + 1] = fbm[index];
+      pixels[index * 4 + 2] = worley[index];
+      pixels[index * 4 + 3] = curl[index];
+    }
+  }
+  return pixels;
+}
+
 // --- PNG ---------------------------------------------------------------------
 
 const CRC_TABLE = (() => {
@@ -476,7 +626,7 @@ function paeth(a, b, c) {
 }
 
 function encodePng(pixels, width, height, channels) {
-  const colorType = channels === 1 ? 0 : 2;
+  const colorType = { 1: 0, 3: 2, 4: 6 }[channels];
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
@@ -508,7 +658,7 @@ function decodePng(bytes) {
     if (type === "IHDR") {
       width = body.readUInt32BE(0);
       height = body.readUInt32BE(4);
-      channels = body[9] === 0 ? 1 : 3;
+      channels = { 0: 1, 2: 3, 6: 4 }[body[9]];
     } else if (type === "IDAT") {
       data.push(body);
     } else if (type === "IEND") {
@@ -550,17 +700,18 @@ for (const phase of PHASES) {
 
 const strip = buildLutStrip();
 const lutPng = encodePng(strip.pixels, strip.width, strip.height, 3);
-const noisePixels = buildBlueNoise(BLUE_NOISE_SIZE, 0x5eed10ad);
-const noisePng = encodePng(noisePixels, BLUE_NOISE_SIZE, BLUE_NOISE_SIZE, 1);
+const ditherTile = buildBlueNoise(BLUE_NOISE_SIZE, 0x5eed10ad);
+const noisePackPixels = buildNoisePack(NOISE_PACK_SIZE, ditherTile);
+const noisePackPng = encodePng(noisePackPixels, NOISE_PACK_SIZE, NOISE_PACK_SIZE, 4);
 
 const artifacts = [
   {
-    bytes: lutPng, channels: 3, height: strip.height, name: "garden-grade-lut.png",
+    bytes: lutPng, channels: 3, consumerPath: lutConsumerPath, height: strip.height, name: "garden-grade-lut.png",
     path: lutPath, pixels: strip.pixels, width: strip.width,
   },
   {
-    bytes: noisePng, channels: 1, height: BLUE_NOISE_SIZE, name: "garden-blue-noise.png",
-    path: blueNoisePath, pixels: noisePixels, width: BLUE_NOISE_SIZE,
+    bytes: noisePackPng, channels: 4, consumerPath: noisePackConsumerPath, height: NOISE_PACK_SIZE,
+    name: "garden-noise-pack.png", path: noisePackPath, pixels: noisePackPixels, width: NOISE_PACK_SIZE,
   },
 ];
 
@@ -577,7 +728,7 @@ for (const artifact of artifacts) {
     .digest("hex");
 }
 const lutSha = artifacts[0].sha256;
-const noiseSha = artifacts[1].sha256;
+const noisePackSha = artifacts[1].sha256;
 
 const problems = [];
 if (checkOnly) {
@@ -594,32 +745,42 @@ if (checkOnly) {
       problems.push(`${artifact.name} is stale; rerun this generator without --check.`);
     }
   }
+  if (existsSync(retiredBlueNoisePath)) {
+    problems.push("garden-blue-noise.png is retired (folded into R of garden-noise-pack.png); delete it.");
+  }
   // The runtime carries a content-hash cache-buster per texture. A stale one
   // ships a stale texture behind a long-lived cache header, which is the exact
   // failure a hashed URL exists to prevent, so it is checked here too.
-  const consumer = readFileSync(consumerPath, "utf8");
   for (const artifact of artifacts) {
+    const consumer = readFileSync(artifact.consumerPath, "utf8");
+    const consumerName = path.relative(repoRoot, artifact.consumerPath);
     const found = new RegExp(`${artifact.name.replace(".", "\\.")}\\?v=([0-9a-f]{12})`).exec(consumer);
     if (!found) {
-      problems.push(`src/three/garden-post.ts does not reference ${artifact.name} with a ?v= content hash.`);
+      problems.push(`${consumerName} does not reference ${artifact.name} with a ?v= content hash.`);
     } else if (found[1] !== artifact.sha256.slice(0, 12)) {
       problems.push(
-        `src/three/garden-post.ts pins ${artifact.name}?v=${found[1]}, but the generated file hashes to ${artifact.sha256.slice(0, 12)}.`,
+        `${consumerName} pins ${artifact.name}?v=${found[1]}, but the generated file hashes to ${artifact.sha256.slice(0, 12)}.`,
       );
     }
   }
 } else {
   mkdirSync(outputDirectory, { recursive: true });
   for (const artifact of artifacts) writeFileSync(artifact.path, artifact.bytes);
+  rmSync(retiredBlueNoisePath, { force: true });
 }
 
 console.log(JSON.stringify({
-  blueNoise: {
-    bytes: noisePng.length,
-    method: "void-and-cluster (Ulichney 1993), wrap-around Gaussian sigma 1.5",
-    sha256: noiseSha,
-    size: BLUE_NOISE_SIZE,
-    url: `/pharosville/textures/garden-blue-noise.png?v=${noiseSha.slice(0, 12)}`,
+  noisePack: {
+    bytes: noisePackPng.length,
+    channels: {
+      r: "blue-noise dither: void-and-cluster (Ulichney 1993) 64x64, wrap-around Gaussian sigma 1.5, tiled 4x4",
+      g: "fbm: periodic gradient noise, periods 8..128, 5 octaves, gain 0.5",
+      b: "Worley F1: 16x16 cells, one feature each",
+      a: "curl direction of a periodic 3-octave potential, angle/2pi",
+    },
+    sha256: noisePackSha,
+    size: NOISE_PACK_SIZE,
+    url: `/pharosville/textures/garden-noise-pack.png?v=${noisePackSha.slice(0, 12)}`,
   },
   lut: {
     bands: PHASES.map((phase) => phase.id),
@@ -632,7 +793,7 @@ console.log(JSON.stringify({
     url: `/pharosville/textures/garden-grade-lut.png?v=${lutSha.slice(0, 12)}`,
   },
   mode: checkOnly ? "check" : "write",
-  totalBytes: lutPng.length + noisePng.length,
+  totalBytes: lutPng.length + noisePackPng.length,
 }, null, 2));
 
 if (problems.length > 0) {

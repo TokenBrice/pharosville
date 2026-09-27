@@ -11,6 +11,7 @@ import {
 } from "./systems/garden-observatory-slice";
 import { buildObserveSequence } from "./systems/observe-sequence";
 import { tileToIso } from "./systems/projection";
+import { UNAVAILABLE_SUPPLY_TIDE } from "./systems/supply-tide";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
 
 const mocks = vi.hoisted(() => {
@@ -19,27 +20,25 @@ const mocks = vi.hoisted(() => {
   const targets: HitTarget[] = [];
   return {
     cameraRef,
-    attractHolding: false,
     cancelCameraIntent: vi.fn(),
     canvasHandleKeyDown: vi.fn(),
     canvasSizeRef,
     focusTile: vi.fn(),
-    focusSelection: undefined as undefined | ((tile: { x: number; y: number }, onRest: () => void) => null),
+    focusSelection: undefined as undefined | ((subject: unknown, onReveal: () => void) => null),
     reducedMotion: true,
     rendererWarmupReady: true,
     rendererStatus: "ready",
     requestPaint: vi.fn(),
     skipArrival: vi.fn(),
     startArrival: vi.fn<(onComplete: () => void) => void>(),
-    startAttractTour: vi.fn(),
     startObserveTour: vi.fn(),
-    stopAttractTour: vi.fn(),
+    wander: vi.fn(() => ({ index: 0, title: "The inlet mouth" })),
     stopObserveTour: vi.fn(),
     targets,
   };
 });
 function chromeAction(name: string): HTMLButtonElement {
-  return screen.getByText(name, { selector: ".pv-chrome-action span" }).closest("button") as HTMLButtonElement;
+  return screen.getByRole("button", { name: new RegExp(`^${name}$`, "i") }) as HTMLButtonElement;
 }
 
 
@@ -88,9 +87,9 @@ vi.mock("./hooks/use-ship-logo-assets", () => ({
 }));
 
 vi.mock("./hooks/use-canvas-resize-and-camera", () => ({
+  WANDER_KEY: "w",
   useCanvasResizeAndCamera: () => ({
     adaptiveDprStateRef: { current: { requestedDpr: 1 } },
-    attractState: { holding: mocks.attractHolding },
     camera: mocks.cameraRef.current,
     cameraRef: mocks.cameraRef,
     cameraZoomLabel: "100%",
@@ -103,9 +102,10 @@ vi.mock("./hooks/use-canvas-resize-and-camera", () => ({
     focusSelection: mocks.focusSelection,
     skipArrival: mocks.skipArrival,
     startArrival: mocks.startArrival,
-    startAttractTour: mocks.startAttractTour,
     startObserveTour: mocks.startObserveTour,
-    stopAttractTour: mocks.stopAttractTour,
+    endWander: vi.fn(),
+    wander: mocks.wander,
+    wanderIndex: null,
     stopObserveTour: mocks.stopObserveTour,
     handleFollowSelected: vi.fn(),
     handleKeyDown: mocks.canvasHandleKeyDown,
@@ -199,11 +199,9 @@ beforeEach(() => {
   mocks.focusTile.mockClear();
   mocks.focusSelection = undefined;
   mocks.startObserveTour.mockClear();
-  mocks.startAttractTour.mockClear();
-  mocks.stopAttractTour.mockClear();
+  mocks.wander.mockClear();
   mocks.stopObserveTour.mockClear();
   mocks.reducedMotion = true;
-  mocks.attractHolding = false;
   mocks.rendererWarmupReady = true;
   mocks.rendererStatus = "ready";
   mocks.requestPaint.mockClear();
@@ -240,37 +238,37 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.queryByTestId("pharosville-charting-veil")).toBeNull();
   });
 
-  it("reveals a linked harbor only when its selection camera reports rest", async () => {
+  it("reveals a linked harbor only when its selection glide opens the panel", async () => {
     window.history.replaceState(null, "", "/#sel=dock.ethereum&t=6");
-    let onRest: () => void = () => { throw new Error("No harbor framing callback"); };
-    mocks.focusSelection = vi.fn((_tile, callback) => { onRest = callback; return null; });
+    let onReveal: () => void = () => { throw new Error("No harbor framing callback"); };
+    mocks.focusSelection = vi.fn((_subject, callback) => { onReveal = callback; return null; });
     const world = worldFixture();
     render(<PharosVilleWorld world={world} />);
-    await waitFor(() => expect(mocks.focusSelection).toHaveBeenCalledWith(resolveGardenEntityDisplayTile({
-      entity: world.entityById["dock.ethereum"]!,
-      slice: selectGardenObservatorySlice(world, "dock.ethereum"),
-    }), expect.any(Function)));
+    await waitFor(() => expect(mocks.focusSelection).toHaveBeenCalledWith(
+      { dock: world.entityById["dock.ethereum"], kind: "dock", obstacles: expect.any(Array) },
+      expect.any(Function),
+    ));
     const dock = screen.getByTestId("pharosville-detail-panel").parentElement!;
     expect(dock.hidden).toBe(true);
     expect(dock.hasAttribute("inert")).toBe(true);
-    act(() => onRest());
+    act(() => onReveal());
     expect(dock.hidden).toBe(false);
     expect(dock.hasAttribute("inert")).toBe(false);
   });
 
-  it("protects reading time and restarts the full attract delay after closing Find", () => {
+  it("holds the rest shot when idle and wanders only on request, from the word or W", () => {
     vi.useFakeTimers();
     mocks.reducedMotion = false;
     render(<PharosVilleWorld world={worldFixture()} />);
+    fireEvent.keyDown(document, { key: "w" });
+    expect(mocks.wander).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Explore harbor controls" }));
-    fireEvent.click(chromeAction("Find"));
-    act(() => vi.advanceTimersByTime(180_000));
-    expect(mocks.startAttractTour).not.toHaveBeenCalled();
-    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Escape" });
-    act(() => vi.advanceTimersByTime(119_999));
-    expect(mocks.startAttractTour).not.toHaveBeenCalled();
-    act(() => vi.advanceTimersByTime(1));
-    expect(mocks.startAttractTour).toHaveBeenCalledTimes(1);
+    fireEvent.click(chromeAction("wander"));
+    expect(mocks.wander).toHaveBeenCalledTimes(2);
+    // K44: minutes untouched never tour the camera on their own.
+    act(() => vi.advanceTimersByTime(600_000));
+    expect(mocks.wander).toHaveBeenCalledTimes(2);
+    expect(mocks.startObserveTour).not.toHaveBeenCalled();
   });
   it("skips the establishing ease on any input", () => {
     mocks.reducedMotion = false;
@@ -1087,6 +1085,7 @@ function worldFixture(input: {
       tile: { x: 8, y: 8 },
     },
     routeMode: "world",
+    supplyTide: UNAVAILABLE_SUPPLY_TIDE,
     ships: [{
       chainPresence: [{
         chainId: "ethereum",

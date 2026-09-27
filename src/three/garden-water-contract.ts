@@ -15,9 +15,10 @@ import { GARDEN_PLATE_MARGIN_TILES } from "../systems/projection";
  * `HARBOR_PALETTE` in `src/systems/palette.ts`; no hex literals in
  * `garden-water.ts`.
  *
- * Tier policy (guardrails): cloud shadows + sun glitter ship at balanced+,
- * ripple rings at full/balanced; all motion freezes under reduced motion
- * (one static detailed frame, zero continuous RAF).
+ * Tier policy (guardrails): sun glitter ships at balanced+, ripple rings at
+ * full/balanced; cloud-shadow strength stays 0 until the sky draws clouds
+ * overhead; all motion freezes under reduced motion (one static detailed
+ * frame, zero continuous RAF).
  */
 
 /** Maximum simultaneous zone soft-tints the water shader supports. */
@@ -54,14 +55,25 @@ export const GARDEN_WATER_PLATE_MARGIN_TILES = GARDEN_PLATE_MARGIN_TILES;
  * records the corresponding night-emissive ceiling.
  */
 /**
- * T1.3 (2026-09-07): 0.4 -> 0.21. Both are EXACT mip breakpoints in three's
- * `roughnessToMip` (cubeUV_r4 = 0.4 -> mip 2, cubeUV_r6 = 0.21 -> mip 4), so
- * `mipF` is 0 either way and `textureCubeUV` takes the same single-fetch arm:
- * identical cost, four times the angular resolution. The probe dome draws a
- * real sun disc, so this is what turns the sea's sky sheen into a specular sun.
+ * W3.1 (water-1b): the sky may take at most this share of the water. Schlick
+ * with F0 0.02 is scaled only by the body's reflectivity; the cap keeps a
+ * breath of transmitted body even in a glass-calm grazing mirror.
  */
-export const GARDEN_WATER_PROBE_ROUGHNESS = 0.21;
-export const GARDEN_WATER_PROBE_BLEND = 0.82;
+export const GARDEN_WATER_FRESNEL_CAP = 0.92;
+/**
+ * W3.1 (water-1e): the hour's sky radiance in the water, per light beat. The
+ * probe is no longer dimmed by the scene's IBL intensity (0.3–0.6); the
+ * five-beat score doses it here. Below 1 by day so the mirrored pale horizon
+ * never outshines the tower that stands in it (value plan: inlet 45 under a
+ * tower of 62); night stays ≤ 0.5.
+ */
+export const GARDEN_WATER_SKY_RADIANCE = Object.freeze({
+  dawn: 0.82,
+  day: 0.72,
+  golden: 0.85,
+  blue: 0.8,
+  night: 0.45,
+});
 export const GARDEN_WATER_GLINT_NORMAL_FILTER_GAIN = 18;
 export const GARDEN_WATER_CREST_FOAM = Object.freeze({
   /** `-J + bias` is positive only where the horizontal wave field folds. */
@@ -71,49 +83,32 @@ export const GARDEN_WATER_CREST_FOAM = Object.freeze({
   noiseGate: 0.56,
   maxMix: 0.055,
 });
+/**
+ * W3.7: the shore breathes once — one lap line on a ~10 s breath.
+ * Shore-field units: one unit is 24 tiles from any coast.
+ */
 export const GARDEN_WATER_SHORE_FOAM = Object.freeze({
-  /** Shore-field units: one unit is 24 tiles from any coast. */
-  breathAmplitude: 0.003,
+  breathSeconds: 10.5,
+  breathAmplitude: 0.008,
+  lineCentre: 0.012,
   lineCore: 0.003,
   lineFeather: 0.012,
   maxMix: 0.18,
 });
+/**
+ * K4: the moon road's gain over moonlight at full illumination, before the
+ * slat duty (~40 %) and the half-vector lobe. Measured on the real GPU at
+ * `#t=22 --clock 2026-09-26` (full moon): 0.32 peaked at L* 80, so this sits
+ * at the plan's L* 60 ceiling; the road is the only water feature above L* 10.
+ */
+export const GARDEN_WATER_MOON_ROAD_GAIN = 0.15;
 
 /**
- * Proxy for mean additive/mixed luminance over the representative OPEN-NIGHT
- * water mask. A true render assertion would be GPU/grade dependent, so this
- * deliberately tests the shader's authored light budget instead:
- *
- * - each gain is the exact GLSL constant used by the water material;
- * - each occupancy is the recorded fraction of the open-water mask that term
- *   is allowed to cover in the quiet composition;
- * - colours are conservatively treated as unit luminance.
- *
- * It does not claim to measure final post-AgX pixels. It prevents a future
- * one-line gain change from turning the open night sea into an emissive field
- * without moving the explicit recorded ceiling at the same time.
+ * Ceiling on the summed light/ember lane reflections one water fragment may
+ * add. Open-night water luminance is measured on the rendered frame (the
+ * preview's `--night-water` probe), not derived from authored gains.
  */
-export const GARDEN_WATER_NIGHT_EMISSIVE_BUDGET = Object.freeze({
-  moonRoadGain: 0.16,
-  moonRoadOccupancy: 0.08,
-  moonGlitterGain: 2.6,
-  moonGlitterOccupancy: 0.0004,
-  laneClamp: 0.75,
-  /**
-   * Sixteen narrow W4.11 strokes at rest. Their analytic wave breaks reduce
-   * coverage from the former discs, so retaining this conservative occupancy
-   * keeps the proxy at 0.015715 beneath the unchanged 0.016 ceiling.
-   */
-  laneOccupancy: 0.0025,
-  maxMeanLuminance: 0.016,
-});
-
-export function gardenWaterOpenNightMeanEmissiveBudget(): number {
-  const budget = GARDEN_WATER_NIGHT_EMISSIVE_BUDGET;
-  return budget.moonRoadGain * budget.moonRoadOccupancy
-    + budget.moonGlitterGain * budget.moonGlitterOccupancy
-    + budget.laneClamp * budget.laneOccupancy;
-}
+export const GARDEN_WATER_LANE_CLAMP = 0.75;
 
 /**
  * (a) Zone soft-tint uniform path — consumed by Lane Z's data.
@@ -219,6 +214,22 @@ export interface GardenRippleRingEmitter {
     strength: number;
   }) => void;
   removeRing: (id: string) => void;
+  /**
+   * X5 (life-6): one ring that rises once from `center` and is gone — a fish
+   * rising, a heron's strike. Starts at the water's current clock, expands to
+   * `radius` over `periodSeconds` (a faint second crest follows), then removes
+   * itself. One-shots outrank the standing trains for a uniform slot. A pulse
+   * with the id of a live one restarts it. No-op under reduced motion (the
+   * water clock is frozen at 0).
+   */
+  pulseRing: (ring: {
+    id: string;
+    center: { x: number; z: number };
+    radius: number;
+    periodSeconds: number;
+    /** 0–1 ring contrast. */
+    strength: number;
+  }) => void;
   /** Live emitter count; surfaced via `__pharosVilleDebug` (contract C4). */
   ringCount: () => number;
 }

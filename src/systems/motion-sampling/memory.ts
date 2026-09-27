@@ -127,8 +127,9 @@ export function applyHeadingSmoothing(
     // Clamp dt: defends against tab-resume jumps where timeSeconds advances
     // by minutes and the filter would otherwise snap straight to the target.
     const dt = Math.max(0, Math.min(0.2, rawDt));
-    // "arriving" turns sharper into the mooring; sailing/departing breathe.
-    const tau = state === "arriving" ? 0.06 : 0.18;
+    // Arrivals turn into the berth over a quarter second, never a snap;
+    // sailing/departing breathe a little longer.
+    const tau = state === "arriving" ? 0.25 : 0.18;
     const alpha = 1 - Math.exp(-dt / tau);
     const targetX = heading.x;
     const targetY = heading.y;

@@ -1,9 +1,7 @@
-import { squadForMember, squadFormationOffsetForPlacement } from "../maker-squad";
 import type { SeaState } from "../sea-state";
-import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionSample } from "../motion-types";
+import type { ShipMotionRoute, ShipMotionSample } from "../motion-types";
 import type { ShipNode } from "../world-types";
 import {
-  clampMotionTileInto,
   resetSampleChoreography,
   routeIdentityKey,
   routePathIdentityKey,
@@ -17,7 +15,6 @@ interface ReducedMotionRouteFrame {
 }
 
 export function reducedMotionSampleInto(
-  plan: PharosVilleMotionPlan,
   ship: ShipNode,
   route: ShipMotionRoute | undefined,
   seaState: SeaState | null,
@@ -28,6 +25,7 @@ export function reducedMotionSampleInto(
   out.zone = ship.riskZone;
   out.routeKey = route ? routeIdentityKey(route) : null;
   out.routePathKey = route ? routePathIdentityKey(route, "reduced") : null;
+  out.routePath = undefined;
   out.currentDockId = null;
   out.currentRouteStopId = null;
   out.currentRouteStopKind = null;
@@ -43,25 +41,15 @@ export function reducedMotionSampleInto(
   // accidentally animate the reduced-motion composition.
   out.segment = { kind: "dock-dwell", secondsInto: 12, secondsRemaining: 12 };
 
-  if (!route) {
+  // The still tableau shows every hull at once, so each rests on its own data
+  // tile: the one the garden's berth allocator spaces hulls from. A consort's
+  // tile is already its formation slot beside the flagship (ship placement);
+  // recomposing it from the flagship's frame displaced it off that berth and
+  // into its neighbours.
+  if (!route || ship.squadRole === "consort") {
     out.tile.x = ship.riskTile.x;
     out.tile.y = ship.riskTile.y;
     return;
-  }
-
-  if (ship.squadRole === "consort" && ship.squadId) {
-    const squad = squadForMember(ship.id);
-    const flagshipRoute = squad ? plan.shipRoutes.get(squad.flagshipId) : undefined;
-    if (flagshipRoute) {
-      const flagshipFrame = reducedMotionRouteFrame(flagshipRoute);
-      const offset = route.formationOffset
-        ?? squadFormationOffsetForPlacement(ship.id, squad!, ship.riskPlacement)
-        ?? { dx: 0, dy: 0 };
-      clampMotionTileInto(flagshipFrame.tile.x + offset.dx, flagshipFrame.tile.y + offset.dy, out.tile);
-      out.heading.x = flagshipFrame.heading.x;
-      out.heading.y = flagshipFrame.heading.y;
-      return;
-    }
   }
 
   const frame = reducedMotionRouteFrame(route);

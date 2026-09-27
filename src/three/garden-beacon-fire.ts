@@ -29,20 +29,21 @@ import { stableUnit } from "./garden-util";
  * W4 — The living fire of the Pharos (Pharos Wonder plan §3.2, decisions
  * D2/D3/D5/D6). Replaces the old "glowing sphere" beacon with an open-brazier
  * fire: a posterized toon flame on two crossed camera-facing quads, a GPU
- * ember spiral, an instanced smoke plume (day = grey-blue daymark column, the
- * Pharos's historical daytime signal; night = thin dark wisp backlit by the
- * flame), and the legendary bronze mirror dish (D4 artistic license).
+ * ember spiral, and the legendary bronze mirror dish (D4 artistic license),
+ * whose day-only glint is the crown's one daytime sign. The former daymark
+ * smoke plume is gone (Hour-Print W0.8): by day its puffs read as birds or a
+ * blue feather stuck to the statue, and by night it was already invisible.
  *
- * One shared uniforms block (uTime/uFlicker/uIntensity) drives flame, embers,
- * and smoke so the whole fire breathes together. uFlicker is a deterministic
+ * One shared uniforms block (uTime/uFlicker/uIntensity) drives flame and
+ * embers so the whole fire breathes together. uFlicker is a deterministic
  * 3-sine + hash function of timeSeconds computed once per frame on the CPU —
  * no Math.random, no wall clock; uTime freezes at 0 under reduced motion, so
- * the t=0 state is a deliberate composed pose (static flame frame, parked
- * puffs, fixed embers).
+ * the t=0 state is a deliberate composed pose (static flame frame, fixed
+ * embers).
  *
  * Frame discipline: zero per-frame allocation (all particles are GPU-driven
- * from seed attributes, like the existing beam dust). Counts shed per
- * scheduler tier via draw range / instance count — never reallocated.
+ * from seed attributes). Ember counts shed per
+ * scheduler tier via draw range — never reallocated.
  */
 
 // C1: every colour derives from HARBOR_PALETTE. The flame's outer band spends
@@ -56,22 +57,22 @@ const LAMP_COOL = palette(P.lantern_cold);
 const EMBER_HOT = palette(P.foam_white);
 const EMBER_MID = palette(P.lantern_glow);
 const EMBER_COOL = palette(P.vermillion);
-// One stop down in linear light: the enlarged daymark stays graphic rather
-// than turning into a pale hole against a neutral sky.
-const SMOKE_DAY_LIGHT = palette(P.fog_pale).multiplyScalar(0.5);
-const SMOKE_DAY_DARK = palette(P.fog_blue).multiplyScalar(0.5);
-const SMOKE_NIGHT = palette(P.deep_sea_1).lerp(palette(P.fog_blue), 0.3);
-const SMOKE_BACKLIGHT = palette(P.lantern_glow);
 const MIRROR_BRONZE = palette(P.timber_mid).lerp(palette(P.iron_dark), 0.35);
 
 const FLAME_WIDTH = 2.4;
 const FLAME_HEIGHT = 2.9;
 const EMBER_COUNT = 32;
-const SMOKE_COUNT = 16;
-export const GARDEN_BEACON_SMOKE_QUAD_SIZE = 1.6 * 1.6;
 /** Minimum night-core linear luminance; clears the selective-bloom threshold. */
 export const GARDEN_BEACON_FLAME_CORE_LUMINANCE =
   GARDEN_BLOOM_PRACTICAL_THRESHOLD * 1.01;
+/**
+ * W2.9 (pharos-1): the lantern is the only fire. At night the flame's core
+ * band is lifted ×1.6 — from ≈ 2.5 to ≈ 4 linear at a calm PSI — so it is the
+ * one element in the scene above 3 linear (harbour lantern cores stop at 2.7,
+ * the corona and the K9 glass swell at ≤ 2.0). A gain, not a floor, so the
+ * core still tracks the PSI-modulated intensity exactly.
+ */
+export const GARDEN_BEACON_FLAME_NIGHT_CORE_GAIN = 1.6;
 // The fire sits slightly toward the fixed camera (+X/+Z azimuth) so it reads
 // in front of the crowning statue, which shares the brazier's centre axis.
 const FIRE_FORWARD_X = 0.42;
@@ -102,8 +103,6 @@ export interface GardenBeaconFire {
   /** Small bronze dish beside the brazier; the day-cycle drives its glint. */
   mirrorMaterial: MeshStandardMaterial;
   root: Group;
-  /** Posterized 2-band smoke; the day-cycle drives uDayMix/uOpacity (D3). */
-  smokeMaterial: ShaderMaterial;
   uniforms: BeaconFireUniforms;
   dispose: () => void;
   setTier: (tier: PharosVilleRenderSchedulerTier) => void;
@@ -111,7 +110,7 @@ export interface GardenBeaconFire {
   update: (input: GardenBeaconFireUpdate) => number;
 }
 
-export function createGardenBeaconFire(cloudNoise: DataTexture): GardenBeaconFire {
+export function createGardenBeaconFire(): GardenBeaconFire {
   const root = new Group();
   root.name = "lighthouse-beacon-fire";
   const uniforms: BeaconFireUniforms = {
@@ -130,25 +129,6 @@ export function createGardenBeaconFire(cloudNoise: DataTexture): GardenBeaconFir
   embers.position.set(FIRE_FORWARD_X, 0, FIRE_FORWARD_Z);
   root.add(embers);
 
-  const smoke = createSmokePlume(uniforms, cloudNoise, {
-    count: SMOKE_COUNT,
-    dayDark: SMOKE_DAY_DARK,
-    dayLight: SMOKE_DAY_LIGHT,
-    name: "lighthouse-smoke",
-    night: SMOKE_NIGHT,
-    backlight: SMOKE_BACKLIGHT,
-    quadSize: GARDEN_BEACON_SMOKE_QUAD_SIZE,
-    rise: 7.2,
-    riseBase: 0.3,
-    scaleMax: 1.9,
-    scaleMin: 0.55,
-    seedPrefix: "beacon-smoke",
-    windDrift: 5.5,
-    wobble: 0.3,
-  });
-  smoke.position.set(FIRE_FORWARD_X * 0.6, 0, FIRE_FORWARD_Z * 0.6);
-  root.add(smoke);
-
   const mirror = createMirror();
   root.add(mirror);
 
@@ -158,24 +138,18 @@ export function createGardenBeaconFire(cloudNoise: DataTexture): GardenBeaconFir
       flame.material.dispose();
       embers.geometry.dispose();
       embers.material.dispose();
-      smoke.geometry.dispose();
-      smoke.material.dispose();
       mirror.geometry.dispose();
       mirrorMaterial(mirror).dispose();
     },
     mirrorMaterial: mirrorMaterial(mirror),
     root,
     setTier(tier) {
-      // Ember counts shed via draw range; smoke via instance count. The flame
-      // itself never sheds — it is the beacon at every tier above the floor.
+      // Ember counts shed via draw range. The flame itself never sheds — it
+      // is the beacon at every tier above the floor.
       const emberCount = tier === "full" ? EMBER_COUNT : tier === "balanced" ? 12 : 0;
       embers.visible = emberCount > 0;
       embers.geometry.setDrawRange(0, emberCount);
-      const smokeCount = tier === "full" ? SMOKE_COUNT : tier === "balanced" ? 8 : 0;
-      smoke.visible = smokeCount > 0;
-      smoke.count = smokeCount;
     },
-    smokeMaterial: smoke.material,
     uniforms,
     update({ lampModulation, psiStress, reducedMotion, timeSeconds }) {
       const modulation = lampModulation ?? lampStatusModulationForMix(0);
@@ -238,6 +212,7 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
       uniform float uIntensity;
       uniform float uStatusCool;
       uniform float uBloomFloor;
+      uniform float uNightCoreGain;
       uniform float uStatusIntensity;
       uniform float uTime;
       varying vec2 vUv;
@@ -290,8 +265,9 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
         vec3 emission = color * (hdr * gain);
         // Only the raised night core clears selective bloom. Day remains the
         // deliberately banked 0.26× flame, while mid/outer bands stay ember.
-        float coreLuma = max(dot(emission, vec3(0.2126, 0.7152, 0.0722)), 0.0001);
         float nightCore = core * smoothstep(4.0, 6.0, uIntensity);
+        emission *= mix(1.0, uNightCoreGain, nightCore);
+        float coreLuma = max(dot(emission, vec3(0.2126, 0.7152, 0.0722)), 0.0001);
         emission *= mix(1.0, max(1.0, uBloomFloor / coreLuma), nightCore);
         gl_FragColor = vec4(emission, alpha);
       }
@@ -306,6 +282,7 @@ function createFlame(uniforms: BeaconFireUniforms): Mesh<BufferGeometry, ShaderM
       uColorOuter: { value: FLAME_OUTER },
       uStatusCoolColor: { value: LAMP_COOL },
       uBloomFloor: { value: GARDEN_BEACON_FLAME_CORE_LUMINANCE },
+      uNightCoreGain: { value: GARDEN_BEACON_FLAME_NIGHT_CORE_GAIN },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -353,7 +330,7 @@ function createCrossedQuadGeometry(width: number, height: number): BufferGeometr
  * Ember spiral: one THREE.Points, fully GPU-driven from per-point seeds —
  * age = fract(uTime·speed + seed), spiralling out and up while the point
  * shrinks; colour ramps white → lantern gold → vermillion by age, HDR only at
- * birth. Same zero-allocation contract as the beam dust.
+ * birth. Zero per-frame allocation.
  */
 function createEmbers(uniforms: BeaconFireUniforms): Points<BufferGeometry, ShaderMaterial> {
   const positions: number[] = [];
@@ -425,21 +402,19 @@ function createEmbers(uniforms: BeaconFireUniforms): Points<BufferGeometry, Shad
 }
 
 /**
- * Smoke plume vocabulary, shared by the beacon's own plume and the station
- * chimneys (`garden-station-smoke.ts`): one InstancedMesh of small
- * camera-facing quads, age-from-uTime in the vertex shader (no CPU sim),
- * rising and drifting on the sky-mist wind diagonal. The fragment alpha-erodes
- * against the shared cloud-noise texture (the same texture object the water
- * shader binds — one noise source for the whole garden). Day identity (D3):
- * a proud cool grey-blue column posterized into two flat tonal bands with hard
- * cutout edges, ukiyo-e style; by night a thin dark wisp backlit by whatever
- * `backlight` names (the flame for the beacon, black for a cold hearth).
+ * Smoke plume vocabulary for the station chimneys (`garden-station-smoke.ts`):
+ * one InstancedMesh of small camera-facing quads, age-from-uTime in the vertex
+ * shader (no CPU sim), rising and drifting on the sky-mist wind diagonal. The
+ * fragment alpha-erodes against the shared cloud-noise texture (the same
+ * texture object the water shader binds — one noise source for the whole
+ * garden). Day identity (D3): a cool grey column posterized into two flat
+ * tonal bands with hard cutout edges, ukiyo-e style; by night a thin dark
+ * wisp backlit by whatever `backlight` names (black for a cold hearth).
  * Normal blending, depthWrite off, quads kept small against overdraw.
  *
  * `spec.anchors` places several plumes in ONE mesh (one draw); omitting it
- * leaves a single plume at the mesh's own origin, which is how the beacon
- * uses it. `aGate` starts fully open; the station chimneys close per-instance
- * from their cargo-tide state.
+ * leaves a single plume at the mesh's own origin. `aGate` starts fully open;
+ * the station chimneys close per-instance from their cargo-tide state.
  */
 export interface SmokePlumeSpec {
   /** Total instance count — puffs × anchors. */

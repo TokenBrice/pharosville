@@ -1,10 +1,32 @@
+import { debugCalendarDayMs } from "../lib/pharosville-debug";
+
 export type GardenSeason = "spring" | "summer" | "autumn" | "winter";
+
+const DAY_MS = 86_400_000;
+
+/**
+ * The one calendar the world reads for season, almanac and every other
+ * date-driven choice. It is the wall clock unless a debug session pins the
+ * day with `d=YYYY-MM-DD`; a pinned day keeps the real UTC time of day, so
+ * clocks that tick inside the day (and every `timeSeconds` elsewhere) stay
+ * continuous while the calendar day holds.
+ */
+export function worldCalendarDate(now: Date = new Date()): Date {
+  const pinnedDayMs = debugCalendarDayMs();
+  if (pinnedDayMs === null) return now;
+  const nowMs = now.getTime();
+  if (!Number.isFinite(nowMs)) return new Date(pinnedDayMs);
+  return new Date(pinnedDayMs + (((nowMs % DAY_MS) + DAY_MS) % DAY_MS));
+}
 
 /**
  * Northern-hemisphere meteorological seasons, resolved in UTC so the same
- * instant cannot select two dressings in different browser time zones.
+ * instant cannot select two dressings in different browser time zones. A
+ * coarse label for the sky and lantern dressings only: flora no longer reads
+ * it (K24) — trees follow `garden-calendar` (solar longitude, per-specimen
+ * phenology, hemisphere from the visitor's zone).
  */
-export function seasonFromDate(date: Date = new Date()): GardenSeason {
+export function seasonFromDate(date: Date = worldCalendarDate()): GardenSeason {
   const timestamp = date.getTime();
   if (!Number.isFinite(timestamp)) return "winter";
   const month = date.getUTCMonth();

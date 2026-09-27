@@ -6,11 +6,12 @@ import { buildShareableWorldUrlHref } from "../hooks/use-world-url-state";
 import type { DetailModel } from "../systems/world-types";
 import {
   buildDetailFactSections,
-  buildDetailReadingLine,
+  buildDetailReadingCells,
   compactCurrency,
   detailFactValue,
   type DetailDisplayRow,
 } from "../lib/format-detail";
+import { LongRecord } from "./long-record";
 
 export interface DetailPanelProps {
   detail: DetailModel;
@@ -38,6 +39,16 @@ const DETAIL_RISK_BAND_BY_LABEL: Readonly<Record<string, DetailRiskBand>> = {
   "Wreck Shoal": "wreck",
 };
 
+/** The card's italic kind-line (W6.3): what the thing is, said, not a tracked-caps tag. */
+const DETAIL_KIND_LINE: Readonly<Record<string, string>> = {
+  area: "a stretch of water",
+  dock: "a chain harbor",
+  grave: "a fallen coin",
+  lighthouse: "the lighthouse",
+  pigeonnier: "the pigeon loft",
+  ship: "a stablecoin",
+};
+
 /**
  * Whether the record disclosure is open, remembered for the session so someone
  * reading the figures keeps them as they move from ship to ship, and a fresh
@@ -58,10 +69,12 @@ export function DetailPanel({
 }: DetailPanelProps) {
   const sections = buildDetailFactSections(detail.facts);
   const heritage = detailFactValue(detail.facts, "culturalSignificance");
-  const readingLine = buildDetailReadingLine(detail.kind, detail.facts);
+  const readingCells = buildDetailReadingCells(detail.kind, detail.facts);
+  const kind = detail.kind.toLowerCase();
   const [primaryLink, ...secondaryLinks] = detail.links;
   const hasRecord = sections.identity.length > 0
     || sections.position.length > 0
+    || Boolean(detail.longRecord)
     || (detail.members?.length ?? 0) > 0
     || secondaryLinks.length > 0;
   const [recordOpen, setRecordOpen] = useState(recordOpenForSession);
@@ -70,7 +83,7 @@ export function DetailPanel({
     setRecordOpen(recordOpenForSession);
   }, []);
   const panelRef = useRef<HTMLElement | null>(null);
-  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
 
   // The address bar carries sel/cam/t/n in the fragment, which never reaches a
   // server — so copying it verbatim would unfurl as the generic card wherever
@@ -95,13 +108,15 @@ export function DetailPanel({
     if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
   }, []);
 
-  // Move focus to close button on mount; restore to the previously focused
-  // element on unmount. If that element is no longer in the DOM, fall back
-  // to the canvas shell so keyboard users land somewhere predictable.
+  // Move focus to the title on mount, so a screen reader reads what opened
+  // before any control, and the eye does not land on "Close" first (W6.3);
+  // restore to the previously focused element on unmount. If that element is
+  // no longer in the DOM, fall back to the canvas shell so keyboard users land
+  // somewhere predictable.
   useEffect(() => {
     if (!visible) return;
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    focusWithoutScroll(closeButtonRef.current ?? panelRef.current);
+    focusWithoutScroll(headingRef.current ?? panelRef.current);
     return () => {
       restoreDialogFocus(previouslyFocused);
     };
@@ -123,44 +138,42 @@ export function DetailPanel({
           className="pharosville-detail-panel__header"
           data-risk-band={detail.status ? DETAIL_RISK_BAND_BY_LABEL[detail.status.label] ?? "watch" : undefined}
         >
-          <div className="pharosville-detail-panel__heading">
-            <p className="pharosville-detail-panel__kind">{detail.kind}</p>
-            <h2 id={headingId}>{detail.title}</h2>
-            <div className="pharosville-detail-panel__prose">
-              {/* Heritage and placement read as one thought — what this hull is,
-                  then what it is doing here — rather than stacked fragments. */}
-              <p>
-                {heritage && (
-                  <span className="pharosville-detail-panel__heritage">{heritage} </span>
-                )}
-                {detail.summary}
-              </p>
-            </div>
-          </div>
-
+          <p className="pharosville-detail-panel__kind">
+            {DETAIL_KIND_LINE[kind] ?? kind}
+            {detail.status && <span className="pharosville-detail-panel__seal" aria-hidden="true" />}
+          </p>
+          <h2 id={headingId} ref={headingRef} tabIndex={-1}>{detail.title}</h2>
           {detail.status && (
             <p className="pharosville-detail-panel__zone" data-testid="pharosville-detail-zone">
-              <span className="pharosville-detail-panel__seal" aria-hidden="true" />
-              <span className="pharosville-detail-panel__zone-copy">
-                <span>{detail.status.label}</span>
-                {detail.status.figure && (
-                  <strong className="pharosville-detail-panel__zone-figure">{detail.status.figure}</strong>
-                )}
-              </span>
+              {detail.status.label}
+              {detail.status.figure && (
+                <span className="pharosville-detail-panel__zone-figure"> · {detail.status.figure}</span>
+              )}
             </p>
           )}
         </header>
 
-        {detail.paragraphs && detail.paragraphs.length > 0 && (
-          <div className="pharosville-detail-panel__prose pharosville-detail-panel__prose--supplemental">
-            {detail.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
-          </div>
-        )}
-
-        {readingLine && (
-          <p className="pharosville-detail-panel__reading" data-testid="pharosville-detail-reading">
-            {readingLine}
+        <div className="pharosville-detail-panel__prose">
+          {/* Heritage and placement read as one thought — what this hull is,
+              then what it is doing here — rather than stacked fragments. */}
+          <p>
+            {heritage && (
+              <span className="pharosville-detail-panel__heritage">{heritage} </span>
+            )}
+            {detail.summary}
           </p>
+          {detail.paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+        </div>
+
+        {readingCells.length > 0 && (
+          <dl className="pharosville-detail-panel__reading" data-testid="pharosville-detail-reading">
+            {readingCells.map((cell) => (
+              <div key={cell.label}>
+                <dt>{cell.label}</dt>
+                <dd>{cell.value}</dd>
+              </div>
+            ))}
+          </dl>
         )}
 
         <div className="pharosville-detail-panel__foot">
@@ -175,6 +188,7 @@ export function DetailPanel({
 
               {renderSection("identity", "Identity", sections.identity)}
               {renderSection("position", "Position", sections.position)}
+              {detail.longRecord && <LongRecord record={detail.longRecord} />}
 
               {detail.members && detail.members.length > 0 && (
                 <section
@@ -221,7 +235,6 @@ export function DetailPanel({
           </button>
           {onClose && (
             <button
-              ref={closeButtonRef}
               className="pharosville-detail-panel__close"
               type="button"
               aria-label="Close details"

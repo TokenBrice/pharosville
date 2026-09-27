@@ -48,7 +48,7 @@
  *   node scripts/pharosville/preview.mjs --hash "#t=22&n=1" --out night.png
  *   node scripts/pharosville/preview.mjs --headed --seconds 8
  *   node scripts/pharosville/preview.mjs --reduced          # static-frame path
- *   node scripts/pharosville/preview.mjs --legend           # keep the onboarding overlay
+ *   node scripts/pharosville/preview.mjs --first-visit      # hear the three first-visit teachings
  *   node scripts/pharosville/preview.mjs --quick-find       # open the search chrome for review
  *   node scripts/pharosville/preview.mjs --hover-first      # hover a visible ship target
  *   node scripts/pharosville/preview.mjs --hover-sea-sign   # hover a visible sea stele target
@@ -57,7 +57,7 @@
  *   node scripts/pharosville/preview.mjs --assert --reduced  # settled static resource gate
  *   node scripts/pharosville/preview.mjs --artifact-check    # short-interval full-frame flash probe
  *   node scripts/pharosville/preview.mjs --assert --max-p90=20 --max-draw-calls=700
- *   node scripts/pharosville/preview.mjs --assert --max-p95=20 --max-gpu-ms=12 --tail-seconds 30
+ *   node scripts/pharosville/preview.mjs --assert --max-p95=20 --max-gpu-ms=12 --tail-seconds 30   # --max-gpu-ms refused on ANGLE Metal
  *   node scripts/pharosville/preview.mjs --texture-census    # attribute live texture owners
  *   node scripts/pharosville/preview.mjs --draw-census      # attribute live draw owners
  *   node scripts/pharosville/preview.mjs --light-cycle --json # native time control phase/resource audit
@@ -66,14 +66,63 @@
  *   node scripts/pharosville/preview.mjs --fixture stress --force-tier recovery --pan-zoom
  *   node scripts/pharosville/preview.mjs --refresh common   # main-thread cost of a data refresh
  *   node scripts/pharosville/preview.mjs --refresh churn    # ... with every placement moved
+ *
+ * Instruments (plan W0.1–W0.3, W0.5; see docs/pharosville/TESTING.md "Instruments"):
+ *   node scripts/pharosville/preview.mjs --uncapped                     # vsync + frame-rate limit off: p50 is throughput cost
+ *   node scripts/pharosville/preview.mjs --uncapped --knockout bloom,smaa # sets window.__pharosVilleKnockout (debug only)
+ *   node scripts/pharosville/preview.mjs --uncapped --knockout-compare ao,bloom,smaa,rays,reflection,grade,water-lanes
+ *                                                       # 3 alternating serial rounds, Δ p50/p90 per pass
+ *   node scripts/pharosville/preview.mjs --dpr 2 --uncapped --hash "#t=22"   # serial DPR-2 baseline arm
+ *   node scripts/pharosville/preview.mjs --headed --seconds 20 --pan-zoom    # headed 120 Hz arm (ProMotion): reports display Hz
+ *   node scripts/pharosville/preview.mjs --still-camera --burst 9 --interval 600 --clip 900,700,500,250 --burst-sheet
+ *   node scripts/pharosville/preview.mjs --still-camera --stats --watch-seconds 600   # events/h, quiet gap, underway %
+ *   node scripts/pharosville/preview.mjs --fixture calm --clock 2026-09-26 --hash "#t=12.25" --metrics --value-plan --json
+ *   node scripts/pharosville/preview.mjs --hash "#t=22" --clock 2026-09-26 --metrics --temporal --night-water
+ *
+ * Instrument flags:
+ *   --uncapped                 launch with --disable-gpu-vsync --disable-frame-rate-limit
+ *   --knockout <list>          comma list of ao|bloom|smaa|rays|reflection|grade|keyline|water-lanes
+ *   --knockout-compare <list>  baseline vs each pass, alternating, 3 serial rounds (one Chrome per arm)
+ *   --still-camera             appends still=1: no camera breath, no attract/postcard moves
+ *   --clean                    the main shot is the canvas alone: HUD, world chrome and overlay hidden (hour stills)
+ *   --clock <ISO>              pins Date (flowing from that instant; RAF/timers untouched) and adds d=YYYY-MM-DD
+ *   --ritual <kind> [--ritual-wait ms]  W5.1: __pharosVilleDebug.forceRitual(kind) just before the shot (and any burst);
+ *                              kinds heron-arrives|heron-departs|kindling|moonrise|meteor|seasonal-visitor|crossing
+ *   --burst N [--interval ms] [--clip x,y,w,h] [--burst-sheet]   ordered <out>-burst-NN.png (+ contact sheet)
+ *   --stats [--watch-seconds S]  __pharosVilleDebug.motionStats + directorLog (sampled over S seconds)
+ *   --metrics                  HUD-free picture metrics + <out>-notan.png
+ *   --temporal                 mean frame-to-frame |ΔL*| of the bottom third over a 1.5 s burst
+ *   --value-plan [noon|dusk|night]  ninths vs the bible table: MAE and Pearson r (column from t= hour)
+ *   --night-water              mean L* over the projected inlet water polygon
  */
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { installPreviewFixture, analyzeTargetOverlap } from "./preview-fixture.mjs";
 import { analyzeArtifactFlashFrames } from "./artifact-flash-metric.mjs";
+import {
+  bottomThirdHighFrequency,
+  brightShare,
+  decodeFrame,
+  frameMeanLstar,
+  meanAbsoluteError,
+  ninths,
+  pearson,
+  polygonLstarStats,
+  readValuePlan,
+  regionMeanLstar,
+  saturatedOrangeShare,
+  temporalBottomThirdDelta,
+  topBandHueDelta,
+  VALUE_PLAN_COLUMNS,
+  valuePlanColumnForHour,
+  writeContactSheet,
+  writeNotan,
+} from "./preview-metrics.mjs";
 
 /**
  * The operator's own Chrome, per platform — never Playwright's bundle.
@@ -109,6 +158,46 @@ if (fixture && !["dense", "calm", "stress"].includes(fixture)) throw new Error("
 if (fixture && args.refresh) throw new Error("--fixture and --refresh measure different data paths; run them separately");
 const forcedTier = args["force-tier"] ?? null;
 if (forcedTier && !["constrained", "recovery"].includes(forcedTier)) throw new Error("--force-tier needs constrained or recovery (dev server only)");
+
+/** Post passes and water layers the app's debug knockout seam recognises (`window.__pharosVilleKnockout`). */
+const KNOCKOUT_PASSES = ["ao", "bloom", "smaa", "rays", "reflection", "grade", "keyline", "water-lanes"];
+/** Launch switches for throughput readings: without them p50 is the vsync interval, not a cost. */
+const UNCAPPED_CHROME_ARGS = ["--disable-gpu-vsync", "--disable-frame-rate-limit"];
+/** Alternating serial rounds for --knockout-compare (headroom-4: three, so one hot run cannot decide). */
+const KNOCKOUT_COMPARE_ROUNDS = 3;
+/** Where the bible's value-plan table lives; parsed on every run so a table correction is what is compared. */
+const VALUE_PLAN_DOC = fileURLToPath(new URL("../../docs/pharosville/VISUAL_INVARIANTS.md", import.meta.url));
+/** --temporal: 11 frames 150 ms apart is 10 pairs over 1.5 s. */
+const TEMPORAL_FRAME_COUNT = 11;
+const TEMPORAL_INTERVAL_MS = 150;
+/** motionStats refreshes at most twice a second, so a faster poll only re-reads it. */
+const STATS_POLL_INTERVAL_MS = 500;
+const HUD_HIDDEN_STYLE_ID = "preview-hud-hidden";
+
+const knockout = knockoutListFlag("knockout");
+const knockoutCompare = knockoutListFlag("knockout-compare");
+if (knockout && knockoutCompare) throw new Error("--knockout-compare runs its own knockout arms; drop --knockout");
+if (knockoutCompare && args.assert) throw new Error("--knockout-compare is a measurement, not a gate; drop --assert");
+if (knockoutCompare && args.reduced) throw new Error("--knockout-compare compares frame times; --reduced renders one static frame");
+const uncapped = Boolean(args.uncapped);
+const stillCamera = Boolean(args["still-camera"]);
+const clock = parseClockFlag();
+if (clock && args.refresh) throw new Error("--refresh owns page.clock for its clock jump; run --clock separately");
+const burst = parseBurstFlags();
+const statsWatchSeconds = numberFlag("watch-seconds", 0);
+if (statsWatchSeconds < 0) throw new Error("--watch-seconds needs a non-negative number of seconds");
+const statsMode = Boolean(args.stats) || statsWatchSeconds > 0;
+const valuePlanColumn = typeof args["value-plan"] === "string" ? args["value-plan"] : null;
+if (valuePlanColumn && !VALUE_PLAN_COLUMNS.includes(valuePlanColumn)) {
+  throw new Error(`--value-plan takes no value or one of ${VALUE_PLAN_COLUMNS.join(", ")}, got "${valuePlanColumn}"`);
+}
+const picture = {
+  metrics: Boolean(args.metrics),
+  nightWater: Boolean(args["night-water"]),
+  temporal: Boolean(args.temporal),
+  valuePlan: Boolean(args["value-plan"]),
+};
+const pictureRequested = Object.values(picture).some(Boolean);
 const assertMode = Boolean(args.assert);
 const limits = {
   // The perf suite's ceiling (docs/pharosville/TESTING.md); a steady 668 today.
@@ -180,7 +269,9 @@ let tailSweep = null;
 // A refresh probe must not be measuring the day cycle as well: a 31-minute
 // clock jump would step the sky and rebake the PMREM probe inside the window.
 // Pinning the hour makes the payload the only thing that moved.
-const hash = args.hash ?? (refreshMode || fixture ? "#t=12" : "");
+// --clock adds `d=` beside it so the world's calendar (season, almanac, moon)
+// is pinned the same way the hour is.
+const hash = withCalendarDate(args.hash ?? (refreshMode || fixture ? "#t=12" : ""), clock);
 const width = Number(args.width ?? 1600);
 const height = Number(args.height ?? 1000);
 // Long enough for the frame-pacing window to fill with steady-state frames
@@ -211,6 +302,13 @@ const outputPath = resolve(outputDirectory, args.out ?? "preview.png");
 
 const chromePath = typeof args.chrome === "string" ? args.chrome : SYSTEM_CHROME;
 
+// A comparison is a series of whole serial previews, one Chrome per arm, so
+// each arm starts from a cold GPU state and no arm inherits another's caches.
+if (knockoutCompare) {
+  await runKnockoutCompare(knockoutCompare);
+  process.exit();
+}
+
 // Only --assert degrades to a skip. A bare `npm run preview` was asked for
 // deliberately, so it keeps failing loudly with the real reason.
 if (assertMode) {
@@ -225,6 +323,7 @@ if (assertMode) {
 const browser = await chromium.launch({
   executablePath: chromePath,
   headless: !args.headed,
+  args: uncapped ? UNCAPPED_CHROME_ARGS : [],
 });
 
 try {
@@ -239,15 +338,16 @@ try {
     reducedMotion: args.reduced ? "reduce" : "no-preference",
   });
 
-  // Same first-visit seeding the visual lane does: the legend auto-opens once
-  // per browser profile, and a fresh profile means it covers a third of every
-  // preview. Pass --legend to see it deliberately.
-  if (!args.legend) {
+  // A fresh profile is a first visit: the now-line would speak the three
+  // first-visit teachings for ~21 s after arrival and cover the ordinary
+  // caption in every preview. Seed them as read; pass --first-visit to see
+  // them deliberately.
+  if (!args["first-visit"]) {
     await page.addInitScript(() => {
       try {
-        window.localStorage.setItem("pharosville.legend.dismissed", "1");
+        window.localStorage.setItem("pharosville.orientation.seen", "1");
       } catch {
-        // Storage unavailable: the app treats that as dismissed anyway.
+        // Storage unavailable: the app then never speaks the teachings.
       }
     });
   }
@@ -255,6 +355,10 @@ try {
   if (fixture) await installPreviewFixture(page, fixture);
   if (forcedTier) await page.addInitScript((tier) => { window.__pharosVilleTestSchedulerTier = tier; }, forcedTier);
   if (refreshMode) await installRefreshProbe(page);
+  if (knockout) await page.addInitScript((passes) => { window.__pharosVilleKnockout = passes; }, knockout);
+  // Under a fixture the fixture's fixed Date keeps the data's freshness coherent;
+  // the world's calendar then comes from `d=` alone.
+  if (clock && !fixture) await page.addInitScript(installFlowingDate, clock.epochMs);
 
   // Shader tripwire: a material the driver rejects is skipped SILENTLY at draw
   // time — the perf numbers below still pass while a whole subsystem (the sea,
@@ -274,7 +378,8 @@ try {
 
   const { renderer, timerQuerySupported } = await readWebglRenderer(page);
   console.log(`chrome     ${chromePath}`);
-  console.log(`flags      ${await describeOperatorFlags()}`);
+  console.log(`flags      ${await describeOperatorFlags()}`
+    + `${uncapped ? ` · launch ${UNCAPPED_CHROME_ARGS.join(" ")} (uncapped: frame p50 is throughput, not vsync)` : ""}`);
   console.log(`GPU        ${renderer}`);
   console.log(`GPU timer  EXT_disjoint_timer_query_webgl2 ${timerQuerySupported ? "supported" : "unsupported"} (capability only; no timings measured)`);
   if (/swiftshader|softwarerasterizer|llvmpipe/i.test(renderer)) {
@@ -299,10 +404,21 @@ try {
     process.exit();
   }
 
+  // ANGLE's Metal backend reports per-pass timer spans that overlap inside one
+  // command buffer: they are not additive and their frame total is not a GPU
+  // cost. A budget asserted on them would be a gate on a fiction.
+  if (limits.maxGpuMs !== null && /metal/i.test(renderer)) {
+    console.error("\nRefusing --max-gpu-ms: this renderer is ANGLE Metal, whose timer readings are overlapping"
+      + "\ncommand-buffer spans — not additive and not a frame's GPU cost. Measure cost with"
+      + "\n`--uncapped --knockout-compare <passes>` (Δ throughput) instead.");
+    await browser.close();
+    process.exit(2);
+  }
+
   // `debug=1` publishes window.__pharosVilleDebug, which is where the scheduler
   // tier and the GPU counters live.
   const separator = url.includes("?") ? "&" : "?";
-  const target = `${url}${separator}debug=1${hash}`;
+  const target = `${url}${separator}debug=1${stillCamera ? "&still=1" : ""}${hash}`;
   await page.goto(target, { waitUntil: "domcontentloaded" });
 
   const canvas = page.getByTestId("pharosville-canvas");
@@ -377,7 +493,14 @@ try {
   if (forcedTier && metrics.tier !== forcedTier) throw new Error(`Forced tier ${forcedTier} not active; use the dev server, not a production build (got ${metrics.tier})`);
   await applyRequestedUiState(page);
   await mkdir(outputDirectory, { recursive: true });
-  await page.screenshot({ path: outputPath });
+  if (typeof args.ritual === "string") await forceRitualBeforeCapture(page, args.ritual, numberFlag("ritual-wait", 0));
+  if (args.clean) {
+    // K17 hour stills: the world alone, no HUD, chrome, chips or nameplates.
+    await page.addStyleTag({ content: ".pharosville-overlay { visibility: hidden !important; }" });
+    await withHudHidden(page, () => canvas.screenshot({ animations: "allow", path: outputPath }));
+  } else {
+    await page.screenshot({ path: outputPath });
+  }
   if (args["blur-audit"]) {
     const originalStyle = await canvas.evaluate((element) => {
       const style = element.getAttribute("style");
@@ -423,11 +546,31 @@ try {
 
   console.log(`URL        ${target}`);
   console.log(`data       ${fixture ?? "live"}${fixture ? " checked-in fixture; Date fixed at fixture epoch + 60 seconds" : ""} · forced tier ${forcedTier ?? "none"}`);
+  if (clock) {
+    console.log(`clock      d=${clock.date} in the hash · ${fixture
+      ? "Date stays on the fixture epoch so data freshness is coherent; the calendar comes from d="
+      : `Date flows from ${new Date(clock.epochMs).toString()} (Date only; RAF, performance.now and timers untouched)`}`);
+  }
+  if (knockout || stillCamera) {
+    console.log(`instrument${knockout ? ` knockout ${knockout.join(", ")} (window.__pharosVilleKnockout; honoured only with visual debug)` : ""}`
+      + `${knockout && stillCamera ? " ·" : ""}${stillCamera ? " still camera (still=1: no breath, no attract/postcard moves)" : ""}`);
+  }
+  if ((knockout || stillCamera || clock) && !await page.evaluate(() => Boolean(window.__pharosVilleDebug))) {
+    console.error("error      window.__pharosVilleDebug is absent, so visual debug is off and the knockout, still=1 and d="
+      + " seams are ignored — use the dev server or a localhost build");
+    process.exitCode = 1;
+  }
   console.log(`viewport   ${width}x${height} @${args.dpr ?? 1}x, ${args.headed ? "headed" : "headless"}`
     + `, motion ${args.reduced ? "reduced" : "normal"}`);
   console.log(`frame      ${round(metrics.fps)} fps · p50 ${round(metrics.p50)}ms · p90 ${round(metrics.p90)}ms`
     + ` · dropped ${metrics.dropped} of ${metrics.samples}`);
-  if (!args.reduced) printFrameTail(metrics);
+  if (args.headed) {
+    const displayHz = await measureDisplayRate(page);
+    metrics.displayRateHz = displayHz;
+    console.log(`display    ${round(displayHz)} Hz raw requestAnimationFrame (headed: the rate this panel delivers)`
+      + ` · app ${round(metrics.fps)} fps${uncapped ? " · uncapped" : ""}`);
+  }
+  if (!args.reduced) printFrameTail(metrics, renderer);
   console.log(`tier       ${metrics.tier} (session worst: ${metrics.tierReached})`
     + ` · composer ${metrics.composer ? "on" : "off"}`);
   console.log(`motion     sample ${round(metrics.sampleDurationMs)}ms · hit targets ${round(metrics.hitTargetDurationMs)}ms`
@@ -464,6 +607,11 @@ try {
 
   if (assertMode) evaluateAssertions(metrics, shaderErrors);
   if (args["artifact-check"]) await runArtifactFlashCheck(page, canvas);
+
+  const instruments = {};
+  if (burst) instruments.burst = await runBurst(page, canvas, burst);
+  if (pictureRequested) instruments.picture = await runPictureMetrics(page, canvas, metrics);
+  if (statsMode) instruments.stats = await runStats(page, statsWatchSeconds);
 
   // Last, deliberately: the probe mutates the payload, so everything above —
   // including the screenshot — describes the world as the API actually serves it.
@@ -533,7 +681,17 @@ try {
   if (args.json) {
     await writeFile(
       resolve(outputDirectory, typeof args.json === "string" ? args.json : "preview.json"),
-      `${JSON.stringify({ metrics, tailSweep, renderer, timerQuerySupported, target, fixture, forcedTier }, null, 2)}\n`,
+      `${JSON.stringify({
+        metrics,
+        tailSweep,
+        renderer,
+        timerQuerySupported,
+        target,
+        fixture,
+        forcedTier,
+        instrumentConfig: { clock, knockout, stillCamera, uncapped },
+        instruments,
+      }, null, 2)}\n`,
     );
   }
 } finally {
@@ -607,7 +765,7 @@ function summarizeFrameTail(reads, spanMs) {
  * seeing — it is just labelled as the one second it is, so nobody quotes it as
  * a session-wide P95.
  */
-function printFrameTail(metrics) {
+function printFrameTail(metrics, renderer) {
   if (typeof metrics.p95 !== "number") {
     console.log("tail       p95/p99 unavailable — this page's telemetry predates the P95 tail (W4.4)");
   } else {
@@ -626,8 +784,14 @@ function printFrameTail(metrics) {
       .map((name) => gpu.passes?.find((pass) => pass.name === name))
       .filter(Boolean)
       .map((pass) => `${pass.name} ${formatGpuMs(pass.p95Ms)}`);
-    console.log(`gpu        frame p50 ${formatGpuMs(gpu.frameP50Ms)} · p95 ${formatGpuMs(gpu.frameP95Ms)}`
-      + `${passes.length > 0 ? `   ${passes.join(" · ")}` : ""}`);
+    // These are timer-query READINGS, not costs: the per-pass spans overlap, so
+    // they do not sum to the frame and a pass's reading is not what removing it
+    // saves. On ANGLE Metal they are command-buffer spans. Cost comes from
+    // --uncapped --knockout-compare.
+    const backend = /metal/i.test(renderer ?? "") ? "ANGLE Metal command-buffer spans" : "timer-query spans";
+    console.log(`gpu        non-additive per-pass timer readings (${backend}; do not sum, not a cost):`
+      + ` frame p50 ${formatGpuMs(gpu.frameP50Ms)} · p95 ${formatGpuMs(gpu.frameP95Ms)}`);
+    if (passes.length > 0) console.log(`           per-pass p95 readings: ${passes.join(" · ")}`);
   }
   console.log(`longtask   ${metrics.longtaskCount ?? 0} in the rolling window`
     + ` · longest ${round(metrics.longtaskMaxMs ?? 0)}ms`
@@ -1255,13 +1419,614 @@ async function waitForSettledStaticMetrics(page) {
   return { metrics: latest, settled: stableReads >= REQUIRED_STABLE_READS };
 }
 
-async function runArtifactFlashCheck(page, canvas) {
+/* ---------------------------------------------------------------------------
+ * INSTRUMENTS (plan W0.1–W0.3, W0.5)
+ *
+ * Motion, picture and cost evidence taken on this script's own real-GPU frame
+ * path, after the renderer check and the populate/settle waits — never from a
+ * second launcher with its own idea of "ready". Every reading that depends on
+ * app-side debug fields says so plainly when the page does not publish them.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The one frame-grab loop every motion instrument shares (artifact probe,
+ * --burst, --temporal): real screenshots on the page's own frame path, paced
+ * start-to-start so `intervalMs` is the spacing between frames rather than the
+ * gap after a capture of unknown length. `clip` (viewport CSS px) captures that
+ * page region instead of the canvas element.
+ */
+async function captureFrames(page, canvas, { count, intervalMs, clip = null }) {
   const frames = [];
+  const startedAt = Date.now();
+  for (let index = 0; index < count; index += 1) {
+    const wait = startedAt + index * intervalMs - Date.now();
+    if (wait > 0) await page.waitForTimeout(wait);
+    const atMs = Date.now() - startedAt;
+    const png = clip
+      ? await page.screenshot({ animations: "allow", clip, type: "png" })
+      : await canvas.screenshot({ animations: "allow", type: "png" });
+    frames.push({ atMs, png });
+  }
+  return frames;
+}
+
+async function runBurst(page, canvas, { clip, count, intervalMs, sheet }) {
+  const frames = await captureFrames(page, canvas, { clip, count, intervalMs });
+  const base = outputPath.replace(/\.png$/i, "");
+  const digits = Math.max(2, String(count - 1).length);
+  const paths = [];
+  for (const [index, { png }] of frames.entries()) {
+    const path = `${base}-burst-${String(index).padStart(digits, "0")}.png`;
+    await writeFile(path, png);
+    paths.push(path);
+  }
+  const sheetPath = sheet
+    ? (await writeContactSheet(frames.map(({ png }) => png), `${base}-burst-sheet.png`)).path
+    : null;
+  const spanMs = frames.at(-1).atMs;
+  const meanSpacingMs = frames.length > 1 ? spanMs / (frames.length - 1) : 0;
+  console.log(`burst      ${count} frames @ ${intervalMs}ms (achieved ${round(meanSpacingMs)}ms mean spacing over ${round(spanMs / 1000)}s)`
+    + ` · ${clip ? `clip ${clip.x},${clip.y},${clip.width},${clip.height}` : "canvas"}`
+    + ` · ${paths[0]}${paths.length > 1 ? ` … ${paths.at(-1)}` : ""}`);
+  if (sheetPath) console.log(`           sheet ${sheetPath}`);
+  return { clip, count, framesAtMs: frames.map(({ atMs }) => atMs), intervalMs, meanSpacingMs, paths, sheet: sheetPath };
+}
+
+/** Run `capture` with the debug HUD and the world chrome hidden, so the picture is the world alone. */
+async function withHudHidden(page, capture) {
+  await page.evaluate((id) => {
+    const style = document.createElement("style");
+    style.id = id;
+    style.textContent = ".pharosville-debug-chrome, .pharosville-world-chrome"
+      + " { visibility: hidden !important; opacity: 0 !important; transition: none !important; }";
+    document.head.append(style);
+    return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+  }, HUD_HIDDEN_STYLE_ID);
+  try {
+    return await capture();
+  } finally {
+    await page.evaluate((id) => document.getElementById(id)?.remove(), HUD_HIDDEN_STYLE_ID);
+  }
+}
+
+/**
+ * Project the tower and inlet anchors through the app's own camera. Returns
+ * `{ error }` naming exactly which debug field is missing when the page cannot.
+ */
+async function readProjectedAnchors(page) {
+  return page.evaluate(() => {
+    const debug = window.__pharosVilleDebug;
+    if (!debug) return { error: "window.__pharosVilleDebug is absent — load a dev or localhost build with ?debug=1" };
+    if (typeof debug.project !== "function") return { error: "__pharosVilleDebug.project is absent — this build predates the W0.3 projection seam" };
+    const anchors = debug.anchors;
+    const required = ["towerFoot", "towerCrown", "towerFaceLeft", "towerFaceRight"];
+    if (!anchors || required.some((name) => !anchors[name]) || !Array.isArray(anchors.inletPolygon)) {
+      return { error: "__pharosVilleDebug.anchors (towerFoot, towerCrown, towerFaceLeft, towerFaceRight, inletPolygon) is absent — this build predates W0.3" };
+    }
+    const projected = debug.project([...required.map((name) => anchors[name]), ...anchors.inletPolygon]);
+    return {
+      inlet: projected.slice(required.length),
+      tower: Object.fromEntries(required.map((name, index) => [name, projected[index]])),
+    };
+  });
+}
+
+/**
+ * Tower sample rectangles in image pixels. The two face centres are half the
+ * tower's screen width apart on a square shaft seen at 45°, so each face sample
+ * is half that separation wide (inside the face); the air samples sit two and a
+ * half half-widths either side of the axis, at the same height.
+ */
+function towerSampleRects(tower, scale) {
+  const { towerCrown: crown, towerFaceLeft: left, towerFaceRight: right, towerFoot: foot } = tower;
+  const towerHeight = Math.abs(foot.y - crown.y);
+  const separation = Math.abs(right.x - left.x);
+  const halfWidth = Math.max(separation, towerHeight * 0.08);
+  const sampleWidth = Math.max(3, separation * 0.5);
+  const sampleHeight = Math.max(3, towerHeight * 0.1);
+  const rect = (x, y) => ({
+    height: sampleHeight * scale,
+    width: sampleWidth * scale,
+    x: (x - sampleWidth / 2) * scale,
+    y: (y - sampleHeight / 2) * scale,
+  });
+  const axisX = (left.x + right.x) / 2;
+  const axisY = (left.y + right.y) / 2;
+  return {
+    airLeft: rect(axisX - 2.5 * halfWidth, axisY),
+    airRight: rect(axisX + 2.5 * halfWidth, axisY),
+    faceLeft: rect(left.x, left.y),
+    faceRight: rect(right.x, right.y),
+  };
+}
+
+function hourFromHash(value) {
+  const match = /[#&]t=([0-9]+(?:\.[0-9]+)?)/.exec(value);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Picture metrics on a HUD-free canvas capture (W0.3): ninths, bright share,
+ * saturated-orange share, sky hue split, bottom-third high-frequency energy,
+ * tower face ratio and tower-vs-air, notan; plus --value-plan, --temporal and
+ * --night-water. Blur radii are CSS pixels scaled to the capture's DPR.
+ */
+async function runPictureMetrics(page, canvas, metrics) {
+  const result = { errors: [] };
+  const fail = (message) => {
+    result.errors.push(message);
+    console.error(`error      ${message}`);
+    process.exitCode = 1;
+  };
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("Canvas unavailable for picture metrics");
+  const png = await withHudHidden(page, () => canvas.screenshot({ animations: "allow", type: "png" }));
+  const frame = await decodeFrame(png);
+  const scale = frame.width / box.width;
+  const base = outputPath.replace(/\.png$/i, "");
+  result.capture = { cssHeight: box.height, cssWidth: box.width, height: frame.height, scale, width: frame.width };
+  result.frameMeanLstar = frameMeanLstar(frame);
+  result.ninths = ninths(frame);
+  const cell = (value) => (typeof value === "number" ? value.toFixed(1) : "—").padStart(6);
+  const percent = (value) => `${(value * 100).toFixed(1)} %`;
+  console.log(`picture    HUD-free canvas ${frame.width}x${frame.height} (${round(scale)} image px per CSS px)`
+    + ` · frame mean L* ${result.frameMeanLstar.toFixed(1)}`);
+  ["top", "mid", "bot"].forEach((row, index) => {
+    console.log(`${index === 0 ? "ninths     " : "           "}${row} ${result.ninths.slice(index * 3, index * 3 + 3).map(cell).join("")}   (mean L*)`);
+  });
+
+  const needsAnchors = picture.metrics || picture.nightWater;
+  const anchors = needsAnchors ? await readProjectedAnchors(page) : null;
+
+  if (picture.metrics) {
+    result.brightShare = brightShare(frame, 85);
+    result.saturatedOrangeShare = saturatedOrangeShare(frame);
+    result.topBandHue = topBandHueDelta(frame);
+    result.bottomThirdHighFrequency = bottomThirdHighFrequency(frame, 6 * scale);
+    const hue = (reading) => (reading.hue === null ? "grey" : `${reading.hue.toFixed(0)}°`);
+    console.log(`value      pixels L*>85 ${percent(result.brightShare)}`
+      + ` · bottom-left ninth ${result.ninths[6].toFixed(1)}`);
+    console.log(`colour     saturated orange (hue 15–50°, s·v>0.35) ${percent(result.saturatedOrangeShare)}`
+      + ` · top-band hue left ${hue(result.topBandHue.left)} / right ${hue(result.topBandHue.right)}`
+      + ` Δ ${result.topBandHue.delta === null ? "n/a" : `${result.topBandHue.delta.toFixed(0)}°`}`);
+    console.log(`texture    bottom-third high-frequency energy |L* − gauss σ6| ${result.bottomThirdHighFrequency.toFixed(2)}`);
+    if (anchors.error) {
+      fail(`tower metrics unavailable: ${anchors.error}`);
+    } else if (!anchors.tower.towerFaceLeft.visible || !anchors.tower.towerFaceRight.visible) {
+      fail("tower metrics unavailable: a projected tower face is outside the view");
+    } else {
+      const rects = towerSampleRects(anchors.tower, scale);
+      const sample = Object.fromEntries(Object.entries(rects).map(([name, rect]) => [name, regionMeanLstar(frame, rect)]));
+      if (Object.values(sample).some((value) => value === null)) {
+        fail("tower metrics unavailable: a tower or air sample fell outside the frame");
+      } else {
+        const left = sample.faceLeft.mean;
+        const right = sample.faceRight.mean;
+        const lit = Math.max(left, right);
+        const shade = Math.min(left, right);
+        const towerLstar = (left + right) / 2;
+        const airLstar = (sample.airLeft.mean + sample.airRight.mean) / 2;
+        result.tower = {
+          airLstar,
+          faceLeftLstar: left,
+          faceRightLstar: right,
+          litFace: left >= right ? "left" : "right",
+          litShadeRatio: lit / Math.max(shade, 0.5),
+          rects,
+          towerLstar,
+          towerMinusAir: towerLstar - airLstar,
+        };
+        console.log(`tower      lit/shade face ratio ${result.tower.litShadeRatio.toFixed(2)}`
+          + ` (left ${left.toFixed(1)} · right ${right.toFixed(1)}, lit ${result.tower.litFace})`
+          + ` · tower ${towerLstar.toFixed(1)} vs air ${airLstar.toFixed(1)} (Δ ${result.tower.towerMinusAir >= 0 ? "+" : ""}${result.tower.towerMinusAir.toFixed(1)} L*)`);
+      }
+    }
+    result.notan = await writeNotan(frame, 16 * scale, `${base}-notan.png`);
+    console.log(`notan      ${result.notan.path} · dark ${percent(result.notan.shares[0])}`
+      + ` · mid ${percent(result.notan.shares[1])} · light ${percent(result.notan.shares[2])}`
+      + ` (16px blur; thirds of its p5–p95 range, L* ${result.notan.thresholds.map((value) => value.toFixed(1)).join(" / ")})`);
+  }
+
+  if (picture.valuePlan) {
+    const plan = await readValuePlan(VALUE_PLAN_DOC);
+    let column = valuePlanColumn;
+    let source = "--value-plan";
+    if (!column) {
+      const hashHour = hourFromHash(hash);
+      const hour = hashHour ?? metrics.wallClockHour;
+      if (typeof hour === "number") {
+        column = valuePlanColumnForHour(hour);
+        source = hashHour !== null ? `t=${hashHour}` : `wall clock ${round(hour)}h`;
+      }
+    }
+    if (!column) {
+      fail("value plan: no t= hour in the hash and the page published no wallClockHour; pass --value-plan noon|dusk|night");
+    } else {
+      const target = plan[column];
+      const correlation = pearson(result.ninths, target);
+      result.valuePlan = {
+        column,
+        mae: meanAbsoluteError(result.ninths, target),
+        pearsonR: correlation,
+        source,
+        target,
+      };
+      console.log(`value plan ${column} column (${source}): MAE ${result.valuePlan.mae.toFixed(1)} L*`
+        + ` · Pearson r ${correlation === null ? "n/a" : correlation.toFixed(2)}`);
+      ["top", "mid", "bot"].forEach((row, index) => {
+        console.log(`           ${row} ${target.slice(index * 3, index * 3 + 3).map(cell).join("")}   (bible, docs/pharosville/VISUAL_INVARIANTS.md)`);
+      });
+    }
+  }
+
+  if (picture.nightWater) {
+    if (anchors.error) {
+      fail(`night water unavailable: ${anchors.error}`);
+    } else if (!anchors.inlet.some((point) => point.visible)) {
+      fail("night water unavailable: no inlet polygon vertex projects into the view");
+    } else {
+      const polygon = anchors.inlet.map((point) => ({ x: point.x * scale, y: point.y * scale }));
+      const water = polygonLstarStats(frame, polygon, { brightThreshold: 10 });
+      if (!water) {
+        fail("night water unavailable: the projected inlet polygon covers no pixel");
+      } else {
+        result.nightWater = water;
+        console.log(`night water inlet mean L* ${water.mean.toFixed(1)} · p95 ${water.p95.toFixed(1)} · max ${water.max.toFixed(1)}`
+          + ` · ${percent(water.brightShare)} above L* ${water.brightThreshold} · ${water.pixels} px`);
+      }
+    }
+  }
+
+  if (picture.temporal) {
+    const shots = await withHudHidden(page, () => captureFrames(page, canvas, {
+      count: TEMPORAL_FRAME_COUNT,
+      intervalMs: TEMPORAL_INTERVAL_MS,
+    }));
+    const planes = [];
+    for (const { png: shot } of shots) {
+      const { height, lstar, width } = await decodeFrame(shot);
+      planes.push({ height, lstar, width });
+    }
+    const temporal = temporalBottomThirdDelta(planes);
+    result.temporal = { ...temporal, spanMs: shots.at(-1).atMs };
+    console.log(`temporal   bottom-third mean |ΔL*| ${temporal.mean.toFixed(3)} per frame pair`
+      + ` (max ${temporal.max.toFixed(3)}) · ${temporal.pairs.length} pairs over ${round(result.temporal.spanMs / 1000)}s`);
+  }
+  return result;
+}
+
+/** motionStats and the director log, or `{ error }` naming the missing debug field. */
+async function readDebugStats(page) {
+  return page.evaluate(() => {
+    const debug = window.__pharosVilleDebug;
+    if (!debug) return { error: "window.__pharosVilleDebug is absent — load a dev or localhost build with ?debug=1" };
+    const stats = debug.motionStats;
+    if (!stats || typeof stats.visibleShips !== "number") {
+      return { error: "__pharosVilleDebug.motionStats is absent — this build predates the W0.2 motion instruments" };
+    }
+    if (!Array.isArray(debug.directorLog)) {
+      return { error: "__pharosVilleDebug.directorLog is absent — this build predates the W0.2 director log" };
+    }
+    return {
+      directorLog: debug.directorLog.map((beat) => ({
+        admittedAtWallMs: beat.admittedAtWallMs ?? null,
+        endSeconds: beat.endSeconds ?? null,
+        id: String(beat.id),
+        kind: String(beat.kind),
+        priority: beat.priority ?? null,
+        startSeconds: beat.startSeconds ?? null,
+      })),
+      motionStats: {
+        meanAbsRestTurnDegPerSec: stats.meanAbsRestTurnDegPerSec ?? null,
+        meanAbsTurnDegPerSec: stats.meanAbsTurnDegPerSec,
+        sampledAtMs: stats.sampledAtMs,
+        underwayShips: stats.underwayShips,
+        visibleShips: stats.visibleShips,
+      },
+    };
+  });
+}
+
+function formatBeat(beat) {
+  const window_ = typeof beat.startSeconds === "number" && typeof beat.endSeconds === "number"
+    ? ` · ${round(beat.startSeconds)}–${round(beat.endSeconds)}s`
+    : "";
+  return `${beat.kind} ${beat.id} · priority ${beat.priority ?? "?"}${window_}`;
+}
+
+async function runStats(page, watchSeconds) {
+  const first = await readDebugStats(page);
+  if (first.error) {
+    console.error(`error      --stats unavailable: ${first.error}`);
+    process.exitCode = 1;
+    return { error: first.error };
+  }
+  const { directorLog, motionStats } = first;
+  const underwayShare = motionStats.visibleShips > 0 ? motionStats.underwayShips / motionStats.visibleShips : null;
+  console.log(`stats      ${motionStats.visibleShips} ships visible · ${motionStats.underwayShips} underway`
+    + ` (${underwayShare === null ? "n/a" : `${(underwayShare * 100).toFixed(1)} %`})`
+    + ` · mean |turn| ${round(motionStats.meanAbsTurnDegPerSec)}°/s under way`
+    + `${typeof motionStats.meanAbsRestTurnDegPerSec === "number" ? `, ${round(motionStats.meanAbsRestTurnDegPerSec)}°/s at rest` : ""}`
+    + ` · sampled at ${round(motionStats.sampledAtMs)}ms`);
+  const latest = directorLog.slice(-8);
+  console.log(`director   ${directorLog.length} beats in the log${latest.length ? `; latest ${latest.length}:` : ""}`);
+  for (const beat of latest) console.log(`           ${formatBeat(beat)}`);
+  const result = { directorLog, motionStats };
+  if (watchSeconds > 0) result.watch = await watchDebugStats(page, watchSeconds, first);
+  return result;
+}
+
+/**
+ * Sample the director log and motionStats for `watchSeconds`. A beat counts as
+ * new when its identity first appears in the log; its time is the poll that saw
+ * it (±250 ms), which keeps the reading independent of the app's clock — under
+ * a fixture, Date does not move at all.
+ */
+async function watchDebugStats(page, watchSeconds, first) {
+  const beatKey = (beat) => `${beat.id}|${beat.kind}|${beat.admittedAtWallMs}|${beat.startSeconds}`;
+  const seen = new Set(first.directorLog.map(beatKey));
+  const events = [];
+  const samples = [first.motionStats];
+  let lastSampledAt = first.motionStats.sampledAtMs;
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < watchSeconds * 1000) {
+    await page.waitForTimeout(STATS_POLL_INTERVAL_MS);
+    const read = await readDebugStats(page);
+    if (read.error) {
+      console.error(`error      --watch-seconds stopped: ${read.error}`);
+      process.exitCode = 1;
+      return { error: read.error };
+    }
+    const atMs = Date.now() - startedAt;
+    for (const beat of read.directorLog) {
+      const key = beatKey(beat);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      events.push({ ...beat, seenAtMs: atMs });
+    }
+    if (read.motionStats.sampledAtMs !== lastSampledAt) {
+      lastSampledAt = read.motionStats.sampledAtMs;
+      samples.push(read.motionStats);
+    }
+  }
+  const elapsedMs = Date.now() - startedAt;
+  const marks = [0, ...events.map((event) => event.seenAtMs), elapsedMs];
+  let longestQuietMs = 0;
+  for (let index = 1; index < marks.length; index += 1) longestQuietMs = Math.max(longestQuietMs, marks[index] - marks[index - 1]);
+  const visible = samples.reduce((sum, sample) => sum + sample.visibleShips, 0);
+  const underway = samples.reduce((sum, sample) => sum + sample.underwayShips, 0);
+  const meanOf = (key) => {
+    const valid = samples.filter((sample) => typeof sample[key] === "number");
+    return valid.length ? valid.reduce((sum, sample) => sum + sample[key], 0) / valid.length : null;
+  };
+  const meanTurnDegPerSec = meanOf("meanAbsTurnDegPerSec");
+  const meanRestTurnDegPerSec = meanOf("meanAbsRestTurnDegPerSec");
+  const watch = {
+    elapsedMs,
+    events,
+    eventsPerHour: events.length / (elapsedMs / 3_600_000),
+    longestQuietMs,
+    meanRestTurnDegPerSec,
+    meanTurnDegPerSec,
+    samples: samples.length,
+    underwayShare: visible > 0 ? underway / visible : null,
+  };
+  console.log(`watch      ${round(elapsedMs / 1000)}s: ${events.length} beats admitted (${round(watch.eventsPerHour)}/h)`
+    + ` · longest quiet gap ${round(longestQuietMs / 1000)}s`
+    + ` · underway ${watch.underwayShare === null ? "n/a" : `${(watch.underwayShare * 100).toFixed(1)} %`} of visible hulls`
+    + ` · mean |turn| ${meanTurnDegPerSec === null ? "n/a" : `${meanTurnDegPerSec.toFixed(2)}°/s (${(meanTurnDegPerSec * 60).toFixed(0)}°/min)`} under way`
+    + `, ${meanRestTurnDegPerSec === null ? "n/a" : `${meanRestTurnDegPerSec.toFixed(2)}°/s (${(meanRestTurnDegPerSec / 6).toFixed(3)} turns/min)`} at rest`
+    + ` · ${samples.length} motion samples`);
+  for (const event of events) console.log(`           +${round(event.seenAtMs / 1000)}s ${formatBeat(event)}`);
+  return watch;
+}
+
+/** The raw requestAnimationFrame rate the page is given — on a headed ProMotion panel, 120 Hz. */
+function measureDisplayRate(page, spanMs = 1000) {
+  return page.evaluate((span) => new Promise((done) => {
+    let first = null;
+    let frames = 0;
+    const tick = (time) => {
+      if (first === null) first = time;
+      else frames += 1;
+      if (first !== null && time - first >= span) done((frames * 1000) / (time - first));
+      else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }), spanMs);
+}
+
+/**
+ * --knockout-compare: baseline and each knockout arm alternate for three serial
+ * rounds, each arm a whole preview in its own Chrome, and Δ = knockout −
+ * baseline is averaged over same-round pairs so thermal drift across the run
+ * cancels instead of landing on whichever pass ran last.
+ */
+async function runKnockoutCompare(passes) {
+  const script = fileURLToPath(import.meta.url);
+  const passthrough = stripFlags(process.argv.slice(2), ["knockout-compare", "knockout", "out", "json"]);
+  const stem = relative(outputDirectory, outputPath).replace(/\.png$/i, "");
+  const arms = ["baseline", ...passes];
+  console.log(`knockout   comparing ${passes.join(", ")} against baseline:`
+    + ` ${KNOCKOUT_COMPARE_ROUNDS} alternating serial rounds, one Chrome per arm`);
+  if (!uncapped) {
+    console.log("           CAPPED: without --uncapped every arm reads the vsync interval, so Δ saturates near 0;"
+      + " add --uncapped for costs");
+  }
+  const rounds = [];
+  for (let roundIndex = 1; roundIndex <= KNOCKOUT_COMPARE_ROUNDS; roundIndex += 1) {
+    const results = {};
+    for (const arm of arms) {
+      const name = `${stem}-kc-r${roundIndex}-${arm}`;
+      const child = await runPreviewChild(script, [
+        ...passthrough,
+        "--out", `${name}.png`,
+        "--json", `${name}.json`,
+        ...(arm === "baseline" ? [] : ["--knockout", arm]),
+      ]);
+      if (child.code !== 0) {
+        console.error(`knockout   arm ${arm} (round ${roundIndex}) exited ${child.code}; its last lines:\n`
+          + child.output.trimEnd().split("\n").slice(-15).join("\n"));
+        process.exitCode = child.code;
+        return;
+      }
+      const { metrics: armMetrics } = JSON.parse(await readFile(resolve(outputDirectory, `${name}.json`), "utf8"));
+      results[arm] = {
+        dropped: armMetrics.dropped,
+        fps: armMetrics.fps,
+        p50: armMetrics.p50,
+        p90: armMetrics.p90,
+        samples: armMetrics.samples,
+        tier: armMetrics.tier,
+      };
+      console.log(`           r${roundIndex} ${arm.padEnd(11)} ${round(armMetrics.fps)} fps · p50 ${round(armMetrics.p50)}ms`
+        + ` · p90 ${round(armMetrics.p90)}ms · tier ${armMetrics.tier}`);
+    }
+    rounds.push(results);
+  }
+  const mean = (values) => values.reduce((sum, value) => sum + value, 0) / values.length;
+  const median = (values) => [...values].sort((a, b) => a - b)[Math.floor((values.length - 1) / 2)];
+  const signed = (value) => `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
+  const deltas = passes.map((pass) => {
+    const p50 = rounds.map((results) => results[pass].p50 - results.baseline.p50);
+    const p90 = rounds.map((results) => results[pass].p90 - results.baseline.p90);
+    return { deltaP50Ms: mean(p50), deltaP90Ms: mean(p90), pass, perRoundDeltaP50Ms: p50, perRoundDeltaP90Ms: p90 };
+  });
+  const baseline = {
+    p50: median(rounds.map((results) => results.baseline.p50)),
+    p90: median(rounds.map((results) => results.baseline.p90)),
+  };
+  const sumDeltaP50Ms = deltas.reduce((sum, delta) => sum + delta.deltaP50Ms, 0);
+  console.log(`knockout   Δ = knockout − baseline, mean of ${KNOCKOUT_COMPARE_ROUNDS} same-round pairs (negative: the pass costs that much)`);
+  for (const delta of deltas) {
+    console.log(`           ${delta.pass.padEnd(11)} Δp50 ${signed(delta.deltaP50Ms)}ms · Δp90 ${signed(delta.deltaP90Ms)}ms`
+      + `   (per round Δp50 ${delta.perRoundDeltaP50Ms.map(signed).join(" / ")})`);
+  }
+  console.log(`           Σ Δp50 ${signed(sumDeltaP50Ms)}ms · baseline p50 ${round(baseline.p50)}ms · p90 ${round(baseline.p90)}ms (median of rounds)`);
+  const tiers = new Set(rounds.flatMap((results) => Object.values(results).map((result) => result.tier)));
+  if (tiers.size > 1) {
+    console.error(`note: arms ran at different scheduler tiers (${[...tiers].join(", ")}), so their frame times are not like for like.`);
+  }
+  if (args.json) {
+    await writeFile(
+      resolve(outputDirectory, typeof args.json === "string" ? args.json : "preview.json"),
+      `${JSON.stringify({ baseline, deltas, passes, rounds, sumDeltaP50Ms, uncapped }, null, 2)}\n`,
+    );
+  }
+}
+
+function runPreviewChild(script, childArgs) {
+  return new Promise((resolveChild, rejectChild) => {
+    const child = spawn(process.execPath, [script, ...childArgs], { stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    child.stdout.on("data", (chunk) => { output += chunk; });
+    child.stderr.on("data", (chunk) => { output += chunk; });
+    child.on("error", rejectChild);
+    child.on("close", (code) => resolveChild({ code: code ?? 1, output }));
+  });
+}
+
+/** argv minus the named flags and their values, with parseArgs' own value rule. */
+function stripFlags(argv, names) {
+  const kept = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    const key = token.startsWith("--") ? token.slice(2).split("=")[0] : null;
+    if (key === null || !names.includes(key)) {
+      kept.push(token);
+      continue;
+    }
+    const next = argv[index + 1];
+    if (!token.includes("=") && next !== undefined && !next.startsWith("--")) index += 1;
+  }
+  return kept;
+}
+
+function knockoutListFlag(name) {
+  const raw = args[name];
+  if (raw === undefined) return null;
+  const usage = `--${name} needs a comma list of ${KNOCKOUT_PASSES.join(", ")}`;
+  if (raw === true) throw new Error(usage);
+  const passes = [...new Set(String(raw).split(",").map((pass) => pass.trim()).filter(Boolean))];
+  const unknown = passes.filter((pass) => !KNOCKOUT_PASSES.includes(pass));
+  if (passes.length === 0 || unknown.length > 0) throw new Error(`${usage}; unknown: ${unknown.join(", ") || "(empty)"}`);
+  return passes;
+}
+
+function parseClockFlag() {
+  const raw = args.clock;
+  if (raw === undefined) return null;
+  const usage = "--clock needs an ISO date or date-time, e.g. --clock 2026-09-26 or --clock 2026-09-26T21:30";
+  if (raw === true) throw new Error(usage);
+  const date = /^\d{4}-\d{2}-\d{2}/.exec(raw);
+  // A bare date means that local calendar day's midnight; ISO alone would read
+  // it as UTC midnight, which is the previous evening west of Greenwich.
+  const epochMs = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00` : raw);
+  if (!date || !Number.isFinite(epochMs)) throw new Error(`${usage}; got "${raw}"`);
+  return { date: date[0], epochMs, iso: raw };
+}
+
+function withCalendarDate(baseHash, calendar) {
+  if (!calendar) return baseHash;
+  if (/[#&]d=/.test(baseHash)) throw new Error("--clock adds d= to the hash itself; drop the d= from --hash");
+  return baseHash ? `${baseHash}&d=${calendar.date}` : `#d=${calendar.date}`;
+}
+
+/** W5.1: start a ritual through the debug seam, then wait `waitMs` before the capture. */
+async function forceRitualBeforeCapture(page, kind, waitMs) {
+  const started = await page.evaluate((ritual) => {
+    const debug = window.__pharosVilleDebug;
+    return typeof debug?.forceRitual === "function" ? debug.forceRitual(ritual) : null;
+  }, kind);
+  if (started === null) throw new Error("--ritual needs visual debug (__pharosVilleDebug.forceRitual is absent)");
+  console.log(`ritual     ${kind} ${started ? "started" : "has no registered handler (logged only)"}${waitMs > 0 ? ` · capture after ${waitMs}ms` : ""}`);
+  if (waitMs > 0) await page.waitForTimeout(waitMs);
+}
+
+function parseBurstFlags() {
+  const dependent = ["interval", "clip", "burst-sheet"].filter((name) => args[name] !== undefined);
+  if (args.burst === undefined) {
+    if (dependent.length > 0) throw new Error(`--${dependent[0]} only applies to --burst`);
+    return null;
+  }
+  const count = Number(args.burst);
+  if (args.burst === true || !Number.isInteger(count) || count < 1) throw new Error("--burst needs a whole frame count ≥ 1, e.g. --burst 9");
+  const intervalMs = numberFlag("interval", 600);
+  if (intervalMs < 0) throw new Error("--interval needs a non-negative number of milliseconds");
+  let clip = null;
+  if (args.clip !== undefined) {
+    const parts = String(args.clip).split(",").map(Number);
+    if (args.clip === true || parts.length !== 4 || !parts.every(Number.isFinite) || parts[2] <= 0 || parts[3] <= 0) {
+      throw new Error("--clip needs x,y,w,h in viewport CSS pixels, e.g. --clip 900,700,500,250");
+    }
+    clip = { height: parts[3], width: parts[2], x: parts[0], y: parts[1] };
+  }
+  return { clip, count, intervalMs, sheet: Boolean(args["burst-sheet"]) };
+}
+
+/**
+ * Date-only clock with setSystemTime semantics: Date starts at `epochMs` and
+ * flows in real time. RAF, performance.now and timers stay native (Playwright's
+ * page.clock would replace all three and pace RAF from timers, so every frame
+ * time read under it would be the shim's, not the GPU's). Serialised into the
+ * page by addInitScript, so it must stay self-contained.
+ */
+function installFlowingDate(epochMs) {
+  const NativeDate = globalThis.Date;
+  const origin = NativeDate.now();
+  const now = () => epochMs + (NativeDate.now() - origin);
+  globalThis.Date = new Proxy(NativeDate, {
+    apply: () => new NativeDate(now()).toString(),
+    construct: (target, dateArgs, newTarget) => Reflect.construct(target, dateArgs.length ? dateArgs : [now()], newTarget),
+    get: (target, key, receiver) => key === "now" ? now : Reflect.get(target, key, receiver),
+  });
+}
+
+async function runArtifactFlashCheck(page, canvas) {
   const frameCount = 8;
   const intervalMs = 120;
-  for (let index = 0; index < frameCount; index += 1) {
-    if (index > 0) await page.waitForTimeout(intervalMs);
-    const png = await canvas.screenshot({ animations: "allow", type: "png" });
+  const frames = [];
+  for (const { png } of await captureFrames(page, canvas, { count: frameCount, intervalMs })) {
     frames.push(await decodeLuminanceGrid(page, png.toString("base64")));
   }
   const result = analyzeArtifactFlashFrames(frames);

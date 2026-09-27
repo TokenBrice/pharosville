@@ -1,12 +1,15 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
-import { GARDEN_EMPTY_INLET, placeGardenFleet, resetGardenFleetPlacementCache } from "./garden-fleet-placement";
-import { PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, terrainKindAt } from "./world-layout";
-import { defaultCamera } from "./camera";
-import { TILE_SCALE, worldToScreen } from "./projection";
+import { placeGardenFleet, resetGardenFleetPlacementCache } from "./garden-fleet-placement";
+import { GARDEN_EMPTY_INLET, gardenInletDistance, isGardenInletCoreTile } from "./garden-inlet";
+import { LIGHTHOUSE_TILE, isWaterTileKind, terrainKindAt } from "./world-layout";
+import { TILE_SCALE } from "./projection";
+import { REST_SEAT_EYE_LANDSCAPE, REST_SEAT_EYE_TALL } from "./rest-seat";
 import { isGardenShipWater, gardenShipWaterMarginTiles } from "./garden-water-exclusion";
 import {
+  GARDEN_LIGHTHOUSE_ROOT_OFFSET,
   GARDEN_SILHOUETTE_FOR_HULL,
+  gardenIslandDisplayTile,
   gardenShipVisualScale,
 } from "./garden-observatory-slice";
 import { resolveShipClass } from "./ship-visuals";
@@ -28,18 +31,6 @@ function ship(id: string, riskZone: ShipWaterZone, scale = 1): ShipNode {
 
 function fleet(riskZone: ShipWaterZone, count: number): ShipNode[] {
   return Array.from({ length: count }, (_, index) => ship(`${riskZone}-${index}`, riskZone));
-}
-
-function inletDistance(tile: { x: number; y: number }): number {
-  return Math.min(...GARDEN_EMPTY_INLET.polyline.slice(1).map((end, index) => {
-    const start = GARDEN_EMPTY_INLET.polyline[index]!;
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const t = Math.max(0, Math.min(1,
-      ((tile.x - start.x) * dx + (tile.y - start.y) * dy) / (dx * dx + dy * dy),
-    ));
-    return Math.hypot(tile.x - start.x - t * dx, tile.y - start.y - t * dy);
-  }));
 }
 
 describe("placeGardenFleet", () => {
@@ -141,7 +132,7 @@ describe("placeGardenFleet", () => {
     let largestEmptyRadius = 0;
     for (let y = 0; y < 140; y += 1) {
       for (let x = 0; x < 140; x += 1) {
-        if (inletDistance({ x, y }) > GARDEN_EMPTY_INLET.halfWidth) continue;
+        if (gardenInletDistance(x, y) > GARDEN_EMPTY_INLET.halfWidth) continue;
         if (!terrainKindAt(x, y).endsWith("water")) continue;
         let nearest = Number.POSITIVE_INFINITY;
         for (const tile of tiles) {
@@ -166,52 +157,45 @@ describe("placeGardenFleet", () => {
     expect(spread).toBeGreaterThan(20);
   });
 
-  it("keeps all 320 hulls outside a broad projected empty inlet at both gates", () => {
+  it("seats Calm far past its hull-gap capacity without throwing, none of it in the inlet", () => {
+    // Calm borders the inlet and holds on the order of 160 hulls at the gap;
+    // 260 galleons force the fallback tiers (relaxed gap, region scan).
+    const ships = fleet("calm", 260);
+    const placement = placeGardenFleet(ships, LIGHTHOUSE);
+    expect(placement.tileByShipId.size).toBe(ships.length);
+    for (const tile of placement.tileByShipId.values()) {
+      expect(terrainKindAt(Math.round(tile.x), Math.round(tile.y))).toBe("calm-water");
+      expect(gardenInletDistance(tile.x, tile.y)).toBeGreaterThan(GARDEN_EMPTY_INLET.halfWidth);
+    }
+  });
+
+  it("keeps all 320 hulls out of the empty inlet, whose core holds the rest seat's sight line to the tower", () => {
     const zones: ShipWaterZone[] = ["calm", "watch", "alert", "warning", "danger", "ledger"];
     const ships = Array.from({ length: 320 }, (_, index) => ship(`inlet-${index}`, zones[index % zones.length]!));
     const placement = placeGardenFleet(ships, LIGHTHOUSE);
     expect(placement.tileByShipId.size).toBe(320);
-    const tiles = [...placement.tileByShipId.values()];
-    for (const tile of tiles) expect(inletDistance(tile)).toBeGreaterThan(GARDEN_EMPTY_INLET.halfWidth);
-    const map = { width: PHAROSVILLE_MAP_WIDTH, height: PHAROSVILLE_MAP_HEIGHT };
-    for (const viewport of [{ x: 900, y: 720 }, { x: 1200, y: 640 }]) {
-      const camera = defaultCamera({ width: viewport.x, height: viewport.y, map });
-      const project = (tile: { x: number; y: number }) =>
-        worldToScreen({ x: tile.x * TILE_SCALE, y: 0, z: tile.y * TILE_SCALE }, camera, viewport);
-      const boundary = GARDEN_EMPTY_INLET.polyline.flatMap((tile) =>
-        Array.from({ length: 32 }, (_, index) => project({
-          x: tile.x + Math.cos(index * Math.PI / 16) * GARDEN_EMPTY_INLET.halfWidth,
-          y: tile.y + Math.sin(index * Math.PI / 16) * GARDEN_EMPTY_INLET.halfWidth,
-        })),
-      ).filter((point) => point.y >= 0 && point.y <= viewport.y);
-      const left = Math.max(0, Math.min(...boundary.map((point) => point.x)));
-      const right = Math.min(viewport.x, Math.max(...boundary.map((point) => point.x)));
-      expect(right - left).toBeGreaterThanOrEqual(viewport.x * (viewport.x === 1200 ? 0.24 : 0.3));
-      const strips = GARDEN_EMPTY_INLET.polyline.slice(1).map((end, index) => {
-        const start = GARDEN_EMPTY_INLET.polyline[index]!;
-        const length = Math.hypot(end.x - start.x, end.y - start.y);
-        const nx = -(end.y - start.y) / length * GARDEN_EMPTY_INLET.halfWidth;
-        const ny = (end.x - start.x) / length * GARDEN_EMPTY_INLET.halfWidth;
-        return [
-          project({ x: start.x + nx, y: start.y + ny }),
-          project({ x: end.x + nx, y: end.y + ny }),
-          project({ x: end.x - nx, y: end.y - ny }),
-          project({ x: start.x - nx, y: start.y - ny }),
-        ];
-      });
-      for (const tile of tiles) {
-        const point = project(tile);
-        for (const polygon of strips) {
-          let inside = false;
-          for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-            const a = polygon[i]!;
-            const b = polygon[j]!;
-            if ((a.y > point.y) !== (b.y > point.y)
-              && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
-          }
-          expect(inside).toBe(false);
-        }
+    for (const tile of placement.tileByShipId.values()) {
+      expect(gardenInletDistance(tile.x, tile.y)).toBeGreaterThan(GARDEN_EMPTY_INLET.halfWidth);
+    }
+    // The ma is the approach water the seated viewer looks across: from both
+    // rest eyes, every plate-water tile on the ground line to the tower foot
+    // lies in the corridor's impassable core.
+    const island = gardenIslandDisplayTile(LIGHTHOUSE_TILE);
+    const foot = {
+      x: island.x + GARDEN_LIGHTHOUSE_ROOT_OFFSET.x / TILE_SCALE,
+      y: island.y + GARDEN_LIGHTHOUSE_ROOT_OFFSET.z / TILE_SCALE,
+    };
+    for (const eye of [REST_SEAT_EYE_LANDSCAPE, REST_SEAT_EYE_TALL]) {
+      let sightWater = 0;
+      for (let step = 0; step <= 400; step += 1) {
+        const x = eye.tile.x + (foot.x - eye.tile.x) * step / 400;
+        const y = eye.tile.y + (foot.y - eye.tile.y) * step / 400;
+        if (x < 0 || y < 0 || x > 139 || y > 139) continue;
+        if (!isWaterTileKind(terrainKindAt(Math.round(x), Math.round(y)))) continue;
+        sightWater += 1;
+        expect(isGardenInletCoreTile(x, y), `${eye.tile.x},${eye.tile.y} → (${x.toFixed(1)}, ${y.toFixed(1)})`).toBe(true);
       }
+      expect(sightWater).toBeGreaterThan(100);
     }
   });
 });
@@ -273,10 +257,12 @@ describe("real-fleet berth spacing", () => {
       nearestSum += nearest;
     }
 
-    // The forty-two-tile inlet reserves formerly occupied water. A 3.75-tile
-    // mean nearest-neighbour floor preserves readable hull separation in the
-    // remaining unequal anchorages without pinning the unconstrained solve.
-    expect(nearestSum / tiles.length).toBeGreaterThan(3.75);
+    // The empty inlet reserves the approach water, and berths
+    // now also keep off dock aprons (where a resting hull used to be shoved
+    // at draw time, into its neighbours). Every band here overflows its water,
+    // so a 3.5-tile mean nearest-neighbour floor preserves readable hull
+    // separation without pinning the unconstrained solve.
+    expect(nearestSum / tiles.length).toBeGreaterThan(3.5);
   });
 
   it("keeps every retained real-coin berth within half a tile through four-percent removals and additions", () => {
