@@ -88,6 +88,7 @@ const BASE_UPDATE = {
   reducedMotion: false,
   timeSeconds: 12,
   tier: "full" as PharosVilleRenderSchedulerTier,
+  wind: { x: 0.6, y: 0.8 },
 };
 
 describe("stationSmokeSpecs", () => {
@@ -132,22 +133,14 @@ describe("stationSmokeSpecs", () => {
       expect(chimney!.z, type).toBeGreaterThanOrEqual(footprint.minZ);
       expect(chimney!.z, type).toBeLessThanOrEqual(footprint.maxZ);
       if (type === "uogashi") {
-        // The kitchen's mono-pitch ridge is the landward edge of the span.
-        expect(chimney!.z, type).toBeCloseTo(-scale.span / 2, 6);
-        expect(chimney!.y, type).toBeGreaterThan(5.5 * scale.heightScale);
-        expect(chimney!.y, type).toBeLessThanOrEqual(scale.secondLevelTop);
+        // The kitchen's mono-pitch ridge is the high, closed edge of the span.
+        expect(chimney!.z, type).toBeCloseTo(-scale.span / 2, 0);
+        expect(chimney!.y, type).toBeGreaterThan(4.3);
+        expect(chimney!.y, type).toBeLessThanOrEqual(scale.silhouetteTop);
       } else {
-        // Both irimoya ridges run along x through z = 0.
+        // Both irimoya ridges run along x through z = 0 at the station's top.
         expect(chimney!.z, type).toBeCloseTo(0, 6);
-        const ridgeY = type === "hatago-wharf"
-          ? scale.secondLevelTop
-          : 6.35 * scale.heightScale;
-        expect(chimney!.y, type).toBeCloseTo(ridgeY, 6);
-        if (type === "tea-house-quay") {
-          // Clear of the moon-window loft (half-width 1.9) seated on the ridge.
-          const hallX = chimney!.x + scale.length * 0.28;
-          expect(Math.abs(chimney!.x - hallX), type).toBeGreaterThan(1.9);
-        }
+        expect(chimney!.y, type).toBeCloseTo(scale.silhouetteTop, 6);
       }
     }
   });

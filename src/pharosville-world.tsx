@@ -4,11 +4,10 @@ import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
 import { DetailPanel } from "./components/detail-panel";
 import { HarborLabelChips, updateHarborLabelChipLayout } from "./components/harbor-label-chips";
-import { HarborLog } from "./components/harbor-log";
 import { NowCaption } from "./components/now-caption";
 import { QuickFind } from "./components/quick-find";
-import { SinceLastVisitBanner } from "./components/since-last-visit";
 import { WorldControls } from "./components/world-controls";
+import { SoundControl } from "./components/sound-control";
 import { WorldStaticOverview } from "./components/world-static-overview";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import { isDebugChromeEnabled } from "./lib/pharosville-debug";
@@ -19,14 +18,18 @@ import { useCanvasResizeAndCamera, type CameraSelectionSubject } from "./hooks/u
 import { useHarborLog } from "./hooks/use-harbor-log";
 import { useGardenAlmanac } from "./hooks/use-garden-almanac";
 import { useGardenDirector } from "./hooks/use-garden-director";
+import { useGardenSound } from "./hooks/use-garden-sound";
 import { dayCycleBeats } from "./systems/day-cycle-beats";
 import { HOVER_NAMEPLATE_DWELL_MS } from "./hooks/hover-nameplate-dwell";
 import { isDialogEventTarget } from "./hooks/keyboard-event-target";
+import { useChromeAir } from "./hooks/use-chrome-air";
 import { useLatestRef } from "./hooks/use-latest-ref";
 import { useLiveTitle } from "./hooks/use-live-title";
 import { useMomentUrl } from "./hooks/use-moment-url";
 import { useRecentWorldInput } from "./hooks/use-recent-world-input";
 import { useVisitSnapshot } from "./hooks/use-visit-snapshot";
+import { useVisitorLine } from "./hooks/use-visitor-line";
+import { useStayCaptionSurfacing, useStayMode } from "./hooks/use-stay-mode";
 import { detailAnchorForPoint, useWorldKeyboardTargets } from "./hooks/use-world-keyboard-targets";
 import { useWorldRenderLoop } from "./hooks/use-world-render-loop";
 import { useWorldSelection, resolveSelectedDetail } from "./hooks/use-world-selection";
@@ -187,7 +190,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [closeHarborLedger, harborLedgerOpen]);
-  const visitSnapshot = useVisitSnapshot({ world, setAnnouncement });
+  const visitSnapshot = useVisitSnapshot({ world });
   const timeControls = useWorldTimeControls({
     initialManualTimeOverrideHour: worldUrlState.initialState.manualTimeOverrideHour,
     initialNightMode: worldUrlState.initialState.nightMode,
@@ -201,6 +204,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     timeSeconds: timeControls.timeSeconds,
     reducedMotion,
   });
+  // W7: sound is opt-in; nothing is created or fetched until the Sound switch.
+  const gardenSound = useGardenSound();
   const gardenAlmanac = useGardenAlmanac({
     date: timeControls.date,
     director: gardenDirector,
@@ -293,7 +298,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectedDetailId,
     world,
   }), [riskTransitionByShipId, selectedDetailId, world]);
-  const harborLog = useHarborLog({ riskTransitionByShipId, setAnnouncement, shipsById });
+  const harborLog = useHarborLog({ riskTransitionByShipId, shipsById, observedAt: world.generatedAt });
   const captionHour = Math.floor(timeControls.wallClockHour * 60) / 60;
   const captionBeats = useMemo(
     () => dayCycleBeats(captionHour),
@@ -303,18 +308,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     ...world.freshness,
     observedAt: world.generatedAt,
   }), [world.freshness, world.generatedAt]);
-  const latestCaptionTransition = useMemo(() => {
-    const first = riskTransitionByShipId.entries().next().value;
-    if (!first) return null;
-    const [shipId, transition] = first;
-    const ship = shipsById.get(shipId);
-    if (!ship) return null;
-    return {
-      observedAt: world.generatedAt,
-      symbol: ship.symbol,
-      toLabel: transition.toLabel,
-    };
-  }, [riskTransitionByShipId, shipsById, world.generatedAt]);
 
   // Refs that mirror frequently-changing state so hook-internal effects/RAF can
   // read the latest values without rebinding on every hover/select/motionPlan
@@ -520,13 +513,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     });
   }, [timeControls.nightMode, timeControls.wallClockHour, worldUrlState]);
 
-  // W5.5: the chrome's day/night token variant follows the same five-beat
-  // score as the light (`dayCycleBeats`), never a separate clock.
-  useEffect(() => {
-    const night = timeControls.nightMode || dayCycleBeats(timeControls.wallClockHour).night > 0.5;
-    document.documentElement.dataset.phase = night ? "night" : "day";
-    return () => { delete document.documentElement.dataset.phase; };
-  }, [timeControls.nightMode, timeControls.wallClockHour]);
+  // W6.5: the chrome's colour roles follow the same five-beat score as the
+  // light (`dayCycleBeats`), stepped once a minute — no day/night flip.
+  useChromeAir(captionHour);
 
   // Wire the late-bound recompute callbacks now that the canvas hook has
   // exposed its refs. We assign in a useEffect (not during render) so the
@@ -749,13 +738,27 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     () => gardenAttractKeyframes(world.lighthouse.tile),
     [world.lighthouse.tile],
   );
+  // W6.9 Stay: entering clears the stage and glides home to the rest shot.
+  const enterStayScene = useCallback(() => {
+    if (legend.legendOpen) legend.closeLegend();
+    if (changelog.changelogOpen) changelog.closeChangelog();
+    setHarborLedgerOpen(false);
+    setQuickFindOpen(false);
+    setObserveIndex(null);
+    clearSelection();
+    stopAttractTour();
+    handleCanvasResetView();
+  }, [changelog, clearSelection, handleCanvasResetView, legend, stopAttractTour]);
+  const { enterStay, stay } = useStayMode({ onEnter: enterStayScene, setAnnouncement, shellRef });
   useEffect(() => {
     const eligible = threeExperienceReady
       && !reducedMotion
       && observeIndex === null
       && selectedDetailId === null
       && !gardenAlmanac.attentionActive
-      && !legend.legendOpen && !changelog.changelogOpen && !harborLedgerOpen && !quickFindOpen && !lightControlsOpen;
+      && !legend.legendOpen && !changelog.changelogOpen && !harborLedgerOpen && !quickFindOpen && !lightControlsOpen
+      // K44: Stay holds the rest shot and runs no attract.
+      && !stay;
     if (!eligible) {
       stopAttractTour();
       return;
@@ -797,6 +800,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectedDetailId,
     startAttractTour,
     stopAttractTour,
+    stay,
     threeExperienceReady,
   ]);
   useEffect(() => {
@@ -1157,6 +1161,21 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   }, [arrivalStage, skipCanvasArrival]);
 
   const chartingVeilMounted = !rendererFailed && (worldIsCharting || arrivalStage !== "complete");
+  // W6.8 / W6.10: the now-line's visitor voice once the arrival settles —
+  // the return sentence, or the three first-visit teachings.
+  const visitorLine = useVisitorLine({
+    ready: arrivalStage === "complete" && !worldIsCharting,
+    reducedMotion,
+    returnSummary: visitSnapshot.summary,
+  });
+  const stayCaptionLive = useStayCaptionSurfacing({
+    beats: captionBeats,
+    captionHour,
+    eventLive: Object.values(world.freshness).some((stale) => stale === true)
+      || arrivalAnnotationText !== null
+      || harborLog.current !== null
+      || visitorLine !== null,
+  });
 
   return (
     <>
@@ -1164,6 +1183,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     <main
       ref={shellRef}
       className="pharosville-desktop pharosville-shell"
+      data-stay={stay ? "true" : undefined}
       data-testid="pharosville-world"
       aria-describedby="pharosville-world-instructions"
       onKeyDown={rendererFailed ? handleFallbackKeyDown : handleWorldKeyDown}
@@ -1251,7 +1271,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
             onSelect={rendererFailed ? handleSelectStaticDetail : handleQuickFindSelect}
           />
         )}
-        <SinceLastVisitBanner delta={visitSnapshot.delta} onDismiss={visitSnapshot.dismiss} />
         {selectedDetail && (
           <div
             className={selectedDetailAnchor ? `pharosville-detail-dock pharosville-detail-dock--anchored pharosville-detail-dock--${selectedDetailAnchor.side}` : "pharosville-detail-dock"}
@@ -1268,18 +1287,23 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         <div
           className="pharosville-world-chrome"
           ref={chromeRef}
-          data-attract-holding={canvas.attractState.holding ? "true" : "false"}
+          data-caption-live={stayCaptionLive ? "true" : "false"}
           data-recent-input="false"
         >
-          <NowCaption
-            arrivalAnnotation={arrivalAnnotationText}
-            beats={captionBeats}
-            freshness={captionFreshness}
-            hour={captionHour}
-            latestTransition={latestCaptionTransition}
-            psi={world.lighthouse.score}
-          />
+          <div className="pharosville-stay-fade">
+            <NowCaption
+              arrivalAnnotation={arrivalAnnotationText}
+              beats={captionBeats}
+              visitorLine={visitorLine}
+              freshness={captionFreshness}
+              hour={captionHour}
+              latestTransition={harborLog.current}
+              psi={world.lighthouse.score}
+              reducedMotion={reducedMotion}
+            />
+          </div>
           <WorldControls
+            onStay={enterStay}
             onOpenFind={openQuickFind}
             onOpenLegend={openLegendExclusive}
             onOpenLedger={openHarborLedgerExclusive}
@@ -1298,7 +1322,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
               observing: observeBeat !== null && !reducedMotion,
               onToggleObserve: handleToggleObserve,
             } : {})}
-          />
+          >
+            <SoundControl {...gardenSound} />
+          </WorldControls>
           {debugChrome && <DebugChrome frameRateLabel={frameRateLabel} />}
         </div>
       )}
@@ -1322,18 +1348,15 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         <Suspense fallback={<ChangelogPanelLoading />}>
           <LazyHarborLedgerPanel
             almanacEntries={gardenAlmanac.entries}
+            harborLogEntries={harborLog.entries}
             onClose={closeHarborLedger}
             onSelectDetail={rendererFailed ? handleSelectStaticDetail : handleQuickFindSelect}
+            visitSummary={visitSnapshot.summary}
             world={world}
             riskTransitionByShipId={riskTransitionByShipId}
           />
         </Suspense>
       )}
-      <HarborLog
-        entries={harborLog.entries}
-        onDismiss={harborLog.dismiss}
-        onSelectDetail={selectDetail}
-      />
       <p className="sr-only" aria-live="polite">{announcement}</p>
       {/* One ledger, two presentations. While the panel is open it carries the
           same component visibly, so the region landmark is never in the DOM
@@ -1341,6 +1364,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       {!harborLedgerOpen && (
         <AccessibilityLedger
           almanacEntries={gardenAlmanac.entries}
+          harborLogEntries={harborLog.entries}
+          visitSummary={visitSnapshot.summary}
           world={world}
           riskTransitionByShipId={riskTransitionByShipId}
         />

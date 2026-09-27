@@ -200,7 +200,8 @@ export const GARDEN_WATER_GERSTNER: readonly GerstnerComponent[] = [
   { dirOffset: 0.6, wavelength: 33, amplitude: 0.06, steepness: 0.34, omega: 0.38 },
 ];
 
-const GERSTNER_BASE_BEARING = Math.atan2(0.3851, 0.9229);
+/** Shared with the hull swell pose (`garden-hull-swell.ts`) so hulls nod in phase with this sea. */
+export const GERSTNER_BASE_BEARING = Math.atan2(0.3851, 0.9229);
 const GERSTNER_BASE_X = Math.cos(GERSTNER_BASE_BEARING);
 const GERSTNER_BASE_Y = Math.sin(GERSTNER_BASE_BEARING);
 
@@ -897,8 +898,14 @@ ${gardenHeightFogGlsl()}
     surfaceNormal = normalize(surfaceNormal + vec3(wakeGrad * (10.0 * uWakeStrength), 0.0));
     // Moiré guard: a line period under ~5 px fades to blank water.
     float crestPeriodPx = (6.2831853 / crestK) / max(fwidth(crestAcross), 1e-4);
-    float crest = aaStep(1.0 - crestWidth, crestWave) * crestGate * regionBlend
-      * smoothstep(5.0, 12.0, crestPeriodPx) * step(0.001, crestWidth);
+    // W3.10 chart: seen from 38° the engraving is a chart's hairline hatching
+    // (≈1.5 px, half-strength ink), not a set of bars laid on the water. The
+    // plate-haze weight is 0 from the near rig up, so the rest is unchanged.
+    float chartCrestWidth = 0.5 - 0.5 * cos(3.14159265 * min(1.0, 1.5 / max(crestPeriodPx, 1.0)));
+    float engravedWidth = mix(crestWidth, min(crestWidth, chartCrestWidth), uGardenAir.plateHaze);
+    float crest = aaStep(1.0 - engravedWidth, crestWave) * crestGate * regionBlend
+      * smoothstep(5.0, 12.0, crestPeriodPx) * step(0.001, crestWidth)
+      * (1.0 - 0.5 * uGardenAir.plateHaze);
 
     vec2 normalDerivative = fwidth(blendedNormal.xy);
     float glintDetailWeight = 1.0 / (
@@ -1009,20 +1016,25 @@ ${gardenHeightFogGlsl()}
 
     // W3.8 (water-7): hulls touch the water. The reflection of a hull lies
     // toward the viewer from it, so this fragment looks AWAY from the eye for
-    // the contact footprint, as far as a ~1.5 u freeboard mirrors at this
-    // distance and eye height.
+    // the contact footprint, as far as a ~1 u freeboard mirrors at this
+    // distance and eye height. The look is a continuous smear starting at the
+    // fragment itself: taps spaced at most a hull's beam apart. Sparse taps
+    // (0, ½, 1 × reach) stamped detached copies of the footprint below each
+    // hull, with open water between — hulls read as hovering over their own
+    // shadow at close framings (G3b).
     float contact = 0.0;
     if (wakeInside) {
       vec2 awayWorld = vWorldPosition.xz - cameraPosition.xz;
       float horizontalDistance = max(length(awayWorld), 1e-3);
       vec2 away = vec2(awayWorld.x, -awayWorld.y) / horizontalDistance;
       float eyeHeight = max(cameraPosition.y - uWaterLevel, 1.0);
-      float reach = clamp(horizontalDistance * 1.5 / (eyeHeight + 1.5), 1.2, 12.0);
-      vec2 tapStep = away * (reach * 0.5 * uWakeInvSize);
-      contact = max(wake.b, max(
-        texture2D(uWakeMap, wakeUv + tapStep).b * 0.85,
-        texture2D(uWakeMap, wakeUv + tapStep * 2.0).b * 0.6
-      ));
+      float reach = clamp(horizontalDistance / (eyeHeight + 1.0), 0.8, 6.0);
+      vec2 tapStep = away * (reach * uWakeInvSize / 5.0);
+      contact = wake.b;
+      for (int tap = 1; tap <= 5; tap += 1) {
+        float along = float(tap) / 5.0;
+        contact = max(contact, texture2D(uWakeMap, wakeUv + tapStep * float(tap)).b * (1.0 - 0.55 * along));
+      }
       contact = clamp(contact * uWakeStrength, 0.0, 1.0);
     }
 

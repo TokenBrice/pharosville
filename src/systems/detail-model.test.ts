@@ -1097,7 +1097,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       expect(fact!.value).not.toContain("(extended dwell)");
       const cadence = detail.facts.find((f) => f.label === "Route cadence")?.value;
       expect(cadence).toContain("90–180 s legs");
-      expect(cadence).toContain("240–480 s rests");
+      expect(cadence).toContain("600–1500 s rests");
       expect(cadence).toContain("rendered-chain and risk-water presence only");
     });
   });
@@ -1132,7 +1132,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
 
   describe("v0.3.0 — peg deviation, mast signals, observatory voice", () => {
     it("formats the live signed peg deviation against its peg currency", () => {
-      expect(pegDeviationLabel({ pegDeviationBps: -12.4, pegCurrency: "USD" })).toBe("-12 bps vs USD");
+      expect(pegDeviationLabel({ pegDeviationBps: -12.4, pegCurrency: "USD" })).toBe("\u221212 bps vs USD");
       expect(pegDeviationLabel({ pegDeviationBps: 3, pegCurrency: null })).toBe("+3 bps vs peg");
       expect(pegDeviationLabel({ pegDeviationBps: 0, pegCurrency: "USD" })).toBe("0 bps vs USD");
       expect(pegDeviationLabel({ pegDeviationBps: null, pegCurrency: "USD" })).toBeNull();
@@ -1143,7 +1143,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       expect(pegDeviationFactLabel({ pegDeviationBps: 12, pegCurrency: "USD", visual: level }))
         .toBe("+12 bps vs USD — above peg");
       expect(pegDeviationFactLabel({ pegDeviationBps: -12, pegCurrency: "USD", visual: level }))
-        .toBe("-12 bps vs USD — below peg");
+        .toBe("\u221212 bps vs USD — below peg");
       expect(pegDeviationFactLabel({ pegDeviationBps: 0, pegCurrency: "USD", visual: level }))
         .toBe("0 bps vs USD — at peg");
       expect(pegDeviationFactLabel({ pegDeviationBps: null, pegCurrency: "USD", visual: level }))
@@ -1157,11 +1157,11 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       expect(pegDeviationFactLabel({ pegDeviationBps: 260, pegCurrency: "USD", visual: withTrim(0.16) }))
         .toBe("+260 bps vs USD — above peg; hull rides high");
       expect(pegDeviationFactLabel({ pegDeviationBps: -260, pegCurrency: "USD", visual: withTrim(-0.16) }))
-        .toBe("-260 bps vs USD — below peg; hull rides low");
+        .toBe("\u2212260 bps vs USD — below peg; hull rides low");
       // A stale peg row leaves the hull level; the row must then report the
       // reading without claiming a trim the canvas is not drawing.
       expect(pegDeviationFactLabel({ pegDeviationBps: -260, pegCurrency: "USD", visual: withTrim(0) }))
-        .toBe("-260 bps vs USD — below peg");
+        .toBe("\u2212260 bps vs USD — below peg");
     });
 
     it("explains nav and yield mast signals, exclusive with none", () => {
@@ -2008,7 +2008,7 @@ describe("detail-model round-two metaphor signals", () => {
       });
       expect(detail.facts).toContainEqual({
         label: "Garden record, 30d",
-        value: "Flourishing — blossoms open and moss greens; average PSI 84.5; 29 days on record",
+        value: "Flourishing — the island pines stand full and deep green; average PSI 84.5; 29 days on record",
       });
     });
   });

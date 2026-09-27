@@ -22,6 +22,7 @@ import {
   Vector3,
   InstancedMesh,
   type Camera,
+  type PerspectiveCamera,
   type CircleGeometry,
   type MeshBasicMaterial,
 } from "three";
@@ -55,6 +56,7 @@ import {
 import { shipIssuanceDraft } from "../systems/ship-issuance";
 import type { GardenPigeonnierLandmark } from "./garden-landmarks";
 import type { GardenWater } from "./garden-water";
+import { prepareGardenHullSwell, sampleGardenHullSwellInto, type GardenHullSwellPose } from "./garden-hull-swell";
 import type { GardenWakes } from "./garden-wakes";
 import type { GardenWakeBatch } from "./garden-wake-batch";
 import type { GardenFlightTenders } from "./garden-flight-tenders";
@@ -67,6 +69,7 @@ import {
   syncShipRippleRings,
   updateFleetLanterns,
   updateShipPennants,
+  type FleetLanternFrame,
   type FleetLanterns,
   type ShipVisual,
 } from "./garden-ships";
@@ -122,9 +125,9 @@ const scratchShadowPosition = new Vector3();
 const scratchShadowScale = new Vector3();
 const scratchShadowQuaternion = new Quaternion();
 const SHADOW_UP = new Vector3(0, 1, 0);
-const scratchFleetPresenceScale = new Vector3();
 const scratchWakePose = { headingY: 0, hullScale: 1, x: 0, y: 0, z: 0 };
 const scratchArrivalBeat: GardenArrivalBeatEnvelope = { furl: 0, bowWave: 0, nameplate: false };
+const scratchSwellPose: GardenHullSwellPose = { heave: 0, pitch: 0, rollToPort: 0 };
 const scratchIssuanceHullForm = {
   agePatina: -1,
   beam: 1,
@@ -239,7 +242,9 @@ export function gardenShipHeelFromTurn(
 ): number {
   if (!Number.isFinite(deltaRadians) || !Number.isFinite(deltaSeconds)) return 0;
   const rate = deltaRadians / Math.max(deltaSeconds, 1 / 240);
-  return MathUtils.clamp(rate * 0.04, -0.16, 0.16);
+  // W4.F10: a turn is a whisper of roll (≤ 2.9°); the wind and the swell
+  // carry the hull's life now.
+  return MathUtils.clamp(rate * 0.04, -0.05, 0.05);
 }
 
 /** Removes a departing hull's scene presence and the GPU buffers it owns. */
@@ -303,6 +308,16 @@ export function updateGardenShipFrame(
     windAngle: Math.atan2(weather.wind.y, weather.wind.x),
     windDirX: weather.wind.x,
     windDirZ: weather.wind.y,
+    windSpeed: weather.wind.speed,
+  });
+  // W4.F10: hulls read the same swell the water shader draws this frame.
+  prepareGardenHullSwell({
+    timeSeconds: frame.reducedMotion ? 0 : frame.timeSeconds,
+    tempo: frame.seaState.tempo,
+    swell: frame.seaState.swell,
+    stormLevel: weather.stormLevel,
+    windX: weather.wind.x,
+    windZ: weather.wind.y,
     windSpeed: weather.wind.speed,
   });
   // ...and one aerial write gives the whole fleet its recession. Reads the fog
@@ -454,37 +469,45 @@ export function updateGardenShipFrame(
     const heading = Math.hypot(transitionHeadingX, transitionHeadingY) > 0.5
       ? { x: transitionHeadingX, y: transitionHeadingY }
       : normalizedHeading(sample?.heading);
-    let heel = 0;
+    let yaw = visual.root.rotation.y;
+    let turnRollToPort = 0;
     if (heading) {
       const headingAngle = Math.atan2(heading.y, heading.x);
-      visual.root.rotation.y = -headingAngle;
-      // Gentle heel into turns: roll proportional to the frame's heading change,
-      // clamped and frozen under reduced motion (D7 motion hierarchy).
+      yaw = -headingAngle;
+      // A small roll out of a turn, from the display heading's angular RATE
+      // (frame-rate independent); frozen under reduced motion.
       if (!frame.reducedMotion && visual.prevHeadingAngle !== null) {
         let delta = headingAngle - visual.prevHeadingAngle;
         delta = Math.atan2(Math.sin(delta), Math.cos(delta));
-        // 2026-09-07: scale the angular RATE, not the per-frame delta.
-        // `delta * 2.4` was frame-rate dependent: on a 120 Hz display every
-        // ship heeled half as far into the same turn as on a 60 Hz one, and a
-        // hitched frame produced a heel spike. The clamp was hiding it. 0.04
-        // is 2.4/60, so 60 fps behaviour is unchanged by construction.
-        // `deltaSeconds` is this frame's delta on the scene's beam clock:
-        // computed at the top of `updateSceneForFrame`, which advanced the
-        // clock on the very next line.
-        heel = gardenShipHeelFromTurn(delta, deltaSeconds);
+        // Turning to starboard (+) lays the hull over to port (+).
+        turnRollToPort = gardenShipHeelFromTurn(delta, deltaSeconds);
       }
       visual.prevHeadingAngle = headingAngle;
     } else {
       visual.prevHeadingAngle = null;
     }
-    // All hulls read the motion plan's master tide, including rafted pairs.
-    const tideSample = dependency
-      ? frame.shipMotionSamples.get(dependency.parentId) ?? sample
-      : sample;
-    const tideOffset = frame.reducedMotion ? 0 : tideSample?.tideOffset ?? 0;
-    visual.root.position.y += tideOffset;
-    visual.root.rotation.z = heel + tideOffset * 0.18;
-    visual.root.rotation.x = tideOffset * 0.08;
+    // W4.F10 + F-A: the hull rides the swell at its own position (so
+    // neighbours nod in sequence) and heels to leeward by the sampler's small
+    // wind heel. Pitch is about the athwartships axis (Euler z, bow up +),
+    // roll about the keel (Euler x, + = starboard down). Reduced motion: level.
+    let pitch = 0;
+    let rollToPort = 0;
+    if (!frame.reducedMotion && heading) {
+      sampleGardenHullSwellInto(
+        visual.root.position.x,
+        visual.root.position.z,
+        heading.x,
+        heading.y,
+        sample?.zone ?? visual.ship.riskZone,
+        sample?.state === "moored" && sample.currentDockId !== null,
+        visual.ship.visual.scale || 1,
+        scratchSwellPose,
+      );
+      visual.root.position.y += scratchSwellPose.heave;
+      pitch = scratchSwellPose.pitch;
+      rollToPort = scratchSwellPose.rollToPort + (sample?.heelRad ?? 0) + turnRollToPort;
+    }
+    visual.root.rotation.set(-rollToPort, yaw, pitch, "YXZ");
     const issuanceDraft = departing ? 0 : content.issuanceDraftById.get(visual.ship.id) ?? 0;
     // Hero hulls are their own scene graph, so their whole root takes draft.
     // Batched hulls take the same offset through aHullForm.w below.
@@ -615,6 +638,10 @@ export function updateGardenShipFrame(
       // Restore the authored hero/GLB identity sail when no transient dip is active.
       visual.identitySail.scale.y = visual.identitySail.scale.y / previousScale * beatSailScale;
       visual.identitySail.userData.arrivalBeatScale = beatSailScale;
+      // W4.F1: a hero's square identity sail braces with the same F-A trim.
+      if (visual.identitySail.userData.gardenSquareSail === true) {
+        visual.identitySail.rotation.y = sample?.sailTrimRad ?? visual.sailRestBraceRad;
+      }
     }
     visual.fineDetail.visible = showShipDetail;
 
@@ -670,6 +697,10 @@ export function updateGardenShipFrame(
         mastheadOffset: gardenShipMastheadOffset(visual.silhouette),
         sailFurl: gardenShipSailFurl(visual.ship.id, visual.sampleState),
         sailScale: beatSailScale,
+        // Contract F-A: the brace and luff from apparent wind; the hashed
+        // rest brace when the sampler leaves them out (reduced motion).
+        sailBraceRad: sample?.sailTrimRad ?? visual.sailRestBraceRad,
+        sailLuff: sample?.luff,
         silhouette: visual.silhouette,
         trimColor: visual.trimColor,
         x: visual.root.position.x,
@@ -753,32 +784,45 @@ export function updateGardenShipFrame(
     reducedMotion: frame.reducedMotion,
     tier: seaQualityTier(frame.renderScheduler),
   });
-  updateFleetLanterns(
-    content.fleetLanterns,
-    camera.quaternion,
-    frame.reducedMotion ? 0 : frame.timeSeconds,
-    frame.reducedMotion,
-    {
-      hoveredDetailId: frame.hoveredDetailId,
-      selectedDetailId: frame.selectedDetailId,
-    },
-  );
-  // Lanterns live in a fleet-wide instance pair rather than under each ship
-  // root, so apply the same per-hull display presence to their matrices after
-  // the ordinary billboard update.
-  for (let index = 0; index < content.fleetLanterns.entries.length; index += 1) {
-    const entry = content.fleetLanterns.entries[index]!;
-    const presence = (content.fleetDisplayPresenceByShipId.get(entry.visual.ship.id) ?? 1)
-      * (gardenFleetShipIsHero(content.fleetBatches, entry.visual.ship.id) ? 1 : 0);
-    if (presence >= 1) continue;
-    scratchFleetPresenceScale.setScalar(presence);
-    content.fleetLanterns.cores.getMatrixAt(index, scratchMatrix);
-    scratchMatrix.scale(scratchFleetPresenceScale);
-    content.fleetLanterns.cores.setMatrixAt(index, scratchMatrix);
-    content.fleetLanterns.glow.getMatrixAt(index, scratchMatrix);
-    scratchMatrix.scale(scratchFleetPresenceScale);
-    content.fleetLanterns.glow.setMatrixAt(index, scratchMatrix);
-  }
-  content.fleetLanterns.cores.instanceMatrix.needsUpdate = true;
-  content.fleetLanterns.glow.instanceMatrix.needsUpdate = true;
+  // W4.F7/F8: the stern chōchin and the standing rig follow the hero band
+  // (at night the far fleet is embers, by day it is ink — neither carries a
+  // lamp or a stay) and each hull's display presence. The rig's alpha is its
+  // projected coverage, so it needs the drawing-buffer scale.
+  lanternFrameContent = content;
+  const fovY = (camera as PerspectiveCamera).isPerspectiveCamera
+    ? MathUtils.degToRad((camera as PerspectiveCamera).fov)
+    : 0;
+  lanternFrame.cameraQuaternion = camera.quaternion;
+  lanternFrame.eye = camera.position;
+  lanternFrame.pixelsPerUnitAtUnitDistance = fovY > 0
+    ? frame.height * frame.dpr / (2 * Math.tan(fovY / 2))
+    : 0;
+  lanternFrame.hoveredDetailId = frame.hoveredDetailId;
+  lanternFrame.selectedDetailId = frame.selectedDetailId;
+  lanternFrame.reducedMotion = frame.reducedMotion;
+  lanternFrame.timeSeconds = frame.reducedMotion ? 0 : frame.timeSeconds;
+  updateFleetLanterns(content.fleetLanterns, lanternFrame);
+  lanternFrameContent = null;
 }
+
+/** The content the lantern callbacks read; set only for the duration of the call. */
+let lanternFrameContent: GardenShipFrameContent | null = null;
+
+function fleetLanternPresence(visual: ShipVisual): number {
+  const content = lanternFrameContent!;
+  if (!gardenFleetShipIsHero(content.fleetBatches, visual.ship.id)) return 0;
+  return content.fleetDisplayPresenceByShipId.get(visual.ship.id) ?? 1;
+}
+
+function fleetLanternDraft(visual: ShipVisual): number {
+  return lanternFrameContent!.issuanceDraftById.get(visual.ship.id) ?? 0;
+}
+
+/** One record for the renderer's lifetime; refreshed in place each frame. */
+const lanternFrame: FleetLanternFrame = {
+  cameraQuaternion: new Quaternion(),
+  draft: fleetLanternDraft,
+  presence: fleetLanternPresence,
+  reducedMotion: false,
+  timeSeconds: 0,
+};

@@ -48,7 +48,7 @@
  *   node scripts/pharosville/preview.mjs --hash "#t=22&n=1" --out night.png
  *   node scripts/pharosville/preview.mjs --headed --seconds 8
  *   node scripts/pharosville/preview.mjs --reduced          # static-frame path
- *   node scripts/pharosville/preview.mjs --legend           # keep the onboarding overlay
+ *   node scripts/pharosville/preview.mjs --first-visit      # hear the three first-visit teachings
  *   node scripts/pharosville/preview.mjs --quick-find       # open the search chrome for review
  *   node scripts/pharosville/preview.mjs --hover-first      # hover a visible ship target
  *   node scripts/pharosville/preview.mjs --hover-sea-sign   # hover a visible sea stele target
@@ -84,6 +84,7 @@
  *   --knockout <list>          comma list of ao|bloom|smaa|rays|reflection|grade|keyline|water-lanes
  *   --knockout-compare <list>  baseline vs each pass, alternating, 3 serial rounds (one Chrome per arm)
  *   --still-camera             appends still=1: no camera breath, no attract/postcard moves
+ *   --clean                    the main shot is the canvas alone: HUD, world chrome and overlay hidden (hour stills)
  *   --clock <ISO>              pins Date (flowing from that instant; RAF/timers untouched) and adds d=YYYY-MM-DD
  *   --burst N [--interval ms] [--clip x,y,w,h] [--burst-sheet]   ordered <out>-burst-NN.png (+ contact sheet)
  *   --stats [--watch-seconds S]  __pharosVilleDebug.motionStats + directorLog (sampled over S seconds)
@@ -335,15 +336,16 @@ try {
     reducedMotion: args.reduced ? "reduce" : "no-preference",
   });
 
-  // Same first-visit seeding the visual lane does: the legend auto-opens once
-  // per browser profile, and a fresh profile means it covers a third of every
-  // preview. Pass --legend to see it deliberately.
-  if (!args.legend) {
+  // A fresh profile is a first visit: the now-line would speak the three
+  // first-visit teachings for ~21 s after arrival and cover the ordinary
+  // caption in every preview. Seed them as read; pass --first-visit to see
+  // them deliberately.
+  if (!args["first-visit"]) {
     await page.addInitScript(() => {
       try {
-        window.localStorage.setItem("pharosville.legend.dismissed", "1");
+        window.localStorage.setItem("pharosville.orientation.seen", "1");
       } catch {
-        // Storage unavailable: the app treats that as dismissed anyway.
+        // Storage unavailable: the app then never speaks the teachings.
       }
     });
   }
@@ -489,7 +491,13 @@ try {
   if (forcedTier && metrics.tier !== forcedTier) throw new Error(`Forced tier ${forcedTier} not active; use the dev server, not a production build (got ${metrics.tier})`);
   await applyRequestedUiState(page);
   await mkdir(outputDirectory, { recursive: true });
-  await page.screenshot({ path: outputPath });
+  if (args.clean) {
+    // K17 hour stills: the world alone, no HUD, chrome, chips or nameplates.
+    await page.addStyleTag({ content: ".pharosville-overlay { visibility: hidden !important; }" });
+    await withHudHidden(page, () => canvas.screenshot({ animations: "allow", path: outputPath }));
+  } else {
+    await page.screenshot({ path: outputPath });
+  }
   if (args["blur-audit"]) {
     const originalStyle = await canvas.evaluate((element) => {
       const style = element.getAttribute("style");
@@ -1706,6 +1714,7 @@ async function readDebugStats(page) {
         startSeconds: beat.startSeconds ?? null,
       })),
       motionStats: {
+        meanAbsRestTurnDegPerSec: stats.meanAbsRestTurnDegPerSec ?? null,
         meanAbsTurnDegPerSec: stats.meanAbsTurnDegPerSec,
         sampledAtMs: stats.sampledAtMs,
         underwayShips: stats.underwayShips,
@@ -1733,7 +1742,9 @@ async function runStats(page, watchSeconds) {
   const underwayShare = motionStats.visibleShips > 0 ? motionStats.underwayShips / motionStats.visibleShips : null;
   console.log(`stats      ${motionStats.visibleShips} ships visible · ${motionStats.underwayShips} underway`
     + ` (${underwayShare === null ? "n/a" : `${(underwayShare * 100).toFixed(1)} %`})`
-    + ` · mean |turn| ${round(motionStats.meanAbsTurnDegPerSec)}°/s · sampled at ${round(motionStats.sampledAtMs)}ms`);
+    + ` · mean |turn| ${round(motionStats.meanAbsTurnDegPerSec)}°/s under way`
+    + `${typeof motionStats.meanAbsRestTurnDegPerSec === "number" ? `, ${round(motionStats.meanAbsRestTurnDegPerSec)}°/s at rest` : ""}`
+    + ` · sampled at ${round(motionStats.sampledAtMs)}ms`);
   const latest = directorLog.slice(-8);
   console.log(`director   ${directorLog.length} beats in the log${latest.length ? `; latest ${latest.length}:` : ""}`);
   for (const beat of latest) console.log(`           ${formatBeat(beat)}`);
@@ -1781,15 +1792,18 @@ async function watchDebugStats(page, watchSeconds, first) {
   for (let index = 1; index < marks.length; index += 1) longestQuietMs = Math.max(longestQuietMs, marks[index] - marks[index - 1]);
   const visible = samples.reduce((sum, sample) => sum + sample.visibleShips, 0);
   const underway = samples.reduce((sum, sample) => sum + sample.underwayShips, 0);
-  const turnSamples = samples.filter((sample) => typeof sample.meanAbsTurnDegPerSec === "number");
-  const meanTurnDegPerSec = turnSamples.length
-    ? turnSamples.reduce((sum, sample) => sum + sample.meanAbsTurnDegPerSec, 0) / turnSamples.length
-    : null;
+  const meanOf = (key) => {
+    const valid = samples.filter((sample) => typeof sample[key] === "number");
+    return valid.length ? valid.reduce((sum, sample) => sum + sample[key], 0) / valid.length : null;
+  };
+  const meanTurnDegPerSec = meanOf("meanAbsTurnDegPerSec");
+  const meanRestTurnDegPerSec = meanOf("meanAbsRestTurnDegPerSec");
   const watch = {
     elapsedMs,
     events,
     eventsPerHour: events.length / (elapsedMs / 3_600_000),
     longestQuietMs,
+    meanRestTurnDegPerSec,
     meanTurnDegPerSec,
     samples: samples.length,
     underwayShare: visible > 0 ? underway / visible : null,
@@ -1797,7 +1811,8 @@ async function watchDebugStats(page, watchSeconds, first) {
   console.log(`watch      ${round(elapsedMs / 1000)}s: ${events.length} beats admitted (${round(watch.eventsPerHour)}/h)`
     + ` · longest quiet gap ${round(longestQuietMs / 1000)}s`
     + ` · underway ${watch.underwayShare === null ? "n/a" : `${(watch.underwayShare * 100).toFixed(1)} %`} of visible hulls`
-    + ` · mean |turn| ${meanTurnDegPerSec === null ? "n/a" : `${meanTurnDegPerSec.toFixed(2)}°/s (${(meanTurnDegPerSec * 60).toFixed(0)}°/min)`}`
+    + ` · mean |turn| ${meanTurnDegPerSec === null ? "n/a" : `${meanTurnDegPerSec.toFixed(2)}°/s (${(meanTurnDegPerSec * 60).toFixed(0)}°/min)`} under way`
+    + `, ${meanRestTurnDegPerSec === null ? "n/a" : `${meanRestTurnDegPerSec.toFixed(2)}°/s (${(meanRestTurnDegPerSec / 6).toFixed(3)} turns/min)`} at rest`
     + ` · ${samples.length} motion samples`);
   for (const event of events) console.log(`           +${round(event.seenAtMs / 1000)}s ${formatBeat(event)}`);
   return watch;

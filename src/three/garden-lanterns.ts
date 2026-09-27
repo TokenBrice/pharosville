@@ -1,8 +1,9 @@
-import { Box3, Color, DataTexture, FloatType, RGBAFormat, MeshStandardMaterial, Vector3 } from "three";
+import { Box3, Color, DataTexture, FloatType, RGBAFormat, MeshStandardMaterial } from "three";
 import type {
   PharosVilleRenderSchedulerState,
   TextureOwnerManifestEntry,
 } from "../renderer/render-types";
+import { chainGardenMaterialPatch } from "./garden-aerial";
 
 export interface GardenKeeperRitual {
   active: boolean;
@@ -10,76 +11,71 @@ export interface GardenKeeperRitual {
   direction: "evening" | "dawn";
 }
 
-/** Day-cycle remains the base; the keeper only banks individual apertures. */
-export function gardenKeeperFixtureFactor(order: number, ritual: GardenKeeperRitual): number {
-  if (!ritual.active) return 1;
-  const passage = ritual.direction === "evening" ? order : 1 - order;
-  const t = Math.max(0, Math.min(1, (ritual.progress - passage) / 0.04));
-  const lit = t * t * (3 - 2 * t);
-  return ritual.direction === "evening" ? lit : 1 - lit;
+/**
+ * Contract H-A — the kindling seam. Every station stone lantern, station
+ * shoji, island lantern and the engawa tōrō multiplies its day-cycle emissive
+ * by one kindle factor, `gardenLanternKindleFactor(order, progress)`:
+ * `order` is the fixture's place in the evening (0 first, beside the beacon;
+ * 1 last — the tōrō beside the viewer), `progress` the ring's kindling 0..1
+ * from the kindle clock. The default clock is the night beat, so the lamps
+ * catch one after another, outward across the water, as blue hour deepens,
+ * and bank in reverse at dawn. W5's ritual drives the timing by installing
+ * its own clock (`setGardenLanternKindleClock`); the order stays authored.
+ * Reduced motion needs nothing more: the clock is the wall-clock hour, so
+ * every fixture rests at its lit or unlit state for the hour.
+ */
+export type GardenLanternKindleClock = (nightBeat: number) => number;
+
+/** Share of the kindle progress one fixture takes to catch. */
+export const GARDEN_KINDLE_WINDOW = 0.2;
+
+const nightBeatKindleClock: GardenLanternKindleClock = (nightBeat) => nightBeat;
+let kindleClock = nightBeatKindleClock;
+/** One uniform object shared by every kindled program: a single write per frame. */
+const kindleProgress = { value: 0 };
+
+/** Installs the ritual's clock; `null` restores the night-beat default. */
+export function setGardenLanternKindleClock(clock: GardenLanternKindleClock | null): void {
+  kindleClock = clock ?? nightBeatKindleClock;
 }
 
-/** Patch an existing shared fixture material: world position separates every instance. */
-export function createGardenKeeperFixtureLighting(
-  material: MeshStandardMaterial,
-  path: readonly Vector3[],
-): { update(ritual: GardenKeeperRitual): void } {
-  const points = path.map((point) => point.clone());
-  const progress = { value: -1 };
-  const reverse = { value: 0 };
-  const previousCompile = material.onBeforeCompile;
-  const previousKey = material.customProgramCacheKey();
-  material.onBeforeCompile = (shader, renderer) => {
-    previousCompile.call(material, shader, renderer);
-    if (points.length < 2) return;
-    shader.uniforms.keeperPath = { value: points };
-    shader.uniforms.keeperProgress = progress;
-    shader.uniforms.keeperReverse = reverse;
-    shader.vertexShader = `uniform vec3 keeperPath[${points.length}];\nvarying float vKeeperOrder;\n${shader.vertexShader}`;
-    shader.vertexShader = shader.vertexShader.replace("#include <project_vertex>", `
-      #include <project_vertex>
-      vec4 keeperWorld = vec4(transformed, 1.0);
-      #ifdef USE_INSTANCING
-        keeperWorld = instanceMatrix * keeperWorld;
-      #endif
-      keeperWorld = modelMatrix * keeperWorld;
-      float nearest = 1.0e20;
-      float walked = 0.0;
-      float total = 0.0;
-      vKeeperOrder = 0.0;
-      for (int i = 1; i < ${points.length}; i++) {
-        vec2 a = keeperPath[i - 1].xz;
-        vec2 delta = keeperPath[i].xz - a;
-        float span = length(delta);
-        float t = clamp(dot(keeperWorld.xz - a, delta) / max(0.0001, dot(delta, delta)), 0.0, 1.0);
-        float separation = distance(keeperWorld.xz, a + delta * t);
-        if (separation < nearest) {
-          nearest = separation;
-          vKeeperOrder = walked + span * t;
-        }
-        walked += span;
-        total += span;
+/** Once per frame, with the wall-clock night beat (0..1). */
+export function updateGardenLanternKindling(nightBeat: number): void {
+  kindleProgress.value = Math.max(0, Math.min(1, kindleClock(Math.max(0, Math.min(1, nightBeat)))));
+}
+
+/** CPU mirror of the shader's per-fixture factor. */
+export function gardenLanternKindleFactor(order: number, progress: number): number {
+  const start = Math.max(0, Math.min(1, order)) * (1 - GARDEN_KINDLE_WINDOW);
+  const t = Math.max(0, Math.min(1, (progress - start) / GARDEN_KINDLE_WINDOW));
+  return t * t * (3 - 2 * t);
+}
+
+const KINDLE_FACTOR_GLSL = `float gardenKindleFactor(float order) {
+  float start = clamp(order, 0.0, 1.0) * ${(1 - GARDEN_KINDLE_WINDOW).toFixed(4)};
+  return smoothstep(start, start + ${GARDEN_KINDLE_WINDOW.toFixed(4)}, uGardenKindleProgress);
+}`;
+
+/**
+ * Kindles a shared fixture material. `order` is one constant for the whole
+ * material, or `"attribute"`: a float `aKindleOrder` per vertex or per
+ * instance (station lanterns and shoji carry their station's order).
+ */
+export function patchGardenLanternKindling(material: MeshStandardMaterial, order: number | "attribute"): void {
+  const perVertex = order === "attribute";
+  chainGardenMaterialPatch(material, {
+    key: perVertex ? "garden-kindle-attribute" : `garden-kindle-${order.toFixed(4)}`,
+    compile: (shader) => {
+      shader.uniforms.uGardenKindleProgress = kindleProgress;
+      if (perVertex) {
+        shader.vertexShader = `attribute float aKindleOrder;\nvarying float vKindleOrder;\n${shader.vertexShader}`
+          .replace("#include <begin_vertex>", "#include <begin_vertex>\nvKindleOrder = aKindleOrder;");
       }
-      vKeeperOrder /= max(0.0001, total);
-    `);
-    shader.fragmentShader = `uniform float keeperProgress;\nuniform float keeperReverse;\nvarying float vKeeperOrder;\n${shader.fragmentShader}`;
-    shader.fragmentShader = shader.fragmentShader.replace("#include <emissivemap_fragment>", `
-      #include <emissivemap_fragment>
-      if (keeperProgress >= 0.0) {
-        float passage = mix(vKeeperOrder, 1.0 - vKeeperOrder, keeperReverse);
-        float lit = smoothstep(passage, passage + 0.04, keeperProgress);
-        totalEmissiveRadiance *= mix(lit, 1.0 - lit, keeperReverse);
-      }
-    `);
-  };
-  material.customProgramCacheKey = () => `${previousKey}:keeper:${points.length}`;
-  material.needsUpdate = true;
-  return {
-    update(ritual) {
-      progress.value = ritual.active ? ritual.progress : -1;
-      reverse.value = ritual.direction === "dawn" ? 1 : 0;
+      shader.fragmentShader = `uniform float uGardenKindleProgress;\n${perVertex ? "varying float vKindleOrder;\n" : ""}${KINDLE_FACTOR_GLSL}\n${shader.fragmentShader}`
+        .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+totalEmissiveRadiance *= gardenKindleFactor(${perVertex ? "vKindleOrder" : order.toFixed(4)});`);
     },
-  };
+  });
 }
 
 /**
@@ -93,14 +89,10 @@ export const GARDEN_TORO_NIGHT_LUMINANCE = 1.8;
  * W0.9: the engawa tōrō is a kindled fixture, not an always-lit box. Its fire
  * chamber is merged into a shared static draw as a dark hollow; this patch
  * adds `ember` emission only to fragments inside `chamber` (geometry space),
- * scaled by the night beat. The beat arrives through the
- * `userData.uNightValue` channel that `setGardenFloraNightValue` already
- * feeds whenever the night beat changes — no draw, no attribute and no
- * per-frame JS. Dark in full daylight and through dusk; lit at night.
+ * scaled by the kindle factor at order 1: beside the viewer, it lights last
+ * (K20) and banks first at dawn. No draw and no attribute.
  */
 export function patchGardenToroKindling(material: MeshStandardMaterial, chamber: Box3, ember: Color): void {
-  const night = { value: 0 };
-  material.userData.uNightValue = night;
   const luminance = ember.r * 0.2126 + ember.g * 0.7152 + ember.b * 0.0722;
   const toroEmber = { value: ember.clone().multiplyScalar(GARDEN_TORO_NIGHT_LUMINANCE / luminance) };
   // A hair of slack so the chamber's own faces, which lie exactly on the
@@ -111,23 +103,23 @@ export function patchGardenToroKindling(material: MeshStandardMaterial, chamber:
   const previousKey = material.customProgramCacheKey();
   material.onBeforeCompile = (shader, renderer) => {
     previousCompile.call(material, shader, renderer);
-    shader.uniforms.uNightValue = night;
+    shader.uniforms.uGardenKindleProgress = kindleProgress;
     shader.uniforms.uToroEmber = toroEmber;
     shader.uniforms.uToroMin = toroMin;
     shader.uniforms.uToroMax = toroMax;
     shader.vertexShader = `varying vec3 vToroPosition;\n${shader.vertexShader}`
       .replace("#include <begin_vertex>", "#include <begin_vertex>\nvToroPosition = transformed;");
-    shader.fragmentShader = `uniform float uNightValue;\nuniform vec3 uToroEmber;\nuniform vec3 uToroMin;\nuniform vec3 uToroMax;\nvarying vec3 vToroPosition;\n${shader.fragmentShader}`
+    shader.fragmentShader = `uniform float uGardenKindleProgress;\n${KINDLE_FACTOR_GLSL}\nuniform vec3 uToroEmber;\nuniform vec3 uToroMin;\nuniform vec3 uToroMax;\nvarying vec3 vToroPosition;\n${shader.fragmentShader}`
       .replace("#include <emissivemap_fragment>", `
       #include <emissivemap_fragment>
       {
         vec3 toroInside = step(uToroMin, vToroPosition) * step(vToroPosition, uToroMax);
         totalEmissiveRadiance += uToroEmber
-          * (toroInside.x * toroInside.y * toroInside.z * clamp(uNightValue, 0.0, 1.0));
+          * (toroInside.x * toroInside.y * toroInside.z * gardenKindleFactor(1.0));
       }
     `);
   };
-  material.customProgramCacheKey = () => `${previousKey}:toro-kindling`;
+  material.customProgramCacheKey = () => `${previousKey}:toro-kindling-v2`;
   material.needsUpdate = true;
 }
 

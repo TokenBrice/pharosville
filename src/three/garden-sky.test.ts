@@ -286,9 +286,10 @@ describe("garden sky applyPhase", () => {
     const solar = sky.domeMaterial.uniforms.uSolarHorizon.value as Color;
     const anti = sky.domeMaterial.uniforms.uAntiHorizon.value as Color;
     expect(zenith.b).toBeGreaterThan(zenith.r * 2);
-    // The sun's side is neutral air, not a warm grade; the far side is cooler.
-    expect(Math.max(solar.r, solar.g, solar.b) - Math.min(solar.r, solar.g, solar.b)).toBeLessThan(0.08);
+    // The sun's side is never a warm grade; the far side is cooler than it.
+    expect(solar.b).toBeGreaterThanOrEqual(solar.r);
     expect(anti.b).toBeGreaterThan(anti.r);
+    expect(anti.b / anti.r).toBeGreaterThan(solar.b / solar.r);
     sky.dispose();
   });
 

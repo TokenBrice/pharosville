@@ -331,7 +331,6 @@ describe("garden water exclusion (zones-v2 placement fix)", () => {
         const samples = new Map<string, ShipMotionSample>();
         for (const ship of world.ships) {
           samples.set(ship.id, resolveShipMotionSample({
-            flagshipSamples: samples,
             plan,
             reducedMotion: false,
             ship,

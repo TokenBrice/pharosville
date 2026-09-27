@@ -68,8 +68,15 @@ import {
 // has no side.
 export const GARDEN_SKY_BEATS = {
   dawn: { zenith: new Color(0x777d99), solar: new Color(0xe0bca6), anti: new Color(0xaaa7c2) },
-  day: { zenith: new Color(0x4c87c4), solar: new Color(0xeef1f4), anti: new Color(0xc6d4e6) },
-  golden: { zenith: new Color(0x74638e), solar: new Color(0xf0b070), anti: new Color(0x9c93b3) },
+  // Print-gate tune: noon air is MIDDLE-value blue (horizon L* ≈ 71 / 54 in,
+  // was 95 / 84), so the side-lit limestone stands brighter than its air; the
+  // zenith is lifted (L* 55 → 65) so the top row keeps its cerulean.
+  day: { zenith: new Color(0x70a3d4), solar: new Color(0x9cb1ca), anti: new Color(0x6a82a8) },
+  // Golden faces away from the sun at the rest seat (the key is behind the
+  // viewer's right shoulder), so the frame's sky is the anti side: a cool
+  // violet-BLUE (hue ≈ 235°, was a 260° lavender) that the warm lit planes
+  // read against. The warmth stays on the solar horizon and the lit stone.
+  golden: { zenith: new Color(0x6e70a2), solar: new Color(0xf0b070), anti: new Color(0x8f95bf) },
   blue: { zenith: new Color(0x202c59), solar: new Color(0xb98a6e), anti: new Color(0x58648a) },
   // W1.8 (sky-6): authored to land AFTER the night chain (grade, Neutral tone
   // map at 1.12, night LUT) on frame-top zenith #0e1530 (L* ≈ 7.5, under the

@@ -219,6 +219,8 @@ export interface WorldCameraStepResult {
   camera: IsoCamera | null;
   cameraChanged: boolean;
   cameraIntentActive: boolean;
+  /** K17 arrival air-veil multiplier; absent means the hour's own air. */
+  airVeil?: number;
 }
 
 export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRenderLoopResult {
@@ -371,12 +373,13 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   // W0.2 debug motion stats: one object, refreshed in place ≤ 2×/s from the
   // per-frame heading deltas the debug telemetry already computes.
   const motionStatsRef = useRef<DebugMotionStats>({
+    meanAbsRestTurnDegPerSec: 0,
     meanAbsTurnDegPerSec: 0,
     sampledAtMs: 0,
     underwayShips: 0,
     visibleShips: 0,
   });
-  const motionStatsAccRef = useRef({ lastRefreshAtMs: Number.NEGATIVE_INFINITY, turnCount: 0, turnSum: 0 });
+  const motionStatsAccRef = useRef({ lastRefreshAtMs: Number.NEGATIVE_INFINITY, restTurnCount: 0, restTurnSum: 0, turnCount: 0, turnSum: 0 });
   const lastInteractionInputRef = useRef<{ hoveredDetailId: string | null; selectedDetailId: string | null }>({
     hoveredDetailId: null,
     selectedDetailId: null,
@@ -867,6 +870,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       cameraBreathTargetRef.current.current = cameraBreath;
       try {
         renderMetrics = threeRenderer.render({
+          airVeil: cameraStep.airVeil ?? 1,
           almanacEvent: almanacEvent ?? null,
           gardenDirector: gardenDirectorRef.current,
           epochSeconds: Date.now() / 1000,
@@ -1050,9 +1054,14 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
             if (isContinuousPositionDiagnosticSample(prev, sample)) {
               const headingDelta = headingDeltaDegreesPerSecond(prev, sample, nextFrameState.timeSeconds);
               if (headingDelta > frameMaxHeadingDeg) frameMaxHeadingDeg = headingDelta;
-              if (isUnderwayState(sample.state) && nextFrameState.timeSeconds > prev.timeSeconds) {
-                motionStatsAcc.turnSum += headingDelta;
-                motionStatsAcc.turnCount += 1;
+              if (nextFrameState.timeSeconds > prev.timeSeconds) {
+                if (isUnderwayState(sample.state)) {
+                  motionStatsAcc.turnSum += headingDelta;
+                  motionStatsAcc.turnCount += 1;
+                } else {
+                  motionStatsAcc.restTurnSum += headingDelta;
+                  motionStatsAcc.restTurnCount += 1;
+                }
               }
               const tile = sample.displayTile ?? sample.tile;
               const d = Math.hypot(tile.x - prev.x, tile.y - prev.y);
@@ -1081,10 +1090,13 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
           stats.visibleShips = visibleShips;
           stats.underwayShips = underwayShips;
           stats.meanAbsTurnDegPerSec = motionStatsAcc.turnCount > 0 ? motionStatsAcc.turnSum / motionStatsAcc.turnCount : 0;
+          stats.meanAbsRestTurnDegPerSec = motionStatsAcc.restTurnCount > 0 ? motionStatsAcc.restTurnSum / motionStatsAcc.restTurnCount : 0;
           stats.sampledAtMs = time;
           motionStatsAcc.lastRefreshAtMs = time;
           motionStatsAcc.turnSum = 0;
           motionStatsAcc.turnCount = 0;
+          motionStatsAcc.restTurnSum = 0;
+          motionStatsAcc.restTurnCount = 0;
         }
 
         // A3: route cache stats.
@@ -1444,30 +1456,22 @@ function collectShipMotionSamples(input: {
   trackShipHitState?: boolean;
 }) {
   const samples = input.samples as Map<string, ShipMotionSample>;
-  // Process flagships/solo ships before consorts so consorts can read their
-  // flagship's already-computed sample from the map instead of re-sampling
-  // the flagship's route. Two passes keeps allocation-free; ordering inside
-  // each pass is unchanged from world.ships.
-  for (let pass = 0; pass < 2; pass += 1) {
-    for (const ship of input.world.ships) {
-      const isConsort = ship.squadRole === "consort";
-      if (pass === 0 && isConsort) continue;
-      if (pass === 1 && !isConsort) continue;
-      let sample = samples.get(ship.id);
-      if (!sample) {
-        sample = createShipMotionSample();
-        samples.set(ship.id, sample);
-      }
-      resolveShipMotionSampleInto({
-        plan: input.motionPlan,
-        reducedMotion: input.reducedMotion,
-        seaState: input.seaState,
-        ship,
-        timeSeconds: input.timeSeconds,
-        flagshipSamples: samples,
-        wind: input.wind,
-      }, sample);
+  // Consorts sample their flagship's route at their own rank delay
+  // (W4.F11), so ships resolve in any order.
+  for (const ship of input.world.ships) {
+    let sample = samples.get(ship.id);
+    if (!sample) {
+      sample = createShipMotionSample();
+      samples.set(ship.id, sample);
     }
+    resolveShipMotionSampleInto({
+      plan: input.motionPlan,
+      reducedMotion: input.reducedMotion,
+      seaState: input.seaState,
+      ship,
+      timeSeconds: input.timeSeconds,
+      wind: input.wind,
+    }, sample);
   }
   if (samples.size !== input.world.ships.length) {
     const liveIds = new Set(input.world.ships.map((ship) => ship.id));
@@ -1715,7 +1719,10 @@ export function stepCameraBreath(
 type DebugWorldPoint = { x: number; y: number; z: number };
 
 type DebugMotionStats = {
+  /** Mean |yaw rate| of hulls under way (departing, sailing, arriving). */
   meanAbsTurnDegPerSec: number;
+  /** Mean |yaw rate| of hulls at rest (moored, anchored): near zero by design (W4.F9). */
+  meanAbsRestTurnDegPerSec: number;
   sampledAtMs: number;
   underwayShips: number;
   visibleShips: number;
@@ -1729,8 +1736,9 @@ type DebugWorldAnchors = {
   towerFoot: DebugWorldPoint;
 };
 
+/** Under way means a voyage; an anchored (risk-drift) hull is at rest. */
 function isUnderwayState(state: ShipMotionSample["state"]): boolean {
-  return state === "departing" || state === "sailing" || state === "risk-drift" || state === "arriving";
+  return state === "departing" || state === "sailing" || state === "arriving";
 }
 
 // The Pharos's battered square tier (L1 silhouette contract, mirrored from

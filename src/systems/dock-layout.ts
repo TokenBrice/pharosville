@@ -6,35 +6,35 @@ export type StationType = DockNode["station"]["type"];
 export interface StationScaleRung {
   baseLength: number;
   span: number;
-  secondLevelTop: number;
+  /** The station's highest point, station-local: its main ridge (the Mole's fire-watch cap). */
+  silhouetteTop: number;
 }
 
 /**
- * Authored civic-hall dimensions from the §6 harbor scale ladder. The
- * ordinary rungs were re-based 2026-09-05 for the zoom-1.0 rest (operator
- * decision A4, "warm village"): each silhouette grew ~1.46–1.85x in vertical
- * scale only, so footprints, water exclusion, and berthing are untouched.
- * The band is 13.3–17.9 rather than the nominal 14–18 because the
- * clone-separation contract (no two archetypes within 10% on BOTH footprint
- * area and second-level height, `garden-docks.test.ts`) plus the preserved
- * uogashi→storm-mole order forces a >=1.331x spread between the shortest and
- * tallest ordinary rung, and the Mole's 21.5 landmark cap keeps a >=1.20x
- * lead over the tallest (17.9 x 1.2 = 21.48 <= 21.5).
+ * One harbour vernacular (plan W4.H1, harbour-1): every station is a low,
+ * roof-dominant house — charred-cedar lower walls, pale plaster, grey kawara
+ * under deep eaves — whose roof takes 40–60 % of its elevation, and nothing
+ * rises past the rim hills. The 2026-09-05 vertical ladder (13.3–21.5 u
+ * towers beside a 38 u Pharos, operator decision A4) and the clone-separation
+ * contract that legislated difference are retired; identity lives at ground
+ * level (steelyard, net rack, gangi stairs, boat mouth) and on the nobori.
+ * Hall length and span still carry supply frontage (`stationScaleFor`); the
+ * heights are data-independent. The Ethereum Mole's open fire-watch frame is
+ * the ring's one vertical at 13.5 u, about a third of the Pharos.
  */
 export const STATION_SCALE_LADDER: Record<StationType, StationScaleRung> = {
-  "ethereum-mole": { baseLength: 24.0, span: 10.0, secondLevelTop: 21.5 },
-  "stepped-inlet": { baseLength: 16.0, span: 7.8, secondLevelTop: 15.6 },
-  "fishing-pier": { baseLength: 15.4, span: 6.7, secondLevelTop: 14.7 },
-  "tea-house-quay": { baseLength: 15.0, span: 7.4, secondLevelTop: 16.2 },
-  "hatago-wharf": { baseLength: 14.6, span: 6.6, secondLevelTop: 17.2 },
-  uogashi: { baseLength: 14.2, span: 7.8, secondLevelTop: 13.3 },
-  "storm-mole": { baseLength: 13.4, span: 8.8, secondLevelTop: 17.9 },
-  "reed-boathouse": { baseLength: 13.6, span: 6.0, secondLevelTop: 16.6 },
-  "pigeonnier-islet": { baseLength: 12.6, span: 5.6, secondLevelTop: 15.0 },
+  "ethereum-mole": { baseLength: 24.0, span: 10.0, silhouetteTop: 13.5 },
+  "stepped-inlet": { baseLength: 16.0, span: 7.8, silhouetteTop: 7.0 },
+  "fishing-pier": { baseLength: 15.4, span: 6.7, silhouetteTop: 5.9 },
+  "tea-house-quay": { baseLength: 15.0, span: 7.4, silhouetteTop: 7.3 },
+  "hatago-wharf": { baseLength: 14.6, span: 6.6, silhouetteTop: 9.4 },
+  uogashi: { baseLength: 14.2, span: 7.8, silhouetteTop: 6.9 },
+  "storm-mole": { baseLength: 13.4, span: 8.8, silhouetteTop: 7.1 },
+  "reed-boathouse": { baseLength: 13.6, span: 6.0, silhouetteTop: 6.1 },
+  "pigeonnier-islet": { baseLength: 12.6, span: 5.6, silhouetteTop: 6.8 },
 };
 
 export interface StationScale extends StationScaleRung {
-  heightScale: number;
   frontageScale: number;
   length: number;
 }
@@ -46,7 +46,7 @@ function clamp(value: number, min: number, max: number): number {
 /**
  * Allocates horizontal station mass by tracked-supply share. A decade either
  * side of the rendered-harbour median reaches the authored 0.75–1.25 bounds;
- * the vertical recognizability ladder remains data-independent.
+ * the vernacular's heights remain data-independent.
  */
 export function stationScaleFor(
   type: StationType,
@@ -55,14 +55,13 @@ export function stationScaleFor(
 ): StationScale {
   const rung = STATION_SCALE_LADDER[type];
   if (type === "ethereum-mole") {
-    return { ...rung, frontageScale: 1, heightScale: 1, length: rung.baseLength };
+    return { ...rung, frontageScale: 1, length: rung.baseLength };
   }
   const ratio = frontageShare > 0 && medianShare > 0 ? frontageShare / medianShare : 1;
   const frontageScale = clamp(0.75 + 0.5 * clamp(Math.log10(ratio), -1, 1), 0.75, 1.25);
   return {
     ...rung,
     frontageScale,
-    heightScale: 1,
     length: rung.baseLength * frontageScale,
     span: rung.span * frontageScale,
   };
@@ -288,24 +287,25 @@ interface NoboriSite {
  * seaward eave of their main roof — the only edge that stays over structure at
  * every supply and frontage, since the halls grow with frontage while quays
  * and approaches grow with supply — so the cloth clears the roof beneath it
- * and reads against the water. The reed boathouse uses its ridge, which the
- * dome leaves clear, and the uogashi rises through the low, seaward side of
- * its mono-pitch roof; the Mole's pair stands on the short-arm landing. Every
- * tip stays under `HARBOR_NOBORI_ENVELOPE.tipLocalY`, 13.7 u above the water.
- * Siting is checked against the authored geometry over the supply space in
+ * and reads against the water. The reed boathouse uses its ridge; the uogashi
+ * rises through the low, open side of its mono-pitch roof, and the TON
+ * landing's cloth, which flies inland over its hip, hangs clear above the
+ * ridge; the Mole's pair stands on the short-arm landing. Every tip stays
+ * under `HARBOR_NOBORI_ENVELOPE.tipLocalY`, 13.7 u above the water. Siting is
+ * checked against the authored geometry over the supply space in
  * `garden-harbor-batch.test.ts`.
  */
 const NOBORI_SITES: Record<StationType, NoboriSite> = {
   "ethereum-mole": { from: "mole", x: 8.2, z: 11.0, footY: HARBOR_QUAY_TOP_Y },
   // The seaward eave of the roofed water stair, clear of the inn.
   "hatago-wharf": { from: "hall", x: 3.75, z: -0.5, footY: 5.13 },
-  "stepped-inlet": { from: "hall", x: -0.12, z: -1.0, footY: 4.47 },
-  uogashi: { from: "hall", x: -1.75, z: 2.75, footY: 5.85, hemY: 7.52 },
+  "stepped-inlet": { from: "hall", x: -0.12, z: -1.0, footY: 4.55 },
+  uogashi: { from: "hall", x: -1.75, z: 2.75, footY: 4.45, hemY: 5.6 },
   "fishing-pier": { from: "hall", x: -0.5, z: -0.25, footY: 4.56 },
   "reed-boathouse": { from: "quay", x: -7.0, z: 0, footY: 6.26 },
   "tea-house-quay": { from: "hall", x: 0, z: -1.75, footY: 4.73 },
   "storm-mole": { from: "hall", x: 0, z: 2.75, footY: 4.63 },
-  "pigeonnier-islet": { from: "hall", x: -0.25, z: 0, footY: 4.7 },
+  "pigeonnier-islet": { from: "hall", x: -0.25, z: 0, footY: 4.7, hemY: 7.1 },
 };
 
 /** Main-hall centre relative to `quayX`, as each station author places it in `garden-docks.ts`. */

@@ -50,6 +50,21 @@ export interface NowCaptionInput {
   hour: number;
   latestTransition: NowCaptionTransition | null;
   psi: number | null;
+  /** A first-visit teaching or the return-visit sentence; outranked only by a stale feed. */
+  visitorLine?: string | null;
+}
+
+/**
+ * The now-line as one sentence in three voices (W6.2): the minute clock (only
+ * for the ambient phase), the phrase, and a quieter provenance clause. A
+ * `warning` phrase is a truth warning (a stale feed): the line sets it roman
+ * with a glyph so it never reads as poetry or relies on colour alone.
+ */
+export interface NowCaptionParts {
+  clock: string | null;
+  phrase: string;
+  clause: string | null;
+  warning: boolean;
 }
 
 const NOW_CAPTION_FRESHNESS_LABELS: ReadonlyArray<readonly [keyof PharosVilleFreshness, string]> = [
@@ -96,7 +111,8 @@ function phaseCaption(hour: number, beats: DayCycleBeats, psi: number | null): s
 /**
  * The caption's words without the minute clock. Its precedence is
  * deliberate: a stale feed is a truth warning and outranks everything, then a
- * ceremony is the present moment, then a market move, then the ambient phase.
+ * visitor's teaching, then a ceremony is the present moment, then a market
+ * move, then the ambient phase.
  */
 function nowCaptionPhrase({
   arrivalAnnotation,
@@ -105,30 +121,47 @@ function nowCaptionPhrase({
   hour,
   latestTransition,
   psi,
-}: NowCaptionInput, moon: string | null = null): { clocked: boolean; text: string } {
+  visitorLine,
+}: NowCaptionInput, moon: string | null = null): Omit<NowCaptionParts, "clock"> & { clocked: boolean } {
   const staleFeed = NOW_CAPTION_FRESHNESS_LABELS.find(([key]) => freshness[key] === true);
-  if (staleFeed) return { clocked: false, text: `${staleFeed[1]} stale since ${observedTimeLabel(freshness.observedAt ?? null)}` };
-  if (arrivalAnnotation) return { clocked: false, text: arrivalAnnotation };
-  if (latestTransition) {
+  if (staleFeed) {
     return {
       clocked: false,
-      text: `${latestTransition.symbol} moved to ${latestTransition.toLabel}, observed ${observedTimeLabel(latestTransition.observedAt)}`,
+      phrase: `${staleFeed[1]} stale since ${observedTimeLabel(freshness.observedAt ?? null)}`,
+      clause: null,
+      warning: true,
     };
   }
-  return { clocked: true, text: `${phaseCaption(hour, beats, psi)}${moon ? ` · ${moon}` : ""} · readings current` };
+  const unclocked = visitorLine || arrivalAnnotation || (latestTransition
+    ? `${latestTransition.symbol} moved to ${latestTransition.toLabel}, observed ${observedTimeLabel(latestTransition.observedAt)}`
+    : null);
+  if (unclocked) return { clocked: false, phrase: unclocked, clause: null, warning: false };
+  return {
+    clocked: true,
+    phrase: `${phaseCaption(hour, beats, psi)}${moon ? ` · ${moon}` : ""}`,
+    clause: "readings current",
+    warning: false,
+  };
 }
 
 /**
- * The single visible scene caption; the ambient phase leads with the minute
- * clock. After dusk the ambient slot also names the moon when it is up
- * (W2.6: the text equivalent of the disc). It is decorative, so it lives only
- * here and never in `nowCaptionAnnouncement` — the moon rising must not speak.
+ * The visible scene caption in its three voices; the ambient phase leads with
+ * the minute clock. After dusk the ambient slot also names the moon when it is
+ * up (W2.6: the text equivalent of the disc). It is decorative, so it lives
+ * only here and never in `nowCaptionAnnouncement` — the moon rising must not
+ * speak.
  */
-export function nowCaption(input: NowCaptionInput): string {
+export function nowCaptionParts(input: NowCaptionInput): NowCaptionParts {
   const beat = dominantDayBeat(input.beats);
   const moon = beat === "night" || beat === "blue" ? gardenMoonPhrase(input.hour) : null;
-  const phrase = nowCaptionPhrase(input, moon);
-  return phrase.clocked ? `${clockLabel(input.hour)} — ${phrase.text}` : phrase.text;
+  const { clocked, ...parts } = nowCaptionPhrase(input, moon);
+  return { clock: clocked ? clockLabel(input.hour) : null, ...parts };
+}
+
+/** The now-line as one plain sentence: the text form of `nowCaptionParts`. */
+export function nowCaption(input: NowCaptionInput): string {
+  const { clock, phrase, clause } = nowCaptionParts(input);
+  return `${clock ? `${clock} — ` : ""}${phrase}${clause ? ` · ${clause}` : ""}`;
 }
 
 /**
@@ -136,7 +169,8 @@ export function nowCaption(input: NowCaptionInput): string {
  * clock, so a screen reader hears it only when the phrase itself changes.
  */
 export function nowCaptionAnnouncement(input: NowCaptionInput): string {
-  return nowCaptionPhrase(input).text;
+  const { phrase, clause } = nowCaptionPhrase(input);
+  return clause ? `${phrase} · ${clause}` : phrase;
 }
 
 function marketCapLabel(value: number): string {
@@ -848,6 +882,7 @@ export function detailForLighthouse(
           })),
         }
       : {}),
+    ...(node.longRecord ? { longRecord: node.longRecord } : {}),
   };
 }
 
@@ -1186,9 +1221,10 @@ export function pegDeviationLabel(node: Pick<ShipNode, "pegDeviationBps" | "pegC
   const bps = node.pegDeviationBps;
   if (typeof bps !== "number" || !Number.isFinite(bps)) return null;
   const rounded = Math.round(bps);
-  const sign = rounded > 0 ? "+" : "";
+  // A typographic minus (U+2212), not a hyphen: it reads as a sign, not a dash.
+  const sign = rounded > 0 ? "+" : rounded < 0 ? "\u2212" : "";
   const currency = node.pegCurrency || "peg";
-  return `${sign}${rounded} bps vs ${currency}`;
+  return `${sign}${Math.abs(rounded)} bps vs ${currency}`;
 }
 
 /**

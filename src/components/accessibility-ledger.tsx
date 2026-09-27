@@ -43,6 +43,7 @@ import {
 import { recentFleetTrendSummary, recentFleetTrendSummaryText, seaStateForWorld, seaStateSummary } from "../systems/sea-state";
 import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
 import type { GardenAlmanacLogEntry } from "../systems/garden-almanac";
+import type { HarborLogEntry } from "../hooks/use-harbor-log";
 import { pigeonnierRoostLabel } from "../systems/pigeonnier-watch";
 import { deriveEpistemicHaze, epistemicHazeLabel } from "../systems/epistemic-haze";
 import { farShoreLabel } from "../systems/psi-sky";
@@ -129,6 +130,11 @@ export interface AccessibilityLedgerProps {
   /** Panel-level label; the words of the ledger body never vary by audience. */
   title?: string;
   onSelectDetail?: (detailId: string) => void;
+  /** W6.11: this session's risk-band transitions, newest first — the harbor
+      log's permanent home now that it no longer sits over the world. */
+  harborLogEntries?: readonly HarborLogEntry[];
+  /** W6.10: the return-visit sentence, kept here after the now-line moves on. */
+  visitSummary?: string | null;
 }
 
 function AccessibilityLedgerContent({
@@ -139,6 +145,8 @@ function AccessibilityLedgerContent({
   presentation = "screen-reader",
   title = "PharosVille accessibility ledger",
   onSelectDetail,
+  harborLogEntries = [],
+  visitSummary = null,
 }: AccessibilityLedgerProps) {
   const staleSources = freshnessEntries(world)
     .filter((entry) => entry.stale)
@@ -251,8 +259,24 @@ function AccessibilityLedgerContent({
       </dl>
 
       <h3>Harbor log</h3>
+      {visitSummary && <p>{visitSummary}</p>}
+      {harborLogEntries.length > 0 && (
+        <ol aria-label="Risk-band changes this session">
+          {harborLogEntries.map((entry) => (
+            <li key={entry.id}>
+              {entry.observedAt !== null && Number.isFinite(entry.observedAt) && entry.observedAt > 0 && (
+                <><time dateTime={new Date(entry.observedAt).toISOString()}>
+                  {new Date(entry.observedAt).toISOString().slice(11, 16)}
+                </time>{" — "}</>
+              )}
+              {entry.message}.
+              {onSelectDetail && <> <button type="button" onClick={() => onSelectDetail(entry.detailId)}>Select in harbor</button></>}
+            </li>
+          ))}
+        </ol>
+      )}
       {almanacEntries.length > 0 ? (
-        <ol>
+        <ol aria-label="Rare sightings this session">
           {almanacEntries.map((entry) => (
             <li key={entry.id}>
               <time dateTime={`${entry.id.slice(0, 10)}T${entry.timestampLabel}:00`}>

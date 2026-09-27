@@ -22,10 +22,10 @@ import { stableUnit } from "./garden-util";
  * undersides ×0.40–0.55 against lit crowns in vertex colour — not facets: the
  * whole tree is smooth-shaded, so it wants a `flatShading: false` material.
  *
- * Hero-only species for now (the threshold pines); the rim, islets and island
- * keep `createSpeciesGeometry("pine")` until the global swap (W4.G1). The
- * geometry is local to the root (origin at the trunk base, +y up), so it can
- * be instanced or merged.
+ * One generator for every tree in the garden (W4.G1): the threshold and
+ * island heroes, and — at the "rim" LOD — the rim, islet and deciduous
+ * species of `garden-flora`. The geometry is local to the root (origin at
+ * the trunk base, +y up), so it can be instanced or merged.
  */
 
 /** Pads darken to this fraction of the needle colour on their flat undersides. */
@@ -83,6 +83,14 @@ export interface NiwakiPineOptions {
   branches?: readonly NiwakiBranchSpec[];
   bark?: Color;
   needle?: Color;
+  /**
+   * Mesh density. "hero" (default) is the close threshold/island grade;
+   * "rim" is the instanced planting grade (W4.G1): coarser tubes, three
+   * roots and undivided icosahedron pad lobes, same silhouette.
+   */
+  lod?: "hero" | "rim";
+  /** Pad lobe icosphere detail for branches without their own `detail`. */
+  padDetail?: number;
 }
 
 export interface NiwakiPad {
@@ -101,7 +109,18 @@ export interface NiwakiPine {
   /** Local-space trunk curve, for placement tests and scans. */
   trunk: CatmullRomCurve3;
   triangleCount: number;
+  /**
+   * Per vertex of `geometry`: the index into `pads` of the pad it belongs to,
+   * or −1 for bark (trunk, roots, arms, twigs). Lets instanced planting and
+   * the month record address foliage without re-deriving it from colour.
+   */
+  padOfVertex: Int16Array;
 }
+
+const TUBES = {
+  hero: { trunk: [24, 10], root: [4, 6], roots: 4, arm: [8, 6], twig: [5, 5], padDetail: 1 },
+  rim: { trunk: [8, 6], root: [2, 4], roots: 3, arm: [3, 4], twig: [3, 4], padDetail: 0 },
+} as const;
 
 const DEFAULT_BARK = new Color(HARBOR_PALETTE.stone_dark).lerp(new Color(HARBOR_PALETTE.timber_dark), 0.35);
 const DEFAULT_NEEDLE = new Color(HARBOR_PALETTE.aurora_green).multiplyScalar(0.58);
@@ -273,21 +292,26 @@ export function createNiwakiPine(options: NiwakiPineOptions): NiwakiPine {
   const { seed, height } = options;
   const bark = options.bark ?? DEFAULT_BARK;
   const needle = options.needle ?? DEFAULT_NEEDLE;
+  const tubes = TUBES[options.lod ?? "hero"];
+  const padDetail = options.padDetail ?? tubes.padDetail;
   const rootRadius = options.trunkRadius ?? height * 0.034;
   const nodes = options.trunk ?? defaultTrunk(height, options.lean ?? { x: height * 0.12, z: 0 }, seed);
   const trunk = new CatmullRomCurve3(nodes.map(([x, y, z]) => new Vector3(x, y, z)), false, "centripetal");
-  const pieces: BufferGeometry[] = [barkTube(trunk, [rootRadius, rootRadius * 0.22], 24, 10, bark, `${seed}.trunk`)];
+  const pieces: BufferGeometry[] = [barkTube(trunk, [rootRadius, rootRadius * 0.22], tubes.trunk[0], tubes.trunk[1], bark, `${seed}.trunk`)];
+  // Parallel to `pieces`: the pad a piece is, or −1 for bark.
+  const owners: number[] = [-1];
 
-  // Root flare: four short splayed roots gripping the ground.
-  for (let root = 0; root < 4; root += 1) {
-    const angle = root * Math.PI / 2 + stableUnit(`${seed}.root.${root}`) * 0.7;
+  // Root flare: short splayed roots gripping the ground.
+  for (let root = 0; root < tubes.roots; root += 1) {
+    const angle = root * Math.PI * 2 / tubes.roots + stableUnit(`${seed}.root.${root}`) * 0.7;
     const reach = rootRadius * (2.2 + stableUnit(`${seed}.root-reach.${root}`) * 0.8);
     const curve = new CatmullRomCurve3([
       new Vector3(0, rootRadius * 1.4, 0),
       new Vector3(Math.cos(angle) * reach * 0.45, rootRadius * 0.45, Math.sin(angle) * reach * 0.45),
       new Vector3(Math.cos(angle) * reach, -rootRadius * 0.3, Math.sin(angle) * reach),
     ], false, "centripetal");
-    pieces.push(barkTube(curve, [rootRadius * 0.62, rootRadius * 0.2], 4, 6, bark, `${seed}.root.${root}`));
+    pieces.push(barkTube(curve, [rootRadius * 0.62, rootRadius * 0.2], tubes.root[0], tubes.root[1], bark, `${seed}.root.${root}`));
+    owners.push(-1);
   }
 
   const branches = options.branches ?? niwakiDefaultBranches(height, seed);
@@ -301,10 +325,11 @@ export function createNiwakiPine(options: NiwakiPineOptions): NiwakiPine {
     const aspectFor = (pad: number) => NIWAKI_PAD_ASPECT_RANGE[0]
       + (NIWAKI_PAD_ASPECT_RANGE[1] - NIWAKI_PAD_ASPECT_RANGE[0]) * stableUnit(`${seed}.aspect.${index}.${pad}`);
     const placePad = (pad: number, centre: Vector3, half: Vector3) => {
-      const geometry = createNiwakiPadGeometry(`${seed}.pad.${index}.${pad}`, half, needle, branch.detail ?? 1);
+      const geometry = createNiwakiPadGeometry(`${seed}.pad.${index}.${pad}`, half, needle, branch.detail ?? padDetail);
       geometry.rotateY(-branch.azimuth);
       geometry.translate(centre.x, centre.y - half.y, centre.z);
       pieces.push(geometry);
+      owners.push(pads.length);
       pads.push({ branch: index, center: centre, halfSize: half });
     };
     let arm: CatmullRomCurve3 | null = null;
@@ -313,7 +338,8 @@ export function createNiwakiPine(options: NiwakiPineOptions): NiwakiPine {
       const elbow = start.clone().addScaledVector(heading, branch.reach * 0.82).add(new Vector3(0, branch.rise * 0.12, 0));
       arm = new CatmullRomCurve3([start, start.clone().lerp(elbow, 0.5), elbow, end], false, "centripetal");
       const multi = count > 1 || (branch.padsAt?.length ?? 0) > 1;
-      pieces.push(barkTube(arm, [armRadius * (multi ? 1.35 : 1), armRadius * 0.5], 8, 6, bark, `${seed}.arm.${index}`));
+      pieces.push(barkTube(arm, [armRadius * (multi ? 1.35 : 1), armRadius * 0.5], tubes.arm[0], tubes.arm[1], bark, `${seed}.arm.${index}`));
+      owners.push(-1);
     }
     if (branch.padsAt) {
       const across = new Vector3(-heading.z, 0, heading.x);
@@ -328,7 +354,8 @@ export function createNiwakiPine(options: NiwakiPineOptions): NiwakiPine {
           const knee = from.clone().lerp(seat, 0.7);
           knee.y = from.y + (seat.y - from.y) * 0.25;
           const twig = new CatmullRomCurve3([from, knee, seat], false, "centripetal");
-          pieces.push(barkTube(twig, [armRadius * 0.75, armRadius * 0.4], 5, 5, bark, `${seed}.twig.${index}.${pad}`));
+          pieces.push(barkTube(twig, [armRadius * 0.75, armRadius * 0.4], tubes.twig[0], tubes.twig[1], bark, `${seed}.twig.${index}.${pad}`));
+          owners.push(-1);
         }
         placePad(pad, centre, half);
       });
@@ -347,9 +374,25 @@ export function createNiwakiPine(options: NiwakiPineOptions): NiwakiPine {
     }
   });
 
+  const vertexCounts = pieces.map((piece) => piece.getAttribute("position").count);
   const geometry = mergeGeometries(pieces, false)!;
   pieces.forEach((piece) => piece.dispose());
   geometry.computeBoundingSphere();
-  pads.sort((a, b) => a.center.y - b.center.y);
-  return { geometry, pads, trunk, triangleCount: geometry.index!.count / 3 };
+  const order = pads.map((_, index) => index).sort((a, b) => pads[a]!.center.y - pads[b]!.center.y);
+  const sortedIndex = new Int16Array(pads.length);
+  order.forEach((original, sorted) => { sortedIndex[original] = sorted; });
+  const padOfVertex = new Int16Array(geometry.getAttribute("position").count);
+  let cursor = 0;
+  vertexCounts.forEach((count, piece) => {
+    const owner = owners[piece]!;
+    padOfVertex.fill(owner < 0 ? -1 : sortedIndex[owner]!, cursor, cursor + count);
+    cursor += count;
+  });
+  return {
+    geometry,
+    pads: order.map((index) => pads[index]!),
+    trunk,
+    triangleCount: geometry.index!.count / 3,
+    padOfVertex,
+  };
 }

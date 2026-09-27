@@ -147,7 +147,6 @@ describe("createGardenOverviewLod", () => {
       if (object.visible) visibleNames.add(object.name);
     });
     const shedNames = [
-      "dock-lamp-heads",
       "dock-posts",
       "harbor-netRack",
       "station-lit-screens",

@@ -407,7 +407,11 @@ vi.mock("three", async (importOriginal) => {
     });
     renderLists = { dispose: vi.fn() };
     setClearColor = vi.fn();
-    setPixelRatio = vi.fn();
+    pixelRatio = 1;
+    getPixelRatio = vi.fn(() => this.pixelRatio);
+    setPixelRatio = vi.fn((ratio: number) => {
+      this.pixelRatio = ratio;
+    });
     setRenderTarget = vi.fn();
     setSize = vi.fn();
     shadowMap = { autoUpdate: true, enabled: false, type: 0 };
@@ -558,7 +562,7 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
 
-  it("luffs chain flags in gusts and restores zero roll for reduced motion", () => {
+  it("gives chain flags the harbour's gust and rests them on one pose for reduced motion", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
@@ -571,13 +575,12 @@ describe("Three world renderer lifecycle", () => {
     flags.getMatrixAt(0, matrix);
     const clothNormal = new Vector3(0, 0, 1).transformDirection(matrix);
     expect(clothNormal.dot(new Vector3(Math.SQRT1_2, 0, Math.SQRT1_2))).toBeGreaterThan(0.95);
-    const luffingUp = new Vector3(0, 1, 0).transformDirection(matrix);
-    expect(Math.hypot(luffingUp.x, luffingUp.z)).toBeGreaterThan(0);
+    const gusts = flags.geometry.getAttribute("aGust");
+    const resting = (index: number) => Math.abs(gusts.getX(index) - 0.35) < 1e-6;
+    expect(Array.from({ length: gusts.count }, (_, index) => resting(index)).every(Boolean)).toBe(false);
 
     renderer.render(rendererFrame(world, "full", { reducedMotion: true }));
-    flags.getMatrixAt(0, matrix);
-    const stillUp = new Vector3(0, 1, 0).transformDirection(matrix);
-    expect(Math.hypot(stillUp.x, stillUp.z)).toBeCloseTo(0, 8);
+    expect(Array.from({ length: gusts.count }, (_, index) => resting(index)).every(Boolean)).toBe(true);
     renderer.dispose();
   });
 
@@ -2247,9 +2250,9 @@ describe("gardenShipHeelFromTurn", () => {
     expect(gardenShipHeelFromTurn(delta, 1 / 60)).toBeCloseTo(delta * 2.4, 12);
   });
 
-  it("clamps a hitched frame instead of spiking", () => {
-    expect(gardenShipHeelFromTurn(3, 1 / 10000)).toBe(0.16);
-    expect(gardenShipHeelFromTurn(-3, 1 / 10000)).toBe(-0.16);
+  it("clamps a hitched frame to a whisper of roll instead of spiking", () => {
+    expect(gardenShipHeelFromTurn(3, 1 / 10000)).toBe(0.05);
+    expect(gardenShipHeelFromTurn(-3, 1 / 10000)).toBe(-0.05);
   });
 
   it("is inert on non-finite input", () => {

@@ -36,6 +36,11 @@ export interface ThreeLogoAssets {
 }
 
 export interface ThreeWorldRendererFrame {
+  /**
+   * K17 arrival air-veil multiplier on the one air (`setGardenAerialVeil`):
+   * 1.8 thinning to 1 over the arrival's first 6 s; absent means 1.
+   */
+  airVeil?: number;
   /** The one daily almanac event selected outside the renderer; null when inactive. */
   almanacEvent?: GardenAlmanacEvent | null;
   /**

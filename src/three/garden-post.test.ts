@@ -10,7 +10,6 @@ import {
   Fog,
   HalfFloatType,
   LinearFilter,
-  NearestFilter,
   NoColorSpace,
   PerspectiveCamera,
   RepeatWrapping,
@@ -42,11 +41,33 @@ const postHarness = vi.hoisted(() => {
     dispose: vi.fn(),
     name,
   });
+  const makeResizable = (name: string) => ({
+    ...makeDisposable(name),
+    setSize: vi.fn(),
+  });
+  // The two n8ao materials whose normal reconstruction the post chain
+  // re-addresses (W8.1), cut down to the lines the patch has to find.
+  const makeNormalShader = (name: string) => ({
+    ...makeDisposable(name),
+    fragmentShader: [
+      "uniform vec2 resolution;",
+      "vec3 computeNormal(vec3 worldPos, vec2 vUv) {",
+      "  ivec2 p = ivec2(vUv * resolution);",
+      "  vec3 dpdx = getWorldPos(l1, (vUv - vec2(1.0 / resolution.x, 0.0))).xyz;",
+      "  vec3 dpdy = getWorldPos(b1, (vUv - vec2(0.0, 1.0 / resolution.y))).xyz;",
+      "  return normalize(cross(dpdx, dpdy));",
+      "}",
+      "void main() { vec2 texel = vUv * resolution * 0.5; }",
+    ].join("\n"),
+    needsUpdate: false,
+  });
   return {
     blooms: [] as unknown[],
     composers: [] as unknown[],
     effects: [] as unknown[],
     makeDisposable,
+    makeNormalShader,
+    makeResizable,
     n8aoPasses: [] as unknown[],
     shaderPasses: [] as unknown[],
     sharedN8AOGeometry: makeDisposable("n8ao-shared-geometry"),
@@ -78,14 +99,14 @@ vi.mock("n8ao", () => {
     };
     copyQuad = quad("copy");
     depthCopyPass = quad("depth-copy");
-    depthDownsampleQuad = quad("depth-downsample");
+    depthDownsampleQuad = quad("depth-downsample", postHarness.makeNormalShader("depth-downsample-material"));
     depthDownsampleTarget = postHarness.makeDisposable("depth-downsample-target");
-    effectCompositerQuad = quad("compositer");
+    effectCompositerQuad = quad("compositer", postHarness.makeNormalShader("compositer-material"));
     effectShaderQuad = quad("ao");
     enabled = true;
     inheritedDispose = vi.fn();
     neuralDenoiseMaterial = postHarness.makeDisposable("neural-denoise-material");
-    outputTargetInternal = postHarness.makeDisposable("output-target");
+    outputTargetInternal = postHarness.makeResizable("output-target");
     poissonBlurQuad: ReturnType<typeof quad>;
     qualityMode = "";
     qualityModeCalls: string[] = [];
@@ -94,6 +115,7 @@ vi.mock("n8ao", () => {
     transparencyRenderTargetDWFalse = postHarness.makeDisposable("transparency-false-target");
     transparencyRenderTargetDWTrue = postHarness.makeDisposable("transparency-true-target");
     writeTargetInternal = postHarness.makeDisposable("write-target");
+    setSize = vi.fn();
 
     constructor(
       readonly scene: Scene,
@@ -149,7 +171,8 @@ vi.mock("postprocessing", () => {
   class FakeBloomEffect extends FakeEffect {
     intensity: number;
     luminanceMaterial: { smoothing: number; threshold: number };
-    mipmapBlurPass: { radius: number };
+    luminancePass = { setSize: vi.fn() };
+    mipmapBlurPass: { radius: number; setSize: ReturnType<typeof vi.fn> };
 
     constructor(readonly bloomOptions: {
       intensity: number;
@@ -165,7 +188,7 @@ vi.mock("postprocessing", () => {
       };
       // The blur spread is a uniform on the upsample material, not a define,
       // which is what makes a per-phase radius free of shader recompiles.
-      this.mipmapBlurPass = { radius: bloomOptions.radius };
+      this.mipmapBlurPass = { radius: bloomOptions.radius, setSize: vi.fn() };
       postHarness.blooms.push(this);
     }
   }
@@ -254,6 +277,17 @@ vi.mock("postprocessing", () => {
       this.passes.push(pass);
     }
 
+    removePass(pass: { dispose: () => void; renderToScreen: boolean }): void {
+      const index = this.passes.indexOf(pass);
+      if (index < 0) return;
+      this.passes.splice(index, 1);
+      if (index === this.passes.length) {
+        pass.renderToScreen = false;
+        const last = this.passes.at(-1);
+        if (last) last.renderToScreen = true;
+      }
+    }
+
     dispose(): void {
       this.disposeCount += 1;
       for (const pass of this.passes) pass.dispose();
@@ -289,6 +323,7 @@ interface FakeComposer {
 
 interface FakeEffect {
   attributes: number;
+  dispose: ReturnType<typeof vi.fn>;
   fragmentShader: string;
   name: string;
   options?: {
@@ -320,8 +355,12 @@ interface FakeBloom {
     smoothing: number;
     threshold: number;
   };
+  luminancePass: {
+    setSize: ReturnType<typeof vi.fn>;
+  };
   mipmapBlurPass: {
     radius: number;
+    setSize: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -353,7 +392,7 @@ interface FakeN8AOPass extends FakePass {
   height: number;
   inheritedDispose: ReturnType<typeof vi.fn>;
   neuralDenoiseMaterial: MockDisposable;
-  outputTargetInternal: MockDisposable;
+  outputTargetInternal: MockDisposable & { setSize: ReturnType<typeof vi.fn> };
   poissonBlurQuad: FakeQuad;
   qualityMode: string;
   qualityModeCalls: string[];
@@ -361,6 +400,7 @@ interface FakeN8AOPass extends FakePass {
   standardDenoiseMaterial: MockDisposable;
   transparencyRenderTargetDWFalse: MockDisposable;
   transparencyRenderTargetDWTrue: MockDisposable;
+  setSize: ReturnType<typeof vi.fn>;
   width: number;
   writeTargetInternal: MockDisposable;
 }
@@ -537,7 +577,7 @@ function lutWeights(): number[] {
   return Array.from(value);
 }
 
-function lutTexture(name: "ditherNoise" | "lutStrip"): Texture {
+function lutTexture(name: "gardenNoise" | "lutStrip"): Texture {
   const value = effectNamed("GardenLut").uniforms.get(name)?.value as Texture | null | undefined;
   if (!value) throw new Error(`Expected the GardenLut ${name} texture`);
   return value;
@@ -633,19 +673,15 @@ describe("garden post-processing contracts", () => {
     // effect has to encode, look up, dither, and decode.
     expect(lut.fragmentShader).toMatch(/gardenLinearToDisplay\(clamp\(inputColor\.rgb/);
     expect(lut.fragmentShader).toMatch(/outputColor = vec4\(gardenDisplayToLinear/);
-    // W1.2: one output code of blue noise, addressed in device pixels so the
-    // mask tiles 1:1 with the pixels that quantize.
-    expect(lut.fragmentShader).toMatch(/gl_FragCoord\.xy \/ DITHER_TILE/);
-    expect(lut.fragmentShader).toMatch(/\(noise - 0\.5\) \* ditherMix \/ 255\.0/);
     // Manual trilinear: the blue axis is lerped by hand between two slices so
     // hardware filtering never crosses a slice or a phase-band boundary.
     expect(lut.fragmentShader).toMatch(/mix\(nearSlice, farSlice, slice - low\)/);
   });
 
-  it("loads the LUT and dither textures as raw, unfiltered look-up data", () => {
+  it("loads the LUT and the garden-noise pack as raw look-up data", () => {
     makePost();
     const strip = lutTexture("lutStrip");
-    const noise = lutTexture("ditherNoise");
+    const noise = lutTexture("gardenNoise");
 
     for (const texture of [strip, noise]) {
       // A transfer function on read, a mipmap chain, or a Y flip each silently
@@ -654,11 +690,13 @@ describe("garden post-processing contracts", () => {
       expect(texture.generateMipmaps).toBe(false);
       expect(texture.flipY).toBe(false);
     }
-    // The cube interpolates (that is the point) and clamps at the cube edges;
-    // the dither mask must not interpolate at all, and it tiles the frame.
+    // The cube interpolates (that is the point) and clamps at the cube edges.
+    // The pack tiles the frame; its dither is fetched on texel centres, where
+    // linear filtering returns the mask value exactly, and its smooth channels
+    // need the filtering.
     expect([strip.minFilter, strip.magFilter]).toEqual([LinearFilter, LinearFilter]);
     expect([strip.wrapS, strip.wrapT]).toEqual([ClampToEdgeWrapping, ClampToEdgeWrapping]);
-    expect([noise.minFilter, noise.magFilter]).toEqual([NearestFilter, NearestFilter]);
+    expect([noise.minFilter, noise.magFilter]).toEqual([LinearFilter, LinearFilter]);
     expect([noise.wrapS, noise.wrapT]).toEqual([RepeatWrapping, RepeatWrapping]);
   });
 
@@ -742,7 +780,7 @@ describe("garden post-processing contracts", () => {
     // what `npm run check:garden-luts` verifies against the generated pixels.
     expect(images.map((image) => image.getAttribute("src"))).toEqual([
       expect.stringMatching(/^\/pharosville\/textures\/garden-grade-lut\.png\?v=[0-9a-f]{12}$/),
-      expect.stringMatching(/^\/pharosville\/textures\/garden-blue-noise\.png\?v=[0-9a-f]{12}$/),
+      expect.stringMatching(/^\/pharosville\/textures\/garden-noise-pack\.png\?v=[0-9a-f]{12}$/),
     ]);
 
     for (const image of images) image.dispatchEvent(new Event("load"));
@@ -1109,14 +1147,44 @@ describe("garden post-processing contracts", () => {
     expect(marchUniforms().shadowMap!.value).toBe(light.shadow.map?.depthTexture);
   });
 
-  it("sizes composer targets from CSS dimensions after renderer DPR setup", () => {
+  it("sizes AO, bloom and god rays in CSS pixels while the composite stays at device resolution", () => {
+    const { composer, n8ao, post } = makePost();
+    const bloom = latest<FakeBloom>(postHarness.blooms);
+    const godRays = effectNamed("GardenGodRays") as unknown as { rayTarget: { height: number; width: number } };
+
+    // The harness drawing buffer is 1600×1000: an 800×500 CSS canvas at DPR 2.
+    post.setSize(800, 500, 2);
+
+    expect(composer.setSize).toHaveBeenLastCalledWith(800, 500);
+    expect(n8ao.setSize).toHaveBeenLastCalledWith(800, 500);
+    // The AO composite writes the whole frame; a CSS-sized output would
+    // resample every pixel of it.
+    expect(n8ao.outputTargetInternal.setSize).toHaveBeenLastCalledWith(1600, 1000);
+    expect(bloom.luminancePass.setSize).toHaveBeenLastCalledWith(800, 500);
+    expect(bloom.mipmapBlurPass.setSize).toHaveBeenLastCalledWith(800, 500);
+    expect([godRays.rayTarget.width, godRays.rayTarget.height]).toEqual([400, 250]);
+  });
+
+  it("runs SMAA below DPR 1.75 only and hands the screen to the grade pass above it", () => {
     const { composer, post } = makePost();
+    const smaaPass = composer.passes.at(-1);
+    const gradePass = composer.passes.at(-2);
 
-    post.setSize(800, 600, 1);
-    post.setSize(800, 600, 2);
+    post.setSize(800, 500, 2);
+    expect(post.getPassList()).not.toContain("smaa");
+    expect(composer.passes.at(-1)).toBe(gradePass);
+    expect(gradePass?.renderToScreen).toBe(true);
 
-    expect(composer.setSize).toHaveBeenNthCalledWith(1, 800, 600);
-    expect(composer.setSize).toHaveBeenNthCalledWith(2, 800, 600);
+    // A governor step below the threshold brings it back as the final pass.
+    post.setSize(800, 500, 1.625);
+    expect(post.getPassList().at(-1)).toBe("smaa");
+    expect(composer.passes.at(-1)).toBe(smaaPass);
+    expect(composer.passes.slice(0, -1).every((pass) => !pass.renderToScreen)).toBe(true);
+
+    // Parked again, it is outside the composer's list but still disposed.
+    post.setSize(800, 500, 2);
+    post.dispose();
+    expect(effectNamed("SMAAEffect").dispose).toHaveBeenCalled();
   });
 
   it("uses the composer when enabled and an explicitly cleared direct render otherwise", () => {

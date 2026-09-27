@@ -79,8 +79,9 @@ describe("HarborLabelChips", () => {
 
     const larger = view.container.querySelector<HTMLElement>('[data-detail-id="ship.chain-0"]')!;
     const smaller = view.container.querySelector<HTMLElement>('[data-detail-id="ship.chain-1"]')!;
-    expect(larger.style.transform).toBe("translate(150px, 76px)");
-    expect(smaller.style.transform).toBe("translate(150px, 96px)");
+    // The words sit 14 px above the mast for the hairline leader (W6.4).
+    expect(larger.style.transform).toBe("translate(150px, 68px)");
+    expect(smaller.style.transform).toBe("translate(150px, 88px)");
     expect(chips.every((chip) => chip.dataset.visible === "true")).toBe(true);
 
     updateHarborLabelChipLayout(containerRef.current, {

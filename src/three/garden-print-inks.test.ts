@@ -58,6 +58,9 @@ describe("first light, last light", () => {
     }
     expect(gardenFirstLight(0).lineY).toBeGreaterThan(38);
     expect(gardenFirstLight(0.17).lineY).toBeLessThan(0);
+    // At 18:30 on the pinned day (displayed sun ≈ 0.057 rad) the whole world
+    // is still in the golden key; the line only climbs in the last minutes.
+    expect(gardenFirstLight(0.057).lineY).toBeLessThan(0);
     expect(gardenFirstLight(0.08).gate).toBe(1);
     expect(gardenFirstLight(0.3).gate).toBe(0);
     expect(gardenFirstLight(-0.2).gate).toBe(0);

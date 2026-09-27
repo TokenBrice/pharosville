@@ -122,6 +122,8 @@ export const GARDEN_AIR_EXTINCTION_RGB = [0.867, 1.0, 1.311] as const;
  * glow line at night.
  */
 export const GARDEN_AIR_SEA_DIM = { day: 0.85, golden: 0.81, night: 1.1 } as const;
+/** printmaker-4 near air-ink weight per warm beat (golden, dawn). */
+export const GARDEN_AIR_INK_AMOUNT = { golden: 0.45, dawn: 0.5 } as const;
 /** Ichimonji: a 2–3 px darkening straddling the sea horizon, gain 0.06. */
 export const GARDEN_ICHIMONJI = { gain: 0.06, centre: -0.0015, halfWidth: 0.0035 } as const;
 /** K6 dawn band: peak added density (per unit, at sea level). */
@@ -207,9 +209,12 @@ vec3 gardenAerialTransmittance(vec3 worldPos, vec3 cameraPos) {
   return exp(-gardenAirDepth(worldPos, cameraPos) * vec3(${n(EXT_R)}, ${n(EXT_G)}, ${n(EXT_B)}));
 }
 
-float gardenAirPlateOutside(vec2 xz) {
+/** Signed distance to the plate's XZ rectangle: negative inside (to the nearest edge). */
+float gardenAirPlateSigned(vec2 xz) {
   vec2 outside = max(uGardenAir.plateMin - xz, vec2(0.0)) + max(xz - uGardenAir.plateMax, vec2(0.0));
-  return length(outside);
+  float beyond = length(outside);
+  vec2 inside = min(xz - uGardenAir.plateMin, uGardenAir.plateMax - xz);
+  return beyond > 0.0 ? beyond : -min(inside.x, inside.y);
 }
 
 vec3 gardenAerialCore(vec3 color, vec3 worldPos, vec3 cameraPos, float stepped, float ichimonji) {
@@ -248,10 +253,15 @@ vec3 gardenAerialCore(vec3 color, vec3 worldPos, vec3 cameraPos, float stepped, 
       * (1.0 + 0.5 * beamAlign * beamAlign);
     result += min(uGardenAir.beaconColor * beacon * (1.0 - Tl), vec3(0.03));
   }
-  // W3.10: at the chart the world beyond the plate is air, never a skirt.
+  // W3.10: the chart is seen through air, ezu-style. Kasumi rises from inside
+  // the rim band (so the rim's outer skirt and cliff never read as a slab edge)
+  // to full sky-coloured mist a few units past the plate; everything else keeps
+  // a light veil, the colour the air would carry over that distance.
   if (uGardenAir.plateHaze > 0.0) {
-    result = mix(result, gardenAirlightBase(dir),
-      uGardenAir.plateHaze * smoothstep(0.0, 30.0, gardenAirPlateOutside(worldPos.xz)));
+    float kasumi = max(smoothstep(-24.0, 12.0, gardenAirPlateSigned(worldPos.xz)), 0.22);
+    float chartLuma = dot(result, vec3(0.2126, 0.7152, 0.0722));
+    result = mix(result, vec3(chartLuma), 0.3 * uGardenAir.plateHaze);
+    result = mix(result, gardenAirlightBase(dir), uGardenAir.plateHaze * kasumi);
   }
   return result;
 }
@@ -489,13 +499,15 @@ export function updateGardenAerial(frame: GardenAerialFrame): void {
   GARDEN_AIR.airlight.copy(GARDEN_AIR.airSun).lerp(GARDEN_AIR.airAnti, 0.5);
 
   // printmaker-4 two inks: golden air is violet-grey under a gold sky; dawn air pale.
+  // Print-gate tune: golden 0.65 → 0.45, so the cool near ink no longer
+  // greys the lit gold on the tower and sails at 18:30.
   const golden = beats.golden;
   const dawn = beats.dawn;
   const inkWeight = golden + dawn;
   if (inkWeight > 1e-4) {
     GARDEN_AIR.airInk.copy(INK_GOLDEN).lerp(INK_DAWN, dawn / inkWeight);
   }
-  GARDEN_AIR.inkAmount = golden * 0.65 + dawn * 0.5;
+  GARDEN_AIR.inkAmount = golden * GARDEN_AIR_INK_AMOUNT.golden + dawn * GARDEN_AIR_INK_AMOUNT.dawn;
 
   // K6: dawn-only low band keyed to solar elevation, spatially uniform.
   GARDEN_AIR.dawnBand = GARDEN_DAWN_BAND_DENSITY * gardenDawnBandWeight(frame.solarElevation, frame.hour);

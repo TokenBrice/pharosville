@@ -54,10 +54,11 @@ if (typeof HTMLCanvasElement !== "undefined") {
   });
 }
 
-// Seed the legend first-visit dismissal so component tests exercise the
-// steady-state world instead of the one-time onboarding overlay. Tests that
-// cover the auto-open path clear this key explicitly.
+// Seed the first-visit flags so component tests exercise the steady-state
+// world instead of the one-time onboarding (legend, and the three teachings
+// on the now-line). Tests that cover those paths clear the keys explicitly.
 testStorage.setItem("pharosville.legend.dismissed", "1");
+testStorage.setItem("pharosville.orientation.seen", "1");
 
 // The sky clock (W2.14) reads the date, the zone's daylight saving and the
 // hemisphere. Suites share one pinned sky day — 26 September 2026 at 35° N in

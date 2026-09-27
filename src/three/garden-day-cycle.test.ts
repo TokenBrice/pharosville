@@ -235,10 +235,6 @@ function dayCycleRig() {
   const towerWindow = new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: 0.24 });
   // The island's two stone path lanterns share one lamp material.
   const islandLantern = new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: 1.15, toneMapped: false });
-  const stationLantern = new Mesh(new SphereGeometry(1, 3, 2),
-    new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: 1.5 }));
-  const fineStationLantern = stationLantern.clone();
-  fineStationLantern.material = stationLantern.material.clone();
   const statue = new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_glow, emissiveIntensity: 0.08 });
   const scene = {
     ambientLight: new AmbientLight(),
@@ -254,8 +250,6 @@ function dayCycleRig() {
       harborBatch: {
         bucketMeshes: { window: stationWindows },
         fineDetailBucketMeshes: { window: null },
-        propMeshes: { lampHead: stationLantern },
-        fineDetailPropMeshes: { lampHead: fineStationLantern },
       },
       harborLanternMaterial: new MeshStandardMaterial({ emissive: HARBOR_PALETTE.lantern_warm }),
       islandLanternMaterial: islandLantern,
@@ -285,8 +279,6 @@ function dayCycleRig() {
       harborLantern: emittedLuminance(scene.content.harborLanternMaterial),
       shipLantern: emittedLuminance(scene.content.shipLanternMaterial),
       shipLanternGlow: scene.content.shipLanternGlowMaterial.opacity,
-      stationLantern: emittedLuminance(stationLantern.material),
-      fineStationLantern: emittedLuminance(fineStationLantern.material),
       statue: statue.emissiveIntensity,
       beacon: emittedLuminance(scene.content.beacon.material),
       mirror: emittedLuminance(scene.content.beaconFire.mirrorMaterial),
@@ -304,7 +296,7 @@ function emittedLuminance(material: MeshStandardMaterial): number {
 }
 
 const PRACTICALS = ["islandLantern", "station", "tower", "shipLantern",
-  "harborLantern", "stationLantern", "fineStationLantern"] as const;
+  "harborLantern"] as const;
 
 describe("practical light hierarchy", () => {
   it("lets nothing glow in full daylight except the beacon and its mirror glint", () => {
@@ -330,8 +322,7 @@ describe("practical light hierarchy", () => {
     }
     expect(midnight.tower).toBeLessThan(midnight.station);
     expect(midnight.beacon).toBeGreaterThanOrEqual(3);
-    for (const key of ["islandLantern", "shipLantern", "harborLantern",
-      "stationLantern", "fineStationLantern"] as const) {
+    for (const key of ["islandLantern", "shipLantern", "harborLantern"] as const) {
       expect(midnight[key], key).toBeGreaterThan(GARDEN_BLOOM_PRACTICAL_THRESHOLD);
       expect(midnight[key], key).toBeLessThan(midnight.beacon);
     }

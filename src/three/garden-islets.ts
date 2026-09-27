@@ -1,4 +1,5 @@
 import {
+  BufferGeometry,
   Color,
   Float32BufferAttribute,
   Group,
@@ -15,6 +16,7 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import type { GardenRippleRingEmitter } from "./garden-water-contract";
 import { stableUnit, TILE_SCALE } from "./garden-util";
 import { landWorldTile } from "../systems/map-scale";
+import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { createSpeciesBatch } from "./garden-flora";
 
 /**
@@ -148,8 +150,14 @@ const REEF_STONES: readonly StonePlacement[] = [
  * (`garden-island.ts`'s `displacedBoulderGeometry`). Deterministic via
  * `stableUnit`.
  */
-function createStoneGeometry(seed: string, craggy: number): IcosahedronGeometry {
-  const geometry = new IcosahedronGeometry(1, 1);
+function createStoneGeometry(seed: string, craggy: number): BufferGeometry {
+  const raw = new IcosahedronGeometry(1, 1);
+  raw.deleteAttribute("normal");
+  raw.deleteAttribute("uv");
+  // Indexed so the normals smooth across lobes (§1.1 rule 1: organic masses
+  // are smooth-shaded; the value comes from the painted height ramp).
+  const geometry = mergeVertices(raw);
+  raw.dispose();
   const positions = geometry.getAttribute("position");
   const colors = new Float32Array(positions.count * 3);
   const color = new Color();
@@ -184,7 +192,7 @@ function createStoneBatch(stones: readonly StonePlacement[], seed: string, cragg
   const geometry = createStoneGeometry(seed, craggy);
   const mesh = new InstancedMesh(
     geometry,
-    new MeshStandardMaterial({ flatShading: true, roughness: 0.96, vertexColors: true }),
+    new MeshStandardMaterial({ roughness: 0.96, vertexColors: true }),
     stones.length,
   );
   for (const [index, stone] of stones.entries()) {
@@ -206,11 +214,12 @@ function createStoneBatch(stones: readonly StonePlacement[], seed: string, cragg
 /**
  * T2.2b (2026-09-07): a leaning pine on a rock in still water is the
  * reference shot of this whole piece, and the islets were bare stone. Four
- * small pines — the rim's own tree, not a second vocabulary — root on the
- * crag stones and lean out over the water. One instanced draw, ~984
- * triangles, solid vertex-coloured geometry (no alpha cards: N8AO runs
- * transparency-unaware at half res and would bruise the water around them).
- * The base pine geometry is 4.5 units tall, so `scale` reads as height/4.5.
+ * pines — the rim's niwaki (W4.G1), not a second vocabulary — root on the
+ * crag stones and lean out over the water; the crane islet's is full size.
+ * One instanced draw, solid vertex-coloured geometry (no alpha cards: N8AO
+ * runs transparency-unaware at half res and would bruise the water around
+ * them). The base pine geometry is 4.5 units tall, so `scale` reads as
+ * height/4.5.
  */
 const ISLET_PINES: readonly {
   leanX: number;
@@ -219,14 +228,15 @@ const ISLET_PINES: readonly {
   rotationY: number;
   scale: number;
 }[] = [
-  // crane — the dominant stone carries the hero tree, leaning seaward
-  { leanX: 0.1, leanZ: -0.17, position: [CRANE.x + 0.3, GARDEN_WATER_Y + 2.28, CRANE.z - 0.22], rotationY: 0.9, scale: 0.5 },
+  // crane — the dominant stone carries the one bonsai-grade niwaki on the
+  // water (garden-2): full size, leaning ~0.35 rad out over the sea
+  { leanX: 0.3, leanZ: -0.18, position: [CRANE.x + 0.3, GARDEN_WATER_Y + 2.1, CRANE.z - 0.22], rotationY: 0.9, scale: 1.1 },
   // crane — one subordinate takes a smaller tree so the group stays odd-read
-  { leanX: -0.12, leanZ: 0.2, position: [CRANE.x + 2.15, GARDEN_WATER_Y + 0.42, CRANE.z + 0.6], rotationY: 3.4, scale: 0.3 },
+  { leanX: -0.12, leanZ: 0.2, position: [CRANE.x + 2.15, GARDEN_WATER_Y + 0.36, CRANE.z + 0.6], rotationY: 3.4, scale: 0.5 },
   // satellite — one wind-shaped pine beside the bridge landing
-  { leanX: 0.08, leanZ: 0.22, position: [SATELLITE.x + 0.05, GARDEN_WATER_Y + 1.05, SATELLITE.z - 0.2], rotationY: 2.05, scale: 0.4 },
+  { leanX: 0.08, leanZ: 0.22, position: [SATELLITE.x + 0.05, GARDEN_WATER_Y + 0.98, SATELLITE.z - 0.2], rotationY: 2.05, scale: 0.6 },
   // turtle — the one raised back in the arc gets the smallest tree
-  { leanX: -0.14, leanZ: -0.1, position: [TURTLE.x + 0.45, GARDEN_WATER_Y + 0.6, TURTLE.z - 0.62], rotationY: 5.1, scale: 0.26 },
+  { leanX: -0.14, leanZ: -0.1, position: [TURTLE.x + 0.45, GARDEN_WATER_Y + 0.55, TURTLE.z - 0.62], rotationY: 5.1, scale: 0.42 },
 ];
 
 function createIsletPines(): { mesh: InstancedMesh; triangles: number } {

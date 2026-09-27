@@ -74,7 +74,7 @@ import {
   CAMERA_FAR,
   TILE_SCALE,
 } from "../systems/projection";
-import { setGardenAerialPlateHaze } from "./garden-aerial";
+import { setGardenAerialPlateHaze, setGardenAerialVeil } from "./garden-aerial";
 import {
   advanceEpistemicHaze,
   deriveEpistemicHaze,
@@ -82,7 +82,7 @@ import {
   type EpistemicFogSource,
 } from "../systems/epistemic-haze";
 import { psiSkyClarity, type PsiSkyClarity } from "../systems/psi-sky";
-import { seasonFromDate, type GardenSeason } from "../systems/season";
+import { seasonFromDate, worldCalendarDate, type GardenSeason } from "../systems/season";
 import { isDebugChromeEnabled } from "../lib/pharosville-debug";
 import { createGardenAlmanacDressing, type GardenAlmanacDressing } from "./garden-almanac-dressing";
 import {
@@ -94,10 +94,10 @@ import {
 import {
   GARDEN_BREATH_PHASE,
   gardenBreathAt,
-  gardenGustAtWorldPosition,
   writeWeatherPlan,
   type WeatherPlan,
 } from "../systems/weather";
+import { writeAudioSceneFrame, writeAudioSceneView } from "../lib/pharosville-audio/scene-snapshot";
 import {
   advanceLampStatus,
   initialLampStatusState,
@@ -170,7 +170,6 @@ import {
   authorDock,
   createHarborLanterns,
   gardenHarborLanternWorldPositions,
-  gardenDockLampWorldPositions,
   type DockVisual,
 } from "./garden-docks";
 import {
@@ -199,9 +198,9 @@ import {
   type GardenTideLine,
 } from "./garden-tide-line";
 import {
-  createGardenKeeperFixtureLighting,
   createGardenLaneRegistry,
-  type GardenKeeperRitual,
+  patchGardenLanternKindling,
+  updateGardenLanternKindling,
   type GardenLaneRegistry,
 } from "./garden-lanterns";
 import { requestGardenBeat } from "../systems/garden-director";
@@ -525,7 +524,7 @@ export function createThreeWorldRenderer(
   const scene = createGardenScene(
     renderer,
     uploadScheduler,
-    seasonFromDate(input.calendarDate),
+    input.calendarDate ?? worldCalendarDate(),
   );
   // @types/three still narrows the r185 runtime's null scene/group arguments;
   // the recorder's structural target matches the implementation's actual calls.
@@ -930,6 +929,8 @@ export function createThreeWorldRenderer(
         psiStress: frame.seaState.source.psiStress,
         baseWind: frame.seaState.wind,
       }, scene.weather);
+      // W7.2: the sound engine's clock and sea inputs (scalar stores only).
+      writeAudioSceneFrame(frame, beats);
       // D15 channel treaty: PSI owns clarity aloft (cover and haze, never
       // colour); stale sources own bounded local fog; the wall clock owns
       // illumination. Both readings remember their previous value, so they
@@ -1292,6 +1293,8 @@ export interface GardenScene extends GardenShadowRig {
   /** Last night beat pushed to vegetation materials; the traverse runs only on change. */
   floraNightValue: number;
   season: GardenSeason;
+  /** The world calendar day the scene was built for (flora phenology, W4.G5). */
+  calendarDate: Date;
   seasonalDressing: GardenSeasonalDressing;
   sky: GardenSky;
   water: GardenWater;
@@ -1469,8 +1472,6 @@ interface GardenContent {
   tideStain: GardenTideStain;
   summitBirds: GardenSummitBirds;
   summitBirdsRoot: Group;
-  /** G3/W4.8: per-fixture "lit by the keeper" factor on the two shared lantern materials; replaced when the part rebuilds. */
-  keeperFixtureLighting: { island: { update(ritual: GardenKeeperRitual): void } | null; harbor: { update(ritual: GardenKeeperRitual): void } | null };
   /** W4.1 reconciliation bookkeeping — one record per rebuildable part. */
   parts: Record<WorldContentPartName, GardenContentPartState>;
   /** Changed parts waiting for their amortized one-per-frame rebuild. */
@@ -1592,8 +1593,9 @@ type WorldContentPartKeys = Record<WorldContentPartName, string> & {
 function createGardenScene(
   renderer: WebGLRenderer,
   uploadScheduler: TextureUploadScheduler,
-  season: GardenSeason,
+  calendarDate: Date,
 ): GardenScene {
+  const season = seasonFromDate(calendarDate);
   const root = new Scene();
   const sky = createGardenSky(season);
   root.fog = sky.fog;
@@ -1631,7 +1633,7 @@ function createGardenScene(
   root.add(waterAccents);
   const almanacDressing = createGardenAlmanacDressing();
   waterAccents.add(almanacDressing.root);
-  const seasonalDressing = createGardenSeasonalDressing(season);
+  const seasonalDressing = createGardenSeasonalDressing(calendarDate);
   // Keep the scene's long-standing root child order stable for hit/cue owners;
   // this decorative water layer belongs with the existing water accents.
   waterAccents.add(seasonalDressing.root);
@@ -1709,6 +1711,7 @@ function createGardenScene(
     selectedMarker,
     floraNightValue: -1,
     season,
+    calendarDate,
     seasonalDressing,
     sky,
     water,
@@ -1864,7 +1867,6 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     scalarTransitions: [],
     dockAccentTransitions: [],
     harborBatch: null,
-    keeperFixtureLighting: { island: null, harbor: null },
     seaEdges: null,
     lampStatusState: initialLampStatusState({}),
     sailAtlas: scene.sailAtlas,
@@ -2659,7 +2661,7 @@ function registerLightLanes(
     worldX: islandTile.x * TILE_SCALE,
     worldZ: islandTile.y * TILE_SCALE,
   });
-  // Paired approach lanterns at each station mouth. Both the geometry and this
+  // One stone lantern per lit station (harbour-3). Both the geometry and this
   // registry consume the same station-root helper, so remote cove lights never
   // fall back to the former island ellipse.
   const islandX = islandTile.x * TILE_SCALE;
@@ -2672,21 +2674,11 @@ function registerLightLanes(
       id: `harbor-lantern.${index}`,
       intensity: 0.62,
       kind: "lantern",
+      // A kindled stone lantern: its pool stands down until the night beat.
+      kindledAtNight: true,
       worldX: lantern.x,
       worldZ: lantern.z,
     });
-  }
-  for (const dock of docks) {
-    for (const [lampIndex, lamp] of gardenDockLampWorldPositions(dock).entries()) {
-      registry.set({
-        color: HARBOR_PALETTE.lantern_glow,
-        id: `dock-lamp.${dock.recipe.dock.detailId}.${lampIndex}`,
-        intensity: lampIndex === 0 ? 0.7 : 0.42,
-        kind: "lantern",
-        worldX: lamp.x,
-        worldZ: lamp.z,
-      });
-    }
   }
   for (const [index, offset] of gardenIslandLanternWorldOffsets().entries()) {
     registry.set({
@@ -2777,7 +2769,7 @@ function buildIslandPart(
   // C2(c): Lane W's shared cloud-shadow sampler, forwarded to the island
   // factory (I3) so light weather sweeps the land coherently with the sea.
   const cloudShadows: GardenCloudShadowSource = scene.water.cloudShadows;
-  const island = createTerracedIsland(world, cloudShadows, scene.season);
+  const island = createTerracedIsland(world, cloudShadows, scene.calendarDate);
   applyGardenMonthRecord(island.root, world.lighthouse.gardenMonthRecord);
   part.root.add(island.root);
   // The island stone/timber (and lighthouse, inside island.root) cast and
@@ -2875,9 +2867,8 @@ function buildIslandPart(
   content.signalMast = signalMast;
   content.lighthouseWindowMaterials = lighthouseWindowMaterials;
   content.islandLanternMaterial = gardenIslandLanternMaterial(island.decoration);
-  content.keeperFixtureLighting.island = content.islandLanternMaterial
-    ? createGardenKeeperFixtureLighting(content.islandLanternMaterial, scene.almanacDressing.keeperPath)
-    : null;
+  // H-A: the island's path lanterns kindle first, beside the beacon.
+  if (content.islandLanternMaterial) patchGardenLanternKindling(content.islandLanternMaterial, 0.02);
   content.statueGleamMaterials = statueGleamMaterials;
   content.summitBirds = summitBirds;
   content.summitBirdsRoot = summitBirds.root;
@@ -2956,7 +2947,7 @@ function buildZonesPart(content: GardenContent, world: PharosVilleWorld): void {
  * the two foreground silhouette masses and the path furniture.)
  */
 function buildRimPart(scene: GardenScene, content: GardenContent): void {
-  const rim = createGardenRimMesh(scene.season);
+  const rim = createGardenRimMesh(scene.calendarDate);
   content.parts.rim.root.add(rim.root);
   content.rim = rim;
   // W1.5: the threshold is the ground under the rest seat. It rides in the rim
@@ -3030,8 +3021,6 @@ function buildDocksPart(scene: GardenScene, content: GardenContent, world: Pharo
   content.docks = batch.docks;
   content.harborBatch = batch;
   content.harborLanternMaterial = harborLanterns.lightMaterial;
-  content.keeperFixtureLighting.harbor =
-    createGardenKeeperFixtureLighting(harborLanterns.lightMaterial, scene.almanacDressing.keeperPath);
   content.stationSmoke = stationSmoke;
 }
 
@@ -3477,6 +3466,7 @@ function updateSceneForFrame(
     scene.floraNightValue = floraNight;
     setGardenFloraNightValue(scene.root, floraNight);
   }
+  updateGardenLanternKindling(floraNight);
   const epistemicHaze = deriveEpistemicHaze(frame.world.freshness);
   scene.water.setPegSummaryEpistemicHaze(epistemicHaze.riskWaters);
   setGardenQuayEpistemicHaze(epistemicHaze.quays);
@@ -3580,8 +3570,6 @@ function updateSceneForFrame(
     timeSeconds: frame.timeSeconds,
     weather,
   });
-  content.keeperFixtureLighting.island?.update(scene.almanacDressing.keeperRitual);
-  content.keeperFixtureLighting.harbor?.update(scene.almanacDressing.keeperRitual);
   content.fireflies.update({
     fullTier: frame.renderScheduler.tier === "full",
     night: phase.night,
@@ -3613,6 +3601,7 @@ function updateSceneForFrame(
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
     tier: frame.renderScheduler.tier,
+    wind: weather.wind,
   });
   // W4.9: the heron flies once per dusk, inside a director-admitted beat. One
   // request per dusk window; a refusal (silence, another beat) means no
@@ -3734,6 +3723,19 @@ function updateSceneForFrame(
     : scene.beamAngle;
   content.beam.rotation.y = beamBearing;
   content.beacon.getWorldPosition(scratchPosition);
+  // W7.2: the eye's height over the water, the frame's width for gust travel,
+  // and how squarely the beam faces the eye (scalar stores only).
+  writeAudioSceneView(
+    camera.position,
+    camera.matrixWorld.elements[0],
+    camera.matrixWorld.elements[2],
+    cameraViewTarget,
+    cameraViewHeight * camera.aspect / 2,
+    scratchPosition.x,
+    scratchPosition.z,
+    beamBearing,
+    WATER_LEVEL,
+  );
   // The water road and its terminal pool take this exact post-dwell bearing on
   // every frame. One angle therefore owns cone, fallback and landing; reduced
   // motion parks all three on the same analytical bearing.
@@ -3777,24 +3779,8 @@ function updateSceneForFrame(
     zoom: detailPolicy.seaSignZoom,
   });
   let showAnyDockDetail = detailPolicy.showWorldDetail;
-  const flagBreath = gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.sails);
+  content.harborBatch?.updateFlagWind(breathTime, weather, frame.reducedMotion);
   for (const visual of content.docks) {
-    const chainId = visual.recipe.dock.chainId;
-    const flagRoll = frame.reducedMotion
-      ? 0
-      : (gardenGustAtWorldPosition(
-        breathTime,
-        visual.root.position.x,
-        visual.root.position.z,
-        weather,
-      ) - 0.35) * 0.055 + (flagBreath - 0.5) * 0.025;
-    content.harborBatch?.setFlagPose(
-      chainId,
-      frame.reducedMotion
-        ? visual.recipe.flag.placement.yaw
-        : visual.recipe.flag.placement.yaw + Math.sin(Math.atan2(weather.wind.y, weather.wind.x)) * 0.28,
-      flagRoll,
-    );
     visual.fineDetail.visible = gardenFineDetailVisible(detailPolicy, visual.recipe.dock.detailId, frame);
     showAnyDockDetail ||= visual.fineDetail.visible;
   }
@@ -3878,6 +3864,8 @@ function updateCamera(camera: PerspectiveCamera, frame: ThreeWorldRendererFrame)
   const view = cameraView(frame.camera, viewport);
   // W3.10: the whole-map chart's plate edge dissolves in the Sky lane's haze.
   setGardenAerialPlateHaze(cameraPlateHaze(frame.camera, viewport));
+  // K17: the arrival's air veil thins with the eye's rise (1 outside the arrival).
+  setGardenAerialVeil(frame.airVeil ?? 1);
   camera.aspect = frame.width / Math.max(1, frame.height);
   camera.fov = view.vFovDeg;
   camera.position.set(view.eye.x, view.eye.y, view.eye.z);

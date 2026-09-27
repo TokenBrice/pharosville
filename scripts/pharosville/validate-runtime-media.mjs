@@ -290,9 +290,10 @@ function validateStablecoinLogos() {
 function validateThreeMedia() {
   for (const sourcePath of [
     "src/three/garden-models.ts",
-    // The post chain owns two textures of its own (the phase LUT strip and the
-    // blue-noise dither mask); they are same-origin public assets like any
-    // other and are held to the same existence and decode contract.
+    // The post chain's phase LUT strip and the shared garden-noise pack are
+    // same-origin public assets like any other and are held to the same
+    // existence and decode contract.
+    "src/three/garden-noise-pack.ts",
     "src/three/garden-post.ts",
     "src/three/garden-water.ts",
   ]) {

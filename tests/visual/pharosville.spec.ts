@@ -186,17 +186,11 @@ test(...visualLane("dom", "browser chrome keeps minimum targets and stable scene
     // assertions below check is the CSS contract, which the probe carries.
     const caption = probe("pharosville-now-caption", "div");
     const quickField = probe("pharosville-quick-find__field", "div");
-    const notice = probe("pv-notice");
     return {
       detailClose: probe("pharosville-detail-panel__close"),
       detailCopy: probe("pharosville-detail-panel__copy"),
-      caption: {
-        backgroundAlpha: alpha(caption.backgroundColor),
-        fontSize: caption.fontSize,
-      },
+      caption: { fontSize: caption.fontSize },
       glyph: probe("pv-glyph-button"),
-      noticeDismiss: probe("pv-notice__dismiss"),
-      noticeScrimAlpha: alpha(notice.backgroundColor),
       quickFieldScrimAlpha: alpha(quickField.backgroundColor),
       quickResult: probe("pharosville-quick-find__result", "li"),
     };
@@ -204,12 +198,8 @@ test(...visualLane("dom", "browser chrome keeps minimum targets and stable scene
 
   expect(contract.detailClose.minHeight).toBeGreaterThanOrEqual(24);
   expect(contract.detailCopy.minHeight).toBeGreaterThanOrEqual(24);
-  expect(contract.noticeDismiss.width).toBeGreaterThanOrEqual(24);
-  expect(contract.noticeDismiss.height).toBeGreaterThanOrEqual(24);
   expect(contract.quickResult.minHeight).toBeGreaterThanOrEqual(36);
   expect(contract.caption.fontSize).toBeGreaterThanOrEqual(13);
-  expect(contract.caption.backgroundAlpha).toBeGreaterThanOrEqual(0.75);
-  expect(contract.noticeScrimAlpha).toBeGreaterThanOrEqual(0.85);
   expect(contract.quickFieldScrimAlpha).toBeGreaterThanOrEqual(0.9);
   expect(contract.glyph.opacity).toBeGreaterThanOrEqual(0.7);
 });
@@ -237,11 +227,16 @@ test.describe("touch chrome", () => {
         button.remove();
         return { height: rect.height, width: rect.width };
       };
+      // The notice toast and harbor-log panel are gone (W6.10/W6.11); the
+      // standalone targets now are the explore word, the revealed words, the
+      // glyphs and the drawer buttons.
       return {
+        affordance: size("pharosville-world-controls__affordance"),
+        chromeAction: size("pv-chrome-action"),
         detailClose: size("pharosville-detail-panel__close"),
+        drawerButton: size("pv-drawer__button"),
         glyph: size("pv-glyph-button"),
         hoverless: matchMedia("(hover: none)").matches,
-        noticeDismiss: size("pv-notice__dismiss"),
       };
     });
 
@@ -249,8 +244,10 @@ test.describe("touch chrome", () => {
     expect(sizes.detailClose.height).toBeGreaterThanOrEqual(44);
     expect(sizes.glyph.height).toBeGreaterThanOrEqual(44);
     expect(sizes.glyph.width).toBeGreaterThanOrEqual(44);
-    expect(sizes.noticeDismiss.height).toBeGreaterThanOrEqual(44);
-    expect(sizes.noticeDismiss.width).toBeGreaterThanOrEqual(44);
+    for (const target of [sizes.affordance, sizes.chromeAction, sizes.drawerButton]) {
+      expect(target.height).toBeGreaterThanOrEqual(44);
+      expect(target.width).toBeGreaterThanOrEqual(44);
+    }
   });
 });
 
@@ -349,11 +346,12 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
 
   const detailPanel = page.getByTestId("pharosville-detail-panel");
   await expect(detailPanel).toContainText(outsider.name);
-  // Opening a detail moves focus INTO the panel — assert that before the
-  // disclosure click, not after. Clicking a `<summary>` focuses the summary,
-  // which is the browser doing the right thing, so asserting Close still holds
-  // focus afterwards was asserting that the click did not land.
-  await expect(closeDetails).toBeFocused();
+  // Opening a detail moves focus INTO the panel, onto its title (W6.3) —
+  // assert that before the disclosure click, not after. Clicking a `<summary>`
+  // focuses the summary, which is the browser doing the right thing, so
+  // asserting the title still holds focus afterwards was asserting that the
+  // click did not land.
+  await expect(detailPanel.getByRole("heading", { level: 2 })).toBeFocused();
   // Density now waits inside the record disclosure (interface revamp DU5);
   // open it explicitly rather than relying on collapsed text matching.
   await page.getByTestId("pharosville-detail-record").getByText("Read the record").click();
@@ -585,7 +583,7 @@ test(...visualLane("interaction", "native reference dialogs preserve focus and l
   await page.goto("/?debug=1#t=12");
   await waitForRuntimeDebug(page, false);
 
-  const find = page.getByRole("button", { name: "Find /" });
+  const find = page.getByRole("button", { name: "find", exact: true });
   const explore = page.getByRole("button", { name: "Explore harbor controls" });
   const skip = page.getByRole("button", { name: "Skip map to controls" });
   await page.keyboard.press("Tab");
@@ -599,7 +597,7 @@ test(...visualLane("interaction", "native reference dialogs preserve focus and l
   await expect(page.getByRole("combobox")).toBeVisible();
   await page.keyboard.press("Escape");
 
-  const legendTrigger = page.getByRole("button", { name: "Legend", exact: true });
+  const legendTrigger = page.getByRole("button", { name: "legend", exact: true });
   await legendTrigger.click();
   const legend = page.getByRole("dialog", { name: "Legend", exact: true });
   await expect(legend).toBeVisible();
@@ -639,7 +637,7 @@ test(...visualLane("interaction", "native reference dialogs preserve focus and l
   await expect(ledger).toHaveCount(0);
   const detail = page.getByTestId("pharosville-detail-panel");
   await expect(detail).toBeVisible();
-  await expect(detail.getByRole("button", { name: "Close details" })).toBeFocused();
+  await expect(detail.getByRole("heading", { level: 2 })).toBeFocused();
 
   await page.getByLabel(/Light and motion:/).click();
   await page.getByLabel("Time of day").fill("18:15");
@@ -660,7 +658,7 @@ test(...visualLane("interaction", "a cold reduced-motion selection link frames i
   await page.goto("/?debug=1#sel=ship.usdt-tether&t=18");
   await waitForRuntimeDebug(page, true);
   await expect(page.getByTestId("pharosville-detail-panel")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Close details" })).toBeFocused();
+  await expect(page.getByTestId("pharosville-detail-panel").getByRole("heading", { level: 2 })).toBeFocused();
   await expect.poll(async () => {
     const debug = await readVisualDebug(page);
     const target = debug.targets?.find((entry) => entry.detailId === "ship.usdt-tether");

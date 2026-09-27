@@ -63,7 +63,6 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   // Warm-village D3: the station chimneys' instanced smoke, one whole-ring
   // group like the crates — sub-silhouette puffs, shed whole below the band.
   "dock-station-smoke",
-  "dock-lamp-heads",
   "dock-posts",
   "harbor-netRack",
   "station-lit-screens",
@@ -110,7 +109,6 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
 export const OVERVIEW_LOD_WHOLE_RING_NAMES: readonly string[] = [
   "garden-sea-edges-overview",
   "dock-cargo-tide",
-  "dock-lamp-heads",
   "dock-posts",
   "dock-station-smoke",
   "dock-tide-line",

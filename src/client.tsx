@@ -2,13 +2,43 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { DesktopOnlyFallback } from "./desktop-only-fallback";
 import { RotateToLandscape } from "./rotate-to-landscape";
+import { dayCycleBeats, type DayCycleBeatName } from "./systems/day-cycle-beats";
+import { gardenSkyDay } from "./systems/sky-almanac";
 import { canViewportShowMap, isWidescreenViewport } from "./systems/viewport-gate";
 import "./pharosville.css";
 
-// A real frame of the garden (G2 noon rest shot), served from public so the
-// gate and the loading hold never boot the world to show it.
-const SEASONAL_STILL_URL = "/pharosville/stills/garden-noon.jpg";
+/**
+ * K17 / chrome-1: five chrome-free stills of the rest seat, one per light beat,
+ * served from public so the gate never boots the world to show them. Captured
+ * with `preview.mjs --clean` at the rest pose; regenerate them with each
+ * release that moves the seat or the look (docs/pharosville/TESTING.md).
+ */
+const HOUR_STILL_ALT: Record<DayCycleBeatName, string> = {
+  dawn: "PharosVille at dawn: the lighthouse on its crag under a pale rose sky, ships at anchor on quiet water.",
+  day: "PharosVille by day: a white lighthouse on its pine-dressed crag above blue water, ships at anchor around it.",
+  golden: "PharosVille at golden hour: the lighthouse in low warm light over violet water, ships at anchor.",
+  blue: "PharosVille in the blue hour: the lighthouse beacon lit over darkening water, the fleet at anchor.",
+  night: "PharosVille at night: the lit lighthouse over dark water under the moon, ships at anchor.",
+};
 
+/** The still for the visitor's own local hour: the dominant beat of the sky clock that day. */
+export function stillForLocalHour(date: Date): { alt: string; avif: string; beat: DayCycleBeatName; jpeg: string } {
+  const beats = dayCycleBeats(date.getHours() + date.getMinutes() / 60, gardenSkyDay(date));
+  let beat: DayCycleBeatName = "day";
+  for (const name of Object.keys(beats) as DayCycleBeatName[]) if (beats[name] > beats[beat]) beat = name;
+  const base = `/pharosville/stills/garden-${beat}`;
+  return { alt: HOUR_STILL_ALT[beat], avif: `${base}.avif`, beat, jpeg: `${base}.jpg` };
+}
+
+function HourStill() {
+  const [still] = useState(() => stillForLocalHour(new Date()));
+  return (
+    <picture>
+      <source type="image/avif" srcSet={still.avif} />
+      <img className="pharosville-gate__still" src={still.jpeg} alt={still.alt} />
+    </picture>
+  );
+}
 
 const PharosVilleDesktopData = lazy(() => (
   import("./pharosville-desktop-data").then((mod) => ({ default: mod.PharosVilleDesktopData }))
@@ -66,11 +96,7 @@ export function PharosVilleClient() {
   if (!screenCapable) {
     return (
       <div className="pharosville-gate">
-        <img
-          className="pharosville-gate__still"
-          src={SEASONAL_STILL_URL}
-          alt="PharosVille in summer daylight: a white lighthouse among pine-covered islands and sailing ships on calm teal water."
-        />
+        <HourStill />
         <DesktopOnlyFallback />
       </div>
     );
@@ -78,11 +104,7 @@ export function PharosVilleClient() {
   if (!viewportReady) {
     return (
       <div className="pharosville-gate">
-        <img
-          className="pharosville-gate__still"
-          src={SEASONAL_STILL_URL}
-          alt="PharosVille in summer daylight: a white lighthouse among pine-covered islands and sailing ships on calm teal water."
-        />
+        <HourStill />
         <RotateToLandscape />
       </div>
     );

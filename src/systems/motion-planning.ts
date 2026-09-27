@@ -1,13 +1,9 @@
 import { clampMapTile, isWaterTileKind, nearestWaterTile } from "./world-layout";
 import { stableHash, stableUnit } from "./stable-random";
 import {
-  MOTION_CYCLE_MAX_SECONDS,
   MOTION_LEG_MAX_SECONDS,
   MOTION_LEG_MIN_SECONDS,
-  MOTION_PAIR_HORIZON_SECONDS,
-  MOTION_PAIR_SLOT_SECONDS,
   MOTION_REST_MIN_SECONDS,
-  MOTION_TRANSITION_SHARE,
   MOTION_UNDERWAY_MAX_TILES_PER_SECOND,
   MOTION_UNDERWAY_MIN_TILES_PER_SECOND,
   OPEN_WATER_PATROL_WAYPOINTS,
@@ -27,22 +23,36 @@ import { precomputeShipTempos } from "./ship-cycle-tempo";
 import { seaBodyAtTile } from "./sea-bodies";
 import {
   GARDEN_ATTENTION_DEFAULT_SEED,
-  GARDEN_TIDE_PERIOD_SECONDS,
+  GARDEN_VOYAGE_DEPARTURE_START_SECONDS,
+  GARDEN_VOYAGE_HOMECOMING_START_SECONDS,
+  GARDEN_VOYAGE_LATTICE_OFFSET_AT_ZERO_SECONDS,
+  GARDEN_VOYAGE_PERIOD_SECONDS,
+  GARDEN_VOYAGE_WINDOW_SECONDS,
+  GARDEN_VOYAGE_WINDOW_SHARE,
   gardenAttentionSlotsBetween,
+  gardenWindShiftsBetween,
   type GardenScoreGift,
 } from "./garden-attention-scheduler";
 import { GARDEN_EMPTY_INLET, gardenInletDistance, isGardenInletCoreTile } from "./garden-inlet";
 
-/** Harbour master tide: one ten-minute cycle, in radians. */
-export function tidePhase(timeSeconds: number): number {
-  return positiveModulo(Number.isFinite(timeSeconds) ? timeSeconds : 0, GARDEN_TIDE_PERIOD_SECONDS)
-    / GARDEN_TIDE_PERIOD_SECONDS * Math.PI * 2;
+/** One slow berth sway at the quays: a ten-minute cycle, in radians. */
+const BERTH_SWAY_PERIOD_SECONDS = 600;
+
+/**
+ * A berth's slow sway phase: every quay shares one ten-minute cycle, lagged by
+ * at most 24 seconds per berth so neighbours never move in lockstep; raft mates
+ * share one berth. Scenery, not data, and never a tide (K45a).
+ */
+export function berthSwayPhase(timeSeconds: number, berth: { x: number; y: number }): number {
+  const time = (Number.isFinite(timeSeconds) ? timeSeconds : 0) - stableUnit(`tide.${berth.x}.${berth.y}`) * 24;
+  return positiveModulo(time, BERTH_SWAY_PERIOD_SECONDS) / BERTH_SWAY_PERIOD_SECONDS * Math.PI * 2;
 }
 
-/** A berth lags the same tide by at most 24 seconds; raft mates use one berth. */
-export function berthTidePhase(timeSeconds: number, berth: { x: number; y: number }): number {
-  return tidePhase(timeSeconds - stableUnit(`tide.${berth.x}.${berth.y}`) * 24);
-}
+/**
+ * Wind shifts are issued this far either side of the plan clock: past the
+ * 600 s rebuild interval, so a swing in progress at a rebuild continues.
+ */
+const WIND_SHIFT_HORIZON_SECONDS = 1_800;
 
 // World identity is stable across React re-renders for the same TanStack
 // payload, so memoizing the signature on the world reference turns ~1000
@@ -228,7 +238,8 @@ export function motionPlanSignature(world: PharosVilleWorld): string {
 /**
  * `attention` feeds the W1.6 scheduler: its seed, and the score gifts that
  * claim attention slots (W5 passes `planGardenScoreGifts` output; until then
- * every slot is a crossing slot).
+ * every slot is a crossing or wind-shift slot). The same seed's wind shifts
+ * ride on every route, so the whole anchorage lies to one settled bearing.
  */
 export function buildBaseMotionPlan(
   world: PharosVilleWorld,
@@ -281,15 +292,22 @@ export function buildBaseMotionPlan(
     shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(ship.id) ?? 1));
   }
 
+  const seed = attention.seed ?? GARDEN_ATTENTION_DEFAULT_SEED;
   assignInletCrossingTokens({
     bucket,
     gifts: attention.gifts ?? [],
-    seed: attention.seed ?? GARDEN_ATTENTION_DEFAULT_SEED,
+    seed,
     shipRoutes,
     timeSeconds,
     waterRouteCache,
     world,
   });
+  const windShifts = gardenWindShiftsBetween(
+    seed,
+    timeSeconds - WIND_SHIFT_HORIZON_SECONDS,
+    timeSeconds + WIND_SHIFT_HORIZON_SECONDS,
+  );
+  for (const route of shipRoutes.values()) route.windShifts = windShifts;
 
   return {
     shipRoutes,
@@ -468,19 +486,12 @@ function buildShipMotionRoute(
   const legDurationSeconds = cadenceGeometry.legDurationSeconds;
   const voyageDurationSeconds = cadenceGeometry.voyageDurationSeconds;
   const voyageLegCount = cadenceGeometry.voyageLegCount;
-  // A long voyage may need a second logical leg. Carry its extension into the
-  // dock rest to preserve the identity cadence spread, bounded by the existing
-  // 22-minute cycle contract; also keep the opposite rest at its 240 s floor.
-  const identityRestDurationSeconds = shipRestDurationSeconds(cadenceUnit, speedScalar);
-  const restDurationSeconds = Math.max(
-    Math.min(
-      identityRestDurationSeconds + (voyageDurationSeconds - identityLegDurationSeconds),
-      MOTION_CYCLE_MAX_SECONDS / 3,
-    ),
-    voyageDurationSeconds + MOTION_REST_MIN_SECONDS / 2,
-  );
-  const riskRestDurationSeconds = 2 * restDurationSeconds - 2 * voyageDurationSeconds;
-  const cycleSeconds = restDurationSeconds + riskRestDurationSeconds + 2 * voyageDurationSeconds;
+  // W4.F11: rests are fitted to the scheduler's voyage windows, so the
+  // voyage length decides how many lattice steps the anchorage rest spans.
+  const windowedCadence = windowedShipCadence(cadenceIdentity, voyageDurationSeconds);
+  const restDurationSeconds = windowedCadence.dockRestSeconds;
+  const riskRestDurationSeconds = windowedCadence.riskRestSeconds;
+  const cycleSeconds = windowedCadence.cycleSeconds;
   const underwaySpeedTilesPerSecond = shipUnderwaySpeed(ship.riskZone, speedScalar);
   const waterPaths = new Map<string, ShipWaterPath>();
   const openWaterPatrol = dockStops.length === 0
@@ -555,14 +566,7 @@ function buildShipMotionRoute(
     restDurationSeconds,
     riskRestDurationSeconds,
     underwaySpeedTilesPerSecond,
-    phaseSeconds: pairedShipPhaseSeconds({
-      cadenceIdentity,
-      cycleSeconds,
-      voyageDurationSeconds,
-      restDurationSeconds,
-      riskRestDurationSeconds,
-      zone: ship.riskZone,
-    }),
+    phaseSeconds: windowedCadence.phaseSeconds,
     riskTile,
     dockStops,
     riskStop,
@@ -856,14 +860,6 @@ function shipLegDurationSeconds(identityUnit: number, speedScalar: number): numb
   return lowerBound + identityUnit * 75;
 }
 
-function shipRestDurationSeconds(identityUnit: number, speedScalar: number): number {
-  // The independent 155-second rest band shifts with the same pace without a
-  // clamp plateau: 265..420 s at measured-zero flow and 250..405 s at max.
-  const pace = clamp(speedScalar, 0.85, 1.15);
-  const lowerBound = 257.5 + (1 - pace) * 50;
-  return lowerBound + identityUnit * 155;
-}
-
 function cadenceLegDurationForGeometry(input: {
   ship: ShipNode;
   riskTile: { x: number; y: number };
@@ -901,37 +897,50 @@ function cadenceLegDurationForGeometry(input: {
   return { legDurationSeconds, voyageDurationSeconds, voyageLegCount };
 }
 
-function pairedShipPhaseSeconds(input: {
-  cadenceIdentity: string;
+/**
+ * W4.F11 windowed cadence. The cycle opens with the dock (or first patrol)
+ * rest, then the departure voyage, the anchorage rest and the homecoming
+ * voyage. Identity chooses where in the voyage lattice the ship casts off and
+ * where it lands: most identities (`GARDEN_VOYAGE_WINDOW_SHARE`) inside the
+ * departure and homecoming windows, the rest anywhere else in the period, so
+ * the harbour gathers its voyages without a regatta and is never frozen.
+ * Each rest takes the smallest whole number of lattice periods that keeps it
+ * ≥ 600 s — so it stays under 1500 s — and the cycle is then a whole number
+ * of periods: every later cycle lands at the same lattice offsets. Nothing
+ * reads roster rank, so adding a ship never re-deals another ship's clock.
+ */
+function windowedShipCadence(cadenceIdentity: string, voyageDurationSeconds: number): {
   cycleSeconds: number;
-  voyageDurationSeconds: number;
-  restDurationSeconds: number;
-  riskRestDurationSeconds: number;
-  zone: ShipNode["riskZone"];
-}): number {
-  // Each identity claims one side of a stable 10 s assignment slot; paired
-  // arrival/departure boundaries are assessed in the harbour's 15 s windows.
-  // Both sides breathe against the same immutable table without consulting
-  // roster rank, so adding a ship cannot shift another ship's clock.
-  const slotCount = MOTION_PAIR_HORIZON_SECONDS / MOTION_PAIR_SLOT_SECONDS;
-  const pairKey = `${input.zone}:${stableHash(input.cadenceIdentity)}`;
-  // Salt 198 covers 32/40 paired 15 s windows on the dense fixture after the
-  // 2026-09-07 sea re-cut moved the east-shelf routes (salt 148 fell to
-  // 31/40); 148 covered 33/40 after the 0.8 visual floor lengthened hulls
-  // (2026-09-05), and 114 covered 32/40 on the pre-floor geometry. Re-scan
-  // salts 100-260 after any water-body change. The salt is fixed globally,
-  // so roster changes never re-deal surviving identities. Duty-cycle shares
-  // depend on leg/rest durations and are checked over complete cycles.
-  const slot = stableHash(`${pairKey}.slot.198`) % slotCount;
-  const anchorsArrival = (stableHash(`${pairKey}.side.1`) & 1) === 1;
-  const departureBoundary = input.restDurationSeconds;
-  const arrivalBoundary = input.restDurationSeconds
-    + input.voyageDurationSeconds
-    + input.riskRestDurationSeconds
-    + input.voyageDurationSeconds * (1 - MOTION_TRANSITION_SHARE);
-  const boundary = anchorsArrival ? arrivalBoundary : departureBoundary;
-  const slotTime = (slot + 0.5) * MOTION_PAIR_SLOT_SECONDS;
-  return positiveModulo(boundary - slotTime, input.cycleSeconds);
+  dockRestSeconds: number;
+  phaseSeconds: number;
+  riskRestSeconds: number;
+} {
+  const period = GARDEN_VOYAGE_PERIOD_SECONDS;
+  const window = GARDEN_VOYAGE_WINDOW_SECONDS;
+  const latticeOffset = (salt: string, windowStart: number): number => {
+    const unit = stableUnit(`${cadenceIdentity}.${salt}-offset`);
+    return stableUnit(`${cadenceIdentity}.${salt}-windowed`) < GARDEN_VOYAGE_WINDOW_SHARE
+      ? windowStart + unit * window
+      : windowStart + window + unit * (period - window);
+  };
+  const departOffset = latticeOffset("departure", GARDEN_VOYAGE_DEPARTURE_START_SECONDS);
+  const homeOffset = latticeOffset("homecoming", GARDEN_VOYAGE_HOMECOMING_START_SECONDS);
+  let riskRestSeconds = positiveModulo(homeOffset - departOffset - 2 * voyageDurationSeconds, period);
+  while (riskRestSeconds < MOTION_REST_MIN_SECONDS) riskRestSeconds += period;
+  let dockRestSeconds = positiveModulo(departOffset - homeOffset, period);
+  while (dockRestSeconds < MOTION_REST_MIN_SECONDS) dockRestSeconds += period;
+  const cycleSeconds = dockRestSeconds + riskRestSeconds + 2 * voyageDurationSeconds;
+  const laps = Math.max(1, Math.round(cycleSeconds / period));
+  const lap = stableHash(`${cadenceIdentity}.voyage-lap`) % laps;
+  // Motion time of one cast-off: its lattice offset shifted onto the motion
+  // clock, on this identity's lap.
+  const departureTime = departOffset - GARDEN_VOYAGE_LATTICE_OFFSET_AT_ZERO_SECONDS + lap * period;
+  return {
+    cycleSeconds,
+    dockRestSeconds,
+    phaseSeconds: positiveModulo(dockRestSeconds - departureTime, cycleSeconds),
+    riskRestSeconds,
+  };
 }
 
 function shipUnderwaySpeed(zone: ShipNode["riskZone"], speedScalar: number): number {

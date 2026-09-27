@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PharosVilleClient } from "./client";
+import { PharosVilleClient, stillForLocalHour } from "./client";
 
 const desktopModuleLoaded = vi.hoisted(() => vi.fn());
 
@@ -40,8 +42,8 @@ describe("PharosVilleClient viewport gate", () => {
 
     render(<PharosVilleClient />);
 
-    expect(screen.getByRole("img", { name: /PharosVille in summer daylight/i }).getAttribute("src"))
-      .toContain("/pharosville/stills/garden-noon.jpg");
+    const still = stillForLocalHour(new Date());
+    expect(screen.getByRole("img", { name: still.alt }).getAttribute("src")).toBe(still.jpeg);
     expect(screen.getByText("PharosVille needs a wider harbor.")).toBeTruthy();
     expect(desktopModuleLoaded).not.toHaveBeenCalled();
   });
@@ -52,7 +54,19 @@ describe("PharosVilleClient viewport gate", () => {
     render(<PharosVilleClient />);
 
     expect(screen.getByText("Give the harbor more room.")).toBeTruthy();
-    expect(screen.getByRole("img", { name: /PharosVille in summer daylight/i })).toBeTruthy();
+    expect(screen.getByRole("img", { name: /^PharosVille (at|by|in) / })).toBeTruthy();
     expect(desktopModuleLoaded).not.toHaveBeenCalled();
+  });
+
+  it("chooses the still of the visitor's own hour, one per light beat", () => {
+    const beats = new Set<string>();
+    for (let hour = 0; hour < 24; hour += 0.5) {
+      const still = stillForLocalHour(new Date(2026, 8, 26, Math.floor(hour), (hour % 1) * 60));
+      // Every still the gate can ask for ships.
+      for (const path of [still.jpeg, still.avif]) expect(existsSync(resolve(process.cwd(), `public${path}`))).toBe(true);
+      beats.add(still.beat);
+    }
+    expect([...beats].sort()).toEqual(["blue", "dawn", "day", "golden", "night"]);
+    expect(stillForLocalHour(new Date(2026, 8, 26, 13)).beat).toBe("day");
   });
 });

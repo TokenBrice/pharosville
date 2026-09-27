@@ -28,7 +28,12 @@ import {
   type ObserveTourKeyframe,
   type ObserveTourSample,
 } from "../systems/observe-tour";
-import { initialAdaptiveDprState, resolveRenderSurfaceBudget, type AdaptiveDprState } from "../systems/render-surface-budget";
+import {
+  initialAdaptiveDprState,
+  resolveMaximumRequestedDpr,
+  resolveRenderSurfaceBudget,
+  type AdaptiveDprState,
+} from "../systems/render-surface-budget";
 import type { ShipMotionSample } from "../systems/motion";
 import {
   cameraAtRest,
@@ -49,7 +54,7 @@ import type {
 import { sameCamera, samePoint } from "../lib/camera-equality";
 import { isStillCameraRequested } from "../lib/pharosville-debug";
 import { isDialogEventTarget } from "./keyboard-event-target";
-import { gardenArrivalCamera, sampleGardenArrivalCamera } from "../systems/garden-arrival";
+import { sampleGardenArrival } from "../systems/garden-arrival";
 import { GARDEN_ATTRACT_TRAVEL_SECONDS } from "../systems/garden-attract";
 import { requestGardenBeat, type GardenDirectorState } from "../systems/garden-director";
 import {
@@ -126,6 +131,8 @@ export interface CameraStepResult {
   camera: IsoCamera | null;
   cameraChanged: boolean;
   cameraIntentActive: boolean;
+  /** K17 arrival air-veil multiplier for this frame; absent means the hour's own air (1). */
+  airVeil?: number;
 }
 
 export interface UseCanvasResizeAndCameraResult {
@@ -329,11 +336,11 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     isoY: 0,
     zoom: 1,
   });
+  // K17: the arrival keeps only its clock; each frame re-solves the rest
+  // ShotSpec for the current viewport, so a resize mid-rise lands on the new one.
   const arrivalRef = useRef<{
-    from: IsoCamera;
     onComplete: () => void;
     startMs: number | null;
-    to: IsoCamera;
   } | null>(null);
 
   const [camera, setCameraState] = useState<IsoCamera | null>(null);
@@ -474,9 +481,15 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     const arrival = arrivalRef.current;
     if (!arrival) return;
     arrivalRef.current = null;
-    applyCameraImmediately(arrival.to);
+    const viewport = framingViewport();
+    const shown = displayCameraRef.current ?? cameraRef.current;
+    if (viewport.x > 0 && viewport.y > 0) {
+      applyCameraImmediately(defaultCamera({ height: viewport.y, map: world.map, width: viewport.x }));
+    } else if (shown) {
+      applyCameraImmediately({ ...shown, shot: undefined });
+    }
     arrival.onComplete();
-  }, [applyCameraImmediately]);
+  }, [applyCameraImmediately, cameraRef, framingViewport, world.map]);
 
   /**
    * W1.7: glide from the shown view onto `target` on the smootherstep clock.
@@ -571,10 +584,10 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       onComplete();
       return;
     }
-    const from = gardenArrivalCamera(target);
+    const from = sampleGardenArrival(target, 0).camera;
     cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: from };
     commitCameraState(from);
-    arrivalRef.current = { from, onComplete, startMs: null, to: target };
+    arrivalRef.current = { onComplete, startMs: null };
     requestWorldFrame();
   }, [applyCameraImmediately, cameraRef, commitCameraState, framingViewport, reducedMotion, requestWorldFrame, world.map]);
 
@@ -592,14 +605,16 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       const cssWidth = Math.max(1, Math.floor(rect.width));
       const cssHeight = Math.max(1, Math.floor(rect.height));
       const deviceRequestedDpr = Math.max(1, window.devicePixelRatio || 1);
-      maximumRequestedDprRef.current = deviceRequestedDpr;
+      // The governor starts at the device's own density and may earn up to
+      // the supersample ceiling on a DPR-1 display (W8.1).
+      maximumRequestedDprRef.current = resolveMaximumRequestedDpr(deviceRequestedDpr);
       if (!adaptiveDprInitializedRef.current) {
         adaptiveDprStateRef.current = initialAdaptiveDprState(deviceRequestedDpr);
         adaptiveDprInitializedRef.current = true;
-      } else if (adaptiveDprStateRef.current.requestedDpr > deviceRequestedDpr) {
+      } else if (adaptiveDprStateRef.current.requestedDpr > maximumRequestedDprRef.current) {
         adaptiveDprStateRef.current = {
           ...adaptiveDprStateRef.current,
-          requestedDpr: deviceRequestedDpr,
+          requestedDpr: maximumRequestedDprRef.current,
         };
       }
       const budget = resolveRenderSurfaceBudget({
@@ -878,7 +893,12 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
     const arrival = arrivalRef.current;
     if (arrival && !reducedMotion) {
       if (arrival.startMs === null) arrival.startMs = now;
-      const sampled = sampleGardenArrivalCamera(arrival.from, arrival.to, now - arrival.startMs);
+      const viewport = framingViewport();
+      // With no measured viewport, the rest is the shown camera minus the arrival's own shot.
+      const rest = viewport.x > 0 && viewport.y > 0
+        ? defaultCamera({ height: viewport.y, map: world.map, width: viewport.x })
+        : { ...displayCamera, shot: undefined };
+      const sampled = sampleGardenArrival(rest, now - arrival.startMs);
       const cameraChanged = !sameCamera(displayCamera, sampled.camera);
       commitCameraState(sampled.camera);
       if (sampled.done) {
@@ -888,7 +908,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
         cameraIntentRef.current = { lastFrameTime: null, mode: "idle", targetCamera: sampled.camera };
         arrival.onComplete();
       }
-      return { camera: sampled.camera, cameraChanged, cameraIntentActive: !sampled.done };
+      return { airVeil: sampled.airVeil, camera: sampled.camera, cameraChanged, cameraIntentActive: !sampled.done };
     }
 
     // Observe 2.0: the tour owns the camera while it runs. Sampling is a pure
@@ -1074,7 +1094,7 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
       lastFrameTime: now,
     };
     return { camera: advanced.camera, cameraChanged, cameraIntentActive: true };
-  }, [cameraRef, canvasSizeRef, commitCameraState, directorClockRef, revealSelection, gardenDirectorRef, queueCameraTarget, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, tourReturnCamera, world.map]);
+  }, [cameraRef, canvasSizeRef, commitCameraState, directorClockRef, framingViewport, revealSelection, gardenDirectorRef, queueCameraTarget, reducedMotion, selectedDetailIdRef, selectedEntityRef, selectedFollowTile, stopFollowChase, tourReturnCamera, world.map]);
 
   const handleFollowSelected = useCallback(() => {
     if (!selectedEntity) return;

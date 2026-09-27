@@ -215,7 +215,6 @@ export function captureGardenShadowView(camera: PerspectiveCamera): void {
 const SHADOW_CASTER_EXCLUDED_NAMES = new Set([
   "dock-chain-flag-cloth",
   "dock-chain-flag",
-  "dock-lamp-heads",
   "dock-warehouse-windows",
 ]);
 

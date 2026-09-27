@@ -67,7 +67,7 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("Today&#x27;s notable movers: ALPHA");
   });
 
-  it("renders the timestamped rare-event harbor log and its stillness contract", () => {
+  it("collects the session's harbor log: return sentence, risk-band changes and rare sightings", () => {
     const markup = renderToStaticMarkup(
       <AccessibilityLedger
         almanacEntries={[{
@@ -75,10 +75,23 @@ describe("AccessibilityLedger", () => {
           message: "A heron settled on the harbor piling at dusk.",
           timestampLabel: "18:07",
         }]}
+        harborLogEntries={[{
+          detailId: "ship.usdx",
+          fromLabel: "Calm Anchorage",
+          id: "usdx:Calm Anchorage->Danger Strait",
+          message: "USDX left Calm Anchorage for Danger Strait",
+          observedAt: Date.UTC(2026, 8, 26, 16, 42),
+          symbol: "USDX",
+          toLabel: "Danger Strait",
+        }]}
+        visitSummary="Since you were here yesterday — stability fell from Steady to Tremor."
         world={sampleWorld()}
       />,
     );
     expect(markup).toContain("Harbor log");
+    expect(markup).toContain("Since you were here yesterday — stability fell from Steady to Tremor.");
+    expect(markup).toContain("16:42");
+    expect(markup).toContain("USDX left Calm Anchorage for Danger Strait.");
     expect(markup).toContain("18:07");
     expect(markup).toContain("A heron settled on the harbor piling at dusk.");
     expect(markup).toContain("absent in still or reduced-motion mode");
@@ -415,7 +428,7 @@ describe("AccessibilityLedger", () => {
     // No mint/burn row → neutral pace with an explicit missing-data reading.
     expect(markup).toContain("cycle tempo Unmeasured");
     expect(markup).toContain("underway leg pace tracks 24h mint/redeem flow intensity by magnitude, not market-cap tier");
-    expect(markup).toContain("route cadence 90–180 s legs; 240–480 s rests; arrivals and departures are paired");
+    expect(markup).toContain("route cadence 90–180 s legs; 600–1500 s rests; departures and homecomings gather in shared windows");
     expect(markup).toContain("Routes show rendered-chain and risk-water presence only");
   });
 

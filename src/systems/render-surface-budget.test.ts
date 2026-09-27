@@ -7,6 +7,7 @@ import {
   MAX_MAIN_CANVAS_PIXELS,
   pushDrawDurationSample,
   resolveAdaptiveDprState,
+  resolveMaximumRequestedDpr,
   resolveRenderSurfaceBudget,
 } from "./render-surface-budget";
 
@@ -30,6 +31,20 @@ describe("render surface budget", () => {
     });
 
     expect(budget.effectiveDpr).toBe(1);
+  });
+
+  it("lets a DPR-1 display earn supersampling up to 1.5x and never past it", () => {
+    // Retina panels keep their own density as the ceiling.
+    expect(resolveMaximumRequestedDpr(2)).toBe(2);
+
+    const maximumRequestedDpr = resolveMaximumRequestedDpr(1);
+    let state = initialAdaptiveDprState(1);
+    const calm = { averageMs: 5, count: 48, p90Ms: 5 };
+    for (let frame = 0; frame < 2_000; frame += 1) {
+      state = resolveAdaptiveDprState({ maximumRequestedDpr, state, stats: calm });
+    }
+    expect(state.requestedDpr).toBe(1.5);
+    expect(resolveRenderSurfaceBudget({ cssHeight: 1000, cssWidth: 1600, requestedDpr: state.requestedDpr }).effectiveDpr).toBe(1.5);
   });
 
   it("tracks rolling draw-duration stats across a bounded window", () => {

@@ -340,6 +340,7 @@ reports.
 | `--temporal` | mean frame-to-frame \|ΔL\*\| of the bottom third over an 11-frame, 1.5 s HUD-free burst |
 | `--value-plan [noon\|dusk\|night]` | MAE and Pearson r of the ninths against the value-plan table in `VISUAL_INVARIANTS.md`, parsed from the document on each run; the column comes from the `t=` hour (noon 9–16, dusk 16–20 or 5–7, night otherwise), else the page's wall-clock hour, unless named |
 | `--night-water` | mean, p95 and max L\* and the share above L\* 10 over the projected inlet water polygon (`anchors.inletPolygon`): the measured night-water probe |
+| `--clean` | the main shot is the canvas alone, with the debug HUD, world chrome and overlay (chips, nameplates) hidden: the source for the gate's hour stills |
 
 All readings print as text and, with `--json`, land under `instruments` in the
 JSON (`instrumentConfig` records clock, knockout, still camera and uncapped).
@@ -362,6 +363,19 @@ frame, and a pass's reading is not what removing it saves. `--max-gpu-ms` is
 therefore refused on Metal (exit 2). Pass costs come from `--uncapped
 --knockout-compare`. Run arms serially, never beside another GPU job: uncapped
 runs heat the GPU.
+
+**Hour stills (K17).** The desktop gate shows one of five chrome-free stills of
+the rest seat, chosen by the visitor's local hour (`stillForLocalHour` in
+`src/client.tsx`). Regenerate them whenever the rest seat or the look moves, and
+at each release: capture each beat at the rest after the arrival, then encode
+AVIF and JPEG at ≤ 90 KB each into `public/pharosville/stills/garden-<beat>.*`.
+
+```bash
+for beat in dawn:7.0 day:12.25 golden:18.5 blue:19.2 night:22; do
+  npm run preview -- --clean --still-camera --seconds 14 --clock 2026-09-26 \
+    --hash "#t=${beat#*:}" --out "stills/garden-${beat%%:*}.png"
+done
+```
 
 **Serial DPR-2 baseline.** Every ms claim cites the baseline table taken on
 the operator's MacBook: run the default and each gate hash one after another,

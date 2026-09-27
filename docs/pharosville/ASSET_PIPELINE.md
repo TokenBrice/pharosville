@@ -45,10 +45,12 @@ npm run check:garden-models
 Do not hand-edit a checked GLB. Preserve model origin, scale, anchors, pick
 proxy, asset metadata, and fallback together.
 
-The post chain's grade LUT strip and blue-noise dither mask follow the same
-rule: `public/pharosville/textures/garden-grade-lut.png` (three 32³ phase
-cubes in one strip) and `garden-blue-noise.png` (void-and-cluster mask) are
-regenerated bit-exact by their generator, and `--check` guards drift:
+The post chain's grade LUT strip and the shared garden-noise pack follow the
+same rule: `public/pharosville/textures/garden-grade-lut.png` (the phase cubes
+in one strip) and `garden-noise-pack.png` (256² RGBA: R the 64² void-and-cluster
+dither tiled 4×4, G fbm, B Worley F1, A curl direction as angle/2π; every
+channel tiles at 256) are regenerated bit-exact by their generator, and
+`--check` guards drift:
 
 ```bash
 node scripts/pharosville/generate-garden-luts.mjs
@@ -57,6 +59,11 @@ npm run check:garden-luts
 
 Do not hand-edit either PNG; retune the parametric transforms in the
 generator and regenerate.
+
+The noise pack is the only noise texture in the scene (the whole-map census is
+at 72/72): new sky, water, air or particle noise samples a channel of it through
+`acquireGardenNoisePack` (`src/three/garden-noise-pack.ts`) instead of adding a
+texture. Read A with `texelFetch`; its angles wrap.
 
 ## Logos and atlases
 

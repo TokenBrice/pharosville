@@ -120,7 +120,9 @@ export const STAR_COLOR = paletteColor(P.moonlight).lerp(paletteColor(P.foam_whi
 // neutral-cool sea-and-stone value, so shade reads violet-blue against gold
 // rather than as a darker orange. The print inks (garden-print-inks) re-ink
 // the same indirect term per beat; the rigs set its energy.
-const GOLDEN_KEY = paletteColor(P.sun_day_warm).lerp(paletteColor(P.lantern_warm), 0.45);
+// Print-gate tune: 0.45 → 0.6 of the anchor, so the lit planes at 18:30 read
+// gold against the violet-blue air rather than as pale stone in lavender.
+const GOLDEN_KEY = paletteColor(P.sun_day_warm).lerp(paletteColor(P.lantern_warm), 0.6);
 export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCycleBeatName, DayCycleLightPreset> = {
   dawn: {
     ambient: paletteColor(P.foam_white),
@@ -139,9 +141,13 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCycleBeatName, DayCycleLightPres
     // #t=12.25; less shapeless fill lets the side light draw the courses.
     ambientIntensity: 0.15,
     dirColor: new Color(1, 1, 1),
-    dirIntensity: 3.3,
+    // 3.3 → 6.2 (Print-gate tune): the side-lit limestone must stand brighter
+    // than the middle-value noon air, so the lit face reads warm-white; the
+    // sky fill rises with it (0.42 → 0.68) so the shade face stays a readable
+    // cool middle value and the tower's mean clears its air.
+    dirIntensity: 6.2,
     hemiGround: paletteColor(P.timber_mid).lerp(paletteColor(P.foam_white), 0.65),
-    hemiIntensity: 0.42,
+    hemiIntensity: 0.68,
     // A breath of cerulean in the sky fill so noon shade reads blue-green.
     hemiSky: paletteColor(P.foam_white).lerp(paletteColor(P.sky_day_zenith), 0.25),
   },
@@ -151,11 +157,14 @@ export const DAY_CYCLE_LIGHT_PRESETS: Record<DayCycleBeatName, DayCycleLightPres
     // Honey, not paint: the anchor `lantern_warm` diluted with the day's honey
     // key cuts the key's chroma so the light reads as light, not as a filter.
     dirColor: GOLDEN_KEY,
-    dirIntensity: 3.0,
+    // 3.0 → 3.6 (Print-gate tune): the last light on the tower and sails is
+    // the brightest warm thing in the frame.
+    dirIntensity: 3.6,
     // The cool complement: sky fill from the violet mist lifted toward the
     // zenith, and a neutral-cool bounce off stone and sea.
     hemiGround: paletteColor(P.stone_mid).lerp(paletteColor(P.deep_sea_1), 0.3),
-    hemiIntensity: 0.5,
+    // 0.5 → 0.4 (Print-gate tune): deeper violet shade, lit/shade toward 2.
+    hemiIntensity: 0.4,
     hemiSky: paletteColor(P.fog_blue).lerp(paletteColor(P.sky_day_zenith), 0.45),
   },
   blue: {
@@ -195,7 +204,9 @@ export const DAY_CYCLE_MOONLESS_KEY = 0.25;
  */
 export const DAY_CYCLE_EXPOSURE: Readonly<Record<DayCycleBeatName, number>> = {
   dawn: 1.0,
-  day: 0.96,
+  // 0.96 → 1.06 (Print-gate tune): the noon air is now middle-value blue, not
+  // milk, so the top row needs the exposure back to hold the bible's 60–72.
+  day: 1.06,
   golden: 0.84,
   blue: 1.0,
   night: 1.15,
@@ -308,7 +319,7 @@ interface DayCycleContent {
   islandLanternMaterial?: MeshStandardMaterial | null;
   /**
    * T0.2 (2026-09-07): the batched station apertures — one "window" bucket
-   * mesh per detail level, holding every warm window and lit quay edge.
+   * mesh per detail level, holding every station shoji.
    *
    * Typed structurally rather than as `GardenHarborBatch`: garden-harbor-batch
    * imports garden-height-fog, which imports THIS module, so a runtime import
@@ -318,8 +329,6 @@ interface DayCycleContent {
   harborBatch?: {
     bucketMeshes: { window: Mesh | null };
     fineDetailBucketMeshes: { window: Mesh | null };
-    propMeshes: { lampHead: Mesh | null };
-    fineDetailPropMeshes: { lampHead: Mesh | null };
   } | null;
   lighthouseLight: PointLight;
   /**
@@ -433,7 +442,8 @@ export function updateDayCycle(
   // clear the 2.4 linear bloom knee at night; windows remain below it.
   const harborLanternIntensity = dusk * 1.2 + night * WARM_LANTERN_NIGHT_INTENSITY;
   scene.content.harborLanternMaterial.emissiveIntensity = harborLanternIntensity;
-  // Station windows and lit quay edges remain dim interiors, not lamp cores.
+  // Station shoji remain dim interiors, not lamp cores; each kindles in the
+  // harbour's order (contract H-A) on top of this base.
   const stationWindowEmber = dusk * 1.4 + night * 1.75;
   const harborBatch = scene.content.harborBatch;
   if (harborBatch) {
@@ -441,12 +451,6 @@ export function updateDayCycle(
       const material = meshes.window?.material;
       if (material instanceof MeshStandardMaterial) {
         material.emissiveIntensity = stationWindowEmber;
-      }
-    }
-    for (const meshes of [harborBatch.propMeshes, harborBatch.fineDetailPropMeshes]) {
-      const material = meshes.lampHead?.material;
-      if (material instanceof MeshStandardMaterial) {
-        material.emissiveIntensity = harborLanternIntensity;
       }
     }
   }

@@ -21,7 +21,10 @@ export function worldCalendarDate(now: Date = new Date()): Date {
 
 /**
  * Northern-hemisphere meteorological seasons, resolved in UTC so the same
- * instant cannot select two dressings in different browser time zones.
+ * instant cannot select two dressings in different browser time zones. A
+ * coarse label for the sky and lantern dressings only: flora no longer reads
+ * it (K24) — trees follow `garden-calendar` (solar longitude, per-specimen
+ * phenology, hemisphere from the visitor's zone).
  */
 export function seasonFromDate(date: Date = worldCalendarDate()): GardenSeason {
   const timestamp = date.getTime();

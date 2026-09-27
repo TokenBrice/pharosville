@@ -3,9 +3,9 @@ import {
   BoxGeometry,
   BufferGeometry,
   Color,
-  DodecahedronGeometry,
   Euler,
   Group,
+  InstancedBufferAttribute,
   InstancedMesh,
   MathUtils,
   Matrix4,
@@ -29,12 +29,22 @@ import {
 } from "../systems/world-layout";
 import { PHAROSVILLE_DESIGN_SPAN, PHAROSVILLE_MAP_SCALE } from "../systems/map-scale";
 import { HARBOR_PALETTE } from "../systems/palette";
-import type { GardenSeason } from "../systems/season";
 import { GARDEN_PLATE_MARGIN_TILES } from "../systems/projection";
-import { REST_SEAT_YAW_RAD } from "../systems/rest-seat";
+import { REST_SEAT_EYE_LANDSCAPE, REST_SEAT_YAW_RAD } from "../systems/rest-seat";
 import type { WeatherPlan } from "../systems/weather";
 import { TILE_SCALE, disposeThreeObjectTree, stableUnit } from "./garden-util";
-import { createSpeciesBatch, createSpeciesGeometry, patchGardenFloraNight, updateGardenInstancedWindSway, type SpeciesPlacement } from "./garden-flora";
+import {
+  createSpeciesBatch,
+  GARDEN_FLORA_COLORS,
+  patchGardenFloraNight,
+  patchGardenFoliage,
+  updateGardenInstancedWindSway,
+  writeFoliageRanks,
+  type SpeciesPlacement,
+} from "./garden-flora";
+import { createNiwakiPadGeometry } from "./garden-niwaki";
+import { createSetStoneGeometry } from "./garden-set-stones";
+import { gardenSnowCover } from "../systems/garden-calendar";
 export { patchGardenInstancedWindSway, updateGardenInstancedWindSway } from "./garden-flora";
 
 const MAP_SIZE = PHAROSVILLE_DESIGN_SPAN * PHAROSVILLE_MAP_SCALE;
@@ -48,10 +58,6 @@ const CAMERA_SIDE_SKIRT_REACH_TILES = 4.5;
 /** Cut-off steepness past the reach; beats the deepest boundary shore
  *  distance (~12 tiles) well inside the eight-tile plate margin. */
 const CAMERA_SIDE_SKIRT_CUT_SLOPE = 6.5;
-/** Skirt pines keep this fraction of the in-bounds keep odds at the boundary. */
-const CAMERA_SIDE_SKIRT_PINE_KEEP = 0.1;
-/** Skirt pines trail to none by this many tiles past the boundary. */
-const CAMERA_SIDE_SKIRT_PINE_FADE_TILES = 6;
 /** Shore contour vertices may move this far from their sampled height point. */
 const SHORE_VERTEX_MAX_DISPLACEMENT_TILES = 0.72;
 // Rim dressing is authored without a live feed. Reserve each complete
@@ -92,7 +98,6 @@ const SHORE_SAND = new Color(HARBOR_PALETTE.stone_pale).lerp(
 );
 const EXPOSED_ROCK = new Color(HARBOR_PALETTE.stone_mid).lerp(WET_ROCK, 0.36);
 const RAKED_GRAVEL = PATH_STONE.clone().lerp(new Color(HARBOR_PALETTE.stone_pale), 0.3);
-const PINE_TRUNK = new Color(HARBOR_PALETTE.timber_dark);
 const PINE_NEEDLE = new Color(HARBOR_PALETTE.aurora_green)
   .multiplyScalar(0.58); // deep pine green
 /**
@@ -108,6 +113,14 @@ const SHADE_MOSS = new Color(HARBOR_PALETTE.aurora_green)
   .lerp(PINE_NEEDLE, 0.5)
   .lerp(new Color(HARBOR_PALETTE.fog_blue), 0.35)
   .multiplyScalar(0.8);
+/**
+ * W4.G2 (garden-4): the far ridges are a pine grove, not a lava lump. Their
+ * floor is needle litter under the canopy; rock shows only in the bedded
+ * outcrop strata.
+ */
+const FOREST_FLOOR = PINE_NEEDLE.clone().multiplyScalar(0.62).lerp(new Color(HARBOR_PALETTE.stone_dark), 0.25);
+/** Ridge heights over which the moss gives way to the grove floor. */
+const GROVE_FLOOR_HEIGHTS = [3.6, 6] as const;
 export const GARDEN_RIM_COLOR_HEX = {
   dampEarth: `#${DAMP_EARTH.getHexString()}`,
   moss: `#${MOSS.getHexString()}`,
@@ -131,6 +144,23 @@ const NOON_SUN_TILE = { x: Math.cos(-REST_SEAT_YAW_RAD), y: Math.sin(-REST_SEAT_
  * and the water it frames should own the light, not the foreground lawn.
  */
 const NEAR_SHORE_MOSS_VALUE = 0.4;
+/**
+ * G3b: planting within this many world units of the seat is set down in
+ * value (foliage × NEAR_BAND_FOLIAGE_VALUE at the eye, easing to 1 at the far
+ * end), so the near band stays low and dark under the bible's bottom row and
+ * the eye goes on to the water and the Pharos.
+ */
+const NEAR_BAND_FOLIAGE_DISTANCE = [95, 150] as const;
+const NEAR_BAND_FOLIAGE_VALUE = 0.5;
+
+function nearBand(placements: readonly SpeciesPlacement[]): SpeciesPlacement[] {
+  const eye = REST_SEAT_EYE_LANDSCAPE.world;
+  return placements.map((placement) => {
+    const distance = Math.hypot(placement.position[0] - eye.x, placement.position[2] - eye.z);
+    const far = MathUtils.smoothstep(distance, NEAR_BAND_FOLIAGE_DISTANCE[0], NEAR_BAND_FOLIAGE_DISTANCE[1]);
+    return { ...placement, value: NEAR_BAND_FOLIAGE_VALUE + (1 - NEAR_BAND_FOLIAGE_VALUE) * far };
+  });
+}
 /** These camera-side bays displace the former straight shoreline run. */
 export const GARDEN_NEAR_RIM_BAY_DEPTHS = [3.2, 4.8, 3.6] as const;
 export const GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT = 1.55;
@@ -272,6 +302,18 @@ function authoredDistance(tileX: number, tileY: number): number {
     + cameraSideSkirtExcursion(tileX, tileY);
 }
 
+/** Bedded outcrop strength, 0…1: where the ledges step and rock may show. */
+function outcropAt(tileX: number, tileY: number): number {
+  return MathUtils.smoothstep(
+    Math.sin(tileX * 0.12 + tileY * 0.055) + Math.sin(tileY * 0.17 - 0.8),
+    0.35, 1.45,
+  );
+}
+
+function isFarPair(tileX: number, tileY: number): boolean {
+  return Math.min(tileX, tileY) < Math.min(MAP_LAST - tileX, MAP_LAST - tileY);
+}
+
 function rimHeight(tileX: number, tileY: number): number {
   const inland = Math.max(0, -authoredDistance(tileX, tileY));
   const cameraSide = Math.max(
@@ -280,11 +322,7 @@ function rimHeight(tileX: number, tileY: number): number {
   );
   const shoreBase = 0.62 + cameraSide * (GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT - 0.62);
   const rise = shoreBase + MathUtils.smoothstep(inland, 0, 8.5) * 1.3;
-  const outcrop = MathUtils.smoothstep(
-    Math.sin(tileX * 0.12 + tileY * 0.055) + Math.sin(tileY * 0.17 - 0.8),
-    0.35, 1.45,
-  );
-  const ledge = outcrop * (
+  const ledge = outcropAt(tileX, tileY) * (
     MathUtils.smoothstep(inland, 1.2, 1.65) * 0.22
     + MathUtils.smoothstep(inland, 4.1, 4.8) * 0.28
   );
@@ -308,9 +346,8 @@ function rimHeight(tileX: number, tileY: number): number {
   // crest so the unchanged sheet reads as hills rather than a wall.
   const bearing = Math.atan2(tileY - MAP_LAST / 2, tileX - MAP_LAST / 2);
   const depth = rimDepthAt(bearing);
-  const farPair = Math.min(tileX, tileY) < Math.min(MAP_LAST - tileX, MAP_LAST - tileY);
   if (
-    !farPair
+    !isFarPair(tileX, tileY)
     || depth <= 0
     || stationMouthClearance(tileX, tileY) <= 6 + SHORE_VERTEX_MAX_DISPLACEMENT_TILES
   ) return levelHeight;
@@ -367,7 +404,10 @@ export function rimColor(tileX: number, tileY: number): Color {
   // Forecourt gravel stays the palest ground, but in the near band it steps
   // down with the moss so a quay apron never outshines the water beyond it.
   if (stationMouthClearance(tileX, tileY) <= 2.4) return RAKED_GRAVEL.clone().multiplyScalar(0.4 + value * 0.6);
-  if (slope > 0.6) return EXPOSED_ROCK.clone();
+  const grove = isFarPair(tileX, tileY)
+    ? MathUtils.smoothstep(rimHeight(tileX, tileY), GROVE_FLOOR_HEIGHTS[0], GROVE_FLOOR_HEIGHTS[1])
+    : 0;
+  if (slope > 0.6 && (grove === 0 || outcropAt(tileX, tileY) > 0.7)) return EXPOSED_ROCK.clone();
   const inland = Math.max(0, -authoredDistance(tileX, tileY));
   // Sand only in the beach coves, and only at their lip.
   if (inland < 1.1 && coastFormAt(tileX, tileY) === "beach") return SHORE_SAND.clone().multiplyScalar(value);
@@ -378,7 +418,7 @@ export function rimColor(tileX: number, tileY: number): Color {
   const color = DAMP_EARTH.clone().lerp(
     SHADE_MOSS.clone().lerp(MOSS, sunlit),
     MathUtils.smoothstep(inland, 0.15, 1.4),
-  );
+  ).lerp(FOREST_FLOOR, grove);
   return color.multiplyScalar((0.9 + hummock * 0.2) * value);
 }
 
@@ -503,6 +543,29 @@ function addShoreCourses(
   addQuad(builder, waterA, waterB, outerB, outerA, [TIDE_STAIN, TIDE_STAIN, toeColor, toeColor]);
 }
 
+/** Decimation tolerances for merging a 2×2 block of flat inland cells (W8.2). */
+const COARSE_HEIGHT_TOLERANCE = 0.06;
+const COARSE_COLOR_TOLERANCE = 0.035;
+
+interface LatticeVertex {
+  color: Color;
+  /** Shore-projected tile position (moved only on coast cells). */
+  moved: boolean;
+  x: number;
+  y: number;
+  height: number;
+}
+
+/**
+ * W8.2 / headroom-7: the land sheet keeps the half-tile lattice only where
+ * it earns it. A 2×2 block of cells collapses to one quad when it is fully
+ * inland (no coast side, no shore-projected corner) and its five inner
+ * lattice points sit within tolerance of the block's bilinear surface in
+ * both height and colour — flat moss and gentle slopes. Ridges, ledges,
+ * shores and forecourt edges keep full density, so every silhouette stays.
+ * Fine cells beside a coarse block snap their mid-edge vertex onto the
+ * coarse edge, so the sheet stays watertight with no T-junction cracks.
+ */
 function buildLandGeometry(): {
   coastFormCounts: Record<CoastForm, number>;
   coastStones: CoastStone[];
@@ -517,72 +580,164 @@ function buildLandGeometry(): {
   const revetments: RevetmentBlock[] = [];
   const revetmentKeys = new Set<string>();
   const boulderKeys = new Set<string>();
-  const half = SAMPLE_STEP / 2;
   // The walk spans the plate margin on the camera-near sides only: cells
   // beyond x/y 139 evaluate the skirt; cells before 0 are always water, so
   // the far pair generates nothing and keeps dissolving into the haze.
   const samples = Math.round((MAP_SIZE + GARDEN_PLATE_MARGIN_TILES) / SAMPLE_STEP);
+  const side = samples + 1;
+  const land = new Uint8Array(samples * samples);
   for (let iy = 0; iy < samples; iy += 1) {
-    const cy = iy * SAMPLE_STEP + half;
     for (let ix = 0; ix < samples; ix += 1) {
-      const cx = ix * SAMPLE_STEP + half;
-      if (!gardenRimDecorativeLandAt(cx, cy)) continue;
-      const p00 = shoreVertexTile(cx - half, cy - half);
-      const p10 = shoreVertexTile(cx + half, cy - half);
-      const p11 = shoreVertexTile(cx + half, cy + half);
-      const p01 = shoreVertexTile(cx - half, cy + half);
-      // Heights are sampled at shared corners so neighbouring tiles remain a
-      // watertight sheet; local ledges interrupt otherwise continuous earth.
-      const h00 = rimHeight(cx - half, cy - half);
-      const h10 = rimHeight(cx + half, cy - half);
-      const h11 = rimHeight(cx + half, cy + half);
-      const h01 = rimHeight(cx - half, cy + half);
-      addQuad(
-        top,
-        [p00.x * TILE_SCALE, h00, p00.y * TILE_SCALE],
-        [p10.x * TILE_SCALE, h10, p10.y * TILE_SCALE],
-        [p11.x * TILE_SCALE, h11, p11.y * TILE_SCALE],
-        [p01.x * TILE_SCALE, h01, p01.y * TILE_SCALE],
-        [
-          rimColor(cx - half, cy - half),
-          rimColor(cx + half, cy - half),
-          rimColor(cx + half, cy + half),
-          rimColor(cx - half, cy + half),
-        ],
-      );
+      land[iy * samples + ix] = gardenRimDecorativeLandAt((ix + 0.5) * SAMPLE_STEP, (iy + 0.5) * SAMPLE_STEP) ? 1 : 0;
+    }
+  }
+  const isLand = (ix: number, iy: number) => ix >= 0 && iy >= 0 && ix < samples && iy < samples && land[iy * samples + ix] === 1;
+  // Heights and colours are sampled once per shared lattice corner, so
+  // neighbouring cells stay a watertight sheet; local ledges interrupt
+  // otherwise continuous earth.
+  const lattice = new Map<number, LatticeVertex>();
+  const vertexAt = (i: number, j: number): LatticeVertex => {
+    const key = j * side + i;
+    let vertex = lattice.get(key);
+    if (!vertex) {
+      const tileX = i * SAMPLE_STEP;
+      const tileY = j * SAMPLE_STEP;
+      const shore = shoreVertexTile(tileX, tileY);
+      vertex = {
+        color: rimColor(tileX, tileY),
+        height: rimHeight(tileX, tileY),
+        moved: shore.x !== tileX || shore.y !== tileY,
+        x: shore.x,
+        y: shore.y,
+      };
+      lattice.set(key, vertex);
+    }
+    return vertex;
+  };
+
+  const blocks = Math.ceil(samples / 2);
+  const coarse = new Uint8Array(blocks * blocks);
+  const isCoarse = (bx: number, by: number) => bx >= 0 && by >= 0 && bx < blocks && by < blocks && coarse[by * blocks + bx] === 1;
+  for (let by = 0; by < blocks; by += 1) {
+    for (let bx = 0; bx < blocks; bx += 1) {
+      const ix = bx * 2;
+      const iy = by * 2;
+      let interior = true;
+      for (let dy = -1; dy <= 2 && interior; dy += 1) {
+        for (let dx = -1; dx <= 2 && interior; dx += 1) {
+          if (!isLand(ix + dx, iy + dy)) interior = false;
+        }
+      }
+      if (!interior) continue;
+      const corners = [vertexAt(ix, iy), vertexAt(ix + 2, iy), vertexAt(ix, iy + 2), vertexAt(ix + 2, iy + 2)] as const;
+      let flat = corners.every((corner) => !corner.moved);
+      for (let dj = 0; dj <= 2 && flat; dj += 1) {
+        for (let di = 0; di <= 2 && flat; di += 1) {
+          if ((di & 1) === 0 && (dj & 1) === 0) continue;
+          const vertex = vertexAt(ix + di, iy + dj);
+          if (vertex.moved) { flat = false; break; }
+          const u = di / 2;
+          const v = dj / 2;
+          const weights = [(1 - u) * (1 - v), u * (1 - v), (1 - u) * v, u * v] as const;
+          let height = 0;
+          let r = 0;
+          let g = 0;
+          let b = 0;
+          corners.forEach((corner, index) => {
+            height += corner.height * weights[index]!;
+            r += corner.color.r * weights[index]!;
+            g += corner.color.g * weights[index]!;
+            b += corner.color.b * weights[index]!;
+          });
+          if (Math.abs(height - vertex.height) > COARSE_HEIGHT_TOLERANCE
+            || Math.abs(r - vertex.color.r) > COARSE_COLOR_TOLERANCE
+            || Math.abs(g - vertex.color.g) > COARSE_COLOR_TOLERANCE
+            || Math.abs(b - vertex.color.b) > COARSE_COLOR_TOLERANCE) flat = false;
+        }
+      }
+      if (flat) coarse[by * blocks + bx] = 1;
+    }
+  }
+
+  // A fine cell's mid-edge corner that lies on a coarse block's edge takes
+  // the edge's midpoint, so the two meshes share the line exactly.
+  const snappedAt = (i: number, j: number): LatticeVertex => {
+    const oddI = (i & 1) === 1;
+    const oddJ = (j & 1) === 1;
+    if (oddI === oddJ) return vertexAt(i, j);
+    const onCoarseEdge = oddI
+      ? isCoarse((i - 1) / 2, j / 2) || isCoarse((i - 1) / 2, j / 2 - 1)
+      : isCoarse(i / 2, (j - 1) / 2) || isCoarse(i / 2 - 1, (j - 1) / 2);
+    if (!onCoarseEdge) return vertexAt(i, j);
+    const a = oddI ? vertexAt(i - 1, j) : vertexAt(i, j - 1);
+    const b = oddI ? vertexAt(i + 1, j) : vertexAt(i, j + 1);
+    return {
+      color: a.color.clone().lerp(b.color, 0.5),
+      height: (a.height + b.height) / 2,
+      moved: false,
+      x: (a.x + b.x) / 2,
+      y: (a.y + b.y) / 2,
+    };
+  };
+  const corner = (vertex: LatticeVertex): [number, number, number] => [vertex.x * TILE_SCALE, vertex.height, vertex.y * TILE_SCALE];
+
+  for (let by = 0; by < blocks; by += 1) {
+    for (let bx = 0; bx < blocks; bx += 1) {
+      if (!isCoarse(bx, by)) continue;
+      const v00 = vertexAt(bx * 2, by * 2);
+      const v10 = vertexAt(bx * 2 + 2, by * 2);
+      const v11 = vertexAt(bx * 2 + 2, by * 2 + 2);
+      const v01 = vertexAt(bx * 2, by * 2 + 2);
+      addQuad(top, corner(v00), corner(v10), corner(v11), corner(v01), [v00.color, v10.color, v11.color, v01.color]);
+    }
+  }
+  for (let iy = 0; iy < samples; iy += 1) {
+    const cy = (iy + 0.5) * SAMPLE_STEP;
+    for (let ix = 0; ix < samples; ix += 1) {
+      if (!isLand(ix, iy) || isCoarse(ix >> 1, iy >> 1)) continue;
+      const cx = (ix + 0.5) * SAMPLE_STEP;
+      const v00 = snappedAt(ix, iy);
+      const v10 = snappedAt(ix + 1, iy);
+      const v11 = snappedAt(ix + 1, iy + 1);
+      const v01 = snappedAt(ix, iy + 1);
+      const p00 = corner(v00);
+      const p10 = corner(v10);
+      const p11 = corner(v11);
+      const p01 = corner(v01);
+      addQuad(top, p00, p10, p11, p01, [v00.color, v10.color, v11.color, v01.color]);
       const sides = [
-        { dx: -SAMPLE_STEP, dy: 0, a: [p01.x * TILE_SCALE, h01, p01.y * TILE_SCALE], b: [p00.x * TILE_SCALE, h00, p00.y * TILE_SCALE] },
-        { dx: SAMPLE_STEP, dy: 0, a: [p10.x * TILE_SCALE, h10, p10.y * TILE_SCALE], b: [p11.x * TILE_SCALE, h11, p11.y * TILE_SCALE] },
-        { dx: 0, dy: -SAMPLE_STEP, a: [p00.x * TILE_SCALE, h00, p00.y * TILE_SCALE], b: [p10.x * TILE_SCALE, h10, p10.y * TILE_SCALE] },
-        { dx: 0, dy: SAMPLE_STEP, a: [p11.x * TILE_SCALE, h11, p11.y * TILE_SCALE], b: [p01.x * TILE_SCALE, h01, p01.y * TILE_SCALE] },
+        { dx: -1, dy: 0, a: p01, b: p00 },
+        { dx: 1, dy: 0, a: p10, b: p11 },
+        { dx: 0, dy: -1, a: p00, b: p10 },
+        { dx: 0, dy: 1, a: p11, b: p01 },
       ] as const;
-      for (const side of sides) {
-        if (gardenRimDecorativeLandAt(cx + side.dx, cy + side.dy)) continue;
+      for (const edge of sides) {
+        if (isLand(ix + edge.dx, iy + edge.dy)) continue;
         const form = coastFormAt(cx, cy);
         coastFormCounts[form] += 1;
         addShoreCourses(
           face,
-          side.a,
-          side.b,
-          pointAtY(side.b, WATERLINE_Y),
-          pointAtY(side.a, WATERLINE_Y),
+          edge.a,
+          edge.b,
+          pointAtY(edge.b, WATERLINE_Y),
+          pointAtY(edge.a, WATERLINE_Y),
           rimColor(cx, cy),
-          side.dx / SAMPLE_STEP,
-          side.dy / SAMPLE_STEP,
+          edge.dx,
+          edge.dy,
           form,
         );
-        const midpointX = (side.a[0] + side.b[0]) * 0.5;
-        const midpointY = (side.a[2] + side.b[2]) * 0.5;
+        const midpointX = (edge.a[0] + edge.b[0]) * 0.5;
+        const midpointY = (edge.a[2] + edge.b[2]) * 0.5;
         if (form === "revetment") {
-          const key = `${Math.round(midpointX / 0.8)}.${Math.round(midpointY / 0.8)}.${side.dx !== 0 ? "v" : "h"}`;
+          const key = `${Math.round(midpointX / 0.8)}.${Math.round(midpointY / 0.8)}.${edge.dx !== 0 ? "v" : "h"}`;
           if (!revetmentKeys.has(key)) {
             revetmentKeys.add(key);
             revetments.push({
-              outwardX: side.dx / SAMPLE_STEP,
-              outwardZ: side.dy / SAMPLE_STEP,
+              outwardX: edge.dx,
+              outwardZ: edge.dy,
               x: midpointX,
               y: midpointY,
-              yaw: side.dx !== 0 ? Math.PI / 2 : 0,
+              yaw: edge.dx !== 0 ? Math.PI / 2 : 0,
             });
           }
         } else if (form === "boulder") {
@@ -590,8 +745,8 @@ function buildLandGeometry(): {
           if (!boulderKeys.has(key)) {
             boulderKeys.add(key);
             coastStones.push({
-              outwardX: side.dx / SAMPLE_STEP,
-              outwardZ: side.dy / SAMPLE_STEP,
+              outwardX: edge.dx,
+              outwardZ: edge.dy,
               x: midpointX / TILE_SCALE,
               y: midpointY / TILE_SCALE,
             });
@@ -601,21 +756,18 @@ function buildLandGeometry(): {
     }
   }
   // Flat moss/gravel decals conform to the land and share its vertex-colour draw.
+  const decal = [[-1, -0.8], [-0.9, 0.9], [1.2, 0.7], [1, -0.7]] as const;
   for (const [index, placement] of plantingTiles(90, "ground").entries()) {
-    const decal = createSpeciesGeometry("ground", "summer", PINE_TRUNK, index % 3 === 0 ? RAKED_GRAVEL : MOSS);
-    const positions = decal.getAttribute("position");
     // In the near-shore band the decal takes the band's value, or it would
     // read as a bright patch on the set-down moss.
     const color = (index % 3 === 0 ? RAKED_GRAVEL : MOSS).clone().multiplyScalar(
       nearShoreValue(placement.position[0] / TILE_SCALE, placement.position[2] / TILE_SCALE),
     );
-    const corners: [number, number, number][] = [];
-    for (let i = 0; i < positions.count; i += 1) {
-      const x = placement.position[0] + positions.getX(i), z = placement.position[2] + positions.getZ(i);
-      corners.push([x, rimHeight(x / TILE_SCALE, z / TILE_SCALE) + 0.025, z]);
-    }
+    const corners = decal.map(([dx, dz]): [number, number, number] => {
+      const x = placement.position[0] + dx, z = placement.position[2] + dz;
+      return [x, rimHeight(x / TILE_SCALE, z / TILE_SCALE) + 0.025, z];
+    });
     addQuad(top, corners[0]!, corners[1]!, corners[2]!, corners[3]!, [color, color, color, color]);
-    decal.dispose();
   }
   const topGeometry = finishGeometry(top);
   topGeometry.deleteAttribute("normal");
@@ -639,94 +791,305 @@ function clearOfStation(tileX: number, tileY: number, extra = 0): boolean {
   ));
 }
 
-interface PineSpec {
-  leanX: number;
-  leanZ: number;
-  scale: number;
+interface PlantSpot {
   x: number;
   y: number;
-  yaw: number;
 }
 
-function pineTiles(): PineSpec[] {
-  const candidates: PineSpec[] = [];
-  // A half-density lattice supplies the authored 120-tree selection without
-  // relaxing station, headland or sight-line clearances.
-  for (let y = 3; y < MAP_LAST - 2; y += 1.5) {
-    for (let x = 3; x < MAP_LAST - 2; x += 1.5) {
-      if (!rimLandAt(x, y) || authoredDistance(x, y) > -2.2 || !clearOfStation(x, y, 3)) continue;
-      if (HEADLANDS.some((headland) => Math.hypot(x - headland.x, y - headland.y) < 4.5)) continue;
-      if (Math.hypot(x - SIGHT_LINE_CLEARING.x, y - SIGHT_LINE_CLEARING.y) < SIGHT_LINE_CLEARING.radius) continue;
-      const lowerLeft = x < 48 && y > 72;
-      const thinEast = x > 122;
-      // T2.2c (2026-09-07): general keep 0.3 -> 0.5, east 0.12 -> 0.3. The
-      // measured census was 41 trees in the whole world — one pine per nine
-      // rim tiles — against a brief that says "Japanese garden". The east
-      // stays the thinner half of the ring, just not near-bare.
-      const keep = lowerLeft ? 0.92 : thinEast ? 0.3 : 0.5;
-      const unit = stableUnit(`rim-pine.${x}.${y}`);
-      if (unit > keep) continue;
-      candidates.push({
-        leanX: 0,
-        leanZ: 0,
-        scale: 0.78 + stableUnit(`rim-pine-scale.${x}.${y}`) * (lowerLeft ? 0.72 : 0.48),
-        x,
-        y,
-        yaw: stableUnit(`rim-pine-yaw.${x}.${y}`) * Math.PI * 2,
+/**
+ * Where planting may stand: authored land (or the camera-side skirt), at
+ * least `inland` tiles from the water, clear of every station envelope and
+ * of the rest sight line, and off the headland stone triads.
+ */
+function plantable(x: number, y: number, inland: number, clearance = 3): boolean {
+  if (x < 0 || y < 0) return false;
+  const inBounds = x <= MAP_LAST && y <= MAP_LAST;
+  if (inBounds ? !rimLandAt(x, y) : !gardenRimDecorativeLandAt(x, y)) return false;
+  if (authoredDistance(x, y) > -inland || !clearOfStation(x, y, clearance)) return false;
+  if (Math.hypot(x - SIGHT_LINE_CLEARING.x, y - SIGHT_LINE_CLEARING.y) < SIGHT_LINE_CLEARING.radius) return false;
+  return !HEADLANDS.some((headland) => Math.hypot(x - headland.x, y - headland.y) < 3.2);
+}
+
+/**
+ * An odd group of up to `count` spots gathered around `anchor`: a jittered
+ * golden-angle spiral, no two closer than `spacing` tiles. A gardener's
+ * group, not a lattice — the members are unequal and the gaps breathe.
+ */
+function gatherGroup(
+  anchor: PlantSpot,
+  count: number,
+  spacing: number,
+  seed: string,
+  accept: (x: number, y: number) => boolean,
+): PlantSpot[] {
+  const spots: PlantSpot[] = [];
+  for (let k = 0; spots.length < count && k < count * 30; k += 1) {
+    const angle = k * 2.39996 + stableUnit(`${seed}.a.${k}`) * 0.9;
+    const radius = spacing * (0.2 + Math.sqrt(k) * 0.62) * (0.8 + stableUnit(`${seed}.r.${k}`) * 0.4);
+    const x = anchor.x + Math.cos(angle) * radius;
+    const y = anchor.y + Math.sin(angle) * radius;
+    if (!accept(x, y) || spots.some((spot) => Math.hypot(spot.x - x, spot.y - y) < spacing)) continue;
+    spots.push({ x, y });
+  }
+  if (spots.length > 1 && spots.length % 2 === 0) spots.pop();
+  return spots;
+}
+
+/** Unit seaward direction at a tile (the authored distance field's gradient). */
+function seawardAt(x: number, y: number): PlantSpot {
+  const epsilon = 0.4;
+  const gx = authoredDistance(x + epsilon, y) - authoredDistance(x - epsilon, y);
+  const gy = authoredDistance(x, y + epsilon) - authoredDistance(x, y - epsilon);
+  const length = Math.hypot(gx, gy) || 1;
+  return { x: gx / length, y: gy / length };
+}
+
+interface PineGroup {
+  anchor: PlantSpot;
+  count: number;
+  /** Instance scale range (the rim pine is 4.5 u tall at 1). */
+  scale: readonly [number, number];
+  spacing: number;
+  /** Ridge groves stand on the far hills, never on the level shore. */
+  ridge?: boolean;
+}
+
+/**
+ * W4.G1 / garden-master-4: pine 120 → 45 in odd groups, placed where the
+ * seat looks. The far-west ridge carries the massed grove (garden-4) left of
+ * the tower; the north ridge answers it on the right; two small groups hold
+ * the near shore; the rest of the ring gets a few groups for the whole map
+ * (two of them on the camera-side skirt, off the rest frame).
+ */
+const PINE_GROUPS: readonly PineGroup[] = [
+  { anchor: { x: 6, y: 63 }, count: 7, scale: [1.4, 2.2], spacing: 1.7, ridge: true },
+  { anchor: { x: 5, y: 72 }, count: 5, scale: [1.3, 2.0], spacing: 1.8, ridge: true },
+  { anchor: { x: 8, y: 80 }, count: 3, scale: [1.3, 1.9], spacing: 1.9, ridge: true },
+  { anchor: { x: 88, y: 5 }, count: 5, scale: [1.3, 2.0], spacing: 1.8, ridge: true },
+  { anchor: { x: 96, y: 6 }, count: 3, scale: [1.3, 1.9], spacing: 1.9, ridge: true },
+  { anchor: { x: 84, y: 9 }, count: 1, scale: [1.8, 2.2], spacing: 2, ridge: true },
+  // The near band keeps one small group framing the left edge of the rest
+  // view (the hero, this subordinate and a maple). The near-right shore holds
+  // no tree: anything standing there crosses the bay and the right third,
+  // so it keeps only the low karikomi wave (G3b).
+  { anchor: { x: 52, y: 134.5 }, count: 1, scale: [0.95, 1.05], spacing: 2 },
+  { anchor: { x: 136, y: 84 }, count: 5, scale: [1.0, 1.5], spacing: 2.4 },
+  { anchor: { x: 140, y: 68 }, count: 3, scale: [1.2, 1.7], spacing: 2.4 },
+  { anchor: { x: 142, y: 104 }, count: 3, scale: [0.9, 1.25], spacing: 2.6 },
+  { anchor: { x: 126, y: 142 }, count: 5, scale: [0.9, 1.25], spacing: 2.6 },
+  { anchor: { x: 10, y: 137 }, count: 1, scale: [1.2, 1.5], spacing: 2 },
+];
+
+/** Three heroes at the viewpoints: by the Mole, the near shore, the north headland. */
+const HERO_PINES: readonly { anchor: PlantSpot; scale: number }[] = [
+  { anchor: { x: 9, y: 108.5 }, scale: 2.5 },
+  { anchor: { x: 55, y: 132 }, scale: 1.8 },
+  { anchor: { x: 79, y: 8 }, scale: 2.6 },
+];
+
+function rimPinePlacements(): SpeciesPlacement[] {
+  const placements: SpeciesPlacement[] = [];
+  PINE_GROUPS.forEach((group, groupIndex) => {
+    const seed = `rim-pine-group.${groupIndex}`;
+    const spots = gatherGroup(group.anchor, group.count, group.spacing, seed, (x, y) => (
+      plantable(x, y, group.ridge ? 3 : 2.2) && (!group.ridge || rimHeight(x, y) > 3.5)
+    ));
+    spots.forEach((spot, member) => {
+      const unit = stableUnit(`${seed}.scale.${member}`);
+      // The group's first member is its tallest: one dominant, the rest unequal.
+      const scale = member === 0 ? group.scale[1] : group.scale[0] + (group.scale[1] - group.scale[0]) * unit * 0.8;
+      placements.push({
+        // Ridge pines stand down inside the canopy: their tiers rise out of the
+        // grove as lumps in its crown line, never as caps on bare stems.
+        position: [spot.x * TILE_SCALE, rimHeight(spot.x, spot.y) - (group.ridge ? scale * 1.9 : 0), spot.y * TILE_SCALE],
+        scale,
+        yaw: stableUnit(`${seed}.yaw.${member}`) * Math.PI * 2,
       });
-      if (lowerLeft && stableUnit(`rim-pine-cluster.${x}.${y}`) < 0.48) {
-        candidates.push({
-          leanX: -0.08,
-          leanZ: 0.05,
-          scale: 0.62 + stableUnit(`rim-pine-cluster-scale.${x}.${y}`) * 0.34,
-          x: x + 1.15,
-          y: y - 0.75,
-          yaw: stableUnit(`rim-pine-cluster-yaw.${x}.${y}`) * Math.PI * 2,
-        });
+    });
+  });
+  HERO_PINES.forEach((hero, index) => {
+    const [spot] = gatherGroup(hero.anchor, 1, 1, `rim-hero-pine.${index}`, (x, y) => plantable(x, y, 1.6));
+    if (!spot) return;
+    // The trunk's authored lean (+x local) and the sashi-eda turn seaward;
+    // the hero then leans a further ~10° out over the water.
+    const seaward = seawardAt(spot.x, spot.y);
+    placements.push({
+      position: [spot.x * TILE_SCALE, rimHeight(spot.x, spot.y), spot.y * TILE_SCALE],
+      scale: hero.scale,
+      yaw: Math.atan2(-seaward.y, seaward.x),
+      leanZ: -0.17,
+    });
+  });
+  return placements;
+}
+
+interface Planting {
+  anchor: PlantSpot;
+  count: number;
+  spacing: number;
+  /** Specimens stand this near the water (tiles inland, min … max). */
+  inland: readonly [number, number];
+}
+
+/**
+ * garden-master-4: momiji 40 → 5 and cherry 20 → 3, specimens at the
+ * viewpoints. One maple under the near-left hero pine, a group of three on
+ * the east ring by the water; three cherries for the whole-map ring, off
+ * the rest frame.
+ */
+const MOMIJI_PLANTING: readonly Planting[] = [
+  { anchor: { x: 49, y: 136 }, count: 1, spacing: 1.6, inland: [1.2, 4] },
+  { anchor: { x: 134, y: 112 }, count: 3, spacing: 1.6, inland: [1.2, 4] },
+  { anchor: { x: 132, y: 128 }, count: 1, spacing: 1.6, inland: [1.2, 4] },
+];
+const CHERRY_PLANTING: readonly Planting[] = [
+  { anchor: { x: 117, y: 140 }, count: 1, spacing: 1.6, inland: [1.2, 4] },
+  { anchor: { x: 16, y: 138 }, count: 1, spacing: 1.6, inland: [1.2, 4] },
+  { anchor: { x: 140, y: 64 }, count: 1, spacing: 1.6, inland: [1.2, 4] },
+];
+/**
+ * garden-8: bamboo 35 clumps → two groves, each behind one station, off
+ * the ridge crests: five clumps behind the hatago wharf (the one in the rest
+ * frame, at the foot of the west grove), three behind the uogashi.
+ */
+const BAMBOO_GROVES: readonly Planting[] = [
+  { anchor: { x: 3, y: 61 }, count: 5, spacing: 0.9, inland: [2, 12] },
+  { anchor: { x: 142, y: 88 }, count: 3, spacing: 0.9, inland: [2, 12] },
+];
+
+function specimenPlacements(plantings: readonly Planting[], species: string, scale: readonly [number, number]): SpeciesPlacement[] {
+  const placements: SpeciesPlacement[] = [];
+  plantings.forEach((planting, plantingIndex) => {
+    const seed = `rim-${species}.${plantingIndex}`;
+    const spots = gatherGroup(planting.anchor, planting.count, planting.spacing, seed, (x, y) => (
+      plantable(x, y, planting.inland[0]) && authoredDistance(x, y) >= -planting.inland[1] && rimHeight(x, y) < 3.2
+    ));
+    spots.forEach((spot, member) => {
+      placements.push({
+        position: [spot.x * TILE_SCALE, rimHeight(spot.x, spot.y), spot.y * TILE_SCALE],
+        scale: scale[0] + (scale[1] - scale[0]) * stableUnit(`${seed}.scale.${member}`),
+        seed: `${seed}.${member}`,
+        yaw: stableUnit(`${seed}.yaw.${member}`) * Math.PI * 2,
+      });
+    });
+  });
+  return placements;
+}
+
+/**
+ * garden-8: karikomi 80 → 40 segments chained into ō-karikomi waves of 7 /
+ * 5 / 3 along the shore: long, low, overlapping, their size rising and
+ * falling like a slow swell. The near-right wave replaces the lime domes.
+ */
+const KARIKOMI_WAVES: readonly { anchor: PlantSpot; count: number }[] = [
+  { anchor: { x: 101, y: 136.5 }, count: 7 },
+  { anchor: { x: 67, y: 136 }, count: 5 },
+  { anchor: { x: 48, y: 137 }, count: 5 },
+  { anchor: { x: 136, y: 96 }, count: 7 },
+  { anchor: { x: 111, y: 5 }, count: 5 },
+  { anchor: { x: 110, y: 135.5 }, count: 5 },
+  { anchor: { x: 5, y: 79 }, count: 3 },
+  { anchor: { x: 132, y: 128 }, count: 3 },
+  { anchor: { x: 139, y: 110 }, count: 5 },
+  { anchor: { x: 26, y: 137 }, count: 3 },
+];
+/** Along-chain step between segment centres, world units (segments are ~3.6 u long). */
+const KARIKOMI_STEP = 2.3;
+
+function karikomiPlacements(): SpeciesPlacement[] {
+  const placements: SpeciesPlacement[] = [];
+  KARIKOMI_WAVES.forEach((wave, waveIndex) => {
+    const seed = `rim-karikomi.${waveIndex}`;
+    const [start] = gatherGroup(wave.anchor, 1, 1, `${seed}.start`, (x, y) => plantable(x, y, 1, 2));
+    if (!start) return;
+    const seaward = seawardAt(start.x, start.y);
+    const along = { x: -seaward.y, y: seaward.x };
+    const stepTiles = KARIKOMI_STEP / TILE_SCALE;
+    // Grow the chain outward from its start, alternating sides, skipping
+    // any segment that would leave the ground, until the wave is complete.
+    let placed = 0;
+    for (let step = 0; placed < wave.count && step <= wave.count * 2; step += 1) {
+      const slot = step % 2 === 0 ? step / 2 : -(step + 1) / 2;
+      const offset = slot * stepTiles;
+      const sway = Math.sin(slot * 1.1 + waveIndex) * 0.35;
+      const x = start.x + along.x * offset - seaward.x * sway;
+      const y = start.y + along.y * offset - seaward.y * sway;
+      if (!plantable(x, y, 0.8, 2) || rimHeight(x, y) > 3.2) continue;
+      const swell = 0.5 + 0.5 * Math.sin(slot * 1.3 + waveIndex * 0.7);
+      placements.push({
+        position: [x * TILE_SCALE, rimHeight(x, y) - 0.05, y * TILE_SCALE],
+        scale: 0.78 + swell * 0.5 + stableUnit(`${seed}.${slot}`) * 0.1,
+        yaw: Math.atan2(-along.y, along.x) + (stableUnit(`${seed}.yaw.${slot}`) - 0.5) * 0.5,
+      });
+      placed += 1;
+    }
+  });
+  return placements;
+}
+
+/**
+ * W4.G2 (garden-4): the ridge grove's canopy — overlapping flattened crowns
+ * stepping up both far ridges so the hill reads as one dark massed grove
+ * that recedes into the air, with the ridge pines breaking its line. Chosen
+ * by low-frequency noise, not a stride, so clumps and clearings alternate.
+ */
+const RIDGE_BOXES = [
+  { minX: 0.5, maxX: 16, minY: 44, maxY: 92 },
+  { minX: 60, maxX: 110, minY: 0.5, maxY: 16 },
+] as const;
+const GARDEN_RIM_RIDGE_CANOPY_MAX = 56;
+
+function ridgeCanopyPlacements(): SpeciesPlacement[] {
+  const spots: Array<PlantSpot & { height: number }> = [];
+  for (const box of RIDGE_BOXES) {
+    for (let y = box.minY; y <= box.maxY; y += 1.3) {
+      for (let x = box.minX; x <= box.maxX; x += 1.3) {
+        const jx = x + (stableUnit(`ridge-canopy.jx.${x}.${y}`) - 0.5) * 1.1;
+        const jy = y + (stableUnit(`ridge-canopy.jy.${x}.${y}`) - 0.5) * 1.1;
+        const height = rimHeight(jx, jy);
+        if (height < 4.5 || !plantable(jx, jy, 2.5, 4)) continue;
+        const clump = Math.sin(jx * 0.31 + jy * 0.17) * 0.5 + Math.sin(jx * 0.13 - jy * 0.29 + 1.1) * 0.5;
+        if (clump < -0.15) continue;
+        if (spots.some((spot) => Math.hypot(spot.x - jx, spot.y - jy) < 2.1)) continue;
+        spots.push({ x: jx, y: jy, height });
       }
     }
   }
-  // Camera-side skirt dressing: the same shore pines continue past the south
-  // and east rim on the in-bounds three-tile lattice, thinned from roughly a
-  // third to a half of the in-bounds keep odds at the boundary and trailing
-  // to none at the outer coast. In-bounds rings are untouched, and the far
-  // pair (x < 0 or y < 0) is water in gardenRimDecorativeLandAt, so it gains
-  // nothing.
-  for (let y = 3; y <= MAP_LAST + 5; y += 3) {
-    for (let x = 3; x <= MAP_LAST + 5; x += 3) {
-      const beyond = Math.max(0, x - MAP_LAST, y - MAP_LAST);
-      // Lattice points still inside the map were settled (or not) by the
-      // in-bounds pass above and keep their authored odds.
-      if (beyond === 0) continue;
-      if (!gardenRimDecorativeLandAt(x, y) || authoredDistance(x, y) > -2.2) continue;
-      if (!clearOfStation(x, y, 3)) continue;
-      if (Math.hypot(x - SIGHT_LINE_CLEARING.x, y - SIGHT_LINE_CLEARING.y) < SIGHT_LINE_CLEARING.radius) continue;
-      const keep = CAMERA_SIDE_SKIRT_PINE_KEEP
-        * Math.max(0, 1 - beyond / CAMERA_SIDE_SKIRT_PINE_FADE_TILES);
-      if (stableUnit(`rim-skirt-pine.${x}.${y}`) > keep) continue;
-      candidates.push({
-        leanX: 0,
-        leanZ: 0,
-        scale: 0.7 + stableUnit(`rim-skirt-pine-scale.${x}.${y}`) * 0.4,
-        x,
-        y,
-        yaw: stableUnit(`rim-skirt-pine-yaw.${x}.${y}`) * Math.PI * 2,
-      });
-    }
-  }
-  const count = Math.min(120, candidates.length);
-  return Array.from({ length: count }, (_, i) => candidates[Math.floor(i * candidates.length / count)]!);
+  // The highest crowns first: the grove masses up the slope to the crest.
+  spots.sort((a, b) => b.height - a.height);
+  return spots.slice(0, GARDEN_RIM_RIDGE_CANOPY_MAX).map((spot, index) => ({
+    position: [spot.x * TILE_SCALE, spot.height - 0.35, spot.y * TILE_SCALE],
+    scale: 2.3 + stableUnit(`ridge-canopy.scale.${index}`) * 1.3,
+    yaw: stableUnit(`ridge-canopy.yaw.${index}`) * Math.PI * 2,
+  }));
 }
 
-function createPines(specs: readonly PineSpec[]): InstancedMesh {
-  const mesh = createSpeciesBatch("pine", specs.map((spec) => ({
-    position: [spec.x * TILE_SCALE, rimHeight(spec.x, spec.y), spec.y * TILE_SCALE],
-    scale: spec.scale, yaw: spec.yaw, leanX: spec.leanX, leanZ: spec.leanZ,
-  })));
-  mesh.name = "garden-rim-pines";
+function createRidgeCanopy(placements: readonly SpeciesPlacement[], snow: number): InstancedMesh {
+  const geometry = createNiwakiPadGeometry("ridge-canopy", new Vector3(1.6, 0.62, 1.3), new Color(1, 1, 1), 0);
+  const padOfVertex = new Int16Array(geometry.getAttribute("position").count);
+  writeFoliageRanks(geometry, padOfVertex, 1, "ridge-canopy");
+  const material = new MeshStandardMaterial({ flatShading: false, roughness: 0.98, vertexColors: true });
+  patchGardenFloraNight(material);
+  patchGardenFoliage(material, snow);
+  const mesh = new InstancedMesh(geometry, material, placements.length);
+  mesh.name = "garden-rim-ridge-grove";
+  const matrix = new Matrix4();
+  const quaternion = new Quaternion();
+  const scale = new Vector3();
+  const color = new Color();
+  // Deeper than the specimen pines: the grove is shade seen from outside.
+  const canopy = GARDEN_FLORA_COLORS.needle.clone().multiplyScalar(0.78);
+  placements.forEach((placement, index) => {
+    quaternion.setFromAxisAngle(new Vector3(0, 1, 0), placement.yaw ?? 0);
+    matrix.compose(new Vector3(...placement.position), quaternion, scale.setScalar(placement.scale ?? 1));
+    mesh.setMatrixAt(index, matrix);
+    mesh.setColorAt(index, color.copy(canopy).multiplyScalar(0.88 + stableUnit(`ridge-canopy.tone.${index}`) * 0.24));
+  });
+  geometry.setAttribute("aGardenLeaf", new InstancedBufferAttribute(new Float32Array(placements.length).fill(1), 1));
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   return mesh;
 }
-
 
 function plantingTiles(count: number, seed: string): SpeciesPlacement[] {
   const spots: SpeciesPlacement[] = [];
@@ -792,10 +1155,20 @@ function createStones(coastStones: readonly CoastStone[]): InstancedMesh {
     { scale: [1.12, 0.25, 0.72] as const, x: 82.6, y: 126.6, yaw: -0.42 },
   ].filter((stone) => clearOfStation(stone.x, stone.y));
   const skirtStones = skirtStoneTiles();
-  const count = HEADLANDS.length * 3 + steppingStones.length + skirtStones.length + coastStones.length;
+  // garden-5: the boulder toe gathers into unequal groups with open shore
+  // between them (ma) instead of a dotted line of equal eggs. A slow swell
+  // along the coast picks the groups and makes one stone of each dominant.
+  const toeGroup = (spot: CoastStone) => Math.sin(spot.x * 0.23 + spot.y * 0.19) * 0.5 + 0.5;
+  const toe = coastStones.filter((spot) => toeGroup(spot) >= 0.4);
+  const count = HEADLANDS.length * 3 + steppingStones.length + skirtStones.length + toe.length;
+  // W4.G4: set stones — flat-topped, bedded, moss on the crown, wet at the
+  // foot, a third buried — smooth-shaded. One low form; instance scale makes
+  // the triad's tall father stone and its reclining companions.
+  const geometry = createSetStoneGeometry("rim-stone", "low", 2);
+  geometry.scale(0.72, 0.72, 0.72);
   const mesh = new InstancedMesh(
-    new DodecahedronGeometry(0.72, 0),
-    new MeshStandardMaterial({ color: HARBOR_PALETTE.stone_mid, flatShading: true, roughness: 1 }),
+    geometry,
+    new MeshStandardMaterial({ roughness: 1, vertexColors: true }),
     count,
   );
   mesh.name = "garden-rim-stones";
@@ -810,14 +1183,15 @@ function createStones(coastStones: readonly CoastStone[]): InstancedMesh {
       const radius = member === 0 ? 0 : 1.05;
       const x = center.x + Math.cos(angle) * radius;
       const y = center.y + Math.sin(angle) * radius;
+      // Companions lean ~8–12° in toward the father stone (sanzon triad).
       rotation.set(
-        member === 0 ? 0.08 : 0.42,
+        member === 0 ? 0.05 : 0.18,
         angle,
-        member === 0 ? -0.12 : 0.22,
+        member === 0 ? -0.06 : 0.1,
       );
       quaternion.setFromEuler(rotation);
-      scale.set(member === 0 ? 0.85 : 0.72, member === 0 ? 1.75 : 0.62, member === 0 ? 0.72 : 1.05);
-      matrix.compose(new Vector3(x * TILE_SCALE, rimHeight(x, y) + 0.42, y * TILE_SCALE), quaternion, scale);
+      scale.set(member === 0 ? 0.85 : 1.1, member === 0 ? 1.9 : 0.62, member === 0 ? 0.72 : 0.9);
+      matrix.compose(new Vector3(x * TILE_SCALE, rimHeight(x, y) - 0.04, y * TILE_SCALE), quaternion, scale);
       mesh.setMatrixAt(index, matrix);
       index += 1;
     }
@@ -827,7 +1201,7 @@ function createStones(coastStones: readonly CoastStone[]): InstancedMesh {
     quaternion.setFromEuler(rotation);
     scale.set(step.scale[0], step.scale[1], step.scale[2]);
     matrix.compose(
-      new Vector3(step.x * TILE_SCALE, WATERLINE_Y + 0.22, step.y * TILE_SCALE),
+      new Vector3(step.x * TILE_SCALE, WATERLINE_Y + 0.12, step.y * TILE_SCALE),
       quaternion,
       scale,
     );
@@ -835,31 +1209,32 @@ function createStones(coastStones: readonly CoastStone[]): InstancedMesh {
     index += 1;
   }
   for (const spot of skirtStones) {
-    rotation.set(0.34, stableUnit(`rim-skirt-stone-yaw.${spot.x}.${spot.y}`) * Math.PI * 2, 0.18);
+    rotation.set(0.1, stableUnit(`rim-skirt-stone-yaw.${spot.x}.${spot.y}`) * Math.PI * 2, 0.06);
     quaternion.setFromEuler(rotation);
     scale.set(0.62, 0.55, 0.88);
     matrix.compose(
-      new Vector3(spot.x * TILE_SCALE, rimHeight(spot.x, spot.y) + 0.3, spot.y * TILE_SCALE),
+      new Vector3(spot.x * TILE_SCALE, rimHeight(spot.x, spot.y) - 0.04, spot.y * TILE_SCALE),
       quaternion,
       scale,
     );
     mesh.setMatrixAt(index, matrix);
     index += 1;
   }
-  for (const spot of coastStones) {
+  for (const spot of toe) {
     const seed = `${spot.x.toFixed(2)}.${spot.y.toFixed(2)}`;
     rotation.set(
-      0.2 + stableUnit(`rim-boulder-pitch.${seed}`) * 0.35,
+      0.06 + stableUnit(`rim-boulder-pitch.${seed}`) * 0.14,
       stableUnit(`rim-boulder-yaw.${seed}`) * Math.PI * 2,
-      0.12,
+      0.05,
     );
     quaternion.setFromEuler(rotation);
-    const size = 0.42 + stableUnit(`rim-boulder-size.${seed}`) * 0.28;
-    scale.set(size, size * 0.72, size * 0.86);
+    const group = toeGroup(spot);
+    const size = (0.34 + stableUnit(`rim-boulder-size.${seed}`) * 0.24) * (0.6 + group * group * 1.1);
+    scale.set(size, size * 0.8, size * 0.86);
     matrix.compose(
       new Vector3(
         MathUtils.clamp(spot.x * TILE_SCALE + spot.outwardX * 0.22, 0, 145 * TILE_SCALE),
-        WATERLINE_Y + 0.18,
+        WATERLINE_Y + 0.02,
         MathUtils.clamp(spot.y * TILE_SCALE + spot.outwardZ * 0.22, 0, 145 * TILE_SCALE),
       ),
       quaternion,
@@ -986,11 +1361,10 @@ function buildPathGeometry(): {
 }
 
 /**
- * @param season drives the broadleaf crown colour only (T2.2d). Defaulted to
- * summer so every existing no-argument call site keeps compiling and keeps
- * its authored green.
+ * @param date the world calendar day: deciduous phenology and the rare snow
+ * (garden-calendar). Omitted, the garden is a green summer day without snow.
  */
-export function createGardenRimMesh(season: GardenSeason = "summer"): GardenRimMesh {
+export function createGardenRimMesh(date?: Date): GardenRimMesh {
   const root = new Group();
   root.name = "garden-rim";
   const land = buildLandGeometry();
@@ -1000,12 +1374,14 @@ export function createGardenRimMesh(season: GardenSeason = "summer"): GardenRimM
   top.name = "garden-rim-land";
   const face = new Mesh(land.face, landMaterial);
   face.name = "garden-rim-tide-rock";
-  const pineSpecs = pineTiles();
-  const pines = createPines(pineSpecs);
-  const understory = createSpeciesBatch("karikomi", plantingTiles(80, "karikomi").map((placement, i) => ({ ...placement, scale: 0.8 + stableUnit(`karikomi-size.${i}`) * 0.66 })));
-  const broadleaf = createSpeciesBatch("momiji", plantingTiles(40, "deciduous").slice(0, 40), season);
-  const cherry = createSpeciesBatch("cherry", plantingTiles(60, "deciduous").slice(40), season);
-  const bamboo = createSpeciesBatch("bamboo", plantingTiles(35, "bamboo"));
+  const dress = { date };
+  const pines = createSpeciesBatch("pine", nearBand(rimPinePlacements()), dress);
+  pines.name = "garden-rim-pines";
+  const understory = createSpeciesBatch("karikomi", nearBand(karikomiPlacements()), dress);
+  const broadleaf = createSpeciesBatch("momiji", nearBand(specimenPlacements(MOMIJI_PLANTING, "momiji", [1.05, 1.35])), dress);
+  const cherry = createSpeciesBatch("cherry", nearBand(specimenPlacements(CHERRY_PLANTING, "cherry", [1.1, 1.3])), dress);
+  const bamboo = createSpeciesBatch("bamboo", nearBand(specimenPlacements(BAMBOO_GROVES, "bamboo", [0.95, 1.2])), dress);
+  const ridgeGrove = createRidgeCanopy(ridgeCanopyPlacements(), date ? gardenSnowCover(date) : 0);
   const stones = createStones(land.coastStones);
   const revetments = createRevetments(land.revetments);
   const path = buildPathGeometry();
@@ -1013,7 +1389,7 @@ export function createGardenRimMesh(season: GardenSeason = "summer"): GardenRimM
   const pathMesh = new Mesh(path.geometry, pathMaterial);
   pathMesh.name = "garden-rim-path";
   const drawables = [
-    top, face, pathMesh, pines, understory, broadleaf, cherry, bamboo, stones, revetments,
+    top, face, pathMesh, pines, understory, broadleaf, cherry, bamboo, stones, revetments, ridgeGrove,
   ];
   root.add(...drawables);
   for (const object of drawables) {

@@ -1,31 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HarborLog } from "../components/harbor-log";
 import type { ShipRiskTransitionEntry } from "../components/accessibility-ledger";
 import type { ShipNode } from "../systems/world-types";
-import { HARBOR_LOG_LIMIT, useHarborLog } from "./use-harbor-log";
-
-function HookHarness({
-  onSelectDetail,
-  riskTransitionByShipId,
-  setAnnouncement,
-  shipsById,
-}: {
-  onSelectDetail: (detailId: string) => void;
-  riskTransitionByShipId: ReadonlyMap<string, ShipRiskTransitionEntry>;
-  setAnnouncement: (message: string) => void;
-  shipsById: ReadonlyMap<string, ShipNode>;
-}) {
-  const harborLog = useHarborLog({ riskTransitionByShipId, setAnnouncement, shipsById });
-  return (
-    <HarborLog
-      entries={harborLog.entries}
-      onDismiss={harborLog.dismiss}
-      onSelectDetail={onSelectDetail}
-    />
-  );
-}
+import { HARBOR_LOG_HOLD_MS, HARBOR_LOG_SPOKEN_LIMIT, useHarborLog } from "./use-harbor-log";
 
 function ship(symbol: string): ShipNode {
   return {
@@ -40,63 +18,50 @@ function transition(fromLabel: string, toLabel: string): ShipRiskTransitionEntry
 }
 
 afterEach(() => {
-  cleanup();
+  vi.useRealTimers();
 });
 
 describe("useHarborLog", () => {
-  it("logs new risk-band transitions once, clickable to the ship, and announces them", () => {
-    const onSelectDetail = vi.fn();
-    const setAnnouncement = vi.fn();
+  it("speaks each new transition once on the now-line and keeps it in the session log", () => {
+    vi.useFakeTimers();
     const shipsById = new Map([["usdx", ship("USDX")]]);
     const transitions = new Map([["usdx", transition("Calm Anchorage", "Danger Strait")]]);
-
-    const { rerender } = render(
-      <HookHarness
-        onSelectDetail={onSelectDetail}
-        riskTransitionByShipId={transitions}
-        setAnnouncement={setAnnouncement}
-        shipsById={shipsById}
-      />,
+    const { result, rerender } = renderHook(
+      (props: { map: ReadonlyMap<string, ShipRiskTransitionEntry>; observedAt: number }) => useHarborLog({
+        riskTransitionByShipId: props.map,
+        shipsById,
+        observedAt: props.observedAt,
+      }),
+      { initialProps: { map: transitions, observedAt: 1000 } },
     );
 
-    const entry = screen.getByRole("button", { name: "USDX left Calm Anchorage for Danger Strait" });
-    expect(setAnnouncement).toHaveBeenCalledWith("Harbor log: USDX left Calm Anchorage for Danger Strait.");
+    expect(result.current.current).toMatchObject({ symbol: "USDX", toLabel: "Danger Strait", observedAt: 1000 });
+    expect(result.current.entries.map((entry) => entry.message)).toEqual(["USDX left Calm Anchorage for Danger Strait"]);
 
-    fireEvent.click(entry);
-    expect(onSelectDetail).toHaveBeenCalledWith("ship.usdx");
-
-    // The same transition surviving the next refresh must not duplicate.
-    rerender(
-      <HookHarness
-        onSelectDetail={onSelectDetail}
-        riskTransitionByShipId={new Map(transitions)}
-        setAnnouncement={setAnnouncement}
-        shipsById={shipsById}
-      />,
-    );
-    expect(screen.getAllByRole("listitem")).toHaveLength(1);
-    expect(setAnnouncement).toHaveBeenCalledTimes(1);
+    // The same transition surviving the next refresh neither repeats nor duplicates.
+    act(() => vi.advanceTimersByTime(HARBOR_LOG_HOLD_MS));
+    expect(result.current.current).toBeNull();
+    rerender({ map: new Map(transitions), observedAt: 2000 });
+    expect(result.current.current).toBeNull();
+    expect(result.current.entries).toHaveLength(1);
   });
 
-  it("caps the visible log and renders nothing once dismissed", () => {
+  it("speaks one phrase at a time and sends overflow to the ledger only", () => {
+    vi.useFakeTimers();
     const symbols = ["A1", "B2", "C3", "D4", "E5", "F6"];
     const shipsById = new Map(symbols.map((symbol) => [symbol.toLowerCase(), ship(symbol)]));
     const transitions = new Map(
       symbols.map((symbol) => [symbol.toLowerCase(), transition("Calm Anchorage", "Watch Breakwater")]),
     );
+    const { result } = renderHook(() => useHarborLog({ riskTransitionByShipId: transitions, shipsById, observedAt: 1000 }));
 
-    render(
-      <HookHarness
-        onSelectDetail={() => undefined}
-        riskTransitionByShipId={transitions}
-        setAnnouncement={() => undefined}
-        shipsById={shipsById}
-      />,
-    );
-
-    expect(screen.getAllByRole("listitem")).toHaveLength(HARBOR_LOG_LIMIT);
-
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss harbor log" }));
-    expect(screen.queryByTestId("pharosville-harbor-log")).toBeNull();
+    expect(result.current.entries).toHaveLength(symbols.length);
+    const spoken: string[] = [];
+    for (let step = 0; step < symbols.length; step += 1) {
+      if (result.current.current) spoken.push(result.current.current.symbol);
+      act(() => vi.advanceTimersByTime(HARBOR_LOG_HOLD_MS));
+    }
+    expect(spoken).toEqual(symbols.slice(0, HARBOR_LOG_SPOKEN_LIMIT));
+    expect(result.current.current).toBeNull();
   });
 });

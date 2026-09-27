@@ -12,7 +12,50 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="preload" href="/fonts/eb-garamond-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/eb-garamond-400-italic-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/eb-garamond-600-latin.woff2" as="font" type="font/woff2" crossorigin />
     <meta name="theme-color" content="#12313d" />
+    <script>
+      // K17: the page opens on the hour's own sky-to-sea gradient before any module loads. A copy of
+      // dayCycleBeats (day-cycle-beats.ts, sky-almanac.ts): nominal 35°, hemisphere from the zone, solar
+      // noon at 12 standard time. garden-arrival.test.ts pins the copy and its CSP hash (public/_headers).
+      (function () {
+        try {
+          var q = new URLSearchParams(location.search.slice(1) + "&" + location.hash.replace(/^#\??/, ""));
+          var now = new Date(), r = Math.PI / 180, t = parseFloat(q.get("t") || "");
+          var pin = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && /^(\d{4})-(\d\d)-(\d\d)$/.exec(q.get("d") || "");
+          var Y = pin ? +pin[1] : now.getFullYear(), M = pin ? pin[2] - 1 : now.getMonth(), D = pin ? +pin[3] : now.getDate();
+          var h = t >= 0 ? Math.min(24, t) : q.get("n") === "1" ? 22 : now.getHours() + now.getMinutes() / 60;
+          var jan = new Date(Y, 0, 1).getTimezoneOffset(), jul = new Date(Y, 6, 1).getTimezoneOffset();
+          var zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+          var south = (jan !== jul && jan < jul) || /^(Antarctica\/|Australia\/|America\/(Argentina\/|Asuncion|Bahia|Buenos_Aires|Campo_Grande|Cuiaba|La_Paz|Lima|Montevideo|Punta_Arenas|Recife|Santiago|Sao_Paulo)|Africa\/(Johannesburg|Maputo|Harare|Lusaka|Windhoek|Gaborone|Maseru|Mbabane|Luanda|Lubumbashi|Blantyre|Dar_es_Salaam)|Asia\/Jakarta|Indian\/(Antananarivo|Mauritius|Reunion)|Pacific\/(Apia|Auckland|Chatham|Fiji|Noumea|Port_Moresby|Tahiti|Tongatapu))/.test(zone);
+          var doy = Math.round((Date.UTC(Y, M, D) - Date.UTC(Y, 0, 1)) / 864e5) + 1, lat = (south ? -35 : 35) * r;
+          var dec = 23.44 * r * Math.sin((2 * Math.PI * (284 + doy)) / 365);
+          var ha = h - 12 - (Math.max(jan, jul) - new Date(Y, M, D, 12).getTimezoneOffset()) / 60;
+          ha -= 24 * Math.floor((ha + 12) / 24);
+          var e = Math.asin(Math.min(1, Math.max(-1, Math.sin(lat) * Math.sin(dec) + Math.cos(lat) * Math.cos(dec) * Math.cos(ha * 15 * r)))) / r;
+          var s = function (a, b) { var x = Math.min(1, Math.max(0, (e - a) / (b - a))); return x * x * (3 - 2 * x); };
+          var w = ha >= 0 // dawn, day, golden, blue, night
+            ? e >= 8 ? [0, 1 - s(16, 8), s(16, 8), 0, 0] : e >= 4 ? [0, 0, 1, 0, 0]
+              : e >= -4 ? [0, 0, 1 - s(4, -4), s(4, -4), 0] : [0, 0, 0, 1 - s(-4, -12), s(-4, -12)]
+            : e < -2 ? [s(-12, -2), 0, 0, 0, 1 - s(-12, -2)] : e < 6 ? [1, 0, 0, 0, 0] : [1 - s(6, 16), s(6, 16), 0, 0, 0];
+          // Top, horizon and threshold means of the clean rest still at each beat (public/pharosville/stills).
+          var C = [[0x787081, 0x947e78, 0x0b0a08], [0x4986bb, 0x516e8f, 0x0c2329], [0x4b4c7f, 0x5f5d7c, 0x04030f],
+            [0x151d4b, 0x1a274b, 0x010206], [0x141b34, 0x151e39, 0x000205]];
+          var root = document.documentElement, stops = [], beat = 0;
+          for (var k = 0; k < 3; k += 1) {
+            var rgb = [16, 8, 0].map(function (bit) { return Math.round(w.reduce(function (sum, wi, i) { return sum + wi * ((C[i][k] >> bit) & 255); }, 0)); });
+            stops.push("rgb(" + rgb.join(",") + ")");
+            root.style.setProperty(["--pv-veil-top", "--pv-veil-mid", "--pv-veil-bottom"][k], stops[k]);
+          }
+          for (var i = 1; i < 5; i += 1) if (w[i] > w[beat]) beat = i;
+          root.setAttribute("data-pv-veil-beat", ["dawn", "day", "golden", "blue", "night"][beat]);
+          root.style.background = stops[2] + " linear-gradient(" + stops[0] + "," + stops[1] + " 42%," + stops[2] + " 80%) fixed";
+        } catch (error) {
+          document.documentElement.style.background = "#12313d";
+        }
+      })();
+    </script>
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="PharosVille" />

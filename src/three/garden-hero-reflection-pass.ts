@@ -126,8 +126,12 @@ export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
         uniforms.uHeroReflectionStrength.value = 0;
         return;
       }
+      // W8.1 (headroom-1): half the CSS size, whatever the DPR. The water
+      // blurs this below the contact line and bends it by its normals, so a
+      // retina panel gains nothing from a 4× larger target but its cost.
       renderer.getDrawingBufferSize(size);
-      target.setSize(Math.max(1, Math.floor(size.x / 2)), Math.max(1, Math.floor(size.y / 2)));
+      const cssPixelScale = 1 / (2 * Math.max(1, renderer.getPixelRatio()));
+      target.setSize(Math.max(1, Math.floor(size.x * cssPixelScale)), Math.max(1, Math.floor(size.y * cssPixelScale)));
       mirrorGardenHeroCamera(main, camera);
       matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       const previousTarget = renderer.getRenderTarget();

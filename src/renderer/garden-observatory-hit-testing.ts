@@ -356,7 +356,7 @@ export function createGardenStationLabelFrame(input: {
   for (const dock of input.world.docks) {
     anchorsByDetailId.set(dock.detailId, gardenTileToScreen(
       gardenDockDisplayTile(dock.tile),
-      GARDEN_DOCK_ROOT_Y + stationScaleFor(dock.station.type, dock.totalUsd).secondLevelTop,
+      GARDEN_DOCK_ROOT_Y + stationScaleFor(dock.station.type, dock.totalUsd).silhouetteTop,
       input.camera,
       { x: input.viewport.width, y: input.viewport.height },
     ));
@@ -562,9 +562,9 @@ export function gardenDockFlagHitRect(
 
 /**
  * Screen bounds of a station's nobori cloth over the renderer's full pose
- * range: wind swings each banner up to ±0.28 rad about its pole and gusts tilt
- * it ±0.075 rad at the pole head (`setFlagPose`). Mirrors the instance matrix
- * `garden-harbor-batch.ts` writes, including the baked belly (±0.06 of width).
+ * range: the shared wind swings each banner up to ±0.28 rad about its pole
+ * and the travelling folds displace the cloth up to ±0.21 of its width off
+ * its plane (`garden-harbor-batch.ts` cloth program).
  */
 function authoredDockFlagBounds(
   dock: DockNode,
@@ -584,16 +584,14 @@ function authoredDockFlagBounds(
     };
     const top = GARDEN_DOCK_ROOT_Y + banner.clothTopY;
     const width = banner.clothWidth;
-    for (const yawOffset of [-0.28, 0, 0.28]) for (const roll of [-0.075, 0, 0.075]) {
+    for (const yawOffset of [-0.28, 0, 0.28]) {
       const yaw = HARBOR_NOBORI_FACING_YAW + yawOffset;
       for (const x of [0.055, 0.055 + width]) {
-        for (const y of [-NOBORI_CLOTH_ASPECT * width, 0.05 * width]) for (const z of [-0.06 * width, 0.06 * width]) {
-          const rx = x * Math.cos(roll) - y * Math.sin(roll);
-          const ry = x * Math.sin(roll) + y * Math.cos(roll);
+        for (const y of [-NOBORI_CLOTH_ASPECT * width, 0.05 * width]) for (const z of [-0.21 * width, 0.21 * width]) {
           points.push(gardenTileToScreen({
-            x: pole.x + (rx * Math.cos(yaw) + z * Math.sin(yaw)) / TILE_SCALE,
-            y: pole.y + (-rx * Math.sin(yaw) + z * Math.cos(yaw)) / TILE_SCALE,
-          }, top + ry, camera, viewport));
+            x: pole.x + (x * Math.cos(yaw) + z * Math.sin(yaw)) / TILE_SCALE,
+            y: pole.y + (-x * Math.sin(yaw) + z * Math.cos(yaw)) / TILE_SCALE,
+          }, top + y, camera, viewport));
         }
       }
     }

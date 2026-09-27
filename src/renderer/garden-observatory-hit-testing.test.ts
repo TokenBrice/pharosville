@@ -84,15 +84,15 @@ describe("Garden Observatory hit targets", () => {
         const flag = snapshot.targets.find((target) => target.id === `${dock.id}.flag`)!;
         const quay = snapshot.targetsByDetailId.get(dock.detailId)!;
         expect(quay.id).toBe(dock.id);
-        for (const banner of placement.banners) for (const yaw of [-0.28, 0, 0.28]) for (const roll of [-0.06, 0.06]) {
+        for (const banner of placement.banners) for (const yaw of [-0.28, 0, 0.28]) {
           const matrix = new Matrix4().makeTranslation(banner.x, banner.clothTopY, banner.z)
             .multiply(new Matrix4().makeRotationY(placement.yaw + yaw))
-            .multiply(new Matrix4().makeRotationZ(roll))
             .multiply(new Matrix4().makeTranslation(0.055, 0, 0))
             .multiply(new Matrix4().makeScale(banner.clothWidth, banner.clothWidth, banner.clothWidth));
           matrix.premultiply(recipe.rootMatrix);
-          for (const x of [0, 1]) for (const y of [-NOBORI_CLOTH_ASPECT, 0]) {
-            const point = new Vector3(x, y, 0).applyMatrix4(matrix);
+          // The travelling folds move the free corner up to ±0.21 of the width off the plane.
+          for (const x of [0, 1]) for (const y of [-NOBORI_CLOTH_ASPECT, 0]) for (const fold of [-0.21, 0.21]) {
+            const point = new Vector3(x, y, x * fold).applyMatrix4(matrix);
             const screen = gardenTileToScreen(
               { x: point.x / Math.SQRT2, y: point.z / Math.SQRT2 },
               point.y,

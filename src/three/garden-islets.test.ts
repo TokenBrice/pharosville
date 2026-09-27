@@ -28,8 +28,9 @@ describe("garden islets (Z5)", () => {
     expect(crag!.count).toBe(4);
     expect(reef!.count).toBe(7);
     expect(islets.stoneCount).toBe(11);
-    // G2 shared plate pines: 214 triangles each; whole islets 1,736.
-    expect(islets.triangleCount).toBeLessThanOrEqual(1_800);
+    // W4.G1: the rim niwaki (~0.95k triangles) on four stones; the whole
+    // islet set stays under 5k.
+    expect(islets.triangleCount).toBeLessThanOrEqual(5_000);
     expect(islets.root.getObjectByName("garden-torii")).toBeUndefined();
     const pines = islets.root.getObjectByName("garden-islets-pines") as InstancedMesh;
     expect(pines).toBeInstanceOf(InstancedMesh);

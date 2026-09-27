@@ -50,8 +50,10 @@ export function createGardenPrecinct(): Group {
       // retain a watertight edge while the dry-laid stones lose their grid.
       const noise = jitter === 0 ? 0 : jitter * (stableUnit(`precinct.v.${block}.${p.getX(i)}.${p.getY(i)}.${p.getZ(i)}`) - 0.5);
       p.setXYZ(i, p.getX(i) + x + noise, p.getY(i) + y + noise, p.getZ(i) + z - noise);
+      // W4.P1: a dry-laid stone a step under the tower's limestone, so the
+      // tower's lit face stays the brightest land value above the gate.
       if (tint) color.copy(tint);
-      else color.copy(PALE).lerp(DARK, 0.16);
+      else color.copy(PALE).lerp(DARK, 0.3);
       color.multiplyScalar(tone * (p.getY(i) < y - h * 0.4 ? 0.86 : 1));
       colors.push(color.r, color.g, color.b);
     }
@@ -95,9 +97,10 @@ export function createGardenPrecinct(): Group {
   add(glow, 0.03, 0.37, 0.24, gx + 0.35, COURT_Y + 1.3, gz + 1.475);
   // The stair-head landing the quay stair arrives on.
   add(stone, 2.5, 0.22, 1.8, gx + 1.65, COURT_Y - 0.11, gz);
+  // X10 / §1.1 rule 3: props take ≤ 0.3 of the environment — value, no sheen.
   const materials = [
-    new MeshStandardMaterial({ vertexColors: true, roughness: 0.96, flatShading: true }),
-    new MeshStandardMaterial({ color: HARBOR_PALETTE.iron_dark, roughness: 1 }),
+    new MeshStandardMaterial({ envMapIntensity: 0.3, vertexColors: true, roughness: 0.96, flatShading: true }),
+    new MeshStandardMaterial({ color: HARBOR_PALETTE.iron_dark, envMapIntensity: 0.3, roughness: 1 }),
     // T0.2 (2026-09-07): the keeper's window was a frozen 0.65 — lit at noon,
     // no brighter at midnight. Carrying the shared aperture material NAME puts
     // it on the day cycle's tower-window curve with no handle of its own; see

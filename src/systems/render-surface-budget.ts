@@ -15,6 +15,23 @@ export const ADAPTIVE_DPR_PACING_QUIET_DRAW_P90_MS = 8;
 // ~0.5s at 60fps: enough pacing samples that a single GC/raster hiccup cannot
 // dominate the p90 while the interval window is still filling.
 export const ADAPTIVE_DPR_PACING_MIN_SAMPLES = 30;
+/**
+ * W8.1 (headroom-1): the governor's ceiling on a display below this density.
+ *
+ * Supersampling is the best anti-aliasing this renderer has measured (the
+ * W0.2 A/B scored against a 2× supersample). A DPR-1 desk monitor starts at
+ * its native density and earns up to 1.5× only through the governor's calm
+ * streak (`ADAPTIVE_DPR_UPSHIFT_*`), and gives it back on the same downshift
+ * rules. The 8 MP main-canvas cap still binds first on large panels (1440p
+ * clamps near 1.47).
+ */
+export const ADAPTIVE_DPR_SUPERSAMPLE_CEILING = 1.5;
+
+/** The highest DPR the governor may request on a display of `deviceDpr`. */
+export function resolveMaximumRequestedDpr(deviceDpr: number): number {
+  const device = Number.isFinite(deviceDpr) ? Math.max(1, deviceDpr) : 1;
+  return Math.max(device, ADAPTIVE_DPR_SUPERSAMPLE_CEILING);
+}
 
 export interface DrawDurationWindow {
   capacity: number;

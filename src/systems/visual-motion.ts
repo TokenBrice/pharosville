@@ -194,6 +194,11 @@ function isCompatibleStateTransition(entry: VisualShipMotionMemory, target: Ship
   if (entry.lastState === "departing" && (target.state === "risk-drift" || target.state === "sailing")) return true;
   if ((entry.lastState === "risk-drift" || entry.lastState === "sailing") && target.state === "arriving") return true;
   if (entry.lastState === "arriving" && target.state === "moored") return true;
+  // W4.F9: the anchorage rounds up from, and weighs onto, its voyages with a
+  // continuous pose, so rest↔voyage boundaries ease instead of snapping.
+  if (entry.lastState === "sailing" && target.state === "risk-drift") return true;
+  if (entry.lastState === "risk-drift" && (target.state === "sailing" || target.state === "departing")) return true;
+  if (entry.lastState === "arriving" && target.state === "risk-drift") return true;
 
   const ledgerRoute = entry.lastZone === "ledger"
     || target.zone === "ledger"
@@ -221,13 +226,21 @@ function smoothSampleInto(
   const previousY = out.tile.y;
   out.tile.x += (target.tile.x - out.tile.x) * tileAlpha;
   out.tile.y += (target.tile.y - out.tile.y) * tileAlpha;
-  smoothHeadingInto(target, out, headingAlpha);
+  smoothHeadingInto(target, out, headingAlpha, deltaSeconds);
   writeDisplayVelocityInto(out, out.tile.x - previousX, out.tile.y - previousY, deltaSeconds);
   out.wakeIntensity += (target.wakeIntensity - out.wakeIntensity) * numericAlpha;
   out.mapVisibilityAlpha += (target.mapVisibilityAlpha - out.mapVisibilityAlpha) * numericAlpha;
 }
 
-function smoothHeadingInto(target: ShipMotionSample, out: ShipMotionSample, alpha: number): void {
+/**
+ * Yaw-rate ceilings for the display heading (fleet-motion D2): a hull under
+ * way turns at most 30 °/s, one at rest 8 °/s — enough for the anchorage's
+ * round-up and the widest danger sheer (≈ 3.6 °/s), never a pirouette.
+ */
+const UNDERWAY_MAX_YAW_RAD_PER_SECOND = 30 * Math.PI / 180;
+const REST_MAX_YAW_RAD_PER_SECOND = 8 * Math.PI / 180;
+
+function smoothHeadingInto(target: ShipMotionSample, out: ShipMotionSample, alpha: number, deltaSeconds: number): void {
   const targetLength = Math.hypot(target.heading.x, target.heading.y);
   if (targetLength <= Number.EPSILON) {
     out.heading.x = 0;
@@ -235,23 +248,20 @@ function smoothHeadingInto(target: ShipMotionSample, out: ShipMotionSample, alph
     return;
   }
 
-  const targetX = target.heading.x / targetLength;
-  const targetY = target.heading.y / targetLength;
+  const targetAngle = Math.atan2(target.heading.y, target.heading.x);
   const currentLength = Math.hypot(out.heading.x, out.heading.y);
-  const currentX = currentLength > Number.EPSILON ? out.heading.x / currentLength : targetX;
-  const currentY = currentLength > Number.EPSILON ? out.heading.y / currentLength : targetY;
-  const nextX = currentX + (targetX - currentX) * alpha;
-  const nextY = currentY + (targetY - currentY) * alpha;
-  const nextLength = Math.hypot(nextX, nextY);
-
-  if (nextLength <= Number.EPSILON) {
-    out.heading.x = targetX;
-    out.heading.y = targetY;
+  if (currentLength <= Number.EPSILON) {
+    out.heading.x = target.heading.x / targetLength;
+    out.heading.y = target.heading.y / targetLength;
     return;
   }
-
-  out.heading.x = nextX / nextLength;
-  out.heading.y = nextY / nextLength;
+  const currentAngle = Math.atan2(out.heading.y, out.heading.x);
+  const delta = Math.atan2(Math.sin(targetAngle - currentAngle), Math.cos(targetAngle - currentAngle));
+  const underway = target.state === "departing" || target.state === "sailing" || target.state === "arriving";
+  const maxStep = (underway ? UNDERWAY_MAX_YAW_RAD_PER_SECOND : REST_MAX_YAW_RAD_PER_SECOND) * deltaSeconds;
+  const step = Math.max(-maxStep, Math.min(maxStep, delta * alpha));
+  out.heading.x = Math.cos(currentAngle + step);
+  out.heading.y = Math.sin(currentAngle + step);
 }
 
 function copyExactSample(target: ShipMotionSample, out: ShipMotionSample): void {
@@ -275,6 +285,12 @@ function copyTargetMetadata(target: ShipMotionSample, out: ShipMotionSample): vo
   out.currentDockId = target.currentDockId;
   out.currentRouteStopId = target.currentRouteStopId;
   out.currentRouteStopKind = target.currentRouteStopKind;
+  // Contract F-A and the sail set are clock-pure and already eased at their
+  // source; the display copies them so cloth, heel and hull agree.
+  out.sailSet = target.sailSet;
+  out.heelRad = target.heelRad;
+  out.sailTrimRad = target.sailTrimRad;
+  out.luff = target.luff;
   const targetSegment = target.segment;
   if (targetSegment) {
     const segment = out.segment ?? { ...targetSegment };
@@ -369,6 +385,10 @@ function createDisplaySample(): ShipMotionSample {
     state: "idle",
     zone: "calm",
     routeKey: null,
+    sailSet: 0,
+    heelRad: undefined,
+    sailTrimRad: undefined,
+    luff: undefined,
     routePathKey: null,
     currentDockId: null,
     currentRouteStopId: null,

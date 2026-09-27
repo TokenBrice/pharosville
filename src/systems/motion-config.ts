@@ -27,28 +27,27 @@ export const ZONE_DWELL = {
 export const DOCKED_SHIP_DWELL_SHARE = 1 / 3;
 
 /**
- * Wave 4b leg cadence. A route cycle is two travel legs and two rests:
- * berth -> risk-water waypoint -> next berth. Identity-derived durations keep
- * individual ships from becoming a fleet-wide metronome. The paired dock and
- * risk rests are balanced so a docked route still spends exactly one third of
- * its cycle visibly moored.
+ * Hour-Print leg cadence (W4.F11). A route cycle is two travel legs and two
+ * long rests: berth -> risk-water anchorage -> next berth. Every departure
+ * begins inside the scheduler's departure window and every homecoming ends
+ * inside its homecoming window (`garden-attention-scheduler.ts`), so the
+ * harbour gathers its voyages and then stands still between them. Rests are
+ * whole lattice steps apart, which keeps them inside 600–1500 s; identity
+ * picks each ship's place inside the windows and which lap it sails on.
  */
 export const MOTION_LEG_MIN_SECONDS = 90;
 export const MOTION_LEG_MAX_SECONDS = 180;
-export const MOTION_REST_MIN_SECONDS = 240;
-export const MOTION_REST_MAX_SECONDS = 480;
-export const MOTION_CYCLE_MAX_SECONDS = 1_320;
+export const MOTION_REST_MIN_SECONDS = 600;
+export const MOTION_REST_MAX_SECONDS = 1_500;
+export const MOTION_CYCLE_MAX_SECONDS = 3_600;
 export const MOTION_TRANSITION_SHARE = 0.34;
-export const MOTION_PAIR_WINDOW_SECONDS = 15;
-export const MOTION_PAIR_HORIZON_SECONDS = 600;
-export const MOTION_PAIR_SLOT_SECONDS = 10;
 export const MOTION_UNDERWAY_MIN_TILES_PER_SECOND = 0.45;
 export const MOTION_UNDERWAY_MAX_TILES_PER_SECOND = 0.8;
 
 export const MOTION_ROUTE_MEANING_CAVEAT = "Routes show rendered-chain and risk-water presence only; they do not measure transfers, bridge volume, transactions, or issuer operations.";
 
 export function motionCadenceDetailLabel(): string {
-  return `90–180 s legs; 240–480 s rests; arrivals and departures are paired. Risk-water rests grow more restless in risk order from calm through watch, alert and warning to danger. ${MOTION_ROUTE_MEANING_CAVEAT}`;
+  return `90–180 s legs; 600–1500 s rests; departures and homecomings gather in shared windows, and the harbour stands still between them. At anchor a ship lies to the wind and sheers on its rode, wider and quicker in risk order from calm through watch, alert and warning to danger; the whole anchorage swings together only when the wind shifts, at most twice a day. ${MOTION_ROUTE_MEANING_CAVEAT}`;
 }
 
 export const ARRIVING_FULL_TRANSIT_END = 0.85;

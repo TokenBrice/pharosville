@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDetailFactSections,
-  buildDetailReadingLine,
+  buildDetailReadingCells,
   classifyDetailFactLabel,
   compactCurrency,
   composeCurrently,
@@ -268,9 +268,9 @@ describe("buildDetailFactSections folds", () => {
   });
 });
 
-describe("buildDetailReadingLine", () => {
+describe("buildDetailReadingCells", () => {
   const shipFacts = [
-    { label: "Peg deviation", value: "-1 bps vs GOLD — below peg; hull rides low" },
+    { label: "Peg deviation", value: "\u22121 bps vs GOLD — below peg; hull rides low" },
     { label: "Market cap", value: "$2,547,000,000" },
     { label: "Fleet rank", value: "#12 of 187" },
     { label: "Share of fleet", value: "0.8% of fleet" },
@@ -278,44 +278,51 @@ describe("buildDetailReadingLine", () => {
     { label: "Cycle tempo", value: "Active" },
   ];
 
-  it("quotes at most three ship figures in a fixed order", () => {
-    expect(buildDetailReadingLine("ship", shipFacts)).toBe("$2.5B · #12 of 187 · -14.0% 24h");
+  it("quotes at most three labelled ship figures in a fixed order, with a true minus", () => {
+    expect(buildDetailReadingCells("ship", shipFacts)).toEqual([
+      { label: "supply", value: "$2.5B" },
+      { label: "rank", value: "#12 of 187" },
+      { label: "24h", value: "\u221214.0%" },
+    ]);
   });
 
   it("falls through to later figures when an earlier one is missing", () => {
     const withoutRank = shipFacts.filter((fact) => fact.label !== "Fleet rank");
-    expect(buildDetailReadingLine("ship", withoutRank))
-      .toBe("$2.5B · -14.0% 24h · -1 bps vs GOLD");
+    expect(buildDetailReadingCells("ship", withoutRank).map((cell) => cell.value))
+      .toEqual(["$2.5B", "\u221214.0%", "\u22121 bps vs GOLD"]);
   });
 
   it("skips placeholder values rather than quoting them", () => {
-    expect(buildDetailReadingLine("ship", [
+    expect(buildDetailReadingCells("ship", [
       { label: "Market cap", value: "Unavailable" },
       { label: "24h supply change", value: "\u2014" },
       { label: "Cycle tempo", value: "Resting" },
-    ])).toBe("Resting");
+    ])).toEqual([{ label: "tempo", value: "Resting" }]);
   });
 
   it("reads docks by supply, count and health", () => {
-    expect(buildDetailReadingLine("dock", [
+    expect(buildDetailReadingCells("dock", [
       { label: "Stablecoin supply", value: "$74,000,000,000" },
       { label: "Harbor rank", value: "#1 of 8 rendered harbors" },
       { label: "Stablecoin count", value: "12" },
       { label: "Health", value: "robust" },
-    ])).toBe("$74.0B · 12 stablecoins · robust health");
+    ])).toEqual([
+      { label: "supply", value: "$74.0B" },
+      { label: "stablecoins", value: "12" },
+      { label: "health", value: "robust" },
+    ]);
   });
 
   it("omits the line entirely when the lighthouse has no figure to quote", () => {
-    expect(buildDetailReadingLine("lighthouse", [
+    expect(buildDetailReadingCells("lighthouse", [
       { label: "Score", value: "Unavailable" },
       { label: "Band", value: "Unavailable" },
       { label: "Last fleet depeg", value: "None on record" },
-    ])).toBeNull();
+    ])).toEqual([]);
   });
 
   it("has no reading line for kinds that carry no figures", () => {
-    expect(buildDetailReadingLine("pigeonnier", [{ label: "Channel", value: "PharosWatch" }]))
-      .toBeNull();
+    expect(buildDetailReadingCells("pigeonnier", [{ label: "Channel", value: "PharosWatch" }])).toEqual([]);
   });
 });
 

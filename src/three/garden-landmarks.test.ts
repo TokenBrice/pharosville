@@ -187,7 +187,7 @@ describe("garden landmarks", () => {
     expect(checked).toBe(18);
   });
 
-  it("keeps each family readable above water beside a taller stone marker", () => {
+  it("keeps each family readable above water with no per-hull gravestone", () => {
     const cemetery = createGardenCemetery(wreckField(24));
     // The hero hull: strictly largest, carries the lantern, reads bigger
     // than the 40–60px subordinate boats on purpose.
@@ -202,10 +202,12 @@ describe("garden landmarks", () => {
       ).filter((index) => roles.getX(index) === role)
         .map((index) => positions.getY(index));
       const readableSilhouette = yForRole(3);
-      const stone = yForRole(4);
       expect(readableSilhouette.length).toBeGreaterThan(0);
       expect(Math.max(...readableSilhouette)).toBeGreaterThan(0.35);
-      expect(Math.max(...stone)).toBeGreaterThan(Math.max(...readableSilhouette));
+      // Harbour-5: the field reads as hulls, not a forest of uprights.
+      expect(yForRole(4)).toHaveLength(0);
+      // The cause stain rides above the waterline on the wreck itself.
+      expect(Math.min(...yForRole(2))).toBeGreaterThan(0.1);
       cues.add(batch.geometry.userData.aboveWaterCue);
       for (const [index, nominalPixels] of batch.userData.nominalPixelLengths.entries()) {
         if (batch.userData.graveIds[index] === heroId) {
@@ -271,7 +273,7 @@ describe("garden landmarks", () => {
             colors.getZ(index),
           ).getHexString()),
       );
-      expect(nonCauseColors.size).toBeGreaterThanOrEqual(4);
+      expect(nonCauseColors.size).toBeGreaterThanOrEqual(2);
       for (let index = 0; index < batch.count; index += 1) {
         batch.getColorAt(index, color);
         actual.add(`#${color.getHexString()}`);

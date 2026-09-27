@@ -35,7 +35,6 @@ const ALL_STATION_TYPES: readonly StationType[] = [
 
 const EXPECTED_HARBOR_DRAWABLE_NAMES = [
   "dock-chain-flag",
-  "dock-lamp-heads",
   "dock-posts",
   "harbor-accent",
   "harbor-fine-bollard",
@@ -92,12 +91,12 @@ function batchOfAllStationTypes() {
 }
 
 describe("createGardenHarborBatch", () => {
-  it("pins the complete 9-type harbor ring to its 16 shared drawables", () => {
+  it("pins the complete 9-type harbor ring to its 15 shared drawables", () => {
     const batch = batchOfNine();
     const drawableNames = namedDrawables(batch.root);
     expect(drawableNames).toEqual(EXPECTED_HARBOR_DRAWABLE_NAMES);
-    expect(drawableNames).toHaveLength(16);
-    expect(countDrawableObjects(batch.root)).toBe(16);
+    expect(drawableNames).toHaveLength(15);
+    expect(countDrawableObjects(batch.root)).toBe(15);
     expect(countDrawableObjects(batch.root)).toBeLessThanOrEqual(20);
     for (const dock of batch.docks) {
       expect(countDrawableObjects(dock.root)).toBe(0);
@@ -106,8 +105,8 @@ describe("createGardenHarborBatch", () => {
     const completeTypeBatch = batchOfAllStationTypes();
     const completeTypeDrawableNames = namedDrawables(completeTypeBatch.root);
     expect(completeTypeDrawableNames).toEqual(EXPECTED_HARBOR_DRAWABLE_NAMES);
-    expect(completeTypeDrawableNames).toHaveLength(16);
-    expect(countDrawableObjects(completeTypeBatch.root)).toBe(16);
+    expect(completeTypeDrawableNames).toHaveLength(15);
+    expect(countDrawableObjects(completeTypeBatch.root)).toBe(15);
     expect(countDrawableObjects(completeTypeBatch.root)).toBeLessThanOrEqual(20);
     completeTypeBatch.dispose();
   });
@@ -174,13 +173,11 @@ describe("createGardenHarborBatch", () => {
     }
   });
 
-  it("keeps every station window and lit quay edge in one day-cycle-driven ember draw", () => {
-    // T0.2 (2026-09-07): HARBOR_WINDOW_EMBER_INTENSITY is now only the value
-    // the bucket is BORN with — `updateDayCycle` overwrites it every frame
-    // (0.35 day / 1.75 dusk / 2.10 night) via `content.harborBatch`. Before
-    // that fix it was a constant, so the harbour was as lit at noon as at
-    // midnight. What this test pins is the SHARE: one material, one draw, so
-    // the whole quay lights on a single write.
+  it("keeps every station shoji in one day-cycle-driven, kindled ember draw", () => {
+    // HARBOR_WINDOW_EMBER_INTENSITY is only the value the bucket is BORN with;
+    // `updateDayCycle` overwrites it every frame. What this pins is the SHARE
+    // (one material, one draw) and that every vertex carries its station's
+    // kindle order, so the ring lights in the evening's order (H-A).
     const batch = batchOfAllStationTypes();
     const windows = batch.bucketMeshes.window as Mesh;
     expect(windows.name).toBe("station-lit-screens");
@@ -189,8 +186,12 @@ describe("createGardenHarborBatch", () => {
       toneMapped: false,
       vertexColors: true,
     });
+    const orders = windows.geometry.getAttribute("aKindleOrder");
+    expect(orders.count).toBe(windows.geometry.getAttribute("position").count);
+    const expected = new Set(batch.docks.map((dock) => dock.recipe.kindleOrder.shoji.toFixed(5)));
+    const seen = new Set(Array.from({ length: orders.count }, (_, index) => orders.getX(index).toFixed(5)));
+    expect(seen).toEqual(expected);
     expect(batch.docks.every((dock) => dock.recipe.features.warmWindowCount > 0)).toBe(true);
-    expect(batch.docks.every((dock) => dock.recipe.features.quayPlatform.litEdge)).toBe(true);
     batch.dispose();
   });
 
@@ -228,22 +229,33 @@ describe("createGardenHarborBatch", () => {
     layer.dispose();
   });
 
-  it("flies every station's nobori from one instanced cloth and turns a chain's banners without turning the rest", () => {
+  it("flies every station's nobori and noren from one instanced cloth in one wind", () => {
     const batch = batchOfAllStationTypes();
-    // The Mole flies a pair; every other station one banner.
-    expect(batch.flags.count).toBe(ALL_STATION_TYPES.length + 1);
+    // The Mole flies a pair; every other station one banner; the inn hangs two noren.
+    expect(batch.flags.count).toBe(ALL_STATION_TYPES.length + 1 + 2);
+    const gusts = batch.flags.geometry.getAttribute("aGust");
     const matrix = new Matrix4();
     const before = Array.from({ length: batch.flags.count }, (_, index) => {
       batch.flags.getMatrixAt(index, matrix);
       return matrix.clone();
     });
-    batch.setFlagPose("flag-ethereum-mole", 1.2, 0.08);
-    const moved = before.map((previous, index) => {
+    const wind = { wind: { gust: 0, speed: 0.6, x: 0.6, y: 0.8 } };
+    // A gust front crosses the harbour: cloth takes it pole by pole.
+    let staggered = false;
+    for (let time = 0; time < 60 && !staggered; time += 0.5) {
+      batch.updateFlagWind(time, wind, false);
+      const moving = Array.from({ length: gusts.count }, (_, index) => gusts.getX(index).toFixed(4));
+      staggered = new Set(moving).size > 1;
+    }
+    expect(staggered).toBe(true);
+    // Reduced motion rests every cloth on the one composed pose.
+    batch.updateFlagWind(1.2, wind, true);
+    for (let index = 0; index < gusts.count; index += 1) expect(gusts.getX(index)).toBeCloseTo(0.35, 6);
+    // The wind moves cloth in the vertex program only; banners never re-pose.
+    for (const [index, previous] of before.entries()) {
       batch.flags.getMatrixAt(index, matrix);
-      return !matrix.equals(previous);
-    });
-    expect(moved.filter(Boolean)).toHaveLength(2);
-    expect(moved.slice(0, 2)).toEqual([true, true]);
+      expect(matrix.equals(previous)).toBe(true);
+    }
     batch.dispose();
   });
 

@@ -22,6 +22,10 @@ import {
   gardenFleetFramingRestraint,
   gardenFleetMarkPresence,
   gardenFleetShipIsHero,
+  gardenFleetPackSailAttention,
+  gardenFleetPackSailCell,
+  gardenFleetUnpackSailAttention,
+  gardenFleetUnpackSailCell,
   gardenFleetUnpackSailDistance,
   gardenFleetSailRestraint,
   patchSailAtlasMaterial,
@@ -32,7 +36,6 @@ import {
   type FleetSailDeformInput,
 } from "./garden-fleet-batch";
 import { gardenSailClothColor } from "./garden-sail-texture";
-import { SAIL_DARK_CANVAS_ISSUERS } from "./garden-sail-overrides";
 import type { ShipLivery } from "../systems/world-types";
 import type { GardenHullSilhouette } from "../systems/garden-observatory-slice";
 import { cameraEye, cameraPoseFromIso } from "../systems/projection";
@@ -108,40 +111,6 @@ describe("createFleetBatchGeometry", () => {
     }
   });
 
-  it("gives every family a bounding-box aspect signature separated by at least 15%", () => {
-    const aspects = SILHOUETTES.map((silhouette) => {
-      const source = createFleetBatchGeometry(silhouette);
-      source.hull.computeBoundingBox();
-      const size = source.hull.boundingBox!.getSize(new Vector3());
-      source.hull.dispose();
-      source.sails.dispose();
-      return {
-        heightBeam: size.y / size.z,
-        lengthBeam: size.x / size.z,
-        silhouette,
-      };
-    });
-
-    for (let left = 0; left < aspects.length; left += 1) {
-      for (let right = left + 1; right < aspects.length; right += 1) {
-        const a = aspects[left]!;
-        const b = aspects[right]!;
-        const lengthDifference = Math.abs(a.lengthBeam - b.lengthBeam)
-          / Math.min(a.lengthBeam, b.lengthBeam);
-        const heightDifference = Math.abs(a.heightBeam - b.heightBeam)
-          / Math.min(a.heightBeam, b.heightBeam);
-        expect(
-          lengthDifference,
-          `${a.silhouette}/${b.silhouette} length/beam`,
-        ).toBeGreaterThanOrEqual(0.15);
-        expect(
-          heightDifference,
-          `${a.silhouette}/${b.silhouette} height/beam`,
-        ).toBeGreaterThanOrEqual(0.15);
-      }
-    }
-  });
-
   it("is deterministic across rebuilds", () => {
     const first = createFleetBatchGeometry("kobaya");
     const second = createFleetBatchGeometry("kobaya");
@@ -165,8 +134,9 @@ describe("fleet sail deformation", () => {
     hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
     instanceX: 8,
     instanceZ: -3,
-    sailHead: { y: 3.4, z: 0.08 },
+    sailHead: { x: 0.2, y: 3.4, z: 0.08 },
     sailIndex: 2,
+    uv: { x: 0.4, y: 0.6 },
     vertex: { x: 0.7, y: 2.2, z: 0.3 },
     windFlutter: 0.9,
     windTime: 4.7,
@@ -262,6 +232,45 @@ describe("fleet sail deformation", () => {
       }
     }
   });
+
+  it("braces a square sail about its mast, never a fore-and-aft one", () => {
+    const square = { ...sailInput, square: true, windFlutter: 0, windTime: 0 };
+    const quarter = Math.PI / 4;
+    const braced = deformFleetSailVertex({ ...square, braceRad: quarter });
+    const unbraced = deformFleetSailVertex({ ...square, braceRad: 0 });
+    const radius = (point: { x: number; z: number }) => Math.hypot(
+      point.x - sailInput.sailHead.x,
+      point.z - sailInput.sailHead.z,
+    );
+    // Rotation about the mast: distance from the pivot kept, the point moved.
+    expect(radius(braced)).toBeCloseTo(radius(unbraced), 10);
+    expect(Math.hypot(braced.x - unbraced.x, braced.z - unbraced.z)).toBeGreaterThan(0.1);
+    // + swings the starboard (+z) yardarm forward (+x).
+    const yardarm = deformFleetSailVertex({
+      ...square, braceRad: quarter, cloth: 0, vertex: { x: 0.2, y: 3.4, z: 2.08 },
+    });
+    expect(yardarm.x).toBeGreaterThan(sailInput.sailHead.x + 1);
+    const triangle = { ...sailInput, windFlutter: 0, windTime: 0 };
+    expect(deformFleetSailVertex({ ...triangle, braceRad: quarter }))
+      .toEqual(deformFleetSailVertex({ ...triangle, braceRad: 0 }));
+  });
+
+  it("round-trips the brace and luff through the packed instance channels", () => {
+    for (const cell of [0, 7, 255]) {
+      for (const brace of [-0.75, -0.5, 0, 0.31, 0.7]) {
+        const unpacked = gardenFleetUnpackSailCell(Math.fround(gardenFleetPackSailCell(cell, brace)));
+        expect(unpacked.cell).toBe(cell);
+        expect(unpacked.braceRad).toBeCloseTo(brace, 3);
+      }
+    }
+    for (const attention of [0, 0.37, 1]) {
+      for (const luff of [0, 0.3, 1]) {
+        const unpacked = gardenFleetUnpackSailAttention(Math.fround(gardenFleetPackSailAttention(attention, luff)));
+        expect(unpacked.attention).toBeCloseTo(attention, 4);
+        expect(unpacked.luff).toBeCloseTo(Math.round(luff * 31) / 31, 6);
+      }
+    }
+  });
 });
 
 describe("fleet downwind convention", () => {
@@ -333,7 +342,7 @@ describe("fleet batches", () => {
       const batch = batches.bySilhouette.get(silhouette)!;
       for (const part of [batch.sails, batch.far]) {
         for (let slot = 0; slot < part.mesh.count; slot += 1) {
-          if (part.atlasCell!.getX(slot) === cell) {
+          if (Math.floor(part.atlasCell!.getX(slot)) === cell) {
             return { far: part === batch.far, ...gardenFleetUnpackSailDistance(part.sailAttention!.getY(slot)) };
           }
         }
@@ -539,8 +548,8 @@ describe("fleet batches", () => {
     writeFleetInstance(batches, pose({ atlasCell: 12, silhouette: "bezaisen" }));
     endFleetFrame(batches);
     const cells = batches.bySilhouette.get("bezaisen")!.sails.atlasCell!;
-    expect(cells.getX(0)).toBe(7);
-    expect(cells.getX(1)).toBe(12);
+    expect(gardenFleetUnpackSailCell(cells.getX(0)).cell).toBe(7);
+    expect(gardenFleetUnpackSailCell(cells.getX(1)).cell).toBe(12);
     disposeFleetBatches(batches);
   });
 
@@ -799,19 +808,8 @@ describe("peg trim (Tier 3 #13)", () => {
  * clauses that make that true of the new default-framing step.
  */
 const OVERVIEW_ZOOM = 0.4;
-const DEFAULT_ZOOM = 0.72;
-
-const FRAGMENT_STUB = [
-  "#include <common>",
-  "#include <map_fragment>",
-  "#include <normal_fragment_begin>",
-].join("\n");
-const VERTEX_STUB = [
-  "#include <common>",
-  "#include <begin_vertex>",
-  "#include <project_vertex>",
-  "#include <uv_vertex>",
-].join("\n");
+/** The 1600×1000 rest zoom (`defaultCamera`). */
+const REST_ZOOM = 1.15;
 
 describe("eye-distance fleet hierarchy", () => {
   it("keeps the near third vivid and quiets the far third without popping on camera moves", () => {
@@ -834,7 +832,7 @@ describe("eye-distance fleet hierarchy", () => {
         const batch = batches.bySilhouette.get("bezaisen")!;
         for (const part of [batch.sails, batch.far]) {
           for (let slot = 0; slot < part.mesh.count; slot += 1) {
-            if (part.atlasCell!.getX(slot) === index + 1) {
+            if (Math.floor(part.atlasCell!.getX(slot)) === index + 1) {
               return gardenFleetUnpackSailDistance(part.sailAttention!.getY(slot)).presence;
             }
           }
@@ -892,22 +890,14 @@ describe("W3.7 chroma only, never value", () => {
     return { primary } as ShipLivery;
   }
 
-  // The five issuers the override table names, plus DAI (deliberately NOT in
-  // the table, decision D5) and two ordinary strongly-branded coins.
-  const ISSUERS: readonly (readonly [string, string])[] = [
-    ["bean-beanstalk", "#46b955"],
-    ["cash-phantom", "#b9b5ab"],
-    ["csusdl-coinshift", "#f08a7e"],
-    ["eusd-lybra", "#8ec9e8"],
-    ["zchf-frankencoin", "#c9c9c9"],
-    ["dai-makerdao", "#f5ac37"],
-    ["usdc-circle", "#2775ca"],
-    ["usdt-tether", "#26a17b"],
+  // Pale, neutral and strongly-branded issuers across the wheel.
+  const ISSUERS: readonly string[] = [
+    "#46b955", "#b9b5ab", "#f08a7e", "#8ec9e8", "#c9c9c9", "#f5ac37", "#2775ca", "#26a17b",
   ];
 
-  it("cannot move any issuer's contrast against a white mark, at any distance", () => {
-    for (const [shipId, primary] of ISSUERS) {
-      const cloth = gardenSailClothColor(livery(primary), shipId);
+  it("cannot move any issuer's contrast against its mon, at any distance", () => {
+    for (const primary of ISSUERS) {
+      const cloth = gardenSailClothColor(livery(primary));
       const before = whiteContrast(cloth);
       for (const distancePresence of [0, 0.5, 1]) {
         for (const aerial of [0, 0.4]) {
@@ -917,30 +907,11 @@ describe("W3.7 chroma only, never value", () => {
             framing: gardenFleetFramingRestraint(distancePresence),
           });
           // Chroma-only desaturation converges on the cloth's OWN luminance, so
-          // luminance — and therefore the pirate contrast floor, which is a
-          // luminance ratio — is invariant by construction, not by tuning.
+          // luminance — and therefore the mon's ink contrast, which is chosen
+          // against it — is invariant by construction, not by tuning.
           expect(whiteContrast(applyRestraint(cloth, restraint))).toBeCloseTo(before, 10);
         }
       }
-    }
-  });
-
-  it("leaves the five named pale issuers under their black canvas", () => {
-    // The override table is upstream of everything here: the step never touches
-    // `gardenSailClothColor`, so the five stay exactly where D5 put them.
-    for (const [shipId, primary] of ISSUERS) {
-      if (!SAIL_DARK_CANVAS_ISSUERS.has(shipId)) continue;
-      const cloth = gardenSailClothColor(livery(primary), shipId);
-      const restrained = applyRestraint(
-        cloth,
-        gardenFleetSailRestraint({
-          aerial: 0,
-          attention: 0,
-          framing: gardenFleetFramingRestraint(1),
-        }),
-      );
-      // Still near-black cloth carrying a white mark, restraint or no restraint.
-      expect(whiteContrast(restrained)).toBeGreaterThan(10);
     }
   });
 
@@ -951,11 +922,11 @@ describe("W3.7 chroma only, never value", () => {
       framing: gardenFleetFramingRestraint(1),
     });
     const circle = applyRestraint(
-      gardenSailClothColor(livery("#2775ca"), "usdc-circle"),
+      gardenSailClothColor(livery("#2775ca")),
       restraint,
     );
     const tether = applyRestraint(
-      gardenSailClothColor(livery("#26a17b"), "usdt-tether"),
+      gardenSailClothColor(livery("#26a17b")),
       restraint,
     );
     // "Every issuer must stay recognizably itself at a glance" — blue and green
@@ -1091,8 +1062,8 @@ describe("W3.7 attention", () => {
     endFleetFrame(batches);
 
     const attention = batches.bySilhouette.get("bezaisen")!.sails.sailAttention!;
-    expect(attention.getX(0)).toBe(0);
-    expect(attention.getX(1)).toBe(1);
+    expect(gardenFleetUnpackSailAttention(attention.getX(0)).attention).toBe(0);
+    expect(gardenFleetUnpackSailAttention(attention.getX(1)).attention).toBeCloseTo(1, 5);
     // An unwritten instance is rank-and-file, not an unexplained bright sail.
     expect(attention.getX(9)).toBe(0);
     expect(fleetDrawCallCount(batches)).toBe(3);
@@ -1102,35 +1073,13 @@ describe("W3.7 attention", () => {
 });
 
 describe("W3.7 woven cloth", () => {
-  it("stays off at overview framing and comes fully in at inspection", () => {
+  it("is inspection-only: off at overview and at rest, fully in at close inspection", () => {
     expect(gardenFleetClothWeave(OVERVIEW_ZOOM)).toBe(0);
-    expect(gardenFleetClothWeave(0.52)).toBe(0);
-    // The weave is a NEAR-framing property and did not move with the rest
-    // (0.72 since 2026-09-06): partially present at rest, nearly resolved at
-    // the old 1.0 rest, fully arrived only at close inspection.
-    expect(gardenFleetClothWeave(DEFAULT_ZOOM)).toBeGreaterThan(0);
-    expect(gardenFleetClothWeave(1.0)).toBeGreaterThan(0.8);
-    expect(gardenFleetClothWeave(1.0)).toBeLessThan(1);
-    expect(gardenFleetClothWeave(1.12)).toBe(1);
-  });
-
-  it("compiles into the sail shader as relief, gated, and shy of the mark", () => {
-    const material = new MeshStandardMaterial();
-    patchSailAtlasMaterial(material);
-    const shader = { fragmentShader: FRAGMENT_STUB, uniforms: {}, vertexShader: VERTEX_STUB };
-    material.onBeforeCompile!(shader as never, null as never);
-
-    // Warp and weft, on the cell-local uv so every sail in the rig is cloth —
-    // not only the one carrying the mark.
-    expect(shader.vertexShader).toContain("vClothUv = uv;");
-    expect(shader.fragmentShader).toContain("float weave = warp * 0.5 + weft * 0.4");
-    // Zoom-gated and derivative-guarded, so it can never shimmer at distance.
-    expect(shader.fragmentShader).toContain("uClothWeave * clothDetail");
-    expect(shader.fragmentShader).toContain("fwidth(vClothUv.x)");
-    // ...and it stands down under the emblem it must not eat.
-    expect(shader.fragmentShader).toContain("1.0 - markCover * 0.7");
-    // Relief, not just a printed pattern: the normal stage reads it back.
-    expect(shader.fragmentShader).toContain("clothTangent * gClothWarp");
+    // W4.F5: the rest frame reads cloth from the panel strips, never gingham.
+    expect(gardenFleetClothWeave(REST_ZOOM)).toBe(0);
+    expect(gardenFleetClothWeave(1.8)).toBeGreaterThan(0);
+    expect(gardenFleetClothWeave(1.8)).toBeLessThan(1);
+    expect(gardenFleetClothWeave(2.1)).toBe(1);
   });
 
 

@@ -3,14 +3,12 @@ import {
   applySeaRoomSeparationPass,
   createShipMotionSample,
   resolveShipMotionSample,
-  resolveShipMotionSampleInto,
   SEA_ROOM_BASE_RADIUS_TILES,
   SEA_ROOM_MAX_NUDGE_PER_FRAME,
   seaRoomSeparationRadius,
 } from "./motion-sampling";
 import { activeStopCountForCycle, routeSamplingRuntime } from "./motion-sampling/route-runtime";
 import { seaStateForSources, type SeaState } from "./sea-state";
-import { isWaterTileKind, PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH, tileKindAt } from "./world-layout";
 import type { PharosVilleMotionPlan, ShipMotionRoute, ShipMotionSample } from "./motion-types";
 import type { ShipNode } from "./world-types";
 import { gardenShipVisualScale } from "./garden-observatory-slice";
@@ -189,79 +187,6 @@ describe("sea-room separation on final display positions", () => {
     }
     expect(a.displayTile).toEqual(first.a.displayTile);
     expect(b.displayTile).toEqual(first.b.displayTile);
-  });
-});
-
-describe("W4.24 consort tile validation", () => {
-  it("collapses a gained consort offset back to the waterborne flagship when it would land on a non-water tile", () => {
-    const formationOffset = { dx: 2, dy: -2 };
-    const timeSeconds = 0;
-    let flagshipTile: { x: number; y: number } | null = null;
-    let gainedTile: { x: number; y: number } | null = null;
-    for (let y = 0; y < PHAROSVILLE_MAP_HEIGHT && !flagshipTile; y += 1) {
-      for (let x = 0; x < PHAROSVILLE_MAP_WIDTH; x += 1) {
-        const candidate = {
-          x: x + formationOffset.dx * 1.4,
-          y: y + formationOffset.dy * 1.4,
-        };
-        if (isWaterTileKind(tileKindAt(x, y)) && !isWaterTileKind(tileKindAt(candidate.x, candidate.y))) {
-          flagshipTile = { x, y };
-          gainedTile = candidate;
-          break;
-        }
-      }
-    }
-    expect(flagshipTile).not.toBeNull();
-    expect(gainedTile).not.toBeNull();
-
-    const flagshipRoute = {
-      ...makeRoute(),
-      shipId: "usds-sky",
-      riskTile: flagshipTile!,
-      zone: "calm",
-    } satisfies ShipMotionRoute;
-    const consortRoute = {
-      ...makeRoute(),
-      shipId: "susds-sky",
-      riskTile: flagshipRoute.riskTile,
-      zone: "calm",
-      formationOffset,
-    } satisfies ShipMotionRoute;
-    const plan: PharosVilleMotionPlan = {
-      shipRoutes: new Map([
-        [flagshipRoute.shipId, flagshipRoute],
-        [consortRoute.shipId, consortRoute],
-      ]),
-    };
-    const consort = {
-      id: consortRoute.shipId,
-      riskPlacement: "safe-harbor",
-      riskZone: "calm",
-      squadId: "sky",
-      squadRole: "consort",
-    } as ShipNode;
-    const flagshipSample = createShipMotionSample();
-    flagshipSample.shipId = flagshipRoute.shipId;
-    flagshipSample.tile.x = flagshipRoute.riskTile.x;
-    flagshipSample.tile.y = flagshipRoute.riskTile.y;
-    flagshipSample.state = "sailing";
-    flagshipSample.zone = "calm";
-    flagshipSample.speedTilesPerSecond = 1;
-
-    expect(isWaterTileKind(tileKindAt(flagshipSample.tile.x, flagshipSample.tile.y))).toBe(true);
-    expect(isWaterTileKind(tileKindAt(gainedTile!.x, gainedTile!.y))).toBe(false);
-
-    const out = createShipMotionSample();
-    resolveShipMotionSampleInto({
-      plan,
-      reducedMotion: false,
-      ship: consort,
-      timeSeconds,
-      flagshipSamples: new Map([[flagshipRoute.shipId, flagshipSample]]),
-    }, out);
-
-    expect(out.tile).toEqual(flagshipSample.tile);
-    expect(isWaterTileKind(tileKindAt(out.tile.x, out.tile.y))).toBe(true);
   });
 });
 

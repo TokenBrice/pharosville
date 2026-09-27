@@ -75,6 +75,15 @@ export function routeSamplingRuntime(route: ShipMotionRoute): RouteSamplingRunti
   return runtime;
 }
 
+/**
+ * A consort sails its flagship's route under its own id (its own heading and
+ * wake memory) but in the flagship's lane, so it steps into the flagship's
+ * slick: the follower route borrows the flagship's runtime outright.
+ */
+export function shareRouteSamplingRuntime(follower: ShipMotionRoute, leader: ShipMotionRoute): void {
+  if (!routeSamplingRuntimeCache.has(follower)) routeSamplingRuntimeCache.set(follower, routeSamplingRuntime(leader));
+}
+
 export function activeStopCountForCycle(runtime: RouteSamplingRuntime): number {
   return runtime.scheduledStopCount <= 0 ? 0 : 1;
 }

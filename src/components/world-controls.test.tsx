@@ -22,11 +22,13 @@ describe("WorldControls", () => {
     const onOpenFind = vi.fn();
     const onOpenLegend = vi.fn();
     const onOpenLedger = vi.fn();
+    const onStay = vi.fn();
     render(
       <WorldControls
         onOpenFind={onOpenFind}
         onOpenLegend={onOpenLegend}
         onOpenLedger={onOpenLedger}
+        onStay={onStay}
         onResetView={vi.fn()}
         onToggleNightMode={vi.fn()}
         onToggleObserve={vi.fn()}
@@ -44,12 +46,14 @@ describe("WorldControls", () => {
     fireEvent.click(affordance);
     expect(toolbar.getAttribute("data-expanded")).toBe("true");
     expect(affordance.getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(screen.getByText("Find", { selector: ".pv-chrome-action span" }).closest("button")!);
-    fireEvent.click(screen.getByText("Legend", { selector: ".pv-chrome-action span" }).closest("button")!);
-    fireEvent.click(screen.getByText("Harbor ledger", { selector: ".pv-chrome-action span" }).closest("button")!);
+    fireEvent.click(screen.getByRole("button", { name: "find" }));
+    fireEvent.click(screen.getByRole("button", { name: "legend" }));
+    fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stay" }));
     expect(onOpenFind).toHaveBeenCalledOnce();
     expect(onOpenLegend).toHaveBeenCalledOnce();
     expect(onOpenLedger).toHaveBeenCalledOnce();
+    expect(onStay).toHaveBeenCalledOnce();
 
     expect(screen.queryByLabelText(/set session hour/i)).toBeNull();
     expect(screen.queryByLabelText(/follow selected/i)).toBeNull();

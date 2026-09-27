@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createGardenLaneRegistry,
-  gardenKeeperFixtureFactor,
+  gardenLanternKindleFactor,
   GARDEN_EMBER_LANE_MIN_SEPARATION,
   GARDEN_LANE_EMBER_GAIN,
   GARDEN_ROUTE_PULSE_ROTATION_SECONDS,
@@ -33,16 +33,23 @@ function lane(overrides: Partial<GardenLightLane> & { id: string }): GardenLight
   };
 }
 
-describe("keeper fixture passage", () => {
-  it("lights in path order, then extinguishes in reverse order without replacing the phase base", () => {
-    const evening = { active: true, progress: 0.5, direction: "evening" as const };
-    expect(gardenKeeperFixtureFactor(0.2, evening)).toBe(1);
-    expect(gardenKeeperFixtureFactor(0.8, evening)).toBe(0);
-    const dawn = { ...evening, direction: "dawn" as const };
-    expect(gardenKeeperFixtureFactor(0.8, dawn)).toBe(0);
-    expect(gardenKeeperFixtureFactor(0.2, dawn)).toBe(1);
-    expect(gardenKeeperFixtureFactor(0.48, evening)).toBeCloseTo(0.5);
-    expect(gardenKeeperFixtureFactor(0.8, { ...evening, active: false })).toBe(1);
+describe("lantern kindling (contract H-A)", () => {
+  it("kindles fixtures in order as the evening advances and banks them in reverse", () => {
+    // Nothing is lit before the kindling starts and everything by its end.
+    for (const order of [0, 0.3, 0.9, 1]) {
+      expect(gardenLanternKindleFactor(order, 0)).toBe(0);
+      expect(gardenLanternKindleFactor(order, 1)).toBe(1);
+    }
+    // Mid-evening, the near fixtures are lit while the far ones wait; the
+    // tōrō beside the viewer (order 1) is always the last to catch.
+    expect(gardenLanternKindleFactor(0.1, 0.5)).toBe(1);
+    expect(gardenLanternKindleFactor(0.8, 0.5)).toBe(0);
+    expect(gardenLanternKindleFactor(1, 0.85)).toBeLessThan(gardenLanternKindleFactor(0.9, 0.85));
+    // The same progress falling at dawn therefore puts the far ones out first.
+    const progress = [0.95, 0.7, 0.45, 0.2];
+    const farOut = progress.findIndex((value) => gardenLanternKindleFactor(0.85, value) < 1);
+    const nearOut = progress.findIndex((value) => gardenLanternKindleFactor(0.15, value) < 1);
+    expect(farOut).toBeLessThan(nearOut);
   });
 });
 

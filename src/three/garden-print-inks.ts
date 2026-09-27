@@ -68,11 +68,13 @@ export interface GardenPrintInk {
  */
 export const GARDEN_PRINT_AI_INKS: Readonly<Record<DayCycleBeatName, Readonly<GardenPrintInk>>> = {
   dawn: { amount: 0.35, ink: lumaNormalised(new Color(P.fog_pale)) },
+  // Print-gate tune: 0.15 → 0.3, so noon shade reads cool blue-green, not grey.
   day: {
-    amount: 0.15,
+    amount: 0.3,
     ink: lumaNormalised(new Color(P.sky_day_zenith).lerp(new Color(P.shallow_teal), 0.5)),
   },
-  golden: { amount: 0.6, ink: lumaNormalised(new Color(P.fog_blue)) },
+  // Violet-BLUE, not lavender: the golden shade is the lit gold's complement.
+  golden: { amount: 0.6, ink: lumaNormalised(new Color(P.fog_blue).lerp(new Color(P.sky_day_zenith), 0.3)) },
   blue: { amount: 0.5, ink: lumaNormalised(new Color(P.sky_horizon)) },
   night: { amount: 0.45, ink: lumaNormalised(new Color(P.deep_sea_1)) },
 };
@@ -88,16 +90,25 @@ const GARDEN_PRINT_HULL_INK_SCALE = 0.5;
  */
 const FIRST_LIGHT_LINE_TOP = 42;
 const FIRST_LIGHT_LINE_BOTTOM = -6;
-/** Sun elevations (radians) over which the line sweeps from top to bottom. */
+/**
+ * Sun elevations (radians) over which the line sweeps from top to bottom:
+ * the last ~2.6° of displayed sun (≈ the last 20 minutes before sunset on the
+ * pinned day). Print-gate tune, 0.17 → 0.045: the whole golden hour is lit
+ * warm, and the line climbs off the crown only in its final minutes.
+ */
 const FIRST_LIGHT_SWEEP_START = 0;
-const FIRST_LIGHT_SWEEP_END = 0.17;
+const FIRST_LIGHT_SWEEP_END = 0.045;
 /** Once the sun is this high the gate has let go of the whole world. */
 const FIRST_LIGHT_RELEASE_START = 0.15;
 const FIRST_LIGHT_RELEASE_END = 0.22;
 /** Below the horizon the key is the blue-hour rig's; the gate fades out. */
 const FIRST_LIGHT_BELOW_HORIZON = -0.04;
-/** Alpenglow belongs to the crown and hill tops, not the station roofs. */
-const FIRST_LIGHT_GLOW_FLOOR = 18;
+/**
+ * Alpenglow belongs to the tower and hill tops, not the station roofs.
+ * Print-gate tune, 18 → 13: the whole square tier (world y 11–29) takes the
+ * last light, not only its upper half, so the Pharos reads gold at 18:30.
+ */
+const FIRST_LIGHT_GLOW_FLOOR = 13;
 /** Below the line the key is skylight: dim and cool. */
 const FIRST_LIGHT_SHADE_LEVEL = 0.4;
 const FIRST_LIGHT_SHADE = lumaNormalised(
@@ -105,8 +116,8 @@ const FIRST_LIGHT_SHADE = lumaNormalised(
 ).multiplyScalar(FIRST_LIGHT_SHADE_LEVEL);
 /** Rose-gold: the key's first minutes on the crown. */
 const FIRST_LIGHT_GLOW = lumaNormalised(new Color(P.lantern_warm).lerp(new Color(P.vermillion), 0.25));
-/** Share of the crown's fill that takes the alpenglow while the gate is open. */
-const FIRST_LIGHT_GLOW_FILL = 0.6;
+/** Share of the crown's fill that takes the alpenglow while the gate is open (0.6 → 0.75). */
+const FIRST_LIGHT_GLOW_FILL = 0.75;
 
 export const gardenPrintInkUniforms = {
   uGardenAiInk: { value: new Color(1, 1, 1) },

@@ -3,6 +3,7 @@ import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
 import type { ReportCard, StablecoinData, StablecoinMeta } from "@shared/types";
 import type { ConditionBand } from "@shared/lib/psi-colors";
 import type { NetFlowDirection24h } from "@shared/lib/mint-burn-signals";
+import type { LongRecordModel } from "./long-record";
 import type { DependencyType } from "@shared/types/dependency-types";
 import type { ShipAgeProfile } from "./ship-age";
 import type { SupplyTide } from "./supply-tide";
@@ -391,6 +392,9 @@ export interface LighthouseNode {
   highWaterMark?: LighthouseHighWaterMark;
   /** Thirty-day PSI record expressed as slow garden growth and weathering. */
   gardenMonthRecord?: GardenMonthRecord;
+  /** X7: the whole daily PSI history, decimated for the card's scroll; null
+      when there is not enough history to draw a line. */
+  longRecord?: LongRecordModel | null;
   /** Ship the beam's sweep settles toward, or absent when there is no
       contributor to point at. */
   beamDwell?: LighthouseBeamDwell;
@@ -732,6 +736,8 @@ export interface DetailModel {
   links: DetailModelLink[];
   membersHeading?: string;
   members?: DetailModelMember[];
+  /** X7: the lighthouse card's whole-history PSI scroll. */
+  longRecord?: LongRecordModel;
 }
 
 export type VisualCueTarget =

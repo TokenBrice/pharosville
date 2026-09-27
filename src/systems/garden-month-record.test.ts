@@ -34,7 +34,7 @@ describe("garden monthly record", () => {
       { daysAgo: 0, score: 20 }, { daysAgo: 20, score: 30 },
     ]));
     expect(stressed.growth).toBe(0);
-    expect(gardenMonthRecordLabel(stressed)).toContain("sheds and browns");
+    expect(gardenMonthRecordLabel(stressed)).toContain("brown toward straw");
     expect(buildGardenMonthRecord(null)).toMatchObject({ growth: 0.5, unavailable: true });
   });
 });

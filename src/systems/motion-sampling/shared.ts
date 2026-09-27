@@ -12,17 +12,16 @@ export interface ResolveShipMotionSampleInput {
   ship: ShipNode;
   timeSeconds: number;
   wind?: WeatherPlan["wind"];
-  // Optional already-computed flagship samples by ship id. When the consort
-  // branch finds its flagship's sample here it skips the redundant
-  // sampleRouteCycleInto pass; without it, falls back to the local scratch.
-  flagshipSamples?: ReadonlyMap<string, ShipMotionSample>;
 }
 
 export function createShipMotionSample(): ShipMotionSample {
   return {
     shipId: "",
     tile: { x: 0, y: 0 },
-    tideOffset: 0,
+    sailSet: 0,
+    heelRad: undefined,
+    sailTrimRad: undefined,
+    luff: undefined,
     state: "idle",
     zone: "calm",
     routeKey: null,
@@ -43,7 +42,10 @@ export function createShipMotionSample(): ShipMotionSample {
 
 export function resetSampleChoreography(out: ShipMotionSample): void {
   out.seaState = null;
-  out.tideOffset = 0;
+  out.sailSet = 0;
+  out.heelRad = undefined;
+  out.sailTrimRad = undefined;
+  out.luff = undefined;
   out.segment = null;
   out.mapVisibilityAlpha = 1;
   out.riskTransition = null;

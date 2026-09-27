@@ -7,7 +7,8 @@ import {
   Object3D,
   PlaneGeometry,
 } from "three";
-import type { GardenSeason } from "../systems/season";
+import { gardenPetalDrift } from "../systems/garden-calendar";
+import { gardenSkyLatitude, type GardenSkyLatitude } from "../systems/sky-almanac";
 import {
   GARDEN_BREATH_PHASE,
   gardenBreathAt,
@@ -34,20 +35,30 @@ export interface GardenSeasonalDressing {
   update(input: GardenSeasonalDressingUpdate): void;
 }
 
+/** The lee cherry whose blossom feeds the water (garden-calendar seed). */
+const GARDEN_PETAL_SOURCE_SEED = "lee-cherry";
+
 /**
- * Spring's one seasonal moving layer. Petals are instanced quads on the water,
- * driven by W3.2's wind, delayed gust and breath. No timer or random source is
- * introduced; reduced motion always resolves the same time-zero arrangement.
+ * The cherry's petals on the water: instanced quads driven by W3.2's wind,
+ * delayed gust and breath. They exist only from the lee cherry's opening to
+ * twelve days past its peak (K24: the calendar, not the UTC quarter), and
+ * thin as the drift wanes. No timer or random source is introduced; reduced
+ * motion always resolves the same time-zero arrangement.
  */
-export function createGardenSeasonalDressing(season: GardenSeason): GardenSeasonalDressing {
+export function createGardenSeasonalDressing(
+  date: Date,
+  latitude: GardenSkyLatitude = gardenSkyLatitude(),
+): GardenSeasonalDressing {
   const root = new Group();
   root.name = "garden-seasonal-dressing";
-  if (season !== "spring") {
+  const drift = gardenPetalDrift(GARDEN_PETAL_SOURCE_SEED, date, latitude);
+  if (drift <= 0) {
     return { petals: null, root, update() {} };
   }
 
+  // Derived blush, never vermillion (§1.1 rule 5).
   const petalColor = new Color(HARBOR_PALETTE.foam_white)
-    .lerp(new Color(HARBOR_PALETTE.vermillion), 0.18);
+    .lerp(new Color(HARBOR_PALETTE.roof_cote_clay), 0.14);
   const petals = new InstancedMesh(
     new PlaneGeometry(0.34, 0.16),
     new MeshBasicMaterial({
@@ -60,6 +71,7 @@ export function createGardenSeasonalDressing(season: GardenSeason): GardenSeason
     GARDEN_SPRING_PETAL_COUNT,
   );
   petals.name = "garden-spring-water-petals";
+  petals.count = Math.max(6, Math.round(GARDEN_SPRING_PETAL_COUNT * drift));
   petals.frustumCulled = false;
   petals.renderOrder = 4;
   root.add(petals);
@@ -68,7 +80,7 @@ export function createGardenSeasonalDressing(season: GardenSeason): GardenSeason
   const update = ({ reducedMotion, timeSeconds, weather }: GardenSeasonalDressingUpdate): void => {
     const time = reducedMotion ? 0 : Math.max(0, timeSeconds);
     const breath = gardenBreathAt(time, GARDEN_BREATH_PHASE.mist);
-    for (let index = 0; index < GARDEN_SPRING_PETAL_COUNT; index += 1) {
+    for (let index = 0; index < petals.count; index += 1) {
       const angle = stableUnit(`season.petal.angle.${index}`) * Math.PI * 2;
       // Re-site the old island-centred ring into one small drift over the calm
       // engawa shallows. The broad water interval remains an empty positive.

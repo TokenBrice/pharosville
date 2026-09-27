@@ -1,18 +1,29 @@
 import { useMemo, type RefObject } from "react";
 import type { GardenStationLabelFrame } from "../renderer/garden-observatory-hit-testing";
-import type { PharosVilleWorld } from "../systems/world-types";
+import type { PharosVilleWorld, ShipWaterZone } from "../systems/world-types";
 
-const CHIP_GAP_PX = 6;
+/** Room for the 14 px hairline leader between the words and the mast (W6.4). */
+const CHIP_GAP_PX = 14;
 const CHIP_COLLISION_GAP_PX = 2;
 const CHIP_FALLBACK_WIDTH_PX = 118;
-const CHIP_HEIGHT_PX = 18;
+/** Name over band word: the collision step for two stacked ink labels. */
+const CHIP_HEIGHT_PX = 34;
+
+/** Severity is word + glyph + tone, never a grey word alone (W6.4). */
+const BAND_GLYPH: Readonly<Record<ShipWaterZone, string>> = {
+  calm: "",
+  watch: "·",
+  alert: "◇",
+  warning: "◆",
+  danger: "◆",
+  ledger: "",
+};
 
 interface HarborLabelChipItem {
   detailId: string;
-  initials: string;
   label: string;
   retiring: boolean;
-  state: string;
+  state: ShipWaterZone;
   supply: number;
 }
 
@@ -57,7 +68,6 @@ export function HarborLabelChips({
       if (ship?.kind !== "ship") return;
       chipItems.push({
         detailId,
-        initials: paintedInitials(ship.label),
         label: ship.label,
         retiring,
         state: ship.riskZone,
@@ -78,17 +88,18 @@ export function HarborLabelChips({
           tabIndex={-1}
           aria-hidden="true"
           className="pharosville-harbor-label-chip"
+          data-band={item.state}
           data-detail-id={item.detailId}
           data-supply={item.supply}
           data-retiring={item.retiring ? "true" : undefined}
           data-visible="false"
           onClick={() => onSelectDetail(item.detailId)}
         >
-          <span className="pharosville-harbor-label-chip__mark" aria-hidden="true">
-            <span>{item.initials}</span>
-          </span>
           <strong>{item.label}</strong>
-          <span className="pharosville-harbor-label-chip__state">{item.state}</span>
+          <span className="pharosville-harbor-label-chip__state">
+            {BAND_GLYPH[item.state] && <span className="pharosville-harbor-label-chip__glyph">{BAND_GLYPH[item.state]}</span>}
+            {item.state}
+          </span>
         </button>
       ))}
     </div>
@@ -147,12 +158,4 @@ function numericSupply(chip: HTMLElement): number {
 
 function rectanglesOverlap(a: ScreenRect, b: ScreenRect): boolean {
   return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-}
-
-function paintedInitials(label: string): string {
-  const words = label.trim().split(/[\s-]+/).filter(Boolean);
-  if (words.length === 0) return "?";
-  return words.length === 1
-    ? words[0]!.slice(0, 2).toUpperCase()
-    : words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
 }

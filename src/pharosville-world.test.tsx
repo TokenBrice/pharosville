@@ -39,7 +39,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 function chromeAction(name: string): HTMLButtonElement {
-  return screen.getByText(name, { selector: ".pv-chrome-action span" }).closest("button") as HTMLButtonElement;
+  return screen.getByRole("button", { name: new RegExp(`^${name}$`, "i") }) as HTMLButtonElement;
 }
 
 

@@ -1,83 +1,87 @@
-import { Color, Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, Quaternion, Vector3 } from "three";
+import { BufferAttribute, Color, Group, InstancedMesh, MeshStandardMaterial } from "three";
 import type { GardenMonthRecord } from "../systems/world-types";
-import { HARBOR_PALETTE } from "../systems/palette";
+import { HARBOR_PALETTE, hexToOklch, oklchToHex } from "../systems/palette";
+import { GARDEN_FLORA_COLORS } from "./garden-flora";
 
-const matrix = new Matrix4();
-const position = new Vector3();
-const rotation = new Quaternion();
-const scale = new Vector3();
-const neutral = new Color(1, 1, 1);
-const blossom = new Color("#f1c8c1");
-// Golden Garden (2026-09-07): a calm month is the dye lot's own sunlit moss,
-// a stressed one its dry straw — the old "#557149" khaki dragged every pine
-// pad toward olive in exactly the months the garden was meant to flourish.
-const green = new Color(HARBOR_PALETTE.aurora_green).multiplyScalar(0.9);
-const dry = new Color(HARBOR_PALETTE.timber_warm).lerp(new Color(HARBOR_PALETTE.roof_thatch), 0.35);
+/**
+ * W4.G5 (garden-3, data-poetry defect 4): the evergreens carry the trailing
+ * 30-day PSI record as DEPTH, never chroma. A calm month deepens the island
+ * pines' pads and the karikomi toward the dark velvet of moss after rain
+ * (OKLCH L −0.08, C ≤ 0.09, H 150) and fills the pads out; a stressed month
+ * thins them and browns them toward straw. The ratio is applied to the
+ * existing vertex/instance colours, so each pad keeps its dark belly and lit
+ * crown. The deciduous maple is on the calendar, not the record.
+ */
+const needle = GARDEN_FLORA_COLORS.needle;
+const needleOklch = hexToOklch(`#${needle.getHexString()}`);
+const deep = new Color(oklchToHex({ c: Math.min(needleOklch.c, 0.09), h: 150, l: needleOklch.l - 0.08 }));
+const straw = new Color(HARBOR_PALETTE.timber_warm).lerp(new Color(HARBOR_PALETTE.roof_thatch), 0.35);
+const DEPTH_RATIO = [deep.r / needle.r, deep.g / needle.g, deep.b / needle.b] as const;
+const STRAW_RATIO = [straw.r / needle.r, straw.g / needle.g, straw.b / needle.b] as const;
+/** Stress browns only part-way: the pads stay pines, not hay. */
+const STRAW_STRENGTH = 0.5;
 
 function growthOf(record?: GardenMonthRecord): number {
   return record?.unavailable ? 0.5 : Math.max(0, Math.min(1, record?.growth ?? 0.5));
 }
 
-function tintMaterial(material: MeshStandardMaterial, growth: number, strength: number): void {
-  material.color.lerp(growth >= 0.5 ? green : dry, Math.abs(growth - 0.5) * 2 * strength);
+/** Per-channel multiplier for a month: 1 at a neutral record. */
+function recordRatio(growth: number): [number, number, number] {
+  const amount = Math.abs(growth - 0.5) * 2 * (growth >= 0.5 ? 1 : STRAW_STRENGTH);
+  const ratio = growth >= 0.5 ? DEPTH_RATIO : STRAW_RATIO;
+  return [1 + (ratio[0] - 1) * amount, 1 + (ratio[1] - 1) * amount, 1 + (ratio[2] - 1) * amount];
 }
 
-function rescaleInstances(mesh: InstancedMesh, factor: number): void {
-  for (let index = 0; index < mesh.count; index += 1) {
-    mesh.getMatrixAt(index, matrix);
-    matrix.decompose(position, rotation, scale);
-    scale.multiplyScalar(factor);
-    matrix.compose(position, rotation, scale);
-    mesh.setMatrixAt(index, matrix);
-  }
-  mesh.instanceMatrix.needsUpdate = true;
-}
-
-/** Reuses the garden's existing instance and vertex buffers: zero new draws. */
+/** Reuses the garden's existing buffers: zero new draws. Apply once per build. */
 export function applyGardenMonthRecord(root: Group, record?: GardenMonthRecord): void {
   const growth = growthOf(record);
+  const [r, g, b] = recordRatio(growth);
+  // Fuller pads after a calm month, tighter after a stressed one.
+  const fullness = 1 + (growth - 0.5) * 0.14;
   root.traverse((object) => {
-    if (object instanceof InstancedMesh && object.material instanceof MeshStandardMaterial) {
-      if (object.name === "island-niwaki-pads") {
-        // Wave 5 shed the shrub/grass carpet. The same month record now works
-        // through the five hero pines' existing instance buffers: fuller pads
-        // after a calm month, tighter and drier after a stressed one.
-        rescaleInstances(object, 0.9 + growth * 0.14);
-        const target = growth >= 0.5 ? green : dry;
-        const amount = Math.abs(growth - 0.5) * 0.55;
-        const color = new Color();
-        for (let index = 0; index < object.count; index += 1) {
-          object.getColorAt(index, color);
-          object.setColorAt(index, color.lerp(target, amount));
-        }
-        if (object.instanceColor) object.instanceColor.needsUpdate = true;
-      } else if (object.name === "island-shrubs") {
-        tintMaterial(object.material, growth, 0.72);
-        rescaleInstances(object, 0.82 + growth * 0.28);
-        const blossomShare = growth <= 0.6 ? 0 : (growth - 0.6) * 0.34;
-        for (let index = 0; index < object.count; index += 1) {
-          const opens = ((index * 37) % Math.max(1, object.count)) / Math.max(1, object.count) < blossomShare;
-          object.setColorAt(index, opens ? blossom : neutral);
-        }
-        if (object.instanceColor) object.instanceColor.needsUpdate = true;
-      } else if (object.name === "island-grass-tufts") {
-        tintMaterial(object.material, growth, 0.82);
-        rescaleInstances(object, 0.76 + growth * 0.32);
+    if (!(object instanceof InstancedMesh) || !(object.material instanceof MeshStandardMaterial)) return;
+    if (object.name === "island-karikomi") {
+      const color = new Color();
+      for (let index = 0; index < object.count; index += 1) {
+        object.getColorAt(index, color);
+        object.setColorAt(index, color.setRGB(color.r * r, color.g * g, color.b * b));
       }
+      if (object.instanceColor) object.instanceColor.needsUpdate = true;
       return;
     }
-    if (!(object instanceof Mesh) || !object.name.startsWith("island-planted-shelf-")) return;
-    const color = object.geometry.getAttribute("color");
-    if (!color) return;
-    const target = growth >= 0.5 ? green : dry;
-    const amount = Math.abs(growth - 0.5) * 1.5;
-    for (let index = 0; index < color.count; index += 1) {
-      const r = color.getX(index);
-      const g = color.getY(index);
-      const b = color.getZ(index);
-      if (!(g > b && g > r * 0.82)) continue;
-      color.setXYZ(index, r + (target.r - r) * amount, g + (target.g - g) * amount, b + (target.b - b) * amount);
+    if (object.name !== "island-niwaki-grove") return;
+    const geometry = object.geometry;
+    const foliage = geometry.getAttribute("aGardenFoliage") as BufferAttribute | undefined;
+    const position = geometry.getAttribute("position") as BufferAttribute;
+    const colors = geometry.getAttribute("color") as BufferAttribute | undefined;
+    if (!foliage || !colors) return;
+    // Each pine pad carries its own rank: gather its centre and seat.
+    const pads = new Map<number, { x: number; z: number; count: number; floor: number }>();
+    for (let vertex = 0; vertex < foliage.count; vertex += 1) {
+      const rank = foliage.getX(vertex);
+      if (rank <= 0) continue;
+      colors.setXYZ(vertex, colors.getX(vertex) * r, colors.getY(vertex) * g, colors.getZ(vertex) * b);
+      const pad = pads.get(rank) ?? { count: 0, floor: Number.POSITIVE_INFINITY, x: 0, z: 0 };
+      pad.x += position.getX(vertex);
+      pad.z += position.getZ(vertex);
+      pad.floor = Math.min(pad.floor, position.getY(vertex));
+      pad.count += 1;
+      pads.set(rank, pad);
     }
-    color.needsUpdate = true;
+    for (let vertex = 0; vertex < foliage.count; vertex += 1) {
+      const pad = pads.get(foliage.getX(vertex));
+      if (!pad) continue;
+      const cx = pad.x / pad.count;
+      const cz = pad.z / pad.count;
+      position.setXYZ(
+        vertex,
+        cx + (position.getX(vertex) - cx) * fullness,
+        pad.floor + (position.getY(vertex) - pad.floor) * fullness,
+        cz + (position.getZ(vertex) - cz) * fullness,
+      );
+    }
+    colors.needsUpdate = true;
+    position.needsUpdate = true;
+    geometry.computeBoundingSphere();
   });
 }

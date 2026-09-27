@@ -27,7 +27,7 @@ import {
   GARDEN_GUST_WORLD_SPEED,
   gardenGustAtWorldPosition,
 } from "../systems/weather";
-import { dayCycleBeats } from "./garden-day-cycle";
+import { DAY_CYCLE_LIGHT_PRESETS, dayCycleBeats } from "./garden-day-cycle";
 import { gardenSunPose } from "./garden-sun";
 import type { GardenShipGeometryCache } from "./garden-util";
 import { cachedShipGeometry } from "./garden-util";
@@ -158,16 +158,36 @@ const fleetWindUniforms = {
 
 const fleetLightUniforms = {
   uBacklight: { value: 0 },
+  uSunColor: { value: new Color(1, 1, 1) },
   uSunDir: { value: new Vector3(0, 1, 0) },
 };
 const fleetSunPose = { direction: fleetLightUniforms.uSunDir.value, elevation: 0 };
 // Cloth never enters the practical-light bloom band.
 const FLEET_CLOTH_RADIANCE_CEILING = 2.2;
+/** The three sunlit beats whose key colour the cloth transmits. */
+const FLEET_SUN_BEATS = ["dawn", "day", "golden"] as const;
 
-/** Wall-clock illumination only; shared by every fleet sail material. */
+/**
+ * Wall-clock illumination only; shared by every fleet sail material.
+ *
+ * W4.F4 (fleet-craft-4 ∪ light-4): `uSunColor` is the key's own colour —
+ * the sunlit beats' authored rig colours by their weights, normalised so it
+ * carries hue, not intensity — which backlit cloth transmits times its dye.
+ * `uBacklight` is the dawn + golden share, so noon and night transmit nothing.
+ */
 export function setFleetLightHour(hour: number): void {
   const beats = dayCycleBeats(hour);
   fleetLightUniforms.uBacklight.value = beats.dawn + beats.golden;
+  const sun = fleetLightUniforms.uSunColor.value.setRGB(0, 0, 0);
+  for (const name of FLEET_SUN_BEATS) {
+    const key = DAY_CYCLE_LIGHT_PRESETS[name].dirColor;
+    sun.r += key.r * beats[name];
+    sun.g += key.g * beats[name];
+    sun.b += key.b * beats[name];
+  }
+  const peak = Math.max(sun.r, sun.g, sun.b);
+  if (peak > 1e-4) sun.multiplyScalar(1 / peak);
+  else sun.setRGB(1, 1, 1);
   gardenSunPose(hour, fleetSunPose);
 }
 
@@ -222,11 +242,11 @@ export function gardenFleetFramingRestraint(distancePresence: number): number {
 /**
  * How much of the woven cloth impression is visible at a given zoom.
  *
- * Cloth-ness is a NEAR-framing property: at whole-map framing a sail is a few
- * pixels and a thread pattern there is only shimmer, so the weave is off below
- * ~0.52 and nearly resolved at the authored zoom-1.0 rest. The final fraction
- * arrives at inspection framing. The weave and desaturation step trade places:
- * far away the fleet is quiet colour; up close it is coloured cloth.
+ * W4.F5 (fleet-craft-5): the thread weave is an INSPECTION property. It used
+ * to arrive by zoom 1.12, below the 1.15 rest, so every resting frame showed
+ * gingham on the near sails. At rest the cloth now reads from the momen-ho
+ * panel strips in the sail shader; the threads fade in from 1.5 and arrive at
+ * 2.1, where a thread is tens of pixels wide.
  */
 export function gardenFleetClothWeave(zoom: number): number {
   const t = MathUtils.clamp(
@@ -237,10 +257,10 @@ export function gardenFleetClothWeave(zoom: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** Below this zoom the weave is sub-pixel and would only alias. */
-const CLOTH_WEAVE_FADE_ZOOM = 0.52;
+/** Below this zoom the weave is off: the rest frame shows panel strips only. */
+const CLOTH_WEAVE_FADE_ZOOM = 1.5;
 /** At and above this zoom the cloth reads at full weave. */
-const CLOTH_WEAVE_FULL_ZOOM = 1.12;
+const CLOTH_WEAVE_FULL_ZOOM = 2.1;
 
 /**
  * Weave geometry and depth, as GLSL float literals.
@@ -321,6 +341,48 @@ export function gardenFleetUnpackSailDistance(packed: number): { hero: boolean; 
   const hero = packed >= 1.5;
   return { hero, presence: packed - (hero ? 2 : 0) };
 }
+
+/**
+ * Contract F-A (FleetMotion → FleetCloth): the square-sail brace and the luff
+ * reach the sail program with no new attribute (16/16).
+ *
+ * The brace rides the fractional part of `aAtlasCell` (the cell is an integer
+ * 0..255, so float32 still resolves the brace to ~1e-4 rad): radians about the
+ * mast from the athwartships line, clamped to ±`FLEET_SAIL_BRACE_LIMIT`. The
+ * shader reads the cell with `floor`.
+ */
+export const FLEET_SAIL_BRACE_LIMIT = 1.5;
+
+export function gardenFleetPackSailCell(cell: number, braceRad: number): number {
+  const brace = MathUtils.clamp(braceRad, -FLEET_SAIL_BRACE_LIMIT, FLEET_SAIL_BRACE_LIMIT);
+  return Math.floor(cell) + 0.001 + 0.998 * (0.5 + brace / (2 * FLEET_SAIL_BRACE_LIMIT));
+}
+
+/** GLSL mirror of `gardenFleetPackSailCell`. */
+export function gardenFleetUnpackSailCell(packed: number): { braceRad: number; cell: number } {
+  const cell = Math.floor(packed);
+  return {
+    braceRad: (((packed - cell) - 0.001) / 0.998 - 0.5) * 2 * FLEET_SAIL_BRACE_LIMIT,
+    cell,
+  };
+}
+
+/**
+ * The luff (0..1, 1/31 steps) rides the integer part of `aSailAttention.x`
+ * and the eased attention its fraction: `luffStep + attention·0.99`.
+ */
+export function gardenFleetPackSailAttention(attention: number, luff: number): number {
+  return Math.round(MathUtils.clamp(luff, 0, 1) * 31) + MathUtils.clamp(attention, 0, 1) * 0.99;
+}
+
+/** GLSL mirror of `gardenFleetPackSailAttention`. */
+export function gardenFleetUnpackSailAttention(packed: number): { attention: number; luff: number } {
+  const step = Math.floor(packed);
+  return { attention: Math.min(1, (packed - step) / 0.99), luff: step / 31 };
+}
+
+/** A sail at rest is slack, not taut: contract F-A's rest luff. */
+export const FLEET_SAIL_REST_LUFF = 0.3;
 
 /**
  * W4.F3 ink tones for the far silhouettes, as multiples of the air's own
@@ -719,6 +781,38 @@ function withHullForm(vertexShader: string): string {
  * still reads as rigged rather than stripped.
  */
 export const FLEET_MAX_SAILS = 6;
+
+/**
+ * W4.F1 + contract F-A: square sails hang athwartships on a yard and are
+ * braced about the mast. The vertex colour says which sails are square (its
+ * blue channel is the momen-ho panel count, zero on every other rig), the
+ * brace comes from `aAtlasCell`'s fraction and the luff from the integer part
+ * of `aSailAttention.x` (`gardenFleetPackSailCell` / `…PackSailAttention`).
+ * Runs after `beginnormal_vertex` so the lit normal turns with the cloth.
+ */
+const SAIL_BRACE_NORMAL = `
+  float gSailSquare = step(0.01, color.b);
+  float gSailBrace = ((fract(aAtlasCell) - 0.001) / 0.998 - 0.5)
+    * ${(2 * FLEET_SAIL_BRACE_LIMIT).toFixed(1)} * gSailSquare;
+  float gSailLuff = floor(aSailAttention.x) / 31.0;
+  float gSailBraceCos = cos(gSailBrace);
+  float gSailBraceSin = sin(gSailBrace);
+  objectNormal.xz = vec2(
+    objectNormal.x * gSailBraceCos + objectNormal.z * gSailBraceSin,
+    -objectNormal.x * gSailBraceSin + objectNormal.z * gSailBraceCos
+  );`;
+
+/**
+ * Sail-local motion, then the brace.
+ *
+ * W8.3 (headroom-5): the belly breathes on the GPU with no per-frame JS —
+ * `sin(πu)·sin(πv)·(0.12 + 0.05·gust)` along the cloth's belly axis (forward
+ * for square sails, athwartships for the fore-and-aft rigs), phased per ship
+ * by the gust front and a hash of its position. A luffing sail (F-A `luff`)
+ * slackens and, past 0.35, shivers along its cloth. Spars (vertex green 0)
+ * ride the brace and the dip but never billow. Reduced motion pins
+ * `uWindTime` at 0, which leaves one static belly.
+ */
 const SAIL_LOCAL_DEFORM = `
 {
   float sailScale = 1.0 - fract(aSailFurl) / 0.99;
@@ -744,32 +838,56 @@ const SAIL_LOCAL_DEFORM = `
     0.0,
     1.0
   );
-  float flutterPhase = uWindTime * (1.2 + localFlutter * 1.6) + aSailIndex * 1.7
-    + instanceMatrix[3].x * 0.31 + instanceMatrix[3].z * 0.17;
-  transformed.z += sin(flutterPhase)
+  vec3 bellyAxis = vec3(gSailSquare, 0.0, 1.0 - gSailSquare);
+  float clothOnly = color.g;
+  float bellyPhase = fract(sin(dot(instanceMatrix[3].xz, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+  float bellyShape = sin(3.14159265 * uv.x) * sin(3.14159265 * uv.y) * clothOnly;
+  float bellyFill = (0.12 + 0.05 * gustEnvelope) * (1.0 - 0.5 * gSailLuff)
+    * (0.9 + 0.1 * sin(uWindTime * 0.5 + bellyPhase));
+  float luffFlutter = sin(uWindTime * 6.5 + uv.x * 8.0 + uv.y * 3.0 + bellyPhase)
+    * smoothstep(0.35, 1.0, gSailLuff) * 0.06 * sin(3.14159265 * uv.y) * clothOnly;
+  float flutterPhase = uWindTime * (1.2 + localFlutter * 1.6) + aSailIndex * 1.7 + bellyPhase;
+  float ripple = sin(flutterPhase)
     * sailDrop
-    * (0.015 + localFlutter * 0.06)
+    * (0.012 + localFlutter * 0.045)
     * (0.92 + uWindBreath * 0.16)
-    * setSail;
+    * clothOnly;
+  transformed += bellyAxis * (bellyShape * bellyFill + luffFlutter + ripple) * setSail;
   transformed.y = mix(transformed.y, aSailHead.y - 0.05, furled);
-  transformed.z = mix(transformed.z, aSailHead.z, furled * 0.8);
+  transformed -= bellyAxis * dot(transformed - aSailHead, bellyAxis) * furled * 0.8;
+  vec2 braceArm = transformed.xz - aSailHead.xz;
+  transformed.xz = aSailHead.xz + vec2(
+    braceArm.x * gSailBraceCos + braceArm.y * gSailBraceSin,
+    -braceArm.x * gSailBraceSin + braceArm.y * gSailBraceCos
+  );
 }`;
 
 export interface FleetSailDeformInput {
+  /** Square-sail brace about the mast, radians from athwartships (F-A). */
+  braceRad?: number;
+  /** 1 on cloth, 0 on a spar (vertex green). */
+  cloth?: number;
   /** Integer furl bitmask, optionally carrying the packed sail dip fraction. */
   furlMask: number;
   sailScale?: number;
   hullForm: { beam: number; height: number; length: number; waterline: number };
   instanceX: number;
   instanceZ: number;
-  sailHead: { y: number; z: number };
+  /** F-A luff, 0..1; `FLEET_SAIL_REST_LUFF` when omitted. */
+  luff?: number;
+  /** The yard: dip/furl centre in y, brace pivot (the mast) in x/z. */
+  sailHead: { x: number; y: number; z: number };
   sailIndex: number;
+  /** A square sail: bellies forward and braces about the mast. */
+  square?: boolean;
+  uv: { x: number; y: number };
   vertex: { x: number; y: number; z: number };
+  /** The gust envelope, 0..1 (the shader's `gustEnvelope`/`localFlutter`). */
   windFlutter: number;
   windTime: number;
 }
 
-/** CPU reference for the sail-local animation followed by hull deformation. */
+/** CPU reference for the sail-local animation and brace, followed by hull deformation. */
 export function deformFleetSailVertex(input: FleetSailDeformInput): {
   setSail: number;
   x: number;
@@ -780,22 +898,37 @@ export function deformFleetSailVertex(input: FleetSailDeformInput): {
   const furlBits = Math.floor(furlMask / (2 ** input.sailIndex));
   const furled = furlBits - 2 * Math.floor(furlBits * 0.5);
   const setSail = 1 - furled;
-  const windFlutter = Math.min(1, Math.max(0, input.windFlutter));
+  const gust = MathUtils.clamp(input.windFlutter, 0, 1);
+  const time = Math.max(0, input.windTime);
   const sailScale = input.sailScale === undefined
     ? 1 - (input.furlMask - furlMask) / 0.99
     : MathUtils.clamp(input.sailScale, GARDEN_SAIL_DIP_MIN_SCALE, 1);
-  const scaledY = input.sailHead.y - (input.sailHead.y - input.vertex.y) * sailScale;
-  const sailDrop = Math.min(1.2, Math.max(0, input.sailHead.y - scaledY));
-  const flutterPhase = Math.max(0, input.windTime) * (2 + windFlutter * 3.5)
-    + input.sailIndex * 1.7
-    + input.instanceX * 0.31
-    + input.instanceZ * 0.17;
-  let x = input.vertex.x;
-  let y = scaledY;
-  let z = input.vertex.z
-    + Math.sin(flutterPhase) * sailDrop * (0.015 + windFlutter * 0.06) * setSail;
-  y = y * setSail + (input.sailHead.y - 0.05) * furled;
-  z = z * (1 - furled * 0.8) + input.sailHead.z * furled * 0.8;
+  const head = input.sailHead;
+  const scaledY = head.y - (head.y - input.vertex.y) * sailScale;
+  const sailDrop = MathUtils.clamp(head.y - scaledY, 0, 1.2);
+  const square = input.square ? 1 : 0;
+  const cloth = input.cloth ?? 1;
+  const luff = MathUtils.clamp(input.luff ?? FLEET_SAIL_REST_LUFF, 0, 1);
+  const hashed = Math.sin(input.instanceX * 12.9898 + input.instanceZ * 78.233) * 43758.5453;
+  const phase = (hashed - Math.floor(hashed)) * Math.PI * 2;
+  const { x: u, y: v } = input.uv;
+  const bellyShape = Math.sin(Math.PI * u) * Math.sin(Math.PI * v) * cloth;
+  const bellyFill = (0.12 + 0.05 * gust) * (1 - 0.5 * luff) * (0.9 + 0.1 * Math.sin(time * 0.5 + phase));
+  const luffFlutter = Math.sin(time * 6.5 + u * 8 + v * 3 + phase)
+    * MathUtils.smoothstep(luff, 0.35, 1) * 0.06 * Math.sin(Math.PI * v) * cloth;
+  const ripple = Math.sin(time * (1.2 + gust * 1.6) + input.sailIndex * 1.7 + phase)
+    * sailDrop * (0.012 + gust * 0.045) * cloth;
+  const push = (bellyShape * bellyFill + luffFlutter + ripple) * setSail;
+  let x = input.vertex.x + square * push;
+  let y = scaledY * setSail + (head.y - 0.05) * furled;
+  let z = input.vertex.z + (1 - square) * push;
+  if (square) x -= (x - head.x) * furled * 0.8;
+  else z -= (z - head.z) * furled * 0.8;
+  const brace = square ? MathUtils.clamp(input.braceRad ?? 0, -FLEET_SAIL_BRACE_LIMIT, FLEET_SAIL_BRACE_LIMIT) : 0;
+  const armX = x - head.x;
+  const armZ = z - head.z;
+  x = head.x + armX * Math.cos(brace) + armZ * Math.sin(brace);
+  z = head.z - armX * Math.sin(brace) + armZ * Math.cos(brace);
 
   x *= input.hullForm.length;
   z *= input.hullForm.beam;
@@ -928,9 +1061,38 @@ export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void
     "garden-fleet-hull-form-strake-trim-wabi-age-fittings-wet-collar";
 }
 
+/**
+ * The fragment-side cloth read, W4.F5 (fleet-craft-5): square sails show the
+ * vertical cotton strips of a wasen sail (momen-ho) — alternating panels with
+ * a hairline seam. The count rides the baked vertex colour's blue channel
+ * (`panels / 16`; bezaisen 9, takasebune 6, other rigs 0) because the program
+ * has no free attribute; green is 1 on cloth and 0 on the spars, red is the
+ * baked cloth shade. The strips fade before they can alias and stand down
+ * under the mark.
+ */
+const SAIL_PANEL_SEAM = "0.1";
+const SAIL_PANEL_ALTERNATE = "0.05";
+/** Seam half-width as a share of one panel. */
+const SAIL_PANEL_SEAM_WIDTH = "0.05";
+/** Dark yard timber, linear. */
+const SAIL_SPAR_TIMBER = "vec3(0.06, 0.047, 0.036)";
+/**
+ * critic-6 step 3: a thread shows only once it is ~30 px wide (1/(14·30) of
+ * the sail per pixel) and is gone by ~12 px.
+ */
+const CLOTH_THREAD_FULL_PITCH = (1 / (14 * 30)).toFixed(5);
+const CLOTH_THREAD_GONE_PITCH = (1 / (14 * 12)).toFixed(5);
+/**
+ * W4.F4 shoji transmission: share of the sun-coloured light a fully backlit
+ * sail passes, and how much of it the mon's ink blocks.
+ */
+const CLOTH_TRANSMISSION = "0.55";
+const CLOTH_INK_BLOCK = "0.85";
+
 export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uBacklight = fleetLightUniforms.uBacklight;
+    shader.uniforms.uSunColor = fleetLightUniforms.uSunColor;
     shader.uniforms.uSunDir = fleetLightUniforms.uSunDir;
     shader.uniforms.uWindTime = fleetWindUniforms.uWindTime;
     shader.uniforms.uWindFlutter = fleetWindUniforms.uWindFlutter;
@@ -941,10 +1103,12 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
     shader.uniforms.uAerialFar = fleetAerialUniforms.uAerialFar;
     shader.uniforms.uAerialStrength = fleetAerialUniforms.uAerialStrength;
     shader.uniforms.uClothWeave = fleetAerialUniforms.uClothWeave;
-    // Sail-local flutter and furling run before hull form, so height and ride
-    // cannot change the animation envelope or reopen bundled canvas.
+    // Sail-local flutter, furling and the brace run before hull form, so
+    // height and ride cannot change the animation envelope or reopen bundled
+    // canvas.
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", `#include <common>\n${HULL_FORM_ATTRIBUTE}`)
+      .replace("#include <beginnormal_vertex>", `#include <beginnormal_vertex>\n${SAIL_BRACE_NORMAL}`)
       .replace(
         "#include <begin_vertex>",
         `#include <begin_vertex>\n${SAIL_LOCAL_DEFORM}\n${HULL_FORM_DEFORM}`,
@@ -984,14 +1148,16 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         `#include <uv_vertex>
         {
           float columns = ${FLEET_SAIL_ATLAS_COLUMNS}.0;
-          float cell = aAtlasSail > 0.5 ? aAtlasCell : 0.0;
+          // The brace rides the fraction: see gardenFleetPackSailCell.
+          float cell = aAtlasSail > 0.5 ? floor(aAtlasCell) : 0.0;
           float canvasRow = floor(cell / columns);
           float textureRow = columns - 1.0 - canvasRow;
           vec2 cellOrigin = vec2(mod(cell, columns), textureRow) / columns;
           vAtlasUv = cellOrigin + uv / columns;
           vSailTint = aSailTint;
           vClothUv = uv;
-          vSailAttention = aSailAttention.x;
+          // The luff rides the integer part: see gardenFleetPackSailAttention.
+          vSailAttention = min(1.0, fract(aSailAttention.x) / 0.99);
           // W4.F3: presence + 2·hero, see gardenFleetPackSailDistance.
           float sailHero = step(1.5, aSailAttention.y);
           vSailHero = sailHero;
@@ -1007,6 +1173,7 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         uniform float uAerialStrength;
         uniform float uClothWeave;
         uniform float uBacklight;
+        uniform vec3 uSunColor;
         uniform vec3 uSunDir;
         varying vec2 vAtlasUv;
         varying vec2 vClothUv;
@@ -1016,7 +1183,8 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         varying float vSailDistance;
         varying float vSailHero;
         float gClothWarp = 0.0;
-        float gClothWeft = 0.0;`,
+        float gClothWeft = 0.0;
+        float gSailMarkCover = 0.0;`,
       )
       // F1: the cloth is DYED per instance and the atlas carries only marks.
       //
@@ -1048,6 +1216,23 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           float restraint = aerial * uAerialStrength * (1.0 - vSailHero);
           restraint = 1.0 - (1.0 - restraint) * (1.0 - framingStep);
           sailCloth = mix(sailCloth, vec3(clothLuma), restraint);
+          float markCover = sailTexel.a * markVisibility;
+          gSailMarkCover = markCover;
+
+          float sailPanels = floor(vColor.b * 16.0 + 0.5);
+          if (sailPanels > 0.5) {
+            float panelU = vClothUv.x * sailPanels;
+            float panelPitch = fwidth(panelU);
+            float seamDistance = min(fract(panelU), 1.0 - fract(panelU));
+            float seam = 1.0 - smoothstep(
+              ${SAIL_PANEL_SEAM_WIDTH}, ${SAIL_PANEL_SEAM_WIDTH} + panelPitch * 1.5, seamDistance
+            );
+            float alternate = mod(floor(panelU), 2.0) * ${SAIL_PANEL_ALTERNATE};
+            float panelFade = 1.0 - smoothstep(0.15, 0.3, panelPitch);
+            sailCloth *= 1.0 - panelFade * (
+              alternate + ${SAIL_PANEL_SEAM} * seam * (1.0 - markCover * ${CLOTH_WEAVE_MARK_RELIEF})
+            );
+          }
 
           vec2 threads = vClothUv * vec2(${CLOTH_WARP_THREADS}, ${CLOTH_WEFT_THREADS}) * 6.2831853;
           float warp = sin(threads.x);
@@ -1055,16 +1240,25 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           float weave = warp * 0.5 + weft * 0.4 + warp * weft * 0.34;
           weave *= 0.86 + 0.14 * sin(vClothUv.x * 7.3 + vClothUv.y * 5.1);
           float threadPitch = max(fwidth(vClothUv.x), fwidth(vClothUv.y));
-          float clothDetail = 1.0 - smoothstep(0.008, 0.03, threadPitch);
-          float markCover = sailTexel.a * markVisibility;
-          float weaveAmount = uClothWeave * clothDetail
+          float clothDetail = 1.0 - smoothstep(${CLOTH_THREAD_FULL_PITCH}, ${CLOTH_THREAD_GONE_PITCH}, threadPitch);
+          float weaveAmount = uClothWeave * clothDetail * vColor.g
             * (1.0 - markCover * ${CLOTH_WEAVE_MARK_RELIEF});
           sailCloth *= 1.0 + weave * ${CLOTH_WEAVE_SHADE} * weaveAmount;
           gClothWarp = cos(threads.x) * weaveAmount;
           gClothWeft = cos(threads.y) * weaveAmount;
 
+          // W4.F1: the yard is dark timber, never dyed.
+          sailCloth = mix(${SAIL_SPAR_TIMBER}, sailCloth, vColor.g);
           diffuseColor.rgb *= sailCloth;
-          totalEmissiveRadiance *= sailCloth;
+          totalEmissiveRadiance *= sailCloth * vColor.g;
+        #endif`,
+      )
+      // Only the baked shade tints: green and blue are the cloth/spar flag and
+      // the panel count, not colour.
+      .replace(
+        "#include <color_fragment>",
+        `#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+          diffuseColor.rgb *= vColor.r;
         #endif`,
       )
       // W3.7: the weave has to catch the light or it is a printed pattern, not
@@ -1086,14 +1280,29 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           );
         }`,
       )
+      // W4.F4 (fleet-craft-4 ∪ light-4): backlight as shoji. Cloth between the
+      // eye and a low sun passes the SUN's colour times its dye, strongest when
+      // the eye looks straight through it toward the sun and gone when the sail
+      // turns side-on; the mon's ink blocks it, so the crest reads as a darker
+      // figure inside the glow. The golden sun now stands behind the viewer, so
+      // this is a dawn and far-side effect; noon and night pass nothing.
       .replace(
         "#include <opaque_fragment>",
         `{
           // Three's face-oriented shading normal is view-space; transform the
           // shared world-space sun before comparing the back face to the light.
           vec3 clothSunDir = normalize(mat3(viewMatrix) * uSunDir);
-          float wrap = clamp(-dot(normal, clothSunDir), 0.0, 1.0);
-          outgoingLight += wrap * diffuseColor.rgb * uBacklight;
+          float facing = clamp(-dot(normal, clothSunDir), 0.0, 1.0);
+          float through = clamp(dot(normalize(vViewPosition), -clothSunDir), 0.0, 1.0);
+          through *= through;
+          #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+            float clothOnly = vColor.g;
+          #else
+            float clothOnly = 1.0;
+          #endif
+          outgoingLight += diffuseColor.rgb * uSunColor
+            * (facing * (0.35 + 0.65 * through)) * uBacklight * ${CLOTH_TRANSMISSION}
+            * (1.0 - gSailMarkCover * ${CLOTH_INK_BLOCK}) * clothOnly;
           float clothPeak = max(max(outgoingLight.r, outgoingLight.g), outgoingLight.b);
           outgoingLight *= min(1.0, ${FLEET_CLOTH_RADIANCE_CEILING.toFixed(1)} / max(clothPeak, 0.0001));
         }
@@ -1101,7 +1310,7 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
       );
   };
   material.customProgramCacheKey = () =>
-    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-trim-aerial-framing-weave-backlight-hero-band";
+    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-aerial-framing-panels-weave-shoji-hero-band-brace-belly";
 }
 
 function createInstancedPart(
@@ -1253,6 +1462,7 @@ export function createFleetBatches(input: {
     patchFarCloth(shader, renderer);
     shader.vertexShader = shader.vertexShader
       .replace(SAIL_LOCAL_DEFORM, "")
+      .replace(SAIL_BRACE_NORMAL, "")
       .replace("attribute float aSailFurl;", "")
       .replace("attribute float aSailIndex;", "")
       .replace("attribute vec3 aSailHead;", "")
@@ -1366,6 +1576,13 @@ export interface FleetInstancePose {
    * which keep their own scene graph, ever showed one.
    */
   mastheadOffset: { x: number; y: number };
+  /**
+   * W4.F1 / F-A: the square sails' brace about the mast, radians from the
+   * athwartships line (+ = starboard yardarm forward). Omitted = square.
+   */
+  sailBraceRad?: number | undefined;
+  /** F-A: how much the cloth is luffing, 0..1. Omitted = `FLEET_SAIL_REST_LUFF`. */
+  sailLuff?: number | undefined;
   /** W2.3/W4: bitmask of sails furled onto their yards, bit i = sail i. */
   sailFurl: number;
   /** Vertical sail scale about the yard; 1 at rest, 0.6 at a transient beat's minimum. */
@@ -1535,7 +1752,7 @@ export function writeFleetInstance(
     sails.mesh.count = slot + 1;
   }
   if (sails.atlasCell) {
-    sails.atlasCell.setX(slot, pose.atlasCell);
+    sails.atlasCell.setX(slot, gardenFleetPackSailCell(pose.atlasCell, pose.sailBraceRad ?? 0));
   }
   if (sails.sailTint) {
     sails.sailTint.setXYZ(slot, pose.sailColor.r, pose.sailColor.g, pose.sailColor.b);
@@ -1545,7 +1762,10 @@ export function writeFleetInstance(
     sails.sailFurl.setX(slot, pose.sailFurl + (1 - sailScale) * 0.99);
   }
   if (sails.sailAttention) {
-    sails.sailAttention.setX(slot, attention);
+    sails.sailAttention.setX(
+      slot,
+      gardenFleetPackSailAttention(attention, pose.sailLuff ?? FLEET_SAIL_REST_LUFF),
+    );
     // Without a distance frame there is no presence ramp; endFleetFrame
     // rewrites this with the eased presence when there is.
     if (!distanceState) sails.sailAttention.setY(slot, gardenFleetPackSailDistance(0, hero));

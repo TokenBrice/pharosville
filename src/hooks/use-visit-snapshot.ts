@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { selectNotableMovers } from "../systems/notable-movers";
-import type { PharosVilleWorld } from "../systems/world-types";
+import { psiBandSeverity, type PharosVilleWorld } from "../systems/world-types";
 
 export const VISIT_SNAPSHOT_STORAGE_KEY = "pharosville.snapshot.v1";
 export const VISIT_SNAPSHOT_SCHEMA_VERSION = 1;
@@ -34,14 +34,17 @@ interface StorageReadResult {
   storageAvailable: boolean;
 }
 
-export function useVisitSnapshot(input: {
-  world: PharosVilleWorld;
-  setAnnouncement: (message: string) => void;
-}) {
-  const { setAnnouncement, world } = input;
+/**
+ * W6.10 — the harbour remembers. On the first settled world of a visit, the
+ * stored baseline is compared with today's and replaced. A material change
+ * becomes one prose sentence for the now-line (`useVisitorLine` times it) and
+ * a permanent "Since your last visit" line in the ledger; there is no toast
+ * and no camera glide.
+ */
+export function useVisitSnapshot(input: { world: PharosVilleWorld }) {
+  const { world } = input;
   const snapshotWrittenRef = useRef(false);
   const [delta, setDelta] = useState<VisitSnapshotDelta | null>(null);
-  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     if (snapshotWrittenRef.current) return;
@@ -61,20 +64,13 @@ export function useVisitSnapshot(input: {
     const nextDelta = computeVisitSnapshotDelta(stored.snapshot, currentSnapshot);
     if (!hasMaterialVisitDelta(nextDelta)) return;
 
-    // External localStorage diff: one post-persistence banner update, not a render-derived cascade.
+    // External localStorage diff: one post-persistence update, not a render-derived cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDelta(nextDelta);
-    setAnnouncement(visitSnapshotDeltaSummary(nextDelta));
-  }, [setAnnouncement, world]);
+  }, [world]);
 
-  const dismiss = useCallback(() => {
-    setDismissed(true);
-  }, []);
-
-  return {
-    delta: dismissed ? null : delta,
-    dismiss,
-  };
+  const summary = useMemo(() => (delta ? visitSnapshotDeltaSummary(delta) : null), [delta]);
+  return { delta, summary };
 }
 
 export function snapshotFromWorld(world: PharosVilleWorld): VisitSnapshot {
@@ -126,21 +122,58 @@ export function hasMaterialVisitDelta(delta: VisitSnapshotDelta): boolean {
     || delta.notableMoverSymbols.length > 0;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEKDAY = new Intl.DateTimeFormat("en-US", { weekday: "long" });
+
+/** "earlier today", "yesterday", "on Tuesday", "12 days ago"; null when unknown. */
+function visitWhenLabel(previousAt: number | null, now: number | null): string | null {
+  if (previousAt === null || now === null || previousAt > now) return null;
+  const previousDay = new Date(previousAt);
+  const today = new Date(now);
+  const days = Math.round((
+    new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+    - new Date(previousDay.getFullYear(), previousDay.getMonth(), previousDay.getDate()).getTime()
+  ) / DAY_MS);
+  if (days <= 0) return "earlier today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return `on ${WEEKDAY.format(previousDay)}`;
+  return `${days} days ago`;
+}
+
+function bandName(band: string | null): string {
+  return band ? `${band.charAt(0)}${band.slice(1).toLowerCase()}` : "unavailable";
+}
+
+function symbolList(symbols: readonly string[]): string {
+  const named = symbols.slice(0, 2);
+  const extra = symbols.length - named.length;
+  if (extra > 0) return `${named.join(", ")} and ${extra} more`;
+  return named.join(" and ");
+}
+
+/**
+ * One sentence in the garden's voice, a pure restatement of the stored delta:
+ * "Since you were here on Tuesday — stability fell from Steady to Tremor;
+ * USDC and DAI are among today's movers."
+ */
 export function visitSnapshotDeltaSummary(delta: VisitSnapshotDelta): string {
   const parts: string[] = [];
-  if (delta.psiBandChange) {
-    parts.push(`PSI ${formatBand(delta.psiBandChange.fromBand)} -> ${formatBand(delta.psiBandChange.toBand)}`);
+  const change = delta.psiBandChange;
+  if (change) {
+    const from = psiBandSeverity(change.fromBand);
+    const to = psiBandSeverity(change.toBand);
+    const verb = from === null || to === null ? "moved" : to > from ? "fell" : "rose";
+    parts.push(`stability ${verb} from ${bandName(change.fromBand)} to ${bandName(change.toBand)}`);
   }
   if (delta.lastFleetDepegAt !== null) {
-    parts.push("new fleet depeg recorded");
+    parts.push("a new fleet depeg was recorded");
   }
   if (delta.notableMoverSymbols.length > 0) {
-    const visibleSymbols = delta.notableMoverSymbols.slice(0, 4);
-    const extraCount = delta.notableMoverSymbols.length - visibleSymbols.length;
-    const suffix = extraCount > 0 ? `, +${extraCount} more` : "";
-    parts.push(`new notable movers: ${visibleSymbols.join(", ")}${suffix}`);
+    parts.push(`${symbolList(delta.notableMoverSymbols)} ${delta.notableMoverSymbols.length === 1 ? "is" : "are"} among today's movers`);
   }
-  return parts.length > 0 ? `Since last visit: ${parts.join("; ")}.` : "";
+  if (parts.length === 0) return "";
+  const when = visitWhenLabel(delta.previousGeneratedAt, delta.generatedAt);
+  return `${when ? `Since you were here ${when}` : "Since your last visit"} — ${parts.join("; ")}.`;
 }
 
 function readStoredVisitSnapshot(): StorageReadResult {
@@ -192,10 +225,6 @@ function isVisitSnapshot(value: unknown): value is VisitSnapshot {
 
 function finiteNumberOrNull(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function formatBand(value: string | null): string {
-  return value ?? "unknown";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

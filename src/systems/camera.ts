@@ -210,11 +210,11 @@ function stationNoboriPoints(station: RestStation): readonly WorldPoint[] {
 
 /**
  * World points bounding a station's massing (its precinct footprint up to the
- * civic hall's second level) and its nobori (`stationNoboriPoints`, W1.3).
+ * station's silhouette top) and its nobori (`stationNoboriPoints`, W1.3).
  */
 function stationEnvelopePoints(station: RestStation): WorldPoint[] {
   const rect = stationFootprintRect(station.type, station.tile, station.seawardBearing);
-  const top = GARDEN_DOCK_ROOT_Y + STATION_SCALE_LADDER[station.type].secondLevelTop;
+  const top = GARDEN_DOCK_ROOT_Y + STATION_SCALE_LADDER[station.type].silhouetteTop;
   const points: WorldPoint[] = [];
   for (const along of [rect.minAlong, rect.maxAlong]) {
     for (const across of [rect.minAcross, rect.maxAcross]) {
@@ -794,7 +794,7 @@ function stationMassingBox(station: { type: StationType; tile: TilePoint; seawar
   }
   return {
     min: { x: Math.min(...xs), y: GARDEN_DOCK_ROOT_Y, z: Math.min(...zs) },
-    max: { x: Math.max(...xs), y: GARDEN_DOCK_ROOT_Y + STATION_SCALE_LADDER[station.type].secondLevelTop, z: Math.max(...zs) },
+    max: { x: Math.max(...xs), y: GARDEN_DOCK_ROOT_Y + STATION_SCALE_LADDER[station.type].silhouetteTop, z: Math.max(...zs) },
   };
 }
 

@@ -169,8 +169,10 @@ describe("camera intent helpers", () => {
       result.current.startArrival(onComplete);
       result.current.stepCamera(1_000, new Map());
     });
-    // W1.0: the arrival opens on the rest ShotSpec itself — no slide.
-    expect(result.current.cameraRef.current).toEqual(destination);
+    // K17: the arrival opens under the rest ShotSpec, the eye 3 u lower in thick air.
+    const opening = result.current.cameraRef.current!;
+    expect(opening.rest).toEqual(destination.rest);
+    expect(opening.shot?.view.eye.y).toBeCloseTo(destination.rest!.view.eye.y - 3, 9);
     act(() => { result.current.stepCamera(10_001, new Map()); });
     expect(result.current.cameraRef.current).toEqual(destination);
     expect(onComplete).toHaveBeenCalledTimes(1);
@@ -182,6 +184,25 @@ describe("camera intent helpers", () => {
         expect(frame.cameraIntentActive).toBe(false);
       });
     }
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("lands a resized arrival on the new viewport's rest ShotSpec", () => {
+    const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
+    const onComplete = vi.fn();
+    act(() => {
+      result.current.canvasSizeRef.current = { x: 1200, y: 640 };
+      result.current.setCamera(defaultCamera({ width: 1200, height: 640, map: world.map }));
+      result.current.startArrival(onComplete);
+      expect(result.current.stepCamera(1_000, new Map()).airVeil).toBeCloseTo(1.8, 9);
+    });
+    // A tall window mid-rise re-solves the seat (the tall eye), and the rise ends on it.
+    act(() => {
+      result.current.canvasSizeRef.current = { x: 720, y: 900 };
+      result.current.stepCamera(5_000, new Map());
+      result.current.stepCamera(10_001, new Map());
+    });
+    expect(result.current.cameraRef.current).toEqual(defaultCamera({ width: 720, height: 900, map: world.map }));
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
 

@@ -5,6 +5,7 @@ import type { StabilityIndexResponse } from "@shared/types";
 import { getCirculatingRaw } from "@/lib/supply";
 import type { ChainSummary } from "@shared/types/chains";
 import { buildGardenMonthRecord } from "../../garden-month-record";
+import { buildLongRecord, type LongRecordDeath } from "../../long-record";
 import { buildChainDocks } from "../../chain-docks";
 import { buildSupplyTide } from "../../supply-tide";
 import {
@@ -138,6 +139,7 @@ function buildLighthouse(
   stability: StabilityIndexResponse | null | undefined,
   pegSummary: PharosVilleInputs["pegSummary"],
   stablecoins: PharosVilleInputs["stablecoins"],
+  deaths: readonly LongRecordDeath[],
 ): LighthouseNode {
   const current = stability?.current ?? null;
   const band = current?.band ?? null;
@@ -164,6 +166,7 @@ function buildLighthouse(
     signalMast: buildSignalMast(pegSummary, stablecoins),
     highWaterMark: buildHighWaterMark(stability),
     gardenMonthRecord: buildGardenMonthRecord(stability),
+    longRecord: buildLongRecord(stability, deaths),
     ...(beamDwell ? { beamDwell } : {}),
   };
 }
@@ -511,13 +514,14 @@ const warnedAliasCollapses = new Set<string>();
 export function buildWorldScaffoldStage(inputs: PharosVilleInputs): BuildWorldScaffoldStage {
   const chains = normalizeChainsResponse(inputs.chains);
   const docks = withChainSignals(buildChainDocks(chains), chains);
+  const cemetery = inputs.cemeteryEntries ?? RUNTIME_CEMETERY_ENTRIES;
   return {
     supplyTide: buildSupplyTide(chains),
     map: buildPharosVilleMap(),
-    lighthouse: buildLighthouse(inputs.stability, inputs.pegSummary, inputs.stablecoins),
+    lighthouse: buildLighthouse(inputs.stability, inputs.pegSummary, inputs.stablecoins, cemetery),
     pigeonnier: buildPigeonnier(),
     docks,
     areas: buildAreas(countShipsByRiskPlacement(inputs, docks)),
-    graves: graveNodesFromEntries(inputs.cemeteryEntries ?? RUNTIME_CEMETERY_ENTRIES),
+    graves: graveNodesFromEntries(cemetery),
   };
 }

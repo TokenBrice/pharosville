@@ -45,6 +45,9 @@ body,
   --risk-ledger: #d9b974;
   --risk-wreck: #c23a22;
 
+  /* Ink type system (W6.7): Garamond speaks (titles, captions, prose, names),
+     the UI sans measures (figures, times, keys). Two weights each, no tracked
+     caps, nothing under 12 px; the display roles grow with the picture. */
   --font-title: "EB Garamond", serif;
   --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --type-12: 0.75rem;
@@ -52,6 +55,10 @@ body,
   --type-16: 1rem;
   --type-20: 1.25rem;
   --type-28: 1.75rem;
+  --type-caption: clamp(1.0625rem, 0.7rem + 0.5vw, 1.4375rem);
+  --type-title: clamp(1.625rem, 1.2rem + 0.6vw, 2.125rem);
+  --type-figure: 0.9375rem;
+  --type-label: 0.78rem;
   /* Motion vocabulary: mirrors GARDEN_MOTION_CURVES / GARDEN_MOTION_DURATIONS (motion-tokens.ts). */
   --pv-motion-curve-settle: cubic-bezier(0.22, 1, 0.36, 1);
   --pv-motion-curve-drift: linear;
@@ -71,50 +78,36 @@ body,
   --pv-gold: #d49a3e;
   --pv-gold-bright: #f7d68a;
   --pv-ink-text: #1a1612;
-  --pv-ink-soft: #332a1f;
   --pv-parchment-light: #e8eef0;
   --pv-parchment-warm: #e2d2b3;
-  --pv-parchment-dark: #767b9c;
-  --pv-surface-record: #e2d2b3;
-  --pv-surface-record-edge: #5a4a37;
-  --pv-surface-hover: #2d2554;
   --pv-shadow: #151030;
   --pv-white: #e8eef0;
   --pv-danger: #d54e3c;
 
-  /* Text roles, each AA (≥ 4.5:1) against its own surface in both phases;
-     the night block re-points them, never the shared tokens above. Card:
-     quiet titles and links on the record. Air: chrome text over the scene
-     (caption, controls) on its water backing. */
-  --pv-text-quiet: var(--stone);
-  --pv-link: var(--stone);
-  --pv-text-on-air: var(--mist);
-  --pv-text-on-air-quiet: color-mix(in srgb, var(--mist) 78%, var(--stone));
-}
-
-:root[data-phase="night"] {
-  --ink: #e8eef0;
-  --mist: #767b9c;
-  --moss: #5f7a59;
-  --stone: #332a1f;
-  --water: #151030;
-  --lantern: #d49a3e;
-  --pv-bg: #171233;
-  --pv-panel: #2d2554;
-  --pv-panel-deep: #151030;
-  --pv-muted: #b2dcee;
-  --pv-surface-record: #332a1f;
-  --pv-surface-record-edge: #5a4a37;
-  --pv-ink-text: #e8eef0;
-  --pv-ink-soft: #e2d2b3;
-  --pv-text-quiet: color-mix(in srgb, var(--pv-parchment-warm) 78%, var(--stone));
-  --pv-link: var(--pv-parchment-warm);
-  --pv-text-on-air: var(--pv-parchment);
-  --pv-text-on-air-quiet: color-mix(in srgb, var(--pv-parchment) 72%, var(--mist));
+  /* W6.5 chrome roles, AA on their own surface at every point of the light
+     score (systems/chrome-air.ts, its test). `useChromeAir` rewrites them on
+     :root once a minute; these are the day values for first paint. Air: the
+     dark pool of shade under text over the scene. Paper: the record sheet. */
+  --pv-air-ink: #16222f;
+  --pv-text-on-air: #eef0ec;
+  --pv-text-on-air-quiet: #cdd2d0;
+  --pv-label-ink: #eef0ec;
+  --pv-air-scrim: color-mix(in srgb, var(--pv-air-ink) 80%, transparent);
+  --pv-paper: #e5dfce;
+  --pv-paper-ink: #1a1612;
+  --pv-text-quiet: #4a4035;
+  --pv-link: #5a4a37;
+  --pv-paper-edge: color-mix(in srgb, var(--pv-paper-ink) 22%, transparent);
+  --pv-paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .45 0 0 0 0 .4 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)' opacity='.05'/%3E%3C/svg%3E");
 }
 
 body {
-  background: var(--pv-bg);
+  /* K17: the hour's own air (index.html sets --pv-veil-*) from the first paint. */
+  background: var(--pv-veil-bottom, var(--pv-bg)) linear-gradient(
+    var(--pv-veil-top, var(--pv-bg)),
+    var(--pv-veil-mid, var(--pv-bg)) 42%,
+    var(--pv-veil-bottom, var(--pv-bg)) 80%
+  ) fixed;
   color: var(--pv-parchment);
   font-family: var(--font-ui);
 }
@@ -138,46 +131,48 @@ textarea {
   border: 0;
 }
 
-/* Loading holds a real harbor frame still, then leaves in one short crossfade. */
+/* K17: loading is the hour's own air — the gradient index.html paints from the
+   first byte (`--pv-veil-*`) — with its one line where the now-caption stands,
+   in the caption's type, so the first caption replaces it in place. */
 .pharosville-loading {
   position: relative;
-  display: grid;
+  display: flex;
+  align-items: flex-end;
+  box-sizing: border-box;
   min-height: 100svh;
-  place-items: center;
+  padding: 0 0 31px 39px;
   overflow: hidden;
-  background:
-    linear-gradient(
-      to bottom,
-      color-mix(in srgb, var(--pv-bg) 18%, transparent),
-      color-mix(in srgb, var(--pv-bg) 72%, transparent)
-    ),
-    url("/pharosville/stills/garden-noon.jpg") center / cover no-repeat;
-  color: var(--pv-parchment);
-  font-family: var(--font-ui);
-  font-size: var(--type-14);
-  font-weight: 600;
-  letter-spacing: 0.03em;
+  background: linear-gradient(
+    var(--pv-veil-top, var(--pv-bg)),
+    var(--pv-veil-mid, var(--pv-bg)) 42%,
+    var(--pv-veil-bottom, var(--pv-bg)) 80%
+  );
+  color: var(--pv-text-on-air);
+  font: var(--type-16)/1.35 var(--font-title);
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
 }
+/* The world's veil dissolves into the air veil over 900 ms while the air is
+   still at its thickest; reduced motion takes one 200 ms fade (`crossfade`).
+   The world's own now-caption stands in the loading line's place, so the
+   veil keeps its status text for assistive tech only. */
 .pharosville-loading--veil {
   position: absolute;
   inset: 0;
   z-index: 5;
   min-height: 0;
   opacity: 1;
-  pointer-events: none;
-  transition: opacity 320ms var(--pv-motion-curve-settle);
-}
-.pharosville-loading--veil[data-charting="false"] {
   color: transparent;
+  text-shadow: none;
+  pointer-events: none;
+  transition: opacity 900ms cubic-bezier(0.33, 0, 0.2, 1);
 }
 .pharosville-loading--veil[data-arrival="arriving"],
 .pharosville-loading--veil[data-arrival="crossfade"] {
   opacity: 0;
 }
-@media (prefers-reduced-motion: reduce) {
-  .pharosville-loading--veil {
-    transition: none;
-  }
+.pharosville-loading--veil[data-arrival="crossfade"] {
+  transition-duration: var(--pv-motion-duration-whisper);
 }
 
 
@@ -230,8 +225,6 @@ textarea {
     var(--stone));
   color: var(--pv-ink-text);
   font: 600 var(--type-12) var(--font-ui);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   cursor: pointer;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--pv-white) 40%, transparent),
@@ -246,7 +239,8 @@ textarea {
   position: relative;
   min-height: 100svh;
   overflow: hidden;
-  background: var(--pv-bg);
+  /* The hour's own air until the hour still decodes (K17). */
+  background: var(--pv-veil-mid, var(--pv-bg));
 }
 .pharosville-gate__still {
   position: absolute;
@@ -390,7 +384,6 @@ textarea {
   margin: 0 0 28px;
   color: var(--lantern);
   font: 600 1.65rem/1.2 var(--font-title);
-  letter-spacing: 0;
 }
 
 .pharosville-static-overview ul {
@@ -402,10 +395,6 @@ textarea {
 
 .pharosville-static-overview li {
   border-top: 1px solid color-mix(in srgb, var(--lantern) 22%, transparent);
-}
-
-.pharosville-static-overview li > button {
-  letter-spacing: 0;
 }
 
 .pharosville-static-overview li > button {
@@ -434,9 +423,7 @@ textarea {
 
 .pharosville-static-overview li span {
   color: var(--lantern);
-  font-size: 0.76rem;
-  font-weight: 700;
-  text-transform: uppercase;
+  font: italic var(--type-14) var(--font-title);
 }
 
 .pharosville-static-overview li strong {
@@ -504,87 +491,68 @@ textarea {
 }
 .pharosville-detail-dock > * { pointer-events: auto; }
 
-/* Detail panel: an opaque woodblock record — seal, title and narrative above
-   one ruled line of figures. Expanded facts stay in the same composed object. */
+/* The washi sheet (W6.3): the record card, ledger records and drawers share
+   one material — dyed paper from the light score (washi by day, indigo after
+   blue hour), ≤ 5 % static fibre, a double hairline keyline like a print's,
+   and a soft lift instead of a hard offset. The one change of sheet at dusk
+   and at dawn crossfades; the per-minute dye steps are below perception. */
+.pv-paper,
+.pharosville-detail-panel,
+.pharosville-ledger__record {
+  border: 1px solid var(--pv-paper-edge);
+  background-color: var(--pv-paper);
+  background-image: var(--pv-paper-grain);
+  box-shadow:
+    inset 0 0 0 2px var(--pv-paper),
+    inset 0 0 0 3px color-mix(in srgb, var(--pv-paper-ink) 14%, transparent),
+    0 22px 44px -28px color-mix(in srgb, var(--pv-shadow) 55%, transparent);
+  color: var(--pv-paper-ink);
+  transition: background-color 1.2s, border-color 1.2s, box-shadow 1.2s, color 1.2s;
+}
+
 .pharosville-detail-panel {
   position: relative;
   height: auto;
   max-height: var(--pv-detail-panel-max-height, 100%);
   overflow: hidden;
-  background: color-mix(in srgb, var(--mist) 92%, var(--stone));
-  border: 1px solid color-mix(in srgb, var(--stone) 76%, var(--ink));
-  box-shadow: 4px 4px 0 color-mix(in srgb, var(--ink) 26%, transparent);
 }
 
 .pharosville-detail-panel__inner {
   position: relative;
-  height: auto;
   max-height: 100%;
   padding: 24px 26px 20px;
   overflow: auto;
-  color: var(--ink);
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--stone) 58%, var(--ink)) transparent;
-}
-.pharosville-detail-panel__inner::-webkit-scrollbar {
-  width: 5px;
-}
-.pharosville-detail-panel__inner::-webkit-scrollbar-track {
-  background: transparent;
-}
-.pharosville-detail-panel__inner::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--stone) 58%, var(--ink));
+  scrollbar-color: color-mix(in srgb, var(--pv-paper-ink) 30%, transparent) transparent;
 }
 
 .pharosville-detail-panel__header {
   --pv-detail-risk: var(--risk-watch);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 116px;
-  gap: 20px;
-  align-items: start;
-  margin-bottom: 16px;
-}
-.pharosville-detail-panel__header:not([data-risk-band]) .pharosville-detail-panel__heading {
-  grid-column: 1 / -1;
 }
 .pharosville-detail-panel__header[data-risk-band="calm"] { --pv-detail-risk: var(--risk-calm); }
-.pharosville-detail-panel__header[data-risk-band="watch"] { --pv-detail-risk: var(--risk-watch); }
 .pharosville-detail-panel__header[data-risk-band="alert"] { --pv-detail-risk: var(--risk-alert); }
 .pharosville-detail-panel__header[data-risk-band="warning"] { --pv-detail-risk: var(--risk-warning); }
 .pharosville-detail-panel__header[data-risk-band="danger"] { --pv-detail-risk: var(--risk-danger); }
 .pharosville-detail-panel__header[data-risk-band="ledger"] { --pv-detail-risk: var(--risk-ledger); }
 .pharosville-detail-panel__header[data-risk-band="wreck"] { --pv-detail-risk: var(--risk-wreck); }
+/* Kind-line: said in italic, not stamped in tracked capitals; the seal floats beside it. */
 .pharosville-detail-panel__kind {
-  margin: 0 0 5px;
-  color: color-mix(in srgb, var(--ink) 72%, var(--stone));
-  font: 600 var(--type-12) var(--font-ui);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.pharosville-detail-panel h2 {
-  margin: 0;
-  color: var(--ink);
-  font: 600 var(--type-28)/1.08 var(--font-title);
-  letter-spacing: -0.01em;
-  text-wrap: balance;
-}
-
-.pharosville-detail-panel__zone {
   display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  margin: 3px 0 0;
-  color: var(--ink);
-  font: 600 var(--type-12)/1.35 var(--font-ui);
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 4px;
+  color: var(--pv-text-quiet);
+  font: italic 400 var(--type-figure)/1.3 var(--font-title);
 }
 .pharosville-detail-panel__seal {
   display: grid;
-  flex: 0 0 30px;
-  width: 30px;
-  height: 30px;
+  flex: 0 0 34px;
+  height: 34px;
   place-items: center;
-  border: 2px solid var(--pv-detail-risk);
   box-sizing: border-box;
+  border: 1.5px solid var(--pv-detail-risk);
+  background: color-mix(in srgb, var(--pv-detail-risk) 18%, transparent);
 }
 .pharosville-detail-panel__seal::after {
   width: 12px;
@@ -593,44 +561,66 @@ textarea {
   border-radius: 50%;
   content: "";
 }
-.pharosville-detail-panel__zone-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 4px;
+.pharosville-detail-panel h2 {
+  margin: 0;
+  font: 600 var(--type-title)/1.05 var(--font-title);
+  text-wrap: balance;
+}
+/* Focused on open for the screen reader; the title is not a control. */
+.pharosville-detail-panel h2:focus {
+  outline: none;
+}
+/* One line of status: band words and the figure, never a ragged column. */
+.pharosville-detail-panel__zone {
+  margin: 6px 0 0;
+  overflow: hidden;
+  font: 500 0.8125rem/1.35 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pharosville-detail-panel__zone-figure {
-  color: var(--ink);
-  font: 700 var(--type-14)/1.25 var(--font-ui);
-  font-variant-numeric: tabular-nums;
+  color: var(--pv-text-quiet);
 }
 
+/* A 32 px short rule parts the sentence from the status above it. */
+.pharosville-detail-panel__prose {
+  margin-top: 14px;
+  padding-top: 12px;
+  background: linear-gradient(color-mix(in srgb, var(--pv-paper-ink) 40%, transparent), transparent) 0 0 / 32px 1px no-repeat;
+}
 .pharosville-detail-panel__prose p {
   max-width: 68ch;
   margin: 7px 0 0;
-  color: var(--ink);
-  font: var(--type-16)/1.48 var(--font-title);
+  font: 1.03rem/1.5 var(--font-title);
+  hanging-punctuation: first;
   text-wrap: pretty;
 }
-.pharosville-detail-panel__prose p:last-child {
-  margin-bottom: 0;
+.pharosville-detail-panel__prose p:first-child {
+  margin-top: 0;
 }
 .pharosville-detail-panel__heritage {
-  color: color-mix(in srgb, var(--ink) 76%, var(--stone));
+  color: var(--pv-text-quiet);
   font-style: italic;
 }
-.pharosville-detail-panel__prose--supplemental {
-  margin-top: 12px;
-}
 
+/* The reading line: three figures labelled like a print's colophon. */
 .pharosville-detail-panel__reading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
   margin: 16px 0 0;
-  padding-top: 13px;
-  border-top: 1px solid color-mix(in srgb, var(--ink) 48%, var(--stone));
-  color: var(--ink);
-  font: 600 var(--type-14)/1.45 var(--font-ui);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.01em;
+}
+.pharosville-detail-panel__reading dt,
+.pharosville-detail-panel__section .pv-fact-row dt {
+  margin: 0;
+  color: var(--pv-text-quiet);
+  font: italic 400 var(--type-label)/1.3 var(--font-title);
+}
+.pharosville-detail-panel__reading dd {
+  margin: 1px 0 0;
+  font: 500 var(--type-figure)/1.3 var(--font-ui);
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 .pharosville-detail-panel__foot {
@@ -650,14 +640,17 @@ textarea {
   flex: 1 1 auto;
   min-width: 0;
 }
+.pharosville-detail-panel__record > summary,
+.pharosville-detail-panel__close,
+.pharosville-detail-panel__copy {
+  color: var(--pv-text-quiet);
+  font: var(--type-14) var(--font-ui);
+  cursor: pointer;
+  scroll-margin-block: 32px;
+}
 .pharosville-detail-panel__record > summary {
   display: inline-block;
-  color: color-mix(in srgb, var(--ink) 78%, var(--stone));
-  font: var(--type-14) var(--font-ui);
-  letter-spacing: 0.02em;
-  cursor: pointer;
   list-style: none;
-  scroll-margin-block: 32px;
 }
 .pharosville-detail-panel__record > summary::-webkit-details-marker {
   display: none;
@@ -668,12 +661,17 @@ textarea {
 .pharosville-detail-panel__record[open] > summary::after {
   content: " ⌃";
 }
-.pharosville-detail-panel__record > summary:hover {
-  color: var(--ink);
+.pharosville-detail-panel__record > summary:hover,
+.pharosville-detail-panel__close:hover,
+.pharosville-detail-panel__copy:hover {
+  color: var(--pv-paper-ink);
 }
-.pharosville-detail-panel__record > summary:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 3px;
+/* One quiet ink ring for every control on the paper. */
+.pharosville-detail-panel :focus-visible,
+.pharosville-ledger__record :focus-visible {
+  border-radius: 2px;
+  outline: 1.5px solid var(--pv-paper-ink);
+  outline-offset: 4px;
 }
 .pharosville-detail-panel__record > *:not(summary) {
   margin-top: 16px;
@@ -691,15 +689,8 @@ textarea {
   gap: 12px;
   padding: 5px 0;
 }
-.pharosville-detail-panel__section .pv-fact-row dt {
-  margin: 0;
-  color: color-mix(in srgb, var(--ink) 72%, var(--stone));
-  font: 600 var(--type-12) var(--font-ui);
-  letter-spacing: 0.04em;
-}
 .pharosville-detail-panel__section .pv-fact-row dd {
   margin: 0;
-  color: var(--ink);
   font: var(--type-14)/1.5 var(--font-ui);
   font-variant-numeric: tabular-nums;
 }
@@ -718,30 +709,11 @@ textarea {
   padding: 3px 2px;
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--ink) 78%, var(--stone));
-  font: var(--type-14) var(--font-ui);
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  scroll-margin-block: 32px;
 }
 .pharosville-detail-panel__copy {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-.pharosville-detail-panel__close:hover,
-.pharosville-detail-panel__copy:hover {
-  color: var(--ink);
-}
-.pharosville-detail-panel__close:focus-visible,
-.pharosville-detail-panel__copy:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 3px;
-}
-:root[data-phase="night"] .pharosville-detail-panel {
-  background: color-mix(in srgb, var(--water) 74%, var(--stone));
-  border-color: color-mix(in srgb, var(--mist) 58%, var(--stone));
-  box-shadow: 4px 4px 0 color-mix(in srgb, var(--water) 74%, transparent);
 }
 
 /* Scene-first chrome: one resting affordance, one caption, and the full
@@ -752,37 +724,89 @@ textarea {
   z-index: 6;
   pointer-events: none;
 }
+/* The now-line (W6.2): one sentence in three voices on a feathered pool of
+   shade anchored to the corner — no box, no edge. The feather lives in the
+   padding, so every glyph sits on the full scrim core the AA test measures
+   (systems/chrome-air.ts). A new sentence crossfades (800 ms out, 1000 ms
+   in, K18); the minute swaps in place. */
 .pharosville-now-caption {
   position: absolute;
-  bottom: 26px;
-  left: 30px;
+  bottom: 0;
+  left: 0;
   max-width: min(70ch, calc(100% - 520px));
   margin: 0;
-  padding: 5px 9px;
+  padding: 44px 120px 24px 30px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--water) 82%, transparent);
+  background: var(--pv-air-scrim);
   color: var(--pv-text-on-air);
-  font: var(--type-16)/1.35 var(--font-title);
-  letter-spacing: 0.01em;
+  font: italic 400 var(--type-caption)/1.3 var(--font-title);
+  mask-image:
+    linear-gradient(to right, #000 calc(100% - 110px), transparent),
+    linear-gradient(to top, #000 calc(100% - 40px), transparent);
+  mask-composite: intersect;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 3px color-mix(in srgb, var(--water) 72%, transparent);
   white-space: nowrap;
   user-select: none;
+  transition: opacity 1s var(--pv-motion-curve-settle);
 }
+.pharosville-now-caption[data-leaving] {
+  opacity: 0;
+  transition-duration: 0.8s;
+}
+.pharosville-now-caption__clock,
+.pharosville-now-caption__clause {
+  color: var(--pv-text-on-air-quiet);
+  font-style: normal;
+}
+.pharosville-now-caption__clock {
+  font: 500 clamp(0.75rem, 0.55rem + 0.28vw, 0.9375rem) var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+/* A hairline, not an em dash, between the minute and the phrase. */
+.pharosville-now-caption__clock::after {
+  display: inline-block;
+  width: 1px;
+  height: 0.9em;
+  margin-left: 0.7em;
+  background: currentColor;
+  opacity: 0.4;
+  vertical-align: -0.1em;
+  content: "";
+}
+.pharosville-now-caption__clause {
+  font-size: 0.86em;
+}
+/* A truth warning is set roman with a glyph: never poetry, never colour alone. */
+.pharosville-now-caption[data-warning] {
+  font-style: normal;
+}
+.pharosville-now-caption[data-warning] .pharosville-now-caption__phrase::before {
+  color: var(--risk-warning);
+  font-size: 0.6em;
+  vertical-align: 0.2em;
+  content: "◆ ";
+}
+@media (prefers-reduced-motion: reduce) {
+  .pharosville-now-caption { transition: none; }
+}
+/* W6.6 quiet controls: one italic word and its key at rest; a row of words
+   and hairline-ringed glyphs on approach, focus or camera input; drawers on
+   the card's paper. Every target is 44 px. */
 .pharosville-world-controls {
   position: absolute;
-  right: 30px;
-  bottom: 26px;
+  right: 24px;
+  bottom: 18px;
   display: flex;
   align-items: center;
-  gap: 8px;
   pointer-events: auto;
   transition: opacity var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle);
 }
 .pharosville-world-controls__revealed {
   display: flex;
   align-items: center;
-  gap: 6px;
+  padding-inline: 28px 4px;
+  background: radial-gradient(ellipse closest-side, color-mix(in srgb, var(--pv-air-ink) 80%, transparent) 55%, transparent);
   filter: opacity(0);
   pointer-events: none;
   transform: translateX(8px);
@@ -798,60 +822,183 @@ textarea {
   pointer-events: auto;
   transform: none;
 }
-.pharosville-world-chrome[data-attract-holding="true"] .pharosville-world-controls:not(:focus-within),
-.pharosville-world-chrome[data-attract-holding="true"] .pharosville-debug-chrome {
-  opacity: 0;
-  pointer-events: none;
+.pharosville-world-controls__words {
+  display: flex;
+  align-items: center;
+  margin-right: 6px;
 }
 .pharosville-world-controls__affordance,
 .pv-chrome-action,
-.pv-glyph-button {
+.pv-glyph-button,
+.pv-drawer__button {
   box-sizing: border-box;
-  min-height: 34px;
+  min-width: 44px;
+  min-height: 44px;
   margin: 0;
   border: 0;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--water) 84%, transparent);
+  background: none;
   color: var(--pv-text-on-air);
   cursor: pointer;
 }
-.pharosville-world-controls__affordance,
+.pharosville-world-controls__affordance {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 0 22px;
+  background: radial-gradient(ellipse closest-side, color-mix(in srgb, var(--pv-air-ink) 72%, transparent) 45%, transparent);
+  font: italic 400 var(--type-16)/1 var(--font-title);
+}
 .pv-chrome-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 5px 9px;
-  font: 600 var(--type-12)/1 var(--font-ui);
+  padding: 0 8px;
+  font: 400 var(--type-16)/1 var(--font-title);
   white-space: nowrap;
 }
-.pharosville-world-controls kbd {
+.pv-chrome-action + .pv-chrome-action::before {
+  content: "\00B7";
+  content: "\00B7" / "";
+  margin-right: 12px;
   color: var(--pv-text-on-air-quiet);
-  font: inherit;
 }
+.pharosville-world-controls__word,
+.pv-chrome-action span {
+  text-decoration: underline 1px transparent;
+  text-underline-offset: 4px;
+  transition: text-decoration-color var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle);
+}
+.pharosville-world-controls__affordance:hover .pharosville-world-controls__word,
+.pv-chrome-action:hover span {
+  text-decoration-color: currentColor;
+}
+.pharosville-world-controls kbd {
+  padding: 2px 5px;
+  border: 1px solid color-mix(in srgb, var(--pv-text-on-air) 35%, transparent);
+  border-radius: 3px;
+  color: var(--pv-text-on-air-quiet);
+  font: 500 var(--type-12)/1 var(--font-ui);
+}
+/* A 44 px target around a 34 px hairline ring. */
 .pv-glyph-button {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   place-items: center;
+  background: radial-gradient(circle closest-side, transparent 16.5px, color-mix(in srgb, var(--pv-text-on-air-quiet) 70%, transparent) 16.5px 17.5px, transparent 18px);
 }
-.pharosville-world-controls__affordance:hover,
-.pv-chrome-action:hover,
 .pv-glyph-button:hover,
-.pv-glyph-button[aria-pressed="true"] {
+.pv-glyph-button[aria-pressed="true"],
+.pv-drawer-control[open] > .pv-glyph-button {
   color: var(--lantern);
 }
 .pharosville-world-controls__affordance:focus-visible,
 .pv-chrome-action:focus-visible,
-.pv-glyph-button:focus-visible {
-  opacity: 1;
+.pv-glyph-button:focus-visible,
+.pv-drawer :focus-visible {
   outline: 2px solid var(--lantern);
-  outline-offset: 3px;
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 .pv-glyph-button:disabled {
   cursor: not-allowed;
   opacity: 0.4;
+}
+
+/* C-A: a drawer control is a <details> whose summary is a glyph button and
+   whose body is a `.pv-drawer` sheet of the card's paper. The sound control
+   reuses the pattern. */
+.pv-drawer-control {
+  position: relative;
+}
+.pv-drawer-control > summary {
+  list-style: none;
+}
+.pv-drawer-control > summary::-webkit-details-marker {
+  display: none;
+}
+.pv-drawer {
+  position: absolute;
+  right: 0;
+  bottom: 52px;
+  display: grid;
+  gap: 2px;
+  width: 236px;
+  padding: 10px 14px;
+  font: var(--type-16)/1.3 var(--font-title);
+}
+.pv-drawer__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+}
+.pv-drawer__time {
+  min-height: 36px;
+  border: 0;
+  border-bottom: 1px solid var(--pv-paper-edge);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: 500 var(--type-16)/1 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  appearance: none;
+}
+.pv-drawer__button {
+  padding: 0 2px;
+  color: var(--pv-text-quiet);
+  font: 500 var(--type-14)/1 var(--font-ui);
+  text-decoration: underline 1px transparent;
+  text-underline-offset: 4px;
+}
+.pv-drawer__button:hover,
+.pv-drawer__button[data-active="true"],
+.pv-drawer__button[aria-pressed="true"] {
+  color: var(--pv-paper-ink);
+  text-decoration-color: currentColor;
+}
+/* A 36 x 20 hairline switch; the row around it is the 44 px target. */
+.pv-drawer__switch {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  margin: 0;
+  border: 1px solid var(--pv-paper-edge);
+  border-radius: 10px;
+  background: transparent;
+  appearance: none;
+  cursor: pointer;
+}
+.pv-drawer__switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--pv-text-quiet);
+  transition: transform var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle);
+}
+.pv-drawer__switch:checked {
+  border-color: var(--pv-paper-ink);
+}
+.pv-drawer__switch:checked::after {
+  background: var(--pv-paper-ink);
+  transform: translateX(16px);
+}
+.pv-drawer__switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.pv-drawer__note,
+.pv-long-record__note {
+  margin: 4px 0 2px;
+  color: var(--pv-text-quiet);
+  font: italic var(--type-14)/1.35 var(--font-title);
 }
 .pharosville-debug-chrome {
   position: absolute;
@@ -866,33 +1013,60 @@ textarea {
   font-variant-numeric: tabular-nums;
   transition: opacity var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle);
 }
-@media (hover: none) {
-  .pharosville-world-controls__affordance,
-  .pv-chrome-action,
-  .pv-glyph-button {
-    min-height: 44px;
-  }
-  .pv-glyph-button {
-    width: 44px;
-    height: 44px;
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   .pharosville-world-controls,
   .pharosville-world-controls__revealed,
+  .pharosville-stay-fade,
   .pharosville-debug-chrome {
     transition: none;
   }
 }
 
-/* Shared product chrome keeps figures and controls in the UI face. */
+/* W6.9 Stay: the chrome and then the cursor fade; the now-line returns only
+   while something true is said and in the minute the beat turns or the hour
+   strikes. Keyboard focus still brings the controls back. */
+.pharosville-stay-fade {
+  transition: opacity 2s var(--pv-motion-curve-breathe);
+}
+.pharosville-shell[data-stay="true"] .pharosville-world-chrome:not([data-caption-live="true"]) .pharosville-stay-fade,
+.pharosville-shell[data-stay="true"] .pharosville-world-controls:not(:focus-within),
+.pharosville-shell[data-stay="true"] .pharosville-debug-chrome,
+.pharosville-shell[data-stay="true"] .pharosville-harbor-labels,
+.pharosville-shell[data-stay="true"] .pharosville-hover-tooltip {
+  opacity: 0;
+  pointer-events: none;
+}
+.pharosville-shell[data-stay="true"] .pharosville-world-controls {
+  transition-duration: 2s;
+}
+.pharosville-shell[data-stay-cursor="hidden"],
+.pharosville-shell[data-stay-cursor="hidden"] * {
+  cursor: none !important;
+}
+
+/* X7 the Long Record: one ink ridge on the card's paper; the marks carry
+   their own SVG paint. */
+.pv-long-record {
+  margin-top: 14px;
+}
+.pv-long-record__scroll {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  color: var(--pv-paper-ink);
+}
+.pv-long-record__marks {
+  color: var(--pv-text-quiet);
+  font: var(--type-12) var(--font-ui);
+}
+
+/* Shared record chrome on the paper: Garamond labels, UI-face figures. */
 
 .pv-section-title {
   margin: 0 0 8px;
   color: var(--pv-text-quiet);
-  font: 600 var(--type-12) var(--font-ui);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font: italic 400 var(--type-16) var(--font-title);
 }
 
 .pv-formation-list {
@@ -906,11 +1080,11 @@ textarea {
   gap: 10px;
   flex-wrap: wrap;
   padding: 4px 0;
-  color: var(--pv-ink-text);
   font: var(--type-14)/1.5 var(--font-ui);
 }
 .pv-formation-list li small {
-  color: var(--pv-ink-soft);
+  color: var(--pv-text-quiet);
+  font-size: var(--type-12);
   font-style: italic;
 }
 
@@ -922,8 +1096,7 @@ textarea {
   border: 0;
   background: none;
   color: var(--pv-link);
-  font: 600 var(--type-14) var(--font-ui);
-  letter-spacing: 0.02em;
+  font: 500 var(--type-14) var(--font-ui);
   text-decoration: none;
   cursor: pointer;
 }
@@ -932,13 +1105,9 @@ textarea {
   font-weight: 400;
 }
 .pv-panel-link:hover {
-  color: var(--pv-ink-text);
+  color: var(--pv-paper-ink);
   text-decoration: underline;
   text-underline-offset: 3px;
-}
-.pv-panel-link:focus-visible {
-  outline: 2px solid var(--pv-link);
-  outline-offset: 3px;
 }
 
 .pharosville-changelog-panel {
@@ -959,10 +1128,27 @@ textarea {
   box-shadow: 0 6px 8px color-mix(in srgb, var(--pv-shadow) 48%, transparent);
   pointer-events: auto;
 }
-/* The legend doubles as first-visit onboarding; keep it narrow so the world
-   stays visible behind it. The changelog keeps the shared 760px width. */
-.pharosville-legend-panel {
-  width: min(480px, calc(100% - 154px));
+/* The legend doubles as first-visit orientation; keep it narrow so the world
+   stays visible behind it, and print it on the card's paper. */
+.pharosville-changelog-panel.pharosville-legend-panel {
+  width: min(440px, calc(100% - 154px));
+  border-color: var(--pv-paper-edge);
+  background: var(--pv-paper);
+  color: var(--pv-paper-ink);
+}
+.pharosville-legend-panel .pharosville-changelog-panel__header {
+  border-bottom-color: var(--pv-paper-edge);
+}
+.pharosville-legend-panel .pharosville-changelog-panel__eyebrow {
+  color: var(--pv-text-quiet);
+  font: italic var(--type-16) var(--font-title);
+}
+.pharosville-changelog-panel.pharosville-legend-panel h2 {
+  color: var(--pv-paper-ink);
+  font: 600 var(--type-28)/1.1 var(--font-title);
+}
+.pharosville-legend-panel .pharosville-changelog-panel__close {
+  color: var(--pv-paper-ink);
 }
 .pharosville-changelog-panel--loading {
   min-height: 96px;
@@ -989,15 +1175,12 @@ textarea {
 .pharosville-changelog-panel__eyebrow {
   margin: 0 0 6px;
   color: color-mix(in srgb, var(--pv-gold-bright) 82%, transparent);
-  font-size: 0.94rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font: italic 400 var(--type-16) var(--font-title);
 }
 .pharosville-changelog-panel h2 {
   margin: 0;
   color: var(--lantern);
-  font-size: 2.06rem;
-  line-height: 1;
+  font: 600 var(--type-title)/1 var(--font-title);
 }
 .pharosville-changelog-panel__close {
   display: grid;
@@ -1011,10 +1194,8 @@ textarea {
   cursor: pointer;
 }
 .pharosville-changelog-panel__close:hover {
-  color: var(--lantern);
-}
-.pharosville-changelog-panel__close:hover {
   background: color-mix(in srgb, var(--stone) 72%, transparent);
+  color: var(--lantern);
 }
 .pharosville-changelog-panel__close:focus-visible {
   outline: 2px solid var(--lantern);
@@ -1054,46 +1235,41 @@ textarea {
   padding: 3px 8px;
   border: 1px solid color-mix(in srgb, var(--lantern) 46%, transparent);
   border-radius: 2px;
-  background: color-mix(in srgb, var(--pv-panel-deep) 38%, transparent);
   color: var(--lantern);
-  font-size: 1.1rem;
-  font-style: normal;
-  font-weight: 900;
-  letter-spacing: 0.04em;
+  font: 500 var(--type-14) var(--font-ui);
+  font-variant-numeric: tabular-nums;
 }
-.pharosville-changelog-entry time {
+.pharosville-changelog-entry time,
+.pharosville-changelog-entry__source {
   color: color-mix(in srgb, var(--pv-gold-bright) 66%, transparent);
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-style: italic;
 }
 .pharosville-changelog-entry h3 {
   margin: 0;
   color: var(--pv-gold-bright);
-  font-size: 1.63rem;
+  font-size: 1.5rem;
+  font-weight: 600;
   line-height: 1.15;
+}
+.pharosville-changelog-entry__summary,
+.pharosville-changelog-entry ul {
+  color: color-mix(in srgb, var(--pv-muted) 88%, transparent);
+  font-size: 1.2rem;
+  line-height: 1.45;
 }
 .pharosville-changelog-entry__summary {
   margin: 12px 0 14px;
-  color: color-mix(in srgb, var(--pv-muted) 84%, transparent);
-  font-size: 1.32rem;
   font-style: italic;
-  line-height: 1.45;
 }
 .pharosville-changelog-entry ul {
   display: grid;
   gap: 9px;
   margin: 0;
   padding-left: 24px;
-  color: color-mix(in srgb, var(--pv-gold-bright) 86%, transparent);
-  font-size: 1.27rem;
-  line-height: 1.46;
 }
 .pharosville-changelog-entry__source {
   margin: 16px 0 0;
-  color: color-mix(in srgb, var(--pv-muted) 58%, transparent);
-  font-size: 1.1rem;
-  font-style: italic;
-  line-height: 1.4;
 }
 
 /* Harbor ledger: the accessibility ledger, shown. Its words were written for
@@ -1142,10 +1318,7 @@ textarea {
   padding-top: 14px;
   border-top: 1px solid color-mix(in srgb, var(--lantern) 26%, transparent);
   color: var(--lantern);
-  font-size: 1.06rem;
-  font-weight: 900;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font: 600 var(--type-20) var(--font-title);
 }
 .pharosville-ledger dl {
   margin: 20px 0 0;
@@ -1158,11 +1331,8 @@ textarea {
   border-bottom: 1px dotted color-mix(in srgb, var(--lantern) 20%, transparent);
 }
 .pharosville-ledger dt {
-  color: color-mix(in srgb, var(--pv-gold-bright) 60%, transparent);
-  font-size: 0.92rem;
-  font-weight: 900;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  color: color-mix(in srgb, var(--pv-gold-bright) 72%, transparent);
+  font-style: italic;
 }
 .pharosville-ledger dd {
   margin: 0;
@@ -1190,28 +1360,19 @@ textarea {
   border-bottom: none;
 }
 
-/* Visible dock and ship disclosures reuse the record-card material without
-   changing the ledger's linear, screen-reader-first document structure. */
+/* Visible dock and ship disclosures are printed on the record card's sheet
+   (`.pv-paper` above) without changing the ledger's linear,
+   screen-reader-first document structure. */
 .pharosville-ledger__record {
   margin: 2px 0;
   padding: 14px 16px;
-  background: color-mix(in srgb, var(--mist) 92%, var(--stone));
-  border: 1px solid color-mix(in srgb, var(--stone) 76%, var(--ink));
-  box-shadow: 3px 3px 0 color-mix(in srgb, var(--ink) 22%, transparent);
-  color: var(--ink);
 }
 .pharosville-ledger__record > summary {
-  color: var(--ink);
   font: 600 var(--type-16)/1.35 var(--font-title);
   cursor: pointer;
   list-style-position: outside;
   scroll-margin-block: 32px;
   text-wrap: pretty;
-}
-.pharosville-ledger__record > summary:focus-visible,
-.pharosville-ledger__record > button:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 3px;
 }
 .pharosville-ledger__record > button {
   min-height: 28px;
@@ -1219,8 +1380,8 @@ textarea {
   padding: 3px 0;
   border: 0;
   background: transparent;
-  color: var(--ink);
-  font: 600 var(--type-12) var(--font-ui);
+  color: var(--pv-link);
+  font: 500 var(--type-12) var(--font-ui);
   text-decoration: underline;
   text-underline-offset: 3px;
   cursor: pointer;
@@ -1229,15 +1390,35 @@ textarea {
 .pharosville-ledger__record > p {
   margin: 12px 0 0;
   padding-top: 12px;
-  border-top: 1px solid color-mix(in srgb, var(--ink) 48%, var(--stone));
-  color: var(--ink);
+  border-top: 1px solid var(--pv-paper-edge);
   font: var(--type-14)/1.55 var(--font-ui);
   font-variant-numeric: tabular-nums;
 }
-:root[data-phase="night"] .pharosville-ledger__record {
-  background: color-mix(in srgb, var(--water) 74%, var(--stone));
-  border-color: color-mix(in srgb, var(--mist) 58%, var(--stone));
-  box-shadow: 3px 3px 0 color-mix(in srgb, var(--water) 74%, transparent);
+
+/* Panel entrance: the sheet settles in with a 4 px rise when the detail or
+   changelog panel mounts. Finite keyframes so Playwright's
+   animations:"disabled" snapshots land on the settled end state; reduced
+   motion disables it and the dye crossfade entirely. */
+@keyframes pv-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.pharosville-detail-panel,
+.pharosville-changelog-panel {
+  animation: pv-panel-enter var(--pv-motion-duration-settle) var(--pv-motion-curve-settle);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pharosville-detail-panel,
+  .pharosville-changelog-panel { animation: none; }
+  .pv-paper,
+  .pharosville-detail-panel,
+  .pharosville-ledger__record { transition: none; }
 }
 
 
@@ -1263,97 +1444,95 @@ textarea {
   .pharosville-changelog-panel { animation: none; }
 }
 
-/* Legend panel: shares the changelog dialog chrome; only the body content
-   layout is legend-specific. */
+/* W6.8 the legend as a field guide: three short stanzas on the card's paper
+   (washi by day, indigo by night); reference behind "More". */
 .pharosville-legend-panel__body {
   position: relative;
   z-index: 1;
   overflow-y: auto;
-  padding: 18px 28px 24px;
-  font-size: 1.04rem;
-  line-height: 1.5;
+  padding: 16px 28px 24px;
+  font: var(--type-16)/1.5 var(--font-title);
 }
 .pharosville-legend-panel__intro {
-  margin: 0 0 14px;
-  color: color-mix(in srgb, var(--pv-gold-bright) 92%, transparent);
+  margin: 0 0 12px;
+  font-style: italic;
 }
 .pharosville-legend-panel__body h3 {
-  margin: 16px 0 6px;
-  color: var(--lantern);
-  font-size: 1.12rem;
-  letter-spacing: 0.025em;
+  margin: 18px 0 4px;
+  color: var(--pv-paper-ink);
+  font: 600 1.125rem/1.3 var(--font-title);
 }
 .pharosville-legend-panel__body ul {
-  margin: 0 0 10px;
+  margin: 6px 0 10px;
   padding-left: 18px;
 }
 .pharosville-legend-panel__body li {
   margin: 3px 0;
 }
 .pharosville-legend-panel__body p {
-  margin: 6px 0;
-  color: color-mix(in srgb, var(--pv-muted) 88%, transparent);
+  margin: 4px 0;
 }
-.pharosville-legend-panel__zones {
+.pharosville-legend-panel__body strong {
+  font-weight: 600;
+}
+.pharosville-legend-panel__zones,
+.pharosville-legend-panel__ships {
   list-style: none;
   padding-left: 2px;
 }
+.pharosville-legend-panel__zones {
+  font-size: var(--type-14);
+}
 .pharosville-legend-panel__swatch {
   display: inline-block;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   margin-right: 8px;
-  vertical-align: -2px;
-  border: 1px solid color-mix(in srgb, var(--lantern) 55%, transparent);
-  border-radius: 2px;
+  vertical-align: -1px;
+  border: 1px solid var(--pv-paper-edge);
+  border-radius: 50%;
 }
 .pharosville-legend-panel__mover {
   margin: 0;
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--lantern);
+  color: var(--pv-link);
   font: inherit;
   cursor: pointer;
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--lantern) 45%, transparent);
-  text-underline-offset: 2px;
+  text-decoration: underline 1px;
+  text-underline-offset: 3px;
 }
-.pharosville-legend-panel__mover:hover { color: var(--pv-gold-bright); }
 .pharosville-legend-panel__primary-action {
   display: grid;
-  gap: 5px;
-  margin: 14px 0 18px;
-  padding: 12px 0;
-  border-block: 1px solid color-mix(in srgb, var(--lantern) 24%, transparent);
+  gap: 4px;
+  margin: 10px 0 14px;
 }
 .pharosville-legend-panel__primary-action span {
-  color: color-mix(in srgb, var(--pv-muted) 84%, transparent);
-  font-size: 0.94rem;
+  color: var(--pv-text-quiet);
+  font-size: var(--type-14);
 }
 .pharosville-legend-panel__observe {
   box-sizing: border-box;
   width: fit-content;
-  min-height: 36px;
-  padding: 7px 12px;
-  border: 1px solid color-mix(in srgb, var(--pv-gold-bright) 74%, transparent);
-  border-radius: 2px;
-  background: var(--lantern);
-  color: var(--pv-ink-text);
-  font: 600 var(--type-14) var(--font-ui);
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--pv-paper-ink);
+  border-radius: 22px;
+  background: transparent;
+  color: var(--pv-paper-ink);
+  font: italic var(--type-16) var(--font-title);
   cursor: pointer;
 }
 .pharosville-legend-panel__observe:hover {
-  background: var(--pv-gold-bright);
+  background: color-mix(in srgb, var(--pv-paper-ink) 8%, transparent);
 }
 .pharosville-legend-panel__observe:focus-visible,
-.pharosville-legend-panel__mover:focus-visible {
+.pharosville-legend-panel__mover:focus-visible,
+.pharosville-legend-panel__changelog:focus-visible,
+.pharosville-legend-panel__more > summary:focus-visible {
   outline: 2px solid var(--lantern);
   outline-offset: 3px;
-}
-.pharosville-legend-panel__ships {
-  list-style: none;
-  padding-left: 2px;
 }
 .pharosville-controls-cheatsheet dl {
   display: grid;
@@ -1367,7 +1546,7 @@ textarea {
 }
 .pharosville-controls-cheatsheet__action dt {
   color: var(--lantern);
-  font-weight: 700;
+  font-weight: 600;
 }
 .pharosville-controls-cheatsheet__action dd {
   margin: 0;
@@ -1388,90 +1567,93 @@ textarea {
   font: 0.86em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-/* Ship chips: the selected ship's caption and the one arrival-ceremony
-   nameplate. Positions come from the render-loop projection; the caption's
-   status region and the ledger remain the a11y channel. A chip is a caption,
-   not a signpost: small, no shadow, fading in and out rather than popping. */
+/* Ink labels (W6.4): the selected ship's name, the one arrival-ceremony
+   nameplate and the hover share one voice — no box, a name in Garamond over
+   a soft pool of shade, the band as word + glyph + tone, and a 14 px hairline
+   leader down to the mast. Names take ember ink after dusk (--pv-label-ink).
+   Positions come from the render-loop projection; the caption's status
+   region and the ledger remain the a11y channel. Fades 600 ms in, 900 ms out. */
 .pharosville-harbor-labels {
   position: absolute;
   inset: 0;
   z-index: 5;
   pointer-events: none;
 }
+.pharosville-harbor-label-chip,
+.pharosville-hover-tooltip__card {
+  --pv-label-tone: var(--pv-text-on-air-quiet);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 240px;
+  padding: 3px 14px;
+  border: 0;
+  background: radial-gradient(closest-side, var(--pv-air-scrim) 55%, transparent);
+  color: var(--pv-label-ink);
+  font: 600 clamp(0.8125rem, 0.5rem + 0.35vw, 1rem)/1.2 var(--font-title);
+  text-shadow: 0 0 1px var(--pv-air-ink), 0 0 6px var(--pv-air-ink);
+  white-space: nowrap;
+}
+.pharosville-harbor-label-chip::after,
+.pharosville-hover-tooltip__card::after {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 1px;
+  height: 14px;
+  background: currentColor;
+  opacity: 0.45;
+  content: "";
+}
 .pharosville-harbor-label-chip {
   position: absolute;
   top: 0;
   left: 0;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 170px;
-  height: 18px;
-  padding: 1px 6px 1px 3px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--lantern) 22%, transparent);
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--pv-panel-deep) 84%, transparent);
-  color: var(--pv-parchment);
-  font: var(--type-12)/1 var(--font-ui);
-  white-space: nowrap;
-  /* Fades out over 900 ms, then hides (GARDEN_ARRIVAL_NAMEPLATE_FADE_OUT_SECONDS). */
   opacity: 0;
   transition:
     opacity 900ms var(--pv-motion-curve-settle),
-    visibility 0s linear 900ms,
-    background-color var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle);
+    visibility 0s linear 900ms;
   pointer-events: auto;
   cursor: pointer;
   visibility: hidden;
 }
-/* Fades in over 600 ms. */
 .pharosville-harbor-label-chip[data-visible="true"] {
   opacity: 1;
   visibility: visible;
   transition:
     opacity 600ms var(--pv-motion-curve-settle),
-    visibility 0s,
-    background-color var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle);
+    visibility 0s;
 }
-.pharosville-harbor-label-chip:hover,
-.pharosville-harbor-label-chip:focus-visible {
-  background: color-mix(in srgb, var(--pv-panel-deep) 90%, transparent);
-  border-color: color-mix(in srgb, var(--lantern) 60%, transparent);
+.pharosville-harbor-label-chip:hover strong {
+  text-decoration: underline 1px;
+  text-underline-offset: 3px;
 }
-.pharosville-harbor-label-chip__mark {
-  position: relative;
-  display: grid;
-  flex: 0 0 13px;
-  width: 13px;
-  height: 13px;
-  place-items: center;
-  color: var(--lantern);
-  font: 700 0.46rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-.pharosville-harbor-label-chip__mark img {
-  width: 12px;
-  height: 12px;
-  object-fit: contain;
-}
-.pharosville-harbor-label-chip__mark [data-fallback="hidden"] { display: none; }
-.pharosville-harbor-label-chip strong {
+.pharosville-harbor-label-chip strong,
+.pharosville-hover-tooltip__card strong {
+  max-width: 100%;
   overflow: hidden;
-  color: var(--lantern);
-  font-size: var(--type-12);
   font-weight: 600;
   text-overflow: ellipsis;
 }
-.pharosville-harbor-label-chip__state {
-  flex: none;
-  color: var(--pv-parchment-warm);
-  text-transform: capitalize;
+.pharosville-harbor-label-chip__state,
+.pharosville-hover-tooltip__card span {
+  color: var(--pv-label-tone);
+  font: italic 400 var(--type-label)/1.25 var(--font-title);
 }
-/* World hover tooltip: positioned by the render loop via style.transform
-   (anchor = hovered hit-rect top-center); the card offsets itself above the
-   anchor. Decorative duplicate of detail info, so aria-hidden and
-   pointer-events:none. */
+.pharosville-harbor-label-chip[data-band="watch"] { --pv-label-tone: color-mix(in srgb, var(--risk-watch) 40%, var(--pv-text-on-air)); }
+.pharosville-harbor-label-chip[data-band="alert"] { --pv-label-tone: color-mix(in srgb, var(--risk-alert) 40%, var(--pv-text-on-air)); }
+.pharosville-harbor-label-chip[data-band="warning"] { --pv-label-tone: color-mix(in srgb, var(--risk-warning) 40%, var(--pv-text-on-air)); }
+.pharosville-harbor-label-chip[data-band="danger"] { --pv-label-tone: color-mix(in srgb, var(--risk-danger) 40%, var(--pv-text-on-air)); }
+.pharosville-harbor-label-chip__glyph {
+  margin-right: 4px;
+  font-size: 0.6em;
+  font-style: normal;
+  vertical-align: 0.15em;
+}
+/* World hover: positioned by the render loop via style.transform (anchor =
+   hovered hit-rect top-center); the label rises above the anchor on its
+   leader. Decorative duplicate of detail info, so aria-hidden. */
 .pharosville-hover-tooltip {
   position: absolute;
   top: 0;
@@ -1480,32 +1662,14 @@ textarea {
   opacity: 0;
   pointer-events: none;
   will-change: transform;
-  transition: opacity var(--pv-motion-duration-whisper) var(--pv-motion-curve-settle);
+  transition: opacity 900ms var(--pv-motion-curve-settle);
 }
-.pharosville-hover-tooltip[data-visible="true"] { opacity: 1; }
+.pharosville-hover-tooltip[data-visible="true"] {
+  opacity: 1;
+  transition-duration: 600ms;
+}
 .pharosville-hover-tooltip__card {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  max-width: 260px;
-  padding: 6px 10px;
-  transform: translate(-50%, calc(-100% - 12px));
-  border: 1px solid color-mix(in srgb, var(--lantern) 60%, transparent);
-  border-radius: 2px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--pv-panel-deep) 94%, transparent), color-mix(in srgb, var(--pv-panel-deep) 95%, transparent));
-  color: var(--pv-parchment);
-  font-family: var(--font-ui);
-  font-size: 0.86rem;
-  line-height: 1.25;
-  white-space: nowrap;
-  box-shadow: 0 4px 8px color-mix(in srgb, var(--pv-shadow) 42%, transparent);
-}
-.pharosville-hover-tooltip__card strong {
-  color: var(--lantern);
-  font-size: 0.95rem;
-}
-.pharosville-hover-tooltip__card span {
-  color: color-mix(in srgb, var(--pv-muted) 80%, transparent);
+  transform: translate(-50%, calc(-100% - 14px));
 }
 @media (prefers-reduced-motion: reduce) {
   .pharosville-hover-tooltip { transition: none; }
@@ -1523,25 +1687,20 @@ textarea {
   z-index: 6;
   max-width: min(620px, calc(100% - 220px));
   margin: 0;
-  padding: 8px 14px;
+  padding: 14px 44px;
   transform: translateX(-50%);
-  background: color-mix(in srgb, var(--pv-bg) 76%, transparent);
-  color: var(--pv-parchment);
-  font: 1rem/1.5 var(--font-title);
-  letter-spacing: 0.02em;
+  background: radial-gradient(closest-side, var(--pv-air-scrim) 60%, transparent);
+  color: var(--pv-text-on-air);
+  font: var(--type-16)/1.5 var(--font-title);
   text-align: center;
-  text-shadow: 0 2px 10px color-mix(in srgb, var(--pv-shadow) 85%, transparent), 0 0 22px color-mix(in srgb, var(--pv-shadow) 60%, transparent);
+  text-shadow: 0 0 6px var(--pv-air-ink);
   pointer-events: none;
 }
 .pharosville-observe-caption span {
   display: block;
   margin: 0 0 4px;
-  color: var(--lantern);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  opacity: 0.9;
+  color: var(--pv-text-on-air-quiet);
+  font: italic var(--type-label) var(--font-title);
 }
 
 /* Fleet search: below the toolbar, top-left. The wrapper re-enables pointer
@@ -1618,8 +1777,7 @@ textarea {
 }
 .pharosville-quick-find__name {
   flex: 0 0 auto;
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  font-weight: 600;
 }
 .pharosville-quick-find__meta {
   min-width: 0;
@@ -1641,127 +1799,46 @@ textarea {
   font-style: italic;
 }
 
-/* Transient notices: harbor log and the since-last-visit line share one quiet
-   card — hairline, one shadow, dismissible (interface revamp DU16). */
-.pv-notice {
-  position: absolute;
-  z-index: 7;
-  display: flex;
-  gap: 10px;
-  max-width: min(420px, calc(100% - 96px));
-  margin: 0;
-  padding: 8px 10px 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--lantern) 28%, transparent);
-  background: color-mix(in srgb, var(--pv-panel-deep) 92%, transparent);
-  color: color-mix(in srgb, var(--pv-parchment) 94%, transparent);
-  font-family: var(--font-ui);
-  font-size: 0.875rem;
-  line-height: 1.4;
-  box-shadow: 0 4px 8px color-mix(in srgb, var(--pv-shadow) 38%, transparent);
-  pointer-events: auto;
-}
-.pv-notice--log {
-  bottom: 60px;
-  left: 30px;
-  flex-direction: column;
-  gap: 5px;
-}
-.pv-notice--visit {
-  top: 30px;
-  right: 30px;
-  align-items: flex-start;
-  max-width: min(360px, calc(100% - 96px));
-}
-.pv-notice__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.pv-notice__title {
-  margin: 0;
-  color: color-mix(in srgb, var(--pv-gold-bright) 88%, transparent);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-.pv-notice__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.pv-notice__entry {
-  box-sizing: border-box;
-  min-height: 28px;
-  margin: 0;
-  padding: 4px 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.pv-notice__entry:hover {
-  color: var(--lantern);
-}
-.pv-notice__text {
-  min-width: 0;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-.pv-notice__dismiss {
-  box-sizing: border-box;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: color-mix(in srgb, var(--pv-gold-bright) 86%, transparent);
-  cursor: pointer;
-}
-.pv-notice__dismiss:hover {
-  color: var(--lantern);
-}
-.pv-notice__entry:focus-visible,
-.pv-notice__dismiss:focus-visible {
-  outline: 2px solid var(--lantern);
-  outline-offset: 2px;
-}
-
 .pharosville-legend-panel__more {
   margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid color-mix(in srgb, var(--lantern) 18%, transparent);
+  padding-top: 12px;
+  border-top: 1px solid var(--pv-paper-edge);
 }
 .pharosville-legend-panel__more > summary {
-  color: color-mix(in srgb, var(--pv-gold-bright) 72%, transparent);
-  font-size: 0.95rem;
-  letter-spacing: 0.03em;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--pv-text-quiet);
+  font: italic var(--type-16)/1.3 var(--font-title);
   cursor: pointer;
   list-style: none;
 }
 .pharosville-legend-panel__more > summary::-webkit-details-marker {
   display: none;
 }
-.pharosville-legend-panel__more > summary::after {
-  content: " \2304";
-}
-.pharosville-legend-panel__more[open] > summary::after {
-  content: " \2303";
-}
 .pharosville-legend-panel__more > summary:hover {
-  color: var(--lantern);
+  color: var(--pv-paper-ink);
 }
-.pharosville-legend-panel__more > summary:focus-visible {
-  outline: 2px solid var(--lantern);
-  outline-offset: 3px;
+.pharosville-legend-panel .pharosville-controls-cheatsheet__action dt {
+  color: var(--pv-paper-ink);
+  font-weight: 500;
+}
+.pharosville-legend-panel .pharosville-controls-cheatsheet__action kbd {
+  border-color: var(--pv-paper-edge);
+  background: transparent;
+  color: var(--pv-paper-ink);
+}
+.pharosville-legend-panel__changelog {
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--pv-link);
+  font: italic var(--type-16) var(--font-title);
+  text-decoration: underline 1px;
+  text-underline-offset: 4px;
+  cursor: pointer;
 }
 
 /* The runtime's compact-height profile is 1200x640px. Keep the inspector,
@@ -1775,22 +1852,18 @@ textarea {
     right: 24px;
   }
   /* Below 900 px the revealed control row is wider than the caption's
-     reserve, so the caption takes the line above the (single) row: two
-     lines, never one shared rectangle. */
+     reserve, so the caption's whole feathered box (its 24 px bottom padding
+     included) sits above the 44 px row at bottom 18 px: two lines, never one
+     shared rectangle. */
   .pharosville-now-caption {
-    left: 24px;
-    bottom: 70px;
-    max-width: calc(100% - 48px);
+    bottom: 66px;
+    max-width: calc(100% - 174px);
   }
   .pharosville-debug-chrome {
     left: 24px;
   }
-  .pharosville-quick-find,
-  .pv-notice--log {
+  .pharosville-quick-find {
     left: 24px;
-  }
-  .pv-notice--visit {
-    right: 24px;
   }
 }
 
@@ -1810,15 +1883,9 @@ textarea {
 @media (hover: none) {
   .pharosville-detail-panel__close,
   .pharosville-detail-panel__copy,
-  .pv-notice__dismiss,
-  .pv-notice__entry,
   .pharosville-legend-panel__observe,
   .pharosville-quick-find__result {
     min-height: 44px;
-  }
-  .pv-notice__dismiss {
-    width: 44px;
-    height: 44px;
   }
 }
 
@@ -1829,9 +1896,4 @@ dialog.pharosville-changelog-panel::backdrop { background: color-mix(in srgb, va
 .pharosville-detail-dock[hidden] { display: none; }
 .pharosville-skip-map { position: absolute; z-index: 20; left: 24px; top: 16px; transform: translateY(-200%); }
 .pharosville-skip-map:focus { transform: none; background: var(--pv-parchment-light); padding: 10px; color: var(--pv-ink-text); }
-.pharosville-light-control { position: relative; }
-.pharosville-light-control summary { list-style: none; cursor: pointer; }
-.pharosville-light-control summary::-webkit-details-marker { display: none; }
-.pharosville-light-control__panel { position: absolute; right: 0; bottom: 50px; width: 200px; display: grid; gap: 10px; padding: 16px; background: var(--water); color: var(--pv-text-on-air); border: 1px solid var(--stone); }
-.pharosville-light-control__panel input[type="time"] { display: block; width: 100%; }
 .pharosville-ledger summary { cursor: pointer; }

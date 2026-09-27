@@ -102,8 +102,8 @@ export const PIGEONNIER_MOVER_PIGEON_CAP = 5;
  * chalk tones of the rejected rewrite are gone). At most a third of the
  * rendered wrecks carry a standing (always leaning) mast; the rest keep a
  * stump, a snapped spar in the water, or nothing. Cause colour survives only
- * as a small desaturated stain painted on each grave's marker stone, never
- * on a hull.
+ * as a small desaturated band painted on each wreck's stem or stump — no
+ * per-hull gravestone (harbour-5) — never across a hull.
  */
 type WreckForm = GraveNode["visual"]["marker"];
 type WreckFamily = "substantial" | "broken-keel" | "bare-remains";
@@ -215,14 +215,23 @@ const WRECK_TIMBER_WEATHERED = "#5d5b52";
 /** Bone-pale is reserved for exposed ribs, stems and broken frames — never whole hulls. */
 const WRECK_TIMBER_BONE = "#7d7c70";
 const WRECK_TIMBER_SPAR = "#55544b";
-const WRECK_STONE_BASE = "#565e5b";
+/** The weathered stone grey the cause stain is pulled toward. */
 const WRECK_STONE = "#6a716d";
 
-// The cause stain is a painted mark on a grave marker, not a bright dot on
-// the water: cause hue is pulled most of the way toward the marker stone so
+// The cause stain is a painted mark on the wreck's stem, not a bright dot on
+// the water: cause hue is pulled most of the way toward weathered stone so
 // the lifecycle reading survives without confetti.
 export const WRECK_STAIN_STONE = WRECK_STONE;
 export const WRECK_STAIN_DESATURATION = 0.62;
+
+/** Where each form's stain band sits (form-local x, y, z): on its bow stem, knight head or stump. */
+const WRECK_STAIN_SEAT: Record<WreckForm, readonly [number, number, number]> = {
+  grounded: [1.3, 0.3, 0],
+  "sinking-stern": [1.24, 0.42, 0],
+  "broken-keel": [0.02, 0.42, 0.18],
+  skeletal: [1.12, 0.36, 0],
+  shattered: [0.55, 0.3, 0],
+};
 
 // The one still-burning lantern is a FROZEN ember: nothing in the day cycle
 // touches it, so this single number is what it reads at every hour.
@@ -409,7 +418,7 @@ function renderedWreckScale(grave: GraveNode, isHero: boolean, fieldMaxScale: nu
   );
 }
 
-/** Cause hue pulled most of the way to the marker stone: a painted mark, not confetti. */
+/** Cause hue pulled most of the way to weathered stone: a painted mark, not confetti. */
 function causeStainColor(cause: GraveNode["entry"]["causeOfDeath"]): Color {
   return new Color(CAUSE_HEX[cause]).lerp(
     new Color(WRECK_STAIN_STONE),
@@ -627,13 +636,15 @@ function placedBox(
  * Five genuinely different hulls, one baked geometry per cause form, each
  * sunk to its own waterline share.
  *
- * Common furniture — one fallen spar and a low stone with its tiny cause
- * stain — is merged into the form hull, so every wreck reads as one grave
- * rather than one hero ship. `wreckRole` is a test/diagnostic contract:
- * 0 decor, 1 submerged hull mass, 2 the only cause-coloured marker, 3 the
- * readable bulwark/stem/stump silhouette, and 4 the taller stone marker.
- * The big vocabulary pieces (ribs, masts, cloth, lantern) live in their own
- * shared instanced batches instead — see `addWreckFurnitureBatches`.
+ * Common furniture — one fallen spar and the grave's small cause stain,
+ * painted as a band on the wreck's own stem or stump — is merged into the
+ * form hull, so every wreck reads as one grave rather than one hero ship.
+ * There is no per-hull gravestone (harbour-5): the field reads as hulls, not
+ * a forest of uprights. `wreckRole` is a test/diagnostic contract: 0 decor,
+ * 1 submerged hull mass, 2 the only cause-coloured mark, 3 the readable
+ * bulwark/stem/stump silhouette. The big vocabulary pieces (ribs, masts,
+ * cloth, lantern) live in their own shared instanced batches instead — see
+ * `addWreckFurnitureBatches`.
  */
 function wreckFormGeometry(form: WreckForm): BufferGeometry {
   const spec = WRECK_FORM_SPECS[form];
@@ -698,13 +709,11 @@ function wreckFormGeometry(form: WreckForm): BufferGeometry {
 
   sinkHullToWaterline(bodyParts, spec.sinkFraction);
 
-  // The common grave marker every hull carries: a low stone base, its
-  // taller stone, and the painted cause stain capping the stone. A painted
-  // mark, not a floating dot: the stain stays small enough that even the
-  // hero's scaled hull keeps it under 0.3 world units across.
-  const stoneBase = placedBox(0.62, 0.18, 0.48, -1.08, 0.02, -0.82, 0, -0.18);
-  const stone = placedBox(0.36, 0.82, 0.26, -1.08, 0.43, -0.82, 0, -0.18);
-  const stain = placed(new CylinderGeometry(0.046, 0.052, 0.05, 7), -1.08, 0.86, -0.82);
+  // The cause stain: a painted band on the form's standing stem or stump,
+  // clear of the water and small enough that even the hero's scaled hull
+  // keeps it under 0.3 world units across.
+  const [stainX, stainY, stainZ] = WRECK_STAIN_SEAT[form];
+  const stain = placedBox(0.1, 0.12, 0.1, stainX, stainY, stainZ);
 
   // One snapped spar in the water per hull — the second spar of the rejected
   // rewrite read as driftwood litter strewn across every wreck.
@@ -729,8 +738,6 @@ function wreckFormGeometry(form: WreckForm): BufferGeometry {
     ...bodyParts,
     ...silhouetteParts,
     ...frameParts,
-    stoneBase,
-    stone,
     ...spars,
     ...scatteredPlanks,
     stain,
@@ -742,8 +749,6 @@ function wreckFormGeometry(form: WreckForm): BufferGeometry {
   for (const part of bodyParts) markWreckPart(part, bodyColor, 0, 1);
   for (const part of silhouetteParts) markWreckPart(part, WRECK_TIMBER_WEATHERED, 0, 3);
   for (const part of frameParts) markWreckPart(part, WRECK_TIMBER_BONE, 0, 3);
-  markWreckPart(stoneBase, WRECK_STONE_BASE, 0, 4);
-  markWreckPart(stone, WRECK_STONE, 0, 4);
   for (const spar of spars) markWreckPart(spar, WRECK_TIMBER_SPAR, 0, 0);
   for (const plank of scatteredPlanks) markWreckPart(plank, WRECK_TIMBER_SPAR, 0, 0);
   markWreckPart(stain, "#ffffff", 1, 2);

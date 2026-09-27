@@ -1,3 +1,4 @@
+import type { GardenWindShift } from "./garden-attention-scheduler";
 import { AMBIENT_SEA_HZ, AMBIENT_WIND_HZ } from "./motion-config";
 import type { SeaState } from "./sea-state";
 import type { ShipWaterZone } from "./world-types";
@@ -153,6 +154,19 @@ export interface ShipMotionRoute {
    * inlet-honouring path. Absent for every ship that holds no token.
    */
   inletCrossings?: readonly ShipInletCrossing[];
+  /**
+   * W4.F9 wind shifts in force around the plan clock (the scheduler's
+   * `gardenWindShiftsBetween`), shared by every route of one plan. Anchored
+   * and buoy-moored hulls lie to the settled bearing these name. Absent on
+   * hand-built routes, which lie to the harbour's default bearing.
+   */
+  windShifts?: readonly GardenWindShift[];
+  /**
+   * W4.F11: set on a consort's follower route — its flagship's route sampled
+   * under the consort's id — naming the flagship, whose identity picks the
+   * itinerary legs so the consort sails the same water.
+   */
+  followsShipId?: string;
 }
 
 export interface ShipInletCrossing {
@@ -177,8 +191,26 @@ export type ShipMotionSegmentKind =
 export interface ShipMotionSample {
   /** Final water-safe presentation position, shared by render, hit testing and following. */
   displayTile?: { x: number; y: number } | null;
-  /** Shared tide heave in world units; renderer never owns a hull oscillator. */
-  tideOffset?: number;
+  /**
+   * Clock-pure 0..1: how far the ship is sailing — sails set and drawing —
+   * rather than lying at berth or anchor. Ramps over the first and last
+   * seconds of each voyage; 0 at every rest.
+   */
+  sailSet?: number | undefined;
+  /**
+   * F-A: wind heel in radians, + = heeled to port (starboard rail up). Small by
+   * design (a few degrees in a crossing gust), so market calm cannot be read
+   * off the boats. 0 at rest; absent under reduced motion.
+   */
+  heelRad?: number | undefined;
+  /**
+   * F-A: yard brace about the mast in radians relative to athwartships, 0 =
+   * square, + = starboard yardarm forward; |·| ≤ 0.70. Braced to the apparent
+   * wind under way, the rest brace at rest. Absent under reduced motion.
+   */
+  sailTrimRad?: number | undefined;
+  /** F-A: 0..1, how much the sail spills wind (1 = head to wind, shivering). */
+  luff?: number | undefined;
   shipId: string;
   tile: { x: number; y: number };
   state: ShipMotionState;

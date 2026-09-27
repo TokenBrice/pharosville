@@ -94,10 +94,11 @@ describe("buildVisualCueRegistry", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.motion");
 
     expect(cue?.visual).toContain("90–180 second logical legs");
-    expect(cue?.visual).toContain("240–480 second rests");
-    expect(cue?.visual).toContain("paired arrivals and departures");
+    expect(cue?.visual).toContain("600–1500 second rests");
     expect(cue?.visual).toContain("risk order");
     expect(cue?.domEquivalent).toContain("rendered-chain/risk presence only");
+    // K45a: the anchorage swings to the wind; the tide has one meaning elsewhere.
+    expect(`${cue?.visual} ${cue?.domEquivalent}`).not.toMatch(/\b(tide|tidal|ebb|flood)\b/i);
     expect(`${cue?.visual} ${cue?.domEquivalent}`).not.toMatch(/mooring orbit|chain-breadth dwell|extended dwell/i);
   });
 
@@ -204,7 +205,7 @@ describe("buildVisualCueRegistry", () => {
       primaryChannels: ["shape", "size", "position"],
     });
     expect(monument?.visual).toContain("stone mole");
-    expect(monument?.visual).toContain("offset campanile");
+    expect(monument?.visual).toContain("fire-watch frame");
     expect(monument?.visual).toContain("stands alone");
     // The monument is authored, never inherited: a feed without ethereum
     // leaves the cove empty instead of promoting another harbor.
