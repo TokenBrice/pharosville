@@ -56,7 +56,12 @@ import { isStillCameraRequested } from "../lib/pharosville-debug";
 import { isDialogEventTarget } from "./keyboard-event-target";
 import { sampleGardenArrival } from "../systems/garden-arrival";
 import { GARDEN_ATTRACT_TRAVEL_SECONDS } from "../systems/garden-attract";
-import { requestGardenBeat, type GardenDirectorState } from "../systems/garden-director";
+import {
+  GARDEN_RITUAL_BACKOFF_SECONDS,
+  gardenRitualQuietSeconds,
+  requestGardenBeat,
+  type GardenDirectorState,
+} from "../systems/garden-director";
 import {
   FOLLOW_INITIAL_DELTA_SECONDS,
   FOLLOW_MAX_DELTA_SECONDS,
@@ -928,7 +933,9 @@ export function useCanvasResizeAndCamera(input: UseCanvasResizeAndCameraInput): 
           const directorNow = directorClockRef.current(now);
           const lastAdmitted = director.log[director.log.length - 1];
           const mayAsk = directorNow >= (activeTour.retryAtSeconds ?? Number.NEGATIVE_INFINITY)
-            && (!lastAdmitted || directorNow - lastAdmitted.startSeconds >= GARDEN_ATTRACT_BEAT_BACKOFF_SECONDS);
+            && (!lastAdmitted || directorNow - lastAdmitted.startSeconds >= GARDEN_ATTRACT_BEAT_BACKOFF_SECONDS)
+            // W5.1: and 90 s after a scored ritual has ENDED, not merely begun.
+            && gardenRitualQuietSeconds(director, directorNow) >= GARDEN_RITUAL_BACKOFF_SECONDS;
           const frame = activeTour.tour.keyframes[0]!;
           const admitted = mayAsk && requestGardenBeat(director, {
             kind: "attract", foreground: false, priority: 1,

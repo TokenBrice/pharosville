@@ -6,7 +6,6 @@ import {
   createGardenBeaconFire,
 } from "./garden-beacon-fire";
 import { GARDEN_BLOOM_PRACTICAL_THRESHOLD } from "./garden-post";
-import { createGardenSummitBirds } from "./garden-summit-birds";
 
 describe("garden beacon fire (W4)", () => {
   it("mounts the flame, embers and mirror with no smoke at the crown", () => {
@@ -88,18 +87,5 @@ describe("garden beacon fire (W4)", () => {
     });
     expect(fire.uniforms.uStatusIntensity.value).toBeCloseTo(0.2, 6);
     fire.dispose();
-  });
-});
-
-describe("island heron (W4.9)", () => {
-  it("builds one perched heron that freezes at time zero", () => {
-    const birds = createGardenSummitBirds();
-    const flock = birds.root.getObjectByName("island-heron");
-    expect(flock).toBeDefined();
-    birds.update({ reducedMotion: true, timeSeconds: 42, visible: true });
-    expect(birds.root.visible).toBe(true);
-    birds.update({ reducedMotion: false, timeSeconds: 42, visible: false });
-    expect(birds.root.visible).toBe(false);
-    birds.dispose();
   });
 });

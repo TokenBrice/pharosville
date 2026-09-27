@@ -57,6 +57,18 @@ describe("garden signal mast (3a)", () => {
     mast.dispose();
   });
 
+  it("strikes the yard when nothing flies, so the bare hoist never reads as a cross", () => {
+    const mast = createGardenSignalMast();
+    const yard = mast.root.getObjectByName("signal-mast-yard")!;
+    mast.setState({ pennantCount: 0, stormCone: false });
+    expect(Math.abs(yard.rotation.z)).toBeGreaterThan(1.2);
+    for (const state of [{ pennantCount: 1, stormCone: false }, { pennantCount: 0, stormCone: true }]) {
+      mast.setState(state);
+      expect(yard.rotation.z).toBe(0);
+    }
+    mast.dispose();
+  });
+
   it("holds a deterministic time-zero pose under reduced motion", () => {
     const mast = createGardenSignalMast();
     mast.setState({ pennantCount: 5, stormCone: true });

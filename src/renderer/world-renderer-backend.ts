@@ -6,7 +6,6 @@ import type { PharosVilleMotionPlan, ShipMotionSample } from "../systems/motion"
 import type { IsoCamera } from "../systems/projection";
 import type { SeaState } from "../systems/sea-state";
 import type { PharosVilleWorld } from "../systems/world-types";
-import type { GardenAlmanacEvent } from "../systems/garden-almanac";
 import type { GardenDirectorState } from "../systems/garden-director";
 
 export type WorldRendererStatus = "loading" | "ready" | "failed";
@@ -41,8 +40,6 @@ export interface ThreeWorldRendererFrame {
    * 1.8 thinning to 1 over the arrival's first 6 s; absent means 1.
    */
   airVeil?: number;
-  /** The one daily almanac event selected outside the renderer; null when inactive. */
-  almanacEvent?: GardenAlmanacEvent | null;
   /**
    * G3/W4.1: the shared director. Renderer-side beats (keeper, heron, arrival
    * ceremony) request through it in place; it is the world's object, never

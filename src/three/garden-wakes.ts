@@ -266,6 +266,14 @@ export interface GardenWakes {
     strength: number,
   ) => void;
   update: (frame: GardenWakesFrame) => void;
+  /**
+   * Reduced motion (W5): the field carries no wakes, but hulls still sit in
+   * the water. After this frame's ship loop has stamped contact, draw those
+   * footprints alone into the (cleared) field so the water reads them in the
+   * same frame — a static contact smear, nothing decays or moves. No-op
+   * outside reduced motion or with no contact stamps.
+   */
+  renderStaticContact: () => void;
 }
 
 const FEEDBACK_VERTEX = /* glsl */ `
@@ -490,6 +498,11 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
   let hasWindow = false;
   let targetsAreClear = false;
   let wasReducedMotion = false;
+  // Reduced motion: what the field last drew (stamp data, count, window), so a
+  // still fleet costs no offscreen pass at all.
+  const staticContactData = new Float32Array(WAKE_MAX_STAMPS * 8);
+  let staticContactCount = -1;
+  const staticContactWindow: WakeWindow = { centerX: Number.NaN, centerY: Number.NaN, halfSize: Number.NaN };
   const clearColorScratch = new Color();
   let disposed = false;
 
@@ -594,6 +607,7 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
     reset() {
       if (disposed) return;
       resetField(window_);
+      staticContactCount = -1;
     },
     stamp(worldX, worldZ, headingX, headingY, foam, halfLength, halfBeam, slick = 0) {
       const strength = MathUtils.clamp(foam, 0, 1);
@@ -633,7 +647,14 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
       // Reduced motion always resolves to the same empty time-zero field,
       // whether it was active from startup or entered after an animated run.
       if (frame.reducedMotion) {
-        if (!wasReducedMotion || !targetsAreClear) resetField(planned.window);
+        if (!wasReducedMotion) {
+          resetField(planned.window);
+          staticContactCount = -1;
+        } else {
+          // The field holds the last static contact; `renderStaticContact`
+          // redraws it only if the footprints or the window changed.
+          window_ = planned.window;
+        }
         wasReducedMotion = true;
         stampCount = 0;
         wakeStampCount = 0;
@@ -704,6 +725,71 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
       const swap = front;
       front = back;
       back = swap;
+      targetsAreClear = false;
+      stampCount = 0;
+      wakeStampCount = 0;
+    },
+    renderStaticContact() {
+      if (disposed || !wasReducedMotion) return;
+      // Only contact stamps arrive under reduced motion (the ship loop lays
+      // no wakes). Skip everything when this frame's footprints and window
+      // match what the field already holds.
+      let changed = stampCount !== staticContactCount
+        || window_.centerX !== staticContactWindow.centerX
+        || window_.centerY !== staticContactWindow.centerY
+        || window_.halfSize !== staticContactWindow.halfSize;
+      for (let index = 0; index < stampCount && !changed; index += 1) {
+        const d = index * 8;
+        changed = staticContactData[d] !== posData[index * 2]
+          || staticContactData[d + 1] !== posData[index * 2 + 1]
+          || staticContactData[d + 2] !== dirData[index * 2]
+          || staticContactData[d + 3] !== dirData[index * 2 + 1]
+          || staticContactData[d + 4] !== paramData[index * 4]
+          || staticContactData[d + 5] !== paramData[index * 4 + 1]
+          || staticContactData[d + 6] !== paramData[index * 4 + 2]
+          || staticContactData[d + 7] !== paramData[index * 4 + 3];
+      }
+      if (!changed) {
+        stampCount = 0;
+        return;
+      }
+      for (let index = 0; index < stampCount; index += 1) {
+        const d = index * 8;
+        staticContactData[d] = posData[index * 2]!;
+        staticContactData[d + 1] = posData[index * 2 + 1]!;
+        staticContactData[d + 2] = dirData[index * 2]!;
+        staticContactData[d + 3] = dirData[index * 2 + 1]!;
+        staticContactData[d + 4] = paramData[index * 4]!;
+        staticContactData[d + 5] = paramData[index * 4 + 1]!;
+        staticContactData[d + 6] = paramData[index * 4 + 2]!;
+        staticContactData[d + 7] = paramData[index * 4 + 3]!;
+      }
+      staticContactCount = stampCount;
+      staticContactWindow.centerX = window_.centerX;
+      staticContactWindow.centerY = window_.centerY;
+      staticContactWindow.halfSize = window_.halfSize;
+      if (!targetsAreClear) clearTargets();
+      if (stampCount === 0) return;
+      const stamps = stampMaterial.uniforms;
+      stamps.uCenter.value.x = window_.centerX;
+      stamps.uCenter.value.y = window_.centerY;
+      stamps.uHalfSize.value = window_.halfSize;
+      stamps.uTexelWorld.value = (2 * window_.halfSize) / WAKE_TEXTURE_SIZE;
+      stampMesh.count = stampCount;
+      posAttribute.needsUpdate = true;
+      dirAttribute.needsUpdate = true;
+      paramAttribute.needsUpdate = true;
+      const previousTarget = renderer.getRenderTarget();
+      const previousAutoClear = renderer.autoClear;
+      renderer.setRenderTarget(front);
+      feedbackQuad.visible = false;
+      stampMesh.visible = true;
+      renderer.autoClear = false;
+      renderer.render(offscreenScene, offscreenCamera);
+      feedbackQuad.visible = true;
+      stampMesh.visible = false;
+      renderer.autoClear = previousAutoClear;
+      renderer.setRenderTarget(previousTarget);
       targetsAreClear = false;
       stampCount = 0;
       wakeStampCount = 0;

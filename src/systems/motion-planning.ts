@@ -34,6 +34,7 @@ import {
   type GardenScoreGift,
 } from "./garden-attention-scheduler";
 import { GARDEN_EMPTY_INLET, gardenInletDistance, isGardenInletCoreTile } from "./garden-inlet";
+import { gardenRepresentativeBerth } from "./garden-observatory-slice";
 
 /** One slow berth sway at the quays: a ten-minute cycle, in radians. */
 const BERTH_SWAY_PERIOD_SECONDS = 600;
@@ -269,7 +270,7 @@ export function buildBaseMotionPlan(
     ));
     if (!flagship) continue;
     flagshipShipBySquad.set(squad.id, flagship);
-    flagshipRouteBySquad.set(squad.id, buildShipMotionRoute(flagship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(flagship.id) ?? 1));
+    flagshipRouteBySquad.set(squad.id, buildShipMotionRoute(flagship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(flagship.id) ?? 1, gardenRepresentativeBerth(world, flagship.id)));
   }
 
   const shipRoutes = new Map<string, ShipMotionRoute>();
@@ -289,7 +290,7 @@ export function buildBaseMotionPlan(
         continue;
       }
     }
-    shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(ship.id) ?? 1));
+    shipRoutes.set(ship.id, buildShipMotionRoute(ship, world.map, world.docks, waterRouteCache, bucket, speedScalarById.get(ship.id) ?? 1, gardenRepresentativeBerth(world, ship.id)));
   }
 
   const seed = attention.seed ?? GARDEN_ATTENTION_DEFAULT_SEED;
@@ -408,6 +409,104 @@ function assignInletCrossingTokens(input: {
   for (const [shipId, inletCrossings] of crossingsByShipId) {
     input.shipRoutes.set(shipId, { ...input.shipRoutes.get(shipId)!, inletCrossings });
   }
+  // A forced crossing (the director's `crossing` ritual, W5.5) outlives plan
+  // rebuilds until its subject is home by its own route.
+  for (const [shipId, forced] of forcedInletCrossings) {
+    const route = input.shipRoutes.get(shipId);
+    // A world rebuild that moved the anchorage invalidates the voyage.
+    const sameAnchorage = route && forced.path.from.x === route.riskTile.x && forced.path.from.y === route.riskTile.y;
+    if (!route || !sameAnchorage || forced.holdUntilSeconds <= input.timeSeconds - INLET_CROSSING_HORIZON_SECONDS) {
+      forcedInletCrossings.delete(shipId);
+      continue;
+    }
+    input.shipRoutes.set(shipId, { ...route, inletCrossings: [...(route.inletCrossings ?? []), forced] });
+  }
+}
+
+/** Forced crossings by subject id; module state so plan rebuilds keep them. */
+const forcedInletCrossings = new Map<string, ShipInletCrossing & { holdUntilSeconds: number }>();
+
+/** Test seam: forget every forced crossing. */
+export function __resetForcedInletCrossings(): void {
+  forcedInletCrossings.clear();
+}
+
+/**
+ * W5.5: start a crossing now (the director's forced `crossing` ritual). A
+ * ceremony subject (titan or heritage) lying at its anchorage — settled, and
+ * with time for the whole voyage before its own homecoming would have ended,
+ * the soonest home of them — sails
+ * through the inlet at once and then lies at its berth until its route
+ * brings it there anyway, so nothing jumps. Mutates `plan` in place (the
+ * render loop reads it every frame). Returns the token, or null when no
+ * subject can cross now.
+ */
+export function forceInletCrossing(
+  plan: PharosVilleMotionPlan,
+  world: PharosVilleWorld,
+  timeSeconds: number,
+): InletCrossingToken | null {
+  if (!Number.isFinite(timeSeconds)) return null;
+  const waterRouteCache = getMapPathCache(world.map, world.ships.length);
+  const subjects = world.ships
+    .filter((ship) => !ship.squadId && ship.dockVisits.length > 0 && INLET_CROSSING_SUBJECT_TIERS[ship.visual.sizeTier])
+    .toSorted((left, right) => right.marketCapUsd - left.marketCapUsd || left.id.localeCompare(right.id));
+  const routes = plan.shipRoutes as Map<string, ShipMotionRoute>;
+  // Of the subjects that can cross now, the one home soonest: a forced
+  // crossing is watched from the rest seat, so it should not keep the viewer
+  // waiting minutes for its landfall. Ties go to the larger supply.
+  let best: { route: ShipMotionRoute; crossing: ShipInletCrossing & { holdUntilSeconds: number } } | null = null;
+  for (const ship of subjects) {
+    const route = routes.get(ship.id);
+    if (!route || route.dockStopSchedule.length === 0 || forcedInletCrossings.has(ship.id)) continue;
+    const voyageSeconds = route.voyageDurationSeconds ?? route.legDurationSeconds;
+    const riskRestSeconds = route.riskRestDurationSeconds ?? route.restDurationSeconds;
+    const cyclePosition = timeSeconds + route.phaseSeconds;
+    const cycleIndex = Math.floor(cyclePosition / route.cycleSeconds);
+    const intoCycle = cyclePosition - cycleIndex * route.cycleSeconds;
+    const riskRestStart = route.restDurationSeconds + voyageSeconds;
+    // Settled on the rode (past the round-up) and not yet weighing anchor.
+    if (intoCycle < riskRestStart + 40 || intoCycle >= riskRestStart + riskRestSeconds - 40) continue;
+    const dockId = route.dockStopSchedule[positiveModulo(cycleIndex + 1, route.dockStopSchedule.length)];
+    const stop = route.dockStops.find((entry) => entry.dockId === dockId);
+    if (!stop) continue;
+    const path = buildCachedShipWaterRoute({
+      from: route.riskTile,
+      to: stop.mooringTile,
+      map: world.map,
+      zone: ship.riskZone,
+      shipId: ship.id,
+      bucket: route.routeEpoch ?? 0,
+      preferDirect: true,
+      inletCrossing: true,
+    }, waterRouteCache);
+    if (!path.points.some((point) => isGardenInletCoreTile(point.x, point.y))) continue;
+    const crossingSeconds = clamp(
+      path.totalLength / route.underwaySpeedTilesPerSecond,
+      path.totalLength / MOTION_UNDERWAY_MAX_TILES_PER_SECOND,
+      path.totalLength / MOTION_UNDERWAY_MIN_TILES_PER_SECOND,
+    );
+    const naturalHomecomingEnd = timeSeconds - intoCycle + riskRestStart + riskRestSeconds + voyageSeconds;
+    if (timeSeconds + crossingSeconds > naturalHomecomingEnd) continue;
+    if (best && best.crossing.endSeconds <= timeSeconds + crossingSeconds) continue;
+    best = {
+      route,
+      crossing: {
+        cycleIndex,
+        dockId: stop.dockId,
+        endSeconds: timeSeconds + crossingSeconds,
+        holdUntilSeconds: naturalHomecomingEnd,
+        path,
+        slotIndex: -1,
+        startSeconds: timeSeconds,
+      },
+    };
+  }
+  if (!best) return null;
+  const { route, crossing } = best;
+  forcedInletCrossings.set(route.shipId, crossing);
+  routes.set(route.shipId, { ...route, inletCrossings: [...(route.inletCrossings ?? []), crossing] });
+  return { ...crossing, shipId: route.shipId };
 }
 
 export interface InletCrossingToken extends ShipInletCrossing {
@@ -448,8 +547,13 @@ function buildShipMotionRoute(
   waterRouteCache: ShipWaterRouteCache = new Map(),
   bucket = 0,
   speedScalar = 1,
+  anchorage: { x: number; y: number } | null = null,
 ): ShipMotionRoute {
-  const riskTile = nearestWaterTile(ship.riskTile);
+  // W5.5: a docked representative anchors at the berth it is drawn at, so
+  // its voyages start and end there; others anchor at their data tile.
+  const riskTile = nearestWaterTile(anchorage && ship.dockVisits.length > 0
+    ? { x: Math.round(anchorage.x), y: Math.round(anchorage.y) }
+    : ship.riskTile);
   const dockStops: ShipDockMotionStop[] = ship.dockVisits.map((visit) => ({
     id: visit.dockId,
     kind: "dock" as const,

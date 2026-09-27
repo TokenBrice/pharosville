@@ -8,11 +8,12 @@ import {
   type ShipRiskTransitionEntry,
 } from "./accessibility-ledger";
 import type { PharosVilleWorld } from "../systems/world-types";
-import type { GardenAlmanacLogEntry } from "../systems/garden-almanac";
+import type { GardenAlmanacDay, GardenAlmanacLogEntry } from "../systems/garden-almanac";
 import type { HarborLogEntry } from "../hooks/use-harbor-log";
 
 export interface HarborLedgerPanelProps {
   almanacEntries?: readonly GardenAlmanacLogEntry[];
+  almanac?: GardenAlmanacDay;
   onClose: () => void;
   onSelectDetail?: (detailId: string) => void;
   world: PharosVilleWorld;
@@ -30,7 +31,7 @@ export interface HarborLedgerPanelProps {
  * path renders — the caller mounts one or the other, never both, so the words
  * cannot drift and the region landmark is never announced twice.
  */
-export function HarborLedgerPanel({ almanacEntries, harborLogEntries, onClose, onSelectDetail, riskTransitionByShipId, visitSummary, world }: HarborLedgerPanelProps) {
+export function HarborLedgerPanel({ almanac, almanacEntries, harborLogEntries, onClose, onSelectDetail, riskTransitionByShipId, visitSummary, world }: HarborLedgerPanelProps) {
   const panelRef = useModalDialog();
 
 
@@ -65,6 +66,7 @@ export function HarborLedgerPanel({ almanacEntries, harborLogEntries, onClose, o
       >
         <AccessibilityLedger
           {...(almanacEntries ? { almanacEntries } : {})}
+          {...(almanac ? { almanac } : {})}
           {...(harborLogEntries ? { harborLogEntries } : {})}
           {...(visitSummary ? { visitSummary } : {})}
           {...(onSelectDetail ? { onSelectDetail: (id: string) => { onClose(); onSelectDetail(id); } } : {})}

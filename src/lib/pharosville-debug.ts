@@ -73,6 +73,14 @@ export interface DebugDirectorAdmission {
   admittedAtWallMs: number;
   startSeconds: number;
   endSeconds: number;
+  /** The beat's subject (a scored ritual's id). */
+  subject?: string;
+  /** W5.1 ritual rows: the local clock the ritual began at, `HH:MM:SS`. */
+  clock?: string;
+  /** W5.1 ritual rows: the director clock (sim time, epoch seconds). */
+  simSeconds?: number;
+  /** W5.1 ritual rows: started by `forceRitual`, outside the score. */
+  forced?: boolean;
 }
 
 const DEBUG_DIRECTOR_LOG_CAP = 200;
@@ -92,17 +100,48 @@ export function recordDebugDirectorAdmission(beat: {
   priority: number;
   startSeconds: number;
   durationSeconds: number;
+  subject?: string;
 }): void {
   if (!isVisualDebugAllowed()) return;
-  const log = directorAdmissions;
-  log.push({
+  pushDirectorRow({
     id: beat.id,
     kind: beat.kind,
     priority: beat.priority,
     admittedAtWallMs: Date.now(),
     startSeconds: beat.startSeconds,
     endSeconds: beat.startSeconds + beat.durationSeconds,
+    ...(beat.subject === undefined ? {} : { subject: beat.subject }),
   });
+}
+
+/** W5.1: one row per ritual start (scored or forced), beside the admissions. */
+export function recordDebugRitual(event: {
+  id: string;
+  kind: string;
+  clockHour: number;
+  forced: boolean;
+  directorSeconds: number;
+}): void {
+  if (!isVisualDebugAllowed()) return;
+  const totalSeconds = Math.floor((((event.clockHour % 24) + 24) % 24) * 3600);
+  const clock = [Math.floor(totalSeconds / 3600), Math.floor(totalSeconds / 60) % 60, totalSeconds % 60]
+    .map((part) => String(part).padStart(2, "0")).join(":");
+  pushDirectorRow({
+    id: event.id,
+    kind: event.kind,
+    priority: 30,
+    admittedAtWallMs: Date.now(),
+    startSeconds: event.directorSeconds,
+    endSeconds: event.directorSeconds,
+    clock,
+    simSeconds: event.directorSeconds,
+    forced: event.forced,
+  });
+}
+
+function pushDirectorRow(row: DebugDirectorAdmission): void {
+  const log = directorAdmissions;
+  log.push(row);
   if (log.length > DEBUG_DIRECTOR_LOG_CAP) log.splice(0, log.length - DEBUG_DIRECTOR_LOG_CAP);
 }
 

@@ -194,7 +194,9 @@ export function LegendPanel({ onClose, onChangelog, onObserve, onSelectDetail, r
           <p>
             The Pharos keeps the whole fleet&apos;s stability: its beam warmth
             and the clarity of the sky follow the Peg Stability Index. The sky
-            reads the fleet, the water reads each coin.
+            reads the fleet, the water reads each coin. The sun and moon keep
+            your local time, set for a nominal 35° latitude in the hemisphere
+            your time zone suggests.
           </p>
         </section>
 

@@ -86,6 +86,8 @@
  *   --still-camera             appends still=1: no camera breath, no attract/postcard moves
  *   --clean                    the main shot is the canvas alone: HUD, world chrome and overlay hidden (hour stills)
  *   --clock <ISO>              pins Date (flowing from that instant; RAF/timers untouched) and adds d=YYYY-MM-DD
+ *   --ritual <kind> [--ritual-wait ms]  W5.1: __pharosVilleDebug.forceRitual(kind) just before the shot (and any burst);
+ *                              kinds heron-arrives|heron-departs|kindling|moonrise|meteor|seasonal-visitor|crossing
  *   --burst N [--interval ms] [--clip x,y,w,h] [--burst-sheet]   ordered <out>-burst-NN.png (+ contact sheet)
  *   --stats [--watch-seconds S]  __pharosVilleDebug.motionStats + directorLog (sampled over S seconds)
  *   --metrics                  HUD-free picture metrics + <out>-notan.png
@@ -491,6 +493,7 @@ try {
   if (forcedTier && metrics.tier !== forcedTier) throw new Error(`Forced tier ${forcedTier} not active; use the dev server, not a production build (got ${metrics.tier})`);
   await applyRequestedUiState(page);
   await mkdir(outputDirectory, { recursive: true });
+  if (typeof args.ritual === "string") await forceRitualBeforeCapture(page, args.ritual, numberFlag("ritual-wait", 0));
   if (args.clean) {
     // K17 hour stills: the world alone, no HUD, chrome, chips or nameplates.
     await page.addStyleTag({ content: ".pharosville-overlay { visibility: hidden !important; }" });
@@ -1967,6 +1970,17 @@ function withCalendarDate(baseHash, calendar) {
   if (!calendar) return baseHash;
   if (/[#&]d=/.test(baseHash)) throw new Error("--clock adds d= to the hash itself; drop the d= from --hash");
   return baseHash ? `${baseHash}&d=${calendar.date}` : `#d=${calendar.date}`;
+}
+
+/** W5.1: start a ritual through the debug seam, then wait `waitMs` before the capture. */
+async function forceRitualBeforeCapture(page, kind, waitMs) {
+  const started = await page.evaluate((ritual) => {
+    const debug = window.__pharosVilleDebug;
+    return typeof debug?.forceRitual === "function" ? debug.forceRitual(ritual) : null;
+  }, kind);
+  if (started === null) throw new Error("--ritual needs visual debug (__pharosVilleDebug.forceRitual is absent)");
+  console.log(`ritual     ${kind} ${started ? "started" : "has no registered handler (logged only)"}${waitMs > 0 ? ` · capture after ${waitMs}ms` : ""}`);
+  if (waitMs > 0) await page.waitForTimeout(waitMs);
 }
 
 function parseBurstFlags() {

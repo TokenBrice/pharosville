@@ -85,6 +85,7 @@ import { psiSkyClarity, type PsiSkyClarity } from "../systems/psi-sky";
 import { seasonFromDate, worldCalendarDate, type GardenSeason } from "../systems/season";
 import { isDebugChromeEnabled } from "../lib/pharosville-debug";
 import { createGardenAlmanacDressing, type GardenAlmanacDressing } from "./garden-almanac-dressing";
+import { createGardenKeeper, type GardenKeeper } from "./garden-keeper";
 import {
   createDrawOwnerRecorder,
   shouldRequestDrawCensus,
@@ -119,9 +120,7 @@ import {
 } from "./garden-landmarks";
 import {
   createGardenFireflies,
-  createGardenGullFlock,
   type GardenFireflies,
-  type GardenGullFlock,
 } from "./garden-harbor-life";
 import { createGardenHorizon, type GardenHorizon } from "./garden-horizon";
 import { createGardenSeaSigns, type GardenSeaSigns, type SeaSignSpec } from "./garden-sea-signs";
@@ -203,7 +202,8 @@ import {
   updateGardenLanternKindling,
   type GardenLaneRegistry,
 } from "./garden-lanterns";
-import { requestGardenBeat } from "../systems/garden-director";
+import { registerRitual } from "../systems/garden-director";
+import { cancelGardenRituals, tickGardenScore } from "../systems/garden-score";
 import {
   CEMETERY_CENTER,
 } from "../systems/world-layout";
@@ -222,6 +222,7 @@ import {
   attachGardenLighthouseModel,
   collectLighthouseGlowMaterials,
   createLanternSwell,
+  gardenLanternCatch,
   type LanternSwell,
   updateLighthouseAir,
   updateLighthouseLampStatus,
@@ -243,11 +244,8 @@ import {
 } from "./garden-cross-bearing-buoys";
 import { createGardenTideStain, type GardenTideStain } from "./garden-tide-stain";
 import { beamBearingTo, beamDwellRateScale, beamStaticBearing } from "./garden-beam-dwell";
-import {
-  createGardenSummitBirds,
-  GARDEN_HERON_BEAT_REQUEST,
-  type GardenSummitBirds,
-} from "./garden-summit-birds";
+import { createGardenGullFlock, type GardenGullFlock } from "./garden-summit-birds";
+import { createGardenHeron, type GardenHeron } from "./garden-heron";
 import {
   assignGardenHeroSailAtlas,
   attachGardenHeroModel,
@@ -526,6 +524,10 @@ export function createThreeWorldRenderer(
     uploadScheduler,
     input.calendarDate ?? worldCalendarDate(),
   );
+  // W5.1: the dark-moon meteor is the day score's "meteor" ritual.
+  const unregisterMeteor = registerRitual("meteor", scene.almanacDressing.ritual);
+  const visitorRitual = scene.seasonalDressing.ritual;
+  const unregisterVisitor = visitorRitual ? registerRitual("seasonal-visitor", visitorRitual) : null;
   // @types/three still narrows the r185 runtime's null scene/group arguments;
   // the recorder's structural target matches the implementation's actual calls.
   const drawRecorder = createDrawOwnerRecorder(renderer as unknown as DrawRecorderTarget, scene.root);
@@ -707,6 +709,9 @@ export function createThreeWorldRenderer(
     dispose() {
       if (disposed) return;
       disposed = true;
+      unregisterMeteor();
+      unregisterVisitor?.();
+      cancelGardenRituals();
       uploadScheduler.dispose();
       clearTimeout(contextRestoreTimeoutId);
       canvas.removeEventListener("webglcontextlost", handleContextLost);
@@ -738,6 +743,10 @@ export function createThreeWorldRenderer(
       // merged/instanced buffers before the generic scene walk below.
       scene.content?.harborBatch?.dispose();
       if (scene.content) scene.content.harborBatch = null;
+      // Unregisters the kindling ritual and hands the kindle clock back to the sun.
+      scene.keeper.dispose();
+      // Releases the heron's two ritual handlers.
+      scene.heron.dispose();
       disposeThreeObjectTree(scene.root);
       if (detachedModel) disposeThreeObjectTree(detachedModel);
       modelLibrary.clear();
@@ -1004,7 +1013,7 @@ export function createThreeWorldRenderer(
           visibleStrength: scene.water.wakeStrength(),
         });
       }
-      const recurringOffscreenCalls = renderer.info.render.calls;
+      let recurringOffscreenCalls = renderer.info.render.calls;
 
       // `renderer.info` auto-resets on every `render()` call, and the post
       // composer issues several. Reading it after `post.render()` therefore
@@ -1045,6 +1054,16 @@ export function createThreeWorldRenderer(
 
       if (scene.content) syncShipSailTextures(scene.content, frame);
       updateSceneForFrame(scene, camera, frame, phase, detailPolicy, shipFrame);
+      // W5: under reduced motion the hulls' contact footprints are drawn into
+      // the (otherwise empty) wake field after this frame's ship loop, so the
+      // water reads them this frame. Offscreen work, counted as such.
+      let staticContactCalls = 0;
+      if (frame.reducedMotion) {
+        const callsBefore = renderer.info.render.calls;
+        scene.wakes.renderStaticContact();
+        staticContactCalls = renderer.info.render.calls - callsBefore;
+        recurringOffscreenCalls += staticContactCalls;
+      }
 
       const tier = frame.renderScheduler.tier;
       if (SESSION_TIER_QUALITY[tier] > SESSION_TIER_QUALITY[sessionTierReached]) {
@@ -1136,7 +1155,7 @@ export function createThreeWorldRenderer(
       }
       const content = scene.content;
       const renderInfo = renderer.info.render;
-      const sceneCalls = renderInfo.calls;
+      const sceneCalls = renderInfo.calls - staticContactCalls;
       const programCount = renderer.info.programs?.length ?? 0;
       const geometryCount = renderer.info.memory.geometries;
       const textureCount = renderer.info.memory.textures;
@@ -1242,6 +1261,10 @@ function emptyWorldRendererMetrics(): ThreeWorldRendererMetrics {
 
 export interface GardenScene extends GardenShadowRig {
   almanacDressing: GardenAlmanacDressing;
+  /** W5.4 (K20, O19): the evening keeper and the `kindling` ritual; seated at the island root. */
+  keeper: GardenKeeper;
+  /** W5.2: the one heron and her two rituals (heron-arrives / heron-departs); seated at the island root. */
+  heron: GardenHeron;
   ambientLight: AmbientLight;
   /**
    * The beam's swept angle, integrated rather than derived from the clock.
@@ -1263,8 +1286,6 @@ export interface GardenScene extends GardenShadowRig {
    */
   psiSky: PsiSkyClarity | null;
   epistemicBanks: readonly EpistemicFogBank[];
-  /** W4.9: one heron request per dusk window. */
-  heronDuskRequested: boolean;
   content: GardenContent | null;
   /**
    * W4.1: the shared instanced fleet, its sail atlas and the pennant-geometry
@@ -1470,8 +1491,6 @@ interface GardenContent {
   islandLanternMaterial: MeshStandardMaterial | null;
   statueGleamMaterials: MeshStandardMaterial[];
   tideStain: GardenTideStain;
-  summitBirds: GardenSummitBirds;
-  summitBirdsRoot: Group;
   /** W4.1 reconciliation bookkeeping — one record per rebuildable part. */
   parts: Record<WorldContentPartName, GardenContentPartState>;
   /** Changed parts waiting for their amortized one-per-frame rebuild. */
@@ -1632,11 +1651,9 @@ function createGardenScene(
   const waterAccents = createWaterAccents();
   root.add(waterAccents);
   const almanacDressing = createGardenAlmanacDressing();
-  waterAccents.add(almanacDressing.root);
+  const keeper = createGardenKeeper();
+  const heron = createGardenHeron({ registerRitual });
   const seasonalDressing = createGardenSeasonalDressing(calendarDate);
-  // Keep the scene's long-standing root child order stable for hit/cue owners;
-  // this decorative water layer belongs with the existing water accents.
-  waterAccents.add(seasonalDressing.root);
 
   const hoverMarker = createGardenCueMarker("#d8eee7", 0.4);
   const selectedMarker = createGardenCueMarker(HARBOR_PALETTE.lantern_glow, 0.78);
@@ -1656,6 +1673,16 @@ function createGardenScene(
   const islets = createGardenIslets();
   islets.registerRippleRings(water.rippleRings);
   root.add(horizon.root, islets.root);
+  // W5.1: the meteor (placed about the camera) and the seasonal layer (petals,
+  // leaf fall) are world-space, so they hang off the scene root — appended
+  // after the long-standing children, whose indices hit/cue owners and tests
+  // rely on — rather than off the island-offset water accents.
+  root.add(almanacDressing.root, seasonalDressing.root);
+  // W5.4: the keeper, seated at the island root on each island build.
+  root.add(keeper.root);
+  // W5.2: the heron likewise: one bird for the renderer's life, so a flight in
+  // progress survives a content swap.
+  root.add(heron.root);
   applyGardenPrintInksToTree(root);
 
   // W4.1: the instanced fleet's GPU buffers, the sail atlas texture and the
@@ -1687,12 +1714,13 @@ function createGardenScene(
 
   return {
     almanacDressing,
+    keeper,
+    heron,
     ambientLight,
     beamAngle: 0,
     beamClockSeconds: 0,
     psiSky: null,
     epistemicBanks: [],
-    heronDuskRequested: false,
     content: null,
     ...shadowRig,
     fleetBatches,
@@ -2772,6 +2800,8 @@ function buildIslandPart(
   const island = createTerracedIsland(world, cloudShadows, scene.calendarDate);
   applyGardenMonthRecord(island.root, world.lighthouse.gardenMonthRecord);
   part.root.add(island.root);
+  scene.keeper.root.position.copy(island.root.position);
+  scene.heron.root.position.copy(island.root.position);
   // The island stone/timber (and lighthouse, inside island.root) cast and
   // receive. The flat MeshBasicMaterial shoal is excluded so its transparent
   // disc never stamps a hard shadow; the harbour is flagged in its own part.
@@ -2804,10 +2834,6 @@ function buildIslandPart(
   const beaconFire = createGardenBeaconFire();
   beaconFire.root.position.set(0, GARDEN_LIGHTHOUSE_BEACON_Y, 0);
   island.lighthouseRoot.add(beaconFire.root);
-  // W4.9: the heron perches on the camera-side island rock (its root carries
-  // the perch offset), not on the beacon.
-  const summitBirds = createGardenSummitBirds();
-  island.root.add(summitBirds.root);
   // W7 rim light, chained onto the I3 cloud-shadow hook (already applied
   // inside createTerracedIsland) — compose, never clobber.
   applyLighthouseRimLight(island.lighthouseRoot);
@@ -2868,10 +2894,8 @@ function buildIslandPart(
   content.lighthouseWindowMaterials = lighthouseWindowMaterials;
   content.islandLanternMaterial = gardenIslandLanternMaterial(island.decoration);
   // H-A: the island's path lanterns kindle first, beside the beacon.
-  if (content.islandLanternMaterial) patchGardenLanternKindling(content.islandLanternMaterial, 0.02);
+  if (content.islandLanternMaterial) patchGardenLanternKindling(content.islandLanternMaterial, "attribute");
   content.statueGleamMaterials = statueGleamMaterials;
-  content.summitBirds = summitBirds;
-  content.summitBirdsRoot = summitBirds.root;
   content.tideStain = tideStain;
 }
 
@@ -2958,10 +2982,6 @@ function buildRimPart(scene: GardenScene, content: GardenContent): void {
   // The night-beat materials (rim and threshold flora dimming, the threshold
   // tōrō's kindling) are born at 0; re-push the current beat on the next frame.
   scene.floraNightValue = -1;
-  // W4.8: the keeper walks the rim path; the dressing is scene-scope, so the
-  // ribbon is handed over here where the rim is (re)built.
-  const pathMesh = rim.root.getObjectByName("garden-rim-path") as Mesh | undefined;
-  if (pathMesh) scene.almanacDressing.setKeeperPath(pathMesh.geometry, rim.pathSegmentCount);
   const waterfall = createGardenWaterfall();
   content.parts.rim.root.add(waterfall.mesh);
   content.waterfall = waterfall;
@@ -3436,15 +3456,15 @@ function updateSceneForFrame(
     epistemicBanks: scene.epistemicBanks,
     viewAspect: camera.aspect,
   });
-  scene.almanacDressing.update({
-    activeEvent: frame.almanacEvent ?? null,
-    deltaSeconds: beamElapsedSeconds,
+  // W5.1: the day score's driver — runs, admits and reserves the rituals once
+  // per frame, before their owners draw.
+  tickGardenScore({
     director: frame.gardenDirector,
-    directorTimeSeconds: frame.epochSeconds,
-    hour: frame.wallClockHour,
+    directorSeconds: frame.epochSeconds ?? frame.timeSeconds,
+    clockHour: frame.wallClockHour,
     reducedMotion: frame.reducedMotion,
-    timeSeconds: frame.timeSeconds,
   });
+  scene.almanacDressing.update({ cameraPosition: camera.position, reducedMotion: frame.reducedMotion });
   scene.seasonalDressing.update({
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
@@ -3466,11 +3486,12 @@ function updateSceneForFrame(
     scene.floraNightValue = floraNight;
     setGardenFloraNightValue(scene.root, floraNight);
   }
-  updateGardenLanternKindling(floraNight);
+  scene.keeper.update({ deltaSeconds: beamElapsedSeconds, hour: frame.wallClockHour, reducedMotion: frame.reducedMotion });
+  updateGardenLanternKindling(frame.wallClockHour, beamElapsedSeconds, frame.reducedMotion);
   const epistemicHaze = deriveEpistemicHaze(frame.world.freshness);
   scene.water.setPegSummaryEpistemicHaze(epistemicHaze.riskWaters);
   setGardenQuayEpistemicHaze(epistemicHaze.quays);
-  scene.content?.pondReflection.update(phase);
+  scene.content?.pondReflection.update(phase, frame.wallClockHour, camera.position);
   // Phase 2 lightning: the strike's flash doubles through the existing
   // shadow-casting key light for its ~0.3 s envelope. No new lights; the
   // day-cycle intensity above remains the base this multiplies, and the
@@ -3564,7 +3585,7 @@ function updateSceneForFrame(
   scene.waterAccents.rotation.y = 0;
   content.gullFlock.update({
     constrained,
-    keeperRitual: scene.almanacDressing.keeperRitual,
+    keeperRitual: scene.keeper.ritual,
     night: phase.night,
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
@@ -3572,7 +3593,8 @@ function updateSceneForFrame(
   });
   content.fireflies.update({
     fullTier: frame.renderScheduler.tier === "full",
-    night: phase.night,
+    // W5.6 (K24): fireflies only in their early-summer kō, risen by the score.
+    night: phase.night * scene.seasonalDressing.fireflyPresence(),
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
     weather,
@@ -3603,23 +3625,13 @@ function updateSceneForFrame(
     tier: frame.renderScheduler.tier,
     wind: weather.wind,
   });
-  // W4.9: the heron flies once per dusk, inside a director-admitted beat. One
-  // request per dusk window; a refusal (silence, another beat) means no
-  // flight that evening rather than a retry storm eating the cadence budget.
-  const duskWindow = phase.dusk > 0.35;
-  const directorTime = frame.epochSeconds ?? frame.timeSeconds;
-  if (!duskWindow) scene.heronDuskRequested = false;
-  if (duskWindow && !scene.heronDuskRequested && frame.gardenDirector && !frame.reducedMotion && ambientAlive) {
-    scene.heronDuskRequested = true;
-    requestGardenBeat(frame.gardenDirector, GARDEN_HERON_BEAT_REQUEST, directorTime);
-  }
-  const activeBeat = frame.gardenDirector?.active ?? null;
-  const heronBeat = activeBeat?.subject === GARDEN_HERON_BEAT_REQUEST.subject ? activeBeat : null;
-  content.summitBirds.update({
+  // W5.2: the heron's arrival and departure are score rituals the driver
+  // runs; between them she stands or is absent by the local hour.
+  scene.heron.update({
+    clockSeconds: frame.epochSeconds ?? frame.timeSeconds,
     reducedMotion: frame.reducedMotion,
-    timeSeconds: heronBeat ? Math.max(0, directorTime - heronBeat.startSeconds) : 0,
     visible: ambientAlive,
-    weatherBeatActive: heronBeat !== null,
+    wallClockHour: frame.wallClockHour,
   });
   // The hoist's shared ambient frame: the same gate as the island's small
   // life, and the same clock.
@@ -3677,6 +3689,7 @@ function updateSceneForFrame(
   // corona breathes with it. pharos-8: the beacon lights its own mist.
   const lanternSwell = content.lanternSwell.update({
     beamFacing: beamScatter,
+    caught: gardenLanternCatch(),
     glow: phase.night * Math.min(1, lampModulation.intensityScale),
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,

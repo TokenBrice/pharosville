@@ -35,7 +35,7 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import { REST_SEAT_EYE_LANDSCAPE } from "../systems/rest-seat";
 import type { DockNode } from "../systems/world-types";
 import { assignGardenChainFlagCell } from "./garden-chain-flag";
-import { patchGardenLanternKindling } from "./garden-lanterns";
+import { GARDEN_KINDLE_ORDER, patchGardenLanternKindling } from "./garden-lanterns";
 import { setTilePosition, stableUnit } from "./garden-util";
 export type { StationType } from "../systems/dock-layout";
 
@@ -215,8 +215,6 @@ export interface DockRecipe {
 const PIER_DECK_TOP_Y = 0.24;
 /** Bamboo nobori pole (shared `post` instance). */
 const NOBORI_POLE_RADIUS = 0.055;
-/** A lit shoji kindles this far behind its station's lantern in the ring order. */
-const SHOJI_KINDLE_LAG = 0.08;
 
 /** One kindled stone lantern per lit station, on its quay nose (harbour-3). */
 export function gardenHarborLanternWorldPositions(
@@ -439,10 +437,12 @@ export function authorDock(
     y: GARDEN_DOCK_ROOT_Y + QUAY_TOP_Y,
     z: root.position.z + lanternLocalX * bearingSin + lanternLocalZ * bearingCos,
   };
-  // H-A: the evening kindles outward from the beacon, unevenly.
+  // H-A: after the lantern catches, the ring kindles outward from the beacon,
+  // unevenly (distance plus a per-chain stagger inside the station band).
   const ringTiles = Math.hypot(displayTile.x - islandTile.x, displayTile.y - islandTile.y);
-  const lanternOrder = 0.05 + 0.6 * MathUtils.clamp((ringTiles - 30) / 45, 0, 1)
-    + 0.2 * stableUnit(`harbor-kindle.${dock.chainId}`);
+  const band = GARDEN_KINDLE_ORDER.stationFarthest - GARDEN_KINDLE_ORDER.stationNearest;
+  const lanternOrder = GARDEN_KINDLE_ORDER.stationNearest
+    + band * (0.8 * MathUtils.clamp((ringTiles - 30) / 45, 0, 1) + 0.2 * stableUnit(`harbor-kindle.${dock.chainId}`));
 
   return {
     accentColor: accent.clone(),
@@ -455,7 +455,7 @@ export function authorDock(
     features: stationFeatures(station.type, featureGeometry),
     footprint,
     identity,
-    kindleOrder: { lantern: lanternOrder, shoji: lanternOrder + SHOJI_KINDLE_LAG },
+    kindleOrder: { lantern: lanternOrder, shoji: lanternOrder + GARDEN_KINDLE_ORDER.shojiLag },
     lantern,
     noren,
     parts,

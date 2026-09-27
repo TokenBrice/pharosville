@@ -1,5 +1,3 @@
-import { requestGardenBeat } from "./garden-director";
-import type { GardenBeat, GardenDirectorState } from "./garden-director";
 import type { ShipMotionSample } from "./motion-types";
 import type { ShipIssuance } from "./world-types";
 
@@ -10,15 +8,12 @@ export const GARDEN_SAIL_DIP_ATTACK_SECONDS = 1.2;
 export const GARDEN_SAIL_DIP_HOLD_SECONDS = 1;
 export const GARDEN_SAIL_DIP_MIN_SCALE = 0.6;
 export const GARDEN_ARRIVAL_BEAT_CAP_FULL = 1;
-export const GARDEN_ARRIVAL_CEREMONY_MIN_INTERVAL_SECONDS = 120;
-export const GARDEN_ARRIVAL_CEREMONY_MAX_INTERVAL_SECONDS = 240;
-/** Quiet time between one nameplate's end and the next nameplate's start. */
-export const GARDEN_ARRIVAL_NAMEPLATE_GAP_SECONDS = 90;
 /** Mirrors the chip's CSS fade-out (`.pharosville-harbor-label-chip`, 900 ms). */
 export const GARDEN_ARRIVAL_NAMEPLATE_FADE_OUT_SECONDS = 0.9;
 /**
- * A ceremony is announced only for a berth the visitor can see: its projected
- * point must sit inside the viewport with this fractional inset on every side.
+ * The crossing ceremony (W5.5, `garden-crossing.ts`) is announced only for a
+ * ship the visitor can see: its projected point must sit inside the viewport
+ * with this fractional inset on every side.
  */
 export const GARDEN_ARRIVAL_FRAME_INSET = 0.1;
 
@@ -38,41 +33,11 @@ export interface GardenArrivalBeatShip {
 }
 type GardenArrivalBeatShipSource = GardenArrivalBeatShip | { ship: GardenArrivalBeatShip };
 
-export interface GardenArrivalCandidate {
-  assetName: string;
-  detailId: string;
-  harbourName: string;
-  id: string;
-  /** Arriving asset's share of tracked supply, in [0, 1]. */
-  supplyShare: number;
-  /** Measured 24h issuance direction; null (flat or unmeasured) omits the supply clause. */
-  supplyTrend: "decreased" | "increased" | null;
-}
-
+/** The one nameplate chip (the crossing ceremony's subject), on the wall clock. */
 export interface GardenArrivalNameplate {
   detailId: string;
   startSeconds: number;
   endSeconds: number;
-}
-
-export interface GardenArrivalBeat {
-  annotation: { text: string; startSeconds: number; durationSeconds: number } | null;
-  arrival: GardenArrivalCandidate;
-  directorBeat: GardenBeat;
-  /** The single nameplate chip for this ceremony, or null inside the 90 s quiet gap. */
-  nameplate: GardenArrivalNameplate | null;
-}
-
-export interface GardenArrivalCeremonyState {
-  nextEligibleSeconds: number;
-  nextNameplateEligibleSeconds: number;
-}
-
-export function createGardenArrivalCeremonyState(): GardenArrivalCeremonyState {
-  return {
-    nextEligibleSeconds: Number.NEGATIVE_INFINITY,
-    nextNameplateEligibleSeconds: Number.NEGATIVE_INFINITY,
-  };
 }
 
 /**
@@ -81,7 +46,7 @@ export function createGardenArrivalCeremonyState(): GardenArrivalCeremonyState {
  */
 export function gardenArrivalSupplyTrend(
   issuance: Pick<ShipIssuance, "direction"> | null | undefined,
-): GardenArrivalCandidate["supplyTrend"] {
+): "decreased" | "increased" | null {
   if (issuance?.direction === "minting") return "increased";
   if (issuance?.direction === "redeeming") return "decreased";
   return null;
@@ -101,66 +66,6 @@ export function gardenArrivalBerthInFrame(
     && point.y >= insetY
     && point.y <= viewport.height - insetY;
 }
-
-/**
- * Offers the single most significant arrival to the garden director. The local
- * cooldown prevents a convoy from repeatedly asking for foreground attention.
- */
-export function requestGardenArrivalCeremony(
-  state: GardenArrivalCeremonyState,
-  director: GardenDirectorState,
-  arrivals: readonly GardenArrivalCandidate[],
-  timeSeconds: number,
-): GardenArrivalBeat | null {
-  if (arrivals.length === 0 || timeSeconds < state.nextEligibleSeconds) return null;
-  let arrival = arrivals[0]!;
-  for (let index = 1; index < arrivals.length; index += 1) {
-    const candidate = arrivals[index]!;
-    if (
-      normalizedShare(candidate.supplyShare) > normalizedShare(arrival.supplyShare)
-      || (
-        normalizedShare(candidate.supplyShare) === normalizedShare(arrival.supplyShare)
-        && candidate.detailId.localeCompare(arrival.detailId) < 0
-      )
-    ) arrival = candidate;
-  }
-  const durationSeconds = 8 + seededUnit(`${arrival.id}:duration`) * 4;
-  const directorBeat = requestGardenBeat(director, {
-    durationSeconds,
-    foreground: true,
-    kind: "arrival",
-    priority: Math.max(1, Math.round(normalizedShare(arrival.supplyShare) * 99)),
-    subject: arrival.detailId,
-  }, timeSeconds);
-  if (!directorBeat) return null;
-  state.nextEligibleSeconds = timeSeconds
-    + GARDEN_ARRIVAL_CEREMONY_MIN_INTERVAL_SECONDS
-    + seededUnit(`${arrival.id}:${directorBeat.id}:interval`)
-      * (GARDEN_ARRIVAL_CEREMONY_MAX_INTERVAL_SECONDS - GARDEN_ARRIVAL_CEREMONY_MIN_INTERVAL_SECONDS);
-  let nameplate: GardenArrivalNameplate | null = null;
-  if (directorBeat.startSeconds >= state.nextNameplateEligibleSeconds) {
-    nameplate = {
-      detailId: arrival.detailId,
-      startSeconds: directorBeat.startSeconds,
-      endSeconds: directorBeat.startSeconds + durationSeconds,
-    };
-    state.nextNameplateEligibleSeconds = nameplate.endSeconds
-      + GARDEN_ARRIVAL_NAMEPLATE_FADE_OUT_SECONDS
-      + GARDEN_ARRIVAL_NAMEPLATE_GAP_SECONDS;
-  }
-  const supplyClause = arrival.supplyTrend ? ` · supply ${arrival.supplyTrend} over 24h` : "";
-  return {
-    annotation: {
-      durationSeconds,
-      startSeconds: directorBeat.startSeconds,
-      text: `${arrival.assetName} arrives at ${arrival.harbourName}${supplyClause}`,
-    },
-    arrival,
-    directorBeat,
-    nameplate,
-  };
-}
-
 
 /**
  * Clock-pure arrival/departure flourish derived only from the sampled route
@@ -262,18 +167,6 @@ function sailDip(secondsInto: number, duration: number): number {
   }
   const recoveryStart = GARDEN_SAIL_DIP_ATTACK_SECONDS + GARDEN_SAIL_DIP_HOLD_SECONDS;
   return 1 - smoothstep01((secondsInto - recoveryStart) / (duration - recoveryStart));
-}
-
-function normalizedShare(value: number): number {
-  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
-}
-
-function seededUnit(seed: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < seed.length; index += 1) {
-    hash = Math.imul(hash ^ seed.charCodeAt(index), 16777619);
-  }
-  return (hash >>> 0) / 0x1_0000_0000;
 }
 
 function smoothstep01(value: number): number {

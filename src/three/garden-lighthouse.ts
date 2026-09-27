@@ -34,6 +34,12 @@ import {
 } from "./garden-day-cycle";
 import type { LampStatusModulation } from "../systems/lamp-status";
 import { setGardenAerialBeacon } from "./garden-aerial";
+import {
+  bindGardenKindleUniforms,
+  GARDEN_KINDLE_ORDER,
+  gardenLanternKindleFactor,
+  gardenLanternKindleState,
+} from "./garden-lanterns";
 import { gardenModelAnchor } from "./garden-models";
 import type { GardenLightPose } from "./garden-sun";
 
@@ -117,7 +123,6 @@ interface LighthouseModelTarget {
   /** T0.2: filled with the attached GLB's cloned aperture materials. */
   lighthouseWindowMaterials?: MeshStandardMaterial[];
   statueGleamMaterials?: MeshStandardMaterial[];
-  summitBirdsRoot?: Object3D | null;
 }
 
 export interface LighthouseLampTarget {
@@ -156,7 +161,6 @@ export function attachGardenLighthouseModel(
   content.lighthouseLight.position.copy(beaconPosition);
   content.beam.position.copy(beamPosition);
   content.beaconFireRoot?.position.copy(beaconPosition);
-  content.summitBirdsRoot?.position.copy(beaconPosition);
   prepareLighthouseModelMaterials(
     model,
     content.statueGleamMaterials,
@@ -300,6 +304,12 @@ export interface LanternSwellInput {
   beamFacing: number;
   /** Night weight of the lamp, already scaled by its status (0 by day). */
   glow: number;
+  /**
+   * K20: how far the lantern has caught (`gardenLanternCatch`). When a
+   * kindling carries it through one half, the glass swells once — the fire
+   * taking hold — whatever the beam's bearing.
+   */
+  caught?: number;
   reducedMotion: boolean;
   timeSeconds: number;
 }
@@ -315,33 +325,54 @@ const easeUnit = (value: number): number => {
 };
 
 /**
+ * K20 / K-A: how far the lantern has caught, 0–1 — the kindle factor at the
+ * lantern's place in the evening order. The keeper's climb carries it
+ * through when he reaches the lantern room; without a ritual the sun's
+ * default clock does, shortly after sunset.
+ */
+export function gardenLanternCatch(): number {
+  const { progress, window } = gardenLanternKindleState();
+  return gardenLanternKindleFactor(GARDEN_KINDLE_ORDER.lantern, progress, window);
+}
+
+/**
  * W2.10 (K9, art-director-5, restraint council 7): when the beam swings
  * through the viewer's eye-line the lantern glass fills with the fire's light
  * and lets it go again — at most once a minute, on a fixed 1.6 s rise and
  * 2.2 s fall that the sweep rate (which carries PSI stress) never paces, and
- * never above 2.0 HDR. Revolutions in between pass without it. Reduced motion
- * has no swell at all; a clock that runs backwards (a new deep link) re-arms it.
+ * never above 2.0 HDR. Revolutions in between pass without it. K20: the
+ * lantern catching (`caught` rising through one half) starts one swell of
+ * its own, which also restarts the minute. Reduced motion has no swell at
+ * all; a clock that runs backwards (a new deep link) re-arms it.
  */
 export function createLanternSwell(): LanternSwell {
   let lastStart = Number.NEGATIVE_INFINITY;
   let lastTime = Number.NEGATIVE_INFINITY;
+  let lastCaught = Number.NaN;
+  let catchSwell = false;
   return {
-    update({ beamFacing, glow, reducedMotion, timeSeconds }) {
+    update({ beamFacing, caught, glow, reducedMotion, timeSeconds }) {
       let swell = 0;
       if (reducedMotion || timeSeconds < lastTime) lastStart = Number.NEGATIVE_INFINITY;
       if (!reducedMotion) {
-        if (
+        const caughtNow = caught ?? 1;
+        if (lastCaught < 0.5 && caughtNow >= 0.5) {
+          lastStart = timeSeconds;
+          catchSwell = true;
+        } else if (
           glow > 0.05
           && beamFacing >= LANTERN_SWELL_FACING
           && timeSeconds - lastStart >= LANTERN_SWELL_INTERVAL_SECONDS
         ) {
           lastStart = timeSeconds;
+          catchSwell = false;
         }
+        lastCaught = caughtNow;
         const age = timeSeconds - lastStart;
         swell = age < LANTERN_SWELL_RISE_SECONDS
           ? easeUnit(age / LANTERN_SWELL_RISE_SECONDS)
           : 1 - easeUnit((age - LANTERN_SWELL_RISE_SECONDS) / LANTERN_SWELL_FALL_SECONDS);
-        swell *= Math.min(1, Math.max(0, glow));
+        swell *= catchSwell ? 1 : Math.min(1, Math.max(0, glow));
       }
       lastTime = timeSeconds;
       LIGHTHOUSE_LANTERN_GLASS_UNIFORMS.uGlassSwell.value = swell;
@@ -419,11 +450,14 @@ export function collectLighthouseGlowMaterials(
  * STAIR_EMBER_GAIN of the shared aperture curve: the GLB's `#ffbe6e` at the
  * day cycle's night 1.0 is ≈ 0.59 linear (L* ≈ 80, measured), an ember is
  * ≈ 0.27 (L* ≈ 57) — far below the lantern, while the gatehouse keeps the
- * full curve.
+ * full curve. K20: each ember is kindled at its own rung of the evening
+ * order, low to high, so the embers climb the stair with the keeper.
  */
 const STAIR_EMBER_GAIN = 0.45;
+const [EMBER_LOW, EMBER_MID, EMBER_HIGH] = GARDEN_KINDLE_ORDER.stairEmbers;
 const STAIR_EMBER_VERTEX_PARS = /* glsl */ `
   varying float vStairLit;
+  varying float vStairOrder;
   float lighthouseStairLight( vec3 p ) {
     float az = atan( p.x, p.z );
     if ( p.y < 14.0 ) {
@@ -434,6 +468,9 @@ const STAIR_EMBER_VERTEX_PARS = /* glsl */ `
       return ( abs( face + 1.0 ) < 0.5 && bay > 1.1 ) ? 1.0 : 0.0;
     }
     return abs( floor( az / ( PI * 0.25 ) + 0.5 ) + 2.0 ) < 0.5 ? 1.0 : 0.0;
+  }
+  float lighthouseStairOrder( vec3 p ) {
+    return p.y < 9.5 ? ${EMBER_LOW.toFixed(3)} : p.y < 14.0 ? ${EMBER_MID.toFixed(3)} : ${EMBER_HIGH.toFixed(3)};
   }
 `;
 
@@ -447,16 +484,17 @@ export function applyLighthouseStairEmbers(material: MeshStandardMaterial): void
       .replace("#include <common>", `#include <common>\n${STAIR_EMBER_VERTEX_PARS}`)
       .replace(
         "#include <begin_vertex>",
-        "#include <begin_vertex>\n  vStairLit = lighthouseStairLight( position );",
+        "#include <begin_vertex>\n  vStairLit = lighthouseStairLight( position );\n  vStairOrder = lighthouseStairOrder( position );",
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying float vStairLit;")
+      .replace("#include <common>", "#include <common>\nvarying float vStairLit;\nvarying float vStairOrder;")
       .replace(
         "#include <emissivemap_fragment>",
-        `totalEmissiveRadiance *= vStairLit * ${STAIR_EMBER_GAIN.toFixed(2)};\n#include <emissivemap_fragment>`,
+        `totalEmissiveRadiance *= vStairLit * ${STAIR_EMBER_GAIN.toFixed(2)} * gardenKindleFactor( vStairOrder );\n#include <emissivemap_fragment>`,
       );
+    bindGardenKindleUniforms(shader);
   };
-  material.customProgramCacheKey = () => "lighthouse-stair-embers";
+  material.customProgramCacheKey = () => "lighthouse-stair-embers-kindled";
 }
 
 /**

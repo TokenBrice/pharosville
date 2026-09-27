@@ -298,11 +298,12 @@ export function gardenFleetSailRestraint(input: {
 /**
  * Distance presence is eased per instance before reaching either cue. The
  * hero band (leaders, the nearest boats and any attended ship) keeps the full
- * mark at every distance.
+ * mark at every distance; `hero` is the band's eased weight (0..1), so a ship
+ * joining or leaving it grows or loses its mark over the LOD fade.
  */
-export function gardenFleetMarkPresence(distancePresence: number, hero = false): number {
-  if (hero) return 1;
-  return 1 - (1 - MARK_MIN_PRESENCE) * MathUtils.clamp(distancePresence, 0, 1);
+export function gardenFleetMarkPresence(distancePresence: number, hero = 0): number {
+  const rankAndFile = 1 - (1 - MARK_MIN_PRESENCE) * MathUtils.clamp(distancePresence, 0, 1);
+  return rankAndFile + (1 - rankAndFile) * MathUtils.clamp(hero, 0, 1);
 }
 
 /** W4.F3: the middle ground keeps the hull and a quiet mark. */
@@ -325,22 +326,65 @@ const FLEET_HULL_LOD_HALF_HYSTERESIS = 0.25;
  * flickering: it joins inside the nearest 16 and leaves only past the 20th.
  * Everyone else past `FLEET_HULL_LOD_DISTANCE` is an ink silhouette.
  *
- * The flag rides the existing `aSailAttention.y` as `presence + 2·hero`
- * (presence is 0..1), because the sail program is at its 16-attribute cap.
+ * The band's eased weight and the LOD dissolve ride the existing
+ * `aSailAttention.y` (the sail program is at its 16-attribute cap), see
+ * `gardenFleetPackSailDistance`.
  */
 export const FLEET_HERO_BAND_NEAREST = 16;
 const FLEET_HERO_BAND_RANK_HYSTERESIS = 4;
+/**
+ * W5 polish: a ship crossing the ink ↔ full-model boundary (or joining and
+ * leaving the hero band) dissolves over this long instead of popping. While
+ * it fades it is drawn in both LODs with complementary screen-door dithers,
+ * so the two never double up or leave a hole.
+ */
+export const FLEET_LOD_FADE_SECONDS = 0.9;
+/** Steps of the packed hero weight and dissolve (5 bits each). */
+const FLEET_PACK_STEPS = 31;
 
-/** Packs the distance presence (0..1) and the hero flag into one float. */
-export function gardenFleetPackSailDistance(presence: number, hero: boolean): number {
-  return MathUtils.clamp(presence, 0, 1) + (hero ? 2 : 0);
+/**
+ * Packs the distance presence (0..1), the hero band's eased weight (0..1) and
+ * this part's dissolve (0 drawn whole … 1 gone) into one float:
+ * `presence·0.999 + heroStep + 32·hiddenStep`, both steps 0..31.
+ */
+export function gardenFleetPackSailDistance(presence: number, hero: number, hidden = 0): number {
+  const heroStep = Math.round(MathUtils.clamp(hero, 0, 1) * FLEET_PACK_STEPS);
+  const hiddenStep = Math.round(MathUtils.clamp(hidden, 0, 1) * FLEET_PACK_STEPS);
+  return MathUtils.clamp(presence, 0, 1) * 0.999 + heroStep + 32 * hiddenStep;
 }
 
-/** GLSL mirror of `gardenFleetPackSailDistance`: `step(1.5, y)` is the hero flag. */
-export function gardenFleetUnpackSailDistance(packed: number): { hero: boolean; presence: number } {
-  const hero = packed >= 1.5;
-  return { hero, presence: packed - (hero ? 2 : 0) };
+/** GLSL mirror of `gardenFleetPackSailDistance` (`FLEET_SAIL_DISTANCE_DECODE`). */
+export function gardenFleetUnpackSailDistance(packed: number): { hero: number; hidden: number; presence: number } {
+  const whole = Math.floor(packed);
+  const hiddenStep = Math.floor((whole + 0.5) / 32);
+  return {
+    hero: (whole - 32 * hiddenStep) / FLEET_PACK_STEPS,
+    hidden: hiddenStep / FLEET_PACK_STEPS,
+    presence: Math.min(1, (packed - whole) / 0.999),
+  };
 }
+
+/**
+ * The full hull carries its dissolve in `aHullSurface.x` (the value scalar,
+ * 0.85..1.15): `value + 2·hiddenStep`.
+ */
+function packHullValue(value: number, hidden: number): number {
+  return MathUtils.clamp(value, 0.85, 1.15) + 2 * Math.round(MathUtils.clamp(hidden, 0, 1) * FLEET_PACK_STEPS);
+}
+
+/**
+ * Screen-door dissolve shared by the hull, cloth and ink programs. The ink
+ * silhouette (`GARDEN_FLEET_FAR`) reads the mirrored noise, so a ship at
+ * dissolve h in the full model and 1 − h in ink covers each pixel once.
+ */
+const FLEET_LOD_DITHER = `
+  if (vFleetHidden > 0.001) {
+    float fleetDither = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    #ifdef GARDEN_FLEET_FAR
+      fleetDither = 1.0 - fleetDither;
+    #endif
+    if (fleetDither < vFleetHidden) discard;
+  }`;
 
 /**
  * Contract F-A (FleetMotion → FleetCloth): the square-sail brace and the luff
@@ -995,7 +1039,7 @@ const HULL_WABI_DEFORM = `
 const HULL_SURFACE_COLOR = `
 #ifdef USE_COLOR
   float age = max(aHullSurface.y, 0.0);
-  vColor.xyz *= aHullSurface.x * mix(1.0, 0.88, age);
+  vColor.xyz *= (aHullSurface.x - 2.0 * floor(aHullSurface.x * 0.5)) * mix(1.0, 0.88, age);
   vColor.xyz *= 1.0 + aPartMasks.w * age * 0.075;
   float fittingWear = aPartMasks.z * age * 0.18;
   float fittingLuma = dot(vColor.xyz, vec3(0.2126, 0.7152, 0.0722));
@@ -1034,6 +1078,11 @@ export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void
     shader.vertexShader = withHullForm(shader.vertexShader)
       .replace("#include <begin_vertex>", `#include <begin_vertex>\n${HULL_WABI_DEFORM}`)
       .replace("#include <begin_vertex>", `#include <begin_vertex>\n${HULL_FITTINGS_DEFORM}`)
+      // The LOD dissolve rides the value scalar's integer part: see packHullValue.
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>\nvFleetHidden = floor(aHullSurface.x * 0.5) / ${FLEET_PACK_STEPS}.0;`,
+      )
       .replace(
         "#include <common>",
         `#include <common>
@@ -1042,14 +1091,16 @@ export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void
         attribute vec4 aHullSurface;
         attribute vec4 aVariationPivot;
         attribute vec4 aPartMasks;
-        varying vec2 vHullFinish;`,
+        varying vec2 vHullFinish;
+        varying float vFleetHidden;`,
       )
       .replace("#include <color_vertex>", `#include <color_vertex>\n${STRAKE_PAINT}\n${HULL_SURFACE_COLOR}`)
       // After every deform: `transformed` has to be final before the waterline
       // band can know where on the planking it lands.
       .replace("#include <project_vertex>", `${HULL_SURFACE_GLOSS}\n#include <project_vertex>`);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying vec2 vHullFinish;")
+      .replace("#include <common>", "#include <common>\nvarying vec2 vHullFinish;\nvarying float vFleetHidden;")
+      .replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>\n${FLEET_LOD_DITHER}`)
       .replace("#include <color_fragment>", `#include <color_fragment>\n${HULL_WET_FRAGMENT}`)
       .replace(
         "#include <roughnessmap_fragment>",
@@ -1058,7 +1109,7 @@ export function patchFleetHullFormMaterial(material: MeshStandardMaterial): void
   };
   // The shader shape changed, so previously compiled fleet programs cannot be reused.
   material.customProgramCacheKey = () =>
-    "garden-fleet-hull-form-strake-trim-wabi-age-fittings-wet-collar";
+    "garden-fleet-hull-form-strake-trim-wabi-age-fittings-wet-collar-lod-dissolve";
 }
 
 /**
@@ -1141,7 +1192,8 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         varying vec3 vSailTint;
         varying float vAerialDepth;
         varying float vSailAttention;
-        varying float vSailHero;`,
+        varying float vSailHero;
+        varying float vFleetHidden;`,
       )
       .replace(
         "#include <uv_vertex>",
@@ -1158,10 +1210,12 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           vClothUv = uv;
           // The luff rides the integer part: see gardenFleetPackSailAttention.
           vSailAttention = min(1.0, fract(aSailAttention.x) / 0.99);
-          // W4.F3: presence + 2·hero, see gardenFleetPackSailDistance.
-          float sailHero = step(1.5, aSailAttention.y);
-          vSailHero = sailHero;
-          vSailDistance = aSailAttention.y - 2.0 * sailHero;
+          // W4.F3 / W5: presence, hero weight and dissolve, see gardenFleetPackSailDistance.
+          float sailWhole = floor(aSailAttention.y);
+          float sailHiddenStep = floor((sailWhole + 0.5) / 32.0);
+          vSailHero = (sailWhole - 32.0 * sailHiddenStep) / ${FLEET_PACK_STEPS}.0;
+          vFleetHidden = sailHiddenStep / ${FLEET_PACK_STEPS}.0;
+          vSailDistance = min(1.0, (aSailAttention.y - sailWhole) / 0.999);
         }`,
       );
     shader.fragmentShader = shader.fragmentShader
@@ -1182,6 +1236,7 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
         varying float vSailAttention;
         varying float vSailDistance;
         varying float vSailHero;
+        varying float vFleetHidden;
         float gClothWarp = 0.0;
         float gClothWeft = 0.0;
         float gSailMarkCover = 0.0;`,
@@ -1307,10 +1362,11 @@ export function patchSailAtlasMaterial(material: MeshStandardMaterial): void {
           outgoingLight *= min(1.0, ${FLEET_CLOTH_RADIANCE_CEILING.toFixed(1)} / max(clothPeak, 0.0001));
         }
         #include <opaque_fragment>`,
-      );
+      )
+      .replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>\n${FLEET_LOD_DITHER}`);
   };
   material.customProgramCacheKey = () =>
-    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-aerial-framing-panels-weave-shoji-hero-band-brace-belly";
+    "garden-fleet-sail-atlas-hull-form-dye-furl-emissive-aerial-framing-panels-weave-shoji-hero-band-brace-belly-lod-dissolve";
 }
 
 function createInstancedPart(
@@ -1469,6 +1525,8 @@ export function createFleetBatches(input: {
       .replace("varying vec2 vAtlasUv;", "varying vec2 vAtlasUv; varying float vFarCloth;")
       .replace("vClothUv = uv;", "vClothUv = uv; vFarCloth = aAtlasSail;");
     shader.fragmentShader = shader.fragmentShader
+      // The ink reads the mirrored screen-door noise (FLEET_LOD_DITHER).
+      .replace("#include <common>", "#define GARDEN_FLEET_FAR\n#include <common>")
       .replace("varying vec2 vAtlasUv;", "varying vec2 vAtlasUv; varying float vFarCloth;")
       .replace("vec4 sailTexel = texture2D(map, vAtlasUv);", "vec4 sailTexel = vec4(0.0);")
       .replace(
@@ -1497,7 +1555,7 @@ export function createFleetBatches(input: {
         #include <opaque_fragment>`,
       );
   };
-  farMaterial.customProgramCacheKey = () => "garden-fleet-far-ink-silhouette";
+  farMaterial.customProgramCacheKey = () => "garden-fleet-far-ink-silhouette-lod-dissolve";
   materials.push(farMaterial);
 
   const pennantMaterial = new MeshStandardMaterial({
@@ -1598,28 +1656,53 @@ interface FleetDistanceFrame {
   camera: IsoCamera;
   viewport: ScreenPoint;
   timeSeconds: number;
+  /** Reduced motion never animates a dissolve: every LOD change is a cut. */
+  reducedMotion?: boolean;
+}
+
+interface FleetDistanceShip {
+  distance: number;
+  /** The LOD the ship is heading to: the ink silhouette past the threshold. */
+  far: boolean;
+  /** In the hero band: never an ink silhouette, full mark and dye. */
+  hero: boolean;
+  /** The band's eased weight, 0..1, for the mark, dye and lamps. */
+  heroWeight: number;
+  /** The full model's eased share, 0 (all ink) … 1 (all full model). */
+  full: number;
+  /** Leader or attended this frame: in the band regardless of rank. */
+  pinned: boolean;
+  presence: number | null;
+  /** The full model's sail part and slot this frame, or null when not drawn. */
+  sails: FleetBatchPart | null;
+  sailSlot: number;
+  /** The ink part and slot this frame, or null when not drawn. */
+  ink: FleetBatchPart | null;
+  inkSlot: number;
+  seen: boolean;
 }
 
 interface FleetDistanceState {
   eye: { x: number; y: number; z: number };
   time: number;
   blend: number;
+  /** How far a dissolve moves this frame (share of the whole fade). */
+  fadeStep: number;
   distances: number[];
-  ships: Map<string, {
-    distance: number;
-    far: boolean;
-    /** In the hero band: never an ink silhouette, full mark and dye. */
-    hero: boolean;
-    /** Leader or attended this frame: in the band regardless of rank. */
-    pinned: boolean;
-    presence: number | null;
-    part: FleetBatchPart;
-    slot: number;
-    seen: boolean;
-  }>;
+  ships: Map<string, FleetDistanceShip>;
 }
 
 const fleetDistanceStates = new WeakMap<FleetBatches, FleetDistanceState>();
+
+/** Linear move of `value` toward `target` by at most `step`. */
+function approach(value: number, target: number, step: number): number {
+  return value < target ? Math.min(target, value + step) : Math.max(target, value - step);
+}
+
+/** The dissolve reads eased, so it leaves and lands softly. */
+function fleetFadeEase(value: number): number {
+  return value * value * (3 - 2 * value);
+}
 
 /**
  * Resets every batch's live count. Call once per frame before writing poses;
@@ -1631,14 +1714,17 @@ export function beginFleetFrame(batches: FleetBatches, frame?: FleetDistanceFram
     const eye = cameraView(frame.camera, frame.viewport).eye;
     const previous = fleetDistanceStates.get(batches);
     if (previous) {
+      const elapsed = Math.max(0, frame.timeSeconds - previous.time);
       previous.eye = eye;
-      previous.blend = 1 - Math.exp(-Math.max(0, frame.timeSeconds - previous.time) / DISTANCE_HYSTERESIS_SECONDS);
+      previous.blend = 1 - Math.exp(-elapsed / DISTANCE_HYSTERESIS_SECONDS);
+      // A still clock (reduced motion's static frames) cuts rather than fading.
+      previous.fadeStep = frame.reducedMotion || elapsed <= 0 ? 1 : elapsed / FLEET_LOD_FADE_SECONDS;
       previous.time = frame.timeSeconds;
       previous.distances.length = 0;
       for (const ship of previous.ships.values()) ship.seen = false;
     } else {
       fleetDistanceStates.set(batches, {
-        eye, time: frame.timeSeconds, blend: 1, distances: [], ships: new Map(),
+        eye, time: frame.timeSeconds, blend: 1, fadeStep: 1, distances: [], ships: new Map(),
       });
     }
   } else {
@@ -1653,8 +1739,9 @@ export function beginFleetFrame(batches: FleetBatches, frame?: FleetDistanceFram
 }
 
 /**
- * Writes one ship's pose into its chosen LOD. Pose math is allocation-free;
- * a distance record is allocated only when a ship first enters the fleet.
+ * Writes one ship's pose into its LOD — both LODs while it dissolves between
+ * them. Pose math is allocation-free; a distance record is allocated only
+ * when a ship first enters the fleet.
  */
 export function writeFleetInstance(
   batches: FleetBatches,
@@ -1662,7 +1749,6 @@ export function writeFleetInstance(
 ): void {
   const batch = batches.bySilhouette.get(pose.silhouette);
   if (!batch) return;
-  if (batch.hull.mesh.count + batch.far.mesh.count >= batches.capacity) return;
   const distanceState = fleetDistanceStates.get(batches);
   // W3.7: the pose may name attention outright (tests, and any future caller
   // that already holds the ship's hover/selection state); otherwise it is
@@ -1672,35 +1758,37 @@ export function writeFleetInstance(
   // selecting a far silhouette brings back its rig); rank joins at frame end.
   const pinned = pose.leader === true || attention > 0;
   let hero = pinned;
-  let far = false;
-  let distance = 0;
+  let far: boolean;
+  let distance: number;
+  let full = 1;
+  let ship: FleetDistanceShip | undefined;
   if (distanceState) {
     const eye = distanceState.eye;
     distance = Math.hypot(pose.x - eye.x, pose.y - eye.y, pose.z - eye.z);
-    const previous = distanceState.ships.get(pose.shipId);
-    hero ||= previous?.hero ?? false;
-    const threshold = FLEET_HULL_LOD_DISTANCE + (previous
-      ? previous.far ? -FLEET_HULL_LOD_HALF_HYSTERESIS : FLEET_HULL_LOD_HALF_HYSTERESIS
+    ship = distanceState.ships.get(pose.shipId);
+    hero ||= ship?.hero ?? false;
+    const threshold = FLEET_HULL_LOD_DISTANCE + (ship
+      ? ship.far ? -FLEET_HULL_LOD_HALF_HYSTERESIS : FLEET_HULL_LOD_HALF_HYSTERESIS
       : 0);
     far = !hero && distance > threshold;
-  }
-  const hull = far ? batch.far : batch.hull;
-  const sails = far ? batch.far : batch.sails;
-  const slot = hull.mesh.count;
-  if (distanceState) {
-    let ship = distanceState.ships.get(pose.shipId);
+    // A ship new to the fleet starts in its LOD; a known one dissolves toward it.
+    full = ship ? approach(ship.full, far ? 0 : 1, distanceState.fadeStep) : (far ? 0 : 1);
     if (!ship) {
-      ship = { distance, far, hero, pinned, presence: null, part: sails, slot, seen: true };
+      ship = {
+        distance, far, full, hero, heroWeight: hero ? 1 : 0, pinned, presence: null,
+        ink: null, inkSlot: -1, sails: null, sailSlot: -1, seen: true,
+      };
       distanceState.ships.set(pose.shipId, ship);
     } else {
       ship.distance = distance;
       ship.far = far;
+      ship.full = full;
       ship.hero = hero;
       ship.pinned = pinned;
-      ship.part = sails;
-      ship.slot = slot;
       ship.seen = true;
     }
+    ship.ink = null;
+    ship.sails = null;
     // A thinned-out hull (scale 0) is not on screen: it neither sets the
     // distance thirds nor takes a hero-band rank from a visible boat.
     if (pose.scale > 0) distanceState.distances.push(distance);
@@ -1715,9 +1803,44 @@ export function writeFleetInstance(
   scratchScale.setScalar(pose.scale);
   scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
 
+  // The full model and the ink take complementary shares of the dissolve.
+  const shown = fleetFadeEase(full);
+  if (full > 0 && batch.hull.mesh.count < batches.capacity) {
+    const slot = writeFleetLod(batch.hull, batch.sails, pose, attention, 1 - shown, false);
+    if (ship) {
+      ship.sails = batch.sails;
+      ship.sailSlot = slot;
+    } else {
+      batch.sails.sailAttention!.setY(slot, gardenFleetPackSailDistance(0, hero ? 1 : 0));
+    }
+    // The pennant is a sliver: it goes with the full model's larger share.
+    if (full >= 0.5) writeFleetPennant(batches, pose);
+  }
+  if (full < 1 && batch.far.mesh.count < batches.capacity) {
+    const slot = writeFleetLod(batch.far, batch.far, pose, attention, shown, true);
+    if (ship) {
+      ship.ink = batch.far;
+      ship.inkSlot = slot;
+    }
+  }
+}
+
+/**
+ * Writes the pose into one LOD (`hull`/`sails` are the same part for the
+ * ink silhouette) at `hidden` dissolve; returns the slot.
+ */
+function writeFleetLod(
+  hull: FleetBatchPart,
+  sails: FleetBatchPart,
+  pose: FleetInstancePose,
+  attention: number,
+  hidden: number,
+  ink: boolean,
+): number {
+  const slot = hull.mesh.count;
   hull.mesh.setMatrixAt(slot, scratchMatrix);
   // The far silhouette is ink: it carries no livery.
-  if (!far) hull.mesh.setColorAt(slot, pose.hullColor);
+  if (!ink) hull.mesh.setColorAt(slot, pose.hullColor);
   hull.mesh.count = slot + 1;
   if (hull.trim) {
     hull.trim.setXYZ(slot, pose.trimColor.r, pose.trimColor.g, pose.trimColor.b);
@@ -1733,8 +1856,9 @@ export function writeFleetInstance(
     hull.hullSurface.setXYZW(
       slot,
       // 2026-09-07 T1.10: 0.9-1.1 -> 0.85-1.15, to pass the widened decorative
-      // value spread `deriveShipWabiSurface` now produces (+-6-15%).
-      MathUtils.clamp(surface.hullValue ?? 1, 0.85, 1.15),
+      // value spread `deriveShipWabiSurface` now produces (+-6-15%). The LOD
+      // dissolve rides its integer part (`packHullValue`).
+      packHullValue(surface.hullValue ?? 1, hidden),
       surface.agePatina == null ? -1 : MathUtils.clamp(surface.agePatina, -1, 1),
       MathUtils.clamp(surface.propRotation ?? 0, -Math.PI / 18, Math.PI / 18),
       Math.max(0, Math.floor(surface.fittingCode ?? 0))
@@ -1746,7 +1870,7 @@ export function writeFleetInstance(
   const { beam, height, length } = pose.hullForm;
   const waterline = pose.hullForm.waterline ?? 0;
   hull.hullForm.setXYZW(slot, length, beam, height, waterline);
-  if (!far) {
+  if (sails !== hull) {
     sails.hullForm.setXYZW(slot, length, beam, height, waterline);
     sails.mesh.setMatrixAt(slot, scratchMatrix);
     sails.mesh.count = slot + 1;
@@ -1766,47 +1890,48 @@ export function writeFleetInstance(
       slot,
       gardenFleetPackSailAttention(attention, pose.sailLuff ?? FLEET_SAIL_REST_LUFF),
     );
-    // Without a distance frame there is no presence ramp; endFleetFrame
-    // rewrites this with the eased presence when there is.
-    if (!distanceState) sails.sailAttention.setY(slot, gardenFleetPackSailDistance(0, hero));
+    // endFleetFrame writes y with the eased presence, hero weight and dissolve.
+    sails.sailAttention.setY(slot, gardenFleetPackSailDistance(0, 0, hidden));
   }
+  return slot;
+}
 
-  if (far) return;
+function writeFleetPennant(batches: FleetBatches, pose: FleetInstancePose): void {
   const pennantSlot = batches.pennant.mesh.count;
-  if (pennantSlot < batches.capacity) {
-    scratchPennantMatrix
-      // The pennant is placed on the CPU, so it does not see the shader's trim
-      // and has to be told: without this a trimmed hull leaves its own pennant
-      // hanging where the masthead used to be.
-      .makeTranslation(pose.mastheadOffset.x, pose.mastheadOffset.y + waterline, 0.02);
-    const surface = pose.hullForm as FleetInstancePose["hullForm"] & { propRotation?: number };
-    const propRotation = surface.propRotation ?? 0;
-    if (pennantWind.active || propRotation !== 0) {
-      // Phase 2: the pennant streams downwind. The cloth runs along ship-local
-      // +X, so the local yaw that points it at the wind bearing is
-      // -heading - windAngle (heading here is the ship's own rotation.y), plus
-      // a flutter wobble that stiffens with the gust envelope. Frozen into a
-      // deterministic pose under reduced motion (timeSeconds pinned at 0).
-      const localGust = gardenGustAtWorldPosition(
-        pennantWind.time,
-        pose.x,
-        pose.z,
-        {
-          wind: { x: pennantWind.dirX, y: pennantWind.dirZ, speed: pennantWind.speed, gust: pennantWind.gust },
-        },
-      );
-      const yaw = propRotation + (pennantWind.active ? -pose.headingAngle - pennantWind.angle
-        + Math.sin(
-          pennantWind.time * (1.2 + pennantWind.speed * 1.6) + pose.x * 0.37 + pose.z * 0.21,
-        ) * (0.08 + pennantWind.speed * 0.22 + localGust * 0.18)
-          * (0.92 + pennantWind.breath * 0.16) : 0);
-      scratchPennantMatrix.multiply(scratchWindRotation.makeRotationY(yaw));
-    }
-    scratchPennantMatrix.premultiply(scratchMatrix);
-    batches.pennant.mesh.setMatrixAt(pennantSlot, scratchPennantMatrix);
-    batches.pennant.mesh.setColorAt(pennantSlot, pose.pennantColor);
-    batches.pennant.mesh.count = pennantSlot + 1;
+  if (pennantSlot >= batches.capacity) return;
+  const waterline = pose.hullForm.waterline ?? 0;
+  scratchPennantMatrix
+    // The pennant is placed on the CPU, so it does not see the shader's trim
+    // and has to be told: without this a trimmed hull leaves its own pennant
+    // hanging where the masthead used to be.
+    .makeTranslation(pose.mastheadOffset.x, pose.mastheadOffset.y + waterline, 0.02);
+  const surface = pose.hullForm as FleetInstancePose["hullForm"] & { propRotation?: number };
+  const propRotation = surface.propRotation ?? 0;
+  if (pennantWind.active || propRotation !== 0) {
+    // Phase 2: the pennant streams downwind. The cloth runs along ship-local
+    // +X, so the local yaw that points it at the wind bearing is
+    // -heading - windAngle (heading here is the ship's own rotation.y), plus
+    // a flutter wobble that stiffens with the gust envelope. Frozen into a
+    // deterministic pose under reduced motion (timeSeconds pinned at 0).
+    const localGust = gardenGustAtWorldPosition(
+      pennantWind.time,
+      pose.x,
+      pose.z,
+      {
+        wind: { x: pennantWind.dirX, y: pennantWind.dirZ, speed: pennantWind.speed, gust: pennantWind.gust },
+      },
+    );
+    const yaw = propRotation + (pennantWind.active ? -pose.headingAngle - pennantWind.angle
+      + Math.sin(
+        pennantWind.time * (1.2 + pennantWind.speed * 1.6) + pose.x * 0.37 + pose.z * 0.21,
+      ) * (0.08 + pennantWind.speed * 0.22 + localGust * 0.18)
+        * (0.92 + pennantWind.breath * 0.16) : 0);
+    scratchPennantMatrix.multiply(scratchWindRotation.makeRotationY(yaw));
   }
+  scratchPennantMatrix.premultiply(scratchMatrix);
+  batches.pennant.mesh.setMatrixAt(pennantSlot, scratchPennantMatrix);
+  batches.pennant.mesh.setColorAt(pennantSlot, pose.pennantColor);
+  batches.pennant.mesh.count = pennantSlot + 1;
 }
 
 /** Flushes every buffer touched this frame. One upload per buffer, not per ship. */
@@ -1829,10 +1954,21 @@ export function endFleetFrame(batches: FleetBatches): void {
         continue;
       }
       ship.hero = ship.pinned || ship.distance <= (ship.hero ? heroLeave : heroJoin);
+      // The attended ship's mark comes back at once; the rank band eases.
+      ship.heroWeight = ship.pinned ? 1 : approach(ship.heroWeight, ship.hero ? 1 : 0, distanceState.fadeStep);
       const target = far > near ? MathUtils.clamp((ship.distance - near) / (far - near), 0, 1) : 0;
       const previous = ship.presence ?? target;
       ship.presence = previous + (target - previous) * distanceState.blend;
-      ship.part.sailAttention!.setY(ship.slot, gardenFleetPackSailDistance(ship.presence, ship.hero));
+      const shown = fleetFadeEase(ship.full);
+      if (ship.sails) {
+        ship.sails.sailAttention!.setY(
+          ship.sailSlot,
+          gardenFleetPackSailDistance(ship.presence, fleetFadeEase(ship.heroWeight), 1 - shown),
+        );
+      }
+      if (ship.ink) {
+        ship.ink.sailAttention!.setY(ship.inkSlot, gardenFleetPackSailDistance(ship.presence, 0, shown));
+      }
     }
   }
   for (const batch of batches.bySilhouette.values()) {
@@ -1844,13 +1980,15 @@ export function endFleetFrame(batches: FleetBatches): void {
 }
 
 /**
- * W4.F3: whether a ship is in the hero band, for the lights that follow it
- * (at night the far fleet is embers: only heroes keep their stern lanterns).
+ * W4.F3: the hero band's eased weight (0..1) for the lights that follow it —
+ * at night the far fleet is embers, only heroes keep their stern lanterns,
+ * and a ship joining or leaving the band kindles or dims over the LOD fade.
  * A ship the batch does not rank — a GLB hero hull, a transient, or any ship
  * when no distance frame is running — counts as a hero.
  */
-export function gardenFleetShipIsHero(batches: FleetBatches, shipId: string): boolean {
-  return fleetDistanceStates.get(batches)?.ships.get(shipId)?.hero ?? true;
+export function gardenFleetShipHeroWeight(batches: FleetBatches, shipId: string): number {
+  const ship = fleetDistanceStates.get(batches)?.ships.get(shipId);
+  return ship ? fleetFadeEase(ship.heroWeight) : 1;
 }
 
 function flushPart(part: FleetBatchPart): void {

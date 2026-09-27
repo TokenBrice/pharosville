@@ -1,67 +1,65 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  gardenAlmanacEventAt,
-  gardenAlmanacLogEntry,
-  requestGardenAlmanac,
-  type GardenAlmanacEvent,
+  gardenAlmanacDay,
+  gardenRitualLedgerEntry,
+  type GardenAlmanacDay,
   type GardenAlmanacLogEntry,
 } from "../systems/garden-almanac";
-import { type GardenBeat, type GardenDirectorState } from "../systems/garden-director";
+import type { GardenDirectorState, GardenRitualKind } from "../systems/garden-director";
+import { gardenDayScore, setGardenDayScore, subscribeGardenRituals, type GardenScoreEntry } from "../systems/garden-score";
+import { gardenSkyToday } from "../systems/sky-almanac";
+import type { GardenSoundBeat } from "../lib/pharosville-audio/pharosville-audio";
+import { playGardenSoundBeat } from "./use-garden-sound";
 
-/** Occurrence, visible envelope, evidence and attention have independent lifetimes. */
+/** W7.3: the beat a ritual start sounds (crossings sound from fleet-motion's own handler). */
+const RITUAL_SOUND: Partial<Record<GardenRitualKind, GardenSoundBeat>> = {
+  "heron-arrives": "heron-wings",
+  "heron-departs": "heron-wings",
+  kindling: "kindling-tock",
+  meteor: "meteor-silence",
+};
+
+/**
+ * The day score's DOM side (W5.1): sets the day's score for the renderer's
+ * driver, writes one ledger line per ritual start (with its local time), sounds
+ * it (W7.3, silent unless Sound is on) and gives the Almanac section its kō
+ * and moon. A ritual that passed while the tab was hidden is not replayed:
+ * the driver only starts what the clock admits now.
+ */
 export function useGardenAlmanac(input: {
   date: Date;
   director: GardenDirectorState;
-  timeSeconds: number;
-  reducedMotion: boolean;
+  utcDayKey: string;
   wallClockHour: number;
-}) {
-  const dayKey = input.date.toISOString().slice(0, 10);
-  const candidate = useMemo(() => gardenAlmanacEventAt(
-    new Date(`${dayKey}T00:00:00Z`), input.wallClockHour, input.reducedMotion,
-  ), [dayKey, input.reducedMotion, input.wallClockHour]);
-  const attemptedRef = useRef<string | null>(null);
-  const resumedRef = useRef(false);
-  const [sighting, setSighting] = useState<{ event: GardenAlmanacEvent; beat: GardenBeat } | null>(null);
+}): {
+  entries: GardenAlmanacLogEntry[];
+  attentionActive: boolean;
+  almanac: GardenAlmanacDay;
+  score: readonly GardenScoreEntry[];
+} {
+  const { date, utcDayKey } = input;
+  const score = useMemo(() => gardenDayScore({ seed: utcDayKey, date }), [utcDayKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const [entries, setEntries] = useState<GardenAlmanacLogEntry[]>([]);
 
   useEffect(() => {
-    const visibilityChanged = () => {
-      // A sighting whose occurrence passed while hidden is not replayed on resume.
-      resumedRef.current = true;
-    };
-    document.addEventListener("visibilitychange", visibilityChanged);
-    return () => document.removeEventListener("visibilitychange", visibilityChanged);
-  }, []);
+    setGardenDayScore(score);
+  }, [score]);
 
-  useEffect(() => {
-    if (document.visibilityState === "hidden") return;
-    const resumed = resumedRef.current;
-    resumedRef.current = false;
-    if (!candidate || input.reducedMotion) return;
-    const entry = gardenAlmanacLogEntry(candidate);
-    if (attemptedRef.current === entry.id) return;
-    attemptedRef.current = entry.id;
-    if (resumed) return;
-    const beat = requestGardenAlmanac(input.director, candidate, input.timeSeconds);
-    if (!beat) return;
-    // The director request is the external side effect; recording its
-    // accepted beat once per candidate is not a render-derived cascade.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSighting({ event: candidate, beat });
+  useEffect(() => subscribeGardenRituals((event) => {
+    const sound = RITUAL_SOUND[event.kind];
+    if (sound) playGardenSoundBeat(sound);
+    const entry = gardenRitualLedgerEntry(event, utcDayKey);
     setEntries((current) => [entry, ...current].slice(0, 64));
-  }, [candidate, input.director, input.reducedMotion, input.timeSeconds]);
+  }), [utcDayKey]);
 
-  const age = sighting ? input.timeSeconds - sighting.beat.startSeconds : Infinity;
-  const interrupted = !!sighting && input.director.log.some((beat) => beat.kind === "market"
-    && beat.priority >= 100 && beat.startSeconds >= sighting.beat.startSeconds && beat.id !== sighting.beat.id);
-  const visible = !input.reducedMotion && !interrupted && sighting && age >= 0;
-  const activeEvent = visible && age < sighting.event.envelopeSeconds ? sighting.event : null;
-  const evidenceEvent = visible && age < sighting.event.envelopeSeconds + sighting.event.evidenceSeconds
-    ? sighting.event : null;
-  const attentionActive = !!visible && sighting.beat.foreground
-    && input.director.active?.id === sighting.beat.id && age < sighting.beat.durationSeconds;
-  return { activeEvent, evidenceEvent, attentionActive, entries };
+  const hourMinute = Math.floor(input.wallClockHour * 60);
+  const almanac = useMemo(
+    () => gardenAlmanacDay(date, hourMinute / 60, gardenSkyToday()),
+    [utcDayKey, hourMinute], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const active = input.director.active;
+  const attentionActive = active !== null && active.kind === "ritual" && active.foreground;
+  return { entries, attentionActive, almanac, score };
 }

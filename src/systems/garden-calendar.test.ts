@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   gardenMicroseason,
   gardenPetalDrift,
+  gardenSeasonalVisitor,
   gardenSnowCover,
   seasonalPhenology,
   solarEclipticLongitudeDeg,
@@ -69,5 +70,14 @@ describe("garden calendar", () => {
     }
     expect(snowDays).toBeGreaterThan(0);
     expect(snowDays / 3).toBeLessThan(20);
+  });
+
+  it("gates one seasonal visitor by kō, and none most of the year (K24)", () => {
+    expect(gardenSeasonalVisitor(day("2026-09-26"), NORTH)).toBeNull();
+    expect(gardenSeasonalVisitor(day("2026-04-05"), NORTH)).toBeNull();
+    expect(gardenSeasonalVisitor(day("2026-06-12"), NORTH)?.id).toBe("fireflies");
+    expect(gardenSeasonalVisitor(day("2026-11-15"), NORTH)?.id).toBe("leaf-fall");
+    // South of the equator the garden year is half a turn apart.
+    expect(gardenSeasonalVisitor(day("2026-05-15"), SOUTH)?.id).toBe("leaf-fall");
   });
 });

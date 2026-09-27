@@ -42,7 +42,7 @@ import {
 } from "../systems/detail-model";
 import { recentFleetTrendSummary, recentFleetTrendSummaryText, seaStateForWorld, seaStateSummary } from "../systems/sea-state";
 import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
-import type { GardenAlmanacLogEntry } from "../systems/garden-almanac";
+import type { GardenAlmanacDay, GardenAlmanacLogEntry } from "../systems/garden-almanac";
 import type { HarborLogEntry } from "../hooks/use-harbor-log";
 import { pigeonnierRoostLabel } from "../systems/pigeonnier-watch";
 import { deriveEpistemicHaze, epistemicHazeLabel } from "../systems/epistemic-haze";
@@ -117,6 +117,8 @@ export const ACCESSIBILITY_LEDGER_HEADING_ID = "pharosville-accessibility-ledger
 
 export interface AccessibilityLedgerProps {
   almanacEntries?: readonly GardenAlmanacLogEntry[];
+  /** W5.6: the day's kō, its sekki and the moon, for the Almanac row (K18: names live here only). */
+  almanac?: GardenAlmanacDay;
   world: PharosVilleWorld;
   headingId?: string;
   riskTransitionByShipId?: ReadonlyMap<string, ShipRiskTransitionEntry | null>;
@@ -139,6 +141,7 @@ export interface AccessibilityLedgerProps {
 
 function AccessibilityLedgerContent({
   almanacEntries = [],
+  almanac,
   world,
   headingId = ACCESSIBILITY_LEDGER_HEADING_ID,
   riskTransitionByShipId,
@@ -216,9 +219,16 @@ function AccessibilityLedgerContent({
           <dt>Far shore</dt>
           <dd>{farShoreLabel(world.lighthouse.psiBand, world.lighthouse.unavailable)}</dd>
         </div>
+        {almanac && <div>
+          <dt>Almanac</dt>
+          <dd>
+            {almanac.microseason} — in {almanac.sekki}, one of the 72 traditional five-day divisions of the solar year.
+            {almanac.moon ? ` Tonight: ${almanac.moon}.` : ""}
+          </dd>
+        </div>}
         <div>
           <dt>Rare ambient events</dt>
-          <dd>One shared daily sighting at most; decorative, never alerted, and absent in still or reduced-motion mode.</dd>
+          <dd>A small daily score of rituals — a heron arriving and leaving, the lamps kindled at sunset, the moonrise, a meteor on dark-moon nights, one seasonal visitor — at most six a day and at least eight minutes apart; decorative, never alerted, and absent in still or reduced-motion mode.</dd>
         </div>
         <div>
           <dt>Lighthouse</dt>

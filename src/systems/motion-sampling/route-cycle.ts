@@ -100,6 +100,47 @@ export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number
     // W1.6: a crossing-token voyage sails straight through the empty inlet.
     const crossing = route.inletCrossings?.find((entry) => entry.cycleIndex === cycleIndex && entry.dockId === nextStop.dockId);
     const homecomingPath = crossing?.path ?? runtime.riskToStopPathByDockId.get(nextStop.dockId);
+    // W5.5: a crossing may start before the route's own homecoming (the
+    // director's forced `crossing` ritual); it then lies at its berth until
+    // the route catches up. A scheduled token starts exactly at the
+    // homecoming, so this reproduces the ordinary arrival.
+    const homecomingRemaining = riskSecondsEach + transitSecondsEach - cursor;
+    if (crossing && homecomingRemaining > 0 && timeSeconds >= crossing.startSeconds) {
+      const crossingSeconds = Math.max(1, crossing.endSeconds - crossing.startSeconds);
+      const secondsInto = timeSeconds - crossing.startSeconds;
+      if (secondsInto < crossingSeconds) {
+        const progress = secondsInto / crossingSeconds;
+        transitSampleInto({
+          route,
+          path: crossing.path,
+          progress,
+          transitSeconds: crossingSeconds,
+          state: "arriving",
+          sampleState: progress >= 1 - MOTION_TRANSITION_SHARE ? "arriving" : "sailing",
+          routeStop: nextStop,
+          seaState,
+          fromMooringStop: null,
+          toMooringStop: nextStop,
+          timeSeconds,
+          runtime,
+        }, out);
+        writeRouteSegment(out, "arrival-transit", secondsInto, crossingSeconds);
+        return;
+      }
+      const berthedSeconds = secondsInto - crossingSeconds;
+      mooredSampleInto({
+        route,
+        stop: nextStop,
+        dwellProgress: 0,
+        secondsRemaining: homecomingRemaining + dockSecondsEach,
+        outgoingPath: runtime.stopToRiskPathByDockId.get(nextStop.dockId),
+        seaState,
+        timeSeconds,
+        runtime,
+      }, out);
+      writeRouteSegment(out, "dock-dwell", berthedSeconds, berthedSeconds + homecomingRemaining + dockSecondsEach);
+      return;
+    }
     if (cursor < riskSecondsEach) {
       riskWaterSampleInto(
         route,

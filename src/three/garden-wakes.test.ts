@@ -235,6 +235,41 @@ describe("garden wakes passes", () => {
     fresh.dispose();
   });
 
+  it("draws reduced-motion hull contact statically, redrawing only when a footprint moves", () => {
+    // Whether the feedback (decay) quad was drawn in each offscreen render.
+    const feedbackDrawn: boolean[] = [];
+    const renderer = rendererStub((scene) => feedbackDrawn.push(scene.children.some(
+      (child) => child instanceof Mesh && !(child instanceof InstancedMesh) && child.visible,
+    )));
+    const wakes = createGardenWakes(renderer as never);
+    const frameWithContact = (x = 47.6) => {
+      advance(wakes, 1, { reducedMotion: true });
+      wakes.stampContact(x, 38.9, 1, 0, 3, 1, 1);
+      wakes.renderStaticContact();
+    };
+    frameWithContact();
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+    // Stamps only: the feedback quad (decay) never runs under reduced motion.
+    expect(feedbackDrawn).toEqual([false]);
+    expect(wakes.stampCount).toBe(0);
+    // A still fleet: the field already holds this footprint, so nothing runs.
+    renderer.clear.mockClear();
+    frameWithContact();
+    expect(renderer.clear).toHaveBeenCalledTimes(0);
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+    expect(wakes.stampCount).toBe(0);
+    // A moved hull: cleared once and redrawn.
+    frameWithContact(49);
+    expect(renderer.clear).toHaveBeenCalledTimes(2);
+    expect(renderer.render).toHaveBeenCalledTimes(2);
+    // Outside reduced motion the static path does nothing.
+    advance(wakes, 1);
+    wakes.stampContact(47.6, 38.9, 1, 0, 3, 1, 1);
+    wakes.renderStaticContact();
+    expect(renderer.render).toHaveBeenCalledTimes(2);
+    wakes.dispose();
+  });
+
   it("retains the target through the tier fade, then clears once while invisible", () => {
     const renderer = rendererStub();
     const wakes = createGardenWakes(renderer as never);

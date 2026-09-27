@@ -71,7 +71,7 @@ import type { ShipMotionSample } from "../systems/motion";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { seaStateForWorld } from "../systems/sea-state";
 import { stableUnit } from "../systems/stable-random";
-import { gardenAlmanacEventForDate } from "../systems/garden-almanac";
+import { forceGardenRitual } from "../systems/garden-score";
 import { type DayCyclePhase } from "./garden-day-cycle";
 import { GARDEN_SKY_BEATS } from "./garden-sky";
 import {
@@ -613,27 +613,24 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
 
-  it("renders only the frame-selected almanac event and holds its reduced-motion tableau", () => {
+  it("draws the scored meteor only while its ritual runs", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
     });
-    const event = gardenAlmanacEventForDate(new Date("2026-08-13T00:00:00Z"));
-    renderer.render({ ...rendererFrame(world, "full", { timeSeconds: 0 }), almanacEvent: event });
-    renderer.render({ ...rendererFrame(world, "full", { timeSeconds: 9 }), almanacEvent: event });
+    renderer.render({ ...rendererFrame(world, "full", { timeSeconds: 0 }), epochSeconds: 1_000 });
     const scene = rendererHarness.instances.at(-1)!.lastScene!;
-    expect(scene.getObjectByName(`garden-almanac-${event.id}`)!.visible).toBe(true);
-    for (const id of ["heron-dusk", "deep-night-meteor"]) {
-      if (id !== event.id) expect(scene.getObjectByName(`garden-almanac-${id}`)!.visible).toBe(false);
-    }
-
-    renderer.render({
-      ...rendererFrame(world, "full", { reducedMotion: true }),
-      almanacEvent: event,
-    });
-    expect(scene.getObjectByName(`garden-almanac-${event.id}`)!.visible).toBe(true);
+    expect(scene.getObjectByName("garden-almanac-meteor")!.visible).toBe(false);
+    expect(forceGardenRitual("meteor", 1_000)).toBe(true);
+    renderer.render({ ...rendererFrame(world, "full", { timeSeconds: 0.3 }), epochSeconds: 1_000.3 });
+    expect(scene.getObjectByName("garden-almanac-meteor")!.visible).toBe(true);
+    // Reduced motion: no ritual runs and the sky holds no streak.
+    renderer.render({ ...rendererFrame(world, "full", { reducedMotion: true }), epochSeconds: 1_000.4 });
+    expect(scene.getObjectByName("garden-almanac-meteor")!.visible).toBe(false);
     renderer.dispose();
+    // A disposed renderer leaves no handler behind.
+    expect(forceGardenRitual("meteor", 1_001)).toBe(false);
   });
 
   it("selects seasonal dressing once from the injected calendar date", () => {
@@ -763,17 +760,22 @@ describe("Three world renderer lifecycle", () => {
     // frame draws one reflection and one scene, while the stale update only
     // redraws the scene. The unchanged water and quay uniforms above are the
     // observable staleness routes; they do not require synthetic extra draws.
-    expect(freshRenderCalls.filter(([, renderCamera]) => (
-      (renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    // Offscreen field passes (the static hull contact, an orthographic
+    // camera) are not scene renders.
+    const perspective = (calls: unknown[][]) => calls
+      .map(([, renderCamera]) => renderCamera as PerspectiveCamera)
+      .filter((renderCamera) => renderCamera.isPerspectiveCamera === true);
+    expect(perspective(freshRenderCalls).filter((renderCamera) => (
+      renderCamera.layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
     ))).toHaveLength(1);
-    expect(freshRenderCalls.filter(([, renderCamera]) => (
-      !(renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    expect(perspective(freshRenderCalls).filter((renderCamera) => (
+      !renderCamera.layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
     ))).toHaveLength(1);
-    expect(staleRenderCalls.filter(([, renderCamera]) => (
-      (renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    expect(perspective(staleRenderCalls).filter((renderCamera) => (
+      renderCamera.layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
     ))).toHaveLength(0);
-    expect(staleRenderCalls.filter(([, renderCamera]) => (
-      !(renderCamera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    expect(perspective(staleRenderCalls).filter((renderCamera) => (
+      !renderCamera.layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
     ))).toHaveLength(1);
     renderer.dispose();
   });

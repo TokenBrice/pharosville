@@ -50,6 +50,9 @@ const MAST_HEIGHT = 7.2;
 /** Yard (crosstree) height; the hoist and the cone hang from its two arms. */
 const YARD_Y = 5.5;
 const YARD_HALF_SPAN = 1.2;
+/** Struck: the yard lowered on the halyard and raked almost up and down the pole. */
+const YARD_STRUCK_Y = 4.4;
+const YARD_STRUCK_RAKE = 1.32;
 
 /**
  * Cloth size. The silhouette law says a feature under ~0.7 units of clearance
@@ -193,6 +196,12 @@ export function createGardenSignalMast(): GardenSignalMast {
         pennant.pivot.visible = index < flying;
       }
       stormCone.visible = state.stormCone;
+      // W5 (costume audit item 1): with nothing to fly, the yard is struck —
+      // cockbilled down along the pole — so the bare hoist never reads as a
+      // cross beside the chaseki. It is swayed back up the moment a signal flies.
+      const struck = flying === 0 && !state.stormCone;
+      yard.rotation.z = struck ? YARD_STRUCK_RAKE : 0;
+      yard.position.y = struck ? YARD_STRUCK_Y : YARD_Y;
     },
     update({ reducedMotion, timeSeconds, visible }) {
       root.visible = visible;

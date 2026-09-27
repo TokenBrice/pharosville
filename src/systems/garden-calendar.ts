@@ -271,3 +271,34 @@ export function gardenSnowCover(
   if (fallLongitude < SNOW_WINDOW_DEG[0] || fallLongitude > SNOW_WINDOW_DEG[1]) return 0;
   return into === lies - 1 ? 0.5 : 1;
 }
+
+// --- Event gates (K24, W5.6) ------------------------------------------------------
+
+export type GardenSeasonalVisitorId = "fireflies" | "leaf-fall";
+
+/**
+ * Which visitor the kō admit (0-based kō index, inclusive ranges). Names stay
+ * in the Almanac section and the ledger (K18); the visitor itself is a scored
+ * ritual (garden-score.ts), so it obeys the §5.0 budget like any other gift.
+ * - fireflies: the early-summer kō, "Praying mantises hatch" … "Irises bloom".
+ * - leaf fall: "Light rains sometimes fall" … "North wind blows the leaves".
+ */
+const SEASONAL_VISITOR_GATES: readonly { id: GardenSeasonalVisitorId; from: number; to: number }[] = [
+  { id: "fireflies", from: 24, to: 28 },
+  { id: "leaf-fall", from: 52, to: 58 },
+];
+
+export interface GardenSeasonalVisitor {
+  id: GardenSeasonalVisitorId;
+  microseason: GardenMicroseason;
+}
+
+/** The one seasonal visitor the day's kō admit, or null (most of the year). */
+export function gardenSeasonalVisitor(
+  date: Date,
+  latitude: GardenSkyLatitude = gardenSkyLatitude(),
+): GardenSeasonalVisitor | null {
+  const microseason = gardenMicroseason(date, latitude);
+  const gate = SEASONAL_VISITOR_GATES.find((entry) => microseason.index >= entry.from && microseason.index <= entry.to);
+  return gate ? { id: gate.id, microseason } : null;
+}

@@ -31,7 +31,6 @@ describe("buildVisualCueRegistry", () => {
     expect(DECORATIVE_VISUAL_NOTES.sharedGardenWind).toContain("carry no meaning");
     expect(DECORATIVE_VISUAL_NOTES.sharedGardenWind).toContain("no new oscillator");
     expect(DECORATIVE_VISUAL_NOTES.seasonalLandmarks).toContain("carry no meaning");
-    expect(DECORATIVE_VISUAL_NOTES.seasonalLandmarks).toContain("displace");
     expect(DECORATIVE_VISUAL_NOTES.landRim).toContain("carry no meaning");
     expect(DECORATIVE_VISUAL_NOTES.shakkeiSky).toContain("carry no meaning");
     expect(DECORATIVE_VISUAL_NOTES.engawaForeground).toContain("carry no meaning");

@@ -319,31 +319,34 @@ export function resolveGardenShipDisplayTile(input: {
   const { displayOffset, representative, sample, ship } = input;
   if (sample?.displayTile) return sample.displayTile;
   const tile = sample?.tile ?? ship.tile;
-  // A sailing leg belongs to the same harbor approach as its arriving and
-  // departing phases. Changing the apron policy at a phase boundary used to
-  // teleport the displayed hull several tiles while its motion sample was continuous.
+  // A docked ship keeps one apron policy through its whole route cycle —
+  // berth, voyages and anchorage. Changing the policy at a phase boundary
+  // discarded the carried shoreline correction and teleported the displayed
+  // hull several tiles while its motion sample was continuous (sailing ↔
+  // arriving before; voyage ↔ anchorage in W5.5). Anchorages sit on open
+  // water, so the looser policy does not move them.
   const berthBound = sample?.state === "moored"
     || sample?.state === "arriving"
     || sample?.state === "departing"
-    || (sample?.state === "sailing" && ship.dockVisits.length > 0);
+    || ((sample?.state === "sailing" || sample?.state === "risk-drift") && ship.dockVisits.length > 0);
   let display: ScreenPoint;
   if (!representative) {
     display = tile;
+  } else if (ship.dockVisits.length > 0) {
+    // W5.5: a docked representative's route is planned from its displayed
+    // berth (`gardenRepresentativeBerth`), so a live sample already carries
+    // it and no offset is added — or faded out under way, which swept a hull
+    // tens of tiles in seconds when the offset outweighed the voyage. With no
+    // sample, and in reduced motion's still tableau (`idle`), the hull lies
+    // exactly on the berth.
+    display = sample && sample.state !== "idle"
+      ? tile
+      : { x: ship.tile.x + displayOffset.x, y: ship.tile.y + displayOffset.y };
   } else {
+    // Dockless patrols keep their whole home offset: they never leave home water.
     const motionX = tile.x - ship.tile.x;
     const motionY = tile.y - ship.tile.y;
-    const motionDistance = Math.hypot(motionX, motionY);
-    // The route already bounds its patrol and voyage. A second display-only
-    // radius clipped long voyages, then jumped to the berth on arrival.
-    // The blue-noise offset belongs to the HOME berth only. Data motion runs
-    // from the ship's data tile to a dock mooring, and stations render at
-    // their data tile, so a moored hull must sit AT the mooring: carrying the
-    // offset along put it `mooring + offset` — up to a hundred tiles from the
-    // quay and, for rim coves, off the plate onto the paper. The offset fades
-    // over the voyage instead: whole inside the home patrol radius, gone by
-    // the time the hull reaches its nearest mooring, continuous in between so
-    // the sail out reads as one line rather than a jump.
-    const offsetWeight = gardenHomeOffsetWeight(ship, motionDistance);
+    const offsetWeight = gardenHomeOffsetWeight(ship, Math.hypot(motionX, motionY));
     display = {
       x: ship.tile.x + displayOffset.x * offsetWeight + motionX,
       y: ship.tile.y + displayOffset.y * offsetWeight + motionY,
@@ -697,6 +700,19 @@ function gardenObservatoryBaseSlice(world: PharosVilleWorld): GardenObservatoryB
   };
   baseSliceByWorld.set(world, slice);
   return slice;
+}
+
+/**
+ * The displayed home berth of a representative ship (its blue-noise fleet
+ * placement), or null for a transient. Motion planning anchors a docked
+ * representative's route here (W5.5), so its voyages start and end where the
+ * hull is drawn and no display offset has to be faded out under way.
+ */
+export function gardenRepresentativeBerth(world: PharosVilleWorld, shipId: string): ScreenPoint | null {
+  const placement = gardenObservatoryBaseSlice(world).ships.find((entry) => entry.ship.id === shipId);
+  return placement
+    ? { x: placement.ship.tile.x + placement.displayOffset.x, y: placement.ship.tile.y + placement.displayOffset.y }
+    : null;
 }
 
 function compareRepresentativeShips(left: ShipNode, right: ShipNode): number {

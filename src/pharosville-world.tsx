@@ -10,13 +10,14 @@ import { WorldControls } from "./components/world-controls";
 import { SoundControl } from "./components/sound-control";
 import { WorldStaticOverview } from "./components/world-static-overview";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
-import { isDebugChromeEnabled } from "./lib/pharosville-debug";
+import { isDebugChromeEnabled, recordDebugDirectorAdmission } from "./lib/pharosville-debug";
 import { useShipLogoAssets } from "./hooks/use-ship-logo-assets";
 import { useChangelogDialog } from "./hooks/use-changelog-dialog";
 import { useLegendDialog } from "./hooks/use-legend-dialog";
 import { useCanvasResizeAndCamera, type CameraSelectionSubject } from "./hooks/use-canvas-resize-and-camera";
 import { useHarborLog } from "./hooks/use-harbor-log";
 import { useGardenAlmanac } from "./hooks/use-garden-almanac";
+import { gardenScoreMotionGifts } from "./systems/garden-score";
 import { useGardenDirector } from "./hooks/use-garden-director";
 import { useGardenSound } from "./hooks/use-garden-sound";
 import { dayCycleBeats } from "./systems/day-cycle-beats";
@@ -48,18 +49,21 @@ import {
   selectGardenObservatorySlice,
 } from "./systems/garden-observatory-slice";
 import { buildBaseMotionPlan, disposePathCacheForMap, motionPlanSignature, type ShipMotionSample } from "./systems/motion";
+import { forceInletCrossing } from "./systems/motion-planning";
 import {
-  createGardenArrivalCeremonyState,
   GARDEN_ARRIVAL_NAMEPLATE_FADE_OUT_SECONDS,
-  gardenArrivalBeatEnvelopeInto,
   gardenArrivalBerthInFrame,
   gardenArrivalSupplyTrend,
-  requestGardenArrivalCeremony,
-  type GardenArrivalBeat,
-  type GardenArrivalBeatEnvelope,
-  type GardenArrivalCandidate,
   type GardenArrivalNameplate,
 } from "./systems/garden-arrival-beats";
+import {
+  createGardenCrossingCeremonyState,
+  createGardenCrossingHandler,
+  stepGardenCrossingCeremony,
+  type GardenCrossingCeremonyStep,
+} from "./systems/garden-crossing";
+import { playGardenSoundBeat } from "./hooks/use-garden-sound";
+import { registerRitual } from "./systems/garden-director";
 import { buildObserveSequence, type ObserveBeatKind } from "./systems/observe-sequence";
 import type { ObserveTourKeyframe } from "./systems/observe-tour";
 import { GARDEN_ATTRACT_IDLE_MS, gardenAttractKeyframes } from "./systems/garden-attract";
@@ -89,7 +93,6 @@ const DATA_REFRESH_ANNOUNCEMENT_THROTTLE_MS = 30_000;
  * clock ticks once a second, so the hold covers the fade plus one whole tick.
  */
 const ARRIVAL_NAMEPLATE_RETIRE_SECONDS = GARDEN_ARRIVAL_NAMEPLATE_FADE_OUT_SECONDS + 1;
-const arrivalCandidateEnvelope: GardenArrivalBeatEnvelope = { furl: 0, bowWave: 0, nameplate: false };
 /**
  * Observe 2.0 (Phase 4): dolly zoom per beat kind. The monument holds a wide
  * tableaux; individual hulls and quays push in close. All stay inside the
@@ -206,11 +209,11 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   });
   // W7: sound is opt-in; nothing is created or fetched until the Sound switch.
   const gardenSound = useGardenSound();
+  // W5.1: the day score (seeded by the UTC day) and its ledger/sound side.
   const gardenAlmanac = useGardenAlmanac({
     date: timeControls.date,
     director: gardenDirector,
-    timeSeconds: timeControls.timeSeconds,
-    reducedMotion,
+    utcDayKey: timeControls.utcDayKey,
     wallClockHour: timeControls.wallClockHour,
   });
   useLiveTitle(world);
@@ -255,15 +258,21 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   // the prior plan (and skip A* warmups). `world` is still passed to the
   // builder; the signature only gates re-memo.
   const baseMotionPlanSignature = motionPlanSignature(world);
+  // W5.1 → W1.6: the score's rituals claim the motion lattice's nearby crossing
+  // slots (gifts), so no crossing is routed within 8 min of one. The score runs
+  // on the local clock and motion on its own; their offset is read once per
+  // bucket flip (a pinned `t=` hour simply re-reads it).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world, motionBucket * 600), [baseMotionPlanSignature, motionBucket]);
+  const clockAtMotionZero = useMemo(() => Math.round(timeControls.wallClockHour * 3600 - motionBucket * 600), [motionBucket]);
+  const motionGifts = useMemo(
+    () => gardenScoreMotionGifts(gardenAlmanac.score, clockAtMotionZero),
+    [gardenAlmanac.score, clockAtMotionZero],
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const baseMotionPlan = useMemo(() => buildBaseMotionPlan(world, motionBucket * 600, { gifts: motionGifts }), [baseMotionPlanSignature, motionBucket, motionGifts]);
   const motionPlan = baseMotionPlan;
   const shipsById = useMemo(() => new Map(world.ships.map((ship) => [ship.id, ship])), [world.ships]);
   const docksById = useMemo(() => new Map(world.docks.map((dock) => [dock.id, dock])), [world.docks]);
-  const fleetSupplyUsd = useMemo(
-    () => world.ships.reduce((sum, ship) => sum + Math.max(0, ship.marketCapUsd), 0),
-    [world.ships],
-  );
   const [arrivalNameplate, setArrivalNameplate] = useState<GardenArrivalNameplate | null>(null);
   const arrivalBeatSecondRef = useRef<number | null>(null);
   // Ship chips are transient only (the admitted arrival ceremony's nameplate
@@ -565,20 +574,23 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     pendingFollowDetailIdRef.current = null;
     focusSelectedCamera(detailId, selectedEntity);
   }, [focusSelectedCamera, selectedEntity]);
-  // G3/W4.6: one arrival ceremony per director slot. Candidates are ships in
-  // their arrival window whose berth (the ship's current dock, never its home
-  // dock) projects inside the visible frame; the most significant one is
-  // offered to the director and, if admitted, its annotation is published for
-  // the caption (whose status region is the one screen-reader channel for it)
-  // and it alone may wear the nameplate. Copy names supply only when issuance
-  // was measured minting or redeeming, never transfer/mint/issuer.
-  const arrivalCeremonyStateRef = useRef(createGardenArrivalCeremonyState());
-  const [arrivalAnnotation, setArrivalAnnotation] = useState<GardenArrivalBeat["annotation"]>(null);
+  // W5.5: the crossing is the one arrival ceremony. The attention scheduler's
+  // crossing token (or a forced `crossing` ritual) sends one significant ship
+  // home through the mirror inlet; once she is past half way and projects
+  // inside the CURRENT camera frame she is offered to the director, and if
+  // admitted her caption (whose status region is the one screen-reader
+  // channel for it) and the only nameplate are published. Every other arrival
+  // is silent. Copy names supply only when issuance was measured minting or
+  // redeeming, never transfer/mint/issuer.
+  const crossingCeremonyStateRef = useRef(createGardenCrossingCeremonyState());
+  const motionTimeSecondsRef = useRef(0);
+  const [arrivalAnnotation, setArrivalAnnotation] = useState<GardenCrossingCeremonyStep["caption"]>(null);
   const publishShipMotionSamples = useCallback((
     samples: ReadonlyMap<string, ShipMotionSample>,
     timeSeconds: number,
   ) => {
     followPendingSelectionFromSamples(samples);
+    motionTimeSecondsRef.current = timeSeconds;
     if (reducedMotion) return;
     const second = Math.floor(timeSeconds);
     if (arrivalBeatSecondRef.current === second) return;
@@ -587,31 +599,48 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     if (!snapshot) return;
     const canvasSize = canvas.canvasSizeRef.current;
     const viewport = { width: canvasSize.x, height: canvasSize.y };
-    const candidates: GardenArrivalCandidate[] = [];
-    for (const ship of world.ships) {
-      const sample = samples.get(ship.id);
-      if (!sample?.currentDockId) continue;
-      if (!gardenArrivalBeatEnvelopeInto(sample, false, arrivalCandidateEnvelope).nameplate) continue;
-      const dock = docksById.get(sample.currentDockId);
-      if (!dock) continue;
-      if (!gardenArrivalBerthInFrame(snapshot.targetsByDetailId.get(ship.detailId)?.anchor, viewport)) continue;
-      candidates.push({
-        assetName: ship.label,
-        detailId: ship.detailId,
-        harbourName: dock.label,
-        id: ship.id,
-        supplyShare: fleetSupplyUsd > 0 ? Math.max(0, ship.marketCapUsd) / fleetSupplyUsd : 0,
-        supplyTrend: gardenArrivalSupplyTrend(ship.issuance),
-      });
-    }
-    if (candidates.length === 0) return;
-    const beat = requestGardenArrivalCeremony(
-      arrivalCeremonyStateRef.current, gardenDirector, candidates, timeControls.timeSeconds,
-    );
-    if (!beat) return;
-    if (beat.annotation) setArrivalAnnotation(beat.annotation);
-    if (beat.nameplate) setArrivalNameplate(beat.nameplate);
-  }, [canvas.canvasSizeRef, docksById, fleetSupplyUsd, followPendingSelectionFromSamples, gardenDirector, reducedMotion, timeControls.timeSeconds, world.ships]);
+    const step = stepGardenCrossingCeremony(crossingCeremonyStateRef.current, {
+      director: gardenDirector,
+      inFrame: (detailId) => gardenArrivalBerthInFrame(snapshot.targetsByDetailId.get(detailId)?.anchor, viewport),
+      motionTimeSeconds: timeSeconds,
+      plan: motionPlanRef.current,
+      subject: (shipId, dockId) => {
+        const ship = shipsById.get(shipId);
+        const dock = docksById.get(dockId);
+        return ship && dock
+          ? { assetName: ship.label, detailId: ship.detailId, harbourName: dock.label, supplyTrend: gardenArrivalSupplyTrend(ship.issuance) }
+          : null;
+      },
+      wallTimeSeconds: timeControls.timeSeconds,
+    });
+    if (!step) return;
+    for (const sound of step.sounds) playGardenSoundBeat(sound);
+    if (step.caption) setArrivalAnnotation(step.caption);
+    if (step.nameplate) setArrivalNameplate(step.nameplate);
+  }, [canvas.canvasSizeRef, docksById, followPendingSelectionFromSamples, gardenDirector, motionPlanRef, reducedMotion, shipsById, timeControls.timeSeconds]);
+  // The director's `crossing` ritual (S-A): the score never schedules it —
+  // scheduled crossings come from the plan's tokens — so only the forced path
+  // (`forceRitual("crossing")`) starts it: an anchored ceremony
+  // subject sails home through the inlet now, and the ceremony above names her.
+  useEffect(() => registerRitual("crossing", createGardenCrossingHandler({
+    force: () => {
+      if (reducedMotion) return null;
+      const token = forceInletCrossing(motionPlanRef.current, world, motionTimeSecondsRef.current);
+      // Debug log row on the motion clock: which hull crosses, and when.
+      if (token) {
+        recordDebugDirectorAdmission({
+          durationSeconds: token.endSeconds - token.startSeconds,
+          id: `crossing-voyage:${token.shipId}:${Math.round(token.startSeconds)}`,
+          kind: "crossing-voyage",
+          priority: 0,
+          startSeconds: token.startSeconds,
+          subject: token.shipId,
+        });
+      }
+      return token;
+    },
+    motionTimeSeconds: () => motionTimeSecondsRef.current,
+  })), [motionPlanRef, reducedMotion, world]);
   const arrivalAnnotationLive = arrivalAnnotation !== null
     && timeControls.timeSeconds < arrivalAnnotation.startSeconds + arrivalAnnotation.durationSeconds;
   const arrivalAnnotationText = arrivalAnnotationLive ? arrivalAnnotation.text : null;
@@ -654,7 +683,6 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     rendererStatus,
     requestPaint,
   } = useWorldRenderLoop({
-    almanacEvent: gardenAlmanac.evidenceEvent,
     gardenDirector,
     onBucketFlip: setMotionBucket,
     onShipMotionSamplesReady: publishShipMotionSamples,
@@ -1347,6 +1375,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       {harborLedgerOpen && (
         <Suspense fallback={<ChangelogPanelLoading />}>
           <LazyHarborLedgerPanel
+            almanac={gardenAlmanac.almanac}
             almanacEntries={gardenAlmanac.entries}
             harborLogEntries={harborLog.entries}
             onClose={closeHarborLedger}
@@ -1363,7 +1392,8 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           twice and a screen reader never reads the world through twice. */}
       {!harborLedgerOpen && (
         <AccessibilityLedger
-          almanacEntries={gardenAlmanac.entries}
+          almanac={gardenAlmanac.almanac}
+            almanacEntries={gardenAlmanac.entries}
           harborLogEntries={harborLog.entries}
           visitSummary={visitSnapshot.summary}
           world={world}

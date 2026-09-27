@@ -898,11 +898,12 @@ ${gardenHeightFogGlsl()}
     surfaceNormal = normalize(surfaceNormal + vec3(wakeGrad * (10.0 * uWakeStrength), 0.0));
     // Moiré guard: a line period under ~5 px fades to blank water.
     float crestPeriodPx = (6.2831853 / crestK) / max(fwidth(crestAcross), 1e-4);
-    // W3.10 chart: seen from 38° the engraving is a chart's hairline hatching
-    // (≈1.5 px, half-strength ink), not a set of bars laid on the water. The
-    // plate-haze weight is 0 from the near rig up, so the rest is unchanged.
-    float chartCrestWidth = 0.5 - 0.5 * cos(3.14159265 * min(1.0, 1.5 / max(crestPeriodPx, 1.0)));
-    float engravedWidth = mix(crestWidth, min(crestWidth, chartCrestWidth), uGardenAir.plateHaze);
+    // The engraving is a hairline at every zoom: the line's share of its
+    // period is capped so it never prints wider than ≈1.5 px (a crest near
+    // the seat would otherwise be a bar). W3.10: at the chart the ink also
+    // halves; the plate-haze weight is 0 from the near rig up.
+    float hairlineCrestWidth = 0.5 - 0.5 * cos(3.14159265 * min(1.0, 1.5 / max(crestPeriodPx, 1.0)));
+    float engravedWidth = min(crestWidth, hairlineCrestWidth);
     float crest = aaStep(1.0 - engravedWidth, crestWave) * crestGate * regionBlend
       * smoothstep(5.0, 12.0, crestPeriodPx) * step(0.001, crestWidth)
       * (1.0 - 0.5 * uGardenAir.plateHaze);

@@ -74,8 +74,8 @@ import { weatherForFrame, writeWeatherPlan, type WeatherPlan } from "../systems/
 import { createVisualMotionSmoothingState, resetVisualMotionSmoothingState, smoothShipMotionSamples } from "../systems/visual-motion";
 import { worldRenderContentSignature } from "../systems/world-render-content-signature";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "../systems/world-types";
-import type { GardenAlmanacEvent } from "../systems/garden-almanac";
-import type { GardenBeat, GardenDirectorState } from "../systems/garden-director";
+import type { GardenBeat, GardenDirectorState, GardenRitualKind } from "../systems/garden-director";
+import { forceGardenRitual } from "../systems/garden-score";
 import { normalizeHour } from "../lib/pharosville-clock";
 import { reportClientError } from "../error-reporter";
 import { createHoverNameplateDwellState, hoverNameplateVisible } from "./hover-nameplate-dwell";
@@ -151,7 +151,6 @@ interface DetailAnchor extends ScreenPoint {
 }
 
 export interface UseWorldRenderLoopInput {
-  almanacEvent?: GardenAlmanacEvent | null;
   /** G3/W4.1: the shared director; read through a ref so expiry never restarts the loop. */
   gardenDirector?: GardenDirectorState;
   /**
@@ -225,7 +224,6 @@ export interface WorldCameraStepResult {
 
 export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRenderLoopResult {
   const {
-    almanacEvent,
     gardenDirector,
     onBucketFlip,
     onShipMotionSamplesReady,
@@ -312,6 +310,12 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   }, [requestPaint, shipsById, world]);
   const threeRendererRef = useRef<ThreeWorldRenderer | null>(null);
   const [rendererStatus, setRendererStatus] = useState<WorldRendererStatus>("loading");
+  // Bumped whenever a renderer instance is created. The status alone cannot
+  // carry a re-creation ("ready" → "ready" is no state change), and the RAF
+  // effect binds the instance it starts with: without this, re-running the
+  // creation effect (React Fast Refresh in dev) left the loop bound to the
+  // disposed instance and the world froze with no error.
+  const [rendererGeneration, setRendererGeneration] = useState(0);
   const [rendererWarmupReady, setRendererWarmupReady] = useState(false);
   const rendererWarmupStartedRef = useRef(false);
   const [rendererFailure, setRendererFailure] = useState<string | null>(null);
@@ -452,6 +456,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
         rendererWarmupStartedRef.current = false;
         setRendererWarmupReady(false);
         setRendererStatus("ready");
+        setRendererGeneration((generation) => generation + 1);
       })
       .catch((error) => {
         if (!active) return;
@@ -528,7 +533,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
   }, [reducedMotion]);
 
   // RAF effect — bound once per plumbing change (`world`, `canvasSize`,
-  // `reducedMotion`, `cameraReady`, `wallClockHour`, `shipsById`).
+  // `reducedMotion`, `cameraReady`, `wallClockHour`, `shipsById`) and per
+  // renderer instance (`rendererGeneration`).
   // All other inputs (hoveredDetailId, selectedDetailId, motionPlan, camera,
   // and ship-logo state) are read through refs. Per-hover/select repaints under
   // reduced motion are routed through `requestPaint()` so the loop is not torn
@@ -871,7 +877,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       try {
         renderMetrics = threeRenderer.render({
           airVeil: cameraStep.airVeil ?? 1,
-          almanacEvent: almanacEvent ?? null,
           gardenDirector: gardenDirectorRef.current,
           epochSeconds: Date.now() / 1000,
           logos,
@@ -1249,13 +1254,13 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     advanceMotionBucket,
-    almanacEvent,
     cameraReady,
     canvasSize.x,
     canvasSize.y,
     failThreeRenderer,
     logos,
     reducedMotion,
+    rendererGeneration,
     rendererStatus,
     wallClockHour,
     worldContentSignature,
@@ -1400,6 +1405,8 @@ type PharosVilleDebugState = {
   cameraWithinBounds: boolean;
   /** W0.2: every beat the director admitted, oldest first, capped at 200. */
   directorLog: readonly DebugDirectorAdmission[];
+  /** W5.1: start a ritual now through its registered handler, outside the score. */
+  forceRitual: (kind: GardenRitualKind) => boolean;
   directorActive: GardenBeat | null;
   /** W0.2 fleet motion instruments, refreshed ≤ 2×/s. */
   motionStats: DebugMotionStats;
@@ -1648,6 +1655,7 @@ function debugFramePatch(input: DebugFramePatchInput): DebugFramePatch {
     cameraFrameSource: "world-render-loop",
     directorActive: input.gardenDirector?.active ?? null,
     directorLog: debugDirectorLog,
+    forceRitual: (kind) => forceGardenRitual(kind),
     cameraWithinBounds: isCameraWithinBounds(input.camera, input.world.map, input.canvasSize),
     motionClockSource: input.reducedMotion ? "reduced-motion-static-frame" : "requestAnimationFrame",
     motionFrameCount: input.frameCount,

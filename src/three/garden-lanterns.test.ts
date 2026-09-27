@@ -1,7 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { gardenSkyDayFromParts, pinGardenSkyDay } from "../systems/sky-almanac";
 import {
   createGardenLaneRegistry,
+  GARDEN_KINDLE_DARK,
+  GARDEN_KINDLE_MIN_FADE_SECONDS,
+  GARDEN_KINDLE_ORDER,
+  GARDEN_KINDLE_WINDOW,
+  gardenDefaultKindleProgress,
   gardenLanternKindleFactor,
+  gardenLanternKindleState,
+  setGardenLanternKindleClock,
+  updateGardenLanternKindling,
   GARDEN_EMBER_LANE_MIN_SEPARATION,
   GARDEN_LANE_EMBER_GAIN,
   GARDEN_ROUTE_PULSE_ROTATION_SECONDS,
@@ -33,23 +42,56 @@ function lane(overrides: Partial<GardenLightLane> & { id: string }): GardenLight
   };
 }
 
+// The pinned sky day: sunset 18:54, belt ≈ 19:12, night from ≈ 20:00.
+const PINNED_DAY = gardenSkyDayFromParts({
+  year: 2026, month: 9, day: 26, utcOffsetHours: 2, dstHours: 1,
+  latitude: { latitudeRad: (35 * Math.PI) / 180, southern: false },
+});
+const lit = (order: number, hour: number) => gardenLanternKindleFactor(order, gardenDefaultKindleProgress(hour, PINNED_DAY));
+
+afterEach(() => setGardenLanternKindleClock(null));
+
 describe("lantern kindling (contract H-A)", () => {
-  it("kindles fixtures in order as the evening advances and banks them in reverse", () => {
-    // Nothing is lit before the kindling starts and everything by its end.
-    for (const order of [0, 0.3, 0.9, 1]) {
-      expect(gardenLanternKindleFactor(order, 0)).toBe(0);
-      expect(gardenLanternKindleFactor(order, 1)).toBe(1);
+  it("lights the K20 order with the sun when no keeper walks, and banks it in reverse at dawn", () => {
+    const { chasekiLantern, lantern, stationFarthest, stationNearest, toro } = GARDEN_KINDLE_ORDER;
+    // Nothing at golden hour; everything by full night.
+    for (const order of [chasekiLantern, lantern, stationNearest, toro]) {
+      expect(lit(order, 18.5), `order ${order} at golden`).toBe(0);
+      expect(lit(order, 20.25), `order ${order} at night`).toBe(1);
     }
-    // Mid-evening, the near fixtures are lit while the far ones wait; the
-    // tōrō beside the viewer (order 1) is always the last to catch.
-    expect(gardenLanternKindleFactor(0.1, 0.5)).toBe(1);
-    expect(gardenLanternKindleFactor(0.8, 0.5)).toBe(0);
-    expect(gardenLanternKindleFactor(1, 0.85)).toBeLessThan(gardenLanternKindleFactor(0.9, 0.85));
-    // The same progress falling at dawn therefore puts the far ones out first.
-    const progress = [0.95, 0.7, 0.45, 0.2];
-    const farOut = progress.findIndex((value) => gardenLanternKindleFactor(0.85, value) < 1);
-    const nearOut = progress.findIndex((value) => gardenLanternKindleFactor(0.15, value) < 1);
-    expect(farOut).toBeLessThan(nearOut);
+    // At the belt hour the island and tower are kindled; the ring waits.
+    expect(lit(chasekiLantern, 19.2)).toBe(1);
+    expect(lit(lantern, 19.2)).toBeGreaterThan(0.3);
+    expect(lit(stationFarthest, 19.2)).toBe(0);
+    // Later in the evening the near ring is lit before the far, the tōrō last.
+    const hour = 19.55;
+    expect(lit(stationNearest, hour)).toBeGreaterThan(lit(stationFarthest, hour));
+    expect(lit(stationFarthest, hour)).toBeGreaterThanOrEqual(lit(toro, hour));
+    // Dawn: the tōrō banks before the chaseki lantern.
+    const dawnHours = [6.1, 6.4, 6.7, 6.85, 6.97];
+    const out = (order: number) => dawnHours.findIndex((value) => lit(order, value) < 1);
+    expect(out(toro)).toBeLessThan(out(chasekiLantern));
+  });
+
+  it("eases every clock change so no fixture pops", () => {
+    pinGardenSkyDay(PINNED_DAY);
+    updateGardenLanternKindling(23, 0, true);
+    expect(gardenLanternKindleState().progress).toBeGreaterThan(1);
+    // A clock that suddenly asks for the dark: the ring banks at no more than
+    // one window per minimum fade.
+    setGardenLanternKindleClock(() => ({ progress: GARDEN_KINDLE_DARK, window: GARDEN_KINDLE_WINDOW }));
+    let previous = gardenLanternKindleState().progress;
+    for (let frame = 0; frame < 30; frame += 1) {
+      updateGardenLanternKindling(23, 1 / 60);
+      const { progress } = gardenLanternKindleState();
+      expect(previous - progress).toBeLessThanOrEqual(GARDEN_KINDLE_WINDOW / GARDEN_KINDLE_MIN_FADE_SECONDS / 60 + 1e-9);
+      previous = progress;
+    }
+    expect(previous).toBeGreaterThan(GARDEN_KINDLE_DARK);
+    // Reduced motion rests on the clock's value at once (no frames to fade on).
+    updateGardenLanternKindling(23, 1 / 60, true);
+    expect(gardenLanternKindleState().progress).toBe(GARDEN_KINDLE_DARK);
+    pinGardenSkyDay(null);
   });
 });
 

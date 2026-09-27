@@ -234,7 +234,7 @@ describe("motion", () => {
       const repeatedRoute = secondPlan.shipRoutes.get(ship.id);
 
       expect(route).toBeDefined();
-      expect(route?.riskTile).toEqual(ship.riskTile);
+      expect(route?.riskTile).toEqual(repeatedRoute?.riskTile);
       expect(route?.cycleSeconds).toBe(repeatedRoute?.cycleSeconds);
       expect(route?.phaseSeconds).toBe(repeatedRoute?.phaseSeconds);
       expect(route?.dockStopSchedule).toEqual(repeatedRoute?.dockStopSchedule);
@@ -825,7 +825,8 @@ describe("motion", () => {
     const plan = buildMotionPlan(sampleWorld, ship.detailId);
     const sample = resolveShipMotionSample({ plan, reducedMotion: true, ship, timeSeconds: 120 });
 
-    expect(sample.tile).toEqual(ship.riskTile);
+    // Its anchorage is the Ledger berth it is drawn at (W5.5).
+    expect(sample.tile).toEqual(plan.shipRoutes.get(ship.id)!.riskTile);
     expect(sample.state).toBe("idle");
     expect(sample.zone).toBe("ledger");
     expect(sample.currentDockId).toBeNull();

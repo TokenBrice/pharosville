@@ -76,7 +76,7 @@ import {
 import {
   beginFleetFrame,
   endFleetFrame,
-  gardenFleetShipIsHero,
+  gardenFleetShipHeroWeight,
   setFleetAerialPerspective,
   setFleetWeather,
   writeFleetInstance,
@@ -331,7 +331,12 @@ export function updateGardenShipFrame(
     zoom: detailPolicy.fleetClothZoom,
   });
   removeCompletedDepartures(scene, content, frame.timeSeconds);
-  beginFleetFrame(content.fleetBatches, { camera: frame.camera, viewport: { x: frame.width, y: frame.height }, timeSeconds: frame.timeSeconds });
+  beginFleetFrame(content.fleetBatches, {
+    camera: frame.camera,
+    reducedMotion: frame.reducedMotion,
+    timeSeconds: frame.timeSeconds,
+    viewport: { x: frame.width, y: frame.height },
+  });
   const sailTexture = content.sailAtlas.texture;
   const logoGeneration = frame.logos.getLogoGenerationKey();
   if (sailTexture && content.sailAtlas.logoGenerationKey !== logoGeneration) {
@@ -378,6 +383,8 @@ export function updateGardenShipFrame(
   const seaTier = seaQualityTier(frame.renderScheduler);
   const wakeFieldTier = seaTier === "full" || seaTier === "balanced";
   const stampWakeField = wakeFieldTier && !frame.reducedMotion;
+  // Hulls sit in the water under reduced motion too: contact is static.
+  const stampContactField = wakeFieldTier;
   content.wakeBatch.root.visible = !wakeFieldTier;
   let visibleShipCount = 0;
   const issuanceAlpha = frame.reducedMotion
@@ -521,7 +528,7 @@ export function updateGardenShipFrame(
       id: `ship-lantern.${visual.ship.id}`,
       // W4.F3: at night the far fleet is embers — only the hero band's lamps.
       intensity: visual.laneIntensity * displayPresence
-        * (gardenFleetShipIsHero(content.fleetBatches, visual.ship.id) ? 1 : 0),
+        * gardenFleetShipHeroWeight(content.fleetBatches, visual.ship.id),
       kind: "lantern",
       worldX: visual.root.position.x,
       worldZ: visual.root.position.z,
@@ -569,7 +576,7 @@ export function updateGardenShipFrame(
     const hullSizeScale = transitionVisibility * displayPresence;
     const wakeHalfLength = hullReach.x * 0.9 * hullSizeScale;
     const wakeHalfBeam = hullReach.z * hullSizeScale;
-    if (stampWakeField && hullSizeScale > 0.05) {
+    if (stampContactField && hullSizeScale > 0.05) {
       const rotationY = visual.root.rotation.y;
       scene.wakes.stampContact(
         visual.root.position.x,
@@ -580,7 +587,7 @@ export function updateGardenShipFrame(
         wakeHalfBeam,
         1,
       );
-      if (heading && wakeIntensity * displayPresence > 0.12) {
+      if (stampWakeField && heading && wakeIntensity * displayPresence > 0.12) {
         const wakeStrength = Math.min(1, wakeIntensity * displayPresence);
         scene.wakes.stamp(
           visual.root.position.x,
@@ -810,8 +817,9 @@ let lanternFrameContent: GardenShipFrameContent | null = null;
 
 function fleetLanternPresence(visual: ShipVisual): number {
   const content = lanternFrameContent!;
-  if (!gardenFleetShipIsHero(content.fleetBatches, visual.ship.id)) return 0;
-  return content.fleetDisplayPresenceByShipId.get(visual.ship.id) ?? 1;
+  // The lamp kindles and dims with the hero band's eased weight (W5: no pop).
+  return gardenFleetShipHeroWeight(content.fleetBatches, visual.ship.id)
+    * (content.fleetDisplayPresenceByShipId.get(visual.ship.id) ?? 1);
 }
 
 function fleetLanternDraft(visual: ShipVisual): number {

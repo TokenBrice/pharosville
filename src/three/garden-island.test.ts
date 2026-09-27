@@ -25,6 +25,7 @@ import {
   GARDEN_PATH_HALF_WIDTH,
   GARDEN_PATH_SWEEP_POINTS,
   GARDEN_POND_REFLECTION_AXES,
+  gardenPondMoonImage,
   GARDEN_POND_CENTER,
   GARDEN_POND_RADIUS,
   GARDEN_NIWAKI_SPECS,
@@ -659,7 +660,6 @@ describe("garden island rockwork", () => {
 
   it("aims the pond image at the real tower", () => {
     expect(GARDEN_POND_REFLECTION_AXES.tower.length()).toBeCloseTo(1);
-    expect(GARDEN_POND_REFLECTION_AXES.moon.length()).toBeCloseTo(1);
     // The tower is west of the pond; its local reflection axis must point
     // strongly left rather than becoming a generic camera-aligned stripe.
     expect(GARDEN_POND_REFLECTION_AXES.tower.x).toBeLessThan(-0.8);
@@ -686,7 +686,22 @@ describe("garden island rockwork", () => {
     expect(day.y).toBe(0);
     expect(dusk.x).toBeGreaterThan(day.x);
     expect(dusk.x).toBeGreaterThan(night.x);
-    expect(night.y).toBeGreaterThan(dusk.y);
+    // Without a moon placed for an eye the pond carries no moon at all.
+    expect(night.y).toBe(0);
+  });
+
+  it("puts the moon's pond image where a flat mirror shows it to the eye", () => {
+    // Eye 10 u above the pond plane, moon 30° up toward local +X.
+    const elevation = Math.PI / 6;
+    const moon = new Vector3(Math.cos(elevation), 0, Math.sin(elevation));
+    const image = gardenPondMoonImage(new Vector3(-4, 1, 10), moon)!;
+    // The reflected ray from the eye leaves the specular point at the moon's
+    // elevation: horizontal run = height / tan(elevation).
+    expect(image.centre.x).toBeCloseTo(-4 + 10 / Math.tan(elevation), 9);
+    expect(image.centre.y).toBeCloseTo(1, 9);
+    // The road runs from the image back toward the eye.
+    expect(image.axis.x).toBeCloseTo(-1, 9);
+    expect(gardenPondMoonImage(new Vector3(0, 0, 10), new Vector3(1, 0, -0.1))).toBeNull();
   });
 
   it("exports lamp offsets lifted to the lamp height for lane registration", () => {

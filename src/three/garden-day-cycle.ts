@@ -39,6 +39,10 @@ export type DayCyclePhaseName = "day" | "dusk" | "night";
 export { dayCycleBeats, type DayCycleBeatName, type DayCycleBeats } from "../systems/day-cycle-beats";
 import { dayCycleBeats, type DayCycleBeatName, type DayCycleBeats } from "../systems/day-cycle-beats";
 import { gardenMoonPose, type GardenLightPose } from "./garden-sun";
+import { GARDEN_KINDLE_ORDER, gardenLanternKindleFactor, gardenLanternKindleState } from "./garden-lanterns";
+
+/** How much of its night strength the brazier takes when the lantern catches at blue hour. */
+const BEACON_CATCH_NIGHT = 0.6;
 const LIGHT_BEAT_NAMES: readonly DayCycleBeatName[] = ["dawn", "day", "golden", "blue", "night"];
 const scratchMoonPose: GardenLightPose = { direction: new Vector3(0, 1, 0), elevation: 0, moonLight: 0 };
 
@@ -401,19 +405,27 @@ export function updateDayCycle(
   // brightness (via uIntensity), flicker amplitude (world-renderer), halo,
   // and light. No post pass is required for data legibility: the flame's
   // overall brightness tracks this number exactly.
+  // K20: once the keeper (or the sun's default clock) has caught the
+  // lantern, the brazier takes most of its night strength before the night
+  // beat arrives; additive only, so the catch never dims it.
+  const { progress: kindleProgress, window: kindleWindow } = gardenLanternKindleState();
+  const lampNight = Math.max(
+    night,
+    BEACON_CATCH_NIGHT * gardenLanternKindleFactor(GARDEN_KINDLE_ORDER.lantern, kindleProgress, kindleWindow),
+  );
   const beaconIntensity = MathUtils.clamp(
-    3.4 + night * 3.8 + frame.seaState.source.psiStress * 0.6,
+    3.4 + lampNight * 3.8 + frame.seaState.source.psiStress * 0.6,
     0,
     8,
   );
   // Preserve the PSI signal while keeping the night brazier above every
   // lantern in linear HDR luminance; the daytime coals remain banked.
   scene.content.beacon.material.emissiveIntensity = beaconIntensity
-    * (0.32 * (1 - night) + BEACON_NIGHT_GAIN * night);
+    * (0.32 * (1 - lampNight) + BEACON_NIGHT_GAIN * lampNight);
   // D3: by day the flame banks low (the mirror glint is the day signal); at
   // dusk it rises; by night it owns the sky.
   scene.content.beaconFire.uniforms.uIntensity.value = beaconIntensity
-    * blendDayCycleScalar(1, 0.85, 0.26, dusk, daylight);
+    * Math.max(blendDayCycleScalar(1, 0.85, 0.26, dusk, daylight), 0.26 + 0.74 * lampNight);
   // D4 mirror glint: a slow day-only emissive pulse (peak HDR ~2.2) so the
   // legendary bronze mirror flashes against the day sky. Deterministic in
   // timeSeconds; frozen at its t=0 glint under reduced motion. This is the
@@ -425,11 +437,11 @@ export function updateDayCycle(
   // ≤ 1.25, opacity ≤ 0.3) so an end-on beam never swells into a disc; the
   // frame path adds the flicker modulation on top of this base. W2.9: nothing
   // glows by day, so the corona has no daylight term.
-  scene.content.beaconHalo.material.opacity = dusk * 0.12 + night * 0.3;
-  scene.content.beaconHalo.scale.setScalar(1.2 + (dusk + night) * 0.05);
+  scene.content.beaconHalo.material.opacity = dusk * 0.12 + lampNight * 0.3;
+  scene.content.beaconHalo.scale.setScalar(1.2 + (dusk + lampNight) * 0.05);
   // The PointLight grazes the lantern storey only (range 30, see
   // createLighthouse); it no longer floodlights the masonry at night.
-  scene.content.lighthouseLight.intensity = 0.95 + dusk * 1.2 + night * 2.4;
+  scene.content.lighthouseLight.intensity = 0.95 + dusk * 1.2 + lampNight * 2.4;
   // Statue gleam: bronze never glows by day or by night. Only the dusk beat
   // lends it a faint warm catch (≤ 0.4 at the blue-hour peak); form comes
   // from the rim light and specular, not self-light.

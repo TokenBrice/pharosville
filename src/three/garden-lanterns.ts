@@ -3,6 +3,7 @@ import type {
   PharosVilleRenderSchedulerState,
   TextureOwnerManifestEntry,
 } from "../renderer/render-types";
+import { gardenSkyToday, gardenSolarElevationAt, type GardenSkyDay } from "../systems/sky-almanac";
 import { chainGardenMaterialPatch } from "./garden-aerial";
 
 export interface GardenKeeperRitual {
@@ -12,68 +13,145 @@ export interface GardenKeeperRitual {
 }
 
 /**
- * Contract H-A — the kindling seam. Every station stone lantern, station
- * shoji, island lantern and the engawa tōrō multiplies its day-cycle emissive
- * by one kindle factor, `gardenLanternKindleFactor(order, progress)`:
- * `order` is the fixture's place in the evening (0 first, beside the beacon;
- * 1 last — the tōrō beside the viewer), `progress` the ring's kindling 0..1
- * from the kindle clock. The default clock is the night beat, so the lamps
- * catch one after another, outward across the water, as blue hour deepens,
- * and bank in reverse at dawn. W5's ritual drives the timing by installing
- * its own clock (`setGardenLanternKindleClock`); the order stays authored.
- * Reduced motion needs nothing more: the clock is the wall-clock hour, so
- * every fixture rests at its lit or unlit state for the hour.
+ * Contract H-A — the kindling seam. Every kindled fixture multiplies its
+ * day-cycle emissive by one kindle factor, `gardenLanternKindleFactor(order,
+ * progress, window)`: `order` is the fixture's place in the evening
+ * (`GARDEN_KINDLE_ORDER`), `progress` the ring's kindling in the same units,
+ * and a fixture is half lit when the progress passes its order, fading over
+ * `window`. The default clock follows the sun below the horizon
+ * (`gardenDefaultKindleProgress`), so without a ritual the lamps catch one
+ * after another as blue hour deepens and bank in reverse at dawn. W5's keeper
+ * (K20) installs its own clock (`setGardenLanternKindleClock`) that walks the
+ * same order in minutes. Whatever the clock does, the progress and window the
+ * fixtures see are eased (≥ 1.5 s through any fixture's window), so a clock
+ * change never pops a lamp; reduced motion rests on the clock's value.
  */
-export type GardenLanternKindleClock = (nightBeat: number) => number;
+export interface GardenLanternKindleTarget {
+  progress: number;
+  window: number;
+}
+/** Receives the default (sun-driven) progress; returns the target the fixtures ease toward. */
+export type GardenLanternKindleClock = (defaultProgress: number) => GardenLanternKindleTarget;
 
-/** Share of the kindle progress one fixture takes to catch. */
+/** The default fade width in order units: at the sun's pace, several minutes per fixture. */
 export const GARDEN_KINDLE_WINDOW = 0.2;
+/** Every fixture's fade takes at least this long, whatever the clock does. */
+export const GARDEN_KINDLE_MIN_FADE_SECONDS = 1.5;
+/** Progress below every fixture / above every fixture at the default window. */
+export const GARDEN_KINDLE_DARK = -0.15;
+export const GARDEN_KINDLE_LIT = 1.15;
 
-const nightBeatKindleClock: GardenLanternKindleClock = (nightBeat) => nightBeat;
-let kindleClock = nightBeatKindleClock;
-/** One uniform object shared by every kindled program: a single write per frame. */
-const kindleProgress = { value: 0 };
+/**
+ * K20's order, one ladder for every kindled fixture: the keeper leaves the
+ * chaseki (its eave lantern first), passes the landing lantern, climbs the
+ * tower (three stair embers, low to high), the lantern catches, the station
+ * lanterns kindle outward by distance (their shoji a step behind), and the
+ * engawa tōrō beside the viewer lights last.
+ */
+export const GARDEN_KINDLE_ORDER = {
+  chasekiLantern: 0.02,
+  landingLantern: 0.08,
+  stairEmbers: [0.14, 0.18, 0.22],
+  lantern: 0.28,
+  stationNearest: 0.34,
+  stationFarthest: 0.9,
+  shojiLag: 0.04,
+  toro: 1,
+} as const;
 
-/** Installs the ritual's clock; `null` restores the night-beat default. */
-export function setGardenLanternKindleClock(clock: GardenLanternKindleClock | null): void {
-  kindleClock = clock ?? nightBeatKindleClock;
+/**
+ * The sun's kindling, in order units: dark until the sun is 1.8° down (the
+ * scored kindling starts by then, so the keeper walks ahead of it), the
+ * island and the tower through the next 1.8° (≈ 9 min, so the belt hour keeps
+ * its lit stair and caught lantern), then the ring outward to the tōrō by
+ * −11°. Symmetric in elevation, so dawn banks the same order in reverse.
+ */
+export function gardenDefaultKindleProgress(hour: number, day: GardenSkyDay = gardenSkyToday()): number {
+  const depth = -gardenSolarElevationAt(day, hour) * (180 / Math.PI);
+  const tower = GARDEN_KINDLE_ORDER.lantern + 0.02;
+  if (depth <= 1.8) return GARDEN_KINDLE_DARK;
+  if (depth <= 3.6) return GARDEN_KINDLE_DARK + (tower - GARDEN_KINDLE_DARK) * (depth - 1.8) / 1.8;
+  return tower + (GARDEN_KINDLE_LIT - tower) * Math.min(1, (depth - 3.6) / 7.4);
 }
 
-/** Once per frame, with the wall-clock night beat (0..1). */
-export function updateGardenLanternKindling(nightBeat: number): void {
-  kindleProgress.value = Math.max(0, Math.min(1, kindleClock(Math.max(0, Math.min(1, nightBeat)))));
+const defaultKindleClock: GardenLanternKindleClock = (progress) => ({ progress, window: GARDEN_KINDLE_WINDOW });
+let kindleClock = defaultKindleClock;
+/** One uniform pair shared by every kindled program: a single write per frame. */
+const kindleProgress = { value: GARDEN_KINDLE_DARK };
+const kindleWindow = { value: GARDEN_KINDLE_WINDOW };
+let kindleEased = false;
+
+/** Installs the ritual's clock; `null` restores the sun's default. */
+export function setGardenLanternKindleClock(clock: GardenLanternKindleClock | null): void {
+  kindleClock = clock ?? defaultKindleClock;
+}
+
+/**
+ * Once per frame, with the wall-clock hour. The first call (and every
+ * reduced-motion call) rests on the target; otherwise the window eases on a
+ * 0.5 s time constant and the progress moves at most one window per
+ * `GARDEN_KINDLE_MIN_FADE_SECONDS`.
+ */
+export function updateGardenLanternKindling(hour: number, deltaSeconds: number, reducedMotion = false): void {
+  const target = kindleClock(gardenDefaultKindleProgress(hour));
+  const window = Math.max(0.005, target.window);
+  if (!kindleEased || reducedMotion) {
+    kindleEased = true;
+    kindleProgress.value = target.progress;
+    kindleWindow.value = window;
+    return;
+  }
+  const dt = Math.min(0.25, Math.max(0, Number.isFinite(deltaSeconds) ? deltaSeconds : 0));
+  kindleWindow.value += (window - kindleWindow.value) * (1 - Math.exp(-dt / 0.5));
+  const step = (kindleWindow.value / GARDEN_KINDLE_MIN_FADE_SECONDS) * dt;
+  const delta = target.progress - kindleProgress.value;
+  kindleProgress.value += Math.max(-step, Math.min(step, delta));
+}
+
+/** The progress and window every kindled fixture sees this frame. */
+export function gardenLanternKindleState(): GardenLanternKindleTarget {
+  return { progress: kindleProgress.value, window: kindleWindow.value };
 }
 
 /** CPU mirror of the shader's per-fixture factor. */
-export function gardenLanternKindleFactor(order: number, progress: number): number {
-  const start = Math.max(0, Math.min(1, order)) * (1 - GARDEN_KINDLE_WINDOW);
-  const t = Math.max(0, Math.min(1, (progress - start) / GARDEN_KINDLE_WINDOW));
+export function gardenLanternKindleFactor(order: number, progress: number, window = GARDEN_KINDLE_WINDOW): number {
+  const t = Math.max(0, Math.min(1, (progress - order) / window + 0.5));
   return t * t * (3 - 2 * t);
 }
 
-const KINDLE_FACTOR_GLSL = `float gardenKindleFactor(float order) {
-  float start = clamp(order, 0.0, 1.0) * ${(1 - GARDEN_KINDLE_WINDOW).toFixed(4)};
-  return smoothstep(start, start + ${GARDEN_KINDLE_WINDOW.toFixed(4)}, uGardenKindleProgress);
+const KINDLE_FACTOR_GLSL = `uniform float uGardenKindleProgress;
+uniform float uGardenKindleWindow;
+float gardenKindleFactor(float order) {
+  return smoothstep(order - 0.5 * uGardenKindleWindow, order + 0.5 * uGardenKindleWindow, uGardenKindleProgress);
 }`;
+
+/** Binds the shared kindle uniforms and the factor function into a shader (idempotent per program). */
+export function bindGardenKindleUniforms(shader: { uniforms: Record<string, { value: unknown }>; fragmentShader: string }): void {
+  shader.uniforms.uGardenKindleProgress = kindleProgress;
+  shader.uniforms.uGardenKindleWindow = kindleWindow;
+  if (!shader.fragmentShader.includes("float gardenKindleFactor(")) {
+    shader.fragmentShader = `${KINDLE_FACTOR_GLSL}\n${shader.fragmentShader}`;
+  }
+}
 
 /**
  * Kindles a shared fixture material. `order` is one constant for the whole
  * material, or `"attribute"`: a float `aKindleOrder` per vertex or per
- * instance (station lanterns and shoji carry their station's order).
+ * instance (station lanterns, shoji and the island lanterns carry their own).
  */
 export function patchGardenLanternKindling(material: MeshStandardMaterial, order: number | "attribute"): void {
   const perVertex = order === "attribute";
   chainGardenMaterialPatch(material, {
-    key: perVertex ? "garden-kindle-attribute" : `garden-kindle-${order.toFixed(4)}`,
+    key: perVertex ? "garden-kindle-attribute-v2" : `garden-kindle-v2-${order.toFixed(4)}`,
     compile: (shader) => {
-      shader.uniforms.uGardenKindleProgress = kindleProgress;
       if (perVertex) {
         shader.vertexShader = `attribute float aKindleOrder;\nvarying float vKindleOrder;\n${shader.vertexShader}`
           .replace("#include <begin_vertex>", "#include <begin_vertex>\nvKindleOrder = aKindleOrder;");
       }
-      shader.fragmentShader = `uniform float uGardenKindleProgress;\n${perVertex ? "varying float vKindleOrder;\n" : ""}${KINDLE_FACTOR_GLSL}\n${shader.fragmentShader}`
+      shader.fragmentShader = `${perVertex ? "varying float vKindleOrder;\n" : ""}${shader.fragmentShader}`
         .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
 totalEmissiveRadiance *= gardenKindleFactor(${perVertex ? "vKindleOrder" : order.toFixed(4)});`);
+      bindGardenKindleUniforms(shader);
     },
   });
 }
@@ -103,23 +181,23 @@ export function patchGardenToroKindling(material: MeshStandardMaterial, chamber:
   const previousKey = material.customProgramCacheKey();
   material.onBeforeCompile = (shader, renderer) => {
     previousCompile.call(material, shader, renderer);
-    shader.uniforms.uGardenKindleProgress = kindleProgress;
     shader.uniforms.uToroEmber = toroEmber;
     shader.uniforms.uToroMin = toroMin;
     shader.uniforms.uToroMax = toroMax;
     shader.vertexShader = `varying vec3 vToroPosition;\n${shader.vertexShader}`
       .replace("#include <begin_vertex>", "#include <begin_vertex>\nvToroPosition = transformed;");
-    shader.fragmentShader = `uniform float uGardenKindleProgress;\n${KINDLE_FACTOR_GLSL}\nuniform vec3 uToroEmber;\nuniform vec3 uToroMin;\nuniform vec3 uToroMax;\nvarying vec3 vToroPosition;\n${shader.fragmentShader}`
+    shader.fragmentShader = `uniform vec3 uToroEmber;\nuniform vec3 uToroMin;\nuniform vec3 uToroMax;\nvarying vec3 vToroPosition;\n${shader.fragmentShader}`
       .replace("#include <emissivemap_fragment>", `
       #include <emissivemap_fragment>
       {
         vec3 toroInside = step(uToroMin, vToroPosition) * step(vToroPosition, uToroMax);
         totalEmissiveRadiance += uToroEmber
-          * (toroInside.x * toroInside.y * toroInside.z * gardenKindleFactor(1.0));
+          * (toroInside.x * toroInside.y * toroInside.z * gardenKindleFactor(${GARDEN_KINDLE_ORDER.toro.toFixed(1)}));
       }
     `);
+    bindGardenKindleUniforms(shader);
   };
-  material.customProgramCacheKey = () => `${previousKey}:toro-kindling-v2`;
+  material.customProgramCacheKey = () => `${previousKey}:toro-kindling-v3`;
   material.needsUpdate = true;
 }
 

@@ -15,13 +15,39 @@ const foreground: GardenBeatRequest = { kind: "keeper", foreground: true, durati
 afterEach(cleanup);
 
 describe("garden director", () => {
-  it("reserves one foreground and enforces a seeded six-to-twelve minute silence", () => {
+  it("reserves one foreground and enforces a seeded eight-to-twelve minute silence", () => {
     let state = createGardenDirector("harbor");
     expect(requestGardenBeat(state, foreground, 0)).not.toBeNull();
     expect(requestGardenBeat(state, { ...foreground, priority: 99 }, 5)).toBeNull();
-    expect(requestGardenBeat(state, foreground, 369)).toBeNull();
+    expect(requestGardenBeat(state, foreground, 10 + 479)).toBeNull();
     state = advanceGardenDirector(state, 730);
     expect(requestGardenBeat(state, foreground, 730)).not.toBeNull();
+  });
+
+  it("holds any hour to six discrete events with one unbroken 12-minute quiet (§5.0)", () => {
+    const state = createGardenDirector("budget");
+    const starts: number[] = [];
+    for (let second = 0; second < 4 * 3600; second += 1) {
+      const beat = requestGardenBeat(state, { kind: "arrival", foreground: true, durationSeconds: 9, priority: 20 }, second);
+      if (beat) starts.push(second);
+    }
+    for (let windowStart = 0; windowStart + 3600 <= 4 * 3600; windowStart += 60) {
+      const inside = starts.filter((start) => start + 9 > windowStart && start < windowStart + 3600);
+      expect(inside.filter((start) => start >= windowStart).length).toBeLessThanOrEqual(6);
+      let cursor = windowStart;
+      let longest = 0;
+      for (const start of inside) { longest = Math.max(longest, start - cursor); cursor = start + 9; }
+      expect(Math.max(longest, windowStart + 3600 - cursor)).toBeGreaterThanOrEqual(720);
+    }
+    for (let index = 1; index < starts.length; index += 1) expect(starts[index]! - starts[index - 1]! - 9).toBeGreaterThanOrEqual(480);
+  });
+
+  it("backs every discrete event off 90 s after a ritual", () => {
+    const state = createGardenDirector("backoff");
+    expect(requestGardenBeat(state, { kind: "ritual", foreground: false, durationSeconds: 60, priority: 30 }, 0)).not.toBeNull();
+    const arrival = { kind: "arrival", foreground: true, durationSeconds: 9, priority: 20 } as const;
+    expect(requestGardenBeat(state, arrival, 60 + 89)).toBeNull();
+    expect(requestGardenBeat(state, arrival, 60 + 90)).not.toBeNull();
   });
 
   it("market pre-empts foreground and silence while ordinary priority cannot", () => {

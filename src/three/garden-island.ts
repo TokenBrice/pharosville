@@ -44,9 +44,11 @@ import type { SupplyTide } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
 import type { WeatherPlan } from "../systems/weather";
 import { createLighthouse } from "./garden-lighthouse";
+import { GARDEN_KINDLE_ORDER } from "./garden-lanterns";
 import { createGardenPrecinct, GARDEN_PRECINCT_GATE } from "./garden-precinct";
 import { createGardenKoi } from "./garden-koi";
 import { MOON_COLOR, type DayCyclePhase } from "./garden-day-cycle";
+import { gardenMoonPose, type GardenLightPose } from "./garden-sun";
 import { OVERVIEW_LOD_DETAIL_NAMES } from "./garden-overview-lod";
 import { GARDEN_IDENTITY_ANISOTROPY, countDrawableObjects, setTilePosition, stableUnit } from "./garden-util";
 import { sampleTideLine } from "./garden-tide-line";
@@ -166,12 +168,23 @@ function createRakedGravelNormalTexture(): DataTexture {
 // Two stone lanterns punctuate the path rather than outlining it. The former
 // six-lamp run made the terrace read as a lit quay; these two retain the lane
 // contract while leaving the pale gravel itself as the route's large read.
-// W1.9: one at the garden landing, one where the path ends under the crag.
+// W1.9: one at the garden landing. W5.4 (costume audit item 4): the other
+// hangs under the chaseki's south-east eave, so the hut's job is the light
+// the keeper kindles first as he leaves it. Rows: [x, z, hung].
 const ISLAND_LANTERN_POSITIONS = [
-  [15.0, -3.4],
-  [1.9, 1.7],
+  [15.0, -3.4, false],
+  [6.32, 3.15, true],
 ] as const;
 const LANTERN_LAMP_LOCAL_Y = 0.88;
+/** The chaseki's eave line (its root 1.05 plus the roof seat 2.58): a hung lantern's cap meets it. */
+const CHASEKI_EAVE_Y = 3.63;
+/** Kindle order per lantern (K20): the chaseki's first, the landing's as the keeper passes it. */
+const ISLAND_LANTERN_KINDLE_ORDER = [GARDEN_KINDLE_ORDER.landingLantern, GARDEN_KINDLE_ORDER.chasekiLantern] as const;
+
+/** The ground (or, hung, the virtual ground under the eave) each lantern's parts stand on. */
+function islandLanternBaseY(x: number, z: number, hung: boolean): number {
+  return hung ? CHASEKI_EAVE_Y - 1.3 : islandTerrainHeight(x, z);
+}
 
 /** The lamp-box draw, by name, so the day cycle can find its one material. */
 export const ISLAND_LANTERN_LAMP_NAME = "island-lantern-lamps";
@@ -584,9 +597,9 @@ function strataShade(worldY: number): number {
  * for the caller to register as light lanes on the sea.
  */
 export function gardenIslandLanternWorldOffsets(): { x: number; y: number; z: number }[] {
-  return ISLAND_LANTERN_POSITIONS.map(([x, z]) => ({
+  return ISLAND_LANTERN_POSITIONS.map(([x, z, hung]) => ({
     x,
-    y: islandTerrainHeight(x, z) + LANTERN_LAMP_LOCAL_Y,
+    y: islandLanternBaseY(x, z, hung) + LANTERN_LAMP_LOCAL_Y,
     z,
   }));
 }
@@ -1089,7 +1102,8 @@ function gardenGroundWear(x: number, z: number): number {
     (z - GARDEN_POND_CENTER.z) / (GARDEN_POND_RADIUS * 0.68),
   );
   wear = Math.max(wear, 1 - smoothstep01(Math.abs(pondRadius - 1) / 0.18));
-  for (const [px, pz] of ISLAND_LANTERN_POSITIONS) {
+  for (const [px, pz, hung] of ISLAND_LANTERN_POSITIONS) {
+    if (hung) continue;
     wear = Math.max(wear, 1 - smoothstep01(Math.hypot(x - px, z - pz) / 0.48));
   }
   wear = Math.max(wear, 1 - smoothstep01(Math.hypot(x - 7.2, z - 3.2) / 0.7));
@@ -1423,9 +1437,11 @@ function createIslandDecoration(date: Date | undefined): Group {
   );
   caps.name = "island-lantern-caps";
   scratchQuaternion.setFromAxisAngle(UP_AXIS, Math.PI / 4);
-  ISLAND_LANTERN_POSITIONS.forEach(([x, z], index) => {
-    const y = islandTerrainHeight(x, z);
+  ISLAND_LANTERN_POSITIONS.forEach(([x, z, hung], index) => {
+    const y = islandLanternBaseY(x, z, hung);
+    // A hung lantern has no pedestal: its instance collapses to nothing.
     scratchMatrix.makeTranslation(x, y + 0.36, z);
+    if (hung) scratchMatrix.scale(scratchScale.set(0, 0, 0));
     pedestals.setMatrixAt(index, scratchMatrix);
     scratchMatrix.makeTranslation(x, y + LANTERN_LAMP_LOCAL_Y, z);
     lamps.setMatrixAt(index, scratchMatrix);
@@ -1434,6 +1450,10 @@ function createIslandDecoration(date: Date | undefined): Group {
     scratchMatrix.compose(scratchPosition, scratchQuaternion, scratchScale);
     caps.setMatrixAt(index, scratchMatrix);
   });
+  lamps.geometry.setAttribute(
+    "aKindleOrder",
+    new InstancedBufferAttribute(Float32Array.from(ISLAND_LANTERN_KINDLE_ORDER), 1),
+  );
   pedestals.instanceMatrix.needsUpdate = true;
   lamps.instanceMatrix.needsUpdate = true;
   caps.instanceMatrix.needsUpdate = true;
@@ -1674,14 +1694,13 @@ const POND_CENTER_Z = GARDEN_POND_CENTER.z;
 const POND_YAW = -0.18;
 
 /**
- * The two image bearings in the pond's local XY plane. Exported as a small,
+ * The tower image's bearing in the pond's local XY plane. Exported as a small,
  * deterministic geometry contract: the tower streak must point at the actual
- * tower root, while the moon streak must agree with the one light arc.
- * The focused test derives both again from those canonical sources, so a
- * future light or tower move cannot leave these shader constants stale.
+ * tower root; the focused test derives it again from the canonical tower
+ * offset, so a tower move cannot leave this shader constant stale. The moon
+ * image has no fixed axis: `GardenPondReflection.update` mirrors the live moon.
  */
 export const GARDEN_POND_REFLECTION_AXES = {
-  moon: new Vector2(-0.19572, -0.98066),
   tower: new Vector2(
     Math.cos(POND_YAW) * (GARDEN_LIGHTHOUSE_ROOT_OFFSET.x - POND_CENTER_X)
       - Math.sin(POND_YAW) * (GARDEN_LIGHTHOUSE_ROOT_OFFSET.z - POND_CENTER_Z),
@@ -1694,10 +1713,39 @@ interface GardenPondReflectionUniforms {
   uGardenPondMoonColor: { value: Color };
   /** x = tower ink, y = moon light. */
   uGardenPondStrength: { value: Vector2 };
+  /** The moon's specular point on the pond, pond-local XY. */
+  uGardenPondMoonCentre: { value: Vector2 };
+  /** Unit pond-local bearing from that point toward the eye: the road's axis. */
+  uGardenPondMoonAxis: { value: Vector2 };
 }
 
 export interface GardenPondReflection {
-  update: (phase: DayCyclePhase) => void;
+  /**
+   * `hour` and `eye` (world) place the moon's image where a flat mirror puts
+   * it for this viewer; without them (or with the moon down, new, or its
+   * image off the pond) the pond carries no moon.
+   */
+  update: (phase: DayCyclePhase, hour?: number, eye?: Vector3) => void;
+}
+
+/**
+ * Where the moon's image sits on the pond for an eye, in pond-local XY
+ * (the skin's own plane, +Z up out of the water), and the road's axis toward
+ * the eye; null when the eye or the moon is not above the water plane.
+ * A flat mirror sends the eye's ray down to the point whose reflection points
+ * at the moon: eye + t·(d.x, d.y, −d.z), meeting z = 0 at t = eye.z / d.z.
+ */
+export function gardenPondMoonImage(
+  eyeLocal: Vector3,
+  moonLocal: Vector3,
+): { centre: Vector2; axis: Vector2 } | null {
+  if (eyeLocal.z <= 0.05 || moonLocal.z <= 1e-3) return null;
+  const t = eyeLocal.z / moonLocal.z;
+  const centre = new Vector2(eyeLocal.x + t * moonLocal.x, eyeLocal.y + t * moonLocal.y);
+  const axis = new Vector2(-moonLocal.x, -moonLocal.y);
+  if (axis.lengthSq() < 1e-9) axis.set(eyeLocal.x - centre.x, eyeLocal.y - centre.y);
+  if (axis.lengthSq() < 1e-9) axis.set(0, -1);
+  return { centre, axis: axis.normalize() };
 }
 
 function pondReflectionGlsl(): string {
@@ -1710,8 +1758,10 @@ function pondReflectionGlsl(): string {
     float tm=smoothstep(0.,.035,t)*(1.-smoothstep(.965,1.,t))
       *(1.-smoothstep(w-a,w+a,abs(tp.y)))
       *(.62+.38*smoothstep(-.3,.5,sin(tp.x*17.+tp.y*5.)));
-    vec2 mp=vec2(dot(p,vec2(-.19572,-.98066)),dot(p,vec2(.98066,-.19572)));
-    float mm=exp(-mp.y*mp.y/.16)*(1.-smoothstep(2.4,3.35,abs(mp.x)))
+    // The moon's image: a short broken road from its specular point toward the eye.
+    vec2 md=p-uGardenPondMoonCentre;
+    vec2 mp=vec2(dot(md,uGardenPondMoonAxis),dot(md,vec2(-uGardenPondMoonAxis.y,uGardenPondMoonAxis.x)));
+    float mm=exp(-mp.y*mp.y/.16)*smoothstep(-1.1,-.4,mp.x)*(1.-smoothstep(2.4,3.35,mp.x))
       *mix(.38,1.,smoothstep(.1,.78,sin(mp.x*19.+mp.y*4.)*.5+.5));
     outgoingLight*=1.-clamp(tm*uGardenPondStrength.x,0.,.32);
     outgoingLight += uGardenPondMoonColor
@@ -1742,14 +1792,16 @@ function patchGardenPondReflection(
         `#include <common>
 varying vec2 vGardenPondPosition;
 uniform vec3 uGardenPondMoonColor;
-uniform vec2 uGardenPondStrength;`,
+uniform vec2 uGardenPondStrength;
+uniform vec2 uGardenPondMoonCentre;
+uniform vec2 uGardenPondMoonAxis;`,
       )
       .replace(
         "#include <opaque_fragment>",
         `${pondReflectionGlsl()}\n#include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => "garden-pond-reflection-v1";
+  material.customProgramCacheKey = () => "garden-pond-reflection-v2";
 }
 
 function createIslandReflectionPond(): { reflection: GardenPondReflection; root: Group } {
@@ -1760,6 +1812,8 @@ function createIslandReflectionPond(): { reflection: GardenPondReflection; root:
   const uniforms: GardenPondReflectionUniforms = {
     uGardenPondMoonColor: { value: MOON_COLOR.clone() },
     uGardenPondStrength: { value: new Vector2(0.08, 0) },
+    uGardenPondMoonCentre: { value: new Vector2(0, 0) },
+    uGardenPondMoonAxis: { value: new Vector2(0, -1) },
   };
   const pondMaterial = new MeshStandardMaterial({
     color: "#244c4f",
@@ -1800,11 +1854,33 @@ function createIslandReflectionPond(): { reflection: GardenPondReflection; root:
   root.add(rim);
   const koi = createGardenKoi();
   root.add(koi.mesh);
+  const moonPose: GardenLightPose = { direction: new Vector3(0, 1, 0), elevation: Math.PI / 2 };
+  const toLocal = new Matrix4();
+  const eyeLocal = new Vector3();
+  const moonLocal = new Vector3();
   const reflection: GardenPondReflection = {
-    update: (phase) => {
+    update: (phase, hour, eye) => {
+      let moonImage = 0;
+      if (hour !== undefined && eye) {
+        gardenMoonPose(hour, moonPose);
+        pond.updateWorldMatrix(true, false);
+        toLocal.copy(pond.matrixWorld).invert();
+        eyeLocal.copy(eye).applyMatrix4(toLocal);
+        // A direction: rotate only (the pond ellipse scale lives in its geometry).
+        moonLocal.copy(moonPose.direction).transformDirection(toLocal);
+        const image = gardenPondMoonImage(eyeLocal, moonLocal);
+        if (image) {
+          uniforms.uGardenPondMoonCentre.value.copy(image.centre);
+          uniforms.uGardenPondMoonAxis.value.copy(image.axis);
+          // Off the water the pond shows none of it; the road fades as its
+          // specular point leaves the ellipse.
+          const radius = Math.hypot(image.centre.x / GARDEN_POND_RADIUS, image.centre.y / (GARDEN_POND_RADIUS * 0.68));
+          moonImage = (moonPose.moonLight ?? 0) * (1 - Math.min(1, Math.max(0, (radius - 0.85) / 0.4)));
+        }
+      }
       uniforms.uGardenPondStrength.value.set(
         phase.daylight * 0.1 + phase.dusk * 0.3 + phase.night * 0.2,
-        phase.night * 0.34 + phase.dusk * 0.19,
+        (phase.night * 0.34 + phase.dusk * 0.19) * moonImage,
       );
     },
   };

@@ -21,7 +21,7 @@ import {
   gardenFleetClothWeave,
   gardenFleetFramingRestraint,
   gardenFleetMarkPresence,
-  gardenFleetShipIsHero,
+  gardenFleetShipHeroWeight,
   gardenFleetPackSailAttention,
   gardenFleetPackSailCell,
   gardenFleetUnpackSailAttention,
@@ -332,6 +332,60 @@ describe("fleet batches", () => {
     disposeFleetBatches(batches);
   });
 
+  it("dissolves a ship across the ink boundary over the fade, covering it once", () => {
+    const batches = buildBatches(FLEET_HERO_BAND_NEAREST + 1);
+    const viewport = { x: 1200, y: 640 };
+    const camera = { offsetX: 600, offsetY: 320, zoom: 0.72 };
+    const eye = cameraEye(cameraPoseFromIso(camera, viewport));
+    const batch = batches.bySilhouette.get("bezaisen")!;
+    const frame = (timeSeconds: number, offset: number) => {
+      beginFleetFrame(batches, { camera, viewport, timeSeconds });
+      for (let near = 0; near < FLEET_HERO_BAND_NEAREST; near += 1) {
+        writeFleetInstance(batches, pose({
+          shipId: `near-${near}`, silhouette: "kobaya", x: eye.x + 10 + near, y: eye.y, z: eye.z,
+        }));
+      }
+      writeFleetInstance(batches, pose({
+        shipId: "crossing", atlasCell: 3, x: eye.x + FLEET_HULL_LOD_DISTANCE + offset, y: eye.y, z: eye.z,
+      }));
+      endFleetFrame(batches);
+    };
+    frame(0, -5);
+    frame(1 / 60, -5);
+    expect(batch.far.mesh.count).toBe(0);
+    // Step past the threshold at 60 Hz: both LODs draw, their dissolves sum to one.
+    let seconds = 1 / 60;
+    let bothFrames = 0;
+    while (seconds < 2) {
+      seconds += 1 / 60;
+      frame(seconds, 5);
+      if (batch.hull.mesh.count === 1 && batch.far.mesh.count === 1) {
+        bothFrames += 1;
+        const full = gardenFleetUnpackSailDistance(batch.sails.sailAttention!.getY(0)).hidden;
+        const ink = gardenFleetUnpackSailDistance(batch.far.sailAttention!.getY(0)).hidden;
+        expect(full + ink).toBeCloseTo(1, 1);
+      }
+      if (batch.hull.mesh.count === 0) break;
+    }
+    expect(bothFrames / 60).toBeGreaterThanOrEqual(0.8);
+    expect(batch.far.mesh.count).toBe(1);
+    expect(gardenFleetUnpackSailDistance(batch.far.sailAttention!.getY(0)).hidden).toBe(0);
+    // Reduced motion cuts straight across.
+    beginFleetFrame(batches, { camera, reducedMotion: true, viewport, timeSeconds: seconds + 1 });
+    for (let near = 0; near < FLEET_HERO_BAND_NEAREST; near += 1) {
+      writeFleetInstance(batches, pose({
+        shipId: `near-${near}`, silhouette: "kobaya", x: eye.x + 10 + near, y: eye.y, z: eye.z,
+      }));
+    }
+    writeFleetInstance(batches, pose({
+      shipId: "crossing", atlasCell: 3, x: eye.x + FLEET_HULL_LOD_DISTANCE - 5, y: eye.y, z: eye.z,
+    }));
+    endFleetFrame(batches);
+    expect(batch.far.mesh.count).toBe(0);
+    expect(batch.hull.mesh.count).toBe(1);
+    disposeFleetBatches(batches);
+  });
+
   it("keeps leaders, the nearest boats and an attended ship rigged at any distance", () => {
     const batches = buildBatches(FLEET_HERO_BAND_NEAREST + 8);
     const viewport = { x: 1200, y: 640 };
@@ -374,24 +428,24 @@ describe("fleet batches", () => {
 
     frame(0, 0);
     frame(1, 0);
-    expect(packedFor("bezaisen", 1)).toMatchObject({ far: false, hero: true });
-    expect(packedFor("bezaisen", 2)).toMatchObject({ far: true, hero: false });
-    expect(packedFor("kobaya", 100)).toMatchObject({ far: false, hero: true });
-    expect(packedFor("junk", 50).hero).toBe(false);
-    expect(gardenFleetShipIsHero(batches, "leader")).toBe(true);
-    expect(gardenFleetShipIsHero(batches, "outsider")).toBe(false);
+    expect(packedFor("bezaisen", 1)).toMatchObject({ far: false, hero: 1 });
+    expect(packedFor("bezaisen", 2)).toMatchObject({ far: true, hero: 0 });
+    expect(packedFor("kobaya", 100)).toMatchObject({ far: false, hero: 1 });
+    expect(packedFor("junk", 50).hero).toBe(0);
+    expect(gardenFleetShipHeroWeight(batches, "leader")).toBe(1);
+    expect(gardenFleetShipHeroWeight(batches, "outsider")).toBe(0);
     // A ship the batch never ranked (a GLB hero hull) keeps its lights.
-    expect(gardenFleetShipIsHero(batches, "glb-titan")).toBe(true);
+    expect(gardenFleetShipHeroWeight(batches, "glb-titan")).toBe(1);
 
     // Hovering the far silhouette brings its rig back in the same frame.
     frame(2, 0, 2);
-    expect(packedFor("bezaisen", 2)).toMatchObject({ far: false, hero: true });
+    expect(packedFor("bezaisen", 2)).toMatchObject({ far: false, hero: 1 });
 
     // Joining needs rank ≤ 16; once in, a ship stays until it falls past 20.
     frame(3, -1.5);
-    expect(packedFor("junk", 50).hero).toBe(true);
+    expect(packedFor("junk", 50).hero).toBe(1);
     frame(4, 0);
-    expect(packedFor("junk", 50).hero).toBe(true);
+    expect(packedFor("junk", 50).hero).toBe(1);
     disposeFleetBatches(batches);
   });
 
@@ -848,7 +902,7 @@ describe("eye-distance fleet hierarchy", () => {
       expect(gardenFleetFramingRestraint(distance.getY(index))).toBeCloseTo(0.25);
       expect(gardenFleetMarkPresence(distance.getY(index))).toBeCloseTo(0.3);
       // ...unless the ship is in the hero band, which keeps its full mark.
-      expect(gardenFleetMarkPresence(distance.getY(index), true)).toBe(1);
+      expect(gardenFleetMarkPresence(distance.getY(index), 1)).toBe(1);
     }
     expect(distance.getY(4)).toBeGreaterThan(0);
     expect(distance.getY(4)).toBeLessThan(1);

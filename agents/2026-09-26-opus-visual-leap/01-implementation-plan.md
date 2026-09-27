@@ -463,7 +463,7 @@ textures unchanged; motion stats: calm hulls ≤ 0.1 turns/min at rest, ≤ ~10 
 
 **G4 gate:** 60-minute idle watches at `#t=11` and `#t=17.5` with `--still-camera` and a running clock: ≤ 6
 discrete events/h, one quiet run ≥ 12 min, no two foreground events < 8 min apart; the noon hour logs at most
-one decorative beat; the 17:40–18:25 window logs heron-departs and the kindling ≥ 8 min apart; each ritual
+one decorative beat; the golden-onset → blue-hour edge window (17:55–19:10 on 2026-09-26; solar-relative) logs heron-departs and the kindling ≥ 8 min apart; each ritual
 also forced through the director seam and captured (H6); every new cue has a ledger line and a
 reduced-motion state; kō and phenology fixtures (2026-09-26, mid-November, early April) render as specified.
 
