@@ -6,6 +6,9 @@ import {
   DECORATIVE_VISUAL_NOTES,
   LEGEND_MARK_ROWS,
 } from "./visual-cue-registry";
+import { fixtureWithDepegOn, makerSquadFixtureInputs, makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
+import { buildPharosVilleWorld } from "./pharosville-world";
+import { buildDetailFactSections } from "../lib/format-detail";
 
 const ALLOWED_CHANNELS = [
   "color",
@@ -33,6 +36,29 @@ describe("buildVisualCueRegistry", () => {
     expect(cargo.sourceField).toContain("rendered in-scope");
     expect(cargo.domEquivalent).toContain("estimated allocation");
     expect(cargo.domEquivalent).toContain("Net flow 24h");
+  });
+
+  it("routes selected analytical cue values into the authored host rows", () => {
+    const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky");
+    const world = buildPharosVilleWorld({
+      ...inputs, freshness: { chainsStale: true, pegSummaryStale: true },
+    });
+    const ordinaryWorld = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const cases = [
+      { cueId: "cue.ship.peg-trim", detail: world.detailIndex[world.ships.find((ship) => ship.id === "susds-sky")!.detailId]!, key: "currently", fact: "Peg deviation" },
+      { cueId: "cue.dock.epistemic-haze", detail: world.detailIndex[world.docks[0]!.detailId]!, key: "station", fact: "Quay haze" },
+      { cueId: "cue.world.epistemic-haze", detail: world.detailIndex[world.areas.find((area) => area.band === "CALM")!.detailId]!, key: "atmosphere", fact: "Risk-water haze" },
+      { cueId: "cue.pigeonnier.notable-movers", detail: world.detailIndex[world.pigeonnier.detailId]!, key: "roost", fact: "Depeg roost" },
+      { cueId: "cue.lighthouse.garden-month-record", detail: ordinaryWorld.detailIndex[ordinaryWorld.lighthouse.detailId]!, key: "highWaterMark", fact: "Garden record, 30d" },
+      { cueId: "cue.lighthouse.lamp-status", detail: world.detailIndex[world.lighthouse.detailId]!, key: "harborLight", fact: "Harbor light" },
+    ];
+    for (const entry of cases) {
+      const sections = buildDetailFactSections(entry.detail.facts);
+      const row = [...sections.identity, ...sections.position].find((candidate) => candidate.key === entry.key)!;
+      const fact = entry.detail.facts.find((candidate) => candidate.label === entry.fact)!;
+      expect(row.value).toContain(fact.value);
+      expect(world.visualCues.find((cue) => cue.id === entry.cueId)!.domEquivalent).toContain(row.label);
+    }
   });
 
   it("records sea-edge geography as decorative without adding a ledger cue", () => {

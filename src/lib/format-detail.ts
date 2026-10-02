@@ -32,6 +32,10 @@ export interface CurrentlyParts {
   zone?: string | null;
   stressDriver?: string | null;
   dewsScore?: string | null;
+  pegDeviation?: string | null;
+  evidenceStatus?: string | null;
+  evidence?: string | null;
+  riskTransition?: string | null;
 }
 
 export function composeCurrently(parts: CurrentlyParts): string {
@@ -41,7 +45,13 @@ export function composeCurrently(parts: CurrentlyParts): string {
   const stressDriver = parts.stressDriver?.trim() ?? "";
   const dewsScore = parts.dewsScore?.trim() ?? "";
 
-  const appendStressDriver = (value: string) => [value, stressDriver, dewsScore].filter(Boolean).join(" · ");
+  const appendStressDriver = (value: string) => [
+    [value, stressDriver, dewsScore].filter(Boolean).join(" · "),
+    parts.pegDeviation,
+    parts.evidenceStatus ? `Evidence status: ${parts.evidenceStatus}` : null,
+    parts.evidence ? `Evidence/source: ${parts.evidence}` : null,
+    parts.riskTransition ? `Tracking new risk band: ${parts.riskTransition}` : null,
+  ].filter(Boolean).join("\n");
 
   if (zone && CALM_ZONE.test(zone) && area) {
     const isIdle = position && IDLE_SUFFIX.test(position);
@@ -103,7 +113,42 @@ export type DetailFactKey =
   | "waterStyle"
   | "atmosphere"
   | "sourceFields"
-  | "gardenStone";
+  | "gardenStone"
+  | "evidence"
+  | "evidenceStatus"
+  | "squadOverride"
+  | "routeSource"
+  | "riskTransition"
+  | "chainFootprint"
+  | "psiScore"
+  | "psiBand"
+  | "marketStability"
+  | "snapshot"
+  | "harborLight"
+  | "beamWarmth"
+  | "farShore"
+  | "skyCover"
+  | "gardenRecord"
+  | "dockSupply"
+  | "dockCount"
+  | "harborRank"
+  | "dockShare"
+  | "concentration"
+  | "health"
+  | "quayCondition"
+  | "stationType"
+  | "rimCove"
+  | "quayHaze"
+  | "waterSurface"
+  | "riskWaterHaze"
+  | "channel"
+  | "alerts"
+  | "roost"
+  | "movers"
+  | "symbol"
+  | "cause"
+  | "deathDate"
+  | "peakCap";
 
 export interface DetailFactLike {
   label: string;
@@ -174,6 +219,41 @@ const DETAIL_FACT_LABELS = {
   "source": "sourceFields",
   "source fields": "sourceFields",
   "stone garden": "gardenStone",
+  "evidence": "evidence",
+  "evidence status": "evidenceStatus",
+  "squad override": "squadOverride",
+  "route source": "routeSource",
+  "tracking new risk band": "riskTransition",
+  "chain footprint": "chainFootprint",
+  "score": "psiScore",
+  "band": "psiBand",
+  "market stability": "marketStability",
+  "snapshot as of": "snapshot",
+  "harbor light": "harborLight",
+  "beam warmth cue": "beamWarmth",
+  "far shore": "farShore",
+  "sky cover": "skyCover",
+  "garden record, 30d": "gardenRecord",
+  "stablecoin supply": "dockSupply",
+  "stablecoin count": "dockCount",
+  "harbor rank": "harborRank",
+  "share of stablecoin supply": "dockShare",
+  "concentration": "concentration",
+  "health": "health",
+  "quay condition": "quayCondition",
+  "station type": "stationType",
+  "rim cove": "rimCove",
+  "quay haze": "quayHaze",
+  "water surface": "waterSurface",
+  "risk-water haze": "riskWaterHaze",
+  "channel": "channel",
+  "alerts": "alerts",
+  "depeg roost": "roost",
+  "notable movers": "movers",
+  "symbol": "symbol",
+  "cause": "cause",
+  "date": "deathDate",
+  "peak market cap": "peakCap",
 } as const satisfies Record<string, DetailFactKey>;
 
 export function classifyDetailFactLabel(label: string): DetailFactKey | null {
@@ -287,14 +367,28 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   }
 
   const identity: DetailDisplayRow[] = [];
-  // The live peg reading renders in the header status line (DetailModelStatus
-  // figure), not as a fact row, to hold the <= 8 fact-row density contract.
+  const marketStability = lookup.get("marketStability");
+  if (marketStability) identity.push({
+    key: "marketStability", label: "Market stability",
+    value: [
+      lookup.get("psiScore") ? `PSI ${lookup.get("psiScore")}` : null,
+      lookup.get("psiBand") ? `Band: ${lookup.get("psiBand")}` : null,
+      marketStability,
+      lookup.get("snapshot") ? `Snapshot generated at: ${lookup.get("snapshot")}` : null,
+    ].filter(Boolean).join("\n"),
+  });
+  if (lookup.has("farShore") || lookup.has("skyCover")) identity.push({
+    key: "sky", label: "Sky and far shore",
+    value: [
+      lookup.get("farShore") ? `Far shore: ${lookup.get("farShore")}` : null,
+      lookup.get("skyCover") ? `Sky cover: ${lookup.get("skyCover")}` : null,
+    ].filter(Boolean).join("\n"),
+  });
+  // D10: at most 11 authored ship rows, with qualifiers kept in their host rows.
   const tier = lookup.get("sizeTier");
   const klass = lookup.get("shipClass");
   if (tier || klass) {
-    // The safety grade and the nav/yield mast signal fold into the Class row
-    // (not their own rows) to respect the panel's <= 8 fact-row density
-    // contract.
+    // Class, safety and mast signals share one authored row.
     const composed = [tier, klass, lookup.get("safetyGrade"), lookup.get("mastSignal")]
       .filter(Boolean)
       .join(" · ");
@@ -322,10 +416,29 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   // DISAGREE, so it is an exception report, not a permanent ninth row.
   const dexCrossCheck = lookup.get("dexCrossCheck");
   if (dexCrossCheck) identity.push({ key: "dexCrossCheck", label: "DEX cross-check", value: dexCrossCheck });
-  // Momentum and the (significance-gated) depeg record fold into the 24h row
-  // (not their own rows) to respect the panel's <= 8 fact-row density
-  // contract; the full labels still reach the accessibility ledger as
-  // standalone lines.
+  const dockSupply = lookup.get("dockSupply");
+  if (dockSupply) identity.push({
+    key: "dockSupply", label: "Stablecoin supply",
+    value: [
+      dockSupply,
+      lookup.get("dockCount") ? `${lookup.get("dockCount")} stablecoins` : null,
+      lookup.get("harborRank"), lookup.get("dockShare"),
+    ].filter(Boolean).join("\n"),
+  });
+  const health = lookup.get("health");
+  if (health) identity.push({
+    key: "health", label: "Health",
+    value: [
+      health,
+      lookup.get("concentration") ? `Concentration: ${lookup.get("concentration")}` : null,
+      lookup.get("quayCondition") ? `Quay condition: ${lookup.get("quayCondition")}` : null,
+    ].filter(Boolean).join("\n"),
+  });
+  // Dock panels: chain backing-diversity row (gated upstream on data
+  // presence; dock panels carry far fewer rows than the ship cap).
+  const backingDiversity = lookup.get("backingDiversity");
+  if (backingDiversity) identity.push({ key: "backingDiversity", label: "Backing diversity", value: backingDiversity });
+  // Momentum and significant history qualify the same 24h row (D10).
   const cycle24h = lookup.get("cycle24h");
   const supplyMomentum = lookup.get("supplyMomentum");
   const depegHistory = lookup.get("depegHistory");
@@ -335,8 +448,6 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
       .join(" · ");
     identity.push({ key: "cycle24h", label: "24h change", value });
   }
-  const lastFleetDepeg = lookup.get("lastFleetDepeg");
-  if (lastFleetDepeg) identity.push({ key: "lastFleetDepeg", label: "Last fleet depeg", value: lastFleetDepeg });
   const psiTrend = lookup.get("psiTrend");
   if (psiTrend) identity.push({ key: "psiTrend", label: "Trend", value: psiTrend });
   const psiComposition = lookup.get("psiComposition");
@@ -349,13 +460,25 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   if (signalMast) identity.push({ key: "signalMast", label: "Signal mast", value: signalMast });
   const fleetPeg = lookup.get("fleetPeg");
   if (fleetPeg) identity.push({ key: "fleetPeg", label: "Fleet peg", value: fleetPeg });
+  const harborLight = lookup.get("harborLight");
+  if (harborLight) identity.push({
+    key: "harborLight", label: "Harbor light",
+    value: [
+      `Observed status: ${harborLight}`,
+      lookup.get("beamWarmth") ? `Beam warmth: ${lookup.get("beamWarmth")}` : null,
+      "Appearance eases over ~2 observations",
+    ].filter(Boolean).join("\n"),
+  });
   // 3d and 3c, in the order the eye meets them on the monument: where the light
   // is pointing, then how high the water got. Both are lighthouse-only, so they
   // spend no rows on any ship panel.
   const beamBearing = lookup.get("beamBearing");
   if (beamBearing) identity.push({ key: "beamBearing", label: "Beam bearing", value: beamBearing });
   const highWaterMark = lookup.get("highWaterMark");
-  if (highWaterMark) identity.push({ key: "highWaterMark", label: "Worst band, 30d", value: highWaterMark });
+  if (highWaterMark || lookup.get("gardenRecord")) identity.push({
+    key: "highWaterMark", label: "Worst band, 30d",
+    value: [highWaterMark, lookup.get("gardenRecord") ? `Garden record, 30d: ${lookup.get("gardenRecord")}` : null].filter(Boolean).join("\n"),
+  });
   // Task 14: DOM parity for the tide line on the shore rock and quay walls.
   // Sits beside the high-water mark because both are read off stonework, and
   // the pairing is what keeps a reader from confusing the two marks.
@@ -367,6 +490,8 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   // any ship or dock panel and never claims a reading it did not get.
   const flightToQuality = lookup.get("flightToQuality");
   if (flightToQuality) identity.push({ key: "flightToQuality", label: "Flight to quality", value: flightToQuality });
+  const lastFleetDepeg = lookup.get("lastFleetDepeg");
+  if (lastFleetDepeg) identity.push({ key: "lastFleetDepeg", label: "Last fleet depeg", value: lastFleetDepeg });
   const cycleTempo = lookup.get("cycleTempo");
   const routeCadence = lookup.get("routeCadence");
   if (routeCadence) {
@@ -400,10 +525,6 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   }
   const homeDock = lookup.get("homeDock");
   if (homeDock) identity.push({ key: "homeDock", label: "Home dock", value: homeDock });
-  // Dock panels: chain backing-diversity row (gated upstream on data
-  // presence; dock panels carry far fewer rows than the ship cap).
-  const backingDiversity = lookup.get("backingDiversity");
-  if (backingDiversity) identity.push({ key: "backingDiversity", label: "Backing diversity", value: backingDiversity });
   // Dock panels: the harbour's 24h issuance flow, and the DOM parity for the
   // cargo-tide crates. A row of its own rather than a fold, because direction is
   // the whole reading and folding it behind a separator would bury it.
@@ -411,12 +532,38 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   if (netFlow24h) identity.push({ key: "netFlow24h", label: "Net flow 24h", value: netFlow24h });
   const waterStyle = lookup.get("waterStyle");
   if (waterStyle) identity.push({ key: "waterStyle", label: "Water style", value: waterStyle });
+  const waterSurface = lookup.get("waterSurface");
+  if (waterSurface) identity.push({ key: "waterSurface", label: "Water surface", value: waterSurface });
   const atmosphere = lookup.get("atmosphere");
-  if (atmosphere) identity.push({ key: "atmosphere", label: "Atmosphere", value: atmosphere });
+  if (atmosphere || lookup.get("riskWaterHaze")) identity.push({
+    key: "atmosphere", label: "Atmosphere",
+    value: [atmosphere, lookup.get("riskWaterHaze") ? `Risk-water haze: ${lookup.get("riskWaterHaze")}` : null].filter(Boolean).join("\n"),
+  });
   const sourceFields = lookup.get("sourceFields");
   if (sourceFields) identity.push({ key: "sourceFields", label: "Source fields", value: sourceFields });
   const gardenStone = lookup.get("gardenStone");
   if (gardenStone) identity.push({ key: "gardenStone", label: "Stone garden", value: gardenStone });
+  if (lookup.has("channel") || lookup.has("alerts")) identity.push({
+    key: "channel", label: "Channel / Alerts",
+    value: [lookup.get("channel"), lookup.get("alerts")].filter(Boolean).join("\n"),
+  });
+  if (lookup.has("roost") || lookup.has("movers")) identity.push({
+    key: "roost", label: "Roost / Movers",
+    value: [
+      lookup.get("roost") ? `Depeg roost: ${lookup.get("roost")}` : null,
+      lookup.get("movers") ? `Notable movers: ${lookup.get("movers")}` : null,
+    ].filter(Boolean).join("\n"),
+  });
+  const symbol = lookup.get("symbol");
+  if (symbol) identity.push({ key: "symbol", label: "Symbol", value: symbol });
+  if (lookup.has("cause") || lookup.has("deathDate") || lookup.has("peakCap")) identity.push({
+    key: "lifecycle", label: "Lifecycle",
+    value: [
+      lookup.get("cause"),
+      lookup.get("deathDate"),
+      lookup.get("peakCap") ? `Peak market cap: ${lookup.get("peakCap")}` : null,
+    ].filter(Boolean).join("\n"),
+  });
 
   const position: DetailDisplayRow[] = [];
   const position_ = lookup.get("representativePosition");
@@ -430,12 +577,33 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
     ...(zone_ !== undefined ? { zone: zone_ } : {}),
     ...(stressDriver !== undefined ? { stressDriver } : {}),
     ...(dewsScore !== undefined ? { dewsScore } : {}),
+    pegDeviation: lookup.get("pegDeviation") ?? null,
+    evidenceStatus: lookup.get("evidenceStatus") ?? null,
+    evidence: lookup.get("evidence") ?? null,
+    riskTransition: lookup.get("riskTransition") ?? null,
   });
   if (currently) position.push({ key: "currently", label: "Currently", value: currently });
   const chains = lookup.get("chainsPresent");
-  if (chains) position.push({ key: "chains", label: "Chains", value: chains });
+  if (chains || lookup.has("chainFootprint") || lookup.has("routeSource")) position.push({
+    key: "chains", label: "Chains",
+    value: [
+      chains, lookup.get("chainFootprint"),
+      lookup.get("routeSource") ? `Route source: ${lookup.get("routeSource")}` : null,
+    ].filter(Boolean).join("\n"),
+  });
   const formation = lookup.get("sailingInFormation");
-  if (formation) position.push({ key: "formation", label: "Sailing in formation", value: formation });
+  if (formation || lookup.has("squadOverride")) position.push({
+    key: "formation", label: "Sailing in formation",
+    value: [lookup.get("squadOverride"), formation].filter(Boolean).join("\n"),
+  });
+  if (lookup.has("stationType")) position.push({
+    key: "station", label: "Station",
+    value: [
+      lookup.get("stationType"),
+      lookup.get("rimCove") ? `Rim cove: ${lookup.get("rimCove")}` : null,
+      lookup.get("quayHaze") ? `Quay haze: ${lookup.get("quayHaze")}` : null,
+    ].filter(Boolean).join("\n"),
+  });
 
   return { identity, position };
 }

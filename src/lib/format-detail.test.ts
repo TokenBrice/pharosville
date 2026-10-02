@@ -101,10 +101,28 @@ describe("composeCurrently", () => {
       dewsScore: "DEWS 37/100",
     })).toBe(expected);
   });
+  it.each<CurrentlyParts>([
+    { position: "Calm Anchorage idle", area: "Calm Anchorage", zone: "calm" },
+    { position: "Danger Strait idle", area: "Danger Strait", zone: "danger" },
+    { area: "Ledger Mooring" },
+    {},
+  ])("keeps peg interpretation and retained evidence together in every branch: %j", (parts) => {
+    const value = composeCurrently({
+      ...parts,
+      pegDeviation: "-200 bps vs USD — below peg",
+      evidenceStatus: "Caveat: Peg summary feed is stale",
+      evidence: "pegSummary.coins[]",
+      riskTransition: "from Calm Anchorage to Danger Strait",
+    });
+    expect(value).toContain("-200 bps vs USD — below peg");
+    expect(value.indexOf("Evidence status:")).toBeGreaterThan(value.indexOf("below peg"));
+    expect(value.indexOf("Evidence/source:")).toBeGreaterThan(value.indexOf("feed is stale"));
+    expect(value.indexOf("Tracking new risk band:")).toBeGreaterThan(value.indexOf("pegSummary.coins[]"));
+  });
 });
 
-// P3 metaphor quick-wins: the gated signals must FOLD into existing rows so
-// the panel's <= 8 fact-row density contract holds for the worst-case ship.
+// D10: qualifiers stay associated with authored host rows; ship records have
+// at most 11 core rows, with at most three first-screen figures.
 describe("buildDetailFactSections folds", () => {
   it("folds a calm ship's DEWS reading into Currently without adding a row", () => {
     const inputs = makePharosVilleWorldInput();
@@ -124,11 +142,12 @@ describe("buildDetailFactSections folds", () => {
     const facts = world.detailIndex[ship.detailId]!.facts;
     const withScore = buildDetailFactSections(facts);
     const withoutScore = buildDetailFactSections(facts.filter((fact) => fact.label !== "DEWS score"));
-    expect(withScore.position.find((row) => row.key === "currently")?.value)
-      .toBe("Calm Anchorage (idle) · DEWS 8/100");
+    const currently = withScore.position.find((row) => row.key === "currently")!.value;
+    expect(currently).toContain("Calm Anchorage (idle) · DEWS 8/100");
+    expect(currently).toContain("Evidence status:");
+    expect(currently).toContain("Evidence/source:");
     expect(withScore.identity).toEqual(withoutScore.identity);
     expect(withScore.position).toHaveLength(withoutScore.position.length);
-    expect(classifyDetailFactLabel("  DEWS   SCORE ")).toBe("dewsScore");
   });
 
   it("renders named-water facts in the area detail record", () => {

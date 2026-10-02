@@ -303,7 +303,7 @@ export function lighthouseLampStatusLabel(
   return `${lampStatusReading(deriveLampStatus(freshness))} as of ${lampAsOfLabel(generatedAt)}`;
 }
 
-function chainLabel(chainId: string): string {
+export function chainLabel(chainId: string): string {
   return CHAIN_META[chainId]?.name ?? chainId;
 }
 
@@ -372,7 +372,7 @@ function stationTypeLabel(type: DockNode["station"]["type"]): string {
   return type.split("-").map((part) => part[0]!.toUpperCase() + part.slice(1)).join(" ");
 }
 
-function chainsPresentLabel(node: ShipNode): string {
+export function chainsPresentLabel(node: ShipNode): string {
   if (node.chainPresence.length === 0) return "0 positive chain deployments";
   const topChains = node.chainPresence
     .slice(0, 3)
@@ -383,7 +383,7 @@ function chainsPresentLabel(node: ShipNode): string {
   return `${pluralize(node.chainPresence.length, "positive chain deployment")}: ${topChains}${suffix}`;
 }
 
-function chainFootprintLabel(node: ShipNode): string {
+export function chainFootprintLabel(node: ShipNode): string {
   const chainCount = node.chainPresence.length;
   const renderedDockCount = node.dockVisits.length;
   let footprint = "No chain footprint";
@@ -598,7 +598,7 @@ export function dewsScoreLabel(
   return `DEWS ${Math.round(Math.max(0, Math.min(100, score)))}/100`;
 }
 
-function evidenceStatusLabel(node: ShipNode): string {
+export function evidenceStatusLabel(node: ShipNode): string {
   return node.placementEvidence.stale ? `Caveat: ${node.placementEvidence.reason}` : "Fresh current placement evidence";
 }
 
@@ -1250,9 +1250,8 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
 
   const momentum = supplyMomentumLabel(node);
   const depegHistory = depegHistoryLabel(node.depegHistory);
-  // P3 metaphor quick-wins — all significance-gated (see the label helpers),
-  // and folded into existing panel rows by `buildDetailFactSections` so the
-  // <= 8 fact-row density contract holds even when every gate fires.
+  // Significance-gated qualifiers fold into authored host rows: D10 permits
+  // at most 11 core ship rows, including Formation and a DEX exception.
   const priceConfidence = priceConfidenceLabel(node.asset);
   const sourceConsensus = sourceConsensusLabel(node.asset);
   const safetyGrade = safetyGradeLabel(node.safetyGrade);

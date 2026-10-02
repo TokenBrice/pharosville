@@ -9,6 +9,15 @@ import { shipIssuanceLedgerClause } from "../systems/ship-issuance";
 import { gardenMonthRecordLedgerClause } from "../systems/garden-month-record";
 import {
   beamDwellLabel,
+  backingDiversityLabel,
+  chainLabel,
+  chainsPresentLabel,
+  chainFootprintLabel,
+  evidenceStatusLabel,
+  lighthouseLampStatusLabel,
+  priceConfidenceLabel,
+  sourceConsensusLabel,
+  squadOverrideBanner,
   depegHistoryLabel,
   dexCrossCheckLabel,
   highWaterMarkLabel,
@@ -38,11 +47,11 @@ import {
   gardenStoneLabel,
 } from "../systems/detail-model";
 import { recentFleetTrendSummary, recentFleetTrendSummaryText, seaStateForWorld, seaStateSummary } from "../systems/sea-state";
-import { formatChangePercent, formatCompactUsd } from "../lib/format-detail";
+import { detailFactValue, formatChangePercent, formatCompactUsd } from "../lib/format-detail";
 import type { GardenAlmanacDay, GardenAlmanacLogEntry } from "../systems/garden-almanac";
 import type { HarborLogEntry } from "../hooks/use-harbor-log";
 import { pigeonnierRoostLabel } from "../systems/pigeonnier-watch";
-import { deriveEpistemicHaze, epistemicHazeLabel } from "../systems/epistemic-haze";
+import { deriveEpistemicHaze, epistemicHazeLabel, quayHazeLabel } from "../systems/epistemic-haze";
 import { farShoreLabel, skyCoverLabel } from "../systems/psi-sky";
 import { motionCadenceDetailLabel } from "../systems/motion-config";
 
@@ -165,6 +174,7 @@ function AccessibilityLedgerContent({
   // them together is what stops a listener merging them.
   const supplyTide = supplyTideLabel(world.supplyTide);
   const recentFleetTrend = recentFleetTrendSummary(world);
+  const lighthouseFacts = world.detailIndex[world.lighthouse.detailId]?.facts ?? [];
 
   return (
     <section
@@ -231,6 +241,9 @@ function AccessibilityLedgerContent({
           <dd>
             {world.lighthouse.label}: PSI {world.lighthouse.score ?? "unavailable"}, band{" "}
             {world.lighthouse.psiBand ?? "unavailable"}. {lighthouseBeamWarmCueLabel(world.areas)}
+            {` Observed Harbor light: ${lighthouseLampStatusLabel(world.freshness, world.generatedAt)}; appearance eases over ~2 observations.`}
+            {` Market stability: ${detailFactValue(lighthouseFacts, "marketStability") ?? "unavailable"}.`}
+            {` Last fleet depeg: ${detailFactValue(lighthouseFacts, "lastFleetDepeg") ?? "None on record"}.`}
             {lighthouseTrend ? ` Trend: ${lighthouseTrend}.` : ""}
             {lighthouseComposition ? ` Composition: ${lighthouseComposition}.` : ""}
             {lighthouseContributors ? ` Top contributors: ${lighthouseContributors}.` : ""}
@@ -314,8 +327,8 @@ function AccessibilityLedgerContent({
             {presentation === "visible" ? <details className="pharosville-ledger__record">
               <summary>{dock.label} — {formatCompactUsd(dock.totalUsd)} supply</summary>
               {onSelectDetail && <button type="button" onClick={() => onSelectDetail(dock.detailId)}>Select in harbor</button>}
-              <p>{dockLedgerLine(dock)}</p>
-            </details> : dockLedgerLine(dock)}
+              <p>{dockLedgerLine(dock, world.freshness)}</p>
+            </details> : dockLedgerLine(dock, world.freshness)}
           </li>
         ))}
       </ol>
@@ -436,7 +449,7 @@ function AccessibilityLedgerContent({
 
 export const AccessibilityLedger = memo(AccessibilityLedgerContent);
 
-function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
+function dockLedgerLine(dock: PharosVilleWorld["docks"][number], freshness: PharosVilleWorld["freshness"]): string {
   const harboredStablecoins = dock.harboredStablecoins
     .map((coin) => `${coin.symbol} ${formatCompactUsd(coin.supplyUsd)}`)
     .join(", ") || "no listed stablecoins";
@@ -453,6 +466,8 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
   const supplyChange = dockSupplyChangeLabel(dock);
   const supplyMomentum = dockSupplyMomentumLabel(dock);
   const quayMasonry = quayMasonryLabel(dock);
+  const backingDiversity = backingDiversityLabel(dock.backingDiversity);
+  const haze = deriveEpistemicHaze(freshness);
   return [
     `${dock.label}: ${dock.station.type.replaceAll("-", " ")} station at ${dock.station.coveId} cove, ${formatCompactUsd(dock.totalUsd)} stablecoin supply`,
     harborRank,
@@ -461,6 +476,8 @@ function dockLedgerLine(dock: PharosVilleWorld["docks"][number]): string {
     `${dock.stablecoinCount} stablecoins`,
     `health ${dock.healthBand ?? "unavailable"}`,
     quayMasonry ? `quay condition ${quayMasonry}` : null,
+    backingDiversity ? `backing diversity ${backingDiversity}` : null,
+    haze.quays ? `Quay haze: ${quayHazeLabel(haze)}` : null,
     supplyChange ? `24h supply change ${supplyChange}` : null,
     supplyMomentum ? `supply momentum ${supplyMomentum}` : null,
     netFlow24h ? `net flow 24h ${netFlow24h}` : null,
@@ -521,6 +538,9 @@ function shipLedgerLine(
   const safetyGrade = safetyGradeLabel(ship.safetyGrade);
   const stressDriver = stressBreakdownLabel(ship);
   const dewsScore = dewsScoreLabel(ship);
+  const ownDistress = squadOverrideBanner(ship);
+  const priceConfidence = priceConfidenceLabel(ship.asset);
+  const sourceConsensus = sourceConsensusLabel(ship.asset);
   return [
     `${ship.label} (${ship.symbol}): ${formatCompactUsd(ship.marketCapUsd)} market cap${fleetMarketContext}, placed at ${placement}`,
     `risk anchor ${ship.riskPlacement}`,
@@ -528,8 +548,15 @@ function shipLedgerLine(
     ...(dewsScore ? [dewsScore] : []),
     `livery ${ship.visual.livery.label}, ${ship.visual.livery.logoShape} logo shape, ${ship.visual.livery.sailPanel} sail panel, ${ship.visual.livery.stripePattern} brand stripe`,
     `placement evidence ${ship.placementEvidence.reason}`,
-    `evidence status ${ship.placementEvidence.stale ? "caveat" : "fresh"}`,
+    `evidence status ${evidenceStatusLabel(ship)}`,
     `source fields ${ship.placementEvidence.sourceFields.join(", ") || "unavailable"}${ship.visual.uniqueRationale ? ` — heritage hull: ${ship.visual.uniqueRationale}` : ""}`,
+    ...(ownDistress ? [`own distress ${ownDistress}`] : []),
+    ...(priceConfidence ? [`price confidence ${priceConfidence}`] : []),
+    ...(sourceConsensus ? [`source consensus ${sourceConsensus}`] : []),
+    `class ${ship.visual.sizeLabel} · ${ship.visual.classLabel}`,
+    `home dock ${ship.homeDockChainId ? chainLabel(ship.homeDockChainId) : "No rendered dock"}`,
+    `chains ${chainsPresentLabel(ship)}; ${chainFootprintLabel(ship)}`,
+    "route source stablecoins.chainCirculating, pegSummary.coins[], stress.signals[]",
     `cycle tempo ${tempoLabel}; ${cycleTempoReadingClause()}`,
     `route cadence ${motionCadenceDetailLabel()}`,
     shipIssuanceLedgerClause(ship),
@@ -588,10 +615,10 @@ function orderSquadShips(ships: readonly ShipNode[], squad: StablecoinSquad): Sh
 
 function generatedAtLabel(generatedAt: PharosVilleWorld["generatedAt"]) {
   if (generatedAt == null || !Number.isFinite(generatedAt) || generatedAt <= 0) {
-    return "Generated at unknown time";
+    return "Snapshot generated at unknown time";
   }
   const iso = new Date(generatedAt).toISOString();
-  return <>Generated at <time dateTime={iso}>{iso}</time></>;
+  return <>Snapshot generated at <time dateTime={iso}>{iso}</time></>;
 }
 
 function freshnessEntries(world: PharosVilleWorld) {

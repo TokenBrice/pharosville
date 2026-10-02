@@ -58,6 +58,22 @@ pins are not authority over the accepted picture.
 
 - At rest the world carries three coarse readings: tower = PSI, water = risk band,
   hero ships = who leads. Exact information lives in the DOM, not more ornament.
+- The detail plaque quotes at most three first-screen figures. Its explicit
+  `Read the record` rows are bounded: ship ≤11 core rows (including Formation
+  and a DEX exception), lighthouse ≤12, harbour ≤6, pigeonnier 2 and grave ≤3.
+  Material qualifiers stay with the quantity they explain; unknown labels are
+  never dumped into the record. Currently carries full signed peg/actual trim,
+  placement evidence status and source, and active risk-band tracking. Formation
+  leads with the selected member's own distress without changing shared berths.
+  Chain shares, footprint and route source remain inspectable together.
+- Harbor light names the observed source status, separately from Beam warmth;
+  appearance eases over about two observations. Snapshot generation is labeled
+  as a snapshot, never as a PSI observation time. Month garden history is a
+  distinct clause beside the worst-band mark, not the same measurement.
+  This record repair exposes existing values only; upstream source observation
+  times and issuance coverage are not inferred from snapshot generation.
+  Coverage: `src/components/detail-panel.test.tsx`,
+  `src/components/accessibility-ledger.test.tsx`, `src/lib/format-detail.test.ts`.
 - A ship's own finite DEWS score is shown as `DEWS n/100`, folded after the
   stress driver in Currently and repeated bare in its ledger line. Consorts
   retain their own score even though placement inherits the flagship's depth.

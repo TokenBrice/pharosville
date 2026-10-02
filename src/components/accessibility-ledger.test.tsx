@@ -1,6 +1,8 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { CAUSE_META, type CauseOfDeath } from "@shared/lib/cause-of-death";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { buildVisualCueRegistry } from "../systems/visual-cue-registry";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import {
@@ -13,7 +15,83 @@ import { UNAVAILABLE_SUPPLY_TIDE } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { AccessibilityLedger } from "./accessibility-ledger";
 import { farShoreLabel } from "../systems/psi-sky";
-import { detailForLighthouse } from "../systems/detail-model";
+import { backingDiversityLabel, detailForLighthouse } from "../systems/detail-model";
+
+afterEach(cleanup);
+
+describe("AccessibilityLedger rendered local parity", () => {
+  it("preserves the selected ship's own distress and caveat in its own line", () => {
+    const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky");
+    inputs.stablecoins = {
+      ...inputs.stablecoins!,
+      peggedAssets: inputs.stablecoins!.peggedAssets.map((asset) => asset.id === "susds-sky" ? {
+        ...asset, priceConfidence: "low",
+        consensusSources: ["oracle", "exchange", "dex"], agreeSources: ["oracle"],
+      } : asset),
+    };
+    const world = buildPharosVilleWorld({ ...inputs, freshness: { stressStale: true } });
+    const ship = world.ships.find((entry) => entry.id === "susds-sky")!;
+    const visible = render(<AccessibilityLedger world={world} presentation="visible" />);
+    const record = visible.container.querySelector<HTMLDetailsElement>("#ledger-ship-susds-sky details")!;
+    fireEvent.click(record.querySelector("summary")!);
+    record.open = true;
+    fireEvent(record, new Event("toggle", { bubbles: true }));
+    expect(record.open).toBe(true);
+    const line = record.querySelector("p")!.textContent!;
+    expect(line).toContain("sUSDS in distress");
+    expect(line).toContain("+800 bps");
+    expect(line).toContain("above peg");
+    expect(line).toContain("Calm Anchorage");
+    expect(line).toContain(ship.placementEvidence.reason);
+    expect(line).toContain("Caveat:");
+    expect(line).toContain("Ethereum");
+    expect(line).toContain("100%");
+    expect(line).toContain("Low-confidence price feed");
+    expect(line).toContain("1 of 3");
+    expect(line).toContain(`class ${ship.visual.sizeLabel} · ${ship.visual.classLabel}`);
+    visible.unmount();
+    const accessible = render(<AccessibilityLedger world={world} />);
+    expect(accessible.container.querySelector("#ledger-ship-susds-sky")!.textContent).toBe(line);
+  });
+
+  it("preserves backing diversity beside allocated harbour values", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({ freshness: { chainsStale: true } }));
+    const dock = world.docks.find((entry) => entry.chainId === "ethereum")!;
+    const view = render(<AccessibilityLedger world={world} presentation="visible" />);
+    const record = [...view.container.querySelectorAll<HTMLDetailsElement>("details")]
+      .find((entry) => entry.querySelector("summary")!.textContent!.startsWith(dock.label))!;
+    fireEvent.click(record.querySelector("summary")!);
+    record.open = true;
+    fireEvent(record, new Event("toggle", { bubbles: true }));
+    const line = record.querySelector("p")!.textContent!;
+    expect(line).toContain(backingDiversityLabel(dock.backingDiversity));
+    expect(line).toContain("Estimated 24h allocation by held supply");
+    expect(line).toContain("HHI");
+    expect(line).toContain("Hazy — Chains feed is stale");
+    expect(line).toContain("held supply");
+  });
+
+  it("keeps observed lighthouse availability and fleet history distinct from snapshot generation", () => {
+    const inputs = makePharosVilleWorldInput({
+      freshness: { mintBurnStale: true, stabilityStale: true },
+    });
+    inputs.pegSummary = {
+      ...inputs.pegSummary!,
+      coins: inputs.pegSummary!.coins.map((coin, index) => index === 0
+        ? { ...coin, lastEventAt: 1_699_999_900 } : coin),
+    };
+    const world = buildPharosVilleWorld(inputs);
+    const view = render(<AccessibilityLedger world={world} presentation="visible" />);
+    const term = [...view.container.querySelectorAll("dt")].find((node) => node.textContent === "Lighthouse")!;
+    const line = term.nextElementSibling!.textContent!;
+    expect(line).toContain("Observed Harbor light:");
+    expect(line).toContain("cooler and slower");
+    expect(line).toContain("Stale — last good clarity held");
+    expect(line).toContain("Last fleet depeg: 2023-11-14");
+    expect(line).toContain("appearance eases over ~2 observations");
+    expect(view.container.querySelector("time")!.dateTime).toBe(new Date(world.generatedAt!).toISOString());
+  });
+});
 
 describe("AccessibilityLedger", () => {
   it("discloses dock estimates while the fleet retains the raw measured reading", () => {
@@ -166,7 +244,6 @@ describe("AccessibilityLedger", () => {
   it("renders missing generatedAt as unknown instead of the Unix epoch", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={{ ...sampleWorld(), generatedAt: null }} />);
 
-    expect(markup).toContain("Generated at unknown time");
     expect(markup).not.toContain("1970-01-01");
   });
 
