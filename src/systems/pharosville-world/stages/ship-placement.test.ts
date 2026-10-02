@@ -223,35 +223,64 @@ describe("within-zone DEWS anchoring", () => {
     expect(shipDewsAnchorDepth({ ...stress, score: 140 }, false)).toBe(1);
   });
 
-  it("places a stronger score toward the rough edge of the same named water", () => {
-    const stressEntry = (score: number) => ({
-      band: "WATCH",
-      score,
-      signals: {},
-      computedAt: 1_700_000_000,
-      methodologyVersion: "fixture",
-    });
-    const placedAt = (score: number) => {
-      resetHeldShipPlacements();
-      const world = buildPharosVilleWorld(makePharosVilleWorldInput({
-        stress: {
-          ...denseFixtureStress,
-          signals: {
-            "usdc-circle": stressEntry(score),
-            "usdt-tether": stressEntry(score),
+  it("holds a ship's tile while its DEWS depth moves less than the sticky gate", () => {
+    const stressEntry = {
+      band: "WATCH", score: 30, signals: {},
+      computedAt: 1_700_000_000, methodologyVersion: "fixture",
+    };
+    // Each build gets fresh inputs: mutating a cached inputs object would
+    // return the prior fleet rather than exercise the sticky placement gate.
+    const before = buildPharosVilleWorld(makePharosVilleWorldInput({
+      stress: { ...denseFixtureStress, signals: { "usdt-tether": stressEntry } },
+    }));
+    for (const score of [31, 32, 33]) {
+      const after = buildPharosVilleWorld(makePharosVilleWorldInput({
+        stress: { ...denseFixtureStress, signals: { "usdt-tether": { ...stressEntry, score } } },
+      }));
+      expect(after.ships.find((ship) => ship.id === "usdt-tether")?.riskDepth).toBe(score / 100);
+      expect(tileOf(after.ships, "usdt-tether")).toBe(tileOf(before.ships, "usdt-tether"));
+    }
+  });
+
+  it("keeps every cold DEWS sweep tile in legal, collision-free water", () => {
+    for (const id of ["usdt-tether", "usdc-circle", "usde-ethena"]) {
+      for (const score of [5, 25, 50, 75, 95]) {
+        resetHeldShipPlacements();
+        resetHeldMoorings();
+        const world = buildPharosVilleWorld(denseInputs({
+          stress: {
+            ...denseFixtureStress,
+            signals: {
+              ...denseFixtureStress.signals,
+              [id]: { ...denseFixtureStress.signals[id]!, score },
+            },
+          },
+        }));
+        const spread = world.ships.filter((ship) => ship.squadRole !== "consort");
+        const tiles = spread.map((ship) => `${ship.riskTile.x}.${ship.riskTile.y}`);
+        expect(new Set(tiles).size).toBe(tiles.length);
+        expect(spread.filter((ship) => !isRiskPlacementWaterTile(ship.riskTile, ship.riskPlacement))
+          .map((ship) => ship.id)).toEqual([]);
+      }
+    }
+  });
+
+  it.each<[number, number | null]>([
+    [140, 100], [-4, 0], [Number.NaN, null], [Number.POSITIVE_INFINITY, null],
+  ])("retains only a finite bounded own score %s as %s", (score, expected) => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({
+      stress: {
+        ...denseFixtureStress,
+        signals: {
+          "usdc-circle": {
+            band: "WATCH", score, signals: {},
+            computedAt: 1_700_000_000, methodologyVersion: "fixture",
           },
         },
-      }));
-      return world.ships.find((ship) => ship.id === "usdt-tether")!;
-    };
-    // RIM FIELD: the Watch bridge changes farthest-point spreading, so compare one hull across scores instead of two competing berths.
-    const calmward = placedAt(22);
-    const roughward = placedAt(38);
-    expect(calmward.riskWaterLabel).toBe(roughward.riskWaterLabel);
-    expect(calmward.riskDepth).toBe(0.22);
-    expect(roughward.riskDepth).toBe(0.38);
-    expect(roughward.riskTile.x - roughward.riskTile.y)
-      .toBeGreaterThan(calmward.riskTile.x - calmward.riskTile.y);
+      },
+    }));
+    expect(world.ships.find((ship) => ship.id === "usdc-circle")?.dewsScore).toBe(expected);
+    expect(world.ships.find((ship) => ship.id === "usdt-tether")?.dewsScore).toBeNull();
   });
 });
 

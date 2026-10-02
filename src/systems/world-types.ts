@@ -470,7 +470,7 @@ export interface DockNode {
    * (percent units, like `ShipNode.change24hPct`), from `chains.chains[]`.
    *
    * A harbour FILLING or DRAINING, which is not the same statement as
-   * `cargoTide`: that is issuance measured at the quay — coins minted and
+   * `cargoTide`: that is an estimated allocation of coins minted and
    * burned — while this is the chain's total held supply, which also moves when
    * supply bridges in or out without a single coin being created. A chain can
    * be net-burning and still filling, and the two rows sit next to each other
@@ -478,7 +478,8 @@ export interface DockNode {
    */
   change24hPct?: number | null;
   change7dPct?: number | null;
-  /** 24h issuance flow allocated to this harbour by `buildCargoTideStage`;
+  /** Estimated 24h issuance allocation to this harbour by held-supply share,
+      renormalized across rendered in-scope chains by `buildCargoTideStage`;
       drives the cargo-tide crates and the "Net flow 24h" detail row. Absent
       only on docks built outside the world pipeline. */
   cargoTide?: DockCargoTide;
@@ -487,11 +488,12 @@ export interface DockNode {
 }
 
 /**
- * One harbour's share of the fleet's 24h mint/burn flow.
+ * One harbour's estimated allocation of the fleet's 24h mint/burn flow, not
+ * a chain-local measurement. Held-supply shares are renormalized over rendered
+ * harbours inside the payload scope, so hiding a harbour changes the estimate.
  *
- * `tracked` is the load-bearing field: `false` means issuance is not MEASURED
- * for this chain, which is a different statement from a measured zero, and the
- * two must never render alike.
+ * `tracked` means the rendered harbour is inside that scope and has a usable
+ * allocation. An untracked reading must never render as an estimated zero.
  */
 export interface DockCargoTide {
   burnVolumeUsd: number;
@@ -564,8 +566,11 @@ export interface ShipNode {
   riskPlacement: ShipRiskPlacement;
   riskZone: ShipWaterZone;
   riskWaterLabel: string;
-  /** Fresh DEWS score normalized to calm-edge 0 … rough-edge 1 anchoring. */
+  /** Fresh DEWS depth (0…1) biases the preferred berth, not final tile order.
+      Consorts inherit the flagship's depth; sticky placement holds moves <0.02. */
   riskDepth?: number | null;
+  /** The coin's own finite DEWS score, clamped to 0…100, or null if absent. */
+  dewsScore?: number | null;
   placementEvidence: PlacementEvidence;
   stressBreakdown?: { signals: string[]; contagionActive: boolean } | null;
   visual: ShipVisual;

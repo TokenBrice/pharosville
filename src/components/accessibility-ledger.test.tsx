@@ -7,6 +7,7 @@ import {
   fixtureWithDepegOn,
   fixtureWithoutAsset,
   makerSquadFixtureInputs,
+  makePharosVilleWorldInput,
 } from "../__fixtures__/pharosville-world";
 import { UNAVAILABLE_SUPPLY_TIDE } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
@@ -15,6 +16,16 @@ import { farShoreLabel } from "../systems/psi-sky";
 import { detailForLighthouse } from "../systems/detail-model";
 
 describe("AccessibilityLedger", () => {
+  it("discloses dock estimates while the fleet retains the raw measured reading", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+    expect(markup).toContain("net flow 24h Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: ");
+    expect(markup).toContain("measured over Configured issuance chains");
+    expect(world.fleetIssuance).toMatchObject({
+      mintVolumeUsd: 11_000_000, burnVolumeUsd: 6_000_000, netFlowUsd: 5_000_000,
+    });
+  });
+
   it("names the localized stale-feed haze without calling it weather", () => {
     const world = sampleWorld();
     world.freshness = { chainsStale: true, pegSummaryStale: true };
@@ -313,7 +324,7 @@ describe("AccessibilityLedger", () => {
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("net flow 24h +$8.0M minting");
+    expect(markup).toContain("net flow 24h Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: +$8.0M minting");
     expect(markup).toContain("net flow 24h Not measured on this chain");
   });
 

@@ -25,7 +25,7 @@ import {
   psiContributorLabel,
   psiTrendLabel,
   quayMasonryLabel,
-  riskAnchoringDepthLabel,
+  dewsScoreLabel,
   safetyGradeLabel,
   shareOfFleetLabel,
   shipAgeLedgerClause,
@@ -520,12 +520,12 @@ function shipLedgerLine(
     : "";
   const safetyGrade = safetyGradeLabel(ship.safetyGrade);
   const stressDriver = stressBreakdownLabel(ship);
-  const riskDepth = riskAnchoringDepthLabel(ship);
+  const dewsScore = dewsScoreLabel(ship);
   return [
     `${ship.label} (${ship.symbol}): ${formatCompactUsd(ship.marketCapUsd)} market cap${fleetMarketContext}, placed at ${placement}`,
     `risk anchor ${ship.riskPlacement}`,
     `route summary: ${pluralize(ship.chainPresence.length, "positive chain deployment")}, ${pluralize(ship.dockVisits.length, "rendered dock stop")}, risk water ${ship.riskWaterLabel}, risk zone ${ship.riskZone}`,
-    ...(riskDepth ? [`within-zone anchoring ${riskDepth}`] : []),
+    ...(dewsScore ? [dewsScore] : []),
     `livery ${ship.visual.livery.label}, ${ship.visual.livery.logoShape} logo shape, ${ship.visual.livery.sailPanel} sail panel, ${ship.visual.livery.stripePattern} brand stripe`,
     `placement evidence ${ship.placementEvidence.reason}`,
     `evidence status ${ship.placementEvidence.stale ? "caveat" : "fresh"}`,

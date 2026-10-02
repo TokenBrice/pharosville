@@ -146,9 +146,8 @@ function shipPlacementAnchor(
   const anchors = body ? seaBodyAnchors(body, ANCHORS_PER_BODY) : [];
   if (anchors.length === 0) return REGION_TILES[placement];
   if (riskDepth !== null) {
-    // Across the authored sea ladder, rougher water runs north-east: map-space
-    // x rises while y falls. Interpolate between ordered body anchors so a
-    // score changes position continuously before the final tile snap.
+    // Interpolate ordered body anchors to bias the preferred tile. The snap
+    // and spacing-dominated spread do not order final berths by DEWS score.
     const ordered = anchors.toSorted((left, right) => (
       (left.x - left.y) - (right.x - right.y)
       || left.x - right.x
@@ -420,6 +419,9 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       isConsort ? flagshipRisk?.stress : stress,
       inputs.freshness.stressStale === true,
     );
+    const dewsScore = typeof stress?.score === "number" && Number.isFinite(stress.score)
+      ? Math.max(0, Math.min(100, stress.score))
+      : null;
     const riskTile = shipTile(asset, risk.placement, riskDepth);
     const riskWaterArea = riskWaterAreaForPlacement(risk.placement);
     const stressBreakdown = shipStressBreakdown(stress, risk.placement);
@@ -467,6 +469,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       riskZone: riskWaterArea.motionZone,
       riskWaterLabel: riskWaterArea.label,
       riskDepth,
+      dewsScore,
       placementEvidence: risk.evidence,
       ...(stressBreakdown ? { stressBreakdown } : {}),
       visual: {
@@ -539,11 +542,11 @@ export function countShipsByRiskPlacement(
  * an ambient view can least afford.
  *
  * So the build is deterministic given (inputs, previous placements) rather than
- * inputs alone: a ship keeps its tile while its RISK PLACEMENT is unchanged and
- * the tile is still legal water for that placement. Consorts are never held —
- * they snap to their flagship's tile plus a formation offset, so holding the
- * flagship already holds them, and holding them independently would let a
- * formation break apart when its flagship moves.
+ * inputs alone: a ship keeps its tile while its RISK PLACEMENT is unchanged,
+ * its depth moves less than 0.02 and the tile is still legal water for that
+ * placement. Consorts are never held — they snap to their flagship's tile plus
+ * a formation offset, so holding the flagship already holds them, and holding
+ * them independently would let a formation break apart when its flagship moves.
  */
 type HeldRiskTile = {
   placement: ShipRiskPlacement;
@@ -799,6 +802,7 @@ function spacedRiskPlacementTile(input: {
     const preferredDx = candidate.x - input.preferred.x;
     const preferredDy = candidate.y - input.preferred.y;
     const preferredDistance = Math.sqrt(preferredDx * preferredDx + preferredDy * preferredDy);
+    // Depth biases preference; farthest-point spacing dominates the final tile.
     const preferredWeight = input.riskDepth === null ? 0.1 : 150;
     const base = input.hasPlaced
       ? input.spacingToNearest[index]! * 1000 - preferredDistance * preferredWeight

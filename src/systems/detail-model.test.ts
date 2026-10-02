@@ -6,6 +6,7 @@ import {
   backingDiversitySeverity,
   beamDwellLabel,
   depegHistoryLabel,
+  dewsScoreLabel,
   dexCrossCheckLabel,
   highWaterMarkLabel,
   detailForArea,
@@ -57,6 +58,25 @@ import {
   makePharosVilleWorldInput,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
+
+describe("dewsScoreLabel", () => {
+  it.each<[number | null | undefined, string | null]>([
+    [0, "DEWS 0/100"],
+    [5, "DEWS 5/100"],
+    [37.4, "DEWS 37/100"],
+    [37.5, "DEWS 38/100"],
+    [95, "DEWS 95/100"],
+    [100, "DEWS 100/100"],
+    [140, "DEWS 100/100"],
+    [-4, "DEWS 0/100"],
+    [null, null],
+    [undefined, null],
+    [Number.NaN, null],
+    [Number.POSITIVE_INFINITY, null],
+  ])("formats own score %s as %s", (dewsScore, expected) => {
+    expect(dewsScoreLabel(dewsScore === undefined ? {} : { dewsScore })).toBe(expected);
+  });
+});
 
 describe("W5.2 now caption grammar", () => {
   const hour = 12 + 25 / 60;
@@ -1650,17 +1670,17 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       tracked: true,
     };
     expect(cargoTideLabel({ ...base, direction: "minting", netFlowUsd: 8_000_000 }))
-      .toBe("+$8.0M minting — mint $10.0M, burn $2.0M");
+      .toBe("Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: +$8.0M minting — mint $10.0M, burn $2.0M");
     expect(cargoTideLabel({ ...base, direction: "burning", netFlowUsd: -8_000_000 }))
-      .toBe("-$8.0M burning — mint $10.0M, burn $2.0M");
+      .toBe("Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: -$8.0M burning — mint $10.0M, burn $2.0M");
   });
 
   it("cargoTideLabel keeps a balanced quay, an idle one, and an unmeasured one apart", () => {
     const base = { coinCount: 0, pressureScore: null, reason: "tracked" as const, tracked: true };
     expect(cargoTideLabel({ ...base, direction: "flat", netFlowUsd: 0, mintVolumeUsd: 4_000_000, burnVolumeUsd: 4_000_000 }))
-      .toBe("Balanced — mint $4.0M, burn $4.0M");
+      .toBe("Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: Balanced — mint $4.0M, burn $4.0M");
     expect(cargoTideLabel({ ...base, direction: "inactive", netFlowUsd: 0, mintVolumeUsd: 0, burnVolumeUsd: 0 }))
-      .toBe("No issuance activity in 24h");
+      .toBe("Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: No issuance activity in 24h");
     expect(cargoTideLabel({
       burnVolumeUsd: 0,
       coinCount: 0,
@@ -1672,6 +1692,31 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       tracked: false,
     })).toBe("Not measured on this chain");
     expect(cargoTideLabel(undefined)).toBeNull();
+  });
+
+  it("says the quay figure is an allocation estimate only for tracked readings", () => {
+    const base = {
+      burnVolumeUsd: 0,
+      coinCount: 0,
+      mintVolumeUsd: 0,
+      netFlowUsd: 0,
+      pressureScore: null,
+    };
+    const prefix = "Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: ";
+    for (const direction of ["minting", "burning", "flat", "inactive"] as const) {
+      expect(cargoTideLabel({ ...base, direction, reason: "tracked", tracked: true }))
+        .toMatch(new RegExp(`^${prefix}`));
+    }
+    for (const [reason, expected] of [
+      ["chain-not-in-scope", "Not measured on this chain"],
+      ["scope-unreported", "Unavailable — issuance scope unreported"],
+      ["unattributed", "Unavailable — 24h issuance could not be matched to this harbor's coins"],
+      ["no-flow-data", "Unavailable — no issuance feed"],
+    ] as const) {
+      const reading = cargoTideLabel({ ...base, direction: "inactive", reason, tracked: false });
+      expect(reading).toBe(expected);
+      expect(reading).not.toContain(prefix);
+    }
   });
 
   it("cargoTideLabel says so when a quay's silence could not be verified", () => {
@@ -1689,7 +1734,6 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       tracked: false,
     });
     expect(label).toBe("Unavailable — 24h issuance could not be matched to this harbor's coins");
-    expect(label).not.toBe("No issuance activity in 24h");
   });
 
   it("detailForDock surfaces Net flow 24h only when the harbour carries a tide", () => {
@@ -1720,7 +1764,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
     };
     expect(detailForDock(dockNode).facts).toContainEqual({
       label: "Net flow 24h",
-      value: "+$8.0M minting — mint $10.0M, burn $2.0M",
+      value: "Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: +$8.0M minting — mint $10.0M, burn $2.0M",
     });
 
     const { cargoTide: _cargoTide, ...withoutTide } = dockNode;
