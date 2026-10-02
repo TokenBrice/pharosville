@@ -1335,6 +1335,8 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
     });
     debugWindow.__pharosVilleDebug = {
       ...framePatch,
+      worldGeneratedAtMs: world.generatedAt,
+      admittedShipDetailIds: () => selectGardenObservatorySlice(world, selectedDetailId).ships.map(({ ship }) => ship.detailId),
       anchors: debugWorldAnchors(world),
       camera,
       surfaceBudget: surfaceBudgetRef.current,
@@ -1397,6 +1399,8 @@ type CompactShipMotionSampleCache = {
 };
 
 type PharosVilleDebugState = {
+  worldGeneratedAtMs: number | null;
+  admittedShipDetailIds: () => string[];
   activeCameraLoopCount: number;
   activeMotionLoopCount: number;
   /** W0.3 world-unit anchors for picture metrics. */
@@ -1640,6 +1644,8 @@ type DebugFramePatchInput = {
 type DebugFramePatch = Omit<
   PharosVilleDebugState,
   | "anchors"
+  | "worldGeneratedAtMs"
+  | "admittedShipDetailIds"
   | "surfaceBudget"
   | "canvasSize"
   | "project"

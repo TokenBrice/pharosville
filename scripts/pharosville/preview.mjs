@@ -95,14 +95,15 @@
  *   --value-plan [noon|dusk|night]  ninths vs the bible table: MAE and Pearson r (column from t= hour)
  *   --night-water              mean L* over the projected inlet water polygon
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { installPreviewFixture, analyzeTargetOverlap } from "./preview-fixture.mjs";
+import { PREVIEW_FIXTURES, installPreviewFixture, analyzeTargetOverlap } from "./preview-fixture.mjs";
+import { buildCaptureManifest } from "./preview-manifest.mjs";
 import { analyzeArtifactFlashFrames } from "./artifact-flash-metric.mjs";
 import {
   bottomThirdHighFrequency,
@@ -154,7 +155,7 @@ if (args["artifact-check"] && args.reduced) {
   throw new Error("--artifact-check needs normal motion; --reduced is intentionally static.");
 }
 const fixture = args.fixture ?? null;
-if (fixture && !["dense", "calm", "stress"].includes(fixture)) throw new Error("--fixture needs dense, calm, or stress");
+if (fixture && !PREVIEW_FIXTURES.includes(fixture)) throw new Error(`--fixture needs one of ${PREVIEW_FIXTURES.join(", ")}`);
 if (fixture && args.refresh) throw new Error("--fixture and --refresh measure different data paths; run them separately");
 const forcedTier = args["force-tier"] ?? null;
 if (forcedTier && !["constrained", "recovery"].includes(forcedTier)) throw new Error("--force-tier needs constrained or recovery (dev server only)");
@@ -352,7 +353,7 @@ try {
     });
   }
 
-  if (fixture) await installPreviewFixture(page, fixture);
+  const fixtureIdentity = fixture ? await installPreviewFixture(page, fixture) : null;
   if (forcedTier) await page.addInitScript((tier) => { window.__pharosVilleTestSchedulerTier = tier; }, forcedTier);
   if (refreshMode) await installRefreshProbe(page);
   if (knockout) await page.addInitScript((passes) => { window.__pharosVilleKnockout = passes; }, knockout);
@@ -376,7 +377,8 @@ try {
     shaderErrors.push(`pageerror: ${String(err.message ?? err).split("\n")[0].slice(0, 300)}`);
   });
 
-  const { renderer, timerQuerySupported } = await readWebglRenderer(page);
+  const { renderer, vendor, timerQuerySupported } = await readWebglRenderer(page);
+  const browserVersion = browser.version();
   console.log(`chrome     ${chromePath}`);
   console.log(`flags      ${await describeOperatorFlags()}`
     + `${uncapped ? ` · launch ${UNCAPPED_CHROME_ARGS.join(" ")} (uncapped: frame p50 is throughput, not vsync)` : ""}`);
@@ -501,6 +503,7 @@ try {
   } else {
     await page.screenshot({ path: outputPath });
   }
+  const captureIdentity = await readCaptureIdentity(page);
   if (args["blur-audit"]) {
     const originalStyle = await canvas.evaluate((element) => {
       const style = element.getAttribute("style");
@@ -679,10 +682,18 @@ try {
   }
 
   if (args.json) {
+    const jsonPath = resolve(outputDirectory, typeof args.json === "string" ? args.json : "preview.json");
+    const capture = buildCaptureManifest({
+      ...readCheckoutIdentity(), ...captureIdentity,
+      viewport: { width, height }, deviceScaleFactor: Number(args.dpr ?? 1),
+      headed: Boolean(args.headed), reduced: Boolean(args.reduced), hash, vendor, browserVersion,
+      fixture: fixtureIdentity, outputs: { screenshot: outputPath, json: jsonPath },
+    });
     await writeFile(
       resolve(outputDirectory, typeof args.json === "string" ? args.json : "preview.json"),
       `${JSON.stringify({
         metrics,
+        capture,
         tailSweep,
         renderer,
         timerQuerySupported,
@@ -693,6 +704,7 @@ try {
         instruments,
       }, null, 2)}\n`,
     );
+    console.log(`manifest ${jsonPath}`);
   }
 } finally {
   await browser.close();
@@ -2236,15 +2248,57 @@ function printDrawOwnerCensus(census) {
   }
 }
 
+function readCheckoutIdentity() {
+  try {
+    const cwd = fileURLToPath(new URL("../..", import.meta.url));
+    const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const status = execFileSync("git", ["status", "--porcelain", "-z"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const entries = status.split("\0");
+    const dirtyPaths = [];
+    for (let i = 0; i < entries.length; i += 1) {
+      if (!entries[i]) continue;
+      dirtyPaths.push(entries[i].slice(3));
+      if (/[RC]/.test(entries[i].slice(0, 2))) dirtyPaths.push(entries[++i]);
+    }
+    return { commit, dirtyPaths };
+  } catch {
+    return { commit: null, dirtyPaths: null };
+  }
+}
+
+async function readCaptureIdentity(page) {
+  return page.evaluate(() => {
+    const debug = window.__pharosVilleDebug;
+    const canvas = document.querySelector('[data-testid="pharosville-canvas"]');
+    const box = canvas?.getBoundingClientRect();
+    const pin = new URLSearchParams(location.hash.slice(1)).get("d");
+    const date = pin ? new Date(`${pin}T12:00:00`) : new Date();
+    return {
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      screen: { width: screen.width, height: screen.height, availWidth: screen.availWidth, availHeight: screen.availHeight, colorDepth: screen.colorDepth, pixelDepth: screen.pixelDepth },
+      devicePixelRatio: window.devicePixelRatio,
+      effectiveDpr: box?.width > 0 ? canvas.width / box.width : null,
+      selectedDetailId: debug?.selectedDetailId ?? null,
+      reducedMotion: debug?.reducedMotion ?? matchMedia("(prefers-reduced-motion: reduce)").matches,
+      worldGeneratedAtMs: debug?.worldGeneratedAtMs ?? null,
+      admittedShipDetailIds: typeof debug?.admittedShipDetailIds === "function" ? debug.admittedShipDetailIds() : null,
+      canvasSize: canvas && box ? { width: canvas.width, height: canvas.height, cssWidth: box.width, cssHeight: box.height } : null,
+      hour: debug?.wallClockHour ?? null,
+      date: date.getTime(),
+    };
+  });
+}
+
 async function readWebglRenderer(page) {
   await page.goto("about:blank");
   return page.evaluate(() => {
     const canvas = document.createElement("canvas");
     const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
-    if (!gl) return { renderer: "NO WEBGL CONTEXT", timerQuerySupported: false };
+    if (!gl) return { renderer: "NO WEBGL CONTEXT", vendor: null, timerQuerySupported: false };
     const ext = gl.getExtension("WEBGL_debug_renderer_info");
     return {
       renderer: ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : "(renderer info unavailable)",
+      vendor: ext ? String(gl.getParameter(ext.UNMASKED_VENDOR_WEBGL)) : null,
       timerQuerySupported: Boolean(gl.getExtension("EXT_disjoint_timer_query_webgl2")),
     };
   });

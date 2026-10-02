@@ -1,3 +1,7 @@
+import { hashFixturePayloads } from "./preview-manifest.mjs";
+
+export const PREVIEW_FIXTURES = ["calm", "dense", "stress", "quiet-dense", "mixed-capacity", "quiet-normal"];
+
 /** Date-only fixture clock. Never install a clock shim over performance, RAF, or timers. */
 export function installFixedDate(epochMs) {
   const NativeDate = globalThis.Date;
@@ -11,30 +15,48 @@ export function installFixedDate(epochMs) {
 
 /** Reuse the visual lane's routes and checked-in payloads; no network fixture copies. */
 export async function installPreviewFixture(page, name) {
+  if (!PREVIEW_FIXTURES.includes(name)) throw new Error(`Unknown fixture: ${name}`);
   const { require: tsxRequire } = await import("tsx/cjs/api");
   const helpers = tsxRequire("../../tests/helpers/pharosville-debug.ts", import.meta.url);
   const data = tsxRequire("../../src/__fixtures__/pharosville-world.ts", import.meta.url);
   const { PHAROSVILLE_API_ENDPOINT_KEYS: keys } = tsxRequire("../../shared/types/pharosville-endpoint-keys.ts", import.meta.url);
+  let sourceEpochMs = data.fixtureGeneratedAt;
+  let payloads;
+  if (["quiet-dense", "mixed-capacity", "quiet-normal"].includes(name)) {
+    const scenarios = tsxRequire("../../src/__fixtures__/data-contract-scenarios.ts", import.meta.url);
+    const input = name === "quiet-dense" ? scenarios.denseQuietArtInput()
+      : name === "mixed-capacity" ? scenarios.denseMixedCapacityInput() : scenarios.quietNormalInput();
+    sourceEpochMs = input.generatedAt;
+    payloads = Object.fromEntries(keys.map((key) => {
+      if (input[key] == null) throw new Error(`Fixture ${name} is missing endpoint ${key}`);
+      return [key, input[key]];
+    }));
+  } else {
+    const dense = name !== "calm";
+    payloads = {
+      stablecoins: dense ? data.denseFixtureStablecoins : data.fixtureStablecoins,
+      chains: dense ? data.denseFixtureChains : data.fixtureChains,
+      stability: !dense ? data.fixtureStability : {
+        ...data.fixtureStability,
+        current: { ...data.fixtureStability.current,
+          ...(name === "dense"
+            ? { band: "ELEVATED", components: { breadth: 26, severity: 54, trend: 12 }, score: 72 }
+            : { score: 12, band: "MELTDOWN", components: { breadth: 85, severity: 95, trend: 80 } }),
+        },
+      },
+      pegSummary: dense ? data.denseFixturePegSummary : data.fixturePegSummary,
+      stress: dense ? data.denseFixtureStress : data.fixtureStress,
+      safetyGrades: dense ? data.denseFixtureSafetyGrades : data.fixtureSafetyGrades,
+      mintBurn: data.fixtureMintBurn,
+    };
+  }
   const options = { meta: Object.fromEntries(keys.map((key) => [key, {
-    updatedAt: data.fixtureGeneratedAt / 1000, ageSeconds: 60, status: "fresh",
+    updatedAt: sourceEpochMs / 1000, ageSeconds: 60, status: "fresh",
   }])) };
   // Fix Date only: RAF, performance.now and real timers keep measuring hardware.
-  await page.addInitScript(installFixedDate, data.fixtureGeneratedAt + 60_000);
-  if (name === "calm") return helpers.mockPharosVilleData(page, options);
-  if (name === "dense") return helpers.mockDensePharosVilleData(page, options);
-  if (name !== "stress") throw new Error(`Unknown fixture: ${name}`);
-  return helpers.mockPharosVillePayloads(page, {
-    stablecoins: data.denseFixtureStablecoins,
-    chains: data.denseFixtureChains,
-    pegSummary: data.denseFixturePegSummary,
-    stress: data.denseFixtureStress,
-    safetyGrades: data.denseFixtureSafetyGrades,
-    mintBurn: data.fixtureMintBurn,
-    stability: {
-      ...data.fixtureStability,
-      current: { ...data.fixtureStability.current, score: 12, band: "MELTDOWN", components: { breadth: 85, severity: 95, trend: 80 } },
-    },
-  }, options);
+  await page.addInitScript(installFixedDate, sourceEpochMs + 60_000);
+  await helpers.mockPharosVillePayloads(page, payloads, options);
+  return { name, sourceEpochMs, payloadHash: hashFixturePayloads(payloads, sourceEpochMs) };
 }
 
 /** Projected hit rectangles are a crowding proxy, not sail pixels or occlusion. */
