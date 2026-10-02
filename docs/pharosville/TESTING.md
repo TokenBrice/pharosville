@@ -106,8 +106,21 @@ remains the crowding arm. `quiet-dense` is the normalized 132-identity art
 baseline: unchanged stocks and identities, quiet peg/DEWS/flow readings, zero
 weekly change and STEADY/82 PSI. `mixed-capacity` keeps those identities with
 crowded risk waters and CRISIS/25 PSI. `quiet-normal` is the two-ship quiet case
-with BEDROCK/98 PSI and inactive issuance. All presets fix Date at the source
-epoch plus 60 seconds, leaving real RAF and performance timing intact.
+with BEDROCK/98 PSI and inactive issuance. Presets default to
+`--fixture-clock fixed`: Date stays at the source epoch plus 60 seconds.
+`--fixture-clock flowing` starts at that same observer origin and advances
+with native elapsed performance time. Exactly one Date observer is installed;
+RAF, performance and timers remain native in either mode. This option requires
+`--fixture`. A fixed observer never releases the director's 90-second initial
+foreground silence (including foreground rituals); use flowing for natural
+attention evidence.
+
+Fixtures default to `#t=12`. Pass `--hash '#'` (or a selection hash without `t=`
+or `n=1`) for a free hour; also keep those pins out of the base URL query.
+With either fixture clock, `--clock` pins only `d=`, not the observer origin.
+That calendar pin holds one day even while Date and the hour advance, so it
+cannot prove multiday behavior. Flowing fixtures serve unchanged rows and
+metadata: they measure snapshot aging, not healthy live producer updates.
 `--overlap` records projected ship hit-rectangle overlap and an annotated
 companion capture; this is a crowding proxy, not sail-pixel occlusion.
 `--pan-zoom` records six gesture frames; `--blur-audit` saves a 16px canvas-blur
@@ -120,7 +133,9 @@ requested DPR (`deviceScaleFactor`), browser DPR and effective canvas DPR,
 screen, IANA timezone, headed/reduced flags, WebGL vendor, browser version,
 selected detail, world generation time, admitted ship detail IDs, canvas size,
 hash, date-aware dominant sky phase (`phaseForHour`), fixture name/source epoch/
-SHA-256 payload hash, and screenshot/JSON output paths. Missing optional
+SHA-256 payload hash, and screenshot/JSON output paths. `capture.observer`
+records observer origin/epoch, Date mode, calendar pin, hour pin and timezone;
+`capture.screenshotTiming` labels the main shot's timing. Missing optional
 evidence is `null` with a reason in `unavailable`; live data and no selection
 are ordinary null states. The identity is sampled beside the main screenshot,
 before any pan/zoom or light-cycle probes. Commit identity describes the
@@ -391,9 +406,10 @@ reports.
 | `--knockout <list>` | sets `window.__pharosVilleKnockout` before load; names: `ao`, `bloom`, `smaa`, `rays`, `reflection`, `grade`, `keyline`, `water-lanes` |
 | `--knockout-compare <list>` | runs the baseline and each named knockout as whole serial previews, one Chrome per arm, alternating for 3 rounds; prints each arm and Δp50/Δp90 = knockout − baseline, averaged over same-round pairs, plus Σ Δp50. Arm captures and JSON land as `<out>-kc-rN-<arm>.{png,json}`; `--json` writes the summary |
 | `--still-camera` | appends `still=1`: no camera breath and no eased moves (idle already holds the rest shot; Wander postcards move only when asked); director, fleet and water keep running |
-| `--clock <ISO>` | pins `Date` to that instant and lets it flow in real time (RAF, `performance.now` and timers stay native), and adds `d=YYYY-MM-DD` (the date as written) to the hash. A bare date is local midnight. Under `--fixture` the fixture's fixed `Date` is kept, so data freshness stays coherent, and only `d=` pins the calendar. Not combinable with `--refresh` |
+| `--clock <ISO>` | starts a flowing Date observer at that instant for live data and adds `d=YYYY-MM-DD` (the date as written) to the hash. A bare date is local midnight. Under `--fixture`, only `d=` is pinned; the selected fixture clock and source+60 s observer origin are unchanged. RAF, performance and timers stay native. Not combinable with `--refresh` |
+| `--fixture-clock fixed\|flowing` | requires `--fixture`; default `fixed` for art stills, `flowing` for observer-time attention and snapshot-aging watches. Use `--hash '#'` to bypass the fixture's noon pin |
 | `--burst N [--interval ms] [--clip x,y,w,h] [--burst-sheet]` | N ordered frames `<out>-burst-NN.png`, paced start to start (default 600 ms), of the canvas or of a viewport clip in CSS pixels; `--burst-sheet` also tiles them into `<out>-burst-sheet.png` |
-| `--stats [--watch-seconds S]` | prints `motionStats` (visible, underway, mean \|turn\|) and the latest director beats; with `--watch-seconds`, polls every 500 ms for S seconds and prints beats admitted, events/h, longest quiet gap, underway % of visible hulls and mean \|turn\| (°/s, °/min) |
+| `--stats [--watch-seconds S]` | prints motion samples and classified debug rows; watches poll every 500 ms and snapshot rows before the capped browser log evicts them. Reports ordinary discrete admissions/h, urgent admissions separately, duration-union occupancy %, quiet runs and longest quiet, plus the distinct `longestAdmissionGap` cadence metric in milliseconds. Ritual-start, forced-motion and environment rows do not count as discrete admissions. A non-advancing browser epoch reports occupancy/quiet as `unmeasured` |
 | `--metrics` | HUD-free capture (debug HUD and world chrome hidden): 3×3 ninths mean L\*, pixels L\* > 85, bottom-left ninth, saturated-orange share (HSV hue 15–50°, s·v > 0.35), left/right top-band hue Δ (chroma-weighted), bottom-third high-frequency energy \|L\* − gauss σ6\|, tower lit/shade face ratio and tower-vs-air Δ from projected `anchors`, and a 3-value notan at 16 px blur written to `<out>-notan.png` |
 | `--temporal` | mean frame-to-frame \|ΔL\*\| of the bottom third over an 11-frame, 1.5 s HUD-free burst |
 | `--value-plan [noon\|dusk\|night]` | MAE and Pearson r of the ninths against the value-plan table in `VISUAL_INVARIANTS.md`, parsed from the document on each run; the column comes from the `t=` hour (noon 9–16, dusk 16–20 or 5–7, night otherwise), else the page's wall-clock hour, unless named |
@@ -409,10 +425,26 @@ ninths. Blur radii are CSS pixels, scaled by DPR. High-frequency energy is
 measured at full CSS resolution, so re-baseline it with this tool instead of
 comparing it with lane figures taken from downsampled frames.
 
+With both `--tail-seconds` and `--watch-seconds`, readers run concurrently on
+the same settled scene. JSON records each monotonic start/end and
+`measurementOverlap` (duration and tail continuity); the main screenshot is
+after both readers finish. A short tail still cannot supply a longer watch's
+p95 coverage. Inspect overlap and continuous pacing windows before claiming
+matched coverage; polling overhead is part of this instrumented run.
+
+Occupancy unions effective half-open epoch attention intervals, clipped to
+the watch bounds, including beats already active at its start. Preemption
+truncates the replaced beat. Urgent market exceptions are counted separately
+from the ordinary admission budget but remain part of occupied time.
+The stats are not video and sampled underway hull share is not visual salience.
+Keep the tab visible, inspect recorded visibility and epoch advancement, and
+use independent observation/recording for natural-motion reading.
+
 ```bash
 npm run preview -- --uncapped --knockout-compare ao,bloom,smaa,rays,reflection,grade,water-lanes
 npm run preview -- --still-camera --hash "#t=18.3" --burst 9 --interval 600 --clip 900,700,500,250 --burst-sheet
 npm run preview -- --still-camera --stats --watch-seconds 600
+env -u CI npm run preview -- --fixture quiet-dense --fixture-clock flowing --hash '#' --still-camera --stats --watch-seconds 300 --tail-seconds 300 --assert --out vu/c1/watch-smoke.png --json vu/c1/watch-smoke.json
 npm run preview -- --fixture calm --clock 2026-09-26 --hash "#t=12.25" --metrics --value-plan --json noon.json
 npm run preview -- --clock 2026-09-26 --hash "#t=22" --metrics --temporal --night-water --out night.png
 npm run preview -- --clock 2026-09-26 --hash "#t=19.2" --ritual kindling --ritual-wait 20000 --out kindling.png
