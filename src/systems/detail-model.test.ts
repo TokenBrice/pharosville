@@ -977,18 +977,15 @@ describe("detail-model squad surfacing", () => {
     expect(formationFact!.value).not.toContain("stUSDS");
   });
 
-  it("squad detail panel surfaces the override banner when a Sky consort outpaces its flagship", () => {
+  it("keeps shared placement separate from the selected consort's own evidence", () => {
     const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky"));
     const susds = world.ships.find((ship) => ship.id === "susds-sky")!;
-    expect(susds.placementEvidence.squadOverride).toBeDefined();
-    expect(susds.placementEvidence.squadOverride?.ownPlacement).toBeDefined();
-    expect(susds.placementEvidence.squadOverride?.ownReason).toBeTruthy();
-
-    const detail = world.detailIndex[susds.detailId]!;
-    const overrideFact = detail.facts.find((fact) => fact.label === "Squad override");
-    expect(overrideFact).toBeDefined();
-    expect(overrideFact!.value).toContain("sUSDS in distress");
-    expect(overrideFact!.value).toContain("squad sheltering at flagship's position");
+    const flagship = world.ships.find((ship) => ship.id === "usds-sky")!;
+    expect(susds.riskPlacement).toBe(flagship.riskPlacement);
+    expect(susds.placementEvidence.squadOverride?.ownPlacement).not.toBe(susds.riskPlacement);
+    expect(susds.placementEvidence.squadOverride?.ownReason).toContain("peg");
+    expect(susds.pegDeviationBps).toBe(800);
+    expect(flagship.pegDeviationBps).toBe(0);
   });
 
   it("Sky squad goes silent on its members when its flagship is missing; Maker squad continues", () => {
