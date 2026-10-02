@@ -1109,7 +1109,8 @@ function buildOpenWaterPatrol(
 
   const itinerary = anchors
     .map((waypoint) => {
-      const outbound = buildCadenceWaterRoute({
+      if (waypoint.x === riskTile.x && waypoint.y === riskTile.y) return null;
+      const outbound = tryBuildCadenceWaterRoute({
         from: riskTile,
         to: waypoint,
         map,
@@ -1120,7 +1121,7 @@ function buildOpenWaterPatrol(
         paceTilesPerSecond,
         allowEndpointTruncation: true,
       }, waterRouteCache);
-      if (outbound.points.length <= 1 || outbound.totalLength <= 0) return null;
+      if (!outbound || outbound.points.length <= 1 || outbound.totalLength <= 0) return null;
       const minLength = MOTION_UNDERWAY_MIN_TILES_PER_SECOND * legDurationSeconds;
       const maxLength = MOTION_UNDERWAY_MAX_TILES_PER_SECOND * legDurationSeconds;
       if (outbound.totalLength < minLength || outbound.totalLength > maxLength) return null;
@@ -1139,7 +1140,7 @@ function buildOpenWaterPatrol(
   };
 }
 
-function buildCadenceWaterRoute(input: {
+interface CadenceWaterRouteInput {
   from: { x: number; y: number };
   to: { x: number; y: number };
   map: PharosVilleMap;
@@ -1149,7 +1150,19 @@ function buildCadenceWaterRoute(input: {
   legDurationSeconds: number;
   paceTilesPerSecond: number;
   allowEndpointTruncation?: boolean;
-}, cache: ShipWaterRouteCache): ShipWaterPath {
+}
+
+function buildCadenceWaterRoute(input: CadenceWaterRouteInput, cache: ShipWaterRouteCache): ShipWaterPath {
+  const route = tryBuildCadenceWaterRoute(input, cache);
+  if (route) return route;
+  const direct = buildCachedShipWaterRoute({ ...input, preferDirect: true }, cache);
+  const minLength = MOTION_UNDERWAY_MIN_TILES_PER_SECOND * input.legDurationSeconds;
+  const maxLength = MOTION_UNDERWAY_MAX_TILES_PER_SECOND * input.legDurationSeconds;
+  // Required dock legs must not silently violate the perceptual speed contract.
+  throw new Error(`No cadence-safe water leg for ${input.shipId}: ${direct.totalLength.toFixed(2)} not in ${minLength.toFixed(2)}..${maxLength.toFixed(2)}`);
+}
+
+function tryBuildCadenceWaterRoute(input: CadenceWaterRouteInput, cache: ShipWaterRouteCache): ShipWaterPath | null {
   const cadenceKey = `cadence:${input.zone}:${input.shipId}:${input.legDurationSeconds.toFixed(6)}:${input.paceTilesPerSecond.toFixed(6)}:${input.allowEndpointTruncation ? "truncate" : "fixed"}:${pathKey(input.from, input.to)}`;
   const cachedCadence = cache.get(cadenceKey);
   if (cachedCadence) return cachedCadence;
@@ -1218,10 +1231,8 @@ function buildCadenceWaterRoute(input: {
     cache.set(cadenceKey, lengthened);
     return lengthened;
   }
-  // The named motion radius keeps production endpoints inside the maximum
-  // envelope. Refuse an impossible route rather than silently returning a leg
-  // whose true derivative violates the perceptual speed contract.
-  throw new Error(`No cadence-safe water leg for ${input.shipId}: ${direct.totalLength.toFixed(2)} not in ${minLength.toFixed(2)}..${maxLength.toFixed(2)}`);
+  // Optional patrols can rest at their risk tile when no safe leg is feasible.
+  return null;
 }
 
 const CADENCE_LENGTH_EPSILON = 1e-6;
