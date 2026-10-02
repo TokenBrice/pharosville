@@ -169,7 +169,6 @@ describe("buildVisualCueRegistry", () => {
       target: { kind: "ship" },
       primaryChannels: ["position", "shape", "motion"],
       sourceField: expect.stringContaining("largestEvent24h"),
-      failureState: expect.stringContaining("neutral issuance draft"),
       reducedMotionEquivalent: expect.stringContaining("static representative composition"),
     });
   });

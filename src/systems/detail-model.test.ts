@@ -55,7 +55,6 @@ import {
   fixtureWithoutAsset,
   makeAsset,
   makePegCoin,
-  makePharosVilleWorldInput,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
 
@@ -636,27 +635,6 @@ describe("detail-model analytical links", () => {
     expect(tempoFact).toEqual({
       label: "Cycle tempo",
       value: "Brisk — 64/100 24h mint/redeem flow intensity",
-    });
-  });
-
-  it("states the ship's own loading direction and largest issuance event", () => {
-    const base = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
-    const detail = detailForShip({ ...base,
-      issuance: {
-        direction: "minting",
-        flowIntensity: 72,
-        netFlow24hUsd: 8_000_000,
-        largestEvent24h: { amountUsd: 5_000_000, direction: "mint", timestamp: 1 },
-      },
-    });
-    expect(detail.facts).toContainEqual({
-      label: "Issuance work, 24h",
-      value: "+$8.0M net minted — loading cargo and riding deeper; flow intensity 72/100; largest event mint $5.0M",
-    });
-    const { issuance: _issuance, ...withoutIssuance } = base;
-    expect(detailForShip(withoutIssuance).facts).toContainEqual({
-      label: "Issuance work, 24h",
-      value: "Unavailable — neutral draft; no per-coin mint/redeem row",
     });
   });
 

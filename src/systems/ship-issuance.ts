@@ -2,8 +2,6 @@ import type { MintBurnCoinFlow } from "@shared/types/mint-burn";
 import { formatCompactUsd } from "../lib/format-detail";
 import type { ShipIssuance, ShipNode } from "./world-types";
 
-export const SHIP_ISSUANCE_DRAFT_MAX = 0.12;
-
 export function buildShipIssuance(
   coin: MintBurnCoinFlow | null | undefined,
 ): ShipIssuance | undefined {
@@ -26,14 +24,6 @@ export function buildShipIssuance(
   };
 }
 
-/** Positive is higher in the water; minting takes draft and is therefore negative. */
-export function shipIssuanceDraft(issuance: ShipIssuance | undefined): number {
-  if (!issuance || issuance.direction === "flat") return 0;
-  const intensity = Math.abs(issuance.flowIntensity ?? 0) / 100;
-  const magnitude = SHIP_ISSUANCE_DRAFT_MAX * (0.35 + intensity * 0.65);
-  return issuance.direction === "minting" ? -magnitude : magnitude;
-}
-
 function signedCompactUsd(value: number): string {
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
   return `${sign}${formatCompactUsd(Math.abs(value))}`;
@@ -41,11 +31,11 @@ function signedCompactUsd(value: number): string {
 
 export function shipIssuanceDetailLabel(ship: Pick<ShipNode, "issuance">): string {
   const issuance = ship.issuance;
-  if (!issuance) return "Unavailable — neutral draft; no per-coin mint/redeem row";
+  if (!issuance) return "Unavailable — no per-coin mint/redeem row";
   const activity = issuance.direction === "minting"
-    ? `${signedCompactUsd(issuance.netFlow24hUsd)} net minted — loading cargo and riding deeper`
+    ? `${signedCompactUsd(issuance.netFlow24hUsd)} net minted — loading cargo`
     : issuance.direction === "redeeming"
-      ? `${signedCompactUsd(issuance.netFlow24hUsd)} net redeemed — discharging cargo and riding higher`
+      ? `${signedCompactUsd(issuance.netFlow24hUsd)} net redeemed — discharging cargo`
       : "Balanced net issuance — no loading or discharge run";
   const intensity = issuance.flowIntensity === null
     ? "flow intensity unavailable"

@@ -87,6 +87,13 @@ pins are not authority over the accepted picture.
   or a measured zero. Ship and fleet issuance remain raw payload readings.
   Coverage: `src/systems/pharosville-world/stages/cargo-tide.test.ts`,
   `src/systems/detail-model.test.ts`, `src/components/accessibility-ledger.test.tsx`.
+- Peg trim is the sole analytical hull-height carrier: fresh ±50 bps gives
+  ±0.08 local trim, fresh ±200 bps gives ±0.16, and stale or missing peg evidence
+  gives zero trim. Procedural and attached hero hulls, batched hulls, rig and
+  lanterns carry that same trim once under the ship's scale. Issuance changes
+  cargo work, never hull height; hero roots retain their nonfinancial pose.
+  Coverage: `src/three/world-renderer.test.ts`, `src/three/garden-ships.test.ts`,
+  `src/three/garden-fleet-batch.test.ts`.
 - Routes and docking cadence show rendered-chain/risk presence, never transfers,
   bridge volume, transactions or issuer operations. Missing or stale peg evidence
   is a caveat, not confirmed stress. Decorative quay lights, windows, basin tide

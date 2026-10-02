@@ -192,7 +192,6 @@ import {
   shipIssuanceWorksetSpecs,
   type GardenShipIssuanceWorksets,
 } from "./garden-ship-issuance";
-import { shipIssuanceDraft } from "../systems/ship-issuance";
 import { createGardenTidalFlat, type GardenTidalFlat } from "./garden-tidal-flat";
 import { gardenLastVisitTide } from "../systems/garden-last-visit";
 import {
@@ -1490,9 +1489,6 @@ interface GardenContent {
   issuanceWorksets: GardenShipIssuanceWorksets;
   /** Hulls anchoring issuance worksets, in instance order. */
   issuanceWorksetShips: ShipVisual[];
-  /** Renderer-side 45s draft state; DOM truth stays on the world nodes. */
-  issuanceDraftById: Map<string, number>;
-  issuanceDraftTargetById: Map<string, number>;
   /**
    * X2: the weekly supply tide as the tidal flat — how much of one sheltered
    * shore lies bare — with the last visit's wrack line. Eases per frame.
@@ -2007,8 +2003,6 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     pendingShipTransitions: new Map<string, GardenShipTransitionSpec>(),
     pigeonnierMoverPositions: [],
     pigeonnierMoverShips: [],
-    issuanceDraftById: new Map<string, number>(),
-    issuanceDraftTargetById: new Map<string, number>(),
     root,
     routeLine,
     routeLineKey: null,
@@ -2611,14 +2605,6 @@ function adoptFreshWorldData(content: GardenContent, world: PharosVilleWorld): v
   for (const visual of content.docks) {
     const node = dockById.get(visual.recipe.dock.detailId);
     if (node) visual.recipe.dock = node;
-  }
-  const nextShipIds = new Set<string>();
-  for (const ship of world.ships) {
-    nextShipIds.add(ship.id);
-    content.issuanceDraftTargetById.set(ship.id, shipIssuanceDraft(ship.issuance));
-  }
-  for (const shipId of content.issuanceDraftTargetById.keys()) {
-    if (!nextShipIds.has(shipId)) content.issuanceDraftTargetById.delete(shipId);
   }
   if (content.transient) {
     const entity = world.entityById[content.transient.detailId];
@@ -3418,13 +3404,6 @@ function buildTendersPart(content: GardenContent, world: PharosVilleWorld): void
   content.flightTenders = flightTenders;
   content.issuanceWorksetShips = issuanceWorksetShips;
   content.issuanceWorksets = issuanceWorksets;
-  for (const ship of world.ships) {
-    const target = shipIssuanceDraft(ship.issuance);
-    content.issuanceDraftTargetById.set(ship.id, target);
-    if (!content.issuanceDraftById.has(ship.id)) {
-      content.issuanceDraftById.set(ship.id, content.hasReconciledWorld ? 0 : target);
-    }
-  }
 }
 
 /**
