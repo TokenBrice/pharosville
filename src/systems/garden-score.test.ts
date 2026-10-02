@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createGardenDirector, registerRitual, requestGardenBeat, type GardenRitualKind } from "./garden-director";
 import {
+  cancelGardenRituals,
   forceGardenRitual,
   gardenDayScore,
   gardenScoreBudgetViolations,
@@ -155,18 +156,170 @@ describe("garden score driver", () => {
     const started: string[] = [];
     const offKindling = registerRitual("kindling", { start: () => started.push("kindling"), update: () => false, cancel() {} });
     const offLantern = registerRitual("anniversary-lantern", { start: () => started.push("lantern"), update: () => true, cancel() {} });
-    setGardenDayScore(score);
-    const director = createGardenDirector("anniversary");
-    const t0 = 4_000_000;
-    tickGardenScore({ director, directorSeconds: t0, clockHour: 19, reducedMotion: false });
-    forceGardenRitual("kindling", t0);
-    tickGardenScore({ director, directorSeconds: t0 + 59, clockHour: 19, reducedMotion: false });
-    expect(started).toEqual(["kindling"]);
-    tickGardenScore({ director, directorSeconds: t0 + 60, clockHour: 19, reducedMotion: false });
-    expect(started).toEqual(["kindling", "lantern"]);
-    offKindling();
-    offLantern();
-    setGardenDayScore([]);
+    try {
+      setGardenDayScore(score);
+      const director = createGardenDirector("anniversary");
+      const t0 = 4_000_000;
+      tickGardenScore({ director, directorSeconds: t0, clockHour: 19, reducedMotion: false });
+      forceGardenRitual("kindling", t0);
+      tickGardenScore({ director, directorSeconds: t0 + 59, clockHour: 19, reducedMotion: false });
+      expect(started).toEqual(["kindling"]);
+      tickGardenScore({ director, directorSeconds: t0 + 60, clockHour: 19, reducedMotion: false });
+      expect(started).toEqual(["kindling", "lantern"]);
+    } finally {
+      cancelGardenRituals();
+      offKindling();
+      offLantern();
+      setGardenDayScore([]);
+    }
+  });
+
+  it("does not start a stagger at the parent's hold boundary", () => {
+    const score = gardenDayScore({ seed: PINNED.seed, date: PINNED.date, latitude: NORTH, day: PINNED.day, anniversaryEvening: true });
+    const parent = score.find((ritual) => ritual.kind === "kindling")!;
+    const started: string[] = [];
+    const heard: string[] = [];
+    const offKindling = registerRitual("kindling", { start: () => started.push("kindling"), update: () => true, cancel() {} });
+    const offLantern = registerRitual("anniversary-lantern", { start: () => started.push("lantern"), update: () => true, cancel() {} });
+    const unsubscribe = subscribeGardenRituals((event) => heard.push(event.kind));
+    try {
+      setGardenDayScore(score);
+      const director = createGardenDirector("hold-boundary-anniversary");
+      const t0 = 4_500_000;
+      tickGardenScore({ director, directorSeconds: t0, clockHour: parent.startSec / 3600, reducedMotion: false });
+      tickGardenScore({ director, directorSeconds: t0 + parent.holdSec, clockHour: (parent.startSec + parent.holdSec) / 3600, reducedMotion: false });
+      expect(started).toEqual(["kindling"]);
+      expect(heard).toEqual(["kindling"]);
+    } finally {
+      cancelGardenRituals();
+      unsubscribe();
+      offKindling();
+      offLantern();
+      setGardenDayScore([]);
+    }
+  });
+
+  it("two-hour resume skips an expired anniversary stagger", () => {
+    const score = gardenDayScore({ seed: PINNED.seed, date: PINNED.date, latitude: NORTH, day: PINNED.day, anniversaryEvening: true });
+    const parent = score.find((ritual) => ritual.kind === "kindling")!;
+    const started: string[] = [];
+    const heard: string[] = [];
+    const offKindling = registerRitual("kindling", {
+      start: () => started.push("kindling"), update: () => true, cancel() {},
+    });
+    const offLantern = registerRitual("anniversary-lantern", {
+      start: () => started.push("lantern"), update: () => true, cancel() {},
+    });
+    const unsubscribe = subscribeGardenRituals((event) => heard.push(event.kind));
+    try {
+      setGardenDayScore(score);
+      const director = createGardenDirector("expired-anniversary");
+      const t0 = 5_000_000;
+      tickGardenScore({ director, directorSeconds: t0, clockHour: parent.startSec / 3600, reducedMotion: false });
+      expect(started).toEqual(["kindling"]);
+      tickGardenScore({ director, directorSeconds: t0 + 7200, clockHour: (parent.startSec + 7200) / 3600, reducedMotion: false });
+      expect(started).not.toContain("lantern");
+      expect(heard).not.toContain("anniversary-lantern");
+      setGardenDayScore(score.map((ritual) => ({ ...ritual })));
+      forceGardenRitual("kindling", t0 + 7201);
+      tickGardenScore({ director, directorSeconds: t0 + 7261, clockHour: (parent.startSec + 7261) / 3600, reducedMotion: false });
+      expect(started).not.toContain("lantern");
+      expect(heard).not.toContain("anniversary-lantern");
+    } finally {
+      cancelGardenRituals();
+      unsubscribe();
+      offKindling();
+      offLantern();
+      setGardenDayScore([]);
+    }
+  });
+
+  it("in-window stagger starts once", () => {
+    const score = gardenDayScore({ seed: PINNED.seed, date: PINNED.date, latitude: NORTH, day: PINNED.day, anniversaryEvening: true });
+    const parent = score.find((ritual) => ritual.kind === "kindling")!;
+    const companion = score.find((ritual) => ritual.kind === "anniversary-lantern")!;
+    const started: number[] = [];
+    const heard: number[] = [];
+    const offKindling = registerRitual("kindling", { start() {}, update: () => true, cancel() {} });
+    const offLantern = registerRitual("anniversary-lantern", { start: (t) => started.push(t), update: () => true, cancel() {} });
+    const unsubscribe = subscribeGardenRituals((event) => {
+      if (event.kind === "anniversary-lantern") heard.push(event.directorSeconds);
+    });
+    try {
+      setGardenDayScore(score);
+      const director = createGardenDirector("in-window-anniversary");
+      const t0 = 6_000_000;
+      const tick = (offset: number) => tickGardenScore({
+        director, directorSeconds: t0 + offset, clockHour: (parent.startSec + offset) / 3600, reducedMotion: false,
+      });
+      tick(0);
+      tick(companion.startSec - 1);
+      expect(started).toEqual([]);
+      tick(companion.startSec);
+      tick(companion.startSec + 1);
+      tick(parent.holdSec);
+      expect(started).toEqual([t0 + companion.startSec]);
+      expect(heard).toEqual(started);
+    } finally {
+      cancelGardenRituals();
+      unsubscribe();
+      offKindling();
+      offLantern();
+      setGardenDayScore([]);
+    }
+  });
+
+  it("same-day rebuild does not replay; a next-day occurrence plays once", () => {
+    const makeScore = (day: typeof PINNED) => gardenDayScore({
+      seed: day.seed, date: day.date, latitude: NORTH, day: day.day, anniversaryEvening: true,
+    });
+    const score = makeScore(PINNED);
+    const nextScore = makeScore(skyDayFor(269));
+    const started: number[] = [];
+    const heard: string[] = [];
+    const offKindling = registerRitual("kindling", { start() {}, update: () => true, cancel() {} });
+    const offLantern = registerRitual("anniversary-lantern", { start: (t) => started.push(t), update: () => true, cancel() {} });
+    const unsubscribe = subscribeGardenRituals((event) => {
+      if (event.kind === "anniversary-lantern") heard.push(event.id);
+    });
+    try {
+      const t0 = 7_000_000;
+      const parent = score.find((ritual) => ritual.kind === "kindling")!;
+      const nextParent = nextScore.find((ritual) => ritual.kind === "kindling")!;
+      const director = createGardenDirector("rebuild-anniversary");
+      setGardenDayScore(score);
+      tickGardenScore({ director, directorSeconds: t0, clockHour: parent.startSec / 3600, reducedMotion: false });
+      setGardenDayScore(makeScore(PINNED));
+      tickGardenScore({ director, directorSeconds: t0 + 60, clockHour: (parent.startSec + 60) / 3600, reducedMotion: false });
+      expect(started).toEqual([t0 + 60]);
+      setGardenDayScore(makeScore(PINNED));
+      forceGardenRitual("kindling", t0 + 100);
+      tickGardenScore({ director, directorSeconds: t0 + 160, clockHour: (parent.startSec + 160) / 3600, reducedMotion: false });
+      expect(started).toEqual([t0 + 60]);
+      // A newly queued old-day companion must not survive the day's replacement.
+      setGardenDayScore([]);
+      setGardenDayScore(score);
+      forceGardenRitual("kindling", t0 + 200);
+      setGardenDayScore(nextScore);
+      tickGardenScore({ director: undefined, directorSeconds: t0 + 260, clockHour: 12, reducedMotion: false });
+      expect(started).toEqual([t0 + 60]);
+      const nextT0 = t0 + 86400;
+      const nextDirector = createGardenDirector("next-day-anniversary");
+      // Start inside the window, not on a floating-point hour conversion boundary.
+      tickGardenScore({ director: nextDirector, directorSeconds: nextT0, clockHour: (nextParent.startSec + 1) / 3600, reducedMotion: false });
+      expect(nextDirector.log.at(-1)?.subject).toBe(nextParent.id);
+      tickGardenScore({ director: nextDirector, directorSeconds: nextT0 + 60, clockHour: (nextParent.startSec + 61) / 3600, reducedMotion: false });
+      setGardenDayScore(makeScore(skyDayFor(269)));
+      tickGardenScore({ director: nextDirector, directorSeconds: nextT0 + 61, clockHour: (nextParent.startSec + 62) / 3600, reducedMotion: false });
+      expect(started).toEqual([t0 + 60, nextT0 + 60]);
+      expect(heard).toEqual([`anniversary-lantern:${PINNED.seed}`, `anniversary-lantern:${skyDayFor(269).seed}`]);
+    } finally {
+      cancelGardenRituals();
+      unsubscribe();
+      offKindling();
+      offLantern();
+      setGardenDayScore([]);
+    }
   });
 
   it("starts nothing under reduced motion", () => {

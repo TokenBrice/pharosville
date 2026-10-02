@@ -70,7 +70,8 @@ export interface GardenScoreEntry {
   /**
    * A companion rides another ritual's attention beat instead of taking its
    * own: it starts `startSec` after that ritual actually starts (scored or
-   * forced), costs no §5.0 event, and is skipped by the budget checker.
+   * forced), only while the parent's declared attention hold remains open,
+   * costs no §5.0 event, and is skipped by the budget checker.
    */
   companionOf?: GardenRitualKind;
 }
@@ -537,7 +538,7 @@ interface RunningRitual {
 const driver = {
   score: [] as readonly GardenScoreEntry[],
   /** Companions waiting for their stagger after the ritual they ride began. */
-  pendingCompanions: [] as { entry: GardenScoreEntry; dueSeconds: number }[],
+  pendingCompanions: [] as { entry: GardenScoreEntry; dueSeconds: number; expirySeconds: number }[],
   played: new Set<string>(),
   running: [] as RunningRitual[],
   listeners: new Set<RitualListener>(),
@@ -551,6 +552,9 @@ export function setGardenDayScore(score: readonly GardenScoreEntry[]): void {
   if (score === driver.score) return;
   const kept = new Set(score.map((entry) => entry.id));
   for (const id of driver.played) if (!kept.has(id)) driver.played.delete(id);
+  for (let index = driver.pendingCompanions.length - 1; index >= 0; index -= 1) {
+    if (!kept.has(driver.pendingCompanions[index]!.entry.id)) driver.pendingCompanions.splice(index, 1);
+  }
   driver.score = score;
 }
 
@@ -578,10 +582,16 @@ function beginRitual(id: string, kind: GardenRitualKind, t: number, forced: bool
   const event: GardenRitualEvent = { id, kind, clockHour: driver.clockHour, forced, directorSeconds: t };
   recordDebugRitual(event);
   for (const listener of driver.listeners) listener(event);
+  const parent = driver.score.find((entry) => entry.id === id)
+    ?? driver.score.find((entry) => entry.kind === kind && entry.companionOf === undefined);
   for (const entry of driver.score) {
-    if (entry.companionOf !== kind || driver.played.has(entry.id)) continue;
+    if (!parent || entry.companionOf !== kind || driver.played.has(entry.id)) continue;
     driver.played.add(entry.id);
-    driver.pendingCompanions.push({ entry, dueSeconds: t + entry.startSec });
+    driver.pendingCompanions.push({
+      entry,
+      dueSeconds: t + entry.startSec,
+      expirySeconds: t + parent.holdSec,
+    });
   }
   return handler !== null || kind === "moonrise";
 }
@@ -630,6 +640,10 @@ export function tickGardenScore(input: GardenScoreTickInput): void {
   }
   for (let index = driver.pendingCompanions.length - 1; index >= 0; index -= 1) {
     const pending = driver.pendingCompanions[index]!;
+    if (t >= pending.expirySeconds) {
+      driver.pendingCompanions.splice(index, 1);
+      continue;
+    }
     if (t < pending.dueSeconds) continue;
     driver.pendingCompanions.splice(index, 1);
     beginRitual(pending.entry.id, pending.entry.kind, t, false);
