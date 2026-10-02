@@ -31,6 +31,7 @@ export interface CurrentlyParts {
   area?: string | null;
   zone?: string | null;
   stressDriver?: string | null;
+  dewsScore?: string | null;
 }
 
 export function composeCurrently(parts: CurrentlyParts): string {
@@ -38,8 +39,9 @@ export function composeCurrently(parts: CurrentlyParts): string {
   const area = parts.area?.trim() ?? "";
   const zone = parts.zone?.trim() ?? "";
   const stressDriver = parts.stressDriver?.trim() ?? "";
+  const dewsScore = parts.dewsScore?.trim() ?? "";
 
-  const appendStressDriver = (value: string) => [value, stressDriver].filter(Boolean).join(" · ");
+  const appendStressDriver = (value: string) => [value, stressDriver, dewsScore].filter(Boolean).join(" · ");
 
   if (zone && CALM_ZONE.test(zone) && area) {
     const isIdle = position && IDLE_SUFFIX.test(position);
@@ -48,7 +50,7 @@ export function composeCurrently(parts: CurrentlyParts): string {
 
   if (position) return appendStressDriver(position);
   if (area) return appendStressDriver(area);
-  return stressDriver;
+  return appendStressDriver("");
 }
 
 export type DetailFactKey =
@@ -81,6 +83,7 @@ export type DetailFactKey =
   | "representativePosition"
   | "riskWaterArea"
   | "riskWaterZone"
+  | "dewsScore"
   | "stressDriver"
   | "chainsPresent"
   | "sailingInFormation"
@@ -148,6 +151,7 @@ const DETAIL_FACT_LABELS = {
   "representative position": "representativePosition",
   "risk water area": "riskWaterArea",
   "risk water zone": "riskWaterZone",
+  "dews score": "dewsScore",
   "stress driver": "stressDriver",
   "chain present": "chainsPresent",
   "chains present": "chainsPresent",
@@ -419,11 +423,13 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
   const area_ = lookup.get("riskWaterArea");
   const zone_ = lookup.get("riskWaterZone");
   const stressDriver = lookup.get("stressDriver");
+  const dewsScore = lookup.get("dewsScore");
   const currently = composeCurrently({
     ...(position_ !== undefined ? { position: position_ } : {}),
     ...(area_ !== undefined ? { area: area_ } : {}),
     ...(zone_ !== undefined ? { zone: zone_ } : {}),
     ...(stressDriver !== undefined ? { stressDriver } : {}),
+    ...(dewsScore !== undefined ? { dewsScore } : {}),
   });
   if (currently) position.push({ key: "currently", label: "Currently", value: currently });
   const chains = lookup.get("chainsPresent");

@@ -4,11 +4,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import {
+  denseFixtureChains,
+  denseFixturePegSummary,
+  denseFixtureStablecoins,
+  denseFixtureStress,
   fixtureWithDepegOn,
   makerSquadFixtureInputs,
+  makePharosVilleWorldInput,
 } from "../__fixtures__/pharosville-world";
 import type { DetailModel } from "../systems/world-types";
 import { DetailPanel } from "./detail-panel";
+import { AccessibilityLedger } from "./accessibility-ledger";
+import { resetHeldShipPlacements } from "../systems/pharosville-world/stages/ship-placement";
 
 afterEach(() => {
   cleanup();
@@ -24,6 +31,78 @@ const renderShipPanel = (shipId: string, depegId: string | null = null) => {
 };
 
 describe("DetailPanel woodblock record", () => {
+  it("shows the same exact DEWS reading in the dense panel and ledger without an edge claim", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({
+      stablecoins: denseFixtureStablecoins,
+      chains: denseFixtureChains,
+      pegSummary: denseFixturePegSummary,
+      stress: {
+        ...denseFixtureStress,
+        signals: {
+          ...denseFixtureStress.signals,
+          "usdt-tether": { ...denseFixtureStress.signals["usdt-tether"]!, score: 95 },
+        },
+      },
+    }));
+    const ship = world.ships.find((entry) => entry.id === "usdt-tether")!;
+    const detail = world.detailIndex[ship.detailId]!;
+    const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
+    const withoutScore = renderToStaticMarkup(<DetailPanel detail={{
+      ...detail, facts: detail.facts.filter((fact) => fact.label !== "DEWS score"),
+    }} />);
+    const ledger = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+    const ledgerDom = document.createElement("div");
+    ledgerDom.innerHTML = ledger;
+    expect(markup).toMatch(/<dt[^>]*>Currently<\/dt>\s*<dd[^>]*>[^<]*DEWS 95\/100<\/dd>/);
+    expect(ledgerDom.querySelector("#ledger-ship-usdt-tether")?.textContent).toContain("DEWS 95/100");
+    for (const surface of [markup, ledger]) {
+      expect(surface).not.toMatch(/calm[- ]edge|rough[- ]edge|within-zone anchoring/i);
+    }
+    expect(markup.match(/<div class="pv-fact-row"/g)?.length)
+      .toBe(withoutScore.match(/<div class="pv-fact-row"/g)?.length);
+  });
+
+  it("a consort shows its own DEWS score while keeping the shared formation berth", () => {
+    const inputs = makerSquadFixtureInputs();
+    const calm = {
+      band: "CALM", score: 8, signals: {},
+      computedAt: 1_700_000_000, methodologyVersion: "fixture",
+    };
+    const baseline = buildPharosVilleWorld({
+      ...inputs,
+      stress: { ...inputs.stress!, signals: { "usds-sky": calm, "susds-sky": calm } },
+    });
+    resetHeldShipPlacements();
+    const world = buildPharosVilleWorld({
+      ...makerSquadFixtureInputs(),
+      stress: {
+        ...inputs.stress!,
+        signals: {
+          "usds-sky": calm,
+          "susds-sky": { ...calm, band: "DANGER", score: 95 },
+        },
+      },
+    });
+    const flagship = world.ships.find((ship) => ship.id === "usds-sky")!;
+    const consort = world.ships.find((ship) => ship.id === "susds-sky")!;
+    const previous = baseline.ships.find((ship) => ship.id === consort.id)!;
+    expect(consort.squadRole).toBe("consort");
+    expect(consort.riskPlacement).toBe(flagship.riskPlacement);
+    expect(consort.riskDepth).toBe(0.08);
+    expect(flagship.riskDepth).toBe(0.08);
+    expect(consort.riskTile).toEqual(previous.riskTile);
+    expect(flagship.riskTile).toEqual(baseline.ships.find((ship) => ship.id === flagship.id)!.riskTile);
+    const markup = renderToStaticMarkup(<DetailPanel detail={world.detailIndex[consort.detailId]!} />);
+    expect(markup).toContain("DEWS 95/100");
+    expect(markup).not.toContain("DEWS 8/100");
+    const ledgerDom = document.createElement("div");
+    ledgerDom.innerHTML = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+    const consortLine = ledgerDom.querySelector("#ledger-ship-susds-sky")?.textContent;
+    expect(consortLine).toContain("DEWS 95/100");
+    expect(consortLine).not.toContain("DEWS 8/100");
+    expect(ledgerDom.querySelector("#ledger-ship-usds-sky")?.textContent).toContain("DEWS 8/100");
+  });
+
   it("defers focus until a hidden selection becomes visible", () => {
     const opener = document.createElement("button");
     document.body.append(opener);

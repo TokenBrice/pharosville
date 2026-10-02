@@ -22,6 +22,19 @@ function cueKey(cue: VisualCue): string {
 }
 
 describe("buildVisualCueRegistry", () => {
+  it("keeps exact ship scores in Currently and quay allocations qualified in DOM parity", () => {
+    const cues = buildVisualCueRegistry();
+    const distance = cues.find((cue) => cue.id === "cue.ship.distance")!;
+    const cargo = cues.find((cue) => cue.id === "cue.dock.cargo-tide")!;
+    expect(distance.domEquivalent).toContain("DEWS score");
+    expect(distance.domEquivalent).toContain("Currently");
+    expect(`${distance.visual} ${distance.domEquivalent}`).not.toMatch(/calm[- ]edge|rough[- ]edge/i);
+    expect(cargo.sourceField).toContain("estimated 24h allocation");
+    expect(cargo.sourceField).toContain("rendered in-scope");
+    expect(cargo.domEquivalent).toContain("estimated allocation");
+    expect(cargo.domEquivalent).toContain("Net flow 24h");
+  });
+
   it("records sea-edge geography as decorative without adding a ledger cue", () => {
     expect(DECORATIVE_VISUAL_NOTES.seaEdgeGeography).toContain("carry no meaning");
     expect(DECORATIVE_VISUAL_NOTES.heroWaterfall).toContain("carry no meaning");

@@ -590,16 +590,12 @@ function representativePositionLabel(node: ShipNode): string {
   return `${node.riskWaterLabel} idle`;
 }
 
-export function riskAnchoringDepthLabel(
-  node: Pick<ShipNode, "riskDepth">,
+export function dewsScoreLabel(
+  node: Pick<ShipNode, "dewsScore">,
 ): string | null {
-  const depth = node.riskDepth;
-  if (typeof depth !== "number" || !Number.isFinite(depth)) return null;
-  const score = Math.round(Math.max(0, Math.min(1, depth)) * 100);
-  const edge = depth < 0.4 ? "toward the calm edge"
-    : depth > 0.6 ? "toward the rough edge"
-    : "mid-water";
-  return `DEWS ${score}/100 — ${edge}`;
+  const score = node.dewsScore;
+  if (typeof score !== "number" || !Number.isFinite(score)) return null;
+  return `DEWS ${Math.round(Math.max(0, Math.min(100, score)))}/100`;
 }
 
 function evidenceStatusLabel(node: ShipNode): string {
@@ -893,15 +889,16 @@ export function cargoTideLabel(tide: DockNode["cargoTide"]): string | null {
     }
   }
   const volumes = `mint ${formatCompactUsd(tide.mintVolumeUsd)}, burn ${formatCompactUsd(tide.burnVolumeUsd)}`;
+  const allocationBasis = "Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: ";
   switch (tide.direction) {
     case "minting":
-      return `${signedCompactUsd(tide.netFlowUsd)} minting — ${volumes}`;
+      return `${allocationBasis}${signedCompactUsd(tide.netFlowUsd)} minting — ${volumes}`;
     case "burning":
-      return `${signedCompactUsd(tide.netFlowUsd)} burning — ${volumes}`;
+      return `${allocationBasis}${signedCompactUsd(tide.netFlowUsd)} burning — ${volumes}`;
     case "flat":
-      return `Balanced — ${volumes}`;
+      return `${allocationBasis}Balanced — ${volumes}`;
     default:
-      return "No issuance activity in 24h";
+      return `${allocationBasis}No issuance activity in 24h`;
   }
 }
 
@@ -1260,7 +1257,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
   const sourceConsensus = sourceConsensusLabel(node.asset);
   const safetyGrade = safetyGradeLabel(node.safetyGrade);
   const stressDriver = stressBreakdownLabel(node);
-  const riskDepth = riskAnchoringDepthLabel(node);
+  const dewsScore = dewsScoreLabel(node);
   // The header figure stays the bare reading — it is a headline number, not a
   // sentence — while the fact row carries the direction and the trim.
   const pegDeviation = pegDeviationLabel(node);
@@ -1302,7 +1299,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     { label: "Risk water area", value: node.riskWaterLabel },
     { label: "Risk water zone", value: node.riskZone },
     { label: "Risk placement key", value: node.riskPlacement },
-    ...(riskDepth ? [{ label: "Within-zone anchoring", value: riskDepth }] : []),
+    ...(dewsScore ? [{ label: "DEWS score", value: dewsScore }] : []),
     ...(stressDriver ? [{ label: "Stress driver", value: stressDriver }] : []),
     ...riskTransitionFact,
     { label: "Home dock", value: node.homeDockChainId ? chainLabel(node.homeDockChainId) : "No rendered dock" },

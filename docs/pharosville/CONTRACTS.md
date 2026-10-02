@@ -58,6 +58,19 @@ pins are not authority over the accepted picture.
 
 - At rest the world carries three coarse readings: tower = PSI, water = risk band,
   hero ships = who leads. Exact information lives in the DOM, not more ornament.
+- A ship's own finite DEWS score is shown as `DEWS n/100`, folded after the
+  stress driver in Currently and repeated bare in its ledger line. Consorts
+  retain their own score even though placement inherits the flagship's depth.
+  Depth biases the preferred tile, not the order of final packed berths;
+  sticky placement holds depth changes below `0.02`.
+  Coverage: `src/components/detail-panel.test.tsx`,
+  `src/systems/pharosville-world/stages/ship-placement.test.ts`.
+- Harbour `Net flow 24h` values disclose an estimated allocation by held supply,
+  renormalized across rendered in-scope chains. Changing the rendered harbour
+  subset can change that estimate; untracked reasons never present an estimate
+  or a measured zero. Ship and fleet issuance remain raw payload readings.
+  Coverage: `src/systems/pharosville-world/stages/cargo-tide.test.ts`,
+  `src/systems/detail-model.test.ts`, `src/components/accessibility-ledger.test.tsx`.
 - Routes and docking cadence show rendered-chain/risk presence, never transfers,
   bridge volume, transactions or issuer operations. Missing or stale peg evidence
   is a caveat, not confirmed stress. Decorative quay lights, windows, basin tide

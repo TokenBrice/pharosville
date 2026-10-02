@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
+import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import {
+  type CurrentlyParts,
   buildDetailFactSections,
   buildDetailReadingCells,
   classifyDetailFactLabel,
@@ -84,11 +87,50 @@ describe("composeCurrently", () => {
       stressDriver: "Driven by: peg deviation",
     })).toBe("Warning Shoals idle · Driven by: peg deviation");
   });
+  it.each<[CurrentlyParts, string]>([
+    [{ position: "Calm Anchorage idle", area: "Calm Anchorage", zone: "calm" },
+      "Calm Anchorage (idle) · Driven by: peg deviation · DEWS 37/100"],
+    [{ position: "Warning Shoals idle", area: "Warning Shoals", zone: "warning" },
+      "Warning Shoals idle · Driven by: peg deviation · DEWS 37/100"],
+    [{ area: "Ledger Mooring" }, "Ledger Mooring · Driven by: peg deviation · DEWS 37/100"],
+    [{}, "Driven by: peg deviation · DEWS 37/100"],
+  ])("appends the DEWS reading after the stress driver in every branch: %j", (parts, expected) => {
+    expect(composeCurrently({
+      ...parts,
+      stressDriver: "Driven by: peg deviation",
+      dewsScore: "DEWS 37/100",
+    })).toBe(expected);
+  });
 });
 
 // P3 metaphor quick-wins: the gated signals must FOLD into existing rows so
 // the panel's <= 8 fact-row density contract holds for the worst-case ship.
 describe("buildDetailFactSections folds", () => {
+  it("folds a calm ship's DEWS reading into Currently without adding a row", () => {
+    const inputs = makePharosVilleWorldInput();
+    const world = buildPharosVilleWorld({
+      ...inputs,
+      stress: {
+        ...inputs.stress!,
+        signals: {
+          "usdc-circle": {
+            band: "CALM", score: 8, signals: {},
+            computedAt: 1_700_000_000, methodologyVersion: "fixture",
+          },
+        },
+      },
+    });
+    const ship = world.ships.find((entry) => entry.id === "usdc-circle")!;
+    const facts = world.detailIndex[ship.detailId]!.facts;
+    const withScore = buildDetailFactSections(facts);
+    const withoutScore = buildDetailFactSections(facts.filter((fact) => fact.label !== "DEWS score"));
+    expect(withScore.position.find((row) => row.key === "currently")?.value)
+      .toBe("Calm Anchorage (idle) · DEWS 8/100");
+    expect(withScore.identity).toEqual(withoutScore.identity);
+    expect(withScore.position).toHaveLength(withoutScore.position.length);
+    expect(classifyDetailFactLabel("  DEWS   SCORE ")).toBe("dewsScore");
+  });
+
   it("renders named-water facts in the area detail record", () => {
     const { identity } = buildDetailFactSections([
       { label: "Water style", value: "protected tidal inlet and wreck shoal" },

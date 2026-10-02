@@ -132,6 +132,40 @@ describe("buildCargoTideStage", () => {
     expect(tideOf(stage.docks, "ethereum").netFlowUsd).toBeCloseTo(5_000_000);
   });
 
+  it("renormalizes a coin's allocation over the rendered in-scope harbours", () => {
+    const ships = [ship("split-coin", [["ethereum", 0.4], ["polygon", 0.2], ["solana", 0.4]])];
+    const flows = payload([coin("split-coin", 5_000_000, 11_000_000, 6_000_000)],
+      ["ethereum", "polygon", "solana"]);
+    const full = buildCargoTideStage([dock("ethereum"), dock("polygon"), dock("solana")], ships, flows);
+    const subset = buildCargoTideStage([dock("ethereum"), dock("solana")], ships, flows);
+    const before = tideOf(full.docks, "ethereum");
+    const after = tideOf(subset.docks, "ethereum");
+    expect(before).toMatchObject({ tracked: true, mintVolumeUsd: 4_400_000, burnVolumeUsd: 2_400_000 });
+    expect(after).toMatchObject({ tracked: true, mintVolumeUsd: 5_500_000, burnVolumeUsd: 3_000_000 });
+    expect(after.netFlowUsd).toBeGreaterThan(before.netFlowUsd);
+  });
+
+  it("keeps fleet totals at the measured payload sums under any rendered subset", () => {
+    const ships = [
+      ship("mint-coin", [["ethereum", 0.4], ["polygon", 0.2], ["solana", 0.4]]),
+      ship("burn-coin", [["polygon", 1]]),
+    ];
+    const flows = payload([
+      coin("mint-coin", 8_000_000, 10_000_000, 2_000_000),
+      coin("burn-coin", -3_000_000, 1_000_000, 4_000_000),
+    ], ["ethereum", "polygon", "solana"]);
+    for (const chains of [
+      ["ethereum", "polygon", "solana"], ["ethereum", "solana"], ["polygon"], [],
+    ]) {
+      const stage = buildCargoTideStage(chains.map(dock), ships, flows);
+      expect(stage.fleetIssuance).toMatchObject({
+        mintVolumeUsd: 11_000_000,
+        burnVolumeUsd: 6_000_000,
+        netFlowUsd: 5_000_000,
+      });
+    }
+  });
+
   it("reports an out-of-scope harbour as unmeasured rather than as calm", () => {
     // Zero and "not measured" are opposite claims. A quiet quay that means the
     // latter must say so, or the world is asserting something it never checked.
