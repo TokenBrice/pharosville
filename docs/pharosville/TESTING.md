@@ -400,9 +400,9 @@ app's achieved fps. Read it at rest and during `--pan-zoom`, for example
 
 The r185 WebGPU spike was a measured NO-GO and its backend, runtime flags, TSL
 probe, and harness were removed. Its measurements and subsystem inventory live
-in `agents/2026-07-29-webgpu-spike-report.md`. A future experiment must be
-isolated from the production entry and keep the normal build byte budget
-unchanged.
+in the spike report, retired from the tree and kept in git history at commit
+`599c822`. A future experiment must be isolated from the production entry and
+keep the normal build byte budget unchanged.
 
 The hard ceilings remain 700 draw calls, 500 geometries, 500,000 triangles, and
 72 textures. The texture budget is fully spent at whole-map (72/72), so new

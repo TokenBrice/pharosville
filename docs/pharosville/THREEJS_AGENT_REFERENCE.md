@@ -13,7 +13,7 @@ the engine without breaking its data, interaction, or resource contracts.
 - There is one WebGL renderer. Do not add React Three Fiber, a renderer switch,
   a second RAF, or a Canvas fallback without an explicit architecture decision.
   A measured WebGPU spike at r185 was a NO-GO and was removed from the
-  production graph; see `agents/2026-07-29-webgpu-spike-report.md`. Do not
+  production graph; its report is in git history at commit `599c822`. Do not
   restore its runtime query switch. A future spike needs an isolated entry or
   worktree and must add zero bytes to the production build.
 - Rendering, hit testing, keyboard targets, following, detail anchors, and

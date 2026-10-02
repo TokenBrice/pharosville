@@ -1,13 +1,12 @@
 # PharosVille Runtime and Analytical Contracts
 
 Picture direction belongs in `VISUAL_INVARIANTS.md`; this file owns runtime,
-truth, access and resource limits. The Hour-Print plan
-(`agents/2026-09-26-opus-visual-leap/01-implementation-plan.md`, rulings §3
-and operator decisions §4.1) supersedes conflicting Reborn prescriptions. The
-accepted Reborn decisions D1–D17 in
-`agents/pharosville-reborn/01-implementation-plan.md` still stand where Hour-Print
-left them alone. The previous document is preserved verbatim in
-`agents/pharosville-reborn/visual-invariants-2026-09-08-archive.md`.
+truth, access and resource limits. The Hour-Print plan (rulings §3 and operator
+decisions §4.1) supersedes conflicting Reborn prescriptions, and the accepted
+Reborn decisions D1–D17 still stand where Hour-Print left them alone. Both
+plans, and the verbatim pre-Hour-Print invariants archive, were retired from
+the tree after v0.19.0 and remain in git history at commit `599c822`. The active
+upgrade plan is `agents/2026-10-02-visual-upgrade/01-implementation-plan.md`.
 Change a contract only with explicit intent and matching code, meaningful tests
 and route documentation. Test pointers below locate coverage; old implementation
 pins are not authority over the accepted picture.

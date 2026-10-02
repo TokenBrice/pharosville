@@ -1,6 +1,6 @@
 # PharosVille Agent Onboarding
 
-Last updated: 2026-09-27
+Last updated: 2026-10-03
 
 Use this after `AGENTS.md` to route the current task. Keep startup small:
 read only the docs needed for the change in front of you.
@@ -42,7 +42,7 @@ read only the docs needed for the change in front of you.
 | --- | --- | --- |
 | App shell, API proxy, metadata, viewport gate | `docs/pharosville/CONTRACTS.md`, `docs/pharosville/ARCHITECTURE.md`, `docs/pharosville-page.md` | `npm run validate:changed` |
 | World model, data semantics, layout, motion | `docs/pharosville/CONTRACTS.md`, `src/systems/README.md` | `npm test -- src/systems` |
-| Art direction, composition, light hierarchy, visual restraint | `docs/pharosville/VISUAL_INVARIANTS.md`, the active Hour-Print plan `agents/2026-09-26-opus-visual-leap/01-implementation-plan.md` (§1.1 "The hand", §3 rulings, §5.0 attention budget) | operator review of the picture rules, then real-GPU `npm run preview` evidence (`--clock`, `--metrics --value-plan`) |
+| Art direction, composition, light hierarchy, visual restraint | `docs/pharosville/VISUAL_INVARIANTS.md`, the active visual-upgrade plan `agents/2026-10-02-visual-upgrade/01-implementation-plan.md` (§4 decisions, §7.2 art A/B protocol); the Hour-Print plan it builds on is in git history at commit `599c822` | operator review of the picture rules, then real-GPU `npm run preview` evidence (`--clock`, `--metrics --value-plan`) |
 | Day score, rituals, director, attention budget | `docs/pharosville/CONTRACTS.md` ("Media and motion"), `docs/pharosville/VISUAL_INVARIANTS.md` | `npm test -- src/systems/garden-score.test.ts src/systems/garden-director.test.ts`, then `npm run preview -- --ritual <kind>` |
 | Chrome, now-line, record card, ink labels | `docs/pharosville/CONTRACTS.md` ("Runtime, security and access") | `npm test -- src/systems/chrome-air.test.ts src/components` |
 | Sound (opt-in) | `docs/pharosville/CONTRACTS.md` ("Media and motion") | `npm test -- src/hooks/use-garden-sound.test.tsx` |
