@@ -100,13 +100,35 @@ review; and `--out <path>` records the frame under `outputs/`. Use the real-GPU
 preview for appearance and timing, then inspect the image and the census
 reconciliation together.
 
-For reproducible hardware comparisons, `--fixture calm|dense|stress` reuses the
-checked-in browser fixtures and fixes the wall clock while leaving real RAF and
-performance timing intact. `--overlap` records projected ship hit-rectangle
-overlap and an annotated companion capture; this is a crowding proxy, not a
-measurement of sail-pixel occlusion. `--pan-zoom` records six gesture frames;
-`--blur-audit` saves a 16px canvas-blur companion for the attention audit.
-`--json <name.json>` preserves the metrics beside the images in `outputs/`.
+For reproducible hardware comparisons, `--fixture` accepts `calm`, `dense`,
+`stress`, `quiet-dense`, `mixed-capacity`, and `quiet-normal`. Stock `dense`
+remains the crowding arm. `quiet-dense` is the normalized 132-identity art
+baseline: unchanged stocks and identities, quiet peg/DEWS/flow readings, zero
+weekly change and STEADY/82 PSI. `mixed-capacity` keeps those identities with
+crowded risk waters and CRISIS/25 PSI. `quiet-normal` is the two-ship quiet case
+with BEDROCK/98 PSI and inactive issuance. All presets fix Date at the source
+epoch plus 60 seconds, leaving real RAF and performance timing intact.
+`--overlap` records projected ship hit-rectangle overlap and an annotated
+companion capture; this is a crowding proxy, not sail-pixel occlusion.
+`--pan-zoom` records six gesture frames; `--blur-audit` saves a 16px canvas-blur
+companion for the attention audit.
+
+`--json <name.json>` preserves metrics beside the images in `outputs/`, and
+prints one `manifest <path>` line. Its sibling `capture` block (not part of
+`metrics`) records the preview checkout commit and dirty paths, viewport,
+requested DPR (`deviceScaleFactor`), browser DPR and effective canvas DPR,
+screen, IANA timezone, headed/reduced flags, WebGL vendor, browser version,
+selected detail, world generation time, admitted ship detail IDs, canvas size,
+hash, date-aware dominant sky phase (`phaseForHour`), fixture name/source epoch/
+SHA-256 payload hash, and screenshot/JSON output paths. Missing optional
+evidence is `null` with a reason in `unavailable`; live data and no selection
+are ordinary null states. The identity is sampled beside the main screenshot,
+before any pan/zoom or light-cycle probes. Commit identity describes the
+preview script checkout, so always serve the same worktree being measured.
+
+Agent shells set `CI=true`: prefix real-GPU commands with `env -u CI`, for
+example `env -u CI npm run preview -- --fixture quiet-dense --assert --json quiet.json`.
+Exit 78 means not measured, never a pass; SwiftShader remains refused.
 
 `--texture-census` includes logical storage estimates for reachable textures,
 unique live handles and known depth/MSAA renderbuffers, with unknown allocations
