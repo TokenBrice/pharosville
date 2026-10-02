@@ -226,6 +226,48 @@ describe("createGardenOverviewLod", () => {
     expect(arm.matrixWorld.elements[14]).toBeCloseTo(-2, 6);
   });
 
+  it.each([
+    [0, 0, 0],
+    [0, 1, 1],
+  ])("keeps an arriving badge finite from parent scale (%i, %i, %i)", (x, y, z) => {
+    const { prop: badge, root: ship } = propTree();
+    badge.name = "ship-overview-detail";
+    badge.scale.set(1, 2, 1);
+    badge.rotation.z = 0.3;
+    ship.position.set(12, -0.16, 8);
+    ship.rotation.y = 0.45;
+    ship.scale.set(x, y, z);
+    const lod = createGardenOverviewLod(ship);
+    const authoredPosition = badge.position.clone();
+    const pivotOffset = new Vector3(0, 6, 0).applyQuaternion(badge.quaternion);
+
+    // The detail stays fixed while the ship arrives: pivot refresh must not
+    // depend on the camera crossing another LOD threshold.
+    for (const arrivalScale of [null, null, 0.02, 0.42]) {
+      if (arrivalScale !== null) ship.scale.setScalar(arrivalScale);
+      lod.update({ zoom: 0.53, deltaSeconds: 0, reducedMotion: true });
+      ship.updateMatrixWorld(true);
+      expect(badge.position.toArray().every(Number.isFinite)).toBe(true);
+      badge.traverse((object) => {
+        expect(object.matrixWorld.elements.every(Number.isFinite)).toBe(true);
+      });
+      if (arrivalScale !== null) {
+        const expected = authoredPosition.clone().addScaledVector(pivotOffset, 1 - lod.detail);
+        expect(badge.position.distanceTo(expected)).toBeCloseTo(0, 6);
+        const authoredCentre = authoredPosition.clone().add(pivotOffset);
+        ship.localToWorld(authoredCentre);
+        expect(badge.children[0]!.getWorldPosition(new Vector3()).distanceTo(authoredCentre))
+          .toBeCloseTo(0, 6);
+      }
+    }
+
+    lod.update({ ...SNAP, zoom: 0.648 });
+    ship.updateMatrixWorld(true);
+    expect(badge.position.toArray()).toEqual(authoredPosition.toArray());
+    expect(badge.scale.toArray()).toEqual([1, 2, 1]);
+    expect(badge.matrixWorld.elements.every(Number.isFinite)).toBe(true);
+  });
+
   it("eases across the band instead of stepping", () => {
     const { root } = propTree();
     const lod = createGardenOverviewLod(root);
