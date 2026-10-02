@@ -1,11 +1,6 @@
 import type { MintBurnCoinFlow } from "@shared/types/mint-burn";
 import { describe, expect, it } from "vitest";
-import {
-  buildShipIssuance,
-  shipIssuanceDetailLabel,
-  shipIssuanceDraft,
-  shipIssuanceLedgerClause,
-} from "./ship-issuance";
+import { buildShipIssuance } from "./ship-issuance";
 
 function coin(overrides: Partial<MintBurnCoinFlow> = {}): MintBurnCoinFlow {
   return {
@@ -26,20 +21,19 @@ function coin(overrides: Partial<MintBurnCoinFlow> = {}): MintBurnCoinFlow {
 }
 
 describe("per-ship issuance story", () => {
-  it("turns net minting into loading and additional draft", () => {
+  it("retains net minting and its reported intensity and largest event", () => {
     const issuance = buildShipIssuance(coin())!;
     expect(issuance).toMatchObject({ direction: "minting", flowIntensity: 75, netFlow24hUsd: 8_000_000 });
-    expect(shipIssuanceDraft(issuance)).toBeLessThan(0);
-    expect(shipIssuanceDetailLabel({ issuance })).toContain("loading cargo and riding deeper");
-    expect(shipIssuanceDetailLabel({ issuance })).toContain("largest event mint $5.0M");
+    expect(issuance.largestEvent24h).toEqual({
+      direction: "mint", amountUsd: 5_000_000, timestamp: 1,
+    });
   });
 
-  it("turns net redemption into discharge and keeps missing data explicit", () => {
+  it("retains net redemption and keeps missing data explicit", () => {
     const issuance = buildShipIssuance(coin({ netFlow24hUsd: -3_000_000, flowIntensity: -50 }))!;
-    expect(issuance.direction).toBe("redeeming");
-    expect(shipIssuanceDraft(issuance)).toBeGreaterThan(0);
-    expect(shipIssuanceDetailLabel({ issuance })).toContain("discharging cargo and riding higher");
+    expect(issuance).toMatchObject({
+      direction: "redeeming", netFlow24hUsd: -3_000_000, flowIntensity: -50,
+    });
     expect(buildShipIssuance(null)).toBeUndefined();
-    expect(shipIssuanceLedgerClause({})).toContain("latest truth immediately");
   });
 });

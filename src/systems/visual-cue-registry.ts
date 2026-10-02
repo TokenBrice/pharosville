@@ -44,7 +44,7 @@ export const LEGEND_MARK_ROWS = [
   {
     cueId: "cue.ship.issuance-work",
     label: "Cargo working each ship",
-    text: "Working lighters and davits show that ship's own 24-hour issuance: net minting loads cargo aboard and settles the hull deeper; net redemption discharges it and lets the hull rise. One raised crane lift marks the largest reported event. No workset means either balanced issuance or no per-coin row; the Issuance work, 24h detail row says which.",
+    text: "Working lighters and davits show that ship's own 24-hour issuance: net minting loads cargo aboard; net redemption discharges it. One raised crane lift marks the largest reported event. No workset means either balanced issuance or no per-coin row; the Issuance work, 24h detail row says which. Hull height shows peg trim only.",
   },
   {
     cueId: "cue.dock.congestion",
@@ -308,12 +308,12 @@ export function buildVisualCueRegistry(): VisualCue[] {
       id: "cue.ship.issuance-work",
       target: { kind: "ship" },
       primaryChannels: ["position", "shape", "motion"],
-      visual: "net-minted ships take cargo aboard from two working lighters, their davits working as the hull settles deeper; net-redeemed ships discharge toward the lighters and ride higher. The reported largest 24h event gets one distinct raised crane lift",
+      visual: "net-minted ships take cargo aboard from two working lighters, their davits working; net-redeemed ships discharge toward the lighters. The reported largest 24h event gets one distinct raised crane lift. Hull height shows peg trim only",
       sourceField: "mintBurn.coins[].netFlow24hUsd, mintBurn.coins[].flowIntensity, mintBurn.coins[].largestEvent24h",
       questionAnswered: "Was this coin's supply minted or redeemed over the last day, how strongly did it move, and what was its largest event?",
-      failureState: "no workset and neutral issuance draft when the per-coin row is unavailable; balanced measured flow also has no workset, but the Issuance work, 24h row distinguishes it from missing data",
+      failureState: "no workset when the per-coin row is unavailable; balanced measured flow also has no workset, but the Issuance work, 24h row distinguishes it from missing data",
       domEquivalent: "ship detail 'Issuance work, 24h' row and accessibility-ledger issuance-work clause name direction, net amount, intensity, largest event, and the immediate-truth/render-tempo split",
-      reducedMotionEquivalent: "static representative composition with lighters held alongside, the largest-event crane lift held raised, and the final draft applied instantly",
+      reducedMotionEquivalent: "static representative composition with lighters held alongside and the largest-event crane lift held raised",
     },
     {
       id: "cue.ship.scale",

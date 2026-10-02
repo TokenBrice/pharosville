@@ -515,12 +515,6 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("Routes show rendered-chain and risk-water presence only");
   });
 
-  it("states per-ship issuance failure and garden-tempo parity", () => {
-    const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorldWithLedgerShip()} />);
-    expect(markup).toContain("issuance work Unavailable — neutral draft; no per-coin mint/redeem row");
-    expect(markup).toContain("rendered at garden tempo over 45 seconds, while this ledger states the latest truth immediately");
-  });
-
   it("mirrors lighthouse trend, composition, and contributors in the ledger", () => {
     const world: PharosVilleWorld = {
       ...sampleWorld(),

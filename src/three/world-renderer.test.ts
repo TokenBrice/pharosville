@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
   AmbientLight,
   BoxGeometry,
@@ -37,6 +40,7 @@ import { overCapacityWorldFixture } from "../__fixtures__/over-capacity-world";
 import { AccessibilityLedger } from "../components/accessibility-ledger";
 import type {
   ThreeLogoAssets,
+  ThreeWorldRenderer,
   ThreeWorldRendererFrame,
 } from "../renderer/world-renderer-backend";
 import type { PharosVilleRenderSchedulerTier } from "../renderer/render-types";
@@ -95,6 +99,8 @@ import {
   gardenStationRouteEndpoints,
 } from "./world-renderer";
 import { gardenShipHeelFromTurn } from "./renderer-ship-frame";
+import * as gardenShips from "./garden-ships";
+import { GARDEN_MODEL_MANIFEST } from "./garden-models";
 import {
   gardenMistBoundaryTile,
   gardenTransitionWaveReady,
@@ -658,6 +664,309 @@ describe("Three world renderer lifecycle", () => {
     }
     expect(scene.getObjectByName("fleet-pennants")).toBeInstanceOf(InstancedMesh);
     renderer.dispose();
+  });
+
+  it("keeps final hull, rig and lantern peg-only through issuance transitions", async () => {
+    const input = makePharosVilleWorldInput();
+    const base = buildPharosVilleWorld(makePharosVilleWorldInput({
+      stablecoins: {
+        ...input.stablecoins!,
+        peggedAssets: input.stablecoins!.peggedAssets.filter((coin) => coin.id === "usdc-circle"),
+      },
+    }));
+    const subject = base.ships[0]!;
+    const modelId = "garden-hero-circle";
+    const bytes = readFileSync(`public${GARDEN_MODEL_MANIFEST[modelId].artifact.url.split("?")[0]}`);
+    const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
+      .parseAsync(new Uint8Array(bytes).buffer, "");
+    const model = new Group();
+    model.add(gltf.scene.getObjectByName(modelId)!);
+    const createHero = vi.spyOn(gardenShips, "createShip");
+    const createBatch = vi.spyOn(gardenShips, "createBatchedShip");
+    const issuanceRows = [8_000_000, -8_000_000, 0, null] as const;
+    const worldFor = (
+      scale: number,
+      waterline: number,
+      hero: boolean,
+      net: typeof issuanceRows[number],
+    ): PharosVilleWorld => {
+      const measured = buildPharosVilleWorld(makePharosVilleWorldInput({
+        mintBurn: {
+          ...fixtureMintBurn,
+          coins: net === null ? [] : fixtureMintBurn.coins.map((coin) => ({
+            ...coin, netFlow24hUsd: net, flowIntensity: net < 0 ? -100 : 100,
+          })),
+        },
+      })).ships.find((ship) => ship.id === subject.id)!;
+      const { issuance: _issuance, ...withoutIssuance } = subject;
+      const ship: ShipNode = {
+        ...withoutIssuance,
+        ...(measured.issuance ? { issuance: measured.issuance } : {}),
+        visual: {
+          ...subject.visual,
+          sizeTier: hero ? "titan" : "major",
+          scale,
+          hullForm: { ...subject.visual.hullForm, waterline },
+        },
+      };
+      return { ...base, ships: [ship], entityById: { ...base.entityById, [ship.detailId]: ship } };
+    };
+    const visualIn = (scene: Scene): gardenShips.ShipVisual => {
+      const part = scene.getObjectByName("content-part-ships")!;
+      const created = [...createHero.mock.results, ...createBatch.mock.results]
+        .filter((result) => result.type === "return")
+        .map((result) => result.value as gardenShips.ShipVisual);
+      return created.findLast((visual) => visual.ship.id === subject.id && visual.root.parent === part)!;
+    };
+    const render = (
+      renderer: ThreeWorldRenderer,
+      world: PharosVilleWorld,
+      reducedMotion: boolean,
+      timeSeconds: number,
+    ) => {
+      const frame = {
+        ...rendererFrame(world, "full", {
+          cameraZoom: 1.2, reducedMotion,
+          selectedDetailId: world.ships.some((ship) => ship.id === subject.id) ? subject.detailId : null,
+          wallClockHour: 22,
+        }),
+        // Hold the nonfinancial pose fixed, including the ordinary easing
+        // frames: issuance cannot acquire a hidden heave through composition.
+        shipMotionSamples: new Map<string, ShipMotionSample>(),
+        timeSeconds,
+      };
+      let metrics = renderer.render(frame);
+      for (let round = 0; (metrics.contentRebuildQueueDepth ?? 0) > 0 && round < 16; round += 1) {
+        metrics = renderer.render(frame);
+      }
+      expect(metrics.contentRebuildQueueDepth ?? 0).toBe(0);
+    };
+    const matrixSlot = (mesh: InstancedMesh, position: Vector3) => {
+      const matrix = new Matrix4();
+      let closest = -1;
+      let distance = Number.POSITIVE_INFINITY;
+      for (let slot = 0; slot < mesh.count; slot += 1) {
+        mesh.getMatrixAt(slot, matrix);
+        const next = Math.hypot(matrix.elements[12]! - position.x, matrix.elements[14]! - position.z);
+        if (next < distance) {
+          closest = slot;
+          distance = next;
+        }
+      }
+      expect(distance).toBeLessThan(0.1);
+      return closest;
+    };
+    const snapshot = (scene: Scene, visual: gardenShips.ShipVisual, departing = false) => {
+      scene.updateMatrixWorld(true);
+      const cores = scene.getObjectByName("ship-lantern-cores") as InstancedMesh;
+      let lamp: Matrix4 | null = null;
+      if (!departing) {
+        lamp = new Matrix4();
+        const anchor = visual.sternLantern.clone();
+        const form = visual.ship.visual.hullForm;
+        if (visual.batched) {
+          const t = Math.max(0, Math.min(1, anchor.y / 0.45));
+          anchor.x *= form.length;
+          anchor.y *= 1 + (form.height - 1) * t * t * (3 - 2 * t);
+          anchor.z *= form.beam;
+        }
+        anchor.y += form.waterline ?? 0;
+        anchor.applyMatrix4(visual.root.matrixWorld);
+        cores.getMatrixAt(matrixSlot(cores, anchor), lamp);
+      }
+      const rig = scene.getObjectByName("ship-hero-rig") as gardenShips.FleetLanterns["rig"];
+      const lines = rig.geometry.getAttribute("position");
+      const rigHeights = Array.from({ length: rig.geometry.drawRange.count }, (_, vertex) => lines.getY(vertex));
+      // Physical hull/rig children, not the independently shrinking data badge.
+      const children = visual.batched ? [] : visual.root.children
+        .filter((child) => child.name !== "ship-overview-detail")
+        .map((child) => child.matrixWorld.clone());
+      const batchHeights: number[] = [];
+      const batchTrims: number[] = [];
+      if (visual.batched) {
+        for (const name of ["hull", "sails"]) {
+          const mesh = scene.getObjectByName(`fleet-${name}-${visual.silhouette}`) as InstancedMesh;
+          const slot = matrixSlot(mesh, visual.root.position);
+          const form = mesh.geometry.getAttribute("aHullForm");
+          batchTrims.push(form.getW(slot));
+          const matrix = new Matrix4();
+          mesh.getMatrixAt(slot, matrix);
+          // Sample the submitted hull/rig vertex after the batch's form
+          // deformation, then the actual instance/world matrices.
+          const point = new Vector3().fromBufferAttribute(mesh.geometry.getAttribute("position"), 0);
+          const t = Math.max(0, Math.min(1, point.y / 0.45));
+          point.set(
+            point.x * form.getX(slot),
+            point.y * (1 + (form.getZ(slot) - 1) * t * t * (3 - 2 * t)) + form.getW(slot),
+            point.z * form.getY(slot),
+          ).applyMatrix4(matrix).applyMatrix4(mesh.matrixWorld);
+          batchHeights.push(point.y);
+        }
+        const pennants = scene.getObjectByName("fleet-pennants") as InstancedMesh;
+        const pennant = new Matrix4();
+        // Pennant origins are at the masthead rather than the root.
+        const masthead = gardenShips.gardenShipMastheadOffset(visual.silhouette);
+        const anchor = new Vector3(masthead.x, masthead.y, 0.02).applyMatrix4(visual.root.matrixWorld);
+        pennants.getMatrixAt(matrixSlot(pennants, anchor), pennant);
+        batchHeights.push(pennant.elements[13]!);
+      }
+      return { root: visual.root.matrixWorld.clone(), children, lamp, rigHeights, batchHeights, batchTrims };
+    };
+    const supportShips = denseRendererWorld().ships.filter((ship) => ship.id !== subject.id).slice(0, 8);
+    const withSupport = (world: PharosVilleWorld): PharosVilleWorld => ({
+      ...world,
+      ships: [...world.ships, ...supportShips],
+      entityById: {
+        ...world.entityById,
+        ...Object.fromEntries(supportShips.map((ship) => [ship.detailId, ship])),
+      },
+    });
+    try {
+      for (const scale of [0.42, 1, 1.15]) {
+        for (const hero of [false, true]) {
+          const levelRenderer = createThreeWorldRenderer({
+            canvas: document.createElement("canvas"), onContextFailure: vi.fn(),
+          });
+          const levelSceneOwner = rendererHarness.instances.at(-1)!;
+          const pegRenderer = createThreeWorldRenderer({
+            canvas: document.createElement("canvas"), onContextFailure: vi.fn(),
+          });
+          const pegSceneOwner = rendererHarness.instances.at(-1)!;
+          try {
+            for (const bps of [-200, -50, 50, 200]) {
+              const trim = Math.sign(bps) * (Math.abs(bps) === 50 ? 0.08 : 0.16);
+              // Rebuild both hull paths from the same procedural starting point.
+              render(levelRenderer, { ...base, ships: [] }, true, 0);
+              render(pegRenderer, { ...base, ships: [] }, true, 0);
+              render(levelRenderer, worldFor(scale, 0, hero, null), true, 0);
+              render(pegRenderer, worldFor(scale, trim, hero, null), true, 0);
+              const levelScene = levelSceneOwner.lastScene!;
+              const pegScene = pegSceneOwner.lastScene!;
+              const levelVisual = visualIn(levelScene);
+              const pegVisual = visualIn(pegScene);
+              expect(pegVisual.batched).toBe(!hero);
+              let timeSeconds = 1;
+              for (const attached of hero ? [false, true] : [false]) {
+                if (attached) {
+                  gardenShips.attachGardenHeroModel(levelVisual, model.clone(true));
+                  gardenShips.attachGardenHeroModel(pegVisual, model.clone(true));
+                  render(levelRenderer, worldFor(scale, 0, hero, null), true, timeSeconds);
+                  render(pegRenderer, worldFor(scale, trim, hero, null), true, timeSeconds);
+                }
+                const atRest = snapshot(levelScene, levelVisual);
+                for (const net of issuanceRows) {
+                  const levelWorld = worldFor(scale, 0, hero, net);
+                  const pegWorld = worldFor(scale, trim, hero, net);
+                  for (const reducedMotion of [false, true]) {
+                    // The first frames after each issuance refresh catch any
+                    // residual easing carrier; the later frame catches its end.
+                    for (const elapsed of [0.25, 45]) {
+                      timeSeconds += elapsed;
+                      render(levelRenderer, levelWorld, reducedMotion, timeSeconds);
+                      render(pegRenderer, pegWorld, reducedMotion, timeSeconds);
+                      const level = snapshot(levelScene, levelVisual);
+                      const peg = snapshot(pegScene, pegVisual);
+                      const delta = scale * trim;
+                      expect(peg.root.elements).toEqual(level.root.elements);
+                      expect(level.root.elements).toEqual(atRest.root.elements);
+                      expect(peg.root.elements[5]).toBeCloseTo(scale, 6);
+                      expect(peg.children).toHaveLength(level.children.length);
+                      for (const [index, child] of peg.children.entries()) {
+                        expect(child.elements[13]! - level.children[index]!.elements[13]!).toBeCloseTo(delta, 5);
+                      }
+                      expect(level.batchTrims).toEqual(hero ? [] : [0, 0]);
+                      expect(peg.batchTrims).toEqual(hero ? [] : [expect.closeTo(trim, 6), expect.closeTo(trim, 6)]);
+                      for (const [index, height] of peg.batchHeights.entries()) {
+                        expect(height - level.batchHeights[index]!).toBeCloseTo(delta, 5);
+                      }
+                      expect(peg.lamp!.elements[13]! - level.lamp!.elements[13]!).toBeCloseTo(delta, 5);
+                      expect(level.lamp!.elements[13]).toBeCloseTo(atRest.lamp!.elements[13]!, 5);
+                      expect(level.rigHeights).toEqual(atRest.rigHeights);
+                      expect(peg.rigHeights).toHaveLength(level.rigHeights.length);
+                      if (!attached) expect(peg.rigHeights.length).toBeGreaterThan(0);
+                      for (const [index, height] of peg.rigHeights.entries()) {
+                        expect(height - level.rigHeights[index]!).toBeCloseTo(delta, 5);
+                      }
+                    }
+                  }
+                }
+              }
+              // One entrant/exit in a nine-ship real-fixture fleet stays below
+              // the mass-refresh snap threshold, exercising actual journeys.
+              for (const net of issuanceRows) {
+                const levelWorld = withSupport(worldFor(scale, 0, hero, net));
+                const pegWorld = withSupport(worldFor(scale, trim, hero, net));
+                const absent = { ...levelWorld, ships: supportShips };
+                render(levelRenderer, absent, true, 0);
+                render(pegRenderer, absent, true, 0);
+                render(levelRenderer, levelWorld, false, 201);
+                render(pegRenderer, pegWorld, false, 201);
+                for (const second of [211, 231]) {
+                  render(levelRenderer, levelWorld, false, second);
+                  render(pegRenderer, pegWorld, false, second);
+                  const levelArrival = visualIn(levelScene);
+                  const pegArrival = visualIn(pegScene);
+                  expect(pegArrival.sampleState).toBe("arriving");
+                  const level = snapshot(levelScene, levelArrival);
+                  const peg = snapshot(pegScene, pegArrival);
+                  const delta = level.root.elements[5]! * trim;
+                  expect(peg.root.elements).toEqual(level.root.elements);
+                  expect(pegArrival.root.scale.x).toBeGreaterThan(0);
+                  for (const [index, child] of peg.children.entries()) {
+                    expect(
+                      child.elements[13]! - level.children[index]!.elements[13]!,
+                      `${scale}/${bps}/${hero}/${net}/${second}: child ${index} ${pegArrival.root.children[index]!.name}`,
+                    ).toBeCloseTo(delta, 5);
+                  }
+                  expect(peg.batchTrims).toEqual(hero ? [] : [expect.closeTo(trim, 6), expect.closeTo(trim, 6)]);
+                  for (const [index, height] of peg.batchHeights.entries()) {
+                    expect(height - level.batchHeights[index]!).toBeCloseTo(delta, 5);
+                  }
+                  expect(peg.lamp!.elements[13]! - level.lamp!.elements[13]!).toBeCloseTo(delta, 5);
+                  expect(peg.rigHeights).toHaveLength(level.rigHeights.length);
+                  // Other ships keep their own height; every shifted rig point
+                  // must be the entrant's peg delta under its current pose.
+                  for (const [index, height] of peg.rigHeights.entries()) {
+                    const shift = height - level.rigHeights[index]!;
+                    expect(Math.min(Math.abs(shift), Math.abs(shift - delta))).toBeLessThan(1e-5);
+                  }
+                }
+                render(levelRenderer, levelWorld, false, 350);
+                render(pegRenderer, pegWorld, false, 350);
+                render(levelRenderer, absent, false, 351);
+                render(pegRenderer, absent, false, 351);
+                for (const second of [361, 381]) {
+                  render(levelRenderer, absent, false, second);
+                  render(pegRenderer, absent, false, second);
+                  const levelDeparture = visualIn(levelScene);
+                  const pegDeparture = visualIn(pegScene);
+                  expect(pegDeparture.sampleState).toBe("departing");
+                  // Hero departures intentionally become batched ghosts.
+                  expect(pegDeparture.batched).toBe(true);
+                  const level = snapshot(levelScene, levelDeparture, true);
+                  const peg = snapshot(pegScene, pegDeparture, true);
+                  const delta = level.root.elements[5]! * trim;
+                  expect(peg.root.elements).toEqual(level.root.elements);
+                  expect(peg.batchTrims).toEqual([expect.closeTo(trim, 6), expect.closeTo(trim, 6)]);
+                  for (const [index, height] of peg.batchHeights.entries()) {
+                    expect(height - level.batchHeights[index]!).toBeCloseTo(delta, 5);
+                  }
+                  // Ghosts never join the live fleet's lamp/rig workset.
+                  expect(peg.rigHeights).toEqual(level.rigHeights);
+                }
+              }
+            }
+          } finally {
+            levelRenderer.dispose();
+            pegRenderer.dispose();
+          }
+        }
+      }
+    } finally {
+      createHero.mockRestore();
+      createBatch.mockRestore();
+      disposeThreeObjectTree(model);
+    }
   });
 
   it("gives chain flags the harbour's gust and rests them on one pose for reduced motion", () => {

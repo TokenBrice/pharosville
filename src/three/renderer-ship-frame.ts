@@ -52,7 +52,6 @@ import {
   gardenBreathAt,
   type WeatherPlan,
 } from "../systems/weather";
-import { shipIssuanceDraft } from "../systems/ship-issuance";
 import type { GardenPigeonnierLandmark } from "./garden-landmarks";
 import type { GardenWater } from "./garden-water";
 import { prepareGardenHullSwell, sampleGardenHullSwellInto, type GardenHullSwellPose } from "./garden-hull-swell";
@@ -89,7 +88,6 @@ import {
 } from "./garden-util";
 import type { TextureUploadScheduler } from "./texture-upload-scheduler";
 import {
-  GARDEN_SCALAR_TRANSITION_SECONDS,
   sampleGardenShipTransition,
   type GardenShipTransitionSample,
   type GardenShipTransitionSpec,
@@ -127,16 +125,6 @@ const SHADOW_UP = new Vector3(0, 1, 0);
 const scratchWakePose = { headingY: 0, hullScale: 1, x: 0, y: 0, z: 0 };
 const scratchArrivalBeat: GardenArrivalBeatEnvelope = { furl: 0, bowWave: 0, nameplate: false };
 const scratchSwellPose: GardenHullSwellPose = { heave: 0, pitch: 0, rollToPort: 0 };
-const scratchIssuanceHullForm = {
-  agePatina: -1,
-  beam: 1,
-  height: 1,
-  hullValue: 1,
-  length: 1,
-  propRotation: 0,
-  ropeSag: 0,
-  waterline: 0,
-};
 const transitionFrameSample: GardenShipTransitionSample = {
   complete: false,
   headingX: 0,
@@ -169,8 +157,6 @@ export interface GardenShipFrameContent {
   fleetThinningShips: GardenFleetThinningShip[];
   flightTenderShips: ShipVisual[];
   flightTenders: GardenFlightTenders;
-  issuanceDraftById: Map<string, number>;
-  issuanceDraftTargetById: Map<string, number>;
   issuanceWorksetShips: ShipVisual[];
   issuanceWorksets: GardenShipIssuanceWorksets;
   /** The ships part's texture-upload owner; a rebuild replaces it. */
@@ -199,7 +185,7 @@ export interface GardenShipFrameInput {
   constrained: boolean;
   /**
    * Seconds since the previous frame on the scene's beam clock, unclamped.
-   * Drives the heel rate and the issuance-draft ease.
+   * Drives the heel rate.
    */
   deltaSeconds: number;
   /** Fires when the deferred sail-atlas repaint has uploaded. */
@@ -385,15 +371,6 @@ export function updateGardenShipFrame(
   const stampContactField = wakeFieldTier;
   content.wakeBatch.root.visible = !wakeFieldTier;
   let visibleShipCount = 0;
-  const issuanceAlpha = frame.reducedMotion
-    ? 1
-    : 1 - Math.exp(-MathUtils.clamp(deltaSeconds, 0, 0.25) / GARDEN_SCALAR_TRANSITION_SECONDS);
-  for (const visual of content.ships) {
-    const target = content.issuanceDraftTargetById.get(visual.ship.id)
-      ?? shipIssuanceDraft(visual.ship.issuance);
-    const current = content.issuanceDraftById.get(visual.ship.id) ?? target;
-    content.issuanceDraftById.set(visual.ship.id, current + (target - current) * issuanceAlpha);
-  }
   // Indexed rather than `entries()`: the iterator mints an `[index, value]` pair
   // per hull per frame, and this loop runs over the whole fleet. Same below.
   const renderedShipCount = content.ships.length + content.departingShips.length;
@@ -500,10 +477,6 @@ export function updateGardenShipFrame(
       rollToPort = scratchSwellPose.rollToPort + (sample?.heelRad ?? 0) + turnRollToPort;
     }
     visual.root.rotation.set(-rollToPort, yaw, pitch, "YXZ");
-    const issuanceDraft = departing ? 0 : content.issuanceDraftById.get(visual.ship.id) ?? 0;
-    // Hero hulls are their own scene graph, so their whole root takes draft.
-    // Batched hulls take the same offset through aHullForm.w below.
-    if (!visual.batched) visual.root.position.y += issuanceDraft;
     visual.sampleState = transition
       ? (departing ? "departing" : transition.kind === "arrival" ? "arriving" : "sailing")
       : (sample?.state ?? "idle");
@@ -664,15 +637,6 @@ export function updateGardenShipFrame(
     // The ship's transform is final for this frame — hand it to the batch.
     // Hero ships skip this: they carry their own meshes under `root`.
     if (visual.batched) {
-      const authoredHullForm = visual.ship.visual.hullForm;
-      scratchIssuanceHullForm.beam = authoredHullForm.beam;
-      scratchIssuanceHullForm.agePatina = authoredHullForm.agePatina ?? -1;
-      scratchIssuanceHullForm.height = authoredHullForm.height;
-      scratchIssuanceHullForm.hullValue = authoredHullForm.hullValue ?? 1;
-      scratchIssuanceHullForm.length = authoredHullForm.length;
-      scratchIssuanceHullForm.propRotation = authoredHullForm.propRotation ?? 0;
-      scratchIssuanceHullForm.ropeSag = authoredHullForm.ropeSag ?? 0;
-      scratchIssuanceHullForm.waterline = (authoredHullForm.waterline ?? 0) + issuanceDraft;
       writeFleetInstance(content.fleetBatches, {
         atlasCell: visual.atlasCell,
         leader: visual.ship.visual.sizeTier === "titan" || visual.ship.visual.sizeTier === "unique",
@@ -680,7 +644,7 @@ export function updateGardenShipFrame(
         headingAngle: visual.root.rotation.y,
         heel: visual.root.rotation.z,
         hullColor: visual.hullColor,
-        hullForm: scratchIssuanceHullForm,
+        hullForm: visual.ship.visual.hullForm,
         sailColor: visual.sailColor,
         pennantColor: visual.pennantColor,
         pitch: visual.root.rotation.x,
@@ -806,14 +770,9 @@ function fleetLanternPresence(visual: ShipVisual): number {
     * (content.fleetDisplayPresenceByShipId.get(visual.ship.id) ?? 1);
 }
 
-function fleetLanternDraft(visual: ShipVisual): number {
-  return lanternFrameContent!.issuanceDraftById.get(visual.ship.id) ?? 0;
-}
-
 /** One record for the renderer's lifetime; refreshed in place each frame. */
 const lanternFrame: FleetLanternFrame = {
   cameraQuaternion: new Quaternion(),
-  draft: fleetLanternDraft,
   presence: fleetLanternPresence,
   reducedMotion: false,
   timeSeconds: 0,

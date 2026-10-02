@@ -1753,8 +1753,6 @@ export interface FleetLanternFrame {
    * out), fractions shrink the lamp and fade the rig. Absent = every ship at 1.
    */
   presence?: (visual: ShipVisual) => number;
-  /** Batched hulls' transient draft on top of the authored waterline. */
-  draft?: (visual: ShipVisual) => number;
   reducedMotion: boolean;
   selectedDetailId?: string | null;
   timeSeconds: number;
@@ -1777,7 +1775,6 @@ const lanternGlowWarmth = new Color();
  */
 function fleetLocalToShip(
   visual: ShipVisual,
-  draft: number,
   x: number,
   y: number,
   z: number,
@@ -1790,7 +1787,7 @@ function fleetLocalToShip(
   const topsides = t * t * (3 - 2 * t);
   return target.set(
     x * (form?.length ?? 1),
-    y * (1 + ((form?.height ?? 1) - 1) * topsides) + waterline + draft,
+    y * (1 + ((form?.height ?? 1) - 1) * topsides) + waterline,
     z * (form?.beam ?? 1),
   );
 }
@@ -1829,7 +1826,6 @@ export function updateFleetLanterns(lanterns: FleetLanterns, frame: FleetLantern
     const visual = entry.visual;
     const presence = frame.presence ? frame.presence(visual) : 1;
     if (!(presence > 0)) continue;
-    const draft = frame.draft ? frame.draft(visual) : 0;
     const root = visual.root;
     // Same rotation order as the batch's instance matrix (heading, pitch, heel).
     lanternRootEuler.set(root.rotation.x, root.rotation.y, root.rotation.z, "YXZ");
@@ -1855,7 +1851,7 @@ export function updateFleetLanterns(lanterns: FleetLanterns, frame: FleetLantern
       ? 0
       : Math.sin(frame.timeSeconds * 0.9 + entry.swayPhase) * LANTERN_SWAY;
     const lamp = visual.sternLantern;
-    fleetLocalToShip(visual, draft, lamp.x + swing, lamp.y, lamp.z, lanternPosition)
+    fleetLocalToShip(visual, lamp.x + swing, lamp.y, lamp.z, lanternPosition)
       .applyMatrix4(lanternRootMatrix);
     const bodyScale = shipScale * lampPresence;
     lanternScale.set(
@@ -1889,7 +1885,6 @@ export function updateFleetLanterns(lanterns: FleetLanterns, frame: FleetLantern
         const offset = source + end * 3;
         fleetLocalToShip(
           visual,
-          draft,
           lines.points[offset]!,
           lines.points[offset + 1]!,
           lines.points[offset + 2]!,
