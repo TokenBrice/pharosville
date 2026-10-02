@@ -1,4 +1,4 @@
-import { recordDebugDirectorAdmission } from "../lib/pharosville-debug";
+import { endDebugDirectorAdmission, recordDebugDirectorAdmission } from "../lib/pharosville-debug";
 
 export type GardenBeatKind = "arrival" | "keeper" | "weather" | "fog" | "almanac" | "attract" | "market" | "ritual";
 
@@ -166,6 +166,7 @@ export function requestGardenBeat(
       if (!keepsHourBudget(owned.log, timeSeconds, end)) return null;
     }
   }
+  if (owned.active) endDebugDirectorAdmission(owned.active, timeSeconds);
   if (owned.active?.foreground) owned.lastForegroundEndSeconds = timeSeconds;
   const beat: GardenBeat = { ...request, id: `${owned.seed}:${owned.sequence++}`, startSeconds: timeSeconds };
   owned.active = beat;

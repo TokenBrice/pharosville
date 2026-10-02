@@ -13,9 +13,113 @@ export function installFixedDate(epochMs) {
   });
 }
 
+/** Self-contained Date-only observer; elapsed performance and all schedulers stay native. */
+export function installFlowingDate(epochMs) {
+  const NativeDate = globalThis.Date;
+  const nativeNow = globalThis.performance.now.bind(globalThis.performance);
+  const origin = nativeNow();
+  const now = () => epochMs + (nativeNow() - origin);
+  globalThis.Date = new Proxy(NativeDate, {
+    apply: () => new NativeDate(now()).toString(),
+    construct: (target, dateArgs, newTarget) => Reflect.construct(target, dateArgs.length ? dateArgs : [now()], newTarget),
+    get: (target, key, receiver) => key === "now" ? now : Reflect.get(target, key, receiver),
+  });
+}
+
+/** Explicit hashes bypass the fixture noon default; --clock adds only the calendar pin. */
+export function previewClockDescriptor({ fixture, refreshMode, hash, clock, dateMode = "fixed", search = "" }) {
+  const baseHash = hash ?? (refreshMode || fixture ? "#t=12" : "");
+  if (clock && /[#&]d=/.test(baseHash)) throw new Error("--clock adds d= to the hash itself; drop the d= from --hash");
+  const effectiveHash = clock ? (baseHash ? `${baseHash}&d=${clock.date}` : `#d=${clock.date}`) : baseHash;
+  const searchParams = new URLSearchParams(search);
+  const hashParams = new URLSearchParams(effectiveHash.replace(/^#\??/, ""));
+  // Hour/selection owns one descriptor, whereas the debug calendar flag prefers query.
+  const params = hashParams.size > 0 ? hashParams : searchParams;
+  return {
+    hash: effectiveHash,
+    dateMode: fixture ? dateMode : clock ? "flowing" : "native",
+    observerOrigin: fixture ? "fixture source epoch + 60 seconds" : clock ? "clock ISO instant" : "native Date",
+    observerOriginMs: fixture ? null : clock?.epochMs ?? null,
+    calendarPin: searchParams.get("d") ?? hashParams.get("d"),
+    hourPin: params.has("t") ? { source: "t", value: Number(params.get("t")) }
+      : params.get("n") === "1" ? { source: "n", value: 22 } : null,
+  };
+}
+
+const rowIdentity = (row) => `${row.rowType}|${row.id}|${row.kind}|${row.admittedAtWallMs}|${row.startSeconds}`;
+const isDiscreteAdmission = (row) => row.rowType === "admission" && row.clockDomain === "epoch"
+  && (row.foreground || row.kind === "ritual");
+const isUrgent = (row) => row.kind === "market" && row.priority >= 100;
+
+/** Watch-owned snapshots survive the browser's 200-row cap and track effective-end updates. */
+export function createAttentionWatch(first) {
+  const watch = { startedAtMs: first.hostMs, firstEpochMs: first.epochMs, lastEpochMs: first.epochMs,
+    endedAtMs: first.hostMs, rows: new Map() };
+  snapshotAttentionWatch(watch, first);
+  return watch;
+}
+
+export function snapshotAttentionWatch(watch, read) {
+  watch.endedAtMs = read.hostMs;
+  watch.lastEpochMs = read.epochMs;
+  const offsetMs = read.hostMs - watch.startedAtMs - read.epochMs;
+  for (const row of read.directorLog) {
+    const key = rowIdentity(row);
+    const previous = watch.rows.get(key);
+    // Copy, never retain the mutable browser row (including rows present at watch start).
+    watch.rows.set(key, { ...row, offsetMs: previous?.offsetMs ?? offsetMs,
+      seenAtMs: previous?.seenAtMs ?? read.hostMs - watch.startedAtMs });
+  }
+}
+
+/** Half-open duration union; diagnostic ritual starts, environment and motion never spend this budget. */
+export function summarizeAttentionWatch(watch) {
+  const elapsedMs = watch.endedAtMs - watch.startedAtMs;
+  const admissions = [...watch.rows.values()].filter(isDiscreteAdmission);
+  const events = admissions.filter((row) => {
+    const startMs = row.startSeconds * 1000 + row.offsetMs;
+    return startMs >= 0 && startMs < elapsedMs;
+  }).sort((a, b) => a.startSeconds - b.startSeconds);
+  const ordinary = events.filter((row) => !isUrgent(row));
+  const urgentAdmissions = events.filter(isUrgent);
+  const marks = [0, ...ordinary.map((row) => row.seenAtMs), elapsedMs].sort((a, b) => a - b);
+  const longestAdmissionGap = marks.slice(1).reduce((max, mark, index) => Math.max(max, mark - marks[index]), 0);
+  const result = { elapsedMs, events: ordinary, admissionCount: ordinary.length, urgentAdmissions,
+    urgentAdmissionCount: urgentAdmissions.length,
+    eventsPerHour: elapsedMs > 0 ? ordinary.length / (elapsedMs / 3_600_000) : null,
+    longestAdmissionGap, epochStartMs: watch.firstEpochMs, epochEndMs: watch.lastEpochMs };
+  if (!(elapsedMs > 0) || !Number.isFinite(watch.firstEpochMs) || !Number.isFinite(watch.lastEpochMs)
+    || watch.lastEpochMs <= watch.firstEpochMs) {
+    return { ...result, status: "unmeasured", reason: "Observer epoch did not advance",
+      occupancyPct: null, occupiedMs: null, quietRuns: null, longestQuietMs: null };
+  }
+  const intervals = admissions.map((row) => ({
+    startMs: Math.max(0, row.startSeconds * 1000 + row.offsetMs),
+    endMs: Math.min(elapsedMs, row.endSeconds * 1000 + row.offsetMs),
+  })).filter(({ startMs, endMs }) => Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs)
+    .sort((a, b) => a.startMs - b.startMs);
+  const occupiedRuns = [];
+  for (const interval of intervals) {
+    const last = occupiedRuns.at(-1);
+    if (last && interval.startMs <= last.endMs) last.endMs = Math.max(last.endMs, interval.endMs);
+    else occupiedRuns.push({ ...interval });
+  }
+  const quietRuns = [];
+  let cursorMs = 0;
+  for (const interval of occupiedRuns) {
+    if (interval.startMs > cursorMs) quietRuns.push({ startMs: cursorMs, endMs: interval.startMs });
+    cursorMs = interval.endMs;
+  }
+  if (cursorMs < elapsedMs) quietRuns.push({ startMs: cursorMs, endMs: elapsedMs });
+  const occupiedMs = occupiedRuns.reduce((sum, row) => sum + row.endMs - row.startMs, 0);
+  return { ...result, status: "measured", occupiedRuns, occupiedMs, occupancyPct: occupiedMs / elapsedMs * 100,
+    quietRuns, longestQuietMs: quietRuns.reduce((max, row) => Math.max(max, row.endMs - row.startMs), 0) };
+}
+
 /** Reuse the visual lane's routes and checked-in payloads; no network fixture copies. */
-export async function installPreviewFixture(page, name) {
+export async function installPreviewFixture(page, name, { dateMode = "fixed" } = {}) {
   if (!PREVIEW_FIXTURES.includes(name)) throw new Error(`Unknown fixture: ${name}`);
+  if (!["fixed", "flowing"].includes(dateMode)) throw new Error(`Unknown fixture clock: ${dateMode}`);
   const { require: tsxRequire } = await import("tsx/cjs/api");
   const helpers = tsxRequire("../../tests/helpers/pharosville-debug.ts", import.meta.url);
   const data = tsxRequire("../../src/__fixtures__/pharosville-world.ts", import.meta.url);
@@ -53,10 +157,11 @@ export async function installPreviewFixture(page, name) {
   const options = { meta: Object.fromEntries(keys.map((key) => [key, {
     updatedAt: sourceEpochMs / 1000, ageSeconds: 60, status: "fresh",
   }])) };
-  // Fix Date only: RAF, performance.now and real timers keep measuring hardware.
-  await page.addInitScript(installFixedDate, sourceEpochMs + 60_000);
+  // Install exactly one Date observer; never stack the flowing proxy over fixed Date.
+  const observerOriginMs = sourceEpochMs + 60_000;
+  await page.addInitScript(dateMode === "flowing" ? installFlowingDate : installFixedDate, observerOriginMs);
   await helpers.mockPharosVillePayloads(page, payloads, options);
-  return { name, sourceEpochMs, payloadHash: hashFixturePayloads(payloads, sourceEpochMs) };
+  return { name, sourceEpochMs, payloadHash: hashFixturePayloads(payloads, sourceEpochMs), dateMode, observerOriginMs };
 }
 
 /** Projected hit rectangles are a crowding proxy, not sail pixels or occlusion. */

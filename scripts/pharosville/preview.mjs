@@ -85,7 +85,8 @@
  *   --knockout-compare <list>  baseline vs each pass, alternating, 3 serial rounds (one Chrome per arm)
  *   --still-camera             appends still=1: no camera breath, no attract/postcard moves
  *   --clean                    the main shot is the canvas alone: HUD, world chrome and overlay hidden (hour stills)
- *   --clock <ISO>              pins Date (flowing from that instant; RAF/timers untouched) and adds d=YYYY-MM-DD
+ *   --clock <ISO>              flows Date for live data; under fixtures pins only d=YYYY-MM-DD
+ *   --fixture-clock fixed|flowing   fixture Date observer (default fixed); --hash '#' leaves the hour free
  *   --ritual <kind> [--ritual-wait ms]  W5.1: __pharosVilleDebug.forceRitual(kind) just before the shot (and any burst);
  *                              kinds heron-arrives|heron-departs|kindling|moonrise|meteor|seasonal-visitor|crossing
  *   --burst N [--interval ms] [--clip x,y,w,h] [--burst-sheet]   ordered <out>-burst-NN.png (+ contact sheet)
@@ -102,7 +103,10 @@ import { homedir } from "node:os";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { PREVIEW_FIXTURES, installPreviewFixture, analyzeTargetOverlap } from "./preview-fixture.mjs";
+import {
+  PREVIEW_FIXTURES, installPreviewFixture, installFlowingDate, analyzeTargetOverlap,
+  previewClockDescriptor, createAttentionWatch, snapshotAttentionWatch, summarizeAttentionWatch,
+} from "./preview-fixture.mjs";
 import { buildCaptureManifest } from "./preview-manifest.mjs";
 import { analyzeArtifactFlashFrames } from "./artifact-flash-metric.mjs";
 import {
@@ -157,6 +161,9 @@ if (args["artifact-check"] && args.reduced) {
 const fixture = args.fixture ?? null;
 if (fixture && !PREVIEW_FIXTURES.includes(fixture)) throw new Error(`--fixture needs one of ${PREVIEW_FIXTURES.join(", ")}`);
 if (fixture && args.refresh) throw new Error("--fixture and --refresh measure different data paths; run them separately");
+const fixtureDateMode = args["fixture-clock"] ?? "fixed";
+if (args["fixture-clock"] !== undefined && !fixture) throw new Error("--fixture-clock requires --fixture");
+if (!["fixed", "flowing"].includes(fixtureDateMode)) throw new Error("--fixture-clock needs fixed or flowing");
 const forcedTier = args["force-tier"] ?? null;
 if (forcedTier && !["constrained", "recovery"].includes(forcedTier)) throw new Error("--force-tier needs constrained or recovery (dev server only)");
 
@@ -272,7 +279,10 @@ let tailSweep = null;
 // Pinning the hour makes the payload the only thing that moved.
 // --clock adds `d=` beside it so the world's calendar (season, almanac, moon)
 // is pinned the same way the hour is.
-const hash = withCalendarDate(args.hash ?? (refreshMode || fixture ? "#t=12" : ""), clock);
+const clockDescriptor = previewClockDescriptor({
+  fixture, refreshMode, hash: args.hash, clock, dateMode: fixtureDateMode, search: new URL(url).search,
+});
+const hash = clockDescriptor.hash;
 const width = Number(args.width ?? 1600);
 const height = Number(args.height ?? 1000);
 // Long enough for the frame-pacing window to fill with steady-state frames
@@ -353,12 +363,11 @@ try {
     });
   }
 
-  const fixtureIdentity = fixture ? await installPreviewFixture(page, fixture) : null;
+  const fixtureIdentity = fixture ? await installPreviewFixture(page, fixture, { dateMode: fixtureDateMode }) : null;
   if (forcedTier) await page.addInitScript((tier) => { window.__pharosVilleTestSchedulerTier = tier; }, forcedTier);
   if (refreshMode) await installRefreshProbe(page);
   if (knockout) await page.addInitScript((passes) => { window.__pharosVilleKnockout = passes; }, knockout);
-  // Under a fixture the fixture's fixed Date keeps the data's freshness coherent;
-  // the world's calendar then comes from `d=` alone.
+  // Fixtures own their observer; --clock changes only d=, independently of their Date mode.
   if (clock && !fixture) await page.addInitScript(installFlowingDate, clock.epochMs);
 
   // Shader tripwire: a material the driver rejects is skipped SILENTLY at draw
@@ -483,10 +492,21 @@ try {
   // is the point: a gap between reads is a stretch of frames nothing measured.
   // A spike survives in the ring for ~120 frames, i.e. about two polls, so it
   // still cannot swing a median taken over a dozen of them.
-  if (!args.reduced && tailSeconds > 0) {
-    tailSweep = await sweepFrameTail(page, tailSeconds * 1000);
-    if (tailSweep.reads.length > 0) metrics = medianByP90(tailSweep.reads);
-  }
+  // Both readers observe this one settled scene, not two successive sessions.
+  const [sweep, watchedStats] = await Promise.all([
+    !args.reduced && tailSeconds > 0 ? sweepFrameTail(page, tailSeconds * 1000) : null,
+    statsWatchSeconds > 0 ? runStats(page, statsWatchSeconds) : null,
+  ]);
+  tailSweep = sweep;
+  if (tailSweep?.reads.length > 0) metrics = medianByP90(tailSweep.reads);
+  const watch = watchedStats?.watch;
+  const measurementOverlap = tailSweep && watch && !watch.error ? {
+    startMs: Math.max(tailSweep.startedAtMs, watch.startedAtMs),
+    endMs: Math.min(tailSweep.endedAtMs, watch.endedAtMs),
+    durationMs: Math.max(0, Math.min(tailSweep.endedAtMs, watch.endedAtMs)
+      - Math.max(tailSweep.startedAtMs, watch.startedAtMs)),
+    tailContinuous: tailSweep.continuous,
+  } : null;
   if (args["draw-census"] && !args.reduced) {
     const fresh = await waitForDrawOwnerCensusAfterFrame(page, settledAtFrame);
     metrics = { ...metrics, drawOwnerCensus: fresh.drawOwnerCensus };
@@ -504,6 +524,10 @@ try {
     await page.screenshot({ path: outputPath });
   }
   const captureIdentity = await readCaptureIdentity(page);
+  const observer = { ...clockDescriptor,
+    observerOriginMs: fixtureIdentity?.observerOriginMs ?? clockDescriptor.observerOriginMs,
+    timeZone: captureIdentity.timeZone,
+  };
   if (args["blur-audit"]) {
     const originalStyle = await canvas.evaluate((element) => {
       const style = element.getAttribute("style");
@@ -548,12 +572,13 @@ try {
   }
 
   console.log(`URL        ${target}`);
-  console.log(`data       ${fixture ?? "live"}${fixture ? " checked-in fixture; Date fixed at fixture epoch + 60 seconds" : ""} · forced tier ${forcedTier ?? "none"}`);
-  if (clock) {
-    console.log(`clock      d=${clock.date} in the hash · ${fixture
-      ? "Date stays on the fixture epoch so data freshness is coherent; the calendar comes from d="
-      : `Date flows from ${new Date(clock.epochMs).toString()} (Date only; RAF, performance.now and timers untouched)`}`);
-  }
+  console.log(`data       ${fixture ?? "live"}${fixture ? " checked-in immutable snapshot; observer starts at source epoch + 60 seconds" : ""} · forced tier ${forcedTier ?? "none"}`);
+  console.log(`clock      ${observer.dateMode} Date · origin ${observer.observerOrigin}`
+    + `${observer.observerOriginMs === null ? "" : ` (${observer.observerOriginMs}ms)`}`
+    + ` · calendar ${observer.calendarPin ?? "free"} · hour ${observer.hourPin ? `${observer.hourPin.source}=${observer.hourPin.value}` : "free"}`
+    + ` · timezone ${observer.timeZone ?? "unavailable"} · RAF, performance and timers native`);
+  if (measurementOverlap) console.log(`overlap    ${round(measurementOverlap.durationMs / 1000)}s tail + stats on the same settled scene`
+    + ` · tail ${measurementOverlap.tailContinuous ? "continuous" : "WITH GAPS"} · main screenshot after watch`);
   if (knockout || stillCamera) {
     console.log(`instrument${knockout ? ` knockout ${knockout.join(", ")} (window.__pharosVilleKnockout; honoured only with visual debug)` : ""}`
       + `${knockout && stillCamera ? " ·" : ""}${stillCamera ? " still camera (still=1: no breath, no attract/postcard moves)" : ""}`);
@@ -614,7 +639,7 @@ try {
   const instruments = {};
   if (burst) instruments.burst = await runBurst(page, canvas, burst);
   if (pictureRequested) instruments.picture = await runPictureMetrics(page, canvas, metrics);
-  if (statsMode) instruments.stats = await runStats(page, statsWatchSeconds);
+  if (statsMode) instruments.stats = watchedStats ?? await runStats(page, statsWatchSeconds);
 
   // Last, deliberately: the probe mutates the payload, so everything above —
   // including the screenshot — describes the world as the API actually serves it.
@@ -683,24 +708,29 @@ try {
 
   if (args.json) {
     const jsonPath = resolve(outputDirectory, typeof args.json === "string" ? args.json : "preview.json");
-    const capture = buildCaptureManifest({
-      ...readCheckoutIdentity(), ...captureIdentity,
-      viewport: { width, height }, deviceScaleFactor: Number(args.dpr ?? 1),
-      headed: Boolean(args.headed), reduced: Boolean(args.reduced), hash, vendor, browserVersion,
-      fixture: fixtureIdentity, outputs: { screenshot: outputPath, json: jsonPath },
-    });
+    const capture = {
+      ...buildCaptureManifest({
+        ...readCheckoutIdentity(), ...captureIdentity,
+        viewport: { width, height }, deviceScaleFactor: Number(args.dpr ?? 1),
+        headed: Boolean(args.headed), reduced: Boolean(args.reduced), hash, vendor, browserVersion,
+        fixture: fixtureIdentity, outputs: { screenshot: outputPath, json: jsonPath },
+      }),
+      observer,
+      screenshotTiming: statsWatchSeconds > 0 ? "after stats watch" : "after settle and any tail sweep",
+    };
     await writeFile(
       resolve(outputDirectory, typeof args.json === "string" ? args.json : "preview.json"),
       `${JSON.stringify({
         metrics,
         capture,
         tailSweep,
+        measurementOverlap,
         renderer,
         timerQuerySupported,
         target,
         fixture,
         forcedTier,
-        instrumentConfig: { clock, knockout, stillCamera, uncapped },
+        instrumentConfig: { clock, observer, knockout, stillCamera, uncapped },
         instruments,
       }, null, 2)}\n`,
     );
@@ -726,14 +756,15 @@ function round(value) {
  * the short window often is the same coverage without that cost.
  */
 async function sweepFrameTail(page, spanMs) {
-  const startedAt = Date.now();
+  const startedAtMs = performance.now();
   // Read immediately, so even a very short span yields one window.
   const reads = [await readMetrics(page)];
-  while (Date.now() - startedAt < spanMs) {
-    await page.waitForTimeout(TAIL_POLL_INTERVAL_MS);
+  while (performance.now() - startedAtMs < spanMs) {
+    await page.waitForTimeout(Math.min(TAIL_POLL_INTERVAL_MS, Math.max(0, spanMs - (performance.now() - startedAtMs))));
     reads.push(await readMetrics(page));
   }
-  return { ...summarizeFrameTail(reads, Date.now() - startedAt), reads };
+  const endedAtMs = performance.now();
+  return { ...summarizeFrameTail(reads, endedAtMs - startedAtMs), reads, startedAtMs, endedAtMs };
 }
 
 /**
@@ -1709,7 +1740,8 @@ async function runPictureMetrics(page, canvas, metrics) {
 
 /** motionStats and the director log, or `{ error }` naming the missing debug field. */
 async function readDebugStats(page) {
-  return page.evaluate(() => {
+  const beforeMs = performance.now();
+  const read = await page.evaluate(() => {
     const debug = window.__pharosVilleDebug;
     if (!debug) return { error: "window.__pharosVilleDebug is absent — load a dev or localhost build with ?debug=1" };
     const stats = debug.motionStats;
@@ -1720,14 +1752,9 @@ async function readDebugStats(page) {
       return { error: "__pharosVilleDebug.directorLog is absent — this build predates the W0.2 director log" };
     }
     return {
-      directorLog: debug.directorLog.map((beat) => ({
-        admittedAtWallMs: beat.admittedAtWallMs ?? null,
-        endSeconds: beat.endSeconds ?? null,
-        id: String(beat.id),
-        kind: String(beat.kind),
-        priority: beat.priority ?? null,
-        startSeconds: beat.startSeconds ?? null,
-      })),
+      epochMs: Date.now(),
+      visibility: document.visibilityState,
+      directorLog: debug.directorLog.map((beat) => ({ ...beat })),
       motionStats: {
         meanAbsRestTurnDegPerSec: stats.meanAbsRestTurnDegPerSec ?? null,
         meanAbsTurnDegPerSec: stats.meanAbsTurnDegPerSec,
@@ -1737,13 +1764,15 @@ async function readDebugStats(page) {
       },
     };
   });
+  return { ...read, hostMs: (beforeMs + performance.now()) / 2 };
 }
 
 function formatBeat(beat) {
   const window_ = typeof beat.startSeconds === "number" && typeof beat.endSeconds === "number"
     ? ` · ${round(beat.startSeconds)}–${round(beat.endSeconds)}s`
     : "";
-  return `${beat.kind} ${beat.id} · priority ${beat.priority ?? "?"}${window_}`;
+  return `${beat.rowType} · ${beat.kind} ${beat.id} · ${beat.clockDomain} clock`
+    + ` · ${beat.foreground ? "foreground" : "background"} · priority ${beat.priority ?? "?"}${window_}`;
 }
 
 async function runStats(page, watchSeconds) {
@@ -1761,50 +1790,38 @@ async function runStats(page, watchSeconds) {
     + `${typeof motionStats.meanAbsRestTurnDegPerSec === "number" ? `, ${round(motionStats.meanAbsRestTurnDegPerSec)}°/s at rest` : ""}`
     + ` · sampled at ${round(motionStats.sampledAtMs)}ms`);
   const latest = directorLog.slice(-8);
-  console.log(`director   ${directorLog.length} beats in the log${latest.length ? `; latest ${latest.length}:` : ""}`);
+  console.log(`director   ${directorLog.length} classified rows in the log${latest.length ? `; latest ${latest.length}:` : ""}`);
   for (const beat of latest) console.log(`           ${formatBeat(beat)}`);
   const result = { directorLog, motionStats };
   if (watchSeconds > 0) result.watch = await watchDebugStats(page, watchSeconds, first);
   return result;
 }
 
-/**
- * Sample the director log and motionStats for `watchSeconds`. A beat counts as
- * new when its identity first appears in the log; its time is the poll that saw
- * it (±250 ms), which keeps the reading independent of the app's clock — under
- * a fixture, Date does not move at all.
- */
+/** Sample classified admissions before eviction and align epoch intervals to the host's monotonic watch. */
 async function watchDebugStats(page, watchSeconds, first) {
-  const beatKey = (beat) => `${beat.id}|${beat.kind}|${beat.admittedAtWallMs}|${beat.startSeconds}`;
-  const seen = new Set(first.directorLog.map(beatKey));
-  const events = [];
+  const attention = createAttentionWatch(first);
   const samples = [first.motionStats];
   let lastSampledAt = first.motionStats.sampledAtMs;
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < watchSeconds * 1000) {
-    await page.waitForTimeout(STATS_POLL_INTERVAL_MS);
+  const startedAtMs = first.hostMs;
+  const visibilitySamples = [{ atMs: 0, visibility: first.visibility }];
+  while (performance.now() - startedAtMs < watchSeconds * 1000) {
+    await page.waitForTimeout(Math.min(STATS_POLL_INTERVAL_MS,
+      Math.max(0, watchSeconds * 1000 - (performance.now() - startedAtMs))));
     const read = await readDebugStats(page);
     if (read.error) {
       console.error(`error      --watch-seconds stopped: ${read.error}`);
       process.exitCode = 1;
       return { error: read.error };
     }
-    const atMs = Date.now() - startedAt;
-    for (const beat of read.directorLog) {
-      const key = beatKey(beat);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      events.push({ ...beat, seenAtMs: atMs });
-    }
+    snapshotAttentionWatch(attention, read);
+    visibilitySamples.push({ atMs: read.hostMs - startedAtMs, visibility: read.visibility });
     if (read.motionStats.sampledAtMs !== lastSampledAt) {
       lastSampledAt = read.motionStats.sampledAtMs;
       samples.push(read.motionStats);
     }
   }
-  const elapsedMs = Date.now() - startedAt;
-  const marks = [0, ...events.map((event) => event.seenAtMs), elapsedMs];
-  let longestQuietMs = 0;
-  for (let index = 1; index < marks.length; index += 1) longestQuietMs = Math.max(longestQuietMs, marks[index] - marks[index - 1]);
+  const summary = summarizeAttentionWatch(attention);
+  const { elapsedMs, events } = summary;
   const visible = samples.reduce((sum, sample) => sum + sample.visibleShips, 0);
   const underway = samples.reduce((sum, sample) => sum + sample.underwayShips, 0);
   const meanOf = (key) => {
@@ -1814,17 +1831,19 @@ async function watchDebugStats(page, watchSeconds, first) {
   const meanTurnDegPerSec = meanOf("meanAbsTurnDegPerSec");
   const meanRestTurnDegPerSec = meanOf("meanAbsRestTurnDegPerSec");
   const watch = {
-    elapsedMs,
-    events,
-    eventsPerHour: events.length / (elapsedMs / 3_600_000),
-    longestQuietMs,
+    ...summary,
+    startedAtMs,
+    endedAtMs: attention.endedAtMs,
+    visibilitySamples,
     meanRestTurnDegPerSec,
     meanTurnDegPerSec,
     samples: samples.length,
     underwayShare: visible > 0 ? underway / visible : null,
   };
-  console.log(`watch      ${round(elapsedMs / 1000)}s: ${events.length} beats admitted (${round(watch.eventsPerHour)}/h)`
-    + ` · longest quiet gap ${round(longestQuietMs / 1000)}s`
+  console.log(`watch      ${round(elapsedMs / 1000)}s: ${events.length} ordinary discrete admissions (${round(watch.eventsPerHour)}/h)`
+    + ` · urgent ${watch.urgentAdmissionCount} · epoch ${watch.epochStartMs}→${watch.epochEndMs}ms`
+    + ` · ${watch.status === "measured" ? `${round(watch.occupancyPct)}% occupancy; longest quiet ${round(watch.longestQuietMs / 1000)}s` : `occupancy unmeasured (${watch.reason})`}`
+    + ` · longest admission gap ${round(watch.longestAdmissionGap / 1000)}s`
     + ` · underway ${watch.underwayShare === null ? "n/a" : `${(watch.underwayShare * 100).toFixed(1)} %`} of visible hulls`
     + ` · mean |turn| ${meanTurnDegPerSec === null ? "n/a" : `${meanTurnDegPerSec.toFixed(2)}°/s (${(meanTurnDegPerSec * 60).toFixed(0)}°/min)`} under way`
     + `, ${meanRestTurnDegPerSec === null ? "n/a" : `${meanRestTurnDegPerSec.toFixed(2)}°/s (${(meanRestTurnDegPerSec / 6).toFixed(3)} turns/min)`} at rest`
@@ -1978,11 +1997,6 @@ function parseClockFlag() {
   return { date: date[0], epochMs, iso: raw };
 }
 
-function withCalendarDate(baseHash, calendar) {
-  if (!calendar) return baseHash;
-  if (/[#&]d=/.test(baseHash)) throw new Error("--clock adds d= to the hash itself; drop the d= from --hash");
-  return baseHash ? `${baseHash}&d=${calendar.date}` : `#d=${calendar.date}`;
-}
 
 /** W5.1: start a ritual through the debug seam, then wait `waitMs` before the capture. */
 async function forceRitualBeforeCapture(page, kind, waitMs) {
@@ -2016,23 +2030,6 @@ function parseBurstFlags() {
   return { clip, count, intervalMs, sheet: Boolean(args["burst-sheet"]) };
 }
 
-/**
- * Date-only clock with setSystemTime semantics: Date starts at `epochMs` and
- * flows in real time. RAF, performance.now and timers stay native (Playwright's
- * page.clock would replace all three and pace RAF from timers, so every frame
- * time read under it would be the shim's, not the GPU's). Serialised into the
- * page by addInitScript, so it must stay self-contained.
- */
-function installFlowingDate(epochMs) {
-  const NativeDate = globalThis.Date;
-  const origin = NativeDate.now();
-  const now = () => epochMs + (NativeDate.now() - origin);
-  globalThis.Date = new Proxy(NativeDate, {
-    apply: () => new NativeDate(now()).toString(),
-    construct: (target, dateArgs, newTarget) => Reflect.construct(target, dateArgs.length ? dateArgs : [now()], newTarget),
-    get: (target, key, receiver) => key === "now" ? now : Reflect.get(target, key, receiver),
-  });
-}
 
 async function runArtifactFlashCheck(page, canvas) {
   const frameCount = 8;
