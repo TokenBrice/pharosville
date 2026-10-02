@@ -11,6 +11,7 @@ import {
   HemisphereLight,
   InstancedMesh,
   Line,
+  Light,
   LineBasicMaterial,
   Material,
   MathUtils,
@@ -543,6 +544,17 @@ export function createThreeWorldRenderer(
   const debugDrawCensus = isDebugChromeEnabled();
   const post = createGardenPost(renderer, scene.root, camera);
   const heroReflectionPass = createGardenHeroReflectionPass(renderer);
+  // Capture validity follows applied appearance, not hour buckets or world identity.
+  // Light values use the GPU's float precision; the other owners retain exact scalars.
+  const reflectionAppearance = new Float64Array(15);
+  const previousReflectionAppearance = new Float64Array(15);
+  const reflectionLights: Light[] = [];
+  let reflectionLightBuild = -1;
+  let reflectionLightValues = new Float32Array(0);
+  let previousReflectionLightValues = new Float32Array(0);
+  let reflectionAppearanceValid = false;
+  const reflectionLightPosition = new Vector3();
+  const reflectionLightTarget = new Vector3();
   Object.assign(scene.water.mesh.material.uniforms, heroReflectionPass.uniforms);
 
   let disposed = false;
@@ -617,6 +629,7 @@ export function createThreeWorldRenderer(
     lastWidth = 0;
     lastHeight = 0;
     scene.shadowNeedsRender = true;
+    heroReflectionPass.invalidate();
     onAssetReady?.();
   };
   const handleContextCreationError = () => {
@@ -635,6 +648,8 @@ export function createThreeWorldRenderer(
       scene.lighthouseModel = model;
       attachGardenLighthouseModel(model, scene.content);
       model.traverse(enableHeroReflectionLayer);
+      heroReflectionPass.invalidate();
+      reflectionLightBuild = -1;
       applyGardenPrintInksToTree(model);
       drawCensusRequested = true;
       scheduleModelTextureUploads({
@@ -644,6 +659,7 @@ export function createThreeWorldRenderer(
           // The GLB shell replaces the procedural one — refresh the shadow map.
           scene.shadowNeedsRender = true;
           drawCensusRequested = true;
+          heroReflectionPass.invalidate();
           onAssetReady?.();
         },
         owner: scene,
@@ -786,6 +802,7 @@ export function createThreeWorldRenderer(
         content.lampStatusMix = lampStatusMixForStatus(content.lampStatusState.status);
         content.lampStatusTargetMix = content.lampStatusMix;
         scene.content = content;
+        reflectionAppearanceValid = false;
         scene.root.add(content.root);
         const keys = worldContentPartKeys(frame.world);
         for (const name of WORLD_CONTENT_PART_ORDER) {
@@ -1143,6 +1160,72 @@ export function createThreeWorldRenderer(
         scene.season === "winter" ? 1 : 0,
       );
       if (scene.content) {
+        if (reflectionLightBuild !== contentPartRebuildCount) {
+          reflectionLights.length = 0;
+          scene.root.traverse((object) => {
+            if (object instanceof Light) reflectionLights.push(object);
+          });
+          const length = reflectionLights.length * 13;
+          if (reflectionLightValues.length !== length) {
+            reflectionLightValues = new Float32Array(length);
+            previousReflectionLightValues = new Float32Array(length);
+            reflectionAppearanceValid = false;
+          }
+          reflectionLightBuild = contentPartRebuildCount;
+        }
+        for (let index = 0; index < reflectionLights.length; index += 1) {
+          const light = reflectionLights[index]!;
+          const offset = index * 13;
+          light.getWorldPosition(reflectionLightPosition);
+          // Directional and spot lights use a target; other lights do not.
+          const target = (light as Light & { target?: Object3D }).target;
+          if (target) target.getWorldPosition(reflectionLightTarget);
+          else reflectionLightTarget.set(0, 0, 0);
+          reflectionLightValues[offset] = light.color.r;
+          reflectionLightValues[offset + 1] = light.color.g;
+          reflectionLightValues[offset + 2] = light.color.b;
+          const ground = light instanceof HemisphereLight ? light.groundColor : null;
+          reflectionLightValues[offset + 3] = ground?.r ?? 0;
+          reflectionLightValues[offset + 4] = ground?.g ?? 0;
+          reflectionLightValues[offset + 5] = ground?.b ?? 0;
+          reflectionLightValues[offset + 6] = light.intensity;
+          reflectionLightValues[offset + 7] = reflectionLightPosition.x;
+          reflectionLightValues[offset + 8] = reflectionLightPosition.y;
+          reflectionLightValues[offset + 9] = reflectionLightPosition.z;
+          reflectionLightValues[offset + 10] = reflectionLightTarget.x;
+          reflectionLightValues[offset + 11] = reflectionLightTarget.y;
+          reflectionLightValues[offset + 12] = reflectionLightTarget.z;
+        }
+        const cloud = scene.water.cloudShadows.uniforms;
+        const transform = cloud.uCloudShadowTransform.value;
+        reflectionAppearance[0] = scene.content.parts.island.epoch;
+        reflectionAppearance[1] = frame.seaState.source.psiStress;
+        reflectionAppearance[2] = scene.content.lampStatusMix;
+        reflectionAppearance[3] = gardenLanternCatch();
+        reflectionAppearance[4] = scene.environment.bakeCount;
+        reflectionAppearance[5] = scene.root.environmentIntensity;
+        reflectionAppearance[6] = scene.weather.stormLevel;
+        reflectionAppearance[7] = scene.weather.lightning;
+        reflectionAppearance[8] = scene.floraNightValue;
+        reflectionAppearance[9] = cloud.uCloudShadowStrength.value;
+        reflectionAppearance[10] = transform[0];
+        reflectionAppearance[11] = transform[1];
+        reflectionAppearance[12] = transform[2];
+        reflectionAppearance[13] = transform[3];
+        reflectionAppearance[14] = detailPolicy.overviewLodZoom;
+        let appearanceChanged = !reflectionAppearanceValid;
+        for (let index = 0; index < reflectionAppearance.length; index += 1) {
+          if (reflectionAppearance[index] !== previousReflectionAppearance[index]) appearanceChanged = true;
+        }
+        for (let index = 0; index < reflectionLightValues.length; index += 1) {
+          if (reflectionLightValues[index] !== previousReflectionLightValues[index]) appearanceChanged = true;
+        }
+        if (appearanceChanged) {
+          heroReflectionPass.invalidate();
+          previousReflectionAppearance.set(reflectionAppearance);
+          previousReflectionLightValues.set(reflectionLightValues);
+          reflectionAppearanceValid = true;
+        }
         heroReflectionPass.render(
           scene.root, camera, scene.content.parts.island.root,
           scene.content.lighthouseRoot, frame.reducedMotion,
