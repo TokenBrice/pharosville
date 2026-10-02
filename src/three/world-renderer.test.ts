@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  AmbientLight,
   BoxGeometry,
   BufferGeometry,
   DataTexture,
@@ -224,6 +225,7 @@ type TestGardenPost = {
 const postHarness = vi.hoisted(() => ({
   instances: [] as TestGardenPost[],
   simulateAOTextures: false,
+  extraLight: null as AmbientLight | null,
 }));
 
 type TestGardenEnvironment = {
@@ -253,6 +255,7 @@ vi.mock("./garden-post", () => ({
     info: { memory: { textures: number } };
     render: (scene: unknown, camera: unknown) => void;
   }, scene: unknown, camera: unknown) => {
+    if (postHarness.extraLight) (scene as Scene).add(postHarness.extraLight);
     let enabled = true;
     let bloomEnabled = true;
     let aoEnabled = true;
@@ -431,13 +434,108 @@ vi.mock("three", async (importOriginal) => {
 });
 
 beforeEach(() => {
+  delete (window as typeof window & { __pharosVilleKnockout?: unknown }).__pharosVilleKnockout;
   rendererHarness.instances.length = 0;
   postHarness.instances.length = 0;
   postHarness.simulateAOTextures = false;
+  postHarness.extraLight = null;
   environmentHarness.instances.length = 0;
   Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
     configurable: true,
     value: vi.fn(() => null),
+  });
+});
+
+describe("static hero reflection appearance", () => {
+  it("unchanged applied light holds the cache; a genuine light change recaptures", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const extraLight = new AmbientLight("#8090a0", 0.25);
+    postHarness.extraLight = extraLight;
+    const renderer = createThreeWorldRenderer({
+      canvas: document.createElement("canvas"), onContextFailure: vi.fn(),
+    });
+    const gl = rendererHarness.instances.at(-1)!;
+    const captureCount = () => gl.render.mock.calls.filter(([, camera]) => (
+      (camera as PerspectiveCamera).isPerspectiveCamera
+      && (camera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    )).length;
+    const pinned = rendererFrame(world, "full", { reducedMotion: true, wallClockHour: 10.5 });
+    renderer.render(pinned);
+    const scene = gl.lastScene!;
+    const key = scene.children.find((object) => object instanceof DirectionalLight) as DirectionalLight;
+    const pinnedColor = key.color.clone();
+    const initial = captureCount();
+    expect(initial).toBe(1);
+    renderer.render({ ...pinned, timeSeconds: 1 });
+    renderer.render({ ...pinned, timeSeconds: 2 });
+    expect(key.color.equals(pinnedColor)).toBe(true);
+    expect(captureCount()).toBe(initial);
+
+    const live = { ...pinned, wallClockHour: 10.5 + 1 / 3600 };
+    renderer.render(live);
+    expect(key.color.equals(pinnedColor)).toBe(false);
+    expect(captureCount()).toBe(initial + 1);
+    renderer.render(live);
+    expect(captureCount()).toBe(initial + 1);
+    const second = { ...live, wallClockHour: 10.5 + 2 / 3600 };
+    renderer.render(second);
+    expect(captureCount()).toBe(initial + 2);
+    renderer.render(second);
+    expect(captureCount()).toBe(initial + 2);
+
+    extraLight.color.set("#304050");
+    renderer.render(second);
+    expect(extraLight.layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)).toBe(true);
+    expect(captureCount()).toBe(initial + 3);
+    renderer.render(second);
+    expect(captureCount()).toBe(initial + 3);
+    extraLight.intensity = 0.5;
+    renderer.render(second);
+    renderer.render(second);
+    expect(captureCount()).toBe(initial + 4);
+    extraLight.position.x += 2;
+    renderer.render(second);
+    renderer.render(second);
+    expect(captureCount()).toBe(initial + 5);
+    renderer.dispose();
+  });
+
+  it("same-wrapper island replacement and context restore refresh static capture", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const canvas = document.createElement("canvas");
+    const renderer = createThreeWorldRenderer({ canvas, onContextFailure: vi.fn() });
+    const gl = rendererHarness.instances.at(-1)!;
+    const captures = () => gl.render.mock.calls.filter(([, camera]) => (
+      (camera as PerspectiveCamera).isPerspectiveCamera
+      && (camera as PerspectiveCamera).layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
+    )).length;
+    const frame = rendererFrame(world, "full", { reducedMotion: true });
+    renderer.render(frame);
+    renderer.render(frame);
+    expect(captures()).toBe(1);
+    const island = gl.lastScene!.getObjectByName("content-part-island")!;
+    const oldLand = island.children[0];
+    const changedWorld = {
+      ...world,
+      lighthouse: {
+        ...world.lighthouse,
+        tile: { ...world.lighthouse.tile, x: world.lighthouse.tile.x + 1 },
+      },
+    };
+    const changedFrame = rendererFrame(changedWorld, "full", { reducedMotion: true });
+    renderer.render(changedFrame);
+    renderer.render(changedFrame);
+    expect(gl.lastScene!.getObjectByName("content-part-island")).toBe(island);
+    expect(island.children[0]).not.toBe(oldLand);
+    expect(captures()).toBe(2);
+    canvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    renderer.render(changedFrame);
+    expect(captures()).toBe(2);
+    canvas.dispatchEvent(new Event("webglcontextrestored"));
+    renderer.render(changedFrame);
+    renderer.render(changedFrame);
+    expect(captures()).toBe(3);
+    renderer.dispose();
   });
 });
 
@@ -736,9 +834,7 @@ describe("Three world renderer lifecycle", () => {
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
     });
-    const webGlRenderer = rendererHarness.instances.at(-1)!;
     const freshMetrics = renderer.render(rendererFrame(freshWorld, "full", { reducedMotion: true }));
-    const freshRenderCalls = webGlRenderer.render.mock.calls.slice();
     const scene = rendererHarness.instances.at(-1)!.lastScene!;
     const water = scene.getObjectByName("garden-water") as Mesh;
     const waterMaterial = water.material as ShaderMaterial;
@@ -750,33 +846,11 @@ describe("Three world renderer lifecycle", () => {
       freshness: { chainsStale: true, pegSummaryStale: true },
     };
     const staleMetrics = renderer.render(rendererFrame(staleWorld, "full", { reducedMotion: true }));
-    const staleRenderCalls = webGlRenderer.render.mock.calls.slice(freshRenderCalls.length);
 
     expect(scene.getObjectByName("garden-water")).toBe(water);
     expect(waterMaterial.uniforms.uPegSummaryEpistemicHaze!.value).toBe(1);
     expect(gardenQuayEpistemicHazeUniform.value).toBe(1);
     expect(staleMetrics.objectCount).toBe(freshMetrics.objectCount);
-    // Reduced motion holds the already-rendered hero reflection: the fresh
-    // frame draws one reflection and one scene, while the stale update only
-    // redraws the scene. The unchanged water and quay uniforms above are the
-    // observable staleness routes; they do not require synthetic extra draws.
-    // Offscreen field passes (the static hull contact, an orthographic
-    // camera) are not scene renders.
-    const perspective = (calls: unknown[][]) => calls
-      .map(([, renderCamera]) => renderCamera as PerspectiveCamera)
-      .filter((renderCamera) => renderCamera.isPerspectiveCamera === true);
-    expect(perspective(freshRenderCalls).filter((renderCamera) => (
-      renderCamera.layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
-    ))).toHaveLength(1);
-    expect(perspective(freshRenderCalls).filter((renderCamera) => (
-      !renderCamera.layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
-    ))).toHaveLength(1);
-    expect(perspective(staleRenderCalls).filter((renderCamera) => (
-      renderCamera.layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
-    ))).toHaveLength(0);
-    expect(perspective(staleRenderCalls).filter((renderCamera) => (
-      !renderCamera.layers.isEnabled(GARDEN_HERO_REFLECTION_LAYER)
-    ))).toHaveLength(1);
     renderer.dispose();
   });
 

@@ -260,7 +260,10 @@ Grep for that token rather than trusting the exit code alone; under GitHub
 Actions the same line lands in the step summary, and a skip also raises a
 `::warning::` annotation.
 
-Reduced motion has no continuous RAF, so use its settled static resource gate:
+Reduced motion has no self-chaining RAF. Date-driven on-demand paints up to
+1 Hz remain with a live hour; each recaptures the hero reflection only when
+the applied lighting changed (D22), unless another capture input changed.
+Use its settled static resource gate:
 
 ```bash
 npm run preview -- --assert --reduced
@@ -269,14 +272,14 @@ npm run preview -- --assert --reduced --hash "#sel=ship.satusd-river&t=12"
 
 This asserts full tier, at most 700 calls, 500k triangles, 500 geometries, and
 72 textures. It intentionally does not invent fps or frame-time data for a
-deterministic zero-RAF frame — no p95 either: a frame that is painted once has
-no tail, and the sweep does not run on this arm.
+static frame — no p95 either: isolated on-demand paints are not an animated
+frame-time tail, and the sweep does not run on this arm.
 
-The word that carries this lane is **settled**. Reduced motion paints once and
-then repaints only when something asynchronous lands, so an early read is not
-wrong, it is early — the 2026-07-27 cleanliness audit (V-07) found this path
-over the triangle ceiling exactly because nothing sampled it after it was
-whole. Settled here means all three of: the network is idle, the texture upload
+The word that carries this resource lane is **settled**. Reduced motion
+repaints on demand, including when asynchronous assets land, so an early read
+is not wrong, it is early — the 2026-07-27 cleanliness audit (V-07) found this
+path over the triangle ceiling exactly because nothing sampled it after it
+was whole. Settled here means all three of: the network is idle, the texture upload
 queue has drained to zero pending, and the full counter tuple — GPU counts plus
 the `uploads`/`logos` progress counters — has held still for four consecutive
 reads. The progress counters are in the signature deliberately: ~184 logo
@@ -293,6 +296,39 @@ error V-07 named.
 The last recorded settled reference (before the Hour-Print program) is about 316k
 triangles and 214–216 calls, depending on phase and selection. Re-measure it
 before quoting it for the current rest seat; the ceilings are what gate.
+
+**Cached-texture validity is a separate gate.** The reflection pass compares
+exact camera world/projection matrices, drawing-buffer size, effective DPR,
+half-CSS target size, owner, motion mode and the last successfully captured
+scene revision. Visibility is checked even on a cache hit; culling disables
+reflection strength without consuming an invalidation. Failed captures restore
+renderer state and remain dirty. The renderer compares applied colours
+(including hemisphere ground colour), intensity, world positions and targets
+of every reflection-enabled light, plus reflected-content/material drivers.
+A pinned `t=` hour with identical applied state reuses the capture; a live hour
+follows continuous day-cycle light drift, never a rounded-hour bucket.
+Lighthouse insertion, upload-ready visibility and context restore invalidate;
+fleet model and logo readiness alone do not.
+
+CPU coverage: `garden-hero-reflection-pass.test.ts` exercises cache reuse,
+view/projection changes, half-CSS sizing at DPR 1/2, same-wrapper content,
+culling/mode changes and failure restoration. `world-renderer.test.ts`
+exercises unchanged versus genuinely changed applied lighting, including a
+light outside the day-cycle rig. `use-world-render-loop.test.tsx` consumes
+asset bursts and latest-view changes, including hidden-to-visible resume,
+then checks no pending RAF, no active motion loop and no pacing samples.
+Run with the visual-debug reflection knockout off.
+
+**In-session transition evidence is also separate from resource settling.**
+On the real-GPU preview lane, settle before and after a canvas resize and
+`t=` change; record CSS/drawing-buffer dimensions and reflection alignment
+with before/after screenshots. Initial `--width`, `--height` and `--dpr`
+arms do not prove transitions. Preview fixes its viewport, so resizing its
+headed window does not count: a resize harness must change the page viewport
+and observe a real canvas-size change. Use the preview Chrome resolution and
+reject SwiftShader. `--light-cycle --reduced` settles at each of four phases.
+Record monitor-DPR and context-loss transitions as observed or unmeasured,
+never infer them from the initial-size arms.
 
 For fault-like flicker, run the bounded real-GPU artifact probe:
 
