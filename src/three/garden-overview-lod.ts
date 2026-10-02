@@ -133,6 +133,8 @@ interface OverviewLodEntry {
    * happens about the prop rather than about its parent's origin.
    */
   readonly pivotOffset: Vector3;
+  /** Arriving ships can start collapsed; defer their pivot until invertible. */
+  pivotCaptured: boolean;
   /** False for whole-ring groups, which may only be shown or hidden. */
   readonly shrinks: boolean;
   /** Opaque canopy detail swaps rather than participating in the eased shed. */
@@ -160,6 +162,16 @@ const DETAIL_EASE_RATE = 12;
 
 const scratchCentre = new Vector3();
 
+function capturePivotOffset(object: Object3D, offset: Vector3): boolean {
+  const determinant = object.matrixWorld.determinant();
+  if (determinant === 0 || !Number.isFinite(determinant)) return false;
+  new Box3().setFromObject(object).getCenter(scratchCentre);
+  object.worldToLocal(scratchCentre);
+  // Holding position + R·S·c fixed keeps the prop shrinking in place.
+  offset.copy(scratchCentre).multiply(object.scale).applyQuaternion(object.quaternion);
+  return true;
+}
+
 export function overviewLodTargetDetail(zoom: number): number {
   return MathUtils.smoothstep(zoom, OVERVIEW_LOD_HIDDEN_ZOOM, OVERVIEW_LOD_FULL_ZOOM);
 }
@@ -176,6 +188,7 @@ export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
   const farOnlyNames = new Set(OVERVIEW_LOD_FAR_ONLY_NAMES);
   const entries: OverviewLodEntry[] = [];
   const farOnly: Object3D[] = [];
+  let pendingPivots = 0;
   root.traverse((object) => {
     if (farOnlyNames.has(object.name)) {
       farOnly.push(object);
@@ -184,20 +197,16 @@ export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
     if (!names.has(object.name)) return;
     const shrinks = !wholeRing.has(object.name);
     const canopyDetail = object.name === "garden-flora-momiji" || object.name === "garden-flora-cherry";
-    if (shrinks) {
-      new Box3().setFromObject(object).getCenter(scratchCentre);
-      object.worldToLocal(scratchCentre);
-    } else {
-      scratchCentre.set(0, 0, 0);
-    }
+    const pivotOffset = new Vector3();
+    const pivotCaptured = !shrinks || capturePivotOffset(object, pivotOffset);
+    if (!pivotCaptured) pendingPivots += 1;
     entries.push({
       basePosition: object.position.clone(),
       baseScale: object.scale.clone(),
       canopyDetail,
       object,
-      // parent-space position; holding position + R·S·c fixed as S scales by f
-      // is what keeps the prop shrinking in place.
-      pivotOffset: scratchCentre.multiply(object.scale).applyQuaternion(object.quaternion).clone(),
+      pivotCaptured,
+      pivotOffset,
       shrinks,
     });
   });
@@ -218,16 +227,25 @@ export function createGardenOverviewLod(root: Object3D): GardenOverviewLod {
         ? target
         : detail + (target - detail) * (1 - Math.exp(-DETAIL_EASE_RATE * deltaSeconds));
       if (Math.abs(detail - target) < 0.001) detail = target;
-      if (detail === applied) return;
+      const refreshPivots = pendingPivots > 0;
+      if (detail === applied && !refreshPivots) return;
+      // Until captured, deferred props retain their authored local transform.
+      // Refresh even when detail is unchanged: arrival scale is independent
+      // of the camera's LOD band.
+      if (refreshPivots) root.updateMatrixWorld(true);
       applied = detail;
       for (const object of farOnly) object.visible = farCanopyVisible;
       for (const entry of entries) {
+        if (!entry.pivotCaptured && capturePivotOffset(entry.object, entry.pivotOffset)) {
+          entry.pivotCaptured = true;
+          pendingPivots -= 1;
+        }
         if (entry.canopyDetail) {
           entry.object.visible = !farCanopyVisible;
           continue;
         }
         entry.object.visible = detail > 0;
-        if (detail <= 0 || !entry.shrinks) continue;
+        if (detail <= 0 || !entry.shrinks || !entry.pivotCaptured) continue;
         entry.object.scale.copy(entry.baseScale).multiplyScalar(detail);
         entry.object.position.copy(entry.basePosition)
           .addScaledVector(entry.pivotOffset, 1 - detail);
