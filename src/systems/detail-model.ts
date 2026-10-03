@@ -855,6 +855,17 @@ function signedCompactUsd(value: number): string {
   return `${value < 0 ? "-" : "+"}${magnitude}`;
 }
 
+/** Fleet gross that could not be allocated to rendered quays, not missing issuance. */
+export function unattributedIssuanceLabel(
+  allocation: NonNullable<PharosVilleWorld["fleetIssuance"]>["unattributed"],
+): string | null {
+  if (!allocation) return null;
+  const reasons = Object.entries(allocation.byReason)
+    .filter(([, grossUsd]) => grossUsd > 0)
+    .map(([reason, grossUsd]) => `${reason}: ${formatCompactUsd(grossUsd)}`);
+  return `Fleet unattributed gross 24h: ${formatCompactUsd(allocation.grossUsd)}${reasons.length > 0 ? ` — ${reasons.join("; ")}` : ""}`;
+}
+
 /**
  * The harbour's 24h issuance, in words.
  *
@@ -870,25 +881,22 @@ function signedCompactUsd(value: number): string {
  */
 export function cargoTideLabel(tide: DockNode["cargoTide"]): string | null {
   if (!tide) return null;
+  const unattributed = unattributedIssuanceLabel(tide.unattributed);
+  const disclosure = `\n${nodeSourceEvidenceLabel({ mintBurn: tide.evidence })}${unattributed ? `\n${unattributed}` : ""}`;
   if (!tide.tracked) {
-    switch (tide.reason) {
-      case "chain-not-in-scope":
-        return "Not measured on this chain";
-      case "scope-unreported":
-        return "Unavailable — issuance scope unreported";
-      case "unattributed":
-        return "Unavailable — 24h issuance could not be matched to this harbor's coins";
-      default:
-        return "Unavailable — no issuance feed";
-    }
+    const reading = tide.reason === "chain-not-in-scope" ? "Not measured on this chain"
+      : tide.reason === "scope-unreported" ? "Unavailable — issuance scope unreported"
+      : tide.reason === "unattributed" ? "Unavailable — 24h issuance could not be matched to this harbor's coins"
+      : "Unavailable — no issuance feed";
+    return `${reading}${disclosure}`;
   }
   const volumes = `mint ${formatCompactUsd(tide.mintVolumeUsd)}, burn ${formatCompactUsd(tide.burnVolumeUsd)}`;
-  const allocationBasis = "Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: ";
+  const allocationBasis = "Estimated 24h allocation by held supply across the reported scope: ";
   const reading = tide.direction === "minting" ? `${signedCompactUsd(tide.netFlowUsd)} minting — ${volumes}`
     : tide.direction === "burning" ? `${signedCompactUsd(tide.netFlowUsd)} burning — ${volumes}`
     : tide.direction === "flat" ? `Balanced — ${volumes}`
     : tide.completeWindow ? "No issuance activity in 24h" : `Activity unmeasured — retained ${volumes}`;
-  return `${allocationBasis}${reading}\n${nodeSourceEvidenceLabel({ mintBurn: tide.evidence })}`;
+  return `${allocationBasis}${reading}${disclosure}`;
 }
 
 /**

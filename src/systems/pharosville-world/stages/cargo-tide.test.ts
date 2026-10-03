@@ -3,7 +3,7 @@ import type { MintBurnFlowsResponse } from "@shared/types/mint-burn";
 import type { DockNode, ShipNode } from "../../world-types";
 import { buildCargoTideStage } from "./cargo-tide";
 import { makeSourceStatuses } from "../../../__fixtures__/pharosville-world";
-import { FULL_COVERAGE, SCENARIOS } from "../../../__fixtures__/data-contract-scenarios";
+import { FULL_COVERAGE, quayAllocationInput, SCENARIOS } from "../../../__fixtures__/data-contract-scenarios";
 import { buildPharosVilleWorld } from "../../pharosville-world";
 
 function dock(chainId: string): DockNode {
@@ -139,37 +139,73 @@ describe("buildCargoTideStage", () => {
     expect(tideOf(stage.docks, "ethereum").netFlowUsd).toBeCloseTo(5_000_000);
   });
 
-  it("renormalizes a coin's allocation over the rendered in-scope harbours", () => {
-    const ships = [ship("split-coin", [["ethereum", 0.4], ["polygon", 0.2], ["solana", 0.4]])];
-    const flows = payload([coin("split-coin", 5_000_000, 11_000_000, 6_000_000)],
-      ["ethereum", "polygon", "solana"]);
-    const full = buildCargoTideStage([dock("ethereum"), dock("polygon"), dock("solana")], ships, flows, makeSourceStatuses().mintBurn);
-    const subset = buildCargoTideStage([dock("ethereum"), dock("solana")], ships, flows, makeSourceStatuses().mintBurn);
+  it("a harbour's allocation is unchanged when another harbour is hidden", () => {
+    const full = buildPharosVilleWorld(quayAllocationInput());
+    const subset = buildPharosVilleWorld(quayAllocationInput(["ethereum"]));
     const before = tideOf(full.docks, "ethereum");
     const after = tideOf(subset.docks, "ethereum");
-    expect(before).toMatchObject({ tracked: true, mintVolumeUsd: 4_400_000, burnVolumeUsd: 2_400_000 });
-    expect(after).toMatchObject({ tracked: true, mintVolumeUsd: 5_500_000, burnVolumeUsd: 3_000_000 });
-    expect(after.netFlowUsd).toBeGreaterThan(before.netFlowUsd);
+    expect(before).toMatchObject({
+      tracked: true, mintVolumeUsd: 4_800_000, burnVolumeUsd: 2_400_000, netFlowUsd: 2_400_000,
+    });
+    expect(after.mintVolumeUsd).toBe(before.mintVolumeUsd);
+    expect(after.burnVolumeUsd).toBe(before.burnVolumeUsd);
+    expect(after.netFlowUsd).toBe(before.netFlowUsd);
+    expect(subset.fleetIssuance!.unattributed!.byReason["unrendered harbour"]).toBe(4_800_000);
   });
 
-  it("keeps fleet totals at the measured payload sums under any rendered subset", () => {
-    const ships = [
-      ship("mint-coin", [["ethereum", 0.4], ["polygon", 0.2], ["solana", 0.4]]),
-      ship("burn-coin", [["polygon", 1]]),
-    ];
-    const flows = payload([
-      coin("mint-coin", 8_000_000, 10_000_000, 2_000_000),
-      coin("burn-coin", -3_000_000, 1_000_000, 4_000_000),
-    ], ["ethereum", "polygon", "solana"]);
-    for (const chains of [
-      ["ethereum", "polygon", "solana"], ["ethereum", "solana"], ["polygon"], [],
-    ]) {
-      const stage = buildCargoTideStage(chains.map(dock), ships, flows, makeSourceStatuses().mintBurn);
-      expect(stage.fleetIssuance).toMatchObject({
-        mintVolumeUsd: 11_000_000,
-        burnVolumeUsd: 6_000_000,
-        netFlowUsd: 5_000_000,
+  it("allocation plus unattributed equals raw gross", () => {
+    for (const rendered of [["ethereum", "arbitrum"], ["ethereum"], ["arbitrum"], []]) {
+      const input = quayAllocationInput(rendered);
+      const world = buildPharosVilleWorld(input);
+      const allocatedGross = world.docks.reduce((sum, dock) =>
+        sum + dock.cargoTide!.mintVolumeUsd + dock.cargoTide!.burnVolumeUsd, 0);
+      const unattributed = world.fleetIssuance!.unattributed!;
+      expect(allocatedGross + unattributed.grossUsd).toBeCloseTo(22_000_000);
+      expect(Object.values(unattributed.byReason).reduce((sum, value) => sum + value, 0))
+        .toBeCloseTo(unattributed.grossUsd);
+      expect(unattributed.byReason["outside the reported scope"]).toBe(4_000_000);
+      expect(unattributed.byReason["no chain presence"]).toBe(6_000_000);
+      expect(world.fleetIssuance).toMatchObject({
+        mintVolumeUsd: 16_000_000, burnVolumeUsd: 6_000_000, netFlowUsd: 10_000_000,
       });
+      for (const row of input.mintBurn!.coins) {
+        const issuance = world.ships.find((ship) => ship.id === row.stablecoinId)!.issuance!;
+        expect(issuance.mintVolumeUsd).toBe(row.mintVolume24hUsd);
+        expect(issuance.burnVolumeUsd).toBe(row.burnVolume24hUsd);
+        expect(issuance.netFlow24hUsd).toBe(row.netFlow24hUsd);
+      }
+    }
+  });
+
+  it("a coin present only on unrendered chains is counted as unattributed with its reason", () => {
+    const input = quayAllocationInput(["ethereum"]);
+    input.mintBurn!.coins = [input.mintBurn!.coins[0]!];
+    input.stablecoins!.peggedAssets[0]!.chainCirculating = {
+      Arbitrum: { current: 1_000_000_000, circulatingPrevDay: 1_000_000_000, circulatingPrevWeek: 1_000_000_000, circulatingPrevMonth: 1_000_000_000 },
+    };
+    const world = buildPharosVilleWorld(input);
+    expect(world.fleetIssuance!.unattributed).toMatchObject({
+      grossUsd: 12_000_000,
+      byReason: { "unrendered harbour": 12_000_000, "outside the reported scope": 0, "no chain presence": 0 },
+    });
+    // Its known home is elsewhere, so hiding that harbour must not falsify this zero.
+    expect(tideOf(world.docks, "ethereum")).toMatchObject({
+      tracked: true, direction: "inactive", mintVolumeUsd: 0, burnVolumeUsd: 0,
+    });
+  });
+
+  it("retains unattributed gross with the issuance source's held or partial qualification", () => {
+    for (const qualification of ["held", "partial"] as const) {
+      const input = quayAllocationInput(["ethereum"]);
+      if (qualification === "held") input.freshness!.mintBurn = {
+        ...input.freshness!.mintBurn, state: "stale", reason: "Refresh failed",
+      };
+      else input.mintBurn!.coins[0]!.coverage = { ...FULL_COVERAGE, has24hWindow: false, isPartial: true };
+      const world = buildPharosVilleWorld(input);
+      expect(world.fleetIssuance!.unattributed!.grossUsd).toBe(14_800_000);
+      const evidence = world.fleetIssuance!.unattributed!.evidence;
+      expect(qualification === "held" ? evidence.state : evidence.coverage.state)
+        .toBe(qualification === "held" ? "stale" : "partial");
     }
   });
 
@@ -208,6 +244,8 @@ describe("buildCargoTideStage", () => {
     });
     // The fleet reading survives — it needed no per-harbour attribution.
     expect(stage.fleetIssuance?.netFlowUsd).toBe(1_000_000);
+    expect(stage.fleetIssuance!.unattributed).toBeNull();
+    expect(tideOf(stage.docks, "ethereum").unattributed).toBeNull();
   });
 
   it("separates a tracked harbour that saw no issuance from one that is not tracked", () => {

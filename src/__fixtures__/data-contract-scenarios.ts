@@ -4,7 +4,7 @@
  * Shape-valid fixtures do not imply desired behavior is implemented or tested.
  */
 import {
-  makeAsset, makePegCoin, makePharosVilleWorldInput, makeSourceStatuses,
+  makeAsset, makeChain, makePegCoin, makePharosVilleWorldInput, makeSourceStatuses,
   fixtureStablecoins, fixtureChains, fixtureStability, fixturePegSummary,
   fixtureStress, fixtureSafetyGrades, fixtureMintBurn,
   denseFixtureStablecoins, denseFixtureChains, denseFixturePegSummary,
@@ -125,6 +125,37 @@ export function quietNormalInput(): PharosVilleInputs {
       sync: { lastSuccessfulSyncAt: T, freshnessStatus: "fresh", warning: null, criticalLaneHealthy: true } },
     freshness: makeSourceStatuses(),
   }));
+}
+
+/** Reported-scope allocation with split, outside-scope and unlocated supply. */
+export function quayAllocationInput(renderedChainIds: readonly string[] = ["ethereum", "arbitrum"]): PharosVilleInputs {
+  const base = quietNormalInput();
+  const point = (current: number) => ({ current, circulatingPrevDay: current, circulatingPrevWeek: current, circulatingPrevMonth: current });
+  const assets = [
+    makeAsset({ id: "usdc-circle", symbol: "USDC", chainCirculating: { Ethereum: point(600_000_000), Arbitrum: point(400_000_000) } }),
+    makeAsset({ id: "usdt-tether", symbol: "USDT", chainCirculating: { Tron: point(1_000_000_000) } }),
+    makeAsset({ id: "dai-makerdao", symbol: "DAI", chainCirculating: {} }),
+  ];
+  const amounts = [[8_000_000, 4_000_000], [3_000_000, 1_000_000], [5_000_000, 1_000_000]] as const;
+  return reconcileSyntheticStocks({
+    ...base,
+    stablecoins: { peggedAssets: assets },
+    chains: { ...base.chains!, chains: renderedChainIds.map((id) => makeChain({ id })) },
+    pegSummary: { ...base.pegSummary!, coins: assets.map((asset) => makePegCoin({
+      ...base.pegSummary!.coins[0]!, id: asset.id, symbol: asset.symbol,
+    })) },
+    stress: { ...base.stress!, signals: Object.fromEntries(assets.map((asset) => [
+      asset.id, { ...base.stress!.signals["usdc-circle"]! },
+    ])) },
+    safetyGrades: { ...base.safetyGrades!, grades: assets.map((asset) => ({ id: asset.id, grade: "A", score: 90 })) },
+    mintBurn: {
+      ...base.mintBurn!,
+      scope: { chainIds: ["ethereum", "arbitrum"], label: "Ethereum and Arbitrum" },
+      coins: assets.map((asset, index) => flow({
+        ...base.mintBurn!.coins[0]!, stablecoinId: asset.id, symbol: asset.symbol,
+      }, amounts[index]![0], amounts[index]![1])),
+    },
+  });
 }
 
 function coinFlowScenario(mint: number, burn: number): PharosVilleInputs {

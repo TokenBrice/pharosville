@@ -135,12 +135,20 @@ pins are not authority over the accepted picture.
   sticky placement holds depth changes below `0.02`.
   Coverage: `src/components/detail-panel.test.tsx`,
   `src/systems/pharosville-world/stages/ship-placement.test.ts`.
-- Harbour `Net flow 24h` values disclose an estimated allocation by held supply,
-  renormalized across rendered in-scope chains. Changing the rendered harbour
-  subset can change that estimate; untracked reasons never present an estimate
-  or a measured zero. Ship and fleet issuance remain raw payload readings.
+- Harbour `Net flow 24h` values disclose **Estimated 24h allocation by held supply
+  across the reported scope**. Each coin's denominator includes all presence
+  shares in `mintBurn.scope.chainIds`, whether or not their harbours render;
+  hiding a harbour never inflates another allocation. Rendered allocations plus
+  fleet unattributed gross equal raw gross. Fleet and harbour records disclose
+  the unattributed total and its placement reasons: unrendered harbour, outside
+  the reported scope, or no chain presence. Unknown scope keeps attribution
+  unavailable, not zero; held/partial samples retain totals with source coverage.
+  Only material flow with no known presence can disqualify an otherwise empty
+  in-scope quay; known unrendered or outside-scope homes do not. Untracked reasons
+  never present a local estimate or measured zero. Ship and fleet totals remain
+  raw payload readings; existing gross/net and balanced-cargo policy is unchanged.
   Coverage: `src/systems/pharosville-world/stages/cargo-tide.test.ts`,
-  `src/systems/detail-model.test.ts`, `src/components/accessibility-ledger.test.tsx`.
+  `src/components/detail-panel.test.tsx`, `src/components/accessibility-ledger.test.tsx`.
 - Peg trim is the sole analytical hull-height carrier: fresh ±50 bps gives
   ±0.08 local trim, fresh ±200 bps gives ±0.16, and stale or missing peg evidence
   gives zero trim. Procedural and attached hero hulls, batched hulls, rig and
