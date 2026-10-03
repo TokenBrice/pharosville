@@ -122,6 +122,27 @@ describe("source publication", () => {
     expect(worldRenderContentSignature(result.current.world)).toBe(signature);
   });
 
+  it("confirms the harbour light on a second identical failed poll without new payloads or content", () => {
+    setFeeds();
+    const { result, rerender } = renderHook(() => usePharosVilleWorldData());
+    expect(result.current.world.lampStatus).toBe("fresh");
+    const failedPoll = () => ({ ...landed("stress"), error: new Error("offline"), isError: true, isSuccess: false });
+    // A lone failure that recovers on the next poll never dims the light.
+    setFeeds({ stress: failedPoll() }); rerender();
+    setFeeds(); rerender();
+    expect(result.current.world.lampStatus).toBe("fresh");
+    setFeeds({ stress: failedPoll() }); rerender();
+    // One failed poll is held by hysteresis; the record already says held.
+    expect(result.current.world.freshness.stress.state).toBe("stale");
+    expect(result.current.world.lampStatus).toBe("fresh");
+    const heldFreshness = result.current.world.freshness;
+    const signature = worldRenderContentSignature(result.current.world);
+    setFeeds({ stress: failedPoll() }); rerender();
+    expect(result.current.world.freshness).toBe(heldFreshness);
+    expect(result.current.world.lampStatus).toBe("stale");
+    expect(worldRenderContentSignature(result.current.world)).toBe(signature);
+  });
+
   it("routes to error only when settled failures have no renderable payloads", () => {
     setFeeds(Object.fromEntries(PHAROSVILLE_API_ENDPOINT_KEYS.map((key) => [key, MISSING_STRESS_QUERY])));
     const { result } = renderHook(() => usePharosVilleWorldData());

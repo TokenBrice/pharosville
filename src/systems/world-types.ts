@@ -9,6 +9,7 @@ import type { LongRecordModel } from "./long-record";
 import type { ShipAgeProfile } from "./ship-age";
 import type { SupplyTide } from "./supply-tide";
 import type { RimCoveId } from "./garden-rim";
+import type { LampStatus } from "./lamp-status";
 
 export type TileKind = "deep-water" | "water" | "shore" | "land" | "road";
 
@@ -852,6 +853,12 @@ export interface PharosVilleWorld {
   generatedAt: number | null;
   routeMode: RouteMode;
   freshness: PharosVilleFreshness;
+  /**
+   * The harbour light's stable data status: the ingestion hook confirms a
+   * changed fold over two poll observations, so it can settle while the
+   * payloads and the semantic source record stay identical.
+   */
+  lampStatus: LampStatus;
   map: PharosVilleMap;
   lighthouse: LighthouseNode;
   pigeonnier: PigeonnierNode;

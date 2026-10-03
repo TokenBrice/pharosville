@@ -101,16 +101,14 @@ import {
 } from "../systems/weather";
 import { writeAudioSceneFrame, writeAudioSceneView } from "../lib/pharosville-audio/scene-snapshot";
 import {
-  advanceLampStatus,
-  initialLampStatusState,
   lampStatusMixForStatus,
   lampStatusModulationForMix,
   LAMP_STATUS_TRANSITION_SECONDS,
+  type LampStatus,
   type LampStatusModulation,
-  type LampStatusHysteresisState,
 } from "../systems/lamp-status";
 import type { ShipWaterPath } from "../systems/motion-types";
-import { createSourceStatuses, type PharosVilleWorld, type ShipNode } from "../systems/world-types";
+import type { PharosVilleWorld, ShipNode } from "../systems/world-types";
 import { shipIssuanceVisualState } from "../systems/ship-issuance";
 import { cargoTideVisualState } from "../systems/pharosville-world/stages/cargo-tide";
 import {
@@ -805,8 +803,8 @@ export function createThreeWorldRenderer(
       // frame so no single frame carries the whole cost.
       if (!scene.content) {
         const content = createWorldContentShell(scene);
-        content.lampStatusState = initialLampStatusState(frame.world.freshness);
-        content.lampStatusMix = lampStatusMixForStatus(content.lampStatusState.status);
+        content.lampStatus = frame.world.lampStatus;
+        content.lampStatusMix = lampStatusMixForStatus(content.lampStatus);
         content.lampStatusTargetMix = content.lampStatusMix;
         scene.content = content;
         reflectionAppearanceValid = false;
@@ -862,10 +860,8 @@ export function createThreeWorldRenderer(
             // before the offscreen pass can composite them.
             scene.wakes.reset();
           }
-          content.lampStatusState = advanceLampStatus(content.lampStatusState, frame.world.freshness);
-          content.pendingLampStatusTargetMix = lampStatusMixForStatus(
-            content.lampStatusState.status,
-          );
+          content.lampStatus = frame.world.lampStatus;
+          content.pendingLampStatusTargetMix = lampStatusMixForStatus(content.lampStatus);
           // W4.2 TRUTH IMMEDIACY: the detail panel and accessibility ledger
           // read `frame.world`, which becomes authoritative NOW. Only the
           // renderer-side pose/scalar targets above wait for garden time. The
@@ -1444,8 +1440,8 @@ interface GardenContent {
   beaconHalo: Mesh<SphereGeometry, MeshBasicMaterial>;
   /** W2.10 (K9): the lantern glass swell, at most once a minute. */
   lanternSwell: LanternSwell;
-  /** W6.4: stable data status and its slow render-side transition position. */
-  lampStatusState: LampStatusHysteresisState;
+  /** W6.4: the world's confirmed data status and its slow render-side transition position. */
+  lampStatus: LampStatus;
   lampStatusMix: number;
   /** Target admitted by the last coalesced W4.2 wave. */
   lampStatusTargetMix: number;
@@ -1998,7 +1994,7 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     dockAccentTransitions: [],
     harborBatch: null,
     seaEdges: null,
-    lampStatusState: initialLampStatusState(createSourceStatuses()),
+    lampStatus: "stale",
     sailAtlas: scene.sailAtlas,
     objectCount: 0,
     parts,
@@ -2571,7 +2567,7 @@ function startGardenTransitionWave(
   if (reducedMotion) {
     clearShipTransitionState(scene, content);
     content.lampStatusTargetMix = content.pendingLampStatusTargetMix
-      ?? lampStatusMixForStatus(content.lampStatusState.status);
+      ?? lampStatusMixForStatus(content.lampStatus);
     content.pendingLampStatusTargetMix = null;
     for (const transition of content.scalarTransitions) transition.active = true;
     for (const transition of content.dockAccentTransitions) transition.active = true;

@@ -12,6 +12,18 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-10-03-steady-lamp",
+    version: PHAROSVILLE_RELEASE_VERSIONS.steadyLamp,
+    date: "2026-10-03",
+    title: "Steady Lamp",
+    summary: "The harbour light now settles when a feed keeps failing, so the lamp agrees with the record instead of staying steady through an outage.",
+    bullets: [
+      "The lamp follows the feeds again. The harbour light waits for a second observation before it dims, so one failed poll cannot make it flicker. That second observation was counted only when the world changed, and a feed that failed the same way twice left the world unchanged, so the light could stay steady through an outage while the record already said held. Every poll result and every tick of the page's observation clock now counts, so a repeated failure settles the light within one more observation.",
+      "Nothing else changes. A single failure that recovers on the next poll still leaves the light alone, the record and ledger still report each source the moment it changes, and a regression test confirms that two identical failed polls settle the light without rebuilding the scene.",
+    ],
+    source: "Collected from commit `78f5255` after v0.20.0.",
+  },
+  {
     id: "2026-10-03-clear-record",
     version: PHAROSVILLE_RELEASE_VERSIONS.clearRecord,
     date: "2026-10-03",

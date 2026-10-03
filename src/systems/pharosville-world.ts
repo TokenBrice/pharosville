@@ -8,6 +8,7 @@ import { buildWorldScaffoldStage, resolveGeneratedAt } from "./pharosville-world
 import type { PharosVilleWorld } from "./world-types";
 import { pigeonnierWatchForWorld } from "./pigeonnier-watch";
 import type { PharosVilleInputs, PharosVilleWorldBase } from "./pharosville-world/pipeline-types";
+import { deriveLampStatus } from "./lamp-status";
 
 export { SHIP_WATER_ANCHORS, waterZoneForPlacement };
 export type { PharosVilleInputs };
@@ -34,6 +35,7 @@ export function buildPharosVilleWorld(inputs: PharosVilleInputs): PharosVilleWor
     generatedAt: resolveGeneratedAt(inputs),
     routeMode: inputs.routeMode ?? "world",
     freshness: inputs.freshness,
+    lampStatus: inputs.lampStatus ?? deriveLampStatus(inputs.freshness),
     map: scaffold.map,
     lighthouse: scaffold.lighthouse,
     pigeonnier,

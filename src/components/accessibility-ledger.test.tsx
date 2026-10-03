@@ -948,6 +948,7 @@ function sampleWorld(): PharosVilleWorld {
     generatedAt: 0,
     routeMode: "world",
     freshness: makeSourceStatuses(),
+    lampStatus: "fresh",
     fleetIssuance: null,
     supplyTide: UNAVAILABLE_SUPPLY_TIDE,
     map: {
