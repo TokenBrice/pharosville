@@ -2,6 +2,15 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.19.2 - 2026-10-03 - Harbors Return
+
+The harbours and the day's issuance are back: the world accepts the live feeds' newly empty history windows instead of discarding both feeds.
+
+Collected from commit `eb82a17` after v0.19.1.
+
+- Every harbour renders again. The live chains feed now reports no 7- or 30-day history for its newest chains, and the mint/burn feed no longer sends a per-coin flow intensity and leaves the long windows empty for young coins. The world's safety check read those empty values as broken data and discarded both feeds, so no harbour was drawn, no ship had a dock to visit and the fleet's 24h issuance disappeared. Empty history windows and a missing intensity are now accepted as "not reported"; any value that is present must still be a real number.
+- Nothing is invented. A harbour without a weekly figure shows none, and a coin without an intensity keeps the neutral pace, labelled as unavailable. A regression test covers the live shapes and confirms that infinite or non-numeric values are still refused.
+
 ## v0.19.1 - 2026-10-03 - Harbor Holds
 
 The harbour opens again on today's data: one ship that could not plan an optional patrol leg no longer takes the whole world down with it.
