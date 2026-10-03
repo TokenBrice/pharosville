@@ -20,6 +20,14 @@ export function ambientSeaPhase(motion: AmbientPhaseSource, offset = 0): number 
   return Math.sin(motion.timeSeconds * AMBIENT_SEA_HZ * TWO_PI + offset);
 }
 
+/** A qualified own market-category occurrence, not a display-tile relocation. */
+export interface ShipMarketTransition {
+  occurrenceId: number;
+  fromLabel: string;
+  toLabel: string;
+  observedAt: number | null;
+}
+
 export interface ShipWaterPath {
   from: { x: number; y: number };
   to: { x: number; y: number };

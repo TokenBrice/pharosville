@@ -69,6 +69,15 @@ pins are not authority over the accepted picture.
   Coverage: `src/systems/pharosville-world/stages/ship-placement.test.ts`,
   `src/systems/risk-placement.test.ts`, `src/systems/pharosville-world.test.ts`,
   `src/components/detail-panel.test.tsx`, `src/systems/psi-sky.test.ts`.
+- The session market log compares accepted **own** peg/DEWS categories, not
+  displayed berth tiles or a consort's inherited formation category. Both own
+  risk carriers must be current with complete coverage; quality-only relocation
+  may interpolate but never narrates deterioration or recovery. New same-category
+  samples and methodology switches are silent; recurring comparable category
+  edges receive distinct, monotonic occurrence IDs. Entries and ledger `<time>`
+  use the decisive row's observation time (or unknown), never snapshot generation
+  or unrelated publication. Log and now-line describe risk readings, not voyages.
+  Coverage: `src/hooks/use-harbor-log.test.tsx`, `src/systems/motion-planning.test.ts`.
 - Colour is never the only carrier of meaning. Keyboard traversal, pan/zoom,
   selection, Escape clear, controls, detail anchors and hit testing must remain
   useful without inspecting WebGL pixels. Focused controls remain available.

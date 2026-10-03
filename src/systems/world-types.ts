@@ -567,6 +567,8 @@ export interface ShipNode {
   dockChainId: string | null;
   marketCapUsd: number;
   riskPlacement: ShipRiskPlacement;
+  /** Own market reading, independent of a consort's shared formation berth. */
+  ownRisk: { placement: ShipRiskPlacement; source: "pegSummary" | "stress" };
   riskZone: ShipWaterZone;
   riskWaterLabel: string;
   /** Fresh DEWS depth (0…1) biases the preferred berth, not final tile order.

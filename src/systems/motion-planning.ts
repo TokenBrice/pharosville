@@ -17,10 +17,11 @@ import {
 } from "./maker-squad";
 import { nearestRiskPlacementWaterTile } from "./risk-water-placement";
 import { SEAWALL_BARRIER_TILES } from "./seawall";
-import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipDockMotionStop, ShipInletCrossing, ShipMotionRoute, ShipMotionRouteStop, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
-import type { DockNode, PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode } from "./world-types";
+import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipDockMotionStop, ShipInletCrossing, ShipMarketTransition, ShipMotionRoute, ShipMotionRouteStop, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
+import type { DockNode, PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode, ShipRiskPlacement } from "./world-types";
 import { precomputeShipTempos } from "./ship-cycle-tempo";
 import { seaBodyAtTile } from "./sea-bodies";
+import { riskWaterAreaForPlacement } from "./risk-water-areas";
 import {
   GARDEN_ATTENTION_DEFAULT_SEED,
   GARDEN_VOYAGE_DEPARTURE_START_SECONDS,
@@ -103,6 +104,59 @@ const previousRiskByMap = new Map<PharosVilleMap, Map<string, PreviousRiskEntry>
 /** Test-only — reset the per-ship previous-risk cache. */
 export function __resetPreviousRiskCache(): void {
   previousRiskByMap.clear();
+}
+
+interface AcceptedMarketReading {
+  placement: ShipRiskPlacement;
+  /** The decisive row's observation and methodology identify its sample. */
+  source: "pegSummary" | "stress";
+  observedAt: number | null;
+  pegMethodologyVersion: string | null;
+  stressMethodologyVersion: string | null;
+}
+
+/** Session-owned acceptance state; deliberately separate from display geometry. */
+export interface MarketObservationState {
+  acceptedByShipId: Map<string, AcceptedMarketReading>;
+  occurrenceSequence: number;
+}
+
+export function createMarketObservationState(): MarketObservationState {
+  return { acceptedByShipId: new Map(), occurrenceSequence: 0 };
+}
+
+/** Admit comparable own readings on world refreshes, even without a route rebuild. */
+export function captureAcceptedMarketTransitions(
+  world: PharosVilleWorld,
+  state: MarketObservationState,
+): ReadonlyMap<string, ShipMarketTransition> {
+  const transitions = new Map<string, ShipMarketTransition>();
+  for (const ship of world.ships) {
+    const peg = ship.evidence.pegSummary;
+    const stress = ship.evidence.stress;
+    if (!peg || !stress || peg.state !== "current" || stress.state !== "current"
+      || peg.coverage.state !== "complete" || stress.coverage.state !== "complete") continue;
+    const source = ship.evidence[ship.ownRisk.source]!;
+    const previous = state.acceptedByShipId.get(ship.id);
+    const placement = ship.ownRisk.placement;
+    const comparable = previous?.pegMethodologyVersion === peg.methodologyVersion
+      && previous.stressMethodologyVersion === stress.methodologyVersion;
+    if (previous?.placement === placement && previous.source === ship.ownRisk.source
+      && previous.observedAt === source.observedAt && comparable) continue;
+    state.acceptedByShipId.set(ship.id, {
+      placement, source: ship.ownRisk.source, observedAt: source.observedAt,
+      pegMethodologyVersion: peg.methodologyVersion, stressMethodologyVersion: stress.methodologyVersion,
+    });
+    // A methodology switch starts a new comparison baseline, never a market move.
+    if (!previous || !comparable || previous.placement === placement) continue;
+    transitions.set(ship.id, {
+      occurrenceId: ++state.occurrenceSequence,
+      fromLabel: riskWaterAreaForPlacement(previous.placement).label,
+      toLabel: riskWaterAreaForPlacement(placement).label,
+      observedAt: source.observedAt,
+    });
+  }
+  return transitions;
 }
 
 /**

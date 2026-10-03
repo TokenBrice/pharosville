@@ -150,7 +150,7 @@ function nowCaptionPhrase({
     };
   }
   const unclocked = visitorLine || arrivalAnnotation || (latestTransition
-    ? `${latestTransition.symbol} moved to ${latestTransition.toLabel}, observed ${observedTimeLabel(latestTransition.observedAt)}`
+    ? `${latestTransition.symbol} risk reading: ${latestTransition.toLabel}, observed ${observedTimeLabel(latestTransition.observedAt)}`
     : null);
   if (unclocked) return { clocked: false, phrase: unclocked, clause: null, warning: false };
   // X3: the sky's cover is a reading (market stability), so it is spoken too;

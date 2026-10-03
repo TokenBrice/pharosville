@@ -1,4 +1,5 @@
 import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
+import { quietNormalInput, T } from "../__fixtures__/data-contract-scenarios";
 import { describe, expect, it } from "vitest";
 import { ACTIVE_META_BY_ID } from "@shared/lib/stablecoins";
 import {
@@ -22,6 +23,8 @@ import {
   __resetPreviousRiskCache,
   buildBaseMotionPlan,
   buildMotionPlan,
+  captureAcceptedMarketTransitions,
+  createMarketObservationState,
   disposePathCacheForMap,
   inletCrossingTokensBetween,
   getCurrentMapPathCacheStats,
@@ -574,6 +577,55 @@ describe("W4.25 risk-transition tack-out", () => {
       }
     }
     expect(lateSampleSeen).toBe(true);
+  });
+});
+
+describe("quality-qualified market transitions", () => {
+  it("quality edges interpolate without market recovery events", () => {
+    __resetPreviousRiskCache();
+    const observations = createMarketObservationState();
+    const input = quietNormalInput();
+    Object.assign(input.stress!.signals["usdc-circle"]!, { band: "DANGER", score: 95 });
+    const danger = buildPharosVilleWorld(input);
+    const dangerPlan = buildBaseMotionPlan(danger);
+    expect(captureAcceptedMarketTransitions(danger, observations).size).toBe(0);
+
+    const heldInput = structuredClone(input);
+    heldInput.freshness!.stress = { ...heldInput.freshness!.stress, state: "stale", reason: "Refresh failed" };
+    const held = buildPharosVilleWorld(heldInput);
+    const heldPlan = buildBaseMotionPlan(held);
+    const heldShip = held.ships.find((ship) => ship.id === "usdc-circle")!;
+    const route = heldPlan.shipRoutes.get(heldShip.id)!;
+    const oldTile = dangerPlan.shipRoutes.get(heldShip.id)!.riskTile;
+    expect(route.previousRiskTile).toEqual(oldTile);
+    expect(route.riskTile).not.toEqual(oldTile);
+    expect(captureAcceptedMarketTransitions(held, observations).size).toBe(0);
+    let interpolationSeen = false;
+    for (let second = 0; second < Math.ceil(route.cycleSeconds); second += 1) {
+      const sample = resolveShipMotionSample({
+        plan: heldPlan, reducedMotion: false, ship: heldShip, timeSeconds: second - route.phaseSeconds,
+      });
+      if (!sample.riskTransition) continue;
+      expect(sample.riskTransition.fromTile).toEqual(oldTile);
+      expect(sample.riskTransition.toTile).toEqual(route.riskTile);
+      expect(sample.riskTransition.progress).toBeGreaterThanOrEqual(0);
+      expect(sample.riskTransition.progress).toBeLessThan(1);
+      interpolationSeen = true;
+      break;
+    }
+    expect(interpolationSeen).toBe(true);
+
+    const resumedInput = structuredClone(input);
+    resumedInput.stress!.signals["usdc-circle"]!.computedAt = T + 1;
+    const resumed = buildPharosVilleWorld(resumedInput);
+    expect(buildBaseMotionPlan(resumed).shipRoutes.get(heldShip.id)!.previousRiskTile).toEqual(route.riskTile);
+    expect(captureAcceptedMarketTransitions(resumed, observations).size).toBe(0);
+    const watchInput = structuredClone(resumedInput);
+    Object.assign(watchInput.stress!.signals["usdc-circle"]!, { band: "WATCH", score: 31, computedAt: T + 2 });
+    const changed = captureAcceptedMarketTransitions(buildPharosVilleWorld(watchInput), observations);
+    expect([...changed.values()]).toEqual([{
+      occurrenceId: 1, fromLabel: "Danger Strait", toLabel: "Watch Breakwater", observedAt: (T + 2) * 1_000,
+    }]);
   });
 });
 

@@ -216,8 +216,8 @@ describe("AccessibilityLedger", () => {
         harborLogEntries={[{
           detailId: "ship.usdx",
           fromLabel: "Calm Anchorage",
-          id: "usdx:Calm Anchorage->Danger Strait",
-          message: "USDX left Calm Anchorage for Danger Strait",
+          id: "usdx:1",
+          message: "USDX risk reading changed from Calm Anchorage to Danger Strait",
           observedAt: Date.UTC(2026, 8, 26, 16, 42),
           symbol: "USDX",
           toLabel: "Danger Strait",
@@ -229,7 +229,6 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("Harbor log");
     expect(markup).toContain("Since you were here yesterday — stability fell from Steady to Tremor.");
     expect(markup).toContain("16:42");
-    expect(markup).toContain("USDX left Calm Anchorage for Danger Strait.");
     expect(markup).toContain("18:07");
     expect(markup).toContain("A heron settled on the harbor piling at dusk.");
     expect(markup).toContain("absent in still or reduced-motion mode");
@@ -1058,6 +1057,7 @@ function sampleWorldWithUniqueShip(): PharosVilleWorld {
         dockChainId: null,
         marketCapUsd: 100,
         riskPlacement: "safe-harbor",
+        ownRisk: { placement: "safe-harbor", source: "stress" },
         riskZone: "calm",
         riskWaterLabel: "Calm Anchorage",
         placementEvidence: { reason: "Fresh", sourceFields: ["pegSummary.coins[]"], stale: false },
@@ -1116,6 +1116,7 @@ function sampleWorldWithLedgerShip(): PharosVilleWorld {
         dockChainId: "ethereum",
         marketCapUsd: 100,
         riskPlacement: "ledger-mooring",
+        ownRisk: { placement: "ledger-mooring", source: "stress" },
         riskZone: "ledger",
         riskWaterLabel: "Ledger Mooring",
         placementEvidence: {

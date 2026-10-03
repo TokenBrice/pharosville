@@ -1082,6 +1082,8 @@ function worldFixture(input: {
       marketCapUsd: 1_000,
       pegDeviationBps: 45,
       riskPlacement: "outer-rough-water",
+      ownRisk: { placement: "outer-rough-water", source: "stress" },
+      evidence: {},
       riskTile: { x: 7, y: 2 },
       riskZone: "warning",
       symbol: "USDC",
