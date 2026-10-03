@@ -100,6 +100,7 @@
     "jsdom": "29.1.1",
     "meshoptimizer": "1.2.0",
     "playwright": "1.63.0",
+    "terser": "5.51.2",
     "tsx": "4.23.13",
     "typescript": "5.9.3",
     "typescript-eslint": "8.70.0",
