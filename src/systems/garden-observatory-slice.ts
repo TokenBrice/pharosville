@@ -1,3 +1,4 @@
+import { isVisualDebugAllowed } from "../lib/pharosville-debug";
 import type { ShipMotionSample } from "./motion";
 import { placeGardenFleet } from "./garden-fleet-placement";
 import {
@@ -630,10 +631,23 @@ export function selectRepresentativeShips(
   return chosen;
 }
 
+// Resolve once for each world, keeping admission and transient selection on
+// the same cached base slice. Remote dev hosts must never honor this seam.
+function gardenOverviewShipLimit(): number {
+  if (typeof window === "undefined" || !isVisualDebugAllowed()
+    || (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1")) {
+    return GARDEN_OVERVIEW_SHIP_LIMIT;
+  }
+  const limit = (window as typeof window & { __pharosVilleTestShipLimit?: unknown }).__pharosVilleTestShipLimit;
+  return typeof limit === "number" && Number.isInteger(limit)
+    ? Math.max(1, Math.min(GARDEN_OVERVIEW_SHIP_LIMIT, limit))
+    : GARDEN_OVERVIEW_SHIP_LIMIT;
+}
+
 function gardenObservatoryBaseSlice(world: PharosVilleWorld): GardenObservatoryBaseSlice {
   const cached = baseSliceByWorld.get(world);
   if (cached) return cached;
-  const representatives = selectRepresentativeShips(world.ships);
+  const representatives = selectRepresentativeShips(world.ships, gardenOverviewShipLimit());
   const representativeDetailIds = new Set(representatives.map((ship) => ship.detailId));
   // W3 (finding F4): the authored per-zone rings were sized for ~20 ships and
   // saturated at fleet scale. Placement is now blue-noise scatter across the

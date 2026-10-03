@@ -23,6 +23,13 @@ browser interaction changes. Chromium is the reference-performance browser;
 Firefox is the second accessibility/interaction browser. Safari is not a
 cutover acceptance browser.
 
+Local renderer-backed correctness lanes need hardware WebGL. Agent shells set
+`CI=true`, which deliberately launches Chromium with `--disable-webgl` unless
+`PHAROSVILLE_VISUAL_GPU=1` is set. Run
+`env -u CI npm run test:visual:dist:interaction` on the hardware workstation;
+the unprefixed CI-mode lane can report the capacity case as unmeasured and
+cannot prove its GPU/resource assertions.
+
 ## Required browser contracts
 
 The visual lane must keep proving:
@@ -36,14 +43,19 @@ The visual lane must keep proving:
   module/WebGL/context failure;
 - a blocked viewport with no world data, Three.js, model, or logo request.
 
-**Unexercised contract (2026-07-25):** the transient selected outsider — a ship
-past the render cap, drawn only because it is selected — has no coverage,
-because the scenario no longer occurs. The Grand Scale Revamp raised the cap to
-320 and neither the dense fixture (~132 ships) nor the live fleet (187) comes
-near it, so `selectGardenTransientShip` never fires. Covering it again needs a
-fixture with more than 320 ships; until then treat that path as untested. Note
-also that hit targets are VIEWPORT-CULLED, so a target count is a property of
-the camera, not of fleet composition — never compare counts across framings.
+**Over-capacity browser coverage:** the interaction lane limits the dense
+fixture to 131 ordinary ships and derives the excluded ship in the browser
+from the complete ledger minus the debug seam's admitted ship IDs (its detail
+ID is printed as `H1 excluded detail id`). Selecting it gives 132 ships
+without replacing content or adding textures. One select/Escape warm-up cycle
+uploads camera/LOD-dependent assets; two subsequent identical cycles require
+at most one extra geometry while selected, then exact warmed-baseline
+geometry/texture counts and 131 ships after Escape (no per-cycle growth).
+The panel and complete ledger retain
+the outsider. If no WebGL renderer is available, the case records an
+`unmeasured` annotation instead of claiming resource coverage. Production
+capacity remains 320; hit targets are VIEWPORT-CULLED, so a target count measures
+the camera, not fleet composition — never compare counts across framings.
 
 ## Visual review
 
@@ -126,6 +138,36 @@ companion capture; this is a crowding proxy, not sail-pixel occlusion.
 `--pan-zoom` records six gesture frames; `--blur-audit` saves a 16px canvas-blur
 companion for the attention audit.
 
+`--ship-limit N` requires `--fixture` and a base `--url` whose hostname is
+exactly `localhost` or `127.0.0.1`. Integers are clamped to 1…320; fractional
+and nonnumeric values are rejected. The init script installs
+`window.__pharosVilleTestShipLimit` before navigation. The app honors it only
+under its visual-debug guard and on those exact hosts, resolving it once per
+world. Preview first verifies ordinary admission against the complete ledger,
+refuses ignored overrides, and then cold-navigates to the requested selection
+deep link (URL selection is consumed on mount).
+For the real-GPU outsider arm, use the ID printed by the interaction case:
+
+```bash
+env -u CI npm run preview -- --url http://localhost:5173 --fixture dense \
+  --ship-limit 131 --hash '#sel=<excluded-detail-id>&t=12' --assert \
+  --out vu/h1/capacity-131.png --json vu/h1/capacity-131.json
+```
+
+`--light-cycle` exercises the real **Explore harbor controls → Light and
+motion → Time of day** input at 06:00, 12:00, 18:00 and 22:00. It expands
+the redesigned toolbar before opening the drawer, waits for the requested hour
+to reach runtime telemetry, and settles each phase before recording resources,
+shader errors and a `-light-HHMM.png` screenshot. With `--reduced`, each phase
+uses the static upload/resource settling oracle; animated phases wait for
+uploads after their dwell. The initial still retains the normal `--assert`
+gate; phase resource/shader failures also exit nonzero. Example:
+
+```bash
+env -u CI npm run preview -- --url http://localhost:5173 --fixture dense \
+  --light-cycle --reduced --assert --out vu/h1/light.png --json vu/h1/light.json
+```
+
 `--json <name.json>` preserves metrics beside the images in `outputs/`, and
 prints one `manifest <path>` line. Its sibling `capture` block (not part of
 `metrics`) records the preview checkout commit and dirty paths, viewport,
@@ -135,6 +177,8 @@ selected detail, world generation time, admitted ship detail IDs, canvas size,
 hash, date-aware dominant sky phase (`phaseForHour`), fixture name/source epoch/
 SHA-256 payload hash, and screenshot/JSON output paths. `capture.observer`
 records observer origin/epoch, Date mode, calendar pin, hour pin and timezone;
+`capture.shipLimit` records requested/effective capacity, the verified hostname,
+ordinary count and honored status (or `null` when unused).
 `capture.screenshotTiming` labels the main shot's timing. Missing optional
 evidence is `null` with a reason in `unavailable`; live data and no selection
 are ordinary null states. The identity is sampled beside the main screenshot,
