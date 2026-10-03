@@ -483,7 +483,7 @@ export interface DockNode {
   change24hPct?: number | null;
   change7dPct?: number | null;
   /** Estimated 24h issuance allocation to this harbour by held-supply share,
-      renormalized across rendered in-scope chains by `buildCargoTideStage`;
+      allocated across the reported payload scope by `buildCargoTideStage`;
       drives the cargo-tide crates and the "Net flow 24h" detail row. Absent
       only on docks built outside the world pipeline. */
   cargoTide?: DockCargoTide;
@@ -493,8 +493,8 @@ export interface DockNode {
 
 /**
  * One harbour's estimated allocation of the fleet's 24h mint/burn flow, not
- * a chain-local measurement. Held-supply shares are renormalized over rendered
- * harbours inside the payload scope, so hiding a harbour changes the estimate.
+ * a chain-local measurement. Held-supply shares are normalized over the payload
+ * scope, independently of the rendered harbour subset.
  *
  * `tracked` means the rendered harbour is inside that scope and has a usable
  * allocation. An untracked reading must never render as an estimated zero.
@@ -519,9 +519,18 @@ export interface DockCargoTide {
   /** Suppress illustrations, never retained quantities, on incomplete/held samples. */
   completeWindow: boolean;
   evidence: PharosVilleSourceStatus;
+  /** Fleet-wide gross that could not land on rendered quays; null without a scope. */
+  unattributed: UnattributedIssuance | null;
 }
 
-/** Fleet-wide issuance reading, straight from the mint/burn gauge. */
+/** Gross issuance outside rendered quays, with placement reasons and source coverage. */
+export interface UnattributedIssuance {
+  grossUsd: number;
+  byReason: Record<"unrendered harbour" | "outside the reported scope" | "no chain presence", number>;
+  evidence: PharosVilleSourceStatus;
+}
+
+/** Raw fleet coin totals and gauge, with a separate quay-allocation disclosure. */
 export interface FleetIssuance {
   activeCoins: number;
   band: string | null;
@@ -536,6 +545,7 @@ export interface FleetIssuance {
   scopeLabel: string | null;
   score: number | null;
   trackedCoins: number;
+  unattributed: UnattributedIssuance | null;
 }
 
 export interface DockStablecoin {

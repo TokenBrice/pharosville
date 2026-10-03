@@ -400,10 +400,10 @@ export function buildVisualCueRegistry(): VisualCue[] {
       target: { kind: "dock" },
       primaryChannels: ["position", "shape", "size"],
       visual: "current complete-window estimated allocations stand canvas-topped cargo aboard for net minting, ashore for redemption and one aboard plus one ashore for balanced gross activity; one-sided run length is capped at six crates and does not replay transactions",
-      sourceField: "mintBurn.coins[].netFlow24hUsd, mintBurn.coins[].mintVolume24hUsd, mintBurn.coins[].burnVolume24hUsd, mintBurn.coins[].coverage, mintBurn.windowHours, source evidence, mintBurn.scope.chainIds (estimated 24h allocation by held-supply share, renormalized across rendered in-scope harbours)",
+      sourceField: "mintBurn.coins[].netFlow24hUsd, mintBurn.coins[].mintVolume24hUsd, mintBurn.coins[].burnVolume24hUsd, mintBurn.coins[].coverage, mintBurn.windowHours, source evidence, mintBurn.scope.chainIds (estimated 24h allocation by held-supply share across the reported scope, independent of rendered harbours)",
       questionAnswered: "What current complete-window issuance allocation is estimated at this harbour, and how do its gross and net quantities differ?",
       failureState: "no crates on inactive, incomplete, held or unavailable samples; Net flow 24h keeps the estimated totals, coverage and source as-of rather than certifying an empty quay as observed inactivity",
-      domEquivalent: "dock detail 'Net flow 24h' row disclosing the estimated allocation and naming the direction outright plus gross mint and burn, the matching dock accessibility-ledger clause, and the raw fleet-issuance ledger line above the dock list",
+      domEquivalent: "dock detail 'Net flow 24h' row disclosing the estimated allocation and naming the direction outright plus gross mint and burn, the matching dock accessibility-ledger clause, and the raw fleet-issuance ledger line; fleet unattributed gross and placement reasons appear in both records",
       reducedMotionEquivalent: "identical — the cargo is a standing state and never animates at any setting, so there is nothing to freeze",
     },
     {

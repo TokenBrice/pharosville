@@ -19,7 +19,7 @@ import { farShoreLabel } from "../systems/psi-sky";
 import { backingDiversityLabel, detailForLighthouse } from "../systems/detail-model";
 import { PHAROSVILLE_API_ENDPOINT_KEYS } from "@shared/types/pharosville-endpoint-keys";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
-import { FRESH_META, NOW_MS, SCENARIOS } from "../__fixtures__/data-contract-scenarios";
+import { FRESH_META, NOW_MS, quayAllocationInput, SCENARIOS } from "../__fixtures__/data-contract-scenarios";
 import { classifyPharosVilleSource } from "../hooks/use-pharosville-world-data";
 
 afterEach(cleanup);
@@ -152,14 +152,24 @@ describe("AccessibilityLedger rendered local parity", () => {
 });
 
 describe("AccessibilityLedger", () => {
-  it("discloses dock estimates while the fleet retains the raw measured reading", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
-    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
-    expect(markup).toContain("net flow 24h Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: ");
-    expect(markup).toContain("measured over Configured issuance chains");
-    expect(world.fleetIssuance).toMatchObject({
-      mintVolumeUsd: 11_000_000, burnVolumeUsd: 6_000_000, netFlowUsd: 5_000_000,
-    });
+  it("unattributed reasons reach the fleet and harbour records", () => {
+    const world = buildPharosVilleWorld(quayAllocationInput(["ethereum"]));
+    const view = render(<AccessibilityLedger world={world} presentation="visible" />);
+    const fleet = view.container.querySelector("#ledger-stations")!.nextElementSibling!.textContent!;
+    const dock = world.docks.find((entry) => entry.chainId === "ethereum")!;
+    const harbour = [...view.container.querySelectorAll("li p")]
+      .find((entry) => entry.textContent!.startsWith(`${dock.label}:`))!.textContent!;
+    for (const record of [fleet, harbour]) {
+      expect(record).toContain("$14.8M");
+      expect(record).toContain("unrendered harbour: $4.8M");
+      expect(record).toContain("outside the reported scope: $4.0M");
+      expect(record).toContain("no chain presence: $6.0M");
+      expect(record).toContain("complete coverage");
+    }
+    expect(fleet).toContain("mint $16.0M");
+    expect(fleet).toContain("burn $6.0M");
+    expect(harbour).toContain("mint $4.8M");
+    expect(harbour).toContain("burn $2.4M");
   });
 
 
@@ -391,70 +401,16 @@ describe("AccessibilityLedger", () => {
   // The cargo-tide crates put direction on the canvas as position. These are the
   // rows a reader who never sees the canvas has instead, so they must state the
   // direction in words and must not let "unmeasured" pass for "calm".
-  it("mirrors each harbour's net 24h issuance flow, direction named, in dock rows", () => {
-    const world: PharosVilleWorld = {
-      ...sampleWorld(),
-      docks: [
-        {
-          id: "dock.ethereum",
-          kind: "dock",
-          station: { coveId: "ethereum-mole", type: "ethereum-mole", shoreBearing: 0 },
-          chainId: "ethereum",
-          label: "Ethereum",
-          tile: { x: 1, y: 1 },
-          totalUsd: 8_000_000_000,
-          size: 7,
-          healthBand: "healthy",
-          stablecoinCount: 2,
-          concentration: null,
-          harboredStablecoins: [],
-          detailId: "dock.ethereum",
-          cargoTide: {
-            burnVolumeUsd: 2_000_000,
-            coinCount: 2,
-            direction: "minting",
-            mintVolumeUsd: 10_000_000,
-            netFlowUsd: 8_000_000,
-            pressureScore: 66,
-            reason: "tracked",
-            tracked: true,
-            completeWindow: true,
-            evidence: makeSourceStatuses().mintBurn,
-          },
-        },
-        {
-          id: "dock.solana",
-          kind: "dock",
-          station: { coveId: "watch-east-bay", type: "tea-house-quay", shoreBearing: Math.PI },
-          chainId: "solana",
-          label: "Solana",
-          tile: { x: 2, y: 2 },
-          totalUsd: 1_000_000_000,
-          size: 3,
-          healthBand: "healthy",
-          stablecoinCount: 1,
-          concentration: null,
-          harboredStablecoins: [],
-          detailId: "dock.solana",
-          cargoTide: {
-            burnVolumeUsd: 0,
-            coinCount: 0,
-            direction: "inactive",
-            mintVolumeUsd: 0,
-            netFlowUsd: 0,
-            pressureScore: null,
-            reason: "chain-not-in-scope",
-            tracked: false,
-            completeWindow: false,
-            evidence: makeSourceStatuses().mintBurn,
-          },
-        },
-      ],
-    };
-    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
-
-    expect(markup).toContain("net flow 24h Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: +$8.0M minting");
-    expect(markup).toContain("net flow 24h Not measured on this chain");
+  it("keeps outside-scope harbours unmeasured while disclosing the fleet's unattributed gross", () => {
+    const world = buildPharosVilleWorld(quayAllocationInput(["ethereum", "arbitrum", "tron"]));
+    const view = render(<AccessibilityLedger world={world} presentation="visible" />);
+    const dock = world.docks.find((entry) => entry.chainId === "tron")!;
+    const line = [...view.container.querySelectorAll("li p")]
+      .find((entry) => entry.textContent!.startsWith(`${dock.label}:`))!.textContent!;
+    expect(line).toContain("Not measured on this chain");
+    expect(line).toContain("outside the reported scope: $4.0M");
+    expect(line).not.toContain("No issuance activity");
+    expect(line).not.toContain("Estimated 24h allocation");
   });
 
   it("reports fleet-wide issuance including flight to quality above the dock list", () => {
@@ -473,6 +429,7 @@ describe("AccessibilityLedger", () => {
         scopeLabel: "Configured issuance chains",
         trackedCoins: 130,
         score: -7.4,
+        unattributed: null,
       },
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
@@ -505,6 +462,7 @@ describe("AccessibilityLedger", () => {
         scopeLabel: "Configured issuance chains",
         trackedCoins: 130,
         score: 5.1,
+        unattributed: null,
       },
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
