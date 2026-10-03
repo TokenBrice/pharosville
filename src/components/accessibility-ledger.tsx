@@ -28,6 +28,7 @@ import {
   mastSignalLabel,
   pegDeviationFactLabel,
   cargoTideLabel,
+  unattributedIssuanceLabel,
   dockConcentrationLabel,
   dockSupplyChangeLabel,
   dockSupplyMomentumLabel,
@@ -523,6 +524,7 @@ function fleetIssuanceLedgerLine(issuance: NonNullable<PharosVilleWorld["fleetIs
     : issuance.direction === "burning" ? "net burning"
     : issuance.direction === "flat" ? "balanced"
     : "no issuance activity";
+  const unattributed = unattributedIssuanceLabel(issuance.unattributed);
   return [
     `Fleet issuance 24h: ${direction}`,
     `net ${formatCompactUsd(issuance.netFlowUsd)}`,
@@ -531,6 +533,8 @@ function fleetIssuanceLedgerLine(issuance: NonNullable<PharosVilleWorld["fleetIs
     `gauge band ${issuance.band ?? "unavailable"}`,
     `${issuance.activeCoins} of ${issuance.trackedCoins} tracked coins moved supply`,
     `measured over ${issuance.scopeLabel ?? "an unreported scope"}${issuance.scopeChainIds.length > 0 ? ` (${issuance.scopeChainIds.join(", ")})` : ""}`,
+    unattributed ?? "Fleet unattributed gross 24h: unavailable — issuance scope unreported",
+    ...(issuance.unattributed ? [nodeSourceEvidenceLabel({ mintBurn: issuance.unattributed.evidence })] : []),
     issuance.flightToQuality
       ? "flight to quality active — capital rotating toward stronger issuers, drawn as tenders running in on the largest hulls"
       : "no flight to quality reported — no tenders on the water",

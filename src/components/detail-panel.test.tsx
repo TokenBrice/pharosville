@@ -20,7 +20,7 @@ import { DetailPanel } from "./detail-panel";
 import { AccessibilityLedger } from "./accessibility-ledger";
 import { resetHeldShipPlacements } from "../systems/pharosville-world/stages/ship-placement";
 import { withRiskTransitionFact } from "../systems/detail-model";
-import { SCENARIOS, quietNormalInput, T } from "../__fixtures__/data-contract-scenarios";
+import { SCENARIOS, quayAllocationInput, quietNormalInput, T } from "../__fixtures__/data-contract-scenarios";
 
 afterEach(() => {
   for (const details of document.querySelectorAll<HTMLDetailsElement>('[data-testid="pharosville-detail-record"]')) {
@@ -223,6 +223,25 @@ describe("DetailPanel rendered analytical record", () => {
     expect(recordRow(record, "Health").textContent).toContain("HHI");
     expect(recordRow(record, "Health").textContent).toContain("Quay condition:");
     expect(recordRow(record, "Net flow 24h").textContent).toContain("Estimated 24h allocation by held supply");
+    expect(record.querySelectorAll("dt").length).toBeLessThanOrEqual(6);
+  });
+
+  it("unattributed reasons remain reachable in the harbour record", async () => {
+    const input = quayAllocationInput(["ethereum"]);
+    input.mintBurn!.coins[0]!.coverage = {
+      ...input.mintBurn!.coins[0]!.coverage!, has24hWindow: false, isPartial: true,
+    };
+    const world = buildPharosVilleWorld(input);
+    const dock = world.docks.find((entry) => entry.chainId === "ethereum")!;
+    const record = await openRecord(world.detailIndex[dock.detailId]!);
+    const flow = recordRow(record, "Net flow 24h").textContent!;
+    expect(flow).toContain("$14.8M");
+    expect(flow).toContain("unrendered harbour: $4.8M");
+    expect(flow).toContain("outside the reported scope: $4.0M");
+    expect(flow).toContain("no chain presence: $6.0M");
+    expect(flow).toContain("partial coverage");
+    expect(flow).toContain("mint $4.8M");
+    expect(flow).toContain("burn $2.4M");
     expect(record.querySelectorAll("dt").length).toBeLessThanOrEqual(6);
   });
 

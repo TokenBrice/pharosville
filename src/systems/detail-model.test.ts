@@ -1026,6 +1026,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
         scopeLabel: "Configured issuance chains",
         score: -7.4,
         trackedCoins: 130,
+        unattributed: null,
         ...overrides,
       });
 
@@ -1445,6 +1446,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
         tracked: true,
         completeWindow: true,
         evidence: makeSourceStatuses().mintBurn,
+        unattributed: null,
       },
       harboredStablecoins: [],
       detailId: "dock.ethereum",

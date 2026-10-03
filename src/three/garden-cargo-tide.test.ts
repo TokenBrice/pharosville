@@ -21,6 +21,7 @@ function tide(overrides: Partial<DockCargoTide> = {}): DockCargoTide {
     tracked: true,
     completeWindow: true,
     evidence: makeSourceStatuses().mintBurn,
+    unattributed: null,
     ...overrides,
   };
 }
