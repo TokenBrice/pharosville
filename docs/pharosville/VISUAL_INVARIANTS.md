@@ -44,6 +44,18 @@ Achieve spaciousness through smaller vessels, unequal anchorages and near/far
 weight, never by hiding eligible ships at rest. Leave a broad dark terrace arc
 bare; neither lamps nor boats form an evenly spaced ring or carpet.
 
+The seated threshold is authored, not generated. Its pines keep six
+aspect-specific limb pads (three for the landscape seat, three for the tall
+companion) on their anchors. Each pad is a flattened, irregular cloud pad,
+shaped only inward: notched outlines and a lowered, softly undulating crown,
+never an enlarged bough or a full hemispherical cap. The bank is organized into
+a few broad value planes in the moss-olive and earth family: a dappled
+mid-distance plane, a darker recess, and the darkest shade at the front edge
+and bottom-left. It is never a saturated or lawn-bright field. The brow knots,
+deck edge, tall shoulder, lantern, offscreen cedars and eave stay; they hide the
+plate edge and make the shade. The threshold stays three smooth, textureless,
+unpickable draws within 15,000 construction triangles.
+
 ## Coarse truth in the world; exact truth in the DOM
 
 The world offers three readings: the tower is market stability, water is risk
