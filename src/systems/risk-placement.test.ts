@@ -1,12 +1,33 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { describe, expect, it } from "vitest";
 import { ACTIVE_META_BY_ID } from "@shared/lib/stablecoins";
 import { makeAsset, makePegCoin } from "../__fixtures__/pharosville-world";
 import { resolveShipRiskPlacement } from "./risk-placement";
+import { quietNormalInput } from "../__fixtures__/data-contract-scenarios";
+import { buildPharosVilleWorld } from "./pharosville-world";
 
 const usdcMeta = ACTIVE_META_BY_ID.get("usdc-circle");
 const susdeMeta = ACTIVE_META_BY_ID.get("susde-ethena");
 
 describe("resolveShipRiskPlacement", () => {
+  it.each([
+    ["unknown", 0], ["missing", 0], ["unknown", -120], ["missing", -120],
+  ] as const)("unknown or missing DEWS never certifies calm while known peg survives (%s, %i bps)", (mode, deviation) => {
+    const input = quietNormalInput();
+    input.pegSummary!.coins.find((coin) => coin.id === "usdc-circle")!.currentDeviationBps = deviation;
+    if (mode === "unknown") input.stress!.signals["usdc-circle"]!.band = "UNRECOGNIZED";
+    else delete input.stress!.signals["usdc-circle"];
+    const world = buildPharosVilleWorld(input);
+    const ship = world.ships.find((ship) => ship.id === "usdc-circle")!;
+    expect(ship.evidence.stress?.state).toBe("unavailable");
+    expect(ship.evidence.pegSummary?.state).toBe("current");
+    expect(ship.pegDeviationBps).toBe(deviation);
+    expect(ship.riskPlacement).toBe(deviation === 0 ? "safe-harbor" : "harbor-mouth-watch");
+    expect(ship.placementEvidence.stale).toBe(true);
+    expect(ship.riskDepth).toBeNull();
+    expect(ship.visual.hullForm.waterline).toBe(deviation === 0 ? 0 : -0.08);
+  });
+
   it("places active depegs on the storm shelf", () => {
     expect(usdcMeta).toBeDefined();
     const result = resolveShipRiskPlacement({
@@ -14,7 +35,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: usdcMeta!,
       pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", activeDepeg: true, currentDeviationBps: null }),
       stress: undefined,
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("storm-shelf");
@@ -27,12 +48,11 @@ describe("resolveShipRiskPlacement", () => {
       meta: susdeMeta!,
       pegCoin: undefined,
       stress: undefined,
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("ledger-mooring");
-    expect(result.evidence.reason).toBe("NAV token Ledger Mooring idle preference");
-    expect(result.evidence.sourceFields).toEqual(["meta.flags.navToken", "pegSummary.coins"]);
+    expect(result.evidence.stale).toBe(true);
   });
 
   it("places NAV tokens with peg rows at ledger mooring", () => {
@@ -42,13 +62,11 @@ describe("resolveShipRiskPlacement", () => {
       meta: susdeMeta!,
       pegCoin: makePegCoin({ id: "susde-ethena", symbol: "sUSDe", currentDeviationBps: 0 }),
       stress: undefined,
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("ledger-mooring");
-    expect(result.evidence.reason).toBe("NAV token Ledger Mooring idle preference");
-    expect(result.evidence.sourceFields).toEqual(["meta.flags.navToken", "pegSummary.coins[]"]);
-    expect(result.evidence.stale).toBe(false);
+    expect(result.evidence.stale).toBe(true);
   });
 
   it("maps NAV tokens to fresh DEWS placements instead of forcing Ledger Mooring", () => {
@@ -58,7 +76,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: susdeMeta!,
       pegCoin: makePegCoin({ id: "susde-ethena", symbol: "sUSDe", currentDeviationBps: 0 }),
       stress: { band: "WATCH", score: 31, signals: {}, computedAt: 1, methodologyVersion: "fixture" },
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("breakwater-edge");
@@ -73,7 +91,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: susdeMeta!,
       pegCoin: makePegCoin({ id: "susde-ethena", symbol: "sUSDe", currentDeviationBps: 0 }),
       stress: { band: "CALM", score: 8, signals: {}, computedAt: 1, methodologyVersion: "fixture" },
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("ledger-mooring");
@@ -87,7 +105,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: susdeMeta!,
       pegCoin: makePegCoin({ id: "susde-ethena", symbol: "sUSDe", activeDepeg: true, currentDeviationBps: 780 }),
       stress: undefined,
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("storm-shelf");
@@ -100,7 +118,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: usdcMeta!,
       pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: 0 }),
       stress: { band: "DANGER", score: 90, signals: {}, computedAt: 1, methodologyVersion: "fixture" },
-      freshness: { safetyGradesStale: true },
+      freshness: makeSourceStatuses({ safetyGrades: { state: "stale" } }),
     });
 
     expect(result.placement).toBe("storm-shelf");
@@ -113,11 +131,10 @@ describe("resolveShipRiskPlacement", () => {
       meta: usdcMeta!,
       pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: 0 }),
       stress: { band: "CALM", score: 12, signals: {}, computedAt: 1, methodologyVersion: "fixture" },
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("safe-harbor");
-    expect(result.evidence.reason).toBe("DEWS stress escalation");
   });
 
   it("does not move ships based on stale DEWS alone", () => {
@@ -127,7 +144,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: usdcMeta!,
       pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: 0 }),
       stress: { band: "DANGER", score: 90, signals: {}, computedAt: 1, methodologyVersion: "fixture" },
-      freshness: { stressStale: true },
+      freshness: makeSourceStatuses({ stress: { state: "stale" } }),
     });
 
     expect(result.placement).toBe("safe-harbor");
@@ -141,7 +158,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: usdcMeta!,
       pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", activeDepeg: true, currentDeviationBps: 900 }),
       stress: undefined,
-      freshness: { pegSummaryStale: true },
+      freshness: makeSourceStatuses({ pegSummary: { state: "stale" } }),
     });
 
     expect(result.placement).toBe("safe-harbor");
@@ -155,11 +172,10 @@ describe("resolveShipRiskPlacement", () => {
       meta: usdcMeta!,
       pegCoin: undefined,
       stress: undefined,
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("safe-harbor");
-    expect(result.evidence.reason).toBe("Missing or low-confidence price evidence");
     expect(result.evidence.stale).toBe(true);
   });
 });

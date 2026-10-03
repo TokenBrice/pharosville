@@ -390,7 +390,9 @@ function renderSection(id: SectionId, title: string, rows: DetailDisplayRow[]) {
         {rows.map((row) => (
           <div key={row.key} className="pv-fact-row">
             <dt>{row.label}</dt>
-            <dd>{row.value}</dd>
+            <dd>{row.value.includes("\n") ? row.value.split("\n").map((line, index) => (
+              <span key={index}>{index > 0 && <br />}{line}</span>
+            )) : row.value}</dd>
           </div>
         ))}
       </dl>

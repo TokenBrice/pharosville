@@ -69,6 +69,7 @@ describe("useWorldRenderLoop", () => {
   const world = buildPharosVilleWorld(makePharosVilleWorldInput());
   const canvasSize = { x: 800, y: 600 };
   const camera = defaultCamera({ width: canvasSize.x, height: canvasSize.y, map: world.map });
+  const defaultCanvasSize = canvasSize;
 
   let rafSpy: ReturnType<typeof vi.spyOn>;
   let cafSpy: ReturnType<typeof vi.spyOn>;
@@ -152,6 +153,7 @@ describe("useWorldRenderLoop", () => {
     reducedMotion = true,
     wallClockHour = 12,
     worldOverride,
+    canvasSizeOverride,
   }: {
     hoveredDetailId: string | null;
     initialRequestedDpr?: number;
@@ -178,7 +180,9 @@ describe("useWorldRenderLoop", () => {
     reducedMotion?: boolean;
     wallClockHour?: number;
     worldOverride?: PharosVilleWorld;
+    canvasSizeOverride?: { x: number; y: number };
   }) {
+    const canvasSize = canvasSizeOverride ?? defaultCanvasSize;
     const harnessWorld = worldOverride ?? world;
     const [canvasRef] = useState(() => ({ current: document.createElement("canvas") }));
     const [adaptiveDprStateRef] = useState(() => ({ current: initialAdaptiveDprState(initialRequestedDpr) }));
@@ -381,23 +385,107 @@ describe("useWorldRenderLoop", () => {
     expect(disposeThreeWorldRendererMock).toHaveBeenCalledTimes(1);
   });
 
-  it("requestPaint coalesces while a frame is pending under reduced motion", async () => {
-    let latest: UseWorldRenderLoopResult | null = null;
-    const onResult = (r: UseWorldRenderLoopResult) => { latest = r; };
-    await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={onResult} />);
+  function expectStaticIdle(result: UseWorldRenderLoopResult) {
+    const debug = (window as typeof window & {
+      __pharosVilleDebug?: {
+        animationFramePending: boolean;
+        activeMotionLoopCount: number;
+        motionFrameCount: number;
+      };
+    }).__pharosVilleDebug;
+    expect(rafCallbacks.size).toBe(0);
+    expect(debug?.animationFramePending).toBe(false);
+    expect(debug?.activeMotionLoopCount).toBe(0);
+    expect(debug?.motionFrameCount).toBe(0);
+    expect(framePacingSampleCount()).toBe(0);
+    expect(result.frameRateFps).toBeNull();
+  }
 
+  async function settleStaticPaints() {
+    await act(async () => Promise.resolve());
+    // Static warmup and effect rebinding may each owe one on-demand paint.
+    for (let count = 0; count < 8 && rafCallbacks.size > 0; count += 1) {
+      fireLatestRaf(performance.now() + count * 16);
+      await act(async () => Promise.resolve());
+    }
+    expect(rafCallbacks.size).toBe(0);
+  }
+
+  it("asset burst consumes one static repaint and becomes idle", async () => {
+    let latest: UseWorldRenderLoopResult | null = null;
+    await renderWithReadyRenderer(<Harness hoveredDetailId={null} onResult={(result) => { latest = result; }} />);
+    await settleStaticPaints();
+    const createCalls = createThreeWorldRendererMock.mock.calls as unknown as Array<[CreateThreeWorldRendererInput]>;
+    const before = renderThreeWorldMock.mock.calls.length;
     act(() => {
+      createCalls[0]![0].onAssetReady?.();
+      createCalls[0]![0].onAssetReady?.();
+      createCalls[0]![0].onAssetReady?.();
+    });
+    expect(rafCallbacks.size).toBe(1);
+    fireLatestRaf(performance.now() + 100);
+    expect(renderThreeWorldMock.mock.calls.length).toBe(before + 1);
+    expect(lastDrawnFrame().reducedMotion).toBe(true);
+    expectStaticIdle(latest!);
+  });
+
+  it("static changes repaint latest view without recurring RAF", async () => {
+    let latest: UseWorldRenderLoopResult | null = null;
+    let internals: Parameters<NonNullable<Parameters<typeof Harness>[0]["onInternals"]>>[0] | null = null;
+    const onResult = (result: UseWorldRenderLoopResult) => { latest = result; };
+    const onInternals = (value: NonNullable<typeof internals>) => { internals = value; };
+    const mounted = await renderWithReadyRenderer(
+      <Harness hoveredDetailId={null} onResult={onResult} onInternals={onInternals} />,
+    );
+    await settleStaticPaints();
+    const nextSize = { x: 1200, y: 640 };
+    const nextCamera = { ...withoutRest(camera), zoom: camera.zoom * 1.2 };
+    act(() => {
+      internals!.canvasSizeRef.current = nextSize;
+      internals!.surfaceBudgetRef.current = resolveRenderSurfaceBudget({
+        cssWidth: nextSize.x, cssHeight: nextSize.y, requestedDpr: 1,
+      });
+      internals!.cameraRef.current = nextCamera;
+      mounted.rerender(
+        <Harness hoveredDetailId={null} onResult={onResult} onInternals={onInternals}
+          canvasSizeOverride={nextSize} wallClockHour={8.5} />,
+      );
       latest!.requestPaint();
     });
-    // Repeated requestPaint() calls must not schedule additional frames while
-    // the first requested frame is pending.
-    const beforeRepeats = rafSpy.mock.calls.length;
+    await settleStaticPaints();
+    expect(lastDrawnFrame().width).toBe(1200);
+    expect(lastDrawnFrame().height).toBe(640);
+    expect(lastDrawnFrame().wallClockHour).toBe(8.5);
+    expect(lastDrawnFrame().camera).toEqual(nextCamera);
+    expectStaticIdle(latest!);
+  });
+
+  it("hidden static invalidation is consumed on visible resume", async () => {
+    let latest: UseWorldRenderLoopResult | null = null;
+    let internals: Parameters<NonNullable<Parameters<typeof Harness>[0]["onInternals"]>>[0] | null = null;
+    const onResult = (result: UseWorldRenderLoopResult) => { latest = result; };
+    const onInternals = (value: NonNullable<typeof internals>) => { internals = value; };
+    await renderWithReadyRenderer(
+      <Harness hoveredDetailId={null} onResult={onResult} onInternals={onInternals} />,
+    );
+    await settleStaticPaints();
+    act(() => { intersectionObservers[0]!.fire(0); });
+    const before = renderThreeWorldMock.mock.calls.length;
+    const nextCamera = { ...withoutRest(camera), zoom: camera.zoom * 1.1 };
+    const createCalls = createThreeWorldRendererMock.mock.calls as unknown as Array<[CreateThreeWorldRendererInput]>;
     act(() => {
-      latest!.requestPaint();
-      latest!.requestPaint();
+      internals!.cameraRef.current = nextCamera;
+      createCalls[0]![0].onAssetReady?.();
+      createCalls[0]![0].onAssetReady?.();
       latest!.requestPaint();
     });
-    expect(rafSpy.mock.calls.length).toBe(beforeRepeats);
+    expect(renderThreeWorldMock.mock.calls.length).toBe(before);
+    expect(rafCallbacks.size).toBe(0);
+    act(() => { intersectionObservers[0]!.fire(1); });
+    await settleStaticPaints();
+    expect(renderThreeWorldMock.mock.calls.length).toBe(before + 1);
+    expect(lastDrawnFrame().camera).toEqual(nextCamera);
+    expectStaticIdle(latest!);
   });
 
   it("publishes frame pacing metrics from normal-motion RAF intervals", async () => {
@@ -752,7 +840,7 @@ describe("useWorldRenderLoop", () => {
     const onResult = () => {};
     const metadataOnlyWorld: PharosVilleWorld = {
       ...world,
-      freshness: { ...world.freshness, stablecoinsStale: !world.freshness.stablecoinsStale },
+      freshness: { ...world.freshness, stablecoins: { ...world.freshness.stablecoins, state: "stale" } },
       generatedAt: (world.generatedAt ?? 0) + 60_000,
     };
     const subject = world.ships[0]!;

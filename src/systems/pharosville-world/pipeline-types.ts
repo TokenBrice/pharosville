@@ -19,6 +19,7 @@ import type {
   PigeonnierNode,
   SelectableWorldEntity,
   ShipNode,
+  ShipSourceEvidence,
 } from "../world-types";
 
 export interface PharosVilleInputs {
@@ -29,13 +30,14 @@ export interface PharosVilleInputs {
   pegSummary: PegSummaryResponse | null | undefined;
   stress: StressSignalsAllResponse | null | undefined;
   safetyGrades: SafetyGradesResponse | null | undefined;
-  // Optional, unlike the six above: mint/burn is an ENRICHER. A world built
-  // without it is a real harbour whose quays simply report their issuance as
+  // Mint/burn is an optional ENRICHER, never an implicit current/complete source.
+  // A world without it is a real harbour whose quays report their issuance as
   // unmeasured, so a caller that has no flow payload passes nothing rather than
   // being forced to spell out its absence.
   mintBurn?: MintBurnFlowsResponse | null | undefined;
   cemeteryEntries?: readonly CemeteryEntry[];
   freshness: PharosVilleFreshness;
+  shipEvidence?: Readonly<Record<string, ShipSourceEvidence>>;
   routeMode?: PharosVilleWorld["routeMode"];
 }
 

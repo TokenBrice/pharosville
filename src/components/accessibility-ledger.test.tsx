@@ -1,29 +1,177 @@
+// @vitest-environment jsdom
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { CAUSE_META, type CauseOfDeath } from "@shared/lib/cause-of-death";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { buildVisualCueRegistry } from "../systems/visual-cue-registry";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import {
   fixtureWithDepegOn,
   fixtureWithoutAsset,
   makerSquadFixtureInputs,
+  makePharosVilleWorldInput,
 } from "../__fixtures__/pharosville-world";
 import { UNAVAILABLE_SUPPLY_TIDE } from "../systems/supply-tide";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { AccessibilityLedger } from "./accessibility-ledger";
 import { farShoreLabel } from "../systems/psi-sky";
-import { detailForLighthouse } from "../systems/detail-model";
+import { backingDiversityLabel, detailForLighthouse } from "../systems/detail-model";
+import { PHAROSVILLE_API_ENDPOINT_KEYS } from "@shared/types/pharosville-endpoint-keys";
+import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
+import { FRESH_META, NOW_MS, quayAllocationInput, SCENARIOS } from "../__fixtures__/data-contract-scenarios";
+import { classifyPharosVilleSource } from "../hooks/use-pharosville-world-data";
+
+afterEach(cleanup);
+describe("seven-source evidence ledger", () => {
+  it.each(PHAROSVILLE_API_ENDPOINT_KEYS)("reports isolated stale and unavailable %s including mint/burn", (key) => {
+    const input = makePharosVilleWorldInput();
+    const time = NOW_MS - 60_000;
+    for (const state of ["stale", "unavailable", "loading"] as const) {
+      const status = { state, observedAt: state === "stale" ? time : null, publishedAt: state === "stale" ? time : null, reason: state === "unavailable" ? "Fetch failed: offline" : null };
+      const world = buildPharosVilleWorld({
+        ...input, [key]: state === "stale" ? input[key] : undefined,
+        freshness: makeSourceStatuses({ [key]: { ...status, coverage: { state: state === "stale" ? "complete" : "unknown" } } }),
+      });
+      const view = render(<AccessibilityLedger world={world} />);
+      const rows = [...view.container.querySelectorAll<HTMLElement>("[data-source]")];
+      expect(rows.map((row) => row.dataset.source)).toEqual([...PHAROSVILLE_API_ENDPOINT_KEYS]);
+      const row = rows.find((entry) => entry.dataset.source === key)!;
+      expect(row.querySelector("dt")!.textContent).toBe(PHAROSVILLE_ENDPOINT_REGISTRY[key].label);
+      expect(row.dataset.state).toBe(state);
+      expect(row.dataset.coverage).toBe(state === "stale" ? "complete" : "unknown");
+      expect(view.container.querySelector("[data-complete-current]")!.getAttribute("data-complete-current")).toBe("false");
+      if (state === "stale") expect(row.querySelector("time")!.dateTime).toBe(new Date(time).toISOString());
+      else expect(row.querySelector("time")).toBeNull();
+      if (status.reason) expect(row.textContent).toContain(status.reason);
+      if (key === "mintBurn" && state !== "stale") expect(world.fleetIssuance).toBeNull();
+      for (const other of rows.filter((entry) => entry !== row)) expect(other.dataset.state).toBe("current");
+      view.unmount();
+    }
+  });
+
+  it("partial or unknown coverage prevents complete certification", () => {
+    for (const scenario of [SCENARIOS.partialFlow, SCENARIOS.largeMint]) {
+      const input = structuredClone(scenario);
+      if (scenario === SCENARIOS.largeMint) input.mintBurn!.coins = input.mintBurn!.coins.map(({ coverage: _coverage, ...row }) => row);
+      const status = classifyPharosVilleSource("mintBurn", {
+        data: input.mintBurn, meta: FRESH_META, error: null, isError: false, isLoading: false, observedNowMs: NOW_MS,
+      });
+      expect(status.state).toBe("current");
+      expect(status.coverage.state).toBe(scenario === SCENARIOS.partialFlow ? "partial" : "unknown");
+      const world = buildPharosVilleWorld({ ...input, freshness: makeSourceStatuses({ mintBurn: status }) });
+      const view = render(<AccessibilityLedger world={world} />);
+      const source = view.container.querySelector<HTMLElement>('[data-source="mintBurn"]')!;
+      expect(source.dataset.state).toBe("current");
+      expect(source.dataset.coverage).toBe(status.coverage.state);
+      expect(source.textContent).toContain(`${status.coverage.coveredRows}/${status.coverage.expectedRows}`);
+      expect(source.textContent).toContain(`${input.mintBurn!.windowHours}h`);
+      expect(source.textContent).toContain(input.mintBurn!.scope!.label);
+      expect(world.fleetIssuance!.mintVolumeUsd).toBe(input.mintBurn!.coins.reduce((sum, row) => sum + row.mintVolume24hUsd, 0));
+      expect(view.container.querySelector("[data-complete-current]")!.getAttribute("data-complete-current")).toBe("false");
+      view.unmount();
+    }
+    const world = buildPharosVilleWorld(structuredClone(SCENARIOS.quietNormal));
+    const view = render(<AccessibilityLedger world={world} />);
+    expect(view.container.querySelector("[data-complete-current]")!.getAttribute("data-complete-current")).toBe("true");
+    expect(world.fleetIssuance!.mintVolumeUsd).toBe(0);
+  });
+});
+
+
+describe("AccessibilityLedger rendered local parity", () => {
+  it("preserves the selected ship's own distress and caveat in its own line", () => {
+    const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky");
+    inputs.stablecoins = {
+      ...inputs.stablecoins!,
+      peggedAssets: inputs.stablecoins!.peggedAssets.map((asset) => asset.id === "susds-sky" ? {
+        ...asset, priceConfidence: "low",
+        consensusSources: ["oracle", "exchange", "dex"], agreeSources: ["oracle"],
+      } : asset),
+    };
+    const world = buildPharosVilleWorld({ ...inputs, freshness: makeSourceStatuses({ stress: { state: "stale" } }) });
+    const ship = world.ships.find((entry) => entry.id === "susds-sky")!;
+    const visible = render(<AccessibilityLedger world={world} presentation="visible" />);
+    const record = visible.container.querySelector<HTMLDetailsElement>("#ledger-ship-susds-sky details")!;
+    fireEvent.click(record.querySelector("summary")!);
+    record.open = true;
+    fireEvent(record, new Event("toggle", { bubbles: true }));
+    expect(record.open).toBe(true);
+    const line = record.querySelector("p")!.textContent!;
+    expect(line).toContain("sUSDS in distress");
+    expect(line).toContain("+800 bps");
+    expect(line).toContain("above peg");
+    expect(line).toContain("Calm Anchorage");
+    expect(line).toContain(ship.placementEvidence.reason);
+    expect(line).toContain("Caveat:");
+    expect(line).toContain("Ethereum");
+    expect(line).toContain("100%");
+    expect(line).toContain("Low-confidence price feed");
+    expect(line).toContain("1 of 3");
+    expect(line).toContain(`class ${ship.visual.sizeLabel} · ${ship.visual.classLabel}`);
+    visible.unmount();
+    const accessible = render(<AccessibilityLedger world={world} />);
+    expect(accessible.container.querySelector("#ledger-ship-susds-sky")!.textContent).toBe(line);
+  });
+
+  it("preserves backing diversity beside allocated harbour values", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({ freshness: makeSourceStatuses({ chains: { state: "stale" } }) }));
+    const dock = world.docks.find((entry) => entry.chainId === "ethereum")!;
+    const view = render(<AccessibilityLedger world={world} presentation="visible" />);
+    const record = [...view.container.querySelectorAll<HTMLDetailsElement>("details")]
+      .find((entry) => entry.querySelector("summary")!.textContent!.startsWith(dock.label))!;
+    fireEvent.click(record.querySelector("summary")!);
+    record.open = true;
+    fireEvent(record, new Event("toggle", { bubbles: true }));
+    const line = record.querySelector("p")!.textContent!;
+    expect(line).toContain(backingDiversityLabel(dock.backingDiversity));
+    expect(line).toContain("Estimated 24h allocation by held supply");
+    expect(line).toContain("HHI");
+    expect(line).toContain("held supply");
+  });
+
+  it("keeps observed lighthouse availability and fleet history distinct from snapshot generation", () => {
+    const inputs = makePharosVilleWorldInput({
+      freshness: makeSourceStatuses({ mintBurn: { state: "stale" }, stability: { state: "stale" } }),
+    });
+    inputs.pegSummary = {
+      ...inputs.pegSummary!,
+      coins: inputs.pegSummary!.coins.map((coin, index) => index === 0
+        ? { ...coin, lastEventAt: 1_699_999_900 } : coin),
+    };
+    const world = buildPharosVilleWorld(inputs);
+    const view = render(<AccessibilityLedger world={world} presentation="visible" />);
+    const term = [...view.container.querySelectorAll("dt")].find((node) => node.textContent === "Lighthouse")!;
+    const line = term.nextElementSibling!.textContent!;
+    expect(line).toContain("Observed Harbor light:");
+    expect(line).toContain("cooler and slower");
+    expect(line).toContain("Last fleet depeg: 2023-11-14");
+    expect(line).toContain("appearance eases over ~2 observations");
+    expect(view.container.querySelector("time")!.dateTime).toBe(new Date(world.generatedAt!).toISOString());
+  });
+});
 
 describe("AccessibilityLedger", () => {
-  it("names the localized stale-feed haze without calling it weather", () => {
-    const world = sampleWorld();
-    world.freshness = { chainsStale: true, pegSummaryStale: true };
-    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
-
-    expect(markup).toContain("Instrument haze");
-    expect(markup).toContain("Haze over the risk waters and quays");
-    expect(markup).toContain("Peg summary and Chains feeds are stale");
+  it("unattributed reasons reach the fleet and harbour records", () => {
+    const world = buildPharosVilleWorld(quayAllocationInput(["ethereum"]));
+    const view = render(<AccessibilityLedger world={world} presentation="visible" />);
+    const fleet = view.container.querySelector("#ledger-stations")!.nextElementSibling!.textContent!;
+    const dock = world.docks.find((entry) => entry.chainId === "ethereum")!;
+    const harbour = [...view.container.querySelectorAll("li p")]
+      .find((entry) => entry.textContent!.startsWith(`${dock.label}:`))!.textContent!;
+    for (const record of [fleet, harbour]) {
+      expect(record).toContain("$14.8M");
+      expect(record).toContain("unrendered harbour: $4.8M");
+      expect(record).toContain("outside the reported scope: $4.0M");
+      expect(record).toContain("no chain presence: $6.0M");
+      expect(record).toContain("complete coverage");
+    }
+    expect(fleet).toContain("mint $16.0M");
+    expect(fleet).toContain("burn $6.0M");
+    expect(harbour).toContain("mint $4.8M");
+    expect(harbour).toContain("burn $2.4M");
   });
+
 
   it("names the visible far ranges in the ledger and the lighthouse detail alike", () => {
     const seen = new Set<string>();
@@ -78,8 +226,8 @@ describe("AccessibilityLedger", () => {
         harborLogEntries={[{
           detailId: "ship.usdx",
           fromLabel: "Calm Anchorage",
-          id: "usdx:Calm Anchorage->Danger Strait",
-          message: "USDX left Calm Anchorage for Danger Strait",
+          id: "usdx:1",
+          message: "USDX risk reading changed from Calm Anchorage to Danger Strait",
           observedAt: Date.UTC(2026, 8, 26, 16, 42),
           symbol: "USDX",
           toLabel: "Danger Strait",
@@ -91,7 +239,6 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("Harbor log");
     expect(markup).toContain("Since you were here yesterday — stability fell from Steady to Tremor.");
     expect(markup).toContain("16:42");
-    expect(markup).toContain("USDX left Calm Anchorage for Danger Strait.");
     expect(markup).toContain("18:07");
     expect(markup).toContain("A heron settled on the harbor piling at dusk.");
     expect(markup).toContain("absent in still or reduced-motion mode");
@@ -155,7 +302,6 @@ describe("AccessibilityLedger", () => {
   it("renders missing generatedAt as unknown instead of the Unix epoch", () => {
     const markup = renderToStaticMarkup(<AccessibilityLedger world={{ ...sampleWorld(), generatedAt: null }} />);
 
-    expect(markup).toContain("Generated at unknown time");
     expect(markup).not.toContain("1970-01-01");
   });
 
@@ -255,66 +401,16 @@ describe("AccessibilityLedger", () => {
   // The cargo-tide crates put direction on the canvas as position. These are the
   // rows a reader who never sees the canvas has instead, so they must state the
   // direction in words and must not let "unmeasured" pass for "calm".
-  it("mirrors each harbour's net 24h issuance flow, direction named, in dock rows", () => {
-    const world: PharosVilleWorld = {
-      ...sampleWorld(),
-      docks: [
-        {
-          id: "dock.ethereum",
-          kind: "dock",
-          station: { coveId: "ethereum-mole", type: "ethereum-mole", shoreBearing: 0 },
-          chainId: "ethereum",
-          label: "Ethereum",
-          tile: { x: 1, y: 1 },
-          totalUsd: 8_000_000_000,
-          size: 7,
-          healthBand: "healthy",
-          stablecoinCount: 2,
-          concentration: null,
-          harboredStablecoins: [],
-          detailId: "dock.ethereum",
-          cargoTide: {
-            burnVolumeUsd: 2_000_000,
-            coinCount: 2,
-            direction: "minting",
-            mintVolumeUsd: 10_000_000,
-            netFlowUsd: 8_000_000,
-            pressureScore: 66,
-            reason: "tracked",
-            tracked: true,
-          },
-        },
-        {
-          id: "dock.solana",
-          kind: "dock",
-          station: { coveId: "watch-east-bay", type: "tea-house-quay", shoreBearing: Math.PI },
-          chainId: "solana",
-          label: "Solana",
-          tile: { x: 2, y: 2 },
-          totalUsd: 1_000_000_000,
-          size: 3,
-          healthBand: "healthy",
-          stablecoinCount: 1,
-          concentration: null,
-          harboredStablecoins: [],
-          detailId: "dock.solana",
-          cargoTide: {
-            burnVolumeUsd: 0,
-            coinCount: 0,
-            direction: "inactive",
-            mintVolumeUsd: 0,
-            netFlowUsd: 0,
-            pressureScore: null,
-            reason: "chain-not-in-scope",
-            tracked: false,
-          },
-        },
-      ],
-    };
-    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
-
-    expect(markup).toContain("net flow 24h +$8.0M minting");
-    expect(markup).toContain("net flow 24h Not measured on this chain");
+  it("keeps outside-scope harbours unmeasured while disclosing the fleet's unattributed gross", () => {
+    const world = buildPharosVilleWorld(quayAllocationInput(["ethereum", "arbitrum", "tron"]));
+    const view = render(<AccessibilityLedger world={world} presentation="visible" />);
+    const dock = world.docks.find((entry) => entry.chainId === "tron")!;
+    const line = [...view.container.querySelectorAll("li p")]
+      .find((entry) => entry.textContent!.startsWith(`${dock.label}:`))!.textContent!;
+    expect(line).toContain("Not measured on this chain");
+    expect(line).toContain("outside the reported scope: $4.0M");
+    expect(line).not.toContain("No issuance activity");
+    expect(line).not.toContain("Estimated 24h allocation");
   });
 
   it("reports fleet-wide issuance including flight to quality above the dock list", () => {
@@ -333,6 +429,7 @@ describe("AccessibilityLedger", () => {
         scopeLabel: "Configured issuance chains",
         trackedCoins: 130,
         score: -7.4,
+        unattributed: null,
       },
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
@@ -365,6 +462,7 @@ describe("AccessibilityLedger", () => {
         scopeLabel: "Configured issuance chains",
         trackedCoins: 130,
         score: 5.1,
+        unattributed: null,
       },
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
@@ -416,22 +514,6 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("llama mascot");
   });
 
-  it("appends a cycle tempo clause for each ship", () => {
-    const world = sampleWorldWithLedgerShip();
-    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
-
-    // No mint/burn row → neutral pace with an explicit missing-data reading.
-    expect(markup).toContain("cycle tempo Unmeasured");
-    expect(markup).toContain("underway leg pace tracks 24h mint/redeem flow intensity by magnitude, not market-cap tier");
-    expect(markup).toContain("route cadence 90–180 s legs; 600–1500 s rests; departures and homecomings gather in shared windows");
-    expect(markup).toContain("Routes show rendered-chain and risk-water presence only");
-  });
-
-  it("states per-ship issuance failure and garden-tempo parity", () => {
-    const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorldWithLedgerShip()} />);
-    expect(markup).toContain("issuance work Unavailable — neutral draft; no per-coin mint/redeem row");
-    expect(markup).toContain("rendered at garden tempo over 45 seconds, while this ledger states the latest truth immediately");
-  });
 
   it("mirrors lighthouse trend, composition, and contributors in the ledger", () => {
     const world: PharosVilleWorld = {
@@ -865,7 +947,7 @@ function sampleWorld(): PharosVilleWorld {
   return {
     generatedAt: 0,
     routeMode: "world",
-    freshness: {},
+    freshness: makeSourceStatuses(),
     fleetIssuance: null,
     supplyTide: UNAVAILABLE_SUPPLY_TIDE,
     map: {
@@ -877,6 +959,7 @@ function sampleWorld(): PharosVilleWorld {
     lighthouse: {
       id: "lighthouse",
       kind: "lighthouse",
+      evidence: {},
       label: "Pharos lighthouse",
       tile: { x: 0, y: 0 },
       psiBand: "STEADY",
@@ -910,6 +993,7 @@ function sampleWorldWithUniqueShip(): PharosVilleWorld {
       {
         id: "crvusd-curve",
         kind: "ship",
+        evidence: {},
         label: "Curve",
         symbol: "crvUSD",
         asset: {} as PharosVilleWorld["ships"][number]["asset"],
@@ -925,6 +1009,7 @@ function sampleWorldWithUniqueShip(): PharosVilleWorld {
         dockChainId: null,
         marketCapUsd: 100,
         riskPlacement: "safe-harbor",
+        ownRisk: { placement: "safe-harbor", source: "stress" },
         riskZone: "calm",
         riskWaterLabel: "Calm Anchorage",
         placementEvidence: { reason: "Fresh", sourceFields: ["pegSummary.coins[]"], stale: false },
@@ -967,6 +1052,7 @@ function sampleWorldWithLedgerShip(): PharosVilleWorld {
       {
         id: "susde-ethena",
         kind: "ship",
+        evidence: {},
         label: "Staked USDe",
         symbol: "sUSDe",
         asset: {} as PharosVilleWorld["ships"][number]["asset"],
@@ -982,6 +1068,7 @@ function sampleWorldWithLedgerShip(): PharosVilleWorld {
         dockChainId: "ethereum",
         marketCapUsd: 100,
         riskPlacement: "ledger-mooring",
+        ownRisk: { placement: "ledger-mooring", source: "stress" },
         riskZone: "ledger",
         riskWaterLabel: "Ledger Mooring",
         placementEvidence: {

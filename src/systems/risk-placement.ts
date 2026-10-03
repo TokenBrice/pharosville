@@ -25,12 +25,9 @@ export interface RiskPlacementInput {
   meta: StablecoinMeta;
   pegCoin: PegSummaryCoin | undefined;
   stress: StressSignalEntry | undefined;
-  freshness: PharosVilleFreshness;
+  freshness: Pick<PharosVilleFreshness, "pegSummary" | "stress">;
 }
 
-function evidence(reason: string, sourceFields: string[], stale = false): PlacementEvidence {
-  return { reason, sourceFields, stale };
-}
 
 function deviationPlacement(absBps: number): ShipRiskPlacement | null {
   if (absBps >= 500) return "storm-shelf";
@@ -44,14 +41,19 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
   evidence: PlacementEvidence;
 } {
   const { asset, meta, pegCoin, stress, freshness } = input;
+  const supportedStress = !!stress && Number.isFinite(stress.score) && dewsAreaPlacementForBand(stress.band) !== null;
+  const dewsCaveat = !stress ? "DEWS row missing" : !supportedStress ? `DEWS band unsupported: ${stress.band}` : freshness.stress.reason;
+  const qualified = !supportedStress || [freshness.pegSummary, freshness.stress].some((source) => source.state !== "current" || source.coverage.state !== "complete");
+  const evidence = (reason: string, sourceFields: string[], stale = qualified): PlacementEvidence => ({
+    reason: [reason, qualified ? dewsCaveat : null].filter(Boolean).join("; "), sourceFields, stale,
+  });
   const navSourceFields = ["meta.flags.navToken"];
   if (pegCoin) navSourceFields.push("pegSummary.coins[]");
   else navSourceFields.push("pegSummary.coins");
   if (stress) navSourceFields.push("stress.signals[]");
-  const navStale = (pegCoin?.activeDepeg === true && freshness.pegSummaryStale === true)
-    || (!!stress && freshness.stressStale === true);
+  const navStale = qualified;
 
-  if (pegCoin?.activeDepeg && !freshness.pegSummaryStale) {
+  if (pegCoin?.activeDepeg && freshness.pegSummary.state === "current") {
     return {
       placement: "storm-shelf",
       evidence: evidence("Active depeg event", ["pegSummary.coins[].activeDepeg"]),
@@ -59,7 +61,7 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
   }
 
   const currentDeviation = pegCoin?.currentDeviationBps ?? null;
-  if (currentDeviation != null && !freshness.pegSummaryStale) {
+  if (currentDeviation != null && freshness.pegSummary.state === "current") {
     const placement = deviationPlacement(Math.abs(currentDeviation));
     if (placement) {
       return {
@@ -69,14 +71,14 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
     }
   }
 
-  if (stress && !freshness.stressStale) {
+  if (supportedStress && stress && freshness.stress.state === "current") {
     const placement = dewsAreaPlacementForBand(stress.band);
     // NAV tokens berth in Ledger Mooring by design; only an elevated DEWS
     // band should pull them out, never a CALM row mapping to safe-harbor.
     if (placement && !(meta.flags.navToken && placement === "safe-harbor")) {
       return {
         placement,
-        evidence: evidence("DEWS stress escalation", ["stress.signals[id].band"]),
+        evidence: evidence(placement === "safe-harbor" ? "No active peg or DEWS stress" : "DEWS stress escalation", ["stress.signals[id].band"]),
       };
     }
   }
@@ -88,10 +90,10 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
     };
   }
 
-  if (pegCoin?.activeDepeg && freshness.pegSummaryStale) {
+  if (pegCoin?.activeDepeg && freshness.pegSummary.state !== "current") {
     return {
       placement: "safe-harbor",
-      evidence: evidence("Active depeg evidence is stale", ["pegSummary.coins[].activeDepeg", "freshness.pegSummaryStale"], true),
+      evidence: evidence("Active depeg evidence is stale", ["pegSummary.coins[].activeDepeg", "freshness.pegSummary.state"], true),
     };
   }
 
@@ -102,15 +104,15 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
     };
   }
 
-  if (freshness.pegSummaryStale || freshness.stressStale) {
+  if (freshness.pegSummary.state !== "current" || freshness.stress.state !== "current") {
     return {
       placement: "safe-harbor",
-      evidence: evidence("Risk evidence is stale", ["freshness.pegSummaryStale", "freshness.stressStale"], true),
+      evidence: evidence("Risk evidence is stale", ["freshness.pegSummary.state", "freshness.stress.state"], true),
     };
   }
 
   return {
     placement: "safe-harbor",
-    evidence: evidence("No active peg or DEWS stress", ["pegSummary.coins", "stress.signals"]),
+    evidence: evidence("No supported current DEWS reading; default berth", ["pegSummary.coins", "stress.signals"], true),
   };
 }

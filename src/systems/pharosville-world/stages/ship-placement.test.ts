@@ -1,4 +1,6 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { beforeEach, describe, expect, it } from "vitest";
+import { SCENARIOS, quietNormalInput, T } from "../../../__fixtures__/data-contract-scenarios";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
@@ -23,6 +25,44 @@ import {
 } from "./ship-placement";
 import type { PharosVilleInputs } from "../pipeline-types";
 import type { ShipNode } from "../../world-types";
+
+it("propagates per-coin flow provenance without altering peg trim", () => {
+  const input = structuredClone(SCENARIOS.largeMint);
+  input.pegSummary!.coins.find((coin) => coin.id === "usdc-circle")!.currentDeviationBps = 200;
+  const baseline = buildPharosVilleWorld(input).ships.find((ship) => ship.id === "usdc-circle")!;
+  const partial = structuredClone(SCENARIOS.partialFlow);
+  partial.pegSummary = input.pegSummary;
+  partial.mintBurn!.updatedAt += 60;
+  const ship = buildPharosVilleWorld(partial).ships.find((entry) => entry.id === baseline.id)!;
+  expect(ship.issuance).toMatchObject({
+    activity: "minting", grossVolumeUsd: 100_000_000, netFlow24hUsd: 100_000_000,
+    completeWindow: false, intensitySemantics: "signed-v2",
+    evidence: { observedAt: null, publishedAt: (T + 60) * 1_000, coverage: { state: "partial" } },
+  });
+  expect(shipWaterlineTrim(ship.pegDeviationBps, ship.evidence.pegSummary?.state !== "current")).toBe(shipWaterlineTrim(baseline.pegDeviationBps, baseline.evidence.pegSummary?.state !== "current"));
+  expect(shipWaterlineTrim(ship.pegDeviationBps, ship.evidence.pegSummary?.state !== "current")).toBe(SHIP_TRIM_STEP * 2);
+});
+
+
+it("fresh stress envelope cannot renew old computedAt", () => {
+  const input = quietNormalInput();
+  const old = input.stress!.signals["usdc-circle"]!;
+  Object.assign(old, { band: "DANGER", score: 95, computedAt: T - 86_400, methodologyVersion: "old-dews" });
+  Object.assign(input.stress!.signals["usdt-tether"]!, { band: "DANGER", score: 92, methodologyVersion: "new-dews" });
+  input.freshness = makeSourceStatuses({ stress: { state: "stale", observedAt: (T - 86_400) * 1_000, reason: "Source age stale" } });
+  const world = buildPharosVilleWorld(input);
+  const held = world.ships.find((ship) => ship.id === "usdc-circle")!;
+  const current = world.ships.find((ship) => ship.id === "usdt-tether")!;
+  expect(held.evidence.stress).toMatchObject({ state: "stale", observedAt: (T - 86_400) * 1_000, publishedAt: T * 1_000, methodologyVersion: "old-dews" });
+  expect(held.riskPlacement).toBe("safe-harbor");
+  expect(held.riskDepth).toBeNull();
+  expect(held.dewsScore).toBe(95);
+  expect(held.placementEvidence.stale).toBe(true);
+  expect(current.evidence.stress).toMatchObject({ state: "current", observedAt: T * 1_000, methodologyVersion: "new-dews" });
+  expect(current.riskPlacement).toBe("storm-shelf");
+  expect(current.riskDepth).toBe(0.92);
+  expect(current.placementEvidence.stale).toBe(false);
+});
 
 type DexPriceCheck = NonNullable<ReturnType<typeof makePegCoin>["dexPriceCheck"]>;
 
@@ -223,35 +263,63 @@ describe("within-zone DEWS anchoring", () => {
     expect(shipDewsAnchorDepth({ ...stress, score: 140 }, false)).toBe(1);
   });
 
-  it("places a stronger score toward the rough edge of the same named water", () => {
-    const stressEntry = (score: number) => ({
-      band: "WATCH",
-      score,
-      signals: {},
-      computedAt: 1_700_000_000,
-      methodologyVersion: "fixture",
-    });
-    const placedAt = (score: number) => {
+  it("holds a ship's tile while its DEWS depth moves less than the sticky gate", () => {
+    const stressEntry = {
+      band: "WATCH", score: 30, signals: {},
+      computedAt: 1_700_000_000, methodologyVersion: "fixture",
+    };
+    // Each build gets fresh inputs: mutating a cached inputs object would
+    // return the prior fleet rather than exercise the sticky placement gate.
+    const before = buildPharosVilleWorld(makePharosVilleWorldInput({
+      stress: { ...denseFixtureStress, signals: { "usdt-tether": stressEntry } },
+    }));
+    for (const score of [31, 32, 33]) {
+      const after = buildPharosVilleWorld(makePharosVilleWorldInput({
+        stress: { ...denseFixtureStress, signals: { "usdt-tether": { ...stressEntry, score } } },
+      }));
+      expect(after.ships.find((ship) => ship.id === "usdt-tether")?.riskDepth).toBe(score / 100);
+      expect(tileOf(after.ships, "usdt-tether")).toBe(tileOf(before.ships, "usdt-tether"));
+    }
+  });
+
+  it.each(["usdt-tether", "usdc-circle", "usde-ethena"].flatMap((id) => [5, 25, 50, 75, 95].map((score) => [id, score] as const)))(
+    "keeps every cold DEWS sweep tile in legal, collision-free water (%s at %i)",
+    (id, score) => {
       resetHeldShipPlacements();
-      const world = buildPharosVilleWorld(makePharosVilleWorldInput({
+      resetHeldMoorings();
+      const world = buildPharosVilleWorld(denseInputs({
         stress: {
           ...denseFixtureStress,
           signals: {
-            "usdc-circle": stressEntry(score),
-            "usdt-tether": stressEntry(score),
+            ...denseFixtureStress.signals,
+            [id]: { ...denseFixtureStress.signals[id]!, score },
           },
         },
       }));
-      return world.ships.find((ship) => ship.id === "usdt-tether")!;
-    };
-    // RIM FIELD: the Watch bridge changes farthest-point spreading, so compare one hull across scores instead of two competing berths.
-    const calmward = placedAt(22);
-    const roughward = placedAt(38);
-    expect(calmward.riskWaterLabel).toBe(roughward.riskWaterLabel);
-    expect(calmward.riskDepth).toBe(0.22);
-    expect(roughward.riskDepth).toBe(0.38);
-    expect(roughward.riskTile.x - roughward.riskTile.y)
-      .toBeGreaterThan(calmward.riskTile.x - calmward.riskTile.y);
+      const spread = world.ships.filter((ship) => ship.squadRole !== "consort");
+      const tiles = spread.map((ship) => `${ship.riskTile.x}.${ship.riskTile.y}`);
+      expect(new Set(tiles).size).toBe(tiles.length);
+      expect(spread.filter((ship) => !isRiskPlacementWaterTile(ship.riskTile, ship.riskPlacement))
+        .map((ship) => ship.id)).toEqual([]);
+    },
+  );
+
+  it.each<[number, number | null]>([
+    [140, 100], [-4, 0], [Number.NaN, null], [Number.POSITIVE_INFINITY, null],
+  ])("retains only a finite bounded own score %s as %s", (score, expected) => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({
+      stress: {
+        ...denseFixtureStress,
+        signals: {
+          "usdc-circle": {
+            band: "WATCH", score, signals: {},
+            computedAt: 1_700_000_000, methodologyVersion: "fixture",
+          },
+        },
+      },
+    }));
+    expect(world.ships.find((ship) => ship.id === "usdc-circle")?.dewsScore).toBe(expected);
+    expect(world.ships.find((ship) => ship.id === "usdt-tether")?.dewsScore).toBeNull();
   });
 });
 
@@ -288,7 +356,7 @@ describe("shipWaterlineTrim", () => {
       meta: { flags: {} } as never,
       pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: bps }),
       stress: undefined,
-      freshness: {},
+      freshness: makeSourceStatuses(),
     }).placement;
 
     expect(placementAt(SHIP_TRIM_BPS_GATE - 1)).toBe("safe-harbor");
@@ -324,38 +392,10 @@ describe("shipWaterlineTrim", () => {
           ],
         },
       }),
-      freshness: { pegSummaryStale: true },
+      freshness: makeSourceStatuses({ pegSummary: { state: "stale" } }),
     });
     expect(stale.ships.every((ship) => ship.visual.hullForm.waterline === 0)).toBe(true);
   });
 
-  it("carries matching mintBurn flow intensity onto each ship and leaves missing data null", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
-    const flowOf = (id: string): number | null | undefined => (
-      world.ships.find((ship) => ship.id === id)
-    )?.flowIntensity;
 
-    expect(flowOf("usdc-circle")).toBe(60);
-    expect(flowOf("usdt-tether")).toBe(-50);
-
-    const unavailable = buildPharosVilleWorld(makePharosVilleWorldInput({ mintBurn: null }));
-    expect(unavailable.ships.find((ship) => ship.id === "usdc-circle")?.flowIntensity).toBeNull();
-  });
-
-  it("carries each coin's issuance work onto its own ship", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
-
-    expect(world.ships.find((ship) => ship.id === "usdc-circle")?.issuance).toMatchObject({
-      direction: "minting",
-      flowIntensity: 60,
-      netFlow24hUsd: 8_000_000,
-    });
-    expect(world.ships.find((ship) => ship.id === "usdt-tether")?.issuance).toMatchObject({
-      direction: "redeeming",
-      flowIntensity: -50,
-      netFlow24hUsd: -3_000_000,
-    });
-    const unavailable = buildPharosVilleWorld(makePharosVilleWorldInput({ mintBurn: null }));
-    expect(unavailable.ships.every((ship) => ship.issuance === undefined)).toBe(true);
-  });
 });

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { gardenLastVisitTide, setGardenLastVisitTide } from "../systems/garden-last-visit";
@@ -313,7 +314,7 @@ function worldFixture(input: {
     detailIndex: {},
     docks: [],
     entityById: {},
-    freshness: {},
+    freshness: makeSourceStatuses(),
     generatedAt: input.generatedAt ?? 1,
     graves: [],
     lighthouse: {

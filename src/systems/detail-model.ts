@@ -1,3 +1,5 @@
+import { PHAROSVILLE_API_ENDPOINT_KEYS } from "@shared/types/pharosville-endpoint-keys";
+import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { CHAIN_META } from "@shared/lib/chains";
 import { CAUSE_META } from "@shared/lib/cause-of-death";
 
@@ -14,10 +16,11 @@ import type { SupplyTide } from "./supply-tide";
 import { quayMasonryLabel } from "./dock-health";
 export { quayMasonryHealth, quayMasonryLabel } from "./dock-health";
 import { farShoreLabel, skyCoverLabel, skyCoverWord } from "./psi-sky";
-import { deriveLampStatus, lampStatusReading } from "./lamp-status";
+import { deriveLampStatus, hasCompleteCurrentSources, lampStatusReading } from "./lamp-status";
 import { gardenMonthRecordLabel } from "./garden-month-record";
 import { shipIssuanceDetailLabel } from "./ship-issuance";
 import type { PharosVilleFreshness } from "./world-types";
+import { nodeSourceEvidenceLabel, sourceCoverageLabel, sourceStatusLabel } from "./source-evidence";
 import { SIGNAL_MAST_STORM_SUPPLY_SHARE } from "./world-types";
 import { deriveEpistemicHaze, quayHazeLabel, riskWaterHazeLabel } from "./epistemic-haze";
 import { motionCadenceDetailLabel } from "./motion-config";
@@ -27,10 +30,6 @@ const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "c
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
 const ELEVATED_DEWS_BANDS = new Set<DewsAreaBand>(["ALERT", "WARNING", "DANGER"]);
 
-export type NowCaptionFreshness = PharosVilleFreshness & {
-  /** Last trustworthy observation time; used only when a source is stale. */
-  observedAt?: number | null;
-};
 
 export interface NowCaptionTransition {
   observedAt: number | null;
@@ -41,7 +40,7 @@ export interface NowCaptionTransition {
 export interface NowCaptionInput {
   arrivalAnnotation: string | null;
   beats: DayCycleBeats;
-  freshness: NowCaptionFreshness;
+  freshness: PharosVilleFreshness;
   hour: number;
   latestTransition: NowCaptionTransition | null;
   psi: number | null;
@@ -67,15 +66,6 @@ export interface NowCaptionParts {
   warning: boolean;
 }
 
-const NOW_CAPTION_FRESHNESS_LABELS: ReadonlyArray<readonly [keyof PharosVilleFreshness, string]> = [
-  ["stablecoinsStale", "Stablecoins"],
-  ["chainsStale", "Chains"],
-  ["stabilityStale", "PSI"],
-  ["pegSummaryStale", "Peg summary"],
-  ["stressStale", "Stress signals"],
-  ["safetyGradesStale", "Safety grades"],
-  ["mintBurnStale", "Mint and burn"],
-];
 
 function clockLabel(hourInput: number): string {
   const totalMinutes = Math.round((((Number.isFinite(hourInput) ? hourInput : 0) % 24) + 24) % 24 * 60) % (24 * 60);
@@ -124,17 +114,23 @@ function nowCaptionPhrase({
   psiBand,
   visitorLine,
 }: NowCaptionInput, moon: string | null = null): Omit<NowCaptionParts, "clock"> & { clocked: boolean } {
-  const staleFeed = NOW_CAPTION_FRESHNESS_LABELS.find(([key]) => freshness[key] === true);
-  if (staleFeed) {
+  const qualifiedKey = PHAROSVILLE_API_ENDPOINT_KEYS.find((key) => freshness[key].state !== "current");
+  if (qualifiedKey) {
+    const status = freshness[qualifiedKey];
+    // One line beside the controls: the minute it was held since; the exact
+    // as-of instant stays in the record and the ledger.
+    const state = status.state === "stale"
+      ? `held since ${observedTimeLabel(status.observedAt ?? status.publishedAt)}`
+      : status.state;
     return {
       clocked: false,
-      phrase: `${staleFeed[1]} stale since ${observedTimeLabel(freshness.observedAt ?? null)}`,
-      clause: null,
+      phrase: `${PHAROSVILLE_ENDPOINT_REGISTRY[qualifiedKey].label} ${state}`,
+      clause: status.reason,
       warning: true,
     };
   }
   const unclocked = visitorLine || arrivalAnnotation || (latestTransition
-    ? `${latestTransition.symbol} moved to ${latestTransition.toLabel}, observed ${observedTimeLabel(latestTransition.observedAt)}`
+    ? `${latestTransition.symbol} risk reading: ${latestTransition.toLabel}, observed ${observedTimeLabel(latestTransition.observedAt)}`
     : null);
   if (unclocked) return { clocked: false, phrase: unclocked, clause: null, warning: false };
   // X3: the sky's cover is a reading (market stability), so it is spoken too;
@@ -143,7 +139,7 @@ function nowCaptionPhrase({
   return {
     clocked: true,
     phrase: `${phaseCaption(hour, beats, psi)}${cover ? ` · ${cover}` : ""}${moon ? ` · ${moon}` : ""}`,
-    clause: "readings current",
+    clause: hasCompleteCurrentSources(freshness) ? "readings complete and current" : "endpoints current; coverage qualified",
     warning: false,
   };
 }
@@ -297,13 +293,13 @@ function lampAsOfLabel(generatedAt: number | null | undefined): string {
 
 /** The lighthouse detail row shared by the lamp cue's DOM parity surfaces. */
 export function lighthouseLampStatusLabel(
-  freshness: PharosVilleFreshness = {},
+  freshness?: PharosVilleFreshness,
   generatedAt?: number | null,
 ): string {
-  return `${lampStatusReading(deriveLampStatus(freshness))} as of ${lampAsOfLabel(generatedAt)}`;
+  return `${lampStatusReading(deriveLampStatus(freshness))}; snapshot as of ${lampAsOfLabel(generatedAt)}`;
 }
 
-function chainLabel(chainId: string): string {
+export function chainLabel(chainId: string): string {
   return CHAIN_META[chainId]?.name ?? chainId;
 }
 
@@ -372,7 +368,7 @@ function stationTypeLabel(type: DockNode["station"]["type"]): string {
   return type.split("-").map((part) => part[0]!.toUpperCase() + part.slice(1)).join(" ");
 }
 
-function chainsPresentLabel(node: ShipNode): string {
+export function chainsPresentLabel(node: ShipNode): string {
   if (node.chainPresence.length === 0) return "0 positive chain deployments";
   const topChains = node.chainPresence
     .slice(0, 3)
@@ -383,7 +379,7 @@ function chainsPresentLabel(node: ShipNode): string {
   return `${pluralize(node.chainPresence.length, "positive chain deployment")}: ${topChains}${suffix}`;
 }
 
-function chainFootprintLabel(node: ShipNode): string {
+export function chainFootprintLabel(node: ShipNode): string {
   const chainCount = node.chainPresence.length;
   const renderedDockCount = node.dockVisits.length;
   let footprint = "No chain footprint";
@@ -590,19 +586,18 @@ function representativePositionLabel(node: ShipNode): string {
   return `${node.riskWaterLabel} idle`;
 }
 
-export function riskAnchoringDepthLabel(
-  node: Pick<ShipNode, "riskDepth">,
+export function dewsScoreLabel(
+  node: Pick<ShipNode, "dewsScore" | "evidence">,
 ): string | null {
-  const depth = node.riskDepth;
-  if (typeof depth !== "number" || !Number.isFinite(depth)) return null;
-  const score = Math.round(Math.max(0, Math.min(1, depth)) * 100);
-  const edge = depth < 0.4 ? "toward the calm edge"
-    : depth > 0.6 ? "toward the rough edge"
-    : "mid-water";
-  return `DEWS ${score}/100 — ${edge}`;
+  const score = node.dewsScore;
+  if (typeof score !== "number" || !Number.isFinite(score)) return null;
+  const status = node.evidence.stress;
+  const qualifier = !status ? "evidence unavailable" : status.state !== "current" ? sourceStatusLabel(status)
+    : status.coverage.state !== "complete" ? sourceCoverageLabel(status) : null;
+  return `DEWS ${Math.round(Math.max(0, Math.min(100, score)))}/100${qualifier ? ` — ${qualifier}` : ""}`;
 }
 
-function evidenceStatusLabel(node: ShipNode): string {
+export function evidenceStatusLabel(node: ShipNode): string {
   return node.placementEvidence.stale ? `Caveat: ${node.placementEvidence.reason}` : "Fresh current placement evidence";
 }
 
@@ -776,7 +771,7 @@ export function detailForLighthouse(
   node: LighthouseNode,
   supplyTide?: SupplyTide,
   fleetIssuance?: PharosVilleWorld["fleetIssuance"],
-  freshness: PharosVilleFreshness = {},
+  freshness?: PharosVilleFreshness,
   generatedAt?: number | null,
 ): DetailModel {
   const tide = supplyTideLabel(supplyTide);
@@ -792,11 +787,11 @@ export function detailForLighthouse(
     title: node.label,
     summary: node.unavailable
       ? "Market stability is unavailable; the sky holds its authored neutral clarity."
-      : `Market stability reads ${node.psiBand}. Sky clarity correlates with the observed PSI band; it is not a weather or market forecast.${freshness.stabilityStale ? " PSI is stale; clarity holds the last good reading." : ""}`,
+      : `Market stability reads ${node.psiBand}. Sky clarity correlates with the observed PSI band; it is not a weather or market forecast.${node.evidence.stability?.state !== "current" ? " PSI is held; appearance holds the last accepted current reading." : ""}`,
     facts: [
       { label: "Score", value: node.score == null || node.unavailable ? "Unavailable" : String(node.score) },
       { label: "Band", value: node.psiBand ?? "Unavailable" },
-      { label: "Market stability", value: node.unavailable ? "Unavailable" : freshness.stabilityStale ? "Stale — last good clarity held" : "Current PSI observation" },
+      { label: "Market stability", value: `${nodeSourceEvidenceLabel(node.evidence) || "PSI unavailable; observed unknown"}. Sky appearance is delayed and eases separately (60 continuous current seconds); held evidence holds the last accepted appearance, or neutral if none.` },
       { label: "Far shore", value: farShoreLabel(node.psiBand, node.unavailable) },
       { label: "Sky cover", value: skyCoverLabel(node.psiBand, node.unavailable) },
       { label: "Snapshot as of", value: generatedAt != null && Number.isFinite(generatedAt) && generatedAt > 0 ? new Date(generatedAt).toISOString() : "Unavailable" },
@@ -865,6 +860,17 @@ function signedCompactUsd(value: number): string {
   return `${value < 0 ? "-" : "+"}${magnitude}`;
 }
 
+/** Fleet gross that could not be allocated to rendered quays, not missing issuance. */
+export function unattributedIssuanceLabel(
+  allocation: NonNullable<PharosVilleWorld["fleetIssuance"]>["unattributed"],
+): string | null {
+  if (!allocation) return null;
+  const reasons = Object.entries(allocation.byReason)
+    .filter(([, grossUsd]) => grossUsd > 0)
+    .map(([reason, grossUsd]) => `${reason}: ${formatCompactUsd(grossUsd)}`);
+  return `Fleet unattributed gross 24h: ${formatCompactUsd(allocation.grossUsd)}${reasons.length > 0 ? ` — ${reasons.join("; ")}` : ""}`;
+}
+
 /**
  * The harbour's 24h issuance, in words.
  *
@@ -880,29 +886,22 @@ function signedCompactUsd(value: number): string {
  */
 export function cargoTideLabel(tide: DockNode["cargoTide"]): string | null {
   if (!tide) return null;
+  const unattributed = unattributedIssuanceLabel(tide.unattributed);
+  const disclosure = `\n${nodeSourceEvidenceLabel({ mintBurn: tide.evidence })}${unattributed ? `\n${unattributed}` : ""}`;
   if (!tide.tracked) {
-    switch (tide.reason) {
-      case "chain-not-in-scope":
-        return "Not measured on this chain";
-      case "scope-unreported":
-        return "Unavailable — issuance scope unreported";
-      case "unattributed":
-        return "Unavailable — 24h issuance could not be matched to this harbor's coins";
-      default:
-        return "Unavailable — no issuance feed";
-    }
+    const reading = tide.reason === "chain-not-in-scope" ? "Not measured on this chain"
+      : tide.reason === "scope-unreported" ? "Unavailable — issuance scope unreported"
+      : tide.reason === "unattributed" ? "Unavailable — 24h issuance could not be matched to this harbor's coins"
+      : "Unavailable — no issuance feed";
+    return `${reading}${disclosure}`;
   }
   const volumes = `mint ${formatCompactUsd(tide.mintVolumeUsd)}, burn ${formatCompactUsd(tide.burnVolumeUsd)}`;
-  switch (tide.direction) {
-    case "minting":
-      return `${signedCompactUsd(tide.netFlowUsd)} minting — ${volumes}`;
-    case "burning":
-      return `${signedCompactUsd(tide.netFlowUsd)} burning — ${volumes}`;
-    case "flat":
-      return `Balanced — ${volumes}`;
-    default:
-      return "No issuance activity in 24h";
-  }
+  const allocationBasis = "Estimated 24h allocation by held supply across the reported scope: ";
+  const reading = tide.direction === "minting" ? `${signedCompactUsd(tide.netFlowUsd)} minting — ${volumes}`
+    : tide.direction === "burning" ? `${signedCompactUsd(tide.netFlowUsd)} burning — ${volumes}`
+    : tide.direction === "flat" ? `Balanced — ${volumes}`
+    : tide.completeWindow ? "No issuance activity in 24h" : `Activity unmeasured — retained ${volumes}`;
+  return `${allocationBasis}${reading}${disclosure}`;
 }
 
 /**
@@ -1253,14 +1252,13 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
 
   const momentum = supplyMomentumLabel(node);
   const depegHistory = depegHistoryLabel(node.depegHistory);
-  // P3 metaphor quick-wins — all significance-gated (see the label helpers),
-  // and folded into existing panel rows by `buildDetailFactSections` so the
-  // <= 8 fact-row density contract holds even when every gate fires.
+  // Significance-gated qualifiers fold into authored host rows: D10 permits
+  // at most 11 core ship rows, including Formation and a DEX exception.
   const priceConfidence = priceConfidenceLabel(node.asset);
   const sourceConsensus = sourceConsensusLabel(node.asset);
   const safetyGrade = safetyGradeLabel(node.safetyGrade);
   const stressDriver = stressBreakdownLabel(node);
-  const riskDepth = riskAnchoringDepthLabel(node);
+  const dewsScore = dewsScoreLabel(node);
   // The header figure stays the bare reading — it is a headline number, not a
   // sentence — while the fact row carries the direction and the trim.
   const pegDeviation = pegDeviationLabel(node);
@@ -1302,7 +1300,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     { label: "Risk water area", value: node.riskWaterLabel },
     { label: "Risk water zone", value: node.riskZone },
     { label: "Risk placement key", value: node.riskPlacement },
-    ...(riskDepth ? [{ label: "Within-zone anchoring", value: riskDepth }] : []),
+    ...(dewsScore ? [{ label: "DEWS score", value: dewsScore }] : []),
     ...(stressDriver ? [{ label: "Stress driver", value: stressDriver }] : []),
     ...riskTransitionFact,
     { label: "Home dock", value: node.homeDockChainId ? chainLabel(node.homeDockChainId) : "No rendered dock" },
@@ -1312,6 +1310,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     ...(overrideBanner ? [{ label: "Squad override", value: overrideBanner }] : []),
     { label: "Route source", value: "stablecoins.chainCirculating, pegSummary.coins[], stress.signals[]" },
     { label: "Evidence status", value: evidenceStatusLabel(node) },
+    { label: "Source observations", value: nodeSourceEvidenceLabel(node.evidence) },
     { label: "Evidence", value: node.placementEvidence.sourceFields.join(", ") },
   ];
 
@@ -1364,7 +1363,7 @@ export function detailForGrave(node: GraveNode): DetailModel {
   };
 }
 
-export function detailForArea(node: AreaNode, freshness: PharosVilleFreshness = {}): DetailModel {
+export function detailForArea(node: AreaNode, freshness?: PharosVilleFreshness): DetailModel {
   const haze = deriveEpistemicHaze(freshness);
   const waterSurface = waterSurfaceForArea(node);
   return {

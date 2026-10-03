@@ -1,61 +1,149 @@
-import type { MintBurnCoinFlow } from "@shared/types/mint-burn";
+import type { MintBurnCoinFlow, MintBurnFlowsResponse } from "@shared/types/mint-burn";
 import { formatCompactUsd } from "../lib/format-detail";
-import type { ShipIssuance, ShipNode } from "./world-types";
+import { nodeSourceEvidenceLabel, observationEpochMs, rowSourceEvidence } from "./source-evidence";
+import type { PharosVilleSourceStatus, ShipIssuance, ShipNode } from "./world-types";
 
-export const SHIP_ISSUANCE_DRAFT_MAX = 0.12;
+/** Declared illustration thresholds, checked against the full live fleet (2026-10-03: 23–27 coins eligible); never financial methodology. */
+export const ISSUANCE_WORK_MIN_GROSS_USD = 1_000_000;
+export const ISSUANCE_WORK_MIN_SUPPLY_SHARE = 0.01;
+export const ISSUANCE_WORK_MIN_FLEET_GROSS_SHARE = 0.001;
+export const ISSUANCE_OVERVIEW_WORK_LIMIT = 3;
+
+function finiteQuantity(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
 
 export function buildShipIssuance(
   coin: MintBurnCoinFlow | null | undefined,
+  envelope: MintBurnFlowsResponse,
+  status: PharosVilleSourceStatus,
 ): ShipIssuance | undefined {
   if (!coin) return undefined;
-  const net = Number.isFinite(coin.netFlow24hUsd) ? coin.netFlow24hUsd : 0;
-  const flowIntensity = typeof coin.flowIntensity === "number" && Number.isFinite(coin.flowIntensity)
-    ? Math.max(-100, Math.min(100, coin.flowIntensity))
-    : null;
+  const net = finiteQuantity(coin.netFlow24hUsd);
+  const mint = finiteQuantity(coin.mintVolume24hUsd);
+  const burn = finiteQuantity(coin.burnVolume24hUsd);
+  const gross = mint === null || burn === null ? null : mint + burn;
+  const windowHours = finiteQuantity(envelope.windowHours);
+  const coverage = coin.coverage ?? null;
+  const completeWindow = windowHours === 24 && coverage?.status === "full" && coverage.has24hWindow && !coverage.isPartial;
+  const direction = net === null ? null : net > 0 ? "minting" : net < 0 ? "redeeming" : "flat";
+  const activity = net === null || gross === null ? null
+    : net > 0 ? "minting" : net < 0 ? "redeeming"
+    : gross > 0 ? "balanced-active" : completeWindow ? "inactive" : null;
+  const evidence = rowSourceEvidence("mintBurn", {
+    ...status, publishedAt: observationEpochMs(envelope.updatedAt) ?? status.publishedAt,
+  }, {
+    available: net !== null && gross !== null,
+    observedAt: null,
+    methodologyVersion: status.methodologyVersion,
+    coverage: {
+      state: completeWindow ? "complete" : coverage ? "partial" : "unknown",
+      ...(windowHours !== null ? { windowHours } : {}),
+      ...(envelope.scope?.label ? { scopeLabel: envelope.scope.label } : {}),
+    },
+    reason: completeWindow ? null : coverage ? `Partial history (${coverage.status}); complete 24h window unavailable` : "Window coverage unknown",
+  });
+  const event = coin.largestEvent24h;
   return {
-    direction: net > 0 ? "minting" : net < 0 ? "redeeming" : "flat",
-    flowIntensity,
-    netFlow24hUsd: net,
-    largestEvent24h: coin.largestEvent24h && Number.isFinite(coin.largestEvent24h.amountUsd)
-      ? {
-          amountUsd: Math.max(0, coin.largestEvent24h.amountUsd),
-          direction: coin.largestEvent24h.direction,
-          timestamp: coin.largestEvent24h.timestamp,
-        }
-      : null,
+    activity, direction,
+    mintVolumeUsd: mint, burnVolumeUsd: burn, grossVolumeUsd: gross, netFlow24hUsd: net,
+    mintCount: finiteQuantity(coin.mintCount24h), burnCount: finiteQuantity(coin.burnCount24h),
+    intensity: finiteQuantity(coin.flowIntensity), intensitySemantics: envelope.gauge.intensitySemantics ?? null,
+    windowHours, coverage, completeWindow, evidence,
+    work: { eligible: false, supplyShare: null, fleetGrossShare: null, overviewRank: null },
+    largestEvent24h: event && Number.isFinite(event.amountUsd) && Number.isFinite(event.timestamp)
+      ? { amountUsd: event.amountUsd, direction: event.direction, timestamp: event.timestamp } : null,
   };
 }
 
-/** Positive is higher in the water; minting takes draft and is therefore negative. */
-export function shipIssuanceDraft(issuance: ShipIssuance | undefined): number {
-  if (!issuance || issuance.direction === "flat") return 0;
-  const intensity = Math.abs(issuance.flowIntensity ?? 0) / 100;
-  const magnitude = SHIP_ISSUANCE_DRAFT_MAX * (0.35 + intensity * 0.65);
-  return issuance.direction === "minting" ? -magnitude : magnitude;
+/** Shared membership gate for categorical cargo and supported route intensity. */
+export function issuanceHasCurrentWindow(issuance: ShipIssuance | undefined): issuance is ShipIssuance {
+  return !!issuance && issuance.evidence.state === "current" && issuance.completeWindow;
 }
 
-function signedCompactUsd(value: number): string {
+function materialityShare(gross: number | null, denominator: number | null): number | null {
+  if (gross === null || !Number.isFinite(gross) || denominator === null || !Number.isFinite(denominator) || denominator <= 0) return null;
+  const share = gross / denominator;
+  return Number.isFinite(share) ? share : null;
+}
+
+/** A zero, missing or non-finite denominator is not an infinite share. */
+export function issuanceWorkMateriality(
+  issuance: ShipIssuance,
+  supplyUsd: number | null,
+  coveredFleetGrossUsd: number | null,
+): ShipIssuance["work"] {
+  const gross = issuance.grossVolumeUsd;
+  const supplyShare = materialityShare(gross, supplyUsd);
+  const fleetGrossShare = materialityShare(gross, coveredFleetGrossUsd);
+  return {
+    eligible: issuanceHasCurrentWindow(issuance) && gross !== null && gross >= ISSUANCE_WORK_MIN_GROSS_USD
+      && ((supplyShare !== null && supplyShare >= ISSUANCE_WORK_MIN_SUPPLY_SHARE)
+        || (fleetGrossShare !== null && fleetGrossShare >= ISSUANCE_WORK_MIN_FLEET_GROSS_SHARE)),
+    supplyShare, fleetGrossShare, overviewRank: null,
+  };
+}
+
+/** Once per fleet refresh; the denominator covers all current full-window rows. */
+export function assignShipIssuanceWork(ships: readonly ShipNode[], readings: ReadonlyMap<string, ShipIssuance>): void {
+  let coveredGross = 0;
+  for (const issuance of readings.values()) {
+    if (issuanceHasCurrentWindow(issuance) && issuance.grossVolumeUsd !== null && Number.isFinite(issuance.grossVolumeUsd)) {
+      coveredGross += Math.max(0, issuance.grossVolumeUsd);
+    }
+  }
+  const eligible: ShipNode[] = [];
+  for (const ship of ships) {
+    if (!ship.issuance) continue;
+    ship.issuance.work = issuanceWorkMateriality(ship.issuance, ship.marketCapUsd, coveredGross > 0 ? coveredGross : null);
+    if (ship.issuance.work.eligible) eligible.push(ship);
+  }
+  eligible.sort((a, b) => b.issuance!.grossVolumeUsd! - a.issuance!.grossVolumeUsd! || a.id.localeCompare(b.id));
+  for (let index = 0; index < Math.min(ISSUANCE_OVERVIEW_WORK_LIMIT, eligible.length); index += 1) {
+    eligible[index]!.issuance!.work.overviewRank = index + 1;
+  }
+}
+
+/** Only fields that change the lighter composition belong in renderer keys. */
+export function shipIssuanceVisualState(issuance: ShipIssuance | undefined): string | null {
+  if (!issuanceHasCurrentWindow(issuance) || !issuance.activity || issuance.activity === "inactive") return null;
+  return `${issuance.activity}:${issuance.largestEvent24h !== null ? 1 : 0}:${issuance.work.eligible ? 1 : 0}:${issuance.work.overviewRank !== null ? 1 : 0}`;
+}
+
+function signedCompactUsd(value: number | null): string {
+  if (value === null) return "unavailable";
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
   return `${sign}${formatCompactUsd(Math.abs(value))}`;
 }
 
 export function shipIssuanceDetailLabel(ship: Pick<ShipNode, "issuance">): string {
   const issuance = ship.issuance;
-  if (!issuance) return "Unavailable — neutral draft; no per-coin mint/redeem row";
-  const activity = issuance.direction === "minting"
-    ? `${signedCompactUsd(issuance.netFlow24hUsd)} net minted — loading cargo and riding deeper`
-    : issuance.direction === "redeeming"
-      ? `${signedCompactUsd(issuance.netFlow24hUsd)} net redeemed — discharging cargo and riding higher`
-      : "Balanced net issuance — no loading or discharge run";
-  const intensity = issuance.flowIntensity === null
-    ? "flow intensity unavailable"
-    : `flow intensity ${Math.round(Math.abs(issuance.flowIntensity))}/100`;
-  const event = issuance.largestEvent24h
-    ? `largest event ${issuance.largestEvent24h.direction} ${formatCompactUsd(issuance.largestEvent24h.amountUsd)}`
-    : "no largest event reported";
-  return `${activity}; ${intensity}; ${event}`;
+  if (!issuance) return "Unavailable — no per-coin mint/redeem row; illustrative, not a transaction";
+  const state = issuance.activity === "balanced-active" ? "Balanced active"
+    : issuance.activity === "inactive" ? "Inactive — measured zero gross and net"
+    : issuance.activity === "minting" ? "Minting"
+    : issuance.activity === "redeeming" ? "Redeeming" : "Activity unavailable — incomplete reading";
+  const visible = shipIssuanceVisualState(issuance) !== null;
+  const cargo = visible ? issuance.activity === "balanced-active" ? "Opposing aboard/ashore cargo"
+    : issuance.activity === "minting" ? "Aboard cargo" : "Ashore cargo"
+    : "No working cargo — inactive or incomplete, held or unavailable evidence";
+  const window = issuance.completeWindow ? `Trailing ${issuance.windowHours}h window; complete coverage`
+    : `Partial or unknown coverage; reporting window ${issuance.windowHours === null ? "unknown" : `${issuance.windowHours}h`}; history ${issuance.coverage?.historyStartAt ? new Date(issuance.coverage.historyStartAt * 1_000).toISOString() : "unknown"}`;
+  const event = issuance.largestEvent24h;
+  return [
+    state,
+    `mint ${formatCompactUsd(issuance.mintVolumeUsd)} (${issuance.mintCount ?? "unknown"} events), burn ${formatCompactUsd(issuance.burnVolumeUsd)} (${issuance.burnCount ?? "unknown"} events), gross ${formatCompactUsd(issuance.grossVolumeUsd)}, net ${signedCompactUsd(issuance.netFlow24hUsd)}`,
+    window,
+    cargo,
+    `Illustrative work (declared policy): ${!issuanceHasCurrentWindow(issuance) ? "qualified evidence; no moving work" : issuance.work.eligible ? "eligible" : issuance.work.supplyShare === null && issuance.work.fleetGrossShare === null ? "unmeasured materiality; static cargo" : "below policy; static cargo"}; own supply share ${issuance.work.supplyShare === null ? "unmeasured" : `${(issuance.work.supplyShare * 100).toFixed(3)}%`}; covered fleet gross share ${issuance.work.fleetGrossShare === null ? "unmeasured" : `${(issuance.work.fleetGrossShare * 100).toFixed(3)}%`}; ${issuance.work.overviewRank === null ? "no overview work slot" : `overview slot ${issuance.work.overviewRank}/${ISSUANCE_OVERVIEW_WORK_LIMIT}`}`,
+    `Policy thresholds: gross floor ${formatCompactUsd(ISSUANCE_WORK_MIN_GROSS_USD)}; either ${ISSUANCE_WORK_MIN_SUPPLY_SHARE * 100}% own supply or ${ISSUANCE_WORK_MIN_FLEET_GROSS_SHARE * 100}% covered fleet gross`,
+    nodeSourceEvidenceLabel({ mintBurn: issuance.evidence }),
+    `raw intensity ${issuance.intensity ?? "unavailable"}; semantics ${issuance.intensitySemantics ?? "unknown"}`,
+    event ? `largest event ${event.direction} ${event.amountUsd.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 })} at ${new Date(event.timestamp * 1_000).toISOString()}; ${visible ? "static lift, not replayed" : "illustration withheld, not replayed"}` : "no largest event reported",
+    "illustrative, not a transaction",
+  ].join("\n");
 }
 
 export function shipIssuanceLedgerClause(ship: Pick<ShipNode, "issuance">): string {
-  return `issuance work ${shipIssuanceDetailLabel(ship)}; rendered at garden tempo over 45 seconds, while this ledger states the latest truth immediately`;
+  return `issuance work ${shipIssuanceDetailLabel(ship).replace(/\n/g, "; ")}; rendered at garden tempo, not a transaction rate`;
 }

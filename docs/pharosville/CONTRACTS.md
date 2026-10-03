@@ -1,13 +1,12 @@
 # PharosVille Runtime and Analytical Contracts
 
 Picture direction belongs in `VISUAL_INVARIANTS.md`; this file owns runtime,
-truth, access and resource limits. The Hour-Print plan
-(`agents/2026-09-26-opus-visual-leap/01-implementation-plan.md`, rulings §3
-and operator decisions §4.1) supersedes conflicting Reborn prescriptions. The
-accepted Reborn decisions D1–D17 in
-`agents/pharosville-reborn/01-implementation-plan.md` still stand where Hour-Print
-left them alone. The previous document is preserved verbatim in
-`agents/pharosville-reborn/visual-invariants-2026-09-08-archive.md`.
+truth, access and resource limits. The Hour-Print plan (rulings §3 and operator
+decisions §4.1) supersedes conflicting Reborn prescriptions, and the accepted
+Reborn decisions D1–D17 still stand where Hour-Print left them alone. Both
+plans, and the verbatim pre-Hour-Print invariants archive, were retired from
+the tree after v0.19.0 and remain in git history at commit `599c822`. The active
+upgrade plan is `agents/2026-10-02-visual-upgrade/01-implementation-plan.md`.
 Change a contract only with explicit intent and matching code, meaningful tests
 and route documentation. Test pointers below locate coverage; old implementation
 pins are not authority over the accepted picture.
@@ -25,6 +24,60 @@ pins are not authority over the accepted picture.
 - Every analytical cue has detail-panel and accessibility-ledger parity, including
   source fields, freshness and caveats. Every tracked record remains reachable
   through keyboard order, search, selection, details and the ledger.
+- The endpoint registry owns all seven source labels, roles and iteration order.
+  World freshness is a required status per source: `loading`, `current`, `stale`
+  or `unavailable`, with independent complete/partial/unknown coverage.
+  A usable stale sample is displayed as **held (as of …)**; exhausted refresh
+  errors hold it immediately even with fresh-looking envelope metadata.
+  A missing sample is loading only while pending, otherwise unavailable.
+  Unknown age is held, never assumed current.
+- Source observations and publication/as-of times are separate epoch-millisecond
+  fields; unknown observation times remain unknown. Receipt and the scene
+  snapshot never renew observations. The existing 30-second visible query tick
+  and visibility resume reclassify age using the shared freshness ratios
+  (fresh through 8× the endpoint budget, degraded through 12×); no new timer.
+  Semantic status-map equality preserves the world on a no-op tick, and freshness
+  remains excluded from the render-content signature.
+- Publication holds the last renderable payloads, not an obsolete world/status
+  object: geometry identities and selected records survive incomplete refreshes
+  while live source state updates. The ledger exposes seven registry-ordered
+  source rows with times, coverage and reasons. Complete/current certification
+  requires all seven current with explicitly complete coverage; current endpoints
+  with partial or unknown coverage remain qualified. The lamp says unreachable
+  only when all seven report explicit fetch failures, never merely old samples;
+  its eased appearance is separate from immediate observed DOM status.
+  Coverage: `src/hooks/use-pharosville-world-data.test.tsx`,
+  `src/hooks/use-api-query.test.ts`, `src/systems/lamp-status.test.ts`,
+  `src/components/accessibility-ledger.test.tsx`.
+- Each ship retains its own peg, DEWS and grade evidence. DEWS observation age
+  uses that row's `computedAt`, not a fresh envelope or another coin's sample;
+  unavailable inputs qualify coverage, and missing/unsupported DEWS cannot
+  certify calm. Known peg readings survive independently; the existing default
+  berth remains explicitly caveated when risk evidence is unavailable.
+  Peg observations require upstream `priceObservedAt` and mode; local-fetch,
+  unknown or absent observation times stay unknown, with publication/as-of
+  labeled separately. Grade observations use `asOfSec`.
+  Currently and each ledger ship line expose the same relevant source states,
+  observation/publication times and methodology; the own DEWS number is qualified
+  by its own evidence rather than the flagship's or the global source summary.
+- PSI keeps the official score, band, `computedAt`, version and input degradation;
+  no local recomputation or unrelated publication renews the historical reading.
+  Market stability and the ledger distinguish its observation from the world
+  snapshot (including mint/burn publication). Sky appearance is separately
+  delayed/eased, requires 60 continuous current seconds to accept a band, and
+  holds the last accepted appearance—or neutral if none—while evidence is held.
+  Coverage: `src/systems/pharosville-world/stages/ship-placement.test.ts`,
+  `src/systems/risk-placement.test.ts`, `src/systems/pharosville-world.test.ts`,
+  `src/components/detail-panel.test.tsx`, `src/systems/psi-sky.test.ts`.
+- The session market log compares accepted **own** peg/DEWS categories, not
+  displayed berth tiles or a consort's inherited formation category. Both own
+  risk carriers must be current with complete coverage; quality-only relocation
+  may interpolate but never narrates deterioration or recovery. New same-category
+  samples and methodology switches are silent; recurring comparable category
+  edges receive distinct, monotonic occurrence IDs. Entries and ledger `<time>`
+  use the decisive row's observation time (or unknown), never snapshot generation
+  or unrelated publication. Log and now-line describe risk readings, not voyages.
+  Coverage: `src/hooks/use-harbor-log.test.tsx`, `src/systems/motion-planning.test.ts`.
 - Colour is never the only carrier of meaning. Keyboard traversal, pan/zoom,
   selection, Escape clear, controls, detail anchors and hit testing must remain
   useful without inspecting WebGL pixels. Focused controls remain available.
@@ -41,7 +94,7 @@ pins are not authority over the accepted picture.
   holds ≥ 4.5:1 on its own surface at the five beat anchors and through every
   crossfade. The chrome follows the wall clock only, never market data.
   Coverage: `src/systems/chrome-air.test.ts`.
-- A stale feed outranks every other now-line phrase: stale warning, then a
+- A non-current source outranks every other now-line phrase: evidence warning, then a
   first-visit or return-visit line, then the crossing, then a market transition,
   then the ambient phase. The status region speaks the phrase only, never the
   minute; decorative words (moon, cloud cover, kō) never reach it.
@@ -59,6 +112,99 @@ pins are not authority over the accepted picture.
 
 - At rest the world carries three coarse readings: tower = PSI, water = risk band,
   hero ships = who leads. Exact information lives in the DOM, not more ornament.
+- The detail plaque quotes at most three first-screen figures. Its explicit
+  `Read the record` rows are bounded: ship ≤11 core rows (including Formation
+  and a DEX exception), lighthouse ≤12, harbour ≤6, pigeonnier 2 and grave ≤3.
+  Material qualifiers stay with the quantity they explain; unknown labels are
+  never dumped into the record. Currently carries full signed peg/actual trim,
+  placement evidence status and source, and active risk-band tracking. Formation
+  leads with the selected member's own distress without changing shared berths.
+  Chain shares, footprint and route source remain inspectable together.
+- Harbor light names the observed source status, separately from Beam warmth;
+  appearance eases over about two observations. Snapshot generation is labeled
+  as a snapshot, never as a PSI observation time. Month garden history is a
+  distinct clause beside the worst-band mark, not the same measurement.
+  This record repair exposes existing values only; upstream source observation
+  times and issuance coverage are not inferred from snapshot generation.
+  Coverage: `src/components/detail-panel.test.tsx`,
+  `src/components/accessibility-ledger.test.tsx`, `src/lib/format-detail.test.ts`.
+- A ship's own finite DEWS score is shown as `DEWS n/100`, folded after the
+  stress driver in Currently and repeated bare in its ledger line. Consorts
+  retain their own score even though placement inherits the flagship's depth.
+  Depth biases the preferred tile, not the order of final packed berths;
+  sticky placement holds depth changes below `0.02`.
+  Coverage: `src/components/detail-panel.test.tsx`,
+  `src/systems/pharosville-world/stages/ship-placement.test.ts`.
+- Harbour `Net flow 24h` values disclose **Estimated 24h allocation by held supply
+  across the reported scope**. Each coin's denominator includes all presence
+  shares in `mintBurn.scope.chainIds`, whether or not their harbours render;
+  hiding a harbour never inflates another allocation. Rendered allocations plus
+  fleet unattributed gross equal raw gross. Fleet and harbour records disclose
+  the unattributed total and its placement reasons: unrendered harbour, outside
+  the reported scope, or no chain presence. Unknown scope keeps attribution
+  unavailable, not zero; held/partial samples retain totals with source coverage.
+  Only material flow with no known presence can disqualify an otherwise empty
+  in-scope quay; known unrendered or outside-scope homes do not. Untracked reasons
+  never present a local estimate or measured zero. Ship and fleet totals remain
+  raw payload readings; existing gross/net and balanced-cargo policy is unchanged.
+  Coverage: `src/systems/pharosville-world/stages/cargo-tide.test.ts`,
+  `src/components/detail-panel.test.tsx`, `src/components/accessibility-ledger.test.tsx`.
+- Peg trim is the sole analytical hull-height carrier: fresh ±50 bps gives
+  ±0.08 local trim, fresh ±200 bps gives ±0.16, and stale or missing peg evidence
+  gives zero trim. Procedural and attached hero hulls, batched hulls, rig and
+  lanterns carry that same trim once under the ship's scale. Issuance changes
+  cargo work, never hull height; hero roots retain their nonfinancial pose.
+  Coverage: `src/three/world-renderer.test.ts`, `src/three/garden-ships.test.ts`,
+  `src/three/garden-fleet-batch.test.ts`.
+- Issuance records retain raw mint and burn volumes/counts, gross (mint + burn),
+  exact signed net, intensity and its semantics, reporting window, per-coin
+  history coverage and source publication/as-of. Zero gross/net is inactive
+  only with complete trailing-24h coverage; positive gross with zero net is
+  balanced activity. Missing quantities stay unavailable, never measured zero.
+  Partial history is neither extrapolated nor certified as complete inactivity;
+  held samples retain quantities with the source qualification.
+  Ship readings are per-coin measurements; quay totals remain estimated
+  allocations by held supply, not measured chain issuance.
+  Coverage: `src/systems/ship-issuance.test.ts`,
+  `src/components/detail-panel.test.tsx`.
+- Current full-window active issuance has categorical cargo: mint aboard,
+  redeem ashore, balanced one aboard and one ashore. Inactive, incomplete,
+  held or unavailable evidence suppresses worksets/quay crates, not records.
+  Largest-event lift is static, never a transaction replay; its exact amount
+  and own event timestamp remain in record and ledger. Cargo pose never scales
+  with intensity. Visible-state keys omit publication times/provenance, so a
+  same-value new sample cannot replay work or reset the motion epoch.
+  Coverage: `src/three/garden-ship-issuance.test.ts`,
+  `src/three/garden-cargo-tide.test.ts`, `src/three/world-renderer.test.ts`,
+  `src/systems/world-render-content-signature.test.ts`.
+- Issuance work uses a **declared illustration policy** (checked against the
+  full live fleet on 2026-10-03: 23–27 coins eligible; not financial methodology):
+  gross ≥ `$1,000,000` and either gross/own supply ≥ `0.01` or
+  gross/current full-window covered-fleet gross ≥ `0.001`, with current complete
+  issuance evidence required: `coverage.status === "full"` plus complete 24h
+  flags; producer `"unknown"` never certifies a complete window.
+  Missing, zero or non-finite denominators produce
+  unmeasured shares, never infinity; either independently measured share can
+  qualify. The denominator includes covered payload rows, not only displayed
+  hulls. Decisions are computed once per refresh.
+  Eligible coins are ordered by gross descending, ID ascending for ties; only
+  the first three have moving work at overview. Explore/analyze may work other
+  eligible cargo. Below-policy or unmeasured activity retains its categorical
+  static cargo and exact raw record; materiality never erases net direction or
+  changes route pace. Largest-event lift stays static. Record and ship ledger
+  disclose the policy, shares and overview slot. Keys include only eligibility
+  and overview membership, not raw shares, rank or sample time. The director
+  and urgent market lane are unchanged. Snapshot sensitivity and real-GPU
+  operator acceptance are required before these constants are called calibrated.
+  Coverage: `src/systems/ship-issuance.test.ts`,
+  `src/three/garden-ship-issuance.test.ts`,
+  `src/systems/world-render-content-signature.test.ts`.
+- Route pace accepts only current, complete-window `signed-v2` intensity.
+  Supported zero remains 0.85; unsupported, held, partial, legacy or unknown
+  readings use neutral 1.0 Unmeasured pace without discarding raw intensity.
+  Motion plans key the effective scalar, not the raw number or sample time.
+  Coverage: `src/systems/ship-cycle-tempo.test.ts`,
+  `src/systems/motion-planning.test.ts`.
 - Routes and docking cadence show rendered-chain/risk presence, never transfers,
   bridge volume, transactions or issuer operations. Missing or stale peg evidence
   is a caveat, not confirmed stress. Decorative quay lights, windows, basin tide
@@ -70,9 +216,9 @@ pins are not authority over the accepted picture.
 - PSI owns clarity aloft: cloud cover, horizon visibility and wind calm follow
   market stability with slow hysteresis. Cloud cover is a fixed ladder by band
   (`SKY_CLOUD_COVER`, `src/systems/psi-sky.ts`), named by the same cover word in
-  the now-line and the ledger. Stale sources own bounded low fog in
+  the now-line and the ledger. Non-current sources own bounded low fog in
   their own water; wall clock owns illumination; nothing else writes the sky.
-  Stale PSI freezes the last good sky, never clears it. Details and ledger expose
+  Non-current PSI freezes the last good sky, never clears it. Details and ledger expose
   exact PSI, band, as-of and unavailable state; copy says “market stability”,
   never a forecast or weather causation. The weekly supply tide is the one tide
   signal: it is drawn only as the tidal flat's bare area and its wrack line

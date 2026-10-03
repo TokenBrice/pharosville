@@ -2,11 +2,12 @@ import { InstancedMesh, Matrix4, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import type { DockCargoTide, DockNode } from "../systems/world-types";
 import {
-  cargoTideCrateCount,
   cargoTideSpecs,
   createGardenCargoTide,
 } from "./garden-cargo-tide";
-import { CARGO_TIDE_SLOTS, type DockVisual } from "./garden-docks";
+import type { DockVisual } from "./garden-docks";
+import { CARGO_TIDE_SLOTS, cargoTideCrateCount } from "../systems/pharosville-world/stages/cargo-tide";
+import { makeSourceStatuses } from "../__fixtures__/pharosville-world";
 
 function tide(overrides: Partial<DockCargoTide> = {}): DockCargoTide {
   return {
@@ -18,6 +19,9 @@ function tide(overrides: Partial<DockCargoTide> = {}): DockCargoTide {
     pressureScore: 80,
     reason: "tracked",
     tracked: true,
+    completeWindow: true,
+    evidence: makeSourceStatuses().mintBurn,
+    unattributed: null,
     ...overrides,
   };
 }
@@ -46,17 +50,6 @@ describe("cargoTideCrateCount", () => {
     expect(cargoTideCrateCount(undefined)).toBe(0);
   });
 
-  it("stands nothing at a harbour that moved no supply, or moved it evenly", () => {
-    expect(cargoTideCrateCount(tide({ direction: "inactive", pressureScore: null }))).toBe(0);
-    expect(cargoTideCrateCount(tide({ direction: "flat", pressureScore: 0 }))).toBe(0);
-  });
-
-  it("always stands at least one crate for a harbour that did move supply", () => {
-    // A one-sided day worth $1 and a one-sided day worth $1B are both worth
-    // seeing; what must never happen is a real tide rounding away to an empty
-    // quay, which reads as "not measured".
-    expect(cargoTideCrateCount(tide({ pressureScore: 0.4 }))).toBe(1);
-  });
 
   it("grows the run with how one-sided the day was, and caps it", () => {
     expect(cargoTideCrateCount(tide({ pressureScore: 50 }))).toBe(CARGO_TIDE_SLOTS / 2);
@@ -67,6 +60,17 @@ describe("cargoTideCrateCount", () => {
 });
 
 describe("cargoTideSpecs", () => {
+  it("balanced estimated activity differs from an empty observed quay", () => {
+    const balanced = tide({ direction: "flat", mintVolumeUsd: 100_000_000, burnVolumeUsd: 100_000_000, netFlowUsd: 0, pressureScore: 0 });
+    const specs = cargoTideSpecs([dockVisual("ethereum", balanced)]);
+    expect(specs[0]!.slots).toEqual([{ x: 10, y: 0.21, z: -4 }, { x: 10, y: 0.62, z: -1 }]);
+    const cargo = createGardenCargoTide(specs);
+    expect(cargo.count).toBe(2);
+    expect(cargoTideCrateCount(tide({ direction: "inactive", mintVolumeUsd: 0, burnVolumeUsd: 0, netFlowUsd: 0 }))).toBe(0);
+    expect(cargoTideCrateCount({ ...balanced, completeWindow: false })).toBe(0);
+    expect(cargoTideCrateCount({ ...balanced, evidence: { ...balanced.evidence, state: "stale" } })).toBe(0);
+    cargo.dispose();
+  });
   it("puts minting cargo on the pier lane and burning cargo on the quay lane", () => {
     // Direction is POSITION here, so the two must never resolve to the same
     // berths — this is the assertion that a flipped sign would break.

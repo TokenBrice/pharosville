@@ -4,8 +4,26 @@ import {
   getNetFlowDirection24h,
 } from "@shared/lib/mint-burn-signals";
 import type { MintBurnFlowsResponse } from "@shared/types/mint-burn";
-import type { DockCargoTide, DockNode, FleetIssuance, ShipNode } from "../../world-types";
+import type { DockCargoTide, DockNode, FleetIssuance, PharosVilleSourceStatus, ShipNode, UnattributedIssuance } from "../../world-types";
+import { observationEpochMs, rowSourceEvidence } from "../../source-evidence";
 import type { CargoTideStage } from "../pipeline-types";
+
+export const CARGO_TIDE_SLOTS = 6;
+
+/** Current complete estimated activity, within the existing per-harbour slots. */
+export function cargoTideCrateCount(tide: DockCargoTide | undefined): number {
+  if (!tide?.tracked || !tide.completeWindow || tide.evidence.state !== "current") return 0;
+  if (tide.direction === "flat") return tide.mintVolumeUsd + tide.burnVolumeUsd > 0 ? 2 : 0;
+  if (tide.direction !== "minting" && tide.direction !== "burning") return 0;
+  const pressure = Math.abs(tide.pressureScore ?? 0) / 100;
+  return Math.max(1, Math.min(CARGO_TIDE_SLOTS, Math.round(pressure * CARGO_TIDE_SLOTS)));
+}
+
+/** Shared baked key: new publication times cannot rebuild identical crates. */
+export function cargoTideVisualState(tide: DockCargoTide | undefined): string | null {
+  const count = cargoTideCrateCount(tide);
+  return count > 0 ? `${tide!.direction}:${count}` : null;
+}
 
 /**
  * The mint/burn cargo tide — the world's first FLOW signal.
@@ -30,13 +48,10 @@ import type { CargoTideStage } from "../pipeline-types";
  *   happened on Ethereum onto a Solana quay whenever a coin's largest supply
  *   sits somewhere the issuance did not.
  *
- * So the flow is ALLOCATED: split across the harbours where that coin's supply
- * actually sits, in proportion to how much sits at each, and renormalised over
- * the tracked scope only. `scope.chainIds` is the payload's own statement of
- * which chains issuance was observed on (`["ethereum", "arbitrum"]` at the time
- * of writing), so a coin's flow is divided only among tracked harbours where it
- * has supply. Summed over every tracked harbour, the allocation reproduces the
- * fleet's own net flow for exactly the coins that have any tracked presence.
+ * Flow is split by held-supply shares across the payload's own reported scope,
+ * independently of which harbours render. An in-scope share on an unrendered
+ * chain stays unattributed rather than inflating the remaining quays. Together,
+ * rendered allocations and unattributed gross reproduce the raw fleet gross.
  *
  * A harbour on a chain OUTSIDE that scope is not given a quiet zero. Zero and
  * "issuance is not measured here" are opposite claims, and the world must not
@@ -108,7 +123,11 @@ function emptyAccumulator(): TideAccumulator {
   return { burnVolumeUsd: 0, coinCount: 0, mintVolumeUsd: 0, netFlowUsd: 0 };
 }
 
-function untrackedTide(reason: DockCargoTide["reason"]): DockCargoTide {
+function untrackedTide(
+  reason: DockCargoTide["reason"],
+  evidence: PharosVilleSourceStatus,
+  unattributed: UnattributedIssuance | null,
+): DockCargoTide {
   return {
     burnVolumeUsd: 0,
     coinCount: 0,
@@ -118,10 +137,16 @@ function untrackedTide(reason: DockCargoTide["reason"]): DockCargoTide {
     pressureScore: null,
     reason,
     tracked: false,
+    completeWindow: false, evidence,
+    unattributed,
   };
 }
 
-function settleTide(totals: TideAccumulator): DockCargoTide {
+function settleTide(
+  totals: TideAccumulator,
+  evidence: PharosVilleSourceStatus,
+  unattributed: UnattributedIssuance,
+): DockCargoTide {
   const gross = totals.mintVolumeUsd + totals.burnVolumeUsd;
   const netFlowUsd = Math.abs(totals.netFlowUsd) < FLAT_NET_FLOW_USD ? 0 : totals.netFlowUsd;
   return {
@@ -129,17 +154,23 @@ function settleTide(totals: TideAccumulator): DockCargoTide {
     coinCount: totals.coinCount,
     direction: getNetFlowDirection24h({ has24hActivity: gross > 0, netFlow24hUsd: netFlowUsd }),
     mintVolumeUsd: totals.mintVolumeUsd,
-    netFlowUsd,
+    netFlowUsd: totals.netFlowUsd,
     pressureScore: getLiteralMintingPressureScore({
       burnVolume24hUsd: totals.burnVolumeUsd,
       mintVolume24hUsd: totals.mintVolumeUsd,
     }),
     reason: "tracked",
     tracked: true,
+    completeWindow: evidence.coverage.state === "complete" && evidence.coverage.windowHours === 24,
+    evidence,
+    unattributed,
   };
 }
 
-function buildFleetIssuance(mintBurn: MintBurnFlowsResponse): FleetIssuance {
+function buildFleetIssuance(
+  mintBurn: MintBurnFlowsResponse,
+  unattributed: UnattributedIssuance | null,
+): FleetIssuance {
   let burnVolumeUsd = 0;
   let mintVolumeUsd = 0;
   let netFlowUsd = 0;
@@ -167,6 +198,7 @@ function buildFleetIssuance(mintBurn: MintBurnFlowsResponse): FleetIssuance {
     scopeLabel: mintBurn.scope?.label ?? null,
     score: mintBurn.gauge.score,
     trackedCoins: mintBurn.gauge.trackedCoins,
+    unattributed,
   };
 }
 
@@ -174,15 +206,29 @@ export function buildCargoTideStage(
   docks: readonly DockNode[],
   ships: readonly ShipNode[],
   mintBurn: MintBurnFlowsResponse | null | undefined,
+  status: PharosVilleSourceStatus,
 ): CargoTideStage {
+  const completeWindow = mintBurn?.windowHours === 24 && mintBurn.coins.length > 0
+    && mintBurn.coins.every((coin) => coin.coverage?.status === "full" && coin.coverage.has24hWindow && !coin.coverage.isPartial);
+  const evidence = rowSourceEvidence("mintBurn", {
+    ...status, publishedAt: observationEpochMs(mintBurn?.updatedAt) ?? status.publishedAt,
+  }, {
+    available: !!mintBurn, observedAt: null, methodologyVersion: status.methodologyVersion,
+    coverage: {
+      state: completeWindow ? "complete" : mintBurn?.coins.some((coin) => coin.coverage) ? "partial" : "unknown",
+      ...(mintBurn?.windowHours !== undefined ? { windowHours: mintBurn.windowHours } : {}),
+      ...(mintBurn?.scope?.label ? { scopeLabel: mintBurn.scope.label } : {}),
+    },
+    reason: completeWindow ? null : "Issuance history incomplete or unknown",
+  });
   // No payload, or a payload that will not say where it looked: every harbour
   // reports untracked rather than calm. See the note above on zero vs unmeasured.
   const scopeChainIds = mintBurn?.scope?.chainIds;
   if (!mintBurn || !scopeChainIds?.length) {
     const reason: DockCargoTide["reason"] = mintBurn ? "scope-unreported" : "no-flow-data";
     return {
-      docks: docks.map((dock) => ({ ...dock, cargoTide: untrackedTide(reason) })),
-      fleetIssuance: mintBurn ? buildFleetIssuance(mintBurn) : null,
+      docks: docks.map((dock) => ({ ...dock, cargoTide: untrackedTide(reason, evidence, null) })),
+      fleetIssuance: mintBurn ? buildFleetIssuance(mintBurn, null) : null,
     };
   }
 
@@ -193,9 +239,7 @@ export function buildCargoTideStage(
   // canonicalise too — same rule, same fallback: an id `resolveChainId` does
   // not recognise passes through raw rather than silently narrowing the scope.
   const scope = new Set(scopeChainIds.map((chainId) => resolveChainId(chainId) ?? chainId));
-  // Only harbours that are BOTH in the payload's scope and actually rendered can
-  // receive an allocation, so the renormalisation below divides by the share the
-  // world can really show rather than by a share it cannot draw.
+  // Rendering chooses recipients, never the denominator over the reported scope.
   const trackedChainIds = new Set(
     docks.map((dock) => dock.chainId).filter((chainId) => scope.has(chainId)),
   );
@@ -204,13 +248,11 @@ export function buildCargoTideStage(
   for (const chainId of trackedChainIds) totalsByChainId.set(chainId, emptyAccumulator());
 
   const shipById = new Map(ships.map((ship) => [ship.id, ship]));
-  // Active issuance the fleet cannot locate at all — no ship carries the id, or
-  // the ship it does carry states no chain presence. Weighed by VOLUME rather
-  // than counted, because what can falsify an empty harbour's zero is how much
-  // flow might have landed here unseen, not how many coins carried it. Ten
-  // dust-sized wrappers are not evidence against a calm quay; one major issuer
-  // slipping its id is.
-  let unattributedGrossUsd = 0;
+  const unattributed: UnattributedIssuance = {
+    grossUsd: 0,
+    byReason: { "unrendered harbour": 0, "outside the reported scope": 0, "no chain presence": 0 },
+    evidence,
+  };
   let measuredGrossUsd = 0;
   for (const coin of mintBurn.coins) {
     if (!coinHasActivity(coin)) continue;
@@ -218,20 +260,29 @@ export function buildCargoTideStage(
     measuredGrossUsd += grossUsd;
     const chainPresence = shipById.get(coin.stablecoinId)?.chainPresence;
     if (!chainPresence?.length) {
-      unattributedGrossUsd += grossUsd;
+      unattributed.grossUsd += grossUsd;
+      unattributed.byReason["no chain presence"] += grossUsd;
       continue;
     }
-    const presences = chainPresence.filter((presence) => trackedChainIds.has(presence.chainId));
-    const scopedShare = presences.reduce((sum, presence) => sum + presence.share, 0);
-    // The coin's issuance was observed and the fleet knows where its supply
-    // sits: nowhere this world draws inside the tracked scope. There is nowhere
-    // honest to land it, so it lands nowhere — and unlike the case above, every
-    // harbour's own reading stays a real measurement.
-    if (scopedShare <= 0) continue;
-    for (const presence of presences) {
-      const totals = totalsByChainId.get(presence.chainId);
-      if (!totals) continue;
+    let scopedShare = 0;
+    for (const presence of chainPresence) {
+      if (scope.has(presence.chainId)) scopedShare += presence.share;
+    }
+    if (scopedShare <= 0) {
+      unattributed.grossUsd += grossUsd;
+      unattributed.byReason["outside the reported scope"] += grossUsd;
+      continue;
+    }
+    for (const presence of chainPresence) {
+      if (!scope.has(presence.chainId) || presence.share <= 0) continue;
       const weight = presence.share / scopedShare;
+      const totals = totalsByChainId.get(presence.chainId);
+      if (!totals) {
+        const unrenderedGrossUsd = grossUsd * weight;
+        unattributed.grossUsd += unrenderedGrossUsd;
+        unattributed.byReason["unrendered harbour"] += unrenderedGrossUsd;
+        continue;
+      }
       totals.burnVolumeUsd += coin.burnVolume24hUsd * weight;
       totals.coinCount += 1;
       totals.mintVolumeUsd += coin.mintVolume24hUsd * weight;
@@ -244,12 +295,12 @@ export function buildCargoTideStage(
   // reports calm. Only harbours with nothing of their own to show are exposed to
   // it — a quay that measured its own issuance stands on that measurement.
   const calmIsUnverifiable =
-    measuredGrossUsd > 0 && unattributedGrossUsd / measuredGrossUsd >= MATERIAL_UNATTRIBUTED_SHARE;
+    measuredGrossUsd > 0 && unattributed.byReason["no chain presence"] / measuredGrossUsd >= MATERIAL_UNATTRIBUTED_SHARE;
 
   return {
     docks: docks.map((dock) => {
       const totals = totalsByChainId.get(dock.chainId);
-      if (!totals) return { ...dock, cargoTide: untrackedTide("chain-not-in-scope") };
+      if (!totals) return { ...dock, cargoTide: untrackedTide("chain-not-in-scope", evidence, unattributed) };
       // An empty accumulator only means "nothing was issued here" when the flow
       // the fleet could not place is too small to have been this quay's tide.
       // Above that bar the silence is unverified, and unverified must not print
@@ -257,9 +308,9 @@ export function buildCargoTideStage(
       const unverifiableCalm = totals.coinCount === 0 && calmIsUnverifiable;
       return {
         ...dock,
-        cargoTide: unverifiableCalm ? untrackedTide("unattributed") : settleTide(totals),
+        cargoTide: unverifiableCalm ? untrackedTide("unattributed", evidence, unattributed) : settleTide(totals, evidence, unattributed),
       };
     }),
-    fleetIssuance: buildFleetIssuance(mintBurn),
+    fleetIssuance: buildFleetIssuance(mintBurn, unattributed),
   };
 }

@@ -6,6 +6,8 @@ import { logosById } from "@/lib/logos";
 import { getCirculatingRaw } from "@/lib/supply";
 import { getRecentChange } from "../../recent-change";
 import { isStricterPlacement, resolveShipRiskPlacement } from "../../risk-placement";
+import { dewsAreaPlacementForBand } from "../../risk-water-areas";
+import { observationEpochMs, rowSourceEvidence } from "../../source-evidence";
 import {
   STABLECOIN_SQUADS,
   squadFormationOffsetForPlacement,
@@ -28,7 +30,7 @@ import { seaBodyAnchors, seaBodyScatterRadius } from "../../sea-body-anchors";
 import type { SeaBodyName } from "../../sea-bodies";
 import { resolveShipVisual } from "../../ship-visuals";
 import { deriveShipAge, deriveShipWabiSurface } from "../../ship-age";
-import { buildShipIssuance } from "../../ship-issuance";
+import { assignShipIssuanceWork, buildShipIssuance } from "../../ship-issuance";
 import { stableHash, stableOffset, stableUnit } from "../../stable-random";
 import { tileKey } from "../../tile-key";
 import {
@@ -43,6 +45,7 @@ import type {
   ShipDepegHistory,
   ShipDexCrossCheck,
   ShipNode,
+  ShipSourceEvidence,
   ShipRiskPlacement,
 } from "../../world-types";
 import type { BuildShipsStage, PharosVilleInputs } from "../pipeline-types";
@@ -146,9 +149,8 @@ function shipPlacementAnchor(
   const anchors = body ? seaBodyAnchors(body, ANCHORS_PER_BODY) : [];
   if (anchors.length === 0) return REGION_TILES[placement];
   if (riskDepth !== null) {
-    // Across the authored sea ladder, rougher water runs north-east: map-space
-    // x rises while y falls. Interpolate between ordered body anchors so a
-    // score changes position continuously before the final tile snap.
+    // Interpolate ordered body anchors to bias the preferred tile. The snap
+    // and spacing-dominated spread do not order final berths by DEWS score.
     const ordered = anchors.toSorted((left, right) => (
       (left.x - left.y) - (right.x - right.y)
       || left.x - right.x
@@ -335,6 +337,58 @@ export function shipStressBreakdown(
   return signals.length > 0 || contagionActive ? { signals, contagionActive } : null;
 }
 
+/** Own carrier provenance, also used on the existing visible query age tick. */
+export function buildShipSourceEvidence(
+  inputs: Pick<PharosVilleInputs, "stablecoins" | "pegSummary" | "stress" | "safetyGrades" | "freshness">,
+  observedNowMs?: number,
+): Record<string, ShipSourceEvidence> {
+  const pegById = buildPegSummaryCoinMap(inputs.pegSummary?.coins);
+  const gradeById = buildSafetyGradeMap(inputs.safetyGrades?.grades) ?? {};
+  return Object.fromEntries(activeAssets(inputs.stablecoins).map((asset) => {
+    const peg = pegById.get(asset.id);
+    const stress = inputs.stress?.signals[asset.id];
+    const signals = Object.values(stress?.signals ?? {});
+    const coveredRows = signals.filter((signal) => signal.available).length;
+    const stressSupported = !!stress && Number.isFinite(stress.score) && dewsAreaPlacementForBand(stress.band) !== null;
+    const stressAvailable = stressSupported && (!signals.length || coveredRows > 0);
+    const pegAvailable = !!peg && (peg.activeDepeg || Number.isFinite(peg.currentDeviationBps));
+    const mode = peg?.priceObservedAtMode ?? "unknown";
+    const grade = gradeById[asset.id];
+    const gradeSource = {
+      ...inputs.freshness.safetyGrades,
+      publishedAt: observationEpochMs(inputs.safetyGrades?.updatedAt) ?? inputs.freshness.safetyGrades.publishedAt,
+      ...(inputs.safetyGrades && inputs.safetyGrades.publicationStatus !== "current"
+        ? { state: "stale" as const, reason: `Grade publication ${inputs.safetyGrades.publicationStatus}` } : {}),
+    };
+    return [asset.id, {
+      pegSummary: rowSourceEvidence("pegSummary", inputs.freshness.pegSummary, {
+        available: pegAvailable,
+        observedAt: peg && mode === "upstream" ? observationEpochMs(peg.priceObservedAt) : null,
+        methodologyVersion: peg?.methodologyVersion ?? null,
+        coverage: { state: pegAvailable ? "complete" : "unknown" },
+        reason: !pegAvailable ? "Peg reading missing or low confidence" : `Price observation mode: ${mode}`,
+      }, observedNowMs),
+      stress: rowSourceEvidence("stress", {
+        ...inputs.freshness.stress,
+        publishedAt: observationEpochMs(inputs.stress?.updatedAt) ?? inputs.freshness.stress.publishedAt,
+      }, {
+        available: stressAvailable,
+        observedAt: stress ? observationEpochMs(stress.computedAt) : null,
+        methodologyVersion: stress?.methodologyVersion ?? null,
+        coverage: { state: !stressSupported || !signals.length ? "unknown" : coveredRows === signals.length ? "complete" : "partial" },
+        reason: !stress ? "DEWS row missing" : !stressSupported ? `DEWS band unsupported: ${stress.band}` : !stressAvailable ? "DEWS signals unavailable" : coveredRows < signals.length ? "DEWS signal coverage partial" : !signals.length ? "DEWS signal coverage unknown" : null,
+      }, observedNowMs),
+      safetyGrades: rowSourceEvidence("safetyGrades", gradeSource, {
+        available: !!grade,
+        observedAt: grade ? observationEpochMs(inputs.safetyGrades?.asOfSec) : null,
+        methodologyVersion: inputs.safetyGrades?.methodologyVersion ?? null,
+        coverage: { state: grade ? "complete" : "unknown" },
+        reason: grade ? null : "Safety grade row missing",
+      }, observedNowMs),
+    }];
+  }));
+}
+
 function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): ShipNode[] {
   const pegById = buildPegSummaryCoinMap(inputs.pegSummary?.coins);
   const safetyGradeById = buildSafetyGradeMap(inputs.safetyGrades?.grades) ?? {};
@@ -347,7 +401,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
   );
   const issuanceById = new Map(
     (inputs.mintBurn?.coins ?? []).flatMap((coin) => {
-      const issuance = buildShipIssuance(coin);
+      const issuance = buildShipIssuance(coin, inputs.mintBurn!, inputs.freshness.mintBurn);
       return issuance ? [[coin.stablecoinId, issuance] as const] : [];
     }),
   );
@@ -363,6 +417,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
   const renderedDockChainIds = new Set(docks.map((dock) => dock.chainId));
 
   const assets = activeAssets(inputs.stablecoins);
+  const evidenceById = inputs.shipEvidence ?? buildShipSourceEvidence(inputs);
   // Per-squad flagship risk: a squad activates iff its flagship is in
   // activeAssets. Squads activate independently - Maker (DAI flagship) can sail
   // even if Sky (USDS flagship) is missing, and vice versa.
@@ -370,6 +425,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     placement: ShipRiskPlacement;
     evidence: PlacementEvidence;
     stress: StressSignalEntry | undefined;
+    sources: ShipSourceEvidence;
   };
   const flagshipRiskBySquad = new Map<SquadId, FlagshipRisk>();
   for (const squad of STABLECOIN_SQUADS) {
@@ -381,10 +437,11 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       meta: flagshipMeta,
       pegCoin: pegById.get(flagshipAsset.id),
       stress: stressById[flagshipAsset.id],
-      freshness: inputs.freshness,
+      freshness: evidenceById[flagshipAsset.id]!,
     });
     flagshipRiskBySquad.set(squad.id, {
       ...resolved,
+      sources: evidenceById[flagshipAsset.id]!,
       stress: stressById[flagshipAsset.id],
     });
   }
@@ -395,13 +452,17 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     const safetyGrade = safetyGradeById[asset.id] ?? null;
     const pegCoin = pegById.get(asset.id);
     const stress = stressById[asset.id];
+    const sources = evidenceById[asset.id]!;
     const ownRisk = resolveShipRiskPlacement({
       asset,
       meta,
       pegCoin,
       stress,
-      freshness: inputs.freshness,
+      freshness: sources,
     });
+    const ownRiskSource: "pegSummary" | "stress" = ownRisk.evidence.sourceFields.some(
+      (field) => field === "pegSummary.coins[].activeDepeg" || field === "pegSummary.coins[].currentDeviationBps",
+    ) ? "pegSummary" : "stress";
 
     // If this asset belongs to an active squad and is a consort, inherit that
     // squad's flagship risk. Otherwise use the per-asset placement.
@@ -418,8 +479,11 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     const recent = getRecentChange(asset);
     const riskDepth = shipDewsAnchorDepth(
       isConsort ? flagshipRisk?.stress : stress,
-      inputs.freshness.stressStale === true,
+      (isConsort ? flagshipRisk?.sources : sources)?.stress.state !== "current",
     );
+    const dewsScore = typeof stress?.score === "number" && Number.isFinite(stress.score)
+      ? Math.max(0, Math.min(100, stress.score))
+      : null;
     const riskTile = shipTile(asset, risk.placement, riskDepth);
     const riskWaterArea = riskWaterAreaForPlacement(risk.placement);
     const stressBreakdown = shipStressBreakdown(stress, risk.placement);
@@ -443,7 +507,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     };
     const waterline = shipWaterlineTrim(
       pegCoin?.currentDeviationBps,
-      inputs.freshness.pegSummaryStale === true,
+      sources.pegSummary.state !== "current",
     );
     const issuance = issuanceById.get(asset.id);
     return {
@@ -464,10 +528,13 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       dockChainId: homeDockChainId,
       marketCapUsd: getCirculatingRaw(asset),
       riskPlacement: risk.placement,
+      ownRisk: { placement: ownRisk.placement, source: ownRiskSource },
       riskZone: riskWaterArea.motionZone,
       riskWaterLabel: riskWaterArea.label,
       riskDepth,
+      dewsScore,
       placementEvidence: risk.evidence,
+      evidence: sources,
       ...(stressBreakdown ? { stressBreakdown } : {}),
       visual: {
         ...shipVisual,
@@ -492,6 +559,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       ...(stamped ? { squadId: stamped.squadId, squadRole: stamped.role } : {}),
     };
   });
+  assignShipIssuanceWork(ships, issuanceById);
   return spreadShipRiskAnchorsAcrossWater(ships);
 }
 
@@ -539,11 +607,11 @@ export function countShipsByRiskPlacement(
  * an ambient view can least afford.
  *
  * So the build is deterministic given (inputs, previous placements) rather than
- * inputs alone: a ship keeps its tile while its RISK PLACEMENT is unchanged and
- * the tile is still legal water for that placement. Consorts are never held —
- * they snap to their flagship's tile plus a formation offset, so holding the
- * flagship already holds them, and holding them independently would let a
- * formation break apart when its flagship moves.
+ * inputs alone: a ship keeps its tile while its RISK PLACEMENT is unchanged,
+ * its depth moves less than 0.02 and the tile is still legal water for that
+ * placement. Consorts are never held — they snap to their flagship's tile plus
+ * a formation offset, so holding the flagship already holds them, and holding
+ * them independently would let a formation break apart when its flagship moves.
  */
 type HeldRiskTile = {
   placement: ShipRiskPlacement;
@@ -799,6 +867,7 @@ function spacedRiskPlacementTile(input: {
     const preferredDx = candidate.x - input.preferred.x;
     const preferredDy = candidate.y - input.preferred.y;
     const preferredDistance = Math.sqrt(preferredDx * preferredDx + preferredDy * preferredDy);
+    // Depth biases preference; farthest-point spacing dominates the final tile.
     const preferredWeight = input.riskDepth === null ? 0.1 : 150;
     const base = input.hasPlaced
       ? input.spacingToNearest[index]! * 1000 - preferredDistance * preferredWeight

@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { describe, expect, it } from "vitest";
 import {
   advanceSkyClarityFade,
@@ -12,8 +13,8 @@ import {
 } from "./psi-sky";
 
 const input = (band: string, timeSeconds: number, stale = false): PsiSkyInput => ({
-  lighthouse: { psiBand: band, score: 80, unavailable: false },
-  freshness: { stabilityStale: stale }, timeSeconds, asOf: `reading-${timeSeconds}`,
+  lighthouse: { psiBand: band, score: 80, unavailable: false, evidence: { stability: makeSourceStatuses({ stability: { state: stale ? "stale" : "current" } }).stability } },
+  timeSeconds, asOf: `reading-${timeSeconds}`,
 });
 
 describe("PSI sky clarity", () => {

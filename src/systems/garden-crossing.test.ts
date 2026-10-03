@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { afterEach, describe, expect, it } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureSafetyGrades, denseFixtureStablecoins, denseFixtureStress, fixtureStability } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
@@ -17,7 +18,7 @@ const denseWorld = buildPharosVilleWorld({
   stress: denseFixtureStress,
   safetyGrades: denseFixtureSafetyGrades,
   cemeteryEntries: [],
-  freshness: {},
+  freshness: makeSourceStatuses(),
 });
 /**
  * Only the ceremony subjects (unsquadded titan/heritage hulls with a harbour):

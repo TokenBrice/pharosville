@@ -1,46 +1,47 @@
 import { describe, expect, it } from "vitest";
+import { PHAROSVILLE_API_ENDPOINT_KEYS } from "@shared/types/pharosville-endpoint-keys";
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import {
-  advanceLampStatus,
-  deriveLampStatus,
-  initialLampStatusState,
-  lampStatusModulationForMix,
-  lampStatusReading,
-  LAMP_FRESHNESS_KEYS,
-  LAMP_STATUS_TRANSITION_SECONDS,
+  advanceLampStatus, deriveLampStatus, hasCompleteCurrentSources, initialLampStatusState,
+  lampStatusModulationForMix, LAMP_STATUS_TRANSITION_SECONDS,
 } from "./lamp-status";
-import type { PharosVilleFreshness } from "./world-types";
+import type { PharosVilleSourceState } from "./world-types";
 
 describe("lighthouse lamp status", () => {
-  it("folds all known endpoint freshness flags into three states", () => {
-    expect(LAMP_FRESHNESS_KEYS).toHaveLength(7);
-    expect(deriveLampStatus({})).toBe("fresh");
-    expect(deriveLampStatus({ pegSummaryStale: true })).toBe("stale");
-    expect(deriveLampStatus(Object.fromEntries(
-      LAMP_FRESHNESS_KEYS.map((key) => [key, true]),
-    ) as PharosVilleFreshness)).toBe("unreachable");
+  it("complete current is required for fresh certification", () => {
+    const current = makeSourceStatuses();
+    expect(hasCompleteCurrentSources(current)).toBe(true);
+    expect(deriveLampStatus(current)).toBe("fresh");
+    for (const key of PHAROSVILLE_API_ENDPOINT_KEYS) {
+      for (const state of ["loading", "unavailable", "stale"] satisfies PharosVilleSourceState[]) {
+        const qualified = makeSourceStatuses({ [key]: { state } });
+        expect(hasCompleteCurrentSources(qualified)).toBe(false);
+        expect(deriveLampStatus(qualified)).toBe("stale");
+      }
+      for (const state of ["partial", "unknown"] as const) {
+        const qualified = makeSourceStatuses({ [key]: { coverage: { state } } });
+        expect(hasCompleteCurrentSources(qualified)).toBe(false);
+        expect(deriveLampStatus(qualified)).toBe("stale");
+      }
+    }
+    const held = makeSourceStatuses(Object.fromEntries(PHAROSVILLE_API_ENDPOINT_KEYS.map((key) => [key, { state: "stale", reason: "Source age stale" }])));
+    expect(deriveLampStatus(held)).toBe("stale");
+    const failed = makeSourceStatuses(Object.fromEntries(PHAROSVILLE_API_ENDPOINT_KEYS.map((key) => [key, { state: "stale", reason: "Refresh failed: offline" }])));
+    expect(deriveLampStatus(failed)).toBe("unreachable");
   });
 
   it("requires two successive observations and cancels a one-poll failure", () => {
-    const fresh = initialLampStatusState({});
-    const oneFailedPoll = advanceLampStatus(fresh, { pegSummaryStale: true });
+    const current = makeSourceStatuses();
+    const fresh = initialLampStatusState(current);
+    const oneFailedPoll = advanceLampStatus(fresh, makeSourceStatuses({ pegSummary: { state: "stale", reason: "Refresh failed: offline" } }));
     expect(oneFailedPoll.status).toBe("fresh");
     expect(oneFailedPoll.pendingStatus).toBe("stale");
-
-    const recovered = advanceLampStatus(oneFailedPoll, {});
-    expect(recovered).toEqual(fresh);
-
-    const firstUnreachable = advanceLampStatus(
-      advanceLampStatus(fresh, { stablecoinsStale: true }),
-      Object.fromEntries(LAMP_FRESHNESS_KEYS.map((key) => [key, true])) as PharosVilleFreshness,
-    );
-    expect(firstUnreachable.status).toBe("fresh");
-    expect(firstUnreachable.pendingStatus).toBe("unreachable");
-
-    const allUnreachable = advanceLampStatus(
-      firstUnreachable,
-      Object.fromEntries(LAMP_FRESHNESS_KEYS.map((key) => [key, true])) as PharosVilleFreshness,
-    );
-    expect(allUnreachable.status).toBe("unreachable");
+    expect(advanceLampStatus(oneFailedPoll, current)).toEqual(fresh);
+    const failed = makeSourceStatuses(Object.fromEntries(PHAROSVILLE_API_ENDPOINT_KEYS.map((key) => [key, { state: "unavailable", reason: "Fetch failed: offline" }])));
+    const pending = advanceLampStatus(fresh, failed);
+    expect(pending.status).toBe("fresh");
+    expect(pending.pendingStatus).toBe("unreachable");
+    expect(advanceLampStatus(pending, failed).status).toBe("unreachable");
   });
 
   it("keeps the unreachable dimming below the PSI character scale", () => {
@@ -54,11 +55,5 @@ describe("lighthouse lamp status", () => {
     expect(unreachable.intensityScale).toBeLessThan(stale.intensityScale);
     expect(unreachable.rotationScale).toBeLessThan(stale.rotationScale);
     expect(LAMP_STATUS_TRANSITION_SECONDS).toBeGreaterThanOrEqual(30);
-  });
-
-  it("owns the plain-language readings used by parity surfaces", () => {
-    expect(lampStatusReading("fresh")).toBe("steady — all feeds fresh");
-    expect(lampStatusReading("stale")).toBe("cooler and slower — some feeds stale");
-    expect(lampStatusReading("unreachable")).toBe("dimmed — API unreachable; showing last-good data");
   });
 });

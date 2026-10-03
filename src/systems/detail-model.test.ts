@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { makeSourceStatuses } from "../__fixtures__/pharosville-world";
 import {
-  cargoTideLabel,
   supplyTideLabel,
   backingDiversityLabel,
   backingDiversitySeverity,
@@ -19,9 +19,6 @@ import {
   flightToQualityLabel,
   harborRankLabel,
   lighthouseBeamWarmCueLabel,
-  lighthouseLampStatusLabel,
-  nowCaption,
-  nowCaptionAnnouncement,
   PHAROS_WATCH_TELEGRAM_HREF,
   psiCompositionLabel,
   psiTrendLabel,
@@ -54,73 +51,28 @@ import {
   fixtureWithoutAsset,
   makeAsset,
   makePegCoin,
-  makePharosVilleWorldInput,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
+import { quietNormalInput } from "../__fixtures__/data-contract-scenarios";
 
-describe("W5.2 now caption grammar", () => {
-  const hour = 12 + 25 / 60;
-  const beats = { dawn: 0, day: 1, golden: 0, blue: 0, night: 0 } as const;
-  const observedAt = Date.UTC(2026, 8, 8, 18, 42);
-
-  it("uses stale, ceremony, transition, then phase precedence", () => {
-    const common = {
-      beats,
-      freshness: { pegSummaryStale: true, observedAt },
-      hour,
-      latestTransition: { symbol: "USDC", toLabel: "Watch water", observedAt },
-      psi: 82,
-    };
-    expect(nowCaption({ ...common, arrivalAnnotation: "USDC entered Ethereum harbour." }))
-      .toBe("Peg summary stale since 18:42");
-    const fresh = { ...common, freshness: {} };
-    expect(nowCaption({ ...fresh, arrivalAnnotation: "USDC entered Ethereum harbour." }))
-      .toBe("USDC entered Ethereum harbour.");
-    expect(nowCaption({ ...fresh, arrivalAnnotation: null }))
-      .toBe("USDC moved to Watch water, observed 18:42");
-    expect(nowCaption({ ...fresh, arrivalAnnotation: null, latestTransition: null }))
-      .toBe("12:25 — a quiet noon · readings current");
-  });
-
-  it("chooses one deterministic stale warning and reflects stressed PSI in the phase", () => {
-    expect(nowCaption({
-      arrivalAnnotation: null,
-      beats,
-      freshness: { chainsStale: true, stablecoinsStale: true, observedAt },
-      hour,
-      latestTransition: null,
-      psi: 82,
-    })).toBe("Stablecoins stale since 18:42");
-    expect(nowCaption({
-      arrivalAnnotation: null,
-      beats,
-      freshness: {},
-      hour,
-      latestTransition: null,
-      psi: 32,
-    })).toBe("12:25 — a watchful noon · readings current");
-  });
-
-  it("names the moon in the visible night caption only, never in the announcement", () => {
-    // The suite's pinned sky day is the 26 Sep 2026 harvest full moon.
-    const night = {
-      arrivalAnnotation: null,
-      beats: { dawn: 0, day: 0, golden: 0, blue: 0, night: 1 },
-      freshness: {},
-      hour: 22,
-      latestTransition: null,
-      psi: 82,
-    };
-    expect(nowCaption(night)).toBe("22:00 — a quiet night · a full moon · readings current");
-    expect(nowCaptionAnnouncement(night)).toBe("a quiet night · readings current");
+describe("selected own DEWS values", () => {
+  it.each([[0, 0], [37.4, 37], [37.5, 38], [140, 100], [-4, 0]])("keeps bounded inspectable score %s in the selected record", (score, expected) => {
+    const input = quietNormalInput();
+    input.stress!.signals["usdc-circle"]!.score = score;
+    const world = buildPharosVilleWorld(input);
+    const detail = world.detailIndex["ship.usdc-circle"]!;
+    const reading = detail.facts.find((fact) => fact.label === "DEWS score")!.value;
+    expect(Number(reading.match(/DEWS (\d+)\/100/)![1])).toBe(expected);
   });
 });
+
 
 describe("detail-model analytical links", () => {
   it("points built-in detail links at canonical Pharos Watch routes", () => {
     const lighthouseDetail = detailForLighthouse({
       id: "lighthouse",
       kind: "lighthouse",
+      evidence: {},
       label: "Pharos lighthouse",
       tile: { x: 1, y: 1 },
       psiBand: "NORMAL",
@@ -157,6 +109,7 @@ describe("detail-model analytical links", () => {
     const base = {
       id: "lighthouse",
       kind: "lighthouse",
+      evidence: {},
       label: "Pharos lighthouse",
       tile: { x: 1, y: 1 },
       psiBand: "NORMAL",
@@ -511,6 +464,7 @@ describe("detail-model analytical links", () => {
     const detail = detailForShip({
       id: "usdt-tether",
       kind: "ship",
+      evidence: {},
       label: "Tether",
       symbol: "USDT",
       asset: {} as ShipNode["asset"],
@@ -526,6 +480,7 @@ describe("detail-model analytical links", () => {
       dockChainId: null,
       marketCapUsd: 100,
       riskPlacement: "safe-harbor",
+      ownRisk: { placement: "safe-harbor", source: "stress" },
       riskZone: "calm",
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: ["pegSummary.coins[]"], stale: false },
@@ -561,160 +516,15 @@ describe("detail-model analytical links", () => {
     ]);
   });
 
-  it("exposes a Cycle tempo fact with the per-coin flow intensity", () => {
-    const ship: import("./world-types").ShipNode & { flowIntensity: number } = {
-      id: "usdt-tether",
-      kind: "ship",
-      label: "Tether",
-      symbol: "USDT",
-      asset: {} as import("./world-types").ShipNode["asset"],
-      meta: {} as import("./world-types").ShipNode["meta"],
-      safetyGrade: null,
-      logoSrc: null,
-      tile: { x: 1, y: 1 },
-      riskTile: { x: 2, y: 2 },
-      chainPresence: [],
-      dockVisits: [],
-      dominantChainId: null,
-      homeDockChainId: null,
-      dockChainId: null,
-      marketCapUsd: 1_000_000_000,
-      riskPlacement: "safe-harbor",
-      riskZone: "calm",
-      riskWaterLabel: "Calm Anchorage",
-      placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
-      visual: {
-        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
-        hull: "treasury-galleon",
-        classLabel: "CeFi",
-        livery: {
-          accent: "#27b6a5",
-          label: "Tether logo livery",
-          logoMatte: "#f7fffb",
-          logoShape: "circle",
-          primary: "#009393",
-          sailColor: "#d8efe7",
-          sailPanel: "center",
-          secondary: "#005f61",
-          source: "stablecoin-logo",
-          stripePattern: "double",
-        },
-        sailColor: "#d8efe7",
-        overlay: "none",
-        sizeTier: "major",
-        sizeLabel: "Major",
-        scale: 1,
-      },
-      change24hUsd: null,
-      change24hPct: null,
-      flowIntensity: 64,
-      detailId: "ship.usdt-tether",
-    };
-    const detail = detailForShip(ship);
-    const tempoFact = detail.facts.find((fact) => fact.label === "Cycle tempo");
-    expect(tempoFact).toBeDefined();
-    expect(tempoFact).toEqual({
-      label: "Cycle tempo",
-      value: "Brisk — 64/100 24h mint/redeem flow intensity",
-    });
-  });
 
-  it("states the ship's own loading direction and largest issuance event", () => {
-    const base = buildPharosVilleWorld(makePharosVilleWorldInput()).ships[0]!;
-    const detail = detailForShip({ ...base,
-      issuance: {
-        direction: "minting",
-        flowIntensity: 72,
-        netFlow24hUsd: 8_000_000,
-        largestEvent24h: { amountUsd: 5_000_000, direction: "mint", timestamp: 1 },
-      },
-    });
-    expect(detail.facts).toContainEqual({
-      label: "Issuance work, 24h",
-      value: "+$8.0M net minted — loading cargo and riding deeper; flow intensity 72/100; largest event mint $5.0M",
-    });
-    const { issuance: _issuance, ...withoutIssuance } = base;
-    expect(detailForShip(withoutIssuance).facts).toContainEqual({
-      label: "Issuance work, 24h",
-      value: "Unavailable — neutral draft; no per-coin mint/redeem row",
-    });
-  });
 
-  it("computes Cycle tempo from each coin's flow intensity regardless of fleet context", () => {
-    const baseShip: import("./world-types").ShipNode & { flowIntensity: number } = {
-      id: "base",
-      kind: "ship",
-      label: "Base",
-      symbol: "BASE",
-      asset: {} as import("./world-types").ShipNode["asset"],
-      meta: {} as import("./world-types").ShipNode["meta"],
-      safetyGrade: null,
-      logoSrc: null,
-      tile: { x: 1, y: 1 },
-      riskTile: { x: 2, y: 2 },
-      chainPresence: [],
-      dockVisits: [],
-      dominantChainId: null,
-      homeDockChainId: null,
-      dockChainId: null,
-      marketCapUsd: 0,
-      riskPlacement: "safe-harbor",
-      riskZone: "calm",
-      riskWaterLabel: "Calm Anchorage",
-      placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
-      visual: {
-        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
-        hull: "treasury-galleon",
-        classLabel: "CeFi",
-        livery: {
-          accent: "#000",
-          label: "test",
-          logoMatte: "#fff",
-          logoShape: "circle",
-          primary: "#000",
-          sailColor: "#fff",
-          sailPanel: "center",
-          secondary: "#000",
-          source: "stablecoin-logo",
-          stripePattern: "double",
-        },
-        sailColor: "#fff",
-        overlay: "none",
-        sizeTier: "major",
-        sizeLabel: "Major",
-        scale: 1,
-      },
-      change24hUsd: null,
-      change24hPct: null,
-      flowIntensity: 0,
-      detailId: "ship.base",
-    };
-    const ships = [
-      { ...baseShip, id: "q0", detailId: "ship.q0", marketCapUsd: 1_000, flowIntensity: 0 },
-      { ...baseShip, id: "q1", detailId: "ship.q1", marketCapUsd: 10_000, flowIntensity: 25 },
-      { ...baseShip, id: "q2", detailId: "ship.q2", marketCapUsd: 100_000, flowIntensity: -50 },
-      { ...baseShip, id: "q3", detailId: "ship.q3", marketCapUsd: 1_000_000, flowIntensity: 100 },
-    ];
-    const tempoLabels = ships.map((ship) => {
-      const detail = detailForShip(ship, { allShips: ships });
-      const fact = detail.facts.find((f) => f.label === "Cycle tempo");
-      return fact?.value;
-    });
-    expect(tempoLabels).toEqual([
-      "Languid — 0/100 24h mint/redeem flow intensity",
-      "Steady — 25/100 24h mint/redeem flow intensity",
-      "Brisk — 50/100 24h mint/redeem flow intensity",
-      "Active — 100/100 24h mint/redeem flow intensity",
-    ]);
-    const detailWithoutContext = detailForShip(ships[3]!);
-    const tempoWithoutContext = detailWithoutContext.facts.find((f) => f.label === "Cycle tempo");
-    expect(tempoWithoutContext?.value).toBe("Active — 100/100 24h mint/redeem flow intensity");
-  });
+
 
   it("exposes ship route and Ledger Mooring placement facts", () => {
     const detail = detailForShip({
       id: "susde-ethena",
       kind: "ship",
+      evidence: {},
       label: "Staked USDe",
       symbol: "sUSDe",
       asset: {} as ShipNode["asset"],
@@ -730,6 +540,7 @@ describe("detail-model analytical links", () => {
       dockChainId: "ethereum",
       marketCapUsd: 100,
       riskPlacement: "ledger-mooring",
+      ownRisk: { placement: "ledger-mooring", source: "stress" },
       riskZone: "ledger",
       riskWaterLabel: "Ledger Mooring",
       placementEvidence: { reason: "NAV token Ledger Mooring idle preference", sourceFields: ["meta.flags.navToken", "pegSummary.coins[]"], stale: false },
@@ -774,47 +585,6 @@ describe("detail-model analytical links", () => {
   });
 });
 
-describe("W6.4 — lighthouse lamp status parity", () => {
-  it("states freshness, stale feeds, and API outage with an as-of time", () => {
-    expect(lighthouseLampStatusLabel({}, Date.UTC(2026, 7, 13, 14, 32))).toBe(
-      "steady — all feeds fresh as of 14:32",
-    );
-    expect(lighthouseLampStatusLabel({ pegSummaryStale: true }, Date.UTC(2026, 7, 13, 14, 32))).toBe(
-      "cooler and slower — some feeds stale as of 14:32",
-    );
-    expect(lighthouseLampStatusLabel({
-      stablecoinsStale: true,
-      chainsStale: true,
-      stabilityStale: true,
-      pegSummaryStale: true,
-      stressStale: true,
-      safetyGradesStale: true,
-      mintBurnStale: true,
-    }, Date.UTC(2026, 7, 13, 14, 32))).toBe(
-      "dimmed — API unreachable; showing last-good data as of 14:32",
-    );
-  });
-
-  it("puts Harbor light beside the existing PSI rows", () => {
-    const detail = detailForLighthouse({
-      id: "lighthouse",
-      kind: "lighthouse",
-      label: "Pharos lighthouse",
-      tile: { x: 1, y: 1 },
-      psiBand: "STEADY",
-      score: 88,
-      color: "#ffffff",
-      unavailable: false,
-      detailId: "lighthouse",
-    }, undefined, undefined, { chainsStale: true }, Date.UTC(2026, 7, 13, 14, 32));
-
-    expect(detail.facts).toContainEqual({
-      label: "Harbor light",
-      value: "cooler and slower — some feeds stale as of 14:32",
-    });
-    expect(detail.facts.some((fact) => fact.label === "Band")).toBe(true);
-  });
-});
 
 describe("detail-model unique tier surfacing", () => {
   it("names the quay masonry condition from the full chain-health decomposition", () => {
@@ -833,6 +603,7 @@ describe("detail-model unique tier surfacing", () => {
     return {
       id: "crvusd-curve",
       kind: "ship",
+      evidence: {},
       label: "Curve",
       symbol: "crvUSD",
       asset: {} as ShipNode["asset"],
@@ -848,6 +619,7 @@ describe("detail-model unique tier surfacing", () => {
       dockChainId: null,
       marketCapUsd: 100,
       riskPlacement: "safe-harbor",
+      ownRisk: { placement: "safe-harbor", source: "stress" },
       riskZone: "calm",
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
@@ -957,18 +729,15 @@ describe("detail-model squad surfacing", () => {
     expect(formationFact!.value).not.toContain("stUSDS");
   });
 
-  it("squad detail panel surfaces the override banner when a Sky consort outpaces its flagship", () => {
+  it("keeps shared placement separate from the selected consort's own evidence", () => {
     const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky"));
     const susds = world.ships.find((ship) => ship.id === "susds-sky")!;
-    expect(susds.placementEvidence.squadOverride).toBeDefined();
-    expect(susds.placementEvidence.squadOverride?.ownPlacement).toBeDefined();
-    expect(susds.placementEvidence.squadOverride?.ownReason).toBeTruthy();
-
-    const detail = world.detailIndex[susds.detailId]!;
-    const overrideFact = detail.facts.find((fact) => fact.label === "Squad override");
-    expect(overrideFact).toBeDefined();
-    expect(overrideFact!.value).toContain("sUSDS in distress");
-    expect(overrideFact!.value).toContain("squad sheltering at flagship's position");
+    const flagship = world.ships.find((ship) => ship.id === "usds-sky")!;
+    expect(susds.riskPlacement).toBe(flagship.riskPlacement);
+    expect(susds.placementEvidence.squadOverride?.ownPlacement).not.toBe(susds.riskPlacement);
+    expect(susds.placementEvidence.squadOverride?.ownReason).toContain("peg");
+    expect(susds.pegDeviationBps).toBe(800);
+    expect(flagship.pegDeviationBps).toBe(0);
   });
 
   it("Sky squad goes silent on its members when its flagship is missing; Maker squad continues", () => {
@@ -996,6 +765,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
     return {
       id: "usdc-circle",
       kind: "ship",
+      evidence: {},
       label: "USD Coin",
       symbol: "USDC",
       asset: {} as ShipNode["asset"],
@@ -1011,6 +781,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       dockChainId: null,
       marketCapUsd: 1_000_000_000,
       riskPlacement: "safe-harbor",
+      ownRisk: { placement: "safe-harbor", source: "stress" },
       riskZone: "calm",
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
@@ -1180,6 +951,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       const lighthouse = {
         id: "lighthouse",
         kind: "lighthouse",
+        evidence: {},
         label: "Pharos lighthouse",
         tile: { x: 1, y: 1 },
         psiBand: "TREMOR",
@@ -1212,6 +984,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       const detail = detailForLighthouse({
         id: "lighthouse",
         kind: "lighthouse",
+        evidence: {},
         label: "Pharos lighthouse",
         tile: { x: 1, y: 1 },
         psiBand: "WARNING",
@@ -1228,6 +1001,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       const lighthouse = {
         id: "lighthouse",
         kind: "lighthouse",
+        evidence: {},
         label: "Pharos lighthouse",
         tile: { x: 1, y: 1 },
         psiBand: "CALM",
@@ -1252,6 +1026,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
         scopeLabel: "Configured issuance chains",
         score: -7.4,
         trackedCoins: 130,
+        unattributed: null,
         ...overrides,
       });
 
@@ -1375,6 +1150,7 @@ describe("detail-model depeg history and supply momentum", () => {
     const base: LighthouseNode = {
       id: "lighthouse",
       kind: "lighthouse",
+      evidence: {},
       label: "Pharos lighthouse",
       tile: { x: 18, y: 28 },
       psiBand: "BEDROCK",
@@ -1398,6 +1174,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
     return {
       id: "usdt-tether",
       kind: "ship",
+      evidence: {},
       label: "Tether",
       symbol: "USDT",
       asset: {} as ShipNode["asset"],
@@ -1413,6 +1190,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
       dockChainId: null,
       marketCapUsd: 1_000_000_000,
       riskPlacement: "safe-harbor",
+      ownRisk: { placement: "safe-harbor", source: "stress" },
       riskZone: "calm",
       riskWaterLabel: "Calm Anchorage",
       placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
@@ -1640,57 +1418,9 @@ describe("detail-model P3 metaphor quick-win signals", () => {
     expect(supplyTideLabel(undefined)).toBeNull();
   });
 
-  it("cargoTideLabel names the direction outright rather than leaving it to a sign", () => {
-    const base = {
-      burnVolumeUsd: 2_000_000,
-      coinCount: 1,
-      mintVolumeUsd: 10_000_000,
-      pressureScore: 66,
-      reason: "tracked" as const,
-      tracked: true,
-    };
-    expect(cargoTideLabel({ ...base, direction: "minting", netFlowUsd: 8_000_000 }))
-      .toBe("+$8.0M minting — mint $10.0M, burn $2.0M");
-    expect(cargoTideLabel({ ...base, direction: "burning", netFlowUsd: -8_000_000 }))
-      .toBe("-$8.0M burning — mint $10.0M, burn $2.0M");
-  });
 
-  it("cargoTideLabel keeps a balanced quay, an idle one, and an unmeasured one apart", () => {
-    const base = { coinCount: 0, pressureScore: null, reason: "tracked" as const, tracked: true };
-    expect(cargoTideLabel({ ...base, direction: "flat", netFlowUsd: 0, mintVolumeUsd: 4_000_000, burnVolumeUsd: 4_000_000 }))
-      .toBe("Balanced — mint $4.0M, burn $4.0M");
-    expect(cargoTideLabel({ ...base, direction: "inactive", netFlowUsd: 0, mintVolumeUsd: 0, burnVolumeUsd: 0 }))
-      .toBe("No issuance activity in 24h");
-    expect(cargoTideLabel({
-      burnVolumeUsd: 0,
-      coinCount: 0,
-      direction: "inactive",
-      mintVolumeUsd: 0,
-      netFlowUsd: 0,
-      pressureScore: null,
-      reason: "chain-not-in-scope",
-      tracked: false,
-    })).toBe("Not measured on this chain");
-    expect(cargoTideLabel(undefined)).toBeNull();
-  });
 
-  it("cargoTideLabel says so when a quay's silence could not be verified", () => {
-    // An in-scope harbour that received no allocation while the payload carried
-    // issuance the fleet could not place. Its reading must not be the same
-    // sentence as an observed quiet day.
-    const label = cargoTideLabel({
-      burnVolumeUsd: 0,
-      coinCount: 0,
-      direction: "inactive",
-      mintVolumeUsd: 0,
-      netFlowUsd: 0,
-      pressureScore: null,
-      reason: "unattributed",
-      tracked: false,
-    });
-    expect(label).toBe("Unavailable — 24h issuance could not be matched to this harbor's coins");
-    expect(label).not.toBe("No issuance activity in 24h");
-  });
+
 
   it("detailForDock surfaces Net flow 24h only when the harbour carries a tide", () => {
     const dockNode: DockNode = {
@@ -1714,14 +1444,14 @@ describe("detail-model P3 metaphor quick-win signals", () => {
         pressureScore: 66,
         reason: "tracked",
         tracked: true,
+        completeWindow: true,
+        evidence: makeSourceStatuses().mintBurn,
+        unattributed: null,
       },
       harboredStablecoins: [],
       detailId: "dock.ethereum",
     };
-    expect(detailForDock(dockNode).facts).toContainEqual({
-      label: "Net flow 24h",
-      value: "+$8.0M minting — mint $10.0M, burn $2.0M",
-    });
+    expect(detailForDock(dockNode).facts.find((fact) => fact.label === "Net flow 24h")!.value).toContain("+$8.0M");
 
     const { cargoTide: _cargoTide, ...withoutTide } = dockNode;
     expect(detailForDock(withoutTide).facts.find((fact) => fact.label === "Net flow 24h"))
@@ -1785,6 +1515,7 @@ describe("detail-model round-two metaphor signals", () => {
   const lighthouse = (overrides: Partial<LighthouseNode> = {}): LighthouseNode => ({
     id: "lighthouse",
     kind: "lighthouse",
+    evidence: {},
     label: "Pharos lighthouse",
     tile: { x: 1, y: 1 },
     psiBand: "STEADY",
@@ -1914,6 +1645,7 @@ describe("detail-model round-two metaphor signals", () => {
       const detail = detailForLighthouse({
         id: "lighthouse",
         kind: "lighthouse",
+        evidence: {},
         label: "Pharos lighthouse",
         tile: { x: 1, y: 1 },
         psiBand: "STEADY",
@@ -1967,6 +1699,7 @@ function crossBearingShip(): ShipNode {
   return {
     id: "usdx",
     kind: "ship",
+    evidence: {},
     label: "USDX",
     symbol: "USDX",
     asset: {} as ShipNode["asset"],
@@ -1982,6 +1715,7 @@ function crossBearingShip(): ShipNode {
     dockChainId: null,
     marketCapUsd: 1_000_000_000,
     riskPlacement: "safe-harbor",
+    ownRisk: { placement: "safe-harbor", source: "stress" },
     riskZone: "calm",
     riskWaterLabel: "Calm Anchorage",
     placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },

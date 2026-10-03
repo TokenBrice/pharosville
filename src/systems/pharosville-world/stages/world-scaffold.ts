@@ -20,6 +20,7 @@ import {
   riskWaterAreaForPlacement,
 } from "../../risk-water-areas";
 import { countShipsByRiskPlacement } from "./ship-placement";
+import { observationEpochMs, rowSourceEvidence } from "../../source-evidence";
 import type {
   DewsAreaBand,
   DockNode,
@@ -27,6 +28,7 @@ import type {
   LighthouseHighWaterMark,
   LighthouseNode,
   PharosVilleWorld,
+  PharosVilleSourceStatus,
   PigeonnierNode,
   ShipNode,
   SignalMastNode,
@@ -59,6 +61,8 @@ export function resolveGeneratedAt(inputs: PharosVilleInputs): number | null {
     inputs.pegSummary?.methodology?.asOf,
     inputs.stress?.updatedAt,
     inputs.safetyGrades?.updatedAt,
+    inputs.mintBurn?.updatedAt,
+    ...Object.values(inputs.freshness).map((status) => status.publishedAt),
   ]
     .map(toEpochMs)
     .filter((value): value is number => value !== null);
@@ -140,6 +144,7 @@ function buildLighthouse(
   pegSummary: PharosVilleInputs["pegSummary"],
   stablecoins: PharosVilleInputs["stablecoins"],
   deaths: readonly LongRecordDeath[],
+  source: PharosVilleSourceStatus,
 ): LighthouseNode {
   const current = stability?.current ?? null;
   const band = current?.band ?? null;
@@ -148,6 +153,14 @@ function buildLighthouse(
   const avg24hBand = nonEmptyString(current?.avg24hBand);
   const contributors = lighthouseContributors(current);
   const beamDwell = buildBeamDwell(contributors);
+  const degraded = current?.inputDegradation?.dewsUnavailable || current?.inputDegradation?.depegEventsUnavailable;
+  const psiEvidence = rowSourceEvidence("stability", degraded ? { ...source, state: "stale", reason: "PSI inputs degraded" } : source, {
+    available: !!current && isConditionBand(band),
+    observedAt: observationEpochMs(current?.computedAt),
+    methodologyVersion: current?.methodologyVersion ?? null,
+    coverage: { state: current ? "complete" : "unknown" },
+    reason: current ? null : "PSI reading missing",
+  });
   return {
     id: "lighthouse",
     kind: "lighthouse",
@@ -161,6 +174,8 @@ function buildLighthouse(
     ...(contributors ? { contributors } : {}),
     color: isConditionBand(band) ? PSI_HEX_COLORS[band] : "#8aa0a6",
     unavailable: !current || !isConditionBand(band),
+    evidence: { stability: psiEvidence },
+    ...(current?.inputDegradation ? { inputDegradation: current.inputDegradation } : {}),
     detailId: "lighthouse",
     lastFleetDepegAt: lastFleetDepegAt(pegSummary),
     signalMast: buildSignalMast(pegSummary, stablecoins),
@@ -518,7 +533,7 @@ export function buildWorldScaffoldStage(inputs: PharosVilleInputs): BuildWorldSc
   return {
     supplyTide: buildSupplyTide(chains),
     map: buildPharosVilleMap(),
-    lighthouse: buildLighthouse(inputs.stability, inputs.pegSummary, inputs.stablecoins, cemetery),
+    lighthouse: buildLighthouse(inputs.stability, inputs.pegSummary, inputs.stablecoins, cemetery, inputs.freshness.stability),
     pigeonnier: buildPigeonnier(),
     docks,
     areas: buildAreas(countShipsByRiskPlacement(inputs, docks)),

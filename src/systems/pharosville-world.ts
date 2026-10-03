@@ -23,6 +23,7 @@ export function buildPharosVilleWorld(inputs: PharosVilleInputs): PharosVilleWor
     scaffold.docks,
     dockAssignmentStage.ships,
     inputs.mintBurn,
+    inputs.freshness.mintBurn,
   );
   const pigeonnier = {
     ...scaffold.pigeonnier,

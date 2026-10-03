@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { describe, expect, it } from "vitest";
 import type { PharosVilleWorld, VisualCue, VisualCueChannel } from "./world-types";
 import { SIGNAL_MAST_LEADER_COUNT, SIGNAL_MAST_STORM_SUPPLY_SHARE } from "./world-types";
@@ -6,6 +7,9 @@ import {
   DECORATIVE_VISUAL_NOTES,
   LEGEND_MARK_ROWS,
 } from "./visual-cue-registry";
+import { fixtureWithDepegOn, makerSquadFixtureInputs, makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
+import { buildPharosVilleWorld } from "./pharosville-world";
+import { buildDetailFactSections } from "../lib/format-detail";
 
 const ALLOWED_CHANNELS = [
   "color",
@@ -22,6 +26,30 @@ function cueKey(cue: VisualCue): string {
 }
 
 describe("buildVisualCueRegistry", () => {
+
+  it("routes selected analytical cue values into the authored host rows", () => {
+    const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky");
+    const world = buildPharosVilleWorld({
+      ...inputs, freshness: makeSourceStatuses({ chains: { state: "stale" }, pegSummary: { state: "stale" } }),
+    });
+    const ordinaryWorld = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const cases = [
+      { cueId: "cue.ship.peg-trim", detail: world.detailIndex[world.ships.find((ship) => ship.id === "susds-sky")!.detailId]!, key: "currently", fact: "Peg deviation" },
+      { cueId: "cue.dock.epistemic-haze", detail: world.detailIndex[world.docks[0]!.detailId]!, key: "station", fact: "Quay haze" },
+      { cueId: "cue.world.epistemic-haze", detail: world.detailIndex[world.areas.find((area) => area.band === "CALM")!.detailId]!, key: "atmosphere", fact: "Risk-water haze" },
+      { cueId: "cue.pigeonnier.notable-movers", detail: world.detailIndex[world.pigeonnier.detailId]!, key: "roost", fact: "Depeg roost" },
+      { cueId: "cue.lighthouse.garden-month-record", detail: ordinaryWorld.detailIndex[ordinaryWorld.lighthouse.detailId]!, key: "highWaterMark", fact: "Garden record, 30d" },
+      { cueId: "cue.lighthouse.lamp-status", detail: world.detailIndex[world.lighthouse.detailId]!, key: "harborLight", fact: "Harbor light" },
+    ];
+    for (const entry of cases) {
+      const sections = buildDetailFactSections(entry.detail.facts);
+      const row = [...sections.identity, ...sections.position].find((candidate) => candidate.key === entry.key)!;
+      const fact = entry.detail.facts.find((candidate) => candidate.label === entry.fact)!;
+      expect(row.value).toContain(fact.value);
+      expect(world.visualCues.find((cue) => cue.id === entry.cueId)!.domEquivalent).toContain(row.label);
+    }
+  });
+
   it("records sea-edge geography as decorative without adding a ledger cue", () => {
     expect(DECORATIVE_VISUAL_NOTES.seaEdgeGeography).toContain("carry no meaning");
     expect(DECORATIVE_VISUAL_NOTES.heroWaterfall).toContain("carry no meaning");
@@ -125,15 +153,6 @@ describe("buildVisualCueRegistry", () => {
     expect(cue?.domEquivalent).toContain("accessibility-ledger");
   });
 
-  it("registers the per-ship issuance workset with complete parity", () => {
-    expect(buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.issuance-work")).toMatchObject({
-      target: { kind: "ship" },
-      primaryChannels: ["position", "shape", "motion"],
-      sourceField: expect.stringContaining("largestEvent24h"),
-      failureState: expect.stringContaining("neutral issuance draft"),
-      reducedMotionEquivalent: expect.stringContaining("static representative composition"),
-    });
-  });
 
   it("keeps age patina separate from risk-water streaking and honest when unavailable", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.age-patina");

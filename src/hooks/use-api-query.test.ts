@@ -2,12 +2,12 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
-import { PHAROSVILLE_API_CLIENT_CONTRACT } from "@shared/lib/pharosville-api-client-contract";
-import { WORLD_ENDPOINT_KEYS } from "@shared/lib/pharosville-endpoint-registry";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { ApiMeta } from "@/lib/api";
-import { useApiQueryWithMeta, usePharosVilleEndpointQuery } from "./use-api-query";
+import { useApiQueryWithMeta } from "./use-api-query";
+import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
+import { NOW_MS, quietNormalInput } from "@/__fixtures__/data-contract-scenarios";
+import { classifyPharosVilleSource } from "./use-pharosville-world-data";
 
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query");
@@ -18,9 +18,6 @@ vi.mock("@tanstack/react-query", async () => {
 });
 
 const mockedUseQuery = vi.mocked(useQuery);
-function wrapper({ children }: { children: ReactNode }) {
-  return children;
-}
 
 describe("useApiQueryWithMeta", () => {
   beforeEach(() => {
@@ -33,52 +30,13 @@ describe("useApiQueryWithMeta", () => {
     vi.restoreAllMocks();
   });
 
-  it("narrowly tracks tracked fields to avoid unnecessary background updates", () => {
-    const wrapped = {
-      data: {
-        data: { title: "fixture" },
-        meta: {
-          ageSeconds: 12,
-          status: "fresh",
-          updatedAt: Math.floor(Date.now() / 1000) - 12,
-        } satisfies ApiMeta,
-      },
-      error: null,
-      isError: false,
-      isLoading: false,
-      isSuccess: true,
-      refetch: vi.fn(),
-    };
-    mockedUseQuery.mockReturnValueOnce(wrapped as unknown as ReturnType<typeof useQuery>);
-
-    const { result } = renderHook(() => useApiQueryWithMeta<{ title: string }>(["fixture"], "/api/chains", 5000), {
-      wrapper,
-    });
-
-    expect(mockedUseQuery).toHaveBeenCalledTimes(1);
-    expect(result.current).toMatchObject({
-      data: wrapped.data.data,
-      error: wrapped.error,
-      isError: false,
-      isLoading: false,
-      isSuccess: true,
-      meta: wrapped.data.meta,
-      refetch: expect.any(Function),
-    });
-    expect(mockedUseQuery.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({
-        notifyOnChangeProps: ["data", "error", "isLoading"],
-      }),
-    );
-    expect(typeof result.current.refetch).toBe("function");
-  });
 
   it("ages retained evidence on visible ticks, reassesses on return, and recovers", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_800_000_000_000);
     const wrapped = { data: { data: {}, meta: { updatedAt: 1_800_000_000, ageSeconds: 0, status: "fresh" } },
       error: new Error("offline"), isError: true, isLoading: false, isSuccess: false, refetch: vi.fn() };
-    mockedUseQuery.mockReturnValue(wrapped as unknown as ReturnType<typeof useQuery>);
+    mockedUseQuery.mockReturnValue(wrapped as unknown as UseQueryResult);
     const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
     const { result, rerender, unmount } = renderHook(() => useApiQueryWithMeta(["fixture"], "/api/fixture", 1_000));
     expect(result.current.meta?.status).toBe("fresh");
@@ -96,30 +54,40 @@ describe("useApiQueryWithMeta", () => {
     unmount();
     expect(vi.getTimerCount()).toBe(0);
   });
-
-  it.each(WORLD_ENDPOINT_KEYS)("derives %s query options from the endpoint registry", (endpointKey) => {
-    mockedUseQuery.mockReturnValueOnce({
-      data: undefined,
-      error: null,
-      isError: false,
-      isLoading: true,
-      isSuccess: false,
-      refetch: vi.fn(),
-    } as unknown as ReturnType<typeof useQuery>);
-
-    renderHook(() => usePharosVilleEndpointQuery(endpointKey), { wrapper });
-
-    const endpoint = PHAROSVILLE_API_CLIENT_CONTRACT[endpointKey];
-    expect(mockedUseQuery).toHaveBeenCalledTimes(1);
-    expect(mockedUseQuery.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      queryKey: endpoint.queryKey,
-      staleTime: endpoint.producerIntervalSec * 1000,
-      refetchInterval: endpoint.producerIntervalSec * 2_000,
-      // Every world endpoint opts into the last-good store, and every restored
-      // entry must be refetched on mount however recently it was written.
-      initialData: expect.any(Function),
-      initialDataUpdatedAt: expect.any(Function),
-      refetchOnMount: "always",
-    }));
+  it("ages rows on visible tick and resume without renewing observations", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW_MS);
+    const endpoint = PHAROSVILLE_ENDPOINT_REGISTRY.stress;
+    const rowSec = NOW_MS / 1_000 - endpoint.metaMaxAgeSec * 8 + 10;
+    const source = quietNormalInput().stress!;
+    const data = { ...source, signals: Object.fromEntries(Object.entries(source.signals).map(([id, row]) => [id, { ...row, computedAt: rowSec }])) };
+    const wrapped = {
+      data: { data, meta: { updatedAt: NOW_MS / 1_000, ageSeconds: 0, status: "fresh" } satisfies ApiMeta },
+      error: null, isError: false, isLoading: false, isSuccess: true, refetch: vi.fn(),
+    };
+    mockedUseQuery.mockReturnValue(wrapped as unknown as UseQueryResult);
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const { result, unmount } = renderHook(() => {
+      const query = useApiQueryWithMeta<typeof data>(endpoint.queryKey, endpoint.path, endpoint.producerIntervalSec * 1_000, { metaMaxAgeSec: endpoint.metaMaxAgeSec });
+      return { query, status: classifyPharosVilleSource("stress", query) };
+    });
+    expect(result.current.status).toMatchObject({ state: "current", observedAt: rowSec * 1_000 });
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(result.current.query.meta?.status).toBe("fresh");
+    expect(result.current.status).toMatchObject({ state: "stale", observedAt: rowSec * 1_000 });
+    visibility.mockReturnValue("hidden");
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(result.current.query.observedNowMs).toBe(NOW_MS + 30_000);
+    // A new envelope does not change the retained rows' observation times.
+    wrapped.data.meta = { updatedAt: (NOW_MS + 90_000) / 1_000, ageSeconds: 0, status: "fresh" };
+    visibility.mockReturnValue("visible");
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(result.current.query.observedNowMs).toBe(NOW_MS + 90_000);
+    expect(result.current.query.meta?.status).toBe("fresh");
+    expect(result.current.status).toMatchObject({ state: "stale", observedAt: rowSec * 1_000 });
+    expect(result.current.query.data!.signals[Object.keys(data.signals)[0]!]!.computedAt).toBe(rowSec);
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
+
 });

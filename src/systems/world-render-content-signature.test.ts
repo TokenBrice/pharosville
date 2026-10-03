@@ -3,6 +3,7 @@ import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import type { PharosVilleWorld } from "./world-types";
 import { worldRenderContentSignature } from "./world-render-content-signature";
+import { SCENARIOS } from "../__fixtures__/data-contract-scenarios";
 
 describe("worldRenderContentSignature", () => {
   it("ignores refresh metadata and detail-only records", () => {
@@ -11,7 +12,7 @@ describe("worldRenderContentSignature", () => {
       ...world,
       detailIndex: { ...world.detailIndex },
       entityById: { ...world.entityById },
-      freshness: { ...world.freshness, stablecoinsStale: !world.freshness.stablecoinsStale },
+      freshness: { ...world.freshness, stablecoins: { ...world.freshness.stablecoins, state: "stale" } },
       generatedAt: (world.generatedAt ?? 0) + 60_000,
       visualCues: [...world.visualCues],
     };
@@ -93,22 +94,52 @@ describe("worldRenderContentSignature", () => {
   });
 
   it("changes when a ship's baked issuance work changes", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
-    const subject = world.ships[0]!;
+    const world = buildPharosVilleWorld(structuredClone(SCENARIOS.largeMint));
+    const subject = world.ships.find((ship) => ship.id === "usdc-circle")!;
     const changed: PharosVilleWorld = {
       ...world,
       ships: world.ships.map((ship) => ship.id === subject.id
         ? {
             ...ship,
-            issuance: {
-              direction: "redeeming",
-              flowIntensity: -80,
-              netFlow24hUsd: -9_000_000,
-              largestEvent24h: null,
-            },
+            issuance: { ...ship.issuance!, activity: "redeeming", direction: "redeeming", netFlow24hUsd: -9_000_000 },
           }
         : ship),
     };
     expect(worldRenderContentSignature(changed)).not.toBe(worldRenderContentSignature(world));
+  });
+
+  it("provenance-only change keeps the signature", () => {
+    const world = buildPharosVilleWorld(structuredClone(SCENARIOS.largeBalancedGross));
+    const refreshed: PharosVilleWorld = {
+      ...world,
+      ships: world.ships.map((ship) => ship.issuance ? { ...ship, issuance: {
+        ...ship.issuance, evidence: { ...ship.issuance.evidence, publishedAt: 1_700_000_060_000 },
+      } } : ship),
+      docks: world.docks.map((dock) => ({ ...dock, cargoTide: {
+        ...dock.cargoTide!, evidence: { ...dock.cargoTide!.evidence, publishedAt: 1_700_000_060_000 },
+      } })),
+    };
+    expect(worldRenderContentSignature(refreshed)).toBe(worldRenderContentSignature(world));
+    const held = {
+      ...refreshed, ships: refreshed.ships.map((ship) => ship.issuance ? { ...ship, issuance: {
+        ...ship.issuance, evidence: { ...ship.issuance.evidence, state: "stale" as const },
+      } } : ship),
+    };
+    expect(worldRenderContentSignature(held)).not.toBe(worldRenderContentSignature(world));
+  });
+
+  it("updates moving-work eligibility without replaying within-policy amount changes", () => {
+    const world = buildPharosVilleWorld(structuredClone(SCENARIOS.largeMint));
+    const input = structuredClone(SCENARIOS.largeMint);
+    Object.assign(input.mintBurn!.coins[0]!, { mintVolume24hUsd: 110_000_000, netFlow24hUsd: 110_000_000 });
+    const refreshed = buildPharosVilleWorld(input);
+    expect(worldRenderContentSignature(refreshed)).toBe(worldRenderContentSignature(world));
+    const small = buildPharosVilleWorld(structuredClone(SCENARIOS.oneDollarNet));
+    const active = world.ships.find((ship) => ship.id === "usdc-circle")!;
+    const reduced = {
+      ...world, ships: world.ships.map((ship) => ship.id === active.id
+        ? { ...ship, issuance: small.ships.find((entry) => entry.id === active.id)!.issuance! } : ship),
+    };
+    expect(worldRenderContentSignature(reduced)).not.toBe(worldRenderContentSignature(world));
   });
 });

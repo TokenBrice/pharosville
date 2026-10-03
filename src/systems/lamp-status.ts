@@ -1,19 +1,12 @@
+import { PHAROSVILLE_API_ENDPOINT_KEYS } from "@shared/types/pharosville-endpoint-keys";
 import type { PharosVilleFreshness } from "./world-types";
 
-/**
- * The endpoint groups that make up the harbour's single liveness reading.
- * An omitted flag is not evidence of a failed feed, so it remains fresh until
- * the query layer can prove that the corresponding last-good copy is stale.
- */
-export const LAMP_FRESHNESS_KEYS = [
-  "stablecoinsStale",
-  "chainsStale",
-  "stabilityStale",
-  "pegSummaryStale",
-  "stressStale",
-  "safetyGradesStale",
-  "mintBurnStale",
-] as const satisfies readonly (keyof PharosVilleFreshness)[];
+/** Currentness never certifies unknown or partial measurement coverage. */
+export function hasCompleteCurrentSources(freshness: PharosVilleFreshness): boolean {
+  return PHAROSVILLE_API_ENDPOINT_KEYS.every((key) => (
+    freshness[key].state === "current" && freshness[key].coverage.state === "complete"
+  ));
+}
 
 export type LampStatus = "fresh" | "stale" | "unreachable";
 
@@ -30,13 +23,14 @@ export interface LampStatusHysteresisState {
 }
 
 /** The raw, stateless fold used by the hysteresis state machine. */
-export function deriveLampStatus(freshness: PharosVilleFreshness): LampStatus {
-  const staleCount = LAMP_FRESHNESS_KEYS.reduce(
-    (count, key) => count + (freshness[key] === true ? 1 : 0),
-    0,
-  );
-  if (staleCount === LAMP_FRESHNESS_KEYS.length) return "unreachable";
-  return staleCount > 0 ? "stale" : "fresh";
+export function deriveLampStatus(freshness?: PharosVilleFreshness): LampStatus {
+  if (!freshness) return "stale";
+  // Old but reachable samples are held, not proof that the API is unreachable.
+  if (PHAROSVILLE_API_ENDPOINT_KEYS.every((key) => (
+    (freshness[key].state === "stale" || freshness[key].state === "unavailable")
+      && /^(Fetch|Refresh) failed:/.test(freshness[key].reason ?? "")
+  ))) return "unreachable";
+  return hasCompleteCurrentSources(freshness) ? "fresh" : "stale";
 }
 
 /** Start from the current reading; only later observations are hysteretic. */
@@ -137,7 +131,7 @@ export function lampStatusModulationForMix(
 export function lampStatusReading(status: LampStatus): string {
   switch (status) {
     case "fresh": return "steady — all feeds fresh";
-    case "stale": return "cooler and slower — some feeds stale";
+    case "stale": return "cooler and slower — readings held, missing or coverage qualified";
     case "unreachable": return "dimmed — API unreachable; showing last-good data";
   }
 }

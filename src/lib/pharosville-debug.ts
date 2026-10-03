@@ -24,7 +24,7 @@ let cachedVisualDebugAllowed: boolean | null = null;
  */
 export function isVisualDebugAllowed(): boolean {
   if (cachedVisualDebugAllowed === null) {
-    cachedVisualDebugAllowed = !import.meta.env.PROD
+    cachedVisualDebugAllowed = !import.meta.env?.PROD
       || (typeof window !== "undefined"
         && (window.location.hostname === "localhost"
           || window.location.hostname === "127.0.0.1"));
@@ -68,6 +68,9 @@ export function isKnockedOut(pass: PharosVilleKnockoutPass): boolean {
 export interface DebugDirectorAdmission {
   id: string;
   kind: string;
+  rowType: "admission" | "ritual-start" | "forced-motion";
+  foreground: boolean;
+  clockDomain: "epoch" | "motion";
   priority: number;
   /** `Date.now()` when the director admitted the beat. */
   admittedAtWallMs: number;
@@ -98,6 +101,9 @@ export function recordDebugDirectorAdmission(beat: {
   id: string;
   kind: string;
   priority: number;
+  foreground: boolean;
+  rowType?: "admission" | "forced-motion";
+  clockDomain?: "epoch" | "motion";
   startSeconds: number;
   durationSeconds: number;
   subject?: string;
@@ -107,11 +113,22 @@ export function recordDebugDirectorAdmission(beat: {
     id: beat.id,
     kind: beat.kind,
     priority: beat.priority,
+    rowType: beat.rowType ?? "admission",
+    foreground: beat.foreground,
+    clockDomain: beat.clockDomain ?? "epoch",
     admittedAtWallMs: Date.now(),
     startSeconds: beat.startSeconds,
     endSeconds: beat.startSeconds + beat.durationSeconds,
     ...(beat.subject === undefined ? {} : { subject: beat.subject }),
   });
+}
+
+/** Preemption changes diagnostics only, never the director's arbitration/budget history. */
+export function endDebugDirectorAdmission(beat: { id: string; startSeconds: number }, endSeconds: number): void {
+  if (!isVisualDebugAllowed()) return;
+  const row = directorAdmissions.findLast((entry) => entry.rowType === "admission"
+    && entry.id === beat.id && entry.startSeconds === beat.startSeconds);
+  if (row) row.endSeconds = Math.min(row.endSeconds, endSeconds);
 }
 
 /** W5.1: one row per ritual start (scored or forced), beside the admissions. */
@@ -129,6 +146,10 @@ export function recordDebugRitual(event: {
   pushDirectorRow({
     id: event.id,
     kind: event.kind,
+    rowType: "ritual-start",
+    foreground: directorAdmissions.findLast((row) => row.rowType === "admission"
+      && row.subject === event.id)?.foreground ?? false,
+    clockDomain: "epoch",
     priority: 30,
     admittedAtWallMs: Date.now(),
     startSeconds: event.directorSeconds,

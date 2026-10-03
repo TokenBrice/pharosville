@@ -1,4 +1,6 @@
 "use client";
+import { PHAROSVILLE_API_ENDPOINT_KEYS } from "@shared/types/pharosville-endpoint-keys";
+import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AccessibilityLedger, type ShipRiskTransitionEntry } from "./components/accessibility-ledger";
@@ -235,7 +237,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     if (lastAnnouncement?.key === currentSnapshot.key) return;
 
     const now = Date.now();
-    const freshnessChanged = previousSnapshot.staleSourceKey !== currentSnapshot.staleSourceKey;
+    const freshnessChanged = previousSnapshot.sourceStateKey !== currentSnapshot.sourceStateKey;
     if (
       !freshnessChanged
       && lastAnnouncement
@@ -309,16 +311,12 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectedDetailId,
     world,
   }), [riskTransitionByShipId, selectedDetailId, world]);
-  const harborLog = useHarborLog({ riskTransitionByShipId, shipsById, observedAt: world.generatedAt });
+  const harborLog = useHarborLog({ world });
   const captionHour = Math.floor(timeControls.wallClockHour * 60) / 60;
   const captionBeats = useMemo(
     () => dayCycleBeats(captionHour),
     [captionHour],
   );
-  const captionFreshness = useMemo(() => ({
-    ...world.freshness,
-    observedAt: world.generatedAt,
-  }), [world.freshness, world.generatedAt]);
 
   // Refs that mirror frequently-changing state so hook-internal effects/RAF can
   // read the latest values without rebinding on every hover/select/motionPlan
@@ -635,6 +633,9 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
           durationSeconds: token.endSeconds - token.startSeconds,
           id: `crossing-voyage:${token.shipId}:${Math.round(token.startSeconds)}`,
           kind: "crossing-voyage",
+          rowType: "forced-motion",
+          foreground: false,
+          clockDomain: "motion",
           priority: 0,
           startSeconds: token.startSeconds,
           subject: token.shipId,
@@ -1174,7 +1175,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const stayCaptionLive = useStayCaptionSurfacing({
     beats: captionBeats,
     captionHour,
-    eventLive: Object.values(world.freshness).some((stale) => stale === true)
+    eventLive: PHAROSVILLE_API_ENDPOINT_KEYS.some((key) => world.freshness[key].state !== "current")
       || arrivalAnnotationText !== null
       || harborLog.current !== null
       || visitorLine !== null,
@@ -1298,7 +1299,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
               arrivalAnnotation={arrivalAnnotationText}
               beats={captionBeats}
               visitorLine={visitorLine}
-              freshness={captionFreshness}
+              freshness={world.freshness}
               hour={captionHour}
               latestTransition={harborLog.current}
               psi={world.lighthouse.score}
@@ -1387,23 +1388,13 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
 // is stable. Pairs with the structural-compare cache in `pharosville-desktop-data.tsx`.
 export const PharosVilleWorld = memo(PharosVilleWorldInner);
 
-type FreshnessKey = keyof PharosVilleWorldModel["freshness"];
-
 interface WorldDataRefreshSnapshot {
   generatedAt: number | null;
   key: string;
-  staleSourceKey: string;
-  staleSourceLabels: readonly string[];
+  sourceStateKey: string;
+  qualifiedSourceLabels: readonly string[];
 }
 
-const FRESHNESS_LABELS: ReadonlyArray<readonly [FreshnessKey, string]> = [
-  ["stablecoinsStale", "stablecoins"],
-  ["chainsStale", "chains"],
-  ["stabilityStale", "PSI"],
-  ["pegSummaryStale", "peg summary"],
-  ["stressStale", "stress signals"],
-  ["safetyGradesStale", "safety grades"],
-];
 
 /** True for anything the visitor could be typing into, where `/` is a slash. */
 function isTextEntryTarget(target: EventTarget | null): boolean {
@@ -1413,15 +1404,18 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
 }
 
 function worldDataRefreshSnapshot(world: PharosVilleWorldModel): WorldDataRefreshSnapshot {
-  const staleSourceLabels = FRESHNESS_LABELS
-    .filter(([key]) => world.freshness[key] === true)
-    .map(([, label]) => label);
-  const staleSourceKey = staleSourceLabels.join("|");
+  const qualifiedSourceLabels = PHAROSVILLE_API_ENDPOINT_KEYS
+    .filter((key) => world.freshness[key].state !== "current" || world.freshness[key].coverage.state !== "complete")
+    .map((key) => PHAROSVILLE_ENDPOINT_REGISTRY[key].label);
+  const sourceStateKey = PHAROSVILLE_API_ENDPOINT_KEYS.map((key) => {
+    const status = world.freshness[key];
+    return `${key}:${status.state}:${status.coverage.state}`;
+  }).join("|");
   return {
     generatedAt: world.generatedAt,
-    key: `${world.generatedAt}|${staleSourceKey}`,
-    staleSourceKey,
-    staleSourceLabels,
+    key: `${world.generatedAt}|${sourceStateKey}`,
+    sourceStateKey,
+    qualifiedSourceLabels,
   };
 }
 
@@ -1430,21 +1424,21 @@ function worldDataRefreshAnnouncement(
   current: WorldDataRefreshSnapshot,
 ): string | null {
   const generatedAtChanged = previous.generatedAt !== current.generatedAt;
-  const freshnessChanged = previous.staleSourceKey !== current.staleSourceKey;
+  const freshnessChanged = previous.sourceStateKey !== current.sourceStateKey;
   if (!generatedAtChanged && !freshnessChanged) return null;
 
-  const previousStaleSources = new Set(previous.staleSourceLabels);
-  const currentStaleSources = new Set(current.staleSourceLabels);
-  const newlyStale = current.staleSourceLabels.filter((label) => !previousStaleSources.has(label));
-  const restored = previous.staleSourceLabels.filter((label) => !currentStaleSources.has(label));
+  const previousQualifiedSources = new Set(previous.qualifiedSourceLabels);
+  const currentQualifiedSources = new Set(current.qualifiedSourceLabels);
+  const newlyQualified = current.qualifiedSourceLabels.filter((label) => !previousQualifiedSources.has(label));
+  const restored = previous.qualifiedSourceLabels.filter((label) => !currentQualifiedSources.has(label));
   let leadingClause = "Harbor data updated";
   const clauses: string[] = [];
 
-  if (newlyStale.length > 0) {
-    clauses.push(`Stale source groups: ${formatAnnouncementList(newlyStale)}`);
+  if (newlyQualified.length > 0) {
+    clauses.push(`Qualified source groups: ${formatAnnouncementList(newlyQualified)}`);
   }
   if (restored.length > 0) {
-    clauses.push(`Fresh source groups restored: ${formatAnnouncementList(restored)}`);
+    clauses.push(`Complete current source groups restored: ${formatAnnouncementList(restored)}`);
   }
   if (!freshnessChanged) {
     const generatedAtText = formatGeneratedAtForAnnouncement(current.generatedAt);

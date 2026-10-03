@@ -98,8 +98,18 @@ export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
   const size = new Vector2();
   const anchor = new Vector3();
   const clearColor = new Color();
+  const capturedWorld = new Matrix4();
+  const capturedProjection = new Matrix4();
   let rendered = false;
   let owner: Object3D | null = null;
+  let sceneRevision = 0;
+  let capturedRevision = -1;
+  let capturedReducedMotion = false;
+  let capturedBufferWidth = 0;
+  let capturedBufferHeight = 0;
+  let capturedDpr = 0;
+  let capturedWidth = 0;
+  let capturedHeight = 0;
   const uniforms = {
     uHeroReflection: { value: target.texture },
     uHeroReflectionMatrix: { value: matrix },
@@ -112,13 +122,11 @@ export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
   return {
     uniforms,
     getReflectionTexture: () => target.texture,
+    invalidate() {
+      sceneRevision += 1;
+    },
     render(scene: Scene, main: PerspectiveCamera, island: Object3D, tower: Object3D, reducedMotion: boolean) {
       if (knockedOut) return;
-      if (owner !== island) {
-        owner = island;
-        rendered = false;
-      }
-      if (reducedMotion && rendered) return;
       main.updateWorldMatrix(true, false);
       tower.getWorldPosition(anchor);
       anchor.project(main);
@@ -130,8 +138,24 @@ export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
       // blurs this below the contact line and bends it by its normals, so a
       // retina panel gains nothing from a 4× larger target but its cost.
       renderer.getDrawingBufferSize(size);
-      const cssPixelScale = 1 / (2 * Math.max(1, renderer.getPixelRatio()));
-      target.setSize(Math.max(1, Math.floor(size.x * cssPixelScale)), Math.max(1, Math.floor(size.y * cssPixelScale)));
+      const dpr = Math.max(1, renderer.getPixelRatio());
+      const cssPixelScale = 1 / (2 * dpr);
+      const width = Math.max(1, Math.floor(size.x * cssPixelScale));
+      const height = Math.max(1, Math.floor(size.y * cssPixelScale));
+      if (
+        reducedMotion && rendered && owner === island && capturedReducedMotion === reducedMotion
+        && capturedRevision === sceneRevision
+        && capturedWorld.equals(main.matrixWorld)
+        && capturedProjection.equals(main.projectionMatrix)
+        && capturedBufferWidth === size.x && capturedBufferHeight === size.y
+        && capturedDpr === dpr && capturedWidth === width && capturedHeight === height
+      ) {
+        uniforms.uHeroReflectionStrength.value = 1;
+        return;
+      }
+      rendered = false;
+      const revision = sceneRevision;
+      target.setSize(width, height);
       mirrorGardenHeroCamera(main, camera);
       matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       const previousTarget = renderer.getRenderTarget();
@@ -152,6 +176,16 @@ export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
         renderer.setClearColor(0, 0);
         renderer.clear();
         renderer.render(scene, camera);
+        capturedWorld.copy(main.matrixWorld);
+        capturedProjection.copy(main.projectionMatrix);
+        capturedBufferWidth = size.x;
+        capturedBufferHeight = size.y;
+        capturedDpr = dpr;
+        capturedWidth = width;
+        capturedHeight = height;
+        capturedReducedMotion = reducedMotion;
+        capturedRevision = revision;
+        owner = island;
         rendered = true;
         uniforms.uHeroReflectionStrength.value = 1;
       } finally {
