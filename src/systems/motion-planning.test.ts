@@ -37,6 +37,7 @@ import {
   planGardenScoreGifts,
 } from "./garden-attention-scheduler";
 import type { ShipWaterPath } from "./motion-types";
+import { MOTION_UNDERWAY_MAX_TILES_PER_SECOND, MOTION_UNDERWAY_MIN_TILES_PER_SECOND } from "./motion-config";
 import { resolveShipMotionSample } from "./motion-sampling";
 import { stableUnit } from "./stable-random";
 import type { PharosVilleWorld } from "./world-types";
@@ -125,6 +126,70 @@ describe("W4.23 calm patrol itineraries", () => {
     expect(patrol.itinerary[0]!.waypoint).toEqual(patrol.waypoint);
     expect(patrol.itinerary[0]!.outbound).toBe(patrol.outbound);
     expect(patrol.itinerary[0]!.inbound).toBe(patrol.inbound);
+  });
+
+  it.each([false, true])("keeps optional patrol failures local to a ship (isolated risk tile: %s)", (isolated) => {
+    const fixture = worldForDocklessShip();
+    // The live TUSD risk tile is also an authored calm patrol anchor.
+    const riskTile = { x: 0, y: 38 };
+    // Fresh map identity isolates both path and previous-risk caches. A tiny
+    // disconnected water pocket exercises infeasibility without an ocean-wide
+    // unsuccessful A* search for each optional anchor.
+    const width = isolated ? 16 : fixture.map.width;
+    const height = isolated ? 70 : fixture.map.height;
+    const world: PharosVilleWorld = {
+      ...fixture,
+      map: {
+        ...fixture.map,
+        width,
+        height,
+        tiles: fixture.map.tiles
+          .filter((tile) => tile.x < width && tile.y < height)
+          .map((tile) => (
+            isolated && !(tile.x === riskTile.x && tile.y === riskTile.y)
+              && !(tile.x >= 12 && tile.x <= 14 && tile.y === 68)
+              ? { ...tile, kind: "land", terrain: "land" }
+              : { ...tile }
+          )),
+      },
+      ships: fixture.ships.map((ship) => ({
+        ...ship,
+        riskTile: { x: 12, y: 68 },
+        tile: { x: 12, y: 68 },
+      })),
+    };
+    const unaffectedShip = world.ships[0]!;
+    const unaffectedRoute = buildBaseMotionPlan(world).shipRoutes.get(unaffectedShip.id)!;
+    expect(unaffectedRoute.openWaterPatrol).not.toBeNull();
+    const ship = {
+      ...unaffectedShip,
+      id: "tusd-trueusd",
+      detailId: "ship.tusd-trueusd",
+      riskTile,
+      tile: riskTile,
+    };
+    delete ship.squadId;
+    delete ship.squadRole;
+    const plan = buildBaseMotionPlan({ ...world, ships: [...world.ships, ship] });
+    const route = plan.shipRoutes.get(ship.id)!;
+    expect(route.riskTile).toEqual(riskTile);
+    if (isolated) {
+      expect(route.openWaterPatrol).toBeNull();
+      expect([...route.waterPaths.values()]).toEqual([]);
+      const sample = resolveShipMotionSample({ plan, ship, reducedMotion: false, timeSeconds: 0 });
+      expect(sample.state).toBe("risk-drift");
+    } else {
+      expect(route.openWaterPatrol).not.toBeNull();
+      const voyageDurationSeconds = route.voyageDurationSeconds!;
+      for (const leg of route.openWaterPatrol!.itinerary) {
+        expect(leg.waypoint).not.toEqual(riskTile);
+        for (const path of [leg.outbound, leg.inbound]) {
+          expect(path.totalLength).toBeGreaterThanOrEqual(MOTION_UNDERWAY_MIN_TILES_PER_SECOND * voyageDurationSeconds - 1e-6);
+          expect(path.totalLength).toBeLessThanOrEqual(MOTION_UNDERWAY_MAX_TILES_PER_SECOND * voyageDurationSeconds + 1e-6);
+        }
+      }
+    }
+    expect(plan.shipRoutes.get(unaffectedShip.id)).toEqual(unaffectedRoute);
   });
 
   it("returns the same itinerary index for the same ship and cycle (stable)", () => {

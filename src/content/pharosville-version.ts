@@ -30,6 +30,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   dyedCloth: "v0.17.1",
   safetyGrades: "v0.18.0",
   hourPrint: "v0.19.0",
+  harborHolds: "v0.19.1",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.hourPrint;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.harborHolds;
