@@ -31,6 +31,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   safetyGrades: "v0.18.0",
   hourPrint: "v0.19.0",
   harborHolds: "v0.19.1",
+  harborsReturn: "v0.19.2",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.harborHolds;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.harborsReturn;
