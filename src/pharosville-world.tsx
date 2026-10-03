@@ -311,7 +311,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectedDetailId,
     world,
   }), [riskTransitionByShipId, selectedDetailId, world]);
-  const harborLog = useHarborLog({ riskTransitionByShipId, shipsById, observedAt: world.generatedAt });
+  const harborLog = useHarborLog({ world });
   const captionHour = Math.floor(timeControls.wallClockHour * 60) / 60;
   const captionBeats = useMemo(
     () => dayCycleBeats(captionHour),

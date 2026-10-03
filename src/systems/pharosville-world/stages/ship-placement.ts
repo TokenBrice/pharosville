@@ -460,6 +460,9 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       stress,
       freshness: sources,
     });
+    const ownRiskSource: "pegSummary" | "stress" = ownRisk.evidence.sourceFields.some(
+      (field) => field === "pegSummary.coins[].activeDepeg" || field === "pegSummary.coins[].currentDeviationBps",
+    ) ? "pegSummary" : "stress";
 
     // If this asset belongs to an active squad and is a consort, inherit that
     // squad's flagship risk. Otherwise use the per-asset placement.
@@ -525,6 +528,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       dockChainId: homeDockChainId,
       marketCapUsd: getCirculatingRaw(asset),
       riskPlacement: risk.placement,
+      ownRisk: { placement: ownRisk.placement, source: ownRiskSource },
       riskZone: riskWaterArea.motionZone,
       riskWaterLabel: riskWaterArea.label,
       riskDepth,
