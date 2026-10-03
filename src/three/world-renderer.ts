@@ -11,6 +11,7 @@ import {
   HemisphereLight,
   InstancedMesh,
   Line,
+  Light,
   LineBasicMaterial,
   Material,
   MathUtils,
@@ -109,7 +110,9 @@ import {
   type LampStatusHysteresisState,
 } from "../systems/lamp-status";
 import type { ShipWaterPath } from "../systems/motion-types";
-import type { PharosVilleWorld, ShipNode } from "../systems/world-types";
+import { createSourceStatuses, type PharosVilleWorld, type ShipNode } from "../systems/world-types";
+import { shipIssuanceVisualState } from "../systems/ship-issuance";
+import { cargoTideVisualState } from "../systems/pharosville-world/stages/cargo-tide";
 import {
   worldRenderContentPartHashes,
 } from "../systems/world-render-content-signature";
@@ -191,7 +194,6 @@ import {
   shipIssuanceWorksetSpecs,
   type GardenShipIssuanceWorksets,
 } from "./garden-ship-issuance";
-import { shipIssuanceDraft } from "../systems/ship-issuance";
 import { createGardenTidalFlat, type GardenTidalFlat } from "./garden-tidal-flat";
 import { gardenLastVisitTide } from "../systems/garden-last-visit";
 import {
@@ -359,22 +361,22 @@ const scratchFogSources: [EpistemicFogSource, EpistemicFogSource] = [
   { id: "peg-summary", feed: "Peg summary", stale: false, centre: { x: 0, z: 0 }, radius: 24, lastGood: null },
   { id: "chains", feed: "Chains", stale: false, centre: { x: 0, z: 0 }, radius: 24, lastGood: null },
 ];
-let asOfCacheKey: number | null | undefined;
-let asOfIso: string | null = null;
-let asOfClock: string | null = null;
-/** ISO / "HH:MM UTC" for the world snapshot, formatted once per snapshot. */
-function syncWorldAsOf(generatedAt: number | null): void {
-  if (generatedAt === asOfCacheKey) return;
-  asOfCacheKey = generatedAt;
-  asOfIso = generatedAt === null ? null : new Date(generatedAt).toISOString();
-  asOfClock = asOfIso === null ? null : `${asOfIso.slice(11, 16)} UTC`;
+let psiAsOfCacheKey: number | null | undefined;
+let psiAsOfIso: string | null = null;
+let pegFogAsOfKey: number | null | undefined;
+let chainsFogAsOfKey: number | null | undefined;
+/** Genuine PSI observation, formatted only when its sample changes. */
+function syncPsiAsOf(observedAt: number | null): void {
+  if (observedAt === psiAsOfCacheKey) return;
+  psiAsOfCacheKey = observedAt;
+  psiAsOfIso = observedAt === null ? null : new Date(observedAt).toISOString();
 }
 function epistemicFogSources(
   world: PharosVilleWorld,
   out: [EpistemicFogSource, EpistemicFogSource],
 ): readonly EpistemicFogSource[] {
-  syncWorldAsOf(world.generatedAt);
-  const lastGood = asOfClock;
+  const pegAsOf = world.freshness.pegSummary.observedAt ?? world.freshness.pegSummary.publishedAt;
+  const chainsAsOf = world.freshness.chains.observedAt ?? world.freshness.chains.publishedAt;
   let riskX = 0;
   let riskZ = 0;
   let riskCount = 0;
@@ -391,15 +393,21 @@ function epistemicFogSources(
     dockZ += dock.tile.y;
   }
   const peg = out[0];
-  peg.stale = world.freshness.pegSummaryStale === true;
+  peg.stale = world.freshness.pegSummary.state !== "current";
   peg.centre.x = (riskCount ? riskX / riskCount : world.lighthouse.tile.x) * TILE_SCALE;
   peg.centre.z = (riskCount ? riskZ / riskCount : world.lighthouse.tile.y) * TILE_SCALE;
-  peg.lastGood = lastGood;
+  if (pegAsOf !== pegFogAsOfKey) {
+    pegFogAsOfKey = pegAsOf;
+    peg.lastGood = pegAsOf === null ? null : new Date(pegAsOf).toISOString();
+  }
   const chains = out[1];
-  chains.stale = world.freshness.chainsStale === true;
+  chains.stale = world.freshness.chains.state !== "current";
   chains.centre.x = (world.docks.length ? dockX / world.docks.length : world.lighthouse.tile.x) * TILE_SCALE;
   chains.centre.z = (world.docks.length ? dockZ / world.docks.length : world.lighthouse.tile.y) * TILE_SCALE;
-  chains.lastGood = lastGood;
+  if (chainsAsOf !== chainsFogAsOfKey) {
+    chainsFogAsOfKey = chainsAsOf;
+    chains.lastGood = chainsAsOf === null ? null : new Date(chainsAsOf).toISOString();
+  }
   return out;
 }
 const scratchPosition = new Vector3();
@@ -543,6 +551,17 @@ export function createThreeWorldRenderer(
   const debugDrawCensus = isDebugChromeEnabled();
   const post = createGardenPost(renderer, scene.root, camera);
   const heroReflectionPass = createGardenHeroReflectionPass(renderer);
+  // Capture validity follows applied appearance, not hour buckets or world identity.
+  // Light values use the GPU's float precision; the other owners retain exact scalars.
+  const reflectionAppearance = new Float64Array(15);
+  const previousReflectionAppearance = new Float64Array(15);
+  const reflectionLights: Light[] = [];
+  let reflectionLightBuild = -1;
+  let reflectionLightValues = new Float32Array(0);
+  let previousReflectionLightValues = new Float32Array(0);
+  let reflectionAppearanceValid = false;
+  const reflectionLightPosition = new Vector3();
+  const reflectionLightTarget = new Vector3();
   Object.assign(scene.water.mesh.material.uniforms, heroReflectionPass.uniforms);
 
   let disposed = false;
@@ -617,6 +636,7 @@ export function createThreeWorldRenderer(
     lastWidth = 0;
     lastHeight = 0;
     scene.shadowNeedsRender = true;
+    heroReflectionPass.invalidate();
     onAssetReady?.();
   };
   const handleContextCreationError = () => {
@@ -635,6 +655,8 @@ export function createThreeWorldRenderer(
       scene.lighthouseModel = model;
       attachGardenLighthouseModel(model, scene.content);
       model.traverse(enableHeroReflectionLayer);
+      heroReflectionPass.invalidate();
+      reflectionLightBuild = -1;
       applyGardenPrintInksToTree(model);
       drawCensusRequested = true;
       scheduleModelTextureUploads({
@@ -644,6 +666,7 @@ export function createThreeWorldRenderer(
           // The GLB shell replaces the procedural one — refresh the shadow map.
           scene.shadowNeedsRender = true;
           drawCensusRequested = true;
+          heroReflectionPass.invalidate();
           onAssetReady?.();
         },
         owner: scene,
@@ -786,6 +809,7 @@ export function createThreeWorldRenderer(
         content.lampStatusMix = lampStatusMixForStatus(content.lampStatusState.status);
         content.lampStatusTargetMix = content.lampStatusMix;
         scene.content = content;
+        reflectionAppearanceValid = false;
         scene.root.add(content.root);
         const keys = worldContentPartKeys(frame.world);
         for (const name of WORLD_CONTENT_PART_ORDER) {
@@ -952,12 +976,11 @@ export function createThreeWorldRenderer(
       // illumination. Both readings remember their previous value, so they
       // live on the scene. Clarity lands before the phase grade so the probe
       // bakes the sky the frame will actually show.
-      syncWorldAsOf(frame.world.generatedAt);
+      syncPsiAsOf(frame.world.lighthouse.evidence.stability?.observedAt ?? null);
       scene.psiSky = psiSkyClarity({
         lighthouse: frame.world.lighthouse,
-        freshness: frame.world.freshness,
         timeSeconds: frame.timeSeconds,
-        asOf: asOfIso,
+        asOf: psiAsOfIso,
       }, scene.psiSky);
       scene.sky.setClarity(scene.psiSky.clarity, scene.psiSky.band !== "UNAVAILABLE");
       scene.epistemicBanks = advanceEpistemicHaze(
@@ -1143,6 +1166,72 @@ export function createThreeWorldRenderer(
         scene.season === "winter" ? 1 : 0,
       );
       if (scene.content) {
+        if (reflectionLightBuild !== contentPartRebuildCount) {
+          reflectionLights.length = 0;
+          scene.root.traverse((object) => {
+            if (object instanceof Light) reflectionLights.push(object);
+          });
+          const length = reflectionLights.length * 13;
+          if (reflectionLightValues.length !== length) {
+            reflectionLightValues = new Float32Array(length);
+            previousReflectionLightValues = new Float32Array(length);
+            reflectionAppearanceValid = false;
+          }
+          reflectionLightBuild = contentPartRebuildCount;
+        }
+        for (let index = 0; index < reflectionLights.length; index += 1) {
+          const light = reflectionLights[index]!;
+          const offset = index * 13;
+          light.getWorldPosition(reflectionLightPosition);
+          // Directional and spot lights use a target; other lights do not.
+          const target = (light as Light & { target?: Object3D }).target;
+          if (target) target.getWorldPosition(reflectionLightTarget);
+          else reflectionLightTarget.set(0, 0, 0);
+          reflectionLightValues[offset] = light.color.r;
+          reflectionLightValues[offset + 1] = light.color.g;
+          reflectionLightValues[offset + 2] = light.color.b;
+          const ground = light instanceof HemisphereLight ? light.groundColor : null;
+          reflectionLightValues[offset + 3] = ground?.r ?? 0;
+          reflectionLightValues[offset + 4] = ground?.g ?? 0;
+          reflectionLightValues[offset + 5] = ground?.b ?? 0;
+          reflectionLightValues[offset + 6] = light.intensity;
+          reflectionLightValues[offset + 7] = reflectionLightPosition.x;
+          reflectionLightValues[offset + 8] = reflectionLightPosition.y;
+          reflectionLightValues[offset + 9] = reflectionLightPosition.z;
+          reflectionLightValues[offset + 10] = reflectionLightTarget.x;
+          reflectionLightValues[offset + 11] = reflectionLightTarget.y;
+          reflectionLightValues[offset + 12] = reflectionLightTarget.z;
+        }
+        const cloud = scene.water.cloudShadows.uniforms;
+        const transform = cloud.uCloudShadowTransform.value;
+        reflectionAppearance[0] = scene.content.parts.island.epoch;
+        reflectionAppearance[1] = frame.seaState.source.psiStress;
+        reflectionAppearance[2] = scene.content.lampStatusMix;
+        reflectionAppearance[3] = gardenLanternCatch();
+        reflectionAppearance[4] = scene.environment.bakeCount;
+        reflectionAppearance[5] = scene.root.environmentIntensity;
+        reflectionAppearance[6] = scene.weather.stormLevel;
+        reflectionAppearance[7] = scene.weather.lightning;
+        reflectionAppearance[8] = scene.floraNightValue;
+        reflectionAppearance[9] = cloud.uCloudShadowStrength.value;
+        reflectionAppearance[10] = transform[0];
+        reflectionAppearance[11] = transform[1];
+        reflectionAppearance[12] = transform[2];
+        reflectionAppearance[13] = transform[3];
+        reflectionAppearance[14] = detailPolicy.overviewLodZoom;
+        let appearanceChanged = !reflectionAppearanceValid;
+        for (let index = 0; index < reflectionAppearance.length; index += 1) {
+          if (reflectionAppearance[index] !== previousReflectionAppearance[index]) appearanceChanged = true;
+        }
+        for (let index = 0; index < reflectionLightValues.length; index += 1) {
+          if (reflectionLightValues[index] !== previousReflectionLightValues[index]) appearanceChanged = true;
+        }
+        if (appearanceChanged) {
+          heroReflectionPass.invalidate();
+          previousReflectionAppearance.set(reflectionAppearance);
+          previousReflectionLightValues.set(reflectionLightValues);
+          reflectionAppearanceValid = true;
+        }
         heroReflectionPass.render(
           scene.root, camera, scene.content.parts.island.root,
           scene.content.lighthouseRoot, frame.reducedMotion,
@@ -1407,9 +1496,6 @@ interface GardenContent {
   issuanceWorksets: GardenShipIssuanceWorksets;
   /** Hulls anchoring issuance worksets, in instance order. */
   issuanceWorksetShips: ShipVisual[];
-  /** Renderer-side 45s draft state; DOM truth stays on the world nodes. */
-  issuanceDraftById: Map<string, number>;
-  issuanceDraftTargetById: Map<string, number>;
   /**
    * X2: the weekly supply tide as the tidal flat — how much of one sheltered
    * shore lies bare — with the last visit's wrack line. Eases per frame.
@@ -1847,10 +1933,10 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
     harborLife: `${hashes.docks}|${islandTileKey}`,
     cargoTide: `${JSON.stringify(world.docks.map((dock) => [
       dock.detailId,
-      dock.cargoTide ?? null,
+      cargoTideVisualState(dock.cargoTide),
     ]))}|${hashes.supplyTide}|${dockStructure}`,
     ships: `${shipsStructural}|${hashes.heroRank}|${islandTileKey}`,
-    tenders: `${hashes.fleetIssuance}|${shipsStructural}|${hashes.heroRank}|${JSON.stringify(world.ships.map((ship) => [ship.id, ship.issuance ?? null]))}`,
+    tenders: `${hashes.fleetIssuance}|${shipsStructural}|${hashes.heroRank}|${JSON.stringify(world.ships.map((ship) => [ship.id, shipIssuanceVisualState(ship.issuance)]))}`,
     shipsPose: `${shipsPose}|${world.lighthouse.beamDwell?.shipId ?? ""}|${islandTileKey}`,
   };
   worldContentPartKeysCache.set(world, keys);
@@ -1912,7 +1998,7 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     dockAccentTransitions: [],
     harborBatch: null,
     seaEdges: null,
-    lampStatusState: initialLampStatusState({}),
+    lampStatusState: initialLampStatusState(createSourceStatuses()),
     sailAtlas: scene.sailAtlas,
     objectCount: 0,
     parts,
@@ -1924,8 +2010,6 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     pendingShipTransitions: new Map<string, GardenShipTransitionSpec>(),
     pigeonnierMoverPositions: [],
     pigeonnierMoverShips: [],
-    issuanceDraftById: new Map<string, number>(),
-    issuanceDraftTargetById: new Map<string, number>(),
     root,
     routeLine,
     routeLineKey: null,
@@ -2528,14 +2612,6 @@ function adoptFreshWorldData(content: GardenContent, world: PharosVilleWorld): v
   for (const visual of content.docks) {
     const node = dockById.get(visual.recipe.dock.detailId);
     if (node) visual.recipe.dock = node;
-  }
-  const nextShipIds = new Set<string>();
-  for (const ship of world.ships) {
-    nextShipIds.add(ship.id);
-    content.issuanceDraftTargetById.set(ship.id, shipIssuanceDraft(ship.issuance));
-  }
-  for (const shipId of content.issuanceDraftTargetById.keys()) {
-    if (!nextShipIds.has(shipId)) content.issuanceDraftTargetById.delete(shipId);
   }
   if (content.transient) {
     const entity = world.entityById[content.transient.detailId];
@@ -3335,13 +3411,6 @@ function buildTendersPart(content: GardenContent, world: PharosVilleWorld): void
   content.flightTenders = flightTenders;
   content.issuanceWorksetShips = issuanceWorksetShips;
   content.issuanceWorksets = issuanceWorksets;
-  for (const ship of world.ships) {
-    const target = shipIssuanceDraft(ship.issuance);
-    content.issuanceDraftTargetById.set(ship.id, target);
-    if (!content.issuanceDraftById.has(ship.id)) {
-      content.issuanceDraftById.set(ship.id, content.hasReconciledWorld ? 0 : target);
-    }
-  }
 }
 
 /**

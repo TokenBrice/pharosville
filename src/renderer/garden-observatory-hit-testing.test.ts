@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { Vector3, Matrix4 } from "three";
 import { NOBORI_CLOTH_ASPECT } from "../systems/dock-layout";
 import { authorDock } from "../three/garden-docks";
@@ -485,7 +486,7 @@ function denseWorld() {
   return buildPharosVilleWorld({
     cemeteryEntries: [],
     chains: denseFixtureChains,
-    freshness: {},
+    freshness: makeSourceStatuses(),
     pegSummary: denseFixturePegSummary,
     safetyGrades: denseFixtureSafetyGrades,
     stability: fixtureStability,

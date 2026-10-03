@@ -17,10 +17,11 @@ import {
 } from "./maker-squad";
 import { nearestRiskPlacementWaterTile } from "./risk-water-placement";
 import { SEAWALL_BARRIER_TILES } from "./seawall";
-import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipDockMotionStop, ShipInletCrossing, ShipMotionRoute, ShipMotionRouteStop, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
-import type { DockNode, PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode } from "./world-types";
-import { precomputeShipTempos } from "./ship-cycle-tempo";
+import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipDockMotionStop, ShipInletCrossing, ShipMarketTransition, ShipMotionRoute, ShipMotionRouteStop, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
+import type { DockNode, PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode, ShipRiskPlacement } from "./world-types";
+import { precomputeShipTempos, shipCycleTempo } from "./ship-cycle-tempo";
 import { seaBodyAtTile } from "./sea-bodies";
+import { riskWaterAreaForPlacement } from "./risk-water-areas";
 import {
   GARDEN_ATTENTION_DEFAULT_SEED,
   GARDEN_VOYAGE_DEPARTURE_START_SECONDS,
@@ -103,6 +104,59 @@ const previousRiskByMap = new Map<PharosVilleMap, Map<string, PreviousRiskEntry>
 /** Test-only — reset the per-ship previous-risk cache. */
 export function __resetPreviousRiskCache(): void {
   previousRiskByMap.clear();
+}
+
+interface AcceptedMarketReading {
+  placement: ShipRiskPlacement;
+  /** The decisive row's observation and methodology identify its sample. */
+  source: "pegSummary" | "stress";
+  observedAt: number | null;
+  pegMethodologyVersion: string | null;
+  stressMethodologyVersion: string | null;
+}
+
+/** Session-owned acceptance state; deliberately separate from display geometry. */
+export interface MarketObservationState {
+  acceptedByShipId: Map<string, AcceptedMarketReading>;
+  occurrenceSequence: number;
+}
+
+export function createMarketObservationState(): MarketObservationState {
+  return { acceptedByShipId: new Map(), occurrenceSequence: 0 };
+}
+
+/** Admit comparable own readings on world refreshes, even without a route rebuild. */
+export function captureAcceptedMarketTransitions(
+  world: PharosVilleWorld,
+  state: MarketObservationState,
+): ReadonlyMap<string, ShipMarketTransition> {
+  const transitions = new Map<string, ShipMarketTransition>();
+  for (const ship of world.ships) {
+    const peg = ship.evidence.pegSummary;
+    const stress = ship.evidence.stress;
+    if (!peg || !stress || peg.state !== "current" || stress.state !== "current"
+      || peg.coverage.state !== "complete" || stress.coverage.state !== "complete") continue;
+    const source = ship.evidence[ship.ownRisk.source]!;
+    const previous = state.acceptedByShipId.get(ship.id);
+    const placement = ship.ownRisk.placement;
+    const comparable = previous?.pegMethodologyVersion === peg.methodologyVersion
+      && previous.stressMethodologyVersion === stress.methodologyVersion;
+    if (previous?.placement === placement && previous.source === ship.ownRisk.source
+      && previous.observedAt === source.observedAt && comparable) continue;
+    state.acceptedByShipId.set(ship.id, {
+      placement, source: ship.ownRisk.source, observedAt: source.observedAt,
+      pegMethodologyVersion: peg.methodologyVersion, stressMethodologyVersion: stress.methodologyVersion,
+    });
+    // A methodology switch starts a new comparison baseline, never a market move.
+    if (!previous || !comparable || previous.placement === placement) continue;
+    transitions.set(ship.id, {
+      occurrenceId: ++state.occurrenceSequence,
+      fromLabel: riskWaterAreaForPlacement(previous.placement).label,
+      toLabel: riskWaterAreaForPlacement(placement).label,
+      observedAt: source.observedAt,
+    });
+  }
+  return transitions;
 }
 
 /**
@@ -219,9 +273,8 @@ export function motionPlanSignature(world: PharosVilleWorld): string {
       ship.marketCapUsd,
       ship.change24hUsd ?? "",
       ship.change24hPct ?? "",
-      // W7.7: flow-only refreshes must invalidate the plan whose cycle scalar
-      // is derived from this field.
-      (ship as ShipNode & { flowIntensity?: number | null }).flowIntensity ?? "",
+      // Only effective pace belongs here: provenance alone cannot replay a voyage.
+      shipCycleTempo(ship).scalar,
       `${ship.riskTile.x},${ship.riskTile.y}`,
       berth ? `${Math.round(berth.x)},${Math.round(berth.y)}` : "",
       ship.riskPlacement,
@@ -1107,28 +1160,29 @@ function buildOpenWaterPatrol(
   const anchors = openWaterPatrolItineraryAnchors(ship, riskTile, map);
   if (anchors.length === 0) return null;
 
-  const itinerary = anchors
-    .map((waypoint) => {
-      if (waypoint.x === riskTile.x && waypoint.y === riskTile.y) return null;
-      const outbound = tryBuildCadenceWaterRoute({
-        from: riskTile,
-        to: waypoint,
-        map,
-        zone: ship.riskZone,
-        shipId: ship.id,
-        bucket,
-        legDurationSeconds,
-        paceTilesPerSecond,
-        allowEndpointTruncation: true,
-      }, waterRouteCache);
-      if (!outbound || outbound.points.length <= 1 || outbound.totalLength <= 0) return null;
-      const minLength = MOTION_UNDERWAY_MIN_TILES_PER_SECOND * legDurationSeconds;
-      const maxLength = MOTION_UNDERWAY_MAX_TILES_PER_SECOND * legDurationSeconds;
-      if (outbound.totalLength < minLength || outbound.totalLength > maxLength) return null;
-      return { waypoint: outbound.to, outbound, inbound: reverseWaterPath(outbound) };
-    })
-    .filter((leg): leg is { waypoint: { x: number; y: number }; outbound: ShipWaterPath; inbound: ShipWaterPath } => leg !== null)
-    .slice(0, openWaterPatrolItineraryLength(ship.id));
+  const itinerary: Array<NonNullable<ShipMotionRoute["openWaterPatrol"]>["itinerary"][number]> = [];
+  for (const waypoint of anchors) {
+    if (waypoint.x === riskTile.x && waypoint.y === riskTile.y) continue;
+    const outbound = tryBuildCadenceWaterRoute({
+      from: riskTile,
+      to: waypoint,
+      map,
+      zone: ship.riskZone,
+      shipId: ship.id,
+      bucket,
+      legDurationSeconds,
+      paceTilesPerSecond,
+      allowEndpointTruncation: true,
+    }, waterRouteCache);
+    if (!outbound || outbound.points.length <= 1 || outbound.totalLength <= 0) continue;
+    const minLength = MOTION_UNDERWAY_MIN_TILES_PER_SECOND * legDurationSeconds;
+    const maxLength = MOTION_UNDERWAY_MAX_TILES_PER_SECOND * legDurationSeconds;
+    if (outbound.totalLength < minLength || outbound.totalLength > maxLength) continue;
+    itinerary.push({ waypoint: outbound.to, outbound, inbound: reverseWaterPath(outbound) });
+    // Later successful anchors were discarded by the itinerary slice. Keep the
+    // same first N successes without planning voyages that can never be sailed.
+    if (itinerary.length === openWaterPatrolItineraryLength(ship.id)) break;
+  }
   if (itinerary.length === 0) return null;
 
   const primary = itinerary[0]!;
@@ -1160,6 +1214,23 @@ function buildCadenceWaterRoute(input: CadenceWaterRouteInput, cache: ShipWaterR
   const maxLength = MOTION_UNDERWAY_MAX_TILES_PER_SECOND * input.legDurationSeconds;
   // Required dock legs must not silently violate the perceptual speed contract.
   throw new Error(`No cadence-safe water leg for ${input.shipId}: ${direct.totalLength.toFixed(2)} not in ${minLength.toFixed(2)}..${maxLength.toFixed(2)}`);
+}
+
+const cadenceCandidatesByMap = new WeakMap<PharosVilleMap, Map<ShipNode["riskZone"], PharosVilleMap["tiles"]>>();
+
+function cadenceCandidateTiles(map: PharosVilleMap, zone: ShipNode["riskZone"]): PharosVilleMap["tiles"] {
+  let zones = cadenceCandidatesByMap.get(map);
+  if (!zones) {
+    zones = new Map();
+    cadenceCandidatesByMap.set(map, zones);
+  }
+  const cached = zones.get(zone);
+  if (cached) return cached;
+  const tiles = map.tiles.filter((tile) => isWaterTileKind(tile.terrain ?? tile.kind)
+    && seaBodyAtTile(tile.x, tile.y) === zone
+    && gardenInletDistance(tile.x, tile.y) > GARDEN_EMPTY_INLET.halfWidth);
+  zones.set(zone, tiles);
+  return tiles;
 }
 
 function tryBuildCadenceWaterRoute(input: CadenceWaterRouteInput, cache: ShipWaterRouteCache): ShipWaterPath | null {
@@ -1198,20 +1269,21 @@ function tryBuildCadenceWaterRoute(input: CadenceWaterRouteInput, cache: ShipWat
     cache.set(cadenceKey, combined);
     return combined;
   }
-  const candidates = input.map.tiles
-    .filter((tile) => isWaterTileKind(tile.terrain ?? tile.kind)
-      && seaBodyAtTile(tile.x, tile.y) === input.zone
-      && outsideInlet(tile))
-    .map((tile) => ({
-      tile,
-      score: Math.abs(
-        Math.hypot(tile.x - input.from.x, tile.y - input.from.y)
-          + Math.hypot(input.to.x - tile.x, input.to.y - tile.y)
-          - (minLength + maxLength) / 2,
-      ),
-    }))
-    .sort((a, b) => a.score - b.score)
-    .slice(0, 4);
+  // Stable top-four selection preserves full-sort ties in map order, without
+  // allocating/sorting the whole zone for every optional itinerary anchor.
+  const candidates: Array<{ tile: PharosVilleMap["tiles"][number]; score: number }> = [];
+  for (const tile of cadenceCandidateTiles(input.map, input.zone)) {
+    const score = Math.abs(
+      Math.hypot(tile.x - input.from.x, tile.y - input.from.y)
+        + Math.hypot(input.to.x - tile.x, input.to.y - tile.y)
+        - (minLength + maxLength) / 2,
+    );
+    let index = 0;
+    while (index < candidates.length && candidates[index]!.score <= score) index += 1;
+    if (index >= 4) continue;
+    candidates.splice(index, 0, { tile, score });
+    if (candidates.length > 4) candidates.pop();
+  }
   for (const candidate of candidates) {
     const waypoint = nearestMapWaterTile(candidate.tile, input.map);
     const first = buildCachedShipWaterRoute({ ...input, to: waypoint }, cache);

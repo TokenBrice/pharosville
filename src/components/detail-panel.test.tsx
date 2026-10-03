@@ -1,16 +1,32 @@
 // @vitest-environment jsdom
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { RUNTIME_CEMETERY_ENTRIES } from "@shared/lib/cemetery-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import {
+  denseFixtureChains,
+  denseFixturePegSummary,
+  denseFixtureStablecoins,
+  denseFixtureStress,
   fixtureWithDepegOn,
   makerSquadFixtureInputs,
+  makePharosVilleWorldInput,
 } from "../__fixtures__/pharosville-world";
+import { WorldBuilder } from "../__fixtures__/world-builder";
 import type { DetailModel } from "../systems/world-types";
 import { DetailPanel } from "./detail-panel";
+import { AccessibilityLedger } from "./accessibility-ledger";
+import { resetHeldShipPlacements } from "../systems/pharosville-world/stages/ship-placement";
+import { withRiskTransitionFact } from "../systems/detail-model";
+import { SCENARIOS, quayAllocationInput, quietNormalInput, T } from "../__fixtures__/data-contract-scenarios";
 
 afterEach(() => {
+  for (const details of document.querySelectorAll<HTMLDetailsElement>('[data-testid="pharosville-detail-record"]')) {
+    details.open = false;
+    fireEvent(details, new Event("toggle", { bubbles: true }));
+  }
   cleanup();
 });
 
@@ -23,7 +39,380 @@ const renderShipPanel = (shipId: string, depegId: string | null = null) => {
   return renderToStaticMarkup(<DetailPanel detail={detail} />);
 };
 
+async function openRecord(detail: DetailModel): Promise<HTMLDetailsElement> {
+  render(<DetailPanel detail={detail} />);
+  const summary = screen.getByText("Read the record", { selector: "summary" });
+  const record = summary.parentElement as HTMLDetailsElement;
+  record.open = false;
+  fireEvent(record, new Event("toggle", { bubbles: true }));
+  fireEvent.click(summary);
+  record.open = true;
+  fireEvent(record, new Event("toggle", { bubbles: true }));
+  await waitFor(() => expect(record.open).toBe(true));
+  return record;
+}
+
+function recordRow(record: HTMLDetailsElement, label: string): HTMLElement {
+  const term = [...record.querySelectorAll("dt")].find((node) => node.textContent === label);
+  if (!(term?.nextElementSibling instanceof HTMLElement)) throw new Error(`Missing record row: ${label}`);
+  return term.nextElementSibling;
+}
+
+describe("DetailPanel rendered analytical record", () => {
+  it.each([
+    ["largeBalancedGross", ["Balanced active", "mint $100.0M", "burn $100.0M", "gross $200.0M", "net $0"]],
+    ["oneDollarNet", ["Minting", "mint $1", "burn $0", "gross $1", "net +$1"]],
+    ["quietNormal", ["Inactive", "mint $0", "burn $0", "gross $0", "net $0"]],
+  ] as const)("opening record exposes coin gross/net and coverage: %s", async (name, quantities) => {
+    const world = buildPharosVilleWorld(structuredClone(SCENARIOS[name]));
+    const record = await openRecord(world.detailIndex["ship.usdc-circle"]!);
+    const reading = recordRow(record, "Issuance work, 24h").textContent!;
+    const ledger = render(<AccessibilityLedger world={world} />).container.querySelector("#ledger-ship-usdc-circle")!.textContent!;
+    for (const quantity of quantities) {
+      expect(reading).toContain(quantity);
+      expect(ledger).toContain(quantity);
+    }
+    expect(reading).toContain(new Date(T * 1_000).toISOString());
+    expect(reading).toContain("signed-v2");
+  });
+
+  it("qualifies partial issuance instead of presenting a complete reporting window", async () => {
+    const input = structuredClone(SCENARIOS.partialFlow);
+    input.mintBurn!.coins[0]!.largestEvent24h = { amountUsd: 1_234_567.89, direction: "mint", timestamp: T - 1_000, txHash: "0xfixture" };
+    const world = buildPharosVilleWorld(input);
+    const record = await openRecord(world.detailIndex["ship.usdc-circle"]!);
+    const reading = recordRow(record, "Issuance work, 24h").textContent!;
+    const ledger = render(<AccessibilityLedger world={world} />).container.querySelector("#ledger-ship-usdc-circle")!.textContent!;
+    for (const value of ["mint $100.0M", "partial", new Date((T - 6 * 3_600) * 1_000).toISOString(), "$1,234,567.89", new Date((T - 1_000) * 1_000).toISOString()]) {
+      expect(reading).toContain(value);
+      expect(ledger).toContain(value);
+    }
+    expect(recordRow(record, "Route cadence").textContent).toContain("Unmeasured");
+    expect(ledger).toContain("cycle tempo Unmeasured");
+  });
+
+  it.each(["old", "unknown", "missing", "retained failure"] as const)("selected evidence survives opening Read the record (%s)", async (mode) => {
+    const input = quietNormalInput();
+    const row = input.stress!.signals["usdc-circle"]!;
+    if (mode === "unknown") row.band = "UNRECOGNIZED";
+    else if (mode === "missing") delete input.stress!.signals["usdc-circle"];
+    else Object.assign(row, { score: 95, band: "DANGER", computedAt: T - 86_400, methodologyVersion: "own-old-stress" });
+    if (mode === "retained failure") input.freshness = makeSourceStatuses({
+      stress: { state: "stale", reason: "Refresh failed: offline", publishedAt: T * 1_000 },
+    });
+    const world = buildPharosVilleWorld(input);
+    const record = await openRecord(world.detailIndex["ship.usdc-circle"]!);
+    const currently = recordRow(record, "Currently").textContent!;
+    const held = mode === "old" || mode === "retained failure";
+    const observed = new Date((held ? T - 86_400 : T) * 1_000).toISOString();
+    expect(currently).toContain(held ? "Stress signals: held" : "Stress signals: unavailable");
+    if (mode === "missing") expect(currently).toMatch(/Stress signals: unavailable; observed unknown/);
+    else expect(currently).toContain(`observed ${observed}`);
+    expect(currently).toContain(`published/as of ${new Date(T * 1_000).toISOString()}`);
+    expect(currently).toContain("Peg summary: current");
+    expect(currently).toContain("Safety grades: current");
+    expect(currently).toContain("Caveat:");
+    if (held) expect(currently).toMatch(/DEWS 95\/100[^;]*held/);
+    if (mode === "unknown") expect(currently).toMatch(/DEWS 8\/100[^;]*unavailable/);
+    if (mode === "retained failure") expect(currently).toContain("offline");
+    const ledger = render(<AccessibilityLedger world={world} />);
+    const shipLine = ledger.container.querySelector("#ledger-ship-usdc-circle")!.textContent!;
+    expect(shipLine).toContain(held ? "Stress signals: held" : "Stress signals: unavailable");
+    expect(shipLine).toContain("evidence status Caveat:");
+    if (mode !== "missing") expect(shipLine).toContain(`observed ${observed}`);
+    else expect(shipLine).toMatch(/Stress signals: unavailable; observed unknown/);
+  });
+
+  it("stale PSI keeps the accepted historical reading and discloses observed versus eased appearance", async () => {
+    const input = quietNormalInput();
+    delete input.generatedAt;
+    input.chains = { ...input.chains!, updatedAt: T + 3_600 };
+    input.freshness = makeSourceStatuses({ stability: {
+      state: "stale", observedAt: null, publishedAt: (T + 7_200) * 1_000, reason: "Refresh failed: offline",
+    } });
+    const world = buildPharosVilleWorld(input);
+    const record = await openRecord(world.detailIndex.lighthouse!);
+    const reading = recordRow(record, "Market stability").textContent!;
+    const original = new Date(T * 1_000).toISOString();
+    const snapshot = new Date((T + 7_200) * 1_000).toISOString();
+    expect(reading).toContain("PSI 98");
+    expect(reading).toContain("BEDROCK");
+    expect(reading).toContain(`held (as of ${original})`);
+    expect(reading).toContain(`observed ${original}`);
+    expect(reading).toContain(`published/as of ${snapshot}`);
+    expect(reading).toContain(`Snapshot generated at: ${snapshot}`);
+    expect(reading).toMatch(/appearance.*eases separately/i);
+    expect(reading).toContain("60 continuous current seconds");
+    const ledger = render(<AccessibilityLedger world={world} />);
+    const lighthouse = [...ledger.container.querySelectorAll("dt")].find((term) => term.textContent === "Lighthouse")!.nextElementSibling!.textContent!;
+    expect(lighthouse).toContain("PSI 98");
+    expect(lighthouse).toContain(`held (as of ${original})`);
+    expect(lighthouse).toContain(`observed ${original}`);
+    expect(lighthouse).toMatch(/appearance.*eases separately/i);
+  });
+
+  it("keeps a consort's acute own peg and distress visible in its shared formation record", async () => {
+    const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky"));
+    const ship = world.ships.find((entry) => entry.id === "susds-sky")!;
+    const record = await openRecord(world.detailIndex[ship.detailId]!);
+    expect(screen.getByTestId("pharosville-detail-zone").textContent).toContain("Calm Anchorage");
+    const currently = recordRow(record, "Currently").textContent!;
+    expect(currently).toContain("+800 bps");
+    expect(currently).toContain("above peg");
+    expect(currently).toContain("high");
+    const formation = recordRow(record, "Sailing in formation").textContent!;
+    expect(formation).toContain("sUSDS in distress");
+    expect(formation).toContain(ship.placementEvidence.squadOverride!.ownReason!);
+    expect(recordRow(record, "Sailing in formation").firstElementChild?.textContent).toContain("sUSDS in distress");
+    const chains = recordRow(record, "Chains").textContent!;
+    expect(chains).toContain("Route source:");
+    expect(Number(chains.match(/^(\d+)/)?.[1])).toBe(1);
+    expect(chains).toContain("Ethereum 100%");
+  });
+
+  it("qualifies retained stale placement next to its peg and source", async () => {
+    const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky");
+    const world = buildPharosVilleWorld({ ...inputs, freshness: makeSourceStatuses({ pegSummary: { state: "stale" }, stress: { state: "stale" } }) });
+    const ship = world.ships.find((entry) => entry.id === "susds-sky")!;
+    const record = await openRecord(world.detailIndex[ship.detailId]!);
+    const currently = recordRow(record, "Currently").textContent!;
+    expect(currently).toContain("+800 bps");
+    expect(currently).toContain("Caveat:");
+    expect(currently).toContain(ship.placementEvidence.reason);
+    expect(currently).toContain(ship.placementEvidence.sourceFields[0]!);
+    expect(currently).not.toContain("Fresh current placement evidence");
+  });
+
+  it.each([-200, -50, 50, 200])("preserves sign and peg explanation without adding a first-screen figure: %i bps", async (bps) => {
+    const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky");
+    inputs.pegSummary = {
+      ...inputs.pegSummary!,
+      coins: inputs.pegSummary!.coins.map((coin) => coin.id === "susds-sky" ? { ...coin, currentDeviationBps: bps } : coin),
+    };
+    const world = buildPharosVilleWorld(inputs);
+    const ship = world.ships.find((entry) => entry.id === "susds-sky")!;
+    const record = await openRecord(world.detailIndex[ship.detailId]!);
+    const currently = recordRow(record, "Currently").textContent!;
+    expect(currently.replaceAll("−", "-")).toContain(`${bps > 0 ? "+" : ""}${bps} bps`);
+    expect(currently).toContain(bps > 0 ? "above peg" : "below peg");
+    expect(currently).toContain(bps > 0 ? "high" : "low");
+    expect(screen.getByTestId("pharosville-detail-reading").querySelectorAll("dd").length).toBeLessThanOrEqual(3);
+  });
+
+  it.each(["current", "stale", "unavailable"] as const)("makes observed lighthouse status and separately named snapshot reachable: %s", async (state) => {
+    const inputs = makePharosVilleWorldInput({
+      ...(state === "stale" ? { freshness: makeSourceStatuses({ mintBurn: { state: "stale" }, stability: { state: "stale" } }) } : {}),
+      ...(state === "unavailable" ? { stability: null } : {}),
+    });
+    const world = buildPharosVilleWorld(inputs);
+    const record = await openRecord(world.detailIndex[world.lighthouse.detailId]!);
+    const market = recordRow(record, "Market stability").textContent!;
+    expect(market).toContain(`Snapshot generated at: ${new Date(world.generatedAt!).toISOString()}`);
+    expect(recordRow(record, "Harbor light").textContent).toContain(state === "stale" ? "cooler and slower" : "steady");
+    expect(recordRow(record, "Harbor light").textContent).toContain("Appearance eases over ~2 observations");
+    expect(recordRow(record, "Harbor light").textContent).toContain("Beam warmth:");
+    expect(record.querySelectorAll("dt").length).toBeLessThanOrEqual(12);
+  });
+
+  it("retains chain concentration and allocated flow meaning in the selected harbour", async () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({ freshness: makeSourceStatuses({ chains: { state: "stale" } }) }));
+    const dock = world.docks.find((entry) => entry.chainId === "ethereum")!;
+    const record = await openRecord(world.detailIndex[dock.detailId]!);
+    expect(recordRow(record, "Stablecoin supply").textContent).toContain(`${dock.stablecoinCount} stablecoins`);
+    expect(recordRow(record, "Stablecoin supply").textContent).toContain(`#${dock.harborRank}`);
+    expect(recordRow(record, "Health").textContent).toContain("HHI");
+    expect(recordRow(record, "Health").textContent).toContain("Quay condition:");
+    expect(recordRow(record, "Net flow 24h").textContent).toContain("Estimated 24h allocation by held supply");
+    expect(record.querySelectorAll("dt").length).toBeLessThanOrEqual(6);
+  });
+
+  it("unattributed reasons remain reachable in the harbour record", async () => {
+    const input = quayAllocationInput(["ethereum"]);
+    input.mintBurn!.coins[0]!.coverage = {
+      ...input.mintBurn!.coins[0]!.coverage!, has24hWindow: false, isPartial: true,
+    };
+    const world = buildPharosVilleWorld(input);
+    const dock = world.docks.find((entry) => entry.chainId === "ethereum")!;
+    const record = await openRecord(world.detailIndex[dock.detailId]!);
+    const flow = recordRow(record, "Net flow 24h").textContent!;
+    expect(flow).toContain("$14.8M");
+    expect(flow).toContain("unrendered harbour: $4.8M");
+    expect(flow).toContain("outside the reported scope: $4.0M");
+    expect(flow).toContain("no chain presence: $6.0M");
+    expect(flow).toContain("partial coverage");
+    expect(flow).toContain("mint $4.8M");
+    expect(flow).toContain("burn $2.4M");
+    expect(record.querySelectorAll("dt").length).toBeLessThanOrEqual(6);
+  });
+
+  it.each([true, false])("exposes roost values even with no movers (counts available: %s)", async (hasCounts) => {
+    const inputs = makerSquadFixtureInputs();
+    if (hasCounts) inputs.pegSummary = {
+      ...inputs.pegSummary!,
+      summary: {
+        activeDepegCount: 0, medianDeviationBps: 0, worstCurrent: null,
+        coinsAtPeg: inputs.pegSummary!.coins.length, totalTracked: inputs.pegSummary!.coins.length,
+        depegEventsToday: 3, depegEventsYesterday: 1,
+      },
+    };
+    const world = buildPharosVilleWorld(inputs);
+    expect(world.pigeonnier.notableMovers).toHaveLength(0);
+    const record = await openRecord(world.detailIndex[world.pigeonnier.detailId]!);
+    expect(recordRow(record, "Roost / Movers").textContent).toContain("None today");
+    const roost = recordRow(record, "Roost / Movers").textContent!;
+    if (hasCounts) {
+      expect(roost).toContain("3 today");
+      expect(roost).toContain("1 yesterday");
+      expect(roost).toContain("2 more than yesterday");
+    } else {
+      expect(roost).toContain("Unavailable");
+    }
+    expect(record.querySelectorAll("dt").length).toBe(2);
+  });
+
+  it("keeps selected water surface and local haze inspectable", async () => {
+    const inputs = new WorldBuilder().withDefaultChains().markStale("pegSummary").build();
+    const world = buildPharosVilleWorld(inputs);
+    const area = world.areas.find((entry) => entry.band === "CALM")!;
+    const record = await openRecord(world.detailIndex[area.detailId]!);
+    expect(recordRow(record, "Water surface").textContent).toContain("Glass");
+  });
+
+  it("retains month history and fallen-coin identity", async () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({
+      cemeteryEntries: RUNTIME_CEMETERY_ENTRIES.filter((entry) => entry.peakMcap != null).slice(0, 1),
+    }));
+    let record = await openRecord(world.detailIndex[world.lighthouse.detailId]!);
+    expect(recordRow(record, "Worst band, 30d").textContent).toContain("Garden record, 30d:");
+    cleanup();
+    const grave = world.graves[0]!;
+    record = await openRecord(world.detailIndex[grave.detailId]!);
+    expect(recordRow(record, "Symbol").textContent).toBe(grave.entry.symbol);
+    expect(recordRow(record, "Lifecycle").textContent).toContain(grave.entry.deathDate);
+    expect(recordRow(record, "Lifecycle").textContent).toContain("Peak market cap:");
+    expect(record.querySelectorAll("dt").length).toBeLessThanOrEqual(3);
+  });
+
+  it("bounds real composed records without dropping exceptions", async () => {
+    const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky");
+    inputs.freshness = makeSourceStatuses({ stress: { state: "stale" } });
+    inputs.stablecoins = {
+      ...inputs.stablecoins!,
+      peggedAssets: inputs.stablecoins!.peggedAssets.map((asset) => asset.id === "susds-sky" ? {
+        ...asset, price: 1.08, priceConfidence: "low",
+        consensusSources: ["oracle", "exchange", "dex"], agreeSources: ["oracle"],
+        circulatingPrevDay: { peggedUSD: 900_000_000 },
+        circulatingPrevWeek: { peggedUSD: 800_000_000 },
+      } : asset),
+    };
+    inputs.pegSummary = {
+      ...inputs.pegSummary!,
+      coins: inputs.pegSummary!.coins.map((coin) => coin.id === "susds-sky" ? {
+        ...coin, eventCount: 4, worstDeviationBps: -800, lastEventAt: 1_699_000_000,
+        dexPriceCheck: { dexPrice: 0.98, dexDeviationBps: -200, agrees: false, sourcePools: 4, sourceTvl: 20_000_000 },
+      } : coin),
+    };
+    const issuance = makePharosVilleWorldInput().mintBurn!;
+    inputs.mintBurn = {
+      ...issuance, coins: issuance.coins.map((coin, index) => index === 0 ? { ...coin, stablecoinId: "susds-sky" } : coin),
+    };
+    const world = buildPharosVilleWorld(inputs);
+    const ship = world.ships.find((entry) => entry.id === "susds-sky")!;
+    const detail = withRiskTransitionFact(world.detailIndex[ship.detailId]!, {
+      fromLabel: "Watch Breakwater", toLabel: "Calm Anchorage", progress: 0.5,
+    });
+    const record = await openRecord(detail);
+    expect(record.querySelectorAll("dt").length).toBeLessThanOrEqual(11);
+    expect(screen.getByTestId("pharosville-detail-reading").querySelectorAll("dd").length).toBeLessThanOrEqual(3);
+    expect(recordRow(record, "Market cap").textContent).toContain("Low");
+    expect(recordRow(record, "Market cap").textContent).toContain("1 of 3");
+    expect(recordRow(record, "DEX cross-check").textContent).toContain("$0.9800");
+    expect(recordRow(record, "DEX cross-check").textContent).toContain("$1.0800");
+    expect(recordRow(record, "24h change").textContent).toContain("4 events");
+    expect(recordRow(record, "Sailing in formation").textContent).toContain("sUSDS in distress");
+    expect(recordRow(record, "Currently").textContent).toContain("+800 bps");
+    expect(recordRow(record, "Currently").textContent).toContain("Evidence/source:");
+    expect(recordRow(record, "Currently").textContent).toContain("Caveat:");
+    expect(recordRow(record, "Currently").textContent).toContain("Tracking new risk band: from Watch Breakwater to Calm Anchorage");
+  });
+});
+
 describe("DetailPanel woodblock record", () => {
+  it("shows the same exact DEWS reading in the dense panel and ledger without an edge claim", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({
+      stablecoins: denseFixtureStablecoins,
+      chains: denseFixtureChains,
+      pegSummary: denseFixturePegSummary,
+      stress: {
+        ...denseFixtureStress,
+        signals: {
+          ...denseFixtureStress.signals,
+          "usdt-tether": { ...denseFixtureStress.signals["usdt-tether"]!, score: 95 },
+        },
+      },
+    }));
+    const ship = world.ships.find((entry) => entry.id === "usdt-tether")!;
+    const detail = world.detailIndex[ship.detailId]!;
+    const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
+    const withoutScore = renderToStaticMarkup(<DetailPanel detail={{
+      ...detail, facts: detail.facts.filter((fact) => fact.label !== "DEWS score"),
+    }} />);
+    const ledger = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+    const ledgerDom = document.createElement("div");
+    ledgerDom.innerHTML = ledger;
+    const panelDom = document.createElement("div");
+    panelDom.innerHTML = markup;
+    const currently = [...panelDom.querySelectorAll("dt")].find((row) => row.textContent === "Currently");
+    expect(currently?.nextElementSibling?.textContent).toContain("DEWS 95/100");
+    expect(ledgerDom.querySelector("#ledger-ship-usdt-tether")?.textContent).toContain("DEWS 95/100");
+    for (const surface of [markup, ledger]) {
+      expect(surface).not.toMatch(/calm[- ]edge|rough[- ]edge|within-zone anchoring/i);
+    }
+    expect(markup.match(/<div class="pv-fact-row"/g)?.length)
+      .toBe(withoutScore.match(/<div class="pv-fact-row"/g)?.length);
+  });
+
+  it("a consort shows its own DEWS score while keeping the shared formation berth", () => {
+    const inputs = makerSquadFixtureInputs();
+    const calm = {
+      band: "CALM", score: 8, signals: {},
+      computedAt: 1_700_000_000, methodologyVersion: "fixture",
+    };
+    const baseline = buildPharosVilleWorld({
+      ...inputs,
+      stress: { ...inputs.stress!, signals: { "usds-sky": calm, "susds-sky": calm } },
+    });
+    resetHeldShipPlacements();
+    const world = buildPharosVilleWorld({
+      ...makerSquadFixtureInputs(),
+      stress: {
+        ...inputs.stress!,
+        signals: {
+          "usds-sky": calm,
+          "susds-sky": { ...calm, band: "DANGER", score: 95 },
+        },
+      },
+    });
+    const flagship = world.ships.find((ship) => ship.id === "usds-sky")!;
+    const consort = world.ships.find((ship) => ship.id === "susds-sky")!;
+    const previous = baseline.ships.find((ship) => ship.id === consort.id)!;
+    expect(consort.squadRole).toBe("consort");
+    expect(consort.riskPlacement).toBe(flagship.riskPlacement);
+    expect(consort.riskDepth).toBe(0.08);
+    expect(flagship.riskDepth).toBe(0.08);
+    expect(consort.riskTile).toEqual(previous.riskTile);
+    expect(flagship.riskTile).toEqual(baseline.ships.find((ship) => ship.id === flagship.id)!.riskTile);
+    const markup = renderToStaticMarkup(<DetailPanel detail={world.detailIndex[consort.detailId]!} />);
+    expect(markup).toContain("DEWS 95/100");
+    expect(markup).not.toContain("DEWS 8/100");
+    const ledgerDom = document.createElement("div");
+    ledgerDom.innerHTML = renderToStaticMarkup(<AccessibilityLedger world={world} />);
+    const consortLine = ledgerDom.querySelector("#ledger-ship-susds-sky")?.textContent;
+    expect(consortLine).toContain("DEWS 95/100");
+    expect(consortLine).not.toContain("DEWS 8/100");
+    expect(ledgerDom.querySelector("#ledger-ship-usds-sky")?.textContent).toContain("DEWS 8/100");
+  });
+
   it("defers focus until a hidden selection becomes visible", () => {
     const opener = document.createElement("button");
     document.body.append(opener);
@@ -119,86 +508,8 @@ describe("DetailPanel woodblock record", () => {
     expect(statusLine.textContent).toContain("-12 bps vs USD");
   });
 
-  it("does not render dropped fields", () => {
-    const markup = renderShipPanel("susds-sky", "susds-sky");
-    expect(markup).not.toMatch(/Ship livery/i);
-    expect(markup).not.toMatch(/Peg marker/i);
-    expect(markup).not.toMatch(/Risk placement key/i);
-    expect(markup).not.toMatch(/Docking cadence/i);
-    expect(markup).not.toMatch(/Route source/i);
-    expect(markup).not.toMatch(/Evidence status/i);
-    // No top-level "Evidence" section heading (substring may still appear in fact values)
-    expect(markup).not.toMatch(/<h3[^>]*>\s*Evidence\s*</);
-  });
 
-  it("renders Identity then Position section in that order", () => {
-    const markup = renderShipPanel("susds-sky", "susds-sky");
-    const identityIndex = markup.search(/--identity/);
-    const positionIndex = markup.search(/--position/);
-    expect(identityIndex).toBeGreaterThan(-1);
-    expect(positionIndex).toBeGreaterThan(identityIndex);
-  });
 
-  it("renders Sailing in formation members list when present", () => {
-    const markup = renderShipPanel("susds-sky", "susds-sky");
-    expect(markup).toMatch(/Sailing in formation/i);
-  });
-
-  it("renders Class as a composed value (Tier · Class)", () => {
-    const markup = renderShipPanel("susds-sky", "susds-sky");
-    expect(markup).toMatch(/<dt[^>]*>Class<\/dt>\s*<dd[^>]*>[\s\S]*? · [\s\S]*?<\/dd>/);
-  });
-
-  it("keeps the expanded ship record bounded while exposing the safety grade", () => {
-    const markup = renderShipPanel("susds-sky", "susds-sky");
-    const dts = markup.match(/<div class="pv-fact-row"/g) ?? [];
-    expect(dts.length).toBeLessThanOrEqual(20);
-    expect(markup).toContain("In service since / tracked");
-    // The safety grade folds into the composed Class row rather than its own dt.
-    expect(markup).toContain("Safety A (score 90)");
-  });
-
-  it("respects the 8-row cap when every gated ship signal fires at once", () => {
-    // Worst-case ship: every fact detailForShip can emit toward the panel —
-    // squad formation, significant depeg record, supply momentum, and a
-    // degraded price signal. The gated P3 signals must fold into existing
-    // rows (Class, Market cap, 24h change) rather than spend rows of their
-    // own.
-    const detail: DetailModel = {
-      id: "ship:test-worst-case",
-      title: "Test Ship",
-      kind: "SHIP",
-      summary: "test",
-      facts: [
-        { label: "Ship class", value: "DeFi" },
-        { label: "Size tier", value: "Heritage hull" },
-        { label: "Bluechip audit", value: "Bluechip A" },
-        { label: "Market cap", value: "$1,000,000,000" },
-        { label: "Price confidence", value: "Low-confidence price feed" },
-        { label: "Source consensus", value: "2 of 3 price sources agree" },
-        { label: "24h supply change", value: "+5.4%" },
-        { label: "Supply momentum", value: "7d +2.4%, 30d -5.1%" },
-        { label: "Depeg history", value: "3 events on record; worst -8.2%; last 2026-05-30" },
-        { label: "Cycle tempo", value: "Brisk" },
-        { label: "Route cadence", value: "90–180 s legs; 240–480 s rests; routes show presence only" },
-        { label: "Home dock", value: "Ethereum" },
-        { label: "Representative position", value: "Calm Anchorage idle" },
-        { label: "Risk water area", value: "Calm Anchorage" },
-        { label: "Risk water zone", value: "calm" },
-        { label: "Chains present", value: "4 positive chain deployments: Ethereum 40%, Tron 30%, Solana 20%, +1 more" },
-        { label: "Sailing in formation", value: "DAI (flagship), sDAI" },
-        { label: "Cultural significance", value: "Heritage rationale" },
-      ],
-      links: [],
-    };
-    const markup = renderToStaticMarkup(<DetailPanel detail={detail} />);
-    const dts = markup.match(/<div class="pv-fact-row"/g) ?? [];
-    expect(dts.length).toBeLessThanOrEqual(8);
-    // The gated signals must fold into host rows, not silently drop.
-    expect(markup).toContain("Low-confidence price feed");
-    expect(markup).toContain("2 of 3 price sources agree");
-    expect(markup).toContain("depeg history: 3 events on record");
-  });
 
   it("renders Cycle tempo in the identity section", () => {
     const markup = renderShipPanel("susds-sky", "susds-sky");

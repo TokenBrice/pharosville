@@ -13,6 +13,22 @@ import type { MintBurnFlowsResponse } from "@shared/types/mint-burn";
 import { CHAIN_META } from "@shared/lib/chains";
 import { ACTIVE_STABLECOINS } from "@shared/lib/stablecoins";
 import type { PharosVilleInputs } from "../systems/pharosville-world";
+import { createSourceStatuses, type PharosVilleFreshness, type PharosVilleSourceStatus } from "../systems/world-types";
+
+/** Explicit evidence for synthetic worlds; never used by production ingestion. */
+export function makeSourceStatuses(
+  overrides: Partial<Record<keyof PharosVilleFreshness, Partial<PharosVilleSourceStatus>>> = {},
+): PharosVilleFreshness {
+  return createSourceStatuses((key) => ({
+    state: "current",
+    observedAt: null,
+    publishedAt: 1_700_000_000_000,
+    coverage: { state: "complete" },
+    methodologyVersion: "fixture",
+    reason: null,
+    ...overrides[key],
+  }));
+}
 
 const methodology = {
   version: "fixture",
@@ -242,7 +258,7 @@ export function makePharosVilleWorldInput(overrides: Partial<PharosVilleInputs> 
     safetyGrades: fixtureSafetyGrades,
     mintBurn: fixtureMintBurn,
     cemeteryEntries: [],
-    freshness: {},
+    freshness: makeSourceStatuses(),
     ...overrides,
   };
 }
@@ -507,7 +523,7 @@ export function makerSquadFixtureInputs(): PharosVilleInputs {
       grades: makerSquadFixtureMetas().map((meta) => ({ id: meta.id, score: 90, grade: "A" as const })),
     },
     cemeteryEntries: [],
-    freshness: {},
+    freshness: makeSourceStatuses(),
   };
 }
 

@@ -34,7 +34,7 @@ import {
   updateGardenInstancedWindSway,
 } from "./garden-flora";
 import { patchGardenToroKindling } from "./garden-lanterns";
-import { createNiwakiPine, type NiwakiBranchSpec } from "./garden-niwaki";
+import { createNiwakiPine, type NiwakiBranchSpec, type NiwakiPine } from "./garden-niwaki";
 import { disposeThreeObjectTree, stableUnit } from "./garden-util";
 
 /**
@@ -170,8 +170,8 @@ function thresholdHeight(forward: number, right: number): number {
   return Math.max(-1.5, brow.height - 0.35 * beyond * beyond);
 }
 
-// The threshold is the darkest plane of the print: two deep mosses mottled
-// together (a cool blue-green and an olive), dark earth where the bank breaks.
+// Deep moss and earth hold the shaded foreground. The local middle-distance
+// value plane borrows these same dyes without lifting the deck edge or grove.
 const MOSS_COOL = new Color(HARBOR_PALETTE.aurora_green)
   .lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.35)
   .multiplyScalar(0.15);
@@ -179,6 +179,11 @@ const MOSS_OLIVE = new Color(HARBOR_PALETTE.aurora_green)
   .lerp(new Color(HARBOR_PALETTE.stone_mid), 0.45)
   .multiplyScalar(0.14);
 const EARTH_SHADE = new Color(HARBOR_PALETTE.stone_dark).multiplyScalar(0.62);
+/** Muted olive-earth in the blue garden shade; separate from the inlet's hue. */
+const BANK_MOSS_PLANE = MOSS_OLIVE.clone().lerp(EARTH_SHADE, 0.85);
+BANK_MOSS_PLANE.r *= 1.5;
+BANK_MOSS_PLANE.g *= 1.05;
+BANK_MOSS_PLANE.b *= 0.15;
 const SET_STONE = new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.fog_blue), 0.2).multiplyScalar(0.5);
 const CEDAR_NEEDLE = new Color(HARBOR_PALETTE.aurora_green).lerp(new Color(HARBOR_PALETTE.timber_dark), 0.55).multiplyScalar(0.42);
 const CEDAR_BARK = new Color(HARBOR_PALETTE.timber_dark).multiplyScalar(0.7);
@@ -195,6 +200,8 @@ const TORO_STONE = new Color(HARBOR_PALETTE.stone_mid)
   .multiplyScalar(0.72);
 const TORO_HOLLOW = new Color(HARBOR_PALETTE.stone_dark).multiplyScalar(0.32);
 const LANTERN_EMBER = new Color(HARBOR_PALETTE.lantern_warm);
+/** Local night attenuation: keep the bank/deck boundary below the night sky. */
+const THRESHOLD_NIGHT_FLOOR = 0.5;
 /** Threshold kuromatsu dyes: a deep cool pine green far below the rim pine, never a new hue. */
 const THRESHOLD_NEEDLE = new Color(HARBOR_PALETTE.aurora_green)
   .lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.4)
@@ -220,12 +227,40 @@ function landColumns(): number[] {
   return columns;
 }
 
+function softBankMask(distanceSquared: number): number {
+  const t = Math.max(0, 1 - distanceSquared);
+  return t * t * (3 - 2 * t);
+}
+
 function landColor(forward: number, right: number, height: number): Color {
-  // Two-scale mottle between the cool and the olive moss, plus a value wobble.
+  // Slow moss variation remains underneath three broad, seat-authored planes.
   const broad = Math.sin(forward * 0.29 + Math.sin(right * 0.17) * 2.2) * Math.cos(right * 0.23 - forward * 0.11);
   const fine = Math.sin(forward * 1.13 + right * 0.71) * Math.sin(right * 1.37 - forward * 0.53);
-  const mix = Math.min(1, Math.max(0, 0.5 + broad * 0.45 + fine * 0.2));
-  const color = MOSS_COOL.clone().lerp(MOSS_OLIVE, mix).multiplyScalar(0.86 + fine * 0.14);
+  const brow = forward > BANK_START ? browAt(right / forward).forward : BANK_START;
+  const edge = softBankMask(1 - Math.min(1, Math.max(0, (forward - BANK_START) / 3)))
+    * softBankMask(1 - Math.min(1, Math.max(0, (brow - forward) / 6)))
+    * softBankMask(1 - Math.min(1, Math.max(0, (18 - right) / 6)));
+  const shoulder = softBankMask(
+    ((forward - TALL_SHOULDER.forward) / (TALL_SHOULDER.radiusForward + 2)) ** 2
+    + ((right - TALL_SHOULDER.right) / (TALL_SHOULDER.radiusRight + 2)) ** 2,
+  );
+  const interior = edge * (1 - shoulder);
+  const mix = Math.min(1, Math.max(0, 0.5 + broad * 0.45 + fine * (0.2 - interior * 0.15)));
+  const color = MOSS_COOL.clone().lerp(MOSS_OLIVE, mix).multiplyScalar(0.86 + fine * (0.14 - interior * 0.1));
+  const field = softBankMask(((forward - 24) / 14) ** 2 + ((right - 1.5) / 12) ** 2) * interior
+    * softBankMask(1 - Math.min(1, Math.max(0, (right + 4) / 4)))
+    * softBankMask(1 - Math.min(1, Math.max(0, (forward - 19) / 4)));
+  const recess = softBankMask(((forward - 19) / 2.5) ** 2 + ((right - 0.5 + (forward - 19) * 0.2) / 10) ** 2) * interior;
+  const steps = softBankMask(((forward - 8.8) / 5.5) ** 2 + ((right - 2.6) / 4.8) ** 2) * interior;
+  const plane = field * (1 - recess * 0.75);
+  const value = 52 + broad * 12;
+  color.setRGB(
+    color.r + (BANK_MOSS_PLANE.r * value - color.r) * plane,
+    color.g + (BANK_MOSS_PLANE.g * value - color.g) * plane,
+    color.b + (BANK_MOSS_PLANE.b * value - color.b) * plane,
+  );
+  color.lerp(EARTH_SHADE, recess * 0.75);
+  color.lerp(MOSS_OLIVE, steps * 0.65).multiplyScalar(1 + steps * 0.6);
   // The fall past the brow shows dark earth.
   const past = forward - (forward > BANK_START ? browAt(right / forward).forward : Number.POSITIVE_INFINITY);
   if (past > 0.5) color.lerp(EARTH_SHADE, Math.min(1, (past - 0.5) / 2));
@@ -631,6 +666,112 @@ export interface GardenThreshold {
   dispose(): void;
 }
 
+interface ThresholdPadOutline {
+  cuts: readonly { angle: number; halfWidth: number; depth: number }[];
+  /** Fraction of the original crown height above its unchanged underside. */
+  crownHeight: number;
+  /** Pad-local phase of the soft upper-crown undulation. */
+  crownPhase: number;
+}
+
+/** Build-time contours only; pad ownership keeps bark and the hidden crown untouched. */
+export function shapeThresholdLimbPads(
+  pine: NiwakiPine,
+  azimuth: number,
+  outlines: readonly ThresholdPadOutline[],
+): void {
+  const cos = Math.cos(azimuth);
+  const sin = Math.sin(azimuth);
+  const selected = pine.pads.map((pad, owner) => ({ pad, owner }))
+    .filter(({ pad }) => pad.branch === 0)
+    .sort((a, b) => (a.pad.center.x - b.pad.center.x) * cos + (a.pad.center.z - b.pad.center.z) * sin);
+  if (selected.length !== 3 || outlines.length !== 3) throw new Error("Threshold limbs require three pads and outlines");
+  const profiles = new Map(selected.map(({ pad, owner }, i) => [owner, { pad, outline: outlines[i]! }]));
+  const position = pine.geometry.getAttribute("position") as BufferAttribute;
+  const normal = pine.geometry.getAttribute("normal") as BufferAttribute;
+  const index = pine.geometry.index!;
+  let count = 0;
+  for (const owner of pine.padOfVertex) if (profiles.has(owner)) count += 1;
+  const oldNormals = new Float32Array(count * 3);
+  let saved = 0;
+  for (let vertex = 0; vertex < position.count; vertex += 1) {
+    const profile = profiles.get(pine.padOfVertex[vertex]!);
+    if (!profile) continue;
+    const { pad, outline } = profile;
+    const dx = position.getX(vertex) - pad.center.x;
+    const dz = position.getZ(vertex) - pad.center.z;
+    const x = cos * dx + sin * dz;
+    const z = -sin * dx + cos * dz;
+    const angle = Math.atan2(z / pad.halfSize.z, x / pad.halfSize.x);
+    let cut = 0;
+    for (const notch of outline.cuts) {
+      const distance = Math.abs(Math.atan2(Math.sin(angle - notch.angle), Math.cos(angle - notch.angle)));
+      const t = Math.max(0, 1 - distance / notch.halfWidth);
+      cut += notch.depth * t * t * (3 - 2 * t);
+    }
+    const scale = 1 - Math.min(0.54, Math.max(0, cut));
+    if (scale !== 1) {
+      position.setX(vertex, pad.center.x + (cos * x - sin * z) * scale);
+      position.setZ(vertex, pad.center.z + (sin * x + cos * z) * scale);
+    }
+    const base = pad.center.y - pad.halfSize.y;
+    const height = position.getY(vertex) - base;
+    if (height > 1e-6 && outline.crownHeight < 1) {
+      const ripple = Math.sin(x / pad.halfSize.x * 2.1 + z / pad.halfSize.z * 1.3 + outline.crownPhase);
+      const crown = outline.crownHeight + (1 - outline.crownHeight) * 0.1 * ripple;
+      position.setY(vertex, base + height * crown);
+    }
+    oldNormals[saved++] = normal.getX(vertex);
+    oldNormals[saved++] = normal.getY(vertex);
+    oldNormals[saved++] = normal.getZ(vertex);
+    normal.setXYZ(vertex, 0, 0, 0);
+  }
+  const a = new Vector3();
+  const b = new Vector3();
+  const c = new Vector3();
+  for (let face = 0; face < index.count; face += 3) {
+    const ia = index.getX(face);
+    const ib = index.getX(face + 1);
+    const ic = index.getX(face + 2);
+    const owner = pine.padOfVertex[ia]!;
+    if (!profiles.has(owner) && !profiles.has(pine.padOfVertex[ib]!) && !profiles.has(pine.padOfVertex[ic]!)) continue;
+    if (pine.padOfVertex[ib] !== owner || pine.padOfVertex[ic] !== owner) throw new Error("Threshold pad triangle crosses owners");
+    a.fromBufferAttribute(position, ia);
+    b.fromBufferAttribute(position, ib);
+    c.fromBufferAttribute(position, ic);
+    c.sub(b).cross(a.sub(b));
+    for (let corner = 0; corner < 3; corner += 1) {
+      const vertex = index.getX(face + corner);
+      normal.setXYZ(vertex, normal.getX(vertex) + c.x, normal.getY(vertex) + c.y, normal.getZ(vertex) + c.z);
+    }
+  }
+  saved = 0;
+  for (let vertex = 0; vertex < position.count; vertex += 1) {
+    if (!profiles.has(pine.padOfVertex[vertex]!)) continue;
+    a.fromBufferAttribute(normal, vertex);
+    if (a.lengthSq() > 0) a.normalize();
+    else a.fromArray(oldNormals, saved);
+    normal.setXYZ(vertex, a.x, a.y, a.z);
+    saved += 3;
+  }
+  position.needsUpdate = true;
+  normal.needsUpdate = true;
+  pine.geometry.computeBoundingBox();
+  pine.geometry.computeBoundingSphere();
+}
+
+// Innermost to outermost along each arm, deliberately independent of height order.
+const HERO_OUTLINES: readonly ThresholdPadOutline[] = [
+  { crownHeight: 0.6, crownPhase: 0.2, cuts: [{ angle: -0.45, halfWidth: 1.15, depth: 0.45 }, { angle: 1.1, halfWidth: 0.9, depth: 0.38 }] },
+  { crownHeight: 0.6, crownPhase: 1.7, cuts: [{ angle: 0.35, halfWidth: 1.3, depth: 0.5 }, { angle: -2.6, halfWidth: 0.65, depth: 0.2 }] },
+  { crownHeight: 0.6, crownPhase: -0.9, cuts: [{ angle: -1.65, halfWidth: 1.1, depth: 0.4 }, { angle: 0.2, halfWidth: 0.8, depth: 0.25 }] },
+];
+const COMPANION_OUTLINES: readonly ThresholdPadOutline[] = [
+  { crownHeight: 0.62, crownPhase: 0.5, cuts: [{ angle: -0.3, halfWidth: 1.1, depth: 0.38 }, { angle: 1.05, halfWidth: 0.85, depth: 0.3 }] },
+  { crownHeight: 0.62, crownPhase: 1.9, cuts: [{ angle: 0.45, halfWidth: 1.2, depth: 0.4 }, { angle: -2.4, halfWidth: 0.7, depth: 0.18 }] },
+  { crownHeight: 0.62, crownPhase: -0.7, cuts: [{ angle: -1.8, halfWidth: 1.05, depth: 0.35 }, { angle: 0.35, halfWidth: 0.8, depth: 0.22 }] },
+];
+
 function plantPine(
   seed: string,
   root: { forward: number; right: number },
@@ -638,8 +779,10 @@ function plantPine(
   branches: readonly NiwakiBranchSpec[],
   height: number,
   trunkRadius: number,
+  outlines: readonly ThresholdPadOutline[],
 ): { geometry: BufferGeometry; limbPads: Vector3[] } {
   const pine = createNiwakiPine({ seed, height, trunk, trunkRadius, branches, bark: THRESHOLD_BARK, needle: THRESHOLD_NEEDLE });
+  shapeThresholdLimbPads(pine, branches[0]!.azimuth, outlines);
   const offset = new Vector3(root.right, thresholdHeight(root.forward, root.right) - 0.1 - PINE_BASE, -root.forward);
   pine.geometry.translate(offset.x, offset.y, offset.z);
   const limbPads = pine.pads
@@ -659,7 +802,7 @@ export function createGardenThreshold(): GardenThreshold {
   const toWorldAxes = new Matrix4().makeRotationY(REST_SEAT_YAW_RAD);
 
   const landMaterial = new MeshStandardMaterial({ flatShading: false, roughness: 0.98, vertexColors: true });
-  patchGardenFloraNight(landMaterial);
+  patchGardenFloraNight(landMaterial, { nightFloor: THRESHOLD_NIGHT_FLOOR });
   const land = new Mesh(buildLand().applyMatrix4(toWorldAxes), landMaterial);
   land.name = GARDEN_THRESHOLD_LAND_NAME;
 
@@ -674,14 +817,14 @@ export function createGardenThreshold(): GardenThreshold {
   const engawa = new Mesh(engawaParts.geometry.applyMatrix4(toWorldAxes), engawaMaterial);
   engawa.name = GARDEN_THRESHOLD_ENGAWA_NAME;
 
-  const hero = plantPine("threshold.hero", HERO_ROOT, HERO_TRUNK, HERO_BRANCHES, 9.6, 0.36);
-  const companion = plantPine("threshold.companion", COMPANION_ROOT, COMPANION_TRUNK, COMPANION_BRANCHES, 7, 0.24);
+  const hero = plantPine("threshold.hero", HERO_ROOT, HERO_TRUNK, HERO_BRANCHES, 9.6, 0.36, HERO_OUTLINES);
+  const companion = plantPine("threshold.companion", COMPANION_ROOT, COMPANION_TRUNK, COMPANION_BRANCHES, 7, 0.24, COMPANION_OUTLINES);
   const pineGeometry = mergeGeometries([hero.geometry, companion.geometry], false)!;
   hero.geometry.dispose();
   companion.geometry.dispose();
   pineGeometry.applyMatrix4(toWorldAxes);
   const pineMaterial = new MeshStandardMaterial({ flatShading: false, roughness: 0.96, vertexColors: true });
-  patchGardenFloraNight(pineMaterial);
+  patchGardenFloraNight(pineMaterial, { nightFloor: THRESHOLD_NIGHT_FLOOR });
   patchGardenInstancedWindSway(pineMaterial, 9.6, 0.02);
   // One instance: both trees share the draw and the world-aligned wind.
   const pines = new InstancedMesh(pineGeometry, pineMaterial, 1);

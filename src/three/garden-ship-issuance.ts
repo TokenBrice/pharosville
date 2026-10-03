@@ -13,28 +13,31 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { HARBOR_PALETTE } from "../systems/palette";
 import type { ShipVisual } from "./garden-ships";
 import { stableUnit } from "./garden-util";
+import { shipIssuanceVisualState } from "../systems/ship-issuance";
 
 export const SHIP_ISSUANCE_WORKSET_NAME = "fleet-ship-issuance-worksets";
 const LIGHTERS_PER_SHIP = 2;
 
 export interface ShipIssuanceWorksetSpec {
-  direction: "minting" | "redeeming";
+  activity: "minting" | "redeeming" | "balanced-active";
   hasLargestEvent: boolean;
   hullRadius: number;
-  intensity: number;
   shipId: string;
+  eligible: boolean;
+  overviewWork: boolean;
 }
 
 export function shipIssuanceWorksetSpecs(ships: readonly ShipVisual[]): ShipIssuanceWorksetSpec[] {
   return ships.flatMap((visual) => {
     const issuance = visual.ship.issuance;
-    if (!issuance || issuance.direction === "flat") return [];
+    if (!issuance || issuance.activity === null || issuance.activity === "inactive" || shipIssuanceVisualState(issuance) === null) return [];
     return [{
-      direction: issuance.direction,
+      activity: issuance.activity,
       hasLargestEvent: issuance.largestEvent24h !== null,
       hullRadius: visual.selectionRadius,
-      intensity: Math.abs(issuance.flowIntensity ?? 0) / 100,
       shipId: visual.ship.id,
+      eligible: issuance.work.eligible,
+      overviewWork: issuance.work.overviewRank !== null,
     }];
   });
 }
@@ -44,7 +47,7 @@ export interface GardenShipIssuanceWorksets {
   readonly root: Group;
   dispose(): void;
   place(index: number, x: number, y: number, z: number, yaw: number): void;
-  flush(input: { detail: number; reducedMotion: boolean; timeSeconds: number }): void;
+  flush(input: { detail: number; overview: boolean; reducedMotion: boolean; timeSeconds: number }): void;
 }
 
 function paint(geometry: BufferGeometry, color: Color): BufferGeometry {
@@ -125,7 +128,7 @@ export function createGardenShipIssuanceWorksets(
     anchors[index * 4 + 3] = yaw;
   };
   let lastTimeSeconds: number | null = null;
-  const flush = ({ detail, reducedMotion, timeSeconds }: { detail: number; reducedMotion: boolean; timeSeconds: number }): void => {
+  const flush = ({ detail, overview, reducedMotion, timeSeconds }: { detail: number; overview: boolean; reducedMotion: boolean; timeSeconds: number }): void => {
     const deltaSeconds = lastTimeSeconds === null ? 0 : Math.max(0, Math.min(0.25, timeSeconds - lastTimeSeconds));
     lastTimeSeconds = timeSeconds;
     mix = reducedMotion ? 1 : mix + (1 - mix) * (1 - Math.exp(-deltaSeconds / 45));
@@ -138,7 +141,8 @@ export function createGardenShipIssuanceWorksets(
       for (let boat = 0; boat < LIGHTERS_PER_SHIP; boat += 1) {
         const index = specIndex * LIGHTERS_PER_SHIP + boat;
         const side = boat === 0 ? -1 : 1;
-        const along = spec.direction === "minting" ? -0.55 : 0.55;
+        const aboard = spec.activity === "minting" || (spec.activity === "balanced-active" && boat === 0);
+        const along = aboard ? -0.55 : 0.55;
         const radius = spec.hullRadius + 0.7 + boat * 0.35;
         const localX = along + (stableUnit(`issuance.${spec.shipId}.${boat}`) - 0.5) * 0.25;
         const localZ = side * radius;
@@ -147,23 +151,21 @@ export function createGardenShipIssuanceWorksets(
         dummy.position.set(
           anchors[specIndex * 4]! + localX * cos + localZ * sin,
           anchors[specIndex * 4 + 1]! - 0.48
-            + (spec.direction === "minting" ? 0.16 : -0.04),
+            + (aboard ? 0.16 : -0.04),
           anchors[specIndex * 4 + 2]! - localX * sin + localZ * cos,
         );
-        if (!reducedMotion) {
+        if (!reducedMotion && spec.eligible && (!overview || spec.overviewWork)) {
           const working = Math.sin(timeSeconds * 0.18 + specIndex * 0.7 + boat * Math.PI);
-          dummy.position.y += working * 0.08 * (spec.direction === "minting" ? 1 : -1);
+          dummy.position.y += working * 0.08 * (aboard ? 1 : -1);
         }
         dummy.rotation.set(0, yaw + (side < 0 ? Math.PI : 0), 0);
         // The second workset carries the day's largest event as a raised,
         // distinct crane lift; no event leaves it as an ordinary lighter.
-        const lift = spec.hasLargestEvent && boat === 1
-          ? (reducedMotion ? 1 : 0.55 + Math.sin(timeSeconds * 0.22 + specIndex) * 0.45)
-          : 0;
+        const lift = spec.hasLargestEvent && boat === 1 ? 1 : 0;
         dummy.scale.set(
-          shed * mix * (0.86 + spec.intensity * 0.18),
+          shed * mix * 0.95,
           shed * mix * (0.72 + lift * 0.58),
-          shed * mix * (0.86 + spec.intensity * 0.18),
+          shed * mix * 0.95,
         );
         dummy.updateMatrix();
         mesh.setMatrixAt(index, dummy.matrix);
@@ -171,7 +173,7 @@ export function createGardenShipIssuanceWorksets(
     }
     mesh.instanceMatrix.needsUpdate = true;
   };
-  flush({ detail: 1, reducedMotion: false, timeSeconds: 0 });
+  flush({ detail: 1, overview: true, reducedMotion: false, timeSeconds: 0 });
   return {
     count,
     root,
@@ -183,8 +185,5 @@ export function createGardenShipIssuanceWorksets(
 
 /** Renderer helper kept here so workset membership and ordering cannot drift. */
 export function issuanceWorksetShips(ships: readonly ShipVisual[]): ShipVisual[] {
-  return ships.filter((visual) => {
-    const direction = visual.ship.issuance?.direction;
-    return direction === "minting" || direction === "redeeming";
-  });
+  return ships.filter((visual) => shipIssuanceVisualState(visual.ship.issuance) !== null);
 }

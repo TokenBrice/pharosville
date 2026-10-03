@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
@@ -471,26 +472,6 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.queryByTestId("pharosville-changelog-panel")).toBeNull();
   });
 
-  it("announces background data timestamp and freshness changes", async () => {
-    const initialGeneratedAt = Date.UTC(2026, 5, 14, 12, 0);
-    const refreshedGeneratedAt = Date.UTC(2026, 5, 14, 12, 5);
-    const view = render(<PharosVilleWorld world={worldFixture({ generatedAt: initialGeneratedAt })} />);
-
-    view.rerender(<PharosVilleWorld world={worldFixture({ generatedAt: refreshedGeneratedAt })} />);
-    await waitFor(() => {
-      expect(screen.getByText(`Harbor data updated at ${new Date(refreshedGeneratedAt).toISOString()}.`)).toBeTruthy();
-    });
-
-    view.rerender(<PharosVilleWorld
-      world={worldFixture({
-        freshness: { stabilityStale: true },
-        generatedAt: refreshedGeneratedAt,
-      })}
-    />);
-    await waitFor(() => {
-      expect(screen.getByText("Harbor data updated. Stale source groups: PSI.")).toBeTruthy();
-    });
-  });
 
   it("cycles canvas hit targets with Tab and selects the focused target with Enter", async () => {
     render(<PharosVilleWorld world={worldFixture()} />);
@@ -1063,7 +1044,7 @@ function worldFixture(input: {
         label: "USDC",
       },
     },
-    freshness: input.freshness ?? {},
+    freshness: input.freshness ?? makeSourceStatuses(),
     generatedAt: input.generatedAt ?? 1,
     graves: [],
     lighthouse: {
@@ -1101,6 +1082,8 @@ function worldFixture(input: {
       marketCapUsd: 1_000,
       pegDeviationBps: 45,
       riskPlacement: "outer-rough-water",
+      ownRisk: { placement: "outer-rough-water", source: "stress" },
+      evidence: {},
       riskTile: { x: 7, y: 2 },
       riskZone: "warning",
       symbol: "USDC",

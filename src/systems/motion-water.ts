@@ -84,8 +84,7 @@ export function nearestMapWaterTile(tile: { x: number; y: number }, map: PharosV
   let bestTile: { x: number; y: number } | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
   for (const candidate of map.tiles) {
-    if (!isMotionWaterTile(candidate) || isSeawallBarrierTile(candidate)) continue;
-    if (isGardenObstacleTile(candidate.x, candidate.y)) continue;
+    if (!isWaterTile(candidate.x, candidate.y, map)) continue;
     const distance = Math.abs(candidate.x - rounded.x) + Math.abs(candidate.y - rounded.y);
     if (distance < bestDistance) {
       bestDistance = distance;
@@ -411,6 +410,64 @@ const NEIGHBOR_DY = [0, 1, 0, -1, 1, -1, 1, -1] as const;
 const MIN_STEP_COST = 0.72;
 const OCTILE_DIAGONAL = Math.SQRT2 - 1;
 
+interface WaterNavigation {
+  water: Uint8Array;
+  neighbors: Uint8Array;
+  stepCosts: Map<ShipWaterZone | undefined, Float64Array>;
+}
+
+// Maps are immutable navigation authorities. Resolve their geometric keep-outs
+// and corner-cut rules once, not for every neighbor of every cadence candidate.
+const waterNavigationByMap = new WeakMap<PharosVilleMap, WaterNavigation>();
+
+function waterNavigation(map: PharosVilleMap): WaterNavigation {
+  const cached = waterNavigationByMap.get(map);
+  if (cached) return cached;
+  const size = map.width * map.height;
+  const water = new Uint8Array(size);
+  const neighbors = new Uint8Array(size);
+  for (let index = 0; index < size; index += 1) {
+    const x = index % map.width;
+    const y = (index - x) / map.width;
+    const tile = map.tiles[index];
+    water[index] = tile && isMotionWaterTile(tile)
+      && !isSeawallBarrierTileXY(x, y) && !isGardenObstacleTile(x, y) ? 1 : 0;
+  }
+  for (let index = 0; index < size; index += 1) {
+    const x = index % map.width;
+    const y = (index - x) / map.width;
+    for (let n = 0; n < 8; n += 1) {
+      const dx = NEIGHBOR_DX[n]!;
+      const dy = NEIGHBOR_DY[n]!;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height) continue;
+      if (!water[ny * map.width + nx]) continue;
+      if (dx !== 0 && dy !== 0
+        && (!water[y * map.width + nx] || !water[ny * map.width + x])) continue;
+      neighbors[index] |= 1 << n;
+    }
+  }
+  const navigation = { water, neighbors, stepCosts: new Map<ShipWaterZone | undefined, Float64Array>() };
+  waterNavigationByMap.set(map, navigation);
+  return navigation;
+}
+
+function waterStepCosts(map: PharosVilleMap, zone: ShipWaterZone | undefined): Float64Array {
+  const navigation = waterNavigation(map);
+  const cached = navigation.stepCosts.get(zone);
+  if (cached) return cached;
+  const shoreMask = ensureShoreDistanceMask(map);
+  const costs = new Float64Array(map.width * map.height);
+  for (let index = 0; index < costs.length; index += 1) {
+    const shoreD = shoreMask[index]!;
+    const shorePenalty = shoreD < 1.5 ? 0.08 : shoreD < 2.5 ? 0.03 : 0;
+    costs[index] = waterPathCost(map.tiles[index], zone) + shorePenalty;
+  }
+  navigation.stepCosts.set(zone, costs);
+  return costs;
+}
+
 function ensurePathBuffers(mapSize: number): void {
   if (pathDistances.length < mapSize) {
     pathDistances = new Float64Array(mapSize);
@@ -505,7 +562,8 @@ function findWaterPath(
     previous[i] = -1;
   }
   pathHeapSize = 0;
-  const shoreMask = ensureShoreDistanceMask(map);
+  const navigation = waterNavigation(map);
+  const stepCosts = waterStepCosts(map, zone);
 
 
   distances[startIndex] = 0;
@@ -523,39 +581,18 @@ function findWaterPath(
     if (currentIndex === endIndex) return reconstructPath(previous, endIndex, map);
 
     for (let n = 0; n < 8; n += 1) {
+      if (!(navigation.neighbors[currentIndex]! & (1 << n))) continue;
       const dx = NEIGHBOR_DX[n]!;
       const dy = NEIGHBOR_DY[n]!;
       const nx = currentX + dx;
       const ny = currentY + dy;
-      if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height) continue;
       const neighborIndex = ny * map.width + nx;
-      const tile = map.tiles[neighborIndex];
-      if (!tile || isSeawallBarrierTileXY(nx, ny) || !isMotionWaterTile(tile)) continue;
-      // Zones-v2 placement fix: routes must also round the RENDERED island
-      // rock and islets — data water beneath the garden meshes is blocked.
-      if (isGardenObstacleTile(nx, ny)) continue;
-      if (dx !== 0 && dy !== 0) {
-        // Reject corner-cuts: a diagonal must have BOTH cardinal neighbors open
-        // so the path can't clip through a coast corner or seawall gap.
-        const cornerAX = currentX + dx;
-        const cornerAY = currentY;
-        const cornerBX = currentX;
-        const cornerBY = currentY + dy;
-        const cornerATile = map.tiles[cornerAY * map.width + cornerAX];
-        const cornerBTile = map.tiles[cornerBY * map.width + cornerBX];
-        if (!cornerATile || !isMotionWaterTile(cornerATile) || isSeawallBarrierTileXY(cornerAX, cornerAY)) continue;
-        if (!cornerBTile || !isMotionWaterTile(cornerBTile) || isSeawallBarrierTileXY(cornerBX, cornerBY)) continue;
-        if (isGardenObstacleTile(cornerAX, cornerAY) || isGardenObstacleTile(cornerBX, cornerBY)) continue;
-      }
-      const stepCost = waterPathCost(tile, zone);
-      // Graded shore bias: nudge routes 1-2 tiles offshore where viable. Additive
-      // on top of zone cost so the octile heuristic stays admissible.
-      const shoreD = shoreMask[neighborIndex]!;
-      const shorePenalty = shoreD < 1.5 ? 0.08 : shoreD < 2.5 ? 0.03 : 0;
+      // Preserve the original operation order exactly: diagonal scale, then
+      // inlet multiplier. Cached Float64 costs do not round route priorities.
       let inletMultiplier = inlet ? inlet[neighborIndex]! : 1;
       if (inletMultiplier === Number.POSITIVE_INFINITY) inletMultiplier = coreStepCost;
       if (inletMultiplier === Number.POSITIVE_INFINITY) continue;
-      const cost = (dx !== 0 && dy !== 0 ? (stepCost + shorePenalty) * Math.SQRT2 : stepCost + shorePenalty) * inletMultiplier;
+      const cost = (dx !== 0 && dy !== 0 ? stepCosts[neighborIndex]! * Math.SQRT2 : stepCosts[neighborIndex]!) * inletMultiplier;
       const nextDistance = distances[currentIndex]! + cost;
       if (nextDistance >= distances[neighborIndex]!) continue;
       previous[neighborIndex] = currentIndex;
@@ -737,8 +774,7 @@ export function waterPathFromPoints(from: { x: number; y: number }, to: { x: num
 function isWaterTile(x: number, y: number, map: PharosVilleMap): boolean {
   const index = tileIndex(x, y, map);
   if (index < 0) return false;
-  const tile = map.tiles[index];
-  return !!tile && !isSeawallBarrierTile({ x, y }) && isMotionWaterTile(tile) && !isGardenObstacleTile(x, y);
+  return waterNavigation(map).water[index] === 1;
 }
 
 function isMotionWaterTile(tile: Pick<PharosVilleTile, "kind" | "terrain">): boolean {

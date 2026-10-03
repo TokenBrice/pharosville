@@ -1,3 +1,5 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
+import { quietNormalInput, T } from "../__fixtures__/data-contract-scenarios";
 import { describe, expect, it } from "vitest";
 import { ACTIVE_META_BY_ID } from "@shared/lib/stablecoins";
 import {
@@ -21,8 +23,11 @@ import {
   __resetPreviousRiskCache,
   buildBaseMotionPlan,
   buildMotionPlan,
+  captureAcceptedMarketTransitions,
+  createMarketObservationState,
   disposePathCacheForMap,
   inletCrossingTokensBetween,
+  getCurrentMapPathCacheStats,
   type InletCrossingToken,
   motionPlanSignature,
   openWaterPatrolItineraryIndex,
@@ -41,6 +46,28 @@ import { MOTION_UNDERWAY_MAX_TILES_PER_SECOND, MOTION_UNDERWAY_MIN_TILES_PER_SEC
 import { resolveShipMotionSample } from "./motion-sampling";
 import { stableUnit } from "./stable-random";
 import type { PharosVilleWorld } from "./world-types";
+import { SCENARIOS } from "../__fixtures__/data-contract-scenarios";
+
+it("qualifier-only changes replace unsupported route pace without replaying same-value samples", () => {
+  const world = buildPharosVilleWorld(structuredClone(SCENARIOS.largeMint));
+  const subject = world.ships.find((ship) => ship.id === "usdc-circle")!;
+  const current = buildBaseMotionPlan(world).shipRoutes.get(subject.id)!;
+  for (const issuance of [
+    { ...subject.issuance!, evidence: { ...subject.issuance!.evidence, state: "stale" as const } },
+    { ...subject.issuance!, completeWindow: false },
+    { ...subject.issuance!, intensitySemantics: "midpoint-v1" as const },
+    { ...subject.issuance!, intensitySemantics: null },
+  ]) {
+    const changed = { ...world, ships: world.ships.map((ship) => ship.id === subject.id ? { ...ship, issuance } : ship) };
+    expect(motionPlanSignature(changed)).not.toBe(motionPlanSignature(world));
+    const route = buildBaseMotionPlan(changed).shipRoutes.get(subject.id)!;
+    expect(route.underwaySpeedTilesPerSecond).toBeGreaterThan(current.underwaySpeedTilesPerSecond);
+  }
+  const resampled = { ...world, ships: world.ships.map((ship) => ship.id === subject.id ? {
+    ...ship, issuance: { ...ship.issuance!, evidence: { ...ship.issuance!.evidence, publishedAt: 1_700_000_060_000 } },
+  } : ship) };
+  expect(motionPlanSignature(resampled)).toBe(motionPlanSignature(world));
+});
 
 describe("W4.23 calm patrol itineraries", () => {
   function worldForDocklessShip(): PharosVilleWorld {
@@ -68,7 +95,7 @@ describe("W4.23 calm patrol itineraries", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
   }
 
@@ -83,7 +110,7 @@ describe("W4.23 calm patrol itineraries", () => {
       stress: denseFixtureStress,
       safetyGrades: denseFixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
   }
 
@@ -116,6 +143,46 @@ describe("W4.23 calm patrol itineraries", () => {
       expect(seen.has(key)).toBe(false);
       seen.add(key);
     }
+  });
+
+  it("bounds cold patrol planning work by the itinerary that can actually sail", () => {
+    const fixture = worldForDocklessShip();
+    let terrainReads = 0;
+    const world = {
+      ...fixture,
+      map: {
+        ...fixture.map,
+        tiles: fixture.map.tiles.map((tile) => {
+          const terrain = tile.terrain;
+          if (terrain === undefined) return { ...tile };
+          return {
+            ...tile,
+            get terrain() {
+              terrainReads += 1;
+              return terrain;
+            },
+          };
+        }),
+      },
+    };
+    const ship = world.ships[0]!;
+    const route = buildBaseMotionPlan(world).shipRoutes.get(ship.id)!;
+    expect(route.openWaterPatrol!.itinerary).toHaveLength(openWaterPatrolItineraryLength(ship.id));
+    for (const leg of route.openWaterPatrol!.itinerary) {
+      expect(leg.outbound.totalLength).toBeGreaterThanOrEqual(
+        MOTION_UNDERWAY_MIN_TILES_PER_SECOND * route.voyageDurationSeconds!,
+      );
+      expect(leg.outbound.totalLength).toBeLessThanOrEqual(
+        MOTION_UNDERWAY_MAX_TILES_PER_SECOND * route.voyageDurationSeconds!,
+      );
+    }
+    // Eight anchor-distance probes plus the two published cadence paths fit
+    // this bound. The eager discarded-anchor scan took 36 cold cache misses.
+    expect(getCurrentMapPathCacheStats(world.map)!.misses).toBeLessThanOrEqual(12);
+    // Navigation predicates and step costs are resolved per map, not for every
+    // expanded A* neighbor. This counter is independent of machine speed.
+    expect(terrainReads).toBeLessThanOrEqual(world.map.tiles.length * 4);
+    disposePathCacheForMap(world.map);
   });
 
   it("the first itinerary leg matches the legacy single-waypoint pick exactly", () => {
@@ -281,7 +348,7 @@ describe("W1.6 the empty inlet in motion", () => {
     stress: denseFixtureStress,
     safetyGrades: denseFixtureSafetyGrades,
     cemeteryEntries: [],
-    freshness: {},
+    freshness: makeSourceStatuses(),
   });
   const plans = Array.from({ length: 12 }, (_, bucket) => buildBaseMotionPlan(world, bucket * 600));
 
@@ -400,7 +467,7 @@ describe("W4.25 risk-transition tack-out", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
   }
 
@@ -535,6 +602,55 @@ describe("W4.25 risk-transition tack-out", () => {
   });
 });
 
+describe("quality-qualified market transitions", () => {
+  it("quality edges interpolate without market recovery events", () => {
+    __resetPreviousRiskCache();
+    const observations = createMarketObservationState();
+    const input = quietNormalInput();
+    Object.assign(input.stress!.signals["usdc-circle"]!, { band: "DANGER", score: 95 });
+    const danger = buildPharosVilleWorld(input);
+    const dangerPlan = buildBaseMotionPlan(danger);
+    expect(captureAcceptedMarketTransitions(danger, observations).size).toBe(0);
+
+    const heldInput = structuredClone(input);
+    heldInput.freshness!.stress = { ...heldInput.freshness!.stress, state: "stale", reason: "Refresh failed" };
+    const held = buildPharosVilleWorld(heldInput);
+    const heldPlan = buildBaseMotionPlan(held);
+    const heldShip = held.ships.find((ship) => ship.id === "usdc-circle")!;
+    const route = heldPlan.shipRoutes.get(heldShip.id)!;
+    const oldTile = dangerPlan.shipRoutes.get(heldShip.id)!.riskTile;
+    expect(route.previousRiskTile).toEqual(oldTile);
+    expect(route.riskTile).not.toEqual(oldTile);
+    expect(captureAcceptedMarketTransitions(held, observations).size).toBe(0);
+    let interpolationSeen = false;
+    for (let second = 0; second < Math.ceil(route.cycleSeconds); second += 1) {
+      const sample = resolveShipMotionSample({
+        plan: heldPlan, reducedMotion: false, ship: heldShip, timeSeconds: second - route.phaseSeconds,
+      });
+      if (!sample.riskTransition) continue;
+      expect(sample.riskTransition.fromTile).toEqual(oldTile);
+      expect(sample.riskTransition.toTile).toEqual(route.riskTile);
+      expect(sample.riskTransition.progress).toBeGreaterThanOrEqual(0);
+      expect(sample.riskTransition.progress).toBeLessThan(1);
+      interpolationSeen = true;
+      break;
+    }
+    expect(interpolationSeen).toBe(true);
+
+    const resumedInput = structuredClone(input);
+    resumedInput.stress!.signals["usdc-circle"]!.computedAt = T + 1;
+    const resumed = buildPharosVilleWorld(resumedInput);
+    expect(buildBaseMotionPlan(resumed).shipRoutes.get(heldShip.id)!.previousRiskTile).toEqual(route.riskTile);
+    expect(captureAcceptedMarketTransitions(resumed, observations).size).toBe(0);
+    const watchInput = structuredClone(resumedInput);
+    Object.assign(watchInput.stress!.signals["usdc-circle"]!, { band: "WATCH", score: 31, computedAt: T + 2 });
+    const changed = captureAcceptedMarketTransitions(buildPharosVilleWorld(watchInput), observations);
+    expect([...changed.values()]).toEqual([{
+      occurrenceId: 1, fromLabel: "Danger Strait", toLabel: "Watch Breakwater", observedAt: (T + 2) * 1_000,
+    }]);
+  });
+});
+
 describe("motion plan signature", () => {
   it("invalidates the plan when a cached-shape world and the fresh world place the fleet differently", () => {
     resetGardenFleetPlacementCache();
@@ -546,7 +662,7 @@ describe("motion plan signature", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     // An identical-content refresh reuses the plan (no A* rebuild).
     expect(motionPlanSignature({ ...fresh, ships: fresh.ships.map((ship) => ({ ...ship })) })).toBe(motionPlanSignature(fresh));

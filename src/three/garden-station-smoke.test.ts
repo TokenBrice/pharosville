@@ -16,6 +16,7 @@ import {
   stationSmokeSpecs,
   type GardenStationSmoke,
 } from "./garden-station-smoke";
+import { makeSourceStatuses } from "../__fixtures__/pharosville-world";
 
 const ISLAND_TILE = { x: 18, y: 28 };
 const HEARTH_TYPES: readonly StationType[] = ["uogashi", "hatago-wharf", "tea-house-quay"];
@@ -62,6 +63,9 @@ function activeTide(): DockCargoTide {
     pressureScore: 66,
     reason: "tracked",
     tracked: true,
+    completeWindow: true,
+    evidence: makeSourceStatuses().mintBurn,
+    unattributed: null,
   };
 }
 

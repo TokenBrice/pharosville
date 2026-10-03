@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
@@ -24,7 +25,7 @@ export function overCapacityWorldFixture(): PharosVilleWorld {
   const base = buildPharosVilleWorld({
     cemeteryEntries: [],
     chains: denseFixtureChains,
-    freshness: {},
+    freshness: makeSourceStatuses(),
     pegSummary: denseFixturePegSummary,
     safetyGrades: denseFixtureSafetyGrades,
     stability: fixtureStability,

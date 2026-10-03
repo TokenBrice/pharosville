@@ -138,6 +138,12 @@ export default defineConfig(({ mode }) => {
     build: {
       target: "es2022",
       outDir: "dist",
+      minify: "terser",
+      terserOptions: {
+        compress: {
+          passes: 2,
+        },
+      },
       // Route-specific budgets are enforced by scripts/check-bundle-size.mjs.
       // Keep Vite's generic warning quiet unless a chunk exceeds the guarded budget envelope.
       chunkSizeWarningLimit: 1000,

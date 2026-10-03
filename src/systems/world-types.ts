@@ -1,8 +1,10 @@
+import { PHAROSVILLE_API_ENDPOINT_KEYS, type PharosVilleApiEndpointKey } from "@shared/types/pharosville-endpoint-keys";
 import type { ChainHealthFactors, ChainSummary } from "@shared/types/chains";
 import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
-import type { SafetyGradeEntry, StablecoinData, StablecoinMeta } from "@shared/types";
+import type { SafetyGradeEntry, StablecoinData, StablecoinMeta, StabilityIndexResponse } from "@shared/types";
 import type { ConditionBand } from "@shared/lib/psi-colors";
 import type { NetFlowDirection24h } from "@shared/lib/mint-burn-signals";
+import type { MintBurnCoinCoverage, MintBurnFlowsResponse } from "@shared/types/mint-burn";
 import type { LongRecordModel } from "./long-record";
 import type { ShipAgeProfile } from "./ship-age";
 import type { SupplyTide } from "./supply-tide";
@@ -378,6 +380,8 @@ export interface LighthouseNode {
   contributors?: LighthouseContributor[];
   color: string;
   unavailable: boolean;
+  evidence: Partial<PharosVilleFreshness>;
+  inputDegradation?: NonNullable<StabilityIndexResponse["current"]>["inputDegradation"];
   detailId: string;
   /** Epoch ms of the most recent depeg event across the tracked fleet
       (max `pegSummary.coins[].lastEventAt`), or null when none on record. */
@@ -470,7 +474,7 @@ export interface DockNode {
    * (percent units, like `ShipNode.change24hPct`), from `chains.chains[]`.
    *
    * A harbour FILLING or DRAINING, which is not the same statement as
-   * `cargoTide`: that is issuance measured at the quay — coins minted and
+   * `cargoTide`: that is an estimated allocation of coins minted and
    * burned — while this is the chain's total held supply, which also moves when
    * supply bridges in or out without a single coin being created. A chain can
    * be net-burning and still filling, and the two rows sit next to each other
@@ -478,7 +482,8 @@ export interface DockNode {
    */
   change24hPct?: number | null;
   change7dPct?: number | null;
-  /** 24h issuance flow allocated to this harbour by `buildCargoTideStage`;
+  /** Estimated 24h issuance allocation to this harbour by held-supply share,
+      allocated across the reported payload scope by `buildCargoTideStage`;
       drives the cargo-tide crates and the "Net flow 24h" detail row. Absent
       only on docks built outside the world pipeline. */
   cargoTide?: DockCargoTide;
@@ -487,11 +492,12 @@ export interface DockNode {
 }
 
 /**
- * One harbour's share of the fleet's 24h mint/burn flow.
+ * One harbour's estimated allocation of the fleet's 24h mint/burn flow, not
+ * a chain-local measurement. Held-supply shares are normalized over the payload
+ * scope, independently of the rendered harbour subset.
  *
- * `tracked` is the load-bearing field: `false` means issuance is not MEASURED
- * for this chain, which is a different statement from a measured zero, and the
- * two must never render alike.
+ * `tracked` means the rendered harbour is inside that scope and has a usable
+ * allocation. An untracked reading must never render as an estimated zero.
  */
 export interface DockCargoTide {
   burnVolumeUsd: number;
@@ -510,9 +516,21 @@ export interface DockCargoTide {
    */
   reason: "tracked" | "chain-not-in-scope" | "scope-unreported" | "no-flow-data" | "unattributed";
   tracked: boolean;
+  /** Suppress illustrations, never retained quantities, on incomplete/held samples. */
+  completeWindow: boolean;
+  evidence: PharosVilleSourceStatus;
+  /** Fleet-wide gross that could not land on rendered quays; null without a scope. */
+  unattributed: UnattributedIssuance | null;
 }
 
-/** Fleet-wide issuance reading, straight from the mint/burn gauge. */
+/** Gross issuance outside rendered quays, with placement reasons and source coverage. */
+export interface UnattributedIssuance {
+  grossUsd: number;
+  byReason: Record<"unrendered harbour" | "outside the reported scope" | "no chain presence", number>;
+  evidence: PharosVilleSourceStatus;
+}
+
+/** Raw fleet coin totals and gauge, with a separate quay-allocation disclosure. */
 export interface FleetIssuance {
   activeCoins: number;
   band: string | null;
@@ -527,6 +545,7 @@ export interface FleetIssuance {
   scopeLabel: string | null;
   score: number | null;
   trackedCoins: number;
+  unattributed: UnattributedIssuance | null;
 }
 
 export interface DockStablecoin {
@@ -562,11 +581,17 @@ export interface ShipNode {
   dockChainId: string | null;
   marketCapUsd: number;
   riskPlacement: ShipRiskPlacement;
+  /** Own market reading, independent of a consort's shared formation berth. */
+  ownRisk: { placement: ShipRiskPlacement; source: "pegSummary" | "stress" };
   riskZone: ShipWaterZone;
   riskWaterLabel: string;
-  /** Fresh DEWS score normalized to calm-edge 0 … rough-edge 1 anchoring. */
+  /** Fresh DEWS depth (0…1) biases the preferred berth, not final tile order.
+      Consorts inherit the flagship's depth; sticky placement holds moves <0.02. */
   riskDepth?: number | null;
+  /** The coin's own finite DEWS score, clamped to 0…100, or null if absent. */
+  dewsScore?: number | null;
   placementEvidence: PlacementEvidence;
+  evidence: Partial<PharosVilleFreshness>;
   stressBreakdown?: { signals: string[]; contagionActive: boolean } | null;
   visual: ShipVisual;
   /** W7.3 service/tracking evidence and its renderer-neutral age profile. */
@@ -599,12 +624,32 @@ export interface ShipNode {
 }
 
 export interface ShipIssuance {
-  direction: "minting" | "redeeming" | "flat";
-  flowIntensity: number | null;
-  netFlow24hUsd: number;
+  /** Activity and net sign are separate from historical/partial evidence. */
+  activity: "inactive" | "balanced-active" | "minting" | "redeeming" | null;
+  direction: "minting" | "redeeming" | "flat" | null;
+  mintVolumeUsd: number | null;
+  burnVolumeUsd: number | null;
+  grossVolumeUsd: number | null;
+  netFlow24hUsd: number | null;
+  mintCount: number | null;
+  burnCount: number | null;
+  intensity: number | null;
+  intensitySemantics: MintBurnFlowsResponse["gauge"]["intensitySemantics"] | null;
+  windowHours: number | null;
+  coverage: MintBurnCoinCoverage | null;
+  completeWindow: boolean;
+  evidence: PharosVilleSourceStatus;
+  /** Declared illustration policy, not a financial or transaction reading. */
+  work: {
+    eligible: boolean;
+    supplyShare: number | null;
+    fleetGrossShare: number | null;
+    overviewRank: number | null;
+  };
   largestEvent24h: {
     amountUsd: number;
     direction: "mint" | "burn";
+    /** Genuine event time, in epoch seconds, not the source publication. */
     timestamp: number;
   } | null;
 }
@@ -761,14 +806,38 @@ export interface VisualCue {
   reducedMotionEquivalent: string;
 }
 
-export interface PharosVilleFreshness {
-  stablecoinsStale?: boolean;
-  chainsStale?: boolean;
-  stabilityStale?: boolean;
-  pegSummaryStale?: boolean;
-  stressStale?: boolean;
-  safetyGradesStale?: boolean;
-  mintBurnStale?: boolean;
+export type PharosVilleSourceState = "loading" | "current" | "stale" | "unavailable";
+
+export interface PharosVilleSourceCoverage {
+  state: "complete" | "partial" | "unknown";
+  coveredRows?: number;
+  expectedRows?: number;
+  windowHours?: number;
+  scopeLabel?: string;
+}
+
+export interface PharosVilleSourceStatus {
+  state: PharosVilleSourceState;
+  /** Genuine source observation, in epoch milliseconds; never receipt time. */
+  observedAt: number | null;
+  /** Publication/source as-of, in epoch milliseconds. */
+  publishedAt: number | null;
+  coverage: PharosVilleSourceCoverage;
+  methodologyVersion: string | null;
+  reason: string | null;
+}
+
+export type PharosVilleFreshness = Record<PharosVilleApiEndpointKey, PharosVilleSourceStatus>;
+export type ShipSourceEvidence = Pick<PharosVilleFreshness, "pegSummary" | "stress" | "safetyGrades">;
+
+/** Construct all seven keys; absent evidence is explicit, never an empty record. */
+export function createSourceStatuses(
+  statusFor: (key: PharosVilleApiEndpointKey) => PharosVilleSourceStatus = () => ({
+    state: "loading", observedAt: null, publishedAt: null,
+    coverage: { state: "unknown" }, methodologyVersion: null, reason: null,
+  }),
+): PharosVilleFreshness {
+  return Object.fromEntries(PHAROSVILLE_API_ENDPOINT_KEYS.map((key) => [key, statusFor(key)])) as PharosVilleFreshness;
 }
 
 export type SelectableWorldEntity =

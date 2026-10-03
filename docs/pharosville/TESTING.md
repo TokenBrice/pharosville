@@ -23,6 +23,13 @@ browser interaction changes. Chromium is the reference-performance browser;
 Firefox is the second accessibility/interaction browser. Safari is not a
 cutover acceptance browser.
 
+Local renderer-backed correctness lanes need hardware WebGL. Agent shells set
+`CI=true`, which deliberately launches Chromium with `--disable-webgl` unless
+`PHAROSVILLE_VISUAL_GPU=1` is set. Run
+`env -u CI npm run test:visual:dist:interaction` on the hardware workstation;
+the unprefixed CI-mode lane can report the capacity case as unmeasured and
+cannot prove its GPU/resource assertions.
+
 ## Required browser contracts
 
 The visual lane must keep proving:
@@ -36,14 +43,19 @@ The visual lane must keep proving:
   module/WebGL/context failure;
 - a blocked viewport with no world data, Three.js, model, or logo request.
 
-**Unexercised contract (2026-07-25):** the transient selected outsider — a ship
-past the render cap, drawn only because it is selected — has no coverage,
-because the scenario no longer occurs. The Grand Scale Revamp raised the cap to
-320 and neither the dense fixture (~132 ships) nor the live fleet (187) comes
-near it, so `selectGardenTransientShip` never fires. Covering it again needs a
-fixture with more than 320 ships; until then treat that path as untested. Note
-also that hit targets are VIEWPORT-CULLED, so a target count is a property of
-the camera, not of fleet composition — never compare counts across framings.
+**Over-capacity browser coverage:** the interaction lane limits the dense
+fixture to 131 ordinary ships and derives the excluded ship in the browser
+from the complete ledger minus the debug seam's admitted ship IDs (its detail
+ID is printed as `H1 excluded detail id`). Selecting it gives 132 ships
+without replacing content or adding textures. One select/Escape warm-up cycle
+uploads camera/LOD-dependent assets; two subsequent identical cycles require
+at most one extra geometry while selected, then exact warmed-baseline
+geometry/texture counts and 131 ships after Escape (no per-cycle growth).
+The panel and complete ledger retain
+the outsider. If no WebGL renderer is available, the case records an
+`unmeasured` annotation instead of claiming resource coverage. Production
+capacity remains 320; hit targets are VIEWPORT-CULLED, so a target count measures
+the camera, not fleet composition — never compare counts across framings.
 
 ## Visual review
 
@@ -75,6 +87,14 @@ npm run build
 npm run check:bundle-size
 ```
 
+Production JavaScript uses the exact-pinned Terser dev dependency with two
+compression passes and its default safe transforms; do not enable unsafe
+optimizations or strip localhost-only instrumentation. The aggregate and
+per-chunk limits in `scripts/bundle-budgets.mjs` remain the source of truth.
+For chunk/module composition, `npm run build -- --sourcemap` emits source maps
+alongside the production chunks; keep analysis artifacts under `outputs/`,
+not in the committed runtime.
+
 The performance suite measures coherent startup, pacing, long tasks, GPU
 resources, long-session stability, transient selection cleanup, and clock
 shutdown. Current resource ceilings are 700 draw calls, 500 geometries, 72
@@ -100,13 +120,82 @@ review; and `--out <path>` records the frame under `outputs/`. Use the real-GPU
 preview for appearance and timing, then inspect the image and the census
 reconciliation together.
 
-For reproducible hardware comparisons, `--fixture calm|dense|stress` reuses the
-checked-in browser fixtures and fixes the wall clock while leaving real RAF and
-performance timing intact. `--overlap` records projected ship hit-rectangle
-overlap and an annotated companion capture; this is a crowding proxy, not a
-measurement of sail-pixel occlusion. `--pan-zoom` records six gesture frames;
-`--blur-audit` saves a 16px canvas-blur companion for the attention audit.
-`--json <name.json>` preserves the metrics beside the images in `outputs/`.
+For reproducible hardware comparisons, `--fixture` accepts `calm`, `dense`,
+`stress`, `quiet-dense`, `mixed-capacity`, and `quiet-normal`. Stock `dense`
+remains the crowding arm. `quiet-dense` is the normalized 132-identity art
+baseline: unchanged stocks and identities, quiet peg/DEWS/flow readings, zero
+weekly change and STEADY/82 PSI. `mixed-capacity` keeps those identities with
+crowded risk waters and CRISIS/25 PSI. `quiet-normal` is the two-ship quiet case
+with BEDROCK/98 PSI and inactive issuance. Presets default to
+`--fixture-clock fixed`: Date stays at the source epoch plus 60 seconds.
+`--fixture-clock flowing` starts at that same observer origin and advances
+with native elapsed performance time. Exactly one Date observer is installed;
+RAF, performance and timers remain native in either mode. This option requires
+`--fixture`. A fixed observer never releases the director's 90-second initial
+foreground silence (including foreground rituals); use flowing for natural
+attention evidence.
+
+Fixtures default to `#t=12`. Pass `--hash '#'` (or a selection hash without `t=`
+or `n=1`) for a free hour; also keep those pins out of the base URL query.
+With either fixture clock, `--clock` pins only `d=`, not the observer origin.
+That calendar pin holds one day even while Date and the hour advance, so it
+cannot prove multiday behavior. Flowing fixtures serve unchanged rows and
+metadata: they measure snapshot aging, not healthy live producer updates.
+`--overlap` records projected ship hit-rectangle overlap and an annotated
+companion capture; this is a crowding proxy, not sail-pixel occlusion.
+`--pan-zoom` records six gesture frames; `--blur-audit` saves a 16px canvas-blur
+companion for the attention audit.
+
+`--ship-limit N` requires `--fixture` and a base `--url` whose hostname is
+exactly `localhost` or `127.0.0.1`. Integers are clamped to 1…320; fractional
+and nonnumeric values are rejected. The init script installs
+`window.__pharosVilleTestShipLimit` before navigation. The app honors it only
+under its visual-debug guard and on those exact hosts, resolving it once per
+world. Preview first verifies ordinary admission against the complete ledger,
+refuses ignored overrides, and then cold-navigates to the requested selection
+deep link (URL selection is consumed on mount).
+For the real-GPU outsider arm, use the ID printed by the interaction case:
+
+```bash
+env -u CI npm run preview -- --url http://localhost:5173 --fixture dense \
+  --ship-limit 131 --hash '#sel=<excluded-detail-id>&t=12' --assert \
+  --out vu/h1/capacity-131.png --json vu/h1/capacity-131.json
+```
+
+`--light-cycle` exercises the real **Explore harbor controls → Light and
+motion → Time of day** input at 06:00, 12:00, 18:00 and 22:00. It expands
+the redesigned toolbar before opening the drawer, waits for the requested hour
+to reach runtime telemetry, and settles each phase before recording resources,
+shader errors and a `-light-HHMM.png` screenshot. With `--reduced`, each phase
+uses the static upload/resource settling oracle; animated phases wait for
+uploads after their dwell. The initial still retains the normal `--assert`
+gate; phase resource/shader failures also exit nonzero. Example:
+
+```bash
+env -u CI npm run preview -- --url http://localhost:5173 --fixture dense \
+  --light-cycle --reduced --assert --out vu/h1/light.png --json vu/h1/light.json
+```
+
+`--json <name.json>` preserves metrics beside the images in `outputs/`, and
+prints one `manifest <path>` line. Its sibling `capture` block (not part of
+`metrics`) records the preview checkout commit and dirty paths, viewport,
+requested DPR (`deviceScaleFactor`), browser DPR and effective canvas DPR,
+screen, IANA timezone, headed/reduced flags, WebGL vendor, browser version,
+selected detail, world generation time, admitted ship detail IDs, canvas size,
+hash, date-aware dominant sky phase (`phaseForHour`), fixture name/source epoch/
+SHA-256 payload hash, and screenshot/JSON output paths. `capture.observer`
+records observer origin/epoch, Date mode, calendar pin, hour pin and timezone;
+`capture.shipLimit` records requested/effective capacity, the verified hostname,
+ordinary count and honored status (or `null` when unused).
+`capture.screenshotTiming` labels the main shot's timing. Missing optional
+evidence is `null` with a reason in `unavailable`; live data and no selection
+are ordinary null states. The identity is sampled beside the main screenshot,
+before any pan/zoom or light-cycle probes. Commit identity describes the
+preview script checkout, so always serve the same worktree being measured.
+
+Agent shells set `CI=true`: prefix real-GPU commands with `env -u CI`, for
+example `env -u CI npm run preview -- --fixture quiet-dense --assert --json quiet.json`.
+Exit 78 means not measured, never a pass; SwiftShader remains refused.
 
 `--texture-census` includes logical storage estimates for reachable textures,
 unique live handles and known depth/MSAA renderbuffers, with unknown allocations
@@ -260,7 +349,10 @@ Grep for that token rather than trusting the exit code alone; under GitHub
 Actions the same line lands in the step summary, and a skip also raises a
 `::warning::` annotation.
 
-Reduced motion has no continuous RAF, so use its settled static resource gate:
+Reduced motion has no self-chaining RAF. Date-driven on-demand paints up to
+1 Hz remain with a live hour; each recaptures the hero reflection only when
+the applied lighting changed (D22), unless another capture input changed.
+Use its settled static resource gate:
 
 ```bash
 npm run preview -- --assert --reduced
@@ -269,14 +361,14 @@ npm run preview -- --assert --reduced --hash "#sel=ship.satusd-river&t=12"
 
 This asserts full tier, at most 700 calls, 500k triangles, 500 geometries, and
 72 textures. It intentionally does not invent fps or frame-time data for a
-deterministic zero-RAF frame — no p95 either: a frame that is painted once has
-no tail, and the sweep does not run on this arm.
+static frame — no p95 either: isolated on-demand paints are not an animated
+frame-time tail, and the sweep does not run on this arm.
 
-The word that carries this lane is **settled**. Reduced motion paints once and
-then repaints only when something asynchronous lands, so an early read is not
-wrong, it is early — the 2026-07-27 cleanliness audit (V-07) found this path
-over the triangle ceiling exactly because nothing sampled it after it was
-whole. Settled here means all three of: the network is idle, the texture upload
+The word that carries this resource lane is **settled**. Reduced motion
+repaints on demand, including when asynchronous assets land, so an early read
+is not wrong, it is early — the 2026-07-27 cleanliness audit (V-07) found this
+path over the triangle ceiling exactly because nothing sampled it after it
+was whole. Settled here means all three of: the network is idle, the texture upload
 queue has drained to zero pending, and the full counter tuple — GPU counts plus
 the `uploads`/`logos` progress counters — has held still for four consecutive
 reads. The progress counters are in the signature deliberately: ~184 logo
@@ -293,6 +385,39 @@ error V-07 named.
 The last recorded settled reference (before the Hour-Print program) is about 316k
 triangles and 214–216 calls, depending on phase and selection. Re-measure it
 before quoting it for the current rest seat; the ceilings are what gate.
+
+**Cached-texture validity is a separate gate.** The reflection pass compares
+exact camera world/projection matrices, drawing-buffer size, effective DPR,
+half-CSS target size, owner, motion mode and the last successfully captured
+scene revision. Visibility is checked even on a cache hit; culling disables
+reflection strength without consuming an invalidation. Failed captures restore
+renderer state and remain dirty. The renderer compares applied colours
+(including hemisphere ground colour), intensity, world positions and targets
+of every reflection-enabled light, plus reflected-content/material drivers.
+A pinned `t=` hour with identical applied state reuses the capture; a live hour
+follows continuous day-cycle light drift, never a rounded-hour bucket.
+Lighthouse insertion, upload-ready visibility and context restore invalidate;
+fleet model and logo readiness alone do not.
+
+CPU coverage: `garden-hero-reflection-pass.test.ts` exercises cache reuse,
+view/projection changes, half-CSS sizing at DPR 1/2, same-wrapper content,
+culling/mode changes and failure restoration. `world-renderer.test.ts`
+exercises unchanged versus genuinely changed applied lighting, including a
+light outside the day-cycle rig. `use-world-render-loop.test.tsx` consumes
+asset bursts and latest-view changes, including hidden-to-visible resume,
+then checks no pending RAF, no active motion loop and no pacing samples.
+Run with the visual-debug reflection knockout off.
+
+**In-session transition evidence is also separate from resource settling.**
+On the real-GPU preview lane, settle before and after a canvas resize and
+`t=` change; record CSS/drawing-buffer dimensions and reflection alignment
+with before/after screenshots. Initial `--width`, `--height` and `--dpr`
+arms do not prove transitions. Preview fixes its viewport, so resizing its
+headed window does not count: a resize harness must change the page viewport
+and observe a real canvas-size change. Use the preview Chrome resolution and
+reject SwiftShader. `--light-cycle --reduced` settles at each of four phases.
+Record monitor-DPR and context-loss transitions as observed or unmeasured,
+never infer them from the initial-size arms.
 
 For fault-like flicker, run the bounded real-GPU artifact probe:
 
@@ -333,9 +458,10 @@ reports.
 | `--knockout <list>` | sets `window.__pharosVilleKnockout` before load; names: `ao`, `bloom`, `smaa`, `rays`, `reflection`, `grade`, `keyline`, `water-lanes` |
 | `--knockout-compare <list>` | runs the baseline and each named knockout as whole serial previews, one Chrome per arm, alternating for 3 rounds; prints each arm and Δp50/Δp90 = knockout − baseline, averaged over same-round pairs, plus Σ Δp50. Arm captures and JSON land as `<out>-kc-rN-<arm>.{png,json}`; `--json` writes the summary |
 | `--still-camera` | appends `still=1`: no camera breath and no eased moves (idle already holds the rest shot; Wander postcards move only when asked); director, fleet and water keep running |
-| `--clock <ISO>` | pins `Date` to that instant and lets it flow in real time (RAF, `performance.now` and timers stay native), and adds `d=YYYY-MM-DD` (the date as written) to the hash. A bare date is local midnight. Under `--fixture` the fixture's fixed `Date` is kept, so data freshness stays coherent, and only `d=` pins the calendar. Not combinable with `--refresh` |
+| `--clock <ISO>` | starts a flowing Date observer at that instant for live data and adds `d=YYYY-MM-DD` (the date as written) to the hash. A bare date is local midnight. Under `--fixture`, only `d=` is pinned; the selected fixture clock and source+60 s observer origin are unchanged. RAF, performance and timers stay native. Not combinable with `--refresh` |
+| `--fixture-clock fixed\|flowing` | requires `--fixture`; default `fixed` for art stills, `flowing` for observer-time attention and snapshot-aging watches. Use `--hash '#'` to bypass the fixture's noon pin |
 | `--burst N [--interval ms] [--clip x,y,w,h] [--burst-sheet]` | N ordered frames `<out>-burst-NN.png`, paced start to start (default 600 ms), of the canvas or of a viewport clip in CSS pixels; `--burst-sheet` also tiles them into `<out>-burst-sheet.png` |
-| `--stats [--watch-seconds S]` | prints `motionStats` (visible, underway, mean \|turn\|) and the latest director beats; with `--watch-seconds`, polls every 500 ms for S seconds and prints beats admitted, events/h, longest quiet gap, underway % of visible hulls and mean \|turn\| (°/s, °/min) |
+| `--stats [--watch-seconds S]` | prints motion samples and classified debug rows; watches poll every 500 ms and snapshot rows before the capped browser log evicts them. Reports ordinary discrete admissions/h, urgent admissions separately, duration-union occupancy %, quiet runs and longest quiet, plus the distinct `longestAdmissionGap` cadence metric in milliseconds. Ritual-start, forced-motion and environment rows do not count as discrete admissions. A non-advancing browser epoch reports occupancy/quiet as `unmeasured` |
 | `--metrics` | HUD-free capture (debug HUD and world chrome hidden): 3×3 ninths mean L\*, pixels L\* > 85, bottom-left ninth, saturated-orange share (HSV hue 15–50°, s·v > 0.35), left/right top-band hue Δ (chroma-weighted), bottom-third high-frequency energy \|L\* − gauss σ6\|, tower lit/shade face ratio and tower-vs-air Δ from projected `anchors`, and a 3-value notan at 16 px blur written to `<out>-notan.png` |
 | `--temporal` | mean frame-to-frame \|ΔL\*\| of the bottom third over an 11-frame, 1.5 s HUD-free burst |
 | `--value-plan [noon\|dusk\|night]` | MAE and Pearson r of the ninths against the value-plan table in `VISUAL_INVARIANTS.md`, parsed from the document on each run; the column comes from the `t=` hour (noon 9–16, dusk 16–20 or 5–7, night otherwise), else the page's wall-clock hour, unless named |
@@ -351,10 +477,26 @@ ninths. Blur radii are CSS pixels, scaled by DPR. High-frequency energy is
 measured at full CSS resolution, so re-baseline it with this tool instead of
 comparing it with lane figures taken from downsampled frames.
 
+With both `--tail-seconds` and `--watch-seconds`, readers run concurrently on
+the same settled scene. JSON records each monotonic start/end and
+`measurementOverlap` (duration and tail continuity); the main screenshot is
+after both readers finish. A short tail still cannot supply a longer watch's
+p95 coverage. Inspect overlap and continuous pacing windows before claiming
+matched coverage; polling overhead is part of this instrumented run.
+
+Occupancy unions effective half-open epoch attention intervals, clipped to
+the watch bounds, including beats already active at its start. Preemption
+truncates the replaced beat. Urgent market exceptions are counted separately
+from the ordinary admission budget but remain part of occupied time.
+The stats are not video and sampled underway hull share is not visual salience.
+Keep the tab visible, inspect recorded visibility and epoch advancement, and
+use independent observation/recording for natural-motion reading.
+
 ```bash
 npm run preview -- --uncapped --knockout-compare ao,bloom,smaa,rays,reflection,grade,water-lanes
 npm run preview -- --still-camera --hash "#t=18.3" --burst 9 --interval 600 --clip 900,700,500,250 --burst-sheet
 npm run preview -- --still-camera --stats --watch-seconds 600
+env -u CI npm run preview -- --fixture quiet-dense --fixture-clock flowing --hash '#' --still-camera --stats --watch-seconds 300 --tail-seconds 300 --assert --out vu/c1/watch-smoke.png --json vu/c1/watch-smoke.json
 npm run preview -- --fixture calm --clock 2026-09-26 --hash "#t=12.25" --metrics --value-plan --json noon.json
 npm run preview -- --clock 2026-09-26 --hash "#t=22" --metrics --temporal --night-water --out night.png
 npm run preview -- --clock 2026-09-26 --hash "#t=19.2" --ritual kindling --ritual-wait 20000 --out kindling.png
@@ -400,9 +542,9 @@ app's achieved fps. Read it at rest and during `--pan-zoom`, for example
 
 The r185 WebGPU spike was a measured NO-GO and its backend, runtime flags, TSL
 probe, and harness were removed. Its measurements and subsystem inventory live
-in `agents/2026-07-29-webgpu-spike-report.md`. A future experiment must be
-isolated from the production entry and keep the normal build byte budget
-unchanged.
+in the spike report, retired from the tree and kept in git history at commit
+`599c822`. A future experiment must be isolated from the production entry and
+keep the normal build byte budget unchanged.
 
 The hard ceilings remain 700 draw calls, 500 geometries, 500,000 triangles, and
 72 textures. The texture budget is fully spent at whole-map (72/72), so new

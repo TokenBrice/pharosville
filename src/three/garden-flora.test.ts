@@ -1,9 +1,9 @@
-import { Color, Group, InstancedMesh, Mesh, MeshStandardMaterial, Vector3 } from "three";
+import { Color, Group, InstancedMesh, Mesh, MeshStandardMaterial, ShaderLib, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { seasonalPhenology } from "../systems/garden-calendar";
 import { hexToOklch } from "../systems/palette";
 import type { PharosVilleWorld } from "../systems/world-types";
-import { createSpeciesBatch, createSpeciesGeometry, deciduousLeafColor, GARDEN_LETS_GO_PAD_BAND, setGardenFloraNightValue } from "./garden-flora";
+import { createSpeciesBatch, createSpeciesGeometry, deciduousLeafColor, GARDEN_LETS_GO_PAD_BAND, patchGardenFloraNight, setGardenFloraNightValue } from "./garden-flora";
 import { createGardenIslets } from "./garden-islets";
 import { createTerracedIsland } from "./garden-island";
 import { createGardenRimMesh } from "./garden-rim-mesh";
@@ -26,6 +26,85 @@ function size(species: Parameters<typeof createSpeciesGeometry>[0]): Vector3 {
   geometry.dispose();
   return extent;
 }
+
+function compileFloraNight(material: MeshStandardMaterial) {
+  const standard = ShaderLib.standard!;
+  const shader = {
+    uniforms: { ...standard.uniforms },
+    vertexShader: standard.vertexShader,
+    fragmentShader: standard.fragmentShader,
+  };
+  material.onBeforeCompile(shader as never, null as never);
+  return shader;
+}
+
+describe("local garden night floors", () => {
+  it("preserves the default program identity through night and dawn", () => {
+    const material = new MeshStandardMaterial();
+    const originalKey = material.customProgramCacheKey();
+    patchGardenFloraNight(material);
+    const key = material.customProgramCacheKey();
+    expect(key).toBe(`${originalKey}|garden-flora-night`);
+    const mesh = new Mesh(undefined, material);
+    const shader = compileFloraNight(material);
+    expect(shader.uniforms.uGardenFloraNightFloor).toBeUndefined();
+    for (const night of [1, 0.5, 0]) {
+      setGardenFloraNightValue(mesh, night);
+      expect(shader.uniforms.uNightValue!.value).toBe(night);
+      expect(material.customProgramCacheKey()).toBe(key);
+    }
+    mesh.geometry.dispose();
+    material.dispose();
+  });
+
+  it("shares the opt-in program without sharing material floors or night state", () => {
+    const defaultMaterial = new MeshStandardMaterial();
+    patchGardenFloraNight(defaultMaterial);
+    const materials = [new MeshStandardMaterial(), new MeshStandardMaterial()];
+    patchGardenFloraNight(materials[0]!, { nightFloor: 0.2 });
+    patchGardenFloraNight(materials[1]!, { nightFloor: 0.7 });
+    const key = materials[0]!.customProgramCacheKey();
+    expect(key).not.toBe(defaultMaterial.customProgramCacheKey());
+    expect(materials[1]!.customProgramCacheKey()).toBe(key);
+    const meshes = materials.map((material) => new Mesh(undefined, material));
+    const first = compileFloraNight(materials[0]!);
+    setGardenFloraNightValue(meshes[0]!, 1);
+    setGardenFloraNightValue(meshes[1]!, 0.5);
+    const second = compileFloraNight(materials[1]!);
+    expect(first.uniforms.uGardenFloraNightFloor!.value).toBe(0.2);
+    expect(second.uniforms.uGardenFloraNightFloor!.value).toBe(0.7);
+    expect(first.uniforms.uNightValue!.value).toBe(1);
+    expect(second.uniforms.uNightValue!.value).toBe(0.5);
+    second.uniforms.uGardenFloraNightFloor!.value = 0.4;
+    setGardenFloraNightValue(meshes[1]!, 0);
+    expect(first.uniforms.uGardenFloraNightFloor!.value).toBe(0.2);
+    expect(first.uniforms.uNightValue!.value).toBe(1);
+    expect(second.uniforms.uNightValue!.value).toBe(0);
+    for (const material of materials) expect(material.customProgramCacheKey()).toBe(key);
+    for (const mesh of meshes) { mesh.geometry.dispose(); mesh.material.dispose(); }
+    defaultMaterial.dispose();
+  });
+
+  it("accepts both floor boundaries and rejects non-finite or out-of-range floors before patching", () => {
+    for (const floor of [0, 1]) {
+      const material = new MeshStandardMaterial();
+      patchGardenFloraNight(material, { nightFloor: floor });
+      expect(compileFloraNight(material).uniforms.uGardenFloraNightFloor!.value).toBe(floor);
+      material.dispose();
+    }
+    for (const floor of [NaN, Infinity, -Infinity, -0.01, 1.01]) {
+      const material = new MeshStandardMaterial();
+      const compile = material.onBeforeCompile;
+      const key = material.customProgramCacheKey();
+      expect(() => patchGardenFloraNight(material, { nightFloor: floor })).toThrow(RangeError);
+      expect(material.onBeforeCompile).toBe(compile);
+      expect(material.customProgramCacheKey()).toBe(key);
+      expect(material.userData.uNightValue).toBeUndefined();
+      expect(material.userData.uGardenFloraNightFloor).toBeUndefined();
+      material.dispose();
+    }
+  });
+});
 
 describe("garden species", () => {
   it("keeps bamboo the one vertical, cherry broad and low, and karikomi a low wave", () => {

@@ -28,8 +28,8 @@ function sentenceKey({ clock, clause, phrase, warning }: NowCaptionParts): strin
  * the provenance a step lighter — on a feathered pool of shade. The minute
  * swaps in place; a new sentence crossfades (800 ms out, 1000 ms in). The
  * status region carries only the phrase, so a screen reader hears it when an
- * arrival, a transition, a stale feed or the phase changes, never on the
- * minute. A stale-feed warning is set roman with a glyph, never as poetry.
+ * arrival, a transition, a qualified source or the phase changes, never on the
+ * minute. An evidence warning is set roman with a glyph, never as poetry.
  */
 export const NowCaption = memo(function NowCaption({
   arrivalAnnotation,

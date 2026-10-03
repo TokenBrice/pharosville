@@ -3,6 +3,8 @@ import {
 } from "./garden-observatory-slice";
 import { resolveShipSizeTier } from "./ship-visuals";
 import type { PharosVilleWorld } from "./world-types";
+import { shipIssuanceVisualState } from "./ship-issuance";
+import { cargoTideVisualState } from "./pharosville-world/stages/cargo-tide";
 
 const signatureByWorld = new WeakMap<PharosVilleWorld, string>();
 const partHashesByWorld = new WeakMap<PharosVilleWorld, Readonly<Record<string, string>>>();
@@ -28,7 +30,7 @@ export function worldRenderContentSignature(world: PharosVilleWorld): string {
   const slice = selectGardenObservatorySlice(world, null);
   const docks = world.docks
     .map((dock) => ({
-      cargoTide: dock.cargoTide ?? null,
+      cargoTide: cargoTideVisualState(dock.cargoTide),
       chainId: dock.chainId,
       change24hPct: dock.change24hPct ?? null,
       detailId: dock.detailId,
@@ -50,7 +52,7 @@ export function worldRenderContentSignature(world: PharosVilleWorld): string {
       },
       dominantChainId: ship.dominantChainId,
       id: ship.id,
-      issuance: ship.issuance ?? null,
+      issuance: shipIssuanceVisualState(ship.issuance),
       logoSrc: ship.logoSrc,
       safetyGrade: ship.safetyGrade?.grade ?? null,
       representative,

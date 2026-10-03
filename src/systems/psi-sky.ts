@@ -1,4 +1,4 @@
-import type { LighthouseNode, PharosVilleFreshness } from "./world-types";
+import type { LighthouseNode } from "./world-types";
 
 export const NEUTRAL_SKY_CLARITY = 0.65;
 const CLARITY: Readonly<Record<string, number>> = {
@@ -6,8 +6,7 @@ const CLARITY: Readonly<Record<string, number>> = {
 };
 
 export interface PsiSkyInput {
-  lighthouse: Pick<LighthouseNode, "psiBand" | "score" | "unavailable">;
-  freshness?: PharosVilleFreshness;
+  lighthouse: Pick<LighthouseNode, "psiBand" | "score" | "unavailable" | "evidence">;
   timeSeconds: number;
   asOf?: string | null;
 }
@@ -27,7 +26,7 @@ export interface PsiSkyClarity {
  */
 export function psiSkyClarity(seaState: PsiSkyInput, previous: PsiSkyClarity | null = null): PsiSkyClarity {
   const { lighthouse, timeSeconds } = seaState;
-  const stale = seaState.freshness?.stabilityStale === true;
+  const stale = lighthouse.evidence.stability?.state !== "current";
   if (stale && previous) {
     if (previous.stale && previous.pendingBand === null) return previous;
     return { ...previous, stale: true, pendingBand: null };

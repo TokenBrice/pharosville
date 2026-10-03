@@ -2,6 +2,19 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.20.0 - 2026-10-03 - Clear Record
+
+The harbour says exactly what it knows: every source carries its own state, the record and ledger state each coin's own readings, issuance is drawn only where it is real, and the seat you look from is better made.
+
+Collected from commits `d9b80b5` through `950e885` after v0.19.2.
+
+- The seat is better made. The near pines now read as flat, irregular cloud pads rather than domes, and the moss bank settles into a few broad olive-and-earth planes, darkest at the front edge, instead of a bright lawn. At night the bank and the deck edge stay just readable against the water, while the land stays darker than the sky and the beacon stays brightest.
+- Every source speaks for itself. Each of the seven feeds now has its own state (current, held, missing or qualified, with coverage and as-of time) in the lamp, the caption and the ledger, so one stale feed can no longer hide behind a "current" summary. A ship's record uses its own row's observation time; a DEWS reading that is missing or unknown is shown as unavailable rather than calm, and an old reading is held and labelled rather than re-certified.
+- The record states the coin, not the berth. The selected record gives the coin's own DEWS score exactly and drops the old berth-edge claim. Facts that used to vanish between the world and the card — evidence status, the squad override with the coin's own distress, route source, peg deviation, harbour concentration and health, the lighthouse's market stability and sky — now reach the record in bounded rows, with the same words in the ledger.
+- Issuance is drawn only where it is real. Each ship's mint and redeem reading is now categorical (minting, redeeming, balanced, inactive, partial or unavailable) with gross and net, counts, window and coverage. Balanced activity loads one lighter and unloads another; the day's largest event is a single static lift with its exact amount and time in the record. Pace follows the 24h flow intensity only when the window is current and complete, and otherwise stays neutral and says "Unmeasured". Hull height now carries the peg alone. Moving cargo work is reserved for material activity under a declared policy (at least $1M gross and 1% of the coin's own supply or 0.1% of the covered fleet's gross), with only the top three working at overview; smaller activity keeps a still pose and its exact record.
+- Quays and the log stay honest. Each harbour's share of the day's issuance is allocated over the whole reported scope, so hiding one harbour no longer inflates the others, and flow that lands on unrendered harbours, outside the reported scope or on coins with no chain presence is disclosed with its reason. The harbour log narrates only accepted market readings: a change in data quality or methodology is silent, and a coin that moves Calm → Watch → Calm → Watch gets three distinct entries.
+- Faster and steadier. Live fleets plan in under two seconds instead of about thirteen, with byte-identical routes. The tower's static reflection now refreshes when the view, the size, the scene or the light actually changes. Ritual companions leave with the event that brought them, overview badges stay finite while a ship arrives, and a stricter minifier keeps the bundle inside its budget.
+
 ## v0.19.2 - 2026-10-03 - Harbors Return
 
 The harbours and the day's issuance are back: the world accepts the live feeds' newly empty history windows instead of discarding both feeds.

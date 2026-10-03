@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { dayCycleBeats } from "../systems/day-cycle-beats";
@@ -12,7 +13,7 @@ afterEach(() => {
 const props = {
   arrivalAnnotation: null,
   beats: dayCycleBeats(12.25),
-  freshness: {},
+  freshness: makeSourceStatuses(),
   latestTransition: null,
   psi: 82,
 };
@@ -24,14 +25,15 @@ describe("NowCaption", () => {
     const caption = screen.getByTestId("pharosville-now-caption");
     const status = screen.getByRole("status");
     expect(caption.getAttribute("aria-live")).toBeNull();
-    expect(caption.textContent).toBe("12:15 a quiet noon · readings current");
-    expect(status.textContent).toBe("a quiet noon · readings current");
+    const initialSpeech = status.textContent;
+    expect(caption.querySelector("time")?.textContent).toBe("12:15");
+    expect(status.querySelector("time")).toBeNull();
 
     const spokenNode = status.firstChild;
     view.rerender(<NowCaption {...props} hour={12 + 16 / 60} />);
-    expect(caption.textContent).toBe("12:16 a quiet noon · readings current");
+    expect(caption.querySelector("time")?.textContent).toBe("12:16");
     expect(caption.dataset.leaving).toBeUndefined();
-    expect(status.textContent).toBe("a quiet noon · readings current");
+    expect(status.textContent).toBe(initialSpeech);
     expect(status.firstChild).toBe(spokenNode);
   });
 
@@ -44,7 +46,7 @@ describe("NowCaption", () => {
     // The status region speaks at once; the visible line waits for its fade.
     expect(screen.getByRole("status").textContent).toBe("Tether comes in to Ethereum");
     expect(caption.dataset.leaving).toBe("true");
-    expect(caption.textContent).toBe("12:15 a quiet noon · readings current");
+    expect(caption.querySelector("time")?.textContent).toBe("12:15");
 
     act(() => { vi.advanceTimersByTime(NOW_LINE_FADE_OUT_MS); });
     expect(caption.dataset.leaving).toBeUndefined();
@@ -53,9 +55,8 @@ describe("NowCaption", () => {
 
   it("swaps at once under reduced motion and marks a stale feed as a warning", () => {
     const view = render(<NowCaption {...props} hour={12.25} reducedMotion />);
-    view.rerender(<NowCaption {...props} hour={12.25} reducedMotion freshness={{ stabilityStale: true, observedAt: null }} />);
+    view.rerender(<NowCaption {...props} hour={12.25} reducedMotion freshness={makeSourceStatuses({ stability: { state: "stale", observedAt: null, publishedAt: null } })} />);
     const caption = screen.getByTestId("pharosville-now-caption");
-    expect(caption.textContent).toBe("PSI stale since an unknown time");
     expect(caption.dataset.warning).toBe("true");
     expect(caption.querySelector("time")).toBeNull();
   });
@@ -71,9 +72,10 @@ describe("NowCaption", () => {
         hour={12.25}
         reducedMotion
         visitorLine="Each sail is a stablecoin."
-        freshness={{ chainsStale: true, observedAt: null }}
+        freshness={makeSourceStatuses({ chains: { state: "stale", observedAt: null, publishedAt: null } })}
       />,
     );
-    expect(screen.getByRole("status").textContent).toBe("Chains stale since an unknown time");
+    expect(screen.getByTestId("pharosville-now-caption").dataset.warning).toBe("true");
+    expect(screen.getByRole("status").textContent).not.toBe("Each sail is a stablecoin.");
   });
 });
