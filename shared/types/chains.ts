@@ -51,12 +51,12 @@ export const ChainSummarySchema = z.object({
   logoPath: z.string(),
   type: z.enum(["evm", "tron", "other"]),
   totalUsd: z.number(),
-  change24h: z.number(),
-  change24hPct: z.number(),
-  change7d: z.number(),
-  change7dPct: z.number(),
-  change30d: z.number(),
-  change30dPct: z.number(),
+  change24h: z.number().nullable(),
+  change24hPct: z.number().nullable(),
+  change7d: z.number().nullable(),
+  change7dPct: z.number().nullable(),
+  change30d: z.number().nullable(),
+  change30dPct: z.number().nullable(),
   stablecoinCount: z.number(),
   dominantStablecoin: ChainDominantStablecoinSchema,
   topStablecoins: z.array(ChainTopStablecoinSchema).optional(),
@@ -72,12 +72,12 @@ export interface ChainSummary {
   logoPath: string;
   type: "evm" | "tron" | "other";
   totalUsd: number;
-  change24h: number;
-  change24hPct: number;
-  change7d: number;
-  change7dPct: number;
-  change30d: number;
-  change30dPct: number;
+  change24h: number | null;
+  change24hPct: number | null;
+  change7d: number | null;
+  change7dPct: number | null;
+  change30d: number | null;
+  change30dPct: number | null;
   stablecoinCount: number;
   dominantStablecoin: ChainDominantStablecoin;
   topStablecoins?: ChainTopStablecoin[] | undefined;

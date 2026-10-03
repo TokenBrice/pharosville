@@ -14,4 +14,14 @@ describe("render-critical payload guards", () => {
     expect(isRenderableWorldPayload("chains", { ...fixtureChains, chains: [{ ...fixtureChains.chains[0], totalUsd: Infinity }] })).toBe(false);
     expect(isRenderableWorldPayload("safetyGrades", { ...fixtureSafetyGrades, grades: {} })).toBe(false);
   });
+  it("accepts nullable history windows and an absent flow intensity, but not non-finite values in them", () => {
+    const chain = { ...fixtureChains.chains[0], change7d: null, change7dPct: null, change30d: null, change30dPct: null };
+    expect(isRenderableWorldPayload("chains", { ...fixtureChains, chains: [chain] })).toBe(true);
+    expect(isRenderableWorldPayload("chains", { ...fixtureChains, chains: [{ ...chain, change30dPct: Number.NaN }] })).toBe(false);
+
+    const { flowIntensity: _omitted, ...coin } = { ...fixtureMintBurn.coins[0], netFlow7dUsd: null, netFlow30dUsd: null, netFlow90dUsd: null };
+    expect(isRenderableWorldPayload("mintBurn", { ...fixtureMintBurn, coins: [coin] })).toBe(true);
+    expect(isRenderableWorldPayload("mintBurn", { ...fixtureMintBurn, coins: [{ ...coin, netFlow90dUsd: Infinity }] })).toBe(false);
+    expect(isRenderableWorldPayload("mintBurn", { ...fixtureMintBurn, coins: [{ ...coin, netFlow24hUsd: null }] })).toBe(false);
+  });
 });

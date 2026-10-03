@@ -26,7 +26,8 @@ export function isRenderableWorldPayload(key: PharosVilleApiEndpointKey, data: u
     case "chains":
       return fields(data, ["globalTotalUsd", "updatedAt"])
         && rows(data.chains, (chain) => fields(chain, ["id", "name"], (v) => typeof v === "string")
-          && fields(chain, ["totalUsd", "change24hPct", "change7dPct", "change30dPct", "dominanceShare"])
+          && fields(chain, ["totalUsd", "dominanceShare"])
+          && fields(chain, ["change24hPct", "change7dPct", "change30dPct"], nullableFinite)
           && nullableFinite(chain.healthScore) && record(chain.healthFactors)
           && Object.values(chain.healthFactors).every(nullableFinite)
           && record(chain.dominantStablecoin) && finite(chain.dominantStablecoin.share)
@@ -50,8 +51,10 @@ export function isRenderableWorldPayload(key: PharosVilleApiEndpointKey, data: u
     case "mintBurn":
       return finite(data.updatedAt) && record(data.gauge) && nullableFinite(data.gauge.score)
         && fields(data.gauge, ["flightIntensity", "trackedCoins", "trackedMcapUsd"])
-        && rows(data.coins, (coin) => typeof coin.stablecoinId === "string" && nullableFinite(coin.flowIntensity)
-          && fields(coin, ["netFlow24hUsd", "mintVolume24hUsd", "burnVolume24hUsd", "netFlow7dUsd", "netFlow30dUsd", "netFlow90dUsd"]))
+        && rows(data.coins, (coin) => typeof coin.stablecoinId === "string"
+          && (coin.flowIntensity === undefined || nullableFinite(coin.flowIntensity))
+          && fields(coin, ["netFlow24hUsd", "mintVolume24hUsd", "burnVolume24hUsd"])
+          && fields(coin, ["netFlow7dUsd", "netFlow30dUsd", "netFlow90dUsd"], nullableFinite))
         && rows(data.hourly, (hour) => fields(hour, ["hourTs", "netFlowUsd", "mintVolumeUsd", "burnVolumeUsd"]));
   }
 }
