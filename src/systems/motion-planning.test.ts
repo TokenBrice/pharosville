@@ -23,6 +23,7 @@ import {
   buildMotionPlan,
   disposePathCacheForMap,
   inletCrossingTokensBetween,
+  getCurrentMapPathCacheStats,
   type InletCrossingToken,
   motionPlanSignature,
   openWaterPatrolItineraryIndex,
@@ -116,6 +117,46 @@ describe("W4.23 calm patrol itineraries", () => {
       expect(seen.has(key)).toBe(false);
       seen.add(key);
     }
+  });
+
+  it("bounds cold patrol planning work by the itinerary that can actually sail", () => {
+    const fixture = worldForDocklessShip();
+    let terrainReads = 0;
+    const world = {
+      ...fixture,
+      map: {
+        ...fixture.map,
+        tiles: fixture.map.tiles.map((tile) => {
+          const terrain = tile.terrain;
+          if (terrain === undefined) return { ...tile };
+          return {
+            ...tile,
+            get terrain() {
+              terrainReads += 1;
+              return terrain;
+            },
+          };
+        }),
+      },
+    };
+    const ship = world.ships[0]!;
+    const route = buildBaseMotionPlan(world).shipRoutes.get(ship.id)!;
+    expect(route.openWaterPatrol!.itinerary).toHaveLength(openWaterPatrolItineraryLength(ship.id));
+    for (const leg of route.openWaterPatrol!.itinerary) {
+      expect(leg.outbound.totalLength).toBeGreaterThanOrEqual(
+        MOTION_UNDERWAY_MIN_TILES_PER_SECOND * route.voyageDurationSeconds!,
+      );
+      expect(leg.outbound.totalLength).toBeLessThanOrEqual(
+        MOTION_UNDERWAY_MAX_TILES_PER_SECOND * route.voyageDurationSeconds!,
+      );
+    }
+    // Eight anchor-distance probes plus the two published cadence paths fit
+    // this bound. The eager discarded-anchor scan took 36 cold cache misses.
+    expect(getCurrentMapPathCacheStats(world.map)!.misses).toBeLessThanOrEqual(12);
+    // Navigation predicates and step costs are resolved per map, not for every
+    // expanded A* neighbor. This counter is independent of machine speed.
+    expect(terrainReads).toBeLessThanOrEqual(world.map.tiles.length * 4);
+    disposePathCacheForMap(world.map);
   });
 
   it("the first itinerary leg matches the legacy single-waypoint pick exactly", () => {

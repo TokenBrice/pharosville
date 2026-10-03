@@ -1107,28 +1107,29 @@ function buildOpenWaterPatrol(
   const anchors = openWaterPatrolItineraryAnchors(ship, riskTile, map);
   if (anchors.length === 0) return null;
 
-  const itinerary = anchors
-    .map((waypoint) => {
-      if (waypoint.x === riskTile.x && waypoint.y === riskTile.y) return null;
-      const outbound = tryBuildCadenceWaterRoute({
-        from: riskTile,
-        to: waypoint,
-        map,
-        zone: ship.riskZone,
-        shipId: ship.id,
-        bucket,
-        legDurationSeconds,
-        paceTilesPerSecond,
-        allowEndpointTruncation: true,
-      }, waterRouteCache);
-      if (!outbound || outbound.points.length <= 1 || outbound.totalLength <= 0) return null;
-      const minLength = MOTION_UNDERWAY_MIN_TILES_PER_SECOND * legDurationSeconds;
-      const maxLength = MOTION_UNDERWAY_MAX_TILES_PER_SECOND * legDurationSeconds;
-      if (outbound.totalLength < minLength || outbound.totalLength > maxLength) return null;
-      return { waypoint: outbound.to, outbound, inbound: reverseWaterPath(outbound) };
-    })
-    .filter((leg): leg is { waypoint: { x: number; y: number }; outbound: ShipWaterPath; inbound: ShipWaterPath } => leg !== null)
-    .slice(0, openWaterPatrolItineraryLength(ship.id));
+  const itinerary: Array<NonNullable<ShipMotionRoute["openWaterPatrol"]>["itinerary"][number]> = [];
+  for (const waypoint of anchors) {
+    if (waypoint.x === riskTile.x && waypoint.y === riskTile.y) continue;
+    const outbound = tryBuildCadenceWaterRoute({
+      from: riskTile,
+      to: waypoint,
+      map,
+      zone: ship.riskZone,
+      shipId: ship.id,
+      bucket,
+      legDurationSeconds,
+      paceTilesPerSecond,
+      allowEndpointTruncation: true,
+    }, waterRouteCache);
+    if (!outbound || outbound.points.length <= 1 || outbound.totalLength <= 0) continue;
+    const minLength = MOTION_UNDERWAY_MIN_TILES_PER_SECOND * legDurationSeconds;
+    const maxLength = MOTION_UNDERWAY_MAX_TILES_PER_SECOND * legDurationSeconds;
+    if (outbound.totalLength < minLength || outbound.totalLength > maxLength) continue;
+    itinerary.push({ waypoint: outbound.to, outbound, inbound: reverseWaterPath(outbound) });
+    // Later successful anchors were discarded by the itinerary slice. Keep the
+    // same first N successes without planning voyages that can never be sailed.
+    if (itinerary.length === openWaterPatrolItineraryLength(ship.id)) break;
+  }
   if (itinerary.length === 0) return null;
 
   const primary = itinerary[0]!;
@@ -1160,6 +1161,23 @@ function buildCadenceWaterRoute(input: CadenceWaterRouteInput, cache: ShipWaterR
   const maxLength = MOTION_UNDERWAY_MAX_TILES_PER_SECOND * input.legDurationSeconds;
   // Required dock legs must not silently violate the perceptual speed contract.
   throw new Error(`No cadence-safe water leg for ${input.shipId}: ${direct.totalLength.toFixed(2)} not in ${minLength.toFixed(2)}..${maxLength.toFixed(2)}`);
+}
+
+const cadenceCandidatesByMap = new WeakMap<PharosVilleMap, Map<ShipNode["riskZone"], PharosVilleMap["tiles"]>>();
+
+function cadenceCandidateTiles(map: PharosVilleMap, zone: ShipNode["riskZone"]): PharosVilleMap["tiles"] {
+  let zones = cadenceCandidatesByMap.get(map);
+  if (!zones) {
+    zones = new Map();
+    cadenceCandidatesByMap.set(map, zones);
+  }
+  const cached = zones.get(zone);
+  if (cached) return cached;
+  const tiles = map.tiles.filter((tile) => isWaterTileKind(tile.terrain ?? tile.kind)
+    && seaBodyAtTile(tile.x, tile.y) === zone
+    && gardenInletDistance(tile.x, tile.y) > GARDEN_EMPTY_INLET.halfWidth);
+  zones.set(zone, tiles);
+  return tiles;
 }
 
 function tryBuildCadenceWaterRoute(input: CadenceWaterRouteInput, cache: ShipWaterRouteCache): ShipWaterPath | null {
@@ -1198,20 +1216,21 @@ function tryBuildCadenceWaterRoute(input: CadenceWaterRouteInput, cache: ShipWat
     cache.set(cadenceKey, combined);
     return combined;
   }
-  const candidates = input.map.tiles
-    .filter((tile) => isWaterTileKind(tile.terrain ?? tile.kind)
-      && seaBodyAtTile(tile.x, tile.y) === input.zone
-      && outsideInlet(tile))
-    .map((tile) => ({
-      tile,
-      score: Math.abs(
-        Math.hypot(tile.x - input.from.x, tile.y - input.from.y)
-          + Math.hypot(input.to.x - tile.x, input.to.y - tile.y)
-          - (minLength + maxLength) / 2,
-      ),
-    }))
-    .sort((a, b) => a.score - b.score)
-    .slice(0, 4);
+  // Stable top-four selection preserves full-sort ties in map order, without
+  // allocating/sorting the whole zone for every optional itinerary anchor.
+  const candidates: Array<{ tile: PharosVilleMap["tiles"][number]; score: number }> = [];
+  for (const tile of cadenceCandidateTiles(input.map, input.zone)) {
+    const score = Math.abs(
+      Math.hypot(tile.x - input.from.x, tile.y - input.from.y)
+        + Math.hypot(input.to.x - tile.x, input.to.y - tile.y)
+        - (minLength + maxLength) / 2,
+    );
+    let index = 0;
+    while (index < candidates.length && candidates[index]!.score <= score) index += 1;
+    if (index >= 4) continue;
+    candidates.splice(index, 0, { tile, score });
+    if (candidates.length > 4) candidates.pop();
+  }
   for (const candidate of candidates) {
     const waypoint = nearestMapWaterTile(candidate.tile, input.map);
     const first = buildCachedShipWaterRoute({ ...input, to: waypoint }, cache);
