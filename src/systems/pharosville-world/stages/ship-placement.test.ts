@@ -242,28 +242,27 @@ describe("within-zone DEWS anchoring", () => {
     }
   });
 
-  it("keeps every cold DEWS sweep tile in legal, collision-free water", () => {
-    for (const id of ["usdt-tether", "usdc-circle", "usde-ethena"]) {
-      for (const score of [5, 25, 50, 75, 95]) {
-        resetHeldShipPlacements();
-        resetHeldMoorings();
-        const world = buildPharosVilleWorld(denseInputs({
-          stress: {
-            ...denseFixtureStress,
-            signals: {
-              ...denseFixtureStress.signals,
-              [id]: { ...denseFixtureStress.signals[id]!, score },
-            },
+  it.each(["usdt-tether", "usdc-circle", "usde-ethena"].flatMap((id) => [5, 25, 50, 75, 95].map((score) => [id, score] as const)))(
+    "keeps every cold DEWS sweep tile in legal, collision-free water (%s at %i)",
+    (id, score) => {
+      resetHeldShipPlacements();
+      resetHeldMoorings();
+      const world = buildPharosVilleWorld(denseInputs({
+        stress: {
+          ...denseFixtureStress,
+          signals: {
+            ...denseFixtureStress.signals,
+            [id]: { ...denseFixtureStress.signals[id]!, score },
           },
-        }));
-        const spread = world.ships.filter((ship) => ship.squadRole !== "consort");
-        const tiles = spread.map((ship) => `${ship.riskTile.x}.${ship.riskTile.y}`);
-        expect(new Set(tiles).size).toBe(tiles.length);
-        expect(spread.filter((ship) => !isRiskPlacementWaterTile(ship.riskTile, ship.riskPlacement))
-          .map((ship) => ship.id)).toEqual([]);
-      }
-    }
-  });
+        },
+      }));
+      const spread = world.ships.filter((ship) => ship.squadRole !== "consort");
+      const tiles = spread.map((ship) => `${ship.riskTile.x}.${ship.riskTile.y}`);
+      expect(new Set(tiles).size).toBe(tiles.length);
+      expect(spread.filter((ship) => !isRiskPlacementWaterTile(ship.riskTile, ship.riskPlacement))
+        .map((ship) => ship.id)).toEqual([]);
+    },
+  );
 
   it.each<[number, number | null]>([
     [140, 100], [-4, 0], [Number.NaN, null], [Number.POSITIVE_INFINITY, null],
