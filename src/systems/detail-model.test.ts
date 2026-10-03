@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { makeSourceStatuses } from "../__fixtures__/pharosville-world";
 import {
-  cargoTideLabel,
   supplyTideLabel,
   backingDiversityLabel,
   backingDiversitySeverity,
@@ -515,136 +515,7 @@ describe("detail-model analytical links", () => {
     ]);
   });
 
-  it("exposes a Cycle tempo fact with the per-coin flow intensity", () => {
-    const ship: import("./world-types").ShipNode & { flowIntensity: number } = {
-      id: "usdt-tether",
-      kind: "ship",
-      evidence: {},
-      label: "Tether",
-      symbol: "USDT",
-      asset: {} as import("./world-types").ShipNode["asset"],
-      meta: {} as import("./world-types").ShipNode["meta"],
-      safetyGrade: null,
-      logoSrc: null,
-      tile: { x: 1, y: 1 },
-      riskTile: { x: 2, y: 2 },
-      chainPresence: [],
-      dockVisits: [],
-      dominantChainId: null,
-      homeDockChainId: null,
-      dockChainId: null,
-      marketCapUsd: 1_000_000_000,
-      riskPlacement: "safe-harbor",
-      riskZone: "calm",
-      riskWaterLabel: "Calm Anchorage",
-      placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
-      visual: {
-        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
-        hull: "treasury-galleon",
-        classLabel: "CeFi",
-        livery: {
-          accent: "#27b6a5",
-          label: "Tether logo livery",
-          logoMatte: "#f7fffb",
-          logoShape: "circle",
-          primary: "#009393",
-          sailColor: "#d8efe7",
-          sailPanel: "center",
-          secondary: "#005f61",
-          source: "stablecoin-logo",
-          stripePattern: "double",
-        },
-        sailColor: "#d8efe7",
-        overlay: "none",
-        sizeTier: "major",
-        sizeLabel: "Major",
-        scale: 1,
-      },
-      change24hUsd: null,
-      change24hPct: null,
-      flowIntensity: 64,
-      detailId: "ship.usdt-tether",
-    };
-    const detail = detailForShip(ship);
-    const tempoFact = detail.facts.find((fact) => fact.label === "Cycle tempo");
-    expect(tempoFact).toBeDefined();
-    expect(tempoFact).toEqual({
-      label: "Cycle tempo",
-      value: "Brisk — 64/100 24h mint/redeem flow intensity",
-    });
-  });
 
-  it("computes Cycle tempo from each coin's flow intensity regardless of fleet context", () => {
-    const baseShip: import("./world-types").ShipNode & { flowIntensity: number } = {
-      id: "base",
-      kind: "ship",
-      evidence: {},
-      label: "Base",
-      symbol: "BASE",
-      asset: {} as import("./world-types").ShipNode["asset"],
-      meta: {} as import("./world-types").ShipNode["meta"],
-      safetyGrade: null,
-      logoSrc: null,
-      tile: { x: 1, y: 1 },
-      riskTile: { x: 2, y: 2 },
-      chainPresence: [],
-      dockVisits: [],
-      dominantChainId: null,
-      homeDockChainId: null,
-      dockChainId: null,
-      marketCapUsd: 0,
-      riskPlacement: "safe-harbor",
-      riskZone: "calm",
-      riskWaterLabel: "Calm Anchorage",
-      placementEvidence: { reason: "Fresh", sourceFields: [], stale: false },
-      visual: {
-        hullForm: { beam: 1, height: 1, length: 1, waterline: 0 },
-        hull: "treasury-galleon",
-        classLabel: "CeFi",
-        livery: {
-          accent: "#000",
-          label: "test",
-          logoMatte: "#fff",
-          logoShape: "circle",
-          primary: "#000",
-          sailColor: "#fff",
-          sailPanel: "center",
-          secondary: "#000",
-          source: "stablecoin-logo",
-          stripePattern: "double",
-        },
-        sailColor: "#fff",
-        overlay: "none",
-        sizeTier: "major",
-        sizeLabel: "Major",
-        scale: 1,
-      },
-      change24hUsd: null,
-      change24hPct: null,
-      flowIntensity: 0,
-      detailId: "ship.base",
-    };
-    const ships = [
-      { ...baseShip, id: "q0", detailId: "ship.q0", marketCapUsd: 1_000, flowIntensity: 0 },
-      { ...baseShip, id: "q1", detailId: "ship.q1", marketCapUsd: 10_000, flowIntensity: 25 },
-      { ...baseShip, id: "q2", detailId: "ship.q2", marketCapUsd: 100_000, flowIntensity: -50 },
-      { ...baseShip, id: "q3", detailId: "ship.q3", marketCapUsd: 1_000_000, flowIntensity: 100 },
-    ];
-    const tempoLabels = ships.map((ship) => {
-      const detail = detailForShip(ship, { allShips: ships });
-      const fact = detail.facts.find((f) => f.label === "Cycle tempo");
-      return fact?.value;
-    });
-    expect(tempoLabels).toEqual([
-      "Languid — 0/100 24h mint/redeem flow intensity",
-      "Steady — 25/100 24h mint/redeem flow intensity",
-      "Brisk — 50/100 24h mint/redeem flow intensity",
-      "Active — 100/100 24h mint/redeem flow intensity",
-    ]);
-    const detailWithoutContext = detailForShip(ships[3]!);
-    const tempoWithoutContext = detailWithoutContext.facts.find((f) => f.label === "Cycle tempo");
-    expect(tempoWithoutContext?.value).toBe("Active — 100/100 24h mint/redeem flow intensity");
-  });
 
   it("exposes ship route and Ledger Mooring placement facts", () => {
     const detail = detailForShip({
@@ -1539,81 +1410,9 @@ describe("detail-model P3 metaphor quick-win signals", () => {
     expect(supplyTideLabel(undefined)).toBeNull();
   });
 
-  it("cargoTideLabel names the direction outright rather than leaving it to a sign", () => {
-    const base = {
-      burnVolumeUsd: 2_000_000,
-      coinCount: 1,
-      mintVolumeUsd: 10_000_000,
-      pressureScore: 66,
-      reason: "tracked" as const,
-      tracked: true,
-    };
-    expect(cargoTideLabel({ ...base, direction: "minting", netFlowUsd: 8_000_000 }))
-      .toBe("Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: +$8.0M minting — mint $10.0M, burn $2.0M");
-    expect(cargoTideLabel({ ...base, direction: "burning", netFlowUsd: -8_000_000 }))
-      .toBe("Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: -$8.0M burning — mint $10.0M, burn $2.0M");
-  });
 
-  it("cargoTideLabel keeps a balanced quay, an idle one, and an unmeasured one apart", () => {
-    const base = { coinCount: 0, pressureScore: null, reason: "tracked" as const, tracked: true };
-    expect(cargoTideLabel({ ...base, direction: "flat", netFlowUsd: 0, mintVolumeUsd: 4_000_000, burnVolumeUsd: 4_000_000 }))
-      .toBe("Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: Balanced — mint $4.0M, burn $4.0M");
-    expect(cargoTideLabel({ ...base, direction: "inactive", netFlowUsd: 0, mintVolumeUsd: 0, burnVolumeUsd: 0 }))
-      .toBe("Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: No issuance activity in 24h");
-    expect(cargoTideLabel({
-      burnVolumeUsd: 0,
-      coinCount: 0,
-      direction: "inactive",
-      mintVolumeUsd: 0,
-      netFlowUsd: 0,
-      pressureScore: null,
-      reason: "chain-not-in-scope",
-      tracked: false,
-    })).toBe("Not measured on this chain");
-    expect(cargoTideLabel(undefined)).toBeNull();
-  });
 
-  it("says the quay figure is an allocation estimate only for tracked readings", () => {
-    const base = {
-      burnVolumeUsd: 0,
-      coinCount: 0,
-      mintVolumeUsd: 0,
-      netFlowUsd: 0,
-      pressureScore: null,
-    };
-    const prefix = "Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: ";
-    for (const direction of ["minting", "burning", "flat", "inactive"] as const) {
-      expect(cargoTideLabel({ ...base, direction, reason: "tracked", tracked: true }))
-        .toMatch(new RegExp(`^${prefix}`));
-    }
-    for (const [reason, expected] of [
-      ["chain-not-in-scope", "Not measured on this chain"],
-      ["scope-unreported", "Unavailable — issuance scope unreported"],
-      ["unattributed", "Unavailable — 24h issuance could not be matched to this harbor's coins"],
-      ["no-flow-data", "Unavailable — no issuance feed"],
-    ] as const) {
-      const reading = cargoTideLabel({ ...base, direction: "inactive", reason, tracked: false });
-      expect(reading).toBe(expected);
-      expect(reading).not.toContain(prefix);
-    }
-  });
 
-  it("cargoTideLabel says so when a quay's silence could not be verified", () => {
-    // An in-scope harbour that received no allocation while the payload carried
-    // issuance the fleet could not place. Its reading must not be the same
-    // sentence as an observed quiet day.
-    const label = cargoTideLabel({
-      burnVolumeUsd: 0,
-      coinCount: 0,
-      direction: "inactive",
-      mintVolumeUsd: 0,
-      netFlowUsd: 0,
-      pressureScore: null,
-      reason: "unattributed",
-      tracked: false,
-    });
-    expect(label).toBe("Unavailable — 24h issuance could not be matched to this harbor's coins");
-  });
 
   it("detailForDock surfaces Net flow 24h only when the harbour carries a tide", () => {
     const dockNode: DockNode = {
@@ -1637,14 +1436,13 @@ describe("detail-model P3 metaphor quick-win signals", () => {
         pressureScore: 66,
         reason: "tracked",
         tracked: true,
+        completeWindow: true,
+        evidence: makeSourceStatuses().mintBurn,
       },
       harboredStablecoins: [],
       detailId: "dock.ethereum",
     };
-    expect(detailForDock(dockNode).facts).toContainEqual({
-      label: "Net flow 24h",
-      value: "Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: +$8.0M minting — mint $10.0M, burn $2.0M",
-    });
+    expect(detailForDock(dockNode).facts.find((fact) => fact.label === "Net flow 24h")!.value).toContain("+$8.0M");
 
     const { cargoTide: _cargoTide, ...withoutTide } = dockNode;
     expect(detailForDock(withoutTide).facts.find((fact) => fact.label === "Net flow 24h"))

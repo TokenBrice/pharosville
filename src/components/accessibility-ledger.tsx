@@ -1,6 +1,7 @@
 import { PHAROSVILLE_API_ENDPOINT_KEYS } from "@shared/types/pharosville-endpoint-keys";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { hasCompleteCurrentSources } from "../systems/lamp-status";
+import { nodeSourceEvidenceLabel, sourceCoverageLabel, sourceStatusLabel } from "../systems/source-evidence";
 import { memo } from "react";
 import { CAUSE_META, type CauseOfDeath } from "@shared/lib/cause-of-death";
 import type { HealthBand } from "@shared/types/chains";
@@ -12,9 +13,6 @@ import { shipIssuanceLedgerClause } from "../systems/ship-issuance";
 import { gardenMonthRecordLedgerClause } from "../systems/garden-month-record";
 import {
   beamDwellLabel,
-  sourceStatusLabel,
-  sourceCoverageLabel,
-  nodeSourceEvidenceLabel,
   backingDiversityLabel,
   chainLabel,
   chainsPresentLabel,

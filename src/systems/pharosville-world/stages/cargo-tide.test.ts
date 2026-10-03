@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { MintBurnFlowsResponse } from "@shared/types/mint-burn";
 import type { DockNode, ShipNode } from "../../world-types";
 import { buildCargoTideStage } from "./cargo-tide";
+import { makeSourceStatuses } from "../../../__fixtures__/pharosville-world";
+import { FULL_COVERAGE, SCENARIOS } from "../../../__fixtures__/data-contract-scenarios";
+import { buildPharosVilleWorld } from "../../pharosville-world";
 
 function dock(chainId: string): DockNode {
   return {
@@ -53,6 +56,7 @@ function coin(
     netFlow30dUsd: 0,
     netFlow90dUsd: 0,
     largestEvent24h: null,
+    coverage: { ...FULL_COVERAGE },
   };
 }
 
@@ -72,6 +76,7 @@ function payload(
     coins,
     hourly: [],
     updatedAt: 1_700_000_000,
+    windowHours: 24,
     ...(scopeChainIds ? { scope: { chainIds: scopeChainIds, label: "Configured issuance chains" } } : {}),
   };
 }
@@ -80,15 +85,21 @@ const tideOf = (docks: DockNode[], chainId: string) =>
   docks.find((entry) => entry.chainId === chainId)!.cargoTide!;
 
 describe("buildCargoTideStage", () => {
+  it("suppresses partial illustrations while retaining exact allocated totals", () => {
+    const world = buildPharosVilleWorld(structuredClone(SCENARIOS.partialFlow));
+    const tide = world.docks.find((entry) => entry.chainId === "ethereum")!.cargoTide!;
+    expect(tide.completeWindow).toBe(false);
+    expect(world.docks.reduce((sum, dock) => sum + dock.cargoTide!.mintVolumeUsd, 0)).toBeCloseTo(100_000_000);
+    expect(world.docks.reduce((sum, dock) => sum + dock.cargoTide!.netFlowUsd, 0)).toBeCloseTo(100_000_000);
+    expect(tide.evidence.coverage.state).toBe("partial");
+  });
   it("names the direction from the sign of the allocated net flow", () => {
-    const stage = buildCargoTideStage(
-      [dock("ethereum"), dock("arbitrum")],
-      [ship("mint-coin", [["ethereum", 1]]), ship("burn-coin", [["arbitrum", 1]])],
-      payload([
-        coin("mint-coin", 8_000_000, 10_000_000, 2_000_000),
-        coin("burn-coin", -3_000_000, 1_000_000, 4_000_000),
-      ]),
-    );
+    const stage = buildCargoTideStage([dock("ethereum"), dock("arbitrum")],
+    [ship("mint-coin", [["ethereum", 1]]), ship("burn-coin", [["arbitrum", 1]])],
+    payload([
+      coin("mint-coin", 8_000_000, 10_000_000, 2_000_000),
+      coin("burn-coin", -3_000_000, 1_000_000, 4_000_000),
+    ]), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "ethereum")).toMatchObject({
       direction: "minting",
@@ -106,11 +117,9 @@ describe("buildCargoTideStage", () => {
     // The failure this guards: summing a coin's whole flow into every harbour it
     // touches would report $8M at BOTH quays and $16M across a fleet that minted
     // $8M. The allocation must reproduce the coin's own figure, not a multiple.
-    const stage = buildCargoTideStage(
-      [dock("ethereum"), dock("arbitrum")],
-      [ship("split-coin", [["ethereum", 0.75], ["arbitrum", 0.25]])],
-      payload([coin("split-coin", 8_000_000, 8_000_000, 0)]),
-    );
+    const stage = buildCargoTideStage([dock("ethereum"), dock("arbitrum")],
+    [ship("split-coin", [["ethereum", 0.75], ["arbitrum", 0.25]])],
+    payload([coin("split-coin", 8_000_000, 8_000_000, 0)]), makeSourceStatuses().mintBurn);
 
     const ethereum = tideOf(stage.docks, "ethereum");
     const arbitrum = tideOf(stage.docks, "arbitrum");
@@ -123,11 +132,9 @@ describe("buildCargoTideStage", () => {
     // Most of this coin's supply sits on a chain where issuance is not measured.
     // The flow still happened, and all of it belongs to the one tracked harbour
     // the coin is present at — dropping 80% of it would under-report the quay.
-    const stage = buildCargoTideStage(
-      [dock("ethereum"), dock("solana")],
-      [ship("wide-coin", [["solana", 0.8], ["ethereum", 0.2]])],
-      payload([coin("wide-coin", 5_000_000, 5_000_000, 0)]),
-    );
+    const stage = buildCargoTideStage([dock("ethereum"), dock("solana")],
+    [ship("wide-coin", [["solana", 0.8], ["ethereum", 0.2]])],
+    payload([coin("wide-coin", 5_000_000, 5_000_000, 0)]), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "ethereum").netFlowUsd).toBeCloseTo(5_000_000);
   });
@@ -136,8 +143,8 @@ describe("buildCargoTideStage", () => {
     const ships = [ship("split-coin", [["ethereum", 0.4], ["polygon", 0.2], ["solana", 0.4]])];
     const flows = payload([coin("split-coin", 5_000_000, 11_000_000, 6_000_000)],
       ["ethereum", "polygon", "solana"]);
-    const full = buildCargoTideStage([dock("ethereum"), dock("polygon"), dock("solana")], ships, flows);
-    const subset = buildCargoTideStage([dock("ethereum"), dock("solana")], ships, flows);
+    const full = buildCargoTideStage([dock("ethereum"), dock("polygon"), dock("solana")], ships, flows, makeSourceStatuses().mintBurn);
+    const subset = buildCargoTideStage([dock("ethereum"), dock("solana")], ships, flows, makeSourceStatuses().mintBurn);
     const before = tideOf(full.docks, "ethereum");
     const after = tideOf(subset.docks, "ethereum");
     expect(before).toMatchObject({ tracked: true, mintVolumeUsd: 4_400_000, burnVolumeUsd: 2_400_000 });
@@ -157,7 +164,7 @@ describe("buildCargoTideStage", () => {
     for (const chains of [
       ["ethereum", "polygon", "solana"], ["ethereum", "solana"], ["polygon"], [],
     ]) {
-      const stage = buildCargoTideStage(chains.map(dock), ships, flows);
+      const stage = buildCargoTideStage(chains.map(dock), ships, flows, makeSourceStatuses().mintBurn);
       expect(stage.fleetIssuance).toMatchObject({
         mintVolumeUsd: 11_000_000,
         burnVolumeUsd: 6_000_000,
@@ -169,11 +176,9 @@ describe("buildCargoTideStage", () => {
   it("reports an out-of-scope harbour as unmeasured rather than as calm", () => {
     // Zero and "not measured" are opposite claims. A quiet quay that means the
     // latter must say so, or the world is asserting something it never checked.
-    const stage = buildCargoTideStage(
-      [dock("ethereum"), dock("solana")],
-      [ship("mint-coin", [["ethereum", 1]])],
-      payload([coin("mint-coin", 1_000_000, 1_000_000, 0)]),
-    );
+    const stage = buildCargoTideStage([dock("ethereum"), dock("solana")],
+    [ship("mint-coin", [["ethereum", 1]])],
+    payload([coin("mint-coin", 1_000_000, 1_000_000, 0)]), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "solana")).toMatchObject({
       netFlowUsd: 0,
@@ -183,7 +188,7 @@ describe("buildCargoTideStage", () => {
   });
 
   it("reports every harbour as unmeasured when no payload landed", () => {
-    const stage = buildCargoTideStage([dock("ethereum")], [], null);
+    const stage = buildCargoTideStage([dock("ethereum")], [], null, makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "ethereum")).toMatchObject({
       reason: "no-flow-data",
@@ -193,11 +198,9 @@ describe("buildCargoTideStage", () => {
   });
 
   it("reports every harbour as unmeasured when the payload will not say where it looked", () => {
-    const stage = buildCargoTideStage(
-      [dock("ethereum")],
-      [ship("mint-coin", [["ethereum", 1]])],
-      payload([coin("mint-coin", 1_000_000, 1_000_000, 0)], null),
-    );
+    const stage = buildCargoTideStage([dock("ethereum")],
+    [ship("mint-coin", [["ethereum", 1]])],
+    payload([coin("mint-coin", 1_000_000, 1_000_000, 0)], null), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "ethereum")).toMatchObject({
       reason: "scope-unreported",
@@ -208,11 +211,9 @@ describe("buildCargoTideStage", () => {
   });
 
   it("separates a tracked harbour that saw no issuance from one that is not tracked", () => {
-    const stage = buildCargoTideStage(
-      [dock("ethereum")],
-      [ship("idle-coin", [["ethereum", 1]])],
-      payload([coin("idle-coin", 0, 0, 0)]),
-    );
+    const stage = buildCargoTideStage([dock("ethereum")],
+    [ship("idle-coin", [["ethereum", 1]])],
+    payload([coin("idle-coin", 0, 0, 0)]), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "ethereum")).toMatchObject({
       direction: "inactive",
@@ -226,11 +227,9 @@ describe("buildCargoTideStage", () => {
     // id-namespace mismatch, a frozen coin, a listing gap), so its flow lands
     // nowhere — and the quay it may well have landed at would otherwise swear
     // to a measured quiet day it never observed.
-    const stage = buildCargoTideStage(
-      [dock("ethereum")],
-      [ship("known-coin", [["ethereum", 1]])],
-      payload([coin("unknown-coin", 400_000_000, 400_000_000, 0)]),
-    );
+    const stage = buildCargoTideStage([dock("ethereum")],
+    [ship("known-coin", [["ethereum", 1]])],
+    payload([coin("unknown-coin", 400_000_000, 400_000_000, 0)]), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "ethereum")).toMatchObject({
       reason: "unattributed",
@@ -245,14 +244,12 @@ describe("buildCargoTideStage", () => {
   it("still measures a harbour that received an allocation of its own", () => {
     // Unplaceable flow elsewhere makes a harbour's SILENCE unverified; it does
     // not taint a harbour that actually saw issuance.
-    const stage = buildCargoTideStage(
-      [dock("ethereum"), dock("arbitrum")],
-      [ship("known-coin", [["ethereum", 1]])],
-      payload([
-        coin("known-coin", 2_000_000, 2_000_000, 0),
-        coin("unknown-coin", 9_000_000, 9_000_000, 0),
-      ]),
-    );
+    const stage = buildCargoTideStage([dock("ethereum"), dock("arbitrum")],
+    [ship("known-coin", [["ethereum", 1]])],
+    payload([
+      coin("known-coin", 2_000_000, 2_000_000, 0),
+      coin("unknown-coin", 9_000_000, 9_000_000, 0),
+    ]), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "ethereum")).toMatchObject({
       direction: "minting",
@@ -265,11 +262,9 @@ describe("buildCargoTideStage", () => {
   it("keeps a genuinely idle harbour measured when every active coin was placed", () => {
     // Arbitrum harbours nothing that moved, but the world knows where every
     // active coin sits — so its zero is observed, not merely unverified.
-    const stage = buildCargoTideStage(
-      [dock("ethereum"), dock("arbitrum")],
-      [ship("mint-coin", [["ethereum", 1]]), ship("idle-coin", [["arbitrum", 1]])],
-      payload([coin("mint-coin", 1_000_000, 1_000_000, 0), coin("idle-coin", 0, 0, 0)]),
-    );
+    const stage = buildCargoTideStage([dock("ethereum"), dock("arbitrum")],
+    [ship("mint-coin", [["ethereum", 1]]), ship("idle-coin", [["arbitrum", 1]])],
+    payload([coin("mint-coin", 1_000_000, 1_000_000, 0), coin("idle-coin", 0, 0, 0)]), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "arbitrum")).toMatchObject({
       direction: "inactive",
@@ -284,14 +279,12 @@ describe("buildCargoTideStage", () => {
     // beyond placement — $8M against a $2B day, 0.4%, which is what production
     // actually looks like. Silencing every calm quay over that residue trades a
     // narrow wrong number for a permanent refusal to read, which is worse.
-    const stage = buildCargoTideStage(
-      [dock("ethereum"), dock("arbitrum")],
-      [ship("major-coin", [["ethereum", 1]])],
-      payload([
-        coin("major-coin", 0, 1_000_000_000, 1_000_000_000),
-        coin("dust-wrapper", 8_000_000, 8_000_000, 0),
-      ]),
-    );
+    const stage = buildCargoTideStage([dock("ethereum"), dock("arbitrum")],
+    [ship("major-coin", [["ethereum", 1]])],
+    payload([
+      coin("major-coin", 0, 1_000_000_000, 1_000_000_000),
+      coin("dust-wrapper", 8_000_000, 8_000_000, 0),
+    ]), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "arbitrum")).toMatchObject({
       direction: "inactive",
@@ -304,14 +297,12 @@ describe("buildCargoTideStage", () => {
     // The same fleet as above with the unplaceable share pushed past one percent
     // — the size of a real quay's day. Now the flow could have BEEN Arbitrum's
     // tide, so Arbitrum may no longer call itself observed.
-    const stage = buildCargoTideStage(
-      [dock("ethereum"), dock("arbitrum")],
-      [ship("major-coin", [["ethereum", 1]])],
-      payload([
-        coin("major-coin", 0, 1_000_000_000, 1_000_000_000),
-        coin("big-unplaceable", 60_000_000, 60_000_000, 0),
-      ]),
-    );
+    const stage = buildCargoTideStage([dock("ethereum"), dock("arbitrum")],
+    [ship("major-coin", [["ethereum", 1]])],
+    payload([
+      coin("major-coin", 0, 1_000_000_000, 1_000_000_000),
+      coin("big-unplaceable", 60_000_000, 60_000_000, 0),
+    ]), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "arbitrum")).toMatchObject({
       reason: "unattributed",
@@ -325,14 +316,12 @@ describe("buildCargoTideStage", () => {
     // The commonest real cause, ahead of a missing ship entirely: the hull is in
     // the fleet but its chain-level supply is absent, so `chainPresence` is empty
     // and the world knows the coin moved without knowing where.
-    const stage = buildCargoTideStage(
-      [dock("ethereum"), dock("arbitrum")],
-      [ship("placed-coin", [["ethereum", 1]]), ship("no-presence-coin", [])],
-      payload([
-        coin("placed-coin", 1_000_000, 1_000_000, 0),
-        coin("no-presence-coin", 400_000_000, 400_000_000, 0),
-      ]),
-    );
+    const stage = buildCargoTideStage([dock("ethereum"), dock("arbitrum")],
+    [ship("placed-coin", [["ethereum", 1]]), ship("no-presence-coin", [])],
+    payload([
+      coin("placed-coin", 1_000_000, 1_000_000, 0),
+      coin("no-presence-coin", 400_000_000, 400_000_000, 0),
+    ]), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "arbitrum")).toMatchObject({
       reason: "unattributed",
@@ -341,11 +330,9 @@ describe("buildCargoTideStage", () => {
   });
 
   it("holds a balanced harbour apart from an idle one", () => {
-    const stage = buildCargoTideStage(
-      [dock("ethereum")],
-      [ship("busy-coin", [["ethereum", 1]])],
-      payload([coin("busy-coin", 0, 4_000_000, 4_000_000)]),
-    );
+    const stage = buildCargoTideStage([dock("ethereum")],
+    [ship("busy-coin", [["ethereum", 1]])],
+    payload([coin("busy-coin", 0, 4_000_000, 4_000_000)]), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "ethereum")).toMatchObject({
       direction: "flat",
@@ -359,11 +346,9 @@ describe("buildCargoTideStage", () => {
     flows.gauge.flightToQuality = true;
     flows.gauge.flightIntensity = 42;
 
-    const stage = buildCargoTideStage(
-      [dock("ethereum")],
-      [ship("mint-coin", [["ethereum", 1]])],
-      flows,
-    );
+    const stage = buildCargoTideStage([dock("ethereum")],
+    [ship("mint-coin", [["ethereum", 1]])],
+    flows, makeSourceStatuses().mintBurn);
 
     expect(stage.fleetIssuance).toMatchObject({
       activeCoins: 1,
@@ -376,11 +361,9 @@ describe("buildCargoTideStage", () => {
   });
 
   it("is deterministic across repeated builds of identical inputs", () => {
-    const build = () => buildCargoTideStage(
-      [dock("ethereum"), dock("arbitrum")],
-      [ship("split-coin", [["ethereum", 0.6], ["arbitrum", 0.4]])],
-      payload([coin("split-coin", 1_234_567, 2_000_000, 765_433)]),
-    );
+    const build = () => buildCargoTideStage([dock("ethereum"), dock("arbitrum")],
+    [ship("split-coin", [["ethereum", 0.6], ["arbitrum", 0.4]])],
+    payload([coin("split-coin", 1_234_567, 2_000_000, 765_433)]), makeSourceStatuses().mintBurn);
 
     expect(build().docks.map((entry) => entry.cargoTide))
       .toEqual(build().docks.map((entry) => entry.cargoTide));
@@ -394,11 +377,9 @@ describe("buildCargoTideStage scope chain-id boundary (L13)", () => {
     // vocabulary. Before this join canonicalised, `hyperliquid-l1` marked the
     // `hyperliquid` quay chain-not-in-scope and darkened its cargo tide — the
     // one real bypass of the scaffold boundary.
-    const stage = buildCargoTideStage(
-      [dock("hyperliquid")],
-      [ship("usdc-circle", [["hyperliquid", 1]])],
-      payload([coin("usdc-circle", 8_000_000, 8_000_000, 0)], ["hyperliquid-l1"]),
-    );
+    const stage = buildCargoTideStage([dock("hyperliquid")],
+    [ship("usdc-circle", [["hyperliquid", 1]])],
+    payload([coin("usdc-circle", 8_000_000, 8_000_000, 0)], ["hyperliquid-l1"]), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "hyperliquid")).toMatchObject({
       direction: "minting",
@@ -412,11 +393,9 @@ describe("buildCargoTideStage scope chain-id boundary (L13)", () => {
     // Same rule, same fallback as the scaffold boundary: `resolveChainId`
     // returns null outside CHAIN_META, and dropping such ids would silently
     // narrow the payload's scope and untrack a harbour it did report on.
-    const stage = buildCargoTideStage(
-      [dock("unknown-issuance-chain")],
-      [ship("usdc-circle", [["unknown-issuance-chain", 1]])],
-      payload([coin("usdc-circle", -3_000_000, 1_000_000, 4_000_000)], ["unknown-issuance-chain"]),
-    );
+    const stage = buildCargoTideStage([dock("unknown-issuance-chain")],
+    [ship("usdc-circle", [["unknown-issuance-chain", 1]])],
+    payload([coin("usdc-circle", -3_000_000, 1_000_000, 4_000_000)], ["unknown-issuance-chain"]), makeSourceStatuses().mintBurn);
 
     expect(tideOf(stage.docks, "unknown-issuance-chain")).toMatchObject({
       direction: "burning",

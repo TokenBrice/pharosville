@@ -7,7 +7,7 @@ import {
   type DataTexture,
 } from "three";
 import { blendDayCycleScalar, type DayCyclePhase } from "./garden-day-cycle";
-import { cargoTideCrateCount } from "./garden-cargo-tide";
+import { cargoTideCrateCount } from "../systems/pharosville-world/stages/cargo-tide";
 import { createSmokePlume } from "./garden-beacon-fire";
 import type { DockVisual } from "./garden-docks";
 import { HARBOR_PALETTE } from "../systems/palette";

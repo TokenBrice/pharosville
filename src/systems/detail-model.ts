@@ -19,7 +19,8 @@ import { farShoreLabel, skyCoverLabel, skyCoverWord } from "./psi-sky";
 import { deriveLampStatus, hasCompleteCurrentSources, lampStatusReading } from "./lamp-status";
 import { gardenMonthRecordLabel } from "./garden-month-record";
 import { shipIssuanceDetailLabel } from "./ship-issuance";
-import type { PharosVilleFreshness, PharosVilleSourceStatus } from "./world-types";
+import type { PharosVilleFreshness } from "./world-types";
+import { nodeSourceEvidenceLabel, sourceCoverageLabel, sourceStatusLabel } from "./source-evidence";
 import { SIGNAL_MAST_STORM_SUPPLY_SHARE } from "./world-types";
 import { deriveEpistemicHaze, quayHazeLabel, riskWaterHazeLabel } from "./epistemic-haze";
 import { motionCadenceDetailLabel } from "./motion-config";
@@ -65,32 +66,6 @@ export interface NowCaptionParts {
   warning: boolean;
 }
 
-/** Shared four-state DOM vocabulary; stale usable readings are held samples. */
-export function sourceStatusLabel(status: PharosVilleSourceStatus): string {
-  if (status.state !== "stale") return status.state;
-  const asOf = status.observedAt ?? status.publishedAt;
-  return `held (as of ${asOf === null ? "unknown time" : new Date(asOf).toISOString()})`;
-}
-
-export function sourceCoverageLabel({ coverage }: PharosVilleSourceStatus): string {
-  return `${coverage.state} coverage${coverage.coveredRows != null ? `; ${coverage.coveredRows}${coverage.expectedRows != null ? `/${coverage.expectedRows}` : ""} rows` : ""}${coverage.windowHours != null ? `; ${coverage.windowHours}h window` : ""}${coverage.scopeLabel ? `; ${coverage.scopeLabel}` : ""}`;
-}
-
-/** The selected record and the ship-local ledger quote the same own evidence. */
-export function nodeSourceEvidenceLabel(evidence: Partial<PharosVilleFreshness>): string {
-  return PHAROSVILLE_API_ENDPOINT_KEYS.flatMap((key) => {
-    const status = evidence[key];
-    if (!status) return [];
-    return [[
-      `${PHAROSVILLE_ENDPOINT_REGISTRY[key].label}: ${sourceStatusLabel(status)}`,
-      `observed ${status.observedAt === null ? "unknown" : new Date(status.observedAt).toISOString()}`,
-      status.publishedAt !== null ? `published/as of ${new Date(status.publishedAt).toISOString()}` : "publication time unknown",
-      sourceCoverageLabel(status),
-      status.methodologyVersion ? `methodology ${status.methodologyVersion}` : null,
-      status.reason,
-    ].filter(Boolean).join("; ")];
-  }).join("\n");
-}
 
 function clockLabel(hourInput: number): string {
   const totalMinutes = Math.round((((Number.isFinite(hourInput) ? hourInput : 0) % 24) + 24) % 24 * 60) % (24 * 60);
@@ -909,16 +884,11 @@ export function cargoTideLabel(tide: DockNode["cargoTide"]): string | null {
   }
   const volumes = `mint ${formatCompactUsd(tide.mintVolumeUsd)}, burn ${formatCompactUsd(tide.burnVolumeUsd)}`;
   const allocationBasis = "Estimated 24h allocation by held supply, renormalized across rendered in-scope chains: ";
-  switch (tide.direction) {
-    case "minting":
-      return `${allocationBasis}${signedCompactUsd(tide.netFlowUsd)} minting — ${volumes}`;
-    case "burning":
-      return `${allocationBasis}${signedCompactUsd(tide.netFlowUsd)} burning — ${volumes}`;
-    case "flat":
-      return `${allocationBasis}Balanced — ${volumes}`;
-    default:
-      return `${allocationBasis}No issuance activity in 24h`;
-  }
+  const reading = tide.direction === "minting" ? `${signedCompactUsd(tide.netFlowUsd)} minting — ${volumes}`
+    : tide.direction === "burning" ? `${signedCompactUsd(tide.netFlowUsd)} burning — ${volumes}`
+    : tide.direction === "flat" ? `Balanced — ${volumes}`
+    : tide.completeWindow ? "No issuance activity in 24h" : `Activity unmeasured — retained ${volumes}`;
+  return `${allocationBasis}${reading}\n${nodeSourceEvidenceLabel({ mintBurn: tide.evidence })}`;
 }
 
 /**

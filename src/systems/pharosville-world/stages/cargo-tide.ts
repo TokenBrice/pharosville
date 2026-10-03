@@ -4,8 +4,26 @@ import {
   getNetFlowDirection24h,
 } from "@shared/lib/mint-burn-signals";
 import type { MintBurnFlowsResponse } from "@shared/types/mint-burn";
-import type { DockCargoTide, DockNode, FleetIssuance, ShipNode } from "../../world-types";
+import type { DockCargoTide, DockNode, FleetIssuance, PharosVilleSourceStatus, ShipNode } from "../../world-types";
+import { observationEpochMs, rowSourceEvidence } from "../../source-evidence";
 import type { CargoTideStage } from "../pipeline-types";
+
+export const CARGO_TIDE_SLOTS = 6;
+
+/** Current complete estimated activity, within the existing per-harbour slots. */
+export function cargoTideCrateCount(tide: DockCargoTide | undefined): number {
+  if (!tide?.tracked || !tide.completeWindow || tide.evidence.state !== "current") return 0;
+  if (tide.direction === "flat") return tide.mintVolumeUsd + tide.burnVolumeUsd > 0 ? 2 : 0;
+  if (tide.direction !== "minting" && tide.direction !== "burning") return 0;
+  const pressure = Math.abs(tide.pressureScore ?? 0) / 100;
+  return Math.max(1, Math.min(CARGO_TIDE_SLOTS, Math.round(pressure * CARGO_TIDE_SLOTS)));
+}
+
+/** Shared baked key: new publication times cannot rebuild identical crates. */
+export function cargoTideVisualState(tide: DockCargoTide | undefined): string | null {
+  const count = cargoTideCrateCount(tide);
+  return count > 0 ? `${tide!.direction}:${count}` : null;
+}
 
 /**
  * The mint/burn cargo tide — the world's first FLOW signal.
@@ -108,7 +126,7 @@ function emptyAccumulator(): TideAccumulator {
   return { burnVolumeUsd: 0, coinCount: 0, mintVolumeUsd: 0, netFlowUsd: 0 };
 }
 
-function untrackedTide(reason: DockCargoTide["reason"]): DockCargoTide {
+function untrackedTide(reason: DockCargoTide["reason"], evidence: PharosVilleSourceStatus): DockCargoTide {
   return {
     burnVolumeUsd: 0,
     coinCount: 0,
@@ -118,10 +136,11 @@ function untrackedTide(reason: DockCargoTide["reason"]): DockCargoTide {
     pressureScore: null,
     reason,
     tracked: false,
+    completeWindow: false, evidence,
   };
 }
 
-function settleTide(totals: TideAccumulator): DockCargoTide {
+function settleTide(totals: TideAccumulator, evidence: PharosVilleSourceStatus): DockCargoTide {
   const gross = totals.mintVolumeUsd + totals.burnVolumeUsd;
   const netFlowUsd = Math.abs(totals.netFlowUsd) < FLAT_NET_FLOW_USD ? 0 : totals.netFlowUsd;
   return {
@@ -129,13 +148,15 @@ function settleTide(totals: TideAccumulator): DockCargoTide {
     coinCount: totals.coinCount,
     direction: getNetFlowDirection24h({ has24hActivity: gross > 0, netFlow24hUsd: netFlowUsd }),
     mintVolumeUsd: totals.mintVolumeUsd,
-    netFlowUsd,
+    netFlowUsd: totals.netFlowUsd,
     pressureScore: getLiteralMintingPressureScore({
       burnVolume24hUsd: totals.burnVolumeUsd,
       mintVolume24hUsd: totals.mintVolumeUsd,
     }),
     reason: "tracked",
     tracked: true,
+    completeWindow: evidence.coverage.state === "complete" && evidence.coverage.windowHours === 24,
+    evidence,
   };
 }
 
@@ -174,14 +195,28 @@ export function buildCargoTideStage(
   docks: readonly DockNode[],
   ships: readonly ShipNode[],
   mintBurn: MintBurnFlowsResponse | null | undefined,
+  status: PharosVilleSourceStatus,
 ): CargoTideStage {
+  const completeWindow = mintBurn?.windowHours === 24 && mintBurn.coins.length > 0
+    && mintBurn.coins.every((coin) => coin.coverage?.has24hWindow === true && !coin.coverage.isPartial);
+  const evidence = rowSourceEvidence("mintBurn", {
+    ...status, publishedAt: observationEpochMs(mintBurn?.updatedAt) ?? status.publishedAt,
+  }, {
+    available: !!mintBurn, observedAt: null, methodologyVersion: status.methodologyVersion,
+    coverage: {
+      state: completeWindow ? "complete" : mintBurn?.coins.some((coin) => coin.coverage) ? "partial" : "unknown",
+      ...(mintBurn?.windowHours !== undefined ? { windowHours: mintBurn.windowHours } : {}),
+      ...(mintBurn?.scope?.label ? { scopeLabel: mintBurn.scope.label } : {}),
+    },
+    reason: completeWindow ? null : "Issuance history incomplete or unknown",
+  });
   // No payload, or a payload that will not say where it looked: every harbour
   // reports untracked rather than calm. See the note above on zero vs unmeasured.
   const scopeChainIds = mintBurn?.scope?.chainIds;
   if (!mintBurn || !scopeChainIds?.length) {
     const reason: DockCargoTide["reason"] = mintBurn ? "scope-unreported" : "no-flow-data";
     return {
-      docks: docks.map((dock) => ({ ...dock, cargoTide: untrackedTide(reason) })),
+      docks: docks.map((dock) => ({ ...dock, cargoTide: untrackedTide(reason, evidence) })),
       fleetIssuance: mintBurn ? buildFleetIssuance(mintBurn) : null,
     };
   }
@@ -249,7 +284,7 @@ export function buildCargoTideStage(
   return {
     docks: docks.map((dock) => {
       const totals = totalsByChainId.get(dock.chainId);
-      if (!totals) return { ...dock, cargoTide: untrackedTide("chain-not-in-scope") };
+      if (!totals) return { ...dock, cargoTide: untrackedTide("chain-not-in-scope", evidence) };
       // An empty accumulator only means "nothing was issued here" when the flow
       // the fleet could not place is too small to have been this quay's tide.
       // Above that bar the silence is unverified, and unverified must not print
@@ -257,7 +292,7 @@ export function buildCargoTideStage(
       const unverifiableCalm = totals.coinCount === 0 && calmIsUnverifiable;
       return {
         ...dock,
-        cargoTide: unverifiableCalm ? untrackedTide("unattributed") : settleTide(totals),
+        cargoTide: unverifiableCalm ? untrackedTide("unattributed", evidence) : settleTide(totals, evidence),
       };
     }),
     fleetIssuance: buildFleetIssuance(mintBurn),

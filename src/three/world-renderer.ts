@@ -111,6 +111,8 @@ import {
 } from "../systems/lamp-status";
 import type { ShipWaterPath } from "../systems/motion-types";
 import { createSourceStatuses, type PharosVilleWorld, type ShipNode } from "../systems/world-types";
+import { shipIssuanceVisualState } from "../systems/ship-issuance";
+import { cargoTideVisualState } from "../systems/pharosville-world/stages/cargo-tide";
 import {
   worldRenderContentPartHashes,
 } from "../systems/world-render-content-signature";
@@ -1931,10 +1933,10 @@ function worldContentPartKeys(world: PharosVilleWorld): WorldContentPartKeys {
     harborLife: `${hashes.docks}|${islandTileKey}`,
     cargoTide: `${JSON.stringify(world.docks.map((dock) => [
       dock.detailId,
-      dock.cargoTide ?? null,
+      cargoTideVisualState(dock.cargoTide),
     ]))}|${hashes.supplyTide}|${dockStructure}`,
     ships: `${shipsStructural}|${hashes.heroRank}|${islandTileKey}`,
-    tenders: `${hashes.fleetIssuance}|${shipsStructural}|${hashes.heroRank}|${JSON.stringify(world.ships.map((ship) => [ship.id, ship.issuance ?? null]))}`,
+    tenders: `${hashes.fleetIssuance}|${shipsStructural}|${hashes.heroRank}|${JSON.stringify(world.ships.map((ship) => [ship.id, shipIssuanceVisualState(ship.issuance)]))}`,
     shipsPose: `${shipsPose}|${world.lighthouse.beamDwell?.shipId ?? ""}|${islandTileKey}`,
   };
   worldContentPartKeysCache.set(world, keys);

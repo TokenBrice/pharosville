@@ -1,39 +1,53 @@
-import type { MintBurnCoinFlow } from "@shared/types/mint-burn";
 import { describe, expect, it } from "vitest";
-import { buildShipIssuance } from "./ship-issuance";
+import { SCENARIOS } from "../__fixtures__/data-contract-scenarios";
+import { buildShipIssuance, issuanceHasCurrentWindow, shipIssuanceVisualState } from "./ship-issuance";
 
-function coin(overrides: Partial<MintBurnCoinFlow> = {}): MintBurnCoinFlow {
-  return {
-    stablecoinId: "coin",
-    symbol: "COIN",
-    flowIntensity: 75,
-    netFlow24hUsd: 8_000_000,
-    mintVolume24hUsd: 9_000_000,
-    burnVolume24hUsd: 1_000_000,
-    mintCount24h: 2,
-    burnCount24h: 1,
-    netFlow7dUsd: 0,
-    netFlow30dUsd: 0,
-    netFlow90dUsd: 0,
-    largestEvent24h: { direction: "mint", amountUsd: 5_000_000, txHash: "0x1", timestamp: 1 },
-    ...overrides,
-  };
-}
+const cases = [
+  ["quietNormal", "inactive", 0, 0, 0],
+  ["largeBalancedGross", "balanced-active", 100_000_000, 100_000_000, 0],
+  ["largeMint", "minting", 100_000_000, 0, 100_000_000],
+  ["largeRedemption", "redeeming", 0, 100_000_000, -100_000_000],
+  ["oneDollarNet", "minting", 1, 0, 1],
+] as const;
 
-describe("per-ship issuance story", () => {
-  it("retains net minting and its reported intensity and largest event", () => {
-    const issuance = buildShipIssuance(coin())!;
-    expect(issuance).toMatchObject({ direction: "minting", flowIntensity: 75, netFlow24hUsd: 8_000_000 });
-    expect(issuance.largestEvent24h).toEqual({
-      direction: "mint", amountUsd: 5_000_000, timestamp: 1,
-    });
+describe("per-coin issuance truth", () => {
+  it.each(cases)("retains zero, balanced gross, mint and redeem as distinct readings: %s", (name, activity, mint, burn, net) => {
+    const input = structuredClone(SCENARIOS[name]);
+    const envelope = input.mintBurn!;
+    const issuance = buildShipIssuance(envelope.coins[0], envelope, input.freshness.mintBurn)!;
+    expect(issuance).toMatchObject({ activity, mintVolumeUsd: mint, burnVolumeUsd: burn, grossVolumeUsd: mint + burn, netFlow24hUsd: net });
+    expect(issuance.mintCount).toBe(mint > 0 ? 10 : 0);
+    expect(issuance.burnCount).toBe(burn > 0 ? 10 : 0);
+    expect(issuance.direction).toBe(net > 0 ? "minting" : net < 0 ? "redeeming" : "flat");
+    expect(issuance.intensity).toBe(0);
   });
 
-  it("retains net redemption and keeps missing data explicit", () => {
-    const issuance = buildShipIssuance(coin({ netFlow24hUsd: -3_000_000, flowIntensity: -50 }))!;
-    expect(issuance).toMatchObject({
-      direction: "redeeming", netFlow24hUsd: -3_000_000, flowIntensity: -50,
-    });
-    expect(buildShipIssuance(null)).toBeUndefined();
+  it("retains partial and historical quantities without certifying complete activity", () => {
+    const input = structuredClone(SCENARIOS.partialFlow);
+    const envelope = input.mintBurn!;
+    const partial = buildShipIssuance(envelope.coins[0], envelope, input.freshness.mintBurn)!;
+    expect(partial).toMatchObject({ mintVolumeUsd: 100_000_000, netFlow24hUsd: 100_000_000, activity: "minting", completeWindow: false });
+    expect(issuanceHasCurrentWindow(partial)).toBe(false);
+    expect(shipIssuanceVisualState(partial)).toBeNull();
+    const retained = buildShipIssuance(envelope.coins[0], envelope, { ...input.freshness.mintBurn, state: "stale", reason: "retained poll failure" })!;
+    expect(retained.mintVolumeUsd).toBe(partial.mintVolumeUsd);
+    expect(retained.evidence.state).toBe("stale");
+    expect(retained.evidence.reason).toContain("retained poll failure");
+    const oldEnvelope = buildShipIssuance(envelope.coins[0], envelope, { ...input.freshness.mintBurn, state: "stale", reason: "Source age stale" })!;
+    expect(oldEnvelope.evidence.state).toBe("stale");
+    expect(shipIssuanceVisualState(oldEnvelope)).toBeNull();
+    envelope.coins[0] = { ...envelope.coins[0]!, mintVolume24hUsd: 0, netFlow24hUsd: 0 };
+    expect(buildShipIssuance(envelope.coins[0], envelope, input.freshness.mintBurn)!.activity).toBeNull();
+    expect(buildShipIssuance(null, envelope, input.freshness.mintBurn)).toBeUndefined();
+  });
+
+  it("keeps an event's exact amount and own timestamp distinct from publication time", () => {
+    const input = structuredClone(SCENARIOS.largeMint);
+    const envelope = input.mintBurn!;
+    envelope.coins[0]!.largestEvent24h = { direction: "mint", amountUsd: 1_234_567.89, timestamp: 1_699_999_000, txHash: "0xfixture" };
+    const issuance = buildShipIssuance(envelope.coins[0], envelope, input.freshness.mintBurn)!;
+    expect(issuance.largestEvent24h).toEqual({ direction: "mint", amountUsd: 1_234_567.89, timestamp: 1_699_999_000 });
+    expect(issuance.evidence.observedAt).toBeNull();
+    expect(issuance.evidence.publishedAt).toBe(envelope.updatedAt * 1_000);
   });
 });

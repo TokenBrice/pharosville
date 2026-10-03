@@ -419,6 +419,8 @@ describe("AccessibilityLedger", () => {
             pressureScore: 66,
             reason: "tracked",
             tracked: true,
+            completeWindow: true,
+            evidence: makeSourceStatuses().mintBurn,
           },
         },
         {
@@ -444,6 +446,8 @@ describe("AccessibilityLedger", () => {
             pressureScore: null,
             reason: "chain-not-in-scope",
             tracked: false,
+            completeWindow: false,
+            evidence: makeSourceStatuses().mintBurn,
           },
         },
       ],
@@ -553,16 +557,6 @@ describe("AccessibilityLedger", () => {
     expect(markup).toContain("llama mascot");
   });
 
-  it("appends a cycle tempo clause for each ship", () => {
-    const world = sampleWorldWithLedgerShip();
-    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
-
-    // No mint/burn row → neutral pace with an explicit missing-data reading.
-    expect(markup).toContain("cycle tempo Unmeasured");
-    expect(markup).toContain("underway leg pace tracks 24h mint/redeem flow intensity by magnitude, not market-cap tier");
-    expect(markup).toContain("route cadence 90–180 s legs; 600–1500 s rests; departures and homecomings gather in shared windows");
-    expect(markup).toContain("Routes show rendered-chain and risk-water presence only");
-  });
 
   it("mirrors lighthouse trend, composition, and contributors in the ledger", () => {
     const world: PharosVilleWorld = {

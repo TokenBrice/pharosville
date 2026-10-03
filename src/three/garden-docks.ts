@@ -1,3 +1,4 @@
+import { CARGO_TIDE_SLOTS } from "../systems/pharosville-world/stages/cargo-tide";
 import {
   BoxGeometry,
   Box3,
@@ -174,7 +175,6 @@ export interface HarborNorenSpec {
   height: number;
 }
 
-export const CARGO_TIDE_SLOTS = 6;
 export interface CargoTideSlot { x: number; y: number; z: number }
 export interface CargoTideLanes { aboard: CargoTideSlot[]; ashore: CargoTideSlot[] }
 export interface DockRecipe {
