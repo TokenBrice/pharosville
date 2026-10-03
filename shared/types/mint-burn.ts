@@ -60,7 +60,7 @@ export type MintBurnCoinCoverage = z.infer<typeof MintBurnCoinCoverageSchema>;
 const MintBurnCoinFlowSchema = z.object({
   stablecoinId: z.string(),
   symbol: z.string(),
-  flowIntensity: SignedFlowIntensitySchema.nullable(),
+  flowIntensity: SignedFlowIntensitySchema.nullable().optional(),
   pressureShiftScore: SignedFlowIntensitySchema.nullable().optional(),
   pressureShiftState: PressureShiftStateSchema.optional(),
   netFlowDirection24h: NetFlowDirection24hSchema.optional(),
@@ -73,9 +73,9 @@ const MintBurnCoinFlowSchema = z.object({
   burnVolume24hUsd: z.number().finite().nonnegative(),
   mintCount24h: z.number().int().nonnegative(),
   burnCount24h: z.number().int().nonnegative(),
-  netFlow7dUsd: z.number().finite(),
-  netFlow30dUsd: z.number().finite(),
-  netFlow90dUsd: z.number().finite(),
+  netFlow7dUsd: z.number().finite().nullable(),
+  netFlow30dUsd: z.number().finite().nullable(),
+  netFlow90dUsd: z.number().finite().nullable(),
   largestEvent24h: z
     .object({
       direction: z.enum(["mint", "burn"]),
