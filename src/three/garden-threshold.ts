@@ -200,6 +200,8 @@ const TORO_STONE = new Color(HARBOR_PALETTE.stone_mid)
   .multiplyScalar(0.72);
 const TORO_HOLLOW = new Color(HARBOR_PALETTE.stone_dark).multiplyScalar(0.32);
 const LANTERN_EMBER = new Color(HARBOR_PALETTE.lantern_warm);
+/** Local night attenuation: keep the bank/deck boundary below the night sky. */
+const THRESHOLD_NIGHT_FLOOR = 0.5;
 /** Threshold kuromatsu dyes: a deep cool pine green far below the rim pine, never a new hue. */
 const THRESHOLD_NEEDLE = new Color(HARBOR_PALETTE.aurora_green)
   .lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.4)
@@ -800,7 +802,7 @@ export function createGardenThreshold(): GardenThreshold {
   const toWorldAxes = new Matrix4().makeRotationY(REST_SEAT_YAW_RAD);
 
   const landMaterial = new MeshStandardMaterial({ flatShading: false, roughness: 0.98, vertexColors: true });
-  patchGardenFloraNight(landMaterial);
+  patchGardenFloraNight(landMaterial, { nightFloor: THRESHOLD_NIGHT_FLOOR });
   const land = new Mesh(buildLand().applyMatrix4(toWorldAxes), landMaterial);
   land.name = GARDEN_THRESHOLD_LAND_NAME;
 
@@ -822,7 +824,7 @@ export function createGardenThreshold(): GardenThreshold {
   companion.geometry.dispose();
   pineGeometry.applyMatrix4(toWorldAxes);
   const pineMaterial = new MeshStandardMaterial({ flatShading: false, roughness: 0.96, vertexColors: true });
-  patchGardenFloraNight(pineMaterial);
+  patchGardenFloraNight(pineMaterial, { nightFloor: THRESHOLD_NIGHT_FLOOR });
   patchGardenInstancedWindSway(pineMaterial, 9.6, 0.02);
   // One instance: both trees share the draw and the world-aligned wind.
   const pines = new InstancedMesh(pineGeometry, pineMaterial, 1);

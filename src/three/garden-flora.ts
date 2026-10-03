@@ -108,7 +108,13 @@ const CHERRY_BARK = new Color(HARBOR_PALETTE.timber_dark).lerp(new Color(HARBOR_
 const BAMBOO_CULM = new Color(HARBOR_PALETTE.timber_warm).lerp(new Color(HARBOR_PALETTE.aurora_green), 0.5).multiplyScalar(0.8);
 const COOL_SHADE = new Color(HARBOR_PALETTE.fog_blue);
 
-export function patchGardenFloraNight(material: MeshStandardMaterial): void {
+/** Shared night beat; an opt-in material floor changes attenuation, not light or emission. */
+export function patchGardenFloraNight(material: MeshStandardMaterial, options?: { nightFloor: number }): void {
+  if (options && (!Number.isFinite(options.nightFloor) || options.nightFloor < 0 || options.nightFloor > 1)) {
+    throw new RangeError("Garden flora night floor must be finite and between zero and one");
+  }
+  const floor = options ? { value: options.nightFloor } : undefined;
+  if (floor) material.userData.uGardenFloraNightFloor = floor;
   const uniform = { value: 0 };
   material.userData.uNightValue = uniform;
   const compile = material.onBeforeCompile;
@@ -116,10 +122,11 @@ export function patchGardenFloraNight(material: MeshStandardMaterial): void {
   material.onBeforeCompile = (shader, renderer) => {
     compile.call(material, shader, renderer);
     shader.uniforms.uNightValue = uniform;
-    shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\nuniform float uNightValue;")
-      .replace("#include <opaque_fragment>", "outgoingLight *= mix(1.0, 0.055, clamp(uNightValue, 0.0, 1.0));\n#include <opaque_fragment>");
+    if (floor) shader.uniforms.uGardenFloraNightFloor = floor;
+    shader.fragmentShader = shader.fragmentShader.replace("#include <common>", `#include <common>\nuniform float uNightValue;${floor ? "\nuniform float uGardenFloraNightFloor;" : ""}`)
+      .replace("#include <opaque_fragment>", `outgoingLight *= mix(1.0, ${floor ? "uGardenFloraNightFloor" : "0.055"}, clamp(uNightValue, 0.0, 1.0));\n#include <opaque_fragment>`);
   };
-  material.customProgramCacheKey = () => `${key}|garden-flora-night`;
+  material.customProgramCacheKey = () => `${key}|${floor ? "garden-flora-night-floor" : "garden-flora-night"}`;
 }
 
 /** Feed the wall-clock night beat, never data stress. No per-frame allocations. */
