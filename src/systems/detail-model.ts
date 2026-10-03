@@ -117,9 +117,14 @@ function nowCaptionPhrase({
   const qualifiedKey = PHAROSVILLE_API_ENDPOINT_KEYS.find((key) => freshness[key].state !== "current");
   if (qualifiedKey) {
     const status = freshness[qualifiedKey];
+    // One line beside the controls: the minute it was held since; the exact
+    // as-of instant stays in the record and the ledger.
+    const state = status.state === "stale"
+      ? `held since ${observedTimeLabel(status.observedAt ?? status.publishedAt)}`
+      : status.state;
     return {
       clocked: false,
-      phrase: `${PHAROSVILLE_ENDPOINT_REGISTRY[qualifiedKey].label} ${sourceStatusLabel(status)}`,
+      phrase: `${PHAROSVILLE_ENDPOINT_REGISTRY[qualifiedKey].label} ${state}`,
       clause: status.reason,
       warning: true,
     };
