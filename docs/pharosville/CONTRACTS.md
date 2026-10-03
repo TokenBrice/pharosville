@@ -177,7 +177,8 @@ pins are not authority over the accepted picture.
   Coverage: `src/three/garden-ship-issuance.test.ts`,
   `src/three/garden-cargo-tide.test.ts`, `src/three/world-renderer.test.ts`,
   `src/systems/world-render-content-signature.test.ts`.
-- Issuance work uses an **explicitly uncalibrated prototype illustration policy**:
+- Issuance work uses a **declared illustration policy** (checked against the
+  full live fleet on 2026-10-03: 23–27 coins eligible; not financial methodology):
   gross ≥ `$1,000,000` and either gross/own supply ≥ `0.01` or
   gross/current full-window covered-fleet gross ≥ `0.001`, with current complete
   issuance evidence required: `coverage.status === "full"` plus complete 24h

@@ -3,7 +3,7 @@ import { formatCompactUsd } from "../lib/format-detail";
 import { nodeSourceEvidenceLabel, observationEpochMs, rowSourceEvidence } from "./source-evidence";
 import type { PharosVilleSourceStatus, ShipIssuance, ShipNode } from "./world-types";
 
-/** Prototype thresholds: explicitly uncalibrated, never financial methodology. */
+/** Declared illustration thresholds, checked against the full live fleet (2026-10-03: 23–27 coins eligible); never financial methodology. */
 export const ISSUANCE_WORK_MIN_GROSS_USD = 1_000_000;
 export const ISSUANCE_WORK_MIN_SUPPLY_SHARE = 0.01;
 export const ISSUANCE_WORK_MIN_FLEET_GROSS_SHARE = 0.001;
@@ -135,8 +135,8 @@ export function shipIssuanceDetailLabel(ship: Pick<ShipNode, "issuance">): strin
     `mint ${formatCompactUsd(issuance.mintVolumeUsd)} (${issuance.mintCount ?? "unknown"} events), burn ${formatCompactUsd(issuance.burnVolumeUsd)} (${issuance.burnCount ?? "unknown"} events), gross ${formatCompactUsd(issuance.grossVolumeUsd)}, net ${signedCompactUsd(issuance.netFlow24hUsd)}`,
     window,
     cargo,
-    `Illustrative work (uncalibrated): ${!issuanceHasCurrentWindow(issuance) ? "qualified evidence; no moving work" : issuance.work.eligible ? "eligible" : issuance.work.supplyShare === null && issuance.work.fleetGrossShare === null ? "unmeasured materiality; static cargo" : "below policy; static cargo"}; own supply share ${issuance.work.supplyShare === null ? "unmeasured" : `${(issuance.work.supplyShare * 100).toFixed(3)}%`}; covered fleet gross share ${issuance.work.fleetGrossShare === null ? "unmeasured" : `${(issuance.work.fleetGrossShare * 100).toFixed(3)}%`}; ${issuance.work.overviewRank === null ? "no overview work slot" : `overview slot ${issuance.work.overviewRank}/${ISSUANCE_OVERVIEW_WORK_LIMIT}`}`,
-    `Uncalibrated thresholds: gross floor ${formatCompactUsd(ISSUANCE_WORK_MIN_GROSS_USD)}; either ${ISSUANCE_WORK_MIN_SUPPLY_SHARE * 100}% own supply or ${ISSUANCE_WORK_MIN_FLEET_GROSS_SHARE * 100}% covered fleet gross`,
+    `Illustrative work (declared policy): ${!issuanceHasCurrentWindow(issuance) ? "qualified evidence; no moving work" : issuance.work.eligible ? "eligible" : issuance.work.supplyShare === null && issuance.work.fleetGrossShare === null ? "unmeasured materiality; static cargo" : "below policy; static cargo"}; own supply share ${issuance.work.supplyShare === null ? "unmeasured" : `${(issuance.work.supplyShare * 100).toFixed(3)}%`}; covered fleet gross share ${issuance.work.fleetGrossShare === null ? "unmeasured" : `${(issuance.work.fleetGrossShare * 100).toFixed(3)}%`}; ${issuance.work.overviewRank === null ? "no overview work slot" : `overview slot ${issuance.work.overviewRank}/${ISSUANCE_OVERVIEW_WORK_LIMIT}`}`,
+    `Policy thresholds: gross floor ${formatCompactUsd(ISSUANCE_WORK_MIN_GROSS_USD)}; either ${ISSUANCE_WORK_MIN_SUPPLY_SHARE * 100}% own supply or ${ISSUANCE_WORK_MIN_FLEET_GROSS_SHARE * 100}% covered fleet gross`,
     nodeSourceEvidenceLabel({ mintBurn: issuance.evidence }),
     `raw intensity ${issuance.intensity ?? "unavailable"}; semantics ${issuance.intensitySemantics ?? "unknown"}`,
     event ? `largest event ${event.direction} ${event.amountUsd.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 })} at ${new Date(event.timestamp * 1_000).toISOString()}; ${visible ? "static lift, not replayed" : "illustration withheld, not replayed"}` : "no largest event reported",

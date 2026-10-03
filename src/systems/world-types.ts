@@ -639,7 +639,7 @@ export interface ShipIssuance {
   coverage: MintBurnCoinCoverage | null;
   completeWindow: boolean;
   evidence: PharosVilleSourceStatus;
-  /** Uncalibrated illustration policy, not a financial or transaction reading. */
+  /** Declared illustration policy, not a financial or transaction reading. */
   work: {
     eligible: boolean;
     supplyShare: number | null;

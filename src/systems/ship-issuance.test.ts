@@ -55,7 +55,7 @@ describe("per-coin issuance truth", () => {
   });
 });
 
-describe("uncalibrated illustrative-work materiality", () => {
+describe("declared illustrative-work materiality", () => {
   function balancedReading(gross: number) {
     const input = structuredClone(SCENARIOS.largeBalancedGross);
     const envelope = input.mintBurn!;
