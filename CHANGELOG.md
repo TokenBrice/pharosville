@@ -2,6 +2,15 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.20.1 - 2026-10-03 - Steady Lamp
+
+The harbour light now settles when a feed keeps failing, so the lamp agrees with the record instead of staying steady through an outage.
+
+Collected from commit `78f5255` after v0.20.0.
+
+- The lamp follows the feeds again. The harbour light waits for a second observation before it dims, so one failed poll cannot make it flicker. That second observation was counted only when the world changed, and a feed that failed the same way twice left the world unchanged, so the light could stay steady through an outage while the record already said held. Every poll result and every tick of the page's observation clock now counts, so a repeated failure settles the light within one more observation.
+- Nothing else changes. A single failure that recovers on the next poll still leaves the light alone, the record and ledger still report each source the moment it changes, and a regression test confirms that two identical failed polls settle the light without rebuilding the scene.
+
 ## v0.20.0 - 2026-10-03 - Clear Record
 
 The harbour says exactly what it knows: every source carries its own state, the record and ledger state each coin's own readings, issuance is drawn only where it is real, and the seat you look from is better made.

@@ -33,6 +33,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   harborHolds: "v0.19.1",
   harborsReturn: "v0.19.2",
   clearRecord: "v0.20.0",
+  steadyLamp: "v0.20.1",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.clearRecord;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.steadyLamp;
