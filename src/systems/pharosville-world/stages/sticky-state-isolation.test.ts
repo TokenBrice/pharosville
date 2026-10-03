@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { describe, expect, it } from "vitest";
 import {
   denseFixtureChains,
@@ -36,7 +37,7 @@ function denseWorldInputs(peggedAssets?: readonly StablecoinData[]): PharosVille
     stress: denseFixtureStress,
     safetyGrades: denseFixtureSafetyGrades,
     cemeteryEntries: [],
-    freshness: {},
+    freshness: makeSourceStatuses(),
   };
 }
 

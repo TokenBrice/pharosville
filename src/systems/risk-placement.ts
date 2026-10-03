@@ -48,10 +48,10 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
   if (pegCoin) navSourceFields.push("pegSummary.coins[]");
   else navSourceFields.push("pegSummary.coins");
   if (stress) navSourceFields.push("stress.signals[]");
-  const navStale = (pegCoin?.activeDepeg === true && freshness.pegSummaryStale === true)
-    || (!!stress && freshness.stressStale === true);
+  const navStale = (pegCoin?.activeDepeg === true && freshness.pegSummary.state !== "current")
+    || (!!stress && freshness.stress.state !== "current");
 
-  if (pegCoin?.activeDepeg && !freshness.pegSummaryStale) {
+  if (pegCoin?.activeDepeg && freshness.pegSummary.state === "current") {
     return {
       placement: "storm-shelf",
       evidence: evidence("Active depeg event", ["pegSummary.coins[].activeDepeg"]),
@@ -59,7 +59,7 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
   }
 
   const currentDeviation = pegCoin?.currentDeviationBps ?? null;
-  if (currentDeviation != null && !freshness.pegSummaryStale) {
+  if (currentDeviation != null && freshness.pegSummary.state === "current") {
     const placement = deviationPlacement(Math.abs(currentDeviation));
     if (placement) {
       return {
@@ -69,7 +69,7 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
     }
   }
 
-  if (stress && !freshness.stressStale) {
+  if (stress && freshness.stress.state === "current") {
     const placement = dewsAreaPlacementForBand(stress.band);
     // NAV tokens berth in Ledger Mooring by design; only an elevated DEWS
     // band should pull them out, never a CALM row mapping to safe-harbor.
@@ -88,10 +88,10 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
     };
   }
 
-  if (pegCoin?.activeDepeg && freshness.pegSummaryStale) {
+  if (pegCoin?.activeDepeg && freshness.pegSummary.state !== "current") {
     return {
       placement: "safe-harbor",
-      evidence: evidence("Active depeg evidence is stale", ["pegSummary.coins[].activeDepeg", "freshness.pegSummaryStale"], true),
+      evidence: evidence("Active depeg evidence is stale", ["pegSummary.coins[].activeDepeg", "freshness.pegSummary.state"], true),
     };
   }
 
@@ -102,10 +102,10 @@ export function resolveShipRiskPlacement(input: RiskPlacementInput): {
     };
   }
 
-  if (freshness.pegSummaryStale || freshness.stressStale) {
+  if (freshness.pegSummary.state !== "current" || freshness.stress.state !== "current") {
     return {
       placement: "safe-harbor",
-      evidence: evidence("Risk evidence is stale", ["freshness.pegSummaryStale", "freshness.stressStale"], true),
+      evidence: evidence("Risk evidence is stale", ["freshness.pegSummary.state", "freshness.stress.state"], true),
     };
   }
 

@@ -1,3 +1,5 @@
+import { PHAROSVILLE_API_ENDPOINT_KEYS } from "@shared/types/pharosville-endpoint-keys";
+import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { CHAIN_META } from "@shared/lib/chains";
 import { CAUSE_META } from "@shared/lib/cause-of-death";
 
@@ -14,10 +16,10 @@ import type { SupplyTide } from "./supply-tide";
 import { quayMasonryLabel } from "./dock-health";
 export { quayMasonryHealth, quayMasonryLabel } from "./dock-health";
 import { farShoreLabel, skyCoverLabel, skyCoverWord } from "./psi-sky";
-import { deriveLampStatus, lampStatusReading } from "./lamp-status";
+import { deriveLampStatus, hasCompleteCurrentSources, lampStatusReading } from "./lamp-status";
 import { gardenMonthRecordLabel } from "./garden-month-record";
 import { shipIssuanceDetailLabel } from "./ship-issuance";
-import type { PharosVilleFreshness } from "./world-types";
+import type { PharosVilleFreshness, PharosVilleSourceStatus } from "./world-types";
 import { SIGNAL_MAST_STORM_SUPPLY_SHARE } from "./world-types";
 import { deriveEpistemicHaze, quayHazeLabel, riskWaterHazeLabel } from "./epistemic-haze";
 import { motionCadenceDetailLabel } from "./motion-config";
@@ -27,10 +29,6 @@ const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "c
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
 const ELEVATED_DEWS_BANDS = new Set<DewsAreaBand>(["ALERT", "WARNING", "DANGER"]);
 
-export type NowCaptionFreshness = PharosVilleFreshness & {
-  /** Last trustworthy observation time; used only when a source is stale. */
-  observedAt?: number | null;
-};
 
 export interface NowCaptionTransition {
   observedAt: number | null;
@@ -41,7 +39,7 @@ export interface NowCaptionTransition {
 export interface NowCaptionInput {
   arrivalAnnotation: string | null;
   beats: DayCycleBeats;
-  freshness: NowCaptionFreshness;
+  freshness: PharosVilleFreshness;
   hour: number;
   latestTransition: NowCaptionTransition | null;
   psi: number | null;
@@ -67,15 +65,16 @@ export interface NowCaptionParts {
   warning: boolean;
 }
 
-const NOW_CAPTION_FRESHNESS_LABELS: ReadonlyArray<readonly [keyof PharosVilleFreshness, string]> = [
-  ["stablecoinsStale", "Stablecoins"],
-  ["chainsStale", "Chains"],
-  ["stabilityStale", "PSI"],
-  ["pegSummaryStale", "Peg summary"],
-  ["stressStale", "Stress signals"],
-  ["safetyGradesStale", "Safety grades"],
-  ["mintBurnStale", "Mint and burn"],
-];
+/** Shared four-state DOM vocabulary; stale usable readings are held samples. */
+export function sourceStatusLabel(status: PharosVilleSourceStatus): string {
+  if (status.state !== "stale") return status.state;
+  const asOf = status.observedAt ?? status.publishedAt;
+  return `held (as of ${asOf === null ? "unknown time" : new Date(asOf).toISOString()})`;
+}
+
+export function sourceCoverageLabel({ coverage }: PharosVilleSourceStatus): string {
+  return `${coverage.state} coverage${coverage.coveredRows != null ? `; ${coverage.coveredRows}${coverage.expectedRows != null ? `/${coverage.expectedRows}` : ""} rows` : ""}${coverage.windowHours != null ? `; ${coverage.windowHours}h window` : ""}${coverage.scopeLabel ? `; ${coverage.scopeLabel}` : ""}`;
+}
 
 function clockLabel(hourInput: number): string {
   const totalMinutes = Math.round((((Number.isFinite(hourInput) ? hourInput : 0) % 24) + 24) % 24 * 60) % (24 * 60);
@@ -124,12 +123,13 @@ function nowCaptionPhrase({
   psiBand,
   visitorLine,
 }: NowCaptionInput, moon: string | null = null): Omit<NowCaptionParts, "clock"> & { clocked: boolean } {
-  const staleFeed = NOW_CAPTION_FRESHNESS_LABELS.find(([key]) => freshness[key] === true);
-  if (staleFeed) {
+  const qualifiedKey = PHAROSVILLE_API_ENDPOINT_KEYS.find((key) => freshness[key].state !== "current");
+  if (qualifiedKey) {
+    const status = freshness[qualifiedKey];
     return {
       clocked: false,
-      phrase: `${staleFeed[1]} stale since ${observedTimeLabel(freshness.observedAt ?? null)}`,
-      clause: null,
+      phrase: `${PHAROSVILLE_ENDPOINT_REGISTRY[qualifiedKey].label} ${sourceStatusLabel(status)}`,
+      clause: status.reason,
       warning: true,
     };
   }
@@ -143,7 +143,7 @@ function nowCaptionPhrase({
   return {
     clocked: true,
     phrase: `${phaseCaption(hour, beats, psi)}${cover ? ` · ${cover}` : ""}${moon ? ` · ${moon}` : ""}`,
-    clause: "readings current",
+    clause: hasCompleteCurrentSources(freshness) ? "readings complete and current" : "endpoints current; coverage qualified",
     warning: false,
   };
 }
@@ -297,10 +297,10 @@ function lampAsOfLabel(generatedAt: number | null | undefined): string {
 
 /** The lighthouse detail row shared by the lamp cue's DOM parity surfaces. */
 export function lighthouseLampStatusLabel(
-  freshness: PharosVilleFreshness = {},
+  freshness?: PharosVilleFreshness,
   generatedAt?: number | null,
 ): string {
-  return `${lampStatusReading(deriveLampStatus(freshness))} as of ${lampAsOfLabel(generatedAt)}`;
+  return `${lampStatusReading(deriveLampStatus(freshness))}; snapshot as of ${lampAsOfLabel(generatedAt)}`;
 }
 
 export function chainLabel(chainId: string): string {
@@ -772,7 +772,7 @@ export function detailForLighthouse(
   node: LighthouseNode,
   supplyTide?: SupplyTide,
   fleetIssuance?: PharosVilleWorld["fleetIssuance"],
-  freshness: PharosVilleFreshness = {},
+  freshness?: PharosVilleFreshness,
   generatedAt?: number | null,
 ): DetailModel {
   const tide = supplyTideLabel(supplyTide);
@@ -788,11 +788,11 @@ export function detailForLighthouse(
     title: node.label,
     summary: node.unavailable
       ? "Market stability is unavailable; the sky holds its authored neutral clarity."
-      : `Market stability reads ${node.psiBand}. Sky clarity correlates with the observed PSI band; it is not a weather or market forecast.${freshness.stabilityStale ? " PSI is stale; clarity holds the last good reading." : ""}`,
+      : `Market stability reads ${node.psiBand}. Sky clarity correlates with the observed PSI band; it is not a weather or market forecast.${freshness && freshness.stability.state !== "current" ? " PSI is held; clarity holds the last good reading." : ""}`,
     facts: [
       { label: "Score", value: node.score == null || node.unavailable ? "Unavailable" : String(node.score) },
       { label: "Band", value: node.psiBand ?? "Unavailable" },
-      { label: "Market stability", value: node.unavailable ? "Unavailable" : freshness.stabilityStale ? "Stale — last good clarity held" : "Current PSI observation" },
+      { label: "Market stability", value: node.unavailable ? "Unavailable" : freshness ? sourceStatusLabel(freshness.stability) : "Evidence status unknown" },
       { label: "Far shore", value: farShoreLabel(node.psiBand, node.unavailable) },
       { label: "Sky cover", value: skyCoverLabel(node.psiBand, node.unavailable) },
       { label: "Snapshot as of", value: generatedAt != null && Number.isFinite(generatedAt) && generatedAt > 0 ? new Date(generatedAt).toISOString() : "Unavailable" },
@@ -1360,7 +1360,7 @@ export function detailForGrave(node: GraveNode): DetailModel {
   };
 }
 
-export function detailForArea(node: AreaNode, freshness: PharosVilleFreshness = {}): DetailModel {
+export function detailForArea(node: AreaNode, freshness?: PharosVilleFreshness): DetailModel {
   const haze = deriveEpistemicHaze(freshness);
   const waterSurface = waterSurfaceForArea(node);
   return {

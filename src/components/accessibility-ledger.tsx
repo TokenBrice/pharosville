@@ -1,3 +1,6 @@
+import { PHAROSVILLE_API_ENDPOINT_KEYS } from "@shared/types/pharosville-endpoint-keys";
+import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
+import { hasCompleteCurrentSources } from "../systems/lamp-status";
 import { memo } from "react";
 import { CAUSE_META, type CauseOfDeath } from "@shared/lib/cause-of-death";
 import type { HealthBand } from "@shared/types/chains";
@@ -9,6 +12,8 @@ import { shipIssuanceLedgerClause } from "../systems/ship-issuance";
 import { gardenMonthRecordLedgerClause } from "../systems/garden-month-record";
 import {
   beamDwellLabel,
+  sourceStatusLabel,
+  sourceCoverageLabel,
   backingDiversityLabel,
   chainLabel,
   chainsPresentLabel,
@@ -152,9 +157,10 @@ function AccessibilityLedgerContent({
   harborLogEntries = [],
   visitSummary = null,
 }: AccessibilityLedgerProps) {
-  const staleSources = freshnessEntries(world)
-    .filter((entry) => entry.stale)
-    .map((entry) => entry.label);
+  const sources = PHAROSVILLE_API_ENDPOINT_KEYS.map((key) => ({
+    key, label: PHAROSVILLE_ENDPOINT_REGISTRY[key].label, status: world.freshness[key],
+  }));
+  const completeCurrent = hasCompleteCurrentSources(world.freshness);
   const epistemicHaze = deriveEpistemicHaze(world.freshness);
 
   // Precompute cycle tempos once for the whole fleet so the ship <li> loop
@@ -185,10 +191,26 @@ function AccessibilityLedgerContent({
       <h2 id={headingId}>{title}</h2>
       <p>
         {generatedAtLabel(world.generatedAt)}.
-        {staleSources.length > 0
-          ? ` Stale source groups: ${staleSources.join(", ")}.`
-          : " All source groups are current."}
+        {completeCurrent
+          ? " All seven sources have complete coverage and current readings."
+          : " Readings or coverage are qualified; inspect the source states below."}
       </p>
+      <dl aria-label="Source status" data-complete-current={completeCurrent}>
+        {sources.map(({ key, label, status }) => <div key={key} data-source={key} data-state={status.state} data-coverage={status.coverage.state}>
+          <dt>{label}</dt>
+          <dd>
+            {sourceStatusLabel(status)}. {sourceCoverageLabel(status)}.
+            {status.observedAt !== null
+              ? <> Observed <time dateTime={new Date(status.observedAt).toISOString()}>{new Date(status.observedAt).toISOString()}</time>.</>
+              : " Observation time unknown."}
+            {status.publishedAt !== null && status.publishedAt !== status.observedAt && <>
+              {" Published/as of "}<time dateTime={new Date(status.publishedAt).toISOString()}>{new Date(status.publishedAt).toISOString()}</time>.
+            </>}
+            {status.reason && ` ${status.reason}.`}
+            {status.methodologyVersion && ` Methodology ${status.methodologyVersion}.`}
+          </dd>
+        </div>)}
+      </dl>
 
       {presentation === "visible" && <nav aria-label="Ledger sections" onClick={(event) => {
         const link = event.target instanceof Element ? event.target.closest("a") : null;
@@ -621,13 +643,3 @@ function generatedAtLabel(generatedAt: PharosVilleWorld["generatedAt"]) {
   return <>Snapshot generated at <time dateTime={iso}>{iso}</time></>;
 }
 
-function freshnessEntries(world: PharosVilleWorld) {
-  return [
-    { label: "Stablecoins", stale: world.freshness.stablecoinsStale === true },
-    { label: "Chains", stale: world.freshness.chainsStale === true },
-    { label: "PSI", stale: world.freshness.stabilityStale === true },
-    { label: "Peg summary", stale: world.freshness.pegSummaryStale === true },
-    { label: "Stress signals", stale: world.freshness.stressStale === true },
-    { label: "Safety grades", stale: world.freshness.safetyGradesStale === true },
-  ];
-}

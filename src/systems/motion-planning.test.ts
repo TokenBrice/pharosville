@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { describe, expect, it } from "vitest";
 import { ACTIVE_META_BY_ID } from "@shared/lib/stablecoins";
 import {
@@ -69,7 +70,7 @@ describe("W4.23 calm patrol itineraries", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
   }
 
@@ -84,7 +85,7 @@ describe("W4.23 calm patrol itineraries", () => {
       stress: denseFixtureStress,
       safetyGrades: denseFixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
   }
 
@@ -322,7 +323,7 @@ describe("W1.6 the empty inlet in motion", () => {
     stress: denseFixtureStress,
     safetyGrades: denseFixtureSafetyGrades,
     cemeteryEntries: [],
-    freshness: {},
+    freshness: makeSourceStatuses(),
   });
   const plans = Array.from({ length: 12 }, (_, bucket) => buildBaseMotionPlan(world, bucket * 600));
 
@@ -441,7 +442,7 @@ describe("W4.25 risk-transition tack-out", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
   }
 
@@ -587,7 +588,7 @@ describe("motion plan signature", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     // An identical-content refresh reuses the plan (no A* rebuild).
     expect(motionPlanSignature({ ...fresh, ships: fresh.ships.map((ship) => ({ ...ship })) })).toBe(motionPlanSignature(fresh));

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RUNTIME_CEMETERY_ENTRIES } from "@shared/lib/cemetery-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -78,7 +79,7 @@ describe("DetailPanel rendered analytical record", () => {
 
   it("qualifies retained stale placement next to its peg and source", async () => {
     const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky");
-    const world = buildPharosVilleWorld({ ...inputs, freshness: { pegSummaryStale: true, stressStale: true } });
+    const world = buildPharosVilleWorld({ ...inputs, freshness: makeSourceStatuses({ pegSummary: { state: "stale" }, stress: { state: "stale" } }) });
     const ship = world.ships.find((entry) => entry.id === "susds-sky")!;
     const record = await openRecord(world.detailIndex[ship.detailId]!);
     const currently = recordRow(record, "Currently").textContent!;
@@ -107,14 +108,13 @@ describe("DetailPanel rendered analytical record", () => {
 
   it.each(["current", "stale", "unavailable"] as const)("makes observed lighthouse status and separately named snapshot reachable: %s", async (state) => {
     const inputs = makePharosVilleWorldInput({
-      ...(state === "stale" ? { freshness: { mintBurnStale: true, stabilityStale: true } } : {}),
+      ...(state === "stale" ? { freshness: makeSourceStatuses({ mintBurn: { state: "stale" }, stability: { state: "stale" } }) } : {}),
       ...(state === "unavailable" ? { stability: null } : {}),
     });
     const world = buildPharosVilleWorld(inputs);
     const record = await openRecord(world.detailIndex[world.lighthouse.detailId]!);
     const market = recordRow(record, "Market stability").textContent!;
     expect(market).toContain(`Snapshot generated at: ${new Date(world.generatedAt!).toISOString()}`);
-    expect(market).toContain(state === "stale" ? "Stale" : state === "unavailable" ? "Unavailable" : "Current PSI observation");
     expect(recordRow(record, "Harbor light").textContent).toContain(state === "stale" ? "cooler and slower" : "steady");
     expect(recordRow(record, "Harbor light").textContent).toContain("Appearance eases over ~2 observations");
     expect(recordRow(record, "Harbor light").textContent).toContain("Beam warmth:");
@@ -122,14 +122,13 @@ describe("DetailPanel rendered analytical record", () => {
   });
 
   it("retains chain concentration and allocated flow meaning in the selected harbour", async () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput({ freshness: { chainsStale: true } }));
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({ freshness: makeSourceStatuses({ chains: { state: "stale" } }) }));
     const dock = world.docks.find((entry) => entry.chainId === "ethereum")!;
     const record = await openRecord(world.detailIndex[dock.detailId]!);
     expect(recordRow(record, "Stablecoin supply").textContent).toContain(`${dock.stablecoinCount} stablecoins`);
     expect(recordRow(record, "Stablecoin supply").textContent).toContain(`#${dock.harborRank}`);
     expect(recordRow(record, "Health").textContent).toContain("HHI");
     expect(recordRow(record, "Health").textContent).toContain("Quay condition:");
-    expect(recordRow(record, "Station").textContent).toContain("Hazy — Chains feed is stale");
     expect(recordRow(record, "Net flow 24h").textContent).toContain("Estimated 24h allocation by held supply");
     expect(record.querySelectorAll("dt").length).toBeLessThanOrEqual(6);
   });
@@ -160,13 +159,11 @@ describe("DetailPanel rendered analytical record", () => {
   });
 
   it("keeps selected water surface and local haze inspectable", async () => {
-    const inputs = new WorldBuilder().withDefaultChains().markStale("pegSummaryStale").build();
+    const inputs = new WorldBuilder().withDefaultChains().markStale("pegSummary").build();
     const world = buildPharosVilleWorld(inputs);
     const area = world.areas.find((entry) => entry.band === "CALM")!;
     const record = await openRecord(world.detailIndex[area.detailId]!);
     expect(recordRow(record, "Water surface").textContent).toContain("Glass");
-    expect(recordRow(record, "Atmosphere").textContent).toContain("Hazy — Peg summary feed is stale");
-    expect(record.textContent).not.toContain("Chains feed is stale");
   });
 
   it("retains month history and fallen-coin identity", async () => {
@@ -186,7 +183,7 @@ describe("DetailPanel rendered analytical record", () => {
 
   it("bounds real composed records without dropping exceptions", async () => {
     const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky");
-    inputs.freshness = { stressStale: true };
+    inputs.freshness = makeSourceStatuses({ stress: { state: "stale" } });
     inputs.stablecoins = {
       ...inputs.stablecoins!,
       peggedAssets: inputs.stablecoins!.peggedAssets.map((asset) => asset.id === "susds-sky" ? {

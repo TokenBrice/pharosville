@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   denseFixtureChains,
@@ -316,7 +317,7 @@ describe("shipWaterlineTrim", () => {
       meta: { flags: {} } as never,
       pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: bps }),
       stress: undefined,
-      freshness: {},
+      freshness: makeSourceStatuses(),
     }).placement;
 
     expect(placementAt(SHIP_TRIM_BPS_GATE - 1)).toBe("safe-harbor");
@@ -352,7 +353,7 @@ describe("shipWaterlineTrim", () => {
           ],
         },
       }),
-      freshness: { pegSummaryStale: true },
+      freshness: makeSourceStatuses({ pegSummary: { state: "stale" } }),
     });
     expect(stale.ships.every((ship) => ship.visual.hullForm.waterline === 0)).toBe(true);
   });

@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { describe, expect, it } from "vitest";
 import { ACTIVE_META_BY_ID } from "@shared/lib/stablecoins";
 import { makeAsset, makePegCoin } from "../__fixtures__/pharosville-world";
@@ -14,7 +15,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: usdcMeta!,
       pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", activeDepeg: true, currentDeviationBps: null }),
       stress: undefined,
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("storm-shelf");
@@ -27,7 +28,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: susdeMeta!,
       pegCoin: undefined,
       stress: undefined,
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("ledger-mooring");
@@ -42,7 +43,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: susdeMeta!,
       pegCoin: makePegCoin({ id: "susde-ethena", symbol: "sUSDe", currentDeviationBps: 0 }),
       stress: undefined,
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("ledger-mooring");
@@ -58,7 +59,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: susdeMeta!,
       pegCoin: makePegCoin({ id: "susde-ethena", symbol: "sUSDe", currentDeviationBps: 0 }),
       stress: { band: "WATCH", score: 31, signals: {}, computedAt: 1, methodologyVersion: "fixture" },
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("breakwater-edge");
@@ -73,7 +74,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: susdeMeta!,
       pegCoin: makePegCoin({ id: "susde-ethena", symbol: "sUSDe", currentDeviationBps: 0 }),
       stress: { band: "CALM", score: 8, signals: {}, computedAt: 1, methodologyVersion: "fixture" },
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("ledger-mooring");
@@ -87,7 +88,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: susdeMeta!,
       pegCoin: makePegCoin({ id: "susde-ethena", symbol: "sUSDe", activeDepeg: true, currentDeviationBps: 780 }),
       stress: undefined,
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("storm-shelf");
@@ -100,7 +101,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: usdcMeta!,
       pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: 0 }),
       stress: { band: "DANGER", score: 90, signals: {}, computedAt: 1, methodologyVersion: "fixture" },
-      freshness: { safetyGradesStale: true },
+      freshness: makeSourceStatuses({ safetyGrades: { state: "stale" } }),
     });
 
     expect(result.placement).toBe("storm-shelf");
@@ -113,7 +114,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: usdcMeta!,
       pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: 0 }),
       stress: { band: "CALM", score: 12, signals: {}, computedAt: 1, methodologyVersion: "fixture" },
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("safe-harbor");
@@ -127,7 +128,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: usdcMeta!,
       pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", currentDeviationBps: 0 }),
       stress: { band: "DANGER", score: 90, signals: {}, computedAt: 1, methodologyVersion: "fixture" },
-      freshness: { stressStale: true },
+      freshness: makeSourceStatuses({ stress: { state: "stale" } }),
     });
 
     expect(result.placement).toBe("safe-harbor");
@@ -141,7 +142,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: usdcMeta!,
       pegCoin: makePegCoin({ id: "usdc-circle", symbol: "USDC", activeDepeg: true, currentDeviationBps: 900 }),
       stress: undefined,
-      freshness: { pegSummaryStale: true },
+      freshness: makeSourceStatuses({ pegSummary: { state: "stale" } }),
     });
 
     expect(result.placement).toBe("safe-harbor");
@@ -155,7 +156,7 @@ describe("resolveShipRiskPlacement", () => {
       meta: usdcMeta!,
       pegCoin: undefined,
       stress: undefined,
-      freshness: {},
+      freshness: makeSourceStatuses({}),
     });
 
     expect(result.placement).toBe("safe-harbor");

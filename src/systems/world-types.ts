@@ -1,3 +1,4 @@
+import { PHAROSVILLE_API_ENDPOINT_KEYS, type PharosVilleApiEndpointKey } from "@shared/types/pharosville-endpoint-keys";
 import type { ChainHealthFactors, ChainSummary } from "@shared/types/chains";
 import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
 import type { SafetyGradeEntry, StablecoinData, StablecoinMeta } from "@shared/types";
@@ -766,14 +767,37 @@ export interface VisualCue {
   reducedMotionEquivalent: string;
 }
 
-export interface PharosVilleFreshness {
-  stablecoinsStale?: boolean;
-  chainsStale?: boolean;
-  stabilityStale?: boolean;
-  pegSummaryStale?: boolean;
-  stressStale?: boolean;
-  safetyGradesStale?: boolean;
-  mintBurnStale?: boolean;
+export type PharosVilleSourceState = "loading" | "current" | "stale" | "unavailable";
+
+export interface PharosVilleSourceCoverage {
+  state: "complete" | "partial" | "unknown";
+  coveredRows?: number;
+  expectedRows?: number;
+  windowHours?: number;
+  scopeLabel?: string;
+}
+
+export interface PharosVilleSourceStatus {
+  state: PharosVilleSourceState;
+  /** Genuine source observation, in epoch milliseconds; never receipt time. */
+  observedAt: number | null;
+  /** Publication/source as-of, in epoch milliseconds. */
+  publishedAt: number | null;
+  coverage: PharosVilleSourceCoverage;
+  methodologyVersion: string | null;
+  reason: string | null;
+}
+
+export type PharosVilleFreshness = Record<PharosVilleApiEndpointKey, PharosVilleSourceStatus>;
+
+/** Construct all seven keys; absent evidence is explicit, never an empty record. */
+export function createSourceStatuses(
+  statusFor: (key: PharosVilleApiEndpointKey) => PharosVilleSourceStatus = () => ({
+    state: "loading", observedAt: null, publishedAt: null,
+    coverage: { state: "unknown" }, methodologyVersion: null, reason: null,
+  }),
+): PharosVilleFreshness {
+  return Object.fromEntries(PHAROSVILLE_API_ENDPOINT_KEYS.map((key) => [key, statusFor(key)])) as PharosVilleFreshness;
 }
 
 export type SelectableWorldEntity =

@@ -10,6 +10,8 @@ import { CRON_INTERVALS_CLIENT as CRON_INTERVALS } from "./cron-intervals-client
 
 export interface PharosVilleEndpointRegistryEntry<K extends PharosVilleApiEndpointKey = PharosVilleApiEndpointKey> {
   key: K;
+  label: string;
+  role: "essential" | "enricher";
   path: string;
   queryKey: readonly [string, ...string[]];
   metaMaxAgeSec: number;
@@ -19,6 +21,8 @@ export interface PharosVilleEndpointRegistryEntry<K extends PharosVilleApiEndpoi
 export const PHAROSVILLE_ENDPOINT_REGISTRY = {
   stablecoins: {
     key: "stablecoins",
+    label: "Stablecoins",
+    role: "essential",
     path: API_PATHS.stablecoins(),
     queryKey: ["stablecoins"],
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stablecoins,
@@ -26,6 +30,8 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
   },
   chains: {
     key: "chains",
+    label: "Chains",
+    role: "essential",
     path: API_PATHS.chains(),
     queryKey: ["chains"],
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.chains,
@@ -33,6 +39,8 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
   },
   stability: {
     key: "stability",
+    label: "PSI",
+    role: "enricher",
     path: API_PATHS.stabilityIndex(true),
     queryKey: ["stability-index-detail"],
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stabilityIndex,
@@ -40,6 +48,8 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
   },
   pegSummary: {
     key: "pegSummary",
+    label: "Peg summary",
+    role: "enricher",
     path: API_PATHS.pegSummary(),
     queryKey: ["peg-summary"],
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.pegSummary,
@@ -47,6 +57,8 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
   },
   stress: {
     key: "stress",
+    label: "Stress signals",
+    role: "enricher",
     path: API_PATHS.stressSignals(),
     queryKey: ["stress-signals"],
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.stressSignals,
@@ -54,6 +66,8 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
   },
   safetyGrades: {
     key: "safetyGrades",
+    label: "Safety grades",
+    role: "enricher",
     path: API_PATHS.safetyGrades(),
     queryKey: ["safety-grades"],
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.safetyGrades,
@@ -65,6 +79,8 @@ export const PHAROSVILLE_ENDPOINT_REGISTRY = {
   // whether supply is being created or destroyed over the last 24 hours.
   mintBurn: {
     key: "mintBurn",
+    label: "Mint and burn",
+    role: "enricher",
     path: API_PATHS.mintBurnFlows(),
     queryKey: ["mint-burn-flows"],
     metaMaxAgeSec: API_FRESHNESS_MAX_AGE_SEC.mintBurnFlows,

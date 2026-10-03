@@ -109,10 +109,10 @@ export function buildObserveSequence(
 
   const freshness = world.freshness;
   for (const beat of beats) {
-    const stale = beat.kind === "lighthouse" ? freshness?.stabilityStale
-      : beat.kind === "concentration" ? freshness?.chainsStale
-      : beat.kind === "supply" ? freshness?.stablecoinsStale
-      : freshness?.pegSummaryStale || freshness?.stressStale || freshness?.stablecoinsStale;
+    const stale = freshness && (beat.kind === "lighthouse" ? freshness.stability.state !== "current"
+      : beat.kind === "concentration" ? freshness.chains.state !== "current"
+      : beat.kind === "supply" ? freshness.stablecoins.state !== "current"
+      : ["pegSummary", "stress", "stablecoins"].some((key) => freshness[key as keyof typeof freshness].state !== "current"));
     if (stale) beat.label += " This reading uses stale or unavailable evidence; inspect the ledger for provenance.";
   }
   return beats;

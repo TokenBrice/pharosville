@@ -607,7 +607,15 @@ test(...visualLane("dom", "an enrichment feed that never answers still opens the
   // presenting a placement it cannot support.
   const ledger = page.getByTestId("pharosville-accessibility-ledger");
   await expect(ledger).toContainText("placement evidence Missing or low-confidence price evidence");
-  await expect(ledger).toContainText("evidence status caveat");
+  for (const key of ["pegSummary", "stress"]) {
+    const source = ledger.locator(`[data-source="${key}"]`);
+    await expect(source).toHaveAttribute("data-state", "loading");
+    await expect(source.locator("dd")).toContainText("loading");
+    await expect(source.locator("time")).toHaveCount(0);
+  }
+  await expect(ledger.locator("[data-complete-current]")).toHaveAttribute("data-complete-current", "false");
+  const missingPlacement = ledger.locator("[id^='ledger-ship-']").filter({ hasText: "placement evidence Missing or low-confidence price evidence" }).first();
+  await expect(missingPlacement).toContainText(/evidence status caveat:/i);
   await expect(ledger).not.toContainText("risk anchor storm-shelf");
 
   // Missing enrichment is a caveat, not a failure: no error route.
@@ -662,11 +670,18 @@ test(...visualLane("dom", "stale peg and stress evidence reads as a caveat, not 
   if (await rendererReachedWorld(page)) await waitForRuntimeDebug(page, true);
 
   const ledger = page.getByTestId("pharosville-accessibility-ledger");
-  await expect(ledger).toContainText("Stale source groups: Peg summary, Stress signals.");
+  for (const key of ["pegSummary", "stress"]) {
+    const source = ledger.locator(`[data-source="${key}"]`);
+    await expect(source).toHaveAttribute("data-state", "stale");
+    await expect(source.locator("dd")).toContainText(/held \(as of [^)]+\)/);
+    await expect(source.locator("time")).not.toHaveCount(0);
+  }
+  await expect(ledger.locator("[data-complete-current]")).toHaveAttribute("data-complete-current", "false");
   // Proof the coin really does carry an active depeg — this reason is only
   // reachable when `pegCoin.activeDepeg` is true and the evidence is stale.
   await expect(ledger).toContainText("placement evidence Active depeg evidence is stale");
-  await expect(ledger).toContainText("evidence status caveat");
+  const heldPlacement = ledger.locator("[id^='ledger-ship-']").filter({ hasText: "placement evidence Active depeg evidence is stale" }).first();
+  await expect(heldPlacement).toContainText(/evidence status caveat:/i);
 
   // ...and no reclassification. Every risk water above calm is driven by peg
   // or stress evidence, so with both stale the fleet may only hold the safe

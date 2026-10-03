@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { describe, expect, it } from "vitest";
 import type { PharosVilleWorld, VisualCue, VisualCueChannel } from "./world-types";
 import { SIGNAL_MAST_LEADER_COUNT, SIGNAL_MAST_STORM_SUPPLY_SHARE } from "./world-types";
@@ -41,7 +42,7 @@ describe("buildVisualCueRegistry", () => {
   it("routes selected analytical cue values into the authored host rows", () => {
     const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky");
     const world = buildPharosVilleWorld({
-      ...inputs, freshness: { chainsStale: true, pegSummaryStale: true },
+      ...inputs, freshness: makeSourceStatuses({ chains: { state: "stale" }, pegSummary: { state: "stale" } }),
     });
     const ordinaryWorld = buildPharosVilleWorld(makePharosVilleWorldInput());
     const cases = [

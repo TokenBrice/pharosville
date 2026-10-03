@@ -110,7 +110,7 @@ import {
   type LampStatusHysteresisState,
 } from "../systems/lamp-status";
 import type { ShipWaterPath } from "../systems/motion-types";
-import type { PharosVilleWorld, ShipNode } from "../systems/world-types";
+import { createSourceStatuses, type PharosVilleWorld, type ShipNode } from "../systems/world-types";
 import {
   worldRenderContentPartHashes,
 } from "../systems/world-render-content-signature";
@@ -361,20 +361,20 @@ const scratchFogSources: [EpistemicFogSource, EpistemicFogSource] = [
 ];
 let asOfCacheKey: number | null | undefined;
 let asOfIso: string | null = null;
-let asOfClock: string | null = null;
-/** ISO / "HH:MM UTC" for the world snapshot, formatted once per snapshot. */
+let pegFogAsOfKey: number | null | undefined;
+let chainsFogAsOfKey: number | null | undefined;
+/** ISO for the scene snapshot, formatted once per snapshot. */
 function syncWorldAsOf(generatedAt: number | null): void {
   if (generatedAt === asOfCacheKey) return;
   asOfCacheKey = generatedAt;
   asOfIso = generatedAt === null ? null : new Date(generatedAt).toISOString();
-  asOfClock = asOfIso === null ? null : `${asOfIso.slice(11, 16)} UTC`;
 }
 function epistemicFogSources(
   world: PharosVilleWorld,
   out: [EpistemicFogSource, EpistemicFogSource],
 ): readonly EpistemicFogSource[] {
-  syncWorldAsOf(world.generatedAt);
-  const lastGood = asOfClock;
+  const pegAsOf = world.freshness.pegSummary.observedAt ?? world.freshness.pegSummary.publishedAt;
+  const chainsAsOf = world.freshness.chains.observedAt ?? world.freshness.chains.publishedAt;
   let riskX = 0;
   let riskZ = 0;
   let riskCount = 0;
@@ -391,15 +391,21 @@ function epistemicFogSources(
     dockZ += dock.tile.y;
   }
   const peg = out[0];
-  peg.stale = world.freshness.pegSummaryStale === true;
+  peg.stale = world.freshness.pegSummary.state !== "current";
   peg.centre.x = (riskCount ? riskX / riskCount : world.lighthouse.tile.x) * TILE_SCALE;
   peg.centre.z = (riskCount ? riskZ / riskCount : world.lighthouse.tile.y) * TILE_SCALE;
-  peg.lastGood = lastGood;
+  if (pegAsOf !== pegFogAsOfKey) {
+    pegFogAsOfKey = pegAsOf;
+    peg.lastGood = pegAsOf === null ? null : new Date(pegAsOf).toISOString();
+  }
   const chains = out[1];
-  chains.stale = world.freshness.chainsStale === true;
+  chains.stale = world.freshness.chains.state !== "current";
   chains.centre.x = (world.docks.length ? dockX / world.docks.length : world.lighthouse.tile.x) * TILE_SCALE;
   chains.centre.z = (world.docks.length ? dockZ / world.docks.length : world.lighthouse.tile.y) * TILE_SCALE;
-  chains.lastGood = lastGood;
+  if (chainsAsOf !== chainsFogAsOfKey) {
+    chainsFogAsOfKey = chainsAsOf;
+    chains.lastGood = chainsAsOf === null ? null : new Date(chainsAsOf).toISOString();
+  }
   return out;
 }
 const scratchPosition = new Vector3();
@@ -1991,7 +1997,7 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     dockAccentTransitions: [],
     harborBatch: null,
     seaEdges: null,
-    lampStatusState: initialLampStatusState({}),
+    lampStatusState: initialLampStatusState(createSourceStatuses()),
     sailAtlas: scene.sailAtlas,
     objectCount: 0,
     parts,

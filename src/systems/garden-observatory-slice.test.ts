@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   denseFixtureChains,
@@ -426,7 +427,7 @@ function denseWorld() {
   return buildPharosVilleWorld({
     cemeteryEntries: [],
     chains: denseFixtureChains,
-    freshness: {},
+    freshness: makeSourceStatuses(),
     pegSummary: denseFixturePegSummary,
     safetyGrades: denseFixtureSafetyGrades,
     stability: fixtureStability,

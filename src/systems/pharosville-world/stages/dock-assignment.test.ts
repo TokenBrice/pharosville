@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { beforeEach, describe, expect, it } from "vitest";
 import { overCapacityWorldFixture } from "../../../__fixtures__/over-capacity-world";
 import {
@@ -45,7 +46,7 @@ function denseWorldInputs(peggedAssets?: readonly StablecoinData[]): PharosVille
     stress: denseFixtureStress,
     safetyGrades: denseFixtureSafetyGrades,
     cemeteryEntries: [],
-    freshness: {},
+    freshness: makeSourceStatuses(),
   };
 }
 

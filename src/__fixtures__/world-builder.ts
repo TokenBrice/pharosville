@@ -14,6 +14,7 @@ import type { CemeteryEntry } from "@shared/lib/cemetery-runtime";
 import type { PharosVilleInputs } from "../systems/pharosville-world";
 import type { PharosVilleFreshness } from "../systems/world-types";
 import {
+  makeSourceStatuses,
   fixtureChains,
   fixturePegSummary,
   fixtureSafetyGrades,
@@ -42,7 +43,7 @@ import {
  * Defaults: starts empty (no assets, no chains). Calls `withDefaultChains()`
  * to seed with `fixtureChains`. All other inputs (stability, pegSummary,
  * stress, safetyGrades) default to the existing fixture payloads from
- * `pharosville-world.ts`. Freshness flags all default to false (fresh data).
+ * `pharosville-world.ts`. Synthetic source statuses are explicit and complete.
  */
 export class WorldBuilder {
   private assets: StablecoinData[] = [];
@@ -54,14 +55,7 @@ export class WorldBuilder {
   private cemeteryEntries: readonly CemeteryEntry[] | undefined = undefined;
   private routeMode: PharosVilleInputs["routeMode"] = "world";
   private generatedAt: number | undefined = undefined;
-  private freshness: PharosVilleFreshness = {
-    stablecoinsStale: false,
-    chainsStale: false,
-    stabilityStale: false,
-    pegSummaryStale: false,
-    stressStale: false,
-    safetyGradesStale: false,
-  };
+  private freshness: PharosVilleFreshness = makeSourceStatuses();
 
   /** Append a stablecoin asset (becomes a ship after build). */
   addAsset(overrides: Parameters<typeof makeAsset>[0]): this {
@@ -129,9 +123,9 @@ export class WorldBuilder {
     return this;
   }
 
-  /** Mark a single payload's freshness flag stale (true). */
+  /** Hold one synthetic source without changing the independent readings. */
   markStale(payload: keyof PharosVilleFreshness): this {
-    this.freshness = { ...this.freshness, [payload]: true };
+    this.freshness = { ...this.freshness, [payload]: { ...this.freshness[payload], state: "stale" } };
     return this;
   }
 

@@ -4,7 +4,7 @@
  * Shape-valid fixtures do not imply desired behavior is implemented or tested.
  */
 import {
-  makeAsset, makePegCoin, makePharosVilleWorldInput,
+  makeAsset, makePegCoin, makePharosVilleWorldInput, makeSourceStatuses,
   fixtureStablecoins, fixtureChains, fixtureStability, fixturePegSummary,
   fixtureStress, fixtureSafetyGrades, fixtureMintBurn,
   denseFixtureStablecoins, denseFixtureChains, denseFixturePegSummary,
@@ -123,8 +123,7 @@ export function quietNormalInput(): PharosVilleInputs {
     mintBurn: { ...fixtureMintBurn, gauge: { ...fixtureMintBurn.gauge, score: 0, band: "FLAT", intensitySemantics: "signed-v2" },
       coins: fixtureMintBurn.coins.map((row) => flow(row, 0, 0)), windowHours: 24,
       sync: { lastSuccessfulSyncAt: T, freshnessStatus: "fresh", warning: null, criticalLaneHealthy: true } },
-    freshness: { stablecoinsStale: false, chainsStale: false, stabilityStale: false,
-      pegSummaryStale: false, stressStale: false, safetyGradesStale: false, mintBurnStale: false },
+    freshness: makeSourceStatuses(),
   }));
 }
 
@@ -233,7 +232,7 @@ export const SCENARIOS = {
   }; })(),
   missingEnrichment: { ...quietNormalInput(), stability: undefined, pegSummary: undefined, stress: undefined,
     safetyGrades: undefined, mintBurn: undefined },
-  staleRisk: { ...depegScenario(), freshness: { ...depegScenario().freshness, pegSummaryStale: true, stressStale: true } },
+  staleRisk: { ...depegScenario(), freshness: makeSourceStatuses({ pegSummary: { state: "stale" }, stress: { state: "stale" } }) },
   largeMint: coinFlowScenario(100e6, 0),
   largeRedemption: coinFlowScenario(0, 100e6),
   largeBalancedGross: coinFlowScenario(100e6, 100e6),
@@ -283,15 +282,20 @@ export const INVALID_CRITICAL_PAYLOADS: Record<string, unknown> = {
 };
 
 type Stub<K extends PharosVilleApiEndpointKey> = Pick<ApiQueryWithMetaResult<PharosVilleApiPayload<K>>,
-  "data" | "meta" | "error" | "isLoading" | "isError" | "isSuccess">;
+  "data" | "meta" | "error" | "isLoading" | "isError" | "isSuccess" | "observedNowMs">;
 export const MISSING_STRESS_QUERY = {
   data: undefined, meta: null, error: new Error("fixture stress failed"),
   isLoading: false, isError: true, isSuccess: false,
+  observedNowMs: NOW_MS,
 } satisfies Stub<"stress">;
 export const PENDING_STRESS_QUERY = { ...MISSING_STRESS_QUERY, error: null, isLoading: true, isError: false } satisfies Stub<"stress">;
 export const STALE_RETAINED_STRESS_QUERY = {
   data: SCENARIOS.severeSingleCoinDepeg.stress!, meta: { ...FRESH_META, status: "stale" },
   error: new Error("fixture offline"), isLoading: false, isError: true, isSuccess: false,
+  observedNowMs: NOW_MS,
+} satisfies Stub<"stress">;
+export const FAILED_RETAINED_FRESH_STRESS_QUERY = {
+  ...STALE_RETAINED_STRESS_QUERY, meta: FRESH_META,
 } satisfies Stub<"stress">;
 
 /** Validate input shapes only. This deliberately does not assert proposed scene behavior. */

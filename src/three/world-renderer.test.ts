@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { readFileSync } from "node:fs";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -1152,7 +1153,7 @@ describe("Three world renderer lifecycle", () => {
 
     const staleWorld = {
       ...freshWorld,
-      freshness: { chainsStale: true, pegSummaryStale: true },
+      freshness: makeSourceStatuses({ chains: { state: "stale" }, pegSummary: { state: "stale" } }),
     };
     const staleMetrics = renderer.render(rendererFrame(staleWorld, "full", { reducedMotion: true }));
 
@@ -1539,7 +1540,7 @@ describe("Three world renderer lifecycle", () => {
     const world = buildPharosVilleWorld({
       cemeteryEntries: [],
       chains: denseFixtureChains,
-      freshness: {},
+      freshness: makeSourceStatuses(),
       pegSummary: denseFixturePegSummary,
       safetyGrades: denseFixtureSafetyGrades,
       stability: fixtureStability,
@@ -2494,7 +2495,7 @@ function denseRendererWorld(): PharosVilleWorld {
   return buildPharosVilleWorld({
     cemeteryEntries: [],
     chains: denseFixtureChains,
-    freshness: {},
+    freshness: makeSourceStatuses(),
     pegSummary: denseFixturePegSummary,
     safetyGrades: denseFixtureSafetyGrades,
     stability: fixtureStability,
