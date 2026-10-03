@@ -87,6 +87,14 @@ npm run build
 npm run check:bundle-size
 ```
 
+Production JavaScript uses the exact-pinned Terser dev dependency with two
+compression passes and its default safe transforms; do not enable unsafe
+optimizations or strip localhost-only instrumentation. The aggregate and
+per-chunk limits in `scripts/bundle-budgets.mjs` remain the source of truth.
+For chunk/module composition, `npm run build -- --sourcemap` emits source maps
+alongside the production chunks; keep analysis artifacts under `outputs/`,
+not in the committed runtime.
+
 The performance suite measures coherent startup, pacing, long tasks, GPU
 resources, long-session stability, transient selection cleanup, and clock
 shutdown. Current resource ceilings are 700 draw calls, 500 geometries, 72
