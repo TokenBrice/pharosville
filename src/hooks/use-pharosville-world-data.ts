@@ -30,7 +30,7 @@ import type { ChainsResponse } from "@shared/types/chains";
 import type { MintBurnFlowsResponse } from "@shared/types/mint-burn";
 import { reportClientError } from "../error-reporter";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
-import type { PharosVilleFreshness, PharosVilleSourceCoverage, PharosVilleSourceStatus, PharosVilleWorld as PharosVilleWorldModel, RouteMode } from "../systems/world-types";
+import { createSourceStatuses, type PharosVilleFreshness, type PharosVilleSourceCoverage, type PharosVilleSourceStatus, type PharosVilleWorld as PharosVilleWorldModel, type RouteMode } from "../systems/world-types";
 
 interface WorldInputData {
   stablecoins: StablecoinListResponse | null | undefined;
@@ -261,29 +261,27 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
       RUNTIME_ACTIVE_IDS.has(asset.id) && RUNTIME_ACTIVE_META_BY_ID.has(asset.id) && asset.frozen !== true
     )).map((asset) => asset.id))
     : undefined;
-  const nextStatus = {} as PharosVilleFreshness;
-  for (const key of PHAROSVILLE_API_ENDPOINT_KEYS) {
+  const nextStatus = createSourceStatuses((key) => {
     const query = queries[key];
     const heldQuery = retainedQueriesRef.current[key];
-    nextStatus[key] = classifyPharosVilleSource(key, {
+    if (query.data) retainedQueriesRef.current[key] = query;
+    return classifyPharosVilleSource(key, {
       ...query, meta: query.meta ?? (!query.data ? heldQuery?.meta ?? null : null),
     }, publishedData[key] ?? query.data, expectedIds);
-    if (query.data) retainedQueriesRef.current[key] = query;
-  }
+  });
   const previousStatus = retainedStatusRef.current;
   const freshness = previousStatus && PHAROSVILLE_API_ENDPOINT_KEYS.every((key) => sameSourceStatus(previousStatus[key], nextStatus[key]))
     ? previousStatus
     : nextStatus;
   retainedStatusRef.current = freshness;
 
+  const { stablecoins, chains, stability, pegSummary, stress, safetyGrades, mintBurn } = publishedData;
   const world = useMemo<PharosVilleWorldModel>(() => buildPharosVilleWorld({
-    ...publishedData,
+    stablecoins, chains, stability, pegSummary, stress, safetyGrades, mintBurn,
     routeMode,
     freshness,
   }), [
-    routeMode, freshness,
-    publishedData.stablecoins, publishedData.chains, publishedData.stability,
-    publishedData.pegSummary, publishedData.stress, publishedData.safetyGrades, publishedData.mintBurn,
+    routeMode, freshness, stablecoins, chains, stability, pegSummary, stress, safetyGrades, mintBurn,
   ]);
 
   const queryClient = useQueryClient();

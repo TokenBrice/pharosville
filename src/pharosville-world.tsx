@@ -1175,7 +1175,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
   const stayCaptionLive = useStayCaptionSurfacing({
     beats: captionBeats,
     captionHour,
-    eventLive: Object.values(world.freshness).some((stale) => stale === true)
+    eventLive: PHAROSVILLE_API_ENDPOINT_KEYS.some((key) => world.freshness[key].state !== "current")
       || arrivalAnnotationText !== null
       || harborLog.current !== null
       || visitorLine !== null,

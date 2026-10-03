@@ -13,14 +13,13 @@ import type { MintBurnFlowsResponse } from "@shared/types/mint-burn";
 import { CHAIN_META } from "@shared/lib/chains";
 import { ACTIVE_STABLECOINS } from "@shared/lib/stablecoins";
 import type { PharosVilleInputs } from "../systems/pharosville-world";
-import { PHAROSVILLE_API_ENDPOINT_KEYS } from "@shared/types/pharosville-endpoint-keys";
-import type { PharosVilleFreshness, PharosVilleSourceStatus } from "../systems/world-types";
+import { createSourceStatuses, type PharosVilleFreshness, type PharosVilleSourceStatus } from "../systems/world-types";
 
 /** Explicit evidence for synthetic worlds; never used by production ingestion. */
 export function makeSourceStatuses(
   overrides: Partial<Record<keyof PharosVilleFreshness, Partial<PharosVilleSourceStatus>>> = {},
 ): PharosVilleFreshness {
-  return Object.fromEntries(PHAROSVILLE_API_ENDPOINT_KEYS.map((key) => [key, {
+  return createSourceStatuses((key) => ({
     state: "current",
     observedAt: null,
     publishedAt: 1_700_000_000_000,
@@ -28,7 +27,7 @@ export function makeSourceStatuses(
     methodologyVersion: "fixture",
     reason: null,
     ...overrides[key],
-  }])) as PharosVilleFreshness;
+  }));
 }
 
 const methodology = {

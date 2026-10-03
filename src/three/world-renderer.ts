@@ -110,7 +110,7 @@ import {
   type LampStatusHysteresisState,
 } from "../systems/lamp-status";
 import type { ShipWaterPath } from "../systems/motion-types";
-import type { PharosVilleWorld, ShipNode } from "../systems/world-types";
+import { createSourceStatuses, type PharosVilleWorld, type ShipNode } from "../systems/world-types";
 import {
   worldRenderContentPartHashes,
 } from "../systems/world-render-content-signature";
@@ -1997,7 +1997,7 @@ function createWorldContentShell(scene: GardenScene): GardenContent {
     dockAccentTransitions: [],
     harborBatch: null,
     seaEdges: null,
-    lampStatusState: initialLampStatusState({}),
+    lampStatusState: initialLampStatusState(createSourceStatuses()),
     sailAtlas: scene.sailAtlas,
     objectCount: 0,
     parts,

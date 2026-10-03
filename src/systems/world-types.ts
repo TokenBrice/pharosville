@@ -1,4 +1,4 @@
-import type { PharosVilleApiEndpointKey } from "@shared/types/pharosville-endpoint-keys";
+import { PHAROSVILLE_API_ENDPOINT_KEYS, type PharosVilleApiEndpointKey } from "@shared/types/pharosville-endpoint-keys";
 import type { ChainHealthFactors, ChainSummary } from "@shared/types/chains";
 import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
 import type { SafetyGradeEntry, StablecoinData, StablecoinMeta } from "@shared/types";
@@ -789,6 +789,16 @@ export interface PharosVilleSourceStatus {
 }
 
 export type PharosVilleFreshness = Record<PharosVilleApiEndpointKey, PharosVilleSourceStatus>;
+
+/** Construct all seven keys; absent evidence is explicit, never an empty record. */
+export function createSourceStatuses(
+  statusFor: (key: PharosVilleApiEndpointKey) => PharosVilleSourceStatus = () => ({
+    state: "loading", observedAt: null, publishedAt: null,
+    coverage: { state: "unknown" }, methodologyVersion: null, reason: null,
+  }),
+): PharosVilleFreshness {
+  return Object.fromEntries(PHAROSVILLE_API_ENDPOINT_KEYS.map((key) => [key, statusFor(key)])) as PharosVilleFreshness;
+}
 
 export type SelectableWorldEntity =
   | LighthouseNode
