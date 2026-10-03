@@ -21,6 +21,7 @@ import type {
   ShipNode,
   ShipSourceEvidence,
 } from "../world-types";
+import type { LampStatus } from "../lamp-status";
 
 export interface PharosVilleInputs {
   generatedAt?: number;
@@ -37,6 +38,8 @@ export interface PharosVilleInputs {
   mintBurn?: MintBurnFlowsResponse | null | undefined;
   cemeteryEntries?: readonly CemeteryEntry[];
   freshness: PharosVilleFreshness;
+  /** Confirmed lamp status; defaults to the current fold of `freshness`. */
+  lampStatus?: LampStatus;
   shipEvidence?: Readonly<Record<string, ShipSourceEvidence>>;
   routeMode?: PharosVilleWorld["routeMode"];
 }

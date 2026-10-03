@@ -45,7 +45,11 @@ pins are not authority over the accepted picture.
   requires all seven current with explicitly complete coverage; current endpoints
   with partial or unknown coverage remain qualified. The lamp says unreachable
   only when all seven report explicit fetch failures, never merely old samples;
-  its eased appearance is separate from immediate observed DOM status.
+  its eased appearance is separate from immediate observed DOM status. The
+  ingestion hook confirms a changed lamp fold over two poll observations (a new
+  poll result for any source, or a tick of the visible observer clock) and
+  publishes it as `world.lampStatus`, so an identical failure repeated poll
+  after poll still settles the lamp without new payloads or content rebuilds.
   Coverage: `src/hooks/use-pharosville-world-data.test.tsx`,
   `src/hooks/use-api-query.test.ts`, `src/systems/lamp-status.test.ts`,
   `src/components/accessibility-ledger.test.tsx`.

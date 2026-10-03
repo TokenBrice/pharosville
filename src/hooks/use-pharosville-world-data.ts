@@ -32,6 +32,7 @@ import { reportClientError } from "../error-reporter";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
 import { buildShipSourceEvidence } from "../systems/pharosville-world/stages/ship-placement";
 import { dewsAreaPlacementForBand } from "../systems/risk-water-areas";
+import { advanceLampStatus, initialLampStatusState, type LampStatusHysteresisState } from "../systems/lamp-status";
 import { createSourceStatuses, type PharosVilleFreshness, type PharosVilleSourceCoverage, type PharosVilleSourceStatus, type PharosVilleWorld as PharosVilleWorldModel, type RouteMode, type ShipSourceEvidence } from "../systems/world-types";
 
 interface WorldInputData {
@@ -287,14 +288,29 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
     )) ? previousShipEvidence : nextShipEvidence;
   retainedShipEvidenceRef.current = shipEvidence;
 
+  // The harbour light confirms a changed fold over two poll observations. An
+  // observation is a new poll result for any source or a tick of the visible
+  // observer clock; neither needs the payloads or the semantic source record
+  // to change, so a held failure repeated poll after poll still settles.
+  const lampObservationRef = useRef<{ token: readonly unknown[]; state: LampStatusHysteresisState } | null>(null);
+  const lampToken = PHAROSVILLE_API_ENDPOINT_KEYS.flatMap((key) => [queries[key].data, queries[key].error, queries[key].observedNowMs]);
+  const lampObservation = lampObservationRef.current;
+  if (!lampObservation) {
+    lampObservationRef.current = { token: lampToken, state: initialLampStatusState(freshness) };
+  } else if (lampToken.some((value, index) => value !== lampObservation.token[index])) {
+    lampObservationRef.current = { token: lampToken, state: advanceLampStatus(lampObservation.state, freshness) };
+  }
+  const lampStatus = lampObservationRef.current!.state.status;
+
   const { stablecoins, chains, stability, pegSummary, stress, safetyGrades, mintBurn } = publishedData;
   const world = useMemo<PharosVilleWorldModel>(() => buildPharosVilleWorld({
     stablecoins, chains, stability, pegSummary, stress, safetyGrades, mintBurn,
     routeMode,
     freshness,
+    lampStatus,
     shipEvidence,
   }), [
-    routeMode, freshness, shipEvidence, stablecoins, chains, stability, pegSummary, stress, safetyGrades, mintBurn,
+    routeMode, freshness, lampStatus, shipEvidence, stablecoins, chains, stability, pegSummary, stress, safetyGrades, mintBurn,
   ]);
 
   const queryClient = useQueryClient();
