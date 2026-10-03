@@ -34,6 +34,7 @@ export interface CurrentlyParts {
   dewsScore?: string | null;
   pegDeviation?: string | null;
   evidenceStatus?: string | null;
+  sourceEvidence?: string | null;
   evidence?: string | null;
   riskTransition?: string | null;
 }
@@ -49,6 +50,7 @@ export function composeCurrently(parts: CurrentlyParts): string {
     [value, stressDriver, dewsScore].filter(Boolean).join(" · "),
     parts.pegDeviation,
     parts.evidenceStatus ? `Evidence status: ${parts.evidenceStatus}` : null,
+    parts.sourceEvidence,
     parts.evidence ? `Evidence/source: ${parts.evidence}` : null,
     parts.riskTransition ? `Tracking new risk band: ${parts.riskTransition}` : null,
   ].filter(Boolean).join("\n");
@@ -116,6 +118,7 @@ export type DetailFactKey =
   | "gardenStone"
   | "evidence"
   | "evidenceStatus"
+  | "sourceEvidence"
   | "squadOverride"
   | "routeSource"
   | "riskTransition"
@@ -228,6 +231,7 @@ const DETAIL_FACT_LABELS = {
   "score": "psiScore",
   "band": "psiBand",
   "market stability": "marketStability",
+  "source observations": "sourceEvidence",
   "snapshot as of": "snapshot",
   "harbor light": "harborLight",
   "beam warmth cue": "beamWarmth",
@@ -579,6 +583,7 @@ export function buildDetailFactSections(facts: readonly DetailFactLike[]): Detai
     ...(dewsScore !== undefined ? { dewsScore } : {}),
     pegDeviation: lookup.get("pegDeviation") ?? null,
     evidenceStatus: lookup.get("evidenceStatus") ?? null,
+    sourceEvidence: lookup.get("sourceEvidence") ?? null,
     evidence: lookup.get("evidence") ?? null,
     riskTransition: lookup.get("riskTransition") ?? null,
   });

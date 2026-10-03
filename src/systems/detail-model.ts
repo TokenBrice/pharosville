@@ -76,6 +76,22 @@ export function sourceCoverageLabel({ coverage }: PharosVilleSourceStatus): stri
   return `${coverage.state} coverage${coverage.coveredRows != null ? `; ${coverage.coveredRows}${coverage.expectedRows != null ? `/${coverage.expectedRows}` : ""} rows` : ""}${coverage.windowHours != null ? `; ${coverage.windowHours}h window` : ""}${coverage.scopeLabel ? `; ${coverage.scopeLabel}` : ""}`;
 }
 
+/** The selected record and the ship-local ledger quote the same own evidence. */
+export function nodeSourceEvidenceLabel(evidence: Partial<PharosVilleFreshness>): string {
+  return PHAROSVILLE_API_ENDPOINT_KEYS.flatMap((key) => {
+    const status = evidence[key];
+    if (!status) return [];
+    return [[
+      `${PHAROSVILLE_ENDPOINT_REGISTRY[key].label}: ${sourceStatusLabel(status)}`,
+      `observed ${status.observedAt === null ? "unknown" : new Date(status.observedAt).toISOString()}`,
+      status.publishedAt !== null ? `published/as of ${new Date(status.publishedAt).toISOString()}` : "publication time unknown",
+      sourceCoverageLabel(status),
+      status.methodologyVersion ? `methodology ${status.methodologyVersion}` : null,
+      status.reason,
+    ].filter(Boolean).join("; ")];
+  }).join("\n");
+}
+
 function clockLabel(hourInput: number): string {
   const totalMinutes = Math.round((((Number.isFinite(hourInput) ? hourInput : 0) % 24) + 24) % 24 * 60) % (24 * 60);
   const hour = Math.floor(totalMinutes / 60);
@@ -591,11 +607,14 @@ function representativePositionLabel(node: ShipNode): string {
 }
 
 export function dewsScoreLabel(
-  node: Pick<ShipNode, "dewsScore">,
+  node: Pick<ShipNode, "dewsScore" | "evidence">,
 ): string | null {
   const score = node.dewsScore;
   if (typeof score !== "number" || !Number.isFinite(score)) return null;
-  return `DEWS ${Math.round(Math.max(0, Math.min(100, score)))}/100`;
+  const status = node.evidence.stress;
+  const qualifier = !status ? "evidence unavailable" : status.state !== "current" ? sourceStatusLabel(status)
+    : status.coverage.state !== "complete" ? sourceCoverageLabel(status) : null;
+  return `DEWS ${Math.round(Math.max(0, Math.min(100, score)))}/100${qualifier ? ` — ${qualifier}` : ""}`;
 }
 
 export function evidenceStatusLabel(node: ShipNode): string {
@@ -788,11 +807,11 @@ export function detailForLighthouse(
     title: node.label,
     summary: node.unavailable
       ? "Market stability is unavailable; the sky holds its authored neutral clarity."
-      : `Market stability reads ${node.psiBand}. Sky clarity correlates with the observed PSI band; it is not a weather or market forecast.${freshness && freshness.stability.state !== "current" ? " PSI is held; clarity holds the last good reading." : ""}`,
+      : `Market stability reads ${node.psiBand}. Sky clarity correlates with the observed PSI band; it is not a weather or market forecast.${node.evidence.stability?.state !== "current" ? " PSI is held; appearance holds the last accepted current reading." : ""}`,
     facts: [
       { label: "Score", value: node.score == null || node.unavailable ? "Unavailable" : String(node.score) },
       { label: "Band", value: node.psiBand ?? "Unavailable" },
-      { label: "Market stability", value: node.unavailable ? "Unavailable" : freshness ? sourceStatusLabel(freshness.stability) : "Evidence status unknown" },
+      { label: "Market stability", value: `${nodeSourceEvidenceLabel(node.evidence) || "PSI unavailable; observed unknown"}. Sky appearance is delayed and eases separately (60 continuous current seconds); held evidence holds the last accepted appearance, or neutral if none.` },
       { label: "Far shore", value: farShoreLabel(node.psiBand, node.unavailable) },
       { label: "Sky cover", value: skyCoverLabel(node.psiBand, node.unavailable) },
       { label: "Snapshot as of", value: generatedAt != null && Number.isFinite(generatedAt) && generatedAt > 0 ? new Date(generatedAt).toISOString() : "Unavailable" },
@@ -1308,6 +1327,7 @@ export function detailForShip(node: ShipNode, context: ShipDetailContext = {}): 
     ...(overrideBanner ? [{ label: "Squad override", value: overrideBanner }] : []),
     { label: "Route source", value: "stablecoins.chainCirculating, pegSummary.coins[], stress.signals[]" },
     { label: "Evidence status", value: evidenceStatusLabel(node) },
+    { label: "Source observations", value: nodeSourceEvidenceLabel(node.evidence) },
     { label: "Evidence", value: node.placementEvidence.sourceFields.join(", ") },
   ];
 

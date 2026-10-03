@@ -1,7 +1,7 @@
 import { PHAROSVILLE_API_ENDPOINT_KEYS, type PharosVilleApiEndpointKey } from "@shared/types/pharosville-endpoint-keys";
 import type { ChainHealthFactors, ChainSummary } from "@shared/types/chains";
 import type { CemeteryEntry } from "@shared/lib/cemetery-merged";
-import type { SafetyGradeEntry, StablecoinData, StablecoinMeta } from "@shared/types";
+import type { SafetyGradeEntry, StablecoinData, StablecoinMeta, StabilityIndexResponse } from "@shared/types";
 import type { ConditionBand } from "@shared/lib/psi-colors";
 import type { NetFlowDirection24h } from "@shared/lib/mint-burn-signals";
 import type { LongRecordModel } from "./long-record";
@@ -379,6 +379,8 @@ export interface LighthouseNode {
   contributors?: LighthouseContributor[];
   color: string;
   unavailable: boolean;
+  evidence: Partial<PharosVilleFreshness>;
+  inputDegradation?: NonNullable<StabilityIndexResponse["current"]>["inputDegradation"];
   detailId: string;
   /** Epoch ms of the most recent depeg event across the tracked fleet
       (max `pegSummary.coins[].lastEventAt`), or null when none on record. */
@@ -573,6 +575,7 @@ export interface ShipNode {
   /** The coin's own finite DEWS score, clamped to 0…100, or null if absent. */
   dewsScore?: number | null;
   placementEvidence: PlacementEvidence;
+  evidence: Partial<PharosVilleFreshness>;
   stressBreakdown?: { signals: string[]; contagionActive: boolean } | null;
   visual: ShipVisual;
   /** W7.3 service/tracking evidence and its renderer-neutral age profile. */
@@ -789,6 +792,7 @@ export interface PharosVilleSourceStatus {
 }
 
 export type PharosVilleFreshness = Record<PharosVilleApiEndpointKey, PharosVilleSourceStatus>;
+export type ShipSourceEvidence = Pick<PharosVilleFreshness, "pegSummary" | "stress" | "safetyGrades">;
 
 /** Construct all seven keys; absent evidence is explicit, never an empty record. */
 export function createSourceStatuses(

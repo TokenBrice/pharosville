@@ -49,6 +49,26 @@ pins are not authority over the accepted picture.
   Coverage: `src/hooks/use-pharosville-world-data.test.tsx`,
   `src/hooks/use-api-query.test.ts`, `src/systems/lamp-status.test.ts`,
   `src/components/accessibility-ledger.test.tsx`.
+- Each ship retains its own peg, DEWS and grade evidence. DEWS observation age
+  uses that row's `computedAt`, not a fresh envelope or another coin's sample;
+  unavailable inputs qualify coverage, and missing/unsupported DEWS cannot
+  certify calm. Known peg readings survive independently; the existing default
+  berth remains explicitly caveated when risk evidence is unavailable.
+  Peg observations require upstream `priceObservedAt` and mode; local-fetch,
+  unknown or absent observation times stay unknown, with publication/as-of
+  labeled separately. Grade observations use `asOfSec`.
+  Currently and each ledger ship line expose the same relevant source states,
+  observation/publication times and methodology; the own DEWS number is qualified
+  by its own evidence rather than the flagship's or the global source summary.
+- PSI keeps the official score, band, `computedAt`, version and input degradation;
+  no local recomputation or unrelated publication renews the historical reading.
+  Market stability and the ledger distinguish its observation from the world
+  snapshot (including mint/burn publication). Sky appearance is separately
+  delayed/eased, requires 60 continuous current seconds to accept a band, and
+  holds the last accepted appearance—or neutral if none—while evidence is held.
+  Coverage: `src/systems/pharosville-world/stages/ship-placement.test.ts`,
+  `src/systems/risk-placement.test.ts`, `src/systems/pharosville-world.test.ts`,
+  `src/components/detail-panel.test.tsx`, `src/systems/psi-sky.test.ts`.
 - Colour is never the only carrier of meaning. Keyboard traversal, pan/zoom,
   selection, Escape clear, controls, detail anchors and hit testing must remain
   useful without inspecting WebGL pixels. Focused controls remain available.

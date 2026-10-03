@@ -30,7 +30,9 @@ import type { ChainsResponse } from "@shared/types/chains";
 import type { MintBurnFlowsResponse } from "@shared/types/mint-burn";
 import { reportClientError } from "../error-reporter";
 import { buildPharosVilleWorld } from "../systems/pharosville-world";
-import { createSourceStatuses, type PharosVilleFreshness, type PharosVilleSourceCoverage, type PharosVilleSourceStatus, type PharosVilleWorld as PharosVilleWorldModel, type RouteMode } from "../systems/world-types";
+import { buildShipSourceEvidence } from "../systems/pharosville-world/stages/ship-placement";
+import { dewsAreaPlacementForBand } from "../systems/risk-water-areas";
+import { createSourceStatuses, type PharosVilleFreshness, type PharosVilleSourceCoverage, type PharosVilleSourceStatus, type PharosVilleWorld as PharosVilleWorldModel, type RouteMode, type ShipSourceEvidence } from "../systems/world-types";
 
 interface WorldInputData {
   stablecoins: StablecoinListResponse | null | undefined;
@@ -110,7 +112,7 @@ export function classifyPharosVilleSource(
         publishedAt = epochMs(data.updatedAt) ?? publishedAt;
         methodologyVersion = rows[0]?.methodologyVersion ?? null;
         coverage = rowsCoverage(Object.keys(data.signals));
-        if (data.malformedRows || rows.some((row) => Object.values(row.signals).some((signal) => !signal.available))) {
+        if (data.malformedRows || rows.some((row) => dewsAreaPlacementForBand(row.band) === null || Object.values(row.signals).some((signal) => !signal.available))) {
           coverage = { ...coverage, state: "partial" };
         }
         break;
@@ -161,6 +163,8 @@ export function classifyPharosVilleSource(
   const asOf = observedAt ?? publishedAt;
   if (asOf === null) return { ...status, state: "stale", observedAt: null, reason: "age unknown" };
   const ageSec = Math.max(0, (query.observedNowMs - asOf) / 1_000, query.meta?.ageSeconds ?? 0);
+  const envelopeAge = classifyFreshnessRatio((query.meta?.ageSeconds ?? 0) / PHAROSVILLE_ENDPOINT_REGISTRY[key].metaMaxAgeSec);
+  if (envelopeAge !== "fresh") return { ...status, state: "stale", reason: `Source envelope age ${envelopeAge}` };
   const ageState = classifyFreshnessRatio(ageSec / PHAROSVILLE_ENDPOINT_REGISTRY[key].metaMaxAgeSec);
   return { ...status, state: ageState === "fresh" ? "current" : "stale", reason: ageState === "fresh" ? null : `Source age ${ageState}` };
 }
@@ -242,6 +246,7 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
     || (hasEssentialPayloads && enrichmentGraceExpired);
   const retainedDataRef = useRef<WorldInputData | null>(null);
   const retainedStatusRef = useRef<PharosVilleFreshness | null>(null);
+  const retainedShipEvidenceRef = useRef<Record<string, ShipSourceEvidence> | null>(null);
   const retainedQueriesRef = useRef<Partial<Record<PharosVilleApiEndpointKey, SourceQuery>>>({});
   const publishedData = {} as WorldInputData;
   for (const key of PHAROSVILLE_API_ENDPOINT_KEYS) {
@@ -274,14 +279,22 @@ export function usePharosVilleWorldData(): PharosVilleWorldDataResult {
     ? previousStatus
     : nextStatus;
   retainedStatusRef.current = freshness;
+  const nextShipEvidence = buildShipSourceEvidence({ ...publishedData, freshness }, Math.max(...PHAROSVILLE_API_ENDPOINT_KEYS.map((key) => queries[key].observedNowMs)));
+  const previousShipEvidence = retainedShipEvidenceRef.current;
+  const shipEvidence = previousShipEvidence && Object.keys(previousShipEvidence).length === Object.keys(nextShipEvidence).length
+    && Object.entries(nextShipEvidence).every(([id, sources]) => (
+      previousShipEvidence[id] && (Object.keys(sources) as (keyof ShipSourceEvidence)[]).every((key) => sameSourceStatus(previousShipEvidence[id]![key], sources[key]))
+    )) ? previousShipEvidence : nextShipEvidence;
+  retainedShipEvidenceRef.current = shipEvidence;
 
   const { stablecoins, chains, stability, pegSummary, stress, safetyGrades, mintBurn } = publishedData;
   const world = useMemo<PharosVilleWorldModel>(() => buildPharosVilleWorld({
     stablecoins, chains, stability, pegSummary, stress, safetyGrades, mintBurn,
     routeMode,
     freshness,
+    shipEvidence,
   }), [
-    routeMode, freshness, stablecoins, chains, stability, pegSummary, stress, safetyGrades, mintBurn,
+    routeMode, freshness, shipEvidence, stablecoins, chains, stability, pegSummary, stress, safetyGrades, mintBurn,
   ]);
 
   const queryClient = useQueryClient();

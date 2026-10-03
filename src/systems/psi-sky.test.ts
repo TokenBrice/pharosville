@@ -13,8 +13,8 @@ import {
 } from "./psi-sky";
 
 const input = (band: string, timeSeconds: number, stale = false): PsiSkyInput => ({
-  lighthouse: { psiBand: band, score: 80, unavailable: false },
-  freshness: makeSourceStatuses({ stability: { state: stale ? "stale" : "current" } }), timeSeconds, asOf: `reading-${timeSeconds}`,
+  lighthouse: { psiBand: band, score: 80, unavailable: false, evidence: { stability: makeSourceStatuses({ stability: { state: stale ? "stale" : "current" } }).stability } },
+  timeSeconds, asOf: `reading-${timeSeconds}`,
 });
 
 describe("PSI sky clarity", () => {

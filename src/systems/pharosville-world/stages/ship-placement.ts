@@ -6,6 +6,8 @@ import { logosById } from "@/lib/logos";
 import { getCirculatingRaw } from "@/lib/supply";
 import { getRecentChange } from "../../recent-change";
 import { isStricterPlacement, resolveShipRiskPlacement } from "../../risk-placement";
+import { dewsAreaPlacementForBand } from "../../risk-water-areas";
+import { observationEpochMs, rowSourceEvidence } from "../../source-evidence";
 import {
   STABLECOIN_SQUADS,
   squadFormationOffsetForPlacement,
@@ -43,6 +45,7 @@ import type {
   ShipDepegHistory,
   ShipDexCrossCheck,
   ShipNode,
+  ShipSourceEvidence,
   ShipRiskPlacement,
 } from "../../world-types";
 import type { BuildShipsStage, PharosVilleInputs } from "../pipeline-types";
@@ -334,6 +337,58 @@ export function shipStressBreakdown(
   return signals.length > 0 || contagionActive ? { signals, contagionActive } : null;
 }
 
+/** Own carrier provenance, also used on the existing visible query age tick. */
+export function buildShipSourceEvidence(
+  inputs: Pick<PharosVilleInputs, "stablecoins" | "pegSummary" | "stress" | "safetyGrades" | "freshness">,
+  observedNowMs?: number,
+): Record<string, ShipSourceEvidence> {
+  const pegById = buildPegSummaryCoinMap(inputs.pegSummary?.coins);
+  const gradeById = buildSafetyGradeMap(inputs.safetyGrades?.grades) ?? {};
+  return Object.fromEntries(activeAssets(inputs.stablecoins).map((asset) => {
+    const peg = pegById.get(asset.id);
+    const stress = inputs.stress?.signals[asset.id];
+    const signals = Object.values(stress?.signals ?? {});
+    const coveredRows = signals.filter((signal) => signal.available).length;
+    const stressSupported = !!stress && Number.isFinite(stress.score) && dewsAreaPlacementForBand(stress.band) !== null;
+    const stressAvailable = stressSupported && (!signals.length || coveredRows > 0);
+    const pegAvailable = !!peg && (peg.activeDepeg || Number.isFinite(peg.currentDeviationBps));
+    const mode = peg?.priceObservedAtMode ?? "unknown";
+    const grade = gradeById[asset.id];
+    const gradeSource = {
+      ...inputs.freshness.safetyGrades,
+      publishedAt: observationEpochMs(inputs.safetyGrades?.updatedAt) ?? inputs.freshness.safetyGrades.publishedAt,
+      ...(inputs.safetyGrades && inputs.safetyGrades.publicationStatus !== "current"
+        ? { state: "stale" as const, reason: `Grade publication ${inputs.safetyGrades.publicationStatus}` } : {}),
+    };
+    return [asset.id, {
+      pegSummary: rowSourceEvidence("pegSummary", inputs.freshness.pegSummary, {
+        available: pegAvailable,
+        observedAt: peg && mode === "upstream" ? observationEpochMs(peg.priceObservedAt) : null,
+        methodologyVersion: peg?.methodologyVersion ?? null,
+        coverage: { state: pegAvailable ? "complete" : "unknown" },
+        reason: !pegAvailable ? "Peg reading missing or low confidence" : `Price observation mode: ${mode}`,
+      }, observedNowMs),
+      stress: rowSourceEvidence("stress", {
+        ...inputs.freshness.stress,
+        publishedAt: observationEpochMs(inputs.stress?.updatedAt) ?? inputs.freshness.stress.publishedAt,
+      }, {
+        available: stressAvailable,
+        observedAt: stress ? observationEpochMs(stress.computedAt) : null,
+        methodologyVersion: stress?.methodologyVersion ?? null,
+        coverage: { state: !stressSupported || !signals.length ? "unknown" : coveredRows === signals.length ? "complete" : "partial" },
+        reason: !stress ? "DEWS row missing" : !stressSupported ? `DEWS band unsupported: ${stress.band}` : !stressAvailable ? "DEWS signals unavailable" : coveredRows < signals.length ? "DEWS signal coverage partial" : !signals.length ? "DEWS signal coverage unknown" : null,
+      }, observedNowMs),
+      safetyGrades: rowSourceEvidence("safetyGrades", gradeSource, {
+        available: !!grade,
+        observedAt: grade ? observationEpochMs(inputs.safetyGrades?.asOfSec) : null,
+        methodologyVersion: inputs.safetyGrades?.methodologyVersion ?? null,
+        coverage: { state: grade ? "complete" : "unknown" },
+        reason: grade ? null : "Safety grade row missing",
+      }, observedNowMs),
+    }];
+  }));
+}
+
 function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): ShipNode[] {
   const pegById = buildPegSummaryCoinMap(inputs.pegSummary?.coins);
   const safetyGradeById = buildSafetyGradeMap(inputs.safetyGrades?.grades) ?? {};
@@ -362,6 +417,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
   const renderedDockChainIds = new Set(docks.map((dock) => dock.chainId));
 
   const assets = activeAssets(inputs.stablecoins);
+  const evidenceById = inputs.shipEvidence ?? buildShipSourceEvidence(inputs);
   // Per-squad flagship risk: a squad activates iff its flagship is in
   // activeAssets. Squads activate independently - Maker (DAI flagship) can sail
   // even if Sky (USDS flagship) is missing, and vice versa.
@@ -369,6 +425,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     placement: ShipRiskPlacement;
     evidence: PlacementEvidence;
     stress: StressSignalEntry | undefined;
+    sources: ShipSourceEvidence;
   };
   const flagshipRiskBySquad = new Map<SquadId, FlagshipRisk>();
   for (const squad of STABLECOIN_SQUADS) {
@@ -380,10 +437,11 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       meta: flagshipMeta,
       pegCoin: pegById.get(flagshipAsset.id),
       stress: stressById[flagshipAsset.id],
-      freshness: inputs.freshness,
+      freshness: evidenceById[flagshipAsset.id]!,
     });
     flagshipRiskBySquad.set(squad.id, {
       ...resolved,
+      sources: evidenceById[flagshipAsset.id]!,
       stress: stressById[flagshipAsset.id],
     });
   }
@@ -394,12 +452,13 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     const safetyGrade = safetyGradeById[asset.id] ?? null;
     const pegCoin = pegById.get(asset.id);
     const stress = stressById[asset.id];
+    const sources = evidenceById[asset.id]!;
     const ownRisk = resolveShipRiskPlacement({
       asset,
       meta,
       pegCoin,
       stress,
-      freshness: inputs.freshness,
+      freshness: sources,
     });
 
     // If this asset belongs to an active squad and is a consort, inherit that
@@ -417,7 +476,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     const recent = getRecentChange(asset);
     const riskDepth = shipDewsAnchorDepth(
       isConsort ? flagshipRisk?.stress : stress,
-      inputs.freshness.stress.state !== "current",
+      (isConsort ? flagshipRisk?.sources : sources)?.stress.state !== "current",
     );
     const dewsScore = typeof stress?.score === "number" && Number.isFinite(stress.score)
       ? Math.max(0, Math.min(100, stress.score))
@@ -445,7 +504,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     };
     const waterline = shipWaterlineTrim(
       pegCoin?.currentDeviationBps,
-      inputs.freshness.pegSummary.state !== "current",
+      sources.pegSummary.state !== "current",
     );
     const issuance = issuanceById.get(asset.id);
     return {
@@ -471,6 +530,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       riskDepth,
       dewsScore,
       placementEvidence: risk.evidence,
+      evidence: sources,
       ...(stressBreakdown ? { stressBreakdown } : {}),
       visual: {
         ...shipVisual,

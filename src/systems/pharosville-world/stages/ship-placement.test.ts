@@ -1,5 +1,6 @@
 import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { beforeEach, describe, expect, it } from "vitest";
+import { quietNormalInput, T } from "../../../__fixtures__/data-contract-scenarios";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
@@ -24,6 +25,27 @@ import {
 } from "./ship-placement";
 import type { PharosVilleInputs } from "../pipeline-types";
 import type { ShipNode } from "../../world-types";
+
+
+it("fresh stress envelope cannot renew old computedAt", () => {
+  const input = quietNormalInput();
+  const old = input.stress!.signals["usdc-circle"]!;
+  Object.assign(old, { band: "DANGER", score: 95, computedAt: T - 86_400, methodologyVersion: "old-dews" });
+  Object.assign(input.stress!.signals["usdt-tether"]!, { band: "DANGER", score: 92, methodologyVersion: "new-dews" });
+  input.freshness = makeSourceStatuses({ stress: { state: "stale", observedAt: (T - 86_400) * 1_000, reason: "Source age stale" } });
+  const world = buildPharosVilleWorld(input);
+  const held = world.ships.find((ship) => ship.id === "usdc-circle")!;
+  const current = world.ships.find((ship) => ship.id === "usdt-tether")!;
+  expect(held.evidence.stress).toMatchObject({ state: "stale", observedAt: (T - 86_400) * 1_000, publishedAt: T * 1_000, methodologyVersion: "old-dews" });
+  expect(held.riskPlacement).toBe("safe-harbor");
+  expect(held.riskDepth).toBeNull();
+  expect(held.dewsScore).toBe(95);
+  expect(held.placementEvidence.stale).toBe(true);
+  expect(current.evidence.stress).toMatchObject({ state: "current", observedAt: T * 1_000, methodologyVersion: "new-dews" });
+  expect(current.riskPlacement).toBe("storm-shelf");
+  expect(current.riskDepth).toBe(0.92);
+  expect(current.placementEvidence.stale).toBe(false);
+});
 
 type DexPriceCheck = NonNullable<ReturnType<typeof makePegCoin>["dexPriceCheck"]>;
 

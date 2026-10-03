@@ -19,6 +19,7 @@ import type {
   PigeonnierNode,
   SelectableWorldEntity,
   ShipNode,
+  ShipSourceEvidence,
 } from "../world-types";
 
 export interface PharosVilleInputs {
@@ -36,6 +37,7 @@ export interface PharosVilleInputs {
   mintBurn?: MintBurnFlowsResponse | null | undefined;
   cemeteryEntries?: readonly CemeteryEntry[];
   freshness: PharosVilleFreshness;
+  shipEvidence?: Readonly<Record<string, ShipSourceEvidence>>;
   routeMode?: PharosVilleWorld["routeMode"];
 }
 
