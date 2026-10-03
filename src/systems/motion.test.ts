@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { describe, expect, it, vi } from "vitest";
 import { denseFixtureChains, denseFixturePegSummary, denseFixtureSafetyGrades, denseFixtureStablecoins, denseFixtureStress, fixtureChains, fixturePegSummary, fixtureSafetyGrades, fixtureStablecoins, fixtureStability, fixtureStress, fixtureWithFlagshipPlacement, makeAsset, makeChain, makePegCoin, makerSquadFixtureInputs } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
@@ -44,7 +45,7 @@ describe("motion", () => {
     stress: fixtureStress,
     safetyGrades: fixtureSafetyGrades,
     cemeteryEntries: [],
-    freshness: {},
+    freshness: makeSourceStatuses(),
   });
   // Rim-aware dense patrol planning is intentionally substantial. Build this
   // immutable fixture once outside individual test timeout windows; the tests
@@ -57,7 +58,7 @@ describe("motion", () => {
     stress: denseFixtureStress,
     safetyGrades: denseFixtureSafetyGrades,
     cemeteryEntries: [],
-    freshness: {},
+    freshness: makeSourceStatuses(),
   });
   const densePlanFixture = buildBaseMotionPlan(denseWorldFixture);
 
@@ -260,7 +261,7 @@ describe("motion", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
 
     expect(otherWorld).not.toBe(world);
@@ -276,7 +277,7 @@ describe("motion", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: { stablecoinsStale: true, chainsStale: true },
+      freshness: makeSourceStatuses({ stablecoins: { state: "stale" }, chains: { state: "stale" } }),
     });
     expect(motionPlanSignature(staleFreshnessWorld)).toBe(motionPlanSignature(world));
   });
@@ -366,7 +367,7 @@ describe("motion", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     const otherWorldSameMap: PharosVilleWorld = { ...sharedWorld, ships: [...sharedWorld.ships] };
     expect(otherWorldSameMap).not.toBe(sharedWorld);
@@ -1200,7 +1201,7 @@ describe("motion", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     const plan = buildMotionPlan(sampleWorld, null);
 
@@ -1230,7 +1231,7 @@ describe("motion", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     const denseWorld = denseWorldFixture;
 
@@ -2160,7 +2161,7 @@ describe("motion", () => {
         stress: fixtureStress,
         safetyGrades: fixtureSafetyGrades,
         cemeteryEntries: [],
-        freshness: {},
+        freshness: makeSourceStatuses(),
       });
       // Distinct world with a structurally different map (no ships).
       const worldB: import("./world-types").PharosVilleWorld = {
@@ -2196,7 +2197,7 @@ describe("motion", () => {
         stress: fixtureStress,
         safetyGrades: fixtureSafetyGrades,
         cemeteryEntries: [],
-        freshness: {},
+        freshness: makeSourceStatuses(),
       });
       // Prime the cache for this map.
       buildBaseMotionPlan(testWorld);
@@ -2217,7 +2218,7 @@ describe("motion", () => {
         stress: fixtureStress,
         safetyGrades: fixtureSafetyGrades,
         cemeteryEntries: [],
-        freshness: {},
+        freshness: makeSourceStatuses(),
       });
       // Ensure a clean slate (prior tests may have populated the singleton map's cache).
       disposePathCacheForMap(testWorld.map);
@@ -2241,7 +2242,7 @@ describe("motion", () => {
         stress: fixtureStress,
         safetyGrades: fixtureSafetyGrades,
         cemeteryEntries: [],
-        freshness: {},
+        freshness: makeSourceStatuses(),
       });
       // bucket = Math.floor(timeSeconds / 600): 0 vs 1.
       // Plans built with different buckets carry distinct route epochs/keys.
@@ -2412,7 +2413,7 @@ describe("motion", () => {
         stress: denseFixtureStress,
         safetyGrades: denseFixtureSafetyGrades,
         cemeteryEntries: [],
-        freshness: {},
+        freshness: makeSourceStatuses(),
       });
       const plan = buildMotionPlan(denseWorld, null);
 
@@ -2579,7 +2580,7 @@ describe("motion", () => {
         stress: fixtureStress,
         safetyGrades: fixtureSafetyGrades,
         cemeteryEntries: [],
-        freshness: {},
+        freshness: makeSourceStatuses(),
       });
       // Both calls compute bucket=0; plans must produce the same route shapes.
       const planDefault = buildBaseMotionPlan(sampleWorld);
@@ -2671,7 +2672,7 @@ describe("motion", () => {
         stress: denseFixtureStress,
         safetyGrades: denseFixtureSafetyGrades,
         cemeteryEntries: [],
-        freshness: {},
+        freshness: makeSourceStatuses(),
       }));
 
       expect(densePlan.shipRoutes.size).toBeGreaterThan(1);
@@ -2878,7 +2879,7 @@ describe("motion", () => {
       stress: denseFixtureStress,
       safetyGrades: denseFixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     const ship = sampleWorld.ships.find((s) => s.dockVisits.length > 0) ?? sampleWorld.ships[0]!;
     const plan = buildMotionPlan(sampleWorld, ship.detailId);
@@ -2958,7 +2959,7 @@ function worldForShip(input: {
       : fixtureStress,
     safetyGrades: fixtureSafetyGrades,
     cemeteryEntries: [],
-    freshness: input.freshness ?? {},
+    freshness: input.freshness ?? makeSourceStatuses(),
   });
 }
 

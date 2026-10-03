@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { describe, expect, it } from "vitest";
 import { buildObserveSequence, selectGardenObservatoryAreas } from "./observe-sequence";
 import type { PharosVilleWorld } from "./world-types";
@@ -51,7 +52,7 @@ describe("buildObserveSequence", () => {
       "supply",
       "concentration",
     ]);
-    const aged = buildObserveSequence({ ...world, freshness: { chainsStale: true } });
+    const aged = buildObserveSequence({ ...world, freshness: makeSourceStatuses({ chains: { state: "stale" } }) });
     expect(aged.map((beat) => beat.detailId)).toEqual(beats.map((beat) => beat.detailId));
     expect(aged[3]?.label).toContain("stale or unavailable evidence");
     expect(aged[0]?.label).toBe(beats[0]?.label);

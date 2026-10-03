@@ -11,7 +11,7 @@ describe("worldRenderContentSignature", () => {
       ...world,
       detailIndex: { ...world.detailIndex },
       entityById: { ...world.entityById },
-      freshness: { ...world.freshness, stablecoinsStale: !world.freshness.stablecoinsStale },
+      freshness: { ...world.freshness, stablecoins: { ...world.freshness.stablecoins, state: "stale" } },
       generatedAt: (world.generatedAt ?? 0) + 60_000,
       visualCues: [...world.visualCues],
     };

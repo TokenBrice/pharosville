@@ -417,7 +417,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     const recent = getRecentChange(asset);
     const riskDepth = shipDewsAnchorDepth(
       isConsort ? flagshipRisk?.stress : stress,
-      inputs.freshness.stressStale === true,
+      inputs.freshness.stress.state !== "current",
     );
     const dewsScore = typeof stress?.score === "number" && Number.isFinite(stress.score)
       ? Math.max(0, Math.min(100, stress.score))
@@ -445,7 +445,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
     };
     const waterline = shipWaterlineTrim(
       pegCoin?.currentDeviationBps,
-      inputs.freshness.pegSummaryStale === true,
+      inputs.freshness.pegSummary.state !== "current",
     );
     const issuance = issuanceById.get(asset.id);
     return {

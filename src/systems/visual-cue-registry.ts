@@ -1,3 +1,4 @@
+import { PHAROSVILLE_API_ENDPOINT_KEYS } from "@shared/types/pharosville-endpoint-keys";
 import type { VisualCue } from "./world-types";
 
 /** Non-semantic scene additions audited beside, but excluded from, cue parity. */
@@ -29,7 +30,7 @@ export const LEGEND_MARK_ROWS = [
   {
     cueId: "cue.world.epistemic-haze",
     label: "Haze over instruments",
-    text: "Low haze over the named risk waters means the Peg summary feed is stale; haze over the built quays means the Chains feed is stale. Clear water or stone means that feed is current. The haze reports evidence age, not market danger or weather.",
+    text: "Low haze over the named risk waters qualifies non-current Peg summary readings; haze over built quays qualifies non-current Chains readings. Clear instruments mean current source readings, not complete coverage. The source rows distinguish held, loading and unavailable; haze is not market danger or weather.",
   },
   {
     cueId: "cue.ship.age-patina",
@@ -79,7 +80,7 @@ export const LEGEND_MARK_ROWS = [
   {
     cueId: "cue.lighthouse.lamp-status",
     label: "Harbor light",
-    text: "The lighthouse lamp is steady and warm when all seven source groups are fresh; it becomes perceptibly cooler and slower when some are stale; it dims clearly when every source group is stale and the API is unreachable. This status overlays the PSI band rather than replacing its color or character, and the Harbor light detail row gives the as-of time.",
+    text: "The lighthouse lamp is steady and warm only when all seven sources are current with complete coverage; it becomes cooler and slower for held, loading, unavailable or coverage-qualified readings; it dims only when every source explicitly reports a fetch failure. The observed Harbor light record and seven source rows update immediately while appearance eases over about two observations. Publication/as-of is not an observation time.",
   },
   {
     cueId: "cue.ship.cross-bearing-buoy",
@@ -109,10 +110,10 @@ export function buildVisualCueRegistry(): VisualCue[] {
       id: "cue.world.epistemic-haze",
       target: { kind: "area" },
       primaryChannels: ["opacity", "position"],
-      visual: "localized low height-fog haze over DEWS risk waters when Peg summary is stale, masked by the existing sea-region field inside the existing water material",
-      sourceField: "freshness.pegSummaryStale",
+      visual: "localized low height-fog haze over DEWS risk waters when Peg summary is not current, masked by the existing sea-region field inside the existing water material",
+      sourceField: "freshness.pegSummary.state",
       questionAnswered: "Is the Peg summary reading behind the risk waters current?",
-      failureState: "clear named risk waters; no explicit stale flag means no haze is invented",
+      failureState: "bounded haze qualifies non-current Peg summary; missing is never certified current",
       domEquivalent: "selected risk-water detail Atmosphere row with a Risk-water haze clause when stale, plus the accessibility ledger Instrument haze row and legend mark",
       reducedMotionEquivalent: "the same static localized haze at a fixed time-zero noise pose; no drift is required to carry the cue",
     },
@@ -120,10 +121,10 @@ export function buildVisualCueRegistry(): VisualCue[] {
       id: "cue.dock.epistemic-haze",
       target: { kind: "dock" },
       primaryChannels: ["opacity", "position"],
-      visual: "localized low height-fog haze over built quays when Chains is stale, applied through the existing quay materials",
-      sourceField: "freshness.chainsStale",
+      visual: "localized low height-fog haze over built quays when Chains is not current, applied through the existing quay materials",
+      sourceField: "freshness.chains.state",
       questionAnswered: "Is the Chains reading behind the quays current?",
-      failureState: "clear quays; no explicit stale flag means no haze is invented",
+      failureState: "bounded haze qualifies non-current Chains; missing is never certified current",
       domEquivalent: "selected dock detail Station row with a Quay haze clause when stale, plus the local station ledger clause, Instrument haze row and legend mark",
       reducedMotionEquivalent: "the same static localized haze; no motion is needed to carry the cue",
     },
@@ -153,10 +154,10 @@ export function buildVisualCueRegistry(): VisualCue[] {
       id: "cue.lighthouse.lamp-status",
       target: { kind: "lighthouse" },
       primaryChannels: ["color", "motion", "opacity"],
-      visual: "Harbor light: steady — all feeds fresh; cooler and slower — some feeds stale; dimmed — API unreachable; showing last-good data. This status is layered over the existing PSI beacon, not a replacement for its PSI color or character",
-      sourceField: "freshness.stablecoinsStale, freshness.chainsStale, freshness.stabilityStale, freshness.pegSummaryStale, freshness.stressStale, freshness.safetyGradesStale, freshness.mintBurnStale",
-      questionAnswered: "Can the live world be trusted as current, is it being held on partly stale feeds, or is the API unreachable behind last-good data?",
-      failureState: "dimmed lamp with the Harbor light detail row reading 'dimmed — API unreachable; showing last-good data'; the world remains on its last-good data rather than disappearing",
+      visual: "Harbor light: steady for all seven current, complete sources; cooler and slower for held, missing or coverage-qualified readings; dimmed only when every source explicitly reports a fetch error. Layered over the existing PSI beacon",
+      sourceField: PHAROSVILLE_API_ENDPOINT_KEYS.map((key) => `freshness.${key}.state, freshness.${key}.coverage, freshness.${key}.reason`).join(", "),
+      questionAnswered: "Are all seven readings complete and current, qualified, or explicitly unreachable?",
+      failureState: "held geometry remains visible while the observed status updates immediately; lamp appearance eases independently",
       domEquivalent: "lighthouse detail Harbor light row naming observed source status, separate Beam warmth and appearance easing over ~2 observations, plus the matching accessibility-ledger Harbor light clause",
       reducedMotionEquivalent: "static lamp temperature, intensity, and composed PSI character; no continuous sweep or flame motion is introduced",
     },
@@ -286,7 +287,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
       target: { kind: "ship" },
       primaryChannels: ["position", "shape"],
       visual: "the hull lifting clear of the water on coins trading above par and settling low and heavy on coins trading below it, in two steps at the same 50 and 200 bps the risk-water placement uses; an even keel below 50 bps and on any stale peg row",
-      sourceField: "pegSummary.coins[].currentDeviationBps (sign), freshness.pegSummaryStale",
+      sourceField: "pegSummary.coins[].currentDeviationBps (sign), freshness.pegSummary.state",
       questionAnswered: "Is this coin off peg because demand is running ahead of it, or because holders are redeeming out of it?",
       failureState: "even keel — which covers at-par, under the 50 bps gate, and no fresh peg reading alike; the Peg deviation clause in Currently separates the three",
       domEquivalent: "ship detail Currently row with a full signed Peg deviation clause naming direction and actual hull trim beside Evidence status and Evidence/source, plus the matching accessibility-ledger peg-deviation clause",

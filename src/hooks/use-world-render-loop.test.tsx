@@ -840,7 +840,7 @@ describe("useWorldRenderLoop", () => {
     const onResult = () => {};
     const metadataOnlyWorld: PharosVilleWorld = {
       ...world,
-      freshness: { ...world.freshness, stablecoinsStale: !world.freshness.stablecoinsStale },
+      freshness: { ...world.freshness, stablecoins: { ...world.freshness.stablecoins, state: "stale" } },
       generatedAt: (world.generatedAt ?? 0) + 60_000,
     };
     const subject = world.ships[0]!;

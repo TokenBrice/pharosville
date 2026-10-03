@@ -1,6 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { act, useSyncExternalStore } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,7 +51,7 @@ const mocks = vi.hoisted(() => {
       return {
         generatedAt: buildId,
         routeMode: input.routeMode ?? "world",
-        freshness: input.freshness ?? {},
+        freshness: input.freshness ?? makeSourceStatuses(),
         map: { width: 0, height: 0, tiles: [], waterRatio: 0 },
         lighthouse: {
           id: "lighthouse",

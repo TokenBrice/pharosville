@@ -8,37 +8,36 @@ export interface EpistemicHaze {
 }
 
 /**
- * W7.4's one semantic derivation. Rendering and every DOM equivalent consume
- * these same two booleans; absence is clear water, never an invented stale
- * reading.
+ * The bounded haze qualifies non-current instruments. Loading or missing
+ * evidence must not be described as current simply because it has no stale flag.
  */
 export function deriveEpistemicHaze(
   freshness: PharosVilleFreshness | null | undefined,
 ): EpistemicHaze {
   return {
-    riskWaters: freshness?.pegSummaryStale === true,
-    quays: freshness?.chainsStale === true,
+    riskWaters: freshness?.pegSummary.state !== "current",
+    quays: freshness?.chains.state !== "current",
   };
 }
 
 export function epistemicHazeLabel(haze: EpistemicHaze): string {
   if (haze.riskWaters && haze.quays) {
-    return "Haze over the risk waters and quays — Peg summary and Chains feeds are stale";
+    return "Haze over the risk waters and quays — Peg summary and Chains readings are not current";
   }
-  if (haze.riskWaters) return "Haze over the risk waters — Peg summary feed is stale";
-  if (haze.quays) return "Haze over the quays — Chains feed is stale";
+  if (haze.riskWaters) return "Haze over the risk waters — Peg summary reading is not current";
+  if (haze.quays) return "Haze over the quays — Chains reading is not current";
   return "Clear instruments — Peg summary and Chains feeds are current";
 }
 
 export function riskWaterHazeLabel(haze: EpistemicHaze): string {
   return haze.riskWaters
-    ? "Hazy — Peg summary feed is stale"
+    ? "Hazy — Peg summary reading is not current"
     : "Clear — Peg summary feed is current";
 }
 
 export function quayHazeLabel(haze: EpistemicHaze): string {
   return haze.quays
-    ? "Hazy — Chains feed is stale"
+    ? "Hazy — Chains reading is not current"
     : "Clear — Chains feed is current";
 }
 

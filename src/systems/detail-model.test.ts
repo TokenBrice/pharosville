@@ -20,9 +20,6 @@ import {
   flightToQualityLabel,
   harborRankLabel,
   lighthouseBeamWarmCueLabel,
-  lighthouseLampStatusLabel,
-  nowCaption,
-  nowCaptionAnnouncement,
   PHAROS_WATCH_TELEGRAM_HREF,
   psiCompositionLabel,
   psiTrendLabel,
@@ -77,63 +74,6 @@ describe("dewsScoreLabel", () => {
   });
 });
 
-describe("W5.2 now caption grammar", () => {
-  const hour = 12 + 25 / 60;
-  const beats = { dawn: 0, day: 1, golden: 0, blue: 0, night: 0 } as const;
-  const observedAt = Date.UTC(2026, 8, 8, 18, 42);
-
-  it("uses stale, ceremony, transition, then phase precedence", () => {
-    const common = {
-      beats,
-      freshness: { pegSummaryStale: true, observedAt },
-      hour,
-      latestTransition: { symbol: "USDC", toLabel: "Watch water", observedAt },
-      psi: 82,
-    };
-    expect(nowCaption({ ...common, arrivalAnnotation: "USDC entered Ethereum harbour." }))
-      .toBe("Peg summary stale since 18:42");
-    const fresh = { ...common, freshness: {} };
-    expect(nowCaption({ ...fresh, arrivalAnnotation: "USDC entered Ethereum harbour." }))
-      .toBe("USDC entered Ethereum harbour.");
-    expect(nowCaption({ ...fresh, arrivalAnnotation: null }))
-      .toBe("USDC moved to Watch water, observed 18:42");
-    expect(nowCaption({ ...fresh, arrivalAnnotation: null, latestTransition: null }))
-      .toBe("12:25 — a quiet noon · readings current");
-  });
-
-  it("chooses one deterministic stale warning and reflects stressed PSI in the phase", () => {
-    expect(nowCaption({
-      arrivalAnnotation: null,
-      beats,
-      freshness: { chainsStale: true, stablecoinsStale: true, observedAt },
-      hour,
-      latestTransition: null,
-      psi: 82,
-    })).toBe("Stablecoins stale since 18:42");
-    expect(nowCaption({
-      arrivalAnnotation: null,
-      beats,
-      freshness: {},
-      hour,
-      latestTransition: null,
-      psi: 32,
-    })).toBe("12:25 — a watchful noon · readings current");
-  });
-
-  it("names the moon in the visible night caption only, never in the announcement", () => {
-    // The suite's pinned sky day is the 26 Sep 2026 harvest full moon.
-    const night = {
-      arrivalAnnotation: null,
-      beats: { dawn: 0, day: 0, golden: 0, blue: 0, night: 1 },
-      freshness: {},
-      hour: 22,
-      latestTransition: null,
-      psi: 82,
-    };
-    expect(nowCaption(night)).toBe("22:00 — a quiet night · a full moon · readings current");
-    expect(nowCaptionAnnouncement(night)).toBe("a quiet night · readings current");
-  });
-});
 
 describe("detail-model analytical links", () => {
   it("points built-in detail links at canonical Pharos Watch routes", () => {
@@ -772,47 +712,6 @@ describe("detail-model analytical links", () => {
   });
 });
 
-describe("W6.4 — lighthouse lamp status parity", () => {
-  it("states freshness, stale feeds, and API outage with an as-of time", () => {
-    expect(lighthouseLampStatusLabel({}, Date.UTC(2026, 7, 13, 14, 32))).toBe(
-      "steady — all feeds fresh as of 14:32",
-    );
-    expect(lighthouseLampStatusLabel({ pegSummaryStale: true }, Date.UTC(2026, 7, 13, 14, 32))).toBe(
-      "cooler and slower — some feeds stale as of 14:32",
-    );
-    expect(lighthouseLampStatusLabel({
-      stablecoinsStale: true,
-      chainsStale: true,
-      stabilityStale: true,
-      pegSummaryStale: true,
-      stressStale: true,
-      safetyGradesStale: true,
-      mintBurnStale: true,
-    }, Date.UTC(2026, 7, 13, 14, 32))).toBe(
-      "dimmed — API unreachable; showing last-good data as of 14:32",
-    );
-  });
-
-  it("puts Harbor light beside the existing PSI rows", () => {
-    const detail = detailForLighthouse({
-      id: "lighthouse",
-      kind: "lighthouse",
-      label: "Pharos lighthouse",
-      tile: { x: 1, y: 1 },
-      psiBand: "STEADY",
-      score: 88,
-      color: "#ffffff",
-      unavailable: false,
-      detailId: "lighthouse",
-    }, undefined, undefined, { chainsStale: true }, Date.UTC(2026, 7, 13, 14, 32));
-
-    expect(detail.facts).toContainEqual({
-      label: "Harbor light",
-      value: "cooler and slower — some feeds stale as of 14:32",
-    });
-    expect(detail.facts.some((fact) => fact.label === "Band")).toBe(true);
-  });
-});
 
 describe("detail-model unique tier surfacing", () => {
   it("names the quay masonry condition from the full chain-health decomposition", () => {

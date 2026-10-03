@@ -1,3 +1,4 @@
+import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { describe, expect, it } from "vitest";
 import { CEMETERY_ENTRIES } from "@shared/lib/cemetery-merged";
 import { ACTIVE_IDS } from "@shared/lib/stablecoins";
@@ -61,20 +62,6 @@ describe("buildPharosVilleWorld", () => {
     expect(buildPharosVilleWorld(input)).toEqual(world);
   });
 
-  it("surfaces stale endpoint haze in the affected instrument details", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput({
-      freshness: { chainsStale: true, pegSummaryStale: true },
-    }));
-
-    expect(world.detailIndex[world.docks[0]!.detailId]!.facts).toContainEqual({
-      label: "Quay haze",
-      value: "Hazy — Chains feed is stale",
-    });
-    expect(world.detailIndex[world.areas[0]!.detailId]!.facts).toContainEqual({
-      label: "Risk-water haze",
-      value: "Hazy — Peg summary feed is stale",
-    });
-  });
 
   it("keeps generatedAt unknown when no timestamp candidates exist", () => {
     const world = buildPharosVilleWorld({
@@ -85,7 +72,7 @@ describe("buildPharosVilleWorld", () => {
       stress: null,
       safetyGrades: null,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
 
     expect(world.generatedAt).toBeNull();
@@ -100,7 +87,7 @@ describe("buildPharosVilleWorld", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: CEMETERY_ENTRIES.slice(0, 3),
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
 
     expect(world.routeMode).toBe("world");
@@ -150,7 +137,7 @@ describe("buildPharosVilleWorld", () => {
         ],
       },
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
 
     expect(world.areas.every((area) => area.id.startsWith("area.dews.") || area.id.startsWith("area.risk-water."))).toBe(true);
@@ -176,7 +163,7 @@ describe("buildPharosVilleWorld", () => {
       stress: { ...fixtureStress, signals: {} },
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     const calmShips = world.ships.filter((ship) => ship.riskPlacement === "safe-harbor");
     const navShips = world.ships.filter((ship) => ship.riskPlacement === "ledger-mooring");
@@ -224,7 +211,7 @@ describe("buildPharosVilleWorld", () => {
       },
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: { stressStale: true },
+      freshness: makeSourceStatuses({ stress: { state: "stale" } }),
     });
 
     for (const area of world.areas.filter((entry) => entry.band && entry.riskPlacement)) {
@@ -255,7 +242,7 @@ describe("buildPharosVilleWorld", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     };
     const world = buildPharosVilleWorld(input);
     const repeatedWorld = buildPharosVilleWorld(input);
@@ -315,7 +302,7 @@ describe("buildPharosVilleWorld", () => {
       stress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     const counts = Object.fromEntries(
       world.areas
@@ -409,7 +396,7 @@ describe("buildPharosVilleWorld", () => {
       },
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     const usdc = world.ships.find((ship) => ship.id === "usdc-circle");
     const usdt = world.ships.find((ship) => ship.id === "usdt-tether");
@@ -477,7 +464,7 @@ describe("buildPharosVilleWorld", () => {
       },
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     const navShip = world.ships[0];
 
@@ -533,7 +520,7 @@ describe("buildPharosVilleWorld", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     const usdc = world.ships[0];
 
@@ -562,7 +549,7 @@ describe("buildPharosVilleWorld", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
 
     expect(world.ships.filter((ship) => ship.id === "usdc-circle")).toHaveLength(1);
@@ -577,7 +564,7 @@ describe("buildPharosVilleWorld", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: { stabilityStale: true },
+      freshness: makeSourceStatuses({ stability: { state: "stale" } }),
     });
 
     expect(world.lighthouse.unavailable).toBe(true);
@@ -620,7 +607,7 @@ describe("buildPharosVilleWorld", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     const usdc = world.ships[0];
 
@@ -666,7 +653,7 @@ describe("buildPharosVilleWorld", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     const usdc = world.ships[0];
 
@@ -709,7 +696,7 @@ describe("buildPharosVilleWorld", () => {
       stress: fixtureStress,
       safetyGrades: fixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     const usdc = world.ships[0];
 
@@ -734,7 +721,7 @@ describe("buildPharosVilleWorld", () => {
       stress: denseFixtureStress,
       safetyGrades: denseFixtureSafetyGrades,
       cemeteryEntries: [],
-      freshness: {},
+      freshness: makeSourceStatuses(),
     });
     const activeAssetIds = new Set(denseFixtureStablecoins.peggedAssets.map((asset) => asset.id));
 

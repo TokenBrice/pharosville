@@ -27,7 +27,7 @@ export interface PsiSkyClarity {
  */
 export function psiSkyClarity(seaState: PsiSkyInput, previous: PsiSkyClarity | null = null): PsiSkyClarity {
   const { lighthouse, timeSeconds } = seaState;
-  const stale = seaState.freshness?.stabilityStale === true;
+  const stale = seaState.freshness?.stability.state !== "current";
   if (stale && previous) {
     if (previous.stale && previous.pendingBand === null) return previous;
     return { ...previous, stale: true, pendingBand: null };

@@ -24,6 +24,31 @@ pins are not authority over the accepted picture.
 - Every analytical cue has detail-panel and accessibility-ledger parity, including
   source fields, freshness and caveats. Every tracked record remains reachable
   through keyboard order, search, selection, details and the ledger.
+- The endpoint registry owns all seven source labels, roles and iteration order.
+  World freshness is a required status per source: `loading`, `current`, `stale`
+  or `unavailable`, with independent complete/partial/unknown coverage.
+  A usable stale sample is displayed as **held (as of …)**; exhausted refresh
+  errors hold it immediately even with fresh-looking envelope metadata.
+  A missing sample is loading only while pending, otherwise unavailable.
+  Unknown age is held, never assumed current.
+- Source observations and publication/as-of times are separate epoch-millisecond
+  fields; unknown observation times remain unknown. Receipt and the scene
+  snapshot never renew observations. The existing 30-second visible query tick
+  and visibility resume reclassify age using the shared freshness ratios
+  (fresh through 8× the endpoint budget, degraded through 12×); no new timer.
+  Semantic status-map equality preserves the world on a no-op tick, and freshness
+  remains excluded from the render-content signature.
+- Publication holds the last renderable payloads, not an obsolete world/status
+  object: geometry identities and selected records survive incomplete refreshes
+  while live source state updates. The ledger exposes seven registry-ordered
+  source rows with times, coverage and reasons. Complete/current certification
+  requires all seven current with explicitly complete coverage; current endpoints
+  with partial or unknown coverage remain qualified. The lamp says unreachable
+  only when all seven report explicit fetch failures, never merely old samples;
+  its eased appearance is separate from immediate observed DOM status.
+  Coverage: `src/hooks/use-pharosville-world-data.test.tsx`,
+  `src/hooks/use-api-query.test.ts`, `src/systems/lamp-status.test.ts`,
+  `src/components/accessibility-ledger.test.tsx`.
 - Colour is never the only carrier of meaning. Keyboard traversal, pan/zoom,
   selection, Escape clear, controls, detail anchors and hit testing must remain
   useful without inspecting WebGL pixels. Focused controls remain available.
@@ -40,7 +65,7 @@ pins are not authority over the accepted picture.
   holds ≥ 4.5:1 on its own surface at the five beat anchors and through every
   crossfade. The chrome follows the wall clock only, never market data.
   Coverage: `src/systems/chrome-air.test.ts`.
-- A stale feed outranks every other now-line phrase: stale warning, then a
+- A non-current source outranks every other now-line phrase: evidence warning, then a
   first-visit or return-visit line, then the crossing, then a market transition,
   then the ambient phase. The status region speaks the phrase only, never the
   minute; decorative words (moon, cloud cover, kō) never reach it.
@@ -105,9 +130,9 @@ pins are not authority over the accepted picture.
 - PSI owns clarity aloft: cloud cover, horizon visibility and wind calm follow
   market stability with slow hysteresis. Cloud cover is a fixed ladder by band
   (`SKY_CLOUD_COVER`, `src/systems/psi-sky.ts`), named by the same cover word in
-  the now-line and the ledger. Stale sources own bounded low fog in
+  the now-line and the ledger. Non-current sources own bounded low fog in
   their own water; wall clock owns illumination; nothing else writes the sky.
-  Stale PSI freezes the last good sky, never clears it. Details and ledger expose
+  Non-current PSI freezes the last good sky, never clears it. Details and ledger expose
   exact PSI, band, as-of and unavailable state; copy says “market stability”,
   never a forecast or weather causation. The weekly supply tide is the one tide
   signal: it is drawn only as the tidal flat's bare area and its wrack line

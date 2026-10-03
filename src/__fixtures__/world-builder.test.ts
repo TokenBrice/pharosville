@@ -7,14 +7,6 @@ describe("WorldBuilder", () => {
     const inputs = new WorldBuilder().build();
     expect(inputs.stablecoins).not.toBeNull();
     expect(inputs.chains).not.toBeNull();
-    expect(inputs.freshness).toEqual({
-      stablecoinsStale: false,
-      chainsStale: false,
-      stabilityStale: false,
-      pegSummaryStale: false,
-      stressStale: false,
-      safetyGradesStale: false,
-    });
     const world = buildPharosVilleWorld(inputs);
     expect(world.routeMode).toBe("world");
     expect(world.ships).toEqual([]);
@@ -34,16 +26,6 @@ describe("WorldBuilder", () => {
     expect(() => buildPharosVilleWorld(inputs)).not.toThrow();
   });
 
-  it("markStale flips a single freshness flag without disturbing siblings", () => {
-    const inputs = new WorldBuilder()
-      .markStale("stablecoinsStale")
-      .markStale("chainsStale")
-      .build();
-    expect(inputs.freshness.stablecoinsStale).toBe(true);
-    expect(inputs.freshness.chainsStale).toBe(true);
-    expect(inputs.freshness.stabilityStale).toBe(false);
-    expect(inputs.freshness.pegSummaryStale).toBe(false);
-  });
 
   it("withRouteMode and withGeneratedAt round-trip into the inputs", () => {
     const inputs = new WorldBuilder()

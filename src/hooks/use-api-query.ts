@@ -137,6 +137,8 @@ export interface ApiQueryWithMetaResult<T> {
   isLoading: boolean;
   isError: boolean;
   isSuccess: boolean;
+  /** Existing coarse visible-page clock; advancing it never renews a sample. */
+  observedNowMs: number;
   refetch: () => Promise<unknown>;
 }
 
@@ -175,6 +177,7 @@ export function useApiQueryWithMeta<T>(
     isError,
     isLoading,
     isSuccess,
+    observedNowMs: now,
     refetch: () => refetch().then(() => {}),
     data: data?.data,
     // Coarse visible-page ticks also age retained live responses during outages.
