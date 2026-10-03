@@ -169,6 +169,27 @@ pins are not authority over the accepted picture.
   Coverage: `src/three/garden-ship-issuance.test.ts`,
   `src/three/garden-cargo-tide.test.ts`, `src/three/world-renderer.test.ts`,
   `src/systems/world-render-content-signature.test.ts`.
+- Issuance work uses an **explicitly uncalibrated prototype illustration policy**:
+  gross ≥ `$1,000,000` and either gross/own supply ≥ `0.01` or
+  gross/current full-window covered-fleet gross ≥ `0.001`, with current complete
+  issuance evidence required: `coverage.status === "full"` plus complete 24h
+  flags; producer `"unknown"` never certifies a complete window.
+  Missing, zero or non-finite denominators produce
+  unmeasured shares, never infinity; either independently measured share can
+  qualify. The denominator includes covered payload rows, not only displayed
+  hulls. Decisions are computed once per refresh.
+  Eligible coins are ordered by gross descending, ID ascending for ties; only
+  the first three have moving work at overview. Explore/analyze may work other
+  eligible cargo. Below-policy or unmeasured activity retains its categorical
+  static cargo and exact raw record; materiality never erases net direction or
+  changes route pace. Largest-event lift stays static. Record and ship ledger
+  disclose the policy, shares and overview slot. Keys include only eligibility
+  and overview membership, not raw shares, rank or sample time. The director
+  and urgent market lane are unchanged. Snapshot sensitivity and real-GPU
+  operator acceptance are required before these constants are called calibrated.
+  Coverage: `src/systems/ship-issuance.test.ts`,
+  `src/three/garden-ship-issuance.test.ts`,
+  `src/systems/world-render-content-signature.test.ts`.
 - Route pace accepts only current, complete-window `signed-v2` intensity.
   Supported zero remains 0.85; unsupported, held, partial, legacy or unknown
   readings use neutral 1.0 Unmeasured pace without discarding raw intensity.

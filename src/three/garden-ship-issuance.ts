@@ -23,6 +23,8 @@ export interface ShipIssuanceWorksetSpec {
   hasLargestEvent: boolean;
   hullRadius: number;
   shipId: string;
+  eligible: boolean;
+  overviewWork: boolean;
 }
 
 export function shipIssuanceWorksetSpecs(ships: readonly ShipVisual[]): ShipIssuanceWorksetSpec[] {
@@ -34,6 +36,8 @@ export function shipIssuanceWorksetSpecs(ships: readonly ShipVisual[]): ShipIssu
       hasLargestEvent: issuance.largestEvent24h !== null,
       hullRadius: visual.selectionRadius,
       shipId: visual.ship.id,
+      eligible: issuance.work.eligible,
+      overviewWork: issuance.work.overviewRank !== null,
     }];
   });
 }
@@ -43,7 +47,7 @@ export interface GardenShipIssuanceWorksets {
   readonly root: Group;
   dispose(): void;
   place(index: number, x: number, y: number, z: number, yaw: number): void;
-  flush(input: { detail: number; reducedMotion: boolean; timeSeconds: number }): void;
+  flush(input: { detail: number; overview: boolean; reducedMotion: boolean; timeSeconds: number }): void;
 }
 
 function paint(geometry: BufferGeometry, color: Color): BufferGeometry {
@@ -124,7 +128,7 @@ export function createGardenShipIssuanceWorksets(
     anchors[index * 4 + 3] = yaw;
   };
   let lastTimeSeconds: number | null = null;
-  const flush = ({ detail, reducedMotion, timeSeconds }: { detail: number; reducedMotion: boolean; timeSeconds: number }): void => {
+  const flush = ({ detail, overview, reducedMotion, timeSeconds }: { detail: number; overview: boolean; reducedMotion: boolean; timeSeconds: number }): void => {
     const deltaSeconds = lastTimeSeconds === null ? 0 : Math.max(0, Math.min(0.25, timeSeconds - lastTimeSeconds));
     lastTimeSeconds = timeSeconds;
     mix = reducedMotion ? 1 : mix + (1 - mix) * (1 - Math.exp(-deltaSeconds / 45));
@@ -150,7 +154,7 @@ export function createGardenShipIssuanceWorksets(
             + (aboard ? 0.16 : -0.04),
           anchors[specIndex * 4 + 2]! - localX * sin + localZ * cos,
         );
-        if (!reducedMotion) {
+        if (!reducedMotion && spec.eligible && (!overview || spec.overviewWork)) {
           const working = Math.sin(timeSeconds * 0.18 + specIndex * 0.7 + boat * Math.PI);
           dummy.position.y += working * 0.08 * (aboard ? 1 : -1);
         }
@@ -169,7 +173,7 @@ export function createGardenShipIssuanceWorksets(
     }
     mesh.instanceMatrix.needsUpdate = true;
   };
-  flush({ detail: 1, reducedMotion: false, timeSeconds: 0 });
+  flush({ detail: 1, overview: true, reducedMotion: false, timeSeconds: 0 });
   return {
     count,
     root,

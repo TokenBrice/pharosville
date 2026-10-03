@@ -712,6 +712,7 @@ export function updateGardenShipFrame(
   }
   content.issuanceWorksets.flush({
     detail: overviewDetail,
+    overview: detailPolicy.semanticView === "overview",
     reducedMotion: frame.reducedMotion,
     timeSeconds: frame.timeSeconds,
   });

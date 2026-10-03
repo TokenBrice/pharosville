@@ -30,7 +30,7 @@ import { seaBodyAnchors, seaBodyScatterRadius } from "../../sea-body-anchors";
 import type { SeaBodyName } from "../../sea-bodies";
 import { resolveShipVisual } from "../../ship-visuals";
 import { deriveShipAge, deriveShipWabiSurface } from "../../ship-age";
-import { buildShipIssuance } from "../../ship-issuance";
+import { assignShipIssuanceWork, buildShipIssuance } from "../../ship-issuance";
 import { stableHash, stableOffset, stableUnit } from "../../stable-random";
 import { tileKey } from "../../tile-key";
 import {
@@ -559,6 +559,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
       ...(stamped ? { squadId: stamped.squadId, squadRole: stamped.role } : {}),
     };
   });
+  assignShipIssuanceWork(ships, issuanceById);
   return spreadShipRiskAnchorsAcrossWater(ships);
 }
 

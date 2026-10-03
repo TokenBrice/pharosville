@@ -629,6 +629,13 @@ export interface ShipIssuance {
   coverage: MintBurnCoinCoverage | null;
   completeWindow: boolean;
   evidence: PharosVilleSourceStatus;
+  /** Uncalibrated illustration policy, not a financial or transaction reading. */
+  work: {
+    eligible: boolean;
+    supplyShare: number | null;
+    fleetGrossShare: number | null;
+    overviewRank: number | null;
+  };
   largestEvent24h: {
     amountUsd: number;
     direction: "mint" | "burn";
