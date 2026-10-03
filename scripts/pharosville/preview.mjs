@@ -87,6 +87,7 @@
  *   --clean                    the main shot is the canvas alone: HUD, world chrome and overlay hidden (hour stills)
  *   --clock <ISO>              flows Date for live data; under fixtures pins only d=YYYY-MM-DD
  *   --fixture-clock fixed|flowing   fixture Date observer (default fixed); --hash '#' leaves the hour free
+ *   --ship-limit N             localhost-only fixture capacity override, integer clamped to 1…320
  *   --ritual <kind> [--ritual-wait ms]  W5.1: __pharosVilleDebug.forceRitual(kind) just before the shot (and any burst);
  *                              kinds heron-arrives|heron-departs|kindling|moonrise|meteor|seasonal-visitor|crossing
  *   --burst N [--interval ms] [--clip x,y,w,h] [--burst-sheet]   ordered <out>-burst-NN.png (+ contact sheet)
@@ -226,6 +227,14 @@ const limits = {
   requiredTier: typeof args["require-tier"] === "string" ? args["require-tier"] : forcedTier ?? "full",
 };
 const url = args.url ?? "http://localhost:5173";
+const requestedShipLimit = args["ship-limit"] === undefined ? null : Number(args["ship-limit"]);
+if (requestedShipLimit !== null && (!fixture || typeof args["ship-limit"] !== "string" || !Number.isInteger(requestedShipLimit))) {
+  throw new Error("--ship-limit requires --fixture and an integer N");
+}
+const shipLimit = requestedShipLimit === null ? null : Math.max(1, Math.min(320, requestedShipLimit));
+if (shipLimit !== null && !["localhost", "127.0.0.1"].includes(new URL(url).hostname)) {
+  throw new Error("--ship-limit requires a localhost or 127.0.0.1 --url");
+}
 /**
  * Three arms, so the stages can be read off the DIFFERENCES rather than off a
  * CPU profile whose self time lands mostly in `(program)`:
@@ -364,6 +373,7 @@ try {
   }
 
   const fixtureIdentity = fixture ? await installPreviewFixture(page, fixture, { dateMode: fixtureDateMode }) : null;
+  if (shipLimit !== null) await page.addInitScript((limit) => { window.__pharosVilleTestShipLimit = limit; }, shipLimit);
   if (forcedTier) await page.addInitScript((tier) => { window.__pharosVilleTestSchedulerTier = tier; }, forcedTier);
   if (refreshMode) await installRefreshProbe(page);
   if (knockout) await page.addInitScript((passes) => { window.__pharosVilleKnockout = passes; }, knockout);
@@ -430,7 +440,15 @@ try {
   // tier and the GPU counters live.
   const separator = url.includes("?") ? "&" : "?";
   const target = `${url}${separator}debug=1${stillCamera ? "&still=1" : ""}${hash}`;
-  await page.goto(target, { waitUntil: "domcontentloaded" });
+  // Prove ordinary admission before selecting an outsider, which adds one hull.
+  const initialTarget = new URL(target);
+  if (shipLimit !== null) {
+    const params = new URLSearchParams(initialTarget.hash.slice(1));
+    params.delete("sel");
+    initialTarget.hash = params.toString();
+    initialTarget.searchParams.delete("sel");
+  }
+  await page.goto(initialTarget.href, { waitUntil: "domcontentloaded" });
 
   const canvas = page.getByTestId("pharosville-canvas");
   await canvas.waitFor({ state: "visible", timeout: 45_000 });
@@ -440,6 +458,34 @@ try {
     undefined,
     { timeout: 45_000 },
   );
+  let shipLimitVerification = null;
+  if (shipLimit !== null) {
+    await page.waitForFunction((limit) => {
+      const total = new Set(Array.from(document.querySelectorAll('[id^="ledger-ship-"]'), (row) => row.id)).size;
+      const admitted = window.__pharosVilleDebug?.admittedShipDetailIds?.();
+      return ["localhost", "127.0.0.1"].includes(window.location.hostname)
+        && total > 0 && admitted?.length === Math.min(limit, total);
+    }, shipLimit, { timeout: 45_000 }).catch(() => {
+      throw new Error("--ship-limit was not honored after navigation; refusing capacity evidence");
+    });
+    shipLimitVerification = await page.evaluate(() => ({
+      hostname: window.location.hostname,
+      ordinaryShipCount: window.__pharosVilleDebug.admittedShipDetailIds().length,
+      honored: true,
+    }));
+    // Selection URL state is consumed on mount; restore it by cold navigation
+    // rather than assuming a hash mutation selects an entity in the live app.
+    if (initialTarget.href !== new URL(target).href) {
+      await page.goto(target, { waitUntil: "domcontentloaded" });
+      await canvas.waitFor({ state: "visible", timeout: 45_000 });
+      await page.waitForFunction(
+        () => document.querySelector('[data-testid="pharosville-canvas"]')
+          ?.getAttribute("data-renderer-status") === "ready",
+        undefined, { timeout: 45_000 },
+      );
+    }
+    console.log(`capacity   ${shipLimitVerification.ordinaryShipCount} ordinary ships · limit ${shipLimit} honored`);
+  }
 
   // The frame-pacing window RESETS (on tier change and on snapshot rebuild), so a
   // single read at a fixed delay lands on an empty window about a third of the
@@ -672,10 +718,17 @@ try {
     metrics.lightCycle = [];
     for (const time of ["06:00", "12:00", "18:00", "22:00"]) {
       const errorsBeforePhase = shaderErrors.length;
-      const disclosure = page.locator(".pharosville-light-control");
-      if (!await disclosure.evaluate((element) => element.open)) await disclosure.locator("summary").click();
+      const controls = page.getByTestId("pharosville-world-controls");
+      if (await controls.getAttribute("data-expanded") !== "true") {
+        await page.getByRole("button", { name: "Explore harbor controls" }).click();
+      }
+      const disclosure = controls.locator(".pharosville-light-control");
+      const lightToggle = page.getByLabel(/Light and motion:/);
+      if (!await disclosure.evaluate((element) => element.open)) await lightToggle.click();
       await page.getByLabel("Time of day", { exact: true }).fill(time);
-      await disclosure.locator("summary").click();
+      await lightToggle.click();
+      await page.waitForFunction((hour) => Math.abs((window.__pharosVilleDebug?.wallClockHour ?? -1) - hour) < 0.01,
+        Number(time.slice(0, 2)), { timeout: 10_000 });
       let phaseMetrics;
       let settled = true;
       if (args.reduced) {
@@ -716,6 +769,7 @@ try {
         fixture: fixtureIdentity, outputs: { screenshot: outputPath, json: jsonPath },
       }),
       observer,
+      shipLimit: shipLimit === null ? null : { requested: requestedShipLimit, effective: shipLimit, ...shipLimitVerification },
       screenshotTiming: statsWatchSeconds > 0 ? "after stats watch" : "after settle and any tail sweep",
     };
     await writeFile(

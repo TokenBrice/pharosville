@@ -282,6 +282,127 @@ test(...visualLane("accessibility", "a shared ship link selects and frames that 
   await expect(page.getByTestId("pharosville-world")).toBeFocused();
 });
 
+test(...visualLane("interaction", "an over-capacity outsider uses one transient hull without rebuilding fleet resources"), async ({ page }) => {
+  test.setTimeout(90_000);
+  await mockDensePharosVilleData(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockScreenSize(page, 1920, 1080);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await installWallClockOverride(page, 12);
+  await page.addInitScript(() => {
+    (window as typeof window & { __pharosVilleTestShipLimit?: number }).__pharosVilleTestShipLimit = 131;
+  });
+  await page.goto("/?debug=1#t=12");
+  await expect(page.getByTestId("pharosville-canvas")).toHaveAttribute("data-renderer-status", /ready|failed/);
+  if (!await rendererReachedWorld(page)) {
+    test.info().annotations.push({ type: "unmeasured", description: "No WebGL renderer; over-capacity GPU/resource assertions did not run." });
+    return;
+  }
+  await waitForRuntimeDebug(page, true);
+  const resources = async () => page.evaluate(() => {
+    const debug = (window as typeof window & {
+      __pharosVilleDebug?: { renderMetrics?: {
+        visibleShipCount?: number;
+        contentReplacementCount?: number;
+        textureUploads?: { pending?: number; uploaded?: number };
+        logoAssetsLoaded?: number;
+        gpu?: { geometries?: number; textures?: number };
+      } };
+    }).__pharosVilleDebug?.renderMetrics;
+    return {
+      pending: debug?.textureUploads?.pending ?? -1,
+      uploaded: debug?.textureUploads?.uploaded ?? -1,
+      logos: debug?.logoAssetsLoaded ?? -1,
+      ships: debug?.visibleShipCount,
+      contentReplacements: debug?.contentReplacementCount,
+      geometries: debug?.gpu?.geometries,
+      textures: debug?.gpu?.textures,
+    };
+  });
+  await expect.poll(async () => (await resources()).ships).toBe(131);
+  await page.waitForLoadState("networkidle");
+  let lastResources = "";
+  let stableReads = 0;
+  await expect.poll(async () => {
+    const current = await resources();
+    const signature = JSON.stringify(current);
+    stableReads = current.pending === 0 && signature === lastResources ? stableReads + 1 : 0;
+    lastResources = signature;
+    return stableReads;
+  }, { intervals: [500], timeout: 30_000 }).toBeGreaterThanOrEqual(4);
+  const before = await resources();
+  const excludedId = await page.evaluate(() => {
+    const admitted = new Set((window as typeof window & {
+      __pharosVilleDebug?: { admittedShipDetailIds?: () => string[] };
+    }).__pharosVilleDebug?.admittedShipDetailIds?.() ?? []);
+    const rows = Array.from(document.querySelectorAll('[id^="ledger-ship-"]'));
+    const excluded = rows.map((row) => row.id.slice("ledger-ship-".length))
+      .filter((id) => !admitted.has(`ship.${id}`));
+    if (excluded.length !== 1) throw new Error(`Expected one dense-fixture outsider, found ${excluded.length}.`);
+    return excluded[0]!;
+  });
+  const outsider = denseFixtureStablecoins.peggedAssets.find((asset) => asset.id === excludedId);
+  if (!outsider) throw new Error("Ledger outsider must belong to the dense fixture.");
+  const outsiderDetailId = `ship.${outsider.id}`;
+  console.log(`H1 excluded detail id: ${outsiderDetailId}`);
+  expect(before.contentReplacements).toBeDefined();
+  expect(before.geometries).toBeGreaterThan(0);
+  expect(before.textures).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Explore harbor controls" }).click();
+  const ledger = page.getByRole("dialog", { name: "Harbor ledger", exact: true });
+  let warmedBaseline = before;
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    await page.getByRole("button", { name: "Harbor ledger", exact: true }).click();
+    await ledger.getByLabel("Jump to ship").selectOption(outsider.id);
+    await ledger.locator(`[id="ledger-ship-${outsider.id}"]`).getByRole("button", { name: "Select in harbor" }).click();
+    await expect(page.getByTestId("pharosville-detail-panel")).toContainText(outsider.name);
+    await expect(page.locator("#ledger-ships")).toHaveCount(1);
+    await expect(page.locator(`[id="ledger-ship-${outsider.id}"]`)).toContainText(outsider.name);
+    await expect.poll(resources).toEqual(expect.objectContaining({
+      ships: 132,
+      contentReplacements: before.contentReplacements,
+      textures: before.textures,
+      geometries: expect.any(Number),
+    }));
+    const selected = await resources();
+    if (cycle > 0) expect(selected.geometries).toBeLessThanOrEqual(warmedBaseline.geometries! + 1);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("pharosville-detail-panel")).toHaveCount(0);
+    await expect.poll(async () => (await resources()).ships).toBe(131);
+    // Warm camera/LOD-dependent resources once. Subsequent identical cycles
+    // must not grow the settled GPU resource counts.
+    lastResources = "";
+    stableReads = 0;
+    await expect.poll(async () => {
+      const current = await resources();
+      const signature = JSON.stringify(current);
+      stableReads = current.pending === 0 && signature === lastResources ? stableReads + 1 : 0;
+      lastResources = signature;
+      return stableReads;
+    }, { intervals: [500], timeout: 30_000 }).toBeGreaterThanOrEqual(4);
+    const cleared = await resources();
+    console.log(`H1 cycle ${cycle + 1}: selected geometries=${selected.geometries}, Escape geometries=${cleared.geometries}, textures=${cleared.textures}, ships=${cleared.ships}`);
+    if (cycle === 0) {
+      warmedBaseline = cleared;
+    } else {
+      if (cleared.geometries !== warmedBaseline.geometries || cleared.textures !== warmedBaseline.textures) {
+        console.log("H1 resource growth census", await page.evaluate(() => {
+          const metrics = (window as typeof window & {
+            __pharosVilleDebug?: { renderMetrics?: { drawOwnerCensus?: unknown; textureOwnerCensus?: unknown } };
+          }).__pharosVilleDebug?.renderMetrics;
+          return { draws: metrics?.drawOwnerCensus, textures: metrics?.textureOwnerCensus };
+        }));
+      }
+      expect(cleared).toEqual(expect.objectContaining({
+        ships: 131,
+        contentReplacements: before.contentReplacements,
+        geometries: warmedBaseline.geometries,
+        textures: warmedBaseline.textures,
+      }));
+    }
+  }
+});
+
 test(...visualLane("interaction", "deep links reach an off-screen ship and preserve complete dock geography"), async ({ page }) => {
   // Three complete renderer navigations exercise landing, ship deep-link, and
   // dock deep-link state. Cold shader compilation can legitimately exceed the
@@ -297,18 +418,8 @@ test(...visualLane("interaction", "deep links reach an off-screen ship and prese
 
   const closeDetails = page.getByRole("button", { name: "Close details" });
   if (await closeDetails.isVisible()) await closeDetails.click();
-  // This test used to reach for a TRANSIENT ship — one past the render cap,
-  // drawn only because it was selected. That scenario no longer exists: the
-  // Grand Scale Revamp raised the cap to 320, and neither the dense fixture
-  // (~132 ships) nor the live fleet (187) comes near it, so
-  // `selectGardenTransientShip` never fires. Recorded in TESTING.md.
-  //
-  // What a deep link still has to do is reach a ship the default framing does
-  // not show, and the enlarged map gives us plenty: hit targets are
-  // VIEWPORT-CULLED, so a rendered ship in a far corner has no target until the
-  // camera goes there. That is the case worth covering, and it is what the old
-  // selection actually found — which is why the "rendered in addition to the
-  // representative set" counts it asserted could never hold.
+  // This case owns viewport-culling and framing, independently of the
+  // localhost-only over-capacity admission case above.
   let previousShipCount = -1;
   await expect.poll(async () => {
     const count = (await shipTargetIds(page)).length;

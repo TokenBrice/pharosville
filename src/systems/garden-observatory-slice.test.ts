@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
@@ -35,6 +35,43 @@ import { TILE_SCALE, worldToScreen } from "./projection";
 import { landWorldTile, zoneWorldTile } from "./map-scale";
 
 describe("Garden Observatory slice", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each(["localhost", "127.0.0.1"])("admits three ordinary ships and a transient outsider on %s", (hostname) => {
+    vi.stubGlobal("window", { location: { hostname }, __pharosVilleTestShipLimit: 3 });
+    const world = denseWorld();
+    const ordinary = selectGardenObservatorySlice(world, null);
+    expect(ordinary.ships).toHaveLength(3);
+    const outsider = world.ships.find((ship) => !ordinary.representativeDetailIds.has(ship.detailId))!;
+    expect(selectGardenTransientShip(world, outsider.detailId)).toBe(outsider);
+    const selected = selectGardenObservatorySlice(world, outsider.detailId);
+    expect(selected.ships).toHaveLength(4);
+    expect(selected.ships.at(-1)).toMatchObject({ representative: false, ship: outsider });
+    expect(selectGardenObservatorySlice(world, null).ships).toHaveLength(3);
+
+    // A changed seam cannot recompose an already-built world.
+    vi.stubGlobal("window", { location: { hostname } });
+    expect(selectGardenObservatorySlice(world, null).ships).toHaveLength(3);
+    const uncappedWorld = overCapacityWorldFixture();
+    const uncapped = selectGardenObservatorySlice(uncappedWorld, null);
+    const uncappedOutsider = uncappedWorld.ships.find((ship) => !uncapped.representativeDetailIds.has(ship.detailId))!;
+    expect(uncapped.ships).toHaveLength(320);
+    expect(selectGardenObservatorySlice(uncappedWorld, uncappedOutsider.detailId).ships).toHaveLength(321);
+  });
+
+  it.each(["pharosville.test", "localhost.example", "[::1]"])("ignores an injected limit on %s", (hostname) => {
+    vi.stubGlobal("window", { location: { hostname }, __pharosVilleTestShipLimit: 3 });
+    const world = denseWorld();
+    expect(selectGardenObservatorySlice(world, null).ships).toHaveLength(world.ships.length);
+  });
+
+  it.each([[0, 1], [-5, 1], [321, 320], [3.5, 320], ["3", 320], [NaN, 320]])(
+    "bounds the capacity override %s to %s", (limit, expected) => {
+      vi.stubGlobal("window", { location: { hostname: "localhost" }, __pharosVilleTestShipLimit: limit });
+      expect(selectGardenObservatorySlice(overCapacityWorldFixture(), null).ships).toHaveLength(expected as number);
+    },
+  );
+
   // Route construction is setup, shared by the full-fleet continuity check.
   const voyageWorld = denseWorld();
   const voyagePlan = buildBaseMotionPlan(voyageWorld);
