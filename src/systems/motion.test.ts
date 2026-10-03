@@ -25,6 +25,8 @@ import {
 import { defaultCamera } from "./camera";
 import { TILE_SCALE, worldToScreen } from "./projection";
 import type { PharosVilleMap, PharosVilleWorld, ShipWaterZone } from "./world-types";
+import { SCENARIOS } from "../__fixtures__/data-contract-scenarios";
+import { buildShipIssuance } from "./ship-issuance";
 
 // The dense-fixture tests below each sample a full motion cycle over ~130
 // ships; the first to touch a map also pays the one-time water-path warm-up.
@@ -2596,11 +2598,13 @@ describe("motion", () => {
   });
 
   describe("T3.2 data-driven speed scalar (24h flow intensity)", () => {
+    const input = structuredClone(SCENARIOS.largeMint);
+    const supportedIssuance = buildShipIssuance(input.mintBurn!.coins[0], input.mintBurn!, input.freshness.mintBurn)!;
     it("maps active mint/redeem flow to a modest faster cycle without using market cap", () => {
       const mkShip = (id: string, flowIntensity: number) => worldForShip({
         chainCirculating: chainCirculating(["Ethereum"]),
         chains: ["ethereum"],
-      }).ships.map((s) => ({ ...s, id, flowIntensity, detailId: `ship.${id}` }))[0]!;
+      }).ships.map((s) => ({ ...s, id, flowIntensity, issuance: supportedIssuance, detailId: `ship.${id}` }))[0]!;
 
       const smallShip = mkShip("ship-languid", 0);
       const bigShip = mkShip("ship-active", -100);
@@ -2637,15 +2641,15 @@ describe("motion", () => {
 
     it("uses flow magnitude rather than flow direction", () => {
       const base = worldForShip({ chainCirculating: chainCirculating(["Ethereum"]), chains: ["ethereum"] });
-      const minting = { ...base.ships[0]!, id: "minting", flowIntensity: 60 };
-      const redeeming = { ...base.ships[0]!, id: "redeeming", flowIntensity: -60 };
+      const minting = { ...base.ships[0]!, id: "minting", flowIntensity: 60, issuance: supportedIssuance };
+      const redeeming = { ...base.ships[0]!, id: "redeeming", flowIntensity: -60, issuance: supportedIssuance };
       expect(shipCycleTempo(minting, [minting, redeeming])).toMatchObject({ label: "Brisk", scalar: 1.03 });
       expect(shipCycleTempo(redeeming, [minting, redeeming])).toMatchObject({ label: "Brisk", scalar: 1.03 });
     });
 
     it("four flow bands produce all four labels", () => {
       const base = worldForShip({ chainCirculating: chainCirculating(["Ethereum"]), chains: ["ethereum"] });
-      const makeShip = (id: string, flowIntensity: number) => ({ ...base.ships[0]!, id, flowIntensity });
+      const makeShip = (id: string, flowIntensity: number) => ({ ...base.ships[0]!, id, flowIntensity, issuance: supportedIssuance });
       const ships = [
         makeShip("a", 0),
         makeShip("b", 25),
@@ -2692,7 +2696,7 @@ describe("motion", () => {
         chainCirculating: chainCirculating(["Ethereum"]),
         chains: ["ethereum"],
       });
-      const baseShip = baseWorld.ships[0]!;
+      const baseShip = { ...baseWorld.ships[0]!, issuance: supportedIssuance };
       const ships = [
         { ...baseShip, id: "cycle-q0", detailId: "ship.cycle-q0", flowIntensity: 0 },
         { ...baseShip, id: "cycle-q1", detailId: "ship.cycle-q1", flowIntensity: 25 },
@@ -2718,7 +2722,7 @@ describe("motion", () => {
         chains: ["ethereum"],
       });
       const baseShip = baseWorld.ships[0]!;
-      const pacedShip = { ...baseShip, id: "flow-pace-28", detailId: "ship.flow-pace-28" };
+      const pacedShip = { ...baseShip, issuance: supportedIssuance, id: "flow-pace-28", detailId: "ship.flow-pace-28" };
       const worldAtFlow = (flowIntensity: number) => ({
         ...baseWorld,
         ships: [{ ...pacedShip, flowIntensity }],

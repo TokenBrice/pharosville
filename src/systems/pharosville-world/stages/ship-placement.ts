@@ -401,7 +401,7 @@ function buildShips(inputs: PharosVilleInputs, docks: readonly DockNode[]): Ship
   );
   const issuanceById = new Map(
     (inputs.mintBurn?.coins ?? []).flatMap((coin) => {
-      const issuance = buildShipIssuance(coin);
+      const issuance = buildShipIssuance(coin, inputs.mintBurn!, inputs.freshness.mintBurn);
       return issuance ? [[coin.stablecoinId, issuance] as const] : [];
     }),
   );

@@ -38,6 +38,7 @@ import {
   makePharosVilleWorldInput,
 } from "../__fixtures__/pharosville-world";
 import { overCapacityWorldFixture } from "../__fixtures__/over-capacity-world";
+import { SCENARIOS } from "../__fixtures__/data-contract-scenarios";
 import { AccessibilityLedger } from "../components/accessibility-ledger";
 import type {
   ThreeLogoAssets,
@@ -574,6 +575,30 @@ describe("disposeThreeObjectTree", () => {
 });
 
 describe("Three world renderer lifecycle", () => {
+  it("same visible issuance state does not replay on new sample", () => {
+    const input = structuredClone(SCENARIOS.largeBalancedGross);
+    const world = buildPharosVilleWorld(input);
+    const renderer = createThreeWorldRenderer({ canvas: document.createElement("canvas"), onContextFailure: vi.fn() });
+    renderer.render(rendererFrame(world, "full", { reducedMotion: true, timeSeconds: 1 }));
+    const scene = rendererHarness.instances.at(-1)!.lastScene!;
+    const working = scene.getObjectByName("fleet-ship-issuance-worksets")!.children[0] as InstancedMesh;
+    const quay = scene.getObjectByName("dock-cargo-tide")!.children[0] as InstancedMesh;
+    const workingDispose = vi.spyOn(working.geometry, "dispose");
+    const quayDispose = vi.spyOn(quay.geometry, "dispose");
+    const pose = new Matrix4();
+    working.getMatrixAt(0, pose);
+    input.mintBurn!.updatedAt += 60;
+    const resampled = buildPharosVilleWorld(input);
+    renderer.render(rendererFrame(resampled, "full", { reducedMotion: true, timeSeconds: 2 }));
+    expect(scene.getObjectByName("fleet-ship-issuance-worksets")!.children[0]).toBe(working);
+    expect(scene.getObjectByName("dock-cargo-tide")!.children[0]).toBe(quay);
+    const nextPose = new Matrix4();
+    working.getMatrixAt(0, nextPose);
+    expect(nextPose).toEqual(pose);
+    expect(workingDispose).not.toHaveBeenCalled();
+    expect(quayDispose).not.toHaveBeenCalled();
+    renderer.dispose();
+  });
   it("builds the docks part and station-root lanes from a station-less fallback dock", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const { station: _station, ...withoutStation } = world.docks[0]!;

@@ -165,14 +165,6 @@ describe("buildVisualCueRegistry", () => {
     expect(cue?.domEquivalent).toContain("accessibility-ledger");
   });
 
-  it("registers the per-ship issuance workset with complete parity", () => {
-    expect(buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.issuance-work")).toMatchObject({
-      target: { kind: "ship" },
-      primaryChannels: ["position", "shape", "motion"],
-      sourceField: expect.stringContaining("largestEvent24h"),
-      reducedMotionEquivalent: expect.stringContaining("static representative composition"),
-    });
-  });
 
   it("keeps age patina separate from risk-water streaking and honest when unavailable", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.ship.age-patina");

@@ -10,17 +10,12 @@ import {
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { HARBOR_PALETTE } from "../systems/palette";
-import type { DockCargoTide } from "../systems/world-types";
-import { CARGO_TIDE_SLOTS, type CargoTideSlot, type DockVisual } from "./garden-docks";
+import { cargoTideCrateCount } from "../systems/pharosville-world/stages/cargo-tide";
+import type { DockVisual } from "./garden-docks";
 import { stableUnit } from "./garden-util";
 
 /**
  * The mint/burn cargo tide, at the quays.
- *
- * PharosVille shows stocks everywhere and flow nowhere: how much supply exists,
- * which chain holds it, how far off par it trades. Whether that supply is being
- * CREATED or DESTROYED — the dynamic the whole asset class turns on — had no
- * expression in the world at all. This is it: cargo working through the harbour.
  *
  * ## Reading it
  *
@@ -32,13 +27,13 @@ import { stableUnit } from "./garden-util";
  * - Net BURNING puts cargo back along the QUAY EDGE, landed and standing on the
  *   stone. Supply has come ashore and is not going out again.
  *
- * The two runs point in opposite directions along opposite surfaces, so a
- * minting harbour and a burning one cannot be mistaken for each other even at a
- * glance, and neither can be mistaken for the third state — an empty harbour,
- * which means either nothing moved or nothing was measured.
+ * Balanced gross activity has one aboard and one ashore crate. An empty
+ * harbour means inactive or incomplete, held or unavailable evidence; the
+ * record distinguishes those states and retains the quantities.
  *
- * Run LENGTH carries magnitude: how lopsided the harbour's gross flow was, up to
- * `CARGO_TIDE_SLOTS` crates.
+ * Run length carries current complete-window one-sidedness, capped at
+ * `CARGO_TIDE_SLOTS`; all quantities are estimated allocations, not measured
+ * chain issuance or transactions.
  *
  * ## Not the other crates
  *
@@ -94,21 +89,6 @@ export interface GardenCargoTide {
   dispose(): void;
 }
 
-/**
- * How many crates a harbour's tide stands.
- *
- * Scaled on the SIGNED pressure score — the share of the harbour's gross 24h
- * flow that ended up as net issuance — rather than on the dollar figure, so a
- * small chain whose issuance ran one way all day reads as strongly as a large
- * one, which is the thing worth seeing. A tracked harbour that genuinely moved
- * supply always stands at least one crate, so "small" and "none" stay apart.
- */
-export function cargoTideCrateCount(tide: DockCargoTide | undefined): number {
-  if (!tide?.tracked) return 0;
-  if (tide.direction !== "minting" && tide.direction !== "burning") return 0;
-  const pressure = Math.abs(tide.pressureScore ?? 0) / 100;
-  return Math.max(1, Math.min(CARGO_TIDE_SLOTS, Math.round(pressure * CARGO_TIDE_SLOTS)));
-}
 
 /**
  * Turns composed harbours into the world-space runs their tides occupy.
@@ -123,15 +103,15 @@ export function cargoTideSpecs(docks: readonly DockVisual[]): CargoTideSpec[] {
     const tide = visual.recipe.dock.cargoTide;
     const count = cargoTideCrateCount(tide);
     if (count === 0) continue;
-    const lane: CargoTideSlot[] = tide?.direction === "minting"
-      ? visual.recipe.cargoTideLanes.aboard
-      : visual.recipe.cargoTideLanes.ashore;
+    const lanes = visual.recipe.cargoTideLanes;
+    const occupied = tide?.direction === "flat" ? [lanes.aboard[0]!, lanes.ashore[0]!]
+      : (tide?.direction === "minting" ? lanes.aboard : lanes.ashore).slice(0, count);
     const yaw = visual.root.rotation.y;
     const cos = Math.cos(yaw);
     const sin = Math.sin(yaw);
     specs.push({
       detailId: visual.recipe.dock.detailId,
-      slots: lane.slice(0, count).map((slot) => ({
+      slots: occupied.map((slot) => ({
         x: visual.root.position.x + slot.x * cos + slot.z * sin,
         y: visual.root.position.y + slot.y,
         z: visual.root.position.z - slot.x * sin + slot.z * cos,

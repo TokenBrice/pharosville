@@ -20,7 +20,7 @@ import { DetailPanel } from "./detail-panel";
 import { AccessibilityLedger } from "./accessibility-ledger";
 import { resetHeldShipPlacements } from "../systems/pharosville-world/stages/ship-placement";
 import { withRiskTransitionFact } from "../systems/detail-model";
-import { quietNormalInput, T } from "../__fixtures__/data-contract-scenarios";
+import { SCENARIOS, quietNormalInput, T } from "../__fixtures__/data-contract-scenarios";
 
 afterEach(() => {
   for (const details of document.querySelectorAll<HTMLDetailsElement>('[data-testid="pharosville-detail-record"]')) {
@@ -59,6 +59,38 @@ function recordRow(record: HTMLDetailsElement, label: string): HTMLElement {
 }
 
 describe("DetailPanel rendered analytical record", () => {
+  it.each([
+    ["largeBalancedGross", ["Balanced active", "mint $100.0M", "burn $100.0M", "gross $200.0M", "net $0"]],
+    ["oneDollarNet", ["Minting", "mint $1", "burn $0", "gross $1", "net +$1"]],
+    ["quietNormal", ["Inactive", "mint $0", "burn $0", "gross $0", "net $0"]],
+  ] as const)("opening record exposes coin gross/net and coverage: %s", async (name, quantities) => {
+    const world = buildPharosVilleWorld(structuredClone(SCENARIOS[name]));
+    const record = await openRecord(world.detailIndex["ship.usdc-circle"]!);
+    const reading = recordRow(record, "Issuance work, 24h").textContent!;
+    const ledger = render(<AccessibilityLedger world={world} />).container.querySelector("#ledger-ship-usdc-circle")!.textContent!;
+    for (const quantity of quantities) {
+      expect(reading).toContain(quantity);
+      expect(ledger).toContain(quantity);
+    }
+    expect(reading).toContain(new Date(T * 1_000).toISOString());
+    expect(reading).toContain("signed-v2");
+  });
+
+  it("qualifies partial issuance instead of presenting a complete reporting window", async () => {
+    const input = structuredClone(SCENARIOS.partialFlow);
+    input.mintBurn!.coins[0]!.largestEvent24h = { amountUsd: 1_234_567.89, direction: "mint", timestamp: T - 1_000, txHash: "0xfixture" };
+    const world = buildPharosVilleWorld(input);
+    const record = await openRecord(world.detailIndex["ship.usdc-circle"]!);
+    const reading = recordRow(record, "Issuance work, 24h").textContent!;
+    const ledger = render(<AccessibilityLedger world={world} />).container.querySelector("#ledger-ship-usdc-circle")!.textContent!;
+    for (const value of ["mint $100.0M", "partial", new Date((T - 6 * 3_600) * 1_000).toISOString(), "$1,234,567.89", new Date((T - 1_000) * 1_000).toISOString()]) {
+      expect(reading).toContain(value);
+      expect(ledger).toContain(value);
+    }
+    expect(recordRow(record, "Route cadence").textContent).toContain("Unmeasured");
+    expect(ledger).toContain("cycle tempo Unmeasured");
+  });
+
   it.each(["old", "unknown", "missing", "retained failure"] as const)("selected evidence survives opening Read the record (%s)", async (mode) => {
     const input = quietNormalInput();
     const row = input.stress!.signals["usdc-circle"]!;
@@ -283,7 +315,6 @@ describe("DetailPanel rendered analytical record", () => {
     expect(recordRow(record, "Currently").textContent).toContain("Evidence/source:");
     expect(recordRow(record, "Currently").textContent).toContain("Caveat:");
     expect(recordRow(record, "Currently").textContent).toContain("Tracking new risk band: from Watch Breakwater to Calm Anchorage");
-    expect(recordRow(record, "Issuance work, 24h").textContent).toContain("+$8.0M net minted");
   });
 });
 

@@ -148,6 +148,33 @@ pins are not authority over the accepted picture.
   cargo work, never hull height; hero roots retain their nonfinancial pose.
   Coverage: `src/three/world-renderer.test.ts`, `src/three/garden-ships.test.ts`,
   `src/three/garden-fleet-batch.test.ts`.
+- Issuance records retain raw mint and burn volumes/counts, gross (mint + burn),
+  exact signed net, intensity and its semantics, reporting window, per-coin
+  history coverage and source publication/as-of. Zero gross/net is inactive
+  only with complete trailing-24h coverage; positive gross with zero net is
+  balanced activity. Missing quantities stay unavailable, never measured zero.
+  Partial history is neither extrapolated nor certified as complete inactivity;
+  held samples retain quantities with the source qualification.
+  Ship readings are per-coin measurements; quay totals remain estimated
+  allocations by held supply, not measured chain issuance.
+  Coverage: `src/systems/ship-issuance.test.ts`,
+  `src/components/detail-panel.test.tsx`.
+- Current full-window active issuance has categorical cargo: mint aboard,
+  redeem ashore, balanced one aboard and one ashore. Inactive, incomplete,
+  held or unavailable evidence suppresses worksets/quay crates, not records.
+  Largest-event lift is static, never a transaction replay; its exact amount
+  and own event timestamp remain in record and ledger. Cargo pose never scales
+  with intensity. Visible-state keys omit publication times/provenance, so a
+  same-value new sample cannot replay work or reset the motion epoch.
+  Coverage: `src/three/garden-ship-issuance.test.ts`,
+  `src/three/garden-cargo-tide.test.ts`, `src/three/world-renderer.test.ts`,
+  `src/systems/world-render-content-signature.test.ts`.
+- Route pace accepts only current, complete-window `signed-v2` intensity.
+  Supported zero remains 0.85; unsupported, held, partial, legacy or unknown
+  readings use neutral 1.0 Unmeasured pace without discarding raw intensity.
+  Motion plans key the effective scalar, not the raw number or sample time.
+  Coverage: `src/systems/ship-cycle-tempo.test.ts`,
+  `src/systems/motion-planning.test.ts`.
 - Routes and docking cadence show rendered-chain/risk presence, never transfers,
   bridge volume, transactions or issuer operations. Missing or stale peg evidence
   is a caveat, not confirmed stress. Decorative quay lights, windows, basin tide

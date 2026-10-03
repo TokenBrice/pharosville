@@ -1,4 +1,5 @@
 import type { ShipNode } from "./world-types";
+import { issuanceHasCurrentWindow } from "./ship-issuance";
 
 /**
  * Four human-readable tempo labels corresponding to 24h mint/redeem activity.
@@ -18,7 +19,7 @@ export type CycleTempoDisplayLabel = CycleTempoLabel | typeof CYCLE_TEMPO_UNAVAI
  * in the adjacent 24h supply-change fact.
  */
 export function cycleTempoReadingClause(): string {
-  return "underway leg pace tracks 24h mint/redeem flow intensity by magnitude, not market-cap tier; unavailable flow uses neutral pace and is explicitly disclaimed";
+  return "underway leg pace tracks supported current, full-window signed-v2 intensity by magnitude, not market-cap tier; unsupported readings use neutral Unmeasured pace";
 }
 
 /**
@@ -30,10 +31,9 @@ export const SPEED_QUARTILE_SCALARS = [0.85, 0.95, 1.05, 1.15] as const;
 
 const FLOW_INTENSITY_MAX = 100;
 
-type ShipWithFlowIntensity = ShipNode & { flowIntensity?: number | null };
-
 function normalizedFlowIntensity(ship: ShipNode): number | null {
-  const value = (ship as ShipWithFlowIntensity).flowIntensity;
+  if (!issuanceHasCurrentWindow(ship.issuance) || ship.issuance.intensitySemantics !== "signed-v2") return null;
+  const value = ship.flowIntensity;
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return Math.max(-FLOW_INTENSITY_MAX, Math.min(FLOW_INTENSITY_MAX, value));
 }
@@ -69,7 +69,7 @@ export interface ShipCycleTempoResult {
  */
 export function cycleTempoDetailLabel(tempo: ShipCycleTempoResult): string {
   if (tempo.flowIntensity === null) {
-    return `${CYCLE_TEMPO_UNAVAILABLE_LABEL} — neutral pace (24h mint/redeem flow intensity unavailable)`;
+    return `${CYCLE_TEMPO_UNAVAILABLE_LABEL} — neutral pace (requires current, full-window signed-v2 intensity)`;
   }
   return `${tempo.label} — ${Math.round(Math.abs(tempo.flowIntensity))}/100 24h mint/redeem flow intensity`;
 }

@@ -46,6 +46,28 @@ import { MOTION_UNDERWAY_MAX_TILES_PER_SECOND, MOTION_UNDERWAY_MIN_TILES_PER_SEC
 import { resolveShipMotionSample } from "./motion-sampling";
 import { stableUnit } from "./stable-random";
 import type { PharosVilleWorld } from "./world-types";
+import { SCENARIOS } from "../__fixtures__/data-contract-scenarios";
+
+it("qualifier-only changes replace unsupported route pace without replaying same-value samples", () => {
+  const world = buildPharosVilleWorld(structuredClone(SCENARIOS.largeMint));
+  const subject = world.ships.find((ship) => ship.id === "usdc-circle")!;
+  const current = buildBaseMotionPlan(world).shipRoutes.get(subject.id)!;
+  for (const issuance of [
+    { ...subject.issuance!, evidence: { ...subject.issuance!.evidence, state: "stale" as const } },
+    { ...subject.issuance!, completeWindow: false },
+    { ...subject.issuance!, intensitySemantics: "midpoint-v1" as const },
+    { ...subject.issuance!, intensitySemantics: null },
+  ]) {
+    const changed = { ...world, ships: world.ships.map((ship) => ship.id === subject.id ? { ...ship, issuance } : ship) };
+    expect(motionPlanSignature(changed)).not.toBe(motionPlanSignature(world));
+    const route = buildBaseMotionPlan(changed).shipRoutes.get(subject.id)!;
+    expect(route.underwaySpeedTilesPerSecond).toBeGreaterThan(current.underwaySpeedTilesPerSecond);
+  }
+  const resampled = { ...world, ships: world.ships.map((ship) => ship.id === subject.id ? {
+    ...ship, issuance: { ...ship.issuance!, evidence: { ...ship.issuance!.evidence, publishedAt: 1_700_000_060_000 } },
+  } : ship) };
+  expect(motionPlanSignature(resampled)).toBe(motionPlanSignature(world));
+});
 
 describe("W4.23 calm patrol itineraries", () => {
   function worldForDocklessShip(): PharosVilleWorld {

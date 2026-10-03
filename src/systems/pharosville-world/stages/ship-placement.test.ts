@@ -1,6 +1,6 @@
 import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { beforeEach, describe, expect, it } from "vitest";
-import { quietNormalInput, T } from "../../../__fixtures__/data-contract-scenarios";
+import { SCENARIOS, quietNormalInput, T } from "../../../__fixtures__/data-contract-scenarios";
 import {
   denseFixtureChains,
   denseFixturePegSummary,
@@ -25,6 +25,23 @@ import {
 } from "./ship-placement";
 import type { PharosVilleInputs } from "../pipeline-types";
 import type { ShipNode } from "../../world-types";
+
+it("propagates per-coin flow provenance without altering peg trim", () => {
+  const input = structuredClone(SCENARIOS.largeMint);
+  input.pegSummary!.coins.find((coin) => coin.id === "usdc-circle")!.currentDeviationBps = 200;
+  const baseline = buildPharosVilleWorld(input).ships.find((ship) => ship.id === "usdc-circle")!;
+  const partial = structuredClone(SCENARIOS.partialFlow);
+  partial.pegSummary = input.pegSummary;
+  partial.mintBurn!.updatedAt += 60;
+  const ship = buildPharosVilleWorld(partial).ships.find((entry) => entry.id === baseline.id)!;
+  expect(ship.issuance).toMatchObject({
+    activity: "minting", grossVolumeUsd: 100_000_000, netFlow24hUsd: 100_000_000,
+    completeWindow: false, intensitySemantics: "signed-v2",
+    evidence: { observedAt: null, publishedAt: (T + 60) * 1_000, coverage: { state: "partial" } },
+  });
+  expect(shipWaterlineTrim(ship.pegDeviationBps, ship.evidence.pegSummary?.state !== "current")).toBe(shipWaterlineTrim(baseline.pegDeviationBps, baseline.evidence.pegSummary?.state !== "current"));
+  expect(shipWaterlineTrim(ship.pegDeviationBps, ship.evidence.pegSummary?.state !== "current")).toBe(SHIP_TRIM_STEP * 2);
+});
 
 
 it("fresh stress envelope cannot renew old computedAt", () => {
@@ -380,33 +397,5 @@ describe("shipWaterlineTrim", () => {
     expect(stale.ships.every((ship) => ship.visual.hullForm.waterline === 0)).toBe(true);
   });
 
-  it("carries matching mintBurn flow intensity onto each ship and leaves missing data null", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
-    const flowOf = (id: string): number | null | undefined => (
-      world.ships.find((ship) => ship.id === id)
-    )?.flowIntensity;
 
-    expect(flowOf("usdc-circle")).toBe(60);
-    expect(flowOf("usdt-tether")).toBe(-50);
-
-    const unavailable = buildPharosVilleWorld(makePharosVilleWorldInput({ mintBurn: null }));
-    expect(unavailable.ships.find((ship) => ship.id === "usdc-circle")?.flowIntensity).toBeNull();
-  });
-
-  it("carries each coin's issuance work onto its own ship", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
-
-    expect(world.ships.find((ship) => ship.id === "usdc-circle")?.issuance).toMatchObject({
-      direction: "minting",
-      flowIntensity: 60,
-      netFlow24hUsd: 8_000_000,
-    });
-    expect(world.ships.find((ship) => ship.id === "usdt-tether")?.issuance).toMatchObject({
-      direction: "redeeming",
-      flowIntensity: -50,
-      netFlow24hUsd: -3_000_000,
-    });
-    const unavailable = buildPharosVilleWorld(makePharosVilleWorldInput({ mintBurn: null }));
-    expect(unavailable.ships.every((ship) => ship.issuance === undefined)).toBe(true);
-  });
 });

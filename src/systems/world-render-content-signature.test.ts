@@ -3,6 +3,7 @@ import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import type { PharosVilleWorld } from "./world-types";
 import { worldRenderContentSignature } from "./world-render-content-signature";
+import { SCENARIOS } from "../__fixtures__/data-contract-scenarios";
 
 describe("worldRenderContentSignature", () => {
   it("ignores refresh metadata and detail-only records", () => {
@@ -93,22 +94,37 @@ describe("worldRenderContentSignature", () => {
   });
 
   it("changes when a ship's baked issuance work changes", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
-    const subject = world.ships[0]!;
+    const world = buildPharosVilleWorld(structuredClone(SCENARIOS.largeMint));
+    const subject = world.ships.find((ship) => ship.id === "usdc-circle")!;
     const changed: PharosVilleWorld = {
       ...world,
       ships: world.ships.map((ship) => ship.id === subject.id
         ? {
             ...ship,
-            issuance: {
-              direction: "redeeming",
-              flowIntensity: -80,
-              netFlow24hUsd: -9_000_000,
-              largestEvent24h: null,
-            },
+            issuance: { ...ship.issuance!, activity: "redeeming", direction: "redeeming", netFlow24hUsd: -9_000_000 },
           }
         : ship),
     };
     expect(worldRenderContentSignature(changed)).not.toBe(worldRenderContentSignature(world));
+  });
+
+  it("provenance-only change keeps the signature", () => {
+    const world = buildPharosVilleWorld(structuredClone(SCENARIOS.largeBalancedGross));
+    const refreshed: PharosVilleWorld = {
+      ...world,
+      ships: world.ships.map((ship) => ship.issuance ? { ...ship, issuance: {
+        ...ship.issuance, evidence: { ...ship.issuance.evidence, publishedAt: 1_700_000_060_000 },
+      } } : ship),
+      docks: world.docks.map((dock) => ({ ...dock, cargoTide: {
+        ...dock.cargoTide!, evidence: { ...dock.cargoTide!.evidence, publishedAt: 1_700_000_060_000 },
+      } })),
+    };
+    expect(worldRenderContentSignature(refreshed)).toBe(worldRenderContentSignature(world));
+    const held = {
+      ...refreshed, ships: refreshed.ships.map((ship) => ship.issuance ? { ...ship, issuance: {
+        ...ship.issuance, evidence: { ...ship.issuance.evidence, state: "stale" as const },
+      } } : ship),
+    };
+    expect(worldRenderContentSignature(held)).not.toBe(worldRenderContentSignature(world));
   });
 });

@@ -1,72 +1,33 @@
 import { describe, expect, it } from "vitest";
-import {
-  cycleTempoDetailLabel,
-  cycleTempoReadingClause,
-  cycleTempoSpeedScalar,
-  precomputeShipTempos,
-  shipCycleTempo,
-} from "./ship-cycle-tempo";
-import type { ShipNode } from "./world-types";
+import { SCENARIOS } from "../__fixtures__/data-contract-scenarios";
+import { buildPharosVilleWorld } from "./pharosville-world";
+import { cycleTempoSpeedScalar, shipCycleTempo } from "./ship-cycle-tempo";
 
-type TestShip = ShipNode & { flowIntensity?: number | null };
-
-function ship(id: string, flowIntensity?: number | null): TestShip {
-  return {
-    id,
-    flowIntensity,
-  } as TestShip;
-}
-
-describe("ship cycle tempo flow intensity", () => {
-  it("maps absolute per-coin flow intensity across the existing modest speed band", () => {
-    const ships = [
-      ship("quiet", 0),
-      ship("steady", -25),
-      ship("brisk", 50),
-      ship("active", 100),
-    ];
-
-    expect(ships.map((entry) => shipCycleTempo(entry, ships).label)).toEqual([
-      "Languid",
-      "Steady",
-      "Brisk",
-      "Active",
-    ]);
-    expect(ships.map((entry) => shipCycleTempo(entry, ships).scalar)).toEqual([
-      0.85,
-      expect.closeTo(0.925, 10),
-      1,
-      1.15,
-    ]);
-    expect(shipCycleTempo(ships[1]!, ships).flowIntensity).toBe(-25);
+describe("supported per-coin route intensity", () => {
+  it("separates supported zero intensity from unsupported readings", () => {
+    const current = buildPharosVilleWorld(structuredClone(SCENARIOS.largeMint)).ships.find((ship) => ship.id === "usdc-circle")!;
+    expect(shipCycleTempo(current)).toMatchObject({ scalar: 0.85, label: "Languid", flowIntensity: 0 });
+    for (const scenario of [SCENARIOS.partialFlow, SCENARIOS.legacyFlowSemantics]) {
+      const ship = buildPharosVilleWorld(structuredClone(scenario)).ships.find((ship) => ship.id === "usdc-circle")!;
+      expect(shipCycleTempo(ship)).toMatchObject({ scalar: 1, label: "Unmeasured", flowIntensity: null });
+    }
+    for (const mutation of [
+      { ...current.issuance!, evidence: { ...current.issuance!.evidence, state: "stale" as const } },
+      { ...current.issuance!, intensitySemantics: null },
+      { ...current.issuance!, completeWindow: false },
+    ]) expect(shipCycleTempo({ ...current, issuance: mutation })).toMatchObject({ scalar: 1, label: "Unmeasured" });
+    const { issuance: _issuance, ...missing } = current;
+    expect(shipCycleTempo(missing)).toMatchObject({ scalar: 1, label: "Unmeasured" });
   });
 
-  it("uses a neutral scalar and an explicit disclaimer when flow intensity is unavailable", () => {
-    const tempo = shipCycleTempo(ship("missing"), [ship("missing")]);
-
-    expect(tempo).toEqual({
-      flowIntensity: null,
-      label: "Unmeasured",
-      scalar: 1,
-    });
-    expect(cycleTempoDetailLabel(tempo)).toBe(
-      "Unmeasured — neutral pace (24h mint/redeem flow intensity unavailable)",
-    );
-    expect(cycleTempoReadingClause()).toContain("unavailable flow uses neutral pace");
-  });
-
-  it("clamps malformed out-of-range values without widening the motion band", () => {
-    expect(cycleTempoSpeedScalar(-200)).toBe(1.15);
+  it("preserves the sign while deriving equal pace from equal supported magnitude", () => {
+    const ship = buildPharosVilleWorld(structuredClone(SCENARIOS.largeMint)).ships.find((ship) => ship.id === "usdc-circle")!;
+    const positive = shipCycleTempo({ ...ship, flowIntensity: 60 });
+    const negative = shipCycleTempo({ ...ship, flowIntensity: -60 });
+    expect(positive.scalar).toBeCloseTo(1.03);
+    expect(negative.scalar).toBe(positive.scalar);
+    expect(negative.flowIntensity).toBe(-60);
     expect(cycleTempoSpeedScalar(200)).toBe(1.15);
     expect(cycleTempoSpeedScalar(Number.NaN)).toBe(1);
-  });
-
-  it("precomputes independent coin readings without market-cap sorting", () => {
-    const ships = [ship("a", 100), ship("b", null), ship("c", -80)];
-    const precomputed = precomputeShipTempos(ships);
-
-    expect(precomputed.get("a")?.scalar).toBe(1.15);
-    expect(precomputed.get("b")).toMatchObject({ label: "Unmeasured", scalar: 1 });
-    expect(precomputed.get("c")?.label).toBe("Active");
   });
 });

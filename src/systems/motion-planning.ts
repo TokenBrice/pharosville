@@ -19,7 +19,7 @@ import { nearestRiskPlacementWaterTile } from "./risk-water-placement";
 import { SEAWALL_BARRIER_TILES } from "./seawall";
 import type { PharosVilleBaseMotionPlan, PharosVilleMotionPlan, ShipDockMotionStop, ShipInletCrossing, ShipMarketTransition, ShipMotionRoute, ShipMotionRouteStop, ShipWaterPath, ShipWaterRouteCache } from "./motion-types";
 import type { DockNode, PharosVilleMap, PharosVilleWorld, ShipDockVisit, ShipNode, ShipRiskPlacement } from "./world-types";
-import { precomputeShipTempos } from "./ship-cycle-tempo";
+import { precomputeShipTempos, shipCycleTempo } from "./ship-cycle-tempo";
 import { seaBodyAtTile } from "./sea-bodies";
 import { riskWaterAreaForPlacement } from "./risk-water-areas";
 import {
@@ -273,9 +273,8 @@ export function motionPlanSignature(world: PharosVilleWorld): string {
       ship.marketCapUsd,
       ship.change24hUsd ?? "",
       ship.change24hPct ?? "",
-      // W7.7: flow-only refreshes must invalidate the plan whose cycle scalar
-      // is derived from this field.
-      (ship as ShipNode & { flowIntensity?: number | null }).flowIntensity ?? "",
+      // Only effective pace belongs here: provenance alone cannot replay a voyage.
+      shipCycleTempo(ship).scalar,
       `${ship.riskTile.x},${ship.riskTile.y}`,
       berth ? `${Math.round(berth.x)},${Math.round(berth.y)}` : "",
       ship.riskPlacement,
