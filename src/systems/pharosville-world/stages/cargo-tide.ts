@@ -209,7 +209,7 @@ export function buildCargoTideStage(
   status: PharosVilleSourceStatus,
 ): CargoTideStage {
   const completeWindow = mintBurn?.windowHours === 24 && mintBurn.coins.length > 0
-    && mintBurn.coins.every((coin) => coin.coverage?.has24hWindow === true && !coin.coverage.isPartial);
+    && mintBurn.coins.every((coin) => coin.coverage?.status === "full" && coin.coverage.has24hWindow && !coin.coverage.isPartial);
   const evidence = rowSourceEvidence("mintBurn", {
     ...status, publishedAt: observationEpochMs(mintBurn?.updatedAt) ?? status.publishedAt,
   }, {

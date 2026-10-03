@@ -45,7 +45,7 @@ export const LEGEND_MARK_ROWS = [
   {
     cueId: "cue.ship.issuance-work",
     label: "Cargo working each ship",
-    text: "Lighters illustrate current, complete trailing-window issuance, not transactions: minting biases cargo aboard, redemption ashore, and balanced gross activity has one of each. A static raised lift marks the largest reported event. Empty water may mean inactivity or incomplete, held or unavailable evidence; exact mint, burn, net, coverage and event time remain in Issuance work, 24h. Hull height shows peg trim only.",
+    text: "Lighters illustrate current complete-window issuance, not transactions: mint aboard, redeem ashore, balanced one of each; a static lift marks the largest event. Moving work uses an explicitly uncalibrated gross/share policy, with only the top three eligible coins working at overview. Smaller activity keeps its static pose and exact record; unknown denominators never count as infinite shares. Issuance work, 24h gives amounts, coverage, as-of and policy qualification. Hull height remains peg-only.",
   },
   {
     cueId: "cue.dock.congestion",
@@ -309,11 +309,11 @@ export function buildVisualCueRegistry(): VisualCue[] {
       id: "cue.ship.issuance-work",
       target: { kind: "ship" },
       primaryChannels: ["position", "shape", "motion"],
-      visual: "current full-window issuance has two categorical lighters: aboard for net minting, ashore for net redemption, one aboard and one ashore for balanced gross activity. A largest-event lift is static, not a replay; hull height remains peg-only",
-      sourceField: "mintBurn.coins[].mintVolume24hUsd, mintBurn.coins[].burnVolume24hUsd, mintBurn.coins[].netFlow24hUsd, mintBurn.coins[].coverage, mintBurn.coins[].largestEvent24h, mintBurn.windowHours, source evidence",
+      visual: "current full-window issuance has categorical aboard, ashore or balanced opposing lighters. Only materiality-eligible coins get moving work, capped at the stable top three by gross at overview; other activity stays static. The prototype policy is explicitly uncalibrated. Largest-event lift is static, not a replay; hull height remains peg-only",
+      sourceField: "mintBurn.coins[].mintVolume24hUsd, mintBurn.coins[].burnVolume24hUsd, mintBurn.coins[].netFlow24hUsd, mintBurn.coins[].coverage, mintBurn.coins[].largestEvent24h, mintBurn.windowHours, source evidence; own circulating supply and covered fleet gross for uncalibrated materiality",
       questionAnswered: "What activity, gross and net quantities were reported over the named trailing window, and is the reading current and complete?",
       failureState: "no workset on inactive, incomplete, held or unavailable readings; retained quantities and caveats remain in Issuance work, 24h",
-      domEquivalent: "ship detail Issuance work, 24h row and matching ship-ledger clause name categorical state, mint/burn/gross/net, counts, window/coverage, source as-of, raw intensity semantics, exact largest-event amount/time and illustrative-not-transaction meaning",
+      domEquivalent: "ship detail Issuance work, 24h row and matching ship-ledger clause name state, mint/burn/gross/net, counts, window/coverage, source as-of, intensity semantics, exact largest-event amount/time, illustrative-not-transaction meaning and uncalibrated policy eligibility, measured shares and overview slot",
       reducedMotionEquivalent: "static representative composition with categorical opposing cargo and the largest-event crane lift held raised",
     },
     {

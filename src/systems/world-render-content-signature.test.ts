@@ -127,4 +127,19 @@ describe("worldRenderContentSignature", () => {
     };
     expect(worldRenderContentSignature(held)).not.toBe(worldRenderContentSignature(world));
   });
+
+  it("updates moving-work eligibility without replaying within-policy amount changes", () => {
+    const world = buildPharosVilleWorld(structuredClone(SCENARIOS.largeMint));
+    const input = structuredClone(SCENARIOS.largeMint);
+    Object.assign(input.mintBurn!.coins[0]!, { mintVolume24hUsd: 110_000_000, netFlow24hUsd: 110_000_000 });
+    const refreshed = buildPharosVilleWorld(input);
+    expect(worldRenderContentSignature(refreshed)).toBe(worldRenderContentSignature(world));
+    const small = buildPharosVilleWorld(structuredClone(SCENARIOS.oneDollarNet));
+    const active = world.ships.find((ship) => ship.id === "usdc-circle")!;
+    const reduced = {
+      ...world, ships: world.ships.map((ship) => ship.id === active.id
+        ? { ...ship, issuance: small.ships.find((entry) => entry.id === active.id)!.issuance! } : ship),
+    };
+    expect(worldRenderContentSignature(reduced)).not.toBe(worldRenderContentSignature(world));
+  });
 });
