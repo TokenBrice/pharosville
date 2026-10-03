@@ -48,9 +48,35 @@ were all made by the orchestrator, using real-GPU captures.
   - Own distress survives the squad disclosure in both record and ledger.
   - Mint, redemption, balanced and $1 activity are distinguished exactly in the
     record, including policy eligibility.
-  - No channel contradicted another.
-- §7.3 30-minute live watch: see `outputs/vu/i0/live-watch.json` and the 1 fps
-  screen recordings (local only).
+  - No DOM channel contradicted another. A review afterwards found that the
+    WebGL lamp could stay steady while the DOM said held. Fixed in v0.20.1;
+    see below.
+- §7.3 30-minute live watch, two runs. This is stats-only evidence: both
+  screen recorders failed to write a file, so no video exists.
+  - Run 1 (integration `950e885`, 08:48–09:18Z): PASS, tier full. p90
+    17.8 ms, p95 18.6 ms (worst of 2208 windows), worst frame 28.6 ms.
+  - Run 2 (release tree, 10:36–11:06Z): PASS, tier full. p90 17.8 ms,
+    p95 18.6 ms (worst of 2210 windows), worst frame 29.2 ms.
+  - Both runs: 0 ordinary and 0 urgent admissions, 0 % occupancy, longest
+    quiet 1800 s, 17.1 % of visible hulls under way.
+  - Today's score had no ritual window in either interval, only conditional
+    crossings (at 11:06 local in run 1). Neither crossing qualified, so zero
+    admissions is consistent with the declared policy. It does not exercise the
+    rituals themselves.
+
+## v0.20.1 follow-up
+
+- Harbour-light hysteresis moved from the renderer to the ingestion hook.
+- The renderer advanced the two-observation state machine only when the world
+  object changed. Ingestion reuses the same world for an identical held
+  failure, so a pending lamp transition could stay pending forever. Examples
+  are an isolated stale source, or all seven sources unreachable while the
+  feeds keep returning the same data.
+- The hook now advances on every poll result or observer tick and publishes
+  the result as `world.lampStatus`.
+- A regression test covers two identical failed polls: they settle the lamp
+  with the same payloads, the same freshness object and the same
+  render-content signature.
 
 ## Residual risks
 
