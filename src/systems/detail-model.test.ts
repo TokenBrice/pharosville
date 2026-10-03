@@ -6,7 +6,6 @@ import {
   backingDiversitySeverity,
   beamDwellLabel,
   depegHistoryLabel,
-  dewsScoreLabel,
   dexCrossCheckLabel,
   highWaterMarkLabel,
   detailForArea,
@@ -54,23 +53,16 @@ import {
   makePegCoin,
   makerSquadFixtureInputs,
 } from "../__fixtures__/pharosville-world";
+import { quietNormalInput } from "../__fixtures__/data-contract-scenarios";
 
-describe("dewsScoreLabel", () => {
-  it.each<[number | null | undefined, string | null]>([
-    [0, "DEWS 0/100"],
-    [5, "DEWS 5/100"],
-    [37.4, "DEWS 37/100"],
-    [37.5, "DEWS 38/100"],
-    [95, "DEWS 95/100"],
-    [100, "DEWS 100/100"],
-    [140, "DEWS 100/100"],
-    [-4, "DEWS 0/100"],
-    [null, null],
-    [undefined, null],
-    [Number.NaN, null],
-    [Number.POSITIVE_INFINITY, null],
-  ])("formats own score %s as %s", (dewsScore, expected) => {
-    expect(dewsScoreLabel(dewsScore === undefined ? {} : { dewsScore })).toBe(expected);
+describe("selected own DEWS values", () => {
+  it.each([[0, 0], [37.4, 37], [37.5, 38], [140, 100], [-4, 0]])("keeps bounded inspectable score %s in the selected record", (score, expected) => {
+    const input = quietNormalInput();
+    input.stress!.signals["usdc-circle"]!.score = score;
+    const world = buildPharosVilleWorld(input);
+    const detail = world.detailIndex["ship.usdc-circle"]!;
+    const reading = detail.facts.find((fact) => fact.label === "DEWS score")!.value;
+    expect(Number(reading.match(/DEWS (\d+)\/100/)![1])).toBe(expected);
   });
 });
 
@@ -80,6 +72,7 @@ describe("detail-model analytical links", () => {
     const lighthouseDetail = detailForLighthouse({
       id: "lighthouse",
       kind: "lighthouse",
+      evidence: {},
       label: "Pharos lighthouse",
       tile: { x: 1, y: 1 },
       psiBand: "NORMAL",
@@ -116,6 +109,7 @@ describe("detail-model analytical links", () => {
     const base = {
       id: "lighthouse",
       kind: "lighthouse",
+      evidence: {},
       label: "Pharos lighthouse",
       tile: { x: 1, y: 1 },
       psiBand: "NORMAL",
@@ -470,6 +464,7 @@ describe("detail-model analytical links", () => {
     const detail = detailForShip({
       id: "usdt-tether",
       kind: "ship",
+      evidence: {},
       label: "Tether",
       symbol: "USDT",
       asset: {} as ShipNode["asset"],
@@ -524,6 +519,7 @@ describe("detail-model analytical links", () => {
     const ship: import("./world-types").ShipNode & { flowIntensity: number } = {
       id: "usdt-tether",
       kind: "ship",
+      evidence: {},
       label: "Tether",
       symbol: "USDT",
       asset: {} as import("./world-types").ShipNode["asset"],
@@ -582,6 +578,7 @@ describe("detail-model analytical links", () => {
     const baseShip: import("./world-types").ShipNode & { flowIntensity: number } = {
       id: "base",
       kind: "ship",
+      evidence: {},
       label: "Base",
       symbol: "BASE",
       asset: {} as import("./world-types").ShipNode["asset"],
@@ -653,6 +650,7 @@ describe("detail-model analytical links", () => {
     const detail = detailForShip({
       id: "susde-ethena",
       kind: "ship",
+      evidence: {},
       label: "Staked USDe",
       symbol: "sUSDe",
       asset: {} as ShipNode["asset"],
@@ -730,6 +728,7 @@ describe("detail-model unique tier surfacing", () => {
     return {
       id: "crvusd-curve",
       kind: "ship",
+      evidence: {},
       label: "Curve",
       symbol: "crvUSD",
       asset: {} as ShipNode["asset"],
@@ -890,6 +889,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
     return {
       id: "usdc-circle",
       kind: "ship",
+      evidence: {},
       label: "USD Coin",
       symbol: "USDC",
       asset: {} as ShipNode["asset"],
@@ -1074,6 +1074,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       const lighthouse = {
         id: "lighthouse",
         kind: "lighthouse",
+        evidence: {},
         label: "Pharos lighthouse",
         tile: { x: 1, y: 1 },
         psiBand: "TREMOR",
@@ -1106,6 +1107,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       const detail = detailForLighthouse({
         id: "lighthouse",
         kind: "lighthouse",
+        evidence: {},
         label: "Pharos lighthouse",
         tile: { x: 1, y: 1 },
         psiBand: "WARNING",
@@ -1122,6 +1124,7 @@ describe("detail-model E2/E3 behavioral richness facts", () => {
       const lighthouse = {
         id: "lighthouse",
         kind: "lighthouse",
+        evidence: {},
         label: "Pharos lighthouse",
         tile: { x: 1, y: 1 },
         psiBand: "CALM",
@@ -1269,6 +1272,7 @@ describe("detail-model depeg history and supply momentum", () => {
     const base: LighthouseNode = {
       id: "lighthouse",
       kind: "lighthouse",
+      evidence: {},
       label: "Pharos lighthouse",
       tile: { x: 18, y: 28 },
       psiBand: "BEDROCK",
@@ -1292,6 +1296,7 @@ describe("detail-model P3 metaphor quick-win signals", () => {
     return {
       id: "usdt-tether",
       kind: "ship",
+      evidence: {},
       label: "Tether",
       symbol: "USDT",
       asset: {} as ShipNode["asset"],
@@ -1703,6 +1708,7 @@ describe("detail-model round-two metaphor signals", () => {
   const lighthouse = (overrides: Partial<LighthouseNode> = {}): LighthouseNode => ({
     id: "lighthouse",
     kind: "lighthouse",
+    evidence: {},
     label: "Pharos lighthouse",
     tile: { x: 1, y: 1 },
     psiBand: "STEADY",
@@ -1832,6 +1838,7 @@ describe("detail-model round-two metaphor signals", () => {
       const detail = detailForLighthouse({
         id: "lighthouse",
         kind: "lighthouse",
+        evidence: {},
         label: "Pharos lighthouse",
         tile: { x: 1, y: 1 },
         psiBand: "STEADY",
@@ -1885,6 +1892,7 @@ function crossBearingShip(): ShipNode {
   return {
     id: "usdx",
     kind: "ship",
+    evidence: {},
     label: "USDX",
     symbol: "USDX",
     asset: {} as ShipNode["asset"],

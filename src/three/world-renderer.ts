@@ -359,15 +359,15 @@ const scratchFogSources: [EpistemicFogSource, EpistemicFogSource] = [
   { id: "peg-summary", feed: "Peg summary", stale: false, centre: { x: 0, z: 0 }, radius: 24, lastGood: null },
   { id: "chains", feed: "Chains", stale: false, centre: { x: 0, z: 0 }, radius: 24, lastGood: null },
 ];
-let asOfCacheKey: number | null | undefined;
-let asOfIso: string | null = null;
+let psiAsOfCacheKey: number | null | undefined;
+let psiAsOfIso: string | null = null;
 let pegFogAsOfKey: number | null | undefined;
 let chainsFogAsOfKey: number | null | undefined;
-/** ISO for the scene snapshot, formatted once per snapshot. */
-function syncWorldAsOf(generatedAt: number | null): void {
-  if (generatedAt === asOfCacheKey) return;
-  asOfCacheKey = generatedAt;
-  asOfIso = generatedAt === null ? null : new Date(generatedAt).toISOString();
+/** Genuine PSI observation, formatted only when its sample changes. */
+function syncPsiAsOf(observedAt: number | null): void {
+  if (observedAt === psiAsOfCacheKey) return;
+  psiAsOfCacheKey = observedAt;
+  psiAsOfIso = observedAt === null ? null : new Date(observedAt).toISOString();
 }
 function epistemicFogSources(
   world: PharosVilleWorld,
@@ -974,12 +974,11 @@ export function createThreeWorldRenderer(
       // illumination. Both readings remember their previous value, so they
       // live on the scene. Clarity lands before the phase grade so the probe
       // bakes the sky the frame will actually show.
-      syncWorldAsOf(frame.world.generatedAt);
+      syncPsiAsOf(frame.world.lighthouse.evidence.stability?.observedAt ?? null);
       scene.psiSky = psiSkyClarity({
         lighthouse: frame.world.lighthouse,
-        freshness: frame.world.freshness,
         timeSeconds: frame.timeSeconds,
-        asOf: asOfIso,
+        asOf: psiAsOfIso,
       }, scene.psiSky);
       scene.sky.setClarity(scene.psiSky.clarity, scene.psiSky.band !== "UNAVAILABLE");
       scene.epistemicBanks = advanceEpistemicHaze(

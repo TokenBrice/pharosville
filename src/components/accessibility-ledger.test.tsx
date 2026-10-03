@@ -1008,6 +1008,7 @@ function sampleWorld(): PharosVilleWorld {
     lighthouse: {
       id: "lighthouse",
       kind: "lighthouse",
+      evidence: {},
       label: "Pharos lighthouse",
       tile: { x: 0, y: 0 },
       psiBand: "STEADY",
@@ -1041,6 +1042,7 @@ function sampleWorldWithUniqueShip(): PharosVilleWorld {
       {
         id: "crvusd-curve",
         kind: "ship",
+        evidence: {},
         label: "Curve",
         symbol: "crvUSD",
         asset: {} as PharosVilleWorld["ships"][number]["asset"],
@@ -1098,6 +1100,7 @@ function sampleWorldWithLedgerShip(): PharosVilleWorld {
       {
         id: "susde-ethena",
         kind: "ship",
+        evidence: {},
         label: "Staked USDe",
         symbol: "sUSDe",
         asset: {} as PharosVilleWorld["ships"][number]["asset"],

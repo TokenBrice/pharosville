@@ -1,5 +1,7 @@
 import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { describe, expect, it } from "vitest";
+import { quietNormalInput, T } from "../__fixtures__/data-contract-scenarios";
+import { createSourceStatuses } from "./world-types";
 import { CEMETERY_ENTRIES } from "@shared/lib/cemetery-merged";
 import { ACTIVE_IDS } from "@shared/lib/stablecoins";
 import {
@@ -45,6 +47,33 @@ import {
 /** `terrainKindAt` for a design-space ZONE coordinate. */
 
 describe("buildPharosVilleWorld", () => {
+  it("preserves independent source times and degradation", () => {
+    const input = quietNormalInput();
+    delete input.generatedAt;
+    input.chains = { ...input.chains!, updatedAt: T + 1_800 };
+    input.safetyGrades = { ...input.safetyGrades!, asOfSec: T - 200, updatedAt: T + 2_000 };
+    input.mintBurn = { ...input.mintBurn!, updatedAt: T + 3_600 };
+    input.stress!.signals["usdc-circle"]!.computedAt = T - 100;
+    input.pegSummary!.coins[0] = { ...input.pegSummary!.coins[0]!, priceObservedAtMode: "local_fetch", priceObservedAt: T + 3_599, priceSyncedAt: T + 3_600, lastEventAt: T + 3_600 };
+    input.stability = { ...input.stability!, current: { ...input.stability!.current!,
+      computedAt: T - 300, methodologyVersion: "official-psi", inputDegradation: {
+        dewsUnavailable: true, dewsFailureReason: "offline", depegEventsUnavailable: false, depegEventsFailureReason: null,
+      },
+    } };
+    const world = buildPharosVilleWorld(input);
+    const ship = world.ships.find((ship) => ship.id === input.pegSummary!.coins[0]!.id)!;
+    expect(world.generatedAt).toBe((T + 3_600) * 1_000);
+    expect(ship.evidence.pegSummary?.observedAt).toBeNull();
+    expect(ship.evidence.pegSummary?.publishedAt).toBe(T * 1_000);
+    expect(ship.evidence.pegSummary?.reason).toContain("local_fetch");
+    expect(world.ships.find((ship) => ship.id === "usdc-circle")!.evidence.stress?.observedAt).toBe((T - 100) * 1_000);
+    expect(ship.evidence.safetyGrades?.observedAt).toBe((T - 200) * 1_000);
+    expect(world.lighthouse.evidence.stability).toMatchObject({ state: "stale", observedAt: (T - 300) * 1_000, methodologyVersion: "official-psi" });
+    expect(world.lighthouse.inputDegradation?.dewsUnavailable).toBe(true);
+    expect(world.lighthouse.score).toBe(98);
+    expect(world.lighthouse.psiBand).toBe("BEDROCK");
+  });
+
   it("returns identical worlds for identical inputs with a supplied generatedAt", () => {
     const input = makePharosVilleWorldInput({
       generatedAt: 1_700_123_456_789,
@@ -72,7 +101,7 @@ describe("buildPharosVilleWorld", () => {
       stress: null,
       safetyGrades: null,
       cemeteryEntries: [],
-      freshness: makeSourceStatuses(),
+      freshness: createSourceStatuses(),
     });
 
     expect(world.generatedAt).toBeNull();
@@ -472,7 +501,6 @@ describe("buildPharosVilleWorld", () => {
     expect(navShip?.riskZone).toBe("watch");
     expect(navShip?.riskWaterLabel).toBe("Watch Breakwater");
     expect(navShip?.riskTile ? terrainKindAt(navShip.riskTile.x, navShip.riskTile.y) : null).toBe("watch-water");
-    expect(navShip?.placementEvidence.reason).toBe("DEWS stress escalation");
   });
 
   it("canonicalizes positive chain presence and normalizes shares", () => {

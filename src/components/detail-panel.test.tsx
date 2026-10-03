@@ -20,6 +20,7 @@ import { DetailPanel } from "./detail-panel";
 import { AccessibilityLedger } from "./accessibility-ledger";
 import { resetHeldShipPlacements } from "../systems/pharosville-world/stages/ship-placement";
 import { withRiskTransitionFact } from "../systems/detail-model";
+import { quietNormalInput, T } from "../__fixtures__/data-contract-scenarios";
 
 afterEach(() => {
   for (const details of document.querySelectorAll<HTMLDetailsElement>('[data-testid="pharosville-detail-record"]')) {
@@ -58,6 +59,66 @@ function recordRow(record: HTMLDetailsElement, label: string): HTMLElement {
 }
 
 describe("DetailPanel rendered analytical record", () => {
+  it.each(["old", "unknown", "missing", "retained failure"] as const)("selected evidence survives opening Read the record (%s)", async (mode) => {
+    const input = quietNormalInput();
+    const row = input.stress!.signals["usdc-circle"]!;
+    if (mode === "unknown") row.band = "UNRECOGNIZED";
+    else if (mode === "missing") delete input.stress!.signals["usdc-circle"];
+    else Object.assign(row, { score: 95, band: "DANGER", computedAt: T - 86_400, methodologyVersion: "own-old-stress" });
+    if (mode === "retained failure") input.freshness = makeSourceStatuses({
+      stress: { state: "stale", reason: "Refresh failed: offline", publishedAt: T * 1_000 },
+    });
+    const world = buildPharosVilleWorld(input);
+    const record = await openRecord(world.detailIndex["ship.usdc-circle"]!);
+    const currently = recordRow(record, "Currently").textContent!;
+    const held = mode === "old" || mode === "retained failure";
+    const observed = new Date((held ? T - 86_400 : T) * 1_000).toISOString();
+    expect(currently).toContain(held ? "Stress signals: held" : "Stress signals: unavailable");
+    if (mode === "missing") expect(currently).toMatch(/Stress signals: unavailable; observed unknown/);
+    else expect(currently).toContain(`observed ${observed}`);
+    expect(currently).toContain(`published/as of ${new Date(T * 1_000).toISOString()}`);
+    expect(currently).toContain("Peg summary: current");
+    expect(currently).toContain("Safety grades: current");
+    expect(currently).toContain("Caveat:");
+    if (held) expect(currently).toMatch(/DEWS 95\/100[^;]*held/);
+    if (mode === "unknown") expect(currently).toMatch(/DEWS 8\/100[^;]*unavailable/);
+    if (mode === "retained failure") expect(currently).toContain("offline");
+    const ledger = render(<AccessibilityLedger world={world} />);
+    const shipLine = ledger.container.querySelector("#ledger-ship-usdc-circle")!.textContent!;
+    expect(shipLine).toContain(held ? "Stress signals: held" : "Stress signals: unavailable");
+    expect(shipLine).toContain("evidence status Caveat:");
+    if (mode !== "missing") expect(shipLine).toContain(`observed ${observed}`);
+    else expect(shipLine).toMatch(/Stress signals: unavailable; observed unknown/);
+  });
+
+  it("stale PSI keeps the accepted historical reading and discloses observed versus eased appearance", async () => {
+    const input = quietNormalInput();
+    delete input.generatedAt;
+    input.chains = { ...input.chains!, updatedAt: T + 3_600 };
+    input.freshness = makeSourceStatuses({ stability: {
+      state: "stale", observedAt: null, publishedAt: (T + 7_200) * 1_000, reason: "Refresh failed: offline",
+    } });
+    const world = buildPharosVilleWorld(input);
+    const record = await openRecord(world.detailIndex.lighthouse!);
+    const reading = recordRow(record, "Market stability").textContent!;
+    const original = new Date(T * 1_000).toISOString();
+    const snapshot = new Date((T + 7_200) * 1_000).toISOString();
+    expect(reading).toContain("PSI 98");
+    expect(reading).toContain("BEDROCK");
+    expect(reading).toContain(`held (as of ${original})`);
+    expect(reading).toContain(`observed ${original}`);
+    expect(reading).toContain(`published/as of ${snapshot}`);
+    expect(reading).toContain(`Snapshot generated at: ${snapshot}`);
+    expect(reading).toMatch(/appearance.*eases separately/i);
+    expect(reading).toContain("60 continuous current seconds");
+    const ledger = render(<AccessibilityLedger world={world} />);
+    const lighthouse = [...ledger.container.querySelectorAll("dt")].find((term) => term.textContent === "Lighthouse")!.nextElementSibling!.textContent!;
+    expect(lighthouse).toContain("PSI 98");
+    expect(lighthouse).toContain(`held (as of ${original})`);
+    expect(lighthouse).toContain(`observed ${original}`);
+    expect(lighthouse).toMatch(/appearance.*eases separately/i);
+  });
+
   it("keeps a consort's acute own peg and distress visible in its shared formation record", async () => {
     const world = buildPharosVilleWorld(fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky"));
     const ship = world.ships.find((entry) => entry.id === "susds-sky")!;
