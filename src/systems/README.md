@@ -38,6 +38,14 @@ The `systems/` directory owns the pure data-to-world layer for the standalone Ph
 - The complete planned voyage is displayed without a separate distance cap.
   Sailing, arrival and departure share harbor-apron clearance, avoiding a
   position jump when the sample changes phase. Solid land clearance remains.
+- Motion planning publishes the first two or three feasible patrol anchors and
+  stops searching once that itinerary is full; cadence geometry still examines
+  the complete anchor pool before choosing the voyage duration. Map identities
+  are immutable: navigation keep-outs, corner-safe neighbor masks, per-zone step
+  costs and cadence candidate pools are weakly cached on that identity. Replace
+  the map object when terrain changes. Candidate ranking retains map-order ties
+  and A* retains its original priority arithmetic, so route keys and geometry
+  do not change with these work bounds.
 - Use shared runtime-neutral helpers such as `getCirculatingRaw()` and `@shared/*` imports instead of route-local copies of shared logic.
 - Keep source-field provenance with any visual cue that represents analytics.
 - Keep route-specific visual semantics here; shared scoring/methodology logic belongs in `shared/lib/` only when it is a real cross-route contract.
