@@ -2,6 +2,15 @@
 
 PharosVille release notes are collected from commit history and mirrored into the in-app changelog panel. A version is published only when the protected workflow also creates its semantic tag and GitHub Release; see `docs/pharosville/RELEASES.md`.
 
+## v0.19.1 - 2026-10-03 - Harbor Holds
+
+The harbour opens again on today's data: one ship that could not plan an optional patrol leg no longer takes the whole world down with it.
+
+Collected from commit `f484902` after v0.19.0.
+
+- The world renders again. Today's live data put TrueUSD's risk berth exactly on one of its own open-water patrol marks, so the motion planner tried to sail a patrol leg of zero length, refused it as too short for the harbour's pace, and that refusal stopped the whole fleet from being planned — every visitor saw "The harbor did not render." An open-water patrol leg is optional: a mark that sits on the ship's own berth, or that no leg at the harbour's pace can reach, is now skipped, and a ship with no reachable mark rests at its berth.
+- Nothing else moves. Dock voyages keep their strict pace contract, and every route that already planned is unchanged. A regression test builds a fleet whose patrol mark coincides with its berth and checks that planning completes without any leg breaking the pace contract.
+
 ## v0.19.0 - 2026-09-27 - Hour Print
 
 PharosVille becomes an hour-print: one fixed view of the harbour, printed in the true light of every hour, with a small score of rare events and chrome that reads as paper and ink.

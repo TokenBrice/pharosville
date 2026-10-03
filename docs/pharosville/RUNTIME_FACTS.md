@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - Renderer: one production Three.js/WebGL renderer
 - GPU or renderer failure fallback: interactive DOM signal overview; no alternate 2D renderer
 - Runtime model namespace: `/pharosville/models/`
-- Latest app version: `v0.19.0` (`hourPrint`)
-- Latest changelog entry: `2026-09-27-hour-print` / `v0.19.0` / 2026-09-27 / Hour Print
+- Latest app version: `v0.19.1` (`harborHolds`)
+- Latest changelog entry: `2026-10-03-harbor-holds` / `v0.19.1` / 2026-10-03 / Harbor Holds
 
 ## Viewport Gate
 

@@ -132,18 +132,32 @@ describe("W4.23 calm patrol itineraries", () => {
     const fixture = worldForDocklessShip();
     // The live TUSD risk tile is also an authored calm patrol anchor.
     const riskTile = { x: 0, y: 38 };
-    const world: PharosVilleWorld = isolated ? {
+    // Fresh map identity isolates both path and previous-risk caches. A tiny
+    // disconnected water pocket exercises infeasibility without an ocean-wide
+    // unsuccessful A* search for each optional anchor.
+    const width = isolated ? 16 : fixture.map.width;
+    const height = isolated ? 70 : fixture.map.height;
+    const world: PharosVilleWorld = {
       ...fixture,
       map: {
         ...fixture.map,
-        tiles: fixture.map.tiles.map((tile) => (
-          Math.abs(tile.x - riskTile.x) <= 1 && Math.abs(tile.y - riskTile.y) <= 1
-            && (tile.x !== riskTile.x || tile.y !== riskTile.y)
-            ? { ...tile, kind: "land", terrain: "land" }
-            : tile
-        )),
+        width,
+        height,
+        tiles: fixture.map.tiles
+          .filter((tile) => tile.x < width && tile.y < height)
+          .map((tile) => (
+            isolated && !(tile.x === riskTile.x && tile.y === riskTile.y)
+              && !(tile.x >= 12 && tile.x <= 14 && tile.y === 68)
+              ? { ...tile, kind: "land", terrain: "land" }
+              : { ...tile }
+          )),
       },
-    } : fixture;
+      ships: fixture.ships.map((ship) => ({
+        ...ship,
+        riskTile: { x: 12, y: 68 },
+        tile: { x: 12, y: 68 },
+      })),
+    };
     const unaffectedShip = world.ships[0]!;
     const unaffectedRoute = buildBaseMotionPlan(world).shipRoutes.get(unaffectedShip.id)!;
     expect(unaffectedRoute.openWaterPatrol).not.toBeNull();
