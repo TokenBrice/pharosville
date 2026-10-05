@@ -1,10 +1,7 @@
 /**
- * W7.2 (sound-1) "one wind, heard": the procedural bed. Every layer is the one
- * noise buffer through filters, driven by the world's own clocks — the 9 s
- * breath (`gardenBreathAt`), the 600 s gust and its travel across the frame
- * (`gardenGustAtWorldPosition`), the sea state, the pose's height over the
- * water and the beacon pass. No second oscillator, nothing rhythmic or
- * melodic: the only periodicity is the breath the water already shows.
+ * The garden's acoustic foreground: shore breath, spatial pine rustle and
+ * damped basin modes share the existing buses and event ceiling. The renderer
+ * supplies the one clock, wind and solar score; sound carries no market fact.
  */
 import { GARDEN_BREATH_PHASE, GARDEN_BREATH_SECONDS, gardenBreathAt } from "../../systems/weather";
 import { hash01, smoothstep } from "./dsp";
@@ -15,7 +12,7 @@ import { AUDIO_MASTER, dbToGain, stemLevelDb, type AudioStemName } from "./mix";
 export interface BedFrame {
   /** Context time these values land at. */
   at: number;
-  /** Breath clock at `at`: the render clock, or the audio clock under Still. */
+  /** The canonical render clock; Still is silent, never an audio-clock substitute. */
   breathTime: number;
   still: boolean;
   /** Sea-state ladder 0 (calm) … 1 (storm). */
@@ -27,6 +24,14 @@ export interface BedFrame {
   windSpeed: number;
   gustLeft: number;
   gustRight: number;
+  pineGust: number;
+  pinePresence: number;
+  pinePan: number;
+  basinPresence: number;
+  basinPan: number;
+  /** Shelf and vegetation shelter the small hydraulic mouth. */
+  shelter: number;
+  lapOpen: boolean;
 }
 
 /** The stem's intended level this tick (dB), recorded for the stem table. */
@@ -48,6 +53,8 @@ const washPowerMean = breathShape.reduce((sum, b) => sum + b ** 4, 0) / BREATH_S
 const LAP_CREST_OFFSET_SECONDS = GARDEN_BREATH_SECONDS * (0.2 + GARDEN_BREATH_PHASE.wakes - 0.4);
 const LN_REST_EYE = Math.log(24);
 const LN_CHART_EYE = Math.log(170);
+const BASIN_MODE_RATIOS = [1, 1.47, 2.09] as const;
+const BASIN_MODE_WEIGHTS = [0.56, 0.29, 0.15] as const;
 
 export interface GardenBed {
   update: (frame: BedFrame, targets: StemTargetSink | null) => void;
@@ -87,6 +94,10 @@ export function createGardenBed(graph: AudioGraph): GardenBed {
   const air = layer(shoreSource, "air", [{ type: "bandpass", frequency: 4200, q: 0.7 }], false);
   const wind = layer(windSource, "wind", [{ type: "bandpass", frequency: 400, q: 0.8 }], true);
   const whistle = layer(windSource, "whistle", [{ type: "bandpass", frequency: 700, q: 9 }], true);
+  const rustle = layer(windSource, "wind", [
+    { type: "highpass", frequency: 1100, q: -3 },
+    { type: "lowpass", frequency: 3600, q: -3 },
+  ], true);
 
   let primed = false;
   let nextLapCycle = Number.NaN;
@@ -123,7 +134,12 @@ export function createGardenBed(graph: AudioGraph): GardenBed {
       const when = frame.at + (onset - frame.breathTime);
       if (when < ctx.currentTime) continue;
       const peakDb = lapDb + 20 * Math.log10(0.6 + 0.4 * hash01(cycle * 3 + 3));
-      if (playLap(graph, when, peakDb, cycle)) targets?.("lap", peakDb);
+      if (!frame.lapOpen) continue;
+      if (playLap(graph, when, peakDb + AUDIO_MASTER.shoreDisplacementDb, cycle)) targets?.("lap", peakDb + AUDIO_MASTER.shoreDisplacementDb);
+      const basinDb = frame.basinPresence > 0.01
+        ? peakDb + AUDIO_MASTER.basinTrimDb + 20 * Math.log10(frame.basinPresence * frame.shelter)
+        : Number.NEGATIVE_INFINITY;
+      if (Number.isFinite(basinDb) && playBasinDrip(graph, when + 0.18, basinDb, frame.basinPan, cycle)) targets?.("lap", basinDb);
     }
   };
 
@@ -132,6 +148,7 @@ export function createGardenBed(graph: AudioGraph): GardenBed {
       nextLapCycle = Number.NaN;
     },
     update(frame, targets) {
+      if (frame.still) return;
       const { at, breathTime, sea: seaState, near } = frame;
       // Sea body: the water breath opens the lowpass and lifts the level; every
       // breath carries its own seeded height, and a "set" of two bigger waves
@@ -141,14 +158,13 @@ export function createGardenBed(graph: AudioGraph): GardenBed {
       const cycle = Math.floor(cyclePosition);
       const blend = smoothstep(0.85, 1, cyclePosition - cycle);
       const heightDb = cycleHeightDb(cycle) + (cycleHeightDb(cycle + 1) - cycleHeightDb(cycle)) * blend;
-      const depthDb = frame.still
-        ? AUDIO_MASTER.breathDepthDb.still
-        : AUDIO_MASTER.breathDepthDb.calm + (AUDIO_MASTER.breathDepthDb.storm - AUDIO_MASTER.breathDepthDb.calm) * seaState;
+      const depthDb = AUDIO_MASTER.breathDepthDb.calm + (AUDIO_MASTER.breathDepthDb.storm - AUDIO_MASTER.breathDepthDb.calm) * seaState;
       let modulationPower = 0;
       for (const shape of breathShape) modulationPower += dbToGain(depthDb * (2 * shape - 1)) ** 2;
       const modulationRms = Math.sqrt(modulationPower / BREATH_SAMPLES);
       // Over the chart the near shore falls away: the open sea is wider, lower and hushed.
-      const seaDb = stemLevelDb("sea", seaState) - 3 * (1 - near) + heightDb;
+      const hushDb = AUDIO_MASTER.nightBedDb * frame.beaconPresence;
+      const seaDb = stemLevelDb("sea", seaState) - 3 * (1 - near) + heightDb + hushDb;
       const seaCutoff = (380 + 520 * b * (0.6 + 0.4 * seaState)) * (1 - 0.2 * frame.beaconPresence) * (1 - 0.15 * (1 - near));
       sea.stages[0]!.frequency = seaCutoff;
       sea.stages[1]!.frequency = seaCutoff;
@@ -157,7 +173,7 @@ export function createGardenBed(graph: AudioGraph): GardenBed {
 
       // Wash: the same breath a tenth of a cycle later, hissing at the crest.
       const washBreath = gardenBreathAt(breathTime, GARDEN_BREATH_PHASE.water + 0.1);
-      const washDb = stemLevelDb("wash", seaState) + 20 * Math.log10(0.3 + 0.7 * near) + heightDb;
+      const washDb = stemLevelDb("wash", seaState) + 20 * Math.log10(0.3 + 0.7 * near) + heightDb + hushDb + AUDIO_MASTER.shoreDisplacementDb;
       drive(wash, at, dbToGain(washDb) * (washBreath * washBreath) / Math.sqrt(washPowerMean) / graph.noisePassRms(wash.stages), null, null);
       targets?.("wash", washDb);
 
@@ -165,14 +181,20 @@ export function createGardenBed(graph: AudioGraph): GardenBed {
       // and its front crosses the stereo field from the upwind side, as the flags do.
       const gust = 0.5 * (frame.gustLeft + frame.gustRight);
       const windX = Math.min(1, Math.max(0, (frame.windSpeed - 0.29) / 0.6));
-      const windDb = stemLevelDb("wind", windX) + AUDIO_MASTER.gustBoostDb * gust;
+      const windDb = stemLevelDb("wind", windX) + AUDIO_MASTER.gustBoostDb * gust + hushDb + AUDIO_MASTER.windHissDisplacementDb;
       const windPan = Math.max(-0.7, Math.min(0.7, ((frame.gustRight - frame.gustLeft) / Math.max(0.05, frame.gustLeft + frame.gustRight)) * 1.4));
       wind.stages[0]!.frequency = 250 + 850 * frame.windSpeed + 200 * gust;
       drive(wind, at, dbToGain(windDb) / graph.noisePassRms(wind.stages), wind.stages[0]!.frequency, windPan);
-      targets?.("wind", windDb);
+      // Needle friction follows the actual pine root gust, not a free LFO.
+      const rustleDb = frame.pinePresence > 0.01
+        ? stemLevelDb("wind", windX) + AUDIO_MASTER.rustleTrimDb + hushDb
+          + AUDIO_MASTER.gustBoostDb * frame.pineGust + 20 * Math.log10(frame.pinePresence * (0.2 + 0.8 * frame.pineGust))
+        : Number.NEGATIVE_INFINITY;
+      drive(rustle, at, dbToGain(rustleDb) / graph.noisePassRms(rustle.stages), null, frame.pinePan);
+      targets?.("wind", 20 * Math.log10(Math.hypot(dbToGain(windDb), dbToGain(rustleDb))));
 
       const whistleX = smoothstep(0.65, 0.95, frame.windSpeed);
-      const whistleDb = stemLevelDb("whistle", whistleX) + 0.5 * AUDIO_MASTER.gustBoostDb * gust;
+      const whistleDb = stemLevelDb("whistle", whistleX) + 0.5 * AUDIO_MASTER.gustBoostDb * gust + hushDb;
       whistle.stages[0]!.frequency = 620 + 260 * whistleX + 60 * gust;
       drive(whistle, at, dbToGain(whistleDb) / graph.noisePassRms(whistle.stages), whistle.stages[0]!.frequency, windPan);
       targets?.("whistle", whistleDb);
@@ -185,7 +207,7 @@ export function createGardenBed(graph: AudioGraph): GardenBed {
       drive(air, at, dbToGain(airDb) / graph.noisePassRms(air.stages), null, null);
       targets?.("air", airDb);
 
-      scheduleLaps(frame, near > 0.02 ? stemLevelDb("lap", seaState) + 20 * Math.log10(near) : Number.NEGATIVE_INFINITY, targets);
+      scheduleLaps(frame, near > 0.02 ? stemLevelDb("lap", seaState) + hushDb + 20 * Math.log10(near) : Number.NEGATIVE_INFINITY, targets);
       primed = true;
     },
   };
@@ -241,9 +263,48 @@ function playLap(graph: AudioGraph, when: number, peakDb: number, seed: number):
   bubble.connect(bubbleGain).connect(pan);
   splash.connect(band).connect(splashGain).connect(pan);
   pan.connect(graph.stems.lap);
+  bubble.onended = () => {
+    bubble.disconnect();
+    bubbleGain.disconnect();
+  };
+  splash.onended = () => {
+    splash.disconnect();
+    band.disconnect();
+    splashGain.disconnect();
+    pan.disconnect();
+  };
   bubble.start(when);
   bubble.stop(when + duration + 0.2);
   splash.start(when, hash01(seed * 7 + 5) * 7);
   splash.stop(when + duration + 0.2);
+  return true;
+}
+
+/** Three inharmonic stone/water modes; normalized peak, one booked event voice. */
+export function playBasinDrip(graph: AudioGraph, when: number, peakDb: number, panValue: number, seed: number): boolean {
+  const duration = 0.8;
+  if (!Number.isFinite(peakDb) || !claimVoice(graph, when, when + duration)) return false;
+  const { ctx } = graph;
+  const pan = ctx.createStereoPanner();
+  pan.pan.value = panValue;
+  pan.connect(graph.stems.lap);
+  const peak = dbToGain(peakDb) * panPeakCompensation(panValue);
+  const prime = 420 + 90 * hash01(seed * 11 + 1);
+  for (let index = 0; index < BASIN_MODE_RATIOS.length; index += 1) {
+    const mode = ctx.createOscillator();
+    mode.frequency.value = prime * BASIN_MODE_RATIOS[index]!;
+    const envelope = ctx.createGain();
+    envelope.gain.setValueAtTime(0, when);
+    envelope.gain.linearRampToValueAtTime(peak * BASIN_MODE_WEIGHTS[index]!, when + 0.003);
+    envelope.gain.setTargetAtTime(0, when + 0.003, 0.08 / (1 + index * 0.7));
+    mode.connect(envelope).connect(pan);
+    mode.onended = () => {
+      mode.disconnect();
+      envelope.disconnect();
+      if (index === BASIN_MODE_RATIOS.length - 1) pan.disconnect();
+    };
+    mode.start(when);
+    mode.stop(when + duration);
+  }
   return true;
 }

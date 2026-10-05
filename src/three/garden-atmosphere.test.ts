@@ -6,7 +6,8 @@ import {
   GARDEN_ATMOSPHERE, GARDEN_ATMOSPHERE_GLSL,
   gardenAtmosphereMean, gardenAtmosphereOpticalLength,
   gardenAtmosphereRayleighPhase, gardenAtmosphereMiePhase,
-  writeGardenAtmosphereCoefficients, writeGardenAtmosphereSource,
+  gardenAtmosphereScatteringIntegral,
+  writeGardenAtmosphereCoefficients,
   writeGardenAtmosphereTransmittance, writeGardenAtmosphereSky,
 } from "./garden-atmosphere";
 
@@ -47,6 +48,64 @@ describe("shared analytic daylight transport", () => {
     }
   });
 
+  it("integrates altitude-dependent sunlight with a finite equal-depth limit and scalar shader parity", () => {
+    const integral = scalarShader("gardenAtmosphereScatteringIntegral");
+    for (const eye of [0, 0.05, 0.25, 1, 10, 40]) for (const solar of [0, eye, eye + 0.0001, 1, 10, 40]) {
+      const actual = gardenAtmosphereScatteringIntegral(eye, solar);
+      expect(integral(eye, solar)).toBeCloseTo(actual, 12);
+      let reference = 0;
+      const steps = 8192;
+      for (let index = 0; index < steps; index++) {
+        const column = (index + 0.5) / steps;
+        reference += eye * Math.exp(-eye * (1 - column) - solar * column) / steps;
+      }
+      expect(actual).toBeCloseTo(reference, 5);
+      expect(Number.isFinite(actual) && actual >= 0).toBe(true);
+    }
+  });
+
+  it("retains more short-wave light aloft than at the low-sun horizon instead of tinting every height crimson", () => {
+    const lowSun = new Vector3(Math.sqrt(1 - 0.03 ** 2), 0.03, 0);
+    for (const clarity of [-1, 0, 1]) {
+      writeGardenAtmosphereCoefficients(r, m, clarity);
+      const horizon = writeGardenAtmosphereSky(new Color(), new Vector3(-1, 0, 0), lowSun, r, m);
+      const zenith = writeGardenAtmosphereSky(new Color(), new Vector3(0, 1, 0), lowSun, r, m);
+      const depth = r.z * 420 + m.z * 62.5;
+      const oldBlue = GARDEN_ATMOSPHERE.radiance
+        * (r.z * gardenAtmosphereRayleighPhase(lowSun.y) + m.z * gardenAtmosphereMiePhase(lowSun.y)) / (r.z + m.z)
+        * Math.exp(-depth * gardenAtmosphereOpticalLength(lowSun.y)) * (1 - Math.exp(-depth));
+      expect(zenith.b).toBeGreaterThan(oldBlue);
+      expect(zenith.b / zenith.r).toBeGreaterThan(horizon.b / horizon.r);
+    }
+  });
+
+  it("bounds the low-sun forward lobe by solar-disc radiance without changing its hue or high-sun energy", () => {
+    for (const clarity of [-1, 0, 1]) {
+      writeGardenAtmosphereCoefficients(r, m, clarity);
+      const sun = new Vector3(Math.sqrt(1 - 0.03 ** 2), 0.03, 0);
+      const actual = writeGardenAtmosphereSky(new Color(), sun, sun, r, m);
+      const expected = new Color();
+      const length = gardenAtmosphereOpticalLength(sun.y);
+      for (const [channel, index] of [["r", 0], ["g", 1], ["b", 2]] as const) {
+        const betaR = r.getComponent(index);
+        const betaM = m.getComponent(index);
+        const depth = betaR * 420 + betaM * 62.5;
+        expected[channel] = GARDEN_ATMOSPHERE.radiance
+          * (betaR * gardenAtmosphereRayleighPhase(1) + betaM * gardenAtmosphereMiePhase(1)) / (betaR + betaM)
+          * gardenAtmosphereScatteringIntegral(depth * length, depth * length);
+      }
+      const peak = Math.max(expected.r, expected.g, expected.b);
+      expect(peak).toBeGreaterThan(GARDEN_ATMOSPHERE.radiance);
+      expected.multiplyScalar(GARDEN_ATMOSPHERE.sunDiscRadiance / peak);
+      for (const channel of ["r", "g", "b"] as const) expect(actual[channel]).toBeCloseTo(expected[channel], 10);
+      expect(Math.max(actual.r, actual.g, actual.b)).toBeLessThanOrEqual(GARDEN_ATMOSPHERE.sunDiscRadiance + 1e-12);
+      sun.set(0.8, 0.6, 0);
+      const high = writeGardenAtmosphereSky(new Color(), sun, sun, r, m);
+      expect(Math.max(high.r, high.g, high.b)).toBeGreaterThan(GARDEN_ATMOSPHERE.radiance);
+    }
+    expect(GARDEN_ATMOSPHERE_GLSL).toContain("sky *= 1.0 - low + low * ceiling / peak");
+  });
+
   it("keeps Rayleigh and sharpened forward aerosol phases energy normalized", () => {
     for (const phase of [gardenAtmosphereRayleighPhase, gardenAtmosphereMiePhase]) {
       let integral = 0;
@@ -79,23 +138,25 @@ describe("shared analytic daylight transport", () => {
     }
   });
 
-  it("agrees with the vector shader eye-leg and source expressions without output transforms", () => {
+  it("retains the accepted high-sun eye-leg expression without output transforms", () => {
     const mean = scalarShader("gardenAtmosphereMean");
     const opticalLength = scalarShader("gardenAtmosphereOpticalLength");
     writeGardenAtmosphereCoefficients(r, m, 1);
     const dir = new Vector3(0.6, 0.15, -0.7).normalize();
-    const source = writeGardenAtmosphereSource(new Color(), dir, sun, r, m);
     const sky = writeGardenAtmosphereSky(new Color(), dir, sun, r, m);
     const t = transmittance(300);
     for (const [channel, index] of [["r", 0], ["g", 1], ["b", 2]] as const) {
       const betaR = r.getComponent(index);
       const betaM = m.getComponent(index);
+      const source = GARDEN_ATMOSPHERE.radiance
+        * (betaR * gardenAtmosphereRayleighPhase(dir.dot(sun)) + betaM * gardenAtmosphereMiePhase(dir.dot(sun)))
+        / (betaR + betaM);
       expect(t[channel]).toBeCloseTo(Math.exp(-300 * (betaR * mean(15, 0, 420) + betaM * mean(15, 0, 62.5))), 12);
       const extinction = Math.exp(-(betaR * 420 + betaM * 62.5) * opticalLength(dir.y));
-      expect(sky[channel]).toBeCloseTo(source[channel] * (1 - extinction), 12);
+      expect(sky[channel]).toBeCloseTo(source * (1 - extinction), 12);
     }
     expect(GARDEN_ATMOSPHERE_GLSL).not.toMatch(/sampler|tonemapping|colorspace|cloud|pow\([^;]*vec3/);
-    expect(GARDEN_ATMOSPHERE_GLSL).toContain("radiance * solarT");
+    expect(GARDEN_ATMOSPHERE_GLSL).toContain("gardenAtmosphereScatteringIntegral(eyeDepth.b, solarDepth.b)");
     expect(GARDEN_ATMOSPHERE_GLSL).toContain("max(r + m, vec3(1e-8))");
   });
 

@@ -13,6 +13,7 @@ import {
   Group,
   InstancedBufferAttribute,
   InstancedMesh,
+  LatheGeometry,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -26,6 +27,8 @@ import {
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
+  GARDEN_BASIN_ROOT_OFFSET,
+  GARDEN_PINE_SOUND_ROOT_OFFSET,
   GARDEN_LIGHTHOUSE_ROOT_OFFSET,
   GARDEN_WATER_Y as WATER_LEVEL,
   gardenIslandDisplayTile,
@@ -309,6 +312,38 @@ export function islandTerrainHeight(x: number, z: number): number {
   }
   height = quayStairBed(x, z, height);
   return Math.min(height, cragShoreCap(x, z, seaward));
+}
+
+
+export function createGardenBasinStoneGeometry(): BufferGeometry {
+  const ground = GARDEN_BASIN_WATER_Y - 0.43;
+  const bowl = new LatheGeometry([
+    new Vector2(0, -0.06), new Vector2(0.3, -0.06), new Vector2(0.56, 0.58),
+    new Vector2(0.45, 0.58), new Vector2(0.14, 0.16), new Vector2(0, 0.16),
+  ], 12);
+  bowl.translate(GARDEN_BASIN_ROOT_OFFSET.x, ground, GARDEN_BASIN_ROOT_OFFSET.z);
+  const spout = new CylinderGeometry(0.07, 0.09, 0.75, 6);
+  spout.rotateZ(-Math.PI / 3);
+  spout.translate(GARDEN_BASIN_ROOT_OFFSET.x - 0.5, ground + 0.92, GARDEN_BASIN_ROOT_OFFSET.z);
+  // The small dark inset shares the stone bucket: no separate wet draw/material.
+  const mouth = new CircleGeometry(0.32, 12);
+  mouth.rotateX(-Math.PI / 2);
+  mouth.translate(GARDEN_BASIN_ROOT_OFFSET.x, GARDEN_BASIN_WATER_Y, GARDEN_BASIN_ROOT_OFFSET.z);
+  mouth.deleteAttribute("uv");
+  const mouthColors = new Float32Array(mouth.getAttribute("position").count * 3);
+  for (let index = 0; index < mouthColors.length; index += 3) STONE_WET.toArray(mouthColors, index);
+  mouth.setAttribute("color", new Float32BufferAttribute(mouthColors, 3));
+  for (const part of [bowl, spout]) {
+    part.deleteAttribute("uv");
+    const colors = new Float32Array(part.getAttribute("position").count * 3);
+    for (let index = 0; index < colors.length; index += 3) STONE_MID.toArray(colors, index);
+    part.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  }
+  const geometry = mergeGeometries([bowl, spout, mouth], false)!;
+  bowl.dispose();
+  spout.dispose();
+  mouth.dispose();
+  return geometry;
 }
 
 // The quay stair climbs from the east shore to the gate spur: one flight to
@@ -1282,6 +1317,7 @@ export interface GardenIslandStoneSpec {
   scale: number;
   /** The one vertical "father" stone of the triad; subordinates stay horizontal. */
   dominant?: boolean;
+  basin?: boolean;
 }
 
 export const GARDEN_ISLAND_STONE_GROUPINGS: readonly (readonly GardenIslandStoneSpec[])[] = [
@@ -1307,7 +1343,7 @@ export const GARDEN_ISLAND_STONE_GROUPINGS: readonly (readonly GardenIslandStone
   [
     { x: 2.5, y: -0.22, z: 7.55, scale: 1.05, dominant: true },
     { x: 1.1, y: -0.12, z: 8.25, scale: 0.6 },
-    { x: 3.8, y: -0.3, z: 6.75, scale: 0.5 },
+    { ...GARDEN_BASIN_ROOT_OFFSET, y: -0.3, scale: 0.5, basin: true },
   ],
   // garden-master-6: the court's sanzon on the crown's south-west corner,
   // heights 1 : 0.6 : 0.4, raked round in rings (createRakedCourt).
@@ -1317,6 +1353,8 @@ export const GARDEN_ISLAND_STONE_GROUPINGS: readonly (readonly GardenIslandStone
     { x: -12.7, y: 8.55, z: 4.3, scale: 0.42 },
   ],
 ];
+/** Hydraulic mouth on the same sampled terrain as the bowl's buried foot. */
+export const GARDEN_BASIN_WATER_Y = islandTerrainHeight(GARDEN_BASIN_ROOT_OFFSET.x, GARDEN_BASIN_ROOT_OFFSET.z) + 0.43;
 
 /**
  * garden-8: ō-karikomi, not gumdrops. Overlapping clipped wave segments in
@@ -1406,6 +1444,10 @@ function createIslandDecoration(date: Date | undefined, letsGo: GardenIslandLets
     const heartX = subordinates.reduce((sum, stone) => sum + stone.x, 0) / Math.max(1, subordinates.length);
     const heartZ = subordinates.reduce((sum, stone) => sum + stone.z, 0) / Math.max(1, subordinates.length);
     triad.forEach((stone, memberIndex) => {
+      if (stone.basin) {
+        stoneParts.push(createGardenBasinStoneGeometry());
+        return;
+      }
       const seed = `stone.t${triadIndex}.${memberIndex}`;
       const yaw = CAMERA_FACING_YAW + (stableUnit(seed) - 0.5) * (stone.dominant ? 0.24 : 0.9);
       scratchQuaternion.setFromAxisAngle(UP_AXIS, yaw);
@@ -1508,7 +1550,7 @@ export interface NiwakiSpec {
  * running out over the water.
  */
 export const GARDEN_NIWAKI_SPECS: readonly NiwakiSpec[] = [
-  { height: 8.5, kind: "pine", leanX: -6.2, leanZ: 7.4, x: -4.8, z: 8.3 },
+  { height: 8.5, kind: "pine", leanX: -6.2, leanZ: 7.4, ...GARDEN_PINE_SOUND_ROOT_OFFSET },
   { height: 7.15, kind: "pine", leanX: 1.15, leanZ: 0.45, x: -11.5, z: 9.1 },
   { height: 6.35, kind: "pine", leanX: -0.55, leanZ: 0.85, x: -6.5, z: 10.5 },
   { height: 5.5, kind: "pine", leanX: 1.05, leanZ: 0.45, x: 0.8, z: 10.2 },

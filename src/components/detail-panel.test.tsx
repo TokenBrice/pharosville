@@ -445,18 +445,53 @@ describe("DetailPanel woodblock record", () => {
     expect(ledgerDom.querySelector("#ledger-ship-usds-sky")?.textContent).toContain("DEWS 8/100");
   });
 
-  it("defers focus until a hidden selection becomes visible", () => {
+  it("discloses and focuses a selection immediately, then restores focus on close", () => {
     const opener = document.createElement("button");
     document.body.append(opener);
     opener.focus();
     const detail = { id: "ship:test", title: "Test", kind: "SHIP", summary: "", facts: [], links: [] } as DetailModel;
-    const view = render(<DetailPanel onClose={() => undefined} detail={detail} visible={false} />);
-    expect(document.activeElement).toBe(opener);
-    view.rerender(<DetailPanel onClose={() => undefined} detail={detail} visible />);
+    const view = render(<DetailPanel onClose={() => undefined} detail={detail} />);
     expect(document.activeElement).toBe(screen.getByRole("heading", { level: 2, name: "Test" }));
-    view.rerender(<DetailPanel onClose={() => undefined} detail={detail} visible={false} />);
+    expect(screen.getByRole("complementary").hidden).toBe(false);
+    view.unmount();
     expect(document.activeElement).toBe(opener);
     opener.remove();
+  });
+  it("measures the actual sheet and expanded record and disconnects its observer", async () => {
+    const onPanelRectChange = vi.fn();
+    const disconnect = vi.fn();
+    let notify = () => {};
+    const originalObserver = globalThis.ResizeObserver;
+    class PanelObserver {
+      constructor(callback: ResizeObserverCallback) {
+        notify = () => callback([], this as unknown as ResizeObserver);
+      }
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = disconnect;
+    }
+    vi.stubGlobal("ResizeObserver", PanelObserver);
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(24, 24, 384, 300));
+    try {
+      const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+      const detail = world.detailIndex[world.ships[0]!.detailId]!;
+      const view = render(<DetailPanel detail={detail} onPanelRectChange={onPanelRectChange} />);
+      expect(onPanelRectChange).toHaveBeenLastCalledWith(expect.objectContaining({ width: 384, height: 300 }));
+      rect.mockReturnValue(new DOMRect(24, 24, 384, 500));
+      const record = screen.getByTestId("pharosville-detail-record") as HTMLDetailsElement;
+      record.open = true;
+      fireEvent(record, new Event("toggle", { bubbles: true }));
+      await waitFor(() => expect(onPanelRectChange).toHaveBeenLastCalledWith(expect.objectContaining({ height: 500 })));
+      rect.mockReturnValue(new DOMRect(28, 24, 340, 500));
+      notify();
+      expect(onPanelRectChange).toHaveBeenLastCalledWith(expect.objectContaining({ left: 28, width: 340 }));
+      view.unmount();
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      rect.mockRestore();
+      vi.stubGlobal("ResizeObserver", originalObserver);
+    }
   });
   it("uses non-modal landmark semantics and focuses the title, then restores focus", () => {
     const opener = document.createElement("button");

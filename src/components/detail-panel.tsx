@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link2 from "lucide-react/dist/esm/icons/link-2";
 import { buildShareableWorldUrlHref } from "../hooks/use-world-url-state";
 import type { DetailModel } from "../systems/world-types";
@@ -16,7 +16,7 @@ import { GardenMonthRecordTable } from "./garden-month-record-table";
 
 export interface DetailPanelProps {
   detail: DetailModel;
-  visible?: boolean;
+  onPanelRectChange?: (rect: DOMRectReadOnly) => void;
   headingId?: string;
   onSelectDetail?: (detailId: string) => void;
   panelId?: string;
@@ -61,7 +61,7 @@ const COPY_FEEDBACK_MS = 2500;
 
 export function DetailPanel({
   detail,
-  visible = true,
+  onPanelRectChange,
   headingId = "pharosville-detail-panel-title",
   onSelectDetail,
   panelId = "pharosville-detail-panel",
@@ -116,13 +116,26 @@ export function DetailPanel({
   // no longer in the DOM, fall back to the canvas shell so keyboard users land
   // somewhere predictable.
   useEffect(() => {
-    if (!visible) return;
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     focusWithoutScroll(headingRef.current ?? panelRef.current);
     return () => {
       restoreDialogFocus(previouslyFocused);
     };
-  }, [visible]);
+  }, []);
+
+  // Measure the actual sheet, not a CSS width assumption. Record disclosure
+  // and viewport changes both change the exclusion rectangle.
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel || !onPanelRectChange) return;
+    const measure = () => onPanelRectChange(panel.getBoundingClientRect());
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    const shell = panel.closest(".pharosville-world");
+    if (shell) observer.observe(shell);
+    return () => observer.disconnect();
+  }, [detail.id, onPanelRectChange, recordOpen]);
 
 
   return (

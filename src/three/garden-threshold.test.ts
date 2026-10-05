@@ -615,11 +615,18 @@ describe("garden threshold (seat C)", () => {
       const restPositions = roots.map((point) => point.clone());
       const before = Array.from(position.array);
       const weather = weatherForFrame({ baseWind: 0.5, psiStress: 0.2, timeSeconds: 2 });
-      owned.updateWind(weather, false);
-      const uniforms = material.userData.gardenWindSwayUniforms as { uGardenWindStrength: IUniform<number> };
+      owned.updateWind(weather, false, 0.2, 0.7);
+      const uniforms = material.userData.gardenRootedWindUniforms as {
+        uGardenWindStrength: IUniform<number>, uGardenRootGust0: IUniform<number>, uGardenRootGust1: IUniform<number>,
+      };
       expect(uniforms.uGardenWindStrength.value).toBeGreaterThan(0);
-      owned.updateWind(weather, true);
+      expect(uniforms.uGardenRootGust0.value).toBe(0.2);
+      expect(uniforms.uGardenRootGust1.value).toBe(0.7);
+      owned.updateWind(weather, true, 0.2, 0.7);
       expect(uniforms.uGardenWindStrength.value).toBe(0);
+      expect(uniforms.uGardenRootGust0.value).toBe(0);
+      expect(uniforms.uGardenRootGust1.value).toBe(0);
+      expect(pines.geometry.hasAttribute("aGardenSway")).toBe(false);
       owned.setEyeOffset(0.1, 0.2, -0.1);
       expect(owned.pineRestRoots).toBe(roots);
       for (const tree of [0, 1] as const) expect(roots[tree].equals(restPositions[tree]!)).toBe(true);
@@ -630,10 +637,11 @@ describe("garden threshold (seat C)", () => {
         fragmentShader: ShaderLib.standard.fragmentShader, uniforms: {} as Record<string, IUniform> };
       material.onBeforeCompile(shader as never, null as never);
       expect(shader.vertexShader).toContain("attribute vec3 aGardenFlex;");
-      expect(shader.vertexShader).toContain("dot(aGardenFlex, vec3(0.2, 0.45, 0.35))");
+      expect(shader.vertexShader).toContain("dot(clamp(aGardenFlex, 0.0, 1.0), vec3(0.2, 0.45, 0.35))");
+      expect(shader.vertexShader).toContain("attribute float aGardenRootIndex;");
       expect(shader.vertexShader).not.toContain("gardenWindHeight");
       expect(shader.uniforms.uGardenWindStrength).toBe(uniforms.uGardenWindStrength);
-      expect(material.customProgramCacheKey()).toContain("authored-kuromatsu-flex-v1");
+      expect(material.customProgramCacheKey()).toContain("garden-rooted-wind-sway-v1");
     } finally {
       owned.dispose();
     }

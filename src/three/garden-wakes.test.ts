@@ -3,6 +3,8 @@ import {
   InstancedMesh,
   MaxEquation,
   Mesh,
+  Vector4,
+  WebGLRenderTarget,
   type Scene,
   type ShaderMaterial,
 } from "three";
@@ -40,11 +42,94 @@ function rendererStub(onRender?: (scene: Scene, autoClear: boolean) => void) {
     getClearAlpha: vi.fn(() => 1),
     getClearColor: vi.fn((color: Color) => color.setRGB(0, 0, 0)),
     getRenderTarget: vi.fn(() => null),
+    getActiveCubeFace: vi.fn(() => 0),
+    getActiveMipmapLevel: vi.fn(() => 0),
     render: vi.fn((scene: Scene) => onRender?.(scene, autoClear)),
     setClearColor: vi.fn(),
     setRenderTarget: vi.fn(),
   };
 }
+
+describe("wake offscreen renderer ownership", () => {
+  it.each(["clear", "feedback", "stamp", "static-contact"] as const)(
+    "restores target, face, mip, viewport and scissor after %s succeeds or throws",
+    (pass) => {
+      for (const fails of [false, true]) {
+        const previousTarget = new WebGLRenderTarget(80, 90);
+        previousTarget.viewport.set(5, 9, 41, 47);
+        previousTarget.scissor.set(7, 13, 29, 31);
+        previousTarget.scissorTest = true;
+        let target: WebGLRenderTarget | null = previousTarget;
+        let face = 2;
+        let mip = 3;
+        const viewport = previousTarget.viewport.clone();
+        const scissor = previousTarget.scissor.clone();
+        let scissorTest = true;
+        const color = new Color("#123456");
+        let alpha = 0.7;
+        const renderer = rendererStub();
+        renderer.autoClear = false;
+        renderer.getRenderTarget.mockImplementation(() => target as never);
+        renderer.getActiveCubeFace.mockImplementation(() => face);
+        renderer.getActiveMipmapLevel.mockImplementation(() => mip);
+        renderer.getClearColor.mockImplementation((out) => out.copy(color));
+        renderer.getClearAlpha.mockImplementation(() => alpha);
+        renderer.setClearColor.mockImplementation((next: Color | number, nextAlpha: number) => {
+          color.set(next);
+          alpha = nextAlpha;
+        });
+        // Three's setRenderTarget owns the active viewport/scissor restoration.
+        renderer.setRenderTarget.mockImplementation((next: WebGLRenderTarget, nextFace = 0, nextMip = 0) => {
+          target = next;
+          face = nextFace;
+          mip = nextMip;
+          viewport.copy(next.viewport);
+          scissor.copy(next.scissor);
+          scissorTest = next.scissorTest;
+        });
+        const wakes = createGardenWakes(renderer as never);
+        wakes.update({ ...FRAME, reducedMotion: pass === "static-contact" });
+        if (pass === "clear") {
+          wakes.stamp(47.6, 38.9, 1, 0, 0.9, 1);
+          wakes.update(FRAME);
+        } else if (pass === "static-contact") {
+          wakes.stampContact(47.6, 38.9, 1, 0, 3, 1, 1);
+        } else {
+          wakes.stamp(47.6, 38.9, 1, 0, 0.9, 1);
+        }
+        renderer.render.mockClear();
+        if (fails) {
+          const fail = () => { throw new Error("offscreen failed"); };
+          if (pass === "clear") renderer.clear.mockImplementationOnce(fail);
+          else if (pass === "stamp") renderer.render.mockImplementationOnce(() => {}).mockImplementationOnce(fail);
+          else renderer.render.mockImplementationOnce(fail);
+        }
+        const paint = () => {
+          if (pass === "clear") wakes.reset();
+          else if (pass === "static-contact") wakes.renderStaticContact();
+          else wakes.update(FRAME);
+        };
+        if (fails) expect(paint).toThrow("offscreen failed");
+        else paint();
+        expect(target).toBe(previousTarget);
+        expect(face).toBe(2);
+        expect(mip).toBe(3);
+        expect(viewport).toEqual(new Vector4(5, 9, 41, 47));
+        expect(scissor).toEqual(new Vector4(7, 13, 29, 31));
+        expect(scissorTest).toBe(true);
+        expect(renderer.autoClear).toBe(false);
+        expect(color.getHexString()).toBe("123456");
+        expect(alpha).toBe(0.7);
+        if (fails && pass === "static-contact") {
+          paint();
+          expect(renderer.render).toHaveBeenCalledTimes(2);
+        }
+        wakes.dispose();
+        previousTarget.dispose();
+      }
+    },
+  );
+});
 
 describe("planWakeWindow", () => {
   it("covers the view with margin, clamped to the texel budget", () => {

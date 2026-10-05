@@ -74,6 +74,76 @@ renderer failure must retain the selectable `WorldStaticOverview`.
 Capture healthy/degraded first visits at both gates, their rotated companions,
 noon/night and reduced motion, then every named DOM state independently.
 
+### Expanded-chrome matrix (S8-P2)
+
+Run `npm test -- src/components/world-controls.test.tsx src/systems/chrome-air.test.ts src/components/accessibility-ledger.test.tsx`.
+Retain keyboard/combobox, focus restoration, key teaching and single-ledger
+coverage with `npm test -- src/components/quick-find.test.tsx src/components/legend-panel.test.tsx src/pharosville-world.test.tsx`.
+
+Capture each state separately on the real GPU with
+`--experience-state key|find|controls|light|legend|ledger|changelog`.
+Use both 1200×640 and 900×720, rotated companions, noon/night, normal and
+reduced motion; also inspect both sides of the dawn/dusk sheet switch.
+Every row below needs healthy and long degraded-caption copy, an active
+selected record, and a keyboard-focused action or record.
+
+| State | Acceptance |
+| --- | --- |
+| Rest / controls | Find `/`, Explore and Read key are distinct, one Find exists; explicit expansion reveals a wrapped secondary row, not a hidden duplicate. |
+| Key | Nonmodal key remains reopenable, warning caption stays intact; closing restores its trigger without consuming prior seen visitors. |
+| Find | Input/placeholder/meta are ≥4.5:1, listbox and active descendant agree; arrows/Enter/Escape work and close restores opener. |
+| Light | Time/Still targets remain 44 px; drawer, selected sheet and wrapped warning occupy disjoint rectangles. |
+| Legend / changelog | Existing fonts and lazy sheets remain; fine rules replace ornamental nested frames; focus is visible and restored. |
+| Ledger | Exactly one ledger body/landmark; scroll region, section jumps and native selected disclosures remain keyboard operable and match accessible facts. |
+| Clock boundary / reduced | All composited text roles are ≥4.5:1 before and after polarity switches; no ink/paper colour transition, duplicate entrance or reduced-motion animation. |
+
+Record capture paths, viewport/time/motion, health copy, selected ID, focus
+target, composited contrast minima and collision checks. Evidence remains
+pending until captured; CSS token tests alone do not certify scene composites.
+
+### Panel-aware selection matrix (S8-P4a)
+
+Run `npm test -- src/systems/camera-tableaux.test.ts src/hooks/use-canvas-resize-and-camera.test.ts src/components/detail-panel.test.tsx src/pharosville-world.test.tsx`.
+The hook keeps held departure, eased travel and exact landing, without a
+70%-arrival disclosure clock. Candidate tests check measured sheet padding,
+projected identity spans, deterministic bounded scoring, valid-pose retention,
+clearance-route rejection and final-display-tile follow—not a first-yaw recipe.
+
+Capture at 1600×1000, 1200×640 and 900×720 in normal and reduced motion:
+
+| Subject / action | Acceptance |
+| --- | --- |
+| USDC; smallest admitted hull | Facts and focused heading appear on selection, before camera landing; conservative identity/hull bounds avoid the measured sheet plus 24 px. Inspection enlargement does not imply rank. |
+| Moving hull; final berth | Accepted shot follows the canonical final display tile, not a raw or extrapolated berth; identity and water stay readable without per-frame candidate searches. |
+| Edge berth; dock; grave | Eye, clearance route and silhouette stay unoccluded; an elevated three-quarter view may win. Shore/tower context is subordinate, not mandatory through blocked terrain. |
+| Collapsed / expanded record; resize | ResizeObserver exclusion matches the actual visible sheet, including its scroll cap; it stays clear of the wrapping bottom chrome and never hides facts. |
+| Mid-glide pointer/wheel/key interruption | Immediate facts remain available; the displayed pose freezes or hands off without a first-frame jump. Closing inspection preserves the separate station-local navigation contract. |
+
+Record subject ID, viewport, motion, measured sheet rectangle, expanded state,
+focus and capture path. Aim for ≤35% sky in the subject tableau. GPU images
+and real pixel occlusion remain orchestrator evidence; projected conservative
+envelopes and CSS-only tests do not certify visible pixels.
+
+### Connected, inspectable stroll (S8-P3)
+
+Run `npm test -- src/systems/postcards.test.ts src/hooks/use-canvas-resize-and-camera.test.ts`
+and navigation parity with `npm test -- src/pharosville-world.test.tsx src/content/pharosville-controls.test.ts src/systems/visual-cue-registry.test.ts`.
+Retain no-auto-tour, reduced-motion cuts and every station's sightline assertions.
+Paths are sampled against production terrain, shelter roofs and station massing
+at ≤0.5 world-unit increments; water clearance is ≥1.7, land/massing ≥0.8.
+Check wheel/drag grabbed-point discontinuity <1 CSS px and saved local inspection
+return after Escape/deselection, interruption, resize, Previous/Next and Home.
+
+On the real GPU capture all six IDs with `--station inlet-mouth|north-deck|mole-end|crane-islet|chaseki-bench|crag-stair`;
+sample each incoming adjacent route with `--path-progress 0|0.25|0.5|0.75|1`.
+Each run pins one ID and one fraction, not the literal lists. Repeat at 1200×640,
+900×720 and rotated gates, noon/night and reduced motion. Station/path controls
+use the production path solver, not an elapsed-time screenshot approximation.
+Archive under `outputs/s8/`; picture acceptance and measured bundle/GPU deltas
+remain pending orchestrator captures.
+
+
+
 **Over-capacity browser coverage:** the interaction lane limits the dense
 fixture to 131 ordinary ships and derives the excluded ship in the browser
 from the complete ledger minus the debug seam's admitted ship IDs (its detail
@@ -109,6 +179,31 @@ Before accepting visual drift, verify the fixture, camera, time/reduced-motion
 state, semantic detail, model/logo availability, GPU metrics, and DOM meaning.
 GPU raster variation is not automatically a product change. Do not replace
 evidence merely to silence unexplained differences.
+
+### Resident ecology: natural versus forced evidence
+
+S8-P5 targeted coverage:
+`npm test -- src/systems/garden-score.test.ts src/three/garden-koi.test.ts src/three/garden-heron.test.ts src/three/garden-flora.test.ts src/three/garden-threshold.test.ts`.
+Keep the population, clearance, disposal and owner-budget checks; koi coverage
+now asserts seeded travel/pause/turn states rather than exact loop positions.
+Foliage coverage proves the same gust arrives later downwind, the merged shader
+selects each root, and root/trunk/branch/tip response remains ordered.
+
+Archive separate real-GPU 90-second tea/rest clips for daylight habitat,
+including a genuine koi pause and in-place turn, and a canonical-clock interval
+covering the front's passage through both near-tree rest roots. Record clock
+start, wind bearing, roots, viewport, fixture and station so a long gust-free
+interval is not mistaken for failed flex. Include reduced-motion stills and
+night absence without raising animal brightness. These new captures are
+pending until the orchestrator publishes them.
+
+A forced `fish-ring` or heron ritual clip is **handler/appearance evidence only**.
+Natural fish-ring evidence must instead observe one generated score entry
+admitted inside its half-open one-second window, recording scheduled time and
+actual admission with the director budget active. Also retain busy-window,
+exact-expiry and hidden-resume evidence: expired gifts do not catch up. Do not
+call a forced ritual natural admission, or use either clip to infer market data.
+
 
 ## Performance and bundle
 
@@ -539,13 +634,56 @@ polling every 800 ms for `--tail-seconds` (default 12), and reports:
 | `longtask` | long tasks in the rolling window and the longest — where a GC pause or a rebuild shows up before it reaches the frame |
 | `sweep` | the **worst window** of the whole sweep, and whether the windows were continuous |
 
-The reported window is the median-p90 read of the sweep, so neither the best nor
-the worst read is the report; **the gate is the worst window's p95**, because
-the question a tail asks is whether ANY second was bad, not whether the typical
-one was. A P95 breach is a FAIL. p99, the worst single frame and the long-task
-counts are printed but not gated: a lone spike on a busy machine is real
-information and a bad reason to block a push, while a whole bad second moves p95
-and does block one. Override with `--max-p95=<ms>`.
+The legacy `frame`, `tail`, `sweep`, `metrics` and `tailSweep` still describe all
+reads, including refresh-contaminated windows; their JSON keys retain their
+meaning for existing consumers. The `rest` line and additive
+`performanceEvidence.steadyState` report the median-p90 **clean** window and the
+worst clean-window p95. **`--assert` gates resting p90 and worst resting p95** at
+the same unchanged limits. A slow resting frame is never relabelled a refresh
+merely because it was slow. p99, worst single frame and long tasks remain
+observability rather than additional timing gates.
+
+An allocation-free **DEV-only** capture observer consumes the existing
+per-frame debug publication before its mutable global update, without a second
+RAF. It survives React deleting/recreating that global during refreshes, so the
+first heavier frame is recorded too. The callback is removed from production
+builds; animated steady-state classification on an older/production bundle is
+**SKIP (78)**, not invented evidence. Reduced-motion resource gates are unchanged.
+Refresh markers are actual shadow-map submissions, uploaded/pending atlases and
+logo repaint generations, world/content rebuilds, environment bakes, GPU
+warm-up, tier changes and disjoint query results. The full 120-frame pacing ring
+must age beyond the latest marker before a visible window counts as resting.
+Missing shadow telemetry, no complete clean window or a replaced observer
+(`coverageBreaks`) cannot pass the timing gate.
+Registration replaces and disposes its previous owner rather than chaining
+callbacks. Disposal is idempotent and cannot detach a newer owner; repeated
+reads of one lost callback count one coverage break, not one per read.
+
+The `refresh` line and `performanceEvidence.frames.refresh` retain frame counts,
+CPU render mean/max and draw/triangle/geometry/texture peaks; the corresponding
+`steady` counters retain ordinary-frame peaks. `refreshWindows` reports the
+worst contaminated (or unclassified) pacing window separately, not a fabricated
+refresh-only percentile. CPU work attribution names each observed cause and the
+largest associated CPU span; coincident causes overlap and are not isolated
+pass costs. **Every observed resource peak, including refreshes, remains gated
+by the unchanged hard caps.** Refresh work does not earn a budget exemption.
+
+`dominant` names the largest **refresh-free** per-pass GPU timer reading, with
+its basis. GPU rings are separate from pacing: whole-frame/per-pass queries
+alternate, and disabled or stalled tracks retain old results. Each track must
+complete more than **120 retained + 8 potentially pending** queries beyond its
+last refresh baseline before being labelled clean. The new cumulative
+`samplesCompleted` / `frameSamplesCompleted` scalars establish that provenance
+without changing query lifecycles or sample windows. Unflushed/older-bundle
+results remain unclassified rolling readings; requested GPU assertions are
+SKIP (78) if no clean whole-frame ring was measured. ANGLE Metal still refuses
+`--max-gpu-ms` and its spans cannot establish causal/removable pass cost.
+Use serial uncapped knockout comparisons for that claim. No GPU timer reading
+is inferred from CPU render time, refresh peaks or display cadence.
+
+Focused coverage: `node --test scripts/pharosville/preview.test.mjs scripts/pharosville/preview-experience.test.mjs`;
+`npm test -- src/three/world-renderer.test.ts` covers actual shadow submission
+telemetry. These tests do not supply hardware calibration.
 
 Be honest about the span. The in-page ring holds 120 frames — about 1 s at
 120 Hz, 2 s at 60 Hz — so a `tail` line describes one second, and a 12 s sweep
@@ -682,6 +820,17 @@ env -u CI npm run preview -- --headed --refresh common
 `renderer-equivalent` for a sub-band supply refresh; a true authored change is
 still expected to replace content.
 
+`--refresh … --json` now retains `instruments.refresh`: the warm-up arm (timing
+excluded), all three timed long-task rounds, V8 stage attribution and the
+overhead-included profiled/Blink-traced arms. Each arm independently records
+per-frame draw/triangle/geometry/texture peaks and explicit work counts, with
+`resources.complete` identifying whether the DEV observer captured it fully.
+These provoked arms run after the resting gate and never replace its timing
+evidence. Their resource peaks still fail `--assert` on any unchanged hard-cap
+breach, including warm-up and profiled arms. Because this probe owns
+`page.clock`, CPU frame-interval fields are not claimed as resting timing;
+refresh CPU evidence remains the native long-task/profile/trace measurements.
+
 ### M5 Pro calibration — Garden Observatory
 
 **Evidence: pending hardware.** S9-P5a delivers this protocol, not M5
@@ -787,6 +936,7 @@ reports.
 | `--knockout <list>` | sets `window.__pharosVilleKnockout` before load; names: `ao`, `bloom`, `smaa`, `rays`, `reflection`, `grade`, `keyline`, `water-lanes` |
 | `--knockout-compare <list>` | runs the baseline and each named knockout as whole serial previews, one Chrome per arm, alternating for 3 rounds; prints each arm and Δp50/Δp90 = knockout − baseline, averaged over same-round pairs, plus Σ Δp50. Arm captures and JSON land as `<out>-kc-rN-<arm>.{png,json}`; `--json` writes the summary |
 | `--still-camera` | appends `still=1`: no camera breath and no eased moves (idle already holds the rest shot; Wander postcards move only when asked); director, fleet and water keep running |
+| `--station <id>` / `--path-progress <0..1>` | Before settling, visit an authored station (`inlet-mouth`, `north-deck`, `mole-end`, `crane-islet`, `chaseki-bench`, `crag-stair`); optional progress freezes that previous-station→destination route at an exact sample. Requires the DEV stroll API and a successful action; rejected actions fail rather than fabricating camera state. Progress requires a station; shell captures cannot select one. Requested inputs are recorded in `capture.stroll`. |
 | `--clock <ISO>` | starts a flowing Date observer at that instant for live data and adds `d=YYYY-MM-DD` (the date as written) to the hash. A bare date is local midnight. Under `--fixture`, only `d=` is pinned; the selected fixture clock and source+60 s observer origin are unchanged. RAF, performance and timers stay native. Not combinable with `--refresh` |
 | `--fixture-clock fixed\|flowing` | requires `--fixture`; default `fixed` for art stills, `flowing` for observer-time attention and snapshot-aging watches. Use `--hash '#'` to bypass the fixture's noon pin |
 | `--burst N [--interval ms] [--clip x,y,w,h] [--burst-sheet]` | N ordered frames `<out>-burst-NN.png`, paced start to start (default 600 ms), of the canvas or of a viewport clip in CSS pixels; `--burst-sheet` also tiles them into `<out>-burst-sheet.png` |
@@ -838,18 +988,40 @@ therefore refused on Metal (exit 2). Pass costs come from `--uncapped
 --knockout-compare`. Run arms serially, never beside another GPU job: uncapped
 runs heat the GPU.
 
-**Hour stills (K17).** The desktop gate shows one of five chrome-free stills of
-the rest seat, chosen by the visitor's local hour (`stillForLocalHour` in
-`src/client.tsx`). Regenerate them whenever the rest seat or the look moves, and
-at each release: capture each beat at the rest after the arrival, then encode
-AVIF and JPEG at ≤ 90 KB each into `public/pharosville/stills/garden-<beat>.*`.
+**Hour stills (K17 / S8-P7).** Small-screen visitors receive a useful branded
+edition before any still exists. The local-hour beat (`stillForLocalHour` in
+`src/client.tsx`) is an illustration, not live readings; size guidance follows
+the encoding guide and working analytics links. Renderer failure is different:
+it retains selectable `WorldStaticOverview`, never these stills.
+
+`agents/2026-10-05-garden-levers/destination/social-crops.json` lists all ten exact
+serial `outputs/cap.sh` commands, fixed fixture/date and pixel crop rectangles.
+After integrated art acceptance, the orchestrator captures and reviews the
+landscape/portrait five-beat matrix and OG crop, then sets `accepted: true`.
+Pending or missing inputs cannot publish. Use only the real-GPU clean rest lane;
+do not promote the legacy harbour stills or synthetic encoder-test pixels.
 
 ```bash
-for beat in dawn:7.0 day:12.25 golden:18.5 blue:19.2 night:22; do
-  env -u CI npm run preview -- --headed --clean --still-camera --seconds 14 --clock 2026-09-26 \
-    --hash "#t=${beat#*:}" --out "stills/garden-${beat%%:*}.png"
-done
+node scripts/pharosville/generate-garden-social.mjs --manifest agents/2026-10-05-garden-levers/destination/social-crops.json
+node --test scripts/pharosville/generate-garden-social.test.mjs
+npm test -- src/client.test.tsx src/systems/viewport-gate.test.ts functions/index.test.ts src/systems/garden-arrival.test.ts
 ```
+
+The offline generator uses installed ImageMagick (AVIF/JPEG/PNG support) and the
+repo-local EB Garamond WOFF2 font through FreeType; no network or runtime package
+is added. Same inputs and encoder build yield identical hashes. It writes five
+1200×750 landscape and five 720×900 portrait images in both AVIF and JPEG,
+each ≤90,000 bytes, plus the branded 1200×630 `public/og-card.png`. Publication
+metadata records source/crop/output hashes and is written last. Regenerate and
+ship all outputs together whenever accepted art/seat changes, and each release.
+
+Review 390×844, 844×390 and a capable device with a blocked window, a missing
+publication, failed image, no-JS/module failure and the OG thumbnail. Check that
+only the selected crop/encoding transfers, the guide/links remain legible, no
+world/API/GLB/logo request occurs below the sorted gate, and admitted desktop
+loads no still or publication marker. Exercise both sorted admission profiles,
+rotated companions, one-pixel shrink/remount. Inline script bytes and their CSP
+hash are unchanged; no inline styles/handlers or CSP relaxation are introduced.
 
 **Serial DPR-2 baseline.** Every ms claim cites the baseline table taken on
 the operator's MacBook: run the default and each gate hash one after another,
@@ -989,6 +1161,40 @@ lanes above for correctness, and the `--assert` perf tripwire for frame time and
 draw calls. Both are real measurements on real hardware or an explicit skip;
 neither ever runs in CI. If that trade stops being acceptable, the fix is a GPU
 runner for the visual job.
+
+## Garden sound consent and blind audition (S8-P6)
+
+Run `npm test -- src/lib/pharosville-audio/bed.test.ts src/lib/pharosville-audio/borrowed.test.ts src/hooks/use-garden-sound.test.tsx src/three/garden-island.test.ts`.
+These cover canonical source/eye writes and root gust, visual-night hush,
+muted/Still scheduling, mode cleanup, the six-voice ceiling, basin grounding
+and disposal, stored armed consent, and no context/chunk before the Sound gesture.
+The bowl, spout and dark mouth must share the existing stone draw; preserve the
+42-draw merged island assertion, with no dedicated basin material or wet draw.
+
+On a real browser, keep the network panel open before any gesture: neither a
+fresh visit nor stored `{v:1,on:true,music:true}`, Music, drawer opening, unrelated
+input or `?debug=1&audio=record:N` may request `pharosville-audio-*.js` or create a
+context. Its own Sound switch must explain shore water, pine wind, basin drips
+and distant harbour work. Only that explicit switch gesture starts the chunk.
+At noon and night, audition rest, shore, pines and a far station using the
+canonical visual clock. Confirm distance/pan and sheltered basin hearing, the
+root gust and visible foliage agree, night is hushed and harbour work rests.
+
+Capture Sound-off, stored-armed, hidden/resume, Still and OS reduced-motion
+states. Hidden stops scheduling, fades/suspends and resumes without backlog;
+Sound-off/Still silences and closes immediately. Still must not allocate an
+engine/chunk; leaving it must require another Sound gesture. Verify listener
+and timer cleanup on unmount/remount. Save scene/basin crops at noon/night with
+the gull landing unchanged; frame statistics are not audio recordings.
+
+With motion enabled, `?debug=1&audio=record:N` now waits for the explicit Sound
+gesture before its offline audition. Save WAV, stem/peak table and six-voice
+report, then compare equal-level randomized old/new headphone and speaker
+auditions. Accept a quiet stone/water basin rather than a bell/knock costume,
+with shore/hiss energy displaced, no increased loudness and ≤−6 dBTP.
+Forced/offline scores are auditions, never evidence of natural event admission.
+Stem/peak evidence, blind preference and headphone/speaker acceptance remain
+pending until the orchestrator records them; no hardware/audition claim is made here.
 
 ## Release confidence
 

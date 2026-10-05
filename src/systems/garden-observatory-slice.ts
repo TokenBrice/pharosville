@@ -42,6 +42,9 @@ export const GARDEN_ISLAND_TILE_OFFSET = { x: 12, y: 8 } as const;
 // while BEACON_Y (30.2 → 24.2) and HEIGHT (38 → 32) shrank by the same six:
 // the world beacon and crown heights below are unchanged.
 export const GARDEN_LIGHTHOUSE_ROOT_OFFSET = { x: -7, y: 8.55, z: -1.25 } as const;
+/** Root-local hydraulic mouth and foreground pine, shared by geometry and sound. */
+export const GARDEN_BASIN_ROOT_OFFSET = { x: 3.8, z: 6.75 } as const;
+export const GARDEN_PINE_SOUND_ROOT_OFFSET = { x: -4.8, z: 8.3 } as const;
 // Epic Pharos 2026-09-05 (D1): the broad battered square tier, octagonal
 // drum, columned lantern and Zeus Soter crown stand 32 units above the crag
 // court. BEACON_Y is the brazier centre inside the lantern (flame and beam

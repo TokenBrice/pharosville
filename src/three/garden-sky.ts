@@ -37,7 +37,7 @@ import {
 import { debugSkyBand } from "../lib/pharosville-debug";
 import { acquireGardenNoisePack } from "./garden-noise-pack";
 import { GARDEN_AIR, GARDEN_AERIAL_GLSL_PARS, gardenAerialUniforms, updateGardenAerial } from "./garden-aerial";
-import { writeGardenAtmosphereCoefficients, writeGardenAtmosphereSky } from "./garden-atmosphere";
+import { GARDEN_ATMOSPHERE, writeGardenAtmosphereCoefficients, writeGardenAtmosphereSky } from "./garden-atmosphere";
 import type { EpistemicFogBank } from "../systems/epistemic-haze";
 import {
   dayCycleBeats,
@@ -444,15 +444,13 @@ function createDome(): {
 } {
   const glslVec3 = (v: Vector3): string => `vec3(${v.x.toFixed(6)}, ${v.y.toFixed(6)}, ${v.z.toFixed(6)})`;
   const material = new ShaderMaterial({
-    depthTest: false,
+    depthTest: true,
     depthWrite: false,
     fog: false,
     side: BackSide,
     uniforms: {
       ...gardenAerialUniforms,
       uAtmosphereDate: { value: 0 },
-      uAirAnti: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
-      uAirSun: { value: DAY_CYCLE_SKY_PRESETS.night.fog.clone() },
       uAntiHorizon: { value: GARDEN_SKY_BEATS.night.anti.clone() },
       uBeltColor: { value: GARDEN_SKY_BELT.rose.clone() },
       uBeltStrength: { value: 0 },
@@ -504,8 +502,6 @@ function createDome(): {
       }
     `,
     fragmentShader: /* glsl */ `
-      uniform vec3 uAirAnti;
-      uniform vec3 uAirSun;
       uniform vec3 uAntiHorizon;
       uniform vec3 uBeltColor;
       uniform float uBeltStrength;
@@ -731,11 +727,13 @@ function createDome(): {
         // 2–3 px darker line where sky meets sea. Only near the rest/near-rig
         // pitch: pulled out to the chart the horizon is a curve high in the
         // frame, and a line there reads as a scratch.
-        float ichimonjiGain = 0.06 * smoothstep(0.11, 0.18, uSkyVisibleHeight) * (1.0 - uScattering);
-        float ichimonji = 1.0 - ichimonjiGain * (1.0 - smoothstep(0.0, 0.0035, abs(dir.y + 0.0015)));
-        vec3 air = mix(uAirAnti, uAirSun, sunSide) * ichimonji;
-        vec3 composed = mix(air, color, smoothstep(0.0, 0.12, skyHeight));
-        color = mix(composed, color, uScattering);
+        if (uScattering < 1.0) {
+          float ichimonjiGain = 0.06 * smoothstep(0.11, 0.18, uSkyVisibleHeight) * (1.0 - uScattering);
+          float ichimonji = 1.0 - ichimonjiGain * (1.0 - smoothstep(0.0, 0.0035, abs(dir.y + 0.0015)));
+          vec3 air = gardenAirlightBase(dir) * ichimonji;
+          vec3 composed = mix(air, color, smoothstep(0.0, 0.12, skyHeight));
+          color = mix(composed, color, uScattering);
+        }
         gl_FragColor = vec4(color, 1.0);
       }
     `,
@@ -875,9 +873,6 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   // Fog enables the built-in material hook and retains fleet/chroma metadata.
   // Its CPU colour is the shared transport horizon, also used by stale banks.
   const fog = new Fog(DAY_CYCLE_SKY_PRESETS.night.fog.clone(), FOG_NEAR, FOG_FAR);
-  // The dome's lower hemisphere and seam draw the SAME air the world fades to.
-  if (dome.material.uniforms.uAirSun) dome.material.uniforms.uAirSun.value = GARDEN_AIR.airSun;
-  if (dome.material.uniforms.uAirAnti) dome.material.uniforms.uAirAnti.value = GARDEN_AIR.airAnti;
 
   // Scratch objects for the per-frame billboard writes — the frame path must
   // not allocate, so the uniforms hold these instances and `update` mutates
@@ -891,6 +886,8 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
   const winterFog = new Color(HARBOR_PALETTE.fog_blue);
   const scratchCloudMoon = new Color();
   const scratchCloudNight = new Color();
+  const cloudDiffuse = new Color();
+  const cloudDirect = new Color();
   const solarHorizon = dome.material.uniforms.uSolarHorizon.value as Color;
   const antiHorizon = dome.material.uniforms.uAntiHorizon.value as Color;
   const moonDir = dome.material.uniforms.uMoonDir.value as Vector3;
@@ -979,15 +976,17 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       sunColor.b += color.b * beats[beat];
     }
     dome.material.uniforms.uScattering.value = Math.min(1, daylight + dusk * 0.7);
-    dome.material.uniforms.uSunIntensity.value = daylight * 1.55 + dusk * 1.3;
+    dome.material.uniforms.uSunIntensity.value = daylight * GARDEN_ATMOSPHERE.sunDiscRadiance + dusk * 1.3;
     dome.material.uniforms.uBokashiAmount.value = gardenBokashiAmount(phase);
     updateGardenAerial({
       phase, solarHorizon, antiHorizon, sunDir,
       seaLevel: GARDEN_WATER_Y, clarity: displayedClarity,
       skyVisibleHeight: dome.material.uniforms.uSkyVisibleHeight.value as number,
     });
-    // Clouds and ridge CPU consumers use the same radiance, not a day pigment.
-    const analytic = GARDEN_AIR.daylight;
+    // Authored twilight stays an unscattered basis: the fragment mixes the
+    // analytic sky once, rather than spreading the forward solar lobe twice.
+    // Noon retains its analytic CPU uniforms for the probe and other consumers.
+    const analytic = beats.day;
     atmosphereDirection.set(sunDir.x, 0, sunDir.z);
     atmosphereDirection.divideScalar(Math.max(atmosphereDirection.length(), 1e-4));
     writeGardenAtmosphereSky(atmosphereColor, atmosphereDirection, sunDir, GARDEN_AIR.rayleigh, GARDEN_AIR.mie);
@@ -1131,6 +1130,29 @@ export function createGardenSky(season: GardenSeason = "spring"): GardenSky {
       desaturate(cloudLitCool, 1).lerp(antiHorizon, 0.35);
       cloudShade.copy(antiHorizon).lerp(zenithNow, 0.35).multiplyScalar(0.8 * (1 - 0.22 * deck));
       desaturate(cloudShade, 0.25);
+      // A sight ray at the solar horizon is the forward Mie lobe, not the
+      // irradiance received by every cloud. Integrate a cosine-weighted sky
+      // hemisphere instead (four azimuths at its equal-area midpoint).
+      // Keep the accepted high-sun and lunar paths exactly as authored.
+      const cloudTransport = (1 - night) * (1 - MathUtils.smoothstep(sunDir.y, 0.08, 0.45));
+      if (cloudTransport > 0) {
+        cloudDiffuse.setRGB(0, 0, 0);
+        for (let sample = 0; sample < 4; sample++) {
+          atmosphereDirection.set(
+            sample === 0 ? Math.SQRT1_2 : sample === 1 ? -Math.SQRT1_2 : 0,
+            Math.SQRT1_2,
+            sample === 2 ? Math.SQRT1_2 : sample === 3 ? -Math.SQRT1_2 : 0,
+          );
+          writeGardenAtmosphereSky(atmosphereColor, atmosphereDirection, sunDir, GARDEN_AIR.rayleigh, GARDEN_AIR.mie);
+          cloudDiffuse.add(atmosphereColor.multiplyScalar(0.25));
+        }
+        cloudDiffuse.multiply(CLOUD_WHITE);
+        cloudDirect.copy(sunColor).multiply(CLOUD_WHITE)
+          .multiplyScalar(Math.max(0, sunDir.y) * (dome.material.uniforms.uSunIntensity.value as number));
+        cloudLit.lerp(atmosphereColor.copy(cloudDiffuse).add(cloudDirect), cloudTransport);
+        cloudLitCool.lerp(cloudDiffuse, cloudTransport);
+        cloudShade.lerp(atmosphereColor.copy(cloudDiffuse).multiplyScalar(0.8 * (1 - 0.22 * deck)), cloudTransport);
+      }
       scratchCloudNight.copy(solarHorizon).lerp(zenithNow, 0.5).multiplyScalar(1.12);
       cloudLit.lerp(scratchCloudNight, night);
       cloudLitCool.lerp(scratchCloudNight, night);

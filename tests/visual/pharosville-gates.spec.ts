@@ -150,7 +150,9 @@ test(...visualLane("dom", "a capable screen with one blocked viewport dimension 
   await page.goto("/");
 
   expect(canViewportShowMap(MIN_SHORT_SIDE_PX, MIN_SHORT_SIDE_PX)).toBe(false);
-  await expect(page.getByText("Give the harbor more room.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "PharosVille", exact: true })).toBeVisible();
+  await expect(page.getByText(/Your device can show the interactive garden/)).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Pharos analytics" })).toBeVisible();
   await expect(page.getByTestId("pharosville-canvas")).toHaveCount(0);
   expect(deniedRequests).toEqual([]);
 });

@@ -18,12 +18,14 @@ import {
   Vector3,
 } from "three";
 import { describe, expect, it, vi, type Mock } from "vitest";
-import { GARDEN_LIGHTHOUSE_ROOT_OFFSET, GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
+import { GARDEN_BASIN_ROOT_OFFSET, GARDEN_LIGHTHOUSE_ROOT_OFFSET, GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import { GARDEN_ISLAND_OBSTACLE } from "../systems/garden-water-exclusion";
 import type { PharosVilleWorld } from "../systems/world-types";
 import { weatherForFrame } from "../systems/weather";
 import {
   createTerracedIsland,
+  createGardenBasinStoneGeometry,
+  GARDEN_BASIN_WATER_Y,
   createGardenChaseki,
   GARDEN_CHASEKI_ANCHORS,
   GARDEN_CHASEKI_FEET,
@@ -473,9 +475,8 @@ describe("garden island rockwork", () => {
     }
   });
 
-  it("groups upland stones into Sakuteiki triads with one dominant vertical", () => {
-    // Odd-numbered clusters, exactly one dominant ("father") stone each, and
-    // the dominant always out-scales its subordinates.
+  it("keeps odd stone ensembles with a grounded bowl replacing one south companion", () => {
+    // Each three-member ensemble retains one dominant stone; the basin is subordinate.
     for (const triad of GARDEN_ISLAND_STONE_GROUPINGS) {
       expect(triad.length % 2).toBe(1);
       const dominants = triad.filter((stone) => stone.dominant);
@@ -486,6 +487,12 @@ describe("garden island rockwork", () => {
         expect(stone.scale).toBeLessThan(dominant.scale * 0.75);
       }
     }
+    const south = GARDEN_ISLAND_STONE_GROUPINGS[3]!;
+    expect(south).toHaveLength(3);
+    expect(south.filter((member) => member.basin)).toEqual([
+      { ...GARDEN_BASIN_ROOT_OFFSET, y: -0.3, scale: 0.5, basin: true },
+    ]);
+    expect(GARDEN_ISLAND_STONE_GROUPINGS.flat().filter((member) => member.basin)).toHaveLength(1);
     // W4.G4: set stones, a third buried with a crown above the ground.
     const island = createTerracedIsland(world);
     const stones = island.root.getObjectByName("island-set-stones") as Mesh;
@@ -507,6 +514,38 @@ describe("garden island rockwork", () => {
       expect(top, `stone ${stone.x},${stone.z} crown`).toBeGreaterThan(ground);
       expect(bottom, `stone ${stone.x},${stone.z} seated`).toBeLessThan(ground);
     }
+    island.dispose();
+  });
+
+  it("grounds the hydraulic mouth and disposes its bowl/spout within the existing stone draw", () => {
+    const stone = createGardenBasinStoneGeometry();
+    stone.computeBoundingBox();
+    const ground = islandTerrainHeight(GARDEN_BASIN_ROOT_OFFSET.x, GARDEN_BASIN_ROOT_OFFSET.z);
+    expect(stone.boundingBox!.min.y).toBeCloseTo(ground - 0.06, 5);
+    expect(GARDEN_BASIN_WATER_Y).toBeCloseTo(ground + 0.43, 5);
+    expect(stone.index!.count / 3).toBeLessThanOrEqual(400);
+    const positions = stone.getAttribute("position");
+    const normals = stone.getAttribute("normal");
+    let mouthVertices = 0;
+    for (let index = 0; index < positions.count; index += 1) {
+      if (Math.abs(positions.getY(index) - GARDEN_BASIN_WATER_Y) > 1e-5) continue;
+      mouthVertices += 1;
+      expect(normals.getY(index)).toBeCloseTo(1, 5);
+      expect(Math.hypot(positions.getX(index) - GARDEN_BASIN_ROOT_OFFSET.x, positions.getZ(index) - GARDEN_BASIN_ROOT_OFFSET.z)).toBeLessThan(0.321);
+    }
+    // CircleGeometry retains a seam duplicate: centre + 12 rim vertices + seam.
+    expect(mouthVertices).toBe(14);
+    const island = createTerracedIsland(world);
+    expect(island.root.getObjectByName("island-acoustic-basin-water")).toBeUndefined();
+    expect(countDrawableObjects(island.root)).toBe(42);
+    const stones = island.root.getObjectByName("island-set-stones") as Mesh;
+    const disposeGeometry = vi.spyOn(stones.geometry, "dispose");
+    const disposeMaterial = vi.spyOn(stones.material as MeshStandardMaterial, "dispose");
+    island.dispose();
+    island.dispose();
+    expect(disposeGeometry).toHaveBeenCalledTimes(1);
+    expect(disposeMaterial).toHaveBeenCalledTimes(1);
+    stone.dispose();
   });
 
   it("keeps the shoin court's three draws and single warm gatehouse window", () => {

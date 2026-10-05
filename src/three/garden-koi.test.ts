@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createGardenKoi,
   GARDEN_KOI_COUNT,
-  GARDEN_KOI_SWIM_RATE_RANGE,
+  GARDEN_KOI_TRAVEL_SECONDS_RANGE,
   sampleGardenKoi,
 } from "./garden-koi";
 import { GARDEN_POND_RADIUS } from "./garden-island";
@@ -33,23 +33,55 @@ describe("garden koi", () => {
     expect(koi.mesh.matrixWorldAutoUpdate).toBe(true);
   });
 
-  it("sends two fish through the basin-local reflection centre on a slow figure-eight", () => {
-    for (const index of [0, 1]) {
-      const sample = sampleGardenKoi(index, 0);
-      expect(sample.x).toBeCloseTo(0, 8);
-      expect(sample.z).toBeCloseTo(0, 8);
+  it("composes distinct near-bank itineraries rather than synchronized mirror loops", () => {
+    const poses = Array.from({ length: GARDEN_KOI_COUNT }, (_, index) => sampleGardenKoi(index, 0));
+    expect(new Set(poses.map(({ x, z }) => `${x},${z}`)).size).toBe(GARDEN_KOI_COUNT);
+    expect(GARDEN_KOI_TRAVEL_SECONDS_RANGE).toEqual([24, 42]);
+    for (let index = 0; index < GARDEN_KOI_COUNT; index += 1) {
+      for (let time = 0; time < 1800; time += 3) {
+        const sample = sampleGardenKoi(index, time);
+        expect(sample.x).toBeGreaterThanOrEqual(-1.5);
+        expect(sample.x).toBeLessThanOrEqual(2);
+        expect(sample.z).toBeGreaterThanOrEqual(-0.35);
+        expect(sample.z).toBeLessThanOrEqual(0.95);
+      }
     }
-    const lobe = sampleGardenKoi(0, Math.PI / (2 * GARDEN_KOI_SWIM_RATE_RANGE[0]));
-    expect(lobe.x).toBeGreaterThan(2);
-    expect(lobe.z).toBeCloseTo(0, 8);
-    expect(Math.max(...GARDEN_KOI_SWIM_RATE_RANGE)).toBeLessThanOrEqual(0.032);
   });
 
-  it("keeps every whole fish inside the pond skin through a full swim cycle", () => {
-    const period = (2 * Math.PI) / GARDEN_KOI_SWIM_RATE_RANGE[0];
+  it("has genuine stationary pauses and bounded in-place turns on the canonical clock", () => {
     for (let index = 0; index < GARDEN_KOI_COUNT; index += 1) {
-      for (let step = 0; step <= 96; step += 1) {
-        const sample = sampleGardenKoi(index, (period * step) / 96);
+      const seen = new Set<string>();
+      for (let time = 0; time < 600; time += 0.25) {
+        const pose = sampleGardenKoi(index, time);
+        const next = sampleGardenKoi(index, time + 0.1);
+        seen.add(pose.state);
+        expect(Math.hypot(next.x - pose.x, next.z - pose.z)).toBeLessThan(0.025);
+        const yawChange = Math.atan2(Math.sin(next.heading - pose.heading), Math.cos(next.heading - pose.heading));
+        expect(Math.abs(yawChange)).toBeLessThan(0.16);
+        if (pose.state === "pause" && next.state === "pause") expect(next).toEqual(pose);
+        if (pose.state === "turn" && next.state === "turn") {
+          expect(next.x).toBe(pose.x);
+          expect(next.z).toBe(pose.z);
+          expect(Math.abs(yawChange)).toBeGreaterThan(0);
+        }
+      }
+      expect([...seen].sort()).toEqual(["pause", "travel", "turn"]);
+    }
+  });
+
+  it("writes into one reusable sample without frame-history dependence or catch-up", () => {
+    const target = sampleGardenKoi(0, 0);
+    expect(sampleGardenKoi(0, 1200, false, target)).toBe(target);
+    expect(target).toEqual(sampleGardenKoi(0, 1200));
+    sampleGardenKoi(0, 3, false, target);
+    expect(sampleGardenKoi(0, 1200, false, target)).toEqual(sampleGardenKoi(0, 1200));
+    expect(sampleGardenKoi(0, Number.NaN)).toEqual(sampleGardenKoi(0, 0));
+  });
+
+  it("keeps every whole fish inside the pond skin across long bounded itineraries", () => {
+    for (let index = 0; index < GARDEN_KOI_COUNT; index += 1) {
+      for (let step = 0; step <= 600; step += 1) {
+        const sample = sampleGardenKoi(index, step * 3);
         const reach = KOI_HALF_LENGTH * sample.scale;
         const extent = ((Math.abs(sample.x) + reach) / POND_HALF_X) ** 2
           + ((Math.abs(sample.z) + reach) / POND_HALF_Z) ** 2;
@@ -68,10 +100,12 @@ describe("garden koi", () => {
     expect(sampleGardenKoi(2, 91, true)).toEqual(sampleGardenKoi(2, 0, true));
     const koi = createGardenKoi();
     const held = positions(koi.mesh);
+    const heldMatrices = Array.from(koi.mesh.instanceMatrix.array);
     koi.update({ daylight: 1, night: 0, reducedMotion: false, timeSeconds: 91 });
     expect(positions(koi.mesh)).not.toEqual(held);
     koi.update({ daylight: 1, night: 0, reducedMotion: true, timeSeconds: 91 });
     expect(positions(koi.mesh)).toEqual(held);
+    expect(Array.from(koi.mesh.instanceMatrix.array)).toEqual(heldMatrices);
   });
 
   it("keeps exactly one vermilion-and-white daylight glint", () => {

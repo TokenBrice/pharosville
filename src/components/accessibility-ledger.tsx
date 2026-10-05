@@ -198,7 +198,7 @@ function AccessibilityLedgerContent({
         </div>)}
       </dl>
 
-      {presentation === "visible" && <nav aria-label="Ledger sections" onClick={(event) => {
+      {presentation === "visible" && <nav className="pharosville-ledger__sections" aria-label="Ledger sections" onClick={(event) => {
         const link = event.target instanceof Element ? event.target.closest("a") : null;
         if (!link) return;
         event.preventDefault();

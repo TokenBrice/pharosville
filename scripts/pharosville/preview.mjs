@@ -35,13 +35,9 @@
  * PASS, FAIL, and SKIP (exit 78) when this machine cannot render a real frame.
  * Never collapse SKIP into PASS.
  *
- * The headline number is the TAIL, not the average. Calm is a P95 property: one
- * 100ms frame a minute is felt where 2ms on the mean is not, so the animated
- * assert arm sweeps the pacing window repeatedly (--tail-seconds) and gates the
- * WORST window's p95. p99, the worst single frame and the long-task counts are
- * reported beside it as observability — a lone spike on a busy machine is real
- * information but a bad reason to block a push, whereas a whole bad second
- * shows up in p95 and does block one.
+ * Animated assertions gate clean resting windows, never refresh-contaminated
+ * pacing/GPU rings. Refresh frames and all resource peaks remain recorded;
+ * p99, worst frame and long tasks remain observability, not new relaxed caps.
  *
  * Usage:
  *   node scripts/pharosville/preview.mjs
@@ -98,6 +94,8 @@
  *   --value-plan [noon|dusk|night]  ninth diagnostics; noon/dusk MAE and Pearson r (column from t= hour)
  *   --night-water              mean L* over the projected inlet water polygon
  *   --light-rois <json>         aspect-specific CSS polygons: median contrasts and non-recess L*6 coverage
+ *   --station <id>            visit an authored stroll station before settling
+ *   --path-progress <0..1>    pin that station route at an exact sample
  */
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -112,7 +110,7 @@ import {
 } from "./preview-fixture.mjs";
 import { appearanceDocumentIdentity, buildCaptureManifest, fetchServedCheckoutIdentity, hashFixturePayloads, phaseForHour } from "./preview-manifest.mjs";
 import { analyzeArtifactFlashFrames } from "./artifact-flash-metric.mjs";
-import { parseExperienceFlags, installExperienceObserver, captureColdFilmstrip, readExperienceTiming, applyExperienceState } from "./preview-experience.mjs";
+import { parseExperienceFlags, installExperienceObserver, captureColdFilmstrip, readExperienceTiming, applyExperienceState, applyStrollCapture, installFrameEvidenceObserver, isSteadyFrameWindow, dominantPassReading } from "./preview-experience.mjs";
 import {
   bottomThirdHighFrequency,
   brightShare,
@@ -433,6 +431,7 @@ try {
   });
   if (shipLimit !== null) await page.addInitScript((limit) => { window.__pharosVilleTestShipLimit = limit; }, shipLimit);
   if (forcedTier) await page.addInitScript((tier) => { window.__pharosVilleTestSchedulerTier = tier; }, forcedTier);
+  if (!experience.shell && !args.reduced) await page.addInitScript(installFrameEvidenceObserver);
   if (refreshMode) await installRefreshProbe(page);
   if (knockout) await page.addInitScript((passes) => { window.__pharosVilleKnockout = passes; }, knockout);
   // Fixtures own their observer; --clock changes only d=, independently of their Date mode.
@@ -620,6 +619,7 @@ try {
     if (((await readMetrics(page)).shipsVisible ?? 0) > 0) break;
     await page.waitForTimeout(500);
   }
+  await applyStrollCapture(page, experience);
   await page.waitForTimeout(seconds * 1000);
 
   let metrics;
@@ -642,17 +642,10 @@ try {
     console.error("warning: no fleet on screen — the world had not populated, so the frame below is not the world.");
   }
 
-  // The tail sweep. It reads a ring that is entirely steady-state by now, and
-  // it reads it repeatedly: the reported metrics are the MEDIAN-p90 window (so
-  // one background spike on a busy machine cannot block a push, while a genuine
-  // regression — which shows in every window — still does), and the tail
-  // summary is the WORST window of the sweep (so a bad second cannot hide
-  // behind eleven good ones).
-  //
-  // Windows overlap, unlike the three widely-spaced reads this replaced. That
-  // is the point: a gap between reads is a stretch of frames nothing measured.
-  // A spike survives in the ring for ~120 frames, i.e. about two polls, so it
-  // still cannot swing a median taken over a dozen of them.
+  // Observe every existing debug publication, then sweep the existing pacing
+  // rings. Only windows wholly beyond refresh enter the resting gate. The
+  // backwards-compatible top-level sweep still records ALL windows.
+  if (!args.reduced) await page.evaluate(() => window.__previewFrameEvidence?.begin());
   // Both readers observe this one settled scene, not two successive sessions.
   const [sweep, watchedStats] = await Promise.all([
     !args.reduced && tailSeconds > 0 ? sweepFrameTail(page, tailSeconds * 1000) : null,
@@ -660,6 +653,35 @@ try {
   ]);
   tailSweep = sweep;
   if (tailSweep?.reads.length > 0) metrics = medianByP90(tailSweep.reads);
+  const steadyReads = tailSweep ? tailSweep.reads.filter(isSteadyFrameWindow) : isSteadyFrameWindow(metrics) ? [metrics] : [];
+  const steadyMetrics = steadyReads.length ? medianByP90(steadyReads) : null;
+  const gpuRead = steadyReads.filter((read) => read.frameEvidence?.gpuFrameClean
+    && read.gpuTimings?.supported && !read.gpuTimings.disjoint && Number.isFinite(read.gpuTimings.frameP95Ms))
+    .reduce((worst, read) => !worst || read.gpuTimings.frameP95Ms > worst.gpuTimings.frameP95Ms ? read : worst, null);
+  const latestSteadyRead = steadyReads.at(-1);
+  const performanceEvidence = args.reduced ? null : {
+    steadyState: {
+      ...summarizeFrameTail(steadyReads, tailSweep?.spanMs ?? 0),
+      representative: steadyMetrics,
+      gpuTimings: gpuRead?.gpuTimings ?? null,
+      dominantPass: dominantPassReading(latestSteadyRead?.gpuTimings, renderer, latestSteadyRead?.frameEvidence?.gpuCleanPasses ?? []),
+    },
+    refreshWindows: summarizeFrameTail(tailSweep?.reads.filter((read) => !isSteadyFrameWindow(read)) ?? [], tailSweep?.spanMs ?? 0),
+    frames: await page.evaluate(() => window.__previewFrameEvidence?.snapshot() ?? null),
+    classification: "explicit shadow/upload/content/environment/warmup/tier work; clean pacing ring only",
+  };
+  if (performanceEvidence) {
+    performanceEvidence.steadyState.continuous &&= !tailSweep || steadyReads.length === tailSweep.reads.length;
+    performanceEvidence.steadyState.continuous &&= (performanceEvidence.frames?.coverageBreaks ?? 0) === 0;
+    const associated = performanceEvidence.frames?.causes.filter((cause) => cause.frames > 0).sort((a, b) => b.associatedCpuMs - a.associatedCpuMs) ?? [];
+    performanceEvidence.refreshWorkAttribution = {
+      dominant: associated[0]?.name ?? null,
+      causes: associated,
+      basis: "CPU render time associated with explicit work; coincident causes overlap, not isolated pass cost",
+    };
+  }
+  if (tailSweep) tailSweep.steadyState = performanceEvidence.steadyState;
+  metrics = { ...metrics, performanceEvidence };
   const watch = watchedStats?.watch;
   const measurementOverlap = tailSweep && watch && !watch.error ? {
     startMs: Math.max(tailSweep.startedAtMs, watch.startedAtMs),
@@ -838,7 +860,7 @@ try {
 
   // Last, deliberately: the probe mutates the payload, so everything above —
   // including the screenshot — describes the world as the API actually serves it.
-  if (refreshMode) await reportRefreshCost(page);
+  if (refreshMode) instruments.refresh = await reportRefreshCost(page);
   if (args["pan-zoom"]) {
     const bounds = await canvas.boundingBox();
     if (!bounds) throw new Error("Canvas unavailable for --pan-zoom");
@@ -953,6 +975,7 @@ try {
       shipLimit: shipLimit === null ? null : { requested: requestedShipLimit, effective: shipLimit, ...shipLimitVerification },
       screenshotTiming: statsWatchSeconds > 0 ? "after stats watch" : "after settle and any tail sweep",
       experienceState: experience.state,
+      stroll: { station: experience.station, pathProgress: experience.pathProgress },
       experience: experienceTiming,
     };
     await writeFile(
@@ -969,6 +992,7 @@ try {
         fixture,
         forcedTier,
         instrumentConfig: { clock, observer, knockout, stillCamera, uncapped, spikeTrace: Boolean(args["spike-trace"]) },
+        performanceEvidence,
         instruments,
       }, null, 2)}\n`,
     );
@@ -998,6 +1022,7 @@ async function sweepFrameTail(page, spanMs) {
   const startedAtMs = performance.now();
   // Read immediately, so even a very short span yields one window.
   const reads = [await readMetrics(page)];
+  // Initial-window classification sees refresh history from before this sweep.
   while (performance.now() - startedAtMs < spanMs) {
     await page.waitForTimeout(Math.min(TAIL_POLL_INTERVAL_MS, Math.max(0, spanMs - (performance.now() - startedAtMs))));
     reads.push(await readMetrics(page));
@@ -1078,6 +1103,21 @@ function printFrameTail(metrics, renderer) {
   console.log(`longtask   ${metrics.longtaskCount ?? 0} in the rolling window`
     + ` · longest ${round(metrics.longtaskMaxMs ?? 0)}ms`
     + " — a GC pause or a rebuild lands here before it reaches the frame");
+  const evidence = metrics.performanceEvidence;
+  if (evidence) {
+    const rest = evidence.steadyState;
+    const resources = (total) => `${total?.calls ?? 0} calls · ${total?.triangles ?? 0} tris · ${total?.geometries ?? 0} geometries · ${total?.textures ?? 0} textures (peaks)`;
+    console.log(`rest       ${rest.measured ? `p50 ${round(rest.representative.p50)}ms · p90 ${round(rest.representative.p90)}ms · worst clean-window p95 ${round(rest.p95)}ms · ${rest.windows} windows` : "not measured — no complete refresh-free pacing window"}`);
+    console.log(`           ${resources(evidence.frames?.steady)}`);
+    console.log(`           refresh-free GPU frame p95 ${rest.gpuTimings ? round(rest.gpuTimings.frameP95Ms) + "ms" : "not measured (rolling results not flushed)"}`);
+    console.log(`dominant   ${rest.dominantPass.name ?? "not measured"} · ${round(rest.dominantPass.p95Ms)}ms · ${rest.dominantPass.basis}`);
+    const refresh = evidence.frames?.refresh;
+    const associated = evidence.refreshWorkAttribution.causes;
+    console.log(`refresh    ${refresh?.frames ?? 0} explicit work frames · CPU render mean ${round(refresh?.frames ? refresh.cpuTotalMs / refresh.frames : null)}ms · max ${round(refresh?.cpuMaxMs ?? null)}ms`);
+    console.log(`           ${resources(refresh)} · contaminated-window p95 ${evidence.refreshWindows.measured ? round(evidence.refreshWindows.p95) : "not measured"}ms`);
+    console.log(`           work attribution: ${associated.map((cause) => `${cause.name} ${cause.frames} frames`).join(" · ") || "none observed"}; largest associated CPU span: ${associated[0]?.name ?? "none"} (coincident causes overlap; not isolated pass cost)`);
+    if (evidence.frames?.unclassified.frames) console.log(`unmeasured ${evidence.frames.unclassified.frames} unclassified frames · ${resources(evidence.frames.unclassified)}`);
+  }
   if (!tailSweep) return;
   if (!tailSweep.measured) {
     console.log(`sweep      ${tailSweep.windows} windows over ${round(tailSweep.spanMs / 1000)}s,`
@@ -1277,12 +1317,33 @@ async function measureOneRefresh(page, recorder) {
   await page.evaluate(() => { window.__previewLongtasks.length = 0; });
 
   if (recorder) await recorder.start();
+  await page.evaluate(() => window.__previewFrameEvidence?.begin());
   refreshState.openGate();
   refreshState.gate = null;
   await page.waitForTimeout(REFRESH_WINDOW_MS);
 
   const durations = await page.evaluate(() => window.__previewLongtasks.slice());
-  return { captured: recorder ? await recorder.stop() : null, durations };
+  const resources = await page.evaluate(() => {
+    const evidence = window.__previewFrameEvidence?.snapshot();
+    if (!evidence) return null;
+    const pick = (total) => ({ frames: total.frames, calls: total.calls, triangles: total.triangles, geometries: total.geometries, textures: total.textures });
+    return {
+      steady: pick(evidence.steady), refresh: pick(evidence.refresh), unclassified: pick(evidence.unclassified),
+      complete: evidence.reporting && evidence.coverageBreaks === 0,
+      causes: evidence.causes.map(({ name, frames }) => ({ name, frames })),
+    };
+  });
+  if (assertMode && resources) {
+    for (const total of [resources.steady, resources.refresh, resources.unclassified]) {
+      for (const [field, limit] of [["calls", limits.maxDrawCalls], ["triangles", limits.maxTriangles], ["geometries", limits.maxGeometries], ["textures", limits.maxTextures]]) {
+        if (total[field] > limit) {
+          console.error(`FAIL: provoked refresh ${field} peak ${total[field]} exceeds unchanged ${limit} cap`);
+          process.exitCode = 1;
+        }
+      }
+    }
+  }
+  return { captured: recorder ? await recorder.stop() : null, durations, resources };
 }
 
 /** V8 sampling profiler: which JS stage asked for the time. */
@@ -1465,13 +1526,15 @@ async function reportRefreshCost(page) {
 
   // Round one warms the swap path itself (first-time program links, first
   // disposal), so it is provoked and discarded rather than reported.
-  const warmup = summarizeRefresh((await measureOneRefresh(page, null)).durations);
+  const warmupRound = await measureOneRefresh(page, null);
+  const warmup = summarizeRefresh(warmupRound.durations);
   console.log(`  warm-up  ${round(warmup.busyMs)}ms busy · longest ${round(warmup.longestMs)}ms (discarded)`);
 
   const rounds = [];
   for (let index = 0; index < REFRESH_TIMED_ROUNDS; index += 1) {
-    const summary = summarizeRefresh((await measureOneRefresh(page, null)).durations);
-    rounds.push(summary);
+    const measured = await measureOneRefresh(page, null);
+    const summary = summarizeRefresh(measured.durations);
+    rounds.push({ ...summary, resources: measured.resources });
     console.log(`  round ${index + 1}  ${round(summary.busyMs)}ms busy in ${summary.count} long tasks`
       + ` · longest ${round(summary.longestMs)}ms · blocking ${round(summary.blockingMs)}ms`);
   }
@@ -1512,6 +1575,14 @@ async function reportRefreshCost(page) {
     (key) => before.contentParts?.[key] !== after.contentParts?.[key],
   );
   console.log(`  content  ${changedContentParts.length > 0 ? changedContentParts.join(", ") : "renderer-equivalent"}`);
+  return {
+    mode: refreshMode, windowMs: REFRESH_WINDOW_MS, before, after, changedContentParts,
+    warmup: { ...warmup, resources: warmupRound.resources, timingExcluded: true },
+    rounds, profiled: { ...profiledSummary, resources: profiled.resources, overheadIncluded: true },
+    profileStages: summarizeProfile(profiled.captured, cutoffMs),
+    traced: { ...trace, resources: traced.resources, overheadIncluded: true },
+    timingBasis: "longtasks/V8/Blink refresh probe; page.clock-owned CPU frame intervals are not resting timing evidence",
+  };
 }
 
 /**
@@ -1537,51 +1608,53 @@ function evaluateAssertions(metrics, shaderErrors = []) {
     return;
   }
 
-  // The calm metric's own "did not measure" case. A bundle older than W4.4
-  // publishes no p95 at all, and a sweep whose windows disagree about that has
-  // not measured the tail either. Scoring that green would be exactly the
-  // collapse this gate refuses: PASS means "measured, and it held".
-  const tailMeasured = tailSweep
-    ? tailSweep.measured
-    : typeof metrics.p95 === "number";
-  if (!args.reduced && !tailMeasured) {
-    console.log("\nSKIP: this page publishes no P95 frame time, so the calm metric was not measured."
-      + " Nothing is being claimed about the tail.");
-    process.exitCode = SKIP_EXIT_CODE;
-    return;
-  }
-  if (limits.maxGpuMs !== null) {
-    const gpu = metrics.gpuTimings;
-    const gpuMeasured = gpu?.supported === true
-      && !gpu.disjoint
-      && typeof gpu.frameP95Ms === "number";
-    if (!gpuMeasured) {
-      console.log("\nSKIP: GPU was not measured, so nothing is being claimed about the GPU timing budget.");
-      process.exitCode = SKIP_EXIT_CODE;
-      return;
-    }
-  }
-
   const failures = [];
+  // Refreshes do not earn larger resource caps. Every observed frame is checked.
+  const frameTotals = metrics.performanceEvidence?.frames;
+  for (const [field, limit] of [["calls", limits.maxDrawCalls], ["triangles", limits.maxTriangles], ["geometries", limits.maxGeometries], ["textures", limits.maxTextures]]) {
+    const peak = Math.max(metrics[field] ?? Infinity, frameTotals?.steady?.[field] ?? 0, frameTotals?.refresh?.[field] ?? 0, frameTotals?.unclassified?.[field] ?? 0);
+    if (peak > limit) failures.push(`${field} observed peak ${peak} exceeds ${limit} (including refresh frames)`);
+  }
   if (shaderErrors.length > 0) {
     failures.push(`${shaderErrors.length} shader/program error(s) in the page console — a rejected material is skipped silently at draw time, so the frame is missing something the counters cannot see:\n    ${shaderErrors.slice(0, 5).join("\n    ")}`);
   }
   if (metrics.tier !== limits.requiredTier) {
     failures.push(`scheduler tier is ${metrics.tier}, expected ${limits.requiredTier}`);
   }
-  if (!args.reduced && (metrics.p90 ?? Infinity) > limits.maxP90Ms) {
-    failures.push(`p90 frame time ${round(metrics.p90)}ms exceeds ${limits.maxP90Ms}ms`);
+  // The calm metric's own "did not measure" case. A bundle older than W4.4
+  // publishes no p95 at all, and a sweep whose windows disagree about that has
+  // not measured the tail either. Scoring that green would be exactly the
+  // collapse this gate refuses: PASS means "measured, and it held".
+  const resting = metrics.performanceEvidence?.steadyState;
+  const restingMetrics = resting?.representative;
+  const tailMeasured = resting?.measured === true && (metrics.performanceEvidence?.frames?.coverageBreaks ?? 0) === 0;
+  if (!args.reduced && !tailMeasured) {
+    if (failures.length) console.error(`\nFAIL: ${failures.join("; ")}; resting timing remains unmeasured.`);
+    else console.log("\nSKIP: no complete resting steady-state P95 window was measured (refresh history, visibility or telemetry incomplete).");
+    process.exitCode = failures.length ? 1 : SKIP_EXIT_CODE;
+    return;
   }
-  // The tail. A P95 breach is a FAIL, not a warning: one frame in twenty over
-  // the ceiling is a second the eye reads as a stutter, and the plan's thesis
-  // is that one such second a minute costs more calm than 2ms of average cost.
-  // The worst window of the sweep is the figure, because the question is
-  // whether ANY second was like that, not whether the typical one was.
+  if (limits.maxGpuMs !== null) {
+    const gpu = args.reduced ? metrics.gpuTimings : resting?.gpuTimings;
+    const gpuMeasured = gpu?.supported === true
+      && !gpu.disjoint
+      && typeof gpu.frameP95Ms === "number";
+    if (!gpuMeasured) {
+      if (failures.length) console.error(`\nFAIL: ${failures.join("; ")}; resting GPU timing remains unmeasured.`);
+      else console.log("\nSKIP: refresh-free GPU ring was not measured, so nothing is being claimed about the GPU timing budget.");
+      process.exitCode = failures.length ? 1 : SKIP_EXIT_CODE;
+      return;
+    }
+  }
+
+  if (!args.reduced && (restingMetrics?.p90 ?? Infinity) > limits.maxP90Ms) {
+    failures.push(`resting p90 frame time ${round(restingMetrics?.p90)}ms exceeds ${limits.maxP90Ms}ms`);
+  }
+  // Keep the worst-window calm gate, but do not confuse documented refresh
+  // work with the resting scene. All excluded windows remain in the manifest.
   if (!args.reduced) {
-    const p95 = tailSweep ? tailSweep.p95 : metrics.p95;
-    const scope = tailSweep
-      ? `worst of ${tailSweep.windows} windows over ${round(tailSweep.spanMs / 1000)}s`
-      : "single window";
+    const p95 = resting.p95;
+    const scope = `worst of ${resting.windows} clean resting windows`;
     if ((p95 ?? Infinity) > limits.maxP95Ms) {
       failures.push(`p95 frame time ${round(p95)}ms exceeds ${limits.maxP95Ms}ms (${scope})`);
     }
@@ -1592,8 +1665,9 @@ function evaluateAssertions(metrics, shaderErrors = []) {
         + ` < ${TAIL_POLL_INTERVAL_MS}ms poll); frames between reads were not measured.`);
     }
   }
-  if (limits.maxGpuMs !== null && metrics.gpuTimings.frameP95Ms > limits.maxGpuMs) {
-    failures.push(`gpu p95 ${round(metrics.gpuTimings.frameP95Ms)} ms exceeds ${limits.maxGpuMs} ms`);
+  const gateGpu = args.reduced ? metrics.gpuTimings : resting?.gpuTimings;
+  if (limits.maxGpuMs !== null && gateGpu.frameP95Ms > limits.maxGpuMs) {
+    failures.push(`resting gpu p95 ${round(gateGpu.frameP95Ms)} ms exceeds ${limits.maxGpuMs} ms`);
   }
   if ((metrics.calls ?? Infinity) > limits.maxDrawCalls) {
     failures.push(`${metrics.calls} draw calls exceed ${limits.maxDrawCalls}`);
@@ -1615,10 +1689,9 @@ function evaluateAssertions(metrics, shaderErrors = []) {
   if (failures.length === 0) {
     const timing = args.reduced
       ? "settled deterministic static frame"
-      : `p90 ${round(metrics.p90)}ms (max ${limits.maxP90Ms}),`
-        + ` p95 ${round(tailSweep ? tailSweep.p95 : metrics.p95)}ms (max ${limits.maxP95Ms}`
-        + `${tailSweep ? `, worst of ${tailSweep.windows} windows` : ", single window"}),`
-        + ` worst frame ${round(tailSweep ? tailSweep.maxFrameMs : metrics.maxFrameMs)}ms`;
+      : `resting p90 ${round(restingMetrics.p90)}ms (max ${limits.maxP90Ms}),`
+        + ` resting p95 ${round(resting.p95)}ms (max ${limits.maxP95Ms}, worst of ${resting.windows} clean windows),`
+        + ` resting worst frame ${round(resting.maxFrameMs)}ms`;
     console.log(`\nPASS: tier ${metrics.tier}, ${timing},`
       + ` ${metrics.calls} calls, ${metrics.triangles} triangles,`
       + ` ${metrics.geometries} geometries, ${metrics.textures} textures.`);
@@ -2383,8 +2456,10 @@ function readMetrics(page) {
     const debug = window.__pharosVilleDebug;
     const m = debug?.renderMetrics;
     const census = m?.drawOwnerCensus;
+    const frameEvidence = window.__previewFrameEvidence?.snapshot() ?? null;
     return {
       observedAtMs: performance.now(),
+      frameEvidence,
       visibilityState: document.visibilityState,
       documentHasFocus: document.hasFocus(),
       longtaskSupported: typeof PerformanceObserver !== "undefined" && PerformanceObserver.supportedEntryTypes?.includes("longtask"),

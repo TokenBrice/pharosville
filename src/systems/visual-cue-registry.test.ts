@@ -29,6 +29,12 @@ function cueKey(cue: VisualCue): string {
 }
 
 describe("buildVisualCueRegistry", () => {
+  it("keeps station navigation non-analytical and inspection local", () => {
+    expect(DECORATIVE_VISUAL_NOTES.strollStations).toContain("carries no meaning");
+    expect(DECORATIVE_VISUAL_NOTES.strollStations).toContain("saved local pose");
+    expect(DECORATIVE_VISUAL_NOTES.strollStations).toContain("Home alone");
+    expect(DECORATIVE_VISUAL_NOTES.strollStations).toContain("idle never tours");
+  });
 
   it("routes selected analytical cue values into the authored host rows", () => {
     const inputs = fixtureWithDepegOn(makerSquadFixtureInputs(), "susds-sky");

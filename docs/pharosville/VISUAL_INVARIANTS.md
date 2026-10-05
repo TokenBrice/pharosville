@@ -21,6 +21,11 @@ rear-left crescent and receding right group have clear water between them.
 A few near boats read as rigged vessels; the many beyond recede into silhouette.
 Ships belong to the landscape rather than competing with its scale.
 
+The six Stroll stations show the same accepted shore, sheltered tea veranda and
+grounded precinct stair from inhabited viewpoints. Their titles, Previous/Next
+and Home are navigation, never new analytical readings. Local inspection keeps
+the station context; only Home returns to the seated composition.
+
 Branching near-corner framing reveals sky through its foliage, never solid
 cloud-pad discs. Borrowed headlands and a real sky band close the distance.
 Use long-lens perspective to give the harbour recession and tower crown air.
@@ -74,6 +79,12 @@ brightest blurred local source. Open-water mean emission stays ≤0.016.
 
 ## Hierarchy and emptiness
 
+Chrome is a subordinate edge, not a second ornamental scene. Find `/`,
+Explore and Read key remain distinct at rest. The health line and discovery
+share an intrinsic grid that wraps at 1200×640 and 900×720; long warnings
+wrap intact instead of disappearing under a fade mask. Open drawers and
+keyboard focus must not collide with caption, key or selected record.
+
 Compose one hero, the Pharos and its headland, with two subordinate masses:
 the shaded near garden and the receding harbour fleet. Preserve a continuous
 empty inlet from the approach to the tower. It must survive a blurred view.
@@ -99,9 +110,10 @@ and unpickability. Shape and material recipes are replaceable within
 owner-attributed budgets.
 
 The near kuromatsu is an explicit rooted trunk/primary/secondary/twig graph,
-not screen-authored cloud pads or an outline polygon. Irregular closed opaque
-needle sprays leave real sky gaps inside the projected branch envelope at
-every seated gate; gaps are not alpha holes, and no limb/foliage covers the
+not screen-authored cloud pads or an outline polygon. Short closed opaque
+needles overlap into compact flattened irregular dark lenses above twig ends,
+not sparse spiky fronds. Tiered branching leaves real sky gaps between these
+dense clusters at every seated gate; gaps are not alpha holes, and no foliage covers the
 tower, pale crown or open inlet. Tapered attachments and bark remain visible,
 with an older leaning hero and a smaller upright companion framing the tall
 seat. Distant trees keep their cheaper niwaki kit. Root weights are exactly
@@ -177,6 +189,13 @@ The DOM ledger remains the canonical always-available complete list of named
 waters and exact readings, sources, freshness and caveats. Colour is never the
 only carrier of meaning.
 
+Find, the complete ledger and changelog share the detail sheet's
+paper/ink/quiet/link roles and existing fonts. Fine rules and typographic
+groups replace nested ornamental frames; the ledger is one body for both
+audiences, with 44 px native disclosure/action targets. Day/night sheets
+switch all ink roles atomically, never interpolating polarity through
+unreadable mid-tones. One 200 ms panel entrance has a no-motion override.
+
 Risk surfaces are a static five-band codebook, legible without colour or
 motion: Calm mirror, Watch bending singles, Alert interrupted pairs, Warning
 oblique broken triples, Danger close dark fours. Seeded world-space marks
@@ -226,6 +245,24 @@ Stage cloud radiance before PMREM and cache the accepted displayed sky, solar
 direction/date, effective displayed cloud cover and night lunar lighting with
 hysteresis, never a flat-midday
 phase alone. Localized stale-source banks and PSI ridge ownership are unchanged.
+Low-sun extinction is integrated over the remaining atmospheric column at each
+scattering height, never imposed as sea-level solar extinction over the whole
+dome. Clouds receive cosine-weighted sky irradiance plus projected direct light,
+not the forward aerosol horizon radiance used as a surface pigment. Dawn/golden
+shade and alpenglow filter existing diffuse colour at conserved luminance: tower
+stone and identity sails remain distinguishable, with graded skies and cloud
+highlights below the practical bloom knee. High-sun transport, noon/night ink,
+exposure and the single tone-map/grade path remain unchanged.
+The unscattered twilight basis stays separate from published analytic horizon
+metadata; neither dome nor object air may blend the forward solar lobe twice.
+Low-sun forward scattering obeys the visible solar-disc radiance ceiling,
+preserving spectral ratios instead of supplying unbounded HG peak energy to
+PMREM and finite air. The dome depth-tests its sun; dawn/golden bloom carries
+luminance-weighted source depth through its existing alpha channel so nearer
+solid silhouettes occlude farther glare. Only the finest halo contributes at
+full low-sun beats; noon/night retain their original broad practical-light
+pyramid, exposure, grade and tone mapping. Sun glare must never erase the Pharos,
+its island or the fleet.
 
 Shelter is local, not a new global darkness or an AO layer: engawa, stone court
 and waterside use continuous world-space L1 bounce, replacing a bounded share
@@ -234,6 +271,18 @@ light and the night readability rig are not dimmed. Identity cloth, practical
 sources and foliage keep their own lighting. Surface normals model the bounce
 before print inks; PMREM/specular and differential SH keep their existing energy.
 No hard zone borders, added lights/probes/textures or doubled ambient occlusion.
+
+Conditional contact softening (S4-P6) was evaluated and not built. Existing
+five-tap cached PCF already grounds the reviewed foreground stones, lantern
+and station eaves; moored hulls keep their physical waterline contact, never
+an artificial shadow trail. Eight blocker plus sixteen filter fetches would
+cost 24 per participating fragment instead of five, even with a near-region
+gate, without evidence satisfying the no-measurable-regression ceiling at
+1600×1000. Retain the breath-independent shadow view and identical static/
+reduced-motion contact shading; ship no dormant pass or flag. Reopen only
+after an operator-reviewed grounding failure on calibrated hardware and
+paired day/golden crops, rest frames and timing evidence under zero new
+draws/textures and no measurable regression.
 
 Night is readable indigo, not black land beneath a bright sky. Cool sky diffuse,
 ground bounce and the same restrained night environment reveal stone, moss,
@@ -283,11 +332,31 @@ is never reset by arrival. This implementation uses an immediate cut (zero veil
 settling), so neither motion preference nor input adds a waiting interval. The
 separate admitted crossing ceremony remains an event, not an introduction.
 
+Stroll advances only on request and rests indefinitely at each station. Adjacent
+views follow explicit water-corridor and stair waypoints on piecewise smooth
+eye/target paths, not a generic flyover arc. At ≤0.5-unit samples the eye clears
+water by ≥1.7 and production land/massing by ≥0.8 world units. Drag/wheel retain
+the displayed viewpoint locally without a grabbed-point snap; unrelated chrome
+does not expel the visitor. Selection saves that local pose; Escape/deselection
+restores it, while Home returns to the seat. Interruption holds the displayed
+pose, resize re-solves it, and reduced motion cuts with no automatic tour/orbit.
+
 Motion has long rests. Let an arrival, kindling lamps or a heron become an event,
 then leave the garden quiet. Redistribute ambient life into fewer readable
 figures, never add counts to manufacture life. Every addition names what it
 displaces: a light demotes a light, a prop removes a prop, a motion stills another.
 Cheap rendering does not make attention free.
+
+Resident life stays at four koi and one heron. Pond inhabitants travel between
+seeded near-bank points, pause completely and turn in place before travelling
+again; no synchronized figure-eight or small station orbit substitutes for
+rest. The tea/rest sightlines are composed through pond paths and the shallow
+heron station, not brighter animals. Scored heron arrival/departure remain
+events. Merged near foliage selects its baked root and trunk/branch/tip flex,
+receiving two delayed samples of the one downwind gust front at cached world
+rest roots; the root holds while branch and tip yield more. No per-vertex
+uploads or second clock. Reduced motion fixes the complete animal pose and
+zeros the complete foliage displacement.
 
 The attention budget is a gate, enforced when the director admits an event
 (`src/systems/garden-director.ts`) and proved for the day score

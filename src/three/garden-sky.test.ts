@@ -50,6 +50,7 @@ describe("perspective sky dome", () => {
     const dome = sky.root.getObjectByName("garden-sky-dome") as Mesh<SphereGeometry, ShaderMaterial>;
     expect(dome.visible).toBe(true);
     expect(dome.material.depthWrite).toBe(false);
+    expect(dome.material.depthTest).toBe(true);
     expect(dome.geometry.parameters.radius).toBeGreaterThanOrEqual(CAMERA_FAR * 0.9);
     expect(dome.geometry.parameters.radius).toBeLessThan(CAMERA_FAR);
     expect(sky.root.getObjectByName("garden-sky-backdrop")).toBeUndefined();
@@ -378,6 +379,43 @@ describe("garden sky aerial perspective", () => {
     expect(sky.domeMaterial.uniforms.uAtmosphereDate.value).toBeGreaterThan(0);
     expect((sky.domeMaterial.uniforms.uCloudLit.value as Color).getHex()).not.toBe(0);
     expect((sky.domeMaterial.uniforms.uMoonDir.value as Vector3).length()).toBeCloseTo(1, 12);
+    sky.dispose();
+  });
+
+  it("keeps low-sun cloud illumination below the practical highlight knee without borrowing the forward horizon lobe", () => {
+    for (const clarity of [0, 0.5, 1]) {
+      const sky = createGardenSky();
+      sky.setClarity(clarity);
+      for (const hour of [7, 18.5]) {
+        sky.update(dayCyclePhase(hour), { ...FRAME, wallClockHour: hour, reducedMotion: true });
+        const uniforms = domeUniforms(sky);
+        for (const name of ["uCloudLit", "uCloudLitCool", "uCloudShade"] as const) {
+          const colour = uniforms[name]!.value as Color;
+          for (const channel of colour.toArray()) {
+            expect(Number.isFinite(channel) && channel >= 0).toBe(true);
+            expect(channel).toBeLessThan(2.4);
+          }
+        }
+        const solar = uniforms.uSolarHorizon!.value as Color;
+        const zenith = uniforms.uZenith!.value as Color;
+        expect(zenith.b / Math.max(zenith.r, 1e-8)).toBeGreaterThan(solar.b / Math.max(solar.r, 1e-8));
+      }
+      sky.dispose();
+    }
+  });
+
+  it("retains the accepted noon and night cloud colour formulas", () => {
+    const sky = createGardenSky();
+    sky.update(dayCyclePhase(12.25), { ...FRAME, wallClockHour: 12.25, reducedMotion: true });
+    let uniforms = domeUniforms(sky);
+    const expectedDay = (uniforms.uSolarHorizon!.value as Color).clone()
+      .lerp(new Color(HARBOR_PALETTE.foam_white), 0.25).multiplyScalar(0.86);
+    expect(colorDistance(uniforms.uCloudLit!.value as Color, expectedDay)).toBeLessThan(1e-12);
+    sky.update(dayCyclePhase(22), { ...FRAME, wallClockHour: 22, reducedMotion: true });
+    uniforms = domeUniforms(sky);
+    const expectedNight = (uniforms.uSolarHorizon!.value as Color).clone()
+      .lerp(uniforms.uZenith!.value as Color, 0.5).multiplyScalar(1.12);
+    expect(colorDistance(uniforms.uCloudLit!.value as Color, expectedNight)).toBeLessThan(1e-12);
     sky.dispose();
   });
 });

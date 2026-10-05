@@ -87,11 +87,10 @@ export function ReadingKey({ world, onSelectDetail, onPreviewDetail, open, onOpe
   return (
     <aside className="pharosville-reading-key" aria-label="Garden reading key" data-testid="pharosville-reading-key"
       onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Escape" && expanded) close(); }}
-      style={{ position: "absolute", top: "4rem", left: "1rem", zIndex: 5, pointerEvents: "auto", maxWidth: "min(24rem, calc(100% - 2rem))", color: "var(--pv-paper-ink)", background: "var(--pv-paper)", padding: "0.5rem 0.75rem", borderRadius: "0.5rem", font: "var(--type-14)/1.5 var(--font-ui)" }}>
-      <button ref={opener} type="button" className="pharosville-legend-panel__mover" aria-expanded={expanded} aria-controls={id}
-        style={{ minHeight: 44, outlineColor: "var(--pv-paper-ink)", color: "inherit" }}
-        onClick={() => expanded ? close() : setOpen(true)}>Reading key</button>
-      {expanded && <div id={id} style={{ maxHeight: "calc(100dvh - 12rem)", overflowY: "auto" }}>
+      >
+      <button ref={opener} type="button" className="pv-chrome-action pharosville-reading-key__trigger" aria-expanded={expanded} aria-controls={id}
+        onClick={() => expanded ? close() : setOpen(true)}>Read key</button>
+      {expanded && <div id={id} className="pharosville-reading-key__sheet pv-paper">
         <p>Read the lighthouse, ordered water surfaces and leading sails. These examples illustrate the key, not a second live feed.</p>
         <section aria-label="Lighthouse">
           <h3>Lighthouse</h3>

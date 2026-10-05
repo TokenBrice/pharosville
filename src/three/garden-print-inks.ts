@@ -31,6 +31,8 @@ import { applyGardenIrradiance } from "./garden-irradiance";
  * "no extra energy" contract are untouched — and only its hue moves. The
  * direct (key) term is never inked, which is why this is not a grade: sunlit
  * faces keep the key's colour and shadows take the complement.
+ * At low sun both ink targets filter the material's existing diffuse colour
+ * instead of replacing it with a single pigment; normalization retains energy.
  *
  * **First light, last light.** Around sunrise and sunset the direct term is
  * height-gated by a warm line that descends from the crown at dawn and climbs
@@ -124,6 +126,7 @@ const FIRST_LIGHT_GLOW_FILL = 0.75;
 export const gardenPrintInkUniforms = {
   uGardenAiInk: { value: new Color(1, 1, 1) },
   uGardenAiAmount: { value: 0 },
+  uGardenInkLocalColour: { value: 0 },
   /**
    * x: warm line (world y), y: gate strength, z: glow floor (world y),
    * w: share of the crown's fill that takes the alpenglow.
@@ -166,6 +169,7 @@ export function updateGardenPrintInks(hour: number, beats: DayCycleBeats): void 
     amount += beat.amount * weight;
   }
   lumaNormalised(ink);
+  gardenPrintInkUniforms.uGardenInkLocalColour.value = beats.dawn + beats.golden;
   // X9 (light-6): morning shade takes a little more of the cool ink, the
   // afternoon shade a little less, inside the day beat only.
   gardenPrintInkUniforms.uGardenAiAmount.value = Math.max(
@@ -196,6 +200,7 @@ const INK_FRAGMENT_PARS = /* glsl */ `
 varying float vGardenInkWorldY;
 uniform vec3 uGardenAiInk;
 uniform float uGardenAiAmount;
+uniform float uGardenInkLocalColour;
 uniform vec4 uGardenFirstLight;
 uniform vec3 uGardenFirstLightShade;
 uniform vec3 uGardenFirstLightGlow;
@@ -209,6 +214,14 @@ vec3 gardenFirstLightTint() {
     gardenFirstLightAbove(uGardenFirstLight.x)
   );
   return mix(vec3(1.0), gardenTint, uGardenFirstLight.y);
+}
+vec3 gardenInkTarget(vec3 localColour, vec3 ink, float localLuma) {
+  vec3 plate = localLuma * ink;
+  if (uGardenInkLocalColour <= 0.0) return plate;
+  vec3 filtered = localColour * ink;
+  float filteredLuma = dot(filtered, vec3(0.2126, 0.7152, 0.0722));
+  filtered *= localLuma / max(filteredLuma, 1e-8);
+  return mix(plate, filtered, uGardenInkLocalColour);
 }
 `;
 const DIRECTIONAL_LIGHT_INFO = "getDirectionalLightInfo( directionalLight, directLight );";
@@ -246,9 +259,10 @@ function injectGardenPrintInks(shader: GardenInkShader): void {
     .replace("#include <lights_fragment_end>", `#include <lights_fragment_end>
   {
     float gardenAiLuma = dot(reflectedLight.indirectDiffuse, vec3(0.2126, 0.7152, 0.0722));
+    vec3 gardenLocalDiffuse = reflectedLight.indirectDiffuse;
     reflectedLight.indirectDiffuse = mix(
       reflectedLight.indirectDiffuse,
-      gardenAiLuma * uGardenAiInk,
+      gardenInkTarget(gardenLocalDiffuse, uGardenAiInk, gardenAiLuma),
       clamp(uGardenAiAmount * (${mask}), 0.0, 1.0)
     );
     // The crown catches first light whichever face we see: part of its fill
@@ -257,7 +271,7 @@ function injectGardenPrintInks(shader: GardenInkShader): void {
       * gardenFirstLightAbove(uGardenFirstLight.x) * gardenFirstLightAbove(uGardenFirstLight.z);
     reflectedLight.indirectDiffuse = mix(
       reflectedLight.indirectDiffuse,
-      gardenAiLuma * uGardenFirstLightGlow,
+      gardenInkTarget(gardenLocalDiffuse, uGardenFirstLightGlow, gardenAiLuma),
       gardenCrownLit
     );
   }`);

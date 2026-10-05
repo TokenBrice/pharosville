@@ -115,13 +115,18 @@ export interface PharosVilleRenderMetrics {
     disjoint: boolean;
     frameP50Ms: number | null;
     frameP95Ms: number | null;
-    passes: Array<{ name: string; p50Ms: number; p95Ms: number; samples: number }>;
+    /** Cumulative completed queries; enables refresh-free ring provenance. */
+    frameSamplesCompleted?: number;
+    passes: Array<{ name: string; p50Ms: number; p95Ms: number; samples: number; samplesCompleted?: number }>;
   };
   /** PMREM work is episodic and intentionally separate from recurring calls. */
   environmentBakeCalls?: number;
   environmentBakeCount?: number;
   environmentBakeCountChange?: number;
   shadowMapSize?: number;
+  /** Actual shadow-map submissions, not requests or cached receiver sampling. */
+  shadowRefreshed?: boolean;
+  shadowRefreshCount?: number;
   longtask?: { count: number; maxDurationMs: number };
   movingShipCount: number;
   renderBudgetTargetMs?: number;

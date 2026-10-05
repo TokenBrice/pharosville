@@ -5,6 +5,7 @@
 // needs a document. Under the default `node` environment the loader is skipped
 // by design and half the W1.1/W1.2 contract would be untestable.
 import {
+  BasicDepthPacking,
   ClampToEdgeWrapping,
   DirectionalLight,
   Fog,
@@ -13,10 +14,12 @@ import {
   NoColorSpace,
   PerspectiveCamera,
   RepeatWrapping,
+  RGBADepthPacking,
   Scene,
   Texture as ThreeTexture,
   type Texture,
   type WebGLRenderer,
+  type DepthPackingStrategies,
 } from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dayCycleBeats, dayCyclePhase } from "./garden-day-cycle";
@@ -156,7 +159,7 @@ vi.mock("postprocessing", () => {
 
     constructor(
       readonly name: string,
-      readonly fragmentShader = "",
+      public fragmentShader = "",
       readonly options: {
         attributes?: number;
         uniforms?: Map<string, unknown>;
@@ -166,11 +169,26 @@ vi.mock("postprocessing", () => {
       this.uniforms = options.uniforms ?? new Map();
       postHarness.effects.push(this);
     }
+
+    setAttributes(attributes: number): void {
+      this.attributes = attributes;
+    }
+
+    setFragmentShader(fragmentShader: string): void {
+      this.fragmentShader = fragmentShader;
+    }
   }
 
   class FakeBloomEffect extends FakeEffect {
     intensity: number;
-    luminanceMaterial: { smoothing: number; threshold: number };
+    luminanceMaterial: {
+      smoothing: number;
+      threshold: number;
+      fragmentShader: string;
+      needsUpdate: boolean;
+      uniforms: Record<string, { value: unknown }>;
+      defines: Record<string, number>;
+    };
     luminancePass = { setSize: vi.fn() };
     mipmapBlurPass: { radius: number; setSize: ReturnType<typeof vi.fn> };
 
@@ -185,6 +203,10 @@ vi.mock("postprocessing", () => {
       this.luminanceMaterial = {
         smoothing: bloomOptions.luminanceSmoothing,
         threshold: bloomOptions.luminanceThreshold,
+        fragmentShader: "void main(){gl_FragColor=texel*mask;}",
+        needsUpdate: false,
+        uniforms: {},
+        defines: {},
       };
       // The blur spread is a uniform on the upsample material, not a define,
       // which is what makes a per-phase radius free of shader recompiles.
@@ -342,7 +364,7 @@ interface FakePass {
   renderToScreen: boolean;
 }
 
-interface FakeBloom {
+interface FakeBloom extends FakeEffect {
   bloomOptions: {
     blendFunction: string;
     levels: number;
@@ -354,6 +376,10 @@ interface FakeBloom {
   luminanceMaterial: {
     smoothing: number;
     threshold: number;
+    fragmentShader: string;
+    needsUpdate: boolean;
+    uniforms: Record<string, { value: unknown }>;
+    defines: Record<string, number>;
   };
   luminancePass: {
     setSize: ReturnType<typeof vi.fn>;
@@ -362,6 +388,7 @@ interface FakeBloom {
     radius: number;
     setSize: ReturnType<typeof vi.fn>;
   };
+  setDepthTexture: (depthTexture: Texture, depthPacking?: DepthPackingStrategies) => void;
 }
 
 interface MockDisposable {
@@ -826,6 +853,51 @@ describe("garden post-processing contracts", () => {
         expect(bloom.luminanceMaterial.threshold).toBeGreaterThan(2.2);
       }
     }
+  });
+
+  it("blocks low-sun bloom from farther sources and uses only the finest halo without changing noon/night", () => {
+    const { post } = makePost();
+    const bloom = latest<FakeBloom>(postHarness.blooms);
+    const depth = new ThreeTexture();
+    bloom.setDepthTexture(depth);
+    expect(bloom.attributes & 1).toBe(1);
+    expect(bloom.luminanceMaterial.uniforms.gardenBloomDepth!.value).toBe(depth);
+    expect(bloom.luminanceMaterial.fragmentShader).toContain("sourceWeight * (1.0 - gardenBloomSourceDepth(vUv))");
+    bloom.setDepthTexture(depth, RGBADepthPacking);
+    expect(bloom.luminanceMaterial.defines.GARDEN_BLOOM_DEPTH_PACKING).toBe(RGBADepthPacking);
+    bloom.setDepthTexture(depth);
+    expect(bloom.luminanceMaterial.defines.GARDEN_BLOOM_DEPTH_PACKING).toBe(BasicDepthPacking);
+    bloom.luminanceMaterial.needsUpdate = false;
+    bloom.setDepthTexture(depth);
+    expect(bloom.luminanceMaterial.needsUpdate).toBe(false);
+    expect(bloom.fragmentShader).toContain("receiverProximity = 1.0 - readDepth(uv)");
+    expect(bloom.fragmentShader).toContain("sourceProximity = bloom.a / max(weight, 1e-8)");
+    const visibilityBody = bloom.fragmentShader.match(/float gardenBloomVisibility\([^)]*\) \{([\s\S]*?)\n  \}/)![1]!;
+    const visibility = new Function("sourceProximity", "receiverProximity", "pixelDepthSpan", `
+      const max = Math.max;
+      const smoothstep = (a, b, x) => {
+        const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+        return t * t * (3 - 2 * t);
+      };
+      ${visibilityBody}
+    `) as (source: number, receiver: number, pixelSpan: number) => number;
+    expect(visibility(0, 0.005, 0.00001)).toBe(0); // Sky glare behind a solid tower.
+    expect(visibility(0.005, 0.005, 0.00001)).toBe(1); // Its own visible highlight.
+    expect(visibility(0.005, 0.001, 0.00001)).toBe(1); // A foreground lamp against distant water.
+    expect(visibility(0, 0, 0)).toBe(1); // Sky on sky; equal-depth limit stays finite.
+    for (const hour of [7, 18.5, 12.25, 22]) {
+      post.setGrade(hour);
+      const beats = dayCycleBeats(hour);
+      const lowSun = beats.dawn + beats.golden;
+      expect(numberUniform(bloom, "gardenLowSun")).toBe(lowSun);
+      expect(bloom.luminanceMaterial.uniforms.gardenLowSun).toBe(bloom.uniforms.get("gardenLowSun"));
+      expect(bloom.mipmapBlurPass.radius).toBeCloseTo(bloom.bloomOptions.radius * (1 - lowSun), 12);
+      if (hour === 12.25 || hour === 22) {
+        expect(lowSun).toBe(0);
+        expect(bloom.mipmapBlurPass.radius).toBe(bloom.bloomOptions.radius);
+      }
+    }
+    depth.dispose();
   });
 
   it("lets lightning widen practical glow without lowering its threshold or lifting darks", () => {

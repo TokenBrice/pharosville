@@ -537,3 +537,60 @@ export function updateGardenInstancedWindSway(
     0.035 + weather.wind.speed * 0.085 + gust * 0.14
   ) * (0.9 + weather.breath * 0.2);
 }
+
+interface GardenRootedWindUniforms extends GardenWindSwayUniforms {
+  uGardenRootGust0: { value: number };
+  uGardenRootGust1: { value: number };
+}
+
+/** Merged authored trees retain their own root and trunk/branch/tip response. */
+export function patchGardenRootedWindSway(material: MeshStandardMaterial): void {
+  const uniforms: GardenRootedWindUniforms = {
+    uGardenWindDirection: { value: { x: 0, y: 0 } },
+    uGardenWindStrength: { value: 0 },
+    uGardenRootGust0: { value: 0 },
+    uGardenRootGust1: { value: 0 },
+  };
+  material.userData.gardenRootedWindUniforms = uniforms;
+  const previousCompile = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    previousCompile.call(material, shader, renderer);
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", `#include <common>
+        attribute vec3 aGardenFlex;
+        attribute float aGardenRootIndex;
+        uniform vec2 uGardenWindDirection;
+        uniform float uGardenWindStrength;
+        uniform float uGardenRootGust0;
+        uniform float uGardenRootGust1;`)
+      .replace("#include <begin_vertex>", `#include <begin_vertex>
+        float gardenRootGust = mix(uGardenRootGust0, uGardenRootGust1, step(0.5, aGardenRootIndex));
+        float gardenFlex = dot(clamp(aGardenFlex, 0.0, 1.0), vec3(0.2, 0.45, 0.35));
+        // Threshold vertices are baked in world axes; the sole instance only translates.
+        transformed.xz += uGardenWindDirection * uGardenWindStrength
+          * (1.0 + gardenRootGust * 1.4) * gardenFlex * 0.34;`);
+  };
+  material.customProgramCacheKey = () => `${previousKey}|garden-rooted-wind-sway-v1`;
+  material.needsUpdate = true;
+}
+
+/** Two scalar samples of the canonical front, never a vertex upload or local clock. */
+export function updateGardenRootedWindSway(
+  material: MeshStandardMaterial,
+  weather: WeatherPlan,
+  reducedMotion: boolean,
+  rootGust0: number,
+  rootGust1: number,
+): void {
+  const uniforms = material.userData.gardenRootedWindUniforms as GardenRootedWindUniforms | undefined;
+  if (!uniforms) return;
+  uniforms.uGardenWindDirection.value.x = weather.wind.x;
+  uniforms.uGardenWindDirection.value.y = weather.wind.y;
+  uniforms.uGardenWindStrength.value = reducedMotion ? 0
+    : (0.035 + weather.wind.speed * 0.085) * (0.9 + weather.breath * 0.2);
+  uniforms.uGardenRootGust0.value = reducedMotion || !Number.isFinite(rootGust0) ? 0 : Math.max(0, Math.min(1, rootGust0));
+  uniforms.uGardenRootGust1.value = reducedMotion || !Number.isFinite(rootGust1) ? 0 : Math.max(0, Math.min(1, rootGust1));
+}
+

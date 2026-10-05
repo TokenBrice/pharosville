@@ -61,6 +61,8 @@ export interface GardenSoundControls {
   soundOn: boolean;
   /** Sound was on last visit and waits for the Sound control; nothing plays until then. */
   armed: boolean;
+  /** Still and OS reduced motion keep audio unallocated and silent. */
+  reducedMotion: boolean;
   musicOn: boolean;
   /** Call only from the Sound control's own click: the AudioContext is created inside it. */
   onSoundChange: (on: boolean) => void;
@@ -78,8 +80,9 @@ export interface GardenSoundControls {
  * `stay`: the world is in Stay; with sound on and the viewer idle there, the
  * mix takes its listening pose (X8).
  */
-export function useGardenSound(input: { stay?: boolean } = {}): GardenSoundControls {
+export function useGardenSound(input: { stay?: boolean; reducedMotion?: boolean } = {}): GardenSoundControls {
   const stay = input.stay === true;
+  const reducedMotion = input.reducedMotion === true;
   const [preference, setPreference] = useState(readSoundPreference);
   const [soundOn, setSoundOn] = useState(false);
   const [supported] = useState(() => typeof window !== "undefined" && typeof (window.AudioContext ?? window.webkitAudioContext) === "function");
@@ -88,6 +91,10 @@ export function useGardenSound(input: { stay?: boolean } = {}): GardenSoundContr
   const handleRef = useRef<GardenAudioHandle | null>(null);
   const preferenceRef = useRef(preference);
   const stayRef = useRef(stay);
+
+  // Reset the gesture state in the guarded render transition, not an effect.
+  // The stored preference stays armed, and lifting Still cannot restart audio.
+  if (reducedMotion && soundOn) setSoundOn(false);
 
   const updatePreference = useCallback((patch: Partial<Omit<SoundPreference, "v">>) => {
     const next = { ...preferenceRef.current, ...patch };
@@ -113,7 +120,7 @@ export function useGardenSound(input: { stay?: boolean } = {}): GardenSoundContr
       updatePreference({ on: false });
       return;
     }
-    if (contextRef.current) return;
+    if (reducedMotion || audioSceneSnapshot.reducedMotion || contextRef.current) return;
     const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
     if (!AudioContextClass) return;
     // Synchronously inside the click: the user activation is spent before any await.
@@ -122,19 +129,22 @@ export function useGardenSound(input: { stay?: boolean } = {}): GardenSoundContr
     void context.resume();
     setSoundOn(true);
     updatePreference({ on: true });
-    loadGardenAudio().then((audio) => {
+    loadGardenAudio().then(async (audio) => {
       // Switched off (or unmounted) while the chunk loaded: `release` closed it.
       if (contextRef.current !== context) return;
       const handle = audio.startGardenAudio(context, audioSceneSnapshot, { music: preferenceRef.current.music, debug });
       handle.setStay(stayRef.current);
       handleRef.current = handle;
       liveGardenAudio = handle;
+      // The debug recorder is an audition, but still needs this explicit consent.
+      const request = debug ? audioRecordRequest() : null;
+      if (request) await audio.runAudioRecord(audioSceneSnapshot, request.seconds, null, request.listening, () => contextRef.current === context);
     }).catch(() => {
       if (contextRef.current !== context) return;
       release();
       setSoundOn(false);
     });
-  }, [debug, release, updatePreference]);
+  }, [debug, reducedMotion, release, updatePreference]);
 
   const onMusicChange = useCallback((on: boolean) => {
     handleRef.current?.setMusic(on);
@@ -149,16 +159,16 @@ export function useGardenSound(input: { stay?: boolean } = {}): GardenSoundContr
   }, [stay]);
 
   useEffect(() => {
-    if (!debug) return;
-    const request = audioRecordRequest();
-    if (request === null) return;
-    void loadGardenAudio().then((audio) => audio.runAudioRecord(audioSceneSnapshot, request.seconds, null, request.listening));
-  }, [debug]);
+    if (!reducedMotion) return;
+    release();
+    // External resource cleanup only; the render transition resets gesture state.
+  }, [reducedMotion, release]);
 
   return {
     supported,
     soundOn,
     armed: preference.on && !soundOn,
+    reducedMotion,
     musicOn: preference.music,
     onSoundChange,
     onMusicChange,

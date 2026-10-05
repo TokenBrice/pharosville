@@ -3,17 +3,16 @@
  * as the world (`dayCycleBeats`). Each beat authors an anchor for the air the
  * chrome sits in (the caption, label and control scrims) and for the record
  * paper; the chrome is their beat-weighted mix, written to `:root` once a
- * minute (`useChromeAir`), so golden hour gets an umber pool of shade and night
- * an indigo one with no single-frame swap. The wall clock is the only input —
- * never market data.
+ * minute (`useChromeAir`). Air stays continuous from umber to indigo.
+ * The wall clock is the only input — never market data.
  *
  * The air never changes polarity: its ink is always dark and its text always
  * light, so it is continuous all day. The paper cannot be: a sheet that fades
  * from washi to indigo passes a mid-tone where no ink reaches AA. Each beat
  * therefore authors two sheets — a washi (light) one and an indigo (dark) one —
  * each continuous across the day, and the card wears the indigo sheet while
- * the blue and night beats hold at least half of the score. The one change of
- * sheet per dusk and per dawn is a CSS crossfade on the card, not a token flip.
+ * the blue and night beats hold at least half of the score. Paper and every
+ * ink role switch together, atomically: CSS never interpolates their polarity.
  *
  * Anchors are the palette's dye lot (`HARBOR_UI_PALETTE`, `pharosville.css`
  * `:root`): day paper is mist 55 % + parchment 45 %, night paper is water-dark
@@ -98,7 +97,7 @@ export type ChromePaperSheetName = "washi" | "indigo";
 
 const BEAT_NAMES: readonly DayCycleBeatName[] = ["dawn", "day", "golden", "blue", "night"];
 
-/** Which sheet the record card wears: indigo once blue and night hold half the score. */
+/** Which sheet all DOM panels wear: indigo once blue and night hold half the score. */
 export function chromePaperSheet(beats: DayCycleBeats): ChromePaperSheetName {
   return beats.blue + beats.night >= 0.5 ? "indigo" : "washi";
 }

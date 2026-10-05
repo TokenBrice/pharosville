@@ -24,10 +24,9 @@ export interface WorldControlsProps {
   onOpenLedger?: () => void;
   onResetView?: () => void;
   onStay?: () => void;
-  /** X6: glide to the next postcard (the view holds there until any other input). */
-  onWander?: () => void;
-  /** X6: a postcard is showing. */
-  wandering?: boolean;
+  onStrollNext?: () => void;
+  onStrollPrevious?: () => void;
+  strollTitle?: string | null;
   onToggleNightMode?: () => void;
   onToggleObserve?: () => void;
   /**
@@ -38,9 +37,8 @@ export interface WorldControlsProps {
 }
 
 /**
- * W6.6 — quiet controls: one italic word, "explore", with its `/` key, and a
- * row of words and hairline glyphs revealed on approach, focus or camera
- * input. The light drawer is a sheet of the card's paper, not a native form.
+ * Distinct resting actions: Find owns `/`; Explore discloses the view
+ * controls. Disclosed controls keep their native keyboard order and paper drawers.
  */
 export function WorldControls({
   headingId = "pharosville-world-controls-title",
@@ -51,8 +49,9 @@ export function WorldControls({
   onOpenLedger,
   onResetView,
   onStay,
-  onWander,
-  wandering = false,
+  onStrollNext,
+  onStrollPrevious,
+  strollTitle = null,
   onToggleNightMode,
   onToggleObserve,
   hour = 12,
@@ -77,14 +76,25 @@ export function WorldControls({
       data-testid="pharosville-world-controls"
     >
       <h2 id={headingId} className="sr-only">World controls</h2>
+      {onOpenFind && (
+        <button id="pharosville-find" type="button" className="pv-chrome-action pharosville-world-controls__find" aria-label="Find a ship or harbor" aria-keyshortcuts="/" onClick={onOpenFind}>
+          <span>Find</span><kbd aria-hidden="true">/</kbd>
+        </button>
+      )}
 
-      <div id={actionsId} className="pharosville-world-controls__revealed">
+      <button
+        type="button"
+        className="pharosville-world-controls__affordance"
+        id="pharosville-explore"
+        aria-controls={actionsId}
+        aria-expanded={expanded}
+        aria-label="Explore harbor controls"
+        onClick={() => setExpanded((open) => !open)}
+      >
+        <span className="pharosville-world-controls__word">Explore</span>
+      </button>
+      <div id={actionsId} className="pharosville-world-controls__revealed" hidden={!expanded}>
         <div className="pharosville-world-controls__words">
-          {onOpenFind && (
-            <button type="button" className="pv-chrome-action" aria-keyshortcuts="/" onClick={onOpenFind}>
-              <span>find</span>
-            </button>
-          )}
           {onOpenLegend && (
             <button type="button" className="pv-chrome-action" onClick={onOpenLegend}>
               <span>legend</span>
@@ -100,18 +110,16 @@ export function WorldControls({
               <span>stay</span>
             </button>
           )}
-          {onWander && (
-            <button
-              type="button"
-              className="pv-chrome-action"
-              aria-keyshortcuts="W"
-              aria-pressed={wandering}
-              data-wander-control
-              title="Wander to a place in the harbour; any other key returns"
-              onClick={onWander}
-            >
-              <span>wander</span>
-            </button>
+          {onStrollNext && (
+            <>
+              {strollTitle && <span className="pharosville-world-controls__station" role="status">{strollTitle}</span>}
+              {strollTitle && onStrollPrevious && (
+                <button type="button" className="pv-chrome-action" data-stroll-control onClick={onStrollPrevious}>Previous</button>
+              )}
+              <button type="button" className="pv-chrome-action" aria-keyshortcuts="W" data-stroll-control onClick={onStrollNext}>
+                <span>{strollTitle ? "Next" : "Stroll"}</span>
+              </button>
+            </>
           )}
         </div>
         <button
@@ -119,8 +127,8 @@ export function WorldControls({
           className="pv-glyph-button"
           onClick={onResetView}
           disabled={!onResetView}
-          aria-label="Reset view"
-          title="Reset view"
+          aria-label="Home"
+          title="Return to the garden seat"
         >
           <RotateCcw aria-hidden="true" size={17} strokeWidth={1.5} />
         </button>
@@ -177,18 +185,6 @@ export function WorldControls({
         {children}
       </div>
 
-      <button
-        type="button"
-        className="pharosville-world-controls__affordance"
-        id="pharosville-find"
-        aria-controls={actionsId}
-        aria-expanded={expanded}
-        aria-label="Explore harbor controls"
-        onClick={() => setExpanded((open) => !open)}
-      >
-        <span className="pharosville-world-controls__word">explore</span>
-        <kbd>/</kbd>
-      </button>
     </div>
   );
 }

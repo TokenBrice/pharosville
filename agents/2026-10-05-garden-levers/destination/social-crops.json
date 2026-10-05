@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "edition": "garden-observatory",
+  "accepted": false,
+  "acceptance": "Pending orchestrator real-GPU capture and crop review. Change accepted to true only after all ten sources and the OG crop are accepted; no old still is elected.",
+  "font": "public/fonts/eb-garamond-400-latin.woff2",
+  "captureProtocol": "Run these outputs/cap.sh invocations serially from the repo root after integration acceptance. Each command uses the fixed quiet-dense fixture, 2026-10-05 sky date, reduced motion and chrome-free seated view. Review the five phases at both aspect ratios, then the 1200x630 OG thumbnail. Rectangles are [left, top, width, height] in capture PNG pixels, not canvas backing pixels. Generator does not run captures.",
+  "generator": "node scripts/pharosville/generate-garden-social.mjs --manifest agents/2026-10-05-garden-levers/destination/social-crops.json",
+  "beats": [
+    {
+      "name": "dawn",
+      "landscape": {
+        "file": "outputs/s8/social/dawn-landscape.png", "metrics": "outputs/s8/social/dawn-landscape.json",
+        "capture": "outputs/cap.sh s8/social/dawn-landscape --fixture quiet-dense --clock 2026-10-05 --hash '#t=7' --clean --reduced --width 1600 --height 1000",
+        "rect": [0, 0, 1600, 1000]
+      },
+      "portrait": {
+        "file": "outputs/s8/social/dawn-portrait.png", "metrics": "outputs/s8/social/dawn-portrait.json",
+        "capture": "outputs/cap.sh s8/social/dawn-portrait --fixture quiet-dense --clock 2026-10-05 --hash '#t=7' --clean --reduced --width 900 --height 1125",
+        "rect": [0, 0, 900, 1125]
+      }
+    },
+    {
+      "name": "day",
+      "landscape": {
+        "file": "outputs/s8/social/day-landscape.png", "metrics": "outputs/s8/social/day-landscape.json",
+        "capture": "outputs/cap.sh s8/social/day-landscape --fixture quiet-dense --clock 2026-10-05 --hash '#t=12.25' --clean --reduced --width 1600 --height 1000",
+        "rect": [0, 0, 1600, 1000]
+      },
+      "portrait": {
+        "file": "outputs/s8/social/day-portrait.png", "metrics": "outputs/s8/social/day-portrait.json",
+        "capture": "outputs/cap.sh s8/social/day-portrait --fixture quiet-dense --clock 2026-10-05 --hash '#t=12.25' --clean --reduced --width 900 --height 1125",
+        "rect": [0, 0, 900, 1125]
+      }
+    },
+    {
+      "name": "golden",
+      "landscape": {
+        "file": "outputs/s8/social/golden-landscape.png", "metrics": "outputs/s8/social/golden-landscape.json",
+        "capture": "outputs/cap.sh s8/social/golden-landscape --fixture quiet-dense --clock 2026-10-05 --hash '#t=18.5' --clean --reduced --width 1600 --height 1000",
+        "rect": [0, 0, 1600, 1000]
+      },
+      "portrait": {
+        "file": "outputs/s8/social/golden-portrait.png", "metrics": "outputs/s8/social/golden-portrait.json",
+        "capture": "outputs/cap.sh s8/social/golden-portrait --fixture quiet-dense --clock 2026-10-05 --hash '#t=18.5' --clean --reduced --width 900 --height 1125",
+        "rect": [0, 0, 900, 1125]
+      }
+    },
+    {
+      "name": "blue",
+      "landscape": {
+        "file": "outputs/s8/social/blue-landscape.png", "metrics": "outputs/s8/social/blue-landscape.json",
+        "capture": "outputs/cap.sh s8/social/blue-landscape --fixture quiet-dense --clock 2026-10-05 --hash '#t=19.2' --clean --reduced --width 1600 --height 1000",
+        "rect": [0, 0, 1600, 1000]
+      },
+      "portrait": {
+        "file": "outputs/s8/social/blue-portrait.png", "metrics": "outputs/s8/social/blue-portrait.json",
+        "capture": "outputs/cap.sh s8/social/blue-portrait --fixture quiet-dense --clock 2026-10-05 --hash '#t=19.2' --clean --reduced --width 900 --height 1125",
+        "rect": [0, 0, 900, 1125]
+      }
+    },
+    {
+      "name": "night",
+      "landscape": {
+        "file": "outputs/s8/social/night-landscape.png", "metrics": "outputs/s8/social/night-landscape.json",
+        "capture": "outputs/cap.sh s8/social/night-landscape --fixture quiet-dense --clock 2026-10-05 --hash '#t=22' --clean --reduced --width 1600 --height 1000",
+        "rect": [0, 0, 1600, 1000]
+      },
+      "portrait": {
+        "file": "outputs/s8/social/night-portrait.png", "metrics": "outputs/s8/social/night-portrait.json",
+        "capture": "outputs/cap.sh s8/social/night-portrait --fixture quiet-dense --clock 2026-10-05 --hash '#t=22' --clean --reduced --width 900 --height 1125",
+        "rect": [0, 0, 900, 1125]
+      }
+    }
+  ],
+  "og": {
+    "file": "outputs/s8/social/day-landscape.png", "metrics": "outputs/s8/social/day-landscape.json",
+    "capture": "outputs/cap.sh s8/social/day-landscape --fixture quiet-dense --clock 2026-10-05 --hash '#t=12.25' --clean --reduced --width 1600 --height 1000",
+    "rect": [0, 110, 1600, 840]
+  }
+}

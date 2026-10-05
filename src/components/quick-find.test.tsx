@@ -126,4 +126,23 @@ describe("QuickFind", () => {
 
     expect(shellKeyDown).not.toHaveBeenCalled();
   });
+
+  it("restores the Find opener, or the world if that opener was removed", () => {
+    const shell = document.createElement("main");
+    shell.dataset.testid = "pharosville-world";
+    shell.tabIndex = 0;
+    const opener = document.createElement("button");
+    opener.textContent = "Find";
+    shell.append(opener);
+    document.body.append(shell);
+    for (const removeOpener of [false, true]) {
+      opener.focus();
+      const view = render(<QuickFind candidates={CANDIDATES} onClose={vi.fn()} onSelect={vi.fn()} />);
+      expect(document.activeElement).toBe(screen.getByRole("combobox"));
+      if (removeOpener) opener.remove();
+      view.unmount();
+      expect(document.activeElement).toBe(removeOpener ? shell : opener);
+    }
+    shell.remove();
+  });
 });

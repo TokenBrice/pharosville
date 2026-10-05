@@ -42,11 +42,11 @@ import { REST_SEAT_YAW_RAD } from "../systems/rest-seat";
  */
 
 /**
- * Island-local station: wading in the shallows just off the crag's waterline
- * (`GARDEN_ISLAND_OBSTACLE`), left of the tower foot as seen from the rest
- * seat, so her pale neck stands against the dark rock of the island's base.
+ * Island-local shallow station on the tea-side (+x) near shore. From the rest
+ * seat her neck clears the crag's dark foot; the chaseki veranda looks across
+ * the pond toward this same bank. Flights retain their scored paths and timing.
  */
-export const GARDEN_HERON_STATION = { x: -11.4, y: GARDEN_WATER_Y + 0.08, z: 13.6 } as const;
+export const GARDEN_HERON_STATION = { x: 6.6, y: GARDEN_WATER_Y + 0.08, z: 15.9 } as const;
 /** Standing height of the stylised heron, world units (~30 px at the rest seat). */
 export const GARDEN_HERON_HEIGHT = 2.5;
 /** If the arrival never flew, she is simply standing from this local hour. */

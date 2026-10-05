@@ -1,20 +1,7 @@
 /**
- * X6 (camera-4, K44): the postcard book as the "Wander" action.
- *
- * The idle state is the rest shot; nothing tours on its own. "Wander" glides
- * (the W1.7 selection glide) to the next of six places seen from inside the
- * world, and holds there until the visitor wanders on or does anything else,
- * which returns the view to the rest seat. Each card is an authored ShotSpec:
- * an eye standing somewhere a person could stand or float (a moored deck, the
- * mole end, the tea-house bench, the crag stair, low over the water), a
- * subject, the frame point the subject is composed on and a lens. The view is
- * solved per viewport so the subject holds its anchor at every gate profile;
- * `postcards.test.ts` checks every card's eye clearance, sight lines and
- * composition at the four gates.
- *
- * World units (x = tile.x·TILE_SCALE, z = tile.y·TILE_SCALE, y up; water at
- * −1.45). Eyes on the island are derived from the island's own anchors in
- * the test, so a landform move cannot leave a card standing inside the rock.
+ * Six inspectable stations in an explicit stroll. Idle holds the current
+ * station; only Home returns to the seat. Eyes and subjects use the same
+ * terrain, shore and veranda anchors as the production scene.
  */
 import {
   cameraViewFromAngles,
@@ -24,6 +11,21 @@ import {
   type ScreenPoint,
   type WorldPoint,
 } from "./projection";
+import { gardenIslandDisplayTile, gardenTowerWorldAnchors } from "./garden-observatory-slice";
+import { LIGHTHOUSE_TILE } from "./world-layout";
+import { TILE_SCALE } from "./projection";
+import { rimLandAt } from "./garden-rim";
+import { GARDEN_CHASEKI_ANCHORS, GARDEN_CHASEKI_FEET, GARDEN_QUAY_STAIR_HEAD, islandTerrainHeight } from "../three/garden-island";
+import { gardenRimHeightAt } from "../three/garden-rim-mesh";
+
+export interface StationLocalBounds {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  minDolly: number;
+  maxDolly: number;
+}
 
 export interface GardenPostcard {
   id: string;
@@ -42,11 +44,49 @@ export interface GardenPostcard {
   probes: readonly WorldPoint[];
   /** The subject's own station (`x,y` dock tile), exempt from the probe. */
   ownStation?: string;
+  /** Authored eye envelope and relative dolly range, never a free orbit. */
+  localBounds: StationLocalBounds;
 }
 
 const WATER_Y = -1.45;
 /** The Pharos's tower axis and heights (garden-observatory-slice anchors). */
-const TOWER = { x: 94.82, z: 109.06, foot: 8.55, crown: 40.55 } as const;
+const tower = gardenTowerWorldAnchors(LIGHTHOUSE_TILE);
+const TOWER = { x: tower.foot.x, z: tower.foot.z, foot: tower.foot.y, crown: tower.crown.y };
+const island = gardenIslandDisplayTile(LIGHTHOUSE_TILE);
+const ISLAND_ORIGIN = { x: island.x * TILE_SCALE, z: island.y * TILE_SCALE };
+const islandPoint = (point: WorldPoint): WorldPoint => ({ x: ISLAND_ORIGIN.x + point.x, y: point.y, z: ISLAND_ORIGIN.z + point.z });
+
+/** The actual production terrain, not the selection probe's coarse crag drum. */
+export function strollGroundHeight(x: number, z: number): number | null {
+  const lx = x - ISLAND_ORIGIN.x, lz = z - ISLAND_ORIGIN.z;
+  if (Math.hypot(lx, lz) <= 30) {
+    const height = islandTerrainHeight(lx, lz);
+    if (height > WATER_Y) return height;
+  }
+  return rimLandAt(x / TILE_SCALE, z / TILE_SCALE) ? gardenRimHeightAt(x / TILE_SCALE, z / TILE_SCALE) : null;
+}
+
+const CHASEKI_BOX = {
+  minX: Math.min(...GARDEN_CHASEKI_FEET.map((point) => point.x)) - 0.65,
+  maxX: Math.max(...GARDEN_CHASEKI_FEET.map((point) => point.x)) + 0.65,
+  minZ: Math.min(...GARDEN_CHASEKI_FEET.map((point) => point.z)) - 0.65,
+  maxZ: Math.max(...GARDEN_CHASEKI_FEET.map((point) => point.z)) + 0.65,
+};
+
+/** Conservative roof envelopes from the accepted chaseki and precinct kit. */
+export function strollShelterHeight(x: number, z: number): number | null {
+  const lx = x - ISLAND_ORIGIN.x, lz = z - ISLAND_ORIGIN.z;
+  if (lx >= CHASEKI_BOX.minX && lx <= CHASEKI_BOX.maxX && lz >= CHASEKI_BOX.minZ && lz <= CHASEKI_BOX.maxZ) return GARDEN_CHASEKI_ANCHORS.ridge.y;
+  if (Math.abs(x - tower.foot.x) <= 5.6 && Math.abs(z - (tower.foot.z - 7)) <= 1.3) return tower.foot.y + 2.26;
+  const gateX = ISLAND_ORIGIN.x + GARDEN_QUAY_STAIR_HEAD.x;
+  const gateZ = ISLAND_ORIGIN.z + GARDEN_QUAY_STAIR_HEAD.z;
+  if (Math.abs(x - gateX) <= 0.5 && Math.abs(z - gateZ) <= 1.9) return tower.foot.y + 2.32;
+  return null;
+}
+
+function localBounds(eye: WorldPoint, radius: number): StationLocalBounds {
+  return { minX: eye.x - radius, maxX: eye.x + radius, minZ: eye.z - radius, maxZ: eye.z + radius, minDolly: 0.82, maxDolly: 1.2 };
+}
 
 /** Points on the tower's face toward an eye (the axis itself is inside the stone). */
 function towerProbes(eye: WorldPoint): WorldPoint[] {
@@ -59,10 +99,13 @@ function towerProbes(eye: WorldPoint): WorldPoint[] {
 
 const INLET_EYE: WorldPoint = { x: 128.8, y: 8, z: 177.1 };
 const DECK_EYE: WorldPoint = { x: 114.55, y: WATER_Y + 2.6, z: 24.04 };
-const MOLE_EYE: WorldPoint = { x: 56.57, y: 12, z: 155.56 };
-const CRANE_EYE: WorldPoint = { x: 104.2, y: WATER_Y + 3.2, z: 94.2 };
-const BENCH_EYE: WorldPoint = { x: 100.82, y: WATER_Y + 5, z: 127.31 };
-const STAIR_EYE: WorldPoint = { x: 108.42, y: 7.9, z: 105.64 };
+const MOLE_MOUTH = { x: 15 * TILE_SCALE, z: 95 * TILE_SCALE };
+const MOLE_EYE: WorldPoint = { x: MOLE_MOUTH.x + 35.36, y: 12, z: MOLE_MOUTH.z + 21.21 };
+const CRANE_EYE = islandPoint({ x: 2.4, y: WATER_Y + 3.2, z: -16.1 });
+const verandaApproach = islandPoint(GARDEN_CHASEKI_ANCHORS.approach);
+const BENCH_EYE: WorldPoint = { x: verandaApproach.x - 5, y: WATER_Y + 5, z: verandaApproach.z + 13 };
+const stair = islandPoint({ x: GARDEN_QUAY_STAIR_HEAD.x + 2.8, y: 0, z: GARDEN_QUAY_STAIR_HEAD.z + 0.7 });
+const STAIR_EYE: WorldPoint = { ...stair, y: islandTerrainHeight(stair.x - ISLAND_ORIGIN.x, stair.z - ISLAND_ORIGIN.z) + 1.7 };
 
 /** The six places, in book order. */
 export const GARDEN_POSTCARDS: readonly GardenPostcard[] = [
@@ -75,6 +118,7 @@ export const GARDEN_POSTCARDS: readonly GardenPostcard[] = [
     anchor: { x: 0.64, y: 0.14 },
     vFovDeg: 38,
     probes: towerProbes(INLET_EYE),
+    localBounds: localBounds(INLET_EYE, 6),
   },
   {
     // From a deck in the quiet north basin (no berth there): the crane and
@@ -85,6 +129,7 @@ export const GARDEN_POSTCARDS: readonly GardenPostcard[] = [
     subject: { x: TOWER.x, y: TOWER.crown, z: TOWER.z },
     anchor: { x: 0.62, y: 0.14 },
     vFovDeg: 36,
+    localBounds: localBounds(DECK_EYE, 4),
     probes: towerProbes(DECK_EYE),
   },
   {
@@ -92,11 +137,12 @@ export const GARDEN_POSTCARDS: readonly GardenPostcard[] = [
     id: "mole-end",
     title: "The mole at market",
     eye: MOLE_EYE,
-    subject: { x: 21.2, y: 1.2, z: 134.35 },
+    subject: { ...MOLE_MOUTH, y: 1.2 },
     anchor: { x: 0.36, y: 0.58 },
     vFovDeg: 32,
-    probes: [{ x: 21.2, y: 0.4, z: 134.35 }, { x: 21.2, y: 3.5, z: 134.35 }],
+    probes: [{ ...MOLE_MOUTH, y: 0.4 }, { ...MOLE_MOUTH, y: 3.5 }],
     ownStation: "15,95",
+    localBounds: localBounds(MOLE_EYE, 4),
   },
   {
     // Low over the water north of the island: the crane stones and the north passage.
@@ -107,17 +153,19 @@ export const GARDEN_POSTCARDS: readonly GardenPostcard[] = [
     anchor: { x: 0.38, y: 0.6 },
     vFovDeg: 32,
     probes: [{ x: 100.41, y: 0.2, z: 70.6 }, { x: 100.41, y: 1.6, z: 70.6 }],
+    localBounds: localBounds(CRANE_EYE, 2),
   },
   {
     // From a boat off the lee shore, past the lone islet's stones: the
     // tea-house on its bench under the crag.
     id: "chaseki-bench",
-    title: "By the tea-house",
+    title: "The tea-house veranda",
     eye: BENCH_EYE,
-    subject: { x: 106.22, y: 2.6, z: 112.66 },
+    subject: islandPoint({ ...GARDEN_CHASEKI_ANCHORS.door, y: GARDEN_CHASEKI_ANCHORS.door.y + 1.1 }),
     anchor: { x: 0.38, y: 0.58 },
     vFovDeg: 32,
-    probes: [{ x: 106.3, y: 3.0, z: 114.4 }, { x: 106.3, y: 4.2, z: 114.4 }],
+    probes: [islandPoint({ ...GARDEN_CHASEKI_ANCHORS.approach, y: 3 }), islandPoint({ ...GARDEN_CHASEKI_ANCHORS.approach, y: 4.2 })],
+    localBounds: localBounds(BENCH_EYE, 2),
   },
   {
     // High on the crag stair: over the bench and the anchorage to the reed station.
@@ -129,8 +177,28 @@ export const GARDEN_POSTCARDS: readonly GardenPostcard[] = [
     vFovDeg: 32,
     probes: [{ x: 155.6, y: 1.5, z: 185.3 }],
     ownStation: "110,131",
+    localBounds: localBounds(STAIR_EYE, 0.9),
   },
 ];
+
+/** Each outgoing leg follows a named water corridor or the existing stair. */
+const STROLL_WAYPOINTS: readonly (readonly WorldPoint[])[] = [
+  [{ x: 140, y: 7, z: 142 }, { x: 139, y: 5, z: 80 }, { x: 130, y: 3, z: 42 }],
+  [{ x: 76, y: 4, z: 34 }, { x: 60, y: 5, z: 76 }, { x: 55, y: 8, z: 126 }],
+  [{ x: 59, y: 6, z: 130 }, { x: 66, y: 5, z: 88 }, { x: 89, y: 3, z: 83 }],
+  [{ x: 122, y: 5, z: 93 }, { x: 125, y: 5, z: 120 }, { x: 113, y: 4, z: 129 }],
+  [{ x: 118, y: 4, z: 124 }, { x: 125, y: 4, z: 105 }, { x: 120, y: 7, z: 99 }],
+  [{ x: 123, y: 8, z: 105 }, { x: 130, y: 8, z: 139 }],
+];
+
+/** Adjacent reverse travel uses exactly the same corridor in reverse. */
+export function strollWaypoints(from: number | null, to: number | null): readonly WorldPoint[] {
+  if (from === null) return [{ x: 140, y: 10, z: 177 }];
+  if (to === null) return [{ x: 130, y: 10, z: 165 }];
+  if ((from + 1) % GARDEN_POSTCARDS.length === to) return STROLL_WAYPOINTS[from]!;
+  if ((to + 1) % GARDEN_POSTCARDS.length === from) return [...STROLL_WAYPOINTS[to]!].reverse();
+  return [];
+}
 
 /**
  * The card's view at this viewport: the eye fixed, the look turned (no roll)
@@ -168,16 +236,12 @@ export function postcardView(card: GardenPostcard, viewport: ScreenPoint): Camer
   return viewAt(yaw, pitch);
 }
 
-/**
- * The camera state that shows a card: the given rig (the rest's hand-off
- * rig, so a gesture that follows lands near the seat) under the card's shot.
- * No rest pose rides under it: the seat's threshold stays at the seat.
- */
+/** A station's authored view with its local gesture rig underneath. */
 export function postcardCamera(card: GardenPostcard, rig: IsoCamera, viewport: ScreenPoint): IsoCamera {
   return {
     offsetX: rig.offsetX,
     offsetY: rig.offsetY,
     zoom: rig.zoom,
-    shot: { presence: 1, view: postcardView(card, viewport) },
+    shot: { presence: 1, view: postcardView(card, viewport), subject: { world: card.subject, anchor: card.anchor } },
   };
 }

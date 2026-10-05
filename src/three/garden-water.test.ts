@@ -731,6 +731,30 @@ describe("createGardenWater", () => {
     expect(GARDEN_WATER_SHORE_LAP.maxMix).toBeLessThanOrEqual(0.055);
   });
 
+  it("declares every substrate-path local before use in an accessible fragment scope", () => {
+    const source = FRAGMENT_SHADER.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+    const main = source.slice(source.indexOf("void main()"));
+    const tracked: Record<string, true> = {
+      fieldDepth: true, depth: true, bottomDepth: true, shoreMask: true, clearBottom: true,
+      bottomPosition: true, stoneBottom: true, sandBottom: true, substrate: true, bandPosition: true,
+    };
+    const declarationTypes: Record<string, true> = { float: true, vec3: true, GardenSurfaceDetail: true };
+    const scopes: Set<string>[] = [new Set()];
+    let previous = "";
+    for (const match of main.matchAll(/[A-Za-z_]\w*|[{}]/g)) {
+      const token = match[0];
+      if (token === "{") scopes.push(new Set());
+      else if (token === "}") scopes.pop();
+      else if (tracked[token]) {
+        if (declarationTypes[previous]) scopes[scopes.length - 1]!.add(token);
+        else expect(scopes.some((scope) => scope.has(token)), `${token} must be declared in scope`).toBe(true);
+      }
+      previous = token;
+    }
+    expect(main).toContain("float fieldDepth = smoothstep(0.0, 0.42, shoreField);");
+    expect(main).toContain("mix(0.82, 1.0, fieldDepth)");
+  });
+
   it("resolves every hard threshold against its own screen-space gradient", () => {
     // S3: MSAA antialiases geometry edges, not a discontinuity the shader
     // invents per fragment. Every bare step() on a spatial field crawled under

@@ -168,7 +168,7 @@ describe("nonmodal ReadingKey", () => {
   it("can open, close with Escape, restore focus and reopen beside the caption", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     render(<><p role="status">Mint and burn unavailable · refresh failed</p><ReadingKey world={world} onSelectDetail={() => undefined} /></>);
-    const opener = screen.getByRole("button", { name: "Reading key" });
+    const opener = screen.getByRole("button", { name: "Read key" });
     expect(opener.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(opener);
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -214,7 +214,7 @@ describe("nonmodal ReadingKey", () => {
     render(<ReadingKey world={world} teachingOpen onDismissTeaching={dismiss} onSelectDetail={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "Got it" }));
     expect(dismiss).toHaveBeenCalledOnce();
-    expect(screen.getByRole("button", { name: "Reading key" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Read key" })).toBeTruthy();
   });
 
   it("does not complete teaching on focus, incidental keys or inspecting one exemplar", () => {
@@ -235,7 +235,7 @@ describe("nonmodal ReadingKey", () => {
     const world = buildPharosVilleWorld(makePharosVilleWorldInput());
     const dismiss = vi.fn();
     const view = render(<ReadingKey world={world} teachingOpen onDismissTeaching={dismiss} onSelectDetail={() => undefined} />);
-    const opener = screen.getByRole("button", { name: "Reading key" });
+    const opener = screen.getByRole("button", { name: "Read key" });
     const done = screen.getByRole("button", { name: "Got it" });
     done.focus();
     fireEvent.keyDown(done, { key: "Escape" });

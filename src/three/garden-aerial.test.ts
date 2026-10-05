@@ -7,6 +7,7 @@ import {
 import { dayCyclePhase } from "./garden-day-cycle";
 import { gardenSkyToday } from "../systems/sky-almanac";
 import { FRAGMENT_SHADER as WATER_FRAGMENT_SHADER } from "./garden-water";
+import { writeGardenAtmosphereSky } from "./garden-atmosphere";
 
 const SEA = -1.45;
 const NOON = gardenSkyToday().solarNoonHour;
@@ -22,6 +23,24 @@ function fit(clarity = 1) {
 }
 
 describe("one analytic air", () => {
+  it("keeps the unscattered twilight basis separate so shaders do not blend analytic solar air twice", () => {
+    const solarHorizon = new Color(0.7, 0.4, 0.2);
+    const antiHorizon = new Color(0.2, 0.3, 0.5);
+    const sunDir = new Vector3(Math.sqrt(1 - 0.03 ** 2), 0.03, 0);
+    updateGardenAerial({
+      phase: { daylight: 0.5, dusk: 0.5, night: 0 },
+      solarHorizon, antiHorizon, sunDir,
+      seaLevel: SEA, clarity: 0, skyVisibleHeight: 0.23,
+    });
+    const basis = solarHorizon.clone().multiplyScalar(1.1);
+    expect(GARDEN_AIR.twilightSun.toArray()).toEqual(basis.toArray());
+    expect(GARDEN_AIR.twilightAnti.toArray()).toEqual(antiHorizon.clone().multiplyScalar(1.1).toArray());
+    const analytic = writeGardenAtmosphereSky(new Color(), new Vector3(1, 0, 0), sunDir, GARDEN_AIR.rayleigh, GARDEN_AIR.mie);
+    expect(GARDEN_AIR.airSun.toArray()).toEqual(basis.lerp(analytic, GARDEN_AIR.daylight).toArray());
+    expect(GARDEN_AERIAL_GLSL_PARS).toContain("mix(uGardenAir.twilightAnti, uGardenAir.twilightSun");
+    expect(GARDEN_AERIAL_GLSL_PARS).not.toContain("mix(uGardenAir.airAnti, uGardenAir.airSun");
+  });
+
   it("keeps authored clear-noon near/mid distances legible, with recession in borrowed hills", () => {
     for (const height of [15.23, 180]) {
       const eye = { x: 0, y: height, z: 0 };

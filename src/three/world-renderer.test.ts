@@ -30,7 +30,7 @@ import {
   Texture,
   Vector3,
 } from "three";
-import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock, type MockInstance } from "vitest";
 import { createElement } from "react";
 import { act } from "@testing-library/react";
 import { mountGardenLookdev, type GardenLookdevAPI } from "../dev/garden-lookdev";
@@ -389,7 +389,7 @@ type TestGardenPost = {
   getPassList: ReturnType<typeof vi.fn>;
   getGpuTimings: ReturnType<typeof vi.fn>;
   isComposerEnabled: ReturnType<typeof vi.fn>;
-  render: ReturnType<typeof vi.fn>;
+  render: Mock<() => void>;
   setAOQuality: ReturnType<typeof vi.fn>;
   setAOTierWeight: ReturnType<typeof vi.fn>;
   setAOZoomDetail: ReturnType<typeof vi.fn>;
@@ -3337,5 +3337,34 @@ describe("Garden lookdev surface response", () => {
     expect(uniform.x).toBe(0); expect(uniform.y).toBe(0);
     expect(moss.flatShading).toBe(false);
     container.remove();
+  });
+});
+
+describe("Garden performance shadow telemetry", () => {
+  it("counts consumed shadow submissions, not pending requests or cached sampling", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const renderer = createThreeWorldRenderer({ canvas: document.createElement("canvas"), onContextFailure: vi.fn() });
+    try {
+      const frame = rendererFrame(world, "full", { reducedMotion: true, wallClockHour: 12 });
+      const pending = renderer.render(frame);
+      expect(pending.shadowRefreshed).toBe(false);
+      expect(pending.shadowRefreshCount).toBe(0); // The test GPU has not consumed the request.
+      const scene = rendererHarness.instances.at(-1)!.lastScene!;
+      const light = scene.children.find((object) => object instanceof DirectionalLight) as DirectionalLight;
+      const post = postHarness.instances.at(-1)!;
+      const draw = post.render.getMockImplementation();
+      if (!draw) throw new Error("The post harness must provide its scene draw.");
+      post.render.mockImplementation(() => {
+        draw();
+        if (light.castShadow) light.shadow.needsUpdate = false; // Actual WebGLShadowMap completion.
+      });
+      expect(renderer.render(frame)).toMatchObject({ shadowRefreshed: true, shadowRefreshCount: 1 });
+      expect(renderer.render(frame)).toMatchObject({ shadowRefreshed: false, shadowRefreshCount: 1 });
+      expect(renderer.render({ ...frame, wallClockHour: 18 })).toMatchObject({ shadowRefreshed: true, shadowRefreshCount: 2 });
+      expect(renderer.render(rendererFrame(world, "constrained", { reducedMotion: true })))
+        .toMatchObject({ shadowRefreshed: false, shadowRefreshCount: 2 });
+    } finally {
+      renderer.dispose();
+    }
   });
 });

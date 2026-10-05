@@ -872,7 +872,7 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       // anchors all project the same breathed pose.
       const cameraBreath = stepCameraBreath(cameraBreathStateRef.current, {
         dtSeconds: frameDtSeconds,
-        forcedStill: reducedMotion || isStillCameraRequested(),
+        forcedStill: reducedMotion || isStillCameraRequested() || (frameCamera.shot?.presence === 1 && !frameCamera.rest),
         idle: activeHoveredDetailId === null
           && activeSelectedDetailId === null
           && !cameraStep.cameraIntentActive
@@ -1690,7 +1690,11 @@ function updateDebugFrame(input: DebugFramePatchInput) {
   if (!isVisualDebugAllowed()) return;
   const debugWindow = window as typeof window & {
     __pharosVilleDebug?: Partial<PharosVilleDebugState>;
+    __pharosVilleFrameEvidence?: (metrics: DebugRenderMetrics, worldGeneratedAt: number) => void;
   };
+  if (import.meta.env.DEV && input.world.generatedAt !== null) {
+    debugWindow.__pharosVilleFrameEvidence?.(input.renderMetrics, input.world.generatedAt);
+  }
   if (!debugWindow.__pharosVilleDebug) return;
   Object.assign(debugWindow.__pharosVilleDebug, debugFramePatch(input));
 }

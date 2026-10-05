@@ -234,6 +234,7 @@ export interface KuromatsuLimb {
   /** Root-local control points after the implicit, attached first point. */
   points: readonly (readonly [number, number, number])[];
   radii: readonly [number, number];
+  /** Dense closed needles in a low irregular lens above the terminal twig. */
   spray?: { needles: number; length: number; spread: number };
 }
 
@@ -261,59 +262,73 @@ function kuromatsuFlex(geometry: BufferGeometry, rootIndex: 0 | 1, from: Vector3
   geometry.setAttribute(GARDEN_KUROMATSU_ROOT_INDEX_ATTRIBUTE, new BufferAttribute(new Float32Array(count).fill(rootIndex), 1));
 }
 
-/** Closed, slender opaque needles, splayed along the end of a real twig. */
+/** Overlapping short opaque needles form a soft lens, not a radial frond. */
 function kuromatsuSpray(
   curve: CatmullRomCurve3, spray: NonNullable<KuromatsuLimb["spray"]>,
-  needle: Color, seed: string, rootIndex: 0 | 1, fromFlex: Vector3, toFlex: Vector3,
+  needle: Color, seed: string, rootIndex: 0 | 1, toFlex: Vector3,
 ): BufferGeometry {
-  const positions = new Float32Array(spray.needles * 12);
+  const positions = new Float32Array(spray.needles * 18);
   const colors = new Float32Array(positions.length);
   const flex = new Float32Array(positions.length);
   const indices: number[] = [];
-  const tangent = curve.getTangentAt(1);
-  const frames = curve.computeFrenetFrames(1, false);
-  const across = frames.normals[1]!;
-  const lift = frames.binormals[1]!;
+  const along = curve.getTangentAt(1);
+  along.y = 0;
+  if (along.lengthSq() < 1e-8) along.set(1, 0, 0);
+  else along.normalize();
+  const across = new Vector3(along.z, 0, -along.x);
+  const centre = curve.getPointAt(1).add(new Vector3(0, spray.length * 0.18, 0));
   const base = new Vector3(), direction = new Vector3(), side = new Vector3(), up = new Vector3(), point = new Vector3();
+  const radius = spray.length * spray.spread;
+  const phase = stableUnit(`${seed}.lens`) * Math.PI * 2;
+  const rings = Math.ceil(spray.needles / 3);
   for (let n = 0; n < spray.needles; n += 1) {
     const irregular = stableUnit(`${seed}.needle.${n}`);
-    const angle = ((n + 0.35 + irregular * 0.3) / spray.needles * 2 - 1) * spray.spread;
-    const twist = (n % 3 - 1) * 0.28 + (irregular - 0.5) * 0.24;
-    direction.copy(tangent).multiplyScalar(Math.cos(angle))
-      .addScaledVector(across, Math.sin(angle)).addScaledVector(lift, twist).normalize();
-    side.crossVectors(direction, lift).normalize();
+    const r = Math.sqrt((Math.floor(n / 3) + 0.5) / rings);
+    const angle = n * 2.399963229728653 + phase;
+    const edge = 1 + 0.12 * Math.sin(angle * 3 + phase) + 0.06 * Math.sin(angle * 7);
+    base.copy(centre).addScaledVector(along, Math.cos(angle) * r * radius * edge)
+      .addScaledVector(across, Math.sin(angle) * r * radius * 0.58 * edge);
+    base.y += spray.length * (0.12 * (1 - r * r) + (n % 3 - 1) * 0.08);
+    // Dense interleaved layers cover the cluster body. Only their short tips
+    // roughen its edge; the larger sky gaps belong between attached clusters.
+    direction.copy(along).multiplyScalar(Math.cos(angle))
+      .addScaledVector(across, Math.sin(angle));
+    direction.y = 0.25 + irregular * 0.3;
+    direction.normalize();
+    side.set(direction.z, 0, -direction.x).normalize();
     up.crossVectors(direction, side).normalize();
-    const baseT = 0.7 + n / spray.needles * 0.3;
-    curve.getPointAt(baseT, base);
-    const baseFlex = fromFlex.z + (toFlex.z - fromFlex.z) * baseT;
-    const length = spray.length * (0.7 + irregular * 0.45);
-    const width = length * (0.035 + irregular * 0.012);
-    const start = n * 4;
-    for (let corner = 0; corner < 4; corner += 1) {
+    const length = spray.length * (0.22 + irregular * 0.08);
+    const width = length * 0.45;
+    const start = n * 6;
+    for (let corner = 0; corner < 6; corner += 1) {
       point.copy(base);
-      if (corner === 3) point.addScaledVector(direction, length);
+      if (corner === 4) point.addScaledVector(direction, length * 0.65);
+      else if (corner === 5) point.addScaledVector(direction, -length * 0.35);
       else {
-        const radial = corner * Math.PI * 2 / 3;
+        const radial = corner * Math.PI / 2;
         point.addScaledVector(side, Math.cos(radial) * width).addScaledVector(up, Math.sin(radial) * width);
       }
       point.toArray(positions, (start + corner) * 3);
-      const value = (corner === 3 ? 0.95 : 0.58) * (0.85 + irregular * 0.15);
+      const value = (corner === 4 ? 0.92 : corner === 5 ? 0.58 : 0.72) * (0.88 + irregular * 0.12);
       colors[(start + corner) * 3] = needle.r * value;
       colors[(start + corner) * 3 + 1] = needle.g * value;
       colors[(start + corner) * 3 + 2] = needle.b * value;
       flex[(start + corner) * 3] = toFlex.x;
       flex[(start + corner) * 3 + 1] = toFlex.y;
-      flex[(start + corner) * 3 + 2] = corner === 3 ? 1 : baseFlex;
+      flex[(start + corner) * 3 + 2] = corner === 4 ? 1 : toFlex.z;
     }
-    indices.push(start, start + 2, start + 1,
-      start, start + 1, start + 3, start + 1, start + 2, start + 3, start + 2, start, start + 3);
+    for (let radial = 0; radial < 4; radial += 1) {
+      const next = (radial + 1) % 4;
+      indices.push(start + radial, start + next, start + 4,
+        start + next, start + radial, start + 5);
+    }
   }
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(positions, 3));
   geometry.setAttribute("color", new BufferAttribute(colors, 3));
   geometry.setAttribute(GARDEN_KUROMATSU_FLEX_ATTRIBUTE, new BufferAttribute(flex, 3));
   geometry.setAttribute(GARDEN_KUROMATSU_ROOT_INDEX_ATTRIBUTE,
-    new BufferAttribute(new Float32Array(spray.needles * 4).fill(rootIndex), 1));
+    new BufferAttribute(new Float32Array(spray.needles * 6).fill(rootIndex), 1));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   return geometry;
@@ -341,7 +356,7 @@ export function createAuthoredKuromatsuGeometry(options: AuthoredKuromatsuOption
     kuromatsuFlex(bark, options.rootIndex, from, to, radial);
     pieces.push(bark);
     if (limb.spray) pieces.push(kuromatsuSpray(curve, limb.spray, options.needle,
-      `${options.seed}.spray.${index}`, options.rootIndex, from, to));
+      `${options.seed}.spray.${index}`, options.rootIndex, to));
     curves.push(curve);
     starts.push(from);
     ends.push(to);

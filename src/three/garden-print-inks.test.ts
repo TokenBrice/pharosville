@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BoxGeometry, Color, Mesh, MeshBasicMaterial, MeshStandardMaterial } from "three";
+import { BoxGeometry, Color, Mesh, MeshBasicMaterial, MeshStandardMaterial, type WebGLProgramParametersWithUniforms, type WebGLRenderer } from "three";
 import {
   GARDEN_PRINT_AI_INKS,
   applyGardenPrintInks,
@@ -45,6 +45,29 @@ describe("ai-zuri shade plate", () => {
       0.4 * GARDEN_PRINT_AI_INKS.golden.amount + 0.6 * GARDEN_PRINT_AI_INKS.blue.amount,
       12,
     );
+  });
+
+  it("filters existing local diffuse at dawn/golden while leaving the accepted noon/night ink paths unchanged", () => {
+    for (const beat of ["dawn", "golden", "day", "night"] as const) {
+      const beats = { dawn: 0, day: 0, golden: 0, blue: 0, night: 0 };
+      beats[beat] = 1;
+      updateGardenPrintInks(12, beats);
+      expect(gardenPrintInkUniforms.uGardenInkLocalColour.value).toBe(beat === "dawn" || beat === "golden" ? 1 : 0);
+    }
+    const material = new MeshStandardMaterial();
+    applyGardenPrintInks(material);
+    const shader = {
+      uniforms: {},
+      vertexShader: "#include <common>\n#include <project_vertex>",
+      fragmentShader: "#include <common>\n#include <lights_fragment_begin>\n#include <lights_fragment_end>",
+    } as WebGLProgramParametersWithUniforms;
+    material.onBeforeCompile(shader, {} as WebGLRenderer);
+    expect(shader.uniforms.uGardenInkLocalColour).toBe(gardenPrintInkUniforms.uGardenInkLocalColour);
+    expect(shader.fragmentShader).toContain("vec3 filtered = localColour * ink;");
+    expect(shader.fragmentShader).toContain("localLuma / max(filteredLuma, 1e-8)");
+    expect(shader.fragmentShader).toContain("if (uGardenInkLocalColour <= 0.0) return plate;");
+    expect(shader.fragmentShader).toContain("gardenInkTarget(gardenLocalDiffuse, uGardenFirstLightGlow, gardenAiLuma)");
+    material.dispose();
   });
 
   it("never inks identity cloth, marks or practicals, but prints the tower stone", () => {

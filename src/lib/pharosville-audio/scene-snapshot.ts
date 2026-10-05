@@ -4,12 +4,11 @@
  * scalar stores, ≪ 0.003 ms); the lazy audio chunk reads it on its own 4 Hz
  * tick and never touches React state or the frame path.
  *
- * This module is deliberately dependency-free and three-free: it is imported
- * by both the world chunk (the consent hook hands it to the engine) and the
- * renderer chunk (the writer), so it lives in the world chunk and the audio
- * chunk only ever receives it by reference.
+ * This module is deliberately three-free: the world and renderer share scalar
+ * stores, while the lazy audio chunk only receives the snapshot by reference.
  */
 import type { GardenDirectorState } from "../../systems/garden-director";
+import { GARDEN_BASIN_ROOT_OFFSET, GARDEN_LIGHTHOUSE_ROOT_OFFSET, GARDEN_PINE_SOUND_ROOT_OFFSET } from "../../systems/garden-observatory-slice";
 
 export interface AudioSceneSnapshot {
   /** Frames written so far; 0 until the renderer has drawn once. */
@@ -23,6 +22,8 @@ export interface AudioSceneSnapshot {
   hour: number;
   /** How much the beacon owns the scene: the night beat plus half the blue hour. */
   beaconPresence: number;
+  /** Visual dawn/day/golden weight; harbour work rests through blue/night. */
+  daylightPresence: number;
   /** `seaState.swell` — the ledger's "Sea state" (DEWS threat + PSI stress). */
   swell: number;
   /** `seaState.source.psiStress`, which also sets the beacon's sweep tempo. */
@@ -45,6 +46,14 @@ export interface AudioSceneSnapshot {
   directorSeconds: number;
   /** Eye height above the water: low at the rest seat, high over the chart. */
   eyeHeight: number;
+  eyeX: number;
+  eyeY: number;
+  eyeZ: number;
+  basinX: number;
+  basinY: number;
+  basinZ: number;
+  pineX: number;
+  pineZ: number;
   /** View target and the screen-right unit vector in world XZ, for gust travel. */
   targetX: number;
   targetZ: number;
@@ -63,6 +72,7 @@ export const audioSceneSnapshot: AudioSceneSnapshot = {
   reducedMotion: false,
   hour: 12,
   beaconPresence: 0,
+  daylightPresence: 1,
   swell: 0,
   psiStress: 0,
   baseWind: 0,
@@ -70,6 +80,14 @@ export const audioSceneSnapshot: AudioSceneSnapshot = {
   director: null,
   directorSeconds: 0,
   eyeHeight: 16,
+  eyeX: 0,
+  eyeY: 16,
+  eyeZ: 0,
+  basinX: 0,
+  basinY: 0,
+  basinZ: 0,
+  pineX: 0,
+  pineZ: 0,
   targetX: 0,
   targetZ: 0,
   rightX: 1,
@@ -88,7 +106,7 @@ export function writeAudioSceneFrame(
     gardenDirector?: GardenDirectorState | undefined;
     epochSeconds?: number | undefined;
   },
-  beats: { night: number; blue: number },
+  beats: { night: number; blue: number; dawn: number; day: number; golden: number },
 ): void {
   const out = audioSceneSnapshot;
   out.frames += 1;
@@ -97,6 +115,7 @@ export function writeAudioSceneFrame(
   out.reducedMotion = frame.reducedMotion;
   out.hour = frame.wallClockHour;
   out.beaconPresence = beats.night + 0.5 * beats.blue;
+  out.daylightPresence = beats.dawn + beats.day + beats.golden;
   out.swell = frame.seaState.swell;
   out.psiStress = frame.seaState.source.psiStress;
   out.baseWind = frame.seaState.wind;
@@ -120,9 +139,20 @@ export function writeAudioSceneView(
   beaconZ: number,
   beamBearing: number,
   waterY: number,
+  basinY: number,
 ): void {
   const out = audioSceneSnapshot;
   out.eyeHeight = eye.y - waterY;
+  out.eyeX = eye.x;
+  out.eyeY = eye.y;
+  out.eyeZ = eye.z;
+  const islandX = beaconX - GARDEN_LIGHTHOUSE_ROOT_OFFSET.x;
+  const islandZ = beaconZ - GARDEN_LIGHTHOUSE_ROOT_OFFSET.z;
+  out.basinX = islandX + GARDEN_BASIN_ROOT_OFFSET.x;
+  out.basinY = basinY;
+  out.basinZ = islandZ + GARDEN_BASIN_ROOT_OFFSET.z;
+  out.pineX = islandX + GARDEN_PINE_SOUND_ROOT_OFFSET.x;
+  out.pineZ = islandZ + GARDEN_PINE_SOUND_ROOT_OFFSET.z;
   out.targetX = target.x;
   out.targetZ = target.z;
   const rightLength = Math.hypot(rightX, rightZ) || 1;

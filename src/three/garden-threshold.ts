@@ -6,7 +6,6 @@ import {
   ConeGeometry,
   CylinderGeometry,
   Group,
-  InstancedBufferAttribute,
   InstancedMesh,
   LatheGeometry,
   Matrix4,
@@ -28,12 +27,12 @@ import {
 import type { WeatherPlan } from "../systems/weather";
 import {
   patchGardenFloraNight,
-  patchGardenInstancedWindSway,
-  updateGardenInstancedWindSway,
+  patchGardenRootedWindSway,
+  updateGardenRootedWindSway,
 } from "./garden-flora";
 import { patchGardenToroKindling } from "./garden-lanterns";
 import {
-  createAuthoredKuromatsuGeometry, GARDEN_KUROMATSU_FLEX_ATTRIBUTE,
+  createAuthoredKuromatsuGeometry,
   type AuthoredKuromatsuOptions, type KuromatsuLimb,
 } from "./garden-niwaki";
 import type { SetStoneForm } from "./garden-set-stones";
@@ -752,8 +751,8 @@ const HERO_ROOT = { forward: 5.8, right: -2 } as const;
 const HERO_TRUNK: ReadonlyArray<readonly [number, number, number]> = [
   [0, 0, 0], [-0.9, 0.45, -0.3], [-2.1, 1, -0.9], [-3.3, 2.2, -1.6], [-4, 4.6, -2.6], [-4.2, 7.4, -3.4], [-4, 9.2, -3.8],
 ];
-const NEAR_NEEDLES = { needles: 24, length: 0.34, spread: 1.1 } as const;
-const UPPER_NEEDLES = { needles: 14, length: 0.3, spread: 1.05 } as const;
+const NEAR_NEEDLES = { needles: 96, length: 0.34, spread: 1.1 } as const;
+const UPPER_NEEDLES = { needles: 64, length: 0.3, spread: 1.05 } as const;
 const HERO_LIMBS: readonly KuromatsuLimb[] = [
   // One long primary, three unequal secondary forks, then individual twigs.
   { parent: 0, at: 0.443, order: "primary", points: [[-3.8, 2.8, -4.6], [-3.1, 3, -7], [-2.1, 3.95, -8.2]], radii: [0.18, 0.028] },
@@ -788,7 +787,7 @@ const COMPANION_ROOT = { forward: 5.1, right: 6.4 } as const;
 const COMPANION_TRUNK: ReadonlyArray<readonly [number, number, number]> = [
   [0, 0, 0], [0.25, 1.6, 0.2], [0.12, 3.4, 0.45], [0.45, 5.2, 0.6], [0.35, 7, 0.8],
 ];
-const COMPANION_NEEDLES = { needles: 20, length: 0.26, spread: 1.1 } as const;
+const COMPANION_NEEDLES = { needles: 88, length: 0.26, spread: 1.1 } as const;
 const COMPANION_LIMBS: readonly KuromatsuLimb[] = [
   { parent: 0, at: 0.372, order: "primary", points: [[0.55, 2.7, -1], [1.9, 2.85, -5], [2.8, 3.55, -7.8]], radii: [0.13, 0.018] },
   { parent: 1, at: 0.55, order: "secondary", points: [[1.4, 3.35, -6], [1.72, 3.8, -6.9]], radii: [0.03, 0.01] },
@@ -828,7 +827,7 @@ export interface GardenThreshold {
    * and the corner holds through rest breath and the camera hand-off.
    */
   setEyeOffset(x: number, y: number, z: number): void;
-  updateWind(weather: WeatherPlan, reducedMotion: boolean): void;
+  updateWind(weather: WeatherPlan, reducedMotion: boolean, rootGust0: number, rootGust1: number): void;
   dispose(): void;
 }
 
@@ -837,21 +836,6 @@ function plantKuromatsu(position: Vector3, options: AuthoredKuromatsuOptions): B
     .translate(position.x, position.y - PINE_BASE, position.z);
 }
 
-/** Near trees flex along their authored graph, not a shared world-height ramp. */
-function patchThresholdRootedFlex(material: MeshStandardMaterial): void {
-  const previousCompile = material.onBeforeCompile;
-  const previousKey = material.customProgramCacheKey();
-  material.onBeforeCompile = (shader, renderer) => {
-    previousCompile.call(material, shader, renderer);
-    shader.vertexShader = shader.vertexShader
-      .replace("attribute float aGardenSway;", `attribute float aGardenSway;
-attribute vec3 ${GARDEN_KUROMATSU_FLEX_ATTRIBUTE};`)
-      .replace(/float gardenWindHeight =[^;]+;\s*float gardenWindFlex =[^;]+;/,
-        "float gardenWindFlex = dot(aGardenFlex, vec3(0.2, 0.45, 0.35));");
-  };
-  material.customProgramCacheKey = () => `${previousKey}:authored-kuromatsu-flex-v1`;
-  material.needsUpdate = true;
-}
 
 export function createGardenThreshold(surfaceAtlas?: GardenSurfaceAtlasOwner): GardenThreshold {
   const root = new Group();
@@ -932,17 +916,13 @@ GardenSurfaceDetail gardenSampleSurface(vec3 p, vec3 n, vec2 uv, float role, flo
   ] as const;
   const pineMaterial = new MeshStandardMaterial({ flatShading: false, roughness: 0.96, vertexColors: true });
   patchGardenFloraNight(pineMaterial, { nightFloor: THRESHOLD_NIGHT_FLOOR });
-  patchGardenInstancedWindSway(pineMaterial, 9.6, 0.02);
-  patchThresholdRootedFlex(pineMaterial);
-  const windStrength = pineMaterial.userData.gardenWindSwayUniforms.uGardenWindStrength as { value: number };
+  patchGardenRootedWindSway(pineMaterial);
   // One instance: both trees share the draw and the world-aligned wind.
   const pines = new InstancedMesh(pineGeometry, pineMaterial, 1);
   pines.name = GARDEN_THRESHOLD_PINES_NAME;
   const pineMatrix = new Matrix4().makeTranslation(0, PINE_BASE, 0);
   pines.setMatrixAt(0, pineMatrix);
   pines.instanceMatrix.needsUpdate = true;
-  // Near the eye a full rim-pine sway would swing tens of pixels: a third.
-  pineGeometry.setAttribute("aGardenSway", new InstancedBufferAttribute(new Float32Array([0.34]), 1));
 
   const drawables = [land, stones, casters, engawa, pines];
   for (const mesh of drawables) {
@@ -981,9 +961,8 @@ GardenSurfaceDetail gardenSampleSurface(vec3 p, vec3 n, vec2 uv, float role, flo
     setEyeOffset(x, y, z) {
       root.position.set(seat.x + x, seat.y + y, seat.z + z);
     },
-    updateWind(weather, reducedMotion) {
-      if (reducedMotion) windStrength.value = 0;
-      else updateGardenInstancedWindSway(pineMaterial, weather, false);
+    updateWind(weather, reducedMotion, rootGust0, rootGust1) {
+      updateGardenRootedWindSway(pineMaterial, weather, reducedMotion, rootGust0, rootGust1);
     },
     dispose() {
       if (disposed) return;

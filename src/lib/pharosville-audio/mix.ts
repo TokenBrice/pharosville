@@ -22,9 +22,9 @@ export const AUDIO_MIX: Readonly<Record<AudioStemName, AudioStemLevel>> = Object
   sea: { measure: "rms", calm: -30, storm: -22 },
   /** BP 1.2 kHz, the same breath one tenth of a cycle later; sets every 5–7 breaths. */
   wash: { measure: "rms", calm: -36, storm: -26 },
-  /** Stone lap × near detail: bursts on the `wakes` phase, 30 % skipped. */
+  /** Shore laps and quiet inharmonic basin drips share this event budget and bus. */
   lap: { measure: "peak", calm: -34, storm: -30 },
-  /** BP 250–1100 Hz from wind speed; the gust lifts it and travels across the stereo field. */
+  /** Pine rustle from the real root gust replaces part of the broad wind hiss. */
   wind: { measure: "rms", calm: -44, storm: -28 },
   /** Resonant band, only above wind speed 0.65 (storm). */
   whistle: { measure: "rms", calm: null, storm: -34 },
@@ -53,15 +53,21 @@ export const AUDIO_MASTER = Object.freeze({
   hiddenFadeSeconds: 0.6,
   /** Visible again: resume and rise. */
   resumeFadeSeconds: 2.5,
-  /** Sound switched off: fade before the context closes. */
-  stopFadeSeconds: 0.4,
-  /** Breath depth of the sea body, ± dB: calm, storm, and under Still / reduced motion. */
-  breathDepthDb: { calm: 3, storm: 6, still: 1 },
+  /** Breath depth of the sea body, ± dB; Still never runs an audio clock. */
+  breathDepthDb: { calm: 3, storm: 6 },
   /** Seeded per-breath amplitude spread and the "set" of bigger waves, dB. */
   breathSpreadDb: 2.5,
   setBoostDb: 2,
   /** The gust lifts the wind by up to this much. */
   gustBoostDb: 6,
+  /** Night hush from the visual blue/night score, not another hour clock. */
+  nightBedDb: -4,
+  borrowedNightDb: -8,
+  /** Salience displacement: reduce shore lap/wash and hiss to fund basin and pine detail. */
+  shoreDisplacementDb: -3,
+  windHissDisplacementDb: -4,
+  basinTrimDb: -3,
+  rustleTrimDb: -5,
   /** A beacon pass toward the eye lifts the night air by this much. */
   beaconPassDb: 3,
   /** The meteor is a held breath: the whole bed dips by this much. */

@@ -508,15 +508,20 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
 
   const clearTargets = () => {
     const previousTarget = renderer.getRenderTarget();
+    const previousFace = renderer.getActiveCubeFace();
+    const previousMip = renderer.getActiveMipmapLevel();
     renderer.getClearColor(clearColorScratch);
     const previousAlpha = renderer.getClearAlpha();
-    renderer.setClearColor(0x000000, 0);
-    renderer.setRenderTarget(front);
-    renderer.clear(true, false, false);
-    renderer.setRenderTarget(back);
-    renderer.clear(true, false, false);
-    renderer.setRenderTarget(previousTarget);
-    renderer.setClearColor(clearColorScratch, previousAlpha);
+    try {
+      renderer.setClearColor(0x000000, 0);
+      renderer.setRenderTarget(front);
+      renderer.clear(true, false, false);
+      renderer.setRenderTarget(back);
+      renderer.clear(true, false, false);
+    } finally {
+      renderer.setClearColor(clearColorScratch, previousAlpha);
+      renderer.setRenderTarget(previousTarget, previousFace, previousMip);
+    }
     targetsAreClear = true;
   };
 
@@ -706,23 +711,28 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
       paramAttribute.needsUpdate = true;
 
       const previousTarget = renderer.getRenderTarget();
+      const previousFace = renderer.getActiveCubeFace();
+      const previousMip = renderer.getActiveMipmapLevel();
       const previousAutoClear = renderer.autoClear;
-      renderer.setRenderTarget(back);
-      feedbackQuad.visible = true;
-      stampMesh.visible = false;
-      renderer.autoClear = true;
-      renderer.render(offscreenScene, offscreenCamera);
-      // The stamp pass max-blends into the feedback result without clearing it.
-      if (stampCount > 0) {
-        feedbackQuad.visible = false;
-        stampMesh.visible = true;
-        renderer.autoClear = false;
+      try {
+        renderer.setRenderTarget(back);
+        feedbackQuad.visible = true;
+        stampMesh.visible = false;
+        renderer.autoClear = true;
         renderer.render(offscreenScene, offscreenCamera);
+        // The stamp pass max-blends into the feedback result without clearing it.
+        if (stampCount > 0) {
+          feedbackQuad.visible = false;
+          stampMesh.visible = true;
+          renderer.autoClear = false;
+          renderer.render(offscreenScene, offscreenCamera);
+        }
+      } finally {
+        feedbackQuad.visible = true;
+        stampMesh.visible = false;
+        renderer.autoClear = previousAutoClear;
+        renderer.setRenderTarget(previousTarget, previousFace, previousMip);
       }
-      feedbackQuad.visible = true;
-      stampMesh.visible = false;
-      renderer.autoClear = previousAutoClear;
-      renderer.setRenderTarget(previousTarget);
       const swap = front;
       front = back;
       back = swap;
@@ -765,12 +775,16 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
         staticContactData[d + 6] = paramData[index * 4 + 2]!;
         staticContactData[d + 7] = paramData[index * 4 + 3]!;
       }
-      staticContactCount = stampCount;
+      // Commit validity only after clearing and drawing both succeed.
+      staticContactCount = -1;
       staticContactWindow.centerX = window_.centerX;
       staticContactWindow.centerY = window_.centerY;
       staticContactWindow.halfSize = window_.halfSize;
       if (!targetsAreClear) clearTargets();
-      if (stampCount === 0) return;
+      if (stampCount === 0) {
+        staticContactCount = 0;
+        return;
+      }
       const stamps = stampMaterial.uniforms;
       stamps.uCenter.value.x = window_.centerX;
       stamps.uCenter.value.y = window_.centerY;
@@ -781,17 +795,23 @@ export function createGardenWakes(renderer: WebGLRenderer): GardenWakes {
       dirAttribute.needsUpdate = true;
       paramAttribute.needsUpdate = true;
       const previousTarget = renderer.getRenderTarget();
+      const previousFace = renderer.getActiveCubeFace();
+      const previousMip = renderer.getActiveMipmapLevel();
       const previousAutoClear = renderer.autoClear;
-      renderer.setRenderTarget(front);
-      feedbackQuad.visible = false;
-      stampMesh.visible = true;
-      renderer.autoClear = false;
-      renderer.render(offscreenScene, offscreenCamera);
-      feedbackQuad.visible = true;
-      stampMesh.visible = false;
-      renderer.autoClear = previousAutoClear;
-      renderer.setRenderTarget(previousTarget);
-      targetsAreClear = false;
+      try {
+        renderer.setRenderTarget(front);
+        feedbackQuad.visible = false;
+        stampMesh.visible = true;
+        renderer.autoClear = false;
+        targetsAreClear = false;
+        renderer.render(offscreenScene, offscreenCamera);
+      } finally {
+        feedbackQuad.visible = true;
+        stampMesh.visible = false;
+        renderer.autoClear = previousAutoClear;
+        renderer.setRenderTarget(previousTarget, previousFace, previousMip);
+      }
+      staticContactCount = stampCount;
       stampCount = 0;
       wakeStampCount = 0;
     },

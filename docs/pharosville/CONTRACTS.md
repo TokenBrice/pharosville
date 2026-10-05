@@ -83,6 +83,15 @@ safety, not aesthetic approval.
 - Both the device screen and current viewport must satisfy the sorted-dimension
   `900×720` or `1200×640` size profile before world data, Three runtime, GLBs or
   logos load. These are size tests, never orientation tests.
+  Blocked devices and small windows receive a branded small-screen edition with
+  the Lighthouse/Water/Sails guide and actual Pharos analytics links, not embedded
+  tables. Size advice is secondary. Only an elected Garden Observatory publication
+  (`public/pharosville/stills/garden-social.json`) admits the local-hour still;
+  `picture` selects one portrait or landscape crop/encoding, labelled
+  “Illustration, not live readings”. Missing publication or image failure leaves
+  the useful DOM, never an old harbour photograph. The blocked edition fetches
+  only this local publication marker and its chosen illustration, no world/API/
+  GLB/logo resources; admitted desktop startup fetches neither.
 - First-byte HTML supplies PharosVille identity, a generic Lighthouse/Water/Sails
   guide, the actual module-wait stage and working analytics links. React replaces
   it with the same branded gradient shell until data, renderer warmup and motion
@@ -166,12 +175,24 @@ safety, not aesthetic approval.
   not permanent chain/concentration captions, identify harbours. TON has no
   permanent caption. Concentration remains in details and the ledger.
   Coverage: `src/components/harbor-label-chips.test.tsx`.
-- Chrome text roles (now-line, ink labels, record card, controls) come from the
-  light score, not a day/night switch: `src/systems/chrome-air.ts` mixes per-beat
-  anchors, `useChromeAir` writes them to `:root` once a minute, and every role
-  holds ≥ 4.5:1 on its own surface at the five beat anchors and through every
-  crossfade. The chrome follows the wall clock only, never market data.
+- Chrome roles (now-line, labels, controls, detail sheets, Find, ledger and
+  changelog) follow the wall-clock light score, never market data.
+  `src/systems/chrome-air.ts` mixes within two independently readable sheets;
+  paper/ink/quiet/link switch polarity atomically at dusk and dawn, with no
+  CSS colour interpolation through mid-tones. Every composited text role
+  holds ≥4.5:1 at anchors, between beats and across the sheet switch.
+  Panels use one 200 ms entrance, disabled under reduced motion.
   Coverage: `src/systems/chrome-air.test.ts`.
+- Find `/`, Explore expansion and Read key are separate discoverable 44 px
+  actions. Only Find owns slash; Explore never advertises it and exposes a
+  wrapped secondary row. One intrinsic edge grid places the unchanged health
+  caption beside discovery, wrapping to separate rows at both gate profiles.
+  Long warning copy wraps without a fade mask, truncation or hidden duplicate
+  Find. The key is nonmodal; reference panels remain lazy modal sheets.
+  Find retains combobox/listbox semantics and restores its opener (or world
+  if removed); the ledger keeps one body and native keyboard disclosures.
+  Coverage: `src/components/world-controls.test.tsx`,
+  `src/components/quick-find.test.tsx`, `src/components/accessibility-ledger.test.tsx`.
 - A non-current source outranks every other now-line phrase: evidence warning, then a
   first-visit or return-visit line, then the crossing, then a market transition,
   then the ambient phase. The status region speaks the phrase only, never the
@@ -631,8 +652,22 @@ safety, not aesthetic approval.
 - Projection, picking, DOM anchors, follow and camera motion share one contract.
   Preserve a screen-space pick tolerance for `0.42`-scale hulls and perspective
   foreshortening; GLB scale, anchor and pick proxy must agree at camera extremes.
-  Selection discloses DOM details immediately.
-  Coverage: `src/systems/camera.test.ts`, `src/systems/postcards.test.ts`.
+  Selection discloses DOM details and focuses its title immediately, regardless
+  of camera arrival, interruption or reduced motion; no hidden/inert/opacity
+  gate may delay facts. A ResizeObserver measures the actual sheet in canvas
+  CSS pixels, including the expanded record and viewport changes.
+  Selection evaluates at most 72 tableaux plus the current pose, rejecting eye,
+  clearance-route and silhouette obstruction before composition: sheet
+  exclusion with 24 px padding, S6 projected identity span, neighbour separation,
+  sky share targeting ≤35%, and visible shore/tower context. Elevated
+  three-quarter views are permitted; a landmark never outranks clearance.
+  Retain an already valid pose, with deterministic candidate-order tie-breaks.
+  Search runs only on selection or measured sheet changes, never per frame;
+  moving follow translates the accepted shot using the final displayed tile.
+  Enlargement is a viewing condition, not supply rank or a leader size bonus.
+  Coverage: `src/systems/camera.test.ts`, `src/systems/camera-tableaux.test.ts`,
+  `src/hooks/use-canvas-resize-and-camera.test.ts`,
+  `src/components/detail-panel.test.tsx`, `src/pharosville-world.test.tsx`.
 
 ## Station siting and architectural identity
 
@@ -749,6 +784,23 @@ safety, not aesthetic approval.
   evaluations, no per-frame allocation. Coverage:
   `src/three/garden-irradiance.test.ts`, `src/three/garden-surfaces.test.ts`,
   `src/three/garden-print-inks.test.ts`, `src/three/garden-environment.test.ts`.
+- Conditional contact softening (S4-P6) was evaluated and not built: the
+  existing five-tap cached PCF grounds the reviewed seat-garden stones and
+  lantern and station eaves; moored hull waterlines retain their existing
+  physical contact owner. The proposed eight-blocker/sixteen-filter PCSS
+  path requires 24 texture fetches per participating shaded fragment versus
+  five for PCF (+19, 4.8×); a near-region gate limits affected area, not that
+  per-fragment cost. Reusing the shadow attachment can avoid new draws and
+  textures, but does not establish no measurable regression at 1600×1000.
+  No pass, material patch, enablement flag or dormant alternate lane ships.
+  S9-P4's breath-independent shadow-view key and static-map cache remain
+  unchanged; reduced-motion and static contact shading use the same PCF.
+  This decision adds zero JavaScript, draws, triangles and textures.
+  Reopen only for an operator-reviewed grounding failure on calibrated
+  hardware, with paired whole-frame/crop and frame-time evidence satisfying
+  the zero-new-draw/texture and no-measurable-regression ceiling.
+  Existing lifecycle coverage remains `src/three/world-renderer.test.ts`;
+  PCSS enablement-region tests apply only if that conditional cutover ships.
 - Use one tone-mapping authority for renderer and post pass; LUTs may shape the
   look but cannot substitute for geometry/light. Neutral noon supersedes the
   honey-key prescription. Preserve differentiated dusk/blue-hour/night and
@@ -910,7 +962,9 @@ transition pops.
   `src/three/world-renderer.test.ts`.
 - S1-P3 replaces only the near threshold's pad/outline recipe with two authored
   kuromatsu graphs: tapered parent-attached trunks, primary/secondary limbs,
-  twigs and closed opaque needle sprays with actual sky gaps. Distant niwaki
+  twigs and dense flattened opaque needle clusters with actual inter-cluster
+  sky gaps. Closed short needles overlap into each irregular mass; individual
+  spikes do not substitute for a recognizable kuromatsu silhouette. Distant niwaki
   retain the inexpensive pad kit. Its allowance is `+0` draws, at most
   `+15,000` construction triangles, `+0` textures and `+1.25 KiB` gzip JS;
   cumulative S1-P3 owner ceilings are `7` draws and `43,000` triangles.
@@ -973,13 +1027,18 @@ transition pops.
   Final derivatives drive follow velocity; route-smoothed heading stays intact.
   This reduces underway crowding, not a guarantee of collision-free berths.
 - Hidden/offscreen surfaces pause and resume without catch-up teleport or replay.
-  The idle state is the rest shot (K44): nothing tours on its own. The postcard
-  book is the explicit "Wander" action (the word or W): each press glides to the
-  next of six authored views from inside the world (`src/systems/postcards.ts`)
-  and holds; any other pointer, wheel or key input glides back to the rest seat
-  and is not also acted on by the world. Reduced motion cuts. Every card keeps
-  its subject on its anchor, clear sight lines and a clear eye at the four gate
-  profiles. The director holds ordinary
+  K44 is replaced by the explicit six-station **Stroll** (the control or W):
+  Previous/Next visit adjacent authored viewpoints and hold indefinitely.
+  Home alone returns to the seat; Escape or deselection closes inspection
+  back to its saved station-local pose. Wheel and drag retain the displayed
+  lens/yaw within authored local bounds; unrelated chrome input never ends
+  a station. Interruption holds the displayed pose, and resize re-solves its
+  composition without landing on an unseen destination. Reduced motion cuts;
+  idle never tours or orbits. The shared piecewise eye/target paths use explicit
+  corridor waypoints, sampled against production terrain and station massing
+  at ≤0.5 world-unit increments, with ≥1.7 water and ≥0.8 land eye clearance.
+  Every station keeps its subject anchor, clear eye and clear sight lines at
+  the four gate profiles (`src/systems/postcards.ts`). The director holds ordinary
   foreground captions for its first 90 s (market pre-emption still speaks).
   Coverage: `src/hooks/use-canvas-resize-and-camera.test.ts`,
   `src/systems/garden-director.test.ts`.
@@ -1020,6 +1079,25 @@ transition pops.
   count ban; redistribute into fewer, larger readable fauna rather than adding
   oscillators. Koi live in the reflection pond. Foreground events have long quiet
   intervals and market transitions pre-empt decorative beats.
+- Resident ecology remains exactly four koi in the reflection pond and one grey
+  heron. Koi use seeded, bounded travel/pause/turn itineraries on the canonical
+  water clock, with real still-water pauses and short in-place heading changes,
+  not figure-eights or station oscillators. Near-bank routes and the tea-side
+  shallow heron station seek legibility through habitat placement, never a new
+  animal glow. Daylight presence and the scored heron flights remain unchanged;
+  reduced motion fixes complete positions/headings/poses, not merely translation.
+  The displaced cost is the former synchronized looping motion, with no added
+  draws, triangles or textures. Coverage: `src/three/garden-koi.test.ts`,
+  `src/three/garden-heron.test.ts`.
+- The merged near trees consume baked `aGardenFlex` trunk/branch/tip weights
+  and `aGardenRootIndex` (`0`/`1`). The renderer samples
+  `gardenGustAtWorldPosition` exactly twice for the two cached world rest roots
+  on `frame.timeSeconds`; two scalar uniforms carry that downwind front.
+  Eye breath never moves the sampling roots, vertices never upload per frame,
+  and no second wind clock or height-only sway survives this cutover. Root
+  displacement is zero, flexibility increases through branch to tip, and
+  reduced motion sets the complete wind displacement to zero. Coverage:
+  `src/three/garden-flora.test.ts`, `src/three/garden-threshold.test.ts`.
 - The day score (`src/systems/garden-score.ts`) is the only source of rituals:
   deterministic per UTC day, placed by the local sun and moon, each entry a
   kind in the ritual registry (`GARDEN_RITUAL_KINDS`, `registerRitual` in
@@ -1031,13 +1109,35 @@ transition pops.
   (`src/systems/garden-calendar.ts`). Kō names and moon phase stay in the ledger
   and ambient slot and never speak through the live region.
   Coverage: `src/systems/garden-score.test.ts`, `src/systems/garden-director.test.ts`.
-- Sound is opt-in only (`src/hooks/use-garden-sound.ts`): off by default; the
-  AudioContext is created inside the Sound switch's own click and only then is
-  the lazy procedural audio chunk fetched. Music is a separate switch, also off
-  by default. A returning visitor who left sound on sees it armed and must
-  switch it on again. Hidden tabs fade to silence and suspend. Motion preference
-  is never audio consent; the DOM caption stays the truth for every sounded
-  beat, and there are no market alarms.
+  Generated fish-ring admission retains S8-P5a's half-open one-second window:
+  busy, expired or missed windows drop without catch-up or replay. Noon/sunset
+  exclusions and quiet checks include admission plus the full hold; forced
+  rituals demonstrate the handler, not natural score admission.
+- Sound is strictly opt-in (`src/hooks/use-garden-sound.ts`): the named Sound
+  switch explains shore water, pine wind, basin drips and distant harbour work.
+  Only its explicit gesture creates an AudioContext and fetches the lazy
+  `pharosville-audio-*.js` chunk, including debug offline auditions. Music stays
+  separate. `pharosville.sound` keeps the existing `{v:1,on,music}` format;
+  remembered Sound is armed, never autoplayed. Still/OS reduced motion allocate
+  no context or audio chunk; entering Still or switching Sound off silences and
+  closes the engine immediately. Leaving Still only arms it again. Hidden tabs
+  stop event scheduling, fade and suspend; resume drops missed events.
+- The basin replaces the south ensemble's `(3.8,6.75)` companion, never the gull
+  landing stones. The grounded bowl, spout and non-emissive dark hydraulic mouth
+  all share the existing stone material/batch: no new draw, material or texture,
+  retaining the island's 42 merged drawables. Modal drips reuse the lap bus and existing shore-breath
+  event cadence, displacing 3 dB of lap/wash; root-gust pine rustle displaces
+  4 dB of broad wind hiss. Actual source/listener coordinates determine distance,
+  pan and sheltered basin hearing. Wind uses the same `writeWeatherPlan` inputs
+  and `gardenGustAtWorldPosition` root sample as the visuals. The visual solar
+  score hushes the bed at night and rests distant rope/fender work; the existing
+  director environment slot still owns far events. A stale visual clock holds,
+  never becomes a second audio clock. All events share the six-voice ceiling and
+  the master remains ≤−6 dBTP. Sound, basin and gravel have no market-direction,
+  PSI-history, alarm or metronomic-knock mapping; DOM/ledger readings remain truth.
+  Coverage: `src/lib/pharosville-audio/bed.test.ts`,
+  `src/lib/pharosville-audio/borrowed.test.ts`,
+  `src/hooks/use-garden-sound.test.tsx`, `src/three/garden-island.test.ts`.
 
 ## Approval and delivery
 

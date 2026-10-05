@@ -14,6 +14,7 @@ import {
   ToneMappingMode,
 } from "postprocessing";
 import {
+  BasicDepthPacking,
   ClampToEdgeWrapping,
   Color,
   DirectionalLight,
@@ -23,6 +24,7 @@ import {
   Matrix4,
   NoBlending,
   NoColorSpace,
+  RGBADepthPacking,
   ShaderMaterial,
   Texture,
   TextureLoader,
@@ -31,6 +33,7 @@ import {
   Vector3,
   WebGLRenderTarget,
   type Camera,
+  type DepthPackingStrategies,
   type Scene,
   type WebGLRenderer,
 } from "three";
@@ -165,6 +168,90 @@ const POST_BEATS = [
 ] as const;
 // The mip pyramid combines tight core and wide low-frequency beacon halo.
 const BLOOM_MIP_LEVELS = 6;
+
+/**
+ * Low-sun glare carries its source depth through the existing RGBA pyramid.
+ * RGB supplies luminance weights; alpha supplies luminance-weighted proximity
+ * (1 - depth), which retains precision for distant sources in half-float.
+ * A nearer opaque receiver blocks farther glare. No second bloom/depth pass.
+ */
+const BLOOM_FRAGMENT_SHADER = /* glsl */ `
+  uniform sampler2D map;
+  uniform float intensity;
+  uniform float gardenLowSun;
+  float gardenBloomVisibility(float sourceProximity, float receiverProximity, float pixelDepthSpan) {
+    return smoothstep(receiverProximity - max(pixelDepthSpan, 1e-7), receiverProximity, sourceProximity);
+  }
+  void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+    vec4 bloom = texture2D(map, uv);
+    if (gardenLowSun > 0.0) {
+      float weight = dot(bloom.rgb, vec3(0.2126, 0.7152, 0.0722));
+      float sourceProximity = bloom.a / max(weight, 1e-8);
+      float receiverProximity = 1.0 - readDepth(uv);
+      float visibility = gardenBloomVisibility(sourceProximity, receiverProximity, fwidth(receiverProximity));
+      bloom.rgb *= mix(1.0, visibility, gardenLowSun);
+      bloom.a = 0.0;
+    }
+    outputColor = bloom * intensity;
+  }
+`;
+
+class GardenBloomEffect extends BloomEffect {
+  constructor() {
+    super({
+      blendFunction: BlendFunction.ADD,
+      intensity: POST_PHASE_NIGHT.bloomStrength,
+      levels: BLOOM_MIP_LEVELS,
+      luminanceSmoothing: POST_PHASE_NIGHT.bloomSmoothing,
+      luminanceThreshold: POST_PHASE_NIGHT.bloomThreshold,
+      mipmapBlur: true,
+      radius: POST_PHASE_NIGHT.bloomRadius,
+    });
+    this.setAttributes(EffectAttribute.DEPTH);
+    this.setFragmentShader(BLOOM_FRAGMENT_SHADER);
+    const lowSun = new Uniform(0);
+    this.uniforms.set("gardenLowSun", lowSun);
+    const source = this.luminanceMaterial;
+    source.uniforms.gardenLowSun = lowSun;
+    source.uniforms.gardenBloomDepth = new Uniform(null);
+    source.defines.GARDEN_BLOOM_DEPTH_PACKING = BasicDepthPacking;
+    source.fragmentShader = /* glsl */ `
+uniform float gardenLowSun;
+uniform sampler2D gardenBloomDepth;
+#include <packing>
+float gardenBloomSourceDepth(vec2 uv) {
+  vec4 sampleDepth = texture2D(gardenBloomDepth, uv);
+#if GARDEN_BLOOM_DEPTH_PACKING == ${RGBADepthPacking}
+  return unpackRGBAToDepth(sampleDepth);
+#else
+  return sampleDepth.r;
+#endif
+}
+` + source.fragmentShader.replace("gl_FragColor=texel*mask;", /* glsl */ `
+gl_FragColor = texel * mask;
+if (gardenLowSun > 0.0) {
+  float sourceWeight = dot(texel.rgb, vec3(0.2126, 0.7152, 0.0722)) * mask;
+  gl_FragColor.a = sourceWeight * (1.0 - gardenBloomSourceDepth(vUv));
+}`);
+    source.needsUpdate = true;
+  }
+
+  set lowSun(value: number) {
+    this.uniforms.get("gardenLowSun")!.value = value;
+    // Zero coarse-mip mixing retains the finest filtered halo, not the wide
+    // night beacon pyramid. Endpoints leave noon and night bit-identical.
+    this.mipmapBlurPass.radius = POST_PHASE_NIGHT.bloomRadius * (1 - value);
+  }
+
+  override setDepthTexture(depthTexture: Texture, depthPacking: DepthPackingStrategies = BasicDepthPacking): void {
+    const source = this.luminanceMaterial;
+    source.uniforms.gardenBloomDepth!.value = depthTexture;
+    if (source.defines.GARDEN_BLOOM_DEPTH_PACKING !== depthPacking) {
+      source.defines.GARDEN_BLOOM_DEPTH_PACKING = depthPacking;
+      source.needsUpdate = true;
+    }
+  }
+}
 
 /**
  * W0.3: how much bloom intensity a full lightning stroke adds.
@@ -925,6 +1012,7 @@ class GardenGpuTimer {
       disjoint: false,
       frameP50Ms: null,
       frameP95Ms: null,
+      frameSamplesCompleted: 0,
       passes: [],
     };
     if (!this.extension) return;
@@ -937,7 +1025,7 @@ class GardenGpuTimer {
       this.tracks.push({
         name, queries, pending: queries.map(() => false), read: 0, write: 0,
         values: new Float64Array(120), count: 0, cursor: 0,
-        metric: { name, p50Ms: 0, p95Ms: 0, samples: 0 },
+        metric: { name, p50Ms: 0, p95Ms: 0, samples: 0, samplesCompleted: 0 },
       });
     }
   }
@@ -960,6 +1048,7 @@ class GardenGpuTimer {
           track.values[track.cursor] = this.gl.getQueryParameter(query, this.gl.QUERY_RESULT) / 1e6;
           track.cursor = (track.cursor + 1) % 120;
           track.count = Math.min(120, track.count + 1);
+          track.metric.samplesCompleted = (track.metric.samplesCompleted ?? 0) + 1;
           track.pending[track.read] = false;
           track.read = (track.read + 1) % track.queries.length;
         }
@@ -973,6 +1062,7 @@ class GardenGpuTimer {
       if (track.name === "frame") {
         this.report.frameP50Ms = p50;
         this.report.frameP95Ms = p95;
+        this.report.frameSamplesCompleted = track.metric.samplesCompleted ?? 0;
       } else {
         track.metric.p50Ms = p50;
         track.metric.p95Ms = p95;
@@ -1472,15 +1562,7 @@ export function createGardenPost(
   // levels. BlendFunction.ADD reproduces UnrealBloomPass's additive composite
   // (`scene + strength · bloom`) — the default SCREEN would soften the HDR
   // add the grades were tuned against.
-  const bloomEffect = new BloomEffect({
-    blendFunction: BlendFunction.ADD,
-    intensity: POST_PHASE_NIGHT.bloomStrength,
-    levels: BLOOM_MIP_LEVELS,
-    luminanceSmoothing: POST_PHASE_NIGHT.bloomSmoothing,
-    luminanceThreshold: POST_PHASE_NIGHT.bloomThreshold,
-    mipmapBlur: true,
-    radius: POST_PHASE_NIGHT.bloomRadius,
-  });
+  const bloomEffect = new GardenBloomEffect();
   const bloomPass = new EffectPass(camera, bloomEffect);
   bloomPass.enabled = !knockout.bloom;
 
@@ -1687,7 +1769,7 @@ export function createGardenPost(
     rayPhaseDensity = lerp(GODRAY_DUSK_DENSITY, GODRAY_DAWN_DENSITY, dawnShare);
     bloomLuminance.threshold = GARDEN_BLOOM_PRACTICAL_THRESHOLD;
     bloomLuminance.smoothing = POST_PHASE_NIGHT.bloomSmoothing;
-    bloomEffect.mipmapBlurPass.radius = POST_PHASE_NIGHT.bloomRadius;
+    bloomEffect.lowSun = beats.dawn + beats.golden;
     let strength = 0;
     phaseAOIntensity = 0;
     for (let band = 0; band < POST_BEATS.length; band++) {

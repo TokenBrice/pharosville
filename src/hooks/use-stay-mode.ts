@@ -39,8 +39,8 @@ export function useStayMode(input: {
   const enteredFullscreenRef = useRef(false);
 
   const enterStay = useCallback(() => {
-    // The control that was pressed would otherwise hold the toolbar up via
-    // :focus-within; Tab brings the controls straight back.
+    // Move focus off the pressed control so Stay can fade the chrome;
+    // Tab brings the focused discovery actions straight back.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     onEnter();
     setStay(true);

@@ -954,7 +954,8 @@ ${gardenHeightFogGlsl()}
     vec3 riskSurface = gardenRiskSurface(vWaterPosition, regionId);
 
     // No decorative ellipses: the unwarped shore field owns the depth ramp.
-    float depth = smoothstep(0.0, 0.42, shoreField) * 0.88;
+    float fieldDepth = smoothstep(0.0, 0.42, shoreField);
+    float depth = fieldDepth * 0.88;
     float bottomDepth = max(0.0, shoreField) * ${glslFloat(SHORE_FIELD_WORLD_UNITS * 0.24)};
     float shoreMask = smoothstep(0.005, 0.04, regionDistanceSample.a) * (1.0 - uAnnulus);
     float clearBottom = exp(-bottomDepth * 1.25) * shoreMask;

@@ -30,3 +30,8 @@
 # one-day ceiling as the fleet logos.
 /chains/*
   Cache-Control: public, max-age=86400
+
+# Publish the accepted garden edition atomically with its stills; never hold
+# an old publication marker across releases.
+/pharosville/stills/garden-social.json
+  Cache-Control: no-cache

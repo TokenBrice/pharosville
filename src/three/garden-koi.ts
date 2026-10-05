@@ -11,11 +11,11 @@ import {
 } from "three";
 import { HARBOR_PALETTE, oklchToHex } from "../systems/palette";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
-import { TILE_SCALE } from "./garden-util";
+import { stableUnit, TILE_SCALE } from "./garden-util";
 
 export const GARDEN_KOI_COUNT = 4;
 export const GARDEN_KOI_DISPLACEMENT = "island-reflection-basin koi";
-export const GARDEN_KOI_SWIM_RATE_RANGE = [0.026, 0.032] as const;
+export const GARDEN_KOI_TRAVEL_SECONDS_RANGE = [24, 42] as const;
 export const GARDEN_ENGAWA_KOI_TILE = { x: 63, y: 127 } as const;
 export const GARDEN_ENGAWA_KOI_WORLD = {
   x: GARDEN_ENGAWA_KOI_TILE.x * TILE_SCALE,
@@ -23,25 +23,57 @@ export const GARDEN_ENGAWA_KOI_WORLD = {
   z: GARDEN_ENGAWA_KOI_TILE.y * TILE_SCALE,
 } as const;
 
-interface KoiPlan {
-  depth: number;
-  phase: number;
-  scale: number;
+interface KoiLeg {
   x: number;
   z: number;
+  nextX: number;
+  nextZ: number;
+  heading: number;
+  turn: number;
+  travelSeconds: number;
+  pauseSeconds: number;
+  turnSeconds: number;
+  endSeconds: number;
 }
 
-const KOI_PLAN: readonly KoiPlan[] = [
-  { depth: 0.045, phase: 0.0, scale: 1.82, x: 0, z: 0 },
-  { depth: 0.075, phase: Math.PI, scale: 1.48, x: 0, z: 0 },
-  { depth: 0.1, phase: 4.4, scale: 1.64, x: 1.7, z: -0.8 },
-  { depth: 0.065, phase: 5.7, scale: 1.42, x: -1.5, z: 0.9 },
-];
+const KOI_PLAN = [
+  { depth: 0.045, scale: 1.82 },
+  { depth: 0.075, scale: 1.48 },
+  { depth: 0.1, scale: 1.64 },
+  { depth: 0.065, scale: 1.42 },
+] as const;
+
+// Bake the seeded itinerary once. The convex habitat stays inside the whole-fish
+// clearance ellipse, biased to the near (+z), tea-side (+x) bank.
+const KOI_ROUTES: readonly (readonly KoiLeg[])[] = KOI_PLAN.map((_, fish) => {
+  const points = Array.from({ length: 16 }, (_, station) => {
+    const angle = stableUnit(`koi.${fish}.${station}.bearing`) * Math.PI * 2;
+    const reach = 0.4 + stableUnit(`koi.${fish}.${station}.reach`) * 0.6;
+    return { x: 0.25 + Math.cos(angle) * 1.75 * reach, z: 0.3 + Math.sin(angle) * 0.65 * reach };
+  });
+  let endSeconds = 0;
+  return points.map((point, station) => {
+    const next = points[(station + 1) % points.length]!;
+    const after = points[(station + 2) % points.length]!;
+    const heading = Math.atan2(point.z - next.z, next.x - point.x);
+    const nextHeading = Math.atan2(next.z - after.z, after.x - next.x);
+    const turn = Math.atan2(Math.sin(nextHeading - heading), Math.cos(nextHeading - heading));
+    const travelSeconds = GARDEN_KOI_TRAVEL_SECONDS_RANGE[0]
+      + stableUnit(`koi.${fish}.${station}.travel`) * (GARDEN_KOI_TRAVEL_SECONDS_RANGE[1] - GARDEN_KOI_TRAVEL_SECONDS_RANGE[0]);
+    const pauseSeconds = 5 + stableUnit(`koi.${fish}.${station}.pause`) * 9;
+    const turnSeconds = 3 + stableUnit(`koi.${fish}.${station}.turn`) * 4;
+    endSeconds += travelSeconds + pauseSeconds + turnSeconds;
+    return { ...point, nextX: next.x, nextZ: next.z, heading, turn, travelSeconds, pauseSeconds, turnSeconds, endSeconds };
+  });
+});
+
+export type GardenKoiState = "travel" | "pause" | "turn";
 
 export interface GardenKoiSample {
   depth: number;
   heading: number;
   scale: number;
+  state: GardenKoiState;
   x: number;
   z: number;
 }
@@ -68,45 +100,38 @@ function smoothstep01(value: number): number {
 }
 
 /**
- * Samples are pond-local: (0, 0) is the basin centre, and the mesh is parented
- * under the already-centred, yawed basin group in garden-island. The first
- * pair traverses the pond's reflection path on one slow figure-eight. The other
- * two make tiny station loops away from the mirror. Reduced motion samples the
- * deliberate time-zero arrangement, with all four held static.
+ * Pond-local seeded travel, still-water pauses and in-place turns. Sampling is
+ * independent of frame history, so hidden resume never catches up missed legs.
+ * Reduced motion holds the entire deliberate time-zero pose, including heading.
  */
 export function sampleGardenKoi(
   index: number,
   timeSeconds: number,
   reducedMotion = false,
+  target: GardenKoiSample = { depth: 0, heading: 0, scale: 1, state: "travel", x: 0, z: 0 },
 ): GardenKoiSample {
-  const plan = KOI_PLAN[index % KOI_PLAN.length]!;
-  const time = reducedMotion ? 0 : Math.max(0, timeSeconds);
-  const primaryRate = GARDEN_KOI_SWIM_RATE_RANGE[0] + index * 0.002;
-  const a = time * primaryRate + plan.phase;
-  if (index < 2) {
-    const direction = index === 0 ? 1 : -1;
-    const x = Math.sin(a) * 2.35;
-    const z = Math.sin(a * 2) * 0.92 * direction;
-    const dx = Math.cos(a) * 2.35 * primaryRate;
-    const dz = Math.cos(a * 2) * 1.84 * primaryRate * direction;
-    return {
-      depth: plan.depth,
-      heading: Math.atan2(-dz, dx),
-      scale: plan.scale,
-      x,
-      z,
-    };
+  const fish = ((Math.trunc(index) % GARDEN_KOI_COUNT) + GARDEN_KOI_COUNT) % GARDEN_KOI_COUNT;
+  const plan = KOI_PLAN[fish]!;
+  const route = KOI_ROUTES[fish]!;
+  const time = reducedMotion || !Number.isFinite(timeSeconds) ? 0 : Math.max(0, timeSeconds);
+  const local = (time + fish * 17) % route[route.length - 1]!.endSeconds;
+  let startSeconds = 0;
+  let leg = route[0]!;
+  for (const candidate of route) {
+    leg = candidate;
+    if (local < candidate.endSeconds) break;
+    startSeconds = candidate.endSeconds;
   }
-  const radius = 0.18 + index * 0.02;
-  const x = plan.x + Math.sin(a) * radius;
-  const z = plan.z + Math.cos(a) * radius * 0.62;
-  return {
-    depth: plan.depth,
-    heading: Math.atan2(Math.sin(a), Math.cos(a)),
-    scale: plan.scale,
-    x,
-    z,
-  };
+  const age = local - startSeconds;
+  const travel = smoothstep01(age / leg.travelSeconds);
+  target.depth = plan.depth;
+  target.scale = plan.scale;
+  target.x = leg.x + (leg.nextX - leg.x) * travel;
+  target.z = leg.z + (leg.nextZ - leg.z) * travel;
+  const turnAge = age - leg.travelSeconds - leg.pauseSeconds;
+  target.heading = leg.heading + leg.turn * smoothstep01(turnAge / leg.turnSeconds);
+  target.state = age < leg.travelSeconds ? "travel" : turnAge < 0 ? "pause" : "turn";
+  return target;
 }
 
 /** A tiny lens body plus forked tail, painted in one instanced shader draw. */
@@ -213,25 +238,19 @@ function createKoiMaterial(): ShaderMaterial {
   });
 }
 
-function waterFrameFromScene(scene: Object3D): GardenKoiFrame | null {
+function readWaterFrame(scene: Object3D, target: GardenKoiFrame): boolean {
   const water = scene.getObjectByName("garden-water") as { material?: ShaderMaterial } | undefined;
   const uniforms = water?.material?.uniforms;
-  if (!uniforms?.uTime || !uniforms.uNight) return null;
-  const timeSeconds = Number(uniforms.uTime.value) || 0;
-  return {
-    daylight: Number(uniforms.uDaylight?.value) || 0,
-    night: Number(uniforms.uNight.value) || 0,
-    // garden-water deliberately writes uTime=0 for reduced motion. Sharing
-    // that already-authored clock avoids a second clock or renderer coupling.
-    reducedMotion: timeSeconds === 0,
-    timeSeconds,
-  };
+  if (!uniforms?.uTime || !uniforms.uNight) return false;
+  target.timeSeconds = Number(uniforms.uTime.value) || 0;
+  target.daylight = Number(uniforms.uDaylight?.value) || 0;
+  target.night = Number(uniforms.uNight.value) || 0;
+  // Water pins the shared canonical clock to zero under reduced motion.
+  target.reducedMotion = target.timeSeconds === 0;
+  return true;
 }
 
-/**
- * Four precious glints in the island pond. Two slowly cross the canonical
- * reflection path as a figure-eight; two hold to quiet edge stations.
- */
+/** Four subdued inhabitants of the pond's near-bank habitat, in one draw. */
 export function createGardenKoi(): GardenKoi {
   const geometry = createKoiGeometry();
   const material = createKoiMaterial();
@@ -265,6 +284,8 @@ export function createGardenKoi(): GardenKoi {
 
   const dummy = new Object3D();
   const matrix = new Matrix4();
+  const sample: GardenKoiSample = { depth: 0, heading: 0, scale: 1, state: "travel", x: 0, z: 0 };
+  const waterFrame: GardenKoiFrame = { daylight: 1, night: 0, reducedMotion: true, timeSeconds: 0 };
   const update = (frame: GardenKoiFrame): void => {
     // Koi are a daylight glint only; the dusk water and night road keep the
     // shallows once daylight yields.
@@ -272,7 +293,7 @@ export function createGardenKoi(): GardenKoi {
       * smoothstep01((frame.daylight - 0.08) / 0.42);
     material.uniforms.uLight!.value = 0.55 + 0.45 * clamp01(frame.daylight);
     for (let index = 0; index < GARDEN_KOI_COUNT; index += 1) {
-      const sample = sampleGardenKoi(index, frame.timeSeconds, frame.reducedMotion);
+      sampleGardenKoi(index, frame.timeSeconds, frame.reducedMotion, sample);
       // Shallow enough that the profile rides just under the skin, over the
       // basin floor (the pond root sits 0.08 above the terrain).
       dummy.position.set(sample.x, -0.018 - sample.depth * 0.25, sample.z);
@@ -286,12 +307,9 @@ export function createGardenKoi(): GardenKoi {
   };
   update({ daylight: 1, night: 0, reducedMotion: true, timeSeconds: 0 });
 
-  // Read only the canonical water clock/phase immediately before drawing.
-  // This stays allocation-free and lets garden-island own the fish without a
-  // world-renderer edit (that file is intentionally outside this task).
+  // Read the canonical water clock immediately before drawing, without allocating.
   mesh.onBeforeRender = (_renderer, scene) => {
-    const frame = waterFrameFromScene(scene);
-    if (frame) update(frame);
+    if (readWaterFrame(scene, waterFrame)) update(waterFrame);
   };
   return { mesh, update };
 }

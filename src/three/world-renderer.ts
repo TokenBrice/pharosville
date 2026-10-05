@@ -95,6 +95,7 @@ import {
 import {
   GARDEN_BREATH_PHASE,
   gardenBreathAt,
+  gardenGustAtWorldPosition,
   writeWeatherPlan,
   type WeatherPlan,
 } from "../systems/weather";
@@ -209,6 +210,7 @@ import {
 } from "../systems/world-layout";
 import {
   createTerracedIsland,
+  GARDEN_BASIN_WATER_Y,
   GARDEN_CRAG_HEADLAND_NAME,
   createWaterAccents,
   gardenIslandLanternMaterial,
@@ -525,6 +527,12 @@ export function createThreeWorldRenderer(
   // so the composer's passes do not clobber the scene's counts.
   renderer.info.autoReset = false;
   const uploadScheduler = createTextureUploadScheduler(renderer);
+  const hiddenOwnerPattern = import.meta.env.DEV && import.meta.env.VITE_PV_HIDE_OWNERS
+    ? new RegExp(import.meta.env.VITE_PV_HIDE_OWNERS)
+    : null;
+  const hideDiagnosticOwner = (object: Object3D) => {
+    if (hiddenOwnerPattern?.test(object.name)) object.visible = false;
+  };
   // Opt-in DEV diagnosis: production neither installs hooks nor allocates the ring.
   const spikeTraceWindow = import.meta.env.DEV && typeof window !== "undefined"
     ? window as typeof window & { __pharosVilleSpikeTrace?: GardenSpikeTrace }
@@ -631,6 +639,7 @@ export function createThreeWorldRenderer(
   };
   let lastDrawOwnerCensus: DrawOwnerCensus | null = null;
   let frameCounter = 0;
+  let shadowRefreshCount = 0;
   let aoTierWeight: number | null = null;
   let aoWeightClockSeconds = 0;
   // Wave 1's wider landing composition no longer needs close-range screen-space
@@ -1165,6 +1174,7 @@ export function createThreeWorldRenderer(
       if (scene.content) syncShipSailTextures(scene.content, frame);
       updateSceneForFrame(scene, camera, frame, phase, detailPolicy, shipFrame);
       if (import.meta.env.DEV) backend.gardenLookdev?.onBeforeFrame?.();
+      if (hiddenOwnerPattern) scene.root.traverse(hideDiagnosticOwner);
       updateGardenIrradiance(scene.ambientLight, scene.hemisphereLight, frame.world.lighthouse.tile);
       // W5: under reduced motion the hulls' contact footprints are drawn into
       // the (otherwise empty) wake field after this frame's ship loop, so the
@@ -1330,8 +1340,11 @@ export function createThreeWorldRenderer(
       // fades stay 180 ms at the idle 30 fps duty cycle as well as when awake.
       spikeTrace?.setPass("post");
       spikeTrace?.event("post-begin");
+      const shadowRefreshPending = scene.directionalLight.castShadow && scene.directionalLight.shadow.needsUpdate;
       post.render(aoDeltaSeconds);
       spikeTrace?.event("post-end");
+      const shadowRefreshed = shadowRefreshPending && !scene.directionalLight.shadow.needsUpdate;
+      if (shadowRefreshed) shadowRefreshCount += 1;
 
       const sampled = drawRecorder.finish(frameCounter);
       if (sampled) {
@@ -1381,6 +1394,8 @@ export function createThreeWorldRenderer(
         environmentBakeCalls,
         environmentBakeCount: scene.environment.bakeCount,
         environmentBakeCountChange,
+        shadowRefreshed,
+        shadowRefreshCount,
         // C4 evidence: live water-system state via contract C2 (cloud-shadow
         // sampler, ripple-ring emitter). zoneRadii is live data from the
         // zone field.
@@ -3945,6 +3960,7 @@ function updateSceneForFrame(
     scratchPosition.z,
     beamBearing,
     WATER_LEVEL,
+    GARDEN_BASIN_WATER_Y,
   );
   // The water road and its terminal pool take this exact post-dwell bearing on
   // every frame. One angle therefore owns cone, fallback and landing; reduced
@@ -4151,7 +4167,12 @@ function updateGardenThreshold(
     camera.position.z - rest.view.eye.z,
   );
   threshold.setEyeOffset(gardenThresholdEyeOffset.x, gardenThresholdEyeOffset.y, gardenThresholdEyeOffset.z);
-  threshold.updateWind(weather, frame.reducedMotion);
+  // Rest roots deliberately ignore the eye's breath: the front crosses the
+  // garden once, not whichever vertex/eye offset happens to be drawn.
+  const roots = threshold.pineRestRoots;
+  const heroGust = gardenGustAtWorldPosition(frame.timeSeconds, roots[0].x, roots[0].z, weather, frame.reducedMotion);
+  const companionGust = gardenGustAtWorldPosition(frame.timeSeconds, roots[1].x, roots[1].z, weather, frame.reducedMotion);
+  threshold.updateWind(weather, frame.reducedMotion, heroGust, companionGust);
 }
 
 /** The shown threshold's caster/receiver bounds at its current placement, else null. */

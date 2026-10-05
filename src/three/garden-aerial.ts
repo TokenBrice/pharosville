@@ -32,6 +32,9 @@ export interface GardenAirState {
   /** Airlight at elevation 0 on the sun side / the anti-sun side. */
   airSun: Color;
   airAnti: Color;
+  /** Unscattered twilight basis; the shader mixes analytic air exactly once. */
+  twilightSun: Color;
+  twilightAnti: Color;
   /** View-averaged airlight (CPU consumers: horizon ridges, fleet ink). */
   airlight: Color;
   /** Displayed accepted signed PSI clarity, shared with the PMREM key. */
@@ -58,6 +61,8 @@ export const GARDEN_AIR: GardenAirState = {
   sunDir: new Vector3(0, 1, 0),
   airSun: new Color(0xd6dbe2),
   airAnti: new Color(0xd6dbe2),
+  twilightSun: new Color(0xd6dbe2),
+  twilightAnti: new Color(0xd6dbe2),
   airlight: new Color(0xd6dbe2),
   clarity: 0,
   beaconWorld: new Vector3(),
@@ -98,8 +103,8 @@ struct GardenAir {
   float daylight;
   float seaLevel;
   vec3 sunDir;
-  vec3 airSun;
-  vec3 airAnti;
+  vec3 twilightSun;
+  vec3 twilightAnti;
   vec3 beaconWorld;
   float beaconAir;
   vec2 beaconBeamDir;
@@ -121,7 +126,8 @@ float gardenAirSunSide(vec3 dir) {
 }
 
 vec3 gardenAirlightBase(vec3 dir) {
-  vec3 nightAir = mix(uGardenAir.airAnti, uGardenAir.airSun, gardenAirSunSide(dir));
+  vec3 nightAir = mix(uGardenAir.twilightAnti, uGardenAir.twilightSun, gardenAirSunSide(dir));
+  if (uGardenAir.daylight <= 0.0) return nightAir;
   vec3 horizonDir = vec3(dir.x, 0.0, dir.z);
   horizonDir /= max(length(horizonDir), 1e-4);
   return mix(nightAir, gardenAtmosphereSky(horizonDir, uGardenAir.sunDir,
@@ -415,6 +421,8 @@ export function updateGardenAerial(frame: GardenAerialFrame): void {
   // Preserve the composed night sea coefficient from S4-P1.
   GARDEN_AIR.airSun.copy(frame.solarHorizon).multiplyScalar(1.1);
   GARDEN_AIR.airAnti.copy(frame.antiHorizon).multiplyScalar(1.1);
+  GARDEN_AIR.twilightSun.copy(GARDEN_AIR.airSun);
+  GARDEN_AIR.twilightAnti.copy(GARDEN_AIR.airAnti);
   if (GARDEN_AIR.daylight > 0) {
     scratchAirDirection.set(frame.sunDir.x, 0, frame.sunDir.z);
     scratchAirDirection.divideScalar(Math.max(scratchAirDirection.length(), 1e-4));

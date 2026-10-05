@@ -1,10 +1,8 @@
 /**
  * X8 borrowed sound (sound-5, shakkei for the ear): now and then something
- * beyond the frame — a bell buoy rocking off the harbour mouth, a swell
- * breaking on the outer rocks. Both synthesised (0 bytes), distant (lowpassed,
- * mostly reverb), panned off-frame, and harbour-universal: a buoy bell is a
- * small, bright bell struck two to four times by the sea's rocking, never a
- * single deep temple-bell hum.
+ * beyond the frame — harbour rope/fender work by day, a bell buoy or swell on
+ * outer rocks. All synthesized, distant and mostly reverb, on the same director
+ * environment slot. The visual solar score hushes far sounds at night.
  *
  * Rare by construction: each one asks the director for its background
  * environment slot (the same 6–10 min slot every ambient cue shares), never
@@ -16,16 +14,16 @@
 import { requestGardenBeat, type GardenDirectorState } from "../../systems/garden-director";
 import { hash01 } from "./dsp";
 import { claimVoice, foldToMono, NOISE_BURST_CREST, panPeakCompensation, type AudioGraph } from "./graph";
-import { dbToGain, stemLevelDb } from "./mix";
+import { AUDIO_MASTER, dbToGain, stemLevelDb } from "./mix";
 import type { StemTargetSink } from "./bed";
 
-export type BorrowedSound = "bell-buoy" | "outer-rocks";
+export type BorrowedSound = "bell-buoy" | "outer-rocks" | "harbour-work";
 
-export const BORROWED_SOUNDS: readonly BorrowedSound[] = ["bell-buoy", "outer-rocks"];
+export const BORROWED_SOUNDS: readonly BorrowedSound[] = ["bell-buoy", "outer-rocks", "harbour-work"];
 
 /** Director slot each far sound holds, and how long it rings. */
 const BORROWED_SLOT_SECONDS = 6;
-const BORROWED_SPAN_SECONDS: Readonly<Record<BorrowedSound, number>> = { "bell-buoy": 6.5, "outer-rocks": 5 };
+const BORROWED_SPAN_SECONDS: Readonly<Record<BorrowedSound, number>> = { "bell-buoy": 6.5, "outer-rocks": 5, "harbour-work": 2.5 };
 /** Never two within ten minutes; a refusal asks again half a minute later. */
 export const BORROWED_GAP_MIN_SECONDS = 600;
 const BORROWED_GAP_SPAN_SECONDS = 360;
@@ -33,7 +31,7 @@ export const BORROWED_RETRY_SECONDS = 30;
 /** Like the attract move: no ask within 90 s of the end of any admitted beat. */
 export const BORROWED_BEAT_BACKOFF_SECONDS = 90;
 /** Off-frame: the buoy at the harbour mouth (right), the rocks beyond the left point. */
-const BORROWED_PAN: Readonly<Record<BorrowedSound, number>> = { "bell-buoy": 0.8, "outer-rocks": -0.75 };
+const BORROWED_PAN: Readonly<Record<BorrowedSound, number>> = { "bell-buoy": 0.8, "outer-rocks": -0.75, "harbour-work": 0.65 };
 
 /** A small cast bell's partials: [ratio, amplitude, T60 s]. Bright and short — a buoy, not a temple bell. */
 const BUOY_PARTIALS: readonly (readonly [number, number, number])[] = [
@@ -48,6 +46,8 @@ export interface BorrowedFrame {
   sea: number;
   director: GardenDirectorState | null;
   directorSeconds: number;
+  daylightPresence: number;
+  enabled: boolean;
 }
 
 export interface BorrowedAsk {
@@ -81,7 +81,8 @@ export function createBorrowedSchedule(firstAskAt: number, request: typeof reque
         return null;
       }
       const seed = Math.floor(now / 60) + count * 7919;
-      const sound: BorrowedSound = hash01(seed) < 0.55 ? "bell-buoy" : "outer-rocks";
+      const choice = hash01(seed);
+      const sound: BorrowedSound = choice < 0.4 ? "harbour-work" : choice < 0.75 ? "bell-buoy" : "outer-rocks";
       const beat = request(director, {
         kind: "weather",
         foreground: false,
@@ -108,8 +109,12 @@ export function createGardenBorrowed(graph: AudioGraph, firstAskAt: number): Gar
   const schedule = createBorrowedSchedule(firstAskAt);
   return {
     update(frame, targets) {
+      if (!frame.enabled) return;
       const ask = schedule.next(frame.at, frame.director, frame.directorSeconds);
-      if (ask) playBorrowedSound(graph, ask.sound, frame.at, stemLevelDb("borrowed", frame.sea), ask.seed, targets);
+      if (!ask) return;
+      const daylight = Math.min(1, Math.max(0, frame.daylightPresence));
+      const sound = ask.sound === "harbour-work" && daylight < 0.1 ? "outer-rocks" : ask.sound;
+      playBorrowedSound(graph, sound, frame.at, stemLevelDb("borrowed", frame.sea) + AUDIO_MASTER.borrowedNightDb * (1 - daylight), ask.seed, targets);
     },
   };
 }
@@ -130,6 +135,36 @@ export function playBorrowedSound(
   const panner = ctx.createStereoPanner();
   panner.pan.value = pan;
   panner.connect(graph.stems.borrowed);
+  if (sound === "harbour-work") {
+    // An uneven rope draw/fender rub, not a clocked knock or a market event.
+    const source = ctx.createBufferSource();
+    source.buffer = graph.noise;
+    const tone = ctx.createBiquadFilter();
+    tone.type = "bandpass";
+    tone.Q.value = 1.5;
+    tone.frequency.setValueAtTime(240, when);
+    tone.frequency.linearRampToValueAtTime(520, when + 0.35);
+    tone.frequency.linearRampToValueAtTime(180, when + 1.7);
+    foldToMono(tone);
+    const envelope = ctx.createGain();
+    const scale = peak * Math.SQRT2 / (NOISE_BURST_CREST * graph.noisePassRms([{ type: "bandpass", frequency: 520, q: 1.5 }]));
+    envelope.gain.setValueAtTime(0, when);
+    envelope.gain.linearRampToValueAtTime(scale * 0.45, when + 0.12);
+    envelope.gain.setTargetAtTime(scale * 0.12, when + 0.3, 0.12);
+    envelope.gain.linearRampToValueAtTime(scale, when + 0.85 + hash01(seed + 7) * 0.45);
+    envelope.gain.setTargetAtTime(0, when + 1.5, 0.18);
+    source.connect(tone).connect(envelope).connect(panner);
+    source.onended = () => {
+      source.disconnect();
+      tone.disconnect();
+      envelope.disconnect();
+      panner.disconnect();
+    };
+    source.start(when, hash01(seed + 3) * 5);
+    source.stop(when + BORROWED_SPAN_SECONDS[sound]);
+    targets?.("borrowed", peakDb);
+    return true;
+  }
   if (sound === "bell-buoy") {
     // Distance: the bell's brightness is the first thing the air takes.
     const air = ctx.createBiquadFilter();

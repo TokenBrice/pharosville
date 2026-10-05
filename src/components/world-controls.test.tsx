@@ -18,7 +18,7 @@ describe("WorldControls", () => {
     expect((screen.getByLabelText("Still") as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByLabelText("Still") as HTMLInputElement).checked).toBe(true);
   });
-  it("keeps one affordance at rest and groups discovery with view controls", () => {
+  it("keeps Find and Explore distinct at rest and discloses secondary controls", () => {
     const onOpenFind = vi.fn();
     const onOpenLegend = vi.fn();
     const onOpenLedger = vi.fn();
@@ -39,14 +39,24 @@ describe("WorldControls", () => {
     const affordance = screen.getByRole("button", { name: "Explore harbor controls" });
     expect(toolbar.getAttribute("data-expanded")).toBe("false");
     expect(affordance.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByLabelText("Reset view")).toBeTruthy();
-    expect(screen.getByLabelText("Observe harbor")).toBeTruthy();
-    expect(screen.getByLabelText("Light and motion: 12:00 local")).toBeTruthy();
+    const find = screen.getByRole("button", { name: "Find a ship or harbor" });
+    expect(screen.getAllByRole("button", { name: /Find/ })).toHaveLength(1);
+    expect(find.id).toBe("pharosville-find");
+    expect(find.getAttribute("aria-keyshortcuts")).toBe("/");
+    expect(affordance.getAttribute("aria-keyshortcuts")).toBeNull();
+    expect(affordance.querySelector("kbd")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Harbor ledger" })).toBeNull();
+    expect(document.getElementById(affordance.getAttribute("aria-controls")!)!.hidden).toBe(true);
+    fireEvent.click(find);
+    expect(onOpenFind).toHaveBeenCalledOnce();
+    expect(toolbar.getAttribute("data-expanded")).toBe("false");
 
     fireEvent.click(affordance);
     expect(toolbar.getAttribute("data-expanded")).toBe("true");
     expect(affordance.getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "find" }));
+    expect(screen.getByLabelText("Home")).toBeTruthy();
+    expect(screen.getByLabelText("Observe harbor")).toBeTruthy();
+    expect(screen.getByLabelText("Light and motion: 12:00 local")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "legend" }));
     fireEvent.click(screen.getByRole("button", { name: "Harbor ledger" }));
     fireEvent.click(screen.getByRole("button", { name: "Stay" }));
@@ -55,6 +65,9 @@ describe("WorldControls", () => {
     expect(onOpenLedger).toHaveBeenCalledOnce();
     expect(onStay).toHaveBeenCalledOnce();
 
+    fireEvent.click(affordance);
+    expect(screen.queryByRole("button", { name: "Harbor ledger" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Find a ship or harbor" })).toBe(find);
     expect(screen.queryByLabelText(/set session hour/i)).toBeNull();
     expect(screen.queryByLabelText(/follow selected/i)).toBeNull();
     expect(screen.queryByLabelText(/auto day-night/i)).toBeNull();
@@ -81,9 +94,8 @@ describe("WorldControls", () => {
       />,
     );
 
-    for (const button of screen.getAllByRole("button")) {
-      // Faint at rest is a paint concern only: nothing here may be removed
-      // from the tab order or hidden from assistive technology.
+    fireEvent.click(screen.getByRole("button", { name: "Explore harbor controls" }));
+    for (const button of screen.getAllByRole("button").filter((entry) => entry.id !== "pharosville-explore")) {
       expect(button.getAttribute("tabindex")).toBeNull();
       expect(button.getAttribute("aria-hidden")).toBeNull();
       button.focus();
@@ -109,5 +121,22 @@ describe("WorldControls", () => {
 
     expect(screen.getByLabelText("Stop observing").getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByText("Day preset")).toBeTruthy();
+  });
+
+  it("exposes station-local Previous and Next with Home distinct from Stroll", () => {
+    const next = vi.fn(), previous = vi.fn(), home = vi.fn();
+    const view = render(<WorldControls onStrollNext={next} onStrollPrevious={previous} onResetView={home} />);
+    fireEvent.click(screen.getByRole("button", { name: "Explore harbor controls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stroll" }));
+    expect(next).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "Previous" })).toBeNull();
+    view.rerender(<WorldControls onStrollNext={next} onStrollPrevious={previous} onResetView={home} strollTitle="Chaseki bench" />);
+    expect(screen.getByRole("status").textContent).toBe("Chaseki bench");
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    expect(previous).toHaveBeenCalledOnce();
+    expect(next).toHaveBeenCalledTimes(2);
+    expect(home).toHaveBeenCalledOnce();
   });
 });

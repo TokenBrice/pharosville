@@ -275,7 +275,7 @@ describe("AccessibilityLedger", () => {
     expect(visibleMarkup).toContain("Harbor ledger");
   });
 
-  it("adds record-card presentation only to visible disclosures", () => {
+  it("adds native typographic disclosures only to the visible ledger", () => {
     const world = sampleWorldWithLedgerShip();
     const visibleMarkup = renderToStaticMarkup(
       <AccessibilityLedger world={world} presentation="visible" />,
@@ -302,6 +302,21 @@ describe("AccessibilityLedger", () => {
       .toBe(normalize(renderToStaticMarkup(
         <AccessibilityLedger world={world} presentation="visible" title="" />,
       )));
+  });
+
+  it("keeps one ledger landmark while changing presentation and focuses ruled section groups", () => {
+    const world = sampleWorld();
+    const view = render(<AccessibilityLedger world={world} />);
+    view.rerender(<AccessibilityLedger world={world} presentation="visible" />);
+    expect(view.container.querySelectorAll('[data-testid="pharosville-accessibility-ledger"]')).toHaveLength(1);
+    const navigation = view.container.querySelector("nav.pharosville-ledger__sections")!;
+    for (const link of navigation.querySelectorAll<HTMLAnchorElement>("a")) {
+      fireEvent.click(link);
+      expect(document.activeElement).toBe(document.getElementById(link.hash.slice(1)));
+    }
+    view.rerender(<AccessibilityLedger world={world} />);
+    expect(view.container.querySelectorAll('[data-testid="pharosville-accessibility-ledger"]')).toHaveLength(1);
+    expect(view.container.querySelector("nav")).toBeNull();
   });
 
   it("does not expose ship-cluster ledger or cue rows", () => {

@@ -7,6 +7,8 @@ import { PharosVilleClient, stillForLocalHour } from "./client";
 import { ArrivalShell } from "./components/arrival-shell";
 
 const desktopModuleLoaded = vi.hoisted(() => vi.fn());
+const publication = { edition: "garden-observatory", revision: "a".repeat(64) };
+const publicationFetch = vi.fn();
 
 vi.mock("./pharosville-desktop-data", () => {
   desktopModuleLoaded();
@@ -32,30 +34,39 @@ function setViewport(screenWidth: number, screenHeight: number, width: number, h
 describe("PharosVilleClient viewport gate", () => {
   beforeEach(() => {
     desktopModuleLoaded.mockClear();
+    publicationFetch.mockReset().mockResolvedValue({ ok: true, json: async () => publication });
+    vi.stubGlobal("fetch", publicationFetch);
   });
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
-  it("shows a described seasonal harbor still without importing the world on a small screen", () => {
-    setViewport(640, 480, 640, 480);
-
+  it.each([[390, 844], [844, 390]])("welcomes a small %s×%s screen without importing the world", async (width, height) => {
+    setViewport(width, height, width, height);
     render(<PharosVilleClient />);
-
     const still = stillForLocalHour(new Date());
-    expect(screen.getByRole("img", { name: still.alt }).getAttribute("src")).toBe(still.jpeg);
-    expect(screen.getByText("PharosVille needs a wider harbor.")).toBeTruthy();
+    const image = await screen.findByRole("img", { name: still.alt });
+    expect(image.getAttribute("src")).toBe(`${still.jpeg}?v=${publication.revision}`);
+    expect(screen.getByRole("heading", { name: "PharosVille" })).toBeTruthy();
+    expect(screen.getByText("Illustration, not live readings")).toBeTruthy();
+    expect(screen.getByText(/no live readings are embedded here/)).toBeTruthy();
+    expect(screen.getByText(/missing evidence is not calm/)).toBeTruthy();
     expect(desktopModuleLoaded).not.toHaveBeenCalled();
+    expect(publicationFetch).toHaveBeenCalledWith("/pharosville/stills/garden-social.json", expect.any(Object));
+    expect(publicationFetch).toHaveBeenCalledTimes(1);
+    const sources = image.closest("picture")?.querySelectorAll("source");
+    expect(sources?.[0]?.getAttribute("srcset")).toContain("-portrait.avif");
+    expect(sources?.[1]?.getAttribute("srcset")).toContain("-portrait.jpg");
+    expect(sources?.[0]?.getAttribute("media")).toBe("(max-aspect-ratio: 1/1)");
   });
 
-  it("uses viewport dimensions, not orientation, while keeping the world behind the gate", () => {
+  it("uses viewport dimensions, not orientation, while keeping the world behind the gate", async () => {
     setViewport(2560, 1440, 720, 720);
-
     render(<PharosVilleClient />);
-
-    expect(screen.getByText("Give the harbor more room.")).toBeTruthy();
-    expect(screen.getByRole("img", { name: /^PharosVille (at|by|in) / })).toBeTruthy();
+    expect(screen.getByText(/Your device can show the interactive garden/)).toBeTruthy();
+    expect(await screen.findByRole("img", { name: /^PharosVille garden / })).toBeTruthy();
     expect(desktopModuleLoaded).not.toHaveBeenCalled();
   });
 
@@ -64,25 +75,60 @@ describe("PharosVilleClient viewport gate", () => {
     [1199, 640, 1199, 640], [640, 1199, 640, 1199],
     [900, 720, 900, 719], [720, 900, 719, 900],
     [1200, 640, 1200, 639], [640, 1200, 639, 1200],
-  ])("blocks the sorted screen/window boundary %s×%s / %s×%s before world import", (sw, sh, width, height) => {
+  ])("blocks the sorted screen/window boundary %s×%s / %s×%s before world import", async (sw, sh, width, height) => {
     setViewport(sw, sh, width, height);
     render(<PharosVilleClient />);
     expect(screen.queryByText("world runtime")).toBeNull();
     expect(desktopModuleLoaded).not.toHaveBeenCalled();
     expect(screen.getByRole("navigation", { name: "Pharos analytics" })).toBeTruthy();
-    expect(screen.getByRole("img").getAttribute("alt")).toContain("Illustration, not live readings.");
+    expect((await screen.findByRole("img")).getAttribute("alt")).toContain("Illustration, not live readings.");
   });
 
   it("chooses the still of the visitor's own hour, one per light beat", () => {
     const beats = new Set<string>();
     for (let hour = 0; hour < 24; hour += 0.5) {
       const still = stillForLocalHour(new Date(2026, 8, 26, Math.floor(hour), (hour % 1) * 60));
-      // Every still the gate can ask for ships.
-      for (const path of [still.jpeg, still.avif]) expect(existsSync(resolve(process.cwd(), `public${path}`))).toBe(true);
+      expect(still.jpeg).toBe(`/pharosville/stills/garden-${still.beat}.jpg`);
+      expect(still.avif).toBe(`/pharosville/stills/garden-${still.beat}.avif`);
+      expect(stillForLocalHour(new Date(2026, 8, 26, Math.floor(hour)), true).jpeg).toContain("-portrait.jpg");
       beats.add(still.beat);
     }
     expect([...beats].sort()).toEqual(["blue", "dawn", "day", "golden", "night"]);
     expect(stillForLocalHour(new Date(2026, 8, 26, 13)).beat).toBe("day");
+  });
+
+  it("does not substitute old harbour assets when garden publication is absent", async () => {
+    publicationFetch.mockResolvedValue({ ok: false });
+    setViewport(390, 844, 390, 844);
+    render(<PharosVilleClient />);
+    await waitFor(() => expect(publicationFetch).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByRole("heading", { name: "PharosVille" })).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Pharos analytics" }).querySelectorAll("a")).toHaveLength(5);
+    expect(desktopModuleLoaded).not.toHaveBeenCalled();
+  });
+
+  it("removes a failed illustration and leaves the complete useful DOM", async () => {
+    setViewport(390, 844, 390, 844);
+    render(<PharosVilleClient />);
+    fireEvent.error(await screen.findByRole("img"));
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByRole("heading", { name: "PharosVille" })).toBeTruthy();
+    expect(screen.getByText(/Size uses a compressed supply scale/)).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Pharos analytics" })).toBeTruthy();
+    expect(desktopModuleLoaded).not.toHaveBeenCalled();
+  });
+
+  it("ships both encodings and crops whenever a garden publication exists", () => {
+    const manifest = resolve(process.cwd(), "public/pharosville/stills/garden-social.json");
+    if (!existsSync(manifest)) return; // Publication is explicitly orchestrator-owned.
+    const value = JSON.parse(readFileSync(manifest, "utf8")) as { edition: string; outputs: { path: string; bytes: number }[] };
+    expect(value.edition).toBe("garden-observatory");
+    expect(value.outputs.filter((item) => item.path.startsWith("pharosville/stills/"))).toHaveLength(20);
+    for (const item of value.outputs) {
+      expect(existsSync(resolve(process.cwd(), "public", item.path))).toBe(true);
+      if (item.path.startsWith("pharosville/stills/")) expect(item.bytes).toBeLessThanOrEqual(90_000);
+    }
   });
 
   it.each([[900, 720], [720, 900], [1200, 640], [640, 1200]])("admits the sorted gate %s×%s without a desktop still", async (width, height) => {
@@ -90,6 +136,7 @@ describe("PharosVilleClient viewport gate", () => {
     render(<PharosVilleClient />);
     expect(screen.queryByRole("img")).toBeNull();
     await waitFor(() => expect(screen.getByText("world runtime")).toBeTruthy());
+    expect(publicationFetch).not.toHaveBeenCalled();
   });
 
   it("unmounts at shrink and remounts at the exact boundary without orientation admission", async () => {
@@ -99,7 +146,7 @@ describe("PharosVilleClient viewport gate", () => {
     setViewport(2560, 1440, 899, 720);
     fireEvent(window, new Event("resize"));
     expect(screen.queryByText("world runtime")).toBeNull();
-    expect(screen.getByText("Give the harbor more room.")).toBeTruthy();
+    expect(screen.getByText(/Your device can show the interactive garden/)).toBeTruthy();
     setViewport(2560, 1440, 720, 900);
     fireEvent(window, new Event("resize"));
     await waitFor(() => expect(screen.getByText("world runtime")).toBeTruthy());

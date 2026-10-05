@@ -17,6 +17,16 @@ describe("PharosVille controls content", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it("documents the inspectable stroll without forced-home input", () => {
+    const action = PHAROSVILLE_CONTROL_ACTIONS.find((entry) => entry.id === "stroll")!;
+    expect(action.label).toBe("Stroll");
+    expect(action.summary).toContain("Previous and Next");
+    expect(action.summary).toContain("Escape returns to where you stood");
+    expect(action.summary).toContain("Home returns to the seat");
+    expect(action.summary).toContain("Idle never advances");
+    expect(PHAROSVILLE_CONTROL_ACTIONS.some((entry) => entry.id === "wander")).toBe(false);
+  });
+
   // The session hour is a key press now. Telling visitors to type a parameter
   // into the address bar is not an affordance, and nothing should reintroduce
   // it — the `t=` link itself still works, undocumented as a thing to hand-edit.

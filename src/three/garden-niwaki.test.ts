@@ -74,7 +74,7 @@ function authoredPine(seed: string, rootIndex: 0 | 1 = 0): AuthoredKuromatsuOpti
       { parent: 0, at: 0.45, order: "primary", points: [[-0.7, 1.5, -1], [-1.6, 2, -2]], radii: [0.14, 0.04] },
       { parent: 1, at: 0.8, order: "secondary", points: [[-1.8, 2.1, -2.4], [-2.1, 2.6, -2.7]], radii: [0.036, 0.014] },
       { parent: 2, at: 0.75, order: "twig", points: [[-2.4, 2.6, -3]], radii: [0.012, 0.005],
-        spray: { needles: 18, length: 0.2, spread: 1.05 } },
+        spray: { needles: 96, length: 0.2, spread: 1.05 } },
     ],
   };
 }
@@ -164,6 +164,47 @@ describe("authored near kuromatsu graph", () => {
       }
       expect(edges.size).toBeGreaterThan(2);
       expect([...edges.values()].every((incidence) => incidence === 2)).toBe(true);
+    } finally {
+      geometry.dispose();
+    }
+  });
+
+  it("forms a dense flattened terminal cluster instead of a sparse radial frond", () => {
+    const options = authoredPine("cluster-mass");
+    const geometry = createAuthoredKuromatsuGeometry(options);
+    try {
+      const count = options.limbs.at(-1)!.spray!.needles;
+      const position = geometry.getAttribute("position");
+      const first = position.count - count * 6;
+      const points = Array.from({ length: count * 6 }, (_, vertex) =>
+        new Vector3().fromBufferAttribute(position, first + vertex));
+      const min = new Vector3(Infinity, Infinity, Infinity), max = new Vector3(-Infinity, -Infinity, -Infinity);
+      for (const point of points) { min.min(point); max.max(point); }
+      const size = max.clone().sub(min);
+      expect(size.y).toBeLessThan(Math.max(size.x, size.z) * 0.4);
+      expect(Math.max(size.x, size.z)).toBeGreaterThan(0.35);
+      for (let needle = 0; needle < count; needle += 1) {
+        expect(points[needle * 6 + 4]!.distanceTo(points[needle * 6 + 5]!))
+          .toBeLessThan(Math.max(size.x, size.z) * 0.25);
+      }
+      // Rasterize actual closed-needle triangles, not cluster metadata.
+      const resolution = 32, mask = new Uint8Array(resolution * resolution);
+      const project = (point: Vector3) => ({
+        x: (point.x - min.x) / size.x * resolution,
+        y: (point.z - min.z) / size.z * resolution,
+      });
+      const index = geometry.index!;
+      for (let face = index.count - count * 24; face < index.count; face += 3) {
+        const [a, b, c] = [0, 1, 2].map((corner) => project(points[index.getX(face + corner) - first]!));
+        const area = (b!.x - a!.x) * (c!.y - a!.y) - (b!.y - a!.y) * (c!.x - a!.x);
+        if (Math.abs(area) < 1e-9) continue;
+        for (let y = 8; y < 24; y += 1) for (let x = 8; x < 24; x += 1) {
+          const u = ((b!.x - x - 0.5) * (c!.y - y - 0.5) - (b!.y - y - 0.5) * (c!.x - x - 0.5)) / area;
+          const v = ((c!.x - x - 0.5) * (a!.y - y - 0.5) - (c!.y - y - 0.5) * (a!.x - x - 0.5)) / area;
+          if (u >= 0 && v >= 0 && u + v <= 1) mask[y * resolution + x] = 1;
+        }
+      }
+      expect(mask.reduce((sum, value) => sum + value, 0) / 256).toBeGreaterThan(0.8);
     } finally {
       geometry.dispose();
     }
