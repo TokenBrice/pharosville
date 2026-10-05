@@ -4,6 +4,7 @@ import {
   Group,
   LinearFilter,
   LinearMipmapLinearFilter,
+  MathUtils,
   NearestFilter,
   Mesh,
   NoColorSpace,
@@ -229,6 +230,23 @@ describe("createGardenWater", () => {
     expect(FRAGMENT_SHADER).toContain("#ifndef GARDEN_AIR_CONTINUOUS_WATER");
     expect(FRAGMENT_SHADER).toContain("gardenAerial(gl_FragColor.rgb, vWorldPosition, cameraPosition)");
     expect(FRAGMENT_SHADER).toContain("distance(cameraPosition.xz, vWorldPosition.xz)");
+    expect(annulus.material.fragmentShader).toBe(water.material.fragmentShader);
+    const horizonTransport = FRAGMENT_SHADER.slice(
+      FRAGMENT_SHADER.indexOf("gl_FragColor.rgb = gardenAerial("),
+      FRAGMENT_SHADER.indexOf("#include <tonemapping_fragment>"),
+    );
+    // The same world point must get the same horizon transport on either mesh.
+    expect(horizonTransport).not.toContain("uAnnulus");
+    expect(horizonTransport).toContain("gardenAirlight(normalize(vWorldPosition - cameraPosition))");
+    const range = horizonTransport.match(/float horizonFade = smoothstep\(\s*([\d.]+),\s*([\d.]+),/);
+    expect(range).not.toBeNull();
+    const start = Number(range?.[1]);
+    const end = Number(range?.[2]);
+    expect(start).toBe(264);
+    expect(end).toBeCloseTo(451.2);
+    for (const distance of [0, 30, 100, 200, 264]) {
+      expect(MathUtils.smoothstep(distance, start, end)).toBe(0);
+    }
     water.dispose();
   });
 

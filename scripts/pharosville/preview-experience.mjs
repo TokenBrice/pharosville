@@ -36,7 +36,7 @@ export function installExperienceObserver() {
   const timing = { firstMeaningfulDomMs: null, firstCompleteWorldMs: null };
   window.__previewExperienceTiming = timing;
   const sample = () => {
-    const heading = document.querySelector(".pv-arrival-shell h1, .pharosville-narrow h2");
+    const heading = document.querySelector(".pv-arrival-shell h1, .pv-arrival-shell h2, .pharosville-narrow h2");
     if (timing.firstMeaningfulDomMs === null && heading && document.querySelector('nav[aria-label="Pharos analytics"] a')) timing.firstMeaningfulDomMs = performance.now();
     const world = document.querySelector('[data-world-ready="true"]');
     const canvas = document.querySelector('[data-testid="pharosville-canvas"][data-renderer-status="ready"]');

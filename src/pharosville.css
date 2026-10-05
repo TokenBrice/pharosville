@@ -218,7 +218,7 @@ textarea {
   width: min(100%, 620px);
   margin: auto;
 }
-.pharosville-narrow h1 {
+.pharosville-narrow h2 {
   margin: 0;
   font: 600 2.125rem/1.1 var(--font-title);
   text-wrap: balance;

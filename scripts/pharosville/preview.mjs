@@ -526,7 +526,7 @@ try {
     } else if (experience.shell === "renderer-failure") {
       await page.getByTestId("pharosville-renderer-fallback").waitFor({ state: "visible", timeout: 45_000 });
     } else {
-      await page.locator(".pv-arrival-shell h1").waitFor({ state: "visible", timeout: 10_000 });
+      await page.locator(".pv-arrival-shell h1, .pv-arrival-shell h2").waitFor({ state: "visible", timeout: 10_000 });
       await page.getByRole("link", { name: "Open Pharos analytics", exact: true }).waitFor({ state: "visible" });
     }
     await page.screenshot({ path: outputPath });

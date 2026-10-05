@@ -112,12 +112,15 @@ describe("one analytic air", () => {
 
   it("keeps the water and annulus aerial composite before the single output conversion", () => {
     const air = WATER_FRAGMENT_SHADER.indexOf("gl_FragColor.rgb = gardenAerial(");
-    const annulus = WATER_FRAGMENT_SHADER.indexOf("if (uAnnulus > 0.5)", air);
+    const horizon = WATER_FRAGMENT_SHADER.indexOf("gardenAirlight(normalize(vWorldPosition - cameraPosition))", air);
     const tone = WATER_FRAGMENT_SHADER.indexOf("#include <tonemapping_fragment>");
     const output = WATER_FRAGMENT_SHADER.indexOf("#include <colorspace_fragment>");
     expect(air).toBeGreaterThan(0);
-    expect(air).toBeLessThan(annulus);
-    expect(annulus).toBeLessThan(tone);
+    expect(horizon).toBeGreaterThan(0);
+    expect(air).toBeLessThan(horizon);
+    expect(horizon).toBeLessThan(tone);
+    // Both meshes use the same world-distance airlight composite; no annulus gate.
+    expect(WATER_FRAGMENT_SHADER.slice(air, tone)).not.toContain("uAnnulus");
     expect(tone).toBeLessThan(output);
     expect(WATER_FRAGMENT_SHADER.split("#include <tonemapping_fragment>").length - 1).toBe(1);
     expect(WATER_FRAGMENT_SHADER.split("#include <colorspace_fragment>").length - 1).toBe(1);

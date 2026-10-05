@@ -5,7 +5,7 @@ export function SmallScreenWelcome({ windowCanFit, illustration }: { windowCanFi
   return (
     <section className="pharosville-narrow" aria-labelledby="pharosville-narrow-title">
       <div className="pharosville-narrow__inner">
-        <h1 id="pharosville-narrow-title">PharosVille</h1>
+        <h2 id="pharosville-narrow-title">PharosVille</h2>
         <p className="pharosville-narrow__promise">A living stablecoin garden</p>
         {illustration}
         <p>Welcome to the garden. Read its language here, then inspect the latest evidence on Pharos.</p>

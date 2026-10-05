@@ -1428,19 +1428,19 @@ ${gardenHeightFogGlsl()}
 
     // C1: one air for the whole garden, shared with every scene material.
     gl_FragColor.rgb = gardenAerial(gl_FragColor.rgb, vWorldPosition, cameraPosition);
-    if (uAnnulus > 0.5) {
-      // The far rim meets the dome's lower hemisphere exactly.
-      float horizonFade = smoothstep(
-        ${glslFloat(SEA_ANNULUS_OUTER_RADIUS * 0.55)},
-        ${glslFloat(SEA_ANNULUS_OUTER_RADIUS * 0.94)},
-        distance(cameraPosition.xz, vWorldPosition.xz)
-      );
-      gl_FragColor.rgb = mix(
-        gl_FragColor.rgb,
-        gardenAirlight(normalize(vWorldPosition - cameraPosition)),
-        horizonFade
-      );
-    }
+    // Horizon transport belongs to the water's world position, not its mesh.
+    // Both the plate and its underlay meet the dome identically; near-seat
+    // water remains unchanged below the 264-world-unit start distance.
+    float horizonFade = smoothstep(
+      ${glslFloat(SEA_ANNULUS_OUTER_RADIUS * 0.55)},
+      ${glslFloat(SEA_ANNULUS_OUTER_RADIUS * 0.94)},
+      distance(cameraPosition.xz, vWorldPosition.xz)
+    );
+    gl_FragColor.rgb = mix(
+      gl_FragColor.rgb,
+      gardenAirlight(normalize(vWorldPosition - cameraPosition)),
+      horizonFade
+    );
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
 

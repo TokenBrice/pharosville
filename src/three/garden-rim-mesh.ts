@@ -59,7 +59,8 @@ export { patchGardenInstancedWindSway, updateGardenInstancedWindSway } from "./g
 
 const MAP_SIZE = PHAROSVILLE_DESIGN_SPAN * PHAROSVILLE_MAP_SCALE;
 const MAP_LAST = MAP_SIZE - 1;
-const WATERLINE_Y = -0.11;
+// Terrain contact courses share the rendered sea's datum, never a local zero.
+const WATERLINE_Y = GARDEN_WATER_Y;
 // Reviewed half-tile contour cadence, tightened enough to retain the authored
 // irregular shoreline after rectangular station reservations restore detail.
 const SAMPLE_STEP = 0.44475;
@@ -703,7 +704,7 @@ function addShoreCourses(
   outwardZ: number,
   form: CoastForm,
 ): void {
-  const stainY = Math.min(a[1], b[1], 0.34);
+  const stainY = Math.min(a[1], b[1], WATERLINE_Y + GARDEN_SHORE_CONTACT.dryAbove);
   const stainA = pointAtY(a, stainY);
   const stainB = pointAtY(b, stainY);
   const sand = SHORE_SAND.clone().multiplyScalar(nearShoreValue(a[0] / TILE_SCALE, a[2] / TILE_SCALE));

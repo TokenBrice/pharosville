@@ -8,7 +8,7 @@ export function ArrivalShell({ stage, veil = false }: ArrivalShellProps) {
   return (
     <section className={`pv-arrival-shell${veil ? " pv-arrival-shell--veil" : ""}`} aria-label="PharosVille welcome">
       <div className="pv-arrival-shell__content">
-        <h1>PharosVille</h1>
+        <h2>PharosVille</h2>
         <p className="pv-arrival-shell__promise">A living stablecoin garden</p>
         <p>Watch the market, then inspect the evidence.</p>
         <dl className="pv-arrival-shell__guide">

@@ -2,6 +2,7 @@ import { DataTexture, Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial,
 import { describe, expect, it, vi, type Mock, type MockInstance } from "vitest";
 import { distanceToStationFootprint, stationFootprintRect } from "../systems/dock-layout";
 import { RIM_COVES, RIM_OPENINGS, rimLandAt } from "../systems/garden-rim";
+import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import {
   EVM_BAY_STATION_SLOTS,
   OUTER_HARBOR_STATION_SLOTS,
@@ -99,6 +100,32 @@ describe("garden rim mesh", () => {
     expect(Math.min(...GARDEN_NEAR_RIM_BAY_DEPTHS)).toBeGreaterThanOrEqual(3);
     expect(GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT).toBeGreaterThanOrEqual(1.5);
     expect(GARDEN_NEAR_RIM_DISPLACEMENT).toContain("straight shoreline");
+    rim.dispose();
+  });
+
+  it("seats shoreline courses at the rendered water datum so wet contact remains live", () => {
+    const rim = createGardenRimMesh();
+    const shore = rim.root.getObjectByName("garden-rim-tide-rock") as Mesh;
+    const positions = shore.geometry.getAttribute("position");
+    const sample: GardenShoreSample = { segment: null, depth: 0, substrate: null, exposure: 0, state: "dry" };
+    const courses = [
+      { above: -0.35, state: "submerged" },
+      { above: -0.16, state: "submerged" },
+      { above: 0.045, state: "damp" },
+      { above: GARDEN_SHORE_CONTACT.dryAbove, state: "damp" },
+    ] as const;
+    const counts = courses.map(() => 0);
+    for (let index = 0; index < positions.count; index += 1) {
+      const y = positions.getY(index);
+      for (let course = 0; course < courses.length; course += 1) {
+        const expected = courses[course]!;
+        if (Math.abs(y - (GARDEN_WATER_Y + expected.above)) > 1e-6) continue;
+        writeGardenShoreSample(sample, positions.getX(index), y, positions.getZ(index), GARDEN_WATER_Y);
+        expect(sample.state).toBe(expected.state);
+        counts[course] = counts[course]! + 1;
+      }
+    }
+    for (const count of counts) expect(count).toBeGreaterThan(0);
     rim.dispose();
   });
 

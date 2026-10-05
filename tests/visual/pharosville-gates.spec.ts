@@ -150,7 +150,8 @@ test(...visualLane("dom", "a capable screen with one blocked viewport dimension 
   await page.goto("/");
 
   expect(canViewportShowMap(MIN_SHORT_SIDE_PX, MIN_SHORT_SIDE_PX)).toBe(false);
-  await expect(page.getByRole("heading", { name: "PharosVille", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "PharosVille", exact: true, level: 1 })).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "PharosVille", exact: true, level: 2 })).toBeVisible();
   await expect(page.getByText(/Your device can show the interactive garden/)).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Pharos analytics" })).toBeVisible();
   await expect(page.getByTestId("pharosville-canvas")).toHaveCount(0);
@@ -266,11 +267,11 @@ test(...visualLane("motion", "day, dusk, night, and reduced-motion states render
       expect(runtime.activeMotionLoopCount).toBe(0);
       expect(runtime.motionClockSource).toBe("reduced-motion-static-frame");
       expect(runtime.timeSeconds).toBe(0);
-      // Reduced motion keeps the observe control and turns it into a stepper,
-      // so it stays reachable but never latches; with timeSeconds pinned at 0
-      // above, that is the proof nothing moves until the reader asks.
-      await expect(page.getByRole("button", { name: "Observe harbor" }))
-        .toHaveAttribute("aria-pressed", "false");
+      // Stroll is reader-driven in every motion mode, including a direct
+      // station cut under reduced motion. It must remain keyboard reachable.
+      await page.getByRole("button", { name: "Explore harbor controls" }).click();
+      await expect(page.getByRole("button", { name: "Stroll", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Home", exact: true })).toBeVisible();
     } else {
       await expect.poll(async () => (
         (await readGateTelemetry(page)).framePacing?.sampleCount ?? 0
@@ -317,84 +318,80 @@ test(...visualLane("motion", "day, dusk, night, and reduced-motion states render
   expect(captures.get("dusk")?.equals(captures.get("night") ?? Buffer.alloc(0))).toBe(false);
 });
 
-test(...visualLane("accessibility", "Observe control preserves accessible, interruptible detail access"), async ({
+test(...visualLane("accessibility", "Stroll preserves accessible, interruptible station and detail access"), async ({
   page,
 }) => {
-  const canvas = await openWorld(page, { hour: 12, reducedMotion: false });
+  await openWorld(page, { hour: 12, reducedMotion: false });
   const closeDetails = page.getByRole("button", { name: "Close details" });
-  if (await closeDetails.isVisible()) {
-    await closeDetails.focus();
-    await page.keyboard.press("Enter");
-  }
-
+  if (await closeDetails.isVisible()) await closeDetails.click();
+  const homeCamera = (await readVisualDebug(page)).camera;
+  const controls = page.getByTestId("pharosville-world-controls");
   await page.getByRole("button", { name: "Explore harbor controls" }).click();
-  await expect(page.getByTestId("pharosville-world-controls")).toHaveAttribute("data-expanded", "true");
+  await expect(controls).toHaveAttribute("data-expanded", "true");
 
-  const observe = page.locator("[data-observe-control]");
-  await expect(observe).toBeVisible();
-  await expect(observe).toHaveAttribute("aria-label", "Observe harbor");
-  await observe.click();
-  await expect(observe).toHaveAttribute("aria-pressed", "true");
-  await expect(observe).toHaveAttribute("aria-label", "Stop observing");
-  await expect(page.getByTestId("pharosville-observe-caption")).toBeVisible();
+  const station = controls.getByRole("status");
+  const next = controls.getByRole("button", { name: "Next", exact: true });
+  const previous = controls.getByRole("button", { name: "Previous", exact: true });
+  const stroll = controls.getByRole("button", { name: "Stroll", exact: true });
+  await expect(stroll).toHaveAttribute("aria-keyshortcuts", "W");
+  await stroll.focus();
+  await page.keyboard.press("Enter");
+  await expect(station).toHaveText(/\S/);
+  await expect(next).toBeVisible();
+  await expect(previous).toBeVisible();
+  const firstStation = await station.textContent();
 
-  await observe.focus();
-  await page.keyboard.press("Tab");
-  await expect(page.getByTestId("pharosville-observe-caption")).toHaveCount(0);
-  await expect(observe).toHaveAttribute("aria-pressed", "false");
+  // Escape interrupts travel where it is displayed, not by forcing Home.
+  await next.focus();
+  await page.keyboard.press("Escape");
   await page.waitForTimeout(50);
   const interruptedCamera = (await readVisualDebug(page)).camera;
   await page.waitForTimeout(600);
   expect((await readVisualDebug(page)).camera).toEqual(interruptedCamera);
+  await expect(station).toHaveText(firstStation!);
 
-  await observe.click();
-  await expect(observe).toHaveAttribute("aria-pressed", "true");
-  await observe.focus();
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("pharosville-observe-caption")).toHaveCount(0);
-  await expect(observe).toHaveAttribute("aria-pressed", "false");
-
-  await observe.click();
-  await expect(observe).toHaveAttribute("aria-pressed", "true");
-  const box = await canvas.boundingBox();
-  expect(box).not.toBeNull();
-  await page.mouse.click((box?.x ?? 0) + 20, (box?.y ?? 0) + 20);
-  await expect(page.getByTestId("pharosville-observe-caption")).toHaveCount(0);
-  await expect(observe).toHaveAttribute("aria-pressed", "false");
-  await expect(observe).toHaveAttribute("aria-label", "Observe harbor");
-
-  // Reduced motion no longer retires the control: the timed tour becomes a
-  // stepper, so a reader who cannot take the tour still reaches every beat
-  // under their own hand. It stops being a toggle at the same moment, so it
-  // never latches into a "stop" state the next press would not honour.
-  const caption = page.getByTestId("pharosville-observe-caption");
-  await observe.click();
-  await observe.focus();
+  // Reduced motion cuts directly, and the six manual stations never advance
+  // on a timer. Previous reverses Next without losing its station readout.
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await expect(observe).toBeVisible();
-  await expect(observe).toHaveAttribute("aria-pressed", "false");
-  await expect(observe).toHaveAttribute("aria-label", "Observe harbor");
-
-  await page.keyboard.press("Escape");
-  await expect(caption).toHaveCount(0);
-  await observe.click();
-  await expect(caption).toContainText("Observe 1/");
-  await observe.click();
-  await expect(caption).toContainText("Observe 2/");
-  // No beat timer runs under reduced motion, so the beat holds until asked.
+  await expect.poll(async () => (await readRuntimeSnapshot(page)).reducedMotion).toBe(true);
+  const stations = new Set([firstStation]);
+  for (let step = 0; step < 5; step += 1) {
+    const before = await station.textContent();
+    await next.click();
+    await expect(station).not.toHaveText(before!);
+    stations.add(await station.textContent());
+  }
+  expect(stations.size).toBe(6);
+  await next.click();
+  await expect(station).toHaveText(firstStation!);
+  await next.click();
+  const secondStation = await station.textContent();
+  await previous.click();
+  await expect(station).toHaveText(firstStation!);
+  await next.click();
+  await expect(station).toHaveText(secondStation!);
+  const stationCamera = (await readVisualDebug(page)).camera;
   await page.waitForTimeout(600);
-  await expect(caption).toContainText("Observe 2/");
+  await expect(station).toHaveText(secondStation!);
+  expect((await readVisualDebug(page)).camera).toEqual(stationCamera);
+  expect((await readRuntimeSnapshot(page)).activeMotionLoopCount).toBe(0);
 
-  // The sea's place-names are carved boards in the world (garden-sea-signs),
-  // not DOM chips; detail access flows through the canvas hit targets, which
-  // Tab cycles and Enter opens from the world shell itself. Focus has to be on
-  // the shell for that: the shell's key handler defers to any interactive
-  // element, so tabbing away from the observe button would reach the next
-  // control instead.
+  // Keyboard inspection opens focused facts, then Escape restores the saved
+  // station-local viewpoint. Only Home returns to the garden seat.
   await page.getByTestId("pharosville-world").focus();
   await page.keyboard.press("Tab");
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("pharosville-detail-panel")).toBeVisible();
+  const detail = page.getByTestId("pharosville-detail-panel");
+  await expect(detail).toBeVisible();
+  await expect(detail.getByRole("heading", { level: 2 })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(detail).toHaveCount(0);
+  await expect.poll(async () => (await readVisualDebug(page)).camera).toEqual(stationCamera);
+  await expect(station).toHaveText(secondStation!);
+  await controls.getByRole("button", { name: "Home", exact: true }).click();
+  await expect(station).toHaveCount(0);
+  await expect(stroll).toBeVisible();
+  await expect.poll(async () => (await readVisualDebug(page)).camera).toEqual(homeCamera);
 });
 
 test(...visualLane("static", "a WebGL context that comes back keeps the world"), async ({ page }) => {
