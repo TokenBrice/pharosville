@@ -130,11 +130,28 @@ import {
   type GardenShipTransitionSpec,
 } from "./renderer-transitions";
 
-// Nearly every test here builds a dense world and renders real frames: 2-4 s
-// each on a desktop, 17 s for the two-scene AO test, and several times that on
-// a shared CI runner. One file-level ceiling instead of per-test overrides; it
-// costs nothing when the tests pass.
+// Every renderer owns its mutable scene and teardown. Cold scene construction
+// and full-frame/reconciliation coverage cost seconds on a desktop and several
+// times that on hosted CI. Keep the existing ceiling: immutable data sharing
+// below must not replace real renderer lifecycle coverage.
 vi.setConfig({ testTimeout: 120_000 });
+
+// These fixture consumers only read or derive copies of their worlds. Reuse
+// immutable world data and its identity-keyed placement caches, but keep every
+// renderer/scene private: frames mutate them and each case tests its own teardown.
+// The overview-detail case mutates a dock, so it deliberately keeps its own build.
+const canonicalRendererWorldFixture = buildPharosVilleWorld(makePharosVilleWorldInput());
+const denseRendererWorldFixture = buildPharosVilleWorld({
+  cemeteryEntries: [],
+  chains: denseFixtureChains,
+  freshness: makeSourceStatuses(),
+  pegSummary: denseFixturePegSummary,
+  safetyGrades: denseFixtureSafetyGrades,
+  stability: fixtureStability,
+  stablecoins: denseFixtureStablecoins,
+  stress: denseFixtureStress,
+});
+const overCapacityRendererWorldFixture = overCapacityWorldFixture();
 
 interface SpikeTraceHarness {
   trace: GardenSpikeTrace;
@@ -299,7 +316,7 @@ describe("station route pulse endpoints", () => {
   });
 
   it("keeps all eight rim-mouth routes on the plate and rotates every one", () => {
-    const world = denseRendererWorld();
+    const world = denseRendererWorldFixture;
     const routes = selectGardenDocks(world.docks)
       .filter((dock) => Number.isFinite(dock.totalUsd) && dock.totalUsd > 0);
     expect(routes).toHaveLength(8);
@@ -662,7 +679,7 @@ describe("DEV spike trace startup publication", () => {
       expect(installed).toBeDefined();
       // Bootstrap has completed, but no world frame or sampled census exists yet.
       expect(installed!.snapshot().frameCount).toBe(1);
-      const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+      const world = canonicalRendererWorldFixture;
       const metrics = renderer.render(rendererFrame(world, "full", { reducedMotion: true }));
       expect(metrics.drawOwnerCensus?.sampledAtFrame).toBe(1);
       expect(metrics.drawOwnerCensus?.spikeTrace).toBe(installed);
@@ -705,7 +722,7 @@ describe("DEV spike trace startup publication", () => {
       first = null;
       expect(traceWindow.__pharosVilleSpikeTrace).toBe(successor);
       expect(successor.snapshot().disposed).toBe(false);
-      const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+      const world = canonicalRendererWorldFixture;
       expect(second.render(rendererFrame(world, "full", { reducedMotion: true })).drawOwnerCensus?.spikeTrace).toBe(successor);
       expect(successor.snapshot().captures[0]!.frames.at(-1)).toMatchObject({
         rendererEpoch: 0, frame: 1, reportedTriangles: 574_545,
@@ -752,7 +769,7 @@ describe("DEV spike trace startup publication", () => {
 
 describe("static hero reflection appearance", () => {
   it("unchanged applied light holds the cache; a genuine light change recaptures", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const extraLight = new AmbientLight("#8090a0", 0.25);
     postHarness.extraLight = extraLight;
     const renderer = createThreeWorldRenderer({
@@ -805,7 +822,7 @@ describe("static hero reflection appearance", () => {
   });
 
   it("same-wrapper island replacement and context restore refresh static capture", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const canvas = document.createElement("canvas");
     const renderer = createThreeWorldRenderer({ canvas, onContextFailure: vi.fn() });
     const gl = rendererHarness.instances.at(-1)!;
@@ -896,7 +913,7 @@ describe("Three world renderer lifecycle", () => {
     renderer.dispose();
   });
   it("builds the docks part and station-root lanes from a station-less fallback dock", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const { station: _station, ...withoutStation } = world.docks[0]!;
     const stationlessWorld = {
       ...world,
@@ -915,7 +932,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("seats the calm mask on the Ethereum Mole basin and keeps every harbor ripple", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const harborDocks = selectGardenDocks(world.docks);
     const mole = harborDocks.find((dock) => dock.station.type === "ethereum-mole")!;
     const renderer = createThreeWorldRenderer({
@@ -953,7 +970,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("disables the basin mask when a sparse feed has no Ethereum Mole", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const withoutMole = {
       ...world,
       docks: world.docks.filter((dock) => dock.station.type !== "ethereum-mole"),
@@ -971,7 +988,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("allocates one hull and one sail batch for each of the six fleet families", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -1142,7 +1159,7 @@ describe("Three world renderer lifecycle", () => {
       }
       return { root: visual.root.matrixWorld.clone(), children, lamp, rigHeights, batchHeights, batchTrims };
     };
-    const supportShips = denseRendererWorld().ships.filter((ship) => ship.id !== subject.id).slice(0, 8);
+    const supportShips = denseRendererWorldFixture.ships.filter((ship) => ship.id !== subject.id).slice(0, 8);
     const withSupport = (world: PharosVilleWorld): PharosVilleWorld => ({
       ...world,
       ships: [...world.ships, ...supportShips],
@@ -1300,7 +1317,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("gives chain flags the harbour's gust and rests them on one pose for reduced motion", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -1322,7 +1339,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("mounts the data-derived pigeonnier roost and mover flock", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -1338,7 +1355,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("lets the authored waterfall displace the broad silver-water accents", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -1351,7 +1368,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("draws the scored meteor only while its ritual runs", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -1371,7 +1388,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("selects seasonal dressing once from the injected calendar date", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const spring = createThreeWorldRenderer({
       calendarDate: new Date("2026-04-12T12:00:00.000Z"),
       canvas: document.createElement("canvas"),
@@ -1406,7 +1423,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("queues static uploads, warms assembled variants, and reports recurring work", async () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -1468,7 +1485,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("routes endpoint staleness into existing water and quay draws", () => {
-    const freshWorld = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const freshWorld = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -1494,7 +1511,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("honors quality tiers and adaptive DPR without removing analytical content", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const createHero = vi.spyOn(gardenShips, "createShip");
     const createBatch = vi.spyOn(gardenShips, "createBatchedShip");
     const createWakes = vi.spyOn(gardenWakes, "createGardenWakes");
@@ -1599,7 +1616,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("creates the post composer, drives it per tier, and disposes it once", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -1649,7 +1666,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("projects depth with a perspective camera and holds shadows through sub-threshold view movement", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -1673,7 +1690,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("never re-fits or re-bakes static shadows for idle breath, including historical spike times", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"), onContextFailure: vi.fn(),
     });
@@ -1728,7 +1745,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("shows the seat threshold only at rest, riding the breathed eye inside the fitted shadow box", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -1813,7 +1830,7 @@ describe("Three world renderer lifecycle", () => {
       onContextFailure: vi.fn(),
     });
     try {
-      const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+      const world = canonicalRendererWorldFixture;
       const frame = rendererFrame(world, "full", { reducedMotion: true });
       renderer.render(frame);
       const host = renderer.gardenLookdev!;
@@ -1854,7 +1871,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("applies the camera state's breath around the view target and treats zero breath as the base eye", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -1894,7 +1911,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("removes the shadow sampler on a cold constrained start and restores recovery shadows", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -1919,7 +1936,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("keeps N8AO textures cold at the landing and whole-map framings", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -1945,7 +1962,7 @@ describe("Three world renderer lifecycle", () => {
 
   it("releases AO textures after an inspection-to-whole-map transition settles", () => {
     postHarness.simulateAOTextures = true;
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
 
     const freshWhole = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
@@ -1987,7 +2004,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("uses ship pixel detail and focused restoration while retaining dock Explore detail", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const createHero = vi.spyOn(gardenShips, "createShip");
     const createBatch = vi.spyOn(gardenShips, "createBatchedShip");
     const expectPixelDetail = (frame: ThreeWorldRendererFrame) => {
@@ -2145,7 +2162,7 @@ describe("Three world renderer lifecycle", () => {
     // The gauge reading false builds nothing at all — not a hidden mesh, not an
     // empty instanced draw. The default fixture is exactly that case. (W4.1:
     // a cross-world refresh amortizes part rebuilds, so settle the queue.)
-    const calm = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const calm = canonicalRendererWorldFixture;
     expect(calm.fleetIssuance?.flightToQuality).toBe(false);
     renderSettled(renderer, calm, { timeSeconds: 2 });
     const calmRoot = rendererHarness.instances.at(-1)!.lastScene!.children.at(-1)!;
@@ -2156,7 +2173,7 @@ describe("Three world renderer lifecycle", () => {
   });
 
   it("retains semantically identical content, rebuilds only changed parts, and tears down once", () => {
-    const firstWorld = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const firstWorld = canonicalRendererWorldFixture;
     const metadataOnlyWorld = buildPharosVilleWorld(makePharosVilleWorldInput({
       generatedAt: (firstWorld.generatedAt ?? 0) + 1,
     }));
@@ -2235,7 +2252,7 @@ describe("Three world renderer lifecycle", () => {
   it("rides out a WebGL context loss that is restored, and only fails if it is not", () => {
     vi.useFakeTimers();
     try {
-      const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+      const world = canonicalRendererWorldFixture;
       const canvas = document.createElement("canvas");
       const onContextFailure = vi.fn();
       const onAssetReady = vi.fn();
@@ -2271,7 +2288,7 @@ describe("Three world renderer lifecycle", () => {
 
 describe("W6.5 sky-probe environment", () => {
   it("bakes once per quantised staged-radiance key, not once per frame, and disposes with the renderer", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -2305,7 +2322,7 @@ describe("W6.5 sky-probe environment", () => {
   });
 
   it("bakes the sky its key names, starting with the very first frame", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -2330,7 +2347,7 @@ describe("W6.5 sky-probe environment", () => {
   });
 
   it("hands the probe the frame's clock and its own load verdict (W1.5)", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -2399,7 +2416,7 @@ describe("W4.2 garden-tempo transition queue", () => {
   });
 
   it("snaps the first refresh inside the thirty-second young-world window", () => {
-    const worldA = denseRendererWorld();
+    const worldA = denseRendererWorldFixture;
     const subject = selectGardenObservatorySlice(worldA, null).ships
       .find((entry) => entry.ship.riskZone !== "danger")!.ship;
     const worldB = withDangerShips(worldA, new Set([subject.id]));
@@ -2441,7 +2458,7 @@ describe("W4.2 garden-tempo transition queue", () => {
     const edgeSailing = sampleGardenShipTransition(edgeJourney, edgeJourney.startSeconds + 1);
     expect(Math.hypot(edgeSailing.x - edgeStart.x, edgeSailing.y - edgeStart.y)).toBeLessThan(0.5);
 
-    const worldA = denseRendererWorld();
+    const worldA = denseRendererWorldFixture;
     const subject = selectGardenObservatorySlice(worldA, null).ships
       .find((entry) => entry.ship.riskZone !== "danger")!.ship;
     const lowChurn = withDangerShips(worldA, new Set([subject.id]));
@@ -2518,8 +2535,8 @@ describe("W4.2 garden-tempo transition queue", () => {
 
   it("keeps every fixture hull's arrival, departure and cross-map path inside the plate", () => {
     const worlds = [
-      ["canonical", buildPharosVilleWorld(makePharosVilleWorldInput())],
-      ["dense", denseRendererWorld()],
+      ["canonical", canonicalRendererWorldFixture],
+      ["dense", denseRendererWorldFixture],
     ] as const;
     for (const [fixture, world] of worlds) {
       const placements = selectGardenObservatorySlice(world, null).ships;
@@ -2572,7 +2589,7 @@ describe("W4.2 garden-tempo transition queue", () => {
   });
 
   it("adopts ledger truth immediately while the selected hull remains en route", () => {
-    const worldA = denseRendererWorld();
+    const worldA = denseRendererWorldFixture;
     const subject = selectGardenObservatorySlice(worldA, null).ships
       .find((entry) => entry.ship.riskZone !== "danger")!.ship;
     const moved = {
@@ -2625,7 +2642,7 @@ describe("W4.2 garden-tempo transition queue", () => {
   });
 
   it("snaps to the complete static frame under reduced motion", () => {
-    const worldA = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const worldA = canonicalRendererWorldFixture;
     const subject = selectGardenObservatorySlice(worldA, null).ships[1]!.ship;
     const moved = {
       ...subject,
@@ -2672,7 +2689,7 @@ describe("W4.2 garden-tempo transition queue", () => {
 
 describe("W4.1 per-part refresh reconciliation", () => {
   it("refreshes a history-only trace in place, with no island/threshold rebuild and no evidence-only buffer upload", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const withRecord = (score: number): PharosVilleWorld => ({
       ...world, lighthouse: { ...world.lighthouse, gardenMonthRecord: buildGardenMonthRecord({
         ...fixtureStability, history: [{ date: Date.UTC(2026, 7, 13), score, band: "STEADY", methodologyVersion: "v1" }],
@@ -2708,7 +2725,7 @@ describe("W4.1 per-part refresh reconciliation", () => {
   });
 
   it("applies ship-only berth and beam-dwell changes in place — nothing rebuilt, nothing disposed", () => {
-    const worldA = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const worldA = canonicalRendererWorldFixture;
     const subject = selectGardenObservatorySlice(worldA, null).ships[1]!.ship;
     // A moved data tile plus a new beam-dwell target: pose data only — every
     // build-time input (visuals, membership, docks, zones) holds still.
@@ -2753,7 +2770,7 @@ describe("W4.1 per-part refresh reconciliation", () => {
   });
 
   it("amortizes a multi-part refresh one part per frame and drains the queue", () => {
-    const worldA = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const worldA = canonicalRendererWorldFixture;
     const dockSubject = worldA.docks[0]!;
     const shipSubject = worldA.ships[0]!;
     // Dock structure + ship structure: dirties docks, harborLife, cargoTide,
@@ -2810,7 +2827,7 @@ describe("W4.1 per-part refresh reconciliation", () => {
   });
 
   it("drains the whole refresh in the one static frame under reduced motion", () => {
-    const worldA = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const worldA = canonicalRendererWorldFixture;
     const worldB: PharosVilleWorld = {
       ...worldA,
       docks: worldA.docks.map((dock, index) => (
@@ -2841,7 +2858,7 @@ describe("W4.1 per-part refresh reconciliation", () => {
   });
 
   it("adds and removes ONLY transient content when an outsider ship is selected", () => {
-    const world = overCapacityWorldFixture();
+    const world = overCapacityRendererWorldFixture;
     const slice = selectGardenObservatorySlice(world, null);
     const outsider = world.ships.find((ship) => (
       !slice.representativeDetailIds.has(ship.detailId)
@@ -2889,7 +2906,7 @@ describe("W4.1 per-part refresh reconciliation", () => {
   });
 
   it("collapses a live ship's batched wake trails under reduced motion", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({
       canvas: document.createElement("canvas"),
       onContextFailure: vi.fn(),
@@ -2910,7 +2927,7 @@ describe("W4.1 per-part refresh reconciliation", () => {
   });
 
   it("writes visible wake quads for the selected outsider beyond a full fleet", () => {
-    const world = overCapacityWorldFixture();
+    const world = overCapacityRendererWorldFixture;
     const slice = selectGardenObservatorySlice(world, null);
     const outsider = world.ships.find((ship) => (
       !slice.representativeDetailIds.has(ship.detailId)
@@ -3044,18 +3061,6 @@ function matrixScaleEnergy(matrix: Matrix4): number {
     + elements[8] ** 2 + elements[9] ** 2 + elements[10] ** 2;
 }
 
-function denseRendererWorld(): PharosVilleWorld {
-  return buildPharosVilleWorld({
-    cemeteryEntries: [],
-    chains: denseFixtureChains,
-    freshness: makeSourceStatuses(),
-    pegSummary: denseFixturePegSummary,
-    safetyGrades: denseFixtureSafetyGrades,
-    stability: fixtureStability,
-    stablecoins: denseFixtureStablecoins,
-    stress: denseFixtureStress,
-  });
-}
 
 function withDangerShips(world: PharosVilleWorld, ids: ReadonlySet<string>): PharosVilleWorld {
   const ships = world.ships.map((ship) => {
@@ -3202,7 +3207,7 @@ describe("gardenShipHeelFromTurn", () => {
 
 describe("Garden production-scene authoring", () => {
   it("preserves default light and semantic content, repaints presets without rebuilding, and tears down", async () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const frozenWorld = JSON.stringify(world);
     const canvas = document.createElement("canvas");
     const container = document.createElement("div");
@@ -3255,7 +3260,7 @@ describe("Garden production-scene authoring", () => {
   });
 
   it("queues just the named owner, advances its existing epoch, and disposes its old resources once", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({ canvas: document.createElement("canvas"), onContextFailure: vi.fn() });
     const frame = rendererFrame(world, "full", { reducedMotion: true });
     const first = renderer.render(frame);
@@ -3275,7 +3280,7 @@ describe("Garden production-scene authoring", () => {
   });
 
   it("cancels a queued owner rebuild on disposal and rejects stale schemas before repainting", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const requestPaint = vi.fn();
     const renderer = createThreeWorldRenderer({ canvas: document.createElement("canvas"), onAssetReady: requestPaint, onContextFailure: vi.fn() });
     renderer.render(rendererFrame(world, "full", { reducedMotion: true }));
@@ -3294,7 +3299,7 @@ describe("Garden production-scene authoring", () => {
 
 describe("Garden lookdev surface response", () => {
   it("updates mixed-role roughness uniforms without recompiling, and recompiles only the selected role shading", async () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const canvas = document.createElement("canvas");
     const container = document.createElement("div");
     container.append(canvas); document.body.append(container);
@@ -3342,7 +3347,7 @@ describe("Garden lookdev surface response", () => {
 
 describe("Garden performance shadow telemetry", () => {
   it("counts consumed shadow submissions, not pending requests or cached sampling", () => {
-    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const world = canonicalRendererWorldFixture;
     const renderer = createThreeWorldRenderer({ canvas: document.createElement("canvas"), onContextFailure: vi.fn() });
     try {
       const frame = rendererFrame(world, "full", { reducedMotion: true, wallClockHour: 12 });

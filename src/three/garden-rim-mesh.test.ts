@@ -242,12 +242,16 @@ describe("garden rim mesh", () => {
     // is open is coast (the tide-rock courses hang from it) or the laid-on
     // ground decals.
     const index = land.geometry.index!;
-    const keyOf = (vertex: number) => `${positions.getX(vertex).toFixed(3)},${positions.getY(vertex).toFixed(3)},${positions.getZ(vertex).toFixed(3)}`;
+    // Indexed faces repeatedly reference the same immutable positions. Format
+    // each vertex once; the complete edge/T-junction proof still visits them all.
+    const vertexKeys = Array.from({ length: positions.count }, (_, vertex) => (
+      `${positions.getX(vertex).toFixed(3)},${positions.getY(vertex).toFixed(3)},${positions.getZ(vertex).toFixed(3)}`
+    ));
     const edgeUses = new Map<string, number>();
     const edgeKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
     for (let triangle = 0; triangle < index.count; triangle += 3) {
       for (let corner = 0; corner < 3; corner += 1) {
-        const key = edgeKey(keyOf(index.getX(triangle + corner)), keyOf(index.getX(triangle + ((corner + 1) % 3))));
+        const key = edgeKey(vertexKeys[index.getX(triangle + corner)]!, vertexKeys[index.getX(triangle + ((corner + 1) % 3))]!);
         edgeUses.set(key, (edgeUses.get(key) ?? 0) + 1);
       }
     }
@@ -255,7 +259,7 @@ describe("garden rim mesh", () => {
     const byPlace = new Map<string, string[]>();
     for (let vertex = 0; vertex < positions.count; vertex += 1) {
       const place = `${Math.round(positions.getX(vertex) * 50)},${Math.round(positions.getZ(vertex) * 50)}`;
-      byPlace.set(place, [...(byPlace.get(place) ?? []), keyOf(vertex)]);
+      byPlace.set(place, [...(byPlace.get(place) ?? []), vertexKeys[vertex]!]);
     }
     const open = [...edgeUses.keys()].filter((key) => edgeUses.get(key) === 1);
     const covered = new Set<string>();
@@ -543,10 +547,12 @@ describe("garden rim mesh", () => {
     for (const name of ["garden-rim-land", "garden-rim-tide-rock"]) {
       const mesh = rim.root.getObjectByName(name) as Mesh;
       const positions = mesh.geometry.getAttribute("position");
+      let dangerStraitVertices = 0;
       for (let i = 0; i < positions.count; i += 1) {
         const x = positions.getX(i) / TILE_SCALE, y = positions.getZ(i) / TILE_SCALE;
-        expect(x > 142 && y > 18 && y < 42, `Danger Strait at ${x},${y}`).toBe(false);
+        if (x > 142 && y > 18 && y < 42) dangerStraitVertices += 1;
       }
+      expect(dangerStraitVertices, `${name} vertices inside Danger Strait`).toBe(0);
     }
     rim.root.updateMatrixWorld(true);
     expect(new Raycaster(new Vector3(0, 100, 0), new Vector3(0, -1, 0)).intersectObject(rim.root, true)).toEqual([]);
@@ -569,6 +575,7 @@ describe("garden rim mesh", () => {
     ));
     let farCrest = Number.NEGATIVE_INFINITY;
     let nearCrest = Number.NEGATIVE_INFINITY;
+    let protectedCrest = Number.NEGATIVE_INFINITY;
     let protectedSamples = 0;
     for (let index = 0; index < positions.count; index += 1) {
       const tileX = positions.getX(index) / TILE_SCALE;
@@ -583,12 +590,13 @@ describe("garden rim mesh", () => {
         (rect) => distanceToStationFootprint({ x: tileX, y: tileY }, rect) <= 6,
       )) {
         protectedSamples += 1;
-        expect(height, `station shoulder at ${tileX},${tileY}`).toBeLessThanOrEqual(3.1);
+        protectedCrest = Math.max(protectedCrest, height);
       }
     }
     expect(farCrest).toBeGreaterThan(8);
     expect(nearCrest).toBeLessThanOrEqual(3.1);
     expect(protectedSamples).toBeGreaterThan(0);
+    expect(protectedCrest, "station shoulders").toBeLessThanOrEqual(3.1);
     rim.dispose();
   });
 
@@ -726,7 +734,7 @@ describe("garden rim mesh", () => {
     expect((land.material as MeshStandardMaterial).userData.gardenSurface).toMatchObject({
       role: "moss", mapping: "triplanar", vertexRoles: true, vertexWeights: true,
     });
-    const landRoles = new Set(Array.from(land.geometry.getAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE).array));
+    const landRoles = new Set(land.geometry.getAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE).array);
     for (const role of ["moss", "stone", "gravel", "earth"] as const) expect(landRoles.has(GARDEN_SURFACE_ROLE_CODES[role]), role).toBe(true);
     for (const mesh of [land, shore]) {
       const position = mesh.geometry.getAttribute("position");
@@ -738,21 +746,32 @@ describe("garden rim mesh", () => {
       expect(weights.count).toBe(position.count);
       expect(uv.count).toBe(position.count);
       for (const name of ["position", "normal", "color", "uv", GARDEN_SURFACE_ROLE_ATTRIBUTE, GARDEN_SURFACE_WEIGHT_ATTRIBUTE]) {
-        expect(Array.from(mesh.geometry.getAttribute(name).array).every(Number.isFinite), name).toBe(true);
+        expect(mesh.geometry.getAttribute(name).array.every(Number.isFinite), name).toBe(true);
       }
+      // Preserve every vertex/face comparison, but reduce the results before
+      // constructing matchers instead of creating one for every scalar.
+      let minWeight = Number.POSITIVE_INFINITY;
+      let maxWeight = Number.NEGATIVE_INFINITY;
+      let metricCoordinates = true;
       for (let vertex = 0; vertex < position.count; vertex += 1) {
-        expect(weights.getX(vertex)).toBeGreaterThanOrEqual(0);
-        expect(weights.getX(vertex)).toBeLessThanOrEqual(1);
-        expect(uv.getX(vertex)).toBe(position.getX(vertex));
-        expect(uv.getY(vertex)).toBe(position.getZ(vertex));
+        const weight = weights.getX(vertex);
+        minWeight = Math.min(minWeight, weight);
+        maxWeight = Math.max(maxWeight, weight);
+        metricCoordinates = Object.is(uv.getX(vertex), position.getX(vertex))
+          && Object.is(uv.getY(vertex), position.getZ(vertex)) && metricCoordinates;
       }
+      expect(minWeight).toBeGreaterThanOrEqual(0);
+      expect(maxWeight).toBeLessThanOrEqual(1);
+      expect(metricCoordinates).toBe(true);
+      let homogeneousFaceRoles = true;
       for (let face = 0; face < indices.count; face += 3) {
         const role = roles.getX(indices.getX(face));
-        expect(roles.getX(indices.getX(face + 1))).toBe(role);
-        expect(roles.getX(indices.getX(face + 2))).toBe(role);
+        homogeneousFaceRoles = Object.is(roles.getX(indices.getX(face + 1)), role)
+          && Object.is(roles.getX(indices.getX(face + 2)), role) && homogeneousFaceRoles;
       }
+      expect(homogeneousFaceRoles).toBe(true);
     }
-    expect([...new Set(Array.from(shore.geometry.getAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE).array))]).toEqual([GARDEN_SURFACE_ROLE_CODES.stone]);
+    expect([...new Set(shore.geometry.getAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE).array)]).toEqual([GARDEN_SURFACE_ROLE_CODES.stone]);
     for (const [name, role, mapping] of [
       ["garden-rim-path", "gravel", "worldXZ"],
       ["garden-rim-stones", "stone", "triplanar"],
