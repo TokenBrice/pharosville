@@ -10,7 +10,7 @@
   },
   "compiler": {
     "path": "scripts/pharosville/compile-garden-assets.mjs",
-    "sha256": "49273f1ae9d746f0fc8303f54f6a6a5e93dd5c86dcdfdc1cf5307091d19d94e0"
+    "sha256": "09d601731deda99ef371cdee6755b084d08a480f3ad19ba0a992c2a22d134f3b"
   },
   "assets": [
     {
@@ -1487,7 +1487,7 @@
       "sources": [
         {
           "path": "scripts/pharosville/compile-garden-assets.mjs",
-          "sha256": "49273f1ae9d746f0fc8303f54f6a6a5e93dd5c86dcdfdc1cf5307091d19d94e0"
+          "sha256": "09d601731deda99ef371cdee6755b084d08a480f3ad19ba0a992c2a22d134f3b"
         },
         {
           "path": "scripts/pharosville/generate-garden-surface-atlas.mjs",

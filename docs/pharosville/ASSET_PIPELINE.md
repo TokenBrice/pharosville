@@ -151,9 +151,19 @@ compiler hooks, so the compiler can await generation without an async import cyc
 
 The compiler encodes each strip left-to-right, with transparent unused rows,
 to `public/pharosville/textures/garden-surface-{albedo,normal,orm}.png`.
-Two generated copies must match before publishing. Write mode publishes atlas
-PNGs and records source hashes, per-map dimensions/gutters, SHA and bytes;
-check mode compares published bytes. S2-P4 supplies the registered generator and
+Two generated copies must have identical colour tags, dimensions and RGBA8 mip
+pixels before publishing. Write mode publishes compressed atlas PNGs and records
+source hashes, per-map dimensions/gutters, SHA and bytes. Check mode decodes every
+published albedo, normal and ORM strip and compares its dimensions, channel layout,
+colour-space contract and every authored mip pixel (including transparent padding)
+against the generator. PNG compressed bytes are toolchain-dependent: different
+Node/zlib implementations may encode identical pixels differently. Pixels are the
+generation contract, not compressed-byte identity; a single changed pixel fails.
+The manifest's SHA-256 and byte count, and runtime `?v=` cache-busting hashes,
+always describe the shipped file, never a local re-encoding. Recorded Node/zlib
+versions identify the publishing toolchain and are preserved when checking on a
+different runtime. Untagged PNGs use the map's manifest colour space; incompatible
+embedded colour metadata is rejected. S2-P4 supplies the registered generator and
 three real strips; no KTX2, Basis decoder or general-loader cutover is introduced.
 
 The family is 1024² with seven 128² role cells and one neutral reserve in its

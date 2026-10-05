@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { deflateSync } from "node:zlib";
+import { deflateSync, inflateSync } from "node:zlib";
 import { Box3, Vector3 } from "three";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -225,16 +225,109 @@ export function encodeAtlasStrip(map, options) {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     pngChunk("IHDR", header), pngChunk("IDAT", deflateSync(pixels, { level: 9 })), pngChunk("IEND", Buffer.alloc(0))]);
 }
+
+/** Untagged strips use the manifest's colour space, as the runtime does. */
+export function validatePublishedAtlasStrip(bytes, map, options) {
+  const { width, height, colorSpace } = validateAtlasStrip(map, options);
+  const fail = (message) => { throw new Error(`Atlas ${map.name} ${message}.`); };
+  if (!bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    fail("must be a PNG");
+  }
+  const chunks = [];
+  const seen = new Set();
+  let ended = false;
+  let dataEnded = false;
+  for (let offset = 8; offset < bytes.length;) {
+    if (offset + 12 > bytes.length) fail("has a truncated PNG chunk");
+    const length = bytes.readUInt32BE(offset);
+    const end = offset + 12 + length;
+    if (end > bytes.length) fail("has a truncated PNG chunk");
+    const type = bytes.toString("ascii", offset + 4, offset + 8);
+    const data = bytes.subarray(offset + 8, end - 4);
+    if (pngCrc32(bytes.subarray(offset + 4, end - 4)) !== bytes.readUInt32BE(end - 4)) {
+      fail(`PNG ${type} CRC mismatch`);
+    }
+    if (offset === 8 && type !== "IHDR") fail("must begin with IHDR");
+    if (type === "IHDR") {
+      if (seen.has(type) || length !== 13 || data.readUInt32BE(0) !== width ||
+          data.readUInt32BE(4) !== height) fail("dimensions differ from its generator");
+      if (data[8] !== 8 || data[9] !== 6 || data[10] !== 0 || data[11] !== 0 || data[12] !== 0) {
+        fail("must use non-interlaced RGBA8 channels");
+      }
+    } else if (type === "IDAT") {
+      if (dataEnded) fail("has non-contiguous PNG image data");
+      chunks.push(data);
+    } else if (type === "IEND") {
+      if (length !== 0 || chunks.length === 0 || end !== bytes.length) fail("has an invalid PNG end");
+      ended = true;
+    } else {
+      if (seen.has("IDAT")) dataEnded = true;
+      if (["sRGB", "gAMA"].includes(type)) {
+        if (seen.has(type) || seen.has("IDAT")) fail("has invalid PNG colour metadata");
+        if (type === "sRGB" && (colorSpace !== "srgb" || length !== 1 || data[0] > 3)) {
+          fail("colour space differs from its generator");
+        }
+        if (type === "gAMA" && (length !== 4 ||
+            data.readUInt32BE(0) !== (colorSpace === "srgb" ? 45455 : 100000))) {
+          fail("colour space differs from its generator");
+        }
+      } else if (["iCCP", "cHRM", "cICP", "mDCV", "cLLI", "tRNS", "sBIT",
+        "acTL", "fcTL", "fdAT"].includes(type) || (bytes[offset + 4] & 32) === 0) {
+        fail(`has unsupported PNG ${type} metadata`);
+      }
+    }
+    seen.add(type);
+    offset = end;
+  }
+  if (!ended) fail("has no PNG end");
+  const stride = width * 4 + 1;
+  const pixels = inflateSync(Buffer.concat(chunks), { maxOutputLength: stride * height });
+  if (pixels.length !== stride * height) fail("decoded pixel count differs from its generator");
+  for (let y = 0; y < height; y++) {
+    const row = y * stride;
+    const filter = pixels[row];
+    if (filter > 4) fail("has an invalid PNG row filter");
+    for (let x = 1; x < stride; x++) {
+      const left = x > 4 ? pixels[row + x - 4] : 0;
+      const up = y > 0 ? pixels[row + x - stride] : 0;
+      const upperLeft = y > 0 && x > 4 ? pixels[row + x - stride - 4] : 0;
+      let predictor = 0;
+      if (filter === 1) predictor = left;
+      else if (filter === 2) predictor = up;
+      else if (filter === 3) predictor = Math.floor((left + up) / 2);
+      else if (filter === 4) {
+        const p = left + up - upperLeft;
+        const a = Math.abs(p - left), b = Math.abs(p - up), c = Math.abs(p - upperLeft);
+        predictor = a <= b && a <= c ? left : b <= c ? up : upperLeft;
+      }
+      pixels[row + x] = (pixels[row + x] + predictor) & 255;
+    }
+    let stripX = 0;
+    for (const [mip, level] of map.levels.entries()) {
+      for (let x = 0; x < level.width * 4; x++) {
+        const expected = y < level.height ? level.data[y * level.width * 4 + x] : 0;
+        if (pixels[row + 1 + stripX * 4 + x] !== expected) {
+          fail(`mip ${mip} pixels differ from its generator`);
+        }
+      }
+      stripX += level.width;
+    }
+  }
+}
 function pngChunk(type, data) {
   const body = Buffer.concat([Buffer.from(type), data]);
+  const crc = pngCrc32(body);
+  const header = Buffer.alloc(4); header.writeUInt32BE(data.length);
+  const checksum = Buffer.alloc(4); checksum.writeUInt32BE(crc);
+  return Buffer.concat([header, body, checksum]);
+}
+function pngCrc32(body) {
   let crc = 0xffffffff;
   for (const byte of body) {
     crc ^= byte;
     for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
   }
-  const header = Buffer.alloc(4); header.writeUInt32BE(data.length);
-  const checksum = Buffer.alloc(4); checksum.writeUInt32BE((crc ^ 0xffffffff) >>> 0);
-  return Buffer.concat([header, body, checksum]);
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 async function sourceRecords(paths) {
@@ -302,24 +395,37 @@ export async function compileGardenAssets({ writeManifest = false } = {}) {
     const first = generator.generateGardenSurfaceAtlas({ seed: entry.seed });
     const second = generator.generateGardenSurfaceAtlas({ seed: entry.seed });
     const descriptor = describeAtlasEntry({ ...entry, maps: first.maps });
+    if (JSON.stringify(descriptor) !== JSON.stringify(describeAtlasEntry({ ...entry, maps: second.maps }))) {
+      throw new Error("Atlas generator is nondeterministic.");
+    }
     const maps = [];
     for (const description of descriptor.maps) {
       const map = first.maps.find((item) => item.name === description.name);
-      const bytes = encodeAtlasStrip(map, { gutter: entry.gutter });
-      const repeated = encodeAtlasStrip(second.maps.find((item) => item.name === description.name), { gutter: entry.gutter });
-      if (!bytes.equals(repeated)) throw new Error("Atlas generator is nondeterministic.");
-      if (writeManifest) await writeFile(resolve(root, description.output), bytes);
-      else {
-        const published = await readFile(resolve(root, description.output));
-        if (!published.equals(bytes)) throw new Error(`${description.output} differs from its generator.`);
+      const repeated = second.maps.find((item) => item.name === description.name);
+      if (map.levels.some((level, i) => {
+        const other = repeated.levels[i].data;
+        return !Buffer.from(level.data.buffer, level.data.byteOffset, level.data.byteLength)
+          .equals(Buffer.from(other.buffer, other.byteOffset, other.byteLength));
+      })) {
+        throw new Error("Atlas generator is nondeterministic.");
       }
-      maps.push({ ...description, sha256: sha256(bytes), bytes: bytes.length });
+      let published;
+      if (writeManifest) {
+        published = encodeAtlasStrip(map, { gutter: entry.gutter });
+        await writeFile(resolve(root, description.output), published);
+      } else {
+        published = await readFile(resolve(root, description.output));
+        validatePublishedAtlasStrip(published, map, { gutter: entry.gutter });
+      }
+      maps.push({ ...description, sha256: sha256(published), bytes: published.length });
     }
     assets.push({ ...descriptor, maps, author: "TokenBrice / agent-authored", license: "MIT",
       sources: await sourceRecords([entry.generator, "scripts/pharosville/compile-garden-assets.mjs"]) });
   }
   const packageJson = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
-  const tools = { node: process.version, zlib: process.versions.zlib,
+  // Node/zlib identify the publishing toolchain, not the machine checking it.
+  const tools = { node: writeManifest ? process.version : registration.tools.node,
+    zlib: writeManifest ? process.versions.zlib : registration.tools.zlib,
     three: JSON.parse(await readFile(resolve(root, "node_modules/three/package.json"), "utf8")).version,
     meshoptimizer: JSON.parse(await readFile(resolve(root, "node_modules/meshoptimizer/package.json"), "utf8")).version,
     gltfValidator: require("gltf-validator").version(),
