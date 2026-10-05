@@ -36,6 +36,21 @@ const EXTENSION = "EXT_meshopt_compression";
 const POSITION_MANTISSA_BITS = 18;
 export const MAX_POSITION_DEVIATION = 2.5e-4;
 
+export const MESHOPT_OPTIONS = Object.freeze({
+  positionMantissaBits: POSITION_MANTISSA_BITS,
+  maxPositionDeviation: MAX_POSITION_DEVIATION,
+  vertexMode: "ATTRIBUTES",
+  indexMode: "TRIANGLES",
+  positionFilter: "EXPONENTIAL",
+});
+
+// Build-time hook: generators keep their existing byte/check contract while the
+// compiler validates both sides of compression before any artifact is accepted.
+let compilationObserver = null;
+export function setGlbCompilationObserver(observer) {
+  compilationObserver = observer;
+}
+
 /**
  * Rewrites a GLB so its vertex and index buffer views are meshopt-compressed.
  * Throws on any layout the garden generators do not produce, rather than
@@ -63,6 +78,14 @@ export async function compressGlbWithMeshopt(bytes) {
       view.byteOffset ?? 0,
       (view.byteOffset ?? 0) + view.byteLength,
     );
+    // Images and other non-GPU payloads stay byte-identical in the primary
+    // buffer. Their views must be rebased, not fed to a vertex codec.
+    if (view.target === undefined) {
+      view.byteOffset = compressedOffset;
+      blocks.push(source);
+      compressedOffset += align4(source.byteLength);
+      continue;
+    }
     const { data, mode, stride, count, filter } = encodeView(
       index,
       view,
@@ -96,7 +119,9 @@ export async function compressGlbWithMeshopt(bytes) {
   json.extensionsUsed = addOnce(json.extensionsUsed, EXTENSION);
   json.extensionsRequired = addOnce(json.extensionsRequired, EXTENSION);
 
-  return buildGlb(json, concatAligned(blocks, compressedOffset));
+  const result = buildGlb(json, concatAligned(blocks, compressedOffset));
+  if (compilationObserver !== null) await compilationObserver(bytes, result);
+  return result;
 }
 
 /**
@@ -118,12 +143,22 @@ export async function measureMeshoptDeviation(original, compressed) {
   let deviation = 0;
 
   for (const [index, view] of after.json.bufferViews.entries()) {
-    const extension = view.extensions[EXTENSION];
+    const extension = view.extensions?.[EXTENSION];
     const plain = before.json.bufferViews[index];
     const expected = before.bin.subarray(
       plain.byteOffset ?? 0,
       (plain.byteOffset ?? 0) + plain.byteLength,
     );
+    if (extension === undefined) {
+      const actual = after.bin.subarray(
+        view.byteOffset ?? 0,
+        (view.byteOffset ?? 0) + view.byteLength,
+      );
+      if (!actual.equals(expected)) {
+        throw new Error(`bufferView ${index} payload did not round-trip losslessly.`);
+      }
+      continue;
+    }
     const actual = new Uint8Array(extension.count * extension.byteStride);
     MeshoptDecoder.decodeGltfBuffer(
       actual,
@@ -295,7 +330,7 @@ function indexComponentBytesByView(json) {
   return byView;
 }
 
-function splitGlb(bytes) {
+export function splitGlb(bytes) {
   if (bytes.readUInt32LE(0) !== GLB_MAGIC) throw new Error("not a GLB.");
   let offset = 12;
   let json = null;
@@ -312,7 +347,7 @@ function splitGlb(bytes) {
   return { bin, json };
 }
 
-function buildGlb(json, bin) {
+export function buildGlb(json, bin) {
   for (const view of json.bufferViews ?? []) delete view.__componentType;
   const jsonChunk = padTo4(Buffer.from(JSON.stringify(json), "utf8"), 0x20);
   const binChunk = padTo4(bin, 0);

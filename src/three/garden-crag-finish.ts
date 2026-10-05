@@ -2,6 +2,8 @@ import { Color, type Material } from "three";
 import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
 import { chainGardenMaterialPatch } from "./garden-aerial";
+import { GARDEN_SHORE_CONTACT } from "./garden-rim-mesh";
+import { gardenShoreContactGlsl } from "./garden-water-contract";
 
 /**
  * W4.P1 / X10 — the crag finish (pharos-2 strata and benches, pharos-6 wave-cut
@@ -28,8 +30,6 @@ import { chainGardenMaterialPatch } from "./garden-aerial";
 
 /** Height of one bedding course, world units (≈ 11 px at the rest seat). */
 const STRATA_PERIOD = 0.9;
-/** Wet foot height above still water: spray, not a reading. */
-const SPLASH_FOOT = 0.22;
 /**
  * Wet stone keeps its own hue but loses about half its value and cools toward
  * the submerged stone: a relative multiply (the wet hue normalised to its
@@ -69,8 +69,7 @@ varying vec3 vCragLocal;
 varying float vCragUp;
 `;
 
-// Wet stone is a relative multiply (0.65 at the hard edge → 1 at 0.38 below
-// it), so pebble and rock keep their hue.
+// Preserve mineral hue; contact thresholds match the terrain and edge stones.
 const FRAGMENT_BODY = /* glsl */ `
 {
   float cragAbove = vCragLocal.y - ${float(GARDEN_WATER_Y)};
@@ -86,9 +85,8 @@ const FRAGMENT_BODY = /* glsl */ `
   float cragStrata = mix( 0.86, 1.08, cragLot ) * ( 1.0 - 0.34 * cragLedge );
   diffuseColor.rgb *= mix( 1.0, cragStrata, cragSteep * cragResolve * step( 0.0, cragAbove ) );
 
-  float cragSkirt = ${float(SPLASH_FOOT)};
-  float cragWetEdge = 1.0 - smoothstep( cragSkirt - 0.015, cragSkirt + 0.015, cragAbove );
-  float cragWet = cragWetEdge * ( 0.65 + 0.35 * clamp( ( cragSkirt - cragAbove ) / 0.38, 0.0, 1.0 ) );
+  ${gardenShoreContactGlsl("cragAbove", GARDEN_SHORE_CONTACT)}
+  float cragWet = shoreDamp * (0.65 + 0.35 * shoreSubmerged);
   diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * ${vec3(WET_MULTIPLY)}, cragWet * 0.85 );
 
   float cragNotch = cragSteep * ( 1.0 - smoothstep( 0.05, 0.2, abs( cragAbove - 0.06 ) ) );

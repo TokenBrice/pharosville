@@ -46,7 +46,7 @@ export interface GardenShipIssuanceWorksets {
   readonly count: number;
   readonly root: Group;
   dispose(): void;
-  place(index: number, x: number, y: number, z: number, yaw: number): void;
+  place(index: number, x: number, y: number, z: number, yaw: number, visible?: boolean): void;
   flush(input: { detail: number; overview: boolean; reducedMotion: boolean; timeSeconds: number }): void;
 }
 
@@ -118,14 +118,16 @@ export function createGardenShipIssuanceWorksets(
   root.add(mesh);
 
   const anchors = new Float32Array(specs.length * 4);
+  const visible = new Uint8Array(specs.length).fill(1);
   let mix = Math.max(0, Math.min(1, initialMix));
   const dummy = new Object3D();
-  const place = (index: number, x: number, y: number, z: number, yaw: number): void => {
+  const place = (index: number, x: number, y: number, z: number, yaw: number, shown = true): void => {
     if (index < 0 || index >= specs.length) return;
     anchors[index * 4] = x;
     anchors[index * 4 + 1] = y;
     anchors[index * 4 + 2] = z;
     anchors[index * 4 + 3] = yaw;
+    visible[index] = shown ? 1 : 0;
   };
   let lastTimeSeconds: number | null = null;
   const flush = ({ detail, overview, reducedMotion, timeSeconds }: { detail: number; overview: boolean; reducedMotion: boolean; timeSeconds: number }): void => {
@@ -135,11 +137,12 @@ export function createGardenShipIssuanceWorksets(
     const shed = Math.max(0, Math.min(1, detail));
     mesh.visible = shed > 0;
     if (!mesh.visible) return;
+    let slot = 0;
     for (let specIndex = 0; specIndex < specs.length; specIndex += 1) {
+      if (!visible[specIndex]) continue;
       const spec = specs[specIndex]!;
       const yaw = anchors[specIndex * 4 + 3]!;
       for (let boat = 0; boat < LIGHTERS_PER_SHIP; boat += 1) {
-        const index = specIndex * LIGHTERS_PER_SHIP + boat;
         const side = boat === 0 ? -1 : 1;
         const aboard = spec.activity === "minting" || (spec.activity === "balanced-active" && boat === 0);
         const along = aboard ? -0.55 : 0.55;
@@ -168,9 +171,13 @@ export function createGardenShipIssuanceWorksets(
           shed * mix * 0.95,
         );
         dummy.updateMatrix();
-        mesh.setMatrixAt(index, dummy.matrix);
+        mesh.setMatrixAt(slot, dummy.matrix);
+        mesh.setColorAt(slot++, spec.hasLargestEvent && boat === 1 ? eventLift : ordinary);
       }
     }
+    mesh.count = slot;
+    mesh.visible = slot > 0;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.instanceMatrix.needsUpdate = true;
   };
   flush({ detail: 1, overview: true, reducedMotion: false, timeSeconds: 0 });

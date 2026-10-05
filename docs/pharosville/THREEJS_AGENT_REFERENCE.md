@@ -1,6 +1,6 @@
 # Three.js Runtime Guide
 
-Last updated: 2026-09-03
+Last updated: 2026-10-05
 
 This is the implementation guide for the production Three.js renderer. Read
 `ARCHITECTURE.md` first for the app boundary; this file explains how to change
@@ -59,8 +59,8 @@ Two cross-module systems own their own contracts:
   the same per-frame plan; add consumers, never a second weather source.
 - **Post** (`garden-post.ts`): pmndrs `postprocessing`, not the three/examples
   EffectComposer stack. Chain: RenderPass → N8AOPostPass (half-res,
-  full/balanced only, zoom-faded) → Bloom → fused grade+AgX (one custom
-  Effect) → SMAA (only below effective DPR 1.75). AO, bloom, god rays and the
+  full/balanced only, zoom-faded) → Bloom → fused grade+Khronos Neutral tone
+  mapping → SMAA (only below effective DPR 1.75). AO, bloom, god rays and the
   hero reflection are sized from CSS pixels; the scene, keyline and grade run
   at device resolution. Per-day-phase values live in one config table that also
   carries the storm scalars; add phase/storm tuning as table entries, never
@@ -90,8 +90,8 @@ or inspection detail. It cannot remove analytical truth, selection, or DOM
 parity. Reduced motion pins a single full-quality static composition.
 
 Two rules keep the ladder from reading as a flicker rather than a quality
-step. First, no tier may change semantic hues, palette authority, AgX tone
-mapping, the day-cycle grade, or the vignette. Those composer stages stay on
+step. First, no tier may change semantic hues, palette authority, Khronos Neutral
+tone mapping, the day-cycle grade, or the vignette. Those composer stages stay on
 at every tier. Enumerated fidelity effects may change local luminance or
 contrast — the bloom pyramid at `constrained`, N8AO at `recovery` and below
 (painted contact discs carry the grounding intent) — but transitions must be
@@ -172,6 +172,33 @@ Use the existing helpers and caches. Never allocate a geometry, material,
 texture, vector-heavy collection, light, or async loader in the hot frame path.
 Shared GLB geometry remains cache-owned: if a stale hero clone resolves after
 content replacement, drop the attachment without disposing shared resources.
+
+### DEV production-scene authoring
+
+`garden-appearance.ts` owns immutable appearance defaults, coherent presets,
+update classifications, schema validation and canonical JSON/checksums. Defaults
+are identity settings: accepted light, air and surface recipes remain unchanged.
+The configuration cannot change analytical colours, water bands, placement or
+clocks. The typed `thresholdProfile` slot is empty and unwired until S1 registers
+its finished profile; unregistered keys are rejected rather than ignored.
+
+The frame hook loads `src/dev/garden-lookdev.tsx` only inside
+`import.meta.env.DEV`, before admitting the first frame. Its panel/controller is
+excluded from production. Scalar role responses share the existing surface
+recipe shader (including mixed-role terrain); shading variants recompile only
+their affected materials. Named inspector rebuilds enter the existing content
+queue, upload-owner cancellation and part epochs. Every authoring action uses
+`requestPaint`; no panel timer or additional RAF exists, including reduced motion.
+
+For a local preview, inject `window.__pharosVilleTestAppearance` before navigation.
+The DEV-only `window.__pharosVilleLookdev` API provides `install(value)`, `export()`,
+`snapshot()` and `inspect("isolate" | "highlight" | "reset", owner?)`. JSON includes
+schema, preset and checksum; snapshots distinguish requested `checksum` from
+`appliedChecksum` after a completed frame and expose `inspectorActive`. Never
+send appearance through `/api`. Named owner census/epochs, dirty state and
+isolate/highlight/reset are diagnostics: any inspector-active frame is invalid
+as art evidence. Reset the inspector before the preview lane captures a picture.
+
 
 ### Harbor batch
 

@@ -12,6 +12,7 @@ import {
   type DetailDisplayRow,
 } from "../lib/format-detail";
 import { LongRecord } from "./long-record";
+import { GardenMonthRecordTable } from "./garden-month-record-table";
 
 export interface DetailPanelProps {
   detail: DetailModel;
@@ -75,6 +76,7 @@ export function DetailPanel({
   const hasRecord = sections.identity.length > 0
     || sections.position.length > 0
     || Boolean(detail.longRecord)
+    || Boolean(detail.gardenMonthRecord)
     || (detail.members?.length ?? 0) > 0
     || secondaryLinks.length > 0;
   const [recordOpen, setRecordOpen] = useState(recordOpenForSession);
@@ -188,6 +190,7 @@ export function DetailPanel({
 
               {renderSection("identity", "Identity", sections.identity)}
               {renderSection("position", "Position", sections.position)}
+              {detail.gardenMonthRecord && <GardenMonthRecordTable record={detail.gardenMonthRecord} />}
               {detail.longRecord && <LongRecord record={detail.longRecord} />}
 
               {detail.members && detail.members.length > 0 && (

@@ -43,6 +43,37 @@ The visual lane must keep proving:
   module/WebGL/context failure;
 - a blocked viewport with no world data, Three.js, model, or logo request.
 
+### Task-ready startup and experience instrument
+
+S8-P1 coverage: `npm test -- src/systems/garden-arrival.test.ts src/client.test.tsx src/hooks/use-canvas-resize-and-camera.test.ts src/pharosville-world.test.tsx`;
+`node --test scripts/pharosville/preview-experience.test.mjs`. Keep ceremony,
+exact inline-script CSP hash, exclusive caption-warning and selectable
+renderer-failure tests; intro rise and six-second-air recipe pins are retired.
+Check both sorted screen and viewport profiles (900×720 / 1200×640), rotated
+companions, one-pixel shrink and remount. Blocked cases start no world, API,
+GLB or logo requests. Desktop startup transfers no pre-runtime still.
+
+`preview.mjs --cold-filmstrip 0,0.5,1,2,4,6,9,12` navigates to response commit
+and captures before canvas/fleet waits. `<out>-cold-NN.png` and
+`<out>-cold.json` retain nominal, actual screenshot-start and completed offsets
+on the navigation performance clock, first meaningful DOM and first complete
+world observations, and actual response-commit latency. A nominal zero is never
+labelled first-byte timing; delayed/missed capture deadlines retain their actual
+offsets. These are DOM/readiness observations, not paint or perceptual metrics.
+The same timing is included in a requested `--json` manifest.
+
+Use separate runs for `--experience-state key|find|controls|light|legend|ledger|changelog`;
+`--reading-key` aliases `key`, and legacy `--quick-find` aliases `find`. These
+states perform native DOM actions, not debug mutations. No `--source-details`
+or `sources` state exists because S3-P2 was declined. `--capture-shell
+blocked|no-js|module-failure|renderer-failure` bypasses world readiness waits and
+writes a DOM-only shell manifest with no GPU metrics; use a below-gate viewport
+for `blocked`. The no-JS arm disables application scripts; the external capture
+harness observes DOM only. Module failure leaves first-byte identity/links;
+renderer failure must retain the selectable `WorldStaticOverview`.
+Capture healthy/degraded first visits at both gates, their rotated companions,
+noon/night and reduced motion, then every named DOM state independently.
+
 **Over-capacity browser coverage:** the interaction lane limits the dense
 fixture to 131 ordinary ships and derives the excluded ship in the browser
 from the complete ledger minus the debug seam's admitted ship IDs (its detail
@@ -105,7 +136,7 @@ substitute for the designated reference environment.
 For a measured renderer-local draw-owner census, use the real-GPU preview:
 
 ```bash
-npm run preview -- --url http://localhost:5173 --draw-census --out w0-census-baseline.png
+env -u CI npm run preview -- --url http://localhost:5173 --headed --draw-census --out w0-census-baseline.png
 ```
 
 The census wraps the renderer instance for one scene frame. Its attributed-call
@@ -119,6 +150,110 @@ checks the whole-map plate; `--headed --seconds 20` supports a longer visual
 review; and `--out <path>` records the frame under `outputs/`. Use the real-GPU
 preview for appearance and timing, then inspect the image and the census
 reconciliation together.
+
+**Exact-frame triangle spike diagnosis (DEV only).**
+
+The recorded long-session peaks were **566,611 / 574,545 triangles**, or
+**66,611 / 74,545 over the 500,000 hard ceiling**, not 216k excess. A settled
+baseline below the ceiling does not excuse those transient frames.
+
+For the long-session spike investigation, run a visible real-GPU DEV session:
+
+```bash
+env -u CI npm run preview -- --url http://localhost:5173 --headed --spike-trace --seconds 600 --json spike-trace.json --out spike-trace.png
+```
+
+`--spike-trace` opts into `?spikeTrace=1`. The renderer installs and publishes
+`window.__pharosVilleSpikeTrace` during construction, before bootstrap or the
+first world frame; preview checks that handle after canvas readiness, before
+waiting for the session. Installation no longer depends on a periodic owner
+sample or debug telemetry publication. The first real frame explicitly samples
+owners, and the existing render-loop debug seam then carries the same handle at
+`window.__pharosVilleDebug.renderMetrics.drawOwnerCensus.spikeTrace`.
+Production builds do not install either handle or allocate the ring. Disposal
+marks the last trace retired but keeps it exportable after a world unmount.
+Each successor constructor publishes its own handle and imports the bounded
+persisted windows, with `rendererEpoch` distinguishing repeated frame IDs.
+An interrupted predecessor window stays incomplete; a successor cannot supply
+its missing post frames. Preview re-reads the current global handle at export.
+Call `snapshot()` only when exporting or replacing a renderer, never during
+normal frame/tail polling.
+
+Every frame records actual `renderBufferDirect` call/triangle deltas by object
+identity, historical owner name and pass into preallocated storage. Shadow draws
+are identified by the shadow camera; hero reflection, environment/PMREM, wake,
+update, post fullscreen and post scene work remain separate. Counter resets,
+shadow invalidation/refresh/resize, reflection boundaries, environment bake
+counts, explicit texture uploads, model attaches, part epochs, content
+replacement epochs and GPU resource counts are correlated with frame IDs,
+frame time and monotonic event timestamps. Between-frame async events attach
+to the next frame. Frame 0 records renderer scene/probe bootstrap.
+
+A rising crossing strictly above **480,000 triangles** in either actual
+whole-frame work or the existing reported triangle counter persists that exact
+frame, up to three preceding frames and three following frames. Already-open
+windows accept post frames even when another crossing opens an overlapping
+window. Exports retain both actual totals and unchanged reported counters, so
+reset-accounting differences are evidence, not subtracted work. The top-level
+`spikeTrace` field in `--json` contains the persisted windows; stdout prints one
+summary line with crossings, persisted frames, peak, incomplete windows and
+dropped crossings. It exports the live trace after the session, not a selected
+median/tail sample.
+
+Storage is bounded to the first 32 crossing windows, 2,048 object/pass bins per
+frame and 128 events per frame. `droppedTriggers`, `droppedDraws` and
+`droppedEvents` disclose saturation; numerical actual totals still include
+unattributed draws. A continuous over-threshold plateau opens one window,
+not an unbounded capture per frame. End-of-session windows may be incomplete
+if fewer than three post frames have occurred. This diagnostic changes no
+rendering, scheduler decision or cap, but its DEV CPU/storage overhead means
+it is not production timing evidence. The source attribution below comes from
+the orchestrator's captured 150-second real-GPU session; the longer stability
+rerun remains the orchestrator's acceptance evidence.
+
+Ring/trigger and source-fix coverage: `npm test -- src/three/world-renderer.test.ts src/three/garden-draw-census.test.ts`.
+
+**Measured source and scoped source fix (2026-10-05).** The mid-programme live
+trace at `outputs/g/spike/trace.json` retained 15 crossings, 101 frames and a
+603,073-triangle whole-frame peak, with no dropped draws/events. Late resting
+crossings in renderer epoch 1 (frames 1012, 1174, 1862, 2246 and 2317) each
+added **76 directional-shadow calls / 228,290 triangles**. At frame 2317,
+370,176 actual recurring triangles became 598,466; the unchanged legacy
+reported triangle counter was 598,298 because its reset window excludes that
+frame's 168 wake triangles. This is genuine shadow work, not duplicated
+ownership or an accounting error. Every late crossing had `shadow-invalidate`
+bit 1 (view only), with no sun, content, attach or environment-bake change.
+Idle K16 camera breath was crossing the camera re-fit threshold.
+
+The source fix fits and keys the static map with the **unbreathed visitor
+view**, derived without another per-frame view allocation. The color/picking
+camera still follows the shared breathed view. Breath alone no longer
+re-fits or re-bakes the map; genuine visitor pose, sun, content and tier
+changes retain their refresh paths. The regression crosses the old
+half-unit threshold at historical spike times, asserts unchanged shadow
+matrices and no refresh request, and still requires genuine view/sun
+refreshes. For the measured tree, eliminating this unnecessary pass predicts
+late-session resting peaks around **370k actual triangles**, not a measured
+post-fix GPU result.
+
+**Legitimate refresh funding remains separate.** Startup, tier changes and
+genuine view/sun/content refreshes can still exceed the unchanged 500k hard
+ceiling with this tree's geometry. Startup reached 603,073 actual triangles,
+including 11,832 PMREM triangles. The measured directional-shadow pass had:
+
+| Shadow caster owner | Refresh triangles |
+| --- | ---: |
+| Rim pines (`garden-rim/garden-rim-pines`) | 41,580 |
+| Lighthouse stone shell (`garden-lighthouse-shell/stone-shell`) | 26,612 |
+| Rim land (`garden-rim/garden-rim-land`) | 26,198 |
+| Remaining static casters | 133,900 |
+| **Total** | **228,290** |
+
+Per-frame shadow-pass cost during a legitimate refresh is a **funding decision
+for the geometry owners**, not an accounting change. No cap is raised, no
+real draw is subtracted, and no distant caster is removed in this packet.
+The source-fix acceptance here is the historical breath-driven resting-frame
+defect; it is not a claim that every legitimate refresh now fits the hard cap.
 
 For reproducible hardware comparisons, `--fixture` accepts `calm`, `dense`,
 `stress`, `quiet-dense`, `mixed-capacity`, and `quiet-normal`. Stock `dense`
@@ -157,7 +292,7 @@ deep link (URL selection is consumed on mount).
 For the real-GPU outsider arm, use the ID printed by the interaction case:
 
 ```bash
-env -u CI npm run preview -- --url http://localhost:5173 --fixture dense \
+env -u CI npm run preview -- --url http://localhost:5173 --headed --fixture dense \
   --ship-limit 131 --hash '#sel=<excluded-detail-id>&t=12' --assert \
   --out vu/h1/capacity-131.png --json vu/h1/capacity-131.json
 ```
@@ -172,7 +307,7 @@ uploads after their dwell. The initial still retains the normal `--assert`
 gate; phase resource/shader failures also exit nonzero. Example:
 
 ```bash
-env -u CI npm run preview -- --url http://localhost:5173 --fixture dense \
+env -u CI npm run preview -- --url http://localhost:5173 --headed --fixture dense \
   --light-cycle --reduced --assert --out vu/h1/light.png --json vu/h1/light.json
 ```
 
@@ -180,21 +315,33 @@ env -u CI npm run preview -- --url http://localhost:5173 --fixture dense \
 prints one `manifest <path>` line. Its sibling `capture` block (not part of
 `metrics`) records the preview checkout commit and dirty paths, viewport,
 requested DPR (`deviceScaleFactor`), browser DPR and effective canvas DPR,
-screen, IANA timezone, headed/reduced flags, WebGL vendor, browser version,
-selected detail, world generation time, admitted ship detail IDs, canvas size,
+screen, IANA timezone, headed/reduced/clean flags, WebGL vendor/renderer, browser version,
+selected detail, world generation time, admitted ship detail IDs, canvas size
+and total drawing-buffer pixels (`capture.canvasSize.backingPixels`),
 hash, date-aware dominant sky phase (`phaseForHour`), fixture name/source epoch/
 SHA-256 payload hash, and screenshot/JSON output paths. `capture.observer`
 records observer origin/epoch, Date mode, calendar pin, hour pin and timezone;
 `capture.shipLimit` records requested/effective capacity, the verified hostname,
 ordinary count and honored status (or `null` when unused).
-`capture.screenshotTiming` labels the main shot's timing. Missing optional
-evidence is `null` with a reason in `unavailable`; live data and no selection
-are ordinary null states. The identity is sampled beside the main screenshot,
-before any pan/zoom or light-cycle probes. Commit identity describes the
-preview script checkout, so always serve the same worktree being measured.
+`capture.screenshotTiming` labels the main shot's timing.
+`capture.appearance` records schema, preset, exported and applied checksum;
+`capture.inspectorActive` and `capture.screenshotPhase` identify the main shot.
+Missing optional evidence is `null` with a reason in `unavailable`; live data and no selection
+are ordinary states. The identity is sampled beside the main screenshot,
+before any pan/zoom or light-cycle probes. `scriptCheckout` describes the tree
+running the preview script; the independent `servedCheckout` comes from the DEV
+server's `/__pharosville/checkout` endpoint and records its real root, commit,
+filtered dirty paths and runtime-source SHA-256. Production servers leave this
+DEV-only identity unavailable; no serving-tree identity is inferred from the
+script checkout. Ordinary previews retain a frame when that tree changes, emit
+one warning and mark `servedCheckout.changedDuringCapture`; unavailable
+mid-capture provenance retains the known identity with `samplingIncomplete`.
+Appearance/look comparisons instead refuse mixed or unknown source evidence.
+The endpoint exposes neither Git contents nor `.env*` filenames/values.
 
-Agent shells set `CI=true`: prefix real-GPU commands with `env -u CI`, for
-example `env -u CI npm run preview -- --fixture quiet-dense --assert --json quiet.json`.
+Agent shells set `CI=true`: prefix real-GPU commands with `env -u CI` and keep
+the tab visible. On Linux hybrid-GPU/Wayland setups, **`--headed` is required**,
+for example `env -u CI npm run preview -- --headed --fixture quiet-dense --assert --json quiet.json`.
 Exit 78 means not measured, never a pass; SwiftShader remains refused.
 
 `--texture-census` includes logical storage estimates for reachable textures,
@@ -207,6 +354,93 @@ For lower-tier visual inspection on the dev server, `--force-tier recovery` or
 `--force-tier constrained` uses a debug-only test global. It cannot activate in
 a production build. Pair it with the matching `--require-tier` when asserting
 that particular fidelity state; the normal reference pacing gate remains full.
+
+For complete Chromium shader diagnostics, retain the existing
+`PHAROSVILLE_PREVIEW_FULL_SHADER_LOG=1` environment switch. It expands shader
+logs on the same preview lane; it does not suppress shader failures or change
+the picture.
+
+### Blind garden look selection (DEV only)
+
+`scripts/pharosville/look-selection.mjs` invokes the **existing** preview path
+serially, with explicit served URLs/checkouts and local appearance documents.
+It never starts another render loop or silently chooses a localhost port.
+Both trees must include the DEV lookdev bridge and serving-identity endpoint.
+Export complete appearance JSON from `window.__pharosVilleLookdev.export()`;
+close the panel and reset inspector overrides before collecting art evidence.
+Never commit the local preset exports, raw captures or private reviewer key.
+
+For a single preview, add `--appearance <local-json>` and
+`--served-checkout <absolute-serving-tree>`. The appearance is installed before
+the first scene render; the main-shot manifest verifies the exported and
+applied checksum/schema/preset. An active inspector, wrong serving tree,
+unapplied document or changing source refuses the comparison.
+
+Place a matrix in `outputs/look-matrix.json`; paths are relative to that file,
+not whichever checkout happens to launch the command. This example compares
+two exported presets on the same serving tree; use each tree's real path and
+explicit server URL when comparing code changes:
+
+```json
+{
+  "schemaVersion": 1,
+  "outputDirectory": "look/xy",
+  "arms": [
+    { "id": "a", "checkout": "..", "url": "http://localhost:5173", "appearance": "looks/a.json", "dpr": 1, "clean": true },
+    { "id": "b", "checkout": "..", "url": "http://localhost:5173", "appearance": "looks/b.json", "dpr": 1, "clean": true }
+  ],
+  "suite": {
+    "clock": "2026-10-05",
+    "selectedDetailId": "ship.satusd-river",
+    "fixture": "quiet-dense"
+  }
+}
+```
+
+Choose an actually admitted selected-detail ID from a fixture capture's
+`capture.admittedShipDetailIds`; a non-admitted selection fails rather than
+becoming an overview. The suite expands to 72 serial cold-browser captures:
+five hours (07:00, 12:15, 18:30, 19:12, 22:00), dense/live/selected/overview
+states, both 1200×640 and 900×720 gates, normal and reduced motion.
+
+For a smaller explicit matrix, replace `arms`/`suite` with `entries`. Each entry
+must supply `id`, `case`, `checkout`, `url`, `appearance`, `fixture` (known name
+or explicit `null` for live), `observer: { "dateMode": "fixed" }` (live requires
+`"flowing"`), `clock`, `hash` with finite `t=`, `width`, `height`, `dpr`,
+`reduced`, `clean` and `stem`. Each case contains exactly two distinct arms
+with identical shot inputs. Optional `seconds`, `burst` (at least two frames)
+and `clip: [x,y,width,height]` reuse preview's existing burst/viewport-crop
+instruments; crops are secondary and cannot replace the full frame.
+
+```bash
+node scripts/pharosville/look-selection.mjs --matrix outputs/look-matrix.json
+node --test scripts/pharosville/preview-manifest.test.mjs scripts/pharosville/look-selection.test.mjs
+```
+
+Use a fresh, neutrally named output directory. The driver refuses missing or
+different fixture payload SHA, observer/calendar/hour, camera, viewport,
+effective/browser/requested DPR, browser/GPU, screen/timezone, motion mode,
+selection, screenshot phase or timing. Served code and appearance may differ
+intentionally. Live captures hash the actually observed API JSON and require
+complete responses; changing live data refuses the pair, never substitutes a
+fixture or silently relaxes the equality gate.
+
+Share only anonymous `full-NN.png` sheets and `review.json` with the reviewer.
+X/Y is randomized per case; **all full-frame sheets precede** secondary
+`detail-NN-MM.png` motion/crop sheets. Keep raw named-arm captures and the
+owner-readable (`0600`) `private-xy-key.json` private until the choice is made.
+Record X/Y first, then cold-recapture the winning case using its original key:
+
+```bash
+node scripts/pharosville/look-selection.mjs --key outputs/look/xy/private-xy-key.json \
+  --winner hour-12-25-1200x640-reduced:X --out outputs/look/winner
+```
+
+The winner capture must match the original evidence inputs and winning
+served commit/source hash and appearance checksum. A stale winner, nonzero
+preview exit (including unmeasured exit 78), mismatch or reused output
+directory cannot qualify as art evidence.
+
 
 ### Never judge the look or the frame time through a Playwright browser
 
@@ -237,28 +471,35 @@ boundary, so the merge gates fail for reasons unrelated to the code under test.
 The gates went from 5.8 minutes with two failures to 48 seconds all-green.
 
 None of that changes the rule below. `npm run preview` remains the only way to
-judge look or frame time, because it goes through the operator's own
-`chrome-flags.conf` and therefore their real conditions; a Playwright browser
-with GPU flags is merely no longer crippled.
+judge look or frame time: it resolves the operator's Chrome and verifies the
+actual WebGL renderer. Wrapper flags alone do not guarantee hardware, and a
+Playwright browser with GPU flags is merely no longer crippled.
 
 A software frame looks approximately right and reports fiction, which is the
 worst combination: it invites tuning the renderer against a bottleneck that does
 not exist. Use:
 
 ```bash
-npm run preview                                    # default framing
-npm run preview -- --hash "#t=22&n=1" --out night.png
-npm run preview -- --headed --seconds 8
+env -u CI npm run preview -- --headed              # default framing
+env -u CI npm run preview -- --headed --hash "#t=22&n=1" --out night.png
+env -u CI npm run preview -- --headed --seconds 8
 ```
 
 `preview.mjs` resolves the operator's own Chrome per platform. On Linux that is
-deliberately the WRAPPER (`/usr/bin/google-chrome-stable`), because it is what
-applies `chrome-flags.conf` and so what keeps rendering off SwiftShader; on
-macOS there is no wrapper and none is needed, since the app bundle reaches the
-GPU through ANGLE/Metal (measured 2026-08-13 on an M5 Pro: `ANGLE (Apple, ANGLE
-Metal Renderer: Apple M5 Pro)`, 120 fps, tier `full`). Override either with
-`--chrome <path>`. The SwiftShader assertion is unchanged on every platform and
-remains what makes the reading honest.
+deliberately the WRAPPER (`/usr/bin/google-chrome-stable`), which applies
+`chrome-flags.conf`; it is necessary on this setup but **not sufficient**.
+**Measured correction, 2026-10-05 (RTX 5070 Ti):** headless `npm run preview`
+through that wrapper resolved to ANGLE SwiftShader and was refused. Adding
+`--headed` reached `ANGLE (NVIDIA ..., OpenGL 4.5.0)` at tier `full`.
+Use `--headed` on Linux hybrid-GPU/Wayland setups; do not rerun headless to
+reinterpret that observation. Every measurement must record actual WebGL
+renderer/vendor identity and tier, not infer hardware from the launch command.
+
+On macOS the app bundle reaches the GPU through ANGLE/Metal (historical
+measurement, 2026-08-13 on an M5 Pro: `ANGLE (Apple, ANGLE Metal Renderer: Apple M5 Pro)`,
+120 fps, tier `full`). This is not Garden Observatory acceptance.
+Override either executable with `--chrome <path>`. The SwiftShader assertion
+remains unchanged on every platform and is what makes the reading honest.
 
 `scripts/pharosville/preview.mjs` goes through the wrapper, exits non-zero rather
 than report a software frame, and prints the scheduler tier, p50/p90, the
@@ -276,8 +517,8 @@ do not prove the frame is whole.
 ### The perf tripwire (`--assert`)
 
 ```bash
-npm run preview -- --assert
-npm run preview -- --assert --max-p90=20 --max-draw-calls=700 --require-tier=full
+env -u CI npm run preview -- --headed --assert
+env -u CI npm run preview -- --headed --assert --max-p90=20 --max-draw-calls=700 --require-tier=full
 ```
 
 `--assert` turns those printed numbers into a gate. Defaults: scheduler tier
@@ -355,8 +596,8 @@ the applied lighting changed (D22), unless another capture input changed.
 Use its settled static resource gate:
 
 ```bash
-npm run preview -- --assert --reduced
-npm run preview -- --assert --reduced --hash "#sel=ship.satusd-river&t=12"
+env -u CI npm run preview -- --headed --assert --reduced
+env -u CI npm run preview -- --headed --assert --reduced --hash "#sel=ship.satusd-river&t=12"
 ```
 
 This asserts full tier, at most 700 calls, 500k triangles, 500 geometries, and
@@ -422,7 +663,7 @@ never infer them from the initial-size arms.
 For fault-like flicker, run the bounded real-GPU artifact probe:
 
 ```bash
-npm run preview -- --artifact-check --hash "#t=22"
+env -u CI npm run preview -- --headed --artifact-check --hash "#t=22"
 ```
 
 It samples eight canvas frames at 120ms intervals on a 96×60 luminance grid,
@@ -434,12 +675,100 @@ chrome states belong in a visual review matrix.
 The polling probe also reports whether renderer content was actually replaced:
 
 ```bash
-npm run preview -- --refresh common
+env -u CI npm run preview -- --headed --refresh common
 ```
 
 `content roots` must remain stable and `content` should report
 `renderer-equivalent` for a sub-band supply refresh; a true authored change is
 still expected to replace content.
+
+### M5 Pro calibration — Garden Observatory
+
+**Evidence: pending hardware.** S9-P5a delivers this protocol, not M5
+measurements. The RTX captures and the historical M5 reading above cannot
+approve `feat/garden-observatory`; S9-P5b requires an actual Apple M5 Pro.
+
+**Paired environment.** Record baseline and candidate served commit/dirty
+paths, asset hashes, fixture payload hash/source epoch, macOS and Chrome
+versions, WebGL renderer/vendor, display size/refresh rate, CSS viewport and
+screen, requested/browser/effective DPR, canvas backing dimensions and total
+backing pixels. Baseline is the programme's recorded pre-change checkout
+(`ccbfca8`); candidate is the integrated Garden Observatory checkout under
+review. Serve the same checkout as the preview script, one at a time, with
+equivalent build mode and data. Never compare a live-data arm with a fixture arm.
+
+Plug into mains power; keep the same display, browser, power mode, timezone
+and background workload. Keep Chrome headed and the measured tab visible and
+foregrounded throughout; record visibility and observer advancement. Record
+thermal state before/after and cooldown between arms. Run all GPU jobs
+**serially** (including reference tests); no parallel server/capture/knockout
+workload. Alternate baseline → candidate and candidate → baseline in repeated
+paired rounds rather than approving a best run.
+
+**Cold and warm are separate evidence.** Cold means a newly launched browser
+with a fresh profile/cache after cooldown; record time to first coherent frame
+without discarding startup. Warm means the same asset/data workload has loaded,
+uploads have drained and pacing has settled before the 60 s tail. A fresh
+`preview` process creates a cold browser, even if its later tail is warm
+steady-state evidence; do not label that as a cached warm navigation. For a
+warm-start claim, explicitly record a repeat navigation in the same browser
+and its cache state. Do not average cold startup away into warm pacing.
+
+**Matrix, independently in each arm:** requested DPR `1` and `2`, normal rest
+at day, night (`t=22`), selected ship (a verified admitted detail ID), dense
+fleet (`dense` fixture), and overview (`cam=0,0,0.28`). Retain matching fixture,
+clock/date, selection and camera between arms. Include both gate profiles
+`1200×640` and `900×720`, the `1600×1000` reference frame, and settled
+reduced-motion resource/picture counterparts. Confirm actual phase, selection,
+full tier and effective DPR in the manifest: a DPR-2 request that was clamped
+is not proof of rendering at effective DPR 2.
+
+Each animated matrix cell needs a **≥60 s pacing tail** after settle, recording
+p50/p90, worst-window p95, p99/worst frame, long tasks, continuity/gaps, tier,
+resources and upload/cache epochs. Separately run **≥600 s stability** for
+rest/night/selected/dense/overview at each DPR, with tail and stats watch both
+covering the full interval; verify their recorded overlap rather than treating
+a short tail as long-session evidence. Report peaks and drift, including exact
+triangle-spike frames when using the DEV trace. A still, median window or
+reduced-motion frame cannot supply animated pacing evidence.
+
+Example warm settled-tail and long-session recipes (repeat for both arms,
+DPRs and states with unique paths; `baseline` below is an output label):
+
+```bash
+env -u CI npm run preview -- --url http://localhost:5173 --headed --fixture quiet-dense --clock 2026-10-05 --hash '#t=12.25' --still-camera --width 1600 --height 1000 --dpr 1 --tail-seconds 60 --draw-census --texture-census --assert --out m5/baseline/dpr1-rest.png --json m5/baseline/dpr1-rest.json
+env -u CI npm run preview -- --url http://localhost:5173 --headed --fixture quiet-dense --fixture-clock flowing --hash '#t=12.25' --still-camera --width 1600 --height 1000 --dpr 1 --stats --watch-seconds 600 --tail-seconds 600 --draw-census --texture-census --assert --out m5/baseline/dpr1-rest-long.png --json m5/baseline/dpr1-rest-long.json
+env -u CI npm run test:perf:reference
+```
+
+The strict reference suite records `timeToFirstCoherentFrameMs`; acceptance
+requires **startup ≤2.5 s**, **full tier**, **p90 ≤20 ms** and
+**worst-window p95 ≤20 ms**, with unchanged hard and acceptance budgets (`CONTRACTS.md`, "Light, palette, water and rendering budgets").
+Preview's default `--assert` enforces the hard resource ceilings, not the
+tighter rest allocation: reconcile the census and peaks against both columns.
+Report every paired run, missing field, clamp, shader error and failed gate.
+Exit 78, missing M5 hardware or missing timing/identity is **not measured**,
+never an acceptance or a reason to enlarge a cap.
+
+**Metal cost attribution.** ANGLE Metal timer queries are overlapping,
+nonadditive command-buffer spans. Never sum per-pass “GPU ms” or a Σ knockout
+delta into a whole-frame saving. Use separate **serial uncapped**
+`--knockout-compare` rounds at each DPR/state for causal knockout − baseline
+p50/p90 deltas, recording the sign, paired runs and thermal conditions. These
+throughput diagnostics are distinct from the capped, shipped-all-passes-on
+pacing gate; an effect-disabled arm does not demonstrate final full-tier
+acceptance. Signed owner resource deltas remain bounded by the budget table.
+
+| Garden Observatory evidence slot | Required record | Status |
+| --- | --- | --- |
+| Device and paired identity | Actual M5 Pro, environment, baseline/candidate revisions, renderer and manifests | Pending hardware |
+| Cold/warm startup | Cache/thermal state and coherent-frame timing for both arms, ≤2.5 s | Pending hardware |
+| DPR 1 / 2 matrix | Rest/night/selected/dense/overview, gate/reference sizes, effective DPR and backing pixels | Pending hardware |
+| ≥60 s tails | Full tier, p90 and worst-window p95 ≤20 ms, continuity and long tasks, both arms | Pending hardware |
+| ≥600 s stability | Matched watch/tail overlap, resource peaks/drift and exact spike evidence, both arms | Pending hardware |
+| Settled reduced motion | Complete picture, zero-RAF and resource counterparts, both arms | Pending hardware |
+| Owner/cost reconciliation | Signed resource offsets, serial uncapped knockout deltas, unchanged caps | Pending hardware |
+| Strict reference gate and verdict | Attached reference-suite output and all failures/skips; no RTX substitution | Pending hardware |
 
 ### Instruments (plan W0.1–W0.3)
 
@@ -493,13 +822,13 @@ Keep the tab visible, inspect recorded visibility and epoch advancement, and
 use independent observation/recording for natural-motion reading.
 
 ```bash
-npm run preview -- --uncapped --knockout-compare ao,bloom,smaa,rays,reflection,grade,water-lanes
-npm run preview -- --still-camera --hash "#t=18.3" --burst 9 --interval 600 --clip 900,700,500,250 --burst-sheet
-npm run preview -- --still-camera --stats --watch-seconds 600
-env -u CI npm run preview -- --fixture quiet-dense --fixture-clock flowing --hash '#' --still-camera --stats --watch-seconds 300 --tail-seconds 300 --assert --out vu/c1/watch-smoke.png --json vu/c1/watch-smoke.json
-npm run preview -- --fixture calm --clock 2026-09-26 --hash "#t=12.25" --metrics --value-plan --json noon.json
-npm run preview -- --clock 2026-09-26 --hash "#t=22" --metrics --temporal --night-water --out night.png
-npm run preview -- --clock 2026-09-26 --hash "#t=19.2" --ritual kindling --ritual-wait 20000 --out kindling.png
+env -u CI npm run preview -- --headed --uncapped --knockout-compare ao,bloom,smaa,rays,reflection,grade,water-lanes
+env -u CI npm run preview -- --headed --still-camera --hash "#t=18.3" --burst 9 --interval 600 --clip 900,700,500,250 --burst-sheet
+env -u CI npm run preview -- --headed --still-camera --stats --watch-seconds 600
+env -u CI npm run preview -- --headed --fixture quiet-dense --fixture-clock flowing --hash '#' --still-camera --stats --watch-seconds 300 --tail-seconds 300 --assert --out vu/c1/watch-smoke.png --json vu/c1/watch-smoke.json
+env -u CI npm run preview -- --headed --fixture calm --clock 2026-09-26 --hash "#t=12.25" --metrics --value-plan --json noon.json
+env -u CI npm run preview -- --headed --clock 2026-09-26 --hash "#t=22" --metrics --temporal --night-water --out night.png
+env -u CI npm run preview -- --headed --clock 2026-09-26 --hash "#t=19.2" --ritual kindling --ritual-wait 20000 --out kindling.png
 ```
 
 **Cost claims.** The `gpu` line prints non-additive per-pass timer readings.
@@ -517,7 +846,7 @@ AVIF and JPEG at ≤ 90 KB each into `public/pharosville/stills/garden-<beat>.*`
 
 ```bash
 for beat in dawn:7.0 day:12.25 golden:18.5 blue:19.2 night:22; do
-  npm run preview -- --clean --still-camera --seconds 14 --clock 2026-09-26 \
+  env -u CI npm run preview -- --headed --clean --still-camera --seconds 14 --clock 2026-09-26 \
     --hash "#t=${beat#*:}" --out "stills/garden-${beat%%:*}.png"
 done
 ```
@@ -528,8 +857,8 @@ once at `--dpr 1` and once at `--dpr 2`, each `--uncapped` and each with its own
 `--knockout-compare` when pass costs are in question. For example:
 
 ```bash
-npm run preview -- --uncapped --dpr 2 --hash "#t=12.25" --json dpr2-noon.json --out dpr2-noon.png
-npm run preview -- --uncapped --dpr 2 --hash "#t=22" --json dpr2-night.json --out dpr2-night.png
+env -u CI npm run preview -- --headed --uncapped --dpr 2 --hash "#t=12.25" --json dpr2-noon.json --out dpr2-noon.png
+env -u CI npm run preview -- --headed --uncapped --dpr 2 --hash "#t=22" --json dpr2-night.json --out dpr2-night.png
 ```
 
 **Headed 120 Hz arm.** On a ProMotion display, `--headed` adds a `display`
@@ -567,7 +896,7 @@ exactly to `renderer.info.render.calls` — a mismatch fails `--assert`.
 (`ABSOLUTE_MIN_ZOOM` 0.28):
 
 ```bash
-npm run preview -- --assert --hash "#cam=0,0,0.28"
+env -u CI npm run preview -- --headed --assert --hash "#cam=0,0,0.28"
 ```
 
 the completed garden measures about 215–227 recurring calls and 42–43 textures

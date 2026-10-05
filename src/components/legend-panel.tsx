@@ -1,5 +1,9 @@
 "use client";
 
+import { useId, useMemo, useRef, useState } from "react";
+import atlasManifest from "../systems/reading-atlas.json";
+import { deriveReadingKey, type ReadingKeyEntry } from "../systems/reading-key";
+import type { PharosVilleWorld } from "../systems/world-types";
 import { useModalDialog } from "../hooks/use-modal-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import { ControlsCheatsheet } from "./controls-cheatsheet";
@@ -12,6 +16,109 @@ import {
 } from "../systems/sea-state";
 import { LEGEND_MARK_ROWS } from "../systems/visual-cue-registry";
 import type { ShipRiskPlacement } from "../systems/world-types";
+
+// Vite includes only a genuinely published atlas. No broken image, fallback
+// drawing or placeholder appears while the real-GPU crops are still pending.
+const atlasFiles = import.meta.glob<string>("/public/garden-reading-atlas.webp", { eager: true, query: "?url", import: "default" });
+const atlasUrl = Object.values(atlasFiles)[0];
+type AtlasCell = { x: number; y: number; width: number; height: number; detailId?: string };
+const atlasCells: Record<string, AtlasCell> = atlasManifest.exemplars;
+
+function ReadingExemplar({ entry }: { entry: ReadingKeyEntry }) {
+  const cell = entry.exemplarId ? atlasCells[entry.exemplarId] : undefined;
+  if (!atlasUrl || !atlasManifest.image || !cell || (entry.id.startsWith("sail.") && cell.detailId !== entry.detailId)) return null;
+  const scale = 96 / cell.width;
+  return (
+    <span aria-hidden="true" style={{ display: "inline-block", width: 96, height: cell.height * scale, overflow: "hidden", flexShrink: 0 }}>
+      <img src={atlasUrl} alt="" role="presentation" title={`${entry.label}: ${entry.description}`}
+        data-exemplar-id={entry.exemplarId} width={atlasManifest.width * scale} height={atlasManifest.height * scale}
+        style={{ maxWidth: "none", transform: `translate(${-cell.x * scale}px, ${-cell.y * scale}px)` }} />
+    </span>
+  );
+}
+
+export interface ReadingKeyProps {
+  world: PharosVilleWorld;
+  onSelectDetail: (detailId: string) => void;
+  /** Highlight only: focus must not become a camera command. */
+  onPreviewDetail?: (detailId: string | null) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  teachingOpen?: boolean;
+  onDismissTeaching?: () => void;
+}
+
+/** Always reopenable, nonmodal orientation beside—not instead of—the caption. */
+export function ReadingKey({ world, onSelectDetail, onPreviewDetail, open, onOpenChange, teachingOpen = false, onDismissTeaching }: ReadingKeyProps) {
+  const [localOpen, setLocalOpen] = useState(false);
+  const expanded = teachingOpen || (open ?? localOpen);
+  const id = useId();
+  const opener = useRef<HTMLButtonElement>(null);
+  const model = useMemo(() => deriveReadingKey(world), [world]);
+  const setOpen = (next: boolean) => { setLocalOpen(next); onOpenChange?.(next); };
+  const close = () => {
+    setOpen(false);
+    if (teachingOpen) onDismissTeaching?.();
+    onPreviewDetail?.(null);
+    opener.current?.focus({ preventScroll: true });
+  };
+  const entry = (reading: ReadingKeyEntry) => (
+    <li key={reading.id} data-reading-id={reading.id}>
+      <ReadingExemplar entry={reading} />
+      <button type="button" className="pharosville-legend-panel__mover"
+        style={{ minHeight: 44, outlineColor: "var(--pv-paper-ink)", color: "inherit" }}
+        disabled={reading.detailId === null}
+        onFocus={() => onPreviewDetail?.(reading.detailId)}
+        onBlur={() => onPreviewDetail?.(null)}
+        onPointerEnter={() => onPreviewDetail?.(reading.detailId)}
+        onPointerLeave={() => onPreviewDetail?.(null)}
+        onClick={() => {
+          if (!reading.detailId) return;
+          // Inspecting one exemplar is not completion of the whole teaching.
+          if (!teachingOpen) close();
+          onPreviewDetail?.(null);
+          onSelectDetail(reading.detailId);
+        }}>
+        {reading.label}
+      </button>
+      {" — "}{reading.description}
+    </li>
+  );
+  return (
+    <aside className="pharosville-reading-key" aria-label="Garden reading key" data-testid="pharosville-reading-key"
+      onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Escape" && expanded) close(); }}
+      style={{ position: "absolute", top: "4rem", left: "1rem", zIndex: 5, pointerEvents: "auto", maxWidth: "min(24rem, calc(100% - 2rem))", color: "var(--pv-paper-ink)", background: "var(--pv-paper)", padding: "0.5rem 0.75rem", borderRadius: "0.5rem", font: "var(--type-14)/1.5 var(--font-ui)" }}>
+      <button ref={opener} type="button" className="pharosville-legend-panel__mover" aria-expanded={expanded} aria-controls={id}
+        style={{ minHeight: 44, outlineColor: "var(--pv-paper-ink)", color: "inherit" }}
+        onClick={() => expanded ? close() : setOpen(true)}>Reading key</button>
+      {expanded && <div id={id} style={{ maxHeight: "calc(100dvh - 12rem)", overflowY: "auto" }}>
+        <p>Read the lighthouse, ordered water surfaces and leading sails. These examples illustrate the key, not a second live feed.</p>
+        <section aria-label="Lighthouse">
+          <h3>Lighthouse</h3>
+          <ul>{entry(model.lighthouse)}</ul>
+          <p>{model.lighthouseEvidence}</p>
+          <ReadingExemplar entry={{ ...model.lighthouse, exemplarId: "cloud", description: "PSI-owned cloud cover; the wall clock owns its lighting" }} />
+        </section>
+        <section aria-label="Water">
+          <h3>Water</h3>
+          <p>Five ordered risk surfaces, from steady peg evidence to greatest pressure. Berth is categorical, not a within-band score.</p>
+          <ol>{model.waters.map(entry)}</ol>
+          <p>Separate non-risk waters</p>
+          <ul>{model.nonRiskWaters.map(entry)}</ul>
+        </section>
+        <section aria-label="Sails">
+          <h3>Sails</h3>
+          <ol>{model.leaders.map(entry)}</ol>
+          {model.leaders.length === 0 && <p>Supply leaders unavailable.</p>}
+          <p>{model.scaleCaveat}</p>
+          <p>{model.supplyEvidence}</p>
+        </section>
+        <button type="button" className="pharosville-legend-panel__mover" style={{ minHeight: 44, outlineColor: "var(--pv-paper-ink)", color: "inherit" }} onClick={close}>{teachingOpen ? "Got it" : "Close reading key"}</button>
+      </div>}
+    </aside>
+  );
+}
+
 
 export interface LegendPanelProps {
   onClose: () => void;
@@ -192,11 +299,12 @@ export function LegendPanel({ onClose, onChangelog, onObserve, onSelectDetail, r
         <section className="pharosville-legend-panel__stanza" aria-labelledby="pharosville-legend-lighthouse">
           <h3 id="pharosville-legend-lighthouse">The lighthouse</h3>
           <p>
-            The Pharos keeps the whole fleet&apos;s stability: its beam warmth
-            and the clarity of the sky follow the Peg Stability Index. The sky
-            reads the fleet, the water reads each coin. The sun and moon keep
-            your local time, set for a nominal 35° latitude in the hemisphere
-            your time zone suggests.
+            The Pharos keeps the whole fleet&apos;s stability: its beacon and
+            beam character, far-shore clarity and sky cover follow the Pharos
+            Stability Index (PSI). Harbor light separately qualifies the seven
+            sources; warmth alone does not decode PSI. The sky reads the fleet,
+            the water reads each coin. The sun and moon keep your local time,
+            set for a nominal 35° latitude in the hemisphere your time zone suggests.
           </p>
         </section>
 
@@ -244,10 +352,6 @@ export function LegendPanel({ onClose, onChangelog, onObserve, onSelectDetail, r
                 </li>
               ))}
             </ul>
-            <p>
-              Audit shields are near-zoom marks; click a ship for the exact
-              source row.
-            </p>
           </section>
 
           <ControlsCheatsheet

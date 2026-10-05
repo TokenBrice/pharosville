@@ -218,8 +218,6 @@ export interface WorldCameraStepResult {
   camera: IsoCamera | null;
   cameraChanged: boolean;
   cameraIntentActive: boolean;
-  /** K17 arrival air-veil multiplier; absent means the hour's own air. */
-  airVeil?: number;
 }
 
 export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRenderLoopResult {
@@ -442,16 +440,24 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
 
     let active = true;
     let renderer: ThreeWorldRenderer | null = null;
+    let unmountLookdev: (() => void) | undefined;
     void loadThreeWorldRenderer()
-      .then((module) => {
+      .then(async (module) => {
         if (!active) return;
-        renderer = module.createThreeWorldRenderer({
+        const createdRenderer = module.createThreeWorldRenderer({
           canvas,
           onAssetReady: requestPaint,
           onContextFailure: (message) => {
             if (active) failThreeRenderer(message, "webgl-context");
           },
         });
+        renderer = createdRenderer;
+        // Vite removes this import and its entire panel/inspector graph in production.
+        if (import.meta.env.DEV && createdRenderer.gardenLookdev) {
+          const lookdev = await import("../dev/garden-lookdev");
+          if (!active) return;
+          unmountLookdev = lookdev.mountGardenLookdev(createdRenderer, canvas);
+        }
         threeRendererRef.current = renderer;
         rendererWarmupStartedRef.current = false;
         setRendererWarmupReady(false);
@@ -460,12 +466,15 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       })
       .catch((error) => {
         if (!active) return;
+        unmountLookdev?.();
+        renderer?.dispose();
         failThreeRenderer(error instanceof Error ? error.message : String(error), "module-load");
       });
 
     return () => {
       active = false;
       if (threeRendererRef.current === renderer) threeRendererRef.current = null;
+      unmountLookdev?.();
       renderer?.dispose();
     };
   }, [canvasRef, failThreeRenderer, requestPaint]);
@@ -876,7 +885,6 @@ export function useWorldRenderLoop(input: UseWorldRenderLoopInput): UseWorldRend
       cameraBreathTargetRef.current.current = cameraBreath;
       try {
         renderMetrics = threeRenderer.render({
-          airVeil: cameraStep.airVeil ?? 1,
           gardenDirector: gardenDirectorRef.current,
           epochSeconds: Date.now() / 1000,
           logos,

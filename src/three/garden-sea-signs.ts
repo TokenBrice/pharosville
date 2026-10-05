@@ -17,7 +17,12 @@ import {
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { SeaBodyName } from "../systems/sea-bodies";
-import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
+import { GARDEN_WATER_Y, gardenTowerWorldAnchors } from "../systems/garden-observatory-slice";
+import { seaBodyTiles } from "../systems/sea-body-anchors";
+import { isGardenInletCoreTile } from "../systems/garden-inlet";
+import { LIGHTHOUSE_TILE } from "../systems/world-layout";
+import { cameraViewFromAngles, screenToGround, worldToScreen, type IsoCamera } from "../systems/projection";
+import { restSeatEyeForAspect, REST_SEAT_PITCH_RAD, REST_SEAT_VFOV_DEG, REST_SEAT_YAW_RAD } from "../systems/rest-seat";
 import {
   SEA_SIGN_STELE,
   STELE_DEPTH,
@@ -27,16 +32,18 @@ import {
   createSeaSignInspectionTrack,
   createSeaSignScaleTrack,
   seaSignSites,
+  seaSignFootprintTiles,
+  type SeaSignSite,
 } from "./garden-sea-sign-siting";
 
-/** Cedar wayfinding boards on paired pilings; one timber draw and one shared ink atlas. */
+/** Low stone wayfinding steles; one stone draw and one shared ink atlas. */
 
 export interface SeaSignSpec {
   body: SeaBodyName;
   label: string;
-  /** Retained in the renderer contract; counts do not compete with the name on timber. */
+  /** Retained in the renderer contract; counts do not compete with the name on stone. */
   reading: string | null;
-  /** Retained for semantic parity; the board itself stays natural cedar. */
+  /** Retained for semantic parity; the stele itself stays natural stone. */
   accent: string;
 }
 
@@ -46,7 +53,7 @@ export interface GardenSeaSigns {
   readonly scale: number;
   /** Unlit boards contribute no light lanes. */
   lampPositions: readonly { x: number; y: number; z: number }[];
-  /** Selects the sole board allowed to rise; null lowers it back out of the scene. */
+  /** Inspection raises/emphasizes one name in addition to the sparse rest pair. */
   setInspected: (body: SeaBodyName | null) => void;
   dispose: () => void;
   update: (frame: {
@@ -99,6 +106,60 @@ interface FaceRange {
   start: number;
 }
 
+export const SEA_SIGN_REST_SCALE = 2.6;
+type RestNameBox = { minX: number; maxX: number; minY: number; maxY: number };
+
+/** Conservative projected face guard at every desktop crop, computed once per
+ * sign set. The classification field and shared hit sites never move. */
+export function seaSignRestBodies(sites: readonly SeaSignSite[]): readonly SeaBodyName[] {
+  const tower = gardenTowerWorldAnchors(LIGHTHOUSE_TILE);
+  const views = [[1600, 1000], [1200, 640], [900, 720], [720, 900]].map(([width, height]) => {
+    const viewport = { x: width!, y: height! };
+    const view = cameraViewFromAngles(restSeatEyeForAspect(viewport.x / viewport.y).world, REST_SEAT_YAW_RAD, REST_SEAT_PITCH_RAD, 200, REST_SEAT_VFOV_DEG);
+    const camera: IsoCamera = { offsetX: 0, offsetY: 0, zoom: 1, rest: { presence: 1, view } };
+    const foot = worldToScreen(tower.foot, camera, viewport);
+    const crown = worldToScreen(tower.crown, camera, viewport);
+    return { camera, viewport, tower: { minX: foot.x - 64, maxX: foot.x + 64, minY: crown.y - 12, maxY: foot.y + 12 } };
+  });
+  const admitted: { body: SeaBodyName; boxes: RestNameBox[] }[] = [];
+  const ranked = sites.filter((site) => site.body !== "ledger" && site.body !== "wreck")
+    .toSorted((a, b) => seaBodyTiles(b.body).length - seaBodyTiles(a.body).length || a.body.localeCompare(b.body));
+  for (const site of ranked) {
+    if (seaSignFootprintTiles(site).some((tile) => isGardenInletCoreTile(tile.x, tile.y))) continue;
+    const boxes: RestNameBox[] = [];
+    for (const { camera, viewport, tower: protectedTower } of views) {
+      const points = [-1, 1].flatMap((side) => [STELE_FACE_BASE_Y - STELE_FACE_HEIGHT / 2, STELE_FACE_BASE_Y + STELE_FACE_HEIGHT / 2].map((height) => worldToScreen({
+        x: site.x + side * STELE_WIDTH * SEA_SIGN_REST_SCALE * Math.cos(SEA_SIGN_STELE.yaw) / 2,
+        y: GARDEN_WATER_Y + height * SEA_SIGN_REST_SCALE,
+        z: site.z - side * STELE_WIDTH * SEA_SIGN_REST_SCALE * Math.sin(SEA_SIGN_STELE.yaw) / 2,
+      }, camera, viewport)));
+      const box = {
+        minX: Math.min(...points.map((point) => point.x)), maxX: Math.max(...points.map((point) => point.x)),
+        minY: Math.min(...points.map((point) => point.y)), maxY: Math.max(...points.map((point) => point.y)),
+      };
+      if (!Object.values(box).every(Number.isFinite) || box.minX < 12 || box.maxX > viewport.x - 12 || box.minY < 48 || box.maxY > viewport.y - 90
+        || box.maxX - box.minX < 72 || box.maxY - box.minY < 16) break;
+      if (box.maxX > protectedTower.minX && box.minX < protectedTower.maxX && box.maxY > protectedTower.minY && box.minY < protectedTower.maxY) break;
+      let crossesInlet = false;
+      for (let x = box.minX; x <= box.maxX; x += 4) {
+        for (let y = box.minY; y <= box.maxY; y += 4) {
+          const tile = screenToGround({ x, y }, camera, viewport, GARDEN_WATER_Y);
+          if (isGardenInletCoreTile(tile.x, tile.y)) crossesInlet = true;
+        }
+      }
+      if (crossesInlet) break;
+      boxes.push(box);
+    }
+    if (boxes.length !== views.length || admitted.some((other) => boxes.some((box, index) => {
+      const prior = other.boxes[index]!;
+      return box.maxX + 12 > prior.minX && box.minX - 12 < prior.maxX && box.maxY + 12 > prior.minY && box.minY - 12 < prior.maxY;
+    }))) continue;
+    admitted.push({ body: site.body, boxes });
+    if (admitted.length === 2) break;
+  }
+  return admitted.map(({ body }) => body);
+}
+
 export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSigns {
   const root = new Group();
   root.name = "garden-sea-steles";
@@ -109,6 +170,7 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
     const spec = specByBody.get(site.body);
     return spec ? [{ site, spec }] : [];
   });
+  const restBodies = new Set(seaSignRestBodies(entries.map(({ site }) => site)));
 
   const stoneGeometry = createSteleGeometry();
   let nameAtlas: CanvasTexture | null = null;
@@ -124,6 +186,8 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
   stones.receiveShadow = true;
 
   const matrix = new Matrix4();
+  const instancePosition = new Vector3();
+  const instanceScale = new Vector3();
   const rotation = new Quaternion().setFromAxisAngle(
     new Vector3(0, 1, 0),
     SEA_SIGN_STELE.yaw,
@@ -131,9 +195,9 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
   for (let index = 0; index < entries.length; index += 1) {
     const { site } = entries[index]!;
     matrix.compose(
-      new Vector3(site.x, GARDEN_WATER_Y, site.z),
+      instancePosition.set(site.x, GARDEN_WATER_Y, site.z),
       rotation,
-      new Vector3(0, 0, 0),
+      instanceScale.setScalar(0),
     );
     stones.setMatrixAt(index, matrix);
 
@@ -202,7 +266,7 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
   return {
     root,
     get scale() {
-      return scaleTrack.scale;
+      return restBodies.size > 0 ? Math.max(SEA_SIGN_REST_SCALE, scaleTrack.scale) : scaleTrack.scale;
     },
     lampPositions: [],
     setInspected(body) {
@@ -228,21 +292,28 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
       visible,
       zoom,
     }) {
-      const scale = scaleTrack.advance({ deltaSeconds, reducedMotion, zoom });
+      const trackedScale = scaleTrack.advance({ deltaSeconds, reducedMotion, zoom });
+      const scale = restBodies.size > 0 ? Math.max(SEA_SIGN_REST_SCALE, trackedScale) : trackedScale;
       const rise = inspectionTrack.advance(deltaSeconds, reducedMotion);
       const body = inspectionTrack.body;
-      root.visible = visible && body !== null && rise > 0;
+      root.visible = visible && (restBodies.size > 0 || (body !== null && rise > 0));
+      if (root.visible && nameAtlas === null) {
+        nameAtlas = createNameAtlas(labels);
+        faceMaterial.map = nameAtlas;
+        faceMaterial.needsUpdate = true;
+      }
       if (scale !== appliedScale || rise !== appliedRise || body !== appliedBody) {
         appliedScale = scale;
         appliedRise = rise;
         appliedBody = body;
         for (let index = 0; index < entries.length; index += 1) {
           const { site } = entries[index]!;
-          const displayScale = site.body === body ? scale * rise : 0;
+          const restScale = restBodies.has(site.body) ? SEA_SIGN_REST_SCALE : 0;
+          const displayScale = site.body === body ? Math.max(restScale, scale * rise) : restScale;
           matrix.compose(
-            new Vector3(site.x, GARDEN_WATER_Y + STELE_CENTER_Y * displayScale, site.z),
+            instancePosition.set(site.x, GARDEN_WATER_Y + STELE_CENTER_Y * displayScale, site.z),
             rotation,
-            new Vector3(displayScale, displayScale, displayScale),
+            instanceScale.setScalar(displayScale),
           );
           stones.setMatrixAt(index, matrix);
         }
@@ -254,7 +325,8 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
           for (let faceIndex = 0; faceIndex < faceRanges.length; faceIndex += 1) {
             const range = faceRanges[faceIndex]!;
             const { site } = entries[faceIndex]!;
-            const displayScale = site.body === body ? scale * rise : 0;
+            const restScale = restBodies.has(site.body) ? SEA_SIGN_REST_SCALE : 0;
+            const displayScale = site.body === body ? Math.max(restScale, scale * rise) : restScale;
             for (let vertex = range.start; vertex < range.start + range.count; vertex += 1) {
               const offset = vertex * 3;
               positions.setXYZ(
@@ -274,7 +346,7 @@ export function createGardenSeaSigns(specs: readonly SeaSignSpec[]): GardenSeaSi
       appliedInkBody = body;
       appliedNight = night;
       const colors = faces.geometry.getAttribute("color");
-      // Basic-material ink is not lit with the timber. Darkening it at night
+      // Basic-material ink is not lit with the stone. Darkening it at night
       // therefore erased the name twice; muted tan ink restores the default
       // reading while the active carving remains the warmer, brighter state.
       const quiet = quietColor.copy(DEFAULT_CARVING).lerp(NIGHT_CARVING, night);

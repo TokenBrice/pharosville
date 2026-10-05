@@ -1,3 +1,4 @@
+import { RISK_WATER_AREAS, WRECK_SHOAL_AREA } from "./risk-water-areas";
 import { seaBodyForArea, type SeaBodyAreaKey } from "./sea-bodies";
 import {
   PHAROSVILLE_MAP_HEIGHT,
@@ -38,6 +39,44 @@ export const SEA_REGION_ID = {
 export type SeaRegionName = keyof typeof SEA_REGION_ID;
 
 export const SEA_REGION_COUNT = 9;
+
+export interface RiskSurfaceSignature {
+  readonly label: string;
+  readonly kind: "mirror" | "strokes" | "silt";
+  /** World-unit spacing between groups, and seeded stroke length range. */
+  readonly pitch: number;
+  readonly length: readonly [number, number];
+  readonly grouping: number;
+  /** Across-stroke spacing inside a group, in world units. */
+  readonly gap: number;
+  /** Authored world-space bearing; Warning is offset by 20 degrees. */
+  readonly bearing: number;
+  readonly coverageCap: number;
+  /** Passive dark-core value weight, not emission or optical roughness. */
+  readonly value: number;
+}
+
+function surfaceSignature(
+  label: string, kind: RiskSurfaceSignature["kind"], pitch: number,
+  minimumLength: number, maximumLength: number, grouping: number,
+  gap: number, bearing: number, coverageCap: number, value: number,
+): Readonly<RiskSurfaceSignature> {
+  return Object.freeze({
+    label, kind, pitch, length: Object.freeze([minimumLength, maximumLength] as const),
+    grouping, gap, bearing, coverageCap, value,
+  });
+}
+
+/** Five ordinal bands and two explicitly non-ordinal waters; shared with the reading key. */
+export const RISK_SURFACE_SIGNATURES = Object.freeze({
+  calm: surfaceSignature(RISK_WATER_AREAS["safe-harbor"].label, "mirror", 0, 0, 0, 0, 0, 1.29, 0, 0),
+  watch: surfaceSignature(RISK_WATER_AREAS["breakwater-edge"].label, "strokes", 12, 18, 30, 1, 0, 1.41, 0.03, 0.22),
+  alert: surfaceSignature(RISK_WATER_AREAS["harbor-mouth-watch"].label, "strokes", 10, 8, 14, 2, 3, -1.48, 0.05, 0.28),
+  warning: surfaceSignature(RISK_WATER_AREAS["outer-rough-water"].label, "strokes", 8, 3, 6, 3, 2, -1.3 + Math.PI / 9, 0.07, 0.34),
+  danger: surfaceSignature(RISK_WATER_AREAS["storm-shelf"].label, "strokes", 6, 3, 5, 4, 1.5, -0.78, 0.1, 0.42),
+  ledger: surfaceSignature(RISK_WATER_AREAS["ledger-mooring"].label, "strokes", 24, 18, 30, 1, 0, 0, 0.015, 0.18),
+  wreck: surfaceSignature(WRECK_SHOAL_AREA.label, "silt", 0, 0, 0, 0, 0, 0, 0.04, 0.18),
+});
 
 /**
  * Band/placement -> sea-region slot. The rendered geometry comes from the
@@ -222,14 +261,9 @@ function chamferDistance(distance: Float32Array, size: number): void {
 }
 
 /**
- * W2 / D6: how each region's water BEHAVES, not just what colour it is.
- *
- * Colour is never the only encoding (accessibility contract). K7 (Hour-Print
- * W3.3): the band is carried first by the STATE of the surface — calm glass,
- * watch ripple, alert streaks, warning chop, danger leaden — through probe
- * roughness, reflectivity and the engraved crest lines, with hue a quiet
- * second voice. A viewer who cannot separate the hues reads the sea state
- * from how much sky it holds.
+ * The static codebook above carries non-colour, non-motion risk meaning.
+ * These optical parameters reinforce body identity; their agitation is not an
+ * ordinal requirement. Pond optics can change them without changing the key.
  */
 export interface SeaRegionCharacter {
   /** Authored hue destination; shader luminance matching keeps value with depth. */
@@ -238,27 +272,20 @@ export interface SeaRegionCharacter {
   swell: number;
   /** Multiplies chop frequency — higher reads as rougher, more broken water. */
   chop: number;
-  /** Whitecap / streak density. */
-  foam: number;
   /** How much sky and lighthouse the surface returns. Calm water is a mirror. */
   reflectivity: number;
   /** Darkens (< 1) or lifts (> 1) the region against the base water colour. */
   depth: number;
   /** Strength of the body's hue after luminance matching; K7 keeps it quiet (~0.25). */
   tintStrength: number;
-  /**
-   * K7: roughness of the sky-probe fetch — how sharply this body mirrors the
-   * sky, from calm glass (0.06) to danger's leaden matte (0.55).
-   */
+  /** Base probe roughness in the shared pond envelope, before filtering variance. */
   probeRoughness: number;
   /** Direction the body's normal flow travels in world-tile radians. */
   flowBearing: number;
   /** 0 follows the shared wind; 1 holds the authored body direction. */
   flowHold: number;
-  /** Strength of the fine normal term after the body's signature is applied. */
+  /** Strength of the optical fine normal term, independent of static ink. */
   normalDetail: number;
-  /** Amount of the generic crossed normal which survives in this body. */
-  crossedNormal: number;
   /** Pale local shelf contribution; deliberately concentrated in Warning. */
   shallowShelf: number;
   /** Physical width of the low-frequency body-boundary treatment. */
@@ -272,9 +299,9 @@ export interface SeaRegionCharacter {
 export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   none: {
     tint: "#ffffff",
-    swell: 1, chop: 1, foam: 0, reflectivity: 1, depth: 1,
-    tintStrength: 0, probeRoughness: 0.12, flowBearing: 0, flowHold: 0, normalDetail: 1,
-    crossedNormal: 1, shallowShelf: 0,
+    swell: 0.34, chop: 0.8, reflectivity: 1, depth: 1,
+    tintStrength: 0, probeRoughness: 0.12, flowBearing: 0, flowHold: 0, normalDetail: 0.55,
+    shallowShelf: 0,
     boundaryWidthTiles: 0, boundaryFoam: 0, boundaryBank: 0,
   },
   // Value multipliers survive the shader's tint luma match. Keep the ladder
@@ -282,72 +309,70 @@ export const SEA_REGION_CHARACTER: Record<SeaRegionName, SeaRegionCharacter> = {
   //
   // The protected inner harbour: near-still, the most mirror-like water in the
   // scene — glass that holds the sky and the tower, never a mint plate.
-  // Calm mirror and reflection UP; generic crossed normals and crest foam DOWN.
+  // Physical shelter, not categorical severity, quiets the optical surface.
   calm: {
     tint: "#4b927f",
-    swell: 0.34, chop: 0.34, foam: 0.015, reflectivity: 1.62, depth: 0.95,
-    tintStrength: 0.18, probeRoughness: 0.06, flowBearing: 1.29, flowHold: 0.22, normalDetail: 0.05,
-    crossedNormal: 0.01, shallowShelf: 0,
+    swell: 0.2, chop: 0.7, reflectivity: 1.4, depth: 0.95,
+    tintStrength: 0.18, probeRoughness: 0.06, flowBearing: 1.29, flowHold: 0.22, normalDetail: 0.25,
+    shallowShelf: 0,
     boundaryWidthTiles: 2.6, boundaryFoam: 0.025, boundaryBank: 0.13,
   },
-  // Watch's long parallel ripples UP; generic isotropic ripple grain DOWN.
+  // Broad, low-amplitude directional ripples; bending singles carry Watch.
   watch: {
     tint: "#357f9a",
-    swell: 0.74, chop: 0.72, foam: 0.11, reflectivity: 1.18, depth: 1.04,
-    tintStrength: 0.22, probeRoughness: 0.16, flowBearing: 1.41, flowHold: 0.86, normalDetail: 0.54,
-    crossedNormal: 0.06, shallowShelf: 0,
+    swell: 0.32, chop: 0.8, reflectivity: 1.15, depth: 1.04,
+    tintStrength: 0.22, probeRoughness: 0.1, flowBearing: 1.41, flowHold: 0.86, normalDetail: 0.55,
+    shallowShelf: 0,
     boundaryWidthTiles: 3, boundaryFoam: 0.05, boundaryBank: 0.1,
   },
-  // Alert's channel-axis current streaks UP; generic crossed chop DOWN.
+  // Alert's authored optical current follows its channel.
   alert: {
     tint: "#73845b",
-    swell: 1.02, chop: 1.18, foam: 0.28, reflectivity: 0.86, depth: 0.86,
-    tintStrength: 0.24, probeRoughness: 0.26, flowBearing: -1.48, flowHold: 0.98, normalDetail: 0.86,
-    crossedNormal: 0.08, shallowShelf: 0,
+    swell: 0.3, chop: 0.8, reflectivity: 1.1, depth: 0.93,
+    tintStrength: 0.24, probeRoughness: 0.12, flowBearing: -1.48, flowHold: 0.98, normalDetail: 0.5,
+    shallowShelf: 0,
     boundaryWidthTiles: 3.25, boundaryFoam: 0.07, boundaryBank: 0.13,
   },
-  // Warning's pale shelf and short broken ripples UP; long shared swell DOWN.
+  // Pale shallow shelf, with the same pond-calm optical ceiling.
   warning: {
     tint: "#af9868",
-    swell: 1.26, chop: 1.62, foam: 0.62, reflectivity: 0.64, depth: 0.7,
-    tintStrength: 0.25, probeRoughness: 0.34, flowBearing: -1.3, flowHold: 0.9, normalDetail: 0.84,
-    crossedNormal: 0.14, shallowShelf: 0.94,
+    swell: 0.26, chop: 0.75, reflectivity: 1, depth: 0.88,
+    tintStrength: 0.25, probeRoughness: 0.16, flowBearing: -1.3, flowHold: 0.9, normalDetail: 0.45,
+    shallowShelf: 0.94,
     boundaryWidthTiles: 3.6, boundaryFoam: 0.108, boundaryBank: 0.05,
   },
-  // Danger's steep diagonal waves and blown foam UP; generic crest foam DOWN.
-  // Leaden: the roughest probe and the lowest reflectivity — it mirrors almost
-  // nothing.
+  // Danger retains its subdued leaden hue/value; static groups carry severity.
   danger: {
     tint: "#30375d",
-    swell: 2.02, chop: 2.42, foam: 1.12, reflectivity: 0.38, depth: 0.44,
-    tintStrength: 0.25, probeRoughness: 0.55, flowBearing: -0.78, flowHold: 0.96, normalDetail: 1.28,
-    crossedNormal: 0.24, shallowShelf: 0,
+    swell: 0.3, chop: 0.85, reflectivity: 1, depth: 0.72,
+    tintStrength: 0.25, probeRoughness: 0.2, flowBearing: -0.78, flowHold: 0.96, normalDetail: 0.5,
+    shallowShelf: 0,
     boundaryWidthTiles: 3.4, boundaryFoam: 0.144, boundaryBank: 0.16,
   },
-  // Ledger's flat horizontal striations UP; shared swell and crossed chop DOWN.
+  // Ledger's non-ordinal horizontal singles sit on restrained mirror water.
   ledger: {
     tint: "#4e5a70",
-    swell: 0.22, chop: 0.52, foam: 0.035, reflectivity: 1.42, depth: 1.38,
-    tintStrength: 0.2, probeRoughness: 0.08, flowBearing: -0.085, flowHold: 0.99, normalDetail: 0.08,
-    crossedNormal: 0.01, shallowShelf: 0,
+    swell: 0.18, chop: 0.7, reflectivity: 1.3, depth: 1.12,
+    tintStrength: 0.2, probeRoughness: 0.08, flowBearing: -0.085, flowHold: 0.99, normalDetail: 0.2,
+    shallowShelf: 0,
     boundaryWidthTiles: 2.8, boundaryFoam: 0.02, boundaryBank: 0.16,
   },
   open: {
     tint: "#ffffff",
-    swell: 1, chop: 1, foam: 0.12, reflectivity: 1, depth: 0.97,
-    tintStrength: 0, probeRoughness: 0.12, flowBearing: 0, flowHold: 0, normalDetail: 1,
-    crossedNormal: 1, shallowShelf: 0,
+    swell: 0.34, chop: 0.8, reflectivity: 1, depth: 0.97,
+    tintStrength: 0, probeRoughness: 0.12, flowBearing: 0, flowHold: 0, normalDetail: 0.55,
+    shallowShelf: 0,
     boundaryWidthTiles: 0, boundaryFoam: 0, boundaryBank: 0,
   },
   // N2 — the wreck shoals. Slack, shallow, still: water that has stopped
-  // moving. The lowest swell and chop in the world and almost no foam, so the
+  // moving. The lowest swell and chop in the world mean the
   // graveyard reads as a held breath next to the working sea.
   // Wreck silt and held surface UP; generic ripple motion and white foam DOWN.
   wreck: {
     tint: "#756f5d",
-    swell: 0.12, chop: 0.24, foam: 0.008, reflectivity: 0.74, depth: 0.59,
-    tintStrength: 0.24, probeRoughness: 0.3, flowBearing: 0.3, flowHold: 0.18, normalDetail: 0.04,
-    crossedNormal: 0, shallowShelf: 0,
+    swell: 0.12, chop: 0.65, reflectivity: 0.9, depth: 0.8,
+    tintStrength: 0.24, probeRoughness: 0.18, flowBearing: 0.3, flowHold: 0.18, normalDetail: 0.2,
+    shallowShelf: 0,
     boundaryWidthTiles: 3.1, boundaryFoam: 0.015, boundaryBank: 0.22,
   },
 };

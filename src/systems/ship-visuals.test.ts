@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BackingType, GovernanceType, PegCurrency, StablecoinMeta } from "@shared/types";
+import type { BackingType, GovernanceType, PegCurrency, SafetyGradeEntry, StablecoinMeta } from "@shared/types";
 import { makeAsset } from "../__fixtures__/pharosville-world";
 import { STABLECOIN_SQUAD_MEMBER_IDS } from "./maker-squad";
 import {
@@ -9,6 +9,7 @@ import {
   resolveShipVisual,
 } from "./ship-visuals";
 import { UNIQUE_SHIP_DEFINITIONS } from "./unique-ships";
+import { SHIP_HULL_FORM_SPAN } from "./world-types";
 
 function makeMeta(input: {
   backing?: BackingType;
@@ -326,5 +327,65 @@ describe("resolveShipVisual", () => {
       }), meta, null);
       expect(visual.scale, id).toBeCloseTo(marketCapVisualScale(1_000_000_000));
     }
+  });
+
+  it("does not derive proportions from safety grade or financial flags within a family", () => {
+    const asset = makeAsset({ id: "same-hull", symbol: "SAME" });
+    const meta = makeMeta({ backing: "crypto-backed", governance: "decentralized" });
+    const original = resolveShipVisual(asset, meta, null);
+    for (const grade of ["A", "B", "C", "D", "F"]) {
+      const changed = resolveShipVisual(asset, {
+        ...meta,
+        flags: { ...meta.flags, rwa: true, yieldBearing: true, navToken: true },
+      }, { grade } as SafetyGradeEntry);
+      expect(changed.hull).toBe(original.hull);
+      expect(changed.hullForm).toEqual(original.hullForm);
+    }
+    const alternateBacking = resolveShipVisual(asset, makeMeta({
+      backing: "rwa-backed", governance: "decentralized",
+    }), null);
+    expect(alternateBacking.hull).toBe(original.hull);
+    expect(alternateBacking.hullForm).toEqual(original.hullForm);
+  });
+
+  it("keeps yield variants on authored family proportions, not extra financial deltas", () => {
+    const asset = makeAsset({ id: "family-variant", symbol: "FAMILY" });
+    for (const backing of ["rwa-backed", "crypto-backed"] as const) {
+      const plain = resolveShipVisual(asset, makeMeta({ backing, governance: "centralized" }), null);
+      const yieldHull = resolveShipVisual(asset, makeMeta({
+        backing, governance: "centralized", yieldBearing: true,
+      }), null);
+      expect(yieldHull.hull).not.toBe(plain.hull);
+      expect(yieldHull.hullForm).toEqual(plain.hullForm);
+    }
+  });
+
+  it("keeps family proportions finite, bounded and deterministic with decorative ID variation", () => {
+    const families = [
+      makeMeta({ governance: "centralized" }),
+      makeMeta({ governance: "centralized", backing: "crypto-backed" }),
+      makeMeta({ governance: "decentralized" }),
+      makeMeta({ backing: "algorithmic" }),
+      makeMeta({ pegCurrency: "EUR" }),
+      makeMeta({ pegCurrency: "GOLD" }),
+      makeMeta({}),
+    ];
+    for (const meta of families) {
+      const first = resolveShipVisual(makeAsset({ id: "decorative-a", symbol: "A" }), meta, null).hullForm;
+      const second = resolveShipVisual(makeAsset({ id: "decorative-b", symbol: "B" }), meta, null).hullForm;
+      expect(first).toEqual(resolveShipVisual(makeAsset({ id: "decorative-a", symbol: "A" }), meta, null).hullForm);
+      expect(first).not.toEqual(second);
+      expect(first.waterline).toBe(0);
+      for (const key of ["beam", "height", "length"] as const) {
+        expect(Number.isFinite(first[key])).toBe(true);
+        expect(first[key]).toBeGreaterThanOrEqual(1 - SHIP_HULL_FORM_SPAN);
+        expect(first[key]).toBeLessThanOrEqual(1 + SHIP_HULL_FORM_SPAN);
+        expect(Math.abs(first[key] - second[key])).toBeLessThanOrEqual(0.12);
+      }
+    }
+  });
+
+  it.each([NaN, Infinity, -Infinity, -1, 0])("keeps invalid cap %s at minimum scale", (cap) => {
+    expect(marketCapVisualScale(cap)).toBe(0.42);
   });
 });

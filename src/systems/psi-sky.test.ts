@@ -7,6 +7,11 @@ import {
   farShoreRangeVisibility,
   NEUTRAL_SKY_CLARITY,
   psiSkyClarity,
+  psiBandClarity,
+  SKY_CLOUD_COVER,
+  SKY_COVER_WORDS,
+  skyCloudCover,
+  skyCoverWord,
   signedSkyClarity,
   SKY_CLARITY_CROSSFADE_SECONDS,
   type PsiSkyInput,
@@ -44,6 +49,34 @@ describe("PSI sky clarity", () => {
   it("uses neutral authored clarity when unavailable or initially stale", () => {
     expect(psiSkyClarity(input("unknown", 0)).clarity).toBe(NEUTRAL_SKY_CLARITY);
     expect(psiSkyClarity(input("CRISIS", 0, true)).clarity).toBe(NEUTRAL_SKY_CLARITY);
+  });
+});
+
+describe("six-state cloud codebook", () => {
+  it("keeps exactly six canonical targets inside the authored visible-occupancy bands", () => {
+    const bands = [
+      ["BEDROCK", 0.03, 0.07], ["STEADY", 0.1, 0.2], ["TREMOR", 0.25, 0.4],
+      ["FRACTURE", 0.45, 0.6], ["CRISIS", 0.68, 0.8], ["MELTDOWN", 0.85, 0.95],
+    ] as const;
+    expect(Object.keys(SKY_CLOUD_COVER)).toEqual(bands.map(([band]) => band));
+    for (const [band, minimum, maximum] of bands) {
+      const cover = skyCloudCover(psiBandClarity(band)!);
+      expect(cover).toBe(SKY_CLOUD_COVER[band]);
+      expect(cover).toBeGreaterThanOrEqual(minimum);
+      expect(cover).toBeLessThanOrEqual(maximum);
+      expect(skyCoverWord(band)).toBe(SKY_COVER_WORDS[band]);
+    }
+    expect(skyCoverWord("UNAVAILABLE")).toBeNull();
+    expect(skyCoverWord("TREMOR", true)).toBeNull();
+    expect(skyCloudCover(NEUTRAL_SKY_CLARITY)).toBe(SKY_CLOUD_COVER.TREMOR);
+  });
+
+  it("keeps the last accepted cloud target through held PSI instead of inventing another shape", () => {
+    const good = psiSkyClarity(input("CRISIS", 0));
+    const held = psiSkyClarity(input("BEDROCK", 100, true), good);
+    expect(skyCloudCover(held.clarity)).toBe(SKY_CLOUD_COVER.CRISIS);
+    expect(held.band).toBe(good.band);
+    expect(held.asOf).toBe(good.asOf);
   });
 });
 

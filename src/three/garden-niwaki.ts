@@ -22,10 +22,10 @@ import { stableUnit } from "./garden-util";
  * undersides ×0.40–0.55 against lit crowns in vertex colour — not facets: the
  * whole tree is smooth-shaded, so it wants a `flatShading: false` material.
  *
- * One generator for every tree in the garden (W4.G1): the threshold and
- * island heroes, and — at the "rim" LOD — the rim, islet and deciduous
- * species of `garden-flora`. The geometry is local to the root (origin at
- * the trunk base, +y up), so it can be instanced or merged.
+ * The inexpensive pad kit serves the island heroes and, at "rim" LOD, rim,
+ * islet and deciduous species in garden-flora. The near threshold instead
+ * uses the authored trunk/limb/twig builder below. Both geometries are local
+ * to their own root (+y up), so planting can instance or merge them.
  */
 
 /** Pads darken to this fraction of the needle colour on their flat undersides. */
@@ -220,6 +220,136 @@ function barkTube(
   geometry.setAttribute("normal", new BufferAttribute(normals, 3));
   geometry.setAttribute("color", new BufferAttribute(colors, 3));
   geometry.setIndex(indices);
+  return geometry;
+}
+
+export const GARDEN_KUROMATSU_FLEX_ATTRIBUTE = "aGardenFlex";
+export const GARDEN_KUROMATSU_ROOT_INDEX_ATTRIBUTE = "aGardenRootIndex";
+
+export interface KuromatsuLimb {
+  /** Earlier curve index: zero is the trunk; limb n is curve n + 1. */
+  parent: number;
+  at: number;
+  order: "primary" | "secondary" | "twig";
+  /** Root-local control points after the implicit, attached first point. */
+  points: readonly (readonly [number, number, number])[];
+  radii: readonly [number, number];
+  spray?: { needles: number; length: number; spread: number };
+}
+
+export interface AuthoredKuromatsuOptions {
+  seed: string;
+  rootIndex: 0 | 1;
+  trunk: readonly (readonly [number, number, number])[];
+  radii: readonly [number, number];
+  limbs: readonly KuromatsuLimb[];
+  bark: Color;
+  needle: Color;
+}
+
+function kuromatsuFlex(geometry: BufferGeometry, rootIndex: 0 | 1, from: Vector3, to: Vector3, radial: number): void {
+  const count = geometry.getAttribute("position").count;
+  const flex = new Float32Array(count * 3);
+  const rings = count / (radial + 1) - 1;
+  for (let vertex = 0; vertex < count; vertex += 1) {
+    const t = Math.floor(vertex / (radial + 1)) / rings;
+    flex[vertex * 3] = from.x + (to.x - from.x) * t;
+    flex[vertex * 3 + 1] = from.y + (to.y - from.y) * t;
+    flex[vertex * 3 + 2] = from.z + (to.z - from.z) * t;
+  }
+  geometry.setAttribute(GARDEN_KUROMATSU_FLEX_ATTRIBUTE, new BufferAttribute(flex, 3));
+  geometry.setAttribute(GARDEN_KUROMATSU_ROOT_INDEX_ATTRIBUTE, new BufferAttribute(new Float32Array(count).fill(rootIndex), 1));
+}
+
+/** Closed, slender opaque needles, splayed along the end of a real twig. */
+function kuromatsuSpray(
+  curve: CatmullRomCurve3, spray: NonNullable<KuromatsuLimb["spray"]>,
+  needle: Color, seed: string, rootIndex: 0 | 1, fromFlex: Vector3, toFlex: Vector3,
+): BufferGeometry {
+  const positions = new Float32Array(spray.needles * 12);
+  const colors = new Float32Array(positions.length);
+  const flex = new Float32Array(positions.length);
+  const indices: number[] = [];
+  const tangent = curve.getTangentAt(1);
+  const frames = curve.computeFrenetFrames(1, false);
+  const across = frames.normals[1]!;
+  const lift = frames.binormals[1]!;
+  const base = new Vector3(), direction = new Vector3(), side = new Vector3(), up = new Vector3(), point = new Vector3();
+  for (let n = 0; n < spray.needles; n += 1) {
+    const irregular = stableUnit(`${seed}.needle.${n}`);
+    const angle = ((n + 0.35 + irregular * 0.3) / spray.needles * 2 - 1) * spray.spread;
+    const twist = (n % 3 - 1) * 0.28 + (irregular - 0.5) * 0.24;
+    direction.copy(tangent).multiplyScalar(Math.cos(angle))
+      .addScaledVector(across, Math.sin(angle)).addScaledVector(lift, twist).normalize();
+    side.crossVectors(direction, lift).normalize();
+    up.crossVectors(direction, side).normalize();
+    const baseT = 0.7 + n / spray.needles * 0.3;
+    curve.getPointAt(baseT, base);
+    const baseFlex = fromFlex.z + (toFlex.z - fromFlex.z) * baseT;
+    const length = spray.length * (0.7 + irregular * 0.45);
+    const width = length * (0.035 + irregular * 0.012);
+    const start = n * 4;
+    for (let corner = 0; corner < 4; corner += 1) {
+      point.copy(base);
+      if (corner === 3) point.addScaledVector(direction, length);
+      else {
+        const radial = corner * Math.PI * 2 / 3;
+        point.addScaledVector(side, Math.cos(radial) * width).addScaledVector(up, Math.sin(radial) * width);
+      }
+      point.toArray(positions, (start + corner) * 3);
+      const value = (corner === 3 ? 0.95 : 0.58) * (0.85 + irregular * 0.15);
+      colors[(start + corner) * 3] = needle.r * value;
+      colors[(start + corner) * 3 + 1] = needle.g * value;
+      colors[(start + corner) * 3 + 2] = needle.b * value;
+      flex[(start + corner) * 3] = toFlex.x;
+      flex[(start + corner) * 3 + 1] = toFlex.y;
+      flex[(start + corner) * 3 + 2] = corner === 3 ? 1 : baseFlex;
+    }
+    indices.push(start, start + 2, start + 1,
+      start, start + 1, start + 3, start + 1, start + 2, start + 3, start + 2, start, start + 3);
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new BufferAttribute(colors, 3));
+  geometry.setAttribute(GARDEN_KUROMATSU_FLEX_ATTRIBUTE, new BufferAttribute(flex, 3));
+  geometry.setAttribute(GARDEN_KUROMATSU_ROOT_INDEX_ATTRIBUTE,
+    new BufferAttribute(new Float32Array(spray.needles * 4).fill(rootIndex), 1));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** Near-seat graph only: distant trees retain the inexpensive niwaki pad kit. */
+export function createAuthoredKuromatsuGeometry(options: AuthoredKuromatsuOptions): BufferGeometry {
+  const curves = [new CatmullRomCurve3(options.trunk.map(([x, y, z]) => new Vector3(x, y, z)), false, "centripetal")];
+  const starts = [new Vector3()];
+  const ends = [new Vector3(1, 0, 0)];
+  const trunk = barkTube(curves[0]!, options.radii, 24, 10, options.bark, `${options.seed}.trunk`);
+  kuromatsuFlex(trunk, options.rootIndex, starts[0]!, ends[0]!, 10);
+  const pieces = [trunk];
+  for (const [index, limb] of options.limbs.entries()) {
+    const parent = curves[limb.parent]!;
+    const start = parent.getPointAt(limb.at);
+    const curve = new CatmullRomCurve3([start, ...limb.points.map(([x, y, z]) => new Vector3(x, y, z))], false, "centripetal");
+    const from = starts[limb.parent]!.clone().lerp(ends[limb.parent]!, limb.at);
+    const to = from.clone();
+    if (limb.order === "twig") to.z = 0.8;
+    else to.y = 1;
+    const radial = limb.order === "primary" ? 7 : 5;
+    const segments = limb.order === "primary" ? 10 : 5;
+    const bark = barkTube(curve, limb.radii, segments, radial, options.bark, `${options.seed}.limb.${index}`);
+    kuromatsuFlex(bark, options.rootIndex, from, to, radial);
+    pieces.push(bark);
+    if (limb.spray) pieces.push(kuromatsuSpray(curve, limb.spray, options.needle,
+      `${options.seed}.spray.${index}`, options.rootIndex, from, to));
+    curves.push(curve);
+    starts.push(from);
+    ends.push(to);
+  }
+  const geometry = mergeGeometries(pieces, false)!;
+  pieces.forEach((piece) => piece.dispose());
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
   return geometry;
 }
 

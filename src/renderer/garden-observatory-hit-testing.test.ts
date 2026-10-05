@@ -38,6 +38,7 @@ import {
 } from "../three/garden-sea-signs";
 import { createGardenObservatoryHitTargetSnapshot } from "./garden-observatory-hit-testing";
 import type { SeaSignStele } from "../three/garden-sea-sign-siting";
+import { createGardenFleetFootprint, writeGardenFleetFootprint } from "../systems/garden-fleet-footprint";
 
 // Projection-only tests without a rendered viewport use the desktop baseline.
 const TEST_VIEWPORT = { x: 1600, y: 1000 };
@@ -188,6 +189,49 @@ describe("Garden Observatory hit targets", () => {
     }
     expect(snapshot.targets.filter((target) => target.kind === "ship"))
       .toHaveLength(slice.ships.length);
+  });
+
+  it("retains all whole-map hulls in the pointer index without legacy zoom thinning", () => {
+    const world = denseWorld();
+    const viewport = { width: 10_000, height: 10_000 };
+    const snapshot = createGardenObservatoryHitTargetSnapshot({
+      camera: { offsetX: 5_000, offsetY: 5_000, zoom: 0.28 }, viewport, world,
+    });
+    for (const { ship } of selectGardenObservatorySlice(world, null).ships) {
+      expect(snapshot.spatialIndex.targetById.has(ship.id), ship.id).toBe(true);
+    }
+  });
+  it("keeps pixel-small far hulls pointer selectable and keyboard reachable without moving their berth", () => {
+    const world = denseWorld();
+    const slice = selectGardenObservatorySlice(world, null);
+    const placement = [...slice.ships].sort((a, b) => a.ship.visual.scale - b.ship.visual.scale)[0]!;
+    const tile = resolveGardenShipDisplayTile({ ...placement, sample: undefined });
+    const x = tile.x * Math.SQRT2;
+    const z = tile.y * Math.SQRT2;
+    const viewport = { width: 1200, height: 640 };
+    const camera: IsoCamera = { offsetX: 600, offsetY: 320, zoom: 1,
+      shot: { presence: 1, view: {
+        eye: { x, y: 12, z: z + 240 }, target: { x, y: 3, z }, vFovDeg: 32,
+      } },
+    };
+    const footprint = writeGardenFleetFootprint(createGardenFleetFootprint(), placement.ship, tile, 0,
+      camera, { x: viewport.width, y: viewport.height });
+    expect(footprint.sailHeightCssPx).toBeLessThan(22);
+    const snapshot = createGardenObservatoryHitTargetSnapshot({ camera, viewport, world });
+    const target = snapshot.targetsByDetailId.get(placement.ship.detailId)!;
+    expect(snapshot.spatialIndex.targetById.has(placement.ship.id)).toBe(true);
+    expect(snapshot.targets.filter((entry) => entry.kind === "ship")).toHaveLength(slice.ships.length);
+    const point = { x: target.rect.x + target.rect.width / 2, y: target.rect.y + target.rect.height / 2 };
+    expect(hitTest([target], point)?.detailId).toBe(placement.ship.detailId);
+    const focused = createGardenObservatoryHitTargetSnapshot({
+      camera, viewport, world, hoveredDetailId: placement.ship.detailId,
+    }).targetsByDetailId.get(placement.ship.detailId)!;
+    const selected = createGardenObservatoryHitTargetSnapshot({
+      camera, viewport, world, selectedDetailId: placement.ship.detailId,
+    }).targetsByDetailId.get(placement.ship.detailId)!;
+    expect(focused.anchor).toEqual(target.anchor);
+    expect(selected.anchor).toEqual(target.anchor);
+    expect(selected.rect).toEqual(target.rect);
   });
 
   it("publishes a selected over-capacity outsider with its DOM detail record", () => {

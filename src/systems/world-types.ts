@@ -116,17 +116,15 @@ export interface ShipLivery {
 }
 
 /**
- * N5(a): per-ship hull proportions, as multipliers about 1. The batched fleet
- * renders four shared silhouettes as instanced meshes, so a ship cannot have
- * its own geometry — but it can have its own *proportions*, applied as a
- * per-instance deformation in the vertex shader at zero extra draw calls.
+ * Family-authored per-ship proportions with bounded decorative ID variation.
+ * Applied as per-instance deformation at zero extra draw calls; dimensions
+ * do not encode grades, reserves, yield or NAV quantities.
  *
  * Bounded to ±`SHIP_HULL_FORM_SPAN` so a hull never self-intersects and never
- * outgrows the blue-noise berth spacing, which is laid out for the ship's
- * `scale`, not for its proportions.
+ * outgrows berth spacing, which uses `scale`, not these proportions.
  */
 export interface ShipHullForm {
-  /** Athwartships width multiplier. Stability: a stiff hull is a beamy one. */
+  /** Athwartships width multiplier; decorative within the authored family. */
   beam: number;
   /** Topsides height multiplier, applied above the waterline only. */
   height: number;
@@ -142,10 +140,9 @@ export interface ShipHullForm {
    * the vertex shader; a fourth component costs nothing where a fifth attribute
    * would cost a buffer.
    *
-   * `cue.ship.distance` already spends the deviation's MAGNITUDE on which water
-   * a ship anchors in. The sign was collapsed there and is the whole of what
-   * this carries: above par is a demand premium, below par is redemption
-   * pressure, and until now the world drew them identically.
+   * `cue.ship.distance` places the magnitude in categorical risk water.
+   * Trim carries direction only: above or below par, never demand or
+   * redemption causation.
    */
   waterline: number;
   /** W7.3: even hull patina, or -1 when age evidence is unavailable. */
@@ -340,12 +337,37 @@ export interface LighthouseHighWaterMark {
   unavailable: boolean;
 }
 
-/** Trailing PSI record carried by the island planting, never a live alarm. */
+/** One supplied close; source timestamp/version remain exact. */
+export interface GardenMonthClose {
+  day: string;
+  at: number;
+  score: number;
+  band: string;
+  methodologyVersion: string;
+  gap: false;
+}
+export interface GardenMonthGap {
+  day: string;
+  at: number | null;
+  score: null;
+  band: string | null;
+  methodologyVersion: string | null;
+  gap: true;
+}
+export type GardenMonthDay = GardenMonthClose | GardenMonthGap;
+
+/** Dated official PSI history, independent of today's PSI and decorative trees. */
 export interface GardenMonthRecord {
-  averagePsi: number | null;
-  growth: number;
+  days: GardenMonthDay[];
+  segments: GardenMonthClose[][];
   sampleCount: number;
   spanDays: number;
+  firstDay: string | null;
+  lastDay: string | null;
+  windowStartDay: string | null;
+  windowEndDay: string | null;
+  scoreBounds: readonly [0, 100];
+  evidence: PharosVilleSourceStatus | null;
   unavailable: boolean;
 }
 
@@ -391,7 +413,7 @@ export interface LighthouseNode {
   signalMast?: SignalMastNode;
   /** Worst PSI band of the trailing window (the DOM Worst band, 30d record). */
   highWaterMark?: LighthouseHighWaterMark;
-  /** Thirty-day PSI record expressed as slow garden growth and weathering. */
+  /** Exact UTC daily closes, gaps and methodology edges for the gravel trace. */
   gardenMonthRecord?: GardenMonthRecord;
   /** X7: the whole daily PSI history, decimated for the card's scroll; null
       when there is not enough history to draw a line. */
@@ -504,10 +526,10 @@ export interface DockCargoTide {
   burnVolumeUsd: number;
   /** How many coins contributed an allocation to this harbour. */
   coinCount: number;
-  direction: NetFlowDirection24h;
+  direction: NetFlowDirection24h | null;
   mintVolumeUsd: number;
   /** Positive = net minting (supply created), negative = net burning. */
-  netFlowUsd: number;
+  netFlowUsd: number | null;
   /** Signed -100..100 share of gross flow, or null when nothing moved. */
   pressureScore: number | null;
   /**
@@ -536,12 +558,12 @@ export interface FleetIssuance {
   activeCoins: number;
   band: string | null;
   burnVolumeUsd: number;
-  direction: NetFlowDirection24h;
-  flightIntensity: number;
+  direction: NetFlowDirection24h | null;
+  flightIntensity: number | null;
   /** Capital rotating out of weaker issuers into stronger ones. */
-  flightToQuality: boolean;
+  flightToQuality: boolean | null;
   mintVolumeUsd: number;
-  netFlowUsd: number;
+  netFlowUsd: number | null;
   scopeChainIds: string[];
   scopeLabel: string | null;
   score: number | null;
@@ -638,6 +660,8 @@ export interface ShipIssuance {
   intensitySemantics: MintBurnFlowsResponse["gauge"]["intensitySemantics"] | null;
   windowHours: number | null;
   coverage: MintBurnCoinCoverage | null;
+  /** Missing legacy valuation is unknown; non-complete gross is a lower bound. */
+  valuation?: MintBurnFlowsResponse["coins"][number]["valuation"];
   completeWindow: boolean;
   evidence: PharosVilleSourceStatus;
   /** Declared illustration policy, not a financial or transaction reading. */
@@ -776,6 +800,8 @@ export interface DetailModel {
   members?: DetailModelMember[];
   /** X7: the lighthouse card's whole-history PSI scroll. */
   longRecord?: LongRecordModel;
+  /** Shared expanded daily table; never adds a first-screen figure. */
+  gardenMonthRecord?: GardenMonthRecord;
 }
 
 export type VisualCueTarget =
@@ -795,8 +821,12 @@ export type VisualCueChannel =
   | "shape"
   | "size";
 
+/** Retired mappings remain documented until their owning renderer cutover. */
+export type VisualCuePresentationTier = "keep-rest" | "inspection-only" | "retired";
+
 export interface VisualCue {
   id: string;
+  presentationTier: VisualCuePresentationTier;
   target: VisualCueTarget;
   primaryChannels: VisualCueChannel[];
   visual: string;

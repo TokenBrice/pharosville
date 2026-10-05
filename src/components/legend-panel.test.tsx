@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LEGEND_MARK_ROWS } from "../systems/visual-cue-registry";
-import { LegendPanel } from "./legend-panel";
+import { LegendPanel, ReadingKey } from "./legend-panel";
+import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
+import { buildPharosVilleWorld } from "../systems/pharosville-world";
+import { deriveReadingKey } from "../systems/reading-key";
 
 afterEach(() => {
   cleanup();
@@ -79,7 +82,15 @@ describe("LegendPanel", () => {
       expect(markup).toContain(row.label);
     }
     expect(markup.match(/data-cue-id=/g) ?? []).toHaveLength(LEGEND_MARK_ROWS.length);
-    expect(markup).toContain("Audit shields are near-zoom marks");
+    expect(markup).not.toContain("Audit shields");
+  });
+
+  it("teaches beam character and source qualification as separate readings", () => {
+    const markup = renderToStaticMarkup(<LegendPanel onClose={() => undefined} />);
+    expect(markup).toContain("beam character");
+    expect(markup).toContain("Stability Index (PSI)");
+    expect(markup).toContain("sources; warmth alone does not decode PSI");
+    expect(markup).not.toContain("beam warmth");
   });
 
   it("renders recent mover supply labels when provided", () => {
@@ -150,5 +161,91 @@ describe("LegendPanel", () => {
     );
 
     expect(markup).toContain("no notable supply moves this week; 0 ships in elevated water");
+  });
+});
+
+describe("nonmodal ReadingKey", () => {
+  it("can open, close with Escape, restore focus and reopen beside the caption", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    render(<><p role="status">Mint and burn unavailable · refresh failed</p><ReadingKey world={world} onSelectDetail={() => undefined} /></>);
+    const opener = screen.getByRole("button", { name: "Reading key" });
+    expect(opener.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(opener);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Lighthouse" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain("refresh failed");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Close reading key" }), { key: "Escape" });
+    expect(document.activeElement).toBe(opener);
+    expect(opener.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(opener);
+    expect(screen.getByRole("heading", { name: "Water" })).toBeTruthy();
+  });
+
+  it("previews focus without selecting; native activation composes existing detail ids", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const select = vi.fn(), preview = vi.fn();
+    render(<ReadingKey world={world} open onSelectDetail={select} onPreviewDetail={preview} />);
+    const leader = deriveReadingKey(world).leaders[0]!;
+    const button = screen.getByRole("button", { name: leader.label });
+    fireEvent.focus(button);
+    expect(preview).toHaveBeenLastCalledWith(leader.detailId);
+    expect(select).not.toHaveBeenCalled();
+    fireEvent.blur(button);
+    expect(preview).toHaveBeenLastCalledWith(null);
+    fireEvent.click(button);
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(select).toHaveBeenCalledWith(leader.detailId);
+  });
+
+  it("renders text only until the published atlas exists; never fabricates exemplar patterns", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const { container } = render(<ReadingKey world={world} open onSelectDetail={() => undefined} />);
+    expect(container.querySelectorAll("[data-reading-id]")).toHaveLength(8 + Math.min(3, world.ships.length));
+    expect(screen.getByText(/qualitative, not proportional/)).toBeTruthy();
+    expect(container.querySelector("canvas")).toBeNull();
+    expect(container.querySelector("[data-placeholder]")).toBeNull();
+    // The initial import manifest is genuinely unpublished, not a fake tile.
+    if (!container.querySelector("[data-exemplar-id]")) expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("dismisses controlled future teaching explicitly while keeping the opener available", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const dismiss = vi.fn();
+    render(<ReadingKey world={world} teachingOpen onDismissTeaching={dismiss} onSelectDetail={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Got it" }));
+    expect(dismiss).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Reading key" })).toBeTruthy();
+  });
+
+  it("does not complete teaching on focus, incidental keys or inspecting one exemplar", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const dismiss = vi.fn(), select = vi.fn();
+    render(<ReadingKey world={world} teachingOpen onDismissTeaching={dismiss} onSelectDetail={select} />);
+    const lighthouse = screen.getByRole("button", { name: deriveReadingKey(world).lighthouse.label });
+    fireEvent.focus(lighthouse);
+    fireEvent.keyDown(lighthouse, { key: "ArrowDown" });
+    expect(dismiss).not.toHaveBeenCalled();
+    fireEvent.click(lighthouse);
+    expect(select).toHaveBeenCalledWith(world.lighthouse.detailId);
+    expect(dismiss).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Got it" })).toBeTruthy();
+  });
+
+  it("accepts explicit keyboard dismissal, restores focus and remains reopenable", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const dismiss = vi.fn();
+    const view = render(<ReadingKey world={world} teachingOpen onDismissTeaching={dismiss} onSelectDetail={() => undefined} />);
+    const opener = screen.getByRole("button", { name: "Reading key" });
+    const done = screen.getByRole("button", { name: "Got it" });
+    done.focus();
+    fireEvent.keyDown(done, { key: "Escape" });
+    expect(dismiss).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(opener);
+    view.rerender(<ReadingKey world={world} teachingOpen={false} onDismissTeaching={dismiss} onSelectDetail={() => undefined} />);
+    expect(opener.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(opener);
+    expect(screen.getByRole("heading", { name: "Water" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close reading key" }));
+    expect(dismiss).toHaveBeenCalledOnce();
   });
 });

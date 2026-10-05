@@ -10,6 +10,18 @@ const rows = (value: unknown, check: (row: Record<string, unknown>) => boolean):
   Array.isArray(value) && value.every((row) => record(row) && check(row));
 const numbers = (value: unknown): boolean => record(value) && Object.values(value).every(finite);
 const fields = (value: Record<string, unknown>, keys: string[], check = finite): boolean => keys.every((key) => check(value[key]));
+const nonnegative = (value: unknown): boolean => finite(value) && (value as number) >= 0;
+const count = (value: unknown): boolean => nonnegative(value) && Number.isInteger(value);
+const completeness = (value: unknown): boolean => value === "complete" || value === "partial" || value === "unknown";
+const valuation = (value: unknown): boolean => record(value)
+  && fields(value, ["completeness", "mintCompleteness", "burnCompleteness"], completeness)
+  && fields(value, ["unpricedMintEventCount", "unpricedBurnEventCount"], count);
+const coinValuation = (value: unknown): boolean => record(value) && valuation(value.window24h)
+  && fields(value, ["baseline", "netFlow7d", "netFlow30d", "netFlow90d"], completeness);
+const coverage = (value: unknown): boolean => record(value)
+  && ["full", "partial-history", "lagging", "bootstrapping", "unknown", "disabled"].includes(value.status as string)
+  && fields(value, ["has24hWindow", "has30dWindow", "has90dWindow", "isPartial"], (v) => typeof v === "boolean")
+  && finite(value.startBlock) && fields(value, ["lastSyncedBlock", "lagBlocks", "historyStartAt"], nullableFinite);
 
 /** Small structural guards for the collections and numbers consumed by world construction.
  * Full semantic/schema audits remain off the production startup path.
@@ -50,11 +62,23 @@ export function isRenderableWorldPayload(key: PharosVilleApiEndpointKey, data: u
         && nullableFinite(grade.score) && typeof grade.grade === "string");
     case "mintBurn":
       return finite(data.updatedAt) && record(data.gauge) && nullableFinite(data.gauge.score)
-        && fields(data.gauge, ["flightIntensity", "trackedCoins", "trackedMcapUsd"])
+        && nullableFinite(data.gauge.flightIntensity)
+        && (data.gauge.flightToQuality === null || typeof data.gauge.flightToQuality === "boolean")
+        && fields(data.gauge, ["trackedCoins"], count) && nonnegative(data.gauge.trackedMcapUsd)
+        && (data.gauge.classificationSource === undefined || ["safety-score-v9-publication", "report-card-cache", "unavailable"].includes(data.gauge.classificationSource as string))
         && rows(data.coins, (coin) => typeof coin.stablecoinId === "string"
           && (coin.flowIntensity === undefined || nullableFinite(coin.flowIntensity))
-          && fields(coin, ["netFlow24hUsd", "mintVolume24hUsd", "burnVolume24hUsd"])
+          && (coin.valuation === undefined || coinValuation(coin.valuation))
+          && (coin.coverage === undefined || coverage(coin.coverage))
+          && (coin.netFlowDirection24h == null || ["minting", "burning", "flat", "inactive"].includes(coin.netFlowDirection24h as string))
+          && nullableFinite(coin.netFlow24hUsd)
+          && (coin.netFlow24hUsd !== null || (record(coin.valuation) && record(coin.valuation.window24h) && coin.valuation.window24h.completeness === "partial"))
+          && fields(coin, ["mintVolume24hUsd", "burnVolume24hUsd"], nonnegative)
+          && fields(coin, ["mintCount24h", "burnCount24h"], count)
           && fields(coin, ["netFlow7dUsd", "netFlow30dUsd", "netFlow90dUsd"], nullableFinite))
-        && rows(data.hourly, (hour) => fields(hour, ["hourTs", "netFlowUsd", "mintVolumeUsd", "burnVolumeUsd"]));
+        && rows(data.hourly, (hour) => count(hour.hourTs) && nullableFinite(hour.netFlowUsd)
+          && (hour.netFlowUsd !== null || hour.valuation === "partial")
+          && (hour.valuation === undefined || completeness(hour.valuation))
+          && fields(hour, ["mintVolumeUsd", "burnVolumeUsd"], nonnegative));
   }
 }

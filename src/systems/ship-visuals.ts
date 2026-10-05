@@ -61,10 +61,9 @@ export const TITAN_SHIPS: Record<string, true> = {
  * - A yield-bearing centralized-dependent coin is a carrier for someone else's
  *   yield, which is the galleon's job.
  *
- * The batched fleet renders four silhouettes as instanced meshes, so this
- * function chooses *which* of the four a ship joins; it cannot vary geometry
- * per ship. Per-ship proportions need per-instance attributes in the fleet
- * batch — see the N5(a) note in the plan.
+ * Family selection is inspection-only classification. Proportions below are
+ * authored for each silhouette, with decorative ID variation, not additional
+ * financial measurements.
  */
 export function resolveShipClass(meta: StablecoinMeta): ShipClassDefinition {
   const backing = meta.flags?.backing;
@@ -179,64 +178,34 @@ export function resolveShipSizeTier(marketCapUsd: number): ShipSizeDefinition {
   return { label: "Micro", scale, tier: "micro" };
 }
 
-/**
- * N5(a): the ship's proportions, derived from what the stablecoin is.
- *
- * Traits set the signal; a deterministic per-id jitter breaks ties so two coins
- * with identical flags still read as two different vessels rather than one hull
- * stamped twice. Everything is clamped into `SHIP_HULL_FORM_SPAN`, which is
- * sized so a deformed hull cannot self-intersect or overflow its berth.
- *
- * The mappings are meant to be legible on the water, not merely encoded:
- * - beam is stability, so peg health widens or narrows the hull;
- * - height is freeboard, so real reserves ride high and thin ones sit low;
- * - length is reach, so yield-bearing and NAV carriers run longer.
- */
-const PEG_GRADE_STIFFNESS: Record<string, number> = {
-  A: 0.26, B: 0.15, C: 0, D: -0.16, F: -0.27,
+/** Authored proportions, not continuous financial trait deltas. */
+const HULL_FAMILY_PROPORTIONS: Record<ShipHull, Pick<ShipHullForm, "beam" | "height" | "length">> = {
+  "treasury-galleon": { beam: 1.10, height: 1.08, length: 1.02 },
+  "yield-indiaman": { beam: 1.10, height: 1.08, length: 1.02 },
+  "chartered-brigantine": { beam: 0.90, height: 0.96, length: 1.14 },
+  "yield-barque": { beam: 0.90, height: 0.96, length: 1.14 },
+  "dao-schooner": { beam: 1.12, height: 0.94, length: 0.98 },
+  "crypto-caravel": { beam: 0.90, height: 0.96, length: 1.14 },
+  "algo-junk": { beam: 1.02, height: 1.02, length: 0.96 },
+  "foreign-peg-junk": { beam: 1.02, height: 1.02, length: 0.96 },
+  "commodity-peg-hoy": { beam: 1.16, height: 1.14, length: 0.86 },
 };
 
-function resolveShipHullForm(
-  asset: StablecoinData,
-  meta: StablecoinMeta,
-  safetyGrade: SafetyGradeEntry | null,
-): ShipHullForm {
-  const flags = meta.flags;
+function resolveShipHullForm(shipId: string, hull: ShipHull): ShipHullForm {
+  const family = HULL_FAMILY_PROPORTIONS[hull];
   const clamp = (value: number): number => Math.min(
     1 + SHIP_HULL_FORM_SPAN,
     Math.max(1 - SHIP_HULL_FORM_SPAN, value),
   );
-  // Two independent jitter channels off one hash, so length and beam do not
-  // move together and produce a fleet of scaled copies.
-  const hash = stableFnv1aHash(asset.id);
-  const jitter = (shift: number): number => (
-    (((hash >>> shift) & 0xff) / 255 - 0.5) * 2
+  // Independent decorative channels; their ±0.06 range carries no data.
+  const hash = stableFnv1aHash(shipId);
+  const variation = (shift: number): number => (
+    (((hash >>> shift) & 0xff) / 255 - 0.5) * 0.12
   );
-
-  // W2.1: the trait deltas and the jitter both roughly double. The ±0.32 clamp
-  // was already validated for the full span, but only about a third of it was
-  // ever used — measured, 80% of the fleet sat inside a 0.267 band on length
-  // (of an available 0.64), 0.168 on beam and 0.193 on height, which is below
-  // the threshold where the eye registers two hulls as two vessels. Growing the
-  // signal alongside the noise keeps the mappings legible rather than drowning
-  // them in jitter.
-  let length = 1;
-  if (flags?.yieldBearing) length += 0.24;
-  if (flags?.navToken) length += 0.14;
-  if (flags?.backing === "crypto-backed") length -= 0.13;
-
-  let beam = 1 + (PEG_GRADE_STIFFNESS[safetyGrade?.grade ?? ""] ?? 0);
-  if (flags?.backing === "rwa-backed") beam += 0.11;
-
-  let height = 1;
-  if (flags?.rwa) height += 0.17;
-  if (flags?.backing === "algorithmic") height -= 0.3;
-  if (flags?.yieldBearing) height += 0.09;
-
   return {
-    beam: clamp(beam + jitter(8) * 0.17),
-    height: clamp(height + jitter(16) * 0.15),
-    length: clamp(length + jitter(0) * 0.19),
+    beam: clamp(family.beam + variation(8)),
+    height: clamp(family.height + variation(16)),
+    length: clamp(family.length + variation(0)),
     // Even keel. The peg trim is not a trait of the ISSUER, so it is not
     // resolved here — `buildShips` overwrites it per refresh from that coin's
     // live peg row (`shipWaterlineTrim`). A hull with no peg reading keeps this
@@ -284,6 +253,6 @@ export function resolveShipVisual(asset: StablecoinData, meta: StablecoinMeta, s
     sizeTier: titan ? "titan" : uniqueDef ? "unique" : size.tier,
     sizeLabel: titan ? "Titan" : uniqueDef ? "Heritage hull" : size.label,
     scale: size.scale,
-    hullForm: resolveShipHullForm(asset, meta, safetyGrade),
+    hullForm: resolveShipHullForm(asset.id, shipClass.hull),
   };
 }

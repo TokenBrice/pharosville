@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { ApiPathError, apiFetchWithMeta, SchemaValidationError } from "./api";
+import { issuanceContractDrift } from "@/__fixtures__/issuance-contract-drift";
+import { MintBurnFlowsResponseSchema } from "@shared/types/mint-burn";
 
 describe("apiFetchWithMeta path guard", () => {
   afterEach(() => {
@@ -16,6 +18,20 @@ describe("apiFetchWithMeta path guard", () => {
 
     expect(data).toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledWith("/api/stablecoins?limit=1", { signal: expect.any(AbortSignal) });
+  });
+
+  it.each(["strict", "warn"] as const)("accepts diagnosed issuance drift without normalizing unknown values in %s mode", async (mode) => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(issuanceContractDrift))));
+    const result = await apiFetchWithMeta("/api/mint-burn-flows", MintBurnFlowsResponseSchema, undefined, 900, mode);
+    expect(result.data).toEqual(issuanceContractDrift);
+    expect(result.data.coins[0]!.netFlow24hUsd).toBeNull();
+  });
+
+  it("rejects an issuance null net without partial-valuation evidence", async () => {
+    const invalid = { ...issuanceContractDrift, coins: [{ ...issuanceContractDrift.coins[0], valuation: undefined }] };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(invalid))));
+    await expect(apiFetchWithMeta("/api/mint-burn-flows", MintBurnFlowsResponseSchema))
+      .rejects.toBeInstanceOf(SchemaValidationError);
   });
 
   it.each([

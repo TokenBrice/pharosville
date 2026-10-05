@@ -36,6 +36,8 @@ import {
 } from "./garden-docks";
 import { applyGardenHeightFog } from "./garden-height-fog";
 import { patchGardenLanternKindling } from "./garden-lanterns";
+import { applyGardenSurface, normalizeGardenSurfaceGeometry, type GardenSurfaceDetailSource, type GardenSurfaceRole } from "./garden-surfaces";
+import type { GardenSurfaceAtlasOwner } from "./garden-surface-atlas";
 
 const BUCKETS: readonly HarborBucket[] = [
   "timber",
@@ -83,7 +85,8 @@ export interface GardenHarborBatch {
   dispose(): void;
 }
 
-export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenHarborBatch {
+export function createGardenHarborBatch(recipes: readonly DockRecipe[], surfaceAtlas?: GardenSurfaceAtlasOwner): GardenHarborBatch {
+  const surfaceLease = surfaceAtlas?.lease();
   const root = new Group();
   root.name = "harbor-batch";
   const renderRecipes = recipes;
@@ -99,10 +102,10 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
   });
 
   const accentRanges = new Map<string, Array<{ bucket: HarborBucket; range: ColorRange }>>();
-  const bucketMeshes = createBucketMeshes(root, renderRecipes, false, accentRanges);
-  const fineDetailBucketMeshes = createBucketMeshes(root, renderRecipes, true);
-  const propMeshes = createPropMeshes(root, recipes, false);
-  const fineDetailPropMeshes = createPropMeshes(root, recipes, true);
+  const bucketMeshes = createBucketMeshes(root, renderRecipes, false, surfaceLease?.detailSource, accentRanges);
+  const fineDetailBucketMeshes = createBucketMeshes(root, renderRecipes, true, surfaceLease?.detailSource);
+  const propMeshes = createPropMeshes(root, recipes, false, surfaceLease?.detailSource);
+  const fineDetailPropMeshes = createPropMeshes(root, recipes, true, surfaceLease?.detailSource);
   const fineDetailMeshes = [
     ...Object.values(fineDetailBucketMeshes),
     ...Object.values(fineDetailPropMeshes),
@@ -115,6 +118,7 @@ export function createGardenHarborBatch(recipes: readonly DockRecipe[]): GardenH
   return {
     bucketMeshes,
     dispose() {
+      surfaceLease?.release();
       root.traverse((object) => {
         if (!(object instanceof Mesh)) return;
         object.geometry.dispose();
@@ -181,6 +185,7 @@ function createBucketMeshes(
   root: Group,
   recipes: readonly DockRecipe[],
   fineDetail: boolean,
+  detailSource: GardenSurfaceDetailSource | undefined,
   accentRanges?: Map<string, Array<{ bucket: HarborBucket; range: ColorRange }>>,
 ): BucketMeshes {
   const result = emptyBuckets();
@@ -198,15 +203,17 @@ function createBucketMeshes(
       const chainId = entry.recipe.dock.chainId;
       const geometry = entry.part.geometry.clone();
       normalizeGeometryIndex(geometry, entries.map(({ part }) => part.geometry));
+      normalizeGardenSurfaceGeometry(geometry, bucketRole(bucket) ?? "timber");
       geometry.applyMatrix4(entry.recipe.rootMatrix);
       const count = geometry.getAttribute("position").count;
       const colorSize = bucket === "wall" ? 4 : 3;
       const colors = new Float32Array(count * colorSize);
+      const authoredColor = geometry.getAttribute("color");
       const opacity = Number(entry.part.geometry.userData.harborOpacity ?? 1);
       for (let index = 0; index < count; index += 1) {
-        colors[index * colorSize] = entry.part.color.r;
-        colors[index * colorSize + 1] = entry.part.color.g;
-        colors[index * colorSize + 2] = entry.part.color.b;
+        colors[index * colorSize] = entry.part.color.r * (authoredColor?.getX(index) ?? 1);
+        colors[index * colorSize + 1] = entry.part.color.g * (authoredColor?.getY(index) ?? 1);
+        colors[index * colorSize + 2] = entry.part.color.b * (authoredColor?.getZ(index) ?? 1);
         if (colorSize === 4) colors[index * colorSize + 3] = opacity;
       }
       geometry.setAttribute("color", new Float32BufferAttribute(colors, colorSize));
@@ -224,7 +231,15 @@ function createBucketMeshes(
     }
     const merged = mergeCompatible(geometries);
     for (const geometry of geometries) geometry.dispose();
-    const mesh = new Mesh(merged, bucketMaterial(bucket));
+    const material = bucketMaterial(bucket);
+    const role = bucketRole(bucket);
+    if (role) applyGardenSurface(material, {
+      role, mapping: "uv", metresPerRepeat: role === "timber" ? 2.4 : 1.6,
+      detailStrength: 0.34, vertexRoles: true, vertexWeights: true,
+      ...(detailSource ? { detailSource } : {}),
+    });
+    else if (bucket === "accent") material.userData.gardenSurfaceExemption = "issuerTrim";
+    const mesh = new Mesh(merged, material);
     mesh.name = !fineDetail && bucket === "window"
       ? "station-lit-screens"
       : `${fineDetail ? "harbor-fine" : "harbor"}-${bucket}`;
@@ -252,6 +267,13 @@ function mergeCompatible(geometries: BufferGeometry[]): BufferGeometry {
   return mergeGeometries(compatible, false)!;
 }
 
+function bucketRole(bucket: HarborBucket): GardenSurfaceRole | undefined {
+  if (bucket === "timber" || bucket === "stone") return bucket;
+  if (bucket === "wall") return "plaster";
+  if (bucket === "roof") return "roofTile";
+  return undefined;
+}
+
 function bucketMaterial(bucket: HarborBucket): MeshStandardMaterial {
   switch (bucket) {
     case "timber": return new MeshStandardMaterial({ color: "#ffffff", roughness: 0.88, vertexColors: true });
@@ -268,7 +290,7 @@ function bucketMaterial(bucket: HarborBucket): MeshStandardMaterial {
   }
 }
 
-function createPropMeshes(root: Group, recipes: readonly DockRecipe[], fineDetail: boolean): PropMeshes {
+function createPropMeshes(root: Group, recipes: readonly DockRecipe[], fineDetail: boolean, detailSource: GardenSurfaceDetailSource | undefined): PropMeshes {
   const result = emptyProps();
   for (const kind of PROP_KINDS) {
     const instances: Array<{ prop: HarborPropInstance; rootMatrix: Matrix4 }> = [];
@@ -277,6 +299,15 @@ function createPropMeshes(root: Group, recipes: readonly DockRecipe[], fineDetai
     }
     if (instances.length === 0) continue;
     const mesh = new InstancedMesh(propGeometry(kind), propMaterial(kind), instances.length);
+    if (kind === "reedClump") {
+      (mesh.material as MeshStandardMaterial).userData.gardenSurfaceExemption = "foliage";
+    } else if (kind !== "bollard") {
+      normalizeGardenSurfaceGeometry(mesh.geometry, "timber");
+      applyGardenSurface(mesh.material as MeshStandardMaterial, {
+        role: "timber", mapping: "uv", metresPerRepeat: 2.4, detailStrength: 0.34,
+        ...(detailSource ? { detailSource } : {}),
+      });
+    }
     mesh.name = !fineDetail && kind === "post"
       ? "dock-posts"
       : `${fineDetail ? "harbor-fine" : "harbor"}-${kind}`;

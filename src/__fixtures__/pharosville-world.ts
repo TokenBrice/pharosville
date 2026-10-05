@@ -194,6 +194,15 @@ export const fixtureSafetyGrades: SafetyGradesResponse = {
   ],
 };
 
+/** Synthetic exact USD valuation; absence on real historical payloads stays unknown. */
+export const fixtureCompleteFlowValuation = {
+  window24h: {
+    completeness: "complete", mintCompleteness: "complete", burnCompleteness: "complete",
+    unpricedMintEventCount: 0, unpricedBurnEventCount: 0,
+  },
+  baseline: "complete", netFlow7d: "complete", netFlow30d: "complete", netFlow90d: "complete",
+} satisfies NonNullable<MintBurnFlowsResponse["coins"][number]["valuation"]>;
+
 export const fixtureMintBurn = {
   gauge: {
     score: 40,
@@ -221,6 +230,7 @@ export const fixtureMintBurn = {
       netFlow30dUsd: 0,
       netFlow90dUsd: 0,
       largestEvent24h: null,
+      valuation: fixtureCompleteFlowValuation,
     },
     {
       stablecoinId: "usdt-tether",
@@ -237,6 +247,7 @@ export const fixtureMintBurn = {
       netFlow30dUsd: 0,
       netFlow90dUsd: 0,
       largestEvent24h: null,
+      valuation: fixtureCompleteFlowValuation,
     },
   ],
   hourly: [],

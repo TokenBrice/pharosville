@@ -7,6 +7,8 @@ import { createSpeciesBatch, createSpeciesGeometry, deciduousLeafColor, GARDEN_L
 import { createGardenIslets } from "./garden-islets";
 import { createTerracedIsland } from "./garden-island";
 import { createGardenRimMesh } from "./garden-rim-mesh";
+import { applyGardenSurface } from "./garden-surfaces";
+import { applyGardenPrintInksToTree } from "./garden-print-inks";
 
 const NORTH = { latitudeRad: (35 * Math.PI) / 180, southern: false };
 const world = { lighthouse: { tile: { x: 40, y: 40 }, detailId: "lighthouse" } } as unknown as PharosVilleWorld;
@@ -39,6 +41,22 @@ function compileFloraNight(material: MeshStandardMaterial) {
 }
 
 describe("local garden night floors", () => {
+  it("retains foliage, snow and wind patches when architecture preparation encounters planting", () => {
+    const mesh = createSpeciesBatch("pine", [], { date: new Date("2026-01-05T12:00:00Z") });
+    const material = mesh.material;
+    const key = material.customProgramCacheKey();
+    applyGardenSurface(material, { role: "gravel", mapping: "worldXZ", metresPerRepeat: 1, detailStrength: 1 });
+    expect(material.userData.gardenSurfaceExemption).toBe("foliage");
+    expect(material.userData.gardenSurface).toBeUndefined();
+    expect(material.customProgramCacheKey()).toBe(key);
+    applyGardenPrintInksToTree(mesh);
+    const shader = compileFloraNight(material);
+    expect(shader.uniforms).toHaveProperty("uGardenSnow");
+    expect(shader.uniforms).toHaveProperty("uGardenWindDirection");
+    expect(shader.fragmentShader).not.toContain("gardenSampleSurface");
+    expect(material.customProgramCacheKey()).toContain("garden-print-inks");
+    mesh.geometry.dispose(); material.dispose(); mesh.dispose();
+  });
   it("preserves the default program identity through night and dawn", () => {
     const material = new MeshStandardMaterial();
     const originalKey = material.customProgramCacheKey();

@@ -1,5 +1,5 @@
-import { InstancedMesh, Matrix4, Mesh, MeshStandardMaterial } from "three";
-import { describe, expect, it, vi, type MockInstance } from "vitest";
+import { DataTexture, Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, Raycaster, ShaderLib, Vector3, type IUniform } from "three";
+import { describe, expect, it, vi, type Mock, type MockInstance } from "vitest";
 import { distanceToStationFootprint, stationFootprintRect } from "../systems/dock-layout";
 import { RIM_COVES, RIM_OPENINGS, rimLandAt } from "../systems/garden-rim";
 import {
@@ -11,14 +11,30 @@ import { weatherForFrame } from "../systems/weather";
 import {
   createGardenRimMesh,
   gardenRimBayExcursionAt,
+  gardenRimDecorativeLandAt,
+  gardenRimHeightAt,
+  GARDEN_DECORATIVE_COAST_ENVELOPE_TILES,
   GARDEN_NEAR_RIM_BAY_DEPTHS,
   GARDEN_NEAR_RIM_DISPLACEMENT,
   GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT,
   GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT,
   GARDEN_RIM_COLOR_HEX,
+  GARDEN_SHORE_SEGMENTS,
+  GARDEN_SHORE_CONTACT,
+  shoreBeachWeight,
+  gardenShoreSegmentAt,
+  writeGardenShoreSample,
+  type GardenShoreSample,
   rimColor,
 } from "./garden-rim-mesh";
-import { countDrawableObjects, TILE_SCALE } from "./garden-util";
+import { countDrawableObjects, disposeThreeObjectTree, TILE_SCALE } from "./garden-util";
+import type { GardenSurfaceAtlasLease, GardenSurfaceAtlasOwner } from "./garden-surface-atlas";
+import {
+  GARDEN_SURFACE_ROLE_ATTRIBUTE,
+  GARDEN_SURFACE_ROLE_CODES,
+  GARDEN_SURFACE_WEIGHT_ATTRIBUTE,
+  type GardenSurfaceMetadata,
+} from "./garden-surfaces";
 
 /** The five headland triads. */
 const HEADLAND_STONES = 15;
@@ -53,22 +69,23 @@ describe("garden rim mesh", () => {
     expect(rim.understoryCount).toBeLessThanOrEqual(45);
     expect(rim.steppingStoneCount).toBe(3);
     expect(rim.stoneCount).toBeGreaterThan(HEADLAND_STONES);
-    expect(rim.coastFormCounts.beach).toBeGreaterThan(0);
-    expect(rim.coastFormCounts.revetment).toBeGreaterThan(0);
-    expect(rim.coastFormCounts.boulder).toBeGreaterThan(0);
     const revetments = rim.root.getObjectByName("garden-rim-revetments") as InstancedMesh;
     expect(revetments.count * 12).toBeLessThanOrEqual(2_000);
     expect(rim.pathSegmentCount).toBeGreaterThan(80);
     // The cove-rooted rectangles retain the Mole spur without admitting
     // dressing onto any authored station geometry.
     expect(rim.coveSpurCount).toBe(8);
-    // W8.2 (headroom-7): the land sheet decimates from 42.7k to ≤ 28k
-    // triangles, which pays for the niwaki grammar: the rim as a whole does
-    // not grow past its G2 116k.
+    // The decorative apron earns at most 12k unique / 24k main+shadow
+    // triangles; broad exterior is decimated, not another dense heightfield.
     const land = rim.root.getObjectByName("garden-rim-land") as Mesh;
-    expect(land.geometry.index!.count / 3).toBeLessThanOrEqual(28_000);
-    expect(rim.triangleCount).toBeLessThanOrEqual(117_000);
+    expect(land.geometry.index!.count / 3).toBeLessThanOrEqual(40_000);
+    expect(rim.triangleCount).toBeLessThanOrEqual(129_000);
     const shore = rim.root.getObjectByName("garden-rim-tide-rock") as Mesh;
+    const landDefines = (land.material as MeshStandardMaterial).defines;
+    if (!landDefines) throw new Error("Decorative terrain requires its scoped aerial define");
+    expect(landDefines.GARDEN_AIR_DECORATIVE_TERRAIN).toBe(1);
+    expect(shore.material).toBe(land.material);
+    expect(((rim.root.getObjectByName("garden-rim-path") as Mesh).material as MeshStandardMaterial).defines?.GARDEN_AIR_DECORATIVE_TERRAIN).toBeUndefined();
     const positions = shore.geometry.getAttribute("position");
     let contourVertices = 0;
     for (let index = 0; index < positions.count; index += 1) {
@@ -83,6 +100,81 @@ describe("garden rim mesh", () => {
     expect(GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT).toBeGreaterThanOrEqual(1.5);
     expect(GARDEN_NEAR_RIM_DISPLACEMENT).toContain("straight shoreline");
     rim.dispose();
+  });
+
+  it("owns contiguous authored reaches with explicit quay and exposed-coast transitions", () => {
+    expect(Object.isFrozen(GARDEN_SHORE_SEGMENTS)).toBe(true);
+    for (const segment of GARDEN_SHORE_SEGMENTS) {
+      expect(Object.isFrozen(segment)).toBe(true);
+      expect(Object.isFrozen(segment.start)).toBe(true);
+      expect(Object.isFrozen(segment.end)).toBe(true);
+      expect([segment.start.x, segment.start.z, segment.end.x, segment.end.z].every(Number.isFinite)).toBe(true);
+      if (segment.side === "outer") {
+        expect(segment.substrate).toBe("bedrock");
+        expect(segment.exposure).toBe(1);
+      }
+    }
+    const beach = GARDEN_SHORE_SEGMENTS.find((segment) => segment.side === "inner" && segment.form === "beach")!;
+    const neighbours = GARDEN_SHORE_SEGMENTS.filter((segment) => segment.side === "inner" && segment.form === "bedrock");
+    const before = neighbours.find((segment) => segment.bearingEnd === beach.bearingStart)!;
+    const after = neighbours.find((segment) => segment.bearingStart === beach.bearingEnd)!;
+    expect(Math.hypot(before.end.x - beach.start.x, before.end.z - beach.start.z)).toBeLessThan(0.01);
+    expect(Math.hypot(after.start.x - beach.end.x, after.start.z - beach.end.z)).toBeLessThan(0.01);
+    const at = (degrees: number) => {
+      const bearing = degrees * Math.PI / 180;
+      return gardenShoreSegmentAt(
+        (69.5 + 30 * Math.cos(bearing)) * TILE_SCALE,
+        (69.5 + 30 * Math.sin(bearing)) * TILE_SCALE,
+      );
+    };
+    for (let degrees = 36; degrees < 100; degrees += 0.5) expect(at(degrees)).toBe(beach);
+    expect(at(34.9)).toBe(before);
+    expect(at(100.1)).toBe(after);
+    for (const cove of RIM_COVES) {
+      expect(gardenShoreSegmentAt(cove.tile.x * TILE_SCALE, cove.tile.y * TILE_SCALE)?.id).toBe(`quay-${cove.id}`);
+    }
+    for (const opening of RIM_OPENINGS) expect(at((opening.bearingStart + opening.bearingEnd) * 90 / Math.PI)).toBeNull();
+    expect(gardenShoreSegmentAt(Number.NaN, 0)).toBeNull();
+  });
+
+  it("samples physical depth, substrate and static contact without supply-tide state", () => {
+    const cove = RIM_COVES[0]!;
+    const sample: GardenShoreSample = { segment: null, depth: 0, substrate: null, exposure: 0, state: "dry" };
+    const waterY = -1.45, x = cove.tile.x * TILE_SCALE, z = cove.tile.y * TILE_SCALE;
+    for (const [height, depth, state] of [[1, 0, "dry"], [0.2, 0, "damp"], [-0.6, 0.6, "submerged"]] as const) {
+      writeGardenShoreSample(sample, x, waterY + height, z, waterY);
+      expect(sample.depth).toBeCloseTo(depth, 8);
+      expect(sample.state).toBe(state);
+      expect(sample.substrate).toBe("masonry");
+      expect(sample.segment?.id).toBe(`quay-${cove.id}`);
+    }
+    expect(Object.isFrozen(GARDEN_SHORE_CONTACT)).toBe(true);
+    for (const [height, state] of [
+      [GARDEN_SHORE_CONTACT.submergedAbove - 0.001, "submerged"],
+      [GARDEN_SHORE_CONTACT.submergedAbove, "damp"],
+      [GARDEN_SHORE_CONTACT.dryAbove, "damp"],
+      [GARDEN_SHORE_CONTACT.dryAbove + 0.001, "dry"],
+    ] as const) {
+      writeGardenShoreSample(sample, x, height, z, 0);
+      expect(sample.state).toBe(state);
+    }
+    // Mineral-to-beach exposure feathers continuously across the authored join.
+    const at = (degrees: number) => {
+      const angle = degrees * Math.PI / 180;
+      writeGardenShoreSample(sample, (69.5 + 30 * Math.cos(angle)) * TILE_SCALE, waterY, (69.5 + 30 * Math.sin(angle)) * TILE_SCALE, waterY);
+      return sample.exposure;
+    };
+    expect(Math.abs(at(35.01) - at(34.99))).toBeLessThan(0.001);
+    expect(at(45)).toBeLessThan(at(36));
+    expect(shoreBeachWeight(x, z)).toBe(0);
+    const angle = 45 * Math.PI / 180;
+    const beachX = (69.5 + 30 * Math.cos(angle)) * TILE_SCALE;
+    const beachZ = (69.5 + 30 * Math.sin(angle)) * TILE_SCALE;
+    expect(shoreBeachWeight(beachX, beachZ)).toBe(1);
+    writeGardenShoreSample(sample, Number.NaN, Number.NaN, 0, Number.NaN);
+    expect(sample.segment).toBeNull();
+    expect(Number.isFinite(sample.depth)).toBe(true);
+    expect(Number.isFinite(sample.exposure)).toBe(true);
   });
 
 
@@ -167,6 +259,11 @@ describe("garden rim mesh", () => {
     const cracks = open.filter((key) => !covered.has(key) && !key.split("|").every((point) => coast.has(point)));
     // 90 ground decals lay four open edges each over the sheet.
     expect(cracks.length).toBeLessThanOrEqual(90 * 4);
+    const exteriorCovered = [...covered].filter((edge) => edge.split("|").some((point) => {
+      const [x, , z] = point.split(",").map(Number);
+      return Math.min(x!, z!) < 0 || Math.max(x!, z!) > 139 * TILE_SCALE;
+    }));
+    expect(exteriorCovered.length).toBeGreaterThan(0);
     // The pine is the niwaki grammar: wider than tall, pads on level arms.
     const pine = rim.pineInstances.geometry;
     pine.computeBoundingBox();
@@ -221,6 +318,13 @@ describe("garden rim mesh", () => {
     expect(stonePoints[1]!.y).toBeCloseTo(110.817, 3);
     expect(stonePoints[2]!.x).toBeCloseTo(4.779, 3);
     expect(stonePoints[2]!.y).toBeCloseTo(108.974, 3);
+    // Exterior toe stones keep their authored world anchors rather than
+    // snapping onto the chart edge, where a station may occupy the land.
+    expect(stonePoints.some((point) => point.x < 0 || point.y < 0)).toBe(true);
+    for (const point of stonePoints) {
+      expect(Math.min(point.x, point.y)).toBeGreaterThanOrEqual(-GARDEN_DECORATIVE_COAST_ENVELOPE_TILES);
+      expect(Math.max(point.x, point.y)).toBeLessThanOrEqual(139 + GARDEN_DECORATIVE_COAST_ENVELOPE_TILES);
+    }
     const scenery = [
       { name: "path", points: pathPoints },
       {
@@ -287,42 +391,138 @@ describe("garden rim mesh", () => {
     rim.dispose();
   });
 
-  it("carries the authored shoreline out across the camera-side plate margin", () => {
+  it("bounds an irregular decorative silhouette on all four sides without changing the chart", () => {
+    const before = Array.from({ length: 140 * 140 }, (_, i) => rimLandAt(i % 140, Math.floor(i / 140)));
     const rim = createGardenRimMesh();
-    const boundary = 139 * TILE_SCALE;
-    const sixTiles = 6 * TILE_SCALE;
+    const limit = GARDEN_DECORATIVE_COAST_ENVELOPE_TILES;
     for (const name of ["garden-rim-land", "garden-rim-tide-rock"]) {
       const mesh = rim.root.getObjectByName(name) as Mesh;
       mesh.geometry.computeBoundingBox();
       const bounds = mesh.geometry.boundingBox!;
-      // The camera-near margins read as land receding into the haze: the
-      // skirt reaches at least six tiles past tile 139 on +X and +Z…
-      expect(bounds.max.x).toBeGreaterThanOrEqual(boundary + sixTiles);
-      expect(bounds.max.z).toBeGreaterThanOrEqual(boundary + sixTiles);
-      // …never past the finite plate…
-      expect(bounds.max.x).toBeLessThanOrEqual((139 + 8.05) * TILE_SCALE);
-      expect(bounds.max.z).toBeLessThanOrEqual((139 + 8.05) * TILE_SCALE);
-      // …and never onto the far pair, which keeps dissolving into the seam
-      // (the tide rock's small negative reach is its pre-existing wet-shelf
-      // lip, present before the skirt).
-      const farLimit = name === "garden-rim-land" ? 0 : -0.75 * TILE_SCALE;
-      expect(bounds.min.x).toBeGreaterThanOrEqual(farLimit);
-      expect(bounds.min.z).toBeGreaterThanOrEqual(farLimit);
-      // The skirt clamps to the boundary tile, so the Danger Strait stretch
-      // of the east boundary — water in the authored field — stays open sea:
-      // no skirt geometry around tile (145, 30).
-      const positions = mesh.geometry.getAttribute("position");
-      const intruders: string[] = [];
-      for (let index = 0; index < positions.count; index += 1) {
-        const tileX = positions.getX(index) / TILE_SCALE;
-        const tileZ = positions.getZ(index) / TILE_SCALE;
-        if (tileX > 142 && tileZ > 18 && tileZ < 42) {
-          intruders.push(`${tileX.toFixed(1)},${tileZ.toFixed(1)}`);
+      expect(bounds.min.x).toBeLessThan(0);
+      expect(bounds.min.z).toBeLessThan(0);
+      expect(bounds.max.x).toBeGreaterThan(139 * TILE_SCALE);
+      expect(bounds.max.z).toBeGreaterThan(139 * TILE_SCALE);
+      expect(bounds.min.x).toBeGreaterThanOrEqual(-limit * TILE_SCALE - 0.001);
+      expect(bounds.min.z).toBeGreaterThanOrEqual(-limit * TILE_SCALE - 0.001);
+      expect(bounds.max.x).toBeLessThanOrEqual((139 + limit) * TILE_SCALE + 0.001);
+      expect(bounds.max.z).toBeLessThanOrEqual((139 + limit) * TILE_SCALE + 0.001);
+    }
+    // The visible feet continue underneath the annulus, never terminate at
+    // its waterline. Top/face retain their existing two buckets.
+    const face = rim.root.getObjectByName("garden-rim-tide-rock") as Mesh;
+    expect(face.geometry.boundingBox!.min.y).toBeLessThan(-0.11);
+    const contactPositions = face.geometry.getAttribute("position");
+    const contactNormals = face.geometry.getAttribute("normal");
+    const contactIndices = face.geometry.index!;
+    let exteriorContacts = 0;
+    for (let i = 0; i < contactPositions.count; i += 12) {
+      // The second course's wall normal points to sea, not into the land;
+      // its submerged shelf faces up rather than being back-face culled.
+      const dx = contactPositions.getX(i + 5) - contactPositions.getX(i + 4);
+      const dz = contactPositions.getZ(i + 5) - contactPositions.getZ(i + 4);
+      if (Math.hypot(dx, dz) > 1e-5) {
+        expect(-dz * contactNormals.getX(i + 4) + dx * contactNormals.getZ(i + 4)).toBeGreaterThan(0);
+      }
+      expect(contactNormals.getY(i + 8)).toBeGreaterThanOrEqual(0);
+      const shelfStart = i / 12 * 18 + 12;
+      for (let triangle = shelfStart; triangle < shelfStart + 6; triangle += 3) {
+        const a = contactIndices.getX(triangle), b = contactIndices.getX(triangle + 1), c = contactIndices.getX(triangle + 2);
+        const normalY = (contactPositions.getZ(b) - contactPositions.getZ(a)) * (contactPositions.getX(c) - contactPositions.getX(a))
+          - (contactPositions.getX(b) - contactPositions.getX(a)) * (contactPositions.getZ(c) - contactPositions.getZ(a));
+        expect(normalY, "projected or clipped shelf triangle").toBeGreaterThanOrEqual(-1e-6);
+      }
+      const x = contactPositions.getX(i) / TILE_SCALE, z = contactPositions.getZ(i) / TILE_SCALE;
+      if (x < 0 || z < 0 || x > 139 || z > 139) {
+        exteriorContacts += 1;
+        expect(contactPositions.getY(i + 8)).toBeLessThan(-0.11);
+      }
+    }
+    expect(exteriorContacts).toBeGreaterThan(0);
+    const land = rim.root.getObjectByName("garden-rim-land") as Mesh;
+    const positions = land.geometry.getAttribute("position");
+    const indices = land.geometry.index!;
+    let apronTriangles = 0;
+    for (let i = 0; i < indices.count; i += 3) {
+      if ([0, 1, 2].some((corner) => {
+        const vertex = indices.getX(i + corner);
+        const x = positions.getX(vertex) / TILE_SCALE, y = positions.getZ(vertex) / TILE_SCALE;
+        return x < 0 || y < 0 || x > 139 || y > 139;
+      })) apronTriangles += 1;
+    }
+    expect(apronTriangles).toBeGreaterThan(0);
+    expect(apronTriangles).toBeLessThanOrEqual(12_000);
+    const sides = [
+      (along: number, out: number) => [-out, along],
+      (along: number, out: number) => [139 + out, along],
+      (along: number, out: number) => [along, -out],
+      (along: number, out: number) => [along, 139 + out],
+    ];
+    for (const point of sides) {
+      const reaches: number[] = [];
+      for (let along = 0; along <= 139; along += 1) {
+        let reach = 0;
+        for (let out = 0.5; out <= limit; out += 0.5) {
+          const [x, y] = point(along, out);
+          if (gardenRimDecorativeLandAt(x!, y!)) reach = out;
+        }
+        reaches.push(reach);
+      }
+      expect(Math.max(...reaches)).toBeGreaterThan(0);
+      expect(new Set(reaches.filter((reach) => reach > 0)).size).toBeGreaterThan(5);
+      let run = 0;
+      for (let i = 1; i < reaches.length; i += 1) {
+        run = reaches[i]! > 0 && reaches[i] === reaches[i - 1] ? run + 1 : 0;
+        expect(run, "straight outer run").toBeLessThan(140 / 3);
+      }
+      // A side may carry a dominant headland and a smaller counterpart,
+      // not a periodic ruffle. Ignore water gaps and quantization plateaus.
+      let rising = false;
+      let peaks = 0;
+      for (let i = 1; i < reaches.length; i += 1) {
+        if (reaches[i] === 0 || reaches[i - 1] === 0) { rising = false; continue; }
+        const change = reaches[i]! - reaches[i - 1]!;
+        if (change > 0) rising = true;
+        if (change < 0 && rising) { peaks += 1; rising = false; }
+      }
+      expect(peaks, "repeated scalloped apron").toBeLessThanOrEqual(2);
+    }
+    // Corner returns curve inside their envelope instead of meeting at a
+    // right-angled outer box. The in-chart corner remains authoritative land.
+    expect(gardenRimDecorativeLandAt(143, 143)).toBe(true);
+    expect(gardenRimDecorativeLandAt(149, 149)).toBe(false);
+    expect(gardenRimDecorativeLandAt(-5, 144)).toBe(true);
+    expect(gardenRimDecorativeLandAt(-12, 151)).toBe(false);
+    expect(gardenRimDecorativeLandAt(-12, 86)).toBe(true);
+    expect(gardenRimHeightAt(-12, 86)).toBeGreaterThan(5);
+    expect(gardenRimDecorativeLandAt(-limit - 0.1, 100)).toBe(false);
+    expect(gardenRimDecorativeLandAt(100, 139 + limit + 0.1)).toBe(false);
+    expect(Array.from({ length: 140 * 140 }, (_, i) => rimLandAt(i % 140, Math.floor(i / 140)))).toEqual(before);
+    expect(GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT).toContain("all four sides");
+    rim.dispose();
+  });
+
+  it("keeps both full opening corridors and Danger Strait clear of the exterior coast", () => {
+    for (const opening of RIM_OPENINGS) {
+      for (let angle = opening.bearingStart + 0.02; angle < opening.bearingEnd; angle += 0.04) {
+        const dx = Math.cos(angle), dy = Math.sin(angle);
+        const border = 69.5 / Math.max(Math.abs(dx), Math.abs(dy));
+        for (let out = 0; out <= 18; out += 0.5) {
+          expect(gardenRimDecorativeLandAt(69.5 + dx * (border + out), 69.5 + dy * (border + out))).toBe(false);
         }
       }
-      expect(intruders).toEqual([]);
     }
-    expect(GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT).toContain("open water");
+    const rim = createGardenRimMesh();
+    for (const name of ["garden-rim-land", "garden-rim-tide-rock"]) {
+      const mesh = rim.root.getObjectByName(name) as Mesh;
+      const positions = mesh.geometry.getAttribute("position");
+      for (let i = 0; i < positions.count; i += 1) {
+        const x = positions.getX(i) / TILE_SCALE, y = positions.getZ(i) / TILE_SCALE;
+        expect(x > 142 && y > 18 && y < 42, `Danger Strait at ${x},${y}`).toBe(false);
+      }
+    }
+    rim.root.updateMatrixWorld(true);
+    expect(new Raycaster(new Vector3(0, 100, 0), new Vector3(0, -1, 0)).intersectObject(rim.root, true)).toEqual([]);
     rim.dispose();
   });
 
@@ -390,33 +590,35 @@ describe("garden rim mesh", () => {
     expect(skirtStones.length).toBeGreaterThanOrEqual(3);
     expect(skirtStones.some((tile) => tile.x > boundary)).toBe(true);
     expect(skirtStones.some((tile) => tile.z > boundary)).toBe(true);
-    // …thinning to none before the plate limit at tile 147…
-    expect(pines.concat(stones).every((tile) => rimBand(tile) <= 145)).toBe(true);
+    // Existing dressing thins before the separately bounded outer coast;
+    // no new prop inventory is added to fill the larger decorative envelope.
+    expect(pines.concat(stones).every((tile) => rimBand(tile) <= 139 + GARDEN_DECORATIVE_COAST_ENVELOPE_TILES)).toBe(true);
     // …while the stroll stays an authored in-bounds route: no ribbon or cove
     // spur of the path draw crosses tile 139…
     const path = rim.root.getObjectByName("garden-rim-path") as Mesh;
     path.geometry.computeBoundingBox();
     expect(path.geometry.boundingBox!.max.x).toBeLessThanOrEqual(boundary * TILE_SCALE + 0.02);
     expect(path.geometry.boundingBox!.max.z).toBeLessThanOrEqual(boundary * TILE_SCALE + 0.02);
-    // …and the far pair gains no scenery: nothing at all below tile 0.
-    for (const tiles of [pines, stones]) {
-      expect(Math.min(...tiles.map((tile) => tile.x))).toBeGreaterThanOrEqual(0);
-      expect(Math.min(...tiles.map((tile) => tile.z))).toBeGreaterThanOrEqual(0);
-    }
-    // Ground relief: the apron is not one flat plane. Its surface undulates
-    // (swells and dells) yet never rises past the in-bounds rim crest, so it
-    // still reads as land receding into the haze.
+    // Positive-side relief stays subordinate to the actual in-chart ridge
+    // crest. The northeast return inherits the northern ridge; unlike the old
+    // two-sided skirt it is not required to flatten to the low south bank.
     const land = rim.root.getObjectByName("garden-rim-land") as Mesh;
     const landPositions = land.geometry.getAttribute("position");
     const skirtHeights = new Set<number>();
     let skirtTop = Number.NEGATIVE_INFINITY;
+    let inChartCrest = Number.NEGATIVE_INFINITY;
     for (let index = 0; index < landPositions.count; index += 1) {
-      if (Math.max(landPositions.getX(index), landPositions.getZ(index)) / TILE_SCALE <= boundary) continue;
+      const x = landPositions.getX(index) / TILE_SCALE;
+      const z = landPositions.getZ(index) / TILE_SCALE;
+      if (x >= 0 && z >= 0 && x <= boundary && z <= boundary) {
+        inChartCrest = Math.max(inChartCrest, landPositions.getY(index));
+      }
+      if (Math.max(x, z) <= boundary) continue;
       skirtHeights.add(Math.round(landPositions.getY(index) * 20) / 20);
       skirtTop = Math.max(skirtTop, landPositions.getY(index));
     }
     expect(skirtHeights.size).toBeGreaterThanOrEqual(40);
-    expect(skirtTop).toBeLessThanOrEqual(3.1);
+    expect(skirtTop).toBeLessThanOrEqual(inChartCrest);
     rim.dispose();
   });
 
@@ -487,6 +689,95 @@ describe("garden rim mesh", () => {
       expect(Math.max(...heights(name)), name).toBeLessThanOrEqual(3.2);
     }
     rim.dispose();
+  });
+
+  it("keeps authored substrates in one terrain material with finite role weights and metric coordinates", () => {
+    const rim = createGardenRimMesh();
+    const land = rim.root.getObjectByName("garden-rim-land") as Mesh;
+    const shore = rim.root.getObjectByName("garden-rim-tide-rock") as Mesh;
+    expect(shore.material).toBe(land.material);
+    expect((land.material as MeshStandardMaterial).userData.gardenSurface).toMatchObject({
+      role: "moss", mapping: "triplanar", vertexRoles: true, vertexWeights: true,
+    });
+    const landRoles = new Set(Array.from(land.geometry.getAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE).array));
+    for (const role of ["moss", "stone", "gravel", "earth"] as const) expect(landRoles.has(GARDEN_SURFACE_ROLE_CODES[role]), role).toBe(true);
+    for (const mesh of [land, shore]) {
+      const position = mesh.geometry.getAttribute("position");
+      const roles = mesh.geometry.getAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE);
+      const weights = mesh.geometry.getAttribute(GARDEN_SURFACE_WEIGHT_ATTRIBUTE);
+      const uv = mesh.geometry.getAttribute("uv");
+      const indices = mesh.geometry.index!;
+      expect(roles.count).toBe(position.count);
+      expect(weights.count).toBe(position.count);
+      expect(uv.count).toBe(position.count);
+      for (const name of ["position", "normal", "color", "uv", GARDEN_SURFACE_ROLE_ATTRIBUTE, GARDEN_SURFACE_WEIGHT_ATTRIBUTE]) {
+        expect(Array.from(mesh.geometry.getAttribute(name).array).every(Number.isFinite), name).toBe(true);
+      }
+      for (let vertex = 0; vertex < position.count; vertex += 1) {
+        expect(weights.getX(vertex)).toBeGreaterThanOrEqual(0);
+        expect(weights.getX(vertex)).toBeLessThanOrEqual(1);
+        expect(uv.getX(vertex)).toBe(position.getX(vertex));
+        expect(uv.getY(vertex)).toBe(position.getZ(vertex));
+      }
+      for (let face = 0; face < indices.count; face += 3) {
+        const role = roles.getX(indices.getX(face));
+        expect(roles.getX(indices.getX(face + 1))).toBe(role);
+        expect(roles.getX(indices.getX(face + 2))).toBe(role);
+      }
+    }
+    expect([...new Set(Array.from(shore.geometry.getAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE).array))]).toEqual([GARDEN_SURFACE_ROLE_CODES.stone]);
+    for (const [name, role, mapping] of [
+      ["garden-rim-path", "gravel", "worldXZ"],
+      ["garden-rim-stones", "stone", "triplanar"],
+      ["garden-rim-revetments", "stone", "triplanar"],
+    ]) {
+      const material = (rim.root.getObjectByName(name) as Mesh).material as MeshStandardMaterial;
+      expect(material.userData.gardenSurface).toMatchObject({ role, mapping });
+      expect(material.metalness).toBe(0);
+      expect(material.normalMap).toBeNull();
+      expect(material.roughnessMap).toBeNull();
+    }
+    rim.dispose();
+  });
+
+  it("releases each rim atlas lease once across rebuild and teardown without generic double-release", () => {
+    const textures = { albedo: new DataTexture(), normal: new DataTexture(), orm: new DataTexture() };
+    const textureDisposals = Object.values(textures).map((texture) => vi.spyOn(texture, "dispose"));
+    const uniforms = { uGardenSurfaceAlbedo: { value: textures.albedo },
+      uGardenSurfaceNormal: { value: textures.normal }, uGardenSurfaceOrm: { value: textures.orm } };
+    const releases: Mock[] = [];
+    const atlas: GardenSurfaceAtlasOwner = { textures, release: vi.fn(), lease: vi.fn(() => {
+      const release = vi.fn();
+      releases.push(release);
+      const lease: GardenSurfaceAtlasLease = { textures, uniforms, release, ready: Promise.resolve(true), error: null,
+        detailSource: { key: "rim-test-detail", uniforms,
+          glsl: "GardenSurfaceDetail gardenSampleSurface(vec3 p, vec3 n, vec2 uv, float role, float repeatMetres) { return GardenSurfaceDetail(vec3(1.0), 0.0, vec3(0.0)); }" } };
+      return lease;
+    }) };
+    const partRoot = new Group();
+    for (let rebuild = 0; rebuild < 2; rebuild += 1) {
+      const rim = createGardenRimMesh(undefined, atlas);
+      partRoot.add(rim.root);
+      expect(atlas.lease).toHaveBeenCalledTimes(rebuild + 1);
+      for (const name of ["garden-rim-land", "garden-rim-tide-rock", "garden-rim-path", "garden-rim-stones", "garden-rim-revetments"]) {
+        const material = (rim.root.getObjectByName(name) as Mesh).material as MeshStandardMaterial;
+        const surface = material.userData.gardenSurface as GardenSurfaceMetadata;
+        expect(surface.sourceKey).toBe("rim-test-detail");
+        expect(Number.isFinite(surface.metresPerRepeat) && Number.isFinite(surface.detailStrength)).toBe(true);
+        const shader = { vertexShader: ShaderLib.standard.vertexShader,
+          fragmentShader: ShaderLib.standard.fragmentShader, uniforms: {} as Record<string, IUniform> };
+        material.onBeforeCompile(shader as never, null as never);
+        for (const [key, uniform] of Object.entries(uniforms)) expect(shader.uniforms[key]).toBe(uniform);
+      }
+      rim.dispose();
+      rim.dispose();
+      disposeThreeObjectTree(partRoot);
+      expect(partRoot.children).toHaveLength(0);
+      expect(releases[rebuild]).toHaveBeenCalledTimes(1);
+    }
+    expect(atlas.release).not.toHaveBeenCalled();
+    for (const disposal of textureDisposals) expect(disposal).not.toHaveBeenCalled();
+    Object.values(textures).forEach((texture) => texture.dispose());
   });
 
   it("marks every rim batch as a static shadow user and disposes once", () => {

@@ -302,9 +302,10 @@ const NOBORI_SITES: Record<StationType, NoboriSite> = {
   "stepped-inlet": { from: "hall", x: -0.12, z: -1.0, footY: 4.55 },
   uogashi: { from: "hall", x: -1.75, z: 2.75, footY: 4.45, hemY: 5.6 },
   "fishing-pier": { from: "hall", x: -0.5, z: -0.25, footY: 4.56 },
-  "reed-boathouse": { from: "quay", x: -7.0, z: 0, footY: 6.26 },
-  "tea-house-quay": { from: "hall", x: 0, z: -1.75, footY: 4.73 },
-  "storm-mole": { from: "hall", x: 0, z: 2.75, footY: 4.63 },
+  "reed-boathouse": { from: "quay", x: -7.0, z: 0, footY: STATION_SCALE_LADDER["reed-boathouse"].silhouetteTop },
+  // Keep the pole's full radius inboard of the exact Float32 roof boundary.
+  "tea-house-quay": { from: "hall", x: -0.08, z: -1.75, footY: 4.73 },
+  "storm-mole": { from: "hall", x: -0.08, z: 2.75, footY: 4.63 },
   "pigeonnier-islet": { from: "hall", x: -0.25, z: 0, footY: 4.7, hemY: 7.1 },
 };
 

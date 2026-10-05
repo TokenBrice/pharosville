@@ -17,6 +17,9 @@ import {
   GARDEN_SEA_STELE_NIGHT_CARVING_COLOR,
   GARDEN_SEA_STELE_STONE_COLOR,
   seaSignScaleForZoom,
+  SEA_SIGN_REST_SCALE,
+  seaSignRestBodies,
+  seaSignSites,
   type SeaSignSpec,
 } from "./garden-sea-signs";
 
@@ -48,7 +51,7 @@ function contrastRatio(left: string, right: string): number {
 }
 
 describe("garden sea steles", () => {
-  it("has zero sign draws at rest and defers the shared ink atlas", () => {
+  it("admits at most two safe names at rest and leases only the shared ink atlas", () => {
     const signs = createGardenSeaSigns(specs);
     const drawables: Mesh[] = [];
     signs.root.traverse((object) => {
@@ -65,6 +68,11 @@ describe("garden sea steles", () => {
     expect(carvings.material).toBeInstanceOf(MeshBasicMaterial);
     expect((carvings.material as MeshBasicMaterial).map).toBeNull();
     expect(fillText).not.toHaveBeenCalled();
+    const rest = seaSignRestBodies(seaSignSites(specs.map((spec) => spec.body)));
+    signs.update({ night: 0, reducedMotion: true, visible: true, zoom: 1 });
+    expect(rest.length).toBeLessThanOrEqual(2);
+    expect(signs.root.visible).toBe(rest.length > 0);
+    if (rest.length > 0) expect((carvings.material as MeshBasicMaterial).map).toBeInstanceOf(CanvasTexture);
     expect(signs.lampPositions).toEqual([]);
     signs.dispose();
   });
@@ -100,27 +108,25 @@ describe("garden sea steles", () => {
       .toBeLessThan(relativeLuminance(GARDEN_SEA_STELE_ACTIVE_CARVING_COLOR) * 0.35);
   });
 
-  it("keeps true world scale nearby and enlarges the face on the overview rung", () => {
+  it("reports the actual sign scale to the shared hit targets, including the rest pair", () => {
     const signs = createGardenSeaSigns(specs);
     signs.setInspected("calm");
-    const carvings = signs.root.getObjectByName("garden-sea-steles-carving") as Mesh;
+    const rest = seaSignRestBodies(seaSignSites(specs.map((spec) => spec.body)));
     signs.update({ night: 0, reducedMotion: true, visible: true, zoom: 1 });
-    carvings.geometry.computeBoundingBox();
-    const nearWidth = carvings.geometry.boundingBox!.max.x - carvings.geometry.boundingBox!.min.x;
+    expect(signs.scale).toBe(rest.length > 0 ? SEA_SIGN_REST_SCALE : 1);
     signs.update({ night: 0, reducedMotion: true, visible: true, zoom: 0.28 });
-    carvings.geometry.computeBoundingBox();
-    const farWidth = carvings.geometry.boundingBox!.max.x - carvings.geometry.boundingBox!.min.x;
     expect(seaSignScaleForZoom(0.28)).toBe(2.6);
-    expect(farWidth).toBeGreaterThan(nearWidth);
+    expect(signs.scale).toBe(2.6);
     // The root never scales the absolute sites away from their body boundaries.
     expect(signs.root.scale.toArray()).toEqual([1, 1, 1]);
     signs.dispose();
   });
 
-  it("raises only the inspected body over 380ms and settles statically under reduced motion", () => {
+  it("keeps the sparse pair while inspection raises another name over 380ms, or cuts under reduced motion", () => {
     const signs = createGardenSeaSigns(specs);
     const stones = signs.root.getObjectByName("garden-sea-steles-stone") as InstancedMesh;
     const matrix = new Matrix4();
+    const rest = seaSignRestBodies(seaSignSites(specs.map((spec) => spec.body)));
 
     signs.setInspected("warning");
     signs.update({ deltaSeconds: 0.19, night: 0, visible: true, zoom: 1 });
@@ -129,21 +135,20 @@ describe("garden sea steles", () => {
       stones.getMatrixAt(index, matrix);
       return matrix.getMaxScaleOnAxis();
     });
-    expect(scales.filter((value) => value > 0)).toHaveLength(1);
-    expect(Math.max(...scales)).toBeGreaterThan(0.5);
-    expect(Math.max(...scales)).toBeLessThan(1);
+    expect(scales.filter((value) => value > 0)).toHaveLength(new Set([...rest, "warning"]).size);
+    expect(scales[1]).toBeCloseTo(rest.includes("warning") ? SEA_SIGN_REST_SCALE : signs.scale * 0.875);
     signs.update({ deltaSeconds: 0.19, night: 0, visible: true, zoom: 1 });
 
     stones.getMatrixAt(1, matrix);
-    expect(matrix.getMaxScaleOnAxis()).toBeCloseTo(1);
+    expect(matrix.getMaxScaleOnAxis()).toBeCloseTo(signs.scale);
 
     signs.setInspected("danger");
     signs.update({ deltaSeconds: 0, night: 0, reducedMotion: true, visible: true, zoom: 1 });
     stones.getMatrixAt(2, matrix);
-    expect(matrix.getMaxScaleOnAxis()).toBeCloseTo(1);
+    expect(matrix.getMaxScaleOnAxis()).toBeCloseTo(signs.scale);
     signs.setInspected(null);
     signs.update({ deltaSeconds: 0, night: 0, reducedMotion: true, visible: true, zoom: 1 });
-    expect(signs.root.visible).toBe(false);
+    expect(signs.root.visible).toBe(rest.length > 0);
     signs.dispose();
   });
 

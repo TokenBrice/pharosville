@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { REST_SEAT_EYE_LANDSCAPE, REST_SEAT_YAW_RAD } from "../systems/rest-seat";
 import { countDrawableObjects } from "./garden-util";
 import { createGardenHorizon, GARDEN_HORIZON_RIDGES } from "./garden-horizon";
+import { createGardenRimMesh } from "./garden-rim-mesh";
 
 const FRAME = {
   cameraPosition: REST_SEAT_EYE_LANDSCAPE.world,
@@ -35,10 +36,13 @@ function crests(mesh: Mesh): Array<{ kind: number; angle: number; elevation: num
 }
 
 describe("garden horizon (shakkei)", () => {
-  it("keeps five borrowed ridges and their kasumi in one non-selectable draw under the triangle cap", () => {
+  it("keeps four sky ridges and kasumi in one non-selectable draw; the world headland belongs to the rim", () => {
     const horizon = createGardenHorizon();
     horizon.update(12, FRAME);
-    expect(horizon.silhouetteCount).toBe(5);
+    expect(horizon.silhouetteCount).toBe(4);
+    expect(GARDEN_HORIZON_RIDGES.map((ridge) => ridge.name)).toEqual([
+      "peak", "far-range", "eastern-ridge", "western-ridge",
+    ]);
     expect(horizon.triangleCount).toBeLessThanOrEqual(2_000);
     expect(countDrawableObjects(horizon.root)).toBe(1);
     const mesh = horizon.root.children[0] as Mesh;
@@ -70,7 +74,7 @@ describe("garden horizon (shakkei)", () => {
     horizon.dispose();
   });
 
-  it("lets PSI move only the three named ranges, farthest first; the anchor peak and the headland hold", () => {
+  it("lets PSI move only the three named ranges, farthest first; the anchor peak holds", () => {
     const horizon = createGardenHorizon();
     const material = (horizon.root.children[0] as Mesh).material as ShaderMaterial;
     const k = () => [...(material.uniforms.uRidgeK.value as number[])];
@@ -95,6 +99,46 @@ describe("garden horizon (shakkei)", () => {
     expect(tremor[farRange]).toBeGreaterThan(0.95);
     expect(tremor[eastern]).toBeLessThan(0.8);
     horizon.dispose();
+  });
+
+  it("gives the fixed-world near headland parallax while sky ranges remain eye-relative", () => {
+    const horizon = createGardenHorizon();
+    const rim = createGardenRimMesh();
+    const sky = horizon.root.children[0] as Mesh;
+    const land = rim.root.getObjectByName("garden-rim-land") as Mesh;
+    const positions = land.geometry.getAttribute("position");
+    let crest = -1;
+    for (let i = 0; i < positions.count; i += 1) {
+      if (positions.getZ(i) < 0 && (crest < 0 || positions.getY(i) > positions.getY(crest))) crest = i;
+    }
+    expect(crest).toBeGreaterThanOrEqual(0);
+    const near = new Vector3().fromBufferAttribute(positions, crest);
+    expect(near.y).toBeGreaterThan(10);
+    const eye = new Vector3(FRAME.cameraPosition.x, FRAME.cameraPosition.y, FRAME.cameraPosition.z);
+    const movedEye = eye.clone().add(new Vector3(20, 2, 10));
+    const localSky = new Vector3().fromBufferAttribute(sky.geometry.getAttribute("position"), 1);
+    horizon.update(12, FRAME);
+    horizon.root.updateMatrixWorld(true);
+    rim.root.updateMatrixWorld(true);
+    const skyDirection = sky.localToWorld(localSky.clone()).sub(eye).normalize();
+    const nearWorld = land.localToWorld(near.clone());
+    const nearDirection = nearWorld.clone().sub(eye).normalize();
+    const forward = new Vector3(-Math.sin(REST_SEAT_YAW_RAD), 0, -Math.cos(REST_SEAT_YAW_RAD));
+    const right = new Vector3(Math.cos(REST_SEAT_YAW_RAD), 0, -Math.sin(REST_SEAT_YAW_RAD));
+    expect(Math.atan2(nearDirection.dot(right), nearDirection.dot(forward)) * 180 / Math.PI).toBeGreaterThan(8.5);
+    expect(Math.asin(nearDirection.y) * 180 / Math.PI).toBeLessThan(4);
+    horizon.update(12, {
+      ...FRAME,
+      clarity: -1,
+      cameraPosition: { x: movedEye.x, y: movedEye.y, z: movedEye.z },
+    });
+    horizon.root.updateMatrixWorld(true);
+    rim.root.updateMatrixWorld(true);
+    expect(sky.localToWorld(localSky.clone()).sub(movedEye).normalize().distanceTo(skyDirection)).toBeLessThan(1e-12);
+    expect(land.localToWorld(near.clone()).distanceTo(nearWorld)).toBe(0);
+    expect(nearWorld.clone().sub(movedEye).normalize().distanceTo(nearDirection)).toBeGreaterThan(0.01);
+    horizon.dispose();
+    rim.dispose();
   });
 
   it("sheds only on the constrained tier", () => {

@@ -21,6 +21,8 @@ import { AccessibilityLedger } from "./accessibility-ledger";
 import { resetHeldShipPlacements } from "../systems/pharosville-world/stages/ship-placement";
 import { withRiskTransitionFact } from "../systems/detail-model";
 import { SCENARIOS, quayAllocationInput, quietNormalInput, T } from "../__fixtures__/data-contract-scenarios";
+import { fixtureStability } from "../__fixtures__/pharosville-world";
+import { nodeSourceEvidenceLabel } from "../systems/source-evidence";
 
 afterEach(() => {
   for (const details of document.querySelectorAll<HTMLDetailsElement>('[data-testid="pharosville-detail-record"]')) {
@@ -210,7 +212,7 @@ describe("DetailPanel rendered analytical record", () => {
     expect(market).toContain(`Snapshot generated at: ${new Date(world.generatedAt!).toISOString()}`);
     expect(recordRow(record, "Harbor light").textContent).toContain(state === "stale" ? "cooler and slower" : "steady");
     expect(recordRow(record, "Harbor light").textContent).toContain("Appearance eases over ~2 observations");
-    expect(recordRow(record, "Harbor light").textContent).toContain("Beam warmth:");
+    expect(recordRow(record, "Harbor light").textContent).toContain("Beam character:");
     expect(record.querySelectorAll("dt").length).toBeLessThanOrEqual(12);
   });
 
@@ -276,6 +278,36 @@ describe("DetailPanel rendered analytical record", () => {
     const area = world.areas.find((entry) => entry.band === "CALM")!;
     const record = await openRecord(world.detailIndex[area.detailId]!);
     expect(recordRow(record, "Water surface").textContent).toContain("Glass");
+  });
+
+  it("shares exact UTC closes, gaps, version edges and held provenance with the ledger inside the record disclosure", async () => {
+    const at = Date.UTC(2026, 7, 13);
+    const inputs = makePharosVilleWorldInput({
+      stability: { ...fixtureStability, history: [
+        { date: at - 4 * 86_400_000, score: 83.25, band: "STEADY", methodologyVersion: "v1" },
+        { date: at - 3 * 86_400_000, score: 42.5, band: "FRACTURE", methodologyVersion: "v2" },
+        { date: at, score: 90, band: "BEDROCK", methodologyVersion: "v2" },
+      ] },
+      freshness: makeSourceStatuses({ stability: { state: "stale", observedAt: at - 86_400_000, publishedAt: at - 86_400_000, reason: "held" } }),
+    });
+    const world = buildPharosVilleWorld(inputs);
+    const disclosure = await openRecord(world.detailIndex[world.lighthouse.detailId]!);
+    const tableSection = disclosure.querySelector('[data-testid="garden-month-record-table"]')!;
+    const table = tableSection.querySelector("table")!;
+    expect(table.closest("details")).toBe(disclosure);
+    expect(table.querySelectorAll("tbody tr")).toHaveLength(30);
+    expect(table.querySelectorAll('th[scope="col"]')).toHaveLength(6);
+    expect(table.textContent).toContain("83.25");
+    expect(table.textContent).toContain("42.5");
+    expect(table.textContent).toContain("FRACTURE");
+    expect(table.textContent).toContain("v2");
+    expect(table.textContent).toContain("Gap — no supplied close");
+    expect(table.textContent).toContain("Methodology edge — not joined");
+    expect(tableSection.textContent).toContain(nodeSourceEvidenceLabel({ stability: world.freshness.stability }));
+    expect(tableSection.querySelector('time[datetime="2026-08-13T00:00:00.000Z"]')).not.toBeNull();
+    const ledger = render(<AccessibilityLedger world={world} />);
+    expect(ledger.container.querySelector('[data-testid="garden-month-record-table"]')!.outerHTML).toBe(tableSection.outerHTML);
+    expect(disclosure.querySelectorAll('svg[data-testid="garden-month-record-chart"]')).toHaveLength(0);
   });
 
   it("retains month history and fallen-coin identity", async () => {

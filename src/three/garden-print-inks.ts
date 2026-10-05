@@ -15,6 +15,8 @@ import { HARBOR_PALETTE } from "../systems/palette";
 import type { DayCycleBeatName, DayCycleBeats } from "../systems/day-cycle-beats";
 import { chainGardenMaterialPatch, gardenDayDrift } from "./garden-aerial";
 import { gardenSunPose, type GardenLightPose } from "./garden-sun";
+import { getGardenSurfaceExemption } from "./garden-surfaces";
+import { applyGardenIrradiance } from "./garden-irradiance";
 
 /**
  * The print's two lighting plates (Hour-Print W2.11, W2.12; printmaker-1 at
@@ -280,6 +282,8 @@ function isInkableMaterial(material: Material): material is GardenInkMaterial {
 
 export function isGardenPrintInkExempt(object: Object3D, material: Material): boolean {
   if (!isInkableMaterial(material)) return true;
+  const surfaceExemption = getGardenSurfaceExemption(material);
+  if (surfaceExemption && surfaceExemption !== "foliage") return true;
   if (material.userData.gardenSailAtlas === true) return true;
   if (material.userData.gardenPrintInkExempt === true) return true;
   if (!material.toneMapped) return true;
@@ -293,8 +297,12 @@ export function isGardenPrintInkExempt(object: Object3D, material: Material): bo
 
 /** C3: re-inks one lit material through the shared patch chain. Idempotent. */
 export function applyGardenPrintInks(material: Material): void {
+  const surfaceExemption = getGardenSurfaceExemption(material);
+  if (surfaceExemption && surfaceExemption !== "foliage") return;
+  applyGardenIrradiance(material);
   chainGardenMaterialPatch(material, {
     key: "garden-print-inks-v1",
+    stage: "printInk",
     compile: (shader) => injectGardenPrintInks(shader),
   });
 }

@@ -44,7 +44,10 @@ export function resolveShipMotionSampleInto(input: ResolveShipMotionSampleInput,
   resetSampleChoreography(out);
   if (input.reducedMotion || !route) {
     reducedMotionSampleInto(input.ship, route, input.seaState ?? null, out);
-    if (!out.currentDockId) {
+    // A hull away from a quay keeps the accepted resting heading of its own
+    // berth. Only a ship without one falls back to lying to the default wind,
+    // which used to be applied to the whole still fleet at once.
+    if (!out.currentDockId && route?.restingHeadingRad === undefined) {
       out.heading.x = -GARDEN_DEFAULT_WIND_X;
       out.heading.y = -GARDEN_DEFAULT_WIND_Z;
     }

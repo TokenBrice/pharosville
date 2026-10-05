@@ -1,4 +1,4 @@
-import { BoxGeometry, BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial } from "three";
+import { BoxGeometry, BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, type Object3D } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { GARDEN_LIGHTHOUSE_ROOT_OFFSET } from "../systems/garden-observatory-slice";
 import { HARBOR_PALETTE } from "../systems/palette";
@@ -7,6 +7,8 @@ import {
   LIGHTHOUSE_WINDOW_MATERIAL_NAME,
 } from "./garden-lighthouse";
 import { stableUnit } from "./garden-util";
+import { applyGardenSurface, normalizeGardenSurfaceGeometry, getGardenSurfaceExemption, type GardenSurfaceDetailSource, type GardenSurfaceMetadata } from "./garden-surfaces";
+import { buildGardenVeranda } from "./garden-architecture-kit";
 
 const CX = GARDEN_LIGHTHOUSE_ROOT_OFFSET.x;
 const CZ = GARDEN_LIGHTHOUSE_ROOT_OFFSET.z;
@@ -59,6 +61,7 @@ export function createGardenPrecinct(): Group {
     }
     geometry.computeVertexNormals();
     geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+    normalizeGardenSurfaceGeometry(geometry, tint === TIMBER ? "timber" : tint === ROOF ? "roofTile" : "stone");
     bucket.push(geometry);
   }
   // pharos-2: three dry-laid courses on the seaward (north) lip only, a low
@@ -78,14 +81,24 @@ export function createGardenPrecinct(): Group {
   // the stylobate. Its low roof edge frames the court without another
   // monument. Timber shares the masonry's vertex-colour draw.
   const engawaZ = CZ - 7;
-  add(stone, 10, 0.18, 1.4, CX, COURT_Y + 0.15, engawaZ, TIMBER);
-  for (const edge of [-1, 1]) {
-    for (const along of [-4.7, 0, 4.7]) {
-      add(stone, 0.13, 1.65, 0.13, CX + along, COURT_Y + 1.065, engawaZ + edge * 0.55, TIMBER);
+  const veranda = buildGardenVeranda({
+    length: 10, span: 1.4, deckY: COURT_Y + 0.24,
+    eaveY: COURT_Y + 1.9, ridgeY: COURT_Y + 2.14,
+    profile: "mono-pitch", thickness: 0.12, bayLength: 5,
+  });
+  for (const part of veranda.parts) {
+    part.geometry.translate(CX, 0, engawaZ);
+    const count = part.geometry.getAttribute("position").count;
+    const tint = part.bucket === "roof" ? ROOF : TIMBER;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i += 1) {
+      colors[i * 3] = tint.r;
+      colors[i * 3 + 1] = tint.g;
+      colors[i * 3 + 2] = tint.b;
     }
-    add(stone, 10, 0.16, 0.14, CX, COURT_Y + 1.84, engawaZ + edge * 0.55, ROOF);
+    part.geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+    stone.push(part.geometry);
   }
-  add(stone, 10.3, 0.12, 1.5, CX, COURT_Y + 1.98, engawaZ, ROOF);
   // A human-scale stone opening replaces the castle arch. Its single inset
   // gatehouse light sits in one jamb, not in a luminous lintel over the court.
   const { x: gx, z: gz } = GARDEN_PRECINCT_GATE;
@@ -109,7 +122,12 @@ export function createGardenPrecinct(): Group {
     new MeshStandardMaterial({ color: HARBOR_PALETTE.lantern_glow, emissive: HARBOR_PALETTE.lantern_warm, emissiveIntensity: 0.65, name: LIGHTHOUSE_WINDOW_MATERIAL_NAME, roughness: 0.38 }),
   ];
   [stone, recesses, glow].forEach((bucket, index) => {
-    const geometry = mergeGeometries(bucket, false)!;
+    const prepared = bucket.map((part) => {
+      normalizeGardenSurfaceGeometry(part, "stone");
+      return part.index ? part.toNonIndexed() : part;
+    });
+    const geometry = mergeGeometries(prepared, false)!;
+    for (const part of prepared) if (!bucket.includes(part)) part.dispose();
     for (const part of bucket) part.dispose();
     const mesh = new Mesh(geometry, materials[index]);
     mesh.name = ["island-shoin-precinct-masonry", "island-shoin-precinct-recesses", "island-shoin-precinct-gatehouse-lit-window"][index]!;
@@ -118,7 +136,36 @@ export function createGardenPrecinct(): Group {
     mesh.receiveShadow = true;
     // Preserve the shared court rim response beneath the lighthouse.
     if (index === 0) applyLighthouseRimLight(mesh);
+    if (index === 0) applyGardenSurface(mesh.material, {
+      role: "stone", mapping: "uv", metresPerRepeat: 1.6,
+      detailStrength: 0.28, vertexRoles: true, vertexWeights: true,
+    });
     root.add(mesh);
   });
   return root;
+}
+
+/** Prepare existing architectural trees without touching identity, flora or lamps. */
+export function prepareGardenArchitectureTree(root: Object3D, detailSource?: GardenSurfaceDetailSource): void {
+  root.traverse((object) => {
+    if (!(object instanceof Mesh)) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      if (!(material instanceof MeshStandardMaterial) || getGardenSurfaceExemption(material)) continue;
+      const authored = material.userData.gardenSurface as GardenSurfaceMetadata | undefined;
+      const stone = /lighthouse|pharos|precinct.*masonry|weathered-limestone/i.test(`${object.name} ${material.name}`)
+        && !/window|glow|beam|fire|metal|bronze/i.test(`${object.name} ${material.name}`);
+      if (!authored && !stone) continue;
+      const role = authored?.role ?? "stone";
+      normalizeGardenSurfaceGeometry(object.geometry, role);
+      applyGardenSurface(material, {
+        role, mapping: authored?.mapping ?? "triplanar",
+        metresPerRepeat: authored?.metresPerRepeat ?? 1.6,
+        detailStrength: authored?.detailStrength ?? 0.28,
+        vertexRoles: authored?.vertexRoles ?? false,
+        vertexWeights: authored?.vertexWeights ?? false,
+        ...(detailSource ? { detailSource } : {}),
+      });
+    }
+  });
 }

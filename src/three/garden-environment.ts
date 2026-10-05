@@ -13,6 +13,7 @@ import {
   type WebGLRenderer,
   type WebGLRenderTarget,
 } from "three";
+import { GARDEN_AIR } from "./garden-aerial";
 import { LightProbeGenerator } from "three/examples/jsm/lights/LightProbeGenerator.js";
 import type { DayCycleBeats, DayCyclePhase } from "./garden-day-cycle";
 import type { TextureOwnerManifestEntry } from "../renderer/render-types";
@@ -32,6 +33,8 @@ import type { TextureOwnerManifestEntry } from "../renderer/render-types";
  * This bakes a PMREM probe from the SAME sky dome the camera sees, so those
  * surfaces reflect the actual sky of the actual hour — cool indigo-teal at noon,
  * the ember west band at dusk, near-black with a moon at night.
+ * Sheltered-surface L1 replaces only metered ambient/hemi diffuse; this PMREM's
+ * diffuse/specular energy and the existing differential SH remain untouched.
  *
  * ## Why it is baked from a shared material, not a copy of the colours
  *
@@ -131,23 +134,21 @@ import type { TextureOwnerManifestEntry } from "../renderer/render-types";
  */
 
 /**
- * Reflection energy follows illumination rather than lifting every night.
- * Each beat stays under its rig's ambient + hemisphere fill; day is 0.55
- * against the 0.57 fill left after W2.1 cut the day ambient to 0.15.
+ * Reflection energy follows illumination. Night's indigo probe is calibrated
+ * with the moon-independent sky/ground diffuse, not an exposure lift; every
+ * beat stays below its analytic ambient + hemisphere fill (day: 0.83).
  */
 export function gardenEnvironmentIntensityForBeats(beats: DayCycleBeats): number {
   return beats.dawn * 0.35 + beats.day * 0.55 + beats.golden * 0.45
-    + beats.blue * 0.3 + beats.night * 0.12;
+    + beats.blue * 0.3 + beats.night * 0.28;
 }
 
 /**
  * Quantisation of the day-cycle blend, per axis, for the cache key.
  *
- * Ten steps puts a rebake roughly every 7 minutes of the real dawn and dusk
- * ramps and never during the long flat middle of day or night. It also bounds
- * the worst case — dragging the time control across a whole day — to a few dozen
- * bakes spread over the drag rather than one per frame, because the key can only
- * change as fast as the quantised blend does.
+ * Ten steps bounds dawn/dusk changes. Quantized solar direction, date,
+ * displayed accepted clarity and lunar lighting also move the key during
+ * otherwise flat phases; cadence, not a frozen midday probe, bounds bake cost.
  */
 const PHASE_STEPS = 10;
 const STORM_STEPS = 4;
@@ -274,10 +275,9 @@ export interface GardenEnvironment {
   getTextureManifest: () => readonly TextureOwnerManifestEntry[];
   dispose(): void;
   /**
-   * Rebakes only when the quantised phase has moved. Safe to call every frame.
-   * `stormLevel` (Phase 2) joins the key, coarsely quantised: the dome it
-   * bakes from is storm-graded, so the light the world is lit by must not lag
-   * the sky it is seen against when a storm arrives.
+   * Rebakes only when the hysteretic staged sky-radiance key moves.
+   * The phase/weather, date, solar bearing, displayed accepted clarity and
+   * night lunar cloud lighting are the same inputs the dome already draws.
    *
    * W1.5: also advances the per-frame ambient easing, which is nine vector
    * lerps and one scalar — free, and the reason this is safe to call on every
@@ -388,21 +388,37 @@ export function writeGardenEnvironmentProbeSH(
   }
 }
 
-/**
- * The cache key: the day-cycle blend, quantised.
- *
- * Keyed on `daylight` and `dusk` rather than on the clock hour because those two
- * are what the dome's uniforms are actually derived from — two hours that blend
- * to the same sky should share a bake, and an hour control that moves without
- * changing the sky should not cause one.
- *
- * The public helper returns the direct key for deterministic lookup/tests. The
- * live environment additionally applies `resolveGardenEnvironmentStormBand`
- * hysteresis so a breathing storm cannot oscillate around a rounding edge.
- */
-export function gardenEnvironmentPhaseKey(phase: DayCyclePhase, stormLevel = 0): string {
-  const stormBand = Math.round(clamp01(stormLevel) * STORM_STEPS);
-  return gardenEnvironmentPhaseBandKey(phase, stormBand);
+/** Inputs actually staged on the shared dome before a probe bake. */
+export interface GardenEnvironmentRadianceState {
+  date: number;
+  clarity: number;
+  /** Zero until the leased noise field is ready; never a seventh PSI state. */
+  cloudCover: number;
+  sunDir: { x: number; y: number; z: number };
+  moonDir: { x: number; y: number; z: number };
+  /** Displayed lunar illumination × presence (the cloud-lighting state). */
+  moonIllumination: number;
+}
+
+/** Quantized direction/accepted aerosol/cloud morphology/lunar state. */
+export function gardenEnvironmentPhaseKey(
+  phase: DayCyclePhase, stormLevel: number, radiance: GardenEnvironmentRadianceState,
+): string {
+  const base = gardenEnvironmentPhaseBandKey(phase, Math.round(clamp01(stormLevel) * STORM_STEPS));
+  const sun = phase.daylight + phase.dusk > 0 ? 1 : 0;
+  const moon = phase.night > 0 ? 1 : 0;
+  return `${base}:${Math.floor(radiance.date)}:${Math.round(clamp01((radiance.clarity + 1) * 0.5) * 10)}`
+    + `:${Math.round(clamp01(radiance.cloudCover) * 20)}`
+    + `:${Math.round(radiance.sunDir.x * sun * 12)}:${Math.round(radiance.sunDir.y * sun * 12)}:${Math.round(radiance.sunDir.z * sun * 12)}`
+    + `:${Math.round(radiance.moonDir.x * moon * 12)}:${Math.round(radiance.moonDir.y * moon * 12)}:${Math.round(radiance.moonDir.z * moon * 12)}:${Math.round(clamp01(radiance.moonIllumination) * moon * 10)}`;
+}
+
+/** A 0.15-bin dead band prevents round-edge jitter without hiding solar motion. */
+export function resolveGardenEnvironmentRadianceBand(previous: number | null, value: number, steps: number): number {
+  const scaled = (Number.isFinite(value) ? value : 0) * steps;
+  if (previous === null) return Math.round(scaled);
+  if (scaled > previous + 0.65 || scaled < previous - 0.65) return Math.round(scaled);
+  return previous;
 }
 
 export function resolveGardenEnvironmentStormBand(
@@ -489,6 +505,11 @@ export function createGardenEnvironment(
   let target: WebGLRenderTarget | null = null;
   let bakedKey: string | null = null;
   let stormBand: number | null = null;
+  const radianceBands: (number | null)[] = Array(9).fill(null);
+  const keyedRadiance: GardenEnvironmentRadianceState = {
+    date: 0, clarity: 0, cloudCover: 0, sunDir: { x: 0, y: 0, z: 0 },
+    moonDir: { x: 0, y: 0, z: 0 }, moonIllumination: 0,
+  };
   let bakeCount = 0;
   let disposed = false;
 
@@ -650,7 +671,32 @@ export function createGardenEnvironment(
 
       // 3. The cadence.
       stormBand = resolveGardenEnvironmentStormBand(stormBand, stormLevel);
-      const key = gardenEnvironmentPhaseBandKey(phase, stormBand);
+      const sun = phase.daylight + phase.dusk > 0 ? 1 : 0;
+      const moon = phase.night > 0 ? 1 : 0;
+      const sunDir = domeMaterial.uniforms.uSunDir?.value as { x: number; y: number; z: number } | undefined;
+      const moonDir = domeMaterial.uniforms.uMoonDir?.value as { x: number; y: number; z: number } | undefined;
+      radianceBands[0] = resolveGardenEnvironmentRadianceBand(radianceBands[0]!, (GARDEN_AIR.clarity + 1) * 0.5, 10);
+      radianceBands[1] = resolveGardenEnvironmentRadianceBand(radianceBands[1]!, (sunDir?.x ?? 0) * sun, 12);
+      radianceBands[2] = resolveGardenEnvironmentRadianceBand(radianceBands[2]!, (sunDir?.y ?? 0) * sun, 12);
+      radianceBands[3] = resolveGardenEnvironmentRadianceBand(radianceBands[3]!, (sunDir?.z ?? 0) * sun, 12);
+      radianceBands[4] = resolveGardenEnvironmentRadianceBand(radianceBands[4]!, (moonDir?.x ?? 0) * moon, 12);
+      radianceBands[5] = resolveGardenEnvironmentRadianceBand(radianceBands[5]!, (moonDir?.y ?? 0) * moon, 12);
+      radianceBands[6] = resolveGardenEnvironmentRadianceBand(radianceBands[6]!, (moonDir?.z ?? 0) * moon, 12);
+      radianceBands[7] = resolveGardenEnvironmentRadianceBand(radianceBands[7]!, clamp01((domeMaterial.uniforms.uCloudRim?.value ?? 0) / 0.35) * moon, 10);
+      const cloudCover = domeMaterial.uniforms.uCloudReady?.value > 0.5
+        ? clamp01(domeMaterial.uniforms.uCloudCover?.value ?? 0) : 0;
+      radianceBands[8] = resolveGardenEnvironmentRadianceBand(radianceBands[8]!, cloudCover, 20);
+      keyedRadiance.date = domeMaterial.uniforms.uAtmosphereDate?.value ?? 0;
+      keyedRadiance.clarity = radianceBands[0]! / 5 - 1;
+      keyedRadiance.sunDir.x = radianceBands[1]! / 12;
+      keyedRadiance.sunDir.y = radianceBands[2]! / 12;
+      keyedRadiance.sunDir.z = radianceBands[3]! / 12;
+      keyedRadiance.moonDir.x = radianceBands[4]! / 12;
+      keyedRadiance.moonDir.y = radianceBands[5]! / 12;
+      keyedRadiance.moonDir.z = radianceBands[6]! / 12;
+      keyedRadiance.moonIllumination = radianceBands[7]! / 10;
+      keyedRadiance.cloudCover = radianceBands[8]! / 20;
+      const key = gardenEnvironmentPhaseKey(phase, stormBand / STORM_STEPS, keyedRadiance);
       const keyChanged = key !== bakedKey && key !== pending?.key;
       wantedSeconds = keyChanged ? wantedSeconds + deltaSeconds : 0;
       if (shouldBakeGardenEnvironment({
@@ -665,8 +711,25 @@ export function createGardenEnvironment(
         const serial = bakeSerial += 1;
         // Both pieces of GPU work sit here, inside the caller's episodic bake
         // window, so `renderer.info` attributes them to the bake.
-        requestHarmonic(serial);
-        const next = generator.fromScene(probeScene);
+        // Celestial discs never bake a second water road or a specular sun blob.
+        const moonVisible = domeMaterial.uniforms.uMoonVisible?.value;
+        const moonDay = domeMaterial.uniforms.uMoonDay?.value;
+        const milkyWay = domeMaterial.uniforms.uMilkyWay?.value;
+        const sunIntensity = domeMaterial.uniforms.uSunIntensity?.value;
+        if (domeMaterial.uniforms.uMoonVisible) domeMaterial.uniforms.uMoonVisible.value = 0;
+        if (domeMaterial.uniforms.uMoonDay) domeMaterial.uniforms.uMoonDay.value = 0;
+        if (domeMaterial.uniforms.uMilkyWay) domeMaterial.uniforms.uMilkyWay.value = 0;
+        if (domeMaterial.uniforms.uSunIntensity) domeMaterial.uniforms.uSunIntensity.value = 0;
+        let next: WebGLRenderTarget;
+        try {
+          requestHarmonic(serial);
+          next = generator.fromScene(probeScene);
+        } finally {
+          if (domeMaterial.uniforms.uMoonVisible) domeMaterial.uniforms.uMoonVisible.value = moonVisible;
+          if (domeMaterial.uniforms.uMoonDay) domeMaterial.uniforms.uMoonDay.value = moonDay;
+          if (domeMaterial.uniforms.uMilkyWay) domeMaterial.uniforms.uMilkyWay.value = milkyWay;
+          if (domeMaterial.uniforms.uSunIntensity) domeMaterial.uniforms.uSunIntensity.value = sunIntensity;
+        }
         bakeCount += 1;
         secondsSinceBake = 0;
         wantedSeconds = 0;

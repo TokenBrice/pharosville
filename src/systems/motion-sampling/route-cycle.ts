@@ -142,15 +142,7 @@ export function sampleRouteCycleInto(route: ShipMotionRoute, timeSeconds: number
       return;
     }
     if (cursor < riskSecondsEach) {
-      riskWaterSampleInto(
-        route,
-        timeSeconds,
-        cursor / Math.max(1, riskSecondsEach),
-        riskSecondsEach,
-        out,
-        runtime.stopToRiskPathByDockId.get(stop.dockId),
-        homecomingPath,
-      );
+      riskWaterSampleInto(route, timeSeconds, cursor / Math.max(1, riskSecondsEach), riskSecondsEach, out);
       writeRouteSegment(out, "risk-rest", cursor, riskSecondsEach);
       out.seaState = seaState;
       return;

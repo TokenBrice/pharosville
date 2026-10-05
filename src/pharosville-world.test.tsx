@@ -2,7 +2,7 @@
 import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PharosVilleLoading, PharosVilleWorld } from "./pharosville-world";
+import { PharosVilleWorld } from "./pharosville-world";
 import { overCapacityWorldFixture } from "./__fixtures__/over-capacity-world";
 import { PHAROSVILLE_LATEST_VERSION } from "./content/pharosville-version";
 import type { HitTarget } from "./renderer/hit-testing";
@@ -13,6 +13,7 @@ import {
 import { buildObserveSequence } from "./systems/observe-sequence";
 import { tileToIso } from "./systems/projection";
 import { UNAVAILABLE_SUPPLY_TIDE } from "./systems/supply-tide";
+import { ORIENTATION_STORAGE_KEY } from "./hooks/use-visitor-line";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
 
 const mocks = vi.hoisted(() => {
@@ -30,8 +31,6 @@ const mocks = vi.hoisted(() => {
     rendererWarmupReady: true,
     rendererStatus: "ready",
     requestPaint: vi.fn(),
-    skipArrival: vi.fn(),
-    startArrival: vi.fn<(onComplete: () => void) => void>(),
     startObserveTour: vi.fn(),
     wander: vi.fn(() => ({ index: 0, title: "The inlet mouth" })),
     stopObserveTour: vi.fn(),
@@ -101,8 +100,6 @@ vi.mock("./hooks/use-canvas-resize-and-camera", () => ({
     canvasSizeRef: mocks.canvasSizeRef,
     focusTile: mocks.focusTile,
     focusSelection: mocks.focusSelection,
-    skipArrival: mocks.skipArrival,
-    startArrival: mocks.startArrival,
     startObserveTour: mocks.startObserveTour,
     endWander: vi.fn(),
     wander: mocks.wander,
@@ -192,6 +189,7 @@ vi.mock("./systems/reduced-motion", () => ({
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/");
+  window.localStorage.setItem(ORIENTATION_STORAGE_KEY, "1");
   mocks.cameraRef.current.offsetX = 0;
   mocks.cameraRef.current.offsetY = 0;
   mocks.cameraRef.current.zoom = 1;
@@ -206,9 +204,6 @@ beforeEach(() => {
   mocks.rendererWarmupReady = true;
   mocks.rendererStatus = "ready";
   mocks.requestPaint.mockClear();
-  mocks.skipArrival.mockClear();
-  mocks.startArrival.mockReset();
-  mocks.startArrival.mockImplementation((onComplete) => onComplete());
   mocks.targets.splice(0, mocks.targets.length, ...targetFixtures());
   delete (globalThis as { __pharosVilleTestWallClockHour?: number }).__pharosVilleTestWallClockHour;
   delete (window as typeof window & { __pharosVilleDebug?: unknown }).__pharosVilleDebug;
@@ -223,6 +218,62 @@ afterEach(() => {
 });
 
 describe("PharosVilleWorld UI accessibility controls", () => {
+  it("opens future teaching alongside the immediately ready world", async () => {
+    window.localStorage.removeItem(ORIENTATION_STORAGE_KEY);
+    mocks.reducedMotion = false;
+    render(<PharosVilleWorld world={worldFixture()} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Got it" })).toBeTruthy());
+    expect(screen.queryByTestId("pharosville-charting-veil")).toBeNull();
+    expect(screen.getByTestId("pharosville-world").getAttribute("data-world-ready")).toBe("true");
+    expect(window.localStorage.getItem(ORIENTATION_STORAGE_KEY)).toBeNull();
+  });
+
+  it("preserves caption warnings without swallowing or completing teaching", async () => {
+    window.localStorage.removeItem(ORIENTATION_STORAGE_KEY);
+    const world = worldFixture();
+    world.freshness = makeSourceStatuses({
+      mintBurn: { state: "unavailable", reason: "Fetch failed: source offline" },
+    });
+    render(<PharosVilleWorld world={world} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Got it" })).toBeTruthy());
+    expect(screen.getByTestId("pharosville-now-caption").textContent).toContain("source offline");
+    fireEvent.pointerDown(window);
+    fireEvent.wheel(window);
+    fireEvent.keyDown(window, { key: "a" });
+    expect(window.localStorage.getItem(ORIENTATION_STORAGE_KEY)).toBeNull();
+    expect(screen.getByRole("button", { name: "Got it" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Got it" }));
+    expect(window.localStorage.getItem(ORIENTATION_STORAGE_KEY)).toBe("1");
+    expect(screen.queryByRole("button", { name: "Got it" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reading key" }));
+    expect(screen.getByRole("heading", { name: "Water" })).toBeTruthy();
+    expect(screen.getByTestId("pharosville-now-caption").textContent).toContain("source offline");
+  });
+
+  it("never re-teaches an existing seen visitor, but keeps the reading key available", async () => {
+    window.localStorage.setItem(ORIENTATION_STORAGE_KEY, "1");
+    render(<PharosVilleWorld world={worldFixture()} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reading key" })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Got it" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Reading key" }).getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "Reading key" }));
+    expect(screen.getByRole("heading", { name: "Lighthouse" })).toBeTruthy();
+  });
+
+  it("waits for renderer readiness without consuming future teaching", async () => {
+    window.localStorage.removeItem(ORIENTATION_STORAGE_KEY);
+    mocks.rendererStatus = "warming";
+    mocks.rendererWarmupReady = false;
+    const view = render(<PharosVilleWorld world={worldFixture()} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reading key" })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Got it" })).toBeNull();
+    expect(window.localStorage.getItem(ORIENTATION_STORAGE_KEY)).toBeNull();
+    mocks.rendererStatus = "ready";
+    mocks.rendererWarmupReady = true;
+    view.rerender(<PharosVilleWorld world={worldFixture()} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Got it" })).toBeTruthy());
+  });
+
   it.each([true, false].flatMap((reduced) => ["ship.usdc", "dock.ethereum"].map((detailId) => ({ reduced, detailId }))))("preserves cold-load $detailId through arrival (reduced=$reduced)", async ({ reduced, detailId }) => {
     mocks.reducedMotion = reduced;
     window.history.replaceState(null, "", `/#sel=${detailId}&t=18`);
@@ -235,7 +286,6 @@ describe("PharosVilleWorld UI accessibility controls", () => {
       slice: selectGardenObservatorySlice(settled, detailId),
     })));
     expect(screen.getByTestId("pharosville-detail-panel").parentElement?.hidden).toBe(false);
-    expect(mocks.startArrival).not.toHaveBeenCalled();
     expect(screen.queryByTestId("pharosville-charting-veil")).toBeNull();
   });
 
@@ -271,27 +321,26 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(mocks.wander).toHaveBeenCalledTimes(2);
     expect(mocks.startObserveTour).not.toHaveBeenCalled();
   });
-  it("skips the establishing ease on any input", () => {
-    mocks.reducedMotion = false;
-    mocks.startArrival.mockImplementation(() => undefined);
+  it.each([true, false])("reveals the complete world immediately (reduced=%s) without swallowing input", (reduced) => {
+    mocks.reducedMotion = reduced;
     render(<PharosVilleWorld world={worldFixture()} />);
-
-    expect(screen.getByTestId("pharosville-charting-veil").getAttribute("data-arrival")).toBe("arriving");
-    fireEvent.keyDown(window, { key: "a" });
-
-    expect(mocks.skipArrival).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("pharosville-charting-veil")).toBeNull();
+    const event = new KeyboardEvent("keydown", { key: "a", bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(screen.getByTestId("pharosville-now-caption")).toBeTruthy();
   });
 
-  it("uses a reduced-motion crossfade before revealing the scene-first frame", () => {
-    vi.useFakeTimers();
-    render(<PharosVilleWorld world={worldFixture()} />);
-
-    expect(screen.getByTestId("pharosville-charting-veil").getAttribute("data-arrival")).toBe("crossfade");
-    act(() => vi.advanceTimersByTime(320));
-    expect(mocks.startArrival).toHaveBeenCalledTimes(1);
+  it("keeps the branded shell at the observed warmup stage then reveals in the readiness commit", () => {
+    mocks.rendererWarmupReady = false;
+    const view = render(<PharosVilleWorld world={worldFixture()} />);
+    expect(screen.getByRole("heading", { name: "PharosVille" })).toBeTruthy();
+    expect(screen.getByText("Preparing the renderer and shaders.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open Pharos analytics" })).toBeTruthy();
+    mocks.rendererWarmupReady = true;
+    view.rerender(<PharosVilleWorld world={worldFixture()} />);
     expect(screen.queryByTestId("pharosville-charting-veil")).toBeNull();
-    expect(screen.getByTestId("pharosville-now-caption")).toBeTruthy();
+    expect(screen.getByTestId("pharosville-world").getAttribute("data-world-ready")).toBe("true");
   });
 
   it("rests on the world, one now caption, and one quiet affordance", () => {
@@ -352,6 +401,22 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     render(<PharosVilleWorld world={worldFixture()} />);
 
     expect(screen.getByTestId("pharosville-fps-counter").textContent).toBe("Static");
+  });
+
+  it("keeps the live key independent of caption warnings and previews without camera travel", async () => {
+    const world = worldFixture({ freshness: makeSourceStatuses({ mintBurn: { state: "unavailable", reason: "issuance refresh failed" } }) });
+    render(<PharosVilleWorld world={world} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Reading key" }));
+    const lighthouse = screen.getByRole("button", { name: "Lighthouse" });
+    mocks.focusTile.mockClear();
+    fireEvent.focus(lighthouse);
+    expect(mocks.focusTile).not.toHaveBeenCalled();
+    expect(mocks.requestPaint).toHaveBeenCalled();
+    expect(screen.getByTestId("pharosville-now-caption").textContent).toContain("issuance refresh failed");
+    const leader = screen.getByRole("button", { name: "#1 USDC (USDC)" });
+    fireEvent.click(leader);
+    await waitFor(() => expect(screen.getByTestId("pharosville-detail-panel").textContent).toContain("USDC"));
+    expect(mocks.focusTile).toHaveBeenCalled();
   });
 
   it("opens the commit-collected changelog from the beta footer", async () => {
@@ -764,24 +829,6 @@ describe("PharosVilleWorld UI accessibility controls", () => {
   });
 });
 
-describe("PharosVilleLoading (W4.07)", () => {
-  it("renders the canvas-palette loading shell with default copy", () => {
-    const { container } = render(<PharosVilleLoading />);
-
-    const root = container.querySelector(".pharosville-loading");
-    expect(root).not.toBeNull();
-    expect(root?.classList.contains("pharosville-desktop")).toBe(true);
-    expect(root?.getAttribute("role")).toBe("status");
-    expect(root?.getAttribute("aria-busy")).toBe("true");
-    expect(root?.getAttribute("aria-live")).toBe("polite");
-    expect(root?.textContent).toBe("Charting market winds…");
-  });
-
-  it("accepts a custom loading message", () => {
-    render(<PharosVilleLoading message="Loading fixture" />);
-    expect(screen.getByText("Loading fixture")).toBeTruthy();
-  });
-});
 
 function targetFixtures(): HitTarget[] {
   return [
@@ -1056,6 +1103,7 @@ function worldFixture(input: {
       score: 82,
       tile: { x: 4, y: 4 },
       unavailable: false,
+      evidence: {},
     },
     map: { height: 10, tiles: [], waterRatio: 1, width: 10 },
     pigeonnier: {
@@ -1090,7 +1138,10 @@ function worldFixture(input: {
       tile: { x: 2, y: 3 },
       change7dPct: 4,
       visual: {
+        hull: "treasury-galleon",
+        scale: 1,
         sizeTier: "major",
+        sizeLabel: "Major ship",
       },
     }],
     visualCues: [],

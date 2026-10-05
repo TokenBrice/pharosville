@@ -18,6 +18,7 @@ import { MIN_HULL_GAP, resetGardenFleetPlacementCache } from "./garden-fleet-pla
 import {
   GARDEN_SHIP_ROOT_Y,
   GARDEN_SILHOUETTE_FOR_HULL,
+  gardenRepresentativeRestHeading,
   gardenShipVisualScale,
   resolveGardenShipDisplayTile,
   selectGardenObservatorySlice,
@@ -63,6 +64,50 @@ describe("motion", () => {
     freshness: makeSourceStatuses(),
   });
   const densePlanFixture = buildBaseMotionPlan(denseWorldFixture);
+
+  it("carries the accepted resting heading into route metadata, identity and the still tableau", () => {
+    const world = denseWorldFixture;
+    const plan = densePlanFixture;
+    let checked = 0;
+    for (const ship of world.ships) {
+      const route = plan.shipRoutes.get(ship.id)!;
+      const accepted = route.restingHeadingRad;
+      if (accepted === undefined) continue;
+      // Route metadata carries the authored lobe axis with its bounded
+      // deterministic variation, and the identity key moves with it, so a
+      // recomposed berth invalidates the route rather than keeping a stale pose.
+      expect(route.routeKey, ship.id).toContain(`rest=${accepted.toFixed(6)}`);
+      // Reduced motion poses the hull at that heading instead of due east.
+      const still = resolveShipMotionSample({ plan, reducedMotion: true, ship, timeSeconds: 0 });
+      expect(Math.hypot(still.heading.x, still.heading.y), ship.id).toBeCloseTo(1, 10);
+      expect(still.heading.x, ship.id).toBeCloseTo(Math.cos(accepted), 10);
+      expect(still.heading.y, ship.id).toBeCloseTo(Math.sin(accepted), 10);
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(50);
+    const representative = world.ships.find((ship) => gardenRepresentativeRestHeading(world, ship.id) !== null)!;
+    expect(plan.shipRoutes.get(representative.id)!.restingHeadingRad)
+      .toBeCloseTo(gardenRepresentativeRestHeading(world, representative.id)!, 10);
+  });
+
+  it("keeps a quay dwell on its dock axis and underway headings authoritative", () => {
+    const world = denseWorldFixture;
+    const plan = densePlanFixture;
+    let dwells = 0;
+    for (const ship of world.ships) {
+      const route = plan.shipRoutes.get(ship.id)!;
+      const stop = route.dockStops.find((entry) => entry.dockTangent);
+      if (!stop) continue;
+      const sample = resolveShipMotionSample({ plan, reducedMotion: false, ship, timeSeconds: 12 - route.phaseSeconds });
+      if (sample.state !== "moored" || sample.currentDockId !== stop.dockId) continue;
+      const tangent = stop.dockTangent!;
+      const apart = Math.acos(Math.max(-1, Math.min(1, sample.heading.x * tangent.x + sample.heading.y * tangent.y)));
+      // The quay keeps its own axis: the resting heading never overrides it.
+      expect(apart * 180 / Math.PI, ship.id).toBeLessThan(4);
+      dwells += 1;
+    }
+    expect(dwells).toBeGreaterThan(10);
+  });
 
   it("keeps dockless patrols meaningful across every risk water zone", () => {
     const cases: Array<{ expectedTerrains: string[]; minDistance: number; zone: ShipWaterZone; world: PharosVilleWorld }> = [

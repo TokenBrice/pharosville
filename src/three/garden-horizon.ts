@@ -32,8 +32,8 @@ export interface GardenHorizon {
 }
 
 /**
- * W2.4 (sky-3, garden-master-1 step 5): shakkei — five painted ridges borrowed
- * from beyond the harbour, like a folding screen behind the Pharos.
+ * Shakkei: four sky ranges borrowed from beyond the harbour. The near
+ * headland is fixed-world terrain in garden-rim-mesh, not a painted ridge.
  *
  * Authored in the rest seat's own frame: `left`/`right` are degrees from the
  * seat's view axis (positive right), `height` degrees above the horizon at
@@ -41,7 +41,7 @@ export interface GardenHorizon {
  * true sea horizon with no parallax, like the dome.
  *
  * - The peak (right, pale, asymmetric, under 4°) is the composition's anchor
- *   beside the crown; it and the near headland NEVER depend on PSI (K39).
+ *   beside the crown; it NEVER depends on PSI (K39).
  * - The far range, the western ridge and the eastern ridge carry market
  *   stability: the haze takes the far range first (psi-sky `FAR_SHORE_RANGES`).
  * - Opaque. Value = mix(ink, airlight, k) with the airlight ladder below, so
@@ -71,11 +71,6 @@ export const GARDEN_HORIZON_RIDGES = [
     name: "western-ridge", depth: 360, left: -27, right: -10, height: 2.4, k: 0.62, psi: 1, roughness: 0.025,
     knots: [0, 0.28, 0.6, 0.86, 1, 0.8, 0.56, 0.62, 0.38, 0.14, 0],
   },
-  // The near headland at the right edge, dark, with a crest of small pines.
-  {
-    name: "near-headland", depth: 260, left: 22, right: 36, height: 1.5, k: 0.4, psi: -1, roughness: 0.05,
-    knots: [0, 0.46, 0.82, 1, 0.94, 0.9, 0.74, 0.52, 0.3],
-  },
 ] as const;
 
 /** The airlight value ladder, far → near (the k of `mix(ink, air, k)`). */
@@ -94,7 +89,6 @@ const KASUMI_ALPHA = 0.55;
 const KASUMI_SEGMENTS = 16;
 
 const RIDGE_SAMPLES = 64;
-const HEADLAND_SAMPLES = 110;
 /**
  * Feet sink this far below the horizon (still above the sea annulus's rim at the
  * seat); below −0.35° they are pure airlight, the same colour the dome's lower
@@ -152,7 +146,7 @@ function createGeometry(): BufferGeometry {
   // Ridges, far to near, so the painter's order inside the one draw agrees
   // with depth.
   for (const [index, ridge] of GARDEN_HORIZON_RIDGES.entries()) {
-    const samples = ridge.name === "near-headland" ? HEADLAND_SAMPLES : RIDGE_SAMPLES;
+    const samples = RIDGE_SAMPLES;
     const heights: number[] = [];
     const spanDeg = ridge.right - ridge.left;
     for (let s = 0; s <= samples; s += 1) {
@@ -162,14 +156,7 @@ function createGeometry(): BufferGeometry {
       // Two octaves of 1-D noise × roughness, in degrees: far ridges smooth,
       // near ridges textured (detail as aerial perspective).
       const noise = valueNoise(lateralUnits / 9, index) + 0.5 * valueNoise(lateralUnits / 3.5, index + 7);
-      let height = base * ridge.height + (base > 0.05 ? noise * ridge.roughness * 4 * ridge.height : 0);
-      if (ridge.name === "near-headland" && base > 0.3) {
-        // Pine crest: small crowns of 0.6–1.4 u every 2–3 u (sky-3).
-        const spacing = 2 + (valueNoise(lateralUnits / 11, 21) + 1) * 0.5;
-        const phase = (lateralUnits / spacing) % 1;
-        const crown = 0.6 + (valueNoise(Math.floor(lateralUnits / spacing), 33) + 1) * 0.4;
-        height += (1 - Math.abs(phase * 2 - 1)) * crown / ridge.depth / DEG;
-      }
+      const height = base * ridge.height + (base > 0.05 ? noise * ridge.roughness * 4 * ridge.height : 0);
       heights.push(Math.max(0, height));
     }
     for (let s = 0; s <= samples; s += 1) {
@@ -319,7 +306,7 @@ const INK_SCALE = { dawn: 0.8, day: 0.55, golden: 0.7, blue: 0.45, night: 0.22 }
 const BEAT_NAMES = ["dawn", "day", "golden", "blue", "night"] as const;
 
 /**
- * Five borrowed ridges and three kasumi bands beyond the plate, one depth-tested
+ * Four borrowed sky ridges and three kasumi bands, one depth-tested
  * draw. Hidden on the constrained tier.
  */
 export function createGardenHorizon(): GardenHorizon {
@@ -370,7 +357,7 @@ export function createGardenHorizon(): GardenHorizon {
       }
       ink.copy(INK_BASE).multiplyScalar(inkScale);
       // K39: the three PSI ranges fade into the air as clarity falls; clear air
-      // also steps them a little nearer in value. The peak and the headland hold.
+      // also steps them a little nearer in value. The anchor peak holds.
       const clear = Math.max(frame.clarity, 0);
       for (const [index, ridge] of GARDEN_HORIZON_RIDGES.entries()) {
         if (ridge.psi < 0) {

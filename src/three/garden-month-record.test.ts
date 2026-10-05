@@ -1,141 +1,122 @@
-import { Color, InstancedMesh } from "three";
-import { describe, expect, it } from "vitest";
-import { hexToOklch } from "../systems/palette";
-import type { GardenMonthRecord } from "../systems/world-types";
-import { makePharosVilleWorldInput } from "../__fixtures__/pharosville-world";
-import { buildPharosVilleWorld } from "../systems/pharosville-world";
-import { createTerracedIsland } from "./garden-island";
-import { applyGardenMonthRecord } from "./garden-month-record";
+import { BufferAttribute, ShaderLib, Vector3 } from "three";
+import { describe, expect, it, vi } from "vitest";
+import { fixtureStability, makeSourceStatuses } from "../__fixtures__/pharosville-world";
+import { buildGardenMonthRecord } from "../systems/garden-month-record";
+import { createGardenThreshold } from "./garden-threshold";
+import { createGardenMonthTrace, GARDEN_MONTH_FURROW_WIDTH } from "./garden-month-record";
 
-const world = buildPharosVilleWorld(makePharosVilleWorldInput());
-const CALM: GardenMonthRecord = { averagePsi: 90, growth: 1, sampleCount: 30, spanDays: 29, unavailable: false };
-const STRESSED: GardenMonthRecord = { averagePsi: 20, growth: 0, sampleCount: 30, spanDays: 29, unavailable: false };
-const MISSING: GardenMonthRecord = { averagePsi: null, growth: 0.5, sampleCount: 0, spanDays: 0, unavailable: true };
-
-/** Mean pine pigment response and the horizontal span of every independently ranked pad. */
-function pineRead(record: GardenMonthRecord) {
-  const root = createTerracedIsland(world).root;
-  applyGardenMonthRecord(root, record);
-  const grove = root.getObjectByName("island-niwaki-grove") as InstancedMesh;
-  const foliage = grove.geometry.getAttribute("aGardenFoliage");
-  const colors = grove.geometry.getAttribute("color");
-  const position = grove.geometry.getAttribute("position");
-  const color = new Color();
-  let l = 0;
-  let c = 0;
-  let red = 0;
-  let green = 0;
-  let count = 0;
-  const spans = new Map<number, { min: number; max: number }>();
-  for (let vertex = 0; vertex < foliage.count; vertex += 1) {
-    if (foliage.getX(vertex) <= 0) continue;
-    color.setRGB(colors.getX(vertex), colors.getY(vertex), colors.getZ(vertex));
-    const oklch = hexToOklch(`#${color.getHexString()}`);
-    l += oklch.l;
-    c += oklch.c;
-    red += color.r;
-    green += color.g;
-    count += 1;
-    const rank = foliage.getX(vertex);
-    const span = spans.get(rank) ?? { min: Infinity, max: -Infinity };
-    span.min = Math.min(span.min, position.getX(vertex));
-    span.max = Math.max(span.max, position.getX(vertex));
-    spans.set(rank, span);
-  }
-  const karikomi = root.getObjectByName("island-karikomi") as InstancedMesh;
-  const hedge = hexToOklch(`#${karikomi.getColorAt(0, new Color()).getHexString()}`);
-  return { c: c / count, hedgeL: hedge.l, l: l / count, redness: red / green,
-    spans: Array.from(spans.values(), ({ min, max }) => max - min) };
+const NOW = Date.UTC(2026, 7, 13);
+const DAY = 86_400_000;
+function record(points: Array<{ ago: number; score: number; version?: string }>) {
+  return buildGardenMonthRecord({ ...fixtureStability, history: points.map(({ ago, score, version = "v1" }) => ({
+    date: NOW - ago * DAY, score, band: "STEADY", methodologyVersion: version,
+  })) });
 }
 
-describe("garden month record rendering", () => {
-  const neutral = pineRead(MISSING);
-
-  it("deepens and fills the island evergreens after a calm month, never brightening them", () => {
-    const calm = pineRead(CALM);
-    expect(calm.l).toBeLessThan(neutral.l - 0.03);
-    expect(calm.c).toBeLessThanOrEqual(neutral.c + 0.005);
-    expect(calm.hedgeL).toBeLessThan(neutral.hedgeL);
-    for (let pad = 0; pad < calm.spans.length; pad += 1) {
-      expect(calm.spans[pad]! / neutral.spans[pad]!).toBeCloseTo(1.07, 5);
-    }
+describe("dated gravel furrow", () => {
+  it("draws at most 116 triangles in one non-emissive texture-free gravel mesh", () => {
+    const threshold = createGardenThreshold();
+    const trace = createGardenMonthTrace(threshold);
+    trace.update(record(Array.from({ length: 30 }, (_, ago) => ({ ago, score: ago % 2 ? 0 : 100 }))));
+    expect(trace.mesh.parent).toBe(threshold.root);
+    expect(trace.mesh.geometry.drawRange.count / 3).toBe(116);
+    expect(trace.mesh.material.userData.gardenSurface.role).toBe("gravel");
+    expect(trace.mesh.material.userData.gardenSurfaceExemption).toBe("dataTrace");
+    expect(trace.mesh.material.vertexColors).toBe(false);
+    expect(trace.mesh.material.color.equals(threshold.gravelInset.pigment)).toBe(true);
+    expect(trace.mesh.material.emissive.getHex()).toBe(0);
+    expect(trace.mesh.material.emissiveIntensity).toBe(0);
+    expect(trace.mesh.material.map).toBeNull();
+    expect(trace.mesh.material.normalMap).toBeNull();
+    expect(trace.mesh.material.roughness).toBe(0.97);
+    expect(trace.mesh.castShadow).toBe(false);
+    threshold.dispose();
   });
 
-  it("thins the pads and browns them toward straw after a stressed month", () => {
-    const stressed = pineRead(STRESSED);
-    expect(stressed.redness).toBeGreaterThan(neutral.redness);
-    for (let pad = 0; pad < stressed.spans.length; pad += 1) {
-      expect(stressed.spans[pad]! / neutral.spans[pad]!).toBeCloseTo(0.93, 5);
+  it("places chronological centre samples on the root-local fixed 0–100 score axes without overshoot", () => {
+    const threshold = createGardenThreshold();
+    const trace = createGardenMonthTrace(threshold);
+    trace.update(record([{ ago: 2, score: 0 }, { ago: 1, score: 100 }, { ago: 0, score: 25 }]));
+    const { centre, right, forward, normal, width, depth } = threshold.gravelInset;
+    const positions = trace.mesh.geometry.getAttribute("position");
+    const delta = new Vector3();
+    let priorX = -Infinity;
+    for (let sample = 0; sample < 3; sample += 1) {
+      const centreIndex = sample * 3 + 1;
+      delta.fromBufferAttribute(positions, centreIndex).sub(centre);
+      expect(delta.dot(right)).toBeGreaterThan(priorX);
+      priorX = delta.dot(right);
+      expect(delta.dot(forward)).toBeCloseTo(([0, 100, 25][sample]! / 100 - 0.5) * depth * 0.72, 5);
+      expect(delta.dot(normal)).toBeCloseTo(0.002, 5);
+      const left = new Vector3().fromBufferAttribute(positions, sample * 3);
+      const rightEdge = new Vector3().fromBufferAttribute(positions, sample * 3 + 2);
+      expect(left.distanceTo(rightEdge)).toBeCloseTo(GARDEN_MONTH_FURROW_WIDTH, 5);
     }
+    for (let index = 0; index < 9; index += 1) {
+      delta.fromBufferAttribute(positions, index).sub(centre);
+      expect(Math.abs(delta.dot(right))).toBeLessThan(width / 2);
+      expect(Math.abs(delta.dot(forward))).toBeLessThan(depth / 2);
+    }
+    const before = trace.mesh.getWorldPosition(new Vector3());
+    threshold.root.position.add(new Vector3(0.1, 0.2, 0.3));
+    expect(trace.mesh.getWorldPosition(new Vector3()).sub(before).distanceTo(new Vector3(0.1, 0.2, 0.3))).toBeLessThan(1e-6);
+    threshold.dispose();
   });
 
-  it("scales every positive-rank pad about its own centre and seat without touching maple or bark", () => {
-    for (const record of [CALM, STRESSED]) {
-      const root = createTerracedIsland(world).root;
-      const grove = root.getObjectByName("island-niwaki-grove") as InstancedMesh;
-      const geometry = grove.geometry;
-      const foliage = geometry.getAttribute("aGardenFoliage");
-      const position = geometry.getAttribute("position");
-      const beforePosition = position.array.slice();
-      const beforeColor = geometry.getAttribute("color").array.slice();
-      const beforeNormal = geometry.getAttribute("normal").array.slice();
-      const beforeIndex = geometry.index!.array.slice();
-      const beforeRanks = foliage.array.slice();
-      const beforeCentres = geometry.getAttribute("aGardenPadCentre").array.slice();
-      const hedge = root.getObjectByName("island-karikomi") as InstancedMesh;
-      const hedgeMatrices = hedge.instanceMatrix.array.slice();
-      const pads = new Map<number, { vertices: number[]; floor: number; x: number; z: number }>();
-      for (let vertex = 0; vertex < foliage.count; vertex += 1) {
-        const rank = foliage.getX(vertex);
-        if (rank <= 0) continue;
-        const pad = pads.get(rank) ?? { vertices: [], floor: Infinity, x: 0, z: 0 };
-        pad.vertices.push(vertex);
-        pad.floor = Math.min(pad.floor, position.getY(vertex));
-        pad.x += position.getX(vertex);
-        pad.z += position.getZ(vertex);
-        pads.set(rank, pad);
-      }
-      applyGardenMonthRecord(root, record);
-      const scale = record === CALM ? 1.07 : 0.93;
-      for (const pad of pads.values()) {
-        const cx = pad.x / pad.vertices.length;
-        const cz = pad.z / pad.vertices.length;
-        for (const vertex of pad.vertices) {
-          expect(position.getX(vertex)).toBeCloseTo(cx + (beforePosition[vertex * 3]! - cx) * scale, 5);
-          expect(position.getY(vertex)).toBeCloseTo(pad.floor + (beforePosition[vertex * 3 + 1]! - pad.floor) * scale, 5);
-          expect(position.getZ(vertex)).toBeCloseTo(cz + (beforePosition[vertex * 3 + 2]! - cz) * scale, 5);
-        }
-      }
-      const color = geometry.getAttribute("color");
-      for (let vertex = 0; vertex < foliage.count; vertex += 1) {
-        if (foliage.getX(vertex) > 0) continue;
-        for (let axis = 0; axis < 3; axis += 1) {
-          expect(position.array[vertex * 3 + axis]).toBe(beforePosition[vertex * 3 + axis]);
-          expect(color.array[vertex * 3 + axis]).toBe(beforeColor[vertex * 3 + axis]);
-        }
-      }
-      expect(geometry.getAttribute("normal").array).toEqual(beforeNormal);
-      expect(geometry.index!.array).toEqual(beforeIndex);
-      expect(foliage.array).toEqual(beforeRanks);
-      expect(geometry.getAttribute("aGardenPadCentre").array).toEqual(beforeCentres);
-      expect(hedge.instanceMatrix.array).toEqual(hedgeMatrices);
+  it("uses separate isolated marks at missing days and methodology edges, never bridge triangles", () => {
+    const threshold = createGardenThreshold();
+    const trace = createGardenMonthTrace(threshold);
+    trace.update(record([{ ago: 4, score: 80 }, { ago: 3, score: 70, version: "v2" }, { ago: 0, score: 60, version: "v2" }]));
+    expect(trace.mesh.geometry.drawRange.count).toBe(18);
+    const indices = trace.mesh.geometry.index!;
+    for (let triangle = 0; triangle < 6; triangle += 1) {
+      const pointGroups = [0, 1, 2].map((corner) => Math.floor(indices.getX(triangle * 3 + corner) / 4));
+      expect(new Set(pointGroups).size).toBe(1);
     }
+    trace.update(record([{ ago: 0, score: 70 }]));
+    expect(trace.mesh.visible).toBe(true);
+    expect(trace.mesh.geometry.drawRange.count).toBe(6);
+    trace.update(buildGardenMonthRecord(null));
+    expect(trace.mesh.visible).toBe(false);
+    expect(trace.mesh.geometry.drawRange.count).toBe(0);
+    threshold.dispose();
   });
 
-  it("leaves unavailable or absent history identical to a fresh unmodified garden", () => {
-    for (const record of [MISSING, undefined]) {
-      const root = createTerracedIsland(world).root;
-      const grove = root.getObjectByName("island-niwaki-grove") as InstancedMesh;
-      const positions = grove.geometry.getAttribute("position").array.slice();
-      const colors = grove.geometry.getAttribute("color").array.slice();
-      const normals = grove.geometry.getAttribute("normal").array.slice();
-      const hedge = root.getObjectByName("island-karikomi") as InstancedMesh;
-      const hedgeColors = hedge.instanceColor!.array.slice();
-      applyGardenMonthRecord(root, record);
-      expect(grove.geometry.getAttribute("position").array).toEqual(positions);
-      expect(grove.geometry.getAttribute("color").array).toEqual(colors);
-      expect(grove.geometry.getAttribute("normal").array).toEqual(normals);
-      expect(hedge.instanceColor!.array).toEqual(hedgeColors);
-    }
+  it("keeps static buffers/materials resident, updating only changed dated content and not held evidence", () => {
+    const threshold = createGardenThreshold();
+    const trace = createGardenMonthTrace(threshold);
+    const daily = record([{ ago: 1, score: 70 }, { ago: 0, score: 80 }]);
+    expect(trace.update(daily)).toBe(true);
+    const position = trace.mesh.geometry.getAttribute("position") as BufferAttribute;
+    const version = position.version;
+    const original = position.array.slice();
+    const material = trace.mesh.material;
+    expect(trace.update(daily)).toBe(false);
+    expect(trace.update({ ...daily, evidence: makeSourceStatuses({ stability: { state: "stale", reason: "held" } }).stability })).toBe(false);
+    expect(position.version).toBe(version);
+    expect(position.array).toEqual(original);
+    expect(trace.update(record([{ ago: 1, score: 70 }, { ago: 0, score: 81 }]))).toBe(true);
+    expect(trace.mesh.geometry.getAttribute("position")).toBe(position);
+    expect(trace.mesh.material).toBe(material);
+    expect(position.version).toBe(version + 1);
+    const shader = { uniforms: {}, vertexShader: ShaderLib.standard.vertexShader, fragmentShader: ShaderLib.standard.fragmentShader };
+    material.onBeforeCompile(shader as never, null as never);
+    expect(shader.fragmentShader).toContain("fwidth(vGardenFurrowSide)");
+    expect(shader.fragmentShader).not.toMatch(/uTime|timeSeconds/);
+    threshold.dispose();
+  });
+
+  it("disposes only its owned geometry/material once and detaches from the threshold", () => {
+    const threshold = createGardenThreshold();
+    const trace = createGardenMonthTrace(threshold);
+    const geometryDispose = vi.spyOn(trace.mesh.geometry, "dispose");
+    const materialDispose = vi.spyOn(trace.mesh.material, "dispose");
+    trace.dispose(); trace.dispose();
+    expect(geometryDispose).toHaveBeenCalledTimes(1);
+    expect(materialDispose).toHaveBeenCalledTimes(1);
+    expect(trace.mesh.parent).toBeNull();
+    expect(trace.update(record([{ ago: 0, score: 80 }]))).toBe(false);
+    threshold.dispose();
+    expect(geometryDispose).toHaveBeenCalledTimes(1);
   });
 });

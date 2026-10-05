@@ -21,7 +21,7 @@ import type { ScreenPoint } from "../systems/projection";
 import { REST_SEAT_EYE_HEIGHT } from "../systems/rest-seat";
 import type { WeatherPlan } from "../systems/weather";
 import { chainGardenMaterialPatch } from "./garden-aerial";
-import { gardenLandingStonePerch, islandTerrainHeight } from "./garden-island";
+import { GARDEN_CHASEKI_ANCHORS, gardenLandingStonePerch, islandTerrainHeight } from "./garden-island";
 import type { GardenKeeperRitual } from "./garden-lanterns";
 
 /**
@@ -161,16 +161,6 @@ const GULL_BANK = 0.42;
 const LANDING_STONE_GULL_PERCH = gardenLandingStonePerch();
 /** The signal mast's step on the lee bench and its height (`garden-signal-mast.ts`, world-renderer). */
 const SIGNAL_MAST_TRUCK = { x: 7.2, y: 0.98 + 7.2, z: 3.2 } as const;
-/** The chaseki's hipped ridge (root (4.4, 1.05, 2.35) yawed 0.22; roof seat 2.58 + ridge 0.85). */
-const CHASEKI_RIDGE = { x: 4.4, y: 1.05 + 2.58 + 0.85, z: 2.35, yaw: 0.22 } as const;
-
-function chasekiRidge(along: number): { x: number; y: number; z: number } {
-  return {
-    x: CHASEKI_RIDGE.x + along * Math.cos(CHASEKI_RIDGE.yaw),
-    y: CHASEKI_RIDGE.y,
-    z: CHASEKI_RIDGE.z - along * Math.sin(CHASEKI_RIDGE.yaw),
-  };
-}
 
 function shoreRock(x: number, z: number): { x: number; y: number; z: number } {
   return { x, y: islandTerrainHeight(x, z), z };
@@ -189,8 +179,8 @@ const ISLAND_GULL_PERCHES: readonly {
   apex: number;
 }[] = [
   { ...SIGNAL_MAST_TRUCK, apex: 10.8 },
-  { ...chasekiRidge(-0.5), apex: 8.6 },
-  { ...chasekiRidge(0.55), apex: 9.4 },
+  { ...GARDEN_CHASEKI_ANCHORS.ridgePerches[0]!, apex: 8.6 },
+  { ...GARDEN_CHASEKI_ANCHORS.ridgePerches[1]!, apex: 9.4 },
   { ...LANDING_STONE_GULL_PERCH, apex: 9.2 },
   { ...shoreRock(15.5, 7), apex: 7.6 },
   { ...shoreRock(4, 13.5), apex: 8.2 },

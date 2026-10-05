@@ -6,7 +6,7 @@
 import {
   makeAsset, makeChain, makePegCoin, makePharosVilleWorldInput, makeSourceStatuses,
   fixtureStablecoins, fixtureChains, fixtureStability, fixturePegSummary,
-  fixtureStress, fixtureSafetyGrades, fixtureMintBurn,
+  fixtureStress, fixtureSafetyGrades, fixtureMintBurn, fixtureCompleteFlowValuation,
   denseFixtureStablecoins, denseFixtureChains, denseFixturePegSummary,
   denseFixtureStress, denseFixtureSafetyGrades,
 } from "@/__fixtures__/pharosville-world";
@@ -37,6 +37,7 @@ function flow(row: MintBurnCoinFlow, mint: number, burn: number): MintBurnCoinFl
     flowIntensity: 0, has24hActivity: mint + burn > 0,
     netFlowDirection24h: mint + burn === 0 ? "inactive" : net > 0 ? "minting" : net < 0 ? "burning" : "flat",
     coverage: { ...FULL_COVERAGE }, largestEvent24h: null,
+    valuation: structuredClone(fixtureCompleteFlowValuation),
   };
 }
 

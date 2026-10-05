@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { defaultCamera, withoutRest } from "../systems/camera";
-import { GARDEN_FLEET_THINNING_START_ZOOM } from "../systems/garden-fleet-thinning";
 import { zoomCameraByWheelDelta } from "../hooks/camera-intent";
 import { minZoomForViewport, type IsoCamera } from "../systems/projection";
 import { PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH } from "../systems/world-layout";
@@ -18,13 +17,25 @@ function policyFor(camera: IsoCamera, viewport: { x: number; y: number }, select
 }
 
 describe("renderer detail policy (W1.0 rest state)", () => {
-  it.each(gates)("keeps explore-level truth carriers and the whole fleet at rest at $x × $y", (viewport) => {
+  it("owns semantic scene detail without gating physical mover visibility", () => {
+    expect(createRendererDetailPolicy()).toEqual({
+      rest: false,
+      semanticView: "overview",
+      showWorldDetail: false,
+      zoneBuoys: "hidden",
+      overviewLodZoom: 1,
+      fleetClothZoom: 1,
+      seaSignZoom: 1,
+      aoFramingTarget: 1,
+    });
+  });
+
+  it.each(gates)("keeps explore-level truth carriers and full props at rest at $x × $y", (viewport) => {
     const policy = policyFor(defaultCamera({ height: viewport.y, map, width: viewport.x }), viewport);
     expect(policy.rest).toBe(true);
     expect(policy.semanticView).toBe("explore");
     expect(policy.zoneBuoys).toBe("all");
     expect(policy.showWorldDetail).toBe(true);
-    expect(policy.fleetThinningZoom).toBeGreaterThanOrEqual(GARDEN_FLEET_THINNING_START_ZOOM);
     expect(policy.overviewLodZoom).toBeGreaterThanOrEqual(OVERVIEW_LOD_FULL_ZOOM);
   });
 
@@ -42,7 +53,6 @@ describe("renderer detail policy (W1.0 rest state)", () => {
       const policy = policyFor(rig, viewport);
       expect(policy.rest).toBe(false);
       expect(policy.semanticView).toBe("explore");
-      expect(policy.fleetThinningZoom).toBeGreaterThanOrEqual(GARDEN_FLEET_THINNING_START_ZOOM);
       expect(policy.overviewLodZoom).toBeGreaterThanOrEqual(OVERVIEW_LOD_FULL_ZOOM);
     }
   });
@@ -54,7 +64,6 @@ describe("renderer detail policy (W1.0 rest state)", () => {
     expect(policy.rest).toBe(false);
     expect(policy.semanticView).toBe("overview");
     expect(policy.zoneBuoys).toBe("hidden");
-    expect(policy.fleetThinningZoom).toBeCloseTo(wholeMap.zoom, 9);
     expect(policy.overviewLodZoom).toBeCloseTo(wholeMap.zoom, 9);
     expect(policy.seaSignZoom).toBeCloseTo(wholeMap.zoom, 9);
   });

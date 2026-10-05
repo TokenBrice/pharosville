@@ -25,9 +25,14 @@ Last updated: 2026-09-27
   restoring the retired 20-ship cap.
 - Same-origin media with deterministic fallbacks. Checked models change through
   generators, not binary edits.
-- Hour-Print budgets: no new textures (the whole-map census is at 72/72; sample
-  the noise pack), no new fleet sail-program vertex attributes (16/16), and
-  every discrete event admitted through the director's attention budget.
+- Garden Observatory comparisons report signed, owner-attributed JS gzip,
+  draw-call, triangle, texture and logical-byte deltas under unchanged global
+  caps; resource equality and a blanket no-new-textures rule are not required.
+  Name the displaced salience or cost, charge shared assets once, and reconcile
+  earned allowances against measured totals rather than spending headroom twice.
+  Keep the existing fleet sail-program attribute ceiling (16/16) and admit
+  every discrete event through the director's attention budget. Any cap change
+  belongs to the orchestrator and requires the approved evidence.
 - Chrome colours come from the light score (`src/systems/chrome-air.ts`), never
   a day/night switch, and every text role stays AA
   (`src/systems/chrome-air.test.ts`).
@@ -38,6 +43,7 @@ Last updated: 2026-09-27
 - Three.js or hit testing: `npm test -- src/three src/renderer`
 - Browser visual/interaction: `npm run test:visual`
 - Resource or performance: `npm run test:perf`
+- Garden Observatory resource/device acceptance: follow the M5 Pro calibration protocol in `TESTING.md` ("M5 Pro calibration — Garden Observatory"); hardware evidence remains pending until its baseline/candidate matrix and long-session gates are recorded.
 - Media: `npm run check:runtime-media`
 - Viewport/import boundary: `npm run check:viewport-gate`
 - Docs: `npm run validate:docs`

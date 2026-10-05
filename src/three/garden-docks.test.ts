@@ -1,4 +1,4 @@
-import { Box3, Color, InstancedMesh, Matrix4, Mesh, Vector3 } from "three";
+import { Box3, Color, InstancedMesh, Matrix4, Mesh, Ray, Vector3, type BufferGeometry } from "three";
 import { describe, expect, it } from "vitest";
 import type { DockNode } from "../systems/world-types";
 import { HARBOR_PALETTE } from "../systems/palette";
@@ -16,6 +16,7 @@ import {
 import { createGardenHarborBatch } from "./garden-harbor-batch";
 import { dockFixture as dock, ISLAND_TILE } from "./__fixtures__/harbor";
 
+import { GARDEN_SURFACE_ROLE_ATTRIBUTE, GARDEN_SURFACE_ROLE_CODES } from "./garden-surfaces";
 const DISPLAY_TILE = { x: 40, y: 32 };
 const ARCHETYPES: readonly StationType[] = [
   "ethereum-mole", "hatago-wharf", "uogashi", "stepped-inlet", "fishing-pier",
@@ -212,33 +213,126 @@ describe("garden station recipes", () => {
     }
   });
 
-  it("gives every station roof a ridge, eave and gable profile instead of a flat plane", () => {
+  it("samples sagged station profiles, thick undersides and exposed rafters", () => {
     for (const type of ARCHETYPES) {
       const recipe = recipeWithStation(type);
-      const roofParts = recipe.parts.filter((part) => part.bucket === "roof");
-      // The field part stays the station's ladder colour; a second, darker
-      // trim part carries the ridge cap, fascia shadow lines and gable plate.
-      expect(roofParts.length, `${type} roof parts`).toBeGreaterThanOrEqual(2);
-      const [field, trim] = roofParts;
-      const fieldProfile = field.geometry.userData.roofField as { fieldShells: number; fieldTriangles: number };
-      expect(fieldProfile.fieldShells, `${type} field shells`).toBeGreaterThanOrEqual(1);
-      // A flat single quad is 2 triangles; every articulated field breaks up.
-      expect(fieldProfile.fieldTriangles, `${type} field triangles`).toBeGreaterThanOrEqual(6);
-      const trimProfile = trim.geometry.userData.roofTrim as {
-        brackets: number; fascias: number; gablePlates: number;
-        ridgeCaps: number; ridgeBeams: number; surfaceBreaks: number;
-      };
-      expect(trimProfile.ridgeCaps, `${type} ridge cap`).toBeGreaterThanOrEqual(1);
-      expect(trimProfile.fascias, `${type} eave fascias`).toBeGreaterThanOrEqual(4);
-      expect(trimProfile.gablePlates, `${type} gable plate`).toBeGreaterThanOrEqual(1);
-      expect(trimProfile.brackets, `${type} eave brackets`).toBeGreaterThanOrEqual(4);
-      expect(trimProfile.surfaceBreaks, `${type} surface break`).toBeGreaterThanOrEqual(1);
-      const luminance = (color: Color) => color.r + color.g + color.b;
-      expect(luminance(trim.color), `${type} trim darker than field`).toBeLessThan(luminance(field.color));
-      const structure = recipe.parts.find((part) => part.bucket === "timber")!.geometry.userData.roofStructure as { brackets: number; ridgeBeams: number };
-      expect(structure.ridgeBeams, `${type} ridge beam`).toBeGreaterThanOrEqual(1);
-      expect(structure.brackets, `${type} structural brackets`).toBeGreaterThanOrEqual(4);
+      try {
+        const fields = recipe.parts.filter((part) => part.geometry.name === "roof-field");
+        for (const field of fields) {
+          const geometry = field.geometry;
+          geometry.computeBoundingBox();
+          const bounds = geometry.boundingBox!;
+          const center = bounds.getCenter(new Vector3());
+          const acrossX = type === "ethereum-mole" && bounds.max.z - bounds.min.z > bounds.max.x - bounds.min.x;
+          const halfSpan = (acrossX ? bounds.max.x - bounds.min.x : bounds.max.z - bounds.min.z) / 2;
+          const hitAt = (offset: number) => roofRayHits(geometry,
+            new Vector3(center.x + (acrossX ? offset : 0), 100, center.z + (acrossX ? 0 : offset)));
+          const a = hitAt(halfSpan - 0.001)[0]!;
+          const b = hitAt(-halfSpan + 0.001)[0]!;
+          const monoPitch = Math.abs(a - b) > 0.5;
+          const eave = bounds.min.y + 0.14;
+          const ridge = bounds.max.y;
+          const sample = hitAt(monoPitch ? 0 : halfSpan * 0.52);
+          const fraction = monoPitch ? 0.5 : 0.48;
+          const straight = eave + (ridge - eave) * fraction;
+          expect(sample[0], `${type} modest sag`).toBeLessThan(straight - 0.01);
+          expect(sample[0], `${type} no upturned caricature`).toBeGreaterThan(straight - 0.051);
+          expect(sample[0]! - sample[sample.length - 1]!, `${type} underside thickness`).toBeCloseTo(0.14, 4);
+          const index = recipe.parts.indexOf(field);
+          const courses = recipe.parts[index + 1]!;
+          const rafters = recipe.parts[index + 2]!;
+          expect(courses.geometry.name).toBe("ridge-end-courses");
+          expect(rafters.geometry.name).toBe("underside-rafters");
+          rafters.geometry.computeBoundingBox();
+          expect(rafters.geometry.boundingBox!.min.y).toBeLessThan(eave - 0.14);
+          expect(rafters.geometry.boundingBox!.max.y).toBeLessThan(ridge - 0.11);
+          expect(courses.color.r + courses.color.g + courses.color.b).toBeLessThan(field.color.r + field.color.g + field.color.b);
+          const roles = geometry.getAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE);
+          expect(Array.from(roles.array).every((role) => role === GARDEN_SURFACE_ROLE_CODES.roofTile)).toBe(true);
+        }
+        expect(fields.length, type).toBeGreaterThan(0);
+        // End-field samples distinguish the working gable from the inset hip/gable skirt.
+        const primary = fields[0]!.geometry;
+        primary.computeBoundingBox();
+        const box = primary.boundingBox!, x = box.max.x - 0.12;
+        const endHeight = roofRayHits(primary, new Vector3(x, 100, (box.min.z + box.max.z) / 2))[0]!;
+        if (type === "reed-boathouse") expect(endHeight).toBeCloseTo(box.max.y, 4);
+        else if (type !== "ethereum-mole" && type !== "fishing-pier" && type !== "uogashi") {
+          expect(endHeight).toBeLessThan(box.min.y + 0.14 + (box.max.y - box.min.y - 0.14) * 0.48);
+        }
+      } finally {
+        for (const part of recipe.parts) part.geometry.dispose();
+      }
     }
+  });
+
+  it("fits fixed structural bays and recessed plaster without stretching frontage joinery", () => {
+    for (const type of ARCHETYPES) for (const share of [0.01, 1]) {
+      const recipe = recipeWithStation(type, type, 0, DISPLAY_TILE, FIXTURE_USD, share, 0.1);
+      try {
+        const frames = recipe.parts.filter((part) => part.geometry.name === "structural-bays");
+        expect(frames.length, type).toBeGreaterThan(0);
+        for (const frame of frames) {
+          const geometry = frame.geometry;
+          geometry.computeBoundingBox();
+          const bounds = geometry.boundingBox!;
+          const positions = geometry.getAttribute("position");
+          const firstPost = new Box3();
+          for (let i = 0; i < 36; i += 1) firstPost.expandByPoint(new Vector3().fromBufferAttribute(positions, i));
+          const post = firstPost.max.x - firstPost.min.x;
+          expect(post).toBeLessThanOrEqual(0.16001);
+          expect(post).toBeGreaterThanOrEqual(0.06599);
+          const centers = new Set<number>();
+          for (let start = 0; start < positions.count; start += 36) {
+            const member = new Box3();
+            for (let i = start; i < start + 36; i += 1) member.expandByPoint(new Vector3().fromBufferAttribute(positions, i));
+            if (Math.abs(member.max.y - bounds.max.y) < 0.00001 && Math.abs(member.min.y - bounds.min.y) < 0.00001) {
+              centers.add(Number(((member.min.x + member.max.x) / 2).toFixed(5)));
+            }
+          }
+          const xs = [...centers].sort((a, b) => a - b);
+          expect(xs[0]).toBeCloseTo(bounds.min.x + post / 2, 4);
+          expect(xs[xs.length - 1]).toBeCloseTo(bounds.max.x - post / 2, 4);
+          const widths = xs.slice(1).map((x, i) => x - xs[i]!);
+          const module = bounds.max.z - bounds.min.z < 0.5 ? 6 : 4.5;
+          for (const width of widths.slice(1, -1)) expect(width, `${type} full bay`).toBeCloseTo(module, 4);
+          expect(widths[0], `${type} symmetric end fit`).toBeCloseTo(widths[widths.length - 1]!, 4);
+          const plaster = recipe.parts[recipe.parts.indexOf(frame) + 1]!.geometry;
+          expect(plaster.name).toBe("recessed-plaster");
+          plaster.computeBoundingBox();
+          expect(plaster.boundingBox!.min.z).toBeGreaterThan(bounds.min.z + post * 0.5);
+          expect(plaster.boundingBox!.max.z).toBeLessThan(bounds.max.z - post * 0.5);
+        }
+        const expected = stationScaleFor(type, share, 0.1);
+        expect(recipe.features.roof.footprint.length).toBeCloseTo(expected.length, 4);
+        expect(recipe.features.roof.footprint.span).toBeCloseTo(expected.span, 4);
+      } finally {
+        for (const part of recipe.parts) part.geometry.dispose();
+      }
+    }
+  });
+
+  it("keeps nine maximum-frontage recipes within the displaced two-pass triangle budget", () => {
+    let unique = 0, shadow = 0;
+    for (const type of ARCHETYPES) {
+      const recipe = authorDock({
+        ...dock(type, 10, null, Number.POSITIVE_INFINITY),
+        frontageShare: 100, frontageMedianShare: 1,
+        station: { coveId: type, shoreBearing: 0, type },
+      }, DISPLAY_TILE, ISLAND_TILE);
+      try {
+        for (const part of recipe.parts) {
+          const count = (part.geometry.index?.count ?? part.geometry.getAttribute("position").count) / 3;
+          unique += count;
+          if (part.castShadow) shadow += count;
+        }
+      } finally {
+        for (const part of recipe.parts) part.geometry.dispose();
+      }
+    }
+    // Matched pre-adoption recipe census: props/flags are unchanged and cancel.
+    expect(unique - 10_054).toBeLessThanOrEqual(8_000);
+    expect(unique + shadow - 19_076).toBeLessThanOrEqual(16_000);
   });
 
   it("falls back to legacy identity and island bearing while B2 is absent", () => {
@@ -436,4 +530,19 @@ function recipeBounds(recipe: DockRecipe): Box3 {
     if (part.geometry.boundingBox) bounds.union(part.geometry.boundingBox);
   }
   return bounds;
+}
+
+/** Sample actual recipe faces, independent of feature counters or roof names. */
+function roofRayHits(geometry: BufferGeometry, origin: Vector3): number[] {
+  const ray = new Ray(origin, new Vector3(0, -1, 0));
+  const p = geometry.getAttribute("position"), index = geometry.index;
+  const a = new Vector3(), b = new Vector3(), c = new Vector3(), hit = new Vector3();
+  const hits: number[] = [];
+  for (let i = 0; i < (index?.count ?? p.count); i += 3) {
+    a.fromBufferAttribute(p, index ? index.getX(i) : i);
+    b.fromBufferAttribute(p, index ? index.getX(i + 1) : i + 1);
+    c.fromBufferAttribute(p, index ? index.getX(i + 2) : i + 2);
+    if (ray.intersectTriangle(a, b, c, false, hit)) hits.push(hit.y);
+  }
+  return hits.sort((a, b) => b - a);
 }

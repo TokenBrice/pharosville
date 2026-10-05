@@ -5,6 +5,7 @@ import {
   STATION_LOCAL_BOUNDS,
   STATION_SCALE_LADDER,
   distanceToStationFootprint,
+  harborAmountScale,
   stationFootprint,
   stationFootprintRect,
   stationNobori,
@@ -123,6 +124,28 @@ describe("station nobori (plan K28)", () => {
       const along = (second!.x - first!.x) * Math.cos(yaw) - (second!.z - first!.z) * Math.sin(yaw);
       expect(along).toBeGreaterThan(first!.clothWidth);
       expect(Math.hypot(second!.x - first!.x, second!.z - first!.z)).toBeCloseTo(along, 6);
+    }
+  });
+
+  it("keeps the tea-house and storm poles fully seated inboard of their supply-scaled roof edges", () => {
+    for (const dock of docks) {
+      const type = dock.station.type;
+      if (type !== "tea-house-quay" && type !== "storm-mole") continue;
+      const quayX = -7.6 * harborAmountScale(dock.totalUsd) * 1.06 * 0.3;
+      const roofEnd = quayX - 3.2 + stationScaleFor(type, dock.frontageShare, dock.frontageMedianShare).length / 2;
+      const pole = stationNobori(dock).banners[0]!;
+      // The shared pole is 0.055 m in radius; no part sits outside the shell.
+      expect(roofEnd - pole.x).toBeGreaterThan(0.055);
+      expect(roofEnd - pole.x).toBeLessThan(0.12);
+    }
+  });
+
+  it("seats the boathouse pole on the literal ridge-cap top instead of the displaced slab top", () => {
+    for (const dock of docks) {
+      if (dock.station.type !== "reed-boathouse") continue;
+      const pole = stationNobori(dock).banners[0]!;
+      expect(pole.footY).toBe(STATION_SCALE_LADDER["reed-boathouse"].silhouetteTop);
+      expect(pole.clothBottomY - pole.footY).toBeCloseTo(1.4, 8);
     }
   });
 

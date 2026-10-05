@@ -19,6 +19,24 @@ const spec = (detailId: string, hullRadius = 1.4): CrossBearingBuoySpec =>
   ({ detailId, hullRadius });
 
 describe("garden cross-bearing buoys (3b)", () => {
+  it("compacts inspection visibility and submits no hidden buoy triangles", () => {
+    const buoys = createGardenCrossBearingBuoys([spec("ship.a"), spec("ship.b")]);
+    buoys.place(0, 0, 0, false);
+    buoys.place(1, 50, 10, true);
+    buoys.flush();
+    const mesh = buoyMesh(buoys.root);
+    expect(mesh.count).toBe(1);
+    expect(instancePosition(mesh, 0).x).toBeGreaterThan(45);
+    buoys.place(1, 50, 10, false);
+    buoys.flush();
+    expect(mesh.count).toBe(0);
+    expect(mesh.visible).toBe(false);
+    buoys.place(0, 0, 0, true);
+    buoys.flush();
+    expect(mesh.count).toBe(1);
+    expect(mesh.visible).toBe(true);
+    buoys.dispose();
+  });
   it("builds nothing at all when no bearings cross", () => {
     const buoys = createGardenCrossBearingBuoys([]);
 
@@ -51,6 +69,7 @@ describe("garden cross-bearing buoys (3b)", () => {
   it("rides at the waterline, off the hull rather than on it", () => {
     const buoys = createGardenCrossBearingBuoys([spec("ship.usdx", 1.4)]);
     buoys.place(0, 20, -12);
+    buoys.flush();
     const position = instancePosition(buoyMesh(buoys.root), 0);
 
     expect(position.y).toBeCloseTo(GARDEN_WATER_Y, 6);
@@ -67,6 +86,7 @@ describe("garden cross-bearing buoys (3b)", () => {
     const buoys = createGardenCrossBearingBuoys([spec("ship.a", 3.9), spec("ship.a", 1.05)]);
     buoys.place(0, 0, 0);
     buoys.place(1, 0, 0);
+    buoys.flush();
     const mesh = buoyMesh(buoys.root);
 
     const titan = instancePosition(mesh, 0);
@@ -84,6 +104,8 @@ describe("garden cross-bearing buoys (3b)", () => {
     const second = createGardenCrossBearingBuoys([spec("ship.usdx")]);
     first.place(0, 4, 9);
     second.place(0, 4, 9);
+    first.flush();
+    second.flush();
 
     expect(instancePosition(buoyMesh(first.root), 0).toArray())
       .toEqual(instancePosition(buoyMesh(second.root), 0).toArray());
@@ -96,6 +118,7 @@ describe("garden cross-bearing buoys (3b)", () => {
     const buoys = createGardenCrossBearingBuoys([spec("ship.usdx"), spec("ship.eurz")]);
     buoys.place(0, 0, 0);
     buoys.place(1, 0, 0);
+    buoys.flush();
     const mesh = buoyMesh(buoys.root);
 
     expect(instancePosition(mesh, 0).toArray()).not.toEqual(instancePosition(mesh, 1).toArray());
@@ -108,8 +131,10 @@ describe("garden cross-bearing buoys (3b)", () => {
     // berth would spend most of its life nowhere near the ship it describes.
     const buoys = createGardenCrossBearingBuoys([spec("ship.usdx")]);
     buoys.place(0, 0, 0);
+    buoys.flush();
     const first = instancePosition(buoyMesh(buoys.root), 0);
     buoys.place(0, 12, -7);
+    buoys.flush();
     const second = instancePosition(buoyMesh(buoys.root), 0);
 
     expect(second.x - first.x).toBeCloseTo(12, 6);

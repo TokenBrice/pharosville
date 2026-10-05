@@ -36,11 +36,6 @@ export interface ThreeLogoAssets {
 
 export interface ThreeWorldRendererFrame {
   /**
-   * K17 arrival air-veil multiplier on the one air (`setGardenAerialVeil`):
-   * 1.8 thinning to 1 over the arrival's first 6 s; absent means 1.
-   */
-  airVeil?: number;
-  /**
    * G3/W4.1: the shared director. Renderer-side beats (keeper, heron, arrival
    * ceremony) request through it in place; it is the world's object, never
    * copied.

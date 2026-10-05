@@ -28,7 +28,7 @@ Budget numbers below are **planning ceilings [INFERENCE]**, not measured savings
 
 **Budget:** +0 calls/tris/textures; ≤+3 KiB gzip for bounded projection/scoring, no package.
 
-**Acceptance:** Matrix A; synthetic 320 placement tests across all bands and narrow-band overflow. On dense/mixed fixtures, two protected intervals each ≥3% viewport width in both eyes; each leading sail loses <10% projected area to other vessel envelopes. Worst-eye envelope overlap falls ≥25% against the frozen baseline. All eligible IDs survive; churn retains <0.5-tile displacement. `npm test -- src/systems/garden-fleet-placement.test.ts src/systems/garden-fleet-thinning.test.ts src/systems/ship-visuals.test.ts`.
+**Acceptance:** Matrix A; synthetic 320 placement tests across all bands and narrow-band overflow. On dense/mixed fixtures, two protected intervals each ≥3% viewport width in both eyes; each leading sail loses <10% projected area to other vessel envelopes. Worst-eye envelope overlap falls ≥25% against the frozen baseline. All eligible IDs survive; churn retains <0.5-tile displacement. `npm test -- src/systems/garden-fleet-placement.test.ts src/three/garden-fleet-batch.test.ts src/systems/ship-visuals.test.ts`. The obsolete zoom-thinning suite is retired with S6-P2: far family batches now retain every hull.
 
 **Effort:** L. **Depends:** S1-P1, S9:destination, S9:invariant-rewrite. **Risk/rollback:** Narrow waters defeat preferred lobes; restore the previous allocator as a complete revision, never a permanent second placement mode.
 

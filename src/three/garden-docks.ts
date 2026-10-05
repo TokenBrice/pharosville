@@ -37,6 +37,13 @@ import { REST_SEAT_EYE_LANDSCAPE } from "../systems/rest-seat";
 import type { DockNode } from "../systems/world-types";
 import { assignGardenChainFlagCell } from "./garden-chain-flag";
 import { GARDEN_KINDLE_ORDER, patchGardenLanternKindling } from "./garden-lanterns";
+import {
+  buildGardenRoof,
+  buildGardenTimberBay,
+  buildGardenVeranda,
+  type GardenArchitectureKit,
+  type GardenRoofOptions,
+} from "./garden-architecture-kit";
 import { setTilePosition, stableUnit } from "./garden-util";
 export type { StationType } from "../systems/dock-layout";
 
@@ -325,23 +332,11 @@ export function authorDock(
   const charred: BufferGeometry[] = [];
   const stone: BufferGeometry[] = [];
   const metal: BufferGeometry[] = [];
-  const walls: BufferGeometry[] = [];
-  const roofs: BufferGeometry[] = [];
-  const roofTrim: BufferGeometry[] = [];
   const windows: BufferGeometry[] = [];
   const accents: BufferGeometry[] = [];
   const props: HarborPropInstance[] = [];
   const noren: HarborNorenSpec[] = [];
-  const articulation: RoofArticulationProfile = {
-    brackets: 0,
-    fascias: 0,
-    fieldShells: 0,
-    finials: 0,
-    gablePlates: 0,
-    ridgeBeams: 0,
-    ridgeCaps: 0,
-    surfaceBreaks: 0,
-  };
+  const architectureParts: HarborBucketPart[] = [];
 
   const fineMetal: BufferGeometry[] = [];
   const featureGeometry: StationFeatureGeometry = {
@@ -350,22 +345,19 @@ export function authorDock(
     warmWindows: [],
   };
   const stationContext: StationAuthorContext = {
-    accents, articulation, charred, eyeLocal, featureGeometry, fineMetal, house: null, length, metal, noren, props, quayLength, quayWidth, quayX, roofTrim, roofs, seed: dock.chainId, stationScale, stone, supply, timber, walls, width, windows,
+    accents, architectureParts, charred, eyeLocal, featureGeometry, fineMetal, house: null, length, metal, noren, props, quayLength, quayWidth, quayX, seed: dock.chainId, stationScale, stationType: station.type, stone, supply, timber, width, windows,
   };
   authorStoneQuay(stationContext, station.type);
   STATION_AUTHORS[station.type](stationContext);
   authorStationFidelity(stationContext, station.type);
   authorStationApproach(stationContext, station.type);
 
-  const parts: HarborBucketPart[] = [];
+  const parts: HarborBucketPart[] = [...architectureParts];
   pushMergedPart(parts, "timber", timber, HARBOR_PALETTE.timber_mid, false, true);
   pushMergedPart(parts, "timber", charred, TIMBER_CHARRED, false, true);
   pushMergedPart(parts, "stone", stone, stoneColor, false, true);
   pushMergedPart(parts, "metal", metal, HARBOR_PALETTE.iron_dark, false, false);
   pushMergedPart(parts, "metal", fineMetal, HARBOR_PALETTE.iron_dark, true, false);
-  pushMergedPart(parts, "wall", walls, WALL_PLASTER, false, true);
-  pushMergedPart(parts, "roof", roofs, STATION_ROOF_COLOR[station.type], false, true);
-  pushMergedPart(parts, "roof", roofTrim, new Color(STATION_ROOF_COLOR[station.type]).multiplyScalar(0.66), false, true);
   // Openings are dark voids by day (§1.1 rule 2, as the Pharos apertures):
   // the bucket warms only through the day cycle's dusk/night emissive, in
   // the kindling order (contract H-A).
@@ -419,7 +411,6 @@ export function authorDock(
     placement: nobori,
     wavePhase: (stableUnit(`dock-flag-wave.${dock.chainId}`) - 0.5) * 0.7,
   };
-  attachRoofProfileTelemetry(parts, articulation);
 
   // Harbour-3: one stone lantern on the quay nose, off-centre toward the
   // rest seat and jittered per chain, so the ring never reads as a necklace.
@@ -478,7 +469,7 @@ interface StationHouse {
 
 interface StationAuthorContext {
   accents: BufferGeometry[];
-  articulation: RoofArticulationProfile;
+  architectureParts: HarborBucketPart[];
   /** Charred-cedar (yakisugi) lower bands and dark joinery. */
   charred: BufferGeometry[];
   /** Direction toward the rest seat's eye, station-local (unnormalised). */
@@ -493,34 +484,17 @@ interface StationAuthorContext {
   quayLength: number;
   quayWidth: number;
   quayX: number;
-  roofTrim: BufferGeometry[];
-  roofs: BufferGeometry[];
   /** The chain id: per-station jitter for authored unevenness. */
   seed: string;
   stone: BufferGeometry[];
   stationScale: StationScale;
+  stationType: StationType;
   supply: number;
   timber: BufferGeometry[];
-  walls: BufferGeometry[];
   width: number;
   windows: BufferGeometry[];
 }
 
-/**
- * Counts of the shared roof articulation (ridge, fascia, gable, brackets and
- * surface breaks). Surfaced through merged-part userData so the roof-profile
- * contract stays testable without per-station meshes.
- */
-interface RoofArticulationProfile {
-  brackets: number;
-  fascias: number;
-  fieldShells: number;
-  finials: number;
-  gablePlates: number;
-  ridgeBeams: number;
-  ridgeCaps: number;
-  surfaceBreaks: number;
-}
 
 /**
  * Harbour-1 material ladder: three roof tones only. Grey kawara for the
@@ -564,29 +538,6 @@ export const WALL_PLASTER = new Color(HARBOR_PALETTE.stone_pale).lerp(new Color(
 /** Charred cedar (yakisugi): `timber_dark` burnt to 55 %, for lower wall bands and joinery. */
 export const TIMBER_CHARRED = new Color(HARBOR_PALETTE.timber_dark).multiplyScalar(0.55);
 
-function attachRoofProfileTelemetry(parts: HarborBucketPart[], articulation: RoofArticulationProfile): void {
-  const roofParts = parts.filter((part) => part.bucket === "roof");
-  const field = roofParts[0];
-  if (field) {
-    const geometry = field.geometry;
-    const fieldTriangles = geometry.index
-      ? geometry.index.count / 3
-      : geometry.getAttribute("position").count / 3;
-    geometry.userData.roofField = {
-      fieldShells: articulation.fieldShells,
-      fieldTriangles,
-    };
-  }
-  const trim = roofParts[1];
-  if (trim) trim.geometry.userData.roofTrim = { ...articulation };
-  const timberPart = parts.find((part) => part.bucket === "timber");
-  if (timberPart) {
-    timberPart.geometry.userData.roofStructure = {
-      brackets: articulation.brackets,
-      ridgeBeams: articulation.ridgeBeams,
-    };
-  }
-}
 
 interface StationFeatureGeometry {
   quayPlatform: BufferGeometry[];
@@ -620,16 +571,6 @@ function pushFeatureGeometry(
   ctx.featureGeometry[feature].push(geometry);
 }
 
-/** Pushes into `bucket`, crediting the named feature; `null` credits nothing (subordinate roofs). */
-function addFeatureGeometry(
-  ctx: StationAuthorContext,
-  feature: keyof StationFeatureGeometry | null,
-  bucket: BufferGeometry[],
-  geometry: BufferGeometry,
-): void {
-  bucket.push(geometry);
-  if (feature) ctx.featureGeometry[feature].push(geometry);
-}
 
 /* ── Byte-budget authoring kit ──────────────────────────────────────────
  * DELIBERATE STYLE INVERSION, scoped to this file: the total-JS gzip budget
@@ -711,19 +652,17 @@ function featureBoxes(
   }
 }
 
-/**
- * The one harbour wall (harbour-1): a charred-cedar lower band, 38 % of the
- * storey and a hair proud, under pale plaster that stops at the eave.
- */
-function bandedWall(ctx: StationAuthorContext, x: number, z: number, w: number, d: number, baseY: number, topY: number): void {
-  const band = (topY - baseY) * 0.38;
-  pushBox(ctx.charred, w + 0.06, band, d + 0.06, x, baseY + band / 2, z);
-  pushBox(ctx.walls, w, topY - baseY - band, d, x, (baseY + band + topY) / 2, z);
+/** Fixed timber members and recessed panels; fitted end bays carry frontage. */
+function timberWalls(ctx: StationAuthorContext, x: number, z: number, w: number, d: number, baseY: number, topY: number): void {
+  adoptArchitecture(ctx, buildGardenTimberBay({
+    length: w, span: d, floorY: baseY, eaveY: topY,
+    postSize: Math.min(0.16, d * 0.3), bayLength: d < 0.5 ? 6 : 4.5, door: false,
+  }), x, z);
 }
 
-/** A station's ground-storey house: banded walls, recorded for its facade and its one shoji. */
+/** Ground-storey footprint retained for the facade, shoji and noren. */
 function houseWalls(ctx: StationAuthorContext, x: number, z: number, w: number, d: number, baseY: number, topY: number): void {
-  bandedWall(ctx, x, z, w, d, baseY, topY);
+  timberWalls(ctx, x, z, w, d, baseY, topY);
   ctx.house = { baseY, d, topY, w, x, z };
 }
 
@@ -732,52 +671,6 @@ function warmBox(ctx: StationAuthorContext, w: number, h: number, d: number, x: 
   pushFeatureGeometry(ctx, "warmWindows", ctx.windows, new BoxGeometry(w, h, d), x, y, z);
 }
 
-/** Trim box into the darker roof-trim bucket (caps, fascia, courses, ties). */
-function trimBox(ctx: StationAuthorContext, w: number, h: number, d: number, x: number, y: number, z: number): void {
-  pushGeometry(ctx.roofTrim, new BoxGeometry(w, h, d), x, y, z);
-}
-
-/** Pitched trim slab (a surface-break course) rotated about X, then placed. */
-function trimCourse(ctx: StationAuthorContext, w: number, t: number, d: number, pitch: number, x: number, y: number, z: number): void {
-  const course = new BoxGeometry(w, t, d);
-  course.rotateX(pitch);
-  pushGeometry(ctx.roofTrim, course, x, y, z);
-}
-
-function ridgeBeam(ctx: StationAuthorContext, w: number, h: number, d: number, x: number, y: number, z: number): void {
-  pushGeometry(ctx.timber, new BoxGeometry(w, h, d), x, y, z);
-  ctx.articulation.ridgeBeams += 1;
-}
-
-function ridgeCap(ctx: StationAuthorContext, w: number, h: number, d: number, x: number, y: number, z: number): void {
-  trimBox(ctx, w, h, d, x, y, z);
-  ctx.articulation.ridgeCaps += 1;
-}
-
-/** One bracket row under an eave: a pair at each span fraction, raked
- *  against the slope. Shared by the hip, gable and lean-to roofs so bracket
- *  mechanics cannot drift apart; a lean-to passes its per-side eave height. */
-function eaveBracketRow(
-  ctx: StationAuthorContext,
-  cx: number,
-  span: number,
-  halfD: number,
-  fractions: readonly number[],
-  eaveYFor: (side: number) => number,
-  h: number,
-  d: number,
-  cz = 0,
-): void {
-  for (const side of [-1, 1]) {
-    for (const fraction of fractions) {
-      const bracket = new BoxGeometry(0.55, h, d);
-      bracket.rotateX(side * -0.6);
-      bracket.translate(cx + fraction * span, eaveYFor(side), cz + side * (halfD - 0.12));
-      ctx.timber.push(bracket);
-      ctx.articulation.brackets += 1;
-    }
-  }
-}
 
 interface FacadeFidelity {
   bays: number;
@@ -1026,7 +919,7 @@ function authorEthereumMole(ctx: StationAuthorContext): void {
   const bell = new ConeGeometry(0.55, 0.9, 6);
   bell.rotateX(Math.PI);
   pushGeometry(metal, bell, towerX, 11.85, towerZ);
-  articulatePyramidRoof(ctx, towerX, towerZ, postTop, 13.5, 1.75, 1.75);
+  stationRoof(ctx, towerX, towerZ, 3.5, 3.5, postTop, 13.5, "hip", false);
 
   // Eight civic bollards at an authored rhythm: five long, three short.
   for (const [x, z] of [
@@ -1037,48 +930,9 @@ function authorEthereumMole(ctx: StationAuthorContext): void {
   }
 }
 
-/** Deep hipped copper hall roof, rotated so its long ridge follows the shore: eave 6.4, ridge 10.4. */
+/** The fixed civic hall keeps its long ridge alongshore. */
 function authorMoleHallRoof(ctx: StationAuthorContext, cx: number, cz: number, depth: number, length: number): void {
-  const hx = depth / 2;
-  const hz = length / 2;
-  const eave = 6.4;
-  const ridge = 10.4;
-  const ridgeHalf = 7.4;
-  const triangles: number[] = [];
-  const quad = (a: XYZ, b: XYZ, c: XYZ, d: XYZ) => triangles.push(...a, ...b, ...c, ...a, ...c, ...d);
-  quad([cx - hx, eave, cz - hz], [cx + hx, eave, cz - hz], [cx, ridge, cz - ridgeHalf], [cx, ridge, cz + ridgeHalf]);
-  quad([cx + hx, eave, cz + hz], [cx - hx, eave, cz + hz], [cx, ridge, cz + ridgeHalf], [cx, ridge, cz - ridgeHalf]);
-  triangles.push(
-    cx - hx, eave, cz - hz, cx, ridge, cz + ridgeHalf, cx, ridge, cz - ridgeHalf,
-    cx - hx, eave, cz + hz, cx, ridge, cz + ridgeHalf, cx - hx, eave, cz - hz,
-    cx + hx, eave, cz - hz, cx, ridge, cz - ridgeHalf, cx, ridge, cz + ridgeHalf,
-    cx + hx, eave, cz - hz, cx, ridge, cz + ridgeHalf, cx + hx, eave, cz + hz,
-  );
-  addFeatureGeometry(ctx, "roof", ctx.roofs, triangleGeometry(triangles));
-  ctx.articulation.fieldShells += 1;
-  pushBox(ctx.timber, 0.34, 0.2, ridgeHalf * 2 + 0.6, cx, ridge - 0.18, cz);
-  ctx.articulation.ridgeBeams += 1;
-  trimBox(ctx, 0.52, 0.14, ridgeHalf * 2 + 0.35, cx, ridge - 0.07, cz);
-  ctx.articulation.ridgeCaps += 1;
-  pushBoxes(ctx.roofTrim, [
-    depth + 0.3, 0.24, 0.18, cx, eave - 0.04, cz - hz,
-    depth + 0.3, 0.24, 0.18, cx, eave - 0.04, cz + hz,
-    0.18, 0.24, length + 0.3, cx - hx, eave - 0.04, cz,
-    0.18, 0.24, length + 0.3, cx + hx, eave - 0.04, cz,
-    0.2, 0.15, length * 0.72, cx - hx * 0.55, (eave + ridge) / 2 + 0.05, cz,
-    0.2, 0.15, length * 0.72, cx + hx * 0.55, (eave + ridge) / 2 + 0.05, cz,
-  ]);
-  ctx.articulation.fascias += 4;
-  ctx.articulation.surfaceBreaks += 1;
-  const gable = prismGeometry([[-2.1, eave + 0.05], [2.1, eave + 0.05], [0, ridge - 0.08]], 0.4);
-  gable.rotateY(Math.PI / 2);
-  gable.translate(cx, 0, cz - hz + (hz - ridgeHalf) * 0.4);
-  ctx.roofTrim.push(gable);
-  ctx.articulation.gablePlates += 1;
-  for (const z of [-8, -2.6, 2.6, 8]) {
-    for (const x of [-hx + 1.0, hx - 1.0]) pushBox(ctx.timber, 0.5, 0.16, 0.58, cx + x, eave - 0.3, cz + z);
-  }
-  ctx.articulation.brackets += 8;
+  stationRoof(ctx, cx, cz, length, depth, 6.4, 10.48, "hip", true, -Math.PI / 2);
 }
 
 function authorHatagoWharf(ctx: StationAuthorContext): void {
@@ -1095,11 +949,9 @@ function authorHatagoWharf(ctx: StationAuthorContext): void {
   const halfW = hallW / 2 - outset;
   const halfD = hallD / 2 - outset * 0.85;
   houseWalls(ctx, hallX, 0, hallW * 0.84, hallD * 0.78, QUAY_TOP_Y, pentEave - 0.1);
-  pushBox(ctx.walls, 2 * halfW - 1.8, upperEave - pentEave, 2 * halfD - 1.1, hallX, (pentEave + upperEave) / 2 - 0.05, 0);
-  articulateIrimoya(ctx, hallX, upperEave, stationScale.silhouetteTop, halfW, halfD, {
-    course: true,
-    skirt: { drop: upperEave - pentEave, outset },
-  });
+  timberWalls(ctx, hallX, 0, 2 * halfW - 1.8, 2 * halfD - 1.1, pentEave, upperEave - 0.1);
+  stationRoof(ctx, hallX, 0, hallW, hallD, pentEave, upperEave, "irimoya");
+  stationRoof(ctx, hallX, 0, halfW * 2, halfD * 2, upperEave, stationScale.silhouetteTop, "irimoya");
 
   // A stepped water stair under its own subordinate roof; the paired noren
   // hang in the nobori cloth batch and move in the harbour's one wind.
@@ -1109,20 +961,15 @@ function authorHatagoWharf(ctx: StationAuthorContext): void {
   }
   for (const z of [-1.15, 1.15]) pushBox(timber, 0.18, 3.4, 0.18, stairX, 3.25, z);
   pushBox(timber, 0.16, 0.16, 2.6, stairX + 0.1, 4.8, 0);
-  articulateIrimoya(ctx, stairX + 0.45, 5.05, 6.25, 2.35, 1.65, { course: true }, null);
+  stationRoof(ctx, stairX + 0.45, 0, 4.7, 3.3, 5.05, 6.25, "irimoya", false);
   for (const z of [-0.62, 0.62]) ctx.noren.push({ height: 1.38, topY: 4.74, width: 1.12, x: stairX + 0.12, z });
   pushBox(timber, length * 0.62, 0.24, hallD * 0.92, length * 0.1, 0.1, 0);
   pushPierPilings(props, length * 0.58, hallD * 0.84, length * 0.1, 5);
 }
 
-/** The market hall's mono-pitch: low open-side eave, high closed side, exact silhouette top. */
+/** The market's fixed heights and exact horizontal supply envelope. */
 function uogashiRoof(stationScale: StationScale): { lowY: number; highY: number; halfD: number } {
-  const lowY = 4.3;
-  let halfD = stationScale.span / 2;
-  let highY = leanToHighYForTop(stationScale.silhouetteTop, lowY, halfD);
-  halfD = roofHalfSpanForOuterSpan(stationScale.span, highY - lowY, true);
-  highY = leanToHighYForTop(stationScale.silhouetteTop, lowY, halfD);
-  return { halfD, highY, lowY };
+  return { halfD: stationScale.span / 2, highY: stationScale.silhouetteTop - 0.08, lowY: 4.3 };
 }
 
 function authorUogashi(ctx: StationAuthorContext): void {
@@ -1130,19 +977,14 @@ function authorUogashi(ctx: StationAuthorContext): void {
   const hallX = ctx.quayX - 3.2;
   const hallW = stationScale.length;
   const hallD = stationScale.span;
-  pushBox(timber, hallW, 0.26, hallD, hallX, 1.68, 0);
   pushPierPilings(props, hallW, hallD * 0.9, hallX, 7);
   // The working hall is closed only on its high side; its broad market face
   // stays open under one deep mono-pitch roof.
   const { halfD, highY, lowY } = uogashiRoof(stationScale);
-  articulateLeanToRoof(ctx, hallX, 0, highY, lowY, halfD, hallW, -1, { course: true });
+  stationRoof(ctx, hallX, 0, hallW, hallD, lowY, stationScale.silhouetteTop, "mono-pitch", true, 0, 1.81);
   const riseRate = (highY - lowY) / (2 * halfD);
   const wallZ = -halfD + 0.75;
-  bandedWall(ctx, hallX, wallZ, hallW * 0.92, 0.28, QUAY_TOP_Y, highY - 0.75 * riseRate - 0.3);
-  const postTop = lowY + 0.7 * riseRate - 0.15;
-  for (const fraction of [-0.45, -0.225, 0, 0.225, 0.45]) {
-    pushBox(timber, 0.24, postTop - QUAY_TOP_Y, 0.24, hallX + fraction * hallW, (postTop + QUAY_TOP_Y) / 2, halfD - 0.7);
-  }
+  timberWalls(ctx, hallX, wallZ, hallW * 0.92, 0.28, QUAY_TOP_Y, highY - 0.75 * riseRate - 0.3);
   // Tally boards repeat down the closed wall like a restrained ledger.
   for (const fraction of [-0.34, -0.17, 0, 0.17, 0.34]) {
     pushBox(timber, hallW * 0.1, 1.4, 0.12, hallX + fraction * hallW, 3.3, wallZ - 0.2);
@@ -1175,7 +1017,7 @@ function authorTeaHouseQuay(ctx: StationAuthorContext): void {
   const d = stationScale.span;
   const eave = 4.65;
   houseWalls(ctx, x, 0, w * 0.8, d * 0.74, QUAY_TOP_Y, eave - 0.1);
-  articulateIrimoya(ctx, x, eave, stationScale.silhouetteTop, w / 2, d / 2, { course: true });
+  stationRoof(ctx, x, 0, w, d, eave, stationScale.silhouetteTop, "irimoya", true, 0, QUAY_TOP_Y);
   // The moon window sits low in the ground-floor wall: a dark round opening
   // behind a thin ring and kumiko mullions — never lit glass (harbour-3: a
   // solid lit disc read as a clock face).
@@ -1211,10 +1053,10 @@ function authorFishingPier(ctx: StationAuthorContext): void {
   // The only lean-to roof, kept at the root so the thin pier remains legible;
   // a small net store stands under its high side.
   const shelterX = ctx.quayX - 3.2;
-  const roofLow = 3.2;
-  const roofHalfD = roofHalfSpanForOuterSpan(stationScale.span, stationScale.silhouetteTop - roofLow, true);
-  const roofHigh = leanToHighYForTop(stationScale.silhouetteTop, roofLow, roofHalfD);
-  articulateLeanToRoof(ctx, shelterX, 0, roofHigh, roofLow, roofHalfD, stationScale.length, 1, { course: true });
+  // The modest low-eave lift seats the unchanged nobori foot on the sagged
+  // field at every frontage; the ridge and station silhouette stay fixed.
+  const roofLow = 3.44;
+  stationRoof(ctx, shelterX, 0, stationScale.length, stationScale.span, roofLow, stationScale.silhouetteTop, "mono-pitch", true, Math.PI);
   for (const z of [-stationScale.span * 0.45, stationScale.span * 0.45]) {
     pushBox(timber, 0.26, 4.3, 0.26, shelterX + stationScale.length * 0.31, QUAY_TOP_Y + 2.15, z);
     pushBox(timber, 0.26, 1.6, 0.26, shelterX - stationScale.length * 0.31, QUAY_TOP_Y + 0.8, z);
@@ -1277,8 +1119,7 @@ function authorSteppedInlet(ctx: StationAuthorContext): void {
   const x = ctx.quayX - 2.8;
   const eave = 4.5;
   houseWalls(ctx, x, 0, stationScale.length * 0.78, stationScale.span * 0.72, QUAY_TOP_Y, eave - 0.1);
-  // The eave stops 0.2 inside the span so its fascia stays in the precinct.
-  articulateIrimoya(ctx, x, eave, stationScale.silhouetteTop, stationScale.length / 2, stationScale.span / 2 - 0.2, { course: true });
+  stationRoof(ctx, x, 0, stationScale.length, stationScale.span, eave, stationScale.silhouetteTop, "irimoya");
 }
 
 function authorReedBoathouse(ctx: StationAuthorContext): void {
@@ -1287,11 +1128,11 @@ function authorReedBoathouse(ctx: StationAuthorContext): void {
   const w = stationScale.length;
   const eaveY = 3.6;
   const apexY = stationScale.silhouetteTop;
-  const halfD = roofHalfSpanForOuterSpan(stationScale.span, apexY - eaveY, false);
+  const halfD = stationScale.span / 2;
   pushBox(timber, length * 0.7, 0.24, width * 1.1, length * 0.06, 0.1, 0);
-  for (const z of [-halfD * 0.84, halfD * 0.84]) bandedWall(ctx, x, z, w * 0.86, 0.22, QUAY_TOP_Y, eaveY);
-  // The only high, sharp A-frame: two deep slate slopes bound at the ridge.
-  articulateGableRoof(ctx, x, eaveY, apexY, w, halfD, { course: true });
+  for (const z of [-halfD * 0.84, halfD * 0.84]) timberWalls(ctx, x, z, w * 0.86, 0.22, QUAY_TOP_Y, eaveY);
+  // Open gable ends retain the boat-mouth signature.
+  stationRoof(ctx, x, 0, w, stationScale.span, eaveY, apexY, "gable");
   // Open boat-bay mouth cut into the seaward gable: the boathouse's signature.
   const mouth = new BoxGeometry(0.55, 2.3, 2.7);
   mouth.translate(x + w * 0.43, 2.75, 0);
@@ -1330,7 +1171,7 @@ function authorStormMole(ctx: StationAuthorContext): void {
   const houseX = ctx.quayX - 3.2;
   const eave = 4.55;
   houseWalls(ctx, houseX, 0, stationScale.length * 0.74, stationScale.span * 0.7, QUAY_TOP_Y, eave - 0.1);
-  articulateIrimoya(ctx, houseX, eave, stationScale.silhouetteTop, stationScale.length / 2, stationScale.span / 2, { course: true });
+  stationRoof(ctx, houseX, 0, stationScale.length, stationScale.span, eave, stationScale.silhouetteTop, "irimoya");
 }
 
 function authorPigeonnierLanding(ctx: StationAuthorContext): void {
@@ -1343,7 +1184,7 @@ function authorPigeonnierLanding(ctx: StationAuthorContext): void {
   const eave = 4.6;
   const houseW = stationScale.length * 0.78;
   houseWalls(ctx, houseX, 0, houseW, stationScale.span * 0.72, QUAY_TOP_Y, eave - 0.1);
-  articulateIrimoya(ctx, houseX, eave, stationScale.silhouetteTop, stationScale.length / 2, stationScale.span / 2, { course: true });
+  stationRoof(ctx, houseX, 0, stationScale.length, stationScale.span, eave, stationScale.silhouetteTop, "irimoya");
   const wallX = houseX - houseW / 2;
   for (const [holeY, holeZ] of [[3.9, -0.55], [3.5, 0.55]] as const) {
     pushBox(ctx.metal, 0.12, 0.4, 0.34, wallX - 0.04, holeY, holeZ);
@@ -1412,265 +1253,53 @@ function authorStationApproach(ctx: StationAuthorContext, type: StationType): vo
 
 type XYZ = [number, number, number];
 
-/** Shared roof articulation: every primary roof gets ridge, fascia, gable,
- *  brackets and a surface break by going through one of these helpers, so the
- *  plane never reads as a single unbroken quad at overview zoom. All trim
- *  pushes into the existing roof bucket (darker vertex colour) — zero new
- *  draw calls, zero new materials.
- *
- *  Byte-budget note: the articulate* helpers take positional numbers, not
- *  spec objects — object property names survive minification and there are
- *  ~19 call sites between them. Each doc comment spells the arg order. */
-interface ArticulateOptions {
-  brackets?: boolean;
-  course?: boolean;
-  skirt?: { drop: number; outset: number };
+/**
+ * Kit geometries remain recipe-owned until the global bucket consumes them.
+ * Do not locally merge away their metric UVs or role boundaries. No materials
+ * or per-station drawables are created here.
+ */
+function adoptArchitecture(
+  ctx: StationAuthorContext,
+  kit: GardenArchitectureKit,
+  x: number,
+  z: number,
+  yaw = 0,
+  roofFeature = false,
+): void {
+  for (const part of kit.parts) {
+    const geometry = part.geometry;
+    geometry.name = part.name;
+    geometry.rotateY(yaw);
+    geometry.translate(x, 0, z);
+    if (roofFeature && part.name === "roof-field") ctx.featureGeometry.roof.push(geometry);
+    const bucket = part.bucket === "plaster" ? "wall" : part.bucket;
+    const color = bucket === "roof"
+      ? new Color(STATION_ROOF_COLOR[ctx.stationType])
+      : bucket === "wall" ? WALL_PLASTER : bucket === "timber" ? TIMBER_CHARRED : HARBOR_PALETTE.stone_mid;
+    if (part.name === "ridge-end-courses" && color instanceof Color) color.multiplyScalar(0.66);
+    ctx.architectureParts.push(harborPart(bucket, geometry, color, false, true));
+  }
 }
 
-/** Irimoya (hip-and-gable) roof: field shell, ridge beam + cap, eave fascia,
- *  landward gable plate, bracket row, optional slope courses and pent skirt.
- *  Args: cx, eaveY, ridgeY, halfW (eave half-width, X), halfD (eave
- *  half-depth, Z), options, feature credit, hipInset. */
-function articulateIrimoya(
+/** Roof shell/courses keep the ladder's exact top; detail is never stretched. */
+function stationRoof(
   ctx: StationAuthorContext,
-  cx: number,
+  x: number,
+  z: number,
+  length: number,
+  span: number,
   eaveY: number,
-  ridgeY: number,
-  halfW: number,
-  halfD: number,
-  options: ArticulateOptions = {},
-  feature: "roof" | null = "roof",
-  hipInset = 0.34,
+  topY: number,
+  profile: NonNullable<GardenRoofOptions["profile"]>,
+  feature = true,
+  yaw = 0,
+  deckY?: number,
 ): void {
-  const ridgeFrom = cx - halfW;
-  const ridgeTo = cx + halfW * (1 - hipInset);
-  irimoyaShell(ctx, cx, eaveY, halfD, halfW, ridgeFrom, ridgeTo, ridgeY, feature);
-  const ridgeMidX = (ridgeFrom + ridgeTo) / 2;
-  const ridgeLength = ridgeTo - ridgeFrom;
-  ridgeBeam(ctx, ridgeLength + 0.6, 0.2, 0.34, ridgeMidX, ridgeY - 0.18, 0);
-  ridgeCap(ctx, ridgeLength + 0.35, 0.14, 0.52, ridgeMidX, ridgeY + 0.07, 0);
-  pushEaveFascia(ctx, cx, eaveY, halfD, halfW);
-  pushGablePlate(ctx, cx - halfW, eaveY, halfD, ridgeY, -1);
-  if (options.brackets !== false) {
-    eaveBracketRow(ctx, cx, halfW, halfD, [-0.46, 0.26], () => eaveY - 0.36, 0.16, 0.6);
-  }
-  if (options.course) pushSlopeCourses(ctx, eaveY, halfD, ridgeFrom, ridgeTo, ridgeY);
-  if (options.skirt) {
-    const { drop, outset } = options.skirt;
-    const skirtHalfW = halfW + outset;
-    const skirtHalfD = halfD + outset * 0.85;
-    irimoyaShell(ctx, cx, eaveY - drop, skirtHalfD, skirtHalfW, ridgeFrom - outset, ridgeTo + outset * 0.4, eaveY, feature);
-    pushEaveFascia(ctx, cx, eaveY - drop, skirtHalfD, skirtHalfW);
-    pushGablePlate(ctx, ridgeFrom - outset, eaveY - drop, skirtHalfD, eaveY, -1);
-    if (options.brackets !== false) {
-      eaveBracketRow(ctx, cx, skirtHalfW, skirtHalfD, [-0.46, 0.26], () => eaveY - drop - 0.36, 0.16, 0.6);
-    }
-    ctx.articulation.surfaceBreaks += 1;
-  }
-}
-
-/** The hipped field shell itself: two quad slopes plus the hip and gable ends. */
-function irimoyaShell(
-  ctx: StationAuthorContext,
-  cx: number,
-  eaveY: number,
-  halfD: number,
-  halfW: number,
-  ridgeFrom: number,
-  ridgeTo: number,
-  ridgeY: number,
-  feature: "roof" | null,
-): void {
-  const triangles: number[] = [];
-  const quad = (a: XYZ, b: XYZ, c: XYZ, d: XYZ) => {
-    triangles.push(...a, ...b, ...c, ...a, ...c, ...d);
-  };
-  quad([cx - halfW, eaveY, halfD], [cx + halfW, eaveY, halfD], [ridgeTo, ridgeY, 0], [ridgeFrom, ridgeY, 0]);
-  quad([cx - halfW, eaveY, -halfD], [ridgeFrom, ridgeY, 0], [ridgeTo, ridgeY, 0], [cx + halfW, eaveY, -halfD]);
-  if (ridgeTo < cx + halfW - 1e-4) {
-    triangles.push(cx + halfW, eaveY, halfD, cx + halfW, eaveY, -halfD, ridgeTo, ridgeY, 0);
-  }
-  triangles.push(cx - halfW, eaveY, halfD, ridgeFrom, ridgeY, 0, cx - halfW, eaveY, -halfD);
-  addFeatureGeometry(ctx, feature, ctx.roofs, triangleGeometry(triangles));
-  ctx.articulation.fieldShells += 1;
-}
-
-function pushEaveFascia(ctx: StationAuthorContext, cx: number, eaveY: number, halfD: number, halfW: number, cz = 0): void {
-  for (const side of [1, -1]) {
-    trimBox(ctx, 2 * halfW + 0.3, 0.24, 0.18, cx, eaveY - 0.04, cz + side * (halfD + 0.04));
-  }
-  for (const side of [1, -1]) {
-    trimBox(ctx, 0.18, 0.24, 2 * halfD + 0.3, cx + side * (halfW + 0.04), eaveY - 0.04, cz);
-  }
-  ctx.articulation.fascias += 4;
-}
-
-/** Triangular gable plate (prism) closing the roof end. */
-function pushGablePlate(ctx: StationAuthorContext, gableX: number, eaveY: number, halfD: number, ridgeY: number, facing: number): void {
-  const plate = prismGeometry([
-    [-halfD * 0.92, eaveY + 0.05],
-    [halfD * 0.92, eaveY + 0.05],
-    [0, ridgeY - 0.04],
-  ], 0.42);
-  plate.translate(gableX + facing * 0.08, 0, 0);
-  ctx.roofTrim.push(plate);
-  ctx.articulation.gablePlates += 1;
-}
-
-/** Surface-break courses laid parallel to the ridge on both slopes. */
-function pushSlopeCourses(
-  ctx: StationAuthorContext,
-  eaveY: number,
-  halfD: number,
-  ridgeFrom: number,
-  ridgeTo: number,
-  ridgeY: number,
-): void {
-  const rise = ridgeY - eaveY;
-  const pitch = Math.atan2(rise, halfD);
-  const slopeLength = Math.hypot(rise, halfD);
-  const courseX = (ridgeFrom + ridgeTo) / 2;
-  for (const side of [-1, 1]) {
-    trimCourse(ctx, (ridgeTo - ridgeFrom) * 0.9, 0.15, slopeLength * 0.34, side * pitch, courseX, eaveY + rise * 0.46 + 0.08, side * halfD * 0.55);
-  }
-  ctx.articulation.surfaceBreaks += 1;
-}
-
-/** Compensate for the lean-to slab's thickness so its rendered top is authored. */
-function leanToHighYForTop(targetTop: number, lowY: number, halfD: number): number {
-  let highY = targetTop - 0.13;
-  for (let iteration = 0; iteration < 4; iteration += 1) {
-    const pitch = Math.atan2(highY - lowY, 2 * halfD);
-    highY = targetTop - Math.cos(pitch) * 0.13;
-  }
-  return highY;
-}
-
-/** Keep a pitched slab's outer eave on the ladder span despite its thickness. */
-function roofHalfSpanForOuterSpan(targetSpan: number, rise: number, fullRun: boolean): number {
-  let halfSpan = targetSpan / 2;
-  for (let iteration = 0; iteration < 4; iteration += 1) {
-    const pitch = Math.atan2(rise, halfSpan * (fullRun ? 2 : 1));
-    halfSpan = targetSpan / 2 - Math.sin(pitch) * 0.13;
-  }
-  return halfSpan;
-}
-
-/** Sharp A-frame gable: two slab slopes, ridge beam + cap, optional thatch
- *  ridge ties, fascia ring, gable plate, bracket row, optional courses.
- *  Args: cx, eaveY, apexY, w, eaveHalfD, options ({course, ridgeTies}),
- *  feature credit. */
-function articulateGableRoof(
-  ctx: StationAuthorContext,
-  cx: number,
-  eaveY: number,
-  apexY: number,
-  w: number,
-  eaveHalfD: number,
-  options: { course?: boolean; ridgeTies?: boolean } = {},
-  feature: "roof" | null = "roof",
-): void {
-  const rise = apexY - eaveY;
-  const pitch = Math.atan2(rise, eaveHalfD);
-  const slopeLength = Math.hypot(rise, eaveHalfD);
-  for (const side of [-1, 1]) {
-    const slope = new BoxGeometry(w, 0.26, slopeLength);
-    slope.rotateX(side * pitch);
-    slope.translate(cx, (eaveY + apexY) / 2, side * eaveHalfD / 2);
-    addFeatureGeometry(ctx, feature, ctx.roofs, slope);
-    ctx.articulation.fieldShells += 1;
-  }
-  ridgeBeam(ctx, w + 0.55, 0.2, 0.36, cx, apexY - 0.22, 0);
-  ridgeCap(ctx, w + 0.3, 0.15, 0.55, cx, apexY + 0.09, 0);
-  if (options.ridgeTies) {
-    // Thatch binding: cross ties lashed over the apex.
-    for (const fraction of [-0.34, 0.02, 0.38]) {
-      trimBox(ctx, 0.2, 0.14, eaveHalfD * 2.24, cx + fraction * w, apexY + 0.05, 0);
-    }
-    ctx.articulation.surfaceBreaks += 1;
-  }
-  for (const side of [-1, 1]) {
-    trimBox(ctx, w + 0.25, 0.24, 0.18, cx, eaveY - 0.05, side * (eaveHalfD + 0.04));
-    trimBox(ctx, 0.2, 0.24, 2 * eaveHalfD + 0.25, cx + side * (w / 2 + 0.04), eaveY - 0.05, 0);
-  }
-  ctx.articulation.fascias += 4;
-  pushGablePlate(ctx, cx - w / 2, eaveY, eaveHalfD, apexY, -1);
-  eaveBracketRow(ctx, cx, w, eaveHalfD, [-0.42, 0.26], () => eaveY - 0.34, 0.15, 0.55);
-  if (options.course) {
-    for (const side of [-1, 1]) {
-      trimCourse(ctx, w * 0.86, 0.15, slopeLength * 0.24, side * pitch, cx, eaveY + rise * 0.52 + 0.14, side * eaveHalfD * 0.5);
-    }
-    ctx.articulation.surfaceBreaks += 1;
-  }
-}
-
-/** Mono-pitch slab: field slab, ridge beam + cap at the high side, fascia,
- *  landward gablet, bracket row, optional course.
- *  Args: cx, cz, highY, lowY, halfD, w, highSide (±1), options ({course}),
- *  feature credit. */
-function articulateLeanToRoof(
-  ctx: StationAuthorContext,
-  cx: number,
-  cz: number,
-  highY: number,
-  lowY: number,
-  halfD: number,
-  w: number,
-  highSide: -1 | 1,
-  options: { course?: boolean } = {},
-  feature: "roof" | null = "roof",
-): void {
-  const rise = highY - lowY;
-  const pitch = Math.atan2(rise, 2 * halfD);
-  const slabLength = Math.hypot(2 * halfD, rise);
-  const slab = new BoxGeometry(w, 0.26, slabLength);
-  slab.rotateX(-highSide * pitch);
-  slab.translate(cx, (highY + lowY) / 2, cz);
-  addFeatureGeometry(ctx, feature, ctx.roofs, slab);
-  ctx.articulation.fieldShells += 1;
-  ridgeBeam(ctx, w + 0.5, 0.2, 0.34, cx, highY - 0.22, cz + highSide * halfD);
-  ridgeCap(ctx, w + 0.3, 0.16, 0.5, cx, highY + 0.09, cz + highSide * (halfD + 0.05));
-  for (const side of [-1, 1]) {
-    trimBox(ctx, w + 0.25, 0.24, 0.18, cx, (side === highSide ? highY : lowY) - 0.05, cz + side * (halfD + 0.04));
-  }
-  for (const side of [-1, 1]) {
-    trimBox(ctx, 0.2, 0.24, 2 * halfD + 0.25, cx + side * (w / 2 + 0.04), lowY - 0.05, cz);
-  }
-  ctx.articulation.fascias += 4;
-  const plate = prismGeometry([
-    [-halfD * 0.92, lowY + 0.05],
-    [halfD * 0.92, lowY + 0.05],
-    [halfD * 0.92 * highSide, highY - 0.04],
-  ], 0.42);
-  plate.translate(cx - w / 2 - 0.04, 0, cz);
-  ctx.roofTrim.push(plate);
-  ctx.articulation.gablePlates += 1;
-  eaveBracketRow(ctx, cx, w, halfD, [-0.42, 0.26], (side) => (side === highSide ? highY : lowY) - 0.34, 0.15, 0.55, cz);
-  if (options.course) {
-    trimCourse(ctx, w * 0.88, 0.15, slabLength * 0.22, -highSide * pitch, cx, lowY + rise * 0.55 + 0.14, cz + highSide * halfD * 0.1);
-    ctx.articulation.surfaceBreaks += 1;
-  }
-}
-
-/** Small square hip cap (the fire-watch frame's): cone field and eave fascia,
- *  no finials, so the apex is the silhouette top.
- *  Args: cx, cz, baseY, apexY, halfW, halfD. */
-function articulatePyramidRoof(
-  ctx: StationAuthorContext,
-  cx: number,
-  cz: number,
-  baseY: number,
-  apexY: number,
-  halfW: number,
-  halfD: number,
-): void {
-  const pyramid = new ConeGeometry(1, 1, 4);
-  pyramid.rotateY(Math.PI / 4);
-  pyramid.scale(halfW * Math.SQRT2, apexY - baseY, halfD * Math.SQRT2);
-  pyramid.translate(cx, baseY + (apexY - baseY) / 2, cz);
-  ctx.roofs.push(pyramid);
-  ctx.articulation.fieldShells += 1;
-  pushEaveFascia(ctx, cx, baseY, halfD, halfW, cz);
+  const options: GardenRoofOptions = { length, span, eaveY, ridgeY: topY - 0.08, profile, rafterSpacing: 2, buriedRafterBack: true };
+  const kit = deckY === undefined
+    ? buildGardenRoof(options)
+    : buildGardenVeranda({ ...options, deckY });
+  adoptArchitecture(ctx, kit, x, z, yaw, feature);
 }
 
 function triangleGeometry(triangles: number[]): BufferGeometry {

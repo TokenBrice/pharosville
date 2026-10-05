@@ -74,7 +74,7 @@ import { CAMERA_BREATH_IDENTITY, tileToIso, type CameraBreath, type IsoCamera, t
 import type { WorldSelectableEntity } from "./systems/world-types";
 import { observeReducedMotion } from "./systems/reduced-motion";
 import type { PharosVilleWorld as PharosVilleWorldModel } from "./systems/world-types";
-import { GARDEN_ARRIVAL_CROSSFADE_MS } from "./systems/garden-arrival";
+import { ArrivalShell } from "./components/arrival-shell";
 
 const LazyChangelogPanel = lazy(() => (
   import("./components/changelog-panel").then((module) => ({ default: module.ChangelogPanel }))
@@ -82,6 +82,10 @@ const LazyChangelogPanel = lazy(() => (
 
 const LazyLegendPanel = lazy(() => (
   import("./components/legend-panel").then((module) => ({ default: module.LegendPanel }))
+));
+
+const LazyReadingKey = lazy(() => (
+  import("./components/legend-panel").then((module) => ({ default: module.ReadingKey }))
 ));
 
 const LazyHarborLedgerPanel = lazy(() => (
@@ -1016,6 +1020,12 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     selectDetail(detailId, null);
   }, [selectDetail]);
 
+  const handleReadingPreview = useCallback((detailId: string | null) => {
+    setKeyboardFocusedDetailId(detailId);
+    setHoveredDetailId(detailId);
+    requestPaint();
+  }, [requestPaint, setHoveredDetailId, setKeyboardFocusedDetailId]);
+
   // Quick find: "where is my coin?" is the first thing a visitor wants, and
   // tabbing through the whole fleet is not an answer. `/` is the field's only
   // entry point, so it must not steal the key from anything that takes typing.
@@ -1112,64 +1122,16 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clearSelection]);
 
-  // The harbor before its data is an empty sea: island, water and sky, no
-  // fleet. Showing it meant the first thing a visitor saw was a world with
-  // nothing in it, and then every ship arriving in the same frame. The runtime
-  // still mounts immediately — the renderer and its shaders warm up underneath
-  // — but the sea stays behind the charting veil until there is a harbor to
-  // show, so arrival reads as arrival instead of a pop.
+  // The first complete frame already has the accepted rest (or explicit URL)
+  // pose and ordinary hour air. No introduction owns or intercepts input.
   const worldIsCharting = world.routeMode === "loading";
-  const [arrivalStage, setArrivalStage] = useState<"waiting" | "arriving" | "crossfade" | "complete">("waiting");
-  const arrivalStartedRef = useRef(false);
-  const startCanvasArrival = canvas.startArrival;
-  const skipCanvasArrival = canvas.skipArrival;
-  useEffect(() => {
-    if (worldIsCharting) {
-      arrivalStartedRef.current = false;
-      // Renderer/data lifecycle is the external state this choreography mirrors.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setArrivalStage("waiting");
-      return undefined;
-    }
-    if (!rendererWarmupReady || arrivalStartedRef.current || !motionPreferenceResolved) return undefined;
-    arrivalStartedRef.current = true;
-    // A cold-load selection resolves only after data arrives. Preserve the URL's
-    // intent even while its entity is absent from the initial loading world.
-    if (worldUrlState.initialState.camera || worldUrlState.initialState.hasExplicitSelection) {
-      setArrivalStage("complete");
-      return undefined;
-    }
-    if (reducedMotion) {
-      setArrivalStage("crossfade");
-      const id = window.setTimeout(() => {
-        startCanvasArrival(() => setArrivalStage("complete"));
-      }, GARDEN_ARRIVAL_CROSSFADE_MS);
-      return () => window.clearTimeout(id);
-    }
-    setArrivalStage("arriving");
-    startCanvasArrival(() => setArrivalStage("complete"));
-    return undefined;
-  }, [motionPreferenceResolved, reducedMotion, rendererWarmupReady, startCanvasArrival, worldIsCharting, worldUrlState.initialState.camera, worldUrlState.initialState.hasExplicitSelection]);
-
-  useEffect(() => {
-    if (arrivalStage !== "arriving") return undefined;
-    const skip = () => {
-      skipCanvasArrival();
-      setArrivalStage("complete");
-    };
-    const events = ["pointerdown", "wheel", "keydown", "touchstart"] as const;
-    for (const eventName of events) window.addEventListener(eventName, skip, { capture: true, passive: true });
-    return () => {
-      for (const eventName of events) window.removeEventListener(eventName, skip, { capture: true });
-    };
-  }, [arrivalStage, skipCanvasArrival]);
-
-  const chartingVeilMounted = !rendererFailed && (worldIsCharting || arrivalStage !== "complete");
-  // W6.8 / W6.10: the now-line's visitor voice once the arrival settles —
-  // the return sentence, or the three first-visit teachings.
-  const visitorLine = useVisitorLine({
-    ready: arrivalStage === "complete" && !worldIsCharting,
-    reducedMotion,
+  const worldReady = !worldIsCharting && rendererWarmupReady && motionPreferenceResolved;
+  const chartingVeilMounted = !rendererFailed && !worldReady;
+  // First-visit teaching opens with the ready world, independently of arrival
+  // and caption warnings. Return summaries keep their post-arrival 20 s voice.
+  const { visitorLine, teachingOpen, dismissTeaching } = useVisitorLine({
+    ready: threeExperienceReady && worldReady,
+    returnReady: worldReady,
     returnSummary: visitSnapshot.summary,
   });
   const stayCaptionLive = useStayCaptionSurfacing({
@@ -1189,6 +1151,7 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
       className="pharosville-desktop pharosville-shell"
       data-stay={stay ? "true" : undefined}
       data-testid="pharosville-world"
+      data-world-ready={worldReady && !rendererFailed ? "true" : "false"}
       aria-describedby="pharosville-world-instructions"
       onKeyDown={rendererFailed ? handleFallbackKeyDown : handleWorldKeyDown}
       tabIndex={0}
@@ -1218,16 +1181,15 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
         <WorldStaticOverview world={world} onSelectDetail={handleSelectStaticDetail} />
       )}
       {chartingVeilMounted && !rendererFailed && (
-        <div
-          className="pharosville-loading pharosville-loading--veil"
-          data-testid="pharosville-charting-veil"
-          data-arrival={worldIsCharting ? "waiting" : arrivalStage}
-          data-charting={worldIsCharting ? "true" : "false"}
-          role="status"
-          aria-busy={worldIsCharting}
-          aria-live="polite"
-        >
-          Charting market winds…
+        <div data-testid="pharosville-charting-veil" data-charting={worldIsCharting ? "true" : "false"} aria-busy="true">
+          <ArrivalShell
+            veil
+            stage={worldIsCharting
+              ? "Fetching the market record."
+              : !rendererWarmupReady
+                ? "Preparing the renderer and shaders."
+                : "Resolving your motion preference."}
+          />
         </div>
       )}
       <div className="pharosville-overlay" aria-label="PharosVille controls and details">
@@ -1307,6 +1269,10 @@ function PharosVilleWorldInner({ world }: { world: PharosVilleWorldModel }) {
               reducedMotion={reducedMotion}
             />
           </div>
+          <Suspense fallback={null}>
+            <LazyReadingKey world={world} onSelectDetail={handleSelectStaticDetail} onPreviewDetail={handleReadingPreview}
+              teachingOpen={teachingOpen} onDismissTeaching={dismissTeaching} />
+          </Suspense>
           <WorldControls
             onStay={enterStay}
             onWander={handleWander}
@@ -1463,14 +1429,6 @@ function formatGeneratedAtForAnnouncement(generatedAt: number | null): string | 
   return `at ${new Date(generatedAt).toISOString()}`;
 }
 
-/** Shared loading state for both the lazy desktop runtime and world shell. */
-export function PharosVilleLoading({ message = "Charting market winds…" }: { message?: string }) {
-  return (
-    <div className="pharosville-loading pharosville-desktop" role="status" aria-busy="true" aria-live="polite">
-      {message}
-    </div>
-  );
-}
 
 const integerFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 

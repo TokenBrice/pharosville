@@ -63,7 +63,7 @@ export interface GardenCrossBearingBuoys {
    * Put buoy `index` alongside a hull at `worldX`/`worldZ`. The stand-off
    * bearing and distance are fixed per ship; only the hull's position moves.
    */
-  place(index: number, worldX: number, worldZ: number): void;
+  place(index: number, worldX: number, worldZ: number, visible?: boolean): void;
   /** One buffer upload for every buoy placed since the last flush. */
   flush(): void;
 }
@@ -189,22 +189,37 @@ export function createGardenCrossBearingBuoys(
   });
 
   const dummy = new Object3D();
+  const anchors = new Float64Array(specs.length * 2);
+  const visible = new Uint8Array(specs.length).fill(1);
   let dirty = false;
-  const place = (index: number, worldX: number, worldZ: number): void => {
-    const offset = standOff[index];
-    if (!offset) return;
-    dummy.position.set(worldX + offset.dx, GARDEN_WATER_Y, worldZ + offset.dz);
-    // A moored can leans on its chain; a perfectly upright one reads as a post.
-    dummy.rotation.set(0.07, offset.bearing, 0.05);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(index, dummy.matrix);
+  const place = (index: number, worldX: number, worldZ: number, shown = true): void => {
+    if (index < 0 || index >= specs.length) return;
+    anchors[index * 2] = worldX;
+    anchors[index * 2 + 1] = worldZ;
+    visible[index] = shown ? 1 : 0;
     dirty = true;
+  };
+  const flush = (): void => {
+    if (!dirty) return;
+    let slot = 0;
+    for (let index = 0; index < specs.length; index += 1) {
+      if (!visible[index]) continue;
+      const offset = standOff[index]!;
+      dummy.position.set(anchors[index * 2]! + offset.dx, GARDEN_WATER_Y, anchors[index * 2 + 1]! + offset.dz);
+      dummy.rotation.set(0.07, offset.bearing, 0.05);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(slot++, dummy.matrix);
+    }
+    mesh.count = slot;
+    mesh.visible = slot > 0;
+    mesh.instanceMatrix.needsUpdate = true;
+    dirty = false;
   };
 
   // Composed once so every instance has a valid matrix before the first frame;
   // the renderer overwrites them from the hulls' own positions each frame.
   for (let index = 0; index < specs.length; index += 1) place(index, 0, 0);
-  mesh.instanceMatrix.needsUpdate = true;
+  flush();
   // Instances are scattered across the whole map, so the geometry-derived
   // bounding sphere would cull them all the moment the origin left frame.
   mesh.frustumCulled = false;
@@ -218,10 +233,6 @@ export function createGardenCrossBearingBuoys(
       material.dispose();
     },
     place,
-    flush() {
-      if (!dirty) return;
-      mesh.instanceMatrix.needsUpdate = true;
-      dirty = false;
-    },
+    flush,
   };
 }

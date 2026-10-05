@@ -235,7 +235,9 @@ export function regionMeanLstar(frame, rect) {
  * L* statistics inside an image-pixel polygon (scanline even-odd fill at pixel
  * centres). Returns null when the polygon covers no pixel of the frame.
  */
-export function polygonLstarStats(frame, polygon, { brightThreshold = 10 } = {}) {
+export function polygonLstarStats(frame, polygon, {
+  brightThreshold = 10, minimumThreshold = 6, exclusions = [],
+} = {}) {
   const { lstar, width, height } = frame;
   if (polygon.length < 3) return null;
   const ys = polygon.map((point) => point.y);
@@ -244,6 +246,7 @@ export function polygonLstarStats(frame, polygon, { brightThreshold = 10 } = {})
   const values = [];
   let total = 0;
   let bright = 0;
+  let atOrAbove = 0;
   for (let y = yStart; y <= yEnd; y += 1) {
     const centreY = y + 0.5;
     const crossings = [];
@@ -259,10 +262,12 @@ export function polygonLstarStats(frame, polygon, { brightThreshold = 10 } = {})
       const xStart = Math.max(0, Math.ceil(crossings[pair] - 0.5));
       const xEnd = Math.min(width - 1, Math.floor(crossings[pair + 1] - 0.5));
       for (let x = xStart; x <= xEnd; x += 1) {
+        if (exclusions.some((excluded) => pointInPolygon(x + 0.5, centreY, excluded))) continue;
         const value = lstar[y * width + x];
         values.push(value);
         total += value;
         if (value > brightThreshold) bright += 1;
+        if (value >= minimumThreshold) atOrAbove += 1;
       }
     }
   }
@@ -271,10 +276,75 @@ export function polygonLstarStats(frame, polygon, { brightThreshold = 10 } = {})
   return {
     brightShare: bright / values.length,
     brightThreshold,
+    coverageAtOrAbove: atOrAbove / values.length,
+    minimumThreshold,
     max: values[values.length - 1],
     mean: total / values.length,
+    median: (values[Math.floor((values.length - 1) / 2)] + values[Math.floor(values.length / 2)]) / 2,
     p95: values[Math.floor(0.95 * (values.length - 1))],
     pixels: values.length,
+  };
+}
+
+function pointInPolygon(x, y, polygon) {
+  let inside = false;
+  for (let index = 0; index < polygon.length; index += 1) {
+    const a = polygon[index];
+    const b = polygon[(index + 1) % polygon.length];
+    if ((a.y > y) !== (b.y > y) && x < a.x + (y - a.y) * (b.x - a.x) / (b.y - a.y)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/**
+ * Authored light regions in canvas CSS pixels. Boundary pairs are {name, a, b}
+ * polygons; materialPatches holds stone/moss/timber polygons; approach is
+ * {polygon, exclusions?} for non-recess ground. Keep the original annotation
+ * in the result so a pass cannot silently migrate its samples.
+ */
+export function measureLightRois(frame, rois, { cssWidth, cssHeight }) {
+  if (rois.viewport?.width !== cssWidth || rois.viewport?.height !== cssHeight) {
+    throw new Error(`light ROI viewport must match canvas ${cssWidth}x${cssHeight}; annotate each aspect separately`);
+  }
+  const scaleX = frame.width / cssWidth;
+  const scaleY = frame.height / cssHeight;
+  const imagePolygon = (polygon) => {
+    if (!Array.isArray(polygon) || polygon.length < 3 || polygon.some((point) =>
+      !Number.isFinite(point?.x) || !Number.isFinite(point?.y))) {
+      throw new Error("light ROI polygons need at least three finite CSS-pixel {x,y} vertices");
+    }
+    return polygon.map(({ x, y }) => ({ x: x * scaleX, y: y * scaleY }));
+  };
+  const sample = (polygon, exclusions = []) => polygonLstarStats(frame, imagePolygon(polygon), {
+    minimumThreshold: 6, exclusions: exclusions.map(imagePolygon),
+  });
+  if (!Array.isArray(rois.boundaryPairs) || rois.boundaryPairs.length === 0) {
+    throw new Error("light ROIs need named boundaryPairs");
+  }
+  const boundaryPairs = rois.boundaryPairs.map(({ name, a, b }) => {
+    if (typeof name !== "string" || !name) throw new Error("light boundary pairs need a name");
+    const first = sample(a);
+    const second = sample(b);
+    const contrast = first && second ? Math.abs(first.median - second.median) : null;
+    return { name, a: first, b: second, contrast, minimumContrast: 4, pass: contrast !== null && contrast >= 4 };
+  });
+  const materials = ["stone", "moss", "timber"];
+  const materialPatches = Object.fromEntries(materials.map((name) => [name, sample(rois.materialPatches?.[name])]));
+  const materialPairs = materials.flatMap((a, index) => materials.slice(index + 1).map((b) => {
+    const contrast = materialPatches[a] && materialPatches[b]
+      ? Math.abs(materialPatches[a].median - materialPatches[b].median) : null;
+    return { a, b, contrast, minimumContrast: 3, pass: contrast !== null && contrast >= 3 };
+  }));
+  const approachStats = sample(rois.approach?.polygon, rois.approach?.exclusions ?? []);
+  const approach = {
+    ...approachStats, minimumCoverage: 0.9,
+    pass: approachStats !== null && approachStats.coverageAtOrAbove >= 0.9,
+  };
+  return {
+    polygons: structuredClone(rois), boundaryPairs, materialPatches, materialPairs, approach,
+    pass: boundaryPairs.every((pair) => pair.pass) && materialPairs.every((pair) => pair.pass) && approach.pass,
   };
 }
 
@@ -370,7 +440,7 @@ export const VALUE_PLAN_COLUMNS = ["noon", "dusk", "night"];
  * The bible's value plan (`docs/pharosville/VISUAL_INVARIANTS.md`, "Value
  * plan"), parsed from the document itself so a G−1 correction to the table is
  * what the metric compares against, with no copy to drift. Each cell's first
- * `a / b / c` triple is noon / dusk / night.
+ * `a / b / c` triple is noon / dusk / night; — retires a column's targets.
  */
 export async function readValuePlan(path) {
   const markdown = await readFile(path, "utf8");
@@ -381,9 +451,9 @@ export async function readValuePlan(path) {
     const match = /^\|\s*(Top|Middle|Bottom)\s*\|(.*)\|\s*$/.exec(line.trim());
     if (!match) continue;
     const cells = match[2].split("|").map((cell) => {
-      const triple = /(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/.exec(cell);
+      const triple = /(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?|—)/.exec(cell);
       if (!triple) throw new Error(`value-plan cell without a noon / dusk / night triple: "${cell.trim()}"`);
-      return [Number(triple[1]), Number(triple[2]), Number(triple[3])];
+      return [Number(triple[1]), Number(triple[2]), triple[3] === "—" ? null : Number(triple[3])];
     });
     if (cells.length !== 3) throw new Error(`value-plan row ${match[1]} has ${cells.length} cells, expected 3`);
     rows[match[1]] = cells;
@@ -393,7 +463,8 @@ export async function readValuePlan(path) {
   if (missing.length) throw new Error(`value-plan table in ${path} lacks row(s) ${missing.join(", ")}`);
   const plan = {};
   VALUE_PLAN_COLUMNS.forEach((column, columnIndex) => {
-    plan[column] = order.flatMap((name) => rows[name].map((cell) => cell[columnIndex]));
+    const targets = order.flatMap((name) => rows[name].map((cell) => cell[columnIndex]));
+    plan[column] = targets.some((value) => value === null) ? null : targets;
   });
   return plan;
 }

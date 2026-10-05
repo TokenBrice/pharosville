@@ -6,6 +6,7 @@ import {
   LinearMipmapLinearFilter,
   NearestFilter,
   Mesh,
+  NoColorSpace,
   PerspectiveCamera,
   PlaneGeometry,
   RingGeometry,
@@ -14,9 +15,12 @@ import {
   Texture,
   TextureLoader,
   Vector3,
-  Vector4,
 } from "three";
 import { describe, expect, it, vi } from "vitest";
+import { rimShoreDistance } from "../systems/garden-rim";
+import { PHAROSVILLE_MAP_WIDTH } from "../systems/world-layout";
+import { GARDEN_SURFACE_GLSL, type GardenSurfaceAtlasLease, type GardenSurfaceAtlasOwner } from "./garden-surface-atlas";
+import { shoreBeachWeight, writeGardenShoreSample, type GardenShoreSample } from "./garden-rim-mesh";
 import {
   GARDEN_WATER_Y,
   GARDEN_ZONE_ROOT_Y,
@@ -26,25 +30,38 @@ import {
   GARDEN_DEFAULT_WIND_Z,
 } from "../systems/weather";
 import {
+  RISK_SURFACE_SIGNATURES,
   SEA_REGION_CHARACTER,
   SEA_REGION_FALLBACK_TINT,
   SEA_REGION_ID,
+  SEA_REGION_SHORE_FULL_SCALE_TILES,
 } from "../systems/garden-sea-regions";
 import type { GardenWaterFrame } from "./garden-water";
 import {
   createGardenWater,
   FRAGMENT_SHADER,
+  GARDEN_RISK_SURFACE_GLSL,
+  GARDEN_HERO_REFLECTION_FILTER,
+  gardenHeroReflectionMipLod,
+  gardenHeroReflectionSpreadTexels,
   GARDEN_WATER_GERSTNER,
   GARDEN_WATER_MAX_DISPLACEMENT,
+  GARDEN_WATER_NORMAL_MAP_URL,
   sampleGardenGerstner,
   VERTEX_SHADER,
   type GardenGerstnerSampleInput,
   type GerstnerComponent,
 } from "./garden-water";
 import {
+  GARDEN_WATER_BEACON_CLAMP,
+  GARDEN_WATER_MOON_ROAD_GAIN,
+  GARDEN_WATER_NIGHT_EMISSION,
+  GARDEN_WATER_OPTICS,
+  GARDEN_WATER_SUN_GLITTER_GAIN,
   GARDEN_WATER_MAX_RIPPLE_RINGS,
   GARDEN_WATER_MAX_LIGHT_LANES,
   GARDEN_WATER_PLATE_MARGIN_TILES,
+  GARDEN_WATER_SHORE_LAP,
 } from "./garden-water-contract";
 import { dayCyclePhase } from "./garden-day-cycle";
 /**
@@ -186,8 +203,8 @@ describe("createGardenWater", () => {
     const open = SEA_REGION_CHARACTER.open;
     const openId = SEA_REGION_ID.open;
     const expectedColor = new Color(SEA_REGION_FALLBACK_TINT.open);
-    const expectedParams = new Vector4(open.depth, open.foam, open.reflectivity, open.tintStrength);
-    const expectedSwell = new Vector4(open.swell, open.chop, open.crossedNormal, open.shallowShelf);
+    const expectedParams = new Vector3(open.depth, open.reflectivity, open.tintStrength);
+    const expectedSwell = new Vector3(open.swell, open.chop, open.shallowShelf);
 
     for (const material of [water.material, annulus.material]) {
       expect(material.uniforms.uRegionColor!.value[openId]).toEqual(expectedColor);
@@ -198,6 +215,20 @@ describe("createGardenWater", () => {
       .toBe(uniformNumber(water.material, "uWaveAmplitude"));
     expect(uniformNumber(annulus.material, "uTempo"))
       .toBe(uniformNumber(water.material, "uTempo"));
+    water.dispose();
+  });
+
+  it("keeps plate, skirt and annulus on continuous air without the rectangular overview veil", () => {
+    const water = createGardenWater(GARDEN_WATER_Y);
+    const annulus = water.mesh.getObjectByName("garden-sea-annulus") as Mesh<RingGeometry, ShaderMaterial>;
+    const skirt = annulus.getObjectByName("garden-sea-inner-skirt") as Mesh<RingGeometry, ShaderMaterial>;
+    expect(water.material.defines.GARDEN_AIR_CONTINUOUS_WATER).toBe(1);
+    expect(annulus.material.defines.GARDEN_AIR_CONTINUOUS_WATER).toBe(1);
+    expect(skirt.material).toBe(annulus.material);
+    expect(annulus.material.uniforms.uGardenAir).toBe(water.material.uniforms.uGardenAir);
+    expect(FRAGMENT_SHADER).toContain("#ifndef GARDEN_AIR_CONTINUOUS_WATER");
+    expect(FRAGMENT_SHADER).toContain("gardenAerial(gl_FragColor.rgb, vWorldPosition, cameraPosition)");
+    expect(FRAGMENT_SHADER).toContain("distance(cameraPosition.xz, vWorldPosition.xz)");
     water.dispose();
   });
 
@@ -260,7 +291,7 @@ describe("createGardenWater", () => {
     const versionBeforeProbe = water.material.version;
 
     water.mesh.onBeforeRender(
-      {} as never,
+      { getPixelRatio: () => 2 } as never,
       scene,
       {} as never,
       water.mesh.geometry,
@@ -271,6 +302,7 @@ describe("createGardenWater", () => {
     expect(water.material.uniforms.envMap!.value).toBe(probe);
     expect((water.material as ShaderMaterial & { envMap: Texture | null }).envMap).toBe(probe);
     expect(water.material.version).toBeGreaterThan(versionBeforeProbe);
+    expect(uniformNumber(water.material, "uSurfacePixelRatio")).toBe(2);
 
     const disposeProbe = vi.spyOn(probe, "dispose");
     water.dispose();
@@ -345,6 +377,10 @@ describe("createGardenWater", () => {
       const water = createGardenWater(0);
       const root = new Group();
       root.add(water.mesh);
+      expect(loadSpy).toHaveBeenCalledWith(GARDEN_WATER_NORMAL_MAP_URL);
+      expect(normalMap.colorSpace).toBe(NoColorSpace);
+      expect(normalMap.generateMipmaps).toBe(true);
+      expect(normalMap.minFilter).toBe(LinearMipmapLinearFilter);
       const externalLane = new DataTexture();
       const externalWake = new Texture();
       water.setLaneState(externalLane, 1);
@@ -376,6 +412,42 @@ describe("createGardenWater", () => {
       vi.unstubAllGlobals();
       loadSpy.mockRestore();
     }
+  });
+
+  it("shares renderer-owned atlas uniforms across all water draws and releases only its lease", () => {
+    const textures = { albedo: new DataTexture(), normal: new DataTexture(), orm: new DataTexture() };
+    const uniforms = {
+      uGardenSurfaceAlbedo: { value: textures.albedo },
+      uGardenSurfaceNormal: { value: textures.normal },
+      uGardenSurfaceOrm: { value: textures.orm },
+      uGardenSurfaceAtlasReady: { value: 1 },
+    };
+    const releases = [vi.fn(), vi.fn()];
+    const leases = releases.map((release): GardenSurfaceAtlasLease => ({
+      textures, uniforms, release, ready: Promise.resolve(true), error: null,
+      detailSource: { key: "borrowed-test", glsl: GARDEN_SURFACE_GLSL, uniforms },
+    }));
+    const owner: GardenSurfaceAtlasOwner = { textures, lease: vi.fn(() => leases.shift() ?? null), release: vi.fn() };
+    const mapsDisposed = Object.values(textures).map((texture) => vi.spyOn(texture, "dispose"));
+    const first = createGardenWater(GARDEN_WATER_Y, owner);
+    const second = createGardenWater(GARDEN_WATER_Y, owner);
+    const annulus = first.mesh.getObjectByName("garden-sea-annulus") as Mesh<RingGeometry, ShaderMaterial>;
+    for (const name of Object.keys(uniforms)) {
+      expect(first.material.uniforms[name]).toBe(uniforms[name as keyof typeof uniforms]);
+      expect(annulus.material.uniforms[name]).toBe(first.material.uniforms[name]);
+      expect(second.material.uniforms[name]).toBe(first.material.uniforms[name]);
+    }
+    first.dispose();
+    first.dispose();
+    expect(releases[0]).toHaveBeenCalledOnce();
+    expect(releases[1]).not.toHaveBeenCalled();
+    expect(uniforms.uGardenSurfaceAtlasReady.value).toBe(1);
+    expect(second.material.uniforms.uGardenSurfaceAlbedo!.value).toBe(textures.albedo);
+    second.dispose();
+    expect(releases[1]).toHaveBeenCalledOnce();
+    expect(owner.release).not.toHaveBeenCalled();
+    for (const disposed of mapsDisposed) expect(disposed).not.toHaveBeenCalled();
+    for (const texture of Object.values(textures)) texture.dispose();
   });
 
   it("wires the shared lane texture and outlying islet shore centers", () => {
@@ -419,24 +491,143 @@ describe("createGardenWater", () => {
     expect(danger.getHexString()).toBe(
       new Color(SEA_REGION_CHARACTER.danger.tint).lerp(new Color("#ef4444"), 0.18).getHexString(),
     );
-    expect(water.material.uniforms.uRegionParams!.value[5]!.w).toBeCloseTo(
+    expect(water.material.uniforms.uRegionParams!.value[5]!.z).toBeCloseTo(
       SEA_REGION_CHARACTER.danger.tintStrength,
     );
   });
 
-  it("wires the seven directional characters into the existing normal vocabulary", () => {
+  it("generates static categorical stroke constants from the shared codebook", () => {
+    for (const [body, signature] of Object.entries(RISK_SURFACE_SIGNATURES)) {
+      if (signature.kind !== "strokes") continue;
+      const geometry = [signature.pitch, ...signature.length, signature.grouping]
+        .map((value) => value.toFixed(7)).join(", ");
+      expect(GARDEN_RISK_SURFACE_GLSL).toContain(`if (regionId == ${SEA_REGION_ID[body as keyof typeof RISK_SURFACE_SIGNATURES]})`);
+      expect(GARDEN_RISK_SURFACE_GLSL).toContain(`geometry = vec4(${geometry})`);
+      expect(GARDEN_RISK_SURFACE_GLSL).toContain(`bearing = ${signature.bearing.toFixed(7)}`);
+    }
+    expect(FRAGMENT_SHADER).toContain(GARDEN_RISK_SURFACE_GLSL);
+    expect(FRAGMENT_SHADER).toContain("gardenRiskSurface(vWaterPosition, regionId)");
+    expect(GARDEN_RISK_SURFACE_GLSL).toContain("gardenHash(cell");
+    expect(GARDEN_RISK_SURFACE_GLSL).toContain("rotate2(worldPosition, bearing)");
+    expect(GARDEN_RISK_SURFACE_GLSL).not.toMatch(/uTime|uWind|uDetail|regionBlend|inletCalm|uStorm/);
+  });
+
+  it("filters marks to bounded widths and analytically retained group coverage", () => {
+    expect(GARDEN_RISK_SURFACE_GLSL).toContain("dFdx(worldPosition)");
+    expect(GARDEN_RISK_SURFACE_GLSL).toContain("dFdy(worldPosition)");
+    expect(GARDEN_RISK_SURFACE_GLSL).toContain("uSurfacePixelRatio");
+    expect(GARDEN_RISK_SURFACE_GLSL).toContain("mix(meanCore, min(core, 1.0), resolved)");
+    expect(GARDEN_RISK_SURFACE_GLSL).toContain("mix(meanCore, min(shoulder, 1.0), resolved)");
+    expect(FRAGMENT_SHADER).toContain("waterColor *= 1.0 - riskSurface.x * riskSurface.z");
+    expect(FRAGMENT_SHADER).toContain("waterColor = mix(waterColor, max(waterColor * 1.18, skySample),");
+    expect(FRAGMENT_SHADER).not.toMatch(/signatureNormal|crestInk|crestPeriodPx|pockLife|capMaximum|regionFoam/);
+    expect(FRAGMENT_SHADER).not.toMatch(/waterColor\s*\+=.*riskSurface/);
+    expect(FRAGMENT_SHADER).not.toContain("quietBody");
+    expect(VERTEX_SHADER).not.toContain("quietBody");
+    expect(FRAGMENT_SHADER).toContain("float shelter = max(max(harborCalm, inletCalm), shoreCalm)");
+    expect(GARDEN_RISK_SURFACE_GLSL).not.toMatch(/shelter|slickFlatten|wakeSlick/);
+  });
+
+  it("guards signature denominators and smoothstep widths before categorical helper-lane exits", () => {
+    const source = GARDEN_RISK_SURFACE_GLSL;
+    expect(source.indexOf("dFdx(worldPosition)")).toBeLessThan(source.indexOf("return vec3"));
+    expect(source.indexOf("dFdy(worldPosition)")).toBeLessThan(source.indexOf("return vec3"));
+    expect(source).not.toContain("fwidth(p)");
+    expect(source).toContain("max(geometry.z + geometry.x, 1e-4)");
+    expect(source).toContain("max(geometry.x, 1e-4)");
+    expect(source).toContain("max(period * pitch, 1e-4)");
+    expect(source).toContain("max(6.0 * geometry.z * geometry.w, 1e-4)");
+    expect(source).toContain("max(footprint.y, 1e-4)");
+    expect(source).toContain("max(footprint.x, 1e-4)");
+    expect(source).toContain("float halfWidth = max(1e-4, min(");
+    expect(source).toContain("max(1.0, uSurfacePixelRatio)");
+    expect(source).not.toMatch(/normalize\(|pow\(|log\(|sqrt\(|inversesqrt\(|atan\(/);
     const water = createGardenWater(0);
-    const flows = water.material.uniforms.uRegionFlow!.value;
-    const waves = water.material.uniforms.uRegionSwell!.value;
+    const annulus = water.mesh.getObjectByName("garden-sea-annulus") as Mesh<RingGeometry, ShaderMaterial>;
+    expect(uniformNumber(water.material, "uSurfacePixelRatio")).toBe(1);
+    expect(uniformNumber(annulus.material, "uSurfacePixelRatio")).toBe(1);
+    expect(annulus.material.uniforms.uSurfacePixelRatio).toBe(water.material.uniforms.uSurfacePixelRatio);
+    water.dispose();
+  });
+
+  it("uses one derivative-filtered complete normal and roughness across every optical consumer", () => {
+    expect(FRAGMENT_SHADER).toContain("float broadMeanLength = clamp(length(broadMean)");
+    expect(FRAGMENT_SHADER).toContain("1.0 - broadMeanLength * broadMeanLength");
+    expect(FRAGMENT_SHADER).toContain("1.0 - fineMeanLength * fineMeanLength");
+    expect(FRAGMENT_SHADER).toContain("1.0 - broadWeight * broadWeight");
+    expect(FRAGMENT_SHADER).toContain("1.0 - fineWeight * fineWeight");
+    expect(FRAGMENT_SHADER).toContain("dFdx(completeSlope)");
+    expect(FRAGMENT_SHADER).toContain("dFdy(completeSlope)");
+    expect(FRAGMENT_SHADER).toContain("probeRoughness * probeRoughness + normalVariance");
+    expect(FRAGMENT_SHADER).toContain("reflect(-viewDirection, worldSurfaceNormal)");
+    expect(FRAGMENT_SHADER).toContain("gardenEnvironmentReflection(worldSurfaceNormal, viewDirection, scalarSky, roughness)");
+    expect(FRAGMENT_SHADER).toContain("dot(surfaceNormal.xy, bodyFlowDir)");
+    expect(FRAGMENT_SHADER).toContain("dot(worldSurfaceNormal, sunHalf");
+    expect(FRAGMENT_SHADER).toContain("dot(worldSurfaceNormal,");
+    expect(FRAGMENT_SHADER).toContain("min(160.0, opticalLobeExponent)");
+    expect(FRAGMENT_SHADER).not.toMatch(/glintNormal|sparkleNormal|fresnelNormal|crossedWeight|nMid/);
+    expect(GARDEN_WATER_OPTICS.normalTileWorldUnits).toBe(40);
+    expect(GARDEN_WATER_OPTICS.fineSlopeGain).toBeLessThanOrEqual(0.15);
+    expect(GARDEN_WATER_OPTICS.gerstnerSlopeGain).toBeLessThanOrEqual(1);
+    const water = createGardenWater(0);
     for (const [name, id] of Object.entries(SEA_REGION_ID)) {
       const character = SEA_REGION_CHARACTER[name as keyof typeof SEA_REGION_CHARACTER];
-      expect(flows[id]!.x).toBeCloseTo(Math.cos(character.flowBearing));
-      expect(flows[id]!.y).toBeCloseTo(-Math.sin(character.flowBearing));
-      expect(flows[id]!.z).toBe(character.flowHold);
-      expect(flows[id]!.w).toBe(character.normalDetail);
-      expect(waves[id]!.z).toBe(character.crossedNormal);
-      expect(waves[id]!.w).toBe(character.shallowShelf);
+      expect(water.material.uniforms.uRegionSwell!.value[id]).toEqual(
+        new Vector3(character.swell, character.chop, character.shallowShelf),
+      );
     }
+    water.dispose();
+  });
+
+  it("filters hero reflection monotonically with projected footprint and optical roughness", () => {
+    const footprints = [0.125, 0.5, 1, 2, 4, 8];
+    expect(footprints.map((footprint) => gardenHeroReflectionMipLod(footprint, 0)))
+      .toEqual([0, 0, 0, 1, 2, 3]);
+    let previousSpread = 0;
+    let previousLod = 0;
+    for (const roughness of [0.06, 0.12, 0.22, 0.4]) {
+      const spread = gardenHeroReflectionSpreadTexels(roughness, 0);
+      const lod = gardenHeroReflectionMipLod(0.5, spread);
+      expect(spread).toBeGreaterThanOrEqual(previousSpread);
+      expect(lod).toBeGreaterThanOrEqual(previousLod);
+      expect(spread).toBeLessThanOrEqual(GARDEN_HERO_REFLECTION_FILTER.maximumSpreadTexels);
+      previousSpread = spread;
+      previousLod = lod;
+    }
+    expect(previousLod).toBeGreaterThan(0);
+  });
+
+  it("keeps calm contact at zero spread and guards non-finite CPU filter inputs", () => {
+    expect(gardenHeroReflectionSpreadTexels(0.06, 0)).toBe(0);
+    for (const roughness of [0.06, 0.12, 0.22, 0.4]) {
+      expect(gardenHeroReflectionSpreadTexels(roughness, 1)).toBe(0);
+      expect(gardenHeroReflectionSpreadTexels(roughness, 0.5))
+        .toBeCloseTo(gardenHeroReflectionSpreadTexels(roughness, 0) * 0.5);
+    }
+    expect(gardenHeroReflectionMipLod(0.5, gardenHeroReflectionSpreadTexels(0.22, 1))).toBe(0);
+    expect(gardenHeroReflectionSpreadTexels(NaN, 0)).toBe(0);
+    expect(gardenHeroReflectionSpreadTexels(Infinity, NaN)).toBe(0);
+    expect(gardenHeroReflectionMipLod(NaN, Infinity)).toBe(0);
+  });
+
+  it("samples at most three footprint-aware surface-axis taps with preserved coverage", () => {
+    expect(VERTEX_SHADER).toContain("vHeroReflectionClip = uHeroReflectionMatrix * vec4(vWorldPosition, 1.0)");
+    expect(FRAGMENT_SHADER).toContain("max(uHeroReflectionSize, vec2(1.0))");
+    expect(FRAGMENT_SHADER).toContain("max(abs(vHeroReflectionClip.w), 1e-4)");
+    expect(FRAGMENT_SHADER.indexOf("dFdx(heroBaseUv)"))
+      .toBeLessThan(FRAGMENT_SHADER.indexOf("if (uAnnulus < 0.5 && uHeroReflectionStrength"));
+    expect(FRAGMENT_SHADER).toContain("max(heroFootprint, heroSpread)");
+    expect(FRAGMENT_SHADER).toContain("roughness * roughness - 0.0036000");
+    expect(FRAGMENT_SHADER).toContain("heroAxisTexels * heroSpread / heroSize");
+    expect(FRAGMENT_SHADER).toContain("heroAxisTexels * heroShift / heroSize");
+    expect(FRAGMENT_SHADER.match(/textureLod\(uHeroReflection,/g)).toHaveLength(3);
+    expect(FRAGMENT_SHADER).toContain("hero.rgb / max(hero.a, 1e-3)");
+    expect(FRAGMENT_SHADER).toContain("heroColor / (1.0 + maxComponent(heroColor) * 0.8)");
+    expect(FRAGMENT_SHADER).toContain("heroEdgeFade * heroContinuity");
+    expect(FRAGMENT_SHADER).not.toMatch(/float below|3\.5 \* below|vec2\(0\.0, heroTap\)/);
+    const water = createGardenWater(0);
+    expect(water.material.uniforms.uHeroReflectionSize!.value.toArray()).toEqual([1, 1]);
+    water.dispose();
   });
 
   it("maps the region field with the water plane's z-flip", () => {
@@ -477,6 +668,69 @@ describe("createGardenWater", () => {
     expect(distance).not.toBe(water.material.uniforms.uRegionField!.value);
   });
 
+  it("registers authored shore masks in the same unwarped world coordinates as the distance field", () => {
+    const water = createGardenWater(GARDEN_WATER_Y);
+    const field = water.regionTextures.field.image;
+    const distance = water.regionTextures.distance.image;
+    const fieldData = field.data;
+    const distanceData = distance.data;
+    if (fieldData === null || distanceData === null) throw new Error("Shore textures must contain CPU bake data.");
+    const transform = water.material.uniforms.uRegionTransform!.value;
+    const sample: GardenShoreSample = { segment: null, depth: 0, substrate: null, exposure: 0, state: "damp" };
+    let sandSamples = 0;
+    let isolatedMineralSamples = 0;
+    for (let y = 0; y < field.height; y += 7) {
+      for (let x = 0; x < field.width; x += 7) {
+        const offset = (y * field.width + x) * 4;
+        const worldX = x / field.width * PHAROSVILLE_MAP_WIDTH * Math.SQRT2;
+        const worldZ = y / field.height * PHAROSVILLE_MAP_WIDTH * Math.SQRT2;
+        writeGardenShoreSample(sample, worldX, 0, worldZ, 0);
+        const shoreTiles = fieldData[offset + 2]! / 255 * SEA_REGION_SHORE_FULL_SCALE_TILES;
+        const rimDelta = Math.max(0, rimShoreDistance(worldX / Math.SQRT2, worldZ / Math.SQRT2)) - shoreTiles;
+        const t = Math.max(0, Math.min(1, (rimDelta - 0.25) / 0.75));
+        const rimWeight = 1 - t * t * (3 - 2 * t);
+        const sand = shoreBeachWeight(worldX, worldZ) * rimWeight;
+        expect(distanceData[offset]).toBe(fieldData[offset + 1]);
+        expect(distanceData[offset + 1]).toBe(fieldData[offset + 2]);
+        expect(distanceData[offset + 2]).toBe(Math.round(sand * 255));
+        // Keep canonical lerp arithmetic: equivalent rearrangements cross .5-byte ties.
+        const exposure = (1 - rimWeight) * 0.2 + rimWeight * sample.exposure;
+        expect(distanceData[offset + 3]).toBe(Math.round(exposure * 255));
+        expect(worldX * transform.z).toBeCloseTo(x / field.width, 8);
+        expect(-worldZ * transform.w).toBeCloseTo(y / field.height, 8);
+        if (sand > 0.05) sandSamples++;
+        if (sand > 0.05 && x + 1 < field.width) {
+          expect(Math.abs(distanceData[offset + 2]! - distanceData[offset + 6]!)).toBeLessThan(128);
+        }
+        if (rimWeight === 0 && shoreTiles < 4) {
+          isolatedMineralSamples++;
+          expect(distanceData[offset + 2]).toBe(0);
+          expect(distanceData[offset + 3]).toBe(51);
+        }
+      }
+    }
+    expect(sandSamples).toBeGreaterThan(0);
+    expect(isolatedMineralSamples).toBeGreaterThan(0);
+    expect(distance.width).toBe(field.width);
+    expect(distance.height).toBe(field.height);
+    water.dispose();
+  });
+
+  it("replaces the ellipse seabed and universal collar with masked atlas absorption and sparse exposed lap", () => {
+    expect(FRAGMENT_SHADER).toContain(GARDEN_SURFACE_GLSL);
+    expect(FRAGMENT_SHADER).toContain("bottomPosition.xz +=");
+    expect(FRAGMENT_SHADER).toContain("clamp(regionDistanceSample.b, 0.0, 1.0)");
+    expect(FRAGMENT_SHADER).toContain("exp(-bottomDepth * 1.25) * shoreMask");
+    expect(FRAGMENT_SHADER).toContain("shoreEdge * exposedLap * shoreMask * (1.0 - contact)");
+    expect(FRAGMENT_SHADER).not.toMatch(/shoreDelta|shelfA|shelfB|bathyGrain|isletShelf|SEABED_COLOR|shoreAdvect/);
+    expect(FRAGMENT_SHADER).toContain("texture2D(uRegionField, vRegionUv)");
+    expect(FRAGMENT_SHADER).toContain("texture2D(uRegionDistance, vRegionUv)");
+    expect(FRAGMENT_SHADER).not.toMatch(/texture2D\(uRegion(?:Field|Distance),\s*bottom/);
+    expect(GARDEN_WATER_SHORE_LAP.exposureStart).toBeGreaterThan(0.35);
+    expect(GARDEN_WATER_SHORE_LAP.noiseStart).toBeGreaterThanOrEqual(0.75);
+    expect(GARDEN_WATER_SHORE_LAP.maxMix).toBeLessThanOrEqual(0.055);
+  });
+
   it("resolves every hard threshold against its own screen-space gradient", () => {
     // S3: MSAA antialiases geometry edges, not a discontinuity the shader
     // invents per fragment. Every bare step() on a spatial field crawled under
@@ -485,15 +739,14 @@ describe("createGardenWater", () => {
     const source = createGardenWater(0).material.fragmentShader;
     expect(source).toContain("float aaStep(float edge, float value)");
     expect(source).toContain("fwidth(value)");
-    for (const aliased of [
-      "step(0.76,",
-      "step(0.35,",
-      "step(-2.0, along)",
-    ]) {
-      // `aaStep(0.76,` contains `Step(0.76,` but not `step(0.76,` — the check
-      // is case-sensitive on purpose.
-      expect(source).not.toContain(aliased);
-    }
+    // Match the complete callee: smoothstep and aaStep are filtered helpers,
+    // not hard step calls merely because their names contain "step".
+    const hardThresholds = [/\bstep\s*\(\s*0\.76\s*,/, /\bstep\s*\(\s*0\.35\s*,/,
+      /\bstep\s*\(\s*-2\.0\s*,\s*along\s*\)/];
+    for (const aliased of hardThresholds) expect(source).not.toMatch(aliased);
+    expect("smoothstep(0.35, 0.8, footprint)").not.toMatch(hardThresholds[1]!);
+    expect("aaStep(0.35, value)").not.toMatch(hardThresholds[1]!);
+    expect("step(0.35, value)").toMatch(hardThresholds[1]!);
   });
 
   it("freezes reduced motion and lowers decorative detail by quality tier", () => {
@@ -743,6 +996,21 @@ describe("createGardenWater", () => {
     expect(uniformNumber(water.material, "uMoonLight")).toBe(0);
   });
 
+  it("bounds all open-night additive terms with a conservative unit-luminance occupancy proxy", () => {
+    expect(Object.keys(GARDEN_WATER_NIGHT_EMISSION)).toEqual(["sunGlitter", "moonRoad", "beacon", "lanes"]);
+    const meanProxy = Object.values(GARDEN_WATER_NIGHT_EMISSION)
+      .reduce((sum, term) => sum + term.gain * term.occupancy, 0);
+    expect(meanProxy).toBeCloseTo(0.01535, 8);
+    expect(meanProxy).toBeLessThanOrEqual(0.016);
+    expect(FRAGMENT_SHADER.match(/waterColor\s*\+=/g)).toHaveLength(4);
+    expect(FRAGMENT_SHADER).toContain(`* ${GARDEN_WATER_MOON_ROAD_GAIN.toFixed(7)}`);
+    expect(FRAGMENT_SHADER).toContain(`clamp(beaconReflection, 0.0, ${GARDEN_WATER_BEACON_CLAMP.toFixed(7)})`);
+    expect(FRAGMENT_SHADER).toContain(`clamp(sunGlitter, 0.0, 1.0) * ${GARDEN_WATER_SUN_GLITTER_GAIN.toFixed(7)}`);
+    // Sun glitter is absent at open night, not assigned a fractional support.
+    expect(FRAGMENT_SHADER).toContain("uDaylight + uDusk > 0.001");
+    expect(GARDEN_WATER_NIGHT_EMISSION.sunGlitter.occupancy).toBe(0);
+  });
+
   it("thickens the height fog at dusk and in storms, thinnest at noon", () => {
     // W2.1: the shared density is strongest at dawn/dusk, faint at noon, and
     // closed in by weather without changing the phase-authored tint.
@@ -830,6 +1098,41 @@ describe("createGardenWater", () => {
     expect(water.material.uniforms.uWakeCenter!.value).toMatchObject({ x: 47.6, y: -38.9 });
     expect(uniformNumber(water.material, "uWakeInvSize")).toBeCloseTo(1 / 192);
     expect(uniformNumber(water.material, "uWakeTexel")).toBeCloseTo(1 / 512);
+  });
+
+  it("filters mover R/G by pixel footprint without thresholding or borrowing static contact B", () => {
+    const derivative = FRAGMENT_SHADER.indexOf("vec2 wakeDx = dFdx(wakeUv)");
+    expect(derivative).toBeGreaterThan(0);
+    expect(derivative).toBeLessThan(FRAGMENT_SHADER.indexOf("if (wakeInside)"));
+    expect(FRAGMENT_SHADER).toContain("wake = centerWake * 0.5 + (beforeWake + afterWake) * 0.25");
+    expect(FRAGMENT_SHADER).toContain("float wakeFoam = wake.r * wakeResolution");
+    expect(FRAGMENT_SHADER).toContain("float wakeSlick = wake.g * wakeResolution * uWakeStrength");
+    expect(FRAGMENT_SHADER).not.toMatch(/smoothstep\([^;\n]*wake\.g/);
+    // Reference the shader's positive linear transfer: each footprint preserves
+    // raw intensity order, while unresolved history gets strictly quieter.
+    for (const footprintTexels of [1, 2, 4, 8]) {
+      const resolution = 1 / Math.max(1, footprintTexels);
+      const values = [0, 0.1, 0.3, 0.6, 1].map((raw) => raw * resolution);
+      expect(values[0]).toBe(0);
+      for (let index = 1; index < values.length; index += 1) {
+        expect(values[index]).toBeGreaterThan(values[index - 1]!);
+      }
+      expect(values.at(-1)).toBeCloseTo(resolution);
+    }
+  });
+
+  it("beds contact continuously under the hull with short footprint-filtered optical reach", () => {
+    expect(FRAGMENT_SHADER).toContain("contact = wake.b");
+    expect(FRAGMENT_SHADER).toContain("min(0.75, horizontalDistance / (eyeHeight + 1.0) * 0.12) * wakeResolution");
+    expect(FRAGMENT_SHADER).toContain("tap <= 2");
+    expect(FRAGMENT_SHADER).not.toContain("clamp(horizontalDistance / (eyeHeight + 1.0), 0.8, 6.0)");
+    for (const footprintTexels of [1, 2, 4, 8]) {
+      for (const distance of [0, 10, 100, 1000]) {
+        const reach = Math.min(0.75, distance / 2 * 0.12) / footprintTexels;
+        expect(reach).toBeGreaterThanOrEqual(0);
+        expect(reach).toBeLessThanOrEqual(0.75 / footprintTexels);
+      }
+    }
   });
 
   it("animates route pulses at balanced+, holds below it, and resets for reduced motion", () => {

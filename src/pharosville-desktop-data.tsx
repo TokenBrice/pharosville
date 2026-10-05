@@ -1,12 +1,16 @@
 "use client";
 
 import { lazy, memo, Suspense } from "react";
+import type { ComponentType } from "react";
+import type { PharosVilleWorld as WorldModel } from "./systems/world-types";
 import { QueryErrorNotice } from "@/components/query-error-notice";
 import { usePharosVilleWorldData } from "@/hooks/use-pharosville-world-data";
+import { ArrivalModuleFailure, ArrivalShell } from "./components/arrival-shell";
 
-const PharosVilleWorld = lazy(() => import("./pharosville-world").then((mod) => ({
-  default: mod.PharosVilleWorld,
-})));
+const PharosVilleWorld = lazy<ComponentType<{ world: WorldModel }>>(() => import("./pharosville-world").then(
+  (mod) => ({ default: mod.PharosVilleWorld }),
+  () => ({ default: ArrivalModuleFailure }),
+));
 
 function PharosVilleDesktopDataComponent() {
   const { world, error, hasRenderableData, refetchAll } = usePharosVilleWorldData();
@@ -18,7 +22,7 @@ function PharosVilleDesktopDataComponent() {
         hasData={hasRenderableData}
         onRetry={refetchAll}
       />
-      <Suspense fallback={<div className="pharosville-loading pharosville-desktop" aria-busy="true" aria-live="polite">Charting market winds…</div>}>
+      <Suspense fallback={<ArrivalShell stage="Loading the world presentation module." />}>
         <PharosVilleWorld world={world} />
       </Suspense>
     </>

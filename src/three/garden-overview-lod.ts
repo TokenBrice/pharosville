@@ -83,8 +83,6 @@ export const OVERVIEW_LOD_DETAIL_NAMES: readonly string[] = [
   "garden-flora-momiji",
   "garden-flora-cherry",
   "garden-rim-stones",
-  // Per-hero badges, ×~29 hulls.
-  "ship-overview-detail",
 ];
 
 /**

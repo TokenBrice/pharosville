@@ -75,13 +75,9 @@ export function mirrorGardenHeroCamera(main: PerspectiveCamera, mirror: Perspect
 }
 
 export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
-  // W3.2 (water-2 a): mipmapped so the water can blur the reflection with
-  // distance below the contact line. The clear is transparent BLACK and the
-  // layer's materials write coverage in alpha (opaque 1, blended surfaces
-  // over the clear come out colour × alpha), so every texel is premultiplied
-  // before the mip chain is built: a silhouette averages with the clear into
-  // less coverage, never into a dark fringe. Consumers composite it as
-  // premultiplied (`water · (1 − w·a) + rgb · w`).
+  // Mips filter the projected UV footprint and optical roughness, not distance
+  // below the shoreline. Transparent black plus premultiplied coverage keeps
+  // silhouette mips free of dark fringes; the consumer uses at most three taps.
   const target = new WebGLRenderTarget(1, 1, {
     type: HalfFloatType,
     depthBuffer: true,
@@ -114,6 +110,7 @@ export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
     uHeroReflection: { value: target.texture },
     uHeroReflectionMatrix: { value: matrix },
     uHeroReflectionStrength: { value: 0 },
+    uHeroReflectionSize: { value: new Vector2(1, 1) },
   };
   // W0.1 knockout seam (visual debug only): the pass never renders, so the
   // water sees no hero reflection and the pass's cost can be measured by
@@ -134,9 +131,8 @@ export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
         uniforms.uHeroReflectionStrength.value = 0;
         return;
       }
-      // W8.1 (headroom-1): half the CSS size, whatever the DPR. The water
-      // blurs this below the contact line and bends it by its normals, so a
-      // retina panel gains nothing from a 4× larger target but its cost.
+      // Half CSS resolution, independent of DPR. Footprint-aware water sampling
+      // retains the sharp contact and only broadens optically rough regions.
       renderer.getDrawingBufferSize(size);
       const dpr = Math.max(1, renderer.getPixelRatio());
       const cssPixelScale = 1 / (2 * dpr);
@@ -156,6 +152,7 @@ export function createGardenHeroReflectionPass(renderer: WebGLRenderer) {
       rendered = false;
       const revision = sceneRevision;
       target.setSize(width, height);
+      uniforms.uHeroReflectionSize.value.set(width, height);
       mirrorGardenHeroCamera(main, camera);
       matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       const previousTarget = renderer.getRenderTarget();

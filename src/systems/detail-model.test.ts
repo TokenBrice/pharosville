@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { makeSourceStatuses } from "../__fixtures__/pharosville-world";
+import { fixtureStability, makeSourceStatuses } from "../__fixtures__/pharosville-world";
+import { buildGardenMonthRecord, gardenMonthRecordLabel } from "./garden-month-record";
 import {
   supplyTideLabel,
   backingDiversityLabel,
@@ -18,7 +19,7 @@ import {
   fleetRankLabel,
   flightToQualityLabel,
   harborRankLabel,
-  lighthouseBeamWarmCueLabel,
+  lighthouseBeamCharacterLabel,
   PHAROS_WATCH_TELEGRAM_HREF,
   psiCompositionLabel,
   psiTrendLabel,
@@ -259,7 +260,7 @@ describe("detail-model analytical links", () => {
     ]);
   });
 
-  it("does not infer active global lightning from an area risk band", () => {
+  it("keeps local risk surfaces separate from PSI-owned sky", () => {
     const detail = detailForArea({
       id: "area.dews.danger",
       kind: "area",
@@ -271,8 +272,9 @@ describe("detail-model analytical links", () => {
     } satisfies AreaNode);
     const atmosphere = detail.facts.find((fact) => fact.label === "Atmosphere");
 
-    expect(atmosphere?.value).toContain("lightning possible at the fleet storm peak");
-    expect(atmosphere?.value).not.toContain("lightning active");
+    expect(atmosphere?.value).toContain("Leaden");
+    expect(atmosphere?.value).toContain("follow fleet PSI, not this water's DEWS band");
+    expect(atmosphere?.value).not.toMatch(/clouds|lightning|threat/i);
   });
 
   it("names each named water's surface state, and none for unbanded waters", () => {
@@ -432,32 +434,12 @@ describe("detail-model analytical links", () => {
     ]);
   });
 
-  it("describes active elevated DEWS as the lighthouse warm-beam cue", () => {
-    const cue = lighthouseBeamWarmCueLabel([
-      {
-        id: "area.dews.alert",
-        kind: "area",
-        label: "Alert Channel",
-        tile: { x: 1, y: 1 },
-        band: "ALERT",
-        count: 2,
-        detailId: "area.dews.alert",
-      },
-      {
-        id: "area.dews.watch",
-        kind: "area",
-        label: "Watch Breakwater",
-        tile: { x: 1, y: 1 },
-        band: "WATCH",
-        count: 8,
-        detailId: "area.dews.watch",
-      },
-    ]);
-
-    expect(cue).toContain("Beam warming amber under elevated DEWS");
-    expect(cue).toContain("Alert Channel ALERT (2 stablecoins)");
-    expect(cue).toContain("Fleet PSI cue (not a per-zone reading)");
-    expect(cue).not.toContain("Watch Breakwater");
+  it("teaches PSI character separately from source qualification, never DEWS warmth", () => {
+    const cue = lighthouseBeamCharacterLabel();
+    expect(cue).toContain("Pharos Stability Index (PSI)");
+    expect(cue).toContain("Harbor light separately qualifies all seven sources");
+    expect(cue).toContain("Warmth alone does not decode PSI");
+    expect(cue).not.toMatch(/DEWS|demand|redeeming/);
   });
 
   it("points ship detail links at canonical stablecoin pages", () => {
@@ -1642,6 +1624,10 @@ describe("detail-model round-two metaphor signals", () => {
     });
 
     it("puts the slow 30-day garden record on the lighthouse", () => {
+      const gardenMonthRecord = buildGardenMonthRecord({
+        ...fixtureStability,
+        history: [{ date: Date.UTC(2026, 7, 13), score: 84.5, band: "STEADY", methodologyVersion: "fixture" }],
+      }, makeSourceStatuses().stability);
       const detail = detailForLighthouse({
         id: "lighthouse",
         kind: "lighthouse",
@@ -1653,12 +1639,13 @@ describe("detail-model round-two metaphor signals", () => {
         color: "#ffffff",
         unavailable: false,
         detailId: "lighthouse",
-        gardenMonthRecord: { averagePsi: 84.5, growth: 1, sampleCount: 30, spanDays: 29, unavailable: false },
+        gardenMonthRecord,
       });
       expect(detail.facts).toContainEqual({
         label: "Garden record, 30d",
-        value: "Flourishing — the island pines stand full and deep green; average PSI 84.5; 29 days on record",
+        value: gardenMonthRecordLabel(gardenMonthRecord),
       });
+      expect(detail.gardenMonthRecord).toBe(gardenMonthRecord);
     });
   });
 

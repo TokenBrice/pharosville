@@ -23,6 +23,19 @@ import { FRESH_META, NOW_MS, quayAllocationInput, SCENARIOS } from "../__fixture
 import { classifyPharosVilleSource } from "../hooks/use-pharosville-world-data";
 
 afterEach(cleanup);
+describe("exact garden record ledger", () => {
+  it("keeps a missing history neutral and names the fixed UTC record rather than decorative pine growth", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput({ stability: null }));
+    const view = render(<AccessibilityLedger world={world} />);
+    const record = view.container.querySelector('[data-testid="garden-month-record-table"]')!;
+    expect(record.textContent).toContain("Neutral gravel bed — no supplied daily PSI closes");
+    expect(record.querySelector("caption")!.textContent).toContain("Official PSI daily closes · UTC");
+    expect(record.querySelectorAll("tbody tr")).toHaveLength(0);
+    expect(view.container.textContent).toContain("not a live alarm");
+    expect(record.textContent).not.toMatch(/growth|browning|Flourishing/);
+  });
+});
+
 describe("seven-source evidence ledger", () => {
   it.each(PHAROSVILLE_API_ENDPOINT_KEYS)("reports isolated stale and unavailable %s including mint/burn", (key) => {
     const input = makePharosVilleWorldInput();
@@ -590,7 +603,7 @@ describe("AccessibilityLedger", () => {
 
     expect(markup).toContain("Beam bearing: Holding on USDX, largest PSI contributor (-412 bps).");
     expect(markup).toContain("Worst band, 30d: FRACTURE at PSI 31 on 2026-07-20; 9 days on record.");
-    expect(markup).toContain("Garden record, 30d: Neutral garden — no index history to grow from. This is a slow trailing record; it changes with daily history, never as a live alarm.");
+    expect(markup).toContain("Garden record, 30d: Neutral gravel bed — no supplied daily PSI closes. Dated official PSI history, not a live alarm; moss, decorative stones and sound have no market meaning.");
   });
 
   it("says the rocks are unstained for want of history, not for want of stress", () => {
@@ -653,38 +666,15 @@ describe("AccessibilityLedger", () => {
     expect(silent).not.toContain("DEX cross-check Both bearings agree");
   });
 
-  it("adds a non-time-dependent lighthouse warm-beam cue from active elevated DEWS counts", () => {
-    const world: PharosVilleWorld = {
-      ...sampleWorld(),
-      areas: [
-        {
-          id: "area.dews.danger",
-          kind: "area",
-          label: "Danger Strait",
-          tile: { x: 55, y: 4 },
-          band: "DANGER",
-          count: 1,
-          detailId: "area.dews.danger",
-        },
-        {
-          id: "area.dews.watch",
-          kind: "area",
-          label: "Watch Breakwater",
-          tile: { x: 48, y: 28 },
-          band: "WATCH",
-          count: 4,
-          detailId: "area.dews.watch",
-        },
-      ],
-    };
-    const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
-
-    expect(markup).toContain("Beam warming amber under elevated DEWS");
-    expect(markup).toContain("Danger Strait DANGER (1 stablecoin)");
-    expect(markup).not.toContain("Watch Breakwater WATCH (4 stablecoins)");
+  it("keeps PSI beam character separate from seven-source status", () => {
+    const markup = renderToStaticMarkup(<AccessibilityLedger world={sampleWorld()} />);
+    expect(markup).toContain("Pharos Stability Index (PSI)");
+    expect(markup).toContain("Harbor light separately qualifies all seven sources");
+    expect(markup).toContain("Warmth alone does not decode PSI");
+    expect(markup).not.toContain("Beam warming amber under elevated DEWS");
   });
 
-  it("does not announce global lightning as active from an area band alone", () => {
+  it("describes local surfaces without assigning sky or lightning to DEWS", () => {
     const world: PharosVilleWorld = {
       ...sampleWorld(),
       areas: [{
@@ -700,8 +690,9 @@ describe("AccessibilityLedger", () => {
     };
     const markup = renderToStaticMarkup(<AccessibilityLedger world={world} />);
 
-    expect(markup).toContain("lightning possible at the fleet storm peak");
-    expect(markup).not.toContain("lightning active");
+    expect(markup).toContain("Atmosphere: Leaden");
+    expect(markup).toContain("follow fleet PSI, not this water&#x27;s DEWS band");
+    expect(markup).not.toMatch(/heavy storm clouds|lightning possible at the fleet storm peak|lightning active/);
   });
 
   it("exposes the deterministic sea-state summary for DOM parity", () => {

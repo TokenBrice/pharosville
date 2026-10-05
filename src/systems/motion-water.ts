@@ -1,5 +1,5 @@
 import { isWaterTileKind } from "./world-layout";
-import { isGardenObstacleTile } from "./garden-water-exclusion";
+import { isGardenObstacleTile, isGardenShipWater } from "./garden-water-exclusion";
 import {
   GARDEN_EMPTY_INLET,
   GARDEN_INLET_CORE_EXIT_COST,
@@ -23,17 +23,18 @@ export function buildShipWaterRoute(input: {
   bucket?: number;
   /** W1.6: only the holder of an inlet crossing token may route through the ma. */
   inletCrossing?: boolean;
+  /** Moving hull clearance; omitted consumers retain the original point graph. */
+  hullMarginTiles?: number;
 }): ShipWaterPath {
-  const from = nearestMapWaterTile(input.from, input.map);
-  const to = nearestMapWaterTile(input.to, input.map);
-  return buildShipWaterRouteFromWaterTiles({
-    from,
-    to,
+  return solveWithWidestClearance(routeHullMargin(input.hullMarginTiles ?? 0), (hullMarginTiles) => ({
+    from: nearestMapWaterTile(input.from, input.map, hullMarginTiles),
+    to: nearestMapWaterTile(input.to, input.map, hullMarginTiles),
     map: input.map,
+    hullMarginTiles,
     ...(input.zone !== undefined ? { zone: input.zone } : {}),
     ...(input.shipId !== undefined ? { shipId: input.shipId } : {}),
     ...(input.inletCrossing !== undefined ? { inletCrossing: input.inletCrossing } : {}),
-  });
+  }));
 }
 
 export function buildCachedShipWaterRoute(input: {
@@ -47,9 +48,11 @@ export function buildCachedShipWaterRoute(input: {
   preferDirect?: boolean;
   /** W1.6: only the holder of an inlet crossing token may route through the ma. */
   inletCrossing?: boolean;
+  hullMarginTiles?: number;
 }, cache: ShipWaterRouteCache): ShipWaterPath {
-  const from = nearestMapWaterTile(input.from, input.map);
-  const to = nearestMapWaterTile(input.to, input.map);
+  const requested = routeHullMargin(input.hullMarginTiles ?? 0);
+  const from = nearestMapWaterTile(input.from, input.map, requested);
+  const to = nearestMapWaterTile(input.to, input.map, requested);
   // `bucket` is deliberately NOT in the key. The route it selects varies per
   // bucket, but the PATH between two water tiles is a pure function of
   // (from, to, map, zone, shipId) — `buildShipWaterRouteFromWaterTiles` below
@@ -57,41 +60,64 @@ export function buildCachedShipWaterRoute(input: {
   // route-variation flip invalidated every cached path and re-ran the whole
   // A* set to reproduce identical geometry: ~300ms of plan rebuild plus
   // ~700ms of lazy path solving, every ten minutes, forever.
-  const key = `${input.zone}:${input.shipId}:${input.preferDirect ? "direct" : "wander"}${input.inletCrossing ? ":crossing" : ""}:${pathKey(from, to)}`;
+  const key = `${input.zone}:${input.shipId}:${input.preferDirect ? "direct" : "wander"}${input.inletCrossing ? ":crossing" : ""}:hull-${requested}:${pathKey(from, to)}`;
   const cached = cache.get(key);
   if (cached) return cached;
 
-  const route = buildShipWaterRouteFromWaterTiles({
-    from,
-    to,
+  const route = solveWithWidestClearance(requested, (hullMarginTiles) => ({
+    from: hullMarginTiles === requested ? from : nearestMapWaterTile(input.from, input.map, hullMarginTiles),
+    to: hullMarginTiles === requested ? to : nearestMapWaterTile(input.to, input.map, hullMarginTiles),
     map: input.map,
     shipId: input.shipId,
+    hullMarginTiles,
     ...(input.preferDirect ? {} : { zone: input.zone }),
     ...(input.preferDirect !== undefined ? { preferDirect: input.preferDirect } : {}),
     ...(input.inletCrossing !== undefined ? { inletCrossing: input.inletCrossing } : {}),
-  });
+  }));
   cache.set(key, route);
   return route;
 }
 
-export function nearestMapWaterTile(tile: { x: number; y: number }, map: PharosVilleMap): { x: number; y: number } {
+export function nearestMapWaterTile(tile: { x: number; y: number }, map: PharosVilleMap, hullMarginTiles = 0): { x: number; y: number } {
   const rounded = {
     x: clamp(Math.round(tile.x), 0, map.width - 1),
     y: clamp(Math.round(tile.y), 0, map.height - 1),
   };
-  if (isWaterTile(rounded.x, rounded.y, map)) return rounded;
-
-  let bestTile: { x: number; y: number } | null = null;
+  const navigation = waterNavigation(map, routeHullMargin(hullMarginTiles));
+  const index = rounded.y * map.width + rounded.x;
+  if (navigation.water[index]) return rounded;
+  const cached = navigation.snappedTiles.get(index);
+  if (cached !== undefined) return cached < 0 ? rounded : indexToTile(cached, map);
+  let bestIndex = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
-  for (const candidate of map.tiles) {
-    if (!isWaterTile(candidate.x, candidate.y, map)) continue;
-    const distance = Math.abs(candidate.x - rounded.x) + Math.abs(candidate.y - rounded.y);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestTile = { x: candidate.x, y: candidate.y };
-    }
+  for (let candidate = 0; candidate < navigation.water.length; candidate++) {
+    if (!navigation.water[candidate]) continue;
+    const x = candidate % map.width; const y = (candidate - x) / map.width;
+    const distance = Math.abs(x - rounded.x) + Math.abs(y - rounded.y);
+    if (distance < bestDistance) { bestDistance = distance; bestIndex = candidate; }
   }
-  return bestTile ?? rounded;
+  navigation.snappedTiles.set(index, bestIndex);
+  return bestIndex < 0 ? rounded : indexToTile(bestIndex, map);
+}
+
+/** Water too narrow for a hull's full clearance must still carry its required
+ * legs. Binary-search the widest solvable quarter-tile clearance instead of
+ * freezing the route, so a leg costs a bounded handful of solves. */
+function solveWithWidestClearance(
+  requested: number,
+  describe: (hullMarginTiles: number) => Parameters<typeof buildShipWaterRouteFromWaterTiles>[0],
+): ShipWaterPath {
+  let widest = buildShipWaterRouteFromWaterTiles(describe(requested));
+  if (widest.totalLength > 0 || requested <= 0) return widest;
+  let low = 0;
+  let high = requested / 0.25;
+  widest = buildShipWaterRouteFromWaterTiles(describe(0));
+  while (low + 1 < high) {
+    const step = Math.floor((low + high) / 2);
+    const route = buildShipWaterRouteFromWaterTiles(describe(step * 0.25));
+    if (route.totalLength > 0) { low = step; widest = route; } else high = step;
+  }
+  return widest;
 }
 
 export function warmAllWaterPaths(plan: PharosVilleMotionPlan | PharosVilleBaseMotionPlan): void {
@@ -221,6 +247,7 @@ function buildShipWaterRouteFromWaterTiles(input: {
   shipId?: string;
   preferDirect?: boolean;
   inletCrossing?: boolean;
+  hullMarginTiles: number;
 }): ShipWaterPath {
   const { from, to } = input;
   if (sameTile(from, to)) return waterPathFromPoints(from, to, [from]);
@@ -229,23 +256,23 @@ function buildShipWaterRouteFromWaterTiles(input: {
   const inlet = input.inletCrossing ? null : gardenInletRouteCostField(input.map.width, input.map.height);
   const detouredPoints = input.preferDirect
     ? []
-    : findDetouredWaterPath(from, to, input.map, inlet, input.zone, input.shipId);
+    : findDetouredWaterPath(from, to, input.map, inlet, input.zone, input.shipId, input.hullMarginTiles);
   // Leg cadence samples substantially farther per frame than the old drift
   // cycle. Keep the A* tile chain authoritative: corner-cut-safe adjacent
   // water tiles guarantee every interpolated point remains water, whereas
   // Chaikin's off-chain control points can bow briefly across a shore tile.
   if (detouredPoints.length > 0) return waterPathFromPoints(from, to, detouredPoints);
 
-  const points = findWaterPath(from, to, input.map, inlet, input.zone);
+  const points = findWaterPath(from, to, input.map, inlet, input.zone, false, input.hullMarginTiles);
   if (points.length > 0) return waterPathFromPoints(from, to, points);
   // Water reachable only through the core still sails, at the core's exit
   // cost, rather than freezing the hull at its berth.
-  const throughCore = inlet ? findWaterPath(from, to, input.map, inlet, input.zone, true) : [];
+  const throughCore = inlet ? findWaterPath(from, to, input.map, inlet, input.zone, true, input.hullMarginTiles) : [];
   if (throughCore.length > 0) return waterPathFromPoints(from, to, throughCore);
 
-  const waypoint = fallbackWaterWaypoint(from, to, input.map);
-  const firstLeg = findWaterPath(from, waypoint, input.map, inlet, input.zone, true);
-  const secondLeg = findWaterPath(waypoint, to, input.map, inlet, input.zone, true);
+  const waypoint = fallbackWaterWaypoint(from, to, input.map, input.hullMarginTiles);
+  const firstLeg = findWaterPath(from, waypoint, input.map, inlet, input.zone, true, input.hullMarginTiles);
+  const secondLeg = findWaterPath(waypoint, to, input.map, inlet, input.zone, true, input.hullMarginTiles);
   if (firstLeg.length > 0 && secondLeg.length > 0) {
     return waterPathFromPoints(from, to, [...firstLeg, ...secondLeg.slice(1)]);
   }
@@ -340,13 +367,14 @@ function findDetouredWaterPath(
   inlet: Float32Array | null,
   zone?: ShipWaterZone,
   shipId = "",
+  hullMarginTiles = 0,
 ): Array<{ x: number; y: number }> {
-  const waypoints = detourWaterWaypoints(from, to, map, inlet !== null, shipId);
+  const waypoints = detourWaterWaypoints(from, to, map, inlet !== null, shipId, hullMarginTiles);
   if (waypoints.length === 0) return [];
   const route: Array<{ x: number; y: number }> = [];
   const points = [from, ...waypoints, to];
   for (let index = 1; index < points.length; index += 1) {
-    const leg = findWaterPath(points[index - 1]!, points[index]!, map, inlet, zone);
+    const leg = findWaterPath(points[index - 1]!, points[index]!, map, inlet, zone, false, hullMarginTiles);
     if (leg.length === 0) return [];
     route.push(...(route.length === 0 ? leg : leg.slice(1)));
   }
@@ -359,6 +387,7 @@ function detourWaterWaypoints(
   map: PharosVilleMap,
   honourInlet: boolean,
   shipId = "",
+  hullMarginTiles = 0,
 ): Array<{ x: number; y: number }> {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -385,7 +414,7 @@ function detourWaterWaypoints(
     const candidate = nearestMapWaterTile({
       x: from.x + dx * ratio + perpendicular.x * detour * sign,
       y: from.y + dy * ratio + perpendicular.y * detour * sign,
-    }, map);
+    }, map, hullMarginTiles);
 
     if (sameTile(candidate, from) || sameTile(candidate, to)) continue;
     if (waypoints.some((waypoint) => sameTile(waypoint, candidate))) continue;
@@ -414,15 +443,25 @@ interface WaterNavigation {
   water: Uint8Array;
   neighbors: Uint8Array;
   stepCosts: Map<ShipWaterZone | undefined, Float64Array>;
+  snappedTiles: Map<number, number>;
 }
 
 // Maps are immutable navigation authorities. Resolve their geometric keep-outs
 // and corner-cut rules once, not for every neighbor of every cadence candidate.
-const waterNavigationByMap = new WeakMap<PharosVilleMap, WaterNavigation>();
+const waterNavigationByMap = new WeakMap<PharosVilleMap, Map<number, WaterNavigation>>();
 
-function waterNavigation(map: PharosVilleMap): WaterNavigation {
-  const cached = waterNavigationByMap.get(map);
+/** Upward quarter-tile classes cover the fixed hull/scale ladder without one
+ * graph per coin. Geometry remains conservative; zero keeps all old consumers. */
+export function routeHullMargin(margin: number): number {
+  return Math.ceil(Math.max(0, margin) * 4) / 4;
+}
+
+function waterNavigation(map: PharosVilleMap, hullMarginTiles = 0): WaterNavigation {
+  let margins = waterNavigationByMap.get(map);
+  if (!margins) { margins = new Map(); waterNavigationByMap.set(map, margins); }
+  const cached = margins.get(hullMarginTiles);
   if (cached) return cached;
+  const base = hullMarginTiles > 0 ? waterNavigation(map) : null;
   const size = map.width * map.height;
   const water = new Uint8Array(size);
   const neighbors = new Uint8Array(size);
@@ -430,8 +469,9 @@ function waterNavigation(map: PharosVilleMap): WaterNavigation {
     const x = index % map.width;
     const y = (index - x) / map.width;
     const tile = map.tiles[index];
-    water[index] = tile && isMotionWaterTile(tile)
-      && !isSeawallBarrierTileXY(x, y) && !isGardenObstacleTile(x, y) ? 1 : 0;
+    water[index] = base
+      ? base.water[index] && tile && isGardenShipWater(tile, hullMarginTiles) ? 1 : 0
+      : tile && isMotionWaterTile(tile) && !isSeawallBarrierTileXY(x, y) && !isGardenObstacleTile(x, y) ? 1 : 0;
   }
   for (let index = 0; index < size; index += 1) {
     const x = index % map.width;
@@ -448,8 +488,10 @@ function waterNavigation(map: PharosVilleMap): WaterNavigation {
       neighbors[index] |= 1 << n;
     }
   }
-  const navigation = { water, neighbors, stepCosts: new Map<ShipWaterZone | undefined, Float64Array>() };
-  waterNavigationByMap.set(map, navigation);
+  // Shore/zone costs are independent of hull size: share the zero graph's map.
+  const navigation = { water, neighbors, snappedTiles: new Map<number, number>(),
+    stepCosts: base?.stepCosts ?? new Map<ShipWaterZone | undefined, Float64Array>() };
+  margins.set(hullMarginTiles, navigation);
   return navigation;
 }
 
@@ -543,10 +585,13 @@ function findWaterPath(
   inlet: Float32Array | null,
   zone?: ShipWaterZone,
   relaxCore = false,
+  hullMarginTiles = 0,
 ): Array<{ x: number; y: number }> {
   const startIndex = tileIndex(from.x, from.y, map);
   const endIndex = tileIndex(to.x, to.y, map);
   if (startIndex < 0 || endIndex < 0) return [];
+  const navigation = waterNavigation(map, hullMarginTiles);
+  if (!navigation.water[startIndex] || !navigation.water[endIndex]) return [];
   const coreStepCost = relaxCore
     || inlet?.[startIndex] === Number.POSITIVE_INFINITY
     || inlet?.[endIndex] === Number.POSITIVE_INFINITY
@@ -562,7 +607,6 @@ function findWaterPath(
     previous[i] = -1;
   }
   pathHeapSize = 0;
-  const navigation = waterNavigation(map);
   const stepCosts = waterStepCosts(map, zone);
 
 
@@ -736,12 +780,13 @@ function waterZoneTerrainPenalty(zone: ShipWaterZone, terrain: string): number {
   }
 }
 
-function fallbackWaterWaypoint(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap): { x: number; y: number } {
+function fallbackWaterWaypoint(from: { x: number; y: number }, to: { x: number; y: number }, map: PharosVilleMap, hullMarginTiles = 0): { x: number; y: number } {
   const seed = stableHash(`${from.x}.${from.y}->${to.x}.${to.y}`);
   const edgeTiles = map.tiles
     .filter((tile) => (
       isMotionWaterTile(tile)
       && !isSeawallBarrierTile(tile)
+      && isWaterTile(tile.x, tile.y, map, hullMarginTiles)
       && (tile.x === 0 || tile.y === 0 || tile.x === map.width - 1 || tile.y === map.height - 1)
     ))
     .sort((a, b) => {
@@ -749,7 +794,7 @@ function fallbackWaterWaypoint(from: { x: number; y: number }, to: { x: number; 
       const bScore = Math.abs(b.x - from.x) + Math.abs(b.y - from.y) + Math.abs(b.x - to.x) + Math.abs(b.y - to.y);
       return aScore - bScore || ((a.x * 131 + a.y + seed) % 17) - ((b.x * 131 + b.y + seed) % 17);
     });
-  const waypoint = edgeTiles[0] ?? map.tiles.find((tile) => isMotionWaterTile(tile) && !isSeawallBarrierTile(tile));
+  const waypoint = edgeTiles[0] ?? map.tiles.find((tile) => isWaterTile(tile.x, tile.y, map, hullMarginTiles));
   return waypoint ? { x: waypoint.x, y: waypoint.y } : from;
 }
 
@@ -771,10 +816,10 @@ export function waterPathFromPoints(from: { x: number; y: number }, to: { x: num
   };
 }
 
-function isWaterTile(x: number, y: number, map: PharosVilleMap): boolean {
+function isWaterTile(x: number, y: number, map: PharosVilleMap, hullMarginTiles = 0): boolean {
   const index = tileIndex(x, y, map);
   if (index < 0) return false;
-  return waterNavigation(map).water[index] === 1;
+  return waterNavigation(map, hullMarginTiles).water[index] === 1;
 }
 
 function isMotionWaterTile(tile: Pick<PharosVilleTile, "kind" | "terrain">): boolean {

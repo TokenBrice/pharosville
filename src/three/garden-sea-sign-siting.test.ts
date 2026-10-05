@@ -10,6 +10,10 @@ import {
   seaSignSteles,
   seaSignStepForZoom,
 } from "./garden-sea-sign-siting";
+import { seaSignRestBodies } from "./garden-sea-signs";
+import { seaSignFootprintTiles } from "./garden-sea-sign-siting";
+import { isGardenInletCoreTile } from "../systems/garden-inlet";
+import { seaBodyTiles } from "../systems/sea-body-anchors";
 
 describe("sea-stele overview-LOD siting (W2a)", () => {
   it("keeps true scale in-world and a readable chart rung at whole-map", () => {
@@ -90,5 +94,30 @@ describe("sea-stele overview-LOD siting (W2a)", () => {
     expect(next).toHaveLength(1);
     expect(next[0]).toMatchObject({ body: "danger", label: "Updated danger reading" });
     expect(first.map((site) => site.label)).toEqual(["Calm Anchorage", "Danger Strait"]);
+  });
+});
+
+describe("sparse rest sea names", () => {
+  it("admits no more than two names by real body area with deterministic legibility guards", () => {
+    const sites = seaSignSites(["calm", "watch", "alert", "warning", "danger", "ledger", "wreck"]);
+    const rest = seaSignRestBodies(sites);
+    expect(rest).toEqual(seaSignRestBodies(sites));
+    expect(rest.length).toBeLessThanOrEqual(2);
+    for (const body of rest) {
+      expect(["ledger", "wreck"]).not.toContain(body);
+      const site = sites.find((candidate) => candidate.body === body)!;
+      expect(seaSignFootprintTiles(site).some((tile) => isGardenInletCoreTile(tile.x, tile.y))).toBe(false);
+    }
+    if (rest.length === 2) expect(seaBodyTiles(rest[0]!).length).toBeGreaterThanOrEqual(seaBodyTiles(rest[1]!).length);
+  });
+
+  it("rejects a name over the protected inlet even when its body has the largest area", () => {
+    expect(seaSignRestBodies([{ body: "calm", x: 95 * Math.SQRT2, z: 125 * Math.SQRT2 }])).toEqual([]);
+  });
+
+  it("rejects off-frame names rather than moving canonical hit sites", () => {
+    const sites = [{ body: "calm" as const, x: -1e6, z: -1e6 }];
+    expect(seaSignRestBodies(sites)).toEqual([]);
+    expect(sites[0]).toEqual({ body: "calm", x: -1e6, z: -1e6 });
   });
 });

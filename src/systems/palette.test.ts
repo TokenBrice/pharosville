@@ -21,38 +21,62 @@ describe("HARBOR_PALETTE", () => {
     }
   });
 
-  // Golden Garden pass (2026-09-07). Vermilion remains the one sacred accent,
-  // while the field ceiling rises to one step under it so land, roofs, and sea
-  // can carry a golden-hour register instead of a restrained one.
-  //
-  // The ceiling is perceptual chroma, NOT HSL saturation, and the difference
-  // matters: HSL S is a ratio against available lightness, so it runs away on
-  // dark colours — authentic kachi-iro (#181b39) measures HSL S 41 % while
-  // being about as quiet as a colour gets. Judged that way the whole night sea
-  // would look like a violation and grading it "down" would only turn indigo
-  // into mud.
-  const RESERVED_ACCENTS = new Set([
-    "vermillion", // shu-akane — the sacred accent (beacon flame, DANGER)
-    "lantern_warm", // yamabuki gold — lantern warmth, and hex-pinned by the guard script
-    "lantern_glow", // the same lamp, one stop up
-    "sail_red", // issuer identity, exempt by the restraint contract
-    "bloodmoon_red", // rare-event accent
-  ]);
+  // D13 scopes the ceiling to supporting world pigments. Fixed anchors stay
+  // pinned; imported identity/logo cloth, DOM chrome, practical lights and
+  // rare-event emission do not acquire the supporting-surface ceiling.
+  const CHROMA_EXEMPTIONS: Partial<Record<keyof typeof HARBOR_PALETTE, string>> = {
+    vermillion: "fixed beacon/Danger anchor",
+    lantern_warm: "fixed practical-light anchor",
+    lantern_glow: "practical-light emission",
+    sail_teal: "issuer-identity cloth",
+    sail_red: "issuer-identity cloth",
+    bloodmoon_red: "rare-event emission",
+  };
 
-  it("keeps every non-accent token under the chroma ceiling", () => {
-    // The Golden Garden decision raises the perceptual dye allowance from 0.14
-    // to 0.16 — vermillion sits at 0.177, so the reserved accent stays the
-    // loudest by construction; the reserved accents stay exempt and unchanged.
-    const CEILING = 0.16;
+  it("keeps supporting world pigments at or below OKLCH C 0.12", () => {
     for (const [token, hex] of Object.entries(HARBOR_PALETTE)) {
-      if (RESERVED_ACCENTS.has(token)) continue;
-      expect(oklchChroma(hex), `${token} (${hex}) must stay within the authored ceiling`).toBeLessThan(CEILING);
+      if (CHROMA_EXEMPTIONS[token as keyof typeof HARBOR_PALETTE]) continue;
+      expect(oklchChroma(hex), `${token} (${hex}) is a supporting pigment`).toBeLessThanOrEqual(0.12);
     }
+    for (const [terrain, theme] of Object.entries(ZONE_THEMES)) {
+      expect(oklchChroma(theme.base), `${terrain} base pigment`).toBeLessThanOrEqual(0.12);
+    }
+    for (const [token, hex] of Object.entries(HARBOR_DERIVED_PALETTE)) {
+      expect(oklchChroma(hex), `${token} derived supporting pigment`).toBeLessThanOrEqual(0.12);
+    }
+    // DEWS label accents remain the separately ordered DOM/practical ladder:
+    // their contrast pins below are not weakened to fit a scenery ceiling.
+    expect(Object.keys(CHROMA_EXEMPTIONS)).toEqual([
+      "vermillion", "lantern_warm", "lantern_glow", "sail_teal", "sail_red", "bloodmoon_red",
+    ]);
+  });
+
+  it("keeps moss, mineral earth and roof values subordinate without flattening their ladders", () => {
+    const moss = hexToOklch(HARBOR_PALETTE.aurora_green);
+    expect(moss.l).toBeGreaterThanOrEqual(0.5);
+    expect(moss.l).toBeLessThanOrEqual(0.6);
+    expect(moss.c).toBeLessThanOrEqual(0.1);
+    expect(moss.h).toBeGreaterThanOrEqual(120);
+    expect(moss.h).toBeLessThanOrEqual(145);
+    const lightness = (hex: string) => hexToOklch(hex).l;
+    for (const ladder of [
+      [HARBOR_PALETTE.stone_dark, HARBOR_PALETTE.stone_mid, HARBOR_PALETTE.stone_pale],
+      [HARBOR_PALETTE.timber_dark, HARBOR_PALETTE.timber_mid, HARBOR_PALETTE.timber_warm],
+    ]) {
+      for (let step = 1; step < ladder.length; step += 1) {
+        expect(lightness(ladder[step])).toBeGreaterThan(lightness(ladder[step - 1]));
+      }
+      expect(lightness(ladder[ladder.length - 1])).toBeLessThanOrEqual(0.56);
+    }
+    for (const [token, hex] of Object.entries(HARBOR_PALETTE)) {
+      if (!token.startsWith("roof_")) continue;
+      expect(lightness(hex), `${token} supporting roof`).toBeLessThanOrEqual(0.68);
+    }
+    expect(lightness(HARBOR_PALETTE.roof_thatch)).toBeLessThan(lightness(HARBOR_PALETTE.lantern_warm));
   });
 
   it("keeps the reserved and issuer-identity hex anchors unchanged", () => {
-    // These exact pins are the boundary of the re-grade: warmth may increase
-    // around them, but identity cloth and the sacred accents do not move.
+    // Supporting pigment may change; identity cloth and reserved accents do not.
     expect(HARBOR_PALETTE.lantern_warm).toBe("#d49a3e");
     expect(HARBOR_PALETTE.vermillion).toBe("#c23a22");
     expect(HARBOR_PALETTE.sail_teal).toBe("#3a5e5a");
@@ -70,10 +94,8 @@ describe("HARBOR_PALETTE", () => {
   });
 
   it("keeps the overlay-badge colors distinguishable after the re-grade", () => {
-    // `garden-ships.ts` encodes the NAV / YIELD overlay badge in hue alone
-    // (lantern_cold vs aurora_green vs #c9675c). Moving aurora_green from
-    // verdigris to grass raised its chroma; this checks that the re-grade still
-    // keeps the three hue-only badge states distinct.
+    // Inspection badge hue families remain distinct even as the supporting
+    // moss dye loses its former lawn-like saturation and lightness.
     const nav = oklchHue(HARBOR_PALETTE.lantern_cold);
     const yields = oklchHue(HARBOR_PALETTE.aurora_green);
     const other = oklchHue("#c9675c");

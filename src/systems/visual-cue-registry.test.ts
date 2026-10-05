@@ -1,4 +1,5 @@
 import { makeSourceStatuses } from "@/__fixtures__/pharosville-world";
+import { PHAROSVILLE_API_ENDPOINT_KEYS } from "@shared/types/pharosville-endpoint-keys";
 import { describe, expect, it } from "vitest";
 import type { PharosVilleWorld, VisualCue, VisualCueChannel } from "./world-types";
 import { SIGNAL_MAST_LEADER_COUNT, SIGNAL_MAST_STORM_SUPPLY_SHARE } from "./world-types";
@@ -11,6 +12,8 @@ import { fixtureWithDepegOn, makerSquadFixtureInputs, makePharosVilleWorldInput 
 import { buildPharosVilleWorld } from "./pharosville-world";
 import { buildDetailFactSections } from "../lib/format-detail";
 
+import { deriveReadingKey, READING_EXEMPLAR_IDS } from "./reading-key";
+import { RISK_SURFACE_SIGNATURES } from "./garden-sea-regions";
 const ALLOWED_CHANNELS = [
   "color",
   "glow",
@@ -94,6 +97,67 @@ describe("buildVisualCueRegistry", () => {
     expect(cues.every((cue) => cue.sourceField && cue.domEquivalent && cue.failureState && cue.reducedMotionEquivalent)).toBe(true);
   });
 
+  it("assigns every registered channel to the approved rest, inspection or retirement tier", () => {
+    const cues = buildVisualCueRegistry();
+    expect(new Set(cues.map((cue) => cue.id)).size).toBe(cues.length);
+    expect(cues.filter((cue) => cue.presentationTier === "keep-rest").map((cue) => cue.id).sort()).toEqual([
+      "cue.dock.epistemic-haze",
+      "cue.lighthouse.garden-month-record",
+      "cue.lighthouse.lamp-status",
+      "cue.lighthouse.psi",
+      "cue.ship.distance",
+      "cue.ship.identity",
+      "cue.ship.scale",
+      "cue.water.semantic-terrain",
+      "cue.world.epistemic-haze",
+    ]);
+    expect(cues.filter((cue) => cue.presentationTier === "retired").map((cue) => cue.id).sort()).toEqual([
+      "cue.area.danger-squall",
+    ]);
+    for (const cue of cues) {
+      expect(["keep-rest", "inspection-only", "retired"]).toContain(cue.presentationTier);
+      expect(cue.sourceField.trim()).not.toBe("");
+      expect(cue.domEquivalent.trim()).not.toBe("");
+    }
+    for (const id of ["cue.ship.hull", "cue.ship.formation", "cue.ship.peg-trim",
+      "cue.ship.nav-signal", "cue.ship.yield-signal", "cue.ship.safety-watch",
+      "cue.ship.issuance-work", "cue.ship.motion", "cue.world.supply-tide"]) {
+      expect(cues.find((cue) => cue.id === id)?.presentationTier).toBe("inspection-only");
+    }
+  });
+
+  it("keeps the dated gravel record at rest without restoring the retired pine mapping", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.lighthouse.garden-month-record")!;
+    expect(cue.presentationTier).toBe("keep-rest");
+    expect(cue.visual).toContain("shallow gravel furrow");
+    expect(cue.sourceField).toContain("UTC daily closes");
+    expect(cue.failureState).toContain("methodology edges remain unjoined");
+    expect(cue.domEquivalent).toContain("exact dates");
+    expect(cue.visual).not.toMatch(/pine|fullness|browning/i);
+  });
+
+  it("keeps all seven source qualifications behind the rest lamp without turning them into PSI", () => {
+    const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.lighthouse.lamp-status")!;
+    expect(cue.presentationTier).toBe("keep-rest");
+    for (const key of PHAROSVILLE_API_ENDPOINT_KEYS) {
+      expect(cue.sourceField).toContain(`freshness.${key}.state`);
+      expect(cue.sourceField).toContain(`freshness.${key}.coverage`);
+      expect(cue.sourceField).toContain(`freshness.${key}.reason`);
+    }
+    expect(cue.visual).toContain("Layered over the existing PSI beacon");
+    expect(cue.domEquivalent).toContain("observed source status");
+    expect(cue.domEquivalent).not.toContain("Beam warmth");
+  });
+
+  it("does not teach peg causes or threat-owned sky and keeps proportions decorative", () => {
+    const cues = buildVisualCueRegistry();
+    expect(cues.find((cue) => cue.id === "cue.ship.peg-trim")?.questionAnswered).toContain("above or below par");
+    expect(cues.find((cue) => cue.id === "cue.ship.peg-trim")?.questionAnswered).not.toMatch(/demand|redeem/i);
+    expect(cues.find((cue) => cue.id === "cue.area.danger-squall")?.sourceField).not.toContain("maxActiveThreatLevel");
+    expect(cues.find((cue) => cue.id === "cue.lighthouse.lamp-status")?.domEquivalent).toContain("Beam character");
+    expect(DECORATIVE_VISUAL_NOTES.hullProportions).toContain("do not measure safety grades");
+  });
+
   it("registers the observatory signal mast against supply-weighted peg readings", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.lighthouse.signal-mast");
     const legend = LEGEND_MARK_ROWS.find((row) => row.cueId === "cue.lighthouse.signal-mast");
@@ -129,14 +193,14 @@ describe("buildVisualCueRegistry", () => {
     expect(`${cue?.visual} ${cue?.domEquivalent}`).not.toMatch(/mooring orbit|chain-breadth dwell|extended dwell/i);
   });
 
-  it("registers seven cedar boundary boards with ledger redundancy", () => {
+  it("registers sparse rest names with all seven waters retained in the key and ledger", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.water.semantic-terrain");
 
-    expect(cue?.visual).toContain("seven low cedar boundary boards");
-    expect(cue?.visual).toContain("Wreck Shoal");
-    expect(cue?.visual).toContain("hovered or inspected");
+    expect(cue?.visual).toContain("at most two collision-safe");
+    expect(cue?.visual).toContain("Ledger horizontal singles");
+    expect(cue?.visual).toContain("Wreck held silt");
     expect(cue?.failureState).toContain("authoritative water field retains classification");
-    expect(cue?.domEquivalent).toContain("ledger is the redundant channel");
+    expect(cue?.domEquivalent).toContain("complete accessibility ledger Named areas");
     expect(`${cue?.visual} ${cue?.reducedMotionEquivalent}`).not.toContain("printed");
   });
 
@@ -266,7 +330,7 @@ describe("buildVisualCueRegistry", () => {
     }
   });
 
-  it("keeps legend mark rows one-to-one with registered click-only cues", () => {
+  it("keeps expanded-guide mark rows one-to-one with registered cues and exact-source parity", () => {
     const cues = buildVisualCueRegistry();
     const cueIds = new Set(cues.map((cue) => cue.id));
     const markCueIds = LEGEND_MARK_ROWS.map((row) => row.cueId);
@@ -295,10 +359,25 @@ describe("buildVisualCueRegistry", () => {
     }
   });
 
-  it("describes physical timber signs and their serif lettering", () => {
+  it("describes physical stone signs and their serif lettering", () => {
     const cue = buildVisualCueRegistry().find((entry) => entry.id === "cue.water.semantic-terrain");
 
-    expect(cue?.visual).toContain("paired pilings");
+    expect(cue?.visual).toContain("stone boundary steles");
     expect(cue?.visual).toContain("mixed-case serif lettering");
+  });
+
+  it("keeps reading-key targets and exemplar ids aligned with detail and cue owners", () => {
+    const world = buildPharosVilleWorld(makePharosVilleWorldInput());
+    const key = deriveReadingKey(world);
+    const cues = buildVisualCueRegistry();
+    for (const id of ["cue.lighthouse.psi", "cue.water.semantic-terrain", "cue.ship.scale"]) {
+      expect(cues.find((cue) => cue.id === id)?.domEquivalent).toContain("Reading key");
+      expect(cues.find((cue) => cue.id === id)?.presentationTier).toBe("keep-rest");
+    }
+    for (const entry of [key.lighthouse, ...key.waters, ...key.nonRiskWaters, ...key.leaders]) {
+      expect(world.detailIndex[entry.detailId!]).toBeDefined();
+      if (entry.exemplarId) expect(READING_EXEMPLAR_IDS).toContain(entry.exemplarId);
+    }
+    expect([...key.waters, ...key.nonRiskWaters].map((entry) => entry.label)).toEqual(Object.values(RISK_SURFACE_SIGNATURES).map((surface) => surface.label));
   });
 });

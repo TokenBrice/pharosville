@@ -91,12 +91,30 @@ describe("flightTenderTitans", () => {
     // The load-bearing half of the contract: absence must not read as a quiet
     // version of the cue, so there is no quiet version to render.
     expect(flightTenderTitans(fleet, { flightToQuality: false })).toEqual([]);
+    expect(flightTenderTitans(fleet, { flightToQuality: null })).toEqual([]);
     expect(flightTenderTitans(fleet, null)).toEqual([]);
     expect(flightTenderTitans(fleet, undefined)).toEqual([]);
   });
 });
 
 describe("createGardenFlightTenders", () => {
+  it("shows only the inspected flotilla and compacts hidden boats", () => {
+    const tenders = createGardenFlightTenders([TITAN, { hullRadius: 2, shipId: "other" }], 50);
+    tenders.place(0, -40, -40, false);
+    tenders.place(1, 60, 25, true);
+    tenders.flush({ ...FULL_FRAME, reducedMotion: true });
+    expect(tenderMesh(tenders).count).toBe(FLIGHT_TENDERS_PER_TITAN);
+    expect(standOff(tenders, 0, 60, 25)).toBeLessThan(12);
+    tenders.place(1, 60, 25, false);
+    tenders.flush(FULL_FRAME);
+    expect(tenderMesh(tenders).count).toBe(0);
+    expect(tenderMesh(tenders).visible).toBe(false);
+    tenders.place(0, -40, -40, true);
+    tenders.flush(FULL_FRAME);
+    expect(tenderMesh(tenders).count).toBe(FLIGHT_TENDERS_PER_TITAN);
+    expect(tenderMesh(tenders).visible).toBe(true);
+    tenders.dispose();
+  });
   it("builds nothing when no hull carries a flotilla", () => {
     const tenders = createGardenFlightTenders([], 80);
     expect(tenders.count).toBe(0);

@@ -1,0 +1,1499 @@
+{
+  "schemaVersion": 1,
+  "tools": {
+    "node": "v26.10.0",
+    "zlib": "1.3.2",
+    "three": "0.186.0",
+    "meshoptimizer": "1.2.0",
+    "gltfValidator": "2.0.0-dev.3.10",
+    "validatorPackage": "2.0.0-dev.3.10"
+  },
+  "compiler": {
+    "path": "scripts/pharosville/compile-garden-assets.mjs",
+    "sha256": "49273f1ae9d746f0fc8303f54f6a6a5e93dd5c86dcdfdc1cf5307091d19d94e0"
+  },
+  "assets": [
+    {
+      "id": "garden-hero-bullion",
+      "kind": "model",
+      "generator": "scripts/pharosville/generate-garden-heroes.mjs",
+      "sources": [
+        {
+          "path": "scripts/pharosville/generate-garden-heroes.mjs",
+          "sha256": "b168e855f07e480dd567891fc399c7996fdd74c31fd3068a8b35721f08d5c95f"
+        },
+        {
+          "path": "scripts/pharosville/glb-meshopt.mjs",
+          "sha256": "0d0a758c9d6c3b6da4bb8f23190f4017225d505d5534f7d733362425164da349"
+        }
+      ],
+      "author": "TokenBrice / agent-authored",
+      "license": "MIT",
+      "units": "metres",
+      "options": {
+        "exporter": {
+          "binary": true,
+          "animations": [],
+          "onlyVisible": true,
+          "trs": false,
+          "includeCustomExtensions": false
+        },
+        "meshopt": {
+          "positionMantissaBits": 18,
+          "maxPositionDeviation": 0.00025,
+          "vertexMode": "ATTRIBUTES",
+          "indexMode": "TRIANGLES",
+          "positionFilter": "EXPONENTIAL"
+        },
+        "decodedValidation": {
+          "positionBounds": "recomputed-from-decoded-values",
+          "maxBoundsDeviation": 0.00025
+        }
+      },
+      "output": {
+        "path": "public/pharosville/models/garden-hero-bullion.glb",
+        "sha256": "f0e70a7c80fe57b346115259269997d1e292b7d88233b00b4b1f3e41ccd24ed4",
+        "bytes": 24132
+      },
+      "sourceGlbSha256": "865c2974a8de4191e61bc8c2bbd52c9898d34fa32095fc41e8e6afe18c63a1a6",
+      "positionDeviation": 0.000030517578125,
+      "validation": {
+        "source": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        },
+        "compressed": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": [
+            {
+              "code": "UNSUPPORTED_EXTENSION",
+              "severity": 2,
+              "pointer": "/extensionsUsed/2",
+              "message": "Cannot validate an extension as it is not supported by the validator: 'EXT_meshopt_compression'."
+            },
+            {
+              "code": "UNUSED_OBJECT",
+              "severity": 2,
+              "pointer": "/buffers/0",
+              "message": "This object may be unused."
+            }
+          ]
+        },
+        "decoded": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        }
+      },
+      "census": {
+        "primitives": 5,
+        "triangles": 1092,
+        "vertices": 946,
+        "materials": 5,
+        "maps": 0,
+        "images": 0,
+        "bounds": {
+          "min": [
+            -5.0882568359375,
+            -0.9472503662109375,
+            -2.449493408203125
+          ],
+          "max": [
+            4.0999755859375,
+            4.8499755859375,
+            2.449493408203125
+          ]
+        },
+        "anchors": {
+          "anchor-lantern-stern": {
+            "role": "lantern-stern",
+            "position": [
+              -3.8,
+              1.55,
+              0
+            ]
+          },
+          "anchor-lantern-bow": {
+            "role": "lantern-bow",
+            "position": [
+              3.7,
+              1.05,
+              0
+            ]
+          },
+          "anchor-masthead": {
+            "role": "masthead",
+            "position": [
+              -2.75,
+              4.5,
+              0
+            ]
+          },
+          "anchor-selection": {
+            "role": "selection",
+            "position": [
+              0,
+              1.4,
+              0
+            ]
+          },
+          "anchor-label": {
+            "role": "label",
+            "position": [
+              0,
+              5.8,
+              0
+            ]
+          }
+        },
+        "extensions": [
+          "EXT_meshopt_compression",
+          "KHR_materials_emissive_strength",
+          "KHR_mesh_quantization"
+        ],
+        "bytes": 24132,
+        "decodedBytes": 34896
+      }
+    },
+    {
+      "id": "garden-hero-circle",
+      "kind": "model",
+      "generator": "scripts/pharosville/generate-garden-heroes.mjs",
+      "sources": [
+        {
+          "path": "scripts/pharosville/generate-garden-heroes.mjs",
+          "sha256": "b168e855f07e480dd567891fc399c7996fdd74c31fd3068a8b35721f08d5c95f"
+        },
+        {
+          "path": "scripts/pharosville/glb-meshopt.mjs",
+          "sha256": "0d0a758c9d6c3b6da4bb8f23190f4017225d505d5534f7d733362425164da349"
+        }
+      ],
+      "author": "TokenBrice / agent-authored",
+      "license": "MIT",
+      "units": "metres",
+      "options": {
+        "exporter": {
+          "binary": true,
+          "animations": [],
+          "onlyVisible": true,
+          "trs": false,
+          "includeCustomExtensions": false
+        },
+        "meshopt": {
+          "positionMantissaBits": 18,
+          "maxPositionDeviation": 0.00025,
+          "vertexMode": "ATTRIBUTES",
+          "indexMode": "TRIANGLES",
+          "positionFilter": "EXPONENTIAL"
+        },
+        "decodedValidation": {
+          "positionBounds": "recomputed-from-decoded-values",
+          "maxBoundsDeviation": 0.00025
+        }
+      },
+      "output": {
+        "path": "public/pharosville/models/garden-hero-circle.glb",
+        "sha256": "2e5e50cdd5e1fb137abb2f6715ba0970ae8ae536313d6b23d3034e8577ed5851",
+        "bytes": 28864
+      },
+      "sourceGlbSha256": "c57c2640c22f2e842c3ae8b0e9ef1d3a55295b8436120bd1e9f3866f84f5afbc",
+      "positionDeviation": 0.000030517578125,
+      "validation": {
+        "source": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        },
+        "compressed": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": [
+            {
+              "code": "UNSUPPORTED_EXTENSION",
+              "severity": 2,
+              "pointer": "/extensionsUsed/2",
+              "message": "Cannot validate an extension as it is not supported by the validator: 'EXT_meshopt_compression'."
+            },
+            {
+              "code": "UNUSED_OBJECT",
+              "severity": 2,
+              "pointer": "/buffers/0",
+              "message": "This object may be unused."
+            }
+          ]
+        },
+        "decoded": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        }
+      },
+      "census": {
+        "primitives": 5,
+        "triangles": 1258,
+        "vertices": 1392,
+        "materials": 5,
+        "maps": 0,
+        "images": 0,
+        "bounds": {
+          "min": [
+            -6.42999267578125,
+            -0.4786109924316406,
+            -1.2498626708984375
+          ],
+          "max": [
+            6.25,
+            7.1500244140625,
+            1.2498626708984375
+          ]
+        },
+        "anchors": {
+          "anchor-lantern-stern": {
+            "role": "lantern-stern",
+            "position": [
+              -5.4,
+              2.1,
+              0
+            ]
+          },
+          "anchor-lantern-bow": {
+            "role": "lantern-bow",
+            "position": [
+              5.8,
+              1.45,
+              0
+            ]
+          },
+          "anchor-masthead": {
+            "role": "masthead",
+            "position": [
+              0.5,
+              6.8,
+              0
+            ]
+          },
+          "anchor-selection": {
+            "role": "selection",
+            "position": [
+              0,
+              1.7,
+              0
+            ]
+          },
+          "anchor-label": {
+            "role": "label",
+            "position": [
+              0,
+              8,
+              0
+            ]
+          }
+        },
+        "extensions": [
+          "EXT_meshopt_compression",
+          "KHR_materials_emissive_strength",
+          "KHR_mesh_quantization"
+        ],
+        "bytes": 28864,
+        "decodedBytes": 46548
+      }
+    },
+    {
+      "id": "garden-hero-ethena",
+      "kind": "model",
+      "generator": "scripts/pharosville/generate-garden-heroes.mjs",
+      "sources": [
+        {
+          "path": "scripts/pharosville/generate-garden-heroes.mjs",
+          "sha256": "b168e855f07e480dd567891fc399c7996fdd74c31fd3068a8b35721f08d5c95f"
+        },
+        {
+          "path": "scripts/pharosville/glb-meshopt.mjs",
+          "sha256": "0d0a758c9d6c3b6da4bb8f23190f4017225d505d5534f7d733362425164da349"
+        }
+      ],
+      "author": "TokenBrice / agent-authored",
+      "license": "MIT",
+      "units": "metres",
+      "options": {
+        "exporter": {
+          "binary": true,
+          "animations": [],
+          "onlyVisible": true,
+          "trs": false,
+          "includeCustomExtensions": false
+        },
+        "meshopt": {
+          "positionMantissaBits": 18,
+          "maxPositionDeviation": 0.00025,
+          "vertexMode": "ATTRIBUTES",
+          "indexMode": "TRIANGLES",
+          "positionFilter": "EXPONENTIAL"
+        },
+        "decodedValidation": {
+          "positionBounds": "recomputed-from-decoded-values",
+          "maxBoundsDeviation": 0.00025
+        }
+      },
+      "output": {
+        "path": "public/pharosville/models/garden-hero-ethena.glb",
+        "sha256": "a6cf8aa95fb5d9ff6eef3dcf804592bbc6af55c0ae0780ca4ca3406cb8da383f",
+        "bytes": 28308
+      },
+      "sourceGlbSha256": "7df1e76e7ecc0b25fe350ab8eb3eb9565ce72499cb8b07d99d97055707d0e859",
+      "positionDeviation": 0.0000591278076171875,
+      "validation": {
+        "source": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        },
+        "compressed": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": [
+            {
+              "code": "UNSUPPORTED_EXTENSION",
+              "severity": 2,
+              "pointer": "/extensionsUsed/2",
+              "message": "Cannot validate an extension as it is not supported by the validator: 'EXT_meshopt_compression'."
+            },
+            {
+              "code": "UNUSED_OBJECT",
+              "severity": 2,
+              "pointer": "/buffers/0",
+              "message": "This object may be unused."
+            }
+          ]
+        },
+        "decoded": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        }
+      },
+      "census": {
+        "primitives": 5,
+        "triangles": 1286,
+        "vertices": 1341,
+        "materials": 5,
+        "maps": 0,
+        "images": 0,
+        "bounds": {
+          "min": [
+            -4.72998046875,
+            -0.6182022094726562,
+            -1.7550048828125
+          ],
+          "max": [
+            4.3499755859375,
+            8.3499755859375,
+            1.7550048828125
+          ]
+        },
+        "anchors": {
+          "anchor-lantern-stern": {
+            "role": "lantern-stern",
+            "position": [
+              -3.9,
+              2.4,
+              0
+            ]
+          },
+          "anchor-lantern-bow": {
+            "role": "lantern-bow",
+            "position": [
+              4.1,
+              1.55,
+              0
+            ]
+          },
+          "anchor-masthead": {
+            "role": "masthead",
+            "position": [
+              1,
+              8,
+              0
+            ]
+          },
+          "anchor-selection": {
+            "role": "selection",
+            "position": [
+              0,
+              1.8,
+              0
+            ]
+          },
+          "anchor-label": {
+            "role": "label",
+            "position": [
+              0,
+              9.3,
+              0
+            ]
+          }
+        },
+        "extensions": [
+          "EXT_meshopt_compression",
+          "KHR_materials_emissive_strength",
+          "KHR_mesh_quantization"
+        ],
+        "bytes": 28308,
+        "decodedBytes": 44244
+      }
+    },
+    {
+      "id": "garden-hero-liberty",
+      "kind": "model",
+      "generator": "scripts/pharosville/generate-garden-heroes.mjs",
+      "sources": [
+        {
+          "path": "scripts/pharosville/generate-garden-heroes.mjs",
+          "sha256": "b168e855f07e480dd567891fc399c7996fdd74c31fd3068a8b35721f08d5c95f"
+        },
+        {
+          "path": "scripts/pharosville/glb-meshopt.mjs",
+          "sha256": "0d0a758c9d6c3b6da4bb8f23190f4017225d505d5534f7d733362425164da349"
+        }
+      ],
+      "author": "TokenBrice / agent-authored",
+      "license": "MIT",
+      "units": "metres",
+      "options": {
+        "exporter": {
+          "binary": true,
+          "animations": [],
+          "onlyVisible": true,
+          "trs": false,
+          "includeCustomExtensions": false
+        },
+        "meshopt": {
+          "positionMantissaBits": 18,
+          "maxPositionDeviation": 0.00025,
+          "vertexMode": "ATTRIBUTES",
+          "indexMode": "TRIANGLES",
+          "positionFilter": "EXPONENTIAL"
+        },
+        "decodedValidation": {
+          "positionBounds": "recomputed-from-decoded-values",
+          "maxBoundsDeviation": 0.00025
+        }
+      },
+      "output": {
+        "path": "public/pharosville/models/garden-hero-liberty.glb",
+        "sha256": "ec8e689b2ad6b0821fa85488be042f124af42b572f296546857084ddc4f77eef",
+        "bytes": 20632
+      },
+      "sourceGlbSha256": "d9fcbd94473b804ac3ef057e53e18c999ac450a8fa495fd56cd4db490673016e",
+      "positionDeviation": 0.000030465424060821533,
+      "validation": {
+        "source": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        },
+        "compressed": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": [
+            {
+              "code": "UNSUPPORTED_EXTENSION",
+              "severity": 2,
+              "pointer": "/extensionsUsed/2",
+              "message": "Cannot validate an extension as it is not supported by the validator: 'EXT_meshopt_compression'."
+            },
+            {
+              "code": "UNUSED_OBJECT",
+              "severity": 2,
+              "pointer": "/buffers/0",
+              "message": "This object may be unused."
+            }
+          ]
+        },
+        "decoded": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        }
+      },
+      "census": {
+        "primitives": 4,
+        "triangles": 930,
+        "vertices": 842,
+        "materials": 4,
+        "maps": 0,
+        "images": 0,
+        "bounds": {
+          "min": [
+            -5.33001708984375,
+            -0.9173355102539062,
+            -1.91986083984375
+          ],
+          "max": [
+            5.1500244140625,
+            7.9000244140625,
+            1.91986083984375
+          ]
+        },
+        "anchors": {
+          "anchor-lantern-stern": {
+            "role": "lantern-stern",
+            "position": [
+              -3.2,
+              3.4,
+              0
+            ]
+          },
+          "anchor-lantern-bow": {
+            "role": "lantern-bow",
+            "position": [
+              4.7,
+              2.5,
+              0
+            ]
+          },
+          "anchor-masthead": {
+            "role": "masthead",
+            "position": [
+              1.1,
+              7.55,
+              0
+            ]
+          },
+          "anchor-selection": {
+            "role": "selection",
+            "position": [
+              0,
+              2.2,
+              0
+            ]
+          },
+          "anchor-label": {
+            "role": "label",
+            "position": [
+              0,
+              8.9,
+              0
+            ]
+          }
+        },
+        "extensions": [
+          "EXT_meshopt_compression",
+          "KHR_materials_emissive_strength",
+          "KHR_mesh_quantization"
+        ],
+        "bytes": 20632,
+        "decodedBytes": 30480
+      }
+    },
+    {
+      "id": "garden-hero-maker",
+      "kind": "model",
+      "generator": "scripts/pharosville/generate-garden-heroes.mjs",
+      "sources": [
+        {
+          "path": "scripts/pharosville/generate-garden-heroes.mjs",
+          "sha256": "b168e855f07e480dd567891fc399c7996fdd74c31fd3068a8b35721f08d5c95f"
+        },
+        {
+          "path": "scripts/pharosville/glb-meshopt.mjs",
+          "sha256": "0d0a758c9d6c3b6da4bb8f23190f4017225d505d5534f7d733362425164da349"
+        }
+      ],
+      "author": "TokenBrice / agent-authored",
+      "license": "MIT",
+      "units": "metres",
+      "options": {
+        "exporter": {
+          "binary": true,
+          "animations": [],
+          "onlyVisible": true,
+          "trs": false,
+          "includeCustomExtensions": false
+        },
+        "meshopt": {
+          "positionMantissaBits": 18,
+          "maxPositionDeviation": 0.00025,
+          "vertexMode": "ATTRIBUTES",
+          "indexMode": "TRIANGLES",
+          "positionFilter": "EXPONENTIAL"
+        },
+        "decodedValidation": {
+          "positionBounds": "recomputed-from-decoded-values",
+          "maxBoundsDeviation": 0.00025
+        }
+      },
+      "output": {
+        "path": "public/pharosville/models/garden-hero-maker.glb",
+        "sha256": "4998bb3c019e629cbecab19946ae28b83aedbc087310f9f570a9a5388956f20f",
+        "bytes": 32180
+      },
+      "sourceGlbSha256": "9bac45f95e4af6e8f3b4abd477dab01428c47e99a8a3188178de0665ce3e844f",
+      "positionDeviation": 0.000030465424060821533,
+      "validation": {
+        "source": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        },
+        "compressed": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": [
+            {
+              "code": "UNSUPPORTED_EXTENSION",
+              "severity": 2,
+              "pointer": "/extensionsUsed/2",
+              "message": "Cannot validate an extension as it is not supported by the validator: 'EXT_meshopt_compression'."
+            },
+            {
+              "code": "UNUSED_OBJECT",
+              "severity": 2,
+              "pointer": "/buffers/0",
+              "message": "This object may be unused."
+            }
+          ]
+        },
+        "decoded": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        }
+      },
+      "census": {
+        "primitives": 5,
+        "triangles": 1764,
+        "vertices": 1451,
+        "materials": 5,
+        "maps": 0,
+        "images": 0,
+        "bounds": {
+          "min": [
+            -4.58001708984375,
+            -0.51849365234375,
+            -2.24249267578125
+          ],
+          "max": [
+            4.79998779296875,
+            7.1500244140625,
+            2.24249267578125
+          ]
+        },
+        "anchors": {
+          "anchor-lantern-stern": {
+            "role": "lantern-stern",
+            "position": [
+              -3.8,
+              2.3,
+              0
+            ]
+          },
+          "anchor-lantern-bow": {
+            "role": "lantern-bow",
+            "position": [
+              4.4,
+              1.35,
+              0
+            ]
+          },
+          "anchor-masthead": {
+            "role": "masthead",
+            "position": [
+              1.5,
+              6.8,
+              0
+            ]
+          },
+          "anchor-selection": {
+            "role": "selection",
+            "position": [
+              0,
+              1.7,
+              0
+            ]
+          },
+          "anchor-label": {
+            "role": "label",
+            "position": [
+              0,
+              7.9,
+              0
+            ]
+          }
+        },
+        "extensions": [
+          "EXT_meshopt_compression",
+          "KHR_materials_emissive_strength",
+          "KHR_mesh_quantization"
+        ],
+        "bytes": 32180,
+        "decodedBytes": 51344
+      }
+    },
+    {
+      "id": "garden-hero-paypal",
+      "kind": "model",
+      "generator": "scripts/pharosville/generate-garden-heroes.mjs",
+      "sources": [
+        {
+          "path": "scripts/pharosville/generate-garden-heroes.mjs",
+          "sha256": "b168e855f07e480dd567891fc399c7996fdd74c31fd3068a8b35721f08d5c95f"
+        },
+        {
+          "path": "scripts/pharosville/glb-meshopt.mjs",
+          "sha256": "0d0a758c9d6c3b6da4bb8f23190f4017225d505d5534f7d733362425164da349"
+        }
+      ],
+      "author": "TokenBrice / agent-authored",
+      "license": "MIT",
+      "units": "metres",
+      "options": {
+        "exporter": {
+          "binary": true,
+          "animations": [],
+          "onlyVisible": true,
+          "trs": false,
+          "includeCustomExtensions": false
+        },
+        "meshopt": {
+          "positionMantissaBits": 18,
+          "maxPositionDeviation": 0.00025,
+          "vertexMode": "ATTRIBUTES",
+          "indexMode": "TRIANGLES",
+          "positionFilter": "EXPONENTIAL"
+        },
+        "decodedValidation": {
+          "positionBounds": "recomputed-from-decoded-values",
+          "maxBoundsDeviation": 0.00025
+        }
+      },
+      "output": {
+        "path": "public/pharosville/models/garden-hero-paypal.glb",
+        "sha256": "6dd7594730e6f509d9da975846667cbcdf67241ae3b54a61ed73b799c597f79d",
+        "bytes": 25016
+      },
+      "sourceGlbSha256": "298f539b617ad9c83e11a2c8177ec3279e6b8e146035774bd7c376cda75e5d81",
+      "positionDeviation": 0.000030517578125,
+      "validation": {
+        "source": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        },
+        "compressed": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": [
+            {
+              "code": "UNSUPPORTED_EXTENSION",
+              "severity": 2,
+              "pointer": "/extensionsUsed/2",
+              "message": "Cannot validate an extension as it is not supported by the validator: 'EXT_meshopt_compression'."
+            },
+            {
+              "code": "UNUSED_OBJECT",
+              "severity": 2,
+              "pointer": "/buffers/0",
+              "message": "This object may be unused."
+            }
+          ]
+        },
+        "decoded": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        }
+      },
+      "census": {
+        "primitives": 5,
+        "triangles": 1074,
+        "vertices": 1060,
+        "materials": 5,
+        "maps": 0,
+        "images": 0,
+        "bounds": {
+          "min": [
+            -6.42999267578125,
+            -0.4786109924316406,
+            -1.2498626708984375
+          ],
+          "max": [
+            6.25,
+            6.54998779296875,
+            1.2498626708984375
+          ]
+        },
+        "anchors": {
+          "anchor-lantern-stern": {
+            "role": "lantern-stern",
+            "position": [
+              -5.3,
+              2,
+              0
+            ]
+          },
+          "anchor-lantern-bow": {
+            "role": "lantern-bow",
+            "position": [
+              5.8,
+              1.4,
+              0
+            ]
+          },
+          "anchor-masthead": {
+            "role": "masthead",
+            "position": [
+              3.5,
+              6.2,
+              0
+            ]
+          },
+          "anchor-selection": {
+            "role": "selection",
+            "position": [
+              0,
+              1.6,
+              0
+            ]
+          },
+          "anchor-label": {
+            "role": "label",
+            "position": [
+              0,
+              7.4,
+              0
+            ]
+          }
+        },
+        "extensions": [
+          "EXT_meshopt_compression",
+          "KHR_materials_emissive_strength",
+          "KHR_mesh_quantization"
+        ],
+        "bytes": 25016,
+        "decodedBytes": 37460
+      }
+    },
+    {
+      "id": "garden-hero-sky",
+      "kind": "model",
+      "generator": "scripts/pharosville/generate-garden-heroes.mjs",
+      "sources": [
+        {
+          "path": "scripts/pharosville/generate-garden-heroes.mjs",
+          "sha256": "b168e855f07e480dd567891fc399c7996fdd74c31fd3068a8b35721f08d5c95f"
+        },
+        {
+          "path": "scripts/pharosville/glb-meshopt.mjs",
+          "sha256": "0d0a758c9d6c3b6da4bb8f23190f4017225d505d5534f7d733362425164da349"
+        }
+      ],
+      "author": "TokenBrice / agent-authored",
+      "license": "MIT",
+      "units": "metres",
+      "options": {
+        "exporter": {
+          "binary": true,
+          "animations": [],
+          "onlyVisible": true,
+          "trs": false,
+          "includeCustomExtensions": false
+        },
+        "meshopt": {
+          "positionMantissaBits": 18,
+          "maxPositionDeviation": 0.00025,
+          "vertexMode": "ATTRIBUTES",
+          "indexMode": "TRIANGLES",
+          "positionFilter": "EXPONENTIAL"
+        },
+        "decodedValidation": {
+          "positionBounds": "recomputed-from-decoded-values",
+          "maxBoundsDeviation": 0.00025
+        }
+      },
+      "output": {
+        "path": "public/pharosville/models/garden-hero-sky.glb",
+        "sha256": "1083ae6633e2a4789bf75a0d50f45d0c14fa8b11c2a3e95efb0de666b35ffd54",
+        "bytes": 35216
+      },
+      "sourceGlbSha256": "3df057c4d1d5f9bf68464cbe0fa102d63f1edf8cd96f5cfa81080061f41f3342",
+      "positionDeviation": 0.000030465424060821533,
+      "validation": {
+        "source": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        },
+        "compressed": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": [
+            {
+              "code": "UNSUPPORTED_EXTENSION",
+              "severity": 2,
+              "pointer": "/extensionsUsed/2",
+              "message": "Cannot validate an extension as it is not supported by the validator: 'EXT_meshopt_compression'."
+            },
+            {
+              "code": "UNUSED_OBJECT",
+              "severity": 2,
+              "pointer": "/buffers/0",
+              "message": "This object may be unused."
+            }
+          ]
+        },
+        "decoded": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        }
+      },
+      "census": {
+        "primitives": 5,
+        "triangles": 1904,
+        "vertices": 1707,
+        "materials": 5,
+        "maps": 0,
+        "images": 0,
+        "bounds": {
+          "min": [
+            -4.58001708984375,
+            -0.51849365234375,
+            -1.9250030517578125
+          ],
+          "max": [
+            4.79998779296875,
+            7.54998779296875,
+            1.9250030517578125
+          ]
+        },
+        "anchors": {
+          "anchor-lantern-stern": {
+            "role": "lantern-stern",
+            "position": [
+              -3.9,
+              2.2,
+              0
+            ]
+          },
+          "anchor-lantern-bow": {
+            "role": "lantern-bow",
+            "position": [
+              4.5,
+              1.4,
+              0
+            ]
+          },
+          "anchor-masthead": {
+            "role": "masthead",
+            "position": [
+              1.8,
+              7.2,
+              0
+            ]
+          },
+          "anchor-selection": {
+            "role": "selection",
+            "position": [
+              0,
+              1.8,
+              0
+            ]
+          },
+          "anchor-label": {
+            "role": "label",
+            "position": [
+              0,
+              8.3,
+              0
+            ]
+          }
+        },
+        "extensions": [
+          "EXT_meshopt_compression",
+          "KHR_materials_emissive_strength",
+          "KHR_mesh_quantization"
+        ],
+        "bytes": 35216,
+        "decodedBytes": 58356
+      }
+    },
+    {
+      "id": "garden-hero-tether",
+      "kind": "model",
+      "generator": "scripts/pharosville/generate-garden-heroes.mjs",
+      "sources": [
+        {
+          "path": "scripts/pharosville/generate-garden-heroes.mjs",
+          "sha256": "b168e855f07e480dd567891fc399c7996fdd74c31fd3068a8b35721f08d5c95f"
+        },
+        {
+          "path": "scripts/pharosville/glb-meshopt.mjs",
+          "sha256": "0d0a758c9d6c3b6da4bb8f23190f4017225d505d5534f7d733362425164da349"
+        }
+      ],
+      "author": "TokenBrice / agent-authored",
+      "license": "MIT",
+      "units": "metres",
+      "options": {
+        "exporter": {
+          "binary": true,
+          "animations": [],
+          "onlyVisible": true,
+          "trs": false,
+          "includeCustomExtensions": false
+        },
+        "meshopt": {
+          "positionMantissaBits": 18,
+          "maxPositionDeviation": 0.00025,
+          "vertexMode": "ATTRIBUTES",
+          "indexMode": "TRIANGLES",
+          "positionFilter": "EXPONENTIAL"
+        },
+        "decodedValidation": {
+          "positionBounds": "recomputed-from-decoded-values",
+          "maxBoundsDeviation": 0.00025
+        }
+      },
+      "output": {
+        "path": "public/pharosville/models/garden-hero-tether.glb",
+        "sha256": "d8b66430e8c05b5d66d6c83f443697691141d74fa3f2027b29139b6bc12245ef",
+        "bytes": 20480
+      },
+      "sourceGlbSha256": "462e9abf82b65e5f06fa97cd6b4303b0153b9b79f95b4bce01092118b77ba9b3",
+      "positionDeviation": 0.00006103515625,
+      "validation": {
+        "source": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        },
+        "compressed": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": [
+            {
+              "code": "UNSUPPORTED_EXTENSION",
+              "severity": 2,
+              "pointer": "/extensionsUsed/2",
+              "message": "Cannot validate an extension as it is not supported by the validator: 'EXT_meshopt_compression'."
+            },
+            {
+              "code": "UNUSED_OBJECT",
+              "severity": 2,
+              "pointer": "/buffers/0",
+              "message": "This object may be unused."
+            }
+          ]
+        },
+        "decoded": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        }
+      },
+      "census": {
+        "primitives": 4,
+        "triangles": 930,
+        "vertices": 842,
+        "materials": 4,
+        "maps": 0,
+        "images": 0,
+        "bounds": {
+          "min": [
+            -6.17999267578125,
+            -0.9173355102539062,
+            -2.4498291015625
+          ],
+          "max": [
+            5.5999755859375,
+            8.4000244140625,
+            2.4498291015625
+          ]
+        },
+        "anchors": {
+          "anchor-lantern-stern": {
+            "role": "lantern-stern",
+            "position": [
+              -4.3,
+              6.9,
+              0
+            ]
+          },
+          "anchor-lantern-bow": {
+            "role": "lantern-bow",
+            "position": [
+              4.6,
+              2.3,
+              0
+            ]
+          },
+          "anchor-masthead": {
+            "role": "masthead",
+            "position": [
+              -0.1,
+              8.05,
+              0
+            ]
+          },
+          "anchor-selection": {
+            "role": "selection",
+            "position": [
+              0,
+              2.9,
+              0
+            ]
+          },
+          "anchor-label": {
+            "role": "label",
+            "position": [
+              0,
+              9.6,
+              0
+            ]
+          }
+        },
+        "extensions": [
+          "EXT_meshopt_compression",
+          "KHR_materials_emissive_strength",
+          "KHR_mesh_quantization"
+        ],
+        "bytes": 20480,
+        "decodedBytes": 30444
+      }
+    },
+    {
+      "id": "garden-lighthouse-shell",
+      "kind": "model",
+      "generator": "scripts/pharosville/generate-garden-lighthouse.mjs",
+      "sources": [
+        {
+          "path": "scripts/pharosville/generate-garden-lighthouse.mjs",
+          "sha256": "894bf19cef34d5d6e4edfb9c3991cffe5ef879307f17a4b8e8a39bca50141510"
+        },
+        {
+          "path": "scripts/pharosville/glb-meshopt.mjs",
+          "sha256": "0d0a758c9d6c3b6da4bb8f23190f4017225d505d5534f7d733362425164da349"
+        }
+      ],
+      "author": "TokenBrice / agent-authored",
+      "license": "MIT",
+      "units": "metres",
+      "options": {
+        "exporter": {
+          "binary": true,
+          "animations": [],
+          "onlyVisible": true,
+          "trs": false,
+          "includeCustomExtensions": false
+        },
+        "meshopt": {
+          "positionMantissaBits": 18,
+          "maxPositionDeviation": 0.00025,
+          "vertexMode": "ATTRIBUTES",
+          "indexMode": "TRIANGLES",
+          "positionFilter": "EXPONENTIAL"
+        },
+        "decodedValidation": {
+          "positionBounds": "recomputed-from-decoded-values",
+          "maxBoundsDeviation": 0.00025
+        }
+      },
+      "output": {
+        "path": "public/pharosville/models/garden-lighthouse-shell.glb",
+        "sha256": "f57ccc4f936e03d155fc8df2df1d049e65f7e7c3b70ed041ec8d770f23b97f78",
+        "bytes": 194112
+      },
+      "sourceGlbSha256": "1ad0e8a8a687274c8c2303ffb9852ab92e2bebc4aba43d3369633a4e9e38d98e",
+      "positionDeviation": 0.0001953132450580597,
+      "validation": {
+        "source": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        },
+        "compressed": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": [
+            {
+              "code": "UNSUPPORTED_EXTENSION",
+              "severity": 2,
+              "pointer": "/extensionsUsed/1",
+              "message": "Cannot validate an extension as it is not supported by the validator: 'EXT_meshopt_compression'."
+            },
+            {
+              "code": "UNUSED_OBJECT",
+              "severity": 2,
+              "pointer": "/buffers/0",
+              "message": "This object may be unused."
+            }
+          ]
+        },
+        "decoded": {
+          "errors": 0,
+          "warnings": 0,
+          "messages": []
+        }
+      },
+      "census": {
+        "primitives": 8,
+        "triangles": 30436,
+        "vertices": 19901,
+        "materials": 8,
+        "maps": 0,
+        "images": 0,
+        "bounds": {
+          "min": [
+            -6.21502685546875,
+            0,
+            -6.21502685546875
+          ],
+          "max": [
+            6.21502685546875,
+            32,
+            6.21502685546875
+          ]
+        },
+        "anchors": {
+          "anchor-beacon": {
+            "role": "beacon",
+            "position": [
+              0,
+              24.2,
+              0
+            ]
+          },
+          "anchor-beam": {
+            "role": "beam",
+            "position": [
+              0,
+              24.2,
+              0
+            ]
+          },
+          "anchor-label": {
+            "role": "label",
+            "position": [
+              0,
+              32.9,
+              0
+            ]
+          },
+          "anchor-selection": {
+            "role": "selection",
+            "position": [
+              0,
+              16,
+              0
+            ]
+          }
+        },
+        "extensions": [
+          "EXT_meshopt_compression",
+          "KHR_materials_emissive_strength"
+        ],
+        "bytes": 194112,
+        "decodedBytes": 502324
+      }
+    },
+    {
+      "id": "garden-surface-atlas",
+      "kind": "atlas",
+      "generator": "scripts/pharosville/generate-garden-surface-atlas.mjs",
+      "seed": 20261005,
+      "gutter": 2,
+      "maps": [
+        {
+          "name": "albedo",
+          "colorSpace": "srgb",
+          "gutter": 2,
+          "cell": 128,
+          "cells": 8,
+          "levels": [
+            {
+              "width": 1024,
+              "height": 1024
+            },
+            {
+              "width": 512,
+              "height": 512
+            },
+            {
+              "width": 256,
+              "height": 256
+            },
+            {
+              "width": 128,
+              "height": 128
+            },
+            {
+              "width": 64,
+              "height": 64
+            },
+            {
+              "width": 32,
+              "height": 32
+            },
+            {
+              "width": 16,
+              "height": 16
+            },
+            {
+              "width": 8,
+              "height": 8
+            },
+            {
+              "width": 4,
+              "height": 4
+            },
+            {
+              "width": 2,
+              "height": 2
+            },
+            {
+              "width": 1,
+              "height": 1
+            }
+          ],
+          "width": 2047,
+          "height": 1024,
+          "output": "public/pharosville/textures/garden-surface-albedo.png",
+          "sha256": "603ffd39fe8d5c0774dac5ebd0c2e86363f8f1ced6ecf40d90f3e3890642b115",
+          "bytes": 53410
+        },
+        {
+          "name": "normal",
+          "colorSpace": "linear",
+          "gutter": 2,
+          "cell": 128,
+          "cells": 8,
+          "levels": [
+            {
+              "width": 1024,
+              "height": 1024
+            },
+            {
+              "width": 512,
+              "height": 512
+            },
+            {
+              "width": 256,
+              "height": 256
+            },
+            {
+              "width": 128,
+              "height": 128
+            },
+            {
+              "width": 64,
+              "height": 64
+            },
+            {
+              "width": 32,
+              "height": 32
+            },
+            {
+              "width": 16,
+              "height": 16
+            },
+            {
+              "width": 8,
+              "height": 8
+            },
+            {
+              "width": 4,
+              "height": 4
+            },
+            {
+              "width": 2,
+              "height": 2
+            },
+            {
+              "width": 1,
+              "height": 1
+            }
+          ],
+          "width": 2047,
+          "height": 1024,
+          "output": "public/pharosville/textures/garden-surface-normal.png",
+          "sha256": "39c285ae8d27ef806efaf9b387cb29c866abad2e41461902912c5ef7413e94f4",
+          "bytes": 61312
+        },
+        {
+          "name": "orm",
+          "colorSpace": "linear",
+          "gutter": 2,
+          "cell": 128,
+          "cells": 8,
+          "levels": [
+            {
+              "width": 1024,
+              "height": 1024
+            },
+            {
+              "width": 512,
+              "height": 512
+            },
+            {
+              "width": 256,
+              "height": 256
+            },
+            {
+              "width": 128,
+              "height": 128
+            },
+            {
+              "width": 64,
+              "height": 64
+            },
+            {
+              "width": 32,
+              "height": 32
+            },
+            {
+              "width": 16,
+              "height": 16
+            },
+            {
+              "width": 8,
+              "height": 8
+            },
+            {
+              "width": 4,
+              "height": 4
+            },
+            {
+              "width": 2,
+              "height": 2
+            },
+            {
+              "width": 1,
+              "height": 1
+            }
+          ],
+          "width": 2047,
+          "height": 1024,
+          "output": "public/pharosville/textures/garden-surface-orm.png",
+          "sha256": "797afc8044b6b5b2b48abe1dc8c3bd12595a8c80477b45f922c3f388fb23c9ef",
+          "bytes": 87046
+        }
+      ],
+      "author": "TokenBrice / agent-authored",
+      "license": "MIT",
+      "sources": [
+        {
+          "path": "scripts/pharosville/compile-garden-assets.mjs",
+          "sha256": "49273f1ae9d746f0fc8303f54f6a6a5e93dd5c86dcdfdc1cf5307091d19d94e0"
+        },
+        {
+          "path": "scripts/pharosville/generate-garden-surface-atlas.mjs",
+          "sha256": "4e1bd275d0efa74d7f3c3279bd090d3a6526c83c2661bcd3dc27694d7e2f8e27"
+        }
+      ]
+    }
+  ]
+}

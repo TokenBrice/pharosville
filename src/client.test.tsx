@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PharosVilleClient, stillForLocalHour } from "./client";
+import { ArrivalShell } from "./components/arrival-shell";
 
 const desktopModuleLoaded = vi.hoisted(() => vi.fn());
 
@@ -58,6 +59,20 @@ describe("PharosVilleClient viewport gate", () => {
     expect(desktopModuleLoaded).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [899, 720, 899, 720], [720, 899, 720, 899],
+    [1199, 640, 1199, 640], [640, 1199, 640, 1199],
+    [900, 720, 900, 719], [720, 900, 719, 900],
+    [1200, 640, 1200, 639], [640, 1200, 639, 1200],
+  ])("blocks the sorted screen/window boundary %s×%s / %s×%s before world import", (sw, sh, width, height) => {
+    setViewport(sw, sh, width, height);
+    render(<PharosVilleClient />);
+    expect(screen.queryByText("world runtime")).toBeNull();
+    expect(desktopModuleLoaded).not.toHaveBeenCalled();
+    expect(screen.getByRole("navigation", { name: "Pharos analytics" })).toBeTruthy();
+    expect(screen.getByRole("img").getAttribute("alt")).toContain("Illustration, not live readings.");
+  });
+
   it("chooses the still of the visitor's own hour, one per light beat", () => {
     const beats = new Set<string>();
     for (let hour = 0; hour < 24; hour += 0.5) {
@@ -68,5 +83,70 @@ describe("PharosVilleClient viewport gate", () => {
     }
     expect([...beats].sort()).toEqual(["blue", "dawn", "day", "golden", "night"]);
     expect(stillForLocalHour(new Date(2026, 8, 26, 13)).beat).toBe("day");
+  });
+
+  it.each([[900, 720], [720, 900], [1200, 640], [640, 1200]])("admits the sorted gate %s×%s without a desktop still", async (width, height) => {
+    setViewport(width, height, width, height);
+    render(<PharosVilleClient />);
+    expect(screen.queryByRole("img")).toBeNull();
+    await waitFor(() => expect(screen.getByText("world runtime")).toBeTruthy());
+  });
+
+  it("unmounts at shrink and remounts at the exact boundary without orientation admission", async () => {
+    setViewport(2560, 1440, 900, 720);
+    render(<PharosVilleClient />);
+    await waitFor(() => expect(screen.getByText("world runtime")).toBeTruthy());
+    setViewport(2560, 1440, 899, 720);
+    fireEvent(window, new Event("resize"));
+    expect(screen.queryByText("world runtime")).toBeNull();
+    expect(screen.getByText("Give the harbor more room.")).toBeTruthy();
+    setViewport(2560, 1440, 720, 900);
+    fireEvent(window, new Event("resize"));
+    await waitFor(() => expect(screen.getByText("world runtime")).toBeTruthy());
+  });
+});
+
+describe("first-byte and React arrival shell", () => {
+  afterEach(cleanup);
+
+  it("keeps identity, a generic guide and useful links without executing a module", () => {
+    const html = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
+    const shell = new DOMParser().parseFromString(html, "text/html");
+    expect(shell.querySelector("#root h1")?.textContent).toBe("PharosVille");
+    expect([...shell.querySelectorAll("#root dt")].map((node) => node.textContent)).toEqual(["Lighthouse", "Water", "Sails"]);
+    expect(shell.querySelector("#root [role=status]")?.textContent).toBe("Waiting for the application module.");
+    expect(shell.querySelectorAll("#root nav a")).toHaveLength(2);
+    expect(shell.querySelector("#root img, #root canvas")).toBeNull();
+    expect(shell.querySelector("#root")?.textContent).not.toMatch(/PSI \d|loading \d|% complete/i);
+    expect(shell.querySelector('link[href="/arrival-shell.css"]')).not.toBeNull();
+  });
+
+  it("replaces the same meaningful shell with the observed loading stage, never anonymous progress", () => {
+    render(<ArrivalShell stage="Preparing the renderer and shaders." />);
+    expect(screen.getByRole("heading", { name: "PharosVille" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("Preparing the renderer and shaders.");
+    expect(screen.getByRole("link", { name: "Open Pharos analytics" }).getAttribute("href")).toBe("https://pharos.watch/");
+    expect(screen.getByText(/Size uses a compressed supply scale/)).toBeTruthy();
+    expect(screen.queryByRole("img")).toBeNull();
+  });
+
+  it("retains the branded guide and links when the lazy data module rejects", async () => {
+    vi.resetModules();
+    vi.doMock("./pharosville-desktop-data", () => { throw new Error("test module transfer failure"); });
+    try {
+      // Exercise a fresh lazy module boundary after installing the rejecting
+      // import mock; a static import would retain the already resolved module.
+      const { PharosVilleClient: ColdClient } = await import("./client");
+      setViewport(2560, 1440, 1200, 640);
+      render(<ColdClient />);
+      expect(screen.getByRole("heading", { name: "PharosVille" })).toBeTruthy();
+      expect(screen.getByRole("status").textContent).toBe("Loading the world data module.");
+      await waitFor(() => expect(screen.getByRole("status").textContent).toContain("The world module could not load."));
+      expect(screen.getByRole("link", { name: "Open Pharos analytics" })).toBeTruthy();
+      expect(screen.getByText(/missing evidence is not calm/)).toBeTruthy();
+      expect(screen.queryByText("world runtime")).toBeNull();
+    } finally {
+      vi.doUnmock("./pharosville-desktop-data");
+    }
   });
 });

@@ -1,15 +1,16 @@
-import { Box3, Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, PerspectiveCamera, Raycaster, Texture, Vector2, Vector3 } from "three";
-import { describe, expect, it } from "vitest";
+import { Box3, DataTexture, Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, PerspectiveCamera, Raycaster, ShaderLib, Vector2, Vector3, type Intersection, type IUniform } from "three";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { defaultCamera } from "../systems/camera";
-import { GARDEN_ARRIVAL_DURATION_MS, sampleGardenArrival } from "../systems/garden-arrival";
 import { isGardenShipWater } from "../systems/garden-water-exclusion";
 import { cameraView, type IsoCamera } from "../systems/projection";
-import { REST_SEAT_EYE_HEIGHT } from "../systems/rest-seat";
 import { PHAROSVILLE_MAP_HEIGHT, PHAROSVILLE_MAP_WIDTH } from "../systems/world-layout";
-import { createGardenThreshold, shapeThresholdLimbPads, type GardenThreshold } from "./garden-threshold";
-import { createNiwakiPine, type NiwakiPine } from "./garden-niwaki";
+import { createGardenThreshold, writeGardenThresholdGround, type GardenThreshold, type GardenThresholdGroundSample } from "./garden-threshold";
 import { gardenRimDecorativeLandAt } from "./garden-rim-mesh";
 import { TILE_SCALE } from "./garden-util";
+import type { GardenSurfaceAtlasLease, GardenSurfaceAtlasOwner } from "./garden-surface-atlas";
+import { GARDEN_SURFACE_ROLE_ATTRIBUTE, GARDEN_SURFACE_ROLE_CODES, GARDEN_SURFACE_WEIGHT_ATTRIBUTE, type GardenSurfaceMetadata } from "./garden-surfaces";
+import { GARDEN_KUROMATSU_FLEX_ATTRIBUTE, GARDEN_KUROMATSU_ROOT_INDEX_ATTRIBUTE } from "./garden-niwaki";
+import { weatherForFrame } from "../systems/weather";
 
 const GATES = [
   { width: 1600, height: 1000 },
@@ -43,55 +44,20 @@ function coveragePoses(rest: IsoCamera): { name: string; camera: IsoCamera }[] {
   for (const y of [-1, 1]) for (const p of [-1, 1]) for (const d of [-1, 1]) {
     poses.push({ name: `corner ${y}/${p}/${d}`, camera: { ...rest, breath: { yaw: y * yaw, pitch: p * pitch, dolly: 1 + d * 0.012 } } });
   }
-  for (const progress of [0, 0.5, 1]) {
-    poses.push({ name: `arrival ${progress}`, camera: sampleGardenArrival(rest, progress * GARDEN_ARRIVAL_DURATION_MS).camera });
-  }
   return poses;
 }
 
-const TEST_AZIMUTH = 0.73;
-function contourPine(): NiwakiPine {
-  return createNiwakiPine({
-    seed: "threshold.contour-test",
-    height: 9,
-    branches: [
-      { at: 0.3, azimuth: TEST_AZIMUTH, reach: 4, rise: 0.2, padSize: 0.7, detail: 2, padsAt: [
-        { forward: 1, side: 0.1, up: 1.2, size: 0.8 },
-        { forward: 2.5, side: -0.2, up: 0.3, size: 0.6 },
-        { forward: 4, side: 0.2, up: 0.7, size: 0.7 },
-      ] },
-      { at: 0.7, azimuth: 2.4, reach: 2, rise: 0.2, padSize: 1 },
-    ],
-  });
-}
-
-function branchZeroOwners(pine: NiwakiPine): number[] {
-  return pine.pads.map((pad, owner) => ({ pad, owner })).filter(({ pad }) => pad.branch === 0)
-    .sort((a, b) => (a.pad.center.x - b.pad.center.x) * Math.cos(TEST_AZIMUTH)
-      + (a.pad.center.z - b.pad.center.z) * Math.sin(TEST_AZIMUTH))
-    .map(({ owner }) => owner);
-}
-
-function localPadPoint(pine: NiwakiPine, vertex: number, positions: ArrayLike<number>): Vector3 {
-  const pad = pine.pads[pine.padOfVertex[vertex]!]!;
-  const x = positions[vertex * 3]! - pad.center.x;
-  const z = positions[vertex * 3 + 2]! - pad.center.z;
-  return new Vector3(
-    (Math.cos(TEST_AZIMUTH) * x + Math.sin(TEST_AZIMUTH) * z) / pad.halfSize.x,
-    positions[vertex * 3 + 1]!,
-    (-Math.sin(TEST_AZIMUTH) * x + Math.cos(TEST_AZIMUTH) * z) / pad.halfSize.z,
-  );
-}
 
 
 /** Coverage mask of the threshold on a W×H grid over the frame (clipped at the near plane). */
-function coverage(threshold: GardenThreshold, camera: PerspectiveCamera, width: number, height: number): Uint8Array {
+function coverage(threshold: GardenThreshold, camera: PerspectiveCamera, width: number, height: number, meshName?: string): Uint8Array {
   const mask = new Uint8Array(width * height);
   const view = camera.matrixWorldInverse;
   const instance = new Matrix4();
   threshold.root.updateMatrixWorld(true);
   threshold.root.traverse((object) => {
     if (!(object instanceof Mesh)) return;
+    if (meshName && object.name !== meshName) return;
     const matrix = object.matrixWorld.clone();
     if (object instanceof InstancedMesh) {
       object.getMatrixAt(0, instance);
@@ -129,10 +95,47 @@ function coverage(threshold: GardenThreshold, camera: PerspectiveCamera, width: 
   return mask;
 }
 
+/** Failure-only trace against rendered triangles, not the authored height field. */
+function thresholdCoverageEscape(threshold: GardenThreshold, ray: Raycaster): string {
+  const land = threshold.root.getObjectByName("garden-threshold-land") as Mesh;
+  const hits: Intersection[] = [];
+  const local = new Vector3();
+  const frame = (point: Vector3) => {
+    local.copy(point).sub(threshold.root.position);
+    return `forward=${local.dot(threshold.gravelInset.forward).toFixed(3)}, right=${local.dot(threshold.gravelInset.right).toFixed(3)}`;
+  };
+  const xyz = (point: Vector3) => `(${point.x.toFixed(3)},${point.y.toFixed(3)},${point.z.toFixed(3)})`;
+  Mesh.prototype.raycast.call(land, ray, hits);
+  const direct = hits.sort((a, b) => a.distance - b.distance)[0];
+  if (direct) return `rendered land hit at ${frame(direct.point)} world=${xyz(direct.point)}`;
+
+  const origin = ray.ray.origin.clone().sub(threshold.root.position);
+  const forwardOrigin = origin.dot(threshold.gravelInset.forward);
+  const forwardDirection = ray.ray.direction.dot(threshold.gravelInset.forward);
+  const point = new Vector3();
+  const down = new Raycaster(new Vector3(), new Vector3(0, -1, 0));
+  let closestGap = Infinity;
+  let closest = "no land below the view ray";
+  for (let forward = 5; forward <= 52; forward += 0.5) {
+    ray.ray.at((forward - forwardOrigin) / forwardDirection, point);
+    down.ray.origin.set(point.x, ray.ray.origin.y + 50, point.z);
+    hits.length = 0;
+    Mesh.prototype.raycast.call(land, down, hits);
+    const ground = hits.sort((a, b) => a.distance - b.distance)[0];
+    if (!ground) continue;
+    const gap = point.y - ground.point.y;
+    if (gap >= closestGap) continue;
+    closestGap = gap;
+    closest = `${frame(point)} ray=${xyz(point)} ground=${xyz(ground.point)} gap=${gap.toFixed(5)}`;
+  }
+  return `no rendered land hit; closest clearance ${closest}`;
+}
+
 describe("garden threshold (seat C)", () => {
   const threshold = createGardenThreshold();
+  afterAll(() => threshold.dispose());
 
-  it("preserves water clearance and deck coverage through rest breath and arrival poses", () => {
+  it("preserves water clearance and deck coverage through the default rest hand-off and breath poses", () => {
     const posedThreshold = createGardenThreshold();
     for (const gate of GATES) {
       const rest = defaultCamera({ ...gate, map: MAP });
@@ -159,12 +162,12 @@ describe("garden threshold (seat C)", () => {
           }
         }
         expect(hidden, `${label} hull positions behind the threshold`).toEqual([]);
-        // The original bank exposes outer sea during the lowered arrival shot.
-        // Hull clearance still applies there; full deck coverage starts at the seated hand-off.
-        if (pose.camera.shot) continue;
 
         const ray = new Raycaster();
         let outer = 0;
+        const outerPixels: string[] = [];
+        const escapeTraces: string[] = [];
+        let tracedRow = -1;
         for (let py = Math.ceil(height * 0.75); py < height; py += 1) {
           for (let px = 0; px < width; px += 1) {
             if (mask[py * width + px]) continue;
@@ -172,166 +175,482 @@ describe("garden threshold (seat C)", () => {
             const k = -ray.ray.origin.y / ray.ray.direction.y;
             const tile = { x: (ray.ray.origin.x + ray.ray.direction.x * k) / TILE_SCALE, y: (ray.ray.origin.z + ray.ray.direction.z * k) / TILE_SCALE };
             const inMap = tile.x >= 0 && tile.y >= 0 && tile.x <= 139 && tile.y <= 139;
-            if (!inMap && !gardenRimDecorativeLandAt(tile.x, tile.y)) outer += 1;
+            if (!inMap && !gardenRimDecorativeLandAt(tile.x, tile.y)) {
+              outer += 1;
+              if (outerPixels.length < 16) outerPixels.push(`${px},${py}`);
+              if (escapeTraces.length < 2 && tracedRow !== py) {
+                tracedRow = py;
+                escapeTraces.push(`${px},${py}: ${thresholdCoverageEscape(posedThreshold, ray)}`);
+              }
+            }
           }
         }
-        expect(outer, `${label} outer-ocean pixels in the bottom quarter`).toBe(0);
+        expect(outer, `${label} outer-ocean pixels in the bottom quarter: ${outerPixels.join("; ")}\n${escapeTraces.join("\n")}`).toBe(0);
       }
     }
     posedThreshold.dispose();
   }, 30_000);
 
-  it("shows the hero's lowest limb pad from below across the upper-left edge (landscape)", () => {
-    const camera = restCamera(GATES[0]);
-    const pad = threshold.heroLimbPadCentres[threshold.heroLimbPadCentres.length - 1]!;
-    expect(pad.y).toBeGreaterThan(REST_SEAT_EYE_HEIGHT);
-    const screen = pad.clone().project(camera);
-    const u = (screen.x + 1) / 2;
-    const v = (1 - screen.y) / 2;
-    expect(u).toBeGreaterThanOrEqual(0);
-    expect(u).toBeLessThan(0.15);
-    expect(v).toBeGreaterThan(0.1);
-    expect(v).toBeLessThan(0.26);
-  });
-
-  it("keeps to three smooth-shaded, textureless, unpickable draws within 15k triangles", () => {
-    expect(threshold.drawCallCount).toBe(3);
-    expect(threshold.triangleCount).toBeLessThanOrEqual(15_000);
+  it("keeps finite smooth-shaded, unpickable geometry within the owner's allocation", () => {
+    expect(threshold.drawCallCount).toBeGreaterThan(0);
+    expect(threshold.drawCallCount).toBeLessThanOrEqual(7);
+    expect(threshold.triangleCount).toBeGreaterThan(0);
+    expect(threshold.triangleCount).toBeLessThanOrEqual(43_000);
     const meshes: Mesh[] = [];
     threshold.root.traverse((object) => { if (object instanceof Mesh) meshes.push(object); });
-    expect(meshes).toHaveLength(3);
-    expect(new Set(meshes.map((mesh) => mesh.material)).size).toBe(3);
-    const instances = meshes.filter((mesh) => mesh instanceof InstancedMesh);
-    expect(instances).toHaveLength(1);
-    expect((instances[0] as InstancedMesh).count).toBe(1);
+    expect(meshes.length).toBeLessThanOrEqual(7);
+    let triangles = 0;
     for (const mesh of meshes) {
-      const material = mesh.material as MeshStandardMaterial;
-      expect(Object.values(material).filter((value) => value instanceof Texture), mesh.name).toEqual([]);
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of materials) {
+        expect(material).toBeInstanceOf(MeshStandardMaterial);
+        expect((material as MeshStandardMaterial).flatShading, mesh.name).toBe(false);
+        expect(material.transparent, mesh.name).toBe(false);
+      }
       const position = mesh.geometry.getAttribute("position");
+      expect(position.count, mesh.name).toBeGreaterThan(0);
       for (const name of ["position", "normal", "color"]) {
         const attribute = mesh.geometry.getAttribute(name);
         expect(attribute.count, `${mesh.name} ${name}`).toBe(position.count);
         expect(Array.from(attribute.array).every(Number.isFinite), `${mesh.name} ${name}`).toBe(true);
       }
-      expect(Array.from(mesh.geometry.index!.array).every((index) => index >= 0 && index < position.count), mesh.name).toBe(true);
+      const index = mesh.geometry.index!;
+      expect(index.count % 3, mesh.name).toBe(0);
+      expect(Array.from(index.array).every((vertex) => Number.isInteger(vertex) && vertex >= 0 && vertex < position.count), mesh.name).toBe(true);
+      triangles += index.count / 3 * (mesh instanceof InstancedMesh ? mesh.count : 1);
+      mesh.geometry.computeBoundingBox();
+      mesh.geometry.computeBoundingSphere();
+      const box = mesh.geometry.boundingBox!;
+      const sphere = mesh.geometry.boundingSphere!;
+      expect([...box.min.toArray(), ...box.max.toArray(), ...sphere.center.toArray(), sphere.radius].every(Number.isFinite), mesh.name).toBe(true);
+      expect(box.isEmpty(), mesh.name).toBe(false);
       const bounds = new Box3().setFromObject(mesh);
       const target = bounds.getCenter(new Vector3());
       const eye = target.clone().add(new Vector3(0, bounds.getSize(new Vector3()).y + 10, 0));
       expect(new Raycaster(eye, target.clone().sub(eye).normalize()).intersectObject(mesh), mesh.name).toEqual([]);
-      expect(material.flatShading, mesh.name).toBe(false);
-      expect(mesh.castShadow && mesh.receiveShadow, mesh.name).toBe(true);
     }
+    expect(threshold.triangleCount).toBe(triangles);
+    expect([...threshold.shadowBounds.min.toArray(), ...threshold.shadowBounds.max.toArray()].every(Number.isFinite)).toBe(true);
+    expect(threshold.shadowBounds.isEmpty()).toBe(false);
   });
 
-  it("shapes only branch-zero threshold pads and preserves all other vertex attributes", () => {
-    const pine = contourPine();
-    const geometry = pine.geometry;
-    const attributes = { ...geometry.attributes };
-    const before = Object.fromEntries(Object.entries(attributes).map(([name, attribute]) => [name, Array.from(attribute.array)]));
-    const index = geometry.index;
-    const indices = Array.from(index!.array);
-    const ownership = pine.padOfVertex.slice();
-    const metadata = pine.pads.map((pad) => ({ center: pad.center.toArray(), half: pad.halfSize.toArray(), branch: pad.branch }));
-    const trunk = pine.trunk.getPoints(20).map((point) => point.toArray());
-    const owners = branchZeroOwners(pine);
-    expect(owners).toHaveLength(3);
-    // Deliberately different from the generator's height-sorted metadata order.
-    expect(owners).not.toEqual(pine.pads.map((pad, owner) => ({ pad, owner })).filter(({ pad }) => pad.branch === 0).map(({ owner }) => owner));
-    shapeThresholdLimbPads(pine, TEST_AZIMUTH, [
-      { crownHeight: 1, crownPhase: 0, cuts: [{ angle: 0, halfWidth: 1.3, depth: 0.3 }] },
-      { crownHeight: 1, crownPhase: 0, cuts: [] }, { crownHeight: 1, crownPhase: 0, cuts: [] },
-    ]);
-    for (const [name, attribute] of Object.entries(attributes)) expect(geometry.getAttribute(name)).toBe(attribute);
-    expect(geometry.index).toBe(index);
-    expect(Array.from(index!.array)).toEqual(indices);
-    expect(pine.padOfVertex).toEqual(ownership);
-    expect(pine.pads.map((pad) => ({ center: pad.center.toArray(), half: pad.halfSize.toArray(), branch: pad.branch }))).toEqual(metadata);
-    expect(pine.trunk.getPoints(20).map((point) => point.toArray())).toEqual(trunk);
-    expect(Array.from(attributes.color!.array)).toEqual(before.color);
-    const movedOwners = new Set<number>();
-    let unchangedRegion = 0;
-    let changedNormals = 0;
-    for (let vertex = 0; vertex < ownership.length; vertex += 1) {
-      const start = vertex * 3;
-      const owner = ownership[vertex]!;
-      const oldPosition = before.position!.slice(start, start + 3);
-      const newPosition = Array.from(attributes.position!.array.slice(start, start + 3));
-      expect(newPosition[1]).toBe(oldPosition[1]);
-      if (!owners.includes(owner)) {
-        expect(newPosition).toEqual(oldPosition);
-        expect(Array.from(attributes.normal!.array.slice(start, start + 3))).toEqual(before.normal!.slice(start, start + 3));
-      } else if (owner === owners[0]) {
-        if (newPosition.some((value, i) => value !== oldPosition[i])) movedOwners.add(owner);
-        const local = localPadPoint(pine, vertex, before.position!);
-        if (Math.abs(Math.atan2(local.z, local.x)) > 1.3) {
-          expect(newPosition).toEqual(oldPosition);
-          unchangedRegion += 1;
+  it("uses one bounded mask set for continuous moss, gravel, earth and the planar reservation", () => {
+    const sample: GardenThresholdGroundSample = { height: 0, moss: 0, gravel: 0, earth: 0, inset: 0 };
+    for (let forward = -8; forward <= 54; forward += 0.7) {
+      for (let right = -25; right <= 35; right += 0.7) {
+        writeGardenThresholdGround(forward, right, sample);
+        expect(Object.values(sample).every(Number.isFinite)).toBe(true);
+        for (const value of [sample.moss, sample.gravel, sample.earth, sample.inset]) {
+          expect(value).toBeGreaterThanOrEqual(0);
+          expect(value).toBeLessThanOrEqual(1);
         }
-        if (Array.from(attributes.normal!.array.slice(start, start + 3)).some((value, i) => value !== before.normal![start + i])) changedNormals += 1;
-      } else expect(newPosition).toEqual(oldPosition);
+        expect(sample.moss + sample.gravel + sample.earth).toBeCloseTo(1, 8);
+      }
     }
-    expect([...movedOwners]).toEqual([owners[0]]);
-    expect(unchangedRegion).toBeGreaterThan(0);
-    expect(changedNormals).toBeGreaterThan(0);
-    geometry.dispose();
+    const land = threshold.root.getObjectByName("garden-threshold-land") as Mesh;
+    const position = land.geometry.getAttribute("position");
+    const roles = land.geometry.getAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE);
+    const weights = land.geometry.getAttribute(GARDEN_SURFACE_WEIGHT_ATTRIBUTE);
+    const uv = land.geometry.getAttribute("uv");
+    const normals = land.geometry.getAttribute("normal");
+    const colors = land.geometry.getAttribute("color");
+    const index = land.geometry.index!;
+    const boundary = new Map<string, number>();
+    const gravelFaces: number[] = [];
+    const parent: number[] = [];
+    const gravelVertices = new Map<string, number>();
+    const root = (face: number): number => {
+      while (parent[face] !== face) { parent[face] = parent[parent[face]!]!; face = parent[face]!; }
+      return face;
+    };
+    const pointKey = (vertex: number) => `${position.getX(vertex)}|${position.getY(vertex)}|${position.getZ(vertex)}`;
+    for (let vertex = 0; vertex < position.count; vertex += 1) {
+      expect(weights.getX(vertex)).toBeGreaterThanOrEqual(0);
+      expect(weights.getX(vertex)).toBeLessThanOrEqual(1);
+      expect([uv.getX(vertex), uv.getY(vertex)].every(Number.isFinite)).toBe(true);
+      if (roles.getX(vertex) === GARDEN_SURFACE_ROLE_CODES.moss && weights.getX(vertex) > 0.999) {
+        const pigment = [colors.getX(vertex), colors.getY(vertex), colors.getZ(vertex)];
+        expect(Math.max(...pigment)).toBeLessThan(0.055);
+        expect(Math.max(...pigment) - Math.min(...pigment)).toBeLessThan(0.025);
+      }
+      const key = pointKey(vertex);
+      const previous = boundary.get(key);
+      if (previous !== undefined) {
+        expect([normals.getX(vertex), normals.getY(vertex), normals.getZ(vertex)]).toEqual(
+          [normals.getX(previous), normals.getY(previous), normals.getZ(previous)]);
+        expect([colors.getX(vertex), colors.getY(vertex), colors.getZ(vertex)]).toEqual(
+          [colors.getX(previous), colors.getY(previous), colors.getZ(previous)]);
+      } else boundary.set(key, vertex);
+    }
+    for (let face = 0; face < index.count; face += 3) {
+      const a = index.getX(face), b = index.getX(face + 1), c = index.getX(face + 2);
+      expect(roles.getX(a)).toBe(roles.getX(b));
+      expect(roles.getX(a)).toBe(roles.getX(c));
+      expect(Math.hypot(uv.getX(a) - uv.getX(b), uv.getY(a) - uv.getY(b))).toBeCloseTo(
+        Math.hypot(position.getX(a) - position.getX(b), position.getZ(a) - position.getZ(b)), 4);
+      if (roles.getX(a) !== GARDEN_SURFACE_ROLE_CODES.gravel) continue;
+      const next = parent.length;
+      parent.push(next);
+      gravelFaces.push(next);
+      for (const vertex of [a, b, c]) {
+        const key = pointKey(vertex);
+        const previous = gravelVertices.get(key);
+        if (previous !== undefined) parent[root(next)] = root(previous);
+        else gravelVertices.set(key, next);
+      }
+    }
+    expect(gravelFaces.length).toBeGreaterThan(0);
+    expect(new Set(gravelFaces.map(root)).size).toBe(1);
+    const inset = threshold.gravelInset;
+    expect(inset.width * inset.depth).toBeGreaterThan(0);
+    expect(inset.right.dot(inset.forward)).toBeCloseTo(0, 8);
+    let planeVertices = 0;
+    const point = new Vector3();
+    for (let vertex = 0; vertex < position.count; vertex += 1) {
+      point.fromBufferAttribute(position, vertex).sub(inset.centre);
+      if (Math.abs(point.dot(inset.right)) > inset.width / 2 + 1e-5
+        || Math.abs(point.dot(inset.forward)) > inset.depth / 2 + 1e-5) continue;
+      expect(Math.abs(point.dot(inset.normal))).toBeLessThan(1e-5);
+      expect(colors.getX(vertex)).toBeCloseTo(inset.pigment.r, 6);
+      expect(colors.getY(vertex)).toBeCloseTo(inset.pigment.g, 6);
+      expect(colors.getZ(vertex)).toBeCloseTo(inset.pigment.b, 6);
+      if (Math.abs(point.dot(inset.right)) < inset.width / 2 - 1e-5
+        && Math.abs(point.dot(inset.forward)) < inset.depth / 2 - 1e-5) {
+        expect(roles.getX(vertex)).toBe(GARDEN_SURFACE_ROLE_CODES.gravel);
+      }
+      planeVertices += 1;
+    }
+    expect(planeVertices).toBeGreaterThan(4);
+    const stonePosition = (threshold.root.getObjectByName("garden-threshold-set-stones") as Mesh).geometry.getAttribute("position");
+    for (let vertex = 0; vertex < stonePosition.count; vertex += 1) {
+      point.fromBufferAttribute(stonePosition, vertex).sub(inset.centre);
+      expect(Math.abs(point.dot(inset.right)) > inset.width / 2
+        || Math.abs(point.dot(inset.forward)) > inset.depth / 2,
+      "the reserved gravel plane must remain free of decorative stones").toBe(true);
+    }
   });
 
-  it("keeps contracted contours inside the authored crown with finite oriented triangles", () => {
-    const pine = contourPine();
-    const position = pine.geometry.getAttribute("position");
-    const before = Array.from(position.array);
-    pine.geometry.computeBoundingBox();
-    const bounds = pine.geometry.boundingBox!.clone();
-    const metadata = pine.pads.map((pad) => ({ center: pad.center.toArray(), half: pad.halfSize.toArray() }));
-    const owners = branchZeroOwners(pine);
-    const cuts = [{ angle: Math.PI - 0.08, halfWidth: 1.2, depth: 0.3 }, { angle: -Math.PI + 0.15, halfWidth: 1, depth: 0.26 }];
-    shapeThresholdLimbPads(pine, TEST_AZIMUTH, owners.map((_, crownPhase) => ({ cuts, crownHeight: 0.6, crownPhase })));
-    let acrossWrap = 0;
-    const supports = new Map(owners.map((owner) => [owner, { old: Infinity, next: Infinity }]));
-    for (let vertex = 0; vertex < position.count; vertex += 1) {
-      if (!owners.includes(pine.padOfVertex[vertex]!)) continue;
-      const old = localPadPoint(pine, vertex, before);
-      const next = localPadPoint(pine, vertex, position.array);
-      const support = supports.get(pine.padOfVertex[vertex]!)!;
-      support.old = Math.min(support.old, old.x);
-      support.next = Math.min(support.next, next.x);
-      expect(Math.abs(next.x)).toBeLessThanOrEqual(Math.abs(old.x) + 1e-6);
-      expect(Math.abs(next.z)).toBeLessThanOrEqual(Math.abs(old.z) + 1e-6);
-      const base = pine.pads[pine.padOfVertex[vertex]!]!.center.y - pine.pads[pine.padOfVertex[vertex]!]!.halfSize.y;
-      const height = old.y - base;
-      if (height <= 1e-6) expect(next.y).toBe(old.y);
-      else {
-        expect(next.y).toBeGreaterThanOrEqual(base + height * 0.55);
-        expect(next.y).toBeLessThanOrEqual(base + height * 0.65);
-      }
-      const angle = Math.atan2(old.z, old.x);
-      if (Math.abs(angle) > Math.PI - 0.3) {
-        expect(Math.hypot(next.x, next.z)).toBeLessThan(Math.hypot(old.x, old.z));
-        acrossWrap |= angle < 0 ? 1 : 2;
+  it("keeps near-bank atlas footprints finite instead of collapsing shelves onto sight rays", () => {
+    const land = threshold.root.getObjectByName("garden-threshold-land") as Mesh;
+    const sample: GardenThresholdGroundSample = { height: 0, moss: 0, gravel: 0, earth: 0, inset: 0 };
+    for (const gate of [GATES[0], GATES[2]]) {
+      const camera = restCamera(gate);
+      for (const substrate of [{ forward: 20, right: -5.5, repeat: 2.6, fadeEnd: 16, name: "moss" },
+        { forward: 18.6, right: 1.9, repeat: 0.45, fadeEnd: 32, name: "gravel" }]) {
+        writeGardenThresholdGround(substrate.forward, substrate.right, sample);
+        expect(sample[substrate.name as "moss" | "gravel"]).toBeGreaterThan(0.9);
+        const point = threshold.root.position.clone().addScaledVector(threshold.gravelInset.forward, substrate.forward)
+          .addScaledVector(threshold.gravelInset.right, substrate.right);
+        point.y += sample.height;
+        const screen = point.project(camera);
+        expect(Math.abs(screen.x)).toBeLessThan(1);
+        expect(Math.abs(screen.y)).toBeLessThan(1);
+        const pixels: Vector3[] = [];
+        for (const [dx, dy] of [[0, 0], [2 / gate.width, 0], [0, -2 / gate.height]]) {
+          const ray = new Raycaster();
+          ray.setFromCamera(new Vector2(screen.x + dx!, screen.y + dy!), camera);
+          const hits: Intersection[] = [];
+          Mesh.prototype.raycast.call(land, ray, hits);
+          const hit = hits.sort((a, b) => a.distance - b.distance)[0];
+          expect(hit).toBeDefined();
+          pixels.push(hit!.point);
+        }
+        const footprint = Math.max(...pixels.slice(1).map((pixel) =>
+          Math.hypot(pixel.x - pixels[0]!.x, pixel.z - pixels[0]!.z))) * 124 / substrate.repeat;
+        expect(footprint).toBeGreaterThan(0);
+        expect(footprint, `${gate.width} ${substrate.name}: ${footprint} atlas texels/pixel`).toBeLessThan(substrate.fadeEnd);
       }
     }
-    expect(acrossWrap).toBe(3);
-    for (const support of supports.values()) expect(support.next).toBeGreaterThan(support.old);
-    expect(bounds.containsBox(pine.geometry.boundingBox!)).toBe(true);
-    expect(pine.pads.map((pad) => ({ center: pad.center.toArray(), half: pad.halfSize.toArray() }))).toEqual(metadata);
-    const index = pine.geometry.index!;
-    const faceNormal = (face: number, positions: ArrayLike<number>) => {
-      const a = new Vector3().fromArray(positions, index.getX(face) * 3);
-      const b = new Vector3().fromArray(positions, index.getX(face + 1) * 3);
-      const c = new Vector3().fromArray(positions, index.getX(face + 2) * 3);
-      return c.sub(b).cross(a.sub(b));
+  });
+
+  it("seats unequal broad stones into the rendered terrain with dark contact and worn steps", () => {
+    const land = threshold.root.getObjectByName("garden-threshold-land") as Mesh;
+    const stones = threshold.root.getObjectByName("garden-threshold-set-stones") as Mesh;
+    const position = stones.geometry.getAttribute("position");
+    const color = stones.geometry.getAttribute("color");
+    const normals = stones.geometry.getAttribute("normal");
+    const index = stones.geometry.index!;
+    const triad = threshold.stoneSites.filter((site) => site.form !== "flat");
+    expect(triad.map((site) => site.form).sort()).toEqual(["low", "reclining", "tall"]);
+    const steps = threshold.stoneSites.filter((site) => site.form === "flat");
+    expect(steps.length).toBeGreaterThanOrEqual(4);
+    expect(steps.length).toBeLessThanOrEqual(6);
+    for (const site of threshold.stoneSites) {
+      const worldPoint = site.surfacePoint.clone().applyMatrix4(threshold.root.matrixWorld);
+      const ray = new Raycaster(worldPoint.clone().add(new Vector3(0, 10, 0)), new Vector3(0, -1, 0));
+      const hits: Intersection[] = [];
+      Mesh.prototype.raycast.call(land, ray, hits);
+      const ground = hits.reduce((top, hit) => Math.max(top, hit.point.y), -Infinity);
+      expect(ground).toBeCloseTo(site.contactHeight, 4);
+      const height = site.bounds.max.y - site.bounds.min.y;
+      const burial = (ground - site.bounds.min.y) / height;
+      expect(burial).toBeGreaterThanOrEqual(0.45);
+      expect(burial).toBeLessThanOrEqual(0.5);
+      expect(site.bounds.max.y - ground).toBeGreaterThanOrEqual(0.15);
+      const vertices = new Set<number>();
+      for (let face = site.firstTriangle * 3; face < (site.firstTriangle + site.triangleCount) * 3; face += 1) vertices.add(index.getX(face));
+      const luminance = (vertex: number) => color.getX(vertex) * 0.2126 + color.getY(vertex) * 0.7152 + color.getZ(vertex) * 0.0722;
+      const foot = [...vertices].filter((vertex) => position.getY(vertex) < ground + height * 0.02);
+      const crown = [...vertices].filter((vertex) => position.getY(vertex) > ground + height * 0.2);
+      expect(foot.length).toBeGreaterThan(0);
+      expect(crown.length).toBeGreaterThan(0);
+      const roundedShoulder = [...vertices].filter((vertex) => position.getY(vertex) > ground
+        && normals.getY(vertex) > 0.15 && normals.getY(vertex) < 0.85);
+      expect(roundedShoulder.length, `${site.form} has smooth curved shoulders, not extruded box walls`).toBeGreaterThan(3);
+      expect(foot.reduce((sum, vertex) => sum + luminance(vertex), 0) / foot.length).toBeLessThan(
+        crown.reduce((sum, vertex) => sum + luminance(vertex), 0) / crown.length * 0.7);
+    }
+    expect(threshold.root.userData).not.toHaveProperty("analyticalId");
+    expect(threshold.stoneSites.every((site) => !("coinId" in site) && !("recordId" in site))).toBe(true);
+  });
+
+  it("keeps actual triad crowns exposed in the left threshold band at wide and compact seats", () => {
+    const stones = threshold.root.getObjectByName("garden-threshold-set-stones") as Mesh;
+    const land = threshold.root.getObjectByName("garden-threshold-land") as Mesh;
+    const engawa = threshold.root.getObjectByName("garden-threshold-engawa") as Mesh;
+    for (const gate of [GATES[0], GATES[2]]) {
+      const camera = restCamera(gate);
+      let visibleSteps = 0;
+      for (const site of threshold.stoneSites) {
+        const centre = site.surfacePoint.clone().applyMatrix4(threshold.root.matrixWorld);
+        const down = new Raycaster(centre.clone().add(new Vector3(0, 10, 0)), new Vector3(0, -1, 0));
+        const stoneHits: Intersection[] = [];
+        Mesh.prototype.raycast.call(stones, down, stoneHits);
+        const crown = stoneHits.filter((hit) => hit.faceIndex !== undefined && hit.faceIndex !== null
+          && hit.faceIndex >= site.firstTriangle
+          && hit.faceIndex < site.firstTriangle + site.triangleCount).sort((a, b) => a.distance - b.distance)[0]!;
+        expect(crown, `${gate.width} ${site.form} centre has a real stone top`).toBeDefined();
+        expect(crown.point.y - site.contactHeight).toBeGreaterThanOrEqual(0.15);
+        const screen = crown.point.clone().project(camera);
+        const u = (screen.x + 1) / 2;
+        const v = (1 - screen.y) / 2;
+        const ray = new Raycaster(camera.position, crown.point.clone().sub(camera.position).normalize());
+        const occluders: Intersection[] = [];
+        Mesh.prototype.raycast.call(land, ray, occluders);
+        Mesh.prototype.raycast.call(engawa, ray, occluders);
+        Mesh.prototype.raycast.call(stones, ray, occluders);
+        const exposed = !occluders.some((hit) => hit.distance < camera.position.distanceTo(crown.point) - 1e-4);
+        if (site.form === "flat") {
+          if (exposed && u > 0 && u < 1 && v > 0 && v < 1) visibleSteps += 1;
+          continue;
+        }
+        // Upright crowns extend above the v=.79 body band; the compact crop
+        // pushes the same authored left triad toward the left viewport edge.
+        expect(u).toBeGreaterThanOrEqual(gate.width === 1600 ? 0.14 : 0);
+        expect(u).toBeLessThanOrEqual(0.38);
+        expect(v).toBeGreaterThanOrEqual(0.7);
+        expect(v).toBeLessThanOrEqual(0.91);
+        expect(exposed, `${gate.width} ${site.form} crown is not buried behind the bank/deck`).toBe(true);
+      }
+      expect(visibleSteps).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it("hides the continuing step behind the reclining stone at both landscape gates", () => {
+    const stones = threshold.root.getObjectByName("garden-threshold-set-stones") as Mesh;
+    const dominant = threshold.stoneSites.find((site) => site.form === "reclining")!;
+    const continuation = threshold.stoneSites[threshold.stoneSites.length - 1]!;
+    const target = continuation.surfacePoint.clone().applyMatrix4(threshold.root.matrixWorld);
+    for (const gate of [GATES[1], GATES[2]]) {
+      const camera = restCamera(gate);
+      const screen = target.clone().project(camera);
+      expect(Math.abs(screen.x)).toBeLessThan(1);
+      expect(Math.abs(screen.y)).toBeLessThan(1);
+      const ray = new Raycaster(camera.position, target.clone().sub(camera.position).normalize());
+      const hits: Intersection[] = [];
+      Mesh.prototype.raycast.call(stones, ray, hits);
+      expect(hits.some((hit) => hit.distance < camera.position.distanceTo(target)
+        && hit.faceIndex !== undefined && hit.faceIndex !== null
+        && hit.faceIndex >= dominant.firstTriangle
+        && hit.faceIndex < dominant.firstTriangle + dominant.triangleCount)).toBe(true);
+    }
+  });
+
+  it("leases shared detail for ground, stone and timber mappings and releases it only once", () => {
+    const textures = { albedo: new DataTexture(), normal: new DataTexture(), orm: new DataTexture() };
+    const dispose = Object.values(textures).map((texture) => vi.spyOn(texture, "dispose"));
+    const uniforms = {
+      uGardenSurfaceAlbedo: { value: textures.albedo },
+      uGardenSurfaceNormal: { value: textures.normal },
+      uGardenSurfaceOrm: { value: textures.orm },
+      uGardenSurfaceAtlasReady: { value: 0 },
     };
-    for (let face = 0; face < index.count; face += 3) {
-      if (!owners.includes(pine.padOfVertex[index.getX(face)]!)) continue;
-      const old = faceNormal(face, before);
-      if (old.lengthSq() < 1e-14) continue; // Existing clamped-base degeneracies.
-      const next = faceNormal(face, position.array);
-      expect(next.lengthSq()).toBeGreaterThan(old.lengthSq() * 0.01);
-      expect(next.dot(old)).toBeGreaterThan(0);
+    const release = vi.fn(() => Object.values(textures).forEach((texture) => texture.dispose()));
+    const lease: GardenSurfaceAtlasLease = { textures, uniforms, release, ready: Promise.resolve(true), error: null,
+      detailSource: { key: "threshold-test-detail", uniforms,
+        glsl: "GardenSurfaceDetail gardenSampleSurface(vec3 p, vec3 n, vec2 uv, float role, float repeatMetres) { return GardenSurfaceDetail(vec3(1.0), 0.0, vec3(0.0)); }" } };
+    const atlas: GardenSurfaceAtlasOwner = { textures, lease: vi.fn(() => lease), release: vi.fn() };
+    const owned = createGardenThreshold(atlas);
+    expect(atlas.lease).toHaveBeenCalledTimes(1);
+    const mappings: string[] = [];
+    owned.root.traverse((object) => {
+      if (!(object instanceof Mesh)) return;
+      const material = object.material as MeshStandardMaterial;
+      const surface = material.userData.gardenSurface as GardenSurfaceMetadata | undefined;
+      if (!surface) return;
+      expect(surface.sourceKey).toBe(`${lease.detailSource.key}:threshold-grain-v1`);
+      expect(surface.vertexRoles && surface.vertexWeights).toBe(true);
+      expect(object.geometry.getAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE).count).toBe(object.geometry.getAttribute("position").count);
+      expect(object.geometry.getAttribute(GARDEN_SURFACE_WEIGHT_ATTRIBUTE).count).toBe(object.geometry.getAttribute("position").count);
+      const shader = { vertexShader: ShaderLib.standard.vertexShader,
+        fragmentShader: ShaderLib.standard.fragmentShader, uniforms: {} as Record<string, IUniform> };
+      material.onBeforeCompile(shader as never, null as never);
+      for (const [name, uniform] of Object.entries(lease.detailSource.uniforms)) expect(shader.uniforms[name]).toBe(uniform);
+      expect(shader.fragmentShader).toContain("#define gardenSampleSurface gardenSampleThresholdSurface");
+      expect(shader.fragmentShader).toContain("#undef gardenSampleSurface");
+      expect(shader.fragmentShader).toContain("mineral ? 0.45 : metresPerRepeat");
+      expect(shader.fragmentShader).toContain("detail.normalOffset *= mineral ? 0.1 : 0.3");
+      if (surface.role === "moss") {
+        expect(material.envMapIntensity).toBe(0);
+        expect(material.roughness).toBeGreaterThanOrEqual(0.9);
+        expect(surface.detailStrength).toBe(0.78);
+      }
+      if (surface.role === "timber") {
+        expect(shader.uniforms.uToroEmber).toBeDefined();
+        expect(shader.fragmentShader).toContain("totalEmissiveRadiance += uToroEmber");
+        const position = object.geometry.getAttribute("position");
+        const normal = object.geometry.getAttribute("normal");
+        const roles = object.geometry.getAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE);
+        const weights = object.geometry.getAttribute(GARDEN_SURFACE_WEIGHT_ATTRIBUTE);
+        const uv = object.geometry.getAttribute("uv");
+        let timber = 0;
+        let practical = 0;
+        const point = new Vector3();
+        const direction = new Vector3();
+        for (let vertex = 0; vertex < position.count; vertex += 1) {
+          if (roles.getX(vertex) !== GARDEN_SURFACE_ROLE_CODES.timber) {
+            expect(weights.getX(vertex)).toBe(0);
+            practical += 1;
+            continue;
+          }
+          timber += 1;
+          expect(weights.getX(vertex)).toBe(1);
+          point.fromBufferAttribute(position, vertex);
+          direction.fromBufferAttribute(normal, vertex);
+          const top = Math.abs(direction.y) > 0.5;
+          const front = Math.abs(direction.dot(owned.gravelInset.forward)) > 0.5;
+          expect(uv.getX(vertex)).toBeCloseTo(point.dot(front ? owned.gravelInset.right : owned.gravelInset.forward), 4);
+          expect(uv.getY(vertex)).toBeCloseTo(top ? point.dot(owned.gravelInset.right) : point.y, 4);
+        }
+        expect(timber).toBeGreaterThan(0);
+        expect(practical).toBeGreaterThan(0);
+      }
+      mappings.push(`${surface.role}:${surface.mapping}`);
+    });
+    expect(mappings.sort()).toEqual(["moss:worldXZ", "stone:triplanar", "timber:uv"]);
+    owned.dispose();
+    owned.dispose();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(atlas.release).not.toHaveBeenCalled();
+    for (const spy of dispose) expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a recognizable porous pine fragment at every seated gate", () => {
+    for (const gate of GATES) {
+      const width = 240;
+      const height = Math.round(width * gate.height / gate.width);
+      const mask = coverage(threshold, restCamera(gate), width, height, "garden-threshold-pines");
+      let covered = 0;
+      let area = 0;
+      let gapPixels = 0, gapRows = 0;
+      for (let y = 0; y < height * 0.28; y += 1) {
+        let first = -1, last = -1;
+        for (let x = 0; x < width * 0.24; x += 1) {
+          covered += mask[y * width + x]!;
+          area += 1;
+          if (mask[y * width + x]) {
+            if (first < 0) first = x;
+            last = x;
+          }
+        }
+        let rowGaps = 0;
+        for (let x = first + 1; first >= 0 && x < last; x += 1) rowGaps += 1 - mask[y * width + x]!;
+        gapPixels += rowGaps;
+        if (rowGaps > 1) gapRows += 1;
+      }
+      const label = `${gate.width}x${gate.height} upper-left pine`;
+      expect(covered, label).toBeGreaterThan(area * 0.01);
+      expect(covered, `${label} clear background`).toBeLessThan(area * 0.75);
+      expect(gapPixels, `${label} sky inside the actual branch envelope`).toBeGreaterThan(0);
+      expect(gapRows, `${label} separated sprays across mesh rows`).toBeGreaterThan(2);
+      let obscured = 0;
+      for (let y = Math.ceil(height * 0.05); y < height * 0.7; y += 1) {
+        for (let x = Math.ceil(width * 0.42); x < width * 0.9; x += 1) obscured += mask[y * width + x]!;
+      }
+      expect(obscured, `${gate.width} pine leaves the tower/crown/inlet clear`).toBe(0);
     }
-    expect(Array.from(pine.geometry.getAttribute("normal").array).every(Number.isFinite)).toBe(true);
-    expect([...pine.geometry.boundingBox!.min.toArray(), ...pine.geometry.boundingBox!.max.toArray(), ...pine.geometry.boundingSphere!.center.toArray(), pine.geometry.boundingSphere!.radius].every(Number.isFinite)).toBe(true);
-    pine.geometry.dispose();
+  });
+
+  it("bakes two rooted trees with cached rest positions and a zero-displacement reduced frame", () => {
+    const owned = createGardenThreshold();
+    try {
+      const pines = owned.root.getObjectByName("garden-threshold-pines") as InstancedMesh;
+      const material = pines.material as MeshStandardMaterial;
+      const position = pines.geometry.getAttribute("position");
+      const flex = pines.geometry.getAttribute(GARDEN_KUROMATSU_FLEX_ATTRIBUTE);
+      const rootIndex = pines.geometry.getAttribute(GARDEN_KUROMATSU_ROOT_INDEX_ATTRIBUTE);
+      expect(flex.itemSize).toBe(3);
+      expect(flex.count).toBe(position.count);
+      expect(rootIndex.itemSize).toBe(1);
+      expect(rootIndex.count).toBe(position.count);
+      expect([...new Set(rootIndex.array)]).toEqual([0, 1]);
+      expect(Array.from(flex.array).every((value) => Number.isFinite(value) && value >= 0 && value <= 1)).toBe(true);
+      const instance = new Matrix4();
+      pines.getMatrixAt(0, instance);
+      const toWorld = pines.matrixWorld.clone().multiply(instance);
+      for (const tree of [0, 1] as const) {
+        const ring = new Map<string, Vector3>();
+        for (let vertex = 0; vertex < position.count; vertex += 1) {
+          if (rootIndex.getX(vertex) !== tree || flex.getX(vertex) !== 0 || flex.getY(vertex) !== 0 || flex.getZ(vertex) !== 0) continue;
+          const point = new Vector3().fromBufferAttribute(position, vertex).applyMatrix4(toWorld);
+          ring.set(point.toArray().map((value) => value.toFixed(5)).join("/"), point);
+        }
+        expect(ring.size).toBeGreaterThan(2);
+        const centre = new Vector3();
+        for (const point of ring.values()) centre.add(point);
+        centre.divideScalar(ring.size);
+        expect(centre.distanceTo(owned.pineRestRoots[tree])).toBeLessThan(1e-5);
+      }
+      const roots = owned.pineRestRoots;
+      const restPositions = roots.map((point) => point.clone());
+      const before = Array.from(position.array);
+      const weather = weatherForFrame({ baseWind: 0.5, psiStress: 0.2, timeSeconds: 2 });
+      owned.updateWind(weather, false);
+      const uniforms = material.userData.gardenWindSwayUniforms as { uGardenWindStrength: IUniform<number> };
+      expect(uniforms.uGardenWindStrength.value).toBeGreaterThan(0);
+      owned.updateWind(weather, true);
+      expect(uniforms.uGardenWindStrength.value).toBe(0);
+      owned.setEyeOffset(0.1, 0.2, -0.1);
+      expect(owned.pineRestRoots).toBe(roots);
+      for (const tree of [0, 1] as const) expect(roots[tree].equals(restPositions[tree]!)).toBe(true);
+      expect(Array.from(position.array)).toEqual(before);
+      expect(material.transparent).toBe(false);
+      expect(material.opacity).toBe(1);
+      const shader = { vertexShader: ShaderLib.standard.vertexShader,
+        fragmentShader: ShaderLib.standard.fragmentShader, uniforms: {} as Record<string, IUniform> };
+      material.onBeforeCompile(shader as never, null as never);
+      expect(shader.vertexShader).toContain("attribute vec3 aGardenFlex;");
+      expect(shader.vertexShader).toContain("dot(aGardenFlex, vec3(0.2, 0.45, 0.35))");
+      expect(shader.vertexShader).not.toContain("gardenWindHeight");
+      expect(shader.uniforms.uGardenWindStrength).toBe(uniforms.uGardenWindStrength);
+      expect(material.customProgramCacheKey()).toContain("authored-kuromatsu-flex-v1");
+    } finally {
+      owned.dispose();
+    }
+  });
+
+  it("settles deterministically without waiting for wind or loading", () => {
+    const second = createGardenThreshold();
+    const geometry = (garden: GardenThreshold) => {
+      const arrays: number[][] = [];
+      garden.root.traverse((object) => {
+        if (object instanceof Mesh) arrays.push(Array.from(object.geometry.getAttribute("position").array));
+      });
+      return arrays;
+    };
+    expect(geometry(second)).toEqual(geometry(threshold));
+    expect(second.shadowBounds.equals(threshold.shadowBounds)).toBe(true);
+    second.dispose();
   });
 
   it("releases all threshold resources once", () => {
@@ -348,7 +667,8 @@ describe("garden threshold (seat C)", () => {
     });
     owned.dispose();
     owned.dispose();
-    expect([...disposed.values()]).toEqual([1, 1, 1, 1, 1, 1]);
+    expect(disposed.size).toBeGreaterThan(0);
+    expect([...disposed.values()].every((count) => count === 1)).toBe(true);
     expect(owned.root.parent).toBeNull();
     expect(owned.root.children).toEqual([]);
     expect(parent.children).toEqual([]);

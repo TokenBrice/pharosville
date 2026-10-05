@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Color, Matrix4, MeshStandardMaterial, Vector3 } from "three";
+import { Color, Matrix4, MeshStandardMaterial, ShaderLib, Vector3 } from "three";
 import { createFleetBatchGeometry } from "./garden-ships";
 import {
   GARDEN_SAIL_DIP_MIN_SCALE,
@@ -7,9 +7,10 @@ import {
 } from "../systems/garden-arrival-beats";
 import {
   FLEET_SAIL_ATLAS_CELLS,
-  FLEET_HERO_BAND_NEAREST,
+  FLEET_FOREGROUND_LEADERS,
   FLEET_MAX_SAILS,
-  FLEET_HULL_LOD_DISTANCE,
+  FLEET_FULL_ADMIT_CSS_PX,
+  FLEET_FINE_RIG_CSS_PX,
   beginFleetFrame,
   createFleetBatches,
   deformFleetSailVertex,
@@ -22,6 +23,8 @@ import {
   gardenFleetFramingRestraint,
   gardenFleetMarkPresence,
   gardenFleetShipHeroWeight,
+  gardenFleetShipRigWeight,
+  patchFleetHeroDissolve,
   gardenFleetPackSailAttention,
   gardenFleetPackSailCell,
   gardenFleetUnpackSailAttention,
@@ -36,9 +39,11 @@ import {
   type FleetSailDeformInput,
 } from "./garden-fleet-batch";
 import { gardenSailClothColor } from "./garden-sail-texture";
-import type { ShipLivery } from "../systems/world-types";
+import type { ShipLivery, ShipNode } from "../systems/world-types";
 import type { GardenHullSilhouette } from "../systems/garden-observatory-slice";
 import { cameraEye, cameraPoseFromIso } from "../systems/projection";
+import { createGardenFleetFootprint, writeGardenFleetFootprint } from "../systems/garden-fleet-footprint";
+import { GARDEN_SURFACE_ROLE_ATTRIBUTE, GARDEN_SURFACE_WEIGHT_ATTRIBUTE } from "./garden-surfaces";
 
 const SILHOUETTES: GardenHullSilhouette[] = [
   "bezaisen", "kobaya", "twinhull", "takasebune", "junk", "scow",
@@ -71,12 +76,33 @@ function pose(overrides: Partial<FleetInstancePose> = {}): FleetInstancePose {
     pitch: 0,
     scale: 1,
     silhouette: "bezaisen",
+    sailHeightCssPx: 64,
     x: 0,
     y: 0,
     z: 0,
     ...overrides,
   };
 }
+
+describe("fleet timber preparation", () => {
+  it("composes timber after deformation without losing wet collar, age or issuer trim", () => {
+    const batches = buildBatches(2);
+    const hull = batches.bySilhouette.get("bezaisen")!.hull.mesh;
+    const material = hull.material as MeshStandardMaterial;
+    const shader = { uniforms: {}, vertexShader: ShaderLib.standard.vertexShader, fragmentShader: ShaderLib.standard.fragmentShader };
+    material.onBeforeCompile(shader as never, null as never);
+    expect(material.userData.gardenSurface.role).toBe("timber");
+    expect(shader.vertexShader.indexOf("vGardenSurfacePosition =")).toBeGreaterThan(shader.vertexShader.indexOf("transformed.x *="));
+    expect(shader.fragmentShader).toContain("gardenSurfaceWeight *= 1.0 - clamp(vHullFinish.y");
+    expect(shader.fragmentShader).toContain("roughnessFactor = mix(roughnessFactor, 0.45");
+    expect(shader.fragmentShader).toContain("wetLuma");
+    for (const name of ["uv", GARDEN_SURFACE_ROLE_ATTRIBUTE, GARDEN_SURFACE_WEIGHT_ATTRIBUTE]) {
+      expect(hull.geometry.getAttribute(name).count).toBe(hull.geometry.getAttribute("position").count);
+    }
+    expect((batches.bySilhouette.get("bezaisen")!.sails.mesh.material as MeshStandardMaterial).userData.gardenSurface).toBeUndefined();
+    disposeFleetBatches(batches);
+  });
+});
 
 describe("createFleetBatchGeometry", () => {
   it("merges every silhouette into exactly one hull and one sail geometry", () => {
@@ -148,7 +174,7 @@ describe("fleet sail deformation", () => {
     const shader = {
       fragmentShader: "#include <common>\n#include <map_fragment>",
       uniforms: {} as Record<string, unknown>,
-      vertexShader: "#include <common>\n#include <begin_vertex>\n#include <uv_vertex>",
+      vertexShader: "#include <common>\n#include <beginnormal_vertex>\n#include <begin_vertex>\n#include <uv_vertex>",
     };
     material.onBeforeCompile(shader as never, null as never);
 
@@ -159,6 +185,8 @@ describe("fleet sail deformation", () => {
     expect(furlAt).toBeGreaterThan(dropAt);
     expect(hullAt).toBeGreaterThan(furlAt);
     expect(shader.vertexShader).toContain("* setSail;");
+    expect(shader.vertexShader).toContain("mod(floor(aSailAttention.x), 32.0) / 31.0");
+    expect(shader.vertexShader).toContain("step(32.0, floor(aSailAttention.x))");
   });
 
   it("keeps flutter independent of hull height, ride offset, and waterline", () => {
@@ -229,6 +257,9 @@ describe("fleet sail deformation", () => {
         expect(gale.x).toBeCloseTo(still.x, 10);
         expect(gale.y).toBeCloseTo(still.y, 10);
         expect(gale.z).toBeCloseTo(still.z, 10);
+        expect(deformFleetSailVertex({
+          ...sailInput, furlMask, hullForm, sailIndex, resting: true, windFlutter: 1, windTime: 91,
+        })).toEqual(gale);
       }
     }
   });
@@ -255,7 +286,7 @@ describe("fleet sail deformation", () => {
       .toEqual(deformFleetSailVertex({ ...triangle, braceRad: 0 }));
   });
 
-  it("round-trips the brace and luff through the packed instance channels", () => {
+  it("round-trips brace, luff, attention and resting bit through Float32 channels", () => {
     for (const cell of [0, 7, 255]) {
       for (const brace of [-0.75, -0.5, 0, 0.31, 0.7]) {
         const unpacked = gardenFleetUnpackSailCell(Math.fround(gardenFleetPackSailCell(cell, brace)));
@@ -265,11 +296,56 @@ describe("fleet sail deformation", () => {
     }
     for (const attention of [0, 0.37, 1]) {
       for (const luff of [0, 0.3, 1]) {
-        const unpacked = gardenFleetUnpackSailAttention(Math.fround(gardenFleetPackSailAttention(attention, luff)));
-        expect(unpacked.attention).toBeCloseTo(attention, 4);
-        expect(unpacked.luff).toBeCloseTo(Math.round(luff * 31) / 31, 6);
+        for (const resting of [false, true]) {
+          const unpacked = gardenFleetUnpackSailAttention(Math.fround(gardenFleetPackSailAttention(attention, luff, resting)));
+          expect(unpacked.attention).toBeCloseTo(attention, 4);
+          expect(unpacked.luff).toBeCloseTo(Math.round(luff * 31) / 31, 6);
+          expect(unpacked.resting).toBe(resting);
+        }
       }
     }
+  });
+
+  it("hangs a bounded catenary without shrinking cloth, moving spars or furling identity", () => {
+    for (const square of [false, true]) {
+      for (const u of [0, 0.5, 1]) {
+        for (const v of [0, 0.5, 1]) {
+          const input = { ...sailInput, square, sailIndex: 0, uv: { x: u, y: v }, windTime: 0 };
+          const underway = deformFleetSailVertex(input);
+          const resting = deformFleetSailVertex({ ...input, resting: true });
+          const sag = Math.sin(Math.PI * u) * (1 - v) ** 2 * 1.2 * 0.28;
+          expect(resting.setSail).toBe(1);
+          expect(underway.y - resting.y).toBeCloseTo(sag, 10);
+          expect(sag).toBeLessThanOrEqual(0.336 + 1e-12);
+          const spar = { ...input, cloth: 0 };
+          expect(deformFleetSailVertex({ ...spar, resting: true })).toEqual(deformFleetSailVertex(spar));
+        }
+      }
+    }
+  });
+
+  it("cuts resting foot flutter to eight percent while retaining underway wind", () => {
+    const foot = { ...sailInput, uv: { x: 0.5, y: 0 }, luff: 1 };
+    const movingA = deformFleetSailVertex({ ...foot, windTime: 1 });
+    const movingB = deformFleetSailVertex({ ...foot, windTime: 8 });
+    const restA = deformFleetSailVertex({ ...foot, resting: true, windTime: 1 });
+    const restB = deformFleetSailVertex({ ...foot, resting: true, windTime: 8 });
+    expect(restB.z - restA.z).toBeCloseTo((movingB.z - movingA.z) * 0.08, 10);
+    expect(restA.y).toBe(restB.y);
+  });
+
+  it("matches the shared shader's complete static sag and fill pose", () => {
+    const luff = gardenFleetUnpackSailAttention(gardenFleetPackSailAttention(1, 0.3, true)).luff;
+    const input = { ...sailInput, resting: true, luff, windFlutter: 0, windTime: 0 };
+    const pose = deformFleetSailVertex(input);
+    const hash = Math.sin(8 * 12.9898 - 3 * 78.233) * 43758.5453;
+    const phase = (hash - Math.floor(hash)) * Math.PI * 2;
+    const belly = Math.sin(Math.PI * 0.4) * Math.sin(Math.PI * 0.6)
+      * 0.12 * (1 - 0.5 * luff) * (0.9 + 0.1 * Math.sin(phase)) * 0.2;
+    const ripple = Math.sin(2 * 1.7 + phase) * 1.2 * 0.012 * 0.08;
+    expect(pose.z).toBeCloseTo(0.3 + belly + ripple, 10);
+    expect(pose.y).toBeCloseTo(2.2 - Math.sin(Math.PI * 0.4) * 0.4 ** 2 * 1.2 * 0.28, 10);
+    expect(deformFleetSailVertex(input)).toEqual(pose);
   });
 });
 
@@ -303,149 +379,160 @@ describe("fleet downwind convention", () => {
 });
 
 describe("fleet batches", () => {
-  it("moves a ship exactly once through each side of the half-unit LOD dead band", () => {
-    const batches = buildBatches(FLEET_HERO_BAND_NEAREST + 1);
+  it("admits at 28 CSS pixels and departs only below 22, independent of distance", () => {
+    const batches = buildBatches(1);
     const viewport = { x: 1200, y: 640 };
     const camera = { offsetX: 600, offsetY: 320, zoom: 0.72 };
-    const eye = cameraEye(cameraPoseFromIso(camera, viewport));
     const batch = batches.bySilhouette.get("bezaisen")!;
-    const offsets = [-1, 0.1, 0.24, 0.26, 0.1, -0.1, -0.24, -0.26];
+    const heights = [27, 28, 25, 22, 21.9, 25, 27.9, 28];
     const farCounts: number[] = [];
-    offsets.forEach((offset, index) => {
+    heights.forEach((sailHeightCssPx, index) => {
       beginFleetFrame(batches, { camera, viewport, timeSeconds: index });
-      // A nearer hero band, so the crossing ship is rank and file.
-      for (let near = 0; near < FLEET_HERO_BAND_NEAREST; near += 1) {
-        writeFleetInstance(batches, pose({
-          shipId: `near-${near}`, silhouette: "kobaya", x: eye.x + 10 + near, y: eye.y, z: eye.z,
-        }));
-      }
-      writeFleetInstance(batches, pose({
-        shipId: "crossing", atlasCell: 3,
-        x: eye.x + FLEET_HULL_LOD_DISTANCE + offset, y: eye.y, z: eye.z,
-      }));
+      writeFleetInstance(batches, pose({ shipId: "crossing", sailHeightCssPx, x: index * 100 }));
       endFleetFrame(batches);
       expect(batch.hull.mesh.count + batch.far.mesh.count).toBe(1);
-      expect(batch.sails.mesh.count).toBe(batch.hull.mesh.count);
       farCounts.push(batch.far.mesh.count);
     });
-    expect(farCounts).toEqual([0, 0, 0, 1, 1, 1, 1, 0]);
+    expect(farCounts).toEqual([1, 0, 0, 0, 1, 1, 1, 0]);
     disposeFleetBatches(batches);
   });
 
-  it("dissolves a ship across the ink boundary over the fade, covering it once", () => {
-    const batches = buildBatches(FLEET_HERO_BAND_NEAREST + 1);
+  it("uses CSS viewport, FOV and displayed heading rather than world-unit distance", () => {
+    const ship = { id: "projection", visual: { hull: "treasury-galleon", scale: 0.7 } } as ShipNode;
+    const footprint = createGardenFleetFootprint();
+    const camera = {
+      offsetX: 0, offsetY: 0, zoom: 1,
+      shot: { presence: 1, view: { eye: { x: 0, y: 8, z: 100 }, target: { x: 0, y: 3, z: 0 }, vFovDeg: 32 } },
+    };
+    const tile = { x: 0, y: 0 };
+    const height = (viewport: { x: number; y: number }, heading = 0) =>
+      writeGardenFleetFootprint(footprint, ship, tile, heading, camera, viewport).sailHeightCssPx;
+    const small = height({ x: 1200, y: 640 });
+    expect(height({ x: 2400, y: 1280 })).toBeCloseTo(small * 2);
+    camera.shot.view.vFovDeg = 64;
+    expect(height({ x: 1200, y: 640 })).toBeLessThan(small);
+    camera.shot.view.vFovDeg = 32;
+    expect(height({ x: 1200, y: 640 }, Math.PI / 2)).not.toBeCloseTo(small, 3);
+    const displayed = writeGardenFleetFootprint(footprint, ship, tile, 0, camera,
+      { x: 1200, y: 640 }, 0, 0.1, 4).sailHeightCssPx;
+    expect(displayed).toBeLessThan(small);
+    // Each projection is admitted against exactly the same pixel threshold.
+    const batches = buildBatches(1);
+    for (const viewport of [{ x: 1200, y: 640 }, { x: 2400, y: 1280 }]) {
+      beginFleetFrame(batches, { camera, viewport, reducedMotion: true, timeSeconds: 0 });
+      const sailHeightCssPx = height(viewport);
+      writeFleetInstance(batches, pose({ shipId: "projection", sailHeightCssPx }));
+      endFleetFrame(batches);
+      expect(batches.bySilhouette.get("bezaisen")!.far.mesh.count)
+        .toBe(sailHeightCssPx < FLEET_FULL_ADMIT_CSS_PX ? 1 : 0);
+    }
+    disposeFleetBatches(batches);
+  });
+
+  it("dissolves over 0.9 seconds with complementary shares and cuts static frames", () => {
+    const batches = buildBatches(1);
     const viewport = { x: 1200, y: 640 };
     const camera = { offsetX: 600, offsetY: 320, zoom: 0.72 };
-    const eye = cameraEye(cameraPoseFromIso(camera, viewport));
     const batch = batches.bySilhouette.get("bezaisen")!;
-    const frame = (timeSeconds: number, offset: number) => {
-      beginFleetFrame(batches, { camera, viewport, timeSeconds });
-      for (let near = 0; near < FLEET_HERO_BAND_NEAREST; near += 1) {
-        writeFleetInstance(batches, pose({
-          shipId: `near-${near}`, silhouette: "kobaya", x: eye.x + 10 + near, y: eye.y, z: eye.z,
-        }));
-      }
-      writeFleetInstance(batches, pose({
-        shipId: "crossing", atlasCell: 3, x: eye.x + FLEET_HULL_LOD_DISTANCE + offset, y: eye.y, z: eye.z,
-      }));
+    const frame = (timeSeconds: number, sailHeightCssPx: number, reducedMotion = false) => {
+      beginFleetFrame(batches, { camera, viewport, timeSeconds, reducedMotion });
+      writeFleetInstance(batches, pose({ shipId: "crossing", sailHeightCssPx }));
       endFleetFrame(batches);
     };
-    frame(0, -5);
-    frame(1 / 60, -5);
-    expect(batch.far.mesh.count).toBe(0);
-    // Step past the threshold at 60 Hz: both LODs draw, their dissolves sum to one.
-    let seconds = 1 / 60;
+    frame(0, 28);
     let bothFrames = 0;
-    while (seconds < 2) {
-      seconds += 1 / 60;
-      frame(seconds, 5);
-      if (batch.hull.mesh.count === 1 && batch.far.mesh.count === 1) {
+    for (let tick = 1; tick <= 60; tick += 1) {
+      frame(tick / 60, 20);
+      if (batch.hull.mesh.count && batch.far.mesh.count) {
         bothFrames += 1;
         const full = gardenFleetUnpackSailDistance(batch.sails.sailAttention!.getY(0)).hidden;
         const ink = gardenFleetUnpackSailDistance(batch.far.sailAttention!.getY(0)).hidden;
         expect(full + ink).toBeCloseTo(1, 1);
       }
-      if (batch.hull.mesh.count === 0) break;
     }
     expect(bothFrames / 60).toBeGreaterThanOrEqual(0.8);
+    expect(batch.hull.mesh.count).toBe(0);
     expect(batch.far.mesh.count).toBe(1);
-    expect(gardenFleetUnpackSailDistance(batch.far.sailAttention!.getY(0)).hidden).toBe(0);
-    // Reduced motion cuts straight across.
-    beginFleetFrame(batches, { camera, reducedMotion: true, viewport, timeSeconds: seconds + 1 });
-    for (let near = 0; near < FLEET_HERO_BAND_NEAREST; near += 1) {
-      writeFleetInstance(batches, pose({
-        shipId: `near-${near}`, silhouette: "kobaya", x: eye.x + 10 + near, y: eye.y, z: eye.z,
-      }));
-    }
-    writeFleetInstance(batches, pose({
-      shipId: "crossing", atlasCell: 3, x: eye.x + FLEET_HULL_LOD_DISTANCE - 5, y: eye.y, z: eye.z,
-    }));
-    endFleetFrame(batches);
-    expect(batch.far.mesh.count).toBe(0);
+    frame(2, 28, true);
     expect(batch.hull.mesh.count).toBe(1);
+    expect(batch.far.mesh.count).toBe(0);
+    // A stationary clock cuts even without the explicit media flag.
+    frame(2, 20);
+    expect(batch.hull.mesh.count).toBe(0);
+    expect(batch.far.mesh.count).toBe(1);
     disposeFleetBatches(batches);
   });
 
-  it("keeps leaders, the nearest boats and an attended ship rigged at any distance", () => {
-    const batches = buildBatches(FLEET_HERO_BAND_NEAREST + 8);
+  it("casts only three current-supply leaders, while inspection restores any distant hull", () => {
+    const batches = buildBatches(8);
     const viewport = { x: 1200, y: 640 };
     const camera = { offsetX: 600, offsetY: 320, zoom: 0.72 };
-    const eye = cameraEye(cameraPoseFromIso(camera, viewport));
-    const far = FLEET_HULL_LOD_DISTANCE * 2;
-    const packedFor = (silhouette: GardenHullSilhouette, cell: number) => {
-      const batch = batches.bySilhouette.get(silhouette)!;
-      for (const part of [batch.sails, batch.far]) {
-        for (let slot = 0; slot < part.mesh.count; slot += 1) {
-          if (Math.floor(part.atlasCell!.getX(slot)) === cell) {
-            return { far: part === batch.far, ...gardenFleetUnpackSailDistance(part.sailAttention!.getY(slot)) };
-          }
-        }
-      }
-      throw new Error(`missing cell ${cell}`);
-    };
-    const frame = (timeSeconds: number, nearestOffset: number, attendedCell = 0) => {
+    const frame = (timeSeconds: number, inspected = false, leadingSupply = 0) => {
       beginFleetFrame(batches, { camera, viewport, timeSeconds });
-      for (let near = 0; near < FLEET_HERO_BAND_NEAREST; near += 1) {
+      for (let index = 0; index < 6; index += 1) {
         writeFleetInstance(batches, pose({
-          atlasCell: 100 + near, shipId: `near-${near}`, silhouette: "kobaya",
-          x: eye.x + 10 + near, y: eye.y, z: eye.z,
+          shipId: `supply-${index}`, supplyUsd: index === 0 ? leadingSupply : index + 1, sailHeightCssPx: 30,
         }));
       }
-      // Rank 17 this frame; `nearestOffset` pulls it inside the nearest 16.
-      writeFleetInstance(batches, pose({
-        atlasCell: 50, shipId: "drifter", silhouette: "junk",
-        x: eye.x + 10 + FLEET_HERO_BAND_NEAREST + nearestOffset, y: eye.y, z: eye.z,
-      }));
-      writeFleetInstance(batches, pose({
-        atlasCell: 1, leader: true, shipId: "leader", x: eye.x + far, y: eye.y, z: eye.z,
-      }));
-      writeFleetInstance(batches, pose({
-        atlasCell: 2, attention: attendedCell === 2 ? 1 : 0, shipId: "outsider",
-        x: eye.x + far + 5, y: eye.y, z: eye.z,
-      }));
+      writeFleetInstance(batches, pose({ shipId: "microcap", sailHeightCssPx: 3, inspected, x: 400 }));
+      writeFleetInstance(batches, pose({ shipId: "fine", sailHeightCssPx: FLEET_FINE_RIG_CSS_PX }));
       endFleetFrame(batches);
     };
+    frame(0);
+    expect(FLEET_FOREGROUND_LEADERS).toBe(3);
+    for (let index = 0; index < 6; index += 1) {
+      expect(gardenFleetShipHeroWeight(batches, `supply-${index}`)).toBe(index >= 3 ? 1 : 0);
+      expect(gardenFleetShipRigWeight(batches, `supply-${index}`)).toBe(0);
+    }
+    expect(gardenFleetShipHeroWeight(batches, "microcap")).toBe(0);
+    expect(gardenFleetShipRigWeight(batches, "fine")).toBe(1);
+    // Selection/focus is answered immediately, not after the dissolve or atlas attack.
+    frame(1 / 60, true);
+    expect(gardenFleetShipHeroWeight(batches, "microcap")).toBe(1);
+    expect(gardenFleetShipRigWeight(batches, "microcap")).toBe(1);
+    expect(batches.bySilhouette.get("bezaisen")!.far.mesh.count).toBe(0);
+    expect(gardenFleetShipHeroWeight(batches, "untracked-glb")).toBe(0);
+    frame(2, false, 100);
+    expect(gardenFleetShipHeroWeight(batches, "supply-0")).toBe(1);
+    expect(gardenFleetShipHeroWeight(batches, "supply-3")).toBe(0);
+    disposeFleetBatches(batches);
+  });
 
-    frame(0, 0);
-    frame(1, 0);
-    expect(packedFor("bezaisen", 1)).toMatchObject({ far: false, hero: 1 });
-    expect(packedFor("bezaisen", 2)).toMatchObject({ far: true, hero: 0 });
-    expect(packedFor("kobaya", 100)).toMatchObject({ far: false, hero: 1 });
-    expect(packedFor("junk", 50).hero).toBe(0);
-    expect(gardenFleetShipHeroWeight(batches, "leader")).toBe(1);
-    expect(gardenFleetShipHeroWeight(batches, "outsider")).toBe(0);
-    // A ship the batch never ranked (a GLB hero hull) keeps its lights.
-    expect(gardenFleetShipHeroWeight(batches, "glb-titan")).toBe(1);
-
-    // Hovering the far silhouette brings its rig back in the same frame.
-    frame(2, 0, 2);
-    expect(packedFor("bezaisen", 2)).toMatchObject({ far: false, hero: 1 });
-
-    // Joining needs rank ≤ 16; once in, a ship stays until it falls past 20.
-    frame(3, -1.5);
-    expect(packedFor("junk", 50).hero).toBe(1);
-    frame(4, 0);
-    expect(packedFor("junk", 50).hero).toBe(1);
+  it("routes bespoke heroes through the same far batch and immediate inspection policy", () => {
+    const batches = buildBatches(2);
+    const camera = { offsetX: 600, offsetY: 320, zoom: 0.72 };
+    const viewport = { x: 1200, y: 640 };
+    const frame = (timeSeconds: number, height: number, inspected = false, reducedMotion = false) => {
+      beginFleetFrame(batches, { camera, viewport, timeSeconds, reducedMotion });
+      const shown = writeFleetInstance(batches, pose({
+        shipId: "bespoke", bespoke: true, sailHeightCssPx: height, inspected,
+      }));
+      writeFleetInstance(batches, pose({ shipId: "ordinary", sailHeightCssPx: height, inspected }));
+      endFleetFrame(batches);
+      return shown;
+    };
+    expect(frame(0, 30)).toBe(1);
+    const shown = frame(0.45, 20);
+    expect(shown).toBeCloseTo(0.5);
+    const batch = batches.bySilhouette.get("bezaisen")!;
+    expect(batch.hull.mesh.count).toBe(1); // No duplicate procedural near hero.
+    expect(batch.far.mesh.count).toBe(2);
+    expect(frame(1, 20)).toBe(0);
+    expect(gardenFleetShipHeroWeight(batches, "bespoke")).toBe(0);
+    expect(frame(1.01, 3, true)).toBe(1);
+    expect(batch.far.mesh.count).toBe(0);
+    expect(gardenFleetShipRigWeight(batches, "bespoke")).toBe(1);
+    expect(frame(1.02, 20, false, true)).toBe(0);
+    expect(batch.far.mesh.count).toBe(2);
+    expect(batch.hull.mesh.count).toBe(0);
+    const material = new MeshStandardMaterial();
+    const hidden = { value: 0.5 };
+    patchFleetHeroDissolve(material, hidden);
+    const shader = { uniforms: {}, vertexShader: "", fragmentShader: "#include <common>\n#include <opaque_fragment>" };
+    material.onBeforeCompile(shader as never, null as never);
+    expect(shader.uniforms).toHaveProperty("vFleetHidden", hidden);
+    expect(shader.fragmentShader).toContain("if (fleetDither < vFleetHidden) discard");
+    material.dispose();
     disposeFleetBatches(batches);
   });
 
@@ -469,6 +556,7 @@ describe("fleet batches", () => {
       for (const distance of [20, 200]) {
         writeFleetInstance(batches, pose({
           shipId: `${silhouette}-${distance}`, silhouette,
+          sailHeightCssPx: distance === 20 ? 48 : 10,
           x: eye.x + distance, y: eye.y, z: eye.z,
         }));
       }
@@ -480,6 +568,33 @@ describe("fleet batches", () => {
     expect(fleetDrawCallCount(batches)).toBe(19);
     const savings = 140_000 * 0.6 * (1 - farTriangles / nearTriangles);
     expect(savings).toBeGreaterThanOrEqual(25_000);
+    disposeFleetBatches(batches);
+  });
+  it("keeps all 320 far identities in six draws within the whole-fleet triangle ceiling", () => {
+    const batches = buildBatches(320);
+    beginFleetFrame(batches, {
+      camera: { offsetX: 600, offsetY: 320, zoom: 0.28 },
+      viewport: { x: 1200, y: 640 }, reducedMotion: true, timeSeconds: 0,
+    });
+    for (let index = 0; index < 320; index += 1) {
+      writeFleetInstance(batches, pose({
+        shipId: `whole-map-${index}`, silhouette: SILHOUETTES[index % SILHOUETTES.length]!,
+        supplyUsd: index + 1, sailHeightCssPx: 10,
+      }));
+    }
+    endFleetFrame(batches);
+    let hulls = 0;
+    let triangles = 0;
+    for (const batch of batches.bySilhouette.values()) {
+      hulls += batch.far.mesh.count;
+      triangles += batch.far.mesh.count * batch.far.mesh.geometry.getAttribute("position").count / 3;
+      expect(batch.hull.mesh.count).toBe(0);
+      expect(batch.sails.mesh.count).toBe(0);
+    }
+    expect(hulls).toBe(320);
+    expect(fleetInstanceCount(batches)).toBe(320);
+    expect(fleetDrawCallCount(batches)).toBe(6);
+    expect(triangles).toBeLessThanOrEqual(12_800);
     disposeFleetBatches(batches);
   });
   it("fits every sail geometry within the vertex attribute limit", () => {
@@ -1095,12 +1210,17 @@ describe("W3.7 attention", () => {
     const batches = buildBatches(16);
     beginFleetFrame(batches);
     writeFleetInstance(batches, pose({ atlasCell: 4, silhouette: "bezaisen" }));
-    writeFleetInstance(batches, pose({ atlasCell: 12, silhouette: "bezaisen" }));
+    writeFleetInstance(batches, pose({ atlasCell: 12, silhouette: "bezaisen", sailResting: true }));
     endFleetFrame(batches);
 
     const attention = batches.bySilhouette.get("bezaisen")!.sails.sailAttention!;
     expect(gardenFleetUnpackSailAttention(attention.getX(0)).attention).toBe(0);
     expect(gardenFleetUnpackSailAttention(attention.getX(1)).attention).toBeCloseTo(1, 5);
+    expect(gardenFleetUnpackSailAttention(attention.getX(0)).resting).toBe(false);
+    expect(gardenFleetUnpackSailAttention(attention.getX(1)).resting).toBe(true);
+    const sails = batches.bySilhouette.get("bezaisen")!.sails;
+    expect(Object.keys(sails.mesh.geometry.attributes)).not.toContain("aSailResting");
+    expect(sails.sailFurl!.getX(1) % 1).toBe(0);
     // An unwritten instance is rank-and-file, not an unexplained bright sail.
     expect(attention.getX(9)).toBe(0);
     expect(fleetDrawCallCount(batches)).toBe(3);

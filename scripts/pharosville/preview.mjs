@@ -60,6 +60,7 @@
  *   node scripts/pharosville/preview.mjs --assert --max-p95=20 --max-gpu-ms=12 --tail-seconds 30   # --max-gpu-ms refused on ANGLE Metal
  *   node scripts/pharosville/preview.mjs --texture-census    # attribute live texture owners
  *   node scripts/pharosville/preview.mjs --draw-census      # attribute live draw owners
+ *   node scripts/pharosville/preview.mjs --spike-trace --seconds 600 --json # DEV exact-frame triangle diagnosis
  *   node scripts/pharosville/preview.mjs --light-cycle --json # native time control phase/resource audit
  *   node scripts/pharosville/preview.mjs --blur-audit       # temporary 16px canvas attention audit
  *   node scripts/pharosville/preview.mjs --fixture dense --overlap --json
@@ -94,12 +95,13 @@
  *   --stats [--watch-seconds S]  __pharosVilleDebug.motionStats + directorLog (sampled over S seconds)
  *   --metrics                  HUD-free picture metrics + <out>-notan.png
  *   --temporal                 mean frame-to-frame |ΔL*| of the bottom third over a 1.5 s burst
- *   --value-plan [noon|dusk|night]  ninths vs the bible table: MAE and Pearson r (column from t= hour)
+ *   --value-plan [noon|dusk|night]  ninth diagnostics; noon/dusk MAE and Pearson r (column from t= hour)
  *   --night-water              mean L* over the projected inlet water polygon
+ *   --light-rois <json>         aspect-specific CSS polygons: median contrasts and non-recess L*6 coverage
  */
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -108,13 +110,15 @@ import {
   PREVIEW_FIXTURES, installPreviewFixture, installFlowingDate, analyzeTargetOverlap,
   previewClockDescriptor, createAttentionWatch, snapshotAttentionWatch, summarizeAttentionWatch,
 } from "./preview-fixture.mjs";
-import { buildCaptureManifest } from "./preview-manifest.mjs";
+import { appearanceDocumentIdentity, buildCaptureManifest, fetchServedCheckoutIdentity, hashFixturePayloads, phaseForHour } from "./preview-manifest.mjs";
 import { analyzeArtifactFlashFrames } from "./artifact-flash-metric.mjs";
+import { parseExperienceFlags, installExperienceObserver, captureColdFilmstrip, readExperienceTiming, applyExperienceState } from "./preview-experience.mjs";
 import {
   bottomThirdHighFrequency,
   brightShare,
   decodeFrame,
   frameMeanLstar,
+  measureLightRois,
   meanAbsoluteError,
   ninths,
   pearson,
@@ -156,6 +160,11 @@ const SYSTEM_CHROME = SYSTEM_CHROME_BY_PLATFORM[process.platform] ?? SYSTEM_CHRO
 const SKIP_EXIT_CODE = 78;
 
 const args = parseArgs(process.argv.slice(2));
+const experience = parseExperienceFlags(args);
+if (experience.shell && (args.assert || args.appearance || args["served-checkout"] || args.clean || args["ship-limit"])) {
+  throw new Error("--capture-shell is DOM evidence, not GPU/appearance/capacity evidence.");
+}
+if (experience.offsets.length && args["ship-limit"]) throw new Error("--cold-filmstrip requires one cold navigation; run --ship-limit separately.");
 if (args["artifact-check"] && args.reduced) {
   throw new Error("--artifact-check needs normal motion; --reduced is intentionally static.");
 }
@@ -200,8 +209,14 @@ const valuePlanColumn = typeof args["value-plan"] === "string" ? args["value-pla
 if (valuePlanColumn && !VALUE_PLAN_COLUMNS.includes(valuePlanColumn)) {
   throw new Error(`--value-plan takes no value or one of ${VALUE_PLAN_COLUMNS.join(", ")}, got "${valuePlanColumn}"`);
 }
+const lightRoiPath = args["light-rois"];
+if (lightRoiPath !== undefined && typeof lightRoiPath !== "string") {
+  throw new Error("--light-rois needs a JSON file of CSS-pixel polygons");
+}
+const lightRois = lightRoiPath ? JSON.parse(await readFile(resolve(lightRoiPath), "utf8")) : null;
 const picture = {
   metrics: Boolean(args.metrics),
+  lightRois: Boolean(lightRois),
   nightWater: Boolean(args["night-water"]),
   temporal: Boolean(args.temporal),
   valuePlan: Boolean(args["value-plan"]),
@@ -227,6 +242,20 @@ const limits = {
   requiredTier: typeof args["require-tier"] === "string" ? args["require-tier"] : forcedTier ?? "full",
 };
 const url = args.url ?? "http://localhost:5173";
+const scriptCheckoutAtStart = readCheckoutIdentity();
+if (args.appearance !== undefined && typeof args.appearance !== "string") throw new Error("--appearance needs a local JSON file.");
+const appearanceDocument = args.appearance === undefined ? null : JSON.parse(await readFile(resolve(args.appearance), "utf8"));
+const requestedAppearance = appearanceDocument === null ? null : appearanceDocumentIdentity(appearanceDocument);
+if (args["served-checkout"] !== undefined && typeof args["served-checkout"] !== "string") throw new Error("--served-checkout needs the expected serving-tree path.");
+const expectedServedRoot = args["served-checkout"] ? await realpath(resolve(args["served-checkout"])) : null;
+const strictServedIdentity = Boolean(requestedAppearance || expectedServedRoot);
+const readServedIdentity = async () => {
+  try { return await fetchServedCheckoutIdentity(url); }
+  catch (error) { if (strictServedIdentity) throw error; return null; }
+};
+const servedCheckoutBefore = await readServedIdentity();
+if ((requestedAppearance || expectedServedRoot) && !servedCheckoutBefore) throw new Error("Appearance/look comparison requires the DEV server's genuine served-checkout identity.");
+if (expectedServedRoot && servedCheckoutBefore?.root !== expectedServedRoot) throw new Error("Wrong served checkout; refusing to capture another server's tree.");
 const requestedShipLimit = args["ship-limit"] === undefined ? null : Number(args["ship-limit"]);
 if (requestedShipLimit !== null && (!fixture || typeof args["ship-limit"] !== "string" || !Number.isInteger(requestedShipLimit))) {
   throw new Error("--ship-limit requires --fixture and an integer N");
@@ -356,12 +385,23 @@ try {
     // `sampleCount` stays 0 and fps reads as 0. Pass --reduced to measure the
     // static path deliberately.
     reducedMotion: args.reduced ? "reduce" : "no-preference",
+    javaScriptEnabled: experience.shell !== "no-js",
   });
+  await page.addInitScript(installExperienceObserver);
+  const worldRequests = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (/^\/api\/|^\/(?:logos|chains)\/|\.glb$|\/(?:pharosville-desktop-data|pharosville-world|world-renderer)(?:[./-]|$)/.test(path)) worldRequests.push(request.url());
+  });
+  if (experience.shell === "module-failure") {
+    await page.route(/\/src\/main\.tsx(?:\?|$)|\/assets\/index-[^/]+\.js(?:\?|$)/, (route) => route.abort("failed"));
+  }
+  if (experience.shell === "renderer-failure") {
+    await page.route(/\/src\/three\/world-renderer\.ts(?:\?|$)|\/assets\/world-renderer-[^/]+\.js(?:\?|$)/, (route) => route.abort("failed"));
+  }
 
-  // A fresh profile is a first visit: the now-line would speak the three
-  // first-visit teachings for ~21 s after arrival and cover the ordinary
-  // caption in every preview. Seed them as read; pass --first-visit to see
-  // them deliberately.
+  // First-visit teaching is a separate reading key, never a caption timer.
+  // Seed returning visitors as taught unless --first-visit is requested.
   if (!args["first-visit"]) {
     await page.addInitScript(() => {
       try {
@@ -373,6 +413,24 @@ try {
   }
 
   const fixtureIdentity = fixture ? await installPreviewFixture(page, fixture, { dateMode: fixtureDateMode }) : null;
+  if (appearanceDocument) await page.addInitScript((appearance) => {
+    window.__pharosVilleTestAppearance = appearance;
+  }, appearanceDocument);
+  // Live arms retain the exact JSON responses used by their world, not a label claiming equivalence.
+  const livePayloads = {};
+  const liveResponseReads = new Set();
+  const livePayloadFailures = new Set();
+  if (!fixture) page.on("response", (response) => {
+    const endpoint = new URL(response.url());
+    const path = endpoint.pathname + endpoint.search;
+    if (!endpoint.pathname.startsWith("/api/")) return;
+    const read = response.json().then((payload) => {
+      if (response.ok()) livePayloads[path] = payload;
+      else livePayloadFailures.add(path);
+    }).catch(() => { livePayloadFailures.add(path); });
+    liveResponseReads.add(read);
+    void read.finally(() => liveResponseReads.delete(read));
+  });
   if (shipLimit !== null) await page.addInitScript((limit) => { window.__pharosVilleTestShipLimit = limit; }, shipLimit);
   if (forcedTier) await page.addInitScript((tier) => { window.__pharosVilleTestSchedulerTier = tier; }, forcedTier);
   if (refreshMode) await installRefreshProbe(page);
@@ -390,6 +448,8 @@ try {
     const text = msg.text();
     if (/Shader Error|VALIDATE_STATUS|program not valid|Fragment shader is not compiled|Vertex shader is not compiled|render failed|An error occurred in|The above error occurred|Uncaught/.test(text)) {
       shaderErrors.push(text.split("\n")[0].slice(0, 300));
+      // Full program info logs on demand: the first line alone cannot name the failing link.
+      if (process.env.PHAROSVILLE_PREVIEW_FULL_SHADER_LOG === "1") console.error(`[page console]\n${text.slice(0, 20000)}`);
     }
   });
   page.on("pageerror", (err) => {
@@ -439,7 +499,7 @@ try {
   // `debug=1` publishes window.__pharosVilleDebug, which is where the scheduler
   // tier and the GPU counters live.
   const separator = url.includes("?") ? "&" : "?";
-  const target = `${url}${separator}debug=1${stillCamera ? "&still=1" : ""}${hash}`;
+  const target = `${url}${separator}debug=1${stillCamera ? "&still=1" : ""}${args["spike-trace"] ? "&spikeTrace=1" : ""}${hash}`;
   // Prove ordinary admission before selecting an outsider, which adds one hull.
   const initialTarget = new URL(target);
   if (shipLimit !== null) {
@@ -448,7 +508,40 @@ try {
     initialTarget.hash = params.toString();
     initialTarget.searchParams.delete("sel");
   }
-  await page.goto(initialTarget.href, { waitUntil: "domcontentloaded" });
+  await mkdir(resolve(outputPath, ".."), { recursive: true });
+  const navigationStartedMs = performance.now();
+  await page.goto(initialTarget.href, { waitUntil: "commit" });
+  const responseCommitActualMs = performance.now() - navigationStartedMs;
+  // The application has JS disabled in this arm; the external capture harness
+  // may still observe DOM mutations without admitting any application scripts.
+  if (experience.shell === "no-js") await page.evaluate(installExperienceObserver);
+  const coldFilmstrip = await captureColdFilmstrip(page, experience.offsets, outputPath, writeFile);
+  if (experience.shell) {
+    await page.waitForLoadState("domcontentloaded");
+    if (experience.shell === "blocked") {
+      await page.locator(".pharosville-narrow").waitFor({ state: "visible", timeout: 10_000 });
+      if (await page.getByTestId("pharosville-world").count()) throw new Error("--capture-shell blocked needs a below-gate device or viewport.");
+      // Observe long enough to catch an accidental delayed runtime import.
+      await page.waitForTimeout(500);
+      if (worldRequests.length) throw new Error(`Blocked shell requested world resources: ${worldRequests.join(", ")}`);
+    } else if (experience.shell === "renderer-failure") {
+      await page.getByTestId("pharosville-renderer-fallback").waitFor({ state: "visible", timeout: 45_000 });
+    } else {
+      await page.locator(".pv-arrival-shell h1").waitFor({ state: "visible", timeout: 10_000 });
+      await page.getByRole("link", { name: "Open Pharos analytics", exact: true }).waitFor({ state: "visible" });
+    }
+    await page.screenshot({ path: outputPath });
+    const timing = await readExperienceTiming(page);
+    const jsonPath = resolve(outputDirectory, typeof args.json === "string" ? args.json : `${relative(outputDirectory, outputPath).replace(/\.png$/i, "")}-shell.json`);
+    await mkdir(resolve(jsonPath, ".."), { recursive: true });
+    await writeFile(jsonPath, `${JSON.stringify({
+      target: initialTarget.href, shell: experience.shell, viewport: { width, height },
+      metrics: null, gpuMeasured: false, worldRequests,
+      experience: { ...timing, responseCommitActualMs, coldFilmstrip },
+      outputs: { screenshot: outputPath, json: jsonPath },
+    }, null, 2)}\n`);
+    console.log(`shell      ${experience.shell} · DOM only · ${outputPath} · ${jsonPath}`);
+  } else {
 
   const canvas = page.getByTestId("pharosville-canvas");
   await canvas.waitFor({ state: "visible", timeout: 45_000 });
@@ -458,6 +551,28 @@ try {
     undefined,
     { timeout: 45_000 },
   );
+  if (args["spike-trace"]) {
+    // Constructor installation is independent of the first sampled owner
+    // census/debug publish. Readiness errors must not masquerade as PROD.
+    const startup = await page.evaluate(() => ({
+      url: location.href,
+      requested: new URLSearchParams(location.search).get("spikeTrace"),
+      rendererStatus: document.querySelector('[data-testid="pharosville-canvas"]')?.getAttribute("data-renderer-status"),
+      installed: typeof window.__pharosVilleSpikeTrace?.snapshot === "function",
+    }));
+    if (!startup.installed) {
+      throw new Error(`--spike-trace was not installed during renderer construction; DEV is required. ${JSON.stringify(startup)}${shaderErrors.length ? ` · page errors: ${shaderErrors.join("; ")}` : ""}`);
+    }
+  }
+  if (requestedAppearance) {
+    await page.waitForFunction((expected) => {
+      const appearance = window.__pharosVilleLookdev?.snapshot();
+      return appearance?.schemaVersion === expected.schemaVersion && appearance?.preset === expected.preset
+        && appearance?.checksum === expected.checksum && appearance?.appliedChecksum === expected.checksum;
+    }, requestedAppearance, { timeout: 45_000 }).catch(() => {
+      throw new Error("--appearance requires the DEV lookdev API, the current schema and a fully applied matching checksum.");
+    });
+  }
   let shipLimitVerification = null;
   if (shipLimit !== null) {
     await page.waitForFunction((limit) => {
@@ -562,6 +677,24 @@ try {
   await applyRequestedUiState(page);
   await mkdir(outputDirectory, { recursive: true });
   if (typeof args.ritual === "string") await forceRitualBeforeCapture(page, args.ritual, numberFlag("ritual-wait", 0));
+  await Promise.all(liveResponseReads);
+  const appearanceAtShot = await page.evaluate(() => {
+    const api = window.__pharosVilleLookdev;
+    return api ? { ...api.snapshot(), exported: JSON.parse(api.export()) } : null;
+  });
+  if (requestedAppearance) {
+    const exported = appearanceAtShot && appearanceDocumentIdentity(appearanceAtShot.exported);
+    if (!exported || exported.checksum !== requestedAppearance.checksum
+      || appearanceAtShot.appliedChecksum !== exported.checksum || appearanceAtShot.inspectorActive !== false) {
+      throw new Error("Appearance changed, was not applied, or inspector is active; refusing the capture.");
+    }
+  }
+  const currentServedCheckout = servedCheckoutBefore ? await readServedIdentity() : null;
+  let samplingIncomplete = Boolean(servedCheckoutBefore && !currentServedCheckout);
+  const servedCheckoutAtShot = currentServedCheckout ?? (servedCheckoutBefore ? { ...servedCheckoutBefore, identitySample: "before capture" } : null);
+  let changedDuringCapture = Boolean(servedCheckoutBefore && currentServedCheckout && (currentServedCheckout.root !== servedCheckoutBefore.root
+    || currentServedCheckout.commit !== servedCheckoutBefore.commit || currentServedCheckout.sourceHash !== servedCheckoutBefore.sourceHash));
+  if ((changedDuringCapture || samplingIncomplete) && strictServedIdentity) throw new Error("Serving checkout changed or became unknown during preview; refusing mixed-source look-comparison evidence.");
   if (args.clean) {
     // K17 hour stills: the world alone, no HUD, chrome, chips or nameplates.
     await page.addStyleTag({ content: ".pharosville-overlay { visibility: hidden !important; }" });
@@ -570,6 +703,22 @@ try {
     await page.screenshot({ path: outputPath });
   }
   const captureIdentity = await readCaptureIdentity(page);
+  if (servedCheckoutAtShot) {
+    const afterShot = await readServedIdentity();
+    samplingIncomplete ||= !afterShot;
+    changedDuringCapture ||= Boolean(afterShot && (afterShot.root !== servedCheckoutAtShot.root || afterShot.commit !== servedCheckoutAtShot.commit || afterShot.sourceHash !== servedCheckoutAtShot.sourceHash));
+    if ((changedDuringCapture || samplingIncomplete) && strictServedIdentity) throw new Error("Serving source changed or became unknown across the look-comparison screenshot.");
+    servedCheckoutAtShot.changedDuringCapture = changedDuringCapture;
+    servedCheckoutAtShot.samplingIncomplete = samplingIncomplete;
+  }
+  if (changedDuringCapture || samplingIncomplete) {
+    if (servedCheckoutAtShot) servedCheckoutAtShot.initialSourceHash = servedCheckoutBefore?.sourceHash ?? null;
+    console.warn("warning Serving checkout changed or its identity became unavailable during capture; ordinary preview records this metadata without refusing the frame.");
+  }
+  const capturedFixtureIdentity = fixtureIdentity ?? (Object.keys(livePayloads).length ? {
+    name: "live", sourceEpochMs: null, payloadHash: hashFixturePayloads(livePayloads, null),
+    observedPaths: Object.keys(livePayloads).sort(), complete: livePayloadFailures.size === 0, failedPaths: [...livePayloadFailures].sort(),
+  } : null);
   const observer = { ...clockDescriptor,
     observerOriginMs: fixtureIdentity?.observerOriginMs ?? clockDescriptor.observerOriginMs,
     timeZone: captureIdentity.timeZone,
@@ -759,18 +908,52 @@ try {
     console.log("light      transition snapshots check resources/shaders; steady-state timing gate above is unchanged");
   }
 
+  // Export once from the live renderer, not from a median/tail sample: windows
+  // persist in-page even after the exact spike frame leaves ordinary telemetry.
+  const spikeTrace = args["spike-trace"]
+    ? await page.evaluate(() => window.__pharosVilleSpikeTrace?.snapshot())
+    : null;
+  if (args["spike-trace"]) {
+    if (!spikeTrace) throw new Error("--spike-trace lost its DEV census handle before export.");
+    const frames = spikeTrace.captures.reduce((sum, capture) => sum + capture.frames.length, 0);
+    const incomplete = spikeTrace.captures.filter((capture) => !capture.complete).length;
+    console.log(`spike      ${spikeTrace.captures.length} crossings >${spikeTrace.threshold} · ${frames} persisted frames · peak ${spikeTrace.peakTriangles} tris · ${incomplete} incomplete windows · ${spikeTrace.droppedTriggers} dropped crossings`);
+  }
+
+  if ((requestedAppearance || expectedServedRoot) && servedCheckoutAtShot) {
+    const afterInstruments = await fetchServedCheckoutIdentity(url);
+    if (afterInstruments?.root !== servedCheckoutAtShot.root || afterInstruments?.commit !== servedCheckoutAtShot.commit
+      || afterInstruments?.sourceHash !== servedCheckoutAtShot.sourceHash) throw new Error("Serving source changed while collecting look-comparison instruments.");
+  }
+
+  const experienceTiming = { ...await readExperienceTiming(page), responseCommitActualMs, coldFilmstrip };
+  if (coldFilmstrip.length) {
+    const timingPath = outputPath.replace(/\.png$/i, "") + "-cold.json";
+    await writeFile(timingPath, `${JSON.stringify({ target: initialTarget.href, ...experienceTiming }, null, 2)}\n`);
+    console.log(`arrival    ${coldFilmstrip.length} navigation-relative frames · ${timingPath}`);
+  }
   if (args.json) {
     const jsonPath = resolve(outputDirectory, typeof args.json === "string" ? args.json : "preview.json");
     const capture = {
       ...buildCaptureManifest({
-        ...readCheckoutIdentity(), ...captureIdentity,
+        ...scriptCheckoutAtStart, ...captureIdentity,
+        scriptCheckout: scriptCheckoutAtStart,
+        servedCheckout: servedCheckoutAtShot,
+        appearance: appearanceAtShot ? {
+          schemaVersion: appearanceAtShot.schemaVersion, preset: appearanceAtShot.preset,
+          checksum: appearanceAtShot.checksum, appliedChecksum: appearanceAtShot.appliedChecksum,
+        } : null,
+        inspectorActive: appearanceAtShot?.inspectorActive ?? null, stillCamera, renderer,
+        screenshotPhase: { stage: "main", hour: captureIdentity.hour, sky: phaseForHour(captureIdentity.hour, captureIdentity.date) },
         viewport: { width, height }, deviceScaleFactor: Number(args.dpr ?? 1),
-        headed: Boolean(args.headed), reduced: Boolean(args.reduced), hash, vendor, browserVersion,
-        fixture: fixtureIdentity, outputs: { screenshot: outputPath, json: jsonPath },
+        headed: Boolean(args.headed), reduced: Boolean(args.reduced), clean: Boolean(args.clean), hash, vendor, browserVersion,
+        fixture: capturedFixtureIdentity, outputs: { screenshot: outputPath, json: jsonPath },
       }),
       observer,
       shipLimit: shipLimit === null ? null : { requested: requestedShipLimit, effective: shipLimit, ...shipLimitVerification },
       screenshotTiming: statsWatchSeconds > 0 ? "after stats watch" : "after settle and any tail sweep",
+      experienceState: experience.state,
+      experience: experienceTiming,
     };
     await writeFile(
       resolve(outputDirectory, typeof args.json === "string" ? args.json : "preview.json"),
@@ -778,17 +961,19 @@ try {
         metrics,
         capture,
         tailSweep,
+        spikeTrace,
         measurementOverlap,
         renderer,
         timerQuerySupported,
         target,
         fixture,
         forcedTier,
-        instrumentConfig: { clock, observer, knockout, stillCamera, uncapped },
+        instrumentConfig: { clock, observer, knockout, stillCamera, uncapped, spikeTrace: Boolean(args["spike-trace"]) },
         instruments,
       }, null, 2)}\n`,
     );
     console.log(`manifest ${jsonPath}`);
+  }
   }
 } finally {
   await browser.close();
@@ -917,13 +1102,7 @@ function medianByP90(reads) {
 }
 
 async function applyRequestedUiState(page) {
-  if (args["quick-find"]) {
-    await page.keyboard.press("/");
-    await page.getByTestId("pharosville-quick-find").waitFor({
-      state: "visible",
-      timeout: 5_000,
-    });
-  }
+  await applyExperienceState(page, experience.state);
   if (args["hover-first"]) {
     const point = await page.evaluate(() => {
       const canvas = document.querySelector('[data-testid="pharosville-canvas"]');
@@ -1740,20 +1919,41 @@ async function runPictureMetrics(page, canvas, metrics) {
       fail("value plan: no t= hour in the hash and the page published no wallClockHour; pass --value-plan noon|dusk|night");
     } else {
       const target = plan[column];
-      const correlation = pearson(result.ninths, target);
+      const correlation = target ? pearson(result.ninths, target) : null;
       result.valuePlan = {
         column,
-        mae: meanAbsoluteError(result.ninths, target),
+        diagnosticOnly: target === null,
+        mae: target ? meanAbsoluteError(result.ninths, target) : null,
         pearsonR: correlation,
         source,
         target,
       };
-      console.log(`value plan ${column} column (${source}): MAE ${result.valuePlan.mae.toFixed(1)} L*`
-        + ` · Pearson r ${correlation === null ? "n/a" : correlation.toFixed(2)}`);
-      ["top", "mid", "bot"].forEach((row, index) => {
-        console.log(`           ${row} ${target.slice(index * 3, index * 3 + 3).map(cell).join("")}   (bible, docs/pharosville/VISUAL_INVARIANTS.md)`);
-      });
+      if (target) {
+        console.log(`value plan ${column} column (${source}): MAE ${result.valuePlan.mae.toFixed(1)} L*`
+          + ` · Pearson r ${correlation === null ? "n/a" : correlation.toFixed(2)}`);
+        ["top", "mid", "bot"].forEach((row, index) => {
+          console.log(`           ${row} ${target.slice(index * 3, index * 3 + 3).map(cell).join("")}   (bible, docs/pharosville/VISUAL_INVARIANTS.md)`);
+        });
+      } else {
+        console.log(`value plan ${column} (${source}): ninths diagnostic only; readability uses --light-rois`);
+      }
     }
+  }
+
+  if (picture.lightRois) {
+    result.lightRois = {
+      sourcePath: lightRoiPath,
+      ...measureLightRois(frame, lightRois, { cssWidth: box.width, cssHeight: box.height }),
+    };
+    for (const pair of result.lightRois.boundaryPairs) {
+      console.log(`light ROI  ${pair.name}: median contrast ${pair.contrast?.toFixed(2) ?? "unavailable"} L* (floor 4)`);
+    }
+    for (const pair of result.lightRois.materialPairs) {
+      console.log(`light ROI  ${pair.a}–${pair.b}: median contrast ${pair.contrast?.toFixed(2) ?? "unavailable"} L* (floor 3)`);
+    }
+    const approach = result.lightRois.approach;
+    console.log(`light ROI  non-recess approach: ${percent(approach.coverageAtOrAbove ?? 0)} at or above L*6 (floor 90%)`);
+    if (!result.lightRois.pass) fail("light ROI readability floors not met; see copied polygons and region statistics in JSON");
   }
 
   if (picture.nightWater) {
@@ -2182,6 +2382,7 @@ function readMetrics(page) {
   return page.evaluate(() => {
     const debug = window.__pharosVilleDebug;
     const m = debug?.renderMetrics;
+    const census = m?.drawOwnerCensus;
     return {
       observedAtMs: performance.now(),
       visibilityState: document.visibilityState,
@@ -2221,7 +2422,14 @@ function readMetrics(page) {
       shipsVisible: m?.visibleShipCount ?? null,
       offscreenCalls: m?.gpu?.offscreenCalls ?? null,
       sceneCalls: m?.gpu?.sceneCalls ?? null,
-      drawOwnerCensus: m?.drawOwnerCensus ?? null,
+      // The trace handle contains functions and renderer references. Ordinary
+      // polling reads only the existing serializable census, never a snapshot.
+      drawOwnerCensus: census ? {
+        owners: census.owners,
+        attributedCalls: census.attributedCalls,
+        rendererCalls: census.rendererCalls,
+        sampledAtFrame: census.sampledAtFrame,
+      } : null,
       textureOwnerCensus: m?.textureOwnerCensus ?? null,
       textureUploads: m?.textureUploads ?? null,
       tier: m?.schedulerTier ?? null,
@@ -2311,9 +2519,9 @@ function readCheckoutIdentity() {
       dirtyPaths.push(entries[i].slice(3));
       if (/[RC]/.test(entries[i].slice(0, 2))) dirtyPaths.push(entries[++i]);
     }
-    return { commit, dirtyPaths };
+    return { root: cwd, commit, dirtyPaths: dirtyPaths.filter((path) => typeof path === "string" && !path.split("/").some((part) => part.startsWith(".env"))) };
   } catch {
-    return { commit: null, dirtyPaths: null };
+    return { root: fileURLToPath(new URL("../..", import.meta.url)), commit: null, dirtyPaths: null };
   }
 }
 
@@ -2333,8 +2541,9 @@ async function readCaptureIdentity(page) {
       reducedMotion: debug?.reducedMotion ?? matchMedia("(prefers-reduced-motion: reduce)").matches,
       worldGeneratedAtMs: debug?.worldGeneratedAtMs ?? null,
       admittedShipDetailIds: typeof debug?.admittedShipDetailIds === "function" ? debug.admittedShipDetailIds() : null,
-      canvasSize: canvas && box ? { width: canvas.width, height: canvas.height, cssWidth: box.width, cssHeight: box.height } : null,
+      canvasSize: canvas && box ? { width: canvas.width, height: canvas.height, cssWidth: box.width, cssHeight: box.height, backingPixels: canvas.width * canvas.height } : null,
       hour: debug?.wallClockHour ?? null,
+      camera: debug?.camera ?? null,
       date: date.getTime(),
     };
   });

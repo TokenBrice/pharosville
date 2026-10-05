@@ -3,6 +3,7 @@ import type { VisualCue } from "./world-types";
 
 /** Non-semantic scene additions audited beside, but excluded from, cue parity. */
 export const DECORATIVE_VISUAL_NOTES = {
+  hullProportions: "Hull dimensions use authored family proportions and bounded decorative ID variation; width, height and length do not measure safety grades, reserves, yield or NAV.",
   engawaForeground: "The engawa foreground, its framing timbers and near-bank planting carry no meaning; they compose the garden threshold without encoding world data.",
   engawaKoi: "The four koi carry no meaning: kohaku, gold, platinum and karasu, seen through the pond's water (fainter where it mirrors the sky at a grazing view), by daylight only; they displace the former reflection-basin koi without adding a draw. Reduced motion: the koi hold still.",
   dawnSkein: "The dawn skein carries no meaning: on a few autumn and winter dawns (the migration kō) nine to fifteen geese in a loose V cross high and far over the left of the sky and fade into the haze, clear of the tower, silently, as the day score's dawn-skein ritual. Reduced motion: no skein flies.",
@@ -60,7 +61,7 @@ export const LEGEND_MARK_ROWS = [
   {
     cueId: "cue.fleet.flight-to-quality",
     label: "Tenders working the big hulls",
-    text: "Small open boats standing off the largest ships and running in on them mean capital is concentrating into the biggest, most trusted stablecoins; how far in they carry is how pronounced the reading is. The boats are harbour craft, not stablecoins — they carry no rig, cannot be selected, and are not counted in the fleet. An empty sea means either no such rotation or no issuance feed, and the lighthouse Flight to quality row says which.",
+    text: "Small harbour tenders illustrate the reported flight-to-quality gauge beside the largest ships; the reading does not establish individual transfers. Tenders are not stablecoins and are not counted in the fleet. Empty water can mean no rotation or no feed; the lighthouse record distinguishes them.",
   },
   {
     cueId: "cue.lighthouse.signal-mast",
@@ -74,8 +75,8 @@ export const LEGEND_MARK_ROWS = [
   },
   {
     cueId: "cue.lighthouse.garden-month-record",
-    label: "The island records the month",
-    text: "A calm trailing month fills the island pines' cloud pads and deepens them to a dark moss green; a stressed month thins them and browns them toward straw. This is a slow 30-day record, not today's PSI state or an alarm. The maples and cherries follow the calendar, not the market. The lighthouse Garden record, 30d row names the reading and missing history leaves a neutral garden.",
+    label: "Month history",
+    text: "The shallow gravel furrow beside the rest-seat approach records up to 30 supplied UTC daily PSI closes: oldest left, newest right, score axis 0–100. Gaps and methodology edges are not joined. It is dated history, not a live alarm; moss, stones and sound are decorative. The lighthouse Garden record, 30d table supplies the exact dates and values.",
   },
   {
     cueId: "cue.lighthouse.lamp-status",
@@ -108,6 +109,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
   return [
     {
       id: "cue.world.epistemic-haze",
+      presentationTier: "keep-rest",
       target: { kind: "area" },
       primaryChannels: ["opacity", "position"],
       visual: "localized low height-fog haze over DEWS risk waters when Peg summary is not current, masked by the existing sea-region field inside the existing water material",
@@ -119,6 +121,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.dock.epistemic-haze",
+      presentationTier: "keep-rest",
       target: { kind: "dock" },
       primaryChannels: ["opacity", "position"],
       visual: "localized low height-fog haze over built quays when Chains is not current, applied through the existing quay materials",
@@ -130,6 +133,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.pigeonnier.notable-movers",
+      presentationTier: "inspection-only",
       target: { kind: "pigeonnier" },
       primaryChannels: ["motion", "position", "size"],
       visual: "one pigeon circling above each ship selected by the canonical notable-movers rule, plus a roof roost whose visible bird count follows today's fleet depeg-event count up to a stated cap of twelve",
@@ -141,28 +145,31 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.lighthouse.psi",
+      presentationTier: "keep-rest",
       target: { kind: "lighthouse" },
       primaryChannels: ["glow", "opacity", "shape"],
       visual: "lighthouse beacon and beam state; the far shore: how many of the three borrowed PSI ranges (the far range, the western ridge, the eastern ridge) stand clear of the air, with haze thinning on stable days and thickening under stress; and cloud aloft painted on the sky — a clear sky with two or three high strokes at BEDROCK, fair at STEADY, a high veil at TREMOR, a broken deck at FRACTURE, low cloud at CRISIS, overcast at MELTDOWN. The wall clock lights the clouds; cover never changes the hour's colours and is not weather or a forecast",
       sourceField: "stability.current.band",
       questionAnswered: "What is the overall Pharos Stability Index state?",
       failureState: "unlit/fogged lighthouse; with no current reading the sky holds a thin neutral veil and names no cover",
-      domEquivalent: "lighthouse detail Market stability row with PSI score, band, availability and separately labeled snapshot generation; Sky and far shore row; Trend, Composition and contributor list; the cover word in the now-line, plus accessibility ledger lighthouse, Far shore and Sky cover rows",
+      domEquivalent: "live Reading key Lighthouse entry with official PSI score, band, evidence and observation time; lighthouse detail Market stability row with PSI score, band, availability and separately labeled snapshot generation; Sky and far shore row; Trend, Composition and contributor list; the cover word in the now-line, plus accessibility ledger lighthouse, Far shore and Sky cover rows",
       reducedMotionEquivalent: "static beacon state, the far ranges at their band's visibility and the cloud field at its band's cover with no crossfade and no drift, and lighthouse detail PSI rows",
     },
     {
       id: "cue.lighthouse.lamp-status",
+      presentationTier: "keep-rest",
       target: { kind: "lighthouse" },
       primaryChannels: ["color", "motion", "opacity"],
       visual: "Harbor light: steady for all seven current, complete sources; cooler and slower for held, missing or coverage-qualified readings; dimmed only when every source explicitly reports a fetch error. Layered over the existing PSI beacon",
       sourceField: PHAROSVILLE_API_ENDPOINT_KEYS.map((key) => `freshness.${key}.state, freshness.${key}.coverage, freshness.${key}.reason`).join(", "),
       questionAnswered: "Are all seven readings complete and current, qualified, or explicitly unreachable?",
       failureState: "held geometry remains visible while the observed status updates immediately; lamp appearance eases independently",
-      domEquivalent: "lighthouse detail Harbor light row naming observed source status, separate Beam warmth and appearance easing over ~2 observations, plus the matching accessibility-ledger Harbor light clause",
+      domEquivalent: "lighthouse detail Harbor light row naming observed source status, separate Beam character and appearance easing over ~2 observations, plus the matching accessibility-ledger Harbor light clause",
       reducedMotionEquivalent: "static lamp temperature, intensity, and composed PSI character; no continuous sweep or flame motion is introduced",
     },
     {
       id: "cue.lighthouse.signal-mast",
+      presentationTier: "inspection-only",
       target: { kind: "lighthouse" },
       primaryChannels: ["shape", "size"],
       visual: "signal mast on the observatory terrace flying one small pennant for each of the twenty largest tracked stablecoins by circulating supply that is currently off peg (hoist of five), with a dark storm cone at the yardarm only when coins holding at least 1% of tracked supply are off peg; smaller coins off peg raise nothing on the mast, and with nothing to fly the yard is struck down along the pole",
@@ -174,17 +181,19 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.lighthouse.garden-month-record",
+      presentationTier: "keep-rest",
       target: { kind: "lighthouse" },
-      primaryChannels: ["color", "shape", "size"],
-      visual: "the island's evergreens — the five niwaki pines' cloud pads and the karikomi wave — deepen (never brighten) toward dark moss green and the pads fill out after a calm trailing month; prolonged stress thins the same pads and turns them toward straw brown. Deciduous trees keep the calendar and never carry the record",
-      sourceField: "stability.history[].score (trailing 30 days)",
-      questionAnswered: "Has the fleet spent the month in conditions where the garden could flourish, or has sustained stress weathered it?",
-      failureState: "neutral pine pads and karikomi; the Garden record, 30d clause in Worst band, 30d says there is no index history to grow from",
-      domEquivalent: "lighthouse detail Worst band, 30d row with a distinct Garden record, 30d clause plus the accessibility-ledger garden-record and slow-tempo clauses",
-      reducedMotionEquivalent: "identical static record — it changes only as daily history enters or leaves the trailing window and never animates as an alert",
+      primaryChannels: ["position", "shape"],
+      visual: "one non-emissive, fixed-width shallow gravel furrow beside the rest-seat approach; oldest left, newest right, linear score axis 0–100",
+      sourceField: "at most 30 supplied stability.history[] UTC daily closes, array-last-write-wins per day; no rolling average",
+      questionAnswered: "What were the supplied official PSI daily closes over the latest 30-day window?",
+      failureState: "neutral unmarked gravel bed when no closes are supplied; missing days and methodology edges remain unjoined",
+      domEquivalent: "lighthouse Worst band, 30d summary contains a distinct Garden record, 30d clause; shared Garden record, 30d table in its record disclosure and accessibility ledger, with exact dates, PSI, bands, methodology, source evidence and explicit gaps",
+      reducedMotionEquivalent: "identical static dated trace attached to the threshold root; no alert animation or sound",
     },
     {
       id: "cue.lighthouse.beam-dwell",
+      presentationTier: "inspection-only",
       target: { kind: "lighthouse" },
       primaryChannels: ["motion", "position"],
       visual: "the beacon's sweep slowing as it crosses the bearing of the ship contributing most to the Pharos Stability Index, so the light lingers there each revolution",
@@ -196,6 +205,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.ship.cross-bearing-buoy",
+      presentationTier: "inspection-only",
       target: { kind: "ship" },
       primaryChannels: ["shape", "position"],
       visual: "small black-and-white striped buoy with a crossed topmark riding alongside any ship whose DEX price check disagrees with the consensus feed",
@@ -207,6 +217,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.dock.size",
+      presentationTier: "inspection-only",
       target: { kind: "dock" },
       primaryChannels: ["size", "shape", "position"],
       visual: "shore-station footprint and type at a named rim cove",
@@ -222,6 +233,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
       // so its size reads as standing rather than as a supply gauge; the
       // rank rows carry the measured magnitude.
       id: "cue.dock.mole-monument",
+      presentationTier: "inspection-only",
       target: { kind: "dock" },
       primaryChannels: ["shape", "size", "position"],
       visual: "Ethereum stands alone at its own rim cove as a standalone stone mole: two unequal masonry arms running out from a landward civic hall under a deep-hipped patina-copper roof, and an open timber fire-watch frame — four posts and two braced stages holding its bell — the one structure in the harbour ring standing above its roofs",
@@ -237,6 +249,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
       // mask seats on it alone — no other mouth is joined into one
       // flattened lake.
       id: "cue.dock.mole-basin",
+      presentationTier: "inspection-only",
       target: { kind: "dock" },
       primaryChannels: ["shape", "motion"],
       visual: "the mole's arms enclose an 18 × 14 water void left as negative space, with the hall-side quay closing the bracket along its landward side, and the water field's one calm mask seats inside it — so the enclosed water lies as a still, sky-tinted mirror while every other harbor keeps its own ripple",
@@ -248,6 +261,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.ship.distance",
+      presentationTier: "keep-rest",
       target: { kind: "ship" },
       primaryChannels: ["position", "motion", "opacity"],
       visual: "ship placement from Calm Anchorage through Watch Breakwater, Alert Channel, Warning Shoals, and Danger Strait; the exact DEWS score is stated in the ship record, while the berth inside a water is anchorage packing, not score order",
@@ -259,6 +273,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.ship.motion",
+      presentationTier: "inspection-only",
       target: { kind: "ship" },
       primaryChannels: ["motion", "position", "opacity"],
       visual: "leg-based routes with 90–180 second logical legs and 600–1500 second rests; departures and homecomings gather in shared voyage windows and the harbour stands still between them; at anchor each hull lies bow to the settled wind and sheers on its rode, wider and quicker in risk order from calm through watch, alert and warning to danger; the whole anchorage swings together only when the wind shifts (at most twice a day, scheduled as an attention event); hulls nod to the passing swell, more in rougher named water as an echo of its surface, and heel a few degrees in a crossing gust — neither is a separate reading. The crossing (displacing every other arrival caption): at most twice an hour and at least fifteen minutes apart, one titan or heritage hull sails home straight through the empty mirror inlet with its reflection, and only while it is in view does it wear the one nameplate and caption, naming its harbour and — only when measured — its 24h supply direction",
@@ -270,32 +285,59 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.water.semantic-terrain",
+      presentationTier: "keep-rest",
       target: { kind: "area" },
       primaryChannels: ["color", "shape", "motion"],
-      visual: "seven low cedar boundary boards on paired pilings naming Calm Anchorage, Watch Breakwater, Alert Channel, Warning Shoals, Danger Strait, Ledger Mooring, and Wreck Shoal; their mixed-case serif lettering gains warm-pale emphasis when the named body is hovered or inspected. The water itself carries each body's state as its surface (K7): Calm and Ledger lie as sharp sky mirrors with no drawn lines, Watch prints long bending crest lines, Alert broken current streaks, Warning short chop dashes, and Danger is leaden — rough, dark and matte, dense steady lines — with the body's hue only a quiet second voice",
+      visual: "at most two collision-safe low stone boundary steles at rest with mixed-case serif lettering, chosen by body area and projected legibility, clear of the inlet and tower; hover/focus reveals other names. The five ordered static signatures are Calm mirror, Watch long bending ribbons, Alert paired interrupted strokes, Warning short oblique groups and Danger dense dark groups. Ledger horizontal singles and Wreck held silt are separate non-risk waters; hue is secondary",
       sourceField: "world-layout sea-body field; stress.signals[], pegSummary.coins[], stablecoinMeta.flags.navToken, cemeteryEntries[]",
       questionAnswered: "Which named water is this: calm, watch, alert, warning, danger, NAV-ledger, or wreck lifecycle water?",
       failureState: "named area detail and accessibility ledger remain available if a board or its lettering cannot render; the authoritative water field retains classification",
-      domEquivalent: "named area detail panel for all seven waters (including its Water surface row naming glass, ripple, streaks, chop or leaden) plus the accessibility ledger Named areas list with the same Water surface clause; the ledger is the redundant channel because canvas boards are aria-hidden",
-      reducedMotionEquivalent: "the same static cedar boundary boards with hover emphasis; the surface state (mirror sharpness, reflectivity and the engraved crest lines) is a static reading that needs no motion; the accessibility ledger remains the redundant channel",
+      domEquivalent: "live Reading key Water entries share RISK_SURFACE_SIGNATURES canonical names and real-render exemplar ids; named area detail panel for all seven waters including its Water surface row, plus the complete accessibility ledger Named areas list with the same Water surface clause; canvas boards are aria-hidden",
+      reducedMotionEquivalent: "the same static stone boundary steles; mirror sharpness, reflectivity and surface marks need no motion, and the accessibility ledger remains the redundant channel",
     },
     {
       // The one cue that reads the SIGN of the peg deviation. `cue.ship.distance`
       // spends its magnitude on which water the ship anchors in and collapses
       // the direction; a premium and a discount are opposite market facts.
       id: "cue.ship.peg-trim",
+      presentationTier: "inspection-only",
       target: { kind: "ship" },
       primaryChannels: ["position", "shape"],
       visual: "the hull lifting clear of the water on coins trading above par and settling low and heavy on coins trading below it, in two steps at the same 50 and 200 bps the risk-water placement uses; an even keel below 50 bps and on any stale peg row",
       sourceField: "pegSummary.coins[].currentDeviationBps (sign), freshness.pegSummary.state",
-      questionAnswered: "Is this coin off peg because demand is running ahead of it, or because holders are redeeming out of it?",
+      questionAnswered: "Is the current signed peg deviation above or below par, without inferring its cause?",
       failureState: "even keel — which covers at-par, under the 50 bps gate, and no fresh peg reading alike; the Peg deviation clause in Currently separates the three",
       domEquivalent: "ship detail Currently row with a full signed Peg deviation clause naming direction and actual hull trim beside Evidence status and Evidence/source, plus the matching accessibility-ledger peg-deviation clause",
       reducedMotionEquivalent: "identical — the trim is how the ship floats, not something she does, so there is nothing to freeze",
     },
     {
+      id: "cue.ship.formation",
+      presentationTier: "inspection-only",
+      target: { kind: "ship" },
+      primaryChannels: ["position", "shape"],
+      visual: "Maker consorts share the flagship berth; own distress is a separate signal",
+      sourceField: "maker squad membership; pegSummary.coins[], stress.signals[]",
+      questionAnswered: "Which ships share a formation, and what is each member's own risk evidence?",
+      failureState: "inherited berth never certifies a member's own safety",
+      domEquivalent: "ship detail Formation and Currently rows plus ledger own-distress clauses",
+      reducedMotionEquivalent: "static shared berths and own-distress flag",
+    },
+    {
+      id: "cue.ship.identity",
+      presentationTier: "keep-rest",
+      target: { kind: "ship" },
+      primaryChannels: ["shape", "color"],
+      visual: "branded mon or initials and issuer livery on complete sails",
+      sourceField: "stablecoin identity and registered branding",
+      questionAnswered: "Which stablecoins are the leading sails?",
+      failureState: "deterministic peg-family livery; exact identity remains in the record",
+      domEquivalent: "ship detail title and ledger name, symbol and livery clause",
+      reducedMotionEquivalent: "the same static sail identity",
+    },
+    {
       // Reliable class reading is inspect-zoom only; fleet-zoom analysis belongs in the Class row and ledger.
       id: "cue.ship.hull",
+      presentationTier: "inspection-only",
       target: { kind: "ship" },
       primaryChannels: ["shape", "size"],
       visual: "one of six East-Asian hull-family silhouettes: broad bezaisen carrier, needle kobaya runner, paired-hull council boat, long covered takasebune barge, battened junk fan, or round deep bullion scow",
@@ -307,6 +349,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.ship.issuance-work",
+      presentationTier: "inspection-only",
       target: { kind: "ship" },
       primaryChannels: ["position", "shape", "motion"],
       visual: "current full-window issuance has categorical aboard, ashore or balanced opposing lighters. Only materiality-eligible coins get moving work, capped at the stable top three by gross at overview; other activity stays static. The policy is a declared illustration rule, not financial methodology. Largest-event lift is static, not a replay; hull height remains peg-only",
@@ -318,17 +361,19 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.ship.scale",
+      presentationTier: "keep-rest",
       target: { kind: "ship" },
       primaryChannels: ["size", "shape"],
       visual: "compressed ship scale tier",
       sourceField: "stablecoins.peggedAssets[].circulating",
       questionAnswered: "Roughly how large is the stablecoin supply without letting outliers dominate the map?",
       failureState: "small default scale",
-      domEquivalent: "ship detail Market cap row with fleet rank and share-of-fleet, Class row with size tier, plus the matching accessibility-ledger cap and class clauses",
+      domEquivalent: "live Reading key Sails entry names the top-three supply leaders with exact ranks and the qualitative, not proportional compressed-scale caveat; ship detail Market cap row with fleet rank and share-of-fleet, Class row with size tier, plus the matching accessibility-ledger cap and class clauses",
       reducedMotionEquivalent: "same static compressed size tier",
     },
     {
       id: "cue.ship.nav-signal",
+      presentationTier: "inspection-only",
       target: { kind: "ship" },
       primaryChannels: ["shape", "color"],
       visual: "blue signal square with a cream pennant beside the mast on NAV-priced ledger assets",
@@ -340,6 +385,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.ship.yield-signal",
+      presentationTier: "inspection-only",
       target: { kind: "ship" },
       primaryChannels: ["shape", "color"],
       visual: "green signal square with a gold pennant beside the mast on yield-bearing coins without NAV pricing",
@@ -351,6 +397,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.ship.safety-watch",
+      presentationTier: "inspection-only",
       target: { kind: "ship" },
       primaryChannels: ["shape", "color"],
       visual: "checkered safety-watch square on ships with D or F safety grades",
@@ -362,6 +409,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.dock.congestion",
+      presentationTier: "inspection-only",
       target: { kind: "dock" },
       primaryChannels: ["shape", "size"],
       visual: "the station's single works-prop cargo stack occupies the quay edge when chain backing is narrowing or concentrated",
@@ -373,6 +421,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.dock.quay-condition",
+      presentationTier: "inspection-only",
       target: { kind: "dock" },
       primaryChannels: ["shape", "color"],
       visual: "the chain health-factor average dresses healthy station masonry in clean granite and trimmed lanterns, while weak stations show darker cracked masonry and one leaning bollard",
@@ -386,6 +435,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
       // The WEEKLY flow reading, against the cargo tide's daily one. Kept quiet
       // on purpose: supply growing or shrinking is a condition, not a warning.
       id: "cue.world.supply-tide",
+      presentationTier: "inspection-only",
       target: { kind: "lighthouse" },
       primaryChannels: ["position", "color", "size"],
       visual: "a gently sloping tidal flat of wet sand beside the island's south-east beach (inside the island's non-attributed halo, outside the empty inlet): the week's stablecoin supply stands the water high over it when supply grew and draws it back to bare the flat when supply fell, measured against a standing tide-stone on the slack-water line; the excursion is compressed against a 2% full scale so an ordinary week still moves the waterline. A broken line of dark weed marks where the water stood at the visitor's last visit when it has moved at least 0.15 of full scale since. It displaces the quay-wall tide-line plates, the island-rock strandline and datum notch, and the lighthouse terrace's PSI salt courses",
@@ -397,6 +447,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.dock.cargo-tide",
+      presentationTier: "inspection-only",
       target: { kind: "dock" },
       primaryChannels: ["position", "shape", "size"],
       visual: "current complete-window estimated allocations stand canvas-topped cargo aboard for net minting, ashore for redemption and one aboard plus one ashore for balanced gross activity; one-sided run length is capped at six crates and does not replay transactions",
@@ -414,17 +465,19 @@ export function buildVisualCueRegistry(): VisualCue[] {
       // harbour. Both are drawn from the same payload and neither repeats the
       // other's statement.
       id: "cue.fleet.flight-to-quality",
+      presentationTier: "inspection-only",
       target: { kind: "lighthouse" },
       primaryChannels: ["motion", "position"],
       visual: "small open tenders attending the largest-market-cap hulls while the gauge holds: they come in off open water, lie on station under a hull for minutes at a time, then draw back out and wait their turn. The reported intensity sets HOW MANY of a hull's boats are lying in at any moment, and how close in they lie — a weak reading keeps one or two attending from well out, a strong one has nearly the whole flotilla gathered close under the hull. They carry no rig, no wake and no lantern, are unselectable, and are counted nowhere in the fleet — they are harbour craft, not stablecoins",
       sourceField: "mintBurn.gauge.flightToQuality, mintBurn.gauge.flightIntensity (drawn on the largest ships by stablecoins.peggedAssets[].circulating)",
-      questionAnswered: "Is capital leaving the smaller and riskier stablecoins and concentrating into the largest, most trusted ones?",
+      questionAnswered: "Does the reported flight-to-quality gauge indicate concentration into large stablecoins, without inferring individual transfers?",
       failureState: "empty water — nothing is drawn at all, which covers both 'the gauge reports no such rotation' and 'no issuance feed arrived'; the lighthouse 'Flight to quality' row separates the two, and is absent entirely when the gauge never landed",
       domEquivalent: "lighthouse detail 'Flight to quality' row naming the state and the intensity outright, plus the fleet-issuance accessibility-ledger line above the dock list",
       reducedMotionEquivalent: "the flotilla held static as it stands at any instant — the reported intensity's share of each hull's boats lying on station close under it, the rest waiting offshore, bows out. Deterministic, with no clock and no movement, and both halves of the reading (how many attend, how close in they lie) survive the freeze",
     },
     {
       id: "cue.ship.age-patina",
+      presentationTier: "inspection-only",
       target: { kind: "ship" },
       primaryChannels: ["color", "shape"],
       visual: "even weathered-wood value shift across the hull, softly worn edge highlights, and subtle verdigris on small fittings; sail cloth and issuer hue are untouched, and the treatment has no bands or streaks",
@@ -436,6 +489,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.ship.zone-weathering",
+      presentationTier: "inspection-only",
       target: { kind: "ship" },
       primaryChannels: ["color", "shape"],
       visual: "darkened waterline band and pale salt streaks on hulls holding Warning (light wear) or Danger (heavy wear) placements; Calm/Watch/Alert/Ledger hulls stay clean",
@@ -447,17 +501,19 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.area.danger-squall",
+      presentationTier: "retired",
       target: { kind: "area" },
       primaryChannels: ["color", "motion"],
-      visual: "world-space rain pocks — small rings dimpling the water — masked by the sea region-id field to DANGER water only, with the shared low mist veil and the region's leaden surface and heavier foam/chop; the sky gradient also stages darker as fleet threat climbs",
-      sourceField: "pegSummary/stress DEWS band on areas (band === DANGER); maxActiveThreatLevel for the sky stage",
-      questionAnswered: "Which named water is in active DANGER right now?",
-      failureState: "no squall; the area detail atmosphere row still names the band",
-      domEquivalent: "area detail and accessibility-ledger atmosphere rows name the local band and chop; lightning is described only as a fleet-storm capability because its active slots come from global weather",
-      reducedMotionEquivalent: "frozen time-zero squall frame (pocks static, wash identical)",
+      visual: "legacy local rain pocks on Danger water; their analytical meaning is retired and the risk-bound effect is removed by the water owner",
+      sourceField: "legacy sea region-id DANGER mask (retired mapping; sky character is PSI-owned)",
+      questionAnswered: "No separate analytical reading; named risk water and its surface own risk classification.",
+      failureState: "no pocks never certifies calm; exact area band remains in the detail and ledger",
+      domEquivalent: "area detail and accessibility-ledger Water surface and Atmosphere rows name risk water separately from PSI-owned sky",
+      reducedMotionEquivalent: "no motion-dependent meaning; static named-water detail and ledger remain complete",
     },
     {
       id: "cue.grave.lifecycle",
+      presentationTier: "inspection-only",
       target: { kind: "grave" },
       primaryChannels: ["shape", "size", "position"],
       visual: "the stone garden on Wreck Shoal's south shore: one unmarked set stone per dead coin in a raked gravel bed, sized by peak market cap (log), gathered by cause family into odd islands — reclining stones where the peg broke (west), arching where a counterparty failed (centre), flat where the coin was wound down (east); no cause colour",
@@ -469,6 +525,7 @@ export function buildVisualCueRegistry(): VisualCue[] {
     },
     {
       id: "cue.grave.anniversary-lantern",
+      presentationTier: "inspection-only",
       target: { kind: "grave" },
       primaryChannels: ["glow"],
       visual: "one stone lantern at the stone garden's water edge, dark every night but the first evening of a month in which coins fell, when it is kindled with the lamps and burns until dawn",

@@ -156,25 +156,16 @@ describe("camera intent helpers", () => {
     }
   });
 
-  it("holds the completed arrival destination through subsequent camera frames", () => {
+  it("shows the complete rest immediately and holds it without an intro clock", () => {
     const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
     const viewport = { x: 1200, y: 640 };
     const destination = defaultCamera({ width: viewport.x, height: viewport.y, map: world.map });
-    const onComplete = vi.fn();
     act(() => {
       result.current.canvasSizeRef.current = viewport;
       result.current.setCamera(destination);
-      result.current.startArrival(onComplete);
-      result.current.stepCamera(1_000, new Map());
     });
-    // K17: the arrival opens under the rest ShotSpec, the eye 3 u lower in thick air.
-    const opening = result.current.cameraRef.current!;
-    expect(opening.rest).toEqual(destination.rest);
-    expect(opening.shot?.view.eye.y).toBeCloseTo(destination.rest!.view.eye.y - 3, 9);
-    act(() => { result.current.stepCamera(10_001, new Map()); });
     expect(result.current.cameraRef.current).toEqual(destination);
-    expect(onComplete).toHaveBeenCalledTimes(1);
-    for (const time of [10_017, 10_033, 11_000, 15_000]) {
+    for (const time of [0, 16, 200, 1_000, 9_000]) {
       act(() => {
         const frame = result.current.stepCamera(time, new Map());
         expect(frame.camera).toEqual(destination);
@@ -182,26 +173,31 @@ describe("camera intent helpers", () => {
         expect(frame.cameraIntentActive).toBe(false);
       });
     }
-    expect(onComplete).toHaveBeenCalledTimes(1);
   });
 
-  it("lands a resized arrival on the new viewport's rest ShotSpec", () => {
+  it("re-solves the immediate rest at a resized viewport without an intro offset", () => {
+    const before = { x: 1200, y: 640 };
+    const after = { x: 720, y: 900 };
+    const rest = defaultCamera({ width: before.x, height: before.y, map: world.map });
+    const resized = resizeCamera(rest, after, world.map);
+    expect(resized).toEqual(defaultCamera({ width: after.x, height: after.y, map: world.map }));
+    expect(resized.shot).toBeUndefined();
+  });
+
+  it("accepts immediate camera input without a later intro reclaiming it", () => {
     const { result } = renderHook(() => useCanvasResizeAndCamera(makeCanvasInput()));
-    const onComplete = vi.fn();
+    const viewport = { x: 1200, y: 640 };
+    const rest = defaultCamera({ width: viewport.x, height: viewport.y, map: world.map });
     act(() => {
-      result.current.canvasSizeRef.current = { x: 1200, y: 640 };
-      result.current.setCamera(defaultCamera({ width: 1200, height: 640, map: world.map }));
-      result.current.startArrival(onComplete);
-      expect(result.current.stepCamera(1_000, new Map()).airVeil).toBeCloseTo(1.8, 9);
+      result.current.canvasSizeRef.current = viewport;
+      result.current.setCamera(rest);
+      result.current.handleToolbarPan({ x: 40, y: 0 });
+      for (let frame = 0; frame < 600; frame += 1) result.current.stepCamera(frame * 16.67, new Map());
     });
-    // A tall window mid-rise re-solves the seat (the tall eye), and the rise ends on it.
-    act(() => {
-      result.current.canvasSizeRef.current = { x: 720, y: 900 };
-      result.current.stepCamera(5_000, new Map());
-      result.current.stepCamera(10_001, new Map());
-    });
-    expect(result.current.cameraRef.current).toEqual(defaultCamera({ width: 720, height: 900, map: world.map }));
-    expect(onComplete).toHaveBeenCalledTimes(1);
+    const moved = result.current.cameraRef.current;
+    expect(moved).not.toEqual(rest);
+    act(() => { result.current.stepCamera(15_000, new Map()); });
+    expect(result.current.cameraRef.current).toEqual(moved);
   });
 
   it("damps camera intent toward the target without overshooting", () => {

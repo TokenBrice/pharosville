@@ -28,7 +28,6 @@ import { gardenMoonPhrase } from "./sky-almanac";
 
 const usd = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1, style: "percent" });
-const ELEVATED_DEWS_BANDS = new Set<DewsAreaBand>(["ALERT", "WARNING", "DANGER"]);
 
 
 export interface NowCaptionTransition {
@@ -272,18 +271,9 @@ export function shipAgeLedgerClause(node: ShipNode): string {
   return `age patina ${shipAgeDetailLabel(node)}`;
 }
 
-export function lighthouseBeamWarmCueLabel(areas?: readonly AreaNode[]): string {
-  if (!areas) {
-    return "Beam warms amber when active DEWS reaches ALERT, WARNING, or DANGER; Fleet PSI cue (not a per-zone reading).";
-  }
-  const elevatedAreas = areas.filter((area) => area.band && ELEVATED_DEWS_BANDS.has(area.band) && (area.count ?? 0) > 0);
-  if (elevatedAreas.length === 0) {
-    return "Beam at standard warmth; no active elevated DEWS stablecoins; Fleet PSI cue (not a per-zone reading).";
-  }
-  const areaList = elevatedAreas
-    .map((area) => `${area.label} ${area.band}${area.count != null ? ` (${pluralize(area.count, "stablecoin")})` : ""}`)
-    .join(", ");
-  return `Beam warming amber under elevated DEWS: ${areaList}. Fleet PSI cue (not a per-zone reading).`;
+/** PSI character and source qualification are separate, even in one lamp. */
+export function lighthouseBeamCharacterLabel(): string {
+  return "Beacon and beam character follow the Pharos Stability Index (PSI); Harbor light separately qualifies all seven sources. Warmth alone does not decode PSI.";
 }
 
 function lampAsOfLabel(generatedAt: number | null | undefined): string {
@@ -312,30 +302,19 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-// Per-band atmospheric descriptor used by the area detail panel. Cloud and
-// chop wording escalates with the DEWS band. Lightning is fleet-wide and
-// time-slotted, so an area band may describe the capability but never claim an
-// active flash.
-// C4 observatory voice for named DEWS waters; ships berth here by band.
+// Named risk waters describe their local surfaces; the sky belongs to PSI.
 const AREA_NARRATIVES: Record<DewsAreaBand, string> = {
   CALM: "steady water, where ships with clean peg evidence ride at anchor.",
   WATCH: "early-warning water, where the signals worth watching gather.",
   ALERT: "a channel under building pressure, where elevated alerts take their berth.",
   WARNING: "shallow, hazardous shoals, where serious peg stress runs aground.",
-  DANGER: "storm water, where live depegs and critical risk ride out the weather.",
+  DANGER: "critical-risk water, where live depegs and critical risk take their berth.",
 };
 
-const ATMOSPHERE_DESCRIPTORS: Record<DewsAreaBand, string> = {
-  CALM: "Clear sky, calm sea",
-  WATCH: "Thin clouds, light chop",
-  ALERT: "Broken clouds, moderate chop",
-  WARNING: "Thickening clouds, rough sea, lightning possible at the fleet storm peak",
-  DANGER: "Heavy storm clouds, heavy chop, lightning possible at the fleet storm peak",
-};
-
-function atmosphereForArea(area: AreaNode): string {
-  if (!area.band) return "Calm waters; no DEWS atmosphere modulation";
-  return `${area.label} — ${area.band}, ${ATMOSPHERE_DESCRIPTORS[area.band]}`;
+/** Shared verbatim by area details and the accessibility ledger. */
+export function atmosphereForArea(area: AreaNode): string {
+  const surface = waterSurfaceForArea(area);
+  return `${surface ?? "No risk-surface classification"}; sky and far-shore clarity follow fleet PSI, not this water's DEWS band`;
 }
 
 // K7 (Hour-Print W3.3): the water itself carries each body's reading as the
@@ -346,7 +325,7 @@ const WATER_SURFACE_BY_ZONE: Record<ShipWaterZone, string> = {
   watch: "Ripple — long, slowly bending crest lines",
   alert: "Streaks — broken current lines along the channel",
   warning: "Chop — short broken dashes over pale shoals",
-  danger: "Leaden — dense steady lines on dark, matte water that mirrors little, pocked by rain",
+  danger: "Leaden — dense steady lines on dark, matte water that mirrors little",
   ledger: "Glass — a flat, faintly striated mirror, no drawn lines",
 };
 
@@ -760,11 +739,12 @@ export function flightToQualityLabel(
   issuance: PharosVilleWorld["fleetIssuance"] | undefined,
 ): string | null {
   if (!issuance) return null;
+  if (issuance.flightToQuality === null) return "Unavailable — incomplete USD valuation; no tenders on the water";
   if (!issuance.flightToQuality) return "None reported — no tenders on the water";
-  const intensity = Number.isFinite(issuance.flightIntensity)
-    ? Math.round(Math.abs(issuance.flightIntensity))
-    : 0;
-  return `Active — capital rotating toward the strongest issuers (intensity ${intensity} of 100); tenders run in on the largest hulls`;
+  const intensity = issuance.flightIntensity !== null && Number.isFinite(issuance.flightIntensity)
+    ? `${Math.round(Math.abs(issuance.flightIntensity))} of 100`
+    : "unavailable";
+  return `Active — capital rotating toward the strongest issuers (intensity ${intensity}); tenders run in on the largest hulls`;
 }
 
 export function detailForLighthouse(
@@ -797,7 +777,7 @@ export function detailForLighthouse(
       { label: "Snapshot as of", value: generatedAt != null && Number.isFinite(generatedAt) && generatedAt > 0 ? new Date(generatedAt).toISOString() : "Unavailable" },
       ...(trend ? [{ label: "Trend", value: trend }] : []),
       ...(composition ? [{ label: "Composition", value: composition }] : []),
-      { label: "Beam warmth cue", value: lighthouseBeamWarmCueLabel() },
+      { label: "Beam character", value: lighthouseBeamCharacterLabel() },
       { label: "Harbor light", value: lighthouseLampStatusLabel(freshness, generatedAt) },
       ...(beamDwell ? [{ label: "Beam bearing", value: beamDwell }] : []),
       { label: "Worst band, 30d", value: highWaterMarkLabel(node.highWaterMark) },
@@ -824,6 +804,7 @@ export function detailForLighthouse(
         }
       : {}),
     ...(node.longRecord ? { longRecord: node.longRecord } : {}),
+    ...(node.gardenMonthRecord ? { gardenMonthRecord: node.gardenMonthRecord } : {}),
   };
 }
 
@@ -854,8 +835,8 @@ export function backingDiversityLabel(backingDiversity: DockNode["backingDiversi
 }
 
 /** `+$7.2M` / `-$3.0M` — sign first, because the sign IS the reading here. */
-function signedCompactUsd(value: number): string {
-  if (!Number.isFinite(value)) return "unavailable";
+function signedCompactUsd(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "unavailable";
   const magnitude = formatCompactUsd(Math.abs(value));
   return `${value < 0 ? "-" : "+"}${magnitude}`;
 }
@@ -895,7 +876,7 @@ export function cargoTideLabel(tide: DockNode["cargoTide"]): string | null {
       : "Unavailable — no issuance feed";
     return `${reading}${disclosure}`;
   }
-  const volumes = `mint ${formatCompactUsd(tide.mintVolumeUsd)}, burn ${formatCompactUsd(tide.burnVolumeUsd)}`;
+  const volumes = `mint ${formatCompactUsd(tide.mintVolumeUsd)}, burn ${formatCompactUsd(tide.burnVolumeUsd)}${tide.completeWindow ? "" : " (known-valuation subtotal lower bounds)"}`;
   const allocationBasis = "Estimated 24h allocation by held supply across the reported scope: ";
   const reading = tide.direction === "minting" ? `${signedCompactUsd(tide.netFlowUsd)} minting — ${volumes}`
     : tide.direction === "burning" ? `${signedCompactUsd(tide.netFlowUsd)} burning — ${volumes}`

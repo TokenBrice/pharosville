@@ -1,12 +1,11 @@
 import { clamp, smoothstep } from "../motion-utils";
-import type { ShipMotionRoute, ShipWaterPath } from "../motion-types";
+import type { ShipMotionRoute } from "../motion-types";
 import type { ShipWaterZone } from "../world-types";
 import type { GardenWindShift } from "../garden-attention-scheduler";
 import { GARDEN_DEFAULT_WIND_X, GARDEN_DEFAULT_WIND_Z } from "../weather";
 import { isWaterTileKind, MAX_TILE_X, MAX_TILE_Y, tileKindAt } from "../world-layout";
 import { isGardenObstacleTile } from "../garden-water-exclusion";
 import { isSeawallBarrierTileXY } from "../seawall";
-import { sampleShipWaterPathInto as sampleWaterPathInto } from "../motion-water";
 import { clampMotionTileInto } from "./shared";
 
 /**
@@ -83,7 +82,15 @@ export function anchorSwingLagSeconds(anchor: { x: number; y: number }): number 
   return ANCHOR_SWING_MAX_LAG_SECONDS * clamp((projection - LAG_PROJECTION_MIN) / LAG_PROJECTION_SPAN, 0, 1);
 }
 
-/** Settled-wind offset (radians from the default bearing) at an anchor. */
+/**
+ * Settled-wind offset (radians from the default bearing) at an anchor.
+ *
+ * Each shift eases from the bearing the hull is ACTUALLY lying to, not from
+ * the shift's authored `fromOffsetRad`: when those disagree (the previous
+ * shift ended elsewhere, or several shifts overlap) starting from the authored
+ * value stepped the whole fleet's bearing the frame a shift opened, swinging
+ * every anchored hull by most of its rode in one sample.
+ */
 export function anchorageBearingOffsetRad(
   shifts: readonly GardenWindShift[] | undefined,
   timeSeconds: number,
@@ -98,7 +105,7 @@ export function anchorageBearingOffsetRad(
     const progress = (local - shift.startSeconds) / ANCHOR_SWING_SECONDS;
     offset = progress >= 1
       ? shift.toOffsetRad
-      : shift.fromOffsetRad + (shift.toOffsetRad - shift.fromOffsetRad) * smootherstep(progress);
+      : offset + shortestAngleDelta(offset, shift.toOffsetRad) * smootherstep(progress);
   }
   return offset;
 }
@@ -122,16 +129,6 @@ function isSafeRideTile(x: number, y: number): boolean {
     && !isSeawallBarrierTileXY(x, y);
 }
 
-const pathPointScratch = { x: 0, y: 0 };
-const pathHeadingScratch = { x: 0, y: 0 };
-
-function pathHeadingAngle(path: ShipWaterPath | undefined, progress: number): number | null {
-  if (!path || path.totalLength <= 0) return null;
-  sampleWaterPathInto(path, progress, pathPointScratch, pathHeadingScratch);
-  if (pathHeadingScratch.x === 0 && pathHeadingScratch.y === 0) return null;
-  return Math.atan2(pathHeadingScratch.y, pathHeadingScratch.x);
-}
-
 export interface AnchorRideInput {
   route: ShipMotionRoute;
   zone: ShipWaterZone;
@@ -140,10 +137,15 @@ export interface AnchorRideInput {
   /** Seconds since the rest began, and its whole length. */
   elapsedSeconds: number;
   windowSeconds: number;
-  /** The voyage that brought the hull here (its end heading is the entry heading). */
-  entryPath?: ShipWaterPath | undefined;
-  /** The voyage that takes it away (its first heading is the exit heading). */
-  exitPath?: ShipWaterPath | undefined;
+}
+
+/** The heading a hull lies to at `anchor`: settled wind plus its band's sheer.
+ * Voyages blend onto and off this at their own ends, so the anchored pose
+ * never depends on which rest window a sample falls in. */
+export function anchorLyingAngleRad(route: ShipMotionRoute, zone: ShipWaterZone, timeSeconds: number, anchor: { x: number; y: number }): number {
+  const sheer = ANCHOR_SHEER_BY_ZONE[zone];
+  return anchorRideAngle(route, timeSeconds, anchor)
+    + sheer.amplitudeRad * Math.sin(TWO_PI * timeSeconds / sheer.periodSeconds + sheerPhase(route));
 }
 
 /**
@@ -157,30 +159,21 @@ export function writeAnchorRideInto(
   heading: { x: number; y: number },
 ): void {
   const { route, timeSeconds, anchor } = input;
-  const rideAngle = anchorRideAngle(route, timeSeconds, anchor);
   const sheer = ANCHOR_SHEER_BY_ZONE[input.zone];
   const phase = TWO_PI * timeSeconds / sheer.periodSeconds + sheerPhase(route);
-  let angle = rideAngle + sheer.amplitudeRad * Math.sin(phase);
+  const angle = anchorLyingAngleRad(route, input.zone, timeSeconds, anchor);
 
   const elapsed = Math.max(0, input.elapsedSeconds);
   const remaining = Math.max(0, input.windowSeconds - elapsed);
-  let rodeScale = 1;
-  if (elapsed < ANCHOR_SETTLE_SECONDS) {
-    const entryAngle = pathHeadingAngle(input.entryPath, 0.999);
-    if (entryAngle !== null) {
-      const settled = smootherstep(elapsed / ANCHOR_SETTLE_SECONDS);
-      angle = entryAngle + shortestAngleDelta(entryAngle, angle) * settled;
-      rodeScale = Math.min(rodeScale, settled);
-    }
-  }
-  if (remaining < ANCHOR_SETTLE_SECONDS) {
-    const exitAngle = pathHeadingAngle(input.exitPath, 0.001);
-    if (exitAngle !== null) {
-      const held = smootherstep(remaining / ANCHOR_SETTLE_SECONDS);
-      angle = exitAngle + shortestAngleDelta(exitAngle, angle) * held;
-      rodeScale = Math.min(rodeScale, held);
-    }
-  }
+  // The ride angle is the settled wind plus the sheer, and nothing else. It
+  // used to be pinned to the entry voyage's last heading and the exit voyage's
+  // first, so the pose depended on WHICH rest window a sample fell in: at a
+  // window boundary the reference swapped and the hull flipped in one frame.
+  // The voyages now meet this wind-lying heading from their own side.
+  const rodeScale = Math.min(
+    smootherstep(elapsed / ANCHOR_SETTLE_SECONDS),
+    smootherstep(remaining / ANCHOR_SETTLE_SECONDS),
+  );
 
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
@@ -190,8 +183,49 @@ export function writeAnchorRideInto(
   // heading, surging a little at the sheer's rhythm (a quarter-phase lead).
   const surge = ANCHOR_SURGE_TILES * (sheer.amplitudeRad / ANCHOR_SHEER_BY_ZONE.danger.amplitudeRad) * Math.cos(phase);
   const reach = (ANCHOR_RODE_TILES + surge) * smoothstep(rodeScale);
-  let safeScale = 1;
-  if (!isSafeRideTile(anchor.x - cos * reach, anchor.y - sin * reach)) safeScale = 0.5;
-  if (!isSafeRideTile(anchor.x - cos * reach * safeScale, anchor.y - sin * reach * safeScale)) safeScale = 0;
-  clampMotionTileInto(anchor.x - cos * reach * safeScale, anchor.y - sin * reach * safeScale, tile);
+  // The rode is limited by the water around the ANCHOR, measured as a DISTANCE
+  // rather than a pass/fail test: a quantised direction-by-direction check is a
+  // step function of the anchor, and the anchor itself interpolates during a
+  // risk tack-out, so the hull snapped by its whole rode when that step fell.
+  const rode = Math.min(reach, safeRodeReach(anchor));
+  clampMotionTileInto(anchor.x - cos * rode, anchor.y - sin * rode, tile);
+}
+
+const RODE_DIRECTIONS = 8;
+const RODE_MARCH_STEPS = 4;
+const RODE_REFINEMENTS = 5;
+/** Keep the hull's own bulk off the shore the clearance measurement found. */
+const RODE_SHORE_ALLOWANCE = 0.08;
+
+/**
+ * Distance from `anchor` to the nearest unsafe water, marched along a ring of
+ * directions and refined between samples, so it varies continuously with the
+ * anchor instead of jumping when one direction flips. No memo: the value is a
+ * function of a position that moves while a hull eases onto a new anchorage.
+ */
+function safeRodeReach(anchor: { x: number; y: number }): number {
+  const full = ANCHOR_RODE_TILES + ANCHOR_SURGE_TILES + RODE_SHORE_ALLOWANCE;
+  let clearance = full;
+  for (let direction = 0; direction < RODE_DIRECTIONS; direction += 1) {
+    const angle = TWO_PI * direction / RODE_DIRECTIONS;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    let safe = 0;
+    let blocked = -1;
+    for (let step = 1; step <= RODE_MARCH_STEPS; step += 1) {
+      const distance = full * step / RODE_MARCH_STEPS;
+      if (distance > clearance) break;
+      if (isSafeRideTile(anchor.x + dx * distance, anchor.y + dy * distance)) { safe = distance; continue; }
+      blocked = distance;
+      break;
+    }
+    if (blocked < 0) continue;
+    for (let refinement = 0; refinement < RODE_REFINEMENTS; refinement += 1) {
+      const middle = (safe + blocked) / 2;
+      if (isSafeRideTile(anchor.x + dx * middle, anchor.y + dy * middle)) safe = middle;
+      else blocked = middle;
+    }
+    clearance = Math.min(clearance, safe);
+  }
+  return Math.max(0, clearance - RODE_SHORE_ALLOWANCE);
 }

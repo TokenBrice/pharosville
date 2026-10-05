@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
   Matrix4,
   MeshBasicMaterial,
@@ -95,6 +96,38 @@ describe("createGardenWakeBatch", () => {
       batch.bows.getMatrixAt(3 * WAKE_BOW_QUADS + index, matrix);
       expect(matrixScaleLengthSq()).toBe(0);
     }
+  });
+
+  it("keeps low-tier mover intensity ordered while static hulls produce no trails", () => {
+    const batch = createGardenWakeBatch(4, new MeshBasicMaterial(), new PlaneGeometry());
+    const matrix = new Matrix4();
+    let previousLength = 0;
+    for (const intensity of [0.1, 0.3, 0.6, 1]) {
+      batch.setShip(0, pose, true, intensity * 0.8);
+      batch.trails.getMatrixAt(0, matrix);
+      const length = new Vector3().setFromMatrixColumn(matrix, 0).length();
+      expect(length).toBeGreaterThan(previousLength);
+      previousLength = length;
+    }
+    batch.setShip(0, pose, false, 0);
+    batch.trails.getMatrixAt(0, matrix);
+    expect(new Vector3().setFromMatrixColumn(matrix, 0).length()).toBe(0);
+    batch.dispose();
+  });
+
+  it("uses the same motion authority at all tiers without selection-only wake truth", () => {
+    const source = readFileSync(new URL("./renderer-ship-frame.ts", import.meta.url), "utf8");
+    const gate = source.slice(source.indexOf("const makingWay"), source.indexOf("// Low tiers"));
+    expect(gate.match(/sample\?\.state === "([^"]+)"/g)).toEqual([
+      'sample?.state === "sailing"', 'sample?.state === "arriving"', 'sample?.state === "departing"',
+    ]);
+    expect(gate).not.toMatch(/moored|risk-drift|idle/);
+    expect(source).toContain("stampWakeField && makingWay && heading && wakeIntensity > 0");
+    expect(source).toContain("fleetFootprint.hull.clippedArea");
+    expect(source).toContain("Math.min(1, Math.max(0, wakeIntensity)) * wakeResolution");
+    expect(source).not.toContain("gardenWakeDetailVisible");
+    expect(source).not.toContain("wakeIntensityBase *");
+    expect(source).not.toContain('sample?.segment?.kind === "dock-dwell"');
   });
 
   it("marks both instance buffers for upload once writes are committed", () => {

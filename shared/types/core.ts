@@ -327,11 +327,11 @@ export type FilterTag =
   | "grade-le-d";
 
 export type PriceConfidence = "high" | "single-source" | "low" | "fallback";
-export type PriceObservedAtMode = "upstream" | "local_fetch" | "unknown";
+export type PriceObservedAtMode = "upstream" | "local_fetch" | "unknown" | "nominal_reference";
 export type DepegPrimaryTrust = "authoritative" | "confirm_required" | "unusable";
 
 export const PriceConfidenceSchema = z.enum(["high", "single-source", "low", "fallback"]);
-export const PriceObservedAtModeSchema = z.enum(["upstream", "local_fetch", "unknown"]);
+export const PriceObservedAtModeSchema = z.enum(["upstream", "local_fetch", "unknown", "nominal_reference"]);
 export const DepegPrimaryTrustSchema = z.enum(["authoritative", "confirm_required", "unusable"]);
 
 export interface PegAssetBase {

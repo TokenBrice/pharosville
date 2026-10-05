@@ -29,8 +29,8 @@ import {
 } from "../systems/world-layout";
 import { PHAROSVILLE_DESIGN_SPAN, PHAROSVILLE_MAP_SCALE } from "../systems/map-scale";
 import { HARBOR_PALETTE } from "../systems/palette";
-import { GARDEN_PLATE_MARGIN_TILES } from "../systems/projection";
 import { REST_SEAT_EYE_LANDSCAPE, REST_SEAT_YAW_RAD } from "../systems/rest-seat";
+import { GARDEN_WATER_Y } from "../systems/garden-observatory-slice";
 import type { WeatherPlan } from "../systems/weather";
 import { TILE_SCALE, disposeThreeObjectTree, stableUnit } from "./garden-util";
 import {
@@ -45,6 +45,16 @@ import {
 import { createNiwakiPadGeometry } from "./garden-niwaki";
 import { createSetStoneGeometry } from "./garden-set-stones";
 import { gardenSnowCover } from "../systems/garden-calendar";
+import type { GardenSurfaceAtlasOwner } from "./garden-surface-atlas";
+import {
+  applyGardenSurface,
+  GARDEN_SURFACE_ROLE_ATTRIBUTE,
+  GARDEN_SURFACE_ROLE_CODES,
+  GARDEN_SURFACE_WEIGHT_ATTRIBUTE,
+  type GardenSurfaceRole,
+} from "./garden-surfaces";
+import { chainGardenMaterialPatch } from "./garden-aerial";
+import { gardenShoreContactGlsl } from "./garden-water-contract";
 export { patchGardenInstancedWindSway, updateGardenInstancedWindSway } from "./garden-flora";
 
 const MAP_SIZE = PHAROSVILLE_DESIGN_SPAN * PHAROSVILLE_MAP_SCALE;
@@ -53,11 +63,16 @@ const WATERLINE_Y = -0.11;
 // Reviewed half-tile contour cadence, tightened enough to retain the authored
 // irregular shoreline after rectangular station reservations restore detail.
 const SAMPLE_STEP = 0.44475;
-/** How far past tile 139 the decorative camera-side land skirt reaches. */
-const CAMERA_SIDE_SKIRT_REACH_TILES = 4.5;
-/** Cut-off steepness past the reach; beats the deepest boundary shore
- *  distance (~12 tiles) well inside the eight-tile plate margin. */
-const CAMERA_SIDE_SKIRT_CUT_SLOPE = 6.5;
+/** Renderer-only envelope; never a map, water-plate or navigation margin. */
+export const GARDEN_DECORATIVE_COAST_ENVELOPE_TILES = 18;
+// Unequally spaced (along, reach) knots: long oblique aprons, one deep bite,
+// and smaller returns, not repeated scallops at a uniform spatial cadence.
+const EXTERIOR_CONTOURS = {
+  north: [[0, 3], [74, 4], [100, 18], [125, 5], [139, 3]],
+  east: [[0, 3], [52, 4], [103, 17], [126, 2], [139, 10]],
+  south: [[0, 14], [38, 18], [79, 2], [115, 9], [139, 12]],
+  west: [[0, 4], [48, 7], [86, 18], [112, 2], [132, 11], [139, 14]],
+} as const;
 /** Shore contour vertices may move this far from their sampled height point. */
 const SHORE_VERTEX_MAX_DISPLACEMENT_TILES = 0.72;
 // Rim dressing is authored without a live feed. Reserve each complete
@@ -166,10 +181,10 @@ export const GARDEN_NEAR_RIM_BAY_DEPTHS = [3.2, 4.8, 3.6] as const;
 export const GARDEN_NEAR_RIM_MIN_TERRACE_HEIGHT = 1.55;
 export const GARDEN_NEAR_RIM_DISPLACEMENT = "straight shoreline and ordinary headland pines";
 /**
- * The camera-side skirt displaces open water past the south/east plate
- * limits. The viewer's own near garden is the threshold (garden-threshold.ts).
+ * The decorative coast displaces outboard open water on all four sides.
+ * The viewer's own near garden is the threshold (garden-threshold.ts).
  */
-export const GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT = "the open water band beyond the camera-side plate limits";
+export const GARDEN_NEAR_RIM_SKIRT_DISPLACEMENT = "the open water band beyond the finite chart, on all four sides";
 /**
  * Where the rest sight line crosses the south rim (the eye→tower line meets
  * row 134 near x 93): no pine stands in this near-shore clearing, so the
@@ -188,7 +203,6 @@ export interface GardenRimMesh {
   /** Momiji instances on the rim; crown colour follows the season (T2.2d). */
   broadleafCount: number;
   coveSpurCount: number;
-  coastFormCounts: Readonly<Record<CoastForm, number>>;
   drawCallCount: number;
   pathSegmentCount: number;
   pineInstances: InstancedMesh;
@@ -273,33 +287,66 @@ export function gardenRimBayExcursionAt(tileX: number, tileY: number): number {
   const west = bell(tileY, 112, 13) * 3.4 * bell(tileX, -1, 25);
   return Math.max(south, west);
 }
-/**
- * Decorative camera-side land skirt. Past the south and east rim the authored
- * boundary silhouette is carried outward across the plate margin so the
- * camera-near edges read as land receding into haze instead of a band of open
- * water. Only this renderer term changes: the rimShoreDistance field clamps
- * out-of-bounds samples to the boundary tile, so stretches that are water at
- * the boundary — the Danger Strait reach of the east edge — stay water, and
- * the far pair (x < 0 or y < 0) never gets a skirt at all.
- */
-function cameraSideSkirtExcursion(tileX: number, tileY: number): number {
-  const beyond = Math.max(0, tileX - MAP_LAST, tileY - MAP_LAST);
-  if (beyond <= 0) return 0;
-  // Low-frequency reach wobble keeps the outer silhouette a headland line
-  // rather than a straight extruded band (deterministic: no Math.random).
-  const reach = CAMERA_SIDE_SKIRT_REACH_TILES
-    + Math.sin(tileX * 0.163 + 2.1) * 0.7
-    + Math.sin(tileY * 0.211 - tileX * 0.087) * 0.4;
-  // Inside the reach the clamped field extrudes unchanged; a slow seaward
-  // drift and the hard cut past the reach shape the outer coastline.
-  return beyond * 0.18 + Math.max(0, beyond - reach) * CAMERA_SIDE_SKIRT_CUT_SLOPE;
+type ExteriorContour = readonly (readonly [number, number])[];
+
+function contourSlope(knots: ExteriorContour, index: number): number {
+  const before = knots[Math.max(0, index - 1)]!;
+  const here = knots[index]!;
+  const after = knots[Math.min(knots.length - 1, index + 1)]!;
+  const left = (here[1] - before[1]) / Math.max(1, here[0] - before[0]);
+  const right = (after[1] - here[1]) / Math.max(1, after[0] - here[0]);
+  if (index === 0) return right;
+  if (index === knots.length - 1) return left;
+  return left * right > 0 ? 2 * left * right / (left + right) : 0;
+}
+
+/** Monotone Hermite segments keep unequal smooth runs without overshoot. */
+function exteriorReach(knots: ExteriorContour, along: number): number {
+  const value = MathUtils.clamp(along, 0, MAP_LAST);
+  let i = 1;
+  while (i < knots.length - 1 && value > knots[i]![0]) i += 1;
+  const a = knots[i - 1]!, b = knots[i]!;
+  const span = b[0] - a[0], t = (value - a[0]) / span;
+  const t2 = t * t, t3 = t2 * t;
+  return MathUtils.clamp(
+    (2 * t3 - 3 * t2 + 1) * a[1] + (t3 - 2 * t2 + t) * span * contourSlope(knots, i - 1)
+      + (-2 * t3 + 3 * t2) * b[1] + (t3 - t2) * span * contourSlope(knots, i),
+    Math.min(a[1], b[1]), Math.max(a[1], b[1]),
+  );
+}
+
+function exteriorDistance(tileX: number, tileY: number): number {
+  // Boundary water remains water; also preserve the full radial opening
+  // corridors, not just their intersections with the square chart border.
+  if (rimDepthAt(Math.atan2(tileY - MAP_LAST / 2, tileX - MAP_LAST / 2)) === 0) return 1;
+  const north = exteriorReach(EXTERIOR_CONTOURS.north, tileX);
+  const east = exteriorReach(EXTERIOR_CONTOURS.east, tileY);
+  const south = exteriorReach(EXTERIOR_CONTOURS.south, tileX);
+  const west = exteriorReach(EXTERIOR_CONTOURS.west, tileY);
+  const outX = Math.max(0, -tileX, tileX - MAP_LAST);
+  const outY = Math.max(0, -tileY, tileY - MAP_LAST);
+  const reachX = tileX < 0 ? west : east;
+  const reachY = tileY < 0 ? north : south;
+  // Elliptical unequal corner returns, not the intersection of two straight
+  // side extrusions. The authoritative in-chart corner remains untouched.
+  const corner = outX > 0 && outY > 0
+    ? (Math.hypot(outX / reachX, outY / reachY) - 1) * Math.min(reachX, reachY)
+    : Number.NEGATIVE_INFINITY;
+  return Math.max(
+    -tileY - north,
+    tileX - MAP_LAST - east,
+    tileY - MAP_LAST - south,
+    -tileX - west,
+    corner,
+  );
 }
 
 function authoredDistance(tileX: number, tileY: number): number {
-  return rimShoreDistance(tileX, tileY)
-    + shoreJitter(tileX, tileY)
-    + gardenRimBayExcursionAt(tileX, tileY)
-    + cameraSideSkirtExcursion(tileX, tileY);
+  const field = rimShoreDistance(tileX, tileY) + shoreJitter(tileX, tileY)
+    + gardenRimBayExcursionAt(tileX, tileY);
+  return tileX < 0 || tileY < 0 || tileX > MAP_LAST || tileY > MAP_LAST
+    ? Math.max(field, exteriorDistance(tileX, tileY))
+    : field;
 }
 
 /** Bedded outcrop strength, 0…1: where the ledges step and rock may show. */
@@ -331,14 +378,19 @@ function rimHeight(tileX: number, tileY: number): number {
     * (1 - MathUtils.smoothstep(tileY, 76, 82)) * 0.38;
   const grain = Math.sin(tileX * 0.43 + tileY * 0.31) * 0.045;
   const levelHeight = Math.max(0.6, Math.min(3.1, rise + ledge + dangerCliff + grain));
-  const beyond = Math.max(0, tileX - MAP_LAST, tileY - MAP_LAST);
+  const beyond = Math.max(0, -tileX, -tileY, tileX - MAP_LAST, tileY - MAP_LAST);
   if (beyond > 0) {
-    const recede = Math.min(1, beyond / (CAMERA_SIDE_SKIRT_REACH_TILES + 2));
-    const letDown = 1 - 0.5 * recede * recede;
-    const swellEase = Math.min(1, beyond / 1.5);
-    const swell = (Math.sin(tileX * 0.31 + tileY * 0.23) * 0.3
-      + Math.sin(tileX * 0.11 - tileY * 0.27 + 1.7) * 0.22) * swellEase * letDown;
-    return Math.max(0.45, Math.min(levelHeight, levelHeight * letDown + swell));
+    const boundaryHeight = rimHeight(MathUtils.clamp(tileX, 0, MAP_LAST), MathUtils.clamp(tileY, 0, MAP_LAST));
+    const recede = MathUtils.smoothstep(beyond, 0, GARDEN_DECORATIVE_COAST_ENVELOPE_TILES);
+    // Fixed-world northern shoulder replaces the painted near headland.
+    // A broad oblique western apron answers it; relief lifts both clear of
+    // the sea-level veil without adding lights or changing the chart field.
+    const shoulder = (bell(tileX, 98, 26) * bell(tileY, -5, 14) * 17
+      + bell(tileX, -8, 20) * bell(tileY, 78, 46) * 8)
+      * MathUtils.smoothstep(beyond, 0, 3);
+    // Ease the exterior bank into submerged contact instead of leaving a
+    // raised cut wall at the outer contour.
+    return MathUtils.lerp(WATERLINE_Y - 0.18, Math.max(0.45, boundaryHeight * (1 - recede * 0.65) + shoulder), MathUtils.smoothstep(inland, 0, 2.4));
   }
 
   // Only the north/west (low-coordinate) rim pair rises. Rim depth controls
@@ -395,7 +447,15 @@ function nearShoreValue(tileX: number, tileY: number): number {
   return 1 - (1 - NEAR_SHORE_MOSS_VALUE) * along * depth;
 }
 
-export function rimColor(tileX: number, tileY: number): Color {
+interface RimSurfaceSample { role: GardenSurfaceRole; weight: number }
+const scratchRimShade = new Color();
+
+export function rimColor(
+  tileX: number,
+  tileY: number,
+  target = new Color(),
+  surface?: RimSurfaceSample,
+): Color {
   const epsilon = 0.35;
   const gradientX = (rimHeight(tileX + epsilon, tileY) - rimHeight(tileX - epsilon, tileY)) / (epsilon * 2 * TILE_SCALE);
   const gradientY = (rimHeight(tileX, tileY + epsilon) - rimHeight(tileX, tileY - epsilon)) / (epsilon * 2 * TILE_SCALE);
@@ -403,23 +463,38 @@ export function rimColor(tileX: number, tileY: number): Color {
   const value = nearShoreValue(tileX, tileY);
   // Forecourt gravel stays the palest ground, but in the near band it steps
   // down with the moss so a quay apron never outshines the water beyond it.
-  if (stationMouthClearance(tileX, tileY) <= 2.4) return RAKED_GRAVEL.clone().multiplyScalar(0.4 + value * 0.6);
+  if (stationMouthClearance(tileX, tileY) <= 2.4) {
+    if (surface) { surface.role = "gravel"; surface.weight = 1; }
+    return target.copy(RAKED_GRAVEL).multiplyScalar(0.4 + value * 0.6);
+  }
   const grove = isFarPair(tileX, tileY)
     ? MathUtils.smoothstep(rimHeight(tileX, tileY), GROVE_FLOOR_HEIGHTS[0], GROVE_FLOOR_HEIGHTS[1])
     : 0;
-  if (slope > 0.6 && (grove === 0 || outcropAt(tileX, tileY) > 0.7)) return EXPOSED_ROCK.clone();
+  if (slope > 0.6 && (grove === 0 || outcropAt(tileX, tileY) > 0.7)) {
+    if (surface) { surface.role = "stone"; surface.weight = 1; }
+    return target.copy(EXPOSED_ROCK);
+  }
   const inland = Math.max(0, -authoredDistance(tileX, tileY));
   // Sand only in the beach coves, and only at their lip.
-  if (inland < 1.1 && coastFormAt(tileX, tileY) === "beach") return SHORE_SAND.clone().multiplyScalar(value);
+  if (inland < 1.1 && coastFormAt(tileX, tileY) === "beach") {
+    const sand = shoreBeachWeight(tileX * TILE_SCALE, tileY * TILE_SCALE);
+    if (surface) { surface.role = sand >= 0.5 ? "earth" : "stone"; surface.weight = sand >= 0.5 ? sand : 1 - sand; }
+    return target.copy(EXPOSED_ROCK).lerp(SHORE_SAND, sand).multiplyScalar(value);
+  }
   const hummock = mossHummock(tileX, tileY);
   // The slope's face toward the noon sun, plus the cushions' own lit crowns.
   const sunward = -(gradientX * NOON_SUN_TILE.x + gradientY * NOON_SUN_TILE.y);
   const sunlit = MathUtils.clamp(0.5 + sunward * 2.2 + (hummock - 0.5) * 1.3, 0, 1);
-  const color = DAMP_EARTH.clone().lerp(
-    SHADE_MOSS.clone().lerp(MOSS, sunlit),
-    MathUtils.smoothstep(inland, 0.15, 1.4),
-  ).lerp(FOREST_FLOOR, grove);
-  return color.multiplyScalar((0.9 + hummock * 0.2) * value);
+  const mossCoverage = MathUtils.smoothstep(inland, 0.15, 1.4);
+  if (surface) {
+    const moss = mossCoverage * (1 - grove);
+    surface.role = moss >= 0.5 ? "moss" : "earth";
+    surface.weight = moss >= 0.5 ? moss : 1 - moss;
+  }
+  return target.copy(DAMP_EARTH).lerp(
+    scratchRimShade.copy(SHADE_MOSS).lerp(MOSS, sunlit),
+    mossCoverage,
+  ).lerp(FOREST_FLOOR, grove).multiplyScalar((0.9 + hummock * 0.2) * value);
 }
 
 /** The rim surface height (world y) at a tile: what furniture beds on. */
@@ -428,18 +503,12 @@ export function gardenRimHeightAt(tileX: number, tileY: number): number {
 }
 
 /**
- * Decorative surface land test, exported so tests and future skirt furniture
- * share the one predicate. In bounds this is the authored silhouette plus
- * its decorative cuts, unchanged. Past the south and east rim the clamped
- * rimShoreDistance sample extrudes the authored boundary silhouette outward
- * across the camera-side plate margin — water at the boundary (the Danger
- * Strait reach of the east edge) therefore stays water. The far pair keeps
- * no skirt, so the north and west margins still dissolve into the haze seam.
- * It answers where decoration may STAND: it never feeds rimLandAt, tile
- * classification, navigation, or placement.
+ * Renderer-only silhouette, bounded symmetrically and never used for tile
+ * classification, berths, navigation or eligible-record placement.
  */
 export function gardenRimDecorativeLandAt(tileX: number, tileY: number): boolean {
-  if (tileX < 0 || tileY < 0) return false;
+  const limit = GARDEN_DECORATIVE_COAST_ENVELOPE_TILES;
+  if (tileX < -limit || tileY < -limit || tileX > MAP_LAST + limit || tileY > MAP_LAST + limit) return false;
   return authoredDistance(tileX, tileY) <= 0;
 }
 
@@ -469,12 +538,10 @@ function shoreVertexTile(tileX: number, tileY: number): { x: number; y: number }
     moveX *= 0.72 / move;
     moveY *= 0.72 / move;
   }
-  // Upper clamp reaches into the plate margin so coast cells of the
-  // camera-side skirt project onto their shoreline like every other coast.
-  const skirtLimit = MAP_LAST + GARDEN_PLATE_MARGIN_TILES;
+  const limit = GARDEN_DECORATIVE_COAST_ENVELOPE_TILES;
   return {
-    x: Math.max(0, Math.min(skirtLimit, tileX + moveX)),
-    y: Math.max(0, Math.min(skirtLimit, tileY + moveY)),
+    x: MathUtils.clamp(tileX + moveX, -limit, MAP_LAST + limit),
+    y: MathUtils.clamp(tileY + moveY, -limit, MAP_LAST + limit),
   };
 }
 
@@ -485,7 +552,7 @@ function pointAtY(
   return [top[0], y, top[2]];
 }
 
-export type CoastForm = "beach" | "boulder" | "revetment";
+export type CoastForm = "beach" | "bedrock" | "revetment";
 
 interface CoastStone {
   outwardX: number;
@@ -498,14 +565,131 @@ interface RevetmentBlock extends CoastStone {
   yaw: number;
 }
 
+export interface GardenShoreSegment {
+  readonly id: string;
+  readonly form: CoastForm;
+  readonly side: "inner" | "outer" | "quay";
+  readonly substrate: "sand" | "bedrock" | "masonry";
+  readonly exposure: number;
+  readonly start: Readonly<{ x: number; z: number }>;
+  readonly end: Readonly<{ x: number; z: number }>;
+  readonly bearingStart: number;
+  readonly bearingEnd: number;
+  /** Quays own their existing reserved footprint plus its 5.5-tile collar. */
+  readonly quayIndex: number;
+}
+
+function shorePointAt(bearing: number, outer: boolean): Readonly<{ x: number; z: number }> {
+  const dx = Math.cos(bearing), dy = Math.sin(bearing), centre = MAP_LAST / 2;
+  let radius = 0;
+  while (radius < MAP_SIZE && authoredDistance(centre + dx * radius, centre + dy * radius) > 0) radius += 1;
+  if (outer) {
+    while (radius < MAP_SIZE && authoredDistance(centre + dx * radius, centre + dy * radius) <= 0) radius += 1;
+  }
+  let low = Math.max(0, radius - 1), high = radius;
+  for (let i = 0; i < 10; i += 1) {
+    const mid = (low + high) / 2;
+    const land = authoredDistance(centre + dx * mid, centre + dy * mid) <= 0;
+    if (land === outer) low = mid;
+    else high = mid;
+  }
+  return Object.freeze({ x: (centre + dx * high) * TILE_SCALE, z: (centre + dy * high) * TILE_SCALE });
+}
+
+// Clockwise reaches end at the protected openings; no hash-distributed patches.
+// Endpoints are shared world-coordinate shore anchors, not navigation geometry.
+export const GARDEN_SHORE_SEGMENTS: readonly GardenShoreSegment[] = Object.freeze([
+  ...([
+    [-180, -165, "bedrock", 0.9], [-85, -50, "bedrock", 1],
+    [-10, 35, "bedrock", 0.8], [35, 100, "beach", 0.2],
+    [100, 180, "bedrock", 0.8],
+  ] as const).flatMap(([from, to, form, exposure], index) => [false, true].map((outer) => Object.freeze({
+    id: `${outer ? "outer" : "reach"}-${index}`, side: outer ? "outer" as const : "inner" as const,
+    form: outer ? "bedrock" as const : form,
+    substrate: !outer && form === "beach" ? "sand" as const : "bedrock" as const,
+    exposure: outer ? 1 : exposure,
+    start: shorePointAt(from * Math.PI / 180 + (from === -85 || from === -10 ? 0.03 : 1e-6), outer),
+    end: shorePointAt(to * Math.PI / 180 - (to === -165 || to === -50 ? 0.03 : 1e-6), outer),
+    bearingStart: from * Math.PI / 180, bearingEnd: to * Math.PI / 180, quayIndex: -1,
+  }))),
+  ...RIM_STATION_CLEARANCES.map(({ cove, rect }, quayIndex) => {
+    const dx = Math.cos(cove.seawardBearing), dz = Math.sin(cove.seawardBearing);
+    return Object.freeze({
+      id: `quay-${cove.id}`, side: "quay" as const, form: "revetment" as const, substrate: "masonry" as const, exposure: 0.35,
+      start: Object.freeze({ x: (cove.tile.x - dz * rect.minAcross) * TILE_SCALE, z: (cove.tile.y + dx * rect.minAcross) * TILE_SCALE }),
+      end: Object.freeze({ x: (cove.tile.x - dz * rect.maxAcross) * TILE_SCALE, z: (cove.tile.y + dx * rect.maxAcross) * TILE_SCALE }),
+      bearingStart: 0, bearingEnd: 0, quayIndex,
+    });
+  }),
+]);
+const scratchShoreTile = { x: 0, y: 0 };
+
+/** Continuous mineral-to-sand transport across reach ends and quay collars. */
+export function shoreBeachWeight(worldX: number, worldZ: number): number {
+  const segment = gardenShoreSegmentAt(worldX, worldZ);
+  if (segment?.form !== "beach") return 0;
+  const x = worldX / TILE_SCALE - MAP_LAST / 2, y = worldZ / TILE_SCALE - MAP_LAST / 2;
+  const bearing = Math.atan2(y, x);
+  const endDistance = Math.min(bearing - segment.bearingStart, segment.bearingEnd - bearing) * Math.hypot(x, y);
+  let clearance = 7;
+  for (const station of RIM_STATION_CLEARANCES) {
+    clearance = Math.min(clearance, distanceToStationFootprint(scratchShoreTile, station.rect));
+  }
+  return MathUtils.smoothstep(endDistance, 0, 3) * MathUtils.smoothstep(clearance, 5.5, 7);
+}
+
+/** Sole presentation owner; null in either protected open-sea corridor. */
+export function gardenShoreSegmentAt(worldX: number, worldZ: number): GardenShoreSegment | null {
+  if (!Number.isFinite(worldX) || !Number.isFinite(worldZ)) return null;
+  const x = worldX / TILE_SCALE, y = worldZ / TILE_SCALE;
+  const limit = GARDEN_DECORATIVE_COAST_ENVELOPE_TILES;
+  if (x < -limit || y < -limit || x > MAP_LAST + limit || y > MAP_LAST + limit) return null;
+  const bearing = Math.atan2(y - MAP_LAST / 2, x - MAP_LAST / 2);
+  if (rimDepthAt(bearing) === 0) return null;
+  const outer = x < 0 || y < 0 || x > MAP_LAST || y > MAP_LAST;
+  scratchShoreTile.x = x;
+  scratchShoreTile.y = y;
+  let quay: GardenShoreSegment | null = null, closest = 5.5;
+  for (const segment of GARDEN_SHORE_SEGMENTS) {
+    if (segment.quayIndex < 0 || outer) continue;
+    const distance = distanceToStationFootprint(scratchShoreTile, RIM_STATION_CLEARANCES[segment.quayIndex]!.rect);
+    if (distance < closest) { closest = distance; quay = segment; }
+  }
+  if (quay) return quay;
+  for (const segment of GARDEN_SHORE_SEGMENTS) {
+    if (segment.side === (outer ? "outer" : "inner")
+      && bearing >= segment.bearingStart && bearing <= segment.bearingEnd) return segment;
+  }
+  return null;
+}
+
+export interface GardenShoreSample {
+  segment: GardenShoreSegment | null;
+  depth: number;
+  substrate: GardenShoreSegment["substrate"] | null;
+  exposure: number;
+  state: "dry" | "damp" | "submerged";
+}
+
+export const GARDEN_SHORE_CONTACT = Object.freeze({ submergedAbove: -0.02, dryAbove: 0.45 });
+
+/** Writes caller-owned storage. Physical contact only; never the supply tide. */
+export function writeGardenShoreSample(
+  target: GardenShoreSample, worldX: number, worldY: number, worldZ: number, waterY: number,
+): void {
+  const segment = gardenShoreSegmentAt(worldX, worldZ);
+  const above = Number.isFinite(worldY) && Number.isFinite(waterY) ? worldY - waterY : 0;
+  target.segment = segment;
+  target.depth = Math.max(0, -above);
+  target.substrate = segment?.substrate ?? null;
+  target.exposure = segment?.form === "beach"
+    ? MathUtils.lerp(0.8, segment.exposure, shoreBeachWeight(worldX, worldZ)) : segment?.exposure ?? 0;
+  target.state = above < GARDEN_SHORE_CONTACT.submergedAbove ? "submerged"
+    : above <= GARDEN_SHORE_CONTACT.dryAbove ? "damp" : "dry";
+}
+
 function coastFormAt(tileX: number, tileY: number): CoastForm {
-  if (stationMouthClearance(tileX, tileY) < 5.5) return "revetment";
-  const patchX = Math.floor(tileX / 11);
-  const patchY = Math.floor(tileY / 11);
-  const choice = stableUnit(`rim-coast-form.${patchX}.${patchY}`);
-  if (choice < 0.34) return "beach";
-  if (choice < 0.67) return "revetment";
-  return "boulder";
+  return gardenShoreSegmentAt(tileX * TILE_SCALE, tileY * TILE_SCALE)?.form ?? "bedrock";
 }
 
 function addShoreCourses(
@@ -524,28 +708,50 @@ function addShoreCourses(
   const stainB = pointAtY(b, stainY);
   const sand = SHORE_SAND.clone().multiplyScalar(nearShoreValue(a[0] / TILE_SCALE, a[2] / TILE_SCALE));
   const dryColor = form === "beach" ? sand : topColor;
-  addQuad(builder, a, b, stainB, stainA, [dryColor, dryColor, TIDE_STAIN, TIDE_STAIN]);
-  addQuad(builder, stainA, stainB, c, d, [TIDE_STAIN, TIDE_STAIN, WET_ROCK, WET_ROCK]);
+  // Side courses face seaward; the top-sheet winding faces inward here.
+  addQuad(builder, b, a, stainA, stainB, [dryColor, dryColor, TIDE_STAIN, TIDE_STAIN]);
+  addQuad(builder, stainB, stainA, d, c, [TIDE_STAIN, TIDE_STAIN, WET_ROCK, WET_ROCK]);
   // Beaches run two to three tiles seaward; rock forms retain a tight wet toe.
-  const variation = stableUnit(`wet-shelf.${a[0].toFixed(1)}.${a[2].toFixed(1)}`);
-  const shelf = form === "beach"
-    ? (2 + variation) * TILE_SCALE
-    : 0.34 + variation * 0.3;
-  const waterA = pointAtY(a, WATERLINE_Y + 0.045);
-  const waterB = pointAtY(b, WATERLINE_Y + 0.045);
-  const plateLimit = (MAP_LAST + GARDEN_PLATE_MARGIN_TILES) * TILE_SCALE;
+  const shelfA = MathUtils.lerp(0.48, 2.8 * TILE_SCALE, shoreBeachWeight(a[0], a[2]));
+  const shelfB = MathUtils.lerp(0.48, 2.8 * TILE_SCALE, shoreBeachWeight(b[0], b[2]));
+  const exterior = Math.min(a[0], a[2], b[0], b[2]) < 0
+    || Math.max(a[0], a[2], b[0], b[2]) > MAP_LAST * TILE_SCALE;
+  const contactY = exterior ? WATERLINE_Y - 0.16 : WATERLINE_Y + 0.045;
+  const waterA = pointAtY(a, contactY);
+  const waterB = pointAtY(b, contactY);
+  const lower = -GARDEN_DECORATIVE_COAST_ENVELOPE_TILES * TILE_SCALE;
+  const upper = (MAP_LAST + GARDEN_DECORATIVE_COAST_ENVELOPE_TILES) * TILE_SCALE;
   const outerA: [number, number, number] = [
-    MathUtils.clamp(waterA[0] + outwardX * shelf, 0, plateLimit),
+    MathUtils.clamp(waterA[0] + outwardX * shelfA, lower, upper),
     waterA[1] - 0.025,
-    MathUtils.clamp(waterA[2] + outwardZ * shelf, 0, plateLimit),
+    MathUtils.clamp(waterA[2] + outwardZ * shelfA, lower, upper),
   ];
   const outerB: [number, number, number] = [
-    MathUtils.clamp(waterB[0] + outwardX * shelf, 0, plateLimit),
+    MathUtils.clamp(waterB[0] + outwardX * shelfB, lower, upper),
     waterB[1] - 0.025,
-    MathUtils.clamp(waterB[2] + outwardZ * shelf, 0, plateLimit),
+    MathUtils.clamp(waterB[2] + outwardZ * shelfB, lower, upper),
   ];
-  const toeColor = form === "beach" ? sand : WET_ROCK;
-  addQuad(builder, waterA, waterB, outerB, outerA, [TIDE_STAIN, TIDE_STAIN, toeColor, toeColor]);
+  const toeA = WET_ROCK.clone().lerp(sand, shoreBeachWeight(a[0], a[2]));
+  const toeB = WET_ROCK.clone().lerp(sand, shoreBeachWeight(b[0], b[2]));
+  const toeStart = builder.indices.length;
+  addQuad(builder, waterB, waterA, outerA, outerB, [TIDE_STAIN, TIDE_STAIN, toeA, toeB]);
+  // Shore projection can reverse a short lattice edge, and envelope clamps
+  // can skew its shelf. Orient each actual toe triangle upward instead of
+  // assuming the unprojected lattice edge still determines its winding.
+  for (let i = toeStart; i < builder.indices.length; i += 3) {
+    const a = builder.indices[i]! * 3, b = builder.indices[i + 1]! * 3, c = builder.indices[i + 2]! * 3;
+    // Match the Float32 positions used by finishGeometry/computeVertexNormals,
+    // including nearly collinear shelves at a clipped envelope corner.
+    const ax = Math.fround(builder.positions[a]!), az = Math.fround(builder.positions[a + 2]!);
+    const bx = Math.fround(builder.positions[b]!), bz = Math.fround(builder.positions[b + 2]!);
+    const cx = Math.fround(builder.positions[c]!), cz = Math.fround(builder.positions[c + 2]!);
+    const up = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
+    if (up < 0) {
+      const second = builder.indices[i + 1]!;
+      builder.indices[i + 1] = builder.indices[i + 2]!;
+      builder.indices[i + 2] = second;
+    }
+  }
 }
 
 /** Decimation tolerances for merging a 2×2 block of flat inland cells (W8.2). */
@@ -572,28 +778,26 @@ interface LatticeVertex {
  * coarse edge, so the sheet stays watertight with no T-junction cracks.
  */
 function buildLandGeometry(): {
-  coastFormCounts: Record<CoastForm, number>;
   coastStones: CoastStone[];
+  decals: { firstTriangle: number; roles: number[] };
   face: BufferGeometry;
   revetments: RevetmentBlock[];
   top: BufferGeometry;
 } {
   const top: GeometryBuilder = { colors: [], indices: [], positions: [] };
   const face: GeometryBuilder = { colors: [], indices: [], positions: [] };
-  const coastFormCounts: Record<CoastForm, number> = { beach: 0, boulder: 0, revetment: 0 };
   const coastStones: CoastStone[] = [];
   const revetments: RevetmentBlock[] = [];
   const revetmentKeys = new Set<string>();
   const boulderKeys = new Set<string>();
-  // The walk spans the plate margin on the camera-near sides only: cells
-  // beyond x/y 139 evaluate the skirt; cells before 0 are always water, so
-  // the far pair generates nothing and keeps dissolving into the haze.
-  const samples = Math.round((MAP_SIZE + GARDEN_PLATE_MARGIN_TILES) / SAMPLE_STEP);
+  // Integral negative origin preserves the existing in-chart sample phase.
+  const origin = -Math.ceil(GARDEN_DECORATIVE_COAST_ENVELOPE_TILES / (2 * SAMPLE_STEP)) * (2 * SAMPLE_STEP);
+  const samples = Math.ceil((MAP_LAST - 2 * origin) / SAMPLE_STEP);
   const side = samples + 1;
   const land = new Uint8Array(samples * samples);
   for (let iy = 0; iy < samples; iy += 1) {
     for (let ix = 0; ix < samples; ix += 1) {
-      land[iy * samples + ix] = gardenRimDecorativeLandAt((ix + 0.5) * SAMPLE_STEP, (iy + 0.5) * SAMPLE_STEP) ? 1 : 0;
+      land[iy * samples + ix] = gardenRimDecorativeLandAt(origin + (ix + 0.5) * SAMPLE_STEP, origin + (iy + 0.5) * SAMPLE_STEP) ? 1 : 0;
     }
   }
   const isLand = (ix: number, iy: number) => ix >= 0 && iy >= 0 && ix < samples && iy < samples && land[iy * samples + ix] === 1;
@@ -605,12 +809,13 @@ function buildLandGeometry(): {
     const key = j * side + i;
     let vertex = lattice.get(key);
     if (!vertex) {
-      const tileX = i * SAMPLE_STEP;
-      const tileY = j * SAMPLE_STEP;
+      const tileX = origin + i * SAMPLE_STEP;
+      const tileY = origin + j * SAMPLE_STEP;
       const shore = shoreVertexTile(tileX, tileY);
       vertex = {
         color: rimColor(tileX, tileY),
-        height: rimHeight(tileX, tileY),
+        height: tileX < 0 || tileY < 0 || tileX > MAP_LAST || tileY > MAP_LAST
+          ? rimHeight(shore.x, shore.y) : rimHeight(tileX, tileY),
         moved: shore.x !== tileX || shore.y !== tileY,
         x: shore.x,
         y: shore.y,
@@ -620,6 +825,27 @@ function buildLandGeometry(): {
     return vertex;
   };
 
+  // Broad exterior is coarse; a one-cell contact/silhouette collar stays
+  // refined. Blocks never straddle the authoritative chart boundary.
+  const apron = new Uint8Array(samples * samples);
+  const apronBlocks: Array<{ x: number; y: number; size: number }> = [];
+  for (const size of [16, 8, 4]) {
+    for (let y = 0; y + size < samples; y += size) {
+      for (let x = 0; x + size < samples; x += size) {
+        if (!(origin + (x + size) * SAMPLE_STEP < 0 || origin + (y + size) * SAMPLE_STEP < 0
+          || origin + x * SAMPLE_STEP > MAP_LAST || origin + y * SAMPLE_STEP > MAP_LAST)) continue;
+        let interior = true;
+        for (let j = y - 1; j <= y + size && interior; j += 1) {
+          for (let i = x - 1; i <= x + size && interior; i += 1) {
+            if (!isLand(i, j) || (i >= x && i < x + size && j >= y && j < y + size && apron[j * samples + i])) interior = false;
+          }
+        }
+        if (!interior) continue;
+        apronBlocks.push({ x, y, size });
+        for (let j = y; j < y + size; j += 1) apron.fill(1, j * samples + x, j * samples + x + size);
+      }
+    }
+  }
   const blocks = Math.ceil(samples / 2);
   const coarse = new Uint8Array(blocks * blocks);
   const isCoarse = (bx: number, by: number) => bx >= 0 && by >= 0 && bx < blocks && by < blocks && coarse[by * blocks + bx] === 1;
@@ -627,6 +853,7 @@ function buildLandGeometry(): {
     for (let bx = 0; bx < blocks; bx += 1) {
       const ix = bx * 2;
       const iy = by * 2;
+      if (apron[iy * samples + ix]) continue;
       let interior = true;
       for (let dy = -1; dy <= 2 && interior; dy += 1) {
         for (let dx = -1; dx <= 2 && interior; dx += 1) {
@@ -636,11 +863,16 @@ function buildLandGeometry(): {
       if (!interior) continue;
       const corners = [vertexAt(ix, iy), vertexAt(ix + 2, iy), vertexAt(ix, iy + 2), vertexAt(ix + 2, iy + 2)] as const;
       let flat = corners.every((corner) => !corner.moved);
+      // Residual exterior blocks earn refinement only for contact/silhouette,
+      // not moss grain or inland height variation. In-chart tolerances hold.
+      const exterior = origin + (ix + 2) * SAMPLE_STEP < 0 || origin + (iy + 2) * SAMPLE_STEP < 0
+        || origin + ix * SAMPLE_STEP > MAP_LAST || origin + iy * SAMPLE_STEP > MAP_LAST;
       for (let dj = 0; dj <= 2 && flat; dj += 1) {
         for (let di = 0; di <= 2 && flat; di += 1) {
           if ((di & 1) === 0 && (dj & 1) === 0) continue;
           const vertex = vertexAt(ix + di, iy + dj);
           if (vertex.moved) { flat = false; break; }
+          if (exterior) continue;
           const u = di / 2;
           const v = dj / 2;
           const weights = [(1 - u) * (1 - v), u * (1 - v), (1 - u) * v, u * v] as const;
@@ -686,6 +918,24 @@ function buildLandGeometry(): {
   };
   const corner = (vertex: LatticeVertex): [number, number, number] => [vertex.x * TILE_SCALE, vertex.height, vertex.y * TILE_SCALE];
 
+  for (const { x, y, size } of apronBlocks) {
+    const centre = vertexAt(x + size / 2, y + size / 2);
+    const hub = addVertex(top, ...corner(centre), centre.color);
+    const border: number[] = [];
+    // Shared two-cell border cadence; the intervening fine corner is snapped
+    // onto exactly the same segment, just like the existing inland decimation.
+    for (const [dx, dy, sx, sy] of [[1, 0, x, y], [0, 1, x + size, y], [-1, 0, x + size, y + size], [0, -1, x, y + size]]) {
+      for (let s = 0; s < size; s += 2) {
+        const a = vertexAt(sx! + dx! * s, sy! + dy! * s);
+        const b = vertexAt(sx! + dx! * (s + 2), sy! + dy! * (s + 2));
+        const mid = vertexAt(sx! + dx! * (s + 1), sy! + dy! * (s + 1));
+        mid.height = (a.height + b.height) / 2;
+        mid.color.copy(a.color).lerp(b.color, 0.5);
+        border.push(addVertex(top, ...corner(a), a.color));
+      }
+    }
+    for (let i = 0; i < border.length; i += 1) top.indices.push(hub, border[(i + 1) % border.length]!, border[i]!);
+  }
   for (let by = 0; by < blocks; by += 1) {
     for (let bx = 0; bx < blocks; bx += 1) {
       if (!isCoarse(bx, by)) continue;
@@ -697,10 +947,10 @@ function buildLandGeometry(): {
     }
   }
   for (let iy = 0; iy < samples; iy += 1) {
-    const cy = (iy + 0.5) * SAMPLE_STEP;
+    const cy = origin + (iy + 0.5) * SAMPLE_STEP;
     for (let ix = 0; ix < samples; ix += 1) {
-      if (!isLand(ix, iy) || isCoarse(ix >> 1, iy >> 1)) continue;
-      const cx = (ix + 0.5) * SAMPLE_STEP;
+      if (!isLand(ix, iy) || apron[iy * samples + ix] || isCoarse(ix >> 1, iy >> 1)) continue;
+      const cx = origin + (ix + 0.5) * SAMPLE_STEP;
       const v00 = snappedAt(ix, iy);
       const v10 = snappedAt(ix + 1, iy);
       const v11 = snappedAt(ix + 1, iy + 1);
@@ -719,13 +969,12 @@ function buildLandGeometry(): {
       for (const edge of sides) {
         if (isLand(ix + edge.dx, iy + edge.dy)) continue;
         const form = coastFormAt(cx, cy);
-        coastFormCounts[form] += 1;
         addShoreCourses(
           face,
           edge.a,
           edge.b,
-          pointAtY(edge.b, WATERLINE_Y),
-          pointAtY(edge.a, WATERLINE_Y),
+          pointAtY(edge.b, WATERLINE_Y - 0.35),
+          pointAtY(edge.a, WATERLINE_Y - 0.35),
           rimColor(cx, cy),
           edge.dx,
           edge.dy,
@@ -745,7 +994,7 @@ function buildLandGeometry(): {
               yaw: edge.dx !== 0 ? Math.PI / 2 : 0,
             });
           }
-        } else if (form === "boulder") {
+        } else if (form === "bedrock") {
           const key = `${Math.round(midpointX / (1.15 * TILE_SCALE))}.${Math.round(midpointY / (1.15 * TILE_SCALE))}`;
           if (!boulderKeys.has(key)) {
             boulderKeys.add(key);
@@ -762,6 +1011,7 @@ function buildLandGeometry(): {
   }
   // Flat moss/gravel decals conform to the land and share its vertex-colour draw.
   const decal = [[-1, -0.8], [-0.9, 0.9], [1.2, 0.7], [1, -0.7]] as const;
+  const decals = { firstTriangle: top.indices.length / 3, roles: [] as number[] };
   for (const [index, placement] of plantingTiles(90, "ground").entries()) {
     // In the near-shore band the decal takes the band's value, or it would
     // read as a bright patch on the set-down moss.
@@ -773,6 +1023,8 @@ function buildLandGeometry(): {
       return [x, rimHeight(x / TILE_SCALE, z / TILE_SCALE) + 0.025, z];
     });
     addQuad(top, corners[0]!, corners[1]!, corners[2]!, corners[3]!, [color, color, color, color]);
+    const role = index % 3 === 0 ? GARDEN_SURFACE_ROLE_CODES.gravel : GARDEN_SURFACE_ROLE_CODES.moss;
+    decals.roles.push(role, role);
   }
   const topGeometry = finishGeometry(top);
   topGeometry.deleteAttribute("normal");
@@ -780,12 +1032,91 @@ function buildLandGeometry(): {
   smoothTop.computeVertexNormals();
   topGeometry.dispose();
   return {
-    coastFormCounts,
     coastStones: coastStones.slice(0, 97),
+    decals,
     face: finishGeometry(face),
     revetments: revetments.slice(0, 166),
     top: smoothTop,
   };
+}
+
+/**
+ * One terrain draw can carry several authored substrates. Split only role
+ * boundaries after smoothing, copying normals and indices without changing
+ * any coastal position, winding, silhouette or triangle count.
+ */
+function prepareRimSurfaceGeometry(
+  source: BufferGeometry,
+  fixedRole?: GardenSurfaceRole,
+  decals?: { firstTriangle: number; roles: readonly number[] },
+): BufferGeometry {
+  const position = source.getAttribute("position");
+  if (fixedRole) {
+    const roles = new Float32Array(position.count).fill(GARDEN_SURFACE_ROLE_CODES[fixedRole]);
+    const weights = new Float32Array(position.count);
+    const uv = new Float32Array(position.count * 2);
+    for (let vertex = 0; vertex < position.count; vertex += 1) {
+      weights[vertex] = MathUtils.smoothstep(position.getY(vertex), WATERLINE_Y - 0.2, WATERLINE_Y + 0.5);
+      uv[vertex * 2] = position.getX(vertex);
+      uv[vertex * 2 + 1] = position.getZ(vertex);
+    }
+    source.setAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE, new BufferAttribute(roles, 1));
+    source.setAttribute(GARDEN_SURFACE_WEIGHT_ATTRIBUTE, new BufferAttribute(weights, 1));
+    source.setAttribute("uv", new BufferAttribute(uv, 2));
+    return source;
+  }
+  const normal = source.getAttribute("normal");
+  const color = source.getAttribute("color");
+  const index = source.getIndex()!;
+  const sample: RimSurfaceSample = { role: "moss", weight: 1 };
+  const tint = new Color();
+  const pool = new Map<number, number>();
+  const split = { positions: [] as number[], normals: [] as number[], colors: [] as number[],
+    uv: [] as number[], roles: [] as number[], weights: [] as number[], indices: [] as number[] };
+  for (let face = 0; face < index.count; face += 3) {
+    const a = index.getX(face), b = index.getX(face + 1), c = index.getX(face + 2);
+    const decalRole = decals && face / 3 >= decals.firstTriangle
+      ? decals.roles[face / 3 - decals.firstTriangle] : undefined;
+    let role: number;
+    if (decalRole !== undefined) {
+      role = decalRole;
+      sample.weight = 1;
+    } else {
+      rimColor((position.getX(a) + position.getX(b) + position.getX(c)) / (3 * TILE_SCALE),
+        (position.getZ(a) + position.getZ(b) + position.getZ(c)) / (3 * TILE_SCALE), tint, sample);
+      role = GARDEN_SURFACE_ROLE_CODES[sample.role];
+    }
+    for (let corner = 0; corner < 3; corner += 1) {
+      const vertex = index.getX(face + corner);
+      const key = vertex * 7 + role;
+      let next = pool.get(key);
+      if (next === undefined) {
+        next = split.roles.length;
+        pool.set(key, next);
+        const x = position.getX(vertex), y = position.getY(vertex), z = position.getZ(vertex);
+        split.positions.push(x, y, z);
+        split.normals.push(normal.getX(vertex), normal.getY(vertex), normal.getZ(vertex));
+        split.colors.push(color.getX(vertex), color.getY(vertex), color.getZ(vertex));
+        split.uv.push(x, z);
+        split.roles.push(role);
+        // Coastal contact stays statically wet/dark; no new tide or emission.
+        split.weights.push(sample.weight * MathUtils.smoothstep(y, WATERLINE_Y - 0.2, WATERLINE_Y + 0.5));
+      }
+      split.indices.push(next);
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new BufferAttribute(new Float32Array(split.positions), 3));
+  geometry.setAttribute("normal", new BufferAttribute(new Float32Array(split.normals), 3));
+  geometry.setAttribute("color", new BufferAttribute(new Float32Array(split.colors), 3));
+  geometry.setAttribute("uv", new BufferAttribute(new Float32Array(split.uv), 2));
+  geometry.setAttribute(GARDEN_SURFACE_ROLE_ATTRIBUTE, new BufferAttribute(new Float32Array(split.roles), 1));
+  geometry.setAttribute(GARDEN_SURFACE_WEIGHT_ATTRIBUTE, new BufferAttribute(new Float32Array(split.weights), 1));
+  geometry.setIndex(split.indices);
+  geometry.boundingSphere = source.boundingSphere;
+  geometry.boundingBox = source.boundingBox;
+  source.dispose();
+  return geometry;
 }
 
 
@@ -1153,6 +1484,15 @@ function skirtStoneTiles(): Array<{ x: number; y: number }> {
   return spots;
 }
 
+// The small interior margin keeps Float32 instance translations inside the
+// authored envelope even when a boundary is not exactly representable.
+const TOE_STONE_MIN_WORLD = -GARDEN_DECORATIVE_COAST_ENVELOPE_TILES * TILE_SCALE + 0.0001;
+const TOE_STONE_MAX_WORLD = (MAP_LAST + GARDEN_DECORATIVE_COAST_ENVELOPE_TILES) * TILE_SCALE - 0.0001;
+
+function toeStoneCoordinate(tile: number, outward: number): number {
+  return Math.fround(MathUtils.clamp(tile * TILE_SCALE + outward * 0.22, TOE_STONE_MIN_WORLD, TOE_STONE_MAX_WORLD));
+}
+
 function createStones(coastStones: readonly CoastStone[]): InstancedMesh {
   const steppingStones = [
     { scale: [1.05, 0.28, 0.82] as const, x: 82.4, y: 131.4, yaw: -0.18 },
@@ -1164,7 +1504,12 @@ function createStones(coastStones: readonly CoastStone[]): InstancedMesh {
   // between them (ma) instead of a dotted line of equal eggs. A slow swell
   // along the coast picks the groups and makes one stone of each dominant.
   const toeGroup = (spot: CoastStone) => Math.sin(spot.x * 0.23 + spot.y * 0.19) * 0.5 + 0.5;
-  const toe = coastStones.filter((spot) => toeGroup(spot) >= 0.4);
+  // Use the emitted centre for admission: outboard coast anchors must not
+  // be clamped back into the chart or allowed through a station footprint.
+  const toe = coastStones.filter((spot) => toeGroup(spot) >= 0.4 && clearOfStation(
+    toeStoneCoordinate(spot.x, spot.outwardX) / TILE_SCALE,
+    toeStoneCoordinate(spot.y, spot.outwardZ) / TILE_SCALE, 0.1,
+  ));
   const count = HEADLANDS.length * 3 + steppingStones.length + skirtStones.length + toe.length;
   // W4.G4: set stones — flat-topped, bedded, moss on the crown, wet at the
   // foot, a third buried — smooth-shaded. One low form; instance scale makes
@@ -1238,9 +1583,9 @@ function createStones(coastStones: readonly CoastStone[]): InstancedMesh {
     scale.set(size, size * 0.8, size * 0.86);
     matrix.compose(
       new Vector3(
-        MathUtils.clamp(spot.x * TILE_SCALE + spot.outwardX * 0.22, 0, 145 * TILE_SCALE),
+        toeStoneCoordinate(spot.x, spot.outwardX),
         WATERLINE_Y + 0.02,
-        MathUtils.clamp(spot.y * TILE_SCALE + spot.outwardZ * 0.22, 0, 145 * TILE_SCALE),
+        toeStoneCoordinate(spot.y, spot.outwardZ),
       ),
       quaternion,
       scale,
@@ -1365,19 +1710,41 @@ function buildPathGeometry(): {
   };
 }
 
+function applyRimShoreContact(material: MeshStandardMaterial): void {
+  chainGardenMaterialPatch(material, {
+    key: "garden-shore-contact",
+    compile(shader) {
+      shader.fragmentShader = shader.fragmentShader.replace("#include <color_fragment>", `#include <color_fragment>
+  ${gardenShoreContactGlsl(`vGardenSurfacePosition.y - ${GARDEN_WATER_Y}`, GARDEN_SHORE_CONTACT)}
+  diffuseColor.rgb *= 1.0 - shoreDamp * 0.15 - shoreSubmerged * 0.08;`);
+    },
+  });
+}
+
 /**
  * @param date the world calendar day: deciduous phenology and the rare snow
  * (garden-calendar). Omitted, the garden is a green summer day without snow.
  */
-export function createGardenRimMesh(date?: Date): GardenRimMesh {
+export function createGardenRimMesh(date?: Date, surfaceAtlas?: GardenSurfaceAtlasOwner): GardenRimMesh {
   const root = new Group();
   root.name = "garden-rim";
+  const surfaceLease = surfaceAtlas?.lease();
+  const detailSource = surfaceLease?.detailSource;
   const land = buildLandGeometry();
   const landMaterial = new MeshStandardMaterial({ flatShading: false, roughness: 0.98, vertexColors: true });
+  // Shared top/face terrain keeps physical distance air, but the overview's
+  // square-chart veil must not erase its separately bounded decorative coast.
+  landMaterial.defines ??= {};
+  landMaterial.defines.GARDEN_AIR_DECORATIVE_TERRAIN = 1;
   patchGardenFloraNight(landMaterial);
-  const top = new Mesh(land.top, landMaterial);
+  applyGardenSurface(landMaterial, {
+    role: "moss", mapping: "triplanar", metresPerRepeat: 2.6, detailStrength: 0.45,
+    vertexRoles: true, vertexWeights: true, ...(detailSource ? { detailSource } : {}),
+  });
+  applyRimShoreContact(landMaterial);
+  const top = new Mesh(prepareRimSurfaceGeometry(land.top, undefined, land.decals), landMaterial);
   top.name = "garden-rim-land";
-  const face = new Mesh(land.face, landMaterial);
+  const face = new Mesh(prepareRimSurfaceGeometry(land.face, "stone"), landMaterial);
   face.name = "garden-rim-tide-rock";
   const dress = { date };
   const pines = createSpeciesBatch("pine", nearBand(rimPinePlacements()), dress);
@@ -1389,8 +1756,17 @@ export function createGardenRimMesh(date?: Date): GardenRimMesh {
   const ridgeGrove = createRidgeCanopy(ridgeCanopyPlacements(), date ? gardenSnowCover(date) : 0);
   const stones = createStones(land.coastStones);
   const revetments = createRevetments(land.revetments);
+  for (const mesh of [stones, revetments]) applyGardenSurface(mesh.material as MeshStandardMaterial, {
+    role: "stone", mapping: "triplanar", metresPerRepeat: 2.2, detailStrength: 0.45,
+    ...(detailSource ? { detailSource } : {}),
+  });
+  for (const mesh of [stones, revetments]) applyRimShoreContact(mesh.material as MeshStandardMaterial);
   const path = buildPathGeometry();
   const pathMaterial = new MeshStandardMaterial({ flatShading: true, roughness: 1, vertexColors: true });
+  applyGardenSurface(pathMaterial, {
+    role: "gravel", mapping: "worldXZ", metresPerRepeat: 0.45, detailStrength: 0.45,
+    ...(detailSource ? { detailSource } : {}),
+  });
   const pathMesh = new Mesh(path.geometry, pathMaterial);
   pathMesh.name = "garden-rim-path";
   const drawables = [
@@ -1400,11 +1776,11 @@ export function createGardenRimMesh(date?: Date): GardenRimMesh {
   for (const object of drawables) {
     object.castShadow = true;
     object.receiveShadow = true;
+    object.raycast = () => {};
   }
   let disposed = false;
   return {
     broadleafCount: broadleaf.count + cherry.count,
-    coastFormCounts: land.coastFormCounts,
     coveSpurCount: path.coveSpurs,
     drawCallCount: drawables.length,
     pathSegmentCount: path.segments,
@@ -1429,6 +1805,7 @@ export function createGardenRimMesh(date?: Date): GardenRimMesh {
       root.removeFromParent();
       disposeThreeObjectTree(root);
       root.clear();
+      surfaceLease?.release();
     },
   };
 }

@@ -7,12 +7,14 @@ import { CAUSE_META, type CauseOfDeath } from "@shared/lib/cause-of-death";
 import type { HealthBand } from "@shared/types/chains";
 import { formationLabel, squadRole, STABLECOIN_SQUADS, type StablecoinSquad } from "../systems/maker-squad";
 import { SQUAD_DISTRESS_FLAG_HEX } from "../systems/maker-squad";
-import type { AreaNode, DewsAreaBand, PharosVilleWorld, ShipNode } from "../systems/world-types";
+import type { PharosVilleWorld, ShipNode } from "../systems/world-types";
 import { cycleTempoReadingClause, precomputeShipTempos } from "../systems/ship-cycle-tempo";
 import { shipIssuanceLedgerClause } from "../systems/ship-issuance";
 import { gardenMonthRecordLedgerClause } from "../systems/garden-month-record";
+import { GardenMonthRecordTable } from "./garden-month-record-table";
 import {
   beamDwellLabel,
+  atmosphereForArea,
   backingDiversityLabel,
   chainLabel,
   chainsPresentLabel,
@@ -34,7 +36,7 @@ import {
   dockSupplyMomentumLabel,
   fleetPegLabel,
   harborRankLabel,
-  lighthouseBeamWarmCueLabel,
+  lighthouseBeamCharacterLabel,
   psiCompositionLabel,
   psiContributorLabel,
   psiTrendLabel,
@@ -84,22 +86,6 @@ const STONE_GARDEN_FAMILY_LEGEND: ReadonlyArray<{ family: string; causes: readon
   { family: "Wound down", causes: ["abandoned", "regulatory"], reading: "flat stones in the east islands" },
 ];
 
-// Mirrors the per-band atmosphere descriptor in `src/systems/detail-model.ts`
-// (Phase 2.6 DOM parity). When a banded area's renderer treatment escalates,
-// the ledger row escalates with it. Lightning remains capability language:
-// flashes come from the fleet-wide weather plan, not an individual area band.
-const ATMOSPHERE_DESCRIPTORS: Record<DewsAreaBand, string> = {
-  CALM: "clear sky, calm sea",
-  WATCH: "thin clouds, light chop",
-  ALERT: "broken clouds, moderate chop",
-  WARNING: "thickening clouds, rough sea, lightning possible at the fleet storm peak",
-  DANGER: "heavy storm clouds, heavy chop, lightning possible at the fleet storm peak",
-};
-
-function atmosphereLineForArea(area: AreaNode): string {
-  if (!area.band) return "Atmosphere: calm waters; no DEWS atmosphere modulation";
-  return `Atmosphere: ${area.band}, ${ATMOSPHERE_DESCRIPTORS[area.band]}`;
-}
 
 const percent = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 1,
@@ -262,7 +248,7 @@ function AccessibilityLedgerContent({
           <dt>Lighthouse</dt>
           <dd>
             {world.lighthouse.label}: PSI {world.lighthouse.score ?? "unavailable"}, band{" "}
-            {world.lighthouse.psiBand ?? "unavailable"}. {lighthouseBeamWarmCueLabel(world.areas)}
+            {world.lighthouse.psiBand ?? "unavailable"}. {lighthouseBeamCharacterLabel()}
             {` Observed Harbor light: ${lighthouseLampStatusLabel(world.freshness, world.generatedAt)}; appearance eases over ~2 observations.`}
             {` Market stability: ${detailFactValue(lighthouseFacts, "marketStability") ?? "unavailable"}.`}
             {` Last fleet depeg: ${detailFactValue(lighthouseFacts, "lastFleetDepeg") ?? "None on record"}.`}
@@ -275,6 +261,7 @@ function AccessibilityLedgerContent({
             {` Worst band, 30d: ${lighthouseHighWaterMark}.`}
             {` ${gardenMonthRecordLedgerClause(world.lighthouse.gardenMonthRecord)}`}
             {supplyTide ? ` Supply tide 7d: ${supplyTide}.` : ""}
+            {world.lighthouse.gardenMonthRecord && <GardenMonthRecordTable record={world.lighthouse.gardenMonthRecord} />}
           </dd>
         </div>
         <div>
@@ -335,7 +322,7 @@ function AccessibilityLedgerContent({
           <li key={area.id}>
             {area.label}
             {`: ${area.riskPlacement ? `${area.band ? `DEWS ${area.band}, ${area.count ?? 0} stablecoins` : `risk water zone ${area.riskZone ?? "unavailable"}`}, placement ${area.riskPlacement}. ` : "No live-ship risk placement. "}${area.summary ?? ""} Facts: ${area.facts?.map((fact) => `${fact.label} ${fact.value}`).join("; ") ?? "unavailable"}. Source fields ${area.sourceFields?.join(", ") || "unavailable"}.`}
-            {area.riskPlacement ? ` ${atmosphereLineForArea(area)}.` : ""}
+            {area.riskPlacement ? ` Atmosphere: ${atmosphereForArea(area)}.` : ""}
             {waterSurfaceForArea(area) ? ` Water surface: ${waterSurfaceForArea(area)}.` : ""}
           </li>
         ))}
@@ -461,7 +448,7 @@ function AccessibilityLedgerContent({
         {world.visualCues.map((cue) => (
           <li key={cue.id}>
             {cue.visual}: answers {cue.questionAnswered}; DOM equivalent {cue.domEquivalent}; failure state{" "}
-            {cue.failureState}; reduced motion {cue.reducedMotionEquivalent}.
+            {cue.failureState}; presentation {cue.presentationTier}; reduced motion {cue.reducedMotionEquivalent}.
           </li>
         ))}
       </ol>
@@ -523,19 +510,19 @@ function fleetIssuanceLedgerLine(issuance: NonNullable<PharosVilleWorld["fleetIs
   const direction = issuance.direction === "minting" ? "net minting"
     : issuance.direction === "burning" ? "net burning"
     : issuance.direction === "flat" ? "balanced"
-    : "no issuance activity";
+    : issuance.direction === null ? "net direction unavailable" : "no issuance activity";
   const unattributed = unattributedIssuanceLabel(issuance.unattributed);
   return [
     `Fleet issuance 24h: ${direction}`,
     `net ${formatCompactUsd(issuance.netFlowUsd)}`,
-    `mint ${formatCompactUsd(issuance.mintVolumeUsd)}`,
-    `burn ${formatCompactUsd(issuance.burnVolumeUsd)}`,
+    `mint ${formatCompactUsd(issuance.mintVolumeUsd)} (known-valuation subtotal)`,
+    `burn ${formatCompactUsd(issuance.burnVolumeUsd)} (known-valuation subtotal; lower bounds unless valuation complete)`,
     `gauge band ${issuance.band ?? "unavailable"}`,
     `${issuance.activeCoins} of ${issuance.trackedCoins} tracked coins moved supply`,
     `measured over ${issuance.scopeLabel ?? "an unreported scope"}${issuance.scopeChainIds.length > 0 ? ` (${issuance.scopeChainIds.join(", ")})` : ""}`,
     unattributed ?? "Fleet unattributed gross 24h: unavailable — issuance scope unreported",
     ...(issuance.unattributed ? [nodeSourceEvidenceLabel({ mintBurn: issuance.unattributed.evidence })] : []),
-    issuance.flightToQuality
+    issuance.flightToQuality === null ? "flight to quality unavailable — incomplete USD valuation; no tenders on the water" : issuance.flightToQuality
       ? "flight to quality active — capital rotating toward stronger issuers, drawn as tenders running in on the largest hulls"
       : "no flight to quality reported — no tenders on the water",
   ].join(", ") + ".";

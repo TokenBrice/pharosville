@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1060" viewBox="0 0 900 1060" role="img" aria-labelledby="title desc">
+  <title id="title">A — Moss-side observatory: 900 by 720 gate annotations</title>
+  <desc id="desc">The 900 by 720 baseline crops the near pine to a small upper-left tip. Restore porous branching in that corner, replace the lower smooth bank with a reprojected moss, triad and gravel composition, and keep the approach above the two-line caption zone. Preserve tower and central inlet. The right fleet group recedes at the crop edge but no records are hidden.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#ffd176"/></marker>
+    <style>text{font-family:system-ui,sans-serif;fill:#f6f7fb;font-size:17px}.g{stroke:#ffd176;stroke-width:2.5;fill:#ffd176;fill-opacity:.06}.keep{stroke:#9bf1c6;stroke-width:2.5;fill:none}.material{stroke:#88dcff;stroke-width:2.5;stroke-dasharray:8 6;fill:none}.leader{stroke:#ffd176;stroke-width:2.5;fill:none;marker-end:url(#arrow)}.label{fill:#121b29;fill-opacity:.94}.small{font-size:15px}</style>
+  </defs>
+  <rect width="900" height="1060" fill="#121b29"/>
+  <text x="20" y="34" font-size="23">A / 900×720 — restore corner framing; protect path</text>
+  <text x="20" y="70" class="small">Gold: geometry   ·   Mint: preserve/clearance   ·   Cyan dashed: material aspirations</text>
+  <image href="../../../outputs/holistic/day-900x720.png" x="0" y="100" width="900" height="720"/>
+  <path class="g" d="M0 616L160 615L352 620L554 652L700 685L900 723L900 820L0 820Z"/>
+  <path class="g" d="M0 199L85 212L196 237L204 280L156 313L55 302L0 271Z"/>
+  <path class="g" d="M128 663L159 636L218 640L235 678L193 696L134 688Z M244 674L270 645L334 654L355 695L306 706L255 694Z M97 699L135 684L173 706L155 718L109 714Z"/>
+  <path class="g" d="M393 665L424 641L518 646L591 677L565 699L411 694Z"/>
+  <path class="g" d="M520 644L467 615L392 625L356 659" fill-opacity="0"/>
+  <rect class="keep" x="532" y="197" width="133" height="244" rx="8"/>
+  <path class="keep" d="M373 625L367 582L408 541L475 534L514 560L535 615L562 633L456 638Z"/>
+  <path class="g" d="M0 504L115 463L213 499L366 576L342 609L166 613L28 579Z M193 480L280 463L394 478L481 507L456 538L331 526L230 516Z M800 498L899 488L899 667L849 632L818 571Z"/>
+  <path class="keep" d="M366 569L370 540M751 526L802 507" stroke-width="7"/>
+  <rect class="keep" x="16" y="704" width="868" height="93"/>
+  <path class="material" d="M166 665L213 667L218 687M424 674L533 674M40 783L360 783"/>
+  <rect class="label" x="230" y="152" width="289" height="75" rx="4"/>
+  <text x="242" y="177">G1 Restore branching, not discs</text><text x="242" y="201" class="small">Baseline has only a clipped tip</text><text x="242" y="219" class="small">Keep porous sky gaps at this gate</text>
+  <path class="leader" d="M230 214L162 254"/>
+  <rect class="label" x="674" y="156" width="207" height="73" rx="4"/>
+  <text x="686" y="181">K1 Tower remains hero</text><text x="686" y="205" class="small">Right-of-centre + crown air</text><text x="686" y="223" class="small">Do not crop away garden</text>
+  <path class="leader" d="M674 218L638 259"/>
+  <rect class="label" x="28" y="379" width="440" height="62" rx="4"/>
+  <text x="40" y="404">G2 Three unequal masses, right group recedes</text><text x="40" y="429" class="small">Two water intervals + every eligible identity preserved</text>
+  <path class="leader" d="M311 441L333 491"/>
+  <text x="400" y="598" class="small">K2 Inlet</text><text x="427" y="692" class="small">G3 Inset</text>
+  <text x="36" y="729" class="small">K3 Multi-line caption / action zone</text><text x="36" y="751" class="small">No approach continuation or record placed behind chrome</text>
+  <text x="20" y="860">G3 Replace bottom 25–30% bank; reproject shelves, buried triad and bounded gravel inset.</text>
+  <text x="20" y="895">The path bends behind stone above K3; the cropped engawa edge remains inhabited.</text>
+  <text x="20" y="930">M1 Aspirational: soft moss, damp stone contacts, matte gravel and weathered timber.</text>
+  <text x="20" y="965">This gate uses the landscape eye; 720×900 is the separate tall-eye profile.</text>
+  <text x="20" y="1000">Material notes and water envelopes are intent, not measured candidate compliance.</text>
+  <text x="20" y="1038" class="small">Baseline: outputs/holistic/day-900x720.png · Annotation layout is not production camera/chrome geometry.</text>
+</svg>

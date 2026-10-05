@@ -1,7 +1,9 @@
 "use client";
 import { lazy, Suspense, useEffect, useState } from "react";
+import type { ComponentType } from "react";
 import { DesktopOnlyFallback } from "./desktop-only-fallback";
 import { RotateToLandscape } from "./rotate-to-landscape";
+import { ArrivalModuleFailure, ArrivalShell } from "./components/arrival-shell";
 import { dayCycleBeats, type DayCycleBeatName } from "./systems/day-cycle-beats";
 import { gardenSkyDay } from "./systems/sky-almanac";
 import { canViewportShowMap, isWidescreenViewport } from "./systems/viewport-gate";
@@ -27,7 +29,7 @@ export function stillForLocalHour(date: Date): { alt: string; avif: string; beat
   let beat: DayCycleBeatName = "day";
   for (const name of Object.keys(beats) as DayCycleBeatName[]) if (beats[name] > beats[beat]) beat = name;
   const base = `/pharosville/stills/garden-${beat}`;
-  return { alt: HOUR_STILL_ALT[beat], avif: `${base}.avif`, beat, jpeg: `${base}.jpg` };
+  return { alt: `${HOUR_STILL_ALT[beat]} Illustration, not live readings.`, avif: `${base}.avif`, beat, jpeg: `${base}.jpg` };
 }
 
 function HourStill() {
@@ -40,8 +42,11 @@ function HourStill() {
   );
 }
 
-const PharosVilleDesktopData = lazy(() => (
-  import("./pharosville-desktop-data").then((mod) => ({ default: mod.PharosVilleDesktopData }))
+const PharosVilleDesktopData = lazy<ComponentType>(() => (
+  import("./pharosville-desktop-data").then(
+    (mod) => ({ default: mod.PharosVilleDesktopData }),
+    () => ({ default: ArrivalModuleFailure }),
+  )
 ));
 
 /** Is this device capable at all? Measured on the physical screen. */
@@ -111,7 +116,7 @@ export function PharosVilleClient() {
   }
 
   return (
-    <Suspense fallback={<div className="pharosville-loading pharosville-desktop" aria-busy="true">Charting market winds…</div>}>
+    <Suspense fallback={<ArrivalShell stage="Loading the world data module." />}>
       <PharosVilleDesktopData />
     </Suspense>
   );

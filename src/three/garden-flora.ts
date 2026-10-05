@@ -150,6 +150,7 @@ export function setGardenFloraNightValue(root: Object3D, nightValue: number): vo
  * bellies stay dark (garden-3). The snow amount is fixed at build.
  */
 export function patchGardenFoliage(material: MeshStandardMaterial, snow = 0, letsGo?: GardenLetsGoCrown): void {
+  material.userData.gardenSurfaceExemption = "foliage";
   const uniform = { value: snow };
   material.userData.uGardenSnow = uniform;
   const previousCompile = material.onBeforeCompile;

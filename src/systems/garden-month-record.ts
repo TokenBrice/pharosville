@@ -1,60 +1,87 @@
 import type { StabilityIndexResponse } from "@shared/types";
-import type { GardenMonthRecord } from "./world-types";
+import type { GardenMonthClose, GardenMonthDay, GardenMonthRecord, PharosVilleSourceStatus } from "./world-types";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY_MS = 86_400_000;
 export const GARDEN_MONTH_WINDOW_DAYS = 30;
 
 function epochMs(value: number): number | null {
-  if (!Number.isFinite(value)) return null;
-  // The API may serialize epoch seconds or milliseconds.
+  if (!Number.isFinite(value) || value <= 0) return null;
   const at = value < 10_000_000_000 ? value * 1000 : value;
-  return Number.isFinite(at) ? at : null;
+  return Number.isFinite(at) && at <= 8_640_000_000_000_000 ? at : null;
 }
 
-/**
- * W6.2: a quiet trailing record, not today's status. The newest history point
- * anchors the window so stale-but-valid history does not vanish with wall time.
- */
+/** Exact supplied UTC daily closes. Array write order—not intraday timestamp
+ * order—decides duplicates, as in the full Long Record. Never an average. */
 export function buildGardenMonthRecord(
   stability: StabilityIndexResponse | null | undefined,
+  evidence: PharosVilleSourceStatus | null = null,
 ): GardenMonthRecord {
-  const points = (stability?.history ?? []).flatMap((point) => {
+  const history = stability?.history ?? [];
+  let newestDay: number | null = null;
+  for (const point of history) {
     const at = epochMs(point.date);
-    return at === null || !Number.isFinite(point.score) ? [] : [{ at, score: point.score }];
-  });
-  if (points.length === 0) {
-    return { averagePsi: null, growth: 0.5, sampleCount: 0, spanDays: 0, unavailable: true };
+    if (at !== null) newestDay = Math.max(newestDay ?? -Infinity, Math.floor(at / DAY_MS));
   }
-  const newest = Math.max(...points.map((point) => point.at));
-  const cutoff = newest - GARDEN_MONTH_WINDOW_DAYS * DAY_MS;
-  const month = points.filter((point) => point.at >= cutoff);
-  const oldest = Math.min(...month.map((point) => point.at));
-  const averagePsi = month.reduce((sum, point) => sum + point.score, 0) / month.length;
-  // PSI 30 and below is a stressed, shedding month; 80 and above is fully
-  // flourishing. The continuous middle avoids daily category pops.
-  const growth = Math.max(0, Math.min(1, (averagePsi - 30) / 50));
+  const empty: GardenMonthRecord = {
+    days: [], segments: [], sampleCount: 0, spanDays: 0, firstDay: null, lastDay: null,
+    windowStartDay: null, windowEndDay: null, scoreBounds: [0, 100], evidence, unavailable: true,
+  };
+  if (newestDay === null) return empty;
+  const start = newestDay - GARDEN_MONTH_WINDOW_DAYS + 1;
+  const byDay = new Map<number, GardenMonthDay>();
+  for (const point of history) {
+    const at = epochMs(point.date);
+    if (at === null) continue;
+    const dayIndex = Math.floor(at / DAY_MS);
+    if (dayIndex < start || dayIndex > newestDay) continue;
+    const day = new Date(dayIndex * DAY_MS).toISOString().slice(0, 10);
+    byDay.set(dayIndex, Number.isFinite(point.score)
+      ? { day, at, score: point.score, band: point.band, methodologyVersion: point.methodologyVersion, gap: false }
+      : { day, at, score: null, band: point.band, methodologyVersion: point.methodologyVersion, gap: true });
+  }
+  const days: GardenMonthDay[] = [];
+  const segments: GardenMonthClose[][] = [];
+  let segment: GardenMonthClose[] | null = null;
+  for (let dayIndex = start; dayIndex <= newestDay; dayIndex += 1) {
+    const day = new Date(dayIndex * DAY_MS).toISOString().slice(0, 10);
+    const point: GardenMonthDay = byDay.get(dayIndex) ?? { day, at: null, score: null, band: null, methodologyVersion: null, gap: true };
+    days.push(point);
+    if (point.gap) { segment = null; continue; }
+    const previous = segment?.[segment.length - 1];
+    if (!previous || !point.methodologyVersion || previous.methodologyVersion !== point.methodologyVersion) {
+      segment = [];
+      segments.push(segment);
+    }
+    segment!.push(point);
+  }
+  const closes = segments.flat();
   return {
-    averagePsi,
-    growth,
-    sampleCount: month.length,
-    spanDays: Math.round((newest - oldest) / DAY_MS),
-    unavailable: false,
+    days, segments, sampleCount: closes.length,
+    spanDays: closes.length > 0 ? Math.round((Date.parse(closes.at(-1)!.day) - Date.parse(closes[0]!.day)) / DAY_MS) : 0,
+    firstDay: closes[0]?.day ?? null, lastDay: closes.at(-1)?.day ?? null,
+    windowStartDay: days[0]!.day, windowEndDay: days.at(-1)!.day,
+    scoreBounds: [0, 100], evidence, unavailable: closes.length === 0,
   };
 }
 
 export function gardenMonthRecordLabel(record?: GardenMonthRecord): string {
-  if (!record || record.unavailable || record.averagePsi === null) {
-    return "Neutral garden — no index history to grow from";
-  }
-  // W4.G5: the island's evergreens carry the record as depth, not chroma.
-  const state = record.growth >= 0.7
-    ? "Flourishing — the island pines stand full and deep green"
-    : record.growth >= 0.4
-      ? "Settled — the island pines hold their green"
-      : "Weathered — the island pines thin and brown toward straw";
-  return `${state}; average PSI ${record.averagePsi.toFixed(1)}; ${record.spanDays} days on record`;
+  if (!record || record.unavailable) return "Neutral gravel bed — no supplied daily PSI closes";
+  return `${record.sampleCount}/30 UTC daily closes; ${record.firstDay} to ${record.lastDay}; score axis 0–100, oldest left. Gaps and methodology edges are not joined; no rolling average.`;
 }
 
 export function gardenMonthRecordLedgerClause(record?: GardenMonthRecord): string {
-  return `Garden record, 30d: ${gardenMonthRecordLabel(record)}. This is a slow trailing record; it changes with daily history, never as a live alarm.`;
+  return `Garden record, 30d: ${gardenMonthRecordLabel(record)}. Dated official PSI history, not a live alarm; moss, decorative stones and sound have no market meaning.`;
+}
+
+const contentKeys = new WeakMap<GardenMonthRecord, string>();
+/** GPU content only: source freshness changes the DOM, never the dated trace. */
+export function gardenMonthRecordContentSignature(record?: GardenMonthRecord): string {
+  if (!record) return "";
+  const cached = contentKeys.get(record);
+  if (cached !== undefined) return cached;
+  const key = JSON.stringify([record.windowStartDay, record.windowEndDay, record.days.map((point) => [
+    point.day, point.at, point.score, point.band, point.methodologyVersion,
+  ])]);
+  contentKeys.set(record, key);
+  return key;
 }

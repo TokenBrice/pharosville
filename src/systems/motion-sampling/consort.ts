@@ -112,22 +112,24 @@ export function consortShadowSampleInto(
     const sin = Math.sin(turn);
     const baseX = out.tile.x;
     const baseY = out.tile.y;
-    // Turned with the squad's heading; unturned, then halved, then onto the
-    // flagship's own water if the raft would touch shore.
-    let x = baseX + (dx * cos - dy * sin) * ease;
-    let y = baseY + (dx * sin + dy * cos) * ease;
-    if (!isWaterTile(x, y)) {
-      x = baseX + dx * ease;
-      y = baseY + dy * ease;
+    // Turned with the squad's heading, then shrunk onto the flagship's own
+    // water. The old turned/unturned/halved ladder swapped formula between
+    // adjacent frames and snapped a raft mate by most of its offset; shrinking
+    // the same vector keeps the raft continuous as the squad swings.
+    const reachX = (dx * cos - dy * sin) * ease;
+    const reachY = (dx * sin + dy * cos) * ease;
+    let safe = 0;
+    if (isWaterTile(baseX + reachX, baseY + reachY)) safe = 1;
+    else {
+      let unsafe = 1;
+      for (let step = 0; step < 12; step += 1) {
+        const middle = (safe + unsafe) / 2;
+        if (isWaterTile(baseX + reachX * middle, baseY + reachY * middle)) safe = middle;
+        else unsafe = middle;
+      }
     }
-    if (!isWaterTile(x, y)) {
-      x = baseX + dx * ease * 0.5;
-      y = baseY + dy * ease * 0.5;
-    }
-    if (!isWaterTile(x, y)) {
-      x = baseX;
-      y = baseY;
-    }
+    const x = baseX + reachX * safe;
+    const y = baseY + reachY * safe;
     clampMotionTileInto(x, y, out.tile);
   }
   out.zone = input.ship.riskZone;

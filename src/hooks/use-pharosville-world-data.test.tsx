@@ -10,6 +10,7 @@ import { hasCompleteCurrentSources } from "@/systems/lamp-status";
 import { worldRenderContentSignature } from "@/systems/world-render-content-signature";
 import type { ApiQueryWithMetaResult } from "./use-api-query";
 import { usePharosVilleWorldData } from "./use-pharosville-world-data";
+import { issuanceContractDrift } from "@/__fixtures__/issuance-contract-drift";
 
 const mocks = vi.hoisted(() => ({
   useStablecoins: vi.fn(), useChains: vi.fn(), useStabilityIndexDetail: vi.fn(),
@@ -100,6 +101,21 @@ describe("source publication", () => {
     setFeeds({ stress: { ...landed("stress"), data: recovered, meta: { ...FRESH_META, updatedAt: newTime / 1_000 }, observedNowMs: newTime } });
     rerender();
     expect(result.current.world.freshness.stress).toMatchObject({ state: "current", observedAt: newTime, reason: null });
+  });
+
+  it("retains repaired issuance as held without zeroing partial valuation or losing other feeds", () => {
+    const data = structuredClone(issuanceContractDrift);
+    data.coins[0]!.stablecoinId = input.stablecoins!.peggedAssets[0]!.id;
+    setFeeds({ mintBurn: { ...landed("mintBurn"), data, meta: { ...FRESH_META, status: "degraded", warning: "110 restored last-good" } } });
+    const { result, rerender } = renderHook(() => usePharosVilleWorldData());
+    const reading = result.current.world.ships.find((ship) => ship.id === data.coins[0]!.stablecoinId)!.issuance!;
+    expect(result.current.world.freshness.mintBurn.state).toBe("stale");
+    expect(reading).toMatchObject({ netFlow24hUsd: null, grossVolumeUsd: 3, direction: null, completeWindow: false });
+    expect(result.current.world.freshness.stablecoins.state).toBe("current");
+    setFeeds({ mintBurn: { ...landed("mintBurn"), data, error: new Error("offline"), isError: true, isSuccess: false } });
+    rerender();
+    expect(result.current.world.freshness.mintBurn.state).toBe("stale");
+    expect(result.current.world.fleetIssuance!.netFlowUsd).toBeNull();
   });
 
   it.each(PHAROSVILLE_API_ENDPOINT_KEYS)("distinguishes %s's isolated staleness", (key) => {

@@ -152,18 +152,25 @@ describe("garden hero reflection capture", () => {
 
   it("resizes half CSS target at DPR 1 and 2", () => {
     const f = reflectionFixture();
+    const dimensions = f.pass.uniforms.uHeroReflectionSize.value;
+    expect(dimensions.toArray()).toEqual([1, 1]);
     f.paint();
     expect([f.target().width, f.target().height]).toEqual([800, 500]);
+    expect(dimensions.toArray()).toEqual([800, 500]);
     f.setDpr(2);
     f.paint();
     expect([f.target().width, f.target().height]).toEqual([800, 500]);
+    expect(f.pass.uniforms.uHeroReflectionSize.value).toBe(dimensions);
+    expect(dimensions.toArray()).toEqual([800, 500]);
     f.css.set(1200, 640);
     f.paint();
     expect([f.target().width, f.target().height]).toEqual([600, 320]);
+    expect(dimensions.toArray()).toEqual([600, 320]);
     f.setDpr(1);
     f.paint();
     f.paint();
     expect([f.target().width, f.target().height]).toEqual([600, 320]);
+    expect(dimensions.toArray()).toEqual([600, 320]);
     expect(f.captures).toHaveLength(4);
     f.dispose();
   });

@@ -113,6 +113,54 @@ describe("garden wakes stamps", () => {
     expect(wakes.stampCount).toBe(WAKE_MAX_STAMPS);
     wakes.dispose();
   });
+
+  it("separates current contact B from mover history R/G and preserves ordered raw intensity", () => {
+    let stamp: InstancedMesh | undefined;
+    const renderer = rendererStub((scene) => {
+      stamp = scene.children.find((child) => child instanceof InstancedMesh) as InstancedMesh;
+    });
+    const wakes = createGardenWakes(renderer as never);
+    wakes.update(FRAME);
+    wakes.stampContact(47.6, 38.9, 1, 0, 3, 1, 1);
+    for (const strength of [0.1, 0.3, 0.6, 1]) {
+      wakes.stamp(47.6, 38.9, 1, 0, strength, 3, 1, strength);
+    }
+    wakes.update(FRAME);
+    const params = stamp!.geometry.getAttribute("aParam");
+    expect(params.getX(0)).toBe(-1);
+    expect(params.getW(0)).toBe(0);
+    const shader = (stamp!.material as ShaderMaterial).fragmentShader;
+    const contactBranch = shader.slice(shader.indexOf("if (vParam.x < 0.0)"), shader.indexOf("float strength"));
+    expect(contactBranch).toContain("gl_FragColor = vec4(0.0, 0.0,");
+    expect(contactBranch).toContain("return;");
+    expect(shader).toContain("gl_FragColor = vec4(foam, lane * vParam.w, 0.0, 0.0)");
+    for (let index = 1; index <= 4; index += 1) {
+      expect(params.getX(index)).toBeCloseTo([0.1, 0.3, 0.6, 1][index - 1]!);
+      expect(params.getW(index)).toBe(params.getX(index));
+      if (index > 1) expect(params.getX(index)).toBeGreaterThan(params.getX(index - 1));
+    }
+    expect(shader).toContain("(bow + churn + arm) * strength");
+    expect(shader).toContain("(0.6 + 0.4 * strength)");
+    wakes.dispose();
+  });
+
+  it("keeps the contact bed continuous and limits texel-filtered arms without adding targets", () => {
+    let shader = "";
+    const wakes = createGardenWakes(rendererStub((scene) => {
+      const stamp = scene.children.find((child) => child instanceof InstancedMesh) as InstancedMesh;
+      shader = (stamp.material as ShaderMaterial).fragmentShader;
+    }) as never);
+    wakes.update(FRAME);
+    wakes.stampContact(47.6, 38.9, 1, 0, 3, 1, 1);
+    wakes.update(FRAME);
+    expect(shader).toContain("1.0 - min(edge, 0.45), 1.0 + edge * 0.25");
+    expect(shader).toContain("(0.075 / armWidth)");
+    expect(shader).toContain("float fromStem = halfLength - along");
+    for (const { texture } of wakes.getTextureManifest()) {
+      expect(texture.image).toMatchObject({ width: 512, height: 512 });
+    }
+    wakes.dispose();
+  });
 });
 
 describe("garden wakes passes", () => {
@@ -267,6 +315,25 @@ describe("garden wakes passes", () => {
     wakes.stampContact(47.6, 38.9, 1, 0, 3, 1, 1);
     wakes.renderStaticContact();
     expect(renderer.render).toHaveBeenCalledTimes(2);
+    wakes.dispose();
+  });
+
+  it("rejects historical stamps during reduced contact rendering and clears removed hulls", () => {
+    const renderer = rendererStub();
+    const wakes = createGardenWakes(renderer as never);
+    wakes.update({ ...FRAME, reducedMotion: true });
+    wakes.stamp(47.6, 38.9, 1, 0, 1, 3, 1, 1);
+    expect(wakes.stampCount).toBe(0);
+    wakes.stampContact(47.6, 38.9, 1, 0, 3, 1, 1);
+    wakes.renderStaticContact();
+    renderer.clear.mockClear();
+    wakes.update({ ...FRAME, reducedMotion: true });
+    wakes.renderStaticContact();
+    expect(renderer.clear).toHaveBeenCalledTimes(2);
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+    wakes.update({ ...FRAME, reducedMotion: true });
+    wakes.renderStaticContact();
+    expect(renderer.clear).toHaveBeenCalledTimes(2);
     wakes.dispose();
   });
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { denseQuietArtInput, SCENARIOS } from "../__fixtures__/data-contract-scenarios";
-import { buildShipIssuance, issuanceHasCurrentWindow, issuanceWorkMateriality, shipIssuanceVisualState } from "./ship-issuance";
+import { issuanceContractDrift } from "../__fixtures__/issuance-contract-drift";
+import { makeSourceStatuses } from "../__fixtures__/pharosville-world";
+import { buildShipIssuance, issuanceHasCurrentWindow, issuanceWorkMateriality, shipIssuanceDetailLabel, shipIssuanceLedgerClause, shipIssuanceVisualState } from "./ship-issuance";
 import { buildPharosVilleWorld } from "./pharosville-world";
 import type { PharosVilleWorld } from "./world-types";
 import { cargoTideCrateCount } from "./pharosville-world/stages/cargo-tide";
@@ -23,6 +25,34 @@ describe("per-coin issuance truth", () => {
     expect(issuance.burnCount).toBe(burn > 0 ? 10 : 0);
     expect(issuance.direction).toBe(net > 0 ? "minting" : net < 0 ? "redeeming" : "flat");
     expect(issuance.intensity).toBe(0);
+  });
+
+  it("keeps partial valuation net/direction unknown and labels gross lower bounds in records and ledger", () => {
+    const envelope = structuredClone(issuanceContractDrift);
+    const issuance = buildShipIssuance(envelope.coins[0], envelope, makeSourceStatuses().mintBurn)!;
+    expect(issuance).toMatchObject({
+      netFlow24hUsd: null, direction: null, activity: null, grossVolumeUsd: 3,
+      mintVolumeUsd: 2, burnVolumeUsd: 1, completeWindow: false, intensity: null, intensitySemantics: null,
+    });
+    expect(issuance.evidence.coverage.state).toBe("unknown");
+    expect(shipIssuanceVisualState(issuance)).toBeNull();
+    for (const label of [shipIssuanceDetailLabel({ issuance }), shipIssuanceLedgerClause({ issuance })]) {
+      expect(label).toContain("net unavailable");
+      expect(label).toContain("known-valuation lower bound");
+    }
+    // An older producer's numeric partial subtotal is never promoted into a signed measurement.
+    envelope.coins[0]!.netFlow24hUsd = 1;
+    expect(buildShipIssuance(envelope.coins[0], envelope, makeSourceStatuses().mintBurn)!.netFlow24hUsd).toBeNull();
+  });
+
+  it("retains legacy numeric nets but cannot certify unknown valuation for work", () => {
+    const input = structuredClone(SCENARIOS.largeMint);
+    delete input.mintBurn!.coins[0]!.valuation;
+    const reading = buildShipIssuance(input.mintBurn!.coins[0], input.mintBurn!, input.freshness.mintBurn)!;
+    expect(reading.netFlow24hUsd).toBe(100_000_000);
+    expect(reading.completeWindow).toBe(false);
+    expect(shipIssuanceVisualState(reading)).toBeNull();
+    expect(shipIssuanceDetailLabel({ issuance: reading })).toContain("valuation partial or unknown");
   });
 
   it("retains partial and historical quantities without certifying complete activity", () => {

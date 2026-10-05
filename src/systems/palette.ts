@@ -3,91 +3,73 @@ import type { DewsAreaBand } from "./world-types";
 /**
  * The harbor's dye lot.
  *
- * Golden Garden palette (2026-09-07). The perceptual OKLCH ceiling is now
- * C < 0.16 — one step under the reserved vermillion (C 0.177), which stays the
- * loudest thing by construction. The previous warm-village lot (C < 0.14) put
- * warm hues at restrained chroma under a cold indigo sky fill, and the frame
- * read as "trying to be warm": ochre went to mud and moss to olive-grey. This
- * lot is authored for a golden-hour key against a complementary cool side:
+ * Garden Observatory supporting pigments (2026-10-05): OKLCH C ≤ 0.12.
+ * Moss is dark olive, mineral and earth tones are matte, and roof colours
+ * remain subordinate to the Pharos and inlet. Authored pigment does not add
+ * honey to neutral noon: S4's analytic transport owns daytime sky/key light;
+ * golden-hour warmth comes from the clock-owned sun, never a compensating LUT.
  *
- *   - Land is luxuriant: `aurora_green` moves from a blue-leaning grass
- *     (H 145, C 0.125) to a warm, sunlit moss (H 134, C 0.15); timber, stone
- *     and roof rungs all gain ~0.02 C and a step of lightness.
- *   - The sea is a turquoise → emerald-teal → indigo descent rather than a
- *     cyan pool; `deep_sea_2` and the night sky move from kachi-iro navy
- *     toward a violet-indigo (H 286–288), which is the cool that makes an
- *     ember or a lantern read as light instead of as an orange tint.
- *   - The day sky is a lighter cerulean with a gold-cream horizon and a warm
- *     fog, so the fill never fights the honey key.
- *   - Mist keeps a hue but moves off ainezu onto a violet-grey.
+ * The ceiling is perceptual chroma, not HSL saturation: dark indigo can have
+ * a large HSL ratio while remaining a quiet pigment. Palette tests also cover
+ * supporting water bases and derived tones, not just the land swatches.
  *
- * Why OKLCH and not HSL. HSL saturation is a ratio against available
- * lightness, so it inflates without bound as a colour darkens: authentic
- * kachi-iro (#181b39) measures HSL S 41 % while remaining a near-black
- * indigo. The ceiling is therefore applied in perceptual chroma — OKLCH C —
- * and cross-checked against the sRGB-cube spread ranked in `palette.test.ts`.
- *
- * RESERVED accents are unchanged and may sit above the ceiling:
- *   - `vermillion` #c23a22 is shu-akane (真朱), the single sacred accent,
- *     spent on the Pharos beacon flame and the DEWS DANGER band.
- *   - `lantern_warm` #d49a3e is yamabuki (山吹) gold and remains hex-pinned by
- *     `scripts/check-pharosville-colors.mjs`.
- *   - `lantern_glow`, `sail_red`, and `bloodmoon_red` remain load-bearing
- *     identity or rare-event accents.
- *
- * NOT TOUCHED: `sail_teal` / `sail_red` are issuer-identity anchors and the
- * restraint contract forbids grading them; `DEWS_AREA_LABEL_COLORS` remains
- * the separately harmonized ladder locked by test.
+ * Four fixed anchors are unchanged: `lantern_warm` #d49a3e, `vermillion`
+ * #c23a22, `sail_teal` #3a5e5a and `sail_red` #9a3a2e. Vermillion remains the
+ * reserved beacon/Danger accent; issuer cloth retains its identity.
+ * Scoped exceptions are imported identity/logo cloth, DOM chrome, practical
+ * lights and rare-event emission. Thus lamp `lantern_glow` and event
+ * `bloodmoon_red` are not supporting surface dyes. An exempt token is not a
+ * licence to paint scenery with it. DEWS_AREA_LABEL_COLORS is the separately
+ * ordered, contrast-tested DOM/practical ladder and is not re-graded here.
  */
 export const HARBOR_PALETTE = {
-  // The cool field: turquoise shelf, emerald-teal body, indigo deep, violet
-  // abyss. Authored under the C 0.16 ceiling with enough dye to survive the
-  // key light, the fog and the grade.
+  // The supporting cool field: turquoise shelf, teal body and indigo depth.
+  // All supporting pigments stay at or below perceptual chroma 0.12.
   deep_sea_2: "#151030", // violet-indigo abyss — OKLCH L 0.200 C 0.061 H 287
   deep_sea_1: "#0c2d57", // indigo — OKLCH L 0.299 C 0.085 H 256
   shallow_teal: "#0d7176", // emerald-teal — OKLCH L 0.500 C 0.082 H 200
   shallow_teal_lit: "#189290", // turquoise shelf — OKLCH L 0.599 C 0.098 H 193
   sky_night: "#171233", // violet-indigo zenith — OKLCH L 0.210 C 0.063 H 287
   sky_horizon: "#2d2554", // violet — OKLCH L 0.300 C 0.082 H 288
-  // Mist carries a violet-grey hue: it is the cool side of the ember hour.
+  // Restrained violet-grey mist for the clock-owned low-light hours.
   fog_blue: "#52537e", // OKLCH L 0.460 C 0.070 H 282
   fog_pale: "#767b9c", // OKLCH L 0.591 C 0.051 H 278
-  // Golden day: a lighter cerulean zenith so the sky fill reveals form
-  // without cooling it, a gold-cream horizon, warm fog, and a honey key.
+  // Retained compatibility tokens, not the daytime dome/key transport:
+  // S4 owns analytic noon radiance rather than these legacy swatches.
   sky_day_zenith: "#247dad", // cerulean — OKLCH L 0.561 C 0.110 H 238
   sky_day_horizon: "#f3dca9", // gold cream — OKLCH L 0.901 C 0.071 H 87
   fog_day: "#e2d2b3", // warm haze — OKLCH L 0.869 C 0.045 H 84
-  sun_day_warm: "#fedd9a", // honey key — OKLCH L 0.910 C 0.092 H 84
+  sun_day_warm: "#fedd9a", // retained warm-light swatch; not an authored noon key
   vermillion: "#c23a22", // shu-akane (真朱) — RESERVED, the one loud thing
   stone_dark: "#332a1f", // OKLCH L 0.292 C 0.023 H 72
-  stone_mid: "#5a4a37", // OKLCH L 0.420 C 0.037 H 71
-  stone_pale: "#7e6b51", // OKLCH L 0.539 C 0.045 H 75
+  stone_mid: "#544533", // mineral earth — authored OKLCH L 0.40 C 0.035 H 71
+  stone_pale: "#74634d", // mineral crown — authored OKLCH L 0.51 C 0.040 H 75
   iron_dark: "#1a1612",
   timber_dark: "#3a2a1e", // kogecha's hue exactly (焦茶, H 57)
-  timber_mid: "#7b4713", // OKLCH L 0.451 C 0.095 H 60
-  timber_warm: "#976b2e", // OKLCH L 0.561 C 0.095 H 72
+  timber_mid: "#6a4729", // worked earth-brown — authored OKLCH L 0.43 C 0.065 H 60
+  timber_warm: "#7d603b", // weathered timber — authored OKLCH L 0.51 C 0.065 H 72
   // Station roofs form one material ladder: storm slate and tea-house slate at
   // the dark end, then slate kawara, clay, timber shake, weathered copper,
   // dressed stone and cote clay, with thatch catching the most light.
   roof_storm_slate: "#354750",
   roof_tea_house_slate: "#40515b",
   roof_slate_kawara: "#56606b",
-  roof_clay: "#bc602b", // terracotta — OKLCH L 0.590 C 0.135 H 48
-  roof_timber_shake: "#b96626", // warm cedar — OKLCH L 0.595 C 0.130 H 54
-  roof_weathered_copper: "#5f7a59", // OKLCH L 0.549 C 0.059 H 140
+  roof_clay: "#955735", // matte clay — authored OKLCH L 0.52 C 0.095 H 48
+  roof_timber_shake: "#8c5834", // weathered cedar — authored OKLCH L 0.51 C 0.085 H 54
+  roof_weathered_copper: "#587153", // aged copper — authored OKLCH L 0.52 C 0.055 H 140
   roof_dressed_stone: "#747a7c",
-  roof_cote_clay: "#d47636", // OKLCH L 0.660 C 0.140 H 52
-  roof_thatch: "#e2ae43", // sunlit straw — OKLCH L 0.780 C 0.135 H 82
+  roof_cote_clay: "#a5653c", // lighter clay rung — authored OKLCH L 0.57 C 0.100 H 52
+  roof_thatch: "#ac8947", // dry straw — authored OKLCH L 0.65 C 0.095 H 82
   ember: "#2a1a0e",
   lantern_warm: "#d49a3e", // yamabuki (山吹) — RESERVED, and hex-pinned
-  lantern_glow: "#f7d68a",
+  lantern_glow: "#f7d68a", // practical-light emission, not a supporting pigment
   lantern_cold: "#4c94ac", // OKLCH L 0.629 C 0.080 H 222
   moonlight: "#b2dcee", // cyan moonlight — OKLCH L 0.870 C 0.050 H 226
   sail_teal: "#3a5e5a", // issuer identity — restraint contract, do not grade
   sail_red: "#9a3a2e", // issuer identity — restraint contract, do not grade
   foam_white: "#e8eef0",
-  aurora_green: "#67a23a", // sunlit moss — OKLCH L 0.650 C 0.150 H 134
-  bloodmoon_red: "#c83a3a",
+  aurora_green: "#647f48", // dark olive moss — authored OKLCH L 0.56 C 0.085 H 130
+  bloodmoon_red: "#c83a3a", // rare-event emission, not a supporting pigment
 } as const;
 
 /**

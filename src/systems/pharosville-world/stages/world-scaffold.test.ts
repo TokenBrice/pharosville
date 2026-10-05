@@ -205,8 +205,9 @@ describe("garden month record (W6.2)", () => {
       { daysAgo: 40, band: "FRACTURE", score: 10 },
     ]);
     const world = buildPharosVilleWorld(input);
-    expect(world.lighthouse.gardenMonthRecord).toEqual(buildGardenMonthRecord(input.stability));
-    expect(world.lighthouse.gardenMonthRecord).toMatchObject({ averagePsi: 85, growth: 1, sampleCount: 2 });
+    expect(world.lighthouse.gardenMonthRecord).toEqual(buildGardenMonthRecord(input.stability, world.freshness.stability));
+    expect(world.lighthouse.gardenMonthRecord).toMatchObject({ sampleCount: 2, scoreBounds: [0, 100] });
+    expect(world.lighthouse.gardenMonthRecord?.segments.flat().map((point) => point.score)).toEqual([80, 90]);
   });
 });
 

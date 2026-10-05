@@ -5,6 +5,7 @@ import { resolveShipSizeTier } from "./ship-visuals";
 import type { PharosVilleWorld } from "./world-types";
 import { shipIssuanceVisualState } from "./ship-issuance";
 import { cargoTideVisualState } from "./pharosville-world/stages/cargo-tide";
+import { gardenMonthRecordContentSignature } from "./garden-month-record";
 
 const signatureByWorld = new WeakMap<PharosVilleWorld, string>();
 const partHashesByWorld = new WeakMap<PharosVilleWorld, Readonly<Record<string, string>>>();
@@ -95,6 +96,7 @@ export function worldRenderContentSignature(world: PharosVilleWorld): string {
       visual: grave.visual,
     })),
     heroRank,
+    gardenMonthRecord: gardenMonthRecordContentSignature(world.lighthouse.gardenMonthRecord),
     lighthouse: {
       beamDwellShipId: world.lighthouse.beamDwell?.shipId ?? null,
       detailId: world.lighthouse.detailId,

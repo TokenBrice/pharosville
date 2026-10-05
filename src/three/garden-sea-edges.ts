@@ -29,6 +29,11 @@ import {
   patchGardenInstancedWindSway,
   updateGardenInstancedWindSway,
 } from "./garden-rim-mesh";
+import { GARDEN_SHORE_CONTACT } from "./garden-rim-mesh";
+import { chainGardenMaterialPatch } from "./garden-aerial";
+import { applyGardenSurface, type GardenSurfaceDetailSource } from "./garden-surfaces";
+import type { GardenSurfaceAtlasLease, GardenSurfaceAtlasOwner } from "./garden-surface-atlas";
+import { gardenShoreContactGlsl } from "./garden-water-contract";
 
 /**
  * Six-draw physical geography for the seven named waters.
@@ -63,17 +68,20 @@ const STONE_SIGNATURES: readonly StoneSignature[] = ["natural", "pale", "dark", 
 
 /** Warning shoal bars are awash wet stone: their crests clear the water by this much. */
 export const GARDEN_SHOAL_BAR_AWASH_HEIGHT = 0.15;
-const WET_STONE = new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.deep_sea_1), 0.4);
+// These navigation-shaped fixtures carry no market reading: weathered ochre,
+// never the reserved beacon/Danger vermillion.
+const DECORATIVE_BUOY_COLOR = new Color(HARBOR_PALETTE.timber_warm)
+  .lerp(new Color(HARBOR_PALETTE.stone_pale), 0.4);
 
 const SIGNATURE_COLORS: Record<StoneSignature, { low: Color; high: Color }> = {
   natural: {
     low: new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.fog_pale), 0.28),
     high: new Color(HARBOR_PALETTE.stone_pale).lerp(new Color(HARBOR_PALETTE.foam_white), 0.38),
   },
-  // The Warning shoal bars' signature: wet stone, darker where it is submerged.
+  // Height-resolved contact darkens the dry pigment, not the whole bucket.
   pale: {
-    low: WET_STONE.clone().multiplyScalar(0.78),
-    high: WET_STONE.clone(),
+    low: new Color(HARBOR_PALETTE.stone_mid),
+    high: new Color(HARBOR_PALETTE.stone_pale),
   },
   dark: {
     low: new Color(HARBOR_PALETTE.deep_sea_1).lerp(new Color(HARBOR_PALETTE.stone_mid), 0.5),
@@ -84,6 +92,24 @@ const SIGNATURE_COLORS: Record<StoneSignature, { low: Color; high: Color }> = {
     high: new Color(HARBOR_PALETTE.stone_mid).lerp(new Color(HARBOR_PALETTE.foam_white), 0.28),
   },
 };
+
+function applyShoreContact(material: MeshStandardMaterial, detailSource?: GardenSurfaceDetailSource): void {
+  applyGardenSurface(material, {
+    role: "stone", mapping: "worldXZ", metresPerRepeat: 2.6, detailStrength: 0.65,
+    ...(detailSource ? { detailSource } : {}),
+  });
+  chainGardenMaterialPatch(material, {
+    key: "garden-shore-contact",
+    compile(shader) {
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <color_fragment>", `#include <color_fragment>
+  ${gardenShoreContactGlsl(`vGardenSurfacePosition.y - ${GARDEN_WATER_Y}`, GARDEN_SHORE_CONTACT)}
+  diffuseColor.rgb *= 1.0 - shoreDamp * 0.3 - shoreSubmerged * 0.16;`)
+        .replace("#include <metalnessmap_fragment>", `#include <metalnessmap_fragment>
+  roughnessFactor = mix(roughnessFactor, 0.76, shoreDamp * 0.65);`);
+    },
+  });
+}
 
 const scratchMatrix = new Matrix4();
 const scratchPosition = new Vector3();
@@ -254,7 +280,7 @@ function stoneGeometry(site: GardenSeaEdgeSite, index: number): BufferGeometry {
   return geometry;
 }
 
-function createStoneBuckets(root: Group): {
+function createStoneBuckets(root: Group, detailSource?: GardenSurfaceDetailSource): {
   meshes: Map<StoneSignature, Mesh>;
   triangles: number;
 } {
@@ -276,6 +302,7 @@ function createStoneBuckets(root: Group): {
       roughness: signature === "slate" ? 0.88 : 0.98,
       vertexColors: true,
     });
+    applyShoreContact(material, detailSource);
     const mesh = new Mesh(merged, material);
     mesh.name = `garden-sea-edges-stone-${signature}`;
     mesh.castShadow = true;
@@ -408,10 +435,11 @@ function createInstances(
   return mesh;
 }
 
-export function createGardenSeaEdges(): GardenSeaEdges {
+export function createGardenSeaEdges(surfaceAtlas?: GardenSurfaceAtlasOwner): GardenSeaEdges {
+  const surfaceLease: GardenSurfaceAtlasLease | null = surfaceAtlas?.lease() ?? null;
   const root = new Group();
   root.name = GARDEN_SEA_EDGES_OVERVIEW_NAME;
-  const buckets = createStoneBuckets(root);
+  const buckets = createStoneBuckets(root, surfaceLease?.detailSource);
 
   const reedSites = GARDEN_SEA_EDGE_SITES.filter((site) => site.form === "reed-lily");
   const reedGeometry = createReedGeometry();
@@ -463,7 +491,7 @@ export function createGardenSeaEdges(): GardenSeaEdges {
     fixtureSites,
     fixtureGeometry,
     fixtureMaterial,
-    (site) => new Color(site.form === "warning-buoy" ? HARBOR_PALETTE.vermillion : HARBOR_PALETTE.timber_mid),
+    (site) => site.form === "warning-buoy" ? DECORATIVE_BUOY_COLOR : new Color(HARBOR_PALETTE.timber_mid),
     (site) => ({
       x: site.width / 0.7,
       y: site.height / 1.8,
@@ -504,6 +532,7 @@ export function createGardenSeaEdges(): GardenSeaEdges {
         }
       });
       root.clear();
+      surfaceLease?.release();
     },
   };
 }

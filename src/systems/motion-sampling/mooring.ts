@@ -65,7 +65,7 @@ export function mooredSampleInto(input: {
   out.currentRouteStopKind = input.stop.kind;
   // Anchor heading around the dock's natural mooring axis when available so
   // moored boats sway around their berth instead of sweeping full-circle.
-  writeMooredHeading(input.stop.dockTangent, angle, out.heading);
+  writeMooredHeading(input.stop.dockTangent, angle, out.heading, input.route.restingHeadingRad);
   if (phase.headingPrepT > 0 && input.outgoingPath) {
     sampleWaterPathInto(input.outgoingPath, 0.01, mooringPathPointScratch, mooringPathHeadingScratch);
     if (mooringPathHeadingScratch.x !== 0 || mooringPathHeadingScratch.y !== 0) {
@@ -83,10 +83,16 @@ export function mooredSampleInto(input: {
   out.seaState = input.seaState;
 }
 
+/**
+ * A quay dwell lies to its dock tangent with a small sway. Without a usable
+ * tangent the hull takes its accepted resting heading — the authored lobe axis
+ * of its composed berth — instead of the old due-east pin.
+ */
 export function writeMooredHeading(
   dockTangent: { x: number; y: number } | null,
   angle: number,
   heading: { x: number; y: number },
+  restingHeadingRad?: number,
 ): void {
   if (dockTangent) {
     const yaw = Math.sin(angle) * 0.035;
@@ -95,8 +101,9 @@ export function writeMooredHeading(
     normalizeHeadingInto(dockTangent.x * cosine - dockTangent.y * sine, dockTangent.x * sine + dockTangent.y * cosine, heading);
     return;
   }
-  heading.x = 1;
-  heading.y = 0;
+  const resting = (restingHeadingRad ?? 0) + Math.sin(angle) * 0.035;
+  heading.x = Math.cos(resting);
+  heading.y = Math.sin(resting);
 }
 
 /** Same bounded tether for dwell and transit endpoints; no seam or private rate. */
@@ -122,7 +129,7 @@ export function mooredRouteStopSampleInto(
   stop: ShipMotionRouteStop,
   timeSeconds: number,
   out: ShipMotionSample,
-  ride: { elapsedSeconds: number; windowSeconds: number; entryPath?: ShipWaterPath | undefined; exitPath?: ShipWaterPath | undefined },
+  ride: { elapsedSeconds: number; windowSeconds: number },
 ): void {
   const routePathKey = routePathIdentityKey(route, "route-stop", stop.id);
   beginRoutePathSample(route, routePathKey);
@@ -134,8 +141,6 @@ export function mooredRouteStopSampleInto(
     anchor: stop.mooringTile,
     elapsedSeconds: ride.elapsedSeconds,
     windowSeconds: ride.windowSeconds,
-    entryPath: ride.entryPath,
-    exitPath: ride.exitPath,
   }, out.tile, out.heading);
   out.state = "moored";
   out.zone = route.zone;
