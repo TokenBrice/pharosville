@@ -591,6 +591,10 @@ describe("PharosVilleWorld UI accessibility controls", () => {
     expect(screen.queryByTestId("pharosville-selection-strip")).toBeNull();
   });
 
+  // This case deliberately builds the dense world, packs a full 320-ship slice
+  // plus its outsider, and renders the DOM record (5.6s on hosted CI). Slice
+  // admission and detail selection are synchronous here, not timer-gated; keep
+  // the complete over-capacity fixture and budget its cold CPU work explicitly.
   it("opens the DOM detail record for a selected transient outsider beyond capacity", async () => {
     const world = overCapacityWorldFixture();
     const ordinary = selectGardenObservatorySlice(world, null);
@@ -616,7 +620,7 @@ describe("PharosVilleWorld UI accessibility controls", () => {
       expect(screen.getByTestId("pharosville-detail-panel").textContent)
         .toContain(outsider!.label);
     });
-  });
+  }, 20_000);
 
   it("selects an in-world detail from a detail-panel callback", async () => {
     render(<PharosVilleWorld world={worldFixture()} />);

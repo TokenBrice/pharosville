@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { deflateSync } from "node:zlib";
+import { validatePublishedRgbaStrip } from "./png-rgba.mjs";
 
 export const WATER_NORMAL_SIZE = 256;
 export const WATER_NORMAL_SEED = 0x1a97e5ea;
@@ -109,6 +110,14 @@ export function encodeWaterNormalPng(pixels, size) {
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header),
     chunk("IDAT", deflateSync(scanlines, { level: 9 })), chunk("IEND", Buffer.alloc(0)),
   ]);
+}
+
+/** Validate shipped pixels/linear colour space without depending on zlib's encoding. */
+export function validatePublishedWaterNormalPng(bytes, pixels = generateWaterNormalPixels(), size = WATER_NORMAL_SIZE) {
+  validatePublishedRgbaStrip(bytes, {
+    width: size, height: size, colorSpace: "linear", label: "Water normal",
+    levels: [{ width: size, height: size, data: pixels }],
+  });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

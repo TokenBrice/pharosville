@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { inflateSync } from "node:zlib";
+import { deflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
+import { pngChunk } from "../../scripts/pharosville/png-rgba.mjs";
 import { GARDEN_WATER_NORMAL_MAP_URL } from "./garden-water";
 
 interface WaterNormalWave {
@@ -20,13 +21,55 @@ interface NormalGenerator {
   };
   generateWaterNormalPixels: (size?: number, seed?: number) => Uint8ClampedArray;
   encodeWaterNormalPng: (pixels: Uint8ClampedArray, size: number) => Buffer;
+  validatePublishedWaterNormalPng: (bytes: Buffer, pixels?: Uint8ClampedArray, size?: number) => void;
 }
 const generatorUrl = new URL("../../scripts/pharosville/generate-water-normals.mjs", import.meta.url);
 // Intentionally exercise the Node generator's import-only boundary: importing
 // must not run its CLI writer. The browser app never imports this module.
 const generator = await import(/* @vite-ignore */ generatorUrl.href) as NormalGenerator;
 
-// The normal PNG has one deflated RGBA8 IDAT with unfiltered rows, no browser colour conversion.
+// A deliberately different lossless encoder: stored DEFLATE blocks, split IDAT,
+// optional colour metadata, and rows exercising every PNG predictor.
+function normalPngFixture(pixels: Uint8ClampedArray, size: number, {
+  mixedFilters = false, metadata = [], colorType = 6,
+}: { mixedFilters?: boolean; metadata?: Buffer[]; colorType?: number } = {}): Buffer {
+  const stride = size * 4 + 1;
+  const scanlines = Buffer.alloc(stride * size);
+  for (let y = 0; y < size; y++) {
+    const filter = mixedFilters ? y % 5 : 0;
+    scanlines[y * stride] = filter;
+    for (let x = 0; x < size * 4; x++) {
+      const offset = y * size * 4 + x;
+      const left = x >= 4 ? pixels[offset - 4]! : 0;
+      const up = y > 0 ? pixels[offset - size * 4]! : 0;
+      const upperLeft = y > 0 && x >= 4 ? pixels[offset - size * 4 - 4]! : 0;
+      let predictor = 0;
+      if (filter === 1) predictor = left;
+      else if (filter === 2) predictor = up;
+      else if (filter === 3) predictor = Math.floor((left + up) / 2);
+      else if (filter === 4) {
+        const p = left + up - upperLeft;
+        const a = Math.abs(p - left), b = Math.abs(p - up), c = Math.abs(p - upperLeft);
+        predictor = a <= b && a <= c ? left : b <= c ? up : upperLeft;
+      }
+      scanlines[y * stride + 1 + x] = (pixels[offset]! - predictor) & 255;
+    }
+  }
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0);
+  header.writeUInt32BE(size, 4);
+  header[8] = 8;
+  header[9] = colorType;
+  const compressed = deflateSync(scanlines, { level: 0 });
+  const split = Math.floor(compressed.length / 2);
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), pngChunk("IHDR", header), ...metadata,
+    pngChunk("IDAT", compressed.subarray(0, split)), pngChunk("IDAT", compressed.subarray(split)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+// Published bytes identify the shipped artefact, not a locally compressed copy.
 const asset = readFileSync(new URL("../../public/pharosville/textures/water-normals.png", import.meta.url));
 
 describe("periodic pond normal generator", () => {
@@ -88,34 +131,69 @@ describe("periodic pond normal generator", () => {
     }
   });
 
-  it("publishes the exact deterministic local linear 256-square normal asset and URL hash", () => {
+  it("publishes deterministic local linear 256-square normal pixels and the shipped URL hash", () => {
     const pixels = generator.generateWaterNormalPixels();
     expect(pixels).toEqual(generator.generateWaterNormalPixels());
-    const encoded = generator.encodeWaterNormalPng(pixels, 256);
-    expect(encoded).toEqual(asset);
-    expect(asset.readUInt32BE(16)).toBe(256);
-    expect(asset.readUInt32BE(20)).toBe(256);
-    expect(asset[24]).toBe(8);
-    expect(asset[25]).toBe(6);
+    expect(() => generator.validatePublishedWaterNormalPng(asset, pixels, 256)).not.toThrow();
+    expect(() => generator.validatePublishedWaterNormalPng(
+      generator.encodeWaterNormalPng(pixels, 256), pixels, 256,
+    )).not.toThrow();
     const hash = createHash("sha256").update(asset).digest("hex").slice(0, 12);
     expect(GARDEN_WATER_NORMAL_MAP_URL).toBe(`/pharosville/textures/water-normals.png?v=${hash}`);
-    const idatStart = 8 + 25;
-    const idatLength = asset.readUInt32BE(idatStart);
-    const scanlines = inflateSync(asset.subarray(idatStart + 8, idatStart + 8 + idatLength));
     let slopeEnergy = 0;
     for (let y = 0; y < 256; y++) {
-      expect(scanlines[y * 1025]).toBe(0);
       for (let x = 0; x < 256; x++) {
-        const offset = y * 1025 + 1 + x * 4;
-        const nx = scanlines[offset]! / 255 * 2 - 1;
-        const ny = scanlines[offset + 1]! / 255 * 2 - 1;
-        const nz = scanlines[offset + 2]! / 255 * 2 - 1;
+        const offset = (y * 256 + x) * 4;
+        const nx = pixels[offset]! / 255 * 2 - 1;
+        const ny = pixels[offset + 1]! / 255 * 2 - 1;
+        const nz = pixels[offset + 2]! / 255 * 2 - 1;
         expect(nz).toBeGreaterThan(0);
         expect(Math.hypot(nx, ny, nz)).toBeCloseTo(1, 2);
         slopeEnergy += (nx * nx + ny * ny) / (nz * nz);
       }
     }
     expect(Math.sqrt(slopeEnergy / (256 * 256))).toBeLessThanOrEqual(0.06);
+  });
+
+  it("accepts pixel-identical re-encoding with all five filters and split image data", () => {
+    const pixels = generator.generateWaterNormalPixels();
+    const encoded = normalPngFixture(pixels, 256, { mixedFilters: true });
+    expect(encoded.equals(asset)).toBe(false);
+    expect(() => generator.validatePublishedWaterNormalPng(encoded, pixels, 256)).not.toThrow();
+    const linearGamma = Buffer.alloc(4);
+    linearGamma.writeUInt32BE(100000);
+    expect(() => generator.validatePublishedWaterNormalPng(normalPngFixture(pixels, 256, {
+      metadata: [pngChunk("gAMA", linearGamma)],
+    }), pixels, 256)).not.toThrow();
+  });
+
+  it("rejects a changed pixel, wrong dimensions, non-RGBA channels and corrupt CRCs", () => {
+    const pixels = generator.generateWaterNormalPixels();
+    const changed = pixels.slice();
+    changed[12345] = changed[12345]! ^ 1;
+    expect(() => generator.validatePublishedWaterNormalPng(
+      normalPngFixture(changed, 256), pixels, 256,
+    )).toThrow(/pixels differ/);
+    expect(() => generator.validatePublishedWaterNormalPng(
+      generator.encodeWaterNormalPng(generator.generateWaterNormalPixels(128), 128),
+    )).toThrow(/dimensions differ/);
+    expect(() => generator.validatePublishedWaterNormalPng(
+      normalPngFixture(pixels, 256, { colorType: 2 }),
+    )).toThrow(/RGBA8 channels/);
+    const broken = Buffer.from(asset);
+    broken[broken.length - 1] = broken[broken.length - 1]! ^ 1;
+    expect(() => generator.validatePublishedWaterNormalPng(broken)).toThrow(/CRC mismatch/);
+  });
+
+  it("rejects sRGB colour metadata on the linear normal map", () => {
+    const pixels = generator.generateWaterNormalPixels();
+    const srgbGamma = Buffer.alloc(4);
+    srgbGamma.writeUInt32BE(45455);
+    for (const metadata of [pngChunk("sRGB", Buffer.from([0])), pngChunk("gAMA", srgbGamma)]) {
+      expect(() => generator.validatePublishedWaterNormalPng(normalPngFixture(pixels, 256, {
+        metadata: [metadata],
+      }), pixels, 256)).toThrow(/colour space differs/);
+    }
   });
 
   it("preserves lost mip normal variance instead of renormalizing it away", () => {
