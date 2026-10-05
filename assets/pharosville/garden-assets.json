@@ -1172,7 +1172,7 @@
       "sources": [
         {
           "path": "scripts/pharosville/generate-garden-lighthouse.mjs",
-          "sha256": "894bf19cef34d5d6e4edfb9c3991cffe5ef879307f17a4b8e8a39bca50141510"
+          "sha256": "675b945f06c5bff925d2e005198654bd79ca8c2ec0c55bc924d7d7fdabe9215e"
         },
         {
           "path": "scripts/pharosville/glb-meshopt.mjs",
@@ -1204,10 +1204,10 @@
       },
       "output": {
         "path": "public/pharosville/models/garden-lighthouse-shell.glb",
-        "sha256": "f57ccc4f936e03d155fc8df2df1d049e65f7e7c3b70ed041ec8d770f23b97f78",
-        "bytes": 194112
+        "sha256": "68c6da645a69dd6c8b90f0ceb2a05ca4fc49450d30fd02241b66dfd44fc7cf26",
+        "bytes": 194108
       },
-      "sourceGlbSha256": "1ad0e8a8a687274c8c2303ffb9852ab92e2bebc4aba43d3369633a4e9e38d98e",
+      "sourceGlbSha256": "210a7aed5960dbfa4f2e84de57d144c4bd6f53325aa4dfa45cce8f5fd57e4587",
       "positionDeviation": 0.0001953132450580597,
       "validation": {
         "source": {
@@ -1296,7 +1296,7 @@
           "EXT_meshopt_compression",
           "KHR_materials_emissive_strength"
         ],
-        "bytes": 194112,
+        "bytes": 194108,
         "decodedBytes": 502324
       }
     },
